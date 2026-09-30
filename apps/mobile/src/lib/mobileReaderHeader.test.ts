@@ -12,6 +12,7 @@ import {
   getMobileReaderTitle,
   isReaderChromeLoading,
   readerCapsuleTitleLabels,
+  readerChromeIndicatorPageIndex,
   readerChromePageCountLabel,
   readerChromeSettingsPopoverBottomOffset,
 } from "./mobileReaderHeader";
@@ -191,5 +192,48 @@ describe("reader chrome loading state", () => {
         pageCount: 21,
       }),
     ).toBe("8 / 21");
+  });
+});
+
+describe("reader chrome page indicator during a scrub", () => {
+  test("paged: stays on the displayed page while the bubble previews the target", () => {
+    expect(
+      readerChromeIndicatorPageIndex({
+        currentPageIndex: 0,
+        scrubPreviewPageIndex: 11,
+        pagedMode: true,
+        pageCount: 21,
+      }),
+    ).toBe(0);
+  });
+
+  test("paged: follows the committed page once the scrub ends", () => {
+    expect(
+      readerChromeIndicatorPageIndex({
+        currentPageIndex: 11,
+        scrubPreviewPageIndex: null,
+        pagedMode: true,
+        pageCount: 21,
+      }),
+    ).toBe(11);
+  });
+
+  test("scroll mode keeps following the scrub live, clamped", () => {
+    expect(
+      readerChromeIndicatorPageIndex({
+        currentPageIndex: 2,
+        scrubPreviewPageIndex: 9,
+        pagedMode: false,
+        pageCount: 21,
+      }),
+    ).toBe(9);
+    expect(
+      readerChromeIndicatorPageIndex({
+        currentPageIndex: 2,
+        scrubPreviewPageIndex: 40,
+        pagedMode: false,
+        pageCount: 21,
+      }),
+    ).toBe(20);
   });
 });

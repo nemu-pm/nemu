@@ -6,7 +6,7 @@ import {
   type LocalMangaProgress,
   type LocalSourceLink,
 } from "@/data/schema";
-import { formatChapterShort } from "./formatChapter";
+import { formatChapterShortLabel } from "./formatChapter";
 import { formatMobileString, type MobileStrings } from "./mobileI18n";
 import { compareMobileText } from "./mobileLocaleFormat";
 
@@ -343,13 +343,16 @@ export function getMobileLibraryProgressInfo(
   let subtitle = strings.library.progressUnread;
   if (isCaughtUp) {
     subtitle = strings.library.progressCaughtUp;
-  } else if (lastReadChapter && latestChapter) {
-    subtitle = `${formatChapterShort(lastReadChapter, strings)} / ${formatChapterShort(
-      latestChapter,
-      strings,
-    )}`;
   } else if (lastReadChapter) {
-    subtitle = formatChapterShort(lastReadChapter, strings);
+    // A progress record can carry only the chapter id (no number, no
+    // title): say the title is in progress rather than "Untitled".
+    const lastRead =
+      formatChapterShortLabel(lastReadChapter, strings) ??
+      strings.library.progressInProgress;
+    const latest = latestChapter
+      ? formatChapterShortLabel(latestChapter, strings)
+      : null;
+    subtitle = latest ? `${lastRead} / ${latest}` : lastRead;
   }
 
   return {

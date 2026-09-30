@@ -237,8 +237,10 @@ describe("mobile sheet and text-field chrome policy", () => {
     expect(nativeScaffold).toContain(
       "const hasMultipleSnapPoints = (effectiveSnapPoints?.length ?? 0) > 1;",
     );
+    // Also a body extended into a floating sheet's bottom safe area: the
+    // host is then taller than the detent.
     expect(nativeScaffold).toMatch(
-      /fillContent && hasMultipleSnapPoints[\s\S]*?styles\.filledContent/,
+      /fillContent && \(hasMultipleSnapPoints \|\| contentReachesSheetBottom\)[\s\S]*?styles\.filledContent/,
     );
     expect(nativeScaffold).not.toMatch(
       /fillContent && boundedContentHeight[\s\S]*?hasMultipleSnapPoints/,

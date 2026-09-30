@@ -239,6 +239,7 @@ export const mobileStringsJa: MobileStrings = {
     empty: "ライブラリは空です",
     emptyDescription: "漫画を検索してライブラリに追加しましょう",
     progressCaughtUp: "最新まで読了",
+    progressInProgress: "読書中",
     progressUnread: "未読",
     refreshLibrary: "ライブラリを更新",
     removeCollection: "コレクションを削除",
@@ -676,6 +677,8 @@ export const mobileStringsJa: MobileStrings = {
   },
   reader: {
     bookPairing: "ブック形式のペアリング",
+    pairingCoverPaired: "表紙も見開き",
+    pairingCoverAlone: "表紙を単独表示",
     chapterAccessibility: "{{direction}}: {{chapter}}",
     closeSettings: "リーダー設定を閉じる",
     closePlugin: "リーダープラグインを閉じる",

@@ -10,7 +10,6 @@ import {
   type TextInputInstance,
 } from "react-native";
 import Feather from "@expo/vector-icons/Feather";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   nemuColorWithAlpha,
   nemuFontWeight,
@@ -36,7 +35,6 @@ import { JapaneseLearningNemuAvatar } from "./JapaneseLearningNemuAvatar";
 import { JapaneseLearningTypingIndicator } from "./JapaneseLearningTypingIndicator";
 import { JapaneseLearningChatMicButton } from "./JapaneseLearningChatMicButton";
 import { japaneseLearningInterStyle } from "./JapaneseLearningText";
-import { MOBILE_NATIVE_SHEET_BOTTOM_GUTTER } from "@/lib/mobileNativeSheet";
 import { shouldShowMobileJapaneseLearningDictationButton } from "@/lib/mobileJapaneseLearningDictation";
 import { useMobileJapaneseLearningDictation } from "@/lib/useMobileJapaneseLearningDictation";
 
@@ -99,7 +97,6 @@ export function JapaneseLearningNemuChatDrawer({
   onPresentationProgress,
 }: NemuChatDrawerProps) {
   const { tokens, scheme } = useNemuTheme();
-  const insets = useSafeAreaInsets();
   const drawerFrame = useJapaneseLearningDrawerFrame();
   const [inputFocused, setInputFocused] = useState(false);
   const atBottomRef = useRef(true);
@@ -295,7 +292,6 @@ export function JapaneseLearningNemuChatDrawer({
           style={[
             StyleSheet.absoluteFill,
             {
-              bottom: Platform.OS === "ios" ? -insets.bottom : 0,
               backgroundColor:
                 scheme === "dark"
                   ? "rgba(0,0,0,0.40)"
@@ -306,9 +302,11 @@ export function JapaneseLearningNemuChatDrawer({
         <View
           style={[
             styles.inputBar,
-            // The band runs to the sheet's bottom edge: the sheet drops its
-            // bottom gutter for this body and the bar pads that space instead.
-            { paddingBottom: 10 + MOBILE_NATIVE_SHEET_BOTTOM_GUTTER },
+            // The band runs to the sheet's bottom edge (the body extends into
+            // the sheet's bottom safe area): the space under the input matches
+            // its side inset, concentric with the sheet's bottom corners, plus
+            // the home indicator's inset only where the sheet reaches it.
+            { paddingBottom: INPUT_BAR_INSET_X + drawerFrame.bottomInset },
           ]}
         >
           <TextInput
@@ -393,6 +391,9 @@ export function JapaneseLearningNemuChatDrawer({
   );
 }
 
+/** The composer's side inset; also the space under the input (see `inputBar`). */
+const INPUT_BAR_INSET_X = 12;
+
 const styles = StyleSheet.create({
   webHeader: {
     paddingHorizontal: 16,
@@ -448,8 +449,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingHorizontal: INPUT_BAR_INSET_X,
+    paddingTop: 10,
   },
   // Web `.input-nemu rounded-full px-4 py-2.5 text-base`: 46pt tall.
   input: {

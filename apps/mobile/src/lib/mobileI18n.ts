@@ -211,6 +211,7 @@ export type MobileStrings = {
     emptyDescription: string;
     empty: string;
     progressCaughtUp: string;
+    progressInProgress: string;
     progressUnread: string;
     refreshLibrary: string;
     removeCollection: string;
@@ -532,6 +533,10 @@ export type MobileStrings = {
   };
   reader: {
     bookPairing: string;
+    /** Segmented label for book pairing: page 1 shares a spread with page 2. */
+    pairingCoverPaired: string;
+    /** Segmented label for manga pairing: page 1 (the cover) stands alone. */
+    pairingCoverAlone: string;
     chapterAccessibility: string;
     closeSettings: string;
     closePlugin: string;

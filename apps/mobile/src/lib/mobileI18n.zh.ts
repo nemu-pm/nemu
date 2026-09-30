@@ -223,6 +223,7 @@ export const mobileStringsZh: MobileStrings = {
     empty: "书架是空的",
     emptyDescription: "搜索漫画并添加到书架",
     progressCaughtUp: "已读到最新",
+    progressInProgress: "阅读中",
     progressUnread: "未读",
     refreshLibrary: "刷新书架",
     removeCollection: "移除收藏",
@@ -623,6 +624,8 @@ export const mobileStringsZh: MobileStrings = {
   },
   reader: {
     bookPairing: "书籍式配对",
+    pairingCoverPaired: "封面合页",
+    pairingCoverAlone: "封面单页",
     chapterAccessibility: "{{direction}}：{{chapter}}",
     closeSettings: "关闭阅读器设置",
     closePlugin: "关闭阅读器插件",

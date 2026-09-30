@@ -69,6 +69,7 @@ import {
   type ReaderScrollPageMetric,
 } from "@/lib/mobileReaderProgress";
 import { ZoomableReaderStrip } from "./ZoomableReaderStrip";
+import { MOBILE_READER_DOUBLE_TAP_MAX_DELAY_MS } from "@/lib/mobileReaderZoom";
 import {
   isReaderAdvancePastEndDrag,
   isReaderRetreatPastStartDrag,
@@ -232,9 +233,9 @@ type MobileReaderGalleryItem =
 
 const READER_TAP_MAX_DISTANCE = 10;
 const READER_TAP_MAX_DURATION_MS = 360;
-// Must exceed the double-tap zoom gesture's maxDuration (260 ms in
-// ZoomableReaderImageFrame) so the chrome toggle can be cancelled when a
-// second tap turns the gesture into a zoom. Only the centre band pays this
+// Must exceed the double-tap zoom gesture's max delay
+// (MOBILE_READER_DOUBLE_TAP_MAX_DELAY_MS) so the chrome toggle can be
+// cancelled when a second tap turns the gesture into a zoom. Only the centre band pays this
 // wait: the page-turn bands act on touch-up (see readerTapDispatchForZone).
 const READER_DOUBLE_TAP_WINDOW_MS = 280;
 const READER_VIEWABILITY_CONFIG = Object.freeze({
@@ -807,10 +808,21 @@ export function MobileReaderGallery({
       touchStartRef.current = null;
       return;
     }
+    const now = Date.now();
+    // A second tap is on its way: hold the first tap's chrome toggle until
+    // this one lifts (a double tap drops it; see handleStageTouchEnd), so
+    // a slow second tap never flashes the chrome before the zoom.
+    if (
+      pendingToggleTimerRef.current &&
+      now - lastCentreTapEndAtRef.current <= MOBILE_READER_DOUBLE_TAP_MAX_DELAY_MS
+    ) {
+      clearTimeout(pendingToggleTimerRef.current);
+      pendingToggleTimerRef.current = null;
+    }
     touchStartRef.current = {
       x: touch.pageX,
       y: touch.pageY,
-      time: Date.now(),
+      time: now,
     };
   };
   // The chrome toggle is the only way out of a black screen, so it must keep
@@ -963,8 +975,11 @@ export function MobileReaderGallery({
     const now = Date.now();
     const dispatch = readerTapDispatchForZone({
       zone,
+      // Same rule as the page's double-tap zoom (touch-down within the
+      // max delay of the previous lift), so the two never disagree.
       isSecondCentreTap:
-        now - lastCentreTapEndAtRef.current <= READER_DOUBLE_TAP_WINDOW_MS,
+        start.time - lastCentreTapEndAtRef.current <=
+        MOBILE_READER_DOUBLE_TAP_MAX_DELAY_MS,
       pageZoomed: pageZoomActive,
     });
     if (pendingToggleTimerRef.current) {

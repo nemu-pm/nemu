@@ -353,12 +353,12 @@ export function ReaderDisplaySettingsPopover({
                       options={[
                         {
                           value: "book",
-                          label: "1-2",
+                          label: strings.reader.pairingCoverPaired,
                           accessibilityLabel: strings.reader.bookPairing,
                         },
                         {
                           value: "manga",
-                          label: "1,2",
+                          label: strings.reader.pairingCoverAlone,
                           accessibilityLabel: strings.reader.mangaPairing,
                         },
                       ]}

@@ -5,8 +5,11 @@ import {
   isJapaneseLearningDrawerFullScreen,
   resolveJapaneseLearningDrawerContentBleed,
   resolveJapaneseLearningDrawerDetent,
+  resolveJapaneseLearningDrawerTop,
+  resolveJapaneseLearningSheetBottomInset,
+  resolveJapaneseLearningSheetIgnoredSafeAreaEdges,
 } from "@/lib/mobileJapaneseLearningSheetLayout";
-import { useMobileWindowLayout } from "@/lib/MobileWindowLayoutContext";
+import { useMobileAdaptiveLayout, useMobileWindowLayout } from "@/lib/MobileWindowLayoutContext";
 import { mobileHorizontalFoldBand, mobileRestingFoldMinGutter } from "@/lib/mobileRestingFold";
 
 /**
@@ -35,14 +38,50 @@ export function useJapaneseLearningDrawerFrame() {
     safeAreaBottom: insets.bottom,
     horizontalFold,
   });
+  const isPad = Platform.OS === "ios" && Platform.isPad;
+  const { verticalBarEdge } = useMobileAdaptiveLayout();
+  const fullScreen = isJapaneseLearningDrawerFullScreen({
+    platform: Platform.OS,
+    isPad,
+    windowWidth: width,
+    windowHeight: height,
+  });
+  // Stable identity: the native sheet rebuilds its modifiers when it changes.
+  const contentIgnoresSafeAreaEdges = useMemo(
+    () => resolveJapaneseLearningSheetIgnoredSafeAreaEdges({ platform: Platform.OS, fullScreen, verticalBarEdge }),
+    [fullScreen, verticalBarEdge],
+  );
   return {
     frameMaxHeight,
+    /** Window y of the drawer's top edge at rest; null when nothing shows above it. */
+    sheetTop: horizontalFold
+      ? horizontalFold.bottom
+      : resolveJapaneseLearningDrawerTop({
+          platform: Platform.OS,
+          isPad,
+          windowWidth: width,
+          windowHeight: height,
+          safeAreaTop: insets.top,
+          safeAreaBottom: insets.bottom,
+          detent: frameMaxHeight,
+        }),
     /** UIKit shows the sheet over the whole window (compact height): the bubble popout is hidden behind it. */
-    fullScreen: isJapaneseLearningDrawerFullScreen({
+    fullScreen,
+    /**
+     * Safe-area edges the drawer's content extends into
+     * (`resolveJapaneseLearningSheetIgnoredSafeAreaEdges`): with them, the
+     * space under a composer or footer is just its own gutter on a floating
+     * sheet, and the content spans the sheet on the Duo outer display.
+     */
+    contentIgnoresSafeAreaEdges,
+    /**
+     * Added under a body's last row besides its own gutter: the home
+     * indicator's inset where the sheet reaches it, else nothing.
+     */
+    bottomInset: resolveJapaneseLearningSheetBottomInset({
       platform: Platform.OS,
-      isPad: Platform.OS === "ios" && Platform.isPad,
-      windowWidth: width,
-      windowHeight: height,
+      fullScreen,
+      safeAreaBottom: insets.bottom,
     }),
     contentBleed: resolveJapaneseLearningDrawerContentBleed(frameMaxHeight, { width, height }, horizontalFold),
     /** The fold the drawer's top edge meets, in window y; null without a horizontal fold. */

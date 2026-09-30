@@ -1262,7 +1262,7 @@ function FeedbackSettingRow({
   const { tokens } = useNemuTheme();
 
   return (
-    <View style={[styles.dataAction, { borderColor: tokens.border }]}>
+    <View style={styles.dataAction}>
       <View style={styles.dataActionText}>
         <NemuText style={[styles.settingTitle, { color: tokens.foreground }]}>
           {title}
@@ -1410,7 +1410,7 @@ function DataActionRow({
   const { tokens } = useNemuTheme();
 
   return (
-    <View style={[styles.dataAction, { borderColor: tokens.border }]}>
+    <View style={styles.dataResetAction}>
       <View style={styles.dataActionText}>
         <NemuText style={[styles.settingTitle, { color: tokens.foreground }]}>
           {title}
@@ -3320,64 +3320,22 @@ function SettingsScreenContent({
                     strings={strings}
                     onClearAllCache={confirmClearCache}
                   />
-                  <SettingsSurface
-                    style={styles.rowShell}
-                    contentStyle={styles.dataManagementCard}
-                  >
-                    <View style={styles.readerHeader}>
-                      <View style={styles.iconFrame}>
-                        <Ionicons
-                          name="server-outline"
-                          size={20}
-                          color={tokens.primary}
-                        />
-                      </View>
-                      <View style={styles.rowText}>
-                        <NemuText
-                          style={[
-                            styles.rowTitle,
-                            { color: tokens.foreground },
-                          ]}
-                        >
-                          {strings.settings.dataManagement}
-                        </NemuText>
-                        <NemuText
-                          style={[
-                            styles.rowSubtitle,
-                            { color: tokens.mutedForeground },
-                          ]}
-                        >
-                          {strings.settings.dataManagementDescription}
-                        </NemuText>
-                      </View>
-                    </View>
-                    <View style={styles.dataActions}>
-                      <DataActionRow
-                        icon="refresh-outline"
-                        title={strings.settings.clearCache}
-                        subtitle={strings.settings.clearCacheDescription}
-                        actionLabel={strings.common.clear}
-                        busy={
-                          pendingClearMode === "cache" ||
-                          dataManagement.clearingMode === "cache"
-                        }
-                        disabled={settingsActionBusy}
-                        onPress={confirmClearCache}
-                      />
-                      <DataActionRow
-                        icon="trash-outline"
-                        title={strings.settings.clearAllData}
-                        subtitle={strings.settings.clearAllDataDescription}
-                        actionLabel={strings.common.clear}
-                        busy={
-                          pendingClearMode === "all" ||
-                          dataManagement.clearingMode === "all"
-                        }
-                        disabled={settingsActionBusy}
-                        destructive
-                        onPress={confirmClearAllData}
-                      />
-                    </View>
+                  {/* The storage breakdown above owns every cache action;
+                      this card is only the full local reset. */}
+                  <SettingsSurface style={styles.rowShell}>
+                    <DataActionRow
+                      icon="trash-outline"
+                      title={strings.settings.clearAllData}
+                      subtitle={strings.settings.clearAllDataDescription}
+                      actionLabel={strings.common.clear}
+                      busy={
+                        pendingClearMode === "all" ||
+                        dataManagement.clearingMode === "all"
+                      }
+                      disabled={settingsActionBusy}
+                      destructive
+                      onPress={confirmClearAllData}
+                    />
                   </SettingsSurface>
 
                   <View
@@ -3890,6 +3848,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
+  // `DataActionRow` is its card's only content, so the card is its frame.
+  dataResetAction: {
+    minHeight: 68,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 12,
+  },
   dataActionText: {
     flex: 1,
     minWidth: 0,
@@ -4011,10 +3977,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
     borderTopWidth: StyleSheet.hairlineWidth,
-    // The trailing controls sit half the leading inset from the row edge so
-    // the overflow/switch pair reads as part of the row, not adrift.
-    paddingLeft: 12,
-    paddingRight: 6,
+    // One inset on both edges, the card header's: the switch's trailing edge
+    // lines up with the Add button above it.
+    paddingHorizontal: spacing.md,
     paddingVertical: 10,
   },
   sourceMainContainer: {

@@ -3,6 +3,7 @@ import { Platform } from "react-native";
 import { useNemuTheme, MobileSheetScaffold } from "@/design-system";
 
 import { SheetProgressObserver } from "../../../../modules/nemu-window-layout";
+import { useJapaneseLearningDrawerFrame } from "./useJapaneseLearningDrawerFrame";
 
 type SheetProps = ComponentProps<typeof MobileSheetScaffold>;
 
@@ -33,7 +34,12 @@ const EDGE_TO_EDGE_IOS_SHEET_CONTENT = { ...EDGE_TO_EDGE_CONTENT, paddingTop: 2 
  */
 export function JapaneseLearningSurfaceFrame({ onPresentationProgress, children, ...sheet }: JapaneseLearningSurfaceFrameProps) {
   const { tokens } = useNemuTheme();
-  return <MobileSheetScaffold backgroundColor={tokens.background} {...sheet}>
+  const { contentIgnoresSafeAreaEdges } = useJapaneseLearningDrawerFrame();
+  return <MobileSheetScaffold
+    backgroundColor={tokens.background}
+    contentIgnoresSafeAreaEdges={contentIgnoresSafeAreaEdges}
+    {...sheet}
+  >
     {onPresentationProgress ? <SheetProgressObserver visible={sheet.visible} onProgress={onPresentationProgress} /> : null}
     {children}
   </MobileSheetScaffold>;

@@ -3,12 +3,17 @@ import { japaneseLearningBubblePopoutMaxBottom } from "./mobileJapaneseLearningB
 import {
   IOS_FLOATING_SHEET_INSET,
   isJapaneseLearningDrawerFullScreen,
+  JAPANESE_LEARNING_COLUMN_BUBBLE_MAX_HEIGHT,
+  JAPANESE_LEARNING_COLUMN_BUBBLE_MIN_HEIGHT,
   JAPANESE_LEARNING_POPOUT_SHEET_GAP,
   JAPANESE_LEARNING_SENTENCE_COLUMN_FRACTION,
+  resolveJapaneseLearningColumnBubbleMaxHeight,
   resolveJapaneseLearningDrawerContentBleed,
   resolveJapaneseLearningDrawerDetent,
   resolveJapaneseLearningFooterLayout,
   resolveJapaneseLearningSentenceLayout,
+  resolveJapaneseLearningSheetBottomInset,
+  resolveJapaneseLearningSheetIgnoredSafeAreaEdges,
 } from "./mobileJapaneseLearningSheetLayout";
 
 // Label widths measured on web (Inter 14/500) at 402pt: Listen, "Ask about
@@ -163,5 +168,60 @@ describe("resolveJapaneseLearningSentenceLayout", () => {
   test("stays stacked until the body is measured", () => {
     expect(resolveJapaneseLearningSentenceLayout({ width: 0, height: 0 })).toBe("stacked");
     expect(resolveJapaneseLearningSentenceLayout({ width: 800, height: 0 })).toBe("stacked");
+  });
+});
+
+describe("resolveJapaneseLearningColumnBubbleMaxHeight", () => {
+  const chrome = 12 + 16 + 16 + 36;
+  test("iPhone 17 Pro landscape: the bubble takes the details column at its full readable size", () => {
+    // Full-window sheet on 874×402: ~283pt details column.
+    expect(resolveJapaneseLearningColumnBubbleMaxHeight({ columnHeight: 283, chrome }))
+      .toBe(JAPANESE_LEARNING_COLUMN_BUBBLE_MAX_HEIGHT);
+  });
+
+  test("iPhone SE landscape: shrinks to fit the shorter column", () => {
+    const maxHeight = resolveJapaneseLearningColumnBubbleMaxHeight({ columnHeight: 240, chrome });
+    expect(maxHeight).toBe(160);
+  });
+
+  test("never below the legible minimum (the column scrolls instead)", () => {
+    expect(resolveJapaneseLearningColumnBubbleMaxHeight({ columnHeight: 150, chrome }))
+      .toBe(JAPANESE_LEARNING_COLUMN_BUBBLE_MIN_HEIGHT);
+  });
+
+  test("unmeasured: the full size", () => {
+    expect(resolveJapaneseLearningColumnBubbleMaxHeight({ columnHeight: 0, chrome }))
+      .toBe(JAPANESE_LEARNING_COLUMN_BUBBLE_MAX_HEIGHT);
+  });
+});
+
+describe("resolveJapaneseLearningSheetIgnoredSafeAreaEdges", () => {
+  test("a floating iOS drawer lays its body out to its own bottom edge", () => {
+    expect(resolveJapaneseLearningSheetIgnoredSafeAreaEdges({ platform: "ios", fullScreen: false, verticalBarEdge: null }))
+      .toEqual(["bottom"]);
+  });
+  test("the Duo outer display also spans the vertical bar column", () => {
+    expect(resolveJapaneseLearningSheetIgnoredSafeAreaEdges({ platform: "ios", fullScreen: false, verticalBarEdge: "trailing" }))
+      .toEqual(["trailing", "bottom"]);
+  });
+  test("a full-window sheet keeps the vertical bar column (it holds the status bar)", () => {
+    expect(resolveJapaneseLearningSheetIgnoredSafeAreaEdges({ platform: "ios", fullScreen: true, verticalBarEdge: "trailing" }))
+      .toEqual(["bottom"]);
+  });
+  test("Android's Material sheet handles its own insets", () => {
+    expect(resolveJapaneseLearningSheetIgnoredSafeAreaEdges({ platform: "android", fullScreen: false, verticalBarEdge: null }))
+      .toBeUndefined();
+  });
+});
+
+describe("resolveJapaneseLearningSheetBottomInset", () => {
+  test("floating iOS drawers add nothing: the gap below the footer matches its padding", () => {
+    expect(resolveJapaneseLearningSheetBottomInset({ platform: "ios", fullScreen: false, safeAreaBottom: 34 })).toBe(0);
+  });
+  test("the full-window landscape iPhone sheet keeps the home indicator's inset", () => {
+    expect(resolveJapaneseLearningSheetBottomInset({ platform: "ios", fullScreen: true, safeAreaBottom: 21 })).toBe(21);
+  });
+  test("Android: Material already sits above the navigation bar", () => {
+    expect(resolveJapaneseLearningSheetBottomInset({ platform: "android", fullScreen: false, safeAreaBottom: 24 })).toBe(0);
   });
 });

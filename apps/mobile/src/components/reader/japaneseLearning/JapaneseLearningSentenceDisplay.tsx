@@ -34,6 +34,7 @@ import { JapaneseLearningWebIcon, JapaneseLearningWebSpinner } from "./JapaneseL
 import { hapticPress } from "@/lib/haptics";
 import type { MobileGrammarToken } from "@/lib/mobileJapaneseLearningGrammar";
 import {
+  classifyMobileJapaneseLearningTokenPan,
   mobileGrammarTokenAtPoint,
   mobileGrammarTokenInSelection,
   selectedMobileGrammarText,
@@ -59,6 +60,7 @@ import {
   JAPANESE_LEARNING_SENTENCE_COLUMN_FRACTION,
   JAPANESE_LEARNING_SENTENCE_PANE_MAX_HEIGHT,
   JAPANESE_LEARNING_SENTENCE_PANE_MAX_HEIGHT_REGULAR,
+  resolveJapaneseLearningColumnBubbleMaxHeight,
   resolveJapaneseLearningSentenceLayout,
 } from "@/lib/mobileJapaneseLearningSheetLayout";
 import { JapaneseLearningTokenDisplay } from "./JapaneseLearningTokenDisplay";
@@ -81,8 +83,15 @@ interface SentenceDisplayProps {
   onCopySelection: (text: string) => void;
   /** Runs the analysis again after an error (e.g. the dictionary download failed). */
   onRetry?: () => void;
-  /** Shown above the sentence, scrolling with it (the bubble when the sheet covers the page). */
-  sentenceHeader?: ReactNode;
+  /**
+   * The selected bubble, when the sheet covers the page and the floating
+   * popout cannot show. Stacked: above the sentence, scrolling with it.
+   * Columns: the sentence column keeps only the words; the bubble takes the
+   * details column at a readable size while nothing is selected
+   * (`resolveJapaneseLearningColumnBubbleMaxHeight`, passed as `maxHeight`),
+   * and gives the column to the details card once a word is chosen.
+   */
+  sentenceHeader?: ReactNode | ((maxHeight: number | undefined) => ReactNode);
 }
 
 /**
@@ -107,7 +116,7 @@ export function JapaneseLearningSentenceDisplay({
   onAskSelection,
   onCopySelection,
   onRetry,
-  sentenceHeader,
+  sentenceHeader: sentenceHeaderProp,
 }: SentenceDisplayProps) {
   const { tokens, scheme } = useNemuTheme();
   const reduceMotion = useReducedMotion();
@@ -118,6 +127,34 @@ export function JapaneseLearningSentenceDisplay({
   const columns = resolveJapaneseLearningSentenceLayout(bodySize) === "columns";
   // Web `sm:` sizes (≥640pt) for the stacked drawer; a column is phone-sized.
   const regularWidth = !columns && bodySize.width >= 640;
+  // Sentence column: its height and its content's, to tell when the words
+  // overflow it. Details column: its height, for the bubble shown there.
+  const sentenceColumnRef = useRef<ScrollViewInstance>(null);
+  const [sentenceColumnHeight, setSentenceColumnHeight] = useState(0);
+  const [sentenceColumnContentHeight, setSentenceColumnContentHeight] = useState(0);
+  const [detailsColumnHeight, setDetailsColumnHeight] = useState(0);
+  const renderSentenceHeader = (maxHeight: number | undefined) =>
+    typeof sentenceHeaderProp === "function" ? sentenceHeaderProp(maxHeight) : sentenceHeaderProp;
+  const sentenceHeader = columns ? null : renderSentenceHeader(undefined);
+  const columnBubble = columns
+    ? renderSentenceHeader(
+        resolveJapaneseLearningColumnBubbleMaxHeight({
+          columnHeight: detailsColumnHeight,
+          chrome: DETAILS_COLUMN_BUBBLE_CHROME,
+        }),
+      )
+    : null;
+  // A sentence still taller than its column scrolls: flash the indicator
+  // once it overflows so the rows below the edge read as more, not as cut.
+  const sentenceColumnOverflows =
+    columns &&
+    sentenceColumnHeight > 0 &&
+    sentenceColumnContentHeight > sentenceColumnHeight + 1;
+  useEffect(() => {
+    if (!sentenceColumnOverflows) return;
+    const timer = setTimeout(() => sentenceColumnRef.current?.flashScrollIndicators(), 350);
+    return () => clearTimeout(timer);
+  }, [sentenceColumnOverflows, sentenceColumnContentHeight]);
   const colors = mobileJapaneseLearningSurfaceColors(scheme === "dark" ? "dark" : "light");
   // First on-device analysis: the dictionary pack downloads before the
   // sentence can be analyzed — show its progress instead of a silent spinner.
@@ -134,6 +171,12 @@ export function JapaneseLearningSentenceDisplay({
   const tokenWrapOriginRef = useRef<{ x: number; y: number } | null>(null);
   const pendingTokenEventsRef = useRef<Array<(origin: { x: number; y: number }) => void>>([]);
   const dragStartIndexRef = useRef<number | null>(null);
+  // Where a drag on the words started and what it turned into
+  // (`classifyMobileJapaneseLearningTokenPan`); the pane holds still while a
+  // drag selects.
+  const tokenPanStartRef = useRef<{ x: number; y: number } | null>(null);
+  const tokenPanModeRef = useRef<"pending" | "select" | "scroll">("pending");
+  const [tokenDragSelecting, setTokenDragSelecting] = useState(false);
   const draggingSelectionRef = useRef(false);
   const [selectionStart, setSelectionStart] = useState<number | null>(null);
   const [selectionEnd, setSelectionEnd] = useState<number | null>(null);
@@ -441,6 +484,8 @@ export function JapaneseLearningSentenceDisplay({
       onMoveShouldSetResponder={() => grammarTokens.length > 0}
       ref={tokenWrapRef}
       onResponderGrant={(e) => {
+        tokenPanStartRef.current = { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY };
+        tokenPanModeRef.current = "pending";
         tokenWrapOriginRef.current = null;
         pendingTokenEventsRef.current = [];
         withTokenPoint(e, beginTokenGesture);
@@ -452,9 +497,36 @@ export function JapaneseLearningSentenceDisplay({
           for (const run of pending) run(origin);
         });
       }}
-      onResponderMove={(e) => withTokenPoint(e, moveTokenGesture)}
-      onResponderRelease={(e) => withTokenPoint(e, endTokenGesture)}
+      onResponderMove={(e) => {
+        // A predominantly vertical pan scrolls the pane (natively) and never
+        // selects; a flatter one drags a selection with the pane held still.
+        if (tokenPanModeRef.current === "pending") {
+          const start = tokenPanStartRef.current;
+          const mode = start
+            ? classifyMobileJapaneseLearningTokenPan(e.nativeEvent.pageX - start.x, e.nativeEvent.pageY - start.y)
+            : "select";
+          if (mode === "pending") return;
+          tokenPanModeRef.current = mode;
+          if (mode === "scroll") {
+            pendingTokenEventsRef.current = [];
+            cancelTokenGesture();
+            return;
+          }
+          setTokenDragSelecting(true);
+        }
+        if (tokenPanModeRef.current === "scroll") return;
+        withTokenPoint(e, moveTokenGesture);
+      }}
+      onResponderRelease={(e) => {
+        const mode = tokenPanModeRef.current;
+        tokenPanModeRef.current = "pending";
+        setTokenDragSelecting(false);
+        if (mode === "scroll") return;
+        withTokenPoint(e, endTokenGesture);
+      }}
       onResponderTerminate={() => {
+        tokenPanModeRef.current = "pending";
+        setTokenDragSelecting(false);
         pendingTokenEventsRef.current = [];
         cancelTokenGesture();
       }}
@@ -651,17 +723,23 @@ export function JapaneseLearningSentenceDisplay({
           />
         ) : (
           <View style={[styles.emptyHint, columns ? styles.emptyHintColumn : null]}>
-            <Text style={[styles.emptyHintText, { color: nemuColorWithAlpha(tokens.mutedForeground, 0.7) }]}>
-              {strings.reader.pluginJapaneseLearningTapAnyWordHint}
-            </Text>
-            <Text style={[styles.emptyHintText, { color: nemuColorWithAlpha(tokens.mutedForeground, 0.6) }]}>
-              {strings.reader.pluginJapaneseLearningDragOnWordsHint}
-            </Text>
+            {columnBubble}
+            <View style={styles.emptyHintLines}>
+              <Text style={[styles.emptyHintText, { color: nemuColorWithAlpha(tokens.mutedForeground, 0.7) }]}>
+                {strings.reader.pluginJapaneseLearningTapAnyWordHint}
+              </Text>
+              <Text style={[styles.emptyHintText, { color: nemuColorWithAlpha(tokens.mutedForeground, 0.6) }]}>
+                {strings.reader.pluginJapaneseLearningDragOnWordsHint}
+              </Text>
+            </View>
           </View>
         )}
         </Animated.View>
-      ) : columns && statusBlock ? (
-        <View style={styles.columnStatus}>{statusBlock}</View>
+      ) : columns && (statusBlock || columnBubble) ? (
+        <View style={styles.columnStatus}>
+          {columnBubble}
+          {statusBlock}
+        </View>
       ) : null}
       {actionNotice ? (
         <Text
@@ -687,6 +765,7 @@ export function JapaneseLearningSentenceDisplay({
       {columns ? (
         <>
           <ScrollView
+            ref={sentenceColumnRef}
             style={[
               styles.sentenceColumn,
               { width: Math.round(bodySize.width * JAPANESE_LEARNING_SENTENCE_COLUMN_FRACTION) },
@@ -694,8 +773,15 @@ export function JapaneseLearningSentenceDisplay({
             contentContainerStyle={styles.sentenceColumnContent}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator
+            scrollEnabled={!tokenDragSelecting}
+            onLayout={(event) => {
+              const next = event.nativeEvent.layout.height;
+              setSentenceColumnHeight((current) => (Math.abs(current - next) < 0.5 ? current : next));
+            }}
+            onContentSizeChange={(_width, height) => {
+              setSentenceColumnContentHeight((current) => (Math.abs(current - height) < 0.5 ? current : height));
+            }}
           >
-            {sentenceHeader}
             {sentenceContent}
           </ScrollView>
           <ScrollView
@@ -704,13 +790,17 @@ export function JapaneseLearningSentenceDisplay({
             contentContainerStyle={[
               styles.detailsColumnContent,
               // The card's top edge meets the first token chip's (below its
-              // furigana row), or the bubble's when it heads the sentence.
-              hasTokens && !sentenceHeader
+              // furigana row); the bubble and hint centre in the whole column.
+              hasTokens && (multiSelectionActive || selectedToken || !columnBubble)
                 ? { paddingTop: spacing.md + JAPANESE_LEARNING_FURIGANA_ROW_HEIGHT }
                 : null,
             ]}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator
+            onLayout={(event) => {
+              const next = event.nativeEvent.layout.height;
+              setDetailsColumnHeight((current) => (Math.abs(current - next) < 0.5 ? current : next));
+            }}
           >
             {detailsContent}
           </ScrollView>
@@ -730,6 +820,7 @@ export function JapaneseLearningSentenceDisplay({
             contentContainerStyle={styles.sentencePaneContent}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator
+            scrollEnabled={!tokenDragSelecting}
           >
             {sentenceHeader}
             {sentenceContent}
@@ -752,6 +843,13 @@ export function JapaneseLearningSentenceDisplay({
 
 /** Web details card `p-4`. */
 const MULTI_CARD_PADDING = 16;
+
+/**
+ * Everything in the details column besides the bubble shown there while
+ * nothing is selected: the column's vertical padding (`detailsColumnContent`),
+ * the gap under the bubble (`emptyHint`) and the two hint lines.
+ */
+const DETAILS_COLUMN_BUBBLE_CHROME = spacing.md + spacing.lg + spacing.lg + 2 * 16 + 4;
 
 /** Web's details entrance (`initial={{ opacity: 0, y, scale }}`, ease-out-quint). */
 function riseIn(fromY: number, fromScale: number, durationMs: number) {
@@ -829,6 +927,7 @@ const styles = StyleSheet.create({
   columnStatus: {
     flexGrow: 1,
     justifyContent: "center",
+    gap: spacing.lg,
   },
   tokenWrap: {
     flexDirection: "row",
@@ -965,6 +1064,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 8,
+    gap: spacing.lg,
+  },
+  emptyHintLines: {
+    alignItems: "center",
     gap: 4,
   },
   // Nothing selected yet: the hint centred in the empty details column.

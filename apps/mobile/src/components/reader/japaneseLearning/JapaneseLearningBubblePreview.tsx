@@ -20,6 +20,7 @@ import {
   japaneseLearningBubblePopoutRegion,
   japaneseLearningBubblePopoutVerticalSpan,
 } from "@/lib/mobileJapaneseLearningBubblePopout";
+import { JAPANESE_LEARNING_POPOUT_SHEET_GAP } from "@/lib/mobileJapaneseLearningSheetLayout";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { useJapaneseLearningDrawerFrame } from "./useJapaneseLearningDrawerFrame";
 import type { MobileOcrDetection } from "@/lib/mobileJapaneseLearningOcr";
@@ -59,12 +60,15 @@ export function JapaneseLearningBubblePreview({
   accessibilityLabel,
   maxHeight = PREVIEW_MAX_HEIGHT,
   embedded = false,
+  centered = false,
 }: {
   source: JapaneseLearningBubbleSource;
   accessibilityLabel: string;
   maxHeight?: number;
   /** Inside a padded pane: no own gutters, aligned to the text's leading edge. */
   embedded?: boolean;
+  /** Inside a padded pane, centred with no own gutters (the empty details column). */
+  centered?: boolean;
 }) {
   const { tokens } = useNemuTheme();
   const reduceMotion = useReducedMotion();
@@ -79,7 +83,7 @@ export function JapaneseLearningBubblePreview({
   const scale = width / crop.width;
   return (
     <View
-      style={embedded ? styles.rowEmbedded : styles.row}
+      style={centered ? styles.rowCentered : embedded ? styles.rowEmbedded : styles.row}
       onLayout={(event) => {
         const next = Math.round(event.nativeEvent.layout.width);
         setFrameWidth((current) => (current === next ? current : next));
@@ -133,8 +137,9 @@ function CroppedBubbleImage({
 
 /**
  * Web `TextPopout` as it appears over a compact sheet: the cropped bubble
- * floats above the sheet, centred horizontally at `max(15vh, safe top + 16)`,
- * 20% of the window tall (capped to 90% of its width), on `bg-background/95
+ * floats above the sheet, centred horizontally at `max(15vh, safe top + 16)`
+ * (kept clear of the Dynamic Island and of the sheet's top edge), 20% of the
+ * window tall (capped to 90% of its width), on `bg-background/95
  * rounded-xl shadow-2xl`. Render it over the reader, outside the sheet; it
  * never takes touches.
  */
@@ -161,7 +166,7 @@ export function JapaneseLearningBubblePopout({
   const adaptive = useMobileAdaptiveLayout();
   // A compact-height sheet covers the whole window; the sheet shows the
   // bubble itself instead (`JapaneseLearningOcrResultSheet`).
-  const { fullScreen, horizontalFold } = useJapaneseLearningDrawerFrame();
+  const { fullScreen, horizontalFold, sheetTop } = useJapaneseLearningDrawerFrame();
   // Book posture: stay in the sheet's pane, never across the fold.
   const region = japaneseLearningBubblePopoutRegion({
     platform: Platform.OS,
@@ -185,6 +190,8 @@ export function JapaneseLearningBubblePopout({
     region,
     // Horizontal fold: the drawer takes the half below it, the popout the half above.
     verticalSpan: japaneseLearningBubblePopoutVerticalSpan({ horizontalFold, safeAreaTop: insets.top }),
+    // Clear of the Dynamic Island above and a gap above the sheet below.
+    maxBottom: sheetTop == null ? null : sheetTop - JAPANESE_LEARNING_POPOUT_SHEET_GAP,
   });
   if (!frame) return null;
   return (
@@ -236,6 +243,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingTop: 12,
     paddingHorizontal: 16,
+  },
+  rowCentered: {
+    width: "100%",
+    alignItems: "center",
   },
   rowEmbedded: {
     width: "100%",

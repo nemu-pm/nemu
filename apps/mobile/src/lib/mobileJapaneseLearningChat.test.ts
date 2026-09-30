@@ -236,6 +236,28 @@ describe("mobile Japanese Learning chat", () => {
     });
   });
 
+  test("signed out: fails as auth_required without sending the greeting (web requireAuthOrPrompt)", async () => {
+    let requests = 0;
+    const fetchImpl = (() => {
+      requests += 1;
+      return Promise.reject(new TypeError("Network request failed"));
+    }) as unknown as typeof fetch;
+    await expect(
+      runMobileJapaneseLearningChat({
+        appLanguage: "en",
+        chapter,
+        fetchImpl,
+        getAuthCookie: () => "",
+        mangaTitle: "Example Manga",
+        pageCount: 10,
+        pageNumber: 4,
+        siteUrl: "https://convex.example.site/",
+        transcript: "テキスト",
+      }),
+    ).rejects.toThrow("auth_required");
+    expect(requests).toBe(0);
+  });
+
   test("posts existing mobile chat history when provided", async () => {
     const requests: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl = ((url: string | URL | Request, init?: RequestInit) => {

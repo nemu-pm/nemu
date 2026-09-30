@@ -1,8 +1,8 @@
-import { router, usePathname } from "expo-router";
+import { router, usePathname, useRootNavigationState } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useEffect, useState } from "react";
-import { Animated, Platform, StyleSheet, Text, View } from "react-native";
+import { Animated, I18nManager, Platform, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   nemuColorWithAlpha,
@@ -17,13 +17,19 @@ import { useMobileLanguageSettings } from "@/data/mobileHooks";
 import { getMobileStrings, type MobileStrings } from "@/lib/mobileI18n";
 import {
   getMobileRootTabPressAction,
-  isMobileRootTabSelected,
   type MobileRootTabHref,
 } from "@/lib/mobileRootTabs";
+import {
+  navigateToMobileRootTab,
+  resolveMobileActiveRootTabHref,
+  type MobileNavigationState,
+} from "@/lib/mobileRootTabNavigation";
+import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { emitMobileRootTabReselect } from "@/lib/mobileRootTabReselect";
 import {
   MOBILE_FLOATING_TAB_BAR_ITEM_MIN_HEIGHT,
   MOBILE_FLOATING_TAB_BAR_VERTICAL_PADDING,
+  resolveMobileFloatingTabBarFrame,
 } from "@/lib/mobileFloatingTabBarClearance";
 import { resolveMobileBottomScrollEdgeEffect } from "@/lib/mobileScrollEdgeEffect";
 import { scrollEdgeEffectSupportsProgressiveBlur } from "../../modules/nemu-scroll-edge-effect";
@@ -42,20 +48,43 @@ const tabs: TabItem[] = [
   { href: "/settings", labelKey: "settings", icon: "settings-outline", selectedIcon: "settings" },
 ];
 
+const tabHrefs = tabs.map((tab) => tab.href);
+
+const ANDROID_FOCUS_RIPPLE =
+  Platform.OS === "android" ? { color: "transparent", foreground: true } : undefined;
+
 const TAB_ITEM_WIDTH = 72;
 const TAB_ITEM_GAP = 8;
 
 export function FloatingTabBar() {
   const pathname = usePathname();
+  const rootNavigationState = useRootNavigationState() as
+    | MobileNavigationState
+    | undefined;
+  const activeHref = resolveMobileActiveRootTabHref(
+    pathname,
+    rootNavigationState,
+    tabHrefs,
+  );
+  const adaptive = useMobileAdaptiveLayout();
+  const paneFrame = resolveMobileFloatingTabBarFrame({
+    windowWidth: adaptive.width,
+    posture: adaptive.posture,
+    panels: adaptive.panels,
+    layoutDirection: I18nManager.isRTL ? "rtl" : "ltr",
+  });
   const insets = useSafeAreaInsets();
   const { reduceMotion, tokens } = useNemuTheme();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
   const activeIndex = Math.max(
     0,
-    tabs.findIndex((tab) => isMobileRootTabSelected(pathname, tab.href)),
+    tabs.findIndex((tab) => tab.href === activeHref),
   );
   const [pillProgress] = useState(() => new Animated.Value(activeIndex));
+  // Android keyboard / D-pad focus: the system highlight is a rectangle over
+  // the whole touch target, so it is replaced by a ring in the pill's shape.
+  const [focusedHref, setFocusedHref] = useState<MobileRootTabHref | null>(null);
 
   useEffect(() => {
     pillProgress.stopAnimation();
@@ -93,7 +122,7 @@ export function FloatingTabBar() {
         ]}
       />
       {tabs.map((tab) => {
-        const active = isMobileRootTabSelected(pathname, tab.href);
+        const active = tab.href === activeHref;
         const pressAction = getMobileRootTabPressAction(pathname, tab.href);
         const canReselect = pressAction === "reselect";
         const canNavigate = pressAction === "navigate";
@@ -107,16 +136,38 @@ export function FloatingTabBar() {
             accessibilityState={{ selected: active }}
             hapticFeedback={canNavigate || canReselect ? "selection" : "none"}
             pressProfile="tab"
+            // A transparent foreground ripple declares a focused state, which
+            // stops Android drawing its rectangular default focus highlight;
+            // the pill-shaped ring below shows focus instead.
+            android_ripple={ANDROID_FOCUS_RIPPLE}
+            onFocus={
+              Platform.OS === "android" ? () => setFocusedHref(tab.href) : undefined
+            }
+            onBlur={
+              Platform.OS === "android"
+                ? () => setFocusedHref((current) => (current === tab.href ? null : current))
+                : undefined
+            }
             onPress={() => {
               if (canReselect) {
                 emitMobileRootTabReselect(tab.href);
                 return;
               }
               if (!canNavigate) return;
-              router.navigate(tab.href);
+              // From a detail or reader (above the tabs) this closes them
+              // rather than stacking another copy of the tabs on top.
+              if (!navigateToMobileRootTab(tab.href, { popToRoot: false, router })) {
+                router.navigate(tab.href);
+              }
             }}
             style={styles.item}
           >
+            {focusedHref === tab.href ? (
+              <View
+                pointerEvents="none"
+                style={[styles.focusRing, { borderColor: tokens.primary }]}
+              />
+            ) : null}
             <Ionicons
               accessible={false}
               accessibilityElementsHidden
@@ -176,7 +227,11 @@ export function FloatingTabBar() {
     <>
       {edgeScrim}
       <View
-        style={[styles.wrapper, { bottom: insets.bottom + spacing.tabBottom }]}
+        style={[
+          styles.wrapper,
+          { bottom: insets.bottom + spacing.tabBottom },
+          paneFrame ? { left: paneFrame.left, right: undefined, width: paneFrame.width } : null,
+        ]}
       >
         <GlassSurface
           intensity={32}
@@ -241,6 +296,15 @@ const styles = StyleSheet.create({
     width: TAB_ITEM_WIDTH,
     height: MOBILE_FLOATING_TAB_BAR_ITEM_MIN_HEIGHT,
     borderRadius: 16,
+  },
+  focusRing: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    borderRadius: 16,
+    borderWidth: 2,
   },
   label: {
     marginTop: 2,

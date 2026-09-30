@@ -1,7 +1,24 @@
 const POPOUT_HEIGHT_FRACTION = 0.2;
 
+/**
+ * Clearance between the popout's top edge and the top safe area. Web centres
+ * the popout at 15vh, which on a Dynamic Island iPhone in portrait puts its
+ * top edge at ~44pt, under the island (safe area 62pt): the island notched
+ * the bubble.
+ */
+export const JAPANESE_LEARNING_POPOUT_SAFE_AREA_GAP = 8;
+
 function popoutCenterY(windowHeight: number, safeAreaTop: number) {
   return Math.max(windowHeight * 0.15, safeAreaTop + 16);
+}
+
+function popoutMinTop(safeAreaTop: number) {
+  return Math.max(0, safeAreaTop) + JAPANESE_LEARNING_POPOUT_SAFE_AREA_GAP;
+}
+
+/** Web's placement (centred at `popoutCenterY`), pushed down clear of the top safe area. */
+function popoutTop(windowHeight: number, safeAreaTop: number, height: number) {
+  return Math.max(popoutCenterY(windowHeight, safeAreaTop) - height / 2, popoutMinTop(safeAreaTop));
 }
 
 /**
@@ -16,7 +33,8 @@ export function japaneseLearningBubblePopoutMaxBottom({
   windowHeight: number;
   safeAreaTop: number;
 }): number {
-  return popoutCenterY(windowHeight, safeAreaTop) + (windowHeight * POPOUT_HEIGHT_FRACTION) / 2;
+  const height = windowHeight * POPOUT_HEIGHT_FRACTION;
+  return popoutTop(windowHeight, safeAreaTop, height) + height;
 }
 
 /**
@@ -25,6 +43,11 @@ export function japaneseLearningBubblePopoutMaxBottom({
  * the window tall, width from the crop's aspect ratio capped to 90% of the
  * window width, centred horizontally with its centre at
  * `max(15vh, safe-area top + 16px)`.
+ *
+ * Native adaptations: the top edge never rises above the top safe area plus
+ * `JAPANESE_LEARNING_POPOUT_SAFE_AREA_GAP` (the Dynamic Island, the status
+ * bar), and the bottom edge never passes `maxBottom` (the sheet's top edge
+ * less a gap): the popout moves up, then shrinks, to stay in that band.
  */
 export function japaneseLearningBubblePopoutFrame({
   cropWidth,
@@ -34,6 +57,7 @@ export function japaneseLearningBubblePopoutFrame({
   safeAreaTop,
   region,
   verticalSpan,
+  maxBottom,
 }: {
   cropWidth: number;
   cropHeight: number;
@@ -53,23 +77,39 @@ export function japaneseLearningBubblePopoutFrame({
    * web's placement.
    */
   verticalSpan?: { y: number; height: number } | null;
+  /**
+   * Lowest window y the popout's bottom edge may reach: the top of the sheet
+   * under it less `JAPANESE_LEARNING_POPOUT_SHEET_GAP`
+   * (`resolveJapaneseLearningDrawerTop`). Omitted: no limit.
+   */
+  maxBottom?: number | null;
 }): { x: number; y: number; width: number; height: number } | null {
   if (!(cropWidth > 0 && cropHeight > 0 && windowWidth > 0 && windowHeight > 0)) return null;
   const span = region && region.width > 0 ? region : { x: 0, width: windowWidth };
   const aspect = cropWidth / cropHeight;
   const band = verticalSpan && verticalSpan.height > 0 ? verticalSpan : null;
+  const minTop = popoutMinTop(safeAreaTop);
+  const bottomLimit = !band && maxBottom != null && Number.isFinite(maxBottom) ? maxBottom : null;
   let height = windowHeight * POPOUT_HEIGHT_FRACTION;
   if (band) height = Math.min(height, band.height);
+  if (bottomLimit != null) height = Math.min(height, bottomLimit - minTop);
+  if (!(height > 0)) return null;
   let width = height * aspect;
   const maxWidth = span.width * 0.9;
   if (width > maxWidth) {
     width = maxWidth;
     height = width / aspect;
   }
-  const centerY = band ? band.y + band.height / 2 : popoutCenterY(windowHeight, safeAreaTop);
+  let y: number;
+  if (band) {
+    y = band.y + band.height / 2 - height / 2;
+  } else {
+    y = popoutTop(windowHeight, safeAreaTop, height);
+    if (bottomLimit != null && y + height > bottomLimit) y = Math.max(minTop, bottomLimit - height);
+  }
   return {
     x: span.x + (span.width - width) / 2,
-    y: centerY - height / 2,
+    y,
     width,
     height,
   };

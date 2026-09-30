@@ -5,6 +5,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   nemuColorWithAlpha,
@@ -29,7 +30,6 @@ import {
   JAPANESE_LEARNING_FOOTER_GAP,
   resolveJapaneseLearningFooterLayout,
 } from "@/lib/mobileJapaneseLearningSheetLayout";
-import { MOBILE_NATIVE_SHEET_BOTTOM_GUTTER } from "@/lib/mobileNativeSheet";
 import {
   JapaneseLearningBubblePreview,
   type JapaneseLearningBubbleSource,
@@ -114,6 +114,7 @@ export function JapaneseLearningOcrResultSheet({
   const { fontScale } = useWindowDimensions();
   const largeTextLayout = fontScale > 1.3;
   const drawerFrame = useJapaneseLearningDrawerFrame();
+  const insets = useSafeAreaInsets();
   // Match the web footer: three equally sized, labelled actions. At large
   // accessibility sizes, stack to keep every action readable and reachable.
   const stackFooterActions = largeTextLayout;
@@ -256,14 +257,18 @@ export function JapaneseLearningOcrResultSheet({
           <JapaneseLearningSentenceDisplay
             sentenceHeader={
               // The floating popout is hidden behind a full-window sheet.
-              bubble && drawerFrame.fullScreen ? (
-                <JapaneseLearningBubblePreview
-                  embedded
-                  maxHeight={IN_SHEET_BUBBLE_MAX_HEIGHT}
-                  source={bubble}
-                  accessibilityLabel={strings.reader.pluginJapaneseLearningSelectedText}
-                />
-              ) : null
+              bubble && drawerFrame.fullScreen
+                ? (columnMaxHeight) => (
+                    <JapaneseLearningBubblePreview
+                      // Columns: centred in the empty details column; stacked: over the sentence.
+                      embedded={columnMaxHeight == null}
+                      centered={columnMaxHeight != null}
+                      maxHeight={columnMaxHeight ?? IN_SHEET_BUBBLE_MAX_HEIGHT}
+                      source={bubble}
+                      accessibilityLabel={strings.reader.pluginJapaneseLearningSelectedText}
+                    />
+                  )
+                : null
             }
             grammarState={grammarState}
             selectedTokenIndex={selectedTokenIndex}
@@ -297,9 +302,16 @@ export function JapaneseLearningOcrResultSheet({
         }}
         style={[
           styles.footer,
-          // The footer band runs to the sheet's bottom edge (the sheet drops
-          // its bottom gutter for this body; the footer pads it instead).
-          { paddingBottom: FOOTER_PADDING + MOBILE_NATIVE_SHEET_BOTTOM_GUTTER },
+          // The footer band runs to the sheet's bottom edge with even
+          // padding (the body extends into the sheet's bottom safe area),
+          // plus the home indicator's inset only where the sheet reaches it.
+          {
+            paddingBottom:
+              FOOTER_PADDING +
+              // Large text opens the sheet at its largest detent, where iOS
+              // attaches it to the bottom edge and the home indicator.
+              (largeTextLayout && Platform.OS === "ios" ? insets.bottom : drawerFrame.bottomInset),
+          },
           {
             backgroundColor: nemuColorWithAlpha(tokens.background, 0.8),
             borderTopColor: nemuColorWithAlpha(tokens.border, 0.5),

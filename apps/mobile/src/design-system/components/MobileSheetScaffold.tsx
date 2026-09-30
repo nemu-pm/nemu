@@ -5,7 +5,7 @@ import {
   type StyleProp,
   type ViewStyle,
 } from "react-native";
-import { MobileNativeSheetScaffold } from "./MobileNativeSheetScaffold";
+import { MobileNativeSheetScaffold, type MobileSheetSafeAreaEdge } from "./MobileNativeSheetScaffold";
 
 type MobileSheetScaffoldProps = {
   visible: boolean;
@@ -34,6 +34,14 @@ type MobileSheetScaffoldProps = {
    * the sheet's bottom edge.
    */
   contentBottomInset?: number;
+  /**
+   * iOS: safe-area edges the content extends into, so it reaches the sheet's
+   * own edges where the safe area is not over it: the iPhone Duo outer
+   * display's system vertical bar column (reserved at a spanning sheet's
+   * trailing edge) and, for a sheet floating clear of the screen's bottom
+   * edge, the home indicator's inset below its content.
+   */
+  contentIgnoresSafeAreaEdges?: MobileSheetSafeAreaEdge | MobileSheetSafeAreaEdge[];
   children: ReactNode;
 };
 
@@ -66,6 +74,7 @@ export function MobileSheetScaffold({
   sheetMinHeight,
   contentStyle,
   contentBottomInset,
+  contentIgnoresSafeAreaEdges,
   children,
 }: MobileSheetScaffoldProps) {
   const snapPoints = useMemo(
@@ -93,6 +102,7 @@ export function MobileSheetScaffold({
       // still want a chrome escape provide its localized label above.
       enablePanDownToClose={!backdropDisabled}
       contentBottomInset={contentBottomInset}
+      contentIgnoresSafeAreaEdges={contentIgnoresSafeAreaEdges}
       contentStyle={[
         contentStyle ?? styles.sheet,
         sheetMinHeight != null ? { minHeight: sheetMinHeight } : null,

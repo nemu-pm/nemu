@@ -5,6 +5,7 @@ import {
   DefaultTheme,
   Stack,
   ThemeProvider,
+  useNavigationContainerRef,
   usePathname,
   type ErrorBoundaryProps,
 } from "expo-router";
@@ -25,6 +26,10 @@ import { MobileLanguageProvider } from "@/data/mobileLanguageContext";
 import { NemuThemeProvider, useNemuTheme } from "@/design-system";
 import { MOBILE_STACK_FULL_SCREEN_GESTURE_OPTIONS } from "@/lib/mobileReaderRouteOptions";
 import { shouldShowMobileFloatingTabBar } from "@/lib/mobileRootTabs";
+import {
+  registerMobileRootNavigation,
+  type MobileNavigationState,
+} from "@/lib/mobileRootTabNavigation";
 import { getMobileWelcomeUnderlyingContentState } from "@/lib/mobileWelcome";
 import {
   MobileSyncBridge,
@@ -88,6 +93,34 @@ function RootStack({
   }, [scheme, tokens]);
   const underlyingContentState = getMobileWelcomeUnderlyingContentState(
     welcomeBlocksAccessibility,
+  );
+  // Lets tab-root deep links (`+native-intent`) and the Android tab bar read
+  // the navigation tree and wait for their own navigation to land.
+  const navigationContainerRef = useNavigationContainerRef();
+  useEffect(
+    () =>
+      registerMobileRootNavigation({
+        getRootState: () =>
+          navigationContainerRef.isReady()
+            ? (navigationContainerRef.getRootState() as MobileNavigationState)
+            : undefined,
+        onNextState: (listener) => {
+          let settled = false;
+          let unsubscribe: () => void = () => undefined;
+          const expire = setTimeout(() => {
+            settled = true;
+            unsubscribe();
+          }, 1500);
+          unsubscribe = navigationContainerRef.addListener("state", () => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(expire);
+            unsubscribe();
+            listener();
+          });
+        },
+      }),
+    [navigationContainerRef],
   );
   const splashHiddenRef = useRef(false);
   const rootLayoutMarkedRef = useRef(false);

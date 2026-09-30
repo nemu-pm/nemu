@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { MobileGrammarToken } from "@/lib/mobileJapaneseLearningGrammar";
 import type { MobileOcrDetection, MobileJapaneseLearningOcrResult } from "@/lib/mobileJapaneseLearningOcr";
 import {
+  classifyMobileJapaneseLearningTokenPan,
   mobileJapaneseLearningMinConfidence,
   formatMobileJapaneseLearningChatTime,
   mobileGrammarTokenAtPoint,
@@ -251,5 +252,19 @@ describe("minimum confidence setting", () => {
     expect(mobileJapaneseLearningMinConfidence(0.5)).toBe(0.5);
     expect(mobileJapaneseLearningMinConfidence(undefined)).toBe(0.25);
     expect(mobileJapaneseLearningMinConfidence(Number.NaN)).toBe(0.25);
+  });
+});
+
+describe("classifyMobileJapaneseLearningTokenPan", () => {
+  test("stays a tap inside the slop", () => {
+    expect(classifyMobileJapaneseLearningTokenPan(3, -5)).toBe("pending");
+  });
+  test("a predominantly vertical pan scrolls the pane", () => {
+    expect(classifyMobileJapaneseLearningTokenPan(2, -30)).toBe("scroll");
+    expect(classifyMobileJapaneseLearningTokenPan(-6, 12)).toBe("scroll");
+  });
+  test("a horizontal or diagonal drag selects words", () => {
+    expect(classifyMobileJapaneseLearningTokenPan(20, 3)).toBe("select");
+    expect(classifyMobileJapaneseLearningTokenPan(-10, 10)).toBe("select");
   });
 });

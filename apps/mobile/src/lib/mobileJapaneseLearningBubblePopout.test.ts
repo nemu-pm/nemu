@@ -4,22 +4,30 @@ import {
   japaneseLearningBubblePopoutFrame,
   japaneseLearningBubblePopoutMaxBottom,
   japaneseLearningBubblePopoutRegion,
+  japaneseLearningBubblePopoutVerticalSpan,
+  JAPANESE_LEARNING_POPOUT_SAFE_AREA_GAP,
 } from "./mobileJapaneseLearningBubblePopout";
+import {
+  JAPANESE_LEARNING_POPOUT_SHEET_GAP,
+  resolveJapaneseLearningDrawerDetent,
+  resolveJapaneseLearningDrawerTop,
+} from "./mobileJapaneseLearningSheetLayout";
 
 describe("japaneseLearningBubblePopoutFrame", () => {
-  test("is 20% of the window tall and centred at 15vh like web", () => {
+  test("is 20% of the window tall and centred at 15vh like web where that clears the safe area", () => {
+    // iPhone SE-class window: the 20px status bar is well above 15vh.
     const frame = japaneseLearningBubblePopoutFrame({
       cropWidth: 200,
       cropHeight: 100,
-      windowWidth: 402,
-      windowHeight: 874,
-      safeAreaTop: 62,
+      windowWidth: 375,
+      windowHeight: 667,
+      safeAreaTop: 20,
     });
     expect(frame).not.toBeNull();
-    expect(frame!.height).toBeCloseTo(174.8);
-    expect(frame!.width).toBeCloseTo(349.6);
-    expect(frame!.x).toBeCloseTo((402 - 349.6) / 2);
-    expect(frame!.y + frame!.height / 2).toBeCloseTo(874 * 0.15);
+    expect(frame!.height).toBeCloseTo(133.4);
+    expect(frame!.width).toBeCloseTo(266.8);
+    expect(frame!.x).toBeCloseTo((375 - 266.8) / 2);
+    expect(frame!.y + frame!.height / 2).toBeCloseTo(667 * 0.15);
   });
 
   test("caps a wide crop to 90% of the window width", () => {
@@ -34,7 +42,7 @@ describe("japaneseLearningBubblePopoutFrame", () => {
     expect(frame.height).toBeCloseTo(90);
   });
 
-  test("keeps the centre below the safe area on short windows", () => {
+  test("keeps the top edge below the safe area on short windows", () => {
     const frame = japaneseLearningBubblePopoutFrame({
       cropWidth: 100,
       cropHeight: 100,
@@ -42,7 +50,7 @@ describe("japaneseLearningBubblePopoutFrame", () => {
       windowHeight: 400,
       safeAreaTop: 60,
     })!;
-    expect(frame.y + frame.height / 2).toBeCloseTo(76);
+    expect(frame.y).toBeCloseTo(60 + JAPANESE_LEARNING_POPOUT_SAFE_AREA_GAP);
   });
 
   test("never reaches below its maximum bottom edge", () => {
@@ -112,5 +120,108 @@ describe("bubble popout on a vertical fold (book posture)", () => {
   test("without a region the frame is unchanged (centred on the window)", () => {
     const frame = japaneseLearningBubblePopoutFrame(wide)!;
     expect(frame.x + frame.width / 2).toBeCloseTo(951 / 2);
+  });
+});
+
+describe("bubble popout under a Dynamic Island", () => {
+  // Portrait iPhones with a Dynamic Island: [width, height, safe top, safe bottom].
+  const phones = [
+    ["iPhone 17 Pro", 402, 874, 62, 34],
+    ["iPhone 17 Pro Max", 440, 956, 62, 34],
+    ["iPhone 16e (notch)", 390, 844, 47, 34],
+    ["iPhone Air", 420, 912, 68, 34],
+  ] as const;
+  const crops = [[100, 400], [200, 100], [400, 100], [100, 100], [60, 600]] as const;
+
+  for (const [name, windowWidth, windowHeight, safeAreaTop, safeAreaBottom] of phones) {
+    test(`${name}: clears the island and stays above the sentence sheet`, () => {
+      const detent = resolveJapaneseLearningDrawerDetent({
+        platform: "ios", isPad: false, windowWidth, windowHeight, safeAreaTop, safeAreaBottom,
+      });
+      const sheetTop = resolveJapaneseLearningDrawerTop({
+        platform: "ios", isPad: false, windowWidth, windowHeight, safeAreaTop, safeAreaBottom, detent,
+      })!;
+      // The drawer opens at web's 70vh top.
+      expect(sheetTop).toBeCloseTo(windowHeight * 0.3, 0);
+      for (const [cropWidth, cropHeight] of crops) {
+        const frame = japaneseLearningBubblePopoutFrame({
+          cropWidth, cropHeight, windowWidth, windowHeight, safeAreaTop,
+          maxBottom: sheetTop - JAPANESE_LEARNING_POPOUT_SHEET_GAP,
+        })!;
+        expect(frame.y).toBeGreaterThanOrEqual(safeAreaTop + JAPANESE_LEARNING_POPOUT_SAFE_AREA_GAP - 1e-9);
+        expect(frame.y + frame.height).toBeLessThanOrEqual(sheetTop - JAPANESE_LEARNING_POPOUT_SHEET_GAP + 1e-9);
+        expect(frame.x).toBeGreaterThanOrEqual(0);
+        expect(frame.x + frame.width).toBeLessThanOrEqual(windowWidth);
+      }
+    });
+  }
+
+  test("iPhone 17 Pro: a tall bubble moves down to 70pt instead of 44pt, at its full size", () => {
+    const frame = japaneseLearningBubblePopoutFrame({
+      cropWidth: 100, cropHeight: 200, windowWidth: 402, windowHeight: 874, safeAreaTop: 62, maxBottom: 250,
+    })!;
+    expect(frame.y).toBeCloseTo(70);
+    expect(frame.height).toBeCloseTo(174.8);
+  });
+
+  test("shrinks, keeping its aspect ratio, when the band above the sheet is short", () => {
+    const frame = japaneseLearningBubblePopoutFrame({
+      cropWidth: 100, cropHeight: 200, windowWidth: 402, windowHeight: 874, safeAreaTop: 62, maxBottom: 170,
+    })!;
+    expect(frame.y).toBeCloseTo(70);
+    expect(frame.y + frame.height).toBeCloseTo(170);
+    expect(frame.width / frame.height).toBeCloseTo(0.5);
+    expect(frame.x + frame.width / 2).toBeCloseTo(201);
+  });
+
+  test("no room at all: no popout", () => {
+    expect(japaneseLearningBubblePopoutFrame({
+      cropWidth: 100, cropHeight: 100, windowWidth: 402, windowHeight: 874, safeAreaTop: 62, maxBottom: 60,
+    })).toBeNull();
+  });
+
+  test("book pane on the Duo inner display: below the status bar and above its wide sheet", () => {
+    const panels = [{ x: 0, width: 455.5 }, { x: 495.5, width: 455.5 }];
+    const region = japaneseLearningBubblePopoutRegion({ platform: "ios", posture: "book", panels });
+    const size = { windowWidth: 951, windowHeight: 669, safeAreaTop: 24, safeAreaBottom: 20 };
+    const detent = resolveJapaneseLearningDrawerDetent({ platform: "ios", isPad: false, ...size });
+    const sheetTop = resolveJapaneseLearningDrawerTop({ platform: "ios", isPad: false, ...size, detent })!;
+    for (const [cropWidth, cropHeight] of crops) {
+      const frame = japaneseLearningBubblePopoutFrame({
+        cropWidth, cropHeight, ...size, region, maxBottom: sheetTop - JAPANESE_LEARNING_POPOUT_SHEET_GAP,
+      })!;
+      expect(frame.y).toBeGreaterThanOrEqual(24 + JAPANESE_LEARNING_POPOUT_SAFE_AREA_GAP - 1e-9);
+      expect(frame.y + frame.height).toBeLessThanOrEqual(sheetTop - JAPANESE_LEARNING_POPOUT_SHEET_GAP + 1e-6);
+      expect(frame.x).toBeGreaterThanOrEqual(region!.x);
+      expect(frame.x + frame.width).toBeLessThanOrEqual(region!.x + region!.width);
+    }
+  });
+
+  test("fold half on the Duo inner display in portrait: centred between the status bar and the fold", () => {
+    const span = japaneseLearningBubblePopoutVerticalSpan({ horizontalFold: { top: 455, bottom: 495 }, safeAreaTop: 24 })!;
+    const frame = japaneseLearningBubblePopoutFrame({
+      cropWidth: 100, cropHeight: 300, windowWidth: 669, windowHeight: 951, safeAreaTop: 24, verticalSpan: span,
+      // The fold drawer's top is the fold's lower edge; the band already stops above it.
+      maxBottom: 495 - JAPANESE_LEARNING_POPOUT_SHEET_GAP,
+    })!;
+    expect(frame.y).toBeGreaterThanOrEqual(24 + JAPANESE_LEARNING_POPOUT_SAFE_AREA_GAP);
+    expect(frame.y + frame.height).toBeLessThanOrEqual(455);
+  });
+});
+
+describe("resolveJapaneseLearningDrawerTop", () => {
+  test("full-screen and iPad sheets have nothing above them", () => {
+    expect(resolveJapaneseLearningDrawerTop({
+      platform: "ios", isPad: false, windowWidth: 874, windowHeight: 402, safeAreaTop: 0, safeAreaBottom: 21, detent: 381,
+    })).toBeNull();
+    expect(resolveJapaneseLearningDrawerTop({
+      platform: "ios", isPad: true, windowWidth: 820, windowHeight: 1180, safeAreaTop: 24, safeAreaBottom: 20, detent: "70%",
+    })).toBeNull();
+  });
+
+  test("Android percentage drawers start at 30% of the window", () => {
+    expect(resolveJapaneseLearningDrawerTop({
+      platform: "android", isPad: false, windowWidth: 412, windowHeight: 915, safeAreaTop: 24, safeAreaBottom: 24, detent: "70%",
+    })).toBeCloseTo(915 * 0.3);
   });
 });

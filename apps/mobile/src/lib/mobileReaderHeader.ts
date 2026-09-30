@@ -131,3 +131,26 @@ export function readerChromePageCountLabel({
   }
   return `${pageNumber} / ${pageCount}`;
 }
+
+/**
+ * The page the chrome's page number (title capsule) reports. A paged scrub
+ * leaves the page in place until release — only the preview bubble shows the
+ * target — so the capsule keeps the displayed page. A continuous (scroll)
+ * scrub moves the strip live, so there the chrome follows the scrub.
+ */
+export function readerChromeIndicatorPageIndex({
+  currentPageIndex,
+  scrubPreviewPageIndex,
+  pagedMode,
+  pageCount,
+}: {
+  currentPageIndex: number;
+  scrubPreviewPageIndex: number | null;
+  pagedMode: boolean;
+  pageCount: number;
+}): number {
+  const index =
+    pagedMode || scrubPreviewPageIndex == null ? currentPageIndex : scrubPreviewPageIndex;
+  if (pageCount <= 0) return 0;
+  return Math.max(0, Math.min(pageCount - 1, Math.trunc(index)));
+}

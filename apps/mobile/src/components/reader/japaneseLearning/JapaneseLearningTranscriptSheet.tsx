@@ -60,6 +60,8 @@ interface TranscriptSheetProps {
 
 /** Web transcript.tsx: full-page TTS only for pages up to 500 characters. */
 const TRANSCRIPT_TTS_MAX_CHARACTERS = 500;
+/** Widest the transcript's column grows: about 40 characters of its 13pt serif. */
+const TRANSCRIPT_MAX_MEASURE = 520;
 /** How long a "no image yet" failure waits for the page before it shows. */
 const NO_IMAGE_RETRY_GRACE_MS = 2500;
 
@@ -175,6 +177,10 @@ export function JapaneseLearningTranscriptSheet({
       showDismissButton={false}
       // Web's half-height transcript; on a horizontal fold, exactly the half below it.
       frameMaxHeight={drawerFrame.horizontalFold ? drawerFrame.frameMaxHeight : "50%"}
+      // Even 12pt padding all round, the bottom included (the list extends
+      // into the sheet's bottom safe area), plus the home indicator's inset
+      // only where the sheet reaches it.
+      contentBottomInset={drawerFrame.bottomInset}
       contentStyle={styles.frameContent}
     >
       {lines.length > 0 ? (
@@ -368,9 +374,15 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 12,
   },
+  // Web's transcript is a narrow popover list; a wide sheet (a phone in
+  // landscape, an unfolded foldable) keeps the lines at a readable measure,
+  // centred, instead of stretching the pills across the window.
   column: {
     flex: 1,
     minHeight: 0,
+    width: "100%",
+    maxWidth: TRANSCRIPT_MAX_MEASURE,
+    alignSelf: "center",
   },
   audioRow: {
     paddingHorizontal: 4,
@@ -471,6 +483,9 @@ const styles = StyleSheet.create({
     minHeight: 48,
   },
   errorText: {
+    width: "100%",
+    maxWidth: TRANSCRIPT_MAX_MEASURE,
+    alignSelf: "center",
     fontSize: 12,
     fontWeight: nemuFontWeight.medium,
     paddingHorizontal: 8,

@@ -46,7 +46,7 @@ import {
   renderNemuNativeToolbarButtons,
   useNemuTheme,
 } from "@/design-system";
-import { formatChapterTitle } from "@/lib/formatChapter";
+import { formatContinueActionLabel } from "@/lib/formatChapter";
 import { hapticConfirm, hapticError } from "@/lib/haptics";
 import {
   MOBILE_CHAPTER_LIST_PERFORMANCE,
@@ -875,12 +875,14 @@ export function SourceMangaScreen() {
   });
   const continueActionAvailable =
     Boolean(continueChapter) && !adding && !removing;
-  const continueActionLabel =
-    isContinuation && continueChapter
-      ? formatMobileString(strings.sourceManga.continueChapter, {
-          chapter: formatChapterTitle(continueChapter, strings),
-        })
-      : strings.sourceManga.startReading;
+  const continueActionLabel = continueChapter
+    ? formatContinueActionLabel({
+        chapter: continueChapter,
+        isContinuation,
+        strings,
+        labels: strings.sourceManga,
+      })
+    : strings.sourceManga.startReading;
   const showSkeleton = shouldRenderMobileSourceMangaSkeleton({
     loading: detailState.status === "loading",
     hasMetadata: Boolean(metadata),

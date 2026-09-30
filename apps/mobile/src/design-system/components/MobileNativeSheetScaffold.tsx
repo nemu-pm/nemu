@@ -80,10 +80,21 @@ type MobileNativeSheetScaffoldProps = {
    * hard line mid-sheet. Ignored on iOS.
    */
   androidContentHandle?: boolean;
+  /**
+   * iOS: safe-area edges the content extends into, so it reaches the sheet's
+   * own edges where the safe area is not over it: the iPhone Duo outer
+   * display's system vertical bar column (reserved at a spanning sheet's
+   * trailing edge) and, for a sheet floating clear of the screen's bottom
+   * edge, the home indicator's inset below its content.
+   */
+  contentIgnoresSafeAreaEdges?: MobileSheetSafeAreaEdge | MobileSheetSafeAreaEdge[];
   contentStyle?: StyleProp<ViewStyle>;
   testID?: string;
   children: ReactNode;
 };
+
+/** A safe-area edge sheet content may extend into (`contentIgnoresSafeAreaEdges`). */
+export type MobileSheetSafeAreaEdge = "leading" | "trailing" | "horizontal" | "bottom";
 
 function resolveSnapPointHeight(
   snapPoint: string | number | undefined,
@@ -123,6 +134,7 @@ export function MobileNativeSheetScaffold({
   enablePanDownToClose = true,
   backgroundColor,
   androidContentHandle = false,
+  contentIgnoresSafeAreaEdges,
   contentStyle,
   testID,
   children,
@@ -303,8 +315,16 @@ export function MobileNativeSheetScaffold({
     </Text>
   ) : null;
   const hasMultipleSnapPoints = (effectiveSnapPoints?.length ?? 0) > 1;
+  // Content extended into the sheet's bottom safe area (a floating iOS sheet)
+  // fills the host, which is then taller than the detent: a detent-sized
+  // height would leave that inset empty under the body again.
+  const contentReachesSheetBottom =
+    !isAndroid &&
+    (Array.isArray(contentIgnoresSafeAreaEdges)
+      ? contentIgnoresSafeAreaEdges.includes("bottom")
+      : contentIgnoresSafeAreaEdges === "bottom");
   const filledContentStyle =
-    fillContent && hasMultipleSnapPoints
+    fillContent && (hasMultipleSnapPoints || contentReachesSheetBottom)
       ? styles.filledContent
       : fillContent && boundedContentHeight
       ? { height: boundedContentHeight }
@@ -579,6 +599,7 @@ export function MobileNativeSheetScaffold({
       backgroundStyle={{ backgroundColor: backgroundColor ?? tokens.card }}
       onClose={handleClose}
       androidPlacement={androidSheetPlacement}
+      contentIgnoresSafeAreaEdges={contentIgnoresSafeAreaEdges}
       {...(drawContentHandle ? { handleComponent: null } : null)}
     >
       {isAndroid ? (

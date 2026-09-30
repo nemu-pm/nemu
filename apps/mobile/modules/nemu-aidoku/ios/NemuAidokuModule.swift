@@ -559,10 +559,16 @@ private final class NemuScopedCookieSessionDelegate: NSObject, URLSessionDownloa
   ) {
     // Preserve the early policy error, while the loopback proxy independently
     // resolves and pins an exact public address before this redirect is sent.
-    guard let redirectURL = request.url else {
+    guard let proposedURL = request.url else {
       completionHandler(nil)
       return
     }
+    let redirectURL = NemuNativeHttpRedirectPolicy.upgradingSameHostDowngrade(
+      proposedURL,
+      from: response.url ?? task.currentRequest?.url
+    )
+    var request = request
+    request.url = redirectURL
     do {
       try NemuNativeHttpAddressPolicy.validate(url: redirectURL)
     } catch {

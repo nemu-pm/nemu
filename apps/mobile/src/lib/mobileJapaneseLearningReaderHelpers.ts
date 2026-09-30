@@ -199,3 +199,23 @@ export function mobileJapaneseLearningMinConfidence(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return 0.25;
   return value > 1 ? Math.min(1, value / 100) : value;
 }
+
+/** Movement (pt) before a drag on the sentence's words commits to selecting or scrolling. */
+export const MOBILE_JAPANESE_LEARNING_TOKEN_PAN_SLOP = 8;
+
+/**
+ * What a drag that starts on the sentence's words does, decided once it has
+ * moved `MOBILE_JAPANESE_LEARNING_TOKEN_PAN_SLOP`: a predominantly vertical
+ * pan (steeper than ~50°) scrolls the sentence pane, like any iOS list;
+ * anything flatter drags a selection across the words (web's drag-select).
+ * Still inside the slop it stays a tap.
+ */
+export function classifyMobileJapaneseLearningTokenPan(
+  dx: number,
+  dy: number,
+): "pending" | "select" | "scroll" {
+  const ax = Math.abs(dx);
+  const ay = Math.abs(dy);
+  if (Math.max(ax, ay) < MOBILE_JAPANESE_LEARNING_TOKEN_PAN_SLOP) return "pending";
+  return ay > ax * 1.2 ? "scroll" : "select";
+}

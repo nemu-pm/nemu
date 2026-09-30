@@ -874,6 +874,14 @@ export async function runMobileJapaneseLearningChat(
         options.callbacks,
       );
     }
+    // Web gates every chat entry on sign-in (`requireAuthOrPrompt`) before
+    // sending anything. Signed out there is no session cookie, and the
+    // request could only fail: answer with the same sign-in reply the
+    // server's 401 gives, instead of a greeting that fails on its way out
+    // as a generic network error.
+    if (options.getAuthCookie && !options.getAuthCookie().trim()) {
+      throw new Error("auth_required");
+    }
     const hiddenContext = buildMobileJapaneseLearningHiddenContext(options);
     const prompt =
       options.prompt?.trim() ||

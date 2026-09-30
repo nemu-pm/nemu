@@ -239,6 +239,7 @@ export const mobileStringsEn: MobileStrings = {
     empty: "Your library is empty",
     emptyDescription: "Search for manga and add them to your library",
     progressCaughtUp: "Caught up",
+    progressInProgress: "In progress",
     progressUnread: "Unread",
     refreshLibrary: "Refresh library",
     removeCollection: "Remove collection",
@@ -673,6 +674,8 @@ export const mobileStringsEn: MobileStrings = {
   },
   reader: {
     bookPairing: "Book-style pairing",
+    pairingCoverPaired: "Cover paired",
+    pairingCoverAlone: "Cover alone",
     chapterAccessibility: "{{direction}}: {{chapter}}",
     closeSettings: "Close reader settings",
     closePlugin: "Close reader plugin",

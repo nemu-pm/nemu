@@ -206,8 +206,8 @@ export function ReaderSettingsNativePopover({
                 onTogglePagePairingMode();
               }}
             >
-              <SwiftText modifiers={[tag("book")]}>1-2</SwiftText>
-              <SwiftText modifiers={[tag("manga")]}>1,2</SwiftText>
+              <SwiftText modifiers={[tag("book")]}>{strings.reader.pairingCoverPaired}</SwiftText>
+              <SwiftText modifiers={[tag("manga")]}>{strings.reader.pairingCoverAlone}</SwiftText>
             </SwiftPicker>
           ) : null}
         </SwiftSection>

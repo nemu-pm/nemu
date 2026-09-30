@@ -294,6 +294,48 @@ function resolveWideDrawerDetent({
 }
 
 /**
+ * Window y of a learning drawer's top edge once it rests at `detent`
+ * (`resolveJapaneseLearningDrawerDetent`), for what floats above it (the
+ * bubble popout). The inverse of the detent maths: an iOS height detent is
+ * points above the bottom safe area, drawn `IOS_FLOATING_SHEET_INSET` above
+ * the screen's bottom edge and, on a compact-width window, scaled towards it;
+ * an iOS percentage is of the height between the safe areas; Android lays
+ * its frame out from the window's bottom edge. Null where nothing shows
+ * above the sheet (full screen) or it is not a bottom drawer (iPad).
+ */
+export function resolveJapaneseLearningDrawerTop({
+  platform,
+  isPad,
+  windowWidth,
+  windowHeight,
+  safeAreaTop,
+  safeAreaBottom,
+  detent,
+}: {
+  platform: string;
+  isPad: boolean;
+  windowWidth: number;
+  windowHeight: number;
+  safeAreaTop: number;
+  safeAreaBottom: number;
+  detent: number | `${number}%`;
+}): number | null {
+  if (isPad || !(windowWidth > 0 && windowHeight > 0)) return null;
+  if (isJapaneseLearningDrawerFullScreen({ platform, isPad, windowWidth, windowHeight })) return null;
+  if (typeof detent === "number") {
+    if (platform !== "ios") return windowHeight - detent;
+    const scale = windowWidth < IOS_REGULAR_WIDTH_MIN && windowWidth > IOS_FLOATING_SHEET_INSET * 2
+      ? (windowWidth - IOS_FLOATING_SHEET_INSET * 2) / windowWidth
+      : 1;
+    return windowHeight - IOS_FLOATING_SHEET_INSET - (detent + safeAreaBottom) * scale;
+  }
+  const fraction = Number.parseFloat(detent) / 100;
+  if (!(fraction > 0)) return null;
+  if (platform !== "ios") return windowHeight * (1 - fraction);
+  return windowHeight - safeAreaBottom - (windowHeight - safeAreaTop - safeAreaBottom) * fraction;
+}
+
+/**
  * How far a learning drawer's own 16pt web gutters should bleed past the
  * hosted content's edges. At a height detent (see
  * [resolveJapaneseLearningDrawerDetent]) the iPhone sheet floats
@@ -359,4 +401,81 @@ export function resolveJapaneseLearningSentenceLayout({
     width >= height * JAPANESE_LEARNING_COLUMNS_MIN_ASPECT
     ? "columns"
     : "stacked";
+}
+
+/** Tallest the bubble is shown in the details column of a full-window sheet. */
+export const JAPANESE_LEARNING_COLUMN_BUBBLE_MAX_HEIGHT = 200;
+/** Never smaller than this: below it a bubble's lettering is no longer legible. */
+export const JAPANESE_LEARNING_COLUMN_BUBBLE_MIN_HEIGHT = 120;
+
+/**
+ * Height cap for the selected bubble in a full-window sentence sheet's
+ * details column (a phone in landscape, where the sheet hides the floating
+ * popout). The sentence column keeps only the words; while nothing is
+ * selected the details column shows the bubble at a readable size over the
+ * quiet hint, both centred. `chrome` is the rest of that column: its padding,
+ * the gap under the bubble and the hint lines. Unmeasured: the tallest size.
+ */
+export function resolveJapaneseLearningColumnBubbleMaxHeight({
+  columnHeight,
+  chrome,
+}: {
+  columnHeight: number;
+  chrome: number;
+}): number {
+  if (!(columnHeight > 0)) return JAPANESE_LEARNING_COLUMN_BUBBLE_MAX_HEIGHT;
+  return Math.min(
+    JAPANESE_LEARNING_COLUMN_BUBBLE_MAX_HEIGHT,
+    Math.max(JAPANESE_LEARNING_COLUMN_BUBBLE_MIN_HEIGHT, Math.floor(columnHeight - chrome)),
+  );
+}
+
+/**
+ * Safe-area edges a learning sheet's content extends into (iOS), so every
+ * body lays itself out to the sheet's own edges and derives its bottom
+ * margin itself (`resolveJapaneseLearningSheetBottomInset` plus its own
+ * gutter) instead of stacking a system inset on a fixed gutter:
+ *
+ * - `bottom`, always. A floating sheet (every iOS 26+ drawer resting at its
+ *   detent: the phone in portrait, the Duo's fold half and wide drawers)
+ *   otherwise kept the home indicator's inset under its content although it
+ *   never reaches the indicator: the composer / footer sat ~41pt above the
+ *   sheet's edge against 12pt of padding above them on the Duo.
+ * - the vertical bar's edge on the iPhone Duo outer display (not over a
+ *   full-window sheet, where that column holds the status bar).
+ *
+ * Android: Material's sheet lays its content out above the navigation bar
+ * itself; nothing to ignore.
+ */
+export function resolveJapaneseLearningSheetIgnoredSafeAreaEdges({
+  platform,
+  fullScreen,
+  verticalBarEdge,
+}: {
+  platform: string;
+  fullScreen: boolean;
+  verticalBarEdge: "leading" | "trailing" | null | undefined;
+}): ("leading" | "trailing" | "bottom")[] | undefined {
+  if (platform !== "ios") return undefined;
+  return verticalBarEdge && !fullScreen ? [verticalBarEdge, "bottom"] : ["bottom"];
+}
+
+/**
+ * Space a learning sheet's body keeps under its last row (composer, footer,
+ * transcript list) on top of its own gutter. A floating iOS sheet ends clear
+ * of the screen's bottom edge and the home indicator: none, so the gap below
+ * matches the gutter above. A sheet attached to the bottom edge (the
+ * full-window iPhone sheet in landscape) keeps the real home-indicator inset.
+ * Android's Material sheet already sits above the navigation bar.
+ */
+export function resolveJapaneseLearningSheetBottomInset({
+  platform,
+  fullScreen,
+  safeAreaBottom,
+}: {
+  platform: string;
+  fullScreen: boolean;
+  safeAreaBottom: number;
+}): number {
+  return platform === "ios" && fullScreen ? Math.max(0, safeAreaBottom) : 0;
 }

@@ -52,7 +52,8 @@ function ToolbarActionButton({
  * A system sheet with a grouped `Form` in a navigation bar — the shape of
  * Apple's own pickers and editors (Photos "Add to Album", Reminders' list
  * info, Settings detail sheets): the title (and a secondary line) centred in
- * the bar, Cancel / close at the leading edge, the confirming action at the
+ * the bar, Cancel at the leading edge (a lone close X at the trailing edge,
+ * as in every other sheet), the confirming action at the
  * trailing edge, rows as native inset-grouped cells, the system grabber and
  * detents. Positioning off the Duo fold and Dynamic Type come from the
  * system. iOS only: other platforms keep their React Native sheets.
@@ -98,19 +99,25 @@ export function MobileNativeFormSheet({
               <SwiftToolbar>
                 {wrapForm ? wrapForm(form) : form}
                 <SwiftToolbar.Content>
-                  <SwiftToolbarItem placement="cancellationAction">
-                    {cancel ? (
+                  {cancel ? (
+                    <SwiftToolbarItem placement="cancellationAction">
                       <ToolbarActionButton action={cancel} role="cancel" />
-                    ) : (
+                    </SwiftToolbarItem>
+                  ) : (
+                    // The close X sits at the trailing edge like every other
+                    // sheet (reader settings, the React Native sheets), with a
+                    // neutral glyph: the stack's accent tint is for actions.
+                    <SwiftToolbarItem placement="topBarTrailing">
                       <SwiftButton
                         role="close"
                         onPress={onClose}
-                        modifiers={
-                          closeAccessibilityLabel ? [swiftAccessibilityLabel(closeAccessibilityLabel)] : []
-                        }
+                        modifiers={[
+                          tint(tokens.foreground),
+                          ...(closeAccessibilityLabel ? [swiftAccessibilityLabel(closeAccessibilityLabel)] : []),
+                        ]}
                       />
-                    )}
-                  </SwiftToolbarItem>
+                    </SwiftToolbarItem>
+                  )}
                   <SwiftToolbarItem placement="principal">
                     <SwiftVStack spacing={1}>
                       <SwiftText modifiers={[font({ textStyle: "headline" }), lineLimit(1)]}>{title}</SwiftText>
