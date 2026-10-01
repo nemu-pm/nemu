@@ -169,6 +169,13 @@ import {
   japaneseLearningBubblePopoutProgress,
 } from "@/lib/mobileJapaneseLearningSheetBackdrop";
 import {
+  JAPANESE_LEARNING_SHEET_GONE,
+  japaneseLearningSheetProgressSample,
+  requestJapaneseLearningSheet,
+  resolveJapaneseLearningChatDismissal,
+  resolveJapaneseLearningSentenceSheetDismissal,
+} from "@/lib/mobileJapaneseLearningSheetPresence";
+import {
   MOBILE_JAPANESE_LEARNING_QA_ANALYZING_HOLD_MS,
   MOBILE_JAPANESE_LEARNING_QA_TIMELINE_MODE,
   getMobileJapaneseLearningQaScenario,
@@ -331,6 +338,11 @@ import {
 } from "@/lib/mobileReaderRouteOptions";
 import { useMobileConnectivity } from "@/lib/useMobileConnectivity";
 import { readerChromeAnimationsForMotion } from "@/lib/mobileReaderChromeAnimations";
+import {
+  READER_CHROME_MATERIAL_CURVE,
+  readerChromeHasScrubber,
+  readerChromeMaterialTiming,
+} from "@/lib/mobileReaderChromeMotion";
 import {
   chapterFromState,
   firstParam,
@@ -583,10 +595,6 @@ const READER_TOP_SCRIM_COLORS = [
 const READER_TOP_SCRIM_LOCATIONS = [0, 0.45, 0.8, 1] as const;
 /** Glass pieces closer than this blend (the row's pieces sit 10pt apart, so they stay separate at rest). */
 const READER_CAPSULE_GLASS_SPACING = 8;
-/** Capsule chrome show / hide: glass (de)materializes with its content over this. */
-const READER_CHROME_MATERIAL_MS = 300;
-/** Rows slide this far toward their edge as they appear (none under Reduce Motion). */
-const READER_CHROME_MATERIAL_SLIDE = 8;
 /** How long the chrome stays up after a chapter opens before it fades away. */
 const READER_CHROME_AUTO_HIDE_MS = 3000;
 /**
@@ -1187,10 +1195,15 @@ export function ReaderScreen() {
   const [japaneseLearningOcrSheetVisible, setJapaneseLearningOcrSheetVisibleState] =
     useState(false);
   // Mirrors the latest request synchronously: an interactive dismissal
-  // reports close and dismissed in the same tick, before React commits.
-  const japaneseLearningOcrSheetWantedRef = useRef(false);
+  // reports close and dismissed in the same tick, before React commits. It
+  // also gates the overlay's progress samples (see
+  // `mobileJapaneseLearningSheetPresence`).
+  const japaneseLearningOcrSheetPresenceRef = useRef(JAPANESE_LEARNING_SHEET_GONE);
   const setJapaneseLearningOcrSheetVisible = useCallback((visible: boolean) => {
-    japaneseLearningOcrSheetWantedRef.current = visible;
+    japaneseLearningOcrSheetPresenceRef.current = requestJapaneseLearningSheet(
+      japaneseLearningOcrSheetPresenceRef.current,
+      visible,
+    );
     setJapaneseLearningOcrSheetVisibleState(visible);
   }, []);
   const japaneseLearningOcrProgress = useSharedValue(0);
@@ -1199,9 +1212,12 @@ export function ReaderScreen() {
     japaneseLearningChatDrawerVisible,
     setJapaneseLearningChatDrawerVisibleState,
   ] = useState(false);
-  const japaneseLearningChatDrawerWantedRef = useRef(false);
+  const japaneseLearningChatDrawerPresenceRef = useRef(JAPANESE_LEARNING_SHEET_GONE);
   const setJapaneseLearningChatDrawerVisible = useCallback((visible: boolean) => {
-    japaneseLearningChatDrawerWantedRef.current = visible;
+    japaneseLearningChatDrawerPresenceRef.current = requestJapaneseLearningSheet(
+      japaneseLearningChatDrawerPresenceRef.current,
+      visible,
+    );
     setJapaneseLearningChatDrawerVisibleState(visible);
   }, []);
   const [
@@ -4449,42 +4465,82 @@ export function ReaderScreen() {
       chatOpenedFromSentence: japaneseLearningChatFromSentence,
     });
 
+  // Native samples drive the overlay only while their sheet is on screen:
+  // the last few of a dismissal can reach JS after the sheet reported itself
+  // gone, and the final 0 never does (see `mobileJapaneseLearningSheetPresence`).
   const handleJapaneseLearningOcrProgress = useCallback((progress: number) => {
+    const sample = japaneseLearningSheetProgressSample(
+      japaneseLearningOcrSheetPresenceRef.current,
+      progress,
+    );
+    if (sample === null) return;
     japaneseLearningOcrProgress.value = Platform.OS === "ios"
-      ? progress
-      : withSpring(progress, { stiffness: 500, damping: 30 });
+      ? sample
+      : withSpring(sample, { stiffness: 500, damping: 30 });
   }, [japaneseLearningOcrProgress]);
   const handleJapaneseLearningChatProgress = useCallback((progress: number) => {
+    const sample = japaneseLearningSheetProgressSample(
+      japaneseLearningChatDrawerPresenceRef.current,
+      progress,
+    );
+    if (sample === null) return;
     japaneseLearningChatProgress.value = Platform.OS === "ios"
-      ? progress
-      : withSpring(progress, { stiffness: 500, damping: 30 });
+      ? sample
+      : withSpring(sample, { stiffness: 500, damping: 30 });
   }, [japaneseLearningChatProgress]);
+  // Web `closeOcrSheet`: the bubble is no longer selected (its popout cannot
+  // resurface over the reader or an unrelated chat later on this page), and
+  // its analysis stops, so a late result never lands on a closed sheet.
+  const releaseJapaneseLearningSentenceSelection = useCallback(() => {
+    japaneseLearningLifecycleRef.current?.abort("grammar");
+    japaneseLearningGrammarRunRef.current += 1;
+    setJapaneseLearningGrammarState({ status: "idle" });
+    setJapaneseLearningGrammarActionNotice(null);
+    setSelectedJapaneseLearningGrammarTokenIndex(null);
+    setJapaneseLearningSelectedDetectionOrder(null);
+  }, []);
   const handleJapaneseLearningOcrSheetDismissed = useCallback(() => {
-    // The sheet is gone: its presentation progress is 0 even when the last
-    // sampled frame of an interactive dismissal was not (the backdrop and the
-    // popout would otherwise stay up over the reader).
-    if (!japaneseLearningOcrSheetWantedRef.current) japaneseLearningOcrProgress.value = 0;
-    if (japaneseLearningOcrNextSurfaceRef.current !== "chat") {
-      // Closed for good (no Ask hand-off): the bubble is no longer selected,
-      // so it cannot resurface over an unrelated chat later on this page.
-      // A bubble tapped while this sheet was still dismissing keeps its sheet.
-      if (
-        !japaneseLearningOcrSheetWantedRef.current &&
-        japaneseLearningTranscriptNextSurfaceRef.current !== "ocr"
-      ) {
-        setJapaneseLearningSelectedDetectionOrder(null);
-      }
-      return;
-    }
+    const dismissal = resolveJapaneseLearningSentenceSheetDismissal({
+      presence: japaneseLearningOcrSheetPresenceRef.current,
+      handsOffToChat: japaneseLearningOcrNextSurfaceRef.current === "chat",
+      transcriptReopensSentence: japaneseLearningTranscriptNextSurfaceRef.current === "ocr",
+    });
+    japaneseLearningOcrSheetPresenceRef.current = dismissal.presence;
+    // The sheet is gone: the backdrop and the popout drop to 0 whatever the
+    // last sample that reached JS said, and later samples are ignored.
+    if (dismissal.resetProgress) japaneseLearningOcrProgress.value = 0;
+    if (dismissal.releaseSelection) releaseJapaneseLearningSentenceSelection();
+    if (!dismissal.presentChat) return;
     japaneseLearningOcrNextSurfaceRef.current = null;
     setJapaneseLearningChatDrawerVisible(true);
-  }, [japaneseLearningOcrProgress, setJapaneseLearningChatDrawerVisible]);
+  }, [
+    japaneseLearningOcrProgress,
+    releaseJapaneseLearningSentenceSelection,
+    setJapaneseLearningChatDrawerVisible,
+  ]);
   const handleJapaneseLearningChatDismissed = useCallback(() => {
-    if (!japaneseLearningChatDrawerWantedRef.current) japaneseLearningChatProgress.value = 0;
-    if (japaneseLearningChatNextSurfaceRef.current !== "ocr") return;
+    const dismissal = resolveJapaneseLearningChatDismissal({
+      presence: japaneseLearningChatDrawerPresenceRef.current,
+      returnsToSentence: japaneseLearningChatNextSurfaceRef.current === "ocr",
+      sentenceWanted: japaneseLearningOcrSheetPresenceRef.current.wanted,
+    });
+    japaneseLearningChatDrawerPresenceRef.current = dismissal.presence;
+    if (dismissal.resetProgress) japaneseLearningChatProgress.value = 0;
+    if (dismissal.releaseSelection) {
+      // An Ask chat closed for good (e.g. the reader lost focus): the bubble
+      // it was about leaves with it instead of floating over a later chat.
+      setJapaneseLearningChatFromSentence(false);
+      setJapaneseLearningLastBubbleSource(null);
+      releaseJapaneseLearningSentenceSelection();
+    }
+    if (!dismissal.presentSentence) return;
     japaneseLearningChatNextSurfaceRef.current = null;
     setJapaneseLearningOcrSheetVisible(true);
-  }, [japaneseLearningChatProgress, setJapaneseLearningOcrSheetVisible]);
+  }, [
+    japaneseLearningChatProgress,
+    releaseJapaneseLearningSentenceSelection,
+    setJapaneseLearningOcrSheetVisible,
+  ]);
   // Web drawer has no Back: closing it uncovers whatever was underneath —
   // the sentence sheet when the chat was opened from it, else the reader.
   const closeJapaneseLearningChatDrawer = useCallback(() => {
@@ -6797,7 +6853,7 @@ export function ReaderScreen() {
   // Capsule chrome stays mounted for its dismiss animation (the glass
   // dematerializes with its content) instead of relying on exiting fades.
   const readerChromePresent = showReaderChrome && !endOfChapterPromptVisible;
-  const readerChromeMaterialMs = reduceMotion === true ? MOBILE_READER_REDUCE_MOTION_FADE_MS : READER_CHROME_MATERIAL_MS;
+  const { durationMs: readerChromeMaterialMs, slide: readerChromeSlide } = readerChromeMaterialTiming(reduceMotion);
   const [readerChromeLingering, setReaderChromeLingering] = useState(false);
   const [readerChromeWasPresent, setReaderChromeWasPresent] = useState(readerChromePresent);
   if (readerChromeWasPresent !== readerChromePresent) {
@@ -6811,15 +6867,15 @@ export function ReaderScreen() {
   }, [readerChromeLingering, readerChromeMaterialMs]);
   const readerChromeMounted = readerChromePresent || readerChromeLingering;
   // Non-glass chrome (scrim) fades and the rows slide on the same clock as
-  // the glass materialize animation; a remount starts from hidden.
+  // the glass materialize animation — same duration, same curve (UIKit's
+  // ease-out, see READER_CHROME_MATERIAL_CURVE); a remount starts from hidden.
   const readerChromeFade = useSharedValue(0);
   useLayoutEffect(() => {
     readerChromeFade.value = withTiming(readerChromePresent ? 1 : 0, {
       duration: readerChromeMaterialMs,
-      easing: Easing.out(Easing.cubic),
+      easing: Easing.bezier(...READER_CHROME_MATERIAL_CURVE),
     });
   }, [readerChromeFade, readerChromeMaterialMs, readerChromePresent]);
-  const readerChromeSlide = reduceMotion === true ? 0 : READER_CHROME_MATERIAL_SLIDE;
   const readerChromeFadeStyle = useAnimatedStyle(() => ({ opacity: readerChromeFade.value }));
   const readerChromeTopSlideStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: (1 - readerChromeFade.value) * -readerChromeSlide }],
@@ -7551,10 +7607,12 @@ export function ReaderScreen() {
               {actionsCapsule}
             </Animated.View>
           ) : null}
-          {showReaderBottomChrome ? (
+          {readerChromeHasScrubber({ pagesStatus: pagesState.status, pageCount }) ? (
             <Animated.View
               // One persistent scrubber: a pose change glides it to its new
-              // pane and width, content visible (never a fade out/in).
+              // pane and width, content visible (never a fade out/in). It
+              // stays mounted through a dismiss (the chrome lingers) so its
+              // glass dematerializes with the other pieces.
               layout={readerCapsuleLayout}
               pointerEvents={piecesPointerEvents}
               style={[mobileReaderAbsoluteRect(scrubberRect), readerChromeBottomSlideStyle]}

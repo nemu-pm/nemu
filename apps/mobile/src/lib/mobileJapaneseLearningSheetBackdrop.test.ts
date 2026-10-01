@@ -53,15 +53,34 @@ describe("reader wiring of the bubble popout", () => {
     expect(screen).toContain(
       "setJapaneseLearningChatFromSentence(japaneseLearningChatReturnsToSentence);",
     );
-    // A sentence sheet closed without the Ask hand-off clears the selection.
+    // A sentence sheet closed without the Ask hand-off releases the selection
+    // (web closeOcrSheet), and a dismissed sheet's overlay ends at 0 whatever
+    // the last sample that reached JS said (mobileJapaneseLearningSheetPresence).
     const dismissedStart = screen.indexOf("const handleJapaneseLearningOcrSheetDismissed = useCallback(");
-    const dismissed = screen.slice(dismissedStart, screen.indexOf("}, []);", dismissedStart));
-    expect(dismissed).toContain("setJapaneseLearningSelectedDetectionOrder(null);");
-    // A dismissed sheet's progress is 0 even if the last sampled frame was not.
-    expect(dismissed).toContain("if (!japaneseLearningOcrSheetWantedRef.current) japaneseLearningOcrProgress.value = 0;");
-    expect(screen).toContain("if (!japaneseLearningChatDrawerWantedRef.current) japaneseLearningChatProgress.value = 0;");
-    expect(dismissed).toContain("!japaneseLearningOcrSheetWantedRef.current &&");
-    expect(screen).toContain("japaneseLearningOcrSheetWantedRef.current = visible;");
+    const dismissed = screen.slice(
+      dismissedStart,
+      screen.indexOf("const handleJapaneseLearningChatDismissed = useCallback(", dismissedStart),
+    );
+    expect(dismissed).toContain("resolveJapaneseLearningSentenceSheetDismissal({");
+    expect(dismissed).toContain("if (dismissal.resetProgress) japaneseLearningOcrProgress.value = 0;");
+    expect(dismissed).toContain("if (dismissal.releaseSelection) releaseJapaneseLearningSentenceSelection();");
+    const releaseStart = screen.indexOf("const releaseJapaneseLearningSentenceSelection = useCallback(");
+    const release = screen.slice(releaseStart, screen.indexOf("}, []);", releaseStart));
+    expect(release).toContain("setJapaneseLearningSelectedDetectionOrder(null);");
+    expect(release).toContain('japaneseLearningLifecycleRef.current?.abort("grammar");');
+    expect(screen).toContain("if (dismissal.resetProgress) japaneseLearningChatProgress.value = 0;");
+    // Samples that arrive after the dismissal was reported never move the overlay.
+    for (const [handler, presence] of [
+      ["handleJapaneseLearningOcrProgress", "japaneseLearningOcrSheetPresenceRef"],
+      ["handleJapaneseLearningChatProgress", "japaneseLearningChatDrawerPresenceRef"],
+    ]) {
+      const start = screen.indexOf(`const ${handler} = useCallback(`);
+      const body = screen.slice(start, screen.indexOf("}, [", start));
+      expect(body).toContain(`japaneseLearningSheetProgressSample(\n      ${presence}.current,`);
+      expect(body).toContain("if (sample === null) return;");
+    }
+    expect(screen).toContain("japaneseLearningOcrSheetPresenceRef.current = requestJapaneseLearningSheet(");
+    expect(screen).toContain("japaneseLearningChatDrawerPresenceRef.current = requestJapaneseLearningSheet(");
 
     const preview = readFileSync(
       path.join(import.meta.dir, "..", "components", "reader", "japaneseLearning", "JapaneseLearningBubblePreview.tsx"),
