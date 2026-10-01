@@ -1271,7 +1271,9 @@ function FeedbackSettingRow({
   const { tokens } = useNemuTheme();
 
   return (
-    <View style={styles.dataAction}>
+    // The hairline needs the theme's colour: unset, React Native paints it
+    // black (a hard black box on the light theme).
+    <View style={[styles.dataAction, { borderColor: tokens.border }]}>
       <View style={styles.dataActionText}>
         <NemuText style={[styles.settingTitle, { color: tokens.foreground }]}>
           {title}
