@@ -15,7 +15,7 @@ type SearchResultGrid = Pick<MobileFoldAwareGridLayout, "columns" | "itemWidth" 
 import { LinearGradient } from "expo-linear-gradient";
 import Animated, { LayoutAnimationConfig } from "react-native-reanimated";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Stack, router, useLocalSearchParams } from "expo-router";
+import { Stack, router, useLocalSearchParams, useNavigation } from "expo-router";
 import type { SearchBarCommands } from "react-native-screens";
 import { EmptyLibrary } from "@/components/EmptyLibrary";
 import {
@@ -864,6 +864,18 @@ export function SearchScreen() {
       if (timer) clearTimeout(timer);
     };
   }, [usesNativeSearchBar]);
+  // Tapping the Search tab again while this page is showing activates the
+  // search field, like the App Store / Music search tabs. A tap that switches
+  // to the tab only switches (the page isn't focused yet when it fires).
+  const navigation = useNavigation();
+  useEffect(() => {
+    if (!usesNativeSearchBar) return;
+    const tabs = navigation.getParent();
+    if (!tabs) return;
+    return tabs.addListener("tabPress" as never, () => {
+      if (navigation.isFocused()) nativeSearchRef.current?.focus();
+    });
+  }, [navigation, usesNativeSearchBar]);
   // Result grids size from the list's measured width (Duo's trailing system
   // bars, split panes) with an even column count on regular widths; in book
   // posture the middle gutter sits on the fold.
