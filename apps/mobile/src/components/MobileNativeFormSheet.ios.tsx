@@ -22,6 +22,7 @@ import {
   lineLimit,
   presentationDetents,
   presentationDragIndicator,
+  scrollEdgeEffectStyle,
   tint,
 } from "@expo/ui/swift-ui/modifiers";
 import { StyleSheet, View } from "react-native";
@@ -93,6 +94,8 @@ export function MobileNativeFormSheet({
               presentationDetents(detents),
               presentationDragIndicator("visible"),
               interactiveDismissDisabled(dismissDisabled),
+              // Rows fade softly under the sheet's bar, as on every page.
+              scrollEdgeEffectStyle("soft", "vertical"),
             ]}
           >
             <SwiftNavigationStack modifiers={[tint(tokens.primary)]}>

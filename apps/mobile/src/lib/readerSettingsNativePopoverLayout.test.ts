@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   READER_SETTINGS_POPOVER_WIDTH,
+  READER_SETTINGS_SHEET_BAR,
   readerSettingsNativeContentHeight,
+  readerSettingsNativeSheetEstimatedHeight,
   readerSettingsNativePresentation,
   readerSettingsPopoverAvailableHeight,
 } from "./readerSettingsNativePopoverLayout";
@@ -87,5 +89,28 @@ describe("native reader settings presentation", () => {
       { availableHeight: 900, regularWidth: true },
     );
     expect(presentation.kind).toBe("popover");
+  });
+});
+
+describe("compact-width reader settings sheet", () => {
+  const phone = {
+    twoPageSupported: false,
+    showPagePairingControls: false,
+    scrolling: false,
+    showPlugins: true,
+    showMarkComplete: true,
+  };
+
+  test("first-frame estimate is the rows under the title bar, well short of a full-height sheet", () => {
+    const estimate = readerSettingsNativeSheetEstimatedHeight(phone);
+    expect(estimate).toBe(readerSettingsNativeContentHeight(phone) + READER_SETTINGS_SHEET_BAR);
+    // iPhone Air (912pt tall): the phone's rows need about half the screen.
+    expect(estimate).toBeLessThan(912 * 0.6);
+  });
+
+  test("grows with the rows shown (scroll mode adds the page-width slider)", () => {
+    expect(readerSettingsNativeSheetEstimatedHeight({ ...phone, scrolling: true })).toBeGreaterThan(
+      readerSettingsNativeSheetEstimatedHeight(phone),
+    );
   });
 });

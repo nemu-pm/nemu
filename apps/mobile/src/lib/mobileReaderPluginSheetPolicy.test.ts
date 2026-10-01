@@ -44,15 +44,18 @@ describe("reader plugin settings sheet policy", () => {
     const source = mobileSource(iosSheetPath);
 
     expect(source).toContain("<SwiftBottomSheet");
-    expect(source).toContain("presentationDetents(");
+    // Sized to the page on screen (list or pushed plugin), not a fixed detent.
+    expect(source).toContain("fitSheetDetentToContent()");
+    expect(source).not.toContain("presentationDetents(");
     expect(source).toContain('presentationDragIndicator("visible")');
     expect(source).toContain('placement="cancellationAction"');
     expect(source).toContain('role="close"');
     // Inline titles (no empty large-title row above the first section).
+    // Each page reports its content height to the sheet.
     expect(source).toContain(
-      "navigationTitle(strings.settings.plugins), inlineToolbarTitle()",
+      "navigationTitle(strings.settings.plugins), inlineToolbarTitle(), reportSheetContentHeight()",
     );
-    expect(source).toContain("navigationTitle(plugin.name), inlineToolbarTitle()");
+    expect(source).toContain("navigationTitle(plugin.name), inlineToolbarTitle(), reportSheetContentHeight()");
     // Plugin rows push the plugin's settings on the sheet's own stack.
     expect(source).toContain("<SwiftNavigationStack");
     expect(source).toContain("path={path}");

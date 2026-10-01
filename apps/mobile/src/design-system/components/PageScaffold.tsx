@@ -4,8 +4,10 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
+  useState,
   type MutableRefObject,
   type ReactNode,
   type Ref,
@@ -27,11 +29,18 @@ import { useNemuTheme } from "@/design/useNemuTheme";
 import { spacing } from "@/design/tokens";
 import { useMobilePageGutters } from "@/design/useMobilePageGutters";
 import { getMobilePageContentBottomPadding } from "@/lib/mobileFloatingTabBarClearance";
-import { resolveMobilePullToRefreshEnabled } from "@/lib/mobilePullToRefresh";
+import {
+  resolveMobilePullToRefreshEnabled,
+  resolveMobilePullToRefreshIndicatorVisible,
+} from "@/lib/mobilePullToRefresh";
 import { subscribeMobileRootTabReselect } from "@/lib/mobileRootTabReselect";
 import { exactMobileRootTabHrefForPathname } from "@/lib/mobileRootTabs";
 import { getMobileFontScaleLayoutKey } from "@/lib/mobileDynamicTypeLayout";
-import { getMobilePageTopPadding } from "@/lib/mobilePageLayout";
+import {
+  getMobilePageTopPadding,
+  resolveMobilePageContentInsetAdjustment,
+} from "@/lib/mobilePageLayout";
+import { shouldShowMobileFloatingTabBar } from "@/lib/mobileRootTabs";
 
 /**
  * A live Dynamic Type change leaves already-mounted text with stale layout
@@ -138,12 +147,21 @@ function usePageContentStyle({
   nativeHeader,
   headerBarHeight,
   headerSearchBar,
+  contentInsetAdjustmentBehavior,
 }: {
   nativeHeader: boolean;
   headerBarHeight?: number;
   headerSearchBar?: boolean;
+  contentInsetAdjustmentBehavior: NonNullable<ScrollViewProps["contentInsetAdjustmentBehavior"]>;
 }) {
   const insets = useSafeAreaInsets();
+  const pathname = usePathname();
+  // iOS: UIKit's adjusted inset clears the tab bar / home indicator. Android:
+  // the floating tab bar overlays every page but the reader.
+  const systemAdjustsBottomInset =
+    Platform.OS === "ios" && contentInsetAdjustmentBehavior !== "never";
+  const floatingTabBar =
+    Platform.OS !== "ios" && shouldShowMobileFloatingTabBar(pathname);
   const gutters = useMobilePageGutters();
   // The native stack's measured header (0 when hidden). Title-to-content
   // spacing is derived from the bar actually on screen — Material's 64dp bar,
@@ -167,9 +185,25 @@ function usePageContentStyle({
         headerBarHeight,
         insetAdjusted,
       }),
-      paddingBottom: getMobilePageContentBottomPadding(insets.bottom),
+      paddingBottom: getMobilePageContentBottomPadding({
+        safeAreaBottom: insets.bottom,
+        systemAdjustsBottomInset,
+        floatingTabBar,
+        tabBottom: spacing.tabBottom,
+      }),
     }),
-    [gutters.left, gutters.right, headerBarHeight, headerHeight, insetAdjusted, insets.bottom, insets.top, nativeHeader],
+    [
+      floatingTabBar,
+      gutters.left,
+      gutters.right,
+      headerBarHeight,
+      headerHeight,
+      insetAdjusted,
+      insets.bottom,
+      insets.top,
+      nativeHeader,
+      systemAdjustsBottomInset,
+    ],
   );
 }
 
@@ -188,6 +222,31 @@ function usePageRefreshControl({
 }) {
   const { tokens } = useNemuTheme();
   const insets = useSafeAreaInsets();
+  // iOS shows the spinner only for a refresh the person pulled (see
+  // `resolveMobilePullToRefreshIndicatorVisible`): a background `refreshing`
+  // must not push the page down under the see-through header.
+  const [pulledByUser, setPulledByUser] = useState(false);
+  const [previousRefreshing, setPreviousRefreshing] = useState(refreshing);
+  if (previousRefreshing !== refreshing) {
+    setPreviousRefreshing(refreshing);
+    if (!refreshing) setPulledByUser(false);
+  }
+  const refreshingRef = useRef(refreshing);
+  useLayoutEffect(() => {
+    refreshingRef.current = refreshing;
+  }, [refreshing]);
+  const handleRefresh = useCallback(() => {
+    if (!onRefresh) return;
+    setPulledByUser(true);
+    onRefresh();
+    // A pull that started no refresh (a guard returned early) must not leave
+    // the flag set for the next background refresh.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (!refreshingRef.current) setPulledByUser(false);
+      });
+    });
+  }, [onRefresh]);
   return onRefresh ? (
     <RefreshControl
       // iOS keeps the system spinner: default tint, no title text. Android has
@@ -201,9 +260,13 @@ function usePageRefreshControl({
         hasRefreshAction: true,
         refreshing,
       })}
-      onRefresh={onRefresh}
+      onRefresh={handleRefresh}
       progressViewOffset={nativeHeader ? spacing.pageTop : insets.top + spacing.pageTop}
-      refreshing={refreshing}
+      refreshing={resolveMobilePullToRefreshIndicatorVisible({
+        platform: Platform.OS,
+        refreshing,
+        pulledByUser,
+      })}
       titleColor={tokens.mutedForeground}
     />
   ) : undefined;
@@ -216,11 +279,16 @@ export function PageScaffold({
   refreshLabel,
   refreshing = false,
   nativeHeader = false,
-  contentInsetAdjustmentBehavior = "never",
+  contentInsetAdjustmentBehavior: requestedContentInsetAdjustment,
   headerBarHeight,
   headerSearchBar,
   scrollRef,
 }: PageScaffoldProps) {
+  const contentInsetAdjustmentBehavior = resolveMobilePageContentInsetAdjustment({
+    platform: Platform.OS,
+    nativeHeader,
+    requested: requestedContentInsetAdjustment,
+  });
   const { tokens } = useNemuTheme();
   const pathname = usePathname();
   const localScrollRef = useRef<ScrollViewInstance | null>(null);
@@ -239,6 +307,7 @@ export function PageScaffold({
     nativeHeader,
     headerBarHeight,
     headerSearchBar,
+    contentInsetAdjustmentBehavior,
   });
   const fontScaleLayoutKey = useMobileFontScaleLayoutKey();
   const refreshControl = usePageRefreshControl({
@@ -279,13 +348,18 @@ export function PageListScaffold<ItemT>({
   refreshDisabled,
   refreshLabel,
   refreshing = false,
-  contentInsetAdjustmentBehavior = "never",
+  contentInsetAdjustmentBehavior: requestedContentInsetAdjustment,
   headerBarHeight,
   headerSearchBar,
   contentContainerStyle,
   listRef,
   ...flatListProps
 }: PageListScaffoldProps<ItemT>) {
+  const contentInsetAdjustmentBehavior = resolveMobilePageContentInsetAdjustment({
+    platform: Platform.OS,
+    nativeHeader,
+    requested: requestedContentInsetAdjustment,
+  });
   const { tokens } = useNemuTheme();
   const pathname = usePathname();
   const localListRef = useRef<FlatList<ItemT> | null>(null);
@@ -304,6 +378,7 @@ export function PageListScaffold<ItemT>({
     nativeHeader,
     headerBarHeight,
     headerSearchBar,
+    contentInsetAdjustmentBehavior,
   });
   const fontScaleLayoutKey = useMobileFontScaleLayoutKey();
   const refreshControl = usePageRefreshControl({

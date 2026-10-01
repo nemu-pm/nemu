@@ -8,6 +8,7 @@ import {
   resolveNemuNativeToolbarIcon,
   type NemuNativeToolbarSymbol,
 } from "./nativeToolbarIcons";
+import { resolveNemuNativeHeaderChrome } from "./nativeHeaderChrome";
 import type { NemuTokens } from "./tokens";
 import { nemuFontWeight } from "./typography";
 
@@ -26,6 +27,14 @@ export type NemuNativeHeaderAction = MobileHeaderActionState & {
 export const usesNemuNativeHeader =
   Platform.OS === "ios" || Platform.OS === "android";
 
+export { NEMU_SOFT_SCROLL_EDGE_EFFECTS } from "./nativeHeaderChrome";
+
+/**
+ * Defaults for every native stack screen. On iOS the header is see-through
+ * with soft top / bottom scroll edge effects (see `nativeHeaderChrome.ts`), so
+ * any screen — including new ones — gets the soft edge without opting in;
+ * the page scaffolds adjust their insets to match.
+ */
 export function createNemuNativeStackScreenOptions(tokens: NemuTokens) {
   return {
     contentStyle: { backgroundColor: tokens.background },
@@ -33,7 +42,7 @@ export function createNemuNativeStackScreenOptions(tokens: NemuTokens) {
     headerBackTitle: "",
     headerShadowVisible: false,
     headerShown: usesNemuNativeHeader,
-    headerStyle: { backgroundColor: tokens.background },
+    ...resolveNemuNativeHeaderChrome(Platform.OS, tokens.background),
     headerTintColor: tokens.foreground,
     headerTitleStyle: {
       color: tokens.foreground,
@@ -54,34 +63,8 @@ export function createNemuNativeScreenOptions(
   };
 }
 
-/**
- * iOS 26+ soft top scroll edge (`UIScrollEdgeEffect.Style.soft`): the
- * navigation bar is see-through and content scrolls under it, fading softly
- * into the bar instead of stopping at an opaque band with a hard cut. Content
- * still starts below the bar (`contentInsetAdjustmentBehavior="automatic"`).
- * No `headerBlurEffect` with it (react-native-screens: the two overlap).
- * Android keeps the opaque bar (Material top app bars tint on scroll instead).
- */
-export const NEMU_SOFT_SCROLL_EDGE_EFFECTS = {
-  top: "soft",
-  bottom: "automatic",
-  left: "automatic",
-  right: "automatic",
-} as const;
-
-export function createNemuSoftEdgeScreenOptions(
-  tokens: NemuTokens,
-  title: string,
-) {
-  const base = createNemuNativeScreenOptions(tokens, title);
-  if (Platform.OS !== "ios") return base;
-  return {
-    ...base,
-    headerTransparent: true,
-    headerStyle: { backgroundColor: "transparent" },
-    scrollEdgeEffects: NEMU_SOFT_SCROLL_EDGE_EFFECTS,
-  };
-}
+/** Every native screen is soft-edged now; an alias of `createNemuNativeScreenOptions`. */
+export const createNemuSoftEdgeScreenOptions = createNemuNativeScreenOptions;
 
 export function renderNemuNativeToolbarButtons(
   actions: NemuNativeHeaderAction[],

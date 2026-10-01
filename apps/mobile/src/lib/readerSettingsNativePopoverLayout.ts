@@ -50,6 +50,19 @@ export function readerSettingsNativeContentHeight(rows: ReaderSettingsNativeRows
   return Math.round(height + (sections - 1) * READER_SETTINGS_POPOVER_SECTION_SPACING + READER_SETTINGS_POPOVER_MARGIN * 2);
 }
 
+/** A sheet's inline navigation bar (title + close button) above the Form. */
+export const READER_SETTINGS_SHEET_BAR = 56;
+
+/**
+ * First guess at the compact-width sheet's height: the Form's rows under its
+ * title bar. The sheet then sizes itself to the Form's measured content
+ * (`fitSheetDetentToContent`); this only spares the first frame a full-height
+ * detent before that measurement lands.
+ */
+export function readerSettingsNativeSheetEstimatedHeight(rows: ReaderSettingsNativeRows): number {
+  return readerSettingsNativeContentHeight(rows) + READER_SETTINGS_SHEET_BAR;
+}
+
 export type ReaderSettingsNativePresentation =
   | { kind: "popover"; width: number; height: number }
   | { kind: "sheet" };

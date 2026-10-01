@@ -11,14 +11,47 @@ export const MOBILE_FLOATING_TAB_BAR_VISUAL_HEIGHT =
   MOBILE_FLOATING_TAB_BAR_ITEM_MIN_HEIGHT +
   MOBILE_FLOATING_TAB_BAR_VERTICAL_PADDING * 2;
 
-/** Bottom runway (above the safe-area inset) appended to scrollable pages. */
-export const MOBILE_PAGE_CONTENT_BOTTOM_RUNWAY = 148;
+/**
+ * The normal end margin of a scrolling page: the space left between its last
+ * row and whatever sits below it (the tab bar, or the home indicator).
+ */
+export const MOBILE_PAGE_CONTENT_BOTTOM_MARGIN = 24;
 
-export function getMobilePageContentBottomPadding(bottomInset: number): number {
-  const safeBottomInset = Number.isFinite(bottomInset)
-    ? Math.max(0, bottomInset)
+/**
+ * Bottom padding of a page scroll view's content: exactly enough to bring the
+ * last row fully clear of what overlays the page's bottom edge, plus the
+ * normal page margin — never a fixed runway, which left a large blank band
+ * past the last row wherever the overlay was shorter (or absent).
+ *
+ * - `systemAdjustsBottomInset` (iOS scroll views with automatic content
+ *   inset adjustment): UIKit's adjusted inset already equals the view's
+ *   bottom safe area — the tab bar where one is shown (`UITabBarController`
+ *   extends its children's safe area by the bar), else the home indicator —
+ *   so the content only adds the margin. Adding the safe area here too would
+ *   count it twice.
+ * - Otherwise (Android, iOS pages that opt out of automatic insets): the
+ *   safe-area inset, plus the floating tab bar overlay when it is shown, plus
+ *   the margin.
+ */
+export function getMobilePageContentBottomPadding({
+  safeAreaBottom,
+  systemAdjustsBottomInset,
+  floatingTabBar,
+  tabBottom,
+}: {
+  safeAreaBottom: number;
+  systemAdjustsBottomInset: boolean;
+  /** The Android floating tab bar overlays this page's bottom edge. */
+  floatingTabBar: boolean;
+  /** Distance from the bottom safe-area edge to the floating bar (`spacing.tabBottom`). */
+  tabBottom: number;
+}): number {
+  if (systemAdjustsBottomInset) return MOBILE_PAGE_CONTENT_BOTTOM_MARGIN;
+  const safeBottomInset = Number.isFinite(safeAreaBottom)
+    ? Math.max(0, safeAreaBottom)
     : 0;
-  return safeBottomInset + MOBILE_PAGE_CONTENT_BOTTOM_RUNWAY;
+  const overlay = floatingTabBar ? getMobileFloatingTabBarOverlayExtent(tabBottom) : 0;
+  return safeBottomInset + overlay + MOBILE_PAGE_CONTENT_BOTTOM_MARGIN;
 }
 
 /**

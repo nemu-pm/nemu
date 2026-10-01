@@ -39,9 +39,9 @@ import {
   navigationTitle,
   pickerStyle,
   presentationBackground,
-  presentationDetents,
   presentationDragIndicator,
   progressViewStyle,
+  scrollEdgeEffectStyle,
   tag,
   textSelection,
   tint,
@@ -66,8 +66,10 @@ import {
 import { useMobileJapaneseLearningSignedIn } from "@/lib/mobileJapaneseLearningAuth";
 import { splitMobileInlineErrorDetail } from "@/lib/mobileSourceErrors";
 import {
+  fitSheetDetentToContent,
   inlineToolbarTitle,
   presentationColorScheme,
+  reportSheetContentHeight,
 } from "../../../modules/nemu-window-layout/src/presentationColorScheme";
 import { useMobileJapaneseLearningDictionaryRowModel } from "../useMobileJapaneseLearningDictionaryRowModel";
 import type { ReaderPluginSettingsSheetProps } from "./ReaderPluginSettingsSheet.types";
@@ -137,13 +139,17 @@ export function ReaderPluginSettingsSheet({
         >
           <SwiftGroup
             modifiers={[
-              presentationDetents(["medium", "large"]),
+              // As tall as the page on screen (the plugin list, or the
+              // plugin pushed from it); the sheet resizes as pages change
+              // and scrolls only past the screen (Japanese Learning).
+              fitSheetDetentToContent(),
               presentationDragIndicator("visible"),
               // A toggle or reset in flight keeps the sheet up, so its
               // outcome (and any error) lands here, not behind the reader.
               interactiveDismissDisabled(busy),
               presentationColorScheme(scheme),
               presentationBackground({ type: "material", material: "regular" }),
+              scrollEdgeEffectStyle("soft", "vertical"),
             ]}
           >
             <SwiftNavigationStack
@@ -159,7 +165,9 @@ export function ReaderPluginSettingsSheet({
               modifiers={[tint(tokens.primary)]}
             >
               <SwiftToolbar>
-                <SwiftForm modifiers={[navigationTitle(strings.settings.plugins), inlineToolbarTitle()]}>
+                <SwiftForm
+                  modifiers={[navigationTitle(strings.settings.plugins), inlineToolbarTitle(), reportSheetContentHeight()]}
+                >
                   {errorSections}
                   {loading && plugins.length === 0 ? (
                     <SwiftSection>
@@ -347,7 +355,7 @@ function ReaderPluginDetail({
   };
 
   return (
-    <SwiftForm modifiers={[navigationTitle(plugin.name), inlineToolbarTitle()]}>
+    <SwiftForm modifiers={[navigationTitle(plugin.name), inlineToolbarTitle(), reportSheetContentHeight()]}>
       {errorSections}
       <SwiftSection
         footer={

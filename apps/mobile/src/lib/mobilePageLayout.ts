@@ -57,6 +57,30 @@ export function getMobilePageTopPadding({
   return Math.round(Math.min(pageTop, Math.max(MOBILE_PAGE_MIN_TOP_PADDING, target - bar / 2)));
 }
 
+export type MobilePageContentInsetAdjustment = "automatic" | "scrollableAxes" | "never" | "always";
+
+/**
+ * How a page scroll view adjusts its content for the bars around it. On iOS a
+ * page under the native header defaults to `automatic`: the header is
+ * see-through (soft scroll edge, `createNemuNativeStackScreenOptions`), so
+ * the scroll view runs under it and UIKit insets the content by the bar above
+ * and the tab bar / home indicator below — it starts below the bar, scrolls
+ * softly under it, and ends just above the tab bar. Pages that draw their own
+ * header, and Android (which has no inset adjustment), keep `never`.
+ */
+export function resolveMobilePageContentInsetAdjustment({
+  platform,
+  nativeHeader,
+  requested,
+}: {
+  platform: string;
+  nativeHeader: boolean;
+  requested?: MobilePageContentInsetAdjustment;
+}): MobilePageContentInsetAdjustment {
+  if (requested) return requested;
+  return platform === "ios" && nativeHeader ? "automatic" : "never";
+}
+
 export const MOBILE_SOURCE_GRID_GAP = 12;
 /** Narrowest source card that fits the icon, name and installed-state label. */
 export const MOBILE_SOURCE_GRID_MIN_ITEM_WIDTH = 290;

@@ -27,3 +27,22 @@ export function inlineToolbarTitle() {
 export function zeroTopScrollContentMargin() {
   return createModifier("nemuZeroTopScrollContentMargin");
 }
+
+/**
+ * On a sheet's root (the `Group` inside `BottomSheet`): a single presentation
+ * detent sized to the content of the Form on screen, reported by
+ * `reportSheetContentHeight()` on each Form of the sheet (sub-pages pushed in
+ * its NavigationStack included). Taller than the screen, the system caps the
+ * detent and the Form scrolls. `initialHeight` is the detent until the first
+ * measurement arrives (and on iOS < 18); omitted, it is `.large`. Replaces
+ * `presentationDetents` there. A binary built before the modifier existed
+ * ignores it (a full-height sheet).
+ */
+export function fitSheetDetentToContent(options: { initialHeight?: number } = {}) {
+  return createModifier("nemuFitSheetDetent", { initialHeight: options.initialHeight ?? 0 });
+}
+
+/** On each Form of a `fitSheetDetentToContent()` sheet, see there. */
+export function reportSheetContentHeight() {
+  return createModifier("nemuReportSheetContentHeight");
+}

@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { getMobilePageTopPadding, getMobileSourceGridLayout } from "./mobilePageLayout";
+import {
+  getMobilePageTopPadding,
+  getMobileSourceGridLayout,
+  resolveMobilePageContentInsetAdjustment,
+} from "./mobilePageLayout";
 
 describe("page top padding follows the title bar on screen", () => {
   const base = { nativeHeader: true, pageTop: 18 };
@@ -71,5 +75,22 @@ describe("browse source grid", () => {
     expect(result.columnMargins[0]).toBe(0);
     expect(result.itemWidth).toBeLessThanOrEqual(449);
     expect(result.columnMargins[0] + result.itemWidth + result.columnMargins[1]).toBe(470);
+  });
+});
+
+describe("page scroll view inset adjustment", () => {
+  test("iOS pages under the native (soft-edge) header adjust automatically", () => {
+    expect(resolveMobilePageContentInsetAdjustment({ platform: "ios", nativeHeader: true })).toBe("automatic");
+  });
+
+  test("own headers and Android keep never", () => {
+    expect(resolveMobilePageContentInsetAdjustment({ platform: "ios", nativeHeader: false })).toBe("never");
+    expect(resolveMobilePageContentInsetAdjustment({ platform: "android", nativeHeader: true })).toBe("never");
+  });
+
+  test("an explicit request wins", () => {
+    expect(
+      resolveMobilePageContentInsetAdjustment({ platform: "ios", nativeHeader: true, requested: "never" }),
+    ).toBe("never");
   });
 });

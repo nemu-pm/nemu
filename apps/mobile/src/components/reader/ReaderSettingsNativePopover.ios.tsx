@@ -27,13 +27,15 @@ import {
   opacity,
   pickerStyle,
   presentationBackground,
-  presentationDetents,
   presentationDragIndicator,
+  scrollEdgeEffectStyle,
   tag,
 } from "@expo/ui/swift-ui/modifiers";
 import { StyleSheet, View } from "react-native";
 import {
+  fitSheetDetentToContent,
   inlineToolbarTitle,
+  reportSheetContentHeight,
   zeroTopScrollContentMargin,
   presentationColorScheme,
 } from "../../../modules/nemu-window-layout/src/presentationColorScheme";
@@ -44,7 +46,10 @@ import {
   READER_SCROLL_WIDTH_MAX,
   READER_SCROLL_WIDTH_MIN,
 } from "@/lib/mobileReaderSettings";
-import { readerSettingsNativePresentation } from "@/lib/readerSettingsNativePopoverLayout";
+import {
+  readerSettingsNativePresentation,
+  readerSettingsNativeSheetEstimatedHeight,
+} from "@/lib/readerSettingsNativePopoverLayout";
 import {
   isMobileReaderNotebookPanePreference,
   MOBILE_READER_NOTEBOOK_PANE_PREFERENCES,
@@ -136,15 +141,16 @@ export function ReaderSettingsNativePopover({
     option === "rtl" ? strings.reader.rtl : option === "ltr" ? strings.reader.ltr : strings.reader.scroll;
   const showPlugins = showReaderPluginSettings && Boolean(onOpenReaderPluginSettings);
   const showNotebookRow = showNotebookPane && Boolean(onSetNotebookPane);
+  const settingsRows = {
+    twoPageSupported,
+    showPagePairingControls: twoPageSupported && showPagePairingControls,
+    scrolling: mode === "scrolling",
+    showPlugins,
+    showMarkComplete: !completed,
+    showNotebookPane: showNotebookRow,
+  };
   const presentation = readerSettingsNativePresentation(
-    {
-      twoPageSupported,
-      showPagePairingControls: twoPageSupported && showPagePairingControls,
-      scrolling: mode === "scrolling",
-      showPlugins,
-      showMarkComplete: !completed,
-      showNotebookPane: showNotebookRow,
-    },
+    settingsRows,
     // No measured button to point at (system toolbar items): the sheet.
     { availableHeight, regularWidth: regularWidth && anchor !== null },
   );
@@ -153,7 +159,8 @@ export function ReaderSettingsNativePopover({
   const formModifiers = [
     ...(presentation.kind === "popover"
       ? [frame({ width: presentation.width, height: presentation.height })]
-      : [inlineToolbarTitle()]),
+      : // The sheet is as tall as this Form (see `fitSheetDetentToContent`).
+        [inlineToolbarTitle(), reportSheetContentHeight()]),
     listSectionSpacing("compact"),
     zeroTopScrollContentMargin(),
     // The presentation's own appearance (not just this content's): the
@@ -308,9 +315,15 @@ export function ReaderSettingsNativePopover({
           >
             <SwiftGroup
               modifiers={[
-                presentationDetents(["large"]),
+                // Only as tall as the rows need (a handful of rows used to
+                // open a full-height sheet); capped at the screen, where the
+                // Form scrolls (landscape, large Dynamic Type).
+                fitSheetDetentToContent({
+                  initialHeight: readerSettingsNativeSheetEstimatedHeight(settingsRows),
+                }),
                 presentationDragIndicator("visible"),
                 presentationColorScheme(scheme),
+                scrollEdgeEffectStyle("soft", "vertical"),
               ]}
             >
               {/* A sheet's title bar (Apple's own settings sheets): the title
