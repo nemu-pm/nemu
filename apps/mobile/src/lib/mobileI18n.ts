@@ -221,6 +221,10 @@ export type MobileStrings = {
     renameCollectionAccessibility: string;
     renameDescription: string;
     startSearching: string;
+    titleMenuEditCollection: string;
+    titleMenuHint: string;
+    titleMenuManageCollections: string;
+    titleMenuNewCollection: string;
     updated: string;
     updateMembershipDescription: string;
     unavailable: string;

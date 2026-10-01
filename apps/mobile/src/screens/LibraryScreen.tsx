@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import {
   AppState,
@@ -33,6 +34,12 @@ import {
   mobileLibraryCollectionNativeSheetsAvailable,
 } from "@/components/MobileLibraryCollectionNativeSheets";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
+import {
+  getMobileLibraryTitleMenuHeaderOptions,
+  MobileLibraryTitleMenuAnchor,
+  mobileLibraryTitleMenuAvailable,
+} from "@/components/MobileLibraryTitleMenu";
+import type { MobileLibraryTitleMenuProps } from "@/components/MobileLibraryTitleMenu.types";
 import { MobileLibrarySkeleton } from "@/components/MobileLibrarySkeleton";
 import { useMobileToast } from "@/components/MobileToastContext";
 import { useMobileDataStore } from "@/data/mobileDataContext";
@@ -108,6 +115,15 @@ import {
   resolveCollectionSelection,
   type MobileCollectionActionState,
 } from "@/lib/mobileCollections";
+import {
+  buildMobileLibraryTitleMenu,
+  getMobileLibraryCollectionSelection,
+  reconcileMobileLibraryCollectionSelection,
+  resolveMobileLibraryCollectionRoute,
+  resolveMobileLibraryTitleMenuAction,
+  setMobileLibraryCollectionSelection,
+  subscribeMobileLibraryCollectionSelection,
+} from "@/lib/mobileLibraryTitleMenu";
 import {
   getMobileCollectionsManagerSheetLayout,
   getMobileLibraryTitleMenuSheetLayout,
@@ -1115,7 +1131,7 @@ export function LibraryScreen({
   collectionId = null,
   mode = "library",
 }: LibraryScreenProps = {}) {
-  const { tokens } = useNemuTheme();
+  const { scheme, tokens } = useNemuTheme();
   const { fontScale, height, width } = useWindowDimensions();
   const usesNativeHeader = usesNemuNativeHeader;
   const store = useMobileDataStore();
@@ -1132,9 +1148,19 @@ export function LibraryScreen({
   const strings = getMobileStrings(appLanguage);
   const routeCollectionId = collectionId?.trim() ? collectionId.trim() : null;
   const isCollectionRoute = mode === "collection";
-  const [selectedCollectionId, setSelectedCollectionId] = useState<
-    string | null
-  >(routeCollectionId);
+  // The shown collection is a session store shared with the collection
+  // deep-link route (`mobileLibraryTitleMenu.ts`): the title menu switches it
+  // in place, so the Library root never navigates to show a collection and
+  // All is always one tap away.
+  const sharedSelectedCollectionId = useSyncExternalStore(
+    subscribeMobileLibraryCollectionSelection,
+    getMobileLibraryCollectionSelection,
+    getMobileLibraryCollectionSelection,
+  );
+  const selectedCollectionId = isCollectionRoute
+    ? routeCollectionId
+    : sharedSelectedCollectionId;
+  const setSelectedCollectionId = setMobileLibraryCollectionSelection;
   const [showTitleMenuSheet, setShowTitleMenuSheet] = useState(false);
   const [showCreatePanel, setShowCreatePanel] = useState(false);
   const [showManagePanel, setShowManagePanel] = useState(false);
@@ -1214,20 +1240,40 @@ export function LibraryScreen({
     [],
   );
 
+  // `library/collection/[id]` (deep links) is a doorway, not a second
+  // Library: once the collection is known to exist it becomes the Library
+  // root's selection and the route pops back to the root, where the title
+  // menu switches collections. An unknown id keeps the not-found state.
+  const routeResolution = resolveMobileLibraryCollectionRoute({
+    collections: collections.data,
+    loading: collections.loading,
+    routeCollectionId,
+  });
+  const routeSelectionTarget =
+    isCollectionRoute && routeResolution.action === "select"
+      ? (routeResolution.collectionId ?? "")
+      : undefined;
   useEffect(() => {
-    pendingSheetTransitionRef.current = null;
-    if (!isCollectionRoute) return;
-    setSelectedCollectionId(routeCollectionId);
-    setShowTitleMenuSheet(false);
-    setShowCreatePanel(false);
-    setShowManagePanel(false);
-    setShowCollectionsManagerSheet(false);
-    setShowAddBooksSheet(false);
-    setAddBooksPresentation(null);
-    setRenameTarget(null);
-    setRemoveTarget(null);
-    setRemoveArmed(false);
-  }, [isCollectionRoute, routeCollectionId]);
+    if (routeSelectionTarget === undefined) return;
+    setMobileLibraryCollectionSelection(routeSelectionTarget || null);
+    router.dismissTo("/library");
+  }, [routeSelectionTarget]);
+
+  // A shown collection deleted elsewhere (another device, the manager sheet)
+  // falls back to All once a reload no longer has it.
+  const previousCollectionsRef = useRef(collections.data);
+  useEffect(() => {
+    const previous = previousCollectionsRef.current;
+    previousCollectionsRef.current = collections.data;
+    if (isCollectionRoute) return;
+    const next = reconcileMobileLibraryCollectionSelection({
+      previousCollections: previous,
+      collections: collections.data,
+      loading: collections.loading,
+      selectedCollectionId: sharedSelectedCollectionId,
+    });
+    if (next !== sharedSelectedCollectionId) setMobileLibraryCollectionSelection(next);
+  }, [collections.data, collections.loading, isCollectionRoute, sharedSelectedCollectionId]);
 
   useEffect(
     () => () => {
@@ -1372,7 +1418,7 @@ export function LibraryScreen({
 
   const selectCollection = (
     nextCollectionId: string | null,
-    source: "title-menu" | "collections-manager",
+    source: "title-menu" | "collections-manager" | "native-title-menu",
   ) => {
     if (
       !canSelectMobileCollectionScope({
@@ -1394,17 +1440,15 @@ export function LibraryScreen({
       setRenameTarget(null);
       setRemoveTarget(null);
       setRemoveArmed(false);
-
-      if (!isCollectionRoute) return;
-      if (nextCollectionId) {
-        router.replace({
-          pathname: "/library/collection/[id]",
-          params: { id: nextCollectionId },
-        });
-      } else {
-        router.replace("/library");
-      }
+      // In place: no push/replace, so Back and tab reselection stay put and
+      // the title menu can always switch back to All.
+      if (isCollectionRoute) router.dismissTo("/library");
     };
+    // The UIKit / Compose menu has already closed itself: no sheet to wait for.
+    if (source === "native-title-menu") {
+      commitSelection();
+      return;
+    }
     if (!queueAfterSheetDismiss(source, commitSelection)) return;
     if (source === "title-menu") {
       setShowTitleMenuSheet(false);
@@ -1729,14 +1773,8 @@ export function LibraryScreen({
       const collection = await collections.createCollection(name);
       if (
         !queueAfterSheetDismiss("create-collection", () => {
-          if (isCollectionRoute) {
-            router.replace({
-              pathname: "/library/collection/[id]",
-              params: { id: collection.collectionId },
-            });
-          } else {
-            setSelectedCollectionId(collection.collectionId);
-          }
+          setSelectedCollectionId(collection.collectionId);
+          if (isCollectionRoute) router.dismissTo("/library");
         })
       ) {
         return;
@@ -1855,14 +1893,9 @@ export function LibraryScreen({
       await collections.removeCollection(collection.collectionId);
       if (
         !queueAfterSheetDismiss(source, () => {
-          if (
-            isCollectionRoute &&
-            effectiveCollectionId === collection.collectionId
-          ) {
-            router.replace("/library");
-          } else if (effectiveCollectionId === collection.collectionId) {
-            setSelectedCollectionId(null);
-          }
+          if (effectiveCollectionId !== collection.collectionId) return;
+          setSelectedCollectionId(null);
+          if (isCollectionRoute) router.dismissTo("/library");
         })
       ) {
         return;
@@ -1912,12 +1945,86 @@ export function LibraryScreen({
       setRetryingData(false);
     }
   };
+  // The navigation title is the collection switcher (iOS: UIKit title menu
+  // with the system chevron, like Files; Android: Material title dropdown).
+  // Without it (a binary built before the native module) the toolbar keeps
+  // the switcher button that opens the title-menu sheet.
+  const titleMenuSections = useMemo(
+    () =>
+      buildMobileLibraryTitleMenu({
+        collections: collections.data,
+        membership: collections.membership,
+        libraryCount: libraryEntries.length,
+        selectedCollectionId: effectiveCollectionId,
+        labels: {
+          all: strings.library.all,
+          editCollection: strings.library.titleMenuEditCollection,
+          newCollection: strings.library.titleMenuNewCollection,
+          manageCollections: strings.library.titleMenuManageCollections,
+          bookCount: (count) => collectionBookCountText(count, strings),
+        },
+        disabled: collectionActionBusy,
+      }),
+    [
+      collectionActionBusy,
+      collections.data,
+      collections.membership,
+      effectiveCollectionId,
+      libraryEntries.length,
+      strings,
+    ],
+  );
+  const handleTitleMenuAction = (id: string) => {
+    const action = resolveMobileLibraryTitleMenuAction(id);
+    if (!action || collectionActionBusy) return;
+    switch (action.type) {
+      case "select":
+        selectCollection(action.collectionId, "native-title-menu");
+        return;
+      case "edit-current":
+        if (!showManagePanel) toggleCollectionManagement();
+        return;
+      case "create":
+        if (!showCreatePanel) toggleCreateCollection();
+        return;
+      case "manage":
+        openCollectionsManager();
+        return;
+    }
+  };
+  const titleMenu: MobileLibraryTitleMenuProps | null =
+    mobileLibraryTitleMenuAvailable && !isCollectionRoute
+      ? {
+          title,
+          sections: titleMenuSections,
+          accessibilityHint: strings.library.titleMenuHint,
+          tokens,
+          scheme,
+          onAction: handleTitleMenuAction,
+        }
+      : null;
+  const titleMenuAnchor = titleMenu ? <MobileLibraryTitleMenuAnchor {...titleMenu} /> : null;
   const nativeHeaderOptions = (
     screenTitle: string,
   ) => createNemuNativeScreenOptions(tokens, screenTitle);
-  // Library-level collection actions (create + the collections menu). Shared
-  // with the empty-library state so collections stay manageable before the
-  // first title is added.
+  // The Library root's header: on Android the title becomes the dropdown.
+  const titleMenuHeaderOptions = (screenTitle: string) => ({
+    ...nativeHeaderOptions(screenTitle),
+    ...(titleMenu
+      ? getMobileLibraryTitleMenuHeaderOptions({ ...titleMenu, title: screenTitle })
+      : {}),
+  });
+  const collectionSwitcherAction: NemuNativeHeaderAction = {
+    // Fallback switcher (no native title menu). Not an ellipsis: HIG
+    // reserves it for the system overflow menu (which the vertical bar adds).
+    icon: "rectangle.stack",
+    label: strings.collectionMembership.title,
+    hint: strings.library.manageCollectionsHint,
+    disabled: collectionActionBusy,
+    onPress: () => setShowTitleMenuSheet(true),
+  };
+  // Library-level collection actions. Shared with the empty-library state so
+  // collections stay manageable before the first title is added.
   const libraryHeaderActions: NemuNativeHeaderAction[] = [
     {
       icon: "plus",
@@ -1926,33 +2033,33 @@ export function LibraryScreen({
       disabled: collectionActionBusy,
       onPress: toggleCreateCollection,
     },
+    ...(titleMenu ? [] : [collectionSwitcherAction]),
+  ];
+  // A shown collection adds books from the toolbar; editing it lives in the
+  // title menu ("Edit Collection…"), next to switching back to All.
+  const collectionHeaderActions: NemuNativeHeaderAction[] = [
     {
-      // Opens the collection switcher sheet. Not an ellipsis: HIG reserves
-      // it for the system overflow menu (which the vertical bar adds).
-      icon: "rectangle.stack",
-      label: strings.collectionMembership.title,
-      hint: strings.library.manageCollectionsHint,
+      icon: "plus",
+      label: strings.library.addBooksAction,
+      hint: strings.library.addBooksHint,
       disabled: collectionActionBusy,
-      onPress: () => setShowTitleMenuSheet(true),
+      onPress: openAddBooksSheet,
     },
+    ...(titleMenu
+      ? []
+      : [
+          collectionSwitcherAction,
+          {
+            icon: "folder.badge.gearshape" as const,
+            label: strings.library.manageCollection,
+            hint: strings.library.manageCollectionHint,
+            disabled: collectionActionBusy,
+            onPress: toggleCollectionManagement,
+          },
+        ]),
   ];
   const nativeHeaderActions: NemuNativeHeaderAction[] = selectedCollection
-    ? [
-        {
-          icon: "plus",
-          label: strings.library.addBooksAction,
-          hint: strings.library.addBooksHint,
-          disabled: collectionActionBusy,
-          onPress: openAddBooksSheet,
-        },
-        {
-          icon: "folder.badge.gearshape",
-          label: strings.library.manageCollection,
-          hint: strings.library.manageCollectionHint,
-          disabled: collectionActionBusy,
-          onPress: toggleCollectionManagement,
-        },
-      ]
+    ? collectionHeaderActions
     : libraryHeaderActions;
   const handleQuickActionMarkAllRead = useCallback(
     async (entry: LibraryEntry) => {
@@ -2431,7 +2538,7 @@ export function LibraryScreen({
           title={strings.library.collectionNotFoundTitle}
           description={strings.library.collectionNotFoundDescription}
           actionLabel={strings.nav.library}
-          onActionPress={() => router.replace("/library")}
+          onActionPress={() => router.dismissTo("/library")}
         />
       </PageScaffold>
       </>
@@ -2443,13 +2550,14 @@ export function LibraryScreen({
       <>
       {usesNativeHeader ? (
         <>
-          <Stack.Screen options={nativeHeaderOptions(strings.nav.library)} />
+          <Stack.Screen options={titleMenuHeaderOptions(strings.nav.library)} />
           <Stack.Toolbar placement="right" tintColor={tokens.primary}>
             {renderNemuNativeToolbarButtons(
               libraryHeaderActions,
               tokens.primary,
             )}
           </Stack.Toolbar>
+          {titleMenuAnchor}
         </>
       ) : null}
       <PageScaffold nativeHeader={usesNativeHeader}>
@@ -2486,12 +2594,13 @@ export function LibraryScreen({
     <>
     {usesNativeHeader ? (
       <>
-        <Stack.Screen options={nativeHeaderOptions(title)} />
+        <Stack.Screen options={titleMenuHeaderOptions(title)} />
         {nativeHeaderActions.length ? (
           <Stack.Toolbar placement="right" tintColor={tokens.primary}>
             {renderNemuNativeToolbarButtons(nativeHeaderActions, tokens.primary)}
           </Stack.Toolbar>
         ) : null}
+        {titleMenuAnchor}
       </>
     ) : null}
     <PageListScaffold
