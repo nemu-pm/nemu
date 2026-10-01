@@ -44,18 +44,24 @@ describe("reader plugin settings sheet policy", () => {
     const source = mobileSource(iosSheetPath);
 
     expect(source).toContain("<SwiftBottomSheet");
-    // Sized to the page on screen (list or pushed plugin), not a fixed detent.
-    expect(source).toContain("fitSheetDetentToContent()");
+    // Sized to the page on screen (list or pushed plugin), not a fixed
+    // detent, from heights measured before it presents.
+    expect(source).toMatch(
+      /fitSheetDetentToContent\(\{\s*group: READER_PLUGIN_SHEET_GROUP,\s*page: readerPluginSheetActivePage\(selectedPlugin\?\.id \?\? null\),\s*\}\)/,
+    );
     expect(source).not.toContain("presentationDetents(");
     expect(source).toContain('presentationDragIndicator("visible")');
     expect(source).toContain('placement="cancellationAction"');
     expect(source).toContain('role="close"');
     // Inline titles (no empty large-title row above the first section).
-    // Each page reports its content height to the sheet.
-    expect(source).toContain(
-      "navigationTitle(strings.settings.plugins), inlineToolbarTitle(), reportSheetContentHeight()",
+    // Each page says which measured page it is, so the sheet resizes with
+    // the push / pop that shows it.
+    expect(source).toMatch(
+      /navigationTitle\(strings\.settings\.plugins\),\s*inlineToolbarTitle\(\),\s*reportSheetContentHeight\(\{ page: READER_PLUGIN_SHEET_LIST_PAGE \}\)/,
     );
-    expect(source).toContain("navigationTitle(plugin.name), inlineToolbarTitle(), reportSheetContentHeight()");
+    expect(source).toMatch(
+      /navigationTitle\(plugin\.name\),\s*inlineToolbarTitle\(\),\s*reportSheetContentHeight\(\{ page: readerPluginSheetPage\(plugin\.id\) \}\)/,
+    );
     // Plugin rows push the plugin's settings on the sheet's own stack.
     expect(source).toContain("<SwiftNavigationStack");
     expect(source).toContain("path={path}");
@@ -377,5 +383,45 @@ describe("reader plugin settings sheet policy", () => {
     expect(screen).toContain(
       "readerInteractionSurfaceOpen || cloudflareSheet.visible",
     );
+  });
+
+  test("every page is measured off screen before the sheet presents", () => {
+    const source = mobileSource(iosSheetPath);
+    const host = source.indexOf("<SwiftHost colorScheme={scheme}");
+    const sheet = source.indexOf("<SwiftBottomSheet", host);
+    expect(source.slice(host, sheet)).toContain("<ReaderPluginSheetMeasuringCopies");
+
+    const start = source.indexOf("const ReaderPluginSheetMeasuringCopies = memo(");
+    const end = source.indexOf("function ReaderPluginErrorSections(", start);
+    const copies = source.slice(start, end);
+    // The list and each plugin's page, outside the presentation.
+    expect(copies).toContain(
+      "measureSheetPage({ group: READER_PLUGIN_SHEET_GROUP, page: READER_PLUGIN_SHEET_LIST_PAGE, width, height })",
+    );
+    expect(copies).toContain("page: readerPluginSheetPage(plugin.id)");
+    expect(copies).toContain("<ReaderPluginListSections");
+    expect(copies).toContain("<ReaderPluginDetail");
+    // Memoised on what changes a page's height: opening the sheet (or a busy
+    // flag, or new handlers) does not re-render them mid-presentation.
+    expect(copies).not.toContain("visible");
+    expect(copies).not.toContain("busy={busy}");
+    expect(copies).not.toContain("onTogglePlugin={onTogglePlugin}");
+    // The copies carry no presentation modifiers (they would restyle the window).
+    expect(copies).not.toContain("presentationColorScheme(");
+    expect(copies).not.toContain("presentationBackground(");
+    // A copy of the dictionary row never starts a second download.
+    expect(source).toContain("inert={Boolean(measure)}");
+    expect(source).toContain("autoInstall: !inert,");
+  });
+
+  test("presentation modifiers sit on the sheet's root, never inside its navigation stack", () => {
+    const source = mobileSource(iosSheetPath);
+    const group = source.indexOf("<SwiftGroup", source.indexOf("<SwiftBottomSheet"));
+    const stack = source.indexOf("<SwiftNavigationStack", group);
+    const root = source.slice(group, stack);
+
+    expect(root).toContain("presentationBackground(");
+    expect(root).toContain("presentationColorScheme(scheme)");
+    expect(source.slice(stack)).not.toContain("presentationBackground(");
   });
 });

@@ -23,9 +23,12 @@ import { useMobileJapaneseLearningSignedIn } from "@/lib/mobileJapaneseLearningA
 export function useMobileJapaneseLearningDictionaryRowModel({
   engine,
   strings,
+  autoInstall = true,
 }: {
   engine: unknown;
   strings: MobileStrings;
+  /** False for a copy that only mirrors the row (it must not start a second install). */
+  autoInstall?: boolean;
 }) {
   const packState = useMobileJapaneseLearningAnalysisPackState();
   const preference = normalizeMobileJapaneseLearningEnginePreference(engine);
@@ -37,6 +40,7 @@ export function useMobileJapaneseLearningDictionaryRowModel({
     const previous = previousPreferenceRef.current;
     previousPreferenceRef.current = preference;
     if (
+      autoInstall &&
       shouldStartMobileJapaneseLearningPackInstall({
         previous,
         next: preference,

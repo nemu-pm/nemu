@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import {
   BottomSheet as SwiftBottomSheet,
   Button as SwiftButton,
@@ -31,10 +31,11 @@ import {
   scrollEdgeEffectStyle,
   tag,
 } from "@expo/ui/swift-ui/modifiers";
-import { StyleSheet, View } from "react-native";
+import { StyleSheet, useWindowDimensions, View } from "react-native";
 import {
   fitSheetDetentToContent,
   inlineToolbarTitle,
+  measureSheetPage,
   reportSheetContentHeight,
   zeroTopScrollContentMargin,
   presentationColorScheme,
@@ -46,6 +47,11 @@ import {
   READER_SCROLL_WIDTH_MAX,
   READER_SCROLL_WIDTH_MIN,
 } from "@/lib/mobileReaderSettings";
+import {
+  fittedSheetMeasureFrame,
+  READER_SETTINGS_SHEET_GROUP,
+  READER_SETTINGS_SHEET_PAGE,
+} from "@/lib/mobileFittedSheet";
 import {
   readerSettingsNativePresentation,
   readerSettingsNativeSheetEstimatedHeight,
@@ -115,6 +121,7 @@ export function ReaderSettingsNativePopover({
   regularWidth,
 }: ReaderSettingsNativePopoverProps) {
   const { scheme, tokens } = useNemuTheme();
+  const windowSize = useWindowDimensions();
   const onDismissCompleteRef = useRef(onDismissComplete);
   useLayoutEffect(() => {
     onDismissCompleteRef.current = onDismissComplete;
@@ -156,22 +163,30 @@ export function ReaderSettingsNativePopover({
   );
   const busyModifiers = busy ? [swiftDisabled(true)] : [];
 
-  const formModifiers = [
-    ...(presentation.kind === "popover"
-      ? [frame({ width: presentation.width, height: presentation.height })]
-      : // The sheet is as tall as this Form (see `fitSheetDetentToContent`).
-        [inlineToolbarTitle(), reportSheetContentHeight()]),
-    listSectionSpacing("compact"),
-    zeroTopScrollContentMargin(),
-    // The presentation's own appearance (not just this content's): the
-    // container resolves its traits from the controller UIKit presents it
-    // from, never from the reader screen.
+  const sheet = presentation.kind === "sheet" || !anchor;
+  // The Form's own layout, shared by the presented Form and the sheet's
+  // off-screen measuring copy, so both have the same height.
+  const formLayoutModifiers = [listSectionSpacing("compact"), zeroTopScrollContentMargin()];
+  // The presentation's own appearance (not just this content's): the
+  // container resolves its traits from the controller UIKit presents it
+  // from, never from the reader screen. Translucent over the page, resolved
+  // in that same appearance. On the presented root only — the popover's Form,
+  // the sheet's Group: set on a view inside the sheet's NavigationStack, the
+  // background reaches UIKit after the presentation started and the sheet
+  // appears in place instead of sliding up.
+  const presentationModifiers = [
     presentationColorScheme(scheme),
-    // Translucent over the page, resolved in that same appearance.
     presentationBackground({ type: "material", material: "regular" }),
   ];
-  const settingsForm = (
-      <SwiftForm modifiers={formModifiers}>
+  const formModifiers = [
+    ...(presentation.kind === "popover" && !sheet
+      ? [frame({ width: presentation.width, height: presentation.height }), ...presentationModifiers]
+      : // The sheet is as tall as this Form (see `fitSheetDetentToContent`).
+        [inlineToolbarTitle(), reportSheetContentHeight({ page: READER_SETTINGS_SHEET_PAGE })]),
+    ...formLayoutModifiers,
+  ];
+  const settingsSections = (
+      <>
         <SwiftSection>
           <SwiftPicker
             modifiers={[
@@ -300,13 +315,32 @@ export function ReaderSettingsNativePopover({
               />
             ) : null}
         </SwiftSection>
-      </SwiftForm>
+      </>
+  );
+  const settingsForm = <SwiftForm modifiers={formModifiers}>{settingsSections}</SwiftForm>;
+
+  // The same rows, laid out off screen at the sheet's width while the sheet
+  // is closed: the sheet knows its height before it presents, so it opens in
+  // one native motion at that height instead of resizing once its own Form
+  // has measured itself.
+  const measureFrame = fittedSheetMeasureFrame(windowSize);
+  const measuringCopy = (
+    <ReaderSettingsMeasuringCopy
+      heightKey={JSON.stringify([measureFrame, settingsRows, saving, strings.reader.markComplete])}
+      modifiers={[
+        ...formLayoutModifiers,
+        measureSheetPage({ group: READER_SETTINGS_SHEET_GROUP, page: READER_SETTINGS_SHEET_PAGE, ...measureFrame }),
+      ]}
+    >
+      {settingsSections}
+    </ReaderSettingsMeasuringCopy>
   );
 
-  if (presentation.kind === "sheet" || !anchor) {
+  if (sheet) {
     return (
       <View pointerEvents="none" style={styles.sheetHost}>
         <SwiftHost colorScheme={scheme} seedColor={tokens.primary} style={StyleSheet.absoluteFill}>
+          {measuringCopy}
           <SwiftBottomSheet
             isPresented={visible}
             onIsPresentedChange={(presented) => {
@@ -319,10 +353,12 @@ export function ReaderSettingsNativePopover({
                 // open a full-height sheet); capped at the screen, where the
                 // Form scrolls (landscape, large Dynamic Type).
                 fitSheetDetentToContent({
+                  group: READER_SETTINGS_SHEET_GROUP,
+                  page: READER_SETTINGS_SHEET_PAGE,
                   initialHeight: readerSettingsNativeSheetEstimatedHeight(settingsRows),
                 }),
                 presentationDragIndicator("visible"),
-                presentationColorScheme(scheme),
+                ...presentationModifiers,
                 scrollEdgeEffectStyle("soft", "vertical"),
               ]}
             >
@@ -376,6 +412,26 @@ export function ReaderSettingsNativePopover({
     </View>
   );
 }
+
+/**
+ * The settings sheet's off-screen measuring copy. Re-rendered only when
+ * `heightKey` (what changes the rows' height) changes: opening the sheet or
+ * flipping a switch must not re-render the copy while the sheet animates.
+ * Its switch states and handlers may be stale; nothing can reach it.
+ */
+const ReaderSettingsMeasuringCopy = memo(
+  function ReaderSettingsMeasuringCopy({
+    modifiers,
+    children,
+  }: {
+    heightKey: string;
+    modifiers: ComponentProps<typeof SwiftForm>["modifiers"];
+    children: ReactNode;
+  }) {
+    return <SwiftForm modifiers={modifiers}>{children}</SwiftForm>;
+  },
+  (previous, next) => previous.heightKey === next.heightKey,
+);
 
 const styles = StyleSheet.create({
   anchor: {

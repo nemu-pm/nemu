@@ -20,13 +20,17 @@ public final class NemuWindowLayoutModule: Module {
       ViewModifierRegistry.register(NemuZeroTopScrollContentMarginModifier.type) { _, _, _ in
         NemuZeroTopScrollContentMarginModifier()
       }
-      // A sheet whose height follows its visible Form's content, see
-      // `NemuFitSheetDetentModifier` / `NemuReportSheetContentHeightModifier`.
+      // A sheet as tall as its page, measured before it presents: see
+      // `NemuFitSheetDetentModifier`, `NemuReportSheetContentHeightModifier`
+      // and `NemuMeasureSheetPageModifier`.
       ViewModifierRegistry.register(NemuFitSheetDetentModifier.type) { params, _, _ in
         NemuFitSheetDetentModifier(params: params)
       }
-      ViewModifierRegistry.register(NemuReportSheetContentHeightModifier.type) { _, _, _ in
-        NemuReportSheetContentHeightModifier()
+      ViewModifierRegistry.register(NemuReportSheetContentHeightModifier.type) { params, _, _ in
+        NemuReportSheetContentHeightModifier(params: params)
+      }
+      ViewModifierRegistry.register(NemuMeasureSheetPageModifier.type) { params, _, _ in
+        NemuMeasureSheetPageModifier(params: params)
       }
       // The in-app theme from the last run, before any JS (see `NemuAppAppearance`).
       DispatchQueue.main.async {
@@ -39,6 +43,7 @@ public final class NemuWindowLayoutModule: Module {
       ViewModifierRegistry.unregister(NemuZeroTopScrollContentMarginModifier.type)
       ViewModifierRegistry.unregister(NemuFitSheetDetentModifier.type)
       ViewModifierRegistry.unregister(NemuReportSheetContentHeightModifier.type)
+      ViewModifierRegistry.unregister(NemuMeasureSheetPageModifier.type)
     }
     // Lets JS tell a binary with these views from one built before them.
     Constant("verticalBarBehaviorViewAvailable") { true }
@@ -160,33 +165,108 @@ struct NemuZeroTopScrollContentMarginModifier: ViewModifier {
   }
 }
 
-/// The fitted detent of a `NemuFitSheetDetentModifier` sheet, driven by the
-/// content height its visible Form reports.
+/// Measured heights of the pages of one content-sized sheet (`group`), fed by
+/// an off-screen copy of each page (`NemuMeasureSheetPageModifier`) that stays
+/// laid out while the sheet is closed. The sheet reads them when it presents,
+/// so its first frame already has the final detent: UIKit runs one native
+/// presentation to that height, never a second resize once the Form inside
+/// has measured itself (a sheet's content only lays out after the
+/// presentation has started, so a self-measured sheet always jumps).
+final class NemuSheetFitStore: ObservableObject {
+  private static var stores: [String: NemuSheetFitStore] = [:]
+
+  static func named(_ group: String) -> NemuSheetFitStore {
+    if let store = stores[group] { return store }
+    let store = NemuSheetFitStore()
+    stores[group] = store
+    return store
+  }
+
+  /// Page → height of its Form's content, margins included, without any
+  /// safe area (the bar above it, the home indicator below it).
+  @Published private(set) var contentHeights: [String: CGFloat] = [:]
+  /// The sheet's navigation bar above the Form (title, close button, the
+  /// grabber's clearance), measured in the sheet itself. Until the first
+  /// presentation reports it: the iOS 26 compact sheet's inline bar.
+  @Published private(set) var barHeight: CGFloat = NemuSheetFitStore.defaultBarHeight
+  static let defaultBarHeight: CGFloat = 74
+
+  func setContentHeight(_ height: CGFloat, page: String) {
+    guard height > 0 else { return }
+    let rounded = height.rounded(.up)
+    if contentHeights[page] != rounded { contentHeights[page] = rounded }
+  }
+
+  func setBarHeight(_ height: CGFloat) {
+    guard height > 0 else { return }
+    let rounded = height.rounded(.up)
+    if barHeight != rounded { barHeight = rounded }
+  }
+
+  /// The detent that shows all of `page` (the system caps it at the large
+  /// detent; the Form scrolls past that). Nil until the page was measured.
+  func detentHeight(page: String) -> CGFloat? {
+    contentHeights[page].map { NemuSheetFitStore.detentHeight(content: $0, bar: barHeight) }
+  }
+
+  /// A `.height` detent excludes the bottom safe area (the sheet adds the
+  /// home indicator's inset below it), so the content needs only the bar.
+  static func detentHeight(content: CGFloat, bar: CGFloat) -> CGFloat {
+    (content + bar).rounded(.up)
+  }
+}
+
+/// One presentation of a content-sized sheet: the page on screen and the
+/// detent in effect.
 final class NemuSheetFitState: ObservableObject {
-  /// The detent sized to the Form on screen; nil until the first measurement.
-  @Published private(set) var detent: PresentationDetent?
-  /// The previous detent, kept in the set while the sheet glides away from it
-  /// (a sheet only animates between detents it has; replacing the lone
-  /// detent snaps to the new height in one frame).
+  /// The page on top of the sheet's NavigationStack (`NemuReportSheetContentHeightModifier`).
+  @Published var activePage: String?
+  /// The measured detent height in effect since the sheet appeared; nil
+  /// before it appeared (the body then follows the measurement directly) or
+  /// while no page was measured (the fallback detent).
+  @Published private(set) var height: CGFloat?
+  /// The previous detent, kept in the set while the sheet moves away from it:
+  /// SwiftUI animates a sheet between detents it has (a selection change, a
+  /// native `animateChanges` resize), while replacing a lone detent snaps.
   @Published private(set) var outgoing: PresentationDetent?
-  private var height: CGFloat = 0
+  /// The sheet has appeared: its detent is `height` (nil: the fallback).
+  @Published private(set) var presented = false
+  /// The presentation transition is over: height changes animate from here.
+  private var settled = false
+  private var pending: CGFloat?
   private var generation = 0
 
-  func update(height newHeight: CGFloat) {
-    guard newHeight > 0, abs(newHeight - height) >= 0.5 else { return }
-    height = newHeight
-    let next = PresentationDetent.height(newHeight.rounded(.up))
-    guard let previous = detent, previous != next else {
-      // The first measurement lands before the sheet is on screen.
-      detent = next
-      return
+  /// The sheet appeared at `initial` (its presentation has started).
+  func appeared(at initial: CGFloat?, fallback: PresentationDetent) {
+    guard !presented else { return }
+    presented = true
+    height = initial
+    // Hold any change until UIKit's presentation has finished: retargeting
+    // a sheet mid-presentation is the jump this whole mechanism avoids.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+      guard let self else { return }
+      self.settled = true
+      if let pending = self.pending {
+        self.pending = nil
+        self.move(to: pending, fallback: fallback)
+      }
     }
-    outgoing = previous
-    withAnimation(.smooth(duration: 0.35)) { detent = next }
+  }
+
+  /// The content's height changed (a pushed / popped page, a row shown or hidden).
+  func contentChanged(to target: CGFloat?, fallback: PresentationDetent) {
+    guard let target, presented else { return }
+    if settled { move(to: target, fallback: fallback) } else { pending = target }
+  }
+
+  private func move(to target: CGFloat, fallback: PresentationDetent) {
+    if let height, abs(target - height) < 0.5 { return }
+    outgoing = height.map { .height($0) } ?? fallback
+    withAnimation(.smooth(duration: 0.35)) { height = target }
     generation += 1
-    let current = generation
+    let token = generation
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-      guard let self, self.generation == current else { return }
+      guard let self, self.generation == token else { return }
       self.outgoing = nil
     }
   }
@@ -196,74 +276,156 @@ private struct NemuSheetFitStateKey: EnvironmentKey {
   static let defaultValue: NemuSheetFitState? = nil
 }
 
+private struct NemuSheetFitStoreKey: EnvironmentKey {
+  static let defaultValue: NemuSheetFitStore? = nil
+}
+
 extension EnvironmentValues {
   var nemuSheetFit: NemuSheetFitState? {
     get { self[NemuSheetFitStateKey.self] }
     set { self[NemuSheetFitStateKey.self] = newValue }
   }
+
+  var nemuSheetFitStore: NemuSheetFitStore? {
+    get { self[NemuSheetFitStoreKey.self] }
+    set { self[NemuSheetFitStoreKey.self] = newValue }
+  }
 }
 
-/// On a sheet's root: one presentation detent sized to the content of the
-/// Form on screen (`NemuReportSheetContentHeightModifier`), so a short Form
-/// gets a short sheet instead of a full-height one with empty space below
-/// its last row. Pushing a page inside the sheet's NavigationStack resizes the
-/// sheet to that page, animated from the previous height. Taller than the
-/// screen, the detent resolves to the system's maximum and the Form scrolls.
-/// Until the first measurement (and before iOS 18, which has no scroll
-/// geometry) the detent is `initialHeight` when given, else `.large`.
+private func nemuDetent(_ height: CGFloat?, fallback: CGFloat) -> PresentationDetent {
+  if let height { return .height(height) }
+  return fallback > 0 ? .height(fallback.rounded(.up)) : .medium
+}
+
+/// On a sheet's root: one presentation detent as tall as the page on screen
+/// (`page`, or the page a `NemuReportSheetContentHeightModifier` reports on
+/// appearing), from the heights its off-screen copies measured
+/// (`NemuMeasureSheetPageModifier`, same `group`). The sheet presents once,
+/// natively, at that height; pushing / popping a page or a content change
+/// resizes it with the system's sheet animation. Taller than the screen, the
+/// system caps the detent and the Form scrolls. Unmeasured (before iOS 18,
+/// which has no scroll geometry), the detent is `initialHeight` when given,
+/// else `.medium`.
 struct NemuFitSheetDetentModifier: ViewModifier {
   static let type = "nemuFitSheetDetent"
+  let page: String
   let initialHeight: CGFloat
+  @ObservedObject private var store: NemuSheetFitStore
   @StateObject private var state = NemuSheetFitState()
 
   init(params: [String: Any]) {
+    page = (params["page"] as? String) ?? "root"
     initialHeight = CGFloat((params["initialHeight"] as? Double) ?? 0)
+    store = NemuSheetFitStore.named((params["group"] as? String) ?? "default")
   }
 
   func body(content: Content) -> some View {
-    let current = state.detent ?? (initialHeight > 0 ? .height(initialHeight.rounded(.up)) : .large)
-    let detents: Set<PresentationDetent> = state.outgoing.map { [current, $0] } ?? [current]
-    content
-      .environment(\.nemuSheetFit, state)
-      // The selection always follows the content; a drag toward the
-      // outgoing detent during the glide is not kept.
-      .presentationDetents(detents, selection: Binding(get: { current }, set: { _ in }))
+    if #available(iOS 17.0, *) {
+      let target = store.detentHeight(page: state.activePage ?? page)
+      let fallback = nemuDetent(nil, fallback: initialHeight)
+      let current = nemuDetent(state.presented ? state.height : target, fallback: initialHeight)
+      let detents: Set<PresentationDetent> = state.outgoing.map { [current, $0] } ?? [current]
+      content
+        .environment(\.nemuSheetFit, state)
+        .environment(\.nemuSheetFitStore, store)
+        // The selection always follows the content; a drag toward the
+        // outgoing detent during a resize is not kept.
+        .presentationDetents(detents, selection: Binding(get: { current }, set: { _ in }))
+        .onAppear { state.appeared(at: target, fallback: fallback) }
+        .onChange(of: target) { _, next in state.contentChanged(to: next, fallback: fallback) }
+        // The page JS has on top (a presentation that opens on a pushed page).
+        .onChange(of: page) { _, next in state.activePage = next }
+    } else {
+      content.presentationDetents([nemuDetent(nil, fallback: initialHeight)])
+    }
   }
 }
 
-/// On each Form in a `NemuFitSheetDetentModifier` sheet: reports the height
-/// the sheet needs to show the whole Form — its content plus the insets above
-/// (navigation bar) and below it — while that Form is the page on screen.
+/// On each Form inside a `NemuFitSheetDetentModifier` sheet: the page it is
+/// (`page`, as measured by its off-screen copy). Appearing — pushed, popped
+/// back to — it becomes the page the sheet is sized to, so the sheet resizes
+/// alongside the navigation transition. It also reports the sheet's bar
+/// height (the safe area above the Form) for the next presentations.
 struct NemuReportSheetContentHeightModifier: ViewModifier {
   static let type = "nemuReportSheetContentHeight"
+  let page: String?
   @Environment(\.nemuSheetFit) private var fit
-  @State private var measured: CGFloat = 0
-  @State private var onScreen = false
+  @Environment(\.nemuSheetFitStore) private var store
 
-  private func report(_ height: CGFloat, onScreen: Bool) {
-    guard onScreen else { return }
-    fit?.update(height: height)
+  init(params: [String: Any]) {
+    page = params["page"] as? String
+  }
+
+  func body(content: Content) -> some View {
+    content
+      .onAppear {
+        if let page, fit?.activePage != page { fit?.activePage = page }
+      }
+      .onGeometryChange(for: CGFloat.self) { proxy in proxy.safeAreaInsets.top } action: { top in
+        store?.setBarHeight(top)
+      }
+  }
+}
+
+/// On the off-screen copy of a content-sized sheet's page: lays the Form out
+/// at the sheet's width (invisible, untouchable, hidden from accessibility)
+/// and records its content height in `group`'s store under `page`, so the
+/// sheet knows it before it presents.
+struct NemuMeasureSheetPageModifier: ViewModifier {
+  static let type = "nemuMeasureSheetPage"
+  let group: String
+  let page: String
+  let width: CGFloat
+  let height: CGFloat
+  @State private var safeArea = EdgeInsets()
+
+  init(params: [String: Any]) {
+    group = (params["group"] as? String) ?? "default"
+    page = (params["page"] as? String) ?? "root"
+    width = CGFloat((params["width"] as? Double) ?? 0)
+    height = CGFloat((params["height"] as? Double) ?? 0)
+  }
+
+  private struct Metrics: Equatable {
+    var content: CGFloat
+    var insets: CGFloat
   }
 
   func body(content: Content) -> some View {
     if #available(iOS 18.0, *) {
       content
-        .onScrollGeometryChange(for: CGFloat.self) { geometry in
-          geometry.contentSize.height + geometry.contentInsets.top + geometry.contentInsets.bottom
-        } action: { _, height in
-          measured = height
-          report(height, onScreen: onScreen)
+        .onScrollGeometryChange(for: Metrics.self) { geometry in
+          Metrics(
+            content: geometry.contentSize.height,
+            insets: geometry.contentInsets.top + geometry.contentInsets.bottom
+          )
+        } action: { _, metrics in
+          record(metrics)
         }
-        .onAppear {
-          onScreen = true
-          report(measured, onScreen: true)
+        .onGeometryChange(for: EdgeInsets.self) { proxy in proxy.safeAreaInsets } action: { insets in
+          safeArea = insets
         }
-        .onDisappear { onScreen = false }
+        .frame(width: width > 0 ? width : nil, height: height > 0 ? height : nil)
+        .opacity(0)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     } else {
-      content
+      content.hidden().frame(width: 0, height: 0)
     }
   }
+
+  private func record(_ metrics: Metrics) {
+    // Before the rows lay out the content is empty (and the insets are a
+    // provisional large-title bar's): only real content counts.
+    guard metrics.content > 0 else { return }
+    // The Form's margins stay; the safe area of wherever the copy sits does not.
+    let margins = max(0, metrics.insets - safeArea.top - safeArea.bottom)
+    NemuSheetFitStore.named(group).setContentHeight(metrics.content + margins, page: page)
+    sheetFitLog.debug("measured \(group, privacy: .public)/\(page, privacy: .public) content=\(metrics.content) insets=\(metrics.insets) safe=\(safeArea.top)+\(safeArea.bottom)")
+  }
 }
+
+private let sheetFitLog = Logger(subsystem: "pm.nemu.window-layout", category: "sheet-fit")
 
 /// Off by default; `log stream --level debug --predicate 'subsystem == "pm.nemu.window-layout"'`.
 private let windowLayoutLog = Logger(subsystem: "pm.nemu.window-layout", category: "observer")

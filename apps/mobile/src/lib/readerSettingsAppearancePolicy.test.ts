@@ -45,3 +45,43 @@ describe("reader settings appearance policy", () => {
     expect(source).not.toContain('<VerticalBarBehavior disabled appearance="dark" />');
   });
 });
+
+/**
+ * Regression: the compact-width settings sheet appeared in place (no slide
+ * up) and then grew its rows in. Its `presentationBackground` sat on the Form
+ * inside the sheet's NavigationStack, which reaches UIKit only after the
+ * presentation has started; and its height came from the Form measuring
+ * itself in the sheet, so the detent changed while the sheet was presenting.
+ */
+describe("reader settings sheet presentation", () => {
+  const source = mobileSource("components/reader/ReaderSettingsNativePopover.ios.tsx");
+
+  test("presentation modifiers are on the presented root: the popover's Form, the sheet's Group", () => {
+    expect(source).toContain(
+      "? [frame({ width: presentation.width, height: presentation.height }), ...presentationModifiers]",
+    );
+    const sheet = source.indexOf("<SwiftBottomSheet");
+    const stack = source.indexOf("<SwiftNavigationStack", sheet);
+    expect(source.slice(sheet, stack)).toContain("...presentationModifiers,");
+    // Defined once, in `presentationModifiers`.
+    expect(source.match(/presentationBackground\(/g)?.length).toBe(1);
+  });
+
+  test("the sheet's height is measured off screen before it presents", () => {
+    const host = source.indexOf("if (sheet) {");
+    const sheet = source.indexOf("<SwiftBottomSheet", host);
+    expect(source.slice(host, sheet)).toContain("{measuringCopy}");
+    const copy = source.slice(source.indexOf("const measuringCopy = ("), host);
+    expect(copy).toContain("...formLayoutModifiers,");
+    expect(copy).toContain("group: READER_SETTINGS_SHEET_GROUP");
+    expect(copy).toContain("{settingsSections}");
+    expect(copy).not.toContain("presentationModifiers");
+    // Re-rendered only when the rows' height can change, never by `visible`.
+    expect(copy).toContain("heightKey={JSON.stringify([measureFrame, settingsRows, saving,");
+    expect(source).toContain("(previous, next) => previous.heightKey === next.heightKey");
+    expect(source).toMatch(
+      /fitSheetDetentToContent\(\{\s*group: READER_SETTINGS_SHEET_GROUP,\s*page: READER_SETTINGS_SHEET_PAGE,/,
+    );
+    expect(source).toContain("reportSheetContentHeight({ page: READER_SETTINGS_SHEET_PAGE })");
+  });
+});
