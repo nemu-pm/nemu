@@ -14,6 +14,16 @@
  * below the bar and scrolls softly under it. No `headerBlurEffect` with it
  * (react-native-screens warns the two effects overlap). Android keeps the
  * opaque Material top app bar.
+ *
+ * Which scroll view gets the style: stock react-native-screens only styled the
+ * scroll view reached through `subviews[0]` from the screen, once, at push /
+ * prop change. Pages whose ScrollView sits behind a sibling (settings, source
+ * manga, library manga detail) or mounts later (skeleton → content) kept
+ * UIKit's `automatic`, which under this bar renders as the hard band + line.
+ * `patches/react-native-screens@4.28.0.patch` (RNSScreen.mm) applies the
+ * screen's effects to every top-level React ScrollView of the screen (not
+ * inside another ScrollView or a nested screen) and re-applies whenever a
+ * mounting transaction inserts a ScrollView.
  */
 export const NEMU_SOFT_SCROLL_EDGE_EFFECTS = {
   top: "soft",
