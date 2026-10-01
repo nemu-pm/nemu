@@ -81,7 +81,12 @@ describe("mobile sheet and text-field chrome policy", () => {
     // iOS 26+, `bordered` before it, always a circle at the large control size.
     // A hand-rolled `glassEffect` renders as a flat disc, and forcing a frame on
     // the label makes the circle grow to that frame plus the style's padding.
-    expect(source).toContain('buttonStyle(glass ? "glass" : "bordered")');
+    expect(source).toContain('const chrome = glass ? "glass" : "bordered";');
+    // A confirming action (Save / Done) takes the prominent, accent-filled form.
+    expect(source).toContain(
+      'const prominentChrome = glass ? "glassProminent" : "borderedProminent";',
+    );
+    expect(source).toContain("buttonStyle(prominent ? prominentChrome : chrome)");
     expect(source).toContain('buttonBorderShape("circle")');
     expect(source).toContain('controlSize("large")');
     expect(source).toContain("const GLYPH_POINT_SIZE = 20");

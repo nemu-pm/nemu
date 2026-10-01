@@ -35,7 +35,12 @@ export type MobileCollectionsManagerNativeSheetProps = {
   onClose: () => void;
   onDismiss?: () => void;
   onSelect: (collectionId: string) => void;
-  onCreate: () => void;
-  onRename: (collection: LocalCollection) => void;
+  /**
+   * The sheet asks for names and confirmations itself (alerts over the
+   * sheet, as in Photos), so these commit: the sheet stays open and its list
+   * updates in place.
+   */
+  onCreate: (name: string) => void;
+  onRename: (collection: LocalCollection, name: string) => void;
   onRemove: (collection: LocalCollection) => void;
 };

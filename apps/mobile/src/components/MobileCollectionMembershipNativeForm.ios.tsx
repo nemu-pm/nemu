@@ -9,22 +9,36 @@ import {
   SwipeActions as SwiftSwipeActions,
   Text as SwiftText,
 } from "@expo/ui/swift-ui";
-import { foregroundStyle, tint } from "@expo/ui/swift-ui/modifiers";
+import {
+  disabled as swiftDisabled,
+  foregroundStyle,
+  listRowBackground,
+  tint,
+} from "@expo/ui/swift-ui/modifiers";
+import { useWindowDimensions } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { LocalCollection } from "@/data/schema";
 import { useNemuTheme } from "@/design-system";
 import { formatMobileString } from "@/lib/mobileI18n";
+import { getMobileCollectionListNativeDetents } from "@/lib/mobileLibrarySheetLayout";
 import { MobileNativeFormSheet } from "./MobileNativeFormSheet";
-import { NativeCheckRow, NativeDestructiveDialog, NativeNameAlert } from "./MobileNativeFormSheetParts.ios";
+import {
+  NativeCheckRow,
+  NativeDestructiveDialog,
+  NativeNameAlert,
+} from "./MobileNativeFormSheetParts.ios";
+import { nativeGroupedRowColors } from "./MobileNativeFormSheetColors";
 import type { MobileCollectionMembershipNativeFormProps } from "./MobileCollectionMembershipNativeForm.types";
 
 export const mobileCollectionMembershipNativeFormAvailable = true;
 
 /**
  * Collections for one title as a native sheet (Photos "Add to Album",
- * Reminders' list pickers): Cancel / Save in the navigation bar, "New
- * Collection" as the first row (an alert with a name field), then every
- * collection as a checkmark row. Rename and Delete are the row's swipe
- * actions and its context menu, not buttons crowded into every row.
+ * Reminders' list pickers) on the opaque grouped background: Cancel / Save
+ * in the navigation bar, "New Collection" heading the group (an alert with a
+ * name field), then every collection as a compact checkmark row with its
+ * book count trailing. Rename and Delete are the row's swipe actions and its
+ * context menu, not buttons crowded into every row.
  */
 export function MobileCollectionMembershipNativeForm({
   visible,
@@ -51,6 +65,10 @@ export function MobileCollectionMembershipNativeForm({
   onDismiss,
 }: MobileCollectionMembershipNativeFormProps) {
   const { tokens } = useNemuTheme();
+  const { fontScale, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const colors = nativeGroupedRowColors;
+  const rowBackground = listRowBackground(colors.rowBackground);
   const [creatingName, setCreatingName] = useState(false);
   const [renameTarget, setRenameTarget] = useState<LocalCollection | null>(null);
   const [removeTarget, setRemoveTarget] = useState<LocalCollection | null>(null);
@@ -65,7 +83,13 @@ export function MobileCollectionMembershipNativeForm({
       onDismiss={onDismiss}
       title={strings.collectionMembership.title}
       subtitle={subtitle}
-      detents={["medium", "large"]}
+      detents={getMobileCollectionListNativeDetents({
+        collectionCount: rows.length,
+        fontScale,
+        height,
+        topInset: insets.top,
+      })}
+      background="grouped"
       interactiveDismissDisabled={dirty}
       cancel={{ label: strings.common.cancel, onPress: onCancel }}
       confirm={{ label: strings.common.save, onPress: onSave, disabled: saveDisabled, busy: saving }}
@@ -122,52 +146,55 @@ export function MobileCollectionMembershipNativeForm({
     >
       {loading ? (
         <SwiftSection>
-          <SwiftHStack spacing={10}>
+          <SwiftHStack spacing={10} modifiers={[rowBackground]}>
             <SwiftProgressView />
-            <SwiftText modifiers={[foregroundStyle({ type: "hierarchical", style: "secondary" })]}>
+            <SwiftText modifiers={[foregroundStyle(colors.detail)]}>
               {strings.collectionMembership.loading}
             </SwiftText>
           </SwiftHStack>
         </SwiftSection>
       ) : (
         <>
-          <SwiftSection>
+          <SwiftSection
+            footer={
+              <SwiftText>
+                {rows.length
+                  ? strings.collectionMembership.manageRowsFooter
+                  : strings.collectionMembership.noCollectionsYet}
+              </SwiftText>
+            }
+          >
             {creating ? (
-              <SwiftHStack spacing={10}>
+              <SwiftHStack spacing={10} modifiers={[rowBackground]}>
                 <SwiftProgressView />
-                <SwiftText>{strings.collectionMembership.newCollection}</SwiftText>
+                <SwiftText modifiers={[foregroundStyle(colors.detail)]}>
+                  {strings.collectionMembership.newCollection}
+                </SwiftText>
               </SwiftHStack>
             ) : (
               <SwiftButton
                 label={strings.collectionMembership.newCollectionAction}
                 systemImage="plus"
                 onPress={() => setCreatingName(true)}
-                modifiers={busy ? [tint(tokens.mutedForeground)] : []}
+                modifiers={[rowBackground, ...(busy ? [swiftDisabled(true)] : [])]}
               />
             )}
-          </SwiftSection>
-          <SwiftSection
-            footer={
-              rows.length ? (
-                <SwiftText>{strings.collectionMembership.manageRowsFooter}</SwiftText>
-              ) : undefined
-            }
-          >
             {rows.length ? (
-              rows.map(({ collection, countLabel, selected }) => (
+              rows.map(({ collection, count, countLabel, selected }) => (
                 <SwiftSwipeActions key={collection.collectionId}>
                   <SwiftContextMenu>
                     <SwiftContextMenu.Trigger>
                       <NativeCheckRow
                         title={collection.name}
-                        detail={countLabel}
+                        value={String(count)}
                         systemImage="rectangle.stack"
                         selectedSystemImage="rectangle.stack.fill"
                         selected={selected}
                         disabled={busy}
                         tintColor={tokens.primary}
-                        textColor={tokens.foreground}
-                        detailColor={tokens.mutedForeground}
+                        textColor={colors.text}
+                        detailColor={colors.detail}
+                        rowBackground={colors.rowBackground}
                         accessibilityLabel={formatMobileString(
                           strings.collectionMembership.collectionRowAccessibility,
                           { name: collection.name, countLabel },
@@ -212,11 +239,7 @@ export function MobileCollectionMembershipNativeForm({
                   </SwiftSwipeActions.Actions>
                 </SwiftSwipeActions>
               ))
-            ) : (
-              <SwiftText modifiers={[foregroundStyle({ type: "hierarchical", style: "secondary" })]}>
-                {strings.collectionMembership.noCollectionsYet}
-              </SwiftText>
-            )}
+            ) : null}
           </SwiftSection>
           {error ? (
             <SwiftSection>
@@ -224,13 +247,18 @@ export function MobileCollectionMembershipNativeForm({
                 title={error}
                 systemImage="exclamationmark.triangle"
                 color={tokens.danger}
-                modifiers={[foregroundStyle(tokens.danger)]}
+                modifiers={[foregroundStyle(tokens.danger), rowBackground]}
               />
               {canRetry ? (
                 retrying ? (
-                  <SwiftProgressView />
+                  <SwiftProgressView modifiers={[rowBackground]} />
                 ) : (
-                  <SwiftButton label={strings.common.retry} systemImage="arrow.clockwise" onPress={onRetry} />
+                  <SwiftButton
+                    label={strings.common.retry}
+                    systemImage="arrow.clockwise"
+                    onPress={onRetry}
+                    modifiers={[rowBackground]}
+                  />
                 )
               ) : null}
             </SwiftSection>

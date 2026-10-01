@@ -20,6 +20,14 @@ export type MobileNativeFormSheetProps = {
   title: string;
   subtitle?: string;
   detents: MobileNativeFormSheetDetent[];
+  /**
+   * `glass` (default): the system's Liquid Glass sheet, for a few short
+   * action rows. `grouped`: the opaque grouped-table background with solid
+   * cells and compact section spacing (Settings, Photos "Add to Album") —
+   * for lists of names and counts, whose secondary text loses its contrast
+   * over glass when the library's covers are behind the sheet.
+   */
+  background?: "glass" | "grouped";
   /** Blocks swipe-to-dismiss (unsaved changes, work in flight). */
   interactiveDismissDisabled?: boolean;
   /**

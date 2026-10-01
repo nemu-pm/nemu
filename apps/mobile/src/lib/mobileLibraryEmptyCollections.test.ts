@@ -35,7 +35,9 @@ describe("empty library keeps collection management reachable", () => {
     );
     for (const sheet of [
       "<TitleMenuSheet",
-      "<ManagerSheet",
+      // iOS: the SwiftUI manager; Android: the React Native one.
+      "<MobileCollectionsManagerNativeSheet",
+      "<CollectionsManagerSheet",
       'mode="create"',
       'mode="rename"',
     ]) {

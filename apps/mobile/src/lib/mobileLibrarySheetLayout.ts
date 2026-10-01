@@ -1,3 +1,8 @@
+import {
+  getMobileLibraryOptionsNativeSheetHeight,
+  MOBILE_LIBRARY_OPTIONS_SHEET_METRICS,
+} from "@/lib/mobileLibraryOptionsSheetLayout";
+
 export type MobileLibrarySheetLayout = {
   snapPoints: string[] | undefined;
   scroll: boolean;
@@ -66,14 +71,43 @@ export function getMobileCollectionsManagerSheetLayout(
     : { snapPoints: undefined, scroll: false };
 }
 
-export function getMobileManageCollectionSheetLayout(
-  input: MobileLibrarySheetLayoutInput,
-): MobileLibrarySheetLayout {
-  // The panel owns its scrolling body and fixed Save/Cancel footer. Even a
-  // short library needs a bounded viewport so text/keyboard growth cannot
-  // push the commit action offscreen.
-  return {
-    snapPoints: [input.width > input.height ? "100%" : "78%"],
-    scroll: false,
-  };
+/**
+ * Room above the first group of a `background="grouped"` Form sheet (pt):
+ * inline title, no top scroll-content margin, then this section margin.
+ */
+export const MOBILE_GROUPED_FORM_TOP_MARGIN = 8;
+
+/** A SwiftUI `presentationDetents` value (see `MobileNativeFormSheet`). */
+export type MobileCollectionListNativeDetent = "medium" | "large" | { height: number };
+
+/**
+ * Detents of the native (SwiftUI Form) collection lists — Manage Collections
+ * and a title's Collections: one group holding "New Collection…" and a row
+ * per collection, with a one- or two-line footer. A short list opens at its
+ * rows' height (a "medium" half-screen left most of the sheet empty); once
+ * the rows would pass 60% of the window, the medium / large pair takes over
+ * and the Form scrolls.
+ */
+export function getMobileCollectionListNativeDetents({
+  collectionCount,
+  fontScale,
+  height,
+  topInset,
+}: {
+  collectionCount: number;
+  fontScale: number;
+  height: number;
+  topInset: number;
+}): MobileCollectionListNativeDetent[] {
+  // The grouped Form starts closer to its bar than the options sheet's.
+  const tighterTop = MOBILE_LIBRARY_OPTIONS_SHEET_METRICS.formTop - MOBILE_GROUPED_FORM_TOP_MARGIN;
+  const fitted =
+    getMobileLibraryOptionsNativeSheetHeight({
+      sections: [collectionCount + 1],
+      footerLines: 2,
+      fontScale,
+      maxHeight: height - topInset,
+    }) - tighterTop;
+  if (fitted > height * 0.6) return ["medium", "large"];
+  return [{ height: fitted }];
 }

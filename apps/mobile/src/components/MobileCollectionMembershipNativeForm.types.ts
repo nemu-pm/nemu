@@ -3,6 +3,9 @@ import type { MobileStrings } from "@/lib/mobileI18n";
 
 export type MobileCollectionMembershipNativeFormRow = {
   collection: LocalCollection;
+  /** Books in the collection: the row's trailing value. */
+  count: number;
+  /** The count as words, for VoiceOver. */
   countLabel: string;
   selected: boolean;
 };

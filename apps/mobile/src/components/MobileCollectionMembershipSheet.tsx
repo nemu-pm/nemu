@@ -576,14 +576,15 @@ function CollectionMembershipContent({
         strings={strings}
         subtitle={title ?? strings.collectionMembership.subtitle}
         loading={collections.loading}
-        rows={collections.data.map((collection) => ({
-          collection,
-          countLabel: collectionBookCountText(
-            collectionCount(collection.collectionId, collections.membership),
-            strings,
-          ),
-          selected: selected.has(collection.collectionId),
-        }))}
+        rows={collections.data.map((collection) => {
+          const count = collectionCount(collection.collectionId, collections.membership);
+          return {
+            collection,
+            count,
+            countLabel: collectionBookCountText(count, strings),
+            selected: selected.has(collection.collectionId),
+          };
+        })}
         busy={busy}
         saving={saving}
         creating={creating}

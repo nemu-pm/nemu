@@ -20,16 +20,28 @@ import {
   interactiveDismissDisabled,
   labelStyle,
   lineLimit,
+  listSectionMargins,
+  listSectionSpacing,
+  presentationBackground,
   presentationDetents,
   presentationDragIndicator,
+  scrollContentBackground,
   scrollEdgeEffectStyle,
   tint,
 } from "@expo/ui/swift-ui/modifiers";
-import { StyleSheet, View } from "react-native";
+import { PlatformColor, StyleSheet, View } from "react-native";
 import { useNemuTheme } from "@/design-system";
+import { MOBILE_GROUPED_FORM_TOP_MARGIN } from "@/lib/mobileLibrarySheetLayout";
+import {
+  inlineToolbarTitle,
+  zeroTopScrollContentMargin,
+} from "../../modules/nemu-window-layout/src/presentationColorScheme";
 import type { MobileNativeFormSheetAction, MobileNativeFormSheetProps } from "./MobileNativeFormSheet.types";
 
 export const mobileNativeFormSheetAvailable = true;
+
+/** `background="grouped"`: the grouped-table backdrop, resolved per appearance. */
+const GROUPED_SHEET_BACKGROUND = PlatformColor("systemGroupedBackground");
 
 function ToolbarActionButton({
   action,
@@ -66,6 +78,7 @@ export function MobileNativeFormSheet({
   title,
   subtitle,
   detents,
+  background = "glass",
   interactiveDismissDisabled: dismissDisabled = false,
   cancel,
   closeAccessibilityLabel,
@@ -77,7 +90,27 @@ export function MobileNativeFormSheet({
   testID,
 }: MobileNativeFormSheetProps) {
   const { scheme, tokens } = useNemuTheme();
-  const form = <SwiftForm key={formKey}>{children}</SwiftForm>;
+  const grouped = background === "grouped";
+  const form = (
+    <SwiftForm
+      key={formKey}
+      modifiers={
+        grouped
+          ? [
+              scrollContentBackground("hidden"),
+              listSectionSpacing("compact"),
+              // The first group sits just under the bar instead of below an
+              // empty large-title row and the grouped list's top margin.
+              inlineToolbarTitle(),
+              zeroTopScrollContentMargin(),
+              listSectionMargins({ edges: "top", length: MOBILE_GROUPED_FORM_TOP_MARGIN }),
+            ]
+          : undefined
+      }
+    >
+      {children}
+    </SwiftForm>
+  );
 
   return (
     <View pointerEvents="none" style={styles.host} testID={testID}>
@@ -93,6 +126,7 @@ export function MobileNativeFormSheet({
             modifiers={[
               presentationDetents(detents),
               presentationDragIndicator("visible"),
+              ...(grouped ? [presentationBackground(GROUPED_SHEET_BACKGROUND)] : []),
               interactiveDismissDisabled(dismissDisabled),
               // Rows fade softly under the sheet's bar, as on every page.
               scrollEdgeEffectStyle("soft", "vertical"),

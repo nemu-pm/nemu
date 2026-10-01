@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import type { ColorValue } from "react-native";
 import {
   Alert as SwiftAlert,
   Button as SwiftButton,
@@ -18,6 +19,8 @@ import {
   font,
   foregroundStyle,
   lineLimit,
+  listRowBackground,
+  monospacedDigit,
   submitLabel,
   textInputAutocapitalization,
 } from "@expo/ui/swift-ui/modifiers";
@@ -180,11 +183,13 @@ export function NativeDestructiveDialog({
 
 /**
  * A tappable Form row: leading symbol, title and an optional secondary line,
- * and a trailing checkmark when selected — Settings' choice-list cell.
+ * an optional trailing value (a count, as in Mail's mailbox list), and a
+ * trailing checkmark when selected — Settings' choice-list cell.
  */
 export function NativeCheckRow({
   title,
   detail,
+  value,
   systemImage,
   selectedSystemImage,
   selected,
@@ -192,23 +197,28 @@ export function NativeCheckRow({
   tintColor,
   textColor,
   detailColor,
+  rowBackground,
   accessibilityLabel,
   onPress,
 }: {
   title: string;
   detail?: string;
+  /** Trailing secondary text on the title's line (e.g. a book count). */
+  value?: string;
   systemImage?: string;
   selectedSystemImage?: string;
   selected: boolean;
   disabled?: boolean;
-  tintColor: string;
+  tintColor: ColorValue;
   /**
    * Label colours. A Form button tints its whole label with the accent, and
    * hierarchical styles resolve to that tint, so the row's text needs
    * explicit colours to read as a cell (black title, grey detail).
    */
-  textColor: string;
-  detailColor: string;
+  textColor: ColorValue;
+  detailColor: ColorValue;
+  /** The cell's fill (`listRowBackground`); omitted, the Form's default. */
+  rowBackground?: ColorValue;
   accessibilityLabel?: string;
   onPress: () => void;
 }) {
@@ -217,6 +227,7 @@ export function NativeCheckRow({
     <SwiftButton
       onPress={onPress}
       modifiers={[
+        ...(rowBackground ? [listRowBackground(rowBackground)] : []),
         ...(accessibilityLabel ? [swiftAccessibilityLabel(accessibilityLabel)] : []),
         ...(selected ? [accessibilityAddTraits(["isSelected"])] : []),
         ...(disabled ? [swiftDisabled(true)] : []),
@@ -241,6 +252,11 @@ export function NativeCheckRow({
           ) : null}
         </SwiftVStack>
         <SwiftSpacer />
+        {value ? (
+          <SwiftText modifiers={[foregroundStyle(detailColor), monospacedDigit(), lineLimit(1)]}>
+            {value}
+          </SwiftText>
+        ) : null}
         {selected ? (
           <SwiftImage
             systemName="checkmark"

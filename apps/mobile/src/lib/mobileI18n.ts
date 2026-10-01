@@ -227,6 +227,14 @@ export type MobileStrings = {
     titleMenuNewCollection: string;
     updated: string;
     updateMembershipDescription: string;
+    editCollectionTitle: string;
+    collectionBooksSection: string;
+    collectionBooksSelectedOne: string;
+    collectionBooksSelectedOther: string;
+    collectionBooksNoMatches: string;
+    collectionNameSection: string;
+    searchLibraryBooks: string;
+    clearLibrarySearch: string;
     unavailable: string;
   };
   collectionMembership: {
