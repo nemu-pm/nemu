@@ -1,7 +1,15 @@
 /**
  * A genuinely native iOS search field: a SwiftUI `TextField` hosted by
  * `@expo/ui/swift-ui`, composed as `Host > HStack > [magnifier, TextField,
- * clear Button]` on a secondary-filled capsule.
+ * clear Button]` on a capsule.
+ *
+ * Surface: on iOS 26+ the capsule is the system Liquid Glass material
+ * (`glassEffect(.regular.interactive(), in: .capsule)`), sized like UIKit's
+ * own iOS 26 `UISearchTextField` (44pt, 17pt text) so it reads as the same
+ * control as the header search bars. Its text and glyphs use the material's
+ * hierarchical styles so they stay legible whatever the glass refracts. Below
+ * iOS 26 `glassEffect` is a no-op, so the field keeps the 36pt
+ * secondary-filled capsule there (`resolveNemuSearchFieldSurface`).
  *
  * KNOWN CAVEAT — read before debugging focus bugs. This field is rendered
  * inside a sheet that is itself a SwiftUI/UIKit presentation, so the SwiftUI
@@ -26,12 +34,13 @@
  * asynchronously and would fight the user's own typing.
  */
 import { useEffect, useRef } from "react";
-import { StyleSheet } from "react-native";
+import { Platform, PlatformColor, StyleSheet } from "react-native";
 import {
   Button as SwiftButton,
   HStack as SwiftHStack,
   Host as SwiftHost,
   Image as SwiftImage,
+  Text as SwiftText,
   TextField as SwiftTextField,
   useNativeState,
 } from "@expo/ui/swift-ui";
@@ -43,6 +52,7 @@ import {
   font,
   foregroundStyle,
   frame,
+  glassEffect,
   keyboardType,
   onSubmit as swiftOnSubmit,
   padding,
@@ -52,15 +62,45 @@ import {
   tint,
 } from "@expo/ui/swift-ui/modifiers";
 import { useNemuTheme } from "@/design/useNemuTheme";
+import { resolveNemuSearchFieldSurface } from "@/lib/nemuSearchFieldAppearance";
 import type { NemuNativeSearchFieldProps } from "./NemuNativeSearchField.types";
 
-/** iOS search field metrics: a 36pt capsule with 15pt text. */
-const FIELD_HEIGHT = 36;
-const FIELD_HORIZONTAL_INSET = 12;
-const FIELD_FONT_SIZE = 15;
-const GLYPH_POINT_SIZE = 15;
-const CLEAR_GLYPH_POINT_SIZE = 17;
-const CONTENT_SPACING = 8;
+/**
+ * Field metrics per surface. `filled` is the pre-iOS 26 `UISearchTextField`
+ * (36pt capsule, 15pt text); `liquid-glass` is the iOS 26 one (44pt glass
+ * capsule, 17pt text), matching the header search bars on the same screens.
+ */
+const FIELD_METRICS = {
+  filled: {
+    height: 36,
+    horizontalInset: 12,
+    fontSize: 15,
+    glyphSize: 15,
+    clearGlyphSize: 17,
+    spacing: 8,
+  },
+  "liquid-glass": {
+    height: 44,
+    horizontalInset: 14,
+    fontSize: 17,
+    glyphSize: 17,
+    clearGlyphSize: 17,
+    spacing: 8,
+  },
+} as const;
+
+/** Platform facts do not change at runtime; resolve the surface once. */
+const FIELD_SURFACE = resolveNemuSearchFieldSurface(Platform.OS, Platform.Version);
+const metrics = FIELD_METRICS[FIELD_SURFACE];
+const glass = FIELD_SURFACE === "liquid-glass";
+/** Hierarchical styles adapt to whatever the glass refracts; tokens cannot. */
+const GLASS_PRIMARY = { type: "hierarchical", style: "primary" } as const;
+/**
+ * The placeholder is a `prompt`, which SwiftUI already dims; a hierarchical
+ * `.secondary` would compound with that and wash out. UIKit's own glass
+ * search field draws its placeholder in `secondaryLabel`, so use it directly.
+ */
+const GLASS_PLACEHOLDER = PlatformColor("secondaryLabel");
 
 export function NemuNativeSearchField({
   value,
@@ -111,25 +151,45 @@ export function NemuNativeSearchField({
     >
       <SwiftHStack
         alignment="center"
-        spacing={CONTENT_SPACING}
+        spacing={metrics.spacing}
         modifiers={[
-          padding({ horizontal: FIELD_HORIZONTAL_INSET }),
-          frame({ height: FIELD_HEIGHT }),
-          background(tokens.secondary, shapes.capsule()),
+          padding({ horizontal: metrics.horizontalInset }),
+          frame({ height: metrics.height }),
+          glass
+            ? // Regular, untinted, interactive glass: the material Apple's own
+              // search fields use. A token fill here would hide it.
+              glassEffect({
+                glass: { variant: "regular", interactive: true },
+                shape: "capsule",
+              })
+            : background(tokens.secondary, shapes.capsule()),
         ]}
       >
+        {/*
+          iOS 26 draws the glass field's magnifier and clear glyph in the
+          primary label style and its placeholder in the secondary one; the
+          filled field keeps the muted token glyphs and SwiftUI's default
+          placeholder.
+        */}
         <SwiftImage
           systemName="magnifyingglass"
-          color={tokens.mutedForeground}
-          size={GLYPH_POINT_SIZE}
+          size={metrics.glyphSize}
+          {...(glass
+            ? {
+                modifiers: [
+                  font({ size: metrics.glyphSize, weight: "medium" }),
+                  foregroundStyle(GLASS_PRIMARY),
+                ],
+              }
+            : { color: tokens.mutedForeground })}
         />
         <SwiftTextField
           text={textState}
           placeholder={placeholder}
           onTextChange={handleTextChange}
           modifiers={[
-            font({ size: FIELD_FONT_SIZE }),
-            foregroundStyle(tokens.foreground),
+            font({ size: metrics.fontSize }),
+            foregroundStyle(glass ? GLASS_PRIMARY : tokens.foreground),
             tint(tokens.primary),
             keyboardType("web-search"),
             submitLabel("search"),
@@ -138,7 +198,20 @@ export function NemuNativeSearchField({
             swiftAccessibilityLabel(accessibilityLabel),
             ...(onSubmit ? [swiftOnSubmit(onSubmit)] : []),
           ]}
-        />
+        >
+          {glass ? (
+            <SwiftTextField.Placeholder>
+              <SwiftText
+                modifiers={[
+                  font({ size: metrics.fontSize }),
+                  foregroundStyle(GLASS_PLACEHOLDER),
+                ]}
+              >
+                {placeholder}
+              </SwiftText>
+            </SwiftTextField.Placeholder>
+          ) : null}
+        </SwiftTextField>
         {value.length > 0 ? (
           <SwiftButton
             onPress={handleClear}
@@ -152,8 +225,10 @@ export function NemuNativeSearchField({
           >
             <SwiftImage
               systemName="xmark.circle.fill"
-              color={tokens.mutedForeground}
-              size={CLEAR_GLYPH_POINT_SIZE}
+              size={metrics.clearGlyphSize}
+              {...(glass
+                ? { modifiers: [foregroundStyle(GLASS_PRIMARY)] }
+                : { color: tokens.mutedForeground })}
             />
           </SwiftButton>
         ) : null}
@@ -164,6 +239,6 @@ export function NemuNativeSearchField({
 
 const styles = StyleSheet.create({
   host: {
-    height: FIELD_HEIGHT,
+    height: metrics.height,
   },
 });

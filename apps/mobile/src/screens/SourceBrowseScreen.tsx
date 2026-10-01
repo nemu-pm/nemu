@@ -204,6 +204,7 @@ import { fetchMobileSourceListing } from "@/sources/mobileSourceListings";
 import { MobilePoseLayoutView } from "@/components/MobilePoseLayoutView";
 import { useMobilePoseRemountVeil } from "@/lib/MobilePoseTransitionContext";
 import { useMobileGridScrollAnchor } from "@/lib/useMobileGridScrollAnchor";
+import { resolveNemuHeaderSearchBarColors } from "@/lib/nemuSearchFieldAppearance";
 import {
   clearMobileSourceListingCacheForRuntime,
   readMobileSourceListingCache,
@@ -1322,6 +1323,12 @@ export function SourceBrowseScreen() {
   const routeSourceSearchActive = hasMobileSourceBrowseRouteQuery(params.q);
   const routeSourceListingTab = normalizeMobileSourceBrowseRouteTab(params.tab);
   const { tokens } = useNemuTheme();
+  // iOS 26+: the system Liquid Glass search field, not a token-filled one.
+  const headerSearchBarColors = resolveNemuHeaderSearchBarColors(
+    Platform.OS,
+    Platform.Version,
+    tokens,
+  );
   const compactHeader = useCompactSourceBrowseHeader();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
@@ -3365,11 +3372,9 @@ export function SourceBrowseScreen() {
         <Stack.SearchBar
           ref={sourceSearchInputRef}
           autoCapitalize="none"
+          {...headerSearchBarColors}
           autoFocus
-          barTintColor={tokens.card}
-          headerIconColor={tokens.primary}
           hideWhenScrolling={false}
-          hintTextColor={tokens.mutedForeground}
           obscureBackground={false}
           onBlur={() => {
             submitSourceSearchText(
@@ -3400,8 +3405,6 @@ export function SourceBrowseScreen() {
           }}
           placeholder={strings.sourceBrowse.searchSourcePlaceholder}
           placement="stacked"
-          textColor={tokens.foreground}
-          tintColor={tokens.primary}
         />
       ) : null}
       {error ? (

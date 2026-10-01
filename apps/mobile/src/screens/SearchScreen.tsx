@@ -149,6 +149,7 @@ import {
   resolveMobileEntryDisplayCover,
 } from "@/lib/mobileEntryCover";
 import { useStableList } from "@/lib/useStableList";
+import { resolveNemuHeaderSearchBarColors } from "@/lib/nemuSearchFieldAppearance";
 import {
   groupLocalSearchResults,
   canClearMobileSearchQuery,
@@ -736,6 +737,12 @@ function localSearchRowKey(item: LocalSearchResultRow) {
 export function SearchScreen() {
   const sourceProfileScope = getActiveMobileSourceProfileScope();
   const { tokens } = useNemuTheme();
+  // iOS 26+: the system Liquid Glass search field, not a token-filled one.
+  const headerSearchBarColors = resolveNemuHeaderSearchBarColors(
+    Platform.OS,
+    Platform.Version,
+    tokens,
+  );
   const store = useMobileDataStore();
   const toast = useMobileToast();
   const params = useLocalSearchParams<{ q?: string | string[] }>();
@@ -1831,10 +1838,8 @@ export function SearchScreen() {
             <Stack.SearchBar
               ref={nativeSearchRef}
               autoCapitalize="none"
-              barTintColor={tokens.card}
-              headerIconColor={tokens.primary}
+              {...headerSearchBarColors}
               hideWhenScrolling={false}
-              hintTextColor={tokens.mutedForeground}
               obscureBackground={false}
               onCancelButtonPress={clearSearch}
               onChangeText={(event) => {
@@ -1857,8 +1862,6 @@ export function SearchScreen() {
               }}
               placeholder={strings.search.searchInstalledSources}
               placement="automatic"
-              textColor={tokens.foreground}
-              tintColor={tokens.primary}
             />
           ) : null}
         </>
