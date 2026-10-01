@@ -46,29 +46,14 @@ function toNativeSections(
  * the title. Renders nothing visible.
  */
 export function MobileLibraryTitleMenuAnchor({
-  title,
   sections,
-  tokens,
   onAction,
 }: MobileLibraryTitleMenuProps) {
   const nativeSections = useMemo(() => toNativeSections(sections), [sections]);
-  const shownCollection = sections[0]?.items.find(
-    (item) => item.checked && item.icon === "collection",
-  );
-  const header = useMemo(
-    () => ({
-      title,
-      systemImage: shownCollection ? SYMBOLS.collection : SYMBOLS.library,
-      tintColor: tokens.primary,
-    }),
-    [shownCollection, title, tokens.primary],
-  );
+  // No document header (icon + name) above the items: the owner wants the
+  // menu to open straight on the collection list.
   return (
-    <NavigationTitleMenu
-      sections={nativeSections}
-      header={header}
-      onSelectAction={onAction}
-    />
+    <NavigationTitleMenu sections={nativeSections} onSelectAction={onAction} />
   );
 }
 
