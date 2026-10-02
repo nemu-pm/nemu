@@ -322,13 +322,25 @@ export function createMobileJapaneseLearningPageOcrStore(options: {
  * The engine a page is read with right now (recognition setting, device
  * capability, online assist): part of every result key, so switching engines
  * reads the page again instead of reusing another engine's transcript.
+ *
+ * Never throws: the reader computes keys while rendering every page. With no
+ * engine to read with (signed out without on-device OCR — every Android
+ * device — or on-device forced where it is missing) the key names that state;
+ * recognizing the page is what reports it (the sign-in prompt).
  */
+export const MOBILE_JAPANESE_LEARNING_OCR_ENGINE_UNAVAILABLE_KEY = "unavailable";
+
 export function mobileJapaneseLearningOcrEngineCacheKey(): string {
   const preference = getMobileJapaneseLearningEnginePreference();
-  const engine = resolveMobileJapaneseLearningOcrEngine(
-    preference,
-    getMobileJapaneseLearningCapabilities(),
-  );
+  let engine: string;
+  try {
+    engine = resolveMobileJapaneseLearningOcrEngine(
+      preference,
+      getMobileJapaneseLearningCapabilities(),
+    );
+  } catch {
+    return MOBILE_JAPANESE_LEARNING_OCR_ENGINE_UNAVAILABLE_KEY;
+  }
   return isMobileJapaneseLearningOcrAssistActive(preference)
     ? `${engine}+assist`
     : engine;

@@ -1,14 +1,27 @@
-import { expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 import type { MobileReaderPage } from "@/sources/mobileSourcePages";
+import { setMobileJapaneseLearningAuthCookieReaderForTesting } from "./mobileJapaneseLearningAuth";
+import {
+  setMobileJapaneseLearningEnginePreference,
+  setMobileJapaneseLearningNativeModuleForTesting,
+} from "./mobileJapaneseLearningEngine";
 import type {
   MobileJapaneseLearningOcrOptions,
   MobileJapaneseLearningOcrResult,
 } from "./mobileJapaneseLearningOcr";
 import {
+  MOBILE_JAPANESE_LEARNING_OCR_ENGINE_UNAVAILABLE_KEY,
   MobileJapaneseLearningPageImageUnavailableError,
   createMobileJapaneseLearningPageOcrStore,
+  mobileJapaneseLearningOcrEngineCacheKey,
   mobileJapaneseLearningPageOcrKey,
 } from "./mobileJapaneseLearningPageOcrStore";
+
+afterEach(() => {
+  setMobileJapaneseLearningAuthCookieReaderForTesting(undefined);
+  setMobileJapaneseLearningNativeModuleForTesting(undefined);
+  setMobileJapaneseLearningEnginePreference("auto");
+});
 
 const page = (id: string): MobileReaderPage => ({
   id,
@@ -242,4 +255,34 @@ test("keys a page by chapter, page id and engine, not by its image URL", () => {
   expect(mobileJapaneseLearningPageOcrKey(ref, "on-device")).not.toBe(
     mobileJapaneseLearningPageOcrKey({ ...ref, chapterId: "d" }, "on-device"),
   );
+});
+
+test("keys a page without throwing when no OCR engine is usable (signed out, no on-device OCR)", () => {
+  // Android has no on-device OCR: signed out, the cloud engine is gated. The
+  // reader computes these keys while rendering, so a throw here was a crash.
+  setMobileJapaneseLearningNativeModuleForTesting(null);
+  setMobileJapaneseLearningAuthCookieReaderForTesting(() => "");
+  const ref = {
+    registryId: "aidoku",
+    sourceId: "zh.manhuagui",
+    mangaId: "m",
+    chapterId: "c",
+    pageId: "p1",
+  };
+  expect(mobileJapaneseLearningOcrEngineCacheKey()).toBe(
+    MOBILE_JAPANESE_LEARNING_OCR_ENGINE_UNAVAILABLE_KEY,
+  );
+  expect(() => mobileJapaneseLearningPageOcrKey(ref)).not.toThrow();
+
+  // On-device forced where it is missing: unavailable too, not a throw.
+  setMobileJapaneseLearningEnginePreference("onDevice");
+  expect(mobileJapaneseLearningOcrEngineCacheKey()).toBe(
+    MOBILE_JAPANESE_LEARNING_OCR_ENGINE_UNAVAILABLE_KEY,
+  );
+
+  // Signing in makes the cloud engine usable: a different key, so nothing
+  // keyed while signed out is reused.
+  setMobileJapaneseLearningEnginePreference("auto");
+  setMobileJapaneseLearningAuthCookieReaderForTesting(() => "nemu.session_token=abc");
+  expect(mobileJapaneseLearningOcrEngineCacheKey()).toStartWith("cloud");
 });
