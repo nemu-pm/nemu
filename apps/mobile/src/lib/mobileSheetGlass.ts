@@ -11,19 +11,21 @@ import { supportsNemuLiquidGlass } from "./nemuLiquidGlass";
  */
 export type MobileSheetGlassLook = "opaque" | "clear" | "tinted";
 
-/** The trial switch's values: `off` keeps the current look. */
+/** The switch's values: `off` is the opaque card-colour sheet. */
 export type MobileSheetGlassTrial = "off" | "clear" | "tinted";
 
+/** Unset means `tinted`, the owner's pick after the glass trial (2026-10-02). */
 export function resolveMobileSheetGlassTrial(value: string | undefined): MobileSheetGlassTrial {
-  return value === "clear" || value === "tinted" ? value : "off";
+  return value === "off" || value === "clear" ? value : "tinted";
 }
 
 /**
- * Owner trial switch (not a rollout): our React Native-drawn sheets
- * (`MobileNativeSheetScaffold`: the manga long-press actions, source settings
- * / manager, Settings' plugin settings, …) on the iOS 26 Liquid Glass sheet
- * background. `off` (the default) is the current opaque look. Set it here, or
- * bake it into a build with `EXPO_PUBLIC_SHEET_GLASS_TRIAL=clear|tinted`.
+ * Our React Native-drawn sheets (`MobileNativeSheetScaffold`: the manga
+ * long-press actions, source settings / manager, Settings' plugin settings,
+ * …) on the iOS 26 Liquid Glass sheet background. The owner compared opaque,
+ * clear and tinted and chose `tinted`: clear glass dropped secondary text
+ * below 4.5:1 over library covers, the veiled glass keeps it above 6:1.
+ * Override a build with `EXPO_PUBLIC_SHEET_GLASS_TRIAL=off|clear`.
  * iOS 26+ only; Android, web and older iOS always keep the opaque sheet.
  *
  * The reader's plugin sheet is on glass regardless (owner decision): it does
