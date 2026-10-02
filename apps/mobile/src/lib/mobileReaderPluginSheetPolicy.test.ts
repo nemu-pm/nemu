@@ -263,10 +263,10 @@ describe("reader plugin settings sheet policy", () => {
 
     // The sheet is rendered, and something in the reader actually opens it.
     expect(screen).toContain("<ReaderPluginSettingsSheet");
-    // Two openers: the popover handoff, and the QA-only panel switch.
+    // Three openers: the popover handoff, the QA-only panel switch, and the ⋯ menu's Plugins… item
     expect(
       screen.match(/setReaderPluginSettingsOpen\(true\)/g) ?? [],
-    ).toHaveLength(2);
+    ).toHaveLength(3);
     const qaStart = screen.indexOf('else if (MOBILE_READER_QA_PANEL === "plugins") {');
     expect(qaStart).toBeGreaterThan(-1);
     expect(

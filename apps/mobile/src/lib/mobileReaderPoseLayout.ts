@@ -18,7 +18,7 @@ import {
  *
  * | pose                                  | stage                         | chrome                           |
  * |---------------------------------------|-------------------------------|----------------------------------|
- * | flat, compact width or short (phones) | full bleed                    | Back + title on top, scrubber + actions on the bottom row |
+ * | flat, compact width or short (phones) | full bleed                    | Back · title · more (⋯) on top, scrubber + actions on the bottom row |
  * | flat with the system vertical bar (Duo outer display, a Split View half) | beside the bar | Back + actions in the system bar; our title capsule top-leading + the scrubber centred on the window |
  * | flat, regular width, no vertical bar (tablets, unfolded Android, Duo inner display full-screen) | full bleed | capsule row on the status-bar row + scrubber centred on the display |
  * | book (vertical fold)                  | one page per pane / reading-start pane | capsules snapped per pane: Back + title leading, actions trailing (or Back + actions in the system bar), scrubber in the reading-start pane |
@@ -96,6 +96,13 @@ export type MobileReaderChromeLayout =
       back: Rect;
       /** Title / chapter / n-of-N capsule; null when the row has no room for it. */
       title: Rect | null;
+      /**
+       * Trailing circular "more" (⋯) button mirroring Back, so the title sits
+       * between two equal pieces. Only when the actions ride the bottom row
+       * (compact width): everywhere else the actions capsule already holds
+       * the top row's trailing end. Null otherwise.
+       */
+      more: Rect | null;
       /** Trailing actions capsule (plugins, dual read, settings). */
       actions: Rect;
       /**
@@ -432,11 +439,18 @@ function capsuleChromeAt(input: CapsuleChromeInput, rowTop: number): Extract<Mob
   const rowEnd = ltr
     ? rowTrailingLimit(leading, rowTop, h, occlusions, leadPad.right)
     : rowLeadingLimit(leading, rowTop, h, occlusions, leadPad.left);
+  // With the actions in the bottom row, the "more" circle takes the top row's
+  // trailing end (clear of a camera, like Back is on its side) and the title
+  // ends a gap before it.
+  const more: Rect | null = bottomActions
+    ? { x: ltr ? rowEnd - h : rowEnd, y: rowTop, width: h, height: h }
+    : null;
+  const titleEnd = more ? (ltr ? more.x - READER_CAPSULE_GAP : more.x + h + READER_CAPSULE_GAP) : rowEnd;
   let minX = ltr
     ? back.x + (titleOnly ? 0 : h + READER_CAPSULE_GAP)
-    : sameRow ? actions.x + actions.width + READER_CAPSULE_GAP : bottomActions ? rowEnd : leading.x + READER_CAPSULE_EDGE;
+    : sameRow ? actions.x + actions.width + READER_CAPSULE_GAP : bottomActions ? titleEnd : leading.x + READER_CAPSULE_EDGE;
   let maxX = ltr
-    ? (sameRow ? actions.x - READER_CAPSULE_GAP : bottomActions ? rowEnd : leading.x + leading.width - READER_CAPSULE_EDGE)
+    ? (sameRow ? actions.x - READER_CAPSULE_GAP : bottomActions ? titleEnd : leading.x + leading.width - READER_CAPSULE_EDGE)
     : back.x - (titleOnly ? 0 : READER_CAPSULE_GAP);
   for (const rect of bandOcclusions) {
     if (rect.x + rect.width <= minX || rect.x >= maxX) continue;
@@ -464,7 +478,7 @@ function capsuleChromeAt(input: CapsuleChromeInput, rowTop: number): Extract<Mob
       : Math.max(minX, Math.min(maxX - width, centred));
     title = { x: Math.round(x), y: rowTop, width: Math.round(width), height: h };
   }
-  return capsuleChromeFinish(input, rowTop, back, title, actions, bottomActions);
+  return capsuleChromeFinish(input, rowTop, back, title, more, actions, bottomActions);
 }
 
 function capsuleChromeFinish(
@@ -472,6 +486,7 @@ function capsuleChromeFinish(
   rowTop: number,
   back: Rect,
   title: Rect | null,
+  more: Rect | null,
   actions: Rect,
   bottomActions: boolean,
 ): Extract<MobileReaderChromeLayout, { kind: "capsules" }> {
@@ -546,6 +561,7 @@ function capsuleChromeFinish(
     padding: pad(input.frame),
     back,
     title,
+    more,
     actions,
     actionsRow: bottomActions ? "bottom" : "top",
     scrubber,
@@ -760,7 +776,7 @@ export function mobileReaderAnticipatedWindowLayout(
 /** Stage-local tap exclusions for the capsules that float over the page. */
 function capsuleExclusions(chrome: MobileReaderChromeLayout, stage: Rect): Rect[] {
   if (chrome.kind !== "capsules") return [];
-  const pieces = [chrome.back, chrome.title, chrome.actions, chrome.scrubber].filter((rect): rect is Rect => rect !== null);
+  const pieces = [chrome.back, chrome.title, chrome.more, chrome.actions, chrome.scrubber].filter((rect): rect is Rect => rect !== null);
   return pieces
     .map((rect) => shrink(rect, uniform(-READER_CAPSULE_GAP / 2)))
     .filter((rect) => intersects(rect, stage))

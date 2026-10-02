@@ -605,6 +605,12 @@ export type MobileStrings = {
     mangaPairing: string;
     markComplete: string;
     markedComplete: string;
+    /** Reader ⋯ menu (phone chrome, top trailing). */
+    moreActions: string;
+    moreActionsHint: string;
+    reloadChapter: string;
+    readerSettingsMenu: string;
+    readerPluginsMenu: string;
     matchingChapter: string;
     narrowPageWidth: string;
     nextChapter: string;

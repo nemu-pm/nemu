@@ -114,6 +114,7 @@ import {
   type MobileReaderNotebookPaneOverride,
 } from "@/lib/mobileReaderNotebookPane";
 import { mobileReaderLearningPageResetKey } from "@/lib/mobileReaderLearningSession";
+import { buildMobileReaderMoreMenu, type MobileReaderMoreMenuActionId } from "@/lib/mobileReaderMoreMenu";
 import {
   useMobilePoseVeilAppearance,
   type MobilePoseVeilAppearance,
@@ -137,6 +138,7 @@ import {
   ReaderCapsule,
 } from "@/components/reader/ReaderCapsule";
 import { ReaderDarkThemeScope } from "@/components/reader/ReaderDarkThemeScope";
+import { ReaderMoreMenu } from "@/components/reader/ReaderMoreMenu";
 import { useReaderScrubPreviewThumbnails } from "@/components/reader/useReaderScrubPreviewThumbnails";
 import { ReaderPluginSettingsSheet } from "@/components/reader/ReaderPluginSettingsSheet";
 import {
@@ -2451,9 +2453,8 @@ export function ReaderScreen() {
       }),
     [clampedPageIndex, completed, pageCount, readerNotebookVisitsForChapter],
   );
-  const readerChromeAutoHideKey = readerRestoreComplete
-    ? JSON.stringify([registryId, sourceId, mangaId, chapterId])
-    : "";
+  const readerChromeChapterKey = JSON.stringify([registryId, sourceId, mangaId, chapterId]);
+  const readerChromeAutoHideKey = readerRestoreComplete ? readerChromeChapterKey : "";
   const silentProgressPersistenceKey = readerRestoreComplete
     ? mobileReaderProgressPersistenceKey(
         restoreReaderKey,
@@ -5898,6 +5899,9 @@ export function ReaderScreen() {
     if (readerChromeAutoHideKeyRef.current === readerChromeAutoHideKey) return;
 
     const timeout = setTimeout(() => {
+      // Already settled for this chapter while the timer ran (a touch on the
+      // ⋯ menu, whose system menu reports no open state).
+      if (readerChromeAutoHideKeyRef.current === readerChromeAutoHideKey) return;
       readerChromeAutoHideKeyRef.current = readerChromeAutoHideKey;
       setShowControls(false);
     }, READER_CHROME_AUTO_HIDE_MS);
@@ -6638,6 +6642,7 @@ export function ReaderScreen() {
         ? mobileReaderChromeGeometryKey([
             readerPose.chrome.back,
             readerPose.chrome.title,
+            readerPose.chrome.more,
             readerPose.chrome.actions,
             readerPose.chrome.scrubber,
           ])
@@ -7556,6 +7561,65 @@ export function ReaderScreen() {
       // only the title capsule and the scrubber are ours.
       const actionsInBottomRow = chrome.actionsRow === "bottom" && !readerSideBar;
       const piecesPointerEvents = readerChromePresent ? "box-none" : "none";
+      // With the actions down there, a ⋯ circle mirrors Back at the top row's
+      // trailing end; its system menu gathers actions the reader already has
+      // (the scrubber's chapter buttons, the error retry, the settings sheet's
+      // Mark complete and Plugins rows) within reach of the top row.
+      const moreRect = readerSideBar ? null : chrome.more;
+      const runReaderMoreAction = (id: MobileReaderMoreMenuActionId) => {
+        switch (id) {
+          case "previous-chapter":
+            goToChapter(previousChapterInReadingOrder, { startAt: "end" });
+            return;
+          case "next-chapter":
+            goToChapter(nextChapterInReadingOrder, { startAt: "start" });
+            return;
+          case "reload-chapter":
+            setPagesRefreshNonce((value) => value + 1);
+            return;
+          case "mark-complete":
+            void persistProgress(true, clampedPageIndex, { throwOnError: true }).catch(() => undefined);
+            return;
+          case "reader-settings":
+            openReaderDisplaySettings();
+            return;
+          case "reader-plugins":
+            setSelectedReaderPluginSettingsId(null);
+            setReaderPluginSettingsOpen(true);
+            return;
+        }
+      };
+      const moreCapsule = moreRect ? (
+        <ReaderCapsule
+          layout={readerCapsuleLayout}
+          {...glass}
+          style={[styles.readerCapsuleCircle, { position: "absolute", left: moreRect.x, top: moreRect.y }]}
+        >
+          <ReaderMoreMenu
+            sections={buildMobileReaderMoreMenu({
+              strings,
+              previousChapter: previousChapterInReadingOrder,
+              nextChapter: nextChapterInReadingOrder,
+              pagesStatus: pagesState.status,
+              pageCount,
+              completed,
+              saving,
+              showPlugins: showReaderPluginSettingsEntry,
+            })}
+            accessibilityLabel={strings.reader.moreActions}
+            accessibilityHint={strings.reader.moreActionsHint}
+            color={readerChromeColors.secondaryText}
+            onAction={runReaderMoreAction}
+            onInteract={() => {
+              // Engaging the chrome settles the chapter-open auto-hide, so
+              // the chrome never dematerializes under the open menu — keyed
+              // on the chapter itself, so a touch while it is still loading
+              // (before the auto-hide key exists) counts too.
+              readerChromeAutoHideKeyRef.current = readerChromeChapterKey;
+            }}
+          />
+        </ReaderCapsule>
+      ) : null;
       return chromeLayer(
         <>
           <Animated.View
@@ -7596,6 +7660,7 @@ export function ReaderScreen() {
                 {capsuleTitleBlock}
               </ReaderCapsule>
             ) : null}
+            {moreCapsule}
             {actionsInBottomRow || readerSideBar ? null : actionsCapsule}
             </GlassContainer>
           </Animated.View>

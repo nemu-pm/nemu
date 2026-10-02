@@ -862,10 +862,12 @@ describe("reader pose: compact capsule chrome (hardware corner)", () => {
       ...closedNoBar,
       occlusions: [...closedNoBar.occlusions, { id: "status", x: 466 - width, y: 0, width, height: 54, active: true }],
     });
-    const roomy = capsules(pose(withIsland(170)));
+    // The title shares the band's row with Back and the trailing ⋯.
+    const roomy = capsules(pose(withIsland(120)));
     expect(roomy.back.y).toBeLessThan(54);
     expect(roomy.title!.width).toBeGreaterThanOrEqual(200);
-    expect(roomy.title!.x + roomy.title!.width).toBeLessThanOrEqual(466 - 170);
+    expect(roomy.title!.x + roomy.title!.width).toBeLessThanOrEqual(roomy.more!.x - 10);
+    expect(roomy.more!.x + roomy.more!.width).toBeLessThanOrEqual(466 - 120);
     const tight = capsules(pose(withIsland(240)));
     expect(tight.back.y).toBe(54 + 4);
     expect(tight.title!.width).toBeGreaterThanOrEqual(200);
@@ -1075,5 +1077,83 @@ describe("capsule action slots", () => {
     expect(screen).not.toContain("setReaderActionCount");
     expect(screen).toContain("buildReaderPose(readerActionSlots, twoPageMode)");
     expect(screen).toContain("buildReaderPose(readerBaseActionSlots, twoPageMode)");
+  });
+});
+
+describe("reader pose: the trailing more (⋯) button", () => {
+  // iPhone Air 420×912 and iPhone 17 Pro 402×874 in portrait: Dynamic Island
+  // centred in the status band, the row below it.
+  const phone = (width: number, height: number, top: number): MobileWindowLayout => ({
+    width, height, supported: true, divisions: [],
+    occlusions: [{ id: "island", x: (width - 126) / 2, y: 11, width: 126, height: 37, active: true }],
+    layoutDirection: "ltr",
+    safeAreaInsets: { top, left: 0, bottom: 34, right: 0 },
+  });
+  const air = phone(420, 912, 68);
+  const pro = phone(402, 874, 62);
+
+  test("phone portrait: a 44pt circle mirrors Back, the title centred between them", () => {
+    for (const layout of [air, pro]) {
+      const result = pose(layout);
+      const chrome = capsules(result);
+      const more = chrome.more!;
+      expect(more).not.toBeNull();
+      expect(more.width).toBe(44);
+      expect(more.height).toBe(44);
+      expect(more.y).toBe(chrome.back.y);
+      // Mirror image of Back across the window's centre line.
+      expect(more.x + more.width).toBe(layout.width - READER_CAPSULE_EDGE);
+      expect(layout.width - (more.x + more.width)).toBe(chrome.back.x);
+      // Title: centred on the window, a capsule gap from both circles, full labels.
+      const title = chrome.title!;
+      expect(title.x + title.width / 2).toBe(layout.width / 2);
+      expect(title.x).toBeGreaterThanOrEqual(chrome.back.x + chrome.back.width + 10);
+      expect(title.x + title.width).toBeLessThanOrEqual(more.x - 10);
+      expect(title.width).toBeGreaterThanOrEqual(READER_CAPSULE_TITLE_FULL_MIN_WIDTH);
+      expect(overlapsBox(more, layout.occlusions[0])).toBe(false);
+      // Its taps never turn a page.
+      expect(mobileReaderTapExcluded({ x: more.x + 22, y: more.y + 22 }, result.tapExclusions, result.foldGap)).toBe(true);
+    }
+  });
+
+  test("the actions stay on the bottom row; the ⋯ never duplicates them on top", () => {
+    const chrome = capsules(pose(air));
+    expect(chrome.actionsRow).toBe("bottom");
+    expect(chrome.actions.y).toBeGreaterThan(chrome.more!.y + 44);
+  });
+
+  test("RTL mirrors it: Back on the right, ⋯ on the left", () => {
+    const chrome = capsules(pose({ ...air, layoutDirection: "rtl" }));
+    expect(chrome.back.x + chrome.back.width).toBe(420 - READER_CAPSULE_EDGE);
+    expect(chrome.more!.x).toBe(READER_CAPSULE_EDGE);
+    expect(chrome.title!.x).toBeGreaterThanOrEqual(chrome.more!.x + 44 + 10);
+    expect(chrome.title!.x + chrome.title!.width).toBeLessThanOrEqual(chrome.back.x - 10);
+  });
+
+  test("a camera in the trailing top corner (outer display, no bar) keeps the ⋯ and the title clear of it", () => {
+    const closedNoBar: MobileWindowLayout = {
+      width: 466, height: 678, supported: true, divisions: [],
+      occlusions: [{ id: "camera", x: 399.67, y: 29.33, width: 37, height: 37, active: true }],
+      layoutDirection: "ltr", safeAreaInsets: { top: 54, left: 0, bottom: 34, right: 0 },
+    };
+    const chrome = capsules(pose(closedNoBar));
+    expect(chrome.more).not.toBeNull();
+    expect(overlapsBox(chrome.more!, closedNoBar.occlusions[0])).toBe(false);
+    expect(chrome.title!.x + chrome.title!.width).toBeLessThanOrEqual(chrome.more!.x - 10);
+  });
+
+  test("no ⋯ where the actions already hold the top row's trailing end, or the system bar carries them", () => {
+    // Phones in landscape (expanded width), tablets, the Duo inner display.
+    expect(capsules(pose(phoneLandscape, { fallbackInsets: { top: 0, left: 62, bottom: 21, right: 62 } })).more).toBeNull();
+    expect(capsules(pose({ width: 912, height: 420, supported: false, divisions: [], occlusions: [] })).more).toBeNull();
+    expect(capsules(pose({ width: 1366, height: 1024, supported: false, divisions: [], occlusions: [] })).more).toBeNull();
+    expect(capsules(pose(innerLandscapeNoBar())).more).toBeNull();
+    expect(capsules(pose(innerPortrait())).more).toBeNull();
+    // Book: the actions sit atop the trailing pane.
+    expect(capsules(pose(innerLandscapeNoBar([hinge(455.5, 0, 40, 669)]), { twoPage: true })).more).toBeNull();
+    // The vertical bar (outer display, Split View) carries Back and the actions.
+    expect(capsules(pose(outer, { sideBar: true })).more).toBeNull();
+    // Notebook console: its capsule row keeps the actions on top.
+    expect(pose(innerPortrait([hinge(0, 465, 669, 21)])).chrome.kind).toBe("console");
   });
 });
