@@ -135,9 +135,15 @@ jobs:
           # security fixes yet. Prove the vendored patch is active before
           # suppressing only those version-based advisory matches.
           bun test ./apps/mobile/src/lib/imageSizeSecurity.test.ts
+          # node-forge <= 1.4.0 (GHSA-86w9-cpqp-85rv, RSA PKCS#1 v1.5
+          # signature verification) has no fixed release yet. It is only
+          # reached through Expo's build tooling (@expo/cli iOS code signing,
+          # @expo/code-signing-certificates) and is never bundled into the
+          # app. Drop this ignore once a patched node-forge is published.
           bun audit --production \
             --ignore GHSA-w3rx-r6r6-pgpr \
-            --ignore GHSA-5p2g-fcmc-qvqq
+            --ignore GHSA-5p2g-fcmc-qvqq \
+            --ignore GHSA-86w9-cpqp-85rv
       - name: Check Expo dependency alignment
         working-directory: apps/mobile
         run: bunx expo install --check
