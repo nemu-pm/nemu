@@ -8,6 +8,8 @@ function mobileSource(relativePath: string): string {
 
 const iosSheetPath = "components/reader/ReaderPluginSettingsSheet.ios.tsx";
 const sheetPath = "components/reader/ReaderPluginSettingsSheet.tsx";
+const rowsPath = "components/reader/ReaderPluginSettingsRows.tsx";
+const contentPath = "components/MobileReaderPluginSettingsContent.tsx";
 
 describe("reader plugin settings sheet policy", () => {
   test("lives in its own platform files and the reader only renders it", () => {
@@ -19,69 +21,90 @@ describe("reader plugin settings sheet policy", () => {
     expect(screen).not.toContain("function ReaderPluginSettingsSheet(");
     for (const source of [mobileSource(iosSheetPath), mobileSource(sheetPath)]) {
       expect(source).toContain("}: ReaderPluginSettingsSheetProps) {");
-      // One row per plugin: no separate gear button, no uppercase meta line.
-      expect(source).not.toContain("settings-outline");
-      expect(source).not.toContain('textTransform: "uppercase"');
-      expect(source).toContain("mobileReaderPluginRowSubtitle(plugin, strings)");
+      // Both platforms draw the same list rows.
+      expect(source).toContain("<ReaderPluginListItem");
+    }
+    // One row per plugin: no separate gear button, no uppercase meta line.
+    const rows = mobileSource(rowsPath);
+    expect(rows).not.toContain("settings-outline");
+    expect(rows).not.toContain('textTransform: "uppercase"');
+    expect(rows).toContain("mobileReaderPluginRowSubtitle(plugin, strings)");
+    // The switch sits centred on the row, beside (not inside) its press target.
+    expect(rows).toMatch(/row: \{\s*flexDirection: "row",\s*alignItems: "center",/);
+  });
+
+  test("one plugin page everywhere: the reader's sheets and Settings render the shared React Native content", () => {
+    const content = mobileSource(contentPath);
+    expect(content).toContain("<MobileSourceSettingsCard");
+    expect(content).toContain("navigationResetKey={plugin.id}");
+    expect(content).toContain("<MobileJapaneseLearningDictionaryRow");
+    for (const source of [
+      mobileSource(iosSheetPath),
+      mobileSource(sheetPath),
+      mobileSource("screens/SettingsScreen.tsx"),
+    ]) {
+      expect(source).toContain("<MobileReaderPluginSettingsCard");
+      // Signed out, server features stay visible but locked.
+      expect(source).toContain("useMobileReaderPluginSignedInState(storedPlugin, strings)");
+      expect(source).not.toContain("<MobileSourceSettingsCard");
+    }
+    // No SwiftUI copy of the settings rows on iOS.
+    const ios = mobileSource(iosSheetPath);
+    for (const swiftOnly of ["SwiftForm", "SwiftNavigationStack", "SwiftSection", "buildMobileReaderPluginNativeSections"]) {
+      expect(ios).not.toContain(swiftOnly);
     }
   });
 
   test("one guarded dismissal policy: no dismissing while a save is in flight", () => {
     const ios = mobileSource(iosSheetPath);
     expect(ios).toContain("interactiveDismissDisabled(busy)");
-    // The Done button is disabled with the rest of the controls.
+    // The close button is disabled with the rest of the controls.
     expect(ios).toMatch(
-      /onPress=\{onClose\}\s*modifiers=\{\[swiftAccessibilityLabel\(strings\.common\.done\), \.\.\.busyModifiers\]\}/,
+      /accessibilityLabel=\{strings\.common\.done\}[\s\S]{0,160}disabled=\{busy\}\s*onPress=\{measuring \? noop : onClose\}/,
     );
-    expect(ios).toContain("const busyModifiers = busy ? [swiftDisabled(true)] : [];");
 
     const android = mobileSource(sheetPath);
     expect(android).toContain("dismissDisabled={busy}");
     expect(android).toContain("enablePanDownToClose={!busy}");
   });
 
-  test("iOS is a system sheet with a navigation stack and one appearance source", () => {
+  test("iOS is one system sheet on Liquid Glass, sized to the page on top, with one appearance source", () => {
     const source = mobileSource(iosSheetPath);
 
     expect(source).toContain("<SwiftBottomSheet");
-    // Sized to the page on screen (list or pushed plugin), not a fixed
-    // detent, from heights measured before it presents.
+    // Sized to the page on screen (list or pushed plugin) from heights
+    // measured before it presents: one detent, never a fixed one.
     expect(source).toMatch(
-      /fitSheetDetentToContent\(\{\s*group: READER_PLUGIN_SHEET_GROUP,\s*page: readerPluginSheetActivePage\(selectedPlugin\?\.id \?\? null\),\s*\}\)/,
+      /fitSheetDetentToContent\(\{\s*group: READER_PLUGIN_SHEET_GROUP,\s*page: activePage,\s*height: sheet\.detent,\s*\}\)/,
     );
+    expect(source).toContain("isPresented={sheet.presented}");
     expect(source).not.toContain("presentationDetents(");
     expect(source).toContain('presentationDragIndicator("visible")');
-    expect(source).toContain('placement="cancellationAction"');
-    expect(source).toContain('role="close"');
-    // Inline titles (no empty large-title row above the first section).
-    // Each page says which measured page it is, so the sheet resizes with
-    // the push / pop that shows it.
-    expect(source).toMatch(
-      /navigationTitle\(strings\.settings\.plugins\),\s*inlineToolbarTitle\(\),\s*reportSheetContentHeight\(\{ page: READER_PLUGIN_SHEET_LIST_PAGE \}\)/,
+    // The pages are React Native, hosted in the sheet at its own scale.
+    expect(source).toContain("<RNHostView compensatesPresentationScale");
+    // iOS 26: the system's glass, under the veiled glass look (legible over
+    // white and black pages); before it, a material.
+    expect(source).toContain('const GLASS_LOOK: MobileSheetGlassLook = LIQUID_GLASS ? "tinted" : "opaque";');
+    expect(source).toContain("<NemuGlassSheetThemeScope look={GLASS_LOOK}>");
+    expect(source).toContain(
+      '...(LIQUID_GLASS ? [] : [presentationBackground({ type: "material", material: "regular" })])',
     );
-    expect(source).toMatch(
-      /navigationTitle\(plugin\.name\),\s*inlineToolbarTitle\(\),\s*reportSheetContentHeight\(\{ page: readerPluginSheetPage\(plugin\.id\) \}\)/,
-    );
-    // Plugin rows push the plugin's settings on the sheet's own stack.
-    expect(source).toContain("<SwiftNavigationStack");
-    expect(source).toContain("path={path}");
-    expect(source).toContain("<SwiftNavigationLink value={plugin.id}>");
-    expect(source).toContain("<SwiftNavigationDestination key={plugin.id} value={plugin.id}>");
-    expect(source).toContain("onClearSelectedPlugin()");
-    expect(source).toContain("labelsHidden()");
     // The presentation and the Host share the theme scope's scheme; no
     // separate colorScheme environment that could disagree with it.
     expect(source).toContain("presentationColorScheme(scheme)");
     expect(source).toContain("<SwiftHost colorScheme={scheme}");
     expect(source).not.toContain('environment("colorScheme"');
-    // Both error surfaces, loading, and a destructive reset stay native.
-    expect(source).toContain("{loadError");
-    expect(source).toContain("onPress={onRetryLoad}");
-    expect(source).toContain("{error");
+    // Push / pop slide on the sheet's own resize curve.
+    expect(source).toContain("easing: mobileSheetSmoothEasing");
+    expect(source).toContain("duration: reduceMotion ? 0 : MOBILE_SHEET_PAGE_TRANSITION_MS");
+    // Both error surfaces, loading, reset and changes are wired.
+    expect(source).toContain("{loadError ? (");
+    expect(source).toContain("onActionPress={measuring ? noop : onRetryLoad}");
+    expect(source).toContain("{error ? (");
     expect(source).toContain("strings.settings.loadingReaderPlugins");
-    expect(source).toContain('role="destructive"');
     expect(source).toContain("onResetPlugin(plugin)");
     expect(source).toContain("onChangePluginValue(plugin, key, value)");
+    expect(source).toContain("onBack={onClearSelectedPlugin}");
   });
 
   test("Android keeps the shared scaffold, bounded scrolling, and nested navigation", () => {
@@ -101,11 +124,8 @@ describe("reader plugin settings sheet policy", () => {
     expect(source).toContain("<ScrollView");
     expect(source).toContain("onPress={onClearSelectedPlugin}");
     expect(source).toContain("onHardwareBackPress={() => {");
-    expect(source).toContain("navigationResetKey={plugin.id}");
     expect(source).toContain("{error ? (");
     expect(source).toContain("{loadError ? (");
-    // The switch sits centred on the row, beside (not inside) its press target.
-    expect(source).toMatch(/row: \{\s*flexDirection: "row",\s*alignItems: "center",/);
   });
 
   test("keeps continuous and spread-aware scrub behavior wired at the screen", () => {
@@ -387,41 +407,43 @@ describe("reader plugin settings sheet policy", () => {
 
   test("every page is measured off screen before the sheet presents", () => {
     const source = mobileSource(iosSheetPath);
+    const copiesUse = source.indexOf("<ReaderPluginSheetMeasuringCopies");
     const host = source.indexOf("<SwiftHost colorScheme={scheme}");
-    const sheet = source.indexOf("<SwiftBottomSheet", host);
-    expect(source.slice(host, sheet)).toContain("<ReaderPluginSheetMeasuringCopies");
+    // Outside the presentation, ahead of it.
+    expect(copiesUse).toBeGreaterThan(-1);
+    expect(copiesUse).toBeLessThan(host);
+    // It presents only once the page on top is measured.
+    expect(source).toContain("const next = fittedSheetPresentation({");
 
     const start = source.indexOf("const ReaderPluginSheetMeasuringCopies = memo(");
-    const end = source.indexOf("function ReaderPluginErrorSections(", start);
+    const end = source.indexOf("const styles = StyleSheet.create(", start);
     const copies = source.slice(start, end);
-    // The list and each plugin's page, outside the presentation.
-    expect(copies).toContain(
-      "measureSheetPage({ group: READER_PLUGIN_SHEET_GROUP, page: READER_PLUGIN_SHEET_LIST_PAGE, width, height })",
-    );
-    expect(copies).toContain("page: readerPluginSheetPage(plugin.id)");
-    expect(copies).toContain("<ReaderPluginListSections");
-    expect(copies).toContain("<ReaderPluginDetail");
+    // The list and each plugin's page.
+    expect(copies).toContain("onLayout={measure(READER_PLUGIN_SHEET_LIST_PAGE)}");
+    expect(copies).toContain("onLayout={measure(readerPluginSheetPage(plugin.id))}");
+    expect(copies).toContain("<ReaderPluginListPage");
+    expect(copies).toContain("<ReaderPluginDetailPage");
     // Memoised on what changes a page's height: opening the sheet (or a busy
     // flag, or new handlers) does not re-render them mid-presentation.
     expect(copies).not.toContain("visible");
     expect(copies).not.toContain("busy={busy}");
     expect(copies).not.toContain("onTogglePlugin={onTogglePlugin}");
-    // The copies carry no presentation modifiers (they would restyle the window).
-    expect(copies).not.toContain("presentationColorScheme(");
-    expect(copies).not.toContain("presentationBackground(");
     // A copy of the dictionary row never starts a second download.
-    expect(source).toContain("inert={Boolean(measure)}");
-    expect(source).toContain("autoInstall: !inert,");
+    expect(source).toContain("inert={measuring}");
+    expect(mobileSource(contentPath)).toContain("autoInstall={!inert}");
+    expect(mobileSource("components/useMobileJapaneseLearningDictionaryRowModel.ts")).toContain(
+      "autoInstall &&",
+    );
   });
 
-  test("presentation modifiers sit on the sheet's root, never inside its navigation stack", () => {
+  test("presentation modifiers sit on the sheet's root, never on the hosted pages", () => {
     const source = mobileSource(iosSheetPath);
     const group = source.indexOf("<SwiftGroup", source.indexOf("<SwiftBottomSheet"));
-    const stack = source.indexOf("<SwiftNavigationStack", group);
-    const root = source.slice(group, stack);
+    const hosted = source.indexOf("<RNHostView", group);
+    const root = source.slice(group, hosted);
 
     expect(root).toContain("presentationBackground(");
     expect(root).toContain("presentationColorScheme(scheme)");
-    expect(source.slice(stack)).not.toContain("presentationBackground(");
+    expect(source.slice(hosted)).not.toContain("presentationBackground(");
   });
 });

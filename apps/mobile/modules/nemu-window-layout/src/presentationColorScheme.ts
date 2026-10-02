@@ -42,11 +42,24 @@ export function zeroTopScrollContentMargin() {
  * when given, else `.medium`. Replaces `presentationDetents` there. A binary
  * built before the modifier existed ignores it (a full-height sheet).
  */
-export function fitSheetDetentToContent(options: { group: string; page: string; initialHeight?: number }) {
+export function fitSheetDetentToContent(options: {
+  group: string;
+  page: string;
+  initialHeight?: number;
+  /**
+   * The detent itself, for a sheet whose pages are React Native views the
+   * caller measured off screen before presenting (no SwiftUI copies, no
+   * `reportSheetContentHeight`): the sheet presents once at this height and
+   * a new value resizes it with the system's sheet animation. 0 / omitted:
+   * the measured store decides.
+   */
+  height?: number;
+}) {
   return createModifier("nemuFitSheetDetent", {
     group: options.group,
     page: options.page,
     initialHeight: options.initialHeight ?? 0,
+    height: options.height ?? 0,
   });
 }
 

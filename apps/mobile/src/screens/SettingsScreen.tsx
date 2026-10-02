@@ -10,14 +10,11 @@ import {
 import {
   AccessibilityInfo,
   ActivityIndicator,
-  Image,
   Linking,
   Platform,
   StyleSheet,
   useWindowDimensions,
   View,
-  type ImageStyle,
-  type ImageSourcePropType,
   type StyleProp,
   type ViewStyle,
 } from "react-native";
@@ -45,21 +42,22 @@ import { Stack, router, useLocalSearchParams, type Href } from "expo-router";
 import * as DocumentPicker from "expo-document-picker";
 import { nextSyncTimestamp } from "@nemu/core";
 import { MobileAboutSheet } from "@/components/MobileAboutSheet";
-import { MobileJapaneseLearningDictionaryRow } from "@/components/MobileJapaneseLearningDictionaryRow";
-import { MOBILE_JAPANESE_LEARNING_ENGINE_SETTING_KEY } from "@/lib/mobileJapaneseLearningEngine";
 import { MobileAgentStatusCard } from "@/components/MobileAgentStatusCard";
 import { MobileCloudSyncCard } from "@/components/MobileCloudSyncCard";
 import { MobileConfirmationSheet } from "@/components/MobileConfirmationSheet";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import { MobileSettingsSkeleton } from "@/components/MobileSettingsSkeleton";
-import { MobileSourceSettingsCard } from "@/components/MobileSourceSettingsCard";
+import {
+  MobileReaderPluginSettingsCard,
+  MobileReaderPluginSettingsHeader,
+  ReaderPluginIcon,
+} from "@/components/MobileReaderPluginSettingsContent";
+import { useMobileReaderPluginSignedInState } from "@/components/useMobileReaderPluginSignedInState";
 import { MobileStorageBreakdown } from "@/components/MobileStorageBreakdown";
 import {
   QuickActionSheet,
   type QuickAction,
 } from "@/components/QuickActionSheet";
-import dualReadIconImage from "../../../../src/lib/plugins/builtin/dual-reader/icon.png";
-import japaneseLearningIconImage from "../../../../src/lib/plugins/builtin/japanese-learning/icon.png";
 import { useMobileDataStore } from "@/data/mobileDataContext";
 import {
   emitMobileDataChanged,
@@ -138,11 +136,7 @@ import {
   getMobileInstalledSourceRegistryRef,
   getMobileInstalledSourceSettingsKeys,
 } from "@/lib/mobileInstalledSourceKeys";
-import {
-  applyMobileReaderPluginSignInState,
-  type MobileReaderPluginState,
-} from "@/lib/mobileReaderPlugins";
-import { useMobileJapaneseLearningSignedIn } from "@/lib/mobileJapaneseLearningAuth";
+import type { MobileReaderPluginState } from "@/lib/mobileReaderPlugins";
 import {
   buildMobileSourceQuickActions,
   getMobileSourceQuickActionHandoff,
@@ -268,30 +262,6 @@ function sourceParts(source: InstalledSource): {
   sourceId: string;
 } {
   return getMobileInstalledSourceRegistryRef(source);
-}
-
-function ResolvedSettingsImage({
-  accessibilityLabel,
-  source,
-  style,
-  onError,
-}: {
-  accessibilityLabel?: string;
-  source: ImageSourcePropType;
-  style: StyleProp<ImageStyle>;
-  onError: () => void;
-}) {
-  return (
-    <Image
-      accessibilityIgnoresInvertColors
-      accessibilityLabel={accessibilityLabel}
-      fadeDuration={0}
-      onError={onError}
-      resizeMode="cover"
-      source={source}
-      style={style}
-    />
-  );
 }
 
 function sourceName(source: InstalledSource): string {
@@ -525,55 +495,6 @@ function SourceManagementRow({
   );
 }
 
-/**
- * `row` is the boxed 40pt list artwork. `title` is the bare mark that sits on
- * the baseline of a sheet title: no tinted frame, sized to the title line box
- * so the icon and the title read as one centered unit.
- */
-function ReaderPluginIcon({
-  plugin,
-  placement = "row",
-}: {
-  plugin: MobileReaderPluginState;
-  placement?: "row" | "title";
-}) {
-  const { tokens } = useNemuTheme();
-  const [failed, setFailed] = useState(false);
-  const source =
-    plugin.id === "japanese-learning"
-      ? readerPluginArtworkSources["japanese-learning"]
-      : plugin.id === "dual-reader"
-        ? readerPluginArtworkSources["dual-reader"]
-        : null;
-  const inTitle = placement === "title";
-  const frameStyle = inTitle
-    ? styles.pluginTitleArtwork
-    : [styles.pluginArtwork, { backgroundColor: tokens.sourceIconGlass }];
-
-  if (source && !failed) {
-    return (
-      <View style={frameStyle}>
-        <ResolvedSettingsImage
-          accessibilityLabel={plugin.name}
-          source={source}
-          style={styles.pluginArtworkImage}
-          onError={() => setFailed(true)}
-        />
-      </View>
-    );
-  }
-
-  return (
-    <View style={frameStyle}>
-      <Ionicons
-        name={plugin.icon}
-        size={inTitle ? 22 : 20}
-        color={plugin.enabled ? tokens.primary : tokens.mutedForeground}
-      />
-    </View>
-  );
-}
-
 function ReaderPluginManagementRow({
   plugin,
   strings,
@@ -728,12 +649,7 @@ function MobileReaderPluginSettingsSheet({
     setting: SourcePackageSetting,
   ) => void;
 }) {
-  const { tokens } = useNemuTheme();
-  const signedIn = useMobileJapaneseLearningSignedIn();
-  const plugin = useMemo(
-    () => applyMobileReaderPluginSignInState(storedPlugin, signedIn, strings),
-    [signedIn, storedPlugin, strings],
-  );
+  const plugin = useMobileReaderPluginSignedInState(storedPlugin, strings);
   const { fontScale, height, width } = useWindowDimensions();
   const sheetLayout = getMobileSettingsSheetLayout({
     fontScale,
@@ -767,62 +683,22 @@ function MobileReaderPluginSettingsSheet({
           The plugin mark belongs to the title, not to the sheet chrome: a
           leading header slot leaves the icon stranded in the top-left corner
           while the title stays optically centered. Compose both into one
-          centered row and center the description under it.
+          centered row and center the description under it. The same page
+          (header + card) is the reader's Plugins sheet's plugin page.
         */}
-        <View style={styles.pluginSheetHeader}>
-          <View style={styles.pluginSheetTitleRow}>
-            <ReaderPluginIcon plugin={plugin} placement="title" />
-            <NemuText
-              accessibilityRole="header"
-              color={tokens.foreground}
-              density="compact"
-              numberOfLines={2}
-              style={styles.pluginSheetTitle}
-              variant="sheetTitle"
-            >
-              {plugin.name}
-            </NemuText>
-          </View>
-          {plugin.description ? (
-            <NemuText
-              color={tokens.mutedForeground}
-              density="compact"
-              style={styles.pluginSheetDescription}
-              variant="rowSubtitle"
-            >
-              {plugin.description}
-            </NemuText>
-          ) : null}
-        </View>
-        <MobileSourceSettingsCard
-          settings={plugin.settings}
-          values={plugin.values}
+        <MobileReaderPluginSettingsHeader plugin={plugin} />
+        <MobileReaderPluginSettingsCard
+          plugin={plugin}
+          strings={strings}
+          disabled={disabled}
           loading={loading}
           error={error}
-          title={strings.settings.pluginSettings}
-          hideSubtitle
-          navigationResetKey={plugin.id}
-          emptyMessage={strings.settings.noPluginSettings}
-          showEmpty
-          disabled={disabled}
           retryDisabled={retryDisabled}
           retrying={retrying}
           onRetry={onRetry}
           onReset={onReset}
           onChange={onChange}
-          renderSettingAccessory={
-            plugin.id === "japanese-learning"
-              ? (setting, values) =>
-                  setting.key === MOBILE_JAPANESE_LEARNING_ENGINE_SETTING_KEY ? (
-                    <MobileJapaneseLearningDictionaryRow
-                      disabled={disabled}
-                      engine={values[MOBILE_JAPANESE_LEARNING_ENGINE_SETTING_KEY]}
-                      strings={strings}
-                    />
-                  ) : null
-              : undefined
-          }
-          {...transientSheets.cardProps}
+          cardProps={transientSheets.cardProps}
         />
       </MobileNativeSheetScaffold>
       {transientSheets.renderTransientSheet()}
@@ -938,11 +814,6 @@ function settingsSectionHref(
     params: { ...params, section },
   };
 }
-
-const readerPluginArtworkSources = {
-  "dual-reader": Image.resolveAssetSource(dualReadIconImage),
-  "japanese-learning": Image.resolveAssetSource(japaneseLearningIconImage),
-} as const;
 
 function SettingsSurface({
   children,
@@ -4013,45 +3884,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-  },
-  pluginArtwork: {
-    // One notch under the old 40pt tile so the plugin rows read at the same
-    // scale as the sibling 34pt source icon tiles next to them.
-    width: 34,
-    height: 34,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-    borderRadius: radius.md,
-  },
-  pluginArtworkImage: {
-    width: "100%" as const,
-    height: "100%" as const,
-  },
-  pluginTitleArtwork: {
-    width: 26,
-    height: 26,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-    borderRadius: radius.sm,
-  },
-  pluginSheetHeader: {
-    alignItems: "center",
-    gap: 4,
-  },
-  pluginSheetTitleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  pluginSheetTitle: {
-    flexShrink: 1,
-    textAlign: "center",
-  },
-  pluginSheetDescription: {
-    textAlign: "center",
   },
   disabledMain: {
     opacity: 0.62,

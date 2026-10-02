@@ -12,6 +12,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import {
   MobileCachedImage,
+  MobileNativeSheetEndSpacer,
   MobileNativeSheetScaffold,
   NemuNativeSearchField,
   NemuNativeSheetHeaderAction,
@@ -386,6 +387,8 @@ function MobileCollectionBooksSheetContent({
       snapPoints={layout.snapPoints}
       fillContent
       enablePanDownToClose={!locked && !plan.dirty}
+      // The list runs to the sheet's edge and fades there (no hard cut above it).
+      softBottomEdge
       contentStyle={styles.sheet}
       testID={testID}
     >
@@ -404,7 +407,12 @@ function MobileCollectionBooksSheetContent({
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={header}
-        ListFooterComponent={footer}
+        ListFooterComponent={
+          <>
+            {footer}
+            <MobileNativeSheetEndSpacer />
+          </>
+        }
         ListEmptyComponent={empty}
         renderItem={({ item, index }) => (
           <CollectionBookRow

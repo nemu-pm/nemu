@@ -1,5 +1,7 @@
 import {
+  createContext,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -25,7 +27,8 @@ import {
   BottomSheetScrollView,
   type BottomSheetMethods,
 } from "@expo/ui/community/bottom-sheet";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
+import { initialWindowMetrics, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { nemuColorWithAlpha } from "@/design/colorAlpha";
 import { useNemuTheme } from "@/design/useNemuTheme";
@@ -41,8 +44,11 @@ import {
   resolveMobileNativeSheetBodyTopPadding,
   resolveMobileNativeSheetBottomPadding,
   resolveMobileNativeSheetDismissLabel,
+  resolveMobileNativeSheetSoftBottomEdge,
   shouldBoundMobileNativeSheetForPlatform,
 } from "@/lib/mobileNativeSheet";
+import { mobileSheetGlassLook } from "@/lib/mobileSheetGlass";
+import { NemuGlassSheetThemeScope } from "./NemuGlassSheetThemeScope";
 import { NemuNativeSheetHeaderAction } from "./NemuNativeSheetHeaderAction";
 import { MobileSheetHeader } from "./MobileSheetHeader";
 
@@ -88,10 +94,33 @@ type MobileNativeSheetScaffoldProps = {
    * edge, the home indicator's inset below its content.
    */
   contentIgnoresSafeAreaEdges?: MobileSheetSafeAreaEdge | MobileSheetSafeAreaEdge[];
+  /**
+   * For a `fillContent` body that is the caller's own scrolling list (no
+   * `scroll`): the list runs to the sheet's bottom edge (on iOS through the
+   * home indicator's inset) and fades out there instead of stopping in a hard
+   * line above it. The list ends with `MobileNativeSheetEndSpacer` so its
+   * last row still rests clear of the fade.
+   */
+  softBottomEdge?: boolean;
   contentStyle?: StyleProp<ViewStyle>;
   testID?: string;
   children: ReactNode;
 };
+
+/** The room the iOS sheet host leaves above the content for the system grabber. */
+const MOBILE_NATIVE_SHEET_GRABBER_ROOM = 16;
+
+const MobileNativeSheetEndInsetContext = createContext(0);
+
+/**
+ * The end of a `softBottomEdge` sheet's own list (its last footer item): the
+ * room below the last row that keeps it clear of the bottom fade once
+ * scrolled to the end. Nothing outside such a sheet.
+ */
+export function MobileNativeSheetEndSpacer() {
+  const height = useContext(MobileNativeSheetEndInsetContext);
+  return height > 0 ? <View pointerEvents="none" style={{ height }} /> : null;
+}
 
 /** A safe-area edge sheet content may extend into (`contentIgnoresSafeAreaEdges`). */
 export type MobileSheetSafeAreaEdge = "leading" | "trailing" | "horizontal" | "bottom";
@@ -135,11 +164,21 @@ export function MobileNativeSheetScaffold({
   backgroundColor,
   androidContentHandle = false,
   contentIgnoresSafeAreaEdges,
+  softBottomEdge = false,
   contentStyle,
   testID,
   children,
 }: MobileNativeSheetScaffoldProps) {
   const { tokens } = useNemuTheme();
+  // Owner trial (`MOBILE_SHEET_GLASS_TRIAL`, off by default): the system
+  // Liquid Glass sheet background, with the content's cards made translucent
+  // (and, `tinted`, a veil under them). A caller that paints its own sheet
+  // colour keeps it.
+  const glassLook = mobileSheetGlassLook({
+    platformOS: Platform.OS,
+    platformVersion: Platform.Version,
+    customBackground: backgroundColor !== undefined,
+  });
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const sheetRef = useRef<BottomSheetMethods | null>(null);
@@ -264,8 +303,22 @@ export function MobileNativeSheetScaffold({
     ? Math.max(boundedSnapPointHeight - chromeHeight, 188)
     : undefined;
   const androidScrolls = isAndroid && (scroll || androidFixedHeight === undefined);
-  const paddingBottom =
-    contentBottomInset ??
+  // A soft bottom edge needs a filled body the caller scrolls itself (not the
+  // scaffold's own scroll view).
+  const softEdge =
+    softBottomEdge &&
+    fillContent &&
+    (isAndroid ? androidFixedHeight !== undefined && !scroll : !shouldUseScrollView)
+      ? resolveMobileNativeSheetSoftBottomEdge({
+          platform: Platform.OS,
+          // The window's own (home indicator) inset: the sheet sits above
+          // the tab bar a tab screen's insets also count.
+          safeAreaBottom: initialWindowMetrics?.insets.bottom ?? insets.bottom,
+        })
+      : null;
+  const paddingBottom = softEdge
+    ? 0
+    : contentBottomInset ??
     (shouldUseScrollView || androidScrolls ? scrollContentBottomInset : undefined) ??
     resolveMobileNativeSheetBottomPadding({
       platform: Platform.OS,
@@ -315,14 +368,28 @@ export function MobileNativeSheetScaffold({
     </Text>
   ) : null;
   const hasMultipleSnapPoints = (effectiveSnapPoints?.length ?? 0) > 1;
+  const callerIgnoredEdges =
+    contentIgnoresSafeAreaEdges === undefined
+      ? []
+      : Array.isArray(contentIgnoresSafeAreaEdges)
+        ? contentIgnoresSafeAreaEdges
+        : [contentIgnoresSafeAreaEdges];
+  // iOS soft edge: the body reaches through the sheet's bottom safe area to
+  // its own edge (the keyboard's region still applies).
+  const ignoredEdgesSignature = JSON.stringify(
+    softEdge && !isAndroid && !callerIgnoredEdges.includes("bottom")
+      ? [...callerIgnoredEdges, "bottom"]
+      : callerIgnoredEdges,
+  );
+  // Stable identity: the native sheet rebuilds its modifiers on a new array.
+  const ignoredEdges = useMemo(() => {
+    const edges = JSON.parse(ignoredEdgesSignature) as MobileSheetSafeAreaEdge[];
+    return edges.length ? edges : undefined;
+  }, [ignoredEdgesSignature]);
   // Content extended into the sheet's bottom safe area (a floating iOS sheet)
   // fills the host, which is then taller than the detent: a detent-sized
   // height would leave that inset empty under the body again.
-  const contentReachesSheetBottom =
-    !isAndroid &&
-    (Array.isArray(contentIgnoresSafeAreaEdges)
-      ? contentIgnoresSafeAreaEdges.includes("bottom")
-      : contentIgnoresSafeAreaEdges === "bottom");
+  const contentReachesSheetBottom = !isAndroid && Boolean(ignoredEdges?.includes("bottom"));
   const filledContentStyle =
     fillContent && (hasMultipleSnapPoints || contentReachesSheetBottom)
       ? styles.filledContent
@@ -332,6 +399,27 @@ export function MobileNativeSheetScaffold({
         ? styles.filledContent
         : null;
   const interactionLocked = closeInteractionLocked || !visible;
+  const body = (
+    <MobileNativeSheetEndInsetContext.Provider value={softEdge?.endInset ?? 0}>
+      {children}
+    </MobileNativeSheetEndInsetContext.Provider>
+  );
+  // In the sheet's own colour: on the trial's Liquid Glass there is no
+  // colour to fade into, so the list simply runs to the sheet's edge.
+  const softEdgeColor = backgroundColor ?? tokens.card;
+  const softEdgeFade =
+    softEdge && glassLook === "opaque" ? (
+      <LinearGradient
+        pointerEvents="none"
+        colors={[
+          nemuColorWithAlpha(softEdgeColor, 0),
+          nemuColorWithAlpha(softEdgeColor, 0.82),
+          softEdgeColor,
+        ]}
+        locations={[0, 0.55, 1]}
+        style={[styles.softEdgeFade, { height: softEdge.fadeHeight }]}
+      />
+    ) : null;
   const finishClose = useCallback(() => {
     if (sheetClosedRef.current) return;
     sheetClosedRef.current = true;
@@ -484,7 +572,8 @@ export function MobileNativeSheetScaffold({
           >
             {contentHandle}
             {bodyDescription}
-            {children}
+            {body}
+            {softEdgeFade}
           </View>
         ) : (
           // Everything else scrolls: a detent sheet within its fixed height,
@@ -533,7 +622,7 @@ export function MobileNativeSheetScaffold({
             >
               {contentHandle}
               {bodyDescription}
-              {children}
+              {body}
             </BottomSheetScrollView>
           </View>
         )
@@ -569,7 +658,7 @@ export function MobileNativeSheetScaffold({
             testID={testID}
           >
             {bodyDescription}
-            {children}
+            {body}
           </BottomSheetScrollView>
         </View>
       ) : (
@@ -583,7 +672,8 @@ export function MobileNativeSheetScaffold({
           testID={testID}
         >
           {bodyDescription}
-          {children}
+          {body}
+          {softEdgeFade}
         </View>
       )}
     </>
@@ -596,10 +686,13 @@ export function MobileNativeSheetScaffold({
       snapPoints={effectiveSnapPoints}
       enableDynamicSizing={!effectiveSnapPoints?.length}
       enablePanDownToClose={effectiveEnablePanDownToClose}
-      backgroundStyle={{ backgroundColor: backgroundColor ?? tokens.card }}
+      // No background on glass: the system sheet's own Liquid Glass shows.
+      backgroundStyle={
+        glassLook === "opaque" ? { backgroundColor: backgroundColor ?? tokens.card } : undefined
+      }
       onClose={handleClose}
       androidPlacement={androidSheetPlacement}
-      contentIgnoresSafeAreaEdges={contentIgnoresSafeAreaEdges}
+      contentIgnoresSafeAreaEdges={ignoredEdges}
       {...(drawContentHandle ? { handleComponent: null } : null)}
     >
       {isAndroid ? (
@@ -610,7 +703,9 @@ export function MobileNativeSheetScaffold({
           {sheetContent}
         </View>
       ) : (
-        sheetContent
+        <NemuGlassSheetThemeScope look={glassLook} veilBleed={MOBILE_NATIVE_SHEET_GRABBER_ROOM}>
+          {sheetContent}
+        </NemuGlassSheetThemeScope>
       )}
     </BottomSheet>
   );
@@ -674,6 +769,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     zIndex: 1,
+  },
+  softEdgeFade: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
   contentHandleBar: {
     width: 32,

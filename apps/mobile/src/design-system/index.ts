@@ -47,7 +47,11 @@ export {
 } from "@/design/useMobilePageGutters";
 
 export { GlassSurface } from "./components/GlassSurface";
-export { MobileNativeSheetScaffold } from "./components/MobileNativeSheetScaffold";
+export {
+  MobileNativeSheetScaffold,
+  MobileNativeSheetEndSpacer,
+} from "./components/MobileNativeSheetScaffold";
+export { NemuGlassSheetThemeScope } from "./components/NemuGlassSheetThemeScope";
 export {
   MobileSheetHeader,
   type MobileSheetHeaderProps,

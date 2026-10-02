@@ -22,11 +22,11 @@ import {
 } from "./mobileJapaneseLearningOcr";
 import { mobileJapaneseLearningAnalysisErrorText } from "./mobileJapaneseLearningReaderHelpers";
 import { generateMobileJapaneseLearningTts } from "./mobileJapaneseLearningTts";
-import { buildMobileReaderPluginNativeSections } from "./mobileReaderPluginSheet";
 import {
   applyMobileReaderPluginSignInState,
   getMobileReaderPluginStates,
 } from "./mobileReaderPlugins";
+import type { SourcePackageSetting } from "@/data/schema";
 
 const en = getMobileStrings("en");
 const SIGNED_IN = "nemu.session_token=abc.def";
@@ -218,26 +218,30 @@ describe("plugin settings signed out", () => {
     en,
   ).find((item) => item.id === "japanese-learning")!;
 
+  // The rows the shared settings card (`MobileReaderPluginSettingsCard`)
+  // draws, groups flattened.
+  function leafSettings(settings: SourcePackageSetting[]): SourcePackageSetting[] {
+    return settings.flatMap((setting) =>
+      Array.isArray(setting.items) ? leafSettings(setting.items) : [setting],
+    );
+  }
+
   function assistRow(signedIn: boolean) {
     const state = applyMobileReaderPluginSignInState(plugin, signedIn, en);
-    const row = buildMobileReaderPluginNativeSections(state.settings, state.values, en)
-      .flatMap((section) => section.rows)
-      .find((item) => item.setting.key === "onlineOcrAssist")!;
+    const row = leafSettings(state.settings).find((item) => item.key === "onlineOcrAssist")!;
     return { state, row };
   }
 
   test("the online assist switch stays visible, disabled and off, with the hint", () => {
     const { state, row } = assistRow(false);
-    expect(row.kind).toBe("toggle");
+    expect(row.type).toBe("switch");
     expect(row.disabled).toBe(true);
-    expect(row.kind === "toggle" && row.value).toBe(false);
+    expect(state.values.onlineOcrAssist).toBe(false);
     expect(row.subtitle?.startsWith(en.reader.pluginJapaneseLearningSignInToUse)).toBe(true);
     // Only the server feature is locked; the stored choice is kept.
     expect(state.values.autoDetect).toBe(true);
     expect(plugin.values.onlineOcrAssist).toBe(true);
-    const others = buildMobileReaderPluginNativeSections(state.settings, state.values, en)
-      .flatMap((section) => section.rows)
-      .filter((item) => item.setting.key !== "onlineOcrAssist");
+    const others = leafSettings(state.settings).filter((item) => item.key !== "onlineOcrAssist");
     expect(others.some((item) => item.disabled)).toBe(false);
   });
 
@@ -245,7 +249,7 @@ describe("plugin settings signed out", () => {
     const { state, row } = assistRow(true);
     expect(state).toBe(plugin);
     expect(row.disabled).toBeUndefined();
-    expect(row.kind === "toggle" && row.value).toBe(true);
+    expect(state.values.onlineOcrAssist).toBe(true);
   });
 
   test("hint is localized", () => {

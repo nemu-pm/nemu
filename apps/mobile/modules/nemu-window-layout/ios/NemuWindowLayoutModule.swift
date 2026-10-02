@@ -306,22 +306,30 @@ private func nemuDetent(_ height: CGFloat?, fallback: CGFloat) -> PresentationDe
 /// system caps the detent and the Form scrolls. Unmeasured (before iOS 18,
 /// which has no scroll geometry), the detent is `initialHeight` when given,
 /// else `.medium`.
+///
+/// `height` > 0 replaces the store: the caller measured its page itself (a
+/// React Native page laid out off screen before the sheet presents) and
+/// passes the detent directly; a new value resizes the presented sheet the
+/// same way a pushed page does.
 struct NemuFitSheetDetentModifier: ViewModifier {
   static let type = "nemuFitSheetDetent"
   let page: String
   let initialHeight: CGFloat
+  let explicitHeight: CGFloat?
   @ObservedObject private var store: NemuSheetFitStore
   @StateObject private var state = NemuSheetFitState()
 
   init(params: [String: Any]) {
     page = (params["page"] as? String) ?? "root"
     initialHeight = CGFloat((params["initialHeight"] as? Double) ?? 0)
+    let height = CGFloat((params["height"] as? Double) ?? 0)
+    explicitHeight = height > 0 ? height.rounded(.up) : nil
     store = NemuSheetFitStore.named((params["group"] as? String) ?? "default")
   }
 
   func body(content: Content) -> some View {
     if #available(iOS 17.0, *) {
-      let target = store.detentHeight(page: state.activePage ?? page)
+      let target = explicitHeight ?? store.detentHeight(page: state.activePage ?? page)
       let fallback = nemuDetent(nil, fallback: initialHeight)
       let current = nemuDetent(state.presented ? state.height : target, fallback: initialHeight)
       let detents: Set<PresentationDetent> = state.outgoing.map { [current, $0] } ?? [current]
@@ -336,7 +344,7 @@ struct NemuFitSheetDetentModifier: ViewModifier {
         // The page JS has on top (a presentation that opens on a pushed page).
         .onChange(of: page) { _, next in state.activePage = next }
     } else {
-      content.presentationDetents([nemuDetent(nil, fallback: initialHeight)])
+      content.presentationDetents([nemuDetent(explicitHeight, fallback: initialHeight)])
     }
   }
 }

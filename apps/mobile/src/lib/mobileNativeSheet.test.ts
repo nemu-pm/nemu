@@ -13,6 +13,7 @@ import {
   resolveMobileNativeSheetAvailableHeight,
   resolveMobileNativeSheetBodyTopPadding,
   resolveMobileNativeSheetBottomPadding,
+  resolveMobileNativeSheetSoftBottomEdge,
   resolveMobileSheetIosLayoutBudget,
   resolveMobileSheetHeaderMetrics,
   resolveMobileNativeSheetDismissLabel,
@@ -311,6 +312,22 @@ describe("mobile native sheet behavior", () => {
         resolveMobileNativeSheetBottomPadding({ platform: "android", scroll, safeAreaBottom: 24 }),
       ).toBe(18);
     }
+  });
+
+  test("a soft bottom edge leaves the last row where a plain body's gutter put it", () => {
+    // iOS: the body reaches into the home indicator's inset; the fade covers
+    // that inset and the gutter, and the list's end padding equals the fade.
+    expect(resolveMobileNativeSheetSoftBottomEdge({ platform: "ios", safeAreaBottom: 34 })).toEqual({
+      endInset: 52,
+      fadeHeight: 52,
+    });
+    // No home indicator (Touch ID phones): still clear of the rounded corners.
+    expect(resolveMobileNativeSheetSoftBottomEdge({ platform: "ios", safeAreaBottom: 0 }).fadeHeight).toBe(38);
+    // Android: Material already clears the navigation bar.
+    expect(resolveMobileNativeSheetSoftBottomEdge({ platform: "android", safeAreaBottom: 24 })).toEqual({
+      endInset: 24,
+      fadeHeight: 24,
+    });
   });
 
   describe("Android sheet heights match iOS", () => {

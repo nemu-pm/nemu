@@ -14,6 +14,8 @@ type MobileJapaneseLearningDictionaryRowProps = {
   engine: unknown;
   strings: MobileStrings;
   disabled?: boolean;
+  /** False for an off-screen copy that only measures the row: it must not start a second install. */
+  autoInstall?: boolean;
 };
 
 /**
@@ -26,10 +28,11 @@ export function MobileJapaneseLearningDictionaryRow({
   engine,
   strings,
   disabled = false,
+  autoInstall = true,
 }: MobileJapaneseLearningDictionaryRowProps) {
   const { tokens } = useNemuTheme();
   const { row, copy, failed, actionLabel, actionPending, runAction } =
-    useMobileJapaneseLearningDictionaryRowModel({ engine, strings });
+    useMobileJapaneseLearningDictionaryRowModel({ engine, strings, autoInstall });
   if (!row) return null;
 
   return (

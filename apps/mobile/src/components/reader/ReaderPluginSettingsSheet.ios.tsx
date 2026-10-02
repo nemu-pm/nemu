@@ -1,98 +1,106 @@
-import { Fragment, memo, useMemo, useRef, useState, type ReactNode } from "react";
-import { StyleSheet, useWindowDimensions, View } from "react-native";
+import { memo, useCallback, useEffect, useState, type ReactNode } from "react";
+import {
+  Platform,
+  ScrollView,
+  StyleSheet,
+  View,
+  useWindowDimensions,
+  type LayoutChangeEvent,
+} from "react-native";
+import Animated, {
+  interpolate,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 import {
   BottomSheet as SwiftBottomSheet,
-  Button as SwiftButton,
-  Form as SwiftForm,
   Group as SwiftGroup,
-  HStack as SwiftHStack,
   Host as SwiftHost,
-  Image as SwiftImage,
-  Label as SwiftLabel,
-  NavigationDestination as SwiftNavigationDestination,
-  NavigationLink as SwiftNavigationLink,
-  NavigationStack as SwiftNavigationStack,
-  Picker as SwiftPicker,
-  ProgressView as SwiftProgressView,
-  Section as SwiftSection,
-  Slider as SwiftSlider,
-  Spacer as SwiftSpacer,
-  Stepper as SwiftStepper,
-  Text as SwiftText,
-  Toggle as SwiftToggle,
-  Toolbar as SwiftToolbar,
-  ToolbarItem as SwiftToolbarItem,
-  VStack as SwiftVStack,
+  RNHostView,
 } from "@expo/ui/swift-ui";
 import {
-  accessibilityLabel as swiftAccessibilityLabel,
-  buttonStyle,
-  disabled as swiftDisabled,
-  fixedSize,
-  font,
-  foregroundStyle,
-  frame,
   interactiveDismissDisabled,
-  labelsHidden,
-  lineLimit,
-  monospacedDigit,
-  navigationTitle,
-  pickerStyle,
   presentationBackground,
   presentationDragIndicator,
-  progressViewStyle,
-  scrollEdgeEffectStyle,
-  tag,
-  textSelection,
-  tint,
 } from "@expo/ui/swift-ui/modifiers";
-import { useNemuTheme } from "@/design-system";
-import { hapticSelection } from "@/lib/haptics";
-import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
-import { MOBILE_JAPANESE_LEARNING_ENGINE_SETTING_KEY } from "@/lib/mobileJapaneseLearningEngine";
+import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import {
-  buildMobileReaderPluginNativeSections,
-  encodeMobileReaderPluginPickerSelection,
-  mobileReaderPluginRowSubtitle,
-  mobileReaderPluginSystemImage,
-  snapMobileReaderPluginNumber,
-  type MobileReaderPluginNativeNumberRow,
-  type MobileReaderPluginNativeRow,
-} from "@/lib/mobileReaderPluginSheet";
+  MobileReaderPluginSettingsCard,
+  MobileReaderPluginSettingsDescription,
+  MobileReaderPluginSettingsTitle,
+} from "@/components/MobileReaderPluginSettingsContent";
+import { useMobileReaderPluginSignedInState } from "@/components/useMobileReaderPluginSignedInState";
 import {
-  applyMobileReaderPluginSignInState,
-  type MobileReaderPluginState,
-} from "@/lib/mobileReaderPlugins";
-import { useMobileJapaneseLearningSignedIn } from "@/lib/mobileJapaneseLearningAuth";
-import { splitMobileInlineErrorDetail } from "@/lib/mobileSourceErrors";
+  MobileSheetHeader,
+  NemuGlassSheetThemeScope,
+  NemuInlineEmptyState,
+  NemuNativeSheetHeaderAction,
+  useNemuTheme,
+} from "@/design-system";
 import {
-  fittedSheetMeasureFrame,
+  createFittedSheetHostMetricsCache,
+  fittedSheetGuessHostMetrics,
+  fittedSheetPresentation,
   READER_PLUGIN_SHEET_GROUP,
   READER_PLUGIN_SHEET_LIST_PAGE,
   readerPluginSheetActivePage,
   readerPluginSheetPage,
 } from "@/lib/mobileFittedSheet";
+import type { MobileStrings } from "@/lib/mobileI18n";
+import { MOBILE_NATIVE_SHEET_BOTTOM_GUTTER } from "@/lib/mobileNativeSheet";
+import type { MobileReaderPluginState } from "@/lib/mobileReaderPlugins";
+import type { MobileSheetGlassLook } from "@/lib/mobileSheetGlass";
+import { MOBILE_SHEET_PAGE_TRANSITION_MS, mobileSheetSmoothEasing } from "@/lib/mobileSheetMotion";
+import { supportsNemuLiquidGlass } from "@/lib/nemuLiquidGlass";
 import {
   fitSheetDetentToContent,
-  inlineToolbarTitle,
-  measureSheetPage,
   presentationColorScheme,
-  reportSheetContentHeight,
 } from "../../../modules/nemu-window-layout/src/presentationColorScheme";
-import { useMobileJapaneseLearningDictionaryRowModel } from "../useMobileJapaneseLearningDictionaryRowModel";
+import { ReaderPluginEnableRow, ReaderPluginListItem } from "./ReaderPluginSettingsRows";
 import type { ReaderPluginSettingsSheetProps } from "./ReaderPluginSettingsSheet.types";
 
-const secondaryText = foregroundStyle({ type: "hierarchical", style: "secondary" });
+/** iOS 26+: the sheet floats on the system's Liquid Glass. */
+const LIQUID_GLASS = supportsNemuLiquidGlass(Platform.OS, Platform.Version);
 
 /**
- * The reader's Plugins sheet as a system sheet: a navigation bar with the
- * title and the system close button, one inset-grouped section per plugin
- * (symbol, name, "5 settings", a trailing switch, the disclosure chevron;
- * the description as the section footer), and each plugin's settings pushed
- * onto the sheet's own navigation stack as native rows (Toggle, menu Picker,
- * Slider / Stepper, a destructive Reset). The appearance comes from one
- * source: the presentation's preferred color scheme and the Host both follow
- * the theme scope (dark inside the reader).
+ * On glass, the veiled look: the sheet sits over white and black manga pages
+ * alike, and the veil keeps its (dark) text legible over both.
+ */
+const GLASS_LOOK: MobileSheetGlassLook = LIQUID_GLASS ? "tinted" : "opaque";
+
+/** Where each window size's presented sheet laid its content out (survives the reader). */
+const hostMetricsCache = createFittedSheetHostMetricsCache();
+
+/** Until a presented sheet reports its own: a floating (inset, scaled) sheet in portrait on glass. */
+function guessHostMetrics(width: number, height: number) {
+  return fittedSheetGuessHostMetrics({
+    window: { width, height },
+    floating: LIQUID_GLASS && width < height,
+  });
+}
+
+/** Room for the system grabber above a page's header (as `BottomSheet` hosts its content). */
+const GRABBER_CLEARANCE = 16;
+
+type MeasuredPages = Record<string, { width: number; height: number } | undefined>;
+
+/**
+ * The reader's Plugins sheet on iOS: a system sheet (dark, on iOS 26 Liquid
+ * Glass) whose pages are the same React Native components as Settings →
+ * Reader → Plugins: the plugin list (`ReaderPluginListItem`), and each
+ * plugin's page — its mark and name, description, an on / off row, and the
+ * shared settings card (`MobileReaderPluginSettingsCard`: engine picker, the
+ * on-device dictionary line, the sign-in-gated assist switch, Reset).
+ *
+ * Sizing: every page is laid out off screen at the width the sheet shows it
+ * at and measured before the sheet presents, so UIKit runs one presentation
+ * at the final detent (`fitSheetDetentToContent({ height })`); pushing or
+ * popping a page changes the detent, which the sheet animates with its own
+ * spring while the pages slide on the same curve (`mobileSheetSmoothEasing`).
+ * Taller than the screen, the system caps the detent at large and the page
+ * scrolls.
  */
 export function ReaderPluginSettingsSheet({
   visible,
@@ -116,41 +124,92 @@ export function ReaderPluginSettingsSheet({
   onChangePluginValue,
 }: ReaderPluginSettingsSheetProps) {
   const { scheme, tokens } = useNemuTheme();
-  const measureFrame = fittedSheetMeasureFrame(useWindowDimensions());
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const guess = guessHostMetrics(windowWidth, windowHeight);
+  const [, setLearnedRevision] = useState(0);
+  const learned = hostMetricsCache.get({ width: windowWidth, height: windowHeight });
+  const pageWidth = learned?.width ?? guess.width;
+  const scale = learned?.scale ?? guess.scale;
+  const learn = useCallback(
+    (next: { width?: number; scale?: number }) => {
+      const window = { width: windowWidth, height: windowHeight };
+      if (hostMetricsCache.learn(window, next, guessHostMetrics(windowWidth, windowHeight))) {
+        setLearnedRevision((revision) => revision + 1);
+      }
+    },
+    [windowHeight, windowWidth],
+  );
+
   const selectedPlugin = selectedPluginId
     ? (plugins.find((plugin) => plugin.id === selectedPluginId) ?? null)
     : null;
-  const path = selectedPlugin ? [selectedPlugin.id] : [];
-  const busyModifiers = busy ? [swiftDisabled(true)] : [];
+  const activePage = readerPluginSheetActivePage(selectedPlugin?.id ?? null);
 
-  const errorSections = (
-    <ReaderPluginErrorSections
+  // The off-screen copies mount the first time the sheet is asked for and
+  // stay (they are what lets every later open present at once).
+  const [measuring, setMeasuring] = useState(visible);
+  if (visible && !measuring) setMeasuring(true);
+  const [measured, setMeasured] = useState<MeasuredPages>({});
+  const recordPage = useCallback((page: string, width: number, height: number) => {
+    setMeasured((current) => {
+      const entry = current[page];
+      if (entry && Math.abs(entry.width - width) < 0.5 && Math.abs(entry.height - height) < 0.5) return current;
+      return { ...current, [page]: { width, height } };
+    });
+  }, []);
+
+  const [sheet, setSheet] = useState({ presented: false, detent: 0 });
+  const next = fittedSheetPresentation({
+    visible,
+    page: activePage,
+    pageWidth,
+    measured,
+    scale,
+    current: sheet,
+  });
+  if (next.presented !== sheet.presented || next.detent !== sheet.detent) setSheet(next);
+
+  // The presented content's own size: the page frame while it is known, and
+  // what teaches the copies the real width (iPad, landscape, a resized window).
+  const [hostSize, setHostSize] = useState({ width: 0, height: 0 });
+  const handleHostLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      const { width, height } = event.nativeEvent.layout;
+      setHostSize((current) =>
+        Math.abs(current.width - width) < 0.5 && Math.abs(current.height - height) < 0.5
+          ? current
+          : { width, height },
+      );
+      // Laid out by the presentation (not its 1×0 placeholder frame).
+      if (height > 0) learn({ width });
+    },
+    [learn],
+  );
+  const contentWidth = hostSize.width > 0 ? hostSize.width : pageWidth;
+
+  const renderList = (copy: boolean) => (
+    <ReaderPluginListPage
+      plugins={plugins}
+      loading={loading}
       error={error}
       loadError={loadError}
+      busy={copy ? false : busy}
       retryingLoad={retryingLoad}
       canRetryLoadError={canRetryLoadError}
-      dangerColor={tokens.danger}
       strings={strings}
+      measuring={copy}
+      onClose={onClose}
       onDismissError={onDismissError}
       onDismissLoadError={onDismissLoadError}
       onRetryLoad={onRetryLoad}
-    />
-  );
-
-  const listSections = (
-    <ReaderPluginListSections
-      plugins={plugins}
-      loading={loading}
-      busy={busy}
-      strings={strings}
-      errorSections={errorSections}
+      onSelectPlugin={onSelectPlugin}
       onTogglePlugin={onTogglePlugin}
     />
   );
 
   return (
-    <View pointerEvents="none" style={styles.host} testID="ReaderPluginSettingsSheet">
-      <SwiftHost colorScheme={scheme} seedColor={tokens.primary} style={StyleSheet.absoluteFill}>
+    <>
+      {measuring ? (
         <ReaderPluginSheetMeasuringCopies
           plugins={plugins}
           loading={loading}
@@ -159,166 +218,360 @@ export function ReaderPluginSettingsSheet({
           retryingLoad={retryingLoad}
           canRetryLoadError={canRetryLoadError}
           strings={strings}
-          width={measureFrame.width}
-          height={measureFrame.height}
+          width={pageWidth}
+          onMeasure={recordPage}
         />
-        <SwiftBottomSheet
-          isPresented={visible}
-          onIsPresentedChange={(presented) => {
-            if (!presented && visible) onClose();
-          }}
-        >
-          <SwiftGroup
-            modifiers={[
-              // As tall as the page on screen (the plugin list, or the
-              // plugin pushed from it); the sheet resizes as pages change
-              // and scrolls only past the screen (Japanese Learning).
-              fitSheetDetentToContent({
-                group: READER_PLUGIN_SHEET_GROUP,
-                page: readerPluginSheetActivePage(selectedPlugin?.id ?? null),
-              }),
-              presentationDragIndicator("visible"),
-              // A toggle or reset in flight keeps the sheet up, so its
-              // outcome (and any error) lands here, not behind the reader.
-              interactiveDismissDisabled(busy),
-              presentationColorScheme(scheme),
-              presentationBackground({ type: "material", material: "regular" }),
-              scrollEdgeEffectStyle("soft", "vertical"),
-            ]}
+      ) : null}
+      <View pointerEvents="none" style={styles.host} testID="ReaderPluginSettingsSheet">
+        <SwiftHost colorScheme={scheme} seedColor={tokens.primary} style={StyleSheet.absoluteFill}>
+          <SwiftBottomSheet
+            isPresented={sheet.presented}
+            onIsPresentedChange={(presented) => {
+              if (!presented && visible) onClose();
+            }}
           >
-            <SwiftNavigationStack
-              path={path}
-              onPathChange={(nextPath) => {
-                const next = nextPath[nextPath.length - 1] ?? null;
-                if (next === null) {
-                  if (selectedPluginId !== null) onClearSelectedPlugin();
-                } else if (next !== selectedPluginId) {
-                  onSelectPlugin(next);
-                }
-              }}
-              modifiers={[tint(tokens.primary)]}
+            <SwiftGroup
+              modifiers={[
+                // As tall as the page on top (measured before presenting);
+                // capped at the large detent, where the page scrolls.
+                fitSheetDetentToContent({
+                  group: READER_PLUGIN_SHEET_GROUP,
+                  page: activePage,
+                  height: sheet.detent,
+                }),
+                presentationDragIndicator("visible"),
+                // A toggle or reset in flight keeps the sheet up, so its
+                // outcome (and any error) lands here, not behind the reader.
+                interactiveDismissDisabled(busy),
+                presentationColorScheme(scheme),
+                // iOS 26: no background of our own, the system's Liquid Glass
+                // sheet shows (dark, so it reads over white and black pages).
+                ...(LIQUID_GLASS ? [] : [presentationBackground({ type: "material", material: "regular" })]),
+              ]}
             >
-              <SwiftToolbar>
-                <SwiftForm
-                  modifiers={[
-                    navigationTitle(strings.settings.plugins),
-                    inlineToolbarTitle(),
-                    reportSheetContentHeight({ page: READER_PLUGIN_SHEET_LIST_PAGE }),
-                  ]}
-                >
-                  {listSections}
-                </SwiftForm>
-                <SwiftToolbar.Content>
-                  <SwiftToolbarItem placement="cancellationAction">
-                    <SwiftButton
-                      role="close"
-                      onPress={onClose}
-                      modifiers={[swiftAccessibilityLabel(strings.common.done), ...busyModifiers]}
+              <RNHostView compensatesPresentationScale onPresentationScaleChange={(event) => learn({ scale: event.nativeEvent.scale })}>
+                <View style={styles.hostContent} onLayout={handleHostLayout}>
+                  <NemuGlassSheetThemeScope look={GLASS_LOOK}>
+                    <ReaderPluginSheetPager
+                      width={contentWidth}
+                      maxHeight={hostSize.height}
+                      selectedPluginId={selectedPlugin?.id ?? null}
+                      listHeight={measured[READER_PLUGIN_SHEET_LIST_PAGE]?.height}
+                      list={renderList(false)}
+                      detailHeight={(pluginId) => measured[readerPluginSheetPage(pluginId)]?.height}
+                      renderDetail={(pluginId) => {
+                        const plugin = plugins.find((item) => item.id === pluginId);
+                        return plugin ? (
+                          <ReaderPluginDetailPage
+                            plugin={plugin}
+                            busy={busy}
+                            loading={loading}
+                            error={error}
+                            strings={strings}
+                            onBack={onClearSelectedPlugin}
+                            onTogglePlugin={onTogglePlugin}
+                            onResetPlugin={onResetPlugin}
+                            onChangePluginValue={onChangePluginValue}
+                          />
+                        ) : null;
+                      }}
                     />
-                  </SwiftToolbarItem>
-                </SwiftToolbar.Content>
-              </SwiftToolbar>
-              {plugins.map((plugin) => (
-                <SwiftNavigationDestination key={plugin.id} value={plugin.id}>
-                  <ReaderPluginDetail
-                    plugin={plugin}
-                    busy={busy}
-                    strings={strings}
-                    errorSections={errorSections}
-                    onTogglePlugin={onTogglePlugin}
-                    onResetPlugin={onResetPlugin}
-                    onChangePluginValue={onChangePluginValue}
-                  />
-                </SwiftNavigationDestination>
-              ))}
-            </SwiftNavigationStack>
-          </SwiftGroup>
-        </SwiftBottomSheet>
-      </SwiftHost>
+                  </NemuGlassSheetThemeScope>
+                </View>
+              </RNHostView>
+            </SwiftGroup>
+          </SwiftBottomSheet>
+        </SwiftHost>
+      </View>
+    </>
+  );
+}
+
+/**
+ * The list and the pushed plugin page, stacked: a push slides the plugin in
+ * from the trailing edge while the list drifts back and fades (the pages are
+ * transparent on glass, so they never overlap at full strength); a pop runs
+ * it backwards. One curve with the sheet's own resize.
+ */
+function ReaderPluginSheetPager({
+  width,
+  maxHeight,
+  selectedPluginId,
+  list,
+  listHeight,
+  renderDetail,
+  detailHeight,
+}: {
+  width: number;
+  /** The presented content's height (0 until known). */
+  maxHeight: number;
+  selectedPluginId: string | null;
+  list: ReactNode;
+  listHeight: number | undefined;
+  renderDetail: (pluginId: string) => ReactNode;
+  detailHeight: (pluginId: string) => number | undefined;
+}) {
+  const { reduceMotion } = useNemuTheme();
+  // The page being shown or leaving: kept through the pop's slide out.
+  const [detailId, setDetailId] = useState(selectedPluginId);
+  if (selectedPluginId !== null && selectedPluginId !== detailId) setDetailId(selectedPluginId);
+  const target = selectedPluginId ? 1 : 0;
+  const progress = useSharedValue(target);
+  useEffect(() => {
+    progress.value = withTiming(
+      target,
+      { duration: reduceMotion ? 0 : MOBILE_SHEET_PAGE_TRANSITION_MS, easing: mobileSheetSmoothEasing },
+      (finished) => {
+        if (finished && target === 0) runOnJS(setDetailId)(null);
+      },
+    );
+  }, [progress, reduceMotion, target]);
+
+  const listStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(progress.value, [0, 0.5], [1, 0], "clamp"),
+    transform: [{ translateX: -progress.value * width * 0.3 }],
+  }));
+  const detailStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(progress.value, [0, 0.35], [0, 1], "clamp"),
+    transform: [{ translateX: (1 - progress.value) * width }],
+  }));
+
+  const frame = (height: number | undefined) => ({
+    width,
+    // Natural height (measured) while it fits; the presented height once the
+    // page is taller than the sheet can grow, where its body scrolls.
+    height: height === undefined ? maxHeight || undefined : maxHeight > 0 ? Math.min(height, maxHeight) : height,
+  });
+  const showingDetail = selectedPluginId !== null;
+
+  return (
+    <View style={styles.pager}>
+      <Animated.View
+        accessibilityElementsHidden={showingDetail}
+        importantForAccessibility={showingDetail ? "no-hide-descendants" : "auto"}
+        pointerEvents={showingDetail ? "none" : "box-none"}
+        style={[styles.pagerPage, frame(listHeight), listStyle]}
+      >
+        {list}
+      </Animated.View>
+      {detailId ? (
+        <Animated.View
+          accessibilityElementsHidden={!showingDetail}
+          importantForAccessibility={showingDetail ? "auto" : "no-hide-descendants"}
+          pointerEvents={showingDetail ? "box-none" : "none"}
+          style={[styles.pagerPage, frame(detailHeight(detailId)), detailStyle]}
+        >
+          {renderDetail(detailId)}
+        </Animated.View>
+      ) : null}
     </View>
   );
 }
 
-function ReaderPluginListSections({
-  plugins,
-  loading,
-  busy,
-  strings,
-  errorSections,
-  onTogglePlugin,
+/**
+ * A page of the sheet: its header row and a body that scrolls once the page
+ * is taller than the sheet. The measuring copy lays the same body out flat
+ * (a plain view: its natural height is the page's).
+ */
+function ReaderPluginSheetPage({
+  measuring,
+  header,
+  children,
 }: {
-  plugins: MobileReaderPluginState[];
-  loading: boolean;
-  busy: boolean;
-  strings: MobileStrings;
-  errorSections: ReactNode;
-  onTogglePlugin: ReaderPluginSettingsSheetProps["onTogglePlugin"];
+  measuring: boolean;
+  header: ReactNode;
+  children: ReactNode;
 }) {
-  const { tokens } = useNemuTheme();
-  const busyModifiers = busy ? [swiftDisabled(true)] : [];
   return (
-    <>
-      {errorSections}
-      {loading && plugins.length === 0 ? (
-        <SwiftSection>
-          <SwiftHStack spacing={10}>
-            <SwiftProgressView />
-            <SwiftText modifiers={[secondaryText]}>{strings.settings.loadingReaderPlugins}</SwiftText>
-          </SwiftHStack>
-        </SwiftSection>
-      ) : null}
-      {plugins.map((plugin) => (
-        <SwiftSection
-          key={plugin.id}
-          footer={plugin.description ? <SwiftText>{plugin.description}</SwiftText> : undefined}
+    <View style={[styles.page, measuring ? null : styles.pageFill]}>
+      {header}
+      {measuring ? (
+        <View style={styles.pageBody}>{children}</View>
+      ) : (
+        <ScrollView
+          alwaysBounceVertical={false}
+          contentContainerStyle={styles.pageBody}
+          keyboardShouldPersistTaps="handled"
+          style={styles.pageScroll}
         >
-          <SwiftNavigationLink value={plugin.id}>
-            <SwiftHStack spacing={12} alignment="center">
-              <SwiftImage
-                systemName={mobileReaderPluginSystemImage(plugin)}
-                color={plugin.enabled ? tokens.primary : tokens.mutedForeground}
-                modifiers={[font({ textStyle: "title3" }), frame({ width: 30 })]}
-              />
-              <SwiftVStack alignment="leading" spacing={2}>
-                <SwiftText modifiers={[lineLimit(1)]}>{plugin.name}</SwiftText>
-                <SwiftText modifiers={[font({ textStyle: "subheadline" }), secondaryText, lineLimit(1)]}>
-                  {mobileReaderPluginRowSubtitle(plugin, strings)}
-                </SwiftText>
-              </SwiftVStack>
-              <SwiftSpacer />
-              <SwiftToggle
-                isOn={plugin.enabled}
-                onIsOnChange={(enabled) => {
-                  if (busy || enabled === plugin.enabled) return;
-                  onTogglePlugin(plugin, enabled);
-                }}
-                modifiers={[
-                  labelsHidden(),
-                  fixedSize(),
-                  swiftAccessibilityLabel(
-                    formatMobileString(strings.settings.readerPluginSwitch, { name: plugin.name }),
-                  ),
-                  ...busyModifiers,
-                ]}
-              />
-            </SwiftHStack>
-          </SwiftNavigationLink>
-        </SwiftSection>
-      ))}
-    </>
+          {children}
+        </ScrollView>
+      )}
+    </View>
   );
 }
 
 const noop = () => {};
 
+function ReaderPluginListPage({
+  plugins,
+  loading,
+  error,
+  loadError,
+  busy,
+  retryingLoad,
+  canRetryLoadError,
+  strings,
+  measuring,
+  onClose,
+  onDismissError,
+  onDismissLoadError,
+  onRetryLoad,
+  onSelectPlugin,
+  onTogglePlugin,
+}: {
+  plugins: MobileReaderPluginState[];
+  loading: boolean;
+  error: string | null;
+  loadError: string | null;
+  busy: boolean;
+  retryingLoad: boolean;
+  canRetryLoadError: boolean;
+  strings: MobileStrings;
+  measuring: boolean;
+  onClose: () => void;
+  onDismissError: () => void;
+  onDismissLoadError: () => void;
+  onRetryLoad: () => void;
+  onSelectPlugin: (pluginId: string) => void;
+  onTogglePlugin: ReaderPluginSettingsSheetProps["onTogglePlugin"];
+}) {
+  return (
+    <ReaderPluginSheetPage
+      measuring={measuring}
+      header={
+        <MobileSheetHeader
+          title={strings.settings.plugins}
+          trailing={
+            <NemuNativeSheetHeaderAction
+              accessibilityLabel={strings.common.done}
+              androidIcon="close-outline"
+              iosSystemImage="xmark"
+              disabled={busy}
+              onPress={measuring ? noop : onClose}
+            />
+          }
+        />
+      }
+    >
+      {error ? (
+        <MobileInlineErrorBanner
+          title={strings.settings.settingsActionFailed}
+          detail={error}
+          dismissLabel={strings.common.clear}
+          onDismiss={measuring ? noop : onDismissError}
+          variant="embedded"
+        />
+      ) : null}
+      {loadError ? (
+        <MobileInlineErrorBanner
+          title={strings.settings.settingsActionFailed}
+          detail={loadError}
+          actionLabel={strings.common.retry}
+          actionDisabled={!canRetryLoadError}
+          actionLoading={retryingLoad}
+          dismissLabel={strings.common.clear}
+          onActionPress={measuring ? noop : onRetryLoad}
+          onDismiss={measuring ? noop : onDismissLoadError}
+          variant="embedded"
+        />
+      ) : null}
+      {loading && plugins.length === 0 ? (
+        <NemuInlineEmptyState icon="hourglass-outline" title={strings.settings.loadingReaderPlugins} />
+      ) : (
+        plugins.map((plugin) => (
+          <ReaderPluginListItem
+            key={plugin.id}
+            plugin={plugin}
+            busy={busy}
+            strings={strings}
+            onOpen={measuring ? noop : () => onSelectPlugin(plugin.id)}
+            onToggle={measuring ? noop : (enabled) => onTogglePlugin(plugin, enabled)}
+          />
+        ))
+      )}
+    </ReaderPluginSheetPage>
+  );
+}
+
 /**
- * Every page of the sheet — the list and each plugin's settings — laid out
- * off screen at the sheet's width, so the sheet presents once, natively, at
- * the height of its page, and resizes along with a push or pop instead of
- * after it (see `fitSheetDetentToContent`). Memoised on what changes a
- * page's height only: opening / closing the sheet (or a busy flag) must not
- * re-render these copies while the sheet animates — that main-thread work
- * shows up as uneven frames in the presentation.
+ * A plugin's page: Settings' plugin page (description and the shared
+ * settings card) under a header with the back action and the plugin's mark
+ * and name, plus the plugin's on / off row. Off, the settings stay visible
+ * (dimmed) so the page keeps its shape when the switch flips.
+ */
+function ReaderPluginDetailPage({
+  plugin: storedPlugin,
+  busy,
+  loading,
+  error,
+  strings,
+  measuring = false,
+  onBack,
+  onTogglePlugin,
+  onResetPlugin,
+  onChangePluginValue,
+}: {
+  plugin: MobileReaderPluginState;
+  busy: boolean;
+  loading: boolean;
+  error: string | null;
+  strings: MobileStrings;
+  /** The off-screen measuring copy: inert, never starts a dictionary download. */
+  measuring?: boolean;
+  onBack: () => void;
+  onTogglePlugin: ReaderPluginSettingsSheetProps["onTogglePlugin"];
+  onResetPlugin: ReaderPluginSettingsSheetProps["onResetPlugin"];
+  onChangePluginValue: ReaderPluginSettingsSheetProps["onChangePluginValue"];
+}) {
+  const plugin = useMobileReaderPluginSignedInState(storedPlugin, strings);
+  return (
+    <ReaderPluginSheetPage
+      measuring={measuring}
+      header={
+        <View style={styles.detailHeader}>
+          <View style={styles.detailHeaderSide}>
+            <NemuNativeSheetHeaderAction
+              accessibilityLabel={strings.common.back}
+              androidIcon="arrow-back"
+              iosSystemImage="chevron.backward"
+              onPress={measuring ? noop : onBack}
+            />
+          </View>
+          <View style={styles.detailHeaderTitle}>
+            <MobileReaderPluginSettingsTitle plugin={plugin} numberOfLines={1} />
+          </View>
+          <View style={styles.detailHeaderSide} />
+        </View>
+      }
+    >
+      <MobileReaderPluginSettingsDescription plugin={plugin} />
+      <ReaderPluginEnableRow
+        plugin={plugin}
+        busy={busy}
+        strings={strings}
+        onToggle={measuring ? noop : (enabled) => onTogglePlugin(plugin, enabled)}
+      />
+      <MobileReaderPluginSettingsCard
+        plugin={plugin}
+        strings={strings}
+        disabled={busy || !plugin.enabled}
+        loading={loading}
+        error={error}
+        inert={measuring}
+        onReset={measuring ? noop : () => onResetPlugin(plugin)}
+        onChange={measuring ? noop : (key, value) => onChangePluginValue(plugin, key, value)}
+      />
+    </ReaderPluginSheetPage>
+  );
+}
+
+/**
+ * Every page — the list and each plugin's — laid out off screen at the
+ * sheet's width and measured, so the sheet presents once, natively, at the
+ * height of its page and resizes along with a push or pop instead of after
+ * it. Memoised on what changes a page's height only: opening the sheet (or a
+ * busy flag) must not re-render them while the sheet animates.
  */
 const ReaderPluginSheetMeasuringCopies = memo(function ReaderPluginSheetMeasuringCopies({
   plugins,
@@ -329,7 +582,7 @@ const ReaderPluginSheetMeasuringCopies = memo(function ReaderPluginSheetMeasurin
   canRetryLoadError,
   strings,
   width,
-  height,
+  onMeasure,
 }: {
   plugins: MobileReaderPluginState[];
   loading: boolean;
@@ -339,466 +592,57 @@ const ReaderPluginSheetMeasuringCopies = memo(function ReaderPluginSheetMeasurin
   canRetryLoadError: boolean;
   strings: MobileStrings;
   width: number;
-  height: number;
+  onMeasure: (page: string, width: number, height: number) => void;
 }) {
-  const { tokens } = useNemuTheme();
-  const errorSections = (
-    <ReaderPluginErrorSections
-      error={error}
-      loadError={loadError}
-      retryingLoad={retryingLoad}
-      canRetryLoadError={canRetryLoadError}
-      dangerColor={tokens.danger}
-      strings={strings}
-      onDismissError={noop}
-      onDismissLoadError={noop}
-      onRetryLoad={noop}
-    />
-  );
+  const measure = (page: string) => (event: LayoutChangeEvent) => {
+    const layout = event.nativeEvent.layout;
+    onMeasure(page, layout.width, layout.height);
+  };
   return (
-    <>
-      <SwiftForm
-        modifiers={[
-          measureSheetPage({ group: READER_PLUGIN_SHEET_GROUP, page: READER_PLUGIN_SHEET_LIST_PAGE, width, height }),
-        ]}
-      >
-        <ReaderPluginListSections
+    <View
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      pointerEvents="none"
+      style={[styles.measureRoot, { width }]}
+    >
+      <View onLayout={measure(READER_PLUGIN_SHEET_LIST_PAGE)} style={{ width }}>
+        <ReaderPluginListPage
           plugins={plugins}
           loading={loading}
+          error={error}
+          loadError={loadError}
           busy={false}
+          retryingLoad={retryingLoad}
+          canRetryLoadError={canRetryLoadError}
           strings={strings}
-          errorSections={errorSections}
+          measuring
+          onClose={noop}
+          onDismissError={noop}
+          onDismissLoadError={noop}
+          onRetryLoad={noop}
+          onSelectPlugin={noop}
           onTogglePlugin={noop}
         />
-      </SwiftForm>
+      </View>
       {plugins.map((plugin) => (
-        <ReaderPluginDetail
-          key={plugin.id}
-          plugin={plugin}
-          busy={false}
-          strings={strings}
-          errorSections={errorSections}
-          measure={measureSheetPage({ group: READER_PLUGIN_SHEET_GROUP, page: readerPluginSheetPage(plugin.id), width, height })}
-          onTogglePlugin={noop}
-          onResetPlugin={noop}
-          onChangePluginValue={noop}
-        />
+        <View key={plugin.id} onLayout={measure(readerPluginSheetPage(plugin.id))} style={{ width }}>
+          <ReaderPluginDetailPage
+            plugin={plugin}
+            busy={false}
+            loading={loading}
+            error={error}
+            strings={strings}
+            measuring
+            onBack={noop}
+            onTogglePlugin={noop}
+            onResetPlugin={noop}
+            onChangePluginValue={noop}
+          />
+        </View>
       ))}
-    </>
+    </View>
   );
 });
-
-function ReaderPluginErrorSections({
-  error,
-  loadError,
-  retryingLoad,
-  canRetryLoadError,
-  dangerColor,
-  strings,
-  onDismissError,
-  onDismissLoadError,
-  onRetryLoad,
-}: {
-  error: string | null;
-  loadError: string | null;
-  retryingLoad: boolean;
-  canRetryLoadError: boolean;
-  dangerColor: string;
-  strings: MobileStrings;
-  onDismissError: () => void;
-  onDismissLoadError: () => void;
-  onRetryLoad: () => void;
-}) {
-  const renderError = (detail: string, actions: ReactNode, key: string) => {
-    const { description, diagnostic } = splitMobileInlineErrorDetail(detail);
-    return (
-      <SwiftSection
-        key={key}
-        title={strings.settings.settingsActionFailed}
-        footer={diagnostic ? <SwiftText modifiers={[textSelection(true)]}>{diagnostic}</SwiftText> : undefined}
-      >
-        <SwiftLabel
-          title={description}
-          systemImage="exclamationmark.triangle"
-          modifiers={[foregroundStyle(dangerColor)]}
-        />
-        {actions}
-      </SwiftSection>
-    );
-  };
-  return (
-    <>
-      {loadError
-        ? renderError(
-            loadError,
-            <>
-              {retryingLoad ? (
-                <SwiftHStack spacing={10}>
-                  <SwiftProgressView />
-                  <SwiftText modifiers={[secondaryText]}>{strings.common.retry}</SwiftText>
-                </SwiftHStack>
-              ) : (
-                <SwiftButton
-                  label={strings.common.retry}
-                  systemImage="arrow.clockwise"
-                  onPress={onRetryLoad}
-                  modifiers={canRetryLoadError ? [] : [swiftDisabled(true)]}
-                />
-              )}
-              <SwiftButton label={strings.common.clear} onPress={onDismissLoadError} />
-            </>,
-            "load-error",
-          )
-        : null}
-      {error
-        ? renderError(
-            error,
-            <SwiftButton label={strings.common.clear} onPress={onDismissError} />,
-            "action-error",
-          )
-        : null}
-    </>
-  );
-}
-
-function ReaderPluginDetail({
-  plugin: storedPlugin,
-  busy,
-  strings,
-  errorSections,
-  measure,
-  onTogglePlugin,
-  onResetPlugin,
-  onChangePluginValue,
-}: {
-  plugin: MobileReaderPluginState;
-  busy: boolean;
-  strings: MobileStrings;
-  errorSections: ReactNode;
-  /** The off-screen measuring copy of this page (`measureSheetPage`), not the page in the sheet. */
-  measure?: ReturnType<typeof measureSheetPage>;
-  onTogglePlugin: ReaderPluginSettingsSheetProps["onTogglePlugin"];
-  onResetPlugin: ReaderPluginSettingsSheetProps["onResetPlugin"];
-  onChangePluginValue: ReaderPluginSettingsSheetProps["onChangePluginValue"];
-}) {
-  const signedIn = useMobileJapaneseLearningSignedIn();
-  const plugin = useMemo(
-    () => applyMobileReaderPluginSignInState(storedPlugin, signedIn, strings),
-    [signedIn, storedPlugin, strings],
-  );
-  const sections = useMemo(
-    () => buildMobileReaderPluginNativeSections(plugin.settings, plugin.values, strings),
-    [plugin.settings, plugin.values, strings],
-  );
-  // Settings stay visible (greyed) while the plugin is off, so the page keeps
-  // its shape when the switch above them flips.
-  const locked = busy || !plugin.enabled;
-  const change = (key: string, value: unknown) => {
-    if (locked) return;
-    onChangePluginValue(plugin, key, value);
-  };
-
-  return (
-    <SwiftForm
-      modifiers={
-        measure
-          ? [measure]
-          : [
-              navigationTitle(plugin.name),
-              inlineToolbarTitle(),
-              reportSheetContentHeight({ page: readerPluginSheetPage(plugin.id) }),
-            ]
-      }
-    >
-      {errorSections}
-      <SwiftSection
-        footer={
-          <SwiftText>
-            {plugin.enabled
-              ? plugin.description
-              : formatMobileString(strings.settings.readerPluginOffFooter, { name: plugin.name })}
-          </SwiftText>
-        }
-      >
-        <SwiftToggle
-          label={plugin.name}
-          systemImage={mobileReaderPluginSystemImage(plugin)}
-          isOn={plugin.enabled}
-          onIsOnChange={(enabled) => {
-            if (busy || enabled === plugin.enabled) return;
-            onTogglePlugin(plugin, enabled);
-          }}
-          modifiers={[
-            swiftAccessibilityLabel(formatMobileString(strings.settings.readerPluginSwitch, { name: plugin.name })),
-            ...(busy ? [swiftDisabled(true)] : []),
-          ]}
-        />
-      </SwiftSection>
-      {sections.length === 0 ? (
-        <SwiftSection>
-          <SwiftText modifiers={[secondaryText]}>{strings.settings.noPluginSettings}</SwiftText>
-        </SwiftSection>
-      ) : (
-        sections.map((section) => (
-          <SwiftSection
-            key={section.key}
-            title={section.title}
-            footer={section.footer ? <SwiftText>{section.footer}</SwiftText> : undefined}
-          >
-            {section.rows.map((row) => (
-              <Fragment key={row.id}>
-                <ReaderPluginSettingRow row={row} locked={locked} strings={strings} onChange={change} />
-                {plugin.id === "japanese-learning" && row.setting.key === MOBILE_JAPANESE_LEARNING_ENGINE_SETTING_KEY ? (
-                  <ReaderPluginDictionaryRow
-                    engine={plugin.values[MOBILE_JAPANESE_LEARNING_ENGINE_SETTING_KEY]}
-                    disabled={locked}
-                    strings={strings}
-                    inert={Boolean(measure)}
-                  />
-                ) : null}
-              </Fragment>
-            ))}
-          </SwiftSection>
-        ))
-      )}
-      {sections.length > 0 ? (
-        <SwiftSection>
-          <SwiftButton
-            label={strings.settings.sourceSettingsResetLabel}
-            systemImage="arrow.counterclockwise"
-            role="destructive"
-            onPress={() => {
-              if (locked) return;
-              onResetPlugin(plugin);
-            }}
-            modifiers={locked ? [swiftDisabled(true)] : []}
-          />
-        </SwiftSection>
-      ) : null}
-    </SwiftForm>
-  );
-}
-
-function RowTitle({ title, subtitle }: { title: string; subtitle?: string }) {
-  return (
-    <SwiftVStack alignment="leading" spacing={2}>
-      <SwiftText>{title}</SwiftText>
-      {subtitle ? (
-        <SwiftText modifiers={[font({ textStyle: "footnote" }), secondaryText]}>{subtitle}</SwiftText>
-      ) : null}
-    </SwiftVStack>
-  );
-}
-
-function ReaderPluginSettingRow({
-  row,
-  locked,
-  strings,
-  onChange,
-}: {
-  row: MobileReaderPluginNativeRow;
-  locked: boolean;
-  strings: MobileStrings;
-  onChange: (key: string, value: unknown) => void;
-}) {
-  const lockedModifiers = locked || row.disabled ? [swiftDisabled(true)] : [];
-  switch (row.kind) {
-    case "toggle":
-      return (
-        <SwiftToggle
-          isOn={row.value}
-          onIsOnChange={(value) => {
-            if (value === row.value) return;
-            onChange(row.setting.key, value);
-          }}
-          modifiers={lockedModifiers}
-        >
-          <SwiftText>{row.title}</SwiftText>
-          {row.subtitle ? <SwiftText>{row.subtitle}</SwiftText> : null}
-        </SwiftToggle>
-      );
-    case "picker":
-      return (
-        <SwiftPicker
-          label={<RowTitle title={row.title} subtitle={row.subtitle} />}
-          selection={row.selection}
-          onSelectionChange={(selection) => {
-            if (selection === null || selection === row.selection) return;
-            void hapticSelection();
-            onChange(row.setting.key, encodeMobileReaderPluginPickerSelection(row, selection));
-          }}
-          modifiers={[pickerStyle("menu"), ...lockedModifiers]}
-        >
-          {row.options.map((option) => (
-            <SwiftText key={String(option.value)} modifiers={[tag(option.value)]}>
-              {option.label}
-            </SwiftText>
-          ))}
-        </SwiftPicker>
-      );
-    case "slider":
-      return <ReaderPluginSliderRow row={row} locked={locked} onChange={onChange} />;
-    case "stepper":
-      return (
-        <SwiftStepper
-          label={formatMobileString(strings.settings.selectSettingOption, {
-            title: row.title,
-            option: row.valueLabel,
-          })}
-          value={row.value}
-          min={row.min}
-          max={row.max}
-          step={row.step}
-          onValueChange={(value) => {
-            const next = snapMobileReaderPluginNumber(row, value);
-            if (next === row.value) return;
-            onChange(row.setting.key, next);
-          }}
-          modifiers={lockedModifiers}
-        />
-      );
-    case "readonly":
-      // A kind this sheet has no native control for: name it, show its value
-      // and say where it can be changed, rather than dropping it.
-      return (
-        <SwiftVStack alignment="leading" spacing={2}>
-          <SwiftHStack>
-            <SwiftText>{row.title}</SwiftText>
-            <SwiftSpacer />
-            {row.valueText ? (
-              <SwiftText modifiers={[secondaryText, lineLimit(1)]}>{row.valueText}</SwiftText>
-            ) : null}
-          </SwiftHStack>
-          {row.subtitle ? (
-            <SwiftText modifiers={[font({ textStyle: "footnote" }), secondaryText]}>{row.subtitle}</SwiftText>
-          ) : null}
-          <SwiftText modifiers={[font({ textStyle: "footnote" }), secondaryText]}>
-            {strings.settings.readerPluginSettingEditElsewhere}
-          </SwiftText>
-        </SwiftVStack>
-      );
-  }
-}
-
-/** Previews while dragging, writes once on release (each write is a save). */
-function ReaderPluginSliderRow({
-  row,
-  locked,
-  onChange,
-}: {
-  row: MobileReaderPluginNativeNumberRow;
-  locked: boolean;
-  onChange: (key: string, value: unknown) => void;
-}) {
-  const [draft, setDraft] = useState(row.value);
-  const draftRef = useRef(row.value);
-  // A saved (or reset) value replaces the draft, derived during render.
-  const [savedValue, setSavedValue] = useState(row.value);
-  if (savedValue !== row.value) {
-    setSavedValue(row.value);
-    setDraft(row.value);
-  }
-  const format = row.setting.formatValue;
-  const draftLabel = typeof format === "function" ? String(format(draft)) : String(draft);
-
-  return (
-    <SwiftVStack alignment="leading" spacing={6}>
-      <SwiftHStack>
-        <SwiftText>{row.title}</SwiftText>
-        <SwiftSpacer />
-        <SwiftText modifiers={[secondaryText, monospacedDigit()]}>{draftLabel}</SwiftText>
-      </SwiftHStack>
-      {row.subtitle ? (
-        <SwiftText modifiers={[font({ textStyle: "footnote" }), secondaryText]}>{row.subtitle}</SwiftText>
-      ) : null}
-      <SwiftSlider
-        value={draft}
-        min={row.min}
-        max={row.max}
-        step={row.step}
-        onValueChange={(value) => {
-          const next = snapMobileReaderPluginNumber(row, value);
-          draftRef.current = next;
-          setDraft(next);
-        }}
-        onEditingChanged={(editing) => {
-          if (editing) {
-            draftRef.current = row.value;
-            return;
-          }
-          if (draftRef.current === row.value) return;
-          void hapticSelection();
-          onChange(row.setting.key, draftRef.current);
-        }}
-        modifiers={[swiftAccessibilityLabel(row.title), ...(locked ? [swiftDisabled(true)] : [])]}
-      />
-    </SwiftVStack>
-  );
-}
-
-/**
- * The on-device dictionary line under Recognition Engine (status, live
- * download progress, Download now / Retry / Remove). Nothing where there is
- * no on-device analyzer.
- */
-function ReaderPluginDictionaryRow({
-  engine,
-  disabled,
-  strings,
-  inert = false,
-}: {
-  engine: unknown;
-  disabled: boolean;
-  strings: MobileStrings;
-  /** The measuring copy: shows the row, never starts a download itself. */
-  inert?: boolean;
-}) {
-  const { tokens } = useNemuTheme();
-  const { row, copy, failed, actionLabel, actionPending, runAction } = useMobileJapaneseLearningDictionaryRowModel({
-    engine,
-    strings,
-    autoInstall: !inert,
-  });
-  if (!row) return null;
-
-  return (
-    <SwiftVStack alignment="leading" spacing={8}>
-      <SwiftHStack spacing={12}>
-        <SwiftVStack alignment="leading" spacing={2}>
-          <SwiftText>{copy.title}</SwiftText>
-          <SwiftText
-            modifiers={[font({ textStyle: "footnote" }), failed ? foregroundStyle(tokens.danger) : secondaryText]}
-          >
-            {row.status}
-          </SwiftText>
-        </SwiftVStack>
-        <SwiftSpacer />
-        {actionPending ? (
-          <SwiftProgressView />
-        ) : actionLabel ? (
-          <SwiftButton
-            label={actionLabel}
-            role={row.action === "remove" ? "destructive" : undefined}
-            onPress={() => {
-              void runAction();
-            }}
-            modifiers={[
-              buttonStyle("borderless"),
-              swiftAccessibilityLabel(`${actionLabel}, ${copy.title}`),
-              ...(disabled ? [swiftDisabled(true)] : []),
-            ]}
-          />
-        ) : null}
-      </SwiftHStack>
-      {row.progress !== undefined ? (
-        <SwiftProgressView
-          value={row.progress}
-          modifiers={[progressViewStyle("linear"), swiftAccessibilityLabel(copy.progressAccessibility)]}
-        />
-      ) : null}
-    </SwiftVStack>
-  );
-}
 
 const styles = StyleSheet.create({
   host: {
@@ -807,5 +651,58 @@ const styles = StyleSheet.create({
     top: 0,
     width: 1,
     height: 1,
+  },
+  hostContent: {
+    flex: 1,
+  },
+  pager: {
+    flex: 1,
+    overflow: "hidden",
+  },
+  pagerPage: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+  },
+  page: {
+    paddingTop: GRABBER_CLEARANCE,
+  },
+  pageFill: {
+    flex: 1,
+  },
+  pageScroll: {
+    flexGrow: 0,
+    flexShrink: 1,
+  },
+  pageBody: {
+    gap: 14,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: MOBILE_NATIVE_SHEET_BOTTOM_GUTTER,
+  },
+  detailHeader: {
+    minHeight: 52,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 4,
+  },
+  detailHeaderSide: {
+    width: 44,
+    minHeight: 44,
+    justifyContent: "center",
+  },
+  detailHeaderTitle: {
+    flex: 1,
+    minWidth: 0,
+    alignItems: "center",
+  },
+  measureRoot: {
+    position: "absolute",
+    top: 0,
+    left: -10000,
+    opacity: 0,
   },
 });

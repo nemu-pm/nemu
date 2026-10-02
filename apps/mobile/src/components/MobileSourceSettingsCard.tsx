@@ -2024,6 +2024,10 @@ const styles = StyleSheet.create({
   },
   settingTextFull: {
     width: "100%",
+    // In the stacked (column) slider row the base `flex: 1` (basis 0) sizes
+    // the title block to zero height: the title and subtitle vanished above
+    // the track. Sized by its content instead.
+    flex: 0,
   },
   settingTitleLine: {
     flexDirection: "row",

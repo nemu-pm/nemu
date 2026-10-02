@@ -315,6 +315,33 @@ export function resolveMobileNativeSheetBottomPadding({
   return Math.max(safeAreaBottom + 28, 40);
 }
 
+/**
+ * A soft bottom edge for a sheet whose body is the caller's own list
+ * (`MobileNativeSheetScaffold`'s `softBottomEdge`): instead of stopping in a
+ * hard line one gutter above the home indicator's inset, the list runs to the
+ * sheet's own bottom edge and fades out over `fadeHeight`.
+ *
+ * `endInset` is how far the list pads its end: its last row rests exactly
+ * where the fade begins (where a plain body's bottom gutter put it), so
+ * nothing is faded once scrolled to the end. iOS: the body reaches into the
+ * sheet's bottom safe area (the home indicator's inset, and a floating
+ * sheet's rounded corners), so the fade covers that inset plus the gutter.
+ * Android: Material already ends the content above the navigation bar.
+ */
+export function resolveMobileNativeSheetSoftBottomEdge({
+  platform,
+  safeAreaBottom,
+}: {
+  platform: string;
+  safeAreaBottom: number;
+}): { endInset: number; fadeHeight: number } {
+  const fadeHeight =
+    platform === "android"
+      ? MOBILE_NATIVE_SHEET_BOTTOM_GUTTER + 6
+      : Math.max(safeAreaBottom, 20) + MOBILE_NATIVE_SHEET_BOTTOM_GUTTER;
+  return { endInset: fadeHeight, fadeHeight };
+}
+
 export function resolveMobileSheetIosLayoutBudget(containerWidth: number): {
   bodyWidth: number;
   compactActionWidth: number;

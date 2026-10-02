@@ -16,9 +16,9 @@ import { useMobileJapaneseLearningSignedIn } from "@/lib/mobileJapaneseLearningA
 /**
  * State and actions behind the on-device dictionary line: the row copy for
  * the current pack state, the localized action label, and the action runner.
- * Choosing On Device / Automatic starts the download right away. Shared by
- * `MobileJapaneseLearningDictionaryRow` and the reader's native (SwiftUI)
- * plugin sheet.
+ * Choosing On Device / Automatic starts the download right away. Behind
+ * `MobileJapaneseLearningDictionaryRow` (Settings' and the reader's plugin
+ * sheets).
  */
 export function useMobileJapaneseLearningDictionaryRowModel({
   engine,
