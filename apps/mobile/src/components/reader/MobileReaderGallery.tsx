@@ -77,7 +77,8 @@ import {
 } from "./readerEdgeDrag";
 import {
   isReaderStageTapEnabled,
-  isReaderTapInsideChrome,
+  readerStageTouchOwner,
+  readerStageTouchMatchesContent,
   readerTapDispatchForZone,
   readerTapZoneForPosition,
 } from "./readerTapZones";
@@ -162,6 +163,13 @@ type MobileReaderGalleryProps = {
   onOpenPreviousChapter?: () => void;
   onToggleControls: () => void;
   /**
+   * The chrome is fading out: its pieces (`tapExclusions`) are still on
+   * screen but no longer take touches. A tap on one brings the chrome back
+   * through `onRevealChrome` instead of reaching the tap zones under it.
+   */
+  chromeDismissing?: boolean;
+  onRevealChrome?: () => void;
+  /**
    * The page under the stage is zoomed in. A zoomed page owns the whole stage,
    * so its edge bands stop turning pages and its double tap resets the zoom.
    */
@@ -194,7 +202,11 @@ type MobileReaderGalleryProps = {
   /** The reader window's size (`WxH`): a remount after a resize never cross-fades. */
   windowKey?: string;
   spreadSlots?: WindowLayoutRect[];
-  /** Stage-local rectangles owned by reader chrome (the vertical rail): never page taps. */
+  /**
+   * Stage-local rectangles owned by reader chrome (capsule pieces, the
+   * vertical rail) for as long as they are on screen, fade-out included:
+   * never page taps.
+   */
   tapExclusions?: readonly WindowLayoutRect[];
   /** Stage-local fold interval: never a tap target. */
   foldGap?: { start: number; end: number } | null;
@@ -281,6 +293,8 @@ export function MobileReaderGallery({
   onOpenNextChapter,
   onOpenPreviousChapter,
   onToggleControls,
+  chromeDismissing = false,
+  onRevealChrome,
   pageZoomActive = false,
   tapGesturesEnabled = true,
   visiblePageLoading = false,
@@ -415,6 +429,10 @@ export function MobileReaderGallery({
     x: number;
     y: number;
     time: number;
+    /** Landed on a chrome piece that is fading out. */
+    revealsChrome?: boolean;
+    contentKey: string;
+    pageTurnEnabled: boolean;
   } | null>(null);
   const pendingToggleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -440,6 +458,7 @@ export function MobileReaderGallery({
     progress: number;
   } | null>(null);
   const onToggleControlsRef = useRef(onToggleControls);
+  const onRevealChromeRef = useRef(onRevealChrome);
   const onPageStepRef = useRef(onPageStep);
   const onRequestAdvancePastEndRef = useRef(onRequestAdvancePastEnd);
   const onRequestRetreatPastStartRef = useRef(onRequestRetreatPastStart);
@@ -581,6 +600,7 @@ export function MobileReaderGallery({
 
   useLayoutEffect(() => {
     onToggleControlsRef.current = onToggleControls;
+    onRevealChromeRef.current = onRevealChrome;
     onPageStepRef.current = onPageStep;
     onRequestAdvancePastEndRef.current = onRequestAdvancePastEnd;
     onRequestRetreatPastStartRef.current = onRequestRetreatPastStart;
@@ -595,6 +615,7 @@ export function MobileReaderGallery({
     onPageStep,
     onRequestAdvancePastEnd,
     onRequestRetreatPastStart,
+    onRevealChrome,
     onScrollingVisiblePageChange,
     onToggleControls,
     pagedDisplayCount,
@@ -800,22 +821,35 @@ export function MobileReaderGallery({
       touchStartRef.current = null;
       return;
     }
-    if (mobileReaderTapExcluded({ x, y }, tapExclusions, foldGap)) {
+    if (mobileReaderTapExcluded({ x, y }, undefined, foldGap)) {
       touchStartRef.current = null;
       return;
     }
-    if (
-      isReaderTapInsideChrome({
-        y,
-        height: windowHeight,
-        topInset: chromeTopPadding,
-        bottomInset: bottomPadding,
-      })
-    ) {
+    const owner = readerStageTouchOwner({
+      x,
+      y,
+      height: windowHeight,
+      topInset: chromeTopPadding,
+      bottomInset: bottomPadding,
+      chromePieces: tapExclusions,
+      chromeDismissing,
+    });
+    if (owner === "chrome") {
       touchStartRef.current = null;
       return;
     }
     const now = Date.now();
+    if (owner === "revealChrome") {
+      touchStartRef.current = {
+        x: touch.pageX,
+        y: touch.pageY,
+        time: now,
+        revealsChrome: true,
+        contentKey: resolvedContentIdentityKey,
+        pageTurnEnabled: false,
+      };
+      return;
+    }
     // A second tap is on its way: hold the first tap's chrome toggle until
     // this one lifts (a double tap drops it; see handleStageTouchEnd), so
     // a slow second tap never flashes the chrome before the zoom.
@@ -830,6 +864,8 @@ export function MobileReaderGallery({
       x: touch.pageX,
       y: touch.pageY,
       time: now,
+      contentKey: resolvedContentIdentityKey,
+      pageTurnEnabled: readerPageTurnEnabled,
     };
   };
   // The chrome toggle is the only way out of a black screen, so it must keep
@@ -899,9 +935,25 @@ export function MobileReaderGallery({
   const handleStageTouchEnd = (event: GestureResponderEvent) => {
     const start = touchStartRef.current;
     touchStartRef.current = null;
-    if (!start) return;
+    if (!start || !readerStageTouchMatchesContent(start.contentKey, resolvedContentIdentityKey)) return;
 
     const touch = event.nativeEvent;
+    if (start.revealsChrome) {
+      // Never a page turn, a chapter swipe or a toggle: the piece the reader
+      // aimed at is still on screen, so the chrome it belongs to comes back.
+      if (
+        Math.hypot(touch.pageX - start.x, touch.pageY - start.y) <= READER_TAP_MAX_DISTANCE &&
+        Date.now() - start.time <= READER_TAP_MAX_DURATION_MS
+      ) {
+        if (pendingToggleTimerRef.current) {
+          clearTimeout(pendingToggleTimerRef.current);
+          pendingToggleTimerRef.current = null;
+        }
+        lastCentreTapEndAtRef.current = 0;
+        onRevealChromeRef.current?.();
+      }
+      return;
+    }
     if (
       !pagedMode &&
       pagesState.status === "ready" &&
@@ -971,7 +1023,7 @@ export function MobileReaderGallery({
     ) {
       return;
     }
-    const zone = readerPageTurnEnabled
+    const zone = start.pageTurnEnabled && readerPageTurnEnabled
       ? readerTapZoneForPosition({
           x: touch.pageX - stageOriginRef.current.x,
           width: readerPageWidth,
@@ -1537,6 +1589,7 @@ export function MobileReaderGallery({
       style={[styles.stageContainer, styles.stage, { backgroundColor }]}
       onTouchStart={readerStageTapEnabled ? handleStageTouchStart : undefined}
       onTouchEnd={readerStageTapEnabled ? handleStageTouchEnd : undefined}
+      onTouchCancel={() => { touchStartRef.current = null; }}
     >
       {isReaderLoading ? (
         <View

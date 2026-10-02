@@ -54,6 +54,83 @@ export function isReaderTapInsideChrome({
   return y <= safeTopInset || y >= height - safeBottomInset;
 }
 
+/**
+ * Who a touch that reached the reading stage belongs to.
+ *
+ * - `stage`: bare page; the tap zones decide what it does.
+ * - `chrome`: a chrome piece (or the toolbar band) owns it; the stage ignores it.
+ * - `revealChrome`: it landed on a chrome piece that is still on screen while
+ *   it dematerializes. The pieces stop hit-testing the moment the hide starts,
+ *   so the touch arrives here instead. It brings the chrome back so the reader
+ *   can choose the control again, rather than running a partly hidden button
+ *   or turning the page under a control they can still see.
+ */
+export type ReaderStageTouchOwner = "stage" | "chrome" | "revealChrome";
+
+type ReaderStageRect = { x: number; y: number; width: number; height: number };
+
+export function readerStageTouchOwner({
+  x,
+  y,
+  height,
+  topInset,
+  bottomInset,
+  chromePieces,
+  chromeDismissing = false,
+}: {
+  /** Stage-local touch position. */
+  x: number;
+  y: number;
+  height: number;
+  topInset: number;
+  bottomInset: number;
+  /**
+   * Stage-local rects of the chrome pieces that are on screen — shown, or
+   * still fading out. Omitted once the chrome is fully hidden.
+   */
+  chromePieces?: readonly ReaderStageRect[];
+  /** The chrome is fading out: its pieces are visible but no longer hit-test. */
+  chromeDismissing?: boolean;
+}): ReaderStageTouchOwner {
+  const onPiece =
+    Number.isFinite(x) &&
+    Number.isFinite(y) &&
+    (chromePieces ?? []).some(
+      (rect) =>
+        x >= rect.x &&
+        x <= rect.x + rect.width &&
+        y >= rect.y &&
+        y <= rect.y + rect.height,
+    );
+  if (onPiece) return chromeDismissing ? "revealChrome" : "chrome";
+  return isReaderTapInsideChrome({ y, height, topInset, bottomInset })
+    ? "chrome"
+    : "stage";
+}
+
+/**
+ * The stage rect a chrome piece covers while it dematerializes: its pose rect
+ * plus the slide it travels on the way out (the top row leaves upward, the
+ * bottom row downward). Hit-testing reads stage coordinates, not the native
+ * slide, so a tap on the moving piece's leading edge still belongs to it; the
+ * page beside its trailing edge stays the page's.
+ */
+export function readerChromeDismissSweep<Rect extends ReaderStageRect>(
+  rect: Rect,
+  { slide, stageHeight }: { slide: number; stageHeight: number },
+): Rect {
+  if (!Number.isFinite(slide) || slide <= 0) return rect;
+  // Without a usable stage height the row is unknown: reserve both sides.
+  const knownStage = Number.isFinite(stageHeight) && stageHeight > 0;
+  const leavesUpward = !knownStage || rect.y + rect.height / 2 < stageHeight / 2;
+  const leavesDownward = !knownStage || !leavesUpward;
+  return {
+    ...rect,
+    y: leavesUpward ? rect.y - slide : rect.y,
+    height: rect.height + (leavesUpward ? slide : 0) + (leavesDownward ? slide : 0),
+  };
+}
+
 export function readerTapZoneForPosition({
   x,
   width,
@@ -157,4 +234,12 @@ export function readerCentreTapBand({
     start: width * clampedEdgeRatio,
     end: width * (1 - clampedEdgeRatio),
   };
+}
+
+/** A touch never transfers to another chapter when a route/fetch settles. */
+export function readerStageTouchMatchesContent(
+  startedContentKey: string,
+  currentContentKey: string,
+): boolean {
+  return startedContentKey === currentContentKey;
 }

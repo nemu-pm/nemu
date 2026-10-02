@@ -155,7 +155,7 @@ import {
   type MobileReaderScrollHandle,
 } from "@/components/reader/MobileReaderGallery";
 import { MobileReaderPageFrame } from "@/components/reader/MobileReaderPageFrame";
-import { readerCentreTapBand } from "@/components/reader/readerTapZones";
+import { readerCentreTapBand, readerChromeDismissSweep } from "@/components/reader/readerTapZones";
 import { MobileReaderEndOfChapterOverlay } from "@/components/reader/MobileReaderEndOfChapterOverlay";
 import { MobileReaderConnectivityNotice } from "@/components/reader/MobileReaderConnectivityNotice";
 import {
@@ -8106,13 +8106,23 @@ export function ReaderScreen() {
         title={mangaTitle}
         windowHeight={readerStageHeight}
         spreadSlots={readerSpreadSlots}
+        // Capsule pieces own their rects for as long as they are on screen:
+        // while they dematerialize they no longer hit-test, so a tap on one
+        // would otherwise reach the page-turn bands under it.
         tapExclusions={
           (readerPose.chrome.kind === "console"
             ? showControls && readerPose.chrome.state !== "filmstrip"
-            : showReaderChrome)
-            ? readerTapExclusions
+            : showReaderChrome || readerChromeLingering)
+            ? readerChromeLingering && readerPose.chrome.kind === "capsules"
+              // Reserve the 8pt dismiss path as well as the pose rect:
+              // hit-testing reads the stage coordinates, not its native slide.
+              ? readerTapExclusions.map((rect) =>
+                  readerChromeDismissSweep(rect, { slide: readerChromeSlide, stageHeight: readerStageHeight }))
+              : readerTapExclusions
             : undefined
         }
+        chromeDismissing={readerChromeLingering && !readerChromePresent}
+        onRevealChrome={() => setShowControls(true)}
         foldGap={readerFoldGap}
       />
       <DuoPageFlipOverlay

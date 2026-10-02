@@ -4,6 +4,9 @@ import {
   isReaderStageTapEnabled,
   isReaderTapInsideChrome,
   readerCentreTapBand,
+  readerChromeDismissSweep,
+  readerStageTouchOwner,
+  readerStageTouchMatchesContent,
   readerTapDispatchForZone,
   readerTapZoneForPosition,
 } from "./readerTapZones";
@@ -285,5 +288,176 @@ describe("reader centre zoom band", () => {
     expect(readerCentreTapBand({ width: 0 })).toBeNull();
     expect(readerCentreTapBand({ width: Number.NaN })).toBeNull();
     expect(readerCentreTapBand({ width: WIDTH, edgeRatio: 0 })).toBeNull();
+  });
+});
+
+describe("reader stage touch ownership", () => {
+  // iPhone portrait capsule chrome (stage-local): Back and ⋯ on the top row,
+  // the actions capsule and the scrubber on the bottom row.
+  const back = { x: 16, y: 62, width: 44, height: 44 };
+  const more = { x: 342, y: 62, width: 44, height: 44 };
+  const actions = { x: 300, y: 790, width: 90, height: 44 };
+  const scrubber = { x: 16, y: 790, width: 276, height: 44 };
+  const title = { x: 70, y: 62, width: 250, height: 44 };
+  const pieces = [back, title, more, actions, scrubber];
+  const shown = { height: 874, topInset: 130, bottomInset: 120 };
+  // Hiding collapses the stage's toolbar bands at once; the pieces linger.
+  const hiding = { height: 874, topInset: 62, bottomInset: 52 };
+  const centre = (rect: typeof back) => ({
+    x: rect.x + rect.width / 2,
+    y: rect.y + rect.height / 2,
+  });
+
+  test("shown chrome owns its pieces and toolbar bands", () => {
+    for (const rect of pieces) {
+      expect(
+        readerStageTouchOwner({ ...shown, ...centre(rect), chromePieces: pieces }),
+      ).toBe("chrome");
+    }
+    // Between Back and ⋯, inside the top band.
+    expect(
+      readerStageTouchOwner({ ...shown, x: 200, y: 100, chromePieces: pieces }),
+    ).toBe("chrome");
+    expect(
+      readerStageTouchOwner({ ...shown, x: 200, y: 450, chromePieces: pieces }),
+    ).toBe("stage");
+  });
+
+  test("a piece fading out takes the tap back instead of the page", () => {
+    // The reported bug: ⋯ at the right edge of an RTL page 1 read as the
+    // "previous" band and opened the previous chapter mid fade-out.
+    for (const rect of pieces) {
+      expect(
+        readerStageTouchOwner({
+          ...hiding,
+          ...centre(rect),
+          chromePieces: pieces,
+          chromeDismissing: true,
+        }),
+      ).toBe("revealChrome");
+    }
+    // Piece edges are inclusive.
+    expect(
+      readerStageTouchOwner({
+        ...hiding,
+        x: more.x + more.width,
+        y: more.y + more.height,
+        chromePieces: pieces,
+        chromeDismissing: true,
+      }),
+    ).toBe("revealChrome");
+  });
+
+  test("bare page between fading pieces stays the page's", () => {
+    expect(
+      readerStageTouchOwner({
+        ...hiding,
+        x: 65,
+        y: 84,
+        chromePieces: pieces,
+        chromeDismissing: true,
+      }),
+    ).toBe("stage");
+    expect(
+      readerStageTouchOwner({
+        ...hiding,
+        x: 380,
+        y: 450,
+        chromePieces: pieces,
+        chromeDismissing: true,
+      }),
+    ).toBe("stage");
+    // Status-bar strip and home-indicator strip keep their static guard.
+    expect(
+      readerStageTouchOwner({
+        ...hiding,
+        x: 200,
+        y: 20,
+        chromePieces: pieces,
+        chromeDismissing: true,
+      }),
+    ).toBe("chrome");
+  });
+
+  test("fully hidden chrome leaves the old piece rects to the page", () => {
+    // Without pieces (the chrome finished hiding) the ⋯ rect is page again.
+    expect(readerStageTouchOwner({ ...hiding, ...centre(back) })).toBe("stage");
+    expect(
+      readerStageTouchOwner({ ...hiding, x: 364, y: 450 }),
+    ).toBe("stage");
+  });
+
+  test("unusable touch positions never claim a piece", () => {
+    expect(
+      readerStageTouchOwner({
+        ...hiding,
+        x: Number.NaN,
+        y: 84,
+        chromePieces: pieces,
+        chromeDismissing: true,
+      }),
+    ).toBe("stage");
+  });
+});
+
+describe("reader chrome dismiss sweep", () => {
+  const stageHeight = 874;
+  const more = { x: 342, y: 62, width: 44, height: 44 };
+  const scrubber = { x: 16, y: 790, width: 276, height: 44 };
+  const sweep = (rect: typeof more, slide = 8) =>
+    readerChromeDismissSweep(rect, { slide, stageHeight });
+  const owner = (rect: typeof more, y: number) =>
+    readerStageTouchOwner({
+      x: rect.x + rect.width / 2,
+      y,
+      height: stageHeight,
+      topInset: 62,
+      bottomInset: 52,
+      chromePieces: [sweep(rect)],
+      chromeDismissing: true,
+    });
+
+  test("the top row keeps the path it slides up through", () => {
+    expect(sweep(more)).toEqual({ x: 342, y: 54, width: 44, height: 52 });
+    // Above the pose rect, where the piece is while it leaves.
+    expect(owner(more, 64)).toBe("revealChrome");
+    expect(owner(more, more.y + more.height)).toBe("revealChrome");
+    // The page under its trailing edge is still the page.
+    expect(owner(more, more.y + more.height + 1)).toBe("stage");
+  });
+
+  test("the bottom row keeps the path it slides down through", () => {
+    expect(sweep(scrubber)).toEqual({ x: 16, y: 790, width: 276, height: 52 });
+    expect(owner(scrubber, scrubber.y + scrubber.height + 8)).toBe("revealChrome");
+    expect(owner(scrubber, scrubber.y)).toBe("revealChrome");
+    expect(owner(scrubber, scrubber.y - 1)).toBe("stage");
+  });
+
+  test("Reduce Motion fades in place: the pose rect is the whole claim", () => {
+    expect(sweep(more, 0)).toBe(more);
+    expect(sweep(scrubber, 0)).toBe(scrubber);
+    expect(sweep(more, Number.NaN)).toBe(more);
+  });
+
+  test("an unknown stage height reserves both sides", () => {
+    expect(
+      readerChromeDismissSweep(more, { slide: 8, stageHeight: Number.NaN }),
+    ).toEqual({ x: 342, y: 54, width: 44, height: 60 });
+  });
+});
+
+describe("reader touch chapter identity", () => {
+  test("drops a touch that crosses a chapter switch or replacement fetch", () => {
+    expect(readerStageTouchMatchesContent("ch1:ready", "ch2:loading")).toBe(false);
+    expect(readerStageTouchMatchesContent("ch1:loading", "ch2:ready")).toBe(false);
+    expect(readerStageTouchMatchesContent("ch1:ready:old", "ch1:ready:new")).toBe(false);
+    expect(readerStageTouchMatchesContent("ch1:ready", "ch1:ready")).toBe(true);
+  });
+
+  test("chapter loading still leaves bare taps to the stage on every band", () => {
+    for (const x of [20, 200, 380]) {
+      expect(readerStageTouchOwner({ x, y: 450, height: 874, topInset: 62, bottomInset: 52 })).toBe("stage");
+      expect(readerTapDispatchForZone({ zone: "toggle", isSecondCentreTap: false }).kind).toBe("deferToggle");
+    }
   });
 });
