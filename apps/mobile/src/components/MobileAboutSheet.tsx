@@ -23,6 +23,7 @@ import {
   nemuFontWeight,
   nemuMaxFontSizeMultiplier,
   useNemuTheme,
+  useMobileNativeSheetTheme,
 } from "@/design-system";
 import { NemuAppIconHalo } from "@/components/NemuAppIconHalo";
 import { MobileOpenSourceLicensesSheet } from "@/components/MobileOpenSourceLicensesSheet";
@@ -114,7 +115,7 @@ function MobileVersionPulseDot({ active, color }: { active: boolean; color: stri
 }
 
 export function MobileAboutSheet({ visible, onClose }: MobileAboutSheetProps) {
-  const { tokens } = useNemuTheme();
+  const { tokens } = useMobileNativeSheetTheme();
   const insets = useSafeAreaInsets();
   const { fontScale, height, width } = useWindowDimensions();
   const sheetLayout = getMobileAboutSheetLayout({

@@ -225,7 +225,7 @@ export function NemuButton({
   onPress,
   testID,
 }: NemuButtonProps) {
-  const { reduceMotion, scheme, tokens } = useNemuTheme();
+  const { reduceMotion, scheme, sheetGlass, tokens } = useNemuTheme();
   const [surfacePressProgress] = useState(() => new Animated.Value(0));
   const pressedRef = useRef(false);
   const {
@@ -243,12 +243,14 @@ export function NemuButton({
     state: "rest",
     scheme,
     tokens,
+    onGlassSheet: sheetGlass !== undefined,
   });
   const pressedVisual = getNemuButtonDepthVisual({
     variant: depthVariant,
     state: "pressed",
     scheme,
     tokens,
+    onGlassSheet: sheetGlass !== undefined,
   });
   const restForegroundColor = restVisual.foregroundColor ?? tokens.foreground;
   const pressedForegroundColor = pressedVisual.foregroundColor ?? tokens.foreground;

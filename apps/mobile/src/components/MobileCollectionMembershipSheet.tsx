@@ -21,6 +21,7 @@ import {
   radius,
   nemuFontWeight,
   nemuSheetMetrics,
+  useMobileNativeSheetTheme,
   useNemuTheme,
   NemuButton,
 } from "@/design-system";
@@ -212,7 +213,7 @@ function CollectionMembershipContent({
 }: MobileCollectionMembershipSheetProps & {
   collections: MobileCollectionsState;
 }) {
-  const { tokens } = useNemuTheme();
+  const { tokens } = useMobileNativeSheetTheme();
   const { fontScale, height, width } = useWindowDimensions();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);

@@ -74,6 +74,12 @@ export function JapaneseLearningPluginLauncherSheet({
     <MobileSheetScaffold
       visible={visible}
       onRequestClose={onClose}
+      // The reader is dark in either app theme, but this scaffold's system
+      // sheet cannot be handed a colour scheme: on Liquid Glass it would be
+      // light glass under dark content in a light app theme. It keeps the
+      // reader's opaque card instead (the reader's Plugins sheet is glass:
+      // it presents with its own scheme).
+      backgroundColor={tokens.card}
       backdropOnPress={onClose}
       onDismiss={onDismiss}
       dismissLabel={strings.reader.closePlugin}

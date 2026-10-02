@@ -21,6 +21,7 @@ import {
   radius,
   spacing,
   useNemuTheme,
+  useMobileNativeSheetTheme,
   NemuButton,
   GlassSurface,
   NemuNativeSearchField,
@@ -413,7 +414,7 @@ export function MobileMetadataEditorSheet({
   onFetchFromSource,
   onSave,
 }: MobileMetadataEditorSheetProps) {
-  const { tokens } = useNemuTheme();
+  const { tokens } = useMobileNativeSheetTheme();
   const { appLanguage, effectiveMetadataLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
   const nextInitialForm = useMemo(() => mobileMetadataFormFromEntry(entry), [entry]);

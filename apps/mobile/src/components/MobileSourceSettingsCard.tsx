@@ -341,7 +341,7 @@ function SourceSettingSelectMenu({
   disabled: boolean;
   onSelect: (value: string) => void;
 }) {
-  const { scheme, tokens } = useNemuTheme();
+  const { scheme, sheetGlass, tokens } = useNemuTheme();
   const selectedOption = options.find((option) => option.value === value);
   const selectedValue =
     selectedOption?.value ?? String(value ?? options[0]?.value ?? "");
@@ -356,6 +356,7 @@ function SourceSettingSelectMenu({
       state: "rest",
       scheme,
       tokens,
+      onGlassSheet: sheetGlass !== undefined,
     }),
   );
 

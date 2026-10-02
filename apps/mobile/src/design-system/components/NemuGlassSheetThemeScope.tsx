@@ -1,12 +1,21 @@
 import { useMemo, type ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
-import { NemuThemeContext } from "@/design/themeContext";
+import { NemuThemeContext, type NemuTheme } from "@/design/themeContext";
 import { useNemuTheme } from "@/design/useNemuTheme";
 import {
-  nemuGlassSheetTokenOverrides,
+  nemuGlassSheetTheme,
   nemuGlassSheetVeil,
   type MobileSheetGlassLook,
 } from "@/lib/mobileSheetGlass";
+
+/**
+ * The current theme as content on a sheet of `look` draws with it (see
+ * `nemuGlassSheetTheme`); the theme itself for `opaque`.
+ */
+export function useNemuGlassSheetTheme(look: MobileSheetGlassLook): NemuTheme {
+  const theme = useNemuTheme();
+  return useMemo(() => nemuGlassSheetTheme(theme, look), [look, theme]);
+}
 
 /**
  * Renders sheet content that sits on a Liquid Glass sheet background: the
@@ -28,13 +37,8 @@ export function NemuGlassSheetThemeScope({
   veilBleed?: number;
   children: ReactNode;
 }) {
-  const theme = useNemuTheme();
-  const overrides = nemuGlassSheetTokenOverrides(look, theme.scheme);
-  const veil = nemuGlassSheetVeil(look, theme.scheme);
-  const value = useMemo(
-    () => (overrides ? { ...theme, tokens: { ...theme.tokens, ...overrides } } : theme),
-    [overrides, theme],
-  );
+  const value = useNemuGlassSheetTheme(look);
+  const veil = nemuGlassSheetVeil(look, value.scheme);
   return (
     <NemuThemeContext.Provider value={value}>
       {veil ? (

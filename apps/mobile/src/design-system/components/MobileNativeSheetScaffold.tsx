@@ -31,7 +31,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { initialWindowMetrics, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { nemuColorWithAlpha } from "@/design/colorAlpha";
-import { useNemuTheme } from "@/design/useNemuTheme";
+import type { NemuTheme } from "@/design/themeContext";
 import {
   canDismissMobileNativeSheetFromPan,
   canDismissMobileNativeSheetFromHardwareBack,
@@ -48,7 +48,7 @@ import {
   shouldBoundMobileNativeSheetForPlatform,
 } from "@/lib/mobileNativeSheet";
 import { mobileSheetGlassLook } from "@/lib/mobileSheetGlass";
-import { NemuGlassSheetThemeScope } from "./NemuGlassSheetThemeScope";
+import { NemuGlassSheetThemeScope, useNemuGlassSheetTheme } from "./NemuGlassSheetThemeScope";
 import { NemuNativeSheetHeaderAction } from "./NemuNativeSheetHeaderAction";
 import { MobileSheetHeader } from "./MobileSheetHeader";
 
@@ -143,6 +143,31 @@ function resolveSnapPointHeight(
   return Number.isFinite(height) ? height : undefined;
 }
 
+/** The look this platform draws a scaffold sheet with (see `mobileSheetGlassLook`). */
+function resolveScaffoldGlassLook(backgroundColor: string | undefined) {
+  return mobileSheetGlassLook({
+    platformOS: Platform.OS,
+    platformVersion: Platform.Version,
+    customBackground: backgroundColor !== undefined,
+  });
+}
+
+/**
+ * The theme a `MobileNativeSheetScaffold`'s content draws with: on the iOS
+ * 26 glass sheet, the glass look's tokens (translucent cards and fills,
+ * lifted secondary text); elsewhere the theme itself. The scaffold provides
+ * it to every component rendered inside it, but a component that returns
+ * the scaffold builds its inline content outside that scope: it reads its
+ * colours here instead of `useNemuTheme()`, or an opaque card slab and
+ * unlifted secondary text land on the glass. Pass the scaffold's
+ * `backgroundColor` when it has one (such a sheet stays opaque).
+ */
+export function useMobileNativeSheetTheme({
+  backgroundColor,
+}: { backgroundColor?: string } = {}): NemuTheme {
+  return useNemuGlassSheetTheme(resolveScaffoldGlassLook(backgroundColor));
+}
+
 export function MobileNativeSheetScaffold({
   visible,
   onDismiss,
@@ -169,16 +194,13 @@ export function MobileNativeSheetScaffold({
   testID,
   children,
 }: MobileNativeSheetScaffoldProps) {
-  const { tokens } = useNemuTheme();
-  // Owner trial (`MOBILE_SHEET_GLASS_TRIAL`, off by default): the system
+  // iOS 26+ (`MOBILE_SHEET_GLASS_TRIAL`, tinted by default): the system
   // Liquid Glass sheet background, with the content's cards made translucent
   // (and, `tinted`, a veil under them). A caller that paints its own sheet
-  // colour keeps it.
-  const glassLook = mobileSheetGlassLook({
-    platformOS: Platform.OS,
-    platformVersion: Platform.Version,
-    customBackground: backgroundColor !== undefined,
-  });
+  // colour keeps it. The scaffold's own body text (the subtitle) draws with
+  // the glass tokens too.
+  const glassLook = resolveScaffoldGlassLook(backgroundColor);
+  const { tokens } = useMobileNativeSheetTheme({ backgroundColor });
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const sheetRef = useRef<BottomSheetMethods | null>(null);

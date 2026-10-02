@@ -21,7 +21,7 @@ import {
   nemuColorWithAlpha,
   nemuFontWeight,
   nemuMaxFontSizeMultiplier,
-  useNemuTheme,
+  useMobileNativeSheetTheme,
   type NemuTokens,
 } from "@/design-system";
 import {
@@ -130,7 +130,7 @@ function MobileCollectionBooksSheetContent({
   testID,
   initialSelected,
 }: MobileCollectionBooksSheetProps & { initialSelected: Set<string> }) {
-  const { tokens } = useNemuTheme();
+  const { tokens } = useMobileNativeSheetTheme();
   const { fontScale, height, width } = useWindowDimensions();
   const editing = mode === "edit";
   const [selectedIds, setSelectedIds] = useState(() => new Set(initialSelected));

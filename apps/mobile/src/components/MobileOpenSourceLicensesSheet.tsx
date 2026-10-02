@@ -7,6 +7,7 @@ import {
   NemuText,
   radius,
   useNemuTheme,
+  useMobileNativeSheetTheme,
 } from "@/design-system";
 import { hapticError } from "@/lib/haptics";
 import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
@@ -47,7 +48,7 @@ export function MobileOpenSourceLicensesSheet({
   strings,
   onClose,
 }: MobileOpenSourceLicensesSheetProps) {
-  const { tokens } = useNemuTheme();
+  const { tokens } = useMobileNativeSheetTheme();
   const groups = groupMobileOpenSourceNotices(Platform.OS);
 
   return (

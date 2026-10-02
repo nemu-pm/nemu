@@ -50,6 +50,7 @@ export { GlassSurface } from "./components/GlassSurface";
 export {
   MobileNativeSheetScaffold,
   MobileNativeSheetEndSpacer,
+  useMobileNativeSheetTheme,
 } from "./components/MobileNativeSheetScaffold";
 export { NemuGlassSheetThemeScope } from "./components/NemuGlassSheetThemeScope";
 export {

@@ -44,6 +44,7 @@ import {
   radius,
   renderNemuNativeToolbarButtons,
   nemuFontWeight,
+  useMobileNativeSheetTheme,
   useNemuTheme,
   usesNemuNativeHeader,
   type NemuNativeHeaderAction,
@@ -758,6 +759,8 @@ const ADD_SOURCE_SHEET_CORNER_CLEARANCE = 12;
 
 export function BrowseScreen() {
   const { tokens } = useNemuTheme();
+  // The Add Sources sheet's own content, built here outside the sheet.
+  const sheetTokens = useMobileNativeSheetTheme().tokens;
   const [query, setQuery] = useState("");
   const [showAdult, setShowAdult] = useState(false);
   const [activeSheet, setActiveSheet] = useState<BrowseSheet | null>(null);
@@ -1349,14 +1352,14 @@ export function BrowseScreen() {
           style={[
             styles.sourceLanguageHeader,
             styles.availableSourceLanguageHeader,
-            { color: tokens.mutedForeground },
+            { color: sheetTokens.mutedForeground },
           ]}
         >
           {label}
         </Text>
       );
     },
-    [appLanguage, strings, tokens.mutedForeground],
+    [appLanguage, strings, sheetTokens.mutedForeground],
   );
   const renderAvailableSourceRow = useCallback(
     ({
@@ -1873,20 +1876,20 @@ export function BrowseScreen() {
                   style={[
                     styles.inlineEmpty,
                     {
-                      backgroundColor: tokens.card,
-                      borderColor: tokens.border,
+                      backgroundColor: sheetTokens.card,
+                      borderColor: sheetTokens.border,
                     },
                   ]}
                 >
                   <Ionicons
                     name="filter-outline"
                     size={22}
-                    color={tokens.mutedForeground}
+                    color={sheetTokens.mutedForeground}
                   />
                   <Text
                     style={[
                       styles.inlineEmptyText,
-                      { color: tokens.mutedForeground },
+                      { color: sheetTokens.mutedForeground },
                     ]}
                   >
                     {strings.browse.noSourceResults}

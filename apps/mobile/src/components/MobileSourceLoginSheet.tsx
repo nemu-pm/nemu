@@ -14,6 +14,7 @@ import {
   nemuFontWeight,
   radius,
   useNemuTheme,
+  useMobileNativeSheetTheme,
 } from "@/design-system";
 import { useMobileLanguageSettings } from "@/data/mobileHooks";
 import type { SourcePackageSetting } from "@/data/schema";
@@ -46,7 +47,7 @@ export function MobileSourceLoginSheet({
   onDismiss,
   onSubmit,
 }: MobileSourceLoginSheetProps) {
-  const { tokens } = useNemuTheme();
+  const { tokens } = useMobileNativeSheetTheme();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
   const [username, setUsername] = useState("");

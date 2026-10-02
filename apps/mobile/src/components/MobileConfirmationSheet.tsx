@@ -5,7 +5,7 @@ import {
   MobileSheetScaffold,
   radius,
   nemuFontWeight,
-  useNemuTheme,
+  useMobileNativeSheetTheme,
   NemuButton,
   NEMU_PROMINENT_CTA_SIZE,
   nemuSheetMetrics,
@@ -52,7 +52,7 @@ export function MobileConfirmationSheet({
   onDismiss,
   onConfirm,
 }: MobileConfirmationSheetProps) {
-  const { tokens } = useNemuTheme();
+  const { tokens } = useMobileNativeSheetTheme();
 
   const handleRequestClose = () => {
     // Non-abortable mutations keep every cancellation route disabled until

@@ -8,6 +8,7 @@ import {
   NemuText,
   radius,
   useNemuTheme,
+  useMobileNativeSheetTheme,
   nemuFontWeight,
   nemuSheetMetrics,
 } from "@/design-system";
@@ -98,7 +99,7 @@ export function QuickActionSheet<TId extends string>({
   onClose: () => void;
   onDismiss?: () => void;
 }) {
-  const { tokens } = useNemuTheme();
+  const { tokens } = useMobileNativeSheetTheme();
   const { fontScale, height } = useWindowDimensions();
   const isIcon = variant === "icon";
   const uri = isIcon ? normalizeMobileSourceIconUri(image) : (image ?? undefined);

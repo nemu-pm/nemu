@@ -19,6 +19,7 @@ import {
   nemuMaxFontSizeMultiplier,
   nemuSheetMetrics,
   useNemuTheme,
+  useMobileNativeSheetTheme,
   NemuButton,
 } from "@/design-system";
 import { MobileSheetSelectionIndicator } from "@/components/MobileSheetSelectionIndicator";
@@ -158,7 +159,7 @@ function SignOutChoiceSheet({
   onCancel,
   onConfirm,
 }: SignOutChoiceSheetProps) {
-  const { tokens } = useNemuTheme();
+  const { tokens } = useMobileNativeSheetTheme();
 
   const requestClose = () => {
     if (visible && !loading) {
@@ -341,6 +342,8 @@ function MobileCloudSyncConfiguredCard({
   strings: MobileStrings;
 }) {
   const { tokens } = useNemuTheme();
+  // The erase confirmation's acknowledgement row, built here outside the sheet.
+  const sheetTokens = useMobileNativeSheetTheme().tokens;
   const store = useMobileDataStore();
   const { data: session, isPending } = mobileAuthClient.useSession();
   const [busyProvider, setBusyProvider] = useState<AuthProviderId | null>(null);
@@ -1047,25 +1050,25 @@ function MobileCloudSyncConfiguredCard({
             nemuSheetMetrics.twoLineRowLayout,
             {
               backgroundColor: recoveryAcknowledged
-                ? nemuColorWithAlpha(tokens.danger, 0.07)
-                : tokens.muted,
-              borderColor: recoveryAcknowledged ? tokens.danger : tokens.border,
+                ? nemuColorWithAlpha(sheetTokens.danger, 0.07)
+                : sheetTokens.muted,
+              borderColor: recoveryAcknowledged ? sheetTokens.danger : sheetTokens.border,
             },
           ]}
         >
           <MobileSheetSelectionIndicator
             kind="checkbox"
             checked={recoveryAcknowledged}
-            color={tokens.danger}
+            color={sheetTokens.danger}
             iosStyle={styles.recoveryCheckbox}
-            iosUncheckedBorderColor={tokens.mutedForeground}
+            iosUncheckedBorderColor={sheetTokens.mutedForeground}
             iosGlyphSize={14}
           />
           <Text
             style={[
               styles.recoveryAcknowledgementText,
               nemuSheetMetrics.description,
-              { color: tokens.foreground },
+              { color: sheetTokens.foreground },
             ]}
           >
             {strings.settings.cloudSyncEraseAcknowledgement}

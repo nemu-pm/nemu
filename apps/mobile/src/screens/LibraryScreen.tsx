@@ -73,6 +73,7 @@ import {
   renderNemuNativeToolbarButtons,
   nemuFontWeight,
   nemuSheetMetrics,
+  useMobileNativeSheetTheme,
   useNemuTheme,
   usesNemuNativeHeader,
   type MangaCardModel,
@@ -320,7 +321,7 @@ function LibraryTitleMenuSheet({
   onSelect: (collectionId: string | null) => void;
   onManage: () => void;
 }) {
-  const { tokens } = useNemuTheme();
+  const { tokens } = useMobileNativeSheetTheme();
   const { fontScale, height, width } = useWindowDimensions();
   const sheetLayout = getMobileLibraryTitleMenuSheetLayout({
     collectionCount: collections.length,
@@ -445,7 +446,7 @@ function CollectionNameSheet({
   onDismiss?: () => void;
   onSubmit: (name: string) => void;
 }) {
-  const { tokens } = useNemuTheme();
+  const { tokens } = useMobileNativeSheetTheme();
   const { height, width } = useWindowDimensions();
   const landscape = width > height;
   const [name, setName] = useState(initialName);
@@ -588,7 +589,7 @@ function CollectionsManagerSheet({
   onRename: (collection: LocalCollection) => void;
   onRemove: (collection: LocalCollection) => void;
 }) {
-  const { tokens } = useNemuTheme();
+  const { tokens } = useMobileNativeSheetTheme();
   const { fontScale, height, width } = useWindowDimensions();
   const actionBusy = isMobileCollectionActionBusy(actionState);
   const sheetLayout = getMobileCollectionsManagerSheetLayout({

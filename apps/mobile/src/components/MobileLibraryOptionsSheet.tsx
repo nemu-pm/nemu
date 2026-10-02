@@ -9,7 +9,7 @@ import {
   nemuSheetMetrics,
   nemuText,
   radius,
-  useNemuTheme,
+  useMobileNativeSheetTheme,
 } from "@/design-system";
 import type { MobileLibraryOptionsSheetProps } from "./MobileLibraryOptionsSheet.types";
 
@@ -47,7 +47,7 @@ export function MobileLibraryOptionsSheet({
   onManageCollections,
   onRemove,
 }: MobileLibraryOptionsSheetProps) {
-  const { tokens } = useNemuTheme();
+  const { tokens } = useMobileNativeSheetTheme();
   const inLibrary = mode === "in-library";
   const rows: OptionRow[] = inLibrary
     ? [

@@ -90,7 +90,7 @@ export function NemuPressable({
   pressHighlight = false,
   ...props
 }: NemuPressableProps) {
-  const { reduceMotion, scheme, tokens } = useNemuTheme();
+  const { reduceMotion, scheme, sheetGlass, tokens } = useNemuTheme();
   const rowHighlight = useNemuRowHighlight();
   const [scale] = useState(() => new Animated.Value(1));
   // Only depth surfaces drive the press-progress node. A plain pressable —
@@ -118,6 +118,7 @@ export function NemuPressable({
         state: "rest",
         scheme,
         tokens,
+        onGlassSheet: sheetGlass !== undefined,
       })
     : null;
   const depthPressedVisual = buttonDepth
@@ -126,6 +127,7 @@ export function NemuPressable({
         state: "pressed",
         scheme,
         tokens,
+        onGlassSheet: sheetGlass !== undefined,
       })
     : null;
   // Flattening and splitting the caller style only feeds the depth shadow

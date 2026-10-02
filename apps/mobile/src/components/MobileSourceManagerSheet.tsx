@@ -19,6 +19,7 @@ import {
   radius,
   nemuFontWeight,
   useNemuTheme,
+  useMobileNativeSheetTheme,
   NemuButton,
 } from "@/design-system";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
@@ -554,7 +555,7 @@ export function MobileSourceManagerSheet({
   onSelectSource,
   onEntryChange,
 }: MobileSourceManagerSheetProps) {
-  const { tokens } = useNemuTheme();
+  const { tokens } = useMobileNativeSheetTheme();
   const store = useMobileDataStore();
   const installedSources = useInstalledSources();
   const library = useLibraryEntries();

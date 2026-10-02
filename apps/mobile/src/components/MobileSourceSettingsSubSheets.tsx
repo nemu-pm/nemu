@@ -9,7 +9,7 @@ import {
   NemuPressable,
   nemuFontWeight,
   radius,
-  useNemuTheme,
+  useMobileNativeSheetTheme,
   nemuSheetMetrics,
 } from "@/design-system";
 import type { SourcePackageSetting } from "@/data/schema";
@@ -81,7 +81,7 @@ export function MobileSourceMultiSelectSheet({
   onClose: () => void;
   onDismiss?: () => void;
 }) {
-  const { tokens } = useNemuTheme();
+  const { tokens } = useMobileNativeSheetTheme();
   // Long option lists (MangaDex's excluded tags) cannot fit a content-sized
   // detent, so they present inside a bounded, scrollable one instead; short
   // lists keep hugging their content.
@@ -213,7 +213,7 @@ export function MobileSourceStringListSheet({
   onClose: () => void;
   onDismiss?: () => void;
 }) {
-  const { tokens } = useNemuTheme();
+  const { tokens } = useMobileNativeSheetTheme();
   const [draft, setDraft] = useState("");
   // The detent style is fixed for the whole presentation: switching between a
   // content-sized and a bounded detent mid-session would fight the native
