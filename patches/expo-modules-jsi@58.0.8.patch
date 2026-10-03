@@ -107,7 +107,7 @@ index 1efa258..3f896c1 100644
      .global()
      .getPropertyAsObject(runtime, "ArrayBuffer");
 diff --git a/apple/Sources/ExpoModulesJSI-Cxx/include/JSIUtils.h b/apple/Sources/ExpoModulesJSI-Cxx/include/JSIUtils.h
-index fdd3728..05159b7 100644
+index 063a30d..05b9edb 100644
 --- a/apple/Sources/ExpoModulesJSI-Cxx/include/JSIUtils.h
 +++ b/apple/Sources/ExpoModulesJSI-Cxx/include/JSIUtils.h
 @@ -131,10 +131,10 @@ inline bool isHostObject(jsi::IRuntime &runtime, const jsi::Object &object) {
@@ -137,7 +137,7 @@ index 60e99b4..2337a06 100644
  /**
   * Returns the `TypedArrayKind` of the given typed-array object, derived from its
 diff --git a/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift b/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift
-index 2019d5a..68e33bf 100644
+index 4ab5a73..708dd1b 100644
 --- a/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift
 +++ b/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift
 @@ -43,7 +43,7 @@ open class JavaScriptRuntime: Equatable, Identifiable, @unchecked Sendable {
@@ -163,7 +163,7 @@ index 2019d5a..68e33bf 100644
      self.pointee = expo.iruntime(runtime)
      self.handle = JavaScriptRuntimeHandle(self.pointee)
 diff --git a/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptObject.swift b/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptObject.swift
-index 0cd2416..3280a69 100644
+index dfec104..4c529fd 100644
 --- a/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptObject.swift
 +++ b/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptObject.swift
 @@ -97,7 +97,7 @@ public struct JavaScriptObject: JavaScriptType, Sendable, ~Copyable {
@@ -176,10 +176,10 @@ index 0cd2416..3280a69 100644
  
    /// Returns the object as an array buffer, or asserts if not an array buffer.
 diff --git a/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptValue.swift b/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptValue.swift
-index 2328263..82e889b 100644
+index e2665b4..514b442 100644
 --- a/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptValue.swift
 +++ b/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptValue.swift
-@@ -171,7 +171,7 @@ public final class JavaScriptValue: JavaScriptType, Equatable, Escapable {
+@@ -213,7 +213,7 @@ public final class JavaScriptValue: JavaScriptType, Equatable, Escapable {
      guard let jsiRuntime else {
        FatalError.runtimeLost()
      }
@@ -189,7 +189,7 @@ index 2328263..82e889b 100644
  
    /// Checks whether the value is an `ArrayBuffer`.
 diff --git a/apple/scripts/build-xcframework.sh b/apple/scripts/build-xcframework.sh
-index 7d74514..0444977 100755
+index d38a2d6..0b974a7 100755
 --- a/apple/scripts/build-xcframework.sh
 +++ b/apple/scripts/build-xcframework.sh
 @@ -10,7 +10,7 @@
@@ -209,7 +209,7 @@ index 7d74514..0444977 100755
  )
  
  compute_hash() {
-@@ -234,6 +235,8 @@ build_slice() {
+@@ -249,6 +250,8 @@ build_slice() {
  
    local product_path="${BUILD_PRODUCTS_PATH}/${build_dir_name}"
    local framework_src="${product_path}/PackageFrameworks/${PACKAGE_NAME}.framework"
@@ -218,7 +218,7 @@ index 7d74514..0444977 100755
    local swiftmodule_src="${product_path}/${PACKAGE_NAME}.swiftmodule"
    # GeneratedModuleMaps follows the same $EFFECTIVE_PLATFORM_NAME convention as
    # build products: no suffix for macOS, "-${platform}" for everything else.
-@@ -244,8 +247,8 @@ build_slice() {
+@@ -259,8 +262,8 @@ build_slice() {
      generated_maps="${DERIVED_DATA_PATH}/Build/Intermediates.noindex/GeneratedModuleMaps-${platform}"
    fi
  
@@ -229,7 +229,7 @@ index 7d74514..0444977 100755
      exit 1
    fi
  
-@@ -256,22 +259,47 @@ build_slice() {
+@@ -271,22 +274,47 @@ build_slice() {
    rm -rf "$staging_dir"
    mkdir -p "$staging_dir"
  
@@ -288,7 +288,7 @@ index 7d74514..0444977 100755
    fi
  
    # Copy Swift module interfaces and generated headers into the staged framework.
-@@ -348,6 +376,9 @@ build_slice() {
+@@ -363,6 +391,9 @@ build_slice() {
    # and Resources -> Versions/Current/Resources, but not Headers/Modules since
    # the SPM build doesn't emit those at that point.
    if [[ "$platform" == "macosx" || "$platform" == "maccatalyst" ]]; then

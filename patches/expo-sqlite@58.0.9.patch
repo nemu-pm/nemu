@@ -13,12 +13,12 @@ index ff21148..859290c 100644
 +// Build from source instead of using the prebuilt Maven publication.
 +false
 diff --git a/android/src/main/cpp/NativeDatabaseBinding.cpp b/android/src/main/cpp/NativeDatabaseBinding.cpp
-index 3a17543..d7f8818 100644
+index 4780c38..d6bbd66 100644
 --- a/android/src/main/cpp/NativeDatabaseBinding.cpp
 +++ b/android/src/main/cpp/NativeDatabaseBinding.cpp
-@@ -14,6 +14,16 @@ constexpr char TAG[] = "expo-sqlite";
+@@ -8,6 +8,16 @@ namespace jni = facebook::jni;
  
- } // namespace
+ namespace expo {
  
 +NativeDatabaseBinding::~NativeDatabaseBinding() {
 +  if (db) {
@@ -33,7 +33,7 @@ index 3a17543..d7f8818 100644
  // static
  void NativeDatabaseBinding::registerNatives() {
    registerHybrid({
-@@ -69,9 +79,17 @@ void NativeDatabaseBinding::sqlite3_finalize_all_statement() {
+@@ -47,9 +57,17 @@ int NativeDatabaseBinding::sqlite3_changes() { return ::exsqlite3_changes(db); }
  void NativeDatabaseBinding::sqlite3_interrupt() { ::exsqlite3_interrupt(db); }
  
  int NativeDatabaseBinding::sqlite3_close() {
@@ -54,7 +54,7 @@ index 3a17543..d7f8818 100644
  }
  
  std::string
-@@ -123,6 +141,7 @@ int NativeDatabaseBinding::sqlite3_prepare_v2(
+@@ -101,6 +119,7 @@ int NativeDatabaseBinding::sqlite3_prepare_v2(
      const std::string &source,
      jni::alias_ref<NativeStatementBinding::javaobject> statement) {
    NativeStatementBinding *cStatement = cthis(statement);
@@ -62,7 +62,7 @@ index 3a17543..d7f8818 100644
    return ::exsqlite3_prepare_v2(db, source.c_str(), source.size(),
                                  &cStatement->stmt, nullptr);
  }
-@@ -224,7 +243,11 @@ void NativeDatabaseBinding::OnUpdateHook(void *arg, int action,
+@@ -202,7 +221,11 @@ void NativeDatabaseBinding::OnUpdateHook(void *arg, int action,
    static const auto method =
        jni::findClassStatic("expo/modules/sqlite/NativeDatabaseBinding")
            ->getMethod<void(jint, jstring, jstring, jlong)>("onUpdate");
@@ -76,7 +76,7 @@ index 3a17543..d7f8818 100644
  }
  
 diff --git a/android/src/main/cpp/NativeDatabaseBinding.h b/android/src/main/cpp/NativeDatabaseBinding.h
-index fa98867..bc24da7 100644
+index bfc0888..3862f3c 100644
 --- a/android/src/main/cpp/NativeDatabaseBinding.h
 +++ b/android/src/main/cpp/NativeDatabaseBinding.h
 @@ -18,6 +18,7 @@ public:
@@ -87,7 +87,7 @@ index fa98867..bc24da7 100644
  
    // sqlite3 bindings
    int sqlite3_changes();
-@@ -56,7 +57,7 @@ public:
+@@ -55,7 +56,7 @@ public:
  private:
    explicit NativeDatabaseBinding(
        jni::alias_ref<NativeDatabaseBinding::jhybridobject> jThis)
@@ -96,7 +96,7 @@ index fa98867..bc24da7 100644
  
    std::string convertSqlLiteErrorToSTLString();
  
-@@ -70,7 +71,7 @@ private:
+@@ -69,7 +70,7 @@ private:
  private:
    friend HybridBase;
  
@@ -106,7 +106,7 @@ index fa98867..bc24da7 100644
  };
  
 diff --git a/android/src/main/cpp/NativeStatementBinding.cpp b/android/src/main/cpp/NativeStatementBinding.cpp
-index 6c3995f..47dac86 100644
+index 21f06ef..47dac86 100644
 --- a/android/src/main/cpp/NativeStatementBinding.cpp
 +++ b/android/src/main/cpp/NativeStatementBinding.cpp
 @@ -16,6 +16,14 @@ constexpr char TAG[] = "expo-sqlite";
@@ -124,7 +124,7 @@ index 6c3995f..47dac86 100644
  // static
  void NativeStatementBinding::registerNatives() {
    registerHybrid({
-@@ -43,31 +51,54 @@ void NativeStatementBinding::registerNatives() {
+@@ -43,33 +51,54 @@ void NativeStatementBinding::registerNatives() {
  
  int NativeStatementBinding::sqlite3_bind_parameter_index(
      const std::string &name) {
@@ -154,11 +154,12 @@ index 6c3995f..47dac86 100644
  }
  
  int NativeStatementBinding::sqlite3_finalize() {
--  return ::exsqlite3_finalize(stmt);
+-  int ret = ::exsqlite3_finalize(stmt);
 +  std::lock_guard<std::mutex> lock(mutex_);
 +  if (!stmt) return SQLITE_OK;
 +  exsqlite3_stmt *statement = stmt;
-+  stmt = nullptr;
+   stmt = nullptr;
+-  return ret;
 +  return ::exsqlite3_finalize(statement);
  }
  
@@ -183,7 +184,7 @@ index 6c3995f..47dac86 100644
    int ret = -1;
    if (param == nullptr) {
      ret = exsqlite3_bind_null(stmt, index);
-@@ -108,17 +139,26 @@ int NativeStatementBinding::bindStatementParam(
+@@ -110,17 +139,26 @@ int NativeStatementBinding::bindStatementParam(
  
  jni::local_ref<jni::JArrayList<jni::JString>>
  NativeStatementBinding::getColumnNames() {
@@ -214,7 +215,7 @@ index 6c3995f..47dac86 100644
    for (int i = 0; i < columnCount; ++i) {
      columnValues->add(getColumnValue(i));
 diff --git a/android/src/main/cpp/NativeStatementBinding.h b/android/src/main/cpp/NativeStatementBinding.h
-index ad368c1..a71352e 100644
+index b1b156a..818bc5c 100644
 --- a/android/src/main/cpp/NativeStatementBinding.h
 +++ b/android/src/main/cpp/NativeStatementBinding.h
 @@ -3,6 +3,7 @@
@@ -233,29 +234,19 @@ index ad368c1..a71352e 100644
  
    // sqlite3 bindings
    int sqlite3_bind_parameter_index(const std::string &name);
-@@ -35,7 +37,8 @@ public:
-   jni::local_ref<jni::JArrayList<jni::JObject>> getColumnValues();
- 
- private:
--  explicit NativeStatementBinding(jni::alias_ref<NativeStatementBinding::jhybridobject> jThis) {}
-+  explicit NativeStatementBinding(jni::alias_ref<NativeStatementBinding::jhybridobject> jThis)
-+      : stmt(nullptr) {}
- 
-   jni::local_ref<jni::JObject> getColumnValue(int index);
- 
-@@ -48,6 +51,7 @@ private:
+@@ -48,6 +50,7 @@ private:
    friend NativeDatabaseBinding;
  
-   exsqlite3_stmt *stmt;
+   exsqlite3_stmt *stmt = nullptr;
 +  std::mutex mutex_;
  };
  
  } // namespace expo
 diff --git a/android/src/main/java/expo/modules/sqlite/NativeDatabase.kt b/android/src/main/java/expo/modules/sqlite/NativeDatabase.kt
-index 47435d1..d24dd0c 100644
+index 764b155..1710e5f 100644
 --- a/android/src/main/java/expo/modules/sqlite/NativeDatabase.kt
 +++ b/android/src/main/java/expo/modules/sqlite/NativeDatabase.kt
-@@ -29,6 +29,8 @@ internal class NativeDatabase(val databasePath: String, val openOptions: OpenDat
+@@ -34,6 +34,8 @@ internal class NativeDatabase(val databasePath: String, val openOptions: OpenDat
  
    override fun sharedObjectDidRelease() {
      super.sharedObjectDidRelease()
@@ -266,22 +257,29 @@ index 47435d1..d24dd0c 100644
    }
  }
 diff --git a/android/src/main/java/expo/modules/sqlite/NativeStatement.kt b/android/src/main/java/expo/modules/sqlite/NativeStatement.kt
-index 3c1cd77..6bc1eea 100644
+index 36aaef2..dc85695 100644
 --- a/android/src/main/java/expo/modules/sqlite/NativeStatement.kt
 +++ b/android/src/main/java/expo/modules/sqlite/NativeStatement.kt
-@@ -11,7 +11,9 @@ internal class NativeStatement : SharedRef<NativeStatementBinding>(NativeStateme
+@@ -13,13 +13,10 @@ internal class NativeStatement : SharedRef<NativeStatementBinding>(NativeStateme
  
    override fun sharedObjectDidRelease() {
      super.sharedObjectDidRelease()
--    this.ref.close()
+-    synchronized(this) {
+-      if (isFinalized || !isPrepared) {
+-        ref.close()
+-      } else {
+-        releasedByJavaScript = true
+-      }
+-    }
 +    // An AsyncFunction can still hold this object after the JS registry has
 +    // released it during a reload. Let HybridData's GC lifetime retain the C++
-+    // binding until those strong coroutine references have drained.
++    // binding until those strong coroutine references have drained, rather
++    // than closing it here or, once marked released, when it is finalized.
    }
  
    override fun equals(other: Any?): Boolean {
 diff --git a/android/src/main/java/expo/modules/sqlite/SQLiteModule.kt b/android/src/main/java/expo/modules/sqlite/SQLiteModule.kt
-index d39ab5f..f0c0b86 100644
+index 000542f..c3d2885 100644
 --- a/android/src/main/java/expo/modules/sqlite/SQLiteModule.kt
 +++ b/android/src/main/java/expo/modules/sqlite/SQLiteModule.kt
 @@ -59,11 +59,10 @@ class SQLiteModule : Module() {
@@ -300,14 +298,14 @@ index d39ab5f..f0c0b86 100644
      }
  
      AsyncFunction("deleteDatabaseAsync") { databasePath: String ->
-@@ -528,7 +527,9 @@ class SQLiteModule : Module() {
-     database.closeLock.lock()
+@@ -539,7 +538,9 @@ class SQLiteModule : Module() {
      try {
-       maybeThrowForClosedDatabase(database)
--      maybeFinalizeAllStatements(database)
-+      // Statement bindings own finalization; raw sqlite3_next_stmt finalization
-+      // would leave their pointers dangling while queued AsyncFunctions drain.
-+      // close_v2 safely waits for the remaining statements.
-       val ret = database.ref.sqlite3_close()
-       if (ret != NativeDatabaseBinding.SQLITE_OK) {
-         throw SQLiteErrorException(database.ref.convertSqlLiteErrorToString())
+       synchronized(database.statementLifecycleLock) {
+         maybeThrowForClosedDatabase(database)
+-        maybeFinalizeAllStatements(database)
++        // Statement bindings own finalization, so close does not finalize the
++        // registered statements here (upstream waits on each statement's lock
++        // to do so). close_v2 safely waits for the remaining statements.
+         val ret = database.ref.sqlite3_close()
+         if (ret != NativeDatabaseBinding.SQLITE_OK) {
+           throw SQLiteErrorException(database.ref.convertSqlLiteErrorToString())
