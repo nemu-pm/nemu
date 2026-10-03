@@ -40,7 +40,9 @@ import {
 import {
   filterMobileCollectionBookEntries,
   getMobileCollectionBooksSheetLayout,
+  MOBILE_COLLECTION_BOOKS_NO_MATCH_SETTLE_MS,
   planMobileCollectionBooksSave,
+  resolveMobileCollectionBooksVisibleEntries,
   shouldShowMobileCollectionBooksSearch,
 } from "@/lib/mobileCollectionBooks";
 import { getMobileCollectionBookSubtitle } from "@/lib/mobileLibraryPresentation";
@@ -171,10 +173,30 @@ function MobileCollectionBooksSheetContent({
     () => [...selectedIds].filter((id) => validLibraryItemIds.has(id)).length,
     [selectedIds, validLibraryItemIds],
   );
-  const visibleEntries = useMemo(
+  const matchingEntries = useMemo(
     () => filterMobileCollectionBookEntries(entries, query),
     [entries, query],
   );
+  // "No books match" waits for the query to rest: a composing input method
+  // string matches nothing until its candidate is committed (see
+  // `resolveMobileCollectionBooksVisibleEntries`).
+  const [lastMatchingEntries, setLastMatchingEntries] = useState(matchingEntries);
+  if (matchingEntries.length > 0 && matchingEntries !== lastMatchingEntries) {
+    setLastMatchingEntries(matchingEntries);
+  }
+  const [settledQuery, setSettledQuery] = useState(query);
+  useEffect(() => {
+    const timer = setTimeout(
+      () => setSettledQuery(query),
+      MOBILE_COLLECTION_BOOKS_NO_MATCH_SETTLE_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [query]);
+  const visibleEntries = resolveMobileCollectionBooksVisibleEntries({
+    matches: matchingEntries,
+    lastMatches: lastMatchingEntries,
+    querySettled: settledQuery === query,
+  });
   const showSearch = shouldShowMobileCollectionBooksSearch(entries.length);
   const layout = getMobileCollectionBooksSheetLayout({
     entryCount: entries.length,

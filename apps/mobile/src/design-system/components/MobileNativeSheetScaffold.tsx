@@ -44,6 +44,9 @@ import {
   resolveMobileNativeSheetBodyTopPadding,
   resolveMobileNativeSheetBottomPadding,
   resolveMobileNativeSheetDismissLabel,
+  resolveMobileNativeSheetIosFramedDetentHeight,
+  resolveMobileNativeSheetIosLayout,
+  resolveMobileNativeSheetIosPresentation,
   resolveMobileNativeSheetSoftBottomEdge,
   shouldBoundMobileNativeSheetForPlatform,
 } from "@/lib/mobileNativeSheet";
@@ -256,7 +259,7 @@ export function MobileNativeSheetScaffold({
         : undefined,
     [androidPlacement],
   );
-  const androidKeyboardHeight = useAndroidKeyboardHeight(isAndroid && visible);
+  const androidKeyboardHeight = useSheetKeyboardHeight(isAndroid && visible);
   const androidFrameKind = isAndroid
     ? resolveMobileNativeSheetAndroidFrame({
         snapPoints,
@@ -288,6 +291,36 @@ export function MobileNativeSheetScaffold({
         : (JSON.parse(effectiveSnapPointsSignature) as (string | number)[]),
     [effectiveSnapPointsSignature],
   );
+  // iOS: a presented sheet keeps the native sizing (content or detents) it
+  // started with, because switching it mid-presentation leaves the sheet
+  // without touches (see `resolveMobileNativeSheetIosPresentation`). The
+  // caller's snap points still lay the content out below; only what the
+  // native sheet is given is held.
+  const [heldIosPresentation, setHeldIosPresentation] = useState(() =>
+    resolveMobileNativeSheetIosPresentation({
+      held: { sizing: "content", snapPoints: undefined },
+      presented: false,
+      snapPoints: effectiveSnapPoints,
+    }),
+  );
+  const iosPresentation = resolveMobileNativeSheetIosPresentation({
+    held: heldIosPresentation,
+    presented: sheetPresented,
+    snapPoints: effectiveSnapPoints,
+  });
+  if (iosPresentation !== heldIosPresentation) {
+    setHeldIosPresentation(iosPresentation);
+  }
+  const iosLayout =
+    Platform.OS === "ios"
+      ? resolveMobileNativeSheetIosLayout({
+          held: iosPresentation,
+          snapPoints: effectiveSnapPoints,
+        })
+      : null;
+  const nativeSnapPoints = iosLayout
+    ? iosLayout.nativeSnapPoints
+    : effectiveSnapPoints;
   const resolvedSnapPointHeight = resolveSnapPointHeight(
     effectiveSnapPoints?.[0],
     availableSheetHeight,
@@ -295,6 +328,20 @@ export function MobileNativeSheetScaffold({
   const boundedSnapPointHeight = resolvedSnapPointHeight
     ? Math.min(Math.max(resolvedSnapPointHeight, 240), availableSheetHeight)
     : undefined;
+  // A content-sized presentation asked for a detent: the scaffold frames its
+  // content at the height that detent shows and the native sheet wraps that.
+  const framesIosDetent = Boolean(iosLayout?.framesDetent && boundedSnapPointHeight);
+  const iosKeyboardHeight = useSheetKeyboardHeight(framesIosDetent && visible);
+  const framedDetentHeight =
+    framesIosDetent && boundedSnapPointHeight
+      ? resolveMobileNativeSheetIosFramedDetentHeight({
+          detentHeight: boundedSnapPointHeight,
+          grabberRoom: MOBILE_NATIVE_SHEET_GRABBER_ROOM,
+          windowHeight,
+          safeAreaTop: insets.top,
+          keyboardHeight: iosKeyboardHeight,
+        })
+      : undefined;
   const shouldUseScrollView =
     (scroll || boundDynamicAndroidLandscapeSheet) &&
     Boolean(effectiveSnapPoints?.length);
@@ -705,8 +752,8 @@ export function MobileNativeSheetScaffold({
     <BottomSheet
       ref={sheetRef}
       index={sheetPresented ? 0 : -1}
-      snapPoints={effectiveSnapPoints}
-      enableDynamicSizing={!effectiveSnapPoints?.length}
+      snapPoints={nativeSnapPoints}
+      enableDynamicSizing={!nativeSnapPoints?.length}
       enablePanDownToClose={effectiveEnablePanDownToClose}
       // No background on glass: the system sheet's own Liquid Glass shows.
       backgroundStyle={
@@ -726,7 +773,11 @@ export function MobileNativeSheetScaffold({
         </View>
       ) : (
         <NemuGlassSheetThemeScope look={glassLook} veilBleed={MOBILE_NATIVE_SHEET_GRABBER_ROOM}>
-          {sheetContent}
+          {framedDetentHeight !== undefined ? (
+            <View style={{ height: framedDetentHeight }}>{sheetContent}</View>
+          ) : (
+            sheetContent
+          )}
         </NemuGlassSheetThemeScope>
       )}
     </BottomSheet>
@@ -734,12 +785,14 @@ export function MobileNativeSheetScaffold({
 }
 
 /**
- * Android: the open soft keyboard's height (0 when closed) while `active`.
- * Material's sheet pads its content by the IME inset, so the scaffold has to
- * shrink its own content by the same amount (see
- * `resolveMobileNativeSheetAndroidFrame`).
+ * The open soft keyboard's height (0 when closed) while `active`, for a sheet
+ * whose content the scaffold sizes itself. Android: Material's sheet pads its
+ * content by the IME inset, so the scaffold has to shrink its own content by
+ * the same amount (see `resolveMobileNativeSheetAndroidFrame`). iOS: a framed
+ * detent (see `resolveMobileNativeSheetIosFramedDetentHeight`), resized as
+ * the keyboard starts to move so the two travel together.
  */
-function useAndroidKeyboardHeight(active: boolean): number {
+function useSheetKeyboardHeight(active: boolean): number {
   const [height, setHeight] = useState(0);
   useEffect(() => {
     if (!active) {
@@ -748,10 +801,17 @@ function useAndroidKeyboardHeight(active: boolean): number {
     }
     // A keyboard already open when the sheet presents.
     setHeight(Math.max(Keyboard.metrics()?.height ?? 0, 0));
-    const show = Keyboard.addListener("keyboardDidShow", (event) => {
-      setHeight(Math.max(event.endCoordinates?.height ?? 0, 0));
-    });
-    const hide = Keyboard.addListener("keyboardDidHide", () => setHeight(0));
+    const ios = Platform.OS === "ios";
+    const show = Keyboard.addListener(
+      ios ? "keyboardWillShow" : "keyboardDidShow",
+      (event) => {
+        setHeight(Math.max(event.endCoordinates?.height ?? 0, 0));
+      },
+    );
+    const hide = Keyboard.addListener(
+      ios ? "keyboardWillHide" : "keyboardDidHide",
+      () => setHeight(0),
+    );
     return () => {
       show.remove();
       hide.remove();

@@ -18,8 +18,7 @@ import type { ReaderPluginSettingsSheetProps } from "./ReaderPluginSettingsSheet
 /**
  * The reader's Plugins sheet on Android / web: the shared list rows
  * (`ReaderPluginListItem`: the plugin mark, its name and "5 settings", a
- * divider and a trailing switch centred on the row, the description under
- * it). The plugin's page (`ReaderPluginDetail`, the same rows as iOS and
+ * divider, the switch and a trailing chevron). The plugin's page (`ReaderPluginDetail`, the same rows as iOS and
  * Settings) replaces the list in the same sheet, with a back action in the
  * header and on hardware Back.
  */

@@ -290,6 +290,127 @@ export function resolveMobileNativeSheetAndroidFrame({
   };
 }
 
+/** How the iOS system sheet sizes one presentation: to its content, or to detents. */
+export type MobileNativeSheetIosSizing = "content" | "detents";
+
+/**
+ * The sizing a presentation started with, and the detents it last had (so a
+ * detent sheet asked for content sizing has something to keep).
+ */
+export type MobileNativeSheetIosPresentation = {
+  sizing: MobileNativeSheetIosSizing;
+  snapPoints: (string | number)[] | undefined;
+};
+
+/**
+ * iOS: the sizing a native sheet holds for as long as it is presented.
+ *
+ * A caller's snap points may change kind while its sheet is up: a
+ * content-sized source list opens a bounded, scrolling search panel; a bounded
+ * sheet shows a content-sized confirmation. The native host cannot follow
+ * that: switching between content sizing and detents makes `@expo/ui` host
+ * the React Native content a second time over the same view, the second host
+ * finds the first one's touch handler already attached and takes none, and
+ * the first then removes its own on the way out. The sheet is left with no
+ * touch handler at all: every pressable in it is dead until the app is
+ * relaunched, while native controls (a text field) still respond.
+ *
+ * So a presentation keeps the sizing it started with and only a closed sheet
+ * adopts the requested one; `resolveMobileNativeSheetIosLayout` says how the
+ * scaffold draws the other kind itself. Returns `held` itself when nothing
+ * changes, so it can be kept in state.
+ */
+export function resolveMobileNativeSheetIosPresentation({
+  held,
+  presented,
+  snapPoints,
+}: {
+  held: MobileNativeSheetIosPresentation;
+  presented: boolean;
+  snapPoints: (string | number)[] | undefined;
+}): MobileNativeSheetIosPresentation {
+  const requestsDetents = Boolean(snapPoints?.length);
+  if (!presented) {
+    const sizing: MobileNativeSheetIosSizing = requestsDetents ? "detents" : "content";
+    const nextSnapPoints = requestsDetents ? snapPoints : undefined;
+    return held.sizing === sizing && held.snapPoints === nextSnapPoints
+      ? held
+      : { sizing, snapPoints: nextSnapPoints };
+  }
+  // Detents may change freely among themselves; only the kind is held.
+  if (held.sizing === "detents" && requestsDetents && held.snapPoints !== snapPoints) {
+    return { sizing: "detents", snapPoints };
+  }
+  return held;
+}
+
+/**
+ * iOS: what the native sheet is given for a held presentation, and whether
+ * the scaffold frames the content itself.
+ *
+ * - content-sized presentation, detents requested: still no native detents;
+ *   `framesDetent` has the scaffold give its content the height the first
+ *   detent shows, which the content-sized sheet then wraps;
+ * - detent presentation, content sizing requested: the detents it last had
+ *   stay, and the content rests at the top of that sheet.
+ */
+export function resolveMobileNativeSheetIosLayout({
+  held,
+  snapPoints,
+}: {
+  held: MobileNativeSheetIosPresentation;
+  snapPoints: (string | number)[] | undefined;
+}): { nativeSnapPoints: (string | number)[] | undefined; framesDetent: boolean } {
+  const requestsDetents = Boolean(snapPoints?.length);
+  if (held.sizing === "content") {
+    return { nativeSnapPoints: undefined, framesDetent: requestsDetents };
+  }
+  return {
+    nativeSnapPoints: requestsDetents ? snapPoints : held.snapPoints,
+    framesDetent: false,
+  };
+}
+
+/** The shortest content a framed iOS detent is given (as on Android). */
+export const MOBILE_NATIVE_IOS_MIN_FRAMED_HEIGHT = 188;
+
+/**
+ * iOS: the height the scaffold gives its content (chrome + body) when it
+ * frames a detent itself (`resolveMobileNativeSheetIosLayout`'s
+ * `framesDetent`): the height that detent shows, less the room the host adds
+ * above the content for the grabber.
+ *
+ * A content-sized sheet does not shrink its content for the keyboard as a
+ * detent sheet does: it rises to the top of the screen and anything taller
+ * than the room left above the keyboard is pushed out past its top edge (the
+ * header first). So with the keyboard open the frame also fits that room.
+ */
+export function resolveMobileNativeSheetIosFramedDetentHeight({
+  detentHeight,
+  grabberRoom,
+  windowHeight,
+  safeAreaTop,
+  keyboardHeight = 0,
+}: {
+  /** The detent's height in points, as the scaffold lays its body out for it. */
+  detentHeight: number;
+  grabberRoom: number;
+  windowHeight: number;
+  safeAreaTop: number;
+  /** The open keyboard's height including the home indicator's inset, else 0. */
+  keyboardHeight?: number;
+}): number {
+  const framed = detentHeight - grabberRoom;
+  const keyboard = Math.max(keyboardHeight, 0);
+  const aboveKeyboard =
+    keyboard > 0
+      ? windowHeight - safeAreaTop - keyboard - grabberRoom
+      : Number.POSITIVE_INFINITY;
+  return Math.round(
+    Math.max(Math.min(framed, aboveKeyboard), MOBILE_NATIVE_IOS_MIN_FRAMED_HEIGHT),
+  );
+}
+
 /**
  * Padding below a native sheet's body content.
  *

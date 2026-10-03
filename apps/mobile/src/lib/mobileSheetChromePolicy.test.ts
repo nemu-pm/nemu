@@ -178,19 +178,18 @@ describe("mobile sheet and text-field chrome policy", () => {
       'clearActionTestID="MetadataMatchSearchClearAction"',
     );
     expect(metadata).not.toContain("clearButtonMode=");
+    // The source manager's search uses the shared capsule too.
     expect(sourceManager).toContain(
-      'testID="SourceManagerSearchClearAction"',
+      'clearActionTestID="SourceManagerSearchClearAction"',
     );
+    expect(sourceManager).toContain("<NemuNativeSearchField");
+    expect(sourceManager).not.toContain("clearButtonMode=");
     expect(sourceBrowse).toContain("SourceTextFilterClearAction:");
     expect(sourceBrowse).toMatch(
       /contentContainerStyle=\{styles\.filterPanelScrollContent\}[\s\S]*?keyboardShouldPersistTaps="handled"/,
     );
 
-    for (const source of [
-      addSourceSearchField,
-      sourceManager,
-      sourceBrowse,
-    ]) {
+    for (const source of [addSourceSearchField, sourceBrowse]) {
       expect(source).toContain("<NemuTextFieldClearAction");
       expect(source).toMatch(/trailingInset=\{(?:11|12|14)\}/);
       expect(source).not.toContain("clearButtonMode=");

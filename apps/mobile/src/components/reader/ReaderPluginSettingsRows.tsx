@@ -17,10 +17,9 @@ import type { MobileReaderPluginState } from "@/lib/mobileReaderPlugins";
 
 /**
  * The reader Plugins sheet's list rows, shared by every platform: the plugin
- * mark, its name and "5 settings", a divider and a trailing switch centred on
- * the row (the "split switch" preference: the text opens the plugin's
- * settings, the switch turns it on or off), the description as a supporting
- * line under the row.
+ * mark, its name and "5 settings", a divider, the switch and a trailing
+ * chevron (the "split switch" preference: the switch turns the plugin on or
+ * off, the rest of the row, chevron included, opens its settings).
  */
 export function ReaderPluginListItem({
   plugin,
@@ -37,73 +36,77 @@ export function ReaderPluginListItem({
 }) {
   const { tokens } = useNemuTheme();
   return (
-    <View style={styles.pluginBlock}>
-      <View
-        style={[
-          styles.row,
-          { backgroundColor: tokens.card, borderColor: tokens.border },
-        ]}
+    <View
+      style={[
+        styles.row,
+        { backgroundColor: tokens.card, borderColor: tokens.border },
+      ]}
+    >
+      <NemuPressable
+        accessibilityRole="button"
+        accessibilityLabel={formatMobileString(
+          strings.settings.editReaderPluginSettings,
+          { name: plugin.name },
+        )}
+        accessibilityHint={mobileReaderPluginRowSubtitle(plugin, strings)}
+        onPress={onOpen}
+        pressedScale={0.985}
+        containerStyle={styles.rowMainContainer}
+        style={[styles.rowMain, nemuSheetMetrics.twoLineRowLayout]}
+        testID={`ReaderPluginSettingsRow:${plugin.id}`}
       >
-        <NemuPressable
-          accessibilityRole="button"
-          accessibilityLabel={formatMobileString(
-            strings.settings.editReaderPluginSettings,
-            { name: plugin.name },
-          )}
-          accessibilityHint={mobileReaderPluginRowSubtitle(plugin, strings)}
-          onPress={onOpen}
-          pressedScale={0.985}
-          containerStyle={styles.rowMainContainer}
-          style={[styles.rowMain, nemuSheetMetrics.twoLineRowLayout]}
-          testID={`ReaderPluginSettingsRow:${plugin.id}`}
-        >
-          <ReaderPluginIcon plugin={plugin} />
-          <View style={styles.copy}>
-            <NemuText
-              color={tokens.foreground}
-              density="compact"
-              numberOfLines={1}
-              style={nemuSheetMetrics.twoLineRowTitle}
-              variant="rowTitle"
-            >
-              {plugin.name}
-            </NemuText>
-            <NemuText
-              color={tokens.mutedForeground}
-              density="compact"
-              numberOfLines={1}
-              style={nemuSheetMetrics.twoLineRowSupporting}
-              variant="rowSubtitle"
-            >
-              {mobileReaderPluginRowSubtitle(plugin, strings)}
-            </NemuText>
-          </View>
-          <Ionicons
-            name="chevron-forward"
-            size={18}
+        <ReaderPluginIcon plugin={plugin} />
+        <View style={styles.copy}>
+          <NemuText
+            color={tokens.foreground}
+            density="compact"
+            numberOfLines={1}
+            style={nemuSheetMetrics.twoLineRowTitle}
+            variant="rowTitle"
+          >
+            {plugin.name}
+          </NemuText>
+          <NemuText
             color={tokens.mutedForeground}
-          />
-        </NemuPressable>
-        <View style={[styles.divider, { backgroundColor: tokens.border }]} />
-        <View style={styles.switch}>
-          <ReaderPluginSwitch
-            plugin={plugin}
-            busy={busy}
-            strings={strings}
-            onToggle={onToggle}
-          />
+            density="compact"
+            numberOfLines={1}
+            style={nemuSheetMetrics.twoLineRowSupporting}
+            variant="rowSubtitle"
+          >
+            {mobileReaderPluginRowSubtitle(plugin, strings)}
+          </NemuText>
         </View>
+      </NemuPressable>
+      <View style={[styles.divider, { backgroundColor: tokens.border }]} />
+      <View style={styles.switch}>
+        <ReaderPluginSwitch
+          plugin={plugin}
+          busy={busy}
+          strings={strings}
+          onToggle={onToggle}
+        />
       </View>
-      {plugin.description ? (
-        <NemuText
+      {/*
+        The chevron is part of the row's open target, past the switch. Its
+        own press area spans the row's height; VoiceOver already has the
+        row's "Edit … settings" button, so it is not a second element.
+      */}
+      <NemuPressable
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        hitSlop={0}
+        onPress={onOpen}
+        pressedScale={0.94}
+        containerStyle={styles.chevronContainer}
+        style={styles.chevron}
+        testID={`ReaderPluginSettingsChevron:${plugin.id}`}
+      >
+        <Ionicons
+          name="chevron-forward"
+          size={18}
           color={tokens.mutedForeground}
-          density="compact"
-          style={styles.footer}
-          variant="caption"
-        >
-          {plugin.description}
-        </NemuText>
-      ) : null}
+        />
+      </NemuPressable>
     </View>
   );
 }
@@ -230,7 +233,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
     paddingLeft: 12,
-    paddingRight: 10,
+    paddingRight: 14,
     paddingVertical: 8,
   },
   copy: {
@@ -245,7 +248,17 @@ const styles = StyleSheet.create({
   switch: {
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 14,
+    paddingLeft: 14,
+  },
+  chevronContainer: {
+    alignSelf: "stretch",
+  },
+  chevron: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingLeft: 8,
+    paddingRight: 12,
   },
   footer: {
     paddingHorizontal: 12,

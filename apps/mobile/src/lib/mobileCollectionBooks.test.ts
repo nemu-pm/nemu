@@ -7,6 +7,7 @@ import {
   MOBILE_COLLECTION_BOOKS_SEARCH_THRESHOLD,
   normalizeMobileCollectionBooksQuery,
   planMobileCollectionBooksSave,
+  resolveMobileCollectionBooksVisibleEntries,
   shouldShowMobileCollectionBooksSearch,
 } from "./mobileCollectionBooks";
 
@@ -72,6 +73,52 @@ describe("collection book search", () => {
   test("the search field appears only for libraries past the threshold", () => {
     expect(shouldShowMobileCollectionBooksSearch(MOBILE_COLLECTION_BOOKS_SEARCH_THRESHOLD)).toBe(false);
     expect(shouldShowMobileCollectionBooksSearch(MOBILE_COLLECTION_BOOKS_SEARCH_THRESHOLD + 1)).toBe(true);
+  });
+});
+
+describe("collection book list while the query is being typed", () => {
+  const all = [entry("a", "Blue Lock"), entry("b", "地縛少年花子くん")];
+  const hanako = [all[1]!];
+
+  test("shows what the query matches", () => {
+    expect(
+      resolveMobileCollectionBooksVisibleEntries({
+        matches: hanako,
+        lastMatches: all,
+        querySettled: false,
+      }),
+    ).toBe(hanako);
+  });
+
+  test("an unsettled query that matches nothing keeps the last matches (an IME composing string)", () => {
+    // "hana" on the way to 花: nothing matches the reading itself.
+    expect(
+      resolveMobileCollectionBooksVisibleEntries({
+        matches: [],
+        lastMatches: all,
+        querySettled: false,
+      }),
+    ).toBe(all);
+  });
+
+  test("a settled query that matches nothing gets the empty state", () => {
+    expect(
+      resolveMobileCollectionBooksVisibleEntries({
+        matches: [],
+        lastMatches: all,
+        querySettled: true,
+      }),
+    ).toEqual([]);
+  });
+
+  test("an empty library is empty at once", () => {
+    expect(
+      resolveMobileCollectionBooksVisibleEntries({
+        matches: [],
+        lastMatches: [],
+        querySettled: false,
+      }),
+    ).toEqual([]);
   });
 });
 

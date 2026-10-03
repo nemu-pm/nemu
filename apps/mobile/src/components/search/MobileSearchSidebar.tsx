@@ -1,4 +1,4 @@
-import { memo, useCallback, useRef } from "react";
+import { memo, useCallback, useRef, type Ref } from "react";
 import { ActivityIndicator, Platform, StyleSheet, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
@@ -10,6 +10,7 @@ import {
   nemuText,
   radius,
   useNemuTheme,
+  type NemuNativeSearchFieldHandle,
 } from "@/design-system";
 import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
 import {
@@ -248,6 +249,7 @@ const NO_STATUS: MobileSearchSidebarStatus = { kind: "none" };
 export function MobileSearchSidebar({
   strings,
   query,
+  searchFieldRef,
   onChangeQuery,
   onSubmitQuery,
   sources,
@@ -261,6 +263,8 @@ export function MobileSearchSidebar({
 }: {
   strings: MobileStrings;
   query: string;
+  /** The search field, so the screen can activate it (a Search tab re-tap). */
+  searchFieldRef?: Ref<NemuNativeSearchFieldHandle>;
   onChangeQuery: (query: string) => void;
   onSubmitQuery: () => void;
   sources: SearchSourceDisplay[];
@@ -307,6 +311,7 @@ export function MobileSearchSidebar({
   return (
     <View style={styles.root}>
       <NemuNativeSearchField
+        ref={searchFieldRef}
         accessibilityLabel={strings.search.searchInstalledSources}
         clearAccessibilityLabel={strings.common.clear}
         clearActionTestID="InstalledSourceSearchClearAction"

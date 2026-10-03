@@ -63,6 +63,7 @@ import {
   MobileCachedImage,
   NemuText,
   NemuNativeSearchField,
+  type NemuNativeSearchFieldHandle,
   NemuPressable,
   NemuInlineEmptyState,
   PageHeader,
@@ -750,6 +751,8 @@ export function SearchScreen() {
   const [query, setQuery] = useState(routeQuery);
   const queryRef = useRef(routeQuery);
   const nativeSearchRef = useRef<SearchBarCommands | null>(null);
+  // The in-content field regular widths use instead (page header or sidebar).
+  const contentSearchRef = useRef<NemuNativeSearchFieldHandle | null>(null);
   const [submittedQuery, setSubmittedQuery] = useState(routeQuery);
   const [selectedSourceIds, setSelectedSourceIds] = useState<SearchSourceSelection>(null);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
@@ -876,11 +879,12 @@ export function SearchScreen() {
   // to the tab only switches (the page isn't focused yet when it fires).
   const navigation = useNavigation();
   useEffect(() => {
-    if (!usesNativeSearchBar) return;
     const tabs = navigation.getParent();
     if (!tabs) return;
     return tabs.addListener("tabPress" as never, () => {
-      if (navigation.isFocused()) nativeSearchRef.current?.focus();
+      if (!navigation.isFocused()) return;
+      if (usesNativeSearchBar) nativeSearchRef.current?.focus();
+      else contentSearchRef.current?.focus();
     });
   }, [navigation, usesNativeSearchBar]);
   // Result grids size from the list's measured width (Duo's trailing system
@@ -1703,6 +1707,7 @@ export function SearchScreen() {
                 <View style={searchHeaderBook ? { width: searchHeaderBook.first.width } : null}>
                 {/* The same capsule as the sidebar field (SwiftUI TextField on iOS). */}
                 <NemuNativeSearchField
+                  ref={contentSearchRef}
                   accessibilityLabel={strings.search.searchInstalledSources}
                   clearAccessibilityLabel={strings.common.clear}
                   clearActionTestID="InstalledSourceSearchClearAction"
@@ -1906,6 +1911,7 @@ export function SearchScreen() {
               <MobileSearchSidebar
                 strings={strings}
                 query={query}
+                searchFieldRef={contentSearchRef}
                 onChangeQuery={changeSidebarQuery}
                 onSubmitQuery={submitSidebarQuery}
                 sources={sources}

@@ -33,7 +33,7 @@
  * keystroke back is deliberately avoided: writes from JS reach the UI thread
  * asynchronously and would fight the user's own typing.
  */
-import { useEffect, useRef } from "react";
+import { useEffect, useImperativeHandle, useRef } from "react";
 import { Platform, PlatformColor, StyleSheet } from "react-native";
 import {
   Button as SwiftButton,
@@ -43,6 +43,7 @@ import {
   Text as SwiftText,
   TextField as SwiftTextField,
   useNativeState,
+  type TextFieldRef,
 } from "@expo/ui/swift-ui";
 import {
   accessibilityLabel as swiftAccessibilityLabel,
@@ -103,6 +104,7 @@ const GLASS_PRIMARY = { type: "hierarchical", style: "primary" } as const;
 const GLASS_PLACEHOLDER = PlatformColor("secondaryLabel");
 
 export function NemuNativeSearchField({
+  ref,
   value,
   onChangeText,
   onSubmit,
@@ -122,6 +124,17 @@ export function NemuNativeSearchField({
   // Mirrors what SwiftUI currently holds so an unchanged `value` prop does not
   // schedule a redundant UI-thread write on every render.
   const nativeTextRef = useRef(value);
+  const fieldRef = useRef<TextFieldRef>(null);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      focus: () => {
+        void fieldRef.current?.focus();
+      },
+    }),
+    [],
+  );
 
   useEffect(() => {
     if (nativeTextRef.current === value) return;
@@ -184,6 +197,7 @@ export function NemuNativeSearchField({
             : { color: tokens.mutedForeground })}
         />
         <SwiftTextField
+          ref={fieldRef}
           text={textState}
           placeholder={placeholder}
           onTextChange={handleTextChange}

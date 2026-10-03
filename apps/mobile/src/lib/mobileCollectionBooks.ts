@@ -40,6 +40,37 @@ export function filterMobileCollectionBookEntries(
   return entries.filter((entry) => entrySearchText(entry).includes(needle));
 }
 
+/**
+ * How long a query has to rest before "no books match" replaces the list.
+ */
+export const MOBILE_COLLECTION_BOOKS_NO_MATCH_SETTLE_MS = 800;
+
+/**
+ * The books the list shows for the current query's `matches`.
+ *
+ * An input method's composing string (pinyin letters, kana before
+ * conversion) reaches the search field's text like any other edit, and the
+ * field reports no composition state. Filtering by it usually matches
+ * nothing, so "no books match" would flash in between keystrokes and vanish
+ * the moment the candidate is committed. Until the query has settled
+ * (`MOBILE_COLLECTION_BOOKS_NO_MATCH_SETTLE_MS` without an edit) an empty
+ * result therefore keeps the last books that did match; a query that still
+ * matches nothing once it rests gets the empty state.
+ */
+export function resolveMobileCollectionBooksVisibleEntries({
+  matches,
+  lastMatches,
+  querySettled,
+}: {
+  matches: LibraryEntry[];
+  /** The most recent non-empty `matches`. */
+  lastMatches: LibraryEntry[];
+  querySettled: boolean;
+}): LibraryEntry[] {
+  if (matches.length > 0 || querySettled) return matches;
+  return lastMatches;
+}
+
 export type MobileCollectionBooksSavePlan = {
   /** The trailing ✓ is enabled. */
   canSave: boolean;

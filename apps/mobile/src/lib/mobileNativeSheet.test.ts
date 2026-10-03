@@ -17,6 +17,11 @@ import {
   resolveMobileSheetIosLayoutBudget,
   resolveMobileSheetHeaderMetrics,
   resolveMobileNativeSheetDismissLabel,
+  resolveMobileNativeSheetIosFramedDetentHeight,
+  resolveMobileNativeSheetIosLayout,
+  resolveMobileNativeSheetIosPresentation,
+  MOBILE_NATIVE_IOS_MIN_FRAMED_HEIGHT,
+  type MobileNativeSheetIosPresentation,
   shouldBoundMobileNativeSheetForPlatform,
 } from "./mobileNativeSheet";
 
@@ -454,6 +459,152 @@ describe("mobile native sheet behavior", () => {
       snapPoints: ["82%"],
       availableHeight: 759,
     });
+  });
+});
+
+describe("ios sheet sizing held for a presentation", () => {
+  const contentSized: MobileNativeSheetIosPresentation = {
+    sizing: "content",
+    snapPoints: undefined,
+  };
+  const tall = ["88%"];
+  const short = ["82%"];
+
+  test("a closed sheet adopts the sizing its next presentation asks for", () => {
+    expect(
+      resolveMobileNativeSheetIosPresentation({
+        held: contentSized,
+        presented: false,
+        snapPoints: tall,
+      }),
+    ).toEqual({ sizing: "detents", snapPoints: tall });
+    expect(
+      resolveMobileNativeSheetIosPresentation({
+        held: { sizing: "detents", snapPoints: tall },
+        presented: false,
+        snapPoints: undefined,
+      }),
+    ).toEqual(contentSized);
+    expect(
+      resolveMobileNativeSheetIosPresentation({
+        held: contentSized,
+        presented: false,
+        snapPoints: [],
+      }),
+    ).toBe(contentSized);
+  });
+
+  test("a presented content-sized sheet stays content-sized when detents are requested", () => {
+    // The source manager: a hugging source list whose add panel gets results.
+    const held = resolveMobileNativeSheetIosPresentation({
+      held: contentSized,
+      presented: true,
+      snapPoints: tall,
+    });
+    expect(held).toBe(contentSized);
+    expect(resolveMobileNativeSheetIosLayout({ held, snapPoints: tall })).toEqual({
+      nativeSnapPoints: undefined,
+      framesDetent: true,
+    });
+    // Back to the short list: nothing to frame.
+    expect(resolveMobileNativeSheetIosLayout({ held, snapPoints: undefined })).toEqual({
+      nativeSnapPoints: undefined,
+      framesDetent: false,
+    });
+  });
+
+  test("a presented detent sheet keeps its last detents when content sizing is requested", () => {
+    // A bounded source list that shows its content-sized confirmation.
+    const detents: MobileNativeSheetIosPresentation = { sizing: "detents", snapPoints: short };
+    const held = resolveMobileNativeSheetIosPresentation({
+      held: detents,
+      presented: true,
+      snapPoints: undefined,
+    });
+    expect(held).toBe(detents);
+    expect(resolveMobileNativeSheetIosLayout({ held, snapPoints: undefined })).toEqual({
+      nativeSnapPoints: short,
+      framesDetent: false,
+    });
+  });
+
+  test("a presented detent sheet may change its detents", () => {
+    const detents: MobileNativeSheetIosPresentation = { sizing: "detents", snapPoints: short };
+    const held = resolveMobileNativeSheetIosPresentation({
+      held: detents,
+      presented: true,
+      snapPoints: tall,
+    });
+    expect(held).toEqual({ sizing: "detents", snapPoints: tall });
+    expect(resolveMobileNativeSheetIosLayout({ held, snapPoints: tall })).toEqual({
+      nativeSnapPoints: tall,
+      framesDetent: false,
+    });
+    // Unchanged detents keep the held object (no state churn).
+    expect(
+      resolveMobileNativeSheetIosPresentation({ held, presented: true, snapPoints: tall }),
+    ).toBe(held);
+  });
+
+  test("never hands the native sheet a different sizing kind mid-presentation", () => {
+    const requests = [undefined, tall, undefined, short, [], tall];
+    for (const first of [undefined, tall]) {
+      let held = resolveMobileNativeSheetIosPresentation({
+        held: contentSized,
+        presented: false,
+        snapPoints: first,
+      });
+      const kind = held.sizing;
+      for (const snapPoints of requests) {
+        held = resolveMobileNativeSheetIosPresentation({ held, presented: true, snapPoints });
+        const { nativeSnapPoints } = resolveMobileNativeSheetIosLayout({ held, snapPoints });
+        expect(nativeSnapPoints?.length ? "detents" : "content").toBe(kind);
+      }
+    }
+  });
+
+  test("a framed detent is the detent's height less the grabber room", () => {
+    expect(
+      resolveMobileNativeSheetIosFramedDetentHeight({
+        detentHeight: 642,
+        grabberRoom: 16,
+        windowHeight: 874,
+        safeAreaTop: 62,
+      }),
+    ).toBe(626);
+  });
+
+  test("a framed detent fits above the keyboard", () => {
+    // 874 - 62 - 336 - 16: the header stays on screen with the keyboard up.
+    expect(
+      resolveMobileNativeSheetIosFramedDetentHeight({
+        detentHeight: 642,
+        grabberRoom: 16,
+        windowHeight: 874,
+        safeAreaTop: 62,
+        keyboardHeight: 336,
+      }),
+    ).toBe(460);
+    // A detent already shorter than that room is left alone.
+    expect(
+      resolveMobileNativeSheetIosFramedDetentHeight({
+        detentHeight: 300,
+        grabberRoom: 16,
+        windowHeight: 874,
+        safeAreaTop: 62,
+        keyboardHeight: 336,
+      }),
+    ).toBe(284);
+    // Landscape with the keyboard up: never below a usable body.
+    expect(
+      resolveMobileNativeSheetIosFramedDetentHeight({
+        detentHeight: 330,
+        grabberRoom: 16,
+        windowHeight: 402,
+        safeAreaTop: 0,
+        keyboardHeight: 260,
+      }),
+    ).toBe(MOBILE_NATIVE_IOS_MIN_FRAMED_HEIGHT);
   });
 });
 
