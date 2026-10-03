@@ -62,6 +62,35 @@ describe("mobile Expo native patch policy", () => {
       expect(bottomSheet).toMatch(/: windowWidth\)\s*\*\s*presentationScale;/);
     }
   });
+  test("sizes a content-sized iOS sheet from the probe's local width, not its scaled global frame", () => {
+    // The width probe's global frame already carries the floating scale once
+    // SwiftUI re-evaluates geometry (404 instead of 420 on a 420pt iPhone);
+    // multiplied by the presentation scale again it left the content 388.7pt
+    // wide, centred in a 404pt sheet, with the bare sheet showing either
+    // side of the veil. The probe's own layout size has no transform in it.
+    const modifier = readFileSync(path.join(repositoryRoot,
+      "node_modules/@expo/ui/ios/Modifiers/OnGeometryChangeModifier.swift"), "utf8");
+    expect(modifier).toContain("Geometry(frame: proxy.frame(in: .global), localSize: proxy.size)");
+    expect(modifier).toContain('"localWidth": geometry.localSize.width');
+    expect(modifier).toContain('"localHeight": geometry.localSize.height');
+    // The global fields keep their meaning for the modifier's other users.
+    expect(modifier).toContain('"width": geometry.frame.size.width');
+    for (const file of [
+      "src/community/bottom-sheet/BottomSheet.ios.tsx",
+      "build/community/bottom-sheet/BottomSheet.ios.js",
+    ]) {
+      const bottomSheet = readFileSync(
+        path.join(repositoryRoot, "node_modules/@expo/ui", file), "utf8");
+      expect(bottomSheet).toContain("const nextWidth = probeFrame.localWidth ?? probeFrame.width;");
+      expect(bottomSheet).not.toContain("const nextWidth = probeFrame.width;");
+    }
+    // A fresh install reproduces it: the hunks are in the repository patch.
+    const patch = readFileSync(
+      path.join(repositoryRoot, "patches/@expo%2Fui@58.0.11.patch"), "utf8");
+    expect(patch).toContain("diff --git a/ios/Modifiers/OnGeometryChangeModifier.swift");
+    expect(patch).toContain("+      of: { proxy in Geometry(frame: proxy.frame(in: .global), localSize: proxy.size) },");
+    expect(patch.match(/^\+\s+const nextWidth = probeFrame\.localWidth \?\? probeFrame\.width;$/gm)?.length).toBe(2);
+  });
   test("keeps every version-exact repository patch attached", () => {
     for (const [dependency, patchPath] of Object.entries(
       rootPackage.patchedDependencies ?? {},
