@@ -140,10 +140,17 @@ jobs:
           # reached through Expo's build tooling (@expo/cli iOS code signing,
           # @expo/code-signing-certificates) and is never bundled into the
           # app. Drop this ignore once a patched node-forge is published.
+          # braces <= 3.0.3 (GHSA-vfj7-8cjw-p6xm, stack exhaustion on deeply
+          # nested patterns) has no fixed release yet. It is only reached
+          # through build tooling (Metro's file map and the shadcn CLI, via
+          # micromatch) with patterns from our own config, and is never
+          # bundled into the app. Drop this ignore once a patched braces is
+          # published.
           bun audit --production \
             --ignore GHSA-w3rx-r6r6-pgpr \
             --ignore GHSA-5p2g-fcmc-qvqq \
-            --ignore GHSA-86w9-cpqp-85rv
+            --ignore GHSA-86w9-cpqp-85rv \
+            --ignore GHSA-vfj7-8cjw-p6xm
       - name: Check Expo dependency alignment
         working-directory: apps/mobile
         run: bunx expo install --check
