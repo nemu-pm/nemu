@@ -160,3 +160,17 @@ const GLASS_VEIL: Record<NemuColorScheme, string> = {
 export function nemuGlassSheetVeil(look: MobileSheetGlassLook, scheme: NemuColorScheme): string | null {
   return look === "tinted" ? GLASS_VEIL[scheme] : null;
 }
+
+/**
+ * How far the veil reaches past the sheet's content on every side, in points.
+ * The content does not always fill its sheet: iOS 26+ lets a sheet be pulled
+ * up past its detent, and a content-sized sheet then grows while its content
+ * keeps its size, centred (a 72pt stretch left 19pt of bare glass above a
+ * 16pt bleed and 4pt below a 64pt one, 34pt of which the home-indicator
+ * inset already used); a landscape sheet keeps its content out of the side
+ * safe areas. A sheet is never larger than its window, so a window's length
+ * covers it wherever the content sits; the sheet clips the rest.
+ */
+export function nemuGlassSheetVeilBleed(window: { width: number; height: number }): number {
+  return Math.ceil(Math.max(window.width, window.height, 0));
+}

@@ -772,7 +772,7 @@ export function MobileNativeSheetScaffold({
           {sheetContent}
         </View>
       ) : (
-        <NemuGlassSheetThemeScope look={glassLook} veilBleed={MOBILE_NATIVE_SHEET_GRABBER_ROOM}>
+        <NemuGlassSheetThemeScope look={glassLook}>
           {framedDetentHeight !== undefined ? (
             <View style={{ height: framedDetentHeight }}>{sheetContent}</View>
           ) : (

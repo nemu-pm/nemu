@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 // eslint-disable-next-line no-restricted-imports -- test needs the runtime token values; importing from @/design-system pulls the component barrel, which loads react-native's Flow-typed index.js and breaks bun's test runner.
 import { nemuTokens, type NemuTokens } from "@/design/tokens";
 import {
@@ -6,6 +8,7 @@ import {
   nemuGlassSheetTheme,
   nemuGlassSheetTokenOverrides,
   nemuGlassSheetVeil,
+  nemuGlassSheetVeilBleed,
   resolveMobileSheetGlassTrial,
 } from "./mobileSheetGlass";
 
@@ -74,6 +77,31 @@ describe("sheet glass look", () => {
     expect(nemuGlassSheetVeil("tinted", "dark")).toBe("rgba(16,17,20,0.68)");
     // The rejected `clear` trial look is left as it was.
     expect(nemuGlassSheetTokenOverrides("clear", "light")?.danger).toBeUndefined();
+  });
+
+  test("the veil covers the whole sheet however far it is stretched or inset", () => {
+    // iPhone Air, iOS 27: a content-sized sheet pulled up 72pt is 416pt tall
+    // around 310pt of centred content, so 36pt opens above it and 70pt (with
+    // the 34pt home-indicator inset) below; a landscape sheet insets its
+    // content 68pt from each side. One window's length covers all of them.
+    const portrait = nemuGlassSheetVeilBleed({ width: 420, height: 912 });
+    expect(portrait).toBe(912);
+    expect(portrait).toBeGreaterThan(70);
+    expect(nemuGlassSheetVeilBleed({ width: 912, height: 420 })).toBe(912);
+    expect(nemuGlassSheetVeilBleed({ width: 1032.5, height: 1376 })).toBe(1376);
+    expect(nemuGlassSheetVeilBleed({ width: 0, height: 0 })).toBe(0);
+
+    // The scope applies it to every edge of the veil (the sheet clips it),
+    // not to the top and bottom by fixed amounts.
+    const scope = readFileSync(
+      path.join(import.meta.dir, "../design-system/components/NemuGlassSheetThemeScope.tsx"),
+      "utf8",
+    );
+    expect(scope).toContain("const bleed = -nemuGlassSheetVeilBleed(useWindowDimensions());");
+    expect(scope).toContain("{ top: bleed, right: bleed, bottom: bleed, left: bleed, backgroundColor: veil }");
+    expect(scope).toContain('pointerEvents="none"');
+    expect(scope).not.toContain("bottom: -64");
+    expect(scope).not.toContain("veilBleed");
   });
 });
 
