@@ -1,31 +1,31 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   View,
+  type ScrollViewInstance,
+  type TextInputInstance,
 } from "react-native";
-import Ionicons from "@expo/vector-icons/Ionicons";
+import Feather from "@expo/vector-icons/Feather";
 import {
-  MobileSheetScaffold,
   nemuColorWithAlpha,
   nemuFontWeight,
   NemuPressable,
   radius,
   useNemuTheme,
 } from "@/design-system";
+import { JapaneseLearningText as Text } from "./JapaneseLearningText";
+import {
+  JapaneseLearningSurfaceFrame,
+  japaneseLearningEdgeToEdgeContentStyle,
+} from "./JapaneseLearningSurfaceFrame";
+import { useJapaneseLearningDrawerFrame } from "./useJapaneseLearningDrawerFrame";
 import type { AppLanguage } from "@/data/schema";
 import type { JapaneseLearningChatThreadMessage } from "@/lib/mobileJapaneseLearningReaderHelpers";
-import {
-  canRunMobileJapaneseLearningChatAction,
-  canSendMobileJapaneseLearningChatInput,
-} from "@/lib/mobileJapaneseLearningChat";
 import type { MobileStrings } from "@/lib/mobileI18n";
-import { getJapaneseLearningAssistantBubbleColors } from "@/lib/mobileJapaneseLearningChatTheme";
 import { JapaneseLearningFollowUpSuggestions } from "./JapaneseLearningFollowUpSuggestions";
 import {
   JapaneseLearningDatePill,
@@ -33,12 +33,18 @@ import {
 } from "./JapaneseLearningMessageBubble";
 import { JapaneseLearningNemuAvatar } from "./JapaneseLearningNemuAvatar";
 import { JapaneseLearningTypingIndicator } from "./JapaneseLearningTypingIndicator";
+import { JapaneseLearningChatMicButton } from "./JapaneseLearningChatMicButton";
+import { japaneseLearningInterStyle } from "./JapaneseLearningText";
+import { shouldShowMobileJapaneseLearningDictationButton } from "@/lib/mobileJapaneseLearningDictation";
+import { useMobileJapaneseLearningDictation } from "@/lib/useMobileJapaneseLearningDictation";
 
 export interface JapaneseLearningChatTtsState {
   status: "idle" | "loading" | "playing" | "error";
   source?: "sentence" | "transcript" | "chat";
   messageId?: string;
   detail?: string;
+  currentTime?: number;
+  duration?: number;
 }
 
 interface NemuChatDrawerProps {
@@ -47,8 +53,10 @@ interface NemuChatDrawerProps {
   strings: MobileStrings;
   chatMessages: JapaneseLearningChatThreadMessage[];
   chatInput: string;
+  /** Web store `isStreaming`: true until the last speak bubble has landed. */
   chatLoading: boolean;
-  chatStreamingMessageId?: string;
+  /** Web store `followUpSuggestions` (cleared by every send). */
+  followUpSuggestions: string[];
   showTypingIndicator: boolean;
   ttsState: JapaneseLearningChatTtsState;
   onClose: () => void;
@@ -56,7 +64,13 @@ interface NemuChatDrawerProps {
   onSendInput: () => void;
   onSendSuggestion: (suggestion: string) => void;
   onToggleChatTts: (message: JapaneseLearningChatThreadMessage) => void;
+  /** Called after the surface has closed (sheet dismissal finished / dock removed). */
+  onDismiss?: () => void;
+  onPresentationProgress?: (progress: number) => void;
 }
+
+/** Web drawer header: the character's name, untranslated in every locale. */
+const NEMU_CHAT_TITLE = "Nemu";
 
 /**
  * Mobile mirror of web `NemuChatDrawer` (chat/ui/drawer.tsx).
@@ -71,7 +85,7 @@ export function JapaneseLearningNemuChatDrawer({
   chatMessages,
   chatInput,
   chatLoading,
-  chatStreamingMessageId,
+  followUpSuggestions,
   showTypingIndicator,
   ttsState,
   onClose,
@@ -79,10 +93,15 @@ export function JapaneseLearningNemuChatDrawer({
   onSendInput,
   onSendSuggestion,
   onToggleChatTts,
+  onDismiss,
+  onPresentationProgress,
 }: NemuChatDrawerProps) {
   const { tokens, scheme } = useNemuTheme();
-  const scrollRef = useRef<ScrollView>(null);
-  const inputRef = useRef<TextInput>(null);
+  const drawerFrame = useJapaneseLearningDrawerFrame();
+  const [inputFocused, setInputFocused] = useState(false);
+  const atBottomRef = useRef(true);
+  const scrollRef = useRef<ScrollViewInstance>(null);
+  const inputRef = useRef<TextInputInstance>(null);
 
   const visibleMessages = useMemo(
     () => chatMessages.filter((m) => !m.hidden),
@@ -111,42 +130,49 @@ export function JapaneseLearningNemuChatDrawer({
   const showTypingAvatar = !lastVisibleMessage || lastVisibleMessage.role !== "assistant";
 
   const hasContent = visibleMessages.length > 0 || chatLoading;
+  const shouldShowTypingIndicator = chatLoading && showTypingIndicator;
+  const suggestions = chatLoading ? [] : followUpSuggestions;
 
-  const suggestions = chatLoading
-    ? []
-    : visibleMessages
-        .slice()
-        .reverse()
-        .find((m) => m.role === "assistant" && m.suggestions?.length)?.suggestions ?? [];
+  // Web `LineInputBar`: never disabled; send whenever there is text (a new
+  // request cancels the reply in flight).
+  const canSend = chatInput.trim().length > 0;
+  // Web LineInputBar voice input: transcripts replace the draft, never auto-send.
+  const dictation = useMobileJapaneseLearningDictation({
+    active: visible,
+    appLanguage,
+    onTranscript: onChangeInput,
+  });
+  const showMic = shouldShowMobileJapaneseLearningDictationButton({
+    available: dictation.available,
+    input: chatInput,
+  });
 
-  const canRunChat = canRunMobileJapaneseLearningChatAction(chatLoading, false);
-  const canSend = canSendMobileJapaneseLearningChatInput(chatInput, canRunChat);
-
-  // Auto-scroll to bottom on new messages
+  // Web `ScrollToBottomOnChange`: follow every message-count change (hidden
+  // ones included) 50ms later; stick-to-bottom covers dots and suggestions.
   useEffect(() => {
     if (!visible) return;
     const timer = setTimeout(() => {
       scrollRef.current?.scrollToEnd({ animated: true });
-    }, 60);
+    }, 50);
     return () => clearTimeout(timer);
-  }, [visibleMessages.length, chatLoading, visible, suggestions.length]);
+  }, [chatMessages.length, visible]);
 
   const handleSubmit = useCallback(() => {
     if (!canSend) return;
+    // Kept beyond web: iOS delivers the final recognition result after the
+    // tap, which would refill the draft that was just sent.
+    dictation.abort();
     onSendInput();
-  }, [canSend, onSendInput]);
+  }, [canSend, dictation, onSendInput]);
 
-  const assistantColors = getJapaneseLearningAssistantBubbleColors(scheme, false);
+  const inputFont = japaneseLearningInterStyle("400");
 
-  return (
-    <MobileSheetScaffold
-      visible={visible}
-      onRequestClose={onClose}
-      backdropOnPress={onClose}
-      title="nemu"
-      frameMaxHeight="70%"
-      contentStyle={{ padding: 0, gap: 0 }}
-    >
+  const body = (
+    <>
+      {/* Web: a simple header with just the name. */}
+      <View style={[styles.webHeader, { borderBottomColor: tokens.border }]}>
+        <Text style={[styles.webTitle, { color: tokens.foreground }]}>{NEMU_CHAT_TITLE}</Text>
+      </View>
       <ScrollView
         // Android: inside a native sheet, hand the drag to the sheet at the top.
         nestedScrollEnabled
@@ -155,6 +181,14 @@ export function JapaneseLearningNemuChatDrawer({
         contentContainerStyle={styles.messagesContent}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
+        onScroll={(event) => {
+          const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+          atBottomRef.current = contentSize.height - contentOffset.y - layoutMeasurement.height < 48;
+        }}
+        scrollEventThrottle={32}
+        onContentSizeChange={() => {
+          if (atBottomRef.current) scrollRef.current?.scrollToEnd({ animated: false });
+        }}
       >
         {hasContent ? (
           <JapaneseLearningDatePill
@@ -214,6 +248,8 @@ export function JapaneseLearningNemuChatDrawer({
                   showTail={i === 0}
                   appLanguage={appLanguage}
                   strings={strings}
+                  ttsCurrentTime={chatTtsPlaying ? ttsState.currentTime : undefined}
+                  ttsDuration={chatTtsPlaying ? ttsState.duration : undefined}
                   ttsLoading={chatTtsLoading}
                   ttsPlaying={chatTtsPlaying}
                   ttsDisabled={chatTtsDisabled}
@@ -225,33 +261,13 @@ export function JapaneseLearningNemuChatDrawer({
           </View>
         ))}
 
-        {chatLoading && showTypingIndicator ? (
+        {shouldShowTypingIndicator ? (
           <JapaneseLearningTypingIndicator showAvatar={showTypingAvatar} />
         ) : null}
 
-        {chatLoading && !chatStreamingMessageId && !showTypingIndicator ? (
-          <View
-            style={[
-              styles.thinkingBubble,
-              { backgroundColor: assistantColors.backgroundColor },
-            ]}
-          >
-            <ActivityIndicator size="small" color={tokens.mutedForeground} />
-            <Text
-              style={[
-                styles.thinkingText,
-                { color: assistantColors.textColor, opacity: 0.8 },
-              ]}
-            >
-              {strings.reader.pluginJapaneseLearningChatThinking}
-            </Text>
-          </View>
-        ) : null}
-
-        {suggestions.length > 0 && !chatLoading ? (
+        {suggestions.length > 0 ? (
           <JapaneseLearningFollowUpSuggestions
             suggestions={suggestions}
-            disabled={!canRunChat}
             onSelect={onSendSuggestion}
           />
         ) : null}
@@ -259,67 +275,141 @@ export function JapaneseLearningNemuChatDrawer({
 
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
+        // The band (colour + top border) lives here so it also fills the
+        // keyboard padding; the row's own padding sits on the inner view
+        // because "padding" behaviour overwrites this view's paddingBottom.
         style={[
-          styles.inputBar,
+          styles.inputBand,
           {
-            backgroundColor:
-              scheme === "dark"
-                ? "rgba(0,0,0,0.40)"
-                : nemuColorWithAlpha(tokens.background, 0.8),
             borderTopColor: tokens.border,
           },
         ]}
       >
-        <TextInput
-          ref={inputRef}
-          accessibilityLabel={strings.reader.pluginJapaneseLearningChatInputPlaceholder}
-          accessibilityState={{ disabled: !canRunChat }}
-          editable={canRunChat}
-          autoCapitalize="sentences"
-          autoCorrect
-          multiline
-          onChangeText={onChangeInput}
-          onSubmitEditing={handleSubmit}
-          placeholder={strings.reader.pluginJapaneseLearningChatInputPlaceholder}
-          placeholderTextColor={tokens.mutedForeground}
-          returnKeyType="send"
+        {/* The native sheet owns the safe area below the React host. Extend
+            only the band's paint into it; keep the input's layout unchanged. */}
+        <View
+          pointerEvents="none"
           style={[
-            styles.input,
+            StyleSheet.absoluteFill,
             {
-              color: tokens.foreground,
               backgroundColor:
-                scheme === "dark" ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.85)",
-              borderColor: tokens.border,
+                scheme === "dark"
+                  ? "rgba(0,0,0,0.40)"
+                  : nemuColorWithAlpha(tokens.background, 0.8),
             },
           ]}
-          submitBehavior="submit"
-          value={chatInput}
         />
-        {canSend ? (
-          <NemuPressable
-            accessibilityRole="button"
-            accessibilityLabel={strings.reader.pluginJapaneseLearningChatSend}
-            minimumTouchTarget
-            onPress={handleSubmit}
-            pressedScale={0.9}
-            style={styles.sendButton}
-          >
-            <Ionicons name="send" size={24} color={tokens.primary} />
-          </NemuPressable>
-        ) : null}
+        <View
+          style={[
+            styles.inputBar,
+            // The band runs to the sheet's bottom edge (the body extends into
+            // the sheet's bottom safe area): the space under the input matches
+            // its side inset, concentric with the sheet's bottom corners, plus
+            // the home indicator's inset only where the sheet reaches it.
+            { paddingBottom: INPUT_BAR_INSET_X + drawerFrame.bottomInset },
+          ]}
+        >
+          <TextInput
+            ref={inputRef}
+            accessibilityLabel={strings.reader.pluginJapaneseLearningChatInputPlaceholder}
+            autoCapitalize="sentences"
+            autoCorrect
+            onFocus={() => setInputFocused(true)}
+            onBlur={() => setInputFocused(false)}
+            onChangeText={onChangeInput}
+            onSubmitEditing={handleSubmit}
+            placeholder={strings.reader.pluginJapaneseLearningChatInputPlaceholder}
+            placeholderTextColor={scheme === "dark" ? "rgba(255,255,255,0.35)" : "rgba(86,86,86,0.55)"}
+            returnKeyType="send"
+            style={[
+              styles.input,
+              inputFont,
+              {
+                color: tokens.foreground,
+                backgroundColor:
+                  scheme === "dark"
+                    ? `rgba(255,255,255,${inputFocused ? 0.09 : 0.05})`
+                    : inputFocused ? "rgba(252,252,252,0.95)" : "rgba(244,244,245,0.85)",
+                borderColor: inputFocused ? nemuColorWithAlpha(tokens.primary, 0.55)
+                  : scheme === "dark" ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)",
+              },
+              // Web: `!border-primary/50 !ring-2 !ring-primary/20` while listening.
+              dictation.listening
+                ? {
+                    borderColor: nemuColorWithAlpha(tokens.primary, 0.5),
+                    outlineWidth: 2,
+                    outlineColor: nemuColorWithAlpha(tokens.primary, 0.2),
+                  }
+                : null,
+            ]}
+            submitBehavior="submit"
+            value={chatInput}
+          />
+          {canSend ? (
+            <NemuPressable
+              accessibilityRole="button"
+              accessibilityLabel={strings.reader.pluginJapaneseLearningChatSend}
+              // The send path plays web's single `hapticPress`.
+              hapticFeedback="none"
+              minimumTouchTarget
+              onPress={handleSubmit}
+              pressedScale={0.9}
+              style={styles.sendButton}
+            >
+              <Feather name="send" size={24} color={tokens.primary} />
+            </NemuPressable>
+          ) : showMic ? (
+            <JapaneseLearningChatMicButton
+              accessibilityLabel={
+                dictation.listening
+                  ? strings.reader.pluginJapaneseLearningChatStopVoiceInput
+                  : strings.reader.pluginJapaneseLearningChatVoiceInput
+              }
+              listening={dictation.listening}
+              onPress={dictation.toggle}
+            />
+          ) : null}
+        </View>
       </KeyboardAvoidingView>
-    </MobileSheetScaffold>
+    </>
+  );
+
+  return (
+    <JapaneseLearningSurfaceFrame
+      visible={visible}
+      onRequestClose={onClose}
+      onDismiss={onDismiss}
+      onPresentationProgress={onPresentationProgress}
+      backdropOnPress={onClose}
+      showDismissButton={false}
+      frameMaxHeight={drawerFrame.frameMaxHeight}
+      contentBottomInset={0}
+      contentStyle={japaneseLearningEdgeToEdgeContentStyle(drawerFrame.contentBleed)}
+    >
+      {body}
+    </JapaneseLearningSurfaceFrame>
   );
 }
 
+/** The composer's side inset; also the space under the input (see `inputBar`). */
+const INPUT_BAR_INSET_X = 12;
+
 const styles = StyleSheet.create({
+  webHeader: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    borderBottomWidth: 1,
+  },
+  webTitle: { fontSize: 14, lineHeight: 20, fontWeight: nemuFontWeight.medium },
   messagesScroll: {
     flex: 1,
     minHeight: 0,
   },
   messagesContent: {
     paddingVertical: 12,
-    gap: 6,
+    gap: 8,
     flexGrow: 1,
   },
   emptyState: {
@@ -331,7 +421,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   emptyIcon: {
-    opacity: 0.72,
+    opacity: 1,
   },
   emptyCopy: {
     alignItems: "center",
@@ -339,7 +429,7 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     fontSize: 14,
-    lineHeight: 18,
+    lineHeight: 20,
     fontWeight: nemuFontWeight.medium,
     textAlign: "center",
   },
@@ -351,37 +441,27 @@ const styles = StyleSheet.create({
   messageGroup: {
     gap: 6,
   },
-  thinkingBubble: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    borderRadius: 18,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    marginHorizontal: 12,
-    marginTop: 6,
-    marginLeft: 52,
-  },
-  thinkingText: {
-    fontSize: 14,
+  inputBand: {
+    // Web `border-t border-border`: 1px.
+    borderTopWidth: 1,
   },
   inputBar: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: INPUT_BAR_INSET_X,
+    paddingTop: 10,
   },
+  // Web `.input-nemu rounded-full px-4 py-2.5 text-base`: 46pt tall.
   input: {
     flex: 1,
-    minHeight: 40,
-    maxHeight: 100,
+    height: 46,
     borderRadius: radius.pill,
     paddingHorizontal: 16,
     paddingVertical: 10,
     fontSize: 16,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1,
+    boxShadow: "0px 1px 3px 0px rgba(0,0,0,0.25)",
   },
   sendButton: {
     width: 36,

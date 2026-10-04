@@ -1,5 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { StyleSheet, Text, View } from "react-native";
+import { nemuSheetMetrics } from "@/design/nemuSheetMetrics";
 import { nemuFontWeight } from "@/design/typography";
 import { useNemuTheme } from "@/design/useNemuTheme";
 import { NemuPressable } from "./NemuPressable";
@@ -31,7 +32,8 @@ export function NemuNativeSheetHeaderAction({
           accessibilityElementsHidden
           importantForAccessibility="no"
           name={androidIcon}
-          size={22}
+          // Material 3 icon button: a 24dp glyph in the 48dp target.
+          size={nemuSheetMetrics.headerActionIconSize}
           color={tokens.primary}
         />
       </NemuPressable>

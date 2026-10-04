@@ -1,8 +1,14 @@
 """
 Comic Text Detection + OCR Server
 
-Flow: Image → Text Detection → Reading Order → OCR → SSE Stream
+Flow: Image → Text Detection → Clean-up → Reading Order → OCR → SSE Stream
+- Clean-up (see detection_filters.py / README "Detection clean-up rules"):
+  near-duplicate boxes are merged, `eng` (watermark) boxes are dropped,
+  and each crop is padded before OCR
+- Restores typeset punctuation in OCR text (`...` → `…`, see ocr_text.py)
 - Filters out empty/whitespace-only OCR results
+- Retries a failed region once, then reports it (`ocr_error` event,
+  `failedRegions` in the result) instead of dropping it silently
 - Streams results as they complete for low latency
 
 Environment variables:
@@ -10,6 +16,9 @@ Environment variables:
   VLLM_URL: vLLM server URL (default: http://localhost:8000/v1)
   VLLM_MODEL: Model name (default: jzhang533/PaddleOCR-VL-For-Manga)
   PORT: Server port (default: 8080)
+  OCR_DEDUPE_IOU: IoU above which two boxes count as duplicates (default: 0.6; 1 disables)
+  OCR_CROP_PAD_PX: Fixed crop padding in px (default: 8; 0 disables)
+  OCR_REGION_ATTEMPTS: Tries per region before it is reported as failed (default: 2)
 """
 
 import asyncio
@@ -30,6 +39,16 @@ from fastapi.responses import StreamingResponse
 from PIL import Image
 from pydantic import BaseModel
 
+# Support both module execution and standalone deployed layouts.
+try:
+    from services.ocr import detection_filters  # type: ignore
+except ModuleNotFoundError:
+    import detection_filters  # type: ignore
+try:
+    from services.ocr import ocr_text  # type: ignore
+except ModuleNotFoundError:
+    import ocr_text  # type: ignore
+
 # ============================================================================
 # Configuration
 # ============================================================================
@@ -46,6 +65,12 @@ VLLM_MODEL = os.environ.get("VLLM_MODEL", "jzhang533/PaddleOCR-VL-For-Manga")
 # Detection config
 INPUT_SIZE = 1024
 CLASS_LABELS: list[Literal["eng", "ja", "unknown"]] = ["eng", "ja", "unknown"]
+
+# Detection clean-up (README "Detection clean-up rules")
+DEDUPE_IOU = float(os.environ.get("OCR_DEDUPE_IOU", detection_filters.DEFAULT_DEDUPE_IOU))
+CROP_PAD_PX = int(os.environ.get("OCR_CROP_PAD_PX", detection_filters.DEFAULT_CROP_PAD_PX))
+# Region OCR retries (README "Region OCR results")
+REGION_ATTEMPTS = max(1, int(os.environ.get("OCR_REGION_ATTEMPTS", ocr_text.DEFAULT_REGION_ATTEMPTS)))
 
 # ============================================================================
 # FastAPI App
@@ -72,6 +97,9 @@ http_client: httpx.AsyncClient | None = None
 class OCRRequest(BaseModel):
     imageBase64: str
     requestId: str = ""
+    # /ocr only. The service is Japanese-only, so boxes CTD labels `eng` (in practice
+    # scan-site watermarks) are dropped before OCR. Set true to OCR them anyway.
+    keepEng: bool = False
 
 
 class Detection(BaseModel):
@@ -87,6 +115,13 @@ class Detection(BaseModel):
 
 class DetectionWithText(Detection):
     text: str
+
+
+class FailedRegion(Detection):
+    """A detected region whose OCR failed on every attempt. `order` is the
+    region's order in the `detections` event (before empty results are removed)."""
+    error: str
+    attempts: int
 
 
 # SSE Events
@@ -108,12 +143,21 @@ class OCRResultEvent(SSEEvent):
     ocrTimeMs: float
 
 
+class OCRRegionErrorEvent(SSEEvent):
+    type: str = "ocr_error"
+    order: int
+    message: str
+    attempts: int
+
+
 class FinalResultEvent(SSEEvent):
     type: str = "result"
     detections: list[DetectionWithText]
     totalTimeMs: float
     detectTimeMs: float
     ocrTimeMs: float
+    # Added 2026-09: regions whose OCR failed; older clients ignore it.
+    failedRegions: list[FailedRegion] = []
 
 
 class ErrorEvent(SSEEvent):
@@ -165,14 +209,9 @@ def pil_to_cv2(img: Image.Image) -> np.ndarray:
     return cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
 
 
-def crop_region(img: Image.Image, det: dict) -> Image.Image:
-    """Crop detection region from image."""
-    return img.crop((
-        max(0, det["x1"]),
-        max(0, det["y1"]),
-        min(img.width, det["x2"]),
-        min(img.height, det["y2"]),
-    ))
+def crop_region(img: Image.Image, det: dict, pad: int = 0) -> Image.Image:
+    """Crop detection region from image, grown by `pad` px per side (clamped to the image)."""
+    return img.crop(detection_filters.padded_box(det, img.width, img.height, pad))
 
 
 def image_to_data_url(img: Image.Image) -> str:
@@ -274,21 +313,38 @@ async def ocr_region(client: httpx.AsyncClient, img: Image.Image, order: int) ->
     text = response.json()["choices"][0]["message"]["content"]
     elapsed = (time.perf_counter() - start) * 1000
     
-    return order, text.strip(), elapsed
+    return order, ocr_text.restore_symbols(text.strip()), elapsed
+
+
+async def ocr_region_reported(
+    client: httpx.AsyncClient, img: Image.Image, order: int
+) -> tuple[int, "ocr_text.Attempted[tuple[int, str, float]]"]:
+    """`ocr_region` with retries; never raises for a failed region."""
+    attempted = await ocr_text.call_with_retry(lambda: ocr_region(client, img, order), REGION_ATTEMPTS)
+    return order, attempted
 
 
 # ============================================================================
 # Main OCR Pipeline (SSE Stream)
 # ============================================================================
 
-async def ocr_pipeline(img: Image.Image, request_id: str) -> AsyncGenerator[str, None]:
+def clean_detections(detections: list[dict], keep_eng: bool = False) -> list[dict]:
+    """Drop near-duplicate boxes, then (unless keep_eng) `eng`-labelled boxes."""
+    detections = detection_filters.dedupe_detections(detections, DEDUPE_IOU)
+    if not keep_eng:
+        detections = detection_filters.drop_labels(detections)
+    return detections
+
+
+async def ocr_pipeline(img: Image.Image, request_id: str, keep_eng: bool = False) -> AsyncGenerator[str, None]:
     """
     Full OCR pipeline with SSE streaming:
     1. Detect text regions
-    2. Estimate reading order
-    3. OCR each region (stream results)
-    4. Filter empty results
-    5. Send final combined result
+    2. Clean up boxes (dedupe, drop `eng` unless keep_eng)
+    3. Estimate reading order
+    4. OCR each padded region (stream results)
+    5. Filter empty results
+    6. Send final combined result
     """
     global http_client
     
@@ -304,6 +360,7 @@ async def ocr_pipeline(img: Image.Image, request_id: str) -> AsyncGenerator[str,
 
         cv_img = pil_to_cv2(img)
         detections, detect_time = run_detection_raw_cv(cv_img)
+        detections = clean_detections(detections, keep_eng=keep_eng)
         # 2. Reading order (explicit; used by OCR + returned to client)
         img_gray = cv2.cvtColor(cv_img, cv2.COLOR_BGR2GRAY)
         detections = apply_reading_order(detections, img_gray=img_gray, reading_direction="rtl")
@@ -332,32 +389,41 @@ async def ocr_pipeline(img: Image.Image, request_id: str) -> AsyncGenerator[str,
     if http_client is None:
         http_client = httpx.AsyncClient(base_url=VLLM_URL, timeout=120.0)
     
-    crops = [(det["order"], crop_region(img, det), det) for det in detections]
-    tasks = [ocr_region(http_client, crop_img, order) for order, crop_img, _ in crops]
+    crops = [(det["order"], crop_region(img, det, CROP_PAD_PX), det) for det in detections]
+    tasks = [ocr_region_reported(http_client, crop_img, order) for order, crop_img, _ in crops]
     
     # Collect results, streaming as they complete
     ocr_results: dict[int, str] = {}
+    ocr_errors: dict[int, ocr_text.Attempted] = {}
     ocr_start = time.perf_counter()
     
     for coro in asyncio.as_completed(tasks):
-        try:
-            order, text, elapsed = await coro
-            
-            # Skip empty results
-            if is_empty_text(text):
-                continue
-            
-            ocr_results[order] = text
-            
-            # Stream individual OCR result
-            yield sse_event(OCRResultEvent(
+        order, attempted = await coro
+        if attempted.error is not None:
+            print(f"OCR error for region {order} after {attempted.attempts} attempt(s): {attempted.error}")
+            ocr_errors[order] = attempted
+            yield sse_event(OCRRegionErrorEvent(
                 requestId=request_id,
                 order=order,
-                text=text,
-                ocrTimeMs=round(elapsed, 2),
+                message=attempted.error,
+                attempts=attempted.attempts,
             ))
-        except Exception as e:
-            print(f"OCR error for region: {e}")
+            continue
+        _, text, elapsed = attempted.value
+
+        # Skip empty results
+        if is_empty_text(text):
+            continue
+
+        ocr_results[order] = text
+
+        # Stream individual OCR result
+        yield sse_event(OCRResultEvent(
+            requestId=request_id,
+            order=order,
+            text=text,
+            ocrTimeMs=round(elapsed, 2),
+        ))
     
     ocr_time = (time.perf_counter() - ocr_start) * 1000
     total_time = (time.perf_counter() - total_start) * 1000
@@ -371,6 +437,12 @@ async def ocr_pipeline(img: Image.Image, request_id: str) -> AsyncGenerator[str,
                 text=ocr_results[order],
             ))
     
+    failed_regions = [
+        FailedRegion(**det, error=ocr_errors[order].error, attempts=ocr_errors[order].attempts)
+        for order, _, det in crops
+        if order in ocr_errors
+    ]
+
     # Re-assign order to be sequential after filtering
     final_detections.sort(key=lambda d: d.order)
     for i, det in enumerate(final_detections):
@@ -383,6 +455,7 @@ async def ocr_pipeline(img: Image.Image, request_id: str) -> AsyncGenerator[str,
         totalTimeMs=round(total_time, 2),
         detectTimeMs=round(detect_time, 2),
         ocrTimeMs=round(ocr_time, 2),
+        failedRegions=failed_regions,
     ))
 
 
@@ -413,12 +486,15 @@ async def health():
         "cuda_device": torch.cuda.get_device_name() if torch.cuda.is_available() else None,
         "vllm_url": VLLM_URL,
         "vllm_model": VLLM_MODEL,
+        "dedupe_iou": DEDUPE_IOU,
+        "crop_pad_px": CROP_PAD_PX,
+        "region_attempts": REGION_ATTEMPTS,
     }
 
 
 @app.post("/detect")
 async def detect_only(req: OCRRequest):
-    """Detection only (no OCR)."""
+    """Detection only (no OCR). Raw CTD boxes: no dedupe, `eng` kept, no order."""
     if not detector:
         raise HTTPException(503, "Model not loaded")
     
@@ -461,7 +537,7 @@ async def detect_and_ocr(req: OCRRequest):
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         
         return StreamingResponse(
-            ocr_pipeline(img, req.requestId),
+            ocr_pipeline(img, req.requestId, keep_eng=req.keepEng),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",

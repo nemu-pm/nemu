@@ -261,6 +261,18 @@ def preprocess_for_hough_ink(
     return lines, scale
 
 
+def _hough_segments(lines) -> List[Tuple[int, int, int, int]]:
+    """Normalise cv2.HoughLinesP output to a list of (x1, y1, x2, y2) int tuples.
+
+    OpenCV 4.x returns shape (N, 1, 4); OpenCV 5.x returns (N, 4); no lines is None
+    (or an empty array). Reshaping to (-1, 4) handles all of them.
+    """
+    if lines is None:
+        return []
+    arr = np.asarray(lines).reshape(-1, 4)
+    return [(int(x1), int(y1), int(x2), int(y2)) for x1, y1, x2, y2 in arr]
+
+
 def detect_panel_lines(
     binary: np.ndarray,
     min_line_length: int = PAPER_MIN_LINE_LENGTH_PX,
@@ -296,12 +308,10 @@ def detect_panel_lines(
             minLineLength=minLen_eff,
             maxLineGap=maxGap,
         )
-        if lines is not None:
-            for line in lines:
-                x1, y1, x2, y2 = line[0]
-                length = math.sqrt((x2-x1)**2 + (y2-y1)**2)
-                if length >= float(minLen_eff):
-                    all_lines.append((int(x1), int(y1), int(x2), int(y2)))
+        for x1, y1, x2, y2 in _hough_segments(lines):
+            length = math.sqrt((x2-x1)**2 + (y2-y1)**2)
+            if length >= float(minLen_eff):
+                all_lines.append((x1, y1, x2, y2))
 
     # Dedupe exact duplicates across the 3 runs (probabilistic Hough + repeated params).
     uniq = []

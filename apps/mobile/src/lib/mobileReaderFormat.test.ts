@@ -157,6 +157,22 @@ describe("chapterFromState", () => {
     });
   });
 
+  test("fills an id-only progress record from the other records", () => {
+    const idOnlyProgress = {
+      ...chapterProgress,
+      chapterId: "c4",
+      chapterTitle: undefined,
+      chapterNumber: undefined,
+      volumeNumber: undefined,
+    } as unknown as LocalChapterProgress;
+    const sourceLink = {
+      latestChapter: { id: "c4", title: "Latest", chapterNumber: 132 },
+    } as unknown as LocalSourceLink;
+    expect(
+      chapterFromState("c4", makeState({ chapterProgress: idOnlyProgress, sourceLink })),
+    ).toEqual({ id: "c4", title: "Latest", chapterNumber: 132 });
+  });
+
   test("keeps opaque chapter ids out of presentation data", () => {
     expect(chapterFromState("c4", makeState())).toEqual({
       id: "c4",

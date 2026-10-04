@@ -19,6 +19,10 @@ import {
 import { makeMobileImageCacheStorageKey } from "./mobileImageCacheKey";
 import { parseNativeSegmentedImageCacheManifest } from "@/data/nativeSegmentedImageCache";
 import { hasMobileUserAgentHeader } from "@/sources/mobileAidokuUserAgent";
+import {
+  isMobileHotlinkGuardedImageUrl,
+  isMobileKnownPlaceholderImageResponse,
+} from "./mobileCoverPlaceholder";
 
 export type MobileImageCacheSource = {
   uri?: string | null;
@@ -234,6 +238,31 @@ function imageDownloadHeaders(headers?: Record<string, string>) {
   };
 }
 
+/**
+ * A hotlink-guarded host can answer a real cover URL with its placeholder
+ * image (HTTP 200). Such a body must neither be painted nor stay cached, so it
+ * is dropped here and surfaces as a load failure, which lets the cover fall
+ * back to its next candidate.
+ */
+async function rejectKnownPlaceholderImage(
+  source: MobileImageCacheSource,
+  key: string,
+  locatorUri: string,
+): Promise<void> {
+  if (!isMobileHotlinkGuardedImageUrl(source.uri)) return;
+  let byteLength: number | null = null;
+  try {
+    byteLength = new File(locatorUri).info().size ?? null;
+  } catch {
+    return;
+  }
+  if (!isMobileKnownPlaceholderImageResponse({ url: source.uri, byteLength })) {
+    return;
+  }
+  await coordinatorForSource(source).invalidate(key);
+  throw new Error("The image host returned a placeholder instead of the cover.");
+}
+
 export function getMobileImageCacheSourceKey(
   source: MobileImageCacheSource | null | undefined,
   cacheKey?: string,
@@ -287,7 +316,7 @@ export async function resolveCachedMobileImageUri(
   source = normalizeMobileImageCacheSource(source);
   if (!source?.uri || !isCacheableMobileImageUri(source.uri)) return null;
   const key = mobileImageCacheStorageKey(source, cacheKey, executionScope);
-  return coordinatorForSource(source).resolve(
+  const locator = await coordinatorForSource(source).resolve(
     key,
     async (signal) => {
       // The native SSRF-protected file seam streams directly to disk. Keeping
@@ -308,6 +337,8 @@ export async function resolveCachedMobileImageUri(
     },
     options,
   );
+  if (locator) await rejectKnownPlaceholderImage(source, key, locator);
+  return locator;
 }
 
 export async function resolveCachedMobileImageAsset(
@@ -340,6 +371,9 @@ export async function resolveCachedMobileImageAsset(
   );
   if (!locator) return null;
   const asset = readCachedMobileImageAsset(locator);
+  if (asset?.kind === "file") {
+    await rejectKnownPlaceholderImage(source, key, asset.uri);
+  }
   if (asset) return asset;
   // A manifest locator without a complete validated generation is corrupt.
   // Remove it before a bounded retry can repopulate the key.

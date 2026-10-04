@@ -1,3 +1,4 @@
+import type { ViewInstance } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useEffect, useRef } from "react";
 import {
@@ -29,6 +30,12 @@ type MobileReaderEndOfChapterOverlayProps = {
   strings: MobileStrings;
   bottomInset: number;
   topInset: number;
+  /**
+   * Distances from the reader edges to the pane the card belongs in (fold
+   * pane or content area), safe areas included. The scrim still covers the
+   * whole reader; only the card moves. Omitted = centred in the safe area.
+   */
+  contentInsets?: { top: number; left: number; bottom: number; right: number } | null;
   busy?: boolean;
   error?: string | null;
   /**
@@ -53,6 +60,7 @@ export function MobileReaderEndOfChapterOverlay({
   strings,
   bottomInset,
   topInset,
+  contentInsets = null,
   busy = false,
   error = null,
   celebration = false,
@@ -61,7 +69,7 @@ export function MobileReaderEndOfChapterOverlay({
 }: MobileReaderEndOfChapterOverlayProps) {
   const { tokens } = useNemuTheme();
   const reducedMotion = useReducedMotion();
-  const modalHeadingRef = useRef<View | null>(null);
+  const modalHeadingRef = useRef<ViewInstance | null>(null);
 
   useEffect(() => {
     if (!visible) return;
@@ -83,7 +91,14 @@ export function MobileReaderEndOfChapterOverlay({
       importantForAccessibility="yes"
       style={[
         styles.root,
-        { paddingTop: topInset + 24, paddingBottom: bottomInset + 24 },
+        contentInsets
+          ? {
+              paddingTop: contentInsets.top + 24,
+              paddingBottom: contentInsets.bottom + 24,
+              paddingLeft: contentInsets.left + 24,
+              paddingRight: contentInsets.right + 24,
+            }
+          : { paddingTop: topInset + 24, paddingBottom: bottomInset + 24 },
       ]}
     >
       <Pressable

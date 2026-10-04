@@ -21,6 +21,7 @@ import {
   radius,
   spacing,
   useNemuTheme,
+  useMobileNativeSheetTheme,
   NemuButton,
   GlassSurface,
   NemuNativeSearchField,
@@ -29,6 +30,7 @@ import {
   NemuText,
   nemuColorWithAlpha,
   nemuMaxFontSizeMultiplier,
+  nemuSheetMetrics,
   getNemuButtonMinimumTargetSize,
 } from "@/design-system";
 import type { InstalledSource, LibraryEntry, MangaMetadata } from "@/data/schema";
@@ -265,6 +267,7 @@ function MetadataSectionHeader({
         color={tokens.foreground}
         density="compact"
         numberOfLines={2}
+        style={nemuSheetMetrics.sectionTitle}
         variant="sectionTitle"
       >
         {title}
@@ -273,6 +276,7 @@ function MetadataSectionHeader({
         <NemuText
           color={tokens.mutedForeground}
           density="compact"
+          style={nemuSheetMetrics.sectionCaption}
           variant="caption"
         >
           {subtitle}
@@ -410,7 +414,7 @@ export function MobileMetadataEditorSheet({
   onFetchFromSource,
   onSave,
 }: MobileMetadataEditorSheetProps) {
-  const { tokens } = useNemuTheme();
+  const { tokens } = useMobileNativeSheetTheme();
   const { appLanguage, effectiveMetadataLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
   const nextInitialForm = useMemo(() => mobileMetadataFormFromEntry(entry), [entry]);

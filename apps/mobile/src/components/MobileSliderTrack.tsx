@@ -1,3 +1,4 @@
+import type { ViewInstance } from "react-native";
 import { useCallback, useMemo, useRef, useState } from "react";
 import {
   PanResponder,
@@ -52,7 +53,7 @@ export function MobileSliderTrack({
   touchTargetStyle,
 }: MobileSliderTrackProps) {
   const { tokens } = useNemuTheme();
-  const trackRef = useRef<View | null>(null);
+  const trackRef = useRef<ViewInstance | null>(null);
   const [trackWidth, setTrackWidth] = useState(0);
   const clampedProgress = Math.max(0, Math.min(1, progress));
   const visualProgress =

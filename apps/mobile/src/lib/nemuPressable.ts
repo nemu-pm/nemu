@@ -138,3 +138,64 @@ export function shouldResetNemuPressableInteraction({
 }): boolean {
   return disabled || !animationEnabled;
 }
+
+/**
+ * Native row selection (UITableView inset-grouped / Android list items): the
+ * row fills with a highlight on touch-down and fades it out on release,
+ * instead of shrinking. Timings follow UIKit: a short touch-down delay so a
+ * scroll that starts on the row never flashes it, a quick tap still shows it
+ * briefly, and the fade-out is ~quarter of a second.
+ */
+export const NEMU_ROW_HIGHLIGHT = {
+  /** Touch-down → highlight (UIScrollView `delaysContentTouches` feel). */
+  delayMs: 60,
+  /** Release → highlight gone. */
+  fadeOutMs: 260,
+  /** Foreground-colour alpha of the fill (≈ systemGray4 over the card). */
+  lightAlpha: 0.08,
+  darkAlpha: 0.14,
+} as const;
+
+type RadiusStyle = {
+  borderRadius?: unknown;
+  borderTopLeftRadius?: unknown;
+  borderTopRightRadius?: unknown;
+  borderBottomLeftRadius?: unknown;
+  borderBottomRightRadius?: unknown;
+  borderTopStartRadius?: unknown;
+  borderTopEndRadius?: unknown;
+  borderBottomStartRadius?: unknown;
+  borderBottomEndRadius?: unknown;
+  borderWidth?: unknown;
+};
+
+function radiusValue(...values: unknown[]): number {
+  for (const value of values) {
+    if (typeof value === "number" && Number.isFinite(value)) return Math.max(0, value);
+  }
+  return 0;
+}
+
+/**
+ * Corner radii of a row's highlight: the row's own corners (per corner, so a
+ * first/last row of a grouped card keeps only its outer corners), concentric
+ * inside its border — the fill starts inside the border, so each radius loses
+ * the border width. A square row inside a rounded, clipping card gets square
+ * corners here and the card clips it to the card's corners.
+ */
+export function resolveNemuRowHighlightRadii(style: RadiusStyle | null | undefined): {
+  borderTopLeftRadius: number;
+  borderTopRightRadius: number;
+  borderBottomLeftRadius: number;
+  borderBottomRightRadius: number;
+} {
+  const s = style ?? {};
+  const inset = radiusValue(s.borderWidth);
+  const corner = (...values: unknown[]) => Math.max(0, radiusValue(...values, s.borderRadius) - inset);
+  return {
+    borderTopLeftRadius: corner(s.borderTopLeftRadius, s.borderTopStartRadius),
+    borderTopRightRadius: corner(s.borderTopRightRadius, s.borderTopEndRadius),
+    borderBottomLeftRadius: corner(s.borderBottomLeftRadius, s.borderBottomStartRadius),
+    borderBottomRightRadius: corner(s.borderBottomRightRadius, s.borderBottomEndRadius),
+  };
+}

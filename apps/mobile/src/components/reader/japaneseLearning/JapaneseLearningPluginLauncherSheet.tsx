@@ -9,7 +9,6 @@ import {
   radius,
   useNemuTheme,
 } from "@/design-system";
-import { canRunMobileJapaneseLearningChatAction } from "@/lib/mobileJapaneseLearningChat";
 import type { MobileStrings } from "@/lib/mobileI18n";
 
 export interface JapaneseLearningPluginValues {
@@ -40,7 +39,6 @@ interface PluginLauncherSheetProps {
   values: JapaneseLearningPluginValues;
   ocrLoading: boolean;
   ocrUnavailableDetail?: string;
-  chatLoading: boolean;
   onClose: () => void;
   onDismiss?: () => void;
   onDetectText: () => void;
@@ -64,23 +62,24 @@ export function JapaneseLearningPluginLauncherSheet({
   values,
   ocrLoading,
   ocrUnavailableDetail,
-  chatLoading,
   onClose,
   onDismiss,
   onDetectText,
   onOpenChat,
 }: PluginLauncherSheetProps) {
   const { tokens } = useNemuTheme();
-  const canRunChat = canRunMobileJapaneseLearningChatAction(
-    chatLoading,
-    ocrLoading,
-  );
   const canRunOcr = !ocrLoading && !ocrUnavailableDetail;
 
   return (
     <MobileSheetScaffold
       visible={visible}
       onRequestClose={onClose}
+      // The reader is dark in either app theme, but this scaffold's system
+      // sheet cannot be handed a colour scheme: on Liquid Glass it would be
+      // light glass under dark content in a light app theme. It keeps the
+      // reader's opaque card instead (the reader's Plugins sheet is glass:
+      // it presents with its own scheme).
+      backgroundColor={tokens.card}
       backdropOnPress={onClose}
       onDismiss={onDismiss}
       dismissLabel={strings.reader.closePlugin}
@@ -177,16 +176,11 @@ export function JapaneseLearningPluginLauncherSheet({
       ) : null}
 
       {/* Secondary action: Nemu Chat */}
+      {/* Web's Nemu navbar action: always available, never a loading state. */}
       <NemuButton
         accessibilityLabel={strings.reader.pluginJapaneseLearningNemuChat}
-        disabled={!canRunChat}
         icon="chatbubbles-outline"
-        label={
-          chatLoading
-            ? strings.reader.pluginJapaneseLearningChatThinking
-            : strings.reader.pluginJapaneseLearningNemuChat
-        }
-        loading={chatLoading}
+        label={strings.reader.pluginJapaneseLearningNemuChat}
         onPress={onOpenChat}
         size={NEMU_PROMINENT_CTA_SIZE}
         variant="secondary"

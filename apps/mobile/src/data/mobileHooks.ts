@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { syncMobileJapaneseLearningEnginePreference } from "@/lib/mobileJapaneseLearningEngineSettings";
 import {
   addNetworkStateListener,
   getNetworkStateAsync,
@@ -99,6 +100,11 @@ import {
 } from "@/lib/mobileReaderSettings";
 import { useMobileLanguageContext } from "./mobileLanguageState";
 import { findMobileSourceUpdates } from "@/lib/mobileSourceUpdates";
+import {
+  findMobileCatalogEntryForInstalledSource,
+  findMobileSourceCatalogRepairs,
+  mobileInstalledSourceNeedsCatalogRepair,
+} from "@/lib/mobileInstalledSourceCatalogRepair";
 import {
   markMobilePerformance,
   measureMobilePerformance,
@@ -284,6 +290,124 @@ async function saveMobileRegistrySourceInstall(
     );
   }
   return true;
+}
+
+const mobileSourceCatalogRepairs = new Map<string, Promise<boolean>>();
+
+/**
+ * Installs a catalog entry over an installed record that has no package URL
+ * (see `mobileInstalledSourceNeedsCatalogRepair`). Concurrent callers — the
+ * registry update pass and an open source screen — share one download.
+ */
+function repairMobileInstalledSourceFromCatalog(
+  store: MobileDataStore,
+  source: MobileRegistrySource,
+  options: { signal?: AbortSignal } = {},
+): Promise<boolean> {
+  const key = makeSourceKey(source.registryId, source.id);
+  const inFlight = mobileSourceCatalogRepairs.get(key);
+  if (inFlight) return inFlight;
+  const run = saveMobileRegistrySourceInstall(store, source, {
+    signal: options.signal,
+    updateOnly: true,
+  }).finally(() => {
+    mobileSourceCatalogRepairs.delete(key);
+  });
+  mobileSourceCatalogRepairs.set(key, run);
+  return run;
+}
+
+export type MobileSourceCatalogRepairState =
+  | { status: "idle" }
+  | { status: "installing"; entry: MobileRegistrySource | null }
+  | { status: "unavailable" }
+  | { status: "failed"; entry: MobileRegistrySource | null; detail: string };
+
+/**
+ * Installs an installed-but-bare source (a synced record with no package URL)
+ * from the registry catalog the first time its screen opens, so the screen can
+ * show progress and then the source instead of a blank page.
+ */
+export function useMobileInstalledSourceCatalogRepair(
+  installedSource: InstalledSource | null | undefined,
+): MobileSourceCatalogRepairState & { retry: () => void } {
+  const store = useMobileDataStore();
+  const needsRepair = Boolean(
+    installedSource && mobileInstalledSourceNeedsCatalogRepair(installedSource),
+  );
+  const installedSourceRef = useRef(installedSource);
+  useEffect(() => {
+    installedSourceRef.current = installedSource;
+  }, [installedSource]);
+  const repairKey = needsRepair ? (installedSource?.id ?? null) : null;
+  const [attempt, setAttempt] = useState(0);
+  const runKey = repairKey ? `${repairKey}#${attempt}` : null;
+  // Results are keyed by run, so a new source or a retry reads as
+  // "installing" until its own run reports — no synchronous reset needed.
+  const [result, setResult] = useState<{
+    key: string;
+    state: MobileSourceCatalogRepairState;
+  } | null>(null);
+
+  useEffect(() => {
+    const source = installedSourceRef.current;
+    if (!runKey || !source) return;
+    const controller = new AbortController();
+    const isCurrent = () => !controller.signal.aborted;
+    const report = (state: MobileSourceCatalogRepairState) => {
+      if (isCurrent()) setResult({ key: runKey, state });
+    };
+    void (async () => {
+      let entry: MobileRegistrySource | null = null;
+      try {
+        const cached = await loadCachedRegistryIndex().catch(() => null);
+        entry = cached
+          ? findMobileCatalogEntryForInstalledSource(source, cached)
+          : null;
+        if (!entry) {
+          const { value: catalog } = await registryCatalogScheduler.fetch(
+            (signal) => loadMobileRegistryCatalog(store, signal),
+            {
+              ttlMs: attempt > 0 ? 0 : MOBILE_REGISTRY_CATALOG_FRESHNESS_MS,
+              signal: controller.signal,
+            },
+          );
+          entry = findMobileCatalogEntryForInstalledSource(source, catalog);
+        }
+        if (!entry) {
+          report({ status: "unavailable" });
+          return;
+        }
+        report({ status: "installing", entry });
+        await repairMobileInstalledSourceFromCatalog(store, entry, {
+          signal: controller.signal,
+        });
+        if (!isCurrent()) return;
+        // Whether this call or a concurrent pass wrote the record, reload it:
+        // the screen leaves this state once the record has a package URL.
+        emitMobileDataChanged("sources");
+        const refreshed = (await store.getInstalledSources()).find(
+          (item) => item.id === source.id,
+        );
+        if (refreshed && mobileInstalledSourceNeedsCatalogRepair(refreshed)) {
+          report({
+            status: "failed",
+            entry,
+            detail: "The source record was not updated.",
+          });
+        }
+      } catch (nextError) {
+        if (isMobileSourceInstallCancellation(nextError)) return;
+        report({ status: "failed", entry, detail: errorMessage(nextError) });
+      }
+    })();
+    return () => controller.abort();
+  }, [attempt, runKey, store]);
+
+  const retry = useCallback(() => setAttempt((value) => value + 1), []);
+  if (!runKey) return { status: "idle", retry };
+  if (result?.key === runKey) return { ...result.state, retry };
+  return { status: "installing", entry: null, retry };
 }
 
 export function useLibraryEntries(): LoadState<LibraryEntry[]> {
@@ -1421,6 +1545,7 @@ export function useMobileReaderPlugins(): LoadState<
       setError(null);
       const settings = await store.getSettings();
       const plugins = getMobileReaderPluginStates(settings, strings);
+      syncMobileJapaneseLearningEnginePreference(plugins);
       // Plugin state is plain data derived from settings; every settings
       // write reloads it, so unchanged plugins must keep their references or
       // the reader re-derives its plugin pipeline on each write.
@@ -1591,6 +1716,39 @@ async function runMobileRegistrySourceUpdatePass(
   const installedSources = await store.getInstalledSources();
   assertMobileSourceInstallActive(signal, isAccountMutationBlocked);
   const updateSources = findMobileSourceUpdates(installedSources, sources);
+  const updateKeys = new Set(
+    updateSources.map((source) => makeSourceKey(source.registryId, source.id)),
+  );
+  // Bare synced records (no download URL) at the catalog's version are not
+  // "updates", but they cannot run until installed from the catalog. Repair
+  // them silently alongside the update pass; they are not announced as
+  // updated.
+  const repairSources = findMobileSourceCatalogRepairs(
+    installedSources,
+    sources,
+  ).filter(
+    (source) => !updateKeys.has(makeSourceKey(source.registryId, source.id)),
+  );
+  if (repairSources.length > 0) {
+    const repaired = await Promise.all(
+      repairSources.map(async (source) => {
+        try {
+          return await repairMobileInstalledSourceFromCatalog(store, source, {
+            signal,
+          });
+        } catch (nextError) {
+          if (isMobileSourceInstallCancellation(nextError)) throw nextError;
+          console.warn(
+            `[MobileSources] Failed to install synced source ${source.registryId}:${source.id}:`,
+            errorMessage(nextError),
+          );
+          return false;
+        }
+      }),
+    );
+    assertMobileSourceInstallActive(signal, isAccountMutationBlocked);
+    if (repaired.some(Boolean)) emitMobileDataChanged("sources");
+  }
   if (updateSources.length === 0) return [];
 
   const updatedNames = await Promise.all(

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 function readMobileSource(relativePath: string): string {
@@ -81,7 +81,12 @@ describe("mobile sheet and text-field chrome policy", () => {
     // iOS 26+, `bordered` before it, always a circle at the large control size.
     // A hand-rolled `glassEffect` renders as a flat disc, and forcing a frame on
     // the label makes the circle grow to that frame plus the style's padding.
-    expect(source).toContain('buttonStyle(glass ? "glass" : "bordered")');
+    expect(source).toContain('const chrome = glass ? "glass" : "bordered";');
+    // A confirming action (Save / Done) takes the prominent, accent-filled form.
+    expect(source).toContain(
+      'const prominentChrome = glass ? "glassProminent" : "borderedProminent";',
+    );
+    expect(source).toContain("buttonStyle(prominent ? prominentChrome : chrome)");
     expect(source).toContain('buttonBorderShape("circle")');
     expect(source).toContain('controlSize("large")');
     expect(source).toContain("const GLYPH_POINT_SIZE = 20");
@@ -163,30 +168,34 @@ describe("mobile sheet and text-field chrome policy", () => {
     expect(browse).toContain('clearActionTestID="AddSourceSearchClearAction"');
     expect(browse).not.toContain("clearButtonMode=");
     expect(addSourceSearchField).toContain("testID={clearActionTestID}");
-    expect(search).toContain('testID="InstalledSourceSearchClearAction"');
+    // Regular-width search uses the shared capsule (in content and in the
+    // sidebar), so its clear action is the shared one too.
+    expect(search).toContain('clearActionTestID="InstalledSourceSearchClearAction"');
+    expect(readMobileSource("components/search/MobileSearchSidebar.tsx")).toContain(
+      'clearActionTestID="InstalledSourceSearchClearAction"',
+    );
     expect(metadata).toContain(
       'clearActionTestID="MetadataMatchSearchClearAction"',
     );
     expect(metadata).not.toContain("clearButtonMode=");
+    // The source manager's search uses the shared capsule too.
     expect(sourceManager).toContain(
-      'testID="SourceManagerSearchClearAction"',
+      'clearActionTestID="SourceManagerSearchClearAction"',
     );
+    expect(sourceManager).toContain("<NemuNativeSearchField");
+    expect(sourceManager).not.toContain("clearButtonMode=");
     expect(sourceBrowse).toContain("SourceTextFilterClearAction:");
     expect(sourceBrowse).toMatch(
       /contentContainerStyle=\{styles\.filterPanelScrollContent\}[\s\S]*?keyboardShouldPersistTaps="handled"/,
     );
 
-    for (const source of [
-      addSourceSearchField,
-      search,
-      sourceManager,
-      sourceBrowse,
-    ]) {
+    for (const source of [addSourceSearchField, sourceBrowse]) {
       expect(source).toContain("<NemuTextFieldClearAction");
       expect(source).toMatch(/trailingInset=\{(?:11|12|14)\}/);
       expect(source).not.toContain("clearButtonMode=");
     }
 
+    expect(search).not.toContain("clearButtonMode=");
     for (const nativeSearch of [search, sourceBrowse]) {
       expect(nativeSearch).toContain("<Stack.SearchBar");
       expect(nativeSearch).toContain("onCancelButtonPress=");
@@ -199,11 +208,9 @@ describe("mobile sheet and text-field chrome policy", () => {
       "components/MobileSourceManagerSheet.tsx",
     );
     const collections = readMobileSource("screens/LibraryScreen.tsx");
-    const transcript = readMobileSource(
-      "components/reader/japaneseLearning/JapaneseLearningTranscriptSheet.tsx",
-    );
-
-    for (const source of [sourceManager, collections, transcript]) {
+    // The transcript has no header action: its audio control sits in the
+    // body, as on web (transcript.tsx).
+    for (const source of [sourceManager, collections]) {
       expect(source).toContain("headerMetrics.showActionLabels");
     }
   });
@@ -234,8 +241,10 @@ describe("mobile sheet and text-field chrome policy", () => {
     expect(nativeScaffold).toContain(
       "const hasMultipleSnapPoints = (effectiveSnapPoints?.length ?? 0) > 1;",
     );
+    // Also a body extended into a floating sheet's bottom safe area: the
+    // host is then taller than the detent.
     expect(nativeScaffold).toMatch(
-      /fillContent && hasMultipleSnapPoints[\s\S]*?styles\.filledContent/,
+      /fillContent && \(hasMultipleSnapPoints \|\| contentReachesSheetBottom\)[\s\S]*?styles\.filledContent/,
     );
     expect(nativeScaffold).not.toMatch(
       /fillContent && boundedContentHeight[\s\S]*?hasMultipleSnapPoints/,
@@ -499,9 +508,14 @@ describe("mobile sheet and text-field chrome policy", () => {
       'setLibraryOptionsPresentationMode(inLibrary ? "in-library" : "add")',
     );
     expect(source).toContain("setLibraryOptionsPresentationMode(null);");
-    expect(source).toContain(
-      'libraryOptionsPresentationMode === "in-library"',
-    );
+    // The frozen mode (not live `inLibrary`) drives the sheet's rows.
+    expect(source).toContain("mode={libraryOptionsPresentationMode}");
+    for (const file of [
+      "components/MobileLibraryOptionsSheet.tsx",
+      "components/MobileLibraryOptionsSheet.ios.tsx",
+    ]) {
+      expect(readMobileSource(file)).toContain('mode === "in-library"');
+    }
   });
 
   test("keeps direct depth shadows unclipped with native-size targets", () => {
@@ -547,5 +561,81 @@ describe("mobile sheet and text-field chrome policy", () => {
     const button = readMobileSource("design-system/components/NemuButton.tsx");
     expect(button).toContain("resolveNemuButtonTouchTargetStyle");
     expect(button).not.toContain('overflow: "hidden"');
+  });
+
+  test("sheet content built beside its scaffold draws with the sheet's (glass) theme", () => {
+    const srcRoot = path.join(import.meta.dir, "..");
+    const files = readdirSync(srcRoot, { recursive: true, encoding: "utf8" }).filter(
+      (file) => file.endsWith(".tsx") && !file.endsWith("design-system/components/MobileSheetScaffold.tsx"),
+    );
+    const offenders: string[] = [];
+    let scaffolds = 0;
+    let confirmationsWithChildren = 0;
+    for (const file of files) {
+      const lines = readMobileSource(file).split("\n");
+      lines.forEach((line, index) => {
+        // `MobileConfirmationSheet` takes children too: its caller builds
+        // them outside the sheet just the same.
+        const tag = /<(MobileNativeSheetScaffold|MobileSheetScaffold|MobileConfirmationSheet)\b/.exec(line)?.[1];
+        if (!tag) return;
+        const propsEnd = lines.findIndex((next, at) => at > index && /^\s*\/?>\s*$/.test(next));
+        // Without children there is nothing built outside the sheet.
+        if (lines[propsEnd].includes("/>")) return;
+        const wrapper = tag === "MobileConfirmationSheet";
+        if (wrapper) confirmationsWithChildren += 1;
+        else scaffolds += 1;
+        let start = index;
+        while (start > 0 && !/^(export )?function /.test(lines[start])) start -= 1;
+        const component = lines.slice(start, index).join("\n");
+        const props = lines.slice(index, propsEnd).join("\n");
+        // An opaque sheet (its own `backgroundColor`) draws with the theme itself.
+        if (props.includes("backgroundColor=")) return;
+        if (!component.includes("useNemuTheme()")) return;
+        // Tokens read in the component that returns the sheet are outside
+        // the scope the scaffold provides: on iOS 26 glass they would paint
+        // opaque card slabs and unlifted secondary text. Such a component
+        // reads the sheet's theme too (`useMobileNativeSheetTheme`), and its
+        // own `tokens` never colour the sheet's inline content.
+        const bodyEnd = lines.findIndex((next, at) => at > propsEnd && next.includes(`</${tag}>`));
+        const body = lines.slice(propsEnd, bodyEnd).join("\n");
+        if (
+          (!wrapper && !component.includes("useMobileNativeSheetTheme(")) ||
+          /(?<![\w.])tokens\./.test(body)
+        ) {
+          offenders.push(`${file}:${index + 1}`);
+        }
+      });
+    }
+    expect(scaffolds).toBeGreaterThan(20);
+    expect(confirmationsWithChildren).toBeGreaterThan(0);
+    expect(offenders).toEqual([]);
+  });
+
+  test("button depth surfaces drawn outside NemuButton follow the glass sheet too", () => {
+    const srcRoot = path.join(import.meta.dir, "..");
+    const files = readdirSync(srcRoot, { recursive: true, encoding: "utf8" }).filter(
+      (file) =>
+        file.endsWith(".tsx") &&
+        !file.endsWith(".test.tsx") &&
+        // Chips only: their wells are the same on and off glass.
+        !file.endsWith("design-system/components/MobileChip.tsx"),
+    );
+    const offenders: string[] = [];
+    let calls = 0;
+    for (const file of files) {
+      const source = readMobileSource(file);
+      for (const match of source.matchAll(/getNemuButtonDepthVisual\(\{/g)) {
+        calls += 1;
+        const args = source.slice(match.index, source.indexOf("})", match.index));
+        // A secondary / outline / destructive surface that skips the marker
+        // paints the web palette's slab on the glass (the source settings
+        // menu trigger did).
+        if (!args.includes("onGlassSheet")) {
+          offenders.push(`${file}:${source.slice(0, match.index).split("\n").length}`);
+        }
+      }
+    }
+    expect(calls).toBeGreaterThan(3);
+    expect(offenders).toEqual([]);
   });
 });

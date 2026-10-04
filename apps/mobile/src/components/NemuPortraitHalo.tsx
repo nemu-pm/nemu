@@ -19,8 +19,10 @@ import Reanimated, {
   withTiming,
   type SharedValue,
 } from "react-native-reanimated";
+import { LinearGradient } from "expo-linear-gradient";
 import portrait from "../../assets/portrait.png";
 import {
+  getNemuPortraitGlowFade,
   getNemuPortraitGlowRasterLayout,
   getNemuPortraitGlowStageWidth,
   getNemuPortraitHaloRenderMode,
@@ -30,7 +32,7 @@ import {
   shouldAnimateNemuPortraitHalo,
 } from "@/lib/nemuPortraitHalo";
 import { getNemuPortraitGlowAssets } from "@/lib/nemuPortraitGlowAssets";
-import { useNemuTheme } from "@/design-system";
+import { nemuColorWithAlpha, useNemuTheme } from "@/design-system";
 
 const PORTRAIT_MAX_WIDTH = 639;
 const webEaseInOut = Easing.bezier(0.42, 0, 0.58, 1);
@@ -48,16 +50,27 @@ function startPingPong(value: SharedValue<number>, duration: number) {
 
 type NemuPortraitHaloProps = {
   maxWidth?: number;
+  /**
+   * Distance (pt) from the portrait's top edge up to the nearest edge that
+   * clips the glow (the page's top, under an opaque navigation bar). When the
+   * glow would reach past it, the glow — never the art — fades to zero there
+   * instead of ending in a hard line. Omit for an unbounded backdrop.
+   */
+  glowRoomTop?: number | null;
+  /** Colour behind the halo; the fade band is drawn in it. Defaults to the page background. */
+  backdropColor?: string;
   style?: StyleProp<ViewStyle>;
   testID?: string;
 };
 
 export function NemuPortraitHalo({
   maxWidth = PORTRAIT_MAX_WIDTH,
+  glowRoomTop,
+  backdropColor,
   style,
   testID,
 }: NemuPortraitHaloProps) {
-  const { reduceMotion } = useNemuTheme();
+  const { reduceMotion, tokens } = useNemuTheme();
   const { width: windowWidth } = useWindowDimensions();
   const stageWidth = Math.max(
     1,
@@ -82,6 +95,34 @@ export function NemuPortraitHalo({
   const glowDrift = useSharedValue(0);
   const [appActive, setAppActive] = useState(AppState.currentState === "active");
   const haloRenderMode = getNemuPortraitHaloRenderMode(Platform.OS);
+  const glowFade = getNemuPortraitGlowFade({
+    containerStageHeight: stageHeight,
+    containerStageWidth: stageWidth,
+    renderMode: haloRenderMode,
+    roomTop: glowRoomTop,
+    stageWidth: glowStageWidth,
+  });
+  // Bounded glow: the layers live in a clip box whose top is the clipping
+  // edge, and a backdrop-coloured band under that edge (below the art in
+  // z-order) brings them to zero exactly there. Horizontally and downward the
+  // box is the raster itself, so nothing else is cut.
+  const glowClip = glowFade
+    ? {
+        height: glowRasterLayout.top + glowRasterLayout.height - glowFade.clipTop,
+        left: glowRasterLayout.left,
+        top: glowFade.clipTop,
+        width: glowRasterLayout.width,
+      }
+    : null;
+  const glowLayout = glowClip
+    ? {
+        height: glowRasterLayout.height,
+        left: 0,
+        top: glowRasterLayout.top - glowClip.top,
+        width: glowRasterLayout.width,
+      }
+    : glowRasterLayout;
+  const fadeColor = backdropColor ?? tokens.background;
 
   useEffect(() => {
     const appStateSubscription = AppState.addEventListener("change", (state) => {
@@ -179,30 +220,50 @@ export function NemuPortraitHalo({
       style={[styles.root, style, { height: stageHeight, width: stageWidth }]}
       testID={testID}
     >
-      {haloRenderMode === "static-composite-raster" ? (
-        <Image
-          fadeDuration={0}
-          resizeMode="stretch"
-          source={glowAssets.composite}
-          style={[styles.rasterGlow, glowRasterLayout]}
-        />
-      ) : (
-        <Reanimated.Image
-          fadeDuration={0}
-          resizeMode="stretch"
-          source={glowAssets.primary}
-          style={[styles.rasterGlow, glowRasterLayout, glowPulseStyle]}
-        />
-      )}
+      {/* One glow box either way, so bounding the glow never remounts the
+          animated layers: unbounded it is the stage (overflow visible). */}
+      <View pointerEvents="none" style={glowClip ? [styles.glowClip, glowClip] : styles.glowBox}>
+        {haloRenderMode === "static-composite-raster" ? (
+          <Image
+            fadeDuration={0}
+            resizeMode="stretch"
+            source={glowAssets.composite}
+            style={[styles.rasterGlow, glowLayout]}
+          />
+        ) : (
+          <Reanimated.Image
+            fadeDuration={0}
+            resizeMode="stretch"
+            source={glowAssets.primary}
+            style={[styles.rasterGlow, glowLayout, glowPulseStyle]}
+          />
+        )}
 
-      {haloRenderMode === "animated-raster-layers" ? (
-        <Reanimated.Image
-          fadeDuration={0}
-          resizeMode="stretch"
-          source={glowAssets.secondary}
-          style={[styles.rasterGlow, glowRasterLayout, glowDriftStyle]}
-        />
-      ) : null}
+        {haloRenderMode === "animated-raster-layers" ? (
+          <Reanimated.Image
+            fadeDuration={0}
+            resizeMode="stretch"
+            source={glowAssets.secondary}
+            style={[styles.rasterGlow, glowLayout, glowDriftStyle]}
+          />
+        ) : null}
+
+        {glowFade ? (
+          <LinearGradient
+            colors={[
+              fadeColor,
+              nemuColorWithAlpha(fadeColor, 0.82),
+              nemuColorWithAlpha(fadeColor, 0.5),
+              nemuColorWithAlpha(fadeColor, 0.2),
+              nemuColorWithAlpha(fadeColor, 0.05),
+              nemuColorWithAlpha(fadeColor, 0),
+            ]}
+            locations={[0, 0.18, 0.4, 0.64, 0.84, 1]}
+            pointerEvents="none"
+            style={[styles.glowFade, { height: glowFade.fadeHeight }]}
+          />
+        ) : null}
+      </View>
 
       <Reanimated.View style={[styles.motionLayer, portraitMotionStyle]}>
         <View
@@ -241,6 +302,20 @@ const styles = StyleSheet.create({
   },
   rasterGlow: {
     position: "absolute",
+  },
+  glowBox: {
+    ...StyleSheet.absoluteFill,
+    overflow: "visible",
+  },
+  glowClip: {
+    overflow: "hidden",
+    position: "absolute",
+  },
+  glowFade: {
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
   },
   motionLayer: {
     alignItems: "center",

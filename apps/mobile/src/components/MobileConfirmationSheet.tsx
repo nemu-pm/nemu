@@ -5,9 +5,10 @@ import {
   MobileSheetScaffold,
   radius,
   nemuFontWeight,
-  useNemuTheme,
+  useMobileNativeSheetTheme,
   NemuButton,
   NEMU_PROMINENT_CTA_SIZE,
+  nemuSheetMetrics,
 } from "@/design-system";
 import { hapticPress } from "@/lib/haptics";
 
@@ -51,7 +52,7 @@ export function MobileConfirmationSheet({
   onDismiss,
   onConfirm,
 }: MobileConfirmationSheetProps) {
-  const { tokens } = useNemuTheme();
+  const { tokens } = useMobileNativeSheetTheme();
 
   const handleRequestClose = () => {
     // Non-abortable mutations keep every cancellation route disabled until
@@ -82,18 +83,30 @@ export function MobileConfirmationSheet({
       */}
       <View style={styles.header}>
         <View style={styles.titleRow}>
-          <Ionicons name={iconName} size={20} color={tokens.mutedForeground} />
+          <Ionicons
+            name={iconName}
+            size={nemuSheetMetrics.rowIconSize}
+            color={tokens.mutedForeground}
+          />
           <Text
             accessibilityRole="header"
             numberOfLines={2}
-            style={[styles.title, { color: tokens.foreground }]}
+            style={[
+              styles.title,
+              nemuSheetMetrics.bodyTitle,
+              { color: tokens.foreground },
+            ]}
           >
             {title}
           </Text>
         </View>
         <Text
           numberOfLines={3}
-          style={[styles.description, { color: tokens.mutedForeground }]}
+          style={[
+            styles.description,
+            nemuSheetMetrics.description,
+            { color: tokens.mutedForeground },
+          ]}
         >
           {description}
         </Text>

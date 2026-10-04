@@ -38,10 +38,13 @@ import {
   resolveNemuPressableAccessibility,
   resolveNemuPressableAnimationEnabled,
   resolveNemuPressablePressedScale,
+  resolveNemuRowHighlightRadii,
   shouldResetNemuPressableInteraction,
   type NemuPressableHapticFeedback,
   type NemuPressableProfile,
 } from "@/lib/nemuPressable";
+
+import { useNemuRowHighlight } from "./useNemuRowHighlight";
 
 const useNativeAnimationDriver = Platform.OS !== "web";
 
@@ -57,6 +60,12 @@ type NemuPressableProps = Omit<PressableProps, "style"> & {
   hapticFeedback?: NemuPressableHapticFeedback;
   /** Enforces the native 44pt/48dp accessible target around compact visuals. */
   minimumTouchTarget?: boolean;
+  /**
+   * Native row selection instead of a press scale: a fill in the row's own
+   * shape on touch-down that fades out on release (`useNemuRowHighlight`).
+   * The press scale defaults to none; an explicit `pressedScale` still wins.
+   */
+  pressHighlight?: boolean;
 };
 
 export function NemuPressable({
@@ -78,9 +87,11 @@ export function NemuPressable({
   accessibilityState,
   hapticFeedback = "press",
   minimumTouchTarget = false,
+  pressHighlight = false,
   ...props
 }: NemuPressableProps) {
-  const { reduceMotion, scheme, tokens } = useNemuTheme();
+  const { reduceMotion, scheme, sheetGlass, tokens } = useNemuTheme();
+  const rowHighlight = useNemuRowHighlight();
   const [scale] = useState(() => new Animated.Value(1));
   // Only depth surfaces drive the press-progress node. A plain pressable —
   // most of the app — used to allocate it (plus three interpolations) on
@@ -107,6 +118,7 @@ export function NemuPressable({
         state: "rest",
         scheme,
         tokens,
+        onGlassSheet: sheetGlass !== undefined,
       })
     : null;
   const depthPressedVisual = buttonDepth
@@ -115,12 +127,13 @@ export function NemuPressable({
         state: "pressed",
         scheme,
         tokens,
+        onGlassSheet: sheetGlass !== undefined,
       })
     : null;
   // Flattening and splitting the caller style only feeds the depth shadow
   // plates; without a depth variant it was pure per-render churn.
   const depthSurfaceSplit = depthRestVisual
-    ? splitNemuButtonStyle(StyleSheet.flatten(style))
+    ? splitNemuButtonStyle(StyleSheet.flatten(style) ?? undefined)
     : null;
   const surfaceShapeStyle = depthSurfaceSplit?.surfaceShapeStyle;
   const callerOverridesShadow = depthSurfaceSplit
@@ -136,8 +149,14 @@ export function NemuPressable({
     ? getNemuButtonMinimumTargetSize(Platform.OS)
     : null;
   const resolvedPressedScale =
-    resolveNemuPressablePressedScale({ pressProfile, pressedScale }) ??
+    resolveNemuPressablePressedScale({
+      pressProfile,
+      pressedScale: pressedScale ?? (pressHighlight ? 1 : undefined),
+    }) ??
     (depthMotion ? depthMotion.scale : 0.96);
+  const highlightRadii = pressHighlight
+    ? resolveNemuRowHighlightRadii(StyleSheet.flatten(style) ?? undefined)
+    : undefined;
   const resolvedPressAnimationDuration =
     pressAnimationDuration ?? depthMotion?.duration;
   const resolvedPressAnimationEnabled =
@@ -297,15 +316,18 @@ export function NemuPressable({
       onPressIn={(event: GestureResponderEvent) => {
         if (resolvedDisabled) return;
         animateTo(resolvedPressedScale, true);
+        if (pressHighlight) rowHighlight.onPressIn();
         onPressIn?.(event);
       }}
       onPressOut={(event: GestureResponderEvent) => {
         animateTo(1, false);
+        if (pressHighlight) rowHighlight.onPressOut();
         if (resolvedDisabled) return;
         onPressOut?.(event);
       }}
       onPress={(event: GestureResponderEvent) => {
         if (resolvedDisabled) return;
+        if (pressHighlight) rowHighlight.onPress();
         onPress?.(event);
         runHapticFeedback();
       }}
@@ -333,6 +355,7 @@ export function NemuPressable({
           { transform: [{ scale }] },
         ]}
       >
+        {pressHighlight ? rowHighlight.overlay(highlightRadii) : null}
         {depthRestVisual && depthPressedVisual && !callerOverridesShadow ? (
           <>
             <Animated.View

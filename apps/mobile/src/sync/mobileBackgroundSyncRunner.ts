@@ -36,7 +36,15 @@ import {
   mergeMobileInstalledSources,
   mergeLibrarySnapshot,
 } from "./mobileSyncSnapshots";
-import { hydrateMobileSyncedSourcePackages } from "./mobileSyncedSourcePackages";
+import {
+  createMobileSourceCatalogResolver,
+  hydrateMobileSyncedSourcePackages,
+} from "./mobileSyncedSourcePackages";
+import {
+  AIDOKU_REGISTRIES,
+  fetchAllAidokuRegistrySources,
+} from "@/sources/aidokuRegistry";
+import { loadCachedRegistryIndex } from "@/sources/mobileRegistryIndexCache";
 import {
   reconcilePendingCollectionDeletions,
   reconcilePendingSourceLinkDeletions,
@@ -497,6 +505,13 @@ async function pullAndMergeSettings(
   const hydrateSourcePackages =
     deps.hydrateSourcePackages ?? hydrateMobileSyncedSourcePackages;
   const hydratedSources = await hydrateSourcePackages(mergedSources, {
+    resolveCatalogEntry: createMobileSourceCatalogResolver({
+      loadCached: loadCachedRegistryIndex,
+      fetchCatalog: () =>
+        fetchAllAidokuRegistrySources(AIDOKU_REGISTRIES, {
+          signal: deps.signal,
+        }),
+    }),
     onHydrationError(source, error) {
       console.warn(
         `[MobileBackgroundSync] Failed to cache synced source package for ${source.id}:`,

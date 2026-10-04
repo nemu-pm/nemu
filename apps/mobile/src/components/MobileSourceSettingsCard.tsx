@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   ActivityIndicator,
   Platform,
@@ -121,6 +129,11 @@ type MobileSourceSettingsCardProps = {
   onLogout?: (setting: SourcePackageSetting) => void;
   onRetry?: () => void;
   onReset?: () => void;
+  /** Extra content rendered directly under one setting's row (e.g. a status line). */
+  renderSettingAccessory?: (
+    setting: SourcePackageSetting,
+    values: Record<string, unknown>,
+  ) => ReactNode;
   retryDisabled?: boolean;
   retrying?: boolean;
   onEmbeddedBackHandlerChange?: (handler: (() => void) | null) => void;
@@ -328,7 +341,7 @@ function SourceSettingSelectMenu({
   disabled: boolean;
   onSelect: (value: string) => void;
 }) {
-  const { scheme, tokens } = useNemuTheme();
+  const { scheme, sheetGlass, tokens } = useNemuTheme();
   const selectedOption = options.find((option) => option.value === value);
   const selectedValue =
     selectedOption?.value ?? String(value ?? options[0]?.value ?? "");
@@ -343,6 +356,7 @@ function SourceSettingSelectMenu({
       state: "rest",
       scheme,
       tokens,
+      onGlassSheet: sheetGlass !== undefined,
     }),
   );
 
@@ -1075,7 +1089,7 @@ function SourceSettingRow({
         setting={setting}
         values={values}
         strings={strings}
-        disabled={disabled}
+        disabled={disabled || setting.disabled === true}
         onChange={onChange}
       />
     </View>
@@ -1429,6 +1443,7 @@ function SourceSettingsList({
   loginCapabilities,
   onRequestMultiSelectSheet,
   onRequestStringListSheet,
+  renderSettingAccessory,
 }: {
   settings: SourcePackageSetting[];
   values: Record<string, unknown>;
@@ -1452,6 +1467,7 @@ function SourceSettingsList({
   loginCapabilities: MobileSourceLoginCapabilities | null;
   onRequestMultiSelectSheet?: (setting: SourcePackageSetting) => void;
   onRequestStringListSheet?: (setting: SourcePackageSetting) => void;
+  renderSettingAccessory?: MobileSourceSettingsCardProps["renderSettingAccessory"];
 }) {
   const { tokens } = useNemuTheme();
 
@@ -1499,6 +1515,7 @@ function SourceSettingsList({
                   loginCapabilities={loginCapabilities}
                   onRequestMultiSelectSheet={onRequestMultiSelectSheet}
                   onRequestStringListSheet={onRequestStringListSheet}
+                  renderSettingAccessory={renderSettingAccessory}
                 />
               </View>
               {setting.footer ? (
@@ -1607,7 +1624,8 @@ function SourceSettingsList({
           );
         }
 
-        return (
+        const accessory = renderSettingAccessory?.(setting, values);
+        const row = (
           <SourceSettingRow
             key={key}
             setting={setting}
@@ -1616,6 +1634,14 @@ function SourceSettingsList({
             disabled={disabled}
             onChange={onChange}
           />
+        );
+        return accessory ? (
+          <Fragment key={key}>
+            {row}
+            {accessory}
+          </Fragment>
+        ) : (
+          row
         );
       })}
     </>
@@ -1656,6 +1682,7 @@ function MobileSourceSettingsCardContent({
   onRequestLoginSheet,
   onRequestMultiSelectSheet,
   onRequestStringListSheet,
+  renderSettingAccessory,
 }: MobileSourceSettingsCardProps) {
   const { tokens } = useNemuTheme();
   const { appLanguage } = useMobileLanguageSettings();
@@ -1873,6 +1900,7 @@ function MobileSourceSettingsCardContent({
                 loginCapabilities={loginCapabilities}
                 onRequestMultiSelectSheet={onRequestMultiSelectSheet}
                 onRequestStringListSheet={onRequestStringListSheet}
+                renderSettingAccessory={renderSettingAccessory}
               />
             </View>
           ) : (
@@ -1997,6 +2025,10 @@ const styles = StyleSheet.create({
   },
   settingTextFull: {
     width: "100%",
+    // In the stacked (column) slider row the base `flex: 1` (basis 0) sizes
+    // the title block to zero height: the title and subtitle vanished above
+    // the track. Sized by its content instead.
+    flex: 0,
   },
   settingTitleLine: {
     flexDirection: "row",

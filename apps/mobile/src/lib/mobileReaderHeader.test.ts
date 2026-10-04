@@ -11,6 +11,8 @@ import {
   READER_CHROME_POPOVER_GAP,
   getMobileReaderTitle,
   isReaderChromeLoading,
+  readerCapsuleTitleLabels,
+  readerChromeIndicatorPageIndex,
   readerChromePageCountLabel,
   readerChromeSettingsPopoverBottomOffset,
 } from "./mobileReaderHeader";
@@ -43,37 +45,69 @@ describe("mobile reader header", () => {
     );
   });
 
-  test("falls back to the route manga id when title is missing", () => {
-    expect(getMobileReaderTitle(entry("   "), "fallback-id")).toBe(
-      "fallback-id",
-    );
-    expect(getMobileReaderTitle(null, "fallback-id")).toBe("fallback-id");
+  test("is unknown (null) instead of exposing the route manga id", () => {
+    expect(getMobileReaderTitle(entry("   "), "fallback-id")).toBeNull();
+    expect(getMobileReaderTitle(null, "fallback-id")).toBeNull();
+    expect(
+      getMobileReaderTitle(entry("opaque-id"), "opaque-id", "opaque-id", "opaque-id"),
+    ).toBeNull();
   });
 
-  test("uses source metadata title before the route manga id", () => {
+  test("uses source metadata title before the route title", () => {
     expect(
-      getMobileReaderTitle(null, "/manga/example", "Saibai Cheat"),
+      getMobileReaderTitle(null, "/manga/example", "Saibai Cheat", "Route"),
     ).toBe("Saibai Cheat");
     expect(getMobileReaderTitle(entry("Library"), "/manga/example", "Source")).toBe(
       "Library",
     );
   });
 
-  test("uses a friendly fallback before exposing the route manga id", () => {
+  test("falls back to the route title when the source title is unknown", () => {
     expect(
-      getMobileReaderTitle(null, "opaque-manga-id", null, " Manga "),
-    ).toBe("Manga");
+      getMobileReaderTitle(null, "hanako-57356", null, " 地縛少年 花子くん "),
+    ).toBe("地縛少年 花子くん");
+    expect(getMobileReaderTitle(null, "hanako-57356", "  ", "Route")).toBe(
+      "Route",
+    );
   });
 
-  test("ignores cached and source titles that only repeat the opaque id", () => {
+  test("skips URL/path-like source titles", () => {
     expect(
-      getMobileReaderTitle(
-        entry("opaque-manga-id"),
-        "opaque-manga-id",
-        "opaque-manga-id",
-        "Manga",
-      ),
-    ).toBe("Manga");
+      getMobileReaderTitle(null, "id", "https://example.com/manga/1", "Route"),
+    ).toBe("Route");
+  });
+});
+
+describe("reader capsule labels", () => {
+  const base = {
+    chapterTitle: "Chapter 1",
+    pageCountLabel: "8 / 42",
+    pagesPending: false,
+    fetchingPagesLabel: "Fetching pages",
+  };
+
+  test("title over chapter · position when the manga title is known", () => {
+    expect(readerCapsuleTitleLabels({ ...base, mangaTitle: "花子くん" })).toEqual({
+      title: "花子くん",
+      subtitle: "Chapter 1 · 8 / 42",
+    });
+    expect(
+      readerCapsuleTitleLabels({ ...base, mangaTitle: "花子くん", pagesPending: true }),
+    ).toEqual({ title: "花子くん", subtitle: "Chapter 1 · Fetching pages" });
+  });
+
+  test("leads with the chapter line while the title is unknown", () => {
+    expect(readerCapsuleTitleLabels({ ...base, mangaTitle: null })).toEqual({
+      title: "Chapter 1",
+      subtitle: "8 / 42",
+    });
+    expect(
+      readerCapsuleTitleLabels({
+        ...base,
+        mangaTitle: null,
+        pageCountLabel: null,
+      }),
+    ).toEqual({ title: "Chapter 1", subtitle: "" });
   });
 });
 
@@ -158,5 +192,48 @@ describe("reader chrome loading state", () => {
         pageCount: 21,
       }),
     ).toBe("8 / 21");
+  });
+});
+
+describe("reader chrome page indicator during a scrub", () => {
+  test("paged: stays on the displayed page while the bubble previews the target", () => {
+    expect(
+      readerChromeIndicatorPageIndex({
+        currentPageIndex: 0,
+        scrubPreviewPageIndex: 11,
+        pagedMode: true,
+        pageCount: 21,
+      }),
+    ).toBe(0);
+  });
+
+  test("paged: follows the committed page once the scrub ends", () => {
+    expect(
+      readerChromeIndicatorPageIndex({
+        currentPageIndex: 11,
+        scrubPreviewPageIndex: null,
+        pagedMode: true,
+        pageCount: 21,
+      }),
+    ).toBe(11);
+  });
+
+  test("scroll mode keeps following the scrub live, clamped", () => {
+    expect(
+      readerChromeIndicatorPageIndex({
+        currentPageIndex: 2,
+        scrubPreviewPageIndex: 9,
+        pagedMode: false,
+        pageCount: 21,
+      }),
+    ).toBe(9);
+    expect(
+      readerChromeIndicatorPageIndex({
+        currentPageIndex: 2,
+        scrubPreviewPageIndex: 40,
+        pagedMode: false,
+        pageCount: 21,
+      }),
+    ).toBe(20);
   });
 });

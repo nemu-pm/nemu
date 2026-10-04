@@ -72,3 +72,58 @@ export function formatChapterShort(
   }
   return parts.join(" ");
 }
+
+function hasChapterLabel(chapter: ChapterSummary): boolean {
+  return (
+    chapter.volumeNumber != null ||
+    chapter.chapterNumber != null ||
+    Boolean(chapter.title?.trim())
+  );
+}
+
+/**
+ * {@link formatChapterTitle}, or null when the chapter carries neither a
+ * number nor a title (a progress record, or a route opened before the
+ * chapter list loaded). Callers drop the chapter part — "Continue", the
+ * bare page count — rather than print "Untitled" for a chapter that has one.
+ */
+export function formatChapterLabel(
+  chapter: ChapterSummary,
+  strings: MobileStrings,
+): string | null {
+  return hasChapterLabel(chapter) ? formatChapterTitle(chapter, strings) : null;
+}
+
+/** {@link formatChapterShort}, or null when there is nothing to show. */
+export function formatChapterShortLabel(
+  chapter: ChapterSummary,
+  strings: MobileStrings,
+): string | null {
+  return hasChapterLabel(chapter) ? formatChapterShort(chapter, strings) : null;
+}
+
+/**
+ * The primary reading action: "Continue Ch.12", plain "Continue" when the
+ * chapter being resumed has no label yet, or "Start reading".
+ */
+export function formatContinueActionLabel({
+  chapter,
+  isContinuation,
+  strings,
+  labels,
+}: {
+  chapter: ChapterSummary;
+  isContinuation: boolean;
+  strings: MobileStrings;
+  labels: {
+    continueChapter: string;
+    continueReading: string;
+    startReading: string;
+  };
+}): string {
+  if (!isContinuation) return labels.startReading;
+  const label = formatChapterLabel(chapter, strings);
+  return label
+    ? formatMobileString(labels.continueChapter, { chapter: label })
+    : labels.continueReading;
+}

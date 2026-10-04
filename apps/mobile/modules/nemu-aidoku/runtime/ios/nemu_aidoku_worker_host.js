@@ -130,6 +130,7 @@ const __nemuAllowedMethods = new Set([
   "beginOperation",
   "executeOperation",
   "appendReplayResponse",
+  "appendJsEvalResult",
   "updateSessionSettings",
   "applyPersistedSettings",
   "finishOperation",

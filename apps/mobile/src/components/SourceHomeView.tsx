@@ -1,10 +1,15 @@
+import type { ScrollViewInstance, ViewInstance } from "react-native";
 import {
+  Children,
   createContext,
+  isValidElement,
   memo,
   useCallback,
   useContext,
+  useMemo,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 import {
   FlatList,
@@ -64,6 +69,16 @@ import {
 import { useMobileSourceImageRequest } from "@/lib/useMobileSourceImageRequest";
 import { getMobileSourceHomeImageScrollerCardSize } from "@/lib/mobileSourceHomeImageScroller";
 import {
+  chunkMobileGridRows,
+  mobileFoldAwareGridCellStyle,
+  mobileFoldPagerLayout,
+  type MobileFoldAwareGridLayout,
+} from "@/lib/mobileFoldAwareGrid";
+import { useMobileFoldAwareGrid } from "@/lib/useMobileFoldAwareGrid";
+import { MobilePoseLayoutView } from "@/components/MobilePoseLayoutView";
+import { useMobilePoseResnapFade } from "@/lib/useMobilePoseResnapFade";
+import { useMobileContainerFold } from "@/lib/useMobileContainerFold";
+import {
   canSelectMobileSourceHomeFeaturedDot,
   getMobileSourceHomeFeaturedCarouselIndex,
   getMobileSourceHomeFeaturedEntries,
@@ -113,8 +128,6 @@ const SourceHomeInstalledSourceContext = createContext<InstalledSource | null>(
 const HOME_SKELETON_SCROLLER_ITEMS = [0, 1, 2, 3, 4, 5] as const;
 const HOME_SKELETON_LIST_ITEMS = [0, 1, 2, 3, 4] as const;
 const HOME_SKELETON_BANNER_ITEMS = [0, 1, 2, 3] as const;
-const FEATURED_CARD_MAX_WIDTH = 520;
-const FEATURED_CARD_MIN_WIDTH = 278;
 /** Breathing room inside the page content width (portrait: 402 − 32 − 4). */
 const FEATURED_CARD_HORIZONTAL_MARGIN = 4;
 /**
@@ -129,15 +142,46 @@ const WEB_BANNER_VIGNETTE_COLORS = [
 ] as const;
 const WEB_BANNER_VIGNETTE_LOCATIONS = [0, 0.5, 1] as const;
 
-/** `contentWidth` is the window width minus the page gutters. */
-function getMobileFeaturedCardWidth(contentWidth: number): number {
-  return Math.min(
-    FEATURED_CARD_MAX_WIDTH,
-    Math.max(
-      FEATURED_CARD_MIN_WIDTH,
-      contentWidth - FEATURED_CARD_HORIZONTAL_MARGIN,
-    ),
+/**
+ * Measure the available width: Duo's trailing system bars can make it
+ * narrower than the window. Flat: one full-width card per page (web
+ * `MangaCardFeatured` parity; no 520pt cap). Book posture: one card per
+ * pane, snapping by pane, so a card never rests on the active fold.
+ */
+function useFeaturedCarouselLayout() {
+  const { width: windowWidth } = useWindowDimensions();
+  const pageGutters = useMobilePageGutters();
+  const container = useMobileContainerFold<ViewInstance>();
+  // Fully opening the screen restores full-width pages.
+  const split = container.split;
+  const foldStart = split?.axis === "horizontal" ? split.gutter.start : null;
+  const foldEnd = split?.axis === "horizontal" ? split.gutter.end : null;
+  const containerWidth = container.width ?? windowWidth - pageGutters.horizontal;
+  const pager = useMemo(
+    () =>
+      mobileFoldPagerLayout({
+        containerWidth,
+        margin: FEATURED_CARD_HORIZONTAL_MARGIN,
+        fold: foldStart !== null && foldEnd !== null ? { start: foldStart, end: foldEnd } : null,
+      }),
+    [containerWidth, foldEnd, foldStart],
   );
+  return { ...pager, onLayout: container.onLayout, ref: container.ref };
+}
+
+/** Rows of a vertical home list: one column on phones, pane-aligned columns on wide windows. */
+const HOME_LIST_MIN_COLUMN_WIDTH = 320;
+const HOME_LIST_COLUMN_GAP = 16;
+
+function useHomeListGrid() {
+  return useMobileFoldAwareGrid({
+    minItemWidth: HOME_LIST_MIN_COLUMN_WIDTH,
+    gap: HOME_LIST_COLUMN_GAP,
+    minColumns: 1,
+    maxColumns: 4,
+    // The list stack is already inside the page content box.
+    insets: { left: 0, right: 0 },
+  });
 }
 
 function mangaCoverGlassStyle(tokens: NemuTokens) {
@@ -658,7 +702,7 @@ const HorizontalLinkSection = memo(function HorizontalLinkSection({
         horizontal
         data={showScrollerSkeleton ? [] : links}
         keyExtractor={(link, index) => `${link.title}:${index}`}
-        ListEmptyComponent={showScrollerSkeleton ? HomeScrollerSkeletonItems : null}
+        ListEmptyComponent={showScrollerSkeleton ? HomeScrollerSkeletonItems : undefined}
         initialNumToRender={4}
         maxToRenderPerBatch={4}
         // iOS detaches cells it should not on horizontal lists (rows blank out
@@ -694,16 +738,16 @@ const HorizontalLinkSection = memo(function HorizontalLinkSection({
 
 function FeaturedSectionSkeleton() {
   const { tokens } = useNemuTheme();
-  const { width: windowWidth } = useWindowDimensions();
-  const pageGutters = useMobilePageGutters();
+  const { cardWidth, foldAligned, onLayout, ref } = useFeaturedCarouselLayout();
   const skeletonColor = tokens.muted;
   const subtleSkeletonColor = tokens.sourceIconGlass;
-  const cardWidth = getMobileFeaturedCardWidth(
-    windowWidth - pageGutters.horizontal,
-  );
 
   return (
-    <View style={styles.featuredCarousel}>
+    <View
+      ref={ref}
+      onLayout={onLayout}
+      style={[styles.featuredCarousel, foldAligned ? styles.featuredCarouselFolded : null]}
+    >
       <View style={[styles.featuredCard, { width: cardWidth }]}>
         <View
           style={[
@@ -799,9 +843,12 @@ function FeaturedSection({
   ) => void;
 }) {
   const { tokens } = useNemuTheme();
-  const { width: windowWidth } = useWindowDimensions();
-  const pageGutters = useMobilePageGutters();
-  const pagerRef = useRef<ScrollView | null>(null);
+  const { cardWidth, stride, viewportWidth, foldAligned, onLayout, ref } =
+    useFeaturedCarouselLayout();
+  // Folding changes the page stride and the pager re-snaps in one step
+  // (see onContentSizeChange); a soft dip-and-fade makes it read as a settle.
+  const resnapStyle = useMobilePoseResnapFade(`${Math.round(stride)}:${foldAligned ? "fold" : "flat"}`);
+  const pagerRef = useRef<ScrollViewInstance | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const featuredEntries = getMobileSourceHomeFeaturedEntries(entries);
   const placeholder = resolveMobileSourceHomeSectionPlaceholder({
@@ -829,15 +876,12 @@ function FeaturedSection({
     featuredEntries,
     currentIndex,
   );
-  const cardWidth = getMobileFeaturedCardWidth(
-    windowWidth - pageGutters.horizontal,
-  );
   const handleMomentumEnd = (
     event: NativeSyntheticEvent<NativeScrollEvent>,
   ) => {
     const nextIndex = getMobileSourceHomeFeaturedCarouselIndex(
       featuredEntries,
-      Math.round(event.nativeEvent.contentOffset.x / cardWidth),
+      Math.round(event.nativeEvent.contentOffset.x / stride),
     );
     setCurrentIndex(nextIndex);
   };
@@ -850,118 +894,140 @@ function FeaturedSection({
         strings={strings}
         onListingPress={() => {}}
       />
-      <View style={styles.featuredCarousel}>
-        <ScrollView
-          ref={pagerRef}
-          horizontal
-          pagingEnabled
-          decelerationRate="fast"
-          disableIntervalMomentum
-          onMomentumScrollEnd={handleMomentumEnd}
-          showsHorizontalScrollIndicator={false}
-          style={[styles.featuredPager, { width: cardWidth }]}
-        >
-          {featuredEntries.map((item, index) => {
-            const resultKey = sourceMangaKey(source, item);
-            const disabled = importingKey === resultKey;
-            return (
-              <View
-                key={`${item.id}:${index}`}
-                style={[styles.featuredPage, { width: cardWidth }]}
-              >
-                <NemuPressable
-                  accessibilityRole="button"
-                  accessibilityLabel={openMangaAccessibilityLabel(
-                    item.title,
-                    strings,
-                  )}
-                  accessibilityState={{ disabled }}
-                  disabled={disabled}
-                  onPress={() => onPressManga(source, item)}
-                  pressedScale={0.985}
-                  style={[styles.featuredCard, { width: cardWidth }]}
+      <View ref={ref} onLayout={onLayout} style={styles.featuredCarousel}>
+        {/* The re-snap fade wrapper must not unbound the pager: a horizontal
+            ScrollView defaults to flexGrow 1, and inside an unsized wrapper it
+            grew to its content's stacked height (~11k pt), pushing every
+            section below the carousel off screen. */}
+        <Animated.View style={[{ width: viewportWidth }, resnapStyle]}>
+          <ScrollView
+            ref={pagerRef}
+            horizontal
+            // Flat: page by card. Book: the viewport spans both panes and snaps
+            // by one pane, so card k rests left of the fold and k + 1 right of it.
+            pagingEnabled={!foldAligned}
+            snapToInterval={foldAligned ? stride : undefined}
+            snapToAlignment={foldAligned ? "start" : undefined}
+            decelerationRate="fast"
+            disableIntervalMomentum
+            onMomentumScrollEnd={handleMomentumEnd}
+            // Resizing changes each page's offset. Keep the same manga selected
+            // after rotation/folding, once the new content dimensions are ready.
+            onContentSizeChange={() => {
+              pagerRef.current?.scrollTo({
+                x: selectedIndex * stride,
+                animated: false,
+              });
+            }}
+            showsHorizontalScrollIndicator={false}
+            style={[styles.featuredPager, { width: viewportWidth }]}
+          >
+            {featuredEntries.map((item, index) => {
+              const resultKey = sourceMangaKey(source, item);
+              const disabled = importingKey === resultKey;
+              return (
+                <View
+                  key={`${item.id}:${index}`}
+                  style={[
+                    styles.featuredPage,
+                    foldAligned ? styles.featuredPageFolded : null,
+                    { width: stride },
+                  ]}
                 >
-                  <View
-                    style={[
-                      styles.featuredCover,
-                      {
-                        backgroundColor: tokens.muted,
-                        ...mangaCoverGlassStyle(tokens),
-                      },
-                    ]}
-                  >
-                    {item.cover ? (
-                      <SourceHomeCoverImage
-                        uri={item.cover}
-                        headers={item.coverHeaders}
-                        style={styles.coverImage}
-                      />
-                    ) : (
-                      <View
-                        style={[
-                          styles.coverPlaceholder,
-                          { backgroundColor: tokens.muted },
-                        ]}
-                      >
-                        <Ionicons
-                          name="book-outline"
-                          size={22}
-                          color={tokens.mutedForeground}
-                        />
-                      </View>
+                  <NemuPressable
+                    accessibilityRole="button"
+                    accessibilityLabel={openMangaAccessibilityLabel(
+                      item.title,
+                      strings,
                     )}
-                  </View>
-                  <View style={styles.featuredText}>
-                    <Text
-                      numberOfLines={2}
+                    accessibilityState={{ disabled }}
+                    disabled={disabled}
+                    onPress={() => onPressManga(source, item)}
+                    pressedScale={0.985}
+                    style={[styles.featuredCard, { width: cardWidth }]}
+                  >
+                    <View
                       style={[
-                        styles.featuredTitle,
-                        { color: tokens.foreground },
+                        styles.featuredCover,
+                        {
+                          backgroundColor: tokens.muted,
+                          ...mangaCoverGlassStyle(tokens),
+                        },
                       ]}
                     >
-                      {item.title}
-                    </Text>
-                    {item.authors?.length ? (
-                      <Text
-                        numberOfLines={1}
-                        style={[
-                          styles.featuredSubtitle,
-                          { color: tokens.mutedForeground },
-                        ]}
-                      >
-                        {item.authors.join(", ")}
-                      </Text>
-                    ) : null}
-                    {item.description ? (
-                      <Text
-                        numberOfLines={3}
-                        style={[
-                          styles.featuredDescription,
-                          { color: tokens.mutedForeground },
-                        ]}
-                      >
-                        {item.description}
-                      </Text>
-                    ) : null}
-                    {item.tags?.length ? (
-                      <View style={styles.tagRow}>
-                        {item.tags.slice(0, 3).map((tag) => (
-                          <MobileChip
-                            key={tag}
-                            accessibilityLabel={tag}
-                            label={tag}
-                            size="sm"
-                            variant="static"
+                      {item.cover ? (
+                        <SourceHomeCoverImage
+                          uri={item.cover}
+                          headers={item.coverHeaders}
+                          style={styles.coverImage}
+                        />
+                      ) : (
+                        <View
+                          style={[
+                            styles.coverPlaceholder,
+                            { backgroundColor: tokens.muted },
+                          ]}
+                        >
+                          <Ionicons
+                            name="book-outline"
+                            size={22}
+                            color={tokens.mutedForeground}
                           />
-                        ))}
-                      </View>
-                    ) : null}
-                  </View>
-                </NemuPressable>
-              </View>
-            );
-          })}
-        </ScrollView>
+                        </View>
+                      )}
+                    </View>
+                    <View style={styles.featuredText}>
+                      <Text
+                        numberOfLines={2}
+                        style={[
+                          styles.featuredTitle,
+                          { color: tokens.foreground },
+                        ]}
+                      >
+                        {item.title}
+                      </Text>
+                      {item.authors?.length ? (
+                        <Text
+                          numberOfLines={1}
+                          style={[
+                            styles.featuredSubtitle,
+                            { color: tokens.mutedForeground },
+                          ]}
+                        >
+                          {item.authors.join(", ")}
+                        </Text>
+                      ) : null}
+                      {item.description ? (
+                        <Text
+                          numberOfLines={3}
+                          style={[
+                            styles.featuredDescription,
+                            { color: tokens.mutedForeground },
+                          ]}
+                        >
+                          {item.description}
+                        </Text>
+                      ) : null}
+                      {item.tags?.length ? (
+                        <View style={styles.tagRow}>
+                          {item.tags.slice(0, 3).map((tag) => (
+                            <MobileChip
+                              key={tag}
+                              accessibilityLabel={tag}
+                              label={tag}
+                              size="sm"
+                              variant="static"
+                            />
+                          ))}
+                        </View>
+                      ) : null}
+                    </View>
+                  </NemuPressable>
+                </View>
+              );
+            })}
+          </ScrollView>
+        </Animated.View>
         {featuredEntries.length > 1 ? (
           <View style={styles.featuredDots}>
             {featuredEntries.map((entry, index) => {
@@ -983,7 +1049,7 @@ function FeaturedSection({
                     if (canSelect) {
                       setCurrentIndex(index);
                       pagerRef.current?.scrollTo({
-                        x: cardWidth * index,
+                        x: stride * index,
                         animated: true,
                       });
                     }
@@ -1013,10 +1079,13 @@ function FeaturedSection({
 
 function HomeListSkeletonRows({
   count,
+  grid,
   ranking,
   showInlinePills,
 }: {
   count: number;
+  /** The section's list grid, so placeholder rows take the loaded columns. */
+  grid: Pick<MobileFoldAwareGridLayout, "columns" | "itemWidth" | "columnMargins">;
   ranking?: boolean;
   showInlinePills?: boolean;
 }) {
@@ -1025,7 +1094,7 @@ function HomeListSkeletonRows({
   const subtleSkeletonColor = tokens.sourceIconGlass;
 
   return (
-    <>
+    <HomeListColumns grid={grid}>
       {Array.from({ length: count }).map((_, item) => (
         <View
           key={item}
@@ -1080,6 +1149,38 @@ function HomeListSkeletonRows({
           </View>
         </View>
       ))}
+    </HomeListColumns>
+  );
+}
+
+/**
+ * Lays home list rows out in columns on wide windows (one column on phones,
+ * unchanged). Row-major order; in book posture the column gap is the fold.
+ */
+function HomeListColumns({
+  grid,
+  children,
+}: {
+  grid: Pick<MobileFoldAwareGridLayout, "columns" | "itemWidth" | "columnMargins">;
+  children: ReactNode;
+}) {
+  const items = Children.toArray(children);
+  if (grid.columns <= 1) return <>{items}</>;
+  return (
+    <>
+      {chunkMobileGridRows(items, grid.columns).map((row, rowIndex) => (
+        // Folding glides rows and cells to their panes (pose settle spring).
+        <MobilePoseLayoutView key={rowIndex} style={styles.listGridRow}>
+          {row.map((child, column) => (
+            <MobilePoseLayoutView
+              key={isValidElement(child) && child.key !== null ? child.key : column}
+              style={mobileFoldAwareGridCellStyle(grid, column)}
+            >
+              {child}
+            </MobilePoseLayoutView>
+          ))}
+        </MobilePoseLayoutView>
+      ))}
     </>
   );
 }
@@ -1113,6 +1214,7 @@ const MangaListSection = memo(function MangaListSection({
   onOpenLink: OpenLinkHandler;
 }) {
   const { tokens } = useNemuTheme();
+  const { ref: listGridRef, onLayout: onListGridLayout, ...listGrid } = useHomeListGrid();
   const displayed = pageSize ? links.slice(0, pageSize) : links;
   const placeholder = resolveMobileSourceHomeSectionPlaceholder({
     status,
@@ -1131,17 +1233,19 @@ const MangaListSection = memo(function MangaListSection({
         strings={strings}
         onListingPress={onListingPress}
       />
-      <View style={styles.listStack}>
+      <View ref={listGridRef} onLayout={onListGridLayout} style={styles.listStack}>
         {placeholder === "empty" ? (
           <HomeSectionEmpty strings={strings} />
         ) : placeholder === "skeleton" ? (
           <HomeListSkeletonRows
             count={skeletonCount}
+            grid={listGrid}
             ranking={ranking}
             showInlinePills
           />
         ) : (
-          displayed.map((link, index) => {
+          <HomeListColumns grid={listGrid}>
+          {displayed.map((link, index) => {
             const manga = linkToManga(link);
             if (!manga) {
               return (
@@ -1242,7 +1346,8 @@ const MangaListSection = memo(function MangaListSection({
                 </View>
               </NemuPressable>
             );
-          })
+          })}
+          </HomeListColumns>
         )}
       </View>
     </View>
@@ -1356,6 +1461,7 @@ const ChapterListSection = memo(function ChapterListSection({
   onListingPress: (listing: Listing) => void;
 }) {
   const { tokens } = useNemuTheme();
+  const { ref: listGridRef, onLayout: onListGridLayout, ...listGrid } = useHomeListGrid();
   const displayed = pageSize ? entries.slice(0, pageSize) : entries;
   const placeholder = resolveMobileSourceHomeSectionPlaceholder({
     status,
@@ -1374,13 +1480,14 @@ const ChapterListSection = memo(function ChapterListSection({
         strings={strings}
         onListingPress={onListingPress}
       />
-      <View style={styles.listStack}>
+      <View ref={listGridRef} onLayout={onListGridLayout} style={styles.listStack}>
         {placeholder === "empty" ? (
           <HomeSectionEmpty strings={strings} />
         ) : placeholder === "skeleton" ? (
-          <HomeListSkeletonRows count={skeletonCount} />
+          <HomeListSkeletonRows count={skeletonCount} grid={listGrid} />
         ) : (
-          displayed.map((entry, index) => {
+          <HomeListColumns grid={listGrid}>
+          {displayed.map((entry, index) => {
             const manga = chapterEntryToManga(entry);
             return (
               <NemuPressable
@@ -1462,7 +1569,8 @@ const ChapterListSection = memo(function ChapterListSection({
                 </View>
               </NemuPressable>
             );
-          })
+          })}
+          </HomeListColumns>
         )}
       </View>
     </View>
@@ -2075,10 +2183,20 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   featuredPager: {
+    flexGrow: 0,
+    flexShrink: 0,
     overflow: "hidden",
   },
   featuredPage: {
     alignItems: "center",
+  },
+  // A folded page is one pane wide plus the fold; its card hugs the pane's
+  // leading edge so it ends before the fold.
+  featuredPageFolded: {
+    alignItems: "flex-start",
+  },
+  featuredCarouselFolded: {
+    alignItems: "flex-start",
   },
   homeMangaCard: {
     width: 108,
@@ -2205,6 +2323,9 @@ const styles = StyleSheet.create({
   },
   listStack: {
     gap: 2,
+  },
+  listGridRow: {
+    flexDirection: "row",
   },
   sectionEmpty: {
     flexDirection: "row",

@@ -8,8 +8,8 @@ import {
   refreshMobileSourceDetails,
   refreshMobileSourceLatestChapter,
   refreshMobileSourceMetadata,
+  mapAidokuChapterList,
   resolveMobileSourceMangaMetadataTitle,
-  sortChapterSummaries,
 } from "./mobileSourceDetails";
 import type {
   MobileAidokuExecutorBridge,
@@ -79,9 +79,10 @@ function makeExecutorSource(
     },
     async getChapterList() {
       return [
+        // Oldest first: the summaries come back newest first.
         { key: "c1", chapterNumber: 1, title: "Start" },
-        { key: "c3", chapterNumber: 3, title: "Latest" },
         { key: "c2", chapterNumber: 2, title: "Middle" },
+        { key: "c3", chapterNumber: 3, title: "Latest" },
       ];
     },
     async getPageList() {
@@ -197,14 +198,37 @@ describe("mobile source details refresh", () => {
     ).toBe("example");
   });
 
-  test("sorts chapter summaries by latest chapter number first", () => {
+  test("keeps a newest-first chapter list in the source's order", () => {
+    // 漫画人: no numbers and numeric ids of varying length, which an id sort
+    // scrambled ("99254" > "1837412").
     expect(
-      sortChapterSummaries([
-        { id: "c1", chapterNumber: 1 },
-        { id: "c10", chapterNumber: 10 },
-        { id: "c2", chapterNumber: 2 },
+      mapAidokuChapterList([
+        { key: "1837412", title: "第1194话" },
+        { key: "996385", title: "第977话" },
+        { key: "99254", title: "第656话" },
       ]).map((chapter) => chapter.id),
-    ).toEqual(["c10", "c2", "c1"]);
+    ).toEqual(["1837412", "996385", "99254"]);
+    // 拷贝漫画: unnumbered extras ahead of and between numbered volumes.
+    expect(
+      mapAidokuChapterList([
+        { key: "extra-new", title: "25周年贺图集" },
+        { key: "v121", volumeNumber: 121 },
+        { key: "v7", volumeNumber: 7 },
+        { key: "v6-part2", title: "第6卷(第2部)" },
+        { key: "v5", volumeNumber: 5 },
+      ]).map((chapter) => chapter.id),
+    ).toEqual(["extra-new", "v121", "v7", "v6-part2", "v5"]);
+  });
+
+  test("turns an oldest-first chapter list newest first", () => {
+    expect(
+      mapAidokuChapterList([
+        { key: "c1", chapterNumber: 1 },
+        { key: "c2", chapterNumber: 2 },
+        { key: "extra" },
+        { key: "c10", chapterNumber: 10 },
+      ]).map((chapter) => chapter.id),
+    ).toEqual(["c10", "extra", "c2", "c1"]);
   });
 
   test("preserves chapter language in mobile summaries", () => {

@@ -6,6 +6,7 @@ import {
   resolveNemuButtonAccessibility,
   resolveNemuPressableAccessibility,
   resolveNemuPressableAnimationEnabled,
+  resolveNemuRowHighlightRadii,
   shouldResetNemuPressableInteraction,
 } from "./nemuPressable";
 
@@ -179,8 +180,8 @@ describe("NemuPressable helpers", () => {
     expect(component).toContain(
       "const depthMotion = buttonDepth ? getNemuButtonPressMotion(buttonDepth) : null;",
     );
-    expect(component).toContain(
-      "resolveNemuPressablePressedScale({ pressProfile, pressedScale }) ??",
+    expect(component).toMatch(
+      /resolveNemuPressablePressedScale\(\{\s*pressProfile,\s*pressedScale: pressedScale \?\? \(pressHighlight \? 1 : undefined\),\s*\}\) \?\?/,
     );
     expect(component).toContain(
       "(depthMotion ? depthMotion.scale : 0.96)",
@@ -236,6 +237,39 @@ describe("NemuPressable helpers", () => {
     ).toEqual({
       accessibilityState: { disabled: true, busy: false },
       disabled: true,
+    });
+  });
+});
+
+describe("row highlight shape", () => {
+  test("follows the row's corners, concentric inside its border", () => {
+    expect(resolveNemuRowHighlightRadii({ borderRadius: 16, borderWidth: 1 })).toEqual({
+      borderTopLeftRadius: 15,
+      borderTopRightRadius: 15,
+      borderBottomLeftRadius: 15,
+      borderBottomRightRadius: 15,
+    });
+  });
+
+  test("a first row keeps only its top corners; a middle row is square", () => {
+    expect(resolveNemuRowHighlightRadii({ borderTopLeftRadius: 12, borderTopRightRadius: 12 })).toEqual({
+      borderTopLeftRadius: 12,
+      borderTopRightRadius: 12,
+      borderBottomLeftRadius: 0,
+      borderBottomRightRadius: 0,
+    });
+    expect(resolveNemuRowHighlightRadii({})).toEqual({
+      borderTopLeftRadius: 0,
+      borderTopRightRadius: 0,
+      borderBottomLeftRadius: 0,
+      borderBottomRightRadius: 0,
+    });
+  });
+
+  test("start/end corners and non-numeric values", () => {
+    expect(resolveNemuRowHighlightRadii({ borderRadius: "50%", borderTopStartRadius: 8 })).toMatchObject({
+      borderTopLeftRadius: 8,
+      borderBottomRightRadius: 0,
     });
   });
 });

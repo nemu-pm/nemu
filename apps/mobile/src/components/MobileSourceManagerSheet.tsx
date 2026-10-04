@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Platform,
   StyleSheet,
-  TextInput,
   View,
   useWindowDimensions,
 } from "react-native";
@@ -12,13 +11,14 @@ import {
   MobileCachedImage,
   MobileChip,
   MobileNativeSheetScaffold,
-  NemuTextFieldClearAction,
+  NemuNativeSearchField,
   NemuPressable,
   NemuText,
   nemuColorWithAlpha,
   radius,
   nemuFontWeight,
   useNemuTheme,
+  useMobileNativeSheetTheme,
   NemuButton,
 } from "@/design-system";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
@@ -554,7 +554,7 @@ export function MobileSourceManagerSheet({
   onSelectSource,
   onEntryChange,
 }: MobileSourceManagerSheetProps) {
-  const { tokens } = useNemuTheme();
+  const { tokens } = useMobileNativeSheetTheme();
   const store = useMobileDataStore();
   const installedSources = useInstalledSources();
   const library = useLibraryEntries();
@@ -1289,6 +1289,7 @@ export function MobileSourceManagerSheet({
           }, 0)
         : 1;
   const sheetLayout = getMobileSourceManagerSheetLayout({
+    addPanelFiltersWhileTyping: addMode === "merge",
     addPanelOpen,
     addPanelRowCount,
     fontScale,
@@ -1296,6 +1297,7 @@ export function MobileSourceManagerSheet({
     sourceCount: sources.length,
     width,
   });
+  const sheetScrolls = confirmationDetails ? false : sheetLayout.fillContent;
   const headerMetrics = resolveMobileSheetHeaderMetrics(Platform.OS);
   const headerActionLabel = addPanelOpen
     ? strings.common.back
@@ -1367,9 +1369,11 @@ export function MobileSourceManagerSheet({
         )
       }
       snapPoints={confirmationDetails ? undefined : sheetLayout.snapPoints}
-      scroll={confirmationDetails ? false : sheetLayout.fillContent}
+      scroll={sheetScrolls}
       enablePanDownToClose={canNativeDismissSheet}
-      contentStyle={styles.sheet}
+      // The scrolling body is the scroll view's content: capped at the
+      // viewport's height it could never scroll to the rows past it.
+      contentStyle={sheetScrolls ? styles.scrollingSheet : styles.sheet}
     >
       {confirmationDetails ? (
         <View style={styles.confirmationPanel}>
@@ -1514,23 +1518,24 @@ export function MobileSourceManagerSheet({
             </View>
 
             <View style={styles.searchRow}>
+              {/*
+                The shared search capsule (system Liquid Glass on iOS 26+).
+                It has no disabled state of its own: while a search, add or
+                merge runs the field is dimmed and takes no touches.
+              */}
               <View
+                pointerEvents={sourceManagerActionBusy ? "none" : "auto"}
                 style={[
-                  styles.searchInputShell,
-                  {
-                    backgroundColor: tokens.muted,
-                    opacity: sourceManagerActionBusy ? 0.72 : 1,
-                  },
+                  styles.searchField,
+                  { opacity: sourceManagerActionBusy ? 0.72 : 1 },
                 ]}
               >
-                <TextInput
+                <NemuNativeSearchField
                   accessibilityLabel={strings.sourceManager.searchSources}
-                  accessibilityRole="search"
-                  autoCapitalize="none"
-                  editable={!sourceManagerActionBusy}
-                  enterKeyHint="search"
+                  clearAccessibilityLabel={strings.common.clear}
+                  clearActionTestID="SourceManagerSearchClearAction"
                   onChangeText={setAddQuery}
-                  onSubmitEditing={() => {
+                  onSubmit={() => {
                     if (addMode === "search" && canSearchSources) {
                       void runAddSearch();
                     }
@@ -1540,21 +1545,8 @@ export function MobileSourceManagerSheet({
                       ? strings.sourceManager.sourceSearchPlaceholder
                       : strings.sourceManager.librarySearchPlaceholder
                   }
-                  placeholderTextColor={tokens.mutedForeground}
-                  returnKeyType="search"
-                  selectionColor={tokens.primary}
                   value={addQuery}
-                  style={[styles.searchInput, { color: tokens.foreground }]}
                 />
-                {addQuery.length > 0 ? (
-                  <NemuTextFieldClearAction
-                    accessibilityLabel={strings.common.clear}
-                    disabled={sourceManagerActionBusy}
-                    onPress={() => setAddQuery("")}
-                    testID="SourceManagerSearchClearAction"
-                    trailingInset={12}
-                  />
-                ) : null}
               </View>
               {addMode === "search" ? (
                 <NemuButton
@@ -2127,6 +2119,9 @@ const styles = StyleSheet.create({
     maxHeight: "100%",
     gap: 14,
   },
+  scrollingSheet: {
+    gap: 14,
+  },
   listContent: {
     gap: 10,
     paddingBottom: 2,
@@ -2186,25 +2181,18 @@ const styles = StyleSheet.create({
   searchRow: {
     minHeight: 48,
     flexDirection: "row",
+    alignItems: "center",
     gap: 8,
   },
-  searchInputShell: {
-    minHeight: 48,
+  searchField: {
     flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    borderRadius: radius.lg,
-    paddingHorizontal: 12,
   },
-  searchInput: {
-    minHeight: 48,
-    flex: 1,
-    fontSize: 14,
-    lineHeight: 18,
-  },
+  // A round action beside the search capsule, at the capsule's own height
+  // (44pt on iOS 26, 48dp on Android).
   searchButton: {
-    width: 48,
-    height: 48,
+    width: Platform.OS === "android" ? 48 : 44,
+    height: Platform.OS === "android" ? 48 : 44,
+    borderRadius: radius.pill,
   },
   addResults: {
     gap: 10,

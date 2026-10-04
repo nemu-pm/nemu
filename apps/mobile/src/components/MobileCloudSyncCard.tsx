@@ -17,9 +17,12 @@ import {
   radius,
   nemuFontWeight,
   nemuMaxFontSizeMultiplier,
+  nemuSheetMetrics,
   useNemuTheme,
+  useMobileNativeSheetTheme,
   NemuButton,
 } from "@/design-system";
+import { MobileSheetSelectionIndicator } from "@/components/MobileSheetSelectionIndicator";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import { MobileConfirmationSheet } from "@/components/MobileConfirmationSheet";
 import { useMobileLanguageSettings } from "@/data/mobileHooks";
@@ -156,7 +159,7 @@ function SignOutChoiceSheet({
   onCancel,
   onConfirm,
 }: SignOutChoiceSheetProps) {
-  const { tokens } = useNemuTheme();
+  const { tokens } = useMobileNativeSheetTheme();
 
   const requestClose = () => {
     if (visible && !loading) {
@@ -183,6 +186,10 @@ function SignOutChoiceSheet({
       }
       dismissLabel={strings.common.cancel}
       dismissDisabled={loading}
+      // Android: the body's Cancel button is the explicit escape (as in
+      // `MobileConfirmationSheet`), so the chrome close would duplicate it;
+      // pan-down and hardware Back still dismiss while not signing out.
+      showDismissButton={Platform.OS !== "android"}
       enablePanDownToClose={!loading}
       contentStyle={styles.sheetContent}
     >
@@ -280,6 +287,7 @@ function SignOutOption({
       pressedScale={0.985}
       style={[
         styles.optionRow,
+        nemuSheetMetrics.twoLineRowLayout,
         {
           backgroundColor: active
             ? nemuColorWithAlpha(activeColor, 0.09)
@@ -292,7 +300,7 @@ function SignOutOption({
       <View style={styles.optionIconFrame}>
         <Ionicons
           name={iconName}
-          size={19}
+          size={Platform.OS === "android" ? nemuSheetMetrics.rowIconSize : 19}
           color={active ? activeColor : tokens.mutedForeground}
         />
       </View>
@@ -301,6 +309,7 @@ function SignOutOption({
           numberOfLines={1}
           style={[
             styles.optionTitle,
+            nemuSheetMetrics.twoLineRowTitle,
             { color: active ? activeColor : tokens.foreground },
           ]}
         >
@@ -308,28 +317,21 @@ function SignOutOption({
         </Text>
         <Text
           numberOfLines={2}
-          style={[styles.optionDescription, { color: tokens.mutedForeground }]}
+          style={[
+            styles.optionDescription,
+            nemuSheetMetrics.twoLineRowSupporting,
+            { color: tokens.mutedForeground },
+          ]}
         >
           {description}
         </Text>
       </View>
-      <View
-        style={[
-          styles.optionRadio,
-          {
-            borderColor: active ? activeColor : tokens.border,
-            backgroundColor: active ? activeColor : "transparent",
-          },
-        ]}
-      >
-        {active ? (
-          <Ionicons
-            name="checkmark"
-            size={13}
-            color={tokens.primaryForeground}
-          />
-        ) : null}
-      </View>
+      <MobileSheetSelectionIndicator
+        kind="radio"
+        checked={active}
+        color={activeColor}
+        iosStyle={styles.optionRadio}
+      />
     </NemuPressable>
   );
 }
@@ -340,6 +342,8 @@ function MobileCloudSyncConfiguredCard({
   strings: MobileStrings;
 }) {
   const { tokens } = useNemuTheme();
+  // The erase confirmation's acknowledgement row, built here outside the sheet.
+  const sheetTokens = useMobileNativeSheetTheme().tokens;
   const store = useMobileDataStore();
   const { data: session, isPending } = mobileAuthClient.useSession();
   const [busyProvider, setBusyProvider] = useState<AuthProviderId | null>(null);
@@ -1043,39 +1047,28 @@ function MobileCloudSyncConfiguredCard({
           pressedScale={0.985}
           style={[
             styles.recoveryAcknowledgement,
+            nemuSheetMetrics.twoLineRowLayout,
             {
               backgroundColor: recoveryAcknowledged
-                ? nemuColorWithAlpha(tokens.danger, 0.07)
-                : tokens.muted,
-              borderColor: recoveryAcknowledged ? tokens.danger : tokens.border,
+                ? nemuColorWithAlpha(sheetTokens.danger, 0.07)
+                : sheetTokens.muted,
+              borderColor: recoveryAcknowledged ? sheetTokens.danger : sheetTokens.border,
             },
           ]}
         >
-          <View
-            style={[
-              styles.recoveryCheckbox,
-              {
-                backgroundColor: recoveryAcknowledged
-                  ? tokens.danger
-                  : "transparent",
-                borderColor: recoveryAcknowledged
-                  ? tokens.danger
-                  : tokens.mutedForeground,
-              },
-            ]}
-          >
-            {recoveryAcknowledged ? (
-              <Ionicons
-                name="checkmark"
-                size={14}
-                color={tokens.primaryForeground}
-              />
-            ) : null}
-          </View>
+          <MobileSheetSelectionIndicator
+            kind="checkbox"
+            checked={recoveryAcknowledged}
+            color={sheetTokens.danger}
+            iosStyle={styles.recoveryCheckbox}
+            iosUncheckedBorderColor={sheetTokens.mutedForeground}
+            iosGlyphSize={14}
+          />
           <Text
             style={[
               styles.recoveryAcknowledgementText,
-              { color: tokens.foreground },
+              nemuSheetMetrics.description,
+              { color: sheetTokens.foreground },
             ]}
           >
             {strings.settings.cloudSyncEraseAcknowledgement}

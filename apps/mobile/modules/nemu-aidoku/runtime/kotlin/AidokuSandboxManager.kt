@@ -93,7 +93,12 @@ internal data class AidokuSandboxHttpRequest(
   val method: String,
   val headers: Map<String, String>,
   val body: String?,
-  val timeoutMs: Int
+  val timeoutMs: Int,
+  /**
+   * Set for a cancellable operation's requests (see
+   * [AidokuSandboxCancellation]), so a cancellation can reach them.
+   */
+  val requestId: String? = null
 )
 
 internal data class AidokuSandboxHttpResponse(
@@ -424,8 +429,21 @@ internal class AidokuSandboxManager(
   context: Context,
   private val httpRequest: (AidokuSandboxHttpRequest) -> AidokuSandboxHttpResponse,
   private val decorateImageHeaders:
-    (String, String, Map<String, String>) -> Map<String, String>
+    (String, String, Map<String, String>) -> Map<String, String>,
+  cancelHttpRequest: (String) -> Unit = {}
 ) {
+  private val cancellation = AidokuSandboxCancellation(cancelHttpRequest)
+
+  /**
+   * Cancels the operation that carries [token] (see
+   * [AidokuSandboxCancellation]). Safe from any thread; never waits for the
+   * serial executor, which is exactly what is busy.
+   */
+  fun cancelOperation(token: String): Boolean {
+    if (!AidokuSandboxCancellation.isValidToken(token)) return false
+    return cancellation.cancel(token)
+  }
+
   private val applicationContext = context.applicationContext
   private val settingsStore = AidokuSandboxSettingsStore(applicationContext)
   private val executor: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
@@ -513,11 +531,22 @@ internal class AidokuSandboxManager(
       require(operationJson.length <= 2 * 1024 * 1024) {
         "Aidoku operation exceeds the safety limit."
       }
-      JSONObject(operationJson)
-      check(!disposeRequestedSessionIds.contains(sessionId)) { "Aidoku session expired." }
-      val session = sessions[sessionId] ?: throw IllegalStateException("Aidoku session expired.")
-      ensureSessionRegistered(session)
-      executeOperationLocked(session, operationJson)
+      val operation = JSONObject(operationJson)
+      val cancelToken = AidokuSandboxCancellation.takeToken(operation)
+      try {
+        cancellation.throwIfCancelled(cancelToken)
+        check(!disposeRequestedSessionIds.contains(sessionId)) { "Aidoku session expired." }
+        val session =
+          sessions[sessionId] ?: throw IllegalStateException("Aidoku session expired.")
+        ensureSessionRegistered(session)
+        executeOperationLocked(
+          session,
+          if (cancelToken == null) operationJson else operation.toString(),
+          cancelToken = cancelToken
+        )
+      } finally {
+        cancellation.finish(cancelToken)
+      }
     }
   }
 
@@ -746,6 +775,12 @@ internal class AidokuSandboxManager(
       nextIsolate.evaluateJavaScriptAsync(bundle)
         .get(SANDBOX_BOOT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
       recyclePolicy.recordEvaluation()
+      val lockdown = nextIsolate.evaluateJavaScriptAsync(NEMU_AIDOKU_SANDBOX_CODEGEN_LOCKDOWN)
+        .get(SANDBOX_BOOT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+      check(lockdown == "locked") {
+        "The isolated Aidoku runtime could not disable code generation."
+      }
+      recyclePolicy.recordEvaluation()
       val probe = nextIsolate.evaluateJavaScriptAsync("NemuAidokuSandbox.probeRuntime()")
         .get(SANDBOX_BOOT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
       requireStatus(probe, "ready")
@@ -818,7 +853,9 @@ internal class AidokuSandboxManager(
           "${quote(session.expectedSourceId)},${session.expectedVersion},${quote(dataName)}," +
           "JSON.parse(${quote(session.settingsJson)})," +
           "JSON.parse(${quote(persistedSettingsJson)})," +
-          "$imageProcessorTransportAvailable)",
+          "$imageProcessorTransportAvailable," +
+          // hostJsEvaluatorAvailable: answer `js-eval` suspensions natively.
+          "true)",
         SANDBOX_BOOT_TIMEOUT_MS
       )
       requireStatus(output, "registered")
@@ -833,7 +870,8 @@ internal class AidokuSandboxManager(
     session: NativeSandboxSession,
     operationJson: String,
     deadline: Long = System.nanoTime() +
-      TimeUnit.MILLISECONDS.toNanos(SANDBOX_OPERATION_TIMEOUT_MS)
+      TimeUnit.MILLISECONDS.toNanos(SANDBOX_OPERATION_TIMEOUT_MS),
+    cancelToken: String? = null
   ): String {
     val operationId = UUID.randomUUID().toString()
     val operationKind = JSONObject(operationJson).optString("kind")
@@ -846,9 +884,20 @@ internal class AidokuSandboxManager(
     )
     requireStatus(begin, "started")
 
+    // Source scripts run in their own isolates, never in the sandbox isolate.
+    // The engine and its isolates live for this operation only.
+    val jsEngine = NemuAidokuIsolatedJsEngine(
+      NemuAidokuSandboxJsIsolateFactory {
+        sandbox ?: throw IllegalStateException("Aidoku sandbox is unavailable.")
+      }
+    )
     try {
       var replayedBytes = 0
-      repeat(SANDBOX_MAX_REPLAY_ROUNDS + 1) { round ->
+      var httpRounds = 0
+      var jsEvaluations = 0
+      repeat(SANDBOX_MAX_REPLAY_ROUNDS + NEMU_AIDOKU_JS_MAX_EVALUATIONS + 1) {
+        // A cancelled operation stops between rounds.
+        cancellation.throwIfCancelled(cancelToken)
         val output = evaluate(
           "NemuAidokuSandbox.executeOperation(${quote(operationId)})",
           remainingMillis(deadline)
@@ -875,9 +924,10 @@ internal class AidokuSandboxManager(
             )
           }
           "http-request" -> {
-            if (round >= SANDBOX_MAX_REPLAY_ROUNDS) {
+            if (httpRounds >= SANDBOX_MAX_REPLAY_ROUNDS) {
               throw IllegalStateException("Aidoku source exceeded the HTTP replay limit.")
             }
+            httpRounds += 1
             val cursor = parsed.getInt("cursor")
             val requestJson = parsed.getJSONObject("request")
             val remainingMs = remainingMillis(deadline)
@@ -887,9 +937,17 @@ internal class AidokuSandboxManager(
               method = requestJson.optString("method", "GET"),
               headers = jsonStringMap(requestJson.optJSONObject("headers")),
               body = if (requestJson.isNull("body")) null else requestJson.optString("body"),
-              timeoutMs = minOf(SANDBOX_HTTP_TIMEOUT_MS, remainingMs.toInt())
+              timeoutMs = minOf(SANDBOX_HTTP_TIMEOUT_MS, remainingMs.toInt()),
+              requestId = cancellation.beginHttp(cancelToken, httpRounds)
             )
-            val response = httpRequest(request)
+            val response = try {
+              httpRequest(request)
+            } finally {
+              cancellation.endHttp(cancelToken)
+            }
+            // A cancelled request fails with a transport error; report the
+            // cancellation instead so React Native re-queues the operation.
+            cancellation.throwIfCancelled(cancelToken)
             if (response.status == 0 || response.error != null) {
               throw IllegalStateException(response.error ?: "Aidoku HTTP request failed.")
             }
@@ -923,11 +981,57 @@ internal class AidokuSandboxManager(
               if (!consumed) releaseNamedData(dataName)
             }
           }
+          "js-eval" -> {
+            if (jsEvaluations >= NEMU_AIDOKU_JS_MAX_EVALUATIONS) {
+              throw IllegalStateException(
+                "Aidoku source exceeded the JavaScript evaluation limit."
+              )
+            }
+            jsEvaluations += 1
+            val cursor = parsed.optInt("cursor", -1)
+            val requestJson = parsed.optJSONObject("request")
+            val contextId = requestJson?.optInt("contextId", 0) ?: 0
+            val kind = NemuAidokuIsolatedJsEngine.Kind.fromWire(requestJson?.optString("kind"))
+            val script = requestJson?.opt("script") as? String
+            if (cursor < 0 || requestJson == null || kind == null || script == null) {
+              throw IllegalStateException(
+                "The isolated Aidoku runtime returned an invalid JavaScript request."
+              )
+            }
+            val value = try {
+              jsEngine.evaluate(contextId, kind, script, remainingMillis(deadline))
+            } catch (failure: NemuAidokuIsolatedJsEngine.FailureException) {
+              if (failure.failure.sandboxLost) {
+                // AndroidX killed the sandbox process on the heap overrun; drop
+                // the dead connection now so the next operation reconnects
+                // instead of failing on it.
+                recycleIsolate()
+                closeSandboxConnection()
+              }
+              throw IllegalStateException(failure.failure.detail, failure)
+            } catch (error: Throwable) {
+              // The source isolates share the sandbox process; a dead
+              // connection takes the WebAssembly isolate down with them.
+              if (aidokuSandboxResetScope(error) == AidokuSandboxResetScope.SANDBOX_CONNECTION) {
+                resetAfterRuntimeFailure(error)
+              }
+              throw error
+            }
+            val append = evaluate(
+              "NemuAidokuSandbox.appendJsEvalResult(" +
+                "${quote(operationId)},$cursor," +
+                "JSON.parse(${quote(requestJson.toString())})," +
+                "${if (value == null) "null" else quote(value)})",
+              remainingMillis(deadline)
+            )
+            requireStatus(append, "appended")
+          }
           else -> throw IllegalStateException("Invalid isolated Aidoku runtime response.")
         }
       }
-      throw IllegalStateException("Aidoku source exceeded the HTTP replay limit.")
+      throw IllegalStateException("Aidoku source exceeded the replay limit.")
     } finally {
+      jsEngine.close()
       runCatching {
         evaluate(
           "NemuAidokuSandbox.finishOperation(${quote(operationId)})",

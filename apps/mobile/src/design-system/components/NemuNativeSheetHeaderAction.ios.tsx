@@ -51,12 +51,17 @@ const GLYPH_POINT_SIZE = 20;
 export function NemuNativeSheetHeaderAction({
   accessibilityLabel,
   iosSystemImage,
+  prominent = false,
   badgeCount = 0,
   disabled = false,
   onPress,
 }: NemuNativeSheetHeaderActionProps) {
   const { scheme, tokens } = useNemuTheme();
   const glass = supportsNemuLiquidGlassButtonStyle(Platform.Version);
+  const chrome = glass ? "glass" : "bordered";
+  // The sheet's confirming action (Save / Done): the accent-filled circle the
+  // system draws for a `confirmationAction` toolbar item.
+  const prominentChrome = glass ? "glassProminent" : "borderedProminent";
 
   return (
     <View style={styles.root}>
@@ -64,7 +69,7 @@ export function NemuNativeSheetHeaderAction({
         <SwiftButton
           onPress={onPress}
           modifiers={[
-            buttonStyle(glass ? "glass" : "bordered"),
+            buttonStyle(prominent ? prominentChrome : chrome),
             buttonBorderShape("circle"),
             controlSize("large"),
             tint(tokens.primary),

@@ -13,9 +13,84 @@ const mobilePackage = JSON.parse(
   ),
 ) as { dependencies?: Record<string, string> };
 
-const patchedPackages = ["expo", "expo-background-task", "expo-sqlite"];
+const patchedPackages = [
+  "expo-background-task", "expo-sqlite", "expo-modules-jsi", "@expo/cli", "@expo/ui",
+];
 
 describe("mobile Expo native patch policy", () => {
+  test("bounds the direct Android RNHost child to Material's sheet width", () => {
+    const bottomSheet = readFileSync(path.join(repositoryRoot,
+      "node_modules/@expo/ui/src/community/bottom-sheet/BottomSheet.android.tsx"), "utf8");
+    // Bounding only the scaffold grandchild leaves a window-wide host centered
+    // outside Material's 640dp sheet. The directly hosted Yoga root must match.
+    expect(bottomSheet).toContain("const sheetWidth = Math.min(width, placementWidth, 640);");
+    // Foldables: the sheet surface itself is narrowed and moved into one pane.
+    expect(bottomSheet).toContain("modifiers={sheetModifiers}");
+    expect(bottomSheet).toMatch(
+      /<RNHostView matchContents=\{fitToContents\}>[\s\S]*?<View style=\{fitToContents \? \{ width: sheetWidth \}/,
+    );
+    expect(bottomSheet).toContain("<Host style={{ position: 'absolute', width }}");
+    expect(bottomSheet).not.toContain("fitToContents ? { width } :");
+    // The published conditional export defaults to build/, while expo-source
+    // consumers use src/. Both entry paths must carry the same correction.
+    const publishedBottomSheet = readFileSync(path.join(repositoryRoot,
+      "node_modules/@expo/ui/build/community/bottom-sheet/BottomSheet.android.js"), "utf8");
+    expect(publishedBottomSheet).toContain("const sheetWidth = Math.min(width, placementWidth, 640);");
+    expect(publishedBottomSheet).toContain("modifiers: sheetModifiers,");
+    expect(publishedBottomSheet).toMatch(
+      /matchContents: fitToContents,[\s\S]*?style: fitToContents \? \{\s*width: sheetWidth/,
+    );
+  });
+  test("renders iOS sheet content 1:1 inside the floating sheet's scale", () => {
+    // iOS 26+ floats a partial-detent sheet by drawing it scaled (~0.96 on a
+    // 402pt iPhone); the host lays the content out at the shown size and
+    // undoes that scale, for detent and content-sized sheets alike.
+    const hostView = readFileSync(path.join(repositoryRoot,
+      "node_modules/@expo/ui/ios/RNHostView.swift"), "utf8");
+    expect(hostView).toContain("@Field var compensatesPresentationScale: Bool = false");
+    expect(hostView).toContain("var onPresentationScaleChange = EventDispatcher()");
+    expect(hostView).toContain(".scaleEffect(1 / scale, anchor: .topLeading)");
+    expect(hostView).toContain("convert(bounds, to: window).width / bounds.width");
+    for (const [file, pattern] of [
+      ["src/community/bottom-sheet/BottomSheet.ios.tsx", /compensatesPresentationScale\s*\n\s*onPresentationScaleChange=\{handlePresentationScaleChange\}/],
+      ["build/community/bottom-sheet/BottomSheet.ios.js", /compensatesPresentationScale: true,\s*\n\s*onPresentationScaleChange: handlePresentationScaleChange,/],
+    ] as const) {
+      const bottomSheet = readFileSync(
+        path.join(repositoryRoot, "node_modules/@expo/ui", file), "utf8");
+      expect(bottomSheet).toMatch(pattern);
+      // A content-sized sheet's Yoga width is the shown width too.
+      expect(bottomSheet).toMatch(/: windowWidth\)\s*\*\s*presentationScale;/);
+    }
+  });
+  test("sizes a content-sized iOS sheet from the probe's local width, not its scaled global frame", () => {
+    // The width probe's global frame already carries the floating scale once
+    // SwiftUI re-evaluates geometry (404 instead of 420 on a 420pt iPhone);
+    // multiplied by the presentation scale again it left the content 388.7pt
+    // wide, centred in a 404pt sheet, with the bare sheet showing either
+    // side of the veil. The probe's own layout size has no transform in it.
+    const modifier = readFileSync(path.join(repositoryRoot,
+      "node_modules/@expo/ui/ios/Modifiers/OnGeometryChangeModifier.swift"), "utf8");
+    expect(modifier).toContain("Geometry(frame: proxy.frame(in: .global), localSize: proxy.size)");
+    expect(modifier).toContain('"localWidth": geometry.localSize.width');
+    expect(modifier).toContain('"localHeight": geometry.localSize.height');
+    // The global fields keep their meaning for the modifier's other users.
+    expect(modifier).toContain('"width": geometry.frame.size.width');
+    for (const file of [
+      "src/community/bottom-sheet/BottomSheet.ios.tsx",
+      "build/community/bottom-sheet/BottomSheet.ios.js",
+    ]) {
+      const bottomSheet = readFileSync(
+        path.join(repositoryRoot, "node_modules/@expo/ui", file), "utf8");
+      expect(bottomSheet).toContain("const nextWidth = probeFrame.localWidth ?? probeFrame.width;");
+      expect(bottomSheet).not.toContain("const nextWidth = probeFrame.width;");
+    }
+    // A fresh install reproduces it: the hunks are in the repository patch.
+    const patch = readFileSync(
+      path.join(repositoryRoot, "patches/@expo%2Fui@58.0.12.patch"), "utf8");
+    expect(patch).toContain("diff --git a/ios/Modifiers/OnGeometryChangeModifier.swift");
+    expect(patch).toContain("+      of: { proxy in Geometry(frame: proxy.frame(in: .global), localSize: proxy.size) },");
+    expect(patch.match(/^\+\s+const nextWidth = probeFrame\.localWidth \?\? probeFrame\.width;$/gm)?.length).toBe(2);
+  });
   test("keeps every version-exact repository patch attached", () => {
     for (const [dependency, patchPath] of Object.entries(
       rootPackage.patchedDependencies ?? {},
@@ -46,9 +121,11 @@ describe("mobile Expo native patch policy", () => {
       const { version } = JSON.parse(
         readFileSync(path.join(packageRoot, "package.json"), "utf8"),
       ) as { version: string };
-      const patchPath = `patches/${packageName}@${version}.patch`;
+      const patchPath = `patches/${packageName.replace("/", "%2F")}@${version}.patch`;
 
-      expect(mobilePackage.dependencies?.[packageName]).toBe(`~${version}`);
+      if (mobilePackage.dependencies?.[packageName] !== undefined) {
+        expect(mobilePackage.dependencies[packageName]).toBe(`~${version}`);
+      }
       expect(
         rootPackage.patchedDependencies?.[`${packageName}@${version}`],
       ).toBe(patchPath);
@@ -65,12 +142,16 @@ describe("mobile Expo native patch policy", () => {
       "utf8",
     );
 
+    // SDK 58 now exposes the supplied factory directly on its delegate.
     expect(source).toContain(
-      "providedJsRuntimeFactory: JSRuntimeFactory? = null",
+      "override val jsRuntimeFactory: JSRuntimeFactory = HermesInstance()",
     );
     expect(source).toContain(
-      "providedJsRuntimeFactory ?: HermesInstance()",
+      "jsRuntimeFactory = jsRuntimeFactory ?: HermesInstance()",
     );
+    const pods = readFileSync(path.join(repositoryRoot,
+      "node_modules/react-native/scripts/react_native_pods.rb"), "utf8");
+    expect(pods).toMatch(/hermes_enabled\s*=\s*!use_third_party_jsc\(\)/);
   });
 
   test("keeps Expo export and standalone native execution on JSC", () => {
@@ -130,5 +211,13 @@ describe("mobile Expo native patch policy", () => {
     expect(publicationPolicy.trim().endsWith("false")).toBe(true);
     expect(databaseBinding).toContain("::exsqlite3_close_v2(db)");
     expect(statementBinding).toContain("std::mutex mutex_");
+    const sqliteModule = readFileSync(path.join(sqliteRoot,
+      "android/src/main/java/expo/modules/sqlite/SQLiteModule.kt"), "utf8");
+    const closeDatabase = sqliteModule.slice(sqliteModule.indexOf("private fun closeDatabase("),
+      sqliteModule.indexOf("private fun deleteDatabase("));
+    // Keep SDK 58's concurrent-close guard when rebasing lifecycle fixes.
+    expect(closeDatabase).toContain("database.closeLock.lock()");
+    expect(closeDatabase).toContain("database.closeLock.unlock()");
+    expect(closeDatabase).not.toContain("maybeFinalizeAllStatements(database)");
   });
 });

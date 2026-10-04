@@ -10,6 +10,13 @@ import {
 } from "./mobileSourceRuntime";
 import { isMobileSourceOperationTimeoutError } from "./mobileSourceOperationTimeout";
 import {
+  createMobileSourceRuntimeScheduler,
+  MobileSourceTaskAbortedError,
+  toMobileSourcePriorityTicket,
+  type MobileSourcePriorityInput,
+  type MobileSourceRuntimeScheduler,
+} from "./mobileSourceRuntimeScheduler";
+import {
   getActiveMobileSourceProfileScope,
   makeMobileSourceExecutionKey,
   registerMobileSourceProfileTransitionHandler,
@@ -25,9 +32,9 @@ import {
  * source screens. This cache keeps *ready* sessions alive keyed by sourceKey so
  * a repeated tap reuses the already-compiled source.
  *
- * Concurrency invariant: `aidokuRuntimeQueue` (mobileAidokuExecutorBridge)
- * already serializes every runtime operation, so two runtime calls for the same
- * session can never interleave. **But eviction / cacheBust / sweep are NOT
+ * Concurrency invariant: `mobileSourceRuntimeScheduler` serializes every
+ * native runtime call and `withSession` serializes callbacks per source key, so
+ * two runtime calls for the same session can never interleave. **But eviction / cacheBust / sweep are NOT
  * runtime calls** — they run on the JS thread between a `withSession` callback's
  * awaits. Without pinning, an LRU eviction (e.g. when "Add Sources" fans out
  * `Promise.allSettled` across >`maxEntries` sources concurrently) can dispose a
@@ -65,6 +72,12 @@ export type AcquireOptions = MobileSourceExecutorOptions & {
    * WASM session entirely instead of running work nobody will read.
    */
   signal?: AbortSignal;
+  /**
+   * Who is waiting on this call (see `mobileSourceRuntimeScheduler`). Orders
+   * the per-source queue and every runtime operation the callback issues.
+   * Omitted = `normal`.
+   */
+  priority?: MobileSourcePriorityInput;
 };
 
 export class MobileSourceSessionAbortedError extends Error {
@@ -158,6 +171,20 @@ async function defaultDispose(session: MobileSourceExecutorSession): Promise<voi
   }
 }
 
+/**
+ * The session a `withSession` callback sees: the cached session with its
+ * source bound to the caller's priority (when the bridge supports it), so
+ * every runtime operation the callback issues is scheduled at that priority.
+ * The cache itself keeps the unbound session.
+ */
+function bindSessionPriority(
+  session: MobileSourceExecutorSession,
+  ticket: ReturnType<typeof toMobileSourcePriorityTicket>,
+): MobileSourceExecutorSession {
+  if (session.status !== "ready" || !session.source.withPriority) return session;
+  return { ...session, source: session.source.withPriority(ticket) };
+}
+
 export function createMobileSourceSessionCache(
   config: MobileSourceSessionCacheConfig = {}
 ): MobileSourceSessionCache {
@@ -183,7 +210,10 @@ export function createMobileSourceSessionCache(
    * otherwise a caller requesting the old settings can queue its first runtime
    * operation behind a newer update and execute with the wrong credentials or
    * preferences. Different sources still run concurrently. */
-  const withSessionTails = new Map<string, Promise<void>>();
+  const keyQueues = new Map<
+    string,
+    { scheduler: MobileSourceRuntimeScheduler; pending: number }
+  >();
   /** A key generation invalidates factories that started before remove or a
    * cache-busting rebuild. The global generation invalidates every pending
    * factory on clear without retaining an entry for every historical key. */
@@ -367,7 +397,13 @@ export function createMobileSourceSessionCache(
         // while that asynchronous update is still in flight.
         existing.useCount += 1;
         const transition = Promise.resolve().then(async () => {
-          await existing.session.source.updateSettings(settings);
+          const updater =
+            resolvedOptions.priority && existing.session.source.withPriority
+              ? existing.session.source.withPriority(
+                  toMobileSourcePriorityTicket(resolvedOptions.priority),
+                )
+              : existing.session.source;
+          await updater.updateSettings(settings);
           if (
             !invalidationGenerationIsCurrent(key, invalidationGeneration) ||
             entries.get(key) !== existing
@@ -481,58 +517,80 @@ export function createMobileSourceSessionCache(
     }
   }
 
+  /**
+   * Runs `fn` in the source key's critical section. Callers for one key take
+   * turns (the runtime owns one mutable settings bag, see `keyQueues`), but
+   * the next turn goes to the highest-priority waiter rather than the oldest,
+   * and a waiter whose signal aborted is dropped before it touches anything.
+   * The session handed to `fn` issues its runtime operations at the caller's
+   * priority.
+   */
   async function withSession<T>(
     source: MobileRuntimeSource,
     options: AcquireOptions,
     fn: (session: MobileSourceExecutorSession) => Promise<T>
   ): Promise<T> {
-    const resolvedOptions: AcquireOptions = options.executionScope
-      ? options
-      : {
-          ...options,
-          executionScope: getActiveMobileSourceProfileScope(),
-        };
+    const ticket = toMobileSourcePriorityTicket(options.priority);
+    const resolvedOptions: AcquireOptions = {
+      ...options,
+      priority: ticket,
+      executionScope:
+        options.executionScope ?? getActiveMobileSourceProfileScope(),
+    };
     const key = makeMobileSourceExecutionKey(
       makeMobileRuntimeSourceKey(source),
       resolvedOptions.executionScope,
     );
     const queuedGeneration = currentInvalidationGeneration(key);
-    const predecessor = withSessionTails.get(key) ?? Promise.resolve();
-    let releaseTurn!: () => void;
-    const holdTurn = new Promise<void>((resolve) => {
-      releaseTurn = resolve;
-    });
-    const tail = predecessor.then(() => holdTurn);
-    withSessionTails.set(key, tail);
+    let queue = keyQueues.get(key);
+    if (!queue) {
+      queue = { scheduler: createMobileSourceRuntimeScheduler(), pending: 0 };
+      keyQueues.set(key, queue);
+    }
+    const ownQueue = queue;
+    ownQueue.pending += 1;
 
-    await predecessor;
-    let entry: CacheEntry | null = null;
     try {
-      // A remove/clear/cacheBust issued after this call was queued must cancel
-      // it rather than letting the delayed turn recreate the invalidated key.
-      if (!invalidationGenerationIsCurrent(key, queuedGeneration)) {
-        throw invalidatedError(key);
-      }
-      // Likewise for a caller that gave up while queued: never touch the
-      // runtime on behalf of an abandoned request.
-      if (resolvedOptions.signal?.aborted) {
-        throw new MobileSourceSessionAbortedError();
-      }
-      const acquired = await acquireEntry(source, resolvedOptions);
-      const session = acquired.session;
-      entry = acquired.entry;
-      if (entry) entry.useCount += 1; // pin until every callback await completes
-      return await fn(session);
+      return await ownQueue.scheduler.run(
+        async () => {
+          let entry: CacheEntry | null = null;
+          try {
+            // A remove/clear/cacheBust issued after this call was queued must
+            // cancel it rather than letting the delayed turn recreate the
+            // invalidated key.
+            if (!invalidationGenerationIsCurrent(key, queuedGeneration)) {
+              throw invalidatedError(key);
+            }
+            // Likewise for a caller that gave up while queued: never touch the
+            // runtime on behalf of an abandoned request.
+            if (resolvedOptions.signal?.aborted) {
+              throw new MobileSourceSessionAbortedError();
+            }
+            const acquired = await acquireEntry(source, resolvedOptions);
+            const session = acquired.session;
+            entry = acquired.entry;
+            if (entry) entry.useCount += 1; // pin until every callback await completes
+            return await fn(bindSessionPriority(session, ticket));
+          } catch (error) {
+            if (entry && isMobileSourceOperationTimeoutError(error)) {
+              removeEntry(key, entry);
+            }
+            throw error;
+          } finally {
+            if (entry) unpin(entry);
+          }
+        },
+        { priority: ticket, signal: resolvedOptions.signal },
+      );
     } catch (error) {
-      if (entry && isMobileSourceOperationTimeoutError(error)) {
-        removeEntry(key, entry);
+      if (error instanceof MobileSourceTaskAbortedError) {
+        throw new MobileSourceSessionAbortedError();
       }
       throw error;
     } finally {
-      if (entry) unpin(entry);
-      releaseTurn();
-      if (withSessionTails.get(key) === tail) {
-        withSessionTails.delete(key);
+      ownQueue.pending -= 1;
+      if (ownQueue.pending === 0 && keyQueues.get(key) === ownQueue) {
+        keyQueues.delete(key);
       }
     }
   }

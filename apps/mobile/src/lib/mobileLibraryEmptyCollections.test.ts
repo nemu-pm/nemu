@@ -34,7 +34,9 @@ describe("empty library keeps collection management reachable", () => {
       librarySource.indexOf("if (showLoadError) {", sheetsStart),
     );
     for (const sheet of [
-      "<LibraryTitleMenuSheet",
+      "<TitleMenuSheet",
+      // iOS: the SwiftUI manager; Android: the React Native one.
+      "<MobileCollectionsManagerNativeSheet",
       "<CollectionsManagerSheet",
       'mode="create"',
       'mode="rename"',
@@ -45,7 +47,31 @@ describe("empty library keeps collection management reachable", () => {
 
   test("the library-level actions are the ones the populated library shows", () => {
     expect(librarySource).toMatch(
-      /const nativeHeaderActions: NemuNativeHeaderAction\[\] = selectedCollection\s*\?[\s\S]*?: libraryHeaderActions;/,
+      /const nativeHeaderActions: NemuNativeHeaderAction\[\] = selectedCollection\s*\?\s*collectionHeaderActions\s*:\s*libraryHeaderActions;/,
     );
+  });
+
+  test("the empty state keeps the title menu (switch / create / manage)", () => {
+    const branch = emptyOnboardingBranch();
+    expect(branch).toContain("titleMenuHeaderOptions(");
+    expect(branch).toContain("{titleMenuAnchor}");
+  });
+});
+
+describe("collection switching stays in place", () => {
+  test("the populated library mounts the title menu on its header", () => {
+    const main = librarySource.slice(librarySource.lastIndexOf("  return (\n    <>"));
+    expect(main).toContain("titleMenuHeaderOptions(title)");
+    expect(main).toContain("{titleMenuAnchor}");
+  });
+
+  test("switching collections never pushes or replaces a route", () => {
+    expect(librarySource).not.toMatch(/router\.(push|replace)\(\{\s*pathname: "\/library\/collection/);
+    expect(librarySource).not.toContain('router.replace("/library")');
+  });
+
+  test("without a native title menu the switcher stays in the toolbar of every scope", () => {
+    expect(librarySource).toContain("...(titleMenu ? [] : [collectionSwitcherAction])");
+    expect(librarySource).toMatch(/\.\.\.\(titleMenu\s*\?\s*\[\]\s*:\s*\[\s*collectionSwitcherAction,/);
   });
 });

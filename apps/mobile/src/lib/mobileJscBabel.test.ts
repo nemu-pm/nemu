@@ -69,11 +69,9 @@ describe("mobile JSC Babel compatibility", () => {
       packageManifest.patchedDependencies?.[`metro@${metroVersion}`];
 
     expect(patchPath).toBe(`patches/metro@${metroVersion}.patch`);
+    // Exercise Expo's actual forwarding entry, not an unrelated Metro copy.
     const dependencyGraphModule = requireFromTest(
-      path.join(
-        repositoryRoot,
-        "node_modules/metro/src/node-haste/DependencyGraph.js",
-      ),
+      "@expo/metro/metro/node-haste/DependencyGraph",
     ) as {
       default: {
         prototype: {
@@ -102,6 +100,16 @@ describe("mobile JSC Babel compatibility", () => {
 
       expect(first.sha1).toBe(unchanged.sha1);
       expect(changed.sha1).not.toBe(first.sha1);
+      expect(first.sha1).toBe("e0996a37c13d44c3b06074939d43fa3759bd32c1");
+      let delegatedPath: string | undefined;
+      const ordinary = await getSha1.call({
+        _fileSystem: { getOrComputeSha1: async (filePath: string) => {
+          delegatedPath = filePath;
+          return { sha1: "file-map-sha" };
+        } },
+      }, path.join(tempRoot, "ordinary.js"));
+      expect(delegatedPath).toBe(path.join(tempRoot, "ordinary.js"));
+      expect(ordinary.sha1).toBe("file-map-sha");
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }

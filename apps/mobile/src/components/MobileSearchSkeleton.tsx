@@ -1,4 +1,4 @@
-import { StyleSheet, View, useWindowDimensions } from "react-native";
+import { StyleSheet, View } from "react-native";
 import Animated from "react-native-reanimated";
 import {
   useSkeletonDisplayDelay,
@@ -8,19 +8,15 @@ import {
   createNemuShadowStyle,
   radius,
   useMobilePageBleedStyles,
-  useMobilePageGutters,
   useNemuTheme,
   GlassSurface,
 } from "@/design-system";
-import {
-  getMobileMangaGridSkeletonGeometry,
-  MOBILE_MANGA_GRID_GAP,
-} from "@/lib/mobileAdaptiveGrid";
+import { mobileFoldAwareGridCellStyle } from "@/lib/mobileFoldAwareGrid";
+import { useMobileFoldAwareGrid } from "@/lib/useMobileFoldAwareGrid";
 
 const SKELETON_CHIPS = [0, 1, 2, 3] as const;
 const SKELETON_SECTIONS = [0, 1] as const;
-/** One row of result covers per source section, like the loaded results. */
-const SKELETON_RESULT_ROWS = 1;
+const NO_INSETS = { left: 0, right: 0 };
 
 type MobileSearchSkeletonProps = {
   accessibilityLabel: string;
@@ -32,15 +28,11 @@ export function MobileSearchSkeleton({
   const { tokens, reduceMotion } = useNemuTheme();
   // Mirrors the Search tab's source chip row bleed (2pt overscan).
   const bleed = useMobilePageBleedStyles(2);
-  const { width: windowWidth } = useWindowDimensions();
-  const pageGutters = useMobilePageGutters();
-  // Same inset-aware adaptive columns as the Search result grid.
-  const { cardCount: resultCount, cardWidth: resultWidth } =
-    getMobileMangaGridSkeletonGeometry({
-      windowWidth,
-      horizontalPadding: pageGutters.horizontal,
-      rows: SKELETON_RESULT_ROWS,
-    });
+  // Same fold-aware grid as the Search results (one row of covers per source
+  // section): even columns on regular widths and, in book posture, the middle
+  // gutter on the fold. The skeleton already sits inside the page gutters.
+  // Refs stay out of the layout object read during render.
+  const { ref: gridRef, onLayout: onGridLayout, ...resultGrid } = useMobileFoldAwareGrid({ insets: NO_INSETS });
   const skeletonOpacity = useSkeletonPulse(reduceMotion === true);
   const skeletonReady = useSkeletonDisplayDelay(150);
   const skeletonColor = tokens.muted;
@@ -83,7 +75,12 @@ export function MobileSearchSkeleton({
         </View>
       </View>
 
-      <View style={styles.resultStack}>
+      <View
+        ref={gridRef}
+        onLayout={onGridLayout}
+        collapsable={false}
+        style={styles.resultStack}
+      >
         {SKELETON_SECTIONS.map((section) => (
           <View key={section} style={styles.resultSection}>
             <View style={styles.resultHeader}>
@@ -104,8 +101,8 @@ export function MobileSearchSkeleton({
               />
             </View>
             <View style={styles.resultsGrid}>
-              {Array.from({ length: resultCount }, (_, item) => (
-                <View key={item} style={{ width: resultWidth }}>
+              {Array.from({ length: resultGrid.columns }, (_, item) => (
+                <View key={item} style={mobileFoldAwareGridCellStyle(resultGrid, item)}>
                   <View
                     style={[
                       styles.cover,
@@ -224,10 +221,9 @@ const styles = StyleSheet.create({
     height: 24,
     borderRadius: radius.md,
   },
+  // Column spacing is each cell's marginLeft (mobileFoldAwareGridCellStyle).
   resultsGrid: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: MOBILE_MANGA_GRID_GAP,
   },
   cover: {
     aspectRatio: 2 / 3,

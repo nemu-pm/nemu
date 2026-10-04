@@ -6,7 +6,10 @@ import {
   MAX_CORE_SETTING_SCHEMA_STRING_CHARS,
   MAX_CORE_SETTING_STRING_LENGTH,
 } from "@nemu/core";
-import { extractMobileAidokuSettingsDefaults } from "./aidokuSandboxRuntime";
+import {
+  applyMobileAidokuManifestDefaults,
+  extractMobileAidokuSettingsDefaults,
+} from "./aidokuSandboxRuntime";
 
 describe("mobile Aidoku sandbox settings defaults", () => {
   test("extracts type-compatible canonical and Android preference defaults", () => {
@@ -199,5 +202,41 @@ describe("mobile Aidoku sandbox settings defaults", () => {
       MAX_CORE_SETTING_SCHEMA_STRING_CHARS,
     );
     expect(Object.keys(defaults).length).toBeLessThan(300);
+  });
+});
+
+describe("mobile Aidoku sandbox manifest defaults", () => {
+  test("hands the source its base URL verbatim, without a trailing slash", () => {
+    // zh.copymanga v21 builds `format!("{base_url}{path}")` with paths that
+    // start with "/"; a normalised `https://host/` produced `//comics` (404).
+    const settings: Record<string, unknown> = {};
+    applyMobileAidokuManifestDefaults(settings, {
+      info: {
+        id: "zh.copymanga",
+        name: "拷貝漫畫",
+        version: 21,
+        urls: ["  https://www.copy5000.com ", "https://www.copy4000.com"],
+        languages: ["zh"],
+      },
+      config: { allowsBaseUrlSelect: true },
+    } as never);
+    expect(settings.url).toBe("https://www.copy5000.com");
+    expect(settings.languages).toEqual(["zh"]);
+  });
+
+  test("skips invalid base URLs and keeps an explicit user value", () => {
+    const invalid: Record<string, unknown> = {};
+    applyMobileAidokuManifestDefaults(invalid, {
+      info: { id: "x", name: "x", version: 1, urls: ["ftp://example.com", "https://ok.example"] },
+      config: { allowsBaseUrlSelect: true },
+    } as never);
+    expect(invalid.url).toBe("https://ok.example");
+
+    const explicit: Record<string, unknown> = { url: "https://mirror.example" };
+    applyMobileAidokuManifestDefaults(explicit, {
+      info: { id: "x", name: "x", version: 1, urls: ["https://ok.example"] },
+      config: { allowsBaseUrlSelect: true },
+    } as never);
+    expect(explicit.url).toBe("https://mirror.example");
   });
 });

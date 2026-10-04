@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useMobileAdaptiveLayout, useMobileWindowLayout } from "@/lib/MobileWindowLayoutContext";
 import {
   getMobilePageBleedStyles,
   getMobilePageGutters,
@@ -15,17 +16,19 @@ import {
  */
 export function useMobilePageGutters(): MobilePageGutters {
   const insets = useSafeAreaInsets();
+  const { minimumLayoutMargins } = useMobileWindowLayout();
   return useMemo(
-    () => getMobilePageGutters({ left: insets.left, right: insets.right }),
-    [insets.left, insets.right],
+    () => getMobilePageGutters({ left: insets.left, right: insets.right }, undefined, minimumLayoutMargins),
+    [insets.left, insets.right, minimumLayoutMargins],
   );
 }
 
 /** Edge-bleed styles for a horizontal row inside a page scaffold. */
 export function useMobilePageBleedStyles(overscan = 0): MobilePageBleedStyles {
   const { left, right } = useMobilePageGutters();
+  const { verticalBarSide } = useMobileAdaptiveLayout();
   return useMemo(
-    () => getMobilePageBleedStyles({ left, right }, overscan),
-    [left, overscan, right],
+    () => getMobilePageBleedStyles({ left, right }, overscan, verticalBarSide),
+    [left, overscan, right, verticalBarSide],
   );
 }

@@ -40,6 +40,12 @@ type MobileChipBaseProps = {
   /** Trailing glyph. `menu` defaults to `chevron-down`. */
   trailingIcon?: keyof typeof Ionicons.glyphMap;
   badge?: string;
+  /**
+   * Show the whole label: the chip may grow to its container's width and the
+   * label wraps instead of truncating at the chip's max width (e.g. the full
+   * tag list sheet). Compact rows keep the capped, single-line default.
+   */
+  wrapLabel?: boolean;
   accessibilityLabel: string;
   accessibilityHint?: string;
   accessibilityRole?: MobileChipAccessibilityRole;
@@ -79,6 +85,7 @@ export function MobileChip({
   fallbackIcon,
   trailingIcon,
   badge,
+  wrapLabel = false,
   accessibilityLabel,
   accessibilityHint,
   accessibilityRole = "button",
@@ -108,6 +115,7 @@ export function MobileChip({
     small ? styles.rootSmall : null,
     variant === "icon" ? (small ? styles.rootIconSmall : styles.rootIcon) : null,
     variant === "menu" ? styles.rootMenu : null,
+    wrapLabel ? styles.rootWrapLabel : null,
   ];
 
   const content = (
@@ -136,10 +144,11 @@ export function MobileChip({
       ) : null}
       {label ? (
         <NemuText
-          numberOfLines={1}
+          numberOfLines={wrapLabel ? undefined : 1}
           style={[
             styles.label,
             small ? styles.labelSmall : null,
+            wrapLabel ? styles.labelWrapped : null,
             { color: foregroundColor },
           ]}
         >
@@ -250,6 +259,15 @@ const styles = StyleSheet.create({
   rootMenu: {
     maxWidth: 210,
   },
+  // Full-label chips: as wide as the container allows, wrapping past it. One
+  // line is the same 30pt pill (16pt line + 2 × 7pt); a wrapped label keeps
+  // that corner radius instead of a stadium whose ends would clip the text.
+  rootWrapLabel: {
+    maxWidth: "100%",
+    flexShrink: 1,
+    paddingVertical: 7,
+    borderRadius: 15,
+  },
   iconImage: {
     width: 16,
     height: 16,
@@ -268,6 +286,9 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     fontWeight: nemuFontWeight.medium,
     letterSpacing: 0,
+  },
+  labelWrapped: {
+    textAlign: "center",
   },
   labelSmall: {
     fontSize: 10,
