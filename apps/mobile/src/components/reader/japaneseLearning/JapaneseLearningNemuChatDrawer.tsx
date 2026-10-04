@@ -321,6 +321,7 @@ export function JapaneseLearningNemuChatDrawer({
             placeholder={strings.reader.pluginJapaneseLearningChatInputPlaceholder}
             placeholderTextColor={scheme === "dark" ? "rgba(255,255,255,0.35)" : "rgba(86,86,86,0.55)"}
             returnKeyType="send"
+            selectionColor={tokens.primary}
             style={[
               styles.input,
               inputFont,
