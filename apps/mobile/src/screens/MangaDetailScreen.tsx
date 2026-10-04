@@ -2181,7 +2181,6 @@ export function MangaDetailScreen() {
       label: strings.mangaDetail.removeFromLibrary,
       hint: strings.mangaDetail.removeFromLibraryHint,
       disabled: detailActionBusy,
-      tintColor: tokens.danger,
       onPress: confirmRemoveFromLibrary,
     },
   ];
@@ -2274,11 +2273,8 @@ export function MangaDetailScreen() {
         {usesNativeHeader ? (
           <>
             <Stack.Screen options={nativeHeaderOptions(title)} />
-            <Stack.Toolbar placement="right" tintColor={tokens.danger}>
-              {renderNemuNativeToolbarButtons(
-                missingSourceNativeHeaderActions,
-                tokens.danger,
-              )}
+            <Stack.Toolbar placement="right">
+              {renderNemuNativeToolbarButtons(missingSourceNativeHeaderActions)}
             </Stack.Toolbar>
           </>
         ) : null}
@@ -2344,11 +2340,8 @@ export function MangaDetailScreen() {
         <>
           <Stack.Screen options={nativeHeaderOptions(title)} />
           {nativeHeaderActions.length ? (
-            <Stack.Toolbar placement="right" tintColor={tokens.primary}>
-              {renderNemuNativeToolbarButtons(
-                nativeHeaderActions,
-                tokens.primary,
-              )}
+            <Stack.Toolbar placement="right">
+              {renderNemuNativeToolbarButtons(nativeHeaderActions)}
             </Stack.Toolbar>
           ) : null}
         </>

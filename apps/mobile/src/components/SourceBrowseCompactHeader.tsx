@@ -39,10 +39,10 @@ export function SourceBrowseCompactHeader({ title, strings, searching, query, on
       <Text accessibilityRole="header" numberOfLines={1} style={[styles.title, { color: tokens.foreground }]}>{title}</Text>
       {canSearch && !searching ? <NemuPressable accessibilityLabel={strings.sourceBrowse.searchSource}
         onPress={onSearch} style={styles.action}>
-        <Ionicons name="search-outline" size={23} color={tokens.primary} />
+        <Ionicons name="search-outline" size={23} color={tokens.foreground} />
       </NemuPressable> : onFilters && searching ? <NemuPressable accessibilityLabel={strings.sourceBrowse.openAllFilters}
         onPress={onFilters} style={styles.action}>
-        <Ionicons name="options-outline" size={23} color={tokens.primary} />
+        <Ionicons name="options-outline" size={23} color={tokens.foreground} />
       </NemuPressable> : null}
     </View>
     {searching ? <View style={styles.searchRow}>

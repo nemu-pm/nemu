@@ -21,7 +21,6 @@ export type NemuNativeHeaderAction = MobileHeaderActionState & {
   label: string;
   hint?: string;
   onPress: () => void;
-  tintColor?: string;
 };
 
 export const usesNemuNativeHeader =
@@ -43,7 +42,6 @@ export function createNemuNativeStackScreenOptions(tokens: NemuTokens) {
     headerShadowVisible: false,
     headerShown: usesNemuNativeHeader,
     ...resolveNemuNativeHeaderChrome(Platform.OS, tokens.background),
-    headerTintColor: tokens.foreground,
     headerTitleStyle: {
       color: tokens.foreground,
       fontSize: 17,
@@ -66,9 +64,13 @@ export function createNemuNativeScreenOptions(
 /** Every native screen is soft-edged now; an alias of `createNemuNativeScreenOptions`. */
 export const createNemuSoftEdgeScreenOptions = createNemuNativeScreenOptions;
 
+/**
+ * Bar items take the platform's own colour: no tint is passed, so on iOS 26+
+ * they are the system's monochrome Liquid Glass items and on Android they
+ * follow the bar's content colour.
+ */
 export function renderNemuNativeToolbarButtons(
   actions: NemuNativeHeaderAction[],
-  tintColor: string,
 ) {
   return actions.map((action) => {
     const disabled = isMobileHeaderActionDisabled(action);
@@ -86,7 +88,6 @@ export function renderNemuNativeToolbarButtons(
         accessibilityHint: action.hint,
         disabled,
         icon: resolveNemuNativeToolbarIcon(action.icon) as NemuNativeToolbarIcon,
-        tintColor: action.tintColor ?? tintColor,
         onPress: () => {
           if (disabled) return;
           void hapticPress();

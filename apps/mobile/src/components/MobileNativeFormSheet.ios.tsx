@@ -29,7 +29,7 @@ import {
   scrollEdgeEffectStyle,
   tint,
 } from "@expo/ui/swift-ui/modifiers";
-import { PlatformColor, StyleSheet, View } from "react-native";
+import { PlatformColor, StyleSheet, View, type ColorValue } from "react-native";
 import { useNemuTheme } from "@/design-system";
 import { MOBILE_GROUPED_FORM_TOP_MARGIN } from "@/lib/mobileLibrarySheetLayout";
 import {
@@ -46,9 +46,12 @@ const GROUPED_SHEET_BACKGROUND = PlatformColor("systemGroupedBackground");
 function ToolbarActionButton({
   action,
   role,
+  accent,
 }: {
   action: MobileNativeFormSheetAction;
   role?: "cancel";
+  /** The app accent, for the one item the system draws in it (the confirming action). */
+  accent?: ColorValue;
 }) {
   if (action.busy) return <SwiftProgressView />;
   return (
@@ -56,7 +59,10 @@ function ToolbarActionButton({
       label={action.label}
       role={role}
       onPress={action.onPress}
-      modifiers={action.disabled ? [swiftDisabled(true)] : []}
+      modifiers={[
+        ...(accent ? [tint(accent)] : []),
+        ...(action.disabled ? [swiftDisabled(true)] : []),
+      ]}
     />
   );
 }
@@ -94,8 +100,11 @@ export function MobileNativeFormSheet({
   const form = (
     <SwiftForm
       key={formKey}
-      modifiers={
-        grouped
+      modifiers={[
+        // The accent is for the form's own controls; the bar above keeps the
+        // system's item colours (see the toolbar below).
+        tint(tokens.primary),
+        ...(grouped
           ? [
               scrollContentBackground("hidden"),
               listSectionSpacing("compact"),
@@ -105,8 +114,8 @@ export function MobileNativeFormSheet({
               zeroTopScrollContentMargin(),
               listSectionMargins({ edges: "top", length: MOBILE_GROUPED_FORM_TOP_MARGIN }),
             ]
-          : undefined
-      }
+          : []),
+      ]}
     >
       {children}
     </SwiftForm>
@@ -114,7 +123,9 @@ export function MobileNativeFormSheet({
 
   return (
     <View pointerEvents="none" style={styles.host} testID={testID}>
-      <SwiftHost colorScheme={scheme} seedColor={tokens.primary} style={StyleSheet.absoluteFill}>
+      {/* No `seedColor`: it tints the whole host, bar items included. The
+          form carries the accent itself. */}
+      <SwiftHost colorScheme={scheme} style={StyleSheet.absoluteFill}>
         <SwiftBottomSheet
           isPresented={visible}
           onIsPresentedChange={(presented) => {
@@ -132,7 +143,10 @@ export function MobileNativeFormSheet({
               scrollEdgeEffectStyle("soft", "vertical"),
             ]}
           >
-            <SwiftNavigationStack modifiers={[tint(tokens.primary)]}>
+            {/* No tint on the stack: bar items take the system's own colours
+                (Cancel and the close X included). Only the confirming action,
+                which the system draws in the app accent, is given ours. */}
+            <SwiftNavigationStack>
               <SwiftToolbar>
                 {wrapForm ? wrapForm(form) : form}
                 <SwiftToolbar.Content>
@@ -142,16 +156,14 @@ export function MobileNativeFormSheet({
                     </SwiftToolbarItem>
                   ) : (
                     // The close X sits at the trailing edge like every other
-                    // sheet (reader settings, the React Native sheets), with a
-                    // neutral glyph: the stack's accent tint is for actions.
+                    // sheet (reader settings, the React Native sheets).
                     <SwiftToolbarItem placement="topBarTrailing">
                       <SwiftButton
                         role="close"
                         onPress={onClose}
-                        modifiers={[
-                          tint(tokens.foreground),
-                          ...(closeAccessibilityLabel ? [swiftAccessibilityLabel(closeAccessibilityLabel)] : []),
-                        ]}
+                        modifiers={
+                          closeAccessibilityLabel ? [swiftAccessibilityLabel(closeAccessibilityLabel)] : []
+                        }
                       />
                     </SwiftToolbarItem>
                   )}
@@ -190,7 +202,7 @@ export function MobileNativeFormSheet({
                   ) : null}
                   {confirm ? (
                     <SwiftToolbarItem placement="confirmationAction">
-                      <ToolbarActionButton action={confirm} />
+                      <ToolbarActionButton action={confirm} accent={tokens.primary} />
                     </SwiftToolbarItem>
                   ) : null}
                 </SwiftToolbar.Content>

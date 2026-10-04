@@ -1407,17 +1407,14 @@ export function SourceMangaScreen() {
     router.replace(action.href);
   }, [routeRef.registryId, routeRef.sourceId]);
   const nativeBackToolbar = (
-    <Stack.Toolbar placement="left" tintColor={tokens.foreground}>
-      {renderNemuNativeToolbarButtons(
-        [
-          {
-            icon: "chevron.left",
-            label: strings.common.back,
-            onPress: navigateBack,
-          },
-        ],
-        tokens.foreground,
-      )}
+    <Stack.Toolbar placement="left">
+      {renderNemuNativeToolbarButtons([
+        {
+          icon: "chevron.left",
+          label: strings.common.back,
+          onPress: navigateBack,
+        },
+      ])}
     </Stack.Toolbar>
   );
 

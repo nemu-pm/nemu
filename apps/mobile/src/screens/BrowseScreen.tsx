@@ -1576,11 +1576,8 @@ export function BrowseScreen() {
           <Stack.Screen
             options={createNemuNativeScreenOptions(tokens, strings.nav.browse)}
           />
-          <Stack.Toolbar placement="right" tintColor={tokens.primary}>
-            {renderNemuNativeToolbarButtons(
-              nativeHeaderActions,
-              tokens.primary,
-            )}
+          <Stack.Toolbar placement="right">
+            {renderNemuNativeToolbarButtons(nativeHeaderActions)}
           </Stack.Toolbar>
         </>
       ) : null}

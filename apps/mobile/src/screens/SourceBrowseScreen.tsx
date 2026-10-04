@@ -3364,8 +3364,8 @@ export function SourceBrowseScreen() {
         onFilters={showSourceSearchControls ? openSourceFilterPanel : undefined}
       /> : null}
       {!compactHeader && source && nativeHeaderActions.length ? (
-        <Stack.Toolbar placement="right" tintColor={tokens.primary}>
-          {renderNemuNativeToolbarButtons(nativeHeaderActions, tokens.primary)}
+        <Stack.Toolbar placement="right">
+          {renderNemuNativeToolbarButtons(nativeHeaderActions)}
         </Stack.Toolbar>
       ) : null}
       {!compactHeader && source && sourceSearchActive ? (

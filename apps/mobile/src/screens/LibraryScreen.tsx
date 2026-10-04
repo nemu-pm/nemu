@@ -2220,11 +2220,8 @@ export function LibraryScreen({
       {usesNativeHeader ? (
         <>
           <Stack.Screen options={titleMenuHeaderOptions(strings.nav.library)} />
-          <Stack.Toolbar placement="right" tintColor={tokens.primary}>
-            {renderNemuNativeToolbarButtons(
-              libraryHeaderActions,
-              tokens.primary,
-            )}
+          <Stack.Toolbar placement="right">
+            {renderNemuNativeToolbarButtons(libraryHeaderActions)}
           </Stack.Toolbar>
           {titleMenuAnchor}
         </>
@@ -2265,8 +2262,8 @@ export function LibraryScreen({
       <>
         <Stack.Screen options={titleMenuHeaderOptions(title)} />
         {nativeHeaderActions.length ? (
-          <Stack.Toolbar placement="right" tintColor={tokens.primary}>
-            {renderNemuNativeToolbarButtons(nativeHeaderActions, tokens.primary)}
+          <Stack.Toolbar placement="right">
+            {renderNemuNativeToolbarButtons(nativeHeaderActions)}
           </Stack.Toolbar>
         ) : null}
         {titleMenuAnchor}
