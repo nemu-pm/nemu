@@ -58,6 +58,9 @@ export const mobileStringsEn: MobileStrings = {
     sourceError: "Source error",
     sourceErrorDescription:
       "This source could not complete the request. Try again in a moment.",
+    sourceIncompatible: "Source needs a newer nemu",
+    sourceIncompatibleDescription:
+      "This version of the source uses a feature nemu's source runtime does not provide yet. It will load once nemu is updated.",
     sourceNetworkError: "Network error",
     sourceNetworkErrorDescription:
       "nemu could not reach this source. Check your connection and try again.",

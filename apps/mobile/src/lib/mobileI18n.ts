@@ -51,6 +51,8 @@ export type MobileStrings = {
     sourceDisabledDescription: string;
     sourceError: string;
     sourceErrorDescription: string;
+    sourceIncompatible: string;
+    sourceIncompatibleDescription: string;
     sourceNetworkError: string;
     sourceNetworkErrorDescription: string;
     sourceRuntimeUnavailable: string;

@@ -57,6 +57,9 @@ export const mobileStringsZh: MobileStrings = {
       "此源已停用，nemu 不会再从中加载新内容。请在“设置 › 源”中重新启用。",
     sourceError: "源错误",
     sourceErrorDescription: "此源无法完成该请求。请稍后重试。",
+    sourceIncompatible: "此源需要更新版本的 nemu",
+    sourceIncompatibleDescription:
+      "此源的当前版本使用了 nemu 源运行时尚未提供的功能，需等待 nemu 更新后才能加载。",
     sourceNetworkError: "网络错误",
     sourceNetworkErrorDescription:
       "nemu 无法连接到此源。请检查网络连接后重试。",

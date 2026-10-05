@@ -18,6 +18,7 @@ import {
   isMobileSourceDisabledError,
   isMobileNetworkSourceError,
   isMobileRuntimeUnavailableError,
+  isMobileSourceIncompatibleError,
   isMobileTachiyomiUnsupportedError,
   redactMobileCloudflareUrlForDisplay,
   sanitizeMobileErrorDiagnostic,
@@ -516,6 +517,90 @@ describe("native exception text never headlines a source error", () => {
         localized,
       );
       expect(copy.title).toBe(localized.common.sourceNetworkError);
+    }
+  });
+});
+
+describe("source failures that mention WebAssembly", () => {
+  // Captured from the iOS sandbox's engine (JSC) loading Raw FREE v11, whose
+  // package imports `net.get_url`, a host function aidoku-runtime 0.12.0 does
+  // not provide.
+  const rawFreeLinkError =
+    "import function net:get_url must be callable (evaluating 'new WebAssembly.Instance(module, importObject)')";
+  // JSC traps raised inside a source's own Wasm (a Rust panic ends in
+  // `unreachable`).
+  const sourceTraps = [
+    "Unreachable code should not be executed (evaluating 'exports.get_search_manga_list(descriptor)')",
+    "Out of bounds memory access (evaluating 'exports.get_manga_details(descriptor)')",
+    "Division by zero (evaluating 'exports.get_page_list(descriptor)')",
+  ];
+  const otherSourceWasmErrors = [
+    "WebAssembly.Module doesn't parse at byte 8: invalid section",
+    "Hermes-themed sources are not available in your region",
+    "[ja.rawfree] Abort: WebAssembly page parse failed at src/lib.rs:12:4",
+  ];
+
+  test("a missing host import is an incompatible source, not an unavailable runtime", () => {
+    for (const message of [
+      rawFreeLinkError,
+      `NemuAidokuSandboxException: ${rawFreeLinkError} (at NemuAidoku/NemuAidokuModule.swift:88)`,
+      "import net:init must be an object (evaluating 'WebAssembly.instantiate(module, imports)')",
+      'WebAssembly.Instance(): Import #12 "net" "get_url": function import requires a callable',
+    ]) {
+      expect(isMobileRuntimeUnavailableError(message)).toBe(false);
+      expect(isMobileSourceIncompatibleError(message)).toBe(true);
+      expect(getMobileRuntimeUnavailableDetail([message])).toBeNull();
+    }
+
+    const presentation = getMobileSourceErrorPresentation(
+      new Error(rawFreeLinkError),
+      getMobileStrings("zh"),
+    );
+    expect(presentation.kind).toBe("unsupported");
+    expect(presentation.title).toBe(
+      getMobileStrings("zh").common.sourceIncompatible,
+    );
+    expect(presentation.detail).toContain("net:get_url");
+    expect(presentation.detail).not.toContain("evaluating");
+  });
+
+  test("a trap or panic inside the source is a source error with its message", () => {
+    for (const message of [...sourceTraps, ...otherSourceWasmErrors]) {
+      expect(isMobileRuntimeUnavailableError(message)).toBe(false);
+      expect(isMobileSourceIncompatibleError(message)).toBe(false);
+      const presentation = getMobileSourceErrorPresentation(
+        new Error(message),
+        getMobileStrings("en"),
+      );
+      expect(presentation.kind).toBe("source");
+      expect(presentation.detail.split("\n")[1]?.length).toBeGreaterThan(0);
+    }
+    expect(
+      getMobileSourceErrorPresentation(
+        new Error(sourceTraps[0]),
+        getMobileStrings("en"),
+      ).detail,
+    ).toContain("Unreachable code should not be executed");
+  });
+
+  test("only the host's own blockers mean the runtime is unavailable", () => {
+    for (const message of [
+      "The current React Native JavaScript engine does not expose WebAssembly.",
+      "The installed React Native source bridge is out of date. Rebuild or reinstall nemu.",
+      "The React Native source bridge is not available in this build.",
+      "The NemuAidoku native module is not linked into this build.",
+      "This build does not include the isolated Aidoku runtime.",
+      "Isolated Aidoku runtime is unavailable.",
+      "The isolated Aidoku runtime is only available on Android.",
+      "The isolated Aidoku runtime is missing required standards APIs.",
+      "Can't find variable: WebAssembly",
+      "Property 'WebAssembly' doesn't exist",
+      "WebAssembly is not defined",
+    ]) {
+      expect(isMobileRuntimeUnavailableError(message)).toBe(true);
+      expect(getMobileSourceErrorPresentation(message, getMobileStrings("en")).kind).toBe(
+        "runtime",
+      );
     }
   });
 });

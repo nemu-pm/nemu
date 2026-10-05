@@ -58,6 +58,9 @@ export const mobileStringsJa: MobileStrings = {
     sourceError: "ソースエラー",
     sourceErrorDescription:
       "このソースはリクエストを完了できませんでした。しばらくしてからもう一度お試しください。",
+    sourceIncompatible: "このソースには新しい nemu が必要です",
+    sourceIncompatibleDescription:
+      "このバージョンのソースは、nemu のソースランタイムがまだ提供していない機能を使っています。nemu のアップデート後に読み込めるようになります。",
     sourceNetworkError: "ネットワークエラー",
     sourceNetworkErrorDescription:
       "nemu はこのソースに接続できませんでした。接続を確認してからもう一度お試しください。",
