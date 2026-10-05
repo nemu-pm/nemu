@@ -149,25 +149,35 @@ export function mobileGrammarTokenCanAct(token: MobileGrammarToken): boolean {
   );
 }
 
+/**
+ * How far outside every word a tap still picks the nearest one. The words sit
+ * 2pt apart and bottom-aligned, so a tap on a seam or above a word without
+ * furigana must not fall through to nothing.
+ */
+export const MOBILE_GRAMMAR_TOKEN_HIT_SLOP = 8;
+
 export function mobileGrammarTokenAtPoint(
   layouts: Array<JapaneseLearningTokenLayout | undefined>,
   x: number,
   y: number,
   count = layouts.length,
+  slop = 0,
 ): number | null {
+  let nearest: number | null = null;
+  let nearestDistance = Infinity;
   for (let index = count - 1; index >= 0; index -= 1) {
     const layout = layouts[index];
     if (!layout) continue;
-    if (
-      x >= layout.x &&
-      x <= layout.x + layout.width &&
-      y >= layout.y &&
-      y <= layout.y + layout.height
-    ) {
-      return index;
+    const dx = Math.max(layout.x - x, 0, x - (layout.x + layout.width));
+    const dy = Math.max(layout.y - y, 0, y - (layout.y + layout.height));
+    if (dx === 0 && dy === 0) return index;
+    const distance = Math.hypot(dx, dy);
+    if (distance <= slop && distance < nearestDistance) {
+      nearest = index;
+      nearestDistance = distance;
     }
   }
-  return null;
+  return nearest;
 }
 
 export function mobileGrammarTokenInSelection(

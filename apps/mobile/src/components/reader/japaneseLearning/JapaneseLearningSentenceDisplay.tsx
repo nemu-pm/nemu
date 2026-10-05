@@ -35,6 +35,7 @@ import { hapticPress } from "@/lib/haptics";
 import type { MobileGrammarToken } from "@/lib/mobileJapaneseLearningGrammar";
 import {
   classifyMobileJapaneseLearningTokenPan,
+  MOBILE_GRAMMAR_TOKEN_HIT_SLOP,
   mobileGrammarTokenAtPoint,
   mobileGrammarTokenInSelection,
   mobileJapaneseLearningAnalysisErrorText,
@@ -228,10 +229,12 @@ export function JapaneseLearningSentenceDisplay({
     setSelectionEnd(null);
     setSelectionKey("");
   }
-  // Refs cannot be updated during render — clear in an effect instead.
-  useEffect(() => {
-    tokenLayoutsRef.current = [];
-  }, [tokensKey]);
+  // Word rects are never cleared when the words change. Fabric dispatches a
+  // view's onLayout only when its frame changes, and the rects of a new
+  // sentence can arrive before a passive effect would run, so clearing them
+  // there sometimes left every word without a rect and every tap dead. A word
+  // that mounts or moves reports again; one that kept its key and frame keeps
+  // a rect that is still right; indexes past the new count are ignored.
 
   const activeSelectionStart = selectionKey === tokensKey ? selectionStart : null;
   const activeSelectionEnd = selectionKey === tokensKey ? selectionEnd : null;
@@ -327,6 +330,7 @@ export function JapaneseLearningSentenceDisplay({
         x,
         y,
         grammarTokens.length,
+        MOBILE_GRAMMAR_TOKEN_HIT_SLOP,
       );
       dragStartIndexRef.current = index;
       draggingSelectionRef.current = false;
@@ -341,6 +345,7 @@ export function JapaneseLearningSentenceDisplay({
         x,
         y,
         grammarTokens.length,
+        MOBILE_GRAMMAR_TOKEN_HIT_SLOP,
       );
       if (index != null) updateRangeSelection(index);
     },
@@ -356,6 +361,7 @@ export function JapaneseLearningSentenceDisplay({
           x,
           y,
           grammarTokens.length,
+          MOBILE_GRAMMAR_TOKEN_HIT_SLOP,
         ) ?? start;
 
       if (draggingSelectionRef.current) {

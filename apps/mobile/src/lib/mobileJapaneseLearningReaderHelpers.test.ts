@@ -5,6 +5,7 @@ import {
   classifyMobileJapaneseLearningTokenPan,
   mobileJapaneseLearningMinConfidence,
   formatMobileJapaneseLearningChatTime,
+  MOBILE_GRAMMAR_TOKEN_HIT_SLOP,
   mobileGrammarTokenAtPoint,
   mobileGrammarTokenCanAct,
   mobileGrammarTokenCategory,
@@ -214,6 +215,38 @@ describe("mobileGrammarTokenAtPoint", () => {
   });
   test("respects count limit", () => {
     expect(mobileGrammarTokenAtPoint(layouts, 25, 25, 1)).toBeNull();
+  });
+  test("a tap on the seam between two words picks the nearer one", () => {
+    // Two chips 2pt apart (each has a 1pt margin), the second one shorter and
+    // bottom-aligned like a word without furigana.
+    const row = [
+      { x: 1, y: 0, width: 40, height: 60 },
+      { x: 43, y: 14, width: 30, height: 46 },
+    ];
+    expect(mobileGrammarTokenAtPoint(row, 41.5, 30)).toBeNull();
+    expect(
+      mobileGrammarTokenAtPoint(row, 41.5, 30, row.length, MOBILE_GRAMMAR_TOKEN_HIT_SLOP),
+    ).toBe(0);
+    expect(
+      mobileGrammarTokenAtPoint(row, 42.6, 30, row.length, MOBILE_GRAMMAR_TOKEN_HIT_SLOP),
+    ).toBe(1);
+    // Above the shorter word, where its missing furigana row would be.
+    expect(
+      mobileGrammarTokenAtPoint(row, 58, 8, row.length, MOBILE_GRAMMAR_TOKEN_HIT_SLOP),
+    ).toBe(1);
+  });
+  test("the slop never reaches a word further away than it", () => {
+    expect(
+      mobileGrammarTokenAtPoint(layouts, 12, 12, layouts.length, MOBILE_GRAMMAR_TOKEN_HIT_SLOP),
+    ).toBe(0);
+    expect(
+      mobileGrammarTokenAtPoint(layouts, 60, 60, layouts.length, MOBILE_GRAMMAR_TOKEN_HIT_SLOP),
+    ).toBeNull();
+  });
+  test("an exact hit wins over a nearer edge of another word", () => {
+    expect(
+      mobileGrammarTokenAtPoint(layouts, 25, 25, layouts.length, MOBILE_GRAMMAR_TOKEN_HIT_SLOP),
+    ).toBe(1);
   });
 });
 
