@@ -9,6 +9,7 @@ import {
   describeMobileErrorDetail,
   extractMobileCloudflareDisplayUrl,
   extractMobileCloudflareSolveUrl,
+  getMobileClassifiedSourceErrorCopy,
   getMobileRuntimeUnavailableDetail,
   getMobileSourceErrorRecoveryAction,
   getMobileSourceErrorRecoveryHref,
@@ -562,6 +563,19 @@ describe("source failures that mention WebAssembly", () => {
     );
     expect(presentation.detail).toContain("net:get_url");
     expect(presentation.detail).not.toContain("evaluating");
+  });
+
+  test("the Raw FREE detail as the iOS sandbox reports it gets the incompatible copy", () => {
+    // Verbatim from the simulator's browse banner (Release build, 2026-10-06).
+    const onDevice =
+      "NemuAidokuSandboxException: import function net:get_url must be callable (evaluating 'new WebAssembly.Instance(j,H)') (at NemuAidoku/NemuAidokuModule.swift:42)";
+    const strings = getMobileStrings("en");
+    const copy = getMobileClassifiedSourceErrorCopy(onDevice, strings);
+    expect(copy?.title).toBe(strings.common.sourceIncompatible);
+    expect(copy?.detail).toBe(
+      `${strings.common.sourceIncompatibleDescription}\nimport function net:get_url must be callable`,
+    );
+    expect(getMobileClassifiedSourceErrorCopy(sourceTraps[0], strings)).toBeNull();
   });
 
   test("a trap or panic inside the source is a source error with its message", () => {

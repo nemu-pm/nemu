@@ -111,6 +111,7 @@ import {
 import {
   describeMobileErrorDetail,
   getMobileSourceOperationErrorCopy,
+  getMobileClassifiedSourceErrorCopy,
   getMobileRuntimeUnavailableDetail,
   getMobileSourceErrorPresentation,
 } from "@/lib/mobileSourceErrors";
@@ -158,6 +159,7 @@ import {
   getDefaultMobileSourceBrowseListingId,
   getMobileSourceBrowseListingIdForRouteTab,
   getMobileSourceBrowseListingTabCount,
+  findMobileSourceBrowseFallbackErrorStep,
   getMobileSourceBrowseFallbackErrorDetail,
   getMobileSourceBrowseRouteTabForListingId,
   makeMobileSourceHomeGenerationKey,
@@ -2928,24 +2930,38 @@ export function SourceBrowseScreen() {
     packageMetadata?.name ??
     sourceId ??
     strings.sourceBrowse.source;
+  const sourceBrowseFallbackSteps = {
+    metadata:
+      sourceBrowseMetadataState.status === "blocked"
+        ? { status: "blocked", detail: sourceBrowseMetadataState.result.detail }
+        : sourceBrowseMetadataState.status === "error"
+          ? { status: "error", detail: sourceBrowseMetadataState.detail }
+          : { status: sourceBrowseMetadataState.status },
+    home:
+      sourceHomeState.status === "blocked"
+        ? { status: "blocked", detail: sourceHomeState.result.detail }
+        : sourceHomeState.status === "error"
+          ? { status: "error", detail: sourceHomeState.detail }
+          : { status: sourceHomeState.status },
+  };
   const sourceBrowseFallbackErrorDetail =
     getMobileSourceBrowseFallbackErrorDetail(
-      {
-        metadata:
-          sourceBrowseMetadataState.status === "blocked"
-            ? { status: "blocked", detail: sourceBrowseMetadataState.result.detail }
-            : sourceBrowseMetadataState.status === "error"
-              ? { status: "error", detail: sourceBrowseMetadataState.detail }
-              : { status: sourceBrowseMetadataState.status },
-        home:
-          sourceHomeState.status === "blocked"
-            ? { status: "blocked", detail: sourceHomeState.result.detail }
-            : sourceHomeState.status === "error"
-              ? { status: "error", detail: sourceHomeState.detail }
-              : { status: sourceHomeState.status },
-      },
+      sourceBrowseFallbackSteps,
       strings.sourceBrowse.sourceUnavailable,
     );
+  // A blocked load of a known class (e.g. a package that needs a newer
+  // runtime) gets its own title and copy; the raw reason stays the detail.
+  const sourceBrowseFallbackStep = findMobileSourceBrowseFallbackErrorStep(
+    sourceBrowseFallbackSteps,
+  );
+  const sourceBrowseFallbackClassifiedCopy =
+    sourceBrowseFallbackStep?.status === "blocked" &&
+    sourceBrowseFallbackStep.detail
+      ? getMobileClassifiedSourceErrorCopy(
+          sourceBrowseFallbackStep.detail,
+          strings,
+        )
+      : null;
   const nativeHeaderOptions = createNemuNativeScreenOptions(
     tokens,
     screenTitle,
@@ -3657,8 +3673,14 @@ export function SourceBrowseScreen() {
                   onActionPress={() => {
                     void refreshSourceData();
                   }}
-                  title={strings.sourceBrowse.loadSourceFailed}
-                  detail={sourceBrowseFallbackErrorDetail}
+                  title={
+                    sourceBrowseFallbackClassifiedCopy?.title ??
+                    strings.sourceBrowse.loadSourceFailed
+                  }
+                  detail={
+                    sourceBrowseFallbackClassifiedCopy?.detail ??
+                    sourceBrowseFallbackErrorDetail
+                  }
                 />
               </MobilePaneAlignedView>
             ) : null

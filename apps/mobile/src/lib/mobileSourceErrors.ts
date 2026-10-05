@@ -383,6 +383,22 @@ export function getMobileSourceErrorPresentation(
 }
 
 /**
+ * Localized title and detail for a failure of a known class (an incompatible
+ * package, a disabled source, Cloudflare, the network, an unavailable
+ * runtime), or null for an unclassified source failure, whose surface keeps
+ * its own wording.
+ */
+export function getMobileClassifiedSourceErrorCopy(
+  error: unknown,
+  strings: Pick<MobileStrings, "common">,
+): { title: string; detail: string } | null {
+  const presentation = getMobileSourceErrorPresentation(error, strings);
+  return presentation.kind === "source"
+    ? null
+    : { title: presentation.title, detail: presentation.detail };
+}
+
+/**
  * Localized copy for a failed source operation (search, listing, home,
  * filters) shown in an inline error surface: a known failure class (network /
  * timeout, Cloudflare, disabled, unsupported, runtime) gets its own localized

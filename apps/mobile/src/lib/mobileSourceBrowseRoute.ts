@@ -363,15 +363,27 @@ export function getMobileSourceBrowseFallbackErrorDetail(
   },
   localizedDetail: string,
 ): string | null {
+  const step = findMobileSourceBrowseFallbackErrorStep(steps);
+  if (!step) return null;
+  if (step.status === "error") {
+    return step.detail || localizedDetail;
+  }
+  return step.detail && step.detail !== localizedDetail
+    ? `${localizedDetail}\n${step.detail}`
+    : localizedDetail;
+}
+
+/**
+ * The step whose failure the fallback banner reports: the first of metadata
+ * and home that errored or was blocked. A blocked step's detail is the raw
+ * runtime reason, which the screen can still classify for its title.
+ */
+export function findMobileSourceBrowseFallbackErrorStep(steps: {
+  metadata: MobileSourceBrowseStepState;
+  home: MobileSourceBrowseStepState;
+}): MobileSourceBrowseStepState | null {
   for (const step of [steps.metadata, steps.home]) {
-    if (step.status === "error") {
-      return step.detail || localizedDetail;
-    }
-    if (step.status === "blocked") {
-      return step.detail && step.detail !== localizedDetail
-        ? `${localizedDetail}\n${step.detail}`
-        : localizedDetail;
-    }
+    if (step.status === "error" || step.status === "blocked") return step;
   }
   return null;
 }

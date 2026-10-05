@@ -3,6 +3,7 @@ import {
   canSelectMobileSourceBrowseTab,
   canClearMobileSourceBrowseTextInput,
   getDefaultMobileSourceBrowseListingId,
+  findMobileSourceBrowseFallbackErrorStep,
   getMobileSourceBrowseFallbackErrorDetail,
   getMobileSourceBrowseListingIdForRouteTab,
   getMobileSourceBrowseListingTabCount,
@@ -701,6 +702,29 @@ describe("getMobileSourceBrowseFallbackErrorDetail", () => {
         localized,
       ),
     ).toBe(localized);
+  });
+
+  test("names the step the banner reports so a blocked reason can be classified", () => {
+    const blockedHome = { status: "blocked", detail: "raw reason" };
+    expect(
+      findMobileSourceBrowseFallbackErrorStep({
+        metadata: { status: "ready" },
+        home: blockedHome,
+      }),
+    ).toBe(blockedHome);
+    const erroredMetadata = { status: "error", detail: "Could not load.\nboom" };
+    expect(
+      findMobileSourceBrowseFallbackErrorStep({
+        metadata: erroredMetadata,
+        home: blockedHome,
+      }),
+    ).toBe(erroredMetadata);
+    expect(
+      findMobileSourceBrowseFallbackErrorStep({
+        metadata: { status: "loading" },
+        home: { status: "ready" },
+      }),
+    ).toBeNull();
   });
 
   test("returns null while loading or once ready", () => {
