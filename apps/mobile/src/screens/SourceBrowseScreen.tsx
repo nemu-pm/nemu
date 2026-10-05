@@ -1357,6 +1357,10 @@ export function SourceBrowseScreen() {
   // shown. Holding it in JS state re-rendered this screen on every 16ms scroll
   // frame; the offset now lives on the UI thread and the fades follow it there.
   const listingTabsScrollX = useSharedValue(0);
+  // The tab strip runs to the screen edges (the scroller clipped at the page
+  // gutter, so a chip was cut by a hard edge short of the screen) and pays the
+  // gutter back as content padding; the edge fades sit at the screen edges.
+  const listingTabsBleed = useMobilePageBleedStyles();
   const handleListingTabsScroll = useAnimatedScrollHandler({
     onScroll: (event) => {
       listingTabsScrollX.value = event.contentOffset.x;
@@ -3143,6 +3147,7 @@ export function SourceBrowseScreen() {
             <View
               style={[
                 styles.listingTabsFrame,
+                listingTabsBleed.frame,
                 listingGridAttached
                   ? styles.listingTabsFrameGridAttached
                   : null,
@@ -3162,8 +3167,10 @@ export function SourceBrowseScreen() {
                 onScroll={handleListingTabsScroll}
                 scrollEventThrottle={16}
                 showsHorizontalScrollIndicator={false}
-                style={styles.listingTabsScroller}
-                contentContainerStyle={styles.listingTabs}
+                contentContainerStyle={[
+                  styles.listingTabs,
+                  listingTabsBleed.content,
+                ]}
               >
                 {showSourceHomeTab ? (
                   <SourceListingTab
@@ -3256,6 +3263,7 @@ export function SourceBrowseScreen() {
       hasListingGridItems,
       installedSource,
       listingGridAttached,
+      listingTabsBleed,
       listingTabFadeColor,
       listingTabFadeTransparent,
       listingTabsLeadingFadeStyle,
@@ -3809,14 +3817,10 @@ const styles = StyleSheet.create({
   listingTabsFrameGridAttached: {
     marginBottom: 6,
   },
-  listingTabsScroller: {
-    marginHorizontal: -2,
-  },
   listingTabs: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    paddingHorizontal: 2,
     // The page scaffold's top inset keeps the row clear of the header
     // fade/blur; the row adds none of its own so the chips sit closer to the
     // title. Bottom padding still reserves room for the web-parity box-shadow
