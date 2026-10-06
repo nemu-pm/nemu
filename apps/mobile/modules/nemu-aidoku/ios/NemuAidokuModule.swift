@@ -2036,49 +2036,69 @@ public class NemuAidokuModule: Module {
                 location,
                 policy: imagePolicy
               )
-            } catch {
-              guard
+            } catch is NemuImageDimensionLimitError {
+              // Too large to decode as published, but well formed: keep its
+              // source width as bounded tiles when the caller can show them,
+              // otherwise (or when the tiles cannot fit their byte budget)
+              // publish one bounded downscale, as Android does.
+              operation.extendTimeout(120)
+              let deadline = NemuIOSLongStripImageTranscoder.newDeadline()
+              let isCancelled = { coordinator.isCancelled(id: nativeRequestId) }
+              if
                 request.allowLongStripSegments,
                 Int64(request.maxResponseBytes) >
                   NemuIOSLongStripImageTranscoder.manifestReserveBytes
-              else { throw error }
-              operation.extendTimeout(120)
-              let transcoded = try NemuIOSLongStripImageTranscoder.transcodeSegments(
+              {
+                do {
+                  let transcoded = try NemuIOSLongStripImageTranscoder.transcodeSegments(
+                    source: location,
+                    outputDirectory: outputDirectory,
+                    policy: imagePolicy,
+                    maximumOutputBytes:
+                      Int64(request.maxResponseBytes) -
+                        NemuIOSLongStripImageTranscoder.manifestReserveBytes,
+                    deadline: deadline,
+                    isCancelled: isCancelled
+                  )
+                  let mimeType = transcoded.segments.first?.mimeType ?? "image/jpeg"
+                  operation.finish(NemuNativeHttpFileResult(
+                    status: status,
+                    headers: Self.transcodedImageHeaders(headers, mimeType: mimeType),
+                    kind: "segmented-image",
+                    fileURL: nil,
+                    byteLength: transcoded.byteLength,
+                    manifestVersion: 1,
+                    imageWidth: transcoded.dimensions.width,
+                    imageHeight: transcoded.dimensions.height,
+                    imageSegments: transcoded.segments.map { segment in
+                      NemuNativeHttpImageSegmentResult(
+                        fileURL: segment.fileURL,
+                        byteLength: segment.byteLength,
+                        width: segment.dimensions.width,
+                        height: segment.dimensions.height,
+                        mimeType: segment.mimeType
+                      )
+                    },
+                    error: nil
+                  ))
+                  return
+                } catch let error as NemuIOSLongStripError where error.allowsSingleImageFallback {
+                  // Not strip geometry, or over budget: downscale below.
+                }
+              }
+              let downscaled = try NemuIOSLongStripImageTranscoder.transcodeSingle(
                 source: location,
                 outputDirectory: outputDirectory,
                 policy: imagePolicy,
-                maximumOutputBytes:
-                  Int64(request.maxResponseBytes) -
-                    NemuIOSLongStripImageTranscoder.manifestReserveBytes,
-                isCancelled: {
-                  coordinator.isCancelled(id: nativeRequestId)
-                }
+                maximumOutputBytes: Int64(request.maxResponseBytes),
+                deadline: deadline,
+                isCancelled: isCancelled
               )
-              let mimeType = transcoded.segments.first?.mimeType ?? "image/jpeg"
-              var rewrittenHeaders = headers.filter {
-                $0.key.caseInsensitiveCompare("content-length") != .orderedSame &&
-                  $0.key.caseInsensitiveCompare("content-encoding") != .orderedSame &&
-                  $0.key.caseInsensitiveCompare("content-type") != .orderedSame
-              }
-              rewrittenHeaders["Content-Type"] = mimeType
               operation.finish(NemuNativeHttpFileResult(
                 status: status,
-                headers: rewrittenHeaders,
-                kind: "segmented-image",
-                fileURL: nil,
-                byteLength: transcoded.byteLength,
-                manifestVersion: 1,
-                imageWidth: transcoded.dimensions.width,
-                imageHeight: transcoded.dimensions.height,
-                imageSegments: transcoded.segments.map { segment in
-                  NemuNativeHttpImageSegmentResult(
-                    fileURL: segment.fileURL,
-                    byteLength: segment.byteLength,
-                    width: segment.dimensions.width,
-                    height: segment.dimensions.height,
-                    mimeType: segment.mimeType
-                  )
-                },
+                headers: Self.transcodedImageHeaders(headers, mimeType: downscaled.mimeType),
+                fileURL: downscaled.fileURL,
+                byteLength: downscaled.byteLength,
                 error: nil
               ))
               return
@@ -2114,6 +2134,21 @@ public class NemuAidokuModule: Module {
         requireHttps: request.requireHttps
       )
     }
+  }
+
+  /// A transcoded body no longer matches the response's own length,
+  /// encoding or type.
+  private static func transcodedImageHeaders(
+    _ headers: [String: String],
+    mimeType: String
+  ) -> [String: String] {
+    var rewritten = headers.filter {
+      $0.key.caseInsensitiveCompare("content-length") != .orderedSame &&
+        $0.key.caseInsensitiveCompare("content-encoding") != .orderedSame &&
+        $0.key.caseInsensitiveCompare("content-type") != .orderedSame
+    }
+    rewritten["Content-Type"] = mimeType
+    return rewritten
   }
 
   private static func sendHttpRequestAsync(

@@ -296,6 +296,13 @@ import {
   type MobileReaderSegmentFrame,
 } from "@/lib/mobileReaderSegmentedImage";
 import {
+  getMobileReaderSegmentOcrImageSizes,
+  getMobileReaderSegmentOcrPageId,
+  getMobileReaderSegmentOcrPages,
+  getMobileReaderVisibleSegmentIndexes,
+  sameMobileReaderSegmentIndexes,
+} from "@/lib/mobileReaderSegmentOcr";
+import {
   getCachedMobileImageUriSync,
   invalidateCachedMobileImage,
   resolveCachedMobileImageUri,
@@ -599,6 +606,8 @@ const READER_TOP_SCRIM_LOCATIONS = [0, 0.45, 0.8, 1] as const;
 const READER_CAPSULE_GLASS_SPACING = 8;
 /** How long the chrome stays up after a chapter opens before it fades away. */
 const READER_CHROME_AUTO_HIDE_MS = 3000;
+/** A segmented strip's on-screen tiles are re-read once scrolling rests. */
+const READER_SEGMENT_OCR_SETTLE_MS = 180;
 /**
  * The root pose veil over the reader: a dark frost (the stage is black), so a
  * display switch never flashes the light page background over the manga.
@@ -1233,6 +1242,10 @@ export function ReaderScreen() {
   const [readerSegmentedImages, setReaderSegmentedImages] = useState(
     () => new Map<string, MobileCachedSegmentedImageAsset>(),
   );
+  // The tiles of a segmented strip that are on screen: what page-scoped
+  // tools (OCR) read instead of the whole strip.
+  const [readerVisibleSegmentIndexes, setReaderVisibleSegmentIndexes] =
+    useState<number[]>([0]);
   const [
     segmentedLogicalEndReachedIdentity,
     setSegmentedLogicalEndReachedIdentity,
@@ -2176,7 +2189,7 @@ export function ReaderScreen() {
     () => findMobileReaderSpreadIndex(readerSpreads, clampedPageIndex),
     [clampedPageIndex, readerSpreads],
   );
-  const japaneseLearningVisiblePages = useMemo(
+  const readerVisiblePages = useMemo(
     () => (isTwoPageMode
       ? (readerSpreads[currentSpreadIndex] ?? [clampedPageIndex])
       : [clampedPageIndex])
@@ -2184,8 +2197,38 @@ export function ReaderScreen() {
       .filter((page): page is MobileReaderPage => Boolean(page)),
     [isTwoPageMode, readerSpreads, currentSpreadIndex, clampedPageIndex, displayedPages],
   );
+  // What the page-scoped learning tools read. A segmented strip is read as
+  // the tiles on screen, each its own bounded image, so OCR boxes are in the
+  // pixel space of the tile they are drawn on.
+  const japaneseLearningVisiblePages = useMemo(
+    () =>
+      currentSegmentedImage && pageCount === 1 && currentDisplayedPage
+        ? getMobileReaderSegmentOcrPages(
+            currentDisplayedPage,
+            currentSegmentedImage,
+            readerVisibleSegmentIndexes,
+          )
+        : readerVisiblePages,
+    [
+      currentDisplayedPage,
+      currentSegmentedImage,
+      pageCount,
+      readerVisiblePages,
+      readerVisibleSegmentIndexes,
+    ],
+  );
+  const readerSegmentOcrImageSizes = useMemo(
+    () =>
+      currentSegmentedImage && currentDisplayedPage
+        ? getMobileReaderSegmentOcrImageSizes(
+            currentDisplayedPage.id,
+            currentSegmentedImage,
+          )
+        : null,
+    [currentDisplayedPage, currentSegmentedImage],
+  );
   // Any page on screen still without an image: tap zones must not turn past it.
-  const readerVisiblePageLoading = japaneseLearningVisiblePages.some((page) => {
+  const readerVisiblePageLoading = readerVisiblePages.some((page) => {
     if (page.imageProcessing === "pending") return true;
     // A page without an image (text-only) has nothing to wait for.
     if (!page.imageUri) return false;
@@ -2477,11 +2520,52 @@ export function ReaderScreen() {
     setReaderScrollMetrics(emptyMetrics);
   }, [readerScrollMetricsScopeKey]);
 
+  const readerSegmentViewportRef = useRef<{
+    frames: ReadonlyArray<MobileReaderSegmentFrame>;
+    topInset: number;
+  }>({ frames: [], topInset: 0 });
+  const readerVisibleSegmentTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const publishReaderVisibleSegments = useCallback(() => {
+    readerVisibleSegmentTimerRef.current = null;
+    const { frames, topInset } = readerSegmentViewportRef.current;
+    if (frames.length === 0) return;
+    const metrics = readerScrollMetricsRef.current;
+    const next = getMobileReaderVisibleSegmentIndexes(frames, {
+      contentOffset: metrics.contentOffset,
+      viewportLength: metrics.viewportLength,
+      contentInsetTop: topInset,
+    });
+    setReaderVisibleSegmentIndexes((current) =>
+      sameMobileReaderSegmentIndexes(current, next) ? current : next,
+    );
+  }, []);
+  useEffect(
+    () => () => {
+      if (readerVisibleSegmentTimerRef.current) {
+        clearTimeout(readerVisibleSegmentTimerRef.current);
+      }
+    },
+    [],
+  );
+
   const onReaderContinuousScrollMetricsChange = useCallback(
     (metrics: ReaderContinuousScrollMetrics) => {
       const previousMetrics = readerScrollMetricsRef.current;
       readerScrollMetricsRef.current = metrics;
       readerContinuousScrubberRef.current?.updateMetrics(metrics);
+      if (readerSegmentViewportRef.current.frames.length > 0) {
+        // Published once the scroll settles: the tile set scopes OCR, which
+        // must not restart for every tile a fling passes.
+        if (readerVisibleSegmentTimerRef.current) {
+          clearTimeout(readerVisibleSegmentTimerRef.current);
+        }
+        readerVisibleSegmentTimerRef.current = setTimeout(
+          publishReaderVisibleSegments,
+          READER_SEGMENT_OCR_SETTLE_MS,
+        );
+      }
       const layoutRangeChanged =
         previousMetrics.scrollable !== metrics.scrollable ||
         Math.abs(previousMetrics.contentLength - metrics.contentLength) > 1 ||
@@ -2493,7 +2577,7 @@ export function ReaderScreen() {
         setReaderScrollMetrics(metrics);
       }
     },
-    [],
+    [publishReaderVisibleSegments],
   );
   const readerBackgroundColor = "#000000";
   // Only the status bar follows the chrome here. The pop gesture is disabled
@@ -2533,6 +2617,16 @@ export function ReaderScreen() {
     : Math.max(insets.top + 8, 12);
   const readerCompactControlsHeight = 82;
   const readerScrollTopInset = insets.top + 80;
+  // The segmented list's leading padding (see the gallery's chromeTopPadding).
+  const readerSegmentTopInset =
+    readerPose.chrome.kind === "console" ? 0 : readerScrollTopInset;
+  useLayoutEffect(() => {
+    readerSegmentViewportRef.current = {
+      frames: segmentedImageFrames,
+      topInset: readerSegmentTopInset,
+    };
+    publishReaderVisibleSegments();
+  }, [publishReaderVisibleSegments, readerSegmentTopInset, segmentedImageFrames]);
   const readerScrollBottomInset = insets.bottom + readerCompactControlsHeight;
   const readerBottomPadding = showReaderBottomChrome
     ? insets.bottom + readerCompactControlsHeight
@@ -2909,17 +3003,6 @@ export function ReaderScreen() {
       resetJapaneseLearningChat();
     }
   }, [japaneseLearningPluginEnabled, resetJapaneseLearningChat]);
-
-  useEffect(() => {
-    if (!currentSegmentedImage) return;
-    japaneseLearningLifecycleRef.current?.abort("ocr");
-    japaneseLearningOcrRunRef.current += 1;
-    japaneseLearningAutoOcrPageRef.current = currentDisplayedPageIdentity;
-    setJapaneseLearningOcrState({
-      status: "error",
-      detail: strings.reader.pluginJapaneseLearningNoImage,
-    });
-  }, [currentDisplayedPageIdentity, currentSegmentedImage, strings]);
 
   useEffect(() => {
     return () => {
@@ -4397,7 +4480,10 @@ export function ReaderScreen() {
       ? japaneseLearningVisiblePages.find((entry) => entry.id === detection.pageId)
       : currentDisplayedPage;
     if (!detection || !page?.imageUri) return null;
-    const naturalSize = readerImageSizes.get(readerPageIdentityFor(page));
+    // A tile page of a segmented strip carries its own pixel size.
+    const naturalSize =
+      readerSegmentOcrImageSizes?.get(page.id) ??
+      readerImageSizes.get(readerPageIdentityFor(page));
     if (!naturalSize || naturalSize.width <= 0 || naturalSize.height <= 0) return null;
     return {
       imageUri: page.imageUri,
@@ -4414,6 +4500,7 @@ export function ReaderScreen() {
     japaneseLearningSelectedDetectionOrder,
     readerImageSizes,
     readerPageIdentityFor,
+    readerSegmentOcrImageSizes,
   ]);
   const japaneseLearningPresentationProgress = useDerivedValue(() =>
     Math.max(japaneseLearningOcrProgress.value, japaneseLearningChatProgress.value),
@@ -6428,6 +6515,16 @@ export function ReaderScreen() {
       const pageIdentity = readerPageIdentityFor(page);
       const errorKey = `${pageIdentity}:segment:${frame.index}`;
       const cacheKey = readerSegmentedCacheKeyFor(page);
+      // OCR reads each tile as its own image, so its boxes are in this
+      // tile's pixels and are drawn in this tile's frame.
+      const tileOcrPageId = getMobileReaderSegmentOcrPageId(
+        page.id,
+        frame.index,
+        asset.segments.length,
+      );
+      const tileDetections = japaneseLearningOverlayDetections.filter(
+        (detection) => detection.pageId === tileOcrPageId,
+      );
       return (
         <MobileReaderPageFrame
           backgroundColor={readerBackgroundColor}
@@ -6469,13 +6566,32 @@ export function ReaderScreen() {
                 retryReaderImage(pageIdentity);
               });
           }}
-        />
+        >
+          {tileDetections.length > 0 ? (
+            <JapaneseLearningDetectionOverlay
+              detections={tileDetections}
+              frameSize={{ width: frame.width, height: frame.height }}
+              imageSize={{
+                width: frame.segment.width,
+                height: frame.segment.height,
+              }}
+              activeOrder={activeJapaneseLearningTranscriptOrder}
+              selectedOrder={japaneseLearningSelectedDetectionOrder}
+              strings={strings}
+              onSelectDetection={selectJapaneseLearningDetection}
+            />
+          ) : null}
+        </MobileReaderPageFrame>
       );
     },
     [
+      activeJapaneseLearningTranscriptOrder,
       clearReaderImageError,
       currentDisplayedPage,
       currentSegmentedImage,
+      japaneseLearningOverlayDetections,
+      japaneseLearningSelectedDetectionOrder,
+      selectJapaneseLearningDetection,
       loadedReaderSegments,
       measureReaderFirstContent,
       readerConnectivity.offline,
@@ -7203,11 +7319,7 @@ export function ReaderScreen() {
               accessibilityLabel={
                 strings.reader.pluginJapaneseLearningDetectText
               }
-              accessibilityState={{
-                selected,
-                disabled: Boolean(currentSegmentedImage),
-              }}
-              disabled={Boolean(currentSegmentedImage)}
+              accessibilityState={{ selected }}
               onPress={openJapaneseLearningDetectionTool}
               pressedScale={0.98}
               style={[
@@ -8194,11 +8306,6 @@ export function ReaderScreen() {
                   : "app",
             }}
             ocrLoading={japaneseLearningOcrState.status === "loading"}
-            ocrUnavailableDetail={
-              currentSegmentedImage
-                ? strings.reader.pluginJapaneseLearningNoImage
-                : undefined
-            }
             onClose={() => setJapaneseLearningLauncherVisible(false)}
             onDismiss={handleJapaneseLearningLauncherClosed}
             onDetectText={openJapaneseLearningDetectionTool}

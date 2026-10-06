@@ -207,6 +207,7 @@ export function canUseMobileReaderWholeImageTools(input: {
 
 export const MOBILE_READER_SEGMENTED_CAPABILITIES = Object.freeze({
   wholePageZoom: false,
-  japaneseLearningImageTools: false,
+  // Read tile by tile (mobileReaderSegmentOcr), never as the whole strip.
+  japaneseLearningImageTools: true,
   dualReaderOverlay: false,
 });

@@ -1168,8 +1168,9 @@ class NemuAidokuModule : Module() {
                 request.allowLongStripSegments &&
                 request.maxResponseBytes.toLong() >
                   NemuLongStripImageTranscoder.SEGMENTED_MANIFEST_RESERVE_BYTES &&
-                plan.container.displayedDimensions.height >
-                  plan.container.displayedDimensions.width
+                NemuLongStripImagePolicy.isSegmentCandidate(
+                  plan.container.displayedDimensions
+                )
               ) {
                 try {
                   val transcoded = NemuLongStripImageTranscoder.transcodeSegments(

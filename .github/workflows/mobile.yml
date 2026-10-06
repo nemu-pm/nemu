@@ -483,6 +483,12 @@ jobs:
             -o "$test_dir/image-tests"
           "$test_dir/image-tests"
           xcrun swiftc -parse-as-library \
+            modules/nemu-aidoku/ios/NemuImageMetadataPolicy.swift \
+            modules/nemu-aidoku/ios/NemuLongStripImageTranscoder.swift \
+            modules/nemu-aidoku/runtime/iosTest/NemuLongStripImageTranscoderTests.swift \
+            -o "$test_dir/long-strip-tests"
+          "$test_dir/long-strip-tests"
+          xcrun swiftc -parse-as-library \
             modules/nemu-japanese-learning/ios/NemuSharedResource.swift \
             modules/nemu-japanese-learning/iosTest/NemuSharedResourceTests.swift \
             -o "$test_dir/shared-resource-tests"
