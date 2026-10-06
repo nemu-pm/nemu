@@ -86,7 +86,7 @@ describe("mobile Expo native patch policy", () => {
     }
     // A fresh install reproduces it: the hunks are in the repository patch.
     const patch = readFileSync(
-      path.join(repositoryRoot, "patches/@expo%2Fui@58.0.13.patch"), "utf8");
+      path.join(repositoryRoot, "patches/@expo%2Fui@58.0.14.patch"), "utf8");
     expect(patch).toContain("diff --git a/ios/Modifiers/OnGeometryChangeModifier.swift");
     expect(patch).toContain("+      of: { proxy in Geometry(frame: proxy.frame(in: .global), localSize: proxy.size) },");
     expect(patch.match(/^\+\s+const nextWidth = probeFrame\.localWidth \?\? probeFrame\.width;$/gm)?.length).toBe(2);
