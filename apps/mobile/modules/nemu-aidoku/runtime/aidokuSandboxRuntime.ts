@@ -351,6 +351,19 @@ function normalizeRequest(
   };
 }
 
+/**
+ * The final URL the native host reports for a replayed response (after
+ * redirects), as the runtime's `HttpResponse.url`. Anything that is not a
+ * bounded http(s) URL is dropped, and the runtime then falls back to the
+ * request URL, as it does for a host that does not report one.
+ */
+export function normalizeReplayResponseUrl(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.length > MAX_REQUEST_URL_LENGTH) {
+    return undefined;
+  }
+  return isRemoteHttpUrl(value) ? new URL(value).toString() : undefined;
+}
+
 function isRemoteHttpUrl(value: string): boolean {
   try {
     const parsed = new URL(value);
@@ -1343,6 +1356,7 @@ export const NemuAidokuSandbox = {
     status: number,
     headers: unknown,
     dataName: string,
+    finalUrl?: unknown,
   ): Promise<string> {
     try {
       const state = operations.get(operationId);
@@ -1379,7 +1393,15 @@ export const NemuAidokuSandbox = {
       }
       state.replay.push({
         request,
-        response: { status, headers: responseHeaders, body: "", bytes },
+        response: {
+          status,
+          headers: responseHeaders,
+          body: "",
+          bytes,
+          // `net.get_url`: a source that follows a redirecting domain (Raw
+          // FREE) reads where the request landed.
+          url: normalizeReplayResponseUrl(finalUrl),
+        },
       });
       state.replayByteLength += bytes.byteLength;
       state.pendingRequest = null;

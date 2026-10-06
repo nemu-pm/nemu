@@ -152,7 +152,9 @@ private data class NativeHttpResult(
   val status: Int,
   val headers: Map<String, String> = emptyMap(),
   val bytes: ByteArray = ByteArray(0),
-  val error: String? = null
+  val error: String? = null,
+  /** The response's URL after redirects, for a completed response only. */
+  val url: String? = null
 )
 
 private data class NativeHttpFileResult(
@@ -888,7 +890,8 @@ class NemuAidokuModule : Module() {
       status = response.status,
       headers = response.headers,
       bytes = response.bytes,
-      error = response.error
+      error = response.error,
+      url = response.url
     )
   }
 
@@ -1335,7 +1338,9 @@ class NemuAidokuModule : Module() {
             status = httpResponse.code,
             headers = responseHeaders(httpResponse),
             bytes = bytes,
-            error = null
+            error = null,
+            // OkHttp follows redirects: the last hop's request is the final URL.
+            url = httpResponse.request.url.toString()
           )
         }
       } finally {

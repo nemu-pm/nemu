@@ -31,6 +31,10 @@ production `service.nemu.pm` route/custom domain is still attached to the
   are server-owned; caller headers cannot relax them. The body must be a
   standard `authorization_code` PKCE exchange and may contain only
   `grant_type`, `code`, `code_verifier`, `redirect_uri`, and `client_id`.
+- `/proxy` responses carry `X-Nemu-Final-Url`, the target URL after followed
+  redirects (exposed through CORS; an origin's own header of that name is
+  dropped). Proxied browsers otherwise only see the proxy URL, and Aidoku
+  sources read the final URL through `net.get_url`.
 - Returned representations are `private, no-store`. The private in-isolate GET
   cache accepts only explicitly public, fresh, unauthenticated responses and
   accounts for active readers even after eviction.

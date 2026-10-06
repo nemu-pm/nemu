@@ -41,6 +41,9 @@ struct NemuAidokuIOSandboxHTTPResponse {
   let headers: [String: String]
   let data: Data
   let error: String?
+  /// Final URL after redirects; the runtime's `net.get_url` reads it, and
+  /// falls back to the request URL when it is nil.
+  var url: String? = nil
 }
 
 private struct NemuAidokuIOSandboxSession {
@@ -844,7 +847,15 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
         let dataName = "http-\(UUID().uuidString)"
         let append = try invoke(
           method: "appendReplayResponse",
-          args: [operationId, cursor, request, response.status, response.headers, dataName],
+          args: [
+            operationId,
+            cursor,
+            request,
+            response.status,
+            response.headers,
+            dataName,
+            response.url ?? NSNull(),
+          ],
           namedData: [dataName: response.data.base64EncodedString()],
           timeoutSeconds: remainingSeconds(deadline)
         )

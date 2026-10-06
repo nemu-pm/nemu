@@ -105,7 +105,12 @@ internal data class AidokuSandboxHttpResponse(
   val status: Int,
   val headers: Map<String, String>,
   val bytes: ByteArray,
-  val error: String? = null
+  val error: String? = null,
+  /**
+   * Final URL after redirects; the runtime's `net.get_url` reads it, and
+   * falls back to the request URL when it is null.
+   */
+  val url: String? = null
 )
 
 internal data class AidokuSandboxStatus(
@@ -972,7 +977,8 @@ internal class AidokuSandboxManager(
                   "${quote(operationId)},$cursor," +
                   "JSON.parse(${quote(requestJson.toString())}),${response.status}," +
                   "JSON.parse(${quote(JSONObject(response.headers).toString())})," +
-                  "${quote(dataName)})",
+                  "${quote(dataName)}," +
+                  "${response.url?.let { quote(it) } ?: "null"})",
                 remainingMillis(deadline)
               )
               requireStatus(append, "appended")

@@ -9,6 +9,7 @@ import {
 import {
   applyMobileAidokuManifestDefaults,
   extractMobileAidokuSettingsDefaults,
+  normalizeReplayResponseUrl,
 } from "./aidokuSandboxRuntime";
 
 describe("mobile Aidoku sandbox settings defaults", () => {
@@ -238,5 +239,32 @@ describe("mobile Aidoku sandbox manifest defaults", () => {
       config: { allowsBaseUrlSelect: true },
     } as never);
     expect(explicit.url).toBe("https://mirror.example");
+  });
+});
+
+describe("mobile Aidoku sandbox replay response url", () => {
+  test("keeps the final url the native host reports after redirects", () => {
+    // Raw FREE sends HEAD https://rawfree.bid and reads where it landed.
+    expect(normalizeReplayResponseUrl("https://rawfree.llc/")).toBe(
+      "https://rawfree.llc/",
+    );
+    expect(normalizeReplayResponseUrl("http://example.com/a b?q=1")).toBe(
+      "http://example.com/a%20b?q=1",
+    );
+  });
+
+  test("drops anything but a bounded http(s) url, so the runtime uses the request url", () => {
+    for (const value of [
+      undefined,
+      null,
+      42,
+      "",
+      "not a url",
+      "file:///etc/passwd",
+      "javascript:alert(1)",
+      `https://example.com/${"a".repeat(16 * 1024)}`,
+    ]) {
+      expect(normalizeReplayResponseUrl(value)).toBeUndefined();
+    }
   });
 });

@@ -37,6 +37,8 @@ interface CacheEntry {
   expiresAt: number;
   sizeBytes: number;
   ageAtResponseMs: number;
+  /** The URL the response came from after redirects (`X-Nemu-Final-Url`). */
+  finalUrl: string;
   activeReaders: number;
   inCache: boolean;
   accounted: boolean;
@@ -65,6 +67,10 @@ const PROXY_MAX_CACHE_KEY_BYTES = 64 * 1024;
 const PROXY_CACHE_ENTRY_OVERHEAD_BYTES = 512;
 const PROXY_REDIRECT_POLICY_HEADER = "x-nemu-proxy-redirect";
 const PROXY_MAX_RESPONSE_BYTES_HEADER = "x-nemu-proxy-max-response-bytes";
+// The target URL the response came from after followed redirects. Proxied
+// clients cannot see it otherwise (XHR/fetch report the proxy's own URL), and
+// Aidoku sources read it through `net.get_url`.
+const PROXY_FINAL_URL_HEADER = "X-Nemu-Final-Url";
 const PROXY_UPSTREAM_TIMEOUT_MS = 30_000;
 const PROXY_MAX_UPSTREAM_TIMEOUT_MS = 60_000;
 const PROXY_POLICY_VERSION = 2;
@@ -584,7 +590,11 @@ function sharedCacheFreshness(
 
 function isProxyOwnedResponseHeader(name: string): boolean {
   const normalized = name.toLowerCase();
-  return normalized === "x-cache" || normalized.startsWith("x-ratelimit-");
+  return (
+    normalized === "x-cache" ||
+    normalized === PROXY_FINAL_URL_HEADER.toLowerCase() ||
+    normalized.startsWith("x-ratelimit-")
+  );
 }
 
 function isOriginScopedResponseHeader(name: string): boolean {
@@ -918,7 +928,7 @@ async function fetchWithValidatedRedirects(args: {
   proxyOrigins: string[];
   followRedirects: boolean;
   signal: AbortSignal;
-}): Promise<Response> {
+}): Promise<{ response: Response; finalUrl: URL }> {
   let currentUrl = new URL(args.url);
   currentUrl.hash = "";
   let method = args.method;
@@ -939,13 +949,15 @@ async function fetchWithValidatedRedirects(args: {
       cache: "no-store",
       signal: args.signal,
     });
-    if (!isRedirectStatus(response.status)) return response;
+    if (!isRedirectStatus(response.status)) {
+      return { response, finalUrl: currentUrl };
+    }
     if (!args.followRedirects) {
       await response.body?.cancel().catch(() => undefined);
       throw new ProxyRedirectError("Proxy redirect refused by request policy.");
     }
     const location = response.headers.get("location");
-    if (!location) return response;
+    if (!location) return { response, finalUrl: currentUrl };
     if (redirectCount >= PROXY_MAX_REDIRECTS) {
       await response.body?.cancel().catch(() => undefined);
       throw new ProxyRedirectError("Proxy redirect limit exceeded.");
@@ -1064,7 +1076,9 @@ const baseCorsHeaders = {
   "Access-Control-Allow-Methods":
     "GET, POST, PUT, DELETE, OPTIONS, HEAD, PATCH",
   "Access-Control-Allow-Headers": "*",
-  "Access-Control-Expose-Headers": "*",
+  // `*` does not cover credentialed requests, so name the header a proxied
+  // client must be able to read.
+  "Access-Control-Expose-Headers": `*, ${PROXY_FINAL_URL_HEADER}`,
   "Access-Control-Max-Age": "86400",
 };
 
@@ -1387,6 +1401,7 @@ async function handleRequest(
           status: cached.status,
           headers: buildProxyResponseHeaders(cachedHeaders, corsHeaders, {
             "X-Cache": "HIT",
+            [PROXY_FINAL_URL_HEADER]: cached.finalUrl,
             "X-RateLimit-Limit": config.rateLimitRequests.toString(),
             "X-RateLimit-Remaining": rateLimit.remaining.toString(),
           }),
@@ -1401,6 +1416,7 @@ async function handleRequest(
     let body: ArrayBuffer | undefined;
     let releaseRequestBuffer: (() => void) | undefined;
     let res: Response;
+    let finalUrl: URL;
     try {
       if (req.method !== "GET" && req.method !== "HEAD") {
         releaseRequestBuffer = reserveTransientBuffer(
@@ -1426,7 +1442,7 @@ async function handleRequest(
       );
       upstreamRequestTimeMs = Date.now();
       try {
-        res = await fetchWithValidatedRedirects({
+        ({ response: res, finalUrl } = await fetchWithValidatedRedirects({
           url: canonicalTarget,
           method: req.method,
           headers,
@@ -1440,7 +1456,7 @@ async function handleRequest(
               ?.trim()
               .toLowerCase() !== "manual",
           signal: upstreamAbortScope.signal,
-        });
+        }));
       } catch (error) {
         throw upstreamAbortScope.translate(error);
       }
@@ -1451,6 +1467,7 @@ async function handleRequest(
 
     const proxyMetadataHeaders: Record<string, string> = {
       "X-Cache": "MISS",
+      [PROXY_FINAL_URL_HEADER]: finalUrl.toString(),
       "X-RateLimit-Limit": config.rateLimitRequests.toString(),
       "X-RateLimit-Remaining": rateLimit.remaining.toString(),
     };
@@ -1591,6 +1608,7 @@ async function handleRequest(
           expiresAt,
           sizeBytes: entrySize,
           ageAtResponseMs: freshness.ageAtResponseMs,
+          finalUrl: finalUrl.toString(),
           activeReaders: 0,
           inCache: true,
           accounted: true,

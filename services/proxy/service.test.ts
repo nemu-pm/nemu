@@ -547,6 +547,97 @@ describe("proxy redirect and body policy", () => {
     expect(headersByHop[1]?.get("accept")).toBe("text/plain");
   });
 
+  test("reports the final URL after followed redirects and exposes it to browsers", async () => {
+    // Raw FREE probes its old domain with HEAD and sends everything else to
+    // wherever that landed.
+    const requested: string[] = [];
+    globalThis.fetch = (async (input) => {
+      requested.push(String(input));
+      return requested.length === 1
+        ? new Response(null, {
+            status: 301,
+            headers: { Location: "https://rawfree.llc/" },
+          })
+        : new Response(null, {
+            status: 200,
+            // An origin cannot speak for the proxy.
+            headers: { "X-Nemu-Final-Url": "https://spoofed.example/" },
+          });
+    }) as typeof fetch;
+
+    const response = await handleRequest(
+      proxyRequest("https://rawfree.bid", {
+        method: "HEAD",
+        headers: { origin: "https://nemu.pm" },
+      }),
+      env,
+    );
+    expect(response.status).toBe(200);
+    expect(requested).toEqual(["https://rawfree.bid/", "https://rawfree.llc/"]);
+    expect(response.headers.get("x-nemu-final-url")).toBe("https://rawfree.llc/");
+    const exposed = (response.headers.get("access-control-expose-headers") ?? "")
+      .split(",")
+      .map((name) => name.trim().toLowerCase());
+    expect(exposed).toContain("x-nemu-final-url");
+  });
+
+  test("reports the target itself as the final URL without a redirect, cached or not", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      return new Response("cached", {
+        headers: {
+          "cache-control": "public, max-age=300",
+          "content-length": "6",
+        },
+      });
+    }) as typeof fetch;
+
+    const target = "https://public.example/final-url?page=2";
+    const miss = await handleRequest(proxyRequest(target), env);
+    expect(miss.headers.get("x-cache")).toBe("MISS");
+    expect(miss.headers.get("x-nemu-final-url")).toBe(target);
+    expect(await miss.text()).toBe("cached");
+
+    const hit = await handleRequest(proxyRequest(target), env);
+    expect(hit.headers.get("x-cache")).toBe("HIT");
+    expect(hit.headers.get("x-nemu-final-url")).toBe(target);
+    expect(await hit.text()).toBe("cached");
+    expect(calls).toBe(1);
+  });
+
+  test("keeps a redirected response's final URL on a cache hit", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      return calls === 1
+        ? new Response(null, {
+            status: 302,
+            headers: { Location: "/moved/here" },
+          })
+        : new Response("moved", {
+            headers: {
+              "cache-control": "public, max-age=300",
+              "content-length": "5",
+            },
+          });
+    }) as typeof fetch;
+
+    const target = "https://public.example/redirected-cache";
+    const miss = await handleRequest(proxyRequest(target), env);
+    expect(miss.headers.get("x-nemu-final-url")).toBe(
+      "https://public.example/moved/here",
+    );
+    await miss.text();
+    const hit = await handleRequest(proxyRequest(target), env);
+    expect(hit.headers.get("x-cache")).toBe("HIT");
+    expect(hit.headers.get("x-nemu-final-url")).toBe(
+      "https://public.example/moved/here",
+    );
+    await hit.text();
+    expect(calls).toBe(2);
+  });
+
   test("enforces the caller's bounded response limit", async () => {
     globalThis.fetch = (async () =>
       new Response(new Uint8Array(16), {

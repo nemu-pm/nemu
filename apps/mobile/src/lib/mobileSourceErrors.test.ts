@@ -524,8 +524,8 @@ describe("native exception text never headlines a source error", () => {
 
 describe("source failures that mention WebAssembly", () => {
   // Captured from the iOS sandbox's engine (JSC) loading Raw FREE v11, whose
-  // package imports `net.get_url`, a host function aidoku-runtime 0.12.0 does
-  // not provide.
+  // package imports `net.get_url`, a host function aidoku-runtime gained only
+  // in 0.13.0. Any future missing import fails the same way.
   const rawFreeLinkError =
     "import function net:get_url must be callable (evaluating 'new WebAssembly.Instance(module, importObject)')";
   // JSC traps raised inside a source's own Wasm (a Rust panic ends in

@@ -169,6 +169,9 @@ private struct NemuNativeHttpResult {
   var headers: [String: String]
   var data: Data
   var error: String?
+  /// The response's URL after redirects (`HTTPURLResponse.url`), for a
+  /// completed response only.
+  var url: String? = nil
 }
 
 private struct NemuNativeHttpFileResult {
@@ -1701,7 +1704,8 @@ public class NemuAidokuModule: Module {
       status: result.status,
       headers: result.headers,
       data: result.data,
-      error: result.error
+      error: result.error,
+      url: result.url
     )
   }
 
@@ -2300,7 +2304,8 @@ public class NemuAidokuModule: Module {
             status: httpResponse?.statusCode ?? 0,
             headers: headers,
             data: data,
-            error: nil
+            error: nil,
+            url: httpResponse?.url?.absoluteString
           ))
         } catch {
           operation.finish(NemuNativeHttpResult(
@@ -2331,7 +2336,8 @@ public class NemuAidokuModule: Module {
         status: error == nil ? (httpResponse?.statusCode ?? 0) : 0,
         headers: responseHeaders(from: httpResponse),
         data: error == nil ? (data ?? Data()) : Data(),
-        error: error?.localizedDescription
+        error: error?.localizedDescription,
+        url: error == nil ? httpResponse?.url?.absoluteString : nil
       ))
     }
     operation.start(
@@ -2551,7 +2557,8 @@ public class NemuAidokuModule: Module {
         status: status,
         headers: headers,
         data: data ?? Data(),
-        error: nil
+        error: nil,
+        url: httpResponse?.url?.absoluteString
       ))
     }
     sessionContext.registerRedirectPolicy(
@@ -2715,7 +2722,8 @@ public class NemuAidokuModule: Module {
           status: httpResponse?.statusCode ?? 0,
           headers: headers,
           data: responseData,
-          error: nil
+          error: nil,
+          url: httpResponse?.url?.absoluteString
         ))
       } catch {
         result.set(NemuNativeHttpResult(
