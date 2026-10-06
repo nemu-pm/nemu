@@ -269,10 +269,10 @@ index f56e271..aefe956 100644
      /**
       * The RN View to be hosted.
 diff --git a/build/swift-ui/modifiers/index.d.ts b/build/swift-ui/modifiers/index.d.ts
-index 0110633..a6438a8 100644
+index 2c9f55d..a3f1d6f 100644
 --- a/build/swift-ui/modifiers/index.d.ts
 +++ b/build/swift-ui/modifiers/index.d.ts
-@@ -187,7 +187,10 @@ export declare const onAppear: (handler: () => void) => ModifierConfig;
+@@ -188,7 +188,10 @@ export declare const onAppear: (handler: () => void) => ModifierConfig;
  export declare const onDisappear: (handler: () => void) => ModifierConfig;
  /**
   * Calls the handler whenever the view's geometry changes, with its position and size.
@@ -284,7 +284,7 @@ index 0110633..a6438a8 100644
   * @param handler - Function called with the new frame.
   * @see Official [SwiftUI documentation](https://developer.apple.com/documentation/swiftui/view/ongeometrychange(for:of:action:)).
   */
-@@ -196,6 +199,8 @@ export declare const onGeometryChange: (handler: (frame: {
+@@ -197,6 +200,8 @@ export declare const onGeometryChange: (handler: (frame: {
      y: number;
      width: number;
      height: number;
@@ -902,10 +902,10 @@ index a0b56ba..8af6ce3 100644
    /**
     * The RN View to be hosted.
 diff --git a/src/swift-ui/modifiers/index.ts b/src/swift-ui/modifiers/index.ts
-index 3f68e4d..46a3313 100644
+index 24366b9..7a06390 100644
 --- a/src/swift-ui/modifiers/index.ts
 +++ b/src/swift-ui/modifiers/index.ts
-@@ -274,16 +274,33 @@ export const onDisappear = (handler: () => void) =>
+@@ -275,16 +275,33 @@ export const onDisappear = (handler: () => void) =>
  
  /**
   * Calls the handler whenever the view's geometry changes, with its position and size.
