@@ -424,6 +424,7 @@ function ReaderNotebookFilmstrip({
         <FlatList
           ref={listRef}
           horizontal
+          scrollsToTop={false}
           data={order}
           keyExtractor={(index) => String(index)}
           renderItem={renderItem}

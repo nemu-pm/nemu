@@ -1350,6 +1350,7 @@ export function MobileMetadataEditorSheet({
 
                     <ScrollView
                       horizontal
+                      scrollsToTop={false}
                       keyboardShouldPersistTaps="handled"
                       showsHorizontalScrollIndicator={false}
                       contentContainerStyle={styles.chipRowContent}
@@ -1424,6 +1425,7 @@ export function MobileMetadataEditorSheet({
             <View accessibilityRole="radiogroup">
               <ScrollView
                 horizontal
+                scrollsToTop={false}
                 keyboardShouldPersistTaps="handled"
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.chipRowContent}

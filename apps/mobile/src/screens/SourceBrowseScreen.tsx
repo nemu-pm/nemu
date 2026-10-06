@@ -677,6 +677,7 @@ function SourceFilterChipRow({
     <View style={[styles.sourceFilterChipRowFrame, bleed.frame]}>
       <ScrollView
         horizontal
+        scrollsToTop={false}
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={[
           styles.sourceFilterChipRowContent,
@@ -860,7 +861,7 @@ function SourceFilterControl({
         >
           {filterLabel(filter)}
         </Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <ScrollView horizontal scrollsToTop={false} showsHorizontalScrollIndicator={false}>
           <View
             accessibilityLabel={filterLabel(filter)}
             accessibilityRole="radiogroup"
@@ -918,7 +919,7 @@ function SourceFilterControl({
         >
           {filterLabel(filter)}
         </Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <ScrollView horizontal scrollsToTop={false} showsHorizontalScrollIndicator={false}>
           <View
             accessibilityLabel={filterLabel(filter)}
             accessibilityRole="radiogroup"
@@ -1038,7 +1039,7 @@ function SourceFilterControl({
         >
           {filterLabel(filter)}
         </Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <ScrollView horizontal scrollsToTop={false} showsHorizontalScrollIndicator={false}>
           <View style={styles.sourceFilterChipRow}>
             {visibleOptions.map((option, index) => {
               const optionValue = filterOptionValue(filter, index);
@@ -3156,6 +3157,7 @@ export function SourceBrowseScreen() {
               <Animated.ScrollView
                 accessibilityRole="tablist"
                 horizontal
+                scrollsToTop={false}
                 onContentSizeChange={(width) =>
                   setListingTabsContentWidth(width)
                 }

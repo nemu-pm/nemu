@@ -359,6 +359,7 @@ function SourceFilterBar({
     <View style={[styles.sourceFilterFrame, bleed.frame]}>
       <ScrollView
         horizontal
+        scrollsToTop={false}
         onContentSizeChange={(width) => setContentWidth(width)}
         onLayout={(event) => setViewportWidth(event.nativeEvent.layout.width)}
         onScroll={(event) => setScrollX(event.nativeEvent.contentOffset.x)}

@@ -700,6 +700,7 @@ const HorizontalLinkSection = memo(function HorizontalLinkSection({
       />
       <FlatList
         horizontal
+        scrollsToTop={false}
         data={showScrollerSkeleton ? [] : links}
         keyExtractor={(link, index) => `${link.title}:${index}`}
         ListEmptyComponent={showScrollerSkeleton ? HomeScrollerSkeletonItems : undefined}
@@ -903,6 +904,7 @@ function FeaturedSection({
           <ScrollView
             ref={pagerRef}
             horizontal
+            scrollsToTop={false}
             // Flat: page by card. Book: the viewport spans both panes and snaps
             // by one pane, so card k rests left of the fold and k + 1 right of it.
             pagingEnabled={!foldAligned}
@@ -1640,6 +1642,7 @@ const BannerSection = memo(function BannerSection({
       />
       <FlatList
         horizontal
+        scrollsToTop={false}
         data={links}
         keyExtractor={(link, index) => `${link.title}:${index}`}
         ListEmptyComponent={() => (
@@ -1944,6 +1947,7 @@ export function SourceHomeSkeletonView({
         />
         <ScrollView
           horizontal
+          scrollsToTop={false}
           showsHorizontalScrollIndicator={false}
           style={bleed.frame}
           contentContainerStyle={[styles.horizontalContent, bleed.content]}

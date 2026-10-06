@@ -54,6 +54,7 @@ export function MobileSourceSelector({
       <ScrollView
         ref={scrollRef}
         horizontal
+        scrollsToTop={false}
         accessibilityRole="tablist"
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}

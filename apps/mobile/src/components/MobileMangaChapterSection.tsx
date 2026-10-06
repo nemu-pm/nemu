@@ -168,6 +168,7 @@ export function MobileMangaChapterToolbar({
   return (
     <ScrollView
       horizontal
+      scrollsToTop={false}
       showsHorizontalScrollIndicator={false}
       contentContainerStyle={styles.toolbarRow}
     >

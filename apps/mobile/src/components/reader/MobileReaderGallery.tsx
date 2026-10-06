@@ -1484,6 +1484,9 @@ export function MobileReaderGallery({
       {...pagingBehaviorProps}
       directionalLockEnabled
       horizontal={pagedMode}
+      // A status-bar tap returns a long strip to its first page; the paged
+      // (horizontal) list has no top to return to and must not claim it.
+      scrollsToTop={!pagedMode}
       initialNumToRender={segmentedMode ? 2 : pagedMode ? 3 : 5}
       maxToRenderPerBatch={segmentedMode ? 2 : 5}
       windowSize={segmentedMode ? 3 : 7}
