@@ -1269,8 +1269,6 @@ export const mobileStringsZh: MobileStrings = {
     layoutShelf: "书架",
     layoutGrid: "网格",
     layoutPickerLabel: "书库布局",
-    nowReading: "正在阅读",
-    nowReadingHint: "从上次读到的页面打开阅读器。",
     chapterFinished: "{{chapter}} 读完了",
     continueAction: "继续",
     lastReadJustNow: "刚刚",

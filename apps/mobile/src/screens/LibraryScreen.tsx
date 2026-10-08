@@ -20,8 +20,6 @@ import {
   useWindowDimensions,
   View,
   type ListRenderItemInfo,
-  type NativeScrollEvent,
-  type NativeSyntheticEvent,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { BottomSheetTextInput } from "@expo/ui/community/bottom-sheet";
@@ -114,10 +112,6 @@ import { mobileDesignExploreFlag, useMobileDesignExplore } from "@/lib/mobileDes
 import { getMobileShelfRow, MOBILE_SHELF } from "@/lib/mobileLibraryShelf";
 import { MobileCollectionFolders } from "@/components/explore/MobileCollectionFolders";
 import { useMobileExploreCoverPreference } from "@/components/explore/mobileExploreCoverPreference";
-import {
-  reportMobileLibraryScroll,
-  setMobileLibraryFocused,
-} from "@/components/explore/mobileNowReadingVisibility";
 import { hasMobileUserCover, mobileExploreCoverOwnerUrl, pushMobileExploreDetail } from "@/components/explore/mobileExploreCover";
 import { ContentScrollMarker, ZoomSource } from "../../modules/nemu-window-layout";
 import { useReducedMotion } from "react-native-reanimated";
@@ -1998,25 +1992,6 @@ export function LibraryScreen({
   // Design-explore (EXPO_PUBLIC_NEMU_DESIGN_EXPLORE): continue-reading cards
   // above the grid and a bookshelf layout for it, on compact iPhone widths.
   const designExplore = useMobileDesignExplore();
-  // Design-explore: the Now Reading accessory can step aside while this
-  // page's first card shows the same title (`mobileNowReadingVisibility`).
-  useFocusEffect(
-    useCallback(() => {
-      if (!designExplore) return undefined;
-      setMobileLibraryFocused(true);
-      return () => setMobileLibraryFocused(false);
-    }, [designExplore]),
-  );
-  const onGridScroll = gridScrollAnchor.onScroll;
-  const onExploreLibraryScroll = useCallback(
-    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      onGridScroll(event);
-      const { contentOffset, contentInset } = event.nativeEvent;
-      reportMobileLibraryScroll(contentOffset.y + (contentInset?.top ?? 0));
-    },
-    [onGridScroll],
-  );
-
   const [shelfLayout, setShelfLayoutState] = useState(mobileLibraryShelfLayoutDefault);
   // The switch and the folders give their own press haptics.
   // Shelf and Grid draw the covers at the same size in the same columns, so
@@ -2476,7 +2451,7 @@ export function LibraryScreen({
       onViewableItemsChanged={gridScrollAnchor.onViewableItemsChanged}
       viewabilityConfig={gridScrollAnchor.viewabilityConfig}
       onScrollToIndexFailed={gridScrollAnchor.onScrollToIndexFailed}
-      onScroll={designExplore ? onExploreLibraryScroll : gridScrollAnchor.onScroll}
+      onScroll={gridScrollAnchor.onScroll}
       // The handler only tracks the adjusted top inset for the anchor
       // restore, so it does not need a frame-rate feed.
       scrollEventThrottle={100}

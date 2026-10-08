@@ -1153,8 +1153,6 @@ export type MobileStrings = {
     layoutShelf: string;
     layoutGrid: string;
     layoutPickerLabel: string;
-    nowReading: string;
-    nowReadingHint: string;
     chapterFinished: string;
     continueAction: string;
     lastReadJustNow: string;

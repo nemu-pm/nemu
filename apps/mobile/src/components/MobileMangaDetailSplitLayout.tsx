@@ -94,7 +94,7 @@ export function MobileMangaDetailSplitLayout<ItemT>({
   const { height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const resting = useMobileExploreRestingFrame();
-  // UIKit's compact-height safe area omits the floating tab/accessory band.
+  // UIKit's compact-height safe area omits the floating tab bar band.
   // Add only the omitted part to the normal scroll-end margin.
   const exploreBottom = Platform.OS === "ios" && mobileDesignExploreFlag
     ? { paddingBottom: 24 + Math.max(0, height - resting.edge - insets.bottom) }

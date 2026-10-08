@@ -102,7 +102,7 @@ export function mobileExploreZoomHref(id: string, zoomId?: string | null, source
  * handed the title and the cover as the cell painted them, so the commit the
  * stack pushes already shows them (see `mobileExploreDetailHandoff`).
  * `sourceId` opens the page on that source's chapters: a Continue Reading
- * card (and the Now Reading accessory) open it on the source being read, so
+ * card opens it on the source being read, so
  * the page's Up next, Latest and source agree with the card that was tapped.
  */
 export function pushMobileExploreDetail(

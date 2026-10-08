@@ -46,7 +46,7 @@ describe("collection folder width", () => {
 });
 
 describe("collections at rest", () => {
-  test("the folders show at least 40 % of their art, and never so much that their names sit in the accessory's slit", () => {
+  test("the folders show at least 40 % of their art, and never so much that their names sit in the strip above the tab bar", () => {
     // Air: 380 pt of content, 164 pt folders.
     const art = Math.round(getMobileCollectionFolderWidth(380, MOBILE_COLLECTION_FOLDER_GAP) * MOBILE_COLLECTION_FOLDER_ASPECT);
     expect(getMobileCollectionFolderPeek(380)).toEqual({

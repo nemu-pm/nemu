@@ -63,13 +63,6 @@ import {
   useExploreDissolveHidden,
 } from "./mobileExploreDissolve";
 import { MobileOdometerText } from "./MobileOdometerText";
-import {
-  mobileNowReadingMode,
-  reportMobileContinueCardsFrame,
-  reportMobileFirstContinueCardActive,
-  reportMobileNowReadingCompactHeight,
-} from "./mobileNowReadingVisibility";
-import { getMobileNowReadingHideUnder, isMobileNowReadingCompactHeight } from "@/lib/mobileNowReadingCover";
 import { useMobileExploreRowBleed } from "./useMobileExploreRowBleed";
 import {
   getMobileCollectionFolderPeek,
@@ -134,7 +127,7 @@ const WASH_OVERSCAN = 320;
 const WASH_SWITCH_MS = 220;
 /**
  * How far the cover window may give or take so the section after the cards
- * rests clear of the accessory (share of the card width, tall card), and the
+ * rests clear of the tab bar (share of the card width, tall card), and the
  * share of its natural height a wide card's cover window can give up.
  */
 const TALL_ART_RANGE = [0.66, 1.15] as const;
@@ -216,46 +209,17 @@ export function MobileContinueReadingCarousel({
   const { cardWidth, interval } = geometry;
   const turns = geometry.turns && !reducedMotion;
 
-  // Resting content clears the accessory (mobileExploreRestingFit): the
+  // Resting content clears the tab bar (mobileExploreRestingFit): the
   // cover window gives up or takes height so the cards rest whole above the
-  // accessory and the next section either peeks with its heading and the top
+  // bar and the next section either peeks with its heading and the top
   // of its row or starts under it. Never mid-card, never a bare heading.
   const rest = useMobileExploreRestingFrame();
-  // With the accessory stepping aside while these cards show its title
-  // (`mobileNowReadingMode` "away"), the page rests without it: fit against
-  // the lowest edge seen in this window, so the cards do not resize above the
-  // viewport each time the accessory comes and goes.
-  const [lowestEdge, setLowestEdge] = useState({ key: rest.windowKey, edge: rest.edge });
-  if (lowestEdge.key !== rest.windowKey || rest.edge > lowestEdge.edge) {
-    setLowestEdge({ key: rest.windowKey, edge: rest.edge });
-  }
-  // A short window (a phone in landscape) cannot rest the cards clear of the
-  // accessory, so it steps aside there in every mode and the cards fit the
-  // accessory-free edge too.
-  const compactHeight = isMobileNowReadingCompactHeight(windowHeight);
-  useEffect(() => {
-    reportMobileNowReadingCompactHeight(compactHeight);
-  }, [compactHeight]);
-  const fitEdge =
-    (mobileNowReadingMode === "away" || compactHeight) && lowestEdge.key === rest.windowKey
-      ? Math.max(lowestEdge.edge, rest.edge)
-      : rest.edge;
   const sectionRef = useRef<ViewInstance>(null);
   const { top: restTop, onLayout: onRestLayout } = useMobileExploreRestingTop(sectionRef, rest.windowKey);
-  const [sectionHeight, setSectionHeight] = useState<number | null>(null);
-  useEffect(() => {
-    if (restTop === null || sectionHeight === null || !count) {
-      reportMobileContinueCardsFrame(null);
-      return undefined;
-    }
-    // The bar ends where the page's first content would rest, less its 17 pt step.
-    reportMobileContinueCardsFrame(getMobileNowReadingHideUnder(restTop + sectionHeight, rest.topEstimate - 17));
-    return () => reportMobileContinueCardsFrame(null);
-  }, [count, rest.topEstimate, restTop, sectionHeight]);
   // The tallest card's text sets the row's height (cards stretch to it): a
   // first card whose title sits in its window (a title card) has the
   // shortest text, and fitting to it alone let the row run 80 pt past the
-  // fit at large text sizes, the next heading under the accessory.
+  // fit at large text sizes, the next heading under the tab bar.
   const [textHeights, setTextHeights] = useState<Record<number, number>>({});
   const onCardText = useMemo(
     () =>
@@ -272,7 +236,7 @@ export function MobileContinueReadingCarousel({
   // Section headings grow with the text size (to their cap).
   const fontScale = PixelRatio.getFontScale();
   const titleBlock = getMobileExploreSectionHeadingHeight(fontScale);
-  // How much of the next section must show above the accessory when any of
+  // How much of the next section must show above the tab bar when any of
   // it does: its heading and the top half of its row.
   const nextPeek =
     next === null
@@ -315,14 +279,14 @@ export function MobileContinueReadingCarousel({
       });
     }
     const top = restTop ?? rest.topEstimate;
-    const fit = fitMobileRestingContent({ top, edge: fitEdge, blocks });
+    const fit = fitMobileRestingContent({ top, edge: rest.edge, blocks });
     const nextGap = fit.gaps.next ?? SECTION_GAP;
     // A wide window's bars leave its sides open: a section dropped under the
     // edge goes under the window's bottom, not beside the tab bar.
     const under =
       nextPeek === null
         ? 0
-        : getMobileExploreUnderPush({ top: top + fit.heights.cards! + nextGap, edge: fitEdge, windowWidth, windowHeight });
+        : getMobileExploreUnderPush({ top: top + fit.heights.cards! + nextGap, edge: rest.edge, windowWidth, windowHeight });
     return { art: naturalArt + (fit.heights.cards! - cards), push: nextGap - SECTION_GAP + under };
   })();
   const artHeight = artFit?.art ?? null;
@@ -354,7 +318,6 @@ export function MobileContinueReadingCarousel({
           count,
         );
         if (step.index !== activeIndex.value) {
-          if ((step.index === 0) !== (activeIndex.value === 0)) runOnJS(reportMobileFirstContinueCardActive)(step.index === 0);
           activeIndex.value = step.index;
         }
         if (step.tick) runOnJS(tick)();
@@ -390,11 +353,7 @@ export function MobileContinueReadingCarousel({
   return (
     <View
       ref={sectionRef}
-      onLayout={(event) => {
-        onRestLayout();
-        const height = Math.round(event.nativeEvent.layout.height);
-        setSectionHeight((current) => (current === height ? current : height));
-      }}
+      onLayout={onRestLayout}
       style={[styles.section, artFit && artFit.push > 0 ? { marginBottom: artFit.push } : null]}
     >
       <View
@@ -830,7 +789,7 @@ const ContinueCard = memo(function ContinueCard({
                 uriOwnership="source"
                 cacheKind="cover"
                 source={cover}
-                // No fade inside the native zoom source (see MobileNowReadingAccessory).
+                // No fade inside the native zoom source.
                 fadeIn={false}
                 fallback={<MobileExploreCoverPlaceholder title={title} width={sideCoverWidth} />}
                 style={styles.coverImage}

@@ -1,7 +1,7 @@
 /**
- * "Resting content clears the accessory" (design-explore): how a page's first
- * screenful is sized so the top edge of what floats over its bottom (the Now
- * Reading accessory, or the tab bar alone) never cuts through something that
+ * "Resting content clears the tab bar" (design-explore): how a page's first
+ * screenful is sized so the top edge of what floats over its bottom (the tab
+ * bar) never cuts through something that
  * has to be read whole: a row of facts, the action buttons, a card, a section
  * heading with nothing under it.
  *
@@ -19,7 +19,7 @@
  *   `maxPush`), until it starts under the edge instead.
  *
  * When neither works (a very short window), the natural sizes stand and
- * `clear` is false. Pure maths; every surface that sits above the accessory
+ * `clear` is false. Pure maths; every surface that sits above the tab bar
  * (the detail hero, the library's cards) feeds it its own blocks.
  */
 
@@ -226,24 +226,25 @@ export function fitMobileRestingContent({
  * would run under the bar.
  */
 export const MOBILE_COMPACT_TAB_BAR_BAND = 64;
-/** The accessory above that bar, with its gap (y 300–348 over the bar at 356). */
-export const MOBILE_COMPACT_ACCESSORY_BAND = 56;
+
+/** Windows shorter than this are compact height (an iPhone in landscape is 402–440 pt). */
+export const MOBILE_COMPACT_HEIGHT = 500;
+
+export function isMobileCompactHeight(windowHeight: number): boolean {
+  return windowHeight > 0 && windowHeight < MOBILE_COMPACT_HEIGHT;
+}
 
 /**
  * Where a tab page's resting content must end: the window less its bottom
- * inset (which carries the tab bar and the accessory in a regular-height
- * window), and never lower than the compact tab bar's top (and the
- * accessory's, when it shows) in a short one.
+ * inset (which carries the tab bar in a regular-height window), and never
+ * lower than the compact tab bar's top in a short one.
  */
 export function getMobileExploreRestingEdge(
   windowHeight: number,
   insetBottom: number,
   compactHeight: boolean,
-  accessoryShown = false,
 ): number {
-  const band = compactHeight
-    ? MOBILE_COMPACT_TAB_BAR_BAND + (accessoryShown ? MOBILE_COMPACT_ACCESSORY_BAND : 0)
-    : 0;
+  const band = compactHeight ? MOBILE_COMPACT_TAB_BAR_BAND : 0;
   return windowHeight - Math.max(insetBottom, band);
 }
 

@@ -42,8 +42,8 @@ function measure(view: ViewInstance): Promise<{ x: number; y: number; width: num
 }
 
 /**
- * Hosts the dust: a window-level overlay (above the tab bar and the Now
- * Reading accessory, so drifting dust is never cut by them) that exists only
+ * Hosts the dust: a window-level overlay (above the tab bar, so
+ * drifting dust is never cut by it) that exists only
  * while dust is in the air, never takes touches and is not a VoiceOver
  * container.
  */

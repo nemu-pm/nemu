@@ -1,9 +1,7 @@
 import { useCallback, useState, type RefObject } from "react";
 import { PixelRatio, useWindowDimensions, type ViewInstance } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { getMobileExploreRestingEdge } from "@/lib/mobileExploreRestingFit";
-import { isMobileNowReadingCompactHeight } from "@/lib/mobileNowReadingCover";
-import { useMobileNowReadingShown } from "./mobileNowReadingVisibility";
+import { getMobileExploreRestingEdge, isMobileCompactHeight } from "@/lib/mobileExploreRestingFit";
 
 /**
  * Where a tab page's content starts at rest below the top inset: the
@@ -15,23 +13,18 @@ export const MOBILE_EXPLORE_REST_TOP_BELOW_INSET = 67;
 
 /**
  * The resting frame of a tab page (design-explore): `edge` is the top of what
- * floats over the page's bottom — the Now Reading accessory when it is shown,
- * the tab bar otherwise, the home indicator on a page without either. UIKit
- * extends a tab page's bottom safe area by exactly that chrome, so it is the
+ * floats over the page's bottom — the tab bar, or the home indicator on a
+ * page without one. UIKit extends a tab page's bottom safe area by that chrome, so it is the
  * window's height less the bottom inset (in a compact-height window the tab
  * bar is not in the inset, so its band is cleared instead:
  * `getMobileExploreRestingEdge`). `topEstimate` is where the page's
  * first content rests before it has measured itself.
  */
-export function useMobileExploreRestingFrame(
-  /** The page sends the accessory aside itself (a short title pane): fit as if it were gone from the start. */
-  accessoryAside = false,
-) {
+export function useMobileExploreRestingFrame() {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
-  const accessoryShown = useMobileNowReadingShown() && !accessoryAside;
   return {
-    edge: getMobileExploreRestingEdge(height, insets.bottom, isMobileNowReadingCompactHeight(height), accessoryShown),
+    edge: getMobileExploreRestingEdge(height, insets.bottom, isMobileCompactHeight(height)),
     topEstimate: insets.top + MOBILE_EXPLORE_REST_TOP_BELOW_INSET,
     windowKey: `${Math.round(width)}x${Math.round(height)}`,
     /** Text scale for estimates, capped like the text it stands for. */

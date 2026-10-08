@@ -172,7 +172,7 @@ export const MobileLibraryShelfCell = memo(function MobileLibraryShelfCell({
                   uriOwnership="source"
                   cacheKind="cover"
                   source={cover}
-                  // No fade inside the native zoom source (see MobileNowReadingAccessory).
+                  // No fade inside the native zoom source.
                   fadeIn={false}
                   fallback={placeholder}
                   style={styles.coverImage}

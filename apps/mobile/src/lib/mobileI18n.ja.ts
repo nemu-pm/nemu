@@ -1381,8 +1381,6 @@ export const mobileStringsJa: MobileStrings = {
     layoutShelf: "本棚",
     layoutGrid: "グリッド",
     layoutPickerLabel: "ライブラリの表示",
-    nowReading: "読書中",
-    nowReadingHint: "最後に読んだページからリーダーを開きます。",
     chapterFinished: "{{chapter}} 読了",
     continueAction: "続きを読む",
     lastReadJustNow: "たった今",

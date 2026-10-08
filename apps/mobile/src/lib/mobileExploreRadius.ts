@@ -3,13 +3,13 @@
  * them takes one of these, by what it is, and anything nested inside a
  * rounded container takes the container's radius less the padding between
  * them (`concentricMobileExploreRadius`), so corners run parallel. System
- * controls (tab bar, bar buttons, system sheets, the accessory capsule) keep
+ * controls (tab bar, bar buttons, system sheets) keep
  * the system's own shapes.
  */
 export const MOBILE_EXPLORE_RADIUS = {
   /** Hairline marks: progress lines, plank ends, drawn strokes. */
   hair: 2,
-  /** Small covers: shelf and grid books, bar and accessory thumbnails, folder fans. */
+  /** Small covers: shelf and grid books, bar thumbnails, folder fans. */
   thumb: 4,
   /** Large covers (the hero and a letterboxed cover). */
   cover: 8,

@@ -1,6 +1,6 @@
 /**
  * Cover-derived tints for the design-explore surfaces (continue-reading cards,
- * the Books-style detail hero, the "now reading" accessory). Pure colour math:
+ * the Books-style detail hero). Pure colour math:
  * the Skia sampling glue lives in `useMobileCoverTint.ts`.
  *
  * The picker favours the cover's most prominent *chromatic* hue (media apps such

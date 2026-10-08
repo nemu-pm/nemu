@@ -34,7 +34,7 @@ function expectClear(top: number, edge: number, blocks: readonly MobileRestingBl
   return fit;
 }
 
-describe("resting content clears the accessory", () => {
+describe("resting content clears the tab bar", () => {
   test("leaves a page alone when the edge already falls between blocks", () => {
     const blocks: MobileRestingBlock[] = [
       { key: "a", gap: 0, height: 300, rests: "whole" },
@@ -45,8 +45,8 @@ describe("resting content clears the accessory", () => {
     expect(fit.under).toBeNull();
   });
 
-  test("detail hero: the synopsis ends on a whole line above the accessory and the tags rest under it", () => {
-    // Air: hero at 135, accessory top at 773; tags would be cut 5 pt above it.
+  test("detail hero: the synopsis ends on a whole line above the tab bar and the tags rest under it", () => {
+    // Air: hero at 135, tab bar top at 773; tags would be cut 5 pt above it.
     const blocks: MobileRestingBlock[] = [
       { key: "head", gap: 8, height: 406, rests: "whole" },
       { key: "facts", gap: 16, height: 34, rests: "whole" },
@@ -94,8 +94,8 @@ describe("resting content clears the accessory", () => {
     expect(fit.under).toBe("collections");
   });
 
-  test("folders: never resting with the art whole and the names under the accessory", () => {
-    // Air (pass 13): the folders' art ended just above the accessory, their names under it.
+  test("folders: never resting with the art whole and the names under the tab bar", () => {
+    // Air (pass 13): the folders' art ended just above the bar, their names under it.
     const blocks: MobileRestingBlock[] = [
       { key: "cards", gap: 0, height: 448, rests: "whole", shrink: { by: 66, order: 0 }, grow: { by: 58, order: 0 } },
       { key: "collections", gap: 28, height: 2000, rests: "peek", minVisible: 92, maxVisible: 115 },
@@ -106,7 +106,7 @@ describe("resting content clears the accessory", () => {
     expect(fit.heights.cards).toBeGreaterThan(448);
   });
 
-  test("landscape phone: a wide card the accessory covers gives up height until it rests whole above it", () => {
+  test("landscape phone: a wide card the tab bar covers gives up height until it rests whole above it", () => {
     const blocks: MobileRestingBlock[] = [
       { key: "cards", gap: 0, height: 240, rests: "whole", shrink: { by: 80, order: 0 } },
       { key: "next", gap: 28, height: 160, rests: "peek", minVisible: 60 },
@@ -133,7 +133,7 @@ describe("resting content clears the accessory", () => {
     expect(fit.heights.a).toBe(500);
   });
 
-  test("every phone height, with and without the accessory, rests clear", () => {
+  test("every phone height rests clear", () => {
     for (const windowHeight of [667, 736, 812, 844, 874, 912, 932, 956]) {
       for (const bottom of [83, 139]) {
         const edge = windowHeight - bottom;
@@ -152,15 +152,12 @@ describe("resting content clears the accessory", () => {
 
 describe("resting edge", () => {
   test("the inset in a regular-height window; the compact tab bar's top in a short one", () => {
-    // Portrait Air: tab bar and accessory are in the 139 pt inset.
+    // Portrait Air: the tab bar is in the 139 pt inset.
     expect(getMobileExploreRestingEdge(912, 139, false)).toBe(773);
     // Landscape Air: the inset is the home indicator; the bar's band is cleared.
     expect(getMobileExploreRestingEdge(420, 21, true)).toBe(356);
     // A larger inset still wins.
     expect(getMobileExploreRestingEdge(420, 90, true)).toBe(330);
-    // With the accessory over the bar (measured: its top at 300).
-    expect(getMobileExploreRestingEdge(420, 21, true, true)).toBe(300);
-    expect(getMobileExploreRestingEdge(912, 139, false, true)).toBe(773);
   });
 
   test("a section dropped under the edge of a wide window starts under its bottom", () => {

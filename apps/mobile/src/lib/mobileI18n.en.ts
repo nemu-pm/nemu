@@ -1361,8 +1361,6 @@ export const mobileStringsEn: MobileStrings = {
     layoutShelf: "Shelf",
     layoutGrid: "Grid",
     layoutPickerLabel: "Library layout",
-    nowReading: "Now Reading",
-    nowReadingHint: "Opens the reader at your last page.",
     chapterFinished: "{{chapter}} finished",
     continueAction: "Continue",
     lastReadJustNow: "Just now",

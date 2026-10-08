@@ -37,10 +37,7 @@ import { getMobileCoverDisplayWidth } from "@/lib/mobileContinueCardGeometry";
 import { ZoomSource, ZoomTarget } from "../../../modules/nemu-window-layout";
 import { getMobileBooksHeroCoverWidth } from "./mobileExploreCover";
 import { useMobileExploreRestingFrame, useMobileExploreRestingTop } from "./useMobileExploreResting";
-import { fitMobileRestingContent, type MobileRestingBlock } from "@/lib/mobileExploreRestingFit";
-import { isMobileNowReadingCompactHeight } from "@/lib/mobileNowReadingCover";
-import { reportMobileShortTitlePane } from "./mobileNowReadingVisibility";
-import { useIsFocused } from "expo-router";
+import { fitMobileRestingContent, isMobileCompactHeight, type MobileRestingBlock } from "@/lib/mobileExploreRestingFit";
 import { ExploreGlassButton, ExploreGlassChip, ExploreGlassIconButton } from "./ExploreGlass";
 import { ExploreGradient } from "./ExploreGradient";
 import RNCMaskedView from "@react-native-masked-view/masked-view";
@@ -92,7 +89,7 @@ function shownTagCount(total: number): number {
 /** The description shows this many lines until "more" (a line or two over stay whole). */
 const DESCRIPTION_LINES = 4;
 const DESCRIPTION_SLACK = 2;
-/** Fewest lines the synopsis gives up to when the accessory would cut what is above it. */
+/** Fewest lines the synopsis gives up to when the tab bar would cut what is above it. */
 const DESCRIPTION_MIN_LINES = 2;
 const DESCRIPTION_LINE_HEIGHT = 22;
 /** A cover shown narrower than this (a thumbnail, never blown up) sits beside the title. */
@@ -237,38 +234,29 @@ export function MobileMangaDetailBooksHero({
   const frameWidth =
     measuredWidth ?? Math.max(0, pane ? windowWidth * 0.4 : windowWidth - gutters.left - gutters.right);
   const contentWidth = Math.max(0, pane ? frameWidth - PANE_PADDING * 2 : frameWidth);
-  const shortPane = pane && isMobileNowReadingCompactHeight(windowHeight);
+  const shortPane = pane && isMobileCompactHeight(windowHeight);
   // Four facts side by side only where each keeps room for its value at the
 // one type size every fact shares; narrower, they stack 2 x 2 (never shrunk).
 const paneFactColumns = PixelRatio.getFontScale() > 1.3 || contentWidth < PANE_FACTS_ROW_MIN_WIDTH ? 2 : 4;
-  const rest = useMobileExploreRestingFrame(shortPane);
+  const rest = useMobileExploreRestingFrame();
   const rootRef = useRef<ViewInstance>(null);
   const { top: restTop, onLayout: onRestLayout } = useMobileExploreRestingTop(rootRef, rest.windowKey);
   const naturalCoverWidth = getMobileBooksHeroCoverWidth(contentWidth);
   const hasActions = Boolean(primaryAction || secondaryActions.length);
-  // Resting content clears the accessory (mobileExploreRestingFit). The
+  // Resting content clears the tab bar (mobileExploreRestingFit). The
   // cover's size is the zoom's landing spot, so it comes from the window
   // alone, never from a later measurement: on a short window it gives up
   // height until the actions, the facts and two synopsis lines rest above the
-  // accessory.
-  // The accessory steps aside while a short pane is in front (it would rest
-  // over the facts; the pane has its own Continue).
-  const focused = useIsFocused();
-  useEffect(() => {
-    if (!shortPane || !focused) return undefined;
-    reportMobileShortTitlePane(1);
-    return () => reportMobileShortTitlePane(-1);
-  }, [focused, shortPane]);
+  // tab bar.
   const coverWidth = (() => {
     if (pane) {
       // A short window (a phone in landscape): the cover above the title
-      // leaves no room for the actions above the bar and accessory, so the
+      // leaves no room for the actions above the tab bar, so the
       // pane takes the small-cover head (cover beside the title), its cover
       // as tall as that head leaves room for with the actions under it.
       if (!shortPane) return naturalCoverWidth;
       const scale = rest.fontScale(HERO_TEXT_MAX_SCALE);
-      // The facts rest above the tab bar too: the room the accessory gives
-      // back when it steps aside goes to them, not to a larger cover.
+      // The facts rest above the tab bar too.
       const factsRoom = infoRowCount(infoTitle, infoChapters, infoLatest, status) >= 2 ? BLOCK_GAP + ESTIMATE.facts * scale * (paneFactColumns === 2 ? 2 : 1) + (paneFactColumns === 2 ? 8 : 0) : 0;
       const room =
         rest.edge -
@@ -357,8 +345,8 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || contentWidth < PANE_F
   }, [hasLibraryAction, libraryAdded]);
 
   // The measured fit, once the body is on screen: the synopsis ends on a
-  // whole line above the accessory (it gives lines down to two), and a block
-  // the accessory would still cut drops under it by a slightly wider gap.
+  // whole line above the tab bar (it gives lines down to two), and a block
+  // the tab bar would still cut drops under it by a slightly wider gap.
   const [blockHeights, setBlockHeights] = useState<Record<string, number>>({});
   const measureBlock = useCallback((key: string) => (event: LayoutChangeEvent) => {
     const height = Math.round(event.nativeEvent.layout.height);
@@ -463,7 +451,7 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || contentWidth < PANE_F
             source={remoteCover}
             // No fade: the cover sits inside the native zoom views, where the
             // native-driven opacity animation can be lost and leave a loaded
-            // cover invisible (same failure as the Now Reading thumbnail).
+            // cover invisible.
             fadeIn={false}
             onError={onCoverError ? () => onCoverError() : undefined}
             onLoad={onCoverLoad ? () => onCoverLoad() : undefined}
