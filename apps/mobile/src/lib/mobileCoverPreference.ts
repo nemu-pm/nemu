@@ -1,28 +1,9 @@
 /**
- * A sharper copy of a library title's own cover.
- *
- * A title's cover is whatever its first source reported, and some sources
- * only serve thumbnails (Manhuagui: 132 px wide). The cards and the hero fill
- * their slot with whatever cover they have, so a thumbnail looks soft there.
- * The design-explore surfaces therefore look for a larger copy of the *same artwork*:
- *
- * 1. the size variants the source itself serves for that URL
- *    (`getMobileCoverSizeVariants`: Manhuagui's `cpic/g/`, Niconico's
- *    full-size material), and
- * 2. the covers the title's other linked sources reported.
- *
- * Every candidate is measured and compared with the own cover's pixels; only
- * one that shows the same picture (`isMobileSameCoverArt`) and is clearly
- * wider wins. A different artwork never replaces the cover the user has been
- * seeing (another volume's cover changes the title's look and its colour
- * across the library); a user who wants it can set it by hand. A cover the
- * user set by hand is never replaced.
- *
- * Local only: the candidates are URLs already known (no source call), fetched
- * through the shared image cache. The pick is remembered per title so every
- * surface (card, shelf, accessory, hero, the zoom between them) shows the same
- * image from the first frame; the tint keeps the title's remembered colour on
- * that frame (`item:` alias) and the same artwork samples to the same colour.
+ * A sharper copy of a title's own cover: a thumbnail-only source leaves the card
+ * and hero soft, so a larger copy of the *same artwork* (another variant the source
+ * serves, or another linked source's cover) replaces it when it is clearly wider
+ * and measures as the same picture. A cover the user set by hand is never replaced.
+ * Local only: candidates are known URLs, and the pick is remembered per title.
  */
 
 type MobileMeasuredCover = {
