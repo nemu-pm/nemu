@@ -1,8 +1,26 @@
 const isDev = import.meta.env.DEV;
 
-export const SERVICE_URL = isDev
-  ? "https://service.nemu.pm"
-  : "https://service.nemu.pm";
+export const DEFAULT_SERVICE_URL = "https://service.nemu.pm";
+
+/**
+ * The service (CORS proxy) origin: `VITE_SERVICE_URL` when it is an http(s)
+ * URL, e.g. `http://localhost:3001` for `bun run service`, else the hosted
+ * service.
+ */
+export function resolveServiceUrl(value: string | undefined): string {
+  const trimmed = value?.trim().replace(/\/+$/, "");
+  if (!trimmed) return DEFAULT_SERVICE_URL;
+  try {
+    const { protocol } = new URL(trimmed);
+    if (protocol === "http:" || protocol === "https:") return trimmed;
+  } catch {
+    // Fall through to the default
+  }
+  console.warn(`[config] Ignoring VITE_SERVICE_URL "${value}": not an http(s) URL`);
+  return DEFAULT_SERVICE_URL;
+}
+
+export const SERVICE_URL = resolveServiceUrl(import.meta.env.VITE_SERVICE_URL);
 
 export const AGENT_DOWNLOAD_URL =
   "https://github.com/nemu-pm/nemu-agent/releases";
