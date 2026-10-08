@@ -7,6 +7,8 @@ import {
   type MobileCoverPreferenceStore,
 } from "@/lib/mobileCoverPreference";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
+import { MOBILE_COVER_PERSIST_DELAY_MS } from "@/lib/mobileCoverTintStore";
+import { createChangeListeners } from "@/lib/mobileChangeListeners";
 
 /**
  * The remembered sharper cover per library title (`mobileCoverPreference`),
@@ -15,10 +17,9 @@ import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
  * (cover URLs and item ids only; best effort, like the tint file).
  */
 const FILE_NAME = "nemu-cover-preference-v1.json";
-const PERSIST_DELAY_MS = 1500;
 let store: MobileCoverPreferenceStore | null = null;
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
-const listeners = new Set<() => void>();
+const changes = createChangeListeners();
 /** Titles whose sources were already compared this session. */
 const compared = new Set<string>();
 
@@ -42,7 +43,7 @@ function getMobileExploreCoverPreference(libraryItemId: string | null | undefine
 export function setMobileExploreCoverPreference(libraryItemId: string, url: string | null): void {
   compared.add(libraryItemId);
   if (!rememberMobileCoverPreference(current(), libraryItemId, url)) return;
-  for (const listener of listeners) listener();
+  changes.notify();
   if (persistTimer) return;
   persistTimer = setTimeout(() => {
     persistTimer = null;
@@ -51,7 +52,7 @@ export function setMobileExploreCoverPreference(libraryItemId: string, url: stri
     } catch {
       // Best effort.
     }
-  }, PERSIST_DELAY_MS);
+  }, MOBILE_COVER_PERSIST_DELAY_MS);
 }
 
 /** Whether this title's sources were compared this session (once is enough). */
@@ -63,16 +64,9 @@ export function markMobileExploreCoverCompared(libraryItemId: string): void {
   compared.add(libraryItemId);
 }
 
-function subscribe(listener: () => void) {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
-}
-
 function usePreferenceFromStore(libraryItemId: string | null | undefined): string | null {
   return useSyncExternalStore(
-    subscribe,
+    changes.subscribe,
     () => getMobileExploreCoverPreference(libraryItemId),
     () => null,
   );

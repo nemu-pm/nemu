@@ -158,6 +158,7 @@ import {
   loadMobileSourceSettingsByKeys,
   makeMobileSourceKey,
   mergeSourceSettingValues,
+  EMPTY_SOURCE_SETTINGS,
 } from "@/lib/mobileSourceSettings";
 import {
   canSelectMobileSourceBrowseTab,
@@ -243,7 +244,6 @@ import {
   withMobileSourceOperationTimeout,
 } from "@/sources/mobileSourceOperationTimeout";
 
-const EMPTY_SOURCE_SETTINGS: SourcePackageSetting[] = [];
 const INLINE_SOURCE_FILTER_LIMIT = 8;
 const INLINE_FILTER_OPTION_LIMIT = 8;
 const INLINE_GENRE_OPTION_LIMIT = 10;

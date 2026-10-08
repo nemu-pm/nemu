@@ -49,6 +49,9 @@ export type MobileFoldAwareGrid = MobileFoldAwareGridLayout & {
  * opening the display restores uniform gaps across the available width.
  * Defaults are the manga cover grid's tuning.
  */
+/** Grid insets for a full-width grid: no side inset. */
+export const NO_INSETS = { left: 0, right: 0 };
+
 export function useMobileFoldAwareGrid({
   minItemWidth = MOBILE_MANGA_GRID_MIN_ITEM_WIDTH,
   gap = MOBILE_MANGA_GRID_GAP,

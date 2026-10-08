@@ -11,7 +11,7 @@ import {
 } from "@/design-system";
 import { MOBILE_MANGA_GRID_GAP } from "@/lib/mobileAdaptiveGrid";
 import { mobileFoldAwareGridCellStyle } from "@/lib/mobileFoldAwareGrid";
-import { useMobileFoldAwareGrid } from "@/lib/useMobileFoldAwareGrid";
+import { NO_INSETS, useMobileFoldAwareGrid } from "@/lib/useMobileFoldAwareGrid";
 import {
   useSkeletonDisplayDelay,
   useSkeletonPulse,
@@ -19,7 +19,6 @@ import {
 
 /** Three rows of placeholder covers at the loaded grid's column count. */
 const SKELETON_ROWS = 3;
-const NO_INSETS = { left: 0, right: 0 };
 
 /**
  * Library loading skeleton sharing its geometry with MangaCard: 2/3 cover,

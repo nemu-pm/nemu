@@ -7,13 +7,12 @@ import { getMobileExploreSkeletonCardHeight } from "@/lib/mobileExploreSkeleton"
 import { MOBILE_MANGA_GRID_GAP } from "@/lib/mobileAdaptiveGrid";
 import { mobileFoldAwareGridCellStyle } from "@/lib/mobileFoldAwareGrid";
 import { MOBILE_SHELF } from "@/lib/mobileLibraryShelf";
-import { useMobileFoldAwareGrid } from "@/lib/useMobileFoldAwareGrid";
+import { NO_INSETS, useMobileFoldAwareGrid } from "@/lib/useMobileFoldAwareGrid";
 import { useSkeletonDisplayDelay } from "@/lib/useSkeletonPulse";
 import { ExploreShimmerSweep } from "./ExploreShimmerSweep";
 import { useExploreShimmerBackdrop } from "./useExploreShimmerBackdrop";
 import { useMobileExploreRowBleed } from "./useMobileExploreRowBleed";
 
-const NO_INSETS = { left: 0, right: 0 };
 /** The neighbour card rests turned back and smaller, like the carousel's. */
 const NEIGHBOUR_SCALE = 0.92;
 /** The Continue card's padding around its button. */

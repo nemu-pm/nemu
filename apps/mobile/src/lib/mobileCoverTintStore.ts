@@ -82,3 +82,6 @@ export function rememberMobileCoverTint(
   }
   return changed;
 }
+
+/** How long a cover store waits after a change before it writes the file. */
+export const MOBILE_COVER_PERSIST_DELAY_MS = 1500;

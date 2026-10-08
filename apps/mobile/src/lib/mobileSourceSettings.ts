@@ -563,3 +563,6 @@ export function formatSourceSettingAccessibilityLabel(
     .filter(Boolean)
     .join(", ");
 }
+
+/** The settings of a source whose package has none (a stable empty list). */
+export const EMPTY_SOURCE_SETTINGS: SourcePackageSetting[] = [];

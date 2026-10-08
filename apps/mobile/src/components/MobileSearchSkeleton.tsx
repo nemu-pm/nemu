@@ -15,13 +15,12 @@ import {
   GlassSurface,
 } from "@/design-system";
 import { mobileFoldAwareGridCellStyle } from "@/lib/mobileFoldAwareGrid";
-import { useMobileFoldAwareGrid } from "@/lib/useMobileFoldAwareGrid";
+import { NO_INSETS, useMobileFoldAwareGrid } from "@/lib/useMobileFoldAwareGrid";
 
 const SKELETON_CHIPS = [0, 1, 2, 3] as const;
 /** The chip row as it lands: "All", then source names. */
 const EXPLORE_CHIP_WIDTHS = [58, 106, 138, 112] as const;
 const SKELETON_SECTIONS = [0, 1] as const;
-const NO_INSETS = { left: 0, right: 0 };
 
 type MobileSearchSkeletonProps = {
   accessibilityLabel: string;

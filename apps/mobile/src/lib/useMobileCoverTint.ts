@@ -5,6 +5,7 @@ import { resolveCachedMobileImageUri } from "./mobileImageCache";
 import { pickMobileCoverTint, type MobileCoverRgb } from "./mobileCoverTint";
 import { pickMobileCoverRegionTints } from "./mobileCoverMesh";
 import {
+  MOBILE_COVER_PERSIST_DELAY_MS,
   parseMobileCoverTintStore,
   rememberMobileCoverTint,
   serializeMobileCoverTintStore,
@@ -162,7 +163,6 @@ async function sampleCoverTint(
 // synchronously, on first use; written back debounced. Best effort throughout:
 // a missing or damaged file only costs the one-second indigo fallback.
 const PERSISTED_TINTS_FILE = "nemu-cover-tints-v1.json";
-const PERSIST_DELAY_MS = 1500;
 let persistedTints: MobileCoverTintStore | null = null;
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -195,7 +195,7 @@ function persistTint(keys: Array<string | null | undefined>, tint: MobileCoverRg
     } catch {
       // Best effort (see above).
     }
-  }, PERSIST_DELAY_MS);
+  }, MOBILE_COVER_PERSIST_DELAY_MS);
 }
 
 /**

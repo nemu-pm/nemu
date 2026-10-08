@@ -10,10 +10,9 @@ import {
 import { MOBILE_SOURCE_GRID_SKELETON_ROWS } from "@/lib/mobileSourceGridSkeletonLayout";
 import { MOBILE_MANGA_GRID_GAP } from "@/lib/mobileAdaptiveGrid";
 import { mobileFoldAwareGridCellStyle } from "@/lib/mobileFoldAwareGrid";
-import { useMobileFoldAwareGrid } from "@/lib/useMobileFoldAwareGrid";
+import { NO_INSETS, useMobileFoldAwareGrid } from "@/lib/useMobileFoldAwareGrid";
 import { radius, useNemuTheme } from "@/design-system";
 
-const NO_INSETS = { left: 0, right: 0 };
 
 type MobileSourceGridSkeletonProps = {
   accessibilityLabel: string;

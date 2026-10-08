@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { createChangeListeners } from "@/lib/mobileChangeListeners";
 
 /**
  * The chapter the reader just finished by reading past its last page
@@ -9,16 +10,12 @@ type MobileChapterFinishedMoment = { id: number; label: string; at: number };
 
 let moment: MobileChapterFinishedMoment | null = null;
 let nextId = 1;
-const listeners = new Set<() => void>();
+const changes = createChangeListeners();
 
 /** A moment is gone after this (a reader opened later must not show it). */
 const MOBILE_CHAPTER_FINISHED_FRESH_MS = 4000;
 
 let clearTimer: ReturnType<typeof setTimeout> | null = null;
-
-function notify() {
-  for (const listener of listeners) listener();
-}
 
 /** Marks `label` ("Ch.118") as just finished; the mark clears itself. */
 export function markMobileChapterFinished(label: string, now = Date.now()) {
@@ -28,19 +25,14 @@ export function markMobileChapterFinished(label: string, now = Date.now()) {
   clearTimer = setTimeout(() => {
     if (moment?.id !== id) return;
     moment = null;
-    notify();
+    changes.notify();
   }, MOBILE_CHAPTER_FINISHED_FRESH_MS);
-  notify();
+  changes.notify();
 }
 
 export function useMobileChapterFinishedMoment(): MobileChapterFinishedMoment | null {
   return useSyncExternalStore(
-    (listener) => {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    },
+    changes.subscribe,
     () => moment,
     () => null,
   );

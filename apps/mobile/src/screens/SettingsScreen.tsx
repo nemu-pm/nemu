@@ -164,6 +164,7 @@ import {
   getMobileSourceSettingsNavigationResetKey,
   makeMobileSourceKey,
   sourceSettingRequestsDataRefresh,
+  EMPTY_SOURCE_SETTINGS,
 } from "@/lib/mobileSourceSettings";
 import { removeMobileSourceAfterSettingsCleanup } from "@/lib/mobileSourceUninstall";
 import { clearMobileSourceDetailCacheForSource } from "@/lib/mobileSourceDetailCache";
@@ -234,7 +235,6 @@ import { clearMobileSourceImageRequestCache } from "@/sources/mobileSourceImages
 import { mobileAuthClient } from "@/sync/mobileAuthClient";
 import { mobileSyncConfig } from "@/sync/mobileSyncConfig";
 
-const EMPTY_SOURCE_SETTINGS: SourcePackageSetting[] = [];
 // Shared with the wordmark tracking so both follow the same rendered size.
 const ABOUT_ROW_FONT_SIZE = 14;
 
@@ -3660,20 +3660,8 @@ function SettingsScreenContent({
 }
 
 /**
- * Settings on any width. Compact (phones, Duo outer display): push navigation
- * from the section list to `settings/[section]`. Regular width (Duo inner
- * display, tablets, foldables): the iOS Settings / Mail split — section list
- * in the leading pane, the selected section in the trailing pane, the first
- * section selected by default. Book posture aligns the panes to the fold
- * halves; fully open uses a narrower sidebar and gives the detail more room.
- * Notebook keeps the compact navigation.
- *
- * The route's own content instance keeps its key and parent across a resize,
- * so its state (sheets, pending work) survives compact ⇄ split.
- *
- * Motion (pose changes): pane frames glide with the shared settle spring as
- * folding moves them to the fold halves; a pane that appears/disappears with
- * the split fades. Nothing animates on mount/unmount.
+ * Settings on any width: push navigation on compact widths, a section list
+ * beside the selected section on regular ones.
  */
 export function SettingsScreen({
   section = null,

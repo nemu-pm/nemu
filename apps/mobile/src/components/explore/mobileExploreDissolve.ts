@@ -1,5 +1,6 @@
 import { useSyncExternalStore, type RefObject } from "react";
 import type { ViewInstance } from "react-native";
+import { createChangeListeners } from "@/lib/mobileChangeListeners";
 
 /**
  * Which views can turn to dust for a library title, and which titles are
@@ -13,7 +14,7 @@ const targets = new Map<string, Set<Target>>();
 /** The view the user last acted on for a title (long press, •••): it is the one that dissolves. */
 const preferred = new Map<string, Target>();
 let hidden = new Set<string>();
-const listeners = new Set<() => void>();
+const changes = createChangeListeners();
 
 export function registerExploreDissolveTarget(id: string, target: Target): () => void {
   let set = targets.get(id);
@@ -46,17 +47,12 @@ export function setExploreDissolveHidden(id: string, value: boolean): void {
   hidden = new Set(hidden);
   if (value) hidden.add(id);
   else hidden.delete(id);
-  listeners.forEach((listener) => listener());
-}
-
-function subscribe(listener: () => void) {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
+  changes.notify();
 }
 
 /** True while this title's views are standing aside for its dust. */
 export function useExploreDissolveHidden(id: string): boolean {
-  return useSyncExternalStore(subscribe, () => hidden.has(id));
+  return useSyncExternalStore(changes.subscribe, () => hidden.has(id));
 }
 
 type Dissolver = (id: string, notBeforeMs: number) => Promise<boolean>;
