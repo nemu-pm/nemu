@@ -7,6 +7,15 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { ExploreSettingsGroup } from "@/components/explore/ExploreSettingsGroup";
+import { ExploreSettingsGlyph } from "@/components/explore/ExploreSettingsGlyph";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
+import { readMobileDesignExploreStored, writeMobileDesignExploreStored } from "@/lib/mobileDesignExploreBoot";
+import { isMobileDesignExploreSwitchAvailable } from "@/lib/mobileDesignExploreSwitch";
+import { reloadAppAsync } from "expo";
+import { formatMobileLanguageDisplayName } from "@/lib/mobileLanguageSettings";
+import { MOBILE_EXPLORE_RADIUS } from "@/lib/mobileExploreRadius";
+import { isMobileSettingsHeadingRepeat } from "@/lib/mobileSettingsHeading";
 import {
   AccessibilityInfo,
   ActivityIndicator,
@@ -44,6 +53,7 @@ import { nextSyncTimestamp } from "@nemu/core";
 import { MobileAboutSheet } from "@/components/MobileAboutSheet";
 import { MobileAgentStatusCard } from "@/components/MobileAgentStatusCard";
 import { MobileCloudSyncCard } from "@/components/MobileCloudSyncCard";
+import { ExploreSettingsActionGroup } from "@/components/explore/ExploreSettingsActionGroup";
 import { MobileConfirmationSheet } from "@/components/MobileConfirmationSheet";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import { MobileSettingsSkeleton } from "@/components/MobileSettingsSkeleton";
@@ -176,6 +186,7 @@ import {
 import { getMobileSettingsSheetLayout } from "@/lib/mobileSettingsSheetLayout";
 import {
   getMobileInstalledSourceName,
+  getMobileExploreInstalledSourceSubtitle,
   getMobileInstalledSourceSubtitle,
 } from "@/lib/mobileInstalledSourcePresentation";
 import {
@@ -310,7 +321,15 @@ function languageLabel(language: AppLanguage, strings: MobileStrings): string {
   );
 }
 
-function sourceSubtitle(source: InstalledSource): string {
+function sourceSubtitle(source: InstalledSource, strings: MobileStrings, appLanguage: AppLanguage): string {
+  // Design-explore: the language by name and the version, not codes and the registry id.
+  if (mobileDesignExploreFlag) {
+    return getMobileExploreInstalledSourceSubtitle(
+      source,
+      (code) => formatMobileLanguageDisplayName(code, appLanguage, { multi: strings.sourceBrowse.multiLanguage }),
+      strings.sourceBrowse.multiLanguage,
+    );
+  }
   return getMobileInstalledSourceSubtitle(source);
 }
 
@@ -358,6 +377,7 @@ function SourceManagementRow({
   onToggleEnabled: (enabled: boolean) => void;
 }) {
   const { tokens } = useNemuTheme();
+  const { appLanguage } = useMobileLanguageSettings();
   const name = sourceName(source);
   // Tachiyomi records can arrive through cloud sync; this build cannot run
   // them, so the row says so up front instead of failing on tap.
@@ -427,12 +447,14 @@ function SourceManagementRow({
             >
               {name}
             </NemuText>
-            <MobileChip
-              accessibilityLabel={`v${source.version}`}
-              label={`v${source.version}`}
-              size="sm"
-              variant="static"
-            />
+            {mobileDesignExploreFlag ? null : (
+              <MobileChip
+                accessibilityLabel={`v${source.version}`}
+                label={`v${source.version}`}
+                size="sm"
+                variant="static"
+              />
+            )}
             {unsupported ? (
               <MobileChip
                 accessibilityLabel={strings.common.sourceUnsupportedBadge}
@@ -448,7 +470,7 @@ function SourceManagementRow({
           >
             {unsupported
               ? strings.common.sourceUnsupportedTachiyomiDescription
-              : sourceSubtitle(source)}
+              : sourceSubtitle(source, strings, appLanguage)}
           </NemuText>
         </View>
       </NemuPressable>
@@ -466,7 +488,8 @@ function SourceManagementRow({
           loading={removing}
           onPress={onQuickActions}
           size="icon-sm"
-          variant="secondary"
+          // Design-explore: a bare glyph beside the switch, not a second boxed control.
+          variant={mobileDesignExploreFlag ? "ghost" : "secondary"}
         />
         {unsupported ? null : (
           <NemuNativeSwitch
@@ -826,7 +849,7 @@ function useScreenReaderEnabled(): boolean {
   return enabled;
 }
 
-export type SettingsSectionId = "reader" | "sources" | "appearance" | "data";
+export type SettingsSectionId = "reader" | "sources" | "appearance" | "data" | "experimental";
 
 function settingsSectionHref(
   section: SettingsSectionId,
@@ -836,6 +859,65 @@ function settingsSectionHref(
     pathname: "/(tabs)/settings/[section]",
     params: { ...params, section },
   };
+}
+
+/**
+ * The heading inside a settings card: icon, title, one line of description.
+ * Design-explore: a heading that only repeats the page's own title (the
+ * "Reader" card on the Reader page) loses the title and icon and keeps its
+ * description as a caption (its action stays beside it); other headings take
+ * the Settings list's bare outline glyph. Without the flag, the original layout.
+ */
+function SettingsGroupHeader({
+  icon,
+  title,
+  description,
+  pageTitle,
+  trailing,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  description: string;
+  pageTitle?: string;
+  trailing?: ReactNode;
+}) {
+  const { tokens } = useNemuTheme();
+  if (!mobileDesignExploreFlag) {
+    return (
+      <View style={styles.readerHeader}>
+        <View style={styles.iconFrame}>
+          <Ionicons name={icon} size={20} color={tokens.primary} />
+        </View>
+        <View style={styles.rowText}>
+          <NemuText style={[styles.rowTitle, { color: tokens.foreground }]}>{title}</NemuText>
+          <NemuText style={[styles.rowSubtitle, { color: tokens.mutedForeground }]}>{description}</NemuText>
+        </View>
+        {trailing}
+      </View>
+    );
+  }
+  if (isMobileSettingsHeadingRepeat(title, pageTitle)) {
+    return (
+      <View style={styles.readerHeader}>
+        <NemuText style={[styles.rowText, styles.exploreCaption, { color: tokens.mutedForeground }]}>
+          {description}
+        </NemuText>
+        {trailing}
+      </View>
+    );
+  }
+  return (
+    <View style={styles.readerHeader}>
+      <ExploreSettingsGlyph name={icon} />
+      <View style={styles.rowText}>
+        <NemuText accessibilityRole="header" style={[styles.rowTitle, { color: tokens.foreground }]}>
+          {title}
+        </NemuText>
+        <NemuText style={[styles.rowSubtitle, { color: tokens.mutedForeground }]}>{description}</NemuText>
+      </View>
+      {trailing}
+    </View>
+  );
 }
 
 function SettingsSurface({
@@ -855,6 +937,7 @@ function SettingsSurface({
         styles.settingsSurface,
         { backgroundColor: tokens.card, borderColor: tokens.border },
         style,
+        mobileDesignExploreFlag ? styles.exploreSurface : null,
       ]}
     >
       <View style={contentStyle}>{children}</View>
@@ -1156,9 +1239,11 @@ function FeedbackSettingRow({
   subtitle,
   value,
   onToggle,
+  first = false,
 }: {
   title: string;
   subtitle: string;
+  first?: boolean;
   value: boolean;
   onToggle: (nextValue: boolean) => void;
 }) {
@@ -1167,7 +1252,14 @@ function FeedbackSettingRow({
   return (
     // The hairline needs the theme's colour: unset, React Native paints it
     // black (a hard black box on the light theme).
-    <View style={[styles.dataAction, { borderColor: tokens.border }]}>
+    <View
+      style={[
+        styles.dataAction,
+        { borderColor: tokens.border },
+        // Design-explore: rows of the card, not cards inside it.
+        mobileDesignExploreFlag ? [styles.exploreInnerRow, first ? styles.exploreInnerRowFirst : null] : null,
+      ]}
+    >
       <View style={styles.dataActionText}>
         <NemuText style={[styles.settingTitle, { color: tokens.foreground }]}>
           {title}
@@ -1191,13 +1283,85 @@ function FeedbackSettingRow({
 }
 
 /**
+ * Settings → Experimental Design: turns the design-explore prototype on or
+ * off (iOS only; `mobileDesignExploreSwitch`). One inset group: the switch
+ * with its description and, once a change is pending, a Restart now row; the
+ * footer says the choice is device-local and applies after a restart. The
+ * running app keeps the design it started with, so the restart action
+ * (`reloadAppAsync`, which works in release builds) stays until it applies.
+ */
+function ExperimentalDesignSection({ strings }: { strings: MobileStrings }) {
+  const { tokens } = useNemuTheme();
+  // The design the next launch will use: the stored choice, or (none yet)
+  // the one this run has.
+  const [next, setNext] = useState(() => readMobileDesignExploreStored() ?? mobileDesignExploreFlag);
+  const [restarting, setRestarting] = useState(false);
+  const pending = next !== mobileDesignExploreFlag;
+  if (!isMobileDesignExploreSwitchAvailable(Platform.OS)) return null;
+  return (
+    <View style={styles.experimentalPage}>
+      <SettingsSurface style={styles.rowShell}>
+        <View style={styles.experimentalRow}>
+          <View style={styles.dataActionText}>
+            <NemuText style={[styles.settingTitle, { color: tokens.foreground }]}>
+              {strings.settings.designPreview}
+            </NemuText>
+            <NemuText style={[styles.settingSubtitle, { color: tokens.mutedForeground }]}>
+              {strings.settings.designPreviewHint}
+            </NemuText>
+          </View>
+          <NemuNativeSwitch
+            accessibilityLabel={strings.settings.designPreview}
+            value={next}
+            onValueChange={(value) => {
+              void hapticSelection();
+              try {
+                writeMobileDesignExploreStored(value);
+                setNext(value);
+              } catch {
+                // Not stored: the switch stays where it was.
+              }
+            }}
+          />
+        </View>
+        {pending ? (
+          <>
+            <View style={[styles.experimentalSeparator, { backgroundColor: tokens.border }]} />
+            <NemuPressable
+              accessibilityRole="button"
+              accessibilityLabel={strings.settings.designPreviewRestart}
+              accessibilityState={{ disabled: restarting || undefined, busy: restarting || undefined }}
+              disabled={restarting}
+              hapticFeedback="press"
+              pressedScale={1}
+              onPress={() => {
+                setRestarting(true);
+                void reloadAppAsync("design preview switched").catch(() => setRestarting(false));
+              }}
+              style={styles.experimentalRow}
+            >
+              <Ionicons name="refresh-outline" size={19} color={tokens.primary} />
+              <NemuText style={[styles.settingTitle, styles.experimentalRestart, { color: tokens.primary }]}>
+                {strings.settings.designPreviewRestart}
+              </NemuText>
+            </NemuPressable>
+          </>
+        ) : null}
+      </SettingsSurface>
+      <NemuText style={[styles.experimentalFooter, { color: tokens.mutedForeground }]}>
+        {strings.settings.designPreviewFooter}
+      </NemuText>
+    </View>
+  );
+}
+
+/**
  * Haptics and the chapter-completion cue used to float as two unparented rows
  * on the settings landing page. They now live inside the reader section under
  * a titled card so every landing row belongs to a group, and the rows reuse
  * the data-management row geometry so both sections read the same.
  */
 function MobileFeedbackSettingsCard() {
-  const { tokens } = useNemuTheme();
   const strings = getMobileStrings(useMobileLanguageSettings().appLanguage);
   const {
     hapticsFeedbackEnabled,
@@ -1211,23 +1375,17 @@ function MobileFeedbackSettingsCard() {
       style={styles.rowShell}
       contentStyle={styles.dataManagementCard}
     >
-      <View style={styles.readerHeader}>
-        <View style={styles.iconFrame}>
-          <Ionicons name="sparkles-outline" size={20} color={tokens.primary} />
-        </View>
-        <View style={styles.rowText}>
-          <NemuText style={[styles.rowTitle, { color: tokens.foreground }]}>
-            {strings.settings.feedbackSection}
-          </NemuText>
-          <NemuText
-            style={[styles.rowSubtitle, { color: tokens.mutedForeground }]}
-          >
-            {strings.settings.feedbackSectionDescription}
-          </NemuText>
-        </View>
-      </View>
-      <View style={styles.dataActions} testID="FeedbackSettingsCard">
+      <SettingsGroupHeader
+        icon="sparkles-outline"
+        title={strings.settings.feedbackSection}
+        description={strings.settings.feedbackSectionDescription}
+      />
+      <View
+        style={[styles.dataActions, mobileDesignExploreFlag ? styles.exploreInnerRows : null]}
+        testID="FeedbackSettingsCard"
+      >
         <FeedbackSettingRow
+          first
           title={strings.feedback.hapticsFeedback}
           subtitle={strings.feedback.hapticsFeedbackHint}
           value={hapticsFeedbackEnabled}
@@ -1913,7 +2071,9 @@ function SettingsScreenContent({
           ? strings.settings.appearance
           : activeSection === "data"
             ? strings.settings.dataManagement
-            : strings.nav.settings;
+            : activeSection === "experimental"
+              ? strings.settings.experimentalDesign
+              : strings.nav.settings;
   const showRefreshAction =
     activeSection === null || activeSection === "sources";
 
@@ -2720,6 +2880,77 @@ function SettingsScreenContent({
               {activeSection === null ? (
                 <>
                   <MobileCloudSyncCard />
+                  {mobileDesignExploreFlag && !inSplit ? (
+                    <>
+                      <ExploreSettingsGroup
+                        rows={[
+                          {
+                            key: "reader",
+                            icon: "book-outline",
+                            title: strings.reader.title,
+                            accessibilityLabel: strings.reader.title,
+                            accessibilityHint: strings.settings.readerDescriptionWithFeedback,
+                            disabled: settingsActionBusy,
+                            onPress: () => openSection("reader"),
+                          },
+                          {
+                            key: "sources",
+                            icon: "server-outline",
+                            title: strings.settings.installedSources,
+                            accessibilityLabel: strings.settings.installedSources,
+                            accessibilityHint: strings.settings.installedSourcesDescription,
+                            detail: sources.data.length ? String(sources.data.length) : undefined,
+                            disabled: settingsActionBusy,
+                            onPress: () => openSection("sources"),
+                          },
+                          {
+                            key: "appearance",
+                            icon: "color-palette-outline",
+                            title: strings.settings.appearance,
+                            accessibilityLabel: strings.settings.appearance,
+                            accessibilityHint: strings.settings.appearanceDescription,
+                            disabled: settingsActionBusy,
+                            onPress: () => openSection("appearance"),
+                          },
+                          {
+                            key: "data",
+                            icon: "folder-open-outline",
+                            title: strings.settings.dataManagement,
+                            accessibilityLabel: strings.settings.dataManagement,
+                            accessibilityHint: strings.settings.dataManagementDescription,
+                            disabled: settingsActionBusy,
+                            onPress: () => openSection("data"),
+                          },
+                        ]}
+                      />
+                      <ExploreSettingsGroup
+                        rows={[
+                          ...(isMobileDesignExploreSwitchAvailable(Platform.OS)
+                            ? [
+                                {
+                                  key: "experimental",
+                                  icon: "flask-outline" as const,
+                                  title: strings.settings.experimentalDesign,
+                                  accessibilityLabel: strings.settings.experimentalDesign,
+                                  accessibilityHint: strings.settings.designPreviewHint,
+                                  disabled: settingsActionBusy,
+                                  onPress: () => openSection("experimental"),
+                                },
+                              ]
+                            : []),
+                          {
+                            key: "about",
+                            icon: "information-circle-outline",
+                            tint: tokens.mutedForeground,
+                            title: `${strings.settings.aboutNemuBeforeBrand}nemu${strings.settings.aboutNemuAfterBrand}`,
+                            accessibilityLabel: strings.settings.aboutNemuLabel,
+                            onPress: () => setAboutOpen(true),
+                          },
+                        ]}
+                      />
+                    </>
+                  ) : (
+                    <>
                   <View style={styles.menuGroup}>
                     <SettingsMenuRow
                       icon="book-outline"
@@ -2760,10 +2991,23 @@ function SettingsScreenContent({
                       onPress={() => openSection("data")}
                     />
                   </View>
+                  {isMobileDesignExploreSwitchAvailable(Platform.OS) ? (
+                    <SettingsMenuRow
+                      icon="flask-outline"
+                      title={strings.settings.experimentalDesign}
+                      subtitle={strings.settings.designPreviewHint}
+                      disabled={settingsActionBusy}
+                      navigates={!inSplit}
+                      selected={inSplit && selectedSection === "experimental"}
+                      onPress={() => openSection("experimental")}
+                    />
+                  ) : null}
                   <AboutSettingsRow
                     strings={strings}
                     onPress={() => setAboutOpen(true)}
                   />
+                    </>
+                  )}
                 </>
               ) : null}
 
@@ -2773,33 +3017,12 @@ function SettingsScreenContent({
                     style={styles.rowShell}
                     contentStyle={styles.readerRow}
                   >
-                    <View style={styles.readerHeader}>
-                      <View style={styles.iconFrame}>
-                        <Ionicons
-                          name="book-outline"
-                          size={20}
-                          color={tokens.primary}
-                        />
-                      </View>
-                      <View style={styles.rowText}>
-                        <NemuText
-                          style={[
-                            styles.rowTitle,
-                            { color: tokens.foreground },
-                          ]}
-                        >
-                          {strings.reader.title}
-                        </NemuText>
-                        <NemuText
-                          style={[
-                            styles.rowSubtitle,
-                            { color: tokens.mutedForeground },
-                          ]}
-                        >
-                          {strings.reader.description}
-                        </NemuText>
-                      </View>
-                    </View>
+                    <SettingsGroupHeader
+                      icon="book-outline"
+                      title={strings.reader.title}
+                      description={strings.reader.description}
+                      pageTitle={settingsTitle}
+                    />
                     <View style={styles.nativeSegmentedShell}>
                       <SettingsSegmentedPicker
                         accessibilityLabel={strings.reader.title}
@@ -2834,33 +3057,12 @@ function SettingsScreenContent({
                     style={styles.pluginSectionShell}
                     contentStyle={styles.pluginSectionCard}
                   >
-                    <View style={styles.readerHeader}>
-                      <View style={styles.iconFrame}>
-                        <Ionicons
-                          name="options-outline"
-                          size={20}
-                          color={tokens.primary}
-                        />
-                      </View>
-                      <View style={styles.rowText}>
-                        <NemuText
-                          style={[
-                            styles.rowTitle,
-                            { color: tokens.foreground },
-                          ]}
-                        >
-                          {strings.settings.plugins}
-                        </NemuText>
-                        <NemuText
-                          style={[
-                            styles.rowSubtitle,
-                            { color: tokens.mutedForeground },
-                          ]}
-                        >
-                          {strings.settings.pluginsDescription}
-                        </NemuText>
-                      </View>
-                    </View>
+                    <SettingsGroupHeader
+                      icon="options-outline"
+                      title={strings.settings.plugins}
+                      description={strings.settings.pluginsDescription}
+                      pageTitle={settingsTitle}
+                    />
                     {readerPlugins.error ? (
                       <View style={styles.emptyRow}>
                         <Ionicons
@@ -2946,30 +3148,12 @@ function SettingsScreenContent({
                   style={styles.rowShell}
                   contentStyle={styles.appearanceRow}
                 >
-                  <View style={styles.readerHeader}>
-                    <View style={styles.iconFrame}>
-                      <Ionicons
-                        name="color-palette-outline"
-                        size={20}
-                        color={tokens.primary}
-                      />
-                    </View>
-                    <View style={styles.rowText}>
-                      <NemuText
-                        style={[styles.rowTitle, { color: tokens.foreground }]}
-                      >
-                        {strings.settings.appearance}
-                      </NemuText>
-                      <NemuText
-                        style={[
-                          styles.rowSubtitle,
-                          { color: tokens.mutedForeground },
-                        ]}
-                      >
-                        {strings.settings.appearanceDescription}
-                      </NemuText>
-                    </View>
-                  </View>
+                  <SettingsGroupHeader
+                    icon="color-palette-outline"
+                    title={strings.settings.appearance}
+                    description={strings.settings.appearanceDescription}
+                    pageTitle={settingsTitle}
+                  />
                   <SegmentedSetting
                     title={strings.settings.language}
                     subtitle={strings.settings.languageDescription}
@@ -3018,53 +3202,38 @@ function SettingsScreenContent({
                 </SettingsSurface>
               ) : null}
 
+              {activeSection === "experimental" ? (
+                <ExperimentalDesignSection strings={strings} />
+              ) : null}
+
               {activeSection === "sources" ? (
                 <>
                   <SettingsSurface
                     style={styles.sourceSectionShell}
                     contentStyle={styles.sourceSectionCard}
                   >
-                    <View style={styles.readerHeader}>
-                      <View style={styles.iconFrame}>
-                        <Ionicons
-                          name="server-outline"
-                          size={20}
-                          color={tokens.primary}
-                        />
-                      </View>
-                      <View style={styles.rowText}>
-                        <NemuText
-                          style={[
-                            styles.rowTitle,
-                            { color: tokens.foreground },
-                          ]}
-                        >
-                          {strings.settings.installedSources}
-                        </NemuText>
-                        <NemuText
-                          style={[
-                            styles.rowSubtitle,
-                            { color: tokens.mutedForeground },
-                          ]}
-                        >
-                          {strings.settings.installedSourcesDescription}
-                        </NemuText>
-                      </View>
-                      <View style={styles.sourceHeaderActions}>
-                        <NemuButton
-                          accessibilityLabel={strings.settings.addSource}
-                          disabled={settingsActionBusy}
-                          icon="add-outline"
-                          label={strings.common.add}
-                          onPress={() => {
-                            if (settingsActionBusy) return;
-                            router.push("/browse");
-                          }}
-                          size="sm"
-                          variant="default"
-                        />
-                      </View>
-                    </View>
+                    <SettingsGroupHeader
+                      icon="server-outline"
+                      title={strings.settings.installedSources}
+                      description={strings.settings.installedSourcesDescription}
+                      pageTitle={settingsTitle}
+                      trailing={
+                        <View style={styles.sourceHeaderActions}>
+                          <NemuButton
+                            accessibilityLabel={strings.settings.addSource}
+                            disabled={settingsActionBusy}
+                            icon="add-outline"
+                            label={strings.common.add}
+                            onPress={() => {
+                              if (settingsActionBusy) return;
+                              router.push("/browse");
+                            }}
+                            size="sm"
+                            variant="default"
+                          />
+                        </View>
+                      }
+                    />
                     {sourcesSectionLoading ? (
                       <View style={styles.emptyRow}>
                         <ActivityIndicator
@@ -3168,33 +3337,12 @@ function SettingsScreenContent({
                     style={styles.sourceSectionShell}
                     contentStyle={styles.importSourceCard}
                   >
-                    <View style={styles.readerHeader}>
-                      <View style={styles.iconFrame}>
-                        <Ionicons
-                          name="document-attach-outline"
-                          size={20}
-                          color={tokens.primary}
-                        />
-                      </View>
-                      <View style={styles.rowText}>
-                        <NemuText
-                          style={[
-                            styles.rowTitle,
-                            { color: tokens.foreground },
-                          ]}
-                        >
-                          {strings.settings.importSourceCardTitle}
-                        </NemuText>
-                        <NemuText
-                          style={[
-                            styles.rowSubtitle,
-                            { color: tokens.mutedForeground },
-                          ]}
-                        >
-                          {strings.settings.importSourceCardDescription}
-                        </NemuText>
-                      </View>
-                    </View>
+                    <SettingsGroupHeader
+                      icon="document-attach-outline"
+                      title={strings.settings.importSourceCardTitle}
+                      description={strings.settings.importSourceCardDescription}
+                      pageTitle={settingsTitle}
+                    />
                     <NemuButton
                       accessibilityLabel={strings.settings.importSource}
                       containerStyle={styles.importSourceAction}
@@ -3227,21 +3375,41 @@ function SettingsScreenContent({
                   />
                   {/* The storage breakdown above owns every cache action;
                       this card is only the full local reset. */}
-                  <SettingsSurface style={styles.rowShell}>
-                    <DataActionRow
-                      icon="trash-outline"
-                      title={strings.settings.clearAllData}
-                      subtitle={strings.settings.clearAllDataDescription}
-                      actionLabel={strings.common.clear}
-                      busy={
-                        pendingClearMode === "all" ||
-                        dataManagement.clearingMode === "all"
-                      }
-                      disabled={settingsActionBusy}
-                      destructive
-                      onPress={confirmClearAllData}
+                  {mobileDesignExploreFlag ? (
+                    // Design-explore: the reset is a destructive row with
+                    // what it resets as its footer, like the clears above.
+                    <ExploreSettingsActionGroup
+                      actions={[
+                        {
+                          key: "clear-all-data",
+                          label: strings.settings.clearAllData,
+                          destructive: true,
+                          busy:
+                            pendingClearMode === "all" ||
+                            dataManagement.clearingMode === "all",
+                          disabled: settingsActionBusy,
+                          onPress: confirmClearAllData,
+                        },
+                      ]}
+                      footer={strings.settings.clearAllDataDescription}
                     />
-                  </SettingsSurface>
+                  ) : (
+                    <SettingsSurface style={styles.rowShell}>
+                      <DataActionRow
+                        icon="trash-outline"
+                        title={strings.settings.clearAllData}
+                        subtitle={strings.settings.clearAllDataDescription}
+                        actionLabel={strings.common.clear}
+                        busy={
+                          pendingClearMode === "all" ||
+                          dataManagement.clearingMode === "all"
+                        }
+                        disabled={settingsActionBusy}
+                        destructive
+                        onPress={confirmClearAllData}
+                      />
+                    </SettingsSurface>
+                  )}
 
                   <View
                     onLayout={(event) => {
@@ -3602,6 +3770,29 @@ export function SettingsScreen({
 }
 
 const styles = StyleSheet.create({
+  experimentalPage: {
+    gap: 8,
+  },
+  experimentalRow: {
+    minHeight: 56,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  experimentalSeparator: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 14,
+  },
+  experimentalRestart: {
+    flex: 1,
+  },
+  experimentalFooter: {
+    paddingHorizontal: 14,
+    fontSize: 13,
+    lineHeight: 18,
+  },
   fill: {
     flex: 1,
   },
@@ -3699,6 +3890,27 @@ const styles = StyleSheet.create({
     fontSize: ABOUT_ROW_FONT_SIZE,
     lineHeight: 18,
     fontWeight: nemuFontWeight.medium,
+  },
+  // The radius scale's group corner (design-explore).
+  exploreSurface: {
+    borderRadius: MOBILE_EXPLORE_RADIUS.group,
+    borderCurve: "continuous",
+  },
+  exploreInnerRows: {
+    gap: 0,
+  },
+  exploreInnerRow: {
+    borderWidth: 0,
+    borderRadius: 0,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 0,
+  },
+  exploreInnerRowFirst: {
+    borderTopWidth: 0,
+  },
+  exploreCaption: {
+    fontSize: 13,
+    lineHeight: 18,
   },
   readerHeader: {
     flexDirection: "row",

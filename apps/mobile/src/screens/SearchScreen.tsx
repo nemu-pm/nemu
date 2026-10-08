@@ -1,4 +1,5 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { orderMobileTitleQuickActions } from "@/lib/mobileQuickActionOrder";
 import {
   Keyboard,
   Platform,
@@ -116,6 +117,12 @@ import {
   partitionMobileLiveSearchGroups,
   resolveMobileLiveSearchRetrySourceIds,
 } from "@/lib/mobileSearchResults";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
+import { ExploreSearchIdle } from "@/components/explore/ExploreSearchIdle";
+import { hasMobileSearchIdleContent } from "@/lib/mobileSearchIdle";
+import { pushMobileExploreDetail } from "@/components/explore/mobileExploreCover";
+import { setMobileSourceDetailSeed } from "@/lib/mobileSourceDetailSeed";
+import { ZoomSource } from "../../modules/nemu-window-layout";
 import {
   addMobileSearchRecent,
   loadMobileSearchRecents,
@@ -411,6 +418,9 @@ function SourceFilterBar({
               onChangeSelection([source.id]);
             }}
             selected={selected.has(source.id)}
+            // Design-explore: chosen sources are a soft tint; only "All" is
+            // a solid pill, so twenty sources on read calm.
+            included={mobileDesignExploreFlag}
           />
         ))}
       </ScrollView>
@@ -682,27 +692,49 @@ const LocalSearchResultHeader = memo(function LocalSearchResultHeader({
 const LocalSearchResultCard = memo(function LocalSearchResultCard({
   item,
   onLongPressItem,
+  onOpenItem,
 }: {
   item: MangaCardModel;
   onLongPressItem: (libraryItemId: string) => void;
+  /** Design-explore: opens the title page out of this cover (a zoom). */
+  onOpenItem?: (item: MangaCardModel, zoomId: string) => void;
 }) {
   // Keeps the card's callback identity tied to the row, not to the render, so
   // `memo(MangaCard)` can actually hold.
   const handleLongPress = useCallback(() => {
     onLongPressItem(item.id);
   }, [item.id, onLongPressItem]);
+  const zoomId = `search:${item.id}`;
+  const handleOpen = useCallback(() => onOpenItem?.(item, zoomId), [item, onOpenItem, zoomId]);
+  const wrapCover = useCallback(
+    (cover: ReactNode) => (
+      <ZoomSource zoomId={zoomId} style={styles.resultZoomSource}>
+        {cover}
+      </ZoomSource>
+    ),
+    [zoomId],
+  );
 
-  return <MangaCard item={item} onLongPress={handleLongPress} />;
+  return (
+    <MangaCard
+      item={item}
+      onLongPress={handleLongPress}
+      onPress={onOpenItem ? handleOpen : undefined}
+      wrapCover={onOpenItem ? wrapCover : undefined}
+    />
+  );
 });
 
 const LocalSearchResultItems = memo(function LocalSearchResultItems({
   items,
   grid,
   onLongPressItem,
+  onOpenItem,
 }: {
   items: MangaCardModel[];
   grid: SearchResultGrid;
   onLongPressItem: (libraryItemId: string) => void;
+  onOpenItem?: (item: MangaCardModel, zoomId: string) => void;
 }) {
   return (
     <View style={styles.resultsRow}>
@@ -715,6 +747,7 @@ const LocalSearchResultItems = memo(function LocalSearchResultItems({
           <LocalSearchResultCard
             item={item}
             onLongPressItem={onLongPressItem}
+            onOpenItem={onOpenItem}
           />
         </View>
       ))}
@@ -1204,6 +1237,8 @@ export function SearchScreen() {
     setRecentSearches([]);
     void saveMobileSearchRecents([]).catch(() => undefined);
   }, []);
+  const exploreIdle =
+    mobileDesignExploreFlag && hasMobileSearchIdleContent(split ? [] : recentSearches, library.data);
   // "Library" / "Live Source Results" only when both groups are on screen.
   const showKindHeaders = mobileSearchShowsKindHeaders({
     libraryRows: localSearchRows.length,
@@ -1352,6 +1387,11 @@ export function SearchScreen() {
 
   const handleLiveResultPress = useCallback(
     (source: SearchSourceDisplay, manga: MobileLiveSearchManga) => {
+      // Design-explore: the page paints the tapped title and cover from its
+      // first frame, as from a source listing, instead of zooming onto a skeleton.
+      if (mobileDesignExploreFlag) {
+        setMobileSourceDetailSeed(source.registryId, source.rawSourceId, manga.id, manga);
+      }
       router.push(
         getMobileSourceMangaHref({
           registryId: source.registryId,
@@ -1380,6 +1420,16 @@ export function SearchScreen() {
       new Map(library.data.map((entry) => [entry.item.libraryItemId, entry])),
     [library.data],
   );
+  // Design-explore: a saved result opens its page out of the cover, handing
+  // the page the title as the shelf does.
+  const openLibraryResultWithZoom = useCallback(
+    (item: MangaCardModel, zoomId: string) => {
+      const entry = libraryEntriesById.get(item.id);
+      if (!entry) return;
+      pushMobileExploreDetail(entry, item.cover ? { uri: item.cover, headers: item.coverHeaders } : null, zoomId);
+    },
+    [libraryEntriesById],
+  );
   const openQuickActionForItem = useCallback(
     (libraryItemId: string) => {
       // `toMangaCard` keys every saved-result card by its library item id, so
@@ -1399,10 +1449,11 @@ export function SearchScreen() {
           items={item.items}
           grid={resultGridCells}
           onLongPressItem={openQuickActionForItem}
+          onOpenItem={mobileDesignExploreFlag ? openLibraryResultWithZoom : undefined}
         />
       );
     },
-    [openQuickActionForItem, resultGridCells],
+    [openLibraryResultWithZoom, openQuickActionForItem, resultGridCells],
   );
 
   const retrySearchData = async () => {
@@ -1594,7 +1645,7 @@ export function SearchScreen() {
         void handleQuickActionRemove(entry);
       },
     });
-    return actions;
+    return mobileDesignExploreFlag ? orderMobileTitleQuickActions(actions) : actions;
   }, [
     handleQuickActionMarkAllRead,
     handleQuickActionRemove,
@@ -1766,6 +1817,16 @@ export function SearchScreen() {
                     />
                   )}
                 </MobilePaneAlignedView>
+              ) : !trimmedQuery && exploreIdle ? (
+                // Design-explore: recent searches and library titles with new chapters.
+                <ExploreSearchIdle
+                  recents={split ? [] : recentSearches}
+                  entries={library.data}
+                  installedSources={installed.data}
+                  strings={strings}
+                  onPressRecent={pressRecentSearch}
+                  onClearRecents={clearRecentSearches}
+                />
               ) : !trimmedQuery ? (
                 <MobilePaneAlignedView>
                   {({ minHeight }) => (
@@ -1986,6 +2047,9 @@ function renderNoSidebarRow() {
 const styles = StyleSheet.create({
   fill: {
     flex: 1,
+  },
+  resultZoomSource: {
+    alignSelf: "stretch",
   },
   splitRow: {
     flexDirection: "row",

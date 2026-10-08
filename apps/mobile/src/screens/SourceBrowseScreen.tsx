@@ -48,9 +48,14 @@ import {
   SourceHomeView,
 } from "@/components/SourceHomeView";
 import { useMobileDataStore } from "@/data/mobileDataContext";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
+import { withMobileExploreAddIntent } from "@/components/explore/mobileExploreCover";
+import { ExploreInLibraryBadge } from "@/components/explore/ExploreInLibraryBadge";
+import { ContextMenuView } from "../../modules/nemu-window-layout";
 import { emitMobileDataChanged } from "@/data/mobileDataEvents";
 import {
   useInstalledSources,
+  useLibraryEntries,
   useMobileInstalledSourceCatalogRepair,
   useMobileLanguageSettings,
   useSourceSettings,
@@ -454,11 +459,17 @@ function ListingMangaCard({
   onPress,
   source,
   strings,
+  inLibrary = false,
+  onAdd,
 }: {
   item: MobileLiveSearchManga;
   onPress: () => void;
   source?: InstalledSource | null;
   strings: MobileStrings;
+  /** Design-explore: the title is already in the library (a check on its cover). */
+  inLibrary?: boolean;
+  /** Design-explore: "Add to Library" from the cell's context menu. */
+  onAdd?: () => void;
 }) {
   const { tokens } = useNemuTheme();
   const subtitle = liveMangaSubtitle(item);
@@ -487,14 +498,23 @@ function ListingMangaCard({
         }
     : null;
 
-  return (
+  const card = (
     <NemuPressable
       accessibilityRole="button"
-      accessibilityLabel={formatMobileMangaCardAccessibilityLabel({
-        openTemplate: strings.sourceBrowse.openManga,
-        title: item.title,
-        subtitle,
-      })}
+      accessibilityLabel={[
+        formatMobileMangaCardAccessibilityLabel({
+          openTemplate: strings.sourceBrowse.openManga,
+          title: item.title,
+          subtitle,
+        }),
+        inLibrary ? strings.designExplore.inLibrary : null,
+      ]
+        .filter(Boolean)
+        .join(", ")}
+      accessibilityActions={onAdd && !inLibrary ? [{ name: "add", label: strings.designExplore.addToLibrary }] : undefined}
+      onAccessibilityAction={(event) => {
+        if (event.nativeEvent.actionName === "add") onAdd?.();
+      }}
       onPress={onPress}
       pressedScale={0.98}
       style={styles.liveCard}
@@ -566,6 +586,23 @@ function ListingMangaCard({
         ) : null}
       </View>
     </NemuPressable>
+  );
+  if (!mobileDesignExploreFlag) return card;
+  return (
+    <ContextMenuView
+      style={styles.liveCard}
+      items={
+        onAdd && !inLibrary
+          ? [{ id: "add", title: strings.designExplore.addToLibrary, systemImage: "plus" }]
+          : []
+      }
+      onMenuAction={(id) => {
+        if (id === "add") onAdd?.();
+      }}
+    >
+      {card}
+      {inLibrary ? <ExploreInLibraryBadge /> : null}
+    </ContextMenuView>
   );
 }
 
@@ -2612,24 +2649,38 @@ export function SourceBrowseScreen() {
   ]);
 
   const handleListingMangaPress = useCallback(
-    (sourceDisplay: SearchSourceDisplay, manga: MobileLiveSearchManga) => {
+    (
+      sourceDisplay: SearchSourceDisplay,
+      manga: MobileLiveSearchManga,
+      // Design-explore: the page adds the title as soon as it has its details.
+      intent?: { add: true },
+    ) => {
       setMobileSourceDetailSeed(
         sourceDisplay.registryId,
         sourceDisplay.rawSourceId,
         manga.id,
         manga,
       );
-      router.push(
-        getMobileSourceMangaHref({
-          registryId: sourceDisplay.registryId,
-          sourceId: sourceDisplay.rawSourceId,
-          mangaId: manga.id,
-          mangaTitle: manga.title,
-        }),
-      );
+      const href = getMobileSourceMangaHref({
+        registryId: sourceDisplay.registryId,
+        sourceId: sourceDisplay.rawSourceId,
+        mangaId: manga.id,
+        mangaTitle: manga.title,
+      });
+      router.push(intent?.add ? withMobileExploreAddIntent(href) : href);
     },
     [],
   );
+  // Design-explore: which titles of this source are already in the library.
+  const libraryEntriesForBadges = useLibraryEntries();
+  const libraryMangaKeys = useMemo(() => {
+    if (!mobileDesignExploreFlag) return null;
+    const keys = new Set<string>();
+    for (const entry of libraryEntriesForBadges.data ?? []) {
+      for (const link of entry.sources) keys.add(`${link.registryId}:${link.sourceId}:${link.sourceMangaId}`);
+    }
+    return keys;
+  }, [libraryEntriesForBadges.data]);
 
   const submitSourceSearchText = useCallback(
     (text: string, options?: { haptic?: boolean }) => {
@@ -3072,6 +3123,12 @@ export function SourceBrowseScreen() {
             onPress={() => handleListingMangaPress(sourceDisplay, item)}
             source={installedSource}
             strings={strings}
+            inLibrary={libraryMangaKeys?.has(`${sourceDisplay.registryId}:${sourceDisplay.rawSourceId}:${item.id}`)}
+            onAdd={
+              mobileDesignExploreFlag
+                ? () => handleListingMangaPress(sourceDisplay, item, { add: true })
+                : undefined
+            }
           />
         </MobilePoseLayoutView>
       );
@@ -3082,6 +3139,7 @@ export function SourceBrowseScreen() {
       installedSource,
       strings,
       handleListingMangaPress,
+      libraryMangaKeys,
     ],
   );
 

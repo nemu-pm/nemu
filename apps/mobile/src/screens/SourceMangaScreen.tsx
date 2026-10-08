@@ -5,12 +5,29 @@ import {
   useFocusEffect,
   useLocalSearchParams,
 } from "expo-router";
-import { Platform, type ListRenderItemInfo } from "react-native";
+import { type FlatList, Platform, type ListRenderItemInfo } from "react-native";
 import { EmptyLibrary } from "@/components/EmptyLibrary";
 import { MobileNemuAgentSheet } from "@/components/MobileNemuAgentSheet";
 import { MobileCollectionMembershipSheet } from "@/components/MobileCollectionMembershipSheet";
 import { MobileConfirmationSheet } from "@/components/MobileConfirmationSheet";
 import { MobileLibraryOptionsSheet } from "@/components/MobileLibraryOptionsSheet";
+import { withMobileExploreZoom } from "@/components/explore/mobileExploreCover";
+import {
+  formatMobileExploreChapterLabel,
+  withoutMobileZeroVolume,
+} from "@/lib/mobileContinueReadingCopy";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
+import {
+  MobileExploreChapterRow,
+  type MobileExploreChapterAction,
+} from "@/components/explore/MobileExploreChapterRow";
+import { MobileExploreChapterMenu } from "@/components/explore/MobileExploreChapterMenu";
+import {
+  buildMobileExploreChapterRows,
+  findMobileUpNextIndex,
+  getMobileChapterListCommonGroup,
+  getMobileChapterVolumeHeaders,
+} from "@/lib/mobileExploreChapterList";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import {
   MobileMangaChapterRow,
@@ -157,6 +174,8 @@ import {
   type MobileSourcePackageHydration,
 } from "@/sources/mobileSourcePackageLoader";
 
+/** Design-explore: the sort direction is a glass capsule like the list's other controls. */
+
 type SourceMangaDetailState =
   | { status: "idle"; detail: string }
   | { status: "loading"; detail: string }
@@ -270,6 +289,8 @@ export function SourceMangaScreen() {
     sourceId: string;
     mangaId: string;
     mangaTitle?: string | string[];
+    /** Design-explore: add to the library as soon as the details are in. */
+    add?: string;
   }>();
   const registryId = normalizeMobileSourceRouteParam(params.registryId);
   const sourceId = normalizeMobileSourceRouteParam(params.sourceId);
@@ -904,10 +925,24 @@ export function SourceMangaScreen() {
       ),
     [chapters, localState.chapterProgress],
   );
+  // Design-explore: the same one-chapter rows as the library title page.
   const chapterRows = useMemo(
-    () => buildMobileChapterRows(visibleChapters),
+    () =>
+      mobileDesignExploreFlag
+        ? buildMobileExploreChapterRows(visibleChapters)
+        : buildMobileChapterRows(visibleChapters),
     [visibleChapters],
   );
+  const chapterVolumeHeaders = useMemo(
+    () => (mobileDesignExploreFlag ? getMobileChapterVolumeHeaders(visibleChapters) : null),
+    [visibleChapters],
+  );
+  // …and the group most chapters share, named once above the list.
+  const chapterCommonGroup = useMemo(
+    () => (mobileDesignExploreFlag ? getMobileChapterListCommonGroup(visibleChapters) : null),
+    [visibleChapters],
+  );
+  const chapterListRef = useRef<FlatList<MobileChapterRow> | null>(null);
   const changeChapterListPreference = useCallback(
     (nextPreference: MobileChapterListPreference) => {
       setChapterListPreference(nextPreference);
@@ -962,7 +997,8 @@ export function SourceMangaScreen() {
     Boolean(continueChapter) && !adding && !removing;
   const continueActionLabel = continueChapter
     ? formatContinueActionLabel({
-        chapter: continueChapter,
+        // Design-explore: a placeholder volume of 0 is never shown.
+        chapter: mobileDesignExploreFlag ? withoutMobileZeroVolume(continueChapter) : continueChapter,
         isContinuation,
         strings,
         labels: strings.sourceManga,
@@ -986,7 +1022,8 @@ export function SourceMangaScreen() {
   );
 
   const openReader = useCallback(
-    (chapter: ChapterSummary | null) => {
+    // Design-explore "Read from the beginning": the reader opens on `page`.
+    (chapter: ChapterSummary | null, page?: number) => {
       if (!chapter) {
         void hapticError();
         return;
@@ -1038,13 +1075,17 @@ export function SourceMangaScreen() {
       }
       try {
         router.push(
-          getMobileSourceReaderHref({
-            registryId: routeRef.registryId,
-            sourceId: routeRef.sourceId,
-            mangaId,
-            chapter,
-            mangaTitle: title,
-          }),
+          withMobileExploreZoom(
+            getMobileSourceReaderHref({
+              registryId: routeRef.registryId,
+              sourceId: routeRef.sourceId,
+              mangaId,
+              chapter,
+              page,
+              mangaTitle: title,
+            }),
+            mobileDesignExploreFlag ? `source:${routeRef.sourceId}:${mangaId}` : null,
+          ),
         );
       } catch {
         openingReaderRef.current = false;
@@ -1088,6 +1129,71 @@ export function SourceMangaScreen() {
       showChapterLanguage,
       strings,
     ],
+  );
+
+  // Design-explore list: up next, the context menu's actions and the jump.
+  const upNextChapterIndex = useMemo(
+    () =>
+      mobileDesignExploreFlag
+        ? findMobileUpNextIndex(visibleChapters, localState.chapterProgress, {
+            chapter: continueChapter,
+            sameSource: true,
+          })
+        : null,
+    [continueChapter, localState.chapterProgress, visibleChapters],
+  );
+  const upNextChapterId =
+    upNextChapterIndex !== null ? (visibleChapters[upNextChapterIndex]?.id ?? null) : null;
+  const onExploreChapterAction = useCallback(
+    (chapter: ChapterSummary, action: MobileExploreChapterAction) => {
+      openReader(chapter, action === "start" ? 1 : undefined);
+    },
+    [openReader],
+  );
+  const renderExploreChapterRow = useCallback(
+    ({ item, index }: ListRenderItemInfo<MobileChapterRow>) => {
+      const chapter = item.chapters[0];
+      return (
+        <MobileExploreChapterRow
+          chapter={chapter}
+          progress={localState.chapterProgress[chapter.id]}
+          header={chapterVolumeHeaders?.get(chapter.id) ?? null}
+          commonGroup={chapterCommonGroup}
+          caption={
+            index === 0 && chapterCommonGroup
+              ? formatMobileString(strings.designExplore.chapterListGroup, { group: chapterCommonGroup })
+              : null
+          }
+          upNext={chapter.id === upNextChapterId}
+          dropVolume={Boolean(chapterVolumeHeaders?.size)}
+          busy={readerActionBusy}
+          strings={strings}
+          onAction={onExploreChapterAction}
+        />
+      );
+    },
+    [
+      chapterCommonGroup,
+      chapterVolumeHeaders,
+      localState.chapterProgress,
+      onExploreChapterAction,
+      readerActionBusy,
+      strings,
+      upNextChapterId,
+    ],
+  );
+  const jumpToUpNext = useCallback(() => {
+    if (upNextChapterIndex === null) return;
+    chapterListRef.current?.scrollToIndex({ index: upNextChapterIndex, viewPosition: 0.3, animated: true });
+  }, [upNextChapterIndex]);
+  const onChapterScrollToIndexFailed = useCallback(
+    (info: { index: number; averageItemLength: number }) => {
+      chapterListRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
+      setTimeout(() => {
+        chapterListRef.current?.scrollToIndex({ index: info.index, viewPosition: 0.3, animated: true });
+      }, 120);
+    },
+    [],
   );
 
   const addToLibrary = useCallback(
@@ -1230,6 +1336,23 @@ export function SourceMangaScreen() {
       openReader(nextSheet.chapter);
     }
   }, [localState.libraryEntry?.item.libraryItemId, openReader, title]);
+
+  // Design-explore: opened from a listing cell's "Add to Library", the page
+  // adds itself once (through the button's own write path) when its details
+  // are in. No sheet is shown, so the sheet hand-off it claims is released.
+  const autoAddRequested = mobileDesignExploreFlag && params.add === "1";
+  const autoAddDoneRef = useRef(false);
+  useEffect(() => {
+    // Details can be ready (from the cache) before the installed source's
+    // display is: adding then fails with "could not be saved", so wait for both.
+    if (!autoAddRequested || autoAddDoneRef.current || inLibrary || detailState.status !== "ready" || !sourceDisplay) {
+      return;
+    }
+    autoAddDoneRef.current = true;
+    void addToLibrary().then(() => {
+      libraryOptionsNextSheetRef.current = null;
+    });
+  }, [addToLibrary, autoAddRequested, detailState.status, inLibrary, sourceDisplay]);
 
   const addToLibraryAndRead = useCallback(async () => {
     if (!continueChapter) {
@@ -1467,12 +1590,15 @@ export function SourceMangaScreen() {
       <MobileConfirmationSheet
         visible={removeConfirmOpen}
         title={strings.sourceManga.removeTitle}
-        description={formatMobileString(
-          strings.sourceManga.removeDescription,
-          {
-            name: title,
-          },
-        )}
+        description={
+          // Design-explore names the title in the sheet's header; the line
+          // under it says what is kept instead of repeating the name.
+          mobileDesignExploreFlag
+            ? strings.mangaDetail.removeDescription
+            : formatMobileString(strings.sourceManga.removeDescription, {
+                name: title,
+              })
+        }
         subject={title}
         iconName="trash-outline"
         cancelLabel={strings.common.cancel}
@@ -1535,10 +1661,16 @@ export function SourceMangaScreen() {
         }
         windowSize={MOBILE_CHAPTER_LIST_PERFORMANCE.windowSize}
         removeClippedSubviews={Platform.OS === "android"}
-        renderItem={renderChapterRow}
+        renderItem={mobileDesignExploreFlag ? renderExploreChapterRow : renderChapterRow}
+        listRef={mobileDesignExploreFlag ? chapterListRef : undefined}
+        onScrollToIndexFailed={mobileDesignExploreFlag ? onChapterScrollToIndexFailed : undefined}
         leading={
           <>
             <MobileMangaDetailSurface
+              readerZoomId={mobileDesignExploreFlag ? `source:${routeRef.sourceId}:${mangaId}` : null}
+              infoTitle={sourceName}
+              infoChapters={chapters.length || null}
+              infoLatest={chapters[0] ? formatMobileExploreChapterLabel(chapters[0], strings) : null}
               title={title}
               authors={metadata?.authors}
               coverSource={coverImage.source}
@@ -1640,27 +1772,40 @@ export function SourceMangaScreen() {
             title={strings.sourceManga.chapters}
             loading={detailState.status === "loading"}
             hasChapters={visibleChapters.length > 0}
-            sortAction={
-              chapters.length > 0 ? (
-                <MobileMangaChapterSortAction
-                  preference={effectiveChapterListPreference}
-                  strings={strings}
-                  onChange={changeChapterListPreference}
-                />
-              ) : null
-            }
-            toolbar={
-              chapters.length > 0 ? (
-                <MobileMangaChapterToolbar
-                  appLanguage={appLanguage}
-                  languages={chapterLanguages}
-                  preference={effectiveChapterListPreference}
-                  strings={strings}
-                  unreadCount={unreadChapterCount}
-                  onChange={changeChapterListPreference}
-                />
-              ) : null
-            }
+              alignedControl={mobileDesignExploreFlag}
+              sortAction={
+                chapters.length > 0 ? (
+                  mobileDesignExploreFlag ? (
+                    <MobileExploreChapterMenu
+                      appLanguage={appLanguage}
+                      languages={chapterLanguages}
+                      preference={effectiveChapterListPreference}
+                      strings={strings}
+                      unreadCount={unreadChapterCount}
+                      onChange={changeChapterListPreference}
+                      jump={upNextChapterIndex !== null ? { label: formatMobileExploreChapterLabel(visibleChapters[upNextChapterIndex]!, strings), onPress: jumpToUpNext } : null}
+                    />
+                  ) : (
+                    <MobileMangaChapterSortAction
+                      preference={effectiveChapterListPreference}
+                      strings={strings}
+                      onChange={changeChapterListPreference}
+                    />
+                  )
+                ) : null
+              }
+              toolbar={
+                chapters.length > 0 && !mobileDesignExploreFlag ? (
+                  <MobileMangaChapterToolbar
+                    appLanguage={appLanguage}
+                    languages={chapterLanguages}
+                    preference={effectiveChapterListPreference}
+                    strings={strings}
+                    unreadCount={unreadChapterCount}
+                    onChange={changeChapterListPreference}
+                  />
+                ) : null
+              }
             emptyTitle={
               detailState.status === "loading"
                 ? detailState.detail

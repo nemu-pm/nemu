@@ -7,16 +7,21 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type ReactNode,
 } from "react";
+import { orderMobileTitleQuickActions } from "@/lib/mobileQuickActionOrder";
 import {
   AppState,
   FlatList,
+  LayoutAnimation,
   Platform,
   StyleSheet,
   Text,
   useWindowDimensions,
   View,
   type ListRenderItemInfo,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { BottomSheetTextInput } from "@expo/ui/community/bottom-sheet";
@@ -97,6 +102,25 @@ import { mobileFoldAwareGridCellStyle } from "@/lib/mobileFoldAwareGrid";
 import { MobilePaneAlignedView } from "@/lib/MobilePaneAlignedView";
 import { useMobileFoldAwareGrid } from "@/lib/useMobileFoldAwareGrid";
 import { MobilePoseLayoutView } from "@/components/MobilePoseLayoutView";
+import { MobileContinueReadingCarousel } from "@/components/explore/MobileContinueReadingCarousel";
+import { MobileLibraryLayoutHeader } from "@/components/explore/MobileLibraryLayoutHeader";
+import { MobileLibraryShelfCell } from "@/components/explore/MobileLibraryShelfCell";
+import { MobileExploreCoverPlaceholder } from "@/components/explore/MobileExploreCoverPlaceholder";
+import { selectMobileContinueReading } from "@/lib/mobileContinueReading";
+import { MobileExploreDustHost } from "@/components/explore/MobileExploreDustHost";
+import { dissolveExploreTitle } from "@/components/explore/mobileExploreDissolve";
+import { ExploreDissolveTarget } from "@/components/explore/ExploreDissolveTarget";
+import { mobileDesignExploreFlag, useMobileDesignExplore } from "@/lib/mobileDesignExplore";
+import { getMobileShelfRow, MOBILE_SHELF } from "@/lib/mobileLibraryShelf";
+import { MobileCollectionFolders } from "@/components/explore/MobileCollectionFolders";
+import { useMobileExploreCoverPreference } from "@/components/explore/mobileExploreCoverPreference";
+import {
+  reportMobileLibraryScroll,
+  setMobileLibraryFocused,
+} from "@/components/explore/mobileNowReadingVisibility";
+import { hasMobileUserCover, mobileExploreCoverOwnerUrl, pushMobileExploreDetail } from "@/components/explore/mobileExploreCover";
+import { ContentScrollMarker, ZoomSource } from "../../modules/nemu-window-layout";
+import { useReducedMotion } from "react-native-reanimated";
 import { useMobilePoseRemountVeil, useMobilePoseRenderProbe } from "@/lib/MobilePoseTransitionContext";
 import { useMobileGridScrollAnchor } from "@/lib/useMobileGridScrollAnchor";
 import {
@@ -222,6 +246,19 @@ function selectLibraryCoverSource(
 // Memoized so a list-level state change (a sheet opening, a refresh flag)
 // re-renders only the cells whose own inputs moved. Every prop is either a
 // primitive or a value the screen keeps referentially stable.
+/** The quick-action sheet's dismissal, before a removed title turns to dust. */
+const EXPLORE_SHEET_DISMISS_MS = 380;
+/**
+ * Shelf ⇄ Grid and opening a collection (design-explore): moved rows glide on
+ * one soft spring. New cells appear at once under the old ones, which fade
+ * out over them, so the covers (same size and place in both layouts)
+ * cross-dissolve without dipping to the page colour halfway.
+ */
+const EXPLORE_LAYOUT_SPRING = {
+  duration: 320,
+  update: { type: LayoutAnimation.Types.spring, springDamping: 0.86 },
+  delete: { type: LayoutAnimation.Types.easeOut, property: LayoutAnimation.Properties.opacity, duration: 220 },
+};
 const LibraryGridItem = memo(function LibraryGridItem({
   entry,
   entryProgress,
@@ -229,22 +266,31 @@ const LibraryGridItem = memo(function LibraryGridItem({
   strings,
   installedSources,
   onLongPress,
+  placeholderWidth,
 }: {
   entry: LibraryEntry;
+  /** Design-explore: draws the shelf's cloth-book placeholder at this width (Shelf ⇄ Grid keeps it). */
+  placeholderWidth?: number;
   entryProgress?: Map<string, LocalMangaProgress>;
   progressIndex: MobileLibraryProgressIndex;
   strings: MobileStrings;
   installedSources: InstalledSource[];
   onLongPress?: (entry: LibraryEntry) => void;
 }) {
-  const cover = resolveMobileEntryDisplayCover(entry);
+  // Design-explore: the sharper cover another source has, as on the shelf
+  // (Shelf ⇄ Grid keeps the same image); always null with the flag off.
+  const preferredCover = useMobileExploreCoverPreference(entry.item.libraryItemId);
+  const cover =
+    (preferredCover && !hasMobileUserCover(entry) ? preferredCover : null) ??
+    resolveMobileEntryDisplayCover(entry);
   // Requested through the source that owns the cover URL (same resolution as
   // the detail header), so both share one request and one cached image.
   const installedSource = useMemo(
     () =>
-      resolveMobileEntryCoverSources(entry, installedSources, { cover })[0] ??
-      null,
-    [cover, entry, installedSources],
+      resolveMobileEntryCoverSources(entry, installedSources, {
+        cover: preferredCover ? mobileExploreCoverOwnerUrl(entry, cover) : cover,
+      })[0] ?? null,
+    [cover, entry, installedSources, preferredCover],
   );
   const coverRequest = useMobileSourceImageRequest(installedSource, cover);
   const item = useMemo(
@@ -257,10 +303,32 @@ const LibraryGridItem = memo(function LibraryGridItem({
     onLongPress?.(entry);
   }, [entry, onLongPress]);
 
+  // Design-explore: the cover zooms into the title page, as from the shelf.
+  const designExplore = useMobileDesignExplore();
+  const zoomId = `grid:${entry.item.libraryItemId}`;
+  const exploreOpen = useCallback(() => {
+    pushMobileExploreDetail(entry, item.cover ? { uri: item.cover, headers: item.coverHeaders } : null, zoomId);
+  }, [entry, item.cover, item.coverHeaders, zoomId]);
+  const wrapCover = useCallback(
+    (cover: ReactNode) => (
+      <ZoomSource zoomId={zoomId} style={styles.gridZoomSource}>
+        {cover}
+      </ZoomSource>
+    ),
+    [zoomId],
+  );
+
   return (
     <MangaCard
       item={item}
       onLongPress={onLongPress ? handleLongPress : undefined}
+      onPress={designExplore ? exploreOpen : undefined}
+      wrapCover={designExplore ? wrapCover : undefined}
+      placeholder={
+        designExplore && placeholderWidth ? (
+          <MobileExploreCoverPlaceholder title={getEntryTitle(entry)} width={placeholderWidth} />
+        ) : undefined
+      }
     />
   );
 });
@@ -273,6 +341,9 @@ function collectionBookCountText(count: number, strings: MobileStrings): string 
     { count }
   );
 }
+
+/** Shelf vs grid survives remounts for the session (design-explore only). */
+let mobileLibraryShelfLayoutDefault = true;
 
 const LIBRARY_TITLE_MENU_ALL = "library:all";
 const LIBRARY_TITLE_MENU_MANAGE = "library:manage";
@@ -1755,6 +1826,14 @@ export function LibraryScreen({
 
   const handleQuickActionRemove = useCallback(
     async (entry: LibraryEntry) => {
+      if (mobileDesignExploreFlag) {
+        // Design-explore: once the sheet has slid away, the title's cover (or
+        // card) turns to dust where it stands, and the list closes the gap
+        // behind the drifting dust. Nothing on screen: removed as before.
+        if (await dissolveExploreTitle(entry.item.libraryItemId, EXPLORE_SHEET_DISMISS_MS)) {
+          LayoutAnimation.configureNext(LayoutAnimation.create(320, "easeInEaseOut", "opacity"));
+        }
+      }
       try {
         await store.removeLibraryItem(entry.item.libraryItemId);
         emitMobileLibraryDataChanged({ collectionsChanged: true });
@@ -1900,7 +1979,7 @@ export function LibraryScreen({
         void handleQuickActionRemove(entry);
       },
     });
-    return actions;
+    return mobileDesignExploreFlag ? orderMobileTitleQuickActions(actions) : actions;
   }, [
     quickActionEntry,
     quickActionLink,
@@ -1916,6 +1995,71 @@ export function LibraryScreen({
   const handleGridItemLongPress = useCallback((entry: LibraryEntry) => {
     setQuickActionEntry(entry);
   }, []);
+  // Design-explore (EXPO_PUBLIC_NEMU_DESIGN_EXPLORE): continue-reading cards
+  // above the grid and a bookshelf layout for it, on compact iPhone widths.
+  const designExplore = useMobileDesignExplore();
+  // Design-explore: the Now Reading accessory can step aside while this
+  // page's first card shows the same title (`mobileNowReadingVisibility`).
+  useFocusEffect(
+    useCallback(() => {
+      if (!designExplore) return undefined;
+      setMobileLibraryFocused(true);
+      return () => setMobileLibraryFocused(false);
+    }, [designExplore]),
+  );
+  const onGridScroll = gridScrollAnchor.onScroll;
+  const onExploreLibraryScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      onGridScroll(event);
+      const { contentOffset, contentInset } = event.nativeEvent;
+      reportMobileLibraryScroll(contentOffset.y + (contentInset?.top ?? 0));
+    },
+    [onGridScroll],
+  );
+
+  const [shelfLayout, setShelfLayoutState] = useState(mobileLibraryShelfLayoutDefault);
+  // The switch and the folders give their own press haptics.
+  // Shelf and Grid draw the covers at the same size in the same columns, so
+  // the switch only moves rows up or down (the Grid adds titles, the Shelf
+  // planks): each cover glides to its new place on one spring while the
+  // planks fade, in the same commit as the switch's pill.
+  // Reduce Motion: the new layout replaces the old at once.
+  const exploreReducedMotion = useReducedMotion();
+  const setShelfLayout = useCallback(
+    (next: boolean) => {
+      mobileLibraryShelfLayoutDefault = next;
+      if (!exploreReducedMotion) LayoutAnimation.configureNext(EXPLORE_LAYOUT_SPRING);
+      setShelfLayoutState(next);
+    },
+    [exploreReducedMotion],
+  );
+  const shelfMode = designExplore && shelfLayout;
+  const continueReadingItems = useMemo(
+    () =>
+      designExplore && !selectedCollection
+        ? selectMobileContinueReading(sortedLibraryEntries, progressIndex, entryProgressMaps)
+        : [],
+    [designExplore, entryProgressMaps, progressIndex, selectedCollection, sortedLibraryEntries],
+  );
+  const visibleEntryCount = visibleEntries.length;
+  const shelfGrid = useMemo(
+    () => ({ columns: gridColumns, itemWidth: gridItemWidth, columnMargins: gridColumnMargins }),
+    [gridColumnMargins, gridColumns, gridItemWidth],
+  );
+  // One object for every row, so the memoised shelf cells keep their props.
+  const shelfRow = useMemo(
+    () => getMobileShelfRow(shelfGrid, MOBILE_MANGA_GRID_GAP, MOBILE_SHELF.overhang),
+    [shelfGrid],
+  );
+  // Opening a collection from its folder: the cards and folders give way and
+  // the collection's covers glide into the grid, instead of a cut.
+  const selectCollectionFromFolder = useCallback(
+    (id: string) => {
+      if (!exploreReducedMotion) LayoutAnimation.configureNext(EXPLORE_LAYOUT_SPRING);
+      setMobileLibraryCollectionSelection(id);
+    },
+    [exploreReducedMotion],
+  );
   const renderLibraryGridItem = useCallback(
     ({ item: entry, index }: ListRenderItemInfo<LibraryEntry>) => (
       // The fixed width keeps a partly filled last row aligned with the rows
@@ -1931,17 +2075,46 @@ export function LibraryScreen({
           ),
         ]}
       >
-        <LibraryGridItem
-          entry={entry}
-          entryProgress={entryProgressMaps.get(entry.item.libraryItemId)}
-          progressIndex={progressIndex}
-          strings={strings}
-          installedSources={installedSources.data}
-          onLongPress={handleGridItemLongPress}
-        />
+        {shelfMode ? (
+          <MobileLibraryShelfCell
+            entry={entry}
+            entryProgress={entryProgressMaps.get(entry.item.libraryItemId)}
+            progressIndex={progressIndex}
+            strings={strings}
+            installedSources={installedSources.data}
+            row={index % gridColumns === 0 ? shelfRow : null}
+            itemWidth={gridItemWidth}
+            onLongPress={handleGridItemLongPress}
+          />
+        ) : designExplore ? (
+          // The grid cell turns to dust too when its title is removed.
+          <ExploreDissolveTarget id={entry.item.libraryItemId}>
+            <LibraryGridItem
+              entry={entry}
+              entryProgress={entryProgressMaps.get(entry.item.libraryItemId)}
+              progressIndex={progressIndex}
+              strings={strings}
+              installedSources={installedSources.data}
+              onLongPress={handleGridItemLongPress}
+              placeholderWidth={gridItemWidth}
+            />
+          </ExploreDissolveTarget>
+        ) : (
+          <LibraryGridItem
+            entry={entry}
+            entryProgress={entryProgressMaps.get(entry.item.libraryItemId)}
+            progressIndex={progressIndex}
+            strings={strings}
+            installedSources={installedSources.data}
+            onLongPress={handleGridItemLongPress}
+          />
+        )}
       </MobilePoseLayoutView>
     ),
     [
+      designExplore,
+      shelfMode,
+      shelfRow,
       entryProgressMaps,
       gridColumnMargins,
       gridColumns,
@@ -1960,8 +2133,9 @@ export function LibraryScreen({
       installedSources: installedSources.data,
       progressIndex,
       strings,
+      shelfMode,
     }),
-    [entryProgressMaps, installedSources.data, progressIndex, strings],
+    [entryProgressMaps, installedSources.data, progressIndex, shelfMode, strings],
   );
 
   // Collection management sheets. Rendered by the empty-library state too, so
@@ -2243,13 +2417,27 @@ export function LibraryScreen({
           />
         )}
         {/* The nemu hero lays itself out per pane (EmptyLibrary). */}
-        <EmptyLibrary
-          title={emptyState.title}
-          description={emptyState.description}
-          actionLabel={emptyState.actionLabel}
-          actionIcon={emptyState.actionRoute === "/browse" ? "add-outline" : undefined}
-          onActionPress={() => router.navigate(emptyState.actionRoute)}
-        />
+        {designExplore && hasInstalledSources ? (
+          // Design-explore: the first screen a new reader sees points at
+          // Browse, where series are found; Search stays one tap away.
+          <EmptyLibrary
+            title={strings.designExplore.libraryEmptyTitle}
+            description={strings.designExplore.libraryEmptyDescription}
+            actionLabel={strings.designExplore.libraryEmptyBrowse}
+            actionIcon="compass-outline"
+            onActionPress={() => router.navigate("/browse")}
+            secondaryActionLabel={strings.designExplore.libraryEmptySearch}
+            onSecondaryActionPress={() => router.navigate("/search")}
+          />
+        ) : (
+          <EmptyLibrary
+            title={emptyState.title}
+            description={emptyState.description}
+            actionLabel={emptyState.actionLabel}
+            actionIcon={emptyState.actionRoute === "/browse" ? "add-outline" : undefined}
+            onActionPress={() => router.navigate(emptyState.actionRoute)}
+          />
+        )}
       </PageScaffold>
       {librarySheets}
       </>
@@ -2258,6 +2446,7 @@ export function LibraryScreen({
 
   return (
     <>
+    {designExplore ? <MobileExploreDustHost /> : null}
     {usesNativeHeader ? (
       <>
         <Stack.Screen options={titleMenuHeaderOptions(title)} />
@@ -2270,12 +2459,14 @@ export function LibraryScreen({
       </>
     ) : null}
     <PageListScaffold
+      // Shelf and Grid share the columns: switching re-renders the cells in
+      // place (`extraData`), so the list keeps its scroll position.
       key={`library-grid-${gridColumns}`}
       listRef={gridScrollRef}
       data={showSkeleton ? [] : visibleEntries}
       keyExtractor={libraryEntryKey}
       numColumns={gridColumns}
-      columnWrapperStyle={styles.gridRow}
+      columnWrapperStyle={shelfMode ? styles.shelfRow : styles.gridRow}
       renderItem={renderLibraryGridItem}
       extraData={libraryGridExtraData}
       nativeHeader={usesNativeHeader}
@@ -2285,7 +2476,7 @@ export function LibraryScreen({
       onViewableItemsChanged={gridScrollAnchor.onViewableItemsChanged}
       viewabilityConfig={gridScrollAnchor.viewabilityConfig}
       onScrollToIndexFailed={gridScrollAnchor.onScrollToIndexFailed}
-      onScroll={gridScrollAnchor.onScroll}
+      onScroll={designExplore ? onExploreLibraryScroll : gridScrollAnchor.onScroll}
       // The handler only tracks the adjusted top inset for the anchor
       // restore, so it does not need a frame-rate feed.
       scrollEventThrottle={100}
@@ -2394,6 +2585,48 @@ export function LibraryScreen({
                 }
                 testID="AddBooksSheet"
               />
+            ) : null}
+
+            {designExplore && !showSkeleton ? (
+              <View style={styles.exploreSections}>
+                {/* Lets the tab bar minimise on scroll (UIKit content scroll view). */}
+                <ContentScrollMarker generation={gridColumns} />
+                <MobileContinueReadingCarousel
+                  items={continueReadingItems}
+                  next={
+                    !selectedCollection && collections.data.some((collection) => !collection.removed)
+                      ? { kind: "collections" }
+                      : visibleEntryCount
+                        ? { kind: "titles", coverHeight: Math.round(gridItemWidth * 1.5) }
+                        : null
+                  }
+                  installedSources={installedSources.data}
+                  strings={strings}
+                  onMore={handleGridItemLongPress}
+                />
+                {!selectedCollection ? (
+                  <MobileCollectionFolders
+                    collections={collections.data}
+                    membership={collections.membership}
+                    entries={sortedLibraryEntries}
+                    installedSources={installedSources.data}
+                    strings={strings}
+                    onSelect={selectCollectionFromFolder}
+                  />
+                ) : null}
+                {visibleEntryCount ? (
+                  <MobileLibraryLayoutHeader
+                    title={
+                      selectedCollection
+                        ? selectedCollection.name
+                        : strings.designExplore.shelfSectionTitle
+                    }
+                    shelf={shelfLayout}
+                    onShelfChange={setShelfLayout}
+                    strings={strings}
+                  />
+                ) : null}
+              </View>
             ) : null}
           </View>
         </>
@@ -2538,6 +2771,18 @@ const styles = StyleSheet.create({
   // Column spacing is each cell's `marginLeft` (mobileFoldAwareGridCellStyle).
   gridRow: {
     marginBottom: MOBILE_MANGA_GRID_GAP,
+  },
+  // Design-explore sections (cards, folders, the shelf header): one step apart.
+  exploreSections: {
+    gap: 28,
+  },
+  // Air between a plank and the next row of covers.
+  // The Grid cover's zoom source spans the cell; the cover keeps its ratio inside.
+  gridZoomSource: {
+    alignSelf: "stretch",
+  },
+  shelfRow: {
+    marginBottom: MOBILE_SHELF.rowGap,
   },
   // `width` is supplied per render from the adaptive column width.
   gridItem: {

@@ -1,4 +1,7 @@
 import { runMobileJapaneseLearningSpreadOcr } from "@/lib/mobileJapaneseLearningSpreadOcr";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
+import { ExploreChapterFinishedToast } from "@/components/explore/ExploreChapterFinishedToast";
+import { markMobileChapterFinished } from "@/components/explore/mobileChapterFinishedMoment";
 import { resolveMobileReaderRestorePosition } from "@/lib/mobileReaderRestore";
 import { shouldDismissMobileReaderSurfacesOnFocusChange } from "@/lib/mobileReaderFocus";
 import { mobileReaderOcrPageReadiness } from "@/lib/mobileReaderOcrReadiness";
@@ -202,7 +205,7 @@ import {
   type LocalChapterProgress,
   type LocalMangaProgress,
 } from "@/data/schema";
-import { formatChapterLabel, formatChapterTitle } from "@/lib/formatChapter";
+import { formatChapterLabel, formatChapterShortLabel, formatChapterTitle } from "@/lib/formatChapter";
 import { getMobileReaderHardwareBackAction } from "@/lib/mobileReaderBackBehavior";
 import {
   hapticConfirm,
@@ -592,6 +595,8 @@ type JapaneseLearningTtsState =
       messageId?: string;
     };
 
+/** The chapter-finished capsule rests under the reader's title capsule. */
+const CHAPTER_FINISHED_BELOW_INSET = 72;
 const EMPTY_READER_SOURCE_LANGUAGES: string[] = [];
 const EMPTY_READER_VISITED_PAGES: ReadonlySet<number> = new Set();
 /** Top scrim: dark at the edge (status glyphs), gone by the feather below the row. */
@@ -3391,6 +3396,20 @@ export function ReaderScreen() {
     ) {
       return;
     }
+    // Design-explore: reading past the last page always goes straight on to
+    // the next chapter (the setting's blocking card is gone), and a capsule
+    // marks the chapter just finished on the way in. The setting keeps its
+    // light tap. With no next chapter the caught-up card still shows.
+    if (mobileDesignExploreFlag && nextChapterInReadingOrder) {
+      const finished = formatChapterShortLabel(chapter, strings);
+      void persistEndOfChapterCompletion().then((persisted) => {
+        if (!persisted) return;
+        if (finished) markMobileChapterFinished(finished);
+        if (chapterCompleteCelebration) void hapticConfirm();
+        goToChapter(nextChapterInReadingOrder, { startAt: "start" });
+      });
+      return;
+    }
     if (!chapterCompleteCelebration && nextChapterInReadingOrder) {
       void persistEndOfChapterCompletion().then((persisted) => {
         if (persisted) {
@@ -3404,8 +3423,10 @@ export function ReaderScreen() {
     if (chapterCompleteCelebration) void hapticConfirm();
     void persistEndOfChapterCompletion();
   }, [
+    chapter,
     chapterCompleteCelebration,
     goToChapter,
+    strings,
     japaneseLearningChatDrawerVisible,
     japaneseLearningLauncherVisible,
     japaneseLearningOcrSheetVisible,
@@ -8585,6 +8606,9 @@ export function ReaderScreen() {
         }
         strings={strings}
       />
+      {mobileDesignExploreFlag ? (
+        <ExploreChapterFinishedToast top={insets.top + CHAPTER_FINISHED_BELOW_INSET} strings={strings} />
+      ) : null}
       <MobileReaderEndOfChapterOverlay
         visible={endOfChapterPromptVisible}
         nextChapterLabel={nextChapterLabel}

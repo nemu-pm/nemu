@@ -1,4 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
+import { MOBILE_EXPLORE_RADIUS } from "@/lib/mobileExploreRadius";
 import { Stack, router, type Href } from "expo-router";
 import {
   Linking,
@@ -55,6 +57,7 @@ import {
   isMobileSourceInstallCancellation,
   useAvailableSources,
   useInstalledSources,
+  useLibraryEntries,
   useMobileLanguageSettings,
   useSourceInstaller,
 } from "@/data/mobileHooks";
@@ -91,6 +94,7 @@ import {
   getMobileSourceWarningAccessibilityLabel,
   getMobileSourceWarningMessages,
   groupMobileSourcesByLanguage,
+  selectMobileBrowseLibrarySources,
   isMobileUnsupportedInstalledSource,
   filterEnabledMobileInstalledSources,
   mergeMobileInstalledSourceRegistryMetadata,
@@ -856,10 +860,46 @@ export function BrowseScreen() {
     });
     return sortSourcesByLanguagePriority(cards, appLanguage);
   }, [appLanguage, available.data, installed.data]);
+  // The registry most sources come from; only sources from another one say
+  // where they are from (a row of "aidoku-community" says nothing).
+  const mainRegistry = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const source of installedSources) counts.set(source.registryId, (counts.get(source.registryId) ?? 0) + 1);
+    let best: string | null = null;
+    for (const [registry, count] of counts) if (best === null || count > (counts.get(best) ?? 0)) best = registry;
+    return best;
+  }, [installedSources]);
   const groupedInstalledSources = useMemo(
     () => groupMobileSourcesByLanguage(installedSources, appLanguage),
     [appLanguage, installedSources],
   );
+  // Design-explore: the sources the library reads from, first and with how
+  // many titles each holds (they also stay in their language group below).
+  const libraryEntries = useLibraryEntries();
+  const exploreSourceSections = useMemo<
+    { label: string; sources: (InstalledSourceCardModel & { exploreKeepSubtitle?: boolean })[] }[]
+  >(() => {
+    if (!mobileDesignExploreFlag) return groupedInstalledSources;
+    const picked = selectMobileBrowseLibrarySources(
+      installedSources.filter((source) => !source.unsupported),
+      libraryEntries.data.flatMap((entry) => (entry.item.inLibrary === false ? [] : entry.sources)),
+    );
+    if (!picked.length) return groupedInstalledSources;
+    return [
+      {
+        label: EXPLORE_LIBRARY_SECTION,
+        sources: picked.map(({ source, titles }) => ({
+          ...source,
+          subtitle:
+            titles === 1
+              ? strings.designExplore.browseLibraryTitlesOne
+              : formatMobileString(strings.designExplore.browseLibraryTitles, { count: titles }),
+          exploreKeepSubtitle: true,
+        })),
+      },
+      ...groupedInstalledSources,
+    ];
+  }, [groupedInstalledSources, installedSources, libraryEntries.data, strings]);
 
   // Long-press quick actions for an installed source. Kept next to the card
   // that opens them; a short press still routes into the source.
@@ -1668,12 +1708,11 @@ export function BrowseScreen() {
                   onLayout={sourceGridContainer.onLayout}
                   style={styles.availableList}
                 >
-                  {groupedInstalledSources.map((section) => {
-                    const label = formatSourceLanguageLabel(
-                      section.label,
-                      strings,
-                      appLanguage,
-                    );
+                  {exploreSourceSections.map((section) => {
+                    const label =
+                      section.label === EXPLORE_LIBRARY_SECTION
+                        ? strings.designExplore.browseInLibrary
+                        : formatSourceLanguageLabel(section.label, strings, appLanguage);
                     return (
                       <View
                         key={section.label}
@@ -1687,6 +1726,47 @@ export function BrowseScreen() {
                         >
                           {label}
                         </Text>
+                        {mobileDesignExploreFlag && sourceGrid.columns === 1 ? (
+                          // Design-explore: one inset group per language, short rows.
+                          <View
+                            style={[
+                              styles.exploreSourceGroup,
+                              { backgroundColor: tokens.card, borderColor: tokens.border },
+                            ]}
+                          >
+                            {section.sources.map((source, index) => (
+                              <View key={source.id}>
+                                {index > 0 ? (
+                                  <View style={[styles.exploreSourceSeparator, { backgroundColor: tokens.border }]} />
+                                ) : null}
+                                {source.unsupported ? (
+                                  <UnsupportedSourceRow
+                                    source={source}
+                                    strings={strings}
+                                    onPress={() => {
+                                      router.push(sourceSettingsHref(source));
+                                    }}
+                                  />
+                                ) : (
+                                  <SourceCard
+                                    compact
+                                    item={
+                                      source.registryId === mainRegistry && !source.exploreKeepSubtitle
+                                        ? { ...source, subtitle: undefined }
+                                        : source
+                                    }
+                                    onLongPress={() => {
+                                      void hapticSelection();
+                                      quickActionDismissRef.current = null;
+                                      setQuickActionSourceId(source.id);
+                                      setQuickActionVisible(true);
+                                    }}
+                                  />
+                                )}
+                              </View>
+                            ))}
+                          </View>
+                        ) : (
                         <View style={styles.sourceGrid}>
                           {chunkMobileGridRows(section.sources, sourceGrid.columns).map((row, rowIndex) => (
                             <MobilePoseLayoutView key={rowIndex} style={styles.sourceGridRow}>
@@ -1717,6 +1797,7 @@ export function BrowseScreen() {
                             </MobilePoseLayoutView>
                           ))}
                         </View>
+                        )}
                       </View>
                     );
                   })}
@@ -2012,7 +2093,20 @@ export function BrowseScreen() {
   );
 }
 
+/** Key of the design-explore "In Your Library" group among the language groups. */
+const EXPLORE_LIBRARY_SECTION = "explore:library";
+
 const styles = StyleSheet.create({
+  exploreSourceGroup: {
+    borderRadius: MOBILE_EXPLORE_RADIUS.group,
+    borderCurve: "continuous",
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: "hidden",
+  },
+  exploreSourceSeparator: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 14 + 40 + 12,
+  },
   sections: {
     gap: 26,
   },

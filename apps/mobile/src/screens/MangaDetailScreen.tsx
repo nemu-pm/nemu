@@ -6,6 +6,9 @@ import {
   useLocalSearchParams,
 } from "expo-router";
 import {
+  type FlatList,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   Platform,
   StyleSheet,
   View,
@@ -65,6 +68,10 @@ import {
   type NemuNativeHeaderAction,
 } from "@/design-system";
 import { formatContinueActionLabel } from "@/lib/formatChapter";
+import {
+  formatMobileExploreChapterLabel,
+  withoutMobileZeroVolume,
+} from "@/lib/mobileContinueReadingCopy";
 import { hapticConfirm, hapticError } from "@/lib/haptics";
 import {
   MOBILE_CHAPTER_LIST_PERFORMANCE,
@@ -113,6 +120,32 @@ import {
   type MobileMangaDetailActionState,
 } from "@/lib/mobileMangaDetailActions";
 import { getMobileSourceReaderHref } from "@/lib/mobileSourceRoutes";
+import { mobileDesignExploreFlag, useMobileDesignExplore } from "@/lib/mobileDesignExplore";
+import { MobileExploreBarTitle } from "@/components/explore/MobileExploreBarTitle";
+import {
+  getMobileExploreBarTitleShown,
+  MOBILE_EXPLORE_BAR_TITLE_FADE_MS,
+} from "@/lib/mobileExploreBarTitle";
+import { useSharedValue, withTiming } from "react-native-reanimated";
+import {
+  MobileExploreChapterRow,
+  type MobileExploreChapterAction,
+} from "@/components/explore/MobileExploreChapterRow";
+import { MobileExploreChapterMenu } from "@/components/explore/MobileExploreChapterMenu";
+import {
+  buildMobileExploreChapterRows,
+  findMobileUpNextIndex,
+  getMobileChapterListCommonGroup,
+  getMobileChapterVolumeHeaders,
+} from "@/lib/mobileExploreChapterList";
+import {
+  mobileExploreDetailBarMode,
+  renderExploreDetailBarMenu,
+} from "@/components/explore/ExploreDetailBarMenu";
+import { hasMobileUserCover, mobileExploreCoverOwnerUrl, withMobileExploreZoom } from "@/components/explore/mobileExploreCover";
+import { useMobileExploreZoomLanded } from "@/components/explore/mobileExploreZoomLanded";
+import { peekMobileExploreDetailHandoff } from "@/lib/mobileExploreDetailHandoff";
+import { dissolveExploreTitle } from "@/components/explore/mobileExploreDissolve";
 import { getMobileMetadataEditorSaveResultAction } from "@/lib/mobileMetadataEditorBackBehavior";
 import { nextSyncTimestamp } from "@nemu/core";
 import {
@@ -149,6 +182,8 @@ import { markMobilePerformance } from "@/lib/mobilePerformance";
 import type { NemuAgentSheetContext } from "@/lib/nemuAgentSheetReducer";
 import { readMobileCloudflareUserAgent } from "@/sources/mobileAidokuUserAgent";
 import { useMobileStickySourceCover } from "@/lib/useMobileSourceImageRequest";
+import { ExploreSharperCoverProbe } from "@/components/explore/ExploreSharperCoverProbe";
+import { useMobileExploreCoverPreference } from "@/components/explore/mobileExploreCoverPreference";
 import { withMobileSourceOperationTimeout } from "@/sources/mobileSourceOperationTimeout";
 import { normalizeReaderProcessPageImages } from "@/lib/mobileReaderSettings";
 import { refreshMobileReaderPages } from "@/sources/mobileSourcePages";
@@ -196,6 +231,8 @@ import {
   applyMobileSourcePackageHydration,
   type MobileSourcePackageHydration,
 } from "@/sources/mobileSourcePackageLoader";
+
+/** Design-explore: the sort direction is a glass capsule like the list's other controls. */
 
 type DetailState = {
   entry: LibraryEntry | null;
@@ -245,6 +282,10 @@ function isStaleRefreshFailure(
 type SourceChapterListState = MobileSourceChapterListState;
 
 const EMPTY_CHAPTERS: ChapterSummary[] = [];
+/** The remove confirmation's dismissal, before the hero cover turns to dust (design-explore). */
+const EXPLORE_SHEET_DISMISS_MS = 380;
+/** The chapter list of a page that is still zooming in (design-explore). */
+const NO_CHAPTER_ROWS: ReturnType<typeof buildMobileChapterRows> = [];
 
 function sourceDetailCacheKeyForLink(link: LocalSourceLink): string {
   return makeMobileSourceDetailCacheKey(
@@ -349,6 +390,8 @@ export function MangaDetailScreen() {
   const params = useLocalSearchParams<{
     id: string;
     source?: string | string[];
+    /** Zoom source of the cover this page grows out of (design-explore). */
+    zoom?: string;
   }>();
   const idCandidates = useMemo(
     () => getMobileMangaDetailRouteIdCandidates(params.id),
@@ -359,6 +402,36 @@ export function MangaDetailScreen() {
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
   const usesNativeHeader = usesNemuNativeHeader;
+  const booksHero = useMobileDesignExplore();
+  // Books: the bar shows the title only once the hero's title has scrolled
+  // under it (the native bar title; no custom fade).
+  const [heroTitleScrolledAway, setHeroTitleScrolledAway] = useState(false);
+  // In the regular-width info pane the hero does not scroll with the list,
+  // so the bar keeps the title there.
+  const [heroInPane, setHeroInPane] = useState(false);
+  // Where the hero's title block ends, as the hero measured it (the hero is
+  // sized from its own column, so no window arithmetic here). Until then the
+  // title is treated as on screen.
+  const [heroTitleBottom, setHeroTitleBottom] = useState<number | null>(null);
+  const heroTitleThreshold = heroTitleBottom ?? Number.POSITIVE_INFINITY;
+  // The bar's title fades in as the hero's title passes under the bar and
+  // out again as it comes back, both ways, with a little hysteresis so a
+  // finger resting on the line never flickers it.
+  const barTitleShown = useSharedValue(0);
+  const onDetailScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const { contentOffset, contentInset } = event.nativeEvent;
+      const y = contentOffset.y + (contentInset?.top ?? 0);
+      setHeroTitleScrolledAway((current) => {
+        const past = getMobileExploreBarTitleShown(current, y, heroTitleThreshold);
+        if (past !== current) {
+          barTitleShown.value = withTiming(past ? 1 : 0, { duration: MOBILE_EXPLORE_BAR_TITLE_FADE_MS });
+        }
+        return past;
+      });
+    },
+    [barTitleShown, heroTitleThreshold],
+  );
   const store = useMobileDataStore();
   const saveSourcePackageHydration = useCallback(
     async (
@@ -385,6 +458,16 @@ export function MangaDetailScreen() {
     progress: [],
     chapterProgressBySourceId: {},
   });
+  // Design-explore, a page opened by a cover zoom: what the tapped cover
+  // already knew about the title (its record and its cover), and whether the
+  // zoom has landed. The stack pushes this screen's first commit, and the
+  // local record only arrives after it, so the first commit draws the hero's
+  // cover and title from the handoff; everything else on the page waits for
+  // the zoom to land, because mounting it mid-flight freezes the zoom.
+  const [zoomSeed] = useState(() =>
+    booksHero && params.zoom ? peekMobileExploreDetailHandoff(idCandidates) : null,
+  );
+  const zoomLanded = useMobileExploreZoomLanded();
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
   const [removing, setRemoving] = useState(false);
@@ -480,10 +563,21 @@ export function MangaDetailScreen() {
       store.getMangaProgress(),
       store.getInstalledSources(),
     ]);
+    // Design-explore: a page opened without a source (the shelf, a search
+    // result, a link) starts on the source the title was last read on, so the
+    // chapter list, its facts ("Source", "Latest") and Continue name one
+    // source; the first link stays the choice for a title never read.
+    const readSourceId =
+      mobileDesignExploreFlag && !routeSourceId && !selectedSourceId && item
+        ? (getMobileEntryMostRecentSource(
+            { item, sources },
+            buildMobileEntryProgressMap({ item, sources }, new Map(progress.map((entry) => [entry.id, entry]))),
+          )?.id ?? null)
+        : null;
     const resolvedSelectedSourceId = resolveMobileMangaDetailSelectedSourceId(
       sources,
       routeSourceId,
-      selectedSourceId,
+      selectedSourceId ?? readSourceId,
     );
     const selected = resolvedSelectedSourceId
       ? sources.find((source) => source.id === resolvedSelectedSourceId)
@@ -689,6 +783,12 @@ export function MangaDetailScreen() {
     [entry],
   );
   const title = effectiveMetadata?.title ?? strings.mangaDetail.manga;
+  // The handed-over title stands in only until the local record is read; a
+  // title that turns out to be gone falls through to the usual empty state.
+  const seedEntry = !entry && loading && zoomSeed ? zoomSeed.entry : null;
+  const heroMetadata =
+    effectiveMetadata ??
+    (seedEntry ? { ...seedEntry.item.metadata, ...seedEntry.item.overrides?.metadata } : null);
   const sources = useMemo(
     () =>
       entry ? sortMobileSourceLinks(entry.sources, entry.item.sourceOrder) : [],
@@ -715,8 +815,12 @@ export function MangaDetailScreen() {
   }, [knownSourceCoversSignature]);
   // The library title's own cover (override > stored > best known source
   // cover). The selected tab never changes it.
+  // Design-explore: a clearly sharper cover from another linked source (the
+  // one the card and shelf show too; never over a cover the user set).
+  const preferredCover = useMobileExploreCoverPreference(entry?.item.libraryItemId);
   const cover = entry
-    ? resolveMobileEntryDisplayCover(entry, knownSourceCovers)
+    ? ((booksHero && preferredCover && !hasMobileUserCover(entry) ? preferredCover : null) ??
+      resolveMobileEntryDisplayCover(entry, knownSourceCovers))
     : undefined;
   const metadataSourceChoices = useMemo(
     () =>
@@ -838,11 +942,14 @@ export function MangaDetailScreen() {
     () =>
       entry
         ? resolveMobileEntryCoverSources(entry, state.installedSources, {
-            cover,
+            cover:
+              booksHero && preferredCover
+                ? mobileExploreCoverOwnerUrl(entry, cover, knownSourceCovers)
+                : cover,
             knownSourceCovers,
           })
         : [],
-    [cover, entry, knownSourceCovers, state.installedSources],
+    [booksHero, cover, entry, knownSourceCovers, preferredCover, state.installedSources],
   );
   const coverSource = coverSources[0] ?? null;
   // Same protection as the source manga screen: a metadata refresh can change
@@ -1714,10 +1821,22 @@ export function MangaDetailScreen() {
       ),
     [listChapters, selectedChapterProgress],
   );
+  // Design-explore: one chapter per row, headed by volume where the source
+  // numbers volumes (see MobileExploreChapterRow).
   const chapterRows = useMemo(
-    () => buildMobileChapterRows(visibleChapters),
-    [visibleChapters],
+    () => (booksHero ? buildMobileExploreChapterRows(visibleChapters) : buildMobileChapterRows(visibleChapters)),
+    [booksHero, visibleChapters],
   );
+  const chapterVolumeHeaders = useMemo(
+    () => (booksHero ? getMobileChapterVolumeHeaders(visibleChapters) : null),
+    [booksHero, visibleChapters],
+  );
+  // …and the group most chapters share, named once above the list.
+  const chapterCommonGroup = useMemo(
+    () => (booksHero ? getMobileChapterListCommonGroup(visibleChapters) : null),
+    [booksHero, visibleChapters],
+  );
+  const chapterListRef = useRef<FlatList<MobileChapterRow> | null>(null);
   const changeChapterListPreference = useCallback(
     (nextPreference: MobileChapterListPreference) => {
       const libraryItemId = entry?.item.libraryItemId;
@@ -1820,10 +1939,18 @@ export function MangaDetailScreen() {
   });
   const continueChapter = continueAction.chapter;
   const isContinuation = continueAction.isContinuation;
+  // Design-explore: the hero cover the reader zooms out of.
+  // (Named from the handoff too, so the cover's zoom wrapper is the same
+  // element before and after the record arrives and is not remounted.)
+  const readerZoomEntry = entry ?? seedEntry;
+  const readerZoomSourceId =
+    booksHero && readerZoomEntry ? `detail:${readerZoomEntry.item.libraryItemId}` : null;
   const openReader = useCallback(
     (
       chapter: ChapterSummary | null,
       source: LocalSourceLink | undefined = selectedSource,
+      // Design-explore "Read from the beginning": the reader opens on this page.
+      page?: number,
     ) => {
       if (!source || !chapter) {
         void hapticError();
@@ -1883,14 +2010,18 @@ export function MangaDetailScreen() {
       }
       try {
         router.push(
-          getMobileSourceReaderHref({
-            registryId: source.registryId,
-            sourceId: source.sourceId,
-            mangaId: source.sourceMangaId,
-            chapter,
-            // Never the generic placeholder: the reader would show "Manga".
-            mangaTitle: effectiveMetadata?.title ?? null,
-          }),
+          withMobileExploreZoom(
+            getMobileSourceReaderHref({
+              registryId: source.registryId,
+              sourceId: source.sourceId,
+              mangaId: source.sourceMangaId,
+              chapter,
+              page,
+              // Never the generic placeholder: the reader would show "Manga".
+              mangaTitle: effectiveMetadata?.title ?? null,
+            }),
+            readerZoomSourceId,
+          ),
         );
       } catch {
         openingReaderRef.current = false;
@@ -1901,6 +2032,7 @@ export function MangaDetailScreen() {
     [
       effectiveMetadata?.title,
       getGuardedDetailActionState,
+      readerZoomSourceId,
       saveSourcePackageHydration,
       selectedSource,
       state.installedSources,
@@ -1932,6 +2064,76 @@ export function MangaDetailScreen() {
       selectedChapterProgress,
       strings,
     ],
+  );
+
+  // Design-explore: the list's "Up next" is always where Continue goes (on
+  // another source: this source's chapter of the same number).
+  const upNextChapterIndex = useMemo(
+    () =>
+      booksHero
+        ? findMobileUpNextIndex(visibleChapters, selectedChapterProgress, {
+            chapter: continueChapter,
+            sameSource: !continueSource || continueSource.id === selectedSource?.id,
+          })
+        : null,
+    [booksHero, continueChapter, continueSource, selectedChapterProgress, selectedSource?.id, visibleChapters],
+  );
+  const upNextChapterId =
+    upNextChapterIndex !== null ? (visibleChapters[upNextChapterIndex]?.id ?? null) : null;
+  const onExploreChapterAction = useCallback(
+    (chapter: ChapterSummary, action: MobileExploreChapterAction) => {
+      openReader(chapter, selectedSource, action === "start" ? 1 : undefined);
+    },
+    [openReader, selectedSource],
+  );
+  const renderExploreChapterRow = useCallback(
+    ({ item, index }: ListRenderItemInfo<MobileChapterRow>) => {
+      const chapter = item.chapters[0];
+      return (
+        <MobileExploreChapterRow
+          chapter={chapter}
+          progress={selectedChapterProgress[chapter.id]}
+          header={chapterVolumeHeaders?.get(chapter.id) ?? null}
+          commonGroup={chapterCommonGroup}
+          caption={
+            index === 0 && chapterCommonGroup
+              ? formatMobileString(strings.designExplore.chapterListGroup, { group: chapterCommonGroup })
+              : null
+          }
+          upNext={chapter.id === upNextChapterId}
+          dropVolume={Boolean(chapterVolumeHeaders?.size)}
+          busy={detailActionBusy}
+          strings={strings}
+          onAction={onExploreChapterAction}
+        />
+      );
+    },
+    [
+      chapterCommonGroup,
+      chapterVolumeHeaders,
+      detailActionBusy,
+      onExploreChapterAction,
+      selectedChapterProgress,
+      strings,
+      upNextChapterId,
+    ],
+  );
+  const jumpToUpNext = useCallback(() => {
+    if (upNextChapterIndex === null) return;
+    chapterListRef.current?.scrollToIndex({ index: upNextChapterIndex, viewPosition: 0.3, animated: true });
+  }, [upNextChapterIndex]);
+  // Rows above the target are not measured yet: get close, then land on it.
+  const onChapterScrollToIndexFailed = useCallback(
+    (info: { index: number; averageItemLength: number }) => {
+      chapterListRef.current?.scrollToOffset({
+        offset: info.averageItemLength * info.index,
+        animated: false,
+      });
+      setTimeout(() => {
+        chapterListRef.current?.scrollToIndex({ index: info.index, viewPosition: 0.3, animated: true });
+      }, 120);
+    },
+    [],
   );
 
   const fetchMetadataFromSource = useCallback(
@@ -2055,9 +2257,25 @@ export function MangaDetailScreen() {
     removingRef.current = true;
     setRemoving(true);
     setActionError(null);
+    // Design-explore: the sheet slides away and the hero cover turns to dust
+    // where it stands; the title is removed and the page closes once the dust
+    // has lifted off (it keeps drifting over the library). Nothing to
+    // dissolve (Reduce Motion, no dust host): removed as before.
+    // The sheet is closed here, so this path leaves the page itself (the
+    // sheet's dismissal callback has nothing left to do), dust or not.
+    const closedSheet = booksHero && !heroInPane;
+    if (closedSheet) {
+      setRemoveConfirmOpen(false);
+      await dissolveExploreTitle(entry.item.libraryItemId, EXPLORE_SHEET_DISMISS_MS);
+    }
     try {
       await store.removeLibraryItem(entry.item.libraryItemId);
       emitMobileLibraryDataChanged({ collectionsChanged: true });
+      if (closedSheet) {
+        await hapticConfirm();
+        exitDetailToLibrary();
+        return;
+      }
       if (
         getMobileMangaDetailMutationResultAction({ succeeded: true }) ===
         "close-confirmation"
@@ -2106,7 +2324,8 @@ export function MangaDetailScreen() {
     !removing;
   const continueActionLabel = continueChapter
     ? formatContinueActionLabel({
-        chapter: continueChapter,
+        // Design-explore: a placeholder volume of 0 is never shown.
+        chapter: booksHero ? withoutMobileZeroVolume(continueChapter) : continueChapter,
         isContinuation,
         strings,
         labels: strings.mangaDetail,
@@ -2175,6 +2394,9 @@ export function MangaDetailScreen() {
   cloudflareSheetRef.current = cloudflareSheet;
   const nativeHeaderOptions = (screenTitle: string) =>
     createNemuSoftEdgeScreenOptions(tokens, screenTitle);
+  // Books-style hero: once its title has scrolled away the bar shows the
+  // title with a small cover beside it.
+  const barCover = coverImage.source ?? zoomSeed?.cover ?? null;
   const missingSourceNativeHeaderActions: NemuNativeHeaderAction[] = [
     {
       icon: "trash",
@@ -2184,7 +2406,10 @@ export function MangaDetailScreen() {
       onPress: confirmRemoveFromLibrary,
     },
   ];
-  const nativeHeaderActions: NemuNativeHeaderAction[] = entry
+  // A page opened by the cover zoom has its bar items from the first frame,
+  // so they slide in with the push like any bar's (they used to wait for the
+  // zoom to land and then pop in). The handlers wait for the record.
+  const nativeHeaderActions: NemuNativeHeaderAction[] = entry || (booksHero && seedEntry)
     ? [
         {
           icon: "pencil",
@@ -2208,6 +2433,23 @@ export function MangaDetailScreen() {
         },
       ]
     : [];
+  // Design-explore: the three actions collapse into one menu so the bar's
+  // title can sit centred (EXPO_PUBLIC_NEMU_DETAIL_BAR=buttons keeps three).
+  const barMenu = booksHero && mobileExploreDetailBarMode === "menu";
+  const barTrailingItems = barMenu ? Math.min(1, nativeHeaderActions.length) : nativeHeaderActions.length;
+  const renderExploreBarTitle = useCallback(
+    () => (
+      <MobileExploreBarTitle
+        title={heroMetadata?.title ?? title}
+        cover={barCover}
+        trailingItems={barTrailingItems}
+        centred={barMenu}
+        shown={barTitleShown}
+        hidden={!heroTitleScrolledAway}
+      />
+    ),
+    [barCover, barMenu, barTitleShown, barTrailingItems, heroMetadata?.title, heroTitleScrolledAway, title],
+  );
 
   if (showLoadError) {
     return (
@@ -2241,7 +2483,7 @@ export function MangaDetailScreen() {
     );
   }
 
-  if (showSkeleton) {
+  if (showSkeleton && !seedEntry) {
     return (
       <>
         {usesNativeHeader ? (
@@ -2338,10 +2580,19 @@ export function MangaDetailScreen() {
     <>
       {usesNativeHeader ? (
         <>
-          <Stack.Screen options={nativeHeaderOptions(title)} />
-          {nativeHeaderActions.length ? (
+          {/* The Books-style hero carries the title; the bar stays clear. */}
+          <Stack.Screen
+            options={
+              booksHero && (entry || seedEntry) && !heroInPane
+                ? { ...nativeHeaderOptions(title), headerTitle: renderExploreBarTitle }
+                : nativeHeaderOptions(title)
+            }
+          />
+          {nativeHeaderActions.length && (zoomLanded || barMenu) ? (
             <Stack.Toolbar placement="right">
-              {renderNemuNativeToolbarButtons(nativeHeaderActions)}
+              {barMenu
+                ? renderExploreDetailBarMenu(nativeHeaderActions, strings.designExplore.moreActions)
+                : renderNemuNativeToolbarButtons(nativeHeaderActions)}
             </Stack.Toolbar>
           ) : null}
         </>
@@ -2386,6 +2637,13 @@ export function MangaDetailScreen() {
           }}
         />
       ) : null}
+      {booksHero && entry ? (
+        <ExploreSharperCoverProbe
+          entry={entry}
+          installedSources={state.installedSources}
+          known={knownSourceCovers}
+        />
+      ) : null}
       {collectionSheetPresentation ? (
         <MobileCollectionMembershipSheet
           visible={collectionSheetOpen}
@@ -2427,9 +2685,14 @@ export function MangaDetailScreen() {
       ) : null}
       <MobileMangaDetailSplitLayout
         nativeHeader={usesNativeHeader}
-        data={chapterRows}
+        data={zoomLanded ? chapterRows : NO_CHAPTER_ROWS}
         keyExtractor={mobileChapterRowKeyExtractor}
         onRefresh={pullRefreshDetail}
+        onScroll={booksHero ? onDetailScroll : undefined}
+        // The throttled handler can miss a scroll's last offset: settle on it.
+        onScrollEndDrag={booksHero ? onDetailScroll : undefined}
+        onMomentumScrollEnd={booksHero ? onDetailScroll : undefined}
+        scrollEventThrottle={booksHero ? 64 : undefined}
         refreshDisabled={!selectedSource}
         refreshLabel={strings.sourceBrowse.refreshSource}
         refreshing={pullRefreshing}
@@ -2439,8 +2702,10 @@ export function MangaDetailScreen() {
         }
         windowSize={MOBILE_CHAPTER_LIST_PERFORMANCE.windowSize}
         removeClippedSubviews={Platform.OS === "android"}
-        renderItem={renderChapterRow}
-        splitEnabled={Boolean(entry)}
+        renderItem={booksHero ? renderExploreChapterRow : renderChapterRow}
+        listRef={booksHero ? chapterListRef : undefined}
+        onScrollToIndexFailed={booksHero ? onChapterScrollToIndexFailed : undefined}
+        splitEnabled={Boolean(entry || seedEntry)}
         leading={
           <>
             {usesNativeHeader ? null : (
@@ -2479,15 +2744,21 @@ export function MangaDetailScreen() {
                 }
               />
             )}
-            {entry ? (
+            {entry || seedEntry ? (
               <>
                 <MobileMangaDetailSurface
-                  title={title}
-                  authors={effectiveMetadata?.authors}
+                  title={heroMetadata?.title ?? title}
+                  authors={heroMetadata?.authors}
                   coverSource={coverImage.source}
+                  // The cover the tapped cell painted (same URL and source
+                  // headers) holds the hero while the page's own cover
+                  // request is still being resolved.
+                  heldCoverSource={zoomSeed?.cover ?? null}
                   onCoverError={coverImage.onCoverError}
                   onCoverLoad={coverImage.onCoverLoad}
-                  status={effectiveMetadata?.status}
+                  status={heroMetadata?.status}
+                  deferBody={!zoomLanded || !entry}
+                  dissolveId={booksHero && entry ? entry.item.libraryItemId : null}
                   strings={strings}
                   actionsPlacement="copy"
                   badges={
@@ -2558,6 +2829,21 @@ export function MangaDetailScreen() {
                   ]}
                   tags={effectiveMetadata?.tags}
                   description={effectiveMetadata?.description}
+                  onHeroPaneChange={setHeroInPane}
+                  onHeroTitleBottom={setHeroTitleBottom}
+                  zoomId={booksHero ? (params.zoom ?? null) : null}
+                  readerZoomId={readerZoomSourceId}
+                  infoTitle={
+                    selectedSource
+                      ? sourcePresentationForLink(selectedSource, state.installedSources).name
+                      : null
+                  }
+                  infoChapters={chapters.length || null}
+                  infoLatest={
+                    selectedSource?.latestChapter
+                      ? formatMobileExploreChapterLabel(selectedSource.latestChapter, strings)
+                      : null
+                  }
                 />
 
                 {actionError ? (
@@ -2585,7 +2871,7 @@ export function MangaDetailScreen() {
           </>
         }
         chapterHeader={
-          entry ? (
+          entry && zoomLanded ? (
             <MobileMangaChapterSectionHeader
               title={strings.mangaDetail.chapters}
               // A refresh behind a painted list is silent: the list is
@@ -2613,7 +2899,8 @@ export function MangaDetailScreen() {
                 />
               }
               sourceSelector={
-                sources.length > 0 ? (
+                // Design-explore: the sources sit in the controls row below.
+                sources.length > 0 && !booksHero ? (
                   <MobileSourceSelector
                     items={sourceSelectorItems}
                     selectedId={selectedSource?.id ?? null}
@@ -2622,17 +2909,32 @@ export function MangaDetailScreen() {
                   />
                 ) : null
               }
+              alignedControl={booksHero}
               sortAction={
                 listChapters.length > 0 ? (
-                  <MobileMangaChapterSortAction
-                    preference={effectiveChapterListPreference}
-                    strings={strings}
-                    onChange={changeChapterListPreference}
-                  />
+                  booksHero ? (
+                    <MobileExploreChapterMenu
+                      fallbackCount={listChapters.length}
+                      appLanguage={appLanguage}
+                      languages={chapterLanguages}
+                      preference={effectiveChapterListPreference}
+                      strings={strings}
+                      unreadCount={unreadChapterCount}
+                      onChange={changeChapterListPreference}
+                      sources={{ items: sourceSelectorItems, selectedId: selectedSource?.id ?? null, disabled: detailActionBusy, onSelect: selectSource }}
+                      jump={upNextChapterIndex !== null ? { label: formatMobileExploreChapterLabel(visibleChapters[upNextChapterIndex]!, strings), onPress: jumpToUpNext } : null}
+                    />
+                  ) : (
+                    <MobileMangaChapterSortAction
+                      preference={effectiveChapterListPreference}
+                      strings={strings}
+                      onChange={changeChapterListPreference}
+                    />
+                  )
                 ) : null
               }
               toolbar={
-                listChapters.length > 0 ? (
+                listChapters.length > 0 && !booksHero ? (
                   <MobileMangaChapterToolbar
                     appLanguage={appLanguage}
                     languages={chapterLanguages}
