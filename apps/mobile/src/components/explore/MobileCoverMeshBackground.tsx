@@ -89,16 +89,8 @@ half4 main(float2 xy) {
 const effect = Skia.RuntimeEffect.Make(SKSL);
 
 /**
- * The detail page's colour, alive: four pools in the colours of the cover's
- * quarters drift slowly around the page, one step every couple of seconds,
- * and take an extra step as the page lands after the cover zoom. It starts as
- * the plain page colour and blends into the cover's regions once they are
- * sampled, so it never flashes. Text stays readable over every blend (the
- * pools are held to the page's own lightness; tested).
- *
- * Still under Reduce Motion (the pools keep their colours and stay where they
- * are), and paused while the screen is not focused or the cover has one
- * colour only.
+ * The detail page's colour, alive: four pools in the cover's colours drift slowly
+ * around the page, held to the page's own lightness so text stays readable.
  */
 export function MobileCoverMeshBackground({
   main,

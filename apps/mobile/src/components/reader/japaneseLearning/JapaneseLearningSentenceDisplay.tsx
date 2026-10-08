@@ -99,16 +99,8 @@ interface SentenceDisplayProps {
 }
 
 /**
- * Mobile mirror of web `SentenceDisplay` (sentence-display.tsx): the sentence
- * (raw text, then furigana tokens) and the details (multi-selection actions,
- * a single token's summary + details, or an empty-state hint), each in its
- * own scroll pane. Stacked as on web — a content-sized sentence pane over the
- * details — unless the body is wide and short, where the two sit side by side
- * (`resolveJapaneseLearningSentenceLayout`). No fades over the text.
- *
- * Token selection uses the RN responder system with onLayout-measured rects and
- * `mobileGrammarTokenAtPoint` hit-testing — the same approach the previous
- * inline grammar panel used, now encapsulated here.
+ * Mobile mirror of web `SentenceDisplay`: the sentence and its details, stacked
+ * or side by side as the body allows.
  */
 export function JapaneseLearningSentenceDisplay({
   grammarState,

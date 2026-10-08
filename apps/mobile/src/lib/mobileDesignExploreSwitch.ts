@@ -1,14 +1,7 @@
 /**
- * The "New design (preview)" switch (design-explore). The prototype is off
- * unless the reader turns it on in Settings → Experimental Design. The value is read
- * once, synchronously, when the bundle starts (`mobileDesignExploreBoot`),
- * before any screen or module-scope constant reads it, and holds for the
- * whole run: switching takes effect on the next launch (or a reload).
- *
- * iOS only: Android never gets the prototype and has no switch.
- *
- * Pure: no `react-native` import, so plain unit tests and pure modules
- * (chapter labels, the string catalogues) can read it.
+ * The "New design (preview)" switch. The value is read once when the bundle
+ * starts (`mobileDesignExploreBoot`) and holds for the run; iOS only.
+ * Pure: no `react-native` import.
  */
 
 type MobileDesignExploreInputs = {

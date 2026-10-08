@@ -72,20 +72,8 @@ export const readerSettingsNativePopoverAvailable = true;
 const POPOVER_DISMISS_SETTLE_MS = 380;
 
 /**
- * Reader settings as system presentations with a native grouped Form
- * (Picker / Toggle / Slider rows). Regular width (iPhone Duo inner display,
- * tablets): a real popover (SwiftUI `.popover`,
- * `presentationCompactAdaptation(.popover)`) anchored to the settings button
- * when the whole Form fits beside it. Compact width (phones, the Duo outer
- * display) — or a regular window too short for it (a ~455pt Duo notebook
- * pane) — the same Form in a sheet with a title bar, a large detent
- * and the grabber, so every row is reachable.
- *
- * Appearance has one source, the theme scheme (dark inside the reader's
- * `ReaderDarkThemeScope`): it drives the Host and `presentationColorScheme`
- * (SwiftUI `preferredColorScheme` on the enclosing presentation), so the
- * system container — popover / sheet material, Liquid Glass, grabber — and
- * the rows' text always resolve together.
+ * Reader settings as a native grouped Form: a popover beside the button on
+ * regular widths, a titled sheet on compact ones.
  */
 export function ReaderSettingsNativePopover({
   visible,

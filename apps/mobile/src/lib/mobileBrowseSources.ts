@@ -260,19 +260,8 @@ export type MobileSourceQuickActionDescriptor = {
 };
 
 /**
- * The installed-source quick-action rows, in the single order every surface
- * shows them. Browse opens this sheet from a long-pressed source card and
- * Settings from the row's overflow button, so the row set is decided here
- * instead of being spelled out twice and drifting apart.
- *
- * `canOpenSettings` is false for a source the user switched off: it is not
- * runnable, so its settings form would look live while every apply path that
- * reaches the source is refused with `source-disabled`. Settings also closes
- * an open settings sheet the moment a source is disabled, and this keeps the
- * overflow menu from reopening what that just closed.
- *
- * Settings has no per-source update state — it auto-updates sources in the
- * background — so it passes `hasUpdate: false` and that row drops out.
+ * The installed-source quick-action rows, in one order for every surface.
+ * A disabled source has no settings; Settings has no update row.
  */
 export function buildMobileSourceQuickActions({
   canOpenSettings,

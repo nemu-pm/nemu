@@ -38,18 +38,9 @@ type Props = {
 };
 
 /**
- * A short label whose number turns over like a mechanical counter when it
- * changes (the card's chapter, "N new", the shelf's "+N", the detail facts):
- * each digit is a wheel that spins through every digit in between, ones
- * first, carries rippling into the tens and hundreds a beat later, a new
- * leading digit rolling in from empty. The words around the number stay put.
- *
- * Only a real change turns it, never the first render, and only where it is
- * seen: a change that lands while its screen is covered (the reader over the
- * Library) waits, and the wheels turn as the screen comes back. At rest (and under
- * Reduce Motion, where the new value simply replaces the old) it is one plain
- * text, so truncation, Dynamic Type and VoiceOver behave as usual. Digits are
- * tabular, so the label does not shift width as the wheels turn.
+ * A short label whose number turns over like a counter when it changes.
+ * Only a real change turns it, and only where it is seen; at rest, and under
+ * Reduce Motion, it is plain text.
  */
 export function MobileOdometerText({ value, color, style, maxFontSizeMultiplier }: Props) {
   const reducedMotion = useReducedMotion();

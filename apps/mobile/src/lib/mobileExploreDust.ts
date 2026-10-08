@@ -1,14 +1,6 @@
 /**
- * Particle maths for the "turns to dust" moment when a title leaves the
- * library (design-explore). The removed cover is cut into a grid of small
- * squares; a release front sweeps across it from the leading edge, and each
- * square, once released, drifts off on its own path (a random direction plus
- * a light upward, trailing wind), shrinking away near the end of its life.
- * Squares the front has not reached yet stay in place, so the cover looks
- * intact until the sweep passes.
- *
- * Motion is closed-form (no per-frame integration), so a frame can be drawn
- * for any time and the renderer stays a plain loop over typed arrays.
+ * Particle maths for the "turns to dust" moment: the removed cover is cut into
+ * squares that a release front sweeps across; closed-form, so any frame can be drawn.
  */
 
 /** Values per particle in the packed array. */

@@ -743,19 +743,8 @@ function AvailableSectionSeparator({
 }
 
 /**
- * The Add Sources sheet sizes its iOS detent to its content instead of
- * parking a blank tail under a short (or filtered) list:
- *
- *   scaffold header chrome + the scaffold body's top padding + the sheet's
- *   own header stack + the measured list content + corner clearance
- *
- * The list's own 24pt bottom padding is already inside the measured content,
- * so the clearance is pure extra tail (~36pt total under the last row) —
- * enough air above the screen's rounded corners when scrolled to the very
- * bottom. The detent clamps to `[320, 88%]` of the scaffold's available
- * height (`windowHeight - insets.top - insets.bottom`, mirroring
- * `MobileNativeSheetScaffold`); longer catalogs stay at the ceiling and
- * scroll inside the sheet (`fillContent`).
+ * The Add Sources sheet sizes its detent to its content, clamped to
+ * `[320, 88%]` of the available height; longer catalogs scroll inside it.
  */
 const ADD_SOURCE_SHEET_MAX_DETENT_FRACTION = 0.88;
 const ADD_SOURCE_SHEET_MIN_DETENT = 320;
