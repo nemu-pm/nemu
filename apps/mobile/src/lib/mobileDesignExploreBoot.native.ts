@@ -30,7 +30,6 @@ export function writeMobileDesignExploreStored(value: boolean): void {
 export const mobileDesignExploreBooted = bootMobileDesignExplore(
   resolveMobileDesignExplore({
     platform: Platform.OS,
-    envDefault: process.env.EXPO_PUBLIC_NEMU_DESIGN_EXPLORE === "1",
     stored: Platform.OS === "ios" ? readMobileDesignExploreStored() : null,
   }),
 );

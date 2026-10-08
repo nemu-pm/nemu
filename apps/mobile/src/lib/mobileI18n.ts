@@ -1143,7 +1143,7 @@ export type MobileStrings = {
     progressAccessibility: string;
     analysisDownloadFailed: string;
   };
-  /** Design-explore prototypes (EXPO_PUBLIC_NEMU_DESIGN_EXPLORE). */
+  /** Design-explore prototypes. */
   designExplore: {
     continueReadingTitle: string;
     resumeHint: string;

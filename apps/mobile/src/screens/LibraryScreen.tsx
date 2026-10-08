@@ -1989,7 +1989,7 @@ export function LibraryScreen({
   const handleGridItemLongPress = useCallback((entry: LibraryEntry) => {
     setQuickActionEntry(entry);
   }, []);
-  // Design-explore (EXPO_PUBLIC_NEMU_DESIGN_EXPLORE): continue-reading cards
+  // Design-explore: continue-reading cards
   // above the grid and a bookshelf layout for it, on compact iPhone widths.
   const designExplore = useMobileDesignExplore();
   const [shelfLayout, setShelfLayoutState] = useState(mobileLibraryShelfLayoutDefault);

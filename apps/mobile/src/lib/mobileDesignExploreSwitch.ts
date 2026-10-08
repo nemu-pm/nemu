@@ -5,25 +5,21 @@
  * before any screen or module-scope constant reads it, and holds for the
  * whole run: switching takes effect on the next launch (or a reload).
  *
- * `EXPO_PUBLIC_NEMU_DESIGN_EXPLORE=1` only changes the default (dev builds,
- * simulator captures); a stored choice always wins. iOS only: Android never
- * gets the prototype and has no switch.
+ * iOS only: Android never gets the prototype and has no switch.
  *
  * Pure: no `react-native` import, so plain unit tests and pure modules
  * (chapter labels, the string catalogues) can read it.
  */
 
-export type MobileDesignExploreInputs = {
+type MobileDesignExploreInputs = {
   platform: string | undefined;
-  /** `EXPO_PUBLIC_NEMU_DESIGN_EXPLORE === "1"`: the default when nothing is stored. */
-  envDefault: boolean;
   /** The reader's choice, or null when they never made one. */
   stored: boolean | null;
 };
 
-export function resolveMobileDesignExplore({ platform, envDefault, stored }: MobileDesignExploreInputs): boolean {
+export function resolveMobileDesignExplore({ platform, stored }: MobileDesignExploreInputs): boolean {
   if (platform !== "ios") return false;
-  return stored ?? envDefault;
+  return stored ?? false;
 }
 
 /** Whether the switch is offered at all on this platform. */
