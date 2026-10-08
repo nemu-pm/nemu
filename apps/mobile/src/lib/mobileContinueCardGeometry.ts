@@ -35,12 +35,12 @@ export const MOBILE_CONTINUE_TALL_CARD = {
    * window is 750 px on a 3× screen), and the section after the cards should
    * show at rest.
    */
-  share: 0.6,
-  maxWidth: 268,
+  share: 0.76,
+  maxWidth: 316,
   /** Narrowest tall card: the cover still reads and the title keeps a few words a line. */
   minWidth: 220,
   /** Height of the cover window over the card width (the cover is 2:3; its top shows). */
-  artAspect: 0.92,
+  artAspect: 0.66,
   /** Shortest window that takes a tall card: below it (phone landscape, a closed Duo) the wide card fits better. */
   minWindowHeight: 740,
 } as const;

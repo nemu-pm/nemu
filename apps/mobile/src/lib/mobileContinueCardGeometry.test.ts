@@ -145,7 +145,7 @@ describe("getMobileContinueCardGeometry", () => {
 
   test("tall card on a phone: centred, a neighbour peeking on each side, every card can rest centred", () => {
     const g = getMobileContinueCardGeometry({ frameWidth: 420, gutterLeft: 20, count: 3, variant: "tall" });
-    expect(g).toMatchObject({ cardWidth: 252, interval: 264, columns: 1, turns: true });
+    expect(g).toMatchObject({ cardWidth: 316, interval: 328, columns: 1, turns: true });
     const [previous, current, next] = cardsAt(g, 3, 1);
     expect(current[0]).toBeCloseTo(420 - current[1]);
     expect(previous[1]).toBeGreaterThan(20);
@@ -163,7 +163,7 @@ describe("getMobileContinueCardGeometry", () => {
     const g = getMobileContinueCardGeometry({ frameWidth: 1180, gutterLeft: 24, count: 6, variant: "tall" });
     expect(g.columns).toBe(4);
     expect(g.cardWidth).toBeGreaterThanOrEqual(220);
-    expect(g.cardWidth).toBeLessThanOrEqual(268);
+    expect(g.cardWidth).toBeLessThanOrEqual(316);
     expect(g.turns).toBe(false);
   });
 
