@@ -1,4 +1,4 @@
-export type MobileSettingsSplitSectionId = "reader" | "sources" | "appearance" | "data";
+export type MobileSettingsSplitSectionId = "reader" | "sources" | "appearance" | "data" | "experimental";
 
 /** Order of the section list; the first one is selected by default (iOS Settings). */
 export const MOBILE_SETTINGS_SPLIT_SECTIONS: readonly MobileSettingsSplitSectionId[] = [

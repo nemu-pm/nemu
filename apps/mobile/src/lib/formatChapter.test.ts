@@ -5,6 +5,7 @@ import {
   formatChapterShortLabel,
   formatChapterTitle,
   formatContinueActionLabel,
+  getShownChapterVolume,
 } from "./formatChapter";
 import { getMobileStrings } from "./mobileI18n";
 
@@ -136,5 +137,13 @@ describe("chapter label fallbacks", () => {
         labels: en.sourceManga,
       }),
     ).toBe(en.sourceManga.startReading);
+  });
+
+  test("design-explore: a volume 0 beside a chapter number is a placeholder", () => {
+    expect(getShownChapterVolume({ volumeNumber: 0, chapterNumber: 1 }, true)).toBeNull();
+    expect(getShownChapterVolume({ volumeNumber: 0, chapterNumber: 1 }, false)).toBe(0);
+    // A real volume, or volume 0 with nothing else to name it, stays.
+    expect(getShownChapterVolume({ volumeNumber: 2, chapterNumber: 12 }, true)).toBe(2);
+    expect(getShownChapterVolume({ volumeNumber: 0 }, true)).toBe(0);
   });
 });

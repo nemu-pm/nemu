@@ -27,6 +27,9 @@ describe("getMobileChipDepthVariant", () => {
 
   it("recesses an unselected chip into the well", () => {
     expect(getMobileChipDepthVariant(false)).toBe("chip");
+    // "On as one of many" is a soft tint; unselected stays a well.
+    expect(getMobileChipDepthVariant(true, true)).toBe("chip-included");
+    expect(getMobileChipDepthVariant(false, true)).toBe("chip");
   });
 });
 

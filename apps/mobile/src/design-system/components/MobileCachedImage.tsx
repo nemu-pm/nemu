@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import {
   Animated as ReactAnimated,
   Image,
@@ -88,6 +89,8 @@ function boundedLocalImageSourceKey(
  */
 const SHOWN_SOURCE_LIMIT = 512;
 const shownSourceKeys = new Set<string>();
+/** After this, a cover's fade is over whatever became of its native animation. */
+const FADE_SETTLE_MS = 400;
 
 function markSourceShown(sourceKey: string) {
   if (shownSourceKeys.has(sourceKey)) shownSourceKeys.delete(sourceKey);
@@ -451,6 +454,15 @@ export function MobileCachedImage({
           duration: 240,
           useNativeDriver: true,
         }).start();
+        // Design-explore: a native-driven fade can be cut off part way when
+        // its view changes hosts (a cover in a sheet as it presents was left
+        // at a quarter opacity in Add Books). Land the end value whatever
+        // happened to the animation.
+        if (mobileDesignExploreFlag) {
+          setTimeout(() => {
+            if (activeSourceKeyRef.current === sourceKey) imageFadeRef.setValue(1);
+          }, FADE_SETTLE_MS);
+        }
       }
       onLoad?.(event);
     },

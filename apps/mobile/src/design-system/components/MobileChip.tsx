@@ -32,6 +32,11 @@ type MobileChipBaseProps = {
   /** Composed display text. Unused by the `icon` variant. */
   label?: string;
   selected?: boolean;
+  /**
+   * Selected as one of many under an "All" chip that is on: drawn as a soft
+   * tint rather than a solid pill (design-explore search sources).
+   */
+  included?: boolean;
   disabled?: boolean;
   /** Remote leading icon (`toggle`); falls back to `fallbackIcon` while absent. */
   icon?: string;
@@ -80,6 +85,7 @@ export function MobileChip({
   size = "md",
   label,
   selected = false,
+  included = false,
   disabled = false,
   icon,
   fallbackIcon,
@@ -98,7 +104,9 @@ export function MobileChip({
   const { scheme, tokens } = useNemuTheme();
   const small = size === "sm";
   const foregroundColor = selected
-    ? tokens.primaryForeground
+    ? included
+      ? tokens.primary
+      : tokens.primaryForeground
     : tokens.mutedForeground;
   const resolvedAccessibilityState = resolveMobileChipAccessibilityState({
     accessibilityRole,
@@ -185,7 +193,7 @@ export function MobileChip({
           ...frameStyle,
           createNemuButtonDepthStyle(
             getNemuButtonDepthVisual({
-              variant: getMobileChipDepthVariant(selected),
+              variant: getMobileChipDepthVariant(selected, included),
               state: "rest",
               scheme,
               tokens,
@@ -204,7 +212,7 @@ export function MobileChip({
       accessibilityHint={accessibilityHint}
       accessibilityRole={accessibilityRole}
       accessibilityState={resolvedAccessibilityState}
-      buttonDepth={getMobileChipDepthVariant(selected)}
+      buttonDepth={getMobileChipDepthVariant(selected, included)}
       disabled={disabled}
       hapticFeedback={
         hapticFeedback ?? (disabled ? "none" : "selection")

@@ -14,6 +14,7 @@ import {
 } from "@expo/ui/swift-ui/modifiers";
 import { Platform, StyleSheet, Text, View } from "react-native";
 import { supportsNemuLiquidGlassButtonStyle } from "@/lib/nemuLiquidGlass";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import { nemuFontWeight } from "@/design/typography";
 import { useNemuTheme } from "@/design/useNemuTheme";
 import type { NemuNativeSheetHeaderActionProps } from "./NemuNativeSheetHeaderAction.types";
@@ -72,7 +73,11 @@ export function NemuNativeSheetHeaderAction({
             buttonStyle(prominent ? prominentChrome : chrome),
             buttonBorderShape("circle"),
             controlSize("large"),
-            tint(tokens.primary),
+            // Design-explore: bar items take the label colour (the close X,
+            // a filter); only the confirming action carries the accent. Set
+            // outright: a host that seeds the accent (the reader's Plugins
+            // sheet) would otherwise hand it down to this button.
+            tint(prominent || !mobileDesignExploreFlag ? tokens.primary : tokens.foreground),
             swiftAccessibilityLabel(accessibilityLabel),
             ...(disabled ? [swiftDisabled(true)] : []),
           ]}

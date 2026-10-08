@@ -1,4 +1,4 @@
-import { memo, useState } from "react";
+import { memo, useState, type ReactNode } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
@@ -33,9 +33,22 @@ export type MangaCardModel = {
 export const MangaCard = memo(function MangaCard({
   item,
   onLongPress,
+  onPress,
+  wrapCover,
+  placeholder,
 }: {
   item: MangaCardModel;
+  /** Drawn when there is no cover or it fails (design-explore: the shelf's cloth book). */
+  placeholder?: ReactNode;
   onLongPress?: () => void;
+  /** Replaces the default push to the title page (design-explore: a cover zoom). */
+  onPress?: () => void;
+  /**
+   * Wraps the cover (design-explore: the native zoom source). A wrapped cover
+   * does not fade in: inside a native container the fade can be lost and
+   * leave a loaded cover invisible.
+   */
+  wrapCover?: (cover: ReactNode) => ReactNode;
 }) {
   const { tokens } = useNemuTheme();
   const { appLanguage } = useMobileLanguageSettings();
@@ -53,6 +66,71 @@ export const MangaCard = memo(function MangaCard({
     if (hasNow) setBadgePopToken((token) => token + 1);
   }
 
+  const coverView = (
+    <View
+      style={[
+        styles.cover,
+        {
+          backgroundColor: tokens.muted,
+          borderColor: tokens.coverBorder,
+          ...createNemuShadowStyle({
+            color: tokens.shadow,
+            offsetY: 3,
+            radius: 14,
+            elevation: 4,
+          }),
+        },
+      ]}
+    >
+      {item.cover ? (
+        <MobileCachedImage
+          fallback={
+            placeholder ?? (
+              <LinearGradient
+                colors={[nemuColorWithAlpha(tokens.primary, 0.33), tokens.muted]}
+                style={styles.placeholder}
+              />
+            )
+          }
+          uriOwnership="source"
+          fadeIn={wrapCover ? false : undefined}
+          source={{ uri: item.cover, headers: item.coverHeaders }}
+          style={styles.coverImage}
+        />
+      ) : (
+        placeholder ?? (
+          <LinearGradient
+            colors={[nemuColorWithAlpha(tokens.primary, 0.33), tokens.muted]}
+            style={styles.placeholder}
+          />
+        )
+      )}
+      <LinearGradient
+        colors={["transparent", "rgba(0,0,0,0.2)"]}
+        style={styles.coverShade}
+      />
+      {item.badge ? (
+        <Animated.View
+          key={badgePopToken}
+          entering={
+            badgePopToken > 0 && !reducedMotion
+              ? ZoomIn.springify().damping(16).stiffness(220)
+              : undefined
+          }
+          style={[styles.badge, { backgroundColor: tokens.primary }]}
+        >
+          <Text
+            maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
+            numberOfLines={1}
+            style={[styles.badgeText, { color: tokens.primaryForeground }]}
+          >
+            {item.badge}
+          </Text>
+        </Animated.View>
+      ) : null}
+    </View>
+  );
+
   return (
     <NemuPressable
       accessibilityRole="button"
@@ -66,6 +144,10 @@ export const MangaCard = memo(function MangaCard({
       pressProfile="card"
       onPress={() => {
         markMobilePerformance("library.open-title", { id: item.id });
+        if (onPress) {
+          onPress();
+          return;
+        }
         router.push({
           pathname: "/library/[id]",
           params: { id: item.id },
@@ -80,63 +162,7 @@ export const MangaCard = memo(function MangaCard({
       }
       style={styles.root}
     >
-      <View
-        style={[
-          styles.cover,
-          {
-            backgroundColor: tokens.muted,
-            borderColor: tokens.coverBorder,
-            ...createNemuShadowStyle({
-              color: tokens.shadow,
-              offsetY: 3,
-              radius: 14,
-              elevation: 4,
-            }),
-          },
-        ]}
-      >
-        {item.cover ? (
-          <MobileCachedImage
-            fallback={
-              <LinearGradient
-                colors={[nemuColorWithAlpha(tokens.primary, 0.33), tokens.muted]}
-                style={styles.placeholder}
-              />
-            }
-            uriOwnership="source"
-            source={{ uri: item.cover, headers: item.coverHeaders }}
-            style={styles.coverImage}
-          />
-        ) : (
-          <LinearGradient
-            colors={[nemuColorWithAlpha(tokens.primary, 0.33), tokens.muted]}
-            style={styles.placeholder}
-          />
-        )}
-        <LinearGradient
-          colors={["transparent", "rgba(0,0,0,0.2)"]}
-          style={styles.coverShade}
-        />
-        {item.badge ? (
-          <Animated.View
-            key={badgePopToken}
-            entering={
-              badgePopToken > 0 && !reducedMotion
-                ? ZoomIn.springify().damping(16).stiffness(220)
-                : undefined
-            }
-            style={[styles.badge, { backgroundColor: tokens.primary }]}
-          >
-            <Text
-              maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
-              numberOfLines={1}
-              style={[styles.badgeText, { color: tokens.primaryForeground }]}
-            >
-              {item.badge}
-            </Text>
-          </Animated.View>
-        ) : null}
-      </View>
+      {wrapCover ? wrapCover(coverView) : coverView}
       <View style={styles.textBlock}>
         <Text
           maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}

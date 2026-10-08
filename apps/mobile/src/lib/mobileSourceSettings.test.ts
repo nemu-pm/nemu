@@ -13,6 +13,7 @@ import {
   flattenVisibleEditableSourceSettings,
   formatSourceSettingSliderValue,
   formatSourceSettingAccessibilityLabel,
+  getFirstVisibleSourceSettingIndex,
   getMobileSourceSettingsNavigationResetKey,
   getSourceSegmentOptions,
   getSourceSettingOptions,
@@ -26,6 +27,7 @@ import {
   normalizeMobileSourceSettingsKeys,
   sourceSettingRequestsDataRefresh,
   sourceSettingsRequestDataRefresh,
+  sourceSettingControlShowsValue,
 } from "./mobileSourceSettings";
 import { getMobileStrings } from "./mobileI18n";
 import type { SourcePackageSetting } from "@/data/schema";
@@ -752,5 +754,41 @@ describe("mobile source settings helpers", () => {
         },
       ]),
     ).toBe(false);
+  });
+
+  test("design-explore: a control that shows its value is not repeated under the title", () => {
+    for (const type of ["switch", "segment", "select", "slider"] as const) {
+      expect(sourceSettingControlShowsValue({ type })).toBe(true);
+    }
+    for (const type of ["multi-select", "text", "page", "button", "login", "link"] as const) {
+      expect(sourceSettingControlShowsValue({ type: type as SourcePackageSetting["type"] })).toBe(false);
+    }
+  });
+});
+
+
+describe("the first painted settings sibling", () => {
+  const titlePreference: SourcePackageSetting = { key: "title", title: "Title Preference", type: "select" };
+  const emptyGroup: SourcePackageSetting = { key: "empty", title: "Empty", type: "group", items: [] };
+  const hiddenRow: SourcePackageSetting = { key: "hidden", title: "Hidden", type: "switch", requires: "enabled" };
+  const gatedGroup: SourcePackageSetting = { key: "gated", title: "Gated", type: "group", items: [hiddenRow] };
+
+  test("empty and fully hidden groups cannot reserve the leading position", () => {
+    expect(getFirstVisibleSourceSettingIndex([emptyGroup, gatedGroup, titlePreference], {})).toBe(2);
+    expect(getFirstVisibleSourceSettingIndex([emptyGroup, gatedGroup, titlePreference], { enabled: true })).toBe(1);
+  });
+
+  test("the first actual nested group leads; later sections keep their spacing", () => {
+    const detection: SourcePackageSetting = { key: "detection", title: "Detection", type: "group", items: [titlePreference] };
+    expect(getFirstVisibleSourceSettingIndex([emptyGroup, detection, titlePreference], {})).toBe(1);
+    expect(getFirstVisibleSourceSettingIndex([titlePreference, detection], {})).toBe(0);
+  });
+
+  test("feature-gated, malformed and absent rows leave no phantom first heading", () => {
+    const gated = { ...titlePreference, requiresFeature: "webgpu" };
+    expect(getFirstVisibleSourceSettingIndex([gated, titlePreference], {})).toBe(1);
+    expect(getFirstVisibleSourceSettingIndex([gated, titlePreference], {}, { webgpu: true })).toBe(0);
+    expect(getFirstVisibleSourceSettingIndex([{} as SourcePackageSetting, emptyGroup], {})).toBe(-1);
+    expect(getFirstVisibleSourceSettingIndex([], {})).toBe(-1);
   });
 });

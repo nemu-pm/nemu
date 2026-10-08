@@ -526,6 +526,20 @@ describe("nemuButtonDepth", () => {
     expect(light.foregroundColor).toBe(nemuTokens.light.primaryForeground);
   });
 
+  test("an included chip is a soft primary tint with primary ink, no well shadow", () => {
+    for (const scheme of ["light", "dark"] as const) {
+      const visual = getNemuButtonDepthVisual({
+        variant: "chip-included",
+        state: "rest",
+        scheme,
+        tokens: nemuTokens[scheme],
+      });
+      expect(visual.foregroundColor).toBe(nemuTokens[scheme].primary);
+      expect(visual.boxShadow).toBe("none");
+      expect(visual.backgroundColor).not.toBe(nemuTokens[scheme].primary);
+    }
+  });
+
   test("depth variants expose foreground color when relevant", () => {
     const variants: NemuButtonDepthVariant[] = [
       "primary",
@@ -536,6 +550,7 @@ describe("nemuButtonDepth", () => {
       "toolbar",
       "toolbar-danger",
       "chip-selected",
+      "chip-included",
       "chip",
       "elevated",
     ];

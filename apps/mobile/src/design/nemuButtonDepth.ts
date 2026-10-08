@@ -16,6 +16,7 @@ export type NemuButtonDepthVariant =
   | "toolbar"
   | "toolbar-danger"
   | "chip-selected"
+  | "chip-included"
   | "chip"
   | "elevated";
 
@@ -222,7 +223,7 @@ export type NemuButtonDepthVisual = {
 };
 
 const depthVariantPaletteKey: Record<
-  Exclude<NemuButtonDepthVariant, "toolbar" | "toolbar-danger" | "chip" | "chip-selected">,
+  Exclude<NemuButtonDepthVariant, "toolbar" | "toolbar-danger" | "chip" | "chip-selected" | "chip-included">,
   keyof NemuWebButtonSchemePalette
 > = {
   primary: "primary",
@@ -319,6 +320,8 @@ export function getNemuButtonDepthVisual({
       return toolbarDepthVisual({ pressed, scheme, tokens, danger: true, tokenOverrides });
     case "chip-selected":
       return chipSelectedDepthVisual({ pressed, scheme, tokens, tokenOverrides });
+    case "chip-included":
+      return chipIncludedDepthVisual({ pressed, scheme, tokens, tokenOverrides });
     case "chip":
       return chipDepthVisual({ pressed, scheme, tokens, tokenOverrides });
     default: {
@@ -407,6 +410,31 @@ function chipSelectedDepthVisual({
     backgroundColor: pressed ? tokenOverrides.primaryPressed : tokens.primary,
     borderColor: scheme === "dark" ? "rgba(143,181,255,0.50)" : "rgba(116,153,255,0.50)",
     foregroundColor: tokens.primaryForeground,
+  };
+}
+
+/**
+ * A chip that is on as one of many under an "All" chip that is on (search
+ * sources): a soft primary tint with primary ink, not twenty solid pills.
+ * Pressing pops it like any chip.
+ */
+function chipIncludedDepthVisual({
+  pressed,
+  scheme,
+  tokens,
+  tokenOverrides,
+}: {
+  pressed: boolean;
+  scheme: NemuColorScheme;
+  tokens: NemuTokens;
+  tokenOverrides: { primary: string; primaryPressed: string };
+}): NemuButtonDepthVisual {
+  if (pressed) return { ...chipDepthVisual({ pressed, scheme, tokens, tokenOverrides }), foregroundColor: tokens.primary };
+  return {
+    backgroundColor: nemuColorWithAlpha(tokens.primary, scheme === "dark" ? 0.2 : 0.12),
+    borderColor: "transparent",
+    boxShadow: "none",
+    foregroundColor: tokens.primary,
   };
 }
 

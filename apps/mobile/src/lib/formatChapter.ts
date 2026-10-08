@@ -1,7 +1,30 @@
 import type { ChapterSummary } from "@/data/schema";
+import { getMobileDesignExploreActive } from "./mobileDesignExploreSwitch";
 import { formatMobileString, type MobileStrings } from "./mobileI18n";
 
 const SHORT_TITLE_MAX_LENGTH = 18;
+
+// The design-explore switch as this run started (`mobileDesignExploreFlag`),
+// read through the pure switch module so this one stays free of react-native.
+function designExploreLabels(): boolean {
+  return getMobileDesignExploreActive();
+}
+
+/**
+ * The volume a label shows. Design-explore: a volume 0 beside a chapter
+ * number is a source's placeholder (some sources number every chapter not yet
+ * in a book volume 0), not a volume: "Ch.1", not "Vol.0 Ch.1" — the rule the
+ * chapter list's volume headers already follow.
+ */
+export function getShownChapterVolume(
+  chapter: Pick<ChapterSummary, "volumeNumber" | "chapterNumber">,
+  placeholderZero = designExploreLabels(),
+): number | null {
+  const volume = chapter.volumeNumber;
+  if (volume == null) return null;
+  if (placeholderZero && volume === 0 && chapter.chapterNumber != null) return null;
+  return volume;
+}
 
 function formatNumber(value: number): string {
   return (Math.round(value * 100) / 100).toString();
@@ -11,8 +34,8 @@ export function formatChapterTitle(
   chapter: ChapterSummary,
   strings: MobileStrings,
 ): string {
-  const volumeNumber =
-    chapter.volumeNumber != null ? formatNumber(chapter.volumeNumber) : null;
+  const shownVolume = getShownChapterVolume(chapter);
+  const volumeNumber = shownVolume != null ? formatNumber(shownVolume) : null;
   const chapterNumber =
     chapter.chapterNumber != null ? formatNumber(chapter.chapterNumber) : null;
 
@@ -52,8 +75,8 @@ export function formatChapterShort(
   chapter: ChapterSummary,
   strings: MobileStrings,
 ): string {
-  const volumeNumber =
-    chapter.volumeNumber != null ? formatNumber(chapter.volumeNumber) : null;
+  const shownVolume = getShownChapterVolume(chapter);
+  const volumeNumber = shownVolume != null ? formatNumber(shownVolume) : null;
   const chapterNumber =
     chapter.chapterNumber != null ? formatNumber(chapter.chapterNumber) : null;
 

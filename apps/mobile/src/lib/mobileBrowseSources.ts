@@ -437,3 +437,30 @@ export function mergeMobileInstalledSourceRegistryMetadata(
     };
   });
 }
+
+/**
+ * The installed sources the library reads from, most titles first (ties keep
+ * the given order), with how many library titles each holds — for a short
+ * group above the language groups (design-explore), so the few sources in use
+ * are not one row among twenty.
+ */
+export function selectMobileBrowseLibrarySources<T extends { registryId: string; sourceId: string }>(
+  sources: readonly T[],
+  links: readonly { registryId: string; sourceId: string; libraryItemId: string; removed?: boolean }[],
+  limit = 6,
+): { source: T; titles: number }[] {
+  const titles = new Map<string, Set<string>>();
+  for (const link of links) {
+    if (link.removed === true) continue;
+    const key = `${link.registryId}\u0000${link.sourceId}`;
+    const set = titles.get(key) ?? new Set<string>();
+    set.add(link.libraryItemId);
+    titles.set(key, set);
+  }
+  return sources
+    .map((source, index) => ({ source, index, titles: titles.get(`${source.registryId}\u0000${source.sourceId}`)?.size ?? 0 }))
+    .filter((item) => item.titles > 0)
+    .sort((a, b) => b.titles - a.titles || a.index - b.index)
+    .slice(0, Math.max(0, limit))
+    .map(({ source, titles: count }) => ({ source, titles: count }));
+}

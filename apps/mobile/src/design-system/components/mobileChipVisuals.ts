@@ -50,11 +50,16 @@ export function isMobileChipPressable(variant: MobileChipVariant): boolean {
   return variant !== "static";
 }
 
-/** Selected chips sit on the primary surface; the rest are recessed wells. */
+/**
+ * Selected chips sit on the primary surface; the rest are recessed wells. A
+ * selected chip marked `included` (on because "All" is on) takes the soft
+ * primary tint instead.
+ */
 export function getMobileChipDepthVariant(
   selected: boolean,
+  included = false,
 ): NemuButtonDepthVariant {
-  return selected ? "chip-selected" : "chip";
+  return selected ? (included ? "chip-included" : "chip-selected") : "chip";
 }
 
 /** `menu` chips carry a chevron unless the caller names another glyph. */
