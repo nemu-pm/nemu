@@ -33,6 +33,7 @@
     "@nemu.pm/aidoku-runtime": "^0.14.0",
     "@nemu/core": "workspace:*",
     "@react-native-community/javascriptcore": "^0.2.0",
+    "@react-native-masked-view/masked-view": "0.3.2",
     "@shopify/react-native-skia": "2.13.1",
     "better-auth": "1.6.23",
     "convex": "^1.31.2",
