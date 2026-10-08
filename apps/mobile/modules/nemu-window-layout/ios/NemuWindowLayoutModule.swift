@@ -105,10 +105,106 @@ public final class NemuWindowLayoutModule: Module {
         view.materializeDuration = max(0, ms) / 1000
       }
     }
+    // Cover zoom transition (iOS 18+ `preferredTransition = .zoom`): a source
+    // registers itself under an id; the pushed screen's target sets the zoom
+    // on its view controller and names its own alignment rect.
+    Constant("zoomTransitionAvailable") { true }
+    // The target reports when the zoom has landed (`onZoomSettled`).
+    Constant("zoomSettledEventAvailable") { true }
+    View(NemuZoomSourceView.self) {
+      Prop("zoomId") { (view: NemuZoomSourceView, id: String) in
+        view.zoomId = id
+      }
+    }
+    View(NemuZoomTargetView.self) {
+      Prop("zoomId") { (view: NemuZoomTargetView, id: String) in
+        view.zoomId = id
+      }
+      Prop("align") { (view: NemuZoomTargetView, align: Bool) in
+        view.alignsToSelf = align
+      }
+      Events("onZoomSettled")
+      Prop("interactiveDismiss") { (view: NemuZoomTargetView, enabled: Bool) in
+        view.interactiveDismiss = enabled
+      }
+    }
+    // Hands a list's scroll view to UIKit as the content scroll view of its
+    // screen and every parent up to the tab bar controller, so the tab bar can
+    // minimise on scroll for lists inside a nested native stack.
+    Constant("contentScrollMarkerAvailable") { true }
+    View(NemuContentScrollMarkerView.self) {
+      // Re-applies the registration (e.g. after the list remounted).
+      Prop("generation") { (view: NemuContentScrollMarkerView, _: Double) in
+        view.scheduleApply()
+      }
+    }
     View(NemuGlassContainerView.self) {
       Prop("spacing") { (view: NemuGlassContainerView, spacing: Double) in
         view.spacing = CGFloat(spacing)
       }
+    }
+    // A system context menu on any view (long press: the view lifts and the
+    // menu opens), see `NemuContextMenuView`.
+    Constant("contextMenuViewAvailable") { true }
+    View(NemuContextMenuView.self) {
+      Events("onMenuAction")
+      Prop("items") { (view: NemuContextMenuView, items: [NemuContextMenuItem]) in
+        view.items = items
+      }
+      Prop("menuTitle") { (view: NemuContextMenuView, title: String?) in
+        view.menuTitle = title ?? ""
+      }
+    }
+  }
+}
+
+/// One action of a `NemuContextMenuView`.
+struct NemuContextMenuItem: Record {
+  @Field var id: String = ""
+  @Field var title: String = ""
+  @Field var subtitle: String?
+  @Field var systemImage: String?
+  @Field var destructive: Bool = false
+  @Field var disabled: Bool = false
+}
+
+/// A view whose long press opens a system context menu (`UIContextMenuInteraction`):
+/// the view lifts as the menu's preview, the menu lists `items`, and choosing
+/// one sends `onMenuAction` with its id. Taps pass through to the React
+/// Native content as usual. No items: no menu.
+final class NemuContextMenuView: ExpoView, UIContextMenuInteractionDelegate {
+  let onMenuAction = EventDispatcher()
+  var items: [NemuContextMenuItem] = []
+  var menuTitle = ""
+
+  required init(appContext: AppContext? = nil) {
+    super.init(appContext: appContext)
+    addInteraction(UIContextMenuInteraction(delegate: self))
+  }
+
+  func contextMenuInteraction(
+    _ interaction: UIContextMenuInteraction,
+    configurationForMenuAtLocation location: CGPoint
+  ) -> UIContextMenuConfiguration? {
+    guard !items.isEmpty else { return nil }
+    let items = self.items
+    let title = menuTitle
+    return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
+      let actions = items.map { item -> UIAction in
+        var attributes: UIMenuElement.Attributes = []
+        if item.destructive { attributes.insert(.destructive) }
+        if item.disabled { attributes.insert(.disabled) }
+        let action = UIAction(
+          title: item.title,
+          image: item.systemImage.flatMap { UIImage(systemName: $0) },
+          attributes: attributes
+        ) { _ in
+          self?.onMenuAction(["id": item.id])
+        }
+        action.subtitle = item.subtitle
+        return action
+      }
+      return UIMenu(title: title, children: actions)
     }
   }
 }
@@ -1556,6 +1652,236 @@ private final class NemuSheetProgressDisplayLinkProxy: NSObject {
       case .began, .changed, .ended, .cancelled: view?.wake("drag")
       default: break
       }
+    }
+  }
+}
+
+
+// MARK: - Cover zoom transition
+
+/// Weak registry of zoom sources by id (one live source per id).
+@MainActor
+enum NemuZoomRegistry {
+  private static let sources = NSMapTable<NSString, UIView>.strongToWeakObjects()
+
+  static func register(_ view: UIView, id: String) {
+    guard !id.isEmpty else { return }
+    sources.setObject(view, forKey: id as NSString)
+  }
+
+  static func unregister(_ view: UIView, id: String) {
+    guard !id.isEmpty, sources.object(forKey: id as NSString) === view else { return }
+    sources.removeObject(forKey: id as NSString)
+  }
+
+  static func source(_ id: String) -> UIView? {
+    sources.object(forKey: id as NSString)
+  }
+
+  /// Where a zoom lands in the pushed screen (the hero cover), by id.
+  private static let alignments = NSMapTable<NSString, UIView>.strongToWeakObjects()
+
+  static func registerAlignment(_ view: UIView, id: String) {
+    guard !id.isEmpty else { return }
+    alignments.setObject(view, forKey: id as NSString)
+  }
+
+  static func unregisterAlignment(_ view: UIView, id: String) {
+    guard !id.isEmpty, alignments.object(forKey: id as NSString) === view else { return }
+    alignments.removeObject(forKey: id as NSString)
+  }
+
+  static func alignment(_ id: String) -> UIView? {
+    alignments.object(forKey: id as NSString)
+  }
+
+  /// The zoom each screen was last given (id and options), so it is set once.
+  private static let configurations = NSMapTable<UIViewController, NSString>.weakToStrongObjects()
+
+  static func configuration(of controller: UIViewController) -> String? {
+    configurations.object(forKey: controller) as String?
+  }
+
+  static func setConfiguration(_ key: String, of controller: UIViewController) {
+    configurations.setObject(key as NSString, forKey: controller)
+  }
+}
+
+/// The view a zoom grows out of (a cover). Ordinary layout: it is sized by
+/// its React style, never `display: contents`.
+final class NemuZoomSourceView: ExpoView {
+  var zoomId = "" {
+    didSet {
+      guard zoomId != oldValue else { return }
+      NemuZoomRegistry.unregister(self, id: oldValue)
+      if window != nil { NemuZoomRegistry.register(self, id: zoomId) }
+    }
+  }
+
+  override func didMoveToWindow() {
+    super.didMoveToWindow()
+    // Registered while on screen; a source that scrolled out of a recycled
+    // list keeps its last registration until another view takes the id.
+    if window != nil { NemuZoomRegistry.register(self, id: zoomId) }
+  }
+}
+
+/// Placed in the pushed screen. A route-level target (`align` false) gives
+/// that screen's view controller a zoom transition from the registered source
+/// and reports when the zoom has landed. A target with `align` (the hero
+/// cover) is where the zoom lands: it registers its frame under the id and
+/// the transition looks it up when it runs, so a hero that mounts later never
+/// replaces the transition of a screen that is already animating in.
+final class NemuZoomTargetView: ExpoView {
+  let onZoomSettled = EventDispatcher()
+  var zoomId = "" {
+    didSet {
+      guard zoomId != oldValue else { return }
+      NemuZoomRegistry.unregisterAlignment(self, id: oldValue)
+      registerAlignmentIfNeeded()
+      scheduleSetup()
+    }
+  }
+  var alignsToSelf = true {
+    didSet {
+      guard alignsToSelf != oldValue else { return }
+      if alignsToSelf { registerAlignmentIfNeeded() } else { NemuZoomRegistry.unregisterAlignment(self, id: zoomId) }
+    }
+  }
+  var interactiveDismiss = true { didSet { if interactiveDismiss != oldValue { scheduleSetup() } } }
+  private var settleObserved = false
+  private var settled = false
+
+  override func didMoveToSuperview() {
+    super.didMoveToSuperview()
+    guard superview != nil else { return }
+    // The stack pushes the new screen on the main-queue turn after the
+    // mounting transaction that carries this view, so a zoom set later than
+    // that only reaches the pop. Set it now when this subtree already hangs
+    // under its screen, and again on the next turn for the case where the
+    // screen attaches after this view.
+    setup()
+    scheduleSetup()
+  }
+
+  override func didMoveToWindow() {
+    super.didMoveToWindow()
+    guard window != nil else {
+      NemuZoomRegistry.unregisterAlignment(self, id: zoomId)
+      return
+    }
+    registerAlignmentIfNeeded()
+    observeSettle()
+    scheduleSetup()
+  }
+
+  private func registerAlignmentIfNeeded() {
+    if alignsToSelf, window != nil { NemuZoomRegistry.registerAlignment(self, id: zoomId) }
+  }
+
+  /// Reports once that the zoom into this screen has landed: the nominal
+  /// transition duration after the animation starts (the spring's long tail
+  /// is not waited for), or at once when the screen appears without one.
+  private func observeSettle() {
+    guard !alignsToSelf, !settleObserved else { return }
+    settleObserved = true
+    let coordinator = owningViewController()?.transitionCoordinator
+    guard let coordinator, coordinator.isAnimated else {
+      DispatchQueue.main.async { [weak self] in self?.sendSettled() }
+      return
+    }
+    let delay = coordinator.transitionDuration + NemuZoomTargetView.settleMargin
+    let queued = coordinator.animate(alongsideTransition: { [weak self] _ in
+      DispatchQueue.main.asyncAfter(deadline: .now() + delay) { self?.sendSettled() }
+    }, completion: { [weak self] _ in
+      self?.sendSettled()
+    })
+    if !queued { DispatchQueue.main.async { [weak self] in self?.sendSettled() } }
+  }
+
+  /// Past the nominal duration the zoom is within a few points of its end.
+  private static let settleMargin: TimeInterval = 0.1
+
+  private func sendSettled() {
+    guard !settled else { return }
+    settled = true
+    onZoomSettled([:])
+  }
+
+  private func scheduleSetup() {
+    DispatchQueue.main.async { [weak self] in self?.setup() }
+  }
+
+  private func owningViewController() -> UIViewController? {
+    var responder: UIResponder? = self
+    while let current = responder {
+      if let controller = current as? UIViewController { return controller }
+      responder = current.next
+    }
+    return nil
+  }
+
+  private func setup() {
+    // The hero only names where the zoom lands; the route-level target owns
+    // the transition.
+    guard #available(iOS 18.0, *), !alignsToSelf, !zoomId.isEmpty, let controller = owningViewController() else { return }
+    let id = zoomId
+    let key = "\(id)|\(interactiveDismiss)"
+    // Assigning the same transition again (the second setup pass, a
+    // re-render) would replace the one UIKit may already be running.
+    guard NemuZoomRegistry.configuration(of: controller) != key else { return }
+    NemuZoomRegistry.setConfiguration(key, of: controller)
+    let options = UIViewController.Transition.ZoomOptions()
+    options.alignmentRectProvider = { context in
+      MainActor.assumeIsolated {
+        guard let view = NemuZoomRegistry.alignment(id), view.window != nil, view.bounds.width > 0 else { return nil }
+        return view.convert(view.bounds, to: context.zoomedViewController.view)
+      }
+    }
+    if !interactiveDismiss {
+      options.interactiveDismissShouldBegin = { _ in false }
+    }
+    controller.preferredTransition = .zoom(options: options) { _ in
+      MainActor.assumeIsolated { NemuZoomRegistry.source(id) }
+    }
+  }
+}
+
+// MARK: - Content scroll view for tab bar minimise
+
+/// Zero-size view inside a list (e.g. its header). It finds the enclosing
+/// scroll view and registers it as the content scroll view of the screen that
+/// shows it and of each parent controller below the tab bar controller.
+/// Re-applied whenever the screen comes back on screen.
+final class NemuContentScrollMarkerView: ExpoView {
+  override func didMoveToWindow() {
+    super.didMoveToWindow()
+    guard window != nil else { return }
+    scheduleApply()
+  }
+
+  func scheduleApply() {
+    DispatchQueue.main.async { [weak self] in self?.apply() }
+  }
+
+  private func apply() {
+    guard window != nil else { return }
+    var view: UIView? = superview
+    var scrollView: UIScrollView?
+    while let current = view {
+      if let found = current as? UIScrollView { scrollView = found; break }
+      view = current.superview
+    }
+    guard let scrollView else { return }
+    var responder: UIResponder? = self
+    var controller: UIViewController?
+    while let current = responder {
+      if let found = current as? UIViewController { controller = found; break }
+      responder = current.next
+    }
+    while let current = controller, !(current is UITabBarController) {
+      current.setContentScrollView(scrollView, for: [.top, .bottom])
+      controller = current.parent
     }
   }
 }
