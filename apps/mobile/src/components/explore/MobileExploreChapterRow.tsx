@@ -135,9 +135,10 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
               <CheckGlyph color={glyphColor} />
             ) : ratio !== null ? (
               <RingGlyph color={glyphColor} track={nemuColorWithAlpha(glyphColor, 0.22)} ratio={ratio} />
-            ) : presentation.isNew ? (
-              <View style={[styles.dot, { backgroundColor: glyphColor }]} />
-            ) : null}
+            ) : (
+              // Every unread chapter carries the one dot; a new one a touch larger.
+              <View style={[styles.dot, presentation.isNew ? styles.dotNew : null, { backgroundColor: glyphColor }]} />
+            )}
           </View>
           <View style={[styles.text, styles.textRow, { borderBottomColor: tokens.border }]}>
             <View style={styles.textBody}>
@@ -254,12 +255,20 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "stretch",
   },
+  // The marker is centred on the whole row (title and subtitle), as the
+  // chevron is: clear of the row's bottom rule, which only the text column draws.
   glyph: {
     width: 24,
     alignItems: "center",
     justifyContent: "center",
+    paddingBottom: StyleSheet.hairlineWidth,
   },
   dot: {
+    width: 7,
+    height: 7,
+    borderRadius: 7 / 2,
+  },
+  dotNew: {
     width: 8,
     height: 8,
     borderRadius: 8 / 2,
