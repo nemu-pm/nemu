@@ -1,12 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
-  blendMobileCoverMesh,
   buildMobileCoverMeshColors,
-  buildMobileCoverMeshInkSecondary,
-  getMobileCoverMeshPoints,
-  getMobileCoverMeshWeights,
   isMobileCoverMeshFlat,
-  MOBILE_COVER_MESH_INK_CONTRAST,
   MOBILE_COVER_MESH_LOOP,
   pickMobileCoverRegionTints,
 } from "./mobileCoverMesh";
@@ -47,57 +42,6 @@ describe("mobile cover mesh", () => {
     const { pixels, width, height } = quadrantCover([red, teal, yellow, blue]);
     const regions = pickMobileCoverRegionTints(pixels, width, height)!;
     expect(regions).toEqual([red, teal, yellow, blue]);
-  });
-
-  test("the four pools orbit the loop and land on its places at whole steps", () => {
-    expect(getMobileCoverMeshPoints(0)).toEqual([0, 2, 4, 6].map((i) => MOBILE_COVER_MESH_LOOP[i]!));
-    expect(getMobileCoverMeshPoints(3)).toEqual([3, 5, 7, 1].map((i) => MOBILE_COVER_MESH_LOOP[i]!));
-    // Eight steps are a full orbit.
-    expect(getMobileCoverMeshPoints(8.5)).toEqual(getMobileCoverMeshPoints(0.5));
-    // Mid-step a pool is between its two places.
-    const half = getMobileCoverMeshPoints(0.5)[0]!;
-    expect(half.x).toBeCloseTo((MOBILE_COVER_MESH_LOOP[0]!.x + MOBILE_COVER_MESH_LOOP[1]!.x) / 2, 5);
-  });
-
-  test("weights sum to one and the nearest pool dominates", () => {
-    const points = getMobileCoverMeshPoints(0);
-    const weights = getMobileCoverMeshWeights(points, points[0]!.x, points[0]!.y);
-    expect(weights.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 5);
-    expect(weights[0]).toBeGreaterThan(0.6);
-  });
-
-  test("the page's ink and secondary ink read over every blend of the pools, any cover, both schemes", () => {
-    const points = getMobileCoverMeshPoints(0.37);
-    const samples: Array<[number, number]> = [];
-    for (let x = 0; x <= 1.0001; x += 0.125) for (let y = 0; y <= 1.0001; y += 0.125) samples.push([x, y]);
-    let worst = Infinity;
-    for (const scheme of ["light", "dark"] as const) {
-      for (let mainHue = 0; mainHue < 360; mainHue += 30) {
-        const main = mobileHslToRgb({ h: mainHue, s: 0.75, l: 0.5 });
-        const palette = buildMobileCoverTintPalette(main, scheme);
-        const ink = parseRgb(palette.ink);
-        for (let offset = 60; offset < 360; offset += 90) {
-          const regions = [0, 1, 2, 3].map((i) =>
-            mobileHslToRgb({ h: (mainHue + offset * i) % 360, s: 0.4 + 0.15 * i, l: 0.25 + 0.15 * i }),
-          );
-          const colors = buildMobileCoverMeshColors(main, regions, scheme);
-          const secondaryInk = buildMobileCoverMeshInkSecondary(main, colors, scheme);
-          const inkAlpha = Number(/rgba\(\d+, \d+, \d+, ([\d.]+)\)/.exec(secondaryInk)?.[1] ?? 1);
-          for (const [x, y] of samples) {
-            const surface = blendMobileCoverMesh(colors, getMobileCoverMeshWeights(points, x, y));
-            const contrast = mobileContrastRatio(ink, surface);
-            worst = Math.min(worst, contrast);
-            const secondary = {
-              r: ink.r * inkAlpha + surface.r * (1 - inkAlpha),
-              g: ink.g * inkAlpha + surface.g * (1 - inkAlpha),
-              b: ink.b * inkAlpha + surface.b * (1 - inkAlpha),
-            };
-            expect(mobileContrastRatio(secondary, surface)).toBeGreaterThanOrEqual(4.5);
-          }
-        }
-      }
-    }
-    expect(worst).toBeGreaterThanOrEqual(MOBILE_COVER_MESH_INK_CONTRAST);
   });
 
   test("no cover is flat; a one-colour cover still moves in lightness; a colourful one too", () => {

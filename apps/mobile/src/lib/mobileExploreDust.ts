@@ -118,30 +118,4 @@ export function createMobileDustParticles(
   return particles;
 }
 
-export type MobileDustFrame = { x: number; y: number; scale: number; rotation: number };
-
-/**
- * Where square `index` is at time `t` (s since the run started): offset from
- * its base, scale (1 intact, 0 gone) and rotation. Mirrors the worklet in the
- * renderer; kept here so the timing rules are tested.
- */
-export function getMobileDustFrame(
-  particles: Float32Array,
-  index: number,
-  t: number,
-  direction: 1 | -1 = 1,
-): MobileDustFrame {
-  const at = index * MOBILE_DUST_STRIDE;
-  const tau = t - particles[at + RELEASE]!;
-  if (tau <= 0) return { x: 0, y: 0, scale: 1, rotation: 0 };
-  const life = particles[at + LIFE]!;
-  if (tau >= life) return { x: 0, y: 0, scale: 0, rotation: 0 };
-  const ramp = MOBILE_DUST.ramp;
-  // ∫ v·(1 − e^(−t/ramp)) dt: eases from rest to full speed.
-  const travel = tau - ramp + ramp * Math.exp(-tau / ramp);
-  const x = particles[at + VELOCITY_X]! * travel + 0.5 * MOBILE_DUST.lift.x * direction * tau * tau;
-  const y = particles[at + VELOCITY_Y]! * travel + 0.5 * MOBILE_DUST.lift.y * tau * tau;
-  const age = tau / life;
-  const fade = age <= MOBILE_DUST.shrinkFrom ? 1 : 1 - (age - MOBILE_DUST.shrinkFrom) / (1 - MOBILE_DUST.shrinkFrom);
-  return { x, y, scale: fade * fade, rotation: particles[at + SPIN]! * tau };
-}
+type MobileDustFrame = { x: number; y: number; scale: number; rotation: number };

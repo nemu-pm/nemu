@@ -1,7 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  getMobileShelfCoverEdge,
-  getMobileShelfCoverLean,
   getMobileShelfPlankSegments,
   getMobileShelfRow,
 } from "./mobileLibraryShelf";
@@ -29,25 +27,5 @@ describe("shelf planks and covers", () => {
       { x: 0, width: 182 },
       { x: 222, width: 182 },
     ]);
-  });
-
-  test("a cover's lean is stable per title and bounded", () => {
-    const lean = getMobileShelfCoverLean("7d00daa0-07dd-41d3-8bcf-c90df0d133c9");
-    expect(getMobileShelfCoverLean("7d00daa0-07dd-41d3-8bcf-c90df0d133c9")).toBe(lean);
-    for (const id of ["a", "b", "c", "long-id-123", ""]) {
-      const value = getMobileShelfCoverLean(id);
-      expect(value).toBeGreaterThanOrEqual(-1);
-      expect(value).toBeLessThanOrEqual(1);
-    }
-    expect(new Set(["a", "b", "c", "d"].map(getMobileShelfCoverLean)).size).toBeGreaterThan(1);
-  });
-
-  test("a leaning book shows a sliver of the side that faces the reader", () => {
-    expect(getMobileShelfCoverEdge(-1)).toEqual({ side: "right", width: 2 });
-    expect(getMobileShelfCoverEdge(1)).toEqual({ side: "left", width: 2 });
-    // Barely turned: a hairline, never nothing and never more than 2 pt.
-    expect(getMobileShelfCoverEdge(0).width).toBe(0.5);
-    expect(getMobileShelfCoverEdge(0.4).width).toBe(1);
-    expect(getMobileShelfCoverEdge(5).width).toBe(2);
   });
 });

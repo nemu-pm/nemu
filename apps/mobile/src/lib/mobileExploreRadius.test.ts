@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
-  concentricMobileExploreRadii,
   concentricMobileExploreRadius,
   MOBILE_EXPLORE_RADIUS,
   MOBILE_SHEET_BODY_INSET,
@@ -17,19 +16,6 @@ describe("design-explore corner scale", () => {
     expect(concentricMobileExploreRadius(MOBILE_EXPLORE_RADIUS.group, 18)).toBe(2);
     expect(concentricMobileExploreRadius(MOBILE_EXPLORE_RADIUS.group, 24)).toBe(0);
     expect(concentricMobileExploreRadius(10, -4)).toBe(10);
-  });
-
-  test("concentricity holds all the way down: sheet → group → row → control", () => {
-    // A sheet's group sits 16pt in from the sheet's edge and lands on the scale's group step.
-    expect(MOBILE_SHEET_GROUP_RADIUS).toBe(MOBILE_EXPLORE_RADIUS.group);
-    expect(MOBILE_EXPLORE_RADIUS.sheet - MOBILE_SHEET_BODY_INSET).toBe(MOBILE_EXPLORE_RADIUS.group);
-    // Each level is the previous less its inset: sheet 36, group 20, a row highlight 6pt in = 14 (the row step), a control 6pt in = 8.
-    expect(concentricMobileExploreRadii(MOBILE_EXPLORE_RADIUS.sheet, [MOBILE_SHEET_BODY_INSET, 6, 6])).toEqual([36, 20, 14, 8]);
-    expect(concentricMobileExploreRadii(MOBILE_EXPLORE_RADIUS.sheet, [MOBILE_SHEET_BODY_INSET, 6, 6])[2]).toBe(MOBILE_EXPLORE_RADIUS.row);
-    // Never negative, however deep.
-    for (const radius of concentricMobileExploreRadii(MOBILE_EXPLORE_RADIUS.card, [10, 10, 10, 10])) {
-      expect(radius).toBeGreaterThanOrEqual(0);
-    }
   });
 
   test("custom settings fields and metadata marks share their group's inset corner", () => {

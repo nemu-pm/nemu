@@ -4,7 +4,7 @@
  * gets its own. The list stays a virtualised FlatList, so the first cell of a
  * row draws that row's plank(s).
  */
-export type MobileShelfGridLayout = {
+type MobileShelfGridLayout = {
   columns: number;
   itemWidth: number;
   /** Leading margin of every column (the gap before it; fold gutter included). */
@@ -56,28 +56,6 @@ export function getMobileShelfPlankSegments(
 }
 
 /** Small stable per-title value in [-1, 1] (a cover's natural lean). */
-export function getMobileShelfCoverLean(id: string): number {
-  let hash = 0x811c9dc5;
-  for (let index = 0; index < id.length; index += 1) {
-    hash = Math.imul(hash ^ id.charCodeAt(index), 0x01000193);
-  }
-  return ((hash >>> 0) % 2001) / 1000 - 1;
-}
-
-/**
- * The side of a leaning book that faces the reader, and how much of it shows
- * (points): turned one way the fore-edge (page block) appears on the right,
- * turned the other way the spine's shaded side on the left. A book that
- * barely leans shows a hairline.
- */
-export function getMobileShelfCoverEdge(lean: number): { side: "left" | "right"; width: number } {
-  const turn = Math.min(1, Math.abs(lean));
-  return {
-    side: lean > 0 ? "left" : "right",
-    width: Math.round((0.5 + turn * MOBILE_SHELF.coverEdge) * 2) / 2,
-  };
-}
-
 /** Shelf geometry (points). */
 export const MOBILE_SHELF = {
   /** Air above the covers (room for the new-chapters tag). */

@@ -15,7 +15,7 @@ import {
  * Pure maths here; the Skia shader lives in `MobileCoverMeshBackground.tsx`.
  */
 
-export type MobileCoverMeshPoint = { x: number; y: number };
+type MobileCoverMeshPoint = { x: number; y: number };
 
 /**
  * Eight places around the page (x across, y down, 0…1). The four colours sit
@@ -36,55 +36,7 @@ export const MOBILE_COVER_MESH_LOOP: readonly MobileCoverMeshPoint[] = [
 /** A pool's reach: its weight falls to zero this far from its centre (page widths). */
 export const MOBILE_COVER_MESH_REACH = 0.92;
 
-/**
- * Where the four colours are at `phase` (continuous: 1.0 is one step of the
- * loop, 8.0 a full orbit). Between whole steps a pool glides in a straight
- * line, eased, from one place to the next.
- */
-export function getMobileCoverMeshPoints(phase: number): MobileCoverMeshPoint[] {
-  const loop = MOBILE_COVER_MESH_LOOP;
-  const whole = Math.floor(phase);
-  const fraction = phase - whole;
-  // Smoothstep, so each step starts and ends at rest.
-  const eased = fraction * fraction * (3 - 2 * fraction);
-  return [0, 2, 4, 6].map((slot) => {
-    const from = loop[(((slot + whole) % 8) + 8) % 8]!;
-    const to = loop[(((slot + whole + 1) % 8) + 8) % 8]!;
-    return { x: from.x + (to.x - from.x) * eased, y: from.y + (to.y - from.y) * eased };
-  });
-}
-
 /** Weights of the four pools at a point of the page (sum to 1), as the shader computes them. */
-export function getMobileCoverMeshWeights(
-  points: readonly MobileCoverMeshPoint[],
-  x: number,
-  y: number,
-): number[] {
-  const raw = points.map((point) => {
-    const distance = Math.hypot(x - point.x, y - point.y);
-    const reach = Math.max(0, MOBILE_COVER_MESH_REACH - distance);
-    return reach * reach * reach;
-  });
-  const sum = Math.max(1e-5, raw.reduce((total, value) => total + value, 0));
-  return raw.map((value) => value / sum);
-}
-
-export function blendMobileCoverMesh(
-  colors: readonly MobileCoverRgb[],
-  weights: readonly number[],
-): MobileCoverRgb {
-  let r = 0;
-  let g = 0;
-  let b = 0;
-  colors.forEach((color, index) => {
-    const weight = weights[index] ?? 0;
-    r += color.r * weight;
-    g += color.g * weight;
-    b += color.b * weight;
-  });
-  return { r: Math.round(r), g: Math.round(g), b: Math.round(b) };
-}
-
 function parseRgb(value: string): MobileCoverRgb {
   const match = /rgba?\((\d+), (\d+), (\d+)/.exec(value);
   return match
@@ -155,7 +107,7 @@ function hueDistance(a: number, b: number): number {
 }
 
 /** Text on the page reads at least this well over every blend of the pools. */
-export const MOBILE_COVER_MESH_INK_CONTRAST = 4.5;
+const MOBILE_COVER_MESH_INK_CONTRAST = 4.5;
 
 /**
  * The four page colours for the mesh: each region's colour run through the

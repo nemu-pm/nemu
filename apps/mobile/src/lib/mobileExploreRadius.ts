@@ -42,12 +42,6 @@ export function concentricMobileExploreRadius(outer: number, inset: number): num
 }
 
 /** The radii of a stack of nested shapes: `insets[i]` is the padding between level `i` and level `i + 1`. */
-export function concentricMobileExploreRadii(outer: number, insets: readonly number[]): number[] {
-  const radii = [outer];
-  for (const inset of insets) radii.push(concentricMobileExploreRadius(radii[radii.length - 1]!, inset));
-  return radii;
-}
-
 /** The corner of a group drawn in a sheet's body (it lands on the scale's `group`). */
 export const MOBILE_SHEET_GROUP_RADIUS = concentricMobileExploreRadius(
   MOBILE_EXPLORE_RADIUS.sheet,
