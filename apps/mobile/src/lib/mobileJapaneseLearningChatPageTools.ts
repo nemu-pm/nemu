@@ -179,6 +179,9 @@ export function createMobileJapaneseLearningChatPageTools(
       deadline = setTimeout(() => scope.abort(new ToolTimeoutError()), ms);
     };
 
+    // The deadline can beat the page wait's own timeout on a busy thread;
+    // either way the page list never arrived.
+    let waitingForPages = true;
     try {
       startDeadline(pagesTimeoutMs + pollMs);
       const snapshot = await waitForPages(
@@ -187,6 +190,7 @@ export function createMobileJapaneseLearningChatPageTools(
         pagesTimeoutMs,
         pollMs,
       );
+      waitingForPages = false;
       if (!snapshot || snapshot.status !== "ready" || snapshot.pages.length === 0) {
         return fail("Page not found in the current chapter.");
       }
@@ -240,6 +244,7 @@ export function createMobileJapaneseLearningChatPageTools(
         return fail("Page not available in the current chapter.");
       }
       if (reason instanceof ToolTimeoutError) {
+        if (waitingForPages) return fail("Page not found in the current chapter.");
         return fail("OCR processing failed or timed out.");
       }
       // The summary leads; a sanitized reason helps the model explain.
