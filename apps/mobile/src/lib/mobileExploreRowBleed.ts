@@ -9,33 +9,32 @@ export type MobileExploreRowBleed = MobilePageBleedStyles & {
   clips: boolean;
 };
 
-/** How far a row reaches into the vertical bar's column: room for a card's shadow to fade out, short of the bar's controls. */
-export const MOBILE_EXPLORE_BAR_SIDE_REACH = 12;
+/** Clean air between a row's clipped edge and the vertical bar's column (the clock, the "+" and the tabs). */
+export const MOBILE_EXPLORE_BAR_SIDE_GAP = 16;
 
 /**
  * Edge-bleed for the design-explore rows (continue-reading cards, collection
  * folders) from the page's bleed styles. Away from a vertical bar it is the
  * page's own bleed: the row runs to the screen edge and its first item rests
- * on the page gutter. On the bar's side the row's items rest exactly on the
- * page's content edge (so a card lines up with its section title and a folder
- * with the shelf column below it), the frame reaches a few points further for
- * their shadows, and the row clips there instead of running under the bar.
+ * on the page gutter. On the bar's side the bar keeps its own clean column:
+ * the row's frame ends `MOBILE_EXPLORE_BAR_SIDE_GAP` short of it and clips
+ * there, so a peeking card never crowds the controls in that column.
  */
 export function getMobileExploreRowBleed(
   bleed: MobilePageBleedStyles,
   verticalBarSide: "left" | "right" | null,
 ): MobileExploreRowBleed {
   if (!verticalBarSide) return { ...bleed, clips: false };
-  const reach = MOBILE_EXPLORE_BAR_SIDE_REACH;
+  const gap = MOBILE_EXPLORE_BAR_SIDE_GAP;
   const left = verticalBarSide === "left";
   return {
     frame: {
-      marginLeft: left ? -reach : bleed.frame.marginLeft,
-      marginRight: left ? bleed.frame.marginRight : -reach,
+      marginLeft: left ? gap : bleed.frame.marginLeft,
+      marginRight: left ? bleed.frame.marginRight : gap,
     },
     content: {
-      paddingLeft: left ? reach : bleed.content.paddingLeft,
-      paddingRight: left ? bleed.content.paddingRight : reach,
+      paddingLeft: left ? 0 : bleed.content.paddingLeft,
+      paddingRight: left ? bleed.content.paddingRight : 0,
     },
     clips: true,
   };

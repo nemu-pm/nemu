@@ -480,6 +480,38 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || contentWidth < PANE_F
       </ZoomTarget>
     );
   }
+  // In the info pane the genres sit under the title and author, not at the foot of the card.
+  const tagsNode =
+    badges.length || tagList.length ? (
+        <ScrollView
+          horizontal
+          // Not a status-bar target: iOS scrolls to the top only when exactly one scroll view on screen asks to.
+          scrollsToTop={false}
+          showsHorizontalScrollIndicator={false}
+          style={[pane ? null : bleed.frame, pushStyle("tags")]}
+          onLayout={onTagsLayout}
+          contentContainerStyle={[pane ? null : bleed.content, styles.tags, wide ? styles.tagsCentred : null]}
+        >
+          {badges.map((badge) => (
+            <ExploreGlassChip key={badge.key} label={badge.label} ink={palette.ink} selected={badge.tone === "primary"} />
+          ))}
+          {tagList.slice(0, shownTagCount(tagList.length)).map((tag, index) => (
+            <ExploreGlassChip key={`${index}:${tag}`} label={tag} ink={palette.ink} />
+          ))}
+          {tagList.length > shownTagCount(tagList.length) ? (
+            <ExploreGlassChip
+              label={`+${tagList.length - VISIBLE_TAGS}`}
+              ink={palette.ink}
+              accessibilityLabel={formatMobileString(strings.common.moreTags, {
+                count: tagList.length - VISIBLE_TAGS,
+              })}
+              accessibilityHint={strings.common.tagsSheetHint}
+              onPress={() => setTagSheetOpen(true)}
+            />
+          ) : null}
+        </ScrollView>
+    ) : null;
+
   return (
     <View
       ref={rootRef}
@@ -561,6 +593,8 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || contentWidth < PANE_F
           ) : null}
         </View>
       </View>
+
+      {pane && !deferBody ? tagsNode : null}
 
       {deferBody ? null : (
         <>
@@ -734,35 +768,7 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || contentWidth < PANE_F
         />
       ) : null}
 
-      {badges.length || tagList.length ? (
-        <ScrollView
-          horizontal
-          // Not a status-bar target: iOS scrolls to the top only when exactly one scroll view on screen asks to.
-          scrollsToTop={false}
-          showsHorizontalScrollIndicator={false}
-          style={[pane ? null : bleed.frame, pushStyle("tags")]}
-          onLayout={onTagsLayout}
-          contentContainerStyle={[pane ? null : bleed.content, styles.tags, wide ? styles.tagsCentred : null]}
-        >
-          {badges.map((badge) => (
-            <ExploreGlassChip key={badge.key} label={badge.label} ink={palette.ink} selected={badge.tone === "primary"} />
-          ))}
-          {tagList.slice(0, shownTagCount(tagList.length)).map((tag, index) => (
-            <ExploreGlassChip key={`${index}:${tag}`} label={tag} ink={palette.ink} />
-          ))}
-          {tagList.length > shownTagCount(tagList.length) ? (
-            <ExploreGlassChip
-              label={`+${tagList.length - VISIBLE_TAGS}`}
-              ink={palette.ink}
-              accessibilityLabel={formatMobileString(strings.common.moreTags, {
-                count: tagList.length - VISIBLE_TAGS,
-              })}
-              accessibilityHint={strings.common.tagsSheetHint}
-              onPress={() => setTagSheetOpen(true)}
-            />
-          ) : null}
-        </ScrollView>
-      ) : null}
+      {pane ? null : tagsNode}
 
       {tagList.length ? (
         <MobileMangaDetailTagSheet

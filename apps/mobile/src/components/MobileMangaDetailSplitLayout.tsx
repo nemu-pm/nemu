@@ -99,9 +99,22 @@ export function MobileMangaDetailSplitLayout<ItemT>({
   const exploreBottom = Platform.OS === "ios" && mobileDesignExploreFlag
     ? { paddingBottom: 24 + Math.max(0, height - resting.edge - insets.bottom) }
     : null;
+  // The two panes sit a normal distance under the bar: UIKit's inset already
+  // clears it, so the page's own top padding would only widen the gap (most
+  // on iPad, where the bar carries the tab strip).
+  const { verticalBarSide } = useMobileAdaptiveLayout();
+  // Bars on the side (the Duo's rail): the bar is not above the page, so the
+  // page starts at the top safe area instead of under an empty bar band.
+  const barOnSide = Platform.OS === "ios" && mobileDesignExploreFlag && verticalBarSide !== null;
+  const exploreTop =
+    Platform.OS === "ios" && mobileDesignExploreFlag
+      ? { paddingTop: barOnSide ? insets.top + 12 : 4 }
+      : null;
   // The detail screens use a transparent soft-edge navigation bar. Both
   // scroll views must start below it, while still scrolling underneath it.
-  const contentInsetAdjustmentBehavior = listProps.contentInsetAdjustmentBehavior
+  const contentInsetAdjustmentBehavior = barOnSide
+    ? "never"
+    : listProps.contentInsetAdjustmentBehavior
     ?? (Platform.OS === "ios" && listProps.nativeHeader ? "automatic" : "never");
   const gutters = useMobilePageGutters();
   const { containerRef, onContainerLayout, layout } = useMobileSplitPaneLayout(
@@ -169,7 +182,7 @@ export function MobileMangaDetailSplitLayout<ItemT>({
                 refreshDisabled={listProps.refreshDisabled}
                 refreshLabel={listProps.refreshLabel}
                 refreshing={listProps.refreshing}
-                contentContainerStyle={[padding.leading, exploreBottom]}
+                contentContainerStyle={[padding.leading, exploreTop, exploreBottom]}
                 ListHeaderComponent={
                   <MobileMangaDetailPaneContext.Provider value={leadingPane}>
                     <View style={styles.leadingStack}>{leading}</View>
@@ -191,7 +204,7 @@ export function MobileMangaDetailSplitLayout<ItemT>({
             <PageListScaffold
               {...listProps}
               contentInsetAdjustmentBehavior={contentInsetAdjustmentBehavior}
-              contentContainerStyle={[split ? padding.trailing : null, exploreBottom]}
+              contentContainerStyle={[split ? padding.trailing : null, split || barOnSide ? exploreTop : null, exploreBottom]}
               ListHeaderComponent={
                 <View style={styles.stack}>
                   {split ? null : <Fragment key="leading">{leading}</Fragment>}

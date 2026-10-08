@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { getMobileExploreRowBleed, MOBILE_EXPLORE_BAR_SIDE_REACH } from "./mobileExploreRowBleed";
+import { getMobileExploreRowBleed, MOBILE_EXPLORE_BAR_SIDE_GAP } from "./mobileExploreRowBleed";
 import { getMobilePageBleedStyles, getMobilePageGutters } from "./mobilePageGutters";
 
 describe("getMobileExploreRowBleed", () => {
@@ -21,15 +21,16 @@ describe("getMobileExploreRowBleed", () => {
     // The away side still bleeds to the screen edge.
     expect(row.frame.marginLeft).toBe(-20);
     expect(row.content.paddingLeft).toBe(20);
-    // The bar side: frame reach and padding cancel, so the last item ends on the page edge.
-    expect(row.frame.marginRight + row.content.paddingRight).toBe(0);
-    expect(row.frame.marginRight).toBe(-MOBILE_EXPLORE_BAR_SIDE_REACH);
+    // The bar side: the frame ends a clean gap short of the bar's column.
+    expect(row.frame.marginRight).toBe(MOBILE_EXPLORE_BAR_SIDE_GAP);
+    expect(row.content.paddingRight).toBe(0);
   });
 
-  test("bar on the left: mirrored, the first item starts on the page edge", () => {
+  test("bar on the left: mirrored", () => {
     const gutters = getMobilePageGutters({ left: 84, right: 0 }, 20);
     const row = getMobileExploreRowBleed(getMobilePageBleedStyles(gutters, 0, "left"), "left");
-    expect(row.frame.marginLeft + row.content.paddingLeft).toBe(0);
+    expect(row.frame.marginLeft).toBe(MOBILE_EXPLORE_BAR_SIDE_GAP);
+    expect(row.content.paddingLeft).toBe(0);
     expect(row.frame.marginRight).toBe(-20);
     expect(row.content.paddingRight).toBe(20);
     expect(row.clips).toBe(true);
