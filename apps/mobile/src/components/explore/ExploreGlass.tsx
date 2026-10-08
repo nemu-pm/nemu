@@ -314,65 +314,6 @@ export function ExploreGlassChip({
   );
 }
 
-/**
- * Two-way glass switch (e.g. Shelf | Grid): one glass capsule whose selected
- * side is a neutral raised pill, like the system segmented control, so it
- * sits quietly on a cover-coloured page.
- */
-export function ExploreGlassSegmented<T extends string>({
-  options,
-  value,
-  onChange,
-  accessibilityLabel,
-}: {
-  options: Array<{ value: T; label: string }>;
-  value: T;
-  onChange: (value: T) => void;
-  accessibilityLabel: string;
-}) {
-  const { tokens } = useNemuTheme();
-  // The selected option is the theme's primary fill, as the app's other
-  // segmented controls draw it.
-  return (
-    <ExploreGlass style={styles.segmented}>
-      {/* Not a labelled group: iOS would make it one element and hide the
-          options from VoiceOver. Each option names the switch instead. */}
-      <View style={styles.segmentedRow}>
-        {options.map((option) => {
-          const selected = option.value === value;
-          return (
-            <NemuPressable
-              key={option.value}
-              accessibilityRole="radio"
-              accessibilityLabel={option.label}
-              accessibilityHint={accessibilityLabel}
-              accessibilityState={{ selected }}
-              hapticFeedback="selection"
-              pressedScale={0.96}
-              onPress={() => {
-                if (!selected) onChange(option.value);
-              }}
-              style={[
-                styles.segment,
-                selected ? { backgroundColor: tokens.primary } : null,
-              ]}
-            >
-              <NemuText
-                numberOfLines={1}
-                maxFontSizeMultiplier={1.3}
-                color={selected ? tokens.primaryForeground : tokens.mutedForeground}
-                style={styles.segmentText}
-              >
-                {option.label}
-              </NemuText>
-            </NemuPressable>
-          );
-        })}
-      </View>
-    </ExploreGlass>
-  );
-}
-
 const styles = StyleSheet.create({
   capsule: {
     minHeight: 46,
@@ -432,26 +373,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 17,
     fontWeight: nemuFontWeight.medium,
-  },
-  segmented: {
-    padding: 3,
-  },
-  segmentedRow: {
-    flexDirection: "row",
-  },
-  segment: {
-    minHeight: 30,
-    minWidth: 58,
-    paddingHorizontal: 12,
-    borderRadius: radius.pill,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  // One weight for both states, so the segments never change width.
-  segmentText: {
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: nemuFontWeight.semibold,
   },
   // Dims the content only: UIKit drops glass under a translucent ancestor.
   disabled: {

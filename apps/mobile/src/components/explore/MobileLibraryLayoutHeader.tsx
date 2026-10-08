@@ -1,10 +1,10 @@
 import { StyleSheet, View } from "react-native";
 import { nemuFontWeight, NemuText, useNemuTheme } from "@/design-system";
 import type { MobileStrings } from "@/lib/mobileI18n";
-import { ExploreGlassSegmented } from "./ExploreGlass";
+import SegmentedControl from "@expo/ui/community/segmented-control";
 import { MOBILE_EXPLORE_SECTION_TITLE_MAX_SCALE } from "@/lib/mobileCollectionFolderGeometry";
 
-/** Section header above the library titles with a glass Shelf | Grid switch. */
+/** Section header above the library titles with the system Shelf | Grid segmented control. */
 export function MobileLibraryLayoutHeader({
   title,
   shelf,
@@ -16,7 +16,7 @@ export function MobileLibraryLayoutHeader({
   onShelfChange: (shelf: boolean) => void;
   strings: MobileStrings;
 }) {
-  const { tokens } = useNemuTheme();
+  const { scheme, tokens } = useNemuTheme();
   return (
     <View style={styles.row}>
       <NemuText
@@ -28,14 +28,15 @@ export function MobileLibraryLayoutHeader({
       >
         {title}
       </NemuText>
-      <ExploreGlassSegmented
-        accessibilityLabel={strings.designExplore.layoutPickerLabel}
-        value={shelf ? "shelf" : "grid"}
-        onChange={(value) => onShelfChange(value === "shelf")}
-        options={[
-          { value: "shelf", label: strings.designExplore.layoutShelf },
-          { value: "grid", label: strings.designExplore.layoutGrid },
-        ]}
+      {/* The system segmented control (Liquid Glass on iOS 26); it labels itself for VoiceOver. */}
+      <SegmentedControl
+        appearance={scheme}
+        selectedIndex={shelf ? 0 : 1}
+        style={styles.segmented}
+        testID={strings.designExplore.layoutPickerLabel}
+        tintColor={tokens.primary}
+        values={[strings.designExplore.layoutShelf, strings.designExplore.layoutGrid]}
+        onChange={({ nativeEvent }) => onShelfChange(nativeEvent.selectedSegmentIndex === 0)}
       />
     </View>
   );
@@ -46,6 +47,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
+  },
+  segmented: {
+    width: 170,
+    minHeight: 34,
   },
   title: {
     flex: 1,
