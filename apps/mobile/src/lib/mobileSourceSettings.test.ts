@@ -1,14 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
   applyMobileSourceSettingsPatch,
-  applyMobileSourceSettingChange,
   canRetryMobileSourceSettingsLoadError,
   canRunMobileSourceTextSettingBlurFeedback,
   canStartMobileSourceSettingsAction,
   countRenderableSourceSettings,
   countVisibleSourceSettings,
   describeSourceSettingValue,
-  extractSourceSettingDefaults,
   flattenSourceSettings,
   flattenVisibleEditableSourceSettings,
   formatSourceSettingSliderValue,
@@ -26,7 +24,6 @@ import {
   mergeSourceSettingValues,
   normalizeMobileSourceSettingsKeys,
   sourceSettingRequestsDataRefresh,
-  sourceSettingsRequestDataRefresh,
   sourceSettingControlShowsValue,
 } from "./mobileSourceSettings";
 import { getMobileStrings } from "./mobileI18n";
@@ -409,16 +406,6 @@ describe("mobile source settings helpers", () => {
   });
 
   test("extracts and merges defaults with user values", () => {
-    expect(extractSourceSettingDefaults(settings)).toEqual({
-      enabled: true,
-      quality: "high",
-      blocked: ["spoiler"],
-      aliases: ["Main Alias"],
-      layout: 1,
-      compact: false,
-      webgpu: true,
-    });
-
     expect(mergeSourceSettingValues(settings, { quality: "low" })).toEqual({
       enabled: true,
       quality: "low",
@@ -427,30 +414,6 @@ describe("mobile source settings helpers", () => {
       layout: 1,
       compact: false,
       webgpu: true,
-    });
-  });
-
-  test("persists only user values while displaying schema defaults", () => {
-    const result = applyMobileSourceSettingChange(
-      settings,
-      { legacy: "kept" },
-      "quality",
-      "low",
-    );
-
-    expect(result.userValues).toEqual({
-      legacy: "kept",
-      quality: "low",
-    });
-    expect(result.values).toEqual({
-      enabled: true,
-      quality: "low",
-      blocked: ["spoiler"],
-      aliases: ["Main Alias"],
-      layout: 1,
-      compact: false,
-      webgpu: true,
-      legacy: "kept",
     });
   });
 
@@ -732,28 +695,6 @@ describe("mobile source settings helpers", () => {
     };
 
     expect(sourceSettingRequestsDataRefresh(refreshSetting)).toBe(true);
-    expect(sourceSettingsRequestDataRefresh(settings)).toBe(false);
-    expect(
-      sourceSettingsRequestDataRefresh([
-        {
-          key: "advanced-refresh",
-          title: "Advanced",
-          type: "page",
-          items: [refreshSetting],
-        },
-      ]),
-    ).toBe(true);
-    expect(
-      sourceSettingsRequestDataRefresh([
-        {
-          key: "__selected_source_id__",
-          title: "Source",
-          type: "link",
-          url: "https://example.com",
-          refreshes: ["content"],
-        },
-      ]),
-    ).toBe(false);
   });
 
   test("design-explore: a control that shows its value is not repeated under the title", () => {

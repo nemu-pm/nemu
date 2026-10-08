@@ -150,14 +150,6 @@ export function sourceSettingRequestsDataRefresh(
   return refreshes !== null && safeOwnArrayLength(refreshes) > 0;
 }
 
-export function sourceSettingsRequestDataRefresh(
-  settings: SourcePackageSetting[],
-): boolean {
-  return flattenSourceSettings(settings)
-    .filter(isEditableSourceSetting)
-    .some(sourceSettingRequestsDataRefresh);
-}
-
 export function flattenSourceSettings(
   settings: SourcePackageSetting[],
 ): SourcePackageSetting[] {
@@ -337,14 +329,6 @@ function walkVisibleSourceSettings(
   }
 }
 
-export function extractSourceSettingDefaults(
-  settings: SourcePackageSetting[],
-): Record<string, unknown> {
-  return sanitizeSourceSettingValues(
-    extractCoreSettingDefaults(flattenSourceSettings(settings)),
-  );
-}
-
 export function mergeSourceSettingValues(
   settings: SourcePackageSetting[],
   values: Record<string, unknown> | null | undefined,
@@ -355,18 +339,6 @@ export function mergeSourceSettingValues(
       sanitizeSourceSettingValues(values),
     ),
   );
-}
-
-export function applyMobileSourceSettingChange(
-  settings: SourcePackageSetting[],
-  userValues: Record<string, unknown> | null | undefined,
-  key: string,
-  value: unknown,
-): {
-  values: Record<string, unknown>;
-  userValues: Record<string, unknown>;
-} {
-  return applyMobileSourceSettingsPatch(settings, userValues, { [key]: value });
 }
 
 export function applyMobileSourceSettingsPatch(

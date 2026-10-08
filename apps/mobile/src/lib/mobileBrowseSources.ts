@@ -81,10 +81,6 @@ export function filterMobileAvailableSources<T extends MobileBrowseSource>(
   return sortSourcesByLanguagePriority(filtered, options.appLanguage);
 }
 
-export function canClearMobileBrowseSourceQuery(query: string): boolean {
-  return query.length > 0;
-}
-
 export function canSelectMobileBrowseAllLanguages({
   selected,
 }: {
