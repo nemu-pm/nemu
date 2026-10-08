@@ -208,4 +208,3 @@ export function isMobileCoverMeshFlat(colors: readonly MobileCoverRgb[]): boolea
 export function mobileCoverMeshUniformColor({ r, g, b }: MobileCoverRgb): [number, number, number, number] {
   return [r / 255, g / 255, b / 255, 1];
 }
-
