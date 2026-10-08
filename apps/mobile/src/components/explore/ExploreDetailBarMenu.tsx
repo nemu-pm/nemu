@@ -3,16 +3,8 @@ import { hapticPress } from "@/lib/haptics";
 import { isMobileHeaderActionDisabled } from "@/lib/mobileHeaderActions";
 import type { NemuNativeHeaderAction } from "@/design-system";
 
-/**
- * How the detail page's bar carries its title actions (design-explore,
- * `EXPO_PUBLIC_NEMU_DETAIL_BAR`):
- * - `menu` (default): one platform menu button holds Edit, Manage Sources and
- *   Remove (destructive, last), so the bar's title — a small cover and the
- *   name — can sit centred on the window, as on the system's own media pages.
- * - `buttons`: the three bar buttons side by side and a leading-aligned title.
- */
-export const mobileExploreDetailBarMode: "menu" | "buttons" =
-  process.env.EXPO_PUBLIC_NEMU_DETAIL_BAR === "buttons" ? "buttons" : "menu";
+/** The detail page's bar title actions as one menu button. */
+export const mobileExploreDetailBarMode = "menu" as const;
 
 /**
  * The detail page's actions as one platform menu (a `UIMenu` on a bar button).

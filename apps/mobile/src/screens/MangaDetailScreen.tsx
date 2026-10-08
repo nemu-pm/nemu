@@ -138,10 +138,7 @@ import {
   getMobileChapterListCommonGroup,
   getMobileChapterVolumeHeaders,
 } from "@/lib/mobileExploreChapterList";
-import {
-  mobileExploreDetailBarMode,
-  renderExploreDetailBarMenu,
-} from "@/components/explore/ExploreDetailBarMenu";
+import { renderExploreDetailBarMenu } from "@/components/explore/ExploreDetailBarMenu";
 import { hasMobileUserCover, mobileExploreCoverOwnerUrl, withMobileExploreZoom } from "@/components/explore/mobileExploreCover";
 import { useMobileExploreZoomLanded } from "@/components/explore/mobileExploreZoomLanded";
 import { peekMobileExploreDetailHandoff } from "@/lib/mobileExploreDetailHandoff";
@@ -2434,8 +2431,8 @@ export function MangaDetailScreen() {
       ]
     : [];
   // Design-explore: the three actions collapse into one menu so the bar's
-  // title can sit centred (EXPO_PUBLIC_NEMU_DETAIL_BAR=buttons keeps three).
-  const barMenu = booksHero && mobileExploreDetailBarMode === "menu";
+  // title can sit centred.
+  const barMenu = booksHero;
   const barTrailingItems = barMenu ? Math.min(1, nativeHeaderActions.length) : nativeHeaderActions.length;
   const renderExploreBarTitle = useCallback(
     () => (

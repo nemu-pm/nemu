@@ -95,13 +95,8 @@ const CONTROL_HIT_SLOP = 4;
 const TALL_PADDING = 16;
 /** Tall card's Continue: a full-width white pill, as tall as a touch target. */
 const TALL_CONTROL_SIZE = 44;
-/**
- * Card layout of this build: the tall, cover-led card (default) or the wide
- * card with the cover beside the text (`EXPO_PUBLIC_NEMU_CONTINUE_CARD=wide`).
- * Windows too short for a tall card get the wide one either way.
- */
-const PREFERRED_CARD: MobileContinueCardVariant =
-  process.env.EXPO_PUBLIC_NEMU_CONTINUE_CARD === "wide" ? "wide" : "tall";
+/** Card layout: the tall, cover-led card. */
+const PREFERRED_CARD: MobileContinueCardVariant = "tall";
 /** How dark a neighbouring card turns, per scheme: the active card leads. */
 const NEIGHBOUR_DIM = { light: 0.12, dark: 0.3 } as const;
 /** Cover-flow turn of a card one page away (degrees) and its scale. */
