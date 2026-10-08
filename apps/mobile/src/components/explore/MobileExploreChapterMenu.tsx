@@ -6,6 +6,8 @@ import type { AppLanguage } from "@/data/schema";
 import { nemuColorWithAlpha, nemuFontWeight, NemuText, radius, useNemuTheme } from "@/design-system";
 import type { MobileChapterListPreference } from "@/lib/mobileChapterFilters";
 import type { MobileStrings } from "@/lib/mobileI18n";
+import { ExploreGlass } from "./ExploreGlass";
+import { glassViewAvailable } from "../../../modules/nemu-window-layout";
 import { formatMobileLanguageDisplayName } from "@/lib/mobileLanguageSettings";
 import { hapticSelection } from "@/lib/haptics";
 
@@ -64,6 +66,16 @@ export function MobileExploreChapterMenu({
     ...sourceActions,
     ...(jump ? [{ id: "jump", title: jump.label ? `${strings.designExplore.chapterUpNext} · ${jump.label}` : strings.designExplore.chapterUpNext, image: "arrow.down.to.line" as const }] : []),
   ];
+  const content = (
+    <>
+      <NemuText numberOfLines={1} maxFontSizeMultiplier={1.4} color={tokens.foreground} style={styles.label}>
+        {label}
+      </NemuText>
+      <Svg width={10} height={10} viewBox="0 0 10 10">
+        <Path d="M2 3.6 5 6.6l3-3" stroke={tokens.mutedForeground} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      </Svg>
+    </>
+  );
   return (
     <MenuView
       actions={actions}
@@ -84,21 +96,30 @@ export function MobileExploreChapterMenu({
       }}
       style={styles.menu}
     >
-      <View accessibilityLabel={label} accessibilityRole="button" style={[styles.pill, { backgroundColor: nemuColorWithAlpha(tokens.foreground, 0.07) }]}>
-        <NemuText numberOfLines={1} maxFontSizeMultiplier={1.4} color={tokens.foreground} style={styles.label}>
-          {label}
-        </NemuText>
-        <Svg width={10} height={10} viewBox="0 0 10 10">
-          <Path d="M2 3.6 5 6.6l3-3" stroke={tokens.mutedForeground} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" fill="none" />
-        </Svg>
-      </View>
+      {glassViewAvailable ? (
+        // Liquid Glass, like the bar's circles; it reacts to a press.
+        <ExploreGlass interactive style={styles.glass}>
+          <View accessibilityLabel={label} accessibilityRole="button" style={styles.pill}>
+            {content}
+          </View>
+        </ExploreGlass>
+      ) : (
+        <View
+          accessibilityLabel={label}
+          accessibilityRole="button"
+          style={[styles.pill, { backgroundColor: nemuColorWithAlpha(tokens.foreground, 0.07) }]}
+        >
+          {content}
+        </View>
+      )}
     </MenuView>
   );
 }
 
 const styles = StyleSheet.create({
+  glass: { flexShrink: 1 },
   menu: { flexShrink: 1, maxWidth: "100%" },
-  // A quiet pill: no glass, no fill-vs-page contrast fight with the two button styles.
+  // The flat fallback (before iOS 26, Android): a quiet pill, no fill-vs-page fight with the buttons.
   pill: {
     minHeight: 32,
     flexDirection: "row",
