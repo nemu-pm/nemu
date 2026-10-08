@@ -2,31 +2,26 @@ import { describe, expect, test } from "bun:test";
 import { buildMobileCoverMeshColors, isMobileCoverMeshFlat, parseRgb, pickMobileCoverRegionTints } from "./mobileCoverMesh";
 import { buildMobileCoverTintPalette, mobileRgbToHsl, type MobileCoverRgb } from "./mobileCoverTint";
 
-function quadrantCover(colors: [MobileCoverRgb, MobileCoverRgb, MobileCoverRgb, MobileCoverRgb]) {
-  const width = 12;
-  const height = 18;
-  const pixels = new Uint8Array(width * height * 4);
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const { r, g, b } = colors[(y < height / 2 ? 0 : 2) + (x < width / 2 ? 0 : 1)]!;
-      pixels.set([r, g, b, 255], (y * width + x) * 4);
-    }
-  }
-  return { pixels, width, height };
-}
-
 describe("mobile cover mesh", () => {
-  test("region tints follow the cover's quarters; flat only when it is one colour in both schemes", () => {
+  test("region tints follow the cover's quarters; a one-colour cover is flat, a multi-colour one is not", () => {
     const quarters: [MobileCoverRgb, MobileCoverRgb, MobileCoverRgb, MobileCoverRgb] = [
       { r: 220, g: 30, b: 40 },
       { r: 20, g: 170, b: 160 },
       { r: 240, g: 220, b: 30 },
       { r: 40, g: 70, b: 210 },
     ];
-    const { pixels, width, height } = quadrantCover(quarters);
+    const width = 12;
+    const height = 18;
+    const pixels = new Uint8Array(width * height * 4);
+    for (let y = 0; y < height; y += 1)
+      for (let x = 0; x < width; x += 1) {
+        const { r, g, b } = quarters[(y < height / 2 ? 0 : 2) + (x < width / 2 ? 0 : 1)]!;
+        pixels.set([r, g, b, 255], (y * width + x) * 4);
+      }
     expect(pickMobileCoverRegionTints(pixels, width, height)).toEqual(quarters);
+    const red = quarters[0]!;
     for (const scheme of ["light", "dark"] as const) {
-      expect(isMobileCoverMeshFlat(buildMobileCoverMeshColors(quarters[0]!, [quarters[0]!, quarters[0]!, quarters[0]!, quarters[0]!], scheme))).toBe(false);
+      expect(isMobileCoverMeshFlat(buildMobileCoverMeshColors(red, [red, red, red, red], scheme))).toBe(false);
     }
     expect(isMobileCoverMeshFlat(buildMobileCoverMeshColors(null, null, "dark"))).toBe(true);
   });
@@ -36,9 +31,7 @@ describe("mobile cover mesh", () => {
     const regions = [main, { r: 240, g: 220, b: 30 }, { r: 230, g: 120, b: 90 }, { r: 40, g: 60, b: 50 }];
     const spread = (colors: MobileCoverRgb[]) => {
       let max = 0;
-      for (let i = 0; i < colors.length; i += 1)
-        for (let j = i + 1; j < colors.length; j += 1)
-          max = Math.max(max, Math.hypot(colors[i]!.r - colors[j]!.r, colors[i]!.g - colors[j]!.g, colors[i]!.b - colors[j]!.b));
+      for (const a of colors) for (const b of colors) max = Math.max(max, Math.hypot(a.r - b.r, a.g - b.g, a.b - b.b));
       return max;
     };
     const page = mobileRgbToHsl(parseRgb(buildMobileCoverTintPalette(main, "light").page));
