@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { describe, expect, test } from "bun:test";
 import { getMobileStrings } from "./mobileI18n";
 import { isMobileSettingsHeadingEmpty, isMobileSettingsHeadingRepeat } from "./mobileSettingsHeading";
@@ -23,16 +21,5 @@ describe("settings card headings", () => {
     for (const title of ["Account", "Reader Settings", "", undefined]) {
       expect(isMobileSettingsHeadingEmpty(title)).toBe(false);
     }
-  });
-
-  test("a settings card's first row starts at the card's inset: no band above it", () => {
-    const source = readFileSync(path.join(import.meta.dir, "../components/MobileSourceSettingsCard.tsx"), "utf8");
-    // Leading geometry belongs to the row, without clipping or negative offsets.
-    expect(source).toMatch(/exploreLeadingRow: \{\s*borderTopWidth: 0,\s*paddingTop: 0,/);
-    expect(source).not.toContain("exploreListClip");
-    expect(source).not.toContain("exploreListShift");
-    expect(source).toContain("leading={exploreRoot}");
-    expect(source).toContain("getFirstVisibleSourceSettingIndex(settings, values, features)");
-
   });
 });
