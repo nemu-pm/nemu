@@ -68,14 +68,7 @@ function ToolbarActionButton({
 }
 
 /**
- * A system sheet with a grouped `Form` in a navigation bar — the shape of
- * Apple's own pickers and editors (Photos "Add to Album", Reminders' list
- * info, Settings detail sheets): the title (and a secondary line) centred in
- * the bar, Cancel at the leading edge (a lone close X at the trailing edge,
- * as in every other sheet), the confirming action at the
- * trailing edge, rows as native inset-grouped cells, the system grabber and
- * detents. Positioning off the Duo fold and Dynamic Type come from the
- * system. iOS only: other platforms keep their React Native sheets.
+ * A system sheet with a grouped Form in a navigation bar, as Apple's own pickers do. iOS only.
  */
 export function MobileNativeFormSheet({
   visible,

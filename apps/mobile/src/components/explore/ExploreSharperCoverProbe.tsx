@@ -23,13 +23,8 @@ import { hasMobileUserCover, useMobileExploreEntryCover } from "./mobileExploreC
 type Measured = { width: number | null; pixels: Uint8Array | null };
 
 /**
- * Draws nothing. Measures a title's own cover and, when it is a thumbnail
- * that would be shown small, the larger sizes its source serves for the same
- * URL and the covers its other linked sources reported (`known`, plus
- * whatever their cached details hold). A clearly sharper copy of the same
- * artwork is remembered for every surface (`mobileCoverPreference`); another
- * artwork never is. Once per title per session; local only (known URLs,
- * cached details, the shared image cache).
+ * Draws nothing. Measures a title's own cover and remembers a clearly sharper copy of the
+ * same artwork (`mobileCoverPreference`); local only.
  */
 export const ExploreSharperCoverProbe = memo(function ExploreSharperCoverProbe({
   entry,

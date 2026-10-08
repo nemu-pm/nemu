@@ -1,14 +1,8 @@
 import { mobileDustRandom } from "./mobileExploreDust";
 
 /**
- * The burst when a title joins the library (design-explore): paper confetti
- * in the cover's colours thrown up from the In Library pill. Each piece is a
- * flat bit of paper: it turns over in depth (its height follows the cosine of
- * the flip, and its back face is a shade darker), spins in the plane, and air
- * drag slows it to a gentle terminal fall while it sways from side to side,
- * the way paper does once it has lost its launch speed. Pieces come in three
- * depths (smaller and dimmer far ones, larger near ones) so the cloud has
- * volume. Closed-form like the dust, so a frame can be drawn for any time.
+ * The burst when a title joins the library: paper confetti in the cover's colours, closed-form
+ * like the dust, with three depths and a gentle terminal fall.
  */
 
 export const MOBILE_CONFETTI = {

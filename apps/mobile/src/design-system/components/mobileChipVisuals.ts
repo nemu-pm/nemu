@@ -1,14 +1,7 @@
 import type { NemuButtonDepthVariant } from "@/design/nemuButtonDepth";
 
 /**
- * Pure geometry/semantics for `MobileChip`, kept out of the component so the
- * variant rules are testable without a renderer.
- *
- * - `toggle` — leading icon/glyph + label + optional badge, optionally with a
- *   trailing glyph (`close` for a removable filter chip).
- * - `menu` — an already-composed `label: value` string plus a chevron.
- * - `icon` — a bare glyph in a square well (the filter funnel).
- * - `static` — a read-only tag or status badge: same pill, nothing to press.
+ * Pure geometry and semantics for `MobileChip`: toggle, menu, icon and static variants.
  */
 export type MobileChipVariant = "toggle" | "menu" | "icon" | "static";
 

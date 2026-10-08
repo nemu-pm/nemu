@@ -18,14 +18,8 @@ type MobileExploreCoverSource = {
 };
 
 /**
- * The library cover as `MobileCachedImage` paints it everywhere else (same URL
- * resolution and source headers as the grid), so the prototypes share one
- * cached file with the grid and the detail hero. `null` (no title) has no cover.
- *
- * A sharper cover found on another linked source replaces the title's own
- * (`mobileCoverPreference`) unless the user set the cover by hand. `coverUrl`
- * asks for one specific cover of the title instead (requested through the
- * source that owns it), for comparing them.
+ * The library cover as `MobileCachedImage` paints it elsewhere, so the prototypes share one
+ * cached file. A sharper copy from another linked source may replace it (`mobileCoverPreference`).
  */
 export function useMobileExploreEntryCover(
   entry: LibraryEntry | null,

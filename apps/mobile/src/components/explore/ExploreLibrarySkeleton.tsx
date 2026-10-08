@@ -19,13 +19,8 @@ const NEIGHBOUR_SCALE = 0.92;
 const CARD_PADDING = 16;
 
 /**
- * The Library's cold-start placeholder in the design-explore layout: the
- * Continue Reading heading and its centred card with the next one peeking,
- * then a section heading and one row of covers standing on a plank, no title
- * lines under them (the shelf has none). The shipping skeleton was the
- * shipping grid (covers over three text bars), so the page changed shape the
- * moment the cards arrived. Blocks hold still; one shimmer sweep crosses
- * them (Reduce Motion: none, `ExploreShimmerSweep`).
+ * The Library's cold-start placeholder in the design-explore layout: a card row and a
+ * plank of covers, with no title lines under them.
  */
 export function ExploreLibrarySkeleton({ accessibilityLabel }: { accessibilityLabel: string }) {
   const { tokens } = useNemuTheme();

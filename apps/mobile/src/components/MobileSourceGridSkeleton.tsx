@@ -19,14 +19,8 @@ type MobileSourceGridSkeletonProps = {
 };
 
 /**
- * The source browse first-page placeholder: a grid of cover cards and text
- * blocks breathing on the shared skeleton pulse. Mirrors the browse grid's
- * geometry (the same fold-aware grid — measured content box, even columns on
- * regular widths, the middle gutter on the fold in book posture — 2/3 covers,
- * 60pt copy block) so the skeleton hands off to the real cards without a
- * layout jump and never straddles the fold.
- * Replaces the lone centered spinner on initial loads; subsequent pages keep
- * the footer's loading state.
+ * The source browse first-page placeholder: cover cards and text blocks on the shared pulse,
+ * laid out like the real grid so the hand-off has no layout jump.
  */
 export function MobileSourceGridSkeleton({
   accessibilityLabel,

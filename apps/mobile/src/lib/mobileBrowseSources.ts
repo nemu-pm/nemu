@@ -204,13 +204,8 @@ export type MobileSourceQuickActionId =
   | "uninstall";
 
 /**
- * Where a quick-action row is allowed to act. The quick-action sheet is a
- * native `@expo/ui` bottom sheet and only one of those can be presented at a
- * time, so every row whose destination is another sheet — or whose only
- * feedback surface is the toast host that sits *underneath* the sheet — has to
- * dismiss the quick actions first and run from the post-dismiss callback.
- * Opening a homepage leaves the app entirely, so it is the one row that may act
- * while the sheet is still on screen.
+ * Where a quick-action row may act: a row that opens another sheet or reports into the toast
+ * host under the sheet dismisses the quick actions first, then runs.
  */
 export type MobileSourceQuickActionHandoff =
   | "dismiss-then-open-settings"

@@ -1123,15 +1123,8 @@ function SourceFilterControl({
 }
 
 /**
- * One filter group presented as the same selection sub-sheet the source
- * settings card uses, so a picker looks identical wherever it is opened from.
- * Every tap applies immediately through the screen's existing debounce/abort
- * path — there is no confirm step, matching the retired inline chips.
- *
- * Single-choice groups (select/sort) lead with a synthetic "any" row so the
- * filter can still be cleared; sort groups additionally allow re-tapping the
- * current option to flip the direction. Genre groups keep the tri-state
- * semantics of the old chips: tap includes, long press excludes.
+ * One filter group as the same selection sub-sheet the source settings card uses. Every tap
+ * applies at once; single-choice groups lead with an "any" row.
  */
 function SourceFilterGroupSheet({
   filter,

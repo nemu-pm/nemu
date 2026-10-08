@@ -39,13 +39,7 @@ function useShimmerClock(): SharedValue<number> {
 }
 
 /**
- * The shimmer over a skeleton (design-explore): one soft band that crosses
- * the whole window, diagonally, every ~1.8 s, eased out, in the same place
- * for every skeleton on screen. Lay it over the skeleton's blocks as the last
- * child of their container, and give the container the page colour: the band
- * dodges what is drawn inside the container's group, which lifts the blocks
- * and barely touches a near-white or near-black page (on a transparent
- * backdrop it would paint grey). Nothing under Reduce Motion.
+ * The shimmer over a skeleton: one soft diagonal band every ~1.8 s; nothing under Reduce Motion.
  */
 export function ExploreShimmerSweep() {
   const { scheme, reduceMotion } = useNemuTheme();

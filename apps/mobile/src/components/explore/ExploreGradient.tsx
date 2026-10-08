@@ -1,13 +1,7 @@
 import { View, type StyleProp, type ViewProps, type ViewStyle } from "react-native";
 
 /**
- * A two-colour gradient drawn by Core Animation (React Native's
- * `backgroundImage`, a `CAGradientLayer` on iOS). The bitmap-backed gradient
- * view rasterises its whole area on the main thread, twice, every time it is
- * displayed, and it is displayed again whenever its traits change, which a
- * screen transition does to every view on the screen underneath. For a
- * page-sized wash that held the main thread for a quarter of a second at the
- * start of each cover zoom; this one has no bitmap to redraw.
+ * A two-colour gradient drawn by Core Animation: no bitmap to redraw on each transition.
  */
 export function ExploreGradient({
   colors,

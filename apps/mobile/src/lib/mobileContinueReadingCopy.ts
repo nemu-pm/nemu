@@ -41,13 +41,8 @@ function getMobileNewChapterCount(
 }
 
 /**
- * "What is new" for a title, the same on the card, the shelf and anywhere
- * else: nothing unless one of its sources has chapters the user has not
- * acknowledged (the library's own update state), and then how many came out
- * after both the acknowledged chapter and the one being read — not how far
- * the reader is behind ("130 new" on a title read to Ch.1 of 131 with
- * nothing released since was wrong). The source being read is preferred.
- * `count` is null when the numbers are not known: a bare "new".
+ * "What is new" for a title: the chapters released after both the acknowledged chapter and the
+ * one being read; null when unknown or nothing is new.
  */
 export function getMobileExploreNewChapters(
   sources: readonly Pick<LocalSourceLink, "id" | "latestChapter" | "updateAckChapter" | "removed">[],

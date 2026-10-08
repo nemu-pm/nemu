@@ -25,13 +25,8 @@ export function getMobileCollectionFolderWidth(contentWidth: number, gap: number
 }
 
 /**
- * How much of the Collections section may show above the tab bar while the
- * rest is under it. At least its heading and 40 % of the folders (the fanned
- * covers and the pocket's rim), so it reads as a row of folders, not a
- * sliver; at most all but the last `MOBILE_COLLECTION_FOLDER_CUT` of them.
- * A folder is known by its name: resting with the art nearly whole and the
- * names showing in the strip above the tab bar read as cut off. The cut
- * keeps the names behind the bar instead.
+ * How much of the Collections section may show above the tab bar: its heading and at least
+ * 40 % of the folders, and never the names under the tab bar.
  */
 const MOBILE_COLLECTION_FOLDER_CUT = 56;
 
