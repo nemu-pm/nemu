@@ -20,6 +20,7 @@ export type {
   WindowReservedRegion,
   WindowLayoutRect,
   WindowLayoutObserverProps,
+  WindowTransitionTiming,
 } from "./src/types";
 
 export { default as SheetProgressObserver } from "./src/SheetProgressObserver";

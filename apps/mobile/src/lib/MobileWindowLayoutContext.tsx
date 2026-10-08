@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import { StyleSheet, useWindowDimensions } from "react-native";
 import { WindowLayoutObserver } from "../../modules/nemu-window-layout";
+import { reportMobileSystemTransition } from "@/lib/mobileTransitionTiming";
 import { mobileAdaptiveLayout, type MobileAdaptiveLayout } from "@/lib/mobileAdaptiveLayout";
 import type { MobileWindowLayout } from "@/lib/mobileWindowLayout";
 
@@ -23,7 +24,11 @@ export function MobileWindowLayoutProvider({ children }: { children: ReactNode }
   }, []);
   return (
     <MobileWindowLayoutContext.Provider value={layout}>
-      <WindowLayoutObserver style={StyleSheet.absoluteFill} onLayoutChange={onLayoutChange} />
+      <WindowLayoutObserver
+        style={StyleSheet.absoluteFill}
+        onLayoutChange={onLayoutChange}
+        onWillTransition={reportMobileSystemTransition}
+      />
       {children}
     </MobileWindowLayoutContext.Provider>
   );

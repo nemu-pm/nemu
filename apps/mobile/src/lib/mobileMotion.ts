@@ -43,6 +43,8 @@ export const MOBILE_MOTION = {
   veilSolidTintOpacity: 0.86,
   /** Reduce Motion veil: a light background wash, never a flash. */
   veilReduceMotionTintOpacity: 0.5,
+  /** A system-timed rotation or fold: a light page-colour wash, no blur. */
+  veilSystemTintOpacity: 0.55,
   /** Opacity a re-laid-out element dips to before fading back (carousel re-snap). */
   resnapDipOpacity: 0.35,
 } as const;
@@ -203,11 +205,18 @@ export function mobilePoseVeilPlan({
   anticipated = false,
   reduceMotion,
   blurAvailable,
+  systemTransitionMs = null,
 }: {
   reason: MobilePoseVeilReason;
   anticipated?: boolean;
   reduceMotion: boolean;
   blurAvailable: boolean;
+  /**
+   * The system's own transition duration for this change (design-explore on
+   * iOS): the veil is then a plain page-colour cross-fade of that length, no
+   * frosted blur, so the new layout settles on the system's timing.
+   */
+  systemTransitionMs?: number | null;
 }): MobilePoseVeilPlan | null {
   if (reduceMotion) {
     return {
@@ -219,6 +228,15 @@ export function mobilePoseVeilPlan({
     };
   }
   if (reason === "layout") return null;
+  if (systemTransitionMs !== null && systemTransitionMs > 0) {
+    return {
+      blurIntensity: 0,
+      tintOpacity: MOBILE_MOTION.veilSystemTintOpacity,
+      fadeInMs: 0,
+      holdMs: MOBILE_MOTION.veilHoldMs,
+      fadeOutMs: Math.round(systemTransitionMs),
+    };
+  }
   return {
     blurIntensity: blurAvailable ? MOBILE_MOTION.veilBlurIntensity : 0,
     tintOpacity: blurAvailable ? MOBILE_MOTION.veilTintOpacity : MOBILE_MOTION.veilSolidTintOpacity,

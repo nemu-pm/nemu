@@ -54,7 +54,7 @@ public final class NemuWindowLayoutModule: Module {
     }.runOnQueue(.main)
     // The observer stays the first (default) view: `requireNativeViewManager("NemuWindowLayout")`.
     View(NemuWindowLayoutView.self) {
-      Events("onRegionsChange")
+      Events("onRegionsChange", "onWillTransition")
       Prop("enabled") { (view: NemuWindowLayoutView, enabled: Bool) in
         view.observationEnabled = enabled
       }
@@ -550,8 +550,56 @@ private let windowLayoutLog = Logger(subsystem: "pm.nemu.window-layout", categor
 ///
 /// UIKit documents no reserved-region change callback, so both region triggers
 /// coalesce into one query of the public `UIView.reservedRegions` API.
+/// A zero-size child of the window's root view controller. UIKit forwards
+/// `viewWillTransition(to:with:)` to every child, so this hears each rotation,
+/// fold and Split View resize with the system's own timing: the coordinator's
+/// duration and curve. Plain UIKit API, no OS or SDK gating.
+final class NemuTransitionProbeController: UIViewController {
+  var onWillTransition: ((CGSize, TimeInterval, String) -> Void)?
+
+  override func viewWillTransition(to size: CGSize, with coordinator: any UIViewControllerTransitionCoordinator) {
+    super.viewWillTransition(to: size, with: coordinator)
+    let curve: String
+    switch coordinator.completionCurve {
+    case .easeIn: curve = "easeIn"
+    case .easeOut: curve = "easeOut"
+    case .linear: curve = "linear"
+    default: curve = "easeInOut"
+    }
+    let duration = coordinator.isAnimated ? coordinator.transitionDuration : 0
+    onWillTransition?(size, duration, curve)
+  }
+}
+
 final class NemuWindowLayoutView: ExpoView {
   let onRegionsChange = EventDispatcher()
+  /// `{ width, height, durationMs, curve }` of a window size change about to animate.
+  let onWillTransition = EventDispatcher()
+  private var transitionProbe: NemuTransitionProbeController?
+
+  private func installTransitionProbe() {
+    guard let root = window?.rootViewController else { return }
+    if let probe = transitionProbe, probe.parent === root { return }
+    transitionProbe?.willMove(toParent: nil)
+    transitionProbe?.view.removeFromSuperview()
+    transitionProbe?.removeFromParent()
+    let probe = NemuTransitionProbeController()
+    probe.onWillTransition = { [weak self] size, duration, curve in
+      self?.onWillTransition([
+        "width": Double(size.width),
+        "height": Double(size.height),
+        "durationMs": duration * 1000,
+        "curve": curve,
+      ])
+    }
+    root.addChild(probe)
+    probe.view.frame = .zero
+    probe.view.isUserInteractionEnabled = false
+    probe.view.isHidden = true
+    root.view.addSubview(probe.view)
+    probe.didMove(toParent: root)
+    transitionProbe = probe
+  }
   var observationEnabled = true {
     didSet {
       guard observationEnabled != oldValue else { return }
@@ -592,6 +640,7 @@ final class NemuWindowLayoutView: ExpoView {
     super.didMoveToWindow()
     // A snapshot from another window/scene must never suppress this one.
     lastSnapshot = nil
+    installTransitionProbe()
     updateObservation()
   }
 

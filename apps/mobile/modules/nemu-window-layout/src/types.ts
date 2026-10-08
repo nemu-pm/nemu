@@ -48,10 +48,21 @@ export type MobileWindowLayout = {
    */
   fillsScreen?: boolean;
 };
+/** A window size change (rotation, fold, Split View) about to animate, with the system's own timing. */
+export type WindowTransitionTiming = {
+  width: number;
+  height: number;
+  /** The transition coordinator's duration, ms (0 when the system does not animate it). */
+  durationMs: number;
+  curve: "easeInOut" | "easeIn" | "easeOut" | "linear";
+};
+
 export type WindowLayoutObserverProps = {
   style?: ViewProps["style"];
   enabled?: boolean;
   onLayoutChange: (layout: MobileWindowLayout) => void;
+  /** iOS: fired at the start of every window size transition (not by the bounds-only fallback). */
+  onWillTransition?: (timing: WindowTransitionTiming) => void;
 };
 
 export type VerticalBarBehaviorProps = {

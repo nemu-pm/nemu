@@ -39,12 +39,15 @@ import { mobileSyncConfig } from "@/sync/mobileSyncConfig";
 import { MobileWindowLayoutProvider } from "@/lib/MobileWindowLayoutContext";
 import { MobilePoseTransitionProvider } from "@/lib/MobilePoseTransitionContext";
 import { useMobileBackgroundSync } from "@/sync/useMobileBackgroundSync";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
+import { installMobileSystemTransition } from "@/lib/mobileTransitionTiming";
 import { shouldHideMobileSplashScreen } from "@/lib/mobileSplashScreen";
 import {
   MOBILE_PERFORMANCE_MARKS,
   markMobilePerformance,
 } from "@/lib/mobilePerformance";
 
+installMobileSystemTransition(mobileDesignExploreFlag);
 void SplashScreen.preventAutoHideAsync().catch(() => undefined);
 markMobilePerformance(MOBILE_PERFORMANCE_MARKS.bootRootModule);
 markMobilePerformance(MOBILE_PERFORMANCE_MARKS.bootFontsReady, {

@@ -30,6 +30,8 @@ import {
   openMobilePoseMotionWindow,
   setMobilePoseReduceMotion,
 } from "@/lib/mobilePoseLayoutAnimations";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
+import { getMobileSystemTransitionMs } from "@/lib/mobileTransitionTiming";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { mobilePoseVeilPlanWithCaps } from "@/lib/mobileReaderStageMotion";
 
@@ -158,6 +160,7 @@ export function MobilePoseTransitionProvider({ children }: { children: ReactNode
           anticipated: change.anticipated,
           reduceMotion,
           blurAvailable: BLUR_AVAILABLE,
+          systemTransitionMs: mobileDesignExploreFlag ? getMobileSystemTransitionMs() : null,
         }),
       );
     }
