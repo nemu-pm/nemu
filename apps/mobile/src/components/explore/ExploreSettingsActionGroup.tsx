@@ -3,7 +3,7 @@ import { Fragment } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { nemuFontWeight, NemuPressable, NemuText, useNemuTheme } from "@/design-system";
 
-export type ExploreSettingsAction = {
+type ExploreSettingsAction = {
   key: string;
   label: string;
   accessibilityLabel?: string;

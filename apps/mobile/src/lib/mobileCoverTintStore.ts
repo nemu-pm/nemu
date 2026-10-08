@@ -8,8 +8,8 @@ import type { MobileCoverRgb } from "./mobileCoverTint";
  * Keys are cover URLs (never request headers, which can carry tokens) or a
  * caller alias such as `item:<libraryItemId>`.
  */
-export const MOBILE_COVER_TINT_STORE_VERSION = 1;
-export const MOBILE_COVER_TINT_STORE_LIMIT = 300;
+const MOBILE_COVER_TINT_STORE_VERSION = 1;
+const MOBILE_COVER_TINT_STORE_LIMIT = 300;
 /** Longer keys (data URIs) are not worth a slot. */
 const MAX_KEY_LENGTH = 2048;
 

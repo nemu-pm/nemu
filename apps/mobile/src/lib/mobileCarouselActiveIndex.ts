@@ -36,7 +36,7 @@ export function getMobileCarouselActiveIndex(
   return Math.max(0, Math.min(last, Math.round(position)));
 }
 
-export type MobileCarouselSwitchState = {
+type MobileCarouselSwitchState = {
   /** The active card. */
   index: number;
   /** The scroll comes from the user's finger (a drag or the fling after it). */

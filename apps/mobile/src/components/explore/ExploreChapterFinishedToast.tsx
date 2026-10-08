@@ -20,7 +20,7 @@ import { useMobileChapterFinishedMoment } from "./mobileChapterFinishedMoment";
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 
 /** Timing of the moment: in, held, out (ms). It never waits on the reader. */
-export const CHAPTER_FINISHED_TIMING = { in: 220, check: 320, hold: 1500, out: 320 } as const;
+const CHAPTER_FINISHED_TIMING = { in: 220, check: 320, hold: 1500, out: 320 } as const;
 /** Length of the check stroke below (`M5.2 9.4 7.9 12 12.8 6.4`), rounded up. */
 const CHECK_LENGTH = 12;
 const GLYPH = 18;

@@ -5,14 +5,14 @@ import { useSyncExternalStore } from "react";
  * (design-explore). The reader replaces its route for the next chapter, so
  * the moment that marks it lives here rather than in the screen's state.
  */
-export type MobileChapterFinishedMoment = { id: number; label: string; at: number };
+type MobileChapterFinishedMoment = { id: number; label: string; at: number };
 
 let moment: MobileChapterFinishedMoment | null = null;
 let nextId = 1;
 const listeners = new Set<() => void>();
 
 /** A moment is gone after this (a reader opened later must not show it). */
-export const MOBILE_CHAPTER_FINISHED_FRESH_MS = 4000;
+const MOBILE_CHAPTER_FINISHED_FRESH_MS = 4000;
 
 let clearTimer: ReturnType<typeof setTimeout> | null = null;
 

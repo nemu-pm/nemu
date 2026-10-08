@@ -40,7 +40,7 @@ export function getMobileExploreBarTitleCentredWidth(windowWidth: number, traili
 /** The bar title's cross-fade (the system's large-title hand-off is about this long). */
 export const MOBILE_EXPLORE_BAR_TITLE_FADE_MS = 180;
 /** Points either side of the line before the bar title changes state. */
-export const MOBILE_EXPLORE_BAR_TITLE_HYSTERESIS = 8;
+const MOBILE_EXPLORE_BAR_TITLE_HYSTERESIS = 8;
 
 /**
  * Whether the bar shows the title at scroll offset `y` given whether it shows

@@ -8,7 +8,7 @@ import { ExploreSettingsGlyph } from "./ExploreSettingsGlyph";
 
 type IoniconName = keyof typeof Ionicons.glyphMap;
 
-export type ExploreSettingsRow = {
+type ExploreSettingsRow = {
   key: string;
   /** The original design's outline glyph (`ExploreSettingsGlyph`). */
   icon: IoniconName;

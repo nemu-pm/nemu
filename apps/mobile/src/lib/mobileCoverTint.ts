@@ -11,7 +11,7 @@
 
 export type MobileCoverRgb = { r: number; g: number; b: number };
 
-export type MobileCoverTintPalette = {
+type MobileCoverTintPalette = {
   /**
    * Card fill: the cover's colour at strength (a red cover makes a red card),
    * in both schemes. Its text is white or near-black, whichever the colour
@@ -124,7 +124,7 @@ export function mobileHslToRgb({ h, s, l }: Hsl): MobileCoverRgb {
   };
 }
 
-export function mobileRgbString({ r, g, b }: MobileCoverRgb, alpha = 1): string {
+function mobileRgbString({ r, g, b }: MobileCoverRgb, alpha = 1): string {
   return alpha >= 1
     ? `rgb(${r}, ${g}, ${b})`
     : `rgba(${r}, ${g}, ${b}, ${Math.round(alpha * 1000) / 1000})`;
@@ -135,7 +135,7 @@ function channelLuminance(value: number): number {
   return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
 }
 
-export function mobileRelativeLuminance({ r, g, b }: MobileCoverRgb): number {
+function mobileRelativeLuminance({ r, g, b }: MobileCoverRgb): number {
   return (
     0.2126 * channelLuminance(r) +
     0.7152 * channelLuminance(g) +

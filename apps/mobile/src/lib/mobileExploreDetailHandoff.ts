@@ -7,7 +7,7 @@ import type { LibraryEntry } from "@/data/schema";
  * title in the commit that is pushed, so the cover zoom lands on a real page
  * instead of a skeleton that turns into one mid-flight.
  */
-export type MobileExploreDetailHandoff = {
+type MobileExploreDetailHandoff = {
   entry: LibraryEntry;
   /** The cover exactly as the tapped cell painted it (URL and source headers). */
   cover: { uri: string; headers?: Record<string, string> } | null;

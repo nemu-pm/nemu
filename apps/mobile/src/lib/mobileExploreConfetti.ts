@@ -44,9 +44,9 @@ export const MOBILE_CONFETTI_DURATION_S = MOBILE_CONFETTI.life[1];
 /** Terminal fall speed (pt/s): gravity balanced by drag. */
 export const MOBILE_CONFETTI_TERMINAL = MOBILE_CONFETTI.gravity / MOBILE_CONFETTI.drag;
 
-export type MobileConfettiShape = "strip" | "square" | "disc";
+type MobileConfettiShape = "strip" | "square" | "disc";
 
-export type MobileConfettiPiece = {
+type MobileConfettiPiece = {
   /** Launch velocity (pt/s). */
   vx: number;
   vy: number;
@@ -109,7 +109,7 @@ export function createMobileConfetti(seed: number, colorCount: number): MobileCo
   return pieces.sort((a, b) => a.depth - b.depth);
 }
 
-export type MobileConfettiFrame = {
+type MobileConfettiFrame = {
   x: number;
   y: number;
   /** In-plane rotation (rad). */

@@ -4,7 +4,7 @@
  * hero), a full cloth-bound book with the title, a compact one with a shorter
  * title, or (thumbnails too small for legible text) the bare book with its rule.
  */
-export type MobileExploreCoverPlaceholderSize = "large" | "regular" | "compact" | "mini";
+type MobileExploreCoverPlaceholderSize = "large" | "regular" | "compact" | "mini";
 
 export function getMobileExploreCoverPlaceholderSize(width: number): MobileExploreCoverPlaceholderSize {
   if (!Number.isFinite(width) || width < 48) return "mini";

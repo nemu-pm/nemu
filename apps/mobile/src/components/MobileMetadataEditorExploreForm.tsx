@@ -58,7 +58,7 @@ const MARK_RADIUS = MOBILE_SETTINGS_CONTROL_RADIUS;
 
 type FieldKey = "title" | "authorsText" | "description" | "tagsText" | "coverUrl";
 
-export type MobileMetadataEditorExploreFormProps = {
+type MobileMetadataEditorExploreFormProps = {
   strings: MobileStrings;
   form: MobileMetadataFormValues;
   /** Fields that differ from the source (they show a reset glyph). */

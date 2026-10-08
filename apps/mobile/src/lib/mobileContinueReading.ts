@@ -23,7 +23,7 @@ export type MobileContinueReadingItem = {
   lastReadAt: number;
 };
 
-export const MOBILE_CONTINUE_READING_LIMIT = 8;
+const MOBILE_CONTINUE_READING_LIMIT = 8;
 
 /**
  * Most recently read library titles that still have something to read:

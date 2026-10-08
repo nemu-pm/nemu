@@ -1,7 +1,7 @@
 import { getEntryTitle, type LibraryEntry } from "@/data/schema";
 import { getMobileExploreNewChapters } from "./mobileContinueReadingCopy";
 
-export const MOBILE_SEARCH_IDLE_UPDATES_LIMIT = 12;
+const MOBILE_SEARCH_IDLE_UPDATES_LIMIT = 12;
 
 /**
  * Library titles with chapters released since the user last looked (the

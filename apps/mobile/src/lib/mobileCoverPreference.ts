@@ -25,7 +25,7 @@
  * that frame (`item:` alias) and the same artwork samples to the same colour.
  */
 
-export type MobileMeasuredCover = {
+type MobileMeasuredCover = {
   url: string;
   width: number | null;
   /** Whether the pixels show the own cover's artwork (null: not compared). */
@@ -33,12 +33,12 @@ export type MobileMeasuredCover = {
 };
 
 /** A candidate wins only when it is at least this much wider than the title's own cover. */
-export const MOBILE_SHARPER_COVER_RATIO = 1.5;
+const MOBILE_SHARPER_COVER_RATIO = 1.5;
 /**
  * A cover at least this wide already fills the largest slot that shows it
  * (the 210 pt hero at 3× within the 1.5× cap): no need to look further.
  */
-export const MOBILE_COVER_SHARP_ENOUGH_PX = 420;
+const MOBILE_COVER_SHARP_ENOUGH_PX = 420;
 
 /**
  * The candidate to show instead of `own`, or null to keep `own`. Unmeasured
@@ -100,8 +100,8 @@ export const MOBILE_COVER_FINGERPRINT_HEIGHT = 18;
  * ≥ 0.999 / ≤ 1.3, a 2–4 % crop or a recompression ≥ 0.84 / ≤ 16, two
  * different covers of one title ≤ 0.18 / ≥ 27.
  */
-export const MOBILE_SAME_COVER_MIN_CORRELATION = 0.8;
-export const MOBILE_SAME_COVER_MAX_DIFFERENCE = 20;
+const MOBILE_SAME_COVER_MIN_CORRELATION = 0.8;
+const MOBILE_SAME_COVER_MAX_DIFFERENCE = 20;
 
 export function compareMobileCoverFingerprints(
   a: ArrayLike<number>,
@@ -156,7 +156,7 @@ export function isMobileSameCoverArt(
 }
 
 // 2: picks are the same artwork only (version 1 could hold another volume's cover).
-export const MOBILE_COVER_PREFERENCE_STORE_VERSION = 2;
+const MOBILE_COVER_PREFERENCE_STORE_VERSION = 2;
 export const MOBILE_COVER_PREFERENCE_STORE_LIMIT = 300;
 const MAX_VALUE_LENGTH = 2048;
 

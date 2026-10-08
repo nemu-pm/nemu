@@ -35,7 +35,7 @@ function current(): MobileCoverPreferenceStore {
   return store;
 }
 
-export function getMobileExploreCoverPreference(libraryItemId: string | null | undefined): string | null {
+function getMobileExploreCoverPreference(libraryItemId: string | null | undefined): string | null {
   return libraryItemId ? (current().get(libraryItemId) ?? null) : null;
 }
 

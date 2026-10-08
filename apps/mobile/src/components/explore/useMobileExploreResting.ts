@@ -9,7 +9,7 @@ import { getMobileExploreRestingEdge, isMobileCompactHeight } from "@/lib/mobile
  * detail hero and the library's first heading both rest 67 pt below the
  * status bar inset). Only the first estimate uses it; pages measure their own.
  */
-export const MOBILE_EXPLORE_REST_TOP_BELOW_INSET = 67;
+const MOBILE_EXPLORE_REST_TOP_BELOW_INSET = 67;
 
 /**
  * The resting frame of a tab page (design-explore): `edge` is the top of what

@@ -3,9 +3,6 @@ import { hapticPress } from "@/lib/haptics";
 import { isMobileHeaderActionDisabled } from "@/lib/mobileHeaderActions";
 import type { NemuNativeHeaderAction } from "@/design-system";
 
-/** The detail page's bar title actions as one menu button. */
-export const mobileExploreDetailBarMode = "menu" as const;
-
 /**
  * The detail page's actions as one platform menu (a `UIMenu` on a bar button).
  * Like every bar item it takes the platform colour: no tint anywhere. Its

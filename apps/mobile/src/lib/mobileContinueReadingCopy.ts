@@ -69,7 +69,7 @@ export function getMobileExploreNewChapters(
 }
 
 /** The largest new-chapter count spelled out; anything above reads "999+". */
-export const MOBILE_NEW_CHAPTER_COUNT_CAP = 999;
+const MOBILE_NEW_CHAPTER_COUNT_CAP = 999;
 
 /** "12" up to the cap, then "999+", so a badge never grows without bound. */
 export function formatMobileNewChapterCount(count: number): string {

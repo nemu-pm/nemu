@@ -52,7 +52,7 @@ export type MobileRestingBlock = {
   grow?: { by: number; order: number };
 };
 
-export type MobileRestingFit = {
+type MobileRestingFit = {
   /** Final height of every block. */
   heights: Record<string, number>;
   /** Final gap above every block. */
@@ -225,10 +225,10 @@ export function fitMobileRestingContent({
  * there (the inset stays at the home indicator's 21 pt), so resting content
  * would run under the bar.
  */
-export const MOBILE_COMPACT_TAB_BAR_BAND = 64;
+const MOBILE_COMPACT_TAB_BAR_BAND = 64;
 
 /** Windows shorter than this are compact height (an iPhone in landscape is 402–440 pt). */
-export const MOBILE_COMPACT_HEIGHT = 500;
+const MOBILE_COMPACT_HEIGHT = 500;
 
 export function isMobileCompactHeight(windowHeight: number): boolean {
   return windowHeight > 0 && windowHeight < MOBILE_COMPACT_HEIGHT;
@@ -255,7 +255,7 @@ export function getMobileExploreRestingEdge(
  * heading showed in the corner beside the bar. Wider than this, a section
  * that starts under the edge starts under the window's bottom instead.
  */
-export const MOBILE_EXPLORE_OPEN_SIDES_WIDTH = 700;
+const MOBILE_EXPLORE_OPEN_SIDES_WIDTH = 700;
 
 /**
  * Extra gap that moves a section the fit dropped under the edge (`top`, in

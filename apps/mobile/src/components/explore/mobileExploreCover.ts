@@ -12,7 +12,7 @@ import { useMobileSourceImageRequest } from "@/lib/useMobileSourceImageRequest";
 import { zoomTransitionAvailable } from "../../../modules/nemu-window-layout";
 import { useMobileExploreCoverPreference } from "./mobileExploreCoverPreference";
 
-export type MobileExploreCoverSource = {
+type MobileExploreCoverSource = {
   uri: string;
   headers?: Record<string, string>;
 };
@@ -90,7 +90,7 @@ export function mobileExploreSourceName(
  * The detail route for a library title. With `zoomId` (and a binary that has
  * the zoom views) the detail screen zooms out of that source cover.
  */
-export function mobileExploreZoomHref(id: string, zoomId?: string | null, sourceId?: string | null) {
+function mobileExploreZoomHref(id: string, zoomId?: string | null, sourceId?: string | null) {
   const params: { id: string; zoom?: string; source?: string } = { id };
   if (zoomId && zoomTransitionAvailable) params.zoom = zoomId;
   if (sourceId) params.source = sourceId;

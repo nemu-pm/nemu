@@ -117,7 +117,7 @@ export function measureMobileCoverPixelWidth(source: CoverTintSource): Promise<n
 }
 
 /** The width measured this session, if any (undefined: not measured yet). */
-export function getMobileCoverPixelWidthSync(source: CoverTintSource): number | null | undefined {
+function getMobileCoverPixelWidthSync(source: CoverTintSource): number | null | undefined {
   if (!source?.uri) return null;
   const key = cacheKey(source);
   return pixelWidths.has(key) ? (pixelWidths.get(key) ?? null) : undefined;
@@ -204,7 +204,7 @@ function persistTint(keys: Array<string | null | undefined>, tint: MobileCoverRg
  * stable id such as `item:<libraryItemId>`, for the frame before the cover
  * URL has resolved). `undefined` when nothing is known yet.
  */
-export function getMobileCoverTintSync(
+function getMobileCoverTintSync(
   source: CoverTintSource,
   alias?: string,
 ): MobileCoverRgb | null | undefined {
@@ -221,7 +221,7 @@ export function getMobileCoverTintSync(
   );
 }
 
-export function loadMobileCoverTint(
+function loadMobileCoverTint(
   source: CoverTintSource,
   alias?: string,
 ): Promise<MobileCoverRgb | null> {
