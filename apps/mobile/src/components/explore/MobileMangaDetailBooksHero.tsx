@@ -480,7 +480,7 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || contentWidth < PANE_F
       </ZoomTarget>
     );
   }
-  // In the info pane the genres sit under the title and author, not at the foot of the card.
+  // The genres close the page's content; the two-column pane centres them under the synopsis.
   const tagsNode =
     badges.length || tagList.length ? (
         <ScrollView
@@ -490,7 +490,7 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || contentWidth < PANE_F
           showsHorizontalScrollIndicator={false}
           style={[pane ? null : bleed.frame, pushStyle("tags")]}
           onLayout={onTagsLayout}
-          contentContainerStyle={[pane ? null : bleed.content, styles.tags, wide ? styles.tagsCentred : null]}
+          contentContainerStyle={[pane ? null : bleed.content, styles.tags, wide || pane ? styles.tagsCentred : null]}
         >
           {badges.map((badge) => (
             <ExploreGlassChip key={badge.key} label={badge.label} ink={palette.ink} selected={badge.tone === "primary"} />
@@ -593,8 +593,6 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || contentWidth < PANE_F
           ) : null}
         </View>
       </View>
-
-      {pane && !deferBody ? tagsNode : null}
 
       {deferBody ? null : (
         <>
@@ -768,7 +766,7 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || contentWidth < PANE_F
         />
       ) : null}
 
-      {pane ? null : tagsNode}
+      {tagsNode}
 
       {tagList.length ? (
         <MobileMangaDetailTagSheet
