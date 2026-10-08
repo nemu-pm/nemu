@@ -312,6 +312,20 @@ function isForbiddenHostname(hostname: string): boolean {
   );
 }
 
+// https://fetch.spec.whatwg.org/#port-blocking
+const BLOCKED_PORTS = new Set([
+  0, 1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77,
+  79, 87, 95, 101, 102, 103, 104, 109, 110, 111, 113, 115, 117, 119, 123, 135,
+  137, 139, 143, 161, 179, 389, 427, 465, 512, 513, 514, 515, 526, 530, 531,
+  532, 540, 548, 554, 556, 563, 587, 601, 636, 989, 990, 993, 995, 1719, 1720,
+  1723, 2049, 3659, 4045, 4190, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668,
+  6669, 6679, 6697, 10080,
+]);
+
+function isBlockedPort(port: number): boolean {
+  return BLOCKED_PORTS.has(port);
+}
+
 export function validateUrl(
   urlString: string,
   allowedDomains: string[],
@@ -327,15 +341,13 @@ export function validateUrl(
       return { valid: false, error: "Credentialed URLs are not allowed" };
     }
 
-    // Keep Bun and Cloudflare behavior identical. Workers without the broader
-    // custom-port compatibility flag only route HTTP(S) to their default
-    // ports; accepting another port here would validate one destination and
-    // potentially fetch a different one.
-    if (url.port) {
-      return {
-        valid: false,
-        error: "Only default HTTP/HTTPS ports are allowed",
-      };
+    // Explicit ports are fine (some sources serve media from e.g. :183) as
+    // long as they are not on the Fetch standard's bad-port list. The worker
+    // needs the `allow_custom_ports` compatibility flag (wrangler.toml) so the
+    // port validated here is the port that is fetched. Default ports parse to
+    // an empty `url.port`.
+    if (url.port && isBlockedPort(Number(url.port))) {
+      return { valid: false, error: "This port is not allowed" };
     }
 
     const hostname = normalizedHostname(url);

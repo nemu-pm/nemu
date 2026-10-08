@@ -54,6 +54,7 @@ test("Worker config enables cache and incoming-signal compatibility gates", asyn
   expect(config).toContain('"cache_option_enabled"');
   expect(config).toContain('"enable_request_signal"');
   expect(config).toContain('"global_fetch_strictly_public"');
+  expect(config).toContain('"allow_custom_ports"');
 });
 
 describe("proxy URL policy", () => {
@@ -62,10 +63,50 @@ describe("proxy URL policy", () => {
     expect(validateUrl("http://example.com/path", []).valid).toBe(true);
   });
 
+  test("allows explicit ports on public hosts, including default ones", () => {
+    for (const target of [
+      "https://p1.pubg-img.si:183/a.jpg",
+      "https://example.com:8443/",
+      "http://example.com:8080/",
+      "https://example.com:443/",
+      "http://example.com:80/",
+    ]) {
+      expect(validateUrl(target, []).valid, target).toBe(true);
+    }
+    expect(validateUrl("https://cdn.example.com:183/", ["example.com"]).valid).toBe(
+      true,
+    );
+    expect(validateUrl("https://evil.test:183/", ["example.com"]).valid).toBe(
+      false,
+    );
+  });
+
+  test("rejects Fetch standard bad ports", () => {
+    for (const port of [0, 1, 22, 25, 110, 143, 587, 3659, 6000, 6667, 10080]) {
+      expect(validateUrl(`https://example.com:${port}/`, []).valid, `${port}`).toBe(
+        false,
+      );
+    }
+  });
+
+  test("rejects private, localhost and IP-literal hosts regardless of port", () => {
+    for (const target of [
+      "https://127.0.0.1:8443/",
+      "http://10.0.0.5:8080/",
+      "http://169.254.169.254:80/",
+      "https://[::1]:8443/",
+      "http://localhost:3000/",
+      "http://foo.localhost:8080/",
+      "http://intranet:8080/",
+      "https://user:pw@example.com:8443/",
+    ]) {
+      expect(validateUrl(target, []).valid, target).toBe(false);
+    }
+  });
+
   test("rejects credentials, internal names, and every IP-literal form", () => {
     for (const target of [
       "https://user:secret@example.com/",
-      "https://example.com:8443/",
       "https://intranet/",
       "http://nas/",
       "http://localhost./",
@@ -579,6 +620,45 @@ describe("proxy redirect and body policy", () => {
       .split(",")
       .map((name) => name.trim().toLowerCase());
     expect(exposed).toContain("x-nemu-final-url");
+  });
+
+  test("re-validates redirects to custom ports", async () => {
+    const run = async (location: string) => {
+      const requested: string[] = [];
+      globalThis.fetch = (async (input) => {
+        requested.push(String(input));
+        return requested.length === 1
+          ? new Response(null, { status: 302, headers: { Location: location } })
+          : new Response("ok", { status: 200 });
+      }) as typeof fetch;
+      const response = await handleRequest(
+        proxyRequest("https://example.com/start", {
+          headers: { origin: "https://nemu.pm" },
+        }),
+        env,
+      );
+      return { response, requested };
+    };
+
+    const ok = await run("https://p1.example.com:183/a.jpg");
+    expect(ok.response.status).toBe(200);
+    expect(ok.requested).toEqual([
+      "https://example.com/start",
+      "https://p1.example.com:183/a.jpg",
+    ]);
+    expect(ok.response.headers.get("x-nemu-final-url")).toBe(
+      "https://p1.example.com:183/a.jpg",
+    );
+
+    for (const location of [
+      "https://example.com:25/",
+      "https://127.0.0.1:8443/",
+      "https://localhost:8443/",
+    ]) {
+      const bad = await run(location);
+      expect(bad.response.status, location).not.toBe(200);
+      expect(bad.requested, location).toHaveLength(1);
+    }
   });
 
   test("reports the target itself as the final URL without a redirect, cached or not", async () => {
