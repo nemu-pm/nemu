@@ -637,10 +637,8 @@ jobs:
             -destination 'generic/platform=iOS' \
             -derivedDataPath /tmp/nemu-ios-derived-Release \
             -jobs 2 \
-            -parallelizeTargets=NO \
             -IDEBuildOperationMaxNumberOfConcurrentCompileTasks=2 \
             CODE_SIGNING_ALLOWED=NO \
-            SWIFT_COMPILATION_MODE=wholemodule \
             build
 
   release-build:
