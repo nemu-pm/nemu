@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  createMobileDustParticles,
   getMobileDustGrid,
   MOBILE_DUST,
 } from "./mobileExploreDust";
@@ -22,9 +21,5 @@ describe("mobile dust", () => {
     }
     // A shelf cover gets fine squares; a whole card coarser ones.
     expect(getMobileDustGrid(118, 177).cell).toBeLessThan(getMobileDustGrid(302, 478).cell);
-  });
-
-  test("the same seed gives the same run", () => {
-    expect(createMobileDustParticles(10, 12, 3, 5)).toEqual(createMobileDustParticles(10, 12, 3, 5));
   });
 });

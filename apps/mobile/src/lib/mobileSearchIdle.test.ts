@@ -21,7 +21,7 @@ function entry(id: string, links: Partial<LocalSourceLink>[], inLibrary = true):
 const chapter = (n: number) => ({ id: `c${n}`, chapterNumber: n });
 
 describe("search idle: library titles with new chapters", () => {
-  test("only titles with unacknowledged chapters, newest update first, counted as everywhere else", () => {
+  test("only unacknowledged, library titles, newest update first, capped; chapters read past the ack are not new", () => {
     const list = selectMobileSearchIdleUpdates([
       entry("caught-up", [{ latestChapter: chapter(10), updateAckChapter: chapter(10), latestFetchedAt: 9 }]),
       entry("older", [{ latestChapter: chapter(12), updateAckChapter: chapter(10), latestFetchedAt: 5 }]),
@@ -32,20 +32,14 @@ describe("search idle: library titles with new chapters", () => {
       ["newer", 1],
       ["older", 2],
     ]);
-  });
-
-  test("chapters read past the acknowledged one are not new (the card's count)", () => {
-    const list = selectMobileSearchIdleUpdates(
+    const read = selectMobileSearchIdleUpdates(
       [entry("t", [{ latestChapter: chapter(219), updateAckChapter: chapter(97), latestFetchedAt: 1 }])],
       undefined,
       (item) => ({ sourceId: item.sources[0]!.id, lastReadNumber: 105 }),
     );
-    expect(list[0]!.count).toBe(114);
-  });
-
-  test("capped", () => {
-    const many = Array.from({ length: 20 }, (_, index) =>
-      entry(`t${index}`, [{ latestChapter: chapter(2), updateAckChapter: chapter(1), latestFetchedAt: index }]),
+    expect(read[0]!.count).toBe(114);
+    const many = Array.from({ length: 20 }, (_, i) =>
+      entry(`t${i}`, [{ latestChapter: chapter(2), updateAckChapter: chapter(1), latestFetchedAt: i }]),
     );
     expect(selectMobileSearchIdleUpdates(many, 5)).toHaveLength(5);
   });
