@@ -121,6 +121,10 @@ export function MobileMangaDetailSplitLayout<ItemT>({
     MOBILE_DETAIL_SPLIT_OPTIONS,
   );
   const split = splitEnabled && layout.mode === "split" ? layout : null;
+  // On iPad the system reserves the bar twice (tab strip row and title row)
+  // above the content, though both draw on one line: the two panes pull up by
+  // the unused row so they start a normal distance under what is drawn.
+  const pull = split && Platform.OS === "ios" && mobileDesignExploreFlag && !barOnSide ? IPAD_BAR_ROW_PULL : 0;
   const { regularWidth: adaptiveRegularWidth } = useMobileAdaptiveLayout();
   const regularWidth = adaptiveRegularWidth || Boolean(split);
   const leadingPane = useMemo<MobileMangaDetailPane>(
@@ -185,7 +189,7 @@ export function MobileMangaDetailSplitLayout<ItemT>({
                 contentContainerStyle={[padding.leading, exploreTop, exploreBottom]}
                 ListHeaderComponent={
                   <MobileMangaDetailPaneContext.Provider value={leadingPane}>
-                    <View style={styles.leadingStack}>{leading}</View>
+                    <View style={[styles.leadingStack, pull ? { marginTop: pull } : null]}>{leading}</View>
                   </MobileMangaDetailPaneContext.Provider>
                 }
               />
@@ -206,7 +210,7 @@ export function MobileMangaDetailSplitLayout<ItemT>({
               contentInsetAdjustmentBehavior={contentInsetAdjustmentBehavior}
               contentContainerStyle={[split ? padding.trailing : null, split || barOnSide ? exploreTop : null, exploreBottom]}
               ListHeaderComponent={
-                <View style={styles.stack}>
+                <View style={[styles.stack, pull ? { marginTop: pull } : null]}>
                   {split ? null : <Fragment key="leading">{leading}</Fragment>}
                   <Fragment key="chapter-header">{chapterHeader}</Fragment>
                 </View>
@@ -218,6 +222,9 @@ export function MobileMangaDetailSplitLayout<ItemT>({
     </LayoutAnimationConfig>
   );
 }
+
+/** The empty bar row the system still reserves on iPad (pt). */
+const IPAD_BAR_ROW_PULL = -44;
 
 const styles = StyleSheet.create({
   root: {
