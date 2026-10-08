@@ -55,9 +55,7 @@ export const MOBILE_CONTINUE_TALL_CARD = {
 export type MobileContinueCardVariant = "wide" | "tall";
 
 /**
- * Which card a window gets. `preferred` is the build's choice
- * (`EXPO_PUBLIC_NEMU_CONTINUE_CARD`, tall by default); a tall card needs a
- * window tall enough to show it with the rest of the library.
+ * Which card a window gets: tall if the window is tall enough, otherwise wide.
  */
 export function getMobileContinueCardVariant(
   preferred: MobileContinueCardVariant,
