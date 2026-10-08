@@ -102,6 +102,8 @@ const BLOCK_GAP = 16;
 /** Narrowest pane content width that fits the four facts in one row. */
 const PANE_FACTS_ROW_MIN_WIDTH = 340;
 const ESTIMATE = { headText: 8 + 18 + 33 + 4 + 20, facts: 34, actions: 50 } as const;
+/** The primary button's leading glyph (the source's icon, or play): larger than the label's cap height. */
+const PRIMARY_GLYPH = 22;
 /** A wide hero: actions and synopsis keep a readable measure, centred. */
 const WIDE_COLUMN = 560;
 /** Head padding, the cover → title gap and the title's first line. */
@@ -629,11 +631,11 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || contentWidth < PANE_F
                     <MobileCachedImage
                       uriOwnership="source"
                       source={{ uri: primaryAction.iconUri }}
-                      fallback={<Ionicons name="play" size={15} color={primaryInk} />}
+                      fallback={<Ionicons name="play" size={PRIMARY_GLYPH} color={primaryInk} />}
                       style={styles.primaryIcon}
                     />
                   ) : (
-                    <Ionicons name="play" size={15} color={primaryInk} />
+                    <Ionicons name="play" size={PRIMARY_GLYPH} color={primaryInk} />
                   )
                 }
                 onPress={primaryAction.onPress}
@@ -1108,8 +1110,8 @@ const styles = StyleSheet.create({
     flexBasis: 0,
   },
   primaryIcon: {
-    width: 16,
-    height: 16,
+    width: PRIMARY_GLYPH,
+    height: PRIMARY_GLYPH,
     borderRadius: R.thumb,
   },
   tags: {

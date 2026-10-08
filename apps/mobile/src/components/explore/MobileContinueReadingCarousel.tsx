@@ -832,7 +832,7 @@ const ContinueCard = memo(function ContinueCard({
       onPress={openMore}
       style={[tall ? styles.tallMore : styles.more, { backgroundColor: palette.actionSoft }]}
     >
-      <Ionicons name="ellipsis-horizontal" size={tall ? 19 : 17} color={palette.cardInk} />
+      <Ionicons name="ellipsis-horizontal" size={tall ? 22 : 19} color={palette.cardInk} />
     </NemuPressable>
   );
 
@@ -848,12 +848,12 @@ const ContinueCard = memo(function ContinueCard({
       containerStyle={styles.tallResumeContainer}
       style={[tall ? styles.tallResume : styles.resume, { backgroundColor: palette.action }]}
     >
-      <Ionicons name="play" size={tall ? 14 : 13} color={palette.actionInk} />
+      <Ionicons name="play" size={tall ? 18 : 16} color={palette.actionInk} />
       <NemuText
         numberOfLines={1}
         maxFontSizeMultiplier={CARD_TEXT_MAX_SCALE}
         color={palette.actionInk}
-        style={styles.resumeText}
+        style={tall ? styles.tallResumeText : styles.resumeText}
       >
         {strings.designExplore.continueAction}
       </NemuText>
@@ -1143,7 +1143,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 7,
+    gap: 8,
     paddingHorizontal: 16,
   },
   tallMore: {
@@ -1291,8 +1291,14 @@ const styles = StyleSheet.create({
     paddingRight: 16,
   },
   resumeText: {
-    fontSize: 15,
-    lineHeight: 20,
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: nemuFontWeight.semibold,
+  },
+  // The tall card's 44 pt Continue: body size, as the title page's.
+  tallResumeText: {
+    fontSize: 17,
+    lineHeight: 22,
     fontWeight: nemuFontWeight.semibold,
   },
   dots: {

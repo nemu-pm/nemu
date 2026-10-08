@@ -17,8 +17,8 @@ type IoniconName = ComponentProps<typeof Ionicons>["name"];
 const GLASS_TEXT_MAX_SCALE = 1.4;
 /** The capsule's side padding, glyph and glyph–label gap (`styles.capsuleInner`). */
 const CAPSULE_PADDING_X = 18;
-const CAPSULE_GLYPH = 16;
-const CAPSULE_GAP = 7;
+const CAPSULE_GLYPH = 22;
+const CAPSULE_GAP = 9;
 
 /**
  * System Liquid Glass (UIKit `UIGlassEffect`, iOS 26) for the design-explore
@@ -164,9 +164,9 @@ export function ExploreGlassButton({
         style={[styles.capsuleInner, disabled && !prominent ? styles.disabled : null]}
       >
         {busy ? (
-          <NemuRingSpinner size={15} color={ink} accessibilityLabel={accessibilityLabel ?? label} />
+          <NemuRingSpinner size={20} color={ink} accessibilityLabel={accessibilityLabel ?? label} />
         ) : (
-          iconNode ?? (icon ? <Ionicons name={icon} size={16} color={ink} /> : null)
+          iconNode ?? (icon ? <Ionicons name={icon} size={CAPSULE_GLYPH} color={ink} /> : null)
         )}
         <NemuText
           numberOfLines={1}
@@ -195,6 +195,17 @@ export function ExploreGlassButton({
       </NemuPressable>
     </ExploreGlass>
   );
+}
+
+/**
+ * The glyph of a round glass button fills 40–45 % of its diameter and is
+ * drawn heavy: the filled Ionicons shape where the outline one has a twin.
+ */
+const ICON_BUTTON_GLYPH = 24;
+function boldIconName(icon: IoniconName): IoniconName {
+  if (!icon.endsWith("-outline")) return icon;
+  const filled = icon.slice(0, -"-outline".length) as IoniconName;
+  return filled in Ionicons.glyphMap ? filled : icon;
 }
 
 /** A round glass icon button (44 pt target). */
@@ -239,9 +250,9 @@ export function ExploreGlassIconButton({
         style={[styles.iconInner, disabled ? styles.disabled : null]}
       >
         {busy ? (
-          <NemuRingSpinner size={16} color={ink} accessibilityLabel={accessibilityLabel} />
+          <NemuRingSpinner size={22} color={ink} accessibilityLabel={accessibilityLabel} />
         ) : (
-          <Ionicons name={icon} size={19} color={ink} />
+          <Ionicons name={boldIconName(icon)} size={ICON_BUTTON_GLYPH} color={ink} />
         )}
       </NemuPressable>
     </ExploreGlass>
@@ -396,8 +407,9 @@ const styles = StyleSheet.create({
   },
   capsuleText: {
     flexShrink: 1,
-    fontSize: 16,
-    lineHeight: 21,
+    // Body size, semibold: the weight the system's own prominent buttons use.
+    fontSize: 17,
+    lineHeight: 22,
     fontWeight: nemuFontWeight.semibold,
   },
   fill: {
