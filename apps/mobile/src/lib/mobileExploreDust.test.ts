@@ -3,7 +3,6 @@ import {
   createMobileDustParticles,
   getMobileDustGrid,
   MOBILE_DUST,
-  MOBILE_DUST_STRIDE,
 } from "./mobileExploreDust";
 
 describe("mobile dust", () => {

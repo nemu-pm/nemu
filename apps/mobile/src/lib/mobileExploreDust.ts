@@ -117,5 +117,3 @@ export function createMobileDustParticles(
   }
   return particles;
 }
-
-type MobileDustFrame = { x: number; y: number; scale: number; rotation: number };

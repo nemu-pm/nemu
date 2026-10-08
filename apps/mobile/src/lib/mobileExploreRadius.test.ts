@@ -4,7 +4,6 @@ import path from "node:path";
 import {
   concentricMobileExploreRadius,
   MOBILE_EXPLORE_RADIUS,
-  MOBILE_SHEET_BODY_INSET,
   MOBILE_SHEET_GROUP_RADIUS,
   MOBILE_SETTINGS_GROUP_INSET,
   MOBILE_SETTINGS_CONTROL_RADIUS,

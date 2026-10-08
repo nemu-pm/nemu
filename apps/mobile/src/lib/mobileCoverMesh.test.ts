@@ -2,13 +2,10 @@ import { describe, expect, test } from "bun:test";
 import {
   buildMobileCoverMeshColors,
   isMobileCoverMeshFlat,
-  MOBILE_COVER_MESH_LOOP,
   pickMobileCoverRegionTints,
 } from "./mobileCoverMesh";
 import {
   buildMobileCoverTintPalette,
-  mobileContrastRatio,
-  mobileHslToRgb,
   mobileRgbToHsl,
   type MobileCoverRgb,
 } from "./mobileCoverTint";
