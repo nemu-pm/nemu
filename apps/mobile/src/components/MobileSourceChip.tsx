@@ -4,6 +4,8 @@ import { MobileChip } from "@/design-system";
 type MobileSourceChipProps = {
   label: string;
   selected: boolean;
+  /** Selected as one of many (see `MobileChip`): a soft tint. */
+  included?: boolean;
   disabled?: boolean;
   icon?: string;
   fallbackIcon?: keyof typeof Ionicons.glyphMap;

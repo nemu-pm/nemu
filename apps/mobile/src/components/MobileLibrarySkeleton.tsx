@@ -1,4 +1,8 @@
 import { StyleSheet, View } from "react-native";
+import { ExploreLibrarySkeleton } from "@/components/explore/ExploreLibrarySkeleton";
+import { ExploreShimmerSweep } from "@/components/explore/ExploreShimmerSweep";
+import { useExploreShimmerBackdrop } from "@/components/explore/useExploreShimmerBackdrop";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import Animated from "react-native-reanimated";
 import {
   createNemuShadowStyle,
@@ -28,14 +32,27 @@ export function MobileLibrarySkeleton({
 }: {
   accessibilityLabel: string;
 }) {
+  // Design-explore: the placeholder takes the explore Library's shape.
+  if (mobileDesignExploreFlag) return <ExploreLibrarySkeleton accessibilityLabel={accessibilityLabel} />;
+  return <ShippingLibrarySkeleton accessibilityLabel={accessibilityLabel} />;
+}
+
+function ShippingLibrarySkeleton({
+  accessibilityLabel,
+}: {
+  accessibilityLabel: string;
+}) {
   const { tokens, reduceMotion } = useNemuTheme();
+  const shimmerBackdrop = useExploreShimmerBackdrop();
   // Same fold-aware grid as the library list (measured content box, even
   // columns on regular widths, the middle gutter on the fold in book posture),
   // so the skeleton hands off without a reflow and never straddles the fold.
   // It already sits inside the page gutters.
   // Refs stay out of the layout object read during render.
   const { ref: gridRef, onLayout: onGridLayout, ...grid } = useMobileFoldAwareGrid({ insets: NO_INSETS });
-  const skeletonOpacity = useSkeletonPulse(reduceMotion === true);
+  const pulseOpacity = useSkeletonPulse(reduceMotion === true);
+  // Design-explore: the blocks hold still and one shimmer sweep crosses them.
+  const skeletonOpacity = mobileDesignExploreFlag ? 1 : pulseOpacity;
   const displayReady = useSkeletonDisplayDelay(150);
   const skeletonColor = tokens.muted;
   const subtleSkeletonColor = tokens.sourceIconGlass;
@@ -46,7 +63,7 @@ export function MobileLibrarySkeleton({
     <View
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="progressbar"
-      style={styles.stack}
+      style={[styles.stack, shimmerBackdrop]}
     >
       <View
         ref={gridRef}
@@ -103,6 +120,8 @@ export function MobileLibrarySkeleton({
           </View>
         ))}
       </View>
+      {/* Design-explore: one shimmer sweep instead of the breathing pulse. */}
+      {mobileDesignExploreFlag ? <ExploreShimmerSweep /> : null}
     </View>
   );
 }

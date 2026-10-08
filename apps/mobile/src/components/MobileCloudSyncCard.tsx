@@ -1,3 +1,4 @@
+import { ExploreSettingsGlyph } from "@/components/explore/ExploreSettingsGlyph";
 import { useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo,
@@ -33,6 +34,8 @@ import {
   type MobileStrings,
 } from "@/lib/mobileI18n";
 import { describeMobileErrorDetail } from "@/lib/mobileSourceErrors";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
+import { MOBILE_EXPLORE_RADIUS } from "@/lib/mobileExploreRadius";
 import { mobileAuthClient } from "@/sync/mobileAuthClient";
 import { retryMobileConvexAuth } from "@/sync/mobileConvexAuthRetry";
 import { isMobileAuthStorageUnavailable } from "@/sync/mobileAuthSecureStorage";
@@ -800,17 +803,28 @@ function MobileCloudSyncConfiguredCard({
         style={[
           styles.shell,
           { backgroundColor: tokens.card, borderColor: tokens.border },
+          mobileDesignExploreFlag ? styles.exploreShell : null,
         ]}
       >
         <View style={styles.content}>
           <View style={styles.header}>
-            <View style={styles.iconFrame}>
-              <Ionicons name="cloud-outline" size={20} color={tokens.primary} />
-            </View>
+            {mobileDesignExploreFlag ? (
+              // The Settings list's bare outline glyph (ExploreSettingsGroup).
+              <ExploreSettingsGlyph name="cloud-outline" />
+            ) : (
+              <View style={styles.iconFrame}>
+                <Ionicons name="cloud-outline" size={20} color={tokens.primary} />
+              </View>
+            )}
             <View style={styles.copy}>
               <Text
+                accessibilityRole={mobileDesignExploreFlag ? "header" : undefined}
                 maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
-                style={[styles.title, { color: tokens.foreground }]}
+                style={[
+                  styles.title,
+                  mobileDesignExploreFlag ? styles.exploreTitle : null,
+                  { color: tokens.foreground },
+                ]}
               >
                 {strings.settings.cloudSync}
               </Text>
@@ -818,7 +832,10 @@ function MobileCloudSyncConfiguredCard({
                 maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
                 style={[styles.subtitle, { color: tokens.mutedForeground }]}
               >
-                {strings.settings.cloudSyncDescription}
+                {/* Design-explore: one line that says what to do, not two. */}
+                {mobileDesignExploreFlag && !signedIn && !isPending
+                  ? strings.settings.cloudSyncSignInPrompt
+                  : strings.settings.cloudSyncDescription}
               </Text>
             </View>
           </View>
@@ -880,12 +897,14 @@ function MobileCloudSyncConfiguredCard({
             </View>
           ) : (
             <View style={styles.signInBlock}>
-              <Text
-                maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
-                style={[styles.detail, { color: tokens.mutedForeground }]}
-              >
-                {strings.settings.cloudSyncSignInPrompt}
-              </Text>
+              {mobileDesignExploreFlag ? null : (
+                <Text
+                  maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
+                  style={[styles.detail, { color: tokens.mutedForeground }]}
+                >
+                  {strings.settings.cloudSyncSignInPrompt}
+                </Text>
+              )}
               <View style={styles.providerActions}>
                 {authProviders.map((provider) => {
                   const busy = busyProvider === provider.id;
@@ -1109,6 +1128,15 @@ const styles = StyleSheet.create({
   content: {
     gap: 12,
     padding: 14,
+  },
+  // Design-explore: the Settings groups' corner.
+  exploreShell: {
+    borderRadius: MOBILE_EXPLORE_RADIUS.group,
+    borderCurve: "continuous",
+  },
+  exploreTitle: {
+    fontSize: 16,
+    lineHeight: 21,
   },
   header: {
     minHeight: 44,

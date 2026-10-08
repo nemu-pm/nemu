@@ -57,6 +57,7 @@ import {
 } from "@/lib/mobileJapaneseLearningSurfaceTheme";
 import { getMobileJapaneseLearningEnginePreference } from "@/lib/mobileJapaneseLearningEngine";
 import { isMobileJapaneseLearningSignedIn } from "@/lib/mobileJapaneseLearningAuth";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import { describeMobileJapaneseLearningPackLoading } from "@/lib/mobileJapaneseLearningAnalysisPackState";
 import { useMobileJapaneseLearningAnalysisPackState } from "@/lib/mobileJapaneseLearningAnalysisPackStore";
 import {
@@ -436,7 +437,23 @@ export function JapaneseLearningSentenceDisplay({
 
   // The analysis status (error / dictionary download / analyzing): under the
   // raw text when stacked (web), centred in the details column beside it.
-  const statusBlock = grammarState.status === "error" ? (
+  // Design-explore: signed out is a precondition, not a failure. It reads as
+  // a notice (what it needs, where to do it) without the error red, and
+  // without Retry, which cannot help until the reader signs in.
+  const signInNotice =
+    mobileDesignExploreFlag &&
+    grammarState.status === "error" &&
+    grammarState.detail === strings.reader.pluginJapaneseLearningSignInRequired;
+  const statusBlock = signInNotice ? (
+    <View accessibilityLiveRegion="polite" style={styles.errorBlock}>
+      <Text style={[styles.noticeTitle, { color: tokens.foreground }]}>
+        {strings.reader.pluginJapaneseLearningSignInRequiredTitle}
+      </Text>
+      <Text style={[styles.errorText, { color: tokens.mutedForeground }]}>
+        {strings.reader.pluginJapaneseLearningSignInRequiredDescription}
+      </Text>
+    </View>
+  ) : grammarState.status === "error" ? (
     <View style={styles.errorBlock}>
       <Text
         accessibilityRole="alert"
@@ -972,6 +989,11 @@ const styles = StyleSheet.create({
   errorBlock: {
     alignItems: "flex-start",
     gap: 4,
+  },
+  noticeTitle: {
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: nemuFontWeight.semibold,
   },
   packLoading: {
     alignSelf: "stretch",

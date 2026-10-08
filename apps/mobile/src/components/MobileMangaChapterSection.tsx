@@ -20,6 +20,7 @@ import type { MobileStrings } from "@/lib/mobileI18n";
 import { formatMobileLanguageDisplayName } from "@/lib/mobileLanguageSettings";
 
 type MobileMangaChapterSectionHeaderProps = {
+  alignedControl?: boolean;
   emptyIcon?: "reader-outline" | "albums-outline";
   emptyTitle: string;
   hasChapters: boolean;
@@ -53,6 +54,8 @@ type MobileMangaChapterRowProps = {
 };
 
 type MobileMangaChapterToolbarProps = {
+  /** The chips only, for a row that scrolls them with other controls (design-explore). */
+  inline?: boolean;
   appLanguage: AppLanguage;
   languages: string[];
   preference: MobileChapterListPreference;
@@ -150,6 +153,7 @@ export function MobileMangaChapterSortAction({
 }
 
 export function MobileMangaChapterToolbar({
+  inline = false,
   appLanguage,
   languages,
   preference,
@@ -165,13 +169,8 @@ export function MobileMangaChapterToolbar({
     onChange({ ...preference, languages: [...next] });
   };
 
-  return (
-    <ScrollView
-      horizontal
-      scrollsToTop={false}
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={styles.toolbarRow}
-    >
+  const chips = (
+    <>
       <MobileChapterToolbarChip
         accessibilityLabel={strings.sourceBrowse.unreadOnly}
         badge={String(unreadCount)}
@@ -198,11 +197,23 @@ export function MobileMangaChapterToolbar({
             );
           })
         : null}
+    </>
+  );
+  if (inline) return chips;
+  return (
+    <ScrollView
+      horizontal
+      scrollsToTop={false}
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.toolbarRow}
+    >
+      {chips}
     </ScrollView>
   );
 }
 
 export function MobileMangaChapterSectionHeader({
+  alignedControl = false,
   emptyIcon = "reader-outline",
   emptyTitle,
   hasChapters,
@@ -223,7 +234,7 @@ export function MobileMangaChapterSectionHeader({
       <View
         style={[
           styles.sectionHeaderRow,
-          { minHeight: rhythm.headerRowHeight, marginBottom: rhythm.headerRowMarginBottom },
+          { minHeight: alignedControl ? 46 : rhythm.headerRowHeight, marginBottom: rhythm.headerRowMarginBottom },
         ]}
       >
         <Text style={[styles.sectionTitle, { color: tokens.foreground }]}>
@@ -238,7 +249,7 @@ export function MobileMangaChapterSectionHeader({
         ) : sortAction ? (
           // The touch frame stays 44/48pt; only its overhang leaves the row's
           // layout, so the heading sits on the pane's first line.
-          <View style={[styles.sortActionSlot, { marginVertical: rhythm.sortActionMarginVertical }]}>
+          <View style={[styles.sortActionSlot, { marginVertical: alignedControl ? 0 : rhythm.sortActionMarginVertical }]}>
             {sortAction}
           </View>
         ) : null}

@@ -1,4 +1,7 @@
 import type { ScrollViewInstance, ViewInstance } from "react-native";
+import { ExploreShimmerSweep } from "@/components/explore/ExploreShimmerSweep";
+import { useExploreShimmerBackdrop } from "@/components/explore/useExploreShimmerBackdrop";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import {
   Children,
   createContext,
@@ -1925,8 +1928,11 @@ export function SourceHomeSkeletonView({
   accessibilityLabel?: string;
 }) {
   const { tokens, reduceMotion } = useNemuTheme();
+  const shimmerBackdrop = useExploreShimmerBackdrop();
   const bleed = useMobilePageBleedStyles(HOME_RAIL_BLEED_OVERSCAN);
-  const skeletonOpacity = useSkeletonPulse(reduceMotion === true);
+  const pulseOpacity = useSkeletonPulse(reduceMotion === true);
+  // Design-explore: the blocks hold still and one shimmer sweep crosses them.
+  const skeletonOpacity = mobileDesignExploreFlag ? 1 : pulseOpacity;
   const skeletonReady = useSkeletonDisplayDelay(150);
   const skeletonColor = tokens.muted;
   const subtleSkeletonColor = tokens.sourceIconGlass;
@@ -1939,7 +1945,7 @@ export function SourceHomeSkeletonView({
     <Animated.View
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="progressbar"
-      style={[styles.homeSkeletonStack, { opacity: skeletonOpacity }]}
+      style={[styles.homeSkeletonStack, { opacity: skeletonOpacity }, shimmerBackdrop]}
     >
       <View style={styles.homeSkeletonSection}>
         <View
@@ -2026,6 +2032,8 @@ export function SourceHomeSkeletonView({
           ))}
         </View>
       </View>
+      {/* Design-explore: one shimmer sweep instead of the breathing pulse. */}
+      {mobileDesignExploreFlag ? <ExploreShimmerSweep /> : null}
     </Animated.View>
   );
 }

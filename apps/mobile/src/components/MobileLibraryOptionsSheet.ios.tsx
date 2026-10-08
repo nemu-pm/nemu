@@ -14,6 +14,7 @@ import {
   foregroundStyle,
 } from "@expo/ui/swift-ui/modifiers";
 import { useNemuTheme } from "@/design-system";
+import { useMobileDesignExplore } from "@/lib/mobileDesignExplore";
 import { getMobileLibraryOptionsNativeSheetHeight } from "@/lib/mobileLibraryOptionsSheetLayout";
 import { MobileNativeFormSheet } from "./MobileNativeFormSheet";
 import type { MobileLibraryOptionsSheetProps } from "./MobileLibraryOptionsSheet.types";
@@ -42,6 +43,8 @@ export function MobileLibraryOptionsSheet({
   const { tokens } = useNemuTheme();
   const { fontScale, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  // Design-explore: the rows start under the bar, not below an empty band.
+  const tightTop = useMobileDesignExplore();
   const inLibrary = mode === "in-library";
   const sections = inLibrary ? [1, 1] : [canAddAndRead ? 2 : 1];
   const sheetHeight = getMobileLibraryOptionsNativeSheetHeight({
@@ -49,6 +52,7 @@ export function MobileLibraryOptionsSheet({
     footerLines: 2,
     fontScale,
     maxHeight: height - insets.top,
+    tightTop,
   });
   const busyModifiers = busy ? [swiftDisabled(true)] : [];
 
@@ -59,6 +63,7 @@ export function MobileLibraryOptionsSheet({
       onDismiss={onDismiss}
       title={inLibrary ? strings.sourceManga.libraryOptionsTitle : strings.sourceManga.addOptionsTitle}
       detents={[{ height: sheetHeight }]}
+      tightTop={tightTop}
       interactiveDismissDisabled={busy}
       closeAccessibilityLabel={strings.common.done}
       testID="SourceMangaLibraryOptionsSheet"

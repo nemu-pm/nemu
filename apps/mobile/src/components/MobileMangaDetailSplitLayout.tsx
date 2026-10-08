@@ -4,7 +4,10 @@ import {
   type ComponentProps,
   type ReactNode,
 } from "react";
-import { Platform, StyleSheet, View } from "react-native";
+import { Platform, StyleSheet, View, useWindowDimensions } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
+import { useMobileExploreRestingFrame } from "@/components/explore/useMobileExploreResting";
 import Animated, { LayoutAnimationConfig } from "react-native-reanimated";
 import {
   PageListScaffold,
@@ -88,6 +91,14 @@ export function MobileMangaDetailSplitLayout<ItemT>({
   leadingTestID?: string;
 }) {
   const { tokens } = useNemuTheme();
+  const { height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const resting = useMobileExploreRestingFrame();
+  // UIKit's compact-height safe area omits the floating tab/accessory band.
+  // Add only the omitted part to the normal scroll-end margin.
+  const exploreBottom = Platform.OS === "ios" && mobileDesignExploreFlag
+    ? { paddingBottom: 24 + Math.max(0, height - resting.edge - insets.bottom) }
+    : null;
   // The detail screens use a transparent soft-edge navigation bar. Both
   // scroll views must start below it, while still scrolling underneath it.
   const contentInsetAdjustmentBehavior = listProps.contentInsetAdjustmentBehavior
@@ -158,7 +169,7 @@ export function MobileMangaDetailSplitLayout<ItemT>({
                 refreshDisabled={listProps.refreshDisabled}
                 refreshLabel={listProps.refreshLabel}
                 refreshing={listProps.refreshing}
-                contentContainerStyle={padding.leading}
+                contentContainerStyle={[padding.leading, exploreBottom]}
                 ListHeaderComponent={
                   <MobileMangaDetailPaneContext.Provider value={leadingPane}>
                     <View style={styles.leadingStack}>{leading}</View>
@@ -180,7 +191,7 @@ export function MobileMangaDetailSplitLayout<ItemT>({
             <PageListScaffold
               {...listProps}
               contentInsetAdjustmentBehavior={contentInsetAdjustmentBehavior}
-              contentContainerStyle={split ? padding.trailing : undefined}
+              contentContainerStyle={[split ? padding.trailing : null, exploreBottom]}
               ListHeaderComponent={
                 <View style={styles.stack}>
                   {split ? null : <Fragment key="leading">{leading}</Fragment>}

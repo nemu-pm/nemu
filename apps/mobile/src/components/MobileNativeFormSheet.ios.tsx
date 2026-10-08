@@ -85,6 +85,7 @@ export function MobileNativeFormSheet({
   subtitle,
   detents,
   background = "glass",
+  tightTop = false,
   interactiveDismissDisabled: dismissDisabled = false,
   cancel,
   closeAccessibilityLabel,
@@ -104,10 +105,9 @@ export function MobileNativeFormSheet({
         // The accent is for the form's own controls; the bar above keeps the
         // system's item colours (see the toolbar below).
         tint(tokens.primary),
-        ...(grouped
+        ...(grouped ? [scrollContentBackground("hidden"), listSectionSpacing("compact")] : []),
+        ...(grouped || tightTop
           ? [
-              scrollContentBackground("hidden"),
-              listSectionSpacing("compact"),
               // The first group sits just under the bar instead of below an
               // empty large-title row and the grouped list's top margin.
               inlineToolbarTitle(),

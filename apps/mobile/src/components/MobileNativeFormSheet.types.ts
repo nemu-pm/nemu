@@ -28,6 +28,12 @@ export type MobileNativeFormSheetProps = {
    * over glass when the library's covers are behind the sheet.
    */
   background?: "glass" | "grouped";
+  /**
+   * The first group sits just under the bar (inline title, no top scroll
+   * margin) on a glass sheet too, instead of below an empty band
+   * (design-explore; `grouped` always does).
+   */
+  tightTop?: boolean;
   /** Blocks swipe-to-dismiss (unsaved changes, work in flight). */
   interactiveDismissDisabled?: boolean;
   /**

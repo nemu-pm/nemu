@@ -7,7 +7,7 @@ import {
   MOBILE_DETAIL_ACTION_ROW_GAP,
   MOBILE_DETAIL_ICON_ACTION_WIDTH,
 } from "@/lib/mobileMangaDetailActionLabel";
-import { useCallback, useState, type ComponentProps } from "react";
+import { useCallback, useEffect, useState, type ComponentProps } from "react";
 import {
   fitMobileDetailTagRow,
   getMobileDetailActionRowOverhang,
@@ -44,6 +44,8 @@ import { MobileExpandableDescription } from "@/components/MobileExpandableDescri
 import { useMobileMangaDetailPane } from "@/components/MobileMangaDetailPaneContext";
 import { MobileMangaDetailTagSheet } from "@/components/MobileMangaDetailTagSheet";
 import { MobileMangaStatusBadge } from "@/components/MobileMangaStatusBadge";
+import { MobileMangaDetailBooksHero } from "@/components/explore/MobileMangaDetailBooksHero";
+import { useMobileDesignExplore } from "@/lib/mobileDesignExplore";
 import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
 import { MOBILE_MANGA_DETAIL_PRIMARY_ACTION_MAX_WIDTH } from "@/lib/mobileMangaDetailPresentation";
 import { getMobileMangaDetailHeroLayout } from "@/lib/mobileDynamicTypeLayout";
@@ -129,7 +131,70 @@ function secondaryActionDepth(
   return "outline";
 }
 
+type MobileMangaDetailSurfaceProps = Parameters<typeof MobileMangaDetailSurfaceClassic>[0] & {
+  /** Books-style hero (design-explore) facts row (source, chapter count, newest chapter), and its cover zoom ids. */
+  infoTitle?: string | null;
+  infoChapters?: number | null;
+  infoLatest?: string | null;
+  zoomId?: string | null;
+  readerZoomId?: string | null;
+  /** The page is still zooming in: cover, title and meta only (see the hero). */
+  deferBody?: boolean;
+  /** The library title whose removal turns the hero cover to dust. */
+  dissolveId?: string | null;
+  /** Shown by the Books-style hero until `coverSource` is known. */
+  heldCoverSource?: { uri: string; headers?: Record<string, string> } | null;
+  /** Reports whether the hero sits in the regular-width info pane. */
+  onHeroPaneChange?: (pane: boolean) => void;
+  /** Reports where the Books-style hero's title block ends, from the hero's top. */
+  onHeroTitleBottom?: (bottom: number) => void;
+};
+
+/**
+ * Picks the hero: the Books-style prototype when the device-local preview
+ * switch is on (full-bleed, or a rounded panel in
+ * the regular-width info pane), the shipping design A otherwise.
+ */
 export function MobileMangaDetailSurface({
+  infoTitle,
+  infoChapters,
+  infoLatest,
+  zoomId,
+  readerZoomId,
+  deferBody,
+  dissolveId,
+  heldCoverSource,
+  onHeroPaneChange,
+  onHeroTitleBottom,
+  ...props
+}: MobileMangaDetailSurfaceProps) {
+  const paneMode = useMobileMangaDetailPane().role === "leading";
+  const explore = useMobileDesignExplore();
+  useEffect(() => {
+    if (explore) onHeroPaneChange?.(paneMode);
+  }, [explore, onHeroPaneChange, paneMode]);
+  if (explore) {
+    return (
+      <MobileMangaDetailBooksHero
+        {...props}
+        coverSource={props.coverSource ?? heldCoverSource}
+        underCover={heldCoverSource}
+        infoTitle={infoTitle}
+        infoChapters={infoChapters}
+        infoLatest={infoLatest}
+        zoomId={zoomId}
+        readerZoomId={readerZoomId}
+        deferBody={deferBody}
+        dissolveId={dissolveId}
+        pane={paneMode}
+        onTitleBottom={onHeroTitleBottom}
+      />
+    );
+  }
+  return <MobileMangaDetailSurfaceClassic {...props} />;
+}
+
+function MobileMangaDetailSurfaceClassic({
   title,
   authors,
   coverSource,

@@ -30,6 +30,7 @@ import {
   presentationDragIndicator,
   scrollEdgeEffectStyle,
   tag,
+  tint,
 } from "@expo/ui/swift-ui/modifiers";
 import { StyleSheet, useWindowDimensions, View } from "react-native";
 import {
@@ -42,6 +43,7 @@ import {
 } from "../../../modules/nemu-window-layout/src/presentationColorScheme";
 import { useNemuTheme } from "@/design-system";
 import { hapticSelection } from "@/lib/haptics";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import {
   clampReaderScrollWidthPct,
   READER_SCROLL_WIDTH_MAX,
@@ -153,7 +155,9 @@ export function ReaderSettingsNativePopover({
     showPagePairingControls: twoPageSupported && showPagePairingControls,
     scrolling: mode === "scrolling",
     showPlugins,
-    showMarkComplete: !completed,
+    // Design-explore: Mark complete is the reader menu's (one place for an
+    // action that writes progress); this sheet holds settings.
+    showMarkComplete: !completed && !mobileDesignExploreFlag,
     showNotebookPane: showNotebookRow,
   };
   const presentation = readerSettingsNativePresentation(
@@ -179,6 +183,9 @@ export function ReaderSettingsNativePopover({
     presentationBackground({ type: "material", material: "regular" }),
   ];
   const formModifiers = [
+    // Design-explore: the accent is for the rows' own controls; the sheet's
+    // bar keeps the system's item colours (the close X), as the form sheets do.
+    ...(mobileDesignExploreFlag ? [tint(tokens.primary)] : []),
     ...(presentation.kind === "popover" && !sheet
       ? [frame({ width: presentation.width, height: presentation.height }), ...presentationModifiers]
       : // The sheet is as tall as this Form (see `fitSheetDetentToContent`).
@@ -306,7 +313,7 @@ export function ReaderSettingsNativePopover({
                 modifiers={busyModifiers}
               />
             ) : null}
-            {!completed ? (
+            {settingsRows.showMarkComplete ? (
               <SwiftButton
                 label={saving ? strings.reader.savingProgress : strings.reader.markComplete}
                 systemImage="checkmark.circle"
@@ -339,7 +346,8 @@ export function ReaderSettingsNativePopover({
   if (sheet) {
     return (
       <View pointerEvents="none" style={styles.sheetHost}>
-        <SwiftHost colorScheme={scheme} seedColor={tokens.primary} style={StyleSheet.absoluteFill}>
+        {/* Design-explore: no seed (it tints the bar's close X too); the Form carries the accent. */}
+        <SwiftHost colorScheme={scheme} seedColor={mobileDesignExploreFlag ? undefined : tokens.primary} style={StyleSheet.absoluteFill}>
           {measuringCopy}
           <SwiftBottomSheet
             isPresented={visible}

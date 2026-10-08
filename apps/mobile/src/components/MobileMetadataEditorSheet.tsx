@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import {
   ActivityIndicator,
   Image,
@@ -10,12 +11,14 @@ import {
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { MobileConfirmationSheet } from "@/components/MobileConfirmationSheet";
+import { MobileMetadataEditorExploreForm } from "@/components/MobileMetadataEditorExploreForm";
 import { File as ExpoFile } from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import {
   MobileChip,
   MobileNativeSheetScaffold,
+  NemuNativeSheetHeaderAction,
   MobileCachedImage,
   iconSize,
   radius,
@@ -532,6 +535,7 @@ export function MobileMetadataEditorSheet({
   });
   const coverUrlOverridden = fieldOverrides.coverUrl || selectedCoverAsset !== null;
   const closeBusy = editorActionBusy;
+  const saveBusy = saving || saveInFlight || uploadingCover;
   const canSearchMatches = canRunMobileMetadataMatchSearch(
     matchQuery,
     form.title,
@@ -939,14 +943,141 @@ export function MobileMetadataEditorSheet({
       onClose={requestClose}
       onDismiss={handleScaffoldDismiss}
       title={strings.metadataEditor.title}
-      subtitle={strings.metadataEditor.subtitle}
+      // Design-explore: no caption pinned under the bar (the form scrolled
+      // under it with a hard cut); the sections already say "on this device".
+      subtitle={mobileDesignExploreFlag ? undefined : strings.metadataEditor.subtitle}
       dismissLabel={strings.metadataEditor.close}
       dismissDisabled={closeBusy}
+      headerLeading={
+        mobileDesignExploreFlag ? (
+          <NemuNativeSheetHeaderAction
+            accessibilityLabel={strings.metadataEditor.close}
+            androidIcon="close-outline"
+            iosSystemImage="xmark"
+            disabled={closeBusy}
+            onPress={requestClose}
+          />
+        ) : undefined
+      }
+      headerTrailing={
+        mobileDesignExploreFlag ? (
+          saveBusy ? (
+            <View style={styles.headerBusy}>
+              <NemuRingSpinner
+                size={iconSize.md}
+                accessibilityLabel={uploadingCover ? strings.metadataEditor.uploadingCover : strings.metadataEditor.saving}
+              />
+            </View>
+          ) : (
+            <NemuNativeSheetHeaderAction
+              accessibilityLabel={strings.common.save}
+              androidIcon="checkmark"
+              iosSystemImage="checkmark"
+              prominent
+              disabled={!canSave}
+              onPress={() => {
+                void handleSave();
+              }}
+            />
+          )
+        ) : undefined
+      }
       snapPoints={["92%"]}
       fillContent
+      // Design-explore: the form runs to the sheet's bottom edge and fades
+      // there (Save lives in the bar, so no footer holds the list up).
+      softBottomEdge={mobileDesignExploreFlag}
       enablePanDownToClose={!closeBusy}
       contentStyle={styles.sheet}
     >
+      {mobileDesignExploreFlag ? (
+        <MobileMetadataEditorExploreForm
+          strings={strings}
+          form={form}
+          overridden={{
+            title: fieldOverrides.title,
+            authorsText: fieldOverrides.authorsText,
+            description: fieldOverrides.description,
+            tagsText: fieldOverrides.tagsText,
+            coverUrl: coverUrlOverridden,
+          }}
+          overriddenStatus={fieldOverrides.status}
+          basePlaceholders={{
+            title: fieldOverrides.title ? baseForm.title : undefined,
+            description: fieldOverrides.description ? baseForm.description : undefined,
+          }}
+          busy={editorActionBusy}
+          canReset={canResetForm}
+          cover={{
+            imageSource: coverPreviewImageSource,
+            isPickedAsset: selectedCoverAsset !== null,
+            subtitle: coverRowSubtitle ?? null,
+            picking: pickingCover,
+            error: coverError,
+            overridden: coverUrlOverridden,
+            onPick: () => {
+              void handlePickCover();
+            },
+            onClear: () => resetField("coverUrl"),
+            onChangeUrl: (value) => {
+              setSelectedCoverAsset(null);
+              setCoverPreviewSourceId(null);
+              setCoverError(null);
+              setField("coverUrl", value);
+            },
+          }}
+          sources={
+            canFetchFromSource
+              ? {
+                  choices: sourceChoices,
+                  fetchingId: fetchingSourceId,
+                  error: sourceError,
+                  onFetch: (id) => {
+                    const choice = sourceChoices.find((item) => item.id === id);
+                    if (choice) void handleFetchFromSource(choice);
+                  },
+                }
+              : null
+          }
+          match={{
+            query: matchQuery,
+            canSearch: canSearchMatches,
+            loading: matchLoading,
+            applying: matchApplying,
+            error: matchError,
+            results: matchResults,
+            summary: matchSummary,
+            fieldLabel: (field) => matchFieldLabel(field, strings),
+            fieldIcon: matchFieldIcon,
+            onChangeQuery: setMatchQuery,
+            onSearch: () => {
+              void handleSearchMatches();
+            },
+            onApply: (result) => {
+              void handleApplyMatch(result);
+            },
+            onApplyField: (result, field) => {
+              void handleApplyMatchField(result, field);
+            },
+          }}
+          statusChips={statusChips}
+          canSelectStatus={(chip) =>
+            canSelectMobileMetadataStatusOption({ selected: chip.selected, disabled: editorActionBusy })
+          }
+          resetFieldLabel={resetFieldAccessibilityLabel}
+          onSetField={(key, value) => setField(key, value)}
+          onSetStatus={(value) => setField("status", value)}
+          onResetField={(field) => resetField(field)}
+          onResetAll={() => {
+            if (editorActionBusy || !canResetForm) return;
+            setSelectedCoverAsset(null);
+            setCoverPreviewSourceId(null);
+            setCoverError(null);
+            setForm(mobileMetadataFormFromBase(entry));
+          }}
+        />
+      ) : (
+      <>
       <ScrollView
         // Android: inside a native sheet, hand the drag to the sheet at the top.
         nestedScrollEnabled
@@ -1564,6 +1695,8 @@ export function MobileMetadataEditorSheet({
           variant={saveInFlight || saving || uploadingCover || canSave ? "default" : "secondary"}
         />
       </View>
+      </>
+      )}
     </MobileNativeSheetScaffold>
     <MobileConfirmationSheet
       visible={discardConfirm === "asking"}
@@ -1592,6 +1725,12 @@ export function MobileMetadataEditorSheet({
 }
 
 const styles = StyleSheet.create({
+  headerBusy: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   sheet: {
     flex: 1,
     maxHeight: "100%",

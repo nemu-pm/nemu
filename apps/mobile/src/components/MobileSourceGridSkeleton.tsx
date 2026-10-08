@@ -1,4 +1,7 @@
 import { StyleSheet, View } from "react-native";
+import { ExploreShimmerSweep } from "@/components/explore/ExploreShimmerSweep";
+import { useExploreShimmerBackdrop } from "@/components/explore/useExploreShimmerBackdrop";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import Animated from "react-native-reanimated";
 import {
   useSkeletonDisplayDelay,
@@ -30,10 +33,13 @@ export function MobileSourceGridSkeleton({
   accessibilityLabel,
 }: MobileSourceGridSkeletonProps) {
   const { tokens, reduceMotion } = useNemuTheme();
+  const shimmerBackdrop = useExploreShimmerBackdrop();
   // It sits inside the page gutters, so the measured view is the content box.
   // Refs stay out of the layout object read during render.
   const { ref: gridRef, onLayout: onGridLayout, ...grid } = useMobileFoldAwareGrid({ insets: NO_INSETS });
-  const skeletonOpacity = useSkeletonPulse(reduceMotion === true);
+  const pulseOpacity = useSkeletonPulse(reduceMotion === true);
+  // Design-explore: the blocks hold still and one shimmer sweep crosses them.
+  const skeletonOpacity = mobileDesignExploreFlag ? 1 : pulseOpacity;
   const skeletonReady = useSkeletonDisplayDelay(150);
   const skeletonColor = tokens.muted;
 
@@ -46,7 +52,7 @@ export function MobileSourceGridSkeleton({
       collapsable={false}
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="progressbar"
-      style={[styles.grid, { opacity: skeletonOpacity }]}
+      style={[styles.grid, { opacity: skeletonOpacity }, shimmerBackdrop]}
     >
       {Array.from({ length: MOBILE_SOURCE_GRID_SKELETON_ROWS }, (_, row) => (
         <View key={row} style={styles.row}>
@@ -76,6 +82,8 @@ export function MobileSourceGridSkeleton({
           ))}
         </View>
       ))}
+      {/* Design-explore: one shimmer sweep instead of the breathing pulse. */}
+      {mobileDesignExploreFlag ? <ExploreShimmerSweep /> : null}
     </Animated.View>
   );
 }

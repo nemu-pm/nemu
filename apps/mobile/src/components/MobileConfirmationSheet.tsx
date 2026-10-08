@@ -11,6 +11,7 @@ import {
   nemuSheetMetrics,
 } from "@/design-system";
 import { hapticPress } from "@/lib/haptics";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 
 type IoniconName = ComponentProps<typeof Ionicons>["name"];
 
@@ -100,6 +101,14 @@ export function MobileConfirmationSheet({
             {title}
           </Text>
         </View>
+        {subject && mobileDesignExploreFlag ? (
+          <Text
+            numberOfLines={2}
+            style={[styles.subjectHeading, { color: tokens.foreground }]}
+          >
+            {subject}
+          </Text>
+        ) : null}
         <Text
           numberOfLines={3}
           style={[
@@ -111,7 +120,9 @@ export function MobileConfirmationSheet({
           {description}
         </Text>
       </View>
-      {subject ? (
+      {/* Design-explore: the subject is named in the header (above), not in a
+          filled box that reads as a text field. */}
+      {subject && !mobileDesignExploreFlag ? (
         <View style={[styles.subjectPill, { backgroundColor: tokens.muted }]}>
           <Text
             numberOfLines={2}
@@ -178,6 +189,12 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     paddingHorizontal: 12,
     paddingVertical: 8,
+  },
+  subjectHeading: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: nemuFontWeight.medium,
+    textAlign: "center",
   },
   subjectText: {
     fontSize: 13,

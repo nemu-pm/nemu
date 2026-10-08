@@ -13,6 +13,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import Animated, { LayoutAnimationConfig } from "react-native-reanimated";
 import { useMobileLanguageSettings } from "@/data/mobileHooks";
 import {
+  nemuFontWeight,
   nemuText,
   spacing,
   useNemuTheme,
@@ -50,6 +51,9 @@ type EmptyLibraryProps = {
   diagnosticDetailsLabel?: string;
   /** Height to center in instead of the window-derived one (a folded pane). */
   minHeight?: number;
+  /** A quieter second way forward under the main action. */
+  secondaryActionLabel?: string;
+  onSecondaryActionPress?: () => void;
 };
 
 export function EmptyLibrary({
@@ -63,6 +67,8 @@ export function EmptyLibrary({
   diagnostic,
   diagnosticDetailsLabel,
   minHeight,
+  secondaryActionLabel,
+  onSecondaryActionPress,
 }: EmptyLibraryProps) {
   const { tokens } = useNemuTheme();
   const { appLanguage } = useMobileLanguageSettings();
@@ -196,6 +202,20 @@ export function EmptyLibrary({
         onPress={onActionPress}
         variant="default"
       />
+      {secondaryActionLabel && onSecondaryActionPress ? (
+        <NemuPressable
+          accessibilityRole="button"
+          accessibilityLabel={secondaryActionLabel}
+          hapticFeedback="press"
+          pressProfile="row"
+          onPress={onSecondaryActionPress}
+          style={styles.secondaryAction}
+        >
+          <Text style={[nemuText.body, styles.secondaryActionText, { color: tokens.primary }]}>
+            {secondaryActionLabel}
+          </Text>
+        </NemuPressable>
+      ) : null}
     </View>
   );
 
@@ -307,6 +327,15 @@ const styles = StyleSheet.create({
   },
   action: {
     marginTop: NEMU_WEB_EMPTY_LIBRARY_VISUAL.actionMarginTop,
+  },
+  secondaryAction: {
+    marginTop: 6,
+    minHeight: 44,
+    justifyContent: "center",
+    paddingHorizontal: 12,
+  },
+  secondaryActionText: {
+    fontWeight: nemuFontWeight.semibold,
   },
   diagnostic: {
     alignSelf: "stretch",
