@@ -21,16 +21,16 @@ describe("getMobileExploreRowBleed", () => {
     // The away side still bleeds to the screen edge.
     expect(row.frame.marginLeft).toBe(-20);
     expect(row.content.paddingLeft).toBe(20);
-    // The bar side: the frame ends a clean gap short of the bar's column.
-    expect(row.frame.marginRight).toBe(MOBILE_EXPLORE_BAR_SIDE_GAP);
-    expect(row.content.paddingRight).toBe(0);
+    // The bar side: the frame reaches the bar's column, the items rest a clean gap short of it.
+    expect(row.frame.marginRight).toBe(0);
+    expect(row.content.paddingRight).toBe(MOBILE_EXPLORE_BAR_SIDE_GAP);
   });
 
   test("bar on the left: mirrored", () => {
     const gutters = getMobilePageGutters({ left: 84, right: 0 }, 20);
     const row = getMobileExploreRowBleed(getMobilePageBleedStyles(gutters, 0, "left"), "left");
-    expect(row.frame.marginLeft).toBe(MOBILE_EXPLORE_BAR_SIDE_GAP);
-    expect(row.content.paddingLeft).toBe(0);
+    expect(row.frame.marginLeft).toBe(0);
+    expect(row.content.paddingLeft).toBe(MOBILE_EXPLORE_BAR_SIDE_GAP);
     expect(row.frame.marginRight).toBe(-20);
     expect(row.content.paddingRight).toBe(20);
     expect(row.clips).toBe(true);

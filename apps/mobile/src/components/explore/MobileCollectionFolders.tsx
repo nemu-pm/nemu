@@ -30,6 +30,7 @@ import { ExploreGlass } from "./ExploreGlass";
 import { ExploreCoverFallback } from "./ExploreCoverFallback";
 import { MobileExploreCoverPlaceholder } from "./MobileExploreCoverPlaceholder";
 import { useMobileExploreEntryCover } from "./mobileExploreCover";
+import { ExploreRowFade } from "./ExploreRowFade";
 import { useMobileExploreRowBleed } from "./useMobileExploreRowBleed";
 
 const FOLDER_ASPECT = MOBILE_COLLECTION_FOLDER_ASPECT;
@@ -104,7 +105,8 @@ export function MobileCollectionFolders({
       >
         {strings.designExplore.collectionsTitle}
       </NemuText>
-      <View style={[bleed.frame, bleed.clips ? styles.frameClip : null]}>
+      <View style={bleed.frame}>
+        <ExploreRowFade bleed={bleed}>
         <ScrollView
           horizontal
           // Not a status-bar target: iOS scrolls to the top only when exactly one scroll view on screen asks to.
@@ -128,6 +130,7 @@ export function MobileCollectionFolders({
             />
           ))}
         </ScrollView>
+        </ExploreRowFade>
       </View>
     </View>
   );
@@ -297,15 +300,6 @@ const styles = StyleSheet.create({
   // The folders' shadows and the fan's corners reach past the row.
   scroller: {
     overflow: "visible",
-  },
-  // Beside a vertical system bar the row stops at its frame (folders do not
-  // slide under the bar); the padding keeps the fan and the shadows.
-  frameClip: {
-    overflow: "hidden",
-    paddingTop: 12,
-    marginTop: -12,
-    paddingBottom: 12,
-    marginBottom: -12,
   },
   row: {
     gap: FOLDER_GAP,

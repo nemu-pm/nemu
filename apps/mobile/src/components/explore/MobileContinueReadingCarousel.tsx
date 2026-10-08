@@ -61,6 +61,7 @@ import {
   useExploreDissolveHidden,
 } from "./mobileExploreDissolve";
 import { MobileOdometerText } from "./MobileOdometerText";
+import { ExploreRowFade } from "./ExploreRowFade";
 import { useMobileExploreRowBleed } from "./useMobileExploreRowBleed";
 import {
   getMobileCollectionFolderPeek,
@@ -382,8 +383,9 @@ export function MobileContinueReadingCarousel({
       <View
         ref={frameRef}
         onLayout={onFrameLayout}
-        style={[bleed.frame, bleed.clips ? styles.frameClip : null]}
+        style={bleed.frame}
       >
+        <ExploreRowFade bleed={bleed}>
         {cardWidth > 0 ? (
           <Animated.ScrollView
             ref={scrollRef}
@@ -426,6 +428,7 @@ export function MobileContinueReadingCarousel({
         ) : (
           <View style={{ height: 1 }} />
         )}
+        </ExploreRowFade>
       </View>
 
       {restPositions > 1 ? (
@@ -994,16 +997,6 @@ const styles = StyleSheet.create({
   // The card shadows reach past the row; do not clip them.
   scroller: {
     overflow: "visible",
-  },
-  // Beside a vertical system bar the row stops at its frame (cards do not
-  // slide under the bar); the padding keeps the shadows above and below.
-  frameClip: {
-    overflow: "hidden",
-    paddingTop: 24,
-    marginTop: -24,
-    // The active card's glow (12 pt down, 24 pt blur) fades out inside.
-    paddingBottom: 72,
-    marginBottom: -72,
   },
   // Cards in a row share the tallest card's height.
   cardShadow: {

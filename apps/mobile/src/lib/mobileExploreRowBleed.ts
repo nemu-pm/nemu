@@ -2,7 +2,7 @@ import type { MobilePageBleedStyles } from "@/lib/mobilePageGutters";
 
 export type MobileExploreRowBleed = MobilePageBleedStyles & {
   /**
-   * The row must clip what scrolls past its frame: one of its sides is the
+   * The row must fade out what scrolls past its frame: one of its sides is the
    * system's vertical bar column, and nothing may slide under the clock, the
    * toolbar or the tab bar there.
    */
@@ -17,8 +17,9 @@ export const MOBILE_EXPLORE_BAR_SIDE_GAP = 16;
  * folders) from the page's bleed styles. Away from a vertical bar it is the
  * page's own bleed: the row runs to the screen edge and its first item rests
  * on the page gutter. On the bar's side the bar keeps its own clean column:
- * the row's frame ends `MOBILE_EXPLORE_BAR_SIDE_GAP` short of it and clips
- * there, so a peeking card never crowds the controls in that column.
+ * the row's frame reaches it, the items rest `MOBILE_EXPLORE_BAR_SIDE_GAP`
+ * short of it, and what scrolls into that gap fades out (`ExploreRowFade`),
+ * so a peeking card never crowds the controls in that column.
  */
 export function getMobileExploreRowBleed(
   bleed: MobilePageBleedStyles,
@@ -29,12 +30,12 @@ export function getMobileExploreRowBleed(
   const left = verticalBarSide === "left";
   return {
     frame: {
-      marginLeft: left ? gap : bleed.frame.marginLeft,
-      marginRight: left ? bleed.frame.marginRight : gap,
+      marginLeft: left ? 0 : bleed.frame.marginLeft,
+      marginRight: left ? bleed.frame.marginRight : 0,
     },
     content: {
-      paddingLeft: left ? 0 : bleed.content.paddingLeft,
-      paddingRight: left ? bleed.content.paddingRight : 0,
+      paddingLeft: left ? gap : bleed.content.paddingLeft,
+      paddingRight: left ? bleed.content.paddingRight : gap,
     },
     clips: true,
   };
