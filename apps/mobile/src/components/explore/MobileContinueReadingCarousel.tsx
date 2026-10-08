@@ -168,7 +168,7 @@ export function MobileContinueReadingCarousel({
 }: Props) {
   const { scheme, tokens } = useNemuTheme();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
-  const variant = getMobileContinueCardVariant(PREFERRED_CARD, windowHeight);
+  const variant = getMobileContinueCardVariant(PREFERRED_CARD, windowHeight, windowWidth);
   const bleed = useMobileExploreRowBleed();
   const pageGutters = useMobilePageGutters();
   const reducedMotion = useReducedMotion();

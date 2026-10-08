@@ -30,7 +30,7 @@ const CARD_PADDING = 16;
  */
 export function ExploreLibrarySkeleton({ accessibilityLabel }: { accessibilityLabel: string }) {
   const { tokens } = useNemuTheme();
-  const { height: windowHeight } = useWindowDimensions();
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const shimmerBackdrop = useExploreShimmerBackdrop();
   const bleed = useMobileExploreRowBleed();
   const { ref: gridRef, onLayout: onGridLayout, ...grid } = useMobileFoldAwareGrid({ insets: NO_INSETS });
@@ -38,7 +38,7 @@ export function ExploreLibrarySkeleton({ accessibilityLabel }: { accessibilityLa
   const displayReady = useSkeletonDisplayDelay(150);
   if (!displayReady) return null;
 
-  const variant = getMobileContinueCardVariant("tall", windowHeight);
+  const variant = getMobileContinueCardVariant("tall", windowHeight, windowWidth);
   const geometry = getMobileContinueCardGeometry({
     frameWidth,
     gutterLeft: bleed.content.paddingLeft,

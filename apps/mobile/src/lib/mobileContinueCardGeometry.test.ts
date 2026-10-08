@@ -26,19 +26,20 @@ describe("getMobileContinueCardGeometry", () => {
   test("phone: the card starts on the gutter, the next one peeks, with the turn", () => {
     const g = getMobileContinueCardGeometry({ frameWidth: 420, gutterLeft: 20, count: 3 });
     expect(g).toEqual({
-      cardWidth: 360,
-      interval: 372,
-      paddingLeft: 20,
-      paddingRight: 40,
+      cardWidth: 316,
+      interval: 328,
+      paddingLeft: 52,
+      paddingRight: 52,
       columns: 1,
       turns: true,
       foldAligned: false,
     });
-    // The last card can snap onto the gutter too.
+    // Every card can rest centred, the first and last included.
     expect(maxOffset(g, 3, 420)).toBe(2 * g.interval);
+    expect(g.paddingLeft).toBe(g.paddingRight);
   });
 
-  test("phone: a lone card runs gutter to gutter and does not turn", () => {
+  test("phone: a lone card is centred and does not turn", () => {
     expect(getMobileContinueCardGeometry({ frameWidth: 420, gutterLeft: 20, count: 1 })).toMatchObject({
       cardWidth: 380,
       paddingLeft: 20,
@@ -53,20 +54,22 @@ describe("getMobileContinueCardGeometry", () => {
   });
 
   test("Duo outer display: the vertical bar's side keeps its own, narrower gutter", () => {
-    // Closed, bar on the left: the row starts at the safe edge (frame 0…318)
+    // Closed, bar on the left: the row starts at the safe edge (frame 0…360)
     // with an 8 pt lead-in, and bleeds to the screen edge on the right.
-    const g = getMobileContinueCardGeometry({ frameWidth: 318, gutterLeft: 8, gutterRight: 16, count: 4 });
+    const g = getMobileContinueCardGeometry({ frameWidth: 360, gutterLeft: 8, gutterRight: 16, count: 4 });
     expect(g.columns).toBe(1);
     expect(g.turns).toBe(true);
-    expect(g.paddingLeft).toBe(8);
-    expect(g.cardWidth).toBe(318 - 8 - 12 - 28);
-    // Each card can rest on the leading gutter, the last one included.
-    expect(maxOffset(g, 4, 318)).toBeCloseTo(3 * g.interval);
+    // Centred between the gutters (content 336 pt): the card floor, the rest split evenly.
+    expect(g.cardWidth).toBe(280);
+    expect(g.paddingLeft).toBe(8 + (336 - 280) / 2);
+    expect(g.paddingRight).toBe(360 - g.paddingLeft - 280);
+    // Each card can rest centred, the last one included.
+    expect(maxOffset(g, 4, 360)).toBeCloseTo(3 * g.interval);
     // Mirrored (bar on the right): same card, the gutters swap.
-    const mirrored = getMobileContinueCardGeometry({ frameWidth: 318, gutterLeft: 16, gutterRight: 8, count: 4 });
-    expect(mirrored.paddingLeft).toBe(16);
-    expect(mirrored.cardWidth).toBe(318 - 16 - 12 - 28);
-    expect(maxOffset(mirrored, 4, 318)).toBeCloseTo(3 * mirrored.interval);
+    const mirrored = getMobileContinueCardGeometry({ frameWidth: 360, gutterLeft: 16, gutterRight: 8, count: 4 });
+    expect(mirrored.paddingLeft).toBe(16 + (336 - 280) / 2);
+    expect(mirrored.cardWidth).toBe(280);
+    expect(maxOffset(mirrored, 4, 360)).toBeCloseTo(3 * mirrored.interval);
   });
 
   test("Duo inner display, open flat: two whole cards, gutter to gutter", () => {
@@ -172,5 +175,9 @@ describe("getMobileContinueCardGeometry", () => {
     // iPhone landscape, the Duo's outer display, the open Duo in landscape.
     for (const height of [420, 678, 669]) expect(getMobileContinueCardVariant("tall", height)).toBe("wide");
     expect(getMobileContinueCardVariant("wide", 912)).toBe("wide");
+    // A narrow window (the closed Duo's outer display in portrait) takes it from a lower height, a wide one does not.
+    expect(getMobileContinueCardVariant("tall", 678, 466)).toBe("tall");
+    expect(getMobileContinueCardVariant("tall", 466, 678)).toBe("wide");
+    expect(getMobileContinueCardVariant("tall", 669, 951)).toBe("wide");
   });
 });

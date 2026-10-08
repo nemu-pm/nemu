@@ -43,6 +43,13 @@ export const MOBILE_CONTINUE_TALL_CARD = {
   artAspect: 0.66,
   /** Shortest window that takes a tall card: below it (phone landscape, a closed Duo) the wide card fits better. */
   minWindowHeight: 740,
+  /**
+   * A window this narrow shows one card at a time, and the wide card's cover
+   * would squeeze its text: from this height the tall card (text under the
+   * cover, full width) takes it instead, as on a phone.
+   */
+  narrowWindowWidth: 560,
+  narrowMinWindowHeight: 620,
 } as const;
 
 export type MobileContinueCardVariant = "wide" | "tall";
@@ -55,11 +62,18 @@ export type MobileContinueCardVariant = "wide" | "tall";
 export function getMobileContinueCardVariant(
   preferred: MobileContinueCardVariant,
   windowHeight: number,
+  windowWidth = Number.POSITIVE_INFINITY,
 ): MobileContinueCardVariant {
-  return preferred === "tall" && windowHeight >= MOBILE_CONTINUE_TALL_CARD.minWindowHeight
-    ? "tall"
-    : "wide";
+  const { minWindowHeight, narrowWindowWidth, narrowMinWindowHeight } = MOBILE_CONTINUE_TALL_CARD;
+  const fits = windowHeight >= minWindowHeight || (windowWidth <= narrowWindowWidth && windowHeight >= narrowMinWindowHeight);
+  return preferred === "tall" && fits ? "tall" : "wide";
 }
+
+/** How much of each neighbour shows beside a centred card. */
+const SIDE_PEEK = 20;
+
+/** A centred single card never gets narrower than this (unless the window is). */
+const NARROW_CARD_FLOOR = 280;
 
 const NONE: MobileContinueCardGeometry = {
   cardWidth: 0,
@@ -79,8 +93,8 @@ const NONE: MobileContinueCardGeometry = {
  * system's vertical bar holds one edge); `fold` is the active fold in the
  * row's own coordinates, or null.
  *
- * - Narrow (one card fits): the card starts on the page gutter and the next
- *   one peeks past the trailing edge; a lone card runs gutter to gutter.
+ * - Narrow (one card fits): the card is centred between the gutters and its
+ *   neighbours peek on both sides; a lone card is centred too.
  * - Wide (two or more fit): as many whole cards as fit side by side, an even
  *   number when the window has a fold region so folding barely moves them;
  *   a peek of the next card only when more cards follow.
@@ -140,7 +154,12 @@ export function getMobileContinueCardGeometry({
 
   if (columns === 1 && tall) {
     // Centred on the content, so a neighbour peeks on each side.
-    const cardWidth = Math.min(maxWidth, Math.round(frameWidth * MOBILE_CONTINUE_TALL_CARD.share), content);
+    const cardWidth = Math.min(
+      maxWidth,
+      Math.round(frameWidth * MOBILE_CONTINUE_TALL_CARD.share),
+      Math.max(minWidth, content - 2 * (gap + SIDE_PEEK)),
+      content,
+    );
     const paddingLeft = left + (content - cardWidth) / 2;
     return {
       ...NONE,
@@ -153,19 +172,19 @@ export function getMobileContinueCardGeometry({
   }
 
   if (columns === 1) {
-    if (count <= 1) {
-      const cardWidth = Math.min(maxWidth, content);
-      return { ...NONE, cardWidth, interval: cardWidth + gap, paddingLeft: left, paddingRight: right };
-    }
-    const cardWidth = Math.min(maxWidth, frameWidth - left - gap - peek);
+    // One card to a position: centred between the gutters, so a neighbour
+    // peeks on each side (the first and last card too, their missing
+    // neighbour leaving the same room).
+    const roomed = content - 2 * (gap + SIDE_PEEK);
+    const cardWidth = Math.min(maxWidth, content, count <= 1 ? content : Math.max(roomed, Math.min(content, NARROW_CARD_FLOOR)));
+    const paddingLeft = left + (content - cardWidth) / 2;
     return {
       ...NONE,
       cardWidth,
       interval: cardWidth + gap,
-      paddingLeft: left,
-      // Lets the last card snap onto the gutter as well.
-      paddingRight: Math.max(right, frameWidth - left - cardWidth),
-      turns: true,
+      paddingLeft,
+      paddingRight: frameWidth - paddingLeft - cardWidth,
+      turns: count > 1,
     };
   }
 
