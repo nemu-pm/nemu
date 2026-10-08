@@ -29,7 +29,7 @@ export const MOBILE_LIBRARY_OPTIONS_SHEET_METRICS = {
  * margin above its first group (measured on the Air, iOS 27: the first row's
  * centre moves 50 pt up under the bar).
  */
-export const MOBILE_LIBRARY_OPTIONS_TIGHT_TOP_SAVING = 50;
+const MOBILE_LIBRARY_OPTIONS_TIGHT_TOP_SAVING = 50;
 
 export function getMobileLibraryOptionsNativeSheetHeight({
   sections,

@@ -6,8 +6,8 @@ const TRAILING_ITEM = 48;
 const TRAILING_MARGIN = 20;
 const GAP = 8;
 
-export const MOBILE_EXPLORE_BAR_TITLE_MIN_WIDTH = 96;
-export const MOBILE_EXPLORE_BAR_TITLE_MAX_WIDTH = 260;
+const MOBILE_EXPLORE_BAR_TITLE_MIN_WIDTH = 96;
+const MOBILE_EXPLORE_BAR_TITLE_MAX_WIDTH = 260;
 
 /**
  * The widest the bar's title (small cover and title) may be so it stays

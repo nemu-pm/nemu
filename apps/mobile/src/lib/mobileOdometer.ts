@@ -1,16 +1,7 @@
 /**
- * How a short label with a number in it turns over like an odometer
- * (design-explore): "130 new" → "129 new", "Ch.1" → "Ch.2", "99+" → "100".
- *
- * The label's first number is the one that turns. Its digits are lined up by
- * place (ones under ones), and each place spins through every digit between
- * the old and the new value, as a mechanical counter would: 99 → 100 turns
- * the ones and the tens over once and brings a hundreds digit in. A place
- * whose digit did not change still turns if a lower place carried into it
- * (129 → 131: the tens move 2 → 3). Long jumps are capped, so a column never
- * spins for more than about one and a half turns. Text around the number
- * stays put; a label without a number (or whose text around the number
- * changed) has no plan and simply swaps.
+ * A label with a number in it turns over like an odometer ("130 new" to
+ * "131 new"): each changed place spins through the digits between, capped at
+ * a bounded number of steps. Labels without a plan simply swap.
  */
 
 export type MobileOdometerColumn = {
@@ -34,7 +25,7 @@ export type MobileOdometerPlan = {
 };
 
 /** A column turns over at most this many digits (one and a half turns). */
-export const MOBILE_ODOMETER_MAX_STEPS = 15;
+const MOBILE_ODOMETER_MAX_STEPS = 15;
 
 const NUMBER = /\d+/;
 

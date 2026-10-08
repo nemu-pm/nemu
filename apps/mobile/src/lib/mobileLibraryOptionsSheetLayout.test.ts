@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
   MOBILE_LIBRARY_OPTIONS_SHEET_METRICS as M,
-  MOBILE_LIBRARY_OPTIONS_TIGHT_TOP_SAVING,
   getMobileLibraryOptionsNativeSheetHeight,
 } from "./mobileLibraryOptionsSheetLayout";
 
@@ -25,6 +24,6 @@ describe("getMobileLibraryOptionsNativeSheetHeight", () => {
   test("a tight form (rows under the bar) is shorter by the band it drops", () => {
     const loose = getMobileLibraryOptionsNativeSheetHeight({ sections: [1, 1], footerLines: 2, maxHeight: 900 });
     const tight = getMobileLibraryOptionsNativeSheetHeight({ sections: [1, 1], footerLines: 2, maxHeight: 900, tightTop: true });
-    expect(loose - tight).toBe(MOBILE_LIBRARY_OPTIONS_TIGHT_TOP_SAVING);
+    expect(loose - tight).toBe(50);
   });
 });

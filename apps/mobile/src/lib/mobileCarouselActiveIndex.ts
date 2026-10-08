@@ -1,25 +1,17 @@
 /**
- * Which card of a snapping carousel is the active one while it scrolls.
- *
- * The active card is the one nearest its resting place, so it changes the
- * moment the finger carries the row across the midpoint between two cards —
- * not when the scroll settles. A small hysteresis keeps a finger wobbling
- * around a midpoint from switching back and forth: leaving the current card
- * takes a little more than half an interval, so coming back to it needs the
- * row to move back by twice the hysteresis first.
- *
- * Worklets: these run on the UI thread inside the scroll handler.
+ * The active card of a snapping carousel: the one nearest its rest, switching at
+ * the midpoint with a small hysteresis so a wobble does not flicker. Runs on the UI thread.
  */
 
 /** Share of an interval past the midpoint before the active card changes. */
-export const MOBILE_CAROUSEL_SWITCH_HYSTERESIS = 0.08;
+const MOBILE_CAROUSEL_SWITCH_HYSTERESIS = 0.08;
 
 /**
  * The active index for a scroll offset, given the index that is active now.
  * At rest on any snap point the result is that snap point's card, whatever
  * `current` was.
  */
-export function getMobileCarouselActiveIndex(
+function getMobileCarouselActiveIndex(
   offset: number,
   interval: number,
   count: number,

@@ -1,12 +1,6 @@
 /**
- * Cover-derived tints for the design-explore surfaces (continue-reading cards,
- * the Books-style detail hero). Pure colour math:
- * the Skia sampling glue lives in `useMobileCoverTint.ts`.
- *
- * The picker favours the cover's most prominent *chromatic* hue (media apps such
- * as Apple Books tint with the artwork's character colour, not its muddy average),
- * and the palette then clamps lightness/saturation per scheme so a neon cover
- * never shouts and text always clears WCAG AA on the card.
+ * Cover-derived tints for the design-explore surfaces: pure colour math, with the
+ * picker favouring the cover's chromatic hue and WCAG AA text on every card.
  */
 
 export type MobileCoverRgb = { r: number; g: number; b: number };
@@ -338,7 +332,7 @@ function cardColour(source: Hsl, scheme: "light" | "dark", fallback: boolean): C
 }
 
 /** A primary button below this chroma (saturation × distance from the ends) reads as disabled. */
-export const MOBILE_PRIMARY_MIN_CHROMA = 0.3;
+const MOBILE_PRIMARY_MIN_CHROMA = 0.3;
 /**
  * The primary button's fill stands off the page behind it at least this much,
  * per scheme. Light pages are pale and the button saturated, so WCAG 1.4.11's
@@ -346,7 +340,7 @@ export const MOBILE_PRIMARY_MIN_CHROMA = 0.3;
  * button's own hue, where 3:1 still let a salmon button melt into a brown
  * page, so it asks for 4.5:1.
  */
-export const MOBILE_PRIMARY_PAGE_CONTRAST = { light: 3, dark: 4.5 } as const;
+const MOBILE_PRIMARY_PAGE_CONTRAST = { light: 3, dark: 4.5 } as const;
 
 /**
  * Moves the primary's lightness away from the page (darker on a light page,

@@ -13,7 +13,7 @@ type CopyOverrides = {
  * installed-sources caption says what the list is for, not how it is built
  * ("Source packages, runtime settings, and local uninstall").
  */
-export const MOBILE_DESIGN_EXPLORE_COPY: Partial<Record<AppLanguage, CopyOverrides>> = {
+const MOBILE_DESIGN_EXPLORE_COPY: Partial<Record<AppLanguage, CopyOverrides>> = {
   en: {
     library: {
       collectionEmpty: "This collection is empty. Add titles to it.",

@@ -1,7 +1,7 @@
 /** Folders per row on a phone: two whole ones, the third peeking by this much. */
-export const MOBILE_COLLECTION_FOLDER_PEEK = 40;
-export const MOBILE_COLLECTION_FOLDER_MIN_WIDTH = 150;
-export const MOBILE_COLLECTION_FOLDER_MAX_WIDTH = 196;
+const MOBILE_COLLECTION_FOLDER_PEEK = 40;
+const MOBILE_COLLECTION_FOLDER_MIN_WIDTH = 150;
+const MOBILE_COLLECTION_FOLDER_MAX_WIDTH = 196;
 /** Folder height over its width (the pocket is a little wider than tall). */
 export const MOBILE_COLLECTION_FOLDER_ASPECT = 0.8;
 export const MOBILE_COLLECTION_FOLDER_GAP = 12;
@@ -33,7 +33,7 @@ export function getMobileCollectionFolderWidth(contentWidth: number, gap: number
  * names showing in the strip above the tab bar read as cut off. The cut
  * keeps the names behind the bar instead.
  */
-export const MOBILE_COLLECTION_FOLDER_CUT = 56;
+const MOBILE_COLLECTION_FOLDER_CUT = 56;
 
 /**
  * A section heading's height over its row: one 28 pt line at the text size

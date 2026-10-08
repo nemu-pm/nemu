@@ -73,8 +73,8 @@ export function isMobileCoverSizeVariantOf(candidate: string | null | undefined,
 }
 
 /** Fingerprint raster: both covers are stretched to this grid (RGBA, row-major). */
-export const MOBILE_COVER_FINGERPRINT_WIDTH = 12;
-export const MOBILE_COVER_FINGERPRINT_HEIGHT = 18;
+const MOBILE_COVER_FINGERPRINT_WIDTH = 12;
+const MOBILE_COVER_FINGERPRINT_HEIGHT = 18;
 /**
  * Same artwork: luma correlation and mean channel difference on the grid.
  * Measured on the live covers: copies of one picture at two sizes score
@@ -84,7 +84,7 @@ export const MOBILE_COVER_FINGERPRINT_HEIGHT = 18;
 const MOBILE_SAME_COVER_MIN_CORRELATION = 0.8;
 const MOBILE_SAME_COVER_MAX_DIFFERENCE = 20;
 
-export function compareMobileCoverFingerprints(
+function compareMobileCoverFingerprints(
   a: ArrayLike<number>,
   b: ArrayLike<number>,
 ): { correlation: number; difference: number } | null {
@@ -138,7 +138,7 @@ export function isMobileSameCoverArt(
 
 // 2: picks are the same artwork only (version 1 could hold another volume's cover).
 const MOBILE_COVER_PREFERENCE_STORE_VERSION = 2;
-export const MOBILE_COVER_PREFERENCE_STORE_LIMIT = 300;
+const MOBILE_COVER_PREFERENCE_STORE_LIMIT = 300;
 const MAX_VALUE_LENGTH = 2048;
 
 /** Library item id → the cover URL to show (recency-ordered, oldest first). */

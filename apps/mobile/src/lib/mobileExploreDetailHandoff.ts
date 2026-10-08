@@ -14,7 +14,7 @@ type MobileExploreDetailHandoff = {
 };
 
 /** A handoff is for the push that follows the tap, not for a later visit. */
-export const MOBILE_EXPLORE_DETAIL_HANDOFF_TTL_MS = 3000;
+const MOBILE_EXPLORE_DETAIL_HANDOFF_TTL_MS = 3000;
 
 let pending: (MobileExploreDetailHandoff & { at: number }) | null = null;
 
@@ -42,8 +42,4 @@ export function peekMobileExploreDetailHandoff(
   }
   if (!ids.includes(pending.entry.item.libraryItemId)) return null;
   return { entry: pending.entry, cover: pending.cover };
-}
-
-export function clearMobileExploreDetailHandoff(): void {
-  pending = null;
 }

@@ -16,7 +16,7 @@ function designExploreLabels(): boolean {
  * in a book volume 0), not a volume: "Ch.1", not "Vol.0 Ch.1" — the rule the
  * chapter list's volume headers already follow.
  */
-export function getShownChapterVolume(
+function getShownChapterVolume(
   chapter: Pick<ChapterSummary, "volumeNumber" | "chapterNumber">,
   placeholderZero = designExploreLabels(),
 ): number | null {

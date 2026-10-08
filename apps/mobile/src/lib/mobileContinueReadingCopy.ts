@@ -30,7 +30,7 @@ export function formatMobileLastRead(
  * Chapters published after the one being read, when both carry numbers
  * (a missing or non-numeric chapter on either side gives `null`).
  */
-export function getMobileNewChapterCount(
+function getMobileNewChapterCount(
   lastReadNumber: number | undefined,
   latestNumber: number | undefined,
 ): number | null {
