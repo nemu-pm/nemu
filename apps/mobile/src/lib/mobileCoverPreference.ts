@@ -2,10 +2,9 @@
  * A sharper copy of a library title's own cover.
  *
  * A title's cover is whatever its first source reported, and some sources
- * only serve thumbnails (Manhuagui: 132 px wide). A cover is never drawn past
- * `MOBILE_COVER_MAX_UPSCALE` of its pixels, so a thumbnail leaves the card and
- * the hero with a small cover. The design-explore surfaces then look for a
- * larger copy of the *same artwork*:
+ * only serve thumbnails (Manhuagui: 132 px wide). The cards and the hero fill
+ * their slot with whatever cover they have, so a thumbnail looks soft there.
+ * The design-explore surfaces therefore look for a larger copy of the *same artwork*:
  *
  * 1. the size variants the source itself serves for that URL
  *    (`getMobileCoverSizeVariants`: Manhuagui's `cpic/g/`, Niconico's

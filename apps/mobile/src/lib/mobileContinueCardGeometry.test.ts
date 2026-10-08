@@ -1,9 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   getMobileContinueCardGeometry,
-  getMobileCoverDisplayWidth,
   getMobileContinueCardVariant,
-  getMobileContinueSmallCover,
 } from "./mobileContinueCardGeometry";
 
 /** Resting frames [left, right] of every card with the row scrolled to `index`. */
@@ -174,23 +172,5 @@ describe("getMobileContinueCardGeometry", () => {
     // iPhone landscape, the Duo's outer display, the open Duo in landscape.
     for (const height of [420, 678, 669]) expect(getMobileContinueCardVariant("tall", height)).toBe("wide");
     expect(getMobileContinueCardVariant("wide", 912)).toBe("wide");
-  });
-
-  test("a low-resolution cover is never drawn past 1.5× its pixels; a sharp or unknown one fills the slot", () => {
-    // 3× screen: a 300 px wide cover may be 150 pt wide at most.
-    expect(getMobileCoverDisplayWidth(252, 300, 3)).toBe(150);
-    expect(getMobileCoverDisplayWidth(252, 1200, 3)).toBe(252);
-    expect(getMobileCoverDisplayWidth(252, null, 3)).toBe(252);
-    expect(getMobileCoverDisplayWidth(252, 504, 3)).toBe(252);
-  });
-});
-
-describe("tall card with a cover smaller than its window", () => {
-  test("any small cover stands centred at its own size, never as a title card", () => {
-    // Air, a 132 px thumbnail (66 of 252 pt) and a 240 px copy (120 of 252 pt); iPad, 240 px at 2× (180 of 255 pt).
-    expect(getMobileContinueSmallCover({ tall: true, lowRes: true })).toBe("letterbox");
-    // Fills the window, or a wide card (its cover column narrows instead): neither.
-    expect(getMobileContinueSmallCover({ tall: true, lowRes: false })).toBeNull();
-    expect(getMobileContinueSmallCover({ tall: false, lowRes: true })).toBeNull();
   });
 });

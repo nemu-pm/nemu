@@ -32,8 +32,7 @@ import {
 import { buildMobileCoverMeshColors, buildMobileCoverMeshInkSecondary } from "@/lib/mobileCoverMesh";
 import { buildMobileCoverTintPalette } from "@/lib/mobileCoverTint";
 import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
-import { useMobileCoverPixelWidth, useMobileCoverRegionTints, useMobileCoverTint } from "@/lib/useMobileCoverTint";
-import { getMobileCoverDisplayWidth } from "@/lib/mobileContinueCardGeometry";
+import { useMobileCoverRegionTints, useMobileCoverTint } from "@/lib/useMobileCoverTint";
 import { ZoomSource, ZoomTarget } from "../../../modules/nemu-window-layout";
 import { getMobileBooksHeroCoverWidth } from "./mobileExploreCover";
 import { useMobileExploreRestingFrame, useMobileExploreRestingTop } from "./useMobileExploreResting";
@@ -297,12 +296,10 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || contentWidth < PANE_F
     const shrunk = naturalHeight - (blocks[0]!.height - fit.heights.head!);
     return Math.max(COVER_MIN_WIDTH, Math.round(shrunk / 1.5));
   })();
-  // A cover is never drawn past 1.5× its own pixels, in the page and in the
-  // info pane alike. A thumbnail that would be shown well under the hero size
-  // sits beside the title instead of alone in the middle (`compactHead`); the
-  // zoom lands on it there.
-  const coverPixelWidth = useMobileCoverPixelWidth(remoteCover);
-  const shownCoverWidth = getMobileCoverDisplayWidth(coverWidth, coverPixelWidth, PixelRatio.get());
+  // The cover always fills its slot, whatever its pixels (the sharpest same-art
+  // variant is picked upstream); only a short pane's small-cover head (cover
+  // beside the title) comes from the window, never from the cover's pixels.
+  const shownCoverWidth = coverWidth;
   const compactHead = shownCoverWidth < HERO_COMPACT_COVER_BELOW;
   const wide = !pane && contentWidth > WIDE_COLUMN;
   // The first title line ends this far below the hero's top.

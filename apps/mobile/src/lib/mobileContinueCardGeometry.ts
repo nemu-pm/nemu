@@ -185,33 +185,3 @@ export function getMobileContinueCardGeometry({
     columns,
   };
 }
-
-/** A cover is never drawn wider than this multiple of its own pixels. */
-export const MOBILE_COVER_MAX_UPSCALE = 1.5;
-
-/**
- * How wide (pt) a cover can be drawn in a slot `slotWidth` wide without
- * being blown up past `MOBILE_COVER_MAX_UPSCALE` of its pixels on a screen of
- * `pixelRatio`. Unknown size: the slot. A low-resolution cover gets less than
- * the slot, and the rest of the slot is filled with a blur of it instead.
- */
-export function getMobileCoverDisplayWidth(
-  slotWidth: number,
-  pixelWidth: number | null | undefined,
-  pixelRatio: number,
-): number {
-  if (!pixelWidth || !(pixelWidth > 0) || !(pixelRatio > 0)) return slotWidth;
-  return Math.min(slotWidth, Math.round((pixelWidth * MOBILE_COVER_MAX_UPSCALE) / pixelRatio));
-}
-
-/**
- * How a tall card shows a cover that cannot fill its window (it is never
- * drawn past `MOBILE_COVER_MAX_UPSCALE` of its pixels): `letterbox`, centred
- * at its own size near the window's top on a blur of itself, the title under
- * the window as with any cover. Never a title card (the title set inside the
- * window). `null` when the cover fills the window, or the card is wide (its
- * cover column narrows to the cover instead).
- */
-export function getMobileContinueSmallCover({ tall, lowRes }: { tall: boolean; lowRes: boolean }): "letterbox" | null {
-  return tall && lowRes ? "letterbox" : null;
-}

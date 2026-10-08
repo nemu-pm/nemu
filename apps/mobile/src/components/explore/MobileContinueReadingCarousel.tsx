@@ -46,13 +46,11 @@ import { getMobileSourceReaderHref } from "@/lib/mobileSourceRoutes";
 import {
   getMobileContinueCardGeometry,
   getMobileContinueCardVariant,
-  getMobileContinueSmallCover,
-  getMobileCoverDisplayWidth,
   MOBILE_CONTINUE_TALL_CARD,
   type MobileContinueCardVariant,
 } from "@/lib/mobileContinueCardGeometry";
 import { useMobileContainerFold } from "@/lib/useMobileContainerFold";
-import { useMobileCoverPixelWidth, useMobileCoverTint } from "@/lib/useMobileCoverTint";
+import { useMobileCoverTint } from "@/lib/useMobileCoverTint";
 import { ZoomSource } from "../../../modules/nemu-window-layout";
 import { ExploreGradient } from "./ExploreGradient";
 import { ExploreSharperCoverProbe } from "./ExploreSharperCoverProbe";
@@ -117,10 +115,6 @@ const CARD_SIDE_SHIFT =
 const CARD_TEXT_MAX_SCALE = 1.3;
 /** The wide card's spacer between the title and the chapter never closes below this (`copySpacer`). */
 const WIDE_SPACER_MIN = 12;
-/** A small cover's window: its blur, the card-colour veil over it, the cover's inset from the top. */
-const LETTERBOX_BLUR = 28;
-const LETTERBOX_VEIL = 0.32;
-const LETTERBOX_TOP = 14;
 /** How far the cover-colour wash reaches above the section (under the bar). */
 const WASH_OVERSCAN = 320;
 /** The page wash's cross-fade when the active card changes (one short step, never scroll-linked). */
@@ -622,23 +616,14 @@ const ContinueCard = memo(function ContinueCard({
   const windowHeight =
     artHeight ?? (tall ? Math.round(width * MOBILE_CONTINUE_TALL_CARD.artAspect) : coverHeight);
   const dim = NEIGHBOUR_DIM[scheme];
-  // The cover's own pixel width (read from the image cache): a cover is
-  // never drawn past 1.5× its pixels (getMobileCoverDisplayWidth). Keyed by
-  // the cover, so a sharper cover found on another source re-measures.
-  const coverPixelWidth = useMobileCoverPixelWidth(cover);
-  const displayWidth = getMobileCoverDisplayWidth(coverWidth, coverPixelWidth, PixelRatio.get());
-  const lowRes = Boolean(cover) && displayWidth < coverWidth - 2;
-  // The wide card's cover column narrows to the cover instead of blowing it up.
-  const sideCoverWidth = tall ? coverWidth : displayWidth;
+  // Every cover fills its slot edge to edge, whatever its pixels: the sharpest
+  // same-art variant is picked upstream (ExploreSharperCoverProbe), never a
+  // letterboxed thumbnail.
+  const sideCoverWidth = coverWidth;
   // Wide: the cover stands whole unless the row's resting fit gives it less
   // height (a short window); then its foot is trimmed by a window, as in the
   // tall card, never squeezed.
   const sideWindowHeight = Math.min(Math.round(sideCoverWidth * 1.5), artHeight ?? Number.POSITIVE_INFINITY);
-  // Tall card, cover under its window's width: it stands centred at its own
-  // size near the window's top, on a soft blur of itself in the card's
-  // colour, the title under the window as usual (`getMobileContinueSmallCover`).
-  const letterbox = getMobileContinueSmallCover({ tall, lowRes }) === "letterbox" && Boolean(cover);
-
   const cardStyle = useAnimatedStyle(() => {
     if (!turns || interval <= 0) return { transform: [] };
     const position = scrollX.value / interval - index;
@@ -732,48 +717,7 @@ const ContinueCard = memo(function ContinueCard({
     </>
   );
 
-  const coverArt =
-    letterbox && cover ? (
-      // A small cover is never blown up: a soft blur of it fills the window
-      // under a veil of the card's colour, and the cover itself stands
-      // centred near the top at no more than 1.5× its pixels; the zoom
-      // flies from it.
-      <View style={[styles.letterboxWindow, { width: coverWidth, height: windowHeight }]}>
-        <MobileCachedImage
-          uriOwnership="source"
-          cacheKind="cover"
-          source={cover}
-          fadeIn={false}
-          blurRadius={LETTERBOX_BLUR}
-          style={StyleSheet.absoluteFill}
-        />
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: palette.card, opacity: LETTERBOX_VEIL }]} />
-        <ZoomSource
-          zoomId={zoomId}
-          style={[
-            styles.letterboxCover,
-            {
-              width: displayWidth,
-              height: Math.min(Math.round(displayWidth * 1.5), windowHeight - LETTERBOX_TOP),
-              ...createNemuShadowStyle({ color: "rgba(0,0,0,0.5)", offsetY: 6, radius: 14, elevation: 6 }),
-            },
-          ]}
-        >
-          <View style={styles.letterboxClip}>
-            <View style={{ width: displayWidth, height: Math.round(displayWidth * 1.5) }}>
-              <MobileCachedImage
-                uriOwnership="source"
-                cacheKind="cover"
-                source={cover}
-                fadeIn={false}
-                style={styles.coverImage}
-              />
-            </View>
-          </View>
-        </ZoomSource>
-        {progressLine}
-      </View>
-    ) : (
+  const coverArt = (
       <ZoomSource
         zoomId={zoomId}
         style={[
@@ -802,7 +746,7 @@ const ContinueCard = memo(function ContinueCard({
           {progressLine}
         </View>
       </ZoomSource>
-    );
+  );
 
   const newBadge = newChapters ? (
     <View style={[styles.newBadge, { backgroundColor: palette.actionSoft }]}>
@@ -1173,22 +1117,6 @@ const styles = StyleSheet.create({
   coverClip: {
     flex: 1,
     borderRadius: COVER_RADIUS,
-    borderCurve: "continuous",
-    overflow: "hidden",
-  },
-  // Small cover (tall card): centred at its own size near the window's top.
-  letterboxWindow: {
-    overflow: "hidden",
-    alignItems: "center",
-  },
-  letterboxCover: {
-    marginTop: LETTERBOX_TOP,
-    borderRadius: R.cover,
-    borderCurve: "continuous",
-  },
-  letterboxClip: {
-    flex: 1,
-    borderRadius: R.cover,
     borderCurve: "continuous",
     overflow: "hidden",
   },

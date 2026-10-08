@@ -11,7 +11,7 @@ export const MOBILE_EXPLORE_RADIUS = {
   hair: 2,
   /** Small covers: shelf and grid books, bar thumbnails, folder fans. */
   thumb: 4,
-  /** Large covers (the hero and a letterboxed cover). */
+  /** Large covers (the hero). */
   cover: 8,
   /** Rows and cells: chapter rows, the up-next highlight. */
   row: 14,
