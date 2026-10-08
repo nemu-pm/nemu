@@ -108,7 +108,7 @@ export function MobileMangaDetailSplitLayout<ItemT>({
   const barOnSide = Platform.OS === "ios" && mobileDesignExploreFlag && verticalBarSide !== null;
   const exploreTop =
     Platform.OS === "ios" && mobileDesignExploreFlag
-      ? { paddingTop: barOnSide ? insets.top + 12 : 4 }
+      ? { paddingTop: barOnSide ? insets.top + 12 + SIDE_BAR_EDGE_CLEARANCE : 4 }
       : null;
   // The detail screens use a transparent soft-edge navigation bar. Both
   // scroll views must start below it, while still scrolling underneath it.
@@ -222,6 +222,13 @@ export function MobileMangaDetailSplitLayout<ItemT>({
     </LayoutAnimationConfig>
   );
 }
+
+/**
+ * Beside a side rail the panes' top scroll-edge effect (the soft blur under
+ * the bar's buttons) still covers the first points of the page: at rest the
+ * content starts below it and scrolls up into it (pt).
+ */
+const SIDE_BAR_EDGE_CLEARANCE = 62;
 
 /** The empty bar row the system still reserves on iPad (pt). */
 const IPAD_BAR_ROW_PULL = -44;
