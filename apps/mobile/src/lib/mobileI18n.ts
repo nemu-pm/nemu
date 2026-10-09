@@ -1220,6 +1220,16 @@ export type MobileStrings = {
     browseLibraryTitles: string;
     /** Browse: a source holding one library title. */
     browseLibraryTitlesOne: string;
+    filtersMenu: string;
+    filtersMenuCount: string;
+    sortMenu: string;
+    allFilters: string;
+    clearFilters: string;
+    refreshSource: string;
+    coverUpload: string;
+    sourceSectionsLabel: string;
+    seeAll: string;
+    sourceOptions: string;
   };
   /** Settings → About nemu → Open-source licenses. */
   openSourceLicenses: {

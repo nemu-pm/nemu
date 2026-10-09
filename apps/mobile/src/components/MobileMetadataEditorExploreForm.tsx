@@ -172,13 +172,6 @@ export function MobileMetadataEditorExploreForm(props: MobileMetadataEditorExplo
                 </NemuText>
               ) : null}
             </View>
-            <RowGlyph
-              accessibilityLabel={strings.metadataEditor.chooseCoverImage}
-              busy={cover.picking}
-              disabled={busy}
-              icon="image-outline"
-              onPress={cover.onPick}
-            />
             {cover.overridden ? (
               <RowGlyph
                 accessibilityLabel={props.resetFieldLabel(strings.metadataEditor.cover)}
@@ -188,6 +181,29 @@ export function MobileMetadataEditorExploreForm(props: MobileMetadataEditorExplo
               />
             ) : null}
           </View>
+          <Separator />
+          {/* The upload is a labelled row (the web's "Upload cover"), not a bare glyph. */}
+          <NemuPressable
+            accessibilityRole="button"
+            accessibilityLabel={strings.designExplore.coverUpload}
+            accessibilityHint={strings.metadataEditor.chooseCoverImage}
+            accessibilityState={{ busy: cover.picking || undefined, disabled: busy }}
+            disabled={busy || cover.picking}
+            hapticFeedback="press"
+            onPress={cover.onPick}
+            pressHighlight
+            pressedScale={1}
+            style={[styles.row, styles.statusRow, { opacity: busy ? 0.45 : 1 }]}
+          >
+            {cover.picking ? (
+              <ActivityIndicator color={tokens.primary} size="small" />
+            ) : (
+              <Ionicons name="image-outline" size={iconSize.md} color={tokens.primary} />
+            )}
+            <NemuText color={tokens.primary} density="compact" style={styles.rowTitle}>
+              {strings.designExplore.coverUpload}
+            </NemuText>
+          </NemuPressable>
           <Separator />
           <TextRow
             label={strings.metadataEditor.coverUrl}

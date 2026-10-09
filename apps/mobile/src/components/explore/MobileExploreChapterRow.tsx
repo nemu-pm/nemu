@@ -156,9 +156,12 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
                   {strings.designExplore.chapterUpNext}
                 </NemuText>
               ) : presentation.isNew ? (
-                <NemuText maxFontSizeMultiplier={1.3} color={tokens.primary} style={styles.newText}>
-                  {strings.common.new}
-                </NemuText>
+                // Uploaded within the last 7 days and unread: a small tinted badge.
+                <View style={[styles.newBadge, { backgroundColor: tokens.primarySoft }]}>
+                  <NemuText maxFontSizeMultiplier={1.3} color={tokens.primary} style={styles.newBadgeText}>
+                    {strings.common.new}
+                  </NemuText>
+                </View>
               ) : null}
              </View>
             {subtitle ? (
@@ -314,6 +317,17 @@ const styles = StyleSheet.create({
     marginTop: 1,
     fontSize: 13,
     lineHeight: 17,
+  },
+  newBadge: {
+    borderRadius: R.row,
+    paddingHorizontal: 7,
+    paddingVertical: 1,
+  },
+  newBadgeText: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: nemuFontWeight.bold,
+    textTransform: "uppercase",
   },
   newText: {
     fontSize: 12,

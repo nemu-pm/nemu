@@ -5,7 +5,9 @@ import {
   useFocusEffect,
   useLocalSearchParams,
 } from "expo-router";
-import { type FlatList, Platform, type ListRenderItemInfo } from "react-native";
+import { type FlatList, type NativeScrollEvent, type NativeSyntheticEvent, Platform, type ListRenderItemInfo } from "react-native";
+import { useSharedValue, withTiming } from "react-native-reanimated";
+import { getMobileExploreBarTitleShown, MOBILE_EXPLORE_BAR_TITLE_FADE_MS } from "@/lib/mobileExploreBarTitle";
 import { EmptyLibrary } from "@/components/EmptyLibrary";
 import { MobileNemuAgentSheet } from "@/components/MobileNemuAgentSheet";
 import { MobileCollectionMembershipSheet } from "@/components/MobileCollectionMembershipSheet";
@@ -21,6 +23,7 @@ import {
   MobileExploreChapterRow,
   type MobileExploreChapterAction,
 } from "@/components/explore/MobileExploreChapterRow";
+import { MobileExploreBarTitle } from "@/components/explore/MobileExploreBarTitle";
 import { MobileExploreChapterMenu } from "@/components/explore/MobileExploreChapterMenu";
 import {
   buildMobileExploreChapterRows,
@@ -1516,7 +1519,54 @@ export function SourceMangaScreen() {
     onSuccess: retrySourceMangaDetails,
   });
   cloudflareSheetRef.current = cloudflareSheet;
-  const nativeHeaderOptions = createNemuSoftEdgeScreenOptions(tokens, sourceName);
+  // New design: the bar says nothing while the title page's own title is on
+  // screen; once that title has scrolled under the bar the manga's title and
+  // a small cover fade in. In two panes the info pane's scroll decides (the
+  // chapters scrolling beside it never does), so the source's name never
+  // sits over the "Chapters" heading.
+  const [heroInPane, setHeroInPane] = useState(false);
+  const [heroTitleBottom, setHeroTitleBottom] = useState<number | null>(null);
+  const [heroTitleAway, setHeroTitleAway] = useState(false);
+  const barTitleShown = useSharedValue(0);
+  const heroTitleThreshold = heroTitleBottom ?? Number.POSITIVE_INFINITY;
+  const followTitleScroll = useCallback(
+    (y: number) => {
+      setHeroTitleAway((current) => {
+        const past = getMobileExploreBarTitleShown(current, y, heroTitleThreshold);
+        if (past !== current) barTitleShown.value = withTiming(past ? 1 : 0, { duration: MOBILE_EXPLORE_BAR_TITLE_FADE_MS });
+        return past;
+      });
+    },
+    [barTitleShown, heroTitleThreshold],
+  );
+  const onListScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const { contentOffset, contentInset } = event.nativeEvent;
+      if (!heroInPane) followTitleScroll(contentOffset.y + (contentInset?.top ?? 0));
+    },
+    [followTitleScroll, heroInPane],
+  );
+  const onPaneScroll = useCallback(
+    (offsetFromHeroTop: number) => {
+      if (heroInPane) followTitleScroll(offsetFromHeroTop);
+    },
+    [followTitleScroll, heroInPane],
+  );
+  const renderBarTitle = useCallback(
+    () => (
+      <MobileExploreBarTitle
+        title={title}
+        cover={coverImage.source ?? null}
+        trailingItems={0}
+        shown={barTitleShown}
+        hidden={!heroTitleAway}
+      />
+    ),
+    [barTitleShown, coverImage.source, heroTitleAway, title],
+  );
+  const nativeHeaderOptions = mobileDesignExploreFlag
+    ? { ...createNemuSoftEdgeScreenOptions(tokens, sourceName), headerTitle: renderBarTitle }
+    : createNemuSoftEdgeScreenOptions(tokens, sourceName);
   const navigateBack = useCallback(() => {
     const action = getMobileSourceMangaBackAction({
       canGoBack: router.canGoBack(),
@@ -1661,6 +1711,11 @@ export function SourceMangaScreen() {
         }
         windowSize={MOBILE_CHAPTER_LIST_PERFORMANCE.windowSize}
         removeClippedSubviews={Platform.OS === "android"}
+        onScroll={mobileDesignExploreFlag ? onListScroll : undefined}
+        onScrollEndDrag={mobileDesignExploreFlag ? onListScroll : undefined}
+        onMomentumScrollEnd={mobileDesignExploreFlag ? onListScroll : undefined}
+        scrollEventThrottle={mobileDesignExploreFlag ? 64 : undefined}
+        onLeadingScroll={mobileDesignExploreFlag ? onPaneScroll : undefined}
         renderItem={mobileDesignExploreFlag ? renderExploreChapterRow : renderChapterRow}
         listRef={mobileDesignExploreFlag ? chapterListRef : undefined}
         onScrollToIndexFailed={mobileDesignExploreFlag ? onChapterScrollToIndexFailed : undefined}
@@ -1668,6 +1723,8 @@ export function SourceMangaScreen() {
           <>
             <MobileMangaDetailSurface
               readerZoomId={mobileDesignExploreFlag ? `source:${routeRef.sourceId}:${mangaId}` : null}
+              onHeroPaneChange={setHeroInPane}
+              onHeroTitleBottom={setHeroTitleBottom}
               infoTitle={sourceName}
               infoChapters={chapters.length || null}
               infoLatest={chapters[0] ? formatMobileExploreChapterLabel(chapters[0], strings) : null}
@@ -1777,6 +1834,8 @@ export function SourceMangaScreen() {
                 chapters.length > 0 ? (
                   mobileDesignExploreFlag ? (
                     <MobileExploreChapterMenu
+                      sourceName={sourceName}
+                      fallbackCount={chapters.length}
                       appLanguage={appLanguage}
                       languages={chapterLanguages}
                       preference={effectiveChapterListPreference}

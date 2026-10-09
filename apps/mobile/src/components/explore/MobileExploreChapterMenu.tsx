@@ -1,15 +1,12 @@
-import { MenuView } from "@expo/ui/community/menu";
-import { StyleSheet, View } from "react-native";
-import Svg, { Path } from "react-native-svg";
+import type { MenuView } from "@expo/ui/community/menu";
 import type { MobileSourceSelectorItem } from "@/components/MobileSourceSelector";
 import type { AppLanguage } from "@/data/schema";
-import { nemuColorWithAlpha, nemuFontWeight, NemuText, radius, useNemuTheme } from "@/design-system";
 import type { MobileChapterListPreference } from "@/lib/mobileChapterFilters";
 import type { MobileStrings } from "@/lib/mobileI18n";
-import { ExploreGlass } from "./ExploreGlass";
-import { glassViewAvailable } from "../../../modules/nemu-window-layout";
+import { ExploreMenuPill } from "./ExploreMenuPill";
 import { formatMobileLanguageDisplayName } from "@/lib/mobileLanguageSettings";
 import { hapticSelection } from "@/lib/haptics";
+import { getMobileExploreChapterMenuLabel } from "@/lib/mobileExploreChapterMenuLabel";
 
 /**
  * The chapter list's one control, on the "Chapters" line's trailing edge: a
@@ -18,8 +15,10 @@ import { hapticSelection } from "@/lib/haptics";
  * filters and the jump to the next chapter to read.
  */
 export function MobileExploreChapterMenu({
-  appLanguage, languages, preference, strings, unreadCount, onChange, sources, jump, fallbackCount,
+  appLanguage, languages, preference, strings, unreadCount, onChange, sources, jump, fallbackCount, sourceName,
 }: {
+  /** The one source of a list without a source switch (the source's own title page). */
+  sourceName?: string;
   /** The list's length, for the label when no source is named. */
   fallbackCount?: number;
   appLanguage: AppLanguage;
@@ -36,14 +35,15 @@ export function MobileExploreChapterMenu({
   } | null;
   jump: { label: string | null; onPress: () => void } | null;
 }) {
-  const { tokens } = useNemuTheme();
   const selected = sources?.items.find((item) => item.id === sources.selectedId) ?? null;
-  const count = selected?.count ?? fallbackCount;
-  const label = selected
-    ? `${selected.name}${count ? ` · ${count}` : ""}`
-    : preference.sortDirection === "desc"
-      ? strings.sourceBrowse.sortDescending
-      : strings.sourceBrowse.sortAscending;
+  const label = getMobileExploreChapterMenuLabel({
+    selected,
+    sourceName,
+    fallbackCount,
+    sortDirection: preference.sortDirection,
+    sortAscending: strings.sourceBrowse.sortAscending,
+    sortDescending: strings.sourceBrowse.sortDescending,
+  });
   const sourceActions: NonNullable<Parameters<typeof MenuView>[0]["actions"]> = sources && sources.items.length > 1 ? [{
     title: strings.sourceBrowse.source,
     image: "globe" as const,
@@ -66,18 +66,9 @@ export function MobileExploreChapterMenu({
     ...sourceActions,
     ...(jump ? [{ id: "jump", title: jump.label ? `${strings.designExplore.chapterUpNext} · ${jump.label}` : strings.designExplore.chapterUpNext, image: "arrow.down.to.line" as const }] : []),
   ];
-  const content = (
-    <>
-      <NemuText numberOfLines={1} maxFontSizeMultiplier={1.4} color={tokens.foreground} style={styles.label}>
-        {label}
-      </NemuText>
-      <Svg width={10} height={10} viewBox="0 0 10 10">
-        <Path d="M2 3.6 5 6.6l3-3" stroke={tokens.mutedForeground} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" fill="none" />
-      </Svg>
-    </>
-  );
   return (
-    <MenuView
+    <ExploreMenuPill
+      label={label}
       actions={actions}
       onPressAction={({ nativeEvent: { event } }) => {
         void hapticSelection();
@@ -94,39 +85,6 @@ export function MobileExploreChapterMenu({
           onChange({ ...preference, languages: [...next] });
         }
       }}
-      style={styles.menu}
-    >
-      {glassViewAvailable ? (
-        // Liquid Glass, like the bar's circles; it reacts to a press.
-        <ExploreGlass interactive style={styles.glass}>
-          <View accessibilityLabel={label} accessibilityRole="button" style={styles.pill}>
-            {content}
-          </View>
-        </ExploreGlass>
-      ) : (
-        <View
-          accessibilityLabel={label}
-          accessibilityRole="button"
-          style={[styles.pill, { backgroundColor: nemuColorWithAlpha(tokens.foreground, 0.07) }]}
-        >
-          {content}
-        </View>
-      )}
-    </MenuView>
+    />
   );
 }
-
-const styles = StyleSheet.create({
-  glass: { flexShrink: 1 },
-  menu: { flexShrink: 1, maxWidth: "100%" },
-  // The flat fallback (before iOS 26, Android): a quiet pill, no fill-vs-page fight with the buttons.
-  pill: {
-    minHeight: 32,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 12,
-    borderRadius: radius.pill,
-  },
-  label: { flexShrink: 1, fontSize: 13, lineHeight: 18, fontWeight: nemuFontWeight.semibold },
-});

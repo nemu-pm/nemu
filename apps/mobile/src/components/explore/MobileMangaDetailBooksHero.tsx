@@ -43,6 +43,7 @@ import RNCMaskedView from "@react-native-masked-view/masked-view";
 import { MobileCoverMeshBackground } from "./MobileCoverMeshBackground";
 import { ExploreCoverFallback } from "./ExploreCoverFallback";
 import { ExploreDissolveTarget } from "./ExploreDissolveTarget";
+import { ExploreRailFade } from "./ExploreSourceHome";
 import { MobileExploreCoverPlaceholder } from "./MobileExploreCoverPlaceholder";
 import { MobileExploreConfetti } from "./MobileExploreConfetti";
 import { MobileOdometerText } from "./MobileOdometerText";
@@ -481,35 +482,51 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || contentWidth < PANE_F
     );
   }
   // The genres close the page's content; the two-column pane centres them under the synopsis.
+  const tagChips = (
+    <>
+      {badges.map((badge) => (
+        <ExploreGlassChip key={badge.key} label={badge.label} ink={palette.ink} selected={badge.tone === "primary"} />
+      ))}
+      {tagList.slice(0, shownTagCount(tagList.length)).map((tag, index) => (
+        <ExploreGlassChip key={`${index}:${tag}`} label={tag} ink={palette.ink} />
+      ))}
+      {tagList.length > shownTagCount(tagList.length) ? (
+        <ExploreGlassChip
+          label={`+${tagList.length - VISIBLE_TAGS}`}
+          ink={palette.ink}
+          accessibilityLabel={formatMobileString(strings.common.moreTags, {
+            count: tagList.length - VISIBLE_TAGS,
+          })}
+          accessibilityHint={strings.common.tagsSheetHint}
+          onPress={() => setTagSheetOpen(true)}
+        />
+      ) : null}
+    </>
+  );
   const tagsNode =
     badges.length || tagList.length ? (
-        <ScrollView
-          horizontal
-          // Not a status-bar target: iOS scrolls to the top only when exactly one scroll view on screen asks to.
-          scrollsToTop={false}
-          showsHorizontalScrollIndicator={false}
-          style={[pane ? null : bleed.frame, pushStyle("tags")]}
-          onLayout={onTagsLayout}
-          contentContainerStyle={[pane ? null : bleed.content, styles.tags, wide || pane ? styles.tagsCentred : null]}
-        >
-          {badges.map((badge) => (
-            <ExploreGlassChip key={badge.key} label={badge.label} ink={palette.ink} selected={badge.tone === "primary"} />
-          ))}
-          {tagList.slice(0, shownTagCount(tagList.length)).map((tag, index) => (
-            <ExploreGlassChip key={`${index}:${tag}`} label={tag} ink={palette.ink} />
-          ))}
-          {tagList.length > shownTagCount(tagList.length) ? (
-            <ExploreGlassChip
-              label={`+${tagList.length - VISIBLE_TAGS}`}
-              ink={palette.ink}
-              accessibilityLabel={formatMobileString(strings.common.moreTags, {
-                count: tagList.length - VISIBLE_TAGS,
-              })}
-              accessibilityHint={strings.common.tagsSheetHint}
-              onPress={() => setTagSheetOpen(true)}
-            />
-          ) : null}
-        </ScrollView>
+      pane ? (
+        // The two-column pane has the width to wrap them, centred, instead of a
+        // strip whose last chip a hard edge cut in half.
+        <View onLayout={onTagsLayout} style={[styles.tagsWrap, pushStyle("tags")]}>
+          {tagChips}
+        </View>
+      ) : (
+        // A phone's strip runs to the screen edges and dissolves there.
+        <ExploreRailFade style={bleed.frame}>
+          <ScrollView
+            horizontal
+            // Not a status-bar target: iOS scrolls to the top only when exactly one scroll view on screen asks to.
+            scrollsToTop={false}
+            showsHorizontalScrollIndicator={false}
+            style={pushStyle("tags")}
+            onLayout={onTagsLayout}
+            contentContainerStyle={[bleed.content, styles.tags, wide ? styles.tagsCentred : null]}
+          >
+            {tagChips}
+          </ScrollView>
+        </ExploreRailFade>
+      )
     ) : null;
 
   return (
@@ -1116,6 +1133,12 @@ const styles = StyleSheet.create({
     borderRadius: R.thumb,
   },
   tags: {
+    gap: 8,
+  },
+  tagsWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
     gap: 8,
   },
   tagsCentred: {
