@@ -94,6 +94,7 @@ import {
   getMobileSourceWarningAccessibilityLabel,
   getMobileSourceWarningMessages,
   groupMobileSourcesByLanguage,
+  omitMobileBrowseSourcesFromGroups,
   selectMobileBrowseLibrarySources,
   isMobileUnsupportedInstalledSource,
   filterEnabledMobileInstalledSources,
@@ -886,7 +887,8 @@ export function BrowseScreen() {
           exploreKeepSubtitle: true,
         })),
       },
-      ...groupedInstalledSources,
+      // Each source once: the language groups skip what the library group lists.
+      ...omitMobileBrowseSourcesFromGroups(groupedInstalledSources, picked.map(({ source }) => source)),
     ];
   }, [groupedInstalledSources, installedSources, libraryEntries.data, strings]);
 
@@ -1586,8 +1588,9 @@ export function BrowseScreen() {
       disabled: activeInstallKey !== null,
       onPress: openAddSourceSheet,
     },
-    {
-      icon: "square.stack.3d.up",
+    // The new design keeps one "+"; sources are managed from Settings.
+    ...(mobileDesignExploreFlag ? [] : [{
+      icon: "square.stack.3d.up" as const,
       label: strings.browse.manageSources,
       onPress: () => {
         router.push({
@@ -1595,7 +1598,7 @@ export function BrowseScreen() {
           params: { section: "sources" },
         });
       },
-    },
+    }]),
   ];
 
   return (
@@ -1705,7 +1708,7 @@ export function BrowseScreen() {
                     return (
                       <View
                         key={section.label}
-                        style={styles.sourceLanguageSection}
+                        style={[styles.sourceLanguageSection, mobileDesignExploreFlag ? styles.exploreSourceSection : null]}
                       >
                         <Text
                           style={[
@@ -1715,7 +1718,7 @@ export function BrowseScreen() {
                         >
                           {label}
                         </Text>
-                        {mobileDesignExploreFlag && sourceGrid.columns === 1 ? (
+                        {mobileDesignExploreFlag ? (
                           // Design-explore: one inset group per language, short rows.
                           <View
                             style={[
@@ -2086,6 +2089,12 @@ export function BrowseScreen() {
 const EXPLORE_LIBRARY_SECTION = "explore:library";
 
 const styles = StyleSheet.create({
+  exploreSourceSection: {
+    // A wide window (iPad, Duo open) keeps the phone's reading width, centred.
+    width: "100%",
+    maxWidth: 640,
+    alignSelf: "center",
+  },
   exploreSourceGroup: {
     borderRadius: MOBILE_EXPLORE_RADIUS.group,
     borderCurve: "continuous",

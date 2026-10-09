@@ -444,3 +444,18 @@ export function selectMobileBrowseLibrarySources<T extends { registryId: string;
     .slice(0, Math.max(0, limit))
     .map(({ source, titles: count }) => ({ source, titles: count }));
 }
+
+/**
+ * The language groups without the sources the "In your library" group already
+ * lists (each source appears once); a group left empty goes away.
+ */
+export function omitMobileBrowseSourcesFromGroups<
+  S extends { registryId: string; sourceId: string },
+  G extends { sources: readonly S[] },
+>(groups: readonly G[], omitted: readonly { registryId: string; sourceId: string }[]): G[] {
+  if (!omitted.length) return [...groups];
+  const keys = new Set(omitted.map((source) => `${source.registryId}\u0000${source.sourceId}`));
+  return groups
+    .map((group) => ({ ...group, sources: group.sources.filter((source) => !keys.has(`${source.registryId}\u0000${source.sourceId}`)) }))
+    .filter((group) => group.sources.length > 0);
+}

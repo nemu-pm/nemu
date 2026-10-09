@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { selectMobileBrowseLibrarySources } from "./mobileBrowseSources";
+import { omitMobileBrowseSourcesFromGroups, selectMobileBrowseLibrarySources } from "./mobileBrowseSources";
 
 const source = (sourceId: string) => ({ registryId: "r", sourceId });
 const link = (sourceId: string, libraryItemId: string, removed?: boolean) => ({ registryId: "r", sourceId, libraryItemId, removed });
@@ -15,5 +15,20 @@ describe("Browse: the sources the library reads from", () => {
       ["b", 1],
     ]);
     expect(selectMobileBrowseLibrarySources(["a", "b", "c"].map(source), ["a", "b", "c"].map((id) => link(id, id)), 2)).toHaveLength(2);
+  });
+});
+
+
+describe("omitMobileBrowseSourcesFromGroups", () => {
+  const a = { registryId: "r", sourceId: "a" };
+  const b = { registryId: "r", sourceId: "b" };
+  const c = { registryId: "r", sourceId: "c" };
+  test("each source appears once and emptied groups go away", () => {
+    const groups = [{ label: "en", sources: [a, b] }, { label: "ja", sources: [c] }];
+    expect(omitMobileBrowseSourcesFromGroups(groups, [a, c])).toEqual([{ label: "en", sources: [b] }]);
+  });
+  test("nothing omitted keeps the groups", () => {
+    const groups = [{ label: "en", sources: [a] }];
+    expect(omitMobileBrowseSourcesFromGroups(groups, [])).toEqual(groups);
   });
 });
