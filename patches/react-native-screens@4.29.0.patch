@@ -1,7 +1,8 @@
 diff --git a/ios/RNSBarButtonItem.mm b/ios/RNSBarButtonItem.mm
+index c435fdd..bd912c2 100644
 --- a/ios/RNSBarButtonItem.mm
 +++ b/ios/RNSBarButtonItem.mm
-@@ -28,7 +28,19 @@
+@@ -28,7 +28,19 @@ - (instancetype)initWithConfig:(NSDictionary<NSString *, id> *)dict
                         }];
  
    NSString *title = dict[@"title"];
@@ -23,6 +24,7 @@ diff --git a/ios/RNSBarButtonItem.mm b/ios/RNSBarButtonItem.mm
  
      NSDictionary *titleStyle = dict[@"titleStyle"];
 diff --git a/ios/RNSScreen.mm b/ios/RNSScreen.mm
+index 4625688..96b3820 100644
 --- a/ios/RNSScreen.mm
 +++ b/ios/RNSScreen.mm
 @@ -1,4 +1,5 @@
@@ -39,7 +41,7 @@ diff --git a/ios/RNSScreen.mm b/ios/RNSScreen.mm
  #import <React/RCTRootComponentView.h>
  #import <React/RCTScrollViewComponentView.h>
  #import <React/RCTSurfaceTouchHandler.h>
-@@ -48,6 +50,7 @@
+@@ -48,6 +50,7 @@ @interface RNSScreenView () <UIAdaptivePresentationControllerDelegate,
                               UISheetPresentationControllerDelegate,
  #endif
                               RCTRNSScreenViewProtocol,
@@ -47,13 +49,10 @@ diff --git a/ios/RNSScreen.mm b/ios/RNSScreen.mm
                               CAAnimationDelegate>
  @end
  
-@@ -1105,13 +1108,84 @@
- {
-   if ([self shouldOverrideScrollViewContentInsetAdjustmentBehavior]) {
-     [RNSScrollViewHelper overrideScrollViewBehaviorInFirstDescendantChainFrom:self];
-+  }
-+}
-+
+@@ -1132,10 +1135,81 @@ - (void)overrideScrollViewBehaviorInFirstDescendantChainIfNeeded
+   }
+ }
+ 
 +// nemu patch: `scrollEdgeEffects` used to reach only the scroll view found by
 +// walking `subviews[0]` from the screen, once, when the screen was pushed or
 +// its props changed. A page whose ScrollView is not the first subview (any
@@ -88,9 +87,9 @@ diff --git a/ios/RNSScreen.mm b/ios/RNSScreen.mm
 +      continue;
 +    }
 +    RNSCollectContentScrollViews(subview, scrollViews);
-   }
- }
- 
++  }
++}
++
 +- (BOOL)hasCustomScrollEdgeEffects
 +{
 +  return self.topScrollEdgeEffect != RNSScrollEdgeEffectAutomatic ||

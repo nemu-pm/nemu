@@ -182,6 +182,6 @@
     "@expo/cli@58.1.5": "patches/@expo%2Fcli@58.1.5.patch",
     "metro@0.87.1": "patches/metro@0.87.1.patch",
     "@expo/ui@58.0.14": "patches/@expo%2Fui@58.0.14.patch",
-    "react-native-screens@4.28.0": "patches/react-native-screens@4.28.0.patch"
+    "react-native-screens@4.29.0": "patches/react-native-screens@4.29.0.patch"
   }
 }
