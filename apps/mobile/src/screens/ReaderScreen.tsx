@@ -247,6 +247,18 @@ import {
   shouldShowReaderPagePairingControls,
 } from "@/lib/mobileReaderSettings";
 import {
+  clampMobileReaderPan,
+  mobileReaderFitFrame,
+  mobileReaderFitRestingOffset,
+  mobileReaderPanBound,
+  mobileReaderPanClaim,
+  readerFitModeForShape,
+  readerFitRatio,
+  type ReaderFitMode,
+} from "@/lib/mobileReaderFit";
+import { classifyReaderWindowShape } from "@/lib/mobileReaderWindowShape";
+import type { ReaderSpreadMode } from "@/lib/mobileReaderSpreadMode";
+import {
   buildMobileReaderDisplaySpreads,
   findMobileReaderSpreadIndex,
   firstPageIndexForMobileReaderSpread,
@@ -331,7 +343,6 @@ import {
 import {
   MOBILE_READER_DOUBLE_TAP_MAX_DELAY_MS,
   MOBILE_READER_DOUBLE_TAP_ZOOM_SCALE,
-  clampMobileReaderZoomOffset,
   clampMobileReaderZoomScale,
   shouldResetMobileReaderZoom,
 } from "@/lib/mobileReaderZoom";
@@ -725,6 +736,8 @@ function ZoomableReaderImageFrame({
   frameSize,
   onZoomActiveChange,
   pageId,
+  rtl = false,
+  viewport,
   zoomTapBand,
 }: {
   children: ReactNode;
@@ -732,6 +745,16 @@ function ZoomableReaderImageFrame({
   /** Reports whether this page is currently zoomed in past its fit scale. */
   onZoomActiveChange?: (pageId: string, active: boolean) => void;
   pageId: string;
+  /** Right-to-left books start an overflowing page at its right edge. */
+  rtl?: boolean;
+  /**
+   * The window the page sits in, when the page is fitted to it (fit width,
+   * fit height, fill) and so may be larger than it: the page then rests at its
+   * top (and reading-start edge) and pans on the axes it overflows, handing a
+   * drag at the edge back to the gallery's page turn. Omitted: the page is
+   * its own window (the classic fit).
+   */
+  viewport?: { width: number; height: number };
   /**
    * Stage-x span where a double tap may *zoom in*. The page-turn bands act on
    * touch-up, so letting a double tap zoom there would page twice *and* zoom;
@@ -746,6 +769,8 @@ function ZoomableReaderImageFrame({
   const translateY = useSharedValue(0);
   const savedTranslateX = useSharedValue(0);
   const savedTranslateY = useSharedValue(0);
+  const touchStartX = useSharedValue(0);
+  const touchStartY = useSharedValue(0);
   const onZoomActiveChangeRef = useRef(onZoomActiveChange);
 
   useLayoutEffect(() => {
@@ -759,21 +784,42 @@ function ZoomableReaderImageFrame({
     [pageId],
   );
 
+  const frameWidth = frameSize.width;
+  const frameHeight = frameSize.height;
+  const viewportWidth = viewport?.width ?? frameWidth;
+  const viewportHeight = viewport?.height ?? frameHeight;
+  // Where the page rests at its own scale: 0 for a page that fits its window.
+  const rest = useMemo(
+    () =>
+      mobileReaderFitRestingOffset({
+        frame: { width: frameWidth, height: frameHeight },
+        viewport: { width: viewportWidth, height: viewportHeight },
+        rtl,
+      }),
+    [frameHeight, frameWidth, rtl, viewportHeight, viewportWidth],
+  );
+  const restX = rest.x;
+  const restY = rest.y;
+  const panAtRest = restX !== 0 || restY !== 0;
+
   useEffect(() => {
     scale.value = withSpring(1);
     savedScale.value = 1;
-    translateX.value = withSpring(0);
-    translateY.value = withSpring(0);
-    savedTranslateX.value = 0;
-    savedTranslateY.value = 0;
+    translateX.value = withSpring(restX);
+    translateY.value = withSpring(restY);
+    savedTranslateX.value = restX;
+    savedTranslateY.value = restY;
     publishZoomActive(false);
-    // A new frame size (fold / unfold, rotation, spread ⇄ single) resets the
-    // zoom too: the saved scale and offsets were for the old geometry.
+    // A new frame size (fold / unfold, rotation, spread ⇄ single, fit mode)
+    // resets the zoom too: the saved scale and offsets were for the old
+    // geometry.
   }, [
-    frameSize.height,
-    frameSize.width,
+    frameHeight,
+    frameWidth,
     pageId,
     publishZoomActive,
+    restX,
+    restY,
     savedScale,
     savedTranslateX,
     savedTranslateY,
@@ -789,9 +835,6 @@ function ZoomableReaderImageFrame({
       { scale: scale.value },
     ],
   }));
-
-  const frameWidth = frameSize.width;
-  const frameHeight = frameSize.height;
 
   // RNGH re-serializes a gesture's whole config to native whenever the Gesture
   // objects change identity, and every page in the gallery mounts one of these
@@ -812,10 +855,10 @@ function ZoomableReaderImageFrame({
       "worklet";
       scale.value = withSpring(1, springConfig);
       savedScale.value = 1;
-      translateX.value = withSpring(0, springConfig);
-      translateY.value = withSpring(0, springConfig);
-      savedTranslateX.value = 0;
-      savedTranslateY.value = 0;
+      translateX.value = withSpring(restX, springConfig);
+      translateY.value = withSpring(restY, springConfig);
+      savedTranslateX.value = restX;
+      savedTranslateY.value = restY;
       publishZoomActiveFromWorklet(false);
     };
 
@@ -825,14 +868,16 @@ function ZoomableReaderImageFrame({
           savedScale.value * event.scale,
         );
         scale.value = nextScale;
-        translateX.value = clampMobileReaderZoomOffset(
+        translateX.value = clampMobileReaderPan(
           translateX.value,
           frameWidth,
+          viewportWidth,
           nextScale,
         );
-        translateY.value = clampMobileReaderZoomOffset(
+        translateY.value = clampMobileReaderPan(
           translateY.value,
           frameHeight,
+          viewportHeight,
           nextScale,
         );
       })
@@ -845,14 +890,16 @@ function ZoomableReaderImageFrame({
         const nextScale = clampMobileReaderZoomScale(scale.value);
         scale.value = nextScale;
         savedScale.value = nextScale;
-        translateX.value = clampMobileReaderZoomOffset(
+        translateX.value = clampMobileReaderPan(
           translateX.value,
           frameWidth,
+          viewportWidth,
           nextScale,
         );
-        translateY.value = clampMobileReaderZoomOffset(
+        translateY.value = clampMobileReaderPan(
           translateY.value,
           frameHeight,
+          viewportHeight,
           nextScale,
         );
         savedTranslateX.value = translateX.value;
@@ -866,8 +913,16 @@ function ZoomableReaderImageFrame({
       // Single-finger panning is what a zoomed page needs, but at scale 1 that
       // same finger belongs to the gallery's page swipe. Manual activation lets
       // the gesture claim the touch only while zoomed in, and fail immediately
-      // otherwise so the FlatList keeps its swipe.
+      // otherwise so the FlatList keeps its swipe. A fitted page that overflows
+      // its window claims a drag only while it can still move that way.
       .manualActivation(true)
+      .onTouchesDown((event) => {
+        "worklet";
+        const touch = event.allTouches[0];
+        if (!touch) return;
+        touchStartX.value = touch.absoluteX;
+        touchStartY.value = touch.absoluteY;
+      })
       .onTouchesMove((event, stateManager) => {
         "worklet";
         // Two fingers always pan (this is the pinch companion that already
@@ -876,18 +931,35 @@ function ZoomableReaderImageFrame({
           stateManager.activate();
           return;
         }
-        stateManager.fail();
+        if (!panAtRest) {
+          stateManager.fail();
+          return;
+        }
+        const touch = event.allTouches[0];
+        if (!touch) return;
+        const claim = mobileReaderPanClaim({
+          dx: touch.absoluteX - touchStartX.value,
+          dy: touch.absoluteY - touchStartY.value,
+          offsetX: translateX.value,
+          offsetY: translateY.value,
+          boundX: mobileReaderPanBound(frameWidth, viewportWidth, 1),
+          boundY: mobileReaderPanBound(frameHeight, viewportHeight, 1),
+        });
+        if (claim === "claim") stateManager.activate();
+        else if (claim === "yield") stateManager.fail();
       })
       .onUpdate((event) => {
-        if (scale.value <= 1) return;
-        translateX.value = clampMobileReaderZoomOffset(
+        if (scale.value <= 1 && !panAtRest) return;
+        translateX.value = clampMobileReaderPan(
           savedTranslateX.value + event.translationX,
           frameWidth,
+          viewportWidth,
           scale.value,
         );
-        translateY.value = clampMobileReaderZoomOffset(
+        translateY.value = clampMobileReaderPan(
           savedTranslateY.value + event.translationY,
           frameHeight,
+          viewportHeight,
           scale.value,
         );
       })
@@ -914,14 +986,16 @@ function ZoomableReaderImageFrame({
             return;
           }
           const nextScale = MOBILE_READER_DOUBLE_TAP_ZOOM_SCALE;
-          const nextTranslateX = clampMobileReaderZoomOffset(
-            (frameWidth / 2 - event.x) * (nextScale - 1),
+          const nextTranslateX = clampMobileReaderPan(
+            restX + (frameWidth / 2 - event.x) * (nextScale - 1),
             frameWidth,
+            viewportWidth,
             nextScale,
           );
-          const nextTranslateY = clampMobileReaderZoomOffset(
-            (frameHeight / 2 - event.y) * (nextScale - 1),
+          const nextTranslateY = clampMobileReaderPan(
+            restY + (frameHeight / 2 - event.y) * (nextScale - 1),
             frameHeight,
+            viewportHeight,
             nextScale,
           );
           scale.value = withSpring(nextScale, springConfig);
@@ -941,13 +1015,20 @@ function ZoomableReaderImageFrame({
   }, [
     frameHeight,
     frameWidth,
+    panAtRest,
     publishZoomActive,
+    restX,
+    restY,
     savedScale,
     savedTranslateX,
     savedTranslateY,
     scale,
+    touchStartX,
+    touchStartY,
     translateX,
     translateY,
+    viewportHeight,
+    viewportWidth,
     zoomTapBand,
   ]);
 
@@ -1013,8 +1094,6 @@ export function ReaderScreen() {
     setMode,
     scrollWidthPct,
     setScrollWidthPct,
-    twoPageMode,
-    setTwoPageMode,
     pagePairingMode,
     setPagePairingMode,
     processPageImages,
@@ -1028,6 +1107,10 @@ export function ReaderScreen() {
     setLockPortrait: setReaderLockPortrait,
     notebookPane: readerNotebookPanePreference,
     setNotebookPane: setReaderNotebookPanePreference,
+    spreadMode: readerSpreadMode,
+    setSpreadMode: setReaderSpreadMode,
+    fitModes: readerFitModes,
+    setFitMode: setReaderFitMode,
   } = useReaderDisplayPrefs();
   const readerConnectivity = useMobileConnectivity();
   const readerPlugins = useMobileReaderPlugins();
@@ -2060,13 +2143,14 @@ export function ReaderScreen() {
     override: readerNotebookPaneOverride,
   });
   const buildReaderPose = useCallback(
-    (actionCount: number, twoPage: boolean) =>
+    (actionCount: number, spreadMode: ReaderSpreadMode) =>
       mobileReaderPoseLayout({
         layout: readerWindowLayout,
         fallbackInsets: insets,
         paged: galleryPagedMode,
         pageCount,
-        twoPage,
+        twoPage: spreadMode === "double",
+        spreadMode,
         rtl: mode === "rtl",
         notebookPane: readerNotebookPane,
         actionCount,
@@ -2085,8 +2169,8 @@ export function ReaderScreen() {
   // The action count only moves the capsule chrome, never the stage, so the
   // pose without the bilingual toggle decides whether the toggle shows.
   const readerBasePose = useMemo(
-    () => buildReaderPose(readerBaseActionSlots, twoPageMode),
-    [buildReaderPose, readerBaseActionSlots, twoPageMode],
+    () => buildReaderPose(readerBaseActionSlots, readerSpreadMode),
+    [buildReaderPose, readerBaseActionSlots, readerSpreadMode],
   );
   const setReaderNotebookPaneFromSettings = useCallback(
     (value: typeof readerNotebookPanePreference) => {
@@ -2107,7 +2191,7 @@ export function ReaderScreen() {
     () =>
       readerBasePose.spread || !dualReaderConfigured
         ? readerBasePose
-        : buildReaderPose(readerBaseActionSlots, true),
+        : buildReaderPose(readerBaseActionSlots, "double"),
     [buildReaderPose, dualReaderConfigured, readerBaseActionSlots, readerBasePose],
   );
   const bilingualEligibility = useMemo(
@@ -2132,8 +2216,8 @@ export function ReaderScreen() {
     () =>
       readerActionSlots === readerBaseActionSlots
         ? readerBasePose
-        : buildReaderPose(readerActionSlots, twoPageMode),
-    [buildReaderPose, readerActionSlots, readerBaseActionSlots, readerBasePose, twoPageMode],
+        : buildReaderPose(readerActionSlots, readerSpreadMode),
+    [buildReaderPose, readerActionSlots, readerBaseActionSlots, readerBasePose, readerSpreadMode],
   );
   const bilingualSpreadPose = useMemo(
     () =>
@@ -2141,7 +2225,7 @@ export function ReaderScreen() {
         ? readerPose
         : readerActionSlots === readerBaseActionSlots
           ? bilingualBaseSpreadPose
-          : buildReaderPose(readerActionSlots, true),
+          : buildReaderPose(readerActionSlots, "double"),
     [
       bilingualBaseSpreadPose,
       buildReaderPose,
@@ -2179,6 +2263,29 @@ export function ReaderScreen() {
   // and whether one is shown right now.
   const twoPageSupported = readerPose.twoPageAvailable;
   const isTwoPageMode = !bilingualOverrides && readerPose.spread && pageCount > 1;
+  // Page fit is remembered per window shape (narrow, wide, large), judged by
+  // the rectangle the page sits in — the pane in the notebook pose, the whole
+  // window across a fold — never by orientation or idiom. Spreads, the
+  // bilingual book and long strips are always fitted whole.
+  const readerWindowShape = classifyReaderWindowShape(readerStage);
+  const readerFitSetting = readerFitModeForShape(readerFitModes, readerWindowShape);
+  const readerFitMode: ReaderFitMode =
+    galleryPagedMode && !isTwoPageMode && !bilingualOverrides ? readerFitSetting : "page";
+  const readerPageLayoutVisible = galleryPagedMode && pageCount > 0;
+  const setReaderSpreadModeFromSettings = useCallback(
+    (value: ReaderSpreadMode) => {
+      if (value === readerSpreadMode || readerSettingsActionBusy) return;
+      void runReaderSettingsAction("two-page-mode", () => setReaderSpreadMode(value));
+    },
+    [readerSettingsActionBusy, readerSpreadMode, runReaderSettingsAction, setReaderSpreadMode],
+  );
+  const setReaderFitModeFromSettings = useCallback(
+    (value: ReaderFitMode) => {
+      if (value === readerFitSetting || readerSettingsActionBusy) return;
+      void runReaderSettingsAction("page-fit", () => setReaderFitMode(readerWindowShape, value));
+    },
+    [readerFitSetting, readerSettingsActionBusy, readerWindowShape, runReaderSettingsAction, setReaderFitMode],
+  );
   const showPagePairingControls = shouldShowReaderPagePairingControls({
     twoPageSupported,
     twoPageEnabled: isTwoPageMode,
@@ -6106,8 +6213,21 @@ export function ReaderScreen() {
     // are relative to virtualized cells and cannot identify the visible page.
   };
 
+  // The window a fitted page is measured against (fit width / height / fill).
+  const readerFitViewport = useMemo(
+    () => ({ width: readerSafeContentWidth, height: readerMaxPagedImageHeight }),
+    [readerMaxPagedImageHeight, readerSafeContentWidth],
+  );
   const getReaderImageFrameSize = useCallback(
     (page: MobileReaderPage): MobileImageSize => {
+      if (galleryPagedMode && readerFitMode !== "page") {
+        const fitted = mobileReaderFitFrame({
+          mode: readerFitMode,
+          viewport: readerFitViewport,
+          ratio: readerFitRatio(readerImageSizes.get(readerPageIdentityFor(page))),
+        });
+        return { width: fitted.width, height: fitted.height };
+      }
       if (galleryPagedMode && isTwoPageMode) {
         return getMobileReaderSpreadImageFrameSize({
           availableWidth: readerImageWidth,
@@ -6125,6 +6245,8 @@ export function ReaderScreen() {
     [
       galleryPagedMode,
       isTwoPageMode,
+      readerFitMode,
+      readerFitViewport,
       readerImageSizes,
       readerImageWidth,
       readerMaxPagedImageHeight,
@@ -6488,6 +6610,8 @@ export function ReaderScreen() {
           // Remounting on retry is what re-issues the image request.
           key={`${pageIdentity}:${retryNonce}`}
           frameSize={readerImageFrameSize}
+          viewport={readerFitMode === "page" ? undefined : readerFitViewport}
+          rtl={mode === "rtl"}
           onZoomActiveChange={handleReaderPageZoomActiveChange}
           pageId={page.id}
           zoomTapBand={readerZoomTapBand}
@@ -6507,6 +6631,8 @@ export function ReaderScreen() {
       galleryPagedMode,
       getReaderImageFrameSize,
       handleReaderPageZoomActiveChange,
+      readerFitMode,
+      readerFitViewport,
       japaneseLearningOverlayDetections,
       japaneseLearningSelectedDetectionOrder,
       measureReaderFirstContent,
@@ -8216,6 +8342,7 @@ export function ReaderScreen() {
         tapGesturesEnabled={!readerStageTapOwned}
         visiblePageLoading={readerVisiblePageLoading}
         pagedMode={galleryPagedMode}
+        fitClip={readerFitMode !== "page"}
         pageTurnAccessibilityEnabled={
           pagedMode ||
           (!galleryPagedMode &&
@@ -8388,7 +8515,7 @@ export function ReaderScreen() {
           mode={mode}
           activeScrollWidthPct={activeScrollWidthPct}
           isTwoPageMode={isTwoPageMode}
-          twoPageSupported={twoPageSupported}
+          twoPageSupported={readerPageLayoutVisible}
           showPagePairingControls={showPagePairingControls}
           pagePairingMode={pagePairingMode}
           processPageImages={processPageImages}
@@ -8433,12 +8560,11 @@ export function ReaderScreen() {
             if (nextMode === mode || readerSettingsActionBusy) return;
             void runReaderSettingsAction("reading-mode", () => setMode(nextMode));
           }}
-          onToggleTwoPageMode={() => {
-            if (readerSettingsActionBusy) return;
-            void runReaderSettingsAction("two-page-mode", () =>
-              setTwoPageMode(!twoPageMode),
-            );
-          }}
+          spreadMode={readerSpreadMode}
+          onSetSpreadMode={setReaderSpreadModeFromSettings}
+          fitMode={readerFitSetting}
+          windowShape={readerWindowShape}
+          onSetFitMode={setReaderFitModeFromSettings}
           onTogglePagePairingMode={() => {
             if (readerSettingsActionBusy) return;
             void runReaderSettingsAction("page-pairing-mode", () =>
@@ -8475,7 +8601,7 @@ export function ReaderScreen() {
           mode={mode}
           activeScrollWidthPct={activeScrollWidthPct}
           isTwoPageMode={isTwoPageMode}
-          twoPageSupported={twoPageSupported}
+          twoPageSupported={readerPageLayoutVisible}
           showPagePairingControls={showPagePairingControls}
           pagePairingMode={pagePairingMode}
           processPageImages={processPageImages}
@@ -8509,12 +8635,11 @@ export function ReaderScreen() {
             if (nextMode === mode || readerSettingsActionBusy) return;
             void runReaderSettingsAction("reading-mode", () => setMode(nextMode));
           }}
-          onToggleTwoPageMode={() => {
-            if (readerSettingsActionBusy) return;
-            void runReaderSettingsAction("two-page-mode", () =>
-              setTwoPageMode(!twoPageMode),
-            );
-          }}
+          spreadMode={readerSpreadMode}
+          onSetSpreadMode={setReaderSpreadModeFromSettings}
+          fitMode={readerFitSetting}
+          windowShape={readerWindowShape}
+          onSetFitMode={setReaderFitModeFromSettings}
           onTogglePagePairingMode={() => {
             if (readerSettingsActionBusy) return;
             void runReaderSettingsAction("page-pairing-mode", () =>

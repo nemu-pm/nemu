@@ -26,9 +26,9 @@ const resolve = (overrides: Partial<Parameters<typeof resolveMobileReaderNoteboo
   });
 
 describe("notebook pane: which state", () => {
-  test("automatic is the trackpad", () => {
-    expect(resolve()).toBe("trackpad");
-    expect(mobileReaderNotebookPaneBase("automatic")).toBe("trackpad");
+  test("automatic is the controls console: the lower half carries the reading controls", () => {
+    expect(resolve()).toBe("filmstrip");
+    expect(mobileReaderNotebookPaneBase("automatic")).toBe("filmstrip");
   });
 
   test("explicit preferences win in paged mode", () => {

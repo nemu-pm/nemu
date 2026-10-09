@@ -174,6 +174,12 @@ type MobileReaderGalleryProps = {
    * so its edge bands stop turning pages and its double tap resets the zoom.
    */
   pageZoomActive?: boolean;
+  /**
+   * Pages are fitted to the window (fit width / height / fill) and may be
+   * larger than it: each page cell is exactly the stage's height and clips
+   * its page, so an oversized page never paints over its neighbours.
+   */
+  fitClip?: boolean;
   /** Prevents modal/sheet taps from reaching the reader's page-turn zones. */
   tapGesturesEnabled?: boolean;
   /** A page on screen is still loading: tap zones don't turn the page yet. */
@@ -296,6 +302,7 @@ export function MobileReaderGallery({
   chromeDismissing = false,
   onRevealChrome,
   pageZoomActive = false,
+  fitClip = false,
   tapGesturesEnabled = true,
   visiblePageLoading = false,
   pagedMode,
@@ -1368,10 +1375,12 @@ export function MobileReaderGallery({
           style={[
             pagedMode ? styles.pagedFrame : styles.scrollingFrame,
             pagedMode
-              ? {
-                  width: readerPageWidth,
-                  minHeight: windowHeight,
-                }
+              ? fitClip
+                ? { width: readerPageWidth, height: windowHeight, overflow: "hidden" as const }
+                : {
+                    width: readerPageWidth,
+                    minHeight: windowHeight,
+                  }
               : { width: "100%" },
           ]}
         >
@@ -1402,6 +1411,7 @@ export function MobileReaderGallery({
       foldGap,
       pageNaturalSize,
       pageZoomActive,
+      fitClip,
       mode,
       onScrollingPageLayout,
       pagedMode,

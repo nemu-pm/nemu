@@ -38,6 +38,17 @@ import { ReaderReadingModePicker } from "./ReaderReadingModePicker";
 import { ReaderSegmentedChipRow } from "./ReaderSegmentedChipRow";
 import { notebookPaneLabel } from "./readerNotebookPaneOptions";
 import {
+  READER_FIT_MODE_ORDER,
+  READER_SPREAD_MODE_ORDER,
+  readerFitModeLabel,
+  readerSpreadModeLabel,
+  readerWindowShapeLabel,
+} from "./readerPageOptions";
+import { formatMobileString } from "@/lib/mobileI18n";
+import type { ReaderFitMode } from "@/lib/mobileReaderFit";
+import type { ReaderSpreadMode } from "@/lib/mobileReaderSpreadMode";
+import type { ReaderWindowShape } from "@/lib/mobileReaderWindowShape";
+import {
   MOBILE_READER_NOTEBOOK_PANE_PREFERENCES,
   type MobileReaderNotebookPanePreference,
 } from "@/lib/mobileReaderNotebookPane";
@@ -49,7 +60,13 @@ type ReaderDisplaySettingsPopoverProps = {
   mode: ReadingMode;
   activeScrollWidthPct: number;
   isTwoPageMode: boolean;
+  /** Paged reading: the page layout and page fit choices apply (not scroll / long strip). */
   twoPageSupported: boolean;
+  spreadMode: ReaderSpreadMode;
+  onSetSpreadMode: (mode: ReaderSpreadMode) => void;
+  fitMode: ReaderFitMode;
+  windowShape: ReaderWindowShape;
+  onSetFitMode: (mode: ReaderFitMode) => void;
   showPagePairingControls: boolean;
   pagePairingMode: ReaderPagePairingMode;
   processPageImages: boolean;
@@ -60,7 +77,6 @@ type ReaderDisplaySettingsPopoverProps = {
   onClose: () => void;
   onDismissComplete?: () => void;
   onSetMode: (mode: ReadingMode) => void;
-  onToggleTwoPageMode: () => void;
   onTogglePagePairingMode: () => void;
   onToggleProcessPageImages: () => void;
   onPreviewScrollWidth: (value: number) => void;
@@ -157,6 +173,11 @@ export function ReaderDisplaySettingsPopover({
   activeScrollWidthPct,
   isTwoPageMode,
   twoPageSupported,
+  spreadMode,
+  onSetSpreadMode,
+  fitMode,
+  windowShape,
+  onSetFitMode,
   showPagePairingControls,
   pagePairingMode,
   processPageImages,
@@ -167,7 +188,6 @@ export function ReaderDisplaySettingsPopover({
   onClose,
   onDismissComplete,
   onSetMode,
-  onToggleTwoPageMode,
   onTogglePagePairingMode,
   onToggleProcessPageImages,
   onPreviewScrollWidth,
@@ -329,45 +349,76 @@ export function ReaderDisplaySettingsPopover({
           />
 
           {twoPageSupported ? (
-            <ReaderSettingRow
-              icon="book-outline"
-              title={strings.reader.twoPageView}
-              description={strings.reader.spread}
-              control={
-                <NemuNativeSwitch
-                  accessibilityLabel={strings.reader.twoPageView}
-                  disabled={busy}
-                  value={isTwoPageMode}
-                  onValueChange={onToggleTwoPageMode}
-                />
-              }
-              below={
-                showPagePairingControls ? (
+            <>
+              <ReaderSettingRow
+                icon="book-outline"
+                title={strings.reader.pageLayout}
+                description={isTwoPageMode ? strings.reader.spread : undefined}
+                below={
                   <View style={styles.settingControlBlock}>
-                    <ReaderSegmentedChipRow<ReaderPagePairingMode>
+                    <ReaderSegmentedChipRow<ReaderSpreadMode>
+                      accessibilityLabel={strings.reader.pageLayout}
                       disabled={busy}
                       onChange={(next) => {
-                        if (next === pagePairingMode) return;
-                        onTogglePagePairingMode();
+                        if (next === spreadMode) return;
+                        onSetSpreadMode(next);
                       }}
-                      options={[
-                        {
-                          value: "book",
-                          label: strings.reader.pairingCoverPaired,
-                          accessibilityLabel: strings.reader.bookPairing,
-                        },
-                        {
-                          value: "manga",
-                          label: strings.reader.pairingCoverAlone,
-                          accessibilityLabel: strings.reader.mangaPairing,
-                        },
-                      ]}
-                      value={pagePairingMode}
+                      options={READER_SPREAD_MODE_ORDER.map((option) => ({
+                        value: option,
+                        label: readerSpreadModeLabel(option, strings),
+                      }))}
+                      value={spreadMode}
+                    />
+                    {showPagePairingControls ? (
+                      <ReaderSegmentedChipRow<ReaderPagePairingMode>
+                        disabled={busy}
+                        onChange={(next) => {
+                          if (next === pagePairingMode) return;
+                          onTogglePagePairingMode();
+                        }}
+                        options={[
+                          {
+                            value: "book",
+                            label: strings.reader.pairingCoverPaired,
+                            accessibilityLabel: strings.reader.bookPairing,
+                          },
+                          {
+                            value: "manga",
+                            label: strings.reader.pairingCoverAlone,
+                            accessibilityLabel: strings.reader.mangaPairing,
+                          },
+                        ]}
+                        value={pagePairingMode}
+                      />
+                    ) : null}
+                  </View>
+                }
+              />
+              <ReaderSettingRow
+                icon="scan-outline"
+                title={strings.reader.pageFit}
+                description={formatMobileString(strings.reader.pageFitFootnote, {
+                  shape: readerWindowShapeLabel(windowShape, strings),
+                })}
+                below={
+                  <View style={styles.settingControlBlock}>
+                    <ReaderSegmentedChipRow<ReaderFitMode>
+                      accessibilityLabel={strings.reader.pageFit}
+                      disabled={busy}
+                      onChange={(next) => {
+                        if (next === fitMode) return;
+                        onSetFitMode(next);
+                      }}
+                      options={READER_FIT_MODE_ORDER.map((option) => ({
+                        value: option,
+                        label: readerFitModeLabel(option, strings),
+                      }))}
+                      value={fitMode}
                     />
                   </View>
-                ) : null
-              }
-            />
+                }
+              />
+            </>
           ) : null}
 
           <ReaderSettingRow

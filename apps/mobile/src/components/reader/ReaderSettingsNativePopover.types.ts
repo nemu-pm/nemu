@@ -1,4 +1,7 @@
 import type { ReadingMode } from "@/data/schema";
+import type { ReaderFitMode } from "@/lib/mobileReaderFit";
+import type { ReaderSpreadMode } from "@/lib/mobileReaderSpreadMode";
+import type { ReaderWindowShape } from "@/lib/mobileReaderWindowShape";
 import type { MobileStrings } from "@/lib/mobileI18n";
 import type { MobileReaderNotebookPanePreference } from "@/lib/mobileReaderNotebookPane";
 import type { WindowLayoutRect } from "@/lib/mobileWindowLayout";
@@ -14,7 +17,15 @@ export type ReaderSettingsNativePopoverProps = {
   mode: ReadingMode;
   activeScrollWidthPct: number;
   isTwoPageMode: boolean;
+  /** Paged reading: the page layout and page fit choices apply (not scroll / long strip). */
   twoPageSupported: boolean;
+  /** The saved single / double / auto choice (not whether a spread shows right now: `isTwoPageMode`). */
+  spreadMode: ReaderSpreadMode;
+  onSetSpreadMode: (mode: ReaderSpreadMode) => void;
+  /** Page fit remembered for the window shape the pages sit in now. */
+  fitMode: ReaderFitMode;
+  windowShape: ReaderWindowShape;
+  onSetFitMode: (mode: ReaderFitMode) => void;
   showPagePairingControls: boolean;
   pagePairingMode: "book" | "manga";
   processPageImages: boolean;
@@ -25,7 +36,6 @@ export type ReaderSettingsNativePopoverProps = {
   onClose: () => void;
   onDismissComplete?: () => void;
   onSetMode: (mode: ReadingMode) => void;
-  onToggleTwoPageMode: () => void;
   onTogglePagePairingMode: () => void;
   onToggleProcessPageImages: () => void;
   onPreviewScrollWidth: (value: number) => void;

@@ -63,6 +63,14 @@ import {
   MOBILE_READER_NOTEBOOK_PANE_PREFERENCES,
 } from "@/lib/mobileReaderNotebookPane";
 import { notebookPaneLabel } from "./readerNotebookPaneOptions";
+import {
+  READER_FIT_MODE_ORDER,
+  READER_SPREAD_MODE_ORDER,
+  readerFitModeLabel,
+  readerSpreadModeLabel,
+} from "./readerPageOptions";
+import { isReaderFitMode } from "@/lib/mobileReaderFit";
+import { isReaderSpreadMode } from "@/lib/mobileReaderSpreadMode";
 import { READER_READING_MODE_ORDER, isReaderReadingMode } from "./readerReadingModeOptions";
 import type { ReaderSettingsNativePopoverProps } from "./ReaderSettingsNativePopover.types";
 
@@ -83,6 +91,10 @@ export function ReaderSettingsNativePopover({
   activeScrollWidthPct,
   isTwoPageMode,
   twoPageSupported,
+  spreadMode,
+  onSetSpreadMode,
+  fitMode,
+  onSetFitMode,
   showPagePairingControls,
   pagePairingMode,
   processPageImages,
@@ -93,7 +105,6 @@ export function ReaderSettingsNativePopover({
   onClose,
   onDismissComplete,
   onSetMode,
-  onToggleTwoPageMode,
   onTogglePagePairingMode,
   onToggleProcessPageImages,
   onPreviewScrollWidth,
@@ -205,29 +216,59 @@ export function ReaderSettingsNativePopover({
           </SwiftPicker>
         </SwiftSection>
         {twoPageSupported ? (
-        <SwiftSection>
-            <SwiftToggle
-              label={strings.reader.twoPageView}
-              systemImage="book"
-              isOn={isTwoPageMode}
-              onIsOnChange={() => onToggleTwoPageMode()}
-              modifiers={busyModifiers}
-            />
-          {showPagePairingControls ? (
+          <SwiftSection>
             <SwiftPicker
-              modifiers={[pickerStyle("segmented"), labelsHidden(), ...busyModifiers]}
-              selection={pagePairingMode}
+              modifiers={[
+                pickerStyle("segmented"),
+                labelsHidden(),
+                swiftAccessibilityLabel(strings.reader.pageLayout),
+                ...busyModifiers,
+              ]}
+              selection={spreadMode}
               onSelectionChange={(selection) => {
-                if (busy || selection === pagePairingMode) return;
+                if (busy || !isReaderSpreadMode(selection) || selection === spreadMode) return;
                 void hapticSelection();
-                onTogglePagePairingMode();
+                onSetSpreadMode(selection);
               }}
             >
-              <SwiftText modifiers={[tag("book")]}>{strings.reader.pairingCoverPaired}</SwiftText>
-              <SwiftText modifiers={[tag("manga")]}>{strings.reader.pairingCoverAlone}</SwiftText>
+              {READER_SPREAD_MODE_ORDER.map((option) => (
+                <SwiftText key={option} modifiers={[tag(option)]}>
+                  {readerSpreadModeLabel(option, strings)}
+                </SwiftText>
+              ))}
             </SwiftPicker>
-          ) : null}
-        </SwiftSection>
+            {showPagePairingControls ? (
+              <SwiftPicker
+                modifiers={[pickerStyle("segmented"), labelsHidden(), ...busyModifiers]}
+                selection={pagePairingMode}
+                onSelectionChange={(selection) => {
+                  if (busy || selection === pagePairingMode) return;
+                  void hapticSelection();
+                  onTogglePagePairingMode();
+                }}
+              >
+                <SwiftText modifiers={[tag("book")]}>{strings.reader.pairingCoverPaired}</SwiftText>
+                <SwiftText modifiers={[tag("manga")]}>{strings.reader.pairingCoverAlone}</SwiftText>
+              </SwiftPicker>
+            ) : null}
+            <SwiftPicker
+              label={strings.reader.pageFit}
+              systemImage="arrow.up.left.and.down.right.magnifyingglass"
+              modifiers={[pickerStyle("menu"), ...busyModifiers]}
+              selection={fitMode}
+              onSelectionChange={(selection) => {
+                if (busy || !isReaderFitMode(selection) || selection === fitMode) return;
+                void hapticSelection();
+                onSetFitMode(selection);
+              }}
+            >
+              {READER_FIT_MODE_ORDER.map((option) => (
+                <SwiftText key={option} modifiers={[tag(option)]}>
+                  {readerFitModeLabel(option, strings)}
+                </SwiftText>
+              ))}
+            </SwiftPicker>
+          </SwiftSection>
         ) : null}
         <SwiftSection title={strings.reader.moreSettings}>
           <SwiftToggle

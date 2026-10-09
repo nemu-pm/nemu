@@ -171,6 +171,17 @@ export type UserSettings = {
   readingMode?: ReadingMode;
   readerScrollWidthPct?: number;
   readerTwoPageMode?: boolean;
+  /**
+   * Page layout for paged reading: single, double or auto (a spread when the
+   * window is wide enough). Supersedes `readerTwoPageMode`, which stays read
+   * as the fallback for profiles saved before the three-way choice.
+   */
+  readerSpreadMode?: "single" | "double" | "auto";
+  /**
+   * Page fit for paged reading, remembered per window shape (narrow, wide,
+   * large) rather than per title. Absent shapes use "page" (the whole page).
+   */
+  readerFitModes?: Partial<Record<"narrow" | "wide" | "large", "page" | "width" | "height" | "fill">>;
   readerPagePairingMode?: PagePairingMode;
   readerProcessPageImages?: boolean;
   themePreference?: ThemePreference;

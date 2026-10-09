@@ -759,6 +759,20 @@ export type MobileStrings = {
     stageAccessibility: string;
     title: string;
     twoPageView: string;
+    pageLayout: string;
+    pageLayoutSingle: string;
+    pageLayoutDouble: string;
+    pageLayoutAuto: string;
+    pageFit: string;
+    pageFitPage: string;
+    pageFitWidth: string;
+    pageFitHeight: string;
+    pageFitFill: string;
+    /** "For this window shape" footnote under the fit choice; {{shape}} is the localized shape. */
+    pageFitFootnote: string;
+    windowShapeNarrow: string;
+    windowShapeWide: string;
+    windowShapeLarge: string;
     widenPageWidth: string;
     // Added with the reading-loop / dismiss-trap fixes.
     endOfChapterTitle: string;

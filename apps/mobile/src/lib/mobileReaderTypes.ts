@@ -29,4 +29,5 @@ export type ReaderSettingsAction =
   | "page-image-processing"
   | "keep-awake"
   | "lock-portrait"
-  | "notebook-pane";
+  | "notebook-pane"
+  | "page-fit";

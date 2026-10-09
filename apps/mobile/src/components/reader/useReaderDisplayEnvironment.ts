@@ -10,6 +10,18 @@ import {
   DEFAULT_READER_LOCK_PORTRAIT,
 } from "@/lib/mobileReaderSettings";
 import {
+  DEFAULT_READER_SPREAD_MODE,
+  normalizeReaderSpreadMode,
+  type ReaderSpreadMode,
+} from "@/lib/mobileReaderSpreadMode";
+import {
+  normalizeReaderFitModes,
+  withReaderFitMode,
+  type ReaderFitMode,
+  type ReaderFitModesByShape,
+} from "@/lib/mobileReaderFit";
+import type { ReaderWindowShape } from "@/lib/mobileReaderWindowShape";
+import {
   DEFAULT_MOBILE_READER_NOTEBOOK_PANE,
   normalizeMobileReaderNotebookPanePreference,
   type MobileReaderNotebookPanePreference,
@@ -79,6 +91,11 @@ export function useReaderDisplayPrefs(): {
   setLockPortrait: (enabled: boolean) => Promise<void>;
   notebookPane: MobileReaderNotebookPanePreference;
   setNotebookPane: (value: MobileReaderNotebookPanePreference) => Promise<void>;
+  spreadMode: ReaderSpreadMode;
+  setSpreadMode: (value: ReaderSpreadMode) => Promise<void>;
+  /** Saved page fit per window shape; read one with `readerFitModeForShape`. */
+  fitModes: ReaderFitModesByShape;
+  setFitMode: (shape: ReaderWindowShape, mode: ReaderFitMode) => Promise<void>;
 } {
   const store = useMobileDataStore();
   const revision = useMobileDataRevision(["settings"]);
@@ -89,6 +106,12 @@ export function useReaderDisplayPrefs(): {
   const [notebookPane, setNotebookPaneState] = useState<MobileReaderNotebookPanePreference>(
     DEFAULT_MOBILE_READER_NOTEBOOK_PANE,
   );
+  const [spreadMode, setSpreadModeState] = useState<ReaderSpreadMode>(DEFAULT_READER_SPREAD_MODE);
+  const [fitModes, setFitModesState] = useState<ReaderFitModesByShape>({});
+  const spreadModeRun = useRef(0);
+  const fitModesRun = useRef(0);
+  const savedSpreadMode = useRef<ReaderSpreadMode>(DEFAULT_READER_SPREAD_MODE);
+  const savedFitModes = useRef<ReaderFitModesByShape>({});
   const keepAwakeRun = useRef(0);
   const lockPortraitRun = useRef(0);
   const notebookPaneRun = useRef(0);
@@ -112,6 +135,12 @@ export function useReaderDisplayPrefs(): {
         const nextNotebookPane = normalizeMobileReaderNotebookPanePreference(settings.readerNotebookPane);
         setNotebookPaneState(nextNotebookPane);
         savedNotebookPane.current = nextNotebookPane;
+        const nextSpreadMode = normalizeReaderSpreadMode(settings.readerSpreadMode, settings.readerTwoPageMode);
+        setSpreadModeState(nextSpreadMode);
+        savedSpreadMode.current = nextSpreadMode;
+        const nextFitModes = normalizeReaderFitModes(settings.readerFitModes);
+        setFitModesState(nextFitModes);
+        savedFitModes.current = nextFitModes;
       })
       .catch(() => undefined);
     return () => {
@@ -183,5 +212,61 @@ export function useReaderDisplayPrefs(): {
     [notebookPane, store],
   );
 
-  return { keepAwake, setKeepAwake, lockPortrait, setLockPortrait, notebookPane, setNotebookPane };
+  const setSpreadMode = useCallback(
+    async (value: ReaderSpreadMode) => {
+      if (value === spreadMode) return;
+      const run = spreadModeRun.current + 1;
+      spreadModeRun.current = run;
+      setSpreadModeState(value);
+      try {
+        await store.updateSettings((settings) => ({
+          ...settings,
+          readerSpreadMode: value,
+          // Keep the older boolean truthful for builds that still read it.
+          ...(value === "auto" ? {} : { readerTwoPageMode: value === "double" }),
+        }));
+        savedSpreadMode.current = value;
+        emitMobileDataChanged("settings");
+      } catch (error) {
+        if (spreadModeRun.current === run) setSpreadModeState(savedSpreadMode.current);
+        throw error;
+      }
+    },
+    [spreadMode, store],
+  );
+
+  const setFitMode = useCallback(
+    async (shape: ReaderWindowShape, mode: ReaderFitMode) => {
+      const run = fitModesRun.current + 1;
+      fitModesRun.current = run;
+      const optimistic = withReaderFitMode(fitModes, shape, mode);
+      setFitModesState(optimistic);
+      try {
+        let saved: ReaderFitModesByShape = optimistic;
+        await store.updateSettings((settings) => {
+          saved = withReaderFitMode(normalizeReaderFitModes(settings.readerFitModes), shape, mode);
+          return { ...settings, readerFitModes: saved };
+        });
+        savedFitModes.current = saved;
+        emitMobileDataChanged("settings");
+      } catch (error) {
+        if (fitModesRun.current === run) setFitModesState(savedFitModes.current);
+        throw error;
+      }
+    },
+    [fitModes, store],
+  );
+
+  return {
+    keepAwake,
+    setKeepAwake,
+    lockPortrait,
+    setLockPortrait,
+    notebookPane,
+    setNotebookPane,
+    spreadMode,
+    setSpreadMode,
+    fitModes,
+    setFitMode,
+  };
 }

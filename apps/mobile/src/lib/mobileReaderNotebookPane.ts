@@ -42,13 +42,17 @@ export function normalizeMobileReaderNotebookPanePreference(value: unknown): Mob
 }
 
 /**
- * The paged state a preference asks for: Automatic is the trackpad. A value
- * saved by an older build ("studyDesk") normalizes to Automatic.
+ * The paged state a preference asks for: Automatic is the filmstrip console,
+ * so the lower half carries the reading controls (title, page thumbnails,
+ * the scrubber with chapter skips, the actions with Japanese Learning and
+ * settings) the moment the device is set down; the trackpad is one tap away
+ * (the handle) or a saved choice. A value saved by an older build
+ * ("studyDesk") normalizes to Automatic.
  */
 export function mobileReaderNotebookPaneBase(
   preference: MobileReaderNotebookPanePreference,
 ): Exclude<MobileReaderNotebookPaneState, "continuous"> {
-  return preference === "automatic" ? "trackpad" : preference;
+  return preference === "automatic" ? "filmstrip" : preference;
 }
 
 export function resolveMobileReaderNotebookPane(input: {

@@ -59,6 +59,56 @@ function pose(layout: MobileWindowLayout, overrides: Partial<MobileReaderPoseLay
   });
 }
 
+describe("reader pose: auto spreads follow the stage the pages sit in", () => {
+  const tablet = (width: number, height: number): MobileWindowLayout => ({ width, height, supported: false, divisions: [], occlusions: [] });
+
+  test("iPad: landscape shows a spread, portrait stays single, with the same setting", () => {
+    expect(pose(tablet(1180, 820), { spreadMode: "auto" }).spread).toBe(true);
+    expect(pose(tablet(820, 1180), { spreadMode: "auto" }).spread).toBe(false);
+    expect(pose(tablet(820, 1180), { spreadMode: "auto" }).twoPageAvailable).toBe(false);
+  });
+
+  test("phones never auto-spread, landscape included; double still can", () => {
+    expect(pose(phoneLandscape, { spreadMode: "auto" }).spread).toBe(false);
+    expect(pose(phonePortrait, { spreadMode: "auto" }).spread).toBe(false);
+    expect(pose(phoneLandscape, { spreadMode: "double" }).spread).toBe(true);
+    expect(pose(phoneLandscape, { spreadMode: "single" }).spread).toBe(false);
+  });
+
+  test("Duo inner: landscape auto-spreads (flat and across the fold), portrait does not", () => {
+    expect(pose(innerLandscapeNoBar(), { spreadMode: "auto" }).spread).toBe(true);
+    const book = pose(innerLandscapeNoBar([hinge(455.5, 0, 40, 669)]), { spreadMode: "auto" });
+    expect(book.posture).toBe("book");
+    expect(book.spread).toBe(true);
+    expect(book.spreadSlots).toHaveLength(2);
+    expect(pose(innerPortrait(), { spreadMode: "auto" }).spread).toBe(false);
+  });
+
+  test("Duo closed landscape beside the vertical bar stays single", () => {
+    const closedLandscape: MobileWindowLayout = {
+      width: 678, height: 466, supported: true, divisions: [], occlusions: [],
+      verticalBarEdge: "trailing", layoutDirection: "ltr",
+      safeAreaInsets: { top: 0, left: 84, bottom: 20, right: 0 },
+    };
+    expect(pose(closedLandscape, { spreadMode: "auto", sideBar: true }).spread).toBe(false);
+  });
+
+  test("half-folded Duo: the landscape-shaped top pane auto-spreads", () => {
+    const result = pose(innerPortrait([hinge(0, 465, 669, 21)]), { spreadMode: "auto" });
+    expect(result.posture).toBe("notebook");
+    expect(result.spread).toBe(true);
+  });
+
+  test("spreadMode replaces the older boolean", () => {
+    expect(pose(tablet(1180, 820), { twoPage: true, spreadMode: "single" }).spread).toBe(false);
+    expect(pose(tablet(1180, 820), { twoPage: false, spreadMode: "double" }).spread).toBe(true);
+  });
+
+  test("a single-page chapter never spreads", () => {
+    expect(pose(tablet(1180, 820), { spreadMode: "auto", pageCount: 1 }).spread).toBe(false);
+  });
+});
+
 describe("reader pose: flat without vertical bars", () => {
   test("phone portrait: full-bleed stage, compact capsule chrome (actions within thumb reach)", () => {
     const insets = { top: 62, left: 0, bottom: 34, right: 0 };
@@ -337,7 +387,7 @@ function overlapsBox(a: { x: number; y: number; width: number; height: number },
 describe("reader pose: notebook", () => {
   const notebook = innerPortrait([hinge(0, 465, 669, 21)]);
 
-  test("paged: page in the top pane, the trackpad in the bottom pane", () => {
+  test("paged: page in the top pane, the controls console in the bottom pane", () => {
     const result = pose(notebook, { twoPage: true });
     expect(result.posture).toBe("notebook");
     expect(result.stage).toEqual({ x: 0, y: 0, width: 669, height: 465 });
@@ -350,7 +400,7 @@ describe("reader pose: notebook", () => {
     expect(result.chromePinned).toBe(true);
     expect(result.foldBand).toBeNull();
     if (result.chrome.kind !== "console") throw new Error("expected console");
-    expect(result.chrome.state).toBe("trackpad");
+    expect(result.chrome.state).toBe("filmstrip");
     expect(result.chrome.frame).toEqual({ x: 0, y: 486, width: 669, height: 465 });
     expect(result.chrome.pane).toEqual({ x: 0, y: 486, width: 669, height: 465 - 20 });
   });
@@ -1075,8 +1125,8 @@ describe("capsule action slots", () => {
     const path = await import("node:path");
     const screen = readFileSync(path.join(import.meta.dir, "..", "screens", "ReaderScreen.tsx"), "utf8");
     expect(screen).not.toContain("setReaderActionCount");
-    expect(screen).toContain("buildReaderPose(readerActionSlots, twoPageMode)");
-    expect(screen).toContain("buildReaderPose(readerBaseActionSlots, twoPageMode)");
+    expect(screen).toContain("buildReaderPose(readerActionSlots, readerSpreadMode)");
+    expect(screen).toContain("buildReaderPose(readerBaseActionSlots, readerSpreadMode)");
   });
 });
 

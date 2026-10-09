@@ -1,4 +1,5 @@
 import { mobileAdaptiveLayout, type MobileWindowPosture } from "@/lib/mobileAdaptiveLayout";
+import { resolveReaderSpreadWanted, type ReaderSpreadMode } from "@/lib/mobileReaderSpreadMode";
 import type { MobileReaderNotebookPaneState } from "@/lib/mobileReaderNotebookPane";
 import {
   mobileWindowUnoccludedRect,
@@ -155,6 +156,12 @@ export type MobileReaderPoseLayoutInput = {
   pageCount: number;
   /** The user's two-page preference. Never rewritten by this function. */
   twoPage: boolean;
+  /**
+   * The three-way page layout choice. When given it replaces `twoPage`;
+   * `auto` is decided here from the stage the pages actually sit in (the
+   * top pane in the notebook pose, the whole window across a book fold).
+   */
+  spreadMode?: ReaderSpreadMode;
   /** Right-to-left reading order. */
   rtl: boolean;
   /**
@@ -570,6 +577,11 @@ function capsuleChromeFinish(
   };
 }
 
+/** The user's spread choice, resolved for the stage the pages sit in. */
+function wantsSpread(input: Pick<MobileReaderPoseLayoutInput, "twoPage" | "spreadMode">, stage: Rect): boolean {
+  return resolveReaderSpreadWanted(input.spreadMode ?? (input.twoPage ? "double" : "single"), stage);
+}
+
 /** Two readable pages fit side by side only in a wider-than-tall stage. */
 function stageHoldsSpread(stage: Rect): boolean {
   return stage.width / Math.max(1, stage.height) > 1;
@@ -797,7 +809,7 @@ export function mobileReaderPoseLayout(input: MobileReaderPoseLayoutInput): Mobi
   if (adaptive.posture === "notebook" && adaptive.panels.length === 2) {
     const [topPane, bottomPane] = adaptive.panels;
     const paneState: MobileReaderNotebookPaneState = input.notebookPane
-      ?? (input.paged ? "trackpad" : "continuous");
+      ?? (input.paged ? "filmstrip" : "continuous");
     if (paneState === "continuous") {
       // Scroll / long strip: one viewport through both panes, the fold a thin
       // band the strip passes under. The capsule row sits atop the top pane
@@ -854,7 +866,7 @@ export function mobileReaderPoseLayout(input: MobileReaderPoseLayoutInput): Mobi
       && stageHoldsSpread(topPane)
       && topPane.width / 2 >= READER_BOOK_MIN_PANE
       && topPane.height >= READER_BOOK_MIN_PANE;
-    const spread = input.twoPage && twoPageAvailable;
+    const spread = wantsSpread(input, topPane) && twoPageAvailable;
     const padding = mobileReaderSafePadding(bottomPane, bounds, insets);
     const pane = mobileWindowUnoccludedRect(shrink(bottomPane, padding), occlusions);
     const row = capsuleChrome({
@@ -915,7 +927,7 @@ export function mobileReaderPoseLayout(input: MobileReaderPoseLayoutInput): Mobi
       (pane) => pane.width >= READER_BOOK_MIN_PANE && pane.height >= READER_BOOK_MIN_PANE,
     );
     const twoPageAvailable = usablePair && multiPage;
-    const spread = input.twoPage && twoPageAvailable;
+    const spread = wantsSpread(input, bounds) && twoPageAvailable;
     const stage = spread ? bounds : pagePanes[startIndex];
     const spreadSlots = spread ? pagePanes.map((pane) => toLocal(pane, stage)) : undefined;
     const foldGap = spreadSlots
@@ -968,7 +980,7 @@ export function mobileReaderPoseLayout(input: MobileReaderPoseLayoutInput): Mobi
   const unoccluded = mobileWindowUnoccludedRect(bounds, occlusions);
   const stage = input.sideBar ? horizontalSafe(bounds, bounds, insets) : bounds;
   const twoPageAvailable = input.paged && multiPage && stageHoldsSpread(stage);
-  const spread = input.twoPage && twoPageAvailable;
+  const spread = wantsSpread(input, stage) && twoPageAvailable;
   const constrained = !sameRect(stage, bounds);
   // One capsule row over the page, the title centred on the page it
   // describes, and the scrubber centred on the whole display — a flat

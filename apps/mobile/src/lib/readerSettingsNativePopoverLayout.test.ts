@@ -26,8 +26,8 @@ describe("native reader settings presentation", () => {
       showPlugins: false,
       showMarkComplete: false,
     });
-    // Two-page section (2 rows + spacing) + notebook, plugins, complete rows.
-    expect(readerSettingsNativeContentHeight(full) - minimal).toBe(52 * 2 + 20 + 52 * 3);
+    // Page layout section (layout, pairing, fit: 3 rows + spacing) + notebook, plugins, complete rows.
+    expect(readerSettingsNativeContentHeight(full) - minimal).toBe(52 * 3 + 20 + 52 * 3);
   });
 
   test("Duo notebook: a 455pt pane cannot hold the Form, so it becomes a sheet", () => {
@@ -48,8 +48,13 @@ describe("native reader settings presentation", () => {
       safeInsets: { top: 82, bottom: 34 },
     });
     expect(available).toBe(669 - 34 - 70 - 16);
-    const presentation = readerSettingsNativePresentation({ ...full, showNotebookPane: false }, { availableHeight: available, regularWidth: true });
+    // The page layout section (layout, pairing, fit) makes the full Form taller
+    // than the space below the capsule row; without the plugin and
+    // mark-complete rows it still fits, with them it is the sheet.
+    const lean = { ...full, showNotebookPane: false, showPlugins: false, showMarkComplete: false };
+    const presentation = readerSettingsNativePresentation(lean, { availableHeight: available, regularWidth: true });
     expect(presentation.kind).toBe("popover");
+    expect(readerSettingsNativePresentation({ ...full, showNotebookPane: false }, { availableHeight: available, regularWidth: true }).kind).toBe("sheet");
     if (presentation.kind === "popover") {
       expect(presentation.width).toBe(READER_SETTINGS_POPOVER_WIDTH);
       expect(presentation.height).toBeLessThanOrEqual(available);

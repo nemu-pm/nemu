@@ -18,6 +18,11 @@ export const READER_SETTINGS_POPOVER_HEADER = 28;
 export const READER_SETTINGS_POPOVER_MARGIN = 20;
 
 export type ReaderSettingsNativeRows = {
+  /**
+   * The page layout section is shown (paged reading): the single / double /
+   * auto picker, the pairing picker while a spread shows, and the page-fit
+   * menu with its footnote.
+   */
   twoPageSupported: boolean;
   showPagePairingControls: boolean;
   scrolling: boolean;
@@ -33,9 +38,9 @@ export function readerSettingsNativeContentHeight(rows: ReaderSettingsNativeRows
   // 1. Reading direction: one segmented row.
   let height = row;
   let sections = 1;
-  // 2. Two-page + pairing (most used after direction).
+  // 2. Page layout + pairing + page fit (most used after direction).
   if (rows.twoPageSupported) {
-    height += row + (rows.showPagePairingControls ? row : 0);
+    height += row * 2 + (rows.showPagePairingControls ? row : 0);
     sections += 1;
   }
   // 3. "More": image processing, page width, keep awake, lock portrait,
