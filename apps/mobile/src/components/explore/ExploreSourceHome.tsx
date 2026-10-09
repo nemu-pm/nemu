@@ -39,7 +39,7 @@ export function ExploreRailFade({ children, style }: { children: ReactNode; styl
   );
 }
 
-/** Rows read as one inset group (a settings group's shape), centred at the phone's reading width. */
+/** Rows read as one inset group (a settings group's shape) at the phone's reading width. */
 export const EXPLORE_HOME_GROUP_MAX_WIDTH = 640;
 
 export function ExploreHomeGroup({ children }: { children: ReactNode }) {
@@ -62,7 +62,7 @@ const styles = StyleSheet.create({
   group: {
     width: "100%",
     maxWidth: EXPLORE_HOME_GROUP_MAX_WIDTH,
-    alignSelf: "center",
+    alignSelf: "flex-start",
     borderRadius: R.group,
     borderCurve: "continuous",
     borderWidth: StyleSheet.hairlineWidth,

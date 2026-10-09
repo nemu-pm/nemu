@@ -2,8 +2,10 @@
 // ellipsis for the system overflow menu, which the vertical bar adds itself.
 // Give any nemu-owned menu or sheet a distinct symbol.
 export type NemuNativeToolbarSymbol =
+  | "arrow.clockwise"
   | "chevron.left"
   | "folder.badge.gearshape"
+  | "gearshape"
   | "line.3.horizontal.decrease"
   | "magnifyingglass"
   | "pencil"

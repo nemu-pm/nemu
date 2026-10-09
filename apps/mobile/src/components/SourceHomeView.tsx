@@ -1,4 +1,8 @@
 import type { ScrollViewInstance, ViewInstance } from "react-native";
+import { ExploreCoverImage } from "@/components/explore/ExploreCoverImage";
+import { ExploreGradient } from "@/components/explore/ExploreGradient";
+import { EXPLORE_HOME_GROUP_MAX_WIDTH, ExploreHomeGroup, ExploreRailFade } from "@/components/explore/ExploreSourceHome";
+import { MOBILE_EXPLORE_RADIUS as R, concentricMobileExploreRadius } from "@/lib/mobileExploreRadius";
 import { ExploreShimmerSweep } from "@/components/explore/ExploreShimmerSweep";
 import { useExploreShimmerBackdrop } from "@/components/explore/useExploreShimmerBackdrop";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
@@ -9,6 +13,8 @@ import {
   memo,
   useCallback,
   useContext,
+  useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -27,8 +33,9 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
   type StyleProp,
+  type ViewStyle,
 } from "react-native";
-import Animated from "react-native-reanimated";
+import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type {
@@ -48,6 +55,7 @@ import {
   NemuText,
   MobileCachedImage,
   createNemuShadowStyle,
+  nemuColorWithAlpha,
   radius,
   type NemuTokens,
   nemuFontWeight,
@@ -60,7 +68,9 @@ import {
   useSkeletonDisplayDelay,
   useSkeletonPulse,
 } from "@/lib/useSkeletonPulse";
-import { hapticConfirm, hapticError } from "@/lib/haptics";
+import { hapticConfirm, hapticError, hapticSelection } from "@/lib/haptics";
+import { buildMobileCoverTintPalette, type MobileCoverRgb } from "@/lib/mobileCoverTint";
+import { useMobileCoverTint } from "@/lib/useMobileCoverTint";
 import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
 import type { SearchSourceDisplay } from "@/lib/mobileSearch";
 import { describeMobileErrorDetail } from "@/lib/mobileSourceErrors";
@@ -204,32 +214,38 @@ function homeLinkImageHeaders(link: HomeLink) {
   return (link as MobileHomeLink).imageHeaders;
 }
 
-function SourceHomeCoverImage({
-  headers,
-  uri,
-  style,
-}: {
-  headers?: Record<string, string>;
-  uri: string;
-  style: StyleProp<ImageStyle>;
-}) {
-  const { tokens } = useNemuTheme();
+/** The request a source cover is fetched with (the source's headers or its image-request hook's). */
+function useHomeCoverSource(uri: string | null, headers: Record<string, string> | undefined) {
   const installedSource = useContext(SourceHomeInstalledSourceContext);
   const requestAlreadyResolved = headers !== undefined;
   const request = useMobileSourceImageRequest(
-    requestAlreadyResolved ? null : installedSource,
+    requestAlreadyResolved || !uri ? null : installedSource,
     requestAlreadyResolved ? null : uri,
   );
-  const imageSource = requestAlreadyResolved
+  if (!uri) return null;
+  return requestAlreadyResolved
     ? { uri, headers, cache: "force-cache" as const }
     : request
-      ? {
-        uri: request.url,
-        headers: request.headers,
-        cache: "force-cache" as const,
-      }
+      ? { uri: request.url, headers: request.headers, cache: "force-cache" as const }
       : { uri, headers, cache: "force-cache" as const };
+}
 
+function SourceHomeCoverImage({
+  headers,
+  uri,
+  title = "",
+  style,
+}: {
+  headers?: Record<string, string>;
+  uri: string | null;
+  title?: string;
+  style: StyleProp<ImageStyle>;
+}) {
+  const { tokens } = useNemuTheme();
+  const imageSource = useHomeCoverSource(uri, headers);
+  // Design-explore: a breathing tile while it loads, the titled book if it fails.
+  if (mobileDesignExploreFlag) return <ExploreCoverImage source={imageSource} title={title} />;
+  if (!imageSource) return null;
   return (
     <MobileCachedImage
       fallback={
@@ -334,6 +350,12 @@ function sourceHomeActionErrorMessage(
   );
 }
 
+/** A rail's frame: the bleeding scroller as is, or (new design) with its ends dissolving. */
+function RailFrame({ bleedFrame, children }: { bleedFrame: StyleProp<ViewStyle>; children: ReactNode }) {
+  if (!mobileDesignExploreFlag) return <>{children}</>;
+  return <ExploreRailFade style={bleedFrame}>{children}</ExploreRailFade>;
+}
+
 function SectionHeader({
   title,
   subtitle,
@@ -357,8 +379,13 @@ function SectionHeader({
       <View style={styles.sectionHeaderText}>
         {title ? (
           <Text
+            accessibilityRole="header"
             numberOfLines={1}
-            style={[styles.sectionTitle, { color: tokens.foreground }]}
+            style={[
+              styles.sectionTitle,
+              mobileDesignExploreFlag ? styles.exploreSectionTitle : null,
+              { color: tokens.foreground },
+            ]}
           >
             {title}
           </Text>
@@ -373,11 +400,21 @@ function SectionHeader({
         ) : null}
       </View>
       {listing ? (
-        <Ionicons
-          name="chevron-forward-outline"
-          size={17}
-          color={tokens.mutedForeground}
-        />
+        mobileDesignExploreFlag ? (
+          // The section is a list of its own: "See All" names where the chevron goes.
+          <View style={styles.exploreSeeAll}>
+            <Text style={[styles.exploreSeeAllText, { color: tokens.primary }]}>
+              {strings.designExplore.seeAll}
+            </Text>
+            <Ionicons name="chevron-forward" size={14} color={tokens.primary} />
+          </View>
+        ) : (
+          <Ionicons
+            name="chevron-forward-outline"
+            size={17}
+            color={tokens.mutedForeground}
+          />
+        )
       ) : null}
     </>
   );
@@ -448,9 +485,10 @@ const HomeMangaCard = memo(function HomeMangaCard({
           },
         ]}
       >
-        {item.cover ? (
+        {mobileDesignExploreFlag || item.cover ? (
           <SourceHomeCoverImage
-            uri={item.cover}
+            uri={item.cover ?? null}
+            title={item.title}
             headers={item.coverHeaders}
             style={styles.coverImage}
           />
@@ -533,9 +571,10 @@ function HomeActionCard({
           },
         ]}
       >
-        {link.imageUrl ? (
+        {mobileDesignExploreFlag || link.imageUrl ? (
           <SourceHomeCoverImage
-            uri={link.imageUrl}
+            uri={link.imageUrl ?? null}
+            title={link.title}
             headers={homeLinkImageHeaders(link)}
             style={styles.coverImage}
           />
@@ -701,6 +740,7 @@ const HorizontalLinkSection = memo(function HorizontalLinkSection({
         strings={strings}
         onListingPress={onListingPress}
       />
+      <RailFrame bleedFrame={bleed.frame}>
       <FlatList
         horizontal
         scrollsToTop={false}
@@ -732,13 +772,273 @@ const HorizontalLinkSection = memo(function HorizontalLinkSection({
           );
         }}
         showsHorizontalScrollIndicator={false}
-        style={bleed.frame}
+        style={mobileDesignExploreFlag ? undefined : bleed.frame}
         contentContainerStyle={[styles.horizontalContent, bleed.content]}
         windowSize={5}
       />
+      </RailFrame>
     </View>
   );
 });
+
+
+/** Peek of the neighbouring cards on each side of the centred one. */
+const EXPLORE_FEATURED_PEEK = 28;
+const EXPLORE_FEATURED_GAP = 12;
+const EXPLORE_FEATURED_MAX_CARD = 560;
+const EXPLORE_FEATURED_PAD = 12;
+
+/** A page wash in one cover's colour: this card's while it is the active one, cross-faded. */
+function ExploreFeaturedWash({
+  colors,
+  shown,
+}: {
+  colors: ReturnType<typeof buildMobileCoverTintPalette>;
+  shown: boolean;
+}) {
+  const opacity = useSharedValue(shown ? 1 : 0);
+  useEffect(() => {
+    opacity.value = withTiming(shown ? 1 : 0, { duration: 240 });
+  }, [opacity, shown]);
+  const style = useAnimatedStyle(() => ({ opacity: opacity.value }));
+  return (
+    <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, style]}>
+      <ExploreGradient
+        colors={[
+          [colors.washClear, 0],
+          [colors.washSoft, 0.14],
+          [colors.wash, 0.3],
+          [colors.washSoft, 0.62],
+          [colors.washFaint, 0.86],
+          [colors.washClear, 1],
+        ]}
+        style={StyleSheet.absoluteFill}
+      />
+    </Animated.View>
+  );
+}
+
+/**
+ * One featured title as a cover-colour card, like the library's Continue
+ * cards: the cover's own colour (solid), its ink on it, concentric corners.
+ */
+function ExploreFeaturedCard({
+  item,
+  index,
+  width,
+  disabled,
+  strings,
+  onPress,
+  onTint,
+}: {
+  item: MobileLiveSearchManga;
+  index: number;
+  width: number;
+  disabled: boolean;
+  strings: MobileStrings;
+  onPress: () => void;
+  onTint: (index: number, tint: MobileCoverRgb | null) => void;
+}) {
+  const { scheme } = useNemuTheme();
+  const cover = useHomeCoverSource(item.cover ?? null, item.coverHeaders);
+  const tint = useMobileCoverTint(cover, `home:${item.id}`);
+  const palette = useMemo(() => buildMobileCoverTintPalette(tint, scheme), [scheme, tint]);
+  useLayoutEffect(() => {
+    onTint(index, tint);
+  }, [index, onTint, tint]);
+  const coverWidth = Math.min(150, Math.round((width - EXPLORE_FEATURED_PAD * 2) * 0.38));
+  const coverHeight = Math.round(coverWidth * 1.5);
+  const coverRadius = concentricMobileExploreRadius(R.card, EXPLORE_FEATURED_PAD);
+  return (
+    <NemuPressable
+      accessibilityRole="button"
+      accessibilityLabel={openMangaAccessibilityLabel(item.title, strings)}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      pressedScale={0.985}
+      style={[
+        styles.exploreFeaturedCard,
+        {
+          width,
+          backgroundColor: palette.card,
+          borderColor: palette.cardRim,
+          ...createNemuShadowStyle({ color: palette.cardGlow, offsetY: 6, radius: 18, opacity: 0.6, elevation: 6 }),
+        },
+      ]}
+    >
+      <View
+        style={{
+          width: coverWidth,
+          height: coverHeight,
+          overflow: "hidden",
+          borderRadius: coverRadius,
+          borderCurve: "continuous",
+        }}
+      >
+        <ExploreCoverImage source={cover} title={item.title} />
+      </View>
+      <View style={[styles.exploreFeaturedText, { maxHeight: coverHeight }]}>
+        <Text numberOfLines={2} style={[styles.exploreFeaturedTitle, { color: palette.cardInk }]}>
+          {item.title}
+        </Text>
+        {item.authors?.length ? (
+          <Text numberOfLines={1} style={[styles.exploreFeaturedAuthor, { color: palette.cardInkSecondary }]}>
+            {item.authors.join(", ")}
+          </Text>
+        ) : null}
+        {item.description ? (
+          <Text numberOfLines={3} style={[styles.exploreFeaturedDescription, { color: palette.cardInkSecondary }]}>
+            {item.description}
+          </Text>
+        ) : null}
+        {item.tags?.length ? (
+          <View style={styles.exploreFeaturedTags}>
+            {item.tags.slice(0, 3).map((tag) => (
+              <View key={tag} style={[styles.exploreFeaturedTag, { backgroundColor: palette.actionSoft }]}>
+                <Text numberOfLines={1} style={[styles.exploreFeaturedTagText, { color: palette.cardInk }]}>
+                  {tag}
+                </Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
+      </View>
+    </NemuPressable>
+  );
+}
+
+/**
+ * The featured carousel in the new design: one card centred with the
+ * neighbours peeking symmetrically, the page washed in the active card's
+ * colour (switching, with a tick, the moment the active card changes), and
+ * the rail's ends dissolving instead of being cut.
+ */
+function ExploreFeaturedCarousel({
+  title,
+  subtitle,
+  entries,
+  source,
+  importingKey,
+  strings,
+  onPressManga,
+}: {
+  title?: string;
+  subtitle?: string;
+  entries: MobileLiveSearchManga[];
+  source: SearchSourceDisplay;
+  importingKey: string | null;
+  strings: MobileStrings;
+  onPressManga: (source: SearchSourceDisplay, manga: MobileLiveSearchManga) => void;
+}) {
+  const { scheme, tokens } = useNemuTheme();
+  const bleed = useMobilePageBleedStyles();
+  const gutters = useMobilePageGutters();
+  const [viewport, setViewport] = useState(0);
+  const [active, setActive] = useState(0);
+  const [tints, setTints] = useState<Record<number, MobileCoverRgb | null>>({});
+  const scrollRef = useRef<ScrollViewInstance | null>(null);
+  const reportTint = useCallback((index: number, tint: MobileCoverRgb | null) => {
+    setTints((current) => (current[index] === tint ? current : { ...current, [index]: tint }));
+  }, []);
+  const cardWidth = Math.max(0, Math.min(EXPLORE_FEATURED_MAX_CARD, viewport - EXPLORE_FEATURED_PEEK * 2));
+  const interval = cardWidth + EXPLORE_FEATURED_GAP;
+  const sidePad = Math.max(0, (viewport - cardWidth) / 2);
+  const palettes = useMemo(
+    () => entries.map((_, index) => buildMobileCoverTintPalette(tints[index] ?? null, scheme)),
+    [entries, scheme, tints],
+  );
+  const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (interval <= 0) return;
+    const next = Math.max(0, Math.min(entries.length - 1, Math.round(event.nativeEvent.contentOffset.x / interval)));
+    if (next !== active) {
+      // The wash and the tick change at the instant the active card does, mid-drag.
+      setActive(next);
+      void hapticSelection();
+    }
+  };
+  return (
+    <View style={styles.homeSection}>
+      {/* Behind everything: the active card's colour, rising under the heading, fading in and out. */}
+      <View pointerEvents="none" style={[styles.exploreFeaturedWashFrame, { left: -gutters.left, right: -gutters.right }]}>
+        {palettes.map((colors, index) => (
+          <ExploreFeaturedWash key={index} colors={colors} shown={index === active} />
+        ))}
+      </View>
+      <SectionHeader title={title} subtitle={subtitle} strings={strings} onListingPress={() => {}} />
+      <View onLayout={(event) => setViewport(event.nativeEvent.layout.width)} style={bleed.frame}>
+        {cardWidth > 0 ? (
+          <ExploreRailFade>
+            <ScrollView
+              ref={scrollRef}
+              horizontal
+              scrollsToTop={false}
+              decelerationRate="fast"
+              snapToInterval={interval}
+              snapToAlignment="start"
+              disableIntervalMomentum
+              showsHorizontalScrollIndicator={false}
+              onScroll={handleScroll}
+              scrollEventThrottle={16}
+              contentContainerStyle={{ paddingHorizontal: sidePad, paddingVertical: 10 }}
+              style={styles.exploreFeaturedPager}
+            >
+              {entries.map((item, index) => (
+                <View
+                  key={`${item.id}:${index}`}
+                  style={{ marginRight: index === entries.length - 1 ? 0 : EXPLORE_FEATURED_GAP }}
+                >
+                  <ExploreFeaturedCard
+                    item={item}
+                    index={index}
+                    width={cardWidth}
+                    disabled={importingKey === sourceMangaKey(source, item)}
+                    strings={strings}
+                    onPress={() => onPressManga(source, item)}
+                    onTint={reportTint}
+                  />
+                </View>
+              ))}
+            </ScrollView>
+          </ExploreRailFade>
+        ) : (
+          <View style={{ height: 1 }} />
+        )}
+      </View>
+      {entries.length > 1 ? (
+        <View style={styles.featuredDots}>
+          {entries.map((entry, index) => {
+            const selected = index === active;
+            return (
+              <NemuPressable
+                key={`${entry.id}:${index}`}
+                accessibilityRole="button"
+                accessibilityLabel={formatMobileString(strings.sourceBrowse.selectFeaturedManga, { title: entry.title })}
+                accessibilityState={{ selected }}
+                hapticFeedback={selected ? "none" : "selection"}
+                onPress={() => {
+                  if (selected) return;
+                  scrollRef.current?.scrollTo({ x: interval * index, animated: true });
+                }}
+                pressedScale={0.9}
+                style={[
+                  styles.featuredDot,
+                  {
+                    width: selected ? 20 : 8,
+                    backgroundColor: selected ? tokens.foreground : tokens.mutedForeground,
+                    opacity: selected ? 0.7 : 0.28,
+                  },
+                ]}
+              >
+                <View />
+              </NemuPressable>
+            );
+          })}
+        </View>
+      ) : null}
+    </View>
+  );
+}
 
 function FeaturedSectionSkeleton() {
   const { tokens } = useNemuTheme();
@@ -890,6 +1190,19 @@ function FeaturedSection({
     setCurrentIndex(nextIndex);
   };
 
+  if (mobileDesignExploreFlag) {
+    return (
+      <ExploreFeaturedCarousel
+        title={component.title}
+        subtitle={component.subtitle}
+        entries={featuredEntries}
+        source={source}
+        importingKey={importingKey}
+        strings={strings}
+        onPressManga={onPressManga}
+      />
+    );
+  }
   return (
     <View style={styles.homeSection}>
       <SectionHeader
@@ -960,9 +1273,10 @@ function FeaturedSection({
                         },
                       ]}
                     >
-                      {item.cover ? (
+                      {mobileDesignExploreFlag || item.cover ? (
                         <SourceHomeCoverImage
-                          uri={item.cover}
+                          uri={item.cover ?? null}
+                          title={item.title}
                           headers={item.coverHeaders}
                           style={styles.coverImage}
                         />
@@ -1103,7 +1417,7 @@ function HomeListSkeletonRows({
       {Array.from({ length: count }).map((_, item) => (
         <View
           key={item}
-          style={[styles.listRow, { borderColor: tokens.border }]}
+          style={[styles.listRow, mobileDesignExploreFlag ? styles.exploreListRow : null, { borderColor: tokens.border }]}
         >
           {ranking ? (
             <View
@@ -1116,6 +1430,7 @@ function HomeListSkeletonRows({
           <View
             style={[
               styles.listCover,
+          mobileDesignExploreFlag ? styles.exploreListCover : null,
               {
                 backgroundColor: skeletonColor,
                 borderColor: tokens.coverBorder,
@@ -1170,6 +1485,14 @@ function HomeListColumns({
   children: ReactNode;
 }) {
   const items = Children.toArray(children);
+  // Design-explore: one inset group at the phone's reading width, centred.
+  if (mobileDesignExploreFlag) {
+    return (
+      <ExploreHomeGroup>
+        <View style={styles.exploreListInner}>{items}</View>
+      </ExploreHomeGroup>
+    );
+  }
   if (grid.columns <= 1) return <>{items}</>;
   return (
     <>
@@ -1228,7 +1551,7 @@ const MangaListSection = memo(function MangaListSection({
   const skeletonCount = getMobileSourceHomeListSkeletonCount(pageSize);
 
   return (
-    <View style={styles.homeSection}>
+    <View style={[styles.homeSection, mobileDesignExploreFlag ? styles.exploreListColumn : null]}>
       <SectionHeader
         title={component.title}
         subtitle={component.subtitle}
@@ -1280,7 +1603,7 @@ const MangaListSection = memo(function MangaListSection({
                 disabled={disabled}
                 onPress={() => onPressManga(source, manga)}
                 pressedScale={0.99}
-                style={[styles.listRow, { borderColor: tokens.border }]}
+                style={[styles.listRow, mobileDesignExploreFlag ? styles.exploreListRow : null, { borderColor: tokens.border }]}
               >
                 {ranking ? (
                   <Text
@@ -1292,15 +1615,17 @@ const MangaListSection = memo(function MangaListSection({
                 <View
                   style={[
                     styles.listCover,
+          mobileDesignExploreFlag ? styles.exploreListCover : null,
                     {
                       backgroundColor: tokens.muted,
                       borderColor: tokens.coverBorder,
                     },
                   ]}
                 >
-                  {manga.cover ? (
+                  {mobileDesignExploreFlag || manga.cover ? (
                     <SourceHomeCoverImage
-                      uri={manga.cover}
+                      uri={manga.cover ?? null}
+                      title={manga.title}
                       headers={manga.coverHeaders}
                       style={styles.coverImage}
                     />
@@ -1349,6 +1674,9 @@ const MangaListSection = memo(function MangaListSection({
                     </Text>
                   ) : null}
                 </View>
+                {mobileDesignExploreFlag ? (
+                  <Ionicons name="chevron-forward" size={15} color={nemuColorWithAlpha(tokens.mutedForeground, 0.7)} />
+                ) : null}
               </NemuPressable>
             );
           })}
@@ -1387,7 +1715,7 @@ function HomeListActionRow({
       disabled={disabled}
       onPress={handlePress}
       pressedScale={0.99}
-      style={[styles.listRow, { borderColor: tokens.border }]}
+      style={[styles.listRow, mobileDesignExploreFlag ? styles.exploreListRow : null, { borderColor: tokens.border }]}
     >
       {rank ? (
         <Text style={[styles.rankText, { color: tokens.mutedForeground }]}>
@@ -1397,12 +1725,14 @@ function HomeListActionRow({
       <View
         style={[
           styles.listCover,
+          mobileDesignExploreFlag ? styles.exploreListCover : null,
           { backgroundColor: tokens.muted, borderColor: tokens.coverBorder },
         ]}
       >
-        {link.imageUrl ? (
+        {mobileDesignExploreFlag || link.imageUrl ? (
           <SourceHomeCoverImage
-            uri={link.imageUrl}
+            uri={link.imageUrl ?? null}
+            title={link.title}
             headers={homeLinkImageHeaders(link)}
             style={styles.coverImage}
           />
@@ -1475,7 +1805,7 @@ const ChapterListSection = memo(function ChapterListSection({
   const skeletonCount = getMobileSourceHomeListSkeletonCount(pageSize);
 
   return (
-    <View style={styles.homeSection}>
+    <View style={[styles.homeSection, mobileDesignExploreFlag ? styles.exploreListColumn : null]}>
       <SectionHeader
         title={component.title}
         subtitle={component.subtitle}
@@ -1504,20 +1834,22 @@ const ChapterListSection = memo(function ChapterListSection({
                 )}
                 onPress={() => onPressManga(source, manga)}
                 pressedScale={0.99}
-                style={[styles.listRow, { borderColor: tokens.border }]}
+                style={[styles.listRow, mobileDesignExploreFlag ? styles.exploreListRow : null, { borderColor: tokens.border }]}
               >
                 <View
                   style={[
                     styles.listCover,
+          mobileDesignExploreFlag ? styles.exploreListCover : null,
                     {
                       backgroundColor: tokens.muted,
                       borderColor: tokens.coverBorder,
                     },
                   ]}
                 >
-                  {manga.cover ? (
+                  {mobileDesignExploreFlag || manga.cover ? (
                     <SourceHomeCoverImage
-                      uri={manga.cover}
+                      uri={manga.cover ?? null}
+                      title={manga.title}
                       headers={manga.coverHeaders}
                       style={styles.coverImage}
                     />
@@ -1572,6 +1904,9 @@ const ChapterListSection = memo(function ChapterListSection({
                     </Text>
                   ) : null}
                 </View>
+                {mobileDesignExploreFlag ? (
+                  <Ionicons name="chevron-forward" size={15} color={nemuColorWithAlpha(tokens.mutedForeground, 0.7)} />
+                ) : null}
               </NemuPressable>
             );
           })}
@@ -1643,6 +1978,7 @@ const BannerSection = memo(function BannerSection({
         strings={strings}
         onListingPress={onListingPress}
       />
+      <RailFrame bleedFrame={bleed.frame}>
       <FlatList
         horizontal
         scrollsToTop={false}
@@ -1710,9 +2046,10 @@ const BannerSection = memo(function BannerSection({
                 },
               ]}
             >
-              {link.imageUrl ? (
+              {mobileDesignExploreFlag || link.imageUrl ? (
                 <SourceHomeCoverImage
-                  uri={link.imageUrl}
+                  uri={link.imageUrl ?? null}
+                  title={link.title}
                   headers={homeLinkImageHeaders(link)}
                   style={styles.coverImage}
                 />
@@ -1742,10 +2079,11 @@ const BannerSection = memo(function BannerSection({
           );
         }}
         showsHorizontalScrollIndicator={false}
-        style={bleed.frame}
+        style={mobileDesignExploreFlag ? undefined : bleed.frame}
         contentContainerStyle={[styles.bannerContent, bleed.content]}
         windowSize={5}
       />
+      </RailFrame>
     </View>
   );
 });
@@ -2003,11 +2341,12 @@ export function SourceHomeSkeletonView({
           {HOME_SKELETON_LIST_ITEMS.map((item) => (
             <View
               key={item}
-              style={[styles.listRow, { borderColor: tokens.border }]}
+              style={[styles.listRow, mobileDesignExploreFlag ? styles.exploreListRow : null, { borderColor: tokens.border }]}
             >
               <View
                 style={[
                   styles.listCover,
+          mobileDesignExploreFlag ? styles.exploreListCover : null,
                   {
                     backgroundColor: skeletonColor,
                     borderColor: tokens.coverBorder,
@@ -2178,6 +2517,21 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     fontWeight: nemuFontWeight.semibold,
   },
+  exploreSectionTitle: {
+    fontSize: 22,
+    lineHeight: 28,
+    fontWeight: nemuFontWeight.bold,
+  },
+  exploreSeeAll: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+  },
+  exploreSeeAllText: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: nemuFontWeight.medium,
+  },
   sectionSubtitle: {
     marginTop: 1,
     fontSize: 12,
@@ -2322,6 +2676,27 @@ const styles = StyleSheet.create({
     gap: 5,
     marginTop: "auto",
   },
+  exploreFeaturedWashFrame: {
+    position: "absolute",
+    top: -150,
+    bottom: -34,
+  },
+  exploreFeaturedPager: { flexGrow: 0 },
+  exploreFeaturedCard: {
+    flexDirection: "row",
+    gap: 14,
+    padding: EXPLORE_FEATURED_PAD,
+    borderRadius: R.card,
+    borderCurve: "continuous",
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  exploreFeaturedText: { flex: 1, minWidth: 0, gap: 4, overflow: "hidden" },
+  exploreFeaturedTitle: { fontSize: 17, lineHeight: 22, fontWeight: nemuFontWeight.bold },
+  exploreFeaturedAuthor: { fontSize: 13, lineHeight: 17, fontWeight: nemuFontWeight.medium },
+  exploreFeaturedDescription: { fontSize: 12, lineHeight: 16 },
+  exploreFeaturedTags: { flexDirection: "row", flexWrap: "wrap", gap: 5, marginTop: "auto" },
+  exploreFeaturedTag: { borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 3 },
+  exploreFeaturedTagText: { fontSize: 11, lineHeight: 14, fontWeight: nemuFontWeight.medium },
   featuredDots: {
     minHeight: 20,
     flexDirection: "row",
@@ -2352,6 +2727,12 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
+  // A list section reads as one column at the phone's width, heading included, on the page's own left edge (the rails and the carousel's heading share it).
+  exploreListColumn: { width: "100%", maxWidth: EXPLORE_HOME_GROUP_MAX_WIDTH, alignSelf: "flex-start" },
+  exploreListInner: { marginTop: -StyleSheet.hairlineWidth },
+  exploreListRow: { paddingHorizontal: 12 },
+  // Concentric with the group's corner (group radius less the row's inset).
+  exploreListCover: { borderRadius: concentricMobileExploreRadius(R.group, 12) },
   listRow: {
     minHeight: 86,
     flexDirection: "row",

@@ -14,7 +14,7 @@ import { NativeGlassViewHost } from "../../../modules/nemu-window-layout";
 import { ExploreGlass } from "./ExploreGlass";
 
 /**
- * Two-way switch (Shelf | Grid) on a glass track whose selection is a
+ * Switch (Shelf | Grid, Home | Popular | Recent) on a glass track whose selection is a
  * Liquid Glass lens in the accent colour: on a change it slides to the other
  * segment with a spring and stretches along its travel (the lens elongates
  * mid-way and settles), as the system's own glass selections do. Without
@@ -47,6 +47,10 @@ export function ExploreGlassSegmented<T extends string>({
   const reducedMotion = useReducedMotion();
   const selectedIndex = Math.max(0, options.findIndex((option) => option.value === value));
   const [layouts, setLayouts] = useState<Array<Layout | null>>(() => options.map(() => null));
+  // A changed option list (listings arriving) measures afresh.
+  useEffect(() => {
+    setLayouts((current) => (current.length === options.length ? current : options.map(() => null)));
+  }, [options.length]);
   const progress = useSharedValue(selectedIndex);
   const centers = useSharedValue<number[]>([]);
   const widths = useSharedValue<number[]>([]);
@@ -67,11 +71,12 @@ export function ExploreGlassSegmented<T extends string>({
     const cs = centers.value;
     const ws = widths.value;
     if (cs.length < 2) return { opacity: 0 };
-    const index = [0, 1];
-    const center = interpolate(progress.value, index, [cs[0]!, cs[1]!]);
-    const width = interpolate(progress.value, index, [ws[0]!, ws[1]!]);
-    // Elongates with the distance travelled, never while resting.
-    const travel = Math.min(1, Math.sin(Math.PI * Math.min(1, Math.max(0, progress.value))));
+    const index = cs.map((_, position) => position);
+    const center = interpolate(progress.value, index, cs, "clamp");
+    const width = interpolate(progress.value, index, ws, "clamp");
+    // Elongates with the distance travelled between two segments, never while resting.
+    const between = progress.value - Math.floor(progress.value);
+    const travel = Math.min(1, Math.sin(Math.PI * Math.min(1, Math.max(0, between))));
     const stretch = reducedMotion ? 1 : 1 + STRETCH * travel;
     return {
       opacity: 1,

@@ -18,10 +18,14 @@ import type { NemuNativeHeaderAction } from "@/design-system";
  */
 const LAST_TO_OVERFLOW: object = { visibilityPriority: "high" };
 
-export function renderExploreDetailBarMenu(actions: NemuNativeHeaderAction[], label: string) {
+export function renderExploreDetailBarMenu(
+  actions: NemuNativeHeaderAction[],
+  label: string,
+  icon: "ellipsis" | "gearshape" = "ellipsis",
+) {
   if (!actions.length) return null;
   return (
-    <Stack.Toolbar.Menu icon="ellipsis" accessibilityLabel={label} {...LAST_TO_OVERFLOW}>
+    <Stack.Toolbar.Menu icon={icon} accessibilityLabel={label} {...LAST_TO_OVERFLOW}>
       {actions.map((action) => {
         const disabled = isMobileHeaderActionDisabled(action);
         return (

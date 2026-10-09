@@ -1,4 +1,6 @@
 import AddIcon from "@expo/material-symbols/add.xml";
+import RefreshIcon from "@expo/material-symbols/refresh.xml";
+import SettingsIcon from "@expo/material-symbols/settings.xml";
 import ArrowBackIcon from "@expo/material-symbols/arrow_back.xml";
 import CloseIcon from "@expo/material-symbols/close.xml";
 import DeleteIcon from "@expo/material-symbols/delete.xml";
@@ -12,8 +14,10 @@ import type { ImageSourcePropType } from "react-native";
 import type { NemuNativeToolbarSymbol } from "./nativeToolbarIcons";
 
 const androidToolbarIcons: Record<NemuNativeToolbarSymbol, ImageSourcePropType> = {
+  "arrow.clockwise": RefreshIcon,
   "chevron.left": ArrowBackIcon,
   "folder.badge.gearshape": FolderManagedIcon,
+  gearshape: SettingsIcon,
   "line.3.horizontal.decrease": TuneIcon,
   magnifyingglass: SearchIcon,
   pencil: EditIcon,

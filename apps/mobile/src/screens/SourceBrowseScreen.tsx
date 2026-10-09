@@ -51,6 +51,10 @@ import { useMobileDataStore } from "@/data/mobileDataContext";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import { withMobileExploreAddIntent } from "@/components/explore/mobileExploreCover";
 import { ExploreInLibraryBadge } from "@/components/explore/ExploreInLibraryBadge";
+import { renderExploreDetailBarMenu } from "@/components/explore/ExploreDetailBarMenu";
+import { SourceListingSegments } from "@/components/explore/ExploreSourceSections";
+import { ExploreCoverImage } from "@/components/explore/ExploreCoverImage";
+import { ExploreSourceFilterMenus } from "@/components/explore/ExploreSourceFilterMenus";
 import { ContextMenuView } from "../../modules/nemu-window-layout";
 import { emitMobileDataChanged } from "@/data/mobileDataEvents";
 import {
@@ -534,7 +538,9 @@ function ListingMangaCard({
           },
         ]}
       >
-        {coverSource ? (
+        {mobileDesignExploreFlag ? (
+          <ExploreCoverImage source={coverSource} title={item.title} />
+        ) : coverSource ? (
           <MobileCachedImage
             fallback={
               <View
@@ -3161,6 +3167,16 @@ export function SourceBrowseScreen() {
             ]}
           >
             {sourceFilters.length ? (
+              mobileDesignExploreFlag ? (
+                <ExploreSourceFilterMenus
+                  filters={sourceFilters}
+                  values={sourceFilterValues}
+                  strings={strings}
+                  onChange={changeSourceFilter}
+                  onClear={() => handleHomeFilterPress([])}
+                  onOpenPanel={openSourceFilterPanel}
+                />
+              ) : (
               <SourceFilterChipRow
                 activeFilterCount={sourceFilterCount}
                 chips={sourceFilterChips}
@@ -3169,6 +3185,7 @@ export function SourceBrowseScreen() {
                 onOpenPanel={openSourceFilterPanel}
                 onToggleCheck={toggleSourceCheckFilter}
               />
+              )
             ) : sourceFiltersState.status === "blocked" &&
               packageMetadata?.filters.length ? (
               <SourceBrowseBlockedNotice
@@ -3205,6 +3222,20 @@ export function SourceBrowseScreen() {
                   : null,
               ]}
             >
+              {mobileDesignExploreFlag ? (
+                <SourceListingSegments
+                  homeLabel={showSourceHomeTab ? strings.sourceBrowse.sourceHome : null}
+                  homeSelected={sourceHomeTabSelected}
+                  homeEnabled={sourceHomeTabCanSelect}
+                  listings={visibleListings}
+                  selectedListingId={selectedListing?.id ?? null}
+                  accessibilityLabel={strings.designExplore.sourceSectionsLabel}
+                  onSelectHome={selectSourceHome}
+                  onSelectListing={selectSourceListing}
+                  bleed={listingTabsBleed}
+                />
+              ) : (
+              <>
               <Animated.ScrollView
                 accessibilityRole="tablist"
                 horizontal
@@ -3284,6 +3315,8 @@ export function SourceBrowseScreen() {
                   listingTabsTrailingFadeStyle,
                 ]}
               />
+              </>
+              )}
             </View>
 
             {showSourceHomeSection &&
@@ -3309,6 +3342,7 @@ export function SourceBrowseScreen() {
       </View>
     ),
     [
+      changeSourceFilter,
       handleHomeFilterPress,
       handleHomeListingPress,
       handleListingMangaPress,
@@ -3336,7 +3370,8 @@ export function SourceBrowseScreen() {
       source,
       sourceFilterChips,
       sourceFilterCount,
-      sourceFilters.length,
+      sourceFilterValues,
+      sourceFilters,
       sourceFiltersState,
       sourceHome,
       sourceHomeDisplay,
@@ -3440,9 +3475,36 @@ export function SourceBrowseScreen() {
         onSearch={enterSourceSearch} onCancel={clearSourceSearch}
         onFilters={showSourceSearchControls ? openSourceFilterPanel : undefined}
       /> : null}
-      {!compactHeader && source && nativeHeaderActions.length ? (
+      {!compactHeader && source && (nativeHeaderActions.length || mobileDesignExploreFlag) ? (
         <Stack.Toolbar placement="right">
           {renderNemuNativeToolbarButtons(nativeHeaderActions)}
+          {mobileDesignExploreFlag && !sourceSearchActive
+            ? renderExploreDetailBarMenu(
+                [
+                  {
+                    icon: "arrow.clockwise",
+                    label: strings.designExplore.refreshSource,
+                    disabled: refreshingSource,
+                    onPress: () => void refreshSourceData(),
+                  },
+                  ...(installedSource
+                    ? [
+                        {
+                          icon: "gearshape" as const,
+                          label: strings.settings.sourceSettingsDefaultTitle,
+                          onPress: () =>
+                            router.push({
+                              pathname: "/(tabs)/settings/[section]",
+                              params: { section: "sources", sourceId: installedSource.id },
+                            }),
+                        },
+                      ]
+                    : []),
+                ],
+                strings.designExplore.sourceOptions,
+                "gearshape",
+              )
+            : null}
         </Stack.Toolbar>
       ) : null}
       {!compactHeader && source && sourceSearchActive ? (
@@ -3671,7 +3733,10 @@ export function SourceBrowseScreen() {
                     detail={listingState.detail}
                   />
                 </MobilePaneAlignedView>
-              ) : listingState.status === "loading" ? (
+              ) : listingState.status === "loading" ||
+                (mobileDesignExploreFlag && listingState.status === "idle") ? (
+                // A selected listing that has not started yet is about to load: a
+                // result skeleton, not a flash of the empty state.
                 <MobileSourceGridSkeleton
                   accessibilityLabel={listingState.detail}
                 />
