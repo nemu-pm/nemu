@@ -14,7 +14,7 @@ const mobilePackage = JSON.parse(
 ) as { dependencies?: Record<string, string> };
 
 const patchedPackages = [
-  "expo-background-task", "expo-sqlite", "expo-modules-jsi", "@expo/cli", "@expo/ui",
+  "expo-background-task", "expo-modules-jsi", "@expo/cli", "@expo/ui",
 ];
 
 describe("mobile Expo native patch policy", () => {
@@ -86,7 +86,7 @@ describe("mobile Expo native patch policy", () => {
     }
     // A fresh install reproduces it: the hunks are in the repository patch.
     const patch = readFileSync(
-      path.join(repositoryRoot, "patches/@expo%2Fui@58.0.14.patch"), "utf8");
+      path.join(repositoryRoot, "patches/@expo%2Fui@58.0.15.patch"), "utf8");
     expect(patch).toContain("diff --git a/ios/Modifiers/OnGeometryChangeModifier.swift");
     expect(patch).toContain("+      of: { proxy in Geometry(frame: proxy.frame(in: .global), localSize: proxy.size) },");
     expect(patch.match(/^\+\s+const nextWidth = probeFrame\.localWidth \?\? probeFrame\.width;$/gm)?.length).toBe(2);
@@ -190,34 +190,16 @@ describe("mobile Expo native patch policy", () => {
     );
   });
 
-  test("builds the patched SQLite sources with deferred native lifetimes", () => {
+  test("relies on expo-sqlite's own Android connection lifecycle, unpatched", () => {
+    // 58.0.11 reference-counts each connection across JS objects, locks every
+    // native call against close, and closes still-open databases on reload;
+    // that replaced the repository patch that deferred native lifetimes.
     const sqliteRoot = path.join(repositoryRoot, "node_modules/expo-sqlite");
-    const publicationPolicy = readFileSync(
-      path.join(sqliteRoot, "android/shouldUsePublication.groovy"),
-      "utf8",
-    );
-    const databaseBinding = readFileSync(
-      path.join(
-        sqliteRoot,
-        "android/src/main/cpp/NativeDatabaseBinding.cpp",
-      ),
-      "utf8",
-    );
-    const statementBinding = readFileSync(
-      path.join(sqliteRoot, "android/src/main/cpp/NativeStatementBinding.h"),
-      "utf8",
-    );
-
-    expect(publicationPolicy.trim().endsWith("false")).toBe(true);
-    expect(databaseBinding).toContain("::exsqlite3_close_v2(db)");
-    expect(statementBinding).toContain("std::mutex mutex_");
-    const sqliteModule = readFileSync(path.join(sqliteRoot,
-      "android/src/main/java/expo/modules/sqlite/SQLiteModule.kt"), "utf8");
-    const closeDatabase = sqliteModule.slice(sqliteModule.indexOf("private fun closeDatabase("),
-      sqliteModule.indexOf("private fun deleteDatabase("));
-    // Keep SDK 58's concurrent-close guard when rebasing lifecycle fixes.
-    expect(closeDatabase).toContain("database.closeLock.lock()");
-    expect(closeDatabase).toContain("database.closeLock.unlock()");
-    expect(closeDatabase).not.toContain("maybeFinalizeAllStatements(database)");
+    const connection = readFileSync(path.join(sqliteRoot,
+      "android/src/main/java/expo/modules/sqlite/DatabaseConnection.kt"), "utf8");
+    expect(connection).toContain("fun removeHolder()");
+    expect(connection).toContain("releaseBindingIfUnused");
+    expect(existsSync(path.join(sqliteRoot, "android/src/main/cpp/SQLiteError.h"))).toBe(true);
+    expect(rootPackage.patchedDependencies?.["expo-sqlite@58.0.11"]).toBeUndefined();
   });
 });

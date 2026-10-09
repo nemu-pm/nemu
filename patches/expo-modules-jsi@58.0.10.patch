@@ -49,6 +49,58 @@ index 5b77e0f..cab1b08 100644
  //
  // SwiftPM requires `binaryTarget` paths to be relative to the package root,
  // so the test wrapper script (`scripts/test.sh`) symlinks each xcframework
+diff --git a/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift b/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift
+index fda12bf..66fae7c 100644
+--- a/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift
++++ b/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift
+@@ -44,7 +44,7 @@ open class JavaScriptRuntime: Equatable, Identifiable, @unchecked Sendable {
+   internal let handle: JavaScriptRuntimeHandle
+ 
+   /// Whether this wrapper owns the underlying `jsi::Runtime` and must destroy it on `deinit`. True
+-  /// only for the standalone `init()`, which creates the runtime via `createHermesRuntime()`. The
++  /// only for the standalone `init()`, which creates the runtime via `createStandaloneRuntime()`. The
+   /// other initializers adopt a runtime owned elsewhere (e.g. React Native), which must never be
+   /// freed here, matching the immortal (no-op) release semantics of the imported reference type.
+   private let ownsRuntime: Bool
+@@ -74,10 +74,10 @@ open class JavaScriptRuntime: Equatable, Identifiable, @unchecked Sendable {
+     installLongLivedObjectsTeardown()
+   }
+ 
+-  /// Creates a standalone Hermes runtime. Scheduled tasks run synchronously —
++  /// Creates a standalone JavaScriptCore runtime. Scheduled tasks run synchronously —
+   /// no React scheduler is wired up.
+   public init() {
+-    let runtime = expo.createHermesRuntime()
++    let runtime = expo.createStandaloneRuntime()
+     self.runtimePointee = runtime
+     self.pointee = expo.iruntime(runtime)
+     self.handle = JavaScriptRuntimeHandle(self.pointee)
+diff --git a/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptObject.swift b/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptObject.swift
+index e6fdcf2..48de8bf 100644
+--- a/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptObject.swift
++++ b/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptObject.swift
+@@ -97,7 +97,7 @@ public struct JavaScriptObject: JavaScriptType, Sendable, ~Copyable {
+     guard let runtime else {
+       FatalError.runtimeLost()
+     }
+-    return expo.isTypedArray(runtime.pointee, pointee)
++    return expo.isExpoModulesJSITypedArray(runtime.pointee, pointee)
+   }
+ 
+   /// Returns the object as an array buffer, or asserts if not an array buffer.
+diff --git a/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptValue.swift b/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptValue.swift
+index e2665b4..514b442 100644
+--- a/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptValue.swift
++++ b/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptValue.swift
+@@ -213,7 +213,7 @@ public final class JavaScriptValue: JavaScriptType, Equatable, Escapable {
+     guard let jsiRuntime else {
+       FatalError.runtimeLost()
+     }
+-    return pointee.isObject() && expo.isTypedArray(jsiRuntime, pointee.getObject(jsiRuntime))
++    return pointee.isObject() && expo.isExpoModulesJSITypedArray(jsiRuntime, pointee.getObject(jsiRuntime))
+   }
+ 
+   /// Checks whether the value is an `ArrayBuffer`.
 diff --git a/apple/Sources/ExpoModulesJSI-Cxx/JSIUtils.cpp b/apple/Sources/ExpoModulesJSI-Cxx/JSIUtils.cpp
 index 84681df..f263770 100644
 --- a/apple/Sources/ExpoModulesJSI-Cxx/JSIUtils.cpp
@@ -107,7 +159,7 @@ index 1efa258..3f896c1 100644
      .global()
      .getPropertyAsObject(runtime, "ArrayBuffer");
 diff --git a/apple/Sources/ExpoModulesJSI-Cxx/include/JSIUtils.h b/apple/Sources/ExpoModulesJSI-Cxx/include/JSIUtils.h
-index 063a30d..05b9edb 100644
+index 13ffb8b..ed90c0e 100644
 --- a/apple/Sources/ExpoModulesJSI-Cxx/include/JSIUtils.h
 +++ b/apple/Sources/ExpoModulesJSI-Cxx/include/JSIUtils.h
 @@ -131,10 +131,10 @@ inline bool isHostObject(jsi::IRuntime &runtime, const jsi::Object &object) {
@@ -136,60 +188,8 @@ index 60e99b4..2337a06 100644
  
  /**
   * Returns the `TypedArrayKind` of the given typed-array object, derived from its
-diff --git a/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift b/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift
-index 4ab5a73..708dd1b 100644
---- a/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift
-+++ b/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift
-@@ -43,7 +43,7 @@ open class JavaScriptRuntime: Equatable, Identifiable, @unchecked Sendable {
-   internal let handle: JavaScriptRuntimeHandle
- 
-   /// Whether this wrapper owns the underlying `jsi::Runtime` and must destroy it on `deinit`. True
--  /// only for the standalone `init()`, which creates the runtime via `createHermesRuntime()`. The
-+  /// only for the standalone `init()`, which creates the runtime via `createStandaloneRuntime()`. The
-   /// other initializers adopt a runtime owned elsewhere (e.g. React Native), which must never be
-   /// freed here, matching the immortal (no-op) release semantics of the imported reference type.
-   private let ownsRuntime: Bool
-@@ -73,10 +73,10 @@ open class JavaScriptRuntime: Equatable, Identifiable, @unchecked Sendable {
-     installLongLivedObjectsTeardown()
-   }
- 
--  /// Creates a standalone Hermes runtime. Scheduled tasks run synchronously —
-+  /// Creates a standalone JavaScriptCore runtime. Scheduled tasks run synchronously —
-   /// no React scheduler is wired up.
-   public init() {
--    let runtime = expo.createHermesRuntime()
-+    let runtime = expo.createStandaloneRuntime()
-     self.runtimePointee = runtime
-     self.pointee = expo.iruntime(runtime)
-     self.handle = JavaScriptRuntimeHandle(self.pointee)
-diff --git a/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptObject.swift b/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptObject.swift
-index dfec104..4c529fd 100644
---- a/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptObject.swift
-+++ b/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptObject.swift
-@@ -97,7 +97,7 @@ public struct JavaScriptObject: JavaScriptType, Sendable, ~Copyable {
-     guard let runtime else {
-       FatalError.runtimeLost()
-     }
--    return expo.isTypedArray(runtime.pointee, pointee)
-+    return expo.isExpoModulesJSITypedArray(runtime.pointee, pointee)
-   }
- 
-   /// Returns the object as an array buffer, or asserts if not an array buffer.
-diff --git a/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptValue.swift b/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptValue.swift
-index e2665b4..514b442 100644
---- a/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptValue.swift
-+++ b/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptValue.swift
-@@ -213,7 +213,7 @@ public final class JavaScriptValue: JavaScriptType, Equatable, Escapable {
-     guard let jsiRuntime else {
-       FatalError.runtimeLost()
-     }
--    return pointee.isObject() && expo.isTypedArray(jsiRuntime, pointee.getObject(jsiRuntime))
-+    return pointee.isObject() && expo.isExpoModulesJSITypedArray(jsiRuntime, pointee.getObject(jsiRuntime))
-   }
- 
-   /// Checks whether the value is an `ArrayBuffer`.
 diff --git a/apple/scripts/build-xcframework.sh b/apple/scripts/build-xcframework.sh
-index d38a2d6..0b974a7 100755
+index 30cd6f3..f8f5389 100755
 --- a/apple/scripts/build-xcframework.sh
 +++ b/apple/scripts/build-xcframework.sh
 @@ -10,7 +10,7 @@
@@ -288,7 +288,7 @@ index d38a2d6..0b974a7 100755
    fi
  
    # Copy Swift module interfaces and generated headers into the staged framework.
-@@ -363,6 +391,9 @@ build_slice() {
+@@ -368,6 +396,9 @@ build_slice() {
    # and Resources -> Versions/Current/Resources, but not Headers/Modules since
    # the SPM build doesn't emit those at that point.
    if [[ "$platform" == "macosx" || "$platform" == "maccatalyst" ]]; then

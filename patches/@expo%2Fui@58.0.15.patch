@@ -269,7 +269,7 @@ index f56e271..aefe956 100644
      /**
       * The RN View to be hosted.
 diff --git a/build/swift-ui/modifiers/index.d.ts b/build/swift-ui/modifiers/index.d.ts
-index 2c9f55d..a3f1d6f 100644
+index 0de5cd2..6d6810f 100644
 --- a/build/swift-ui/modifiers/index.d.ts
 +++ b/build/swift-ui/modifiers/index.d.ts
 @@ -188,7 +188,10 @@ export declare const onAppear: (handler: () => void) => ModifierConfig;
@@ -902,7 +902,7 @@ index a0b56ba..8af6ce3 100644
    /**
     * The RN View to be hosted.
 diff --git a/src/swift-ui/modifiers/index.ts b/src/swift-ui/modifiers/index.ts
-index 24366b9..7a06390 100644
+index d33844f..d8e93a6 100644
 --- a/src/swift-ui/modifiers/index.ts
 +++ b/src/swift-ui/modifiers/index.ts
 @@ -275,16 +275,33 @@ export const onDisappear = (handler: () => void) =>
