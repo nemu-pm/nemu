@@ -47,6 +47,7 @@ import {
   getMobileContinueCardGeometry,
   getMobileContinueCardVariant,
   MOBILE_CONTINUE_TALL_CARD,
+  SINGLE_COVER_SHARE,
   type MobileContinueCardVariant,
 } from "@/lib/mobileContinueCardGeometry";
 import { useMobileContainerFold } from "@/lib/useMobileContainerFold";
@@ -234,9 +235,10 @@ export function MobileContinueReadingCarousel({
       : next.kind === "collections"
         ? getMobileCollectionFolderPeek(windowWidth - pageGutters.left - pageGutters.right, fontScale)
         : { min: titleBlock + Math.round(next.coverHeight * 0.5), max: undefined };
+  const coverShare = geometry.columns === 1 ? SINGLE_COVER_SHARE : COVER_SHARE;
   const naturalArt = tall
     ? Math.round(cardWidth * MOBILE_CONTINUE_TALL_CARD.artAspect)
-    : Math.round(cardWidth * COVER_SHARE * 1.5);
+    : Math.round(cardWidth * coverShare * 1.5);
   const artFit = (() => {
     if (cardWidth <= 0 || geometry.foldAligned) return null;
     const text = tall ? (textHeight ?? TALL_TEXT_ESTIMATE) : 0;
@@ -411,6 +413,7 @@ export function MobileContinueReadingCarousel({
                 scrollX={scrollX}
                 turns={turns}
                 variant={variant}
+                coverShare={coverShare}
                 artHeight={artHeight}
                 onTextHeight={onCardText[index]}
                 installedSources={installedSources}
@@ -524,6 +527,7 @@ const ContinueCard = memo(function ContinueCard({
   scrollX,
   turns,
   variant,
+  coverShare,
   artHeight,
   onTextHeight,
   installedSources,
@@ -543,6 +547,8 @@ const ContinueCard = memo(function ContinueCard({
   scrollX: SharedValue<number>;
   turns: boolean;
   variant: MobileContinueCardVariant;
+  /** Cover width over the card width (wide card). */
+  coverShare: number;
   installedSources: InstalledSource[];
   strings: MobileStrings;
   onMore: (entry: LibraryEntry) => void;
@@ -609,7 +615,7 @@ const ContinueCard = memo(function ContinueCard({
   // Wide: the cover beside the text. Tall: the cover across the card's top,
   // its upper part in a window (2:3 covers; the top carries the title and the
   // faces), the progress line along the window's foot.
-  const coverWidth = tall ? width : Math.round(width * COVER_SHARE);
+  const coverWidth = tall ? width : Math.round(width * coverShare);
   const coverHeight = Math.round(coverWidth * 1.5);
   const windowHeight =
     artHeight ?? (tall ? Math.round(width * MOBILE_CONTINUE_TALL_CARD.artAspect) : coverHeight);

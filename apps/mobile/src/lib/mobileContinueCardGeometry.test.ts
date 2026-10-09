@@ -170,6 +170,12 @@ describe("getMobileContinueCardGeometry", () => {
     expect(g.turns).toBe(false);
   });
 
+  test("a wide card to a position stays narrow and centred (the closed Duo in landscape)", () => {
+    const g = getMobileContinueCardGeometry({ frameWidth: 640, gutterLeft: 20, gutterRight: 20, count: 3 });
+    expect(g).toMatchObject({ columns: 1, cardWidth: 420, turns: true });
+    expect(g.paddingLeft).toBeCloseTo(g.paddingRight);
+  });
+
   test("a tall card needs a tall window", () => {
     expect(getMobileContinueCardVariant("tall", 912)).toBe("tall");
     // iPhone landscape, the Duo's outer display, the open Duo in landscape.

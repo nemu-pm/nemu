@@ -52,6 +52,9 @@ export const MOBILE_CONTINUE_TALL_CARD = {
   narrowMinWindowHeight: 620,
 } as const;
 
+/** Cover share of a one-card-per-position wide card (the multi-column card keeps 0.36). */
+export const SINGLE_COVER_SHARE = 0.42;
+
 export type MobileContinueCardVariant = "wide" | "tall";
 
 /**
@@ -69,6 +72,9 @@ export function getMobileContinueCardVariant(
 
 /** How much of each neighbour shows beside a centred card. */
 const SIDE_PEEK = 20;
+
+/** A one-card-per-position wide card stays this narrow: taller than a flat banner, with the cover bigger (`SINGLE_COVER_SHARE`). */
+const SINGLE_CARD_MAX_WIDTH = 420;
 
 /** A centred single card never gets narrower than this (unless the window is). */
 const NARROW_CARD_FLOOR = 280;
@@ -174,7 +180,7 @@ export function getMobileContinueCardGeometry({
     // peeks on each side (the first and last card too, their missing
     // neighbour leaving the same room).
     const roomed = content - 2 * (gap + SIDE_PEEK);
-    const cardWidth = Math.min(maxWidth, content, count <= 1 ? content : Math.max(roomed, Math.min(content, NARROW_CARD_FLOOR)));
+    const cardWidth = Math.min(maxWidth, SINGLE_CARD_MAX_WIDTH, content, count <= 1 ? content : Math.max(roomed, Math.min(content, NARROW_CARD_FLOOR)));
     const paddingLeft = left + (content - cardWidth) / 2;
     return {
       ...NONE,
