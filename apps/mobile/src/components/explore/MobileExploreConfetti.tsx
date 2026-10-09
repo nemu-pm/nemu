@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Dimensions, StyleSheet, View, type ViewInstance } from "react-native";
+import { StyleSheet, useWindowDimensions, View, type ViewInstance } from "react-native";
 import { FullWindowOverlay } from "react-native-screens";
 import { Canvas, Picture, Skia } from "@shopify/react-native-skia";
 import {
@@ -95,7 +95,8 @@ function ConfettiCanvas({
     }
     return { front, back };
   }, [colors, pieces]);
-  const screen = Dimensions.get("window");
+  // Reactive: a rotation or a fold while the burst is in the air resizes the canvas.
+  const screen = useWindowDimensions();
   const time = useSharedValue(0);
   useEffect(() => {
     time.value = withTiming(

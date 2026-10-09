@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Dimensions, StyleSheet, View, type ViewInstance } from "react-native";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { StyleSheet, useWindowDimensions, View, type ViewInstance } from "react-native";
 import { FullWindowOverlay } from "react-native-screens";
 import { Atlas, Canvas, Skia, makeImageFromView, useRSXformBuffer, type SkImage } from "@shopify/react-native-skia";
 import { Easing, runOnJS, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
@@ -31,10 +31,12 @@ type DustRun = {
 const HIDE_AFTER_MS = 64;
 const REMOVE_AFTER_MS = (MOBILE_DUST.sweep + MOBILE_DUST.jitter) * 1000 + 420;
 
-function measure(view: ViewInstance): Promise<{ x: number; y: number; width: number; height: number } | null> {
+function measure(
+  view: ViewInstance,
+  window: { width: number; height: number },
+): Promise<{ x: number; y: number; width: number; height: number } | null> {
   return new Promise((resolve) => {
     view.measureInWindow((x, y, width, height) => {
-      const window = Dimensions.get("window");
       const onScreen = width > 0 && height > 0 && x + width > 0 && y + height > 0 && x < window.width && y < window.height;
       resolve(onScreen ? { x, y, width, height } : null);
     });
@@ -49,6 +51,13 @@ function measure(view: ViewInstance): Promise<{ x: number; y: number; width: num
  */
 export function MobileExploreDustHost() {
   const reducedMotion = useReducedMotion();
+  // The latest window size (a fold, rotation or Split View resize changes it
+  // between two dissolves), read when a view is measured, not captured once.
+  const windowSize = useWindowDimensions();
+  const windowSizeRef = useRef(windowSize);
+  useLayoutEffect(() => {
+    windowSizeRef.current = windowSize;
+  }, [windowSize]);
   const [runs, setRuns] = useState<DustRun[]>([]);
   const nextKey = useRef(1);
 
@@ -64,7 +73,7 @@ export function MobileExploreDustHost() {
         // title's shelf cell far down the Library) has no native view under
         // Fabric's culling, and Skia's snapshot of a missing view is a fatal
         // native error, not a rejection this catch could take.
-        if (!(await measure(target.current))) continue;
+        if (!(await measure(target.current, windowSizeRef.current))) continue;
         if (!target.current) continue;
         let image: SkImage | null = null;
         try {
@@ -75,7 +84,7 @@ export function MobileExploreDustHost() {
         if (!image) continue;
         await ready;
         const view = target.current;
-        const rect = view ? await measure(view) : null;
+        const rect = view ? await measure(view, windowSizeRef.current) : null;
         if (!rect) continue;
         const key = nextKey.current++;
         setRuns((current) => [...current, { key, id, image: image!, ...rect }]);

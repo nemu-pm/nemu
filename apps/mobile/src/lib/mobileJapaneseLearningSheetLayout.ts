@@ -232,6 +232,26 @@ function resolveFoldDrawerDetent({
 const IOS_REGULAR_WIDTH_MIN = 600;
 
 /**
+ * UIKit presents a sheet as a centred form sheet (no bottom drawer, nothing
+ * above it) only for an iPad-idiom window of regular width. The idiom alone
+ * says nothing about the window — an iPad in a narrow Split View column gets
+ * the phone's bottom drawer — so the window's width decides, and the idiom
+ * only separates the iPad from the iPhone Duo's open display, which is also
+ * regular-width but presents the bottom drawer (measured, 27.1).
+ */
+export function japaneseLearningDrawerIsFormSheet({
+  platform,
+  idiomIsPad,
+  windowWidth,
+}: {
+  platform: string;
+  idiomIsPad: boolean;
+  windowWidth: number;
+}): boolean {
+  return platform === "ios" && idiomIsPad && windowWidth >= IOS_REGULAR_WIDTH_MIN;
+}
+
+/**
  * Tallest iPhone window with a compact vertical size class (every iPhone in
  * landscape: 320–440pt; the iPhone Duo outer display in landscape: 466pt).
  * The unfolded Duo's inner display (669pt in landscape) is regular.

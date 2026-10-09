@@ -3,6 +3,7 @@ import { japaneseLearningBubblePopoutMaxBottom } from "./mobileJapaneseLearningB
 import {
   IOS_FLOATING_SHEET_INSET,
   isJapaneseLearningDrawerFullScreen,
+  japaneseLearningDrawerIsFormSheet,
   JAPANESE_LEARNING_COLUMN_BUBBLE_MAX_HEIGHT,
   JAPANESE_LEARNING_COLUMN_BUBBLE_MIN_HEIGHT,
   JAPANESE_LEARNING_POPOUT_SHEET_GAP,
@@ -223,5 +224,26 @@ describe("resolveJapaneseLearningSheetBottomInset", () => {
   });
   test("Android: Material already sits above the navigation bar", () => {
     expect(resolveJapaneseLearningSheetBottomInset({ platform: "android", fullScreen: false, safeAreaBottom: 24 })).toBe(0);
+  });
+});
+
+describe("japaneseLearningDrawerIsFormSheet", () => {
+  test("only a regular-width iPad window gets the centred form sheet", () => {
+    expect(japaneseLearningDrawerIsFormSheet({ platform: "ios", idiomIsPad: true, windowWidth: 820 })).toBe(true);
+    expect(japaneseLearningDrawerIsFormSheet({ platform: "ios", idiomIsPad: true, windowWidth: 1180 })).toBe(true);
+  });
+
+  test("an iPad in a narrow Split View column gets the phone's bottom drawer", () => {
+    expect(japaneseLearningDrawerIsFormSheet({ platform: "ios", idiomIsPad: true, windowWidth: 507 })).toBe(false);
+    expect(japaneseLearningDrawerIsFormSheet({ platform: "ios", idiomIsPad: true, windowWidth: 320 })).toBe(false);
+  });
+
+  test("the iPhone Duo's open display is regular width but keeps the bottom drawer", () => {
+    expect(japaneseLearningDrawerIsFormSheet({ platform: "ios", idiomIsPad: false, windowWidth: 669 })).toBe(false);
+    expect(japaneseLearningDrawerIsFormSheet({ platform: "ios", idiomIsPad: false, windowWidth: 951 })).toBe(false);
+  });
+
+  test("never off iOS", () => {
+    expect(japaneseLearningDrawerIsFormSheet({ platform: "android", idiomIsPad: true, windowWidth: 900 })).toBe(false);
   });
 });

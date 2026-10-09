@@ -11,6 +11,7 @@ import {
 } from "@/lib/mobileJapaneseLearningSheetLayout";
 import { useMobileAdaptiveLayout, useMobileWindowLayout } from "@/lib/MobileWindowLayoutContext";
 import { mobileHorizontalFoldBand, mobileRestingFoldMinGutter } from "@/lib/mobileRestingFold";
+import { japaneseLearningDrawerIsFormSheet } from "@/lib/mobileJapaneseLearningSheetLayout";
 
 /**
  * Sheet frame for the learning drawers web shows at `70vh` (sentence sheet,
@@ -29,16 +30,23 @@ export function useJapaneseLearningDrawerFrame() {
     () => mobileHorizontalFoldBand(windowLayout, mobileRestingFoldMinGutter(Platform.OS)),
     [windowLayout],
   );
+  // Not a device check: only a regular-width iPad window gets a centred form
+  // sheet; the same iPad in a compact Split View column, and every iPhone
+  // window (the Duo's open display included), gets the bottom drawer.
+  const isPad = japaneseLearningDrawerIsFormSheet({
+    platform: Platform.OS,
+    idiomIsPad: Platform.OS === "ios" && Platform.isPad,
+    windowWidth: width,
+  });
   const frameMaxHeight = resolveJapaneseLearningDrawerDetent({
     platform: Platform.OS,
-    isPad: Platform.OS === "ios" && Platform.isPad,
+    isPad,
     windowWidth: width,
     windowHeight: height,
     safeAreaTop: insets.top,
     safeAreaBottom: insets.bottom,
     horizontalFold,
   });
-  const isPad = Platform.OS === "ios" && Platform.isPad;
   const { verticalBarEdge } = useMobileAdaptiveLayout();
   const fullScreen = isJapaneseLearningDrawerFullScreen({
     platform: Platform.OS,
