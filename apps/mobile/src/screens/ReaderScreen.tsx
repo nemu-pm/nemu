@@ -2447,7 +2447,9 @@ export function ReaderScreen() {
   const readerImageWidth = pagedMode
     ? isTwoPageMode
       ? Math.max(1, readerSafeContentWidth / 2)
-      : Math.max(readerStageConstrained ? 1 : 240, Math.min(720, readerSafeContentWidth - 24))
+      : // The whole page as large as fits: a regular-width window (an iPad, the
+        // Duo's open display) is not held to a phone-sized column.
+        Math.max(readerStageConstrained ? 1 : 240, readerSafeContentWidth - 24)
     : Math.min(readerSafeContentWidth, 720) *
       readerScrollWidthScale(activeScrollWidthPct);
   const segmentedImageFrames = useMemo(
