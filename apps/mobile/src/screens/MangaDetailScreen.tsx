@@ -28,6 +28,7 @@ import {
   MobileSourceSelector,
   type MobileSourceSelectorItem,
 } from "@/components/MobileSourceSelector";
+import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { MobileMangaDetailSplitLayout } from "@/components/MobileMangaDetailSplitLayout";
 import { MobileMangaDetailSurface } from "@/components/MobileMangaDetailSurface";
 import {
@@ -62,6 +63,7 @@ import {
   PageHeader,
   PageScaffold,
   createNemuSoftEdgeScreenOptions,
+  NEMU_SOFT_SCROLL_EDGE_EFFECTS,
   renderNemuNativeToolbarButtons,
   useNemuTheme,
   usesNemuNativeHeader,
@@ -400,6 +402,10 @@ export function MangaDetailScreen() {
   const strings = getMobileStrings(appLanguage);
   const usesNativeHeader = usesNemuNativeHeader;
   const booksHero = useMobileDesignExplore();
+  // Beside a vertical bar (the Duo's rail) the bar draws nothing above the
+  // page: no top scroll-edge effect, no bar title.
+  const { verticalBarSide } = useMobileAdaptiveLayout();
+  const barOnSide = booksHero && verticalBarSide !== null;
   // Books: the bar shows the title only once the hero's title has scrolled
   // under it (the native bar title; no custom fade).
   const [heroTitleScrolledAway, setHeroTitleScrolledAway] = useState(false);
@@ -415,19 +421,27 @@ export function MangaDetailScreen() {
   // out again as it comes back, both ways, with a little hysteresis so a
   // finger resting on the line never flickers it.
   const barTitleShown = useSharedValue(0);
-  const onDetailScroll = useCallback(
-    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const { contentOffset, contentInset } = event.nativeEvent;
-      const y = contentOffset.y + (contentInset?.top ?? 0);
+  const updateBarTitle = useCallback(
+    (y: number) => {
       setHeroTitleScrolledAway((current) => {
-        const past = getMobileExploreBarTitleShown(current, y, heroTitleThreshold);
+        const past = !barOnSide && getMobileExploreBarTitleShown(current, y, heroTitleThreshold);
         if (past !== current) {
           barTitleShown.value = withTiming(past ? 1 : 0, { duration: MOBILE_EXPLORE_BAR_TITLE_FADE_MS });
         }
         return past;
       });
     },
-    [barTitleShown, heroTitleThreshold],
+    [barOnSide, barTitleShown, heroTitleThreshold],
+  );
+  // The list scrolls the hero's title away only when the hero is in it; with
+  // the info pane beside the chapters, the pane's own scroll decides.
+  const onDetailScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (heroInPane) return;
+      const { contentOffset, contentInset } = event.nativeEvent;
+      updateBarTitle(contentOffset.y + (contentInset?.top ?? 0));
+    },
+    [heroInPane, updateBarTitle],
   );
   const store = useMobileDataStore();
   const saveSourcePackageHydration = useCallback(
@@ -2580,8 +2594,14 @@ export function MangaDetailScreen() {
           {/* The Books-style hero carries the title; the bar stays clear. */}
           <Stack.Screen
             options={
-              booksHero && (entry || seedEntry) && !heroInPane
-                ? { ...nativeHeaderOptions(title), headerTitle: renderExploreBarTitle }
+              booksHero && (entry || seedEntry)
+                ? {
+                    ...nativeHeaderOptions(title),
+                    headerTitle: renderExploreBarTitle,
+                    ...(barOnSide && Platform.OS === "ios"
+                      ? { scrollEdgeEffects: { ...NEMU_SOFT_SCROLL_EDGE_EFFECTS, top: "hidden" as const } }
+                      : null),
+                  }
                 : nativeHeaderOptions(title)
             }
           />
@@ -2702,6 +2722,7 @@ export function MangaDetailScreen() {
         renderItem={booksHero ? renderExploreChapterRow : renderChapterRow}
         listRef={booksHero ? chapterListRef : undefined}
         onScrollToIndexFailed={booksHero ? onChapterScrollToIndexFailed : undefined}
+        onLeadingScroll={booksHero ? updateBarTitle : undefined}
         splitEnabled={Boolean(entry || seedEntry)}
         leading={
           <>

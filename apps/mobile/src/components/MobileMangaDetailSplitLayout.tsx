@@ -1,10 +1,18 @@
 import {
   Fragment,
+  useCallback,
   useMemo,
   type ComponentProps,
   type ReactNode,
 } from "react";
-import { Platform, StyleSheet, View, useWindowDimensions } from "react-native";
+import {
+  Platform,
+  StyleSheet,
+  View,
+  useWindowDimensions,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import { useMobileExploreRestingFrame } from "@/components/explore/useMobileExploreResting";
@@ -47,6 +55,7 @@ export function MobileMangaDetailSplitLayout<ItemT>({
   chapterHeader,
   splitEnabled = true,
   leadingTestID,
+  onLeadingScroll,
   ...listProps
 }: ChapterListProps<ItemT> & {
   /** Info stack: hero, banners. Leads the list on compact widths. */
@@ -56,6 +65,12 @@ export function MobileMangaDetailSplitLayout<ItemT>({
   /** False for states without chapters (not found, loading shells). */
   splitEnabled?: boolean;
   leadingTestID?: string;
+  /**
+   * The info pane's scroll, as the offset from the hero's own top (the pane's
+   * padding taken off): the hero's title has left the page once it passes the
+   * title's bottom.
+   */
+  onLeadingScroll?: (offsetFromHeroTop: number) => void;
 }) {
   const { tokens } = useNemuTheme();
   const { height } = useWindowDimensions();
@@ -75,7 +90,7 @@ export function MobileMangaDetailSplitLayout<ItemT>({
   const barOnSide = Platform.OS === "ios" && mobileDesignExploreFlag && verticalBarSide !== null;
   const exploreTop =
     Platform.OS === "ios" && mobileDesignExploreFlag
-      ? { paddingTop: barOnSide ? insets.top + 12 + SIDE_BAR_EDGE_CLEARANCE : 4 }
+      ? { paddingTop: barOnSide ? insets.top + 12 : 4 }
       : null;
   // The detail screens use a transparent soft-edge navigation bar. Both
   // scroll views must start below it, while still scrolling underneath it.
@@ -97,6 +112,14 @@ export function MobileMangaDetailSplitLayout<ItemT>({
   const leadingPane = useMemo<MobileMangaDetailPane>(
     () => ({ role: "leading", regularWidth: true }),
     [],
+  );
+  const leadingTop = (exploreTop?.paddingTop ?? 0) + (pull || 0) + PANE_HERO_TOP;
+  const onLeadingListScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const { contentOffset, contentInset } = event.nativeEvent;
+      onLeadingScroll?.(contentOffset.y + (contentInset?.top ?? 0) - leadingTop);
+    },
+    [leadingTop, onLeadingScroll],
   );
   const trailingPane = useMemo<MobileMangaDetailPane>(
     () => ({ role: split ? "trailing" : "single", regularWidth }),
@@ -149,6 +172,10 @@ export function MobileMangaDetailSplitLayout<ItemT>({
                 contentInsetAdjustmentBehavior={contentInsetAdjustmentBehavior}
                 data={NO_ROWS}
                 renderItem={renderNothing}
+                onScroll={onLeadingScroll ? onLeadingListScroll : undefined}
+                onScrollEndDrag={onLeadingScroll ? onLeadingListScroll : undefined}
+                onMomentumScrollEnd={onLeadingScroll ? onLeadingListScroll : undefined}
+                scrollEventThrottle={onLeadingScroll ? 64 : undefined}
                 onRefresh={listProps.onRefresh}
                 refreshDisabled={listProps.refreshDisabled}
                 refreshLabel={listProps.refreshLabel}
@@ -190,12 +217,8 @@ export function MobileMangaDetailSplitLayout<ItemT>({
   );
 }
 
-/**
- * Beside a side rail the panes' top scroll-edge effect (the soft blur under
- * the bar's buttons) still covers the first points of the page: at rest the
- * content starts below it and scrolls up into it (pt).
- */
-const SIDE_BAR_EDGE_CLEARANCE = 62;
+/** The info pane hero's own top padding (pt). */
+const PANE_HERO_TOP = 22;
 
 /** The empty bar row the system still reserves on iPad (pt). */
 const IPAD_BAR_ROW_PULL = -44;

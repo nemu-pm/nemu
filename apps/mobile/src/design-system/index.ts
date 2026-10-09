@@ -33,6 +33,7 @@ export { createNemuButtonDepthStyle } from "@/design/nemuButtonDepthStyle";
 export {
   createNemuNativeScreenOptions,
   createNemuSoftEdgeScreenOptions,
+  NEMU_SOFT_SCROLL_EDGE_EFFECTS,
   createNemuNativeStackScreenOptions,
   renderNemuNativeToolbarButtons,
   usesNemuNativeHeader,
