@@ -805,8 +805,9 @@ function ZoomableReaderImageFrame({
   useEffect(() => {
     scale.value = withSpring(1);
     savedScale.value = 1;
-    translateX.value = withSpring(restX);
-    translateY.value = withSpring(restY);
+    // Straight to where the page rests: a fitted page must not slide in.
+    translateX.value = restX;
+    translateY.value = restY;
     savedTranslateX.value = restX;
     savedTranslateY.value = restY;
     publishZoomActive(false);
