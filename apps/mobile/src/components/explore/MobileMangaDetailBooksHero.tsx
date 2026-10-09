@@ -599,42 +599,6 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || contentWidth < PANE_F
       {primaryAction || secondaryActions.length ? (
         <View style={[styles.actionsBlock, column, pushStyle("actions")]} onLayout={onActionsLayout}>
           <View style={styles.actions}>
-            {iconActions.map((action) => (
-              <ExploreGlassIconButton
-                key={action.key}
-                icon={action.iconName}
-                accessibilityLabel={action.accessibilityLabel}
-                accessibilityHint={action.accessibilityHint}
-                busy={action.busy}
-                disabled={action.disabled}
-                ink={action.key === "remove" ? tokens.danger : palette.ink}
-                onPress={action.onPress}
-              />
-            ))}
-            {libraryAction ? (
-              <LibraryPop
-                // One view per state, each with its whole flex set: switching
-                // a layout prop off on the same animated view left the pill's
-                // old flex in place after remove + re-add (250 / 120 pt
-                // instead of two equal capsules, Continue cut short).
-                key={libraryAdded ? "added" : "add"}
-                burstKey={libraryBurst}
-                colors={confettiColors}
-                // Saved: a compact pill, so Continue keeps its full label.
-                style={libraryAdded ? styles.compactButton : styles.flexButton}
-              >
-              <ExploreGlassButton
-                label={libraryAdded ? strings.designExplore.inLibrary : strings.designExplore.addToLibrary}
-                icon={libraryAdded ? "checkmark" : "add"}
-                accessibilityLabel={libraryAction.accessibilityLabel}
-                accessibilityHint={libraryAction.accessibilityHint}
-                busy={libraryAction.busy}
-                disabled={libraryAction.disabled}
-                ink={palette.ink}
-                onPress={libraryAction.onPress}
-              />
-              </LibraryPop>
-            ) : null}
             {primaryAction ? (
               <ExploreGlassButton
                 prominent
@@ -671,6 +635,42 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || contentWidth < PANE_F
                 style={styles.flexButton}
               />
             ) : null}
+            {libraryAction ? (
+              <LibraryPop
+                // One view per state, each with its whole flex set: switching
+                // a layout prop off on the same animated view left the pill's
+                // old flex in place after remove + re-add (250 / 120 pt
+                // instead of two equal capsules, Continue cut short).
+                key={libraryAdded ? "added" : "add"}
+                burstKey={libraryBurst}
+                colors={confettiColors}
+                // Saved: a compact pill, so Continue keeps its full label.
+                style={libraryAdded ? styles.compactButton : styles.flexButton}
+              >
+              <ExploreGlassButton
+                label={libraryAdded ? strings.designExplore.inLibrary : strings.designExplore.addToLibrary}
+                icon={libraryAdded ? "checkmark" : "add"}
+                accessibilityLabel={libraryAction.accessibilityLabel}
+                accessibilityHint={libraryAction.accessibilityHint}
+                busy={libraryAction.busy}
+                disabled={libraryAction.disabled}
+                ink={palette.ink}
+                onPress={libraryAction.onPress}
+              />
+              </LibraryPop>
+            ) : null}
+            {iconActions.map((action) => (
+              <ExploreGlassIconButton
+                key={action.key}
+                icon={action.iconName}
+                accessibilityLabel={action.accessibilityLabel}
+                accessibilityHint={action.accessibilityHint}
+                busy={action.busy}
+                disabled={action.disabled}
+                ink={action.key === "remove" ? tokens.danger : palette.ink}
+                onPress={action.onPress}
+              />
+            ))}
           </View>
         </View>
       ) : null}
