@@ -48,29 +48,37 @@ export function chapterFromState(
   state: ReaderState,
   fallback?: ChapterSummary | null,
 ): ChapterSummary {
-  let resolved: ChapterSummary;
+  // Every record that knows this chapter, most specific first. A progress
+  // record may hold only the id (saved before the chapter list loaded), so
+  // later records fill the number and title it lacks.
+  const candidates: ChapterSummary[] = [];
   const progress = state.chapterProgress;
   if (progress) {
-    resolved = {
+    candidates.push({
       id: chapterId,
       title: progress.chapterTitle,
       chapterNumber: progress.chapterNumber,
       volumeNumber: progress.volumeNumber,
-    };
-  } else if (state.sourceLink?.latestChapter?.id === chapterId) {
-    resolved = state.sourceLink.latestChapter;
-  } else if (state.mangaProgress?.lastReadSourceChapterId === chapterId) {
-    resolved = {
+    });
+  }
+  if (state.sourceLink?.latestChapter?.id === chapterId) {
+    candidates.push(state.sourceLink.latestChapter);
+  }
+  if (state.mangaProgress?.lastReadSourceChapterId === chapterId) {
+    candidates.push({
       id: chapterId,
       title: state.mangaProgress.lastReadChapterTitle,
       chapterNumber: state.mangaProgress.lastReadChapterNumber,
       volumeNumber: state.mangaProgress.lastReadVolumeNumber,
-    };
-  } else {
-    resolved = { id: chapterId };
+    });
   }
+  if (fallback) candidates.push(fallback);
 
-  return mergeMobileReaderChapterFallback(chapterId, resolved, fallback);
+  return candidates.reduceRight<ChapterSummary>(
+    (merged, candidate) =>
+      mergeMobileReaderChapterFallback(chapterId, candidate, merged),
+    { id: chapterId },
+  );
 }
 
 export function mergeMobileReaderChapterFallback(

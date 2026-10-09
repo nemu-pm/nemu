@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { NativeKVStore } from "./contracts";
 import {
   MOBILE_SECURE_STORE_ITEM_MAX_BYTES,
+  MobileSourceSettingsVaultEntryMissingError,
   SecureMobileSourceSettingsVault,
   decodeMobileSourceSettingsVaultMarker,
   encodeMobileSourceSettingsVaultMarker,
@@ -15,8 +16,11 @@ class MemoryKV implements NativeKVStore {
   failRemoveOnce: string | null = null;
   commitThenThrowKey: string | null = null;
   skipPersistKey: string | null = null;
+  /** Thrown by every read, like expo-secure-store on a locked keychain. */
+  readError: Error | null = null;
 
   async getString(key: string): Promise<string | null> {
+    if (this.readError) throw this.readError;
     return this.values.get(key) ?? null;
   }
 
@@ -466,5 +470,57 @@ describe("SecureMobileSourceSettingsVault", () => {
     await vault.put(updated);
     expect(storage.values.get(ref)).not.toContain("updated-secret");
     expect(await vault.get(ref, sourceKey)).toEqual(updated);
+  });
+  test("reports a missing secure item as a dangling reference", async () => {
+    const storage = new MemoryKV();
+    const vault = new SecureMobileSourceSettingsVault(
+      "profile-dangling.db",
+      storage,
+    );
+    const settings = {
+      sourceKey: "registry:dangling",
+      values: { token: "t".repeat(3_000) },
+      updatedAt: 17,
+    };
+    const ref = await vault.put(settings);
+
+    // A manifest whose chunk is gone can never be completed.
+    storage.values.delete(chunkKeys(storage, ref)[1]!);
+    await expect(vault.get(ref, settings.sourceKey)).rejects.toBeInstanceOf(
+      MobileSourceSettingsVaultEntryMissingError,
+    );
+
+    // The manifest itself is gone (a fresh keychain under an old database).
+    for (const key of [...storage.values.keys()]) {
+      if (key.startsWith(ref)) storage.values.delete(key);
+    }
+    await expect(vault.get(ref, settings.sourceKey)).rejects.toBeInstanceOf(
+      MobileSourceSettingsVaultEntryMissingError,
+    );
+  });
+
+  test("never reports a keychain that cannot be read as a missing item", async () => {
+    const storage = new MemoryKV();
+    const vault = new SecureMobileSourceSettingsVault(
+      "profile-locked.db",
+      storage,
+    );
+    const settings = {
+      sourceKey: "registry:locked",
+      values: { token: "kept" },
+      updatedAt: 18,
+    };
+    const ref = await vault.put(settings);
+    const locked = new Error("User interaction is not allowed.");
+    storage.readError = locked;
+
+    const read = vault.get(ref, settings.sourceKey);
+    await expect(read).rejects.toBe(locked);
+    await expect(read).rejects.not.toBeInstanceOf(
+      MobileSourceSettingsVaultEntryMissingError,
+    );
+
+    storage.readError = null;
+    expect(await vault.get(ref, settings.sourceKey)).toEqual(settings);
   });
 });

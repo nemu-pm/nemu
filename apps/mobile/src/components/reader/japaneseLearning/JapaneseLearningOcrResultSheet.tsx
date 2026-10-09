@@ -1,26 +1,39 @@
 import { useState } from "react";
 import {
-  ActivityIndicator,
   Platform,
   StyleSheet,
-  Text,
   useWindowDimensions,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
-  MobileSheetScaffold,
   nemuColorWithAlpha,
   nemuFontWeight,
   nemuText,
   NemuPressable,
-  radius,
+  NemuRingSpinner,
   useNemuTheme,
 } from "@/design-system";
+import { JapaneseLearningText as Text } from "./JapaneseLearningText";
+import {
+  JapaneseLearningSurfaceFrame,
+  japaneseLearningEdgeToEdgeContentStyle,
+} from "./JapaneseLearningSurfaceFrame";
+import { useJapaneseLearningDrawerFrame } from "./useJapaneseLearningDrawerFrame";
+import { JapaneseLearningWebIcon, JapaneseLearningWebSpinner } from "./JapaneseLearningWebIcon";
 import { describeJapaneseLearningOcrError } from "@/lib/mobileJapaneseLearningOcr";
 import type { MobileStrings } from "@/lib/mobileI18n";
 import type { JapaneseLearningGrammarState } from "./JapaneseLearningSentenceDisplay";
 import { JapaneseLearningSentenceDisplay } from "./JapaneseLearningSentenceDisplay";
+import {
+  JAPANESE_LEARNING_FOOTER_GAP,
+  resolveJapaneseLearningFooterLayout,
+} from "@/lib/mobileJapaneseLearningSheetLayout";
+import {
+  JapaneseLearningBubblePreview,
+  type JapaneseLearningBubbleSource,
+} from "./JapaneseLearningBubblePreview";
 
 export interface JapaneseLearningOcrStateLike {
   status: "idle" | "loading" | "ready" | "error";
@@ -50,15 +63,28 @@ interface OcrResultSheetProps {
   onSelectToken: (index: number | null) => void;
   onAskSelection: (text: string, kind: "word" | "words" | "sentence") => void;
   onCopySelection: (text: string) => void;
+  /** Runs the sentence analysis again after it failed. */
+  onRetryGrammar?: () => void;
   onPlaySentence: () => void;
   onAskSentence: () => void;
   onCopySentence: () => void;
+  /** Called after the surface has closed (sheet dismissal finished / dock removed). */
+  onDismiss?: () => void;
+  onPresentationProgress?: (progress: number) => void;
+  /**
+   * The selected bubble cropped from the page (web text popout); null without
+   * a page image. Shown above the sentence only when the sheet covers the
+   * whole window (compact height), where the floating popout cannot be seen.
+   */
+  bubble?: JapaneseLearningBubbleSource | null;
 }
 
 /**
- * Mobile mirror of web `OcrResultSheet` (ocr-result-sheet.tsx).
- * Bottom sheet containing the SentenceDisplay (grammar tokens + details) plus
- * a footer action row: Listen / Ask about sentence / Copy — matching web.
+ * Mobile port of web `OcrResultSheet` (ocr-result-sheet.tsx): the sentence
+ * analysis (raw text → furigana tokens coloured by part of speech → word
+ * details) above one footer row — ghost Listen, primary "Ask about this
+ * sentence", ghost Copy — exactly as web. The row stacks only when Dynamic
+ * Type makes the labels too large for one line.
  */
 export function JapaneseLearningOcrResultSheet({
   visible,
@@ -76,14 +102,52 @@ export function JapaneseLearningOcrResultSheet({
   onSelectToken,
   onAskSelection,
   onCopySelection,
+  onRetryGrammar,
   onPlaySentence,
   onAskSentence,
   onCopySentence,
+  onDismiss,
+  onPresentationProgress,
+  bubble = null,
 }: OcrResultSheetProps) {
   const { tokens } = useNemuTheme();
-  const { fontScale, width } = useWindowDimensions();
+  const { fontScale } = useWindowDimensions();
   const largeTextLayout = fontScale > 1.3;
-  const stackFooterActions = width < 520 || largeTextLayout;
+  const drawerFrame = useJapaneseLearningDrawerFrame();
+  const insets = useSafeAreaInsets();
+  // Match the web footer: three equally sized, labelled actions. At large
+  // accessibility sizes, stack to keep every action readable and reachable.
+  const stackFooterActions = largeTextLayout;
+  const listenLabel = sentenceTtsBusy
+    ? strings.reader.pluginJapaneseLearningStopListening
+    : strings.reader.pluginJapaneseLearningListen;
+  const askLabel = strings.reader.pluginJapaneseLearningAskAboutThisSentence;
+  const copyLabel = strings.reader.pluginJapaneseLearningCopySelection;
+  const [footerWidth, setFooterWidth] = useState(0);
+  const [labelWidths, setLabelWidths] = useState<Partial<Record<"listen" | "ask" | "copy", number>>>({});
+  const footerLayout = resolveJapaneseLearningFooterLayout({
+    availableWidth:
+      labelWidths.listen && labelWidths.ask && labelWidths.copy ? footerWidth : 0,
+    listenLabelWidth: labelWidths.listen ?? 0,
+    askLabelWidth: labelWidths.ask ?? 0,
+    copyLabelWidth: labelWidths.copy ?? 0,
+  });
+  const ghostIconOnly = !stackFooterActions && footerLayout.ghostIconOnly;
+  const ghostContainerStyle = stackFooterActions
+    ? null
+    : footerLayout.equalWidths
+      ? styles.footerActionEqual
+      : ghostIconOnly
+        ? { width: footerLayout.ghostIconOnlyWidth }
+        : styles.footerActionNatural;
+  const primaryContainerStyle = stackFooterActions
+    ? null
+    : footerLayout.equalWidths || footerLayout.primaryScalesDown
+      ? styles.footerActionEqual
+      : styles.footerActionNatural;
+  const ghostPaddingStyle = ghostIconOnly
+    ? { paddingHorizontal: 0 }
+    : { paddingHorizontal: footerLayout.ghostPaddingX };
   const [diagnosticOpen, setDiagnosticOpen] = useState(false);
 
   const ocrErrorCopy =
@@ -92,19 +156,31 @@ export function JapaneseLearningOcrResultSheet({
       : null;
 
   return (
-    <MobileSheetScaffold
+    <JapaneseLearningSurfaceFrame
+      showDismissButton={false}
       visible={visible}
       onRequestClose={onClose}
+      onDismiss={onDismiss}
+      onPresentationProgress={onPresentationProgress}
       backdropOnPress={onClose}
-      frameMaxHeight={largeTextLayout ? "100%" : "70%"}
-      contentStyle={{ padding: 0, gap: 0 }}
+      frameMaxHeight={largeTextLayout ? "100%" : drawerFrame.frameMaxHeight}
+      contentBottomInset={0}
+      contentStyle={japaneseLearningEdgeToEdgeContentStyle(
+        largeTextLayout ? 0 : drawerFrame.contentBleed,
+      )}
     >
       <View style={styles.sheetBody}>
         {ocrState.status === "loading" ? (
-          <View style={styles.loadingState}>
-            <ActivityIndicator size="large" color={tokens.primary} />
+          // Web: a 48pt primary ring over "Extracting text from image…".
+          <View accessibilityLiveRegion="polite" style={styles.loadingState}>
+            <NemuRingSpinner
+              size={48}
+              thickness={2}
+              color={tokens.primary}
+              trackColor={nemuColorWithAlpha(tokens.primary, 0.3)}
+            />
             <Text style={[styles.loadingText, { color: tokens.mutedForeground }]}>
-              {strings.reader.pluginJapaneseLearningDetectingText}
+              {strings.reader.pluginJapaneseLearningExtractingText}
             </Text>
           </View>
         ) : ocrState.status === "error" && ocrErrorCopy ? (
@@ -113,7 +189,9 @@ export function JapaneseLearningOcrResultSheet({
               name={
                 ocrErrorCopy.kind === "unavailable"
                   ? "cloud-offline-outline"
-                  : "alert-circle-outline"
+                  : ocrErrorCopy.kind === "signIn"
+                    ? "person-circle-outline"
+                    : "alert-circle-outline"
               }
               size={24}
               color={tokens.mutedForeground}
@@ -179,6 +257,21 @@ export function JapaneseLearningOcrResultSheet({
           </View>
         ) : (
           <JapaneseLearningSentenceDisplay
+            sentenceHeader={
+              // The floating popout is hidden behind a full-window sheet.
+              bubble && drawerFrame.fullScreen
+                ? (columnMaxHeight) => (
+                    <JapaneseLearningBubblePreview
+                      // Columns: centred in the empty details column; stacked: over the sentence.
+                      embedded={columnMaxHeight == null}
+                      centered={columnMaxHeight != null}
+                      maxHeight={columnMaxHeight ?? IN_SHEET_BUBBLE_MAX_HEIGHT}
+                      source={bubble}
+                      accessibilityLabel={strings.reader.pluginJapaneseLearningSelectedText}
+                    />
+                  )
+                : null
+            }
             grammarState={grammarState}
             selectedTokenIndex={selectedTokenIndex}
             actionNotice={grammarActionNotice}
@@ -187,6 +280,7 @@ export function JapaneseLearningOcrResultSheet({
             onSelectToken={onSelectToken}
             onAskSelection={onAskSelection}
             onCopySelection={onCopySelection}
+            onRetry={onRetryGrammar}
           />
         )}
       </View>
@@ -204,14 +298,51 @@ export function JapaneseLearningOcrResultSheet({
       ) : null}
 
       <View
+        onLayout={(event) => {
+          const next = Math.round(event.nativeEvent.layout.width) - FOOTER_PADDING * 2;
+          setFooterWidth((current) => (current === next ? current : next));
+        }}
         style={[
           styles.footer,
+          // The footer band runs to the sheet's bottom edge with even
+          // padding (the body extends into the sheet's bottom safe area),
+          // plus the home indicator's inset only where the sheet reaches it.
           {
-            backgroundColor: nemuColorWithAlpha(tokens.background, 0.9),
-            borderTopColor: tokens.border,
+            paddingBottom:
+              FOOTER_PADDING +
+              // Large text opens the sheet at its largest detent, where iOS
+              // attaches it to the bottom edge and the home indicator.
+              (largeTextLayout && Platform.OS === "ios" ? insets.bottom : drawerFrame.bottomInset),
+          },
+          {
+            backgroundColor: nemuColorWithAlpha(tokens.background, 0.8),
+            borderTopColor: nemuColorWithAlpha(tokens.border, 0.5),
           },
         ]}
       >
+        {/* Natural label widths, measured off-screen, pick the footer layout. */}
+        {stackFooterActions ? null : (
+          <View
+            pointerEvents="none"
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            style={styles.footerMeasure}
+          >
+            {(["listen", "ask", "copy"] as const).map((key) => (
+              <Text
+                key={key}
+                numberOfLines={1}
+                onLayout={(event) => {
+                  const width = Math.ceil(event.nativeEvent.layout.width);
+                  setLabelWidths((current) => (current[key] === width ? current : { ...current, [key]: width }));
+                }}
+                style={styles.footerActionText}
+              >
+                {key === "listen" ? listenLabel : key === "ask" ? askLabel : copyLabel}
+              </Text>
+            ))}
+          </View>
+        )}
         <View
           style={[
             styles.footerActions,
@@ -220,78 +351,66 @@ export function JapaneseLearningOcrResultSheet({
         >
           <NemuPressable
             accessibilityRole="button"
-            accessibilityLabel={
-              sentenceTtsBusy
-                ? strings.reader.pluginJapaneseLearningStopListening
-                : strings.reader.pluginJapaneseLearningListen
-            }
+            accessibilityLabel={listenLabel}
             accessibilityState={{ disabled: !canActOnSentence }}
             disabled={!canActOnSentence}
             onPress={onPlaySentence}
-            pressedScale={0.96}
-            containerStyle={[
-              styles.footerActionContainer,
-              stackFooterActions
-                ? styles.footerActionContainerStacked
-                : null,
-            ]}
+            pressedScale={0.97}
+            containerStyle={[ghostContainerStyle, stackFooterActions ? styles.footerActionContainerStacked : null]}
             style={[
               styles.footerAction,
               styles.footerActionGhost,
-              {
-                borderColor: tokens.border,
-                opacity: canActOnSentence ? 1 : 0.72,
-              },
+              ghostPaddingStyle,
+              { opacity: canActOnSentence ? 1 : 0.5 },
             ]}
           >
             {sentenceTtsLoading ? (
-              <ActivityIndicator size="small" color={tokens.foreground} />
+              <JapaneseLearningWebSpinner size={16} color={tokens.mutedForeground} />
             ) : (
-              <Ionicons
-                name={sentenceTtsBusy ? "pause-outline" : "play-outline"}
-                size={15}
-                color={tokens.foreground}
+              <JapaneseLearningWebIcon
+                name={sentenceTtsBusy ? "pause" : "play"}
+                size={14}
+                color={tokens.mutedForeground}
               />
             )}
-            <Text
-              style={[styles.footerActionText, { color: tokens.foreground }]}
-            >
-              {sentenceTtsBusy
-                ? strings.reader.pluginJapaneseLearningStopListening
-                : strings.reader.pluginJapaneseLearningListen}
-            </Text>
+            {ghostIconOnly ? null : (
+              <Text numberOfLines={1} style={[styles.footerActionText, { color: tokens.mutedForeground }]}>
+                {listenLabel}
+              </Text>
+            )}
           </NemuPressable>
 
           <NemuPressable
             accessibilityRole="button"
-            accessibilityLabel={strings.reader.pluginJapaneseLearningAskSentence}
+            accessibilityLabel={askLabel}
             accessibilityState={{ disabled: !canActOnSentence || askDisabled }}
             disabled={!canActOnSentence || askDisabled}
             onPress={onAskSentence}
-            pressedScale={0.96}
-            containerStyle={[
-              styles.footerActionContainer,
-              stackFooterActions
-                ? styles.footerActionContainerStacked
-                : null,
-            ]}
+            pressedScale={0.97}
+            containerStyle={[primaryContainerStyle, stackFooterActions ? styles.footerActionContainerStacked : null]}
             style={[
               styles.footerAction,
+              styles.footerActionPrimary,
               {
                 backgroundColor: tokens.primary,
-                borderColor: tokens.primary,
-                opacity: !canActOnSentence || askDisabled ? 0.72 : 1,
+                paddingHorizontal: footerLayout.primaryPaddingX,
+                opacity: !canActOnSentence || askDisabled ? 0.5 : 1,
               },
             ]}
           >
-            <Ionicons name="chatbubble-ellipses-outline" size={15} color={tokens.primaryForeground} />
+            <JapaneseLearningWebIcon name="ask" size={14} color={tokens.primaryForeground} />
             <Text
+              // Web keeps every label on one line (`whitespace-nowrap`).
+              numberOfLines={stackFooterActions ? undefined : 1}
+              adjustsFontSizeToFit={!stackFooterActions && footerLayout.primaryScalesDown}
+              minimumFontScale={0.8}
               style={[
                 styles.footerActionText,
+                footerLayout.primaryScalesDown || stackFooterActions ? styles.footerActionTextShrink : null,
                 { color: tokens.primaryForeground },
               ]}
             >
-              {strings.reader.pluginJapaneseLearningAskSentence}
+              {askLabel}
             </Text>
           </NemuPressable>
 
@@ -301,34 +420,32 @@ export function JapaneseLearningOcrResultSheet({
             accessibilityState={{ disabled: !canActOnSentence }}
             disabled={!canActOnSentence}
             onPress={onCopySentence}
-            pressedScale={0.96}
-            containerStyle={[
-              styles.footerActionContainer,
-              stackFooterActions
-                ? styles.footerActionContainerStacked
-                : null,
-            ]}
+            pressedScale={0.97}
+            containerStyle={[ghostContainerStyle, stackFooterActions ? styles.footerActionContainerStacked : null]}
             style={[
               styles.footerAction,
               styles.footerActionGhost,
-              {
-                borderColor: tokens.border,
-                opacity: canActOnSentence ? 1 : 0.72,
-              },
+              ghostPaddingStyle,
+              { opacity: canActOnSentence ? 1 : 0.5 },
             ]}
           >
-            <Ionicons name="copy-outline" size={15} color={tokens.foreground} />
-            <Text
-              style={[styles.footerActionText, { color: tokens.foreground }]}
-            >
-              {strings.reader.pluginJapaneseLearningCopySentence}
-            </Text>
+            <JapaneseLearningWebIcon name="copy" size={14} color={tokens.mutedForeground} />
+            {ghostIconOnly ? null : (
+              <Text numberOfLines={1} style={[styles.footerActionText, { color: tokens.mutedForeground }]}>
+                {copyLabel}
+              </Text>
+            )}
           </NemuPressable>
         </View>
       </View>
-    </MobileSheetScaffold>
+    </JapaneseLearningSurfaceFrame>
   );
 }
+
+/** Web `DrawerFooter` `p-4`. */
+const FOOTER_PADDING = 16;
+/** The bubble inside a full-window sheet: a glance, not a second page. */
+const IN_SHEET_BUBBLE_MAX_HEIGHT = 112;
 
 const styles = StyleSheet.create({
   sheetBody: {
@@ -343,8 +460,9 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   loadingText: {
-    fontSize: 13,
-    fontWeight: nemuFontWeight.medium,
+    fontSize: 16,
+    lineHeight: 24,
+    fontWeight: nemuFontWeight.regular,
   },
   errorState: {
     flex: 1,
@@ -398,35 +516,48 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     textAlign: "center",
   },
+  // Web `DrawerFooter`: p-4, 1px `border-border/50` top edge, `bg-background/80`.
   footer: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    paddingBottom: 14,
+    borderTopWidth: 1,
+    padding: FOOTER_PADDING,
+  },
+  footerMeasure: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    opacity: 0,
+    flexDirection: "row",
   },
   footerActions: {
     flexDirection: "row",
     alignItems: "stretch",
-    gap: 8,
+    gap: JAPANESE_LEARNING_FOOTER_GAP,
   },
   footerActionsStacked: {
     flexDirection: "column",
   },
+  // Web button `h-9 gap-1.5 px-4 rounded-[10px]` with a 0.5px edge.
   footerAction: {
-    width: "100%",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    minHeight: 48,
-    borderRadius: radius.sm,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    minHeight: 36,
+    borderRadius: 10,
+    borderWidth: 0.5,
+    borderColor: "transparent",
+    paddingHorizontal: 16,
   },
-  footerActionContainer: {
-    flex: 1,
+  footerActionEqual: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
     minWidth: 0,
+  },
+  footerActionNatural: {
+    flexGrow: 1,
+    flexShrink: 0,
+    flexBasis: "auto",
   },
   footerActionContainerStacked: {
     flex: 0,
@@ -435,9 +566,16 @@ const styles = StyleSheet.create({
   footerActionGhost: {
     backgroundColor: "transparent",
   },
+  // `.dark .btn-nemu-primary`: lighter 0.5px edge and a soft drop shadow.
+  footerActionPrimary: {
+    borderColor: "rgba(143,181,255,0.25)",
+    boxShadow: "0px 2px 8px 0px rgba(0,0,0,0.35), 0px 0px 1px 0px rgba(0,0,0,0.3)",
+  },
+  footerActionTextShrink: { flexShrink: 1 },
   footerActionText: {
-    flexShrink: 1,
-    fontSize: 12,
+    flexShrink: 0,
+    fontSize: 14,
+    lineHeight: 20,
     fontWeight: nemuFontWeight.medium,
     textAlign: "center",
   },

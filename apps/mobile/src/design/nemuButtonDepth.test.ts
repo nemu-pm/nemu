@@ -17,6 +17,7 @@ import {
   type NemuButtonDepthVariant,
 } from "./nemuButtonDepth";
 import { nemuWebButtonPalette } from "./nemuWebButtonPalette";
+import { nemuGlassSheetTheme } from "@/lib/mobileSheetGlass";
 
 describe("nemuButtonDepth", () => {
   test("stays contract-linked to production web button source", () => {
@@ -294,6 +295,87 @@ describe("nemuButtonDepth", () => {
     expect(visual.foregroundColor).toBe(nemuTokens.light.secondaryForeground);
   });
 
+  test("on a glass sheet, secondary and outline take the sheet's translucent fill", () => {
+    const glass = nemuGlassSheetTheme({ scheme: "dark" as const, tokens: nemuTokens.dark }, "tinted");
+    for (const variant of ["secondary", "outline"] as const) {
+      const rest = getNemuButtonDepthVisual({
+        variant,
+        state: "rest",
+        scheme: "dark",
+        tokens: glass.tokens,
+        onGlassSheet: true,
+      });
+      const pressed = getNemuButtonDepthVisual({
+        variant,
+        state: "pressed",
+        scheme: "dark",
+        tokens: glass.tokens,
+        onGlassSheet: true,
+      });
+      // The web palette's dark slab (rgba(25,26,30,0.70)) matched dark glass.
+      expect(rest.backgroundColor).toBe(glass.tokens.secondary);
+      expect(rest.borderColor).toBe(glass.tokens.border);
+      expect(rest.boxShadow).toBe("none");
+      expect(pressed.backgroundColor).not.toBe(rest.backgroundColor);
+    }
+    // Other variants keep the web palette; off glass nothing changes.
+    expect(
+      getNemuButtonDepthVisual({
+        variant: "primary",
+        state: "rest",
+        scheme: "dark",
+        tokens: glass.tokens,
+        onGlassSheet: true,
+      }).boxShadow,
+    ).toBe(nemuWebButtonPalette.dark.primary.rest.boxShadow);
+    expect(
+      getNemuButtonDepthVisual({
+        variant: "secondary",
+        state: "rest",
+        scheme: "dark",
+        tokens: nemuTokens.dark,
+      }).backgroundColor,
+    ).toBe(nemuWebButtonPalette.dark.secondary.rest.backgroundColor);
+  });
+
+  test("on a glass sheet, a dark destructive button takes the sheet's danger tint and lifted label", () => {
+    const dark = nemuGlassSheetTheme({ scheme: "dark" as const, tokens: nemuTokens.dark }, "tinted");
+    const rest = getNemuButtonDepthVisual({
+      variant: "destructive",
+      state: "rest",
+      scheme: "dark",
+      tokens: dark.tokens,
+      onGlassSheet: true,
+    });
+    const pressed = getNemuButtonDepthVisual({
+      variant: "destructive",
+      state: "pressed",
+      scheme: "dark",
+      tokens: dark.tokens,
+      onGlassSheet: true,
+    });
+    // The web palette's dark tint (rgba(153,86,84,0.35)) lightens over glass.
+    expect(rest.backgroundColor).toBe(nemuTokens.dark.dangerSoft);
+    expect(rest.borderColor).toBe(nemuWebButtonPalette.dark.destructive.rest.borderColor);
+    expect(rest.boxShadow).toBe("none");
+    expect(rest.foregroundColor).toBe(dark.tokens.danger);
+    expect(rest.foregroundColor).not.toBe(nemuTokens.dark.danger);
+    expect(pressed.backgroundColor).not.toBe(rest.backgroundColor);
+
+    // Light keeps the palette's pale fill; only the label takes the sheet's danger.
+    const light = nemuGlassSheetTheme({ scheme: "light" as const, tokens: nemuTokens.light }, "tinted");
+    const lightRest = getNemuButtonDepthVisual({
+      variant: "destructive",
+      state: "rest",
+      scheme: "light",
+      tokens: light.tokens,
+      onGlassSheet: true,
+    });
+    expect(lightRest.backgroundColor).toBe(nemuWebButtonPalette.light.destructive.rest.backgroundColor);
+    expect(lightRest.boxShadow).toBe(nemuWebButtonPalette.light.destructive.rest.boxShadow);
+    expect(lightRest.foregroundColor).toBe(light.tokens.danger);
+  });
+
   test("destructive dark uses tinted glass distinct from light", () => {
     const light = getNemuButtonDepthVisual({
       variant: "destructive",
@@ -444,6 +526,20 @@ describe("nemuButtonDepth", () => {
     expect(light.foregroundColor).toBe(nemuTokens.light.primaryForeground);
   });
 
+  test("an included chip is a soft primary tint with primary ink, no well shadow", () => {
+    for (const scheme of ["light", "dark"] as const) {
+      const visual = getNemuButtonDepthVisual({
+        variant: "chip-included",
+        state: "rest",
+        scheme,
+        tokens: nemuTokens[scheme],
+      });
+      expect(visual.foregroundColor).toBe(nemuTokens[scheme].primary);
+      expect(visual.boxShadow).toBe("none");
+      expect(visual.backgroundColor).not.toBe(nemuTokens[scheme].primary);
+    }
+  });
+
   test("depth variants expose foreground color when relevant", () => {
     const variants: NemuButtonDepthVariant[] = [
       "primary",
@@ -454,6 +550,7 @@ describe("nemuButtonDepth", () => {
       "toolbar",
       "toolbar-danger",
       "chip-selected",
+      "chip-included",
       "chip",
       "elevated",
     ];

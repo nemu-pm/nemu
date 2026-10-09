@@ -60,8 +60,8 @@ describe("mobile Japanese-learning TTS error surfaces", () => {
     );
 
     expect(screen).toContain("<JapaneseLearningOcrResultSheet");
-    expect(screen).toContain(
-      'japaneseLearningTtsState.status !== "idle"\n                  ? japaneseLearningTtsState.source',
+    expect(screen).toMatch(
+      /japaneseLearningTtsState\.status !== "idle"\s*\? japaneseLearningTtsState\.source/,
     );
     expect(ocr).toMatch(
       /ttsState\.status === "error" &&\s*ttsState\.source === "sentence" &&\s*ocrState\.status !== "error"/,
@@ -100,25 +100,32 @@ describe("mobile Japanese-learning TTS error surfaces", () => {
       "components/reader/japaneseLearning/JapaneseLearningOcrResultSheet.tsx",
     );
     const footerStart = ocr.indexOf("<View\n          style={[\n            styles.footerActions");
-    const footerEnd = ocr.indexOf("</MobileSheetScaffold>", footerStart);
+    const footerEnd = ocr.indexOf("</JapaneseLearningSurfaceFrame>", footerStart);
     const footer = ocr.slice(footerStart, footerEnd);
 
-    expect(ocr).toContain("const { fontScale, width } = useWindowDimensions();");
+    expect(footerStart).toBeGreaterThan(0);
+    expect(ocr).toContain("const { fontScale } = useWindowDimensions();");
     expect(ocr).toContain("const largeTextLayout = fontScale > 1.3;");
+    // Web keeps one action row; only large Dynamic Type stacks it.
+    expect(ocr).toContain("const stackFooterActions = largeTextLayout;");
+    // Web's 70vh drawer top (see resolveJapaneseLearningDrawerDetent).
+    expect(ocr).toContain("const drawerFrame = useJapaneseLearningDrawerFrame();");
     expect(ocr).toContain(
-      "const stackFooterActions = width < 520 || largeTextLayout;",
-    );
-    expect(ocr).toContain(
-      'frameMaxHeight={largeTextLayout ? "100%" : "70%"}',
+      'frameMaxHeight={largeTextLayout ? "100%" : drawerFrame.frameMaxHeight}',
     );
     expect(footer).toContain("styles.footerActionsStacked");
     expect(footer.match(/styles\.footerActionContainerStacked/g)).toHaveLength(
       3,
     );
-    expect(footer).not.toContain("numberOfLines={1}");
-    expect(ocr).toContain("minHeight: 48");
-    expect(ocr).not.toContain("height: 38");
-    expect(ocr).toContain("flexShrink: 1");
+    // Every label stays on one line (web `whitespace-nowrap`): the measured
+    // layout gives up ghost padding, then ghost labels, before the primary
+    // label may scale down; nothing truncates. Stacked rows wrap freely.
+    expect(ocr).toContain("resolveJapaneseLearningFooterLayout(");
+    expect(footer).toContain("numberOfLines={stackFooterActions ? undefined : 1}");
+    expect(footer).toContain("adjustsFontSizeToFit={!stackFooterActions && footerLayout.primaryScalesDown}");
+    expect(footer).not.toContain("ellipsizeMode");
+    expect(ocr).toContain("minHeight: 36");
+    expect(ocr).toContain("footerActionTextShrink: { flexShrink: 1 }");
     expect(ocr).toContain('textAlign: "center"');
   });
 
@@ -131,8 +138,8 @@ describe("mobile Japanese-learning TTS error surfaces", () => {
       "components/reader/japaneseLearning/JapaneseLearningMessageBubble.tsx",
     );
 
-    expect(screen).toContain(
-      'japaneseLearningTtsState.status !== "idle"\n                  ? japaneseLearningTtsState.messageId',
+    expect(screen).toMatch(
+      /japaneseLearningTtsState\.status !== "idle"\s*\? japaneseLearningTtsState\.messageId/,
     );
     expect(drawer).toMatch(
       /ttsState\.status === "error" &&\s*ttsState\.source === "chat" &&\s*ttsState\.messageId === msg\.id/,

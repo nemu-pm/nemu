@@ -339,3 +339,51 @@ export function shouldShowMobileSourceBrowseNotInstalled({
 }): boolean {
   return !loading && !hasSource && !hasError;
 }
+
+type MobileSourceBrowseStepState = {
+  status: "idle" | "loading" | "ready" | "blocked" | "error" | string;
+  /** A blocked result's raw reason, or an error's banner detail. */
+  detail?: string | null;
+};
+
+/**
+ * The failure to show when the source screen body would otherwise be empty.
+ *
+ * A source whose runtime metadata is blocked or failed has no known listings,
+ * so no tab is selected, and its home request is skipped or blocked too —
+ * every branch of the list's empty component then fell through to `null` and
+ * the screen rendered a blank page with no way to recover. The first blocked
+ * or failed step (metadata, then home) is surfaced instead; a blocked reason is
+ * a raw diagnostic, so it goes behind the localized description.
+ */
+export function getMobileSourceBrowseFallbackErrorDetail(
+  steps: {
+    metadata: MobileSourceBrowseStepState;
+    home: MobileSourceBrowseStepState;
+  },
+  localizedDetail: string,
+): string | null {
+  const step = findMobileSourceBrowseFallbackErrorStep(steps);
+  if (!step) return null;
+  if (step.status === "error") {
+    return step.detail || localizedDetail;
+  }
+  return step.detail && step.detail !== localizedDetail
+    ? `${localizedDetail}\n${step.detail}`
+    : localizedDetail;
+}
+
+/**
+ * The step whose failure the fallback banner reports: the first of metadata
+ * and home that errored or was blocked. A blocked step's detail is the raw
+ * runtime reason, which the screen can still classify for its title.
+ */
+export function findMobileSourceBrowseFallbackErrorStep(steps: {
+  metadata: MobileSourceBrowseStepState;
+  home: MobileSourceBrowseStepState;
+}): MobileSourceBrowseStepState | null {
+  for (const step of [steps.metadata, steps.home]) {
+    if (step.status === "error" || step.status === "blocked") return step;
+  }
+  return null;
+}

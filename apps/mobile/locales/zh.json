@@ -1,5 +1,7 @@
 {
   "ios": {
-    "NSPhotoLibraryUsageDescription": "nemu 允许你在更新漫画封面时从照片图库中选择图片。"
+    "NSPhotoLibraryUsageDescription": "nemu 允许你在更新漫画封面时从照片图库中选择图片。",
+    "NSMicrophoneUsageDescription": "nemu 会在你向 Nemu 聊天口述消息时使用麦克风。",
+    "NSSpeechRecognitionUsageDescription": "nemu 使用语音识别将你说的话转换为 Nemu 聊天中的文字。"
   }
 }

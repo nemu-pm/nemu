@@ -100,6 +100,14 @@ export type SourcePackageSetting = {
   requires?: string;
   requiresFalse?: string;
   requiresFeature?: string;
+  /**
+   * App-defined (reader plugin) settings only — never read from a source
+   * package: the feature uses nemu's servers, so signed out the row stays
+   * visible but disabled (see `applyMobileReaderPluginSignInState`).
+   */
+  requiresSignIn?: boolean;
+  /** Shown but not editable (set by the app, never by a source package). */
+  disabled?: boolean;
   notification?: string;
   refreshes?: Array<"content" | "listings" | "settings" | "filters">;
   action?: string;
@@ -163,6 +171,17 @@ export type UserSettings = {
   readingMode?: ReadingMode;
   readerScrollWidthPct?: number;
   readerTwoPageMode?: boolean;
+  /**
+   * Page layout for paged reading: single, double or auto (a spread when the
+   * window is wide enough). Supersedes `readerTwoPageMode`, which stays read
+   * as the fallback for profiles saved before the three-way choice.
+   */
+  readerSpreadMode?: "single" | "double" | "auto";
+  /**
+   * Page fit for paged reading, remembered per window shape (narrow, wide,
+   * large) rather than per title. Absent shapes use "page" (the whole page).
+   */
+  readerFitModes?: Partial<Record<"narrow" | "wide" | "large", "page" | "width" | "height" | "fill">>;
   readerPagePairingMode?: PagePairingMode;
   readerProcessPageImages?: boolean;
   themePreference?: ThemePreference;
@@ -177,6 +196,11 @@ export type UserSettings = {
   readerKeepAwake?: boolean;
   /** Lock the reader to portrait; `undefined` means disabled. */
   readerLockPortrait?: boolean;
+  /**
+   * What the bottom half holds in the notebook posture (Duo half-folded
+   * portrait, Android tabletop); `undefined` means automatic.
+   */
+  readerNotebookPane?: "automatic" | "trackpad" | "filmstrip";
   mobileChapterListPreferences?: Record<
     string,
     {

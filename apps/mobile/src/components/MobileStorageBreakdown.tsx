@@ -21,6 +21,9 @@ import { getCachedSourcePackageStats } from "@/sources/sourcePackageCache";
 import { getMobileReaderPageListCacheStats } from "@/sources/mobileReaderPageListCache";
 import { useSkeletonPulse } from "@/lib/useSkeletonPulse";
 import { formatMobileInteger } from "@/lib/mobileLocaleFormat";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
+import { MOBILE_EXPLORE_RADIUS } from "@/lib/mobileExploreRadius";
+import { ExploreSettingsActionGroup } from "@/components/explore/ExploreSettingsActionGroup";
 
 /** Proportion-bar segments, in the mock's order: covers → pages → packages → other. */
 const BAR_SEGMENTS = ["covers", "pages", "packages", "other"] as const;
@@ -222,6 +225,7 @@ export function MobileStorageBreakdown({
         style={[
           styles.card,
           { backgroundColor: tokens.card, borderColor: tokens.border },
+          mobileDesignExploreFlag ? styles.exploreCard : null,
         ]}
       >
         {loading
@@ -278,56 +282,98 @@ export function MobileStorageBreakdown({
         </View>
       </View>
 
+      {mobileDesignExploreFlag ? (
+        // Design-explore: the clears as rows of one group, what each frees
+        // on its trailing edge, the reassurance as the group's footer.
+        <View style={styles.exploreActions}>
+          <ExploreSettingsActionGroup
+            actions={[
+              {
+                key: "pages",
+                label: strings.settings.clearPageCache,
+                detail: formatBytes(stats.pages.bytes, strings),
+                busy: clearing === "pages",
+                disabled: actionsDisabled,
+                onPress: () => void clear("pages"),
+              },
+              {
+                key: "covers",
+                label: strings.settings.clearCoverCache,
+                detail: formatBytes(stats.covers.bytes, strings),
+                busy: clearing === "covers",
+                disabled: actionsDisabled,
+                onPress: () => void clear("covers"),
+              },
+              ...(onClearAllCache
+                ? [
+                    {
+                      key: "all",
+                      label: strings.settings.clearAllCaches,
+                      destructive: true,
+                      busy: clearAllBusy,
+                      disabled: actionsDisabled,
+                      onPress: onClearAllCache,
+                    },
+                  ]
+                : []),
+            ]}
+            footer={strings.settings.storageFootnote}
+          />
+        </View>
+      ) : (
+        <>
       <View style={styles.actions}>
-        <NemuButton
-          accessibilityLabel={strings.settings.clearPageCache}
-          containerStyle={styles.blockButtonContainer}
-          disabled={actionsDisabled}
-          label={formatMobileString(strings.settings.clearPageCacheWithSize, {
-            bytes: formatBytes(stats.pages.bytes, strings),
-          })}
-          loading={clearing === "pages"}
-          onPress={() => void clear("pages")}
-          size="lg"
-          style={styles.blockButton}
-          variant="outline"
-        />
-        <NemuButton
-          accessibilityLabel={strings.settings.clearCoverCache}
-          containerStyle={styles.blockButtonContainer}
-          disabled={actionsDisabled}
-          label={formatMobileString(strings.settings.clearCoverCacheWithSize, {
-            bytes: formatBytes(stats.covers.bytes, strings),
-          })}
-          loading={clearing === "covers"}
-          onPress={() => void clear("covers")}
-          size="lg"
-          style={styles.blockButton}
-          variant="outline"
-        />
-        {onClearAllCache ? (
           <NemuButton
-            accessibilityLabel={strings.settings.clearAllCaches}
+            accessibilityLabel={strings.settings.clearPageCache}
             containerStyle={styles.blockButtonContainer}
             disabled={actionsDisabled}
-            hapticFeedback="warning"
-            label={strings.settings.clearAllCaches}
-            loading={clearAllBusy}
-            onPress={onClearAllCache}
+            label={formatMobileString(strings.settings.clearPageCacheWithSize, {
+              bytes: formatBytes(stats.pages.bytes, strings),
+            })}
+            loading={clearing === "pages"}
+            onPress={() => void clear("pages")}
             size="lg"
             style={styles.blockButton}
-            variant="destructive"
+            variant="outline"
           />
-        ) : null}
-      </View>
+          <NemuButton
+            accessibilityLabel={strings.settings.clearCoverCache}
+            containerStyle={styles.blockButtonContainer}
+            disabled={actionsDisabled}
+            label={formatMobileString(strings.settings.clearCoverCacheWithSize, {
+              bytes: formatBytes(stats.covers.bytes, strings),
+            })}
+            loading={clearing === "covers"}
+            onPress={() => void clear("covers")}
+            size="lg"
+            style={styles.blockButton}
+            variant="outline"
+          />
+          {onClearAllCache ? (
+            <NemuButton
+              accessibilityLabel={strings.settings.clearAllCaches}
+              containerStyle={styles.blockButtonContainer}
+              disabled={actionsDisabled}
+              hapticFeedback="warning"
+              label={strings.settings.clearAllCaches}
+              loading={clearAllBusy}
+              onPress={onClearAllCache}
+              size="lg"
+              style={styles.blockButton}
+              variant="destructive"
+            />
+          ) : null}
+        </View>
 
-      <NemuText
-        color={tokens.mutedForeground}
-        style={styles.footnote}
-        variant="caption"
-      >
-        {strings.settings.storageFootnote}
-      </NemuText>
+        <NemuText
+          color={tokens.mutedForeground}
+          style={styles.footnote}
+          variant="caption"
+        >
+          {strings.settings.storageFootnote}
+        </NemuText>
+        </>
+      )}
     </View>
   );
 }
@@ -365,6 +411,13 @@ const styles = StyleSheet.create({
     borderRadius: radius.xl,
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 14,
+  },
+  exploreCard: {
+    borderRadius: MOBILE_EXPLORE_RADIUS.group,
+    borderCurve: "continuous",
+  },
+  exploreActions: {
+    marginTop: 20,
   },
   row: {
     minHeight: 44,

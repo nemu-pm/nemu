@@ -1,20 +1,22 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { orderMobileTitleQuickActions } from "@/lib/mobileQuickActionOrder";
 import {
-  ActivityIndicator,
+  Keyboard,
   Platform,
   ScrollView,
   StyleSheet,
-  Text,
-  TextInput,
-  useWindowDimensions,
   View,
+  type FlatList,
+  type ViewInstance,
   type ListRenderItemInfo,
-  type StyleProp,
-  type ViewStyle,
 } from "react-native";
+
+/** Column geometry the result grids share (see useMobileFoldAwareGrid). */
+type SearchResultGrid = Pick<MobileFoldAwareGridLayout, "columns" | "itemWidth" | "columnMargins">;
 import { LinearGradient } from "expo-linear-gradient";
+import Animated, { LayoutAnimationConfig } from "react-native-reanimated";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Stack, router, useLocalSearchParams } from "expo-router";
+import { Stack, router, useLocalSearchParams, useNavigation } from "expo-router";
 import type { SearchBarCommands } from "react-native-screens";
 import { EmptyLibrary } from "@/components/EmptyLibrary";
 import {
@@ -23,11 +25,23 @@ import {
 } from "@/components/QuickActionSheet";
 import { MobileCollectionMembershipSheet } from "@/components/MobileCollectionMembershipSheet";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
-import { MobileListFooter } from "@/components/MobileListFooter";
 import { MobileNemuAgentSheet } from "@/components/MobileNemuAgentSheet";
 import { MobilePageEmpty } from "@/components/MobilePageEmpty";
 import { MobileSearchSkeleton } from "@/components/MobileSearchSkeleton";
 import { MobileSourceChip } from "@/components/MobileSourceChip";
+import { MobileSearchSidebar } from "@/components/search/MobileSearchSidebar";
+import {
+  MobileSearchFailedSourceRow,
+  MobileSearchNoResultsLine,
+  MobileSearchSearchingLine,
+} from "@/components/search/MobileSearchLiveStatus";
+import {
+  MobileSearchKindHeader,
+  MobileSearchSourceSectionHeader,
+} from "@/components/search/MobileSearchSectionHeader";
+import { useMobilePoseTransition } from "@/lib/MobilePoseTransitionContext";
+import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
+import { useMobileContainerFold } from "@/lib/useMobileContainerFold";
 import { useMobileToast } from "@/components/MobileToastContext";
 import { useMobileDataStore } from "@/data/mobileDataContext";
 import {
@@ -41,17 +55,16 @@ import {
 } from "@/data/mobileHooks";
 import {
   entryHasAnyUpdate,
-  getEntryCover,
   getEntryTitle,
   type InstalledSource,
   type LibraryEntry,
 } from "@/data/schema";
 import {
-  GlassSurface,
   MangaCard,
   MobileCachedImage,
   NemuText,
-  NemuTextFieldClearAction,
+  NemuNativeSearchField,
+  type NemuNativeSearchFieldHandle,
   NemuPressable,
   NemuInlineEmptyState,
   PageHeader,
@@ -59,6 +72,7 @@ import {
   PageScaffold,
   createNemuShadowStyle,
   nemuColorWithAlpha,
+  nemuMaxFontSizeMultiplier,
   nemuText,
   radius,
   nemuFontWeight,
@@ -75,17 +89,50 @@ import {
   getMobileStrings,
   type MobileStrings,
 } from "@/lib/mobileI18n";
+import { MOBILE_MANGA_GRID_GAP } from "@/lib/mobileAdaptiveGrid";
 import {
-  getMobileMangaGridColumns,
-  getMobileMangaGridItemWidth,
-  MOBILE_MANGA_GRID_GAP,
-} from "@/lib/mobileAdaptiveGrid";
+  chunkMobileGridRows,
+  mobileFoldAwareGridCellStyle,
+  type MobileFoldAwareGridLayout,
+} from "@/lib/mobileFoldAwareGrid";
+import { MobilePaneAlignedView } from "@/lib/MobilePaneAlignedView";
+import { useMobileFoldAwareGrid } from "@/lib/useMobileFoldAwareGrid";
+import { getMobileSplitPanePadding } from "@/lib/mobileSplitPaneLayout";
+import { useMobileSplitPaneLayout } from "@/lib/useMobileSplitPaneLayout";
+import {
+  MOBILE_SEARCH_SPLIT_OPTIONS,
+  mobileSearchShowsKindHeaders,
+  mobileSearchFieldHeight,
+  mobileSearchResultsTopInset,
+  MOBILE_SEARCH_KIND_HEADER_HEIGHT,
+  MOBILE_SEARCH_SOURCE_HEADER_HEIGHT,
+  resolveMobileSearchSidebarStatuses,
+  summarizeMobileSearchSidebarStatuses,
+  type MobileSearchSidebarGroupInput,
+  type MobileSearchSidebarMemory,
+} from "@/lib/mobileSearchLayout";
+import {
+  formatMobileSearchSectionCount,
+  groupMobileSearchFailures,
+  partitionMobileLiveSearchGroups,
+  resolveMobileLiveSearchRetrySourceIds,
+} from "@/lib/mobileSearchResults";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
+import { ExploreSearchIdle } from "@/components/explore/ExploreSearchIdle";
+import { hasMobileSearchIdleContent } from "@/lib/mobileSearchIdle";
+import { pushMobileExploreDetail } from "@/components/explore/mobileExploreCover";
+import { setMobileSourceDetailSeed } from "@/lib/mobileSourceDetailSeed";
+import { ZoomSource } from "../../modules/nemu-window-layout";
+import {
+  addMobileSearchRecent,
+  loadMobileSearchRecents,
+  saveMobileSearchRecents,
+} from "@/lib/mobileSearchRecents";
 import { getMobileInstalledSourceSettingsKeys } from "@/lib/mobileInstalledSourceKeys";
 import { findInstalledSourceForLink } from "@/lib/mobileLibraryRefresh";
 import { formatMobileMangaCardAccessibilityLabel } from "@/lib/mobileMangaCard";
 import {
   coerceMobileNativeSearchText,
-  getMobileSearchFieldTrailingAccessories,
   resolveMobileNativeSearchSubmitText,
 } from "@/lib/mobileNativeSearchText";
 import {
@@ -105,7 +152,12 @@ import {
   getMobileSourceMangaHref,
 } from "@/lib/mobileSourceRoutes";
 import { useMobileSourceImageRequest } from "@/lib/useMobileSourceImageRequest";
+import {
+  resolveMobileEntryCoverSources,
+  resolveMobileEntryDisplayCover,
+} from "@/lib/mobileEntryCover";
 import { useStableList } from "@/lib/useStableList";
+import { resolveNemuHeaderSearchBarColors } from "@/lib/nemuSearchFieldAppearance";
 import {
   groupLocalSearchResults,
   canClearMobileSearchQuery,
@@ -228,50 +280,8 @@ function toMangaCard(
     title: getEntryTitle(entry),
     subtitle: entry.item.metadata.authors?.join(", "),
     badge: entryHasAnyUpdate(entry) ? strings.search.updated : undefined,
-    cover: getEntryCover(entry),
+    cover: resolveMobileEntryDisplayCover(entry),
   };
-}
-
-function SourceIcon({
-  source,
-  size = 20,
-}: {
-  source: SearchSourceDisplay;
-  size?: number;
-}) {
-  const { tokens } = useNemuTheme();
-
-  return (
-    <View
-      style={[
-        styles.sourceIcon,
-        {
-          width: size,
-          height: size,
-          borderRadius: Math.max(5, size * 0.24),
-          backgroundColor: tokens.sourceIconGlass,
-          borderColor: tokens.border,
-        },
-      ]}
-    >
-      {source.icon ? (
-        <MobileCachedImage
-          fallback={
-            <Ionicons
-              name="globe-outline"
-              size={Math.max(13, size - 8)}
-              color={tokens.mutedForeground}
-            />
-          }
-          uriOwnership="source"
-          source={{ uri: source.icon }}
-          style={styles.sourceIconImage}
-        />
-      ) : (
-        <Ionicons name="globe-outline" size={Math.max(13, size - 8)} color={tokens.mutedForeground} />
-      )}
-    </View>
-  );
 }
 
 function SourceFilterBar({
@@ -280,29 +290,46 @@ function SourceFilterBar({
   selectedSourceIds,
   disabled = false,
   onChangeSelection,
+  containLeading = false,
 }: {
   sources: SearchSourceDisplay[];
   strings: MobileStrings;
   selectedSourceIds: SearchSourceSelection;
   disabled?: boolean;
   onChangeSelection: (selection: SearchSourceSelection) => void;
+  /** The row starts at a fold pane edge, not the page edge: no leading bleed. */
+  containLeading?: boolean;
 }) {
   const { tokens: themeTokens } = useNemuTheme();
   const pageGutters = useMobilePageGutters();
-  const bleed = useMobilePageBleedStyles(SOURCE_FILTER_BLEED_OVERSCAN);
+  const pageBleed = useMobilePageBleedStyles(SOURCE_FILTER_BLEED_OVERSCAN);
+  const bleed = useMemo(
+    () =>
+      containLeading
+        ? {
+            frame: { ...pageBleed.frame, marginLeft: 0 },
+            content: { ...pageBleed.content, paddingLeft: 0 },
+          }
+        : pageBleed,
+    [containLeading, pageBleed],
+  );
   // The fades cover the edge gutter too, so in landscape a scrolled chip has
   // faded out before it slides under the Dynamic Island. Portrait keeps 24pt.
+  // On the side of a vertical system bar column the row no longer bleeds, so
+  // its fade is the plain 24pt one at the safe edge.
+  const bleedLeft = -bleed.frame.marginLeft;
+  const bleedRight = -bleed.frame.marginRight;
   const leadingFadeStyle = useMemo(
     () => ({
-      width: SOURCE_FILTER_EDGE_FADE_WIDTH + pageGutters.left - spacing.pageX,
+      width: SOURCE_FILTER_EDGE_FADE_WIDTH + Math.max(0, Math.min(pageGutters.left, bleedLeft) - spacing.pageX),
     }),
-    [pageGutters.left],
+    [bleedLeft, pageGutters.left],
   );
   const trailingFadeStyle = useMemo(
     () => ({
-      width: SOURCE_FILTER_EDGE_FADE_WIDTH + pageGutters.right - spacing.pageX,
+      width: SOURCE_FILTER_EDGE_FADE_WIDTH + Math.max(0, Math.min(pageGutters.right, bleedRight) - spacing.pageX),
     }),
-    [pageGutters.right],
+    [bleedRight, pageGutters.right],
   );
   const [viewportWidth, setViewportWidth] = useState(0);
   const [contentWidth, setContentWidth] = useState(0);
@@ -339,6 +366,7 @@ function SourceFilterBar({
     <View style={[styles.sourceFilterFrame, bleed.frame]}>
       <ScrollView
         horizontal
+        scrollsToTop={false}
         onContentSizeChange={(width) => setContentWidth(width)}
         onLayout={(event) => setViewportWidth(event.nativeEvent.layout.width)}
         onScroll={(event) => setScrollX(event.nativeEvent.contentOffset.x)}
@@ -390,6 +418,9 @@ function SourceFilterBar({
               onChangeSelection([source.id]);
             }}
             selected={selected.has(source.id)}
+            // Design-explore: chosen sources are a soft tint; only "All" is
+            // a solid pill, so twenty sources on read calm.
+            included={mobileDesignExploreFlag}
           />
         ))}
       </ScrollView>
@@ -493,13 +524,21 @@ function LiveMangaCard({
         )}
       </View>
       <View style={styles.liveText}>
-        <Text numberOfLines={2} style={[styles.liveTitle, { color: tokens.foreground }]}>
+        <NemuText
+          maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
+          numberOfLines={2}
+          style={[styles.liveTitle, { color: tokens.foreground }]}
+        >
           {item.title}
-        </Text>
+        </NemuText>
         {subtitle ? (
-          <Text numberOfLines={1} style={[styles.liveSubtitle, { color: tokens.mutedForeground }]}>
+          <NemuText
+            maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
+            numberOfLines={1}
+            style={[styles.liveSubtitle, { color: tokens.mutedForeground }]}
+          >
             {subtitle}
-          </Text>
+          </NemuText>
         ) : null}
       </View>
     </NemuPressable>
@@ -510,47 +549,42 @@ function LiveSourceResultSection({
   group,
   strings,
   action,
-  resultItemStyle,
+  grid,
 }: {
-  group: MobileLiveSearchDisplayGroup;
+  group: Extract<MobileLiveSearchDisplayGroup, { status: "ready" }>;
   strings: MobileStrings;
   action: LiveResultAction;
-  resultItemStyle: StyleProp<ViewStyle>;
+  grid: SearchResultGrid;
 }) {
-  const { tokens } = useNemuTheme();
+  const viewAllLabel = formatMobileString(strings.feedback.viewAllInSource, {
+    source: group.source.name,
+  });
 
   return (
     <View style={styles.resultSection}>
-      <View style={styles.resultHeader}>
-        <SourceIcon source={group.source} size={20} />
-        <Text
-          numberOfLines={1}
-          style={[styles.resultTitle, { color: tokens.mutedForeground }]}
-        >
-          {group.status === "ready"
-            ? `${group.source.name} · ${group.items.length}${group.hasMore ? "+" : ""}`
-            : group.source.name}
-        </Text>
-      </View>
-
-      {group.status === "loading" ? (
-        <NemuInlineEmptyState
-          icon="search-outline"
-          title={strings.search.searching}
-        />
-      ) : group.status === "blocked" ? (
-        <NemuInlineEmptyState
-          icon="hardware-chip-outline"
-          title={group.title ?? group.detail}
-          description={group.title ? group.detail : undefined}
-        />
-      ) : group.items.length ? (
-        <>
-          <View style={styles.resultsGrid}>
-            {group.items.map((item) => {
+      <MobileSearchSourceSectionHeader
+        source={group.source}
+        count={formatMobileSearchSectionCount(group.items.length, group.hasMore)}
+        action={
+          group.hasMore
+            ? {
+                label: strings.search.seeAll,
+                accessibilityLabel: viewAllLabel,
+                onPress: () => action.onViewAll(group.source),
+              }
+            : undefined
+        }
+      />
+      <View style={styles.resultsRows}>
+        {chunkMobileGridRows(group.items, grid.columns).map((row, rowIndex) => (
+          <View key={rowIndex} style={styles.resultsRow}>
+            {row.map((item, column) => {
               const resultKey = `${group.source.id}:${item.id}`;
               return (
-                <View key={resultKey} style={[styles.resultItem, resultItemStyle]}>
+                <View
+                  key={resultKey}
+                  style={[styles.resultItem, mobileFoldAwareGridCellStyle(grid, column)]}
+                >
                   <LiveMangaCard
                     item={item}
                     strings={strings}
@@ -560,38 +594,8 @@ function LiveSourceResultSection({
               );
             })}
           </View>
-          {group.hasMore ? (
-            <NemuPressable
-              accessibilityLabel={formatMobileString(
-                strings.feedback.viewAllInSource,
-                { source: group.source.name },
-              )}
-              accessibilityRole="button"
-              hapticFeedback="selection"
-              onPress={() => action.onViewAll(group.source)}
-              pressProfile="row"
-              style={styles.viewAllAction}
-            >
-              <NemuText
-                variant="actionLabel"
-                color={tokens.primary}
-                numberOfLines={1}
-                style={styles.viewAllText}
-              >
-                {formatMobileString(strings.feedback.viewAllInSource, {
-                  source: group.source.name,
-                })}
-              </NemuText>
-              <Ionicons name="chevron-forward" size={16} color={tokens.primary} />
-            </NemuPressable>
-          ) : null}
-        </>
-      ) : (
-        <NemuInlineEmptyState
-          icon="search-outline"
-          title={strings.search.noLiveMatches}
-        />
-      )}
+        ))}
+      </View>
     </View>
   );
 }
@@ -600,50 +604,72 @@ function LiveSearchResults({
   state,
   strings,
   action,
-  resultItemStyle,
+  grid,
+  onRetrySources,
 }: {
   state: LiveSearchState;
   strings: MobileStrings;
   action: LiveResultAction;
-  resultItemStyle: StyleProp<ViewStyle>;
+  grid: SearchResultGrid;
+  onRetrySources: (sources: SearchSourceDisplay[]) => void;
 }) {
+  const partition = useMemo(
+    () => (state.status === "ready" ? partitionMobileLiveSearchGroups(state.groups) : null),
+    [state],
+  );
   if (state.status === "idle") return null;
-  const hasLoadingGroups =
-    state.status === "ready" && state.groups.some((group) => group.status === "loading");
-
-  return (
-    <View style={styles.resultSection}>
-      {state.status === "loading" ? (
-        <NemuInlineEmptyState
-          icon="search-outline"
-          title={strings.search.searchingSelectedSources}
-        />
-      ) : state.status === "error" ? (
+  if (state.status === "error") {
+    return (
+      <View style={styles.resultSection}>
         <NemuInlineEmptyState
           icon="alert-circle-outline"
           title={state.detail}
           tone="danger"
         />
-      ) : (
-        <View style={styles.resultStack}>
-          {state.groups.map((group) => (
-            <LiveSourceResultSection
-              key={group.source.id}
-              group={group}
-              strings={strings}
-              action={action}
-              resultItemStyle={resultItemStyle}
-            />
-          ))}
-          {hasLoadingGroups ? (
-            <MobileListFooter
-              loadingLabel={strings.search.searchingSelectedSources}
-              state="loading"
-              strings={strings}
-            />
+      </View>
+    );
+  }
+  if (!partition) {
+    return <MobileSearchSearchingLine sources={[]} label={strings.search.searching} strings={strings} />;
+  }
+
+  // Sections with matches first (ranked by the search), then one line for the
+  // sources still searching, a compact row per failed source, and one line
+  // naming every source that found nothing.
+  return (
+    <View style={styles.resultStack}>
+      {partition.sections.map((group) => (
+        <LiveSourceResultSection
+          key={group.source.id}
+          group={group}
+          strings={strings}
+          action={action}
+          grid={grid}
+        />
+      ))}
+      {partition.loading.length || partition.failed.length || partition.empty.length ? (
+        <View style={styles.liveStatusStack}>
+          <MobileSearchSearchingLine sources={partition.loading} strings={strings} />
+          {partition.failed.length ? (
+            <View>
+              {groupMobileSearchFailures(partition.failed).map((failure) => {
+                const retryable = failure.sources.filter((source) => !source.unsupported);
+                return (
+                  <MobileSearchFailedSourceRow
+                    key={failure.sources.map((source) => source.id).join("|")}
+                    sources={failure.sources}
+                    reason={failure.reason}
+                    detail={failure.detail}
+                    strings={strings}
+                    onRetry={retryable.length ? () => onRetrySources(retryable) : undefined}
+                  />
+                );
+              })}
+            </View>
           ) : null}
+          <MobileSearchNoResultsLine sources={partition.empty} strings={strings} />
         </View>
-      )}
+      ) : null}
     </View>
   );
 }
@@ -655,50 +681,65 @@ const LocalSearchResultHeader = memo(function LocalSearchResultHeader({
   group: LocalSearchResultGroup;
   count: number;
 }) {
-  const { tokens } = useNemuTheme();
-
   return (
-    <View style={styles.resultHeader}>
-      <SourceIcon source={group.source} size={20} />
-      <Text
-        numberOfLines={1}
-        style={[styles.resultTitle, { color: tokens.mutedForeground }]}
-      >
-        {`${group.source.name} · ${count}`}
-      </Text>
-    </View>
+    <MobileSearchSourceSectionHeader
+      source={group.source}
+      count={formatMobileSearchSectionCount(count)}
+    />
   );
 });
 
 const LocalSearchResultCard = memo(function LocalSearchResultCard({
   item,
   onLongPressItem,
+  onOpenItem,
 }: {
   item: MangaCardModel;
   onLongPressItem: (libraryItemId: string) => void;
+  /** Design-explore: opens the title page out of this cover (a zoom). */
+  onOpenItem?: (item: MangaCardModel, zoomId: string) => void;
 }) {
   // Keeps the card's callback identity tied to the row, not to the render, so
   // `memo(MangaCard)` can actually hold.
   const handleLongPress = useCallback(() => {
     onLongPressItem(item.id);
   }, [item.id, onLongPressItem]);
+  const zoomId = `search:${item.id}`;
+  const handleOpen = useCallback(() => onOpenItem?.(item, zoomId), [item, onOpenItem, zoomId]);
+  const wrapCover = useCallback(
+    (cover: ReactNode) => (
+      <ZoomSource zoomId={zoomId} style={styles.resultZoomSource}>
+        {cover}
+      </ZoomSource>
+    ),
+    [zoomId],
+  );
 
-  return <MangaCard item={item} onLongPress={handleLongPress} />;
+  return (
+    <MangaCard
+      item={item}
+      onLongPress={handleLongPress}
+      onPress={onOpenItem ? handleOpen : undefined}
+      wrapCover={onOpenItem ? wrapCover : undefined}
+    />
+  );
 });
 
 const LocalSearchResultItems = memo(function LocalSearchResultItems({
   items,
-  resultItemStyle,
+  grid,
   onLongPressItem,
+  onOpenItem,
 }: {
   items: MangaCardModel[];
-  resultItemStyle: StyleProp<ViewStyle>;
+  grid: SearchResultGrid;
   onLongPressItem: (libraryItemId: string) => void;
+  onOpenItem?: (item: MangaCardModel, zoomId: string) => void;
 }) {
   return (
-    <View style={styles.resultsGrid}>
-      {items.map((item) => (
-        <View key={item.id} style={[styles.resultItem, resultItemStyle]}>
+    <View style={styles.resultsRow}>
+      {items.map((item, column) => (
+        <View key={item.id} style={[styles.resultItem, mobileFoldAwareGridCellStyle(grid, column)]}>
           {/*
             MangaCard's own NemuPressable fires the long-press haptic, so the
             quick menu must not play a second one on the way up.
@@ -706,13 +747,14 @@ const LocalSearchResultItems = memo(function LocalSearchResultItems({
           <LocalSearchResultCard
             item={item}
             onLongPressItem={onLongPressItem}
+            onOpenItem={onOpenItem}
           />
         </View>
       ))}
       {items.length === 1 ? (
         <View
           pointerEvents="none"
-          style={[styles.resultItem, resultItemStyle, styles.resultItemSpacer]}
+          style={[styles.resultItem, mobileFoldAwareGridCellStyle(grid, 1), styles.resultItemSpacer]}
         />
       ) : null}
     </View>
@@ -730,8 +772,12 @@ function localSearchRowKey(item: LocalSearchResultRow) {
 export function SearchScreen() {
   const sourceProfileScope = getActiveMobileSourceProfileScope();
   const { tokens } = useNemuTheme();
-  const { width: windowWidth } = useWindowDimensions();
-  const pageGutters = useMobilePageGutters();
+  // iOS 26+: the system Liquid Glass search field, not a token-filled one.
+  const headerSearchBarColors = resolveNemuHeaderSearchBarColors(
+    Platform.OS,
+    Platform.Version,
+    tokens,
+  );
   const store = useMobileDataStore();
   const toast = useMobileToast();
   const params = useLocalSearchParams<{ q?: string | string[] }>();
@@ -739,6 +785,8 @@ export function SearchScreen() {
   const [query, setQuery] = useState(routeQuery);
   const queryRef = useRef(routeQuery);
   const nativeSearchRef = useRef<SearchBarCommands | null>(null);
+  // The in-content field regular widths use instead (page header or sidebar).
+  const contentSearchRef = useRef<NemuNativeSearchFieldHandle | null>(null);
   const [submittedQuery, setSubmittedQuery] = useState(routeQuery);
   const [selectedSourceIds, setSelectedSourceIds] = useState<SearchSourceSelection>(null);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
@@ -755,6 +803,9 @@ export function SearchScreen() {
   // Bumped by the Nemu Agent sheet's onSuccess to force the live-search effect
   // to re-run after a Cloudflare challenge is solved.
   const [searchRefreshNonce, setSearchRefreshNonce] = useState(0);
+  // Set just before a nonce bump that should re-search only unanswered sources.
+  // `sourceIds` narrows it to the sources whose Retry was pressed.
+  const liveSearchRetryRef = useRef<{ query: string; sourceIds?: string[] } | null>(null);
   const cloudflareSheetRef = useRef<{
     reportError: (
       error: unknown,
@@ -766,6 +817,38 @@ export function SearchScreen() {
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
   const usesNativeHeader = usesNemuNativeHeader;
+  const adaptive = useMobileAdaptiveLayout();
+  // Regular widths (Duo inner display, tablets, unfolded foldables): the
+  // system would put a header search field in the navigation bar's trailing
+  // corner, far from the chips and results. Mirror the web page instead — an
+  // in-content field with the source chips right under it. Compact widths
+  // (phones, Duo outer display) keep the native header field.
+  const usesNativeSearchBar = usesNativeHeader && !adaptive.regularWidth;
+  const {
+    ref: searchHeaderRef,
+    onLayout: onSearchHeaderLayout,
+    split: searchHeaderSplit,
+  } = useMobileContainerFold<ViewInstance>();
+  // Book posture: one header row — field in the leading pane, chips in the
+  // trailing pane — so nothing interactive spans the fold.
+  const searchHeaderBook = searchHeaderSplit?.axis === "horizontal" ? searchHeaderSplit : null;
+  // Wide enough (Duo inner landscape, tablets, unfolded foldables): the Mail /
+  // Notes split — search field, sources and recent searches in a sidebar,
+  // results beside it; in book posture the panes are the fold halves.
+  // Narrower regular widths (Duo inner portrait, notebook) keep the in-content
+  // field + chip row above; compact widths keep the native header field.
+  const {
+    containerRef: splitContainerRef,
+    onContainerLayout: onSplitContainerLayout,
+    layout: splitLayout,
+  } = useMobileSplitPaneLayout(MOBILE_SEARCH_SPLIT_OPTIONS);
+  const split = splitLayout.mode === "split" ? splitLayout : null;
+  const pageGutters = useMobilePageGutters();
+  const splitPadding = useMemo(
+    () => getMobileSplitPanePadding({ pageGutters, innerGutter: spacing.pageX }),
+    [pageGutters],
+  );
+  const pose = useMobilePoseTransition();
 
   const sources = useMemo(
     () =>
@@ -796,27 +879,67 @@ export function SearchScreen() {
     ),
   );
   const showSourceFilter = sources.length > 1;
-  const resultItemWidth = useMemo(
-    () =>
-      getMobileMangaGridItemWidth({
-        windowWidth,
-        horizontalPadding: pageGutters.horizontal,
-      }),
-    [pageGutters.horizontal, windowWidth],
-  );
-  const resultItemStyle = useMemo(
-    () => ({
-      width: resultItemWidth,
-    }),
-    [resultItemWidth],
-  );
-  const resultColumns = useMemo(
-    () =>
-      getMobileMangaGridColumns({
-        windowWidth,
-        horizontalPadding: pageGutters.horizontal,
-      }),
-    [pageGutters.horizontal, windowWidth],
+  const resultsListRef = useRef<FlatList<LocalSearchResultRow> | null>(null);
+  // The native header field remounts when the window returns to compact
+  // width (Duo closed); it is uncontrolled, so hand it the kept query.
+  useEffect(() => {
+    if (!usesNativeSearchBar || !queryRef.current) return;
+    // The bar is attached through the header options after this commit, so
+    // its ref can still be empty here: retry briefly until it exists.
+    let attempts = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const restore = () => {
+      const bar = nativeSearchRef.current;
+      if (!bar) {
+        attempts += 1;
+        if (attempts < 12) timer = setTimeout(restore, 50);
+        return;
+      }
+      // Android's toolbar SearchView remounts iconified (just a search icon),
+      // so the kept query would be invisible above its results. Expand it
+      // (focus) and drop focus again in the same frame: the field stays open
+      // with the query and the keyboard never shows. iOS's bar is always open.
+      if (Platform.OS === "android") bar.focus();
+      bar.setText(queryRef.current);
+      if (Platform.OS === "android") bar.blur();
+    };
+    timer = setTimeout(restore, 0);
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [usesNativeSearchBar]);
+  // Tapping the Search tab again while this page is showing activates the
+  // search field, like the App Store / Music search tabs. A tap that switches
+  // to the tab only switches (the page isn't focused yet when it fires).
+  const navigation = useNavigation();
+  useEffect(() => {
+    const tabs = navigation.getParent();
+    if (!tabs) return;
+    return tabs.addListener("tabPress" as never, () => {
+      if (!navigation.isFocused()) return;
+      if (usesNativeSearchBar) nativeSearchRef.current?.focus();
+      else contentSearchRef.current?.focus();
+    });
+  }, [navigation, usesNativeSearchBar]);
+  // Result grids size from the list's measured width (Duo's trailing system
+  // bars, split panes) with an even column count on regular widths; in book
+  // posture the middle gutter sits on the fold.
+  const resultGrid = useMobileFoldAwareGrid({
+    insets: split
+      ? { left: splitPadding.trailing.paddingLeft, right: splitPadding.trailing.paddingRight }
+      : undefined,
+    getNode: () =>
+      resultsListRef.current?.getNativeScrollRef?.() as
+        | { measureInWindow?: (callback: (x: number, y: number, width: number, height: number) => void) => void }
+        | null
+        | undefined,
+  });
+  const resultColumns = resultGrid.columns;
+  const resultGridItemWidth = resultGrid.itemWidth;
+  const resultGridColumnMargins = resultGrid.columnMargins;
+  const resultGridCells = useMemo<SearchResultGrid>(
+    () => ({ columns: resultColumns, itemWidth: resultGridItemWidth, columnMargins: resultGridColumnMargins }),
+    [resultColumns, resultGridColumnMargins, resultGridItemWidth],
   );
   const trimmedQuery = submittedQuery.trim();
   const retainedLiveSearchRef = useRef<{
@@ -927,6 +1050,23 @@ export function SearchScreen() {
         }
       }
     }
+    // A Retry (or a solved Cloudflare check) for this query searches only the
+    // sources that have not answered; the others keep their results.
+    const retryRequest = liveSearchRetryRef.current;
+    liveSearchRetryRef.current = null;
+    let sourcesToSearch = selectedInstalledSources;
+    if (retryRequest?.query === trimmedQuery && completedGroups.size > 0) {
+      const answered = new Map<string, "ready" | "blocked">();
+      for (const [id, group] of completedGroups) answered.set(id, group.status);
+      const retryIds = new Set(
+        resolveMobileLiveSearchRetrySourceIds({
+          sourceIds: retryRequest.sourceIds ?? selectedInstalledSources.map((source) => source.id),
+          answered,
+        }),
+      );
+      for (const id of retryIds) completedGroups.delete(id);
+      sourcesToSearch = selectedInstalledSources.filter((source) => retryIds.has(source.id));
+    }
     const compareTitles = trimmedQuery ? [trimmedQuery] : [];
     const publishProgress = () => {
       const result: LiveSearchResult = {
@@ -967,7 +1107,7 @@ export function SearchScreen() {
       let nextSourceIndex = 0;
       const searchNextSource = async () => {
         while (!cancelled) {
-          const source = selectedInstalledSources[nextSourceIndex];
+          const source = sourcesToSearch[nextSourceIndex];
           nextSourceIndex += 1;
           if (!source) return;
           const group = await searchMobileSource(source, trimmedQuery, {
@@ -1008,7 +1148,7 @@ export function SearchScreen() {
           {
             length: Math.min(
               MOBILE_LIVE_SEARCH_SOURCE_CONCURRENCY,
-              selectedInstalledSources.length,
+              sourcesToSearch.length,
             ),
           },
           () => searchNextSource(),
@@ -1030,9 +1170,95 @@ export function SearchScreen() {
 
   const liveSearchState = useMemo<LiveSearchState>(() => {
     if (!liveSearchKey) return { status: "idle" };
-    if (liveSearchResult?.key !== liveSearchKey) return { status: "loading" };
+    if (liveSearchResult?.key !== liveSearchKey) {
+      // Until the new run publishes (the next frame), keep what the same query
+      // already found for the sources still in scope instead of blanking the
+      // page (a Retry or a scope change would otherwise flash every section).
+      const retained = retainedLiveSearchRef.current;
+      if (retained?.query === trimmedQuery && retained.result.state.status === "ready") {
+        const groups = retained.result.state.groups.filter((group) =>
+          selectedLiveSourceIdSet.has(group.source.id),
+        );
+        if (groups.length) return { status: "ready", groups };
+      }
+      return { status: "loading" };
+    }
     return liveSearchResult.state;
-  }, [liveSearchKey, liveSearchResult]);
+  }, [liveSearchKey, liveSearchResult, selectedLiveSourceIdSet, trimmedQuery]);
+  // Sidebar rows: each source's live-result count (or its searching / failed
+  // state) for the current query. Sources outside the scope keep their last
+  // answer for the same query, so narrowing to one source never blanks the
+  // others (Mail keeps every mailbox's count).
+  const sidebarMemoryRef = useRef<MobileSearchSidebarMemory | null>(null);
+  const sidebarStatuses = useMemo(() => {
+    const groups: MobileSearchSidebarGroupInput[] | null =
+      liveSearchState.status === "ready"
+        ? liveSearchState.groups.map((group) =>
+            group.status === "ready"
+              ? { sourceId: group.source.id, status: "ready", count: group.items.length, hasMore: group.hasMore }
+              : { sourceId: group.source.id, status: group.status },
+          )
+        : liveSearchState.status === "loading"
+          ? selectedLiveSources.map((source) => ({ sourceId: source.id, status: "loading" as const }))
+          : liveSearchState.status === "error"
+            ? selectedLiveSources.map((source) => ({ sourceId: source.id, status: "blocked" as const }))
+            : null;
+    const resolved = resolveMobileSearchSidebarStatuses({
+      query: trimmedQuery,
+      groups,
+      memory: sidebarMemoryRef.current,
+    });
+    sidebarMemoryRef.current = resolved.memory;
+    return resolved.statuses;
+  }, [liveSearchState, selectedLiveSources, trimmedQuery]);
+  const sidebarAllStatus = useMemo(
+    () => summarizeMobileSearchSidebarStatuses(sidebarStatuses, selectedLiveSources.map((source) => source.id)),
+    [selectedLiveSources, sidebarStatuses],
+  );
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
+  useEffect(() => {
+    let mounted = true;
+    void loadMobileSearchRecents().then((recents) => {
+      if (mounted) setRecentSearches(recents);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, [sourceProfileScope]);
+  const rememberSearch = useCallback((nextQuery: string) => {
+    if (!nextQuery) return;
+    setRecentSearches((previous) => {
+      const next = addMobileSearchRecent(previous, nextQuery);
+      void saveMobileSearchRecents(next).catch(() => undefined);
+      return next;
+    });
+  }, []);
+  const clearRecentSearches = useCallback(() => {
+    setRecentSearches([]);
+    void saveMobileSearchRecents([]).catch(() => undefined);
+  }, []);
+  const exploreIdle =
+    mobileDesignExploreFlag && hasMobileSearchIdleContent(split ? [] : recentSearches, library.data);
+  // "Library" / "Live Source Results" only when both groups are on screen.
+  const showKindHeaders = mobileSearchShowsKindHeaders({
+    libraryRows: localSearchRows.length,
+    liveActive: liveSearchState.status !== "idle",
+  });
+  // Sidebar split: the results pane's first header sits level with the
+  // sidebar's search field (one vertical grid for both panes).
+  // Add the alignment space inside the list header. Overriding the content
+  // container's paddingTop would discard PageListScaffold's shared page inset
+  // and lift this pane above the sidebar by the navigation bar's page spacing.
+  const splitResultsHeaderStyle = split
+    ? {
+        paddingTop: mobileSearchResultsTopInset({
+          fieldHeight: mobileSearchFieldHeight(Platform.OS),
+          firstHeaderHeight: showKindHeaders
+            ? MOBILE_SEARCH_KIND_HEADER_HEIGHT
+            : MOBILE_SEARCH_SOURCE_HEADER_HEIGHT,
+        }),
+      }
+    : undefined;
   const showSavedEmptyState =
     trimmedQuery.length > 0 &&
     totalResults === 0 &&
@@ -1126,8 +1352,9 @@ export function SearchScreen() {
     if (nextQuery !== routeQuery) {
       router.setParams({ q: nextQuery });
     }
+    rememberSearch(nextQuery);
     if (options?.haptic && shouldRunFeedback) void hapticPress();
-  }, [query, routeQuery]);
+  }, [query, rememberSearch, routeQuery]);
 
   const clearSearch = useCallback(() => {
     if (!canClearMobileSearchQuery(query)) return;
@@ -1137,8 +1364,34 @@ export function SearchScreen() {
     router.setParams({ q: undefined });
   }, [query]);
 
+  // Sidebar field: clearing it (clear button or deleting every character)
+  // returns to the idle page, like Mail's sidebar search.
+  const changeSidebarQuery = useCallback((nextQuery: string) => {
+    queryRef.current = nextQuery;
+    setQuery(nextQuery);
+    if (!nextQuery.trim()) {
+      setSubmittedQuery("");
+      if (routeQuery) router.setParams({ q: undefined });
+    }
+  }, [routeQuery]);
+  const submitSidebarQuery = useCallback(() => {
+    submitSearch({ haptic: true, query: queryRef.current });
+  }, [submitSearch]);
+  const pressRecentSearch = useCallback(
+    (recent: string) => {
+      Keyboard.dismiss();
+      submitSearch({ haptic: true, query: recent });
+    },
+    [submitSearch],
+  );
+
   const handleLiveResultPress = useCallback(
     (source: SearchSourceDisplay, manga: MobileLiveSearchManga) => {
+      // Design-explore: the page paints the tapped title and cover from its
+      // first frame, as from a source listing, instead of zooming onto a skeleton.
+      if (mobileDesignExploreFlag) {
+        setMobileSourceDetailSeed(source.registryId, source.rawSourceId, manga.id, manga);
+      }
       router.push(
         getMobileSourceMangaHref({
           registryId: source.registryId,
@@ -1167,6 +1420,16 @@ export function SearchScreen() {
       new Map(library.data.map((entry) => [entry.item.libraryItemId, entry])),
     [library.data],
   );
+  // Design-explore: a saved result opens its page out of the cover, handing
+  // the page the title as the shelf does.
+  const openLibraryResultWithZoom = useCallback(
+    (item: MangaCardModel, zoomId: string) => {
+      const entry = libraryEntriesById.get(item.id);
+      if (!entry) return;
+      pushMobileExploreDetail(entry, item.cover ? { uri: item.cover, headers: item.coverHeaders } : null, zoomId);
+    },
+    [libraryEntriesById],
+  );
   const openQuickActionForItem = useCallback(
     (libraryItemId: string) => {
       // `toMangaCard` keys every saved-result card by its library item id, so
@@ -1184,12 +1447,13 @@ export function SearchScreen() {
       return (
         <LocalSearchResultItems
           items={item.items}
-          resultItemStyle={resultItemStyle}
+          grid={resultGridCells}
           onLongPressItem={openQuickActionForItem}
+          onOpenItem={mobileDesignExploreFlag ? openLibraryResultWithZoom : undefined}
         />
       );
     },
-    [openQuickActionForItem, resultItemStyle],
+    [openLibraryResultWithZoom, openQuickActionForItem, resultGridCells],
   );
 
   const retrySearchData = async () => {
@@ -1208,8 +1472,22 @@ export function SearchScreen() {
     }
   };
 
+  const retryLiveSearch = useCallback(
+    (sourceIds?: string[]) => {
+      liveSearchRetryRef.current = { query: trimmedQuery, sourceIds };
+      setSearchRefreshNonce((value) => value + 1);
+    },
+    [trimmedQuery],
+  );
+  const retryLiveSearchSources = useCallback(
+    (sources: SearchSourceDisplay[]) => {
+      void hapticPress();
+      retryLiveSearch(sources.map((source) => source.id));
+    },
+    [retryLiveSearch],
+  );
   const cloudflareSheet = useNemuAgentSheet({
-    onSuccess: () => setSearchRefreshNonce((value) => value + 1),
+    onSuccess: () => retryLiveSearch(),
   });
   cloudflareSheetRef.current = cloudflareSheet;
 
@@ -1296,9 +1574,22 @@ export function SearchScreen() {
         : null,
     [installed.data, quickActionLink],
   );
+  const quickActionCover = quickActionEntry
+    ? resolveMobileEntryDisplayCover(quickActionEntry)
+    : null;
+  // Same owner resolution as the library grid and the detail header.
+  const quickActionCoverSource = useMemo(
+    () =>
+      quickActionEntry
+        ? (resolveMobileEntryCoverSources(quickActionEntry, installed.data, {
+            cover: quickActionCover,
+          })[0] ?? null)
+        : null,
+    [installed.data, quickActionCover, quickActionEntry],
+  );
   const quickActionCoverRequest = useMobileSourceImageRequest(
-    quickActionSource,
-    quickActionEntry ? getEntryCover(quickActionEntry) : null,
+    quickActionCoverSource,
+    quickActionCover,
   );
   const quickActions = useMemo<QuickAction[]>(() => {
     const entry = quickActionEntry;
@@ -1354,7 +1645,7 @@ export function SearchScreen() {
         void handleQuickActionRemove(entry);
       },
     });
-    return actions;
+    return mobileDesignExploreFlag ? orderMobileTitleQuickActions(actions) : actions;
   }, [
     handleQuickActionMarkAllRead,
     handleQuickActionRemove,
@@ -1378,247 +1669,340 @@ export function SearchScreen() {
         ) : null}
         <PageScaffold nativeHeader={usesNativeHeader}>
           {usesNativeHeader ? null : <PageHeader title={strings.nav.search} />}
-          <MobilePageEmpty
-            icon="search-outline"
-            title={strings.search.noSourcesInstalled}
-            description={strings.search.noSourcesDescription}
-            actionLabel={strings.search.addSource}
-            onActionPress={() => {
-              router.navigate("/browse");
-            }}
-          />
+          <MobilePaneAlignedView>
+            {({ minHeight }) => (
+              <MobilePageEmpty
+                minHeight={minHeight}
+                icon="search-outline"
+                title={strings.search.noSourcesInstalled}
+                description={strings.search.noSourcesDescription}
+                actionLabel={strings.search.addSource}
+                onActionPress={() => {
+                router.navigate("/browse");
+                }}
+              />
+            )}
+          </MobilePaneAlignedView>
         </PageScaffold>
       </>
     );
   }
+
+  const resultsList = (
+    <PageListScaffold
+      listRef={resultsListRef}
+      contentContainerStyle={split ? splitPadding.trailing : undefined}
+      ListHeaderComponentStyle={splitResultsHeaderStyle}
+      onLayout={resultGrid.onLayout}
+      data={!error && !showSkeleton && selectedCount > 0 && trimmedQuery ? localSearchRows : []}
+      keyExtractor={localSearchRowKey}
+      renderItem={renderLocalSearchRow}
+      initialNumToRender={12}
+      maxToRenderPerBatch={12}
+      updateCellsBatchingPeriod={32}
+      windowSize={7}
+      ItemSeparatorComponent={LocalSearchRowSeparator}
+      nativeHeader={usesNativeHeader}
+      contentInsetAdjustmentBehavior={usesNativeHeader ? "automatic" : "never"}
+      headerSearchBar={usesNativeSearchBar}
+      // The idle and no-source states are a fixed page under the pinned
+      // header search field: scrolling them only strands the collapsing
+      // title and chip row half under it. The in-content field (regular
+      // widths, incl. phone landscape) has nothing pinned, and a short
+      // window must be able to scroll the placeholder out from under the
+      // floating tab bar (the list already pads for it).
+      scrollEnabled={!(usesNativeSearchBar && !error && !showSkeleton && (selectedCount === 0 || !trimmedQuery))}
+      ListHeaderComponent={
+        <>
+          {usesNativeHeader ? null : (
+            <PageHeader title={strings.nav.search} loading={loading || retryingData} />
+          )}
+          {error ? (
+            <MobilePaneAlignedView>
+              {({ minHeight }) => (
+                <EmptyLibrary
+                  minHeight={minHeight}
+                  title={strings.search.searchUnavailable}
+                  description={strings.common.sourceErrorDescription}
+                  diagnostic={
+                    sanitizeMobileErrorDiagnostic(error) ?? error
+                  }
+                  diagnosticDetailsLabel={strings.errorBoundary.detailsLabel}
+                  actionLabel={strings.common.retry}
+                  actionDisabled={retryingData}
+                  actionLoading={retryingData}
+                  onActionPress={() => {
+                    void retrySearchData();
+                  }}
+                />
+              )}
+            </MobilePaneAlignedView>
+          ) : showSkeleton ? (
+            <MobileSearchSkeleton
+              accessibilityLabel={strings.search.searching}
+            />
+          ) : (
+            <View
+              style={[
+                styles.sections,
+                usesNativeSearchBar ? styles.nativeSearchSections : null,
+              ]}
+            >
+              {split ? null : (
+              <View
+                ref={searchHeaderRef}
+                onLayout={onSearchHeaderLayout}
+                collapsable={false}
+                style={searchHeaderBook ? styles.searchHeaderRow : styles.searchHeaderStack}
+              >
+              {usesNativeSearchBar ? null : (
+                <View style={searchHeaderBook ? { width: searchHeaderBook.first.width } : null}>
+                {/* The same capsule as the sidebar field (SwiftUI TextField on iOS). */}
+                <NemuNativeSearchField
+                  ref={contentSearchRef}
+                  accessibilityLabel={strings.search.searchInstalledSources}
+                  clearAccessibilityLabel={strings.common.clear}
+                  clearActionTestID="InstalledSourceSearchClearAction"
+                  onChangeText={changeSidebarQuery}
+                  onSubmit={submitSidebarQuery}
+                  placeholder={strings.search.searchInstalledSources}
+                  testID="InstalledSourceSearchField"
+                  value={query}
+                />
+                </View>
+              )}
+
+              {showSourceFilter ? (
+                <View
+                  style={
+                    searchHeaderBook
+                      ? {
+                          width: searchHeaderBook.second.width,
+                          marginLeft: searchHeaderBook.gutter.end - searchHeaderBook.first.width,
+                          justifyContent: "center",
+                        }
+                      : null
+                  }
+                >
+                  <SourceFilterBar
+                    sources={sources}
+                    strings={strings}
+                    selectedSourceIds={effectiveSelectedSourceIds}
+                    onChangeSelection={changeSelection}
+                    containLeading={!!searchHeaderBook}
+                  />
+                </View>
+              ) : null}
+              </View>
+              )}
+
+              {preferenceError ? (
+                <MobileInlineErrorBanner
+                  title={strings.search.preferencesFailed}
+                  detail={preferenceError}
+                  dismissLabel={strings.common.clear}
+                  onDismiss={() => setPreferenceError(null)}
+                />
+              ) : null}
+
+              {selectedCount === 0 ? (
+                <MobilePaneAlignedView>
+                  {({ minHeight }) => (
+                    <MobilePageEmpty
+                      minHeight={minHeight}
+                      icon="globe-outline"
+                      title={strings.search.noSourcesSelected}
+                      description={strings.search.noSourcesSelectedDescription}
+                      variant="inline"
+                    />
+                  )}
+                </MobilePaneAlignedView>
+              ) : !trimmedQuery && exploreIdle ? (
+                // Design-explore: recent searches and library titles with new chapters.
+                <ExploreSearchIdle
+                  recents={split ? [] : recentSearches}
+                  entries={library.data}
+                  installedSources={installed.data}
+                  strings={strings}
+                  onPressRecent={pressRecentSearch}
+                  onClearRecents={clearRecentSearches}
+                />
+              ) : !trimmedQuery ? (
+                <MobilePaneAlignedView>
+                  {({ minHeight }) => (
+                    <MobilePageEmpty
+                      minHeight={minHeight}
+                      icon="search-outline"
+                      title={strings.search.searchForManga}
+                      description={strings.search.enterSearchTerm}
+                      variant="inline"
+                    />
+                  )}
+                </MobilePaneAlignedView>
+              ) : null}
+
+              {trimmedQuery && showKindHeaders ? (
+                <View style={[styles.resultKindHeader, styles.resultKindHeaderLibrary]}>
+                  <MobileSearchKindHeader title={strings.nav.library} />
+                </View>
+              ) : null}
+            </View>
+          )}
+        </>
+      }
+      ListFooterComponent={
+        !error && !showSkeleton && selectedCount > 0 && trimmedQuery ? (
+          <View
+            style={[
+              styles.resultFooter,
+              // Live results alone start the pane (level with the sidebar field).
+              split && localSearchRows.length === 0 && !showSavedEmptyState ? styles.resultFooterFirst : null,
+            ]}
+          >
+            {showSavedEmptyState ? (
+              <MobilePaneAlignedView>
+                {({ minHeight }) => (
+                  <MobilePageEmpty
+                    minHeight={minHeight}
+                    icon="search-outline"
+                    title={formatMobileString(strings.search.noSavedMatchesForQuery, {
+                      query: trimmedQuery,
+                    })}
+                    variant="inline"
+                  />
+                )}
+              </MobilePaneAlignedView>
+            ) : null}
+
+            {showKindHeaders ? (
+              <View style={[styles.resultKindHeader, styles.resultKindHeaderSpaced]}>
+                <MobileSearchKindHeader title={strings.search.liveSourceResults} />
+              </View>
+            ) : null}
+
+            <LiveSearchResults
+              state={liveSearchState}
+              strings={strings}
+              action={{
+                onPressResult: handleLiveResultPress,
+                onViewAll: handleViewAllInSource,
+              }}
+              grid={resultGridCells}
+              onRetrySources={retryLiveSearchSources}
+            />
+          </View>
+        ) : null
+      }
+    />
+  );
 
   return (
     <>
       {usesNativeHeader ? (
         <>
           <Stack.Screen options={{ title: strings.nav.search }} />
-          <Stack.SearchBar
-            ref={nativeSearchRef}
-            autoCapitalize="none"
-            barTintColor={tokens.card}
-            headerIconColor={tokens.primary}
-            hideWhenScrolling={false}
-            hintTextColor={tokens.mutedForeground}
-            obscureBackground={false}
-            onCancelButtonPress={clearSearch}
-            onChangeText={(event) => {
-              const nextQuery = coerceMobileNativeSearchText(
-                event.nativeEvent.text,
-              );
-              queryRef.current = nextQuery;
-              setQuery(nextQuery);
-            }}
-            onClose={clearSearch}
-            onSearchButtonPress={(event) => {
-              nativeSearchRef.current?.blur();
-              submitSearch({
-                haptic: true,
-                query: resolveMobileNativeSearchSubmitText(
+          {usesNativeSearchBar ? (
+            <Stack.SearchBar
+              ref={nativeSearchRef}
+              autoCapitalize="none"
+              {...headerSearchBarColors}
+              hideWhenScrolling={false}
+              obscureBackground={false}
+              onCancelButtonPress={clearSearch}
+              onChangeText={(event) => {
+                const nextQuery = coerceMobileNativeSearchText(
                   event.nativeEvent.text,
-                  queryRef.current,
-                ),
-              });
-            }}
-            placeholder={strings.search.searchInstalledSources}
-            placement="automatic"
-            textColor={tokens.foreground}
-            tintColor={tokens.primary}
-          />
+                );
+                queryRef.current = nextQuery;
+                setQuery(nextQuery);
+              }}
+              onClose={clearSearch}
+              onSearchButtonPress={(event) => {
+                nativeSearchRef.current?.blur();
+                submitSearch({
+                  haptic: true,
+                  query: resolveMobileNativeSearchSubmitText(
+                    event.nativeEvent.text,
+                    queryRef.current,
+                  ),
+                });
+              }}
+              placeholder={strings.search.searchInstalledSources}
+              placement="automatic"
+            />
+          ) : null}
         </>
       ) : null}
-      <PageListScaffold
-        data={!error && !showSkeleton && selectedCount > 0 && trimmedQuery ? localSearchRows : []}
-        keyExtractor={localSearchRowKey}
-        renderItem={renderLocalSearchRow}
-        initialNumToRender={12}
-        maxToRenderPerBatch={12}
-        updateCellsBatchingPeriod={32}
-        windowSize={7}
-        ItemSeparatorComponent={LocalSearchRowSeparator}
-        nativeHeader={usesNativeHeader}
-        contentInsetAdjustmentBehavior={usesNativeHeader ? "automatic" : "never"}
-        ListHeaderComponent={
-          <>
-            {usesNativeHeader ? null : (
-              <PageHeader title={strings.nav.search} loading={loading || retryingData} />
-            )}
-            {error ? (
-              <EmptyLibrary
-                title={strings.search.searchUnavailable}
-                description={strings.common.sourceErrorDescription}
-                diagnostic={
-                  sanitizeMobileErrorDiagnostic(error) ?? error
-                }
-                diagnosticDetailsLabel={strings.errorBoundary.detailsLabel}
-                actionLabel={strings.common.retry}
-                actionDisabled={retryingData}
-                actionLoading={retryingData}
-                onActionPress={() => {
-                  void retrySearchData();
-                }}
-              />
-            ) : showSkeleton ? (
-              <MobileSearchSkeleton
-                accessibilityLabel={strings.search.searching}
-              />
-            ) : (
-              <View
-                style={[
-                  styles.sections,
-                  usesNativeHeader ? styles.nativeSearchSections : null,
-                ]}
-              >
-                {usesNativeHeader ? null : (
-                  <GlassSurface style={styles.searchShell} contentStyle={styles.searchContent}>
-                  <Ionicons name="search-outline" size={20} color={tokens.mutedForeground} />
-                  <TextInput
-                    accessibilityLabel={strings.search.searchInstalledSources}
-                    accessibilityRole="search"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    enterKeyHint="search"
-                    placeholder={strings.search.searchInstalledSources}
-                    placeholderTextColor={tokens.mutedForeground}
-                    returnKeyType="search"
-                    selectionColor={tokens.primary}
-                    value={query}
-                    onChangeText={(nextQuery) => {
-                      queryRef.current = nextQuery;
-                      setQuery(nextQuery);
-                    }}
-                    onSubmitEditing={() =>
-                      submitSearch({
-                        haptic: true,
-                        query: queryRef.current,
-                      })
-                    }
-                    style={[styles.input, { color: tokens.foreground }]}
-                  />
-                  {getMobileSearchFieldTrailingAccessories({
-                    loading,
-                    canClear: canClearMobileSearchQuery(query),
-                  }).map((accessory) =>
-                    accessory === "loading" ? (
-                      <ActivityIndicator key={accessory} color={tokens.primary} />
-                    ) : (
-                      <NemuTextFieldClearAction
-                        key={accessory}
-                        accessibilityLabel={strings.common.clear}
-                        onPress={clearSearch}
-                        testID="InstalledSourceSearchClearAction"
-                        trailingInset={14}
-                      />
-                    ),
-                  )}
-                </GlassSurface>
-                )}
-
-                {showSourceFilter ? (
-                  <SourceFilterBar
-                    sources={sources}
-                    strings={strings}
-                    selectedSourceIds={effectiveSelectedSourceIds}
-                    onChangeSelection={changeSelection}
-                  />
-                ) : null}
-
-                {preferenceError ? (
-                  <MobileInlineErrorBanner
-                    title={strings.search.preferencesFailed}
-                    detail={preferenceError}
-                    dismissLabel={strings.common.clear}
-                    onDismiss={() => setPreferenceError(null)}
-                  />
-                ) : null}
-
-                {selectedCount === 0 ? (
-                  <MobilePageEmpty
-                    icon="globe-outline"
-                    title={strings.search.noSourcesSelected}
-                    description={strings.search.noSourcesSelectedDescription}
-                    variant="inline"
-                  />
-                ) : !trimmedQuery ? (
-                  <MobilePageEmpty
-                    icon="search-outline"
-                    title={strings.search.searchForManga}
-                    description={strings.search.enterSearchTerm}
-                    variant="inline"
-                  />
-                ) : null}
-
-                {trimmedQuery && localSearchRows.length > 0 ? (
-                  <View style={styles.resultKindHeader}>
-                    <Ionicons
-                      name="library-outline"
-                      size={18}
-                      color={tokens.mutedForeground}
-                    />
-                    <Text
-                      accessibilityRole="header"
-                      style={[
-                        styles.resultKindTitle,
-                        { color: tokens.mutedForeground },
-                      ]}
-                    >
-                      {strings.nav.library}
-                    </Text>
-                  </View>
-                ) : null}
-              </View>
-            )}
-          </>
-        }
-        ListFooterComponent={
-          !error && !showSkeleton && selectedCount > 0 && trimmedQuery ? (
-            <View style={styles.resultFooter}>
-              {showSavedEmptyState ? (
-                <MobilePageEmpty
-                  icon="search-outline"
-                  title={formatMobileString(strings.search.noSavedMatchesForQuery, {
-                    query: trimmedQuery,
-                  })}
-                  variant="inline"
-                />
-              ) : null}
-
-              {liveSearchState.status !== "idle" ? (
-                <View style={styles.resultKindHeader}>
-                  <Ionicons
-                    name="globe-outline"
-                    size={18}
-                    color={tokens.mutedForeground}
-                  />
-                  <Text
-                    accessibilityRole="header"
-                    style={[
-                      styles.resultKindTitle,
-                      { color: tokens.mutedForeground },
-                    ]}
-                  >
-                    {strings.search.liveSourceResults}
-                  </Text>
-                </View>
-              ) : null}
-
-              <LiveSearchResults
-                state={liveSearchState}
+      {usesNativeSearchBar ? (
+        // Compact: the list stays the screen's direct content so iOS keeps
+        // tracking it under the header search field (its inset adjustment
+        // and pinned field depend on it).
+        resultsList
+      ) : (
+      <LayoutAnimationConfig skipEntering skipExiting>
+      <View
+        ref={splitContainerRef}
+        onLayout={onSplitContainerLayout}
+        style={[
+          styles.fill,
+          { backgroundColor: tokens.background },
+          split ? styles.splitRow : null,
+        ]}
+      >
+      {split ? (
+        <Animated.View
+          key="sidebar"
+          layout={pose.layout}
+          entering={pose.entering}
+          exiting={pose.exiting}
+          style={[
+            styles.pane,
+            { width: split.leading.width },
+            split.alignment === "flat"
+              ? { borderEndWidth: StyleSheet.hairlineWidth, borderEndColor: tokens.border }
+              : null,
+          ]}
+        >
+          <PageListScaffold
+            data={NO_SIDEBAR_ROWS}
+            renderItem={renderNoSidebarRow}
+            nativeHeader={usesNativeHeader}
+            contentInsetAdjustmentBehavior={usesNativeHeader ? "automatic" : "never"}
+            contentContainerStyle={splitPadding.leading}
+            ListHeaderComponent={
+              <MobileSearchSidebar
                 strings={strings}
-                action={{
-                  onPressResult: handleLiveResultPress,
-                  onViewAll: handleViewAllInSource,
-                }}
-                resultItemStyle={resultItemStyle}
+                query={query}
+                searchFieldRef={contentSearchRef}
+                onChangeQuery={changeSidebarQuery}
+                onSubmitQuery={submitSidebarQuery}
+                sources={sources}
+                selection={effectiveSelectedSourceIds}
+                statuses={sidebarStatuses}
+                allStatus={sidebarAllStatus}
+                onChangeSelection={changeSelection}
+                recents={recentSearches}
+                onPressRecent={pressRecentSearch}
+                onClearRecents={clearRecentSearches}
               />
-            </View>
-          ) : null
-        }
-      />
+            }
+          />
+        </Animated.View>
+      ) : null}
+      {split && split.gutter > 0 ? (
+        // The fold band: nothing is drawn or tappable on it.
+        <View key="fold" style={{ width: split.gutter }} />
+      ) : null}
+      <Animated.View
+        key="results"
+        layout={pose.layout}
+        style={split ? [styles.pane, { width: split.trailing.width }] : styles.fill}
+      >
+      {resultsList}
+      </Animated.View>
+      </View>
+      </LayoutAnimationConfig>
+      )}
       <MobileNemuAgentSheet
         visible={cloudflareSheet.visible}
         status={cloudflareSheet.status}
@@ -1635,8 +2019,7 @@ export function SearchScreen() {
         title={quickActionEntry ? getEntryTitle(quickActionEntry) : ""}
         subtitle={quickActionSource?.name ?? quickActionLink?.sourceId}
         image={
-          quickActionCoverRequest?.url ??
-          (quickActionEntry ? getEntryCover(quickActionEntry) : undefined)
+          quickActionCoverRequest?.url ?? quickActionCover ?? undefined
         }
         imageHeaders={quickActionCoverRequest?.headers}
         actions={quickActions}
@@ -1656,7 +2039,24 @@ export function SearchScreen() {
   );
 }
 
+const NO_SIDEBAR_ROWS: readonly never[] = [];
+function renderNoSidebarRow() {
+  return null;
+}
+
 const styles = StyleSheet.create({
+  fill: {
+    flex: 1,
+  },
+  resultZoomSource: {
+    alignSelf: "stretch",
+  },
+  splitRow: {
+    flexDirection: "row",
+  },
+  pane: {
+    height: "100%",
+  },
   sections: {
     gap: 14,
   },
@@ -1667,21 +2067,12 @@ const styles = StyleSheet.create({
     // and needs no correction.
     marginTop: Platform.OS === "ios" ? -16 : 0,
   },
-  searchShell: {
-    minHeight: 52,
-    borderRadius: radius.xl,
+  searchHeaderStack: {
+    gap: 14,
   },
-  searchContent: {
+  searchHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 14,
-  },
-  input: {
-    flex: 1,
-    height: 52,
-    fontSize: 16,
-    lineHeight: 20,
   },
   // Horizontal bleed comes from `useMobilePageBleedStyles` (safe-area aware).
   sourceFilterFrame: {
@@ -1708,35 +2099,37 @@ const styles = StyleSheet.create({
   sourceFilterFadeTrailing: {
     right: 0,
   },
-  sourceIcon: {
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-    borderWidth: StyleSheet.hairlineWidth,
-  },
   sourceIconImage: {
     width: "100%",
     height: "100%",
   },
   resultStack: {
-    gap: 18,
+    gap: 22,
+  },
+  liveStatusStack: {
+    gap: 8,
   },
   resultFooter: {
     gap: 18,
     marginTop: 18,
   },
-  resultKindHeader: {
-    minHeight: 28,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
+  resultFooterFirst: {
+    marginTop: 0,
   },
-  resultKindTitle: {
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: nemuFontWeight.semibold,
-    textTransform: "uppercase",
-    letterSpacing: 0.45,
+  resultKindHeader: {
+    minHeight: 20,
+    justifyContent: "center",
+  },
+  // A group label after the library group: extra room above it, like a new
+  // section of a grouped list.
+  resultKindHeaderSpaced: {
+    marginTop: 10,
+  },
+  // The "Library" label heads the list rows rather than the footer, so it
+  // takes the footer's label → first source header gap (`resultFooter.gap`)
+  // itself; both groups then space their label and first source alike.
+  resultKindHeaderLibrary: {
+    marginBottom: 18,
   },
   virtualResultSeparator: {
     height: 10,
@@ -1757,10 +2150,13 @@ const styles = StyleSheet.create({
     letterSpacing: 0.48,
     textTransform: "uppercase",
   },
-  resultsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
+  // Explicit rows (no flex-wrap); column spacing is each cell's marginLeft
+  // from mobileFoldAwareGridCellStyle so the fold gutter can differ.
+  resultsRows: {
     gap: MOBILE_MANGA_GRID_GAP,
+  },
+  resultsRow: {
+    flexDirection: "row",
   },
   viewAllAction: {
     minHeight: 44,

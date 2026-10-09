@@ -9,7 +9,8 @@ import {
   NemuPressable,
   nemuFontWeight,
   radius,
-  useNemuTheme,
+  useMobileNativeSheetTheme,
+  nemuSheetMetrics,
 } from "@/design-system";
 import type { SourcePackageSetting } from "@/data/schema";
 import { hapticPress } from "@/lib/haptics";
@@ -80,7 +81,7 @@ export function MobileSourceMultiSelectSheet({
   onClose: () => void;
   onDismiss?: () => void;
 }) {
-  const { tokens } = useNemuTheme();
+  const { tokens } = useMobileNativeSheetTheme();
   // Long option lists (MangaDex's excluded tags) cannot fit a content-sized
   // detent, so they present inside a bounded, scrollable one instead; short
   // lists keep hugging their content.
@@ -149,6 +150,7 @@ export function MobileSourceMultiSelectSheet({
                 numberOfLines={1}
                 style={[
                   styles.optionText,
+                  nemuSheetMetrics.rowLabel,
                   {
                     color: selected ? tokens.primary : tokens.foreground,
                     fontWeight: selected
@@ -173,7 +175,13 @@ export function MobileSourceMultiSelectSheet({
         })}
       </GlassSurface>
       {setting.subtitle ? (
-        <Text style={[styles.footnote, { color: tokens.mutedForeground }]}>
+        <Text
+          style={[
+            styles.footnote,
+            nemuSheetMetrics.footnote,
+            { color: tokens.mutedForeground },
+          ]}
+        >
           {setting.subtitle}
         </Text>
       ) : null}
@@ -205,7 +213,7 @@ export function MobileSourceStringListSheet({
   onClose: () => void;
   onDismiss?: () => void;
 }) {
-  const { tokens } = useNemuTheme();
+  const { tokens } = useMobileNativeSheetTheme();
   const [draft, setDraft] = useState("");
   // The detent style is fixed for the whole presentation: switching between a
   // content-sized and a bounded detent mid-session would fight the native
@@ -322,12 +330,24 @@ export function MobileSourceStringListSheet({
           ))}
         </View>
       ) : (
-        <Text style={[styles.footnote, { color: tokens.mutedForeground }]}>
+        <Text
+          style={[
+            styles.footnote,
+            nemuSheetMetrics.footnote,
+            { color: tokens.mutedForeground },
+          ]}
+        >
           {strings.settings.sourceSettingsNone}
         </Text>
       )}
       {setting.subtitle ? (
-        <Text style={[styles.footnote, { color: tokens.mutedForeground }]}>
+        <Text
+          style={[
+            styles.footnote,
+            nemuSheetMetrics.footnote,
+            { color: tokens.mutedForeground },
+          ]}
+        >
           {setting.subtitle}
         </Text>
       ) : null}
@@ -343,8 +363,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
     paddingVertical: 0,
   },
+  // 48pt on iOS; Material 3's 56dp list item on Android.
   optionRow: {
-    minHeight: 48,
+    minHeight: nemuSheetMetrics.optionRowMinHeight,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,

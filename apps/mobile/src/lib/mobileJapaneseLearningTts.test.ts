@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
   MOBILE_TTS_DISK_CACHE_POLICY,
   MOBILE_TTS_MAX_EVENT_STREAM_BYTES,
@@ -8,6 +8,11 @@ import {
   parseMobileTtsEventStream,
   wavBytesFromPcmChunks,
 } from "./mobileJapaneseLearningTts";
+import { setMobileJapaneseLearningAuthCookieReaderForTesting } from "./mobileJapaneseLearningAuth";
+
+// Cloud paths are server features: these tests run signed in.
+beforeAll(() => setMobileJapaneseLearningAuthCookieReaderForTesting(() => "nemu.session_token=test"));
+afterAll(() => setMobileJapaneseLearningAuthCookieReaderForTesting(undefined));
 
 describe("mobile Japanese Learning TTS", () => {
   test("keeps the native WAV cache within a deterministic mobile budget", () => {
@@ -42,6 +47,49 @@ describe("mobile Japanese Learning TTS", () => {
 
     expect(Array.from(chunks[0] ?? [])).toEqual([1, 2, 3]);
     expect(Array.from(chunks[1] ?? [])).toEqual([4, 5]);
+  });
+
+  test("parses ElevenLabs newline-delimited JSON audio chunks", () => {
+    const chunks = parseMobileTtsEventStream(
+      [
+        JSON.stringify({ audio_base64: "AQID", alignment: null }),
+        JSON.stringify({ audio_base64: "BAU=", voice_segments: [] }),
+      ].join("\n"),
+    );
+
+    expect(chunks.map((chunk) => Array.from(chunk))).toEqual([[1, 2, 3], [4, 5]]);
+  });
+
+  test("streams newline-delimited JSON split across network chunks", async () => {
+    const encoder = new TextEncoder();
+    const lines = `${JSON.stringify({ audio_base64: "AQIDBA==" })}\n${JSON.stringify({ audio_base64: "BQYHCA==" })}\n`;
+    const pieces = [lines.slice(0, 7), lines.slice(7, 40), lines.slice(40)];
+    let written: Uint8Array | null = null;
+    const fetchImpl = (() =>
+      Promise.resolve(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              for (const piece of pieces) controller.enqueue(encoder.encode(piece));
+              controller.close();
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )) as unknown as typeof fetch;
+
+    await generateMobileJapaneseLearningTts("ndjson", {
+      fetchImpl,
+      readCachedWavFile: async () => null,
+      siteUrl: "https://convex.example.site/",
+      writeWavFile: async (id, bytes) => {
+        written = bytes;
+        return `file://${id}.wav`;
+      },
+    });
+
+    const wav = written as unknown as Uint8Array;
+    expect(Array.from(wav.slice(44))).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
   });
 
   test("accepts exact event/PCM limits and rejects the next byte before decoding", () => {

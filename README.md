@@ -80,7 +80,8 @@ bun install
 # app + convex dev
 bun dev
 
-# local proxy service
+# local proxy service (http://localhost:3001); point the web app at it with
+# VITE_SERVICE_URL=http://localhost:3001, e.g. in .env.development.local
 bun run service
 
 # lint and typecheck
@@ -106,7 +107,8 @@ OCR development:
 - `bun run deploy` runs the Apple secret generation step and deploys Convex functions.
 - The proxy worker has a separate Worker-first rollout and rollback procedure in
   [`services/proxy/README.md`](services/proxy/README.md).
-- The frontend uses `https://service.nemu.pm` as the proxy base in `src/config.ts`.
+- The frontend uses `https://service.nemu.pm` as the proxy base in `src/config.ts`
+  unless `VITE_SERVICE_URL` overrides it.
 
 ## Useful Environment Variables
 

@@ -1,4 +1,9 @@
 import { mobileSyncConfig } from "@/sync/mobileSyncConfig";
+import {
+  getMobileJapaneseLearningAuthCookie,
+  hasMobileAuthSessionCookie,
+  MobileJapaneseLearningSignInRequiredError,
+} from "./mobileJapaneseLearningAuth";
 import { FileSystemBinaryCache } from "@/data/nativeCache";
 import type { NativeBinaryCachePolicy } from "@/data/nativeCachePolicy";
 import { mobileNativeFetch } from "@/sources/mobileNativeHttp";
@@ -248,12 +253,24 @@ function parseMobileTtsEventBlock(
   state: MobileTtsEventStreamState,
 ): void {
   if (!block.trim()) return;
-  const payload = block
-    .split(/\r?\n/)
-    .filter((line) => line.startsWith("data:"))
-    .map((line) => line.slice("data:".length).trim())
-    .join("\n");
-  if (!payload) return;
+  // SSE `data:` lines form one event; ElevenLabs' dialogue stream sends
+  // newline-delimited JSON instead, one event per line (web `parseEventStream`).
+  const dataLines: string[] = [];
+  for (const line of block.split(/\r?\n/)) {
+    if (line.startsWith("data:")) {
+      dataLines.push(line.slice("data:".length).trim());
+    } else if (line.startsWith("{")) {
+      parseMobileTtsEventPayload(line, state);
+    }
+  }
+  if (dataLines.length > 0) parseMobileTtsEventPayload(dataLines.join("\n"), state);
+}
+
+function parseMobileTtsEventPayload(
+  payload: string,
+  state: MobileTtsEventStreamState,
+): void {
+  if (!payload || payload === "[DONE]") return;
   const event = JSON.parse(payload) as {
     audio_base64?: string;
     error?: string;
@@ -276,7 +293,14 @@ function consumeMobileTtsEventBlocks(
   let remainder = buffer;
   while (true) {
     const separator = /\r?\n\r?\n/.exec(remainder);
-    if (!separator || separator.index == null) return remainder;
+    if (!separator || separator.index == null) {
+      // NDJSON has no blank lines: parse each complete JSON line as it arrives
+      // instead of buffering the whole stream.
+      const lineEnd = remainder.lastIndexOf("\n");
+      if (!remainder.startsWith("{") || lineEnd < 0) return remainder;
+      parseMobileTtsEventBlock(remainder.slice(0, lineEnd), state);
+      return remainder.slice(lineEnd + 1);
+    }
     parseMobileTtsEventBlock(remainder.slice(0, separator.index), state);
     remainder = remainder.slice(separator.index + separator[0].length);
   }
@@ -435,6 +459,12 @@ export async function generateMobileJapaneseLearningTts(
   if (inFlight) {
     return consumeMobileTtsGeneration(id, inFlight, options.signal);
   }
+  // Listen is a server feature: signed out, a clip already on disk still
+  // plays (above), but nothing new is requested (web `requireAuthOrPrompt`).
+  const getAuthCookie = options.getAuthCookie ?? getMobileJapaneseLearningAuthCookie;
+  if (!hasMobileAuthSessionCookie(getAuthCookie())) {
+    throw new MobileJapaneseLearningSignInRequiredError();
+  }
 
   const abortController = new AbortController();
   mobileTtsAbortControllers.add(abortController);
@@ -446,7 +476,7 @@ export async function generateMobileJapaneseLearningTts(
       headers: {
         "content-type": "application/json",
         accept: "text/event-stream",
-        ...getMobileAuthHeaders(options.getAuthCookie),
+        ...getMobileAuthHeaders(getAuthCookie),
       },
       body: JSON.stringify({
         text: clean,
@@ -460,7 +490,7 @@ export async function generateMobileJapaneseLearningTts(
       const response = await fetchImpl(url, requestInit);
       assertMobileTtsCacheEpoch(generationEpoch);
       if (!response.ok) {
-        if (response.status === 401) throw new Error("auth_required");
+        if (response.status === 401) throw new MobileJapaneseLearningSignInRequiredError();
         throw new Error(
           `TTS failed: ${response.status} ${response.statusText}`,
         );
@@ -478,7 +508,7 @@ export async function generateMobileJapaneseLearningTts(
       });
       assertMobileTtsCacheEpoch(generationEpoch);
       if (!response.ok) {
-        if (response.status === 401) throw new Error("auth_required");
+        if (response.status === 401) throw new MobileJapaneseLearningSignInRequiredError();
         throw new Error(`TTS failed: ${response.status}`);
       }
       chunks = parseMobileTtsEventStream(response.body);

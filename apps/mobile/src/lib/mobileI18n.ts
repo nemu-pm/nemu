@@ -1,4 +1,6 @@
 import type { AppLanguage } from "@/data/schema";
+import { getMobileDesignExploreActive } from "./mobileDesignExploreSwitch";
+import { withMobileDesignExploreCopy } from "./mobileI18nExploreCopy";
 import type { MobileSourceOAuthErrorCode } from "./mobileSourceOAuthLogic";
 import { normalizeAppLanguage } from "./mobileLanguageSettings";
 
@@ -31,6 +33,10 @@ export type MobileStrings = {
     listLastSeparator: string;
     merge: string;
     moreTags: string;
+    /** Title of the sheet that lists every tag of a title; `{{count}}`. */
+    tagsSheetTitle: string;
+    tagsSheetHint: string;
+    closeTagsSheet: string;
     moveDown: string;
     moveUp: string;
     new: string;
@@ -47,6 +53,8 @@ export type MobileStrings = {
     sourceDisabledDescription: string;
     sourceError: string;
     sourceErrorDescription: string;
+    sourceIncompatible: string;
+    sourceIncompatibleDescription: string;
     sourceNetworkError: string;
     sourceNetworkErrorDescription: string;
     sourceRuntimeUnavailable: string;
@@ -207,6 +215,7 @@ export type MobileStrings = {
     emptyDescription: string;
     empty: string;
     progressCaughtUp: string;
+    progressInProgress: string;
     progressUnread: string;
     refreshLibrary: string;
     removeCollection: string;
@@ -216,8 +225,20 @@ export type MobileStrings = {
     renameCollectionAccessibility: string;
     renameDescription: string;
     startSearching: string;
+    titleMenuEditCollection: string;
+    titleMenuHint: string;
+    titleMenuManageCollections: string;
+    titleMenuNewCollection: string;
     updated: string;
     updateMembershipDescription: string;
+    editCollectionTitle: string;
+    collectionBooksSection: string;
+    collectionBooksSelectedOne: string;
+    collectionBooksSelectedOther: string;
+    collectionBooksNoMatches: string;
+    collectionNameSection: string;
+    searchLibraryBooks: string;
+    clearLibrarySearch: string;
     unavailable: string;
   };
   collectionMembership: {
@@ -242,6 +263,14 @@ export type MobileStrings = {
     subtitle: string;
     subtitleForTitle: string;
     title: string;
+    /** First row of the native sheet; opens the name alert. */
+    newCollectionAction: string;
+    /** Footer under the collection rows: how to rename / delete one. */
+    manageRowsFooter: string;
+    /** Empty list when the create action sits above it. */
+    noCollectionsYet: string;
+    /** Short swipe / context-menu action on a collection row. */
+    renameAction: string;
   };
   metadataEditor: {
     applyMatch: string;
@@ -263,6 +292,8 @@ export type MobileStrings = {
     coverUrlPlaceholder: string;
     chooseCoverImage: string;
     description: string;
+    detailsTitle: string;
+    resetAll: string;
     discardConfirm: string;
     discardDescription: string;
     discardKeepEditing: string;
@@ -305,8 +336,13 @@ export type MobileStrings = {
     chapters: string;
     completeCount: string;
     continueChapter: string;
+    continueReading: string;
     editMetadata: string;
     fullRefreshNotStarted: string;
+    loadingChapters: string;
+    refreshFailedTitle: string;
+    showingSavedChapters: string;
+    sourceSlowToRespond: string;
     loadingManga: string;
     manga: string;
     mangaNotFound: string;
@@ -354,6 +390,7 @@ export type MobileStrings = {
     chapters: string;
     completeCount: string;
     continueChapter: string;
+    continueReading: string;
     detailsNotLoaded: string;
     inLibrary: string;
     installSourceBeforeDetails: string;
@@ -400,6 +437,13 @@ export type MobileStrings = {
     includeFilter: string;
     installBeforeExecutor: string;
     installBeforeOpening: string;
+    installingSource: string;
+    installingSourceDescription: string;
+    loadSourceFailed: string;
+    sourceInstallFailed: string;
+    sourceInstallFailedDescription: string;
+    sourceNotInRegistry: string;
+    sourceNotInRegistryDescription: string;
     libraryFromSource: string;
     listingCountOne: string;
     listingCountOther: string;
@@ -511,11 +555,22 @@ export type MobileStrings = {
     webExecutorReady: string;
     nativeExecutorReady: string;
   };
+  /** Web `plugin.japaneseLearning.pos` / `.conjugation`: grammar labels → localized names. */
+  japaneseLearningGrammar: {
+    posNames: Record<string, string>;
+    conjugationNames: Record<string, string>;
+  };
   reader: {
     bookPairing: string;
+    /** Segmented label for book pairing: page 1 shares a spread with page 2. */
+    pairingCoverPaired: string;
+    /** Segmented label for manga pairing: page 1 (the cover) stands alone. */
+    pairingCoverAlone: string;
     chapterAccessibility: string;
     closeSettings: string;
     closePlugin: string;
+    /** Accessibility label of the vertical control rail / notebook reading console. */
+    readerControls: string;
     currentChapter: string;
     description: string;
     disabled: string;
@@ -556,6 +611,12 @@ export type MobileStrings = {
     mangaPairing: string;
     markComplete: string;
     markedComplete: string;
+    /** Reader ⋯ menu (phone chrome, top trailing). */
+    moreActions: string;
+    moreActionsHint: string;
+    reloadChapter: string;
+    readerSettingsMenu: string;
+    readerPluginsMenu: string;
     matchingChapter: string;
     narrowPageWidth: string;
     nextChapter: string;
@@ -579,6 +640,8 @@ export type MobileStrings = {
     pageValue: string;
     pageSlider: string;
     pageWidth: string;
+    /** Reader settings: the secondary section below the layout controls. */
+    moreSettings: string;
     pageWidthValue: string;
     longStripProgress: string;
     scrollProgress: string;
@@ -599,6 +662,7 @@ export type MobileStrings = {
     pluginJapaneseLearningAutoDetectTextDescription: string;
     pluginJapaneseLearningAskWord: string;
     pluginJapaneseLearningBaseForm: string;
+    pluginJapaneseLearningConjugationPath: string;
     pluginJapaneseLearningCopied: string;
     pluginJapaneseLearningCopyFailed: string;
     pluginJapaneseLearningCopySentence: string;
@@ -620,6 +684,13 @@ export type MobileStrings = {
     pluginJapaneseLearningNormalizingSentence: string;
     pluginJapaneseLearningMinimumConfidence: string;
     pluginJapaneseLearningMinimumConfidenceDescription: string;
+    pluginJapaneseLearningRecognitionEngine: string;
+    pluginJapaneseLearningRecognitionEngineDescription: string;
+    pluginJapaneseLearningOnlineOcrAssist: string;
+    pluginJapaneseLearningOnlineOcrAssistDescription: string;
+    pluginValueEngineAutomatic: string;
+    pluginValueEngineOnDevice: string;
+    pluginValueEngineCloud: string;
     pluginJapaneseLearningName: string;
     pluginJapaneseLearningChatFailed: string;
     pluginJapaneseLearningChatEmptyTitle: string;
@@ -629,6 +700,10 @@ export type MobileStrings = {
     pluginJapaneseLearningChatRead: string;
     pluginJapaneseLearningChatResponse: string;
     pluginJapaneseLearningChatSend: string;
+    /** Composer mic (shown while the draft is empty); starts dictation. */
+    pluginJapaneseLearningChatVoiceInput: string;
+    /** Same mic while listening; stops dictation. */
+    pluginJapaneseLearningChatStopVoiceInput: string;
     pluginJapaneseLearningChatThinking: string;
     pluginJapaneseLearningChatToday: string;
     pluginJapaneseLearningLineAccessibility: string;
@@ -642,6 +717,9 @@ export type MobileStrings = {
     pluginJapaneseLearningResponseLanguageDescription: string;
     pluginJapaneseLearningSelectedText: string;
     pluginJapaneseLearningSignInRequired: string;
+    pluginJapaneseLearningSignInRequiredTitle: string;
+    pluginJapaneseLearningSignInRequiredDescription: string;
+    pluginJapaneseLearningSignInToUse: string;
     pluginJapaneseLearningSourceText: string;
     pluginJapaneseLearningStopListening: string;
     pluginJapaneseLearningStructure: string;
@@ -653,6 +731,14 @@ export type MobileStrings = {
     pluginJapaneseLearningTranscriptTooLong: string;
     pluginJapaneseLearningTtsFailed: string;
     pluginJapaneseLearningTtsLoading: string;
+    pluginJapaneseLearningAskAboutThisSentence: string;
+    pluginJapaneseLearningAskAboutTheseWords: string;
+    pluginJapaneseLearningTapAnyWordHint: string;
+    pluginJapaneseLearningDragOnWordsHint: string;
+    pluginJapaneseLearningExtractingText: string;
+    pluginJapaneseLearningAnalyzingSentenceProgress: string;
+    pluginJapaneseLearningTranscriptNoText: string;
+    pluginJapaneseLearningTryAnotherRegion: string;
     pluginResponse: string;
     pluginValueAppLanguage: string;
     pluginValueDefault: string;
@@ -673,6 +759,20 @@ export type MobileStrings = {
     stageAccessibility: string;
     title: string;
     twoPageView: string;
+    pageLayout: string;
+    pageLayoutSingle: string;
+    pageLayoutDouble: string;
+    pageLayoutAuto: string;
+    pageFit: string;
+    pageFitPage: string;
+    pageFitWidth: string;
+    pageFitHeight: string;
+    pageFitFill: string;
+    /** "For this window shape" footnote under the fit choice; {{shape}} is the localized shape. */
+    pageFitFootnote: string;
+    windowShapeNarrow: string;
+    windowShapeWide: string;
+    windowShapeLarge: string;
     widenPageWidth: string;
     // Added with the reading-loop / dismiss-trap fixes.
     endOfChapterTitle: string;
@@ -723,6 +823,27 @@ export type MobileStrings = {
     sourceAccessibility: string;
     sourceSelectionHint: string;
     updated: string;
+    /** Regular-width sidebar: heading of the installed-source list. */
+    sidebarSources: string;
+    /** Sidebar row hint: a tap searches only this source. */
+    sidebarSourceHint: string;
+    sidebarAllSourcesHint: string;
+    /** Sidebar row status, e.g. "12 results". */
+    sidebarResultCount: string;
+    sidebarSearchFailed: string;
+    recentSearches: string;
+    clearRecentSearches: string;
+    recentSearchAccessibility: string;
+    /** Trailing action on a source's result section that has more results. */
+    seeAll: string;
+    /** One quiet line for every source that found nothing; `{{sources}}`. */
+    noResultsInSources: string;
+    /** Inline spinner line while sources are still searching; `{{sources}}`. */
+    searchingSources: string;
+    /** Last item of a collapsed source list ("A, B and 3 more"); `{{count}}`. */
+    moreSourcesCount: string;
+    /** Retry action on a source that could not be searched; `{{source}}`. */
+    retrySourceAccessibility: string;
   };
   settings: {
     aboutNemuBeforeBrand: string;
@@ -842,6 +963,11 @@ export type MobileStrings = {
     metadataFixedDescription: string;
     metadataLanguage: string;
     metadataLanguageAuto: string;
+    designPreview: string;
+    designPreviewHint: string;
+    designPreviewFooter: string;
+    experimentalDesign: string;
+    designPreviewRestart: string;
     metadataLanguageDescription: string;
     noPluginSettings: string;
     noSourceManagement: string;
@@ -849,6 +975,8 @@ export type MobileStrings = {
     pluginsDescription: string;
     pluginSettings: string;
     readerPluginSwitch: string;
+    readerPluginOffFooter: string;
+    readerPluginSettingEditElsewhere: string;
     refreshSources: string;
     refreshSourcesHint: string;
     selectSettingOption: string;
@@ -991,6 +1119,130 @@ export type MobileStrings = {
     displayLockPortrait: string;
     viewAllInSource: string;
   };
+  /** iPhone Duo / foldable signature features (bilingual book, spine, display handoff). */
+  duo: {
+    bilingualLayoutLabel: string;
+    bilingualSpread: string;
+    bilingualSideBySide: string;
+    bilingualSecondaryPageAccessibility: string;
+    bilingualLoadingSecondary: string;
+    bilingualNoMatchingPage: string;
+    handoffOuterDisplay: string;
+    handoffInnerDisplay: string;
+    handoffWithPage: string;
+    notebookPane: string;
+    notebookPaneAutomatic: string;
+    notebookPaneTrackpad: string;
+    notebookPaneFilmstrip: string;
+    notebookTrackpad: string;
+    notebookShowFilmstrip: string;
+    notebookHideFilmstrip: string;
+    notebookFilmstrip: string;
+    filmstripUnreadPage: string;
+  };
+  /** On-device Japanese dictionary pack (reader analysis + settings). */
+  japaneseLearningDictionary: {
+    title: string;
+    checking: string;
+    notDownloaded: string;
+    downloaded: string;
+    downloadingProgress: string;
+    installing: string;
+    failed: string;
+    failedUsingCloud: string;
+    removing: string;
+    downloadNow: string;
+    remove: string;
+    retry: string;
+    progressAccessibility: string;
+    analysisDownloadFailed: string;
+  };
+  /** Design-explore prototypes. */
+  designExplore: {
+    continueReadingTitle: string;
+    resumeHint: string;
+    openDetailsHint: string;
+    moreActions: string;
+    shelfSectionTitle: string;
+    layoutShelf: string;
+    layoutGrid: string;
+    layoutPickerLabel: string;
+    chapterFinished: string;
+    continueAction: string;
+    lastReadJustNow: string;
+    lastReadMinutes: string;
+    lastReadHours: string;
+    lastReadDays: string;
+    newChapterCount: string;
+    percentRead: string;
+    collectionsTitle: string;
+    collectionCount: string;
+    collectionCountOne: string;
+    openCollectionHint: string;
+    addToLibrary: string;
+    inLibrary: string;
+    latestChapterLine: string;
+    descriptionMore: string;
+    /** Detail facts row: small labels over the values. */
+    factSource: string;
+    factChapters: string;
+    factLatest: string;
+    factStatus: string;
+    /** Chapter list (design-explore): the chapter to read next, its menu and its volume headers. */
+    chapterUpNext: string;
+    chapterContinue: string;
+    chapterRead: string;
+    chapterReadFromStart: string;
+    chapterRowHint: string;
+    chapterVolume: string;
+    chapterNoVolume: string;
+    chapterAfterVolume: string;
+    chapterRange: string;
+    chapterJumpUpNext: string;
+    /** First launch, empty library (design-explore): points at Browse. */
+    libraryEmptyTitle: string;
+    libraryEmptyDescription: string;
+    libraryEmptyBrowse: string;
+    libraryEmptySearch: string;
+    /** Caption above a chapter list whose chapters (nearly) all come from one group or category. */
+    chapterListGroup: string;
+    /** Search idle page: heading over recent searches. */
+    searchRecent: string;
+    /** Search idle page: clears the recent searches. */
+    searchClearRecent: string;
+    /** Search idle page: VoiceOver label of a recent search. */
+    searchRecentItem: string;
+    /** Search idle page: heading over library titles with new chapters. */
+    searchNewChapters: string;
+    /** Browse: heading over the sources the library's titles come from. */
+    browseInLibrary: string;
+    /** Browse: how many library titles a source holds (more than one). */
+    browseLibraryTitles: string;
+    /** Browse: a source holding one library title. */
+    browseLibraryTitlesOne: string;
+    filtersMenu: string;
+    filtersMenuCount: string;
+    sortMenu: string;
+    allFilters: string;
+    clearFilters: string;
+    refreshSource: string;
+    coverUpload: string;
+    sourceSectionsLabel: string;
+    seeAll: string;
+    sourceOptions: string;
+  };
+  /** Settings → About nemu → Open-source licenses. */
+  openSourceLicenses: {
+    title: string;
+    rowSubtitle: string;
+    intro: string;
+    sectionJapaneseAnalysis: string;
+    sectionFonts: string;
+    sectionSoftware: string;
+    showLicense: string;
+    hideLicense: string;
+    openLinkAccessibility: string;
+  };
 };
 
 type MobileLocaleCatalogs = Record<AppLanguage, MobileStrings>;
@@ -1027,6 +1279,10 @@ function loadMobileLocaleCatalog(language: AppLanguage): MobileStrings {
         require("./mobileI18n.en") as { mobileStringsEn: MobileStrings }
       ).mobileStringsEn;
       break;
+  }
+  // Design-explore bundles (iOS): a few words mean something else there.
+  if (getMobileDesignExploreActive()) {
+    catalog = withMobileDesignExploreCopy(catalog, language);
   }
   loadedLocaleCatalogs[language] = catalog;
   return catalog;

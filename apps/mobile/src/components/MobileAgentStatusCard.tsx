@@ -1,8 +1,11 @@
+import { ExploreSettingsGlyph } from "@/components/explore/ExploreSettingsGlyph";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { useMobileLanguageSettings } from "@/data/mobileHooks";
 import { radius, nemuFontWeight, useNemuTheme } from "@/design-system";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
+import { MOBILE_EXPLORE_RADIUS } from "@/lib/mobileExploreRadius";
 import { getMobileStrings } from "@/lib/mobileI18n";
 import {
   fetchMobileAgentStatus,
@@ -62,6 +65,51 @@ export function MobileAgentStatusCard() {
         ? tokens.mutedForeground
         : tokens.danger;
 
+  const statusGlyph =
+    capability === null ? (
+      <ActivityIndicator size="small" color={tokens.primary} />
+    ) : (
+      <Ionicons
+        name={
+          capability === "cloudflare-verification"
+            ? mobileDesignExploreFlag
+              ? "checkmark-circle"
+              : "checkmark-circle-outline"
+            : mobileDesignExploreFlag
+              ? "alert-circle"
+              : "alert-circle-outline"
+        }
+        size={19}
+        color={statusColor}
+      />
+    );
+
+  if (mobileDesignExploreFlag) {
+    // Design-explore: one row of the Settings groups — the outline glyph, the
+    // name and its state, the state's glyph on the trailing edge.
+    return (
+      <View
+        accessible
+        accessibilityLabel={`${strings.settings.agent}, ${statusTitle}, ${statusDetail}`}
+        style={[
+          styles.shell,
+          styles.exploreShell,
+          { backgroundColor: tokens.card, borderColor: tokens.border },
+        ]}
+      >
+        <View style={styles.exploreRow}>
+          <ExploreSettingsGlyph name="hardware-chip-outline" />
+          <View style={styles.headerText}>
+            <Text style={[styles.exploreTitle, { color: tokens.foreground }]}>{strings.settings.agent}</Text>
+            <Text style={[styles.statusTitle, { color: tokens.foreground }]}>{statusTitle}</Text>
+            <Text style={[styles.statusDetail, { color: tokens.mutedForeground }]}>{statusDetail}</Text>
+          </View>
+          {statusGlyph}
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View
       style={[
@@ -95,19 +143,7 @@ export function MobileAgentStatusCard() {
             accessibilityLabel={statusTitle}
             style={styles.statusIcon}
           >
-            {capability === null ? (
-              <ActivityIndicator size="small" color={tokens.primary} />
-            ) : (
-              <Ionicons
-                name={
-                  capability === "cloudflare-verification"
-                    ? "checkmark-circle-outline"
-                    : "alert-circle-outline"
-                }
-                size={19}
-                color={statusColor}
-              />
-            )}
+            {statusGlyph}
           </View>
         </View>
       </View>
@@ -125,6 +161,24 @@ const styles = StyleSheet.create({
   card: {
     gap: 12,
     padding: 12,
+  },
+  exploreShell: {
+    minHeight: 0,
+    borderRadius: MOBILE_EXPLORE_RADIUS.group,
+    borderCurve: "continuous",
+  },
+  exploreRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  exploreTitle: {
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: nemuFontWeight.medium,
+    marginBottom: 2,
   },
   header: {
     flexDirection: "row",

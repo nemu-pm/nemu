@@ -13,6 +13,10 @@ import {
   nemuFontWeight,
   useNemuTheme,
 } from "@/design-system";
+import { useMobileLanguageSettings } from "@/data/mobileHooks";
+import { getMobileStrings } from "@/lib/mobileI18n";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
+import { ExploreStateGlyph } from "@/components/explore/ExploreStateGlyph";
 
 type MobileSourceErrorNoticeProps = {
   title?: string;
@@ -30,6 +34,8 @@ export function MobileSourceErrorNotice({
   onActionPress,
 }: MobileSourceErrorNoticeProps) {
   const { tokens } = useNemuTheme();
+  const { appLanguage } = useMobileLanguageSettings();
+  const strings = getMobileStrings(appLanguage);
   const announcement = title ? `${title}. ${detail}` : detail;
   const lastAnnouncementRef = useRef<string | null>(null);
 
@@ -48,11 +54,21 @@ export function MobileSourceErrorNotice({
 
   return (
     <View style={[styles.notice, { backgroundColor: tokens.muted }]}>
-      <Ionicons
-        name="alert-circle-outline"
-        size={16}
-        color={error ? tokens.danger : tokens.mutedForeground}
-      />
+      {mobileDesignExploreFlag ? (
+        // Design-explore: the state glyphs; a network failure says offline.
+        <ExploreStateGlyph
+          kind={title && title === strings.common.sourceNetworkError ? "offline" : "source"}
+          size={30}
+          base={tokens.mutedForeground}
+          accent={error ? tokens.danger : tokens.primary}
+        />
+      ) : (
+        <Ionicons
+          name="alert-circle-outline"
+          size={16}
+          color={error ? tokens.danger : tokens.mutedForeground}
+        />
+      )}
       <View
         accessible
         accessibilityLabel={announcement}

@@ -1,3 +1,4 @@
+import type { ScrollViewInstance } from "react-native";
 import { useEffect, useRef } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -33,7 +34,7 @@ export function MobileSourceSelector({
   onSelect,
 }: MobileSourceSelectorProps) {
   const { tokens } = useNemuTheme();
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<ScrollViewInstance>(null);
   const itemOffsets = useRef<Record<string, number>>({});
 
   useEffect(() => {
@@ -53,6 +54,7 @@ export function MobileSourceSelector({
       <ScrollView
         ref={scrollRef}
         horizontal
+        scrollsToTop={false}
         accessibilityRole="tablist"
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}

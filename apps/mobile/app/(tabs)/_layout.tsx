@@ -10,7 +10,6 @@ export default function TabsLayout() {
   const { tokens } = useNemuTheme();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
-
   if (Platform.OS === "ios") {
     return (
       <NativeTabs

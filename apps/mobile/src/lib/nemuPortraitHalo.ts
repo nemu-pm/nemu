@@ -92,6 +92,87 @@ export function getNemuPortraitGlowRasterLayout({
   } as const;
 }
 
+/**
+ * How far each glow family visibly reaches past the portrait stage, in
+ * bucket-raster pixels (alpha >= 3/255, i.e. under ~1%, measured from the
+ * shipped rasters; `nemuPortraitHalo.test.ts` re-measures every bucket).
+ * - `animated`: the iOS primary layer (the secondary drifts inside it).
+ * - `composite`: Android's single static raster.
+ */
+export const NEMU_PORTRAIT_GLOW_VISIBLE_REACH = {
+  animated: { top: 116, bottom: 50 },
+  composite: { top: 74, bottom: 47 },
+} as const;
+
+/** Glow fade band limits (pt): long enough to read as falloff, never a stripe. */
+const GLOW_FADE_MIN = 40;
+const GLOW_FADE_MAX = 120;
+
+export type NemuPortraitGlowFade = {
+  /** Clip line, relative to the displayed stage's top edge (negative = above it). */
+  clipTop: number;
+  /** Height of the backdrop-coloured fade that brings the glow to zero at the clip line. */
+  fadeHeight: number;
+};
+
+/**
+ * The glow bleeds ~120pt past the art. Where the halo sits closer than that
+ * to an edge that clips it (the opaque navigation bar, a scroll view's top),
+ * the glow would end in a hard horizontal line. This returns a clip line at
+ * that edge plus a fade band under it so the glow reaches zero exactly there:
+ * the glow only is bounded — the art keeps its size and position — and
+ * nothing changes when the glow already fits (null).
+ */
+export function getNemuPortraitGlowFade({
+  containerStageHeight,
+  containerStageWidth,
+  renderMode,
+  roomTop,
+  stageWidth,
+}: {
+  /** Displayed portrait box. */
+  containerStageHeight: number;
+  containerStageWidth: number;
+  /** Bucket raster the glow was authored for. */
+  stageWidth: number;
+  renderMode: "animated-raster-layers" | "static-composite-raster";
+  /** Distance from the displayed stage's top edge up to the clipping edge; undefined = unbounded. */
+  roomTop?: number | null;
+}): NemuPortraitGlowFade | null {
+  if (roomTop == null || !Number.isFinite(roomTop)) return null;
+  const room = Math.max(0, roomTop);
+  const scale = stageWidth > 0 ? containerStageWidth / stageWidth : 1;
+  const half = containerStageHeight / 2;
+  const reach = getNemuPortraitGlowReachTop({ half, renderMode, scale });
+  if (room >= reach) return null;
+  return {
+    clipTop: -room,
+    fadeHeight: Math.round(Math.min(GLOW_FADE_MAX, Math.max(GLOW_FADE_MIN, reach - room))),
+  };
+}
+
+/** Worst-case visible reach above the displayed stage top, including the glow's own motion. */
+export function getNemuPortraitGlowReachTop({
+  half,
+  renderMode,
+  scale,
+}: {
+  half: number;
+  renderMode: "animated-raster-layers" | "static-composite-raster";
+  scale: number;
+}): number {
+  if (renderMode === "static-composite-raster") {
+    return NEMU_PORTRAIT_GLOW_VISIBLE_REACH.composite.top * scale;
+  }
+  const { scale: pulseScale, translateY } = NEMU_WEB_PORTRAIT_GLOW.primary;
+  // The pulse scales the raster about the stage centre and moves it down.
+  return (
+    pulseScale[1] * (half + NEMU_PORTRAIT_GLOW_VISIBLE_REACH.animated.top * scale) -
+    half -
+    translateY[0]
+  );
+}
+
 export function shouldAnimateNemuPortraitHalo({
   appActive,
   focused,

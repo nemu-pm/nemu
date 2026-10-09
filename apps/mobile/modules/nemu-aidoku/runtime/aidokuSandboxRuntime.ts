@@ -35,6 +35,13 @@ import {
   decodeAidokuSandboxCanvasPlan,
   SANDBOX_IMAGE_MAX_COMPRESSED_BYTES,
 } from "./aidokuSandboxCanvas";
+import {
+  appendSandboxJsResult,
+  createSandboxJsEvaluator,
+  createSandboxJsReplayState,
+  SandboxJsControlError,
+  type SandboxJsReplayState,
+} from "./aidokuSandboxJs";
 import { prepareMobileAidokuWasm } from "./aidokuWasmSafety";
 import {
   decodeSandboxPersistedSettings,
@@ -82,6 +89,9 @@ type SandboxSession = {
   persistedSettings: SandboxJsonRecord;
   userSettings: JsonRecord;
   imageProcessorTransportAvailable: boolean;
+  // The native host answers `js-eval` suspensions in an isolated engine (iOS).
+  // Without one the runtime's built-in evaluator runs in this isolate.
+  hostJsEvaluatorAvailable: boolean;
 };
 
 type NormalizedRequest = {
@@ -96,7 +106,7 @@ type ReplayResponse = {
   response: HttpResponse;
 };
 
-type SandboxOperation = {
+type SandboxOperation = SandboxJsReplayState & {
   id: string;
   sessionId: string;
   input: JsonRecord;
@@ -339,6 +349,19 @@ function normalizeRequest(
     headers: normalizeHeaders(input.headers ?? {}),
     body,
   };
+}
+
+/**
+ * The final URL the native host reports for a replayed response (after
+ * redirects), as the runtime's `HttpResponse.url`. Anything that is not a
+ * bounded http(s) URL is dropped, and the runtime then falls back to the
+ * request URL, as it does for a host that does not report one.
+ */
+export function normalizeReplayResponseUrl(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.length > MAX_REQUEST_URL_LENGTH) {
+    return undefined;
+  }
+  return isRemoteHttpUrl(value) ? new URL(value).toString() : undefined;
 }
 
 function isRemoteHttpUrl(value: string): boolean {
@@ -727,13 +750,19 @@ function safeManifestUrl(value: unknown): string | null {
   if (typeof value !== "string" || value.length > MAX_CORE_SETTING_URL_LENGTH) {
     return null;
   }
+  const trimmed = value.trim();
   try {
-    const parsed = new URL(value.trim());
+    const parsed = new URL(trimmed);
+    // Validate through URL, but hand the source its manifest string verbatim
+    // (as Aidoku iOS and @nemu.pm/aidoku-runtime do). `URL#toString()` appends
+    // a "/" to a bare origin, and sources build requests as
+    // `format!("{base_url}/path")`, so the normalised form produced
+    // `https://host//path` — a 404 on zh.copymanga and friends.
     return (parsed.protocol === "http:" || parsed.protocol === "https:") &&
       parsed.hostname &&
       !parsed.username &&
       !parsed.password
-      ? parsed.toString()
+      ? trimmed
       : null;
   } catch {
     return null;
@@ -758,7 +787,7 @@ function safeManifestStrings(
   return output;
 }
 
-function applyManifestDefaults(
+export function applyMobileAidokuManifestDefaults(
   settings: JsonRecord,
   manifest: SourceManifest,
 ): void {
@@ -792,7 +821,7 @@ function resolveDefaultSettings(session: SandboxSession): JsonRecord {
   const resolved = extractMobileAidokuSettingsDefaults(
     session.components.settingsJson,
   );
-  applyManifestDefaults(resolved, session.components.manifest);
+  applyMobileAidokuManifestDefaults(resolved, session.components.manifest);
   return resolved;
 }
 
@@ -1014,6 +1043,10 @@ async function runOperation(state: SandboxOperation): Promise<string> {
     });
     const loadSource = createLoadSource(canvasModule);
     const replayBridge = createReplayBridge(state);
+    state.pendingJs = null;
+    const jsBridge = session.hostJsEvaluatorAvailable
+      ? createSandboxJsEvaluator(state)
+      : null;
     const settingsTransaction = new SandboxSettingsTransaction(
       resolveDefaultSettings(session),
       session.persistedSettings,
@@ -1028,6 +1061,9 @@ async function runOperation(state: SandboxOperation): Promise<string> {
       settingsSetter: (key, value) => settingsTransaction.set(key, value),
       canvasModule,
       compiledModule: session.compiledModule,
+      // Spread so the option type-checks against runtimes that predate
+      // `jsEvaluator`; those ignore it and keep their built-in evaluator.
+      ...(jsBridge ? { jsEvaluator: jsBridge.evaluator } : {}),
     });
     // A fixed Date.now would deadlock sources that legitimately call env.sleep.
     // Anchor time to the operation start while still advancing with real
@@ -1043,12 +1079,15 @@ async function runOperation(state: SandboxOperation): Promise<string> {
       state.input,
       state.imageBytes,
     );
-    if (replayBridge.consumedResponses() !== state.replay.length) {
+    if (
+      replayBridge.consumedResponses() !== state.replay.length ||
+      (jsBridge && jsBridge.consumedEvaluations() !== state.jsReplay.length)
+    ) {
       return result({
         status: "error",
         code: "non-deterministic-replay",
         detail:
-          "Aidoku source did not consume every recorded HTTP replay response.",
+          "Aidoku source did not consume every recorded replay response.",
       });
     }
     const settingsPatch = settingsTransaction.encodedPatch();
@@ -1077,6 +1116,23 @@ async function runOperation(state: SandboxOperation): Promise<string> {
     }
     return success(value, settingsPatch);
   } catch (error) {
+    if (error instanceof SandboxJsControlError) {
+      if (error.control === "js-eval-needed" && error.request) {
+        return result({
+          status: "js-eval",
+          cursor: error.cursor,
+          request: error.request,
+        });
+      }
+      return result({
+        status: "error",
+        code:
+          error.control === "js-limit"
+            ? "js-limit"
+            : "non-deterministic-replay",
+        detail: boundedErrorMessage(error),
+      });
+    }
     if (error instanceof ReplayControlError) {
       if (error.control === "request-needed") {
         return result({
@@ -1144,6 +1200,7 @@ export const NemuAidokuSandbox = {
     userSettings: unknown,
     persistedSettings: unknown,
     imageProcessorTransportAvailable: boolean,
+    hostJsEvaluatorAvailable?: unknown,
   ): Promise<string> {
     try {
       assertString(sessionId, "Session ID", 256);
@@ -1226,6 +1283,8 @@ export const NemuAidokuSandbox = {
         persistedSettings: nextPersistedSettings,
         userSettings: { ...nextUserSettings },
         imageProcessorTransportAvailable,
+        // Optional so an older native host (Android) keeps registering.
+        hostJsEvaluatorAvailable: hostJsEvaluatorAvailable === true,
       });
       return result({ status: "registered" });
     } catch (error) {
@@ -1266,6 +1325,7 @@ export const NemuAidokuSandbox = {
         replayByteLength: 0,
         pendingRequest: null,
         imageBytes: null,
+        ...createSandboxJsReplayState(),
       });
       return result({ status: "started" });
     } catch (error) {
@@ -1296,6 +1356,7 @@ export const NemuAidokuSandbox = {
     status: number,
     headers: unknown,
     dataName: string,
+    finalUrl?: unknown,
   ): Promise<string> {
     try {
       const state = operations.get(operationId);
@@ -1332,10 +1393,38 @@ export const NemuAidokuSandbox = {
       }
       state.replay.push({
         request,
-        response: { status, headers: responseHeaders, body: "", bytes },
+        response: {
+          status,
+          headers: responseHeaders,
+          body: "",
+          bytes,
+          // `net.get_url`: a source that follows a redirecting domain (Raw
+          // FREE) reads where the request landed.
+          url: normalizeReplayResponseUrl(finalUrl),
+        },
       });
       state.replayByteLength += bytes.byteLength;
       state.pendingRequest = null;
+      return result({ status: "appended" });
+    } catch (error) {
+      return result({
+        status: "error",
+        code: "replay-rejected",
+        detail: boundedErrorMessage(error),
+      });
+    }
+  },
+
+  appendJsEvalResult(
+    operationId: string,
+    cursor: number,
+    rawRequest: unknown,
+    value: unknown,
+  ): string {
+    try {
+      const state = operations.get(operationId);
+      if (!state) throw new Error("Aidoku operation expired.");
+      appendSandboxJsResult(state, cursor, rawRequest, value);
       return result({ status: "appended" });
     } catch (error) {
       return result({

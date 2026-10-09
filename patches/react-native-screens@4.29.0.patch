@@ -1,0 +1,135 @@
+diff --git a/ios/RNSBarButtonItem.mm b/ios/RNSBarButtonItem.mm
+index c435fdd..bd912c2 100644
+--- a/ios/RNSBarButtonItem.mm
++++ b/ios/RNSBarButtonItem.mm
+@@ -28,7 +28,19 @@ - (instancetype)initWithConfig:(NSDictionary<NSString *, id> *)dict
+                        }];
+ 
+   NSString *title = dict[@"title"];
+-  if (title != nil) {
++  // iOS 27.1 infers a bar item's axes from its content when the item is added
++  // (`axisBehavior` automatic). An image icon loads asynchronously, so the
++  // item is added without its image (and with a "" title), is taken for a
++  // text item, and keeps the whole bar out of the iPhone Duo vertical bar even
++  // after the image arrives. An item configured with an icon is an icon item:
++  // say so up front, and treat an empty title as no title.
++  BOOL hasIcon = dict[@"sfSymbolName"] != nil || dict[@"xcassetName"] != nil || dict[@"imageSource"] != nil ||
++      dict[@"templateSource"] != nil;
++  if (hasIcon && [self respondsToSelector:NSSelectorFromString(@"setAxisBehavior:")]) {
++    // UIBarButtonItemAxisBehaviorVerticalPreferred (iOS 27.1+).
++    [self setValue:@2 forKey:@"axisBehavior"];
++  }
++  if (title.length > 0) {
+     self.title = title;
+ 
+     NSDictionary *titleStyle = dict[@"titleStyle"];
+diff --git a/ios/RNSScreen.mm b/ios/RNSScreen.mm
+index 4625688..96b3820 100644
+--- a/ios/RNSScreen.mm
++++ b/ios/RNSScreen.mm
+@@ -1,4 +1,5 @@
+ #import <UIKit/UIKit.h>
++#include <cstring>
+ 
+ #import "RNSModalScreen.h"
+ #import "RNSScreen.h"
+@@ -8,6 +9,7 @@
+ 
+ #import <React/RCTConversions.h>
+ #import <React/RCTFabricComponentsPlugins.h>
++#import <React/RCTMountingTransactionObserving.h>
+ #import <React/RCTRootComponentView.h>
+ #import <React/RCTScrollViewComponentView.h>
+ #import <React/RCTSurfaceTouchHandler.h>
+@@ -48,6 +50,7 @@ @interface RNSScreenView () <UIAdaptivePresentationControllerDelegate,
+                              UISheetPresentationControllerDelegate,
+ #endif
+                              RCTRNSScreenViewProtocol,
++                             RCTMountingTransactionObserving,
+                              CAAnimationDelegate>
+ @end
+ 
+@@ -1132,10 +1135,81 @@ - (void)overrideScrollViewBehaviorInFirstDescendantChainIfNeeded
+   }
+ }
+ 
++// nemu patch: `scrollEdgeEffects` used to reach only the scroll view found by
++// walking `subviews[0]` from the screen, once, when the screen was pushed or
++// its props changed. A page whose ScrollView is not the first subview (any
++// sibling before it: a sheet host, an overlay) or that mounts / remounts its
++// ScrollView later (skeleton -> content, a `key` change) kept UIKit's
++// `automatic` style, which draws the hard band + dividing line under the
++// navigation bar. Apply to the first-chain scroll view as before, plus every
++// React ScrollView of this screen that is not nested in another ScrollView or
++// in a nested screen / navigator (those own their own settings), and re-apply
++// whenever a mounting transaction inserts a ScrollView.
++static BOOL RNSIsNestedScrollEdgeEffectBoundary(UIView *view)
++{
++  if ([view isKindOfClass:RNSScreenView.class] || [view isKindOfClass:RNSScreenStackView.class] ||
++      [view isKindOfClass:RNSScreenContainerView.class] || [view isKindOfClass:RNSScreenStackHeaderConfig.class]) {
++    return YES;
++  }
++  NSString *className = NSStringFromClass(view.class);
++  return [className hasPrefix:@"RNSTabs"] || [className hasPrefix:@"RNSSplit"];
++}
++
++static void RNSCollectContentScrollViews(UIView *view, NSMutableArray<UIScrollView *> *scrollViews)
++{
++  for (UIView *subview in view.subviews) {
++    if ([subview isKindOfClass:UIScrollView.class]) {
++      if ([subview.superview isKindOfClass:RCTScrollViewComponentView.class] &&
++          ![scrollViews containsObject:(UIScrollView *)subview]) {
++        [scrollViews addObject:(UIScrollView *)subview];
++      }
++      continue;
++    }
++    if (RNSIsNestedScrollEdgeEffectBoundary(subview)) {
++      continue;
++    }
++    RNSCollectContentScrollViews(subview, scrollViews);
++  }
++}
++
++- (BOOL)hasCustomScrollEdgeEffects
++{
++  return self.topScrollEdgeEffect != RNSScrollEdgeEffectAutomatic ||
++      self.bottomScrollEdgeEffect != RNSScrollEdgeEffectAutomatic ||
++      self.leftScrollEdgeEffect != RNSScrollEdgeEffectAutomatic ||
++      self.rightScrollEdgeEffect != RNSScrollEdgeEffectAutomatic;
++}
++
+ - (void)updateContentScrollViewEdgeEffectsIfExists
+ {
+-  [RNSScrollEdgeEffectApplicator applyToScrollView:[RNSScrollViewFinder findScrollViewInFirstDescendantChainFrom:self]
+-                                      withProvider:self];
++  NSMutableArray<UIScrollView *> *scrollViews = [NSMutableArray new];
++  UIScrollView *firstChainScrollView = [RNSScrollViewFinder findScrollViewInFirstDescendantChainFrom:self];
++  if (firstChainScrollView != nil) {
++    [scrollViews addObject:firstChainScrollView];
++  }
++  if ([self hasCustomScrollEdgeEffects]) {
++    RNSCollectContentScrollViews(self, scrollViews);
++  }
++  for (UIScrollView *scrollView in scrollViews) {
++    [RNSScrollEdgeEffectApplicator applyToScrollView:scrollView withProvider:self];
++  }
++}
++
++#pragma mark - RCTMountingTransactionObserving
++
++- (void)mountingTransactionDidMount:(const facebook::react::MountingTransaction &)transaction
++               withSurfaceTelemetry:(const facebook::react::SurfaceTelemetry &)surfaceTelemetry
++{
++  if (![self hasCustomScrollEdgeEffects]) {
++    return;
++  }
++  for (const auto &mutation : transaction.getMutations()) {
++    if (mutation.type == react::ShadowViewMutation::Insert && mutation.newChildShadowView.componentName != nullptr &&
++        std::strcmp(mutation.newChildShadowView.componentName, "ScrollView") == 0) {
++      [self updateContentScrollViewEdgeEffectsIfExists];
++      return;
++    }
++  }
+ }
+ 
+ #pragma mark - RNSSafeAreaProviding

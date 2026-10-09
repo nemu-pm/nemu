@@ -1,7 +1,9 @@
 import { ConvexHttpClient } from "convex/browser";
+import { PartOfSpeechLabels } from "../../../../src/lib/plugins/builtin/japanese-learning/grammar-analysis";
 import { api } from "../../../../convex/_generated/api";
 import { mobileSyncConfig } from "@/sync/mobileSyncConfig";
 import { createMobileJapaneseLearningAbortScope } from "./mobileJapaneseLearningLifecycle";
+import { isMobileJapaneseLearningSignedIn } from "./mobileJapaneseLearningAuth";
 import {
   assertMobileJapaneseLearningByteLength,
   assertMobileJapaneseLearningCount,
@@ -12,6 +14,20 @@ import {
   throwIfMobileJapaneseLearningAborted,
 } from "./mobileJapaneseLearningSafety";
 import { sha256Bytes } from "@nemu/core";
+import {
+  getMobileJapaneseLearningCapabilities,
+  getMobileJapaneseLearningEnginePreference,
+  mobileJapaneseLearningNowMs,
+  recordMobileJapaneseLearningEngineRun,
+  resolveMobileJapaneseLearningAnalysisEngine,
+  type MobileJapaneseLearningEngineKind,
+  type MobileJapaneseLearningEnginePreference,
+} from "./mobileJapaneseLearningEngine";
+import {
+  ensureMobileJapaneseLearningAnalysisPack,
+  runMobileOnDeviceAnalysis,
+} from "./mobileJapaneseLearningOnDeviceAnalysis";
+import type { NemuAnalysisPackProgress } from "../../modules/nemu-japanese-learning/src/NemuJapaneseLearning.types";
 import {
   getActiveMobileSourceProfileScope,
   registerMobileSourceProfileTransitionHandler,
@@ -29,6 +45,9 @@ export type MobileGrammarToken = {
   partOfSpeech: string;
   meanings: MobileGrammarMeaning[];
   conjugationTypes?: string[];
+  hasConjugationVia?: boolean;
+  isSuffix?: boolean;
+  suffix?: string;
   conjugations: MobileGrammarToken[];
   alternatives: MobileGrammarToken[];
   components: MobileGrammarToken[];
@@ -38,6 +57,8 @@ export type MobileGrammarResult = {
   originalText: string;
   normalizedText: string;
   tokens: MobileGrammarToken[];
+  /** Which analyzer produced `tokens`. */
+  engine?: MobileJapaneseLearningEngineKind;
 };
 
 export type MobileJapaneseLearningGrammarOptions = {
@@ -50,6 +71,15 @@ export type MobileJapaneseLearningGrammarOptions = {
   ) => Promise<MobileNormalizeResult>;
   onStage?: (stage: "normalizing" | "tokenizing") => void;
   signal?: AbortSignal;
+  /** Overrides the plugin's recognition-engine setting for this run. */
+  engine?: MobileJapaneseLearningEnginePreference;
+  /**
+   * On-device only: run the Convex LLM normalize step first ("online
+   * enhance"). Off by default so on-device analysis sends no text anywhere.
+   */
+  onlineEnhance?: boolean;
+  /** On-device only: first-use dictionary pack download progress. */
+  onPackProgress?: (progress: NemuAnalysisPackProgress) => void;
 };
 
 export type MobileNormalizeResult = {
@@ -72,6 +102,7 @@ type MobileIchiranConjugation = {
 
 type MobileIchiranWordInfo = {
   type?: "KANJI" | "KANA" | "GAP";
+  score?: number;
   text?: string;
   kana?: string | string[];
   gloss?: MobileIchiranGloss[];
@@ -106,40 +137,7 @@ const MOBILE_JAPANESE_LEARNING_GRAMMAR_MAX_ERROR_RESPONSE_BYTES = 64 * 1024;
 const MOBILE_JAPANESE_LEARNING_GRAMMAR_NORMALIZE_CACHE_ENTRIES = 64;
 const MOBILE_JAPANESE_LEARNING_GRAMMAR_MAX_CACHE_KEY_CHARACTERS = 4_096;
 
-const POS_LABELS: Record<string, string> = {
-  "adj-i": "I-Adjective",
-  "adj-na": "Na-Adjective",
-  adv: "Adverb",
-  "aux-v": "Auxiliary Verb",
-  "aux-adj": "Auxiliary Adjective",
-  conj: "Conjunction",
-  cop: "Copula",
-  ctr: "Counter",
-  exp: "Expression",
-  int: "Interjection",
-  n: "Noun",
-  "n-adv": "Adverbial Noun",
-  "n-suf": "Noun Suffix",
-  num: "Number",
-  pn: "Pronoun",
-  prt: "Particle",
-  suf: "Suffix",
-  v1: "Ichidan Verb (-ru)",
-  v5b: "Godan Verb (-bu)",
-  v5g: "Godan Verb (-gu)",
-  v5k: "Godan Verb (-ku)",
-  v5m: "Godan Verb (-mu)",
-  v5n: "Godan Verb (-nu)",
-  v5r: "Godan Verb (-ru)",
-  v5s: "Godan Verb (-su)",
-  v5t: "Godan Verb (-tsu)",
-  v5u: "Godan Verb (-u)",
-  vk: "Kuru Verb",
-  vs: "Suru Verb",
-  "vs-i": "Suru Verb (Included)",
-  vt: "Transitive Verb",
-  vi: "Intransitive Verb",
-};
+const POS_LABELS: Record<string, string> = PartOfSpeechLabels;
 
 let convexHttpClient: ConvexHttpClient | null = null;
 let convexHttpClientUrl = "";
@@ -414,6 +412,17 @@ function extractReading(wordInfo: MobileIchiranWordInfo, word: string): string {
   assertMobileJapaneseLearningGrammarField(word, "Ichiran word");
   const kana = getKana(wordInfo.kana);
   if (kana && kana !== word) return kana;
+  const alternatives = wordInfo.alternative ?? [];
+  assertMobileJapaneseLearningCount(
+    alternatives.length,
+    MOBILE_JAPANESE_LEARNING_GRAMMAR_MAX_CHILDREN,
+    "Ichiran alternatives",
+  );
+  for (const alternative of alternatives) {
+    if (alternative.text !== word) continue;
+    const alternativeKana = getKana(alternative.kana);
+    if (alternativeKana && alternativeKana !== word) return alternativeKana;
+  }
   if (wordInfo.type === "KANA" || isKanaOnly(word)) return "";
   const conjugationReading = wordInfo.conj?.[0]?.reading;
   if (conjugationReading && conjugationReading !== word) return conjugationReading;
@@ -452,10 +461,12 @@ function extractPartOfSpeech(
   const glosses = wordInfo.gloss ?? [];
   const conjugations = wordInfo.conj ?? [];
   const alternatives = wordInfo.alternative ?? [];
+  const components = wordInfo.components ?? [];
   for (const [items, label] of [
     [glosses, "Ichiran glosses"],
     [conjugations, "Ichiran conjugations"],
     [alternatives, "Ichiran alternatives"],
+    [components, "Ichiran components"],
   ] as const) {
     assertMobileJapaneseLearningCount(
       items.length,
@@ -491,6 +502,10 @@ function extractPartOfSpeech(
   }
   for (const alternative of alternatives) {
     const pos = extractPartOfSpeech(alternative, depth + 1);
+    if (pos && pos !== "Unknown") return pos;
+  }
+  for (const component of components) {
+    const pos = extractPartOfSpeech(component, depth + 1);
     if (pos && pos !== "Unknown") return pos;
   }
   return wordInfo.type === "GAP" ? "Punctuation" : "Unknown";
@@ -564,6 +579,7 @@ function convertConjugation(
       properties
         ?.map((prop) => prop.type)
         .filter((item): item is string => typeof item === "string" && item.length > 0),
+    hasConjugationVia: via.length > 0,
     conjugations: via.map((item) =>
       convertConjugation(item, budget, depth + 1),
     ),
@@ -586,8 +602,10 @@ function convertWordInfo(
     "Ichiran alternatives",
   );
   const preferred =
-    !wordInfo.text && sourceAlternatives[0]
-      ? sourceAlternatives[0]
+    sourceAlternatives[0] &&
+    (!wordInfo.text || (!wordInfo.score && !wordInfo.gloss?.length &&
+      !wordInfo.conj?.length && !wordInfo.components?.length))
+      ? { ...sourceAlternatives[0], alternative: sourceAlternatives.slice(1) }
       : wordInfo;
   const word = preferred.text ?? "";
   assertMobileJapaneseLearningGrammarField(word, "Ichiran word");
@@ -603,6 +621,7 @@ function convertWordInfo(
     };
   }
 
+  assertMobileJapaneseLearningGrammarField(preferred.suffix, "Ichiran suffix");
   const reading = extractReading(preferred, word).split("\f").join("");
   const conjugations = preferred.conj ?? [];
   const alternatives = preferred.alternative ?? [];
@@ -644,10 +663,11 @@ function convertWordInfo(
     word,
     reading: reading === word ? "" : reading,
     partOfSpeech: extractPartOfSpeech(preferred),
+    isSuffix: preferred.suffix !== undefined,
+    suffix: preferred.suffix,
     meanings: extractMeanings(preferred),
-    conjugationTypes: conjugations
-      ?.flatMap((conj) => conj.prop?.map((prop) => prop.type) ?? [])
-      .filter((item): item is string => typeof item === "string" && item.length > 0),
+    // Web parity (grammar-analysis.ts): the conjugation types belong to each
+    // conjugation entry ("Base form" card), not to the surface word.
     conjugations: conjugations.map((item) =>
       convertConjugation(item, budget, depth + 1),
     ),
@@ -775,7 +795,49 @@ export async function runMobileJapaneseLearningGrammar(
     return { originalText: "", normalizedText: "", tokens: [] };
   }
 
+  const preference =
+    options.engine ?? getMobileJapaneseLearningEnginePreference();
+  const engine = resolveMobileJapaneseLearningAnalysisEngine(
+    preference,
+    getMobileJapaneseLearningCapabilities(),
+  );
+  if (engine === "on-device") {
+    if (preference === "auto") {
+      // Automatic: a dictionary that cannot be installed right now (offline,
+      // server error) is a missing capability, not a failed on-device run —
+      // this sentence is analyzed in the cloud and the pack retries later.
+      try {
+        await ensureMobileJapaneseLearningAnalysisPack({
+          signal: options.signal,
+          onProgress: options.onPackProgress,
+        });
+      } catch (error) {
+        throwIfMobileJapaneseLearningAborted(options.signal);
+        // Signed out the cloud is not an option (a server feature): the
+        // dictionary error stands, and the reader offers Retry.
+        const signedIn = isMobileJapaneseLearningSignedIn();
+        recordMobileJapaneseLearningEngineRun({
+          stage: "pack-install",
+          engine: signedIn ? "cloud" : "on-device",
+          ok: false,
+          durationMs: 0,
+          detail: `${signedIn ? "automatic fallback" : "signed out, no cloud fallback"}: ${error instanceof Error ? error.message : String(error)}`,
+        });
+        if (!signedIn) throw error;
+        return runMobileJapaneseLearningGrammarCloud(originalText, options);
+      }
+    }
+    return runMobileJapaneseLearningGrammarOnDevice(originalText, options);
+  }
+  return runMobileJapaneseLearningGrammarCloud(originalText, options);
+}
+
+async function runMobileJapaneseLearningGrammarCloud(
+  originalText: string,
+  options: MobileJapaneseLearningGrammarOptions,
+): Promise<MobileGrammarResult> {
   const abortScope = createMobileJapaneseLearningAbortScope(options.signal);
+  const cloudStarted = mobileJapaneseLearningNowMs();
   try {
     const normalize =
       options.normalizeText ??
@@ -842,10 +904,67 @@ export async function runMobileJapaneseLearningGrammar(
     );
     const body = JSON.parse(responseBody) as MobileIchiranSegmentResponse;
     const segments = Array.isArray(body.segments) ? body.segments : [];
+    const tokens = convertMobileIchiranSegments(segments);
+    recordMobileJapaneseLearningEngineRun({
+      stage: "analysis",
+      engine: "cloud",
+      ok: true,
+      durationMs: mobileJapaneseLearningNowMs() - cloudStarted,
+      detail: `tokens=${tokens.length}`,
+    });
     return {
       originalText,
       normalizedText: normalized,
-      tokens: convertMobileIchiranSegments(segments),
+      tokens,
+      engine: "cloud",
+    };
+  } finally {
+    abortScope.dispose();
+  }
+}
+
+async function runMobileJapaneseLearningGrammarOnDevice(
+  originalText: string,
+  options: MobileJapaneseLearningGrammarOptions,
+): Promise<MobileGrammarResult> {
+  const abortScope = createMobileJapaneseLearningAbortScope(options.signal);
+  try {
+    let normalized = originalText;
+    if (options.onlineEnhance) {
+      options.onStage?.("normalizing");
+      const normalize =
+        options.normalizeText ??
+        ((value: string, normalizeOptions?: { signal: AbortSignal }) =>
+          defaultNormalizeText(
+            value,
+            options.convexUrl ?? mobileSyncConfig.convexUrl,
+            normalizeOptions?.signal,
+          ));
+      normalized = validateMobileJapaneseLearningNormalizeResult(
+        await awaitMobileJapaneseLearningAbortable(
+          normalize(originalText, { signal: abortScope.signal }),
+          abortScope.signal,
+        ),
+      ).normalized;
+      abortScope.throwIfAborted();
+    }
+    options.onStage?.("tokenizing");
+    await ensureMobileJapaneseLearningAnalysisPack({
+      signal: abortScope.signal,
+      onProgress: options.onPackProgress,
+    });
+    abortScope.throwIfAborted();
+    const result = await runMobileOnDeviceAnalysis(normalized, {
+      signal: abortScope.signal,
+      limit: 5,
+    });
+    return {
+      originalText,
+      normalizedText: normalized,
+      tokens: convertMobileIchiranSegments(
+        result.segments as MobileIchiranSegment[],
+      ),
+      engine: "on-device",
     };
   } finally {
     abortScope.dispose();

@@ -18,6 +18,9 @@ import {
 } from "../../../../scripts/generate-mobile-portrait-glow";
 import {
   getNemuAndroidStaticGlowState,
+  getNemuPortraitGlowFade,
+  getNemuPortraitGlowReachTop,
+  NEMU_PORTRAIT_GLOW_VISIBLE_REACH,
   getNemuWebLoopStart,
   getNemuPortraitGlowRasterLayout,
   getNemuPortraitGlowStageWidth,
@@ -476,4 +479,103 @@ describe("Nemu portrait halo motion", () => {
     },
     20_000,
   );
+});
+
+describe("bounded portrait glow", () => {
+  const assetsDir = path.join(import.meta.dir, "../../assets");
+
+  async function visibleReach(file: string) {
+    const { data, info } = await sharp(path.join(assetsDir, file))
+      .ensureAlpha()
+      .extractChannel(3)
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    let top = -1;
+    let bottom = -1;
+    for (let y = 0; y < info.height; y += 1) {
+      const row = data.subarray(y * info.width, (y + 1) * info.width);
+      if (row.some((alpha) => alpha >= 3)) {
+        if (top < 0) top = y;
+        bottom = y;
+      }
+    }
+    const padding = NEMU_WEB_PORTRAIT_GLOW.artboardPadding;
+    return { top: padding - top, bottom: bottom - (info.height - padding) };
+  }
+
+  test("the declared visible reach covers every shipped glow raster", async () => {
+    for (const width of NEMU_PORTRAIT_GLOW_STAGE_WIDTHS) {
+      // The 390 bucket ships unsuffixed (the original web-sized masks).
+      const suffix = width === 390 ? "" : `-${width}`;
+      const primary = await visibleReach(`portrait-glow-primary${suffix}.png`);
+      const composite = await visibleReach(`portrait-glow${suffix}.png`);
+      expect(primary.top).toBeLessThanOrEqual(NEMU_PORTRAIT_GLOW_VISIBLE_REACH.animated.top);
+      expect(primary.bottom).toBeLessThanOrEqual(NEMU_PORTRAIT_GLOW_VISIBLE_REACH.animated.bottom);
+      expect(composite.top).toBeLessThanOrEqual(NEMU_PORTRAIT_GLOW_VISIBLE_REACH.composite.top);
+      expect(composite.bottom).toBeLessThanOrEqual(NEMU_PORTRAIT_GLOW_VISIBLE_REACH.composite.bottom);
+      // Tight bounds: within 12px of the measured reach, so the fade is not overdone.
+      expect(NEMU_PORTRAIT_GLOW_VISIBLE_REACH.animated.top - primary.top).toBeLessThan(12);
+    }
+  });
+
+  test("includes the glow pulse (scale up, drift down) in the reach", () => {
+    const half = getNemuPortraitStageHeight(390) / 2;
+    const reach = getNemuPortraitGlowReachTop({ half, renderMode: "animated-raster-layers", scale: 1 });
+    // 1.06 × (228 + 116) − 228 − 8
+    expect(reach).toBeCloseTo(128.64, 1);
+    expect(getNemuPortraitGlowReachTop({ half, renderMode: "static-composite-raster", scale: 1 })).toBe(74);
+  });
+
+  test("leaves an unbounded or roomy halo untouched", () => {
+    const base = {
+      containerStageHeight: getNemuPortraitStageHeight(390),
+      containerStageWidth: 390,
+      renderMode: "animated-raster-layers" as const,
+      stageWidth: 390,
+    };
+    expect(getNemuPortraitGlowFade({ ...base, roomTop: undefined })).toBeNull();
+    expect(getNemuPortraitGlowFade({ ...base, roomTop: null })).toBeNull();
+    expect(getNemuPortraitGlowFade({ ...base, roomTop: 140 })).toBeNull();
+  });
+
+  test("fades the glow to zero at the clipping edge instead of cutting it", () => {
+    const fade = getNemuPortraitGlowFade({
+      containerStageHeight: getNemuPortraitStageHeight(376),
+      containerStageWidth: 376,
+      renderMode: "animated-raster-layers",
+      roomTop: 58,
+      stageWidth: 390,
+    });
+    expect(fade).not.toBeNull();
+    // The clip sits exactly on the edge; the band is long enough to read as falloff.
+    expect(fade!.clipTop).toBe(-58);
+    expect(fade!.fadeHeight).toBeGreaterThanOrEqual(40);
+    expect(fade!.fadeHeight).toBeLessThanOrEqual(120);
+  });
+
+  test("a halo flush against the edge still gets a soft band, never a zero-height one", () => {
+    const fade = getNemuPortraitGlowFade({
+      containerStageHeight: getNemuPortraitStageHeight(411),
+      containerStageWidth: 411,
+      renderMode: "static-composite-raster",
+      roomTop: -4,
+      stageWidth: 411,
+    });
+    expect(fade).toEqual({ clipTop: -0, fadeHeight: 74 });
+  });
+
+  test("the halo component bounds only its glow layers, below the art", () => {
+    const component = readFileSync(
+      path.join(import.meta.dir, "../components/NemuPortraitHalo.tsx"),
+      "utf8",
+    );
+    const glowBox = component.indexOf("styles.glowClip");
+    const fadeBand = component.indexOf("<LinearGradient");
+    const art = component.indexOf("source={portrait}");
+    expect(glowBox).toBeGreaterThan(0);
+    expect(fadeBand).toBeGreaterThan(glowBox);
+    // The art renders after (above) the band, and its size never depends on the fade.
+    expect(art).toBeGreaterThan(fadeBand);
+    expect(component).toContain("nemuColorWithAlpha(fadeColor, 0)");
+  });
 });

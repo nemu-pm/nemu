@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { formatChapterShort, formatChapterTitle } from "./formatChapter";
+import {
+  formatChapterLabel,
+  formatChapterShort,
+  formatChapterShortLabel,
+  formatChapterTitle,
+  formatContinueActionLabel,
+} from "./formatChapter";
 import { getMobileStrings } from "./mobileI18n";
 
 describe("mobile chapter formatting", () => {
@@ -73,5 +79,62 @@ describe("mobile chapter formatting", () => {
         getMobileStrings("zh"),
       ),
     ).toBe("Side Story");
+  });
+});
+
+describe("chapter label fallbacks", () => {
+  test("a numbered chapter never reads Untitled", () => {
+    const en = getMobileStrings("en");
+    expect(formatChapterLabel({ id: "c", chapterNumber: 132 }, en)).toBe("Chapter 132");
+    expect(formatChapterLabel({ id: "c", volumeNumber: 1 }, en)).toBe("Volume 1");
+    expect(formatChapterLabel({ id: "c", title: "Prologue" }, en)).toBe("Prologue");
+    expect(formatChapterShortLabel({ id: "c", volumeNumber: 25, chapterNumber: 123 }, en)).toBe(
+      "Vol.25 Ch.123",
+    );
+  });
+
+  test("an id-only chapter has no label", () => {
+    const en = getMobileStrings("en");
+    expect(formatChapterLabel({ id: "57356/424746" }, en)).toBeNull();
+    expect(formatChapterLabel({ id: "c", title: "   " }, en)).toBeNull();
+    expect(formatChapterShortLabel({ id: "c" }, en)).toBeNull();
+  });
+
+  test("continue action falls back to plain Continue in every language", () => {
+    for (const [language, expected] of [
+      ["en", "Continue"],
+      ["ja", getMobileStrings("ja").mangaDetail.continueReading],
+      ["zh", getMobileStrings("zh").mangaDetail.continueReading],
+    ] as const) {
+      const strings = getMobileStrings(language);
+      const label = formatContinueActionLabel({
+        chapter: { id: "57356/424746" },
+        isContinuation: true,
+        strings,
+        labels: strings.mangaDetail,
+      });
+      expect(label).toBe(expected);
+      expect(label).not.toContain(strings.chapter.untitled);
+    }
+  });
+
+  test("continue action names the chapter when it can", () => {
+    const en = getMobileStrings("en");
+    expect(
+      formatContinueActionLabel({
+        chapter: { id: "c", chapterNumber: 8 },
+        isContinuation: true,
+        strings: en,
+        labels: en.mangaDetail,
+      }),
+    ).toBe("Continue Chapter 8");
+    expect(
+      formatContinueActionLabel({
+        chapter: { id: "c", chapterNumber: 1 },
+        isContinuation: false,
+        strings: en,
+        labels: en.sourceManga,
+      }),
+    ).toBe(en.sourceManga.startReading);
   });
 });

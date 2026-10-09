@@ -1,7 +1,10 @@
 import { type AppLanguage } from "@/data/schema";
 import {
   type MobileJapaneseLearningChatMessage,
+  type MobileJapaneseLearningChatToolCall,
+  type MobileJapaneseLearningChatToolResult,
 } from "@/lib/mobileJapaneseLearningChat";
+import { mobileJapaneseLearningChatMessagesForRequest } from "@/lib/mobileJapaneseLearningChatStream";
 import {
   type MobileGrammarToken,
 } from "@/lib/mobileJapaneseLearningGrammar";
@@ -9,9 +12,8 @@ import {
   type MobileJapaneseLearningOcrResult,
   type MobileOcrDetection,
 } from "@/lib/mobileJapaneseLearningOcr";
-import { type MobileStrings } from "@/lib/mobileI18n";
-import { describeMobileErrorDetail } from "@/lib/mobileSourceErrors";
 import { formatMobileClockTime } from "./mobileLocaleFormat";
+import type { MobileStrings } from "./mobileI18n";
 
 /**
  * Theme tokens the grammar/OCR color helpers read. Kept as a structural type
@@ -35,12 +37,16 @@ export type JapaneseLearningChatThreadMessage = {
   role: "user" | "assistant";
   kind?: "text" | "voice";
   text: string;
+  /** Localized user-facing question; text retains the full model prompt. */
+  displayText?: string;
   ttsText?: string;
   createdAt: number;
   hidden?: boolean;
   isRead?: boolean;
-  suggestions?: string[];
   isError?: boolean;
+  /** Web store: the hidden assistant turn that asked for client tools. */
+  toolCalls?: MobileJapaneseLearningChatToolCall[];
+  toolResults?: MobileJapaneseLearningChatToolResult[];
 };
 
 /** Measured layout of a grammar token in the overlay, used for hit-testing. */
@@ -51,15 +57,11 @@ export type JapaneseLearningTokenLayout = {
   height: number;
 };
 
+/** Web `getMessagesForRequest`: the whole thread, hidden turns and tool results included. */
 export function mobileJapaneseLearningChatRequestMessages(
   messages: JapaneseLearningChatThreadMessage[],
 ): MobileJapaneseLearningChatMessage[] {
-  return messages
-    .filter((message) => !message.isError && message.text.trim().length > 0)
-    .map((message) => ({
-      role: message.role,
-      content: message.text.trim(),
-    }));
+  return mobileJapaneseLearningChatMessagesForRequest(messages);
 }
 
 export function formatMobileJapaneseLearningChatTime(
@@ -94,22 +96,6 @@ export function mobileJapaneseLearningSentenceText(
           .find((detection) => detection.order === selectedOrder)
           ?.text.trim() ?? "";
   return (selectedText || result.text).trim();
-}
-
-export function mobileJapaneseLearningChatErrorDetail(
-  error: unknown,
-  strings: MobileStrings,
-): string {
-  if (error instanceof Error && error.message === "auth_required") {
-    return strings.reader.pluginJapaneseLearningSignInRequired;
-  }
-  if (error instanceof Error && error.message === "context_too_long") {
-    return strings.reader.pluginJapaneseLearningChatFailed;
-  }
-  return describeMobileErrorDetail(
-    error,
-    strings.reader.pluginJapaneseLearningChatFailed,
-  );
 }
 
 export function mobileOcrLabelColor(
@@ -163,25 +149,35 @@ export function mobileGrammarTokenCanAct(token: MobileGrammarToken): boolean {
   );
 }
 
+/**
+ * How far outside every word a tap still picks the nearest one. The words sit
+ * 2pt apart and bottom-aligned, so a tap on a seam or above a word without
+ * furigana must not fall through to nothing.
+ */
+export const MOBILE_GRAMMAR_TOKEN_HIT_SLOP = 8;
+
 export function mobileGrammarTokenAtPoint(
   layouts: Array<JapaneseLearningTokenLayout | undefined>,
   x: number,
   y: number,
   count = layouts.length,
+  slop = 0,
 ): number | null {
+  let nearest: number | null = null;
+  let nearestDistance = Infinity;
   for (let index = count - 1; index >= 0; index -= 1) {
     const layout = layouts[index];
     if (!layout) continue;
-    if (
-      x >= layout.x &&
-      x <= layout.x + layout.width &&
-      y >= layout.y &&
-      y <= layout.y + layout.height
-    ) {
-      return index;
+    const dx = Math.max(layout.x - x, 0, x - (layout.x + layout.width));
+    const dy = Math.max(layout.y - y, 0, y - (layout.y + layout.height));
+    if (dx === 0 && dy === 0) return index;
+    const distance = Math.hypot(dx, dy);
+    if (distance <= slop && distance < nearestDistance) {
+      nearest = index;
+      nearestDistance = distance;
     }
   }
-  return null;
+  return nearest;
 }
 
 export function mobileGrammarTokenInSelection(
@@ -203,4 +199,66 @@ export function selectedMobileGrammarText(
     .map((token) => token.word)
     .join("")
     .trim();
+}
+
+/**
+ * The plugin's "Minimum confidence" setting is stored as a percentage
+ * (10–90, default 25, like web's schema) while OCR confidences are 0–1.
+ * Web divides by 100 in `setSettings`; this does the same for the reader.
+ */
+export function mobileJapaneseLearningMinConfidence(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return 0.25;
+  return value > 1 ? Math.min(1, value / 100) : value;
+}
+
+/** Movement (pt) before a drag on the sentence's words commits to selecting or scrolling. */
+export const MOBILE_JAPANESE_LEARNING_TOKEN_PAN_SLOP = 8;
+
+/**
+ * What a drag that starts on the sentence's words does, decided once it has
+ * moved `MOBILE_JAPANESE_LEARNING_TOKEN_PAN_SLOP`: a predominantly vertical
+ * pan (steeper than ~50°) scrolls the sentence pane, like any iOS list;
+ * anything flatter drags a selection across the words (web's drag-select).
+ * Still inside the slop it stays a tap.
+ */
+export function classifyMobileJapaneseLearningTokenPan(
+  dx: number,
+  dy: number,
+): "pending" | "select" | "scroll" {
+  const ax = Math.abs(dx);
+  const ay = Math.abs(dy);
+  if (Math.max(ax, ay) < MOBILE_JAPANESE_LEARNING_TOKEN_PAN_SLOP) return "pending";
+  return ay > ax * 1.2 ? "scroll" : "select";
+}
+
+/**
+ * The sentence view's analysis error line. A server feature used signed out
+ * shows the sign-in line; a failed dictionary download is the pack's error
+ * whenever the cloud is not a fallback (On Device, or Automatic signed out).
+ */
+export function mobileJapaneseLearningAnalysisErrorText(input: {
+  detail: string;
+  packFailed: boolean;
+  preference: "auto" | "onDevice" | "cloud";
+  signedIn: boolean;
+  strings: {
+    reader: Pick<
+      MobileStrings["reader"],
+      "pluginJapaneseLearningSignInRequired" | "pluginJapaneseLearningGrammarFailed"
+    >;
+    japaneseLearningDictionary: Pick<
+      MobileStrings["japaneseLearningDictionary"],
+      "analysisDownloadFailed"
+    >;
+  };
+}): string {
+  const { strings } = input;
+  if (input.detail === strings.reader.pluginJapaneseLearningSignInRequired) {
+    return strings.reader.pluginJapaneseLearningSignInRequired;
+  }
+  const cloudFallback = input.preference === "auto" && input.signedIn;
+  if (input.packFailed && input.preference !== "cloud" && !cloudFallback) {
+    return strings.japaneseLearningDictionary.analysisDownloadFailed;
+  }
+  return strings.reader.pluginJapaneseLearningGrammarFailed;
 }

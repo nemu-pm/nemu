@@ -247,7 +247,10 @@ export function ZoomableReaderStrip({
   return (
     <GestureDetector gesture={composedGesture}>
       <View style={styles.clip}>
-        <Animated.View style={animatedStyle}>{children}</Animated.View>
+        {/* Viewport-sized: a transform-only view takes its content's
+            intrinsic height, and the flex list inside then lays out 0pt tall
+            (a long-strip chapter rendered as an empty black stage). */}
+        <Animated.View style={[styles.viewport, animatedStyle]}>{children}</Animated.View>
       </View>
     </GestureDetector>
   );
@@ -257,5 +260,8 @@ const styles = StyleSheet.create({
   clip: {
     flex: 1,
     overflow: "hidden",
+  },
+  viewport: {
+    flex: 1,
   },
 });

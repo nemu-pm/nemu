@@ -152,7 +152,9 @@ private data class NativeHttpResult(
   val status: Int,
   val headers: Map<String, String> = emptyMap(),
   val bytes: ByteArray = ByteArray(0),
-  val error: String? = null
+  val error: String? = null,
+  /** The response's URL after redirects, for a completed response only. */
+  val url: String? = null
 )
 
 private data class NativeHttpFileResult(
@@ -415,6 +417,13 @@ class NemuAidokuModule : Module() {
       )
     }
 
+    // Cancels the sandbox operation that carries `cancelToken`, now if it is
+    // running, or when it starts. Synchronous on purpose: the sandbox's serial
+    // executor is exactly what is busy.
+    Function("cancelAidokuSandboxOperation") { cancelToken: String ->
+      getAidokuSandboxManager().cancelOperation(cancelToken)
+    }
+
     AsyncFunction("executeAidokuSandboxOperation") {
         sessionId: String,
         operationJson: String,
@@ -665,7 +674,7 @@ class NemuAidokuModule : Module() {
         context,
         ::executeSandboxHttpRequest,
         ::decorateSandboxImageHeaders
-      )
+      ) { requestId -> cancelHttpRequest(requestId) }
     }
   }
 
@@ -866,14 +875,23 @@ class NemuAidokuModule : Module() {
       timeoutMs = timeout
       responseMode = "bytes"
       maxResponseBytes = NEMU_AIDOKU_SANDBOX_MAX_HTTP_BYTES
+      requestId = request.requestId
     }
-    val response = executeRequest(client, nativeRequest, allowBackground = true)
+    // A cancellable operation's request is prepared first, so a cancellation
+    // that lands before OkHttp registers the call still stops it.
+    request.requestId?.let(::prepareHttpRequest)
+    val response = try {
+      executeRequest(client, nativeRequest, allowBackground = true)
+    } finally {
+      request.requestId?.let(::releaseHttpRequest)
+    }
     recordCloudflareChallengeHost(request.sourceKey, request.url, response)
     return AidokuSandboxHttpResponse(
       status = response.status,
       headers = response.headers,
       bytes = response.bytes,
-      error = response.error
+      error = response.error,
+      url = response.url
     )
   }
 
@@ -1150,8 +1168,9 @@ class NemuAidokuModule : Module() {
                 request.allowLongStripSegments &&
                 request.maxResponseBytes.toLong() >
                   NemuLongStripImageTranscoder.SEGMENTED_MANIFEST_RESERVE_BYTES &&
-                plan.container.displayedDimensions.height >
-                  plan.container.displayedDimensions.width
+                NemuLongStripImagePolicy.isSegmentCandidate(
+                  plan.container.displayedDimensions
+                )
               ) {
                 try {
                   val transcoded = NemuLongStripImageTranscoder.transcodeSegments(
@@ -1320,7 +1339,9 @@ class NemuAidokuModule : Module() {
             status = httpResponse.code,
             headers = responseHeaders(httpResponse),
             bytes = bytes,
-            error = null
+            error = null,
+            // OkHttp follows redirects: the last hop's request is the final URL.
+            url = httpResponse.request.url.toString()
           )
         }
       } finally {

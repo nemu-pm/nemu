@@ -183,7 +183,7 @@ export function MobileDualReaderAutoAligner() {
       setRuntimeSuspended(suspended);
       if (suspended) cancelDecodeAndAlignmentWork(true);
     };
-    applyAppState(AppState.currentState);
+    applyAppState((AppState.currentState ?? "unknown"));
     const subscription = AppState.addEventListener("change", applyAppState);
     return () => {
       subscription.remove();

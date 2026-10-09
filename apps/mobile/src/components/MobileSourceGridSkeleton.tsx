@@ -1,87 +1,94 @@
-import { StyleSheet, View, useWindowDimensions } from "react-native";
+import { StyleSheet, View } from "react-native";
+import { ExploreShimmerSweep } from "@/components/explore/ExploreShimmerSweep";
+import { useExploreShimmerBackdrop } from "@/components/explore/useExploreShimmerBackdrop";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import Animated from "react-native-reanimated";
 import {
   useSkeletonDisplayDelay,
   useSkeletonPulse,
 } from "@/lib/useSkeletonPulse";
-import {
-  getMobileSourceGridSkeletonGeometry,
-  MOBILE_SOURCE_GRID_SKELETON_ROWS,
-} from "@/lib/mobileSourceGridSkeletonLayout";
+import { MOBILE_SOURCE_GRID_SKELETON_ROWS } from "@/lib/mobileSourceGridSkeletonLayout";
 import { MOBILE_MANGA_GRID_GAP } from "@/lib/mobileAdaptiveGrid";
-import { radius, useMobilePageGutters, useNemuTheme } from "@/design-system";
+import { mobileFoldAwareGridCellStyle } from "@/lib/mobileFoldAwareGrid";
+import { NO_INSETS, useMobileFoldAwareGrid } from "@/lib/useMobileFoldAwareGrid";
+import { radius, useNemuTheme } from "@/design-system";
+
 
 type MobileSourceGridSkeletonProps = {
   accessibilityLabel: string;
 };
 
 /**
- * The source browse first-page placeholder: a grid of cover cards and text
- * blocks breathing on the shared skeleton pulse. Mirrors the browse grid's
- * geometry (shared adaptive column count and gutters, 2/3 covers, 60pt copy
- * block) so the skeleton hands off to the real cards without a layout jump.
- * Replaces the lone centered spinner on initial loads; subsequent pages keep
- * the footer's loading state.
+ * The source browse first-page placeholder: cover cards and text blocks on the shared pulse,
+ * laid out like the real grid so the hand-off has no layout jump.
  */
 export function MobileSourceGridSkeleton({
   accessibilityLabel,
 }: MobileSourceGridSkeletonProps) {
   const { tokens, reduceMotion } = useNemuTheme();
-  const { width: windowWidth } = useWindowDimensions();
-  const pageGutters = useMobilePageGutters();
-  const skeletonOpacity = useSkeletonPulse(reduceMotion === true);
+  const shimmerBackdrop = useExploreShimmerBackdrop();
+  // It sits inside the page gutters, so the measured view is the content box.
+  // Refs stay out of the layout object read during render.
+  const { ref: gridRef, onLayout: onGridLayout, ...grid } = useMobileFoldAwareGrid({ insets: NO_INSETS });
+  const pulseOpacity = useSkeletonPulse(reduceMotion === true);
+  // Design-explore: the blocks hold still and one shimmer sweep crosses them.
+  const skeletonOpacity = mobileDesignExploreFlag ? 1 : pulseOpacity;
   const skeletonReady = useSkeletonDisplayDelay(150);
   const skeletonColor = tokens.muted;
-  const { cardWidth, columnCount } = getMobileSourceGridSkeletonGeometry({
-    windowWidth,
-    horizontalPadding: pageGutters.horizontal,
-  });
 
   if (!skeletonReady) return null;
 
   return (
     <Animated.View
+      ref={gridRef}
+      onLayout={onGridLayout}
+      collapsable={false}
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="progressbar"
-      style={[styles.grid, { opacity: skeletonOpacity }]}
+      style={[styles.grid, { opacity: skeletonOpacity }, shimmerBackdrop]}
     >
-      {Array.from(
-        { length: MOBILE_SOURCE_GRID_SKELETON_ROWS * columnCount },
-        (_, card) => (
-          <View key={card} style={{ width: cardWidth }}>
-            <View
-              style={[
-                styles.cover,
-                {
-                  backgroundColor: skeletonColor,
-                  borderColor: tokens.coverBorder,
-                },
-              ]}
-            />
-            <View style={styles.copy}>
-              <View
-                style={[styles.titleLine, { backgroundColor: skeletonColor }]}
-              />
+      {Array.from({ length: MOBILE_SOURCE_GRID_SKELETON_ROWS }, (_, row) => (
+        <View key={row} style={styles.row}>
+          {Array.from({ length: grid.columns }, (_, card) => (
+            <View key={card} style={mobileFoldAwareGridCellStyle(grid, card)}>
               <View
                 style={[
-                  styles.subtitleLine,
-                  { backgroundColor: tokens.sourceIconGlass },
+                  styles.cover,
+                  {
+                    backgroundColor: skeletonColor,
+                    borderColor: tokens.coverBorder,
+                  },
                 ]}
               />
+              <View style={styles.copy}>
+                <View
+                  style={[styles.titleLine, { backgroundColor: skeletonColor }]}
+                />
+                <View
+                  style={[
+                    styles.subtitleLine,
+                    { backgroundColor: tokens.sourceIconGlass },
+                  ]}
+                />
+              </View>
             </View>
-          </View>
-        ),
-      )}
+          ))}
+        </View>
+      ))}
+      {/* Design-explore: one shimmer sweep instead of the breathing pulse. */}
+      {mobileDesignExploreFlag ? <ExploreShimmerSweep /> : null}
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
+  // Rows use the browse grid's `gridRow` gap; columns are spaced by each
+  // cell's marginLeft (mobileFoldAwareGridCellStyle), like the loaded grid.
   grid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    // Shared with the browse grid's `gridRow` gutters.
     gap: MOBILE_MANGA_GRID_GAP,
+  },
+  row: {
+    flexDirection: "row",
   },
   cover: {
     aspectRatio: 2 / 3,

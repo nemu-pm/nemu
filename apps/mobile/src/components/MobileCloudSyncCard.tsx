@@ -1,3 +1,4 @@
+import { ExploreSettingsGlyph } from "@/components/explore/ExploreSettingsGlyph";
 import { useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo,
@@ -17,9 +18,12 @@ import {
   radius,
   nemuFontWeight,
   nemuMaxFontSizeMultiplier,
+  nemuSheetMetrics,
   useNemuTheme,
+  useMobileNativeSheetTheme,
   NemuButton,
 } from "@/design-system";
+import { MobileSheetSelectionIndicator } from "@/components/MobileSheetSelectionIndicator";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import { MobileConfirmationSheet } from "@/components/MobileConfirmationSheet";
 import { useMobileLanguageSettings } from "@/data/mobileHooks";
@@ -30,6 +34,8 @@ import {
   type MobileStrings,
 } from "@/lib/mobileI18n";
 import { describeMobileErrorDetail } from "@/lib/mobileSourceErrors";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
+import { MOBILE_EXPLORE_RADIUS } from "@/lib/mobileExploreRadius";
 import { mobileAuthClient } from "@/sync/mobileAuthClient";
 import { retryMobileConvexAuth } from "@/sync/mobileConvexAuthRetry";
 import { isMobileAuthStorageUnavailable } from "@/sync/mobileAuthSecureStorage";
@@ -156,7 +162,7 @@ function SignOutChoiceSheet({
   onCancel,
   onConfirm,
 }: SignOutChoiceSheetProps) {
-  const { tokens } = useNemuTheme();
+  const { tokens } = useMobileNativeSheetTheme();
 
   const requestClose = () => {
     if (visible && !loading) {
@@ -183,6 +189,10 @@ function SignOutChoiceSheet({
       }
       dismissLabel={strings.common.cancel}
       dismissDisabled={loading}
+      // Android: the body's Cancel button is the explicit escape (as in
+      // `MobileConfirmationSheet`), so the chrome close would duplicate it;
+      // pan-down and hardware Back still dismiss while not signing out.
+      showDismissButton={Platform.OS !== "android"}
       enablePanDownToClose={!loading}
       contentStyle={styles.sheetContent}
     >
@@ -280,6 +290,7 @@ function SignOutOption({
       pressedScale={0.985}
       style={[
         styles.optionRow,
+        nemuSheetMetrics.twoLineRowLayout,
         {
           backgroundColor: active
             ? nemuColorWithAlpha(activeColor, 0.09)
@@ -292,7 +303,7 @@ function SignOutOption({
       <View style={styles.optionIconFrame}>
         <Ionicons
           name={iconName}
-          size={19}
+          size={Platform.OS === "android" ? nemuSheetMetrics.rowIconSize : 19}
           color={active ? activeColor : tokens.mutedForeground}
         />
       </View>
@@ -301,6 +312,7 @@ function SignOutOption({
           numberOfLines={1}
           style={[
             styles.optionTitle,
+            nemuSheetMetrics.twoLineRowTitle,
             { color: active ? activeColor : tokens.foreground },
           ]}
         >
@@ -308,28 +320,21 @@ function SignOutOption({
         </Text>
         <Text
           numberOfLines={2}
-          style={[styles.optionDescription, { color: tokens.mutedForeground }]}
+          style={[
+            styles.optionDescription,
+            nemuSheetMetrics.twoLineRowSupporting,
+            { color: tokens.mutedForeground },
+          ]}
         >
           {description}
         </Text>
       </View>
-      <View
-        style={[
-          styles.optionRadio,
-          {
-            borderColor: active ? activeColor : tokens.border,
-            backgroundColor: active ? activeColor : "transparent",
-          },
-        ]}
-      >
-        {active ? (
-          <Ionicons
-            name="checkmark"
-            size={13}
-            color={tokens.primaryForeground}
-          />
-        ) : null}
-      </View>
+      <MobileSheetSelectionIndicator
+        kind="radio"
+        checked={active}
+        color={activeColor}
+        iosStyle={styles.optionRadio}
+      />
     </NemuPressable>
   );
 }
@@ -340,6 +345,8 @@ function MobileCloudSyncConfiguredCard({
   strings: MobileStrings;
 }) {
   const { tokens } = useNemuTheme();
+  // The erase confirmation's acknowledgement row, built here outside the sheet.
+  const sheetTokens = useMobileNativeSheetTheme().tokens;
   const store = useMobileDataStore();
   const { data: session, isPending } = mobileAuthClient.useSession();
   const [busyProvider, setBusyProvider] = useState<AuthProviderId | null>(null);
@@ -796,17 +803,28 @@ function MobileCloudSyncConfiguredCard({
         style={[
           styles.shell,
           { backgroundColor: tokens.card, borderColor: tokens.border },
+          mobileDesignExploreFlag ? styles.exploreShell : null,
         ]}
       >
         <View style={styles.content}>
           <View style={styles.header}>
-            <View style={styles.iconFrame}>
-              <Ionicons name="cloud-outline" size={20} color={tokens.primary} />
-            </View>
+            {mobileDesignExploreFlag ? (
+              // The Settings list's bare outline glyph (ExploreSettingsGroup).
+              <ExploreSettingsGlyph name="cloud-outline" />
+            ) : (
+              <View style={styles.iconFrame}>
+                <Ionicons name="cloud-outline" size={20} color={tokens.primary} />
+              </View>
+            )}
             <View style={styles.copy}>
               <Text
+                accessibilityRole={mobileDesignExploreFlag ? "header" : undefined}
                 maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
-                style={[styles.title, { color: tokens.foreground }]}
+                style={[
+                  styles.title,
+                  mobileDesignExploreFlag ? styles.exploreTitle : null,
+                  { color: tokens.foreground },
+                ]}
               >
                 {strings.settings.cloudSync}
               </Text>
@@ -814,7 +832,10 @@ function MobileCloudSyncConfiguredCard({
                 maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
                 style={[styles.subtitle, { color: tokens.mutedForeground }]}
               >
-                {strings.settings.cloudSyncDescription}
+                {/* Design-explore: one line that says what to do, not two. */}
+                {mobileDesignExploreFlag && !signedIn && !isPending
+                  ? strings.settings.cloudSyncSignInPrompt
+                  : strings.settings.cloudSyncDescription}
               </Text>
             </View>
           </View>
@@ -876,12 +897,14 @@ function MobileCloudSyncConfiguredCard({
             </View>
           ) : (
             <View style={styles.signInBlock}>
-              <Text
-                maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
-                style={[styles.detail, { color: tokens.mutedForeground }]}
-              >
-                {strings.settings.cloudSyncSignInPrompt}
-              </Text>
+              {mobileDesignExploreFlag ? null : (
+                <Text
+                  maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
+                  style={[styles.detail, { color: tokens.mutedForeground }]}
+                >
+                  {strings.settings.cloudSyncSignInPrompt}
+                </Text>
+              )}
               <View style={styles.providerActions}>
                 {authProviders.map((provider) => {
                   const busy = busyProvider === provider.id;
@@ -1043,39 +1066,28 @@ function MobileCloudSyncConfiguredCard({
           pressedScale={0.985}
           style={[
             styles.recoveryAcknowledgement,
+            nemuSheetMetrics.twoLineRowLayout,
             {
               backgroundColor: recoveryAcknowledged
-                ? nemuColorWithAlpha(tokens.danger, 0.07)
-                : tokens.muted,
-              borderColor: recoveryAcknowledged ? tokens.danger : tokens.border,
+                ? nemuColorWithAlpha(sheetTokens.danger, 0.07)
+                : sheetTokens.muted,
+              borderColor: recoveryAcknowledged ? sheetTokens.danger : sheetTokens.border,
             },
           ]}
         >
-          <View
-            style={[
-              styles.recoveryCheckbox,
-              {
-                backgroundColor: recoveryAcknowledged
-                  ? tokens.danger
-                  : "transparent",
-                borderColor: recoveryAcknowledged
-                  ? tokens.danger
-                  : tokens.mutedForeground,
-              },
-            ]}
-          >
-            {recoveryAcknowledged ? (
-              <Ionicons
-                name="checkmark"
-                size={14}
-                color={tokens.primaryForeground}
-              />
-            ) : null}
-          </View>
+          <MobileSheetSelectionIndicator
+            kind="checkbox"
+            checked={recoveryAcknowledged}
+            color={sheetTokens.danger}
+            iosStyle={styles.recoveryCheckbox}
+            iosUncheckedBorderColor={sheetTokens.mutedForeground}
+            iosGlyphSize={14}
+          />
           <Text
             style={[
               styles.recoveryAcknowledgementText,
-              { color: tokens.foreground },
+              nemuSheetMetrics.description,
+              { color: sheetTokens.foreground },
             ]}
           >
             {strings.settings.cloudSyncEraseAcknowledgement}
@@ -1116,6 +1128,15 @@ const styles = StyleSheet.create({
   content: {
     gap: 12,
     padding: 14,
+  },
+  // Design-explore: the Settings groups' corner.
+  exploreShell: {
+    borderRadius: MOBILE_EXPLORE_RADIUS.group,
+    borderCurve: "continuous",
+  },
+  exploreTitle: {
+    fontSize: 16,
+    lineHeight: 21,
   },
   header: {
     minHeight: 44,

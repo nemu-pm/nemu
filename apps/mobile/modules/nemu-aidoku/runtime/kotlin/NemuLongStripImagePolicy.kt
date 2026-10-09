@@ -78,15 +78,12 @@ internal object NemuLongStripImagePolicy {
     val displayed = container.displayedDimensions
     val inputPixels = checkedPixels(displayed)
     val longSide = max(displayed.width, displayed.height)
-    val shortSide = min(displayed.width, displayed.height)
-    if (
-      longSide > MAX_INPUT_LONG_SIDE.toLong() ||
-      shortSide > MAX_INPUT_SHORT_SIDE.toLong() ||
-      inputPixels > MAX_INPUT_PIXELS ||
-      shortSide < 1L ||
-      longSide < shortSide * MIN_ASPECT_RATIO.toLong()
-    ) {
-      throw IOException("Image is outside the bounded long-strip safety envelope.")
+    // Any aspect ratio may be downscaled: the work is bounded by the encoded
+    // bytes, the source pixels, and sampled stripe decoding, not by shape.
+    // Keeping the source width as segments is the narrower strip-only case
+    // (`isSegmentCandidate`).
+    if (longSide > MAX_INPUT_LONG_SIDE.toLong() || inputPixels > MAX_INPUT_PIXELS) {
+      throw IOException("Image is outside the bounded transcode safety envelope.")
     }
     if (
       displayed.width <= outputPolicy.maxDimension.toLong() &&
@@ -117,6 +114,15 @@ internal object NemuLongStripImagePolicy {
       decodeSampleSize = sampleSize,
       ranges = ranges
     )
+  }
+
+  /** Portrait comic-strip geometry that keeps its source width as tiles. */
+  internal fun isSegmentCandidate(displayed: NemuImageDimensions): Boolean {
+    return displayed.width > 0L &&
+      displayed.height > displayed.width &&
+      displayed.height <= MAX_INPUT_LONG_SIDE.toLong() &&
+      displayed.width <= MAX_INPUT_SHORT_SIDE.toLong() &&
+      displayed.height >= displayed.width * MIN_ASPECT_RATIO.toLong()
   }
 
   internal fun stripeRanges(
@@ -159,6 +165,9 @@ internal object NemuLongStripImagePolicy {
     val displayed = container.displayedDimensions
     if (displayed.height <= displayed.width) {
       throw IOException("Only portrait long strips can use segmented output.")
+    }
+    if (!isSegmentCandidate(displayed)) {
+      throw IOException("Image is outside the bounded long-strip segment envelope.")
     }
     val pixels = checkedPixels(displayed)
     if (pixels > MAX_INPUT_PIXELS) {
@@ -300,6 +309,30 @@ internal object NemuLongStripImagePolicy {
     if (value <= 0L || divisor <= 0L) throw IOException("Invalid bounded division.")
     return (value + divisor - 1L) / divisor
   }
+}
+
+/**
+ * Pure byte-budget arithmetic shared by every tile of one strip. Re-encoding a
+ * strip's tiles at a fixed high JPEG quality can be 2.5x the source's own
+ * bytes (a 10 MB 1360 x 46,080 chapter strip encoded to 25 MB at q92), so each
+ * tile steps down a quality ladder until it fits its pixel share of the bytes
+ * that remain.
+ */
+internal object NemuLongStripEncodeBudget {
+  internal val JPEG_QUALITIES = intArrayOf(92, 86, 80, 72, 64, 56)
+
+  /**
+   * Bytes one tile may use so the tiles after it still get a proportional
+   * share of what remains. The last tile may use everything left.
+   */
+  internal fun tileShare(remainingBytes: Long, tilePixels: Long, remainingPixels: Long): Long {
+    if (remainingBytes <= 0L || tilePixels <= 0L || remainingPixels < tilePixels) return 0L
+    if (tilePixels == remainingPixels) return remainingBytes
+    // Bounded by the 20 MiB cache entry and the 64 MiPixel envelope.
+    return remainingBytes * tilePixels / remainingPixels
+  }
+
+  internal fun isLastRung(index: Int): Boolean = index >= JPEG_QUALITIES.size - 1
 }
 
 internal object NemuStaticImageContainerInspector {

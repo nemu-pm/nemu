@@ -1,0 +1,33 @@
+# Nemu window layout
+
+Local Expo module, autolinked from the app's `modules/` directory on iOS and Android (`expo-module.config.json`). Adding or changing native code needs a native rebuild. iOS builds with Xcode 27.1+ and keeps the iOS 16.4 deployment target; older runtimes report bounds, safe area and empty regions. Android uses Jetpack WindowManager (`androidx.window:window`, declared in `android/build.gradle`). Web, and any binary without the native module, use the bounds-only JS fallback (`supported: false`).
+
+Mount `WindowLayoutObserver` as an absolute-fill, noninteractive sibling **inside the actual content container**. Its event coordinates are local to that container, in points (iOS) or dp (Android). Keep the container mounted while adjusting child panels. Use a stable `onLayoutChange` callback; set `enabled={isFocused}` so background routes do not observe. `supported` means the platform reports regions, not that a fold exists.
+
+## Payload
+
+`{ width, height, supported, divisions[], occlusions[], verticalBarEdge?, safeAreaInsets?, layoutDirection?, hinge?, fillsScreen? }` — see `src/types.ts`. Only active divisions split a layout; `includeInactive` divisions (fully open inner display, Android FLAT fold) let callers prefer even grids. `verticalBarEdge` is UIKit's `UITraitCollection.verticalBarEdge` (leading/trailing, relative to `layoutDirection`), present whenever the system would place its bars vertically (Duo outer display, inner landscape). `safeAreaInsets` are the observer view's own insets and already include the vertical bar. `hinge` is informational (`UIHingeInteraction` status / `FoldingFeature.state`); never split on it alone. `fillsScreen` (iOS) is whether the window covers its scene's screen — false in Split View, a resizable window or iPhone Mirroring.
+
+## Change delivery (no polling)
+
+iOS: `layoutSubviews`, `safeAreaInsetsDidChange`, `didMoveToWindow`; `registerForTraitChanges` (size classes, layout direction, `systemTraitsAffectingVerticalBarEdge`); `UIHingeInteraction` status changes (plus two one-shot re-queries at 0.25 s / 0.75 s, since regions can trail the hinge callback); a hidden `UIHostingController` whose SwiftUI `onGeometryChange` reads `GeometryProxy.reservedRegions(kind:options:layoutDirectionBehavior: .fixed)` — the invalidated path Apple recommends, which also covers the inner camera occlusion; `UIScene.didActivateNotification` / `willEnterForegroundNotification` for the observer's own scene. All triggers coalesce into one `UIView.reservedRegions` query; identical snapshots are not sent. Only a backgrounded scene is skipped (pose transitions pass through `foregroundInactive`). It never queries a global screen or device model.
+
+Android: `WindowInfoTracker.windowLayoutInfo(activity)` flow (collected on the main dispatcher while attached and enabled), `onLayout`, and a global-layout listener for the view moving in its window. A `FoldingFeature` that is `HALF_OPENED` or `isSeparating` is an active division; a FLAT non-separating fold is inactive. Bounds are converted from window px to view-local dp; WindowManager reports no interaction margin, so Android division frames are the physical fold (often zero width).
+
+`division.frame` on iOS already includes Apple's interactive margins. Occlusions are separate. The pure `mobileWindowPanels` helper returns panels in physical coordinate order; reader RTL ordering is a separate concern. Its `horizontal` axis means left/right panels; `vertical` means top/bottom panels.
+
+## Vertical bar opt-out (iOS 27.1+)
+
+`<VerticalBarBehavior disabled />` makes the screen it is mounted in prefer `UIVerticalBarBehavior.disabled` (`UIViewController.preferredVerticalBarBehavior`): on iPhone Duo the status bar stays horizontal and the vertical bar's side safe-area inset disappears. Apple: disable it only for UIs better served by horizontal bars and treat it as a stable, per-screen choice — mount it for the screen's lifetime, never toggle it with view state. The reader is the only user.
+
+How: the zero-size view walks the responder chain to its owning view controller (the react-native-screens `RNSScreen`), marks it, and makes every ancestor on the path to the window root forward `childViewControllerForPreferredVerticalBarBehavior` to the next controller (only while that child is still its child). UIKit's system containers already forward (navigation → top, tab bar → selected); custom containers do not — the Expo root controller and an `RNSScreen` hosting a nested stack return nil, which stopped the walk before the reader. Both getters are swizzled once on `UIViewController` itself (subclass overrides keep their behaviour), and `setNeedsUpdateOfVerticalBarConfiguration()` is sent along the path. Everything is released when the view leaves its window, so popping the reader restores the bar. Once a screen opts out, its `verticalBarEdge` trait resolves to unspecified (measured on the 27.1 simulator, outer display): never decide the opt-out from that trait, or the screen locks itself out of the bar. The reader decides from its window size and `fillsScreen` (`mobileReaderVerticalBarPolicy`). Diagnostics: category `vertical-bar` of the subsystem below logs the controller path.
+
+## Liquid Glass
+
+`<GlassView colorScheme interactive tintColor cornerRadius concentricMinimum clear>` is a UIKit `UIGlassEffect` view that hosts its React Native children in the effect view's `contentView` (SwiftUI `.glassEffect(.regular.interactive(), in: .capsule)`): interactive glass gives the system press response for touches on the buttons inside. `<GlassContainer spacing>` is `UIGlassContainerEffect` (SwiftUI `GlassEffectContainer`): glass children render together and blend/morph within `spacing`; empty container area passes touches through. iOS 26+; older iOS gets a system material; Android/web get a plain View — check `glassViewAvailable` and paint a fallback. UIKit rather than a SwiftUI host, so it rotates with the React Native hierarchy. `cornerRadius` 0 = capsule; `concentricMinimum` > 0 uses `containerConcentric` corners. The effect is installed only once the view is fully visible (UIKit drops a glass effect assigned while an ancestor fades in).
+
+## Diagnostics
+
+Off by default. iOS: `xcrun simctl spawn <udid> log stream --level debug --predicate 'subsystem == "pm.nemu.window-layout"'`. Android: `adb shell setprop log.tag.NemuWindowLayout DEBUG`, then `adb logcat -s NemuWindowLayout`.
+
+Pure geometry tests: `src/lib/mobileWindowLayout.test.ts`, `src/lib/mobileAdaptiveLayout.test.ts`, and `android/src/test/.../NemuFoldGeometryTest.kt` (`./gradlew :nemu-window-layout:testDebugUnitTest`).

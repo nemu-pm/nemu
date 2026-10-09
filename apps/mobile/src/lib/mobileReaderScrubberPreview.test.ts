@@ -5,9 +5,16 @@ import {
   READER_SCRUBBER_PREVIEW_EDGE_INSET,
   READER_SCRUBBER_PREVIEW_THUMB_GAP,
   readerScrubberPreviewBubblePosition,
+  readerScrubberCommitRatio,
+  readerScrubberPreviewLabel,
   readerScrubberTrackWindowFrame,
 } from "./mobileReaderScrubberPreview";
-import { MOBILE_SLIDER_THUMB_SIZE } from "./mobileSliderTrack";
+import { readerDisplayIndexForVisualProgressRatio } from "./mobileReaderProgress";
+import {
+  buildMobileReaderSpreads,
+  firstPageIndexForMobileReaderSpread,
+} from "./mobileReaderSpreads";
+import { MOBILE_SLIDER_THUMB_SIZE, sliderRatioFromLocation } from "./mobileSliderTrack";
 
 // A phone-sized reader: full-screen overlay, track inset inside the toolbar.
 const layer = { x: 0, y: 0, width: 390, height: 844 };
@@ -79,7 +86,9 @@ describe("readerScrubberPreviewBubblePosition", () => {
   });
 
   test("centres the bubble when the overlay is narrower than the insets", () => {
-    expect(positionFor(1, { ...layer, width: 64 }).left).toBe(2);
+    expect(
+      positionFor(1, { ...layer, width: READER_SCRUBBER_PREVIEW_BUBBLE_WIDTH + 4 }).left,
+    ).toBe(2);
   });
 
   // iPhone 17 Pro, iOS 26.5: 402x874pt overlay, bottom toolbar panel at window
@@ -106,7 +115,7 @@ describe("readerScrubberPreviewBubblePosition", () => {
     expect(simLayer.height - sim.bottom).toBe(779);
     expect(
       simLayer.height - sim.bottom - READER_SCRUBBER_PREVIEW_BUBBLE_HEIGHT,
-    ).toBe(681);
+    ).toBe(779 - READER_SCRUBBER_PREVIEW_BUBBLE_HEIGHT);
   });
 
   test("refuses a track frame measured in an embedded surface's space", () => {
@@ -130,6 +139,19 @@ describe("readerScrubberPreviewBubblePosition", () => {
     expect(positionFor(simRatio, simLayer, resolved)).toEqual(
       positionFor(simRatio, simLayer, simTrack),
     );
+  });
+
+  test("a window-space touch box taller than its capsule stays in window space", () => {
+    // Capsule chrome: 48pt glass capsule, 60pt slider touch box centred on it.
+    const capsule = { x: 12, y: 800, width: 180, height: 48 };
+    const touchBox = { x: 68, y: 794, width: 76, height: 60 };
+    expect(readerScrubberTrackWindowFrame({ track: touchBox, panel: capsule })).toEqual(touchBox);
+    expect(
+      readerScrubberPreviewBubblePosition({
+        geometry: { ratio: 0.5, track: touchBox },
+        layer: { x: 0, y: 0, width: 402, height: 874 },
+      }),
+    ).not.toBeNull();
   });
 
   test("leaves an already window-space track frame alone", () => {
@@ -161,5 +183,86 @@ describe("readerScrubberPreviewBubblePosition", () => {
         layer: { ...simLayer, width: 0, height: 0 },
       }),
     ).toBeNull();
+  });
+});
+
+describe("scrub preview target page", () => {
+  // The chain the scrubber runs while dragging: thumb ratio → scrub index
+  // (page, or spread when two-up) → previewed page → bubble caption.
+  function previewCaption({
+    ratio,
+    pageCount,
+    mode,
+    spreads,
+  }: {
+    ratio: number;
+    pageCount: number;
+    mode: "ltr" | "rtl";
+    spreads?: number[][];
+  }) {
+    const scrubCount = spreads ? spreads.length : pageCount;
+    const scrubIndex = readerDisplayIndexForVisualProgressRatio(ratio, scrubCount, mode);
+    const pageIndex = spreads
+      ? firstPageIndexForMobileReaderSpread(spreads, scrubIndex)
+      : scrubIndex;
+    return readerScrubberPreviewLabel(pageIndex, pageCount, mode);
+  }
+
+  test("LTR: the left end is page 1, the right end the last page", () => {
+    expect(previewCaption({ ratio: 0, pageCount: 53, mode: "ltr" })).toBe("1 / 53");
+    expect(previewCaption({ ratio: 1, pageCount: 53, mode: "ltr" })).toBe("53 / 53");
+    expect(previewCaption({ ratio: 0.5, pageCount: 53, mode: "ltr" })).toBe("27 / 53");
+  });
+
+  test("RTL: the scale is mirrored — the right end is page 1", () => {
+    expect(previewCaption({ ratio: 1, pageCount: 53, mode: "rtl" })).toBe("1 / 53");
+    expect(previewCaption({ ratio: 0, pageCount: 53, mode: "rtl" })).toBe("53 / 53");
+  });
+
+  test("clamps a thumb dragged past either end", () => {
+    expect(previewCaption({ ratio: -0.4, pageCount: 21, mode: "ltr" })).toBe("1 / 21");
+    expect(previewCaption({ ratio: 1.7, pageCount: 21, mode: "ltr" })).toBe("21 / 21");
+    expect(previewCaption({ ratio: Number.NaN, pageCount: 21, mode: "rtl" })).toBe("21 / 21");
+  });
+
+  test("spreads preview the spread's first page", () => {
+    // Manga pairing: [0] [1,2] [3,4] [5]
+    const spreads = buildMobileReaderSpreads(6, "manga");
+    expect(previewCaption({ ratio: 0, pageCount: 6, mode: "ltr", spreads })).toBe("1 / 6");
+    expect(previewCaption({ ratio: 1 / 3, pageCount: 6, mode: "ltr", spreads })).toBe("2 / 6");
+    expect(previewCaption({ ratio: 1, pageCount: 6, mode: "ltr", spreads })).toBe("6 / 6");
+    expect(previewCaption({ ratio: 1, pageCount: 6, mode: "rtl", spreads })).toBe("1 / 6");
+  });
+});
+
+describe("scrub release commits the previewed page", () => {
+  // Touch x on the slider's touch box → visual ratio → scrub index → page.
+  function pageForTouch(locationX: number, trackWidth: number, pageCount: number, mode: "ltr" | "rtl") {
+    const ratio = sliderRatioFromLocation(locationX, trackWidth);
+    if (ratio == null) throw new Error("no track");
+    return readerDisplayIndexForVisualProgressRatio(ratio, pageCount, mode) + 1;
+  }
+
+  test("a release at a known point lands on that page, LTR and RTL", () => {
+    // 76pt track (compact iPhone capsule), 21 pages.
+    expect(pageForTouch(70, 76, 21, "rtl")).toBe(3);
+    expect(pageForTouch(70, 76, 21, "ltr")).toBe(19);
+    expect(pageForTouch(0, 76, 21, "rtl")).toBe(21);
+    expect(pageForTouch(76, 76, 21, "rtl")).toBe(1);
+    expect(pageForTouch(38, 76, 21, "ltr")).toBe(11);
+  });
+
+  test("the commit uses the ratio the bubble last showed", () => {
+    expect(readerScrubberCommitRatio({ releaseRatio: 0.52, lastPreviewRatio: 0.49 })).toBe(0.49);
+    expect(readerScrubberCommitRatio({ releaseRatio: 0.52, lastPreviewRatio: null })).toBe(0.52);
+    // Tap to jump: grant previews the tapped point, release commits it.
+    const tapRatio = 0.25;
+    expect(
+      readerDisplayIndexForVisualProgressRatio(
+        readerScrubberCommitRatio({ releaseRatio: tapRatio, lastPreviewRatio: tapRatio }),
+        21,
+        "ltr",
+      ),
+    ).toBe(5);
   });
 });

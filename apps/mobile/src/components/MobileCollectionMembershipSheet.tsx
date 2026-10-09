@@ -9,12 +9,19 @@ import {
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { MobileConfirmationSheet } from "@/components/MobileConfirmationSheet";
+import {
+  MobileCollectionMembershipNativeForm,
+  mobileCollectionMembershipNativeFormAvailable,
+} from "@/components/MobileCollectionMembershipNativeForm";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
+import { MobileSheetSelectionIndicator } from "@/components/MobileSheetSelectionIndicator";
 import {
   MobileNativeSheetScaffold,
   NemuPressable,
   radius,
   nemuFontWeight,
+  nemuSheetMetrics,
+  useMobileNativeSheetTheme,
   useNemuTheme,
   NemuButton,
 } from "@/design-system";
@@ -82,6 +89,7 @@ function collectionSubtitle(title: string | undefined, strings: MobileStrings): 
 
 function CollectionRow({
   collection,
+  divider,
   count,
   selected,
   disabled,
@@ -91,6 +99,7 @@ function CollectionRow({
   onRemove,
 }: {
   collection: LocalCollection;
+  divider: boolean;
   count: number;
   selected: boolean;
   disabled: boolean;
@@ -106,11 +115,11 @@ function CollectionRow({
     <View
       style={[
         styles.collectionRow,
-        {
-          backgroundColor: selected ? tokens.primarySoft : tokens.muted,
-          borderColor: selected ? tokens.primary : tokens.border,
-          opacity: disabled ? 0.68 : 1,
-        },
+        nemuSheetMetrics.twoLineRowLayout
+          ? { minHeight: nemuSheetMetrics.twoLineRowLayout.minHeight }
+          : null,
+        { opacity: disabled ? 0.68 : 1 },
+        divider ? { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: tokens.border } : null,
       ]}
     >
       <NemuPressable
@@ -130,25 +139,38 @@ function CollectionRow({
         containerStyle={styles.collectionToggleContainer}
         style={styles.collectionToggle}
       >
-        <View style={[styles.collectionIcon, { backgroundColor: tokens.card }]}>
-          <Ionicons
-            name={selected ? "albums" : "albums-outline"}
-            size={19}
-            color={selected ? tokens.primary : tokens.mutedForeground}
-          />
-        </View>
+        <Ionicons
+          name={selected ? "albums" : "albums-outline"}
+          size={nemuSheetMetrics.rowIconSize}
+          color={selected ? tokens.primary : tokens.mutedForeground}
+        />
         <View style={styles.collectionText}>
-          <Text numberOfLines={1} style={[styles.collectionName, { color: tokens.foreground }]}>
+          <Text
+            numberOfLines={1}
+            style={[
+              styles.collectionName,
+              nemuSheetMetrics.twoLineRowTitle,
+              { color: tokens.foreground },
+            ]}
+          >
             {collection.name}
           </Text>
-          <Text numberOfLines={1} style={[styles.collectionMeta, { color: tokens.mutedForeground }]}>
+          <Text
+            numberOfLines={1}
+            style={[
+              styles.collectionMeta,
+              nemuSheetMetrics.twoLineRowSupporting,
+              { color: tokens.mutedForeground },
+            ]}
+          >
             {countLabel}
           </Text>
         </View>
-        <Ionicons
-          name={selected ? "checkmark-circle" : "ellipse-outline"}
-          size={22}
-          color={selected ? tokens.primary : tokens.mutedForeground}
+        <MobileSheetSelectionIndicator
+          kind="checkbox"
+          checked={selected}
+          color={tokens.primary}
+          iosStyle={styles.iosCheck}
         />
       </NemuPressable>
       <View style={styles.collectionActions}>
@@ -162,7 +184,7 @@ function CollectionRow({
           icon="create-outline"
           onPress={onRename}
           size="icon-sm"
-          variant="secondary"
+          variant="ghost"
         />
         <NemuButton
           accessibilityLabel={formatMobileString(
@@ -174,7 +196,7 @@ function CollectionRow({
           icon="trash-outline"
           onPress={onRemove}
           size="icon-sm"
-          variant="destructive"
+          variant="ghost"
         />
       </View>
     </View>
@@ -191,7 +213,7 @@ function CollectionMembershipContent({
 }: MobileCollectionMembershipSheetProps & {
   collections: MobileCollectionsState;
 }) {
-  const { tokens } = useNemuTheme();
+  const { tokens } = useMobileNativeSheetTheme();
   const { fontScale, height, width } = useWindowDimensions();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
@@ -407,8 +429,8 @@ function CollectionMembershipContent({
     }
   };
 
-  const createCollection = async () => {
-    const name = newCollectionName.trim();
+  const createCollection = async (nameArg?: string) => {
+    const name = (nameArg ?? newCollectionName).trim();
     if (!name || busy) return;
     setCreating(true);
     setLocalError(null);
@@ -440,15 +462,23 @@ function CollectionMembershipContent({
     setRenameDraft(collection.name);
   };
 
-  const renameCollection = async () => {
-    if (!renameTarget || renameDisabled) return;
+  const renameCollection = async (
+    target: LocalCollection | null = renameTarget,
+    draft: string = renameDraft,
+  ) => {
+    if (
+      !target ||
+      !canRenameMobileCollection(actionState, draft, target.name)
+    ) {
+      return;
+    }
     setRenaming(true);
     setLocalError(null);
     setDismissedCollectionError(null);
     try {
       const renamed = await collections.renameCollection(
-        renameTarget.collectionId,
-        renameDraft.trim()
+        target.collectionId,
+        draft.trim()
       );
       if (renamed) {
         setRenameTarget(null);
@@ -477,13 +507,13 @@ function CollectionMembershipContent({
     setRemoveTarget(collection);
   };
 
-  const removeCollection = async () => {
-    if (!removeTarget || removeDisabled) return;
+  const removeCollection = async (target: LocalCollection | null = removeTarget) => {
+    if (!target || !canStartMobileCollectionAction(actionState)) return;
     setRemoving(true);
     setLocalError(null);
     setDismissedCollectionError(null);
     try {
-      const collectionId = removeTarget.collectionId;
+      const collectionId = target.collectionId;
       await collections.removeCollection(collectionId);
       setSelected((current) => {
         const next = new Set(current);
@@ -540,6 +570,53 @@ function CollectionMembershipContent({
     }
   };
 
+  if (mobileCollectionMembershipNativeFormAvailable) {
+    return (
+      <MobileCollectionMembershipNativeForm
+        visible={visible}
+        strings={strings}
+        subtitle={title ?? strings.collectionMembership.subtitle}
+        loading={collections.loading}
+        rows={collections.data.map((collection) => {
+          const count = collectionCount(collection.collectionId, collections.membership);
+          return {
+            collection,
+            count,
+            countLabel: collectionBookCountText(count, strings),
+            selected: selected.has(collection.collectionId),
+          };
+        })}
+        busy={busy}
+        saving={saving}
+        creating={creating}
+        saveDisabled={saveDisabled}
+        dirty={changeCount > 0 || operationBusy}
+        error={activeError}
+        canRetry={Boolean(collectionError) && canRetryCollectionError}
+        retrying={retryingCollections}
+        onRetry={() => {
+          void retryCollections();
+        }}
+        onToggle={toggleCollection}
+        onCreate={(name) => {
+          void createCollection(name);
+        }}
+        onRename={(collection, name) => {
+          void renameCollection(collection, name);
+        }}
+        onRemove={(collection) => {
+          void removeCollection(collection);
+        }}
+        onSave={() => {
+          void saveMembership();
+        }}
+        onCancel={requestClose}
+        onClose={handleNativeClose}
+        onDismiss={handleScaffoldDismiss}
+      />
+    );
+  }
+
   return (
     <>
     <MobileNativeSheetScaffold
@@ -566,11 +643,19 @@ function CollectionMembershipContent({
       ) : (
         <>
         <View style={styles.scrollContent}>
-        <View style={styles.list}>
+        <View
+          style={[
+            styles.list,
+            collections.data.length
+              ? { backgroundColor: tokens.muted, borderColor: tokens.border }
+              : styles.listEmpty,
+          ]}
+        >
           {collections.data.length ? (
-            collections.data.map((collection) => (
+            collections.data.map((collection, index) => (
               <CollectionRow
                 key={collection.collectionId}
+                divider={index > 0}
                 collection={collection}
                 count={collectionCount(collection.collectionId, collections.membership)}
                 selected={selected.has(collection.collectionId)}
@@ -582,17 +667,15 @@ function CollectionMembershipContent({
               />
             ))
           ) : (
-            <View
+            <Text
               style={[
-                styles.emptyState,
-                { borderColor: tokens.border, backgroundColor: tokens.muted },
+                styles.emptyText,
+                nemuSheetMetrics.description,
+                { color: tokens.mutedForeground },
               ]}
             >
-              <Ionicons name="albums-outline" size={22} color={tokens.mutedForeground} />
-              <Text style={[styles.emptyText, { color: tokens.mutedForeground }]}>
-                {strings.collectionMembership.noCollections}
-              </Text>
-            </View>
+              {strings.collectionMembership.noCollections}
+            </Text>
           )}
         </View>
 
@@ -601,10 +684,22 @@ function CollectionMembershipContent({
             <View style={styles.createHeader}>
               <Ionicons name="create-outline" size={20} color={tokens.primary} />
               <View style={styles.createCopy}>
-                <Text style={[styles.createTitle, { color: tokens.foreground }]}>
+                <Text
+                  style={[
+                    styles.createTitle,
+                    nemuSheetMetrics.sectionTitle,
+                    { color: tokens.foreground },
+                  ]}
+                >
                   {strings.library.renameCollection}
                 </Text>
-                <Text style={[styles.createSubtitle, { color: tokens.mutedForeground }]}>
+                <Text
+                  style={[
+                    styles.createSubtitle,
+                    nemuSheetMetrics.sectionCaption,
+                    { color: tokens.mutedForeground },
+                  ]}
+                >
                   {strings.library.renameDescription}
                 </Text>
               </View>
@@ -624,8 +719,10 @@ function CollectionMembershipContent({
               selectionColor={tokens.primary}
               style={[
                 styles.input,
+                androidTextField,
                 {
-                  backgroundColor: tokens.card,
+                  backgroundColor: tokens.muted,
+                  borderColor: tokens.border,
                   color: tokens.foreground,
                   opacity: busy ? 0.68 : 1,
                 },
@@ -665,10 +762,22 @@ function CollectionMembershipContent({
             <View style={styles.createHeader}>
               <Ionicons name="trash-outline" size={20} color={tokens.danger} />
               <View style={styles.createCopy}>
-                <Text style={[styles.createTitle, { color: tokens.foreground }]}>
+                <Text
+                  style={[
+                    styles.createTitle,
+                    nemuSheetMetrics.sectionTitle,
+                    { color: tokens.foreground },
+                  ]}
+                >
                   {strings.library.removeCollection}
                 </Text>
-                <Text style={[styles.createSubtitle, { color: tokens.mutedForeground }]}>
+                <Text
+                  style={[
+                    styles.createSubtitle,
+                    nemuSheetMetrics.sectionCaption,
+                    { color: tokens.mutedForeground },
+                  ]}
+                >
                   {strings.library.removeCollectionConfirm}
                 </Text>
               </View>
@@ -702,14 +811,26 @@ function CollectionMembershipContent({
           </View>
         ) : null}
 
-        <View style={[styles.createPanel, { backgroundColor: tokens.muted }]}>
+        <View style={styles.createPanel}>
           <View style={styles.createHeader}>
             <Ionicons name="add-circle-outline" size={20} color={tokens.primary} />
             <View style={styles.createCopy}>
-              <Text style={[styles.createTitle, { color: tokens.foreground }]}>
+              <Text
+                style={[
+                  styles.createTitle,
+                  nemuSheetMetrics.sectionTitle,
+                  { color: tokens.foreground },
+                ]}
+              >
                 {strings.collectionMembership.newCollection}
               </Text>
-              <Text style={[styles.createSubtitle, { color: tokens.mutedForeground }]}>
+              <Text
+                style={[
+                  styles.createSubtitle,
+                  nemuSheetMetrics.sectionCaption,
+                  { color: tokens.mutedForeground },
+                ]}
+              >
                 {strings.collectionMembership.newCollectionDescription}
               </Text>
             </View>
@@ -729,8 +850,10 @@ function CollectionMembershipContent({
             selectionColor={tokens.primary}
             style={[
               styles.input,
+              androidTextField,
               {
-                backgroundColor: tokens.card,
+                backgroundColor: tokens.muted,
+                borderColor: tokens.border,
                 color: tokens.foreground,
                 opacity: busy ? 0.68 : 1,
               },
@@ -850,6 +973,15 @@ export function MobileCollectionMembershipSheet({
   );
 }
 
+// Android: a 56dp Material text field with bodyLarge text; iOS keeps
+// `styles.input` as is.
+const androidTextField = nemuSheetMetrics.textFieldMinHeight
+  ? {
+      height: nemuSheetMetrics.textFieldMinHeight,
+      ...nemuSheetMetrics.textFieldText,
+    }
+  : null;
+
 const styles = StyleSheet.create({
   sheet: {
     gap: 14,
@@ -870,17 +1002,30 @@ const styles = StyleSheet.create({
     paddingBottom: 2,
   },
   list: {
-    gap: 9,
-  },
-  collectionRow: {
-    minHeight: 64,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
+    overflow: "hidden",
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+  },
+  listEmpty: {
+    borderWidth: 0,
+    paddingVertical: 4,
+  },
+  collectionRow: {
+    minHeight: 60,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingLeft: 14,
+    paddingRight: 6,
+    paddingVertical: 6,
+  },
+  iosCheck: {
+    width: 22,
+    height: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 11,
+    borderWidth: 1.5,
   },
   collectionToggle: {
     minHeight: 44,
@@ -936,8 +1081,7 @@ const styles = StyleSheet.create({
   },
   createPanel: {
     gap: 11,
-    borderRadius: radius.lg,
-    padding: 12,
+    paddingTop: 4,
   },
   managePanel: {
     gap: 11,
@@ -966,6 +1110,7 @@ const styles = StyleSheet.create({
   input: {
     height: 44,
     borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 12,
     fontSize: 14,
     lineHeight: 18,

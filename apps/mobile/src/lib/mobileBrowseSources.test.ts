@@ -4,7 +4,6 @@ import type { MobileRegistrySource } from "@/sources/aidokuRegistry";
 import {
   buildMobileInstalledSourceKeySet,
   buildMobileSourceQuickActions,
-  canClearMobileBrowseSourceQuery,
   canSelectMobileBrowseAllLanguages,
   canStartMobileSourceInstall,
   filterEnabledMobileInstalledSources,
@@ -94,12 +93,6 @@ describe("mobile browse source filtering", () => {
         appLanguage: "en",
       }).map((item) => item.id),
     ).toEqual(["three"]);
-  });
-
-  test("enables clearing source search only while the visible query has content", () => {
-    expect(canClearMobileBrowseSourceQuery("")).toBe(false);
-    expect(canClearMobileBrowseSourceQuery(" ")).toBe(true);
-    expect(canClearMobileBrowseSourceQuery("manga")).toBe(true);
   });
 
   test("gates the selected all-language chip as a no-op selection", () => {

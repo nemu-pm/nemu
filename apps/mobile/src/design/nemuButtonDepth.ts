@@ -2,6 +2,7 @@ import type { ViewStyle } from "react-native";
 import type { NemuColorScheme, NemuTokens } from "./tokens";
 import { nemuColorWithAlpha } from "./colorAlpha";
 import {
+  nemuWebButtonPalette,
   resolveNemuWebButtonSurface,
   type NemuWebButtonSchemePalette,
 } from "./nemuWebButtonPalette";
@@ -15,6 +16,7 @@ export type NemuButtonDepthVariant =
   | "toolbar"
   | "toolbar-danger"
   | "chip-selected"
+  | "chip-included"
   | "chip"
   | "elevated";
 
@@ -221,7 +223,7 @@ export type NemuButtonDepthVisual = {
 };
 
 const depthVariantPaletteKey: Record<
-  Exclude<NemuButtonDepthVariant, "toolbar" | "toolbar-danger" | "chip" | "chip-selected">,
+  Exclude<NemuButtonDepthVariant, "toolbar" | "toolbar-danger" | "chip" | "chip-selected" | "chip-included">,
   keyof NemuWebButtonSchemePalette
 > = {
   primary: "primary",
@@ -249,18 +251,61 @@ const CHIP_INSET_SHADOW: Record<NemuColorScheme, string> = {
   dark: "inset 0px 1px 2px rgba(0,0,0,0.5), inset 0px -0.5px 0px rgba(255,255,255,0.05)",
 };
 
+/**
+ * The pressed fill of a secondary / outline button on a Liquid Glass sheet:
+ * a step firmer than the sheet's resting fill (`tokens.secondary` there).
+ */
+const GLASS_SHEET_BUTTON_PRESSED_FILL: Record<NemuColorScheme, string> = {
+  light: "rgba(118,118,128,0.22)",
+  dark: "rgba(255,255,255,0.16)",
+};
+
+/**
+ * The pressed fill of a destructive button on a dark Liquid Glass sheet: a
+ * step firmer than its resting `tokens.dangerSoft`.
+ */
+const GLASS_SHEET_DARK_DESTRUCTIVE_PRESSED_FILL = "rgba(232,87,91,0.22)";
+
 export function getNemuButtonDepthVisual({
   variant,
   state,
   scheme,
   tokens,
+  onGlassSheet = false,
 }: {
   variant: NemuButtonDepthVariant;
   state: NemuButtonDepthState;
   scheme: NemuColorScheme;
   tokens: NemuTokens;
+  /**
+   * On a Liquid Glass sheet (`NemuTheme.sheetGlass`): secondary and outline
+   * buttons take the sheet's translucent fill, the one its fields and icon
+   * tiles use. The web palette's dark slab vanishes into dark glass and its
+   * near-opaque pale one sits on light glass as a tile. A destructive button
+   * on dark glass takes the sheet's `dangerSoft` tint: the web palette's
+   * dark tint is tuned over the opaque card and lightens over glass, which
+   * pulled its label to 3.3:1. (Light keeps the palette's pale fill, which
+   * is what holds the label's contrast over anything behind the glass.)
+   */
+  onGlassSheet?: boolean;
 }): NemuButtonDepthVisual {
   const pressed = state === "pressed";
+  if (onGlassSheet && (variant === "secondary" || variant === "outline")) {
+    return {
+      backgroundColor: pressed ? GLASS_SHEET_BUTTON_PRESSED_FILL[scheme] : tokens.secondary,
+      borderColor: tokens.border,
+      boxShadow: "none",
+      foregroundColor: depthForegroundColor(variant, pressed, tokens),
+    };
+  }
+  if (onGlassSheet && variant === "destructive" && scheme === "dark") {
+    return {
+      backgroundColor: pressed ? GLASS_SHEET_DARK_DESTRUCTIVE_PRESSED_FILL : tokens.dangerSoft,
+      borderColor: nemuWebButtonPalette.dark.destructive[pressed ? "pressed" : "rest"].borderColor,
+      boxShadow: "none",
+      foregroundColor: depthForegroundColor(variant, pressed, tokens),
+    };
+  }
   const paletteState = pressed ? "pressed" : "rest";
   const dark = scheme === "dark";
   const tokenOverrides = {
@@ -275,6 +320,8 @@ export function getNemuButtonDepthVisual({
       return toolbarDepthVisual({ pressed, scheme, tokens, danger: true, tokenOverrides });
     case "chip-selected":
       return chipSelectedDepthVisual({ pressed, scheme, tokens, tokenOverrides });
+    case "chip-included":
+      return chipIncludedDepthVisual({ pressed, scheme, tokens, tokenOverrides });
     case "chip":
       return chipDepthVisual({ pressed, scheme, tokens, tokenOverrides });
     default: {
@@ -363,6 +410,31 @@ function chipSelectedDepthVisual({
     backgroundColor: pressed ? tokenOverrides.primaryPressed : tokens.primary,
     borderColor: scheme === "dark" ? "rgba(143,181,255,0.50)" : "rgba(116,153,255,0.50)",
     foregroundColor: tokens.primaryForeground,
+  };
+}
+
+/**
+ * A chip that is on as one of many under an "All" chip that is on (search
+ * sources): a soft primary tint with primary ink, not twenty solid pills.
+ * Pressing pops it like any chip.
+ */
+function chipIncludedDepthVisual({
+  pressed,
+  scheme,
+  tokens,
+  tokenOverrides,
+}: {
+  pressed: boolean;
+  scheme: NemuColorScheme;
+  tokens: NemuTokens;
+  tokenOverrides: { primary: string; primaryPressed: string };
+}): NemuButtonDepthVisual {
+  if (pressed) return { ...chipDepthVisual({ pressed, scheme, tokens, tokenOverrides }), foregroundColor: tokens.primary };
+  return {
+    backgroundColor: nemuColorWithAlpha(tokens.primary, scheme === "dark" ? 0.2 : 0.12),
+    borderColor: "transparent",
+    boxShadow: "none",
+    foregroundColor: tokens.primary,
   };
 }
 

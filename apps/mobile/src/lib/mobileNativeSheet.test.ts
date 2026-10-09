@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { mobileAdaptiveLayout } from "./mobileAdaptiveLayout";
 import { getMobileStrings } from "./mobileI18n";
 import {
   canDismissMobileNativeSheetFromPan,
@@ -7,16 +8,29 @@ import {
   normalizeMobileNativeSheetSnapPointsForPlatform,
   MOBILE_NATIVE_ANDROID_MIN_FIXED_HEIGHT,
   resolveMobileNativeSheetAndroidFrame,
+  resolveMobileNativeSheetAndroidPlacement,
+  resolveMobileNativeSheetAndroidWidth,
   resolveMobileNativeSheetAvailableHeight,
   resolveMobileNativeSheetBodyTopPadding,
   resolveMobileNativeSheetBottomPadding,
+  resolveMobileNativeSheetSoftBottomEdge,
   resolveMobileSheetIosLayoutBudget,
   resolveMobileSheetHeaderMetrics,
   resolveMobileNativeSheetDismissLabel,
+  resolveMobileNativeSheetIosFramedDetentHeight,
+  resolveMobileNativeSheetIosLayout,
+  resolveMobileNativeSheetIosPresentation,
+  MOBILE_NATIVE_IOS_MIN_FRAMED_HEIGHT,
+  type MobileNativeSheetIosPresentation,
   shouldBoundMobileNativeSheetForPlatform,
 } from "./mobileNativeSheet";
 
 describe("mobile native sheet behavior", () => {
+  test("keeps Yoga content inside Material's landscape sheet width", () => {
+    expect(resolveMobileNativeSheetAndroidWidth(426)).toBe(426);
+    expect(resolveMobileNativeSheetAndroidWidth(952)).toBe(640);
+    expect(resolveMobileNativeSheetAndroidWidth(600)).toBe(600);
+  });
   test("aligns Android Material sheet chrome and body to one 24dp grid", () => {
     expect(resolveMobileSheetHeaderMetrics("android")).toEqual({
       bodyDescriptionFontSize: 14,
@@ -305,6 +319,22 @@ describe("mobile native sheet behavior", () => {
     }
   });
 
+  test("a soft bottom edge leaves the last row where a plain body's gutter put it", () => {
+    // iOS: the body reaches into the home indicator's inset; the fade covers
+    // that inset and the gutter, and the list's end padding equals the fade.
+    expect(resolveMobileNativeSheetSoftBottomEdge({ platform: "ios", safeAreaBottom: 34 })).toEqual({
+      endInset: 52,
+      fadeHeight: 52,
+    });
+    // No home indicator (Touch ID phones): still clear of the rounded corners.
+    expect(resolveMobileNativeSheetSoftBottomEdge({ platform: "ios", safeAreaBottom: 0 }).fadeHeight).toBe(38);
+    // Android: Material already clears the navigation bar.
+    expect(resolveMobileNativeSheetSoftBottomEdge({ platform: "android", safeAreaBottom: 24 })).toEqual({
+      endInset: 24,
+      fadeHeight: 24,
+    });
+  });
+
   describe("Android sheet heights match iOS", () => {
     // Pixel-like phone: 952dp window, 48dp status bar, 24dp gesture bar.
     const phone = { windowHeight: 952, safeAreaTop: 48, safeAreaBottom: 24 };
@@ -429,5 +459,189 @@ describe("mobile native sheet behavior", () => {
       snapPoints: ["82%"],
       availableHeight: 759,
     });
+  });
+});
+
+describe("ios sheet sizing held for a presentation", () => {
+  const contentSized: MobileNativeSheetIosPresentation = {
+    sizing: "content",
+    snapPoints: undefined,
+  };
+  const tall = ["88%"];
+  const short = ["82%"];
+
+  test("a closed sheet adopts the sizing its next presentation asks for", () => {
+    expect(
+      resolveMobileNativeSheetIosPresentation({
+        held: contentSized,
+        presented: false,
+        snapPoints: tall,
+      }),
+    ).toEqual({ sizing: "detents", snapPoints: tall });
+    expect(
+      resolveMobileNativeSheetIosPresentation({
+        held: { sizing: "detents", snapPoints: tall },
+        presented: false,
+        snapPoints: undefined,
+      }),
+    ).toEqual(contentSized);
+    expect(
+      resolveMobileNativeSheetIosPresentation({
+        held: contentSized,
+        presented: false,
+        snapPoints: [],
+      }),
+    ).toBe(contentSized);
+  });
+
+  test("a presented content-sized sheet stays content-sized when detents are requested", () => {
+    // The source manager: a hugging source list whose add panel gets results.
+    const held = resolveMobileNativeSheetIosPresentation({
+      held: contentSized,
+      presented: true,
+      snapPoints: tall,
+    });
+    expect(held).toBe(contentSized);
+    expect(resolveMobileNativeSheetIosLayout({ held, snapPoints: tall })).toEqual({
+      nativeSnapPoints: undefined,
+      framesDetent: true,
+    });
+    // Back to the short list: nothing to frame.
+    expect(resolveMobileNativeSheetIosLayout({ held, snapPoints: undefined })).toEqual({
+      nativeSnapPoints: undefined,
+      framesDetent: false,
+    });
+  });
+
+  test("a presented detent sheet keeps its last detents when content sizing is requested", () => {
+    // A bounded source list that shows its content-sized confirmation.
+    const detents: MobileNativeSheetIosPresentation = { sizing: "detents", snapPoints: short };
+    const held = resolveMobileNativeSheetIosPresentation({
+      held: detents,
+      presented: true,
+      snapPoints: undefined,
+    });
+    expect(held).toBe(detents);
+    expect(resolveMobileNativeSheetIosLayout({ held, snapPoints: undefined })).toEqual({
+      nativeSnapPoints: short,
+      framesDetent: false,
+    });
+  });
+
+  test("a presented detent sheet may change its detents", () => {
+    const detents: MobileNativeSheetIosPresentation = { sizing: "detents", snapPoints: short };
+    const held = resolveMobileNativeSheetIosPresentation({
+      held: detents,
+      presented: true,
+      snapPoints: tall,
+    });
+    expect(held).toEqual({ sizing: "detents", snapPoints: tall });
+    expect(resolveMobileNativeSheetIosLayout({ held, snapPoints: tall })).toEqual({
+      nativeSnapPoints: tall,
+      framesDetent: false,
+    });
+    // Unchanged detents keep the held object (no state churn).
+    expect(
+      resolveMobileNativeSheetIosPresentation({ held, presented: true, snapPoints: tall }),
+    ).toBe(held);
+  });
+
+  test("never hands the native sheet a different sizing kind mid-presentation", () => {
+    const requests = [undefined, tall, undefined, short, [], tall];
+    for (const first of [undefined, tall]) {
+      let held = resolveMobileNativeSheetIosPresentation({
+        held: contentSized,
+        presented: false,
+        snapPoints: first,
+      });
+      const kind = held.sizing;
+      for (const snapPoints of requests) {
+        held = resolveMobileNativeSheetIosPresentation({ held, presented: true, snapPoints });
+        const { nativeSnapPoints } = resolveMobileNativeSheetIosLayout({ held, snapPoints });
+        expect(nativeSnapPoints?.length ? "detents" : "content").toBe(kind);
+      }
+    }
+  });
+
+  test("a framed detent is the detent's height less the grabber room", () => {
+    expect(
+      resolveMobileNativeSheetIosFramedDetentHeight({
+        detentHeight: 642,
+        grabberRoom: 16,
+        windowHeight: 874,
+        safeAreaTop: 62,
+      }),
+    ).toBe(626);
+  });
+
+  test("a framed detent fits above the keyboard", () => {
+    // 874 - 62 - 336 - 16: the header stays on screen with the keyboard up.
+    expect(
+      resolveMobileNativeSheetIosFramedDetentHeight({
+        detentHeight: 642,
+        grabberRoom: 16,
+        windowHeight: 874,
+        safeAreaTop: 62,
+        keyboardHeight: 336,
+      }),
+    ).toBe(460);
+    // A detent already shorter than that room is left alone.
+    expect(
+      resolveMobileNativeSheetIosFramedDetentHeight({
+        detentHeight: 300,
+        grabberRoom: 16,
+        windowHeight: 874,
+        safeAreaTop: 62,
+        keyboardHeight: 336,
+      }),
+    ).toBe(284);
+    // Landscape with the keyboard up: never below a usable body.
+    expect(
+      resolveMobileNativeSheetIosFramedDetentHeight({
+        detentHeight: 330,
+        grabberRoom: 16,
+        windowHeight: 402,
+        safeAreaTop: 0,
+        keyboardHeight: 260,
+      }),
+    ).toBe(MOBILE_NATIVE_IOS_MIN_FRAMED_HEIGHT);
+  });
+});
+
+describe("android sheet placement on foldables", () => {
+  const pixelFoldBook = mobileAdaptiveLayout({
+    width: 841, height: 701, supported: true,
+    divisions: [{ id: "fold-0", x: 420.5, y: 0, width: 0, height: 701, active: true }], occlusions: [],
+  });
+  test("flat windows keep the centred 640dp sheet", () => {
+    expect(resolveMobileNativeSheetAndroidPlacement({ windowWidth: 841, posture: "flat", panels: [{ x: 0, width: 841 }] }))
+      .toEqual({ width: 640, offsetX: 0, paneAligned: false });
+    expect(resolveMobileNativeSheetAndroidPlacement({ windowWidth: 412, posture: "flat", panels: [{ x: 0, width: 412 }] }))
+      .toEqual({ width: 412, offsetX: 0, paneAligned: false });
+  });
+  test("book posture moves the sheet into the trailing pane (a zero-width hinge included)", () => {
+    const ltr = resolveMobileNativeSheetAndroidPlacement({ windowWidth: 841, posture: pixelFoldBook.posture, panels: pixelFoldBook.panels });
+    expect(ltr).toEqual({ width: 410.5, offsetX: 430.5 + 410.5 / 2 - 841 / 2, paneAligned: true });
+    // The sheet's frame is exactly the trailing pane: clear of the fold gutter.
+    expect(841 / 2 + ltr.offsetX - ltr.width / 2).toBe(430.5);
+    const rtl = resolveMobileNativeSheetAndroidPlacement({
+      windowWidth: 841, posture: pixelFoldBook.posture, panels: pixelFoldBook.panels, layoutDirection: "rtl",
+    });
+    expect(841 / 2 + rtl.offsetX + rtl.width / 2).toBe(410.5);
+  });
+  test("Duo book pane and too-narrow panes", () => {
+    const duo = mobileAdaptiveLayout({
+      width: 951, height: 669, supported: true,
+      divisions: [{ id: "d", x: 455.5, y: 0, width: 40, height: 669, active: true }], occlusions: [],
+    });
+    expect(resolveMobileNativeSheetAndroidPlacement({ windowWidth: 951, posture: duo.posture, panels: duo.panels }))
+      .toMatchObject({ width: 455.5, paneAligned: true });
+    expect(resolveMobileNativeSheetAndroidPlacement({
+      windowWidth: 500, posture: "book", panels: [{ x: 0, width: 240 }, { x: 260, width: 240 }],
+    })).toEqual({ width: 500, offsetX: 0, paneAligned: false });
+  });
+  test("notebook keeps the full-width bottom sheet", () => {
+    expect(resolveMobileNativeSheetAndroidPlacement({ windowWidth: 701, posture: "notebook", panels: [{ x: 0, width: 701 }, { x: 0, width: 701 }] }))
+      .toEqual({ width: 640, offsetX: 0, paneAligned: false });
   });
 });

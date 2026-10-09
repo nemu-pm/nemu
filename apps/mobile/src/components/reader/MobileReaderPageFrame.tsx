@@ -2,21 +2,20 @@ import type { ReactNode } from "react";
 import {
   ActivityIndicator,
   StyleSheet,
-  Text,
   View,
   type ImageProps,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   MobileCachedImage,
-  NemuPressable,
+  NemuText,
   nemuFontWeight,
-  radius,
 } from "@/design-system";
 import type { MobileStrings } from "@/lib/mobileI18n";
 import type { MobileImageSize } from "@/lib/mobileJapaneseLearningOverlay";
 import type { MobileImageUriOwnership } from "@/lib/mobileImageUriPolicy";
 import type { MobileCachedSegmentedImageAsset } from "@/lib/mobileImageCache";
+import { ReaderCapsuleButton } from "@/components/reader/ReaderCapsuleButton";
 
 const READER_IMAGE_STATUS_BACKGROUND = "rgba(0,0,0,0.58)";
 const READER_IMAGE_STATUS_TEXT = "rgba(255,255,255,0.86)";
@@ -73,7 +72,11 @@ export function MobileReaderPageFrame({
         {
           width: frameSize.width,
           height: frameSize.height,
-          backgroundColor,
+          // Painted only while there is no image to show (loading / error).
+          // A decoded page covers its frame anyway, and a transparent frame
+          // lets the previous list show through while a remounted one
+          // decodes (spread ⇄ single, rotation) instead of a black box.
+          backgroundColor: loading || error ? backgroundColor : "transparent",
         },
       ]}
     >
@@ -115,7 +118,7 @@ export function MobileReaderPageFrame({
           ) : (
             <ActivityIndicator color={READER_IMAGE_STATUS_TEXT} size="small" />
           )}
-          <Text
+          <NemuText
             numberOfLines={2}
             style={[
               styles.readerImageStatusText,
@@ -127,33 +130,19 @@ export function MobileReaderPageFrame({
                 ? strings.feedback.readerWaitingForNetwork
                 : strings.reader.pageImageFailed
               : strings.reader.pageImageLoading}
-          </Text>
-          {canRetry ? (
-            <NemuPressable
-              accessibilityRole="button"
+          </NemuText>
+          {canRetry && onRetry ? (
+            // The chrome's capsule language: dark glass, icon + label, 44pt.
+            <ReaderCapsuleButton
+              label={strings.common.retry}
               accessibilityLabel={strings.reader.pageImageRetry}
-              hapticFeedback="press"
+              icon="refresh"
               onPress={onRetry}
               // Retrying must not also toggle the reader chrome, which the
               // stage derives from bubbled touch events.
-              onTouchEnd={(event) => event.stopPropagation()}
-              pressedScale={0.97}
-              style={styles.readerImageRetryButton}
-            >
-              <Ionicons
-                name="refresh-outline"
-                size={16}
-                color={READER_IMAGE_STATUS_TEXT}
-              />
-              <Text
-                style={[
-                  styles.readerImageRetryText,
-                  { color: READER_IMAGE_STATUS_TEXT },
-                ]}
-              >
-                {strings.common.retry}
-              </Text>
-            </NemuPressable>
+              stopTouchPropagation
+              style={styles.readerImageRetryCapsule}
+            />
           ) : null}
         </View>
       ) : null}
@@ -183,25 +172,13 @@ const styles = StyleSheet.create({
     padding: 18,
   },
   readerImageStatusText: {
-    fontSize: 13,
-    lineHeight: 18,
+    maxWidth: 260,
+    fontSize: 15,
+    lineHeight: 20,
     fontWeight: nemuFontWeight.medium,
     textAlign: "center",
   },
-  readerImageRetryButton: {
-    minHeight: 44,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: READER_IMAGE_STATUS_ICON,
-    paddingHorizontal: 16,
-  },
-  readerImageRetryText: {
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: nemuFontWeight.medium,
+  readerImageRetryCapsule: {
+    marginTop: 6,
   },
 });

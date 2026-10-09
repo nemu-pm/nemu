@@ -14,6 +14,7 @@ import {
 } from "@expo/ui/swift-ui/modifiers";
 import { Platform, StyleSheet, Text, View } from "react-native";
 import { supportsNemuLiquidGlassButtonStyle } from "@/lib/nemuLiquidGlass";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import { nemuFontWeight } from "@/design/typography";
 import { useNemuTheme } from "@/design/useNemuTheme";
 import type { NemuNativeSheetHeaderActionProps } from "./NemuNativeSheetHeaderAction.types";
@@ -35,28 +36,23 @@ const CONTROL_BOX = 44;
 const GLYPH_POINT_SIZE = 20;
 
 /**
- * The system draws and sizes the chrome; we only choose the glyph.
- *
- * `@expo/ui`'s SwiftUI surface has no toolbar/`toolbarItem` binding (there is
- * no `toolbar` export under `@expo/ui/swift-ui`), so a sheet header action is
- * an ordinary `Button` styled the way the system styles bar buttons:
- * `.buttonStyle(.glass)` on iOS 26+ (the real Liquid Glass capsule — painting
- * the effect by hand onto a `borderless` button renders as a flat white disc),
- * `.bordered` before it, plus `.buttonBorderShape(.circle)` and
- * `.controlSize(.large)`. Pinning an explicit size on the label instead makes
- * the circle grow to that size plus the style's own padding, which is how it
- * ended up reading oversized; leaving the label unsized hands the measurement
- * back to SwiftUI.
+ * Sets the header action's glyph; the system draws the Liquid Glass chrome
+ * around it (a glass button style, circle, large control size).
  */
 export function NemuNativeSheetHeaderAction({
   accessibilityLabel,
   iosSystemImage,
+  prominent = false,
   badgeCount = 0,
   disabled = false,
   onPress,
 }: NemuNativeSheetHeaderActionProps) {
   const { scheme, tokens } = useNemuTheme();
   const glass = supportsNemuLiquidGlassButtonStyle(Platform.Version);
+  const chrome = glass ? "glass" : "bordered";
+  // The sheet's confirming action (Save / Done): the accent-filled circle the
+  // system draws for a `confirmationAction` toolbar item.
+  const prominentChrome = glass ? "glassProminent" : "borderedProminent";
 
   return (
     <View style={styles.root}>
@@ -64,10 +60,14 @@ export function NemuNativeSheetHeaderAction({
         <SwiftButton
           onPress={onPress}
           modifiers={[
-            buttonStyle(glass ? "glass" : "bordered"),
+            buttonStyle(prominent ? prominentChrome : chrome),
             buttonBorderShape("circle"),
             controlSize("large"),
-            tint(tokens.primary),
+            // Design-explore: bar items take the label colour (the close X,
+            // a filter); only the confirming action carries the accent. Set
+            // outright: a host that seeds the accent (the reader's Plugins
+            // sheet) would otherwise hand it down to this button.
+            tint(prominent || !mobileDesignExploreFlag ? tokens.primary : tokens.foreground),
             swiftAccessibilityLabel(accessibilityLabel),
             ...(disabled ? [swiftDisabled(true)] : []),
           ]}

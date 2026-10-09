@@ -1,16 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import type { MobileGrammarToken } from "@/lib/mobileJapaneseLearningGrammar";
 import type { MobileOcrDetection, MobileJapaneseLearningOcrResult } from "@/lib/mobileJapaneseLearningOcr";
-import type { MobileStrings } from "@/lib/mobileI18n";
 import {
+  classifyMobileJapaneseLearningTokenPan,
+  mobileJapaneseLearningMinConfidence,
   formatMobileJapaneseLearningChatTime,
+  MOBILE_GRAMMAR_TOKEN_HIT_SLOP,
   mobileGrammarTokenAtPoint,
   mobileGrammarTokenCanAct,
   mobileGrammarTokenCategory,
   mobileGrammarTokenColor,
   mobileGrammarTokenInSelection,
   mobileGrammarTokenPosLabel,
-  mobileJapaneseLearningChatErrorDetail,
   mobileJapaneseLearningChatRequestMessages,
   mobileJapaneseLearningSentenceText,
   mobileOcrLabelColor,
@@ -27,13 +28,6 @@ const tokens = {
   foreground: "#foreground",
   mutedForeground: "#muted",
 } satisfies MobileReaderThemeTokens;
-
-const strings = {
-  reader: {
-    pluginJapaneseLearningSignInRequired: "Sign in required",
-    pluginJapaneseLearningChatFailed: "Chat failed",
-  },
-} as unknown as MobileStrings;
 
 function token(partOfSpeech: string, word = "word"): MobileGrammarToken {
   return {
@@ -62,13 +56,31 @@ function detection(over: Partial<MobileOcrDetection> & { order: number }): Mobil
 }
 
 describe("mobileJapaneseLearningChatRequestMessages", () => {
-  test("drops error and empty messages and trims content", () => {
+  test("keeps the full model instruction when the bubble has a compact display question", () => {
+    expect(mobileJapaneseLearningChatRequestMessages([{
+      id: "ask-word", role: "user", createdAt: 0,
+      text: "Explain 猫 using the requested response language and level.",
+      displayText: "Explain this word: 猫",
+    }])).toEqual([{
+      role: "user", content: "Explain 猫 using the requested response language and level.",
+    }]);
+  });
+  test("sends the whole thread like web getMessagesForRequest: hidden turns, tool calls and results", () => {
+    const toolCalls = [{ toolCallId: "t1", toolName: "request_transcript", args: { pageNumber: 2 } }];
+    const toolResults = [{ toolCallId: "t1", toolName: "request_transcript", result: "こんにちは" }];
     const out = mobileJapaneseLearningChatRequestMessages([
-      { id: "1", role: "user", text: "  hello  ", createdAt: 0 },
-      { id: "2", role: "assistant", text: "", createdAt: 0 },
-      { id: "3", role: "user", text: "boom", createdAt: 0, isError: true },
+      { id: "0", role: "user", text: "NEMU_CTX_SNAPSHOT_V1 key=a", createdAt: 0, hidden: true },
+      { id: "1", role: "user", text: "hello", createdAt: 0 },
+      { id: "2", role: "assistant", text: "", createdAt: 0, hidden: true, toolCalls, toolResults },
+      { id: "3", role: "assistant", text: "Network error. Please try again.", createdAt: 0 },
     ]);
-    expect(out).toEqual([{ role: "user", content: "hello" }]);
+    expect(out).toEqual([
+      { role: "user", content: "NEMU_CTX_SNAPSHOT_V1 key=a" },
+      { role: "user", content: "hello" },
+      { role: "assistant", content: "", toolCalls },
+      { role: "tool", toolResults },
+      { role: "assistant", content: "Network error. Please try again." },
+    ]);
   });
 });
 
@@ -120,35 +132,6 @@ describe("mobileJapaneseLearningSentenceText", () => {
   });
   test("falls back to result.text when order not found", () => {
     expect(mobileJapaneseLearningSentenceText(result, 99)).toBe("fallback");
-  });
-});
-
-describe("mobileJapaneseLearningChatErrorDetail", () => {
-  test("auth_required → sign-in copy", () => {
-    expect(mobileJapaneseLearningChatErrorDetail(new Error("auth_required"), strings)).toBe(
-      "Sign in required",
-    );
-  });
-  test("context_too_long → chat failed copy", () => {
-    expect(
-      mobileJapaneseLearningChatErrorDetail(new Error("context_too_long"), strings),
-    ).toBe("Chat failed");
-  });
-  test("other Error → localized copy followed by sanitized diagnostics", () => {
-    expect(mobileJapaneseLearningChatErrorDetail(new Error("boom"), strings)).toBe(
-      "Chat failed\nboom",
-    );
-    expect(
-      mobileJapaneseLearningChatErrorDetail(
-        new Error("password=secret"),
-        strings,
-      ),
-    ).toBe("Chat failed\npassword=[redacted]");
-  });
-  test("non-Error → localized copy followed by diagnostics", () => {
-    expect(mobileJapaneseLearningChatErrorDetail("nope", strings)).toBe(
-      "Chat failed\nnope",
-    );
   });
 });
 
@@ -233,6 +216,38 @@ describe("mobileGrammarTokenAtPoint", () => {
   test("respects count limit", () => {
     expect(mobileGrammarTokenAtPoint(layouts, 25, 25, 1)).toBeNull();
   });
+  test("a tap on the seam between two words picks the nearer one", () => {
+    // Two chips 2pt apart (each has a 1pt margin), the second one shorter and
+    // bottom-aligned like a word without furigana.
+    const row = [
+      { x: 1, y: 0, width: 40, height: 60 },
+      { x: 43, y: 14, width: 30, height: 46 },
+    ];
+    expect(mobileGrammarTokenAtPoint(row, 41.5, 30)).toBeNull();
+    expect(
+      mobileGrammarTokenAtPoint(row, 41.5, 30, row.length, MOBILE_GRAMMAR_TOKEN_HIT_SLOP),
+    ).toBe(0);
+    expect(
+      mobileGrammarTokenAtPoint(row, 42.6, 30, row.length, MOBILE_GRAMMAR_TOKEN_HIT_SLOP),
+    ).toBe(1);
+    // Above the shorter word, where its missing furigana row would be.
+    expect(
+      mobileGrammarTokenAtPoint(row, 58, 8, row.length, MOBILE_GRAMMAR_TOKEN_HIT_SLOP),
+    ).toBe(1);
+  });
+  test("the slop never reaches a word further away than it", () => {
+    expect(
+      mobileGrammarTokenAtPoint(layouts, 12, 12, layouts.length, MOBILE_GRAMMAR_TOKEN_HIT_SLOP),
+    ).toBe(0);
+    expect(
+      mobileGrammarTokenAtPoint(layouts, 60, 60, layouts.length, MOBILE_GRAMMAR_TOKEN_HIT_SLOP),
+    ).toBeNull();
+  });
+  test("an exact hit wins over a nearer edge of another word", () => {
+    expect(
+      mobileGrammarTokenAtPoint(layouts, 25, 25, layouts.length, MOBILE_GRAMMAR_TOKEN_HIT_SLOP),
+    ).toBe(1);
+  });
 });
 
 describe("mobileGrammarTokenInSelection", () => {
@@ -260,5 +275,29 @@ describe("selectedMobileGrammarText", () => {
   test("works with a reversed range", () => {
     const toks = [token("noun", "A"), token("noun", "B"), token("noun", "C")];
     expect(selectedMobileGrammarText(toks, 2, 0)).toBe("ABC");
+  });
+});
+
+describe("minimum confidence setting", () => {
+  test("percentages from the plugin schema become OCR confidences", () => {
+    expect(mobileJapaneseLearningMinConfidence(25)).toBe(0.25);
+    expect(mobileJapaneseLearningMinConfidence(90)).toBe(0.9);
+    expect(mobileJapaneseLearningMinConfidence(0.5)).toBe(0.5);
+    expect(mobileJapaneseLearningMinConfidence(undefined)).toBe(0.25);
+    expect(mobileJapaneseLearningMinConfidence(Number.NaN)).toBe(0.25);
+  });
+});
+
+describe("classifyMobileJapaneseLearningTokenPan", () => {
+  test("stays a tap inside the slop", () => {
+    expect(classifyMobileJapaneseLearningTokenPan(3, -5)).toBe("pending");
+  });
+  test("a predominantly vertical pan scrolls the pane", () => {
+    expect(classifyMobileJapaneseLearningTokenPan(2, -30)).toBe("scroll");
+    expect(classifyMobileJapaneseLearningTokenPan(-6, 12)).toBe("scroll");
+  });
+  test("a horizontal or diagonal drag selects words", () => {
+    expect(classifyMobileJapaneseLearningTokenPan(20, 3)).toBe("select");
+    expect(classifyMobileJapaneseLearningTokenPan(-10, 10)).toBe("select");
   });
 });

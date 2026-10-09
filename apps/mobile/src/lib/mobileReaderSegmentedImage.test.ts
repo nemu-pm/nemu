@@ -154,7 +154,7 @@ describe("segmented reader geometry", () => {
   it("explicitly disables whole-page-only image capabilities", () => {
     expect(MOBILE_READER_SEGMENTED_CAPABILITIES).toEqual({
       wholePageZoom: false,
-      japaneseLearningImageTools: false,
+      japaneseLearningImageTools: true,
       dualReaderOverlay: false,
     });
     expect(
@@ -262,7 +262,7 @@ describe("segmented reader geometry", () => {
     ).toBe(100);
   });
 
-  it("wires identity restore and blocks whole-image OCR across asset resolution", () => {
+  it("wires identity restore and reads a segmented strip tile by tile", () => {
     const screen = readFileSync(
       path.join(import.meta.dir, "../screens/ReaderScreen.tsx"),
       "utf8",
@@ -279,10 +279,14 @@ describe("segmented reader geometry", () => {
     expect(screen).toContain(
       "currentDisplayedPage.imageUri && !currentImageMetadataReady",
     );
+    // A segmented strip is never handed to OCR whole: the tiles on screen
+    // are the targets, and each tile's boxes are drawn in that tile's frame.
+    expect(screen).not.toContain("disabled={Boolean(currentSegmentedImage)}");
+    expect(screen).toContain("getMobileReaderSegmentOcrPages(");
+    expect(screen).toContain("readerVisibleSegmentIndexes,");
     expect(screen).toContain(
-      'japaneseLearningLifecycleRef.current?.abort("ocr")',
+      "(detection) => detection.pageId === tileOcrPageId",
     );
-    expect(screen).toContain("disabled={Boolean(currentSegmentedImage)}");
     expect(screen).toContain("currentWholeImageToolsAvailable");
     expect(screen).toContain("readerImageSizes.has(pageIdentity)");
     const cachedImage = readFileSync(

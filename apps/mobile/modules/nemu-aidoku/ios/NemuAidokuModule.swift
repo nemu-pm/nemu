@@ -169,6 +169,9 @@ private struct NemuNativeHttpResult {
   var headers: [String: String]
   var data: Data
   var error: String?
+  /// The response's URL after redirects (`HTTPURLResponse.url`), for a
+  /// completed response only.
+  var url: String? = nil
 }
 
 private struct NemuNativeHttpFileResult {
@@ -559,10 +562,16 @@ private final class NemuScopedCookieSessionDelegate: NSObject, URLSessionDownloa
   ) {
     // Preserve the early policy error, while the loopback proxy independently
     // resolves and pins an exact public address before this redirect is sent.
-    guard let redirectURL = request.url else {
+    guard let proposedURL = request.url else {
       completionHandler(nil)
       return
     }
+    let redirectURL = NemuNativeHttpRedirectPolicy.upgradingSameHostDowngrade(
+      proposedURL,
+      from: response.url ?? task.currentRequest?.url
+    )
+    var request = request
+    request.url = redirectURL
     do {
       try NemuNativeHttpAddressPolicy.validate(url: redirectURL)
     } catch {
@@ -1346,7 +1355,10 @@ public class NemuAidokuModule: Module {
   }
 
   private lazy var iosSandboxManager = NemuAidokuIOSandboxManager(
-    httpRequest: Self.sendAidokuSandboxHttpRequest
+    httpRequest: Self.sendAidokuSandboxHttpRequest,
+    cancelHttpRequest: { requestId in
+      _ = NemuSyncHttpCoordinator.shared.cancel(id: requestId)
+    }
   )
 
   public func definition() -> ModuleDefinition {
@@ -1487,6 +1499,13 @@ public class NemuAidokuModule: Module {
       ) { result in
         Self.settleSandboxPromise(result, promise: promise)
       }
+    }
+
+    // Cancels the sandbox operation that carries `cancelToken`, now if it is
+    // running, or when it starts. Synchronous on purpose: the sandbox's serial
+    // executor is exactly what is busy.
+    Function("cancelAidokuSandboxOperation") { (cancelToken: String) -> Bool in
+      return self.iosSandboxManager.cancelOperation(token: cancelToken)
     }
 
     AsyncFunction("executeAidokuSandboxOperation") {
@@ -1670,6 +1689,7 @@ public class NemuAidokuModule: Module {
       urlRequest,
       timeoutSeconds: timeoutSeconds,
       maxResponseBytes: nemuIOSAidokuMaxHttpResponseBytes,
+      requestId: request.requestId,
       allowBackground: true,
       sessionContext: sessionContext,
       explicitCookieHeader: explicitCookieHeader
@@ -1684,7 +1704,8 @@ public class NemuAidokuModule: Module {
       status: result.status,
       headers: result.headers,
       data: result.data,
-      error: result.error
+      error: result.error,
+      url: result.url
     )
   }
 
@@ -2015,49 +2036,69 @@ public class NemuAidokuModule: Module {
                 location,
                 policy: imagePolicy
               )
-            } catch {
-              guard
+            } catch is NemuImageDimensionLimitError {
+              // Too large to decode as published, but well formed: keep its
+              // source width as bounded tiles when the caller can show them,
+              // otherwise (or when the tiles cannot fit their byte budget)
+              // publish one bounded downscale, as Android does.
+              operation.extendTimeout(120)
+              let deadline = NemuIOSLongStripImageTranscoder.newDeadline()
+              let isCancelled = { coordinator.isCancelled(id: nativeRequestId) }
+              if
                 request.allowLongStripSegments,
                 Int64(request.maxResponseBytes) >
                   NemuIOSLongStripImageTranscoder.manifestReserveBytes
-              else { throw error }
-              operation.extendTimeout(120)
-              let transcoded = try NemuIOSLongStripImageTranscoder.transcodeSegments(
+              {
+                do {
+                  let transcoded = try NemuIOSLongStripImageTranscoder.transcodeSegments(
+                    source: location,
+                    outputDirectory: outputDirectory,
+                    policy: imagePolicy,
+                    maximumOutputBytes:
+                      Int64(request.maxResponseBytes) -
+                        NemuIOSLongStripImageTranscoder.manifestReserveBytes,
+                    deadline: deadline,
+                    isCancelled: isCancelled
+                  )
+                  let mimeType = transcoded.segments.first?.mimeType ?? "image/jpeg"
+                  operation.finish(NemuNativeHttpFileResult(
+                    status: status,
+                    headers: Self.transcodedImageHeaders(headers, mimeType: mimeType),
+                    kind: "segmented-image",
+                    fileURL: nil,
+                    byteLength: transcoded.byteLength,
+                    manifestVersion: 1,
+                    imageWidth: transcoded.dimensions.width,
+                    imageHeight: transcoded.dimensions.height,
+                    imageSegments: transcoded.segments.map { segment in
+                      NemuNativeHttpImageSegmentResult(
+                        fileURL: segment.fileURL,
+                        byteLength: segment.byteLength,
+                        width: segment.dimensions.width,
+                        height: segment.dimensions.height,
+                        mimeType: segment.mimeType
+                      )
+                    },
+                    error: nil
+                  ))
+                  return
+                } catch let error as NemuIOSLongStripError where error.allowsSingleImageFallback {
+                  // Not strip geometry, or over budget: downscale below.
+                }
+              }
+              let downscaled = try NemuIOSLongStripImageTranscoder.transcodeSingle(
                 source: location,
                 outputDirectory: outputDirectory,
                 policy: imagePolicy,
-                maximumOutputBytes:
-                  Int64(request.maxResponseBytes) -
-                    NemuIOSLongStripImageTranscoder.manifestReserveBytes,
-                isCancelled: {
-                  coordinator.isCancelled(id: nativeRequestId)
-                }
+                maximumOutputBytes: Int64(request.maxResponseBytes),
+                deadline: deadline,
+                isCancelled: isCancelled
               )
-              let mimeType = transcoded.segments.first?.mimeType ?? "image/jpeg"
-              var rewrittenHeaders = headers.filter {
-                $0.key.caseInsensitiveCompare("content-length") != .orderedSame &&
-                  $0.key.caseInsensitiveCompare("content-encoding") != .orderedSame &&
-                  $0.key.caseInsensitiveCompare("content-type") != .orderedSame
-              }
-              rewrittenHeaders["Content-Type"] = mimeType
               operation.finish(NemuNativeHttpFileResult(
                 status: status,
-                headers: rewrittenHeaders,
-                kind: "segmented-image",
-                fileURL: nil,
-                byteLength: transcoded.byteLength,
-                manifestVersion: 1,
-                imageWidth: transcoded.dimensions.width,
-                imageHeight: transcoded.dimensions.height,
-                imageSegments: transcoded.segments.map { segment in
-                  NemuNativeHttpImageSegmentResult(
-                    fileURL: segment.fileURL,
-                    byteLength: segment.byteLength,
-                    width: segment.dimensions.width,
-                    height: segment.dimensions.height,
-                    mimeType: segment.mimeType
-                  )
-                },
+                headers: Self.transcodedImageHeaders(headers, mimeType: downscaled.mimeType),
+                fileURL: downscaled.fileURL,
+                byteLength: downscaled.byteLength,
                 error: nil
               ))
               return
@@ -2093,6 +2134,21 @@ public class NemuAidokuModule: Module {
         requireHttps: request.requireHttps
       )
     }
+  }
+
+  /// A transcoded body no longer matches the response's own length,
+  /// encoding or type.
+  private static func transcodedImageHeaders(
+    _ headers: [String: String],
+    mimeType: String
+  ) -> [String: String] {
+    var rewritten = headers.filter {
+      $0.key.caseInsensitiveCompare("content-length") != .orderedSame &&
+        $0.key.caseInsensitiveCompare("content-encoding") != .orderedSame &&
+        $0.key.caseInsensitiveCompare("content-type") != .orderedSame
+    }
+    rewritten["Content-Type"] = mimeType
+    return rewritten
   }
 
   private static func sendHttpRequestAsync(
@@ -2283,7 +2339,8 @@ public class NemuAidokuModule: Module {
             status: httpResponse?.statusCode ?? 0,
             headers: headers,
             data: data,
-            error: nil
+            error: nil,
+            url: httpResponse?.url?.absoluteString
           ))
         } catch {
           operation.finish(NemuNativeHttpResult(
@@ -2314,7 +2371,8 @@ public class NemuAidokuModule: Module {
         status: error == nil ? (httpResponse?.statusCode ?? 0) : 0,
         headers: responseHeaders(from: httpResponse),
         data: error == nil ? (data ?? Data()) : Data(),
-        error: error?.localizedDescription
+        error: error?.localizedDescription,
+        url: error == nil ? httpResponse?.url?.absoluteString : nil
       ))
     }
     operation.start(
@@ -2534,7 +2592,8 @@ public class NemuAidokuModule: Module {
         status: status,
         headers: headers,
         data: data ?? Data(),
-        error: nil
+        error: nil,
+        url: httpResponse?.url?.absoluteString
       ))
     }
     sessionContext.registerRedirectPolicy(
@@ -2698,7 +2757,8 @@ public class NemuAidokuModule: Module {
           status: httpResponse?.statusCode ?? 0,
           headers: headers,
           data: responseData,
-          error: nil
+          error: nil,
+          url: httpResponse?.url?.absoluteString
         ))
       } catch {
         result.set(NemuNativeHttpResult(

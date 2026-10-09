@@ -1,15 +1,17 @@
-import { StyleSheet, View, useWindowDimensions } from "react-native";
+import { StyleSheet, View } from "react-native";
+import { ExploreLibrarySkeleton } from "@/components/explore/ExploreLibrarySkeleton";
+import { ExploreShimmerSweep } from "@/components/explore/ExploreShimmerSweep";
+import { useExploreShimmerBackdrop } from "@/components/explore/useExploreShimmerBackdrop";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import Animated from "react-native-reanimated";
 import {
   createNemuShadowStyle,
   radius,
-  useMobilePageGutters,
   useNemuTheme,
 } from "@/design-system";
-import {
-  getMobileMangaGridSkeletonGeometry,
-  MOBILE_MANGA_GRID_GAP,
-} from "@/lib/mobileAdaptiveGrid";
+import { MOBILE_MANGA_GRID_GAP } from "@/lib/mobileAdaptiveGrid";
+import { mobileFoldAwareGridCellStyle } from "@/lib/mobileFoldAwareGrid";
+import { NO_INSETS, useMobileFoldAwareGrid } from "@/lib/useMobileFoldAwareGrid";
 import {
   useSkeletonDisplayDelay,
   useSkeletonPulse,
@@ -29,17 +31,27 @@ export function MobileLibrarySkeleton({
 }: {
   accessibilityLabel: string;
 }) {
+  // Design-explore: the placeholder takes the explore Library's shape.
+  if (mobileDesignExploreFlag) return <ExploreLibrarySkeleton accessibilityLabel={accessibilityLabel} />;
+  return <ShippingLibrarySkeleton accessibilityLabel={accessibilityLabel} />;
+}
+
+function ShippingLibrarySkeleton({
+  accessibilityLabel,
+}: {
+  accessibilityLabel: string;
+}) {
   const { tokens, reduceMotion } = useNemuTheme();
-  const { width: windowWidth } = useWindowDimensions();
-  const pageGutters = useMobilePageGutters();
-  // Same inset-aware adaptive columns as the library grid, so the skeleton
-  // hands off without a reflow (3 on a portrait phone, 6 in landscape).
-  const { cardCount, cardWidth } = getMobileMangaGridSkeletonGeometry({
-    windowWidth,
-    horizontalPadding: pageGutters.horizontal,
-    rows: SKELETON_ROWS,
-  });
-  const skeletonOpacity = useSkeletonPulse(reduceMotion === true);
+  const shimmerBackdrop = useExploreShimmerBackdrop();
+  // Same fold-aware grid as the library list (measured content box, even
+  // columns on regular widths, the middle gutter on the fold in book posture),
+  // so the skeleton hands off without a reflow and never straddles the fold.
+  // It already sits inside the page gutters.
+  // Refs stay out of the layout object read during render.
+  const { ref: gridRef, onLayout: onGridLayout, ...grid } = useMobileFoldAwareGrid({ insets: NO_INSETS });
+  const pulseOpacity = useSkeletonPulse(reduceMotion === true);
+  // Design-explore: the blocks hold still and one shimmer sweep crosses them.
+  const skeletonOpacity = mobileDesignExploreFlag ? 1 : pulseOpacity;
   const displayReady = useSkeletonDisplayDelay(150);
   const skeletonColor = tokens.muted;
   const subtleSkeletonColor = tokens.sourceIconGlass;
@@ -50,54 +62,65 @@ export function MobileLibrarySkeleton({
     <View
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="progressbar"
-      style={styles.stack}
+      style={[styles.stack, shimmerBackdrop]}
     >
-      <View style={styles.grid}>
-        {Array.from({ length: cardCount }, (_, item) => (
-          <View key={item} style={{ width: cardWidth }}>
-            <Animated.View
-              style={[
-                styles.cover,
-                {
-                  backgroundColor: skeletonColor,
-                  borderColor: tokens.coverBorder,
-                  opacity: skeletonOpacity,
-                  ...createNemuShadowStyle({
-                    color: tokens.shadow,
-                    offsetY: 3,
-                    radius: 14,
-                    elevation: 4,
-                  }),
-                },
-              ]}
-            />
-            <View style={styles.textBlock}>
-              <Animated.View
-                style={[
-                  styles.titleLine,
-                  { backgroundColor: skeletonColor, opacity: skeletonOpacity },
-                ]}
-              />
-              <Animated.View
-                style={[
-                  styles.titleLine,
-                  styles.titleLineSecond,
-                  { backgroundColor: skeletonColor, opacity: skeletonOpacity },
-                ]}
-              />
-              <Animated.View
-                style={[
-                  styles.subtitleLine,
-                  {
-                    backgroundColor: subtleSkeletonColor,
-                    opacity: skeletonOpacity,
-                  },
-                ]}
-              />
-            </View>
+      <View
+        ref={gridRef}
+        onLayout={onGridLayout}
+        collapsable={false}
+        style={styles.grid}
+      >
+        {Array.from({ length: SKELETON_ROWS }, (_, row) => (
+          <View key={row} style={styles.row}>
+            {Array.from({ length: grid.columns }, (_, column) => (
+              <View key={column} style={mobileFoldAwareGridCellStyle(grid, column)}>
+                <Animated.View
+                  style={[
+                    styles.cover,
+                    {
+                      backgroundColor: skeletonColor,
+                      borderColor: tokens.coverBorder,
+                      opacity: skeletonOpacity,
+                      ...createNemuShadowStyle({
+                        color: tokens.shadow,
+                        offsetY: 3,
+                        radius: 14,
+                        elevation: 4,
+                      }),
+                    },
+                  ]}
+                />
+                <View style={styles.textBlock}>
+                  <Animated.View
+                    style={[
+                      styles.titleLine,
+                      { backgroundColor: skeletonColor, opacity: skeletonOpacity },
+                    ]}
+                  />
+                  <Animated.View
+                    style={[
+                      styles.titleLine,
+                      styles.titleLineSecond,
+                      { backgroundColor: skeletonColor, opacity: skeletonOpacity },
+                    ]}
+                  />
+                  <Animated.View
+                    style={[
+                      styles.subtitleLine,
+                      {
+                        backgroundColor: subtleSkeletonColor,
+                        opacity: skeletonOpacity,
+                      },
+                    ]}
+                  />
+                </View>
+              </View>
+            ))}
           </View>
         ))}
       </View>
+      {/* Design-explore: one shimmer sweep instead of the breathing pulse. */}
+      {mobileDesignExploreFlag ? <ExploreShimmerSweep /> : null}
     </View>
   );
 }
@@ -106,10 +129,13 @@ const styles = StyleSheet.create({
   stack: {
     gap: 16,
   },
+  // Rows stack with the grid's row gap; columns are spaced by each cell's
+  // marginLeft (mobileFoldAwareGridCellStyle), like the loaded grid.
   grid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
     gap: MOBILE_MANGA_GRID_GAP,
+  },
+  row: {
+    flexDirection: "row",
   },
   cover: {
     aspectRatio: 2 / 3,
