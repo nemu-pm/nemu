@@ -2578,13 +2578,7 @@ public class NemuAidokuModule: Module {
 
       let httpResponse = urlResponse as? HTTPURLResponse
       let status = httpResponse?.statusCode ?? 0
-      var headers: [String: String] = [:]
-
-      if let allHeaders = httpResponse?.allHeaderFields {
-        for (key, value) in allHeaders {
-          headers[String(describing: key).lowercased()] = String(describing: value)
-        }
-      }
+      let headers = responseHeaders(from: httpResponse)
 
       result.set(NemuNativeHttpResult(
         status: status,
@@ -2695,12 +2689,7 @@ public class NemuAidokuModule: Module {
       }
 
       let httpResponse = urlResponse as? HTTPURLResponse
-      var headers: [String: String] = [:]
-      if let allHeaders = httpResponse?.allHeaderFields {
-        for (key, value) in allHeaders {
-          headers[String(describing: key).lowercased()] = String(describing: value)
-        }
-      }
+      let headers = responseHeaders(from: httpResponse)
       let limitError = "HTTP response exceeds the \(maxResponseBytes) byte safety limit."
       if (urlResponse?.expectedContentLength ?? -1) > Int64(maxResponseBytes) {
         result.set(NemuNativeHttpResult(
