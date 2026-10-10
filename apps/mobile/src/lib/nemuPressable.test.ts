@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
   canRunNemuPressableHaptic,
+  createNemuRowHighlightController,
+  NEMU_ROW_HIGHLIGHT,
   resolveNemuButtonAccessibility,
   resolveNemuPressableAccessibility,
   resolveNemuPressableAnimationEnabled,
@@ -271,5 +273,45 @@ describe("row highlight shape", () => {
       borderTopLeftRadius: 8,
       borderBottomRightRadius: 0,
     });
+  });
+});
+
+describe("row highlight controller", () => {
+  function setup() {
+    const events: string[] = [];
+    const controller = createNemuRowHighlightController(
+      {
+        setValue: (value) => events.push(`set ${value}`),
+        stopAnimation: () => events.push("stop"),
+      },
+      () => events.push("fade"),
+    );
+    return { controller, events };
+  }
+  const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  test("a quick tap still flashes the highlight once", () => {
+    const { controller, events } = setup();
+    controller.onPressIn();
+    controller.onPressOut();
+    controller.onPress();
+    expect(events).toEqual(["stop", "fade", "stop", "set 1", "fade"]);
+  });
+
+  test("a hold fills after the delay and only fades on release", async () => {
+    const { controller, events } = setup();
+    controller.onPressIn();
+    await wait(NEMU_ROW_HIGHLIGHT.delayMs + 40);
+    controller.onPressOut();
+    controller.onPress();
+    expect(events).toEqual(["stop", "set 1", "fade"]);
+  });
+
+  test("dispose cancels a pending fill", async () => {
+    const { controller, events } = setup();
+    controller.onPressIn();
+    controller.dispose();
+    await wait(NEMU_ROW_HIGHLIGHT.delayMs + 40);
+    expect(events).toEqual(["stop"]);
   });
 });

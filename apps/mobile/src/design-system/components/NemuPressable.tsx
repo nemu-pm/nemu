@@ -44,7 +44,7 @@ import {
   type NemuPressableProfile,
 } from "@/lib/nemuPressable";
 
-import { useNemuRowHighlight } from "./useNemuRowHighlight";
+import { useOptionalNemuRowHighlight } from "./useNemuRowHighlight";
 
 const useNativeAnimationDriver = Platform.OS !== "web";
 
@@ -91,7 +91,7 @@ export function NemuPressable({
   ...props
 }: NemuPressableProps) {
   const { reduceMotion, scheme, sheetGlass, tokens } = useNemuTheme();
-  const rowHighlight = useNemuRowHighlight();
+  const rowHighlight = useOptionalNemuRowHighlight(pressHighlight);
   const [scale] = useState(() => new Animated.Value(1));
   // Only depth surfaces drive the press-progress node. A plain pressable —
   // most of the app — used to allocate it (plus three interpolations) on
@@ -316,18 +316,18 @@ export function NemuPressable({
       onPressIn={(event: GestureResponderEvent) => {
         if (resolvedDisabled) return;
         animateTo(resolvedPressedScale, true);
-        if (pressHighlight) rowHighlight.onPressIn();
+        rowHighlight?.onPressIn();
         onPressIn?.(event);
       }}
       onPressOut={(event: GestureResponderEvent) => {
         animateTo(1, false);
-        if (pressHighlight) rowHighlight.onPressOut();
+        rowHighlight?.onPressOut();
         if (resolvedDisabled) return;
         onPressOut?.(event);
       }}
       onPress={(event: GestureResponderEvent) => {
         if (resolvedDisabled) return;
-        if (pressHighlight) rowHighlight.onPress();
+        rowHighlight?.onPress();
         onPress?.(event);
         runHapticFeedback();
       }}
@@ -355,7 +355,7 @@ export function NemuPressable({
           { transform: [{ scale }] },
         ]}
       >
-        {pressHighlight ? rowHighlight.overlay(highlightRadii) : null}
+        {rowHighlight ? rowHighlight.overlay(highlightRadii) : null}
         {depthRestVisual && depthPressedVisual && !callerOverridesShadow ? (
           <>
             <Animated.View

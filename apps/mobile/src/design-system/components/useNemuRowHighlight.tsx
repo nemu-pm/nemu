@@ -1,8 +1,12 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, type ReactNode } from "react";
 import { Animated, Easing, Platform, StyleSheet } from "react-native";
 import { nemuColorWithAlpha } from "@/design/colorAlpha";
 import { useNemuTheme } from "@/design/useNemuTheme";
-import { NEMU_ROW_HIGHLIGHT, resolveNemuRowHighlightRadii } from "@/lib/nemuPressable";
+import {
+  createNemuRowHighlightController,
+  NEMU_ROW_HIGHLIGHT,
+  resolveNemuRowHighlightRadii,
+} from "@/lib/nemuPressable";
 
 const useNativeAnimationDriver = Platform.OS !== "web";
 
@@ -26,59 +30,47 @@ export type NemuRowHighlight = {
  * beside trailing controls) so the whole row highlights.
  */
 export function useNemuRowHighlight(): NemuRowHighlight {
+  return useOptionalNemuRowHighlight(true)!;
+}
+
+/**
+ * `useNemuRowHighlight` that allocates nothing (no Animated.Value, no
+ * handlers) while `enabled` is false; NemuPressable is in every list row and
+ * most of them do not highlight.
+ */
+export function useOptionalNemuRowHighlight(enabled: boolean): NemuRowHighlight | null {
   const { scheme, tokens } = useNemuTheme();
-  const [value] = useState(() => new Animated.Value(0));
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const clear = () => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = null;
-  };
-  useEffect(() => clear, []);
-  const fadeOut = useCallback(() => {
-    Animated.timing(value, {
-      toValue: 0,
-      duration: NEMU_ROW_HIGHLIGHT.fadeOutMs,
-      easing: Easing.out(Easing.quad),
-      useNativeDriver: useNativeAnimationDriver,
-    }).start();
-  }, [value]);
-  // Released before the highlight appeared: the tap (onPress follows) still
-  // flashes it once; a longer hold already showed it and only fades.
-  const releasedEarlyRef = useRef(false);
-  const onPressIn = useCallback(() => {
-    clear();
-    releasedEarlyRef.current = false;
-    value.stopAnimation();
-    timerRef.current = setTimeout(() => {
-      timerRef.current = null;
-      value.setValue(1);
-    }, NEMU_ROW_HIGHLIGHT.delayMs);
-  }, [value]);
-  const onPressOut = useCallback(() => {
-    releasedEarlyRef.current = timerRef.current !== null;
-    clear();
-    fadeOut();
-  }, [fadeOut]);
-  const onPress = useCallback(() => {
-    if (!releasedEarlyRef.current) return;
-    releasedEarlyRef.current = false;
-    value.stopAnimation();
-    value.setValue(1);
-    fadeOut();
-  }, [fadeOut, value]);
+  const state = useMemo(() => {
+    if (!enabled) return null;
+    const value = new Animated.Value(0);
+    const controller = createNemuRowHighlightController(value, () => {
+      Animated.timing(value, {
+        toValue: 0,
+        duration: NEMU_ROW_HIGHLIGHT.fadeOutMs,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: useNativeAnimationDriver,
+      }).start();
+    });
+    return { value, controller };
+  }, [enabled]);
+  useEffect(() => () => state?.controller.dispose(), [state]);
   const color = nemuColorWithAlpha(
     tokens.foreground,
     scheme === "dark" ? NEMU_ROW_HIGHLIGHT.darkAlpha : NEMU_ROW_HIGHLIGHT.lightAlpha,
   );
-  const overlay = useCallback(
-    (radii?: ReturnType<typeof resolveNemuRowHighlightRadii>) => (
-      <Animated.View
-        pointerEvents="none"
-        style={[StyleSheet.absoluteFill, radii, { backgroundColor: color, opacity: value }]}
-      />
-    ),
-    [color, value],
-  );
-  return { onPressIn, onPressOut, onPress, overlay };
+  return useMemo(() => {
+    if (!state) return null;
+    const { value, controller } = state;
+    return {
+      onPressIn: controller.onPressIn,
+      onPressOut: controller.onPressOut,
+      onPress: controller.onPress,
+      overlay: (radii?: ReturnType<typeof resolveNemuRowHighlightRadii>) => (
+        <Animated.View
+          pointerEvents="none"
+          style={[StyleSheet.absoluteFill, radii, { backgroundColor: color, opacity: value }]}
+        />
+      ),
+    };
+  }, [color, state]);
 }
-

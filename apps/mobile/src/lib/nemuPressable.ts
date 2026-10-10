@@ -199,3 +199,56 @@ export function resolveNemuRowHighlightRadii(style: RadiusStyle | null | undefin
     borderBottomRightRadius: corner(s.borderBottomRightRadius, s.borderBottomEndRadius),
   };
 }
+
+export type NemuRowHighlightValue = {
+  setValue: (value: number) => void;
+  stopAnimation: () => void;
+};
+
+export type NemuRowHighlightController = {
+  onPressIn: () => void;
+  onPressOut: () => void;
+  onPress: () => void;
+  dispose: () => void;
+};
+
+/**
+ * The row-highlight press timing: fill after `delayMs` on touch-down, fade on
+ * release; a tap released before the fill appeared still flashes it once
+ * (onPress follows), a longer hold already showed it and only fades.
+ */
+export function createNemuRowHighlightController(
+  value: NemuRowHighlightValue,
+  fadeOut: () => void,
+): NemuRowHighlightController {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let releasedEarly = false;
+  const clear = () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+  };
+  return {
+    onPressIn() {
+      clear();
+      releasedEarly = false;
+      value.stopAnimation();
+      timer = setTimeout(() => {
+        timer = null;
+        value.setValue(1);
+      }, NEMU_ROW_HIGHLIGHT.delayMs);
+    },
+    onPressOut() {
+      releasedEarly = timer !== null;
+      clear();
+      fadeOut();
+    },
+    onPress() {
+      if (!releasedEarly) return;
+      releasedEarly = false;
+      value.stopAnimation();
+      value.setValue(1);
+      fadeOut();
+    },
+    dispose: clear,
+  };
+}
