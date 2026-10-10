@@ -36,7 +36,7 @@ export const MOBILE_COVER_MESH_LOOP: readonly MobileCoverMeshPoint[] = [
 /** A pool's reach: its weight falls to zero this far from its centre (page widths). */
 export const MOBILE_COVER_MESH_REACH = 0.92;
 
-/** Weights of the four pools at a point of the page (sum to 1), as the shader computes them. */
+/** Parses a CSS `rgb()`/`rgba()` string into channels. */
 export function parseRgb(value: string): MobileCoverRgb {
   const match = /rgba?\((\d+), (\d+), (\d+)/.exec(value);
   return match

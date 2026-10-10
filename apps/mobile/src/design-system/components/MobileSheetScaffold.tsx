@@ -16,8 +16,8 @@ type MobileSheetScaffoldProps = {
   onHardwareBackPress?: () => boolean;
   backdropOnPress?: () => void;
   backdropDisabled?: boolean;
-  /** Optional chrome title, independent of the caller-provided dismiss action. */
   backgroundColor?: string;
+  /** Optional chrome title, independent of the caller-provided dismiss action. */
   title?: string;
   subtitle?: string;
   headerLeading?: ReactNode;

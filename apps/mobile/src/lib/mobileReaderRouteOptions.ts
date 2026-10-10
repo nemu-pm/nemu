@@ -91,7 +91,7 @@ export function mobileReaderScreenOptions({
 }): MobileReaderScreenOptions {
   // Light glyphs everywhere: over the page's black letterbox on phones, and on
   // the dark status capsule the capsule chrome draws under the iPhone Duo's
-  // horizontal status bar (see `statusBacking` in mobileReaderPoseLayout).
+  // horizontal status bar.
   return {
     statusBarAnimation: "fade",
     statusBarHidden: !showControls,
