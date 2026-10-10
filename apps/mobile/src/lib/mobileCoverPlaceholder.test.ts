@@ -60,6 +60,16 @@ describe("hotlink header guard", () => {
     );
   });
 
+  test("treats every guarded domain as the same site", () => {
+    const own = { Referer: "https://mangadex.org/chapter/x" };
+    expect(
+      sanitizeMobileHotlinkImageHeaders(
+        "https://abc.xyz.mangadex.network/data/1.png",
+        own,
+      ),
+    ).toBe(own);
+  });
+
   test("recognises guarded hosts", () => {
     expect(isMobileHotlinkGuardedImageUrl(MANGADEX_COVER)).toBe(true);
     expect(

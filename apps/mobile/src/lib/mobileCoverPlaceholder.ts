@@ -94,6 +94,8 @@ export function isMobileHotlinkGuardedImageUrl(
   return guardedDomainFor(url) !== null;
 }
 
+// Every guarded domain belongs to the same site (mangadex.org serves pages,
+// mangadex.network the MD@Home images), so any of them counts as "own".
 function isSameSiteHeaderValue(value: string, domain: string): boolean {
   const headerDomain = getMobileRegistrableDomain(value);
   return headerDomain !== null && HOTLINK_GUARDED_IMAGE_DOMAINS.includes(headerDomain)
