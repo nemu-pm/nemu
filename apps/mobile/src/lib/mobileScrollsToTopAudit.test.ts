@@ -11,14 +11,6 @@ import * as ts from "typescript";
 // `scrollsToTop={false}`; a conditional `horizontal={x}` passes
 // `scrollsToTop={!x}` so its vertical form keeps the tap.
 
-// Explicit exceptions: file (as reported below) → how many of its horizontal
-// scrollers keep the tap, and why. The count must match exactly, so a new
-// scroller in that file, or a fixed one, gets the entry re-reviewed.
-const ALLOWED_HORIZONTAL_SCROLLERS: Record<
-  string,
-  { scrollers: number; reason: string }
-> = {};
-
 const AUDIT_SOURCE_ROOTS = [
   { root: path.join(import.meta.dir, ".."), prefix: "" },
   { root: path.join(import.meta.dir, "..", "..", "app"), prefix: "app/" },
@@ -103,32 +95,15 @@ describe("horizontal scrollers leave the status-bar tap to the page", () => {
     // The audit must see the known rails, or a parse change silently passes it.
     expect(scrollers.length).toBeGreaterThanOrEqual(10);
 
-    const violations = scrollers.filter(
-      (scroller) =>
-        !leavesStatusBarTap(scroller) &&
-        !(scroller.file in ALLOWED_HORIZONTAL_SCROLLERS),
-    );
+    // No exceptions: a scroller that must keep the tap needs a reviewed
+    // allow-list entry here, not a silent skip.
+    const violations = scrollers.filter((scroller) => !leavesStatusBarTap(scroller));
     expect(
       violations.map(
         ({ location, element, horizontal, scrollsToTop }) =>
           `${location} <${element} horizontal={${horizontal}}> scrollsToTop=${scrollsToTop ?? "(default true)"}`,
       ),
     ).toEqual([]);
-  });
-
-  test("every allowed exception matches its file's scrollers exactly", async () => {
-    const scrollers = await findHorizontalScrollers();
-    for (const [file, { scrollers: allowed }] of Object.entries(
-      ALLOWED_HORIZONTAL_SCROLLERS,
-    )) {
-      const keepingTap = scrollers.filter(
-        (scroller) => scroller.file === file && !leavesStatusBarTap(scroller),
-      );
-      expect({ file, scrollers: keepingTap.length }).toEqual({
-        file,
-        scrollers: allowed,
-      });
-    }
   });
 
   test("the reader's paged list opts out while its long strip keeps the tap", () => {
