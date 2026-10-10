@@ -279,6 +279,20 @@ export function getMobileEntryMostRecentSource(
   return bestSource;
 }
 
+/**
+ * The source a title's quick actions open (Library and Search share it): the
+ * most recently read linked source, else the first linked one.
+ */
+export function getMobileEntryQuickActionSource(
+  entry: LibraryEntry,
+  progressIndex: MobileLibraryProgressIndex
+): LocalSourceLink | undefined {
+  return getMobileEntryMostRecentSource(
+    entry,
+    buildMobileEntryProgressMap(entry, progressIndex)
+  );
+}
+
 export function getMobileEntryAddedAt(entry: LibraryEntry): number {
   return entry.item.createdAt;
 }

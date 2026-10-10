@@ -155,10 +155,9 @@ import {
 } from "@/lib/mobileLibraryRefresh";
 import { resolveMobileSheetHeaderMetrics } from "@/lib/mobileNativeSheet";
 import {
-  buildMobileEntryProgressMap,
   buildMobileLibraryEntryProgressMaps,
   buildMobileProgressIndex,
-  getMobileEntryMostRecentSource,
+  getMobileEntryQuickActionSource,
   getMobileLibraryEmptyState,
   getMobileLibraryProgressInfo,
   shouldRenderMobileLibrarySkeleton,
@@ -225,16 +224,6 @@ function findInstalledSourceForLink(
       mobileInstalledSourceMatchesLink(source, sourceLink)
     ) ?? null
   );
-}
-
-function selectLibraryCoverSource(
-  entry: LibraryEntry,
-  progressIndex: MobileLibraryProgressIndex,
-  entryProgress?: Map<string, LocalMangaProgress>,
-): LocalSourceLink | undefined {
-  const progress =
-    entryProgress ?? buildMobileEntryProgressMap(entry, progressIndex);
-  return getMobileEntryMostRecentSource(entry, progress) ?? entry.sources[0];
 }
 
 // Memoized so a list-level state change (a sheet opening, a refresh flag)
@@ -1863,8 +1852,7 @@ export function LibraryScreen({
 
   const openEntryInSource = useCallback(
     (entry: LibraryEntry) => {
-      const link =
-        selectLibraryCoverSource(entry, progressIndex) ?? entry.sources[0];
+      const link = getMobileEntryQuickActionSource(entry, progressIndex);
       if (!link) return;
       router.push(
         getMobileSourceMangaHref({
@@ -1881,8 +1869,8 @@ export function LibraryScreen({
   const quickActionLink = useMemo(
     () =>
       quickActionEntry
-        ? (selectLibraryCoverSource(quickActionEntry, progressIndex) ??
-          quickActionEntry.sources[0])
+        ? (getMobileEntryQuickActionSource(quickActionEntry, progressIndex) ??
+          null)
         : null,
     [progressIndex, quickActionEntry],
   );

@@ -51,8 +51,13 @@ import {
 import {
   useInstalledSources,
   useLibraryEntries,
+  useMangaProgress,
   useMobileLanguageSettings,
 } from "@/data/mobileHooks";
+import {
+  buildMobileProgressIndex,
+  getMobileEntryQuickActionSource,
+} from "@/lib/mobileLibraryPresentation";
 import {
   entryHasAnyUpdate,
   getEntryTitle,
@@ -814,6 +819,7 @@ export function SearchScreen() {
   } | null>(null);
   const installed = useInstalledSources();
   const library = useLibraryEntries();
+  const progress = useMangaProgress();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
   const usesNativeHeader = usesNemuNativeHeader;
@@ -1566,7 +1572,18 @@ export function SearchScreen() {
     [store, strings, toast],
   );
 
-  const quickActionLink = quickActionEntry?.sources[0] ?? null;
+  const progressIndex = useMemo(
+    () => buildMobileProgressIndex(progress.data),
+    [progress.data],
+  );
+  const quickActionLink = useMemo(
+    () =>
+      quickActionEntry
+        ? (getMobileEntryQuickActionSource(quickActionEntry, progressIndex) ??
+          null)
+        : null,
+    [progressIndex, quickActionEntry],
+  );
   const quickActionSource = useMemo(
     () =>
       quickActionLink

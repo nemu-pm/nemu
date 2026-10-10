@@ -14,6 +14,7 @@ import {
   buildMobileProgressIndex,
   getMobileCollectionBookSubtitle,
   getMobileEntryMostRecentSource,
+  getMobileEntryQuickActionSource,
   getMobileLibraryEmptyState,
   getMobileEntryAddedAt,
   getMobileLibraryProgressInfo,
@@ -252,6 +253,24 @@ describe("mobile library presentation", () => {
     const entryProgress = buildMobileEntryProgressMap(item, progressIndex);
 
     expect(getMobileEntryMostRecentSource(item, entryProgress)?.id).toBe(newer.id);
+  });
+
+  test("quick actions open the most recently read source, else the first link", () => {
+    const first = sourceLink("first");
+    const read = sourceLink("read");
+    const item = entry("quick", 10, [first, read]);
+    expect(
+      getMobileEntryQuickActionSource(
+        item,
+        buildMobileProgressIndex([progress("read", 200)]),
+      )?.id,
+    ).toBe(read.id);
+    expect(
+      getMobileEntryQuickActionSource(item, buildMobileProgressIndex([]))?.id,
+    ).toBe(first.id);
+    expect(
+      getMobileEntryQuickActionSource(entry("none", 10, []), buildMobileProgressIndex([])),
+    ).toBeUndefined();
   });
 
   test("matches progress saved under an installed source alias", () => {
