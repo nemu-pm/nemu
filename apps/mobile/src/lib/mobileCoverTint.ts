@@ -341,6 +341,7 @@ const MOBILE_PRIMARY_MIN_CHROMA = 0.3;
  * page, so it asks for 4.5:1.
  */
 const MOBILE_PRIMARY_PAGE_CONTRAST = { light: 3, dark: 4.5 } as const;
+const PRIMARY_INK_CONTRAST = 4.5;
 
 /**
  * Moves the primary's lightness away from the page (darker on a light page,
@@ -365,7 +366,6 @@ function separateFromPage(
   }
   return primary;
 }
-const PRIMARY_INK_CONTRAST = 4.5;
 
 function chromaOf({ s, l }: Hsl): number {
   return s * (1 - Math.abs(2 * l - 1));
