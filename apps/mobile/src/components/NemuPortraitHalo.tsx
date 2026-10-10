@@ -133,12 +133,7 @@ export function NemuPortraitHalo({
     };
   }, []);
 
-  const animate = shouldAnimateNemuPortraitHalo({
-    appActive,
-    focused: true,
-    platform: Platform.OS,
-    reduceMotion,
-  });
+  const animate = shouldAnimateNemuPortraitHalo({ appActive, reduceMotion });
   const animateGlow = animate && shouldAnimateNemuPortraitGlow(Platform.OS);
 
   useEffect(() => {

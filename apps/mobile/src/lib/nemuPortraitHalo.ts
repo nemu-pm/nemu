@@ -175,12 +175,9 @@ export function getNemuPortraitGlowReachTop({
 
 export function shouldAnimateNemuPortraitHalo({
   appActive,
-  focused,
   reduceMotion,
 }: {
   appActive: boolean;
-  focused: boolean;
-  platform?: string;
   reduceMotion: boolean | null;
 }): boolean {
   // Unknown reduce-motion is optimistic: waiting for the accessibility probe
@@ -188,7 +185,6 @@ export function shouldAnimateNemuPortraitHalo({
   // timeline. Focus is not required to keep a loop alive — overlay sheets
   // blur the library without unmounting it, and restarting from rest made
   // iOS skip mid-cycle. Pause only for background or explicit reduce-motion.
-  void focused;
   return appActive && reduceMotion !== true;
 }
 

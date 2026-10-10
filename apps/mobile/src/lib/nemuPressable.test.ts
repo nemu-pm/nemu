@@ -88,47 +88,23 @@ describe("NemuPressable helpers", () => {
   });
 
   test("keeps every pressable's motion unresolved-safe", () => {
+    // Changed deliberately: plain pressables used to spring regardless of
+    // the setting. Reduce Motion now suppresses every press animation, and
+    // an unresolved (`null`) read stays still rather than animating first.
     for (const reduceMotion of [null, true] as const) {
-      expect(
-        resolveNemuPressableAnimationEnabled({
-          hasButtonDepth: true,
-          reduceMotion,
-        }),
-      ).toBe(false);
-      // Changed deliberately: plain pressables used to spring regardless of
-      // the setting. Reduce Motion now suppresses every press animation, and
-      // an unresolved (`null`) read stays still rather than animating first.
-      expect(
-        resolveNemuPressableAnimationEnabled({
-          hasButtonDepth: false,
-          reduceMotion,
-        }),
-      ).toBe(false);
+      expect(resolveNemuPressableAnimationEnabled({ reduceMotion })).toBe(false);
     }
-
+    expect(resolveNemuPressableAnimationEnabled({ reduceMotion: false })).toBe(
+      true,
+    );
     expect(
       resolveNemuPressableAnimationEnabled({
-        hasButtonDepth: false,
-        reduceMotion: false,
-      }),
-    ).toBe(true);
-
-    expect(
-      resolveNemuPressableAnimationEnabled({
-        hasButtonDepth: true,
-        reduceMotion: false,
-      }),
-    ).toBe(true);
-    expect(
-      resolveNemuPressableAnimationEnabled({
-        hasButtonDepth: true,
         pressAnimationEnabled: false,
         reduceMotion: false,
       }),
     ).toBe(false);
     expect(
       resolveNemuPressableAnimationEnabled({
-        hasButtonDepth: true,
         pressAnimationEnabled: true,
         reduceMotion: true,
       }),

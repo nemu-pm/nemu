@@ -161,7 +161,6 @@ export function NemuPressable({
     pressAnimationDuration ?? depthMotion?.duration;
   const resolvedPressAnimationEnabled =
     resolveNemuPressableAnimationEnabled({
-      hasButtonDepth: Boolean(buttonDepth),
       pressAnimationEnabled,
       reduceMotion,
     });

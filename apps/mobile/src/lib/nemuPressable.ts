@@ -116,11 +116,6 @@ export function resolveNemuPressableAnimationEnabled({
   pressAnimationEnabled,
   reduceMotion,
 }: {
-  /**
-   * Still accepted so the component call site keeps compiling; button depth no
-   * longer decides the policy now that every pressable honours the setting.
-   */
-  hasButtonDepth?: boolean;
   pressAnimationEnabled?: boolean;
   reduceMotion: boolean | null;
 }): boolean {
