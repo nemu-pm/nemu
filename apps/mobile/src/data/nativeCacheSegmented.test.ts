@@ -337,12 +337,10 @@ describe("native segmented cache publication", () => {
       maxAgeMs: 60_000,
       maxEntryBytes: 100_000,
     });
-    const startedAt = performance.now();
     expect(await cache.getUri("unrelated")).toBeNull();
-    const elapsedMs = performance.now() - startedAt;
     expect(files.size).toBe(0);
+    // Bounded work is the listing count, not wall-clock time.
     expect(directoryListCalls).toBeLessThanOrEqual(4);
-    expect(elapsedMs).toBeLessThan(1_000);
   });
 
   test("publishes further segment groups without re-indexing the directory", async () => {

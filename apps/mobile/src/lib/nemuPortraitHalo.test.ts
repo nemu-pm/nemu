@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdtempSync,
@@ -412,14 +411,13 @@ describe("Nemu portrait halo motion", () => {
     ).toBeGreaterThan(0);
   });
 
-  test("ships deterministic high-density portrait derivatives of the live web art", async () => {
+  test("ships high-density portrait derivatives of the live web art", async () => {
     const sourcePath = path.join(import.meta.dir, "../../../../public/portrait.png");
     const sourceMetadata = await sharp(sourcePath).metadata();
     expect(sourceMetadata.width).toBe(3000);
     expect(sourceMetadata.height).toBe(3508);
 
     let compressedBytes = 0;
-    const digests: string[] = [];
     for (const [index, filename] of getMobilePortraitImageFilenames().entries()) {
       const scale = NEMU_MOBILE_PORTRAIT_RASTER.scales[index];
       const assetPath = path.join(import.meta.dir, "../../assets", filename);
@@ -428,16 +426,11 @@ describe("Nemu portrait halo motion", () => {
       expect(png.readUInt32BE(20)).toBe(NEMU_MOBILE_PORTRAIT_RASTER.height * scale);
       expect(png[25]).toBe(6);
       compressedBytes += png.length;
-      digests.push(createHash("sha256").update(png).digest("hex"));
     }
 
     expect(compressedBytes).toBeLessThan(3_700_000);
-    expect(1917 * 2241 * 4).toBeLessThan(17_300_000);
-    expect(digests).toEqual([
-      "289ecd26613b6312b6894090eadbd90687f04d01ba3911f3b772c58ee0f36786",
-      "0aef366b62f9fe76cee19d68dbb80dd201def0d0e53c04a461994e99882d9cd3",
-      "5c609a2934c7aa4cce4fb1278c3264da3e254d9d660341a3c3d95ec2bcfd0567",
-    ]);
+    // Byte-level determinism is the pixel-for-pixel test below; PNG bytes
+    // also depend on the encoder build, so they are not pinned here.
   });
 
   test(
