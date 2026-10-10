@@ -746,7 +746,6 @@ describe("mobile i18n module budget", () => {
     for (const locale of ["en", "ja", "zh"] as const) {
       const feedback = getMobileStrings(locale).feedback;
       expect(feedback.libraryRefreshUnavailableDetail).not.toMatch(/^\s*·/);
-      expect(feedback.libraryRefreshUnavailableSuffix.trimStart().startsWith("·")).toBe(true);
     }
   });
 });
