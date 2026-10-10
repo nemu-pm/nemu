@@ -9,6 +9,7 @@ import type {
 import NemuAidokuModule from "../../modules/nemu-aidoku/src/NemuAidokuModule";
 import {
   parseMobileAidokuSandboxResponse,
+  parseMobileAidokuSandboxStatusResponse,
   stringifyMobileAidokuSandboxValue,
 } from "./mobileAidokuSandboxProtocol";
 import {
@@ -454,10 +455,11 @@ function wrapSandboxSource({
             ),
           ticket,
         );
-        const parsed = JSON.parse(response) as { status?: string; detail?: string };
-        if (parsed.status !== "updated") {
-          throw new Error(parsed.detail || "Failed to update isolated Aidoku settings.");
-        }
+        parseMobileAidokuSandboxStatusResponse(
+          response,
+          "updated",
+          "Failed to update isolated Aidoku settings.",
+        );
       },
       dispose,
       withPriority(priority) {
