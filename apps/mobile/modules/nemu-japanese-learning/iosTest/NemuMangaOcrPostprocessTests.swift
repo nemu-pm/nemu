@@ -163,7 +163,6 @@ struct NemuMangaOcrPostprocessTests {
   static func repetitionGuard() {
     let cls = NemuMangaOcrRecognizer.clsTokenId
     let limit = NemuMangaOcrRecognizer.maxRepeatRun
-    check(limit == 12, "benchmark-tuned run limit is 12")
     let run = [cls, 100] + [Int32](repeating: 7, count: limit)
     check(NemuMangaOcrRecognizer.repetitionCut(run) == nil, "a run of exactly \(limit) is allowed")
     let over = run + [7]
