@@ -78,9 +78,6 @@ export function MobileReaderConnectivityNotice({
   if (!connectivity.offline && !slowLoading) return null;
 
   const offline = connectivity.offline;
-  // Always the chrome's dark glass: the reader is a black immersive surface.
-  const dark = true;
-
   return (
     <Animated.View
       pointerEvents="box-none"
@@ -96,7 +93,7 @@ export function MobileReaderConnectivityNotice({
         backgroundColor={READER_CHROME_GLASS_TINT.dark}
         borderColor={READER_CHROME_GLASS_BORDER.dark}
         detail={offline ? strings.feedback.readerOfflineDetail : undefined}
-        detailColor={dark ? READER_NOTICE_DARK_DETAIL : tokens.mutedForeground}
+        detailColor={READER_NOTICE_DARK_DETAIL}
         icon={offline ? "cloud-offline-outline" : "hourglass-outline"}
         iconColor={offline ? tokens.warning : READER_NOTICE_DARK_DETAIL}
         plain
@@ -105,7 +102,7 @@ export function MobileReaderConnectivityNotice({
             ? strings.feedback.readerOfflineTitle
             : strings.feedback.readerSlowSource
         }
-        titleColor={dark ? READER_NOTICE_DARK_TITLE : tokens.foreground}
+        titleColor={READER_NOTICE_DARK_TITLE}
         tone="warning"
       />
     </Animated.View>

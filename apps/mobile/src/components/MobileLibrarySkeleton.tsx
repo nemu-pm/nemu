@@ -1,7 +1,5 @@
 import { StyleSheet, View } from "react-native";
 import { ExploreLibrarySkeleton } from "@/components/explore/ExploreLibrarySkeleton";
-import { ExploreShimmerSweep } from "@/components/explore/ExploreShimmerSweep";
-import { useExploreShimmerBackdrop } from "@/components/explore/useExploreShimmerBackdrop";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import Animated from "react-native-reanimated";
 import {
@@ -42,7 +40,6 @@ function ShippingLibrarySkeleton({
   accessibilityLabel: string;
 }) {
   const { tokens, reduceMotion } = useNemuTheme();
-  const shimmerBackdrop = useExploreShimmerBackdrop();
   // Same fold-aware grid as the library list (measured content box, even
   // columns on regular widths, the middle gutter on the fold in book posture),
   // so the skeleton hands off without a reflow and never straddles the fold.
@@ -50,8 +47,7 @@ function ShippingLibrarySkeleton({
   // Refs stay out of the layout object read during render.
   const { ref: gridRef, onLayout: onGridLayout, ...grid } = useMobileFoldAwareGrid({ insets: NO_INSETS });
   const pulseOpacity = useSkeletonPulse(reduceMotion === true);
-  // Design-explore: the blocks hold still and one shimmer sweep crosses them.
-  const skeletonOpacity = mobileDesignExploreFlag ? 1 : pulseOpacity;
+  const skeletonOpacity = pulseOpacity;
   const displayReady = useSkeletonDisplayDelay(150);
   const skeletonColor = tokens.muted;
   const subtleSkeletonColor = tokens.sourceIconGlass;
@@ -62,7 +58,7 @@ function ShippingLibrarySkeleton({
     <View
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="progressbar"
-      style={[styles.stack, shimmerBackdrop]}
+      style={styles.stack}
     >
       <View
         ref={gridRef}
@@ -119,8 +115,6 @@ function ShippingLibrarySkeleton({
           </View>
         ))}
       </View>
-      {/* Design-explore: one shimmer sweep instead of the breathing pulse. */}
-      {mobileDesignExploreFlag ? <ExploreShimmerSweep /> : null}
     </View>
   );
 }

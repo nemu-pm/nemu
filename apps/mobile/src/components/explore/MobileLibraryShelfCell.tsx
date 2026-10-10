@@ -45,8 +45,6 @@ import { MobileOdometerText } from "./MobileOdometerText";
 import { MobileShelfPlank } from "./MobileShelfPlank";
 
 const COVER_RADIUS = R.thumb;
-/** The cover fills its column, the same size as the Grid's (Shelf ⇄ Grid does not resize it). */
-const COVER_INSET = 0;
 
 type Props = {
   entry: LibraryEntry;
@@ -83,7 +81,7 @@ export const MobileLibraryShelfCell = memo(function MobileLibraryShelfCell({
   const title = getEntryTitle(entry);
   const id = entry.item.libraryItemId;
   const dark = scheme === "dark";
-  const coverWidth = Math.max(0, itemWidth - COVER_INSET * 2);
+  const coverWidth = Math.max(0, itemWidth);
   const coverHeight = Math.round(coverWidth * 1.5);
   const plankY = MOBILE_SHELF.headroom + coverHeight;
   const zoomId = `shelf:${id}`;
@@ -133,12 +131,10 @@ export const MobileLibraryShelfCell = memo(function MobileLibraryShelfCell({
         pressProfile="card"
         onPress={() => pushMobileExploreDetail(entry, cover, zoomId)}
         onLongPress={onLongPress ? handleLongPress : undefined}
-        style={styles.coverPress}
       >
         <View
           ref={bookRef}
           style={[
-            styles.book,
             {
               opacity: dissolving ? 0 : 1,
               width: coverWidth,
@@ -208,12 +204,6 @@ const styles = StyleSheet.create({
   cell: {
     paddingTop: MOBILE_SHELF.headroom,
     paddingBottom: MOBILE_SHELF.plankTop + MOBILE_SHELF.plankFront,
-  },
-  coverPress: {
-    paddingHorizontal: COVER_INSET,
-  },
-  book: {
-    transformOrigin: "50% 100%",
   },
   shadow: {
     position: "absolute",

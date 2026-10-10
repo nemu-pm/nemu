@@ -8,10 +8,6 @@ const PLANK_PALETTE = {
   light: { top: ["#ffffff", "#edf0f6"], front: ["#e2e6ee", "#d8dde7"], shadow: "rgba(38,57,120,0.1)", rim: "rgba(255,255,255,0.9)" },
   dark: { top: ["#5c5d61", "#4b4c50"], front: ["#313235", "#434447"], shadow: "rgba(0,0,0,0.5)", rim: "rgba(255,255,255,0.12)" },
 } as const;
-const PLANK = {
-  light: PLANK_PALETTE.light,
-  dark: PLANK_PALETTE.dark,
-} as const;
 
 /** `#rrggbb` → channels. */
 function channels(hex: string): [number, number, number] {
@@ -34,13 +30,13 @@ const percent = (points: number) => `${((points / PLANK_HEIGHT) * 100).toFixed(3
  * face, then the front face, with hard stops between them. One view (and no
  * clip view, no bitmap) per plank instead of four.
  */
-function plankFaces(palette: (typeof PLANK)["light" | "dark"]): string {
+function plankFaces(palette: (typeof PLANK_PALETTE)["light" | "dark"]): string {
   const rim = rimOver(palette.top[0], palette.rim);
   const edge = percent(StyleSheet.hairlineWidth);
   const fold = percent(MOBILE_SHELF.plankTop);
   return `linear-gradient(to bottom, ${rim} 0%, ${rim} ${edge}, ${palette.top[0]} ${edge}, ${palette.top[1]} ${fold}, ${palette.front[0]} ${fold}, ${palette.front[1]} 100%)`;
 }
-const PLANK_FACES = { light: plankFaces(PLANK.light), dark: plankFaces(PLANK.dark) } as const;
+const PLANK_FACES = { light: plankFaces(PLANK_PALETTE.light), dark: plankFaces(PLANK_PALETTE.dark) } as const;
 
 /**
  * A thin floating wall shelf: a lighter top face the covers stand on and a
@@ -49,7 +45,7 @@ const PLANK_FACES = { light: plankFaces(PLANK.light), dark: plankFaces(PLANK.dar
  */
 export function MobileShelfPlank({ left, width, top }: { left: number; width: number; top: number }) {
   const { scheme } = useNemuTheme();
-  const palette = PLANK[scheme];
+  const palette = PLANK_PALETTE[scheme];
   const shadow = createNemuShadowStyle({ color: palette.shadow, offsetY: 2, radius: 3, elevation: 2 });
   const frame = [styles.plank, { left, width, top, height: PLANK_HEIGHT }, shadow];
   return (
@@ -67,10 +63,5 @@ const styles = StyleSheet.create({
   plank: {
     position: "absolute",
     borderRadius: R.hair,
-  },
-  glassTop: {
-    height: MOBILE_SHELF.plankTop,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    backgroundColor: "rgba(255,255,255,0.12)",
   },
 });
