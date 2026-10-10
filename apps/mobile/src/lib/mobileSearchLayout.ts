@@ -151,18 +151,6 @@ export function resolveMobileSearchSidebarPress({
   return toggleSearchSourceSelection(sourceIds, selection, target);
 }
 
-/**
- * Highlighted rows. "All" is the selected row while every source is in scope;
- * otherwise each in-scope source row is.
- */
-export function isMobileSearchSidebarRowSelected(
-  selection: SearchSourceSelection,
-  target: string | null,
-): boolean {
-  if (target === null) return selection === null;
-  return selection !== null && selection.includes(target);
-}
-
 export type MobileSearchSidebarCheckState = "on" | "off" | "mixed";
 
 /**

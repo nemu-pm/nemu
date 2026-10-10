@@ -277,22 +277,16 @@ function topOcclusions(bounds: Rect, occlusions: Rect[]): Rect[] {
 }
 
 /**
- * Top of the capsule row. When the status bar is an island that shares the
+ * Candidate tops of the capsule row. When the status bar is an island sharing the
  * top band with app content (iPhone Duo inner display: a 134×82 occlusion in
  * the trailing corner and an 82pt top inset), the row sits in that band like
  * Safari's, its bottom 12pt above the safe-area edge; a band too short for
  * those margins (the outer display) centres the row on it. Otherwise (a
  * status bar spanning the top, or none) it sits just below the top inset.
- * `mobileReaderCapsuleRowTops` gives both candidates; `capsuleChrome` only
- * shares the band when the title capsule keeps a useful width there.
+ * This gives both candidates; `capsuleChrome` only shares the band when the
+ * title capsule keeps a useful width there.
  */
-export function mobileReaderCapsuleRowTop(bounds: Rect, insets: Insets, occlusions: Rect[], height = READER_CAPSULE_HEIGHT): number {
-  const rows = mobileReaderCapsuleRowTops(bounds, insets, occlusions, height);
-  return rows.shared ?? rows.below;
-}
-
-/** The two places the capsule row can sit: in the status band beside an island (if any), or below the top inset. */
-export function mobileReaderCapsuleRowTops(
+function mobileReaderCapsuleRowTops(
   bounds: Rect,
   insets: Insets,
   occlusions: Rect[],

@@ -463,30 +463,6 @@ export function resolveMobileNativeSheetSoftBottomEdge({
   return { endInset: fadeHeight, fadeHeight };
 }
 
-export function resolveMobileSheetIosLayoutBudget(containerWidth: number): {
-  bodyWidth: number;
-  compactActionWidth: number;
-  titleWidth: number;
-} {
-  const metrics = resolveMobileSheetHeaderMetrics("ios");
-  const compactActionWidth = metrics.sideWidth ?? 0;
-  const innerWidth = Math.max(
-    0,
-    containerWidth - metrics.horizontalPadding * 2,
-  );
-  return {
-    bodyWidth: Math.max(
-      0,
-      containerWidth - metrics.bodyHorizontalPadding * 2,
-    ),
-    compactActionWidth,
-    titleWidth: Math.max(
-      0,
-      innerWidth - compactActionWidth * 2 - MOBILE_SHEET_HEADER_ITEM_GAP * 2,
-    ),
-  };
-}
-
 export function shouldBoundMobileNativeSheetForPlatform({
   platform,
   width,

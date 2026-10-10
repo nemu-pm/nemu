@@ -3,7 +3,6 @@ import type {
   MobileCachedSegmentedImageAsset,
 } from "./mobileImageCache";
 import { makeMobileImageCacheStorageKey } from "./mobileImageCacheKey";
-import { readerContinuousAccessibilityAction } from "./mobileReaderProgress";
 
 export type MobileReaderLogicalPageIdentityInput = Readonly<{
   registryId: string;
@@ -93,36 +92,6 @@ export function isMobileReaderLogicalEndReached(input: {
   const maximumOffset = Math.max(0, input.contentLength - input.viewportLength);
   const tolerance = Math.max(1, input.tolerance ?? 2);
   return input.contentOffset >= maximumOffset - tolerance;
-}
-
-export function mobileReaderSegmentedNextAction(input: {
-  contentOffset: number;
-  contentLength: number;
-  viewportLength: number;
-}): { kind: "scroll"; offset: number } | { kind: "end" } {
-  return readerContinuousAccessibilityAction(input, "next");
-}
-
-export function getMobileReaderMeasuredScrollMetrics(input: {
-  contentOffset: number;
-  contentLength: number;
-  viewportLength: number;
-}): {
-  contentOffset: number;
-  contentLength: number;
-  viewportLength: number;
-} {
-  const contentLength = Number.isFinite(input.contentLength)
-    ? Math.max(0, input.contentLength)
-    : 0;
-  const viewportLength = Number.isFinite(input.viewportLength)
-    ? Math.max(0, input.viewportLength)
-    : 0;
-  const maximumOffset = Math.max(0, contentLength - viewportLength);
-  const contentOffset = Number.isFinite(input.contentOffset)
-    ? Math.max(0, Math.min(maximumOffset, input.contentOffset))
-    : 0;
-  return { contentOffset, contentLength, viewportLength };
 }
 
 export function getMobileReaderLogicalScrollProgress(input: {

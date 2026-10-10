@@ -12,10 +12,6 @@ export function makeMobileSourceBrowseSearchRouteQuery(query: string): string {
   return normalizeMobileSourceBrowseRouteQuery(query) || " ";
 }
 
-export function canClearMobileSourceBrowseTextInput(query: string): boolean {
-  return query.length > 0;
-}
-
 export function shouldRunMobileSourceBrowseSearchSubmitFeedback({
   query,
   routeQuery,
@@ -301,18 +297,6 @@ export function canSelectMobileSourceBrowseTab({
   selected: boolean;
 }): boolean {
   return !selected;
-}
-
-export function shouldShowMobileSourceBrowseLoadError({
-  loading,
-  hasSource,
-  hasError,
-}: {
-  loading: boolean;
-  hasSource: boolean;
-  hasError: boolean;
-}): boolean {
-  return !loading && !hasSource && hasError;
 }
 
 /**

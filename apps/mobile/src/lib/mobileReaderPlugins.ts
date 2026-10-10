@@ -294,18 +294,6 @@ export function canSelectMobileReaderPluginOption({
   return !selected && !disabled;
 }
 
-export function canOpenMobileReaderPluginSettingsAction({
-  settingsOpen,
-  activePluginId,
-  disabled,
-}: {
-  settingsOpen: boolean;
-  activePluginId: string | null;
-  disabled: boolean;
-}): boolean {
-  return !disabled && (!settingsOpen || activePluginId !== null);
-}
-
 export function setMobileReaderPluginEnabled(
   settings: UserSettings,
   pluginId: MobileReaderPluginId,

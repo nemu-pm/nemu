@@ -117,39 +117,6 @@ export function measureMobileCoverPixelWidth(source: CoverTintSource): Promise<n
   return next;
 }
 
-/** The width measured this session, if any (undefined: not measured yet). */
-function getMobileCoverPixelWidthSync(source: CoverTintSource): number | null | undefined {
-  if (!source?.uri) return null;
-  const key = cacheKey(source);
-  return pixelWidths.has(key) ? (pixelWidths.get(key) ?? null) : undefined;
-}
-
-/**
- * A cover's pixel width for sizing it (null until known). Known on the first
- * render when any surface measured the same cover this session, so a page
- * the cover zooms into is laid out for it from its first frame.
- */
-export function useMobileCoverPixelWidth(source: CoverTintSource): number | null {
-  const uri = source?.uri ?? null;
-  const headersKey = source?.headers ? JSON.stringify(source.headers) : "";
-  const [state, setState] = useState<{ key: string; width: number | null } | null>(null);
-  const key = `${uri}|${headersKey}`;
-  const sync = getMobileCoverPixelWidthSync(source);
-  useEffect(() => {
-    if (!uri) return undefined;
-    let cancelled = false;
-    const headers = headersKey ? (JSON.parse(headersKey) as Record<string, string>) : undefined;
-    void measureMobileCoverPixelWidth({ uri, headers }).then((width) => {
-      if (!cancelled) setState({ key, width });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [headersKey, key, uri]);
-  if (state && state.key === key) return state.width;
-  return sync ?? null;
-}
-
 /** Samples a cover and returns its tint colour. */
 async function sampleCoverTint(
   source: NonNullable<CoverTintSource>,

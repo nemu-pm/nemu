@@ -7,7 +7,6 @@ import {
   mobileReaderTapExcluded,
   mobileReaderCapsuleActionSlots,
   mobileReaderCapsuleActionsWidth,
-  mobileReaderCapsuleRowTop,
   mobileReaderAnticipatedWindowLayout,
   mobileReaderHingeHintKey,
   mobileReaderNextSideInsetLatch,
@@ -238,7 +237,6 @@ describe("reader pose: capsule chrome (regular width)", () => {
     expect(chrome.back.y).toBe(24 + 8);
     // Below the row when the status bar spans the top.
     expect(chrome.topScrim.height).toBe(32 + 44 + 24);
-    expect(mobileReaderCapsuleRowTop({ x: 0, y: 0, width: 1366, height: 1024 }, { top: 24, left: 0, bottom: 20, right: 0 }, [])).toBe(32);
   });
 
   test("a binary without the vertical-bar opt-out still keeps the capsules out of the side inset", () => {

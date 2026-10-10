@@ -7,11 +7,7 @@ import {
   formatMobileJapaneseLearningChatTime,
   MOBILE_GRAMMAR_TOKEN_HIT_SLOP,
   mobileGrammarTokenAtPoint,
-  mobileGrammarTokenCanAct,
-  mobileGrammarTokenCategory,
-  mobileGrammarTokenColor,
   mobileGrammarTokenInSelection,
-  mobileGrammarTokenPosLabel,
   mobileJapaneseLearningChatRequestMessages,
   mobileJapaneseLearningSentenceText,
   mobileOcrLabelColor,
@@ -144,57 +140,6 @@ describe("mobileOcrLabelColor", () => {
   });
   test("unknown → mutedForeground", () => {
     expect(mobileOcrLabelColor("unknown", tokens)).toBe("#muted");
-  });
-});
-
-describe("mobileGrammarTokenCategory", () => {
-  test.each([
-    ["verb", "verb"],
-    ["adjective", "adjective"],
-    ["particle", "particle"],
-    ["adverb", "adverb"],
-    ["noun", "noun"],
-    ["punctuation", "punctuation"],
-    ["conjunction", "other"],
-  ])("%s part-of-speech → %s", (pos, expected) => {
-    expect(mobileGrammarTokenCategory(token(`aux-${pos}`))).toBe(expected);
-  });
-});
-
-describe("mobileGrammarTokenColor", () => {
-  test("verb → primary", () => {
-    expect(mobileGrammarTokenColor(token("verb"), tokens)).toBe("#primary");
-  });
-  test("particle → danger", () => {
-    expect(mobileGrammarTokenColor(token("particle"), tokens)).toBe("#danger");
-  });
-  test("other → mutedForeground", () => {
-    expect(mobileGrammarTokenColor(token("conjunction"), tokens)).toBe("#muted");
-  });
-});
-
-describe("mobileGrammarTokenPosLabel", () => {
-  test.each([
-    ["verb", "動"],
-    ["adjective", "形"],
-    ["particle", "助"],
-    ["adverb", "副"],
-    ["noun", "名"],
-    ["conjunction", ""],
-  ])("%s → %s", (pos, expected) => {
-    expect(mobileGrammarTokenPosLabel(token(pos))).toBe(expected);
-  });
-});
-
-describe("mobileGrammarTokenCanAct", () => {
-  test("false for empty word", () => {
-    expect(mobileGrammarTokenCanAct(token("noun", "  "))).toBe(false);
-  });
-  test("false for punctuation", () => {
-    expect(mobileGrammarTokenCanAct(token("punctuation", "、"))).toBe(false);
-  });
-  test("true otherwise", () => {
-    expect(mobileGrammarTokenCanAct(token("noun", "本"))).toBe(true);
   });
 });
 

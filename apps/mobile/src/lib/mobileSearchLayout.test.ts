@@ -10,7 +10,6 @@ import {
   MOBILE_SEARCH_KIND_HEADER_HEIGHT,
   MOBILE_SEARCH_SOURCE_HEADER_HEIGHT,
   formatMobileSearchSidebarCount,
-  isMobileSearchSidebarRowSelected,
   resolveMobileSearchSidebarCheckState,
   getMobileSearchSidebarSourceIdsKey,
   parseMobileSearchSidebarSourceIdsKey,
@@ -243,13 +242,6 @@ describe("sidebar selection", () => {
     expect(
       resolveMobileSearchSidebarPress({ sourceIds: IDS, selection: ["jump"], target: "gone", gesture: "press" }),
     ).toEqual(["jump"]);
-  });
-
-  test("highlighted rows", () => {
-    expect(isMobileSearchSidebarRowSelected(null, null)).toBe(true);
-    expect(isMobileSearchSidebarRowSelected(null, "jump")).toBe(false);
-    expect(isMobileSearchSidebarRowSelected(["jump"], "jump")).toBe(true);
-    expect(isMobileSearchSidebarRowSelected(["jump"], null)).toBe(false);
   });
 });
 

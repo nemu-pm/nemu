@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
   canSelectMobileSourceBrowseTab,
-  canClearMobileSourceBrowseTextInput,
   getDefaultMobileSourceBrowseListingId,
   findMobileSourceBrowseFallbackErrorStep,
   getMobileSourceBrowseFallbackErrorDetail,
@@ -19,7 +18,6 @@ import {
   shouldRunMobileSourceBrowseSearchSubmitFeedback,
   shouldShowCenterSourceBrowseSearchProgress,
   shouldShowMobileSourceBrowseListingTabBar,
-  shouldShowMobileSourceBrowseLoadError,
   shouldShowMobileSourceBrowseNoMatches,
   shouldShowMobileSourceBrowseNotInstalled,
   shouldShowSourceBrowseBootstrapping,
@@ -124,12 +122,6 @@ describe("mobile source browse route helpers", () => {
     expect(makeMobileSourceBrowseSearchRouteQuery("  yotsuba  ")).toBe(
       "yotsuba",
     );
-  });
-
-  test("enables source browse text clearing only while input has content", () => {
-    expect(canClearMobileSourceBrowseTextInput("")).toBe(false);
-    expect(canClearMobileSourceBrowseTextInput(" ")).toBe(true);
-    expect(canClearMobileSourceBrowseTextInput("one piece")).toBe(true);
   });
 
   test("matches source search submit feedback to actionable route changes", () => {
@@ -589,36 +581,7 @@ describe("mobile source browse route helpers", () => {
     expect(canSelectMobileSourceBrowseTab({ selected: true })).toBe(false);
   });
 
-  test("keeps source browse load errors retryable before not-installed fallback", () => {
-    expect(
-      shouldShowMobileSourceBrowseLoadError({
-        loading: false,
-        hasSource: false,
-        hasError: true,
-      }),
-    ).toBe(true);
-    expect(
-      shouldShowMobileSourceBrowseLoadError({
-        loading: true,
-        hasSource: false,
-        hasError: true,
-      }),
-    ).toBe(false);
-    expect(
-      shouldShowMobileSourceBrowseLoadError({
-        loading: false,
-        hasSource: true,
-        hasError: true,
-      }),
-    ).toBe(false);
-    expect(
-      shouldShowMobileSourceBrowseLoadError({
-        loading: false,
-        hasSource: false,
-        hasError: false,
-      }),
-    ).toBe(false);
-
+  test("shows not-installed only once loading settles without a source or error", () => {
     expect(
       shouldShowMobileSourceBrowseNotInstalled({
         loading: false,

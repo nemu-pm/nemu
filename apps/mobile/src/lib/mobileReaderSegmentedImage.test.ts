@@ -8,10 +8,8 @@ import {
   getMobileReaderLogicalPageIdentity,
   getMobileReaderLogicalOffsetForProgress,
   getMobileReaderLogicalScrollProgress,
-  getMobileReaderMeasuredScrollMetrics,
   isMobileReaderLogicalEndReached,
   MOBILE_READER_SEGMENTED_CAPABILITIES,
-  mobileReaderSegmentedNextAction,
   shouldCompleteSingleImageReaderPage,
 } from "./mobileReaderSegmentedImage";
 import type { MobileCachedSegmentedImageAsset } from "./mobileImageCache";
@@ -89,14 +87,7 @@ describe("segmented reader geometry", () => {
     ).toBe(true);
   });
 
-  it("moves accessibility Next by a viewport before requesting chapter end", () => {
-    expect(
-      mobileReaderSegmentedNextAction({
-        contentOffset: 0,
-        contentLength: 0,
-        viewportLength: 0,
-      }),
-    ).toEqual({ kind: "scroll", offset: 0 });
+  it("reports the logical end only once the strip is scrolled to its bottom", () => {
     expect(
       isMobileReaderLogicalEndReached({
         contentOffset: 0,
@@ -112,43 +103,12 @@ describe("segmented reader geometry", () => {
       }),
     ).toBe(false);
     expect(
-      mobileReaderSegmentedNextAction({
-        contentOffset: 0,
-        contentLength: 10_000,
-        viewportLength: 1_000,
-      }),
-    ).toEqual({ kind: "scroll", offset: 850 });
-    expect(
-      mobileReaderSegmentedNextAction({
-        contentOffset: 9_000,
-        contentLength: 10_000,
-        viewportLength: 1_000,
-      }),
-    ).toEqual({ kind: "end" });
-    expect(
       isMobileReaderLogicalEndReached({
         contentOffset: 8_999,
         contentLength: 10_000,
         viewportLength: 1_000,
       }),
     ).toBe(true);
-  });
-
-  it("seeds fresh content geometry before the first accessibility scroll", () => {
-    const metrics = getMobileReaderMeasuredScrollMetrics({
-      contentOffset: 0,
-      contentLength: 10_100 - 100,
-      viewportLength: 1_000,
-    });
-    expect(metrics).toEqual({
-      contentOffset: 0,
-      contentLength: 10_000,
-      viewportLength: 1_000,
-    });
-    expect(mobileReaderSegmentedNextAction(metrics)).toEqual({
-      kind: "scroll",
-      offset: 850,
-    });
   });
 
   it("explicitly disables whole-page-only image capabilities", () => {

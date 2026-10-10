@@ -7,7 +7,6 @@ import {
   MOBILE_SCROLL_EDGE_START_BELOW_CAPSULE_TOP,
   MOBILE_SCROLL_EDGE_MAX_BLUR_RADIUS,
   MOBILE_SCROLL_EDGE_SCRIM_MAX_ALPHA,
-  mobileScrollEdgeBlurRadiusAt,
   resolveMobileBottomScrollEdgeEffect,
 } from "./mobileScrollEdgeEffect";
 
@@ -57,31 +56,5 @@ describe("resolveMobileBottomScrollEdgeEffect", () => {
       blurAvailable: true,
     });
     expect(effect.height).toBe(MOBILE_FLOATING_TAB_BAR_VISUAL_HEIGHT - MOBILE_SCROLL_EDGE_START_BELOW_CAPSULE_TOP);
-  });
-});
-
-describe("mobileScrollEdgeBlurRadiusAt", () => {
-  it("is zero at the band top, max at the edge, and eases in", () => {
-    expect(mobileScrollEdgeBlurRadiusAt(0)).toBe(0);
-    expect(mobileScrollEdgeBlurRadiusAt(1)).toBe(MOBILE_SCROLL_EDGE_MAX_BLUR_RADIUS);
-    expect(mobileScrollEdgeBlurRadiusAt(0.5)).toBeLessThan(MOBILE_SCROLL_EDGE_MAX_BLUR_RADIUS / 2);
-    expect(mobileScrollEdgeBlurRadiusAt(-1)).toBe(0);
-    expect(mobileScrollEdgeBlurRadiusAt(2)).toBe(MOBILE_SCROLL_EDGE_MAX_BLUR_RADIUS);
-  });
-
-  it("is exactly zero at and above the capsule top, and soft only below it", () => {
-    const effect = resolveMobileBottomScrollEdgeEffect({
-      bottomInset: 24,
-      tabBottom: spacing.tabBottom,
-      blurAvailable: true,
-    });
-    // t for a row `d` dp above the window bottom; the band top is t = 0.
-    const tAt = (d: number) => (effect.height - d) / effect.height;
-    expect(mobileScrollEdgeBlurRadiusAt(tAt(effect.capsuleTop))).toBe(0);
-    expect(mobileScrollEdgeBlurRadiusAt(tAt(effect.capsuleTop + 20))).toBe(0);
-    // Halfway down the capsule, still barely soft; strongest at the edge.
-    const midCapsule = effect.capsuleTop - MOBILE_FLOATING_TAB_BAR_VISUAL_HEIGHT / 2;
-    expect(mobileScrollEdgeBlurRadiusAt(tAt(midCapsule))).toBeLessThan(MOBILE_SCROLL_EDGE_MAX_BLUR_RADIUS / 3);
-    expect(effect.scrimStops[0].alpha).toBe(0);
   });
 });

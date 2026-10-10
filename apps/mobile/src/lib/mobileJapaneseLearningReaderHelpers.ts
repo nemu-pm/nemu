@@ -107,48 +107,6 @@ export function mobileOcrLabelColor(
   return tokens.mutedForeground;
 }
 
-export function mobileGrammarTokenCategory(token: MobileGrammarToken): string {
-  const pos = token.partOfSpeech.toLowerCase();
-  // `adverb` must be checked before `verb`: "adverb" contains the substring
-  // "verb", so checking verb first would misclassify every adverb as a verb.
-  if (pos.includes("adverb")) return "adverb";
-  if (pos.includes("verb")) return "verb";
-  if (pos.includes("adjective")) return "adjective";
-  if (pos.includes("particle")) return "particle";
-  if (pos.includes("noun")) return "noun";
-  if (pos.includes("punctuation")) return "punctuation";
-  return "other";
-}
-
-export function mobileGrammarTokenColor(
-  token: MobileGrammarToken,
-  tokens: MobileReaderThemeTokens,
-): string {
-  const category = mobileGrammarTokenCategory(token);
-  if (category === "verb") return tokens.primary;
-  if (category === "adjective") return tokens.success;
-  if (category === "particle") return tokens.danger;
-  if (category === "noun") return tokens.foreground;
-  return tokens.mutedForeground;
-}
-
-export function mobileGrammarTokenPosLabel(token: MobileGrammarToken): string {
-  const category = mobileGrammarTokenCategory(token);
-  if (category === "verb") return "動";
-  if (category === "adjective") return "形";
-  if (category === "particle") return "助";
-  if (category === "adverb") return "副";
-  if (category === "noun") return "名";
-  return "";
-}
-
-export function mobileGrammarTokenCanAct(token: MobileGrammarToken): boolean {
-  return (
-    token.word.trim().length > 0 &&
-    mobileGrammarTokenCategory(token) !== "punctuation"
-  );
-}
-
 /**
  * How far outside every word a tap still picks the nearest one. The words sit
  * 2pt apart and bottom-aligned, so a tap on a seam or above a word without

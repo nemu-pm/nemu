@@ -14,7 +14,6 @@ import {
   resolveMobileNativeSheetBodyTopPadding,
   resolveMobileNativeSheetBottomPadding,
   resolveMobileNativeSheetSoftBottomEdge,
-  resolveMobileSheetIosLayoutBudget,
   resolveMobileSheetHeaderMetrics,
   resolveMobileNativeSheetDismissLabel,
   resolveMobileNativeSheetIosFramedDetentHeight,
@@ -107,18 +106,7 @@ describe("mobile native sheet behavior", () => {
     );
   });
 
-  test("budgets compact iOS chrome and full-width body copy at narrow phone widths", () => {
-    expect(resolveMobileSheetIosLayoutBudget(320)).toEqual({
-      bodyWidth: 288,
-      compactActionWidth: 76,
-      titleWidth: 112,
-    });
-    expect(resolveMobileSheetIosLayoutBudget(390)).toEqual({
-      bodyWidth: 358,
-      compactActionWidth: 76,
-      titleWidth: 182,
-    });
-
+  test("lets long iOS sheet body copy wrap without a line cap", () => {
     for (const language of ["en", "zh", "ja"] as const) {
       const instructions =
         getMobileStrings(language).settings.sourceSettingsBasicLoginInstructions;

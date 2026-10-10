@@ -56,16 +56,6 @@ function roundTo(value: number, digits: number): number {
   return Math.round(value * scale) / scale;
 }
 
-/** Blur radius (dp) at `t` (0 = band top, 1 = bottom edge). */
-export function mobileScrollEdgeBlurRadiusAt(
-  t: number,
-  maxBlurRadius: number = MOBILE_SCROLL_EDGE_MAX_BLUR_RADIUS,
-  exponent: number = MOBILE_SCROLL_EDGE_BLUR_EXPONENT,
-): number {
-  const clamped = Math.min(1, Math.max(0, Number.isFinite(t) ? t : 0));
-  return maxBlurRadius * clamped ** exponent;
-}
-
 export function resolveMobileBottomScrollEdgeEffect({
   bottomInset,
   tabBottom,
