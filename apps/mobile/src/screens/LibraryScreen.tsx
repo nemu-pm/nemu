@@ -1326,7 +1326,7 @@ export function LibraryScreen({
     reloadLibrary,
     store,
     strings.feedback.libraryRefreshFailedTitle,
-    strings.feedback.libraryRefreshUnavailableSuffix,
+    strings.feedback.libraryRefreshUnavailableDetail,
     toast,
   ]);
 
