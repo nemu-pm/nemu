@@ -64,8 +64,6 @@ export function selectMobileContinueReading(
     });
   }
   return items
-    .map((item, index) => ({ item, index }))
-    .sort((a, b) => b.item.lastReadAt - a.item.lastReadAt || a.index - b.index)
-    .slice(0, Math.max(0, limit))
-    .map(({ item }) => item);
+    .sort((a, b) => b.lastReadAt - a.lastReadAt)
+    .slice(0, Math.max(0, limit));
 }

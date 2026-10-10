@@ -81,14 +81,6 @@ export function filterMobileAvailableSources<T extends MobileBrowseSource>(
   return sortSourcesByLanguagePriority(filtered, options.appLanguage);
 }
 
-export function canSelectMobileBrowseAllLanguages({
-  selected,
-}: {
-  selected: boolean;
-}): boolean {
-  return !selected;
-}
-
 export function groupMobileSourcesByLanguage<T extends MobileBrowseLanguageSource>(
   sources: T[],
   appLanguage: AppLanguage,
@@ -438,11 +430,10 @@ export function selectMobileBrowseLibrarySources<T extends { registryId: string;
     titles.set(key, set);
   }
   return sources
-    .map((source, index) => ({ source, index, titles: titles.get(`${source.registryId}\u0000${source.sourceId}`)?.size ?? 0 }))
+    .map((source) => ({ source, titles: titles.get(`${source.registryId}\u0000${source.sourceId}`)?.size ?? 0 }))
     .filter((item) => item.titles > 0)
-    .sort((a, b) => b.titles - a.titles || a.index - b.index)
-    .slice(0, Math.max(0, limit))
-    .map(({ source, titles: count }) => ({ source, titles: count }));
+    .sort((a, b) => b.titles - a.titles)
+    .slice(0, Math.max(0, limit));
 }
 
 /**

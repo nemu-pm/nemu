@@ -7,6 +7,7 @@
  * analysis, or "Download now" in settings — shows up in every view.
  */
 import { useSyncExternalStore } from "react";
+import { createChangeListeners } from "./mobileChangeListeners";
 import type { NemuJapaneseLearningNativeModule } from "../../modules/nemu-japanese-learning/src/NemuJapaneseLearning.types";
 import {
   MOBILE_JAPANESE_LEARNING_PACK_INITIAL_STATE,
@@ -23,7 +24,7 @@ import {
 } from "./mobileJapaneseLearningOnDeviceAnalysis";
 
 let state: MobileJapaneseLearningPackState = MOBILE_JAPANESE_LEARNING_PACK_INITIAL_STATE;
-const listeners = new Set<() => void>();
+let changes = createChangeListeners();
 let detachEngine: (() => void) | null = null;
 let moduleOverride: NemuJapaneseLearningNativeModule | null | undefined;
 
@@ -31,7 +32,7 @@ function dispatch(event: MobileJapaneseLearningPackEvent): void {
   const next = reduceMobileJapaneseLearningPackState(state, event);
   if (next === state) return;
   state = next;
-  for (const listener of listeners) listener();
+  changes.notify();
 }
 
 function errorMessage(error: unknown): string {
@@ -62,10 +63,7 @@ export function subscribeMobileJapaneseLearningAnalysisPackState(
   listener: () => void,
 ): () => void {
   attachEngine();
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
+  return changes.subscribe(listener);
 }
 
 export function getMobileJapaneseLearningAnalysisPackState(): MobileJapaneseLearningPackState {
@@ -130,7 +128,7 @@ export function resetMobileJapaneseLearningAnalysisPackStoreForTesting(
 ): void {
   detachEngine?.();
   detachEngine = null;
-  listeners.clear();
+  changes = createChangeListeners();
   moduleOverride = module;
   state = MOBILE_JAPANESE_LEARNING_PACK_INITIAL_STATE;
 }

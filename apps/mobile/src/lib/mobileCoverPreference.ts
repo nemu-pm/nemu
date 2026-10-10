@@ -167,12 +167,17 @@ export function parseMobileCoverPreferenceStore(
     if (typeof url !== "string" || !/^https?:\/\//i.test(url) || url.length > MAX_VALUE_LENGTH) continue;
     store.set(id, url);
   }
+  trimStoreToLimit(store, limit);
+  return store;
+}
+
+/** Drops the oldest entries (Map insertion order) past `limit`. */
+function trimStoreToLimit(store: MobileCoverPreferenceStore, limit: number): void {
   while (store.size > limit) {
     const oldest = store.keys().next().value;
     if (oldest === undefined) break;
     store.delete(oldest);
   }
-  return store;
 }
 
 export function serializeMobileCoverPreferenceStore(store: MobileCoverPreferenceStore): string {
@@ -192,10 +197,6 @@ export function rememberMobileCoverPreference(
   if (url.length > MAX_VALUE_LENGTH || !/^https?:\/\//i.test(url)) return false;
   store.delete(id);
   store.set(id, url);
-  while (store.size > limit) {
-    const oldest = store.keys().next().value;
-    if (oldest === undefined) break;
-    store.delete(oldest);
-  }
+  trimStoreToLimit(store, limit);
   return previous !== url;
 }

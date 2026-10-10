@@ -4,12 +4,6 @@ import { formatMobileString, type MobileStrings } from "./mobileI18n";
 
 const SHORT_TITLE_MAX_LENGTH = 18;
 
-// The design-explore switch as this run started (`mobileDesignExploreFlag`),
-// read through the pure switch module so this one stays free of react-native.
-function designExploreLabels(): boolean {
-  return getMobileDesignExploreActive();
-}
-
 /**
  * The volume a label shows. Design-explore: a volume 0 beside a chapter
  * number is a source's placeholder (some sources number every chapter not yet
@@ -18,7 +12,7 @@ function designExploreLabels(): boolean {
  */
 function getShownChapterVolume(
   chapter: Pick<ChapterSummary, "volumeNumber" | "chapterNumber">,
-  placeholderZero = designExploreLabels(),
+  placeholderZero = getMobileDesignExploreActive(),
 ): number | null {
   const volume = chapter.volumeNumber;
   if (volume == null) return null;

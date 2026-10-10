@@ -29,6 +29,7 @@
  */
 import { useSyncExternalStore } from "react";
 import { MOBILE_MEDIUM_WIDTH } from "@/lib/mobileAdaptiveLayout";
+import { createChangeListeners } from "@/lib/mobileChangeListeners";
 import {
   mobileWindowPanels,
   mobileWindowUnoccludedRect,
@@ -370,7 +371,7 @@ export function resolveMobileDuoBilingualMode(input: {
 // --- Session-only toggle store --------------------------------------------
 
 let sessionChoice: MobileDuoBilingualMode | null = null;
-const listeners = new Set<() => void>();
+const choiceChanges = createChangeListeners();
 
 export function getMobileDuoBilingualChoice(): MobileDuoBilingualMode | null {
   return sessionChoice;
@@ -380,15 +381,10 @@ export function getMobileDuoBilingualChoice(): MobileDuoBilingualMode | null {
 export function setMobileDuoBilingualChoice(choice: MobileDuoBilingualMode | null): void {
   if (sessionChoice === choice) return;
   sessionChoice = choice;
-  listeners.forEach((listener) => listener());
+  choiceChanges.notify();
 }
 
-export function subscribeMobileDuoBilingualChoice(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
-}
+export const subscribeMobileDuoBilingualChoice = choiceChanges.subscribe;
 
 export function useMobileDuoBilingualChoice(): MobileDuoBilingualMode | null {
   return useSyncExternalStore(

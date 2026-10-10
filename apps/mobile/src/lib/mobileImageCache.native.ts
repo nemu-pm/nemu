@@ -362,8 +362,7 @@ export async function resolveCachedMobileImageAsset(
           maxBytes: MOBILE_REMOTE_IMAGE_MAX_BYTES,
           maxImageDimension: MOBILE_IMAGE_MAX_DIMENSION,
           maxImagePixels: MOBILE_IMAGE_MAX_DECODED_PIXELS,
-          allowLongStripSegments:
-            Platform.OS === "android" || Platform.OS === "ios",
+          allowLongStripSegments: true,
           signal,
         },
       ),

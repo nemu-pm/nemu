@@ -28,7 +28,6 @@ export const MOBILE_CONTINUE_CARD = {
  * peeking on both sides.
  */
 export const MOBILE_CONTINUE_TALL_CARD = {
-  gap: 12,
   /**
    * Share of the row a phone's card takes (the rest is the two peeks and
    * gaps). Kept modest: a cover is rarely sharp past this size (a 250 pt

@@ -84,7 +84,6 @@ import { useMobileContainerFold } from "@/lib/useMobileContainerFold";
 import {
   buildMobileInstalledSourceKeySet,
   buildMobileSourceQuickActions,
-  canSelectMobileBrowseAllLanguages,
   canStartMobileSourceInstall,
   filterMobileAvailableSources,
   getMobileAvailableSourceLanguageOptions,
@@ -431,13 +430,7 @@ function LanguageFilterSheetSection({
           )}
           showSeparator={pinnedLanguages.length > 0}
           onPress={() => {
-            if (
-              !canSelectMobileBrowseAllLanguages({
-                selected: allLanguagesSelected,
-              })
-            ) {
-              return;
-            }
+            if (allLanguagesSelected) return;
             void hapticSelection();
             onSelectAll();
           }}

@@ -4,7 +4,6 @@ import type { MobileRegistrySource } from "@/sources/aidokuRegistry";
 import {
   buildMobileInstalledSourceKeySet,
   buildMobileSourceQuickActions,
-  canSelectMobileBrowseAllLanguages,
   canStartMobileSourceInstall,
   filterEnabledMobileInstalledSources,
   filterMobileAvailableSources,
@@ -93,11 +92,6 @@ describe("mobile browse source filtering", () => {
         appLanguage: "en",
       }).map((item) => item.id),
     ).toEqual(["three"]);
-  });
-
-  test("gates the selected all-language chip as a no-op selection", () => {
-    expect(canSelectMobileBrowseAllLanguages({ selected: false })).toBe(true);
-    expect(canSelectMobileBrowseAllLanguages({ selected: true })).toBe(false);
   });
 
   test("keeps adult sources hidden until explicitly shown", () => {
