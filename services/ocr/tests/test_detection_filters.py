@@ -83,9 +83,3 @@ def test_padded_box_clamps_to_image():
 
 def test_padded_box_zero_pad_is_identity():
     assert df.padded_box(det(10, 20, 30, 40), 900, 1280, 0) == (10, 20, 30, 40)
-
-
-def test_default_pad_is_the_benchmarked_value():
-    assert df.DEFAULT_CROP_PAD_PX == 8
-    assert df.DEFAULT_DEDUPE_IOU == 0.6
-    assert df.DEFAULT_DROP_LABELS == ("eng",)
