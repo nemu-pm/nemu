@@ -68,11 +68,6 @@ type MobileNativeSheetScaffoldProps = {
   headerTrailing?: ReactNode;
   dismissLabel?: string;
   dismissDisabled?: boolean;
-  /**
-   * @deprecated The dismiss control is always the platform icon action now.
-   * Retained so existing callers keep compiling.
-   */
-  dismissAsIcon?: boolean;
   showDismissButton?: boolean;
   snapPoints?: (string | number)[];
   scroll?: boolean;

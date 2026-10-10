@@ -1820,7 +1820,6 @@ export function BrowseScreen() {
           onDismiss={handleAddSourceSheetDismissed}
           title={strings.browse.addSources}
           dismissLabel={strings.common.done}
-          dismissAsIcon
           headerLeading={
             <NemuNativeSheetHeaderAction
               accessibilityLabel={formatMobileString(
