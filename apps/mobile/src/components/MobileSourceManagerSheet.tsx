@@ -745,10 +745,6 @@ export function MobileSourceManagerSheet({
   ]);
 
   useEffect(() => {
-    setMergeCandidatePage(0);
-  }, [addMode, addQuery, entry.item.libraryItemId]);
-
-  useEffect(() => {
     if (!visible || addPanelOpen || sources.length === 0) return;
     let cancelled = false;
 
