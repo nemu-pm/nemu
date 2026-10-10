@@ -1100,6 +1100,8 @@ export type MobileStrings = {
     quickMenuAddToCollection: string;
     libraryRefreshFailedTitle: string;
     libraryRefreshUnavailableSuffix: string;
+    /** The same count standing alone as a toast detail (no separator). */
+    libraryRefreshUnavailableDetail: string;
     technicalDetails: string;
     catalogUnavailableTitle: string;
     catalogUnavailableDetail: string;

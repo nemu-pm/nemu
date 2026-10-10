@@ -1309,6 +1309,7 @@ export const mobileStringsEn: MobileStrings = {
     quickMenuOpenInSource: "Open in {{source}}",
     libraryRefreshFailedTitle: "Couldn't check for updates",
     libraryRefreshUnavailableSuffix: " · {{count}} source unavailable",
+    libraryRefreshUnavailableDetail: "{{count}} source unavailable",
     catalogUnavailableTitle: "Source catalog unavailable",
     catalogUnavailableDetail: "Showing a cached catalog from earlier",
     hapticsFeedback: "Haptic feedback",

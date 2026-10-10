@@ -1296,12 +1296,10 @@ export function LibraryScreen({
           toast.show({
             tone: "danger",
             title: strings.feedback.libraryRefreshFailedTitle,
-            // The count string is authored to trail a summary line, so drop
-            // its leading separator when it stands alone as the detail.
             detail: formatMobileString(
-              strings.feedback.libraryRefreshUnavailableSuffix,
+              strings.feedback.libraryRefreshUnavailableDetail,
               { count: result.failed },
-            ).replace(/^\s*·\s*/, ""),
+            ),
           });
         }
       }

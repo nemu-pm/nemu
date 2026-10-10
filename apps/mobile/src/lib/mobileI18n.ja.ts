@@ -1329,6 +1329,7 @@ export const mobileStringsJa: MobileStrings = {
     quickMenuOpenInSource: "{{source}}で開く",
     libraryRefreshFailedTitle: "更新を確認できませんでした",
     libraryRefreshUnavailableSuffix: " · {{count}}件のソースが一時的に利用できません",
+    libraryRefreshUnavailableDetail: "{{count}}件のソースが一時的に利用できません",
     catalogUnavailableTitle: "ソースカタログが一時的に利用できません",
     catalogUnavailableDetail: "以前のキャッシュを表示しています",
     hapticsFeedback: "触覚フィードバック",

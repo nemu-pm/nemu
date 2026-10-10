@@ -1218,6 +1218,7 @@ export const mobileStringsZh: MobileStrings = {
     quickMenuOpenInSource: "在 {{source}} 中打开",
     libraryRefreshFailedTitle: "无法检查更新",
     libraryRefreshUnavailableSuffix: " · {{count}} 个源暂时不可用",
+    libraryRefreshUnavailableDetail: "{{count}} 个源暂时不可用",
     catalogUnavailableTitle: "源目录暂时不可用",
     catalogUnavailableDetail: "正在显示之前缓存的目录",
     hapticsFeedback: "触感反馈",

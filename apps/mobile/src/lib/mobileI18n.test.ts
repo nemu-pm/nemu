@@ -741,4 +741,12 @@ describe("mobile i18n module budget", () => {
     expect(getMobileStrings("ja").sourceManager.reorderHint).toBe("矢印で並べ替え");
     expect(getMobileStrings("zh").sourceManager.reorderHint).toBe("使用箭头调整顺序");
   });
+
+  test("the standalone refresh-failure detail carries no leading separator", () => {
+    for (const locale of ["en", "ja", "zh"] as const) {
+      const feedback = getMobileStrings(locale).feedback;
+      expect(feedback.libraryRefreshUnavailableDetail).not.toMatch(/^\s*·/);
+      expect(feedback.libraryRefreshUnavailableSuffix.trimStart().startsWith("·")).toBe(true);
+    }
+  });
 });
