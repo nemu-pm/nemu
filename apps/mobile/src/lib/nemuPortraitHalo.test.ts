@@ -30,7 +30,6 @@ import {
   shouldAnimateNemuPortraitGlow,
   shouldAnimateNemuPortraitHalo,
 } from "./nemuPortraitHalo";
-import { getMobileEmptyLibraryLayout } from "./mobileEmptyLibraryLayout";
 
 describe("Nemu portrait halo motion", () => {
   test("stays contract-linked to production web portrait layers and motion", () => {
@@ -79,46 +78,27 @@ describe("Nemu portrait halo motion", () => {
     expect(
       shouldAnimateNemuPortraitHalo({
         appActive: true,
-        focused: true,
         reduceMotion: null,
       }),
     ).toBe(true);
     expect(
       shouldAnimateNemuPortraitHalo({
         appActive: true,
-        focused: true,
         reduceMotion: false,
       }),
     ).toBe(true);
     expect(
       shouldAnimateNemuPortraitHalo({
         appActive: true,
-        focused: true,
         reduceMotion: true,
       }),
     ).toBe(false);
     expect(
       shouldAnimateNemuPortraitHalo({
         appActive: false,
-        focused: true,
         reduceMotion: false,
       }),
     ).toBe(false);
-    expect(
-      shouldAnimateNemuPortraitHalo({
-        appActive: true,
-        focused: false,
-        reduceMotion: false,
-      }),
-    ).toBe(true);
-    expect(
-      shouldAnimateNemuPortraitHalo({
-        appActive: true,
-        focused: true,
-        platform: "android",
-        reduceMotion: false,
-      }),
-    ).toBe(true);
   });
 
   test("keeps Android off animated filtered surfaces without freezing the portrait", () => {
@@ -239,22 +219,6 @@ describe("Nemu portrait halo motion", () => {
     expect(getNemuPortraitGlowStageWidth(512)).toBe(512);
     expect(getNemuPortraitGlowStageWidth(639)).toBe(639);
     expect(getNemuPortraitGlowStageWidth(Number.NaN)).toBe(320);
-
-    expect(
-      getMobileEmptyLibraryLayout({ height: 568, width: 320 }).portraitMaxWidth,
-    ).toBe(320);
-    expect(
-      getMobileEmptyLibraryLayout({ height: 844, width: 390 }).portraitMaxWidth,
-    ).toBe(390);
-    expect(
-      getMobileEmptyLibraryLayout({ height: 874, width: 402 }).portraitMaxWidth,
-    ).toBe(402);
-    expect(
-      getMobileEmptyLibraryLayout({ height: 891, width: 411 }).portraitMaxWidth,
-    ).toBe(411);
-    expect(
-      getMobileEmptyLibraryLayout({ height: 402, width: 874 }).portraitMaxWidth,
-    ).toBe(512);
 
     let maximumPhoneMaskError = 0;
     let maximumWideMaskError = 0;

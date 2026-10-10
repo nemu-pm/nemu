@@ -7,7 +7,6 @@ export const JAPANESE_LEARNING_FOLLOW_UP_SUGGESTION_INDENT = 60;
 /** LINE messenger green — hardcoded on web message-bubble.tsx */
 export const LINE_USER_BUBBLE_COLOR = "#5ac463";
 export const LINE_USER_BUBBLE_TEXT = "#000000";
-export const LINE_WAVE_COLOR = "#5ac463";
 export const LINE_ERROR_BUBBLE_COLOR = "#ef4444";
 
 export type JapaneseLearningAssistantBubbleColors = {

@@ -29,8 +29,6 @@ export type MobileJapaneseLearningEnginePreference = "auto" | "onDevice" | "clou
 export type MobileJapaneseLearningEngineKind = "on-device" | "cloud";
 
 export const MOBILE_JAPANESE_LEARNING_ENGINE_SETTING_KEY = "recognitionEngine";
-export const MOBILE_JAPANESE_LEARNING_ENGINE_PREFERENCES: readonly MobileJapaneseLearningEnginePreference[] =
-  ["auto", "onDevice", "cloud"];
 
 export function normalizeMobileJapaneseLearningEnginePreference(
   value: unknown,

@@ -64,7 +64,6 @@ export type MobileJapaneseLearningPageOcrStore = {
   /** Bumped whenever a result lands; pairs with `subscribe` for React. */
   version(): number;
   subscribe(listener: () => void): () => void;
-  clear(): void;
 };
 
 function abortError(signal: AbortSignal): unknown {
@@ -127,9 +126,6 @@ function createSlots(limit: number) {
     get active() {
       return active;
     },
-    get waiting() {
-      return waiting.length;
-    },
   };
 }
 
@@ -144,7 +140,6 @@ export function createMobileJapaneseLearningPageOcrStore(options: {
 }): MobileJapaneseLearningPageOcrStore & {
   /** Test hooks. */
   readonly recognizing: number;
-  readonly queued: number;
 } {
   const limit = Math.max(1, options.limit ?? 48);
   const recognition = createSlots(Math.max(1, options.recognitionConcurrency ?? 1));
@@ -304,16 +299,8 @@ export function createMobileJapaneseLearningPageOcrStore(options: {
         listeners.delete(listener);
       };
     },
-    clear() {
-      results.clear();
-      version += 1;
-      for (const listener of [...listeners]) listener();
-    },
     get recognizing() {
       return recognition.active;
-    },
-    get queued() {
-      return recognition.waiting;
     },
   };
 }

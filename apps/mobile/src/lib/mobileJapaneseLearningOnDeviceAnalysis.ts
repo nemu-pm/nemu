@@ -41,8 +41,6 @@ export const MOBILE_ICHIRAN_PACK_RELEASE = {
   installedBytes: 24_857_288 + 13_555_874,
 } as const;
 
-/** The kernel's per-call limit (UTF-16 code units). */
-export const MOBILE_ICHIRAN_MAX_UNITS_PER_CALL = 4_096;
 const MOBILE_ICHIRAN_CHUNK_UNITS = 3_800;
 const MOBILE_ICHIRAN_MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 

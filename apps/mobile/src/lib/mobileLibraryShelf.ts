@@ -55,7 +55,6 @@ export function getMobileShelfPlankSegments(
   return segments.filter((segment) => segment.width > 0);
 }
 
-/** Small stable per-title value in [-1, 1] (a cover's natural lean). */
 /** Shelf geometry (points). */
 export const MOBILE_SHELF = {
   /** Air above the covers (room for the new-chapters tag). */
@@ -65,8 +64,6 @@ export const MOBILE_SHELF = {
   plankFront: 4,
   /** How far a plank runs past the outer covers (it stops short of the screen edge). */
   overhang: 8,
-  /** Most of a leaning book's side that shows beside its cover. */
-  coverEdge: 1.5,
   /** Air between a plank and the headroom of the shelf below. */
   rowGap: 28,
 } as const;

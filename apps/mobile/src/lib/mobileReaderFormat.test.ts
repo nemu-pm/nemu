@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type {
   ChapterSummary,
-  LibraryEntry,
   LocalChapterProgress,
   LocalMangaProgress,
   LocalSourceLink,
@@ -307,6 +306,3 @@ describe("pluginValueText", () => {
     expect(pluginValueText(undefined, strings)).toBe("Default");
   });
 });
-
-// Silence unused-import lint in the fixture helper surface.
-void (null as unknown as LibraryEntry);
