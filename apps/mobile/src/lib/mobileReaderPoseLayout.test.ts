@@ -23,6 +23,7 @@ import {
   type MobileReaderPoseLayoutInput,
 } from "./mobileReaderPoseLayout";
 import type { MobileWindowLayout, WindowReservedRegion } from "./mobileWindowLayout";
+import { classifyReaderWindowShape } from "./mobileReaderWindowShape";
 
 const hinge = (x: number, y: number, width: number, height: number, active = true): WindowReservedRegion => ({ id: "hinge", x, y, width, height, active });
 const noInsets = { top: 0, left: 0, bottom: 0, right: 0 };
@@ -1203,5 +1204,64 @@ describe("reader pose: the trailing more (⋯) button", () => {
     expect(capsules(pose(outer, { sideBar: true })).more).toBeNull();
     // Notebook console: its capsule row keeps the actions on top.
     expect(pose(innerPortrait([hinge(0, 465, 669, 21)])).chrome.kind).toBe("console");
+  });
+});
+
+describe("reader pose: measured Duo states checked on the simulator round (open portrait, rotation, half-folded)", () => {
+  const measured = (screen: string, posture: string, orientation: string) => {
+    const m = fixture.measurements.find((x) => x.screen === screen && x.pose === posture && x.orientation === orientation);
+    if (!m) throw new Error(`missing measurement ${screen} ${posture} ${orientation}`);
+    return duoLayout(m);
+  };
+
+  test("open portrait, flat: one page (auto), full-bleed, capsule row with the actions on top, large window shape", () => {
+    const layout = measured("iphone-duo-inner", "open", "portrait");
+    const result = pose(layout, { spreadMode: "auto" });
+    expect(result.posture).toBe("flat");
+    expect(result.spread).toBe(false);
+    expect(result.twoPageAvailable).toBe(false);
+    expect(result.foldGap).toBeNull();
+    expect(result.chrome.kind).toBe("capsules");
+    if (result.chrome.kind !== "capsules") return;
+    expect(result.chrome.actionsRow).toBe("top");
+    expect(result.chrome.more).toBeNull();
+    expect(classifyReaderWindowShape(result.stage)).toBe("large");
+  });
+
+  test("land → port → land settles exactly like the first landscape (pose and side-inset latch)", () => {
+    const land = measured("iphone-duo-inner", "open", "landscape-left");
+    const port = measured("iphone-duo-inner", "open", "portrait");
+    const first = pose(land, { spreadMode: "auto", sideBar: true });
+    const latchFor = (layout: MobileWindowLayout, previous: ReturnType<typeof mobileReaderNextSideInsetLatch>) =>
+      mobileReaderNextSideInsetLatch(previous, mobileReaderSideInsetLatchKey(layout, true), layout.safeAreaInsets);
+    const latch1 = latchFor(land, null);
+    const latchPort = latchFor(port, latch1);
+    const latch2 = latchFor(land, latchPort);
+    expect(latch2).toEqual(latch1);
+    pose(port, { spreadMode: "auto", sideBar: true });
+    const second = pose(land, { spreadMode: "auto", sideBar: true });
+    expect(second).toEqual(first);
+    expect(second.spread).toBe(first.spread);
+  });
+
+  test("half-folded (laptop): page in the upper half, controls in the lower half, nothing under the hinge", () => {
+    const layout = measured("iphone-duo-inner", "partially-folded", "portrait");
+    const fold = activeFold(layout)!;
+    for (const notebookPane of ["trackpad", "filmstrip"] as const) {
+      const result = pose(layout, { spreadMode: "auto", notebookPane });
+      expect(result.posture).toBe("notebook");
+      expect(result.chromePinned).toBe(true);
+      expect(result.stage.y + result.stage.height).toBeLessThanOrEqual(fold.y + 0.01);
+      expect(result.chrome.kind).toBe("console");
+      if (result.chrome.kind !== "console") return;
+      expect(result.chrome.frame.y).toBeGreaterThanOrEqual(fold.y + fold.height - 0.01);
+      expect(result.chrome.pane.y).toBeGreaterThanOrEqual(fold.y + fold.height - 0.01);
+      for (const piece of [result.stage, result.chrome.back, result.chrome.actions, result.chrome.pane, ...(result.chrome.title ? [result.chrome.title] : [])]) {
+        expect(overlaps(piece, fold)).toBe(false);
+      }
+      for (const piece of [result.chrome.back, result.chrome.actions]) {
+        expect(piece.y + piece.height).toBeLessThanOrEqual(fold.y + 0.01);
+      }
+    }
   });
 });
