@@ -47,7 +47,6 @@ public final class NemuWindowLayoutModule: Module {
     }
     // Lets JS tell a binary with these views from one built before them.
     Constant("verticalBarBehaviorViewAvailable") { true }
-    Constant("glassViewAvailable") { true }
     Constant("glassViewHostsChildren") { true }
     AsyncFunction("setAppAppearance") { (appearance: String) in
       MainActor.assumeIsolated { NemuAppAppearance.set(appearance) }
