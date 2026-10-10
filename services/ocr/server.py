@@ -499,8 +499,6 @@ async def detect_only(req: OCRRequest):
         raise HTTPException(503, "Model not loaded")
     
     try:
-        import cv2
-
         image_bytes = base64.b64decode(req.imageBase64)
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         cv_img = pil_to_cv2(img)
