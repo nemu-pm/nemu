@@ -28,7 +28,6 @@ import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import { MobileNemuAgentSheet } from "@/components/MobileNemuAgentSheet";
 import { MobilePageEmpty } from "@/components/MobilePageEmpty";
 import { MobileSearchSkeleton } from "@/components/MobileSearchSkeleton";
-import { MobileSourceChip } from "@/components/MobileSourceChip";
 import { MobileSearchSidebar } from "@/components/search/MobileSearchSidebar";
 import {
   MobileSearchFailedSourceRow,
@@ -67,6 +66,7 @@ import {
 import {
   MangaCard,
   MobileCachedImage,
+  MobileChip,
   NemuText,
   NemuNativeSearchField,
   type NemuNativeSearchFieldHandle,
@@ -379,7 +379,7 @@ function SourceFilterBar({
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={[styles.sourceFilterContent, bleed.content]}
       >
-        <MobileSourceChip
+        <MobileChip
           accessibilityRole="checkbox"
           accessibilityLabel={strings.search.allSources}
           accessibilityHint={strings.search.allSourcesSelectionHint}
@@ -393,7 +393,7 @@ function SourceFilterBar({
           selected={allSelected}
         />
         {sources.map((source) => (
-          <MobileSourceChip
+          <MobileChip
             key={source.id}
             accessibilityHint={
               source.unsupported

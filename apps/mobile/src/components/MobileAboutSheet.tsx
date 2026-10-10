@@ -24,6 +24,7 @@ import {
   nemuMaxFontSizeMultiplier,
   useNemuTheme,
   useMobileNativeSheetTheme,
+  nemuColorWithAlpha,
 } from "@/design-system";
 import { NemuAppIconHalo } from "@/components/NemuAppIconHalo";
 import { MobileOpenSourceLicensesSheet } from "@/components/MobileOpenSourceLicensesSheet";
@@ -268,7 +269,7 @@ export function MobileAboutSheet({ visible, onClose }: MobileAboutSheetProps) {
           style={[
             styles.linkRow,
             {
-              backgroundColor: colorWithOpacity(tokens.muted, 0.42),
+              backgroundColor: nemuColorWithAlpha(tokens.muted, 0.42),
               opacity: openingSourceCode ? 0.66 : 1,
             },
           ]}
@@ -313,7 +314,7 @@ export function MobileAboutSheet({ visible, onClose }: MobileAboutSheetProps) {
           pressedScale={0.98}
           style={[
             styles.linkRow,
-            { backgroundColor: colorWithOpacity(tokens.muted, 0.42) },
+            { backgroundColor: nemuColorWithAlpha(tokens.muted, 0.42) },
           ]}
           testID="AboutOpenSourceLicenses"
         >
@@ -391,16 +392,6 @@ function HugeiconsNativeIcon({
       ))}
     </Svg>
   );
-}
-
-function colorWithOpacity(color: string, opacity: number) {
-  const hex = color.match(/^#([0-9a-f]{6})$/i);
-  if (!hex) return color;
-  const raw = hex[1];
-  const red = Number.parseInt(raw.slice(0, 2), 16);
-  const green = Number.parseInt(raw.slice(2, 4), 16);
-  const blue = Number.parseInt(raw.slice(4, 6), 16);
-  return `rgba(${red},${green},${blue},${Math.max(0, Math.min(1, opacity))})`;
 }
 
 const styles = StyleSheet.create({

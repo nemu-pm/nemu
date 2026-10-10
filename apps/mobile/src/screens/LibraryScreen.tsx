@@ -117,10 +117,7 @@ import { ContentScrollMarker, ZoomSource } from "../../modules/nemu-window-layou
 import { useReducedMotion } from "react-native-reanimated";
 import { useMobilePoseRemountVeil, useMobilePoseRenderProbe } from "@/lib/MobilePoseTransitionContext";
 import { useMobileGridScrollAnchor } from "@/lib/useMobileGridScrollAnchor";
-import {
-  getMobileInstalledSourceSettingsKeys,
-  mobileInstalledSourceMatchesLink,
-} from "@/lib/mobileInstalledSourceKeys";import {
+import { getMobileInstalledSourceSettingsKeys } from "@/lib/mobileInstalledSourceKeys";import {
   canCreateMobileCollection,
   canRenameMobileCollection,
   canSaveMobileCollectionMembership,
@@ -151,6 +148,7 @@ import {
   getMobileLibraryRefreshLifecycleDecision,
   hasMobileLibraryStaleSourceLinks,
   isMobileLibraryRefreshAppActive,
+  findInstalledSourceForLink,
   refreshMobileLibraryLatestChapters,
 } from "@/lib/mobileLibraryRefresh";
 import { resolveMobileSheetHeaderMetrics } from "@/lib/mobileNativeSheet";
@@ -212,18 +210,6 @@ function toMangaCard(
     cover: coverRequest?.url ?? cover,
     coverHeaders: coverRequest?.headers,
   };
-}
-
-function findInstalledSourceForLink(
-  sources: InstalledSource[],
-  sourceLink: LocalSourceLink | null | undefined,
-): InstalledSource | null {
-  if (!sourceLink) return null;
-  return (
-    sources.find((source) =>
-      mobileInstalledSourceMatchesLink(source, sourceLink)
-    ) ?? null
-  );
 }
 
 // Memoized so a list-level state change (a sheet opening, a refresh flag)
@@ -1873,7 +1859,10 @@ export function LibraryScreen({
     [progressIndex, quickActionEntry],
   );
   const quickActionSource = useMemo(
-    () => findInstalledSourceForLink(installedSources.data, quickActionLink),
+    () =>
+      quickActionLink
+        ? findInstalledSourceForLink(installedSources.data, quickActionLink)
+        : null,
     [installedSources.data, quickActionLink],
   );
   const quickActionCover = quickActionEntry
