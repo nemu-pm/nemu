@@ -121,9 +121,9 @@ describe("resting content clears the tab bar", () => {
       { key: "b", gap: 10, height: 100, rests: "whole" },
       { key: "c", gap: 10, height: 100, rests: "whole" },
     ];
-    // c is cut; growing a would put b on the edge first, so the fit must not report grown-and-clear wrongly.
-    const fit = fitMobileRestingContent({ top: 0, edge: 300, blocks });
-    if (fit.clear) expectClear(0, 300, blocks);
+    // c is cut; growing a would put b on the edge first, so a grown fit must
+    // still leave every whole block clear of it.
+    expectClear(0, 300, blocks);
   });
 
   test("a window too short to fix keeps the natural sizes and says so", () => {
