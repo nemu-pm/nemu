@@ -514,43 +514,36 @@ function ensureOptionalAndroidCameraFeature(androidManifest) {
   return androidManifest;
 }
 
-function ensureAndroidPublicSourceCleartextTraffic(androidManifest) {
+function setAndroidApplicationAttribute(androidManifest, attribute, value) {
   const application = androidManifest.manifest.application?.[0];
   if (!application) {
     throw new Error("Android manifest is missing its application element.");
   }
-
-  // Aidoku packages may legitimately target public legacy HTTP origins. Expo's
-  // debug overlay opts in to cleartext, but Android 9+ blocks OkHttp in release
-  // unless the main manifest does too. Keep the behavior explicit here so a
-  // debug device test cannot pass while the Play build fails. Source requests
-  // remain behind Nemu's direct-proxy, DNS-answer, and connected-peer SSRF
-  // checks; first-party auth and sync endpoints remain HTTPS-only.
-  //
-  // The generated network security config is what actually governs on the
-  // supported API floor (26+): it permits cleartext in its base config and
-  // denies it for first-party domains, and the platform ignores this attribute
-  // whenever a config is present. The attribute stays for older tooling and
-  // manifest readers that only understand the flag.
-  application.$ = {
-    ...application.$,
-    [ANDROID_CLEARTEXT_TRAFFIC_ATTRIBUTE]: "true",
-  };
+  application.$ = { ...application.$, [attribute]: value };
   return androidManifest;
 }
 
-function ensureAndroidFirstPartyNetworkSecurityConfig(androidManifest) {
-  const application = androidManifest.manifest.application?.[0];
-  if (!application) {
-    throw new Error("Android manifest is missing its application element.");
-  }
+// Aidoku packages may legitimately target public legacy HTTP origins, and
+// Android 9+ blocks OkHttp cleartext in release unless the main manifest opts
+// in (Expo's debug overlay does, so a debug test alone would pass). Source
+// requests stay behind the direct-proxy, DNS-answer and connected-peer SSRF
+// checks. On the API floor (26+) the generated network security config governs
+// instead (cleartext in its base config, denied for first-party domains); the
+// attribute stays for tooling that only reads the flag.
+function ensureAndroidPublicSourceCleartextTraffic(androidManifest) {
+  return setAndroidApplicationAttribute(
+    androidManifest,
+    ANDROID_CLEARTEXT_TRAFFIC_ATTRIBUTE,
+    "true"
+  );
+}
 
-  application.$ = {
-    ...application.$,
-    [ANDROID_NETWORK_SECURITY_CONFIG_ATTRIBUTE]:
-      ANDROID_NETWORK_SECURITY_CONFIG_RESOURCE,
-  };
-  return androidManifest;
+function ensureAndroidFirstPartyNetworkSecurityConfig(androidManifest) {
+  return setAndroidApplicationAttribute(
+    androidManifest,
+    ANDROID_NETWORK_SECURITY_CONFIG_ATTRIBUTE,
+    ANDROID_NETWORK_SECURITY_CONFIG_RESOURCE
+  );
 }
 
 function removeLegacyAndroidBackgroundAudioLintIgnore(androidManifest) {
