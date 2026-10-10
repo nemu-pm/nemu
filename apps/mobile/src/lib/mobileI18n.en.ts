@@ -1296,7 +1296,7 @@ export const mobileStringsEn: MobileStrings = {
     sourceCountOther: "{{count}} sources",
     sourceSearchPlaceholder: "Search source title",
     subtitle: "Reorder or unlink sources for this title",
-    dragToReorder: "Drag to reorder",
+    reorderHint: "Use the arrows to reorder",
   },
   feedback: {
     dismiss: "Dismiss",

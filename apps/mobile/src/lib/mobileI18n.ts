@@ -1087,7 +1087,7 @@ export type MobileStrings = {
     sourceCountOther: string;
     sourceSearchPlaceholder: string;
     subtitle: string;
-    dragToReorder: string;
+    reorderHint: string;
   };
   feedback: {
     dismiss: string;

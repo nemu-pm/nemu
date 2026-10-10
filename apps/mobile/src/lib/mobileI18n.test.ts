@@ -734,4 +734,11 @@ describe("mobile i18n module budget", () => {
       expect(statSync(file).size).toBeGreaterThan(1024);
     }
   });
+
+  test("the source reorder hint names the arrow buttons, not dragging", () => {
+    // Source rows reorder with chevron buttons; there is no drag gesture.
+    expect(getMobileStrings("en").sourceManager.reorderHint).toBe("Use the arrows to reorder");
+    expect(getMobileStrings("ja").sourceManager.reorderHint).toBe("矢印で並べ替え");
+    expect(getMobileStrings("zh").sourceManager.reorderHint).toBe("使用箭头调整顺序");
+  });
 });

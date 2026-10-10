@@ -2084,11 +2084,11 @@ export function MobileSourceManagerSheet({
                   <NemuText
                     density="compact"
                     style={[
-                      styles.dragToReorderHint,
+                      styles.reorderHint,
                       { color: tokens.mutedForeground },
                     ]}
                   >
-                    {strings.sourceManager.dragToReorder}
+                    {strings.sourceManager.reorderHint}
                   </NemuText>
                 ) : null}
               </>
@@ -2327,7 +2327,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 15,
   },
-  dragToReorderHint: {
+  reorderHint: {
     textAlign: "center",
     fontSize: 11,
     lineHeight: 15,

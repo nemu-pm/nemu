@@ -1205,7 +1205,7 @@ export const mobileStringsZh: MobileStrings = {
     sourceCountOther: "{{count}} 个源",
     sourceSearchPlaceholder: "搜索源标题",
     subtitle: "重新排序或取消链接此标题的源",
-    dragToReorder: "拖动以重新排序",
+    reorderHint: "使用箭头调整顺序",
   },
   feedback: {
     dismiss: "关闭",

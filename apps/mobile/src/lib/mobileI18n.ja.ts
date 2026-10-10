@@ -1316,7 +1316,7 @@ export const mobileStringsJa: MobileStrings = {
     sourceCountOther: "{{count}} 件のソース",
     sourceSearchPlaceholder: "ソースタイトルを検索",
     subtitle: "このタイトルのソースを並べ替え、またはリンク解除します",
-    dragToReorder: "ドラッグして並べ替え",
+    reorderHint: "矢印で並べ替え",
   },
   feedback: {
     dismiss: "閉じる",
