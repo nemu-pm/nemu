@@ -38,8 +38,6 @@ import {
 } from "../../modules/nemu-window-layout/src/presentationColorScheme";
 import type { MobileNativeFormSheetAction, MobileNativeFormSheetProps } from "./MobileNativeFormSheet.types";
 
-export const mobileNativeFormSheetAvailable = true;
-
 /** `background="grouped"`: the grouped-table backdrop, resolved per appearance. */
 const GROUPED_SHEET_BACKGROUND = PlatformColor("systemGroupedBackground");
 

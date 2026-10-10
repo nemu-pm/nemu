@@ -116,7 +116,6 @@ type CacheEntry = {
 
 export interface MobileSourceSessionCache {
   acquire(source: MobileRuntimeSource, options: AcquireOptions): Promise<MobileSourceExecutorSession>;
-  release(sourceKey: string, session: MobileSourceExecutorSession): void;
   withSession<T>(
     source: MobileRuntimeSource,
     options: AcquireOptions,
@@ -507,16 +506,6 @@ export function createMobileSourceSessionCache(
     return session;
   }
 
-  function release(sourceKey: string, session: MobileSourceExecutorSession): void {
-    if (session.status !== "ready") return;
-    const executionSourceKey = makeMobileSourceExecutionKey(sourceKey);
-    const entry = entries.get(executionSourceKey);
-    if (entry && entry.session === session) {
-      entry.lastUsed = now();
-      touch(executionSourceKey);
-    }
-  }
-
   /**
    * Runs `fn` in the source key's critical section. Callers for one key take
    * turns (the runtime owns one mutable settings bag, see `keyQueues`), but
@@ -628,7 +617,7 @@ export function createMobileSourceSessionCache(
     return entries.size;
   }
 
-  return { acquire, release, withSession, remove, clear, peek, size };
+  return { acquire, withSession, remove, clear, peek, size };
 }
 
 /**

@@ -35,7 +35,6 @@ import type {
   PagePairingMode,
   ReadingMode,
   SourcePackageSetting,
-  SourceRegistry,
 } from "./schema";
 import type { MobileDataStore } from "./storeTypes";
 import {
@@ -1067,40 +1066,6 @@ export function useCollections(): LoadState<LocalCollection[]> & {
     addBooksToCollection,
     removeBooksFromCollection,
   };
-}
-
-export function useSourceRegistries(): LoadState<SourceRegistry[]> {
-  const store = useMobileDataStore();
-  const revision = useMobileDataRevision(["registries"]);
-  const [data, setData] = useState<SourceRegistry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const reload = useCallback(async () => {
-    try {
-      setError(null);
-      const registries = await store.getRegistries();
-      setData(
-        (current) =>
-          stabilizeListReferences(
-            current,
-            registries,
-            (registry) => registry.id,
-          ) as SourceRegistry[],
-      );
-    } catch (nextError) {
-      setError(errorMessage(nextError));
-      throw nextError;
-    } finally {
-      setLoading(false);
-    }
-  }, [store]);
-
-  useEffect(() => {
-    ignoreReloadError(reload);
-  }, [reload, revision]);
-
-  return { data, loading, error, reload };
 }
 
 const DEFAULT_HAPTICS_FEEDBACK_ENABLED = true;

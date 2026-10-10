@@ -29,8 +29,6 @@ import { orderMobileChaptersNewestFirst } from "@/lib/mobileChapterOrder";
 import { markMobilePerformance } from "@/lib/mobilePerformance";
 import { isMobileSourceMangaTitlePathLike } from "@/lib/mobileReaderMangaTitle";
 
-export { isMobileSourceMangaTitlePathLike };
-
 export type MobileSourceDetailsRefresh =
   | {
       status: "ready";
@@ -303,21 +301,6 @@ export async function refreshMobileSourceMetadata(
         };
       }, options),
   );
-}
-
-export async function refreshMobileSourceLatestChapter(
-  source: InstalledSource,
-  mangaId: string,
-  options: MobileSourceDetailsOptions = {},
-): Promise<MobileSourceLatestChapterRefresh> {
-  const refreshed = await refreshMobileSourceChapters(source, mangaId, options);
-  if (refreshed.status === "blocked") return refreshed;
-  return {
-    status: "ready",
-    runtime: refreshed.runtime,
-    latestChapter: refreshed.latestChapter,
-    fetchedAt: refreshed.fetchedAt,
-  };
 }
 
 export async function refreshMobileSourceChapters(

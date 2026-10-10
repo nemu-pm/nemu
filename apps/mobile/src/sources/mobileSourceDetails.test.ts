@@ -6,7 +6,6 @@ import {
   mapAidokuMangaToMetadata,
   refreshMobileSourceChapters,
   refreshMobileSourceDetails,
-  refreshMobileSourceLatestChapter,
   refreshMobileSourceMetadata,
   mapAidokuChapterList,
   resolveMobileSourceMangaMetadataTitle,
@@ -351,47 +350,6 @@ describe("mobile source details refresh", () => {
       status: "blocked",
       reason: "native-bridge-missing",
     });
-  });
-
-  test("fetches only latest chapter for background library refresh", async () => {
-    let mangaDetailsCalled = false;
-    let disposed = false;
-    const bridge: MobileAidokuExecutorBridge = {
-      async loadSource() {
-        const source = makeExecutorSource(() => {
-          disposed = true;
-        });
-        return {
-          status: "ready",
-          runtime: "native-aidoku",
-          source: {
-            ...source,
-            async getMangaDetails(manga) {
-              mangaDetailsCalled = true;
-              return source.getMangaDetails(manga);
-            },
-          },
-        };
-      },
-    };
-
-    await expect(
-      refreshMobileSourceLatestChapter(installedSource(), "blue-lock", {
-        executor: {
-          bridge,
-          readBytes: async () => makeAixPackage(),
-        },
-        sessionCache: createMobileSourceSessionCache(),
-        now: () => 5678,
-      }),
-    ).resolves.toEqual({
-      status: "ready",
-      runtime: "native-aidoku",
-      latestChapter: { id: "c3", title: "Latest", chapterNumber: 3 },
-      fetchedAt: 5678,
-    });
-    expect(mangaDetailsCalled).toBe(false);
-    expect(disposed).toBe(false); // cached session is retained, not disposed
   });
 
   test("fetches chapter lists without fetching manga details", async () => {
