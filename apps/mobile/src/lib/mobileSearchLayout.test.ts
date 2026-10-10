@@ -12,6 +12,8 @@ import {
   formatMobileSearchSidebarCount,
   isMobileSearchSidebarRowSelected,
   resolveMobileSearchSidebarCheckState,
+  getMobileSearchSidebarSourceIdsKey,
+  parseMobileSearchSidebarSourceIdsKey,
   resolveMobileSearchSidebarPress,
   resolveMobileSearchSidebarStatuses,
   summarizeMobileSearchSidebarStatuses,
@@ -289,5 +291,15 @@ describe("sidebar split vertical grid", () => {
     expect(mobileSearchResultsTopInset({ fieldHeight: mobileSearchFieldHeight("ios"), firstHeaderHeight: MOBILE_SEARCH_SOURCE_HEADER_HEIGHT })).toBe(2);
     expect(mobileSearchResultsTopInset({ fieldHeight: mobileSearchFieldHeight("android"), firstHeaderHeight: MOBILE_SEARCH_SOURCE_HEADER_HEIGHT })).toBe(8);
     expect(mobileSearchResultsTopInset({ fieldHeight: 36, firstHeaderHeight: MOBILE_SEARCH_KIND_HEADER_HEIGHT })).toBe(8);
+  });
+});
+
+describe("search sidebar source ids key", () => {
+  test("round-trips ids containing the old separator", () => {
+    const ids = ["a|b", "c", ""];
+    const key = getMobileSearchSidebarSourceIdsKey(ids);
+    expect(parseMobileSearchSidebarSourceIdsKey(key)).toEqual(ids);
+    expect(key).not.toBe(getMobileSearchSidebarSourceIdsKey(["a", "b|c", ""]));
+    expect(parseMobileSearchSidebarSourceIdsKey(getMobileSearchSidebarSourceIdsKey([]))).toEqual([]);
   });
 });

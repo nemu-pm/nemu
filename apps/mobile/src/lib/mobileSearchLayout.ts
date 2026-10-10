@@ -111,6 +111,18 @@ export function formatMobileSearchSidebarCount(status: Extract<MobileSearchSideb
 }
 
 /**
+ * A stable memo key for the sidebar's source ids (the `sources` prop is rebuilt
+ * on every render). JSON, so ids containing any character round-trip.
+ */
+export function getMobileSearchSidebarSourceIdsKey(sourceIds: readonly string[]): string {
+  return JSON.stringify(sourceIds);
+}
+
+export function parseMobileSearchSidebarSourceIdsKey(key: string): string[] {
+  return JSON.parse(key) as string[];
+}
+
+/**
  * Sidebar selection. The rows edit the same persisted scope as the compact
  * chip row (state is shared across displays), with list semantics: a tap picks
  * that one source (a sidebar selects, like Mail's mailboxes), a long press adds

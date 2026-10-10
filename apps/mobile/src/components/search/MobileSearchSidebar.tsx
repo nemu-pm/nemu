@@ -21,6 +21,8 @@ import {
 } from "@/lib/mobileSearch";
 import {
   formatMobileSearchSidebarCount,
+  getMobileSearchSidebarSourceIdsKey,
+  parseMobileSearchSidebarSourceIdsKey,
   resolveMobileSearchSidebarCheckState,
   resolveMobileSearchSidebarPress,
   type MobileSearchSidebarCheckState,
@@ -278,14 +280,15 @@ export function MobileSearchSidebar({
   onClearRecents: () => void;
 }) {
   const { tokens } = useNemuTheme();
-  const sourceIds = sources.map((source) => source.id);
-  const sourceIdsKey = sourceIds.join("|");
+  const sourceIdsKey = getMobileSearchSidebarSourceIdsKey(
+    sources.map((source) => source.id),
+  );
   const lastPressRef = useRef<SearchSourcePressState>(null);
   // Same gestures as the phone chips: tap toggles (multi-select), a double tap
   // or long press searches only that source, "All sources" restores every one.
   const handlePress = useCallback(
     (target: string | null) => {
-      const ids = sourceIdsKey ? sourceIdsKey.split("|") : [];
+      const ids = parseMobileSearchSidebarSourceIdsKey(sourceIdsKey);
       if (target === null || ids.length <= 1) {
         lastPressRef.current = null;
         onChangeSelection(resolveMobileSearchSidebarPress({ sourceIds: ids, selection, target, gesture: "press" }));
@@ -299,7 +302,7 @@ export function MobileSearchSidebar({
   );
   const handleLongPress = useCallback(
     (target: string) => {
-      const ids = sourceIdsKey ? sourceIdsKey.split("|") : [];
+      const ids = parseMobileSearchSidebarSourceIdsKey(sourceIdsKey);
       lastPressRef.current = null;
       onChangeSelection(resolveMobileSearchSidebarPress({ sourceIds: ids, selection, target, gesture: "only" }));
     },
