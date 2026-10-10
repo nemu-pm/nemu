@@ -24,12 +24,6 @@ struct NemuGrayImage: Sendable {
     self.pixels = pixels
   }
 
-  /// PIL `convert("L")` of `image` (see `rgba(of:)`).
-  init?(cgImage image: CGImage) {
-    guard let rgba = Self.rgba(of: image) else { return nil }
-    self = Self.pilGray(rgba: rgba, width: image.width, height: image.height)
-  }
-
   /// Draws `image` into an RGBA buffer without colour conversion (the
   /// context uses the image's own RGB colour space when it has one, as PIL
   /// and OpenCV ignore embedded profiles). Transparent areas are composited
