@@ -57,7 +57,6 @@ describe("mobile sheet and text-field chrome policy", () => {
     expect(trailing).toContain('androidIcon="close-outline"');
     expect(trailing).toContain('iosSystemImage="xmark"');
     expect(trailing).not.toContain("showActionLabels");
-    expect(trailing).not.toContain("dismissAsIcon");
     expect(source).not.toContain("styles.dismissButton");
     expect(source).not.toContain("styles.androidDismissText");
 

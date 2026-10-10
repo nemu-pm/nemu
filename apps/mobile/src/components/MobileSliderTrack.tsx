@@ -24,8 +24,6 @@ type MobileSliderTrackProps = {
   onRatioChange: (ratio: number) => void;
   onRatioEnd?: (ratio: number) => void;
   onRatioCancel?: () => void;
-  /** Legacy release callback. Prefer onRatioEnd for new gesture-aware callers. */
-  onRatioCommit?: (ratio: number) => void;
   /**
    * Reports the track's window-space box on layout and again when a drag
    * starts, for callers that anchor an overlay to the thumb from outside the
@@ -48,7 +46,6 @@ export function MobileSliderTrack({
   onRatioChange,
   onRatioEnd,
   onRatioCancel,
-  onRatioCommit,
   onTrackWindowFrame,
   touchTargetStyle,
 }: MobileSliderTrackProps) {
@@ -103,7 +100,7 @@ export function MobileSliderTrack({
       onPanResponderRelease: (event) =>
         emitRatio(
           event.nativeEvent.locationX,
-          onRatioEnd ?? onRatioCommit ?? onRatioChange,
+          onRatioEnd ?? onRatioChange,
         ),
       onPanResponderTerminate: (event) => {
         if (onRatioCancel) {
@@ -112,7 +109,7 @@ export function MobileSliderTrack({
         }
         // Preserve the historical behavior for callers that have not adopted
         // the explicit cancellation lifecycle yet.
-        emitRatio(event.nativeEvent.locationX, onRatioCommit ?? onRatioChange);
+        emitRatio(event.nativeEvent.locationX, onRatioChange);
       },
     });
   }, [
@@ -120,7 +117,6 @@ export function MobileSliderTrack({
     measureTrackWindowFrame,
     onRatioCancel,
     onRatioChange,
-    onRatioCommit,
     onRatioEnd,
     onRatioStart,
     trackWidth,

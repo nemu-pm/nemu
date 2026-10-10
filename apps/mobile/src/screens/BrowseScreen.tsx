@@ -43,6 +43,7 @@ import {
   PageScaffold,
   SourceCard,
   createNemuNativeScreenOptions,
+  nemuColorWithAlpha,
   radius,
   renderNemuNativeToolbarButtons,
   nemuFontWeight,
@@ -290,16 +291,6 @@ function sourceActionErrorPresentation(
 ): SourceActionError {
   const presentation = getMobileSourceErrorPresentation(error, strings);
   return { title: presentation.title, detail: presentation.detail };
-}
-
-function colorWithOpacity(color: string, opacity: number) {
-  const hexMatch = /^#([0-9a-f]{6})$/i.exec(color);
-  if (!hexMatch) return color;
-
-  const alpha = Math.round(Math.max(0, Math.min(1, opacity)) * 255)
-    .toString(16)
-    .padStart(2, "0");
-  return `${color}${alpha}`;
 }
 
 /**
@@ -587,7 +578,7 @@ const AvailableSourceRow = memo(function AvailableSourceRow({
         styles.availableShell,
         {
           backgroundColor: installed
-            ? colorWithOpacity(tokens.muted, 0.48)
+            ? nemuColorWithAlpha(tokens.muted, 0.48)
             : tokens.card,
           borderColor: tokens.border,
         },
@@ -2119,9 +2110,6 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 12,
     marginBottom: 12,
-  },
-  list: {
-    gap: 12,
   },
   // Explicit rows; column spacing is each cell's marginLeft so the middle
   // gutter can equal the fold in book posture.

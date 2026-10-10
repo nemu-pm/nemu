@@ -43,8 +43,6 @@ export function MobileExploreConfetti({
 }: {
   burstKey: number;
   colors: readonly string[];
-  /** Kept for callers: the pieces spread along the measured view instead. */
-  width?: number;
 }) {
   const reducedMotion = useReducedMotion();
   const anchor = useRef<ViewInstance>(null);
