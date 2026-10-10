@@ -1,5 +1,6 @@
 import {
   attachMobileJapaneseLearningChatToolResults,
+  defaultTimers,
   markMobileJapaneseLearningChatLastUserMessageRead,
   upsertMobileJapaneseLearningChatContextSnapshot,
   type MobileJapaneseLearningChatStreamController,
@@ -219,10 +220,6 @@ export function mobileJapaneseLearningChatSessionFor(
   return created.session;
 }
 
-const defaultTimers: MobileJapaneseLearningChatTimers = {
-  setTimeout: (callback, ms) => setTimeout(callback, ms),
-  clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
-};
 
 /** Hold the session while a reader screen is mounted; returns the release. */
 export function retainMobileJapaneseLearningChatSession(

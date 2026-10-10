@@ -38,6 +38,7 @@ import {
   classifyMobileOcrScript,
   detectMobileOcrLayoutRegions,
   isMobileOcrWatermarkText,
+  LABEL_CLASS,
   layoutMobileOnDeviceOcrPage,
   refineMobileOcrDetectionText,
   type MobileOnDeviceOcrLine,
@@ -314,8 +315,6 @@ export function resolveMobileOnDeviceOcrPipeline(
   if (mangaOcrDisabledReason) return { pipeline: "vision", reason: mangaOcrDisabledReason };
   return { pipeline: "manga-ocr" };
 }
-
-const LABEL_CLASS: Record<MobileOcrDetection["label"], number> = { eng: 0, ja: 1, unknown: 2 };
 
 /** A native manga-ocr block → the cloud detection contract (page pixels). */
 export function mobileOcrDetectionFromPageBlock(

@@ -70,7 +70,7 @@ export type MobileOcrLayoutBlock = {
 const JAPANESE_PATTERN = /[぀-ヿ㐀-䶿一-鿿豈-﫿ｦ-ﾟ々〆ー]/;
 const LATIN_PATTERN = /[A-Za-zＡ-Ｚａ-ｚ]/;
 const KANA_ONLY_PATTERN = /^[぀-ヿー]+$/;
-const LABEL_CLASS: Record<MobileOcrDetection["label"], number> = {
+export const LABEL_CLASS: Record<MobileOcrDetection["label"], number> = {
   eng: 0,
   ja: 1,
   unknown: 2,

@@ -67,7 +67,7 @@ export type MobileJapaneseLearningChatTimers = {
   clearTimeout: (handle: unknown) => void;
 };
 
-const defaultTimers: MobileJapaneseLearningChatTimers = {
+export const defaultTimers: MobileJapaneseLearningChatTimers = {
   setTimeout: (callback, ms) => setTimeout(callback, ms),
   clearTimeout: (handle) =>
     clearTimeout(handle as ReturnType<typeof setTimeout>),
