@@ -29,7 +29,6 @@ export type NemuAidokuHttpResponse = {
   body?: string | null;
   bytesBase64?: string | null;
   error?: string | null;
-  handledCloudflare?: boolean | null;
 };
 
 /**

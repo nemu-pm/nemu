@@ -962,7 +962,6 @@ class NemuAidokuModule : Module() {
       recordCloudflareChallengeHost(cookieScope, request.url, result)
       return response(
         result,
-        handledCloudflare = false,
         responseMode = request.responseMode
       )
     } finally {
@@ -1528,7 +1527,6 @@ class NemuAidokuModule : Module() {
 
   private fun response(
     result: NativeHttpResult,
-    handledCloudflare: Boolean,
     responseMode: String = "both"
   ): Map<String, Any?> {
     return response(
@@ -1536,7 +1534,6 @@ class NemuAidokuModule : Module() {
       headers = result.headers,
       bytes = result.bytes,
       error = result.error,
-      handledCloudflare = handledCloudflare,
       responseMode = responseMode
     )
   }
@@ -1608,7 +1605,6 @@ class NemuAidokuModule : Module() {
     headers: Map<String, String> = emptyMap(),
     bytes: ByteArray = ByteArray(0),
     error: String?,
-    handledCloudflare: Boolean = false,
     responseMode: String = "both"
   ): Map<String, Any?> {
     val mode = resolvedResponseMode(responseMode, headers)
@@ -1617,8 +1613,7 @@ class NemuAidokuModule : Module() {
       "headers" to headers,
       "body" to if (mode == "bytes") null else String(bytes, StandardCharsets.UTF_8),
       "bytesBase64" to if (mode == "text") null else Base64.encodeToString(bytes, Base64.NO_WRAP),
-      "error" to error,
-      "handledCloudflare" to handledCloudflare
+      "error" to error
     )
   }
 }

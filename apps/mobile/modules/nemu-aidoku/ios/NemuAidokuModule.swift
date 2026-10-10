@@ -2230,7 +2230,6 @@ public class NemuAidokuModule: Module {
       promiseBox.promise.resolve(
         response(
           from: result,
-          handledCloudflare: false,
           responseMode: responseMode
         )
       )
@@ -2469,7 +2468,6 @@ public class NemuAidokuModule: Module {
     )
     return response(
       from: result,
-      handledCloudflare: false,
       responseMode: request.responseMode
     )
   }
@@ -2922,7 +2920,6 @@ public class NemuAidokuModule: Module {
 
   private static func response(
     from result: NemuNativeHttpResult,
-    handledCloudflare: Bool,
     responseMode: String = "both"
   ) -> [String: Any?] {
     return response(
@@ -2930,7 +2927,6 @@ public class NemuAidokuModule: Module {
       headers: result.headers,
       data: result.data,
       error: result.error,
-      handledCloudflare: handledCloudflare,
       responseMode: responseMode
     )
   }
@@ -3005,7 +3001,6 @@ public class NemuAidokuModule: Module {
     headers: [String: String] = [:],
     data: Data = Data(),
     error: String?,
-    handledCloudflare: Bool = false,
     responseMode: String = "both"
   ) -> [String: Any?] {
     let mode = resolvedResponseMode(responseMode, headers: headers)
@@ -3017,7 +3012,6 @@ public class NemuAidokuModule: Module {
       "body": mode == "bytes" ? nil : String(decoding: data, as: UTF8.self),
       "bytesBase64": mode == "text" ? nil : data.base64EncodedString(),
       "error": error,
-      "handledCloudflare": handledCloudflare,
     ]
   }
 }
