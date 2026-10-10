@@ -29,74 +29,10 @@ export const NEMU_EMPTY_LIBRARY_COPY_STACK_HEIGHT =
   NEMU_WEB_EMPTY_LIBRARY_VISUAL.actionMarginTop +
   ACTION_BUTTON_HEIGHT;
 
-export type MobileEmptyLibraryLayout = {
-  glowBleed: number;
-  portraitMaxWidth: number;
-  rootMinHeight: number;
-};
-
 function portraitWidthForBreakpoint(contentWidth: number): number {
   if (contentWidth < WEB_SM_BREAKPOINT) return contentWidth;
   if (contentWidth < WEB_MD_BREAKPOINT) return WEB_SM_PORTRAIT_MAX_WIDTH;
   return WEB_MD_PORTRAIT_MAX_WIDTH;
-}
-
-export function getMobileEmptyLibraryLayout({
-  height,
-  width,
-  horizontalPadding = 0,
-  verticalChrome = 0,
-}: {
-  height: number;
-  width: number;
-  horizontalPadding?: number;
-  verticalChrome?: number;
-}): MobileEmptyLibraryLayout {
-  const safeHeight = Math.max(1, height);
-  const safePadding = Math.max(0, horizontalPadding);
-  const safeChrome = Math.max(0, verticalChrome);
-  const contentWidth = Math.max(1, Math.round(width - safePadding * 2));
-  const availableHeight = Math.max(1, Math.round(safeHeight - safeChrome));
-  const copyBudget =
-    NEMU_EMPTY_LIBRARY_COPY_STACK_HEIGHT +
-    NEMU_WEB_EMPTY_LIBRARY_VISUAL.rootPadding * 2;
-
-  let portraitMaxWidth = portraitWidthForBreakpoint(contentWidth);
-  let glowBleed = Math.max(
-    1,
-    Math.round(portraitMaxWidth * PORTRAIT_ASPECT * NEMU_EMPTY_LIBRARY_GLOW_BLEED_RATIO),
-  );
-
-  if (safeChrome > 0) {
-    const remainingForPortrait = Math.max(
-      1,
-      availableHeight - copyBudget,
-    );
-    const portraitHeight =
-      remainingForPortrait * NEMU_EMPTY_LIBRARY_PORTRAIT_REMAINING_RATIO;
-    portraitMaxWidth = Math.max(
-      1,
-      Math.round(Math.min(contentWidth, portraitHeight / PORTRAIT_ASPECT)),
-    );
-    glowBleed = Math.max(
-      1,
-      Math.round(portraitMaxWidth * PORTRAIT_ASPECT * NEMU_EMPTY_LIBRARY_GLOW_BLEED_RATIO),
-    );
-  }
-
-  return {
-    glowBleed,
-    portraitMaxWidth,
-    rootMinHeight:
-      safeChrome > 0
-        ? availableHeight
-        : Math.max(
-            1,
-            Math.round(
-              safeHeight * NEMU_WEB_EMPTY_LIBRARY_VISUAL.rootMinHeightViewportRatio,
-            ),
-          ),
-  };
 }
 
 /** Sizes shared by the adaptive (container-measured) empty-state hero. */

@@ -190,20 +190,6 @@ export function mobileFoldAwareGridCellStyle(
   return { width: layout.itemWidth, marginLeft: layout.columnMargins[column] ?? 0 };
 }
 
-/** Physical x (content-box local) of every column's leading edge. */
-export function mobileFoldAwareGridColumnOffsets(
-  layout: Pick<MobileFoldAwareGridLayout, "itemWidth" | "columnMargins">,
-): number[] {
-  const offsets: number[] = [];
-  let x = 0;
-  for (const margin of layout.columnMargins) {
-    x += margin;
-    offsets.push(x);
-    x += layout.itemWidth;
-  }
-  return offsets;
-}
-
 /** Split items into explicit rows (non-virtualized grids): no flex-wrap rounding surprises. */
 export function chunkMobileGridRows<T>(items: readonly T[], columns: number): T[][] {
   const size = Math.max(1, Math.floor(columns));

@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import {
   chunkMobileGridRows,
   mobileFoldAwareGridCellStyle,
-  mobileFoldAwareGridColumnOffsets,
   mobileFoldAwareGridContentWidth,
   mobileFoldAwareGridLayout,
   mobileFoldPagerLayout,
@@ -17,7 +16,16 @@ const covers = { minItemWidth: 104, gap: 12, minColumns: 2, maxColumns: 10 };
 
 /** Every cell's [start, end] in content-box coordinates. */
 function cellSpans(layout: ReturnType<typeof mobileFoldAwareGridLayout>) {
-  return mobileFoldAwareGridColumnOffsets(layout).map((x) => [x, x + layout.itemWidth]);
+  let x = 0;
+  return layout.columnMargins.map((margin) => [(x += margin), (x += layout.itemWidth)]);
+}
+
+/** An 841x701 window with a zero-width Pixel Fold hinge at its centre. */
+function pixelFoldAdaptive() {
+  return mobileAdaptiveLayout({
+    width: 841, height: 701, supported: true,
+    divisions: [{ id: "fold-0", x: 420.5, y: 0, width: 0, height: 701, active: true }], occlusions: [],
+  });
 }
 
 describe("fold-aware grid: flat windows", () => {
@@ -113,10 +121,7 @@ describe("fold-aware grid: book posture", () => {
   });
 
   test("a zero-width Pixel Fold hinge through the window pipeline aligns the grid like Duo", () => {
-    const adaptive = mobileAdaptiveLayout({
-      width: 841, height: 701, supported: true,
-      divisions: [{ id: "fold-0", x: 420.5, y: 0, width: 0, height: 701, active: true }], occlusions: [],
-    });
+    const adaptive = pixelFoldAdaptive();
     const split = mobileFoldSplitForContainer(adaptive, { x: 0, y: 0, width: 841, height: 701 });
     expect(split).not.toBeNull();
     // A full-bleed list with 16pt page gutters, as useMobileFoldAwareGrid does.
@@ -234,10 +239,7 @@ describe("pane content region (empty / loading / error states)", () => {
     expect(region.contentWidth).toBe(449);
   });
   test("book with a zero-width hinge: the adaptive fold keeps the placeholder in one pane", () => {
-    const adaptive = mobileAdaptiveLayout({
-      width: 841, height: 701, supported: true,
-      divisions: [{ id: "fold-0", x: 420.5, y: 0, width: 0, height: 701, active: true }], occlusions: [],
-    });
+    const adaptive = pixelFoldAdaptive();
     const region = mobilePaneContentRegion({
       windowHeight: 701, container: { x: 16, y: 90, width: 809 }, posture: adaptive.posture, fold: adaptive.fold,
     });
