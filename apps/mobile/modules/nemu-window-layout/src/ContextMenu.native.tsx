@@ -1,16 +1,7 @@
 import type { ComponentType, ReactNode } from "react";
 import { requireNativeViewManager, requireOptionalNativeModule } from "expo-modules-core";
 import { Platform, View, type ViewProps } from "react-native";
-
-export type ContextMenuItem = {
-  id: string;
-  title: string;
-  subtitle?: string;
-  /** SF Symbol name. */
-  systemImage?: string;
-  destructive?: boolean;
-  disabled?: boolean;
-};
+import type { ContextMenuItem } from "./types";
 
 type ContextMenuViewProps = {
   items: ContextMenuItem[];

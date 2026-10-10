@@ -1,14 +1,6 @@
 import type { ReactNode } from "react";
 import { View, type ViewProps } from "react-native";
-
-export type ContextMenuItem = {
-  id: string;
-  title: string;
-  subtitle?: string;
-  systemImage?: string;
-  destructive?: boolean;
-  disabled?: boolean;
-};
+import type { ContextMenuItem } from "./types";
 
 export const contextMenuViewAvailable = false;
 

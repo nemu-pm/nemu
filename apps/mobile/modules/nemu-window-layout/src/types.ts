@@ -127,3 +127,13 @@ export type GlassContainerProps = {
   /** Distance at which child glass shapes start to blend. */
   spacing?: number;
 };
+
+export type ContextMenuItem = {
+  id: string;
+  title: string;
+  subtitle?: string;
+  /** SF Symbol name. */
+  systemImage?: string;
+  destructive?: boolean;
+  disabled?: boolean;
+};
