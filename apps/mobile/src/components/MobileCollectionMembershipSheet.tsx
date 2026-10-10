@@ -1038,13 +1038,6 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
-  collectionIcon: {
-    width: 36,
-    height: 36,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.md,
-  },
   collectionText: {
     flex: 1,
     minWidth: 0,
@@ -1062,17 +1055,6 @@ const styles = StyleSheet.create({
   collectionActions: {
     flexDirection: "row",
     gap: 6,
-  },
-  emptyState: {
-    minHeight: 78,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 11,
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderStyle: "dashed",
-    paddingHorizontal: 13,
-    paddingVertical: 12,
   },
   emptyText: {
     flex: 1,

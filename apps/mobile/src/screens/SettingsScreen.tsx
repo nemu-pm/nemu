@@ -3995,30 +3995,6 @@ const styles = StyleSheet.create({
     width: "100%" as const,
     minHeight: 34,
   },
-  section: {
-    gap: 12,
-  },
-  sectionHeader: {
-    minHeight: 32,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  sectionHeaderText: {
-    flex: 1,
-    minWidth: 0,
-  },
-  sectionTitle: {
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: nemuFontWeight.semibold,
-  },
-  sectionSubtitle: {
-    marginTop: 2,
-    fontSize: 11,
-    lineHeight: 15,
-  },
   sourceList: {
     marginHorizontal: -12,
     marginBottom: -8,
@@ -4147,14 +4123,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingLeft: 10,
-  },
-  sourceTitleIcon: {
-    width: 26,
-    height: 26,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-    borderRadius: radius.sm,
   },
   sourceText: {
     flex: 1,

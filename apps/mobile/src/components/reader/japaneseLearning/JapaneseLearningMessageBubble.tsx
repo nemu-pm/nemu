@@ -300,19 +300,6 @@ const styles = StyleSheet.create({
     width: 240,
     maxWidth: "100%",
   },
-  voicePlayer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  voicePlayButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: LINE_USER_BUBBLE_COLOR,
-  },
   // Web: `text-xs opacity-70 leading-relaxed` (12 × 1.625).
   voiceTranscript: {
     fontSize: 12,

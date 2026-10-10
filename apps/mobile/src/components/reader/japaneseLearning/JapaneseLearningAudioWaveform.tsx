@@ -159,9 +159,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  playGlyph: {
-    marginLeft: 2,
-  },
   waveform: {
     flex: 1,
     minWidth: 0,

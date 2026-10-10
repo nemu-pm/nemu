@@ -2154,19 +2154,6 @@ const styles = StyleSheet.create({
   resultSection: {
     gap: 10,
   },
-  resultHeader: {
-    minHeight: 28,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 9,
-  },
-  resultTitle: {
-    flex: 1,
-    minWidth: 0,
-    ...nemuText.label,
-    letterSpacing: 0.48,
-    textTransform: "uppercase",
-  },
   // Explicit rows (no flex-wrap); column spacing is each cell's marginLeft
   // from mobileFoldAwareGridCellStyle so the fold gutter can differ.
   resultsRows: {
@@ -2174,17 +2161,6 @@ const styles = StyleSheet.create({
   },
   resultsRow: {
     flexDirection: "row",
-  },
-  viewAllAction: {
-    minHeight: 44,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-start",
-    gap: 4,
-  },
-  viewAllText: {
-    flexShrink: 1,
-    minWidth: 0,
   },
   resultItem: {
     minWidth: 0,
