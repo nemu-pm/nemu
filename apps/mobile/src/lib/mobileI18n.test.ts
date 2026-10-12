@@ -148,18 +148,6 @@ describe("mobile i18n helpers", () => {
     );
   });
 
-  test("localizes the drag-handle accessibility label", () => {
-    expect(
-      (getMobileStrings("en").common as { dragHandle?: string }).dragHandle,
-    ).toBe("Drag handle");
-    expect(
-      (getMobileStrings("zh").common as { dragHandle?: string }).dragHandle,
-    ).toBe("拖动手柄");
-    expect(
-      (getMobileStrings("ja").common as { dragHandle?: string }).dragHandle,
-    ).toBe("ドラッグハンドル");
-  });
-
   test("falls back to English for unsupported app languages", () => {
     expect(getMobileStrings("fr").nav.settings).toBe("Settings");
   });
@@ -414,11 +402,6 @@ describe("mobile i18n helpers", () => {
       }),
     ).toBe("Favorites を削除");
     expect(
-      formatMobileString(getMobileStrings("zh").browse.removeSourceNamed, {
-        name: "MangaDex",
-      }),
-    ).toBe("移除 MangaDex");
-    expect(
       formatMobileString(getMobileStrings("en").settings.selectSettingOption, {
         title: "Theme",
         option: "Dark",
@@ -583,15 +566,6 @@ describe("mobile i18n helpers", () => {
       }),
     ).toBe("Page 3 of 12. Show reader controls");
     expect(
-      formatMobileString(
-        getMobileStrings("zh").reader.dualReadTargetAccessibility,
-        {
-          source: "MangaDex",
-          detail: `${getMobileStrings("zh").reader.currentChapter} / 第 12 章`,
-        },
-      ),
-    ).toBe("双源阅读 MangaDex：当前 / 第 12 章");
-    expect(
       formatMobileString(getMobileStrings("ja").reader.openPlugin, {
         name: "Dual Read",
       }),
@@ -697,15 +671,7 @@ describe("mobile i18n helpers", () => {
         count: 8,
       }),
     ).toBe("8 pages loaded.");
-    expect(
-      formatMobileString(getMobileStrings("zh").reader.pageCountOther, {
-        count: 4,
-      }),
-    ).toBe("4 页");
     expect(getMobileStrings("ja").sourceBrowse.sourceHome).toBe("ホーム");
-    expect(getMobileStrings("zh").sourceBrowse.operationAixPackageTitle).toBe(
-      "AIX 包",
-    );
     expect(getMobileStrings("en").library.collectionNotFoundTitle).toBe(
       "Collection not found",
     );

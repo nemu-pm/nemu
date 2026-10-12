@@ -26,7 +26,6 @@ export const mobileStringsJa: MobileStrings = {
     collapse: "折りたたむ",
     create: "作成",
     done: "完了",
-    dragHandle: "ドラッグハンドル",
     externalLinkFailed: "リンクを開けませんでした",
     externalLinkFailedDetail: "このデバイスでリンクを開けませんでした。",
     expand: "展開",
@@ -74,7 +73,6 @@ export const mobileStringsJa: MobileStrings = {
     uninstall: "アンインストール",
     agentVerify: "認証",
     agentSheetOpening: "Nemu Agent を起動しています…",
-    agentSheetWaiting: "Cloudflare を待っています…",
     agentSheetCaptcha: "表示された認証プロンプトを完了して続行してください。",
     agentSheetSuccess: "チャレンジを解決しました。再開しています…",
     agentSheetFailed:
@@ -125,18 +123,14 @@ export const mobileStringsJa: MobileStrings = {
     adultSourcesDescription: "センシティブなコンテンツを含むソースを表示",
     adultSourcesSwitch: "センシティブなコンテンツ",
     addSource: "ソースを追加",
-    addSourcesDescription: "利用可能なレジストリからソースを選択",
     addSources: "ソースを追加",
     manageSources: "ソース管理",
     openSourceHomepage: "ブラウザで開く",
     updateSourceToVersion: "v{{version}} に更新",
     allLanguages: "すべて",
-    chooseLanguages: "言語を選択…",
     installAnyway: "それでもインストール",
     installingSource: "ソースをインストール中",
     installingSourceDescription: "{{name}} をインストール中…",
-    installingSourceDescriptionGeneric:
-      "ソースをインストール中です。しばらくお待ちください。",
     installSourceNamed: "{{name}} をインストール",
     installedSource: "{{name}} をインストールしました",
     uninstalledSource: "{{name}} をアンインストールしました",
@@ -149,9 +143,6 @@ export const mobileStringsJa: MobileStrings = {
     noSourceResults: "この条件に一致するソースはありません。",
     otherLanguages: "その他",
     refreshSources: "ソースを更新",
-    refreshSourcesHint:
-      "ソースレジストリとインストール状態を再読み込みします。",
-    removeSourceNamed: "{{name}} を削除",
     searchRegistries: "ソースレジストリを検索",
     sourcesUnavailable: "ソースを利用できません",
     warningAuthentication:
@@ -189,7 +180,6 @@ export const mobileStringsJa: MobileStrings = {
     selectRecommendedSource: "{{name}} を選択",
     signIn: "サインイン",
     skip: "スキップ",
-    sourceAlreadyInstalled: "インストール済み",
     sourceInstallFailed: "ソースのインストールに失敗しました",
     sourceInstallFailedDetail:
       "選択したソースをこのデバイスにインストールできませんでした。",
@@ -202,8 +192,6 @@ export const mobileStringsJa: MobileStrings = {
     title: "{{brand}}へようこそ",
   },
   library: {
-    addCompatibleSource:
-      "互換ソースを追加して nemu ライブラリを作り始めましょう。",
     addBooksAction: "本を追加",
     addBooksDescription:
       "{{name}} に含めるライブラリの本を選択してください。",
@@ -213,7 +201,6 @@ export const mobileStringsJa: MobileStrings = {
     addBooksTitle: "本を追加",
     addSource: "ソースを追加",
     all: "すべて",
-    closeAddBooks: "本の追加を閉じる",
     collectionEmpty: "このコレクションは空です。本を追加して埋めましょう。",
     collectionChipAccessibility: "{{name}}、{{countLabel}}",
     collectionMangaAccessibility: "{{title}}、{{sourceCountLabel}}",
@@ -258,7 +245,6 @@ export const mobileStringsJa: MobileStrings = {
     titleMenuManageCollections: "コレクションを管理…",
     titleMenuNewCollection: "新規コレクション…",
     updated: "更新あり",
-    updateMembershipDescription: "本をタップして追加または削除します。",
     editCollectionTitle: "コレクションを編集",
     collectionBooksSection: "本",
     collectionBooksSelectedOne: "{{count}} 冊を選択中",
@@ -339,7 +325,6 @@ export const mobileStringsJa: MobileStrings = {
     searchMatches: "メタデータ一致を検索",
     selectStatus: "状態を {{status}} に設定",
     sourceFetchAccessibility: "{{source}} からメタデータを取得",
-    sourceFetchFailed: "ソースのメタデータ取得に失敗しました。",
     sourceFetchSubtitle:
       "保存前に、リンク済みソースから下書き項目を更新します。",
     sourceFetchTitle: "ソースから",
@@ -365,7 +350,6 @@ export const mobileStringsJa: MobileStrings = {
     chapterCountLocalOne: "{{count}} 件のローカルチャプター",
     chapterCountLocalOther: "{{count}} 件のローカルチャプター",
     chapters: "チャプター",
-    completeCount: "{{count}} 件完了",
     continueChapter: "{{chapter}} から続ける",
     continueReading: "続きを読む",
     editMetadata: "メタデータを編集",
@@ -421,11 +405,9 @@ export const mobileStringsJa: MobileStrings = {
     addOptionsTitle: "ライブラリに追加",
     addToLibrary: "ライブラリに追加",
     addToLibraryHint: "このソース漫画をモバイルライブラリに追加します。",
-    backToSource: "ソースに戻る",
     chapterLoadedOne: "1 件のチャプターを読み込みました。",
     chapterLoadedOther: "{{count}} 件のチャプターを読み込みました。",
     chapters: "チャプター",
-    completeCount: "{{count}} 件完了",
     continueChapter: "{{chapter}} から続ける",
     continueReading: "続きを読む",
     detailsNotLoaded: "ソース漫画の詳細はまだ読み込まれていません。",
@@ -460,23 +442,9 @@ export const mobileStringsJa: MobileStrings = {
     availableFilterCountOther: "{{count}} 件のフィルター",
     baseUrl: "ベース URL: {{url}}",
     browseSources: "ソースを探す",
-    bytesPending: "バイト待機中",
-    bytesReadable: "バイトを読み取り可能",
-    checkingExecutor: "実行環境を確認中",
     clearSourceSearch: "ソース検索をクリア",
     closeFilters: "ソースフィルターを閉じる",
-    customFilter: "カスタム",
-    defaultFilter: "デフォルト",
-    executorCheckFailed: "実行環境の確認に失敗しました。",
-    executorPending: "実行環境待機中",
-    executorReady: "実行環境準備完了",
-    excludeFilter: "除外",
-    filterCountOne: "1 件のフィルター",
-    filterCountOther: "{{count}} 件のフィルター",
     filterSelectedCountOther: "{{count}} 件選択",
-    includeFilter: "含める",
-    installBeforeExecutor:
-      "実行環境を確認する前にソースをインストールしてください。",
     installBeforeOpening:
       "開く前に、探す画面からこのソースをインストールしてください。",
     installingSource: "ソースをインストール中…",
@@ -489,11 +457,7 @@ export const mobileStringsJa: MobileStrings = {
     sourceNotInRegistry: "このソースは利用できなくなりました",
     sourceNotInRegistryDescription:
       "このソースはソースレジストリに掲載されていません。探す画面から別のソースを選んでください。",
-    libraryFromSource: "このソースのライブラリ",
-    listingCountOne: "1 件のリスト",
-    listingCountOther: "{{count}} 件のリスト",
     listingLoadFailed: "このリストを読み込めませんでした。",
-    localPackageAvailable: "ローカル AIX パッケージを利用できます。",
     loadFiltersFailed: "ソースフィルターを読み込めませんでした。",
     loadHomeFailed: "ソースホームを読み込めませんでした。",
     loadingFilters: "ソースフィルターを読み込み中です。",
@@ -501,16 +465,9 @@ export const mobileStringsJa: MobileStrings = {
     loadingListing: "このリストから漫画を読み込み中です。",
     loadingMoreListing: "このリストからさらに漫画を読み込み中です。",
     loadingMoreSourceResults: "ソース結果をさらに読み込み中です。",
-    mangaCountOne: "1 件の漫画",
-    mangaCountOther: "{{count}} 件の漫画",
     metadataStatus: "メタデータ",
     multiLanguage: "複数言語",
-    nativeExecutor: "ネイティブ実行環境",
-    noLibraryMangaUsesSource:
-      "このソースを使うライブラリ漫画はまだありません。",
-    noLinkedMangaMatches: "この検索に一致するリンク済み漫画はありません。",
     noLiveMatches: "このソースでは一致する作品が見つかりませんでした。",
-    noLocalPackage: "ローカル AIX パッケージがありません",
     noMangaInListing: "このリストでは漫画が見つかりませんでした。",
     noMangaLoadedFromListing:
       "このリストからはまだ漫画を読み込んでいません。",
@@ -528,71 +485,16 @@ export const mobileStringsJa: MobileStrings = {
     openListing: "{{title}} のリストを開く",
     openManga: "{{title}} を開く",
     selectFeaturedManga: "注目漫画 {{title}} を表示",
-    operationAixPackageCached:
-      "ローカルにキャッシュ済みです。再インストール時にマニフェストメタデータを抽出します。",
-    operationAixPackageCachedMetadata:
-      "マニフェストメタデータを抽出済みでローカルにキャッシュされています。",
-    operationAixPackageMissing:
-      "パッケージバイトはこのデバイスにキャッシュされていません。",
-    operationAixPackageTitle: "AIX パッケージ",
-    operationBrowseListingsDetail:
-      "静的リストタブは準備済みです。リスト結果の取得にはまだネイティブランタイムが必要です。",
-    operationBrowseListingsTitle: "ブラウズリスト",
-    operationChaptersDetail:
-      "getChapterList を呼び出し、ソースチャプターをローカルリーダーモデルにマッピングします。",
-    operationChaptersTitle: "チャプター",
-    operationHomeSectionsDetail:
-      "ホームレイアウトは動的な Aidoku エクスポートで、ネイティブ Aidoku ランタイムが必要です。",
-    operationHomeSectionsTitle: "ホームセクション",
-    operationImageRequestsDetail:
-      "ページ表示前に modifyImageRequest と任意のページ画像処理を呼び出します。",
-    operationImageRequestsTitle: "画像リクエスト",
-    operationInstallPackageDetail:
-      "使用する前にソースパッケージをインストールしてキャッシュしてください。",
-    operationLiveSearchDetail:
-      "クエリ、ページ、フィルター状態を指定して getSearchMangaList を呼び出します。",
-    operationLiveSearchTitle: "ライブ検索",
-    operationMangaDetailsDetail:
-      "インポートまたは更新の前に getMangaDetails を呼び出します。",
-    operationMangaDetailsTitle: "漫画詳細",
-    operationMetadataExecutableMissing:
-      "パッケージメタデータは利用できますが、実行可能なソースコードがありません。",
-    operationNativeCompatibleDetail:
-      "ソース実行環境はこの操作を実行できます。",
-    operationNoStaticMetadata:
-      "静的メタデータが見つかりません。ネイティブランタイムがソースに直接問い合わせる必要があります。",
-    operationPageListDetail:
-      "選択した漫画とチャプターに対して getPageList を呼び出します。",
-    operationPageListTitle: "ページリスト",
-    operationSearchFiltersDetail:
-      "静的フィルターは準備済みです。ソース検索への適用にはまだネイティブランタイムが必要です。",
-    operationSearchFiltersTitle: "検索フィルター",
-    operationSettingsSchemaDetail:
-      "静的ソース設定は、ネイティブランタイムが実行可能になる前に表示できます。",
-    operationSettingsSchemaTitle: "設定スキーマ",
-    packageCached: "パッケージはキャッシュ済み",
-    packageCapabilities: "パッケージ機能",
-    packageMissing: "パッケージなし",
-    packageReady: "パッケージ準備完了",
-    packageStatus: "パッケージ",
-    readablePackageBytes:
-      "読み取り可能な AIX バイトはネイティブランタイムセッションで使用できます。",
     refreshSource: "ソースを更新",
-    refreshSourceHint:
-      "このソースのホーム、リスト、メタデータを再読み込みします。",
     resetFilters: "リセット",
     runtime: "ランタイム",
-    runtimeBridge: "ランタイムブリッジ",
-    runtimeOperations: "ランタイム操作",
     searchOrChooseFilters:
       "このソースを検索するか、フィルターを選択してください。",
-    searchLinkedManga: "リンク済み漫画を検索",
     searchSource: "ソースを検索",
     searchSourceHint: "このソース内の検索を開きます。",
     searchSourcePlaceholder: "このソースを検索",
     searchThisSource: "このソースを検索しています。",
     selectListingToBrowse: "閲覧するリストを選択してください。",
-    selectedFilterCount: "{{count}} 件を選択中",
     settingCountOne: "1 件の設定",
     settingCountOther: "{{count}} 件の設定",
     sortAscending: "昇順",
@@ -607,23 +509,10 @@ export const mobileStringsJa: MobileStrings = {
     sourceFiltersIdle: "ソースフィルターはまだ読み込まれていません。",
     sourceHome: "ホーム",
     sourceHomeIdle: "ソースホームはまだ読み込まれていません。",
-    sourceListings: "ソースリスト",
     sourceNotInstalled: "ソースがインストールされていません",
     sourceSearchFailed: "ソース検索に失敗しました。",
     sourceUnavailable: "ソースを利用できません",
     unreadOnly: "未読のみ",
-    unsupportedStatus: "非対応",
-    validatingExecutor:
-      "キャッシュ済みパッケージのバイトを検証し、ソース実行環境を読み込んでいます。",
-    waitingForSettings:
-      "保存済みソース設定を待ってから実行環境を確認します。",
-    wasmReady: "WASM 準備完了",
-    wasmUnknown: "WASM 不明",
-    webExecutor: "Web 実行環境",
-    webExecutorReady:
-      "AIX バイトは Expo Web Aidoku ランタイムで読み込まれました。",
-    nativeExecutorReady:
-      "パッケージバイトはネイティブソース実行ブリッジで読み込まれました。",
   },
   /** Web `plugin.japaneseLearning.pos` / `.conjugation`: grammar labels → localized names. */
   japaneseLearningGrammar: {
@@ -717,7 +606,6 @@ export const mobileStringsJa: MobileStrings = {
     currentChapter: "現在",
     description: "読書方向、スクロール、ページレイアウト",
     disabled: "無効",
-    dualReadTargetAccessibility: "{{source}} で2ソース同時読み: {{detail}}",
     dualReadOverlayUnavailableTitle: "このチャプターでは利用できません。",
     dualReadOverlayUnavailableHint:
       "「2ソース同時読み…」を開いてチャプターを再調整してください。",
@@ -737,18 +625,9 @@ export const mobileStringsJa: MobileStrings = {
     dualReadDialogChooseChapter: "チャプターを選択",
     dualReadDialogEnable: "2ソース同時読みを有効化",
     dualReadDialogDisable: "2ソース同時読みを無効化",
-    dualReadDialogCancel: "キャンセル",
     dualReadFabLabel: "2ソース同時読み",
-    dualReadPopoverNoLinkedSources: "リンク済みソースが見つかりません。",
-    dualReadPopoverLinkSecondary:
-      "別のソースをリンクして2ソース同時読みを有効化してください。",
-    dualReadPopoverSecondaryLabel: "ペア済み",
-    dualReadPopoverChapterPair: "チャプター: {{primary}} <-> {{secondary}}",
-    dualReadPopoverUnpaired: "このチャプターはペア未設定",
-    dualReadPopoverLoadingPairing: "チャプターのペアリングを読み込み中…",
     enabled: "有効",
     hideControls: "リーダー操作を隠す",
-    loadingChapterState: "チャプター状態を読み込み中です。",
     loadingPages: "ソースパッケージからページを読み込んでいます。",
     fetchingPages: "ページを取得中…",
     readingDirection: "読み方向",
@@ -766,7 +645,6 @@ export const mobileStringsJa: MobileStrings = {
     reloadChapter: "チャプターを再読み込み",
     readerSettingsMenu: "リーダー設定…",
     readerPluginsMenu: "プラグイン…",
-    matchingChapter: "チャプターを照合中です。",
     narrowPageWidth: "ページ幅を狭くする",
     nextChapter: "次のチャプター",
     nextPage: "次のページ",
@@ -775,14 +653,10 @@ export const mobileStringsJa: MobileStrings = {
     noNextChapter: "次のチャプターはありません",
     noPreviousChapter: "前のチャプターはありません",
     openPlugin: "{{name}} リーダープラグインを開く",
-    pageCountOne: "1 ページ",
-    pageCountOther: "{{count}} ページ",
     pageFallback: "{{page}} ページ",
     pageImageFailed: "画像を読み込めませんでした",
     pageImageLoading: "画像を読み込み中",
     processPageImages: "ソース画像を処理",
-    processPageImagesDescription:
-      "利用可能な場合、ソースの画像処理でスクランブルページを補正します。",
     pageLoadedOne: "1 ページを読み込みました。",
     pageLoadedOther: "{{count}} ページを読み込みました。",
     pageLoadingUnavailable: "ページ読み込みを利用できません",
@@ -808,8 +682,6 @@ export const mobileStringsJa: MobileStrings = {
     pluginJapaneseLearningAllLanguagesDescription:
       "日本語以外の漫画でもテキスト検出を表示します",
     pluginJapaneseLearningAlternativeReadings: "別の読み",
-    pluginJapaneseLearningAskSentence: "この文について質問",
-    pluginJapaneseLearningAskWords: "複数の単語を質問",
     pluginJapaneseLearningAutoDetectText: "テキスト自動検出",
     pluginJapaneseLearningAutoDetectTextDescription:
       "表示中のページでテキストを自動検出します",
@@ -826,10 +698,6 @@ export const mobileStringsJa: MobileStrings = {
     pluginJapaneseLearningDetectText: "テキストを検出",
     pluginJapaneseLearningDetectingText: "テキストを検出中",
     pluginJapaneseLearningDetection: "検出",
-    pluginJapaneseLearningDragWordsHint:
-      "単語をなぞるとフレーズを選択できます。",
-    pluginJapaneseLearningAnalyzingSentence: "文を解析中",
-    pluginJapaneseLearningGrammar: "文法",
     pluginJapaneseLearningGrammarFailed: "文法解析に失敗しました。",
     pluginJapaneseLearningGrammarHint:
       "検出された行を選択すると、単語・読み・文法を解析します。",
@@ -838,8 +706,6 @@ export const mobileStringsJa: MobileStrings = {
       "このページではテキストが検出されませんでした。",
     pluginJapaneseLearningNoImage:
       "現在のページにはスキャンできる画像がありません。",
-    pluginJapaneseLearningNoMeanings: "辞書の意味が見つかりませんでした。",
-    pluginJapaneseLearningNormalizingSentence: "文を整えています",
     pluginJapaneseLearningMinimumConfidence: "最小信頼度",
     pluginJapaneseLearningMinimumConfidenceDescription:
       "この閾値以上の信頼度の検出のみを表示します",
@@ -853,19 +719,14 @@ export const mobileStringsJa: MobileStrings = {
     pluginValueEngineOnDevice: "端末内",
     pluginValueEngineCloud: "クラウド",
     pluginJapaneseLearningName: "日本語学習",
-    pluginJapaneseLearningChatFailed: "Nemu Chat に失敗しました。",
     pluginJapaneseLearningChatEmptyTitle: "こんにちは！ネムだよ",
     pluginJapaneseLearningChatEmptyDescription:
       "吹き出しをタップして、単語や文法、意味について聞いてね！",
-    pluginJapaneseLearningChatHint:
-      "テキスト検出後、現在のページの説明を nemu に聞けます。",
     pluginJapaneseLearningChatInputPlaceholder: "メッセージを入力",
     pluginJapaneseLearningChatRead: "既読",
-    pluginJapaneseLearningChatResponse: "Nemu Chat",
     pluginJapaneseLearningChatSend: "送信",
     pluginJapaneseLearningChatVoiceInput: "音声入力",
     pluginJapaneseLearningChatStopVoiceInput: "音声入力を停止",
-    pluginJapaneseLearningChatThinking: "nemu が考えています",
     pluginJapaneseLearningChatToday: "今日",
     pluginJapaneseLearningLineAccessibility: "検出された行を選択: {{text}}",
     pluginJapaneseLearningNemuChat: "Nemu Chat",
@@ -886,21 +747,14 @@ export const mobileStringsJa: MobileStrings = {
     pluginJapaneseLearningSignInRequiredDescription:
       "この機能は nemu のオンラインサービスを使います。設定からサインインするか、認識エンジンを「自動」または「端末内」にしてください。",
     pluginJapaneseLearningSignInToUse: "サインインすると使えます",
-    pluginJapaneseLearningSourceText: "ソーステキスト",
     pluginJapaneseLearningStopListening: "停止",
     pluginJapaneseLearningStructure: "構造",
-    pluginJapaneseLearningTapTokenHint:
-      "単語をタップすると詳細を表示します。",
     pluginJapaneseLearningTokenAccessibility: "単語を選択: {{word}}",
     pluginJapaneseLearningTokenExtendAccessibility:
       "{{word}}まで選択範囲を広げる",
-    pluginJapaneseLearningTranscript: "文字起こし",
-    pluginJapaneseLearningTranscriptHint:
-      "現在のページでテキスト検出を実行すると文字起こしを表示します。",
     pluginJapaneseLearningTranscriptTooLong:
       "このページは全文音声には長すぎます。文ごとの再生を使ってください。",
     pluginJapaneseLearningTtsFailed: "音声を生成できませんでした。",
-    pluginJapaneseLearningTtsLoading: "音声を生成中",
     pluginJapaneseLearningAskAboutThisSentence: "この文について聞く",
     pluginJapaneseLearningAskAboutTheseWords: "これらの単語について聞く",
     pluginJapaneseLearningTapAnyWordHint: "単語をタップして詳細な意味を確認",
@@ -908,7 +762,6 @@ export const mobileStringsJa: MobileStrings = {
     pluginJapaneseLearningExtractingText: "画像からテキストを抽出中…",
     pluginJapaneseLearningAnalyzingSentenceProgress: "文を分析中…",
     pluginJapaneseLearningTranscriptNoText: "テキストが検出されませんでした",
-    pluginJapaneseLearningTryAnotherRegion: "別のテキスト領域を選択してみてください",
     pluginResponse: "応答",
     pluginValueAppLanguage: "アプリ言語",
     pluginValueDefault: "デフォルト",
@@ -954,30 +807,19 @@ export const mobileStringsJa: MobileStrings = {
     endOfChapterDismiss: "チャプター終了の表示を閉じる",
     errorDetailWithReason: "{{message}}（{{reason}}）",
     pageImageRetry: "このページを再試行",
-    noPagesTitle: "ページを読み込めませんでした",
     openSourceSettings: "ソース設定を開く",
     sourceBlockedHint:
       "ソースがリクエストをブロックしました。再インストールまたは設定の更新をお試しください。",
   },
   search: {
-    addCompatibleSource: "検索する前に互換ソースを追加してください。",
     addSource: "ソースを追加",
     all: "すべて",
     allSources: "すべてのソース",
     allSourcesSelectionHint: "すべてのソースの選択を切り替えます。",
     browseSources: "ソースを探す",
-    enterQuery:
-      "タイトル、作者、タグ、またはソース漫画 ID を入力してください。",
     enterSearchTerm: "検索語を入力して選択したソースから漫画を探しましょう",
-    liveSearchCachedStatus:
-      "選択中のパッケージ {{installed}} 個中 {{cached}} 個がキャッシュ済みで、ライブソース検索に利用できます。",
-    liveSearchFailed: "ライブソース検索に失敗しました。",
-    liveSearchNeedsCache:
-      "ライブソース検索を実行する前に、キャッシュ済みパッケージのあるソースを選択またはインストールしてください。",
     liveSourceResults: "ライブソース結果",
-    liveSourceSearch: "ライブソース検索",
     noLiveMatches: "このソースでは一致する作品が見つかりませんでした。",
-    noSavedMatches: "このソースに保存済みの一致はありません。",
     noSavedMatchesForQuery:
       "「{{query}}」に一致する保存済み漫画はありません。",
     noSources: "ソースなし",
@@ -996,15 +838,11 @@ export const mobileStringsJa: MobileStrings = {
     searchForManga: "漫画を検索",
     searchUnavailable: "検索を利用できません",
     searching: "検索中…",
-    searchingSelectedSources: "選択したソースパッケージを検索しています。",
-    selectedOfSources: "{{total}} 個中 {{selected}} 個のソース",
     sourceAccessibility: "{{name}} ソース",
     sourceSelectionHint:
       "このソースの選択を切り替えます。ダブルタップまたは長押しでこのソースのみ検索します。",
     updated: "更新あり",
     sidebarSources: "ソース",
-    sidebarSourceHint:
-      "このソースのみを検索します。長押しで検索対象に追加または除外します。",
     sidebarAllSourcesHint: "インストール済みのすべてのソースを検索します。",
     sidebarResultCount: "{{count}} 件",
     sidebarSearchFailed: "検索に失敗しました",
@@ -1038,10 +876,8 @@ export const mobileStringsJa: MobileStrings = {
     agentVerificationUnavailable:
       "このビルドでは Cloudflare 認証を利用できません",
     agentRefresh: "更新",
-    agentRefreshStatus: "Nemu Agent の状態を更新",
     agentVersion: "v{{version}}",
     browseSource: "{{name}} を探す",
-    builtIn: "内蔵",
     clearAllData: "すべてのデータをクリア",
     clearAllDataConfirm:
       "このデバイスからローカル設定、インストール済みソース、ライブラリエントリ、進捗、キャッシュ済みパッケージを削除しますか？",
@@ -1053,7 +889,6 @@ export const mobileStringsJa: MobileStrings = {
       "このデバイスからキャッシュ済みソースパッケージを削除しますか？インストール済みソースとライブラリエントリは保持されます。",
     clearCacheDescription:
       "ライブラリを変更せずキャッシュ済みソースパッケージを削除",
-    storageTotal: "キャッシュ {{entries}} 件・{{bytes}}",
     storageCovers: "表紙",
     storagePages: "リーダーページ",
     storageSourcePackages: "ソースパッケージ",
@@ -1171,10 +1006,7 @@ export const mobileStringsJa: MobileStrings = {
     pluginSettings: "プラグイン設定",
     readerPluginSwitch: "{{name}} を有効化",
     readerPluginOffFooter: "設定を変更するには {{name}} をオンにしてください。",
-    readerPluginSettingEditElsewhere: "この項目は設定画面で変更できます。",
     refreshSources: "ソースを更新",
-    refreshSourcesHint:
-      "インストール済みソースと利用可能なソースメタデータを再読み込みします。",
     selectSettingOption: "{{title}}：{{option}}",
     settingCountOne: "{{count}} 個の設定",
     settingCountOther: "{{count}} 個の設定",
@@ -1191,7 +1023,6 @@ export const mobileStringsJa: MobileStrings = {
     sourceSettingsReset: "リセット",
     sourceSettingsResetLabel: "設定をリセット",
     sourceSettingsSavedOnDevice: "このデバイスに保存済み",
-    sourceSettingsTitle: "{{name}} の設定",
     sourceSettingsToggleOption: "{{name}} の {{option}} を切り替え",
     sourceSettingsBack: "ソース設定に戻る",
     sourceSettingsOpenPage: "{{name}} を開く",
@@ -1200,7 +1031,6 @@ export const mobileStringsJa: MobileStrings = {
     sourceSettingsLoginUnsupported:
       "このログイン方式はモバイルアプリではまだ利用できません。",
     sourceSettingsLogout: "ログアウト",
-    sourceSettingsLoginInProgress: "ログイン中…",
     sourceSettingsLoggedIn: "ログイン済み",
     sourceSettingsLoggedOut: "未ログイン",
     sourceSettingsLoginFailed: "ログイン失敗",
@@ -1423,7 +1253,6 @@ export const mobileStringsJa: MobileStrings = {
     chapterNoVolume: "その他の話",
     chapterAfterVolume: "第{{volume}}巻の後",
     chapterRange: "第{{from}}–{{to}}話",
-    chapterJumpUpNext: "次に読む章へ移動、{{chapter}}",
     libraryEmptyTitle: "本棚をはじめよう",
     libraryEmptyDescription: "ブラウズで作品を見つけて追加しましょう。続きからすぐ読めるよう、ここで待っています。",
     libraryEmptyBrowse: "ソースをブラウズ",
