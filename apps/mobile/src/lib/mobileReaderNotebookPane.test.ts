@@ -6,6 +6,7 @@ import {
   mobileReaderNotebookPaneBase,
   mobileReaderNotebookPaneMotion,
   mobileReaderNotebookReveal,
+  mobileReaderNotebookSheetFrame,
   mobileReaderPageRevealed,
   mobileReaderTrackpadLayout,
   mobileReaderTrackpadProgress,
@@ -14,6 +15,9 @@ import {
   normalizeMobileReaderNotebookPanePreference,
   READER_FILMSTRIP_GAP,
   READER_NOTEBOOK_HANDLE_HIT,
+  READER_NOTEBOOK_PAD_INSET,
+  READER_NOTEBOOK_PAD_RADIUS,
+  READER_NOTEBOOK_SHEET_RADIUS,
   resolveMobileReaderNotebookPane,
 } from "./mobileReaderNotebookPane";
 
@@ -146,5 +150,30 @@ describe("notebook pane: motion", () => {
     expect(mobileReaderNotebookPaneMotion({ from: "filmstrip", to: "trackpad", reduceMotion: false, ...timing })).toMatchObject({ kind: "spring", dy: -10 });
     expect(mobileReaderNotebookPaneMotion({ from: "trackpad", to: "filmstrip", reduceMotion: true, ...timing })).toEqual({ kind: "fade", durationMs: 150 });
     expect(mobileReaderNotebookPaneMotion({ from: null, to: "trackpad", reduceMotion: false, ...timing })).toEqual({ kind: "none" });
+  });
+});
+
+describe("notebook pane: the sheet around the bottom half", () => {
+  test("Duo bottom half (669 × 465 under a fold ending at 486): top edge at the pane, full width, bleeds one radius below", () => {
+    const sheet = mobileReaderNotebookSheetFrame({ x: 0, y: 486, width: 669, height: 465 });
+    expect(sheet.radius).toBe(READER_NOTEBOOK_SHEET_RADIUS);
+    expect(sheet.rect).toEqual({ x: 0, y: 486, width: 669, height: 465 + READER_NOTEBOOK_SHEET_RADIUS });
+    // The surface reaches past the window's bottom edge (951) by the radius: the display's corners shape the bottom.
+    expect(sheet.rect.y + sheet.rect.height).toBe(951 + sheet.bleed);
+  });
+
+  test("the pad inside the sheet is concentric with its top corners", () => {
+    expect(READER_NOTEBOOK_PAD_RADIUS + READER_NOTEBOOK_PAD_INSET).toBe(READER_NOTEBOOK_SHEET_RADIUS);
+  });
+
+  test("a short or narrow half never gets a radius larger than half of it", () => {
+    expect(mobileReaderNotebookSheetFrame({ x: 0, y: 100, width: 300, height: 50 }).radius).toBe(25);
+    expect(mobileReaderNotebookSheetFrame({ x: 0, y: 100, width: 30, height: 400 }).radius).toBe(15);
+  });
+
+  test("degenerate frames stay finite and non-negative", () => {
+    const sheet = mobileReaderNotebookSheetFrame({ x: 0, y: 0, width: 0, height: 0 });
+    expect(sheet.radius).toBe(0);
+    expect(sheet.rect).toEqual({ x: 0, y: 0, width: 0, height: 0 });
   });
 });

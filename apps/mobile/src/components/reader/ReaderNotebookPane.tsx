@@ -21,12 +21,15 @@ import Animated, {
   type EntryExitAnimationFunction,
 } from "react-native-reanimated";
 import { NemuText, nemuFontWeight } from "@/design-system";
+import { GlassView, glassViewAvailable } from "../../../modules/nemu-window-layout";
 import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
 import { MOBILE_MOTION } from "@/lib/mobileMotion";
+import { nemuGlassSheetVeil } from "@/lib/mobileSheetGlass";
 import {
   mobileReaderFilmstripItemSize,
   mobileReaderFilmstripOffset,
   mobileReaderFilmstripOrder,
+  mobileReaderNotebookSheetFrame,
   mobileReaderNotebookPaneMotion,
   mobileReaderPageRevealed,
   mobileReaderTrackpadLayout,
@@ -59,6 +62,8 @@ export type ReaderNotebookFilmstripProps = {
 };
 
 export type ReaderNotebookPaneProps = {
+  /** The whole bottom half (reader-local): the sheet's rectangle, from just under the hinge to the window's edges. */
+  frame: WindowLayoutRect;
   /** The bottom pane's content rect (reader-local, safe area removed). */
   pane: WindowLayoutRect;
   state: PaneState;
@@ -79,6 +84,11 @@ export type ReaderNotebookPaneProps = {
   filmstrip: ReaderNotebookFilmstripProps;
 };
 
+/** The reader is always dark, so its sheet is the tinted dark sheet look (`nemuGlassSheetVeil`). */
+const SHEET_VEIL = nemuGlassSheetVeil("tinted", "dark") ?? "rgba(16,17,20,0.68)";
+/** Painted sheet where native glass is unavailable (Android, older iOS): the reader capsules' own panel colour, opaque. */
+const SHEET_PAINTED = "rgb(28,28,30)";
+const SHEET_RIM = "rgba(255,255,255,0.10)";
 const PRIMARY = READER_CAPSULE_COLORS.primaryText;
 const SECONDARY = READER_CAPSULE_COLORS.secondaryText;
 const QUIET = "rgba(235,235,245,0.30)";
@@ -127,6 +137,8 @@ export function ReaderNotebookPane(props: ReaderNotebookPaneProps) {
     : FadeOut.duration(MOBILE_MOTION.fadeOutMs);
 
   return (
+    <>
+    <ReaderNotebookSheet frame={props.frame} />
     <View pointerEvents="box-none" style={mobileReaderAbsoluteRect(pane)}>
       {state === "trackpad" ? (
         <Animated.View key="trackpad" entering={entering} exiting={exiting} style={StyleSheet.absoluteFill}>
@@ -138,6 +150,41 @@ export function ReaderNotebookPane(props: ReaderNotebookPaneProps) {
         </Animated.View>
       ) : null}
     </View>
+    </>
+  );
+}
+
+// --- Sheet ---------------------------------------------------------------------
+
+/**
+ * The surface the whole bottom half sits on: the app's tinted sheet (system
+ * Liquid Glass under a veil of the dark surface colour), its top edge just
+ * under the hinge with the sheet's top corner radius, bleeding to the window's
+ * sides and bottom. Drawn, not presented: a system sheet cannot be pinned to the
+ * fold without dismissal, dimming or a second presentation fighting the
+ * reader's own sheets (see `mobileReaderNotebookSheetFrame`).
+ */
+function ReaderNotebookSheet({ frame }: { frame: WindowLayoutRect }) {
+  const { rect, radius } = useMemo(() => mobileReaderNotebookSheetFrame(frame), [frame]);
+  const shape = { borderTopLeftRadius: radius, borderTopRightRadius: radius };
+  const placement = mobileReaderAbsoluteRect(rect);
+  if (!glassViewAvailable) {
+    return (
+      <View
+        pointerEvents="none"
+        style={[placement, shape, styles.sheetPainted]}
+      />
+    );
+  }
+  return (
+    <GlassView
+      colorScheme="dark"
+      cornerRadius={radius}
+      pointerEvents="none"
+      style={placement}
+    >
+      <View pointerEvents="none" style={[StyleSheet.absoluteFill, shape, { backgroundColor: SHEET_VEIL }]} />
+    </GlassView>
   );
 }
 
@@ -504,6 +551,11 @@ const FilmstripThumb = memo(function FilmstripThumb({
 });
 
 const styles = StyleSheet.create({
+  sheetPainted: {
+    backgroundColor: SHEET_PAINTED,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderColor: SHEET_RIM,
+  },
   pad: {
     borderRadius: READER_NOTEBOOK_PAD_RADIUS,
     backgroundColor: PAD_FILL,

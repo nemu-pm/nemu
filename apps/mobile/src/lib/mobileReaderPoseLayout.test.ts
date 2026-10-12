@@ -24,6 +24,7 @@ import {
 } from "./mobileReaderPoseLayout";
 import type { MobileWindowLayout, WindowReservedRegion } from "./mobileWindowLayout";
 import { classifyReaderWindowShape } from "./mobileReaderWindowShape";
+import { mobileReaderNotebookSheetFrame } from "./mobileReaderNotebookPane";
 
 const hinge = (x: number, y: number, width: number, height: number, active = true): WindowReservedRegion => ({ id: "hinge", x, y, width, height, active });
 const noInsets = { top: 0, left: 0, bottom: 0, right: 0 };
@@ -663,6 +664,24 @@ describe("reader pose on measured iPhone Duo geometry", () => {
     expect(result.posture).toBe("book");
     expect(result.foldGap).toEqual({ start: 455.5, end: 495.5 });
     expect(result.spreadSlots?.[1]).toEqual({ x: 495.5, y: 0, width: 951 - 495.5, height: 669 });
+  });
+
+  test("notebook: the sheet starts at the fold band's lower edge and keeps the console's width, upright and upside-down", () => {
+    for (const orientation of ["portrait", "upside-down"]) {
+      const layout = duoLayout(find("iphone-duo-inner", "partially-folded", orientation));
+      const result = pose(layout);
+      if (result.chrome.kind !== "console") throw new Error("expected console");
+      const sheet = mobileReaderNotebookSheetFrame(result.chrome.frame);
+      const fold = layout.divisions.find((division) => division.active);
+      if (!fold) throw new Error("expected an active fold");
+      expect(sheet.rect.y).toBe(fold.y + fold.height);
+      expect(sheet.rect.y).toBeGreaterThanOrEqual(result.stage.y + result.stage.height);
+      expect(sheet.rect.x).toBe(0);
+      expect(sheet.rect.width).toBe(layout.width);
+      expect(sheet.rect.y + sheet.rect.height).toBe(layout.height + sheet.bleed);
+      // The controls sit inside the sheet: the content rect is within its frame.
+      expect(result.chrome.pane.y).toBeGreaterThanOrEqual(sheet.rect.y);
+    }
   });
 
   test("notebook: page above the measured fold, console below it, both upright and upside-down", () => {

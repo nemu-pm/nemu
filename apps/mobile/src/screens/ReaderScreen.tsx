@@ -7668,6 +7668,7 @@ export function ReaderScreen() {
             ]}
           />
           <ReaderNotebookPane
+            frame={chrome.frame}
             pane={chrome.pane}
             state={chrome.state}
             reduceMotion={reduceMotion === true}

@@ -94,9 +94,42 @@ export function mobileReaderTrackpadSwipe(input: { dx: number; dy: number; rtl: 
   return dy <= -READER_NOTEBOOK_SWIPE_MIN ? "expand" : null;
 }
 
+/**
+ * The sheet the bottom half sits in: its top corner radius is the system
+ * sheet's (measured on the reader settings sheet), and the pad inside it keeps
+ * to the concentric rule — pad radius = sheet radius − pad inset.
+ */
+export const READER_NOTEBOOK_SHEET_RADIUS = 40;
 /** Inset of the pad inside the pane, and its corner radius. */
 export const READER_NOTEBOOK_PAD_INSET = 12;
-export const READER_NOTEBOOK_PAD_RADIUS = 28;
+export const READER_NOTEBOOK_PAD_RADIUS = READER_NOTEBOOK_SHEET_RADIUS - READER_NOTEBOOK_PAD_INSET;
+
+export type MobileReaderNotebookSheetFrame = {
+  /** The surface to paint, reader-local: the bottom pane plus `bleed` below it. */
+  rect: WindowLayoutRect;
+  /** Top corner radius (the bottom corners are the display's own). */
+  radius: number;
+  /** How far the surface runs past the pane's bottom edge, so no bottom corner is ever drawn inside the window. */
+  bleed: number;
+};
+
+/**
+ * The notebook sheet's frame from the bottom pane (`chrome.frame`: the
+ * window below the fold band): its top edge is the pane's own, i.e. just
+ * under the hinge, it keeps the pane's full width, and it reaches one corner
+ * radius past the window's bottom edge, so the display's rounded corners — not
+ * the sheet — shape its bottom (a system sheet bleeds the same way).
+ */
+export function mobileReaderNotebookSheetFrame(frame: WindowLayoutRect): MobileReaderNotebookSheetFrame {
+  const width = Math.max(0, frame.width);
+  const height = Math.max(0, frame.height);
+  const radius = Math.max(0, Math.min(READER_NOTEBOOK_SHEET_RADIUS, width / 2, height / 2));
+  return {
+    rect: { x: frame.x, y: frame.y, width, height: height + radius },
+    radius,
+    bleed: radius,
+  };
+}
 export const READER_NOTEBOOK_HANDLE_WIDTH = 64;
 export const READER_NOTEBOOK_HANDLE_HEIGHT = 28;
 /** The handle's touch target is the full capsule row height. */
