@@ -154,12 +154,11 @@ describe("notebook pane: motion", () => {
 });
 
 describe("notebook pane: the sheet around the bottom half", () => {
-  test("Duo bottom half (669 × 465 under a fold ending at 486): top edge at the pane, full width, bleeds one radius below", () => {
+  test("Duo bottom half (669 × 465 under a fold ending at 486): top edge at the pane, floating 8pt from the sides and bottom", () => {
     const sheet = mobileReaderNotebookSheetFrame({ x: 0, y: 486, width: 669, height: 465 });
     expect(sheet.radius).toBe(READER_NOTEBOOK_SHEET_RADIUS);
-    expect(sheet.rect).toEqual({ x: 0, y: 486, width: 669, height: 465 + READER_NOTEBOOK_SHEET_RADIUS });
-    // The surface reaches past the window's bottom edge (951) by the radius: the display's corners shape the bottom.
-    expect(sheet.rect.y + sheet.rect.height).toBe(951 + sheet.bleed);
+    expect(sheet.rect).toEqual({ x: 8, y: 486, width: 653, height: 457 });
+    expect(sheet.rect.y + sheet.rect.height).toBe(951 - 8);
   });
 
   test("the pad inside the sheet is concentric with its top corners", () => {
@@ -167,8 +166,8 @@ describe("notebook pane: the sheet around the bottom half", () => {
   });
 
   test("a short or narrow half never gets a radius larger than half of it", () => {
-    expect(mobileReaderNotebookSheetFrame({ x: 0, y: 100, width: 300, height: 50 }).radius).toBe(25);
-    expect(mobileReaderNotebookSheetFrame({ x: 0, y: 100, width: 30, height: 400 }).radius).toBe(15);
+    expect(mobileReaderNotebookSheetFrame({ x: 0, y: 100, width: 300, height: 50 }).radius).toBe(21);
+    expect(mobileReaderNotebookSheetFrame({ x: 0, y: 100, width: 30, height: 400 }).radius).toBe(7);
   });
 
   test("degenerate frames stay finite and non-negative", () => {

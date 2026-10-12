@@ -1,6 +1,6 @@
 import { mobileAdaptiveLayout, type MobileWindowPosture } from "@/lib/mobileAdaptiveLayout";
 import { resolveReaderSpreadWanted, type ReaderSpreadMode } from "@/lib/mobileReaderSpreadMode";
-import type { MobileReaderNotebookPaneState } from "@/lib/mobileReaderNotebookPane";
+import { READER_NOTEBOOK_SHEET_INSET, type MobileReaderNotebookPaneState } from "@/lib/mobileReaderNotebookPane";
 import {
   mobileWindowUnoccludedRect,
   type MobileWindowLayout,
@@ -864,7 +864,12 @@ export function mobileReaderPoseLayout(input: MobileReaderPoseLayoutInput): Mobi
       && topPane.height >= READER_BOOK_MIN_PANE;
     const spread = wantsSpread(input, topPane) && twoPageAvailable;
     const padding = mobileReaderSafePadding(bottomPane, bounds, insets);
-    const pane = mobileWindowUnoccludedRect(shrink(bottomPane, padding), occlusions);
+    const pane = mobileWindowUnoccludedRect(shrink(bottomPane, {
+      ...padding,
+      left: Math.max(padding.left, READER_NOTEBOOK_SHEET_INSET),
+      right: Math.max(padding.right, READER_NOTEBOOK_SHEET_INSET),
+      bottom: Math.max(padding.bottom, READER_NOTEBOOK_SHEET_INSET),
+    }), occlusions);
     const row = capsuleChrome({
       frame: topPane,
       bounds,

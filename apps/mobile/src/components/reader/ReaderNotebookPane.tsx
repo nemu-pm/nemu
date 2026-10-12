@@ -124,7 +124,7 @@ function stateEntering(from: PaneState | null, to: PaneState, reduceMotion: bool
 /**
  * The notebook posture's bottom pane: the trackpad (B) or the filmstrip
  * console (A).
- * State changes cross-fade with the settle spring; Reduce Motion fades.
+ * The trackpad settles in; glass controls use their own native material animation.
  */
 export function ReaderNotebookPane(props: ReaderNotebookPaneProps) {
   const { pane, state, reduceMotion } = props;
@@ -158,14 +158,14 @@ export function ReaderNotebookPane(props: ReaderNotebookPaneProps) {
 /**
  * The surface the whole bottom half sits on: the app's tinted sheet (system
  * Liquid Glass under a veil of the dark surface colour), its top edge just
- * under the hinge with the sheet's top corner radius, bleeding to the window's
- * sides and bottom. Drawn, not presented: a system sheet cannot be pinned to the
+ * under the hinge, with rounded corners and an 8pt gutter at the sides
+ * and bottom. Drawn, not presented: a system sheet cannot be pinned to the
  * fold without dismissal, dimming or a second presentation fighting the
  * reader's own sheets (see `mobileReaderNotebookSheetFrame`).
  */
 function ReaderNotebookSheet({ frame }: { frame: WindowLayoutRect }) {
   const { rect, radius } = useMemo(() => mobileReaderNotebookSheetFrame(frame), [frame]);
-  const shape = { borderTopLeftRadius: radius, borderTopRightRadius: radius };
+  const shape = { borderRadius: radius };
   const placement = mobileReaderAbsoluteRect(rect);
   if (!glassViewAvailable) {
     return (

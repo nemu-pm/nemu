@@ -403,7 +403,7 @@ describe("reader pose: notebook", () => {
     if (result.chrome.kind !== "console") throw new Error("expected console");
     expect(result.chrome.state).toBe("filmstrip");
     expect(result.chrome.frame).toEqual({ x: 0, y: 486, width: 669, height: 465 });
-    expect(result.chrome.pane).toEqual({ x: 0, y: 486, width: 669, height: 465 - 20 });
+    expect(result.chrome.pane).toEqual({ x: 8, y: 486, width: 653, height: 465 - 20 });
   });
 
   test("the capsule row sits over the top pane, clear of the fold, and owns its taps", () => {
@@ -470,7 +470,7 @@ describe("reader pose helpers", () => {
     expect(chrome.content.y).toBe(chrome.back.y + 44 + 10);
     expect(chrome.content.y + chrome.content.height).toBe(Math.min(chrome.scrubber.y, chrome.actions.y) - 10);
     const notebook = pose(innerPortrait([hinge(0, 465, 669, 21)]));
-    expect(notebook.popover).toEqual({ frame: { x: 0, y: 486, width: 669, height: 465 - 20 }, bottomGap: READER_POPOVER_GAP });
+    expect(notebook.popover).toEqual({ frame: { x: 8, y: 486, width: 653, height: 465 - 20 }, bottomGap: READER_POPOVER_GAP });
   });
   test("overlay insets centre a card in its pane, safe area included; none for the whole reader", () => {
     const bounds = { x: 0, y: 0, width: 951, height: 669 };
@@ -667,7 +667,7 @@ describe("reader pose on measured iPhone Duo geometry", () => {
     expect(result.spreadSlots?.[1]).toEqual({ x: 495.5, y: 0, width: 951 - 495.5, height: 669 });
   });
 
-  test("notebook: the sheet starts at the fold band's lower edge and keeps the console's width, upright and upside-down", () => {
+  test("notebook: the sheet starts at the fold band's lower edge and floats within the console, upright and upside-down", () => {
     for (const orientation of ["portrait", "upside-down"]) {
       const layout = duoLayout(find("iphone-duo-inner", "partially-folded", orientation));
       const result = pose(layout);
@@ -677,11 +677,14 @@ describe("reader pose on measured iPhone Duo geometry", () => {
       if (!fold) throw new Error("expected an active fold");
       expect(sheet.rect.y).toBe(fold.y + fold.height);
       expect(sheet.rect.y).toBeGreaterThanOrEqual(result.stage.y + result.stage.height);
-      expect(sheet.rect.x).toBe(0);
-      expect(sheet.rect.width).toBe(layout.width);
-      expect(sheet.rect.y + sheet.rect.height).toBe(layout.height + sheet.bleed);
+      expect(sheet.rect.x).toBe(8);
+      expect(sheet.rect.width).toBe(layout.width - 16);
+      expect(sheet.rect.y + sheet.rect.height).toBe(layout.height - 8);
       // The controls sit inside the sheet: the content rect is within its frame.
       expect(result.chrome.pane.y).toBeGreaterThanOrEqual(sheet.rect.y);
+      expect(result.chrome.pane.x).toBeGreaterThanOrEqual(sheet.rect.x);
+      expect(result.chrome.pane.x + result.chrome.pane.width).toBeLessThanOrEqual(sheet.rect.x + sheet.rect.width);
+      expect(result.chrome.pane.y + result.chrome.pane.height).toBeLessThanOrEqual(sheet.rect.y + sheet.rect.height);
     }
   });
 

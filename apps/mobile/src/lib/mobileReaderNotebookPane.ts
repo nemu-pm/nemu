@@ -104,30 +104,24 @@ export const READER_NOTEBOOK_SHEET_RADIUS = 40;
 export const READER_NOTEBOOK_PAD_INSET = 12;
 export const READER_NOTEBOOK_PAD_RADIUS = READER_NOTEBOOK_SHEET_RADIUS - READER_NOTEBOOK_PAD_INSET;
 
+/** Floating sheet gutter along the sides and bottom of the window. */
+export const READER_NOTEBOOK_SHEET_INSET = 8;
+
 export type MobileReaderNotebookSheetFrame = {
-  /** The surface to paint, reader-local: the bottom pane plus `bleed` below it. */
+  /** The floating surface to paint in reader-local coordinates. */
   rect: WindowLayoutRect;
-  /** Top corner radius (the bottom corners are the display's own). */
   radius: number;
-  /** How far the surface runs past the pane's bottom edge, so no bottom corner is ever drawn inside the window. */
-  bleed: number;
 };
 
-/**
- * The notebook sheet's frame from the bottom pane (`chrome.frame`: the
- * window below the fold band): its top edge is the pane's own, i.e. just
- * under the hinge, it keeps the pane's full width, and it reaches one corner
- * radius past the window's bottom edge, so the display's rounded corners — not
- * the sheet — shape its bottom (a system sheet bleeds the same way).
- */
+/** The sheet starts directly below the hinge, with an 8pt side and bottom gutter. */
 export function mobileReaderNotebookSheetFrame(frame: WindowLayoutRect): MobileReaderNotebookSheetFrame {
-  const width = Math.max(0, frame.width);
-  const height = Math.max(0, frame.height);
+  const insetX = Math.min(READER_NOTEBOOK_SHEET_INSET, Math.max(0, frame.width) / 2);
+  const width = Math.max(0, frame.width - insetX * 2);
+  const height = Math.max(0, frame.height - READER_NOTEBOOK_SHEET_INSET);
   const radius = Math.max(0, Math.min(READER_NOTEBOOK_SHEET_RADIUS, width / 2, height / 2));
   return {
-    rect: { x: frame.x, y: frame.y, width, height: height + radius },
+    rect: { x: frame.x + insetX, y: frame.y, width, height },
     radius,
-    bleed: radius,
   };
 }
 export const READER_NOTEBOOK_HANDLE_WIDTH = 64;
