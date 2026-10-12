@@ -27,3 +27,5 @@ export type {
 export { default as SheetProgressObserver } from "./src/SheetProgressObserver";
 
 export { NativeSegmentedControl } from "./src/SegmentedControl";
+
+export { ConcentricView } from "./src/ConcentricView";

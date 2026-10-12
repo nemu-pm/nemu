@@ -119,8 +119,12 @@ export function mobileWindowHasFoldRegion(
   return layout.divisions.some((region) => {
     if (![region.x, region.y, region.width, region.height].every(Number.isFinite)) return false;
     if (region.width <= 0 && region.height <= 0) return false;
-    return region.x <= layout.width && region.x + region.width >= 0
-      && region.y <= layout.height && region.y + region.height >= 0;
+    // A hinge at the window's edge belongs to the neighbouring Split View
+    // app. It must not impose even grid columns on this half-width window.
+    const vertical = region.height >= layout.height && region.y <= 0;
+    const horizontal = region.width >= layout.width && region.x <= 0;
+    return (vertical && region.x > 0 && region.x + region.width < layout.width)
+      || (horizontal && region.y > 0 && region.y + region.height < layout.height);
   });
 }
 

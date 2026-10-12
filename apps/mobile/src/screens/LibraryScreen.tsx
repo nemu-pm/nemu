@@ -2084,11 +2084,11 @@ export function LibraryScreen({
   );
   const renderLibraryRow = useCallback(
     ({ item: row, index: rowIndex }: ListRenderItemInfo<LibraryEntry[]>) => (
-      <View style={[styles.libraryRow, shelfMode ? styles.shelfRow : styles.gridRow]}>
+      <View style={[styles.libraryRow, shelfMode ? styles.shelfRow : styles.gridRow, !shelfMode && rowIndex === 0 && designExplore && styles.firstGridRow]}>
         {row.map((entry, column) => renderLibraryGridItem({ item: entry, index: rowIndex * gridColumns + column }))}
       </View>
     ),
-    [gridColumns, renderLibraryGridItem, shelfMode],
+    [designExplore, gridColumns, renderLibraryGridItem, shelfMode],
   );
   // A literal here is a new object on every render, so the cell bail-out
   // never fired; the memoized value only changes when a cell input does.
@@ -2732,6 +2732,9 @@ const styles = StyleSheet.create({
   // Column spacing is each cell's `marginLeft` (mobileFoldAwareGridCellStyle).
   libraryRow: {
     flexDirection: "row",
+  },
+  firstGridRow: {
+    paddingTop: MOBILE_SHELF.headroom,
   },
   gridRow: {
     marginBottom: MOBILE_MANGA_GRID_GAP,

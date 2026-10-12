@@ -17,9 +17,14 @@ import {
 export function useMobilePageGutters(): MobilePageGutters {
   const insets = useSafeAreaInsets();
   const { minimumLayoutMargins, safeAreaInsets: windowInsets } = useMobileWindowLayout();
+  const left = windowInsets?.left ?? insets.left;
+  const right = windowInsets?.right ?? insets.right;
+  // Use one native geometry snapshot. Taking the maximum of two providers
+  // combines old/new rail sides during a fold or Split View change and
+  // briefly reserves both edges. The screen provider is the fallback only.
   return useMemo(
-    () => getMobilePageGutters({ left: Math.max(insets.left, windowInsets?.left ?? 0), right: Math.max(insets.right, windowInsets?.right ?? 0) }, undefined, minimumLayoutMargins),
-    [insets.left, insets.right, minimumLayoutMargins, windowInsets?.left, windowInsets?.right],
+    () => getMobilePageGutters({ left, right }, undefined, minimumLayoutMargins),
+    [left, right, minimumLayoutMargins],
   );
 }
 

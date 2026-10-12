@@ -34,7 +34,7 @@ import { buildMobileCoverMeshColors, buildMobileCoverMeshInkSecondary } from "@/
 import { buildMobileCoverTintPalette } from "@/lib/mobileCoverTint";
 import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
 import { useMobileCoverRegionTints, useMobileCoverTint } from "@/lib/useMobileCoverTint";
-import { ZoomSource, ZoomTarget } from "../../../modules/nemu-window-layout";
+import { ConcentricView, ZoomSource, ZoomTarget } from "../../../modules/nemu-window-layout";
 import { getMobileBooksHeroCoverWidth } from "./mobileExploreCover";
 import { useMobileExploreRestingFrame, useMobileExploreRestingTop } from "./useMobileExploreResting";
 import { fitMobileRestingContent, isMobileCompactHeight, type MobileRestingBlock } from "@/lib/mobileExploreRestingFit";
@@ -69,7 +69,7 @@ const PANE_RADIUS = R.card;
 const HERO_TEXT_MAX_SCALE = 1.4;
 /** How far the cover colour reaches up under the bar and the bounce. */
 const TINT_OVERSCAN = 1000;
-const TINT_FADE = 64;
+const TINT_FADE = 40;
 /**
  * The living page reaches this far up under the bar (it is in sight at rest
  * from about 120 pt above the hero), and blends into the plain page colour
@@ -437,9 +437,8 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || (top ? topTextWidth :
   ];
 
   const coverView = (
-    <View
+    <ConcentricView minimumRadius={COVER_RADIUS}
       style={[
-        styles.cover,
         {
           width: shownCoverWidth,
           height: Math.round(shownCoverWidth * 1.5),
@@ -479,7 +478,7 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || (top ? topTextWidth :
           <MobileExploreCoverPlaceholder title={title} width={shownCoverWidth} />
         )}
       </View>
-    </View>
+    </ConcentricView>
   );
   const dissolvable = dissolveId ? <ExploreDissolveTarget id={dissolveId} preferred>{coverView}</ExploreDissolveTarget> : coverView;
   let cover: ReactNode = readerZoomId ? (
@@ -774,6 +773,7 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || (top ? topTextWidth :
       }}
       style={[
         styles.root,
+        !pane ? { paddingBottom: TINT_FADE + 8 } : null,
         pane ? [styles.paneRoot, shortPane ? styles.paneRootShort : null, { backgroundColor: palette.page }] : null,
         // While the body is held back the hero still fills the screen, so the
         // page that zooms in is the cover's colour from top to bottom rather
@@ -1024,16 +1024,16 @@ const styles = StyleSheet.create({
   tint: {
     position: "absolute",
     top: -TINT_OVERSCAN,
-    bottom: 0,
+    bottom: TINT_FADE,
   },
   mesh: {
     position: "absolute",
     top: -MESH_OVERSCAN,
-    bottom: 0,
+    bottom: TINT_FADE,
   },
   tintFade: {
     position: "absolute",
-    bottom: -TINT_FADE,
+    bottom: 0,
     height: TINT_FADE,
   },
   topRow: {
@@ -1067,14 +1067,8 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   // Explicit size (not aspectRatio): the zoom views are sized by their content.
-  cover: {
-    borderRadius: COVER_RADIUS,
-    borderCurve: "continuous",
-  },
   coverClip: {
     flex: 1,
-    borderRadius: COVER_RADIUS,
-    borderCurve: "continuous",
     overflow: "hidden",
   },
   coverImage: {

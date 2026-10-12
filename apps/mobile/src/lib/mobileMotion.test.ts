@@ -160,6 +160,13 @@ describe("mobilePoseVeilPlan", () => {
     });
   });
 
+  test("native window resize stays visible without timing data; Reduce Motion keeps its gentle fade", () => {
+    const base = { reason: "resize" as const, blurAvailable: true, nativeWindowResize: true };
+    expect(mobilePoseVeilPlan({ ...base, reduceMotion: false })).toBeNull();
+    expect(mobilePoseVeilPlan({ ...base, reduceMotion: true })).toMatchObject({ blurIntensity: 0, fadeOutMs: 150 });
+    expect(mobilePoseVeilPlan({ ...base, reason: "remount", reduceMotion: false })).not.toBeNull();
+  });
+
   test("anticipated resize ramps the blur in over 120 ms", () => {
     expect(
       mobilePoseVeilPlan({ reason: "resize", anticipated: true, reduceMotion: false, blurAvailable: true })?.fadeInMs,

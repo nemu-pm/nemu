@@ -153,10 +153,14 @@ export function MobilePoseTransitionProvider({ children }: { children: ReactNode
       // Raised while rendering the change — before its frames are mounted —
       // so the UI-thread layout transitions see it for this very commit.
       openMobilePoseMotionWindow();
+      // UIKit already animates this window resize. Restarting a full-page
+      // blur for later geometry callbacks makes one unfold look like several
+      // separate jumps. Persistent lists/panes can remain visible throughout.
       current = withVeil(
         { ...current, changeId: tracked.changeId + 1, kind: change.kind },
         mobilePoseVeilPlan({
           reason: change.kind,
+          nativeWindowResize: mobileDesignExploreFlag && Platform.OS === "ios",
           anticipated: change.anticipated,
           reduceMotion,
           blurAvailable: BLUR_AVAILABLE,

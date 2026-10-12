@@ -11,7 +11,7 @@ const HOME = "\u0000home";
  * One section as its own Liquid Glass capsule (interactive on iOS 26+, a
  * translucent pill elsewhere). The selected one takes the accent tint, the
  * same selection colour as Shelf | Grid; the others are plain glass. Native
- * capsule metrics: 32pt tall, 13pt label.
+ * capsule metrics: 28pt tall, 13pt label.
  */
 function GlassTab({
   label,
@@ -35,6 +35,7 @@ function GlassTab({
         accessibilityState={{ selected, disabled }}
         disabled={disabled}
         hapticFeedback={selected ? "none" : "selection"}
+        hitSlop={8}
         pressedScale={0.97}
         onPress={onPress}
         containerStyle={styles.fill}
@@ -120,13 +121,13 @@ export function SourceListingTabs({
   );
 }
 
-const TAB_HEIGHT = 32;
+const TAB_HEIGHT = 28;
 
 const styles = StyleSheet.create({
   // Room for the glass's own shadow above and below the capsules.
   row: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 4 },
   tab: { height: TAB_HEIGHT },
   fill: { flex: 1 },
-  tabInner: { height: TAB_HEIGHT, paddingHorizontal: 13, alignItems: "center", justifyContent: "center" },
+  tabInner: { height: TAB_HEIGHT, paddingHorizontal: 11, alignItems: "center", justifyContent: "center" },
   tabText: { fontSize: 13, lineHeight: 17, fontWeight: nemuFontWeight.semibold },
 });

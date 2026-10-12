@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { type LayoutChangeEvent } from "react-native";
 import { mobileFoldSplitForContainer } from "@/lib/mobileAdaptiveLayout";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
+import { mobileContainerMeasurementIsCurrent } from "@/lib/mobileContainerMeasurement";
 import type { WindowLayoutRect } from "@/lib/mobileWindowLayout";
 
 type MeasurableNode = {
@@ -38,8 +39,11 @@ export function useMobileContainerFold<T extends MeasurableNode = MeasurableNode
   const adaptive = useMobileAdaptiveLayout();
   const ref = useRef<T | null>(null);
   const getNodeRef = useRef(getNode);
-  const [rect, setRect] = useState<WindowLayoutRect | null>(null);
-  const [width, setWidth] = useState<number | null>(null);
+  const windowKey = `${adaptive.width}:${adaptive.height}`;
+  const [measurement, setMeasurement] = useState<{ key: string; rect: WindowLayoutRect } | null>(null);
+  const [measuredWidth, setMeasuredWidth] = useState<{ key: string; width: number } | null>(null);
+  const rect = measurement?.key === windowKey ? measurement.rect : null;
+  const width = measuredWidth?.key === windowKey ? measuredWidth.width : null;
   const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const windowRef = useRef({ width: adaptive.width, height: adaptive.height });
   // Latest values for the measure callback, without re-creating it.
@@ -50,13 +54,13 @@ export function useMobileContainerFold<T extends MeasurableNode = MeasurableNode
 
   const measure = useCallback(() => {
     const node = getNodeRef.current ? getNodeRef.current() : ref.current;
+    const requestedWindow = windowRef.current;
     node?.measureInWindow?.((x, y, measuredWidth, measuredHeight) => {
-      if (![x, y, measuredWidth, measuredHeight].every(Number.isFinite) || measuredWidth <= 0) return;
       const bounds = windowRef.current;
-      // Off-window (mid-transition) geometry would misplace the fold.
-      if (x < -0.5 || x + measuredWidth > bounds.width + 0.5) return;
       const next = { x, y, width: measuredWidth, height: measuredHeight };
-      setRect((previous) => (sameRect(previous, next) ? previous : next));
+      if (!mobileContainerMeasurementIsCurrent(requestedWindow, bounds, next)) return;
+      const key = `${bounds.width}:${bounds.height}`;
+      setMeasurement((previous) => (previous?.key === key && sameRect(previous.rect, next) ? previous : { key, rect: next }));
     });
   }, []);
 
@@ -70,11 +74,11 @@ export function useMobileContainerFold<T extends MeasurableNode = MeasurableNode
     (event?: LayoutChangeEvent) => {
       const nextWidth = event?.nativeEvent.layout.width;
       if (typeof nextWidth === "number" && nextWidth > 0) {
-        setWidth((previous) => (previous !== null && Math.abs(previous - nextWidth) < 0.5 ? previous : nextWidth));
+        setMeasuredWidth((previous) => (previous?.key === windowKey && Math.abs(previous.width - nextWidth) < 0.5 ? previous : { key: windowKey, width: nextWidth }));
       }
       scheduleMeasure();
     },
-    [scheduleMeasure],
+    [scheduleMeasure, windowKey],
   );
 
   // Folding changes reserved regions without resizing the window, so no
@@ -84,7 +88,7 @@ export function useMobileContainerFold<T extends MeasurableNode = MeasurableNode
     : "flat";
   useEffect(() => {
     scheduleMeasure();
-  }, [foldKey, scheduleMeasure]);
+  }, [foldKey, windowKey, scheduleMeasure]);
 
   useEffect(() => () => {
     if (settleTimerRef.current) clearTimeout(settleTimerRef.current);

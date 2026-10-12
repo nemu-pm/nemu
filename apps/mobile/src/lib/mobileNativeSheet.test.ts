@@ -1,3 +1,4 @@
+import { mobileSheetCanUseFullWidth } from "./mobileNativeSheet";
 import { describe, expect, test } from "bun:test";
 import { mobileAdaptiveLayout } from "./mobileAdaptiveLayout";
 import { getMobileStrings } from "./mobileI18n";
@@ -631,5 +632,20 @@ describe("android sheet placement on foldables", () => {
   test("notebook keeps the full-width bottom sheet", () => {
     expect(resolveMobileNativeSheetAndroidPlacement({ windowWidth: 701, posture: "notebook", panels: [{ x: 0, width: 701 }, { x: 0, width: 701 }] }))
       .toEqual({ width: 640, offsetX: 0, paneAligned: false });
+  });
+});
+
+
+describe("custom outer-screen sheet width", () => {
+  test("short sheets reclaim width without exposing the status area", () => {
+    expect(mobileSheetCanUseFullWidth(["60%"], 650)).toBe(true);
+    expect(mobileSheetCanUseFullWidth([360], 650)).toBe(true);
+  });
+  test("tall, expandable and unknown fitted sheets keep the side safe area", () => {
+    expect(mobileSheetCanUseFullWidth(["92%"], 650)).toBe(false);
+    expect(mobileSheetCanUseFullWidth(["60%", "90%"], 650)).toBe(false);
+    expect(mobileSheetCanUseFullWidth(undefined, 650)).toBe(false);
+    expect(mobileSheetCanUseFullWidth(["bad"], 650)).toBe(false);
+    expect(mobileSheetCanUseFullWidth([400], 300)).toBe(false);
   });
 });

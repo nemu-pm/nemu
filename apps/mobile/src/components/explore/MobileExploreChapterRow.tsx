@@ -1,3 +1,4 @@
+import { useMobileMangaDetailPane } from "@/components/MobileMangaDetailPaneContext";
 import { MOBILE_EXPLORE_RADIUS as R } from "@/lib/mobileExploreRadius";
 import { memo, useCallback, useMemo } from "react";
 import { StyleSheet, View } from "react-native";
@@ -58,6 +59,7 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
   onAction: (chapter: ChapterSummary, action: MobileExploreChapterAction) => void;
 }) {
   const { tokens } = useNemuTheme();
+  const { wideChapterRows: wide } = useMobileMangaDetailPane();
   const presentation = getMobileChapterPresentation(chapter, progress);
   const accessory = getMobileChapterProgressAccessory(progress, { locked: presentation.isLocked });
   const ratio = accessory.status === "progress" ? accessory.ratio : null;
@@ -124,6 +126,7 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
           onPress={press}
           style={[
             styles.row,
+            wide ? styles.wideRow : null,
             { borderRadius: R.row, borderCurve: "continuous" },
             upNext ? { backgroundColor: tokens.primarySoft } : null,
           ]}
@@ -141,8 +144,8 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
             )}
           </View>
           <View style={[styles.text, styles.textRow, { borderBottomColor: tokens.border }]}>
-            <View style={styles.textBody}>
-            <View style={styles.titleLine}>
+            <View style={[styles.textBody, wide ? styles.wideBody : null]}>
+            <View style={[styles.titleLine, wide ? styles.wideTitle : null]}>
               <NemuText
                 numberOfLines={1}
                 maxFontSizeMultiplier={TEXT_MAX_SCALE}
@@ -169,13 +172,16 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
                 numberOfLines={1}
                 maxFontSizeMultiplier={TEXT_MAX_SCALE}
                 color={tokens.mutedForeground}
-                style={styles.subtitle}
+                style={[styles.subtitle, wide ? styles.wideSubtitle : null]}
               >
                 {subtitle}
               </NemuText>
             ) : null}
             </View>
-            <View style={styles.trail} pointerEvents="none">
+            {wide && (presentation.isRead || presentation.isInProgress || presentation.isLocked) ? (
+              <NemuText numberOfLines={1} color={tokens.mutedForeground} style={styles.wideStatus}>{status}</NemuText>
+            ) : null}
+            <View style={[styles.trail, wide ? styles.wideTrail : null]} pointerEvents="none">
               {!disabled ? (
                 <Ionicons name="chevron-forward" size={15} color={nemuColorWithAlpha(tokens.mutedForeground, 0.7)} />
               ) : null}
@@ -258,6 +264,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "stretch",
   },
+  wideRow: { minHeight: 44 },
+  wideBody: { flexDirection: "row", alignItems: "center", gap: 20 },
+  wideTitle: { flex: 1, minWidth: 0 },
+  wideSubtitle: { flex: 1, marginTop: 0 },
+  wideStatus: { fontSize: 13, marginLeft: 20, maxWidth: 180 },
+  wideTrail: { height: 26 },
   // The marker is centred on the whole row (title and subtitle), as the
   // chevron is: clear of the row's bottom rule, which only the text column draws.
   glyph: {

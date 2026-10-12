@@ -86,6 +86,12 @@ public final class NemuWindowLayoutModule: Module {
       Prop("textColor") { (view: NemuSegmentedControlView, color: UIColor) in view.textColor = color }
       Prop("selectedTextColor") { (view: NemuSegmentedControlView, color: UIColor) in view.selectedTextColor = color }
     }
+    Constant("concentricViewAvailable") { true }
+    View(NemuConcentricView.self) {
+      Prop("minimumRadius") { (view: NemuConcentricView, radius: Double) in
+        view.minimumRadius = CGFloat(radius)
+      }
+    }
     View(NemuGlassView.self) {
       Prop("tintColor") { (view: NemuGlassView, color: UIColor?) in
         view.glassTint = color
@@ -682,17 +688,17 @@ final class NemuWindowLayoutView: ExpoView {
   override func layoutSubviews() {
     super.layoutSubviews()
     probeController?.view.frame = bounds
-    publishSnapshot()
+    setNeedsPublish("layout")
   }
 
   override func layoutMarginsDidChange() {
     super.layoutMarginsDidChange()
-    publishSnapshot()
+    setNeedsPublish("margins")
   }
 
   override func safeAreaInsetsDidChange() {
     super.safeAreaInsetsDidChange()
-    publishSnapshot()
+    setNeedsPublish("safeArea")
   }
 
   private var observing: Bool { observationEnabled && window != nil }
@@ -2087,5 +2093,23 @@ struct NemuNameAlertView: ExpoSwiftUI.View {
           props.onCancel()
         }
       }
+  }
+}
+
+/// Artwork follows the containing surface's corners without adding glass to content.
+final class NemuConcentricView: ExpoView {
+  var minimumRadius: CGFloat = 8 { didSet { updateCorners() } }
+  required init(appContext: AppContext? = nil) {
+    super.init(appContext: appContext)
+    clipsToBounds = true
+    updateCorners()
+  }
+  private func updateCorners() {
+    if #available(iOS 26.0, *) {
+      cornerConfiguration = .corners(radius: .containerConcentric(minimum: minimumRadius))
+    } else {
+      layer.cornerRadius = minimumRadius
+      layer.cornerCurve = .continuous
+    }
   }
 }

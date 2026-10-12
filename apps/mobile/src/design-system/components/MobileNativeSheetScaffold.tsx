@@ -28,11 +28,12 @@ import {
   type BottomSheetMethods,
 } from "@expo/ui/community/bottom-sheet";
 import { LinearGradient } from "expo-linear-gradient";
-import { initialWindowMetrics, useSafeAreaInsets } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { nemuColorWithAlpha } from "@/design/colorAlpha";
 import type { NemuTheme } from "@/design/themeContext";
 import {
+  mobileSheetCanUseFullWidth,
   canDismissMobileNativeSheetFromPan,
   canDismissMobileNativeSheetFromHardwareBack,
   MOBILE_NATIVE_ANDROID_DRAG_HANDLE_HEIGHT,
@@ -375,9 +376,8 @@ export function MobileNativeSheetScaffold({
     (isAndroid ? androidFixedHeight !== undefined && !scroll : !shouldUseScrollView)
       ? resolveMobileNativeSheetSoftBottomEdge({
           platform: Platform.OS,
-          // The window's own (home indicator) inset: the sheet sits above
-          // the tab bar a tab screen's insets also count.
-          safeAreaBottom: initialWindowMetrics?.insets.bottom ?? insets.bottom,
+          // Current scene inset, never the launch display's cached metrics.
+          safeAreaBottom: insets.bottom,
         })
       : null;
   const paddingBottom = softEdge
@@ -434,7 +434,7 @@ export function MobileNativeSheetScaffold({
   const hasMultipleSnapPoints = (effectiveSnapPoints?.length ?? 0) > 1;
   const callerIgnoredEdges =
     contentIgnoresSafeAreaEdges === undefined
-      ? []
+      ? (Platform.OS === "ios" && adaptive.verticalBarSide !== null && mobileSheetCanUseFullWidth(effectiveSnapPoints, availableSheetHeight) ? ["horizontal" as const] : [])
       : Array.isArray(contentIgnoresSafeAreaEdges)
         ? contentIgnoresSafeAreaEdges
         : [contentIgnoresSafeAreaEdges];

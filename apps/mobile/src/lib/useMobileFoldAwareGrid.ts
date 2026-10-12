@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useWindowDimensions, type ViewInstance } from "react-native";
+import { type ViewInstance } from "react-native";
 import { useMobilePageGutters } from "@/design-system";
 import {
   MOBILE_MANGA_GRID_GAP,
@@ -60,14 +60,13 @@ export function useMobileFoldAwareGrid({
   insets,
   getNode,
 }: MobileFoldAwareGridOptions = {}): MobileFoldAwareGrid {
-  const { width: windowWidth } = useWindowDimensions();
   const gutters = useMobilePageGutters();
   const container = useMobileContainerFold<ViewInstance>(getNode);
   const left = insets?.left ?? gutters.left;
   const right = insets?.right ?? gutters.right;
   const contentWidth = mobileFoldAwareGridContentWidth({
     containerWidth: container.width,
-    windowWidth,
+    windowWidth: container.adaptive.width,
     insets: { left, right },
     pageGutters: gutters,
   });

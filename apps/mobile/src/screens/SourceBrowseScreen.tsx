@@ -2,7 +2,7 @@ import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { SourceBrowseCompactHeader } from "@/components/SourceBrowseCompactHeader";
 import { useCompactSourceBrowseHeader } from "@/lib/useCompactSourceBrowseHeader";
 import { getCompactSourceBrowseHeaderBarHeight } from "@/lib/mobileSourceBrowseHeader";
-import { mobileFoldAwareGridCellStyle } from "@/lib/mobileFoldAwareGrid";
+import { chunkMobileGridRows, mobileFoldAwareGridCellStyle } from "@/lib/mobileFoldAwareGrid";
 import { MobilePaneAlignedView } from "@/lib/MobilePaneAlignedView";
 import { useMobileFoldAwareGrid } from "@/lib/useMobileFoldAwareGrid";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
@@ -215,7 +215,6 @@ import {
 import { getActiveMobileSourceProfileScope } from "@/sources/mobileSourceProfileScope";
 import { fetchMobileSourceListing } from "@/sources/mobileSourceListings";
 import { MobilePoseLayoutView } from "@/components/MobilePoseLayoutView";
-import { useMobilePoseRemountVeil } from "@/lib/MobilePoseTransitionContext";
 import { useMobileGridScrollAnchor } from "@/lib/useMobileGridScrollAnchor";
 import { resolveNemuHeaderSearchBarColors } from "@/lib/nemuSearchFieldAppearance";
 import {
@@ -1417,7 +1416,7 @@ export function SourceBrowseScreen() {
    * `runtimeRefreshKey` instead would rotate the listing cache key and throw
    * away every cached listing page the user already paid for. */
   const [sourceHomeRetryKey, setSourceHomeRetryKey] = useState(0);
-  const gridScrollRef = useRef<FlatList<MobileLiveSearchManga> | null>(null);
+  const gridScrollRef = useRef<FlatList<MobileLiveSearchManga[]> | null>(null);
   const [refreshingSource, setRefreshingSource] = useState(false);
   const refreshSourceGuardRef = useRef(false);
   const cloudflareSheetRef = useRef<{
@@ -1589,11 +1588,6 @@ export function SourceBrowseScreen() {
     ],
     [gridColumnMargins, gridColumns, gridItemWidth],
   );
-  // `FlatList` throws when `numColumns` changes on a mounted list, so a
-  // column change remounts the grid (see its `key`); after a fold/unfold at
-  // the same window size the pose veil covers the remount (resizes are
-  // veiled already). The scroll anchor keeps the first visible cover in view.
-  useMobilePoseRemountVeil(gridColumns);
   const staticListings = useMemo(
     // Persisted metadata from before ids were normalised can still carry
     // id-less listings; normalise on read so every tab has one identity.
@@ -3071,6 +3065,7 @@ export function SourceBrowseScreen() {
     columns: gridColumns,
     itemWidth: gridItemWidth,
     itemCount: listingGridItems.length,
+    viewabilityUnit: "row",
   });
   const showCenterSourceBrowseSearchProgress =
     shouldShowCenterSourceBrowseSearchProgress({
@@ -3111,14 +3106,14 @@ export function SourceBrowseScreen() {
     listingSourceDisplay,
   ]);
   const renderListingGridItem = useCallback(
-    ({ item, index }: ListRenderItemInfo<MobileLiveSearchManga>) => {
+    ({ item, index }: Pick<ListRenderItemInfo<MobileLiveSearchManga>, "item" | "index">) => {
       const sourceDisplay = listingGridSourceDisplay;
       if (!sourceDisplay) {
         return <View style={gridItemStyleAt(index)} />;
       }
       // Folding at the same column count glides each cover to its new column.
       return (
-        <MobilePoseLayoutView style={gridItemStyleAt(index)}>
+        <MobilePoseLayoutView key={item.id} style={gridItemStyleAt(index)}>
           <ListingMangaCard
             item={item}
             onPress={() => handleListingMangaPress(sourceDisplay, item)}
@@ -3142,6 +3137,19 @@ export function SourceBrowseScreen() {
       handleListingMangaPress,
       libraryMangaKeys,
     ],
+  );
+
+  const listingGridRows = useMemo(
+    () => chunkMobileGridRows(listingGridItems, gridColumns),
+    [listingGridItems, gridColumns],
+  );
+  const renderListingGridRow = useCallback(
+    ({ item: row, index }: ListRenderItemInfo<MobileLiveSearchManga[]>) => (
+      <View style={[styles.gridRow, { flexDirection: "row" }]}>
+        {row.map((item, column) => renderListingGridItem({ item, index: index * gridColumns + column }))}
+      </View>
+    ),
+    [gridColumns, renderListingGridItem],
   );
 
   // The ~190-line grid header rebuilt its whole subtree on every render of
@@ -3579,10 +3587,10 @@ export function SourceBrowseScreen() {
         </PageScaffold>
       ) : (
         <PageListScaffold
-          key={`source-browse-grid-${gridColumns}`}
           listRef={gridScrollRef}
           nativeHeader
           contentInsetAdjustmentBehavior={compactHeader ? "never" : "automatic"}
+          contentContainerStyle={mobileDesignExploreFlag && !sourceSearchActive ? styles.compactListingTop : undefined}
           headerBarHeight={compactHeaderBarHeight}
           headerSearchBar={!compactHeader && Boolean(source && sourceSearchActive)}
           onLayout={gridLayout.onLayout}
@@ -3612,13 +3620,9 @@ export function SourceBrowseScreen() {
             void loadListing(listingState.result.page + 1);
           }}
           onEndReachedThreshold={0.6}
-          data={listingGridItems}
-          keyExtractor={(item) =>
-            `${listingGridSourceDisplay?.id ?? ""}:${item.id}`
-          }
-          numColumns={gridColumns}
-          columnWrapperStyle={styles.gridRow}
-          renderItem={renderListingGridItem}
+          data={listingGridRows}
+          keyExtractor={(row) => `${listingGridSourceDisplay?.id ?? ""}:${row[0].id}`}
+          renderItem={renderListingGridRow}
           initialNumToRender={12}
           maxToRenderPerBatch={12}
           updateCellsBatchingPeriod={32}
@@ -3855,6 +3859,9 @@ export function SourceBrowseScreen() {
 }
 
 const styles = StyleSheet.create({
+  compactListingTop: {
+    paddingTop: 8,
+  },
   sections: {
     gap: 14,
   },
@@ -3999,8 +4006,8 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
-  // Virtualized grid (FlatList numColumns). `gridRow` is the per-row gap
-  // (columnWrapperStyle); `gridItem` fills one column. `gridHeaderSpacing`
+  // Explicit virtualized rows preserve the home header during column changes.
+  // `gridRow` is the per-row gap; `gridItem` fills one column. `gridHeaderSpacing`
   // reproduces the `previewSection` gap that used to sit between the
   // controls/tabs and the grid when the grid was inlined in the section.
   // Column spacing is each cell's marginLeft (mobileFoldAwareGridCellStyle).

@@ -49,6 +49,19 @@ describe("mobile adaptive layout", () => {
     expect(mobileWindowHasFoldRegion({ width: 951, height: 669, divisions: [hinge(400, 0, 0, 0, false)] })).toBe(false);
     expect(mobileWindowHasFoldRegion({ width: 951, height: 669, divisions: [hinge(2000, 0, 40, 669, false)] })).toBe(false);
   });
+  test("Split View uses each app window and only reserves a fold inside it", () => {
+    for (const x of [-40, 0, 455.5, 475.5, 951]) {
+      const adaptive = mobileAdaptiveLayout({
+        width: 475.5, height: 669, supported: true,
+        divisions: [hinge(x, 0, 40, 669, false)], occlusions: [],
+        verticalBarEdge: "leading",
+        safeAreaInsets: { top: 0, left: 62, right: 0, bottom: 20 },
+      });
+      expect(adaptive).toMatchObject({ regularWidth: false, hasFoldRegion: false, posture: "flat", verticalBarSide: "left" });
+      expect(mobileGridPrefersEvenColumns(adaptive)).toBe(false);
+    }
+    expect(mobileWindowHasFoldRegion({ width: 475.5, height: 669, divisions: [hinge(237, 0, 0, 669, false)] })).toBe(true);
+  });
   test("grids with a fold region prefer an even column count", () => {
     expect(mobileAdaptiveGridColumns({ contentWidth: 900, minItemWidth: 150, gap: 12, preferEven: true }).columns).toBe(4);
     expect(mobileAdaptiveGridColumns({ contentWidth: 900, minItemWidth: 150, gap: 12, preferEven: false }).columns).toBe(5);

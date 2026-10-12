@@ -829,9 +829,10 @@ export function SearchScreen() {
   // Regular widths (Duo inner display, tablets, unfolded foldables): the
   // system would put a header search field in the navigation bar's trailing
   // corner, far from the chips and results. Mirror the web page instead — an
-  // in-content field with the source chips right under it. Compact widths
-  // (phones, Duo outer display) keep the native header field.
-  const usesNativeSearchBar = usesNativeHeader && !adaptive.regularWidth;
+  // in-content field with the source chips right under it. The side-bar outer
+  // display keeps this field in content too; ordinary compact phones use the
+  // native header field.
+  const usesNativeSearchBar = usesNativeHeader && !adaptive.regularWidth && adaptive.verticalBarSide === null;
   const {
     ref: searchHeaderRef,
     onLayout: onSearchHeaderLayout,
@@ -1956,12 +1957,9 @@ export function SearchScreen() {
           ) : null}
         </>
       ) : null}
-      {usesNativeSearchBar ? (
-        // Compact: the list stays the screen's direct content so iOS keeps
-        // tracking it under the header search field (its inset adjustment
-        // and pinned field depend on it).
-        resultsList
-      ) : (
+      {usesNativeSearchBar ? resultsList : (
+      // Duo keeps its field in content on both displays and preserves the
+      // list. Ordinary iPhones need a direct scroll child for UISearchBar insets.
       <LayoutAnimationConfig skipEntering skipExiting>
       <View
         ref={splitContainerRef}

@@ -96,6 +96,7 @@ export function MobileNativeFormSheet({
         // The accent is for the form's own controls; the bar above keeps the
         // system's item colours (see the toolbar below).
         tint(tokens.primary),
+        scrollEdgeEffectStyle("soft", "vertical"),
         ...(grouped ? [scrollContentBackground("hidden"), listSectionSpacing("compact")] : []),
         ...(grouped || tightTop
           ? [
@@ -146,9 +147,9 @@ export function MobileNativeFormSheet({
                       <ToolbarActionButton action={cancel} role="cancel" />
                     </SwiftToolbarItem>
                   ) : (
-                    // The close X sits at the trailing edge like every other
-                    // sheet (reader settings, the React Native sheets).
-                    <SwiftToolbarItem placement="topBarTrailing">
+                    // Navigation/close stays first when the toolbar turns
+                    // vertical on the outer display.
+                    <SwiftToolbarItem placement="cancellationAction">
                       <SwiftButton
                         role="close"
                         onPress={onClose}

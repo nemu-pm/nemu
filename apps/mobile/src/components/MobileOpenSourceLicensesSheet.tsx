@@ -56,6 +56,7 @@ export function MobileOpenSourceLicensesSheet({
       visible={visible}
       onClose={onClose}
       title={strings.openSourceLicenses.title}
+      dismissLabel={strings.common.done}
       snapPoints={["92%"]}
       scroll
       scrollContentBottomInset={24}

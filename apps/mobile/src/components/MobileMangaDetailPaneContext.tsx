@@ -9,6 +9,8 @@ export type MobileMangaDetailPane = {
   role: MobileMangaDetailPaneRole;
   /** Regular width class (inner display, tablets), split or not. */
   regularWidth: boolean;
+  /** Full-width chapter table: metadata fits beside the title. */
+  wideChapterRows?: boolean;
 };
 
 const SINGLE_COMPACT_PANE: MobileMangaDetailPane = { role: "single", regularWidth: false };

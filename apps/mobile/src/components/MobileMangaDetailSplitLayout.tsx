@@ -76,7 +76,7 @@ export function MobileMangaDetailSplitLayout<ItemT>({
   onLeadingScroll?: (offsetFromHeroTop: number) => void;
 }) {
   const { tokens } = useNemuTheme();
-  const { height } = useWindowDimensions();
+  const { height, fontScale } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const resting = useMobileExploreRestingFrame();
   // UIKit's compact-height safe area omits the floating tab bar band.
@@ -93,7 +93,7 @@ export function MobileMangaDetailSplitLayout<ItemT>({
   const barOnSide = Platform.OS === "ios" && mobileDesignExploreFlag && verticalBarSide !== null;
   const exploreTop =
     Platform.OS === "ios" && mobileDesignExploreFlag
-      ? { paddingTop: barOnSide ? insets.top + 12 : 4 }
+      ? { paddingTop: barOnSide ? insets.top + 24 : 4 }
       : null;
   // The detail screens use a transparent soft-edge navigation bar. Both
   // scroll views must start below it, while still scrolling underneath it.
@@ -143,8 +143,8 @@ export function MobileMangaDetailSplitLayout<ItemT>({
     [leadingTop, onLeadingScroll],
   );
   const trailingPane = useMemo<MobileMangaDetailPane>(
-    () => ({ role: split ? "trailing" : "single", regularWidth }),
-    [regularWidth, split],
+    () => ({ role: split ? "trailing" : "single", regularWidth, wideChapterRows: top && (windowWidth - gutters.horizontal) / fontScale >= 700 }),
+    [regularWidth, split, top, windowWidth, gutters.horizontal, fontScale],
   );
   const padding = getMobileSplitPanePadding({
     pageGutters: gutters,

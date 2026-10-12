@@ -537,3 +537,14 @@ export function canDismissMobileNativeSheetFromHardwareBack(
     resolveMobileNativeSheetDismissLabel(options) !== null
   );
 }
+
+/** Short custom-chrome sheets sit below the system status area. Tall sheets
+ * retain its side safe area, including when expanded to a second detent. */
+export function mobileSheetCanUseFullWidth(snapPoints: (string | number)[] | undefined, availableHeight: number): boolean {
+  if (!snapPoints?.length) return false; // fitted height isn't known here
+  return availableHeight > 0 && snapPoints.every((point) => {
+    const height = typeof point === "number" ? point
+      : /^\d+(?:\.\d+)?%$/.test(point) ? parseFloat(point) / 100 * availableHeight : NaN;
+    return Number.isFinite(height) && height > 0 && height <= availableHeight * 0.75;
+  });
+}

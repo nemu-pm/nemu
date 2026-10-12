@@ -206,6 +206,7 @@ export function mobilePoseVeilPlan({
   reduceMotion,
   blurAvailable,
   systemTransitionMs = null,
+  nativeWindowResize = false,
 }: {
   reason: MobilePoseVeilReason;
   anticipated?: boolean;
@@ -217,6 +218,8 @@ export function mobilePoseVeilPlan({
    * frosted blur, so the new layout settles on the system's timing.
    */
   systemTransitionMs?: number | null;
+  /** UIKit owns the resize; persistent content does not need a covering veil. */
+  nativeWindowResize?: boolean;
 }): MobilePoseVeilPlan | null {
   if (reduceMotion) {
     return {
@@ -227,7 +230,7 @@ export function mobilePoseVeilPlan({
       fadeOutMs: MOBILE_MOTION.reduceMotionFadeMs,
     };
   }
-  if (reason === "layout") return null;
+  if (reason === "layout" || (reason === "resize" && nativeWindowResize)) return null;
   if (systemTransitionMs !== null && systemTransitionMs > 0) {
     return {
       blurIntensity: 0,

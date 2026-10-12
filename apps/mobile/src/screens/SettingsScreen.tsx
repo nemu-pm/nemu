@@ -1,5 +1,5 @@
 import { MobileQuickActionMenu, mobileNativeQuickMenuAvailable } from "@/components/MobileQuickActionMenu";
-import type { FlatList, ScrollViewInstance } from "react-native";
+import type { FlatList } from "react-native";
 import {
   useCallback,
   useEffect,
@@ -105,7 +105,6 @@ import {
   useNemuRowHighlight,
   NemuText,
   PageListScaffold,
-  PageScaffold,
   radius,
   spacing,
   createNemuBrandWordmarkStyle,
@@ -1650,7 +1649,6 @@ function SettingsScreenContent({
   const [operationError, setOperationError] = useState<string | null>(null);
   const [clearCloudData, setClearCloudData] = useState(false);
   const [agentCardY, setAgentCardY] = useState<number | null>(null);
-  const settingsScrollRef = useRef<ScrollViewInstance | null>(null);
   const settingsPaneListRef = useRef<FlatList<never> | null>(null);
   const agentFocusAppliedRef = useRef(false);
   const focusParam = Array.isArray(params.focus)
@@ -2100,11 +2098,7 @@ function SettingsScreenContent({
     agentFocusAppliedRef.current = true;
     requestAnimationFrame(() => {
       const offset = Math.max(agentCardY - 12, 0);
-      if (presentation === "page") {
-        settingsScrollRef.current?.scrollTo({ y: offset, animated: true });
-      } else {
-        settingsPaneListRef.current?.scrollToOffset({ offset, animated: true });
-      }
+      settingsPaneListRef.current?.scrollToOffset({ offset, animated: true });
     });
   }, [
     activeSection,
@@ -3661,37 +3655,25 @@ function SettingsScreenContent({
         <Stack.Screen
           options={{
             title: presentation === "list-pane" ? strings.nav.settings : settingsTitle,
+            scrollEdgeEffects: { top: "soft", bottom: "soft", left: "automatic", right: "automatic" },
           }}
         />
       )}
-      {presentation === "page" ? (
-        <PageScaffold
-          nativeHeader
-          onRefresh={onRefreshSettings}
-          refreshDisabled={settingsActionBusy}
-          refreshLabel={strings.settings.refreshSources}
-          refreshing={refreshingSources}
-          scrollRef={settingsScrollRef}
-        >
-          {settingsBody}
-        </PageScaffold>
-      ) : (
-        <PageListScaffold
-          // A newly selected section starts at UIKit's adjusted top. Resetting
-          // to offset 0 scrolls past the transparent header's automatic inset.
-          key={presentation === "detail-pane" ? activeSection : "list-pane"}
-          nativeHeader
-          data={NO_SETTINGS_ROWS}
-          renderItem={renderNoSettingsRow}
-          listRef={settingsPaneListRef}
-          onRefresh={onRefreshSettings}
-          refreshDisabled={settingsActionBusy}
-          refreshLabel={strings.settings.refreshSources}
-          refreshing={refreshingSources}
-          contentContainerStyle={paneContentStyle}
-          ListHeaderComponent={settingsBody}
-        />
-      )}
+      <PageListScaffold
+        // A newly selected section starts at UIKit's adjusted top. Resetting
+        // to offset 0 scrolls past the transparent header's automatic inset.
+        key={activeSection ?? "settings-root"}
+        nativeHeader
+        data={NO_SETTINGS_ROWS}
+        renderItem={renderNoSettingsRow}
+        listRef={settingsPaneListRef}
+        onRefresh={onRefreshSettings}
+        refreshDisabled={settingsActionBusy}
+        refreshLabel={strings.settings.refreshSources}
+        refreshing={refreshingSources}
+        contentContainerStyle={presentation === "page" ? undefined : paneContentStyle}
+        ListHeaderComponent={settingsBody}
+      />
     </>
   );
 }
