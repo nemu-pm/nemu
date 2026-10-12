@@ -69,7 +69,7 @@ import {
   useSkeletonPulse,
 } from "@/lib/useSkeletonPulse";
 import { hapticConfirm, hapticError, hapticSelection } from "@/lib/haptics";
-import { buildMobileCoverTintPalette, mobileHslToRgb, mobileRgbToHsl, type MobileCoverRgb } from "@/lib/mobileCoverTint";
+import { buildMobileCoverTintPalette, type MobileCoverRgb } from "@/lib/mobileCoverTint";
 import { useMobileCoverTint } from "@/lib/useMobileCoverTint";
 import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
 import type { SearchSourceDisplay } from "@/lib/mobileSearch";
@@ -792,12 +792,6 @@ const EXPLORE_FEATURED_PAD = 12;
 const EXPLORE_FEATURED_REGULAR_MIN_CONTENT = 680;
 const EXPLORE_FEATURED_REGULAR_CARD = 420;
 
-function liftExploreFeaturedTint(rgb: MobileCoverRgb): MobileCoverRgb {
-  const hsl = mobileRgbToHsl(rgb);
-  if (hsl.s < 0.08) return rgb; // a truly grey cover stays grey
-  return mobileHslToRgb({ ...hsl, s: Math.min(0.85, hsl.s * 1.3 + 0.18) });
-}
-
 /** A page wash in one cover's colour: this card's while it is the active one, cross-faded. */
 function ExploreFeaturedWash({
   colors,
@@ -851,10 +845,8 @@ function ExploreFeaturedCard({
 }) {
   const { scheme } = useNemuTheme();
   const cover = useHomeCoverSource(item.cover ?? null, item.coverHeaders);
-  const sampled = useMobileCoverTint(cover, `home:${item.id}`);
-  // A pale or brown cover samples to a muddy colour; a card in it reads grey. Lift the
-  // saturation so the card is a clean tint of the cover, like a library Continue card.
-  const tint = useMemo(() => (sampled ? liftExploreFeaturedTint(sampled) : null), [sampled]);
+  // The library's own pipeline: a cover gives the same card and wash colour on every screen.
+  const tint = useMobileCoverTint(cover, `home:${item.id}`);
   const palette = useMemo(() => buildMobileCoverTintPalette(tint, scheme), [scheme, tint]);
   useLayoutEffect(() => {
     onTint(index, tint);
