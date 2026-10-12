@@ -30,4 +30,5 @@ export type ReaderSettingsAction =
   | "keep-awake"
   | "lock-portrait"
   | "notebook-pane"
+  | "thumbnail-spoilers"
   | "page-fit";

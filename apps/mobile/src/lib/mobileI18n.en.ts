@@ -1187,6 +1187,10 @@ export const mobileStringsEn: MobileStrings = {
     notebookClosePanel: "Close controls panel",
     notebookShowPanel: "Show controls panel",
     notebookFilmstrip: "Chapter pages",
+    coverPage: "Cover page",
+    filmstripSpoilerSafe: "Hide unread previews",
+    filmstripSpoilerSafeDescription: "Show thumbnails only for pages you have viewed in this session.",
+    filmstripPreviewFailed: "Page {{page}} preview failed. Tap to retry.",
     filmstripUnreadPage: "Page {{page}}, not read yet",
   },
   japaneseLearningDictionary: {

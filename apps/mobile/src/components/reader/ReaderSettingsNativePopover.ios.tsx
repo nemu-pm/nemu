@@ -115,6 +115,8 @@ export function ReaderSettingsNativePopover({
   onToggleLockPortrait,
   showNotebookPane = false,
   notebookPane = "automatic",
+  thumbnailSpoilerSafe = false,
+  onToggleThumbnailSpoilerSafe,
   onSetNotebookPane,
   onMarkComplete,
   showReaderPluginSettings = false,
@@ -158,6 +160,7 @@ export function ReaderSettingsNativePopover({
     // action that writes progress); this sheet holds settings.
     showMarkComplete: !completed && !mobileDesignExploreFlag,
     showNotebookPane: showNotebookRow,
+    showThumbnailSpoilers: showNotebookRow && Boolean(onToggleThumbnailSpoilerSafe),
   };
   const presentation = readerSettingsNativePresentation(
     settingsRows,
@@ -218,12 +221,9 @@ export function ReaderSettingsNativePopover({
         {twoPageSupported ? (
           <SwiftSection>
             <SwiftPicker
-              modifiers={[
-                pickerStyle("segmented"),
-                labelsHidden(),
-                swiftAccessibilityLabel(strings.reader.pageLayout),
-                ...busyModifiers,
-              ]}
+              label={strings.reader.pageLayout}
+              systemImage="rectangle.split.2x1"
+              modifiers={[pickerStyle("menu"), ...busyModifiers]}
               selection={spreadMode}
               onSelectionChange={(selection) => {
                 if (busy || !isReaderSpreadMode(selection) || selection === spreadMode) return;
@@ -239,7 +239,9 @@ export function ReaderSettingsNativePopover({
             </SwiftPicker>
             {showPagePairingControls ? (
               <SwiftPicker
-                modifiers={[pickerStyle("segmented"), labelsHidden(), ...busyModifiers]}
+                label={strings.duo.coverPage}
+                systemImage="book.closed"
+                modifiers={[pickerStyle("menu"), ...busyModifiers]}
                 selection={pagePairingMode}
                 onSelectionChange={(selection) => {
                   if (busy || selection === pagePairingMode) return;
@@ -333,6 +335,15 @@ export function ReaderSettingsNativePopover({
                 </SwiftText>
               ))}
             </SwiftPicker>
+          ) : null}
+          {showNotebookRow && onToggleThumbnailSpoilerSafe ? (
+            <SwiftToggle
+              label={strings.duo.filmstripSpoilerSafe}
+              systemImage="eye.slash"
+              isOn={thumbnailSpoilerSafe}
+              onIsOnChange={onToggleThumbnailSpoilerSafe}
+              modifiers={busyModifiers}
+            />
           ) : null}
             {showPlugins ? (
               <SwiftButton

@@ -3,6 +3,7 @@ import {
   mobileReaderFilmstripItemSize,
   mobileReaderFilmstripOffset,
   mobileReaderFilmstripOrder,
+  mobileReaderFilmstripPreviewAllowed,
   mobileReaderNotebookPaneBase,
   mobileReaderNotebookPaneMotion,
   mobileReaderNotebookReveal,
@@ -174,5 +175,25 @@ describe("notebook pane: the sheet around the bottom half", () => {
     const sheet = mobileReaderNotebookSheetFrame({ x: 0, y: 0, width: 0, height: 0 });
     expect(sheet.radius).toBe(0);
     expect(sheet.rect).toEqual({ x: 0, y: 0, width: 0, height: 0 });
+  });
+});
+
+
+describe("filmstrip preview requests", () => {
+  const revealed = { through: 2, visited: new Set([8]) };
+  const allow = (index: number, spoilerSafe: boolean, visible = true) =>
+    mobileReaderFilmstripPreviewAllowed({ index, spoilerSafe, visible, revealed });
+  test("normal previews include unread visible neighbours", () => {
+    expect(allow(7, false)).toBe(true);
+    expect(allow(7, false, false)).toBe(false);
+  });
+  test("spoiler protection allows read and explicitly visited pages only", () => {
+    expect(allow(2, true)).toBe(true);
+    expect(allow(8, true)).toBe(true);
+    expect(allow(7, true)).toBe(false);
+    expect(allow(8, true, false)).toBe(false);
+  });
+  test("invalid indices never request an image", () => {
+    for (const index of [-1, NaN, Infinity, 1.5]) expect(allow(index, false)).toBe(false);
   });
 });

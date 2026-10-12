@@ -237,6 +237,17 @@ export function mobileReaderPageRevealed(index: number, reveal: MobileReaderNote
   return index <= reveal.through || reveal.visited.has(index);
 }
 
+/** An offscreen or spoiler-hidden page never starts a preview request. */
+export function mobileReaderFilmstripPreviewAllowed(input: {
+  index: number;
+  revealed: MobileReaderNotebookReveal;
+  spoilerSafe: boolean;
+  visible: boolean;
+}): boolean {
+  return input.visible && Number.isInteger(input.index) && input.index >= 0
+    && (!input.spoilerSafe || mobileReaderPageRevealed(input.index, input.revealed));
+}
+
 export const READER_FILMSTRIP_GAP = 8;
 /** Thumbnails keep a manga page's ~0.7 aspect. */
 export const READER_FILMSTRIP_ASPECT = 0.7;

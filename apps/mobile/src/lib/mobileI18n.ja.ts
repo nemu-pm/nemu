@@ -1199,6 +1199,10 @@ export const mobileStringsJa: MobileStrings = {
     notebookClosePanel: "コントロールパネルを閉じる",
     notebookShowPanel: "コントロールパネルを表示",
     notebookFilmstrip: "章のページ",
+    coverPage: "表紙の配置",
+    filmstripSpoilerSafe: "未読ページのプレビューを隠す",
+    filmstripSpoilerSafeDescription: "今回の閲覧で開いたページのみサムネイルを表示します。",
+    filmstripPreviewFailed: "{{page}}ページのプレビューを読み込めませんでした。タップして再試行。",
     filmstripUnreadPage: "{{page}}ページ（未読）",
   },
   japaneseLearningDictionary: {

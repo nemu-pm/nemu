@@ -47,6 +47,8 @@ export type ReaderSettingsNativePopoverProps = {
   /** Foldables: what the bottom half holds in the notebook posture. */
   showNotebookPane?: boolean;
   notebookPane?: MobileReaderNotebookPanePreference;
+  thumbnailSpoilerSafe?: boolean;
+  onToggleThumbnailSpoilerSafe?: () => void;
   onSetNotebookPane?: (value: MobileReaderNotebookPanePreference) => void;
   onMarkComplete: () => void;
   showReaderPluginSettings?: boolean;

@@ -1103,6 +1103,9 @@ export function ReaderScreen() {
     setKeepAwake: setReaderKeepAwake,
     lockPortrait: readerLockPortrait,
     setLockPortrait: setReaderLockPortrait,
+    thumbnailSpoilerSafe: readerThumbnailSpoilerSafe,
+    thumbnailSpoilerSafeReady: readerThumbnailSpoilerSafeReady,
+    setThumbnailSpoilerSafe: setReaderThumbnailSpoilerSafe,
     notebookPane: readerNotebookPanePreference,
     setNotebookPane: setReaderNotebookPanePreference,
     spreadMode: readerSpreadMode,
@@ -1844,21 +1847,19 @@ export function ReaderScreen() {
     readerScrubPreviewUriByPageIdRef.current = new Map();
   }, [displayedPages]);
   // Notebook filmstrip thumbnails: the cached page file, remembered per page.
-  // Only ever asked for revealed pages.
+  // Visible previews share the full-page cache and source headers.
   const readerNotebookThumbnailUri = useCallback(
-    (index: number): string | null => {
+    async (index: number, signal: AbortSignal): Promise<string | null> => {
       const page = displayedPages[index];
       if (!page?.imageUri) return null;
       if (page.imageUriOwnership === "app") return page.imageUri;
       const resolvedByPageId = readerScrubPreviewUriByPageIdRef.current;
       const remembered = resolvedByPageId.get(page.id);
       if (remembered !== undefined) return remembered;
-      const resolved = getCachedMobileImageUriSync({
-        uri: page.imageUri,
-        headers: page.headers,
-        cacheKind: "page",
-      });
-      if (resolved) resolvedByPageId.set(page.id, resolved);
+      const source = { uri: page.imageUri, headers: page.headers, cacheKind: "page" as const };
+      const resolved = getCachedMobileImageUriSync(source)
+        ?? await resolveCachedMobileImageUri(source, undefined, undefined, { priority: "prefetch", signal });
+      if (resolved && !signal.aborted) resolvedByPageId.set(page.id, resolved);
       return resolved ?? null;
     },
     [displayedPages],
@@ -7732,6 +7733,7 @@ export function ReaderScreen() {
               currentIndex: clampedPageIndex,
               revealed: readerNotebookRevealed,
               thumbnailUri: readerNotebookThumbnailUri,
+              spoilerSafe: !readerThumbnailSpoilerSafeReady || readerThumbnailSpoilerSafe,
               onSelectPage: goToPage,
             }}
           />
@@ -8581,6 +8583,10 @@ export function ReaderScreen() {
             );
           }}
           showNotebookPane={readerNotebookPaneSettingAvailable}
+          thumbnailSpoilerSafe={readerThumbnailSpoilerSafe}
+          onToggleThumbnailSpoilerSafe={() => {
+            void runReaderSettingsAction("thumbnail-spoilers", () => setReaderThumbnailSpoilerSafe(!readerThumbnailSpoilerSafe));
+          }}
           notebookPane={readerNotebookPanePreference}
           onSetNotebookPane={setReaderNotebookPaneFromSettings}
           onSetMode={(nextMode) => {
@@ -8656,6 +8662,10 @@ export function ReaderScreen() {
             );
           }}
           showNotebookPane={readerNotebookPaneSettingAvailable}
+          thumbnailSpoilerSafe={readerThumbnailSpoilerSafe}
+          onToggleThumbnailSpoilerSafe={() => {
+            void runReaderSettingsAction("thumbnail-spoilers", () => setReaderThumbnailSpoilerSafe(!readerThumbnailSpoilerSafe));
+          }}
           notebookPane={readerNotebookPanePreference}
           onSetNotebookPane={setReaderNotebookPaneFromSettings}
           onSetMode={(nextMode) => {

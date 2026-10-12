@@ -90,6 +90,8 @@ type ReaderDisplaySettingsPopoverProps = {
   /** Foldables: what the bottom half holds in the notebook posture. */
   showNotebookPane?: boolean;
   notebookPane?: MobileReaderNotebookPanePreference;
+  thumbnailSpoilerSafe?: boolean;
+  onToggleThumbnailSpoilerSafe?: () => void;
   onSetNotebookPane?: (value: MobileReaderNotebookPanePreference) => void;
   onMarkComplete: () => void;
   /**
@@ -200,6 +202,8 @@ export function ReaderDisplaySettingsPopover({
   onToggleLockPortrait,
   showNotebookPane = false,
   notebookPane = "automatic",
+  thumbnailSpoilerSafe = false,
+  onToggleThumbnailSpoilerSafe,
   onSetNotebookPane,
   onMarkComplete,
   showReaderPluginSettings = false,
@@ -511,6 +515,20 @@ export function ReaderDisplaySettingsPopover({
                   />
                 </View>
               }
+            />
+          ) : null}
+
+          {showNotebookPane && onToggleThumbnailSpoilerSafe ? (
+            <ReaderSettingRow
+              icon="eye-off-outline"
+              title={strings.duo.filmstripSpoilerSafe}
+              description={strings.duo.filmstripSpoilerSafeDescription}
+              control={<NemuNativeSwitch
+                accessibilityLabel={strings.duo.filmstripSpoilerSafe}
+                disabled={busy}
+                value={thumbnailSpoilerSafe}
+                onValueChange={onToggleThumbnailSpoilerSafe}
+              />}
             />
           ) : null}
 

@@ -1008,6 +1008,10 @@ export type MobileStrings = {
     notebookClosePanel: string;
     notebookShowPanel: string;
     notebookFilmstrip: string;
+    coverPage: string;
+    filmstripSpoilerSafe: string;
+    filmstripSpoilerSafeDescription: string;
+    filmstripPreviewFailed: string;
     filmstripUnreadPage: string;
   };
   /** On-device Japanese dictionary pack (reader analysis + settings). */

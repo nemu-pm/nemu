@@ -23,12 +23,14 @@ import Animated, {
 import { NemuText, nemuFontWeight } from "@/design-system";
 import { GlassView, glassViewAvailable } from "../../../modules/nemu-window-layout";
 import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
+import { useSkeletonDisplayDelay, useSkeletonPulse } from "@/lib/useSkeletonPulse";
 import { MOBILE_MOTION } from "@/lib/mobileMotion";
 import { nemuGlassSheetVeil } from "@/lib/mobileSheetGlass";
 import {
   mobileReaderFilmstripItemSize,
   mobileReaderFilmstripOffset,
   mobileReaderFilmstripOrder,
+  mobileReaderFilmstripPreviewAllowed,
   mobileReaderNotebookSheetFrame,
   mobileReaderNotebookPaneMotion,
   mobileReaderPageRevealed,
@@ -56,8 +58,9 @@ export type ReaderNotebookFilmstripProps = {
   currentIndex: number;
   /** Pages whose image may be shown (`mobileReaderNotebookReveal`). */
   revealed: MobileReaderNotebookReveal;
-  /** A cached image for a revealed page; null when it is not on disk. Never called for unread pages. */
-  thumbnailUri: (index: number) => string | null;
+  /** Resolve a visible preview through the page cache, at prefetch priority. */
+  thumbnailUri: (index: number, signal: AbortSignal) => Promise<string | null>;
+  spoilerSafe: boolean;
   onSelectPage: (index: number) => void;
 };
 
@@ -355,6 +358,7 @@ function ReaderNotebookFilmstripConsole({
   filmstripHeader,
   filmstripScrubber,
   filmstrip,
+  reduceMotion,
 }: ReaderNotebookPaneProps) {
   // Keep the console inside the same inset as the trackpad.
   const layout = useMemo(() => mobileReaderTrackpadLayout(pane), [pane]);
@@ -363,7 +367,7 @@ function ReaderNotebookFilmstripConsole({
     <View style={StyleSheet.absoluteFill}>
       <View pointerEvents="box-none" style={[styles.console, { top }]}>
         <View pointerEvents="box-none" style={styles.consoleHeader}>{filmstripHeader}</View>
-        <ReaderNotebookFilmstrip {...filmstrip} rtl={rtl} strings={strings} />
+        <ReaderNotebookFilmstrip {...filmstrip} rtl={rtl} strings={strings} reduceMotion={reduceMotion} />
         <View pointerEvents="box-none" style={styles.consoleScrubber}>{filmstripScrubber}</View>
       </View>
     </View>
@@ -375,10 +379,16 @@ function ReaderNotebookFilmstrip({
   currentIndex,
   revealed,
   thumbnailUri,
+  spoilerSafe,
+  reduceMotion,
   onSelectPage,
   rtl,
   strings,
-}: ReaderNotebookFilmstripProps & { rtl: boolean; strings: MobileStrings }) {
+}: ReaderNotebookFilmstripProps & { rtl: boolean; strings: MobileStrings; reduceMotion: boolean }) {
+  const [visibleIndices, setVisibleIndices] = useState<ReadonlySet<number>>(() => new Set([currentIndex]));
+  const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: { item: number }[] }) => {
+    setVisibleIndices(new Set(viewableItems.map((item) => item.item)));
+  }, []);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const onLayout = useCallback((event: LayoutChangeEvent) => {
     const { width, height } = event.nativeEvent.layout;
@@ -411,13 +421,15 @@ function ReaderNotebookFilmstrip({
         width={item.width}
         height={item.height}
         current={index === currentIndex}
-        revealed={mobileReaderPageRevealed(index, revealed)}
+        revealed={!spoilerSafe || mobileReaderPageRevealed(index, revealed)}
+        visible={mobileReaderFilmstripPreviewAllowed({ index, revealed, spoilerSafe, visible: visibleIndices.has(index) })}
+        reduceMotion={reduceMotion}
         thumbnailUri={thumbnailUri}
         strings={strings}
         onSelectPage={onSelectPage}
       />
     ),
-    [currentIndex, item.height, item.width, onSelectPage, revealed, strings, thumbnailUri],
+    [currentIndex, item.height, item.width, onSelectPage, reduceMotion, revealed, spoilerSafe, strings, thumbnailUri, visibleIndices],
   );
 
   return (
@@ -430,19 +442,22 @@ function ReaderNotebookFilmstrip({
           data={order}
           keyExtractor={(index) => String(index)}
           renderItem={renderItem}
-          extraData={revealed}
+          onViewableItemsChanged={onViewableItemsChanged}
+          viewabilityConfig={FILMSTRIP_VIEWABILITY}
           getItemLayout={(_, position) => ({ length: item.stride, offset: padding + item.stride * position, index: position })}
           ItemSeparatorComponent={FilmstripGap}
           contentContainerStyle={styles.filmstripContent}
           showsHorizontalScrollIndicator={false}
           initialNumToRender={12}
           windowSize={5}
-          style={styles.filmstripList}
+          style={[styles.filmstripList, { height: item.height + READER_FILMSTRIP_CAPTION }]}
         />
       ) : null}
     </View>
   );
 }
+
+const FILMSTRIP_VIEWABILITY = { itemVisiblePercentThreshold: 1 };
 
 function FilmstripGap() {
   return <View style={styles.filmstripGap} />;
@@ -454,6 +469,8 @@ const FilmstripThumb = memo(function FilmstripThumb({
   height,
   current,
   revealed,
+  visible,
+  reduceMotion,
   thumbnailUri,
   strings,
   onSelectPage,
@@ -463,47 +480,86 @@ const FilmstripThumb = memo(function FilmstripThumb({
   height: number;
   current: boolean;
   revealed: boolean;
-  thumbnailUri: (index: number) => string | null;
+  visible: boolean;
+  reduceMotion: boolean;
+  thumbnailUri: ReaderNotebookFilmstripProps["thumbnailUri"];
   strings: MobileStrings;
   onSelectPage: (index: number) => void;
 }) {
   const page = index + 1;
-  // Spoiler-safe: an unread page never asks for (or decodes) its image.
-  const uri = revealed ? thumbnailUri(index) : null;
-  const label = revealed
-    ? formatMobileString(strings.reader.pageTitle, { page })
-    : formatMobileString(strings.duo.filmstripUnreadPage, { page });
+  const [preview, setPreview] = useState<{ uri: string | null; failed: boolean }>({ uri: null, failed: false });
+  const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    setPreview({ uri: null, failed: false });
+    // Never resolve hidden spoilers or offscreen cells, even if FlatList renders them.
+    if (!revealed || !visible) return () => controller.abort();
+    void thumbnailUri(index, controller.signal).then(
+      (uri) => {
+        if (!controller.signal.aborted) setPreview({ uri, failed: !uri });
+      },
+      () => {
+        if (!controller.signal.aborted) setPreview({ uri: null, failed: true });
+      },
+    );
+    return () => controller.abort();
+  }, [index, revealed, retry, thumbnailUri, visible]);
+  const failed = revealed && preview.failed;
+  const label = formatMobileString(
+    failed ? strings.duo.filmstripPreviewFailed : revealed ? strings.reader.pageTitle : strings.duo.filmstripUnreadPage,
+    { page },
+  );
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ selected: current }}
-      onPress={() => onSelectPage(index)}
+      onPress={() => failed ? setRetry((value) => value + 1) : onSelectPage(index)}
       style={[styles.thumbColumn, { width }]}
     >
-      <View
-        style={[
-          styles.thumb,
-          { width, height },
-          current ? styles.thumbCurrent : null,
-          uri ? null : styles.thumbPlaceholder,
-        ]}
-      >
-        {uri ? (
-          <Image source={{ uri }} resizeMode="cover" fadeDuration={0} style={styles.thumbImage} />
+      <View style={[styles.thumb, styles.thumbPlaceholder, { width, height }, current ? styles.thumbCurrent : null]}>
+        {revealed && visible && !failed ? (
+          <FilmstripPreview
+            key={`${preview.uri ?? "pending"}:${retry}`}
+            uri={preview.uri}
+            reduceMotion={reduceMotion}
+            onError={() => setPreview({ uri: null, failed: true })}
+          />
         ) : (
-          <NemuText style={[styles.thumbNumber, { color: revealed ? SECONDARY : QUIET }]}>{page}</NemuText>
+          <Ionicons name={failed ? "reload-outline" : revealed ? "image-outline" : "eye-off-outline"} size={20} color={QUIET} />
         )}
       </View>
-      <NemuText
-        numberOfLines={1}
-        style={[styles.thumbCaption, { color: current ? PRIMARY : QUIET }]}
-      >
-        {uri ? page : " "}
-      </NemuText>
+      <NemuText numberOfLines={1} style={[styles.thumbCaption, { color: current ? PRIMARY : QUIET }]}>{page}</NemuText>
     </Pressable>
   );
 });
+
+function FilmstripPreview({ uri, reduceMotion, onError }: { uri: string | null; reduceMotion: boolean; onError: () => void }) {
+  const [loaded, setLoaded] = useState(false);
+  const showSkeleton = useSkeletonDisplayDelay();
+  const pulse = useSkeletonPulse(reduceMotion, !loaded && showSkeleton);
+  const imageOpacity = useSharedValue(0);
+  const skeletonStyle = useAnimatedStyle(() => ({ opacity: pulse.value }));
+  const imageStyle = useAnimatedStyle(() => ({ opacity: imageOpacity.value }));
+  return (
+    <>
+      {!loaded && showSkeleton ? <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.thumbSkeleton, skeletonStyle]} /> : null}
+      {uri ? <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, imageStyle]}>
+        <Image
+          source={{ uri }}
+          resizeMode="contain"
+          fadeDuration={0}
+          onLoad={() => {
+            setLoaded(true);
+            imageOpacity.value = withTiming(1, { duration: reduceMotion ? 0 : 160 });
+          }}
+          onError={onError}
+          style={styles.thumbImage}
+        />
+      </Animated.View> : null}
+    </>
+  );
+}
 
 const styles = StyleSheet.create({
   sheetPainted: {
@@ -574,6 +630,7 @@ const styles = StyleSheet.create({
   },
   filmstrip: {
     flex: 1,
+    justifyContent: "center",
     minHeight: 0,
   },
   filmstripList: {
@@ -607,11 +664,8 @@ const styles = StyleSheet.create({
   thumbImage: {
     ...StyleSheet.absoluteFill,
   },
-  thumbNumber: {
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: nemuFontWeight.semibold,
-    fontVariant: ["tabular-nums"],
+  thumbSkeleton: {
+    backgroundColor: "rgba(235,235,245,0.10)",
   },
   thumbCaption: {
     height: READER_FILMSTRIP_CAPTION - 4,

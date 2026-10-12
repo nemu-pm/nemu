@@ -1117,6 +1117,10 @@ export const mobileStringsZh: MobileStrings = {
     notebookClosePanel: "关闭控制面板",
     notebookShowPanel: "显示控制面板",
     notebookFilmstrip: "本章页面",
+    coverPage: "封面配对",
+    filmstripSpoilerSafe: "隐藏未读页预览",
+    filmstripSpoilerSafeDescription: "仅显示本次会话中已看过页面的缩略图。",
+    filmstripPreviewFailed: "第 {{page}} 页预览加载失败，点按重试。",
     filmstripUnreadPage: "第 {{page}} 页，尚未阅读",
   },
   japaneseLearningDictionary: {

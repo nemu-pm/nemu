@@ -89,6 +89,9 @@ export function useReaderDisplayPrefs(): {
   setKeepAwake: (enabled: boolean) => Promise<void>;
   lockPortrait: boolean;
   setLockPortrait: (enabled: boolean) => Promise<void>;
+  thumbnailSpoilerSafe: boolean;
+  thumbnailSpoilerSafeReady: boolean;
+  setThumbnailSpoilerSafe: (enabled: boolean) => Promise<void>;
   notebookPane: MobileReaderNotebookPanePreference;
   setNotebookPane: (value: MobileReaderNotebookPanePreference) => Promise<void>;
   spreadMode: ReaderSpreadMode;
@@ -106,6 +109,10 @@ export function useReaderDisplayPrefs(): {
   const [notebookPane, setNotebookPaneState] = useState<MobileReaderNotebookPanePreference>(
     DEFAULT_MOBILE_READER_NOTEBOOK_PANE,
   );
+  const [thumbnailSpoilerSafe, setThumbnailSpoilerSafeState] = useState(false);
+  const [thumbnailSpoilerSafeReady, setThumbnailSpoilerSafeReady] = useState(false);
+  const savedThumbnailSpoilerSafe = useRef(false);
+  const thumbnailSpoilerSafeRun = useRef(0);
   const [spreadMode, setSpreadModeState] = useState<ReaderSpreadMode>(DEFAULT_READER_SPREAD_MODE);
   const [fitModes, setFitModesState] = useState<ReaderFitModesByShape>({});
   const spreadModeRun = useRef(0);
@@ -132,6 +139,10 @@ export function useReaderDisplayPrefs(): {
           settings.readerLockPortrait ?? DEFAULT_READER_LOCK_PORTRAIT;
         setLockPortraitState(nextLockPortrait);
         savedLockPortrait.current = nextLockPortrait;
+        const nextThumbnailSpoilerSafe = settings.readerThumbnailSpoilerSafe === true;
+        setThumbnailSpoilerSafeState(nextThumbnailSpoilerSafe);
+        savedThumbnailSpoilerSafe.current = nextThumbnailSpoilerSafe;
+        setThumbnailSpoilerSafeReady(true);
         const nextNotebookPane = normalizeMobileReaderNotebookPanePreference(settings.readerNotebookPane);
         setNotebookPaneState(nextNotebookPane);
         savedNotebookPane.current = nextNotebookPane;
@@ -212,6 +223,23 @@ export function useReaderDisplayPrefs(): {
     [notebookPane, store],
   );
 
+  const setThumbnailSpoilerSafe = useCallback(
+    async (enabled: boolean) => {
+      if (enabled === thumbnailSpoilerSafe) return;
+      const run = ++thumbnailSpoilerSafeRun.current;
+      setThumbnailSpoilerSafeState(enabled);
+      try {
+        await store.updateSettings((settings) => ({ ...settings, readerThumbnailSpoilerSafe: enabled }));
+        savedThumbnailSpoilerSafe.current = enabled;
+        emitMobileDataChanged("settings");
+      } catch (error) {
+        if (thumbnailSpoilerSafeRun.current === run) setThumbnailSpoilerSafeState(savedThumbnailSpoilerSafe.current);
+        throw error;
+      }
+    },
+    [store, thumbnailSpoilerSafe],
+  );
+
   const setSpreadMode = useCallback(
     async (value: ReaderSpreadMode) => {
       if (value === spreadMode) return;
@@ -264,6 +292,9 @@ export function useReaderDisplayPrefs(): {
     setLockPortrait,
     notebookPane,
     setNotebookPane,
+    thumbnailSpoilerSafe,
+    thumbnailSpoilerSafeReady,
+    setThumbnailSpoilerSafe,
     spreadMode,
     setSpreadMode,
     fitModes,

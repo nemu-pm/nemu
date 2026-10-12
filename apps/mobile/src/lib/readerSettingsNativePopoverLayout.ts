@@ -19,8 +19,7 @@ export const READER_SETTINGS_POPOVER_MARGIN = 20;
 
 export type ReaderSettingsNativeRows = {
   /**
-   * The page layout section is shown (paged reading): the single / double /
-   * auto picker, the pairing picker while a spread shows, and the page-fit
+   * The page layout section is shown (paged reading): the page-layout menu, the pairing menu while a spread shows, and the page-fit
    * menu with its footnote.
    */
   twoPageSupported: boolean;
@@ -30,6 +29,7 @@ export type ReaderSettingsNativeRows = {
   showMarkComplete: boolean;
   /** Foldables: the notebook layout menu row. */
   showNotebookPane?: boolean;
+  showThumbnailSpoilers?: boolean;
 };
 
 /** Ideal (unclipped) Form height for the rows shown. */
@@ -44,11 +44,12 @@ export function readerSettingsNativeContentHeight(rows: ReaderSettingsNativeRows
     sections += 1;
   }
   // 3. "More": image processing, page width, keep awake, lock portrait,
-  //    notebook layout, plugins, mark complete — one headed section.
+  //    notebook layout, spoiler protection, plugins, mark complete — one headed section.
   height += READER_SETTINGS_POPOVER_HEADER
     + row * 3
     + (rows.scrolling ? READER_SETTINGS_POPOVER_SLIDER_ROW : 0)
     + (rows.showNotebookPane ? row : 0)
+    + (rows.showThumbnailSpoilers ? row : 0)
     + (rows.showPlugins ? row : 0)
     + (rows.showMarkComplete ? row : 0);
   sections += 1;

@@ -201,6 +201,8 @@ export type UserSettings = {
    * portrait, Android tabletop); `undefined` means automatic.
    */
   readerNotebookPane?: "automatic" | "trackpad" | "filmstrip";
+  /** Hide unread filmstrip previews; defaults to false. */
+  readerThumbnailSpoilerSafe?: boolean;
   mobileChapterListPreferences?: Record<
     string,
     {

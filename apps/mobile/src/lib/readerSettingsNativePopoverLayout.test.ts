@@ -30,6 +30,11 @@ describe("native reader settings presentation", () => {
     expect(readerSettingsNativeContentHeight(full) - minimal).toBe(52 * 3 + 20 + 52 * 3);
   });
 
+  test("spoiler protection reserves one more row without changing other settings", () => {
+    expect(readerSettingsNativeContentHeight({ ...full, showThumbnailSpoilers: true })
+      - readerSettingsNativeContentHeight(full)).toBe(52);
+  });
+
   test("Duo notebook: a 455pt pane cannot hold the Form, so it becomes a sheet", () => {
     const available = readerSettingsPopoverAvailableHeight({
       anchor: { y: 26, height: 44 },
