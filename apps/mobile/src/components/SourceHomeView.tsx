@@ -68,6 +68,7 @@ import {
   useSkeletonDisplayDelay,
   useSkeletonPulse,
 } from "@/lib/useSkeletonPulse";
+import { getMobileContinueCardVariant } from "@/lib/mobileContinueCardGeometry";
 import { hapticConfirm, hapticError, hapticSelection } from "@/lib/haptics";
 import { buildMobileCoverTintPalette, type MobileCoverRgb } from "@/lib/mobileCoverTint";
 import { useMobileCoverTint } from "@/lib/useMobileCoverTint";
@@ -946,17 +947,23 @@ function ExploreFeaturedCarousel({
   const reportTint = useCallback((index: number, tint: MobileCoverRgb | null) => {
     setTints((current) => (current[index] === tint ? current : { ...current, [index]: tint }));
   }, []);
-  // The first card's leading edge is the page's own (title, tabs, headings, rows): at rest and
-  // after every snap. Regular width shows as many cards as fit; a narrow window shows one card
-  // and a peek of the next.
+  // A tall window one card wide (phone portrait; the library's Continue Reading picks its centred
+  // card on the same window shape) centres the card, both neighbours peeking, at rest and after
+  // every snap. Short and wide windows keep the first card's leading edge on the page's own
+  // (title, tabs, headings, rows) with a peek of the next: several cards where they fit.
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
+  const centred = getMobileContinueCardVariant("tall", windowHeight, windowWidth) === "tall";
   const regular = viewport > 0 && viewport - gutters.left - gutters.right >= EXPLORE_FEATURED_REGULAR_MIN_CONTENT;
   const cardWidth = viewport <= 0
     ? 0
-    : regular
-      ? EXPLORE_FEATURED_REGULAR_CARD
-      : Math.max(0, Math.min(EXPLORE_FEATURED_MAX_CARD, viewport - bleed.content.paddingLeft - EXPLORE_FEATURED_PEEK));
+    : centred
+      ? Math.max(0, Math.min(EXPLORE_FEATURED_MAX_CARD, viewport - EXPLORE_FEATURED_PEEK * 2))
+      : regular
+        ? EXPLORE_FEATURED_REGULAR_CARD
+        : Math.max(0, Math.min(EXPLORE_FEATURED_MAX_CARD, viewport - bleed.content.paddingLeft - EXPLORE_FEATURED_PEEK));
   const interval = cardWidth + EXPLORE_FEATURED_GAP;
-  const sidePad = bleed.content.paddingLeft;
+  const sidePad = centred ? Math.max(0, (viewport - cardWidth) / 2) : bleed.content.paddingLeft;
+  const sidePadRight = centred ? sidePad : bleed.content.paddingRight;
   const palettes = useMemo(
     () => entries.map((_, index) => buildMobileCoverTintPalette(tints[index] ?? null, scheme)),
     [entries, scheme, tints],
@@ -993,7 +1000,7 @@ function ExploreFeaturedCarousel({
               showsHorizontalScrollIndicator={false}
               onScroll={handleScroll}
               scrollEventThrottle={16}
-              contentContainerStyle={{ paddingLeft: sidePad, paddingRight: bleed.content.paddingRight, paddingVertical: 10 }}
+              contentContainerStyle={{ paddingLeft: sidePad, paddingRight: sidePadRight, paddingVertical: 10 }}
               style={styles.exploreFeaturedPager}
             >
               {entries.map((item, index) => (
