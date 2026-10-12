@@ -74,7 +74,15 @@ import {
   setActiveMobileSyncStore,
   setMobileChapterProgressIntraPageSyncVersion,
 } from "./mobileSyncRuntime";
-import { hydrateMobileSyncedSourcePackages } from "./mobileSyncedSourcePackages";
+import {
+  createMobileSourceCatalogResolver,
+  hydrateMobileSyncedSourcePackages,
+} from "./mobileSyncedSourcePackages";
+import {
+  AIDOKU_REGISTRIES,
+  fetchAllAidokuRegistrySources,
+} from "@/sources/aidokuRegistry";
+import { loadCachedRegistryIndex } from "@/sources/mobileRegistryIndexCache";
 import {
   reconcilePendingCollectionDeletions,
   reconcilePendingSourceLinkDeletions,
@@ -1535,6 +1543,11 @@ function ConfiguredMobileSyncBridge() {
         const hydratedSources = await hydrateMobileSyncedSourcePackages(
           mergedSources,
           {
+            resolveCatalogEntry: createMobileSourceCatalogResolver({
+              loadCached: loadCachedRegistryIndex,
+              fetchCatalog: () =>
+                fetchAllAidokuRegistrySources(AIDOKU_REGISTRIES),
+            }),
             onHydrationError(source, error) {
               console.warn(
                 `[MobileSync] Failed to cache synced source package for ${source.id}:`,

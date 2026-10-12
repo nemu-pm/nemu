@@ -14,6 +14,7 @@ import {
   buildMobileProgressIndex,
   getMobileCollectionBookSubtitle,
   getMobileEntryMostRecentSource,
+  getMobileEntryQuickActionSource,
   getMobileLibraryEmptyState,
   getMobileEntryAddedAt,
   getMobileLibraryProgressInfo,
@@ -223,6 +224,24 @@ describe("mobile library presentation", () => {
     });
   });
 
+  test("never labels an id-only last-read chapter Untitled", () => {
+    const item = entry("id-only", 10, [
+      sourceLink("id-only", {
+        latestChapter: { id: "c123", volumeNumber: 25, chapterNumber: 123 },
+      }),
+    ]);
+    const idOnly = progress("id-only", 100, "c2");
+    delete idOnly.lastReadChapterNumber;
+    const progressIndex = buildMobileProgressIndex([idOnly]);
+
+    expect(getMobileLibraryProgressInfo(item, progressIndex, en)).toMatchObject({
+      subtitle: "In progress / Vol.25 Ch.123",
+    });
+    expect(
+      getMobileLibraryProgressInfo(item, progressIndex, getMobileStrings("ja")).subtitle,
+    ).not.toContain("無題");
+  });
+
   test("selects the most recently read source for continue actions", () => {
     const older = sourceLink("older");
     const newer = sourceLink("newer");
@@ -234,6 +253,24 @@ describe("mobile library presentation", () => {
     const entryProgress = buildMobileEntryProgressMap(item, progressIndex);
 
     expect(getMobileEntryMostRecentSource(item, entryProgress)?.id).toBe(newer.id);
+  });
+
+  test("quick actions open the most recently read source, else the first link", () => {
+    const first = sourceLink("first");
+    const read = sourceLink("read");
+    const item = entry("quick", 10, [first, read]);
+    expect(
+      getMobileEntryQuickActionSource(
+        item,
+        buildMobileProgressIndex([progress("read", 200)]),
+      )?.id,
+    ).toBe(read.id);
+    expect(
+      getMobileEntryQuickActionSource(item, buildMobileProgressIndex([]))?.id,
+    ).toBe(first.id);
+    expect(
+      getMobileEntryQuickActionSource(entry("none", 10, []), buildMobileProgressIndex([])),
+    ).toBeUndefined();
   });
 
   test("matches progress saved under an installed source alias", () => {

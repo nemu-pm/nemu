@@ -54,7 +54,7 @@ describe("mobile native security configuration", () => {
     });
   });
 
-  test("does not request unused storage, notification, recording, or background privileges", () => {
+  test("does not request unused storage, notification, or background privileges", () => {
     const config = JSON.parse(
       readFileSync(path.join(mobileRoot, "app.json"), "utf8"),
     ) as {
@@ -77,16 +77,18 @@ describe("mobile native security configuration", () => {
         "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.RECORD_AUDIO",
         "android.permission.WRITE_EXTERNAL_STORAGE",
       ]),
     );
     expect(config.expo.ios?.infoPlist?.UIBackgroundModes).toBeUndefined();
+    // expo-audio only plays TTS: no Android recording permission and no
+    // background audio. Its iOS microphone string must not be `false`,
+    // which would delete the key the Nemu chat voice input needs.
     expect(audioPlugin?.[1]).toMatchObject({
-      microphonePermission: false,
       recordAudioAndroid: false,
       enableBackgroundPlayback: false,
     });
+    expect(audioPlugin?.[1]?.microphonePermission).not.toBe(false);
     const metadataEditor = readFileSync(
       path.join(mobileRoot, "src/components/MobileMetadataEditorSheet.tsx"),
       "utf8",
@@ -94,6 +96,44 @@ describe("mobile native security configuration", () => {
     expect(metadataEditor).toContain("ImagePicker.launchImageLibraryAsync");
     expect(metadataEditor).not.toContain(
       "ImagePicker.requestMediaLibraryPermissionsAsync",
+    );
+  });
+
+  test("grants only the microphone + speech permissions Nemu chat voice input needs", () => {
+    const config = JSON.parse(
+      readFileSync(path.join(mobileRoot, "app.json"), "utf8"),
+    ) as {
+      expo: {
+        android?: { blockedPermissions?: string[] };
+        ios?: { infoPlist?: Record<string, unknown> };
+        plugins?: Array<string | [string, Record<string, unknown>]>;
+      };
+    };
+    const pluginOptions = (name: string) =>
+      config.expo.plugins?.find(
+        (plugin): plugin is [string, Record<string, unknown>] =>
+          Array.isArray(plugin) && plugin[0] === name,
+      )?.[1];
+    const speech = pluginOptions("expo-speech-recognition");
+    expect(speech).toBeDefined();
+    expect(typeof speech?.microphonePermission).toBe("string");
+    expect(typeof speech?.speechRecognitionPermission).toBe("string");
+    expect(speech?.androidSpeechServicePackages).toContain(
+      "com.google.android.googlequicksearchbox",
+    );
+    // Any plugin passing `microphonePermission: false` deletes the iOS key and
+    // blocks RECORD_AUDIO on Android, silently breaking dictation.
+    for (const name of ["expo-audio", "expo-image-picker"]) {
+      expect(pluginOptions(name)?.microphonePermission).not.toBe(false);
+    }
+    expect(config.expo.android?.blockedPermissions ?? []).not.toContain(
+      "android.permission.RECORD_AUDIO",
+    );
+    expect(config.expo.ios?.infoPlist?.NSMicrophoneUsageDescription).toBe(
+      speech?.microphonePermission,
+    );
+    expect(config.expo.ios?.infoPlist?.NSSpeechRecognitionUsageDescription).toBe(
+      speech?.speechRecognitionPermission,
     );
   });
 

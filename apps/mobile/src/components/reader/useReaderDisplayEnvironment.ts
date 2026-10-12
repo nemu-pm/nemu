@@ -9,6 +9,23 @@ import {
   DEFAULT_READER_KEEP_AWAKE,
   DEFAULT_READER_LOCK_PORTRAIT,
 } from "@/lib/mobileReaderSettings";
+import {
+  DEFAULT_READER_SPREAD_MODE,
+  normalizeReaderSpreadMode,
+  type ReaderSpreadMode,
+} from "@/lib/mobileReaderSpreadMode";
+import {
+  normalizeReaderFitModes,
+  withReaderFitMode,
+  type ReaderFitMode,
+  type ReaderFitModesByShape,
+} from "@/lib/mobileReaderFit";
+import type { ReaderWindowShape } from "@/lib/mobileReaderWindowShape";
+import {
+  DEFAULT_MOBILE_READER_NOTEBOOK_PANE,
+  normalizeMobileReaderNotebookPanePreference,
+  type MobileReaderNotebookPanePreference,
+} from "@/lib/mobileReaderNotebookPane";
 
 const KEEP_AWAKE_TAG = "nemu-reader";
 
@@ -44,6 +61,12 @@ export function useReaderDisplayEnvironment({
     };
   }, [keepAwakeEnabled, keepAwakeReady]);
 
+  // Only a request: on iOS 27 resizable windows (iPhone Duo inner display,
+  // Split View, iPhone Mirroring) the system may refuse or ignore the lock
+  // (expo-screen-orientation v58; "The inner display doesn't honor your
+  // supported interface orientations"). No layout may depend on it — the
+  // reader lays out from its window geometry — so a refused lock only means
+  // the reader keeps rotating like the rest of the system.
   useEffect(() => {
     if (lockPortraitEnabled) {
       void ScreenOrientation.lockAsync(
@@ -57,12 +80,27 @@ export function useReaderDisplayEnvironment({
   }, [lockPortraitEnabled]);
 }
 
-/** Persisted reader display switches: keep-awake (default on) and portrait lock (default off). */
+/**
+ * Persisted reader display switches: keep-awake (default on), portrait lock
+ * (default off) and the notebook posture's bottom half (default automatic).
+ */
 export function useReaderDisplayPrefs(): {
   keepAwake: boolean;
   setKeepAwake: (enabled: boolean) => Promise<void>;
   lockPortrait: boolean;
   setLockPortrait: (enabled: boolean) => Promise<void>;
+  avoidCamera: boolean;
+  setAvoidCamera: (enabled: boolean) => Promise<void>;
+  thumbnailSpoilerSafe: boolean;
+  thumbnailSpoilerSafeReady: boolean;
+  setThumbnailSpoilerSafe: (enabled: boolean) => Promise<void>;
+  notebookPane: MobileReaderNotebookPanePreference;
+  setNotebookPane: (value: MobileReaderNotebookPanePreference) => Promise<void>;
+  spreadMode: ReaderSpreadMode;
+  setSpreadMode: (value: ReaderSpreadMode) => Promise<void>;
+  /** Saved page fit per window shape; read one with `readerFitModeForShape`. */
+  fitModes: ReaderFitModesByShape;
+  setFitMode: (shape: ReaderWindowShape, mode: ReaderFitMode) => Promise<void>;
 } {
   const store = useMobileDataStore();
   const revision = useMobileDataRevision(["settings"]);
@@ -70,8 +108,26 @@ export function useReaderDisplayPrefs(): {
   const [lockPortrait, setLockPortraitState] = useState(
     DEFAULT_READER_LOCK_PORTRAIT,
   );
+  const [notebookPane, setNotebookPaneState] = useState<MobileReaderNotebookPanePreference>(
+    DEFAULT_MOBILE_READER_NOTEBOOK_PANE,
+  );
+  const [avoidCamera, setAvoidCameraState] = useState(true);
+  const savedAvoidCamera = useRef(true);
+  const avoidCameraRun = useRef(0);
+  const [thumbnailSpoilerSafe, setThumbnailSpoilerSafeState] = useState(false);
+  const [thumbnailSpoilerSafeReady, setThumbnailSpoilerSafeReady] = useState(false);
+  const savedThumbnailSpoilerSafe = useRef(false);
+  const thumbnailSpoilerSafeRun = useRef(0);
+  const [spreadMode, setSpreadModeState] = useState<ReaderSpreadMode>(DEFAULT_READER_SPREAD_MODE);
+  const [fitModes, setFitModesState] = useState<ReaderFitModesByShape>({});
+  const spreadModeRun = useRef(0);
+  const fitModesRun = useRef(0);
+  const savedSpreadMode = useRef<ReaderSpreadMode>(DEFAULT_READER_SPREAD_MODE);
+  const savedFitModes = useRef<ReaderFitModesByShape>({});
   const keepAwakeRun = useRef(0);
   const lockPortraitRun = useRef(0);
+  const notebookPaneRun = useRef(0);
+  const savedNotebookPane = useRef<MobileReaderNotebookPanePreference>(DEFAULT_MOBILE_READER_NOTEBOOK_PANE);
   const savedKeepAwake = useRef(DEFAULT_READER_KEEP_AWAKE);
   const savedLockPortrait = useRef(DEFAULT_READER_LOCK_PORTRAIT);
 
@@ -88,6 +144,22 @@ export function useReaderDisplayPrefs(): {
           settings.readerLockPortrait ?? DEFAULT_READER_LOCK_PORTRAIT;
         setLockPortraitState(nextLockPortrait);
         savedLockPortrait.current = nextLockPortrait;
+        const nextAvoidCamera = settings.readerAvoidCamera !== false;
+        setAvoidCameraState(nextAvoidCamera);
+        savedAvoidCamera.current = nextAvoidCamera;
+        const nextThumbnailSpoilerSafe = settings.readerThumbnailSpoilerSafe === true;
+        setThumbnailSpoilerSafeState(nextThumbnailSpoilerSafe);
+        savedThumbnailSpoilerSafe.current = nextThumbnailSpoilerSafe;
+        setThumbnailSpoilerSafeReady(true);
+        const nextNotebookPane = normalizeMobileReaderNotebookPanePreference(settings.readerNotebookPane);
+        setNotebookPaneState(nextNotebookPane);
+        savedNotebookPane.current = nextNotebookPane;
+        const nextSpreadMode = normalizeReaderSpreadMode(settings.readerSpreadMode, settings.readerTwoPageMode);
+        setSpreadModeState(nextSpreadMode);
+        savedSpreadMode.current = nextSpreadMode;
+        const nextFitModes = normalizeReaderFitModes(settings.readerFitModes);
+        setFitModesState(nextFitModes);
+        savedFitModes.current = nextFitModes;
       })
       .catch(() => undefined);
     return () => {
@@ -138,5 +210,121 @@ export function useReaderDisplayPrefs(): {
     [lockPortrait, store],
   );
 
-  return { keepAwake, setKeepAwake, lockPortrait, setLockPortrait };
+  const setNotebookPane = useCallback(
+    async (value: MobileReaderNotebookPanePreference) => {
+      if (value === notebookPane) return;
+      const run = notebookPaneRun.current + 1;
+      notebookPaneRun.current = run;
+      setNotebookPaneState(value);
+      try {
+        await store.updateSettings((settings) => ({
+          ...settings,
+          readerNotebookPane: value,
+        }));
+        savedNotebookPane.current = value;
+        emitMobileDataChanged("settings");
+      } catch (error) {
+        if (notebookPaneRun.current === run) setNotebookPaneState(savedNotebookPane.current);
+        throw error;
+      }
+    },
+    [notebookPane, store],
+  );
+
+  const setAvoidCamera = useCallback(
+    async (enabled: boolean) => {
+      if (enabled === avoidCamera) return;
+      const run = ++avoidCameraRun.current;
+      setAvoidCameraState(enabled);
+      try {
+        await store.updateSettings((settings) => ({ ...settings, readerAvoidCamera: enabled }));
+        savedAvoidCamera.current = enabled;
+        emitMobileDataChanged("settings");
+      } catch (error) {
+        if (avoidCameraRun.current === run) setAvoidCameraState(savedAvoidCamera.current);
+        throw error;
+      }
+    },
+    [avoidCamera, store],
+  );
+
+  const setThumbnailSpoilerSafe = useCallback(
+    async (enabled: boolean) => {
+      if (enabled === thumbnailSpoilerSafe) return;
+      const run = ++thumbnailSpoilerSafeRun.current;
+      setThumbnailSpoilerSafeState(enabled);
+      try {
+        await store.updateSettings((settings) => ({ ...settings, readerThumbnailSpoilerSafe: enabled }));
+        savedThumbnailSpoilerSafe.current = enabled;
+        emitMobileDataChanged("settings");
+      } catch (error) {
+        if (thumbnailSpoilerSafeRun.current === run) setThumbnailSpoilerSafeState(savedThumbnailSpoilerSafe.current);
+        throw error;
+      }
+    },
+    [store, thumbnailSpoilerSafe],
+  );
+
+  const setSpreadMode = useCallback(
+    async (value: ReaderSpreadMode) => {
+      if (value === spreadMode) return;
+      const run = spreadModeRun.current + 1;
+      spreadModeRun.current = run;
+      setSpreadModeState(value);
+      try {
+        await store.updateSettings((settings) => ({
+          ...settings,
+          readerSpreadMode: value,
+          // Keep the older boolean truthful for builds that still read it.
+          ...(value === "auto" ? {} : { readerTwoPageMode: value === "double" }),
+        }));
+        savedSpreadMode.current = value;
+        emitMobileDataChanged("settings");
+      } catch (error) {
+        if (spreadModeRun.current === run) setSpreadModeState(savedSpreadMode.current);
+        throw error;
+      }
+    },
+    [spreadMode, store],
+  );
+
+  const setFitMode = useCallback(
+    async (shape: ReaderWindowShape, mode: ReaderFitMode) => {
+      const run = fitModesRun.current + 1;
+      fitModesRun.current = run;
+      const optimistic = withReaderFitMode(fitModes, shape, mode);
+      setFitModesState(optimistic);
+      try {
+        let saved: ReaderFitModesByShape = optimistic;
+        await store.updateSettings((settings) => {
+          saved = withReaderFitMode(normalizeReaderFitModes(settings.readerFitModes), shape, mode);
+          return { ...settings, readerFitModes: saved };
+        });
+        savedFitModes.current = saved;
+        emitMobileDataChanged("settings");
+      } catch (error) {
+        if (fitModesRun.current === run) setFitModesState(savedFitModes.current);
+        throw error;
+      }
+    },
+    [fitModes, store],
+  );
+
+  return {
+    avoidCamera,
+    setAvoidCamera,
+    keepAwake,
+    setKeepAwake,
+    lockPortrait,
+    setLockPortrait,
+    notebookPane,
+    setNotebookPane,
+    thumbnailSpoilerSafe,
+    thumbnailSpoilerSafeReady,
+    setThumbnailSpoilerSafe,
+    spreadMode,
+    setSpreadMode,
+    fitModes,
+    setFitMode,
+  };
 }

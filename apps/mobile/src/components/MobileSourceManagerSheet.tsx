@@ -1,9 +1,11 @@
+import { MenuView } from "@expo/ui/community/menu";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
+import { ExploreGlassButton, ExploreGlassIconButton } from "./explore/ExploreGlass";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Platform,
   StyleSheet,
-  TextInput,
   View,
   useWindowDimensions,
 } from "react-native";
@@ -12,13 +14,14 @@ import {
   MobileCachedImage,
   MobileChip,
   MobileNativeSheetScaffold,
-  NemuTextFieldClearAction,
+  NemuNativeSearchField,
   NemuPressable,
   NemuText,
   nemuColorWithAlpha,
   radius,
   nemuFontWeight,
   useNemuTheme,
+  useMobileNativeSheetTheme,
   NemuButton,
 } from "@/design-system";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
@@ -222,6 +225,54 @@ function SourceManagerRow({
     total,
   });
   const subtitle = mangaTitle ?? `${source.registryId} / ${source.sourceMangaId}`;
+
+  if (mobileDesignExploreFlag) {
+    return (
+      <View style={[styles.exploreRow, { backgroundColor: tokens.card }]}>
+        <NemuPressable
+          accessibilityRole="button"
+          accessibilityLabel={formatSourceManagerSelectAccessibilityLabel(name, positionLabel, selected, strings, subtitle)}
+          accessibilityState={{ selected, disabled }}
+          disabled={disabled}
+          onPress={() => { if (canSelect) onSelect(); }}
+          hapticFeedback={canSelect ? "selection" : "none"}
+          pressedScale={1}
+          containerStyle={styles.rowMain}
+          style={styles.rowMainPressable}
+        >
+          <View style={[styles.sourceIcon, { backgroundColor: tokens.sourceIconGlass, borderColor: tokens.border }]}>
+            {sourceInfo?.icon ? (
+              <MobileCachedImage uriOwnership="source" source={{ uri: sourceInfo.icon }} style={styles.sourceIconImage}
+                fallback={<Ionicons name="globe-outline" size={20} color={tokens.mutedForeground} />} />
+            ) : <Ionicons name="globe-outline" size={20} color={tokens.mutedForeground} />}
+          </View>
+          <View style={styles.rowText}>
+            <NemuText numberOfLines={1} style={[styles.rowTitle, { color: tokens.foreground }]}>{name}</NemuText>
+            <NemuText numberOfLines={1} style={[styles.rowSubtitle, { color: tokens.mutedForeground }]}>{subtitle}</NemuText>
+          </View>
+          {selected ? <Ionicons name="checkmark-circle" size={22} color={tokens.primary} /> : null}
+        </NemuPressable>
+        {busy ? <ActivityIndicator color={tokens.primary} /> : (
+          <MenuView
+            actions={[
+              { id: "up", title: formatMobileString(strings.sourceManager.moveUp, { name }), image: Platform.OS === "ios" ? "arrow.up" : undefined, attributes: { disabled: !canMoveUp } },
+              { id: "down", title: formatMobileString(strings.sourceManager.moveDown, { name }), image: Platform.OS === "ios" ? "arrow.down" : undefined, attributes: { disabled: !canMoveDown } },
+              { id: "remove", title: formatMobileString(strings.sourceManager.removeSourceConfirm, { name }), image: Platform.OS === "ios" ? "trash" : undefined, attributes: { destructive: true, disabled: !canRemove } },
+            ]}
+            onPressAction={({ nativeEvent }) => {
+              if (nativeEvent.event === "up" && canMoveUp) onMove(-1);
+              if (nativeEvent.event === "down" && canMoveDown) onMove(1);
+              if (nativeEvent.event === "remove" && canRemove) onRemove();
+            }}
+          >
+            <View accessibilityRole="button" accessibilityLabel={name} style={styles.exploreRowMenu}>
+              <Ionicons name="ellipsis-horizontal" size={22} color={tokens.mutedForeground} />
+            </View>
+          </MenuView>
+        )}
+      </View>
+    );
+  }
 
   return (
     <View
@@ -554,7 +605,7 @@ export function MobileSourceManagerSheet({
   onSelectSource,
   onEntryChange,
 }: MobileSourceManagerSheetProps) {
-  const { tokens } = useNemuTheme();
+  const { tokens } = useMobileNativeSheetTheme();
   const store = useMobileDataStore();
   const installedSources = useInstalledSources();
   const library = useLibraryEntries();
@@ -743,10 +794,6 @@ export function MobileSourceManagerSheet({
     strings.sourceManager.addPanelIdle,
     visible,
   ]);
-
-  useEffect(() => {
-    setMergeCandidatePage(0);
-  }, [addMode, addQuery, entry.item.libraryItemId]);
 
   useEffect(() => {
     if (!visible || addPanelOpen || sources.length === 0) return;
@@ -1289,6 +1336,7 @@ export function MobileSourceManagerSheet({
           }, 0)
         : 1;
   const sheetLayout = getMobileSourceManagerSheetLayout({
+    addPanelFiltersWhileTyping: addMode === "merge",
     addPanelOpen,
     addPanelRowCount,
     fontScale,
@@ -1296,6 +1344,7 @@ export function MobileSourceManagerSheet({
     sourceCount: sources.length,
     width,
   });
+  const sheetScrolls = confirmationDetails ? false : sheetLayout.fillContent;
   const headerMetrics = resolveMobileSheetHeaderMetrics(Platform.OS);
   const headerActionLabel = addPanelOpen
     ? strings.common.back
@@ -1348,7 +1397,15 @@ export function MobileSourceManagerSheet({
         ) : undefined
       }
       headerTrailing={
-        confirmationDetails ? undefined : (
+        confirmationDetails ? undefined : mobileDesignExploreFlag ? (
+          <ExploreGlassIconButton
+            icon={addPanelOpen ? "chevron-back" : "add"}
+            accessibilityLabel={headerActionLabel}
+            disabled={sourceManagerActionBusy}
+            onPress={handleToggleAddPanel}
+            ink={tokens.foreground}
+          />
+        ) : (
           <NemuButton
             accessibilityLabel={
               addPanelOpen
@@ -1367,9 +1424,11 @@ export function MobileSourceManagerSheet({
         )
       }
       snapPoints={confirmationDetails ? undefined : sheetLayout.snapPoints}
-      scroll={confirmationDetails ? false : sheetLayout.fillContent}
+      scroll={sheetScrolls}
       enablePanDownToClose={canNativeDismissSheet}
-      contentStyle={styles.sheet}
+      // The scrolling body is the scroll view's content: capped at the
+      // viewport's height it could never scroll to the rows past it.
+      contentStyle={sheetScrolls ? styles.scrollingSheet : styles.sheet}
     >
       {confirmationDetails ? (
         <View style={styles.confirmationPanel}>
@@ -1514,23 +1573,24 @@ export function MobileSourceManagerSheet({
             </View>
 
             <View style={styles.searchRow}>
+              {/*
+                The shared search capsule (system Liquid Glass on iOS 26+).
+                It has no disabled state of its own: while a search, add or
+                merge runs the field is dimmed and takes no touches.
+              */}
               <View
+                pointerEvents={sourceManagerActionBusy ? "none" : "auto"}
                 style={[
-                  styles.searchInputShell,
-                  {
-                    backgroundColor: tokens.muted,
-                    opacity: sourceManagerActionBusy ? 0.72 : 1,
-                  },
+                  styles.searchField,
+                  { opacity: sourceManagerActionBusy ? 0.72 : 1 },
                 ]}
               >
-                <TextInput
+                <NemuNativeSearchField
                   accessibilityLabel={strings.sourceManager.searchSources}
-                  accessibilityRole="search"
-                  autoCapitalize="none"
-                  editable={!sourceManagerActionBusy}
-                  enterKeyHint="search"
+                  clearAccessibilityLabel={strings.common.clear}
+                  clearActionTestID="SourceManagerSearchClearAction"
                   onChangeText={setAddQuery}
-                  onSubmitEditing={() => {
+                  onSubmit={() => {
                     if (addMode === "search" && canSearchSources) {
                       void runAddSearch();
                     }
@@ -1540,21 +1600,8 @@ export function MobileSourceManagerSheet({
                       ? strings.sourceManager.sourceSearchPlaceholder
                       : strings.sourceManager.librarySearchPlaceholder
                   }
-                  placeholderTextColor={tokens.mutedForeground}
-                  returnKeyType="search"
-                  selectionColor={tokens.primary}
                   value={addQuery}
-                  style={[styles.searchInput, { color: tokens.foreground }]}
                 />
-                {addQuery.length > 0 ? (
-                  <NemuTextFieldClearAction
-                    accessibilityLabel={strings.common.clear}
-                    disabled={sourceManagerActionBusy}
-                    onPress={() => setAddQuery("")}
-                    testID="SourceManagerSearchClearAction"
-                    trailingInset={12}
-                  />
-                ) : null}
               </View>
               {addMode === "search" ? (
                 <NemuButton
@@ -2088,15 +2135,15 @@ export function MobileSourceManagerSheet({
                     onRemove={() => confirmRemoveSource(source)}
                   />
                 ))}
-                {sources.length > 1 ? (
+                {sources.length > 1 && !mobileDesignExploreFlag ? (
                   <NemuText
                     density="compact"
                     style={[
-                      styles.dragToReorderHint,
+                      styles.reorderHint,
                       { color: tokens.mutedForeground },
                     ]}
                   >
-                    {strings.sourceManager.dragToReorder}
+                    {strings.sourceManager.reorderHint}
                   </NemuText>
                 ) : null}
               </>
@@ -2105,7 +2152,16 @@ export function MobileSourceManagerSheet({
         )}
           </View>
 
-          {!addPanelOpen ? (
+          {!addPanelOpen ? mobileDesignExploreFlag ? (
+            <ExploreGlassButton
+              label={strings.common.done}
+              icon="checkmark"
+              disabled={sourceManagerActionBusy}
+              onPress={handleRequestClose}
+              ink={tokens.foreground}
+              style={styles.footerButton}
+            />
+          ) : (
             <NemuButton
               accessibilityLabel={strings.common.done}
               containerStyle={styles.footerButton}
@@ -2123,8 +2179,13 @@ export function MobileSourceManagerSheet({
 }
 
 const styles = StyleSheet.create({
+  exploreRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10, paddingLeft: 14, paddingRight: 6, borderRadius: 20 },
+  exploreRowMenu: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   sheet: {
     maxHeight: "100%",
+    gap: 14,
+  },
+  scrollingSheet: {
     gap: 14,
   },
   listContent: {
@@ -2186,25 +2247,18 @@ const styles = StyleSheet.create({
   searchRow: {
     minHeight: 48,
     flexDirection: "row",
+    alignItems: "center",
     gap: 8,
   },
-  searchInputShell: {
-    minHeight: 48,
+  searchField: {
     flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    borderRadius: radius.lg,
-    paddingHorizontal: 12,
   },
-  searchInput: {
-    minHeight: 48,
-    flex: 1,
-    fontSize: 14,
-    lineHeight: 18,
-  },
+  // A round action beside the search capsule, at the capsule's own height
+  // (44pt on iOS 26, 48dp on Android).
   searchButton: {
-    width: 48,
-    height: 48,
+    width: Platform.OS === "android" ? 48 : 44,
+    height: Platform.OS === "android" ? 48 : 44,
+    borderRadius: radius.pill,
   },
   addResults: {
     gap: 10,
@@ -2339,7 +2393,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 15,
   },
-  dragToReorderHint: {
+  reorderHint: {
     textAlign: "center",
     fontSize: 11,
     lineHeight: 15,

@@ -6,7 +6,8 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { AppState, InteractionManager } from "react-native";
+import { AppState } from "react-native";
+import { scheduleMobileIdleTask } from "@/lib/mobileIdleTask";
 import * as SplashScreen from "expo-splash-screen";
 import { SQLiteProvider, useSQLiteContext } from "expo-sqlite";
 import { MobileDataContext } from "./mobileDataContext";
@@ -284,7 +285,7 @@ function MobileDataStoreProvider({
   // instead: after the provider has mounted and the first interactions settle.
   useEffect(() => {
     if (!isDeferredNativeDatabaseVacuumPending()) return;
-    const task = InteractionManager.runAfterInteractions(() => {
+    const task = scheduleMobileIdleTask(() => {
       void runDeferredNativeDatabaseVacuum(db);
     });
     return () => task.cancel();

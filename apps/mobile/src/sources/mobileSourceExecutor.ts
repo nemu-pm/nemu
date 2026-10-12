@@ -26,6 +26,11 @@ import {
 } from "./mobileSourceRuntime";
 import { readCachedSourcePackageBytes } from "./sourcePackageCache";
 import { makeMobileSourceExecutionKey } from "./mobileSourceProfileScope";
+import type {
+  MobileSourcePriorityInput,
+  MobileSourcePriorityTicket,
+  MobileSourceTaskPriority,
+} from "./mobileSourceRuntimeScheduler";
 
 type ReadCachedPackageBytes = (packageCacheKey: string) => Promise<Uint8Array | null>;
 
@@ -111,6 +116,15 @@ export type MobileAidokuExecutorSource = Omit<
     cookies: Record<string, string>,
   ) => Promise<boolean>;
   handleNotification?: (notification: string) => Promise<void>;
+  /**
+   * The same source with every runtime operation scheduled at `priority`
+   * (see `mobileSourceRuntimeScheduler`). State (settings, disposal) is
+   * shared with the original. Optional: bridges without a shared native
+   * queue have nothing to order.
+   */
+  withPriority?: (
+    priority: MobileSourcePriorityTicket | MobileSourceTaskPriority,
+  ) => MobileAidokuExecutorSource;
 };
 
 export type MobileAidokuExecutorLoadInput = {
@@ -121,6 +135,9 @@ export type MobileAidokuExecutorLoadInput = {
   byteLength?: number;
   metadata: SourcePackageMetadata;
   settings: Record<string, unknown>;
+  /** Priority of the caller that needs this session (session creation is a
+   * runtime operation too). */
+  priority?: MobileSourcePriorityInput;
 };
 
 export type MobileAidokuExecutorLoadResult =
@@ -178,6 +195,8 @@ export type MobileSourceExecutorOptions = {
   settings?: Record<string, unknown>;
   /** Opaque account namespace captured before async session creation. */
   executionScope?: string;
+  /** Scheduling priority for creating the session (see the load input). */
+  priority?: MobileSourcePriorityInput;
 };
 export async function createMobileSourceExecutorSession(
   source: MobileRuntimeSource | null | undefined,
@@ -247,6 +266,7 @@ export async function createMobileSourceExecutorSession(
         : {}),
       metadata: packageResult.metadata,
       settings: options.settings ?? {},
+      ...(options.priority ? { priority: options.priority } : {}),
     });
   } catch (error) {
     return {

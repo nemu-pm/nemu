@@ -1,14 +1,19 @@
+import type { ScrollViewInstance } from "react-native";
 import {
   Fragment,
   useCallback,
+  useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
+  useState,
   type MutableRefObject,
   type ReactNode,
   type Ref,
 } from "react";
 import { usePathname } from "expo-router";
+import { HeaderHeightContext } from "expo-router/react-navigation";
 import {
   FlatList,
   Platform,
@@ -24,10 +29,18 @@ import { useNemuTheme } from "@/design/useNemuTheme";
 import { spacing } from "@/design/tokens";
 import { useMobilePageGutters } from "@/design/useMobilePageGutters";
 import { getMobilePageContentBottomPadding } from "@/lib/mobileFloatingTabBarClearance";
-import { resolveMobilePullToRefreshEnabled } from "@/lib/mobilePullToRefresh";
+import {
+  resolveMobilePullToRefreshEnabled,
+  resolveMobilePullToRefreshIndicatorVisible,
+} from "@/lib/mobilePullToRefresh";
 import { subscribeMobileRootTabReselect } from "@/lib/mobileRootTabReselect";
 import { exactMobileRootTabHrefForPathname } from "@/lib/mobileRootTabs";
 import { getMobileFontScaleLayoutKey } from "@/lib/mobileDynamicTypeLayout";
+import {
+  getMobilePageTopPadding,
+  resolveMobilePageContentInsetAdjustment,
+} from "@/lib/mobilePageLayout";
+import { shouldShowMobileFloatingTabBar } from "@/lib/mobileRootTabs";
 
 /**
  * A live Dynamic Type change leaves already-mounted text with stale layout
@@ -47,7 +60,15 @@ type PageScaffoldProps = {
   refreshing?: boolean;
   nativeHeader?: boolean;
   contentInsetAdjustmentBehavior?: ScrollViewProps["contentInsetAdjustmentBehavior"];
-  scrollRef?: Ref<ScrollView>;
+  /** Height of a screen-drawn title bar (below the safe area) when the native header is hidden. */
+  headerBarHeight?: number;
+  /**
+   * The native header shows a search field (`Stack.SearchBar`). On iOS its
+   * measured height then includes the field, so the page keeps its own top
+   * padding instead of deriving it from the bar.
+   */
+  headerSearchBar?: boolean;
+  scrollRef?: Ref<ScrollViewInstance>;
 };
 
 type PageListScaffoldProps<ItemT> = Omit<
@@ -57,13 +78,25 @@ type PageListScaffoldProps<ItemT> = Omit<
   | "contentInsetAdjustmentBehavior"
   | "refreshControl"
   | "showsVerticalScrollIndicator"
+  | "ListEmptyComponent"
+  | "ListFooterComponent"
 > & {
+  ListEmptyComponent?: FlatListProps<ItemT>["ListEmptyComponent"] | null;
+  ListFooterComponent?: FlatListProps<ItemT>["ListFooterComponent"] | null;
   nativeHeader?: boolean;
   onRefresh?: () => void;
   refreshDisabled?: boolean;
   refreshLabel?: string;
   refreshing?: boolean;
   contentInsetAdjustmentBehavior?: ScrollViewProps["contentInsetAdjustmentBehavior"];
+  /** Height of a screen-drawn title bar (below the safe area) when the native header is hidden. */
+  headerBarHeight?: number;
+  /**
+   * The native header shows a search field (`Stack.SearchBar`). On iOS its
+   * measured height then includes the field, so the page keeps its own top
+   * padding instead of deriving it from the bar.
+   */
+  headerSearchBar?: boolean;
   listRef?: Ref<FlatList<ItemT>>;
 };
 
@@ -72,17 +105,17 @@ type ScrollableWebNode = {
   scrollTop?: number;
 };
 
-type ScrollViewWithWebNode = ScrollView & {
+type ScrollViewWithWebNode = {
   getScrollableNode?: () => ScrollableWebNode | null;
 };
 
-function assignScrollRef(ref: Ref<ScrollView> | undefined, value: ScrollView | null) {
+function assignScrollRef(ref: Ref<ScrollViewInstance> | undefined, value: ScrollViewInstance | null) {
   if (!ref) return;
   if (typeof ref === "function") {
     ref(value);
     return;
   }
-  (ref as MutableRefObject<ScrollView | null>).current = value;
+  (ref as MutableRefObject<ScrollViewInstance | null>).current = value;
 }
 
 function assignFlatListRef<ItemT>(
@@ -97,9 +130,9 @@ function assignFlatListRef<ItemT>(
   (ref as MutableRefObject<FlatList<ItemT> | null>).current = value;
 }
 
-function scrollPageScaffoldToTop(scrollView: ScrollView | null) {
+function scrollPageScaffoldToTop(scrollView: ScrollViewInstance | null) {
   scrollView?.scrollTo({ y: 0, animated: true });
-  const scrollableNode = (scrollView as ScrollViewWithWebNode | null)?.getScrollableNode?.();
+  const scrollableNode = (scrollView as unknown as ScrollViewWithWebNode | null)?.getScrollableNode?.();
   scrollableNode?.scrollTo?.({ top: 0, left: 0, behavior: "smooth" });
   if (scrollableNode && typeof scrollableNode.scrollTop === "number") {
     scrollableNode.scrollTop = 0;
@@ -110,20 +143,67 @@ function scrollPageListScaffoldToTop<ItemT>(list: FlatList<ItemT> | null) {
   list?.scrollToOffset({ offset: 0, animated: true });
 }
 
-function usePageContentStyle(nativeHeader: boolean) {
+function usePageContentStyle({
+  nativeHeader,
+  headerBarHeight,
+  headerSearchBar,
+  contentInsetAdjustmentBehavior,
+}: {
+  nativeHeader: boolean;
+  headerBarHeight?: number;
+  headerSearchBar?: boolean;
+  contentInsetAdjustmentBehavior: NonNullable<ScrollViewProps["contentInsetAdjustmentBehavior"]>;
+}) {
   const insets = useSafeAreaInsets();
+  const pathname = usePathname();
+  // iOS: UIKit's adjusted inset clears the tab bar / home indicator. Android:
+  // the floating tab bar overlays every page but the reader.
+  const systemAdjustsBottomInset =
+    Platform.OS === "ios" && contentInsetAdjustmentBehavior !== "never";
+  const floatingTabBar =
+    Platform.OS !== "ios" && shouldShowMobileFloatingTabBar(pathname);
   const gutters = useMobilePageGutters();
+  // The native stack's measured header (0 when hidden). Title-to-content
+  // spacing is derived from the bar actually on screen — Material's 64dp bar,
+  // Duo layouts with trailing system bars — not from a window-size guess.
+  const headerHeight = useContext(HeaderHeightContext);
+  const insetAdjusted = Platform.OS === "ios" && Boolean(headerSearchBar);
   return useMemo(
     () => ({
       // Horizontal padding clears the landscape safe area (Dynamic Island,
-      // rounded corners) as well as the page gutter; the scroll view itself
-      // stays full-bleed so backgrounds still run under the insets.
+      // rounded corners, Duo's vertical system bars on the trailing edge) as
+      // well as the page gutter; the scroll view itself stays full-bleed so
+      // backgrounds still run under the insets.
       paddingLeft: gutters.left,
       paddingRight: gutters.right,
-      paddingTop: nativeHeader ? spacing.pageTop : insets.top + spacing.pageTop,
-      paddingBottom: getMobilePageContentBottomPadding(insets.bottom),
+      paddingTop: getMobilePageTopPadding({
+        platform: Platform.OS,
+        nativeHeader,
+        safeAreaTop: insets.top,
+        pageTop: spacing.pageTop,
+        headerHeight,
+        headerBarHeight,
+        insetAdjusted,
+      }),
+      paddingBottom: getMobilePageContentBottomPadding({
+        safeAreaBottom: insets.bottom,
+        systemAdjustsBottomInset,
+        floatingTabBar,
+        tabBottom: spacing.tabBottom,
+      }),
     }),
-    [gutters.left, gutters.right, insets.bottom, insets.top, nativeHeader],
+    [
+      floatingTabBar,
+      gutters.left,
+      gutters.right,
+      headerBarHeight,
+      headerHeight,
+      insetAdjusted,
+      insets.bottom,
+      insets.top,
+      nativeHeader,
+      systemAdjustsBottomInset,
+    ],
   );
 }
 
@@ -142,6 +222,31 @@ function usePageRefreshControl({
 }) {
   const { tokens } = useNemuTheme();
   const insets = useSafeAreaInsets();
+  // iOS shows the spinner only for a refresh the person pulled (see
+  // `resolveMobilePullToRefreshIndicatorVisible`): a background `refreshing`
+  // must not push the page down under the see-through header.
+  const [pulledByUser, setPulledByUser] = useState(false);
+  const [previousRefreshing, setPreviousRefreshing] = useState(refreshing);
+  if (previousRefreshing !== refreshing) {
+    setPreviousRefreshing(refreshing);
+    if (!refreshing) setPulledByUser(false);
+  }
+  const refreshingRef = useRef(refreshing);
+  useLayoutEffect(() => {
+    refreshingRef.current = refreshing;
+  }, [refreshing]);
+  const handleRefresh = useCallback(() => {
+    if (!onRefresh) return;
+    setPulledByUser(true);
+    onRefresh();
+    // A pull that started no refresh (a guard returned early) must not leave
+    // the flag set for the next background refresh.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (!refreshingRef.current) setPulledByUser(false);
+      });
+    });
+  }, [onRefresh]);
   return onRefresh ? (
     <RefreshControl
       // iOS keeps the system spinner: default tint, no title text. Android has
@@ -155,9 +260,13 @@ function usePageRefreshControl({
         hasRefreshAction: true,
         refreshing,
       })}
-      onRefresh={onRefresh}
+      onRefresh={handleRefresh}
       progressViewOffset={nativeHeader ? spacing.pageTop : insets.top + spacing.pageTop}
-      refreshing={refreshing}
+      refreshing={resolveMobilePullToRefreshIndicatorVisible({
+        platform: Platform.OS,
+        refreshing,
+        pulledByUser,
+      })}
       titleColor={tokens.mutedForeground}
     />
   ) : undefined;
@@ -170,24 +279,36 @@ export function PageScaffold({
   refreshLabel,
   refreshing = false,
   nativeHeader = false,
-  contentInsetAdjustmentBehavior = "never",
+  contentInsetAdjustmentBehavior: requestedContentInsetAdjustment,
+  headerBarHeight,
+  headerSearchBar,
   scrollRef,
 }: PageScaffoldProps) {
+  const contentInsetAdjustmentBehavior = resolveMobilePageContentInsetAdjustment({
+    platform: Platform.OS,
+    nativeHeader,
+    requested: requestedContentInsetAdjustment,
+  });
   const { tokens } = useNemuTheme();
   const pathname = usePathname();
-  const localScrollRef = useRef<ScrollView | null>(null);
+  const localScrollRef = useRef<ScrollViewInstance | null>(null);
   const rootTabHref = useMemo(
     () => exactMobileRootTabHrefForPathname(pathname),
     [pathname],
   );
   const setScrollRef = useCallback(
-    (value: ScrollView | null) => {
+    (value: ScrollViewInstance | null) => {
       localScrollRef.current = value;
       assignScrollRef(scrollRef, value);
     },
     [scrollRef],
   );
-  const contentStyle = usePageContentStyle(nativeHeader);
+  const contentStyle = usePageContentStyle({
+    nativeHeader,
+    headerBarHeight,
+    headerSearchBar,
+    contentInsetAdjustmentBehavior,
+  });
   const fontScaleLayoutKey = useMobileFontScaleLayoutKey();
   const refreshControl = usePageRefreshControl({
     nativeHeader,
@@ -227,11 +348,18 @@ export function PageListScaffold<ItemT>({
   refreshDisabled,
   refreshLabel,
   refreshing = false,
-  contentInsetAdjustmentBehavior = "never",
+  contentInsetAdjustmentBehavior: requestedContentInsetAdjustment,
+  headerBarHeight,
+  headerSearchBar,
   contentContainerStyle,
   listRef,
   ...flatListProps
 }: PageListScaffoldProps<ItemT>) {
+  const contentInsetAdjustmentBehavior = resolveMobilePageContentInsetAdjustment({
+    platform: Platform.OS,
+    nativeHeader,
+    requested: requestedContentInsetAdjustment,
+  });
   const { tokens } = useNemuTheme();
   const pathname = usePathname();
   const localListRef = useRef<FlatList<ItemT> | null>(null);
@@ -246,7 +374,12 @@ export function PageListScaffold<ItemT>({
     },
     [listRef],
   );
-  const contentStyle = usePageContentStyle(nativeHeader);
+  const contentStyle = usePageContentStyle({
+    nativeHeader,
+    headerBarHeight,
+    headerSearchBar,
+    contentInsetAdjustmentBehavior,
+  });
   const fontScaleLayoutKey = useMobileFontScaleLayoutKey();
   const refreshControl = usePageRefreshControl({
     nativeHeader,
@@ -276,6 +409,8 @@ export function PageListScaffold<ItemT>({
       refreshControl={refreshControl}
       showsVerticalScrollIndicator={false}
       {...flatListProps}
+      ListEmptyComponent={flatListProps.ListEmptyComponent ?? undefined}
+      ListFooterComponent={flatListProps.ListFooterComponent ?? undefined}
     />
   );
 }

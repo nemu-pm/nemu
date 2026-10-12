@@ -116,11 +116,6 @@ export function resolveNemuPressableAnimationEnabled({
   pressAnimationEnabled,
   reduceMotion,
 }: {
-  /**
-   * Still accepted so the component call site keeps compiling; button depth no
-   * longer decides the policy now that every pressable honours the setting.
-   */
-  hasButtonDepth?: boolean;
   pressAnimationEnabled?: boolean;
   reduceMotion: boolean | null;
 }): boolean {
@@ -137,4 +132,118 @@ export function shouldResetNemuPressableInteraction({
   disabled: boolean;
 }): boolean {
   return disabled || !animationEnabled;
+}
+
+/**
+ * Native row selection (UITableView inset-grouped / Android list items): the
+ * row fills with a highlight on touch-down and fades it out on release,
+ * instead of shrinking. Timings follow UIKit: a short touch-down delay so a
+ * scroll that starts on the row never flashes it, a quick tap still shows it
+ * briefly, and the fade-out is ~quarter of a second.
+ */
+export const NEMU_ROW_HIGHLIGHT = {
+  /** Touch-down → highlight (UIScrollView `delaysContentTouches` feel). */
+  delayMs: 60,
+  /** Release → highlight gone. */
+  fadeOutMs: 260,
+  /** Foreground-colour alpha of the fill (≈ systemGray4 over the card). */
+  lightAlpha: 0.08,
+  darkAlpha: 0.14,
+} as const;
+
+type RadiusStyle = {
+  borderRadius?: unknown;
+  borderTopLeftRadius?: unknown;
+  borderTopRightRadius?: unknown;
+  borderBottomLeftRadius?: unknown;
+  borderBottomRightRadius?: unknown;
+  borderTopStartRadius?: unknown;
+  borderTopEndRadius?: unknown;
+  borderBottomStartRadius?: unknown;
+  borderBottomEndRadius?: unknown;
+  borderWidth?: unknown;
+};
+
+function radiusValue(...values: unknown[]): number {
+  for (const value of values) {
+    if (typeof value === "number" && Number.isFinite(value)) return Math.max(0, value);
+  }
+  return 0;
+}
+
+/**
+ * Corner radii of a row's highlight: the row's own corners (per corner, so a
+ * first/last row of a grouped card keeps only its outer corners), concentric
+ * inside its border — the fill starts inside the border, so each radius loses
+ * the border width. A square row inside a rounded, clipping card gets square
+ * corners here and the card clips it to the card's corners.
+ */
+export function resolveNemuRowHighlightRadii(style: RadiusStyle | null | undefined): {
+  borderTopLeftRadius: number;
+  borderTopRightRadius: number;
+  borderBottomLeftRadius: number;
+  borderBottomRightRadius: number;
+} {
+  const s = style ?? {};
+  const inset = radiusValue(s.borderWidth);
+  const corner = (...values: unknown[]) => Math.max(0, radiusValue(...values, s.borderRadius) - inset);
+  return {
+    borderTopLeftRadius: corner(s.borderTopLeftRadius, s.borderTopStartRadius),
+    borderTopRightRadius: corner(s.borderTopRightRadius, s.borderTopEndRadius),
+    borderBottomLeftRadius: corner(s.borderBottomLeftRadius, s.borderBottomStartRadius),
+    borderBottomRightRadius: corner(s.borderBottomRightRadius, s.borderBottomEndRadius),
+  };
+}
+
+export type NemuRowHighlightValue = {
+  setValue: (value: number) => void;
+  stopAnimation: () => void;
+};
+
+export type NemuRowHighlightController = {
+  onPressIn: () => void;
+  onPressOut: () => void;
+  onPress: () => void;
+  dispose: () => void;
+};
+
+/**
+ * The row-highlight press timing: fill after `delayMs` on touch-down, fade on
+ * release; a tap released before the fill appeared still flashes it once
+ * (onPress follows), a longer hold already showed it and only fades.
+ */
+export function createNemuRowHighlightController(
+  value: NemuRowHighlightValue,
+  fadeOut: () => void,
+): NemuRowHighlightController {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let releasedEarly = false;
+  const clear = () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+  };
+  return {
+    onPressIn() {
+      clear();
+      releasedEarly = false;
+      value.stopAnimation();
+      timer = setTimeout(() => {
+        timer = null;
+        value.setValue(1);
+      }, NEMU_ROW_HIGHLIGHT.delayMs);
+    },
+    onPressOut() {
+      releasedEarly = timer !== null;
+      clear();
+      fadeOut();
+    },
+    onPress() {
+      if (!releasedEarly) return;
+      releasedEarly = false;
+      value.stopAnimation();
+      value.setValue(1);
+      fadeOut();
+    },
+    dispose: clear,
+  };
 }

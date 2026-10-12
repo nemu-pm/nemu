@@ -1,9 +1,11 @@
 import { memo, type ReactNode } from "react";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { MobileChapterGrid } from "@/components/MobileChapterGrid";
+import { useMobileMangaDetailPane } from "@/components/MobileMangaDetailPaneContext";
 import type { AppLanguage, ChapterSummary, LocalChapterProgress } from "@/data/schema";
 import {
+  getNemuButtonMinimumTargetSize,
   nemuFontWeight,
   useNemuTheme,
   MobileChip,
@@ -13,16 +15,25 @@ import {
 } from "@/design-system";
 import type { MobileChapterListPreference } from "@/lib/mobileChapterFilters";
 import type { MobileChapterRow } from "@/lib/mobileChapterRows";
+import { getMobileChapterSectionRhythm } from "@/lib/mobileMangaDetailPaneLayout";
 import type { MobileStrings } from "@/lib/mobileI18n";
 import { formatMobileLanguageDisplayName } from "@/lib/mobileLanguageSettings";
 
 type MobileMangaChapterSectionHeaderProps = {
+  alignedControl?: boolean;
   emptyIcon?: "reader-outline" | "albums-outline";
   emptyTitle: string;
   hasChapters: boolean;
   loading?: boolean;
   /** Announced by the loading ring while chapters refresh. */
   loadingLabel?: string;
+  /**
+   * Stands in for the rows while `loading` with none to show (a chapter
+   * grid skeleton). When given, the header's loading ring is not drawn: the
+   * placeholder already says the list is on its way, and the sort action
+   * keeps its place.
+   */
+  loadingPlaceholder?: ReactNode;
   notice?: ReactNode;
   sortAction?: ReactNode;
   sourceSelector?: ReactNode;
@@ -43,6 +54,8 @@ type MobileMangaChapterRowProps = {
 };
 
 type MobileMangaChapterToolbarProps = {
+  /** The chips only, for a row that scrolls them with other controls (design-explore). */
+  inline?: boolean;
   appLanguage: AppLanguage;
   languages: string[];
   preference: MobileChapterListPreference;
@@ -56,6 +69,19 @@ type MobileMangaChapterSortActionProps = {
   strings: MobileStrings;
   onChange: (preference: MobileChapterListPreference) => void;
 };
+
+/**
+ * Compact keeps design A's rhythm; regular widths (the chapter pane, the
+ * inner display's single list) measure one spacing step between what is
+ * visible — see `getMobileChapterSectionRhythm`.
+ */
+function useChapterSectionRhythm() {
+  const { regularWidth } = useMobileMangaDetailPane();
+  return getMobileChapterSectionRhythm({
+    regularWidth,
+    minimumTouchTarget: getNemuButtonMinimumTargetSize(Platform.OS),
+  });
+}
 
 /**
  * The chapter toolbar's unread/language filters: the shared chip primitive's
@@ -127,6 +153,7 @@ export function MobileMangaChapterSortAction({
 }
 
 export function MobileMangaChapterToolbar({
+  inline = false,
   appLanguage,
   languages,
   preference,
@@ -142,12 +169,8 @@ export function MobileMangaChapterToolbar({
     onChange({ ...preference, languages: [...next] });
   };
 
-  return (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={styles.toolbarRow}
-    >
+  const chips = (
+    <>
       <MobileChapterToolbarChip
         accessibilityLabel={strings.sourceBrowse.unreadOnly}
         badge={String(unreadCount)}
@@ -174,16 +197,29 @@ export function MobileMangaChapterToolbar({
             );
           })
         : null}
+    </>
+  );
+  if (inline) return chips;
+  return (
+    <ScrollView
+      horizontal
+      scrollsToTop={false}
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.toolbarRow}
+    >
+      {chips}
     </ScrollView>
   );
 }
 
 export function MobileMangaChapterSectionHeader({
+  alignedControl = false,
   emptyIcon = "reader-outline",
   emptyTitle,
   hasChapters,
   loading = false,
   loadingLabel,
+  loadingPlaceholder,
   notice,
   sortAction,
   sourceSelector,
@@ -191,27 +227,54 @@ export function MobileMangaChapterSectionHeader({
   title,
 }: MobileMangaChapterSectionHeaderProps) {
   const { tokens } = useNemuTheme();
+  const rhythm = useChapterSectionRhythm();
 
   return (
-    <View style={styles.section}>
-      <View style={styles.sectionHeaderRow}>
+    <View style={{ gap: rhythm.sectionGap }}>
+      <View
+        style={[
+          styles.sectionHeaderRow,
+          { minHeight: alignedControl ? 46 : rhythm.headerRowHeight, marginBottom: rhythm.headerRowMarginBottom },
+        ]}
+      >
         <Text style={[styles.sectionTitle, { color: tokens.foreground }]}>
           {title}
         </Text>
-        {loading ? (
+        {loading && !loadingPlaceholder ? (
           <NemuRingSpinner
             size={16}
             color={tokens.primary}
             accessibilityLabel={loadingLabel}
           />
-        ) : (
-          sortAction
-        )}
+        ) : sortAction ? (
+          // The touch frame stays 44/48pt; only its overhang leaves the row's
+          // layout, so the heading sits on the pane's first line.
+          <View style={[styles.sortActionSlot, { marginVertical: alignedControl ? 0 : rhythm.sortActionMarginVertical }]}>
+            {sortAction}
+          </View>
+        ) : null}
       </View>
-      {sourceSelector}
-      {toolbar}
+      {sourceSelector ? (
+        <View
+          style={[
+            styles.sourceSelectorSlot,
+            {
+              marginTop: rhythm.sourceSelectorMarginTop,
+              marginBottom: rhythm.sourceSelectorMarginBottom,
+            },
+          ]}
+        >
+          {sourceSelector}
+        </View>
+      ) : null}
+      {toolbar ? (
+        <View style={{ marginVertical: rhythm.toolbarMarginVertical }}>{toolbar}</View>
+      ) : null}
       {notice}
-      {!hasChapters && !loading ? (
+      {!hasChapters && loading && loadingPlaceholder ? loadingPlaceholder : null}
+      {/* A notice (source error, blocked source) already explains an empty
+          list; a second empty-state line under it only contradicts it. */}
+      {!hasChapters && !loading && !notice ? (
         <NemuInlineEmptyState icon={emptyIcon} title={emptyTitle} />
       ) : null}
     </View>
@@ -229,8 +292,9 @@ export const MobileMangaChapterRow = memo(function MobileMangaChapterRow({
   onPressChapter,
   showLanguage = false,
 }: MobileMangaChapterRowProps) {
+  const rhythm = useChapterSectionRhythm();
   return (
-    <View style={first ? styles.firstChapterRow : styles.chapterRow}>
+    <View style={{ marginTop: first ? rhythm.firstRowGap : rhythm.rowGap }}>
       <MobileChapterGrid
         appLanguage={appLanguage}
         busy={busy}
@@ -246,13 +310,9 @@ export const MobileMangaChapterRow = memo(function MobileMangaChapterRow({
 });
 
 const styles = StyleSheet.create({
-  section: {
-    gap: 16,
-  },
   // Wraps at large text sizes: the sort action drops under the title instead
   // of being pushed off the trailing edge ("ascendin…").
   sectionHeaderRow: {
-    minHeight: 28,
     flexDirection: "row",
     flexWrap: "wrap",
     alignItems: "center",
@@ -265,6 +325,13 @@ const styles = StyleSheet.create({
     fontSize: 20,
     lineHeight: 26,
     fontWeight: nemuFontWeight.semibold,
+  },
+  // The selector's own frame lifts its track shadow over the chips below.
+  sourceSelectorSlot: {
+    zIndex: 1,
+  },
+  sortActionSlot: {
+    flexShrink: 1,
   },
   sortAction: {
     flexShrink: 1,
@@ -282,11 +349,5 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-  },
-  firstChapterRow: {
-    marginTop: 16,
-  },
-  chapterRow: {
-    marginTop: 8,
   },
 });

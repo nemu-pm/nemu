@@ -1,18 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import {
   applyMobileSourceSettingsPatch,
-  applyMobileSourceSettingChange,
   canRetryMobileSourceSettingsLoadError,
   canRunMobileSourceTextSettingBlurFeedback,
   canStartMobileSourceSettingsAction,
   countRenderableSourceSettings,
   countVisibleSourceSettings,
   describeSourceSettingValue,
-  extractSourceSettingDefaults,
   flattenSourceSettings,
   flattenVisibleEditableSourceSettings,
   formatSourceSettingSliderValue,
   formatSourceSettingAccessibilityLabel,
+  getFirstVisibleSourceSettingIndex,
   getMobileSourceSettingsNavigationResetKey,
   getSourceSegmentOptions,
   getSourceSettingOptions,
@@ -25,7 +24,7 @@ import {
   mergeSourceSettingValues,
   normalizeMobileSourceSettingsKeys,
   sourceSettingRequestsDataRefresh,
-  sourceSettingsRequestDataRefresh,
+  sourceSettingControlShowsValue,
 } from "./mobileSourceSettings";
 import { getMobileStrings } from "./mobileI18n";
 import type { SourcePackageSetting } from "@/data/schema";
@@ -407,16 +406,6 @@ describe("mobile source settings helpers", () => {
   });
 
   test("extracts and merges defaults with user values", () => {
-    expect(extractSourceSettingDefaults(settings)).toEqual({
-      enabled: true,
-      quality: "high",
-      blocked: ["spoiler"],
-      aliases: ["Main Alias"],
-      layout: 1,
-      compact: false,
-      webgpu: true,
-    });
-
     expect(mergeSourceSettingValues(settings, { quality: "low" })).toEqual({
       enabled: true,
       quality: "low",
@@ -425,30 +414,6 @@ describe("mobile source settings helpers", () => {
       layout: 1,
       compact: false,
       webgpu: true,
-    });
-  });
-
-  test("persists only user values while displaying schema defaults", () => {
-    const result = applyMobileSourceSettingChange(
-      settings,
-      { legacy: "kept" },
-      "quality",
-      "low",
-    );
-
-    expect(result.userValues).toEqual({
-      legacy: "kept",
-      quality: "low",
-    });
-    expect(result.values).toEqual({
-      enabled: true,
-      quality: "low",
-      blocked: ["spoiler"],
-      aliases: ["Main Alias"],
-      layout: 1,
-      compact: false,
-      webgpu: true,
-      legacy: "kept",
     });
   });
 
@@ -730,27 +695,41 @@ describe("mobile source settings helpers", () => {
     };
 
     expect(sourceSettingRequestsDataRefresh(refreshSetting)).toBe(true);
-    expect(sourceSettingsRequestDataRefresh(settings)).toBe(false);
-    expect(
-      sourceSettingsRequestDataRefresh([
-        {
-          key: "advanced-refresh",
-          title: "Advanced",
-          type: "page",
-          items: [refreshSetting],
-        },
-      ]),
-    ).toBe(true);
-    expect(
-      sourceSettingsRequestDataRefresh([
-        {
-          key: "__selected_source_id__",
-          title: "Source",
-          type: "link",
-          url: "https://example.com",
-          refreshes: ["content"],
-        },
-      ]),
-    ).toBe(false);
+  });
+
+  test("design-explore: a control that shows its value is not repeated under the title", () => {
+    for (const type of ["switch", "segment", "select", "slider"] as const) {
+      expect(sourceSettingControlShowsValue({ type })).toBe(true);
+    }
+    for (const type of ["multi-select", "text", "page", "button", "login", "link"] as const) {
+      expect(sourceSettingControlShowsValue({ type: type as SourcePackageSetting["type"] })).toBe(false);
+    }
+  });
+});
+
+
+describe("the first painted settings sibling", () => {
+  const titlePreference: SourcePackageSetting = { key: "title", title: "Title Preference", type: "select" };
+  const emptyGroup: SourcePackageSetting = { key: "empty", title: "Empty", type: "group", items: [] };
+  const hiddenRow: SourcePackageSetting = { key: "hidden", title: "Hidden", type: "switch", requires: "enabled" };
+  const gatedGroup: SourcePackageSetting = { key: "gated", title: "Gated", type: "group", items: [hiddenRow] };
+
+  test("empty and fully hidden groups cannot reserve the leading position", () => {
+    expect(getFirstVisibleSourceSettingIndex([emptyGroup, gatedGroup, titlePreference], {})).toBe(2);
+    expect(getFirstVisibleSourceSettingIndex([emptyGroup, gatedGroup, titlePreference], { enabled: true })).toBe(1);
+  });
+
+  test("the first actual nested group leads; later sections keep their spacing", () => {
+    const detection: SourcePackageSetting = { key: "detection", title: "Detection", type: "group", items: [titlePreference] };
+    expect(getFirstVisibleSourceSettingIndex([emptyGroup, detection, titlePreference], {})).toBe(1);
+    expect(getFirstVisibleSourceSettingIndex([titlePreference, detection], {})).toBe(0);
+  });
+
+  test("feature-gated, malformed and absent rows leave no phantom first heading", () => {
+    const gated = { ...titlePreference, requiresFeature: "webgpu" };
+    expect(getFirstVisibleSourceSettingIndex([gated, titlePreference], {})).toBe(1);
+    expect(getFirstVisibleSourceSettingIndex([gated, titlePreference], {}, { webgpu: true })).toBe(0);
+    expect(getFirstVisibleSourceSettingIndex([{} as SourcePackageSetting, emptyGroup], {})).toBe(-1);
+    expect(getFirstVisibleSourceSettingIndex([], {})).toBe(-1);
   });
 });

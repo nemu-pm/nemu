@@ -1,4 +1,8 @@
+import { MobileQuickActionMenu, mobileNativeQuickMenuAvailable } from "@/components/MobileQuickActionMenu";
+import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
+import { MOBILE_EXPLORE_RADIUS } from "@/lib/mobileExploreRadius";
 import { Stack, router, type Href } from "expo-router";
 import {
   Linking,
@@ -11,6 +15,7 @@ import {
   type LayoutChangeEvent,
   type SectionListData,
   type SectionListRenderItemInfo,
+  type ViewInstance,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -40,18 +45,22 @@ import {
   PageScaffold,
   SourceCard,
   createNemuNativeScreenOptions,
+  nemuColorWithAlpha,
   radius,
   renderNemuNativeToolbarButtons,
   nemuFontWeight,
+  useMobileNativeSheetTheme,
   useNemuTheme,
   usesNemuNativeHeader,
   type NemuNativeHeaderAction,
   type SourceCardModel,
+  useMobilePageGutters,
 } from "@/design-system";
 import {
   isMobileSourceInstallCancellation,
   useAvailableSources,
   useInstalledSources,
+  useLibraryEntries,
   useMobileLanguageSettings,
   useSourceInstaller,
 } from "@/data/mobileHooks";
@@ -69,10 +78,15 @@ import {
   type MobileStrings,
 } from "@/lib/mobileI18n";
 import { resolveMobileSheetHeaderMetrics } from "@/lib/mobileNativeSheet";
+import { mobileGridPrefersEvenColumns } from "@/lib/mobileAdaptiveLayout";
+import { getMobileSourceGridLayout } from "@/lib/mobilePageLayout";
+import { chunkMobileGridRows, mobileFoldAwareGridCellStyle } from "@/lib/mobileFoldAwareGrid";
+import { MobilePoseLayoutView } from "@/components/MobilePoseLayoutView";
+import { MobilePaneAlignedView } from "@/lib/MobilePaneAlignedView";
+import { useMobileContainerFold } from "@/lib/useMobileContainerFold";
 import {
   buildMobileInstalledSourceKeySet,
   buildMobileSourceQuickActions,
-  canSelectMobileBrowseAllLanguages,
   canStartMobileSourceInstall,
   filterMobileAvailableSources,
   getMobileAvailableSourceLanguageOptions,
@@ -82,6 +96,8 @@ import {
   getMobileSourceWarningAccessibilityLabel,
   getMobileSourceWarningMessages,
   groupMobileSourcesByLanguage,
+  omitMobileBrowseSourcesFromGroups,
+  selectMobileBrowseLibrarySources,
   isMobileUnsupportedInstalledSource,
   filterEnabledMobileInstalledSources,
   mergeMobileInstalledSourceRegistryMetadata,
@@ -279,16 +295,6 @@ function sourceActionErrorPresentation(
   return { title: presentation.title, detail: presentation.detail };
 }
 
-function colorWithOpacity(color: string, opacity: number) {
-  const hexMatch = /^#([0-9a-f]{6})$/i.exec(color);
-  if (!hexMatch) return color;
-
-  const alpha = Math.round(Math.max(0, Math.min(1, opacity)) * 255)
-    .toString(16)
-    .padStart(2, "0");
-  return `${color}${alpha}`;
-}
-
 /**
  * One removable active filter: the shared chip primitive's `toggle` variant in
  * its selected (plain primary surface) state, with a trailing `close` glyph.
@@ -417,13 +423,7 @@ function LanguageFilterSheetSection({
           )}
           showSeparator={pinnedLanguages.length > 0}
           onPress={() => {
-            if (
-              !canSelectMobileBrowseAllLanguages({
-                selected: allLanguagesSelected,
-              })
-            ) {
-              return;
-            }
+            if (allLanguagesSelected) return;
             void hapticSelection();
             onSelectAll();
           }}
@@ -580,7 +580,7 @@ const AvailableSourceRow = memo(function AvailableSourceRow({
         styles.availableShell,
         {
           backgroundColor: installed
-            ? colorWithOpacity(tokens.muted, 0.48)
+            ? nemuColorWithAlpha(tokens.muted, 0.48)
             : tokens.card,
           borderColor: tokens.border,
         },
@@ -730,26 +730,18 @@ function AvailableSectionSeparator({
 }
 
 /**
- * The Add Sources sheet sizes its iOS detent to its content instead of
- * parking a blank tail under a short (or filtered) list:
- *
- *   scaffold header chrome + the scaffold body's top padding + the sheet's
- *   own header stack + the measured list content + corner clearance
- *
- * The list's own 24pt bottom padding is already inside the measured content,
- * so the clearance is pure extra tail (~36pt total under the last row) —
- * enough air above the screen's rounded corners when scrolled to the very
- * bottom. The detent clamps to `[320, 88%]` of the scaffold's available
- * height (`windowHeight - insets.top - insets.bottom`, mirroring
- * `MobileNativeSheetScaffold`); longer catalogs stay at the ceiling and
- * scroll inside the sheet (`fillContent`).
+ * The Add Sources sheet sizes its detent to its content, clamped to
+ * `[320, 88%]` of the available height; longer catalogs scroll inside it.
  */
 const ADD_SOURCE_SHEET_MAX_DETENT_FRACTION = 0.88;
 const ADD_SOURCE_SHEET_MIN_DETENT = 320;
 const ADD_SOURCE_SHEET_CORNER_CLEARANCE = 12;
 
 export function BrowseScreen() {
+  const { verticalBarSide } = useMobileAdaptiveLayout();
   const { tokens } = useNemuTheme();
+  // The Add Sources sheet's own content, built here outside the sheet.
+  const sheetTokens = useMobileNativeSheetTheme().tokens;
   const [query, setQuery] = useState("");
   const [showAdult, setShowAdult] = useState(false);
   const [activeSheet, setActiveSheet] = useState<BrowseSheet | null>(null);
@@ -781,7 +773,37 @@ export function BrowseScreen() {
   const toast = useMobileToast();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
-  const { height: windowHeight } = useWindowDimensions();
+  const { height: windowHeight, width: windowWidth, fontScale } = useWindowDimensions();
+  const pageGutters = useMobilePageGutters();
+  // Source cards size from the measured content box (Duo's trailing system
+  // bars narrow it), even columns whenever the window has a fold region
+  // (folded or flat). Only an active fold reserves the middle gutter.
+  const sourceGridContainer = useMobileContainerFold<ViewInstance>();
+  const sourceGridSplit = sourceGridContainer.split;
+  const sourceGridPrefersEven = mobileGridPrefersEvenColumns(sourceGridContainer.adaptive);
+  const sourceGrid = useMemo(
+    () =>
+      getMobileSourceGridLayout(
+        sourceGridContainer.width ?? windowWidth - pageGutters.left - pageGutters.right,
+        fontScale,
+        {
+          preferEven: sourceGridPrefersEven,
+          fold:
+            sourceGridSplit?.axis === "horizontal"
+              ? { start: sourceGridSplit.gutter.start, end: sourceGridSplit.gutter.end }
+              : null,
+        },
+      ),
+    [
+      fontScale,
+      pageGutters.left,
+      pageGutters.right,
+      sourceGridPrefersEven,
+      sourceGridContainer.width,
+      sourceGridSplit,
+      windowWidth,
+    ],
+  );
   const insets = useSafeAreaInsets();
   const usesNativeHeader = usesNemuNativeHeader;
 
@@ -815,10 +837,47 @@ export function BrowseScreen() {
     });
     return sortSourcesByLanguagePriority(cards, appLanguage);
   }, [appLanguage, available.data, installed.data]);
+  // The registry most sources come from; only sources from another one say
+  // where they are from (a row of "aidoku-community" says nothing).
+  const mainRegistry = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const source of installedSources) counts.set(source.registryId, (counts.get(source.registryId) ?? 0) + 1);
+    let best: string | null = null;
+    for (const [registry, count] of counts) if (best === null || count > (counts.get(best) ?? 0)) best = registry;
+    return best;
+  }, [installedSources]);
   const groupedInstalledSources = useMemo(
     () => groupMobileSourcesByLanguage(installedSources, appLanguage),
     [appLanguage, installedSources],
   );
+  // Design-explore: the sources the library reads from, first and with how
+  // many titles each holds (they also stay in their language group below).
+  const libraryEntries = useLibraryEntries();
+  const exploreSourceSections = useMemo<
+    { label: string; sources: (InstalledSourceCardModel & { exploreKeepSubtitle?: boolean })[] }[]
+  >(() => {
+    if (!mobileDesignExploreFlag) return groupedInstalledSources;
+    const picked = selectMobileBrowseLibrarySources(
+      installedSources.filter((source) => !source.unsupported),
+      libraryEntries.data.flatMap((entry) => (entry.item.inLibrary === false ? [] : entry.sources)),
+    );
+    if (!picked.length) return groupedInstalledSources;
+    return [
+      {
+        label: EXPLORE_LIBRARY_SECTION,
+        sources: picked.map(({ source, titles }) => ({
+          ...source,
+          subtitle:
+            titles === 1
+              ? strings.designExplore.browseLibraryTitlesOne
+              : formatMobileString(strings.designExplore.browseLibraryTitles, { count: titles }),
+          exploreKeepSubtitle: true,
+        })),
+      },
+      // Each source once: the language groups skip what the library group lists.
+      ...omitMobileBrowseSourcesFromGroups(groupedInstalledSources, picked.map(({ source }) => source)),
+    ];
+  }, [groupedInstalledSources, installedSources, libraryEntries.data, strings]);
 
   // Long-press quick actions for an installed source. Kept next to the card
   // that opens them; a short press still routes into the source.
@@ -1311,14 +1370,14 @@ export function BrowseScreen() {
           style={[
             styles.sourceLanguageHeader,
             styles.availableSourceLanguageHeader,
-            { color: tokens.mutedForeground },
+            { color: sheetTokens.mutedForeground },
           ]}
         >
           {label}
         </Text>
       );
     },
-    [appLanguage, strings, tokens.mutedForeground],
+    [appLanguage, strings, sheetTokens.mutedForeground],
   );
   const renderAvailableSourceRow = useCallback(
     ({
@@ -1508,6 +1567,38 @@ export function BrowseScreen() {
         }))
       : [];
 
+  const sourceContextActions = (id: string): QuickAction[] => {
+    const source = mergedInstalledSources.find((item) => item.id === id);
+    if (!source) return [];
+    const update = findMobileSourceUpdates([source], available.data)[0];
+    const homepage = resolveMobileSourceHomepageUrl(source.packageMetadata?.urls);
+    return buildMobileSourceQuickActions({ canOpenSettings: true, hasUpdate: Boolean(update), hasHomepage: Boolean(homepage) }).map((descriptor) => ({
+      ...descriptor,
+      label: descriptor.id === "update"
+        ? formatMobileString(strings.browse.updateSourceToVersion, { version: update?.version ?? "" })
+        : quickActionLabel(descriptor.id),
+      onPress: () => {
+        // UIKit has finished dismissing the menu before presenting a destination.
+        switch (descriptor.id) {
+          case "settings":
+            setQuickActionSourceId(id);
+            setQuickActionSettingsVisible(true);
+            break;
+          case "update":
+            if (update) void installSourceRef.current?.(update);
+            break;
+          case "openInBrowser":
+            if (homepage) void Linking.openURL(homepage).catch(() => undefined);
+            break;
+          case "uninstall":
+            setQuickActionUninstall(source);
+            setQuickActionUninstallVisible(true);
+            break;
+        }
+      },
+    }));
+  };
+
 
   const nativeHeaderActions: NemuNativeHeaderAction[] = [
     {
@@ -1516,8 +1607,9 @@ export function BrowseScreen() {
       disabled: activeInstallKey !== null,
       onPress: openAddSourceSheet,
     },
-    {
-      icon: "square.stack.3d.up",
+    // The new design keeps one "+"; sources are managed from Settings.
+    ...(mobileDesignExploreFlag ? [] : [{
+      icon: "square.stack.3d.up" as const,
       label: strings.browse.manageSources,
       onPress: () => {
         router.push({
@@ -1525,7 +1617,7 @@ export function BrowseScreen() {
           params: { section: "sources" },
         });
       },
-    },
+    }]),
   ];
 
   return (
@@ -1533,13 +1625,10 @@ export function BrowseScreen() {
       {usesNativeHeader ? (
         <>
           <Stack.Screen
-            options={createNemuNativeScreenOptions(tokens, strings.nav.browse)}
+            options={createNemuNativeScreenOptions(tokens, strings.nav.browse, verticalBarSide)}
           />
-          <Stack.Toolbar placement="right" tintColor={tokens.primary}>
-            {renderNemuNativeToolbarButtons(
-              nativeHeaderActions,
-              tokens.primary,
-            )}
+          <Stack.Toolbar placement="right">
+            {renderNemuNativeToolbarButtons(nativeHeaderActions)}
           </Stack.Toolbar>
         </>
       ) : null}
@@ -1625,17 +1714,20 @@ export function BrowseScreen() {
                 </View>
               ) : null}
               {installedSources.length ? (
-                <View style={styles.availableList}>
-                  {groupedInstalledSources.map((section) => {
-                    const label = formatSourceLanguageLabel(
-                      section.label,
-                      strings,
-                      appLanguage,
-                    );
+                <View
+                  ref={sourceGridContainer.ref}
+                  onLayout={sourceGridContainer.onLayout}
+                  style={styles.availableList}
+                >
+                  {exploreSourceSections.map((section) => {
+                    const label =
+                      section.label === EXPLORE_LIBRARY_SECTION
+                        ? strings.designExplore.browseInLibrary
+                        : formatSourceLanguageLabel(section.label, strings, appLanguage);
                     return (
                       <View
                         key={section.label}
-                        style={styles.sourceLanguageSection}
+                        style={[styles.sourceLanguageSection, mobileDesignExploreFlag ? styles.exploreSourceSection : null]}
                       >
                         <Text
                           style={[
@@ -1645,43 +1737,97 @@ export function BrowseScreen() {
                         >
                           {label}
                         </Text>
-                        <View style={styles.list}>
-                          {section.sources.map((source) =>
-                            source.unsupported ? (
-                              <UnsupportedSourceRow
-                                key={source.id}
-                                source={source}
-                                strings={strings}
-                                onPress={() => {
-                                  router.push(sourceSettingsHref(source));
-                                }}
-                              />
-                            ) : (
-                              <SourceCard
-                                key={source.id}
-                                item={source}
-                                onLongPress={() => {
-                                  void hapticSelection();
-                                  quickActionDismissRef.current = null;
-                                  setQuickActionSourceId(source.id);
-                                  setQuickActionVisible(true);
-                                }}
-                              />
-                            ),
-                          )}
+                        {mobileDesignExploreFlag ? (
+                          // Design-explore: one inset group per language, short rows.
+                          <View
+                            style={[
+                              styles.exploreSourceGroup,
+                              { backgroundColor: tokens.card, borderColor: tokens.border },
+                            ]}
+                          >
+                            {section.sources.map((source, index) => (
+                              <View key={source.id}>
+                                {index > 0 ? (
+                                  <View style={[styles.exploreSourceSeparator, { backgroundColor: tokens.border }]} />
+                                ) : null}
+                                {source.unsupported ? (
+                                  <UnsupportedSourceRow
+                                    source={source}
+                                    strings={strings}
+                                    onPress={() => {
+                                      router.push(sourceSettingsHref(source));
+                                    }}
+                                  />
+                                ) : (
+                                  <MobileQuickActionMenu actions={sourceContextActions(source.id)}>
+                                  <SourceCard
+                                    compact
+                                    item={
+                                      source.registryId === mainRegistry && !source.exploreKeepSubtitle
+                                        ? { ...source, subtitle: undefined }
+                                        : source
+                                    }
+                                    onLongPress={mobileNativeQuickMenuAvailable ? undefined : () => {
+                                      void hapticSelection();
+                                      quickActionDismissRef.current = null;
+                                      setQuickActionSourceId(source.id);
+                                      setQuickActionVisible(true);
+                                    }}
+                                  />
+                                  </MobileQuickActionMenu>
+                                )}
+                              </View>
+                            ))}
+                          </View>
+                        ) : (
+                        <View style={styles.sourceGrid}>
+                          {chunkMobileGridRows(section.sources, sourceGrid.columns).map((row, rowIndex) => (
+                            <MobilePoseLayoutView key={rowIndex} style={styles.sourceGridRow}>
+                              {row.map((source, column) => (
+                                // Folding glides each card to its pane (pose settle spring).
+                                <MobilePoseLayoutView key={source.id} style={mobileFoldAwareGridCellStyle(sourceGrid, column)}>
+                                  {source.unsupported ? (
+                                    <UnsupportedSourceRow
+                                      source={source}
+                                      strings={strings}
+                                      onPress={() => {
+                                        router.push(sourceSettingsHref(source));
+                                      }}
+                                    />
+                                  ) : (
+                                    <SourceCard
+                                      item={source}
+                                      onLongPress={() => {
+                                        void hapticSelection();
+                                        quickActionDismissRef.current = null;
+                                        setQuickActionSourceId(source.id);
+                                        setQuickActionVisible(true);
+                                      }}
+                                    />
+                                  )}
+                                </MobilePoseLayoutView>
+                              ))}
+                            </MobilePoseLayoutView>
+                          ))}
                         </View>
+                        )}
                       </View>
                     );
                   })}
                 </View>
               ) : (
-                <MobilePageEmpty
-                  icon="globe-outline"
-                  title={strings.browse.noSources}
-                  description={strings.browse.noSourcesDescription}
-                  actionLabel={strings.browse.addSource}
-                  onActionPress={openAddSourceSheet}
-                />
+                <MobilePaneAlignedView>
+                  {({ minHeight }) => (
+                    <MobilePageEmpty
+                      minHeight={minHeight}
+                      icon="globe-outline"
+                      title={strings.browse.noSources}
+                      description={strings.browse.noSourcesDescription}
+                      actionLabel={strings.browse.addSource}
+                      onActionPress={openAddSourceSheet}
+                    />
+                  )}
+                </MobilePaneAlignedView>
               )}
             </View>
           </View>
@@ -1695,7 +1841,6 @@ export function BrowseScreen() {
           onDismiss={handleAddSourceSheetDismissed}
           title={strings.browse.addSources}
           dismissLabel={strings.common.done}
-          dismissAsIcon
           headerLeading={
             <NemuNativeSheetHeaderAction
               accessibilityLabel={formatMobileString(
@@ -1821,20 +1966,20 @@ export function BrowseScreen() {
                   style={[
                     styles.inlineEmpty,
                     {
-                      backgroundColor: tokens.card,
-                      borderColor: tokens.border,
+                      backgroundColor: sheetTokens.card,
+                      borderColor: sheetTokens.border,
                     },
                   ]}
                 >
                   <Ionicons
                     name="filter-outline"
                     size={22}
-                    color={tokens.mutedForeground}
+                    color={sheetTokens.mutedForeground}
                   />
                   <Text
                     style={[
                       styles.inlineEmptyText,
-                      { color: tokens.mutedForeground },
+                      { color: sheetTokens.mutedForeground },
                     ]}
                   >
                     {strings.browse.noSourceResults}
@@ -1960,7 +2105,26 @@ export function BrowseScreen() {
   );
 }
 
+/** Key of the design-explore "In Your Library" group among the language groups. */
+const EXPLORE_LIBRARY_SECTION = "explore:library";
+
 const styles = StyleSheet.create({
+  exploreSourceSection: {
+    // A wide window (iPad, Duo open) keeps the phone's reading width, centred.
+    width: "100%",
+    maxWidth: 640,
+    alignSelf: "center",
+  },
+  exploreSourceGroup: {
+    borderRadius: MOBILE_EXPLORE_RADIUS.group,
+    borderCurve: "continuous",
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: "hidden",
+  },
+  exploreSourceSeparator: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 14 + 40 + 12,
+  },
   sections: {
     gap: 26,
   },
@@ -1984,8 +2148,13 @@ const styles = StyleSheet.create({
     gap: 12,
     marginBottom: 12,
   },
-  list: {
+  // Explicit rows; column spacing is each cell's marginLeft so the middle
+  // gutter can equal the fold in book posture.
+  sourceGrid: {
     gap: 12,
+  },
+  sourceGridRow: {
+    flexDirection: "row",
   },
   availableList: {
     gap: 18,

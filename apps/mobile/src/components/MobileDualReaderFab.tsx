@@ -51,8 +51,13 @@ import {
 import { useMobileDualReaderContext } from "./MobileDualReaderContext";
 import {
   useMobileDualReaderStore,
-  type DualReadFabPosition,
 } from "@/lib/mobileDualReaderStore";
+import {
+  mobileDualReaderFabClamp,
+  mobileDualReaderFabDefault,
+  mobileDualReaderFabSnap,
+} from "@/lib/mobileDualReaderFabLayout";
+import type { WindowLayoutRect } from "@/lib/mobileWindowLayout";
 
 // Spring configs mirror web's motion springs.
 const POSITION_SPRING = { stiffness: 300, damping: 30 };
@@ -63,63 +68,47 @@ const HOLD_SCALE = 0.82;
 const DRAG_SCALE = 1.12;
 
 /**
- * Horizontal safe-area insets. A landscape iPhone reports ~60pt per side for
- * the Dynamic Island; the FAB docks past it instead of under it. Portrait
- * insets are zero, so the plain FAB_MARGIN applies there.
+ * Legacy area (no pose information): the window inside the horizontal safe
+ * area. A landscape iPhone reports ~60pt per side for the Dynamic Island; the
+ * FAB docks past it instead of under it. Portrait insets are zero, so the
+ * plain FAB_MARGIN applies there.
  */
-type FabHorizontalInsets = { left: number; right: number };
-
-function defaultPosition(
+function windowFabArea(
   width: number,
   height: number,
-  insets: FabHorizontalInsets,
-): DualReadFabPosition {
-  return {
-    x: width - FAB_SIZE - Math.max(FAB_MARGIN, insets.right),
-    y: Math.max(FAB_MARGIN, Math.round(height * 0.4)),
-    side: "right",
-  };
+  insets: { left: number; right: number },
+): WindowLayoutRect {
+  const x = Math.max(0, insets.left - FAB_MARGIN);
+  const right = Math.max(0, insets.right - FAB_MARGIN);
+  return { x, y: 0, width: Math.max(0, width - x - right), height };
 }
 
-function clampPosition(
-  pos: DualReadFabPosition,
-  width: number,
-  height: number,
-  insets: FabHorizontalInsets,
-): DualReadFabPosition {
-  "worklet";
-  const maxY = Math.max(FAB_MARGIN, height - FAB_MARGIN - FAB_SIZE);
-  const y = Math.max(FAB_MARGIN, Math.min(maxY, pos.y));
-  const leftMargin = Math.max(FAB_MARGIN, insets.left);
-  const rightMargin = Math.max(FAB_MARGIN, insets.right);
-  const x =
-    pos.side === "left"
-      ? leftMargin
-      : Math.max(leftMargin, width - rightMargin - FAB_SIZE);
-  return { x, y, side: pos.side };
-}
+export type MobileDualReaderFabProps = {
+  /**
+   * Reader-local rectangle the FAB may rest in (`mobileDualReaderFabArea`):
+   * beside the vertical rail, inside the chrome pane in book posture, over
+   * the page pane in notebook. Defaults to the window's safe area.
+   */
+  area?: WindowLayoutRect | null;
+};
 
-function snapToEdge(
-  pos: { x: number; y: number },
-  width: number,
-  height: number,
-  insets: FabHorizontalInsets,
-): DualReadFabPosition {
-  "worklet";
-  const side: DualReadFabPosition["side"] = pos.x + FAB_SIZE / 2 < width / 2 ? "left" : "right";
-  return clampPosition({ x: pos.x, y: pos.y, side }, width, height, insets);
-}
-
-export function MobileDualReaderFab() {
+export function MobileDualReaderFab({ area: poseArea = null }: MobileDualReaderFabProps = {}) {
   const ctx = useMobileDualReaderContext();
   const { tokens } = useNemuTheme();
   const { width, height } = useWindowDimensions();
   const safeAreaInsets = useSafeAreaInsets();
   const insetLeft = safeAreaInsets.left;
   const insetRight = safeAreaInsets.right;
-  const horizontalInsets = useMemo(
-    () => ({ left: insetLeft, right: insetRight }),
-    [insetLeft, insetRight],
+  const poseAreaX = poseArea?.x;
+  const poseAreaY = poseArea?.y;
+  const poseAreaWidth = poseArea?.width;
+  const poseAreaHeight = poseArea?.height;
+  const area = useMemo<WindowLayoutRect>(
+    () =>
+      poseAreaX != null && poseAreaY != null && poseAreaWidth != null && poseAreaHeight != null
+        ? { x: poseAreaX, y: poseAreaY, width: poseAreaWidth, height: poseAreaHeight }
+        : windowFabArea(width, height, { left: insetLeft, right: insetRight }),
+    [height, insetLeft, insetRight, poseAreaHeight, poseAreaWidth, poseAreaX, poseAreaY, width],
   );
 
   const enabled = useMobileDualReaderStore((s) => s.enabled);
@@ -155,7 +144,7 @@ export function MobileDualReaderFab() {
   ]);
 
   // Shared animation values.
-  const initial = fabPosition ?? defaultPosition(width, height, horizontalInsets);
+  const initial = fabPosition ?? mobileDualReaderFabDefault(area, FAB_SIZE, FAB_MARGIN);
   const x = useSharedValue(initial.x);
   const y = useSharedValue(initial.y);
   const scale = useSharedValue(1);
@@ -226,14 +215,14 @@ export function MobileDualReaderFab() {
   // seed the FAB would never appear after enabling dual read.
   useEffect(() => {
     if (!enabled || fabPosition) return;
-    if (width <= 0 || height <= 0) return;
-    setFabPosition(defaultPosition(width, height, horizontalInsets));
-  }, [enabled, fabPosition, height, horizontalInsets, setFabPosition, width]);
+    if (area.width <= 0 || area.height <= 0) return;
+    setFabPosition(mobileDualReaderFabDefault(area, FAB_SIZE, FAB_MARGIN));
+  }, [area, enabled, fabPosition, setFabPosition]);
 
-  // Re-clamp on rotation / viewport resize.
+  // Re-clamp on rotation / viewport resize / pose change (rail, fold, console).
   useEffect(() => {
-    if (!fabPosition) return;
-    const clamped = clampPosition(fabPosition, width, height, horizontalInsets);
+    if (!fabPosition || area.width <= 0 || area.height <= 0) return;
+    const clamped = mobileDualReaderFabClamp(fabPosition, area, FAB_SIZE, FAB_MARGIN);
     if (
       clamped.x !== fabPosition.x ||
       clamped.y !== fabPosition.y ||
@@ -241,7 +230,7 @@ export function MobileDualReaderFab() {
     ) {
       setFabPosition(clamped);
     }
-  }, [width, height, fabPosition, horizontalInsets, setFabPosition]);
+  }, [area, fabPosition, setFabPosition]);
 
   // Cleanup the hold timer on unmount.
   useEffect(() => clearHoldTimer, [clearHoldTimer]);
@@ -282,11 +271,11 @@ export function MobileDualReaderFab() {
           scale.value = withSpring(1, SCALE_SPRING);
 
           if (isDragging.value) {
-            const snapped = snapToEdge(
+            const snapped = mobileDualReaderFabSnap(
               { x: x.value, y: y.value },
-              width,
-              height,
-              horizontalInsets,
+              area,
+              FAB_SIZE,
+              FAB_MARGIN,
             );
             x.value = withSpring(snapped.x, POSITION_SPRING);
             y.value = withSpring(snapped.y, POSITION_SPRING);
@@ -314,9 +303,7 @@ export function MobileDualReaderFab() {
     [
       enabled,
       activeSide,
-      width,
-      height,
-      horizontalInsets,
+      area,
       startHoldTimer,
       clearHoldTimer,
       setFabPosition,

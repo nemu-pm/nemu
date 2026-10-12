@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
   MOBILE_JAPANESE_LEARNING_OCR_MAX_DETECTIONS,
   MOBILE_JAPANESE_LEARNING_OCR_MAX_ENCODED_IMAGE_CHARACTERS,
@@ -14,6 +14,11 @@ import {
   type MobileOcrDetection,
 } from "./mobileJapaneseLearningOcr";
 import { getMobileStrings } from "./mobileI18n";
+import { setMobileJapaneseLearningAuthCookieReaderForTesting } from "./mobileJapaneseLearningAuth";
+
+// Cloud paths are server features: these tests run signed in.
+beforeAll(() => setMobileJapaneseLearningAuthCookieReaderForTesting(() => "nemu.session_token=test"));
+afterAll(() => setMobileJapaneseLearningAuthCookieReaderForTesting(undefined));
 
 function detection(order: number, text: string): MobileOcrDetection {
   return {

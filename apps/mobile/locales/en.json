@@ -1,5 +1,7 @@
 {
   "ios": {
-    "NSPhotoLibraryUsageDescription": "nemu lets you choose images from your photo library when updating manga covers."
+    "NSPhotoLibraryUsageDescription": "nemu lets you choose images from your photo library when updating manga covers.",
+    "NSMicrophoneUsageDescription": "nemu uses the microphone when you dictate a message to Nemu chat.",
+    "NSSpeechRecognitionUsageDescription": "nemu uses speech recognition to turn what you say into text for Nemu chat."
   }
 }

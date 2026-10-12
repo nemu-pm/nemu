@@ -1,6 +1,8 @@
+import type { ViewInstance } from "react-native";
 import {
   forwardRef,
   useCallback,
+  useEffect,
   useImperativeHandle,
   useRef,
   useState,
@@ -13,21 +15,28 @@ import {
   View,
   type LayoutChangeEvent,
 } from "react-native";
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 import type { ReadingMode } from "@/data/schema";
-import { NemuText, nemuFontWeight, useNemuTheme } from "@/design-system";
+import { NemuText, nemuFontWeight, radius, useNemuTheme } from "@/design-system";
 import {
   READER_SCRUBBER_PREVIEW_BUBBLE_HEIGHT,
   READER_SCRUBBER_PREVIEW_BUBBLE_WIDTH,
+  READER_SCRUBBER_PREVIEW_IMAGE_GAP,
+  READER_SCRUBBER_PREVIEW_IMAGE_HEIGHT,
+  READER_SCRUBBER_PREVIEW_IMAGE_WIDTH,
   readerScrubberPreviewBubblePosition,
+  readerScrubberPreviewBubbleWidth,
+  readerScrubberPreviewLabel,
   readerScrubberTrackWindowFrame,
   type ReaderScrubberPreviewGeometry,
 } from "@/lib/mobileReaderScrubberPreview";
 import type { MobileSliderTrackWindowFrame } from "@/lib/mobileSliderTrack";
-import { readerRoutePageForDisplayIndex } from "@/lib/mobileReaderProgress";
-import {
-  READER_CHROME_GLASS_BORDER,
-  READER_CHROME_GLASS_TINT,
-} from "@/components/reader/readerChromeGlass";
+import { READER_CAPSULE_COLORS, ReaderCapsule } from "@/components/reader/ReaderCapsule";
+import type { ReaderScrubPreviewThumbnail } from "@/components/reader/useReaderScrubPreviewThumbnails";
 
 export type MobileReaderScrubberPreviewHandle = {
   /** Publishes the live thumb geometry, or clears the bubble with `null`. */
@@ -40,11 +49,15 @@ export type MobileReaderScrubberPreviewProps = {
    * only measure itself inside that panel, which on iOS is a SwiftUI host with
    * its own coordinate space; this anchor puts the thumb back in window space.
    */
-  panelAnchorRef?: RefObject<View | null>;
+  panelAnchorRef?: RefObject<ViewInstance | null>;
   pageIndex: number | null;
   pageCount: number;
   mode: ReadingMode;
-  imageUri?: string | null;
+  /**
+   * The previewed page (or, two-up, the spread's pages) in source order,
+   * each with its thumbnail file once it is available.
+   */
+  thumbnails: readonly ReaderScrubPreviewThumbnail[];
 };
 
 type LayerSize = { width: number; height: number };
@@ -52,6 +65,85 @@ type LayerOrigin = { x: number; y: number };
 
 /** A layer that never measured itself is still at the window origin. */
 const LAYER_ORIGIN_FALLBACK: LayerOrigin = { x: 0, y: 0 };
+
+const BUBBLE_MOTION_MS = 140;
+const THUMBNAIL_FADE_MS = 120;
+
+/**
+ * One page thumbnail: a quiet placeholder until the image has decoded, then
+ * the image cross-fades in over it (at once under Reduce Motion). Moving
+ * between already-shown thumbnails swaps without fading back through the
+ * placeholder.
+ */
+function PreviewThumbnail({
+  uri,
+  reduceMotion,
+}: {
+  uri: string | null;
+  reduceMotion: boolean;
+}) {
+  const opacity = useSharedValue(0);
+  const imageStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
+  const shownUriRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (uri) return;
+    shownUriRef.current = null;
+    opacity.set(0);
+  }, [opacity, uri]);
+  const onLoad = useCallback(() => {
+    if (shownUriRef.current) return;
+    shownUriRef.current = uri;
+    opacity.set(reduceMotion ? 1 : withTiming(1, { duration: THUMBNAIL_FADE_MS }));
+  }, [opacity, reduceMotion, uri]);
+  return (
+    <View style={styles.previewPlaceholder}>
+      <Ionicons
+        name="image-outline"
+        size={16}
+        color={READER_CAPSULE_COLORS.secondaryText}
+      />
+      {uri ? (
+        <Animated.View style={[StyleSheet.absoluteFill, imageStyle]}>
+          <Image
+            accessibilityIgnoresInvertColors
+            fadeDuration={0}
+            onLoad={onLoad}
+            // Decode at thumbnail size (Android); iOS downsamples local files
+            // to the view's size itself.
+            resizeMethod="resize"
+            resizeMode="cover"
+            source={{ uri }}
+            style={styles.previewImage}
+          />
+        </Animated.View>
+      ) : null}
+    </View>
+  );
+}
+
+/** A subtle fade + scale up from the thumb as the drag starts. */
+function bubbleEntering() {
+  "worklet";
+  return {
+    initialValues: { opacity: 0, transform: [{ scale: 0.9 }] },
+    animations: {
+      opacity: withTiming(1, { duration: BUBBLE_MOTION_MS }),
+      transform: [{ scale: withTiming(1, { duration: BUBBLE_MOTION_MS }) }],
+    },
+  };
+}
+
+/** And back down into it when the finger lifts. */
+function bubbleExiting() {
+  "worklet";
+  return {
+    initialValues: { opacity: 1, transform: [{ scale: 1 }] },
+    animations: {
+      opacity: withTiming(0, { duration: BUBBLE_MOTION_MS }),
+      transform: [{ scale: withTiming(0.9, { duration: BUBBLE_MOTION_MS }) }],
+    },
+  };
+}
 
 /**
  * The scrub preview bubble, rendered as a sibling of the reader's bottom
@@ -67,11 +159,11 @@ export const MobileReaderScrubberPreview = forwardRef<
   MobileReaderScrubberPreviewHandle,
   MobileReaderScrubberPreviewProps
 >(function MobileReaderScrubberPreview(
-  { panelAnchorRef, pageIndex, pageCount, mode, imageUri },
+  { panelAnchorRef, pageIndex, pageCount, mode, thumbnails },
   ref,
 ) {
-  const { scheme } = useNemuTheme();
-  const layerRef = useRef<View | null>(null);
+  const { reduceMotion } = useNemuTheme();
+  const layerRef = useRef<ViewInstance | null>(null);
   const [geometry, setGeometry] =
     useState<ReaderScrubberPreviewGeometry | null>(null);
   // Size comes from the layout event and the window origin from a measure:
@@ -123,9 +215,11 @@ export const MobileReaderScrubberPreview = forwardRef<
     measurePanelAnchor();
   }, [measurePanelAnchor]);
 
+  const bubbleWidth = readerScrubberPreviewBubbleWidth(thumbnails.length);
   const position =
     geometry && layerSize && pageIndex != null
       ? readerScrubberPreviewBubblePosition({
+          bubbleWidth,
           geometry: {
             ratio: geometry.ratio,
             track: readerScrubberTrackWindowFrame({
@@ -145,38 +239,40 @@ export const MobileReaderScrubberPreview = forwardRef<
       style={styles.layer}
     >
       {position && pageIndex != null ? (
-        <View
+        // The page stays put while dragging; this bubble is the preview:
+        // the target page's thumbnail and "12 / 53" in the reader's dark
+        // glass, riding the thumb (clamped inside the screen edges).
+        <Animated.View
+          entering={reduceMotion ? undefined : bubbleEntering}
+          exiting={reduceMotion ? undefined : bubbleExiting}
           style={[
-            styles.previewBubble,
-            {
-              left: position.left,
-              bottom: position.bottom,
-              backgroundColor: READER_CHROME_GLASS_TINT[scheme],
-              borderColor: READER_CHROME_GLASS_BORDER[scheme],
-            },
+            styles.previewAnchor,
+            { left: position.left, bottom: position.bottom, width: bubbleWidth },
           ]}
         >
-          {imageUri ? (
-            <Image
-              accessibilityIgnoresInvertColors
-              resizeMode="cover"
-              source={{ uri: imageUri }}
-              style={styles.previewImage}
-            />
-          ) : (
-            <View style={styles.previewPlaceholder}>
-              <Ionicons
-                name="image-outline"
-                size={15}
-                color="rgba(235,238,245,0.66)"
-              />
+          <ReaderCapsule
+            cornerRadius={radius.xl}
+            interactive={false}
+            style={[styles.previewBubble, { width: bubbleWidth }]}
+          >
+            <View style={styles.previewPages}>
+              {/* A spread reads right-to-left in RTL: its first page on the right. */}
+              {(mode === "rtl" ? [...thumbnails].reverse() : thumbnails).map(
+                (thumbnail) => (
+                  <PreviewThumbnail
+                    key={thumbnail.pageIndex}
+                    uri={thumbnail.uri}
+                    reduceMotion={reduceMotion === true}
+                  />
+                ),
+              )}
             </View>
-          )}
-          {/* Bounded Dynamic Type: the bubble is a fixed-size badge. */}
-          <NemuText style={styles.previewLabel}>
-            {readerRoutePageForDisplayIndex(pageIndex, pageCount, mode)}
-          </NemuText>
-        </View>
+            {/* Bounded Dynamic Type: the bubble is a fixed-size badge. */}
+            <NemuText maxFontSizeMultiplier={1.2} numberOfLines={1} style={styles.previewLabel}>
+              {readerScrubberPreviewLabel(pageIndex, pageCount, mode)}
+            </NemuText>
+          </ReaderCapsule>
+        </Animated.View>
       ) : null}
     </View>
   );
@@ -197,36 +293,42 @@ const styles = StyleSheet.create({
     zIndex: 4,
     elevation: 4,
   },
-  previewBubble: {
+  previewAnchor: {
     position: "absolute",
     width: READER_SCRUBBER_PREVIEW_BUBBLE_WIDTH,
-    minHeight: READER_SCRUBBER_PREVIEW_BUBBLE_HEIGHT,
+    height: READER_SCRUBBER_PREVIEW_BUBBLE_HEIGHT,
+    borderRadius: radius.xl,
+    boxShadow: "0px 8px 24px -8px rgba(0,0,0,0.5)",
+  },
+  previewBubble: {
+    width: READER_SCRUBBER_PREVIEW_BUBBLE_WIDTH,
+    height: READER_SCRUBBER_PREVIEW_BUBBLE_HEIGHT,
     paddingTop: 8,
     paddingHorizontal: 8,
     paddingBottom: 6,
     gap: 6,
     alignItems: "center",
-    borderRadius: 12,
-    borderWidth: 0.5,
-    boxShadow: "0px 8px 24px -8px rgba(0,0,0,0.5)",
-    overflow: "hidden",
+  },
+  previewPages: {
+    flexDirection: "row",
+    gap: READER_SCRUBBER_PREVIEW_IMAGE_GAP,
   },
   previewImage: {
-    width: 44,
-    height: 62,
-    borderRadius: 4,
-    backgroundColor: "rgba(255,255,255,0.09)",
+    width: READER_SCRUBBER_PREVIEW_IMAGE_WIDTH,
+    height: READER_SCRUBBER_PREVIEW_IMAGE_HEIGHT,
+    borderRadius: radius.sm,
   },
   previewPlaceholder: {
-    width: 44,
-    height: 62,
-    borderRadius: 4,
+    overflow: "hidden",
+    width: READER_SCRUBBER_PREVIEW_IMAGE_WIDTH,
+    height: READER_SCRUBBER_PREVIEW_IMAGE_HEIGHT,
+    borderRadius: radius.sm,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "rgba(255,255,255,0.09)",
   },
   previewLabel: {
-    color: "rgba(235,238,245,0.96)",
+    color: READER_CAPSULE_COLORS.primaryText,
     fontSize: 12,
     lineHeight: 15,
     fontWeight: nemuFontWeight.semibold,

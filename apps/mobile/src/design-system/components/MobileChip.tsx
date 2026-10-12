@@ -32,6 +32,11 @@ type MobileChipBaseProps = {
   /** Composed display text. Unused by the `icon` variant. */
   label?: string;
   selected?: boolean;
+  /**
+   * Selected as one of many under an "All" chip that is on: drawn as a soft
+   * tint rather than a solid pill (design-explore search sources).
+   */
+  included?: boolean;
   disabled?: boolean;
   /** Remote leading icon (`toggle`); falls back to `fallbackIcon` while absent. */
   icon?: string;
@@ -40,6 +45,12 @@ type MobileChipBaseProps = {
   /** Trailing glyph. `menu` defaults to `chevron-down`. */
   trailingIcon?: keyof typeof Ionicons.glyphMap;
   badge?: string;
+  /**
+   * Show the whole label: the chip may grow to its container's width and the
+   * label wraps instead of truncating at the chip's max width (e.g. the full
+   * tag list sheet). Compact rows keep the capped, single-line default.
+   */
+  wrapLabel?: boolean;
   accessibilityLabel: string;
   accessibilityHint?: string;
   accessibilityRole?: MobileChipAccessibilityRole;
@@ -74,11 +85,13 @@ export function MobileChip({
   size = "md",
   label,
   selected = false,
+  included = false,
   disabled = false,
   icon,
   fallbackIcon,
   trailingIcon,
   badge,
+  wrapLabel = false,
   accessibilityLabel,
   accessibilityHint,
   accessibilityRole = "button",
@@ -91,7 +104,9 @@ export function MobileChip({
   const { scheme, tokens } = useNemuTheme();
   const small = size === "sm";
   const foregroundColor = selected
-    ? tokens.primaryForeground
+    ? included
+      ? tokens.primary
+      : tokens.primaryForeground
     : tokens.mutedForeground;
   const resolvedAccessibilityState = resolveMobileChipAccessibilityState({
     accessibilityRole,
@@ -108,6 +123,7 @@ export function MobileChip({
     small ? styles.rootSmall : null,
     variant === "icon" ? (small ? styles.rootIconSmall : styles.rootIcon) : null,
     variant === "menu" ? styles.rootMenu : null,
+    wrapLabel ? styles.rootWrapLabel : null,
   ];
 
   const content = (
@@ -136,10 +152,11 @@ export function MobileChip({
       ) : null}
       {label ? (
         <NemuText
-          numberOfLines={1}
+          numberOfLines={wrapLabel ? undefined : 1}
           style={[
             styles.label,
             small ? styles.labelSmall : null,
+            wrapLabel ? styles.labelWrapped : null,
             { color: foregroundColor },
           ]}
         >
@@ -176,7 +193,7 @@ export function MobileChip({
           ...frameStyle,
           createNemuButtonDepthStyle(
             getNemuButtonDepthVisual({
-              variant: getMobileChipDepthVariant(selected),
+              variant: getMobileChipDepthVariant(selected, included),
               state: "rest",
               scheme,
               tokens,
@@ -195,7 +212,7 @@ export function MobileChip({
       accessibilityHint={accessibilityHint}
       accessibilityRole={accessibilityRole}
       accessibilityState={resolvedAccessibilityState}
-      buttonDepth={getMobileChipDepthVariant(selected)}
+      buttonDepth={getMobileChipDepthVariant(selected, included)}
       disabled={disabled}
       hapticFeedback={
         hapticFeedback ?? (disabled ? "none" : "selection")
@@ -250,6 +267,15 @@ const styles = StyleSheet.create({
   rootMenu: {
     maxWidth: 210,
   },
+  // Full-label chips: as wide as the container allows, wrapping past it. One
+  // line is the same 30pt pill (16pt line + 2 × 7pt); a wrapped label keeps
+  // that corner radius instead of a stadium whose ends would clip the text.
+  rootWrapLabel: {
+    maxWidth: "100%",
+    flexShrink: 1,
+    paddingVertical: 7,
+    borderRadius: 15,
+  },
   iconImage: {
     width: 16,
     height: 16,
@@ -268,6 +294,9 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     fontWeight: nemuFontWeight.medium,
     letterSpacing: 0,
+  },
+  labelWrapped: {
+    textAlign: "center",
   },
   labelSmall: {
     fontSize: 10,

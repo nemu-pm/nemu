@@ -15,11 +15,39 @@ describe("getMobileSourceManagerSheetLayout", () => {
     ).toEqual({ fillContent: false, snapPoints: undefined });
   });
 
-  test("hugs short search and merge states", () => {
+  test("hugs a short search state", () => {
     expect(
       getMobileSourceManagerSheetLayout({
         addPanelOpen: true,
         addPanelRowCount: 1,
+        fontScale: 1,
+        height: 800,
+        sourceCount: 1,
+        width: 400,
+      }),
+    ).toEqual({ fillContent: false, snapPoints: undefined });
+  });
+
+  test("keeps the live-filtered merge list in a stable viewport", () => {
+    for (const addPanelRowCount of [0, 1, 7]) {
+      expect(
+        getMobileSourceManagerSheetLayout({
+          addPanelFiltersWhileTyping: true,
+          addPanelOpen: true,
+          addPanelRowCount,
+          fontScale: 1,
+          height: 800,
+          sourceCount: 1,
+          width: 400,
+        }),
+      ).toEqual({ fillContent: true, snapPoints: ["88%"] });
+    }
+    // Only the open add panel has a list to filter.
+    expect(
+      getMobileSourceManagerSheetLayout({
+        addPanelFiltersWhileTyping: true,
+        addPanelOpen: false,
+        addPanelRowCount: 0,
         fontScale: 1,
         height: 800,
         sourceCount: 1,

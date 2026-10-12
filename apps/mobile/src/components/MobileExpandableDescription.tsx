@@ -8,26 +8,20 @@ import {
   useNemuTheme,
 } from "@/design-system";
 import type { MobileStrings } from "@/lib/mobileI18n";
-
-const DESCRIPTION_COLLAPSED_LINES = 3;
-const DESCRIPTION_COLLAPSED_CHAR_LIMIT = 260;
-
-function shouldCollapseDescription(value: string): boolean {
-  return (
-    value.length > DESCRIPTION_COLLAPSED_CHAR_LIMIT ||
-    value.split(/\r?\n/).length > DESCRIPTION_COLLAPSED_LINES
-  );
-}
+import { getMobileDetailDescriptionPresentation } from "@/lib/mobileMangaDetailPaneLayout";
 
 export function MobileExpandableDescription({
   value,
   strings,
+  pane = false,
 }: {
   value: string;
   strings: MobileStrings;
+  /** Regular-width info pane: shown in full unless very long. */
+  pane?: boolean;
 }) {
   const { tokens } = useNemuTheme();
-  const collapsible = shouldCollapseDescription(value);
+  const { collapsible, collapsedLines } = getMobileDetailDescriptionPresentation({ value, pane });
   const [expanded, setExpanded] = useState(false);
   const toggleLabel = expanded ? strings.common.collapse : strings.common.expand;
 
@@ -35,7 +29,7 @@ export function MobileExpandableDescription({
     <View style={styles.descriptionBlock}>
       <Text
         ellipsizeMode="tail"
-        numberOfLines={collapsible && !expanded ? DESCRIPTION_COLLAPSED_LINES : undefined}
+        numberOfLines={collapsible && !expanded ? collapsedLines : undefined}
         style={[styles.description, { color: tokens.mutedForeground }]}
       >
         {value}

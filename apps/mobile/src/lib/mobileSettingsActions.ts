@@ -22,7 +22,8 @@ export type MobileSettingsSkeletonSection =
   | "reader"
   | "sources"
   | "appearance"
-  | "data";
+  | "data"
+  | "experimental";
 
 export type MobileSettingsMutationResultAction =
   | "close-confirmation"

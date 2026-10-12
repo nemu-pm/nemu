@@ -5,17 +5,23 @@ import type {
 } from "@/data/schema";
 import { sanitizeMobileErrorDiagnostic } from "./mobileSourceErrors";
 import { makeChapterSortKey } from "@/lib/mobileLibraryDetails";
+import type { ChapterSummary } from "@/data/schema";
 import {
-  refreshMobileSourceLatestChapter,
+  refreshMobileSourceChapters,
   type MobileSourceDetailsOptions,
   type MobileSourceLatestChapterRefresh,
 } from "@/sources/mobileSourceDetails";
+import {
+  makeMobileSourceDetailCacheKey,
+  setCachedMobileSourceDetailChapters,
+} from "./mobileSourceDetailCache";
 import {
   buildMobileSourcePackageLoadPlan,
   isMobileInstalledSourceDisabled,
   normalizeInstalledSource,
 } from "@/sources/mobileSourceRuntime";
 import { mobileInstalledSourceMatchesLink } from "./mobileInstalledSourceKeys";
+import { markMobilePerformance } from "./mobilePerformance";
 
 export const MOBILE_LIBRARY_REFRESH_INTERVAL_MS = 30 * 60 * 1000;
 export const MOBILE_LIBRARY_REFRESH_MAX_CONCURRENT_REQUESTS = 1;
@@ -60,11 +66,10 @@ export type MobileLibraryRefreshResult = {
   blocked: number;
   failed: number;
   /**
-   * Present only when the run was interrupted by an abort signal. The library
-   * refresh serializes through the same `aidokuRuntimeQueue` as interactive
-   * source taps, so a long background refresh would otherwise freeze the UI for
-   * every source tap until the whole library is checked. Aborting between
-   * chunks lets an interactive tap preempt the remaining work.
+   * Present only when the run was interrupted by an abort signal. The
+   * refresh runs at `background` priority on the shared source runtime, so an
+   * interactive tap's operations go first; aborting between chunks also stops
+   * it from queueing more work while the user is elsewhere.
    */
   aborted?: boolean;
 };
@@ -72,18 +77,49 @@ export type MobileLibraryRefreshResult = {
 type MobileLibraryRefreshTask = {
   sourceLink: LocalSourceLink;
   installedSource: InstalledSource;
+  title: string;
 };
+
+/**
+ * The update check fetches each title's complete chapter list anyway; keeping
+ * it in the source-detail cache is what makes opening a library title
+ * instant (the detail screen paints the cached list and only revalidates).
+ * Metadata already cached for the title is kept.
+ */
+export async function persistMobileLibraryChapterList(
+  sourceLink: LocalSourceLink,
+  title: string,
+  chapters: ChapterSummary[],
+  fetchedAt: number,
+): Promise<void> {
+  await setCachedMobileSourceDetailChapters(
+    makeMobileSourceDetailCacheKey(
+      sourceLink.registryId,
+      sourceLink.sourceId,
+      sourceLink.sourceMangaId,
+    ),
+    { chapters, fetchedAt, fallbackTitle: title },
+  );
+}
 
 export type RefreshMobileLibraryLatestChaptersOptions = {
   entries: LibraryEntry[];
   installedSources: InstalledSource[];
   getSourceSettings?: MobileSourceDetailsOptions["getSourceSettings"];
   saveSourceLink: (sourceLink: LocalSourceLink) => Promise<void>;
+  /**
+   * Fetches one link's chapters. A result that carries the full `chapters`
+   * list is also persisted (see `persistChapterList`).
+   */
   refreshLatestChapter?: (
     source: InstalledSource,
     mangaId: string,
     options?: MobileSourceDetailsOptions
-  ) => Promise<MobileSourceLatestChapterRefresh>;
+  ) => Promise<
+    | MobileSourceLatestChapterRefresh
+    | (MobileSourceLatestChapterRefresh & { chapters?: ChapterSummary[] })
+  >;
+  persistChapterList?: typeof persistMobileLibraryChapterList;
   force?: boolean;
   now?: () => number;
   intervalMs?: number;
@@ -203,7 +239,8 @@ export async function refreshMobileLibraryLatestChapters({
   installedSources,
   getSourceSettings,
   saveSourceLink,
-  refreshLatestChapter = refreshMobileSourceLatestChapter,
+  refreshLatestChapter = refreshMobileSourceChapters,
+  persistChapterList = persistMobileLibraryChapterList,
   force = false,
   now = () => Date.now(),
   intervalMs = MOBILE_LIBRARY_REFRESH_INTERVAL_MS,
@@ -240,11 +277,17 @@ export async function refreshMobileLibraryLatestChapters({
         continue;
       }
 
-      tasks.push({ sourceLink, installedSource });
+      tasks.push({
+        sourceLink,
+        installedSource,
+        title:
+          entry.item.overrides?.metadata?.title ?? entry.item.metadata.title,
+      });
     }
   }
 
   result.checked = tasks.length;
+  markMobilePerformance("library.refresh.start", { tasks: tasks.length });
 
   let aborted = false;
   for (let i = 0; i < tasks.length; i += chunkSize) {
@@ -254,12 +297,14 @@ export async function refreshMobileLibraryLatestChapters({
     }
     const chunk = tasks.slice(i, i + chunkSize);
     await Promise.all(
-      chunk.map(async ({ sourceLink, installedSource }) => {
+      chunk.map(async ({ sourceLink, installedSource, title }) => {
         try {
+          // Nobody is waiting on an update check: every screen the user is
+          // looking at goes first on the shared source runtime.
           const refresh = await refreshLatestChapter(
             installedSource,
             sourceLink.sourceMangaId,
-            { getSourceSettings, now }
+            { getSourceSettings, now, priority: "background" }
           );
           if (refresh.status === "blocked") {
             result.blocked += 1;
@@ -271,6 +316,14 @@ export async function refreshMobileLibraryLatestChapters({
             return;
           }
 
+          if ("chapters" in refresh && Array.isArray(refresh.chapters)) {
+            await persistChapterList(
+              sourceLink,
+              title,
+              refresh.chapters,
+              refresh.fetchedAt,
+            ).catch(() => undefined);
+          }
           const updatedSourceLink = applyMobileLatestChapterRefresh(sourceLink, refresh);
           await saveSourceLink(updatedSourceLink);
           result.refreshed += 1;
@@ -306,5 +359,10 @@ export async function refreshMobileLibraryLatestChapters({
     }
   }
 
+  markMobilePerformance("library.refresh.done", {
+    refreshed: result.refreshed,
+    failed: result.failed,
+    aborted,
+  });
   return aborted ? { ...result, aborted: true } : result;
 }

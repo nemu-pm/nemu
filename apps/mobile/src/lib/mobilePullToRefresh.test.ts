@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { resolveMobilePullToRefreshEnabled } from "./mobilePullToRefresh";
+import {
+  resolveMobilePullToRefreshEnabled,
+  resolveMobilePullToRefreshIndicatorVisible,
+} from "./mobilePullToRefresh";
 
 describe("mobile pull to refresh", () => {
   test("requires a refresh action", () => {
@@ -38,5 +41,19 @@ describe("mobile pull to refresh", () => {
         refreshing: true,
       })
     ).toBe(true);
+  });
+});
+
+describe("pull-to-refresh indicator visibility", () => {
+  test("iOS shows the spinner only for a refresh the person pulled", () => {
+    expect(resolveMobilePullToRefreshIndicatorVisible({ platform: "ios", refreshing: true, pulledByUser: true })).toBe(true);
+    // A background refresh must not push the page down under the soft-edge header.
+    expect(resolveMobilePullToRefreshIndicatorVisible({ platform: "ios", refreshing: true, pulledByUser: false })).toBe(false);
+    expect(resolveMobilePullToRefreshIndicatorVisible({ platform: "ios", refreshing: false, pulledByUser: true })).toBe(false);
+  });
+
+  test("Android keeps showing every refresh", () => {
+    expect(resolveMobilePullToRefreshIndicatorVisible({ platform: "android", refreshing: true, pulledByUser: false })).toBe(true);
+    expect(resolveMobilePullToRefreshIndicatorVisible({ platform: "android", refreshing: false, pulledByUser: false })).toBe(false);
   });
 });

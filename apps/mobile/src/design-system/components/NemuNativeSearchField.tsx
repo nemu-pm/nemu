@@ -13,8 +13,15 @@
  * file (or gating it behind a `Platform` switch) falls straight back to this
  * implementation with no caller changes.
  */
+import { useImperativeHandle, useRef } from "react";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Platform, StyleSheet, TextInput, View } from "react-native";
+import {
+  Platform,
+  StyleSheet,
+  TextInput,
+  View,
+  type TextInputInstance,
+} from "react-native";
 import { radius } from "@/design/tokens";
 import { useNemuTheme } from "@/design/useNemuTheme";
 import { NemuTextFieldClearAction } from "./NemuTextFieldClearAction";
@@ -28,6 +35,7 @@ const SHELL_HORIZONTAL_INSET = 12;
 const FIELD_FONT_SIZE = 15;
 
 export function NemuNativeSearchField({
+  ref,
   value,
   onChangeText,
   onSubmit,
@@ -38,6 +46,9 @@ export function NemuNativeSearchField({
   clearActionTestID,
 }: NemuNativeSearchFieldProps) {
   const { tokens } = useNemuTheme();
+  const inputRef = useRef<TextInputInstance>(null);
+
+  useImperativeHandle(ref, () => ({ focus: () => inputRef.current?.focus() }), []);
 
   return (
     <View
@@ -49,6 +60,7 @@ export function NemuNativeSearchField({
     >
       <Ionicons name="search" size={17} color={tokens.mutedForeground} />
       <TextInput
+        ref={inputRef}
         accessibilityLabel={accessibilityLabel}
         accessibilityRole="search"
         autoCapitalize="none"

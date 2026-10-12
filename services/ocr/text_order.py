@@ -261,6 +261,18 @@ def preprocess_for_hough_ink(
     return lines, scale
 
 
+def _hough_segments(lines) -> List[Tuple[int, int, int, int]]:
+    """Normalise cv2.HoughLinesP output to a list of (x1, y1, x2, y2) int tuples.
+
+    OpenCV 4.x returns shape (N, 1, 4); OpenCV 5.x returns (N, 4); no lines is None
+    (or an empty array). Reshaping to (-1, 4) handles all of them.
+    """
+    if lines is None:
+        return []
+    arr = np.asarray(lines).reshape(-1, 4)
+    return [(int(x1), int(y1), int(x2), int(y2)) for x1, y1, x2, y2 in arr]
+
+
 def detect_panel_lines(
     binary: np.ndarray,
     min_line_length: int = PAPER_MIN_LINE_LENGTH_PX,
@@ -296,12 +308,10 @@ def detect_panel_lines(
             minLineLength=minLen_eff,
             maxLineGap=maxGap,
         )
-        if lines is not None:
-            for line in lines:
-                x1, y1, x2, y2 = line[0]
-                length = math.sqrt((x2-x1)**2 + (y2-y1)**2)
-                if length >= float(minLen_eff):
-                    all_lines.append((int(x1), int(y1), int(x2), int(y2)))
+        for x1, y1, x2, y2 in _hough_segments(lines):
+            length = math.sqrt((x2-x1)**2 + (y2-y1)**2)
+            if length >= float(minLen_eff):
+                all_lines.append((x1, y1, x2, y2))
 
     # Dedupe exact duplicates across the 3 runs (probabilistic Hough + repeated params).
     uniq = []
@@ -894,137 +904,6 @@ def create_panel_mask(
 # =============================================================================
 
 Point = Tuple[int, int]
-
-
-def _poly_y_at_x(poly: List[Point], x: float) -> float:
-    """Interpolate y at x for a polyline that is (roughly) monotone in x."""
-    if not poly:
-        return 0.0
-    if len(poly) == 1:
-        return float(poly[0][1])
-    # Clamp
-    xs = [p[0] for p in poly]
-    if x <= xs[0]:
-        return float(poly[0][1])
-    if x >= xs[-1]:
-        return float(poly[-1][1])
-    for (x1, y1), (x2, y2) in zip(poly[:-1], poly[1:]):
-        if (x1 <= x <= x2) or (x2 <= x <= x1):
-            if x2 == x1:
-                return float(y2)
-            t = (x - x1) / (x2 - x1)
-            return float(y1 + t * (y2 - y1))
-    return float(poly[-1][1])
-
-
-def _poly_x_at_y(poly: List[Point], y: float) -> float:
-    """Interpolate x at y for a polyline that is (roughly) monotone in y."""
-    if not poly:
-        return 0.0
-    if len(poly) == 1:
-        return float(poly[0][0])
-    ys = [p[1] for p in poly]
-    if y <= ys[0]:
-        return float(poly[0][0])
-    if y >= ys[-1]:
-        return float(poly[-1][0])
-    for (x1, y1), (x2, y2) in zip(poly[:-1], poly[1:]):
-        if (y1 <= y <= y2) or (y2 <= y <= y1):
-            if y2 == y1:
-                return float(x2)
-            t = (y - y1) / (y2 - y1)
-            return float(x1 + t * (x2 - x1))
-    return float(poly[-1][0])
-
-
-def _slice_poly_by_y(poly: List[Point], y0: float, y1: float) -> List[Point]:
-    """Slice a top->bottom polyline between y0 and y1 (inclusive), interpolating endpoints."""
-    if not poly:
-        return []
-    if y1 < y0:
-        y0, y1 = y1, y0
-    out: List[Point] = []
-
-    def interp(p1: Point, p2: Point, y: float) -> Point:
-        x1, y1p = p1
-        x2, y2p = p2
-        if y2p == y1p:
-            return (int(x2), int(y))
-        t = (y - y1p) / (y2p - y1p)
-        x = x1 + t * (x2 - x1)
-        return (int(round(x)), int(round(y)))
-
-    # Ensure we walk in increasing y.
-    pts = poly if poly[0][1] <= poly[-1][1] else list(reversed(poly))
-    for (a, b) in zip(pts[:-1], pts[1:]):
-        xa, ya = a
-        xb, yb = b
-        lo, hi = sorted((ya, yb))
-        if hi < y0 or lo > y1:
-            continue
-        if not out:
-            # Add start intersection
-            if y0 <= ya <= y1:
-                out.append((xa, ya))
-            else:
-                out.append(interp(a, b, y0))
-        # Add intermediate endpoint if within range
-        if y0 <= yb <= y1:
-            out.append((xb, yb))
-        elif ya < y1 < yb or yb < y1 < ya:
-            out.append(interp(a, b, y1))
-            break
-    if out and out[0][1] != int(round(y0)):
-        # Force exact y0 by interpolation at the beginning
-        x0 = _poly_x_at_y(pts, y0)
-        out[0] = (int(round(x0)), int(round(y0)))
-    if out and out[-1][1] != int(round(y1)):
-        x1x = _poly_x_at_y(pts, y1)
-        out[-1] = (int(round(x1x)), int(round(y1)))
-    return out
-
-
-def _slice_poly_by_x(poly: List[Point], x0: float, x1: float) -> List[Point]:
-    """Slice a left->right polyline between x0 and x1 (inclusive), interpolating endpoints."""
-    if not poly:
-        return []
-    if x1 < x0:
-        x0, x1 = x1, x0
-    out: List[Point] = []
-
-    def interp(p1: Point, p2: Point, x: float) -> Point:
-        x1p, y1p = p1
-        x2p, y2p = p2
-        if x2p == x1p:
-            return (int(x), int(y2p))
-        t = (x - x1p) / (x2p - x1p)
-        y = y1p + t * (y2p - y1p)
-        return (int(round(x)), int(round(y)))
-
-    pts = poly if poly[0][0] <= poly[-1][0] else list(reversed(poly))
-    for (a, b) in zip(pts[:-1], pts[1:]):
-        xa, ya = a
-        xb, yb = b
-        lo, hi = sorted((xa, xb))
-        if hi < x0 or lo > x1:
-            continue
-        if not out:
-            if x0 <= xa <= x1:
-                out.append((xa, ya))
-            else:
-                out.append(interp(a, b, x0))
-        if x0 <= xb <= x1:
-            out.append((xb, yb))
-        elif xa < x1 < xb or xb < x1 < xa:
-            out.append(interp(a, b, x1))
-            break
-    if out and out[0][0] != int(round(x0)):
-        y0 = _poly_y_at_x(pts, x0)
-        out[0] = (int(round(x0)), int(round(y0)))
-    if out and out[-1][0] != int(round(x1)):
-        y1y = _poly_y_at_x(pts, x1)
-        out[-1] = (int(round(x1)), int(round(y1y)))
-    return out
 
 
 def _point_in_poly(poly: List[Point], x: float, y: float) -> bool:

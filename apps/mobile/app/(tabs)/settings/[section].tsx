@@ -9,7 +9,8 @@ function isSettingsSection(value: unknown): value is SettingsSectionId {
     value === "reader" ||
     value === "sources" ||
     value === "appearance" ||
-    value === "data"
+    value === "data" ||
+    value === "experimental"
   );
 }
 

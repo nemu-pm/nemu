@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import type { ComponentProps } from "react";
 import {
+  type LayoutChangeEvent,
   Platform,
   StyleSheet,
   Text,
@@ -9,8 +10,10 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import Animated, { LayoutAnimationConfig } from "react-native-reanimated";
 import { useMobileLanguageSettings } from "@/data/mobileHooks";
 import {
+  nemuFontWeight,
   nemuText,
   spacing,
   useNemuTheme,
@@ -22,9 +25,14 @@ import {
 import { getMobileFloatingTabBarOverlayExtent } from "@/lib/mobileFloatingTabBarClearance";
 import { getMobileStrings } from "@/lib/mobileI18n";
 import {
-  getMobileEmptyLibraryLayout,
+  getMobileEmptyLibraryAdaptiveLayout,
   NEMU_WEB_EMPTY_LIBRARY_VISUAL,
 } from "@/lib/mobileEmptyLibraryLayout";
+import { useMobileContainerFold } from "@/lib/useMobileContainerFold";
+import { useMobilePoseTransition } from "@/lib/MobilePoseTransitionContext";
+import { useMobilePoseSizeSpring } from "@/lib/useMobilePoseSizeSpring";
+import { MobilePoseLayoutView } from "./MobilePoseLayoutView";
+import type { ViewInstance } from "react-native";
 import { NemuPortraitHalo } from "./NemuPortraitHalo";
 
 type EmptyLibraryActionIcon = ComponentProps<typeof NemuButton>["icon"];
@@ -41,6 +49,11 @@ type EmptyLibraryProps = {
   diagnostic?: string;
   /** Optional override; the localized "Technical details" label is default. */
   diagnosticDetailsLabel?: string;
+  /** Height to center in instead of the window-derived one (a folded pane). */
+  minHeight?: number;
+  /** A quieter second way forward under the main action. */
+  secondaryActionLabel?: string;
+  onSecondaryActionPress?: () => void;
 };
 
 export function EmptyLibrary({
@@ -53,6 +66,9 @@ export function EmptyLibrary({
   actionLoading,
   diagnostic,
   diagnosticDetailsLabel,
+  minHeight,
+  secondaryActionLabel,
+  onSecondaryActionPress,
 }: EmptyLibraryProps) {
   const { tokens } = useNemuTheme();
   const { appLanguage } = useMobileLanguageSettings();
@@ -62,98 +78,201 @@ export function EmptyLibrary({
   const [diagnosticOpen, setDiagnosticOpen] = useState(false);
   const insets = useSafeAreaInsets();
   const { height, width } = useWindowDimensions();
-  const layout = getMobileEmptyLibraryLayout({
-    height,
-    width,
-    // Match web `w-[100vw]` on phones; page padding must not shrink the art.
-    horizontalPadding: 0,
-    verticalChrome:
-      (usesNemuNativeHeader ? insets.top + 44 : insets.top) +
-      spacing.pageTop +
-      getMobileFloatingTabBarOverlayExtent(insets.bottom),
+  const {
+    ref: containerRef,
+    onLayout: onContainerLayout,
+    width: containerWidth,
+    split: containerSplit,
+    adaptive,
+  } = useMobileContainerFold<ViewInstance>();
+  const barsOnSide = adaptive.verticalBarEdge !== null;
+  // The box the hero really gets: header and bottom tab bar only when the
+  // system draws them horizontally (Duo's outer display and inner landscape
+  // move them to the trailing edge — subtracting a bottom bar there made the
+  // art needlessly small), minus the asymmetric side safe areas.
+  const topChrome = (usesNemuNativeHeader ? insets.top + 44 : insets.top) + spacing.pageTop;
+  const bottomChrome = barsOnSide ? insets.bottom : getMobileFloatingTabBarOverlayExtent(insets.bottom);
+  const boxHeight = minHeight ?? Math.max(1, height - topChrome - bottomChrome);
+  const bleedWidth = Math.max(1, width - insets.left - insets.right);
+  const layout = getMobileEmptyLibraryAdaptiveLayout({
+    width: containerWidth ?? bleedWidth,
+    bleedWidth,
+    height: boxHeight,
+    fold: containerSplit ? { axis: containerSplit.axis, gutter: containerSplit.gutter } : null,
   });
   const disabled = Boolean(actionDisabled || actionLoading);
+  const pose = useMobilePoseTransition();
+  const artScaleStyle = useMobilePoseSizeSpring(layout.portraitMaxWidth);
+  // Where the portrait sits inside this box: the page above it is clipped
+  // under the opaque navigation bar, so the glow must fade out before the
+  // box's top edge instead of ending in a hard line there.
+  const [artSlotY, setArtSlotY] = useState<number | null>(null);
+  const [artY, setArtY] = useState<number | null>(null);
+  const onArtSlotLayout = useCallback((event: LayoutChangeEvent) => {
+    const y = event.nativeEvent.layout.y;
+    setArtSlotY((previous) => (previous !== null && Math.abs(previous - y) < 0.5 ? previous : y));
+  }, []);
+  const onArtLayout = useCallback((event: LayoutChangeEvent) => {
+    const y = event.nativeEvent.layout.y;
+    setArtY((previous) => (previous !== null && Math.abs(previous - y) < 0.5 ? previous : y));
+  }, []);
+  const glowRoomTop = artSlotY !== null && artY !== null ? artSlotY + artY : null;
+
+  const art = (
+    <NemuPortraitHalo
+      maxWidth={layout.portraitMaxWidth}
+      glowRoomTop={glowRoomTop}
+      style={[
+        styles.portraitWrap,
+        {
+          marginBottom:
+            (layout.arrangement === "stack" ? NEMU_WEB_EMPTY_LIBRARY_VISUAL.portraitMarginBottom : 0) +
+            layout.glowBleed,
+        },
+      ]}
+    />
+  );
+  const details = (
+    <View style={styles.details}>
+      <View style={styles.copy}>
+        <Text
+          style={[nemuText.pageEmptyTitle, styles.title, { color: tokens.foreground }]}
+        >
+          {title}
+        </Text>
+        <Text
+          style={[
+            nemuText.pageEmptyDescription,
+            styles.description,
+            { color: tokens.mutedForeground },
+          ]}
+        >
+          {description}
+        </Text>
+        {diagnostic ? (
+          <View style={styles.diagnostic}>
+            <NemuPressable
+              accessibilityRole="button"
+              accessibilityState={{ expanded: diagnosticOpen }}
+              accessibilityLabel={detailsLabel}
+              hapticFeedback="selection"
+              pressProfile="row"
+              onPress={() => setDiagnosticOpen((open) => !open)}
+              style={styles.diagnosticToggle}
+            >
+              <Ionicons
+                name={
+                  diagnosticOpen
+                    ? "chevron-down-outline"
+                    : "chevron-forward-outline"
+                }
+                size={12}
+                color={tokens.mutedForeground}
+              />
+              <Text style={[nemuText.caption, { color: tokens.mutedForeground }]}>
+                {detailsLabel}
+              </Text>
+            </NemuPressable>
+            {diagnosticOpen ? (
+              <Text
+                selectable
+                style={[
+                  styles.diagnosticBody,
+                  styles.diagnosticMono,
+                  {
+                    backgroundColor: tokens.secondary,
+                    color: tokens.mutedForeground,
+                  },
+                ]}
+              >
+                {diagnostic}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
+      </View>
+      <NemuButton
+        accessibilityLabel={actionLabel}
+        disabled={disabled}
+        icon={actionIcon}
+        label={actionLabel}
+        loading={actionLoading}
+        size={NEMU_PROMINENT_CTA_SIZE}
+        containerStyle={styles.action}
+        onPress={onActionPress}
+        variant="default"
+      />
+      {secondaryActionLabel && onSecondaryActionPress ? (
+        <NemuPressable
+          accessibilityRole="button"
+          accessibilityLabel={secondaryActionLabel}
+          hapticFeedback="press"
+          pressProfile="row"
+          onPress={onSecondaryActionPress}
+          style={styles.secondaryAction}
+        >
+          <Text style={[nemuText.body, styles.secondaryActionText, { color: tokens.primary }]}>
+            {secondaryActionLabel}
+          </Text>
+        </NemuPressable>
+      ) : null}
+    </View>
+  );
+
+  // The art and the copy keep their identity across stack ⇄ row ⇄ column
+  // (folding, display switches): the art's slot glides and its size springs
+  // from the old size; the copy block, which re-wraps, cross-fades.
+  const artSlotStyle =
+    layout.arrangement === "row"
+      ? [styles.pane, { width: layout.artPane.width }]
+      : layout.arrangement === "column"
+        ? [styles.pane, { height: layout.artPane.height }]
+        : null;
+  const detailsSlotStyle =
+    layout.arrangement === "row"
+      ? [
+          styles.pane,
+          { width: layout.copyPane.width, marginLeft: layout.copyPane.x - layout.artPane.width },
+        ]
+      : layout.arrangement === "column"
+        ? [
+            styles.pane,
+            {
+              height: layout.copyPane.height,
+              marginTop: layout.copyPane.y - layout.artPane.height,
+            },
+          ]
+        : styles.stackDetails;
 
   return (
-    <View style={[styles.root, { minHeight: layout.rootMinHeight }]}>
-      <NemuPortraitHalo
-        maxWidth={layout.portraitMaxWidth}
+    <LayoutAnimationConfig skipEntering skipExiting>
+      <View
+        ref={containerRef}
+        onLayout={onContainerLayout}
+        collapsable={false}
         style={[
-          styles.portraitWrap,
-          { marginBottom: NEMU_WEB_EMPTY_LIBRARY_VISUAL.portraitMarginBottom + layout.glowBleed },
+          layout.arrangement === "stack" ? styles.root : styles.splitRoot,
+          layout.arrangement === "row" && styles.row,
+          { minHeight: boxHeight },
         ]}
-      />
-      <View style={styles.details}>
-        <View style={styles.copy}>
-          <Text
-            style={[nemuText.pageEmptyTitle, styles.title, { color: tokens.foreground }]}
-          >
-            {title}
-          </Text>
-          <Text
-            style={[
-              nemuText.pageEmptyDescription,
-              styles.description,
-              { color: tokens.mutedForeground },
-            ]}
-          >
-            {description}
-          </Text>
-          {diagnostic ? (
-            <View style={styles.diagnostic}>
-              <NemuPressable
-                accessibilityRole="button"
-                accessibilityState={{ expanded: diagnosticOpen }}
-                accessibilityLabel={detailsLabel}
-                hapticFeedback="selection"
-                pressProfile="row"
-                onPress={() => setDiagnosticOpen((open) => !open)}
-                style={styles.diagnosticToggle}
-              >
-                <Ionicons
-                  name={
-                    diagnosticOpen
-                      ? "chevron-down-outline"
-                      : "chevron-forward-outline"
-                  }
-                  size={12}
-                  color={tokens.mutedForeground}
-                />
-                <Text style={[nemuText.caption, { color: tokens.mutedForeground }]}>
-                  {detailsLabel}
-                </Text>
-              </NemuPressable>
-              {diagnosticOpen ? (
-                <Text
-                  selectable
-                  style={[
-                    styles.diagnosticBody,
-                    styles.diagnosticMono,
-                    {
-                      backgroundColor: tokens.secondary,
-                      color: tokens.mutedForeground,
-                    },
-                  ]}
-                >
-                  {diagnostic}
-                </Text>
-              ) : null}
-            </View>
-          ) : null}
-        </View>
-        <NemuButton
-          accessibilityLabel={actionLabel}
-          disabled={disabled}
-          icon={actionIcon}
-          label={actionLabel}
-          loading={actionLoading}
-          size={NEMU_PROMINENT_CTA_SIZE}
-          containerStyle={styles.action}
-          onPress={onActionPress}
-          variant="default"
-        />
+      >
+        <MobilePoseLayoutView key="art" style={artSlotStyle} onLayout={onArtSlotLayout}>
+          <Animated.View style={artScaleStyle} onLayout={onArtLayout}>{art}</Animated.View>
+        </MobilePoseLayoutView>
+        <Animated.View
+          key={`details-${layout.arrangement}`}
+          entering={pose.entering}
+          exiting={pose.exiting}
+          style={detailsSlotStyle}
+        >
+          {layout.arrangement === "row" ? (
+            <View style={{ width: layout.copyWidth, alignItems: "center" }}>{details}</View>
+          ) : (
+            details
+          )}
+        </Animated.View>
       </View>
-    </View>
+    </LayoutAnimationConfig>
   );
 }
 
@@ -165,6 +284,22 @@ const MONOSPACE_FONT_FAMILY = Platform.select({
 
 const styles = StyleSheet.create({
   root: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: NEMU_WEB_EMPTY_LIBRARY_VISUAL.rootPadding,
+  },
+  splitRoot: {
+    alignSelf: "stretch",
+  },
+  stackDetails: {
+    // Same box the details had as a direct child of the centered root.
+    flexShrink: 1,
+    alignItems: "center",
+  },
+  row: {
+    flexDirection: "row",
+  },
+  pane: {
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: NEMU_WEB_EMPTY_LIBRARY_VISUAL.rootPadding,
@@ -192,6 +327,15 @@ const styles = StyleSheet.create({
   },
   action: {
     marginTop: NEMU_WEB_EMPTY_LIBRARY_VISUAL.actionMarginTop,
+  },
+  secondaryAction: {
+    marginTop: 6,
+    minHeight: 44,
+    justifyContent: "center",
+    paddingHorizontal: 12,
+  },
+  secondaryActionText: {
+    fontWeight: nemuFontWeight.semibold,
   },
   diagnostic: {
     alignSelf: "stretch",

@@ -10,16 +10,6 @@ import type {
   MobileAidokuExecutorLoadResult,
 } from "./mobileSourceExecutor";
 
-let aidokuRuntimeQueue: Promise<unknown> = Promise.resolve();
-
-function runAidokuRuntimeOperation<T>(
-  operation: () => T | Promise<T>,
-): Promise<T> {
-  const task = aidokuRuntimeQueue.then(operation);
-  aidokuRuntimeQueue = task.catch(() => undefined);
-  return task;
-}
-
 function findNativeRuntimePrerequisiteBlocker(): string | null {
   if (!NemuAidokuModule.isAvailable()) {
     return "The NemuAidoku native module is not linked into this build.";
@@ -34,7 +24,12 @@ function findNativeRuntimePrerequisiteBlocker(): string | null {
   return null;
 }
 
-async function loadNativeAidokuSourceUnlocked(
+// Session creation used to run behind a FIFO of its own. The native sandbox
+// queue is the only thing that needs serializing, and every native call now
+// goes through `mobileSourceRuntimeScheduler`, which orders by priority; a
+// second FIFO in front of it would make a user's session wait for a queued
+// background one (priority inversion).
+async function loadNativeAidokuSource(
   input: MobileAidokuExecutorLoadInput,
 ): Promise<MobileAidokuExecutorLoadResult> {
   const blocker = findNativeRuntimePrerequisiteBlocker();
@@ -66,6 +61,6 @@ async function loadNativeAidokuSourceUnlocked(
 export const defaultMobileAidokuExecutorBridge: MobileAidokuExecutorBridge = {
   packageLoadMode: "native-file",
   loadSource(input) {
-    return runAidokuRuntimeOperation(() => loadNativeAidokuSourceUnlocked(input));
+    return loadNativeAidokuSource(input);
   },
 };

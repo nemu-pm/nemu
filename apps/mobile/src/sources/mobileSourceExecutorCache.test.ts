@@ -828,4 +828,77 @@ describe("mobileSourceExecutorCache", () => {
     ).rejects.toThrow(/aborted/i);
     expect(ran).toBe(false);
   });
+
+  test("the next turn on a source goes to the highest-priority caller", async () => {
+    const cache = createMobileSourceSessionCache({
+      factory: makeFactory([]),
+    });
+    const source = makeSource();
+    const order: string[] = [];
+    let finishFirst!: () => void;
+    const firstBody = new Promise<void>((resolve) => {
+      finishFirst = resolve;
+    });
+    let entered!: () => void;
+    const firstEntered = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const holding = cache.withSession(source, { settings: {} }, async () => {
+      order.push("cover-1");
+      entered();
+      await firstBody;
+    });
+    await firstEntered;
+    const queued = [
+      cache.withSession(source, { settings: {} }, async () => {
+        order.push("cover-2");
+      }),
+      cache.withSession(
+        source,
+        { settings: {}, priority: "background" },
+        async () => {
+          order.push("update-check");
+        },
+      ),
+      cache.withSession(source, { settings: {}, priority: "user" }, async () => {
+        order.push("opened-manga");
+      }),
+    ];
+    finishFirst();
+    await holding;
+    await Promise.all(queued);
+    expect(order).toEqual(["cover-1", "opened-manga", "cover-2", "update-check"]);
+  });
+
+  test("hands the callback a source bound to the caller's priority", async () => {
+    const bound: unknown[] = [];
+    const base = makeExecutorSource();
+    const cache = createMobileSourceSessionCache({
+      factory: async (runtimeSource) => ({
+        status: "ready",
+        sourceKey: `${runtimeSource.registryId}:${runtimeSource.sourceId}`,
+        runtime: "native-aidoku",
+        source: {
+          ...base,
+          withPriority(priority) {
+            bound.push(priority);
+            return { ...base, id: "bound" };
+          },
+        },
+      }),
+    });
+    const seen = await cache.withSession(
+      makeSource(),
+      { settings: {}, priority: "user" },
+      async (session) => (session.status === "ready" ? session.source.id : null),
+    );
+    expect(seen).toBe("bound");
+    expect(bound).toEqual([{ priority: "user" }]);
+    // The cache keeps the unbound session for the next caller.
+    const again = await cache.withSession(makeSource(), { settings: {} }, async (session) =>
+      session.status === "ready" ? session.source.id : null,
+    );
+    expect(again).toBe("bound");
+    expect(bound).toEqual([{ priority: "user" }, { priority: "normal" }]);
+  });
 });

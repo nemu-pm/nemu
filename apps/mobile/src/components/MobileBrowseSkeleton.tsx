@@ -1,4 +1,7 @@
 import { StyleSheet, View } from "react-native";
+import { ExploreShimmerSweep } from "@/components/explore/ExploreShimmerSweep";
+import { useExploreShimmerBackdrop } from "@/components/explore/useExploreShimmerBackdrop";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import Animated from "react-native-reanimated";
 import {
   SKELETON_LINE_OPACITY,
@@ -21,7 +24,10 @@ export function MobileBrowseSkeleton({
   accessibilityLabel,
 }: MobileBrowseSkeletonProps) {
   const { scheme, reduceMotion } = useNemuTheme();
-  const skeletonOpacity = useSkeletonPulse(reduceMotion === true);
+  const shimmerBackdrop = useExploreShimmerBackdrop();
+  const pulseOpacity = useSkeletonPulse(reduceMotion === true);
+  // Design-explore: the blocks hold still and one shimmer sweep crosses them.
+  const skeletonOpacity = mobileDesignExploreFlag ? 1 : pulseOpacity;
   const skeletonReady = useSkeletonDisplayDelay(150);
   const visuals = resolveSourceCardVisuals(scheme);
   const skeletonColor = visuals.skeletonBlock;
@@ -32,7 +38,7 @@ export function MobileBrowseSkeleton({
     <Animated.View
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="progressbar"
-      style={[styles.stack, { opacity: skeletonOpacity }]}
+      style={[styles.stack, { opacity: skeletonOpacity }, shimmerBackdrop]}
     >
       {SKELETON_SECTIONS.map((section) => (
         <View key={section} style={styles.section}>
@@ -80,6 +86,8 @@ export function MobileBrowseSkeleton({
           </View>
         </View>
       ))}
+      {/* Design-explore: one shimmer sweep instead of the breathing pulse. */}
+      {mobileDesignExploreFlag ? <ExploreShimmerSweep /> : null}
     </Animated.View>
   );
 }

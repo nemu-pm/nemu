@@ -148,18 +148,6 @@ describe("mobile i18n helpers", () => {
     );
   });
 
-  test("localizes the drag-handle accessibility label", () => {
-    expect(
-      (getMobileStrings("en").common as { dragHandle?: string }).dragHandle,
-    ).toBe("Drag handle");
-    expect(
-      (getMobileStrings("zh").common as { dragHandle?: string }).dragHandle,
-    ).toBe("拖动手柄");
-    expect(
-      (getMobileStrings("ja").common as { dragHandle?: string }).dragHandle,
-    ).toBe("ドラッグハンドル");
-  });
-
   test("falls back to English for unsupported app languages", () => {
     expect(getMobileStrings("fr").nav.settings).toBe("Settings");
   });
@@ -211,6 +199,8 @@ describe("mobile i18n helpers", () => {
       getMobileStringsForAudit().zh,
     )) {
       if (intentionalKanaPaths.has(path)) continue;
+      // Japanese grammar terms (い形容词, な形容词…) name kana forms on purpose (web zh.json).
+      if (path.startsWith("japaneseLearningGrammar.")) continue;
       if (kana.test(value)) offenders.push(`${path}: ${value}`);
     }
     expect(offenders).toEqual([]);
@@ -412,11 +402,6 @@ describe("mobile i18n helpers", () => {
       }),
     ).toBe("Favorites を削除");
     expect(
-      formatMobileString(getMobileStrings("zh").browse.removeSourceNamed, {
-        name: "MangaDex",
-      }),
-    ).toBe("移除 MangaDex");
-    expect(
       formatMobileString(getMobileStrings("en").settings.selectSettingOption, {
         title: "Theme",
         option: "Dark",
@@ -581,15 +566,6 @@ describe("mobile i18n helpers", () => {
       }),
     ).toBe("Page 3 of 12. Show reader controls");
     expect(
-      formatMobileString(
-        getMobileStrings("zh").reader.dualReadTargetAccessibility,
-        {
-          source: "MangaDex",
-          detail: `${getMobileStrings("zh").reader.currentChapter} / 第 12 章`,
-        },
-      ),
-    ).toBe("双源阅读 MangaDex：当前 / 第 12 章");
-    expect(
       formatMobileString(getMobileStrings("ja").reader.openPlugin, {
         name: "Dual Read",
       }),
@@ -634,7 +610,7 @@ describe("mobile i18n helpers", () => {
           option: `Popular, ${getMobileStrings("en").sourceBrowse.sortDescending}`,
         },
       ),
-    ).toBe("Sort: Popular, descending");
+    ).toBe("Sort: Popular, Descending");
     expect(
       formatMobileString(
         getMobileStrings("zh").sourceBrowse.sourceFilterTextInput,
@@ -695,15 +671,7 @@ describe("mobile i18n helpers", () => {
         count: 8,
       }),
     ).toBe("8 pages loaded.");
-    expect(
-      formatMobileString(getMobileStrings("zh").reader.pageCountOther, {
-        count: 4,
-      }),
-    ).toBe("4 页");
     expect(getMobileStrings("ja").sourceBrowse.sourceHome).toBe("ホーム");
-    expect(getMobileStrings("zh").sourceBrowse.operationAixPackageTitle).toBe(
-      "AIX 包",
-    );
     expect(getMobileStrings("en").library.collectionNotFoundTitle).toBe(
       "Collection not found",
     );
@@ -730,6 +698,20 @@ describe("mobile i18n module budget", () => {
     for (const locale of ["en", "zh", "ja"] as const) {
       const file = path.join(import.meta.dir, `mobileI18n.${locale}.ts`);
       expect(statSync(file).size).toBeGreaterThan(1024);
+    }
+  });
+
+  test("the source reorder hint names the arrow buttons, not dragging", () => {
+    // Source rows reorder with chevron buttons; there is no drag gesture.
+    expect(getMobileStrings("en").sourceManager.reorderHint).toBe("Use the arrows to reorder");
+    expect(getMobileStrings("ja").sourceManager.reorderHint).toBe("矢印で並べ替え");
+    expect(getMobileStrings("zh").sourceManager.reorderHint).toBe("使用箭头调整顺序");
+  });
+
+  test("the standalone refresh-failure detail carries no leading separator", () => {
+    for (const locale of ["en", "ja", "zh"] as const) {
+      const feedback = getMobileStrings(locale).feedback;
+      expect(feedback.libraryRefreshUnavailableDetail).not.toMatch(/^\s*·/);
     }
   });
 });

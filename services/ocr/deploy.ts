@@ -134,6 +134,43 @@ async function syncFile(local: string, remote: string, label: string): Promise<b
   return true;
 }
 
+// --- Python environments ---
+//
+// vLLM lives in the system Python (it pins its own torch/fastapi and needs
+// opencv-python-headless>=4.13). server.py runs from /app/venv, created with
+// --system-site-packages so it reuses vLLM's CUDA torch while its own pinned deps
+// (requirements.txt: opencv<4.13, fastapi, ...) shadow the system ones.
+
+const SERVER_VENV = "/app/venv";
+const SERVER_PYTHON = `${SERVER_VENV}/bin/python`;
+
+async function ensureVllmInstalled() {
+  const vllmCheck = await ssh("which vllm || echo 'NOT_FOUND'", false);
+  if (vllmCheck.stdout.toString().includes("NOT_FOUND")) {
+    console.log("      Installing vLLM (system Python, unpinned)...");
+    await ssh("pip install -q vllm");
+  }
+}
+
+async function ensureServerVenv(): Promise<boolean> {
+  const exists = await ssh(`test -x ${SERVER_PYTHON} && echo YES || echo NO`, false);
+  if (exists.stdout.toString().trim() === "YES") return false;
+  console.log(`      Creating ${SERVER_VENV} (--system-site-packages)...`);
+  await ssh(
+    `python3 -m venv --system-site-packages ${SERVER_VENV} || ` +
+      `(rm -rf ${SERVER_VENV} && pip install -q virtualenv && python3 -m virtualenv --system-site-packages ${SERVER_VENV})`,
+  );
+  return true;
+}
+
+async function serverDepsOk(): Promise<boolean> {
+  const check = await ssh(
+    `${SERVER_PYTHON} -c "import cv2, fastapi, httpx, pyclipper, shapely, torch, uvicorn; assert cv2.__version__.startswith('4.'), cv2.__version__" && echo OK || echo FAIL`,
+    false,
+  );
+  return check.stdout.toString().trim().endsWith("OK");
+}
+
 // --- Service health checks ---
 
 async function isVllmHealthy(): Promise<boolean> {
@@ -151,11 +188,7 @@ async function isServerHealthy(): Promise<boolean> {
 async function startVllm() {
   console.log("Starting vLLM server (port 8000)...");
 
-  const vllmCheck = await ssh("which vllm || echo 'NOT_FOUND'", false);
-  if (vllmCheck.stdout.toString().includes("NOT_FOUND")) {
-    console.log("      Installing vLLM...");
-    await ssh("pip install -q vllm");
-  }
+  await ensureVllmInstalled();
 
   await ssh(
     `
@@ -274,7 +307,7 @@ async function startServer() {
     `
     cd /app
     export VLLM_URL=http://localhost:8000/v1
-    nohup python3 server.py > /app/server.log 2>&1 &
+    nohup ${SERVER_PYTHON} server.py > /app/server.log 2>&1 &
     disown
   `,
     false,
@@ -391,6 +424,8 @@ try {
   serverFilesChanged = (await syncFile(join(SCRIPT_DIR, "server.py"), "/app/server.py", "server.py")) || serverFilesChanged;
   serverFilesChanged = (await syncFile(join(SCRIPT_DIR, "text_order.py"), "/app/text_order.py", "text_order.py")) || serverFilesChanged;
   serverFilesChanged = (await syncFile(join(SCRIPT_DIR, "text_order_defaults.py"), "/app/text_order_defaults.py", "text_order_defaults.py")) || serverFilesChanged;
+  serverFilesChanged = (await syncFile(join(SCRIPT_DIR, "detection_filters.py"), "/app/detection_filters.py", "detection_filters.py")) || serverFilesChanged;
+  serverFilesChanged = (await syncFile(join(SCRIPT_DIR, "ocr_text.py"), "/app/ocr_text.py", "ocr_text.py")) || serverFilesChanged;
   const requirementsChanged = await syncFile(join(SCRIPT_DIR, "requirements.txt"), "/app/requirements.txt", "requirements.txt");
 
   console.log("[3/8] Syncing detector package...");
@@ -417,18 +452,16 @@ try {
   }
 
   console.log("[5/8] Installing dependencies...");
-  if (requirementsChanged) {
-    console.log("      requirements.txt changed, installing...");
-    await ssh("pip install -q -r /app/requirements.txt");
+  // vLLM first, so the server venv can reuse the CUDA torch it brings.
+  await ensureVllmInstalled();
+  const venvCreated = await ensureServerVenv();
+  if (venvCreated || requirementsChanged || !(await serverDepsOk())) {
+    console.log(`      Installing requirements.txt into ${SERVER_VENV}...`);
+    await ssh(`${SERVER_PYTHON} -m pip install -q -r /app/requirements.txt`);
+    if (!(await serverDepsOk())) throw new Error(`${SERVER_VENV} is missing server dependencies`);
+    serverFilesChanged = true; // restart onto the new environment
   } else {
-    const pipCheck = await ssh("pip show fastapi torch vllm pyclipper 2>/dev/null | grep -c 'Name:' || echo 0", false);
-    const count = parseInt(pipCheck.stdout.toString().trim());
-    if (count < 4) {
-      console.log("      Missing packages, installing...");
-      await ssh("pip install -q -r /app/requirements.txt");
-    } else {
-      console.log("      All dependencies installed");
-    }
+    console.log("      All dependencies installed");
   }
 
   // Kill jupyter to free resources (first deploy only, idempotent)

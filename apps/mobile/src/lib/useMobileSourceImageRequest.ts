@@ -378,18 +378,38 @@ export type MobileStickySourceCover = {
 /**
  * Cover source for a manga hero image that never flickers back to a headerless
  * URL or to the placeholder while a source rewrite is resolving.
+ *
+ * `sources` lists the installed sources to request the cover through, likely
+ * owner first (see `resolveMobileEntryCoverSources`). When the painted request
+ * fails, the next source's request is tried before giving up, so a cover whose
+ * owner guess was wrong still shows up instead of the gradient placeholder.
  */
 export function useMobileStickySourceCover({
   source,
+  sources,
   cover,
   coverHeaders,
 }: {
-  source: InstalledSource | null | undefined;
+  source?: InstalledSource | null | undefined;
+  sources?: readonly InstalledSource[] | null;
   cover: string | null | undefined;
   /** Headers already resolved for `cover` (listing seed / stored library row). */
   coverHeaders?: Record<string, string> | null;
 }): MobileStickySourceCover {
-  const requestState = useMobileSourceImageRequestState(source, cover);
+  const candidates: readonly (InstalledSource | null | undefined)[] =
+    sources?.length ? sources : [source];
+  const candidatesKey = candidates
+    .map((candidate) => candidate?.id ?? "")
+    .join("|");
+  const attemptKey = `${cover ?? ""}\u0000${candidatesKey}`;
+  const [attempt, setAttempt] = useState<{ key: string; index: number }>({
+    key: attemptKey,
+    index: 0,
+  });
+  const candidateIndex = attempt.key === attemptKey ? attempt.index : 0;
+  const candidateCount = candidates.length;
+  const activeSource = candidates[candidateIndex] ?? null;
+  const requestState = useMobileSourceImageRequestState(activeSource, cover);
   const [lastResolved, setLastResolved] =
     useState<MobileStickyCoverPaint | null>(null);
   const [failedKey, setFailedKey] = useState<string | null>(null);
@@ -401,7 +421,7 @@ export function useMobileStickySourceCover({
     cover,
     coverHeaders,
     requestState,
-    requiresSourceRequest: Boolean(source),
+    requiresSourceRequest: Boolean(activeSource),
   });
   // Remember the resolved paint during render (React's "adjust state while
   // rendering" pattern): the next render has to be able to keep showing it
@@ -424,8 +444,14 @@ export function useMobileStickySourceCover({
   const displayedKey = makeMobileCoverRequestKey(displayed);
   const onCoverError = useCallback(() => {
     if (!displayedKey) return;
+    if (candidateIndex + 1 < candidateCount) {
+      // Wrong owner guess (403, hotlink placeholder): request the cover
+      // through the next linked source before falling back further.
+      setAttempt({ key: attemptKey, index: candidateIndex + 1 });
+      return;
+    }
     setFailedKey(displayedKey);
-  }, [displayedKey]);
+  }, [attemptKey, candidateCount, candidateIndex, displayedKey]);
   const onCoverLoad = useCallback(() => {
     if (!displayed) return;
     setLastLoaded(displayed);

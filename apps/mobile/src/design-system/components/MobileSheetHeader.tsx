@@ -7,6 +7,7 @@ import {
   View,
   type LayoutChangeEvent,
 } from "react-native";
+import { nemuSheetMetrics } from "@/design/nemuSheetMetrics";
 import { nemuFontWeight } from "@/design/typography";
 import { useNemuTheme } from "@/design/useNemuTheme";
 import {
@@ -34,11 +35,18 @@ export function MobileSheetHeader({
     I18nManager.isRTL,
   );
   const isAndroid = Platform.OS === "android";
-  const sideStyle = {
-    minHeight: metrics.controlSize,
-    minWidth: metrics.sideWidth ?? metrics.controlSize,
-    width: metrics.sideWidth ?? undefined,
-  };
+  // iOS reserves equal side columns so the title centres. Android's title is
+  // start-aligned, so a side hugs its content: header actions already bring
+  // their own 48dp target, and a decorative leading icon (the sign-out
+  // glyph) sits one item gap from the title instead of at the far edge of an
+  // empty 48dp column.
+  const sideStyle = isAndroid
+    ? { minHeight: metrics.controlSize }
+    : {
+        minHeight: metrics.controlSize,
+        minWidth: metrics.sideWidth ?? metrics.controlSize,
+        width: metrics.sideWidth ?? undefined,
+      };
 
   return (
     <View
@@ -113,11 +121,10 @@ const styles = StyleSheet.create({
     fontWeight: nemuFontWeight.semibold,
     letterSpacing: 0,
   },
+  // Material 3 titleLarge (22/28) from the shared sheet metrics table.
   androidTitle: {
     width: "100%",
-    fontSize: 20,
-    lineHeight: 26,
-    fontWeight: nemuFontWeight.medium,
+    ...nemuSheetMetrics.title,
     letterSpacing: 0,
   },
 });

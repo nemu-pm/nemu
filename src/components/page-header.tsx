@@ -10,6 +10,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
+import { getPageHeaderActionReserveRem, isPageHeaderActionIconOnly } from "@/lib/page-header-actions";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -337,20 +338,25 @@ export function PageHeader({
 
             {allActions.length > 0 && (
               <div className="ml-auto shrink-0 flex gap-2 pointer-events-auto">
-                {allActions.map((act, i) => (
-                  <Button
-                    key={i}
-                    variant="outline"
-                    size={act.label ? "sm" : "icon-sm"}
-                    onClick={act.onClick}
-                    className={act.label ? "gap-1.5" : undefined}
-                  >
-                    {act.icon}
-                    {act.label && (
-                      <span className="whitespace-nowrap">{act.label}</span>
-                    )}
-                  </Button>
-                ))}
+                {allActions.map((act, i) => {
+                  const iconOnly = isPageHeaderActionIconOnly(act, true);
+                  return (
+                    <Button
+                      key={i}
+                      variant="outline"
+                      size={act.label && !iconOnly ? "sm" : "icon-sm"}
+                      onClick={act.onClick}
+                      aria-label={iconOnly ? act.label : undefined}
+                      title={iconOnly ? act.label : undefined}
+                      className={act.label && !iconOnly ? "gap-1.5" : undefined}
+                    >
+                      {act.icon}
+                      {act.label && !iconOnly && (
+                        <span className="whitespace-nowrap">{act.label}</span>
+                      )}
+                    </Button>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -371,7 +377,7 @@ export function PageHeader({
             // into the action buttons that overlay this row.
             paddingRight:
               allActions.length > 0
-                ? `${allActions.length * 2.5 + 0.5}rem`
+                ? `${getPageHeaderActionReserveRem(allActions, true)}rem`
                 : undefined,
           }}
         >

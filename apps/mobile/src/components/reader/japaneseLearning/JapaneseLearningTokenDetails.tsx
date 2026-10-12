@@ -1,463 +1,301 @@
-import { type ReactNode } from "react";
-import { StyleSheet, Text, View } from "react-native";
-import {
-  nemuColorWithAlpha,
-  nemuFontWeight,
-  radius,
-  useNemuTheme,
-} from "@/design-system";
-import { type MobileGrammarToken } from "@/lib/mobileJapaneseLearningGrammar";
-import { type MobileStrings } from "@/lib/mobileI18n";
-import { mobileGrammarTokenCategory } from "@/lib/mobileJapaneseLearningReaderHelpers";
-import {
-  mobileJapaneseLearningPosCategory,
-  mobileJapaneseLearningPosStyle,
-} from "@/lib/mobileJapaneseLearningPosStyles";
+import { Fragment, type ReactNode } from "react";
+import { StyleSheet, View } from "react-native";
+import { nemuColorWithAlpha, nemuFontWeight, useNemuTheme } from "@/design-system";
+import { JapaneseLearningText as Text } from "./JapaneseLearningText";
+import type { MobileGrammarToken } from "@/lib/mobileJapaneseLearningGrammar";
+import type { MobileStrings } from "@/lib/mobileI18n";
+import { mobileJapaneseLearningPosCategory } from "@/lib/mobileJapaneseLearningPosStyles";
+import { mobileJapaneseLearningSurfaceColors } from "@/lib/mobileJapaneseLearningSurfaceTheme";
+import { JapaneseLearningPosTag, JapaneseLearningTokenSummary } from "./JapaneseLearningTokenSummary";
 
-type ThemeTokens = ReturnType<typeof useNemuTheme>["tokens"];
+/** Web `SectionHeader`: tiny uppercase label followed by a hairline rule. */
+function SectionHeader({ children }: { children: ReactNode }) {
+  const { tokens } = useNemuTheme();
+  return (
+    <View style={styles.sectionHeader}>
+      <Text style={[styles.sectionTitle, { color: tokens.mutedForeground }]}>{children}</Text>
+      <View style={[styles.sectionRule, { backgroundColor: nemuColorWithAlpha(tokens.mutedForeground, 0.18) }]} />
+    </View>
+  );
+}
+
+/** Web `TokenMeanings`: numbered senses, each with its POS tags, gloss and note. */
+function TokenMeanings({
+  meanings,
+  strings,
+}: {
+  meanings: MobileGrammarToken["meanings"];
+  strings: MobileStrings;
+}) {
+  const { tokens } = useNemuTheme();
+  if (meanings.length === 0) return null;
+  return (
+    <View style={styles.meaningList}>
+      {meanings.map((meaning, index) => (
+        <View key={`${index}-${meaning.text}`} style={styles.meaningRow}>
+          <View style={[styles.meaningNumber, { backgroundColor: nemuColorWithAlpha(tokens.muted, 0.8) }]}>
+            <Text style={[styles.meaningNumberText, { color: tokens.mutedForeground }]}>{index + 1}</Text>
+          </View>
+          <View style={styles.meaningBody}>
+            {meaning.partOfSpeech.length > 0 ? (
+              <View style={styles.meaningTags}>
+                {meaning.partOfSpeech.map((pos, posIndex) => (
+                  <JapaneseLearningPosTag key={`${posIndex}-${pos}`} pos={pos} strings={strings} />
+                ))}
+              </View>
+            ) : null}
+            <Text selectable style={[styles.meaningText, { color: nemuColorWithAlpha(tokens.foreground, 0.9) }]}>
+              {meaning.text}
+            </Text>
+            {meaning.info ? (
+              <Text selectable style={[styles.meaningInfo, { color: tokens.mutedForeground }]}>
+                {meaning.info}
+              </Text>
+            ) : null}
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
 
 /**
- * POS pill mirroring web `POSTag` — uses per-category color theming instead of
- * the previous primary-tinted styling. `subtle` renders a muted variant
- * (matches web `subtle` flag used for conjugation types / suffix).
- *
- * The label here is the human-readable POS string (e.g. "I-Adjective"); the
- * caller resolves the style via `mobileJapaneseLearningPosStyle`, which maps
- * the token's POS to a category color.
+ * Mobile port of web `TokenDetails` (token-details.tsx): the details card for
+ * the selected word — summary, numbered meanings, then Structure (compound
+ * parts), Base form (conjugation source) and Alternative readings, each nested
+ * entry rendered as the same card in its inset style.
  */
-export function JapaneseLearningPosPill({
-  label,
-  pos,
-  subtle = false,
-  tokens,
-}: {
-  label: string;
-  pos: string;
-  subtle?: boolean;
-  tokens: ThemeTokens;
-}) {
-  if (!label.trim()) return null;
-  // Resolve category color from the raw POS string (best-effort).
-  const dummyToken: MobileGrammarToken = {
-    word: "",
-    reading: "",
-    partOfSpeech: pos || label,
-    meanings: [],
-    conjugations: [],
-    alternatives: [],
-    components: [],
-  };
-  const category = mobileJapaneseLearningPosCategory(dummyToken);
-  const posStyle = mobileJapaneseLearningPosStyle(dummyToken);
-  const style =
-    category === "punctuation" || category === "unknown" || category === "other"
-      ? {
-          bg: subtle
-            ? tokens.muted
-            : nemuColorWithAlpha(tokens.mutedForeground, 0.13),
-          text: tokens.mutedForeground,
-          border: "transparent",
-        }
-      : subtle
-        ? { bg: tokens.muted, text: tokens.mutedForeground, border: "transparent" }
-        : { bg: posStyle.bg, text: posStyle.text, border: posStyle.border };
-
-  return (
-    <View
-      style={[
-        styles.japaneseLearningPosPill,
-        {
-          backgroundColor: style.bg,
-          borderColor: style.border,
-        },
-      ]}
-    >
-      <Text
-        style={[
-          styles.japaneseLearningPosPillText,
-          { color: style.text },
-        ]}
-      >
-        {label}
-      </Text>
-    </View>
-  );
-}
-
-export function JapaneseLearningDetailSection({
-  title,
-  tokens,
-  children,
-}: {
-  title: string;
-  tokens: ThemeTokens;
-  children: ReactNode;
-}) {
-  return (
-    <View style={styles.japaneseLearningDetailSection}>
-      <View style={styles.japaneseLearningDetailSectionHeader}>
-        <Text
-          style={[
-            styles.japaneseLearningDetailSectionTitle,
-            { color: tokens.mutedForeground },
-          ]}
-        >
-          {title}
-        </Text>
-        <View
-          style={[
-            styles.japaneseLearningDetailSectionRule,
-            { backgroundColor: tokens.border },
-          ]}
-        />
-      </View>
-      {children}
-    </View>
-  );
-}
-
 export function JapaneseLearningTokenDetails({
   token,
   strings,
-  tokens,
-  depth = 0,
+  isNested = false,
+  regularWidth = false,
+  onAskNemu,
+  onCopy,
 }: {
   token: MobileGrammarToken;
   strings: MobileStrings;
-  tokens: ThemeTokens;
-  depth?: number;
+  isNested?: boolean;
+  regularWidth?: boolean;
+  onAskNemu?: () => void;
+  onCopy?: (text: string) => void;
 }) {
+  const { tokens, scheme } = useNemuTheme();
+  const colors = mobileJapaneseLearningSurfaceColors(scheme === "dark" ? "dark" : "light");
   const shouldShowMeanings =
-    token.meanings.length > 0 && mobileGrammarTokenCategory(token) !== "punctuation";
-  const canNest = depth < 2;
+    token.components.length === 0 &&
+    token.meanings.length > 0 &&
+    mobileJapaneseLearningPosCategory(token) !== "punctuation";
 
   return (
     <View
       style={[
-        depth > 0
-          ? styles.japaneseLearningNestedTokenDetails
-          : styles.japaneseLearningTokenDetailsBody,
-        depth > 0
-          ? { backgroundColor: tokens.muted, borderColor: tokens.border }
-          : null,
+        styles.card,
+        isNested
+          ? {
+              padding: 12,
+              backgroundColor: nemuColorWithAlpha(tokens.muted, 0.3),
+              borderColor: nemuColorWithAlpha(tokens.mutedForeground, 0.14),
+            }
+          : {
+              padding: regularWidth ? 20 : 16,
+              backgroundColor: colors.detailsCard,
+              borderColor: colors.detailsCardBorder,
+              boxShadow: scheme === "dark"
+                ? "0 2px 12px rgba(0,0,0,0.25), 0 8px 32px rgba(0,0,0,0.2), inset 0 0.5px 0 rgba(255,255,255,0.06), inset 0 -0.5px 0 rgba(0,0,0,0.15)"
+                : "0 2px 8px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.06), inset 0 0.5px 0 rgba(255,255,255,0.8), inset 0 -0.5px 0 rgba(0,0,0,0.02)",
+            },
       ]}
     >
-      {depth > 0 ? (
-        <>
-          <Text
-            style={[
-              styles.japaneseLearningNestedTokenWord,
-              { color: tokens.foreground },
-            ]}
-          >
-            {token.word}
-            {token.reading ? `  ${token.reading}` : ""}
-          </Text>
-          <View style={styles.japaneseLearningPosRow}>
-            <JapaneseLearningPosPill
-              label={token.partOfSpeech}
-              pos={token.partOfSpeech}
-              tokens={tokens}
-            />
-            {token.conjugationTypes?.map((conjugation, index) => (
-              <JapaneseLearningPosPill
-                key={`${index}-${conjugation}`}
-                label={conjugation}
-                pos={conjugation}
-                subtle
-                tokens={tokens}
-              />
-            ))}
-          </View>
-        </>
-      ) : null}
+      <JapaneseLearningTokenSummary
+        token={token}
+        strings={strings}
+        regularWidth={regularWidth}
+        onAskNemu={isNested ? undefined : onAskNemu}
+        onCopy={onCopy}
+      />
 
       {shouldShowMeanings ? (
-        <View style={styles.japaneseLearningMeaningList}>
-          {token.meanings.map((meaning, index) => (
-            <View
-              key={`${index}-${meaning.text}`}
-              style={styles.japaneseLearningMeaningRow}
-            >
-              <View
-                style={[
-                  styles.japaneseLearningMeaningNumber,
-                  { backgroundColor: tokens.muted },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.japaneseLearningMeaningNumberText,
-                    { color: tokens.mutedForeground },
-                  ]}
-                >
-                  {index + 1}
-                </Text>
-              </View>
-              <View style={styles.japaneseLearningMeaningBody}>
-                {meaning.partOfSpeech.length > 0 ? (
-                  <View style={styles.japaneseLearningPosRow}>
-                    {meaning.partOfSpeech.map((pos, posIndex) => (
-                      <JapaneseLearningPosPill
-                        key={`${posIndex}-${pos}`}
-                        label={pos}
-                        pos={pos}
-                        tokens={tokens}
-                      />
-                    ))}
-                  </View>
-                ) : null}
-                <Text
-                  style={[
-                    styles.japaneseLearningMeaningText,
-                    { color: tokens.foreground },
-                  ]}
-                >
-                  {meaning.text}
-                </Text>
-                {meaning.info ? (
-                  <Text
-                    style={[
-                      styles.japaneseLearningMeaningInfo,
-                      { color: tokens.mutedForeground },
-                    ]}
-                  >
-                    {meaning.info}
-                  </Text>
-                ) : null}
-              </View>
-            </View>
-          ))}
+        <View style={styles.meaningsBlock}>
+          <TokenMeanings meanings={token.meanings} strings={strings} />
         </View>
-      ) : depth > 0 ? (
-        <Text
-          style={[
-            styles.japaneseLearningTokenDetailsMeta,
-            { color: tokens.mutedForeground },
-          ]}
-        >
-          {strings.reader.pluginJapaneseLearningNoMeanings}
-        </Text>
       ) : null}
 
       {token.components.length > 0 ? (
-        <JapaneseLearningDetailSection
-          title={strings.reader.pluginJapaneseLearningStructure}
-          tokens={tokens}
-        >
-          <View style={styles.japaneseLearningComponentRow}>
+        <View style={styles.section}>
+          <SectionHeader>{strings.reader.pluginJapaneseLearningStructure}</SectionHeader>
+          <View style={styles.componentRow}>
             {token.components.map((component, index) => (
-              <View
-                key={`${index}-${component.word}`}
-                style={styles.japaneseLearningComponentPair}
-              >
-                <View
-                  style={[
-                    styles.japaneseLearningComponentPill,
-                    { backgroundColor: tokens.muted },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.japaneseLearningComponentText,
-                      { color: tokens.foreground },
-                    ]}
-                  >
+              <Fragment key={`${index}-${component.word}`}>
+                <View style={[styles.componentChip, { backgroundColor: nemuColorWithAlpha(tokens.secondary, 0.8) }]}>
+                  <Text selectable style={[styles.componentText, { color: tokens.foreground }]}>
                     {component.word}
                   </Text>
                 </View>
                 {index < token.components.length - 1 ? (
-                  <Text
-                    style={[
-                      styles.japaneseLearningComponentPlus,
-                      { color: tokens.mutedForeground },
-                    ]}
-                  >
-                    +
-                  </Text>
+                  <Text style={[styles.componentPlus, { color: nemuColorWithAlpha(tokens.mutedForeground, 0.5) }]}>+</Text>
                 ) : null}
-              </View>
+              </Fragment>
             ))}
           </View>
-          {canNest ? (
-            <View style={styles.japaneseLearningNestedList}>
-              {token.components.map((component, index) => (
-                <JapaneseLearningTokenDetails
-                  key={`${index}-${component.word}-component`}
-                  token={component}
-                  strings={strings}
-                  tokens={tokens}
-                  depth={depth + 1}
-                />
-              ))}
-            </View>
-          ) : null}
-        </JapaneseLearningDetailSection>
+          <View style={styles.nestedList}>
+            {token.components.map((component, index) => (
+              <JapaneseLearningTokenDetails
+                key={`${index}-${component.word}-component`}
+                token={component}
+                strings={strings}
+                isNested
+                regularWidth={regularWidth}
+                onCopy={onCopy}
+              />
+            ))}
+          </View>
+        </View>
       ) : null}
 
       {token.conjugations.length > 0 ? (
-        <JapaneseLearningDetailSection
-          title={strings.reader.pluginJapaneseLearningBaseForm}
-          tokens={tokens}
-        >
-          <View style={styles.japaneseLearningNestedList}>
+        <View style={styles.section}>
+          <SectionHeader>
+            {token.hasConjugationVia
+              ? strings.reader.pluginJapaneseLearningConjugationPath
+              : strings.reader.pluginJapaneseLearningBaseForm}
+          </SectionHeader>
+          <View style={styles.nestedList}>
             {token.conjugations.map((conjugation, index) => (
               <JapaneseLearningTokenDetails
                 key={`${index}-${conjugation.word}-conjugation`}
                 token={conjugation}
                 strings={strings}
-                tokens={tokens}
-                depth={depth + 1}
+                isNested
+                regularWidth={regularWidth}
+                onCopy={onCopy}
               />
             ))}
           </View>
-        </JapaneseLearningDetailSection>
+        </View>
       ) : null}
 
       {token.alternatives.length > 0 ? (
-        <JapaneseLearningDetailSection
-          title={strings.reader.pluginJapaneseLearningAlternativeReadings}
-          tokens={tokens}
-        >
-          <View style={styles.japaneseLearningNestedList}>
+        <View style={styles.section}>
+          <SectionHeader>{strings.reader.pluginJapaneseLearningAlternativeReadings}</SectionHeader>
+          <View style={styles.nestedList}>
             {token.alternatives.map((alternative, index) => (
               <JapaneseLearningTokenDetails
                 key={`${index}-${alternative.word}-alternative`}
                 token={alternative}
                 strings={strings}
-                tokens={tokens}
-                depth={depth + 1}
+                isNested
+                regularWidth={regularWidth}
+                onCopy={onCopy}
               />
             ))}
           </View>
-        </JapaneseLearningDetailSection>
+        </View>
       ) : null}
     </View>
   );
 }
 
-// `japaneseLearningTokenDetailsMeta` is also defined in ReaderScreen's styles
-// (the grammar panel uses it); kept here too so this module is self-contained.
-// The two definitions are intentionally identical — consolidate when the
-// remaining JL components are extracted out of ReaderScreen.
 const styles = StyleSheet.create({
-  japaneseLearningTokenDetailsMeta: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: nemuFontWeight.bold,
+  // Web: `rounded-xl` (radius + 4px), `space-y-4`.
+  card: {
+    borderRadius: 14,
+    borderWidth: 0.5,
+    overflow: "hidden",
+    gap: 16,
   },
-  japaneseLearningTokenDetailsBody: {
-    gap: 10,
+  meaningsBlock: {
+    paddingTop: 4,
   },
-  japaneseLearningNestedTokenDetails: {
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 9,
-    gap: 7,
+  meaningList: {
+    gap: 12,
   },
-  japaneseLearningNestedTokenWord: {
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: nemuFontWeight.semibold,
-  },
-  japaneseLearningPosRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 5,
-  },
-  japaneseLearningPosPill: {
-    borderRadius: radius.pill,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  japaneseLearningPosPillText: {
-    fontSize: 10,
-    lineHeight: 13,
-    fontWeight: nemuFontWeight.semibold,
-  },
-  japaneseLearningDetailSection: {
-    gap: 7,
-    paddingTop: 2,
-  },
-  japaneseLearningDetailSectionHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-  },
-  japaneseLearningDetailSectionTitle: {
-    fontSize: 10,
-    lineHeight: 13,
-    fontWeight: nemuFontWeight.semibold,
-    textTransform: "uppercase",
-  },
-  japaneseLearningDetailSectionRule: {
-    flex: 1,
-    height: StyleSheet.hairlineWidth,
-  },
-  japaneseLearningMeaningList: {
-    gap: 8,
-  },
-  japaneseLearningMeaningRow: {
+  meaningRow: {
     flexDirection: "row",
     alignItems: "flex-start",
-    gap: 8,
+    gap: 12,
   },
-  japaneseLearningMeaningNumber: {
+  // Web: `w-5 h-5 rounded-full bg-muted/80 text-[0.65rem] font-medium mt-0.5`.
+  meaningNumber: {
     width: 20,
     height: 20,
     borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 1,
+    marginTop: 2,
   },
-  japaneseLearningMeaningNumberText: {
-    fontSize: 10,
-    lineHeight: 13,
-    fontWeight: nemuFontWeight.semibold,
+  meaningNumberText: {
+    fontSize: 10.4,
+    lineHeight: 14.86,
+    fontWeight: nemuFontWeight.medium,
   },
-  japaneseLearningMeaningBody: {
+  meaningBody: {
     flex: 1,
     minWidth: 0,
-    gap: 4,
   },
-  japaneseLearningMeaningText: {
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: nemuFontWeight.bold,
-  },
-  japaneseLearningMeaningInfo: {
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: nemuFontWeight.bold,
-    fontStyle: "italic",
-  },
-  japaneseLearningComponentRow: {
+  meaningTags: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 5,
+    gap: 4,
+    marginBottom: 6,
   },
-  japaneseLearningComponentPair: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
+  // Web: `text-sm leading-relaxed`.
+  meaningText: {
+    fontSize: 14,
+    lineHeight: 22.75,
   },
-  japaneseLearningComponentPill: {
-    borderRadius: radius.md,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  japaneseLearningComponentText: {
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: nemuFontWeight.semibold,
-  },
-  japaneseLearningComponentPlus: {
+  // Web: `text-xs text-muted-foreground mt-1 italic`.
+  meaningInfo: {
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: nemuFontWeight.semibold,
+    fontStyle: "italic",
+    marginTop: 4,
   },
-  japaneseLearningNestedList: {
-    gap: 7,
+  section: {
+    paddingTop: 8,
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 8,
+  },
+  // Web: `text-[0.65rem] font-semibold uppercase tracking-widest`.
+  sectionTitle: {
+    fontSize: 10.4,
+    lineHeight: 14.86,
+    fontWeight: nemuFontWeight.semibold,
+    textTransform: "uppercase",
+    letterSpacing: 1,
+  },
+  sectionRule: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+  },
+  componentRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 12,
+  },
+  // Web: `px-2.5 py-1 rounded-lg bg-secondary/80 text-sm font-medium`.
+  componentChip: {
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  // Web: plain `text-sm font-medium` (not `.ja-textbook`).
+  componentText: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: nemuFontWeight.medium,
+  },
+  componentPlus: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  nestedList: {
+    gap: 8,
   },
 });

@@ -1,0 +1,22 @@
+diff --git a/build/src/export/exportHermes.js b/build/src/export/exportHermes.js
+index b9da496..19ca359 100644
+--- a/build/src/export/exportHermes.js
++++ b/build/src/export/exportHermes.js
+@@ -120,14 +120,15 @@ async function assertEngineMismatchAsync(projectRoot, exp, platform) {
+     await maybeThrowFromInconsistentEngineAsync(projectRoot, configFilePath, platform, isHermesManaged);
+ }
+ function isEnableHermesManaged(expoConfig, platform) {
++    const configuredEngine = expoConfig.extra?.nemuJsEngine;
+     if (platform === 'android') {
+         // NOTE(@kitten): `jsEngine` was deprecated, but we're preserving the check
+-        return (expoConfig.android?.jsEngine ?? expoConfig.jsEngine) !== 'jsc';
++        return (expoConfig.android?.jsEngine ?? expoConfig.jsEngine ?? configuredEngine) !== 'jsc';
+     }
+     if ((0, _platforms().isAppleTargetPlatform)(platform)) {
+         // NOTE(@kitten): `jsEngine` was deprecated, but we're preserving the check
+         // Apple platforms all read the `ios` config key.
+-        return (expoConfig.ios?.jsEngine ?? expoConfig.jsEngine) !== 'jsc';
++        return (expoConfig.ios?.jsEngine ?? expoConfig.jsEngine ?? configuredEngine) !== 'jsc';
+     }
+     return false;
+ }

@@ -8,6 +8,7 @@ import {
   NemuText,
   radius,
   useNemuTheme,
+  useMobileNativeSheetTheme,
 } from "@/design-system";
 import type { MobileStrings } from "@/lib/mobileI18n";
 import { getMobileInstalledSourceName } from "@/lib/mobileInstalledSourcePresentation";
@@ -135,7 +136,7 @@ export function MobileInstalledSourceSettingsSheet({
   loginCapabilities?: MobileSourceLoginCapabilities | null;
 }) {
   const name = getMobileInstalledSourceName(source);
-  const { tokens } = useNemuTheme();
+  const { tokens } = useMobileNativeSheetTheme();
   const { fontScale, height, width } = useWindowDimensions();
   const embeddedBackHandlerRef = useRef<(() => void) | null>(null);
   const sheetLayout = getMobileSettingsSheetLayout({

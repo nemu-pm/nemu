@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { UserSettings } from "@/data/schema";
 import {
-  canOpenMobileReaderPluginSettingsAction,
   canSelectMobileReaderPluginOption,
   getMobileReaderSettingsSelectedPlugin,
   getMobileReaderPluginStates,
@@ -189,37 +188,6 @@ describe("mobile reader plugin helpers", () => {
     expect(
       canSelectMobileReaderPluginOption({
         selected: false,
-        disabled: true,
-      }),
-    ).toBe(false);
-  });
-
-  test("gates the open reader plugin settings action as a no-op selection", () => {
-    expect(
-      canOpenMobileReaderPluginSettingsAction({
-        settingsOpen: false,
-        activePluginId: null,
-        disabled: false,
-      }),
-    ).toBe(true);
-    expect(
-      canOpenMobileReaderPluginSettingsAction({
-        settingsOpen: true,
-        activePluginId: "japanese-learning",
-        disabled: false,
-      }),
-    ).toBe(true);
-    expect(
-      canOpenMobileReaderPluginSettingsAction({
-        settingsOpen: true,
-        activePluginId: null,
-        disabled: false,
-      }),
-    ).toBe(false);
-    expect(
-      canOpenMobileReaderPluginSettingsAction({
-        settingsOpen: false,
-        activePluginId: null,
         disabled: true,
       }),
     ).toBe(false);

@@ -63,6 +63,13 @@ declare class NemuAidokuModule extends NativeModule<NemuAidokuEventsMap> {
     sessionId: string,
     operationJson: string,
   ): Promise<string>;
+  /**
+   * Cancels the sandbox operation whose JSON carried `cancelToken`: at once
+   * if it is running (its in-flight HTTP request is cancelled), otherwise as
+   * soon as it starts. The operation rejects with a `[nemu-preempted]`
+   * message. Optional so an older native build simply cannot preempt.
+   */
+  cancelAidokuSandboxOperation?(cancelToken: string): boolean;
   processAidokuSandboxImage(
     sessionId: string,
     operationJson: string,

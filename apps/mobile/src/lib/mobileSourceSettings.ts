@@ -150,14 +150,6 @@ export function sourceSettingRequestsDataRefresh(
   return refreshes !== null && safeOwnArrayLength(refreshes) > 0;
 }
 
-export function sourceSettingsRequestDataRefresh(
-  settings: SourcePackageSetting[],
-): boolean {
-  return flattenSourceSettings(settings)
-    .filter(isEditableSourceSetting)
-    .some(sourceSettingRequestsDataRefresh);
-}
-
 export function flattenSourceSettings(
   settings: SourcePackageSetting[],
 ): SourcePackageSetting[] {
@@ -213,6 +205,20 @@ export function countVisibleSourceSettings(
     return false;
   });
   return count;
+}
+
+/** First sibling that paints a row or a nonempty group, after visibility gates. */
+export function getFirstVisibleSourceSettingIndex(
+  settings: SourcePackageSetting[],
+  values: Record<string, unknown>,
+  features: MobileSourceSettingFeatureFlags = {},
+): number {
+  return settings.findIndex((setting) => {
+    if (!isSourceSettingVisible(setting, values, features) || !isRenderableSourceSetting(setting)) return false;
+    if (ownDataValue(setting, "type") !== "group") return true;
+    const items = asOwnArray(ownDataValue(setting, "items")) as SourcePackageSetting[] | null;
+    return hasVisibleSourceSettingRows(items ?? [], values, features);
+  });
 }
 
 export function hasVisibleSourceSettingRows(
@@ -323,14 +329,6 @@ function walkVisibleSourceSettings(
   }
 }
 
-export function extractSourceSettingDefaults(
-  settings: SourcePackageSetting[],
-): Record<string, unknown> {
-  return sanitizeSourceSettingValues(
-    extractCoreSettingDefaults(flattenSourceSettings(settings)),
-  );
-}
-
 export function mergeSourceSettingValues(
   settings: SourcePackageSetting[],
   values: Record<string, unknown> | null | undefined,
@@ -341,18 +339,6 @@ export function mergeSourceSettingValues(
       sanitizeSourceSettingValues(values),
     ),
   );
-}
-
-export function applyMobileSourceSettingChange(
-  settings: SourcePackageSetting[],
-  userValues: Record<string, unknown> | null | undefined,
-  key: string,
-  value: unknown,
-): {
-  values: Record<string, unknown>;
-  userValues: Record<string, unknown>;
-} {
-  return applyMobileSourceSettingsPatch(settings, userValues, { [key]: value });
 }
 
 export function applyMobileSourceSettingsPatch(
@@ -459,6 +445,22 @@ export function getSourceSegmentIndex(
   return 0;
 }
 
+/**
+ * Design-explore: whether a row's control already shows its value (a switch,
+ * a segmented control, a menu button with the choice in it, a slider with its
+ * reading), so the row says nothing more under its title. A value repeated
+ * under its own control read as noise ("Cover Quality / Medium" beside a
+ * "Medium" menu), and "Default" there disagreed with the menu's "Primary".
+ */
+export function sourceSettingControlShowsValue(setting: Pick<SourcePackageSetting, "type">): boolean {
+  return (
+    setting.type === "switch" ||
+    setting.type === "segment" ||
+    setting.type === "select" ||
+    setting.type === "slider"
+  );
+}
+
 export function describeSourceSettingValue(
   setting: SourcePackageSetting,
   values: Record<string, unknown>,
@@ -533,3 +535,6 @@ export function formatSourceSettingAccessibilityLabel(
     .filter(Boolean)
     .join(", ");
 }
+
+/** The settings of a source whose package has none (a stable empty list). */
+export const EMPTY_SOURCE_SETTINGS: SourcePackageSetting[] = [];
