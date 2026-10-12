@@ -32,11 +32,18 @@ export const NEMU_SOFT_SCROLL_EDGE_EFFECTS = {
   right: "automatic",
 } as const;
 
+/** No horizontal blur band when navigation and tabs occupy a vertical rail. */
+export function resolveNemuNativeScrollEdgeEffects(verticalBarSide: "left" | "right" | null = null) {
+  return verticalBarSide
+    ? { ...NEMU_SOFT_SCROLL_EDGE_EFFECTS, top: "hidden" as const, bottom: "hidden" as const }
+    : NEMU_SOFT_SCROLL_EDGE_EFFECTS;
+}
+
 export type NemuNativeHeaderChrome =
   | {
       headerTransparent: true;
       headerStyle: { backgroundColor: "transparent" };
-      scrollEdgeEffects: typeof NEMU_SOFT_SCROLL_EDGE_EFFECTS;
+      scrollEdgeEffects: ReturnType<typeof resolveNemuNativeScrollEdgeEffects>;
     }
   | {
       headerStyle: { backgroundColor: string };
@@ -46,11 +53,12 @@ export type NemuNativeHeaderChrome =
 export function resolveNemuNativeHeaderChrome(
   platform: string,
   background: string,
+  verticalBarSide: "left" | "right" | null = null,
 ): NemuNativeHeaderChrome {
   if (platform !== "ios") return { headerStyle: { backgroundColor: background } };
   return {
     headerTransparent: true,
     headerStyle: { backgroundColor: "transparent" },
-    scrollEdgeEffects: NEMU_SOFT_SCROLL_EDGE_EFFECTS,
+    scrollEdgeEffects: resolveNemuNativeScrollEdgeEffects(verticalBarSide),
   };
 }

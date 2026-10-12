@@ -9,13 +9,14 @@ import {
 } from "@/lib/useSkeletonPulse";
 import { MOBILE_SOURCE_GRID_SKELETON_ROWS } from "@/lib/mobileSourceGridSkeletonLayout";
 import { MOBILE_MANGA_GRID_GAP } from "@/lib/mobileAdaptiveGrid";
-import { mobileFoldAwareGridCellStyle } from "@/lib/mobileFoldAwareGrid";
-import { NO_INSETS, useMobileFoldAwareGrid } from "@/lib/useMobileFoldAwareGrid";
+import { mobileFoldAwareGridCellStyle, type MobileFoldAwareGridLayout } from "@/lib/mobileFoldAwareGrid";
 import { radius, useNemuTheme } from "@/design-system";
 
 
 type MobileSourceGridSkeletonProps = {
   accessibilityLabel: string;
+  /** Use the loaded result grid's dimensions, including the native toolbar inset. */
+  grid: MobileFoldAwareGridLayout;
 };
 
 /**
@@ -24,12 +25,10 @@ type MobileSourceGridSkeletonProps = {
  */
 export function MobileSourceGridSkeleton({
   accessibilityLabel,
+  grid,
 }: MobileSourceGridSkeletonProps) {
   const { tokens, reduceMotion } = useNemuTheme();
   const shimmerBackdrop = useExploreShimmerBackdrop();
-  // It sits inside the page gutters, so the measured view is the content box.
-  // Refs stay out of the layout object read during render.
-  const { ref: gridRef, onLayout: onGridLayout, ...grid } = useMobileFoldAwareGrid({ insets: NO_INSETS });
   const pulseOpacity = useSkeletonPulse(reduceMotion === true);
   // Design-explore: the blocks hold still and one shimmer sweep crosses them.
   const skeletonOpacity = mobileDesignExploreFlag ? 1 : pulseOpacity;
@@ -40,9 +39,6 @@ export function MobileSourceGridSkeleton({
 
   return (
     <Animated.View
-      ref={gridRef}
-      onLayout={onGridLayout}
-      collapsable={false}
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="progressbar"
       style={[styles.grid, { opacity: skeletonOpacity }, shimmerBackdrop]}

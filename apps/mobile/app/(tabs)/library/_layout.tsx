@@ -1,3 +1,4 @@
+import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { Stack } from "expo-router";
 import { createNemuNativeStackScreenOptions, useNemuTheme } from "@/design-system";
 import { createMobileTabStackAnchorListeners } from "@/lib/mobileTabStackAnchor";
@@ -14,11 +15,12 @@ const anchorListeners = createMobileTabStackAnchorListeners();
 
 export default function LibraryLayout() {
   const { tokens } = useNemuTheme();
+  const { verticalBarSide } = useMobileAdaptiveLayout();
 
   return (
     <Stack
       screenListeners={anchorListeners}
-      screenOptions={createNemuNativeStackScreenOptions(tokens)}
+      screenOptions={createNemuNativeStackScreenOptions(tokens, verticalBarSide)}
     >
       {/* A doorway for deep links: it selects the collection on the Library
           root and pops straight back (LibraryScreen), so it never animates. */}

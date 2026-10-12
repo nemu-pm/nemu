@@ -1,3 +1,4 @@
+import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import { MOBILE_EXPLORE_RADIUS } from "@/lib/mobileExploreRadius";
@@ -736,6 +737,7 @@ const ADD_SOURCE_SHEET_MIN_DETENT = 320;
 const ADD_SOURCE_SHEET_CORNER_CLEARANCE = 12;
 
 export function BrowseScreen() {
+  const { verticalBarSide } = useMobileAdaptiveLayout();
   const { tokens } = useNemuTheme();
   // The Add Sources sheet's own content, built here outside the sheet.
   const sheetTokens = useMobileNativeSheetTheme().tokens;
@@ -1590,7 +1592,7 @@ export function BrowseScreen() {
       {usesNativeHeader ? (
         <>
           <Stack.Screen
-            options={createNemuNativeScreenOptions(tokens, strings.nav.browse)}
+            options={createNemuNativeScreenOptions(tokens, strings.nav.browse, verticalBarSide)}
           />
           <Stack.Toolbar placement="right">
             {renderNemuNativeToolbarButtons(nativeHeaderActions)}

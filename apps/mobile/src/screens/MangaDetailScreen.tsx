@@ -63,7 +63,6 @@ import {
   PageHeader,
   PageScaffold,
   createNemuSoftEdgeScreenOptions,
-  NEMU_SOFT_SCROLL_EDGE_EFFECTS,
   renderNemuNativeToolbarButtons,
   useNemuTheme,
   usesNemuNativeHeader,
@@ -2404,7 +2403,7 @@ export function MangaDetailScreen() {
   });
   cloudflareSheetRef.current = cloudflareSheet;
   const nativeHeaderOptions = (screenTitle: string) =>
-    createNemuSoftEdgeScreenOptions(tokens, screenTitle);
+    createNemuSoftEdgeScreenOptions(tokens, screenTitle, verticalBarSide);
   // Books-style hero: once its title has scrolled away the bar shows the
   // title with a small cover beside it.
   const barCover = coverImage.source ?? zoomSeed?.cover ?? null;
@@ -2598,9 +2597,6 @@ export function MangaDetailScreen() {
                 ? {
                     ...nativeHeaderOptions(title),
                     headerTitle: renderExploreBarTitle,
-                    ...(barOnSide && Platform.OS === "ios"
-                      ? { scrollEdgeEffects: { ...NEMU_SOFT_SCROLL_EDGE_EFFECTS, top: "hidden" as const } }
-                      : null),
                   }
                 : nativeHeaderOptions(title)
             }

@@ -1,3 +1,4 @@
+import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import {
   memo,
   useCallback,
@@ -804,6 +805,7 @@ export function LibraryScreen({
   collectionId = null,
   mode = "library",
 }: LibraryScreenProps = {}) {
+  const { verticalBarSide } = useMobileAdaptiveLayout();
   const { scheme, tokens } = useNemuTheme();
   const usesNativeHeader = usesNemuNativeHeader;
   const store = useMobileDataStore();
@@ -1697,7 +1699,7 @@ export function LibraryScreen({
   const titleMenuAnchor = titleMenu ? <MobileLibraryTitleMenuAnchor {...titleMenu} /> : null;
   const nativeHeaderOptions = (
     screenTitle: string,
-  ) => createNemuNativeScreenOptions(tokens, screenTitle);
+  ) => createNemuNativeScreenOptions(tokens, screenTitle, verticalBarSide);
   // The Library root's header: on Android the title becomes the dropdown.
   const titleMenuHeaderOptions = (screenTitle: string) => ({
     ...nativeHeaderOptions(screenTitle),

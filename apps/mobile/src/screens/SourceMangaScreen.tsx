@@ -1,3 +1,4 @@
+import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Stack,
@@ -287,6 +288,7 @@ function loadedChapterCountText(count: number, strings: MobileStrings): string {
 }
 
 export function SourceMangaScreen() {
+  const { verticalBarSide } = useMobileAdaptiveLayout();
   const params = useLocalSearchParams<{
     registryId: string;
     sourceId: string;
@@ -1565,8 +1567,8 @@ export function SourceMangaScreen() {
     [barTitleShown, coverImage.source, heroTitleAway, title],
   );
   const nativeHeaderOptions = mobileDesignExploreFlag
-    ? { ...createNemuSoftEdgeScreenOptions(tokens, sourceName), headerTitle: renderBarTitle }
-    : createNemuSoftEdgeScreenOptions(tokens, sourceName);
+    ? { ...createNemuSoftEdgeScreenOptions(tokens, sourceName, verticalBarSide), headerTitle: renderBarTitle }
+    : createNemuSoftEdgeScreenOptions(tokens, sourceName, verticalBarSide);
   const navigateBack = useCallback(() => {
     const action = getMobileSourceMangaBackAction({
       canGoBack: router.canGoBack(),

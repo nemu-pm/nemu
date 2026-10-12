@@ -1,3 +1,4 @@
+import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { SourceBrowseCompactHeader } from "@/components/SourceBrowseCompactHeader";
 import { useCompactSourceBrowseHeader } from "@/lib/useCompactSourceBrowseHeader";
 import { getCompactSourceBrowseHeaderBarHeight } from "@/lib/mobileSourceBrowseHeader";
@@ -1347,6 +1348,7 @@ function SourceFilterPanel({
 }
 
 export function SourceBrowseScreen() {
+  const { verticalBarSide } = useMobileAdaptiveLayout();
   const sourceProfileScope = getActiveMobileSourceProfileScope();
   const params = useLocalSearchParams<{
     registryId: string;
@@ -3020,6 +3022,7 @@ export function SourceBrowseScreen() {
   const nativeHeaderOptions = createNemuNativeScreenOptions(
     tokens,
     screenTitle,
+    verticalBarSide,
   );
   const nativeHeaderActions: NemuNativeHeaderAction[] =
     source && sourceSearchActive && showSourceSearchControls
@@ -3686,6 +3689,7 @@ export function SourceBrowseScreen() {
                 </MobilePaneAlignedView>
               ) : showCenterSourceBrowseSearchProgress ? (
                 <MobileSourceGridSkeleton
+                  grid={gridLayout}
                   accessibilityLabel={
                     sourceSearchState.status === "loading"
                       ? sourceSearchState.detail
@@ -3738,6 +3742,7 @@ export function SourceBrowseScreen() {
                 // A selected listing that has not started yet is about to load: a
                 // result skeleton, not a flash of the empty state.
                 <MobileSourceGridSkeleton
+                  grid={gridLayout}
                   accessibilityLabel={listingState.detail}
                 />
               ) : (

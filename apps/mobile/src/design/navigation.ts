@@ -29,19 +29,18 @@ export const usesNemuNativeHeader =
 export { NEMU_SOFT_SCROLL_EDGE_EFFECTS } from "./nativeHeaderChrome";
 
 /**
- * Defaults for every native stack screen. On iOS the header is see-through
- * with soft top / bottom scroll edge effects (see `nativeHeaderChrome.ts`), so
- * any screen — including new ones — gets the soft edge without opting in;
- * the page scaffolds adjust their insets to match.
+ * Native stack defaults: transparent iOS bars with soft edges when horizontal.
+ * Vertical bars leave the top/bottom content clear; derive placement from the
+ * window observer so folding and navigation update the effects together.
  */
-export function createNemuNativeStackScreenOptions(tokens: NemuTokens) {
+export function createNemuNativeStackScreenOptions(tokens: NemuTokens, verticalBarSide: "left" | "right" | null = null) {
   return {
     contentStyle: { backgroundColor: tokens.background },
     headerBackButtonDisplayMode: "minimal" as const,
     headerBackTitle: "",
     headerShadowVisible: false,
     headerShown: usesNemuNativeHeader,
-    ...resolveNemuNativeHeaderChrome(Platform.OS, tokens.background),
+    ...resolveNemuNativeHeaderChrome(Platform.OS, tokens.background, verticalBarSide),
     headerTitleStyle: {
       color: tokens.foreground,
       fontSize: 17,
@@ -53,9 +52,10 @@ export function createNemuNativeStackScreenOptions(tokens: NemuTokens) {
 export function createNemuNativeScreenOptions(
   tokens: NemuTokens,
   title: string,
+  verticalBarSide: "left" | "right" | null = null,
 ) {
   return {
-    ...createNemuNativeStackScreenOptions(tokens),
+    ...createNemuNativeStackScreenOptions(tokens, verticalBarSide),
     headerShown: true,
     title,
   };
