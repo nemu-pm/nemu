@@ -526,7 +526,7 @@ describe("nemuButtonDepth", () => {
     expect(light.foregroundColor).toBe(nemuTokens.light.primaryForeground);
   });
 
-  test("an included chip is a soft primary tint with primary ink, no well shadow", () => {
+  test("an included chip keeps the inset well with primary ink", () => {
     for (const scheme of ["light", "dark"] as const) {
       const visual = getNemuButtonDepthVisual({
         variant: "chip-included",
@@ -535,7 +535,7 @@ describe("nemuButtonDepth", () => {
         tokens: nemuTokens[scheme],
       });
       expect(visual.foregroundColor).toBe(nemuTokens[scheme].primary);
-      expect(visual.boxShadow).toBe("none");
+      expect(visual.boxShadow).toContain("inset");
       expect(visual.backgroundColor).not.toBe(nemuTokens[scheme].primary);
     }
   });

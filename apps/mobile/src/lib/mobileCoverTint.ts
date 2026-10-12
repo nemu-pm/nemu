@@ -227,21 +227,8 @@ function isMonochrome({ s, l }: Hsl): boolean {
 }
 /** Card lightness band for coloured covers, per scheme: the cover's colour at strength, never a pastel. */
 const CARD_LIGHTNESS = { light: [0.42, 0.68], dark: [0.38, 0.62] } as const;
-const CARD_SATURATION_MAX = 0.92;
-/**
- * The sampled tint is the mean of the cover's leading hue, which is greyer
- * than the colour the eye picks out; the card takes this share of the way
- * from it to full saturation (the page a smaller one). A muted cover (a dusky
- * maroon, a sepia) is lifted less, so its card stays the colour it is.
- */
-const CARD_SATURATION_LIFT = 0.4;
-const PAGE_SATURATION_LIFT = 0.25;
-
-/** How much of the lift a tint takes: none at the monochrome line, all of it from a clearly coloured tint. */
-function liftShare({ s, l }: Hsl): number {
-  const chroma = s * (1 - Math.abs(2 * l - 1));
-  return Math.min(1, Math.max(0, (chroma - MONOCHROME_CHROMA) / 0.15));
-}
+const CARD_SATURATION_MAX = 0.66;
+// Keep sampled saturation; large surfaces should not amplify a vivid cover.
 /** Monochrome covers keep their lightness within this band (a white cover makes a white card). */
 const MONOCHROME_LIGHTNESS = [0.14, 0.9] as const;
 /**
@@ -297,7 +284,7 @@ function cardColour(source: Hsl, scheme: "light" | "dark", fallback: boolean): C
     ? 0.22
     : monochrome
       ? source.s
-      : Math.min(CARD_SATURATION_MAX, source.s + (1 - source.s) * CARD_SATURATION_LIFT * liftShare(source));
+      : Math.min(CARD_SATURATION_MAX, source.s);
   const [low, high] = monochrome ? MONOCHROME_LIGHTNESS : CARD_LIGHTNESS[scheme];
   // No cover colour yet: a quiet indigo that matches the cover placeholder
   // (periwinkle in light mode, deep in dark).
@@ -432,7 +419,7 @@ export function buildMobileCoverTintPalette(
   };
   // Page saturation: as much of the cover's colour as the scheme carries.
   const pageSaturation =
-    rgb === null ? 0.22 : monochrome ? source.s : Math.min(source.s + (1 - source.s) * PAGE_SATURATION_LIFT * liftShare(source), 0.8);
+    rgb === null ? 0.22 : monochrome ? source.s : Math.min(source.s, 0.8);
   if (scheme === "dark") {
     const s = monochrome || rgb === null ? pageSaturation : Math.min(pageSaturation, darkSaturationCap(h));
     // Yellows read as olive when deep: they keep a little more light.

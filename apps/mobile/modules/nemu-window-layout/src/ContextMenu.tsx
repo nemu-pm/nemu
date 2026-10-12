@@ -11,6 +11,7 @@ export function ContextMenuView({
 }: {
   items: ContextMenuItem[];
   menuTitle?: string;
+  previewCornerRadius?: number;
   onMenuAction?: (id: string) => void;
   style?: ViewProps["style"];
   children?: ReactNode;

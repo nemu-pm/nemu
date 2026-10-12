@@ -28,10 +28,12 @@ describe("page top padding follows the title bar on screen", () => {
     expect(getMobilePageTopPadding({ ...base, platform: "android", safeAreaTop: 24, headerHeight: 80 })).toBe(12);
   });
 
-  test("taller bars (Duo trailing-bar layouts) compress to the minimum, never below", () => {
-    // Duo inner landscape (old accessibility dump): first content at y=100 with 18pt padding → header bottom ≈ 82pt.
-    expect(getMobilePageTopPadding({ ...base, platform: "ios", safeAreaTop: 0, headerHeight: 82 })).toBe(8);
-    expect(getMobilePageTopPadding({ ...base, platform: "ios", safeAreaTop: 24, headerHeight: 82 })).toBe(11);
+  test("iOS keeps the same padding before and after the trailing bar reports its height", () => {
+    for (const safeAreaTop of [0, 24, 62]) {
+      for (const headerHeight of [0, 32, 44, 82, 106]) {
+        expect(getMobilePageTopPadding({ ...base, platform: "ios", safeAreaTop, headerHeight })).toBe(18);
+      }
+    }
   });
 
   test("a screen-drawn header states its own bar height", () => {

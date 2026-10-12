@@ -1,3 +1,4 @@
+import { MobileQuickActionMenu, MobileQuickActionProvider, mobileNativeQuickMenuAvailable } from "@/components/MobileQuickActionMenu";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { orderMobileTitleQuickActions } from "@/lib/mobileQuickActionOrder";
 import {
@@ -720,12 +721,14 @@ const LocalSearchResultCard = memo(function LocalSearchResultCard({
   );
 
   return (
+    <MobileQuickActionMenu actionKey={item.id}>
     <MangaCard
       item={item}
-      onLongPress={handleLongPress}
+      onLongPress={mobileNativeQuickMenuAvailable ? undefined : handleLongPress}
       onPress={onOpenItem ? handleOpen : undefined}
       wrapCover={onOpenItem ? wrapCover : undefined}
     />
+    </MobileQuickActionMenu>
   );
 });
 
@@ -1607,10 +1610,9 @@ export function SearchScreen() {
     quickActionCoverSource,
     quickActionCover,
   );
-  const quickActions = useMemo<QuickAction[]>(() => {
-    const entry = quickActionEntry;
-    if (!entry) return [];
-    const link = quickActionLink;
+  const getEntryActions = useCallback((entry: LibraryEntry): QuickAction[] => {
+    const link = getMobileEntryQuickActionSource(entry, progressIndex);
+    const actionSource = link ? findInstalledSourceForLink(installed.data, link) : null;
     const actions: QuickAction[] = [
       {
         id: "markAllRead",
@@ -1635,7 +1637,7 @@ export function SearchScreen() {
       actions.push({
         id: "openInSource",
         label: formatMobileString(strings.feedback.quickMenuOpenInSource, {
-          source: quickActionSource?.name ?? link.sourceId,
+          source: actionSource?.name ?? link.sourceId,
         }),
         icon: "open-outline",
         onPress: () => {
@@ -1665,11 +1667,16 @@ export function SearchScreen() {
   }, [
     handleQuickActionMarkAllRead,
     handleQuickActionRemove,
-    quickActionEntry,
-    quickActionLink,
-    quickActionSource,
+    installed.data,
+    progressIndex,
     strings,
   ]);
+
+  const quickActions = useMemo(() => quickActionEntry ? getEntryActions(quickActionEntry) : [], [getEntryActions, quickActionEntry]);
+  const getContextActions = useCallback((id: string) => {
+    const entry = libraryEntriesById.get(id);
+    return entry ? getEntryActions(entry) : [];
+  }, [getEntryActions, libraryEntriesById]);
 
   if (
     shouldShowMobileSearchNoSourcesEmpty({
@@ -1913,7 +1920,7 @@ export function SearchScreen() {
   );
 
   return (
-    <>
+    <MobileQuickActionProvider value={getContextActions}>
       {usesNativeHeader ? (
         <>
           <Stack.Screen options={{ title: strings.nav.search }} />
@@ -2051,7 +2058,7 @@ export function SearchScreen() {
           onClose={() => setMembershipSheetEntry(null)}
         />
       ) : null}
-    </>
+    </MobileQuickActionProvider>
   );
 }
 

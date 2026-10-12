@@ -6,6 +6,7 @@ import type { ContextMenuItem } from "./types";
 type ContextMenuViewProps = {
   items: ContextMenuItem[];
   menuTitle?: string;
+  previewCornerRadius?: number;
   onMenuAction?: (id: string) => void;
   style?: ViewProps["style"];
   children?: ReactNode;
@@ -31,12 +32,13 @@ const NativeContextMenu: ComponentType<NativeProps> | null = contextMenuViewAvai
  * press lifts the view and opens the menu. Taps still reach the children.
  * Without the native view (Android, an older binary) it is a plain view.
  */
-export function ContextMenuView({ items, menuTitle, onMenuAction, style, children }: ContextMenuViewProps) {
+export function ContextMenuView({ items, menuTitle, previewCornerRadius, onMenuAction, style, children }: ContextMenuViewProps) {
   if (!NativeContextMenu) return <View style={style}>{children}</View>;
   return (
     <NativeContextMenu
       items={items}
       menuTitle={menuTitle}
+      previewCornerRadius={previewCornerRadius}
       onMenuAction={onMenuAction ? (event) => onMenuAction(event.nativeEvent.id) : undefined}
       style={style}
     >

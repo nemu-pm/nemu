@@ -77,7 +77,8 @@ describe("mobile cover tint", () => {
         const palette = buildMobileCoverTintPalette(mobileHslToRgb({ h, s: 0.7, l: 0.5 }), scheme);
         const card = mobileRgbToHsl(parseRgb(palette.card));
         expect(Math.abs(((card.h - h + 540) % 360) - 180)).toBeLessThan(8);
-        expect(card.s).toBeGreaterThanOrEqual(0.7);
+        expect(card.s).toBeGreaterThan(0.5);
+        expect(card.s).toBeLessThan(0.7);
         expect(card.l).toBeGreaterThanOrEqual(0.3);
         expect(card.l).toBeLessThanOrEqual(0.72);
         const page = mobileRgbToHsl(parseRgb(palette.page));

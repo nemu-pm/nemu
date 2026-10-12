@@ -1,3 +1,4 @@
+import { MobileQuickActionMenu, MobileQuickActionProvider, mobileNativeQuickMenuAvailable } from "@/components/MobileQuickActionMenu";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import {
   memo,
@@ -288,9 +289,10 @@ const LibraryGridItem = memo(function LibraryGridItem({
   );
 
   return (
+    <MobileQuickActionMenu actionKey={entry.item.libraryItemId}>
     <MangaCard
       item={item}
-      onLongPress={onLongPress ? handleLongPress : undefined}
+      onLongPress={!mobileNativeQuickMenuAvailable && onLongPress ? handleLongPress : undefined}
       onPress={designExplore ? exploreOpen : undefined}
       wrapCover={designExplore ? wrapCover : undefined}
       placeholder={
@@ -299,6 +301,7 @@ const LibraryGridItem = memo(function LibraryGridItem({
         ) : undefined
       }
     />
+    </MobileQuickActionMenu>
   );
 });
 
@@ -1903,10 +1906,9 @@ export function LibraryScreen({
     strings,
   ]);
 
-  const quickActions = useMemo<QuickAction[]>(() => {
-    const entry = quickActionEntry;
-    if (!entry) return [];
-    const link = quickActionLink;
+  const getEntryActions = useCallback((entry: LibraryEntry): QuickAction[] => {
+    const link = getMobileEntryQuickActionSource(entry, progressIndex);
+    const actionSource = link ? findInstalledSourceForLink(installedSources.data, link) : null;
     const actions: QuickAction[] = [
       {
         id: "markAllRead",
@@ -1931,7 +1933,7 @@ export function LibraryScreen({
       actions.push({
         id: "openInSource",
         label: formatMobileString(strings.feedback.quickMenuOpenInSource, {
-          source: quickActionSource?.name ?? link.sourceId,
+          source: actionSource?.name ?? link.sourceId,
         }),
         icon: "open-outline",
         onPress: () => {
@@ -1951,15 +1953,13 @@ export function LibraryScreen({
       },
     });
     return mobileDesignExploreFlag ? orderMobileTitleQuickActions(actions) : actions;
-  }, [
-    quickActionEntry,
-    quickActionLink,
-    quickActionSource,
-    strings,
-    handleQuickActionMarkAllRead,
-    handleQuickActionRemove,
-    openEntryInSource,
-  ]);
+  }, [progressIndex, installedSources.data, strings, handleQuickActionMarkAllRead, handleQuickActionRemove, openEntryInSource]);
+  const quickActions = useMemo(() => quickActionEntry ? getEntryActions(quickActionEntry) : [], [quickActionEntry, getEntryActions]);
+  const quickMenuEntries = useMemo(() => new Map(libraryEntries.map(entry => [entry.item.libraryItemId, entry])), [libraryEntries]);
+  const getContextActions = useCallback((id: string) => {
+    const entry = quickMenuEntries.get(id);
+    return entry ? getEntryActions(entry) : [];
+  }, [getEntryActions, quickMenuEntries]);
 
   // The card's own NemuPressable already fires the long-press haptic; a
   // second manual pulse here made every long press buzz twice.
@@ -2410,7 +2410,7 @@ export function LibraryScreen({
   }
 
   return (
-    <>
+    <MobileQuickActionProvider value={getContextActions}>
     {designExplore ? <MobileExploreDustHost /> : null}
     {usesNativeHeader ? (
       <>
@@ -2614,7 +2614,7 @@ export function LibraryScreen({
       }
     />
     {librarySheets}
-    </>
+    </MobileQuickActionProvider>
   );
 }
 

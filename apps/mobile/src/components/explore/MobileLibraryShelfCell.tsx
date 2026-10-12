@@ -1,3 +1,4 @@
+import { MobileQuickActionMenu, mobileNativeQuickMenuAvailable } from "../MobileQuickActionMenu";
 import { MOBILE_EXPLORE_RADIUS as R } from "@/lib/mobileExploreRadius";
 import { memo, useCallback, useEffect, useRef } from "react";
 import { StyleSheet, View, type ViewInstance } from "react-native";
@@ -119,6 +120,7 @@ export const MobileLibraryShelfCell = memo(function MobileLibraryShelfCell({
           ))
         : null}
 
+      <MobileQuickActionMenu actionKey={id} cornerRadius={COVER_RADIUS} beforeAction={() => preferExploreDissolveTarget(id, bookRef)}>
       <NemuPressable
         accessibilityRole="button"
         accessibilityLabel={formatMobileMangaCardAccessibilityLabel({
@@ -130,7 +132,7 @@ export const MobileLibraryShelfCell = memo(function MobileLibraryShelfCell({
         hapticFeedback="press"
         pressProfile="card"
         onPress={() => pushMobileExploreDetail(entry, cover, zoomId)}
-        onLongPress={onLongPress ? handleLongPress : undefined}
+        onLongPress={!mobileNativeQuickMenuAvailable && onLongPress ? handleLongPress : undefined}
       >
         <View
           ref={bookRef}
@@ -196,6 +198,7 @@ export const MobileLibraryShelfCell = memo(function MobileLibraryShelfCell({
           ) : null}
         </View>
       </NemuPressable>
+      </MobileQuickActionMenu>
     </View>
   );
 });

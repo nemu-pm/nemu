@@ -25,3 +25,5 @@ export type {
 } from "./src/types";
 
 export { default as SheetProgressObserver } from "./src/SheetProgressObserver";
+
+export { NativeSegmentedControl } from "./src/SegmentedControl";

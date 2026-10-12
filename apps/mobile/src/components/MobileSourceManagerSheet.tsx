@@ -1,3 +1,6 @@
+import { MenuView } from "@expo/ui/community/menu";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
+import { ExploreGlassButton, ExploreGlassIconButton } from "./explore/ExploreGlass";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -222,6 +225,54 @@ function SourceManagerRow({
     total,
   });
   const subtitle = mangaTitle ?? `${source.registryId} / ${source.sourceMangaId}`;
+
+  if (mobileDesignExploreFlag) {
+    return (
+      <View style={[styles.exploreRow, { backgroundColor: tokens.card }]}>
+        <NemuPressable
+          accessibilityRole="button"
+          accessibilityLabel={formatSourceManagerSelectAccessibilityLabel(name, positionLabel, selected, strings, subtitle)}
+          accessibilityState={{ selected, disabled }}
+          disabled={disabled}
+          onPress={() => { if (canSelect) onSelect(); }}
+          hapticFeedback={canSelect ? "selection" : "none"}
+          pressedScale={1}
+          containerStyle={styles.rowMain}
+          style={styles.rowMainPressable}
+        >
+          <View style={[styles.sourceIcon, { backgroundColor: tokens.sourceIconGlass, borderColor: tokens.border }]}>
+            {sourceInfo?.icon ? (
+              <MobileCachedImage uriOwnership="source" source={{ uri: sourceInfo.icon }} style={styles.sourceIconImage}
+                fallback={<Ionicons name="globe-outline" size={20} color={tokens.mutedForeground} />} />
+            ) : <Ionicons name="globe-outline" size={20} color={tokens.mutedForeground} />}
+          </View>
+          <View style={styles.rowText}>
+            <NemuText numberOfLines={1} style={[styles.rowTitle, { color: tokens.foreground }]}>{name}</NemuText>
+            <NemuText numberOfLines={1} style={[styles.rowSubtitle, { color: tokens.mutedForeground }]}>{subtitle}</NemuText>
+          </View>
+          {selected ? <Ionicons name="checkmark-circle" size={22} color={tokens.primary} /> : null}
+        </NemuPressable>
+        {busy ? <ActivityIndicator color={tokens.primary} /> : (
+          <MenuView
+            actions={[
+              { id: "up", title: formatMobileString(strings.sourceManager.moveUp, { name }), image: Platform.OS === "ios" ? "arrow.up" : undefined, attributes: { disabled: !canMoveUp } },
+              { id: "down", title: formatMobileString(strings.sourceManager.moveDown, { name }), image: Platform.OS === "ios" ? "arrow.down" : undefined, attributes: { disabled: !canMoveDown } },
+              { id: "remove", title: formatMobileString(strings.sourceManager.removeSourceConfirm, { name }), image: Platform.OS === "ios" ? "trash" : undefined, attributes: { destructive: true, disabled: !canRemove } },
+            ]}
+            onPressAction={({ nativeEvent }) => {
+              if (nativeEvent.event === "up" && canMoveUp) onMove(-1);
+              if (nativeEvent.event === "down" && canMoveDown) onMove(1);
+              if (nativeEvent.event === "remove" && canRemove) onRemove();
+            }}
+          >
+            <View accessibilityRole="button" accessibilityLabel={name} style={styles.exploreRowMenu}>
+              <Ionicons name="ellipsis-horizontal" size={22} color={tokens.mutedForeground} />
+            </View>
+          </MenuView>
+        )}
+      </View>
+    );
+  }
 
   return (
     <View
@@ -1346,7 +1397,15 @@ export function MobileSourceManagerSheet({
         ) : undefined
       }
       headerTrailing={
-        confirmationDetails ? undefined : (
+        confirmationDetails ? undefined : mobileDesignExploreFlag ? (
+          <ExploreGlassIconButton
+            icon={addPanelOpen ? "chevron-back" : "add"}
+            accessibilityLabel={headerActionLabel}
+            disabled={sourceManagerActionBusy}
+            onPress={handleToggleAddPanel}
+            ink={tokens.foreground}
+          />
+        ) : (
           <NemuButton
             accessibilityLabel={
               addPanelOpen
@@ -2076,7 +2135,7 @@ export function MobileSourceManagerSheet({
                     onRemove={() => confirmRemoveSource(source)}
                   />
                 ))}
-                {sources.length > 1 ? (
+                {sources.length > 1 && !mobileDesignExploreFlag ? (
                   <NemuText
                     density="compact"
                     style={[
@@ -2093,7 +2152,16 @@ export function MobileSourceManagerSheet({
         )}
           </View>
 
-          {!addPanelOpen ? (
+          {!addPanelOpen ? mobileDesignExploreFlag ? (
+            <ExploreGlassButton
+              label={strings.common.done}
+              icon="checkmark"
+              disabled={sourceManagerActionBusy}
+              onPress={handleRequestClose}
+              ink={tokens.foreground}
+              style={styles.footerButton}
+            />
+          ) : (
             <NemuButton
               accessibilityLabel={strings.common.done}
               containerStyle={styles.footerButton}
@@ -2111,6 +2179,8 @@ export function MobileSourceManagerSheet({
 }
 
 const styles = StyleSheet.create({
+  exploreRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10, paddingLeft: 14, paddingRight: 6, borderRadius: 20 },
+  exploreRowMenu: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   sheet: {
     maxHeight: "100%",
     gap: 14,

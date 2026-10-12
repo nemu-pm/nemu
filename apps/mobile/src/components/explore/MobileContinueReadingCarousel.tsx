@@ -1,3 +1,4 @@
+import { MobileQuickActionMenu, mobileNativeQuickMenuAvailable } from "../MobileQuickActionMenu";
 import { concentricMobileExploreRadius, MOBILE_EXPLORE_RADIUS as R } from "@/lib/mobileExploreRadius";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PixelRatio, StyleSheet, useWindowDimensions, View, type ViewInstance } from "react-native";
@@ -926,6 +927,7 @@ const ContinueCard = memo(function ContinueCard({
           glowStyle,
         ]}
       >
+        <MobileQuickActionMenu style={styles.cardPressContainer} actionKey={id} cornerRadius={CARD_RADIUS} beforeAction={() => preferExploreDissolveTarget(id, cardRef)}>
         <View ref={cardRef} style={[styles.cardFill, { backgroundColor: palette.card }]}>
           {/* A thumbnail cover looks for a sharper one on the title's other sources. */}
           <ExploreSharperCoverProbe entry={entry} installedSources={installedSources} />
@@ -944,9 +946,10 @@ const ContinueCard = memo(function ContinueCard({
               else if (event.nativeEvent.actionName === "more") openMore();
             }}
             hapticFeedback="press"
-            pressedScale={0.985}
+            // Keep the artwork and its coloured backing on the same surface.
+            pressedScale={1}
             onPress={() => pushMobileExploreDetail(entry, cover, zoomId, source.id)}
-            onLongPress={openMore}
+            onLongPress={mobileNativeQuickMenuAvailable ? undefined : openMore}
             containerStyle={styles.cardPressContainer}
             style={tall ? styles.tallCard : styles.card}
           >
@@ -956,6 +959,7 @@ const ContinueCard = memo(function ContinueCard({
           <View pointerEvents="none" style={[styles.rim, { borderColor: palette.cardRim }]} />
           <Animated.View pointerEvents="none" style={[styles.dim, dimStyle]} />
         </View>
+        </MobileQuickActionMenu>
       </Animated.View>
     </Animated.View>
   );

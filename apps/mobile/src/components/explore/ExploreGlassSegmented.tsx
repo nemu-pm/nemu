@@ -1,34 +1,19 @@
-import { useEffect, useState, type ComponentType } from "react";
+import { useEffect, useState } from "react";
 import { StyleSheet, View, type LayoutChangeEvent } from "react-native";
 import Animated, {
-  Easing,
   interpolate,
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
   withSpring,
-  withTiming,
 } from "react-native-reanimated";
 import { nemuFontWeight, NemuPressable, NemuText, radius, useNemuTheme } from "@/design-system";
-import { NativeGlassViewHost } from "../../../modules/nemu-window-layout";
+import { NativeSegmentedControl } from "../../../modules/nemu-window-layout";
 import { ExploreGlass } from "./ExploreGlass";
 
-/**
- * Two-way switch (Shelf | Grid) on a glass track whose selection is a
- * Liquid Glass lens in the accent colour: on a change it slides to the other
- * segment with a spring and stretches along its travel (the lens elongates
- * mid-way and settles), as the system's own glass selections do. Without
- * native glass (older iOS, Android) the lens is the animated accent pill.
- * Reduce Motion: a short cross-fade in place, no travel.
- */
-const SPRING = { damping: 17, stiffness: 240, mass: 0.85 } as const;
-/** How much longer than its segment the lens gets at the middle of its travel. */
-const STRETCH = 0.28;
+/** A's compact accent selection; UIKit owns glass tracking and transitions on iOS. */
+const SPRING = { damping: 20, stiffness: 260, mass: 0.85 } as const;
 const LENS_INSET = 3;
-
-const AnimatedGlass = (NativeGlassViewHost
-  ? Animated.createAnimatedComponent(NativeGlassViewHost as ComponentType<Record<string, unknown>>)
-  : null) as ComponentType<Record<string, unknown>> | null;
 
 type Layout = { x: number; width: number };
 
@@ -59,7 +44,7 @@ export function ExploreGlassSegmented<T extends string>({
   useEffect(() => {
     // Settles on the selected segment whenever the value changes.
     progress.value = reducedMotion
-      ? withTiming(selectedIndex, { duration: 150, easing: Easing.out(Easing.quad) })
+      ? selectedIndex
       : withSpring(selectedIndex, SPRING);
   }, [progress, reducedMotion, selectedIndex]);
 
@@ -70,15 +55,11 @@ export function ExploreGlassSegmented<T extends string>({
     const index = [0, 1];
     const center = interpolate(progress.value, index, [cs[0]!, cs[1]!]);
     const width = interpolate(progress.value, index, [ws[0]!, ws[1]!]);
-    // Elongates with the distance travelled, never while resting.
-    const travel = Math.min(1, Math.sin(Math.PI * Math.min(1, Math.max(0, progress.value))));
-    const stretch = reducedMotion ? 1 : 1 + STRETCH * travel;
     return {
       opacity: 1,
       transform: [
         { translateX: center - ws[0]! / 2 },
-        { scaleX: (width / ws[0]!) * stretch },
-        { scaleY: reducedMotion ? 1 : 1 - 0.06 * travel },
+        { scaleX: width / ws[0]! },
       ],
     };
   });
@@ -95,32 +76,40 @@ export function ExploreGlassSegmented<T extends string>({
   };
 
   const firstWidth = layouts[0]?.width ?? 0;
-  const lensBase = [styles.lens, { width: firstWidth, left: LENS_INSET, top: LENS_INSET, bottom: LENS_INSET }];
+  const lensBase = [styles.lens, { width: firstWidth, left: 0, top: 0, bottom: 0 }];
+
+  if (NativeSegmentedControl) {
+    return (
+      <ExploreGlass>
+        <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[styles.row, styles.track, { opacity: 0 }]}>
+          {options.map((option) => <View key={option.value} style={styles.segment}><NemuText maxFontSizeMultiplier={1.3} numberOfLines={1} style={styles.segmentText}>{option.label}</NemuText></View>)}
+        </View>
+        <NativeSegmentedControl
+          style={StyleSheet.absoluteFill}
+          labels={options.map((option) => option.label)}
+          selectedIndex={selectedIndex}
+          selectionColor={tokens.primary}
+          textColor={tokens.mutedForeground}
+          selectedTextColor={tokens.primaryForeground}
+          accessibilityLabel={accessibilityLabel}
+          onSelectionChange={({ nativeEvent }) => {
+            const next = options[nativeEvent.selectedIndex];
+            if (next && next.value !== value) onChange(next.value);
+          }}
+        />
+      </ExploreGlass>
+    );
+  }
 
   return (
     <ExploreGlass style={styles.track}>
       <View style={styles.row}>
         {/* Under the labels, over the track. */}
         {firstWidth > 0 ? (
-          AnimatedGlass ? (
-            <AnimatedGlass
-              pointerEvents="none"
-              tintColor={tokens.primary}
-              cornerRadius={0}
-              interactive={false}
-              clear={false}
-              concentricMinimum={0}
-              materialized
-              animateAppearance={false}
-              materializeDurationMs={0}
-              style={[lensBase, lensStyle]}
-            />
-          ) : (
-            <Animated.View
-              pointerEvents="none"
-              style={[lensBase, { backgroundColor: tokens.primary, borderRadius: radius.pill }, lensStyle]}
-            />
-          )
+          <Animated.View
+            pointerEvents="none"
+            style={[lensBase, { backgroundColor: tokens.primary, borderRadius: radius.pill }, lensStyle]}
+          />
         ) : null}
         {options.map((option, index) => {
           const selected = option.value === value;

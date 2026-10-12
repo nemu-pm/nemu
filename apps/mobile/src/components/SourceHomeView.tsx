@@ -802,8 +802,7 @@ function ExploreFeaturedWash({
     <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, style]}>
       <ExploreGradient
         colors={[
-          [colors.washClear, 0],
-          [colors.washSoft, 0.14],
+          [colors.wash, 0],
           [colors.wash, 0.3],
           [colors.washSoft, 0.62],
           [colors.washFaint, 0.86],
@@ -945,7 +944,7 @@ function ExploreFeaturedCarousel({
   // (title, tabs, headings, rows) with a peek of the next: several cards where they fit.
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const { regular, cardWidth, interval, paddingLeft: sidePad, paddingRight: sidePadRight } = getMobileSourceFeaturedGeometry({
-    frameWidth: viewport,
+    frameWidth: viewport || Math.max(0, windowWidth - gutters.left - gutters.right - bleed.frame.marginLeft - bleed.frame.marginRight),
     gutterLeft: gutters.left,
     gutterRight: gutters.right,
     windowWidth,

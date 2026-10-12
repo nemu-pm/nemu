@@ -10,24 +10,9 @@ const REFERENCE_TITLE_BAR_HEIGHT = 44;
 export const MOBILE_PAGE_MIN_TOP_PADDING = 8;
 
 /**
- * Top padding of a page under a title bar, derived from the bar that is
- * actually on screen instead of a device or window-size guess.
- *
- * `headerHeight` is the native stack's measured header height (it includes
- * the top safe area), `safeAreaTop` the top inset. Their difference is the
- * title bar; its center is where the title sits. The padding tops the
- * distance from that center to the bar's bottom up to the reference 40pt:
- * - portrait iPhone (44pt bar): 18pt — unchanged;
- * - Android Material top app bar (64dp): 8pt — the title already sits 32pt
- *   above the content, the owner-reported "too much space";
- * - taller bars (Duo outer / inner landscape with trailing system bars, a
- *   screen's own title + search rows): clamped to 8pt;
- * - short bars (landscape iPhone 32pt): clamped to the 18pt page padding.
- *
- * `headerBarHeight` overrides the measurement for screens that draw their own
- * header. `insetAdjusted` means the reported height includes an iOS header
- * search field (`Stack.SearchBar`), not just the title bar, so the page keeps
- * its own padding there.
+ * UIKit owns the native bar's scroll inset; iOS keeps a stable page padding
+ * while that inset is measured. Android and explicit custom headers derive
+ * spacing from the title bar height, clamped to 8–18pt.
  */
 export function getMobilePageTopPadding({
   nativeHeader,
@@ -47,7 +32,9 @@ export function getMobilePageTopPadding({
   platform: string;
 }): number {
   if (!nativeHeader) return safeAreaTop + pageTop;
-  if (insetAdjusted) return pageTop;
+  // UIKit adjusts the scroll inset as its bars settle. Deriving a second JS
+  // padding from the delayed header measurement shifts a newly visited tab.
+  if (insetAdjusted || (platform === "ios" && headerBarHeight === undefined)) return pageTop;
   const measuredBar =
     typeof headerHeight === "number" && headerHeight > safeAreaTop ? headerHeight - safeAreaTop : undefined;
   const bar = headerBarHeight ?? measuredBar

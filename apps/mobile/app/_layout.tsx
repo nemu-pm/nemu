@@ -12,7 +12,7 @@ import {
 import * as SplashScreen from "expo-splash-screen";
 import { Platform, StyleSheet, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-context";
 import { FloatingTabBar } from "@/components/FloatingTabBar";
 import { MobileErrorBoundaryScreen } from "@/components/MobileErrorBoundaryScreen";
 import { MobileFeedbackSettingsBridge } from "@/components/MobileFeedbackSettingsBridge";
@@ -196,7 +196,7 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider>
+      <SafeAreaProvider initialMetrics={initialWindowMetrics}>
         <MobileSyncProvider>
           <MobileDataProvider>
             <MobileLanguageProvider>

@@ -75,6 +75,17 @@ public final class NemuWindowLayoutModule: Module {
         view.coversBars = covers
       }
     }
+    Constant("nameAlertViewAvailable") { true }
+    View(NemuNameAlertView.self)
+    Constant("segmentedControlViewAvailable") { true }
+    View(NemuSegmentedControlView.self) {
+      Events("onSelectionChange")
+      Prop("labels") { (view: NemuSegmentedControlView, labels: [String]) in view.labels = labels }
+      Prop("selectedIndex") { (view: NemuSegmentedControlView, index: Int) in view.selectedIndex = index }
+      Prop("selectionColor") { (view: NemuSegmentedControlView, color: UIColor) in view.control.selectedSegmentTintColor = color }
+      Prop("textColor") { (view: NemuSegmentedControlView, color: UIColor) in view.textColor = color }
+      Prop("selectedTextColor") { (view: NemuSegmentedControlView, color: UIColor) in view.selectedTextColor = color }
+    }
     View(NemuGlassView.self) {
       Prop("tintColor") { (view: NemuGlassView, color: UIColor?) in
         view.glassTint = color
@@ -150,6 +161,7 @@ public final class NemuWindowLayoutModule: Module {
       Prop("items") { (view: NemuContextMenuView, items: [NemuContextMenuItem]) in
         view.items = items
       }
+      Prop("previewCornerRadius") { (view: NemuContextMenuView, radius: Double) in view.previewCornerRadius = CGFloat(radius) }
       Prop("menuTitle") { (view: NemuContextMenuView, title: String?) in
         view.menuTitle = title ?? ""
       }
@@ -175,6 +187,8 @@ final class NemuContextMenuView: ExpoView, UIContextMenuInteractionDelegate {
   let onMenuAction = EventDispatcher()
   var items: [NemuContextMenuItem] = []
   var menuTitle = ""
+  var previewCornerRadius: CGFloat = 16
+  private var pendingAction: String?
 
   required init(appContext: AppContext? = nil) {
     super.init(appContext: appContext)
@@ -198,13 +212,35 @@ final class NemuContextMenuView: ExpoView, UIContextMenuInteractionDelegate {
           image: item.systemImage.flatMap { UIImage(systemName: $0) },
           attributes: attributes
         ) { _ in
-          self?.onMenuAction(["id": item.id])
+          self?.pendingAction = item.id
         }
         action.subtitle = item.subtitle
         return action
       }
       return UIMenu(title: title, children: actions)
     }
+  }
+  private func menuPreview() -> UITargetedPreview {
+    let parameters = UIPreviewParameters()
+    parameters.backgroundColor = .clear
+    parameters.visiblePath = UIBezierPath(roundedRect: bounds, cornerRadius: previewCornerRadius)
+    return UITargetedPreview(view: self, parameters: parameters)
+  }
+
+  func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+    previewForHighlightingMenuWithConfiguration configuration: UIContextMenuConfiguration) -> UITargetedPreview? { menuPreview() }
+
+  func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+    previewForDismissingMenuWithConfiguration configuration: UIContextMenuConfiguration) -> UITargetedPreview? { menuPreview() }
+
+  func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+    willEndFor configuration: UIContextMenuConfiguration, animator: UIContextMenuInteractionAnimating?) {
+    let finish = { [weak self] in
+      guard let self, let id = self.pendingAction else { return }
+      self.pendingAction = nil
+      self.onMenuAction(["id": id])
+    }
+    if let animator { animator.addCompletion(finish) } else { finish() }
   }
 }
 
@@ -1931,5 +1967,125 @@ final class NemuContentScrollMarkerView: ExpoView {
       current.setContentScrollView(scrollView, for: [.top, .bottom])
       controller = current.parent
     }
+  }
+}
+
+/// Keep selection tracking, lifting and lens transitions in UIKit. Like Telegram's
+/// iOS 26 segmented control, the React view only owns labels, colours and selection.
+/// Use the public appearance API; do not depend on private lens views/subview order.
+final class NemuSegmentedControlView: ExpoView {
+  let control = UISegmentedControl(items: [])
+  let onSelectionChange = EventDispatcher()
+  var selectedIndex = 0 { didSet { applySelection() } }
+  var labels: [String] = [] {
+    didSet {
+      guard labels != oldValue else { return }
+      control.removeAllSegments()
+      for (index, label) in labels.enumerated() {
+        control.insertSegment(withTitle: label, at: index, animated: false)
+      }
+      applySelection()
+    }
+  }
+  var textColor = UIColor.secondaryLabel { didSet { updateText() } }
+  var selectedTextColor = UIColor.white { didSet { updateText() } }
+
+  required init(appContext: AppContext? = nil) {
+    super.init(appContext: appContext)
+    addSubview(control)
+    control.addTarget(self, action: #selector(selectionChanged), for: .valueChanged)
+    updateText()
+  }
+
+  private func applySelection() {
+    guard labels.indices.contains(selectedIndex), control.selectedSegmentIndex != selectedIndex else { return }
+    control.selectedSegmentIndex = selectedIndex
+  }
+
+  private func updateText() {
+    let font = UIFontMetrics(forTextStyle: .subheadline).scaledFont(
+      for: .systemFont(ofSize: 13, weight: .semibold), maximumPointSize: 16.9)
+    control.setTitleTextAttributes([.font: font, .foregroundColor: textColor], for: .normal)
+    control.setTitleTextAttributes([.font: font, .foregroundColor: selectedTextColor], for: .selected)
+  }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    control.frame = bounds
+    updateText()
+  }
+
+  @objc private func selectionChanged() {
+    selectedIndex = control.selectedSegmentIndex
+    UISelectionFeedbackGenerator().selectionChanged()
+    onSelectionChange(["selectedIndex": selectedIndex])
+  }
+}
+
+/// Marks the positive alert action as the default, giving UIKit the native
+/// emphasis and Return-key behaviour instead of two equivalent actions.
+
+
+// Keep the actual TextField and Buttons in one native alert builder. Wrapping
+// each action in Expo's type-erased child view loses alert-specific traits.
+final class NemuNameAlertProps: ExpoSwiftUI.ViewProps {
+  @Field var presented = false
+  @Field var title = ""
+  @Field var message = ""
+  @Field var placeholder = ""
+  @Field var initialValue = ""
+  @Field var confirmLabel = ""
+  @Field var cancelLabel = ""
+  @Field var requireChange = false
+  var onConfirm = EventDispatcher()
+  var onCancel = EventDispatcher()
+}
+
+struct NemuNameAlertView: ExpoSwiftUI.View {
+  @ObservedObject var props: NemuNameAlertProps
+  @State private var presented = false
+  @State private var text = ""
+  @State private var settled = false
+
+  private var name: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
+  private var confirmRole: SwiftUI.ButtonRole? {
+    if #available(iOS 26.0, *) { return .confirm }
+    return nil
+  }
+  private func present() {
+    text = props.initialValue
+    settled = false
+    presented = true
+  }
+  var body: some View {
+    Children()
+      .alert(props.title, isPresented: $presented) {
+        TextField(props.placeholder, text: $text)
+          .textInputAutocapitalization(.words)
+          .submitLabel(.done)
+        SwiftUI.Button(props.cancelLabel, role: .cancel) {
+          settled = true
+          props.onCancel()
+        }
+        SwiftUI.Button(props.confirmLabel, role: confirmRole) {
+          settled = true
+          props.onConfirm(["name": name])
+        }
+        .keyboardShortcut(.defaultAction)
+        .disabled(name.isEmpty || (props.requireChange && name == props.initialValue.trimmingCharacters(in: .whitespacesAndNewlines)))
+      } message: {
+        Text(props.message)
+      }
+      .tint(nil)
+      .onAppear { if props.presented { present() } }
+      .onChange(of: props.presented) { value in
+        if value { present() } else { presented = false }
+      }
+      .onChange(of: presented) { value in
+        if !value && !settled {
+          settled = true
+          props.onCancel()
+        }
+      }
   }
 }

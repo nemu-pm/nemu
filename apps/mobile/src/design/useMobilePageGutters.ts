@@ -16,10 +16,10 @@ import {
  */
 export function useMobilePageGutters(): MobilePageGutters {
   const insets = useSafeAreaInsets();
-  const { minimumLayoutMargins } = useMobileWindowLayout();
+  const { minimumLayoutMargins, safeAreaInsets: windowInsets } = useMobileWindowLayout();
   return useMemo(
-    () => getMobilePageGutters({ left: insets.left, right: insets.right }, undefined, minimumLayoutMargins),
-    [insets.left, insets.right, minimumLayoutMargins],
+    () => getMobilePageGutters({ left: Math.max(insets.left, windowInsets?.left ?? 0), right: Math.max(insets.right, windowInsets?.right ?? 0) }, undefined, minimumLayoutMargins),
+    [insets.left, insets.right, minimumLayoutMargins, windowInsets?.left, windowInsets?.right],
   );
 }
 

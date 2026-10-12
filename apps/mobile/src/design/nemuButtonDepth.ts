@@ -433,7 +433,7 @@ function chipIncludedDepthVisual({
   return {
     backgroundColor: nemuColorWithAlpha(tokens.primary, scheme === "dark" ? 0.2 : 0.12),
     borderColor: "transparent",
-    boxShadow: "none",
+    boxShadow: CHIP_INSET_SHADOW[scheme],
     foregroundColor: tokens.primary,
   };
 }

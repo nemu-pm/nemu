@@ -1,3 +1,6 @@
+import { requireNativeView } from "expo";
+import { requireOptionalNativeModule } from "expo-modules-core";
+import type { ComponentType } from "react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ColorValue } from "react-native";
 import {
@@ -28,11 +31,23 @@ import type { SFSymbol } from "sf-symbols-typescript";
 
 const BUTTON_EVENT_GRACE_MS = 300;
 
+type NameAlertProps = Parameters<typeof LegacyNameAlert>[0];
+const hasNameAlert = requireOptionalNativeModule<{ nameAlertViewAvailable?: boolean }>("NemuWindowLayout")?.nameAlertViewAvailable === true;
+const NameAlertView: ComponentType<Omit<NameAlertProps, "onConfirm" | "onCancel"> & {
+  onConfirm: (event: { nativeEvent: { name: string } }) => void;
+  onCancel: () => void;
+}> | null = hasNameAlert ? requireNativeView("NemuWindowLayout", "NemuNameAlertView") : null;
+
+export function NativeNameAlert(props: NameAlertProps) {
+  if (!NameAlertView) return <LegacyNameAlert {...props} />;
+  return <NameAlertView {...props} onConfirm={({ nativeEvent }) => props.onConfirm(nativeEvent.name)} />;
+}
+
 /**
  * A SwiftUI alert with one text field — how Photos names a new album or
  * renames one. `children` is the view the alert is attached to.
  */
-export function NativeNameAlert({
+function LegacyNameAlert({
   presented,
   title,
   message,
@@ -116,7 +131,7 @@ export function NativeNameAlert({
         <SwiftButton
           label={confirmLabel}
           onPress={confirm}
-          modifiers={confirmDisabled ? [swiftDisabled(true)] : []}
+          modifiers={[swiftDisabled(confirmDisabled)]}
         />
       </SwiftAlert.Actions>
       {message ? (

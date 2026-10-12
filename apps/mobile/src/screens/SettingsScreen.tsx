@@ -1,3 +1,4 @@
+import { MobileQuickActionMenu, mobileNativeQuickMenuAvailable } from "@/components/MobileQuickActionMenu";
 import type { FlatList, ScrollViewInstance } from "react-native";
 import {
   useCallback,
@@ -365,6 +366,7 @@ function SourceManagementRow({
   disabled,
   onBrowse,
   onQuickActions,
+  contextActions,
   onToggleEnabled,
 }: {
   source: InstalledSource;
@@ -375,6 +377,7 @@ function SourceManagementRow({
   disabled: boolean;
   onBrowse: () => void;
   onQuickActions: () => void;
+  contextActions: QuickAction[];
   onToggleEnabled: (enabled: boolean) => void;
 }) {
   const { tokens } = useNemuTheme();
@@ -395,6 +398,7 @@ function SourceManagementRow({
   const rowHighlight = useNemuRowHighlight();
 
   return (
+    <MobileQuickActionMenu actions={contextActions}>
     <View style={[styles.sourceEmbeddedRow, { borderColor: tokens.border }]}>
       {rowHighlight.overlay()}
       <NemuPressable
@@ -422,7 +426,7 @@ function SourceManagementRow({
           void hapticPress();
           onBrowse();
         }}
-        onLongPress={() => {
+        onLongPress={mobileNativeQuickMenuAvailable ? undefined : () => {
           if (quickActionsDisabled) return;
           void hapticSelection();
           onQuickActions();
@@ -517,6 +521,7 @@ function SourceManagementRow({
         )}
       </View>
     </View>
+    </MobileQuickActionMenu>
   );
 }
 
@@ -2709,6 +2714,22 @@ function SettingsScreenContent({
         })
       : [];
 
+  const sourceContextActions = (source: InstalledSource): QuickAction[] => {
+    if (settingsActionBusy || removingSourceId === source.id) return [];
+    const homepage = resolveMobileSourceHomepageUrl(source.packageMetadata?.urls);
+    return buildMobileSourceQuickActions({
+      canOpenSettings: !isMobileInstalledSourceDisabled(source), hasUpdate: false, hasHomepage: Boolean(homepage),
+    }).flatMap((descriptor) => {
+      const label = sourceQuickActionLabel(descriptor.id, strings);
+      if (!label) return [];
+      return [{ ...descriptor, label, onPress: () => {
+        if (descriptor.id === "settings") openSourceSettings(source.id);
+        if (descriptor.id === "uninstall") confirmRemoveSource(source);
+        if (descriptor.id === "openInBrowser" && homepage) void Linking.openURL(homepage).catch(() => undefined);
+      }}];
+    });
+  };
+
   const clearCache = async () => {
     if (!canStartMobileSettingsAction(getGuardedSettingsActionState())) return;
     pendingClearModeRef.current = "cache";
@@ -3297,6 +3318,7 @@ function SettingsScreenContent({
                           <SourceManagementRow
                             key={source.id}
                             source={source}
+                            contextActions={sourceContextActions(source)}
                             iconUri={resolveMobileInstalledSourceIconUri(
                               source,
                               sourceIconIndex,

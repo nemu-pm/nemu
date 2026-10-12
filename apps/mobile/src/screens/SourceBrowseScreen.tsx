@@ -1742,7 +1742,11 @@ export function SourceBrowseScreen() {
     sourceHasHomeProvider,
     visibleListings.length,
   );
-  const showListingTabBar = shouldShowMobileSourceBrowseListingTabBar({
+  // Reveal home tabs with the final home, rather than shifting a live
+  // skeleton down as metadata arrives independently of its content.
+  const homeLayoutPending = sourceHasHomeProvider && !sourceHomeHasComponents
+    && (sourceHomeState.status === "idle" || sourceHomeState.status === "loading");
+  const showListingTabBar = !homeLayoutPending && shouldShowMobileSourceBrowseListingTabBar({
     listingTabCount,
     sourceHomeProviderKnown,
     onlySearch: sourceOnlySearch,
@@ -2139,14 +2143,9 @@ export function SourceBrowseScreen() {
     void withSourceOperationTimeout(
       fetchMobileSourceHome(requestSource, {
         getSourceSettings: resolveExecutorSourceSettings,
-        onPartial: (home) => {
-          if (cancelled || sourceHomeRequestRef.current !== requestId) return;
-          setSourceHomeState({
-            status: "loading",
-            home,
-            detail: strings.sourceBrowse.loadingHome,
-          });
-        },
+        // A source may send several different provisional home layouts. Keep
+        // its loading shell (or last complete home) until the request commits
+        // one coherent layout; this applies to every runtime/source.
       }),
       strings.sourceBrowse.sourceOperationTimedOut,
     )

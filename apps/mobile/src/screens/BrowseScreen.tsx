@@ -1,3 +1,4 @@
+import { MobileQuickActionMenu, mobileNativeQuickMenuAvailable } from "@/components/MobileQuickActionMenu";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
@@ -1566,6 +1567,38 @@ export function BrowseScreen() {
         }))
       : [];
 
+  const sourceContextActions = (id: string): QuickAction[] => {
+    const source = mergedInstalledSources.find((item) => item.id === id);
+    if (!source) return [];
+    const update = findMobileSourceUpdates([source], available.data)[0];
+    const homepage = resolveMobileSourceHomepageUrl(source.packageMetadata?.urls);
+    return buildMobileSourceQuickActions({ canOpenSettings: true, hasUpdate: Boolean(update), hasHomepage: Boolean(homepage) }).map((descriptor) => ({
+      ...descriptor,
+      label: descriptor.id === "update"
+        ? formatMobileString(strings.browse.updateSourceToVersion, { version: update?.version ?? "" })
+        : quickActionLabel(descriptor.id),
+      onPress: () => {
+        // UIKit has finished dismissing the menu before presenting a destination.
+        switch (descriptor.id) {
+          case "settings":
+            setQuickActionSourceId(id);
+            setQuickActionSettingsVisible(true);
+            break;
+          case "update":
+            if (update) void installSourceRef.current?.(update);
+            break;
+          case "openInBrowser":
+            if (homepage) void Linking.openURL(homepage).catch(() => undefined);
+            break;
+          case "uninstall":
+            setQuickActionUninstall(source);
+            setQuickActionUninstallVisible(true);
+            break;
+        }
+      },
+    }));
+  };
+
 
   const nativeHeaderActions: NemuNativeHeaderAction[] = [
     {
@@ -1726,6 +1759,7 @@ export function BrowseScreen() {
                                     }}
                                   />
                                 ) : (
+                                  <MobileQuickActionMenu actions={sourceContextActions(source.id)}>
                                   <SourceCard
                                     compact
                                     item={
@@ -1733,13 +1767,14 @@ export function BrowseScreen() {
                                         ? { ...source, subtitle: undefined }
                                         : source
                                     }
-                                    onLongPress={() => {
+                                    onLongPress={mobileNativeQuickMenuAvailable ? undefined : () => {
                                       void hapticSelection();
                                       quickActionDismissRef.current = null;
                                       setQuickActionSourceId(source.id);
                                       setQuickActionVisible(true);
                                     }}
                                   />
+                                  </MobileQuickActionMenu>
                                 )}
                               </View>
                             ))}

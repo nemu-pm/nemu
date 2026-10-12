@@ -60,7 +60,7 @@ describe("empty library keeps collection management reachable", () => {
 
 describe("collection switching stays in place", () => {
   test("the populated library mounts the title menu on its header", () => {
-    const main = librarySource.slice(librarySource.lastIndexOf("  return (\n    <>"));
+    const main = librarySource.slice(librarySource.lastIndexOf("  return (\n    <MobileQuickActionProvider"));
     expect(main).toContain("titleMenuHeaderOptions(title)");
     expect(main).toContain("{titleMenuAnchor}");
   });
