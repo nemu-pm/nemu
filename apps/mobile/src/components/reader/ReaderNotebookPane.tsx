@@ -487,23 +487,25 @@ const FilmstripThumb = memo(function FilmstripThumb({
   onSelectPage: (index: number) => void;
 }) {
   const page = index + 1;
-  const [preview, setPreview] = useState<{ uri: string | null; failed: boolean }>({ uri: null, failed: false });
   const [retry, setRetry] = useState(0);
+  const request = useMemo(() => ({ index, revealed, visible, thumbnailUri, retry }), [index, revealed, visible, thumbnailUri, retry]);
+  const [preview, setPreview] = useState<{ request: typeof request; uri: string | null; failed: boolean }>({ request, uri: null, failed: false });
+  if (preview.request !== request) setPreview({ request, uri: null, failed: false });
   useEffect(() => {
+    const { index, revealed, visible, thumbnailUri } = request;
     const controller = new AbortController();
-    setPreview({ uri: null, failed: false });
     // Never resolve hidden spoilers or offscreen cells, even if FlatList renders them.
     if (!revealed || !visible) return () => controller.abort();
     void thumbnailUri(index, controller.signal).then(
       (uri) => {
-        if (!controller.signal.aborted) setPreview({ uri, failed: !uri });
+        if (!controller.signal.aborted) setPreview({ request, uri, failed: !uri });
       },
       () => {
-        if (!controller.signal.aborted) setPreview({ uri: null, failed: true });
+        if (!controller.signal.aborted) setPreview({ request, uri: null, failed: true });
       },
     );
     return () => controller.abort();
-  }, [index, revealed, retry, thumbnailUri, visible]);
+  }, [request]);
   const failed = revealed && preview.failed;
   const label = formatMobileString(
     failed ? strings.duo.filmstripPreviewFailed : revealed ? strings.reader.pageTitle : strings.duo.filmstripUnreadPage,
@@ -523,7 +525,7 @@ const FilmstripThumb = memo(function FilmstripThumb({
             key={`${preview.uri ?? "pending"}:${retry}`}
             uri={preview.uri}
             reduceMotion={reduceMotion}
-            onError={() => setPreview({ uri: null, failed: true })}
+            onError={() => setPreview({ request, uri: null, failed: true })}
           />
         ) : (
           <Ionicons name={failed ? "reload-outline" : revealed ? "image-outline" : "eye-off-outline"} size={20} color={QUIET} />
@@ -551,7 +553,7 @@ function FilmstripPreview({ uri, reduceMotion, onError }: { uri: string | null; 
           fadeDuration={0}
           onLoad={() => {
             setLoaded(true);
-            imageOpacity.value = withTiming(1, { duration: reduceMotion ? 0 : 160 });
+            imageOpacity.set(withTiming(1, { duration: reduceMotion ? 0 : 160 }));
           }}
           onError={onError}
           style={styles.thumbImage}
