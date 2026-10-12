@@ -304,22 +304,33 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest print \
             app/build/outputs/apk/debug/app-debug.apk \
             > /tmp/nemu-android-debug-manifest.xml
-          ! grep -Fq 'android.permission.SYSTEM_ALERT_WINDOW' /tmp/nemu-android-debug-manifest.xml
+          # A bare `! grep` does not stop a `bash -e` script when it fails, so
+          # each forbidden entry is checked explicitly and exits 1 when found.
+          if grep -Fq 'android.permission.SYSTEM_ALERT_WINDOW' /tmp/nemu-android-debug-manifest.xml; then
+            echo "forbidden entry in the debug manifest: android.permission.SYSTEM_ALERT_WINDOW" >&2
+            exit 1
+          fi
           "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest print \
             app/build/outputs/apk/release/app-release.apk \
             > /tmp/nemu-android-release-manifest.xml
           grep -F 'android:usesCleartextTraffic="true"' /tmp/nemu-android-release-manifest.xml
-          ! grep -Fq 'android.permission.CAMERA' /tmp/nemu-android-release-manifest.xml
-          ! grep -Fq 'android.permission.POST_NOTIFICATIONS' /tmp/nemu-android-release-manifest.xml
-          ! grep -Fq 'android.permission.READ_EXTERNAL_STORAGE' /tmp/nemu-android-release-manifest.xml
-          ! grep -Fq 'android.permission.RECORD_AUDIO' /tmp/nemu-android-release-manifest.xml
-          ! grep -Fq 'android.permission.FOREGROUND_SERVICE' /tmp/nemu-android-release-manifest.xml
-          ! grep -Fq 'android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK' /tmp/nemu-android-release-manifest.xml
-          ! grep -Fq 'android.permission.SYSTEM_ALERT_WINDOW' /tmp/nemu-android-release-manifest.xml
-          ! grep -Fq 'android.permission.USE_BIOMETRIC' /tmp/nemu-android-release-manifest.xml
-          ! grep -Fq 'android.permission.USE_FINGERPRINT' /tmp/nemu-android-release-manifest.xml
-          ! grep -Fq 'android.permission.WRITE_EXTERNAL_STORAGE' /tmp/nemu-android-release-manifest.xml
-          ! grep -Fq 'expo.modules.audio.service.AudioControlsService' /tmp/nemu-android-release-manifest.xml
+          for forbidden in \
+            'android.permission.CAMERA' \
+            'android.permission.POST_NOTIFICATIONS' \
+            'android.permission.READ_EXTERNAL_STORAGE' \
+            'android.permission.RECORD_AUDIO' \
+            'android.permission.FOREGROUND_SERVICE' \
+            'android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK' \
+            'android.permission.SYSTEM_ALERT_WINDOW' \
+            'android.permission.USE_BIOMETRIC' \
+            'android.permission.USE_FINGERPRINT' \
+            'android.permission.WRITE_EXTERNAL_STORAGE' \
+            'expo.modules.audio.service.AudioControlsService'; do
+            if grep -Fq "$forbidden" /tmp/nemu-android-release-manifest.xml; then
+              echo "forbidden entry in the release manifest: $forbidden" >&2
+              exit 1
+            fi
+          done
       - name: Upload Android failure reports
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -399,7 +410,10 @@ jobs:
           grep -Fq '<string>35F9.1</string>' /tmp/nemu-privacy-manifest.xml
           plutil -extract UIBackgroundModes xml1 -o /tmp/nemu-background-modes.xml ios/nemu/Info.plist
           grep -Fq '<string>processing</string>' /tmp/nemu-background-modes.xml
-          ! grep -Fq '<string>audio</string>' /tmp/nemu-background-modes.xml
+          if grep -Fq '<string>audio</string>' /tmp/nemu-background-modes.xml; then
+            echo "forbidden UIBackgroundModes entry: audio" >&2
+            exit 1
+          fi
           # Nemu chat dictation (expo-speech-recognition) needs both prompts;
           # neither may be empty.
           for key in NSMicrophoneUsageDescription NSSpeechRecognitionUsageDescription; do
@@ -611,7 +625,10 @@ jobs:
           grep -Fq '<string>35F9.1</string>' /tmp/nemu-privacy-manifest.xml
           plutil -extract UIBackgroundModes xml1 -o /tmp/nemu-background-modes.xml ios/nemu/Info.plist
           grep -Fq '<string>processing</string>' /tmp/nemu-background-modes.xml
-          ! grep -Fq '<string>audio</string>' /tmp/nemu-background-modes.xml
+          if grep -Fq '<string>audio</string>' /tmp/nemu-background-modes.xml; then
+            echo "forbidden UIBackgroundModes entry: audio" >&2
+            exit 1
+          fi
           # Nemu chat dictation (expo-speech-recognition) needs both prompts;
           # neither may be empty.
           for key in NSMicrophoneUsageDescription NSSpeechRecognitionUsageDescription; do
