@@ -75,7 +75,7 @@ const SIDE_PEEK = 20;
 /** A one-card-per-position wide card stays this narrow: taller than a flat banner, with the cover bigger (`SINGLE_COVER_SHARE`). */
 const SINGLE_CARD_MAX_WIDTH = 420;
 
-/** A centred single card never gets narrower than this (unless the window is). */
+/** A single card never gets narrower than this (unless the window is). */
 const NARROW_CARD_FLOOR = 280;
 
 const NONE: MobileContinueCardGeometry = {
@@ -96,8 +96,9 @@ const NONE: MobileContinueCardGeometry = {
  * system's vertical bar holds one edge); `fold` is the active fold in the
  * row's own coordinates, or null.
  *
- * - Narrow (one card fits): the card is centred between the gutters and its
- *   neighbours peek on both sides; a lone card is centred too.
+ * - Narrow (one card fits): a tall card (phone portrait) is centred between
+ *   the gutters, its neighbours peeking on both sides. A wide card starts on
+ *   the leading gutter and only the next card peeks; a lone card too.
  * - Wide (two or more fit): as many whole cards as fit side by side, an even
  *   number when the window has a fold region so folding barely moves them;
  *   a peek of the next card only when more cards follow.
@@ -175,18 +176,19 @@ export function getMobileContinueCardGeometry({
   }
 
   if (columns === 1) {
-    // One card to a position: centred between the gutters, so a neighbour
-    // peeks on each side (the first and last card too, their missing
-    // neighbour leaving the same room).
-    const roomed = content - 2 * (gap + SIDE_PEEK);
+    // One card to a position (a short or narrow window: phone landscape, a
+    // closed Duo): the leading card starts on the page gutter, as everywhere
+    // else, and only the next card peeks, on the trailing side. Nothing sits
+    // to its leading side to peek, so it is not centred.
+    const roomed = content - gap - peek;
     const cardWidth = Math.min(maxWidth, SINGLE_CARD_MAX_WIDTH, content, count <= 1 ? content : Math.max(roomed, Math.min(content, NARROW_CARD_FLOOR)));
-    const paddingLeft = left + (content - cardWidth) / 2;
     return {
       ...NONE,
       cardWidth,
       interval: cardWidth + gap,
-      paddingLeft,
-      paddingRight: frameWidth - paddingLeft - cardWidth,
+      paddingLeft: left,
+      // The last card rests leading-aligned on the gutter, like the others.
+      paddingRight: Math.max(right, frameWidth - left - cardWidth),
       turns: count > 1,
     };
   }

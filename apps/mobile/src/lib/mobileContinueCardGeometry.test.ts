@@ -26,20 +26,20 @@ describe("getMobileContinueCardGeometry", () => {
   test("phone: the card starts on the gutter, the next one peeks, with the turn", () => {
     const g = getMobileContinueCardGeometry({ frameWidth: 420, gutterLeft: 20, count: 3 });
     expect(g).toEqual({
-      cardWidth: 316,
-      interval: 328,
-      paddingLeft: 52,
-      paddingRight: 52,
+      cardWidth: 340,
+      interval: 352,
+      paddingLeft: 20,
+      paddingRight: 60,
       columns: 1,
       turns: true,
       foldAligned: false,
     });
-    // Every card can rest centred, the first and last included.
+    // Every card can rest leading-aligned, the last one included.
     expect(maxOffset(g, 3, 420)).toBe(2 * g.interval);
-    expect(g.paddingLeft).toBe(g.paddingRight);
+    expect(cardsAt(g, 3, 2)[2][0]).toBe(20);
   });
 
-  test("phone: a lone card is centred and does not turn", () => {
+  test("phone: a lone card fills the content and does not turn", () => {
     expect(getMobileContinueCardGeometry({ frameWidth: 420, gutterLeft: 20, count: 1 })).toMatchObject({
       cardWidth: 380,
       paddingLeft: 20,
@@ -59,16 +59,17 @@ describe("getMobileContinueCardGeometry", () => {
     const g = getMobileContinueCardGeometry({ frameWidth: 360, gutterLeft: 8, gutterRight: 16, count: 4 });
     expect(g.columns).toBe(1);
     expect(g.turns).toBe(true);
-    // Centred between the gutters (content 336 pt): the card floor, the rest split evenly.
-    expect(g.cardWidth).toBe(280);
-    expect(g.paddingLeft).toBe(8 + (336 - 280) / 2);
-    expect(g.paddingRight).toBe(360 - g.paddingLeft - 280);
-    // Each card can rest centred, the last one included.
+    // Leading edge on the gutter (content 336 pt), the next card peeking past a 12 pt gap.
+    expect(g.cardWidth).toBe(296);
+    expect(g.paddingLeft).toBe(8);
+    expect(cardsAt(g, 4, 0)[1][0]).toBe(8 + 296 + 12);
+    // Each card can rest leading-aligned, the last one included.
     expect(maxOffset(g, 4, 360)).toBeCloseTo(3 * g.interval);
+    expect(cardsAt(g, 4, 3)[3][0]).toBe(8);
     // Mirrored (bar on the right): same card, the gutters swap.
     const mirrored = getMobileContinueCardGeometry({ frameWidth: 360, gutterLeft: 16, gutterRight: 8, count: 4 });
-    expect(mirrored.paddingLeft).toBe(16 + (336 - 280) / 2);
-    expect(mirrored.cardWidth).toBe(280);
+    expect(mirrored.paddingLeft).toBe(16);
+    expect(mirrored.cardWidth).toBe(296);
     expect(maxOffset(mirrored, 4, 360)).toBeCloseTo(3 * mirrored.interval);
   });
 
@@ -170,10 +171,19 @@ describe("getMobileContinueCardGeometry", () => {
     expect(g.turns).toBe(false);
   });
 
-  test("a wide card to a position stays narrow and centred (the closed Duo in landscape)", () => {
+  test("a wide card to a position stays narrow and leads from the gutter (landscape, the closed Duo)", () => {
     const g = getMobileContinueCardGeometry({ frameWidth: 640, gutterLeft: 20, gutterRight: 20, count: 3 });
-    expect(g).toMatchObject({ columns: 1, cardWidth: 420, turns: true });
-    expect(g.paddingLeft).toBeCloseTo(g.paddingRight);
+    expect(g).toMatchObject({ columns: 1, cardWidth: 420, turns: true, paddingLeft: 20 });
+    expect(cardsAt(g, 3, 0)[0][0]).toBe(20);
+    // The next card peeks on the trailing side only.
+    expect(cardsAt(g, 3, 0)[1][0]).toBe(20 + 420 + 12);
+    expect(cardsAt(g, 3, 1)[1][0]).toBe(20);
+    expect(maxOffset(g, 3, 640)).toBe(2 * g.interval);
+  });
+
+  test("a lone wide card leads from the gutter and does not turn", () => {
+    const g = getMobileContinueCardGeometry({ frameWidth: 640, gutterLeft: 20, gutterRight: 20, count: 1 });
+    expect(g).toMatchObject({ columns: 1, cardWidth: 420, turns: false, paddingLeft: 20 });
   });
 
   test("a tall card needs a tall window", () => {
