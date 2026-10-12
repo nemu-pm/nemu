@@ -96,7 +96,7 @@ import {
   sanitizeMobileErrorDiagnostic,
 } from "@/lib/mobileSourceErrors";
 import { MOBILE_MANGA_GRID_GAP } from "@/lib/mobileAdaptiveGrid";
-import { mobileFoldAwareGridCellStyle } from "@/lib/mobileFoldAwareGrid";
+import { chunkMobileGridRows, mobileFoldAwareGridCellStyle } from "@/lib/mobileFoldAwareGrid";
 import { MobilePaneAlignedView } from "@/lib/MobilePaneAlignedView";
 import { useMobileFoldAwareGrid } from "@/lib/useMobileFoldAwareGrid";
 import { MobilePoseLayoutView } from "@/components/MobilePoseLayoutView";
@@ -115,7 +115,7 @@ import { useMobileExploreCoverPreference } from "@/components/explore/mobileExpl
 import { hasMobileUserCover, mobileExploreCoverOwnerUrl, pushMobileExploreDetail } from "@/components/explore/mobileExploreCover";
 import { ContentScrollMarker, ZoomSource } from "../../modules/nemu-window-layout";
 import { useReducedMotion } from "react-native-reanimated";
-import { useMobilePoseRemountVeil, useMobilePoseRenderProbe } from "@/lib/MobilePoseTransitionContext";
+import { useMobilePoseRenderProbe } from "@/lib/MobilePoseTransitionContext";
 import { useMobileGridScrollAnchor } from "@/lib/useMobileGridScrollAnchor";
 import { getMobileInstalledSourceSettingsKeys } from "@/lib/mobileInstalledSourceKeys";import {
   canCreateMobileCollection,
@@ -317,6 +317,10 @@ let mobileLibraryShelfLayoutDefault = true;
 const LIBRARY_TITLE_MENU_ALL = "library:all";
 const LIBRARY_TITLE_MENU_MANAGE = "library:manage";
 const LIBRARY_TITLE_MENU_COLLECTION_PREFIX = "library:collection:";
+
+function libraryRowKey(row: LibraryEntry[]): string {
+  return row.map(libraryEntryKey).join(":");
+}
 
 function libraryEntryKey(entry: LibraryEntry): string {
   return entry.item.libraryItemId;
@@ -872,7 +876,7 @@ export function LibraryScreen({
   // from queueing more work while the user is elsewhere.
   const libraryRefreshAbortRef = useRef<{ aborted: boolean }>({ aborted: false });
   const libraryFocusedRef = useRef(true);
-  const gridScrollRef = useRef<FlatList<LibraryEntry> | null>(null);
+  const gridScrollRef = useRef<FlatList<LibraryEntry[]> | null>(null);
   // The library grid adapts exactly like browse and search: columns come from
   // the list's measured width minus the scaffold's safe-area gutters (an even
   // count on regular widths), and in book posture the middle gutter sits on
@@ -887,12 +891,8 @@ export function LibraryScreen({
   const gridColumns = grid.columns;
   const gridItemWidth = grid.itemWidth;
   const gridColumnMargins = grid.columnMargins;
-  // `FlatList` throws when `numColumns` changes on a mounted list, so a
-  // column change remounts the grid (see its `key`). A remount after a
-  // fold/unfold at the same window size is covered by the pose veil (a
-  // resize is veiled already); the scroll anchor below keeps the first
-  // visible cover in view either way.
-  useMobilePoseRemountVeil(gridColumns);
+  // Virtualize rows so a column change keeps the list/header mounted. The
+  // carousel retains its measured height and selected card across displays.
   useMobilePoseRenderProbe("LibraryScreen");
 
   const queueAfterSheetDismiss = useCallback(
@@ -1003,6 +1003,7 @@ export function LibraryScreen({
     columns: gridColumns,
     itemWidth: gridItemWidth,
     itemCount: visibleEntries.length,
+    viewabilityUnit: "row",
   });
   const title = selectedCollection?.name ?? strings.nav.library;
   const loading =
@@ -2012,12 +2013,13 @@ export function LibraryScreen({
     [exploreReducedMotion],
   );
   const renderLibraryGridItem = useCallback(
-    ({ item: entry, index }: ListRenderItemInfo<LibraryEntry>) => (
+    ({ item: entry, index }: { item: LibraryEntry; index: number }) => (
       // The fixed width keeps a partly filled last row aligned with the rows
       // above it instead of letting `flex: 1` stretch its cells; the per-column
       // margin carries the fold gutter in book posture. Folding at the same
       // column count glides each cell to its new column (pose settle spring).
       <MobilePoseLayoutView
+        key={libraryEntryKey(entry)}
         style={[
           styles.gridItem,
           mobileFoldAwareGridCellStyle(
@@ -2075,6 +2077,18 @@ export function LibraryScreen({
       progressIndex,
       strings,
     ],
+  );
+  const libraryRows = useMemo(
+    () => chunkMobileGridRows(visibleEntries, gridColumns),
+    [visibleEntries, gridColumns],
+  );
+  const renderLibraryRow = useCallback(
+    ({ item: row, index: rowIndex }: ListRenderItemInfo<LibraryEntry[]>) => (
+      <View style={[styles.libraryRow, shelfMode ? styles.shelfRow : styles.gridRow]}>
+        {row.map((entry, column) => renderLibraryGridItem({ item: entry, index: rowIndex * gridColumns + column }))}
+      </View>
+    ),
+    [gridColumns, renderLibraryGridItem, shelfMode],
   );
   // A literal here is a new object on every render, so the cell bail-out
   // never fired; the memoized value only changes when a cell input does.
@@ -2410,15 +2424,11 @@ export function LibraryScreen({
       </>
     ) : null}
     <PageListScaffold
-      // Shelf and Grid share the columns: switching re-renders the cells in
-      // place (`extraData`), so the list keeps its scroll position.
-      key={`library-grid-${gridColumns}`}
+      // Keep one list (including its rich header) through column changes.
       listRef={gridScrollRef}
-      data={showSkeleton ? [] : visibleEntries}
-      keyExtractor={libraryEntryKey}
-      numColumns={gridColumns}
-      columnWrapperStyle={shelfMode ? styles.shelfRow : styles.gridRow}
-      renderItem={renderLibraryGridItem}
+      data={showSkeleton ? [] : libraryRows}
+      keyExtractor={libraryRowKey}
+      renderItem={renderLibraryRow}
       extraData={libraryGridExtraData}
       nativeHeader={usesNativeHeader}
       onLayout={grid.onLayout}
@@ -2438,8 +2448,8 @@ export function LibraryScreen({
       refreshDisabled={libraryRefreshDisabled}
       refreshLabel={strings.library.refreshLibrary}
       refreshing={refreshingLibrary}
-      initialNumToRender={18}
-      maxToRenderPerBatch={18}
+      initialNumToRender={Math.ceil(18 / gridColumns)}
+      maxToRenderPerBatch={Math.ceil(18 / gridColumns)}
       updateCellsBatchingPeriod={32}
       windowSize={7}
       ListHeaderComponent={
@@ -2720,6 +2730,9 @@ const styles = StyleSheet.create({
     paddingLeft: 8,
   },
   // Column spacing is each cell's `marginLeft` (mobileFoldAwareGridCellStyle).
+  libraryRow: {
+    flexDirection: "row",
+  },
   gridRow: {
     marginBottom: MOBILE_MANGA_GRID_GAP,
   },

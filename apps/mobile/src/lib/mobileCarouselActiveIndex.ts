@@ -41,7 +41,8 @@ type MobileCarouselSwitchState = {
  * fling (a frame would have to cover a whole card to skip one), so this is
  * one tick per card crossed. Nothing ticks for scrolls the user did not
  * start — first layout, a re-anchor after the window changed — or while the
- * index stays put.
+ * index stays put. Programmatic reflow keeps the selected card even when
+ * the wider window clamps the offset to zero because all cards now fit.
  */
 export function stepMobileCarouselSwitch(
   state: MobileCarouselSwitchState,
@@ -50,6 +51,8 @@ export function stepMobileCarouselSwitch(
   count: number,
 ): { index: number; tick: boolean } {
   "worklet";
-  const index = getMobileCarouselActiveIndex(offset, interval, count, state.index);
+  const index = state.userDriven
+    ? getMobileCarouselActiveIndex(offset, interval, count, state.index)
+    : Math.max(0, Math.min(Math.max(0, count - 1), state.index));
   return { index, tick: state.userDriven && index !== state.index };
 }

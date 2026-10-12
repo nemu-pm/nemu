@@ -44,14 +44,21 @@ export function useMobileGridScrollAnchor({
   columns,
   itemWidth,
   itemCount,
+  viewabilityUnit = "item",
 }: {
   listRef: RefObject<AnchorableList | null>;
   columns: number;
   itemWidth: number;
   itemCount: number;
+  /** Explicitly grouped rows keep rich list headers mounted across column changes. */
+  viewabilityUnit?: "item" | "row";
 }) {
   const layoutKey = mobileGridAnchorLayoutKey({ columns, itemWidth });
   const anchorRef = useRef<number | null>(null);
+  const viewabilityColumnsRef = useRef(1);
+  useLayoutEffect(() => {
+    viewabilityColumnsRef.current = viewabilityUnit === "row" ? columns : 1;
+  }, [columns, viewabilityUnit]);
   const insetTopRef = useRef(0);
   const pendingRowRef = useRef<number | null>(null);
   const retriesRef = useRef(0);
@@ -94,7 +101,7 @@ export function useMobileGridScrollAnchor({
   // Created once: FlatList throws if `onViewableItemsChanged` changes.
   const [onViewableItemsChanged] = useState(
     () => ({ viewableItems }: { viewableItems: MobileGridViewToken[] }) => {
-      const first = mobileGridFirstVisibleIndex(viewableItems);
+      const first = mobileGridFirstVisibleIndex(viewableItems, viewabilityColumnsRef.current);
       if (first !== null) anchorRef.current = first;
     },
   );

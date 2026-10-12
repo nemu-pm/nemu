@@ -50,8 +50,18 @@ describe("mobile carousel active card", () => {
   });
 
   test("scrolls the user did not start, and a lone card, never tick", () => {
-    expect(stepMobileCarouselSwitch({ index: 0, userDriven: false }, at(2), INTERVAL, 3)).toEqual({ index: 2, tick: false });
+    expect(stepMobileCarouselSwitch({ index: 0, userDriven: false }, at(2), INTERVAL, 3)).toEqual({ index: 0, tick: false });
     expect(drive([0.2, 0.7, 1.2, 1.8, 2], 3, false).ticksAt).toEqual([]);
     expect(drive([0.2, 0.7, 1.4, -0.6], 1).ticksAt).toEqual([]);
   });
+});
+
+
+test("unfolding to show all cards keeps the selection for folding back", () => {
+  expect(stepMobileCarouselSwitch({ index: 1, userDriven: false }, 0, 430, 2))
+    .toEqual({ index: 1, tick: false });
+  expect(stepMobileCarouselSwitch({ index: 1, userDriven: false }, 372, 372, 2))
+    .toEqual({ index: 1, tick: false });
+  expect(stepMobileCarouselSwitch({ index: 1, userDriven: false }, 0, 372, 1))
+    .toEqual({ index: 0, tick: false });
 });

@@ -13,14 +13,14 @@
 
 export type MobileGridViewToken = { index?: number | null; isViewable: boolean };
 
-/** First (lowest-index) viewable item, or null when nothing is reported. */
-export function mobileGridFirstVisibleIndex(tokens: readonly MobileGridViewToken[]): number | null {
+/** First visible cover; explicitly grouped row tokens span `itemsPerToken` covers. */
+export function mobileGridFirstVisibleIndex(tokens: readonly MobileGridViewToken[], itemsPerToken = 1): number | null {
   let first: number | null = null;
   for (const token of tokens) {
     if (!token.isViewable || typeof token.index !== "number" || !Number.isFinite(token.index) || token.index < 0) continue;
     if (first === null || token.index < first) first = token.index;
   }
-  return first;
+  return first === null ? null : first * Math.max(1, Math.floor(itemsPerToken));
 }
 
 /**

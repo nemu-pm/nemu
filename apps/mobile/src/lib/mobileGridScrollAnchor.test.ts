@@ -50,3 +50,12 @@ describe("mobile grid scroll anchor", () => {
     expect(mobileGridAnchorFallbackOffset({ row: 5, averageRowLength: 0, insetTop: 100 })).toBe(-100);
   });
 });
+
+
+test("explicit row viewability preserves the first cover across inner/outer regrouping", () => {
+  const anchor = mobileGridFirstVisibleIndex([{ index: 3, isViewable: true }], 4);
+  expect(anchor).toBe(12);
+  expect(mobileGridAnchorRestoreRow({ anchorIndex: anchor, columns: 2, itemCount: 40 })).toBe(6);
+  expect(mobileGridFirstVisibleIndex([], 4)).toBeNull();
+  expect(mobileGridFirstVisibleIndex([{ index: 0, isViewable: true }], 4)).toBe(0);
+});
