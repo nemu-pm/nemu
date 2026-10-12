@@ -323,12 +323,14 @@ function statusIsland(bounds: Rect, insets: Insets, occlusions: Rect[]): Rect | 
 export function mobileReaderCapsuleActionSlots(input: {
   enabledPluginIds: readonly string[];
   bilingualToggle: boolean;
+  /** The notebook sheet is closed on a folded window: the row carries "show the controls panel". */
+  notebookPanel?: boolean;
 }): number {
   const pluginSlots = input.enabledPluginIds.reduce(
     (count, id) => count + (id === "japanese-learning" ? 2 : 1),
     0,
   );
-  return pluginSlots + (input.bilingualToggle ? 1 : 0) + 1;
+  return pluginSlots + (input.bilingualToggle ? 1 : 0) + (input.notebookPanel ? 1 : 0) + 1;
 }
 
 /** Width of the actions capsule for `count` icon buttons. */
@@ -1066,4 +1068,13 @@ export function mobileReaderFrameInsets(
     bottom: bounds.y + bounds.height - frame.y - frame.height + pad.bottom,
     right: bounds.x + bounds.width - frame.x - frame.width + pad.right,
   };
+}
+
+/**
+ * The window as the reader lays it out once the notebook sheet is closed: the
+ * fold is not a split line any more, so the reader is the ordinary flat one for
+ * this window (page across the whole display, the usual capsule rows).
+ */
+export function mobileReaderLayoutWithoutFold(layout: MobileWindowLayout): MobileWindowLayout {
+  return layout.divisions.length === 0 ? layout : { ...layout, divisions: [] };
 }

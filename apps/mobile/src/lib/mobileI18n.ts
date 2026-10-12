@@ -1005,6 +1005,8 @@ export type MobileStrings = {
     notebookTrackpad: string;
     notebookShowFilmstrip: string;
     notebookHideFilmstrip: string;
+    notebookClosePanel: string;
+    notebookShowPanel: string;
     notebookFilmstrip: string;
     filmstripUnreadPage: string;
   };

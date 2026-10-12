@@ -13,6 +13,7 @@ import {
   mobileReaderFrameInsets,
   mobileReaderAnticipatedWindowLayout,
   mobileReaderCapsuleActionSlots,
+  mobileReaderLayoutWithoutFold,
   mobileReaderHingeHintKey,
   mobileReaderNextSideInsetLatch,
   mobileReaderPoseLayout,
@@ -2059,7 +2060,7 @@ export function ReaderScreen() {
   const readerHingeHintExpired = readerHingeHintKey !== null && expiredReaderHingeHint === readerHingeHintKey;
   const readerSideBarInsetLeft = readerSideBarInsets?.left ?? null;
   const readerSideBarInsetRight = readerSideBarInsets?.right ?? null;
-  const readerWindowLayout = useMemo<MobileWindowLayout>(() => {
+  const readerFoldedWindowLayout = useMemo<MobileWindowLayout>(() => {
     if (!reservedLayout) {
       return {
         width: window.width, height: window.height, supported: false,
@@ -2129,9 +2130,22 @@ export function ReaderScreen() {
   // toggle (added below once the pose says whether it shows). Derived in the
   // same render as the pose, so the title capsule is never clamped against a
   // stale action count.
+  // The notebook sheet (the half-folded posture's bottom half) can be closed:
+  // the reader is then the ordinary flat one for this window, and the top row
+  // carries "show the controls panel". A closed sheet is a choice for this
+  // fold only: leaving the half-folded posture (unfold, rotate) brings it back.
+  const readerNotebookFold = mobileAdaptiveLayout(readerFoldedWindowLayout).posture === "notebook";
+  const [readerNotebookSheetClosedState, setReaderNotebookSheetClosed] = useState(false);
+  if (readerNotebookSheetClosedState && !readerNotebookFold) setReaderNotebookSheetClosed(false);
+  const readerNotebookPanelClosed = readerNotebookSheetClosedState && readerNotebookFold;
+  const readerWindowLayout = useMemo(
+    () => (readerNotebookPanelClosed ? mobileReaderLayoutWithoutFold(readerFoldedWindowLayout) : readerFoldedWindowLayout),
+    [readerFoldedWindowLayout, readerNotebookPanelClosed],
+  );
   const readerBaseActionSlots = mobileReaderCapsuleActionSlots({
     enabledPluginIds: enabledReaderPlugins.map((plugin) => plugin.id),
     bilingualToggle: false,
+    notebookPanel: readerNotebookPanelClosed,
   });
   // Notebook posture: what the bottom pane holds — trackpad, filmstrip, or
   // the continuous strip in scroll mode. The preference is saved; expanding
@@ -2212,6 +2226,7 @@ export function ReaderScreen() {
   const readerActionSlots = mobileReaderCapsuleActionSlots({
     enabledPluginIds: enabledReaderPlugins.map((plugin) => plugin.id),
     bilingualToggle: bilingualMode.showToggle,
+    notebookPanel: readerNotebookPanelClosed,
   });
   const readerPose = useMemo(
     () =>
@@ -2238,7 +2253,7 @@ export function ReaderScreen() {
   );
   // The notebook setting only means something on a device that folds.
   const readerNotebookPaneSettingAvailable =
-    readerWindowLayout.divisions.length > 0 || readerPose.posture === "notebook";
+    readerFoldedWindowLayout.divisions.length > 0 || readerPose.posture === "notebook";
   const bilingualLayout =
     bilingualMode.sideBySide && bilingualEligibility.eligible
       ? bilingualEligibility.layout
@@ -7596,6 +7611,22 @@ export function ReaderScreen() {
         />,
       );
     }
+    // The notebook sheet was closed on a folded window: one action brings it back.
+    const notebookPanelButton = readerNotebookPanelClosed ? (
+      <NemuPressable
+        accessibilityRole="button"
+        accessibilityLabel={strings.duo.notebookShowPanel}
+        onPress={() => setReaderNotebookSheetClosed(false)}
+        pressedScale={0.98}
+        style={[chromeButtonStyle, { backgroundColor: "transparent" }]}
+      >
+        <Ionicons
+          name={MOBILE_READER_CHROME_GLYPHS.notebookPanel.name}
+          size={MOBILE_READER_CHROME_GLYPHS.notebookPanel.size}
+          color={readerChromeColors.secondaryText}
+        />
+      </NemuPressable>
+    ) : null;
     const settingsButton = (
       <View ref={readerSettingsButtonRef} collapsable={false}>
       <NemuPressable
@@ -7679,7 +7710,7 @@ export function ReaderScreen() {
             pageLabel={readerTopPageCountLabel}
             onStep={stepReaderPage}
             onExpand={() => setReaderNotebookPaneOverride("filmstrip")}
-            onCollapse={() => setReaderNotebookPaneOverride("trackpad")}
+            onClose={() => setReaderNotebookSheetClosed(true)}
             filmstripHeader={
               <View accessibilityLabel={strings.reader.readerControls} pointerEvents="box-none" style={styles.readerNotebookHeader}>
                 <ReaderCapsule style={styles.readerCapsuleCircle}>{backButton}</ReaderCapsule>
@@ -7815,6 +7846,7 @@ export function ReaderScreen() {
           ]}
         >
           {pluginActions}
+          {notebookPanelButton}
           {settingsButton}
         </ReaderCapsule>
       );

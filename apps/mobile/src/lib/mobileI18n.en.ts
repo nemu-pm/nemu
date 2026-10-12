@@ -1184,6 +1184,8 @@ export const mobileStringsEn: MobileStrings = {
     notebookTrackpad: "Page turning pad",
     notebookShowFilmstrip: "Show filmstrip",
     notebookHideFilmstrip: "Hide filmstrip",
+    notebookClosePanel: "Close controls panel",
+    notebookShowPanel: "Show controls panel",
     notebookFilmstrip: "Chapter pages",
     filmstripUnreadPage: "Page {{page}}, not read yet",
   },

@@ -29,6 +29,7 @@ import {
   mobileReaderFilmstripItemSize,
   mobileReaderFilmstripOffset,
   mobileReaderFilmstripOrder,
+  mobileReaderNotebookCloseRect,
   mobileReaderNotebookSheetFrame,
   mobileReaderNotebookPaneMotion,
   mobileReaderPageRevealed,
@@ -76,7 +77,8 @@ export type ReaderNotebookPaneProps = {
   pageLabel: string | null;
   onStep: (direction: "previous" | "next") => void;
   onExpand: () => void;
-  onCollapse: () => void;
+  /** Close the sheet: the reader goes back to the ordinary flat layout. */
+  onClose: () => void;
   /** Filmstrip header: Back, title and actions capsules. */
   filmstripHeader: ReactNode;
   /** Filmstrip scrubber capsule (previous chapter · slider · next chapter). */
@@ -188,34 +190,20 @@ function ReaderNotebookSheet({ frame }: { frame: WindowLayoutRect }) {
   );
 }
 
-// --- Handle ------------------------------------------------------------------
+// --- Close ------------------------------------------------------------------------
 
-function ReaderNotebookHandle({
-  direction,
-  label,
-  onPress,
-  frame,
-}: {
-  direction: "up" | "down";
-  label: string;
-  onPress: () => void;
-  frame: { handle: WindowLayoutRect; handleHit: WindowLayoutRect };
-}) {
-  const { handle, handleHit } = frame;
+/** The sheet's close X: a glass circle at the sheet's top trailing corner, like the other round reader buttons. */
+function ReaderNotebookClose({ pane, label, onPress }: { pane: WindowLayoutRect; label: string; onPress: () => void }) {
+  const rect = mobileReaderNotebookCloseRect(pane);
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      onPress={onPress}
-      style={[mobileReaderAbsoluteRect(handleHit), styles.handleHit]}
+    <ReaderCapsule
+      pointerEvents="box-none"
+      style={[mobileReaderAbsoluteRect(rect), styles.close, { zIndex: 2 }]}
     >
-      <ReaderCapsule
-        pointerEvents="box-none"
-        style={[styles.handle, { width: handle.width, height: handle.height, marginTop: handle.y - handleHit.y }]}
-      >
-        <Ionicons name={direction === "up" ? "chevron-up" : "chevron-down"} size={16} color={PRIMARY} />
-      </ReaderCapsule>
-    </Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={[StyleSheet.absoluteFill, styles.close]}>
+        <Ionicons name="close" size={22} color={PRIMARY} />
+      </Pressable>
+    </ReaderCapsule>
   );
 }
 
@@ -231,6 +219,7 @@ function ReaderNotebookTrackpad({
   pageLabel,
   onStep,
   onExpand,
+  onClose,
 }: ReaderNotebookPaneProps) {
   const layout = useMemo(() => mobileReaderTrackpadLayout(pane), [pane]);
   const progress = mobileReaderTrackpadProgress({ pageIndex, pageCount, rtl });
@@ -283,12 +272,7 @@ function ReaderNotebookTrackpad({
           },
         ]}
       />
-      <ReaderNotebookHandle
-        direction="up"
-        label={strings.duo.notebookShowFilmstrip}
-        onPress={onExpand}
-        frame={layout}
-      />
+      <ReaderNotebookClose pane={pane} label={strings.duo.notebookClosePanel} onPress={onClose} />
       {pageLabel ? (
         <NemuText
           accessibilityLabel={pageLabel}
@@ -390,7 +374,7 @@ function ReaderNotebookFilmstripConsole({
   pane,
   rtl,
   strings,
-  onCollapse,
+  onClose,
   filmstripHeader,
   filmstripScrubber,
   filmstrip,
@@ -400,12 +384,7 @@ function ReaderNotebookFilmstripConsole({
   const top = layout.handleHit.y + layout.handleHit.height + 4;
   return (
     <View style={StyleSheet.absoluteFill}>
-      <ReaderNotebookHandle
-        direction="down"
-        label={strings.duo.notebookHideFilmstrip}
-        onPress={onCollapse}
-        frame={layout}
-      />
+      <ReaderNotebookClose pane={pane} label={strings.duo.notebookClosePanel} onPress={onClose} />
       <View pointerEvents="box-none" style={[styles.console, { top }]}>
         <View pointerEvents="box-none" style={styles.consoleHeader}>{filmstripHeader}</View>
         <ReaderNotebookFilmstrip {...filmstrip} rtl={rtl} strings={strings} />
@@ -551,6 +530,10 @@ const FilmstripThumb = memo(function FilmstripThumb({
 });
 
 const styles = StyleSheet.create({
+  close: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
   sheetPainted: {
     backgroundColor: SHEET_PAINTED,
     borderTopWidth: StyleSheet.hairlineWidth,
@@ -566,14 +549,6 @@ const styles = StyleSheet.create({
     position: "absolute",
     width: StyleSheet.hairlineWidth,
     backgroundColor: "rgba(255,255,255,0.07)",
-  },
-  handleHit: {
-    alignItems: "center",
-    zIndex: 2,
-  },
-  handle: {
-    alignItems: "center",
-    justifyContent: "center",
   },
   halfGlyph: {
     position: "absolute",

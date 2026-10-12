@@ -6,6 +6,7 @@ import {
   mobileReaderSafePadding,
   mobileReaderTapExcluded,
   mobileReaderCapsuleActionSlots,
+  mobileReaderLayoutWithoutFold,
   mobileReaderCapsuleActionsWidth,
   mobileReaderAnticipatedWindowLayout,
   mobileReaderHingeHintKey,
