@@ -18,6 +18,29 @@ const patchedPackages = [
 ];
 
 describe("mobile Expo native patch policy", () => {
+  test("forwards system-bar ownership past auxiliary child controllers", () => {
+    const source = readFileSync(path.join(repositoryRoot,
+      "node_modules/react-native-screens/ios/UIViewController+RNScreens.mm"), "utf8");
+    const lookup = source.slice(source.indexOf("- (UIViewController *)findChildRNSScreensViewController"));
+    expect(lookup).toContain("reverseObjectEnumerator");
+    expect(lookup).toContain("conformsToProtocol:@protocol(RNSViewControllerDelegate)");
+    expect(lookup).not.toContain("lastObject");
+  });
+
+  test("does not start a queued layout animation after its parent is destroyed", () => {
+    const source = readFileSync(path.join(repositoryRoot,
+      "node_modules/react-native-reanimated/Common/cpp/reanimated/LayoutAnimations/LayoutAnimationsProxy.cpp"), "utf8");
+    const start = source.slice(source.indexOf("void LayoutAnimationsProxy::startLayoutAnimation("),
+      source.indexOf("void LayoutAnimationsProxy::startSharedTransition("));
+    // The 13:59 Duo crash dereferenced parent->current.tag at address 0x104.
+    // Guard before resolving props/queuing work and retain the locked parent.
+    expect(start).toMatch(/const auto parent = node->parent.lock\(\);\s*if \(!parent\) \{\s*return;/);
+    expect(start.indexOf("if (!parent)")).toBeLessThan(start.indexOf("resolveLightNodeProps(node)"));
+    expect(start.indexOf("if (!parent)")).toBeLessThan(start.indexOf("parent->current.tag"));
+    expect(rootPackage.patchedDependencies?.["react-native-reanimated@4.7.0"])
+      .toBe("patches/react-native-reanimated@4.7.0.patch");
+  });
+
   test("bounds the direct Android RNHost child to Material's sheet width", () => {
     const bottomSheet = readFileSync(path.join(repositoryRoot,
       "node_modules/@expo/ui/src/community/bottom-sheet/BottomSheet.android.tsx"), "utf8");

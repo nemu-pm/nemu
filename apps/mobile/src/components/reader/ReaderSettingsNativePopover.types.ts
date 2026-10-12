@@ -26,6 +26,9 @@ export type ReaderSettingsNativePopoverProps = {
   fitMode: ReaderFitMode;
   windowShape: ReaderWindowShape;
   onSetFitMode: (mode: ReaderFitMode) => void;
+  showCameraMode?: boolean;
+  avoidCamera?: boolean;
+  onSetAvoidCamera?: (enabled: boolean) => void;
   showPagePairingControls: boolean;
   pagePairingMode: "book" | "manga";
   processPageImages: boolean;

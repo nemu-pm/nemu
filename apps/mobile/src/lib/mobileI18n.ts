@@ -649,6 +649,9 @@ export type MobileStrings = {
     pageLayoutSingle: string;
     pageLayoutDouble: string;
     pageLayoutAuto: string;
+    outerDisplayMode: string;
+    avoidCamera: string;
+    immersiveCanvas: string;
     pageFit: string;
     pageFitPage: string;
     pageFitWidth: string;

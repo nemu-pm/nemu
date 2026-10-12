@@ -97,8 +97,8 @@ export function mobileWindowPanels(layout: MobileWindowLayout): MobileWindowPane
   return { axis, panels, occlusions };
 }
 
-/** Largest rectangle inside a panel avoiding active occlusions, for controls/images. */
-export function mobileWindowUnoccludedRect(panel: WindowLayoutRect, occlusions: WindowLayoutRect[]): WindowLayoutRect {
+/** Candidate rectangles inside a panel avoiding the supplied occlusions. */
+export function mobileWindowUnoccludedRects(panel: WindowLayoutRect, occlusions: WindowLayoutRect[]): WindowLayoutRect[] {
   let candidates = [panel];
   for (const occlusion of occlusions) {
     if (!validRect(occlusion)) continue;
@@ -113,7 +113,13 @@ export function mobileWindowUnoccludedRect(panel: WindowLayoutRect, occlusions: 
       ].filter((rect) => rect.width > 0 && rect.height > 0);
     });
   }
-  return candidates.sort((a, b) => b.width * b.height - a.width * a.height)[0]
+  return candidates;
+}
+
+/** Largest rectangle inside a panel avoiding active occlusions, for controls/images. */
+export function mobileWindowUnoccludedRect(panel: WindowLayoutRect, occlusions: WindowLayoutRect[]): WindowLayoutRect {
+  return mobileWindowUnoccludedRects(panel, occlusions)
+    .sort((a, b) => b.width * b.height - a.width * a.height)[0]
     ?? { ...panel, width: 0, height: 0 };
 }
 

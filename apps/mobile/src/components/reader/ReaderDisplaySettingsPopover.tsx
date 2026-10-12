@@ -67,6 +67,9 @@ type ReaderDisplaySettingsPopoverProps = {
   fitMode: ReaderFitMode;
   windowShape: ReaderWindowShape;
   onSetFitMode: (mode: ReaderFitMode) => void;
+  showCameraMode?: boolean;
+  avoidCamera?: boolean;
+  onSetAvoidCamera?: (enabled: boolean) => void;
   showPagePairingControls: boolean;
   pagePairingMode: ReaderPagePairingMode;
   processPageImages: boolean;
@@ -180,6 +183,9 @@ export function ReaderDisplaySettingsPopover({
   fitMode,
   windowShape,
   onSetFitMode,
+  showCameraMode = false,
+  avoidCamera = true,
+  onSetAvoidCamera,
   showPagePairingControls,
   pagePairingMode,
   processPageImages,
@@ -423,6 +429,25 @@ export function ReaderDisplaySettingsPopover({
                 }
               />
             </>
+          ) : null}
+
+          {twoPageSupported && showCameraMode && onSetAvoidCamera ? (
+            <ReaderSettingRow
+              icon="phone-portrait-outline"
+              title={strings.reader.outerDisplayMode}
+              below={
+                <ReaderSegmentedChipRow<"avoid" | "immersive">
+                  accessibilityLabel={strings.reader.outerDisplayMode}
+                  disabled={busy}
+                  value={avoidCamera ? "avoid" : "immersive"}
+                  onChange={(value) => onSetAvoidCamera(value === "avoid")}
+                  options={[
+                    { value: "avoid", label: strings.reader.avoidCamera },
+                    { value: "immersive", label: strings.reader.immersiveCanvas },
+                  ]}
+                />
+              }
+            />
           ) : null}
 
           <ReaderSettingRow

@@ -89,6 +89,8 @@ export function useReaderDisplayPrefs(): {
   setKeepAwake: (enabled: boolean) => Promise<void>;
   lockPortrait: boolean;
   setLockPortrait: (enabled: boolean) => Promise<void>;
+  avoidCamera: boolean;
+  setAvoidCamera: (enabled: boolean) => Promise<void>;
   thumbnailSpoilerSafe: boolean;
   thumbnailSpoilerSafeReady: boolean;
   setThumbnailSpoilerSafe: (enabled: boolean) => Promise<void>;
@@ -109,6 +111,9 @@ export function useReaderDisplayPrefs(): {
   const [notebookPane, setNotebookPaneState] = useState<MobileReaderNotebookPanePreference>(
     DEFAULT_MOBILE_READER_NOTEBOOK_PANE,
   );
+  const [avoidCamera, setAvoidCameraState] = useState(true);
+  const savedAvoidCamera = useRef(true);
+  const avoidCameraRun = useRef(0);
   const [thumbnailSpoilerSafe, setThumbnailSpoilerSafeState] = useState(false);
   const [thumbnailSpoilerSafeReady, setThumbnailSpoilerSafeReady] = useState(false);
   const savedThumbnailSpoilerSafe = useRef(false);
@@ -139,6 +144,9 @@ export function useReaderDisplayPrefs(): {
           settings.readerLockPortrait ?? DEFAULT_READER_LOCK_PORTRAIT;
         setLockPortraitState(nextLockPortrait);
         savedLockPortrait.current = nextLockPortrait;
+        const nextAvoidCamera = settings.readerAvoidCamera !== false;
+        setAvoidCameraState(nextAvoidCamera);
+        savedAvoidCamera.current = nextAvoidCamera;
         const nextThumbnailSpoilerSafe = settings.readerThumbnailSpoilerSafe === true;
         setThumbnailSpoilerSafeState(nextThumbnailSpoilerSafe);
         savedThumbnailSpoilerSafe.current = nextThumbnailSpoilerSafe;
@@ -223,6 +231,23 @@ export function useReaderDisplayPrefs(): {
     [notebookPane, store],
   );
 
+  const setAvoidCamera = useCallback(
+    async (enabled: boolean) => {
+      if (enabled === avoidCamera) return;
+      const run = ++avoidCameraRun.current;
+      setAvoidCameraState(enabled);
+      try {
+        await store.updateSettings((settings) => ({ ...settings, readerAvoidCamera: enabled }));
+        savedAvoidCamera.current = enabled;
+        emitMobileDataChanged("settings");
+      } catch (error) {
+        if (avoidCameraRun.current === run) setAvoidCameraState(savedAvoidCamera.current);
+        throw error;
+      }
+    },
+    [avoidCamera, store],
+  );
+
   const setThumbnailSpoilerSafe = useCallback(
     async (enabled: boolean) => {
       if (enabled === thumbnailSpoilerSafe) return;
@@ -286,6 +311,8 @@ export function useReaderDisplayPrefs(): {
   );
 
   return {
+    avoidCamera,
+    setAvoidCamera,
     keepAwake,
     setKeepAwake,
     lockPortrait,

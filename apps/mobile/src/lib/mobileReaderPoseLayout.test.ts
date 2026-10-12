@@ -1306,3 +1306,80 @@ describe("notebook panel dismissal", () => {
     expect(pose(layout)).toEqual(open);
   });
 });
+
+
+describe("outer reader: page behind the original rail", () => {
+  test("uses the full page width while preserving the controls and their safe column", () => {
+    for (const edge of ["leading", "trailing"] as const) {
+      const layout: MobileWindowLayout = {
+        ...outer, hinge: "closed", fillsScreen: true, verticalBarEdge: edge,
+        safeAreaInsets: { top: 0, bottom: 34, left: edge === "leading" ? 84 : 0, right: edge === "trailing" ? 84 : 0 },
+      };
+      const before = pose({ ...layout, hinge: undefined }, { sideBar: true });
+      const after = pose(layout, { sideBar: true });
+      expect(after.stage).toEqual(after.bounds);
+      expect(after.pageSideInsets).toEqual({ left: 0, right: 0 });
+      expect(after.chrome).toEqual(before.chrome);
+      expect(mobileReaderVerticalBarPolicy(layout)).toEqual({ optOut: false, sideBar: true });
+      // A narrow shared window still reserves the system rail.
+      expect(pose({ ...layout, fillsScreen: false }, { sideBar: true }).stage).toEqual(before.stage);
+    }
+  });
+});
+
+
+describe("outer camera-aware page fitting", () => {
+  for (const measurement of fixture.measurements.filter((m) => m.screen === "iphone-duo-outer")) {
+    test(`${measurement.orientation}: avoids the camera without reserving the whole status rail`, () => {
+      const layout: MobileWindowLayout = { ...duoLayout(measurement), hinge: "closed", fillsScreen: true };
+      const camera = layout.occlusions.find((r) => r.x > 0 && r.y > 0)!;
+      const visible = pose(layout, { sideBar: true, pageAspectRatio: 1 / 1.45 });
+      const hidden = pose({ ...layout, occlusions: [camera] }, { sideBar: true, pageAspectRatio: 1 / 1.45 });
+      expect(overlaps(visible.stage, camera)).toBe(false);
+      expect(hidden.stage).toEqual(visible.stage);
+      expect(visible.stage.x).toBeGreaterThanOrEqual(0);
+      expect(visible.stage.y).toBeGreaterThanOrEqual(0);
+      expect(visible.stage.x + visible.stage.width).toBeLessThanOrEqual(layout.width);
+      expect(visible.stage.y + visible.stage.height).toBeLessThanOrEqual(layout.height);
+    });
+  }
+
+  test("uses the full left edge below a top-right camera for a normal portrait page", () => {
+    const m = fixture.measurements.find((m) => m.screen === "iphone-duo-outer" && m.orientation === "portrait")!;
+    const layout: MobileWindowLayout = { ...duoLayout(m), hinge: "closed", fillsScreen: true };
+    const result = pose(layout, { sideBar: true, pageAspectRatio: 1 / 1.45 });
+    expect(result.stage.x).toBe(0);
+    expect(result.stage.width).toBe(layout.width);
+    expect(result.stage.y).toBeCloseTo(66.333333);
+    // A very tall page gets more image area beside the camera instead.
+    const tall = pose(layout, { sideBar: true, pageAspectRatio: 0.3 });
+    expect(tall.stage.y).toBe(0);
+    expect(tall.stage.height).toBe(layout.height);
+    expect(tall.stage.x).toBe(0);
+  });
+});
+
+
+describe("Duo full-screen canvas choices", () => {
+  test("outer immersion uses every edge while controls retain their camera-safe placement", () => {
+    const m = fixture.measurements.find((m) => m.screen === "iphone-duo-outer" && m.orientation === "portrait")!;
+    const layout: MobileWindowLayout = { ...duoLayout(m), hinge: "closed", fillsScreen: true };
+    const safe = pose(layout, { sideBar: true, pageAspectRatio: 1 / 1.45 });
+    const immersive = pose(layout, { sideBar: true, avoidCamera: false, pageAspectRatio: 1 / 1.45 });
+    expect(immersive.stage).toEqual(immersive.bounds);
+    expect(immersive.stage.height).toBeGreaterThan(safe.stage.height);
+    expect(immersive.pageSideInsets).toEqual({ left: 0, right: 0 });
+    expect(immersive.chrome).toEqual(safe.chrome);
+  });
+
+  test("flat inner portrait stays one full-size page, even with Double saved, and restores spreads after rotation", () => {
+    for (const spreadMode of ["auto", "double"] as const) {
+      const portrait = pose(innerPortrait(), { spreadMode });
+      expect(portrait.stage).toEqual(portrait.bounds);
+      expect(portrait.spread).toBe(false);
+      expect(portrait.pageSideInsets).toEqual({ left: 0, right: 0 });
+      const landscape = pose(innerLandscapeNoBar(), { spreadMode });
+      expect(landscape.spread).toBe(true);
+    }
+  });
+});

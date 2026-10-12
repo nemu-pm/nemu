@@ -196,6 +196,7 @@
     "canvas",
   ],
   "patchedDependencies": {
+    "react-native-reanimated@4.7.0": "patches/react-native-reanimated@4.7.0.patch",
     "expo-background-task@58.0.10": "patches/expo-background-task@58.0.10.patch",
     "@expo/ui@58.0.15": "patches/@expo%2Fui@58.0.15.patch",
     "vaul@1.1.2": "patches/vaul@1.1.2.patch",

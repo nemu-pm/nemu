@@ -3,6 +3,7 @@ import { resolveReaderSpreadWanted, type ReaderSpreadMode } from "@/lib/mobileRe
 import { READER_NOTEBOOK_SHEET_INSET, type MobileReaderNotebookPaneState } from "@/lib/mobileReaderNotebookPane";
 import {
   mobileWindowUnoccludedRect,
+  mobileWindowUnoccludedRects,
   type MobileWindowLayout,
   type WindowLayoutEdgeInsets,
   type WindowLayoutRect,
@@ -20,7 +21,7 @@ import {
  * | pose                                  | stage                         | chrome                           |
  * |---------------------------------------|-------------------------------|----------------------------------|
  * | flat, compact width or short (phones) | full bleed                    | Back · title · more (⋯) on top, scrubber + actions on the bottom row |
- * | flat with the system vertical bar (Duo outer display, a Split View half) | beside the bar | Back + actions in the system bar; our title capsule top-leading + the scrubber centred on the window |
+ * | flat with the system vertical bar (Duo outer display, a Split View half) | full bleed on the outer display; beside the bar in Split View | Back + actions in the system bar; our title capsule top-leading + the scrubber centred on the window |
  * | flat, regular width, no vertical bar (tablets, unfolded Android, Duo inner display full-screen) | full bleed | capsule row on the status-bar row + scrubber centred on the display |
  * | book (vertical fold)                  | one page per pane / reading-start pane | capsules snapped per pane: Back + title leading, actions trailing (or Back + actions in the system bar), scrubber in the reading-start pane |
  * | notebook (horizontal fold), paged     | top pane                      | capsule row over the top pane + the bottom pane (trackpad / filmstrip) |
@@ -154,6 +155,10 @@ export type MobileReaderPoseLayoutInput = {
   /** Paged gallery (false = continuous strip / long-strip presentation). */
   paged: boolean;
   pageCount: number;
+  /** Natural width / height of the current page, for camera-aware contain fitting. */
+  pageAspectRatio?: number;
+  /** Keep the outer hardware camera clear; immersive mode explicitly opts out. */
+  avoidCamera?: boolean;
   /** The user's two-page preference. Never rewritten by this function. */
   twoPage: boolean;
   /**
@@ -173,8 +178,8 @@ export type MobileReaderPoseLayoutInput = {
   actionCount?: number;
   /**
    * The system vertical bar is in use (`mobileReaderVerticalBarPolicy`): it
-   * carries Back and the actions, and pages keep clear of its side inset
-   * (they sit beside the bar, not under it).
+   * carries Back and the actions. Full-screen outer-display pages may extend
+   * behind the controls, while still avoiding the physical camera.
    */
   sideBar?: boolean;
 };
@@ -976,10 +981,34 @@ export function mobileReaderPoseLayout(input: MobileReaderPoseLayoutInput): Mobi
 
   // Flat: no active fold. Immersive page: full-bleed like phones (status bar
   // hidden while reading; chrome and the status bar float over the page when
-  // shown, so toggling the controls never resizes it). With the system
-  // vertical bar kept, the page sits beside its column.
+  // shown, so toggling the controls never resizes it). On the full-screen
+  // outer display, keep the original rail controls but let the page extend
+  // behind them. Chrome still uses the safe column; Split View stays inset.
   const unoccluded = mobileWindowUnoccludedRect(bounds, occlusions);
-  const stage = input.sideBar ? horizontalSafe(bounds, bounds, insets) : bounds;
+  const chromeStage = input.sideBar ? horizontalSafe(bounds, bounds, insets) : bounds;
+  const fullBleedBehindRail = input.sideBar && input.layout.hinge === "closed" && input.layout.fillsScreen !== false;
+  // The closed display reports both an interior camera rect and an
+  // edge-attached status-bar rect. Only the former is a permanent obstacle;
+  // excluding the status bar here would resize pages when controls hide.
+  const cameraOcclusions = occlusions.filter((rect) =>
+    rect.x > bounds.x && rect.y > bounds.y
+    && rect.x + rect.width < bounds.x + bounds.width
+    && rect.y + rect.height < bounds.y + bounds.height);
+  let stage = fullBleedBehindRail ? bounds : chromeStage;
+  if (fullBleedBehindRail && input.paged && input.avoidCamera !== false && cameraOcclusions.length > 0) {
+    const aspect = input.pageAspectRatio && Number.isFinite(input.pageAspectRatio) && input.pageAspectRatio > 0
+      ? input.pageAspectRatio : 1 / 1.45;
+    const fittedArea = (rect: Rect) => {
+      const spread = multiPage && stageHoldsSpread(rect) && wantsSpread(input, rect);
+      const pageAspect = aspect * (spread ? 2 : 1);
+      const width = Math.min(rect.width, rect.height * pageAspect);
+      return width * width / pageAspect;
+    };
+    // Maximise fitted manga area, not empty rectangle area. A tall page may
+    // fit best beside the camera; an ordinary page may fit best below it.
+    stage = mobileWindowUnoccludedRects(bounds, cameraOcclusions)
+      .sort((a, b) => fittedArea(b) - fittedArea(a))[0] ?? bounds;
+  }
   const twoPageAvailable = input.paged && multiPage && stageHoldsSpread(stage);
   const spread = wantsSpread(input, stage) && twoPageAvailable;
   const constrained = !sameRect(stage, bounds);
@@ -992,19 +1021,19 @@ export function mobileReaderPoseLayout(input: MobileReaderPoseLayoutInput): Mobi
   // status bar / island / camera; the actions ride the bottom row beside the
   // scrubber, within thumb reach — or live in the system vertical bar.
   const chrome = capsuleChrome({
-    frame: stage,
+    frame: chromeStage,
     bounds,
     insets,
     occlusions,
-    leading: stage,
-    trailing: stage,
+    leading: chromeStage,
+    trailing: chromeStage,
     // With the bar column both capsules belong to the reading stage beside
     // it, so they share one centre line (and, on the narrow outer display,
     // one pair of edges) with the page instead of hugging the column.
-    scrubberRegion: stage,
+    scrubberRegion: chromeStage,
     leadingSide,
     actionCount: input.actionCount ?? 3,
-    titleCenterX: stage.x + stage.width / 2,
+    titleCenterX: chromeStage.x + chromeStage.width / 2,
     actionsRow: adaptive.widthClass === "compact" ? "bottom" : "top",
     titleOnly: input.sideBar === true,
   });
@@ -1012,8 +1041,8 @@ export function mobileReaderPoseLayout(input: MobileReaderPoseLayoutInput): Mobi
     // The title is the only top capsule here: centre it on the stage like the
     // scrubber (the title-only path otherwise keeps room for an absent
     // actions capsule and ends short of the scrubber's trailing edge).
-    const width = Math.min(READER_CAPSULE_TITLE_MAX_WIDTH, stage.width - 2 * READER_CAPSULE_EDGE);
-    chrome.title = { ...chrome.title, x: Math.round(stage.x + (stage.width - width) / 2), width };
+    const width = Math.min(READER_CAPSULE_TITLE_MAX_WIDTH, chromeStage.width - 2 * READER_CAPSULE_EDGE);
+    chrome.title = { ...chrome.title, x: Math.round(chromeStage.x + (chromeStage.width - width) / 2), width };
   }
   return {
     posture: "flat",
@@ -1030,7 +1059,7 @@ export function mobileReaderPoseLayout(input: MobileReaderPoseLayoutInput): Mobi
     modalFrame: unoccluded,
     popover: mobileReaderPopoverPlacement(chrome),
     tapExclusions: capsuleExclusions(chrome, stage),
-    pageSideInsets: constrained ? NO_SIDE_INSETS : mobileReaderPageSideInsets(bounds, insets, occlusions),
+    pageSideInsets: constrained || fullBleedBehindRail ? NO_SIDE_INSETS : mobileReaderPageSideInsets(bounds, insets, occlusions),
   };
 }
 

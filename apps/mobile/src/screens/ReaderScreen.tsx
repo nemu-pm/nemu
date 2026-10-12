@@ -1110,6 +1110,8 @@ export function ReaderScreen() {
     setNotebookPane: setReaderNotebookPanePreference,
     spreadMode: readerSpreadMode,
     setSpreadMode: setReaderSpreadMode,
+    avoidCamera: readerAvoidCamera,
+    setAvoidCamera: setReaderAvoidCamera,
     fitModes: readerFitModes,
     setFitMode: setReaderFitMode,
   } = useReaderDisplayPrefs();
@@ -2156,10 +2158,17 @@ export function ReaderScreen() {
     paged: galleryPagedMode,
     override: readerNotebookPaneOverride,
   });
+  const outerReaderCanvas = readerSideBar && readerWindowLayout.hinge === "closed"
+    && readerWindowLayout.fillsScreen !== false;
+  const currentPageNaturalSize = displayedPages[clampedPageIndex]
+    ? readerImageSizes.get(readerPageIdentityFor(displayedPages[clampedPageIndex])) : undefined;
+  const readerPageAspectRatio = 1 / readerFitRatio(currentPageNaturalSize);
   const buildReaderPose = useCallback(
     (actionCount: number, spreadMode: ReaderSpreadMode) =>
       mobileReaderPoseLayout({
         layout: readerWindowLayout,
+        pageAspectRatio: readerPageAspectRatio,
+        avoidCamera: readerAvoidCamera,
         fallbackInsets: insets,
         paged: galleryPagedMode,
         pageCount,
@@ -2171,6 +2180,8 @@ export function ReaderScreen() {
         sideBar: readerSideBar,
       }),
     [
+      readerPageAspectRatio,
+      readerAvoidCamera,
       readerSideBar,
       galleryPagedMode,
       insets,
@@ -2293,6 +2304,13 @@ export function ReaderScreen() {
       void runReaderSettingsAction("two-page-mode", () => setReaderSpreadMode(value));
     },
     [readerSettingsActionBusy, readerSpreadMode, runReaderSettingsAction, setReaderSpreadMode],
+  );
+  const setReaderAvoidCameraFromSettings = useCallback(
+    (enabled: boolean) => {
+      if (enabled === readerAvoidCamera || readerSettingsActionBusy) return;
+      void runReaderSettingsAction("camera-mode", () => setReaderAvoidCamera(enabled));
+    },
+    [readerAvoidCamera, readerSettingsActionBusy, runReaderSettingsAction, setReaderAvoidCamera],
   );
   const setReaderFitModeFromSettings = useCallback(
     (value: ReaderFitMode) => {
@@ -2458,12 +2476,17 @@ export function ReaderScreen() {
         // chrome (and the status bar with it) toggles.
         readerPageWidth - readerPose.pageSideInsets.left - readerPose.pageSideInsets.right,
       );
+  const edgeToEdgePage = outerReaderCanvas || (
+    readerWindowLayout.fillsScreen !== false
+    && readerWindowLayout.divisions.length > 0
+    && readerPose.posture === "flat"
+  );
   const readerImageWidth = pagedMode
     ? isTwoPageMode
       ? Math.max(1, readerSafeContentWidth / 2)
       : // The whole page as large as fits: a regular-width window (an iPad, the
         // Duo's open display) is not held to a phone-sized column.
-        Math.max(readerStageConstrained ? 1 : 240, readerSafeContentWidth - 24)
+        Math.max(readerStageConstrained ? 1 : 240, readerSafeContentWidth - (edgeToEdgePage ? 0 : 24))
     : Math.min(readerSafeContentWidth, 720) *
       readerScrollWidthScale(activeScrollWidthPct);
   const segmentedImageFrames = useMemo(
@@ -7772,12 +7795,11 @@ export function ReaderScreen() {
                   {backButton}
                 </ReaderCapsule>
                 {titleRect ? (
-                  <ReaderCapsule
-                    pointerEvents="auto"
-                    style={[styles.readerTitleCapsule, mobileReaderAbsoluteRect(titleRect)]}
-                  >
-                    {capsuleTitleBlock}
-                  </ReaderCapsule>
+                  <View pointerEvents="box-none" style={[mobileReaderAbsoluteRect(titleRect), styles.readerTitleSlot]}>
+                    <ReaderCapsule pointerEvents="auto" style={styles.readerTitleCapsule}>
+                      {capsuleTitleBlock}
+                    </ReaderCapsule>
+                  </View>
                 ) : null}
                 <View
                   pointerEvents="box-none"
@@ -7931,6 +7953,24 @@ export function ReaderScreen() {
                 style={StyleSheet.absoluteFill}
               />
             </Animated.View>
+            {readerSideBar ? (
+              <Animated.View pointerEvents="none" style={[
+                {
+                  position: "absolute", top: 0, bottom: 0,
+                  ...(readerPose.safeInsets.left > readerPose.safeInsets.right ? { left: 0 } : { right: 0 }),
+                  width: Math.max(readerPose.safeInsets.left, readerPose.safeInsets.right) + 24,
+                },
+                readerChromeFadeStyle,
+              ]}>
+                <LinearGradient
+                  pointerEvents="none"
+                  colors={["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0.6)"]}
+                  start={{ x: readerPose.safeInsets.left > readerPose.safeInsets.right ? 1 : 0, y: 0 }}
+                  end={{ x: readerPose.safeInsets.left > readerPose.safeInsets.right ? 0 : 1, y: 0 }}
+                  style={StyleSheet.absoluteFill}
+                />
+              </Animated.View>
+            ) : null}
             {/* One glass container for the row (SwiftUI GlassEffectContainer):
                 the pieces render as one system glass layer and morph together. */}
             <GlassContainer spacing={READER_CAPSULE_GLASS_SPACING} pointerEvents="box-none" style={StyleSheet.absoluteFill}>
@@ -7944,14 +7984,15 @@ export function ReaderScreen() {
               </ReaderCapsule>
             )}
             {titleRect ? (
-              <ReaderCapsule
+              <Animated.View
                 layout={readerCapsuleLayout}
-                {...glass}
-                pointerEvents="auto"
-                style={[styles.readerTitleCapsule, mobileReaderAbsoluteRect(titleRect)]}
+                pointerEvents="box-none"
+                style={[mobileReaderAbsoluteRect(titleRect), styles.readerTitleSlot]}
               >
-                {capsuleTitleBlock}
-              </ReaderCapsule>
+                <ReaderCapsule {...glass} pointerEvents="auto" style={styles.readerTitleCapsule}>
+                  {capsuleTitleBlock}
+                </ReaderCapsule>
+              </Animated.View>
             ) : null}
             {moreCapsule}
             {actionsInBottomRow || readerSideBar ? null : actionsCapsule}
@@ -8600,6 +8641,9 @@ export function ReaderScreen() {
           }}
           spreadMode={readerSpreadMode}
           onSetSpreadMode={setReaderSpreadModeFromSettings}
+          showCameraMode={outerReaderCanvas || readerNotebookPaneSettingAvailable}
+          avoidCamera={readerAvoidCamera}
+          onSetAvoidCamera={setReaderAvoidCameraFromSettings}
           fitMode={readerFitSetting}
           windowShape={readerWindowShape}
           onSetFitMode={setReaderFitModeFromSettings}
@@ -8679,6 +8723,9 @@ export function ReaderScreen() {
           }}
           spreadMode={readerSpreadMode}
           onSetSpreadMode={setReaderSpreadModeFromSettings}
+          showCameraMode={outerReaderCanvas || readerNotebookPaneSettingAvailable}
+          avoidCamera={readerAvoidCamera}
+          onSetAvoidCamera={setReaderAvoidCameraFromSettings}
           fitMode={readerFitSetting}
           windowShape={readerWindowShape}
           onSetFitMode={setReaderFitModeFromSettings}
@@ -8898,7 +8945,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 2,
   },
+  readerTitleSlot: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
   readerTitleCapsule: {
+    maxWidth: "100%",
     height: 44,
     justifyContent: "center",
     paddingHorizontal: 18,

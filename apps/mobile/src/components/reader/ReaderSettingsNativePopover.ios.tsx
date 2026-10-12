@@ -95,6 +95,9 @@ export function ReaderSettingsNativePopover({
   onSetSpreadMode,
   fitMode,
   onSetFitMode,
+  showCameraMode = false,
+  avoidCamera = true,
+  onSetAvoidCamera,
   showPagePairingControls,
   pagePairingMode,
   processPageImages,
@@ -152,6 +155,7 @@ export function ReaderSettingsNativePopover({
   const showPlugins = showReaderPluginSettings && Boolean(onOpenReaderPluginSettings);
   const showNotebookRow = showNotebookPane && Boolean(onSetNotebookPane);
   const settingsRows = {
+    showCameraMode,
     twoPageSupported,
     showPagePairingControls: twoPageSupported && showPagePairingControls,
     scrolling: mode === "scrolling",
@@ -270,6 +274,22 @@ export function ReaderSettingsNativePopover({
                 </SwiftText>
               ))}
             </SwiftPicker>
+            {showCameraMode && onSetAvoidCamera ? (
+              <SwiftPicker
+                label={strings.reader.outerDisplayMode}
+                systemImage="iphone"
+                modifiers={[pickerStyle("menu"), ...busyModifiers]}
+                selection={avoidCamera ? "avoid" : "immersive"}
+                onSelectionChange={(selection) => {
+                  if (busy || (selection !== "avoid" && selection !== "immersive")) return;
+                  void hapticSelection();
+                  onSetAvoidCamera(selection === "avoid");
+                }}
+              >
+                <SwiftText modifiers={[tag("avoid")]}>{strings.reader.avoidCamera}</SwiftText>
+                <SwiftText modifiers={[tag("immersive")]}>{strings.reader.immersiveCanvas}</SwiftText>
+              </SwiftPicker>
+            ) : null}
           </SwiftSection>
         ) : null}
         <SwiftSection title={strings.reader.moreSettings}>

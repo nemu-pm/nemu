@@ -30,6 +30,7 @@ export type ReaderSettingsNativeRows = {
   /** Foldables: the notebook layout menu row. */
   showNotebookPane?: boolean;
   showThumbnailSpoilers?: boolean;
+  showCameraMode?: boolean;
 };
 
 /** Ideal (unclipped) Form height for the rows shown. */
@@ -40,7 +41,7 @@ export function readerSettingsNativeContentHeight(rows: ReaderSettingsNativeRows
   let sections = 1;
   // 2. Page layout + pairing + page fit (most used after direction).
   if (rows.twoPageSupported) {
-    height += row * 2 + (rows.showPagePairingControls ? row : 0);
+    height += row * 2 + (rows.showPagePairingControls ? row : 0) + (rows.showCameraMode ? row : 0);
     sections += 1;
   }
   // 3. "More": image processing, page width, keep awake, lock portrait,
