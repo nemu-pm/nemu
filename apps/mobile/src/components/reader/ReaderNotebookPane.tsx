@@ -29,7 +29,6 @@ import {
   mobileReaderFilmstripItemSize,
   mobileReaderFilmstripOffset,
   mobileReaderFilmstripOrder,
-  mobileReaderNotebookCloseRect,
   mobileReaderNotebookSheetFrame,
   mobileReaderNotebookPaneMotion,
   mobileReaderPageRevealed,
@@ -77,8 +76,6 @@ export type ReaderNotebookPaneProps = {
   pageLabel: string | null;
   onStep: (direction: "previous" | "next") => void;
   onExpand: () => void;
-  /** Close the sheet: the reader goes back to the ordinary flat layout. */
-  onClose: () => void;
   /** Filmstrip header: Back, title and actions capsules. */
   filmstripHeader: ReactNode;
   /** Filmstrip scrubber capsule (previous chapter · slider · next chapter). */
@@ -190,23 +187,6 @@ function ReaderNotebookSheet({ frame }: { frame: WindowLayoutRect }) {
   );
 }
 
-// --- Close ------------------------------------------------------------------------
-
-/** The sheet's close X: a glass circle at the sheet's top trailing corner, like the other round reader buttons. */
-function ReaderNotebookClose({ pane, label, onPress }: { pane: WindowLayoutRect; label: string; onPress: () => void }) {
-  const rect = mobileReaderNotebookCloseRect(pane);
-  return (
-    <ReaderCapsule
-      pointerEvents="box-none"
-      style={[mobileReaderAbsoluteRect(rect), styles.close, { zIndex: 2 }]}
-    >
-      <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={[StyleSheet.absoluteFill, styles.close]}>
-        <Ionicons name="close" size={22} color={PRIMARY} />
-      </Pressable>
-    </ReaderCapsule>
-  );
-}
-
 // --- B · Trackpad ---------------------------------------------------------------
 
 function ReaderNotebookTrackpad({
@@ -219,7 +199,6 @@ function ReaderNotebookTrackpad({
   pageLabel,
   onStep,
   onExpand,
-  onClose,
 }: ReaderNotebookPaneProps) {
   const layout = useMemo(() => mobileReaderTrackpadLayout(pane), [pane]);
   const progress = mobileReaderTrackpadProgress({ pageIndex, pageCount, rtl });
@@ -255,7 +234,7 @@ function ReaderNotebookTrackpad({
           rtl={rtl}
           reduceMotion={reduceMotion}
           strings={strings}
-          contentTop={layout.handleHit.y + layout.handleHit.height}
+          contentTop={layout.pad.y + 10}
           contentBottom={layout.indicator.y}
           onStep={onStep}
         />
@@ -267,12 +246,11 @@ function ReaderNotebookTrackpad({
           styles.divider,
           {
             left: layout.pad.x + layout.pad.width / 2,
-            top: layout.handleHit.y + layout.handleHit.height + 18,
-            height: Math.max(0, layout.indicator.y - (layout.handleHit.y + layout.handleHit.height) - 36),
+            top: layout.pad.y + 28,
+            height: Math.max(0, layout.indicator.y - (layout.pad.y + 10) - 36),
           },
         ]}
       />
-      <ReaderNotebookClose pane={pane} label={strings.duo.notebookClosePanel} onPress={onClose} />
       {pageLabel ? (
         <NemuText
           accessibilityLabel={pageLabel}
@@ -374,17 +352,15 @@ function ReaderNotebookFilmstripConsole({
   pane,
   rtl,
   strings,
-  onClose,
   filmstripHeader,
   filmstripScrubber,
   filmstrip,
 }: ReaderNotebookPaneProps) {
   // The handle keeps the trackpad's position, so expand and collapse are one control.
   const layout = useMemo(() => mobileReaderTrackpadLayout(pane), [pane]);
-  const top = layout.handleHit.y + layout.handleHit.height + 4;
+  const top = layout.pad.y + 4;
   return (
     <View style={StyleSheet.absoluteFill}>
-      <ReaderNotebookClose pane={pane} label={strings.duo.notebookClosePanel} onPress={onClose} />
       <View pointerEvents="box-none" style={[styles.console, { top }]}>
         <View pointerEvents="box-none" style={styles.consoleHeader}>{filmstripHeader}</View>
         <ReaderNotebookFilmstrip {...filmstrip} rtl={rtl} strings={strings} />
@@ -530,10 +506,6 @@ const FilmstripThumb = memo(function FilmstripThumb({
 });
 
 const styles = StyleSheet.create({
-  close: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
   sheetPainted: {
     backgroundColor: SHEET_PAINTED,
     borderTopWidth: StyleSheet.hairlineWidth,

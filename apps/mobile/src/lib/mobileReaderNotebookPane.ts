@@ -104,20 +104,6 @@ export const READER_NOTEBOOK_SHEET_RADIUS = 40;
 export const READER_NOTEBOOK_PAD_INSET = 12;
 export const READER_NOTEBOOK_PAD_RADIUS = READER_NOTEBOOK_SHEET_RADIUS - READER_NOTEBOOK_PAD_INSET;
 
-/** The sheet's close button (a glass circle like the reader's other round buttons), pane-local, top trailing. */
-export const READER_NOTEBOOK_CLOSE_SIZE = 44;
-export const READER_NOTEBOOK_CLOSE_INSET = 16;
-
-export function mobileReaderNotebookCloseRect(pane: { width: number }, rtl = false): WindowLayoutRect {
-  const width = Math.max(0, pane.width);
-  return {
-    x: rtl ? READER_NOTEBOOK_CLOSE_INSET : Math.max(0, width - READER_NOTEBOOK_CLOSE_INSET - READER_NOTEBOOK_CLOSE_SIZE),
-    y: READER_NOTEBOOK_PAD_INSET,
-    width: READER_NOTEBOOK_CLOSE_SIZE,
-    height: READER_NOTEBOOK_CLOSE_SIZE,
-  };
-}
-
 export type MobileReaderNotebookSheetFrame = {
   /** The surface to paint, reader-local: the bottom pane plus `bleed` below it. */
   rect: WindowLayoutRect;
