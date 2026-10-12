@@ -52,7 +52,7 @@ import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import { withMobileExploreAddIntent } from "@/components/explore/mobileExploreCover";
 import { ExploreInLibraryBadge } from "@/components/explore/ExploreInLibraryBadge";
 import { renderExploreDetailBarMenu } from "@/components/explore/ExploreDetailBarMenu";
-import { SourceListingSegments } from "@/components/explore/ExploreSourceSections";
+import { SourceListingTabs } from "@/components/explore/ExploreSourceSections";
 import { ExploreCoverImage } from "@/components/explore/ExploreCoverImage";
 import { ExploreSourceFilterMenus } from "@/components/explore/ExploreSourceFilterMenus";
 import { ContextMenuView } from "../../modules/nemu-window-layout";
@@ -3223,7 +3223,7 @@ export function SourceBrowseScreen() {
               ]}
             >
               {mobileDesignExploreFlag ? (
-                <SourceListingSegments
+                <SourceListingTabs
                   homeLabel={showSourceHomeTab ? strings.sourceBrowse.sourceHome : null}
                   homeSelected={sourceHomeTabSelected}
                   homeEnabled={sourceHomeTabCanSelect}

@@ -39,9 +39,7 @@ export function ExploreRailFade({ children, style }: { children: ReactNode; styl
   );
 }
 
-/** Rows read as one inset group (a settings group's shape) at the phone's reading width. */
-export const EXPLORE_HOME_GROUP_MAX_WIDTH = 640;
-
+/** Rows read as one inset group (a settings group's shape). */
 export function ExploreHomeGroup({ children }: { children: ReactNode }) {
   const { tokens } = useNemuTheme();
   return (
@@ -61,8 +59,6 @@ const styles = StyleSheet.create({
   solid: { flex: 1, backgroundColor: "#000000" },
   group: {
     width: "100%",
-    maxWidth: EXPLORE_HOME_GROUP_MAX_WIDTH,
-    alignSelf: "flex-start",
     borderRadius: R.group,
     borderCurve: "continuous",
     borderWidth: StyleSheet.hairlineWidth,

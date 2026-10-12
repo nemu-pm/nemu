@@ -1,7 +1,7 @@
 import type { ScrollViewInstance, ViewInstance } from "react-native";
 import { ExploreCoverImage } from "@/components/explore/ExploreCoverImage";
 import { ExploreGradient } from "@/components/explore/ExploreGradient";
-import { EXPLORE_HOME_GROUP_MAX_WIDTH, ExploreHomeGroup, ExploreRailFade } from "@/components/explore/ExploreSourceHome";
+import { ExploreHomeGroup, ExploreRailFade } from "@/components/explore/ExploreSourceHome";
 import { MOBILE_EXPLORE_RADIUS as R, concentricMobileExploreRadius } from "@/lib/mobileExploreRadius";
 import { ExploreShimmerSweep } from "@/components/explore/ExploreShimmerSweep";
 import { useExploreShimmerBackdrop } from "@/components/explore/useExploreShimmerBackdrop";
@@ -69,7 +69,7 @@ import {
   useSkeletonPulse,
 } from "@/lib/useSkeletonPulse";
 import { hapticConfirm, hapticError, hapticSelection } from "@/lib/haptics";
-import { buildMobileCoverTintPalette, type MobileCoverRgb } from "@/lib/mobileCoverTint";
+import { buildMobileCoverTintPalette, mobileHslToRgb, mobileRgbToHsl, type MobileCoverRgb } from "@/lib/mobileCoverTint";
 import { useMobileCoverTint } from "@/lib/useMobileCoverTint";
 import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
 import type { SearchSourceDisplay } from "@/lib/mobileSearch";
@@ -185,6 +185,7 @@ function useFeaturedCarouselLayout() {
 /** Rows of a vertical home list: one column on phones, pane-aligned columns on wide windows. */
 const HOME_LIST_MIN_COLUMN_WIDTH = 320;
 const HOME_LIST_COLUMN_GAP = 16;
+const MAX_EXPLORE_LIST_COLUMNS = 3;
 
 function useHomeListGrid() {
   return useMobileFoldAwareGrid({
@@ -787,6 +788,15 @@ const EXPLORE_FEATURED_PEEK = 28;
 const EXPLORE_FEATURED_GAP = 12;
 const EXPLORE_FEATURED_MAX_CARD = 560;
 const EXPLORE_FEATURED_PAD = 12;
+/** From this content width on, several cards show: they start on the gutter instead of centring one. */
+const EXPLORE_FEATURED_REGULAR_MIN_CONTENT = 680;
+const EXPLORE_FEATURED_REGULAR_CARD = 420;
+
+function liftExploreFeaturedTint(rgb: MobileCoverRgb): MobileCoverRgb {
+  const hsl = mobileRgbToHsl(rgb);
+  if (hsl.s < 0.08) return rgb; // a truly grey cover stays grey
+  return mobileHslToRgb({ ...hsl, s: Math.min(0.85, hsl.s * 1.3 + 0.18) });
+}
 
 /** A page wash in one cover's colour: this card's while it is the active one, cross-faded. */
 function ExploreFeaturedWash({
@@ -841,7 +851,10 @@ function ExploreFeaturedCard({
 }) {
   const { scheme } = useNemuTheme();
   const cover = useHomeCoverSource(item.cover ?? null, item.coverHeaders);
-  const tint = useMobileCoverTint(cover, `home:${item.id}`);
+  const sampled = useMobileCoverTint(cover, `home:${item.id}`);
+  // A pale or brown cover samples to a muddy colour; a card in it reads grey. Lift the
+  // saturation so the card is a clean tint of the cover, like a library Continue card.
+  const tint = useMemo(() => (sampled ? liftExploreFeaturedTint(sampled) : null), [sampled]);
   const palette = useMemo(() => buildMobileCoverTintPalette(tint, scheme), [scheme, tint]);
   useLayoutEffect(() => {
     onTint(index, tint);
@@ -941,9 +954,17 @@ function ExploreFeaturedCarousel({
   const reportTint = useCallback((index: number, tint: MobileCoverRgb | null) => {
     setTints((current) => (current[index] === tint ? current : { ...current, [index]: tint }));
   }, []);
-  const cardWidth = Math.max(0, Math.min(EXPLORE_FEATURED_MAX_CARD, viewport - EXPLORE_FEATURED_PEEK * 2));
+  // The first card's leading edge is the page's own (title, tabs, headings, rows): at rest and
+  // after every snap. Regular width shows as many cards as fit; a narrow window shows one card
+  // and a peek of the next.
+  const regular = viewport > 0 && viewport - gutters.left - gutters.right >= EXPLORE_FEATURED_REGULAR_MIN_CONTENT;
+  const cardWidth = viewport <= 0
+    ? 0
+    : regular
+      ? EXPLORE_FEATURED_REGULAR_CARD
+      : Math.max(0, Math.min(EXPLORE_FEATURED_MAX_CARD, viewport - bleed.content.paddingLeft - EXPLORE_FEATURED_PEEK));
   const interval = cardWidth + EXPLORE_FEATURED_GAP;
-  const sidePad = Math.max(0, (viewport - cardWidth) / 2);
+  const sidePad = bleed.content.paddingLeft;
   const palettes = useMemo(
     () => entries.map((_, index) => buildMobileCoverTintPalette(tints[index] ?? null, scheme)),
     [entries, scheme, tints],
@@ -980,7 +1001,7 @@ function ExploreFeaturedCarousel({
               showsHorizontalScrollIndicator={false}
               onScroll={handleScroll}
               scrollEventThrottle={16}
-              contentContainerStyle={{ paddingHorizontal: sidePad, paddingVertical: 10 }}
+              contentContainerStyle={{ paddingLeft: sidePad, paddingRight: bleed.content.paddingRight, paddingVertical: 10 }}
               style={styles.exploreFeaturedPager}
             >
               {entries.map((item, index) => (
@@ -1005,7 +1026,7 @@ function ExploreFeaturedCarousel({
           <View style={{ height: 1 }} />
         )}
       </View>
-      {entries.length > 1 ? (
+      {entries.length > 1 && !regular ? (
         <View style={styles.featuredDots}>
           {entries.map((entry, index) => {
             const selected = index === active;
@@ -1485,12 +1506,30 @@ function HomeListColumns({
   children: ReactNode;
 }) {
   const items = Children.toArray(children);
-  // Design-explore: one inset group at the phone's reading width, centred.
+  // Design-explore: inset groups across the full content width. A narrow window is one group;
+  // a regular one splits the rows into two or three groups side by side (down each column).
   if (mobileDesignExploreFlag) {
+    const columns = Math.min(MAX_EXPLORE_LIST_COLUMNS, Math.max(1, grid.columns));
+    if (columns <= 1) {
+      return (
+        <ExploreHomeGroup>
+          <View style={styles.exploreListInner}>{items}</View>
+        </ExploreHomeGroup>
+      );
+    }
+    const perColumn = Math.ceil(items.length / columns);
     return (
-      <ExploreHomeGroup>
-        <View style={styles.exploreListInner}>{items}</View>
-      </ExploreHomeGroup>
+      <View style={styles.exploreListColumns}>
+        {Array.from({ length: columns }, (_, column) => items.slice(column * perColumn, (column + 1) * perColumn))
+          .filter((rows) => rows.length > 0)
+          .map((rows, column) => (
+            <View key={column} style={styles.exploreListColumnCell}>
+              <ExploreHomeGroup>
+                <View style={styles.exploreListInner}>{rows}</View>
+              </ExploreHomeGroup>
+            </View>
+          ))}
+      </View>
     );
   }
   if (grid.columns <= 1) return <>{items}</>;
@@ -1551,7 +1590,7 @@ const MangaListSection = memo(function MangaListSection({
   const skeletonCount = getMobileSourceHomeListSkeletonCount(pageSize);
 
   return (
-    <View style={[styles.homeSection, mobileDesignExploreFlag ? styles.exploreListColumn : null]}>
+    <View style={styles.homeSection}>
       <SectionHeader
         title={component.title}
         subtitle={component.subtitle}
@@ -1805,7 +1844,7 @@ const ChapterListSection = memo(function ChapterListSection({
   const skeletonCount = getMobileSourceHomeListSkeletonCount(pageSize);
 
   return (
-    <View style={[styles.homeSection, mobileDesignExploreFlag ? styles.exploreListColumn : null]}>
+    <View style={styles.homeSection}>
       <SectionHeader
         title={component.title}
         subtitle={component.subtitle}
@@ -2727,8 +2766,8 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
-  // A list section reads as one column at the phone's width, heading included, on the page's own left edge (the rails and the carousel's heading share it).
-  exploreListColumn: { width: "100%", maxWidth: EXPLORE_HOME_GROUP_MAX_WIDTH, alignSelf: "flex-start" },
+  exploreListColumns: { flexDirection: "row", alignItems: "flex-start", gap: HOME_LIST_COLUMN_GAP },
+  exploreListColumnCell: { flex: 1, minWidth: 0 },
   exploreListInner: { marginTop: -StyleSheet.hairlineWidth },
   exploreListRow: { paddingHorizontal: 12 },
   // Concentric with the group's corner (group radius less the row's inset).
