@@ -88,7 +88,6 @@ import {
   mobileReaderStageLayoutTransition,
 } from "@/lib/mobileReaderMotionAnimations";
 import {
-  MOBILE_READER_REDUCE_MOTION_FADE_MS,
   mobileReaderChromeArrangementKey,
   mobileReaderChromeArrangementMotion,
   mobileReaderChromeGeometryKey,
