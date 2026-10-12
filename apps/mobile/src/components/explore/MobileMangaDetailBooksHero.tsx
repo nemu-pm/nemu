@@ -1,5 +1,6 @@
 import { MOBILE_EXPLORE_RADIUS as R } from "@/lib/mobileExploreRadius";
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactElement, type ReactNode } from "react";
+import { MobileMangaDetailTopHeaderContext } from "@/components/MobileMangaDetailPaneContext";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, type ComponentType, type ReactElement, type ReactNode } from "react";
 import {
   Image,
   PixelRatio,
@@ -104,6 +105,8 @@ const PANE_FACTS_ROW_MIN_WIDTH = 340;
 const ESTIMATE = { headText: 8 + 18 + 33 + 4 + 20, facts: 34, actions: 50 } as const;
 /** The primary button's leading glyph (the source's icon, or play): larger than the label's cap height. */
 const PRIMARY_GLYPH = 22;
+/** The Continue capsule in the wide header (pt): about a phone portrait's button. */
+const TOP_PRIMARY_MAX_WIDTH = 340;
 /** A wide hero: actions and synopsis keep a readable measure, centred. */
 const WIDE_COLUMN = 560;
 /** Head padding, the cover → title gap and the title's first line. */
@@ -214,6 +217,8 @@ export function MobileMangaDetailBooksHero({
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const bleed = useMobilePageBleedStyles();
   const gutters = useMobilePageGutters();
+  const topHeader = useContext(MobileMangaDetailTopHeaderContext);
+  const top = topHeader !== null && !pane;
   const [tagSheetOpen, setTagSheetOpen] = useState(false);
   const remoteCover = isRemote(coverSource) ? coverSource : null;
   const tint = useMobileCoverTint(remoteCover);
@@ -239,7 +244,9 @@ export function MobileMangaDetailBooksHero({
   const shortPane = pane && isMobileCompactHeight(windowHeight);
   // Four facts side by side only where each keeps room for its value at the
 // one type size every fact shares; narrower, they stack 2 x 2 (never shrunk).
-const paneFactColumns = PixelRatio.getFontScale() > 1.3 || contentWidth < PANE_FACTS_ROW_MIN_WIDTH ? 2 : 4;
+const topCoverWidth = Math.round(Math.min(230, Math.max(150, contentWidth * 0.24)));
+const topTextWidth = contentWidth - topCoverWidth - 28;
+const paneFactColumns = PixelRatio.getFontScale() > 1.3 || (top ? topTextWidth : contentWidth) < PANE_FACTS_ROW_MIN_WIDTH ? 2 : 4;
   const rest = useMobileExploreRestingFrame();
   const rootRef = useRef<ViewInstance>(null);
   const { top: restTop, onLayout: onRestLayout } = useMobileExploreRestingTop(rootRef, rest.windowKey);
@@ -251,6 +258,7 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || contentWidth < PANE_F
   // height until the actions, the facts and two synopsis lines rest above the
   // tab bar.
   const coverWidth = (() => {
+    if (top) return topCoverWidth;
     if (pane) {
       // A short window (a phone in landscape): the cover above the title
       // leaves no room for the actions above the tab bar, so the
@@ -301,16 +309,23 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || contentWidth < PANE_F
   // variant is picked upstream); only a short pane's small-cover head (cover
   // beside the title) comes from the window, never from the cover's pixels.
   const shownCoverWidth = coverWidth;
-  const compactHead = shownCoverWidth < HERO_COMPACT_COVER_BELOW;
-  const wide = !pane && contentWidth > WIDE_COLUMN;
+  const compactHead = top || shownCoverWidth < HERO_COMPACT_COVER_BELOW;
+  const wide = !pane && !top && contentWidth > WIDE_COLUMN;
   // The first title line ends this far below the hero's top.
   const titleBottom = compactHead
     ? Math.round(shownCoverWidth * 1.5) + 8
     : Math.round(shownCoverWidth * 1.5) + TITLE_BELOW_COVER;
   useEffect(() => {
-    onTitleBottom?.(titleBottom);
-  }, [onTitleBottom, titleBottom]);
-  const column = pane ? null : styles.wideColumn;
+    if (!top) onTitleBottom?.(titleBottom);
+  }, [onTitleBottom, titleBottom, top]);
+  const onTopTitleLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      const { y, height } = event.nativeEvent.layout;
+      onTitleBottom?.(Math.round(y + height) + 8);
+    },
+    [onTitleBottom],
+  );
+  const column = pane || top ? null : styles.wideColumn;
   const statusKey = status != null ? MANGA_STATUS_LABEL[status] : undefined;
   const tagList = tags ?? [];
   // Genres live in the chips below the description, not here as well.
@@ -369,7 +384,7 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || contentWidth < PANE_F
     : DESCRIPTION_LINES;
   const hasTags = Boolean(badges.length || tagList.length);
   const restingFit = (() => {
-    if (pane || deferBody || restTop === null) return null;
+    if (pane || top || deferBody || restTop === null) return null;
     const order: [string, boolean][] = [
       ["head", true],
       ["actions", hasActions],
@@ -505,7 +520,7 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || contentWidth < PANE_F
   );
   const tagsNode =
     badges.length || tagList.length ? (
-      pane ? (
+      pane || top ? (
         // The two-column pane has the width to wrap them, centred, instead of a
         // strip whose last chip a hard edge cut in half.
         <View onLayout={onTagsLayout} style={[styles.tagsWrap, pushStyle("tags")]}>
@@ -529,56 +544,8 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || contentWidth < PANE_F
       )
     ) : null;
 
-  return (
-    <View
-      ref={rootRef}
-      onLayout={(event) => {
-        onRootLayout(event);
-        onRestLayout();
-      }}
-      style={[
-        styles.root,
-        pane ? [styles.paneRoot, shortPane ? styles.paneRootShort : null, { backgroundColor: palette.page }] : null,
-        // While the body is held back the hero still fills the screen, so the
-        // page that zooms in is the cover's colour from top to bottom rather
-        // than a tinted block that ends under the title.
-        deferBody && !pane ? { minHeight: windowHeight } : null,
-      ]}
-    >
-      {pane ? null : (
-        <>
-          {/* The page colour runs to both window edges, under a vertical
-              system bar as well; only content keeps out of that column. */}
-          <View
-            pointerEvents="none"
-            style={[
-              styles.tint,
-              { left: -gutters.left, right: -gutters.right, backgroundColor: palette.page },
-            ]}
-          />
-          <ExploreGradient
-            pointerEvents="none"
-            colors={[palette.page, palette.pageClear]}
-            style={[styles.tintFade, { left: -gutters.left, right: -gutters.right }]}
-          />
-          {/* Mounted once the zoom has landed, so the push carries no canvas. */}
-          {deferBody ? null : (
-            <MobileCoverMeshBackground
-              main={tint}
-              regions={regionTints}
-              scheme={scheme}
-              topBlend={MESH_TOP_BLEND}
-              bottomBlend={MESH_BOTTOM_BLEND}
-              landingKey="landed"
-              style={[styles.mesh, { left: -gutters.left, right: -gutters.right }]}
-            />
-          )}
-        </>
-      )}
-
-      <View style={[styles.head, compactHead ? [styles.headCompact, column] : null]} onLayout={onHeadLayout}>
-        {cover}
-        <View style={compactHead ? styles.titleBlockCompact : styles.titleBlock}>
+  const titleBlockNode = (
+        <View style={[compactHead ? styles.titleBlockCompact : styles.titleBlock, top ? { flex: 0 } : null]} onLayout={top ? onTopTitleLayout : undefined}>
           <NemuText
             accessibilityRole="header"
             maxFontSizeMultiplier={HERO_TEXT_MAX_SCALE}
@@ -609,10 +576,9 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || contentWidth < PANE_F
             </NemuText>
           ) : null}
         </View>
-      </View>
-
-      {deferBody ? null : (
-        <>
+  );
+  const actionsNode = (
+    <>
       {primaryAction || secondaryActions.length ? (
         <View style={[styles.actionsBlock, column, pushStyle("actions")]} onLayout={onActionsLayout}>
           <View style={styles.actions}>
@@ -649,7 +615,7 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || contentWidth < PANE_F
                   )
                 }
                 onPress={primaryAction.onPress}
-                style={styles.flexButton}
+                style={top ? styles.topPrimaryButton : styles.flexButton}
               />
             ) : null}
             {libraryAction ? (
@@ -662,7 +628,7 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || contentWidth < PANE_F
                 burstKey={libraryBurst}
                 colors={confettiColors}
                 // Saved: a compact pill, so Continue keeps its full label.
-                style={libraryAdded ? styles.compactButton : styles.flexButton}
+                style={libraryAdded ? styles.compactButton : top ? styles.topPrimaryButton : styles.flexButton}
               >
               <ExploreGlassButton
                 label={libraryAdded ? strings.designExplore.inLibrary : strings.designExplore.addToLibrary}
@@ -691,9 +657,12 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || contentWidth < PANE_F
           </View>
         </View>
       ) : null}
-
-      {factsRow && pane ? (
-        <View style={[styles.facts, { flexWrap: "wrap", rowGap: 8 }, pushStyle("facts")]} onLayout={onFactsLayout}>
+    </>
+  );
+  const factsNode = (
+    <>
+      {factsRow && (pane || top) ? (
+        <View style={[styles.facts, { flexWrap: "wrap", rowGap: 8 }, top ? { flexGrow: 0 } : null, pushStyle("facts")]} onLayout={onFactsLayout}>
           {facts.map((fact, index) => (
             <View
               key={fact.label}
@@ -769,7 +738,10 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || contentWidth < PANE_F
           ))}
         </ScrollView>
       ) : null}
-
+    </>
+  );
+  const synopsisNode = (
+    <>
       {description ? (
         <HeroDescription
           key={description}
@@ -782,8 +754,94 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || contentWidth < PANE_F
           strings={strings}
         />
       ) : null}
+    </>
+  );
 
-      {tagsNode}
+  // Prototype top header: the genres close the list, after the last chapter.
+  const footerKey = `${scheme}:${palette.ink}:${tagList.join("|")}:${badges.map((badge) => badge.label).join("|")}`;
+  useEffect(() => {
+    topHeader?.setFooter(top ? tagsNode : null);
+    return () => topHeader?.setFooter(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [footerKey, top]);
+
+  return (
+    <View
+      ref={rootRef}
+      onLayout={(event) => {
+        onRootLayout(event);
+        onRestLayout();
+      }}
+      style={[
+        styles.root,
+        pane ? [styles.paneRoot, shortPane ? styles.paneRootShort : null, { backgroundColor: palette.page }] : null,
+        // While the body is held back the hero still fills the screen, so the
+        // page that zooms in is the cover's colour from top to bottom rather
+        // than a tinted block that ends under the title.
+        deferBody && !pane ? { minHeight: windowHeight } : null,
+      ]}
+    >
+      {pane ? null : (
+        <>
+          {/* The page colour runs to both window edges, under a vertical
+              system bar as well; only content keeps out of that column. */}
+          <View
+            pointerEvents="none"
+            style={[
+              styles.tint,
+              { left: -gutters.left, right: -gutters.right, backgroundColor: palette.page },
+            ]}
+          />
+          <ExploreGradient
+            pointerEvents="none"
+            colors={[palette.page, palette.pageClear]}
+            style={[styles.tintFade, { left: -gutters.left, right: -gutters.right }]}
+          />
+          {/* Mounted once the zoom has landed, so the push carries no canvas. */}
+          {deferBody ? null : (
+            <MobileCoverMeshBackground
+              main={tint}
+              regions={regionTints}
+              scheme={scheme}
+              topBlend={MESH_TOP_BLEND}
+              bottomBlend={MESH_BOTTOM_BLEND}
+              landingKey="landed"
+              style={[styles.mesh, { left: -gutters.left, right: -gutters.right }]}
+            />
+          )}
+        </>
+      )}
+
+      {top ? (
+        <View style={styles.topRow} onLayout={onHeadLayout}>
+          {cover}
+          <View style={styles.topColumn}>
+            {titleBlockNode}
+            {deferBody ? null : (
+              <>
+                {factsNode}
+                {synopsisNode}
+                {actionsNode}
+              </>
+            )}
+          </View>
+        </View>
+      ) : (
+      <View style={[styles.head, compactHead ? [styles.headCompact, column] : null]} onLayout={onHeadLayout}>
+        {cover}
+        {titleBlockNode}
+      </View>
+      )}
+
+      {deferBody ? null : (
+        <>
+      {top ? null : actionsNode}
+
+      {top ? null : factsNode}
+
+      {top ? null : synopsisNode}
+
+      {top ? null : tagsNode}
 
       {tagList.length ? (
         <MobileMangaDetailTagSheet
@@ -978,6 +1036,17 @@ const styles = StyleSheet.create({
     bottom: -TINT_FADE,
     height: TINT_FADE,
   },
+  topRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 28,
+    paddingTop: 8,
+  },
+  topColumn: {
+    flex: 1,
+    minWidth: 0,
+    gap: 16,
+  },
   head: {
     alignItems: "center",
     paddingTop: 8,
@@ -1126,6 +1195,14 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     flexShrink: 1,
     flexBasis: 0,
+  },
+  // The wide header: the capsule keeps a phone-portrait width instead of
+  // stretching across the text column, the library button right beside it.
+  topPrimaryButton: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+    maxWidth: TOP_PRIMARY_MAX_WIDTH,
   },
   primaryIcon: {
     width: PRIMARY_GLYPH,

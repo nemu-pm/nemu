@@ -18,3 +18,7 @@ export const MobileMangaDetailPaneContext = createContext<MobileMangaDetailPane>
 export function useMobileMangaDetailPane(): MobileMangaDetailPane {
   return useContext(MobileMangaDetailPaneContext);
 }
+
+/** Prototype "top header" layout: the hero lays out as a wide header and hands its genres to the list's footer. */
+export type MobileMangaDetailTopHeader = { setFooter: (node: import("react").ReactNode) => void };
+export const MobileMangaDetailTopHeaderContext = createContext<MobileMangaDetailTopHeader | null>(null);

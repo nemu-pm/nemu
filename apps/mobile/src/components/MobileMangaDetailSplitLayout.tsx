@@ -2,6 +2,7 @@ import {
   Fragment,
   useCallback,
   useMemo,
+  useState,
   type ComponentProps,
   type ReactNode,
 } from "react";
@@ -15,6 +16,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
+import { isMobileCompactHeight } from "@/lib/mobileExploreRestingFit";
 import { useMobileExploreRestingFrame } from "@/components/explore/useMobileExploreResting";
 import Animated, { LayoutAnimationConfig } from "react-native-reanimated";
 import {
@@ -32,6 +34,8 @@ import {
   type MobileMangaDetailPane,
 } from "@/components/MobileMangaDetailPaneContext";
 import { MOBILE_DETAIL_PANE_METRICS } from "@/lib/mobileMangaDetailPaneLayout";
+import { MOBILE_TITLE_LAYOUT } from "@/lib/mobileTitleLayout";
+import { MobileMangaDetailTopHeaderContext } from "@/components/MobileMangaDetailPaneContext";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { useMobileSplitPaneLayout } from "@/lib/useMobileSplitPaneLayout";
 import { useMobilePoseTransition } from "@/lib/MobilePoseTransitionContext";
@@ -84,7 +88,7 @@ export function MobileMangaDetailSplitLayout<ItemT>({
   // The two panes sit a normal distance under the bar: UIKit's inset already
   // clears it, so the page's own top padding would only widen the gap (most
   // on iPad, where the bar carries the tab strip).
-  const { verticalBarSide } = useMobileAdaptiveLayout();
+  const { verticalBarSide, hasFoldRegion, regularWidth: windowRegularWidth } = useMobileAdaptiveLayout();
   // Bars on the side (the Duo's rail): the bar is not above the page, so the
   // page starts at the top safe area instead of under an empty bar band.
   const barOnSide = Platform.OS === "ios" && mobileDesignExploreFlag && verticalBarSide !== null;
@@ -102,13 +106,31 @@ export function MobileMangaDetailSplitLayout<ItemT>({
   const { containerRef, onContainerLayout, layout } = useMobileSplitPaneLayout(
     MOBILE_DETAIL_SPLIT_OPTIONS,
   );
-  const split = splitEnabled && layout.mode === "split" ? layout : null;
+  // Prototype (`mobileTitleLayout`): one wide header over one chapter list
+  // wherever the window is wide enough for the cover beside the text.
+  const { width: windowWidth } = useWindowDimensions();
+  const top =
+    MOBILE_TITLE_LAYOUT === "top" &&
+    Platform.OS === "ios" &&
+    mobileDesignExploreFlag &&
+    splitEnabled &&
+    windowWidth - gutters.left - gutters.right >= 560;
+  const [topFooter, setTopFooter] = useState<ReactNode>(null);
+  const topContext = useMemo(() => ({ setFooter: setTopFooter }), []);
+  const split = !top && splitEnabled && layout.mode === "split" ? layout : null;
   // On iPad the system reserves the bar twice (tab strip row and title row)
   // above the content, though both draw on one line: the two panes pull up by
   // the unused row so they start a normal distance under what is drawn.
-  const pull = split && Platform.OS === "ios" && mobileDesignExploreFlag && !barOnSide ? IPAD_BAR_ROW_PULL : 0;
-  const { regularWidth: adaptiveRegularWidth } = useMobileAdaptiveLayout();
-  const regularWidth = adaptiveRegularWidth || Boolean(split);
+  // The wide header pulls up only where the system lays the tab strip and the
+  // title on two rows (a regular-width, regular-height window with no fold
+  // region: bars on top, not at the bottom or the side); a short window or the
+  // Duo's inner display draws one row.
+  const doubleBarRow = windowRegularWidth && !hasFoldRegion && !isMobileCompactHeight(height);
+  const pull =
+    (split || (top && doubleBarRow)) && Platform.OS === "ios" && mobileDesignExploreFlag && !barOnSide
+      ? IPAD_BAR_ROW_PULL
+      : 0;
+  const regularWidth = windowRegularWidth || Boolean(split) || top;
   const leadingPane = useMemo<MobileMangaDetailPane>(
     () => ({ role: "leading", regularWidth: true }),
     [],
@@ -202,10 +224,27 @@ export function MobileMangaDetailSplitLayout<ItemT>({
             <PageListScaffold
               {...listProps}
               contentInsetAdjustmentBehavior={contentInsetAdjustmentBehavior}
+              ListFooterComponent={
+                top && topFooter ? (
+                  <View style={styles.topFooter}>
+                    {topFooter}
+                  </View>
+                ) : (
+                  listProps.ListFooterComponent
+                )
+              }
               contentContainerStyle={[split ? padding.trailing : null, split || barOnSide ? exploreTop : null, exploreBottom]}
               ListHeaderComponent={
                 <View style={[styles.stack, pull ? { marginTop: pull } : null]}>
-                  {split ? null : <Fragment key="leading">{leading}</Fragment>}
+                  {split ? null : (
+                    <Fragment key="leading">
+                      {top ? (
+                        <MobileMangaDetailTopHeaderContext.Provider value={topContext}>{leading}</MobileMangaDetailTopHeaderContext.Provider>
+                      ) : (
+                        leading
+                      )}
+                    </Fragment>
+                  )}
                   <Fragment key="chapter-header">{chapterHeader}</Fragment>
                 </View>
               }
@@ -238,6 +277,10 @@ const styles = StyleSheet.create({
   },
   stack: {
     gap: 18,
+  },
+  topFooter: {
+    paddingTop: 28,
+    paddingBottom: 8,
   },
   leadingStack: {
     gap: MOBILE_DETAIL_PANE_METRICS.blockGap,
