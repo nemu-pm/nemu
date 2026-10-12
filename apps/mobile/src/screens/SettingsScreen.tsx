@@ -2045,15 +2045,6 @@ function SettingsScreenContent({
   const sourcesSectionLoading =
     activeSection === "sources" &&
     shouldRenderMobileSourcesSectionLoading(settingsSkeletonState);
-  // The split view's content pane is one scroll view for every section: a new
-  // selection starts at the top, like pushing a fresh page would.
-  const previousPaneSectionRef = useRef(activeSection);
-  useEffect(() => {
-    if (presentation !== "detail-pane") return;
-    if (previousPaneSectionRef.current === activeSection) return;
-    previousPaneSectionRef.current = activeSection;
-    settingsPaneListRef.current?.scrollToOffset({ offset: 0, animated: false });
-  }, [activeSection, presentation]);
   const inSplit = presentation === "list-pane";
   const openSection = (next: SettingsSectionId) => {
     if (inSplit && onSelectSection) {
@@ -3021,7 +3012,7 @@ function SettingsScreenContent({
                       icon="book-outline"
                       title={strings.reader.title}
                       description={strings.reader.description}
-                      pageTitle={settingsTitle}
+                      pageTitle={presentation === "detail-pane" ? undefined : settingsTitle}
                     />
                     <View style={styles.nativeSegmentedShell}>
                       <SettingsSegmentedPicker
@@ -3061,7 +3052,7 @@ function SettingsScreenContent({
                       icon="options-outline"
                       title={strings.settings.plugins}
                       description={strings.settings.pluginsDescription}
-                      pageTitle={settingsTitle}
+                      pageTitle={presentation === "detail-pane" ? undefined : settingsTitle}
                     />
                     {readerPlugins.error ? (
                       <View style={styles.emptyRow}>
@@ -3152,7 +3143,7 @@ function SettingsScreenContent({
                     icon="color-palette-outline"
                     title={strings.settings.appearance}
                     description={strings.settings.appearanceDescription}
-                    pageTitle={settingsTitle}
+                    pageTitle={presentation === "detail-pane" ? undefined : settingsTitle}
                   />
                   <SegmentedSetting
                     title={strings.settings.language}
@@ -3216,7 +3207,7 @@ function SettingsScreenContent({
                       icon="server-outline"
                       title={strings.settings.installedSources}
                       description={strings.settings.installedSourcesDescription}
-                      pageTitle={settingsTitle}
+                      pageTitle={presentation === "detail-pane" ? undefined : settingsTitle}
                       trailing={
                         <View style={styles.sourceHeaderActions}>
                           <NemuButton
@@ -3341,7 +3332,7 @@ function SettingsScreenContent({
                       icon="document-attach-outline"
                       title={strings.settings.importSourceCardTitle}
                       description={strings.settings.importSourceCardDescription}
-                      pageTitle={settingsTitle}
+                      pageTitle={presentation === "detail-pane" ? undefined : settingsTitle}
                     />
                     <NemuButton
                       accessibilityLabel={strings.settings.importSource}
@@ -3643,6 +3634,9 @@ function SettingsScreenContent({
         </PageScaffold>
       ) : (
         <PageListScaffold
+          // A newly selected section starts at UIKit's adjusted top. Resetting
+          // to offset 0 scrolls past the transparent header's automatic inset.
+          key={presentation === "detail-pane" ? activeSection : "list-pane"}
           nativeHeader
           data={NO_SETTINGS_ROWS}
           renderItem={renderNoSettingsRow}
