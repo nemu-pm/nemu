@@ -188,7 +188,6 @@ import { JapaneseLearningTranscriptSheet } from "@/components/reader/japaneseLea
 import {
   MobileCachedImage,
   NemuPressable,
-  NemuText,
   NemuRingSpinner,
   nemuFontWeight,
   useNemuTheme,
@@ -7708,19 +7707,7 @@ export function ReaderScreen() {
             filmstripHeader={
               <GlassContainer spacing={READER_CAPSULE_GLASS_SPACING} pointerEvents="box-none" style={styles.readerNotebookHeader}>
                 <View pointerEvents="box-none" style={{ width: actions.width }}>
-                  <ReaderCapsule animateAppearance materializeDurationMs={readerChromeMaterialMs} style={styles.readerNotebookBackCapsule}>
-                    <NemuPressable
-                      accessibilityRole="button"
-                      accessibilityLabel={strings.common.back}
-                      onPress={navigateBack}
-                      style={styles.readerNotebookBackButton}
-                    >
-                      <Ionicons name={MOBILE_READER_CHROME_GLYPHS.back.name} size={22} color={readerChromeColors.primaryText} />
-                      <NemuText numberOfLines={1} style={[styles.readerNotebookBackLabel, { color: readerChromeColors.primaryText }]}>
-                        {strings.common.back}
-                      </NemuText>
-                    </NemuPressable>
-                  </ReaderCapsule>
+                  <ReaderCapsule animateAppearance materializeDurationMs={readerChromeMaterialMs} style={styles.readerCapsuleCircle}>{backButton}</ReaderCapsule>
                 </View>
                 <ReaderCapsule animateAppearance materializeDurationMs={readerChromeMaterialMs} style={styles.readerConsoleTitleCapsule}>{capsuleTitleBlock}</ReaderCapsule>
                 {chrome.state === "filmstrip" ? actionsCapsule : null}
@@ -8953,22 +8940,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 4,
     paddingHorizontal: 4,
-  },
-  readerNotebookBackCapsule: {
-    alignSelf: "flex-start",
-    height: 44,
-  },
-  readerNotebookBackButton: {
-    height: 44,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingLeft: 8,
-    paddingRight: 14,
-    gap: 2,
-  },
-  readerNotebookBackLabel: {
-    fontSize: 15,
-    fontWeight: nemuFontWeight.medium,
   },
   readerConsoleTitleCapsule: {
     flex: 1,
