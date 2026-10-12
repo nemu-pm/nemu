@@ -68,7 +68,7 @@ import {
   useSkeletonDisplayDelay,
   useSkeletonPulse,
 } from "@/lib/useSkeletonPulse";
-import { getMobileContinueCardVariant } from "@/lib/mobileContinueCardGeometry";
+import { getMobileSourceFeaturedGeometry, MOBILE_SOURCE_FEATURED_GAP } from "@/lib/mobileSourceFeaturedGeometry";
 import { hapticConfirm, hapticError, hapticSelection } from "@/lib/haptics";
 import { buildMobileCoverTintPalette, type MobileCoverRgb } from "@/lib/mobileCoverTint";
 import { useMobileCoverTint } from "@/lib/useMobileCoverTint";
@@ -784,15 +784,7 @@ const HorizontalLinkSection = memo(function HorizontalLinkSection({
 });
 
 
-/** Peek of the neighbouring cards on each side of the centred one. */
-const EXPLORE_FEATURED_PEEK = 28;
-const EXPLORE_FEATURED_GAP = 12;
-const EXPLORE_FEATURED_MAX_CARD = 560;
 const EXPLORE_FEATURED_PAD = 12;
-/** From this content width on, several cards show: they start on the gutter instead of centring one. */
-const EXPLORE_FEATURED_REGULAR_MIN_CONTENT = 680;
-const EXPLORE_FEATURED_REGULAR_CARD = 420;
-
 /** A page wash in one cover's colour: this card's while it is the active one, cross-faded. */
 function ExploreFeaturedWash({
   colors,
@@ -952,18 +944,13 @@ function ExploreFeaturedCarousel({
   // every snap. Short and wide windows keep the first card's leading edge on the page's own
   // (title, tabs, headings, rows) with a peek of the next: several cards where they fit.
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
-  const centred = getMobileContinueCardVariant("tall", windowHeight, windowWidth) === "tall";
-  const regular = viewport > 0 && viewport - gutters.left - gutters.right >= EXPLORE_FEATURED_REGULAR_MIN_CONTENT;
-  const cardWidth = viewport <= 0
-    ? 0
-    : centred
-      ? Math.max(0, Math.min(EXPLORE_FEATURED_MAX_CARD, viewport - EXPLORE_FEATURED_PEEK * 2))
-      : regular
-        ? EXPLORE_FEATURED_REGULAR_CARD
-        : Math.max(0, Math.min(EXPLORE_FEATURED_MAX_CARD, viewport - bleed.content.paddingLeft - EXPLORE_FEATURED_PEEK));
-  const interval = cardWidth + EXPLORE_FEATURED_GAP;
-  const sidePad = centred ? Math.max(0, (viewport - cardWidth) / 2) : bleed.content.paddingLeft;
-  const sidePadRight = centred ? sidePad : bleed.content.paddingRight;
+  const { regular, cardWidth, interval, paddingLeft: sidePad, paddingRight: sidePadRight } = getMobileSourceFeaturedGeometry({
+    frameWidth: viewport,
+    gutterLeft: gutters.left,
+    gutterRight: gutters.right,
+    windowWidth,
+    windowHeight,
+  });
   const palettes = useMemo(
     () => entries.map((_, index) => buildMobileCoverTintPalette(tints[index] ?? null, scheme)),
     [entries, scheme, tints],
@@ -1006,7 +993,7 @@ function ExploreFeaturedCarousel({
               {entries.map((item, index) => (
                 <View
                   key={`${item.id}:${index}`}
-                  style={{ marginRight: index === entries.length - 1 ? 0 : EXPLORE_FEATURED_GAP }}
+                  style={{ marginRight: index === entries.length - 1 ? 0 : MOBILE_SOURCE_FEATURED_GAP }}
                 >
                   <ExploreFeaturedCard
                     item={item}
