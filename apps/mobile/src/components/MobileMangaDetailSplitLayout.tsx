@@ -34,7 +34,6 @@ import {
   type MobileMangaDetailPane,
 } from "@/components/MobileMangaDetailPaneContext";
 import { MOBILE_DETAIL_PANE_METRICS } from "@/lib/mobileMangaDetailPaneLayout";
-import { MOBILE_TITLE_LAYOUT } from "@/lib/mobileTitleLayout";
 import { MobileMangaDetailTopHeaderContext } from "@/components/MobileMangaDetailPaneContext";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { useMobileSplitPaneLayout } from "@/lib/useMobileSplitPaneLayout";
@@ -106,11 +105,11 @@ export function MobileMangaDetailSplitLayout<ItemT>({
   const { containerRef, onContainerLayout, layout } = useMobileSplitPaneLayout(
     MOBILE_DETAIL_SPLIT_OPTIONS,
   );
-  // Prototype (`mobileTitleLayout`): one wide header over one chapter list
-  // wherever the window is wide enough for the cover beside the text.
+  // With the explore design on, one wide header over one chapter list
+  // wherever the window is wide enough for the cover beside the text. The
+  // info pane beside the chapters stays for the design off and non-iOS.
   const { width: windowWidth } = useWindowDimensions();
   const top =
-    MOBILE_TITLE_LAYOUT === "top" &&
     Platform.OS === "ios" &&
     mobileDesignExploreFlag &&
     splitEnabled &&
