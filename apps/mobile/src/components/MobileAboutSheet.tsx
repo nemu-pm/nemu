@@ -27,7 +27,6 @@ import {
   nemuColorWithAlpha,
 } from "@/design-system";
 import { NemuAppIconHalo } from "@/components/NemuAppIconHalo";
-import { MobileOpenSourceLicensesSheet } from "@/components/MobileOpenSourceLicensesSheet";
 import { useMobileLanguageSettings } from "@/data/mobileHooks";
 import { hapticConfirm, hapticError } from "@/lib/haptics";
 import {
@@ -38,7 +37,6 @@ import { getMobileStrings } from "@/lib/mobileI18n";
 import { describeMobileErrorDetail } from "@/lib/mobileSourceErrors";
 import {
   getMobileAboutHeroGlowRoomTop,
-  getMobileAboutLinksArrangement,
   getMobileAboutSheetBodyTopPadding,
   getMobileAboutSheetLayout,
   MOBILE_ABOUT_HERO_METRICS,
@@ -58,16 +56,6 @@ const linkSquareIconPaths = [
   "M11.1004 3.00208C7.4515 3.00864 5.54073 3.09822 4.31962 4.31931C3.00183 5.63706 3.00183 7.75796 3.00183 11.9997C3.00183 16.2415 3.00183 18.3624 4.31962 19.6801C5.6374 20.9979 7.75836 20.9979 12.0003 20.9979C16.2421 20.9979 18.3631 20.9979 19.6809 19.6801C20.902 18.4591 20.9916 16.5484 20.9982 12.8996",
   "M20.4803 3.51751L14.931 9.0515M20.4803 3.51751C19.9863 3.023 16.6587 3.0691 15.9552 3.0791M20.4803 3.51751C20.9742 4.01202 20.9282 7.34329 20.9182 8.04754",
 ] as const;
-
-// Document-with-seal glyph and a chevron, stroked on the same 24pt grid.
-const licenseIconPaths = [
-  "M18 13V9.99C18 6.21 18 4.32 16.83 3.16C15.66 2 13.77 2 10 2H9C5.23 2 3.34 2 2.17 3.16C1 4.32 1 6.21 1 9.99V14.01C1 17.79 1 19.68 2.17 20.84C3.34 22 5.23 22 9 22H10",
-  "M5.5 7H13.5M5.5 11.5H13.5M5.5 16H9",
-  "M17 16.5C18.3807 16.5 19.5 15.3807 19.5 14C19.5 12.6193 18.3807 11.5 17 11.5C15.6193 11.5 14.5 12.6193 14.5 14C14.5 15.3807 15.6193 16.5 17 16.5Z",
-  "M15.5 16.25L14.5 22L17 20.5L19.5 22L18.5 16.25",
-] as const;
-
-const chevronRightIconPaths = ["M9 6L15 12L9 18"] as const;
 
 type MobileAboutSheetProps = {
   visible: boolean;
@@ -128,17 +116,11 @@ export function MobileAboutSheet({ visible, onClose }: MobileAboutSheetProps) {
     width,
   });
   const heroMetrics = MOBILE_ABOUT_HERO_METRICS[sheetLayout.hero];
-  const linksArrangement = getMobileAboutLinksArrangement({ height, width });
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
   const [linkError, setLinkError] = useState<string | null>(null);
   const [openingSourceCode, setOpeningSourceCode] = useState(false);
   const openingSourceCodeRef = useRef(false);
-  const [licensesVisible, setLicensesVisible] = useState(false);
-  // Licenses replace About (dismiss-then-present): the About sheet closes
-  // first and the licenses sheet presents once its dismissal has finished.
-  const presentLicensesAfterCloseRef = useRef(false);
-
   const getGuardedActionState = (): MobileAboutActionState => ({
     openingSourceCode: openingSourceCodeRef.current || openingSourceCode,
   });
@@ -146,17 +128,6 @@ export function MobileAboutSheet({ visible, onClose }: MobileAboutSheetProps) {
   const closeSheet = () => {
     setLinkError(null);
     onClose();
-  };
-
-  const openLicenses = () => {
-    presentLicensesAfterCloseRef.current = true;
-    closeSheet();
-  };
-
-  const handleAboutDismissed = () => {
-    if (!presentLicensesAfterCloseRef.current) return;
-    presentLicensesAfterCloseRef.current = false;
-    setLicensesVisible(true);
   };
 
   const openSourceCode = async () => {
@@ -182,11 +153,11 @@ export function MobileAboutSheet({ visible, onClose }: MobileAboutSheetProps) {
   };
 
   return (
-    <>
     <MobileNativeSheetScaffold
       visible={visible}
       onClose={closeSheet}
-      onDismiss={handleAboutDismissed}
+      // This sheet has no side toolbar; center within its own full width.
+      contentIgnoresSafeAreaEdges="horizontal"
       snapPoints={sheetLayout.snapPoint ? [sheetLayout.snapPoint] : undefined}
       scroll={sheetLayout.scroll}
       scrollContentBottomInset={18}
@@ -252,7 +223,7 @@ export function MobileAboutSheet({ visible, onClose }: MobileAboutSheetProps) {
         {strings.about.description}
       </Text>
 
-      <View style={[styles.links, linksArrangement === "row" ? styles.linksRow : null]}>
+      <View style={styles.links}>
         <NemuPressable
           accessibilityRole="link"
           accessibilityLabel={strings.about.openSourceCode}
@@ -265,7 +236,6 @@ export function MobileAboutSheet({ visible, onClose }: MobileAboutSheetProps) {
             void openSourceCode();
           }}
           pressedScale={0.98}
-          containerStyle={linksArrangement === "row" ? styles.linkRowFlex : null}
           style={[
             styles.linkRow,
             {
@@ -306,47 +276,6 @@ export function MobileAboutSheet({ visible, onClose }: MobileAboutSheetProps) {
             size={17}
           />
         </NemuPressable>
-        <NemuPressable
-          accessibilityRole="button"
-          accessibilityLabel={strings.openSourceLicenses.title}
-          containerStyle={linksArrangement === "row" ? styles.linkRowFlex : null}
-          onPress={openLicenses}
-          pressedScale={0.98}
-          style={[
-            styles.linkRow,
-            { backgroundColor: nemuColorWithAlpha(tokens.muted, 0.42) },
-          ]}
-          testID="AboutOpenSourceLicenses"
-        >
-          <View style={[styles.linkIcon, { backgroundColor: tokens.sourceIconGlass }]}>
-            <HugeiconsNativeIcon
-              color={tokens.foreground}
-              paths={licenseIconPaths}
-              size={17}
-            />
-          </View>
-          <View style={styles.linkText}>
-            <Text
-              maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
-              numberOfLines={1}
-              style={[styles.linkTitle, { color: tokens.foreground }]}
-            >
-              {strings.openSourceLicenses.title}
-            </Text>
-            <Text
-              maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
-              numberOfLines={1}
-              style={[styles.linkSubtitle, { color: tokens.mutedForeground }]}
-            >
-              {strings.openSourceLicenses.rowSubtitle}
-            </Text>
-          </View>
-          <HugeiconsNativeIcon
-            color={tokens.mutedForeground}
-            paths={chevronRightIconPaths}
-            size={17}
-          />
-        </NemuPressable>
       </View>
 
       {linkError ? (
@@ -360,12 +289,6 @@ export function MobileAboutSheet({ visible, onClose }: MobileAboutSheetProps) {
       ) : null}
 
     </MobileNativeSheetScaffold>
-    <MobileOpenSourceLicensesSheet
-      visible={licensesVisible}
-      strings={strings}
-      onClose={() => setLicensesVisible(false)}
-    />
-    </>
   );
 }
 
@@ -447,15 +370,9 @@ const styles = StyleSheet.create({
   },
   links: {
     width: "100%",
+    maxWidth: 420,
     gap: 8,
     paddingTop: 2,
-  },
-  linksRow: {
-    flexDirection: "row",
-  },
-  linkRowFlex: {
-    flex: 1,
-    minWidth: 0,
   },
   linkRow: {
     minHeight: 62,

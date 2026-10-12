@@ -1,5 +1,5 @@
 /**
- * Third-party notices shown in Settings → About nemu → Open-source licenses.
+ * Third-party notices shown in Settings → Open-source licenses.
  *
  * Scope: what the app binary and the on-device dictionary pack redistribute —
  * the on-device Japanese analyzer and its dictionary data, the bundled brand

@@ -15,23 +15,6 @@ export function shouldAnimateMobileAboutVersionPulse(
 }
 
 export type MobileAboutSheetHero = "regular" | "compact";
-export type MobileAboutLinksArrangement = "row" | "column";
-
-/**
- * Source Code and Open-source licenses: side by side in a window wider than
- * tall (so landscape keeps the non-scrolling sheet's height), stacked
- * otherwise.
- */
-export function getMobileAboutLinksArrangement({
-  height,
-  width,
-}: {
-  height: number;
-  width: number;
-}): MobileAboutLinksArrangement {
-  return width > height ? "row" : "column";
-}
-
 export type MobileAboutSheetLayout = {
   /** Icon/halo size and stack spacing; compact tightens the hero to fit. */
   hero: MobileAboutSheetHero;
@@ -98,11 +81,9 @@ const IOS_SHEET_CONTENT_BOTTOM = 36;
 export function estimateMobileAboutSheetContentHeight({
   fontScale,
   hero,
-  links = "row",
 }: {
   fontScale: number;
   hero: MobileAboutSheetHero;
-  links?: MobileAboutLinksArrangement;
 }): number {
   const scale = Math.min(Math.max(fontScale, 1), ABOUT_MAX_TEXT_SCALE);
   const { iconSize, gap } = MOBILE_ABOUT_HERO_METRICS[hero];
@@ -113,15 +94,14 @@ export function estimateMobileAboutSheetContentHeight({
   // Three lines at the default size; the line count grows with the text.
   const descriptionBlock = Math.ceil(3 * scale) * 21 * scale;
   const linkRowHeight = Math.max(62, (17 + 16) * scale + 2 + 24);
-  // Two link rows; stacked they add a row plus the 8pt gap between them.
-  const linkRow = links === "column" ? linkRowHeight * 2 + 8 : linkRowHeight;
+  // About has one Source Code row; licenses live directly in Settings.
   return Math.ceil(
     contentTop +
       iconBlock +
       titleBlock +
       versionBlock +
       descriptionBlock +
-      linkRow +
+      linkRowHeight +
       gap * 4 +
       2 +
       IOS_SHEET_CONTENT_BOTTOM,
@@ -162,9 +142,8 @@ export function getMobileAboutSheetLayout({
   // window leaves for a sheet, tighten the hero first; scrolling is only the
   // last resort for accessibility text in a short (landscape) window.
   const maxSheetHeight = Math.max(1, height - topInset - IOS_SHEET_TOP_GAP);
-  const links = getMobileAboutLinksArrangement({ height, width });
   for (const hero of ["regular", "compact"] as const) {
-    if (estimateMobileAboutSheetContentHeight({ fontScale, hero, links }) <= maxSheetHeight) {
+    if (estimateMobileAboutSheetContentHeight({ fontScale, hero }) <= maxSheetHeight) {
       return { hero, scroll: false, snapPoint: undefined };
     }
   }

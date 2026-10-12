@@ -51,7 +51,7 @@ index d39d9de..7aa2b6e 100644
                                  flexGrow: 1,
                                  height: 0
 diff --git a/build/community/bottom-sheet/BottomSheet.ios.js b/build/community/bottom-sheet/BottomSheet.ios.js
-index e776a03..bb8537d 100644
+index e776a03..aafa541 100644
 --- a/build/community/bottom-sheet/BottomSheet.ios.js
 +++ b/build/community/bottom-sheet/BottomSheet.ios.js
 @@ -1,10 +1,13 @@
@@ -117,12 +117,13 @@ index e776a03..bb8537d 100644
      const [isPresented, setIsPresented] = useState(indexProp >= 0);
      const [currentIndex, setCurrentIndex] = useState(Math.max(indexProp, 0));
      // Ref mirrors currentIndex for use in handleDetentChange without adding it as a useCallback dep
-@@ -189,7 +229,13 @@ function findNearestDetentIndex(detents, position) {
+@@ -189,7 +229,14 @@ function findNearestDetentIndex(detents, position) {
              interactiveDismissDisabled(!enablePanDownToClose),
              ...bg ? [
                  presentationBackground(bg)
 -            ] : []
 +            ] : [],
++            ...([contentIgnoresSafeAreaEdges].flat().includes('horizontal') ? [frame({ maxWidth: Infinity })] : []),
 +            ...(contentIgnoresSafeAreaEdges == null ? [] : Array.isArray(contentIgnoresSafeAreaEdges) ? contentIgnoresSafeAreaEdges : [
 +                contentIgnoresSafeAreaEdges
 +            ]).map((edges)=>ignoreSafeArea({
@@ -132,7 +133,7 @@ index e776a03..bb8537d 100644
          ];
      }, [
          fitToContents,
-@@ -198,8 +244,27 @@ function findNearestDetentIndex(detents, position) {
+@@ -198,8 +245,27 @@ function findNearestDetentIndex(detents, position) {
          handleDetentChange,
          handleComponent,
          enablePanDownToClose,
@@ -161,7 +162,7 @@ index e776a03..bb8537d 100644
      return /*#__PURE__*/ _jsx(BottomSheetInternalContext.Provider, {
          value: internalContextValue,
          children: /*#__PURE__*/ _jsx(BottomSheetContext.Provider, {
-@@ -207,7 +272,7 @@ function findNearestDetentIndex(detents, position) {
+@@ -207,7 +273,7 @@ function findNearestDetentIndex(detents, position) {
              children: /*#__PURE__*/ _jsx(Host, {
                  style: {
                      position: 'absolute',
@@ -170,7 +171,7 @@ index e776a03..bb8537d 100644
                  },
                  pointerEvents: "none",
                  children: /*#__PURE__*/ _jsx(NativeBottomSheet, {
-@@ -217,22 +282,15 @@ function findNearestDetentIndex(detents, position) {
+@@ -217,22 +283,15 @@ function findNearestDetentIndex(detents, position) {
                      fitToContents: fitToContents,
                      children: /*#__PURE__*/ _jsx(Group, {
                          modifiers: modifiers,
@@ -665,7 +666,7 @@ index 419edef..12c6d1e 100644
                </View>
              </RNHostView>
 diff --git a/src/community/bottom-sheet/BottomSheet.ios.tsx b/src/community/bottom-sheet/BottomSheet.ios.tsx
-index b6c0300..870f280 100644
+index b6c0300..ae5eb75 100644
 --- a/src/community/bottom-sheet/BottomSheet.ios.tsx
 +++ b/src/community/bottom-sheet/BottomSheet.ios.tsx
 @@ -6,6 +6,16 @@ import { BottomSheet as NativeBottomSheet } from '../../swift-ui/BottomSheet';
@@ -752,10 +753,15 @@ index b6c0300..870f280 100644
  
    const [isPresented, setIsPresented] = useState(indexProp >= 0);
    const [currentIndex, setCurrentIndex] = useState(Math.max(indexProp, 0));
-@@ -210,6 +276,15 @@ export function BottomSheet(props: BottomSheetProps) {
+@@ -210,6 +276,20 @@ export function BottomSheet(props: BottomSheetProps) {
        presentationDragIndicator(handleComponent === null ? 'hidden' : 'visible'),
        interactiveDismissDisabled(!enablePanDownToClose),
        ...(bg ? [presentationBackground(bg)] : []),
++      // A fitted host has an intrinsic width. Expand its frame before ignoring
++      // horizontal insets so SwiftUI centers it in the entire sheet.
++      ...([contentIgnoresSafeAreaEdges].flat().includes('horizontal')
++        ? [frame({ maxWidth: Infinity })]
++        : []),
 +      // The iPhone Duo outer display's vertical bar column is a safe area inside a sheet that
 +      // spans it (content stopped short of its trailing edge), and a floating sheet keeps the home
 +      // indicator's inset below content it never reaches.
@@ -768,7 +774,7 @@ index b6c0300..870f280 100644
      ];
    }, [
      fitToContents,
-@@ -219,33 +294,50 @@ export function BottomSheet(props: BottomSheetProps) {
+@@ -219,33 +299,50 @@ export function BottomSheet(props: BottomSheetProps) {
      handleComponent,
      enablePanDownToClose,
      backgroundStyle,

@@ -39,7 +39,7 @@ function sectionTitle(
 }
 
 /**
- * Settings → About nemu → Open-source licenses: the third-party notices the
+ * Settings → Open-source licenses: the third-party notices the
  * app and its on-device dictionary redistribute, grouped under localized
  * headings; every notice's own text stays verbatim.
  */

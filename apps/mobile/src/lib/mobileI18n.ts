@@ -1103,7 +1103,7 @@ export type MobileStrings = {
     seeAll: string;
     sourceOptions: string;
   };
-  /** Settings → About nemu → Open-source licenses. */
+  /** Settings → Open-source licenses. */
   openSourceLicenses: {
     title: string;
     rowSubtitle: string;

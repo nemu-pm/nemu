@@ -3,10 +3,6 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import packageJson from "../../package.json";
 import {
-  getMobileAboutLinksArrangement,
-  estimateMobileAboutSheetContentHeight,
-} from "./mobileAboutLayout";
-import {
   groupMobileOpenSourceNotices,
   MOBILE_OPEN_SOURCE_APACHE_PACKAGES,
   MOBILE_OPEN_SOURCE_MIT_PACKAGES,
@@ -91,16 +87,5 @@ describe("open-source notices", () => {
     expect(iosIds).not.toContain("jsc-android");
     expect(androidIds).toContain("jsc-android");
     expect(new Set(iosIds).size).toBe(iosIds.length);
-  });
-});
-
-describe("About sheet links", () => {
-  test("sit side by side in landscape so the sheet keeps its height", () => {
-    expect(getMobileAboutLinksArrangement({ width: 874, height: 402 })).toBe("row");
-    expect(getMobileAboutLinksArrangement({ width: 402, height: 874 })).toBe("column");
-    expect(
-      estimateMobileAboutSheetContentHeight({ fontScale: 1, hero: "regular", links: "column" }) -
-        estimateMobileAboutSheetContentHeight({ fontScale: 1, hero: "regular", links: "row" }),
-    ).toBe(70);
   });
 });
