@@ -78,7 +78,6 @@ import {
   createNemuShadowStyle,
   nemuColorWithAlpha,
   nemuMaxFontSizeMultiplier,
-  nemuText,
   radius,
   nemuFontWeight,
   spacing,

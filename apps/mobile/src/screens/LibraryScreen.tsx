@@ -59,7 +59,6 @@ import {
   type LibraryEntry,
   type LocalCollection,
   type LocalMangaProgress,
-  type LocalSourceLink,
 } from "@/data/schema";
 import {
   createNemuNativeScreenOptions,
