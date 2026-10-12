@@ -109,7 +109,7 @@ import {
 } from "@/lib/mobileReaderPageFlip";
 import {
   mobileReaderNotebookReveal,
-  mobileReaderPageRevealed,
+  mobileReaderFilmstripPreviewAllowed,
   resolveMobileReaderNotebookPane,
   type MobileReaderNotebookPaneOverride,
 } from "@/lib/mobileReaderNotebookPane";
@@ -7161,12 +7161,17 @@ export function ReaderScreen() {
   const readerChromeBottomSlideStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: (1 - readerChromeFade.value) * readerChromeSlide }],
   }));
-  // Notebook: an unread page previews as its number only (no spoilers).
+  // The scrub preview and filmstrip honour the same saved spoiler preference.
   const readerScrubPreviewRevealed = useCallback(
     (pageIndex: number) =>
       readerPose.chrome.kind !== "console" ||
-      mobileReaderPageRevealed(pageIndex, readerNotebookRevealed),
-    [readerNotebookRevealed, readerPose.chrome.kind],
+      mobileReaderFilmstripPreviewAllowed({
+        index: pageIndex,
+        revealed: readerNotebookRevealed,
+        spoilerSafe: !readerThumbnailSpoilerSafeReady || readerThumbnailSpoilerSafe,
+        visible: true,
+      }),
+    [readerNotebookRevealed, readerPose.chrome.kind, readerThumbnailSpoilerSafe, readerThumbnailSpoilerSafeReady],
   );
   const readerScrubPreviewThumbnails = useReaderScrubPreviewThumbnails({
     pages: displayedPages,
@@ -7598,18 +7603,18 @@ export function ReaderScreen() {
       );
     }
     // One panel toggle in the trailing action group: closes the sheet while it
-    // is open (filled glyph), brings it back when closed.
+    // is open (×), brings it back when closed (up chevron). Back exits the reader.
     const notebookPanelButton = readerNotebookPanelToggle ? (
       <NemuPressable
         accessibilityRole="button"
         accessibilityLabel={readerNotebookPanelClosed ? strings.duo.notebookShowPanel : strings.duo.notebookClosePanel}
-        accessibilityState={{ selected: !readerNotebookPanelClosed }}
+        accessibilityState={{ expanded: !readerNotebookPanelClosed }}
         onPress={() => setReaderNotebookSheetClosed(!readerNotebookPanelClosed)}
         pressedScale={0.98}
         style={[chromeButtonStyle, { backgroundColor: "transparent" }]}
       >
         <Ionicons
-          name={readerNotebookPanelClosed ? MOBILE_READER_CHROME_GLYPHS.notebookPanel.name : MOBILE_READER_CHROME_GLYPHS.notebookPanelOpen.name}
+          name={readerNotebookPanelClosed ? MOBILE_READER_CHROME_GLYPHS.notebookPanel.name : MOBILE_READER_CHROME_GLYPHS.notebookPanelClose.name}
           size={MOBILE_READER_CHROME_GLYPHS.notebookPanel.size}
           color={readerNotebookPanelClosed ? readerChromeColors.secondaryText : readerChromeColors.primaryText}
         />
@@ -7671,8 +7676,8 @@ export function ReaderScreen() {
       const actionsCapsule = (
         <ReaderCapsule animateAppearance materializeDurationMs={readerChromeMaterialMs} style={styles.readerActionsCapsule}>
           {pluginActions}
-          {notebookPanelButton}
           {settingsButton}
+          {notebookPanelButton}
         </ReaderCapsule>
       );
       const topRowVisible = showControls && chrome.state !== "filmstrip";
@@ -7839,8 +7844,8 @@ export function ReaderScreen() {
           ]}
         >
           {pluginActions}
-          {notebookPanelButton}
           {settingsButton}
+          {notebookPanelButton}
         </ReaderCapsule>
       );
       // Compact without a vertical bar (phones in portrait): the top row is

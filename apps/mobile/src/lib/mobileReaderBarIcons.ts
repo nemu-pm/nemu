@@ -13,8 +13,8 @@ export const MOBILE_READER_CHROME_GLYPHS = {
   detectText: { name: "scan-outline", size: 18 },
   nemuChat: { name: "chatbubbles-outline", size: 18 },
   settings: { name: "settings-outline", size: 20 },
-  notebookPanel: { name: "albums-outline", size: 20 },
-  notebookPanelOpen: { name: "albums", size: 20 },
+  notebookPanel: { name: "chevron-up", size: 22 },
+  notebookPanelClose: { name: "close", size: 22 },
 } as const satisfies Record<string, MobileReaderChromeGlyph>;
 
 /** A plugin action's glyph (the plugin's own Ionicon) at the capsule's action size. */
