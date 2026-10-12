@@ -46,7 +46,7 @@ import {
 } from "@/lib/mobileReaderNotebookPane";
 import { mobileReaderAbsoluteRect } from "@/lib/mobileReaderPoseLayout";
 import type { WindowLayoutRect } from "@/lib/mobileWindowLayout";
-import { READER_CAPSULE_COLORS, ReaderCapsule } from "./ReaderCapsule";
+import { READER_CAPSULE_COLORS } from "./ReaderCapsule";
 
 type PaneState = Exclude<MobileReaderNotebookPaneState, "continuous">;
 
@@ -356,7 +356,7 @@ function ReaderNotebookFilmstripConsole({
   filmstripScrubber,
   filmstrip,
 }: ReaderNotebookPaneProps) {
-  // The handle keeps the trackpad's position, so expand and collapse are one control.
+  // Keep the console inside the same inset as the trackpad.
   const layout = useMemo(() => mobileReaderTrackpadLayout(pane), [pane]);
   const top = layout.pad.y + 4;
   return (

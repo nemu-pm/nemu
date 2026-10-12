@@ -1285,3 +1285,21 @@ describe("reader pose: measured Duo states checked on the simulator round (open 
     }
   });
 });
+
+
+describe("notebook panel dismissal", () => {
+  test("closing restores the flat stage and reopening preserves the physical fold", () => {
+    const layout = { ...innerPortrait([hinge(0, 455.5, 669, 40)]), hinge: "partiallyOpen" as const };
+    const open = pose(layout);
+    expect(open.chrome.kind).toBe("console");
+    const closedLayout = mobileReaderLayoutWithoutFold(layout);
+    const closed = pose(closedLayout);
+    expect(closed.posture).toBe("flat");
+    expect(closed.chrome.kind).toBe("capsules");
+    expect(closed.stage.height).toBeGreaterThan(open.stage.height);
+    expect(closedLayout.occlusions).toBe(layout.occlusions);
+    expect(closedLayout.safeAreaInsets).toBe(layout.safeAreaInsets);
+    expect(layout.divisions).toHaveLength(1);
+    expect(pose(layout)).toEqual(open);
+  });
+});

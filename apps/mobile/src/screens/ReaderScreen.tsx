@@ -7717,7 +7717,9 @@ export function ReaderScreen() {
             onExpand={() => setReaderNotebookPaneOverride("filmstrip")}
             filmstripHeader={
               <View accessibilityLabel={strings.reader.readerControls} pointerEvents="box-none" style={styles.readerNotebookHeader}>
-                <ReaderCapsule style={styles.readerCapsuleCircle}>{backButton}</ReaderCapsule>
+                <View pointerEvents="box-none" style={{ width: actions.width }}>
+                  <ReaderCapsule style={styles.readerCapsuleCircle}>{backButton}</ReaderCapsule>
+                </View>
                 <ReaderCapsule style={styles.readerConsoleTitleCapsule}>{capsuleTitleBlock}</ReaderCapsule>
                 {chrome.state === "filmstrip" ? actionsCapsule : null}
               </View>
