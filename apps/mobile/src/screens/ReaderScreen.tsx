@@ -188,6 +188,7 @@ import { JapaneseLearningTranscriptSheet } from "@/components/reader/japaneseLea
 import {
   MobileCachedImage,
   NemuPressable,
+  NemuText,
   NemuRingSpinner,
   nemuFontWeight,
   useNemuTheme,
