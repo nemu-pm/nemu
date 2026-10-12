@@ -144,9 +144,9 @@ export function ReaderNotebookPane(props: ReaderNotebookPaneProps) {
           <ReaderNotebookTrackpad {...props} />
         </Animated.View>
       ) : state === "filmstrip" ? (
-        <Animated.View key="filmstrip" entering={entering} exiting={exiting} style={StyleSheet.absoluteFill}>
+        <View key="filmstrip" style={StyleSheet.absoluteFill}>
           <ReaderNotebookFilmstripConsole {...props} />
-        </Animated.View>
+        </View>
       ) : null}
     </View>
     </>

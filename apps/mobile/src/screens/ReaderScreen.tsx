@@ -82,15 +82,12 @@ import {
 } from "@/lib/mobileDuoBilingual";
 import { mobileDuoPageFlipPlan } from "@/lib/mobileDuoSpine";
 import {
-  armMobileReaderConsoleFoldBack,
   MOBILE_READER_STAGE_MOTION_WINDOW_MS,
   mobileReaderCapsuleLayoutTransition,
   mobileReaderChromeArrangementEntering,
-  mobileReaderConsoleExiting,
   mobileReaderStageLayoutTransition,
 } from "@/lib/mobileReaderMotionAnimations";
 import {
-  MOBILE_READER_CONSOLE_UNFOLD_MS,
   MOBILE_READER_REDUCE_MOTION_FADE_MS,
   mobileReaderChromeArrangementKey,
   mobileReaderChromeArrangementMotion,
@@ -6947,13 +6944,6 @@ export function ReaderScreen() {
   if (readerChromeArrangementTrack.signature !== readerChromeArrangementSignature) {
     const previous = readerChromeArrangementTrack;
     const kindChanged = previous.lastKind !== readerChromeArrangement.kind;
-    // The console folds back into the hinge whenever the posture takes it away.
-    if (previous.lastKind === "console" && readerChromeArrangement.kind !== "console") {
-      armMobileReaderConsoleFoldBack(
-        reduceMotion === true,
-        reduceMotion === true ? MOBILE_READER_REDUCE_MOTION_FADE_MS : MOBILE_READER_CONSOLE_UNFOLD_MS,
-      );
-    }
     const from =
       previous.visible ??
       (kindChanged && readerChromeArrangement.kind === "console"
@@ -7208,25 +7198,19 @@ export function ReaderScreen() {
     const chromeButtonStyle = styles.readerCapsuleButton;
     const pluginGroupStyle = styles.readerCapsuleActionGroup;
     const layerPointerEvents = readerStageTapOwned ? "none" : "box-none";
-    // One layer per arrangement: a pose change remounts it with the
-    // arrangement motion (rail: fade + 8pt toward its edge; console: unfolds
-    // from the hinge) instead of the per-bar show animation.
+    // Keep the console glass outside ancestor opacity/perspective animations:
+    // UIKit drops its effects there. Its capsules animate the material itself,
+    // just like the ordinary reader chrome.
     const chromeLayer = (children: ReactNode) => (
       <Animated.View
         key={mobileReaderChromeArrangementKey(readerChromeArrangement)}
         entering={
-          arrangementMotion
+          arrangementMotion && chrome.kind !== "console"
             ? mobileReaderChromeArrangementEntering(arrangementMotion)
             : undefined
         }
-        exiting={chrome.kind === "console" ? mobileReaderConsoleExiting : undefined}
         pointerEvents={layerPointerEvents}
-        style={[
-          styles.readerChromeLayer,
-          chrome.kind === "console"
-            ? { transformOrigin: [boundsWidth / 2, chrome.frame.y, 0] }
-            : null,
-        ]}
+        style={styles.readerChromeLayer}
       >
         <LayoutAnimationConfig skipEntering={Boolean(arrangementMotion)}>
           <ReaderDarkThemeScope overrides={READER_CAPSULE_TOKEN_OVERRIDES}>{children}</ReaderDarkThemeScope>
@@ -7685,7 +7669,7 @@ export function ReaderScreen() {
       // while the chrome is shown; the filmstrip carries those pieces itself,
       // so the row stays away then (no duplicated controls).
       const actionsCapsule = (
-        <ReaderCapsule style={styles.readerActionsCapsule}>
+        <ReaderCapsule animateAppearance materializeDurationMs={readerChromeMaterialMs} style={styles.readerActionsCapsule}>
           {pluginActions}
           {notebookPanelButton}
           {settingsButton}
@@ -7716,13 +7700,13 @@ export function ReaderScreen() {
             onStep={stepReaderPage}
             onExpand={() => setReaderNotebookPaneOverride("filmstrip")}
             filmstripHeader={
-              <View accessibilityLabel={strings.reader.readerControls} pointerEvents="box-none" style={styles.readerNotebookHeader}>
+              <GlassContainer spacing={READER_CAPSULE_GLASS_SPACING} pointerEvents="box-none" style={styles.readerNotebookHeader}>
                 <View pointerEvents="box-none" style={{ width: actions.width }}>
-                  <ReaderCapsule style={styles.readerCapsuleCircle}>{backButton}</ReaderCapsule>
+                  <ReaderCapsule animateAppearance materializeDurationMs={readerChromeMaterialMs} style={styles.readerCapsuleCircle}>{backButton}</ReaderCapsule>
                 </View>
-                <ReaderCapsule style={styles.readerConsoleTitleCapsule}>{capsuleTitleBlock}</ReaderCapsule>
+                <ReaderCapsule animateAppearance materializeDurationMs={readerChromeMaterialMs} style={styles.readerConsoleTitleCapsule}>{capsuleTitleBlock}</ReaderCapsule>
                 {chrome.state === "filmstrip" ? actionsCapsule : null}
-              </View>
+              </GlassContainer>
             }
             filmstripScrubber={
               showReaderBottomChrome && chrome.state === "filmstrip" ? (
@@ -7734,11 +7718,13 @@ export function ReaderScreen() {
                   {/* A panel, not a button: interactive glass claims drags on
                       it (its press/stretch response), which cancelled every
                       scrub after the first touch — only taps got through. */}
-                  <ReaderCapsule interactive={false} style={styles.readerScrubberCapsule}>
-                    {previousChapterButton}
-                    {scrubber}
-                    {nextChapterButton}
-                  </ReaderCapsule>
+                  <GlassContainer spacing={READER_CAPSULE_GLASS_SPACING} pointerEvents="box-none">
+                    <ReaderCapsule interactive={false} animateAppearance materializeDurationMs={readerChromeMaterialMs} style={styles.readerScrubberCapsule}>
+                      {previousChapterButton}
+                      {scrubber}
+                      {nextChapterButton}
+                    </ReaderCapsule>
+                  </GlassContainer>
                 </View>
               ) : null
             }

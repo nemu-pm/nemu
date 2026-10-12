@@ -47,13 +47,7 @@ const EASE_OUT = Easing.out(Easing.cubic);
 
 /** Gallery remount cross-fade duration; 0 = no cross-fade. */
 const stageCrossFadeMs = makeMutable(0);
-/** Console fold-back on an arrangement change (never on a plain removal). */
-const consoleExitArmed = makeMutable(false);
-const consoleExitMs = makeMutable(MOBILE_READER_REDUCE_MOTION_FADE_MS);
-const consoleExitReduceMotion = makeMutable(false);
-
 let crossFadeTimer: ReturnType<typeof setTimeout> | null = null;
-let consoleTimer: ReturnType<typeof setTimeout> | null = null;
 
 function closeLater(
   timer: ReturnType<typeof setTimeout> | null,
@@ -73,17 +67,6 @@ export function armMobileReaderStageCrossFade(durationMs: number) {
   crossFadeTimer = closeLater(crossFadeTimer, () => {
     crossFadeTimer = null;
     stageCrossFadeMs.value = 0;
-  });
-}
-
-/** The notebook console is leaving because the pose changed: fold it back into the hinge. */
-export function armMobileReaderConsoleFoldBack(reduceMotion: boolean, durationMs: number) {
-  consoleExitArmed.value = true;
-  consoleExitMs.value = durationMs;
-  consoleExitReduceMotion.value = reduceMotion;
-  consoleTimer = closeLater(consoleTimer, () => {
-    consoleTimer = null;
-    consoleExitArmed.value = false;
   });
 }
 
@@ -335,28 +318,3 @@ export function mobileReaderChromeArrangementEntering(
   chromeEnteringCache.set(key, builder);
   return builder;
 }
-
-/**
- * The notebook console leaving: folds back into the hinge on a pose change,
- * disappears at once otherwise (end-of-chapter card, screen pop).
- */
-export const mobileReaderConsoleExiting: EntryExitAnimationFunction = () => {
-  "worklet";
-  if (!consoleExitArmed.value) {
-    return { initialValues: { opacity: 1 }, animations: { opacity: withTiming(0, INSTANT) } };
-  }
-  const duration = consoleExitMs.value;
-  if (consoleExitReduceMotion.value) {
-    return { initialValues: { opacity: 1 }, animations: { opacity: withTiming(0, { duration, easing: EASE_OUT }) } };
-  }
-  return {
-    initialValues: { opacity: 1, transform: [{ perspective: 1200 }, { rotateX: "0deg" }] },
-    animations: {
-      opacity: withTiming(0, { duration, easing: EASE_OUT }),
-      transform: [
-        { perspective: 1200 },
-        { rotateX: withTiming(`${MOBILE_READER_CONSOLE_UNFOLD_DEG}deg`, { duration, easing: EASE_OUT }) },
-      ],
-    },
-  };
-};
