@@ -3,6 +3,7 @@ import {
   applyMobileSourceSettingsPatch,
   canRetryMobileSourceSettingsLoadError,
   canRunMobileSourceTextSettingBlurFeedback,
+  resolveMobileSourceTextSettingCommit,
   canStartMobileSourceSettingsAction,
   countRenderableSourceSettings,
   countVisibleSourceSettings,
@@ -731,5 +732,23 @@ describe("the first painted settings sibling", () => {
     expect(getFirstVisibleSourceSettingIndex([gated, titlePreference], {}, { webgpu: true })).toBe(0);
     expect(getFirstVisibleSourceSettingIndex([{} as SourcePackageSetting, emptyGroup], {})).toBe(-1);
     expect(getFirstVisibleSourceSettingIndex([], {})).toBe(-1);
+  });
+});
+
+describe("text setting drafts", () => {
+  test("commits once when editing ends, and only on change", () => {
+    expect(resolveMobileSourceTextSettingCommit(null, "a")).toBeNull();
+    expect(resolveMobileSourceTextSettingCommit("a", "a")).toBeNull();
+    expect(resolveMobileSourceTextSettingCommit("http://x", "")).toBe("http://x");
+  });
+
+  test("the field never writes per keystroke", async () => {
+    const source = await Bun.file(
+      new URL("../components/MobileSourceSettingsCard.tsx", import.meta.url),
+    ).text();
+    const block = source.slice(source.indexOf("function SourceTextSettingInput"));
+    const handler = block.slice(block.indexOf("onChangeText"), block.indexOf("onBlur"));
+    expect(handler).not.toContain("onCommit");
+    expect(block).toContain("editable={!disabled || draft !== null}");
   });
 });

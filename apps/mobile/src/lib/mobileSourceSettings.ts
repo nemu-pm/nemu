@@ -117,6 +117,19 @@ export function canRunMobileSourceTextSettingBlurFeedback({
   return !disabled && initialValue !== null && initialValue !== currentValue;
 }
 
+/**
+ * A text setting is edited as a local draft and written once, when editing
+ * ends. Writing on every keystroke put the settings sheet into its busy state,
+ * which disabled the field mid-edit and dropped the keyboard after a character
+ * or two. Returns the value to commit, or null when nothing changed.
+ */
+export function resolveMobileSourceTextSettingCommit(
+  draft: string | null,
+  committed: string,
+): string | null {
+  return draft !== null && draft !== committed ? draft : null;
+}
+
 export function isSourceSettingVisible(
   setting: SourcePackageSetting,
   values: Record<string, unknown>,

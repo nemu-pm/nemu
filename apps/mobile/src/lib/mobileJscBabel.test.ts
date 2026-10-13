@@ -162,12 +162,12 @@ describe("mobile JSC Babel compatibility", () => {
       };
     };
 
-    expect(appConfig.expo.scheme).toBe("nemu");
+    expect(appConfig.expo.scheme).toEqual(["nemu", "aidoku"]);
     expect(
       appConfig.expo.ios?.infoPlist?.CFBundleURLTypes?.flatMap(
         (entry) => entry.CFBundleURLSchemes ?? [],
       ),
-    ).toEqual(["nemu", "neko"]);
+    ).toEqual(["nemu", "neko", "aidoku"]);
     expect(appConfig.expo.android?.scheme).toBeUndefined();
     expect(
       appConfig.expo.plugins?.map((plugin) =>

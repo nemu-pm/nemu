@@ -1,4 +1,5 @@
 import { normalizeMobileImageCacheSource } from "@/lib/mobileImageCacheSource";
+import { selfHostedImageCookieScope } from "@/lib/selfHosted/imageScopes";
 import { FileSystemBinaryCache } from "@/data/nativeCache";
 import { File } from "expo-file-system";
 import type { NativeBinaryCachePolicy } from "@/data/nativeCachePolicy";
@@ -328,6 +329,7 @@ export async function resolveCachedMobileImageUri(
         imageContentTypeForUri(source.uri!),
         {
           headers: imageDownloadHeaders(source.headers),
+          cookieScope: selfHostedImageCookieScope(source.uri),
           maxBytes: MOBILE_REMOTE_IMAGE_MAX_BYTES,
           maxImageDimension: MOBILE_IMAGE_MAX_DIMENSION,
           maxImagePixels: MOBILE_IMAGE_MAX_DECODED_PIXELS,
@@ -359,6 +361,7 @@ export async function resolveCachedMobileImageAsset(
         imageContentTypeForUri(source.uri!),
         {
           headers: imageDownloadHeaders(source.headers),
+          cookieScope: selfHostedImageCookieScope(source.uri),
           maxBytes: MOBILE_REMOTE_IMAGE_MAX_BYTES,
           maxImageDimension: MOBILE_IMAGE_MAX_DIMENSION,
           maxImagePixels: MOBILE_IMAGE_MAX_DECODED_PIXELS,

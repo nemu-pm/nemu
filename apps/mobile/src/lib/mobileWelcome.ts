@@ -278,7 +278,9 @@ function mobileWelcomeSourceMatchesLanguage(
 
 /**
  * The onboarding list is the nemu recommended directory only: its entries are
- * the ones whose content licence has been checked. Sources the user's language
+ * the ones whose content licence has been checked. Only entries that carry a
+ * content licence are offered: a source with no content of its own (it reads
+ * the user's own server) stays in the add-source list. Sources the user's language
  * covers come first; sensitive-content sources are never offered here (the
  * Browse switch is the only way to opt in to them).
  */
@@ -290,6 +292,7 @@ export function getMobileWelcomeAvailableSources(
     .filter(
       (source) =>
         source.registryId === NEMU_RECOMMENDED_REGISTRY_ID &&
+        Boolean(source.contentLicense) &&
         (source.contentRating ?? 0) < 2,
     )
     .map((source, index) => ({ source, index }))

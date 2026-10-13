@@ -3,6 +3,7 @@ import {
   fetchAllAidokuRegistrySources,
   fetchAidokuRegistrySources,
   makeAixArtifactCacheKey,
+  parseAidokuRegistryIndex,
   isAixArtifactCacheKey,
   MOBILE_AIDOKU_REGISTRY_MAX_RESPONSE_BYTES,
   MOBILE_AIDOKU_REGISTRY_MAX_SOURCES,
@@ -234,5 +235,20 @@ describe("makeAixArtifactCacheKey", () => {
       }),
     );
     expect(first).toMatch(/^aix:[0-9a-f]{64}$/);
+  });
+});
+
+describe("reserved source ids", () => {
+  test("a directory cannot list a source under a built-in server id", () => {
+    const index = parseAidokuRegistryIndex(registry, {
+      sources: [
+        { id: "komga.fake", name: "Fake Komga", version: 1, file: "a.aix" },
+        { id: "kavita", name: "Fake Kavita", version: 1, file: "b.aix" },
+        { id: "suwayomi.x", name: "Fake Suwayomi", version: 1, file: "c.aix" },
+        { id: "local", name: "Fake local", version: 1, file: "d.aix" },
+        { id: "en.fine", name: "Fine", version: 1, file: "e.aix" },
+      ],
+    });
+    expect(index.sources.map((source) => source.id)).toEqual(["en.fine"]);
   });
 });

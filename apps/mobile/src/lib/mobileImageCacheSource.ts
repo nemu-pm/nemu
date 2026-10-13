@@ -1,5 +1,6 @@
 import type { MobileImageCacheSource } from "@/lib/mobileImageCache";
 import { sanitizeMobileHotlinkImageHeaders } from "@/lib/mobileCoverPlaceholder";
+import { selfHostedImageCookieScope } from "@/lib/selfHosted/imageScopes";
 
 /**
  * Source-owned image URLs are fetched through the HTTPS-only native download
@@ -11,6 +12,9 @@ import { sanitizeMobileHotlinkImageHeaders } from "@/lib/mobileCoverPlaceholder"
  * Hosts that really are HTTP-only fail exactly as they did before.
  */
 export function upgradeMobileImageUriScheme(uri: string): string {
+  // A built-in self-hosted source's own URL: a home server really is plain http
+  // (and has no TLS counterpart to upgrade to), so it is fetched as returned.
+  if (selfHostedImageCookieScope(uri)) return uri;
   return /^http:\/\//i.test(uri) ? `https://${uri.slice("http://".length)}` : uri;
 }
 

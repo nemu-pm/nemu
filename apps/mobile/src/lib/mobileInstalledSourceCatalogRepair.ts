@@ -4,6 +4,7 @@ import {
   isMobileInstalledSourceDisabled,
   normalizeInstalledSource,
 } from "@/sources/mobileSourceRuntime";
+import { SELF_HOSTED_REGISTRY_ID } from "./selfHosted/policy";
 import { getMobileInstalledSourceRegistryKeys } from "./mobileInstalledSourceKeys";
 
 /**
@@ -19,9 +20,13 @@ export function mobileInstalledSourceNeedsCatalogRepair(
 ): boolean {
   if (source.removed) return false;
   if (isMobileInstalledSourceDisabled(source)) return false;
+  // A built-in server source is app code: it has no package and no catalog entry.
+  if (source.registryId === SELF_HOSTED_REGISTRY_ID) return false;
   // Mobile has no Tachiyomi executor, so there is nothing to repair into.
   if (normalizeInstalledSource(source).sourceKind === "tachiyomi") return false;
-  return !source.downloadUrl;
+  // A file the user imported has a local package and no URL on purpose; there
+  // is nothing in any catalog to repair it from.
+  return !source.downloadUrl && !source.packageUri;
 }
 
 export function findMobileCatalogEntryForInstalledSource(

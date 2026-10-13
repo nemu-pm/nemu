@@ -3,6 +3,7 @@
 // Give any nemu-owned menu or sheet a distinct symbol.
 export type NemuNativeToolbarSymbol =
   | "arrow.clockwise"
+  | "checkmark"
   | "chevron.left"
   | "folder.badge.gearshape"
   | "folder.badge.plus"

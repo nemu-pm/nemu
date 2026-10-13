@@ -61,7 +61,7 @@ import {
 import { compactMobileLabelList } from "@/lib/mobileInstalledSourcePresentation";
 import { useMobileSourceLoginSubmission } from "@/lib/useMobileSourceLoginSubmission";
 import {
-  canRunMobileSourceTextSettingBlurFeedback,
+  resolveMobileSourceTextSettingCommit,
   canSelectMobileSourceSettingOption,
   describeSourceSettingValue,
   sourceSettingControlShowsValue,
@@ -588,8 +588,6 @@ function SourceSettingControl({
   const options = getSourceSettingOptions(setting);
   const value = settingValue(setting, values);
   const [draftListItem, setDraftListItem] = useState("");
-  const textFocusValueRef = useRef<string | null>(null);
-  const textCurrentValueRef = useRef<string | null>(null);
 
   const setValue = (nextValue: unknown) => {
     if (disabled) return;
@@ -936,51 +934,18 @@ function SourceSettingControl({
   }
 
   if (setting.type === "text") {
-    const textValue = typeof value === "string" ? value : "";
     return (
-      <GlassSurface
-        style={styles.settingInputShell}
-        contentStyle={styles.settingInputContent}
-      >
-        <TextInput
-          accessibilityLabel={formatSourceSettingAccessibilityLabel(
-            setting,
-            values,
-            strings,
-          )}
-          autoCapitalize="none"
-          autoCorrect={false}
-          editable={!disabled}
-          maxLength={MAX_SOURCE_SETTING_VALUE_STRING_LENGTH}
-          returnKeyType="done"
-          value={textValue}
-          onChangeText={(nextValue) => {
-            textCurrentValueRef.current = nextValue;
-            setValue(nextValue);
-          }}
-          onFocus={() => {
-            textFocusValueRef.current = textValue;
-            textCurrentValueRef.current = textValue;
-          }}
-          onBlur={() => {
-            const shouldRunFeedback = canRunMobileSourceTextSettingBlurFeedback(
-              {
-                initialValue: textFocusValueRef.current,
-                currentValue: textCurrentValueRef.current ?? textValue,
-                disabled,
-              },
-            );
-            textFocusValueRef.current = null;
-            textCurrentValueRef.current = null;
-            if (shouldRunFeedback) void hapticPress();
-          }}
-          placeholder={setting.placeholder ?? setting.title}
-          placeholderTextColor={tokens.mutedForeground}
-          selectionColor={tokens.primary}
-          secureTextEntry={setting.secure === true}
-          style={[styles.settingInput, { color: tokens.foreground }]}
-        />
-      </GlassSurface>
+      <SourceTextSettingInput
+        setting={setting}
+        value={typeof value === "string" ? value : ""}
+        disabled={disabled}
+        accessibilityLabel={formatSourceSettingAccessibilityLabel(
+          setting,
+          values,
+          strings,
+        )}
+        onCommit={setValue}
+      />
     );
   }
 
@@ -991,6 +956,78 @@ function SourceSettingControl({
       label={valueSummary}
       variant="static"
     />
+  );
+}
+
+/**
+ * Text and secure settings. The typed text is a local draft; the setting is
+ * written when editing ends (blur, return, or the sheet closing), never per
+ * keystroke. `editable` stays on while a draft exists so the busy state a
+ * commit triggers cannot take focus away.
+ */
+function SourceTextSettingInput({
+  setting,
+  value,
+  disabled,
+  accessibilityLabel,
+  onCommit,
+}: {
+  setting: SourcePackageSetting;
+  value: string;
+  disabled: boolean;
+  accessibilityLabel: string;
+  onCommit: (value: string) => void;
+}) {
+  const { tokens } = useNemuTheme();
+  const [draft, setDraft] = useState<string | null>(null);
+  const draftRef = useRef<string | null>(null);
+  const valueRef = useRef(value);
+  valueRef.current = value;
+  const commitRef = useRef(onCommit);
+  commitRef.current = onCommit;
+
+  const finish = () => {
+    const next = resolveMobileSourceTextSettingCommit(
+      draftRef.current,
+      valueRef.current,
+    );
+    draftRef.current = null;
+    setDraft(null);
+    if (next !== null) {
+      commitRef.current(next);
+      void hapticPress();
+    }
+  };
+  const finishRef = useRef(finish);
+  finishRef.current = finish;
+  useEffect(() => () => finishRef.current(), []);
+
+  return (
+    <GlassSurface
+      style={styles.settingInputShell}
+      contentStyle={styles.settingInputContent}
+    >
+      <TextInput
+        accessibilityLabel={accessibilityLabel}
+        autoCapitalize="none"
+        autoCorrect={false}
+        editable={!disabled || draft !== null}
+        maxLength={MAX_SOURCE_SETTING_VALUE_STRING_LENGTH}
+        returnKeyType="done"
+        value={draft ?? value}
+        onChangeText={(next) => {
+          draftRef.current = next;
+          setDraft(next);
+        }}
+        onBlur={finish}
+        onSubmitEditing={finish}
+        placeholder={setting.placeholder ?? setting.title}
+        placeholderTextColor={tokens.mutedForeground}
+        selectionColor={tokens.primary}
+        secureTextEntry={setting.secure === true}
+        style={[styles.settingInput, { color: tokens.foreground }]}
+      />
+    </GlassSurface>
   );
 }
 

@@ -3,7 +3,7 @@
     "name": "nemu",
     "slug": "nemu-mobile",
     "owner": "nemu-pm",
-    "scheme": "nemu",
+    "scheme": ["nemu", "aidoku"],
     "version": "0.1.0",
     "runtimeVersion": {
       "policy": "appVersion"
@@ -113,7 +113,8 @@
           {
             "CFBundleURLSchemes": [
               "nemu",
-              "neko"
+              "neko",
+              "aidoku"
             ]
           }
         ],

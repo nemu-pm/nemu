@@ -2,6 +2,7 @@ import AddIcon from "@expo/material-symbols/add.xml";
 import RefreshIcon from "@expo/material-symbols/refresh.xml";
 import SettingsIcon from "@expo/material-symbols/settings.xml";
 import ArrowBackIcon from "@expo/material-symbols/arrow_back.xml";
+import CheckIcon from "@expo/material-symbols/check.xml";
 import CloseIcon from "@expo/material-symbols/close.xml";
 import DeleteIcon from "@expo/material-symbols/delete.xml";
 import DownloadIcon from "@expo/material-symbols/download.xml";
@@ -17,6 +18,7 @@ import type { NemuNativeToolbarSymbol } from "./nativeToolbarIcons";
 
 const androidToolbarIcons: Record<NemuNativeToolbarSymbol, ImageSourcePropType> = {
   "arrow.clockwise": RefreshIcon,
+  checkmark: CheckIcon,
   "chevron.left": ArrowBackIcon,
   "folder.badge.gearshape": FolderManagedIcon,
   "folder.badge.plus": NewFolderIcon,

@@ -131,6 +131,26 @@ export function normalizeSourceDirectoryUrl(
   return { ok: true, indexUrl };
 }
 
+/**
+ * The addresses to try for what a user typed, in order. Aidoku tries a URL
+ * with no `.json` file as a source list itself first and, if that is not a
+ * list, `<url>/index.min.json`; a URL that names a `.json` file is tried alone.
+ */
+export function sourceDirectoryCandidateUrls(
+  input: string,
+): { ok: true; urls: string[] } | Extract<SourceDirectoryUrlResult, { ok: false }> {
+  const normalized = normalizeSourceDirectoryUrl(input);
+  if (!normalized.ok) return normalized;
+  const url = new URL(input.trim());
+  url.hash = "";
+  if (/\.json$/i.test(url.pathname)) return { ok: true, urls: [normalized.indexUrl] };
+  const exact = url.toString();
+  return {
+    ok: true,
+    urls: exact === normalized.indexUrl ? [exact] : [exact, normalized.indexUrl],
+  };
+}
+
 function hex(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
     "",

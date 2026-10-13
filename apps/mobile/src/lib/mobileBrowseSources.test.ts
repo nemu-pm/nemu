@@ -838,3 +838,15 @@ describe("source language summary", () => {
     expect(formatMobileSourceLanguages([])).toBeUndefined();
   });
 });
+
+describe("origin labels", () => {
+  const strings = { settings: { nemuRecommendedDirectoryName: "nemu 推荐", sourceFileOrigin: "书源文件" } };
+  test("the built-in directory and imported files use localised names", async () => {
+    const { getMobileSourceOriginLabel, getMobileRegistryDisplayName } = await import("./mobileBrowseSources");
+    expect(getMobileSourceOriginLabel({ registryId: "nemu-recommended", registryName: "nemu recommended" }, strings)).toBe("nemu 推荐");
+    expect(getMobileSourceOriginLabel({ registryId: "nemu-recommended", registryName: "x", contentLicense: "MIT" }, strings)).toBe("MIT");
+    expect(getMobileRegistryDisplayName("custom-aidoku", "custom-aidoku", strings)).toBe("书源文件");
+    expect(getMobileRegistryDisplayName("d-abc", "Other list", strings)).toBe("Other list");
+    expect(getMobileRegistryDisplayName("nemu-recommended", "nemu-recommended")).toBe("nemu-recommended");
+  });
+});

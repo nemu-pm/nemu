@@ -1,5 +1,6 @@
 import type { InstalledSource } from "@/data/schema";
 import { getMobileInstalledSourceRegistryRef } from "./mobileInstalledSourceKeys";
+import { getMobileRegistryDisplayName } from "./mobileBrowseSources";
 
 /** How many entries to list before collapsing the rest into "+N". */
 const MAX_LISTED_LABELS = 2;
@@ -43,11 +44,19 @@ function installedSourceLanguages(source: InstalledSource): string[] {
 
 export function getMobileInstalledSourceSubtitle(
   source: InstalledSource,
+  strings?: Parameters<typeof getMobileRegistryDisplayName>[2],
 ): string {
   const languages = compactMobileLabelList(installedSourceLanguages(source), {
     upper: true,
   });
-  return [languages, getMobileInstalledSourceRegistryRef(source).registryId]
+  return [
+    languages,
+    getMobileRegistryDisplayName(
+      getMobileInstalledSourceRegistryRef(source).registryId,
+      getMobileInstalledSourceRegistryRef(source).registryId,
+      strings,
+    ),
+  ]
     .filter(Boolean)
     .join(" / ");
 }

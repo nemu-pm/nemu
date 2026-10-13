@@ -121,6 +121,14 @@ export default defineSchema({
         updatedAt: v.optional(v.number()), // For LWW sync conflict resolution
         removed: v.optional(v.boolean()), // Tombstone: true = uninstalled
         disabled: v.optional(v.boolean()), // User-disabled without uninstalling
+        // Built-in self-hosted server source (Komga/Kavita/Suwayomi): kind and
+        // address only; credentials never leave the device.
+        selfHosted: v.optional(
+          v.object({
+            kind: v.union(v.literal("komga"), v.literal("kavita"), v.literal("suwayomi")),
+            server: v.string(),
+          })
+        ),
       })
     ),
     // The user's source-directory list. Optional so rows written by older

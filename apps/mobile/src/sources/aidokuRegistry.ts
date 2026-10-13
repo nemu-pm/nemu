@@ -3,6 +3,7 @@ import { mobileNativeFetch } from "./mobileNativeHttp";
 import type { AidokuRegistryDefinition } from "@nemu/core/sources";
 import { sha256Bytes } from "@nemu/core";
 import { throwIfMobileNativeHttpAborted } from "./mobileNativeHttpAbort";
+import { isReservedSourceId } from "@/lib/selfHosted/policy";
 
 // Re-export the shared type so existing `import { type AidokuRegistryDefinition
 // } from "./aidokuRegistry"` call sites (incl. the test fixture) keep working.
@@ -153,6 +154,59 @@ function normalizeLanguages(source: RegistryIndexSource): string[] | undefined {
   return normalized.length > 0 ? normalized : undefined;
 }
 
+/**
+ * The Aidoku app version the bundled runtime (`@nemu.pm/aidoku-runtime`,
+ * which went through the Aidoku 0.9 compatibility program from 0.11 on)
+ * implements. aidoku-js declares no version of its own, so this is that
+ * program's target. Entries that declare a newer `minAppVersion`, or an older
+ * `maxAppVersion`, are left out of the catalog the way Aidoku leaves them out;
+ * bump it together with the runtime when it adopts a newer Aidoku.
+ */
+export const MOBILE_AIDOKU_COMPATIBLE_APP_VERSION = "0.9.0";
+
+function versionParts(value: string): number[] {
+  return value
+    .trim()
+    .replace(/^v/i, "")
+    .split(".")
+    .map((part) => {
+      const parsed = Number.parseInt(part, 10);
+      return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+    });
+}
+
+export function compareAidokuAppVersions(a: string, b: string): number {
+  const left = versionParts(a);
+  const right = versionParts(b);
+  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+    const diff = (left[index] ?? 0) - (right[index] ?? 0);
+    if (diff !== 0) return diff < 0 ? -1 : 1;
+  }
+  return 0;
+}
+
+function isCompatibleWithAppVersion(
+  source: RegistryIndexSource,
+  appVersion: string,
+): boolean {
+  const { minAppVersion, maxAppVersion } = source;
+  if (
+    typeof minAppVersion === "string" &&
+    minAppVersion.length <= 32 &&
+    compareAidokuAppVersions(appVersion, minAppVersion) < 0
+  ) {
+    return false;
+  }
+  if (
+    typeof maxAppVersion === "string" &&
+    maxAppVersion.length <= 32 &&
+    compareAidokuAppVersions(appVersion, maxAppVersion) > 0
+  ) {
+    return false;
+  }
+  return true;
+}
+
 function readBoolean(
   source: RegistryIndexSource,
   keys: string[],
@@ -222,8 +276,10 @@ export async function fetchAidokuRegistrySources(
 export function parseAidokuRegistryIndex(
   registry: AidokuRegistryDefinition,
   data: unknown,
+  options: { appVersion?: string } = {},
 ): AidokuRegistryIndex {
   const baseUrl = baseUrlFor(registry.indexUrl);
+  const appVersion = options.appVersion ?? MOBILE_AIDOKU_COMPATIBLE_APP_VERSION;
 
   const rawName = (data as { name?: unknown } | null)?.name;
   const indexName =
@@ -253,6 +309,9 @@ export function parseAidokuRegistryIndex(
           ? source.version
           : 1;
       if (!id || !name) return null;
+      // Ids of the app's built-in sources are never listable by a directory.
+      if (isReservedSourceId(id)) return null;
+      if (!isCompatibleWithAppVersion(source, appVersion)) return null;
 
       const iconPath =
         source.iconURL ??

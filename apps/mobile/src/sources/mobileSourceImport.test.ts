@@ -3,6 +3,7 @@ import {
   MOBILE_CUSTOM_AIDOKU_REGISTRY_ID,
   buildImportedAixInstalledSource,
   installedSourceFromImportedAixMetadata,
+  ReservedSourceIdError,
 } from "./mobileSourceImport";
 
 const metadata = {
@@ -53,5 +54,24 @@ describe("mobile source import", () => {
         },
       }),
     ).toThrow("metadata");
+  });
+
+  test("refuses ids reserved for the built-in server and local sources", () => {
+    for (const sourceId of ["komga", "komga.home", "Kavita.x", "suwayomi.server", "local", "local-archive"]) {
+      expect(() =>
+        installedSourceFromImportedAixMetadata({
+          metadata: { ...metadata, sourceId },
+          packageUri: null,
+          packageCacheKey: null,
+        }),
+      ).toThrow(ReservedSourceIdError);
+    }
+    expect(
+      installedSourceFromImportedAixMetadata({
+        metadata: { ...metadata, sourceId: "en.komga-fan" },
+        packageUri: null,
+        packageCacheKey: null,
+      }).sourceId,
+    ).toBe("en.komga-fan");
   });
 });
