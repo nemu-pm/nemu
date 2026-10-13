@@ -81,6 +81,8 @@ describe("iOS privacy manifest (app.json expo.ios.privacyManifests)", () => {
 
 describe("iOS Info.plist hygiene", () => {
   const USAGE_KEYS = [
+    // LANraragi and other self-hosted sources on the user's own network.
+    "NSLocalNetworkUsageDescription",
     "NSMicrophoneUsageDescription",
     "NSPhotoLibraryUsageDescription",
     "NSSpeechRecognitionUsageDescription",
@@ -90,7 +92,7 @@ describe("iOS Info.plist hygiene", () => {
     expect(ios.infoPlist.ITSAppUsesNonExemptEncryption).toBe(false);
   });
 
-  test("has usage strings only for photos, microphone and speech, localized", () => {
+  test("has usage strings only for local network, photos, microphone and speech, localized", () => {
     const keys = Object.keys(ios.infoPlist)
       .filter((key) => key.endsWith("UsageDescription"))
       .sort();

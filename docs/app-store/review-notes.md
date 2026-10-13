@@ -57,8 +57,8 @@ Guideline 2.5.2 explicitly:
    server-backed learning features (assistant chat, read-aloud, cloud text
    recognition). Each of these sends content to a named third party; the policy
    at https://nemu.pm/privacy lists them.
-5. Account deletion: **[Settings > Cloud sync > Delete account: pending owner
-   approval of the UI]**. It deletes the account, synced data, uploaded covers
+5. Account deletion: Settings > Cloud sync > tap the signed-in account row >
+   Delete Account, then confirm in the system alert. It deletes the account, synced data, uploaded covers
    and sessions, and revokes Sign in with Apple tokens.
 6. Privacy policy: https://nemu.pm/privacy (also in App Store Connect).
 
@@ -67,6 +67,9 @@ Guideline 2.5.2 explicitly:
 - Photos (NSPhotoLibraryUsageDescription): choose a cover image.
 - Microphone and Speech Recognition: dictate a message to the assistant. Both are
   optional; nothing else in the app requires them.
+- Local Network (NSLocalNetworkUsageDescription): asked only when the user
+  points a self-hosted source (LANraragi) at a server on their own network;
+  only that configured host is reachable, and only for that source.
 - No camera, location, contacts, tracking (no ATT prompt) or notifications.
 - `ITSAppUsesNonExemptEncryption=false`: the app uses only standard TLS/OS
   cryptography (HTTPS, Keychain).
@@ -79,8 +82,10 @@ Guideline 2.5.2 explicitly:
 - **5.1.1(v)**: account deletion in the app, includes Sign in with Apple token
   revocation ([Apple](https://developer.apple.com/support/offering-account-deletion-in-your-app/)).
 - **5.1.2(i)**: the policy names Anthropic, Google, ElevenLabs, Vercel and the
-  other recipients; a notice with permission is shown at first use of each AI
-  feature **[pending owner approval of the UI]**.
+  other recipients; before the first request from any cloud-AI feature (chat,
+  read-aloud, smart match, Japanese clean-up) a one-time sheet asks for consent
+  and links the policy. Declining cancels that request; analysis falls back to
+  on-device where it exists.
 - **1.2 User-generated content**: none. The library and collections are private
   to the user; there is no posting, sharing, comments or chat between users.
 - **1.1.4 / content**: nemu hosts no content; the user chooses sources. Adult
