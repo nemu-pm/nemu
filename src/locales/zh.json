@@ -288,7 +288,8 @@
     "title": "关于",
     "tagline": "魔法の漫画リーダー",
     "description": "nemu 是一款跨平台网页漫画阅读器，让您能够从各种来源发现和阅读漫画。",
-    "sourceCode": "源代码"
+    "sourceCode": "源代码",
+    "privacyPolicy": "隐私政策"
   },
   "settings": {
     "aboutNemu": "关于 nemu",

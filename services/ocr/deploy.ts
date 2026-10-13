@@ -291,6 +291,22 @@ async function startVllm() {
   throw new Error(`vLLM startup timed out (${maxWaitSec}s)`);
 }
 
+// 30-day log retention (docs/app-store/log-retention.md): install the rotation
+// config and keep a daily logrotate loop running. Idempotent.
+async function installLogRotation() {
+  console.log("Installing 30-day log rotation...");
+  await syncFile(join(SCRIPT_DIR, "logrotate.conf"), "/app/logrotate.conf", "logrotate.conf");
+  await ssh(
+    `
+    which logrotate >/dev/null 2>&1 || (apt-get update -qq && apt-get install -y -qq logrotate) >/dev/null 2>&1 || true
+    pgrep -f 'nemu-logrotate-loop' >/dev/null 2>&1 || \
+      nohup bash -c 'exec -a nemu-logrotate-loop bash -c "while true; do logrotate -s /app/logrotate.state /app/logrotate.conf; sleep 86400; done"' >/dev/null 2>&1 &
+    disown 2>/dev/null || true
+  `,
+    false,
+  );
+}
+
 async function startServer() {
   console.log("Starting detection server (port 8080)...");
 

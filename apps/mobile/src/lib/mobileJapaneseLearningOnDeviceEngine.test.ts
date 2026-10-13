@@ -242,6 +242,30 @@ describe("on-device analysis contract (recorded cloud vs Rust outputs)", () => {
     expect(stages).toEqual(["normalizing", "tokenizing"]);
   });
 
+  test("online enhance is skipped silently when signed out", async () => {
+    const sample = samples[0]!;
+    const { module } = fakeModule({ segmentsFor: () => sample.onDeviceSegments });
+    setMobileJapaneseLearningNativeModuleForTesting(module);
+    setMobileJapaneseLearningAuthCookieReaderForTesting(() => "");
+    try {
+      const stages: string[] = [];
+      let normalized = 0;
+      const result = await runMobileJapaneseLearningGrammar(sample.text, {
+        onlineEnhance: true,
+        onStage: (stage) => stages.push(stage),
+        normalizeText: async (text) => {
+          normalized += 1;
+          return { normalized: text, properNouns: [] };
+        },
+      });
+      expect(normalized).toBe(0);
+      expect(stages).toEqual(["tokenizing"]);
+      expect(result.normalizedText).toBe(sample.text);
+    } finally {
+      setMobileJapaneseLearningAuthCookieReaderForTesting(() => "nemu.session_token=test");
+    }
+  });
+
   test("chunks long input at sentence boundaries without losing text", () => {
     const text = "あ".repeat(3000) + "。" + "い".repeat(3000) + "\n" + "う".repeat(100);
     const chunks = chunkMobileIchiranInput(text, 3800);

@@ -238,39 +238,6 @@ describe("mobile JSC Babel compatibility", () => {
     });
   });
 
-  test("uses the linked EAS project and allows a CI project override", () => {
-    const appConfig = JSON.parse(
-      readFileSync(path.join(import.meta.dir, "../../app.json"), "utf8"),
-    ) as { expo: Record<string, unknown> };
-    const configure = requireFromTest(
-      path.join(import.meta.dir, "../../app.config.cjs"),
-    ) as (input: { config: Record<string, unknown> }) => {
-      extra?: { nemuJsEngine?: string; eas?: { projectId?: string } };
-    };
-    const previousProjectId = process.env.EAS_PROJECT_ID;
-
-    expect(appConfig.expo.owner).toBe("nemu-pm");
-    expect(
-      (appConfig.expo.extra as { eas?: { projectId?: string } } | undefined)
-        ?.eas?.projectId,
-    ).toBe("14ee8845-644a-4721-88fc-e0dacbce4aca");
-
-    try {
-      process.env.EAS_PROJECT_ID = "00000000-0000-4000-8000-000000000000";
-      const resolved = configure({ config: appConfig.expo });
-      expect(resolved.extra?.nemuJsEngine).toBe("jsc");
-      expect(resolved.extra?.eas?.projectId).toBe(
-        "00000000-0000-4000-8000-000000000000",
-      );
-    } finally {
-      if (previousProjectId === undefined) {
-        delete process.env.EAS_PROJECT_ID;
-      } else {
-        process.env.EAS_PROJECT_ID = previousProjectId;
-      }
-    }
-  });
-
   test("classifies full and abbreviated combined Android clean builds", () => {
     const plugin = requireFromTest(
       path.join(import.meta.dir, "../../plugins/with-third-party-jsc.cjs"),

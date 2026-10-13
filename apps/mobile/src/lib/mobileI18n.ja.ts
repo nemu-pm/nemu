@@ -15,6 +15,7 @@ export const mobileStringsJa: MobileStrings = {
     description:
       "nemuはクロスプラットフォーム対応の漫画リーダーです。さまざまなソースから漫画を発見して読むことができます。",
     openSourceCode: "GitHub で nemu のソースコードを開く",
+    privacyPolicy: "プライバシーポリシー",
     sourceCode: "ソースコード",
     tagline: "魔法の漫画リーダー",
   },
@@ -1150,6 +1151,36 @@ export const mobileStringsJa: MobileStrings = {
     sourceSearchPlaceholder: "ソースタイトルを検索",
     subtitle: "このタイトルのソースを並べ替え、またはリンク解除します",
     reorderHint: "矢印で並べ替え",
+  },
+  account: {
+    title: "アカウント",
+    name: "名前",
+    email: "メール",
+    signInMethod: "サインイン方法",
+    deleteAccount: "アカウントを削除",
+    deleteFooter:
+      "削除すると、クラウド上のライブラリ、読書の進捗、設定が完全に消去されます。",
+    deleteAlertTitle: "アカウントを削除しますか？",
+    deleteAlertMessage:
+      "アカウントと、クラウド上のライブラリ、読書の進捗、設定、アップロードしたカバー、サインインのセッションが完全に削除されます。この端末のデータは残ります。この操作は取り消せません。",
+    deleteConfirm: "削除",
+    deleting: "削除中…",
+    deleted: "アカウントを削除しました",
+    deleteFailed: "アカウントを削除できませんでした。もう一度お試しください。",
+    deleteReauth:
+      "Apple でのサインインを再確認する必要があります。サインアウトして、もう一度サインインしてからお試しください。",
+    deleteUnavailable: "Apple に接続できませんでした。しばらくしてからお試しください。",
+    deleteCleanupFailed: "アカウントは削除されましたが、この端末のデータを消去できませんでした。",
+    openAccount: "アカウント",
+  },
+  aiConsent: {
+    title: "AI 機能",
+    bodyBefore:
+      "チャット、読み上げ、スマートマッチなどの機能は、関連するテキストやページを第三者の AI サービスに送信して処理します。nemu はこれらの内容を保存しません。続行すると、nemu の",
+    privacyPolicy: "プライバシーポリシー",
+    bodyAfter: "に同意したものとみなされます。",
+    decline: "今はしない",
+    accept: "続ける",
   },
   feedback: {
     dismiss: "閉じる",

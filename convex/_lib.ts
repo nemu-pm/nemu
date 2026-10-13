@@ -2,7 +2,9 @@ import type { QueryCtx, MutationCtx } from "./_generated/server";
 
 // ============ Auth Helpers ============
 
-export async function requireAuth(ctx: QueryCtx | MutationCtx): Promise<string> {
+export async function requireAuth(
+  ctx: Pick<QueryCtx | MutationCtx, "auth">,
+): Promise<string> {
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) throw new Error("Not authenticated");
   return identity.subject;

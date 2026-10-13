@@ -10,6 +10,7 @@ export type MobileStrings = {
     close: string;
     description: string;
     openSourceCode: string;
+    privacyPolicy: string;
     sourceCode: string;
     tagline: string;
   };
@@ -959,6 +960,32 @@ export type MobileStrings = {
     sourceSearchPlaceholder: string;
     subtitle: string;
     reorderHint: string;
+  };
+  account: {
+    title: string;
+    name: string;
+    email: string;
+    signInMethod: string;
+    deleteAccount: string;
+    deleteFooter: string;
+    deleteAlertTitle: string;
+    deleteAlertMessage: string;
+    deleteConfirm: string;
+    deleting: string;
+    deleted: string;
+    deleteFailed: string;
+    deleteReauth: string;
+    deleteUnavailable: string;
+    deleteCleanupFailed: string;
+    openAccount: string;
+  };
+  aiConsent: {
+    title: string;
+    bodyBefore: string;
+    privacyPolicy: string;
+    bodyAfter: string;
+    decline: string;
+    accept: string;
   };
   feedback: {
     dismiss: string;

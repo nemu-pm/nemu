@@ -20,6 +20,7 @@ import { MobileJapaneseLearningQaDemoLauncher } from "@/components/MobileJapanes
 import { MobileScrollEdgeEffectHost } from "@/components/MobileScrollEdgeEffectHost";
 import { MobileSyncProgressToast } from "@/components/MobileSyncProgressToast";
 import { MobileToastProvider } from "@/components/MobileToast";
+import { MobileAiConsentHost } from "@/components/MobileAiConsentHost";
 import { MobileWelcomeWizard } from "@/components/MobileWelcomeWizard";
 import { MobileDataProvider } from "@/data/mobileData";
 import { MobileLanguageProvider } from "@/data/mobileLanguageContext";
@@ -212,6 +213,7 @@ export default function RootLayout() {
                         welcomeBlocksAccessibility={welcomeBlocksAccessibility}
                       />
                       <MobileSyncProgressToast />
+                      <MobileAiConsentHost />
                       <MobileWelcomeWizard
                         onVisibilityChange={setWelcomeBlocksAccessibility}
                       />

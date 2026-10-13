@@ -15,6 +15,7 @@ export const mobileStringsEn: MobileStrings = {
     description:
       "nemu is a cross-platform manga reader that lets you discover and read manga from various online sources.",
     openSourceCode: "Open nemu source code on GitHub",
+    privacyPolicy: "Privacy Policy",
     sourceCode: "Source Code",
     tagline: "魔法の漫画リーダー",
   },
@@ -1138,6 +1139,37 @@ export const mobileStringsEn: MobileStrings = {
     sourceSearchPlaceholder: "Search source title",
     subtitle: "Reorder or unlink sources for this title",
     reorderHint: "Use the arrows to reorder",
+  },
+  account: {
+    title: "Account",
+    name: "Name",
+    email: "Email",
+    signInMethod: "Sign-in method",
+    deleteAccount: "Delete account",
+    deleteFooter:
+      "Deleting permanently removes your cloud library, reading progress and settings.",
+    deleteAlertTitle: "Delete account?",
+    deleteAlertMessage:
+      "This permanently deletes your account and, in the cloud, your library, reading progress, settings, uploaded covers and sign-in sessions. Data on this device is kept. This can't be undone.",
+    deleteConfirm: "Delete",
+    deleting: "Deleting…",
+    deleted: "Account deleted",
+    deleteFailed: "Couldn't delete the account. Try again.",
+    deleteReauth:
+      "Sign-in with Apple needs to be confirmed again. Sign out, sign back in and try again.",
+    deleteUnavailable: "Apple couldn't be reached. Try again in a moment.",
+    deleteCleanupFailed:
+      "Your account was deleted, but data on this device couldn't be cleared.",
+    openAccount: "Account",
+  },
+  aiConsent: {
+    title: "AI features",
+    bodyBefore:
+      "Features like chat, read-aloud and smart match send the relevant text or page to third-party AI services for processing. nemu does not store this content. By continuing you agree to the nemu ",
+    privacyPolicy: "Privacy Policy",
+    bodyAfter: ".",
+    decline: "Not now",
+    accept: "Continue",
   },
   feedback: {
     dismiss: "Dismiss",

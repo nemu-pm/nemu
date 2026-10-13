@@ -1,4 +1,5 @@
 import { truncateMobileJapaneseLearningChatOldestHalf } from "./mobileJapaneseLearningChatStream";
+import { requireMobileAiConsent } from "./mobileAiConsent";
 import {
   getMobileJapaneseLearningQaScenario,
   runMobileJapaneseLearningQaChat,
@@ -918,6 +919,8 @@ export async function runMobileJapaneseLearningChat(
       lastTtsText = undefined;
     };
 
+    // Third-party AI: one-time notice before anything is sent (declining throws).
+    await requireMobileAiConsent();
     options.callbacks?.onStreamStart?.();
 
     for (let round = 0; round < 4; round += 1) {

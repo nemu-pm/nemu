@@ -5,6 +5,9 @@ const {
 const path = require("path");
 const crypto = require("crypto");
 const rootEnv = require("./loadRootEnv.cjs")();
+// A production bundle (Xcode Release archive, Gradle release, production
+// `expo export`) must not bake the dev backend; fail the bundle step instead.
+require("./preflightRelease.cjs").enforceReleaseEnv(rootEnv);
 
 const config = getDefaultConfig(__dirname);
 

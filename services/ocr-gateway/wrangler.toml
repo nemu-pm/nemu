@@ -1,0 +1,17 @@
+name = "nemu-ocr-gateway"
+main = "service.ts"
+compatibility_date = "2024-01-01"
+workers_dev = false
+preview_urls = false
+
+[vars]
+# Convex site URL of the production deployment (the JWT issuer); set per environment.
+# CONVEX_SITE_URL = "https://convex.nemu.pm"
+# Origin of the vast.ai OCR server; only this Worker may reach it.
+# OCR_ORIGIN = "https://<origin-host>"
+ALLOWED_ORIGINS = "https://nemu.pm,http://localhost:5173,http://127.0.0.1:5173"
+MAX_BODY_BYTES = "25000000"
+
+# Secrets (wrangler secret put): ORIGIN_SHARED_SECRET
+# The route ocr.nemu.pm/* must be attached to this Worker; the origin moves to a
+# separate hostname that is firewalled to Cloudflare and checks the shared secret.

@@ -16,6 +16,7 @@ import { v } from "convex/values"
 import { action } from "./_generated/server"
 import { createGoogleGenerativeAI } from "@ai-sdk/google"
 import { generateText } from "ai"
+import { requireAuth } from "./_lib"
 
 const SEARCH_MODEL = "gemini-2.5-flash-lite" // Fast, cheap, good at retrieval
 const TRANSLATE_MODEL = "gemini-2.5-flash-lite" // Simple translation doesn't need heavy model
@@ -102,10 +103,10 @@ Respond in JSON: {"found": boolean, "title": string | null}`,
       return null
     }
 
-    t.log(`Found: ${parsed.title}`)
+    t.log("Found")
     return parsed.title
   } catch (e) {
-    t.log(`Error: ${e}`)
+    t.log(`Error: ${e instanceof Error ? e.name : "UnknownError"}`)
     return null
   }
 }
@@ -150,10 +151,10 @@ JSON形式で回答: {"found": boolean, "description": string | null}`,
       return null
     }
 
-    t.log(`Found: ${parsed.description.slice(0, 50)}...`)
+    t.log("Found")
     return parsed.description
   } catch (e) {
-    t.log(`Error: ${e}`)
+    t.log(`Error: ${e instanceof Error ? e.name : "UnknownError"}`)
     return null
   }
 }
@@ -197,10 +198,10 @@ Respond in JSON: {"found": boolean, "name": string | null}`,
       return null
     }
 
-    t.log(`Found: ${parsed.name}`)
+    t.log("Found")
     return parsed.name
   } catch (e) {
-    t.log(`Error: ${e}`)
+    t.log(`Error: ${e instanceof Error ? e.name : "UnknownError"}`)
     return null
   }
 }
@@ -246,13 +247,13 @@ JSON格式回答: {"found": boolean, "simplified": string | null, "traditional":
       return { simplified: null, traditional: null }
     }
 
-    t.log(`Found: ${JSON.stringify(parsed)}`)
+    t.log("Found")
     return {
       simplified: parsed.simplified || null,
       traditional: parsed.traditional || null,
     }
   } catch (e) {
-    t.log(`Error: ${e}`)
+    t.log(`Error: ${e instanceof Error ? e.name : "UnknownError"}`)
     return { simplified: null, traditional: null }
   }
 }
@@ -287,10 +288,10 @@ ${japaneseText}
     }
 
     const translated = result.text.trim()
-    t.log(`Translated: ${translated.slice(0, 50)}...`)
+    t.log("Translated")
     return translated
   } catch (e) {
-    t.log(`Error: ${e}`)
+    t.log(`Error: ${e instanceof Error ? e.name : "UnknownError"}`)
     return null
   }
 }
@@ -307,8 +308,9 @@ export const findJapaneseTitle = action({
     title: v.string(),
     authors: v.optional(v.array(v.string())),
   },
-  handler: async (_, { title, authors }) => {
-    console.log("[ai_metadata.findJapaneseTitle] searching:", { title, authors })
+  handler: async (ctx, { title, authors }) => {
+    await requireAuth(ctx)
+    console.log("[ai_metadata.findJapaneseTitle] searching")
     return searchJapaneseTitle(title, authors)
   },
 })
@@ -321,8 +323,9 @@ export const findJapaneseDescription = action({
     japaneseTitle: v.string(),
     romajiTitle: v.optional(v.string()),
   },
-  handler: async (_, { japaneseTitle, romajiTitle }) => {
-    console.log("[ai_metadata.findJapaneseDescription] searching:", { japaneseTitle, romajiTitle })
+  handler: async (ctx, { japaneseTitle, romajiTitle }) => {
+    await requireAuth(ctx)
+    console.log("[ai_metadata.findJapaneseDescription] searching")
     return searchJapaneseDescription(japaneseTitle, romajiTitle)
   },
 })
@@ -334,8 +337,9 @@ export const findAuthorJapaneseName = action({
   args: {
     englishName: v.string(),
   },
-  handler: async (_, { englishName }) => {
-    console.log("[ai_metadata.findAuthorJapaneseName] searching:", englishName)
+  handler: async (ctx, { englishName }) => {
+    await requireAuth(ctx)
+    console.log("[ai_metadata.findAuthorJapaneseName] searching")
     return searchAuthorJapaneseName(englishName)
   },
 })
@@ -349,9 +353,10 @@ export const findChineseTitle = action({
     japaneseTitle: v.string(),
     englishTitle: v.optional(v.string()),
   },
-  handler: async (_, { japaneseTitle, englishTitle }) => {
+  handler: async (ctx, { japaneseTitle }) => {
+    await requireAuth(ctx)
     const t = timer("findChineseTitle")
-    console.log("[ai_metadata.findChineseTitle]", { japaneseTitle, englishTitle })
+    console.log("[ai_metadata.findChineseTitle] searching")
 
     // Step 1: Try to find official Chinese title via search
     const searchResult = await searchChineseTitle(japaneseTitle)
@@ -379,9 +384,10 @@ export const findChineseDescription = action({
     japaneseTitle: v.string(),
     englishTitle: v.optional(v.string()),
   },
-  handler: async (_, { japaneseTitle, englishTitle }) => {
+  handler: async (ctx, { japaneseTitle }) => {
+    await requireAuth(ctx)
     const t = timer("findChineseDescription")
-    console.log("[ai_metadata.findChineseDescription]", { japaneseTitle, englishTitle })
+    console.log("[ai_metadata.findChineseDescription] searching")
 
     // Step 1: Find Japanese description
     const japaneseDescription = await searchJapaneseDescription(japaneseTitle)

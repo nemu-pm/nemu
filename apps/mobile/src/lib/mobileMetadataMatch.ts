@@ -1,4 +1,5 @@
 import type { AppLanguage, ExternalIds, MangaMetadata } from "@/data/schema";
+import { requireMobileAiConsent } from "./mobileAiConsent";
 import {
   listToMetadataInput,
   type MobileMetadataFormValues,
@@ -435,6 +436,7 @@ export async function findMobileJapaneseTitleFallback(
   if (!trimmedTitle || !client) return null;
 
   try {
+    await requireMobileAiConsent();
     const result = await client.action(api.ai_metadata.findJapaneseTitle, {
       title: trimmedTitle,
       ...(authors?.length ? { authors } : {}),
@@ -494,6 +496,7 @@ export async function findMobileChineseTitleFallback(
   if (!titles) return null;
 
   try {
+    await requireMobileAiConsent();
     const response = await client.action(api.ai_metadata.findChineseTitle, {
       japaneseTitle: titles.japaneseTitle,
       ...(titles.englishTitle ? { englishTitle: titles.englishTitle } : {}),
@@ -538,6 +541,7 @@ export async function findMobileLocalizedDescription(
   if (!titles) return null;
 
   try {
+    await requireMobileAiConsent();
     const action =
       language === "ja"
         ? api.ai_metadata.findJapaneseDescription
