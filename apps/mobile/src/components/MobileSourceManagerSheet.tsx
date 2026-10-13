@@ -607,7 +607,7 @@ export function MobileSourceManagerSheet({
 }: MobileSourceManagerSheetProps) {
   const { tokens } = useMobileNativeSheetTheme();
   const store = useMobileDataStore();
-  const installedSources = useInstalledSources();
+  const installedSources = useInstalledSources({ includeLocalArchive: true });
   const library = useLibraryEntries();
   const progress = useMangaProgress();
   const { appLanguage } = useMobileLanguageSettings();

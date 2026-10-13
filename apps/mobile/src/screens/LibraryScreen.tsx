@@ -46,6 +46,12 @@ import {
 import type { MobileLibraryTitleMenuProps } from "@/components/MobileLibraryTitleMenu.types";
 import { MobileLibrarySkeleton } from "@/components/MobileLibrarySkeleton";
 import { useMobileToast } from "@/components/MobileToastContext";
+import { renderExploreDetailBarMenu } from "@/components/explore/ExploreDetailBarMenu";
+import * as DocumentPicker from "expo-document-picker";
+import { File as FsFile } from "expo-file-system";
+import { pushLocalArchiveVolume } from "@/sync/mobileSyncDataStore";
+import { importLocalArchive } from "@/lib/localArchives/importArchive";
+import { deviceArchiveFs } from "@/lib/localArchives/fileSystem";
 import { useMobileDataStore } from "@/data/mobileDataContext";
 import { emitMobileDataChanged, emitMobileLibraryDataChanged } from "@/data/mobileDataEvents";
 import {
@@ -822,7 +828,7 @@ export function LibraryScreen({
     error: libraryError,
     reload: reloadLibrary,
   } = useLibraryEntries();
-  const installedSources = useInstalledSources();
+  const installedSources = useInstalledSources({ includeLocalArchive: true });
   const progress = useMangaProgress();
   const collections = useCollections();
   const { appLanguage } = useMobileLanguageSettings();
@@ -1722,14 +1728,67 @@ export function LibraryScreen({
   };
   // Library-level collection actions. Shared with the empty-library state so
   // collections stay manageable before the first title is added.
-  const libraryHeaderActions: NemuNativeHeaderAction[] = [
+  const importComics = useCallback(async () => {
+    try {
+      const picked = await DocumentPicker.getDocumentAsync({
+        copyToCacheDirectory: true,
+        multiple: false,
+        type: ["application/zip", "application/x-cbz", "application/vnd.comicbook+zip", "application/octet-stream"],
+      });
+      if (picked.canceled) return;
+      const asset = picked.assets?.[0];
+      if (!asset?.uri) return;
+      try {
+        const result = await importLocalArchive({
+          uri: asset.uri,
+          fileName: asset.name,
+          fs: deviceArchiveFs,
+          store,
+          now: Date.now(),
+          newId: () => `work-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
+        });
+        if (result.kind === "created") void pushLocalArchiveVolume(store, result.volume);
+        emitMobileLibraryDataChanged();
+        toast.show({
+          id: "comic-import",
+          tone: "success",
+          title: formatMobileString(
+            result.kind === "created" ? strings.library.importComicsDone : strings.library.importComicsRelinked,
+            { title: result.volume.title },
+          ),
+        });
+      } finally {
+        // The picker's cache copy is no longer needed; the book lives in documents.
+        try {
+          new FsFile(asset.uri).delete();
+        } catch {
+          // already gone
+        }
+      }
+    } catch {
+      toast.show({ id: "comic-import", tone: "danger", title: strings.library.importComicsFailed });
+    }
+  }, [store, strings, toast]);
+  // The Library toolbar's "+" is a menu: import a CBZ/ZIP, or start a collection.
+  const libraryAddMenuActions: NemuNativeHeaderAction[] = [
     {
-      icon: "plus",
-      label: strings.library.createCollection,
+      icon: "square.and.arrow.down",
+      label: strings.library.importComics,
+      hint: strings.library.importComicsHint,
+      disabled: collectionActionBusy,
+      onPress: () => void importComics(),
+    },
+    {
+      icon: "folder.badge.plus",
+      // Opens a name prompt, so the label ends in an ellipsis like the import entry.
+      label: `${strings.library.createCollection}…`,
       hint: strings.library.createCollectionHint,
       disabled: collectionActionBusy,
       onPress: toggleCreateCollection,
     },
+  ];
+  const libraryHeaderActions: NemuNativeHeaderAction[] = [
+    ...(Platform.OS === "ios" ? [] : [libraryAddMenuActions[1]!]),
     ...(titleMenu ? [] : [collectionSwitcherAction]),
   ];
   // A shown collection adds books from the toolbar; editing it lives in the
@@ -2360,6 +2419,7 @@ export function LibraryScreen({
         <>
           <Stack.Screen options={titleMenuHeaderOptions(strings.nav.library)} />
           <Stack.Toolbar placement="right">
+            {Platform.OS === "ios" ? renderExploreDetailBarMenu(libraryAddMenuActions, strings.library.createCollection, "plus") : null}
             {renderNemuNativeToolbarButtons(libraryHeaderActions)}
           </Stack.Toolbar>
           {titleMenuAnchor}
@@ -2415,8 +2475,11 @@ export function LibraryScreen({
     {usesNativeHeader ? (
       <>
         <Stack.Screen options={titleMenuHeaderOptions(title)} />
-        {nativeHeaderActions.length ? (
+        {nativeHeaderActions.length || (Platform.OS === "ios" && !selectedCollection) ? (
           <Stack.Toolbar placement="right">
+            {Platform.OS === "ios" && !selectedCollection
+              ? renderExploreDetailBarMenu(libraryAddMenuActions, strings.library.createCollection, "plus")
+              : null}
             {renderNemuNativeToolbarButtons(nativeHeaderActions)}
           </Stack.Toolbar>
         ) : null}

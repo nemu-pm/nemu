@@ -417,6 +417,15 @@ export function mapAidokuPageToReaderPage(
   request?: { url: string; headers: Record<string, string> },
 ): MobileReaderPage {
   const pageIndex = Number.isFinite(page.index) ? page.index : index;
+  if (page.localUri) {
+    // A page of an imported archive: a file the app itself extracted.
+    return {
+      id: page.id ?? `${pageIndex}:${page.localUri}`,
+      index: pageIndex,
+      imageUri: page.localUri,
+      imageUriOwnership: "app",
+    };
+  }
   const imageUri =
     request?.url ??
     page.url ??

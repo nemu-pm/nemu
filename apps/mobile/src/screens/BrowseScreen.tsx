@@ -105,6 +105,8 @@ import {
   shouldRenderMobileBrowseSkeleton,
   shouldReopenMobileAddSourceSheetAfterInstall,
   type MobileSourceQuickActionId,
+  getMobileSourceOriginLabel,
+  formatMobileSourceLanguages,
 } from "@/lib/mobileBrowseSources";
 import { getMobileInstalledSourceRegistryRef } from "@/lib/mobileInstalledSourceKeys";
 import { getMobileInstalledSourceName } from "@/lib/mobileInstalledSourcePresentation";
@@ -253,9 +255,7 @@ function sourceSettingsHref(source: SourceCardModel): Href {
   };
 }
 
-function formatLanguages(languages?: string[]): string | undefined {
-  return languages?.length ? languages.join(", ").toUpperCase() : undefined;
-}
+const formatLanguages = formatMobileSourceLanguages;
 
 function formatSourceLanguageLabel(
   language: string,
@@ -656,7 +656,7 @@ const AvailableSourceRow = memo(function AvailableSourceRow({
             numberOfLines={1}
             style={[styles.sourceSubtitle, { color: tokens.mutedForeground }]}
           >
-            {[formatLanguages(source.languages), source.registryName]
+            {[formatLanguages(source.languages), getMobileSourceOriginLabel(source)]
               .filter(Boolean)
               .join(" / ")}
           </Text>

@@ -283,10 +283,18 @@ private final class NemuScopedCookieSessionDelegate: NSObject, URLSessionDownloa
   private var policies: [Int: NemuExplicitCookiePolicy] = [:]
   private var downloads: [Int: NemuNativeDownloadRegistration] = [:]
   private let peerValidationGate = NemuNativeHttpPeerValidationGate()
+  /// The source scope this session serves; selects its proxy credential and
+  /// local-network grant. nil for the stateless public-only session.
+  private let scope: String?
 
-  init(cookieStorage: HTTPCookieStorage, persistsResponseCookies: Bool) {
+  init(
+    cookieStorage: HTTPCookieStorage,
+    persistsResponseCookies: Bool,
+    scope: String? = nil
+  ) {
     self.cookieStorage = cookieStorage
     self.persistsResponseCookies = persistsResponseCookies
+    self.scope = scope
   }
 
   func register(
@@ -516,7 +524,8 @@ private final class NemuScopedCookieSessionDelegate: NSObject, URLSessionDownloa
     ) -> Void
   ) {
     if let credential = NemuNativeHttpLoopbackProxy.shared.proxyCredential(
-      for: challenge
+      for: challenge,
+      scope: scope
     ) {
       completionHandler(.useCredential, credential)
     } else {
@@ -573,7 +582,12 @@ private final class NemuScopedCookieSessionDelegate: NSObject, URLSessionDownloa
     var request = request
     request.url = redirectURL
     do {
-      try NemuNativeHttpAddressPolicy.validate(url: redirectURL)
+      // A redirect is a new destination: it needs its own grant, so a granted
+      // server cannot bounce the source to another private host.
+      try NemuNativeHttpAddressPolicy.validate(
+        url: redirectURL,
+        grant: NemuNativeLocalNetworkAllowance.grant(forScope: scope)
+      )
     } catch {
       completionHandler(nil)
       return
@@ -604,7 +618,8 @@ private final class NemuScopedCookieSessionDelegate: NSObject, URLSessionDownloa
     )
     redirectedRequest.setValue(mergedHeader, forHTTPHeaderField: "Cookie")
     NemuNativeHttpLoopbackProxy.shared.authorizeLegacyPlainHttp(
-      &redirectedRequest
+      &redirectedRequest,
+      scope: scope
     )
     completionHandler(redirectedRequest)
   }
@@ -618,7 +633,8 @@ private final class NemuHttpSessionContext: @unchecked Sendable {
   init(
     configuration: URLSessionConfiguration,
     isolated: Bool,
-    persistsResponseCookies: Bool = true
+    persistsResponseCookies: Bool = true,
+    scope: String? = nil
   ) {
     guard let cookieStorage = configuration.httpCookieStorage else {
       preconditionFailure("URLSession did not provide an isolated cookie store.")
@@ -627,7 +643,8 @@ private final class NemuHttpSessionContext: @unchecked Sendable {
     if isolated {
       let delegate = NemuScopedCookieSessionDelegate(
         cookieStorage: cookieStorage,
-        persistsResponseCookies: persistsResponseCookies
+        persistsResponseCookies: persistsResponseCookies,
+        scope: scope
       )
       redirectDelegate = delegate
       session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
@@ -799,7 +816,10 @@ private final class NemuSyncHttpCoordinator {
       scopedContextOrder.append(normalizedScope)
     } else {
       let configuration = URLSessionConfiguration.ephemeral
-      NemuNativeHttpLoopbackProxy.shared.harden(configuration)
+      NemuNativeHttpLoopbackProxy.shared.harden(
+        configuration,
+        scope: normalizedScope
+      )
       configuration.timeoutIntervalForRequest = nemuAsyncHttpMaxTimeoutSeconds
       configuration.timeoutIntervalForResource = nemuAsyncHttpMaxTimeoutSeconds
       configuration.httpCookieAcceptPolicy = .always
@@ -809,7 +829,8 @@ private final class NemuSyncHttpCoordinator {
       configuration.urlCache = nil
       let created = NemuHttpSessionContext(
         configuration: configuration,
-        isolated: true
+        isolated: true,
+        scope: normalizedScope
       )
       scopedContexts[normalizedScope] = created
       scopedContextOrder.append(normalizedScope)
@@ -1428,6 +1449,21 @@ public class NemuAidokuModule: Module {
       NemuSyncHttpCoordinator.shared.release(id: requestId)
     }
 
+    // Scoped local-network allowance. Only the host app calls these, from the
+    // server-URL setting the user typed; a source package has no way to reach
+    // them (see NemuNativeLocalNetworkAllowance).
+    Function("setLocalNetworkAllowance") {
+        (sourceKey: String, urls: [String]) -> [String] in
+      return NemuNativeLocalNetworkAllowance.setGrant(
+        scope: sourceKey,
+        configuredURLs: urls
+      )
+    }
+
+    Function("clearAllLocalNetworkAllowances") {
+      NemuNativeLocalNetworkAllowance.clearAllGrants()
+    }
+
     AsyncFunction("resetMobileSourceProfileAuthState") { (promise: Promise) in
       // All source sessions use isolated jars. Clear them directly so neither
       // scoped nor stateless authentication can cross a profile transition.
@@ -1641,7 +1677,10 @@ public class NemuAidokuModule: Module {
   static func sendAidokuSandboxHttpRequest(
     _ request: NemuAidokuIOSandboxHTTPRequest
   ) -> NemuAidokuIOSandboxHTTPResponse {
-    let destination = validatedRemoteHttpURL(request.url)
+    let destination = validatedRemoteHttpURL(
+      request.url,
+      cookieScope: request.sourceKey
+    )
     guard let url = destination.url else {
       return NemuAidokuIOSandboxHTTPResponse(
         status: 0,
@@ -1738,7 +1777,10 @@ public class NemuAidokuModule: Module {
   ) -> [String: String]? {
     guard
       headers.count <= maxSourceImageRequestHeaders,
-      (try? NemuNativeHttpAddressPolicy.validatedURL(urlString)) != nil
+      (try? NemuNativeHttpAddressPolicy.validatedURL(
+        urlString,
+        grant: NemuNativeLocalNetworkAllowance.grant(forScope: sourceKey)
+      )) != nil
     else {
       return nil
     }
@@ -1840,7 +1882,10 @@ public class NemuAidokuModule: Module {
     let promiseBox = NemuNativeHttpPromiseBox(promise)
     DispatchQueue.global(qos: .utility).async {
       Self.pruneNativeHttpTemporaryFiles()
-      let destination = Self.validatedRemoteHttpURL(request.url)
+      let destination = Self.validatedRemoteHttpURL(
+        request.url,
+        cookieScope: request.cookieScope
+      )
       guard let url = destination.url else {
         promiseBox.promise.resolve(Self.fileResponse(
           status: 0,
@@ -2155,7 +2200,10 @@ public class NemuAidokuModule: Module {
     _ request: NemuAidokuHttpRequest,
     promise: Promise
   ) {
-    let destination = validatedRemoteHttpURL(request.url)
+    let destination = validatedRemoteHttpURL(
+      request.url,
+      cookieScope: request.cookieScope
+    )
     guard let url = destination.url else {
       promise.resolve(response(
         status: 0,
@@ -2399,7 +2447,10 @@ public class NemuAidokuModule: Module {
     maxTimeoutSeconds: Double,
     allowBackground: Bool
   ) -> [String: Any?] {
-    let destination = validatedRemoteHttpURL(request.url)
+    let destination = validatedRemoteHttpURL(
+      request.url,
+      cookieScope: request.cookieScope
+    )
     guard let url = destination.url else {
       return response(status: 0, error: destination.error)
     }
@@ -2505,7 +2556,10 @@ public class NemuAidokuModule: Module {
     if let body = request.body, let bodyData = body.data(using: .utf8) {
       urlRequest.httpBody = bodyData
     }
-    NemuNativeHttpLoopbackProxy.shared.authorizeLegacyPlainHttp(&urlRequest)
+    NemuNativeHttpLoopbackProxy.shared.authorizeLegacyPlainHttp(
+      &urlRequest,
+      scope: request.cookieScope?.trimmingCharacters(in: .whitespacesAndNewlines)
+    )
 
     return urlRequest
   }
@@ -2890,10 +2944,17 @@ public class NemuAidokuModule: Module {
   /// Source packages are untrusted. Never let their HTTP bridge become an
   /// ambient file/custom-scheme, loopback, LAN, or cloud-metadata reader.
   private static func validatedRemoteHttpURL(
-    _ value: String
+    _ value: String,
+    cookieScope: String? = nil
   ) -> (url: URL?, error: String) {
     do {
-      return (try NemuNativeHttpAddressPolicy.validatedURL(value), "")
+      return (
+        try NemuNativeHttpAddressPolicy.validatedURL(
+          value,
+          grant: NemuNativeLocalNetworkAllowance.grant(forScope: cookieScope)
+        ),
+        ""
+      )
     } catch {
       let detail = error.localizedDescription.trimmingCharacters(
         in: .whitespacesAndNewlines

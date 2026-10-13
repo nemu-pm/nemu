@@ -37,6 +37,15 @@ declare class NemuAidokuModule extends NativeModule<NemuAidokuEventsMap> {
   cancelHttpRequest(requestId: string): boolean;
   releaseHttpRequest(requestId: string): void;
   clearImageMemoryCache(): Promise<void>;
+  /**
+   * Replaces the local-network grant of one source scope (see
+   * `NemuNativeLocalNetworkAllowance`). `urls` are the server URLs the user
+   * typed into that source's settings; native keeps only the http(s) hosts it
+   * can safely grant and returns them as `host:port`. Optional so an older
+   * native build without the allowance simply keeps its public-only policy.
+   */
+  setLocalNetworkAllowance?(sourceKey: string, urls: string[]): string[];
+  clearAllLocalNetworkAllowances?(): void;
   resetMobileSourceProfileAuthState(): Promise<void>;
   /**
    * Clears the cookies of exactly one source, for a `clear_cookies_on_log_out`

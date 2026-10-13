@@ -365,9 +365,9 @@ describe("mobile source error presentation", () => {
       getMobileStrings("zh"),
     );
     expect(presentation.kind).toBe("unsupported");
-    expect(presentation.title).toBe("移动端暂不支持此源");
+    expect(presentation.title).toBe("移动端暂不支持此书源");
     expect(presentation.detail.split("\n")[0]).toBe(
-      "移动端暂不支持 Tachiyomi 源，请改用 Aidoku 源。",
+      "移动端暂不支持 Tachiyomi 书源，请改用 Aidoku 书源。",
     );
     expect(presentation.detail).toContain("native Tachiyomi bridge");
     expect(presentation.detail).not.toContain(

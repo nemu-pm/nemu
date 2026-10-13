@@ -19,7 +19,10 @@ import {
 } from "./nativeDatabase";
 import { flushNativeBinaryCacheAccessIndexes } from "./nativeCache";
 import { NativeUserDataStore } from "./nativeStore";
-import { createMobileSyncDataStore } from "@/sync/mobileSyncDataStore";
+import { createMobileSyncDataStore, pushLocalArchiveVolume } from "@/sync/mobileSyncDataStore";
+import { deviceArchiveFs } from "@/lib/localArchives/fileSystem";
+import { createLocalArchiveProvider } from "@/lib/localArchives/provider";
+import { registerLocalArchiveProvider } from "@/lib/localArchives/registry";
 import { mobileAuthClient } from "@/sync/mobileAuthClient";
 import { mobileSyncConfig } from "@/sync/mobileSyncConfig";
 import {
@@ -273,6 +276,18 @@ function MobileDataStoreProvider({
     [baseStore],
   );
   const databaseMarkedRef = useRef(false);
+
+  // Imported CBZ/ZIP books: the provider the reader, detail screens and the
+  // store view use for the `local-archive` source. Volume changes (deletes)
+  // reach the cloud through the sync store.
+  useEffect(() => {
+    registerLocalArchiveProvider(
+      createLocalArchiveProvider(deviceArchiveFs, (volume) => {
+        void pushLocalArchiveVolume(store, volume);
+      }),
+    );
+    return () => registerLocalArchiveProvider(null);
+  }, [store]);
 
   useEffect(() => {
     if (databaseMarkedRef.current) return;

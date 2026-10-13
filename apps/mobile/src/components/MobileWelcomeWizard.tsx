@@ -9,6 +9,8 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
+import { NEMU_RECOMMENDED_REGISTRY_ID } from "@nemu/core/sources";
+import { formatMobileContentLicense, formatMobileSourceLanguages } from "@/lib/mobileBrowseSources";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import appIcon from "../../assets/icon.jpg";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
@@ -84,9 +86,7 @@ const languageOptions: Array<{ value: AppLanguage; label: string }> = [
   { value: "ja", label: "日本語" },
 ];
 
-function formatLanguages(languages?: string[]): string | undefined {
-  return languages?.length ? languages.join(", ").toUpperCase() : undefined;
-}
+const formatLanguages = formatMobileSourceLanguages;
 
 const BRAND_TOKEN = "{{brand}}";
 // Shared with the wordmark tracking so both follow the same rendered size.
@@ -258,7 +258,14 @@ function SourceOption({
           numberOfLines={1}
           style={[styles.sourceSubtitle, { color: tokens.mutedForeground }]}
         >
-          {formatLanguages(source.languages)}
+          {[
+            formatLanguages(source.languages),
+            source.registryId === NEMU_RECOMMENDED_REGISTRY_ID && source.contentLicense
+              ? formatMobileContentLicense(source.contentLicense)
+              : undefined,
+          ]
+            .filter(Boolean)
+            .join(" / ")}
         </Text>
       </View>
     </NemuPressable>

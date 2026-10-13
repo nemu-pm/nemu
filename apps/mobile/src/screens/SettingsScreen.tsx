@@ -21,6 +21,7 @@ import {
   AccessibilityInfo,
   ActivityIndicator,
   Linking,
+  Alert,
   Platform,
   StyleSheet,
   useWindowDimensions,
@@ -48,7 +49,7 @@ import {
   tag,
   tint,
 } from "@expo/ui/swift-ui/modifiers";
-import { Stack, router, useLocalSearchParams, type Href } from "expo-router";
+import { Stack, router, useFocusEffect, useLocalSearchParams, type Href } from "expo-router";
 import * as DocumentPicker from "expo-document-picker";
 import { nextSyncTimestamp } from "@nemu/core";
 import { MobileOpenSourceLicensesSheet } from "@/components/MobileOpenSourceLicensesSheet";
@@ -77,6 +78,16 @@ import {
 } from "@/data/mobileDataEvents";
 import { useMobileToast } from "@/components/MobileToastContext";
 import {
+  MobileSourceDirectoryPrompt,
+  mobileSourceDirectoryPromptAvailable,
+} from "@/components/MobileSourceDirectoryPromptSheet";
+import {
+  MobileSourceDirectoryError,
+  type SourceDirectory,
+} from "@/data/mobileSourceDirectories";
+import { NEMU_RECOMMENDED_REGISTRY_ID } from "@nemu/core/sources";
+import { useMobileSourceDirectories } from "@/data/useMobileSourceDirectories";
+import {
   useAvailableSources,
   type MobileDataClearMode,
   useMobileDataManagement,
@@ -101,6 +112,7 @@ import {
   MobileNativeSheetScaffold,
   NemuButton,
   NemuNativeSwitch,
+  renderNemuNativeToolbarButtons,
   NemuPressable,
   useNemuRowHighlight,
   NemuText,
@@ -854,7 +866,7 @@ function useScreenReaderEnabled(): boolean {
   return enabled;
 }
 
-export type SettingsSectionId = "reader" | "sources" | "appearance" | "data" | "experimental";
+export type SettingsSectionId = "reader" | "sources" | "directories" | "appearance" | "data" | "experimental";
 
 function settingsSectionHref(
   section: SettingsSectionId,
@@ -1287,6 +1299,263 @@ function FeedbackSettingRow({
   );
 }
 
+function sourceDirectoryHost(directory: SourceDirectory): string {
+  try {
+    const url = new URL(directory.indexUrl);
+    return `${url.host}${url.pathname.replace(/\/(index(\.min)?\.json)$/i, "").replace(/\/+$/, "")}`;
+  } catch {
+    return directory.indexUrl;
+  }
+}
+
+function SourceDirectoryRow({
+  directory,
+  strings,
+  disabled,
+  first,
+  onToggle,
+  onRemove,
+}: {
+  directory: SourceDirectory;
+  strings: MobileStrings;
+  disabled: boolean;
+  first: boolean;
+  onToggle: (enabled: boolean) => void;
+  onRemove: () => void;
+}) {
+  const { tokens } = useNemuTheme();
+  // The built-in directory's name comes from the strings, not the registry JSON.
+  const displayName =
+    directory.id === NEMU_RECOMMENDED_REGISTRY_ID
+      ? strings.settings.nemuRecommendedDirectoryName
+      : directory.name;
+  const actions: QuickAction[] = directory.builtIn
+    ? []
+    : [
+        {
+          id: "remove",
+          label: strings.settings.removeSourceDirectory,
+          icon: "trash-outline",
+          destructive: true,
+          onPress: onRemove,
+        },
+      ];
+  return (
+    <MobileQuickActionMenu actions={actions}>
+      <NemuPressable
+        accessibilityLabel={displayName}
+        accessibilityHint={directory.builtIn ? strings.settings.sourceDirectoryBuiltIn : undefined}
+        accessibilityRole="button"
+        hapticFeedback="none"
+        pressedScale={1}
+        // Long press removes a user-added directory (the built-in one can
+        // only be switched off), like the source rows' quick actions.
+        onLongPress={
+          directory.builtIn || mobileNativeQuickMenuAvailable || disabled
+            ? undefined
+            : () => {
+                void hapticSelection();
+                onRemove();
+              }
+        }
+        style={[
+          styles.dataAction,
+          { borderColor: tokens.border },
+          mobileDesignExploreFlag ? [styles.exploreInnerRow, first ? styles.exploreInnerRowFirst : null] : null,
+        ]}
+      >
+        <View style={styles.dataActionText}>
+          <NemuText numberOfLines={1} style={[styles.settingTitle, { color: tokens.foreground }]}>
+            {displayName}
+          </NemuText>
+          <NemuText numberOfLines={1} style={[styles.settingSubtitle, { color: tokens.mutedForeground }]}>
+            {directory.builtIn ? strings.settings.sourceDirectoryBuiltIn : sourceDirectoryHost(directory)}
+          </NemuText>
+        </View>
+        <NemuNativeSwitch
+          accessibilityLabel={formatMobileString(strings.settings.toggleSourceDirectoryEnabled, {
+            name: displayName,
+          })}
+          disabled={disabled}
+          value={directory.enabled}
+          onValueChange={(next) => {
+            void hapticSelection();
+            onToggle(next);
+          }}
+        />
+      </NemuPressable>
+    </MobileQuickActionMenu>
+  );
+}
+
+const SOURCE_DIRECTORY_ERROR_KEYS = {
+  empty: "sourceDirectoryErrorInvalid",
+  invalid: "sourceDirectoryErrorInvalid",
+  "too-long": "sourceDirectoryErrorInvalid",
+  "not-https": "sourceDirectoryErrorNotHttps",
+  credentials: "sourceDirectoryErrorInvalid",
+  "local-host": "sourceDirectoryErrorLocal",
+  duplicate: "sourceDirectoryErrorDuplicate",
+  limit: "sourceDirectoryErrorLimit",
+  unreachable: "sourceDirectoryErrorUnreachable",
+  "no-sources": "sourceDirectoryErrorNoSources",
+  "built-in": "sourceDirectoryErrorInvalid",
+} as const;
+
+/**
+ * Settings > Source directories: one grouped card of directories (name,
+ * where it lives, a switch), the toolbar + that asks for an HTTPS address in
+ * a system prompt, and a footer saying what removing one keeps.
+ */
+function SourceDirectoriesSection({ strings }: { strings: MobileStrings }) {
+  const { tokens } = useNemuTheme();
+  const toast = useMobileToast();
+  const manager = useMobileSourceDirectories();
+  const [promptOpen, setPromptOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  // A prompt left open must not outlive the page: close it on blur/unmount.
+  useFocusEffect(
+    useCallback(() => () => setPromptOpen(false), []),
+  );
+
+  const showError = (error: unknown) => {
+    const key =
+      error instanceof MobileSourceDirectoryError
+        ? SOURCE_DIRECTORY_ERROR_KEYS[error.code]
+        : "sourceDirectoryErrorUnreachable";
+    toast.show({ id: "source-directory-error", tone: "danger", title: strings.settings[key] });
+  };
+  const run = async (action: () => Promise<unknown>) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await action();
+      await hapticConfirm();
+    } catch (error) {
+      showError(error);
+      await hapticError();
+    } finally {
+      setBusy(false);
+    }
+  };
+  const confirmRemove = (directory: SourceDirectory) => {
+    Alert.alert(
+      formatMobileString(strings.settings.removeSourceDirectoryTitle, { name: directory.name }),
+      strings.settings.removeSourceDirectoryMessage,
+      [
+        { text: strings.common.cancel, style: "cancel" },
+        {
+          text: strings.settings.removeSourceDirectory,
+          style: "destructive",
+          onPress: () => void run(() => manager.removeDirectory(directory.id)),
+        },
+      ],
+    );
+  };
+
+  return (
+    <View style={styles.experimentalPage}>
+      {mobileSourceDirectoryPromptAvailable ? (
+        <Stack.Toolbar placement="right">
+          {renderNemuNativeToolbarButtons([
+            {
+              icon: "plus",
+              label: strings.settings.addSourceDirectory,
+              disabled: busy,
+              onPress: () => setPromptOpen(true),
+            },
+          ])}
+        </Stack.Toolbar>
+      ) : null}
+      <SettingsSurface style={styles.rowShell}>
+        {manager.directories.map((directory, index) => (
+          <SourceDirectoryRow
+            key={directory.id}
+            directory={directory}
+            strings={strings}
+            disabled={busy}
+            first={index === 0}
+            onToggle={(enabled) => void run(() => manager.setDirectoryEnabled(directory.id, enabled))}
+            onRemove={() => confirmRemove(directory)}
+          />
+        ))}
+      </SettingsSurface>
+      <NemuText style={[styles.experimentalFooter, { color: tokens.mutedForeground }]}>
+        {strings.settings.sourceDirectoriesFooter}
+      </NemuText>
+      <MobileSourceDirectoryPrompt
+        visible={promptOpen}
+        strings={strings}
+        onClose={() => setPromptOpen(false)}
+        onSubmit={(url) => {
+          setPromptOpen(false);
+          void run(() => manager.addDirectory(url));
+        }}
+      />
+    </View>
+  );
+}
+
+/**
+ * Sources page: where sources come from (directories) and whether installed
+ * ones update themselves. Refreshing a directory never installs anything.
+ */
+function SourceUpdatesGroup({
+  strings,
+  disabled,
+  pendingCount,
+  updating,
+  onUpdateNow,
+  onOpenDirectories,
+}: {
+  strings: MobileStrings;
+  disabled: boolean;
+  pendingCount: number;
+  updating: boolean;
+  onUpdateNow: () => void;
+  onOpenDirectories: () => void;
+}) {
+  const manager = useMobileSourceDirectories();
+  return (
+    <>
+      <SettingsMenuRow
+        icon="albums-outline"
+        title={strings.settings.sourceDirectories}
+        subtitle={strings.settings.sourceDirectoriesHint}
+        disabled={disabled}
+        onPress={onOpenDirectories}
+      />
+      <SettingsSurface style={styles.rowShell}>
+        <FeedbackSettingRow
+          first
+          title={strings.settings.autoUpdateSources}
+          subtitle={strings.settings.autoUpdateSourcesFooter}
+          value={manager.autoUpdateSources}
+          onToggle={(next) => void manager.setAutoUpdateSources(next)}
+        />
+        <View style={styles.importSourceCard}>
+          <NemuButton
+            accessibilityLabel={strings.settings.updateSourcesNow}
+            containerStyle={styles.importSourceAction}
+            disabled={disabled || updating || pendingCount === 0}
+            icon="refresh-outline"
+            label={
+              pendingCount > 0
+                ? `${strings.settings.updateSourcesNow} (${formatMobileString(strings.settings.updateSourcesCount, { count: pendingCount })})`
+                : strings.settings.updateSourcesUpToDate
+            }
+            loading={updating}
+            onPress={onUpdateNow}
+            size="lg"
+            style={styles.importSourceButton}
+            variant="outline"
+          />
+        </View>
+      </SettingsSurface>
+    </>
+  );
+}
+
 /**
  * Settings → Experimental Design: turns the design-explore prototype on or
  * off (iOS only; `mobileDesignExploreSwitch`). One inset group: the switch
@@ -1618,6 +1887,7 @@ function SettingsScreenContent({
   const [removingSourceId, setRemovingSourceId] = useState<string | null>(null);
   const removingSourceIdRef = useRef<string | null>(null);
   const [refreshingSources, setRefreshingSources] = useState(false);
+  const [updatingSources, setUpdatingSources] = useState(false);
   const refreshGuardRef = useRef(false);
   const [pendingClearMode, setPendingClearMode] =
     useState<MobileDataClearMode | null>(null);
@@ -2063,7 +2333,9 @@ function SettingsScreenContent({
       ? strings.reader.title
       : activeSection === "sources"
         ? strings.settings.installedSources
-        : activeSection === "appearance"
+        : activeSection === "directories"
+          ? strings.settings.sourceDirectories
+          : activeSection === "appearance"
           ? strings.settings.appearance
           : activeSection === "data"
             ? strings.settings.dataManagement
@@ -3383,7 +3655,25 @@ function SettingsScreenContent({
                       variant="outline"
                     />
                   </SettingsSurface>
+                  <SourceUpdatesGroup
+                    strings={strings}
+                    disabled={settingsActionBusy}
+                    pendingCount={availableSources.sourceUpdates.length}
+                    updating={updatingSources}
+                    onUpdateNow={() => {
+                      setUpdatingSources(true);
+                      void availableSources
+                        .updateInstalledSources()
+                        .catch((error) => reportSettingsError(error))
+                        .finally(() => setUpdatingSources(false));
+                    }}
+                    onOpenDirectories={() => router.push(settingsSectionHref("directories"))}
+                  />
                 </>
+              ) : null}
+
+              {activeSection === "directories" ? (
+                <SourceDirectoriesSection strings={strings} />
               ) : null}
 
               {activeSection === "data" ? (

@@ -859,7 +859,7 @@ export function SourceMangaScreen() {
   const cover = libraryEntry
     ? resolveMobileEntryDisplayCover(libraryEntry, knownSourceCovers)
     : metadata?.cover;
-  const allInstalledSources = useInstalledSources();
+  const allInstalledSources = useInstalledSources({ includeLocalArchive: true });
   const libraryCoverSources = useMemo(
     () =>
       libraryEntry

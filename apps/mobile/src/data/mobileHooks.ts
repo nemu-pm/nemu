@@ -36,13 +36,21 @@ import type {
   ReadingMode,
   SourcePackageSetting,
 } from "./schema";
+import { LOCAL_ARCHIVE_REGISTRY_ID } from "@/lib/localArchives/policy";
 import type { MobileDataStore } from "./storeTypes";
 import {
-  AIDOKU_REGISTRIES,
   fetchAllAidokuRegistrySources,
   makeSourceKey,
+  type AidokuRegistryFetchResult,
   type MobileRegistrySource,
 } from "@/sources/aidokuRegistry";
+import { getNemuRecommendedDirectoryFallbackSources } from "@/sources/nemuRecommendedDirectory";
+import { NEMU_RECOMMENDED_REGISTRY_ID } from "@nemu/core/sources";
+import {
+  enabledSourceDirectories,
+  isMobileSourceAutoUpdateEnabled,
+  loadMobileSourceDirectories,
+} from "./mobileSourceDirectories";
 import {
   loadCachedRegistryIndex,
   loadCachedRegistryIndexSnapshot,
@@ -258,14 +266,11 @@ async function saveMobileRegistrySourceInstall(
           name: source.registryName,
           type: "builtin",
         }
-      : {
+      : (await store.getRegistry(source.registryId)) ?? {
           id: source.registryId,
           name: source.registryName,
           type: "url",
-          url:
-            AIDOKU_REGISTRIES.find(
-              (registry) => registry.id === source.registryId,
-            )?.indexUrl ?? "",
+          url: "",
         },
     source: installedSource,
     signal: options.signal,
@@ -532,7 +537,12 @@ export function useMangaProgress(): LoadState<LocalMangaProgress[]> {
   return { data, loading, error, reload };
 }
 
-export function useInstalledSources(): LoadState<InstalledSource[]> {
+export function useInstalledSources(
+  options: { includeLocalArchive?: boolean } = {},
+): LoadState<InstalledSource[]> {
+  // The imported-archive source is not something to browse, search or manage as
+  // a source; only screens that open library entries ask for it.
+  const includeLocalArchive = options.includeLocalArchive === true;
   const store = useMobileDataStore();
   const revision = useMobileDataRevision(["sources"]);
   const [data, setData] = useState<InstalledSource[]>([]);
@@ -542,7 +552,10 @@ export function useInstalledSources(): LoadState<InstalledSource[]> {
   const reload = useCallback(async () => {
     try {
       setError(null);
-      const sources = await store.getInstalledSources();
+      const sources = (await store.getInstalledSources()).filter(
+        (source) =>
+          includeLocalArchive || source.registryId !== LOCAL_ARCHIVE_REGISTRY_ID,
+      );
       // Per-item reference stability: hydrating one source's package must not
       // invalidate memos (and through them screen load effects) keyed on its
       // siblings; an unchanged list keeps the previous array reference.
@@ -560,7 +573,7 @@ export function useInstalledSources(): LoadState<InstalledSource[]> {
     } finally {
       setLoading(false);
     }
-  }, [store]);
+  }, [includeLocalArchive, store]);
 
   useEffect(() => {
     ignoreReloadError(reload);
@@ -1647,23 +1660,45 @@ async function loadMobileRegistryCatalog(
 ): Promise<MobileRegistrySource[]> {
   const isAccountMutationBlocked = () =>
     Boolean(getMobileDataProfileSnapshot().pendingCleanupProfileId);
-  const sources = await fetchAllAidokuRegistrySources(AIDOKU_REGISTRIES, {
-    signal,
-  });
-  assertMobileSourceInstallActive(signal, isAccountMutationBlocked);
-  await Promise.all(
-    AIDOKU_REGISTRIES.map((registry) =>
-      store.saveRegistry({
-        id: registry.id,
-        name: registry.name,
-        type: "url" as const,
-        url: registry.indexUrl,
-      }),
-    ),
+  const directories = enabledSourceDirectories(
+    await loadMobileSourceDirectories(store),
   );
   assertMobileSourceInstallActive(signal, isAccountMutationBlocked);
-  emitMobileDataChanged("registries");
+  let report: AidokuRegistryFetchResult[] = [];
+  let sources: MobileRegistrySource[];
+  try {
+    sources = await fetchAllAidokuRegistrySources(directories, {
+      signal,
+      onResults: (results) => {
+        report = results;
+      },
+    });
+  } catch (error) {
+    // Every directory failed (offline). The recommended directory still has
+    // its bundled snapshot, so the welcome list and Browse stay usable; the
+    // install itself reports a network failure if it cannot download.
+    if (
+      isMobileSourceInstallCancellation(error) ||
+      !directories.some((directory) => directory.id === NEMU_RECOMMENDED_REGISTRY_ID)
+    ) {
+      throw error;
+    }
+    return getNemuRecommendedDirectoryFallbackSources();
+  }
+  assertMobileSourceInstallActive(signal, isAccountMutationBlocked);
   void saveCachedRegistryIndex(sources);
+  // The recommended directory is the welcome list and the first thing a new
+  // user sees; a failed fetch of it must not leave that empty.
+  const recommendedLoaded = report.some(
+    (result) =>
+      result.registryId === NEMU_RECOMMENDED_REGISTRY_ID && result.ok,
+  );
+  const recommendedEnabled = directories.some(
+    (directory) => directory.id === NEMU_RECOMMENDED_REGISTRY_ID,
+  );
+  if (recommendedEnabled && !recommendedLoaded) {
+    return [...sources, ...getNemuRecommendedDirectoryFallbackSources()];
+  }
   return sources;
 }
 
@@ -1749,6 +1784,10 @@ export function useAvailableSources(
   } = {},
 ): LoadState<MobileRegistrySource[]> & {
   sourceUpdateNotice: MobileSourceUpdateNotice | null;
+  /** Installed sources whose directory lists a newer version. */
+  sourceUpdates: MobileRegistrySource[];
+  /** Installs every pending update now; resolves with the updated names. */
+  updateInstalledSources: () => Promise<string[]>;
   networkAccessState: NemuNetworkAccessState;
   catalogCachedAt: number | null;
 } {
@@ -1761,6 +1800,9 @@ export function useAvailableSources(
   const [sourceUpdateNotice, setSourceUpdateNotice] =
     useState<MobileSourceUpdateNotice | null>(null);
   const [catalogCachedAt, setCatalogCachedAt] = useState<number | null>(null);
+  const [sourceUpdates, setSourceUpdates] = useState<MobileRegistrySource[]>(
+    [],
+  );
   const [networkAccessState, setNetworkAccessState] =
     useState<NemuNetworkAccessState>(() =>
       Platform.OS === "ios"
@@ -1802,6 +1844,14 @@ export function useAvailableSources(
             setData(cached);
             setCatalogCachedAt(cachedSnapshot?.savedAt ?? null);
             setLoading(false);
+          } else {
+            // Nothing cached yet (first launch, offline): the bundled snapshot
+            // of the recommended directory keeps the list usable.
+            const fallback = getNemuRecommendedDirectoryFallbackSources();
+            if (fallback.length > 0) {
+              setData(fallback);
+              setLoading(false);
+            }
           }
         }
 
@@ -1824,6 +1874,20 @@ export function useAvailableSources(
             ) as MobileRegistrySource[],
         );
 
+        // Refreshing the directories and updating installed sources are two
+        // steps: with auto-update off the user decides when installed sources
+        // are replaced (`updateInstalledSources`), and a new source appearing
+        // in a directory is never installed either way.
+        const autoUpdate = isMobileSourceAutoUpdateEnabled(
+          await store.getSettings(),
+        );
+        setSourceUpdates(
+          findMobileSourceUpdates(
+            await store.getInstalledSources(),
+            sources,
+          ),
+        );
+        if (!autoUpdate) return;
         const pass = await registryCatalogScheduler.runUpdatePass(
           fetchId,
           // The pass runs on the scheduler's own signal: this consumer
@@ -1838,6 +1902,7 @@ export function useAvailableSources(
         if (names.length > 0) {
           emitMobileDataChanged("sources");
           setSourceUpdateNotice({ id: Date.now(), names });
+          setSourceUpdates([]);
         }
       } catch (nextError) {
         if (isCurrent() && !isMobileSourceInstallCancellation(nextError)) {
@@ -1857,6 +1922,34 @@ export function useAvailableSources(
   // The public reload is always an explicit user action (pull-to-refresh, an
   // error retry), so it bypasses the shared freshness window.
   const reload = useCallback(() => runReload(0), [runReload]);
+
+  // Adding, removing or toggling a directory changes what the catalog is.
+  const directoriesRevision = useMobileDataRevision(["registries"]);
+  const seenDirectoriesRevision = useRef(directoriesRevision);
+  useEffect(() => {
+    if (seenDirectoriesRevision.current === directoriesRevision) return;
+    seenDirectoriesRevision.current = directoriesRevision;
+    if (enabled) ignoreReloadError(reload);
+  }, [directoriesRevision, enabled, reload]);
+
+  // Explicit "update installed sources": installs every pending update now,
+  // whatever the auto-update preference says.
+  const updateInstalledSources = useCallback(async (): Promise<string[]> => {
+    const pending = dataRef.current;
+    const names = await runMobileRegistrySourceUpdatePass(
+      store,
+      pending,
+      new AbortController().signal,
+    );
+    if (names.length > 0) {
+      emitMobileDataChanged("sources");
+      setSourceUpdateNotice({ id: Date.now(), names });
+    }
+    setSourceUpdates(
+      findMobileSourceUpdates(await store.getInstalledSources(), pending),
+    );
+    return names;
+  }, [store]);
 
   useEffect(() => {
     if (!enabled) {
@@ -1940,6 +2033,8 @@ export function useAvailableSources(
     error,
     reload,
     sourceUpdateNotice,
+    sourceUpdates,
+    updateInstalledSources,
     networkAccessState,
     catalogCachedAt,
   };

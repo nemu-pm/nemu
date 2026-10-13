@@ -135,7 +135,9 @@ describe("mobile Aidoku default user agent", () => {
     // the source UA only alongside the jar's cookies.
     const iosModule = read("ios/NemuAidokuModule.swift");
     expect(iosModule).toContain('AsyncFunction("decorateAidokuSourceImageRequest")');
-    expect(iosModule).toContain("NemuNativeHttpAddressPolicy.validatedURL(urlString)");
+    expect(iosModule).toMatch(
+      /NemuNativeHttpAddressPolicy\.validatedURL\(\s*urlString,\s*grant: NemuNativeLocalNetworkAllowance\.grant\(forScope: sourceKey\)\s*\)/,
+    );
     expect(iosModule).toMatch(
       /sourceImageHeaders\(\s*output,\s*sourceCookie: explicitCookie,\s*sourceUserAgent: nemuAidokuDefaultUserAgent\s*\)/,
     );
@@ -149,7 +151,7 @@ describe("mobile Aidoku default user agent", () => {
     expect(androidModule).toContain(
       "decorateSourceImageRequest(sourceKey, urlString, existingHeaders) ?: existingHeaders",
     );
-    expect(androidModule).toContain("NemuNativeHttpAddressPolicy.resolvePublicAddresses(url.host)");
+    expect(androidModule).toContain("NemuNativeHttpAddressPolicy.resolvePublicAddresses(url.host, grant)");
     expect(androidModule).toContain("sourceUserAgent = NEMU_AIDOKU_DEFAULT_USER_AGENT");
     expect(
       androidModule.match(/sourceDefault = NEMU_AIDOKU_DEFAULT_USER_AGENT/g),

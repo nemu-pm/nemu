@@ -355,6 +355,17 @@ class NemuAidokuModule : Module() {
       sandboxCookieStore.close()
     }
 
+    // Scoped local-network allowance. Only the host app calls these, from the
+    // server-URL setting the user typed; a source package has no way to reach
+    // them (see NemuNativeLocalNetworkAllowance).
+    Function("setLocalNetworkAllowance") { sourceKey: String, urls: List<String> ->
+      NemuNativeLocalNetworkAllowance.setGrant(sourceKey, urls)
+    }
+
+    Function("clearAllLocalNetworkAllowances") {
+      NemuNativeLocalNetworkAllowance.clearAllGrants()
+    }
+
     AsyncFunction("clearImageMemoryCache") {
       clearImageMemoryCache()
     }
@@ -812,9 +823,10 @@ class NemuAidokuModule : Module() {
   ): Map<String, String>? {
     if (existingHeaders.size > NEMU_SOURCE_IMAGE_MAX_HEADERS) return null
     val url = urlString.toHttpUrlOrNull() ?: return null
+    val grant = NemuNativeLocalNetworkAllowance.grantFor(sourceKey)
     val publicDestination = runCatching {
-      NemuNativeHttpAddressPolicy.requirePublicDestination(url.host)
-      NemuNativeHttpAddressPolicy.resolvePublicAddresses(url.host) {
+      NemuNativeHttpAddressPolicy.requirePublicDestination(url.host, url.port, grant)
+      NemuNativeHttpAddressPolicy.resolvePublicAddresses(url.host, grant) {
         java.net.InetAddress.getAllByName(it).toList()
       }
     }.isSuccess
@@ -850,6 +862,7 @@ class NemuAidokuModule : Module() {
     val timeout = request.timeoutMs.coerceIn(1_000, NEMU_ASYNC_HTTP_MAX_TIMEOUT_MS)
     val scopedCookieJar = sandboxCookieStore.get(request.sourceKey)
     val client = baseHttpClient.newBuilder()
+      .withLocalNetworkScope(request.sourceKey)
       // BridgeInterceptor replaces an existing Cookie header whenever a client
       // CookieJar returns values. The network interceptor below performs an
       // explicit-source-wins merge and persists each redirect hop instead.
@@ -931,6 +944,7 @@ class NemuAidokuModule : Module() {
         return response(status = 0, error = "Invalid native HTTP cookie scope.")
       }
       val clientBuilder = baseHttpClient.newBuilder()
+        .withLocalNetworkScope(cookieScope)
         // A missing scope is intentionally stateless. There is no process-wide
         // fallback jar that could carry authenticated source cookies across a
         // profile boundary.
@@ -1015,6 +1029,7 @@ class NemuAidokuModule : Module() {
       }
 
       val clientBuilder = baseHttpClient.newBuilder()
+        .withLocalNetworkScope(cookieScope)
         .cookieJar(CookieJar.NO_COOKIES)
         .connectTimeout(timeout.toLong(), TimeUnit.MILLISECONDS)
         .readTimeout(timeout.toLong(), TimeUnit.MILLISECONDS)

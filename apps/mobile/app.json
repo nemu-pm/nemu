@@ -122,6 +122,10 @@
         "NSPhotoLibraryUsageDescription": "nemu lets you choose images from your photo library when updating manga covers.",
         "NSMicrophoneUsageDescription": "nemu uses the microphone when you dictate a message to Nemu chat.",
         "NSSpeechRecognitionUsageDescription": "nemu uses speech recognition to turn what you say into text for Nemu chat.",
+        "NSLocalNetworkUsageDescription": "nemu connects to a server on your local network only when you enter its address in a source's settings, such as a LANraragi server.",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        },
         "UIApplicationSceneManifest": {
           "UIApplicationSupportsMultipleScenes": false,
           "UISceneConfigurations": {

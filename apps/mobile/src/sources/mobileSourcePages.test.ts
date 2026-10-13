@@ -1429,3 +1429,16 @@ describe("resolveMobileReaderChapterIndex", () => {
     ).toBeUndefined();
   });
 });
+
+describe("imported archive pages", () => {
+  test("a localUri page is an app-owned image with no source request", () => {
+    expect(
+      mapAidokuPageToReaderPage({ index: 2, localUri: "file:///docs/local-archives/v/pages/000003.jpg", id: "v:3" }, 0),
+    ).toEqual({
+      id: "v:3",
+      index: 2,
+      imageUri: "file:///docs/local-archives/v/pages/000003.jpg",
+      imageUriOwnership: "app",
+    });
+  });
+});

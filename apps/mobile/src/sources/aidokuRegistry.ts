@@ -1,9 +1,6 @@
 import type { SourcePackageMetadata } from "@/data/schema";
 import { mobileNativeFetch } from "./mobileNativeHttp";
-import {
-  AIDOKU_REGISTRIES as CORE_AIDOKU_REGISTRIES,
-  type AidokuRegistryDefinition,
-} from "@nemu/core/sources";
+import type { AidokuRegistryDefinition } from "@nemu/core/sources";
 import { sha256Bytes } from "@nemu/core";
 import { throwIfMobileNativeHttpAborted } from "./mobileNativeHttpAbort";
 
@@ -24,6 +21,8 @@ export type MobileRegistrySource = {
   contentRating?: number;
   hasAuthentication?: boolean;
   hasCloudflare?: boolean;
+  /** SPDX-style licence of the content, e.g. "CC-BY-4.0" (nemu recommended directory). */
+  contentLicense?: string;
   packageMetadata?: SourcePackageMetadata | null;
 };
 
@@ -35,17 +34,8 @@ const MOBILE_AIDOKU_REGISTRY_MAX_ID_LENGTH = 256;
 const MOBILE_AIDOKU_REGISTRY_MAX_NAME_LENGTH = 512;
 const MOBILE_AIDOKU_REGISTRY_MAX_URL_LENGTH = 8_192;
 const MOBILE_AIDOKU_REGISTRY_MAX_LANGUAGES = 64;
+const MOBILE_AIDOKU_REGISTRY_MAX_LICENSE_LENGTH = 64;
 const MOBILE_AIDOKU_REGISTRY_MAX_LANGUAGE_LENGTH = 64;
-
-// Mutable re-export of the shared list. Core holds it `as const` (readonly);
-// mobile's `fetchAllAidokuRegistrySources` uses
-// `registries: AidokuRegistryDefinition[] = AIDOKU_REGISTRIES` as a default
-// param, which requires a mutable array type, so we spread the readonly list
-// into a mutable copy. Mobile never mutates the list (only `.find`/`.map`),
-// so this is behavior-identical to the prior inline definition.
-export const AIDOKU_REGISTRIES: AidokuRegistryDefinition[] = [
-  ...CORE_AIDOKU_REGISTRIES,
-];
 
 export function makeSourceKey(registryId: string, sourceId: string): string {
   return `${registryId}:${sourceId}`;
@@ -198,10 +188,16 @@ function readSources(data: unknown): RegistryIndexSource[] {
   );
 }
 
-export async function fetchAidokuRegistrySources(
+export type AidokuRegistryIndex = {
+  /** Optional display name the index publishes for itself. */
+  name?: string;
+  sources: MobileRegistrySource[];
+};
+
+export async function fetchAidokuRegistryIndex(
   registry: AidokuRegistryDefinition,
   options: { signal?: AbortSignal } = {},
-): Promise<MobileRegistrySource[]> {
+): Promise<AidokuRegistryIndex> {
   const response = await mobileNativeFetch(registry.indexUrl, {
     responseMode: "text",
     maxResponseBytes: MOBILE_AIDOKU_REGISTRY_MAX_RESPONSE_BYTES,
@@ -212,10 +208,31 @@ export async function fetchAidokuRegistrySources(
     throw new Error(`Failed to fetch ${registry.name}: ${response.status}`);
   }
 
-  const data = await response.json();
+  return parseAidokuRegistryIndex(registry, await response.json());
+}
+
+export async function fetchAidokuRegistrySources(
+  registry: AidokuRegistryDefinition,
+  options: { signal?: AbortSignal } = {},
+): Promise<MobileRegistrySource[]> {
+  return (await fetchAidokuRegistryIndex(registry, options)).sources;
+}
+
+/** Pure half of the fetch: also used for the bundled fallback snapshot. */
+export function parseAidokuRegistryIndex(
+  registry: AidokuRegistryDefinition,
+  data: unknown,
+): AidokuRegistryIndex {
   const baseUrl = baseUrlFor(registry.indexUrl);
 
-  return readSources(data)
+  const rawName = (data as { name?: unknown } | null)?.name;
+  const indexName =
+    typeof rawName === "string" &&
+    rawName.trim().length > 0 &&
+    rawName.length <= MOBILE_AIDOKU_REGISTRY_MAX_NAME_LENGTH
+      ? rawName.trim()
+      : undefined;
+  const sources = readSources(data)
     .map((source): MobileRegistrySource | null => {
       const id =
         typeof source.id === "string" &&
@@ -263,6 +280,13 @@ export async function fetchAidokuRegistrySources(
         "cloudflare",
       ]);
 
+      const contentLicense =
+        typeof source.contentLicense === "string" &&
+        /^[A-Za-z0-9.+-]{1,64}$/.test(source.contentLicense) &&
+        source.contentLicense.length <= MOBILE_AIDOKU_REGISTRY_MAX_LICENSE_LENGTH
+          ? source.contentLicense
+          : undefined;
+
       return {
         id,
         registryId: registry.id,
@@ -275,14 +299,27 @@ export async function fetchAidokuRegistrySources(
         contentRating: rating,
         ...(hasAuthentication == null ? {} : { hasAuthentication }),
         ...(hasCloudflare == null ? {} : { hasCloudflare }),
+        ...(contentLicense ? { contentLicense } : {}),
       };
     })
     .filter((source): source is MobileRegistrySource => source !== null);
+  return { ...(indexName ? { name: indexName } : {}), sources };
 }
 
+export type AidokuRegistryFetchResult = {
+  registryId: string;
+  ok: boolean;
+  sourceCount: number;
+  error?: string;
+};
+
 export async function fetchAllAidokuRegistrySources(
-  registries: AidokuRegistryDefinition[] = AIDOKU_REGISTRIES,
-  options: { signal?: AbortSignal } = {},
+  registries: readonly AidokuRegistryDefinition[],
+  options: {
+    signal?: AbortSignal;
+    /** One entry per directory, in input order — failures included. */
+    onResults?: (results: AidokuRegistryFetchResult[]) => void;
+  } = {},
 ): Promise<MobileRegistrySource[]> {
   throwIfMobileNativeHttpAborted(options.signal);
   const results = await Promise.allSettled(
@@ -293,18 +330,27 @@ export async function fetchAllAidokuRegistrySources(
   throwIfMobileNativeHttpAborted(options.signal);
   const sources: MobileRegistrySource[] = [];
   const errors = new Set<string>();
+  const report: AidokuRegistryFetchResult[] = [];
 
-  for (const result of results) {
+  results.forEach((result, index) => {
+    const registryId = registries[index]!.id;
     if (result.status === "fulfilled") {
       sources.push(...result.value);
+      report.push({
+        registryId,
+        ok: true,
+        sourceCount: result.value.length,
+      });
     } else {
-      errors.add(
+      const message =
         result.reason instanceof Error
           ? result.reason.message
-          : String(result.reason),
-      );
+          : String(result.reason);
+      errors.add(message);
+      report.push({ registryId, ok: false, sourceCount: 0, error: message });
     }
-  }
+  });
+  options.onResults?.(report);
 
   if (sources.length === 0 && errors.size > 0) {
     throw new Error([...errors].join("\n"));

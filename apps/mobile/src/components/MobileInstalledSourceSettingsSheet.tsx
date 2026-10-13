@@ -14,6 +14,7 @@ import type { MobileStrings } from "@/lib/mobileI18n";
 import { getMobileInstalledSourceName } from "@/lib/mobileInstalledSourcePresentation";
 import { normalizeMobileSourceIconUri } from "@/lib/mobileSourceIconResolution";
 import { getMobileSettingsSheetLayout } from "@/lib/mobileSettingsSheetLayout";
+import { getMobileLocalNetworkServerSettingKeys } from "@/lib/mobileLocalNetworkAllowance";
 import { countVisibleSourceSettings } from "@/lib/mobileSourceSettings";
 import type { MobileSourceLoginSubmission } from "@/lib/mobileSourceSettingActions";
 import type { MobileSourceLoginCapabilities } from "@/sources/mobileSourceSettingsExecutor";
@@ -218,6 +219,17 @@ export function MobileInstalledSourceSettingsSheet({
           loginCapabilities={loginCapabilities}
           {...transientSheets.cardProps}
         />
+        {getMobileLocalNetworkServerSettingKeys(source.sourceId ?? "").length > 0 ? (
+          // A self-hosted source may reach the address typed above, and only
+          // that one: say so where the address is entered.
+          <NemuText
+            color={tokens.mutedForeground}
+            style={styles.localNetworkHint}
+            variant="caption"
+          >
+            {strings.settings.sourceLocalNetworkHint}
+          </NemuText>
+        ) : null}
       </MobileNativeSheetScaffold>
       {transientSheets.renderTransientSheet()}
     </>
@@ -225,6 +237,10 @@ export function MobileInstalledSourceSettingsSheet({
 }
 
 const styles = StyleSheet.create({
+  localNetworkHint: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
   header: {
     alignItems: "center",
     gap: 4,
