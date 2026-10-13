@@ -6,13 +6,13 @@
 
 type MobileDesignExploreInputs = {
   platform: string | undefined;
-  /** The reader's choice, or null when they never made one. */
+  /** The reader's choice, or null when they never made one (the new design). */
   stored: boolean | null;
 };
 
 export function resolveMobileDesignExplore({ platform, stored }: MobileDesignExploreInputs): boolean {
   if (platform !== "ios") return false;
-  return stored ?? false;
+  return stored ?? true;
 }
 
 /** Whether the switch is offered at all on this platform. */

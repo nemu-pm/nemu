@@ -41,7 +41,7 @@ import {
 } from "@/components/MobileMangaChapterSection";
 import { MobileMangaDetailSplitLayout } from "@/components/MobileMangaDetailSplitLayout";
 import { MobileMangaDetailSurface } from "@/components/MobileMangaDetailSurface";
-import { MobileMangaPageSkeleton } from "@/components/MobileMangaPageSkeleton";
+import { MobileChapterGridSkeleton, MobileMangaPageSkeleton } from "@/components/MobileMangaPageSkeleton";
 import { MobileSourceErrorNotice } from "@/components/MobileSourceErrorNotice";
 import { useMobileDataStore } from "@/data/mobileDataContext";
 import {
@@ -997,6 +997,8 @@ export function SourceMangaScreen() {
   });
   const showReaderAction = shouldRenderMobileSourceMangaReaderAction({
     hasChapter: Boolean(continueChapter),
+    // New design: the Start capsule is there (disabled) from the first frame.
+    holdWhileLoading: mobileDesignExploreFlag && detailState.status === "loading",
   });
   const continueActionAvailable =
     Boolean(continueChapter) && !adding && !removing;
@@ -1725,6 +1727,7 @@ export function SourceMangaScreen() {
           <>
             <MobileMangaDetailSurface
               readerZoomId={mobileDesignExploreFlag ? `source:${routeRef.sourceId}:${mangaId}` : null}
+              pending={detailState.status === "loading"}
               onHeroPaneChange={setHeroInPane}
               onHeroTitleBottom={setHeroTitleBottom}
               infoTitle={sourceName}
@@ -1831,6 +1834,12 @@ export function SourceMangaScreen() {
             title={strings.sourceManga.chapters}
             loading={detailState.status === "loading"}
             hasChapters={visibleChapters.length > 0}
+              // The new design: flat placeholder rows where the list will be.
+              loadingPlaceholder={
+                mobileDesignExploreFlag ? (
+                  <MobileChapterGridSkeleton accessibilityLabel={detailState.detail} />
+                ) : undefined
+              }
               alignedControl={mobileDesignExploreFlag}
               sortAction={
                 chapters.length > 0 ? (

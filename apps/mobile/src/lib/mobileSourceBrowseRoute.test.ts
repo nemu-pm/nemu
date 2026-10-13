@@ -15,6 +15,7 @@ import {
   normalizeMobileSourceBrowseRouteQuery,
   normalizeMobileSourceBrowseRouteTab,
   shouldRenderMobileSourceBrowseSearchHeader,
+  shouldReserveMobileSourceBrowseListingTabRow,
   shouldRunMobileSourceBrowseSearchSubmitFeedback,
   shouldShowCenterSourceBrowseSearchProgress,
   shouldShowMobileSourceBrowseListingTabBar,
@@ -246,6 +247,23 @@ describe("mobile source browse route helpers", () => {
       "popular",
     );
     expect(getDefaultMobileSourceBrowseListingId([], false)).toBeNull();
+  });
+
+  test("holds the listing tab row from the first frame while the tabs are on their way", () => {
+    // A home still loading over one listing: two tabs are coming.
+    expect(
+      shouldReserveMobileSourceBrowseListingTabRow({ showing: false, onlySearch: false, homePossible: true, listingCount: 1 }),
+    ).toBe(true);
+    // Shown already, search-only, or a single tab: nothing to hold.
+    expect(
+      shouldReserveMobileSourceBrowseListingTabRow({ showing: true, onlySearch: false, homePossible: true, listingCount: 2 }),
+    ).toBe(false);
+    expect(
+      shouldReserveMobileSourceBrowseListingTabRow({ showing: false, onlySearch: true, homePossible: true, listingCount: 2 }),
+    ).toBe(false);
+    expect(
+      shouldReserveMobileSourceBrowseListingTabRow({ showing: false, onlySearch: false, homePossible: false, listingCount: 1 }),
+    ).toBe(false);
   });
 
   test("counts listing tabs and hides single-tab chrome", () => {

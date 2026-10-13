@@ -26,6 +26,7 @@ import { getMobileFloatingTabBarOverlayExtent } from "@/lib/mobileFloatingTabBar
 import { getMobileStrings } from "@/lib/mobileI18n";
 import {
   getMobileEmptyLibraryAdaptiveLayout,
+  NEMU_EMPTY_LIBRARY_SECONDARY_ACTION_HEIGHT,
   NEMU_WEB_EMPTY_LIBRARY_VISUAL,
 } from "@/lib/mobileEmptyLibraryLayout";
 import { useMobileContainerFold } from "@/lib/useMobileContainerFold";
@@ -99,6 +100,8 @@ export function EmptyLibrary({
     bleedWidth,
     height: boxHeight,
     fold: containerSplit ? { axis: containerSplit.axis, gutter: containerSplit.gutter } : null,
+    extraCopyHeight:
+      secondaryActionLabel && onSecondaryActionPress ? NEMU_EMPTY_LIBRARY_SECONDARY_ACTION_HEIGHT : 0,
   });
   const disabled = Boolean(actionDisabled || actionLoading);
   const pose = useMobilePoseTransition();

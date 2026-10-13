@@ -5,6 +5,8 @@ import path from "node:path";
 import { spacing } from "@/design/tokens";
 import {
   getMobileEmptyLibraryAdaptiveLayout,
+  NEMU_EMPTY_LIBRARY_COPY_STACK_HEIGHT,
+  NEMU_EMPTY_LIBRARY_SECONDARY_ACTION_HEIGHT,
   NEMU_WEB_EMPTY_LIBRARY_VISUAL,
 } from "./mobileEmptyLibraryLayout";
 import { getMobilePageGutters } from "./mobilePageGutters";
@@ -64,6 +66,17 @@ describe("getMobileEmptyLibraryAdaptiveLayout", () => {
     const outer = getMobileEmptyLibraryAdaptiveLayout({ width: 382, height: 600 });
     expect(outer.arrangement).toBe("stack");
     expect(ratioOfHeight(outer, 678)).toBeGreaterThan(0.5);
+  });
+
+  test("a second link under the button keeps the stacked page inside its box (Duo outer)", () => {
+    const box = { width: 382, height: 560 };
+    const withLink = getMobileEmptyLibraryAdaptiveLayout({ ...box, extraCopyHeight: NEMU_EMPTY_LIBRARY_SECONDARY_ACTION_HEIGHT });
+    const plain = getMobileEmptyLibraryAdaptiveLayout(box);
+    expect(withLink.portraitMaxWidth).toBeLessThan(plain.portraitMaxWidth);
+    const portraitHeight = withLink.portraitMaxWidth * (456 / 390);
+    const stack =
+      portraitHeight + withLink.glowBleed + NEMU_EMPTY_LIBRARY_COPY_STACK_HEIGHT + NEMU_EMPTY_LIBRARY_SECONDARY_ACTION_HEIGHT;
+    expect(stack).toBeLessThanOrEqual(box.height);
   });
 
   test("an unfolded landscape foldable places art beside the copy at phone scale", () => {

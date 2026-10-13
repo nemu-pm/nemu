@@ -140,6 +140,8 @@ type MobileMangaDetailSurfaceProps = Parameters<typeof MobileMangaDetailSurfaceC
   readerZoomId?: string | null;
   /** The page is still zooming in: cover, title and meta only (see the hero). */
   deferBody?: boolean;
+  /** The details are still loading: the Books-style hero keeps its loaded cover size. */
+  pending?: boolean;
   /** The library title whose removal turns the hero cover to dust. */
   dissolveId?: string | null;
   /** Shown by the Books-style hero until `coverSource` is known. */
@@ -162,6 +164,7 @@ export function MobileMangaDetailSurface({
   zoomId,
   readerZoomId,
   deferBody,
+  pending,
   dissolveId,
   heldCoverSource,
   onHeroPaneChange,
@@ -185,6 +188,7 @@ export function MobileMangaDetailSurface({
         zoomId={zoomId}
         readerZoomId={readerZoomId}
         deferBody={deferBody}
+        pending={pending}
         dissolveId={dissolveId}
         pane={paneMode}
         onTitleBottom={onHeroTitleBottom}

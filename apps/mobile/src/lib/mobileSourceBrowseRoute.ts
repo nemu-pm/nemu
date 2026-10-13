@@ -140,6 +140,27 @@ export function shouldShowMobileSourceBrowseListingTabBar({
   return sourceHomeProviderKnown && !onlySearch && listingTabCount > 1;
 }
 
+/**
+ * The listing tab row is on its way but held back (the home layout or the
+ * runtime's metadata is still in flight): its row is kept from the first frame
+ * so the page under it does not drop when the tabs appear. `homePossible` is
+ * a known home provider or one still pending.
+ */
+export function shouldReserveMobileSourceBrowseListingTabRow({
+  showing,
+  onlySearch,
+  homePossible,
+  listingCount,
+}: {
+  showing: boolean;
+  onlySearch: boolean;
+  homePossible: boolean;
+  listingCount: number;
+}): boolean {
+  if (showing || onlySearch) return false;
+  return getMobileSourceBrowseListingTabCount(homePossible, listingCount) > 1;
+}
+
 export function isMobileSourceBrowseHomeTabPending({
   onlySearch,
   sourceHomeProviderKnown,

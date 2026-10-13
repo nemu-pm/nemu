@@ -1,4 +1,5 @@
-import { ScrollView, StyleSheet } from "react-native";
+import { ScrollView, StyleSheet, View } from "react-native";
+import { ExploreShimmerSweep } from "./ExploreShimmerSweep";
 import type { MobilePageBleedStyles } from "@/lib/mobilePageGutters";
 import { getMobileSourceListingLabel } from "@/lib/mobileSourceListingsPresentation";
 import type { SourcePackageListing } from "@/data/schema";
@@ -121,12 +122,47 @@ export function SourceListingTabs({
   );
 }
 
+const PLACEHOLDER_TAB_WIDTHS = [58, 72, 64, 80, 66] as const;
+
+/**
+ * The tab row while its tabs are still on their way: the same row box with
+ * still capsules under the skeleton's shared shimmer (like the home skeleton
+ * below it), so the page under it is already where it will stay.
+ */
+export function SourceListingTabsPlaceholder({
+  count,
+  bleed,
+}: {
+  count: number;
+  bleed: MobilePageBleedStyles;
+}) {
+  const { tokens } = useNemuTheme();
+  return (
+    <View
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={[styles.row, styles.placeholderRow, bleed.content, { backgroundColor: tokens.background }]}
+    >
+      {Array.from({ length: Math.min(count, PLACEHOLDER_TAB_WIDTHS.length) }, (_, index) => (
+        <View
+          key={index}
+          style={[styles.tab, styles.placeholderTab, { width: PLACEHOLDER_TAB_WIDTHS[index], backgroundColor: tokens.muted }]}
+        />
+      ))}
+      <ExploreShimmerSweep />
+    </View>
+  );
+}
+
 const TAB_HEIGHT = 28;
 
 const styles = StyleSheet.create({
   // Room for the glass's own shadow above and below the capsules.
   row: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 4 },
   tab: { height: TAB_HEIGHT },
+  // The capsules sit where the scrolling row's first ones will, clipped like it.
+  placeholderRow: { overflow: "hidden" },
+  placeholderTab: { borderRadius: TAB_HEIGHT / 2, flexShrink: 0 },
   fill: { flex: 1 },
   tabInner: { height: TAB_HEIGHT, paddingHorizontal: 11, alignItems: "center", justifyContent: "center" },
   tabText: { fontSize: 13, lineHeight: 17, fontWeight: nemuFontWeight.semibold },

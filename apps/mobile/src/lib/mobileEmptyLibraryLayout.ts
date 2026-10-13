@@ -96,10 +96,13 @@ export function getMobileEmptyLibraryAdaptiveLayout({
   height,
   fold,
   bleedWidth,
+  extraCopyHeight = 0,
 }: {
   width: number;
   height: number;
   fold?: MobileEmptyLibraryPaneSplit | null;
+  /** Copy below the button that the stacked art must leave room for (a second link). */
+  extraCopyHeight?: number;
   /** Stacked art may bleed past the page gutters to this width (web `w-[100vw]`). */
   bleedWidth?: number;
 }): MobileEmptyLibraryAdaptiveLayout {
@@ -148,7 +151,7 @@ export function getMobileEmptyLibraryAdaptiveLayout({
   }
 
   // Phone treatment: the art takes the column left after the copy stack.
-  const remaining = Math.max(1, boxHeight - NEMU_EMPTY_LIBRARY_COPY_STACK_HEIGHT - pad * 2);
+  const remaining = Math.max(1, boxHeight - NEMU_EMPTY_LIBRARY_COPY_STACK_HEIGHT - extraCopyHeight - pad * 2);
   const portraitHeight = remaining * NEMU_EMPTY_LIBRARY_PORTRAIT_REMAINING_RATIO;
   const stackWidth = Math.max(boxWidth, Math.round(bleedWidth ?? 0));
   const portraitMaxWidth = Math.max(
@@ -157,6 +160,9 @@ export function getMobileEmptyLibraryAdaptiveLayout({
   );
   return { arrangement: "stack", portraitMaxWidth, glowBleed: glowFor(portraitMaxWidth) };
 }
+
+/** The new design's second link under the button (6pt above, 44pt touch row). */
+export const NEMU_EMPTY_LIBRARY_SECONDARY_ACTION_HEIGHT = 6 + 44;
 
 /** Web never lets the portrait exceed its `sm:max-w-md md:max-w-lg` caps. */
 function portraitWidthCap(contentWidth: number) {

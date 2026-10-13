@@ -11,8 +11,8 @@ import {
 } from "./mobileDesignExploreSwitch";
 
 describe("new design (preview) switch", () => {
-  test("off by default; a stored choice decides; Android and web never get it", () => {
-    expect(resolveMobileDesignExplore({ platform: "ios", stored: null })).toBe(false);
+  test("on by default on iOS; a stored choice decides; Android and web never get it", () => {
+    expect(resolveMobileDesignExplore({ platform: "ios", stored: null })).toBe(true);
     expect(resolveMobileDesignExplore({ platform: "ios", stored: true })).toBe(true);
     expect(resolveMobileDesignExplore({ platform: "ios", stored: false })).toBe(false);
     for (const platform of ["android", "web", undefined]) {

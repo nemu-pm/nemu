@@ -26,6 +26,7 @@ import {
   nemuFontWeight,
   NemuPressable,
   NemuText,
+  radius,
   useMobilePageBleedStyles,
   useMobilePageGutters,
   useNemuTheme,
@@ -48,6 +49,7 @@ import { ExploreRailFade } from "./ExploreSourceHome";
 import { MobileExploreCoverPlaceholder } from "./MobileExploreCoverPlaceholder";
 import { MobileExploreConfetti } from "./MobileExploreConfetti";
 import { MobileOdometerText } from "./MobileOdometerText";
+import { useSkeletonPulse } from "@/lib/useSkeletonPulse";
 import Animated, {
   useAnimatedStyle,
   useReducedMotion,
@@ -119,6 +121,10 @@ const PANE_PADDING = 16;
  */
 const PANE_TOP_BELOW_REST = 70;
 const PANE_COVER_MIN_WIDTH = 52;
+/** The glass capsule and chip heights (ExploreGlass), for the loading bars. */
+const ACTION_HEIGHT = 46;
+const CHIP_HEIGHT = 32;
+const PLACEHOLDER_CHIP_WIDTHS = [68, 56, 80] as const;
 /** The add sheet's dismissal, before the In Library pill celebrates. */
 const LIBRARY_BURST_DELAY_MS = 320;
 
@@ -170,6 +176,8 @@ export function MobileMangaDetailBooksHero({
   deferBody = false,
   dissolveId = null,
   pane = false,
+  placeholder = false,
+  pending = false,
   onTitleBottom,
   strings,
 }: {
@@ -209,11 +217,21 @@ export function MobileMangaDetailBooksHero({
   dissolveId?: string | null;
   /** Regular-width info pane. */
   pane?: boolean;
+  /**
+   * The page is still loading (nothing known yet): the same hero, laid out as
+   * if a synopsis, actions and every fact were coming, with quiet bars in
+   * place of the text, so the cover and the blocks stay put when it lands.
+   */
+  placeholder?: boolean;
+  /** The details are still loading (what is shown came from the listing). */
+  pending?: boolean;
   /** Where the title block ends, from the hero's top (the bar title appears once it scrolls away). */
   onTitleBottom?: (bottom: number) => void;
   strings: MobileStrings;
 }) {
-  const { scheme, tokens } = useNemuTheme();
+  const { reduceMotion, scheme, tokens } = useNemuTheme();
+  const pulse = useSkeletonPulse(reduceMotion === true, placeholder);
+  const pulseStyle = useAnimatedStyle(() => ({ opacity: pulse.value }));
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const bleed = useMobilePageBleedStyles();
   const gutters = useMobilePageGutters();
@@ -225,7 +243,7 @@ export function MobileMangaDetailBooksHero({
   const regionTints = useMobileCoverRegionTints(pane || deferBody ? null : remoteCover);
   const palette = buildMobileCoverTintPalette(tint, scheme);
   // Secondary text holds AA over every pool of the living page.
-  const meshOn = !pane && !deferBody;
+  const meshOn = !pane && !deferBody && !placeholder;
   const inkSecondary = meshOn
     ? buildMobileCoverMeshInkSecondary(tint, buildMobileCoverMeshColors(tint, regionTints, scheme), scheme)
     : palette.inkSecondary;
@@ -251,7 +269,12 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || (top ? topTextWidth :
   const rootRef = useRef<ViewInstance>(null);
   const { top: restTop, onLayout: onRestLayout } = useMobileExploreRestingTop(rootRef, rest.windowKey);
   const naturalCoverWidth = getMobileBooksHeroCoverWidth(contentWidth);
-  const hasActions = Boolean(primaryAction || secondaryActions.length);
+  const hasActions = placeholder || Boolean(primaryAction || secondaryActions.length);
+  // While the details load, the cover is sized for the page most titles land
+  // as (a synopsis and every fact), so it does not resize when they arrive.
+  const sizing = placeholder || pending;
+  const sizedFacts = sizing ? 4 : infoRowCount(infoTitle, infoChapters, infoLatest, status);
+  const sizedSynopsis = sizing || Boolean(description);
   // Resting content clears the tab bar (mobileExploreRestingFit). The
   // cover's size is the zoom's landing spot, so it comes from the window
   // alone, never from a later measurement: on a short window it gives up
@@ -267,7 +290,7 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || (top ? topTextWidth :
       if (!shortPane) return naturalCoverWidth;
       const scale = rest.fontScale(HERO_TEXT_MAX_SCALE);
       // The facts rest above the tab bar too.
-      const factsRoom = infoRowCount(infoTitle, infoChapters, infoLatest, status) >= 2 ? BLOCK_GAP + ESTIMATE.facts * scale * (paneFactColumns === 2 ? 2 : 1) + (paneFactColumns === 2 ? 8 : 0) : 0;
+      const factsRoom = sizedFacts >= 2 ? BLOCK_GAP + ESTIMATE.facts * scale * (paneFactColumns === 2 ? 2 : 1) + (paneFactColumns === 2 ? 8 : 0) : 0;
       const room =
         rest.edge -
         (rest.topEstimate + PANE_TOP_BELOW_REST) -
@@ -292,7 +315,7 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || (top ? topTextWidth :
     ];
     if (hasActions) blocks.push({ key: "actions", gap: BLOCK_GAP, height: ESTIMATE.actions * scale, rests: "whole" });
     blocks.push({ key: "facts", gap: BLOCK_GAP, height: ESTIMATE.facts * scale, rests: "whole" });
-    if (description) {
+    if (sizedSynopsis) {
       blocks.push({
         key: "synopsis",
         gap: BLOCK_GAP,
@@ -474,7 +497,7 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || (top ? topTextWidth :
           />
         ) : coverSource ? (
           <Image source={coverSource} style={styles.coverImage} />
-        ) : (
+        ) : placeholder ? null : (
           <MobileExploreCoverPlaceholder title={title} width={shownCoverWidth} />
         )}
       </View>
@@ -756,6 +779,73 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || (top ? topTextWidth :
     </>
   );
 
+  // Loading: each block keeps its loaded box (line heights, button and chip
+  // sizes, the facts' columns) with a quiet bar where its text will be.
+  const bar = (width: `${number}%` | number, height: number, extra?: StyleProp<ViewStyle>) => (
+    <Animated.View style={[styles.placeholderBar, { width, height, backgroundColor: palette.actionSoft }, pulseStyle, extra]} />
+  );
+  const placeholderTitleNode = (
+    // Stretched: the centred head would shrink it to its (percent-wide) bars, i.e. to nothing.
+    <View style={[compactHead ? styles.titleBlockCompact : [styles.titleBlock, styles.placeholderTitle], top ? { flex: 0 } : null]} onLayout={top ? onTopTitleLayout : undefined}>
+      <View style={[styles.placeholderLine, { height: compactHead ? styles.titleCompact.lineHeight : styles.title.lineHeight }, compactHead ? null : styles.placeholderLineCentred]}>
+        {bar("72%", 22)}
+      </View>
+      <View style={[styles.placeholderLine, { height: styles.authors.lineHeight }, compactHead ? null : styles.placeholderLineCentred]}>
+        {bar("42%", 13)}
+      </View>
+    </View>
+  );
+  const placeholderActionsNode = (
+    <View style={[styles.actionsBlock, column]}>
+      <View style={styles.actions}>
+        {bar("100%", ACTION_HEIGHT, [top ? styles.topPrimaryButton : styles.flexButton, styles.placeholderCapsule])}
+        {bar("100%", ACTION_HEIGHT, [top ? styles.topPrimaryButton : styles.flexButton, styles.placeholderCapsule])}
+      </View>
+    </View>
+  );
+  const placeholderFacts = [0, 1, 2, 3].map((index) => (
+    <View
+      key={index}
+      style={[
+        styles.fact,
+        pane || top
+          ? { width: `${100 / paneFactColumns}%`, flexGrow: 0, minWidth: 0 }
+          : { minWidth: Math.floor(Math.min(contentWidth, WIDE_COLUMN) / 4) },
+        (pane || top ? index % paneFactColumns > 0 : index > 0) ? [styles.factDivided, { borderLeftColor: palette.rule }] : null,
+      ]}
+    >
+      <View style={[styles.placeholderLine, styles.placeholderLineCentred, { height: styles.factLabel.lineHeight }]}>{bar("46%", 9)}</View>
+      <View style={[styles.placeholderLine, styles.placeholderLineCentred, { height: styles.factValue.lineHeight }]}>{bar("64%", 13)}</View>
+    </View>
+  ));
+  const placeholderFactsNode =
+    pane || top ? (
+      <View style={[styles.facts, { flexWrap: "wrap", rowGap: 8 }, top ? { flexGrow: 0 } : null]}>{placeholderFacts}</View>
+    ) : (
+      <View style={wide ? column : bleed.frame}>
+        <View style={[styles.facts, wide ? null : bleed.content]}>{placeholderFacts}</View>
+      </View>
+    );
+  const placeholderSynopsisNode = (
+    <View style={column}>
+      {(["100%", "100%", "68%"] as const).map((width, index) => (
+        <View key={index} style={[styles.placeholderLine, { height: DESCRIPTION_LINE_HEIGHT }]}>
+          {bar(width, 13)}
+        </View>
+      ))}
+    </View>
+  );
+  const placeholderChips = PLACEHOLDER_CHIP_WIDTHS.map((width, index) => (
+    <View key={index}>{bar(width, CHIP_HEIGHT, styles.placeholderCapsule)}</View>
+  ));
+  const placeholderTagsNode = pane ? (
+    <View style={styles.tagsWrap}>{placeholderChips}</View>
+  ) : (
+    <View style={bleed.frame}>
+      <View style={[styles.facts, styles.tags, bleed.content, wide ? styles.tagsCentred : null]}>{placeholderChips}</View>
+    </View>
+  );
+
   // Prototype top header: the genres close the list, after the last chapter.
   const footerKey = `${scheme}:${palette.ink}:${tagList.join("|")}:${badges.map((badge) => badge.label).join("|")}`;
   useEffect(() => {
@@ -798,7 +888,7 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || (top ? topTextWidth :
             style={[styles.tintFade, { left: -gutters.left, right: -gutters.right }]}
           />
           {/* Mounted once the zoom has landed, so the push carries no canvas. */}
-          {deferBody ? null : (
+          {deferBody || placeholder ? null : (
             <MobileCoverMeshBackground
               main={tint}
               regions={regionTints}
@@ -816,8 +906,14 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || (top ? topTextWidth :
         <View style={styles.topRow} onLayout={onHeadLayout}>
           {cover}
           <View style={styles.topColumn}>
-            {titleBlockNode}
-            {deferBody ? null : (
+            {placeholder ? placeholderTitleNode : titleBlockNode}
+            {deferBody ? null : placeholder ? (
+              <>
+                {placeholderFactsNode}
+                {placeholderSynopsisNode}
+                {placeholderActionsNode}
+              </>
+            ) : (
               <>
                 {factsNode}
                 {synopsisNode}
@@ -829,11 +925,20 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || (top ? topTextWidth :
       ) : (
       <View style={[styles.head, compactHead ? [styles.headCompact, column] : null]} onLayout={onHeadLayout}>
         {cover}
-        {titleBlockNode}
+        {placeholder ? placeholderTitleNode : titleBlockNode}
       </View>
       )}
 
-      {deferBody ? null : (
+      {deferBody || top ? null : placeholder ? (
+        <>
+          {placeholderActionsNode}
+          {placeholderFactsNode}
+          {placeholderSynopsisNode}
+          {placeholderTagsNode}
+        </>
+      ) : null}
+
+      {deferBody || placeholder ? null : (
         <>
       {top ? null : actionsNode}
 
@@ -1220,6 +1325,24 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: WIDE_COLUMN,
     alignSelf: "center",
+  },
+  placeholderBar: {
+    borderRadius: 6,
+    borderCurve: "continuous",
+  },
+  placeholderCapsule: {
+    borderRadius: radius.pill,
+  },
+  // One line box of the text it stands in for, its bar centred on the line.
+  placeholderLine: {
+    alignSelf: "stretch",
+    justifyContent: "center",
+  },
+  placeholderLineCentred: {
+    alignItems: "center",
+  },
+  placeholderTitle: {
+    alignSelf: "stretch",
   },
 });
 

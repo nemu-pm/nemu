@@ -52,7 +52,7 @@ import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import { withMobileExploreAddIntent } from "@/components/explore/mobileExploreCover";
 import { ExploreInLibraryBadge } from "@/components/explore/ExploreInLibraryBadge";
 import { renderExploreDetailBarMenu } from "@/components/explore/ExploreDetailBarMenu";
-import { SourceListingTabs } from "@/components/explore/ExploreSourceSections";
+import { SourceListingTabs, SourceListingTabsPlaceholder } from "@/components/explore/ExploreSourceSections";
 import { ExploreCoverImage } from "@/components/explore/ExploreCoverImage";
 import { ExploreSourceFilterMenus } from "@/components/explore/ExploreSourceFilterMenus";
 import { ContextMenuView } from "../../modules/nemu-window-layout";
@@ -183,6 +183,7 @@ import {
   shouldRenderMobileSourceBrowseSearchHeader,
   shouldRunMobileSourceBrowseSearchSubmitFeedback,
   shouldShowCenterSourceBrowseSearchProgress,
+  shouldReserveMobileSourceBrowseListingTabRow,
   shouldShowMobileSourceBrowseListingTabBar,
   shouldShowMobileSourceBrowseNoMatches,
   shouldShowMobileSourceBrowseNotInstalled,
@@ -1785,6 +1786,17 @@ export function SourceBrowseScreen() {
     selected: sourceHomeSelected,
   });
   const showSourceHomeTab = showListingTabBar && sourceHasHomeProvider;
+  // New design: the tab row's place is kept from the first frame while its
+  // tabs wait for the home layout, so the skeleton under it never drops.
+  const reserveListingTabRow =
+    mobileDesignExploreFlag &&
+    !sourceSearchActive &&
+    shouldReserveMobileSourceBrowseListingTabRow({
+      showing: showListingTabBar,
+      onlySearch: sourceOnlySearch,
+      homePossible: sourceExpectsHomeTab,
+      listingCount: visibleListings.length,
+    });
   const sourceHomeTabSelected =
     !sourceSearchActive && !selectedListing && sourceHomeSelected;
   const sourceHomeTabCanSelect =
@@ -3213,6 +3225,23 @@ export function SourceBrowseScreen() {
           </View>
         ) : null}
 
+        {reserveListingTabRow && showExecutableSourceSections ? (
+          <View style={[styles.previewSection, listingGridAttached ? styles.previewSectionListingGrid : null]}>
+            <View
+              style={[
+                styles.listingTabsFrame,
+                listingTabsBleed.frame,
+                listingGridAttached ? styles.listingTabsFrameGridAttached : null,
+              ]}
+            >
+              <SourceListingTabsPlaceholder
+                count={getMobileSourceBrowseListingTabCount(sourceExpectsHomeTab, visibleListings.length)}
+                bleed={listingTabsBleed}
+              />
+            </View>
+          </View>
+        ) : null}
+
         {!sourceSearchActive &&
         showExecutableSourceSections &&
         showListingTabBar ? (
@@ -3369,6 +3398,8 @@ export function SourceBrowseScreen() {
       openSourceFilterGroup,
       openSourceFilterPanel,
       packageMetadata?.filters.length,
+      reserveListingTabRow,
+      sourceExpectsHomeTab,
       selectSourceHome,
       selectSourceListing,
       selectedListing?.id,

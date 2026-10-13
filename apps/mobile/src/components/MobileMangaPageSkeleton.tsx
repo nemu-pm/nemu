@@ -15,6 +15,11 @@ import {
 } from "@/design-system";
 import { useMobileMangaDetailPane } from "@/components/MobileMangaDetailPaneContext";
 import { MobileMangaDetailSplitLayout } from "@/components/MobileMangaDetailSplitLayout";
+import { MobileMangaChapterSectionHeader } from "@/components/MobileMangaChapterSection";
+import { MobileMangaDetailBooksHero } from "@/components/explore/MobileMangaDetailBooksHero";
+import { useMobileLanguageSettings } from "@/data/mobileHooks";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
+import { getMobileStrings } from "@/lib/mobileI18n";
 import { getMobileMangaDetailHeroLayout } from "@/lib/mobileDynamicTypeLayout";
 import { MOBILE_MANGA_DETAIL_PRIMARY_ACTION_MAX_WIDTH } from "@/lib/mobileMangaDetailPresentation";
 import {
@@ -66,6 +71,23 @@ export function MobileMangaPageSkeleton({
   const skeletonOpacity = useSkeletonPulse(reduceMotion === true);
   const skeletonReady = useSkeletonDisplayDelay(150);
 
+  if (mobileDesignExploreFlag) {
+    return (
+      <MobileMangaDetailSplitLayout
+        nativeHeader={nativeHeader}
+        data={NO_ROWS}
+        renderItem={renderNothing}
+        leading={
+          <>
+            {header}
+            {skeletonReady ? <BooksHeroSkeleton accessibilityLabel={accessibilityLabel} /> : null}
+          </>
+        }
+        chapterHeader={skeletonReady ? <ExploreChapterSectionSkeleton /> : null}
+      />
+    );
+  }
+
   return (
     <MobileMangaDetailSplitLayout
       nativeHeader={nativeHeader}
@@ -91,6 +113,69 @@ export function MobileMangaPageSkeleton({
         ) : null
       }
     />
+  );
+}
+
+/**
+ * New design: the Books hero itself in its placeholder mode (its own cover
+ * size, blocks and gaps), so the loaded hero lands on the same geometry.
+ */
+function BooksHeroSkeleton({ accessibilityLabel }: { accessibilityLabel: string }) {
+  const strings = getMobileStrings(useMobileLanguageSettings().appLanguage);
+  const pane = useMobileMangaDetailPane().role === "leading";
+  return (
+    <View accessible accessibilityLabel={accessibilityLabel} accessibilityRole="progressbar">
+      <MobileMangaDetailBooksHero placeholder title="" badges={[]} pane={pane} strings={strings} />
+    </View>
+  );
+}
+
+/** The loaded page's chapters header (aligned to its menu pill's row) over flat placeholder rows. */
+function ExploreChapterSectionSkeleton() {
+  const strings = getMobileStrings(useMobileLanguageSettings().appLanguage);
+  return (
+    <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+      <MobileMangaChapterSectionHeader
+        title={strings.mangaDetail.chapters}
+        alignedControl
+        hasChapters={false}
+        loading
+        emptyTitle=""
+        loadingPlaceholder={<ExploreChapterRowsSkeleton rows={6} />}
+      />
+    </View>
+  );
+}
+
+/** MobileExploreChapterRow's geometry (marker column, text column, rule), pulsing. */
+function ExploreChapterRowsSkeleton({ rows }: { rows: number }) {
+  const { reduceMotion, tokens } = useNemuTheme();
+  const opacity = useSkeletonPulse(reduceMotion === true);
+  const { wideChapterRows: wide } = useMobileMangaDetailPane();
+  const fill = { backgroundColor: tokens.muted };
+  return (
+    <Animated.View style={{ opacity }}>
+      {Array.from({ length: rows }, (_, row) => (
+        <View key={row} style={[styles.exploreRow, wide ? styles.exploreRowWide : null]}>
+          <View style={styles.exploreGlyph}>
+            <View style={[styles.exploreDot, fill]} />
+          </View>
+          <View style={[styles.exploreText, { borderBottomColor: tokens.border }]}>
+            <View style={[styles.exploreBody, wide ? styles.exploreBodyWide : null]}>
+              <View style={[styles.exploreTitleLine, wide ? styles.exploreFlex : null]}>
+                <View style={[styles.exploreBar, fill, { width: wide ? "40%" : "46%", height: 14 }]} />
+              </View>
+              {wide ? null : (
+                <View style={styles.exploreSubtitleLine}>
+                  <View style={[styles.exploreBar, fill, { width: "30%", height: 10 }]} />
+                </View>
+              )}
+            </View>
+            <View style={[styles.exploreTrail, wide ? styles.exploreTrailWide : null]} />
+          </View>
+        </View>
+      ))}
+    </Animated.View>
   );
 }
 
@@ -199,9 +284,14 @@ export function MobileChapterGridSkeleton({
           {caption}
         </Animated.Text>
       ) : null}
-      <Animated.View style={{ opacity: ready ? opacity : 0 }}>
-        <ChapterCellsSkeleton rows={rows} />
-      </Animated.View>
+      {mobileDesignExploreFlag ? (
+        // The new design's chapter list is flat rows, not the 2-up grid.
+        ready ? <ExploreChapterRowsSkeleton rows={rows} /> : null
+      ) : (
+        <Animated.View style={{ opacity: ready ? opacity : 0 }}>
+          <ChapterCellsSkeleton rows={rows} />
+        </Animated.View>
+      )}
     </View>
   );
 }
@@ -379,6 +469,66 @@ function MangaHeroSkeleton({
 }
 
 const styles = StyleSheet.create({
+  // MobileExploreChapterRow geometry.
+  exploreRow: {
+    minHeight: 56,
+    flexDirection: "row",
+    alignItems: "stretch",
+  },
+  exploreRowWide: {
+    minHeight: 44,
+  },
+  exploreGlyph: {
+    width: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  exploreDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+  },
+  exploreText: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 9,
+    paddingRight: 10,
+    marginLeft: 6,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  exploreBody: {
+    flex: 1,
+    minWidth: 0,
+  },
+  exploreBodyWide: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 20,
+  },
+  exploreFlex: {
+    flex: 1,
+  },
+  exploreTitleLine: {
+    height: 21,
+    justifyContent: "center",
+  },
+  exploreSubtitleLine: {
+    marginTop: 1,
+    height: 17,
+    justifyContent: "center",
+  },
+  exploreBar: {
+    borderRadius: radius.sm,
+  },
+  exploreTrail: {
+    width: 32,
+    height: 40,
+  },
+  exploreTrailWide: {
+    height: 26,
+  },
   // MobileMangaDetailSurface geometry.
   heroShell: {
     borderRadius: radius.xl,
