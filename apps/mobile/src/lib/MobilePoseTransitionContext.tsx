@@ -26,10 +26,12 @@ import {
 import {
   mobilePoseEntering,
   mobilePoseExiting,
+  isMobilePoseMotionWindowOpen,
   mobilePoseLayoutTransition,
   openMobilePoseMotionWindow,
   setMobilePoseReduceMotion,
 } from "@/lib/mobilePoseLayoutAnimations";
+import { resolveMobilePoseLayout } from "@/lib/mobilePoseLayoutGate";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import { getMobileSystemTransitionMs } from "@/lib/mobileTransitionTiming";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
@@ -236,6 +238,15 @@ export function MobilePoseTransitionProvider({ children }: { children: ReactNode
  */
 export function useMobilePoseTransition(): MobilePoseTransition {
   return useContext(MobilePoseTransitionContext);
+}
+
+/**
+ * The layout transition for frames of the current render: none while a window
+ * resize is remounting grids and panes (see `MobilePoseLayoutView`).
+ */
+export function useMobilePoseLayout(): typeof mobilePoseLayoutTransition | undefined {
+  const pose = useContext(MobilePoseTransitionContext);
+  return resolveMobilePoseLayout(pose.kind, isMobilePoseMotionWindowOpen(), pose.layout);
 }
 
 /**

@@ -126,7 +126,7 @@ import {
 } from "@/lib/mobileSplitPaneLayout";
 import { useMobileSplitPaneLayout } from "@/lib/useMobileSplitPaneLayout";
 import Animated, { LayoutAnimationConfig } from "react-native-reanimated";
-import { useMobilePoseTransition } from "@/lib/MobilePoseTransitionContext";
+import { useMobilePoseLayout, useMobilePoseTransition } from "@/lib/MobilePoseTransitionContext";
 import {
   hapticConfirm,
   hapticError,
@@ -3708,10 +3708,11 @@ export function SettingsScreen({
   });
 
   const pose = useMobilePoseTransition();
+  const poseLayout = useMobilePoseLayout();
   const listPane = split || primaryPane === "list" ? (
     <Animated.View
       key="list"
-      layout={pose.layout}
+      layout={poseLayout}
       entering={pose.entering}
       exiting={pose.exiting}
       style={
@@ -3740,7 +3741,7 @@ export function SettingsScreen({
   const detailPane = split || primaryPane === "detail" ? (
     <Animated.View
       key="detail"
-      layout={pose.layout}
+      layout={poseLayout}
       entering={pose.entering}
       exiting={pose.exiting}
       style={split ? [styles.pane, { width: split.trailing.width }] : styles.fill}

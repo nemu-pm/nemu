@@ -1795,15 +1795,17 @@ export function BrowseScreen() {
                                       }}
                                     />
                                   ) : (
-                                    <SourceCard
-                                      item={source}
-                                      onLongPress={() => {
-                                        void hapticSelection();
-                                        quickActionDismissRef.current = null;
-                                        setQuickActionSourceId(source.id);
-                                        setQuickActionVisible(true);
-                                      }}
-                                    />
+                                    <MobileQuickActionMenu actions={sourceContextActions(source.id)}>
+                                      <SourceCard
+                                        item={source}
+                                        onLongPress={mobileNativeQuickMenuAvailable ? undefined : () => {
+                                          void hapticSelection();
+                                          quickActionDismissRef.current = null;
+                                          setQuickActionSourceId(source.id);
+                                          setQuickActionVisible(true);
+                                        }}
+                                      />
+                                    </MobileQuickActionMenu>
                                   )}
                                 </MobilePoseLayoutView>
                               ))}
