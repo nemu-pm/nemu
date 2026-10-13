@@ -16,6 +16,7 @@ import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-c
 import { FloatingTabBar } from "@/components/FloatingTabBar";
 import { MobileErrorBoundaryScreen } from "@/components/MobileErrorBoundaryScreen";
 import { MobileFeedbackSettingsBridge } from "@/components/MobileFeedbackSettingsBridge";
+import { MobileLocalNetworkAllowanceBridge } from "@/components/MobileLocalNetworkAllowanceBridge";
 import { MobileJapaneseLearningQaDemoLauncher } from "@/components/MobileJapaneseLearningQaDemoLauncher";
 import { MobileScrollEdgeEffectHost } from "@/components/MobileScrollEdgeEffectHost";
 import { MobileSyncProgressToast } from "@/components/MobileSyncProgressToast";
@@ -202,6 +203,7 @@ export default function RootLayout() {
             <MobileLanguageProvider>
               <MobileSyncBridge />
               <MobileFeedbackSettingsBridge />
+              <MobileLocalNetworkAllowanceBridge />
               <MobileBackgroundSyncRegistrar />
               <NemuThemeProvider>
                 <MobileWindowLayoutProvider>

@@ -1,4 +1,5 @@
 import type { AppLanguage, InstalledSource } from "@/data/schema";
+import { NEMU_RECOMMENDED_REGISTRY_ID } from "@nemu/core/sources";
 import { makeSourceKey, type MobileRegistrySource } from "@/sources/aidokuRegistry";
 import {
   getMobileSourceKind,
@@ -449,4 +450,38 @@ export function omitMobileBrowseSourcesFromGroups<
   return groups
     .map((group) => ({ ...group, sources: group.sources.filter((source) => !keys.has(`${source.registryId}\u0000${source.sourceId}`)) }))
     .filter((group) => group.sources.length > 0);
+}
+
+const CONTENT_LICENSE_LABELS: Record<string, string> = {
+  "CC-BY-4.0": "CC BY 4.0",
+  "CC-BY-SA-4.0": "CC BY-SA 4.0",
+  "CC0-1.0": "CC0 1.0",
+};
+
+export function formatMobileContentLicense(license: string): string {
+  return CONTENT_LICENSE_LABELS[license] ?? license.replace(/-/g, " ");
+}
+
+/**
+ * What follows the languages on a source row: the content licence for a
+ * nemu-recommended source that declares one, otherwise the directory name.
+ */
+export function getMobileSourceOriginLabel(source: {
+  registryId: string;
+  registryName: string;
+  contentLicense?: string;
+}): string {
+  return source.registryId === NEMU_RECOMMENDED_REGISTRY_ID && source.contentLicense
+    ? formatMobileContentLicense(source.contentLicense)
+    : source.registryName;
+}
+
+const MAX_LISTED_LANGUAGES = 3;
+
+/** `EN, JA, ZH +7`: a source in many languages must leave room for what follows. */
+export function formatMobileSourceLanguages(languages?: string[]): string | undefined {
+  if (!languages?.length) return undefined;
+  const listed = languages.slice(0, MAX_LISTED_LANGUAGES).join(", ").toUpperCase();
+  const rest = languages.length - MAX_LISTED_LANGUAGES;
+  return rest > 0 ? `${listed} +${rest}` : listed;
 }

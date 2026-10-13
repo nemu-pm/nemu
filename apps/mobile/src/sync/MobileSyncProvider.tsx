@@ -79,10 +79,19 @@ import {
   hydrateMobileSyncedSourcePackages,
 } from "./mobileSyncedSourcePackages";
 import {
-  AIDOKU_REGISTRIES,
   fetchAllAidokuRegistrySources,
 } from "@/sources/aidokuRegistry";
+import {
+  canonicalCloudLocalArchiveVolumes,
+  canonicalCloudSourceDirectories,
+  syncMobileLocalArchiveVolumes,
+  syncMobileSourceDirectories,
+} from "./mobileSourceDirectorySync";
 import { loadCachedRegistryIndex } from "@/sources/mobileRegistryIndexCache";
+import {
+  enabledSourceDirectories,
+  loadMobileSourceDirectories,
+} from "@/data/mobileSourceDirectories";
 import {
   reconcilePendingCollectionDeletions,
   reconcilePendingSourceLinkDeletions,
@@ -1069,6 +1078,8 @@ function ConfiguredMobileSyncBridge() {
         (source) => source.id,
         (source) => source.removed === true,
       ),
+      sourceDirectories: canonicalCloudSourceDirectories(rows),
+      localArchiveVolumes: canonicalCloudLocalArchiveVolumes(rows),
       updatedAt: Math.max(0, ...rows.map((row) => row.updatedAt)),
     };
   }, [generation, settingsPages.results, settingsPages.status]);
@@ -1532,6 +1543,22 @@ function ConfiguredMobileSyncBridge() {
 
         const localSettings = await store.getSyncSettings();
         if (!shouldContinue()) return;
+        await syncMobileSourceDirectories({
+          store,
+          convex,
+          cloud: cloudSettings.sourceDirectories ?? [],
+          generation: snapshotGeneration,
+          expectedUserId,
+          shouldContinue,
+        });
+        await syncMobileLocalArchiveVolumes({
+          convex,
+          cloud: cloudSettings.localArchiveVolumes ?? [],
+          generation: snapshotGeneration,
+          expectedUserId,
+          shouldContinue,
+        });
+        if (!shouldContinue()) return;
         const cloudSources = cloudSettings.installedSources ?? [];
         const mergedSources = mergeMobileInstalledSources(
           localSettings.installedSources,
@@ -1545,8 +1572,12 @@ function ConfiguredMobileSyncBridge() {
           {
             resolveCatalogEntry: createMobileSourceCatalogResolver({
               loadCached: loadCachedRegistryIndex,
-              fetchCatalog: () =>
-                fetchAllAidokuRegistrySources(AIDOKU_REGISTRIES),
+              fetchCatalog: async () =>
+                fetchAllAidokuRegistrySources(
+                  enabledSourceDirectories(
+                    await loadMobileSourceDirectories(store),
+                  ),
+                ),
             }),
             onHydrationError(source, error) {
               console.warn(

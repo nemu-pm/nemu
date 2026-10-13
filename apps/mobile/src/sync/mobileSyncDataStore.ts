@@ -33,6 +33,11 @@ import {
   toCloudLibrarySaveInputBatches,
   type ProgressSnapshotMerge,
 } from "@nemu/core";
+import { toCloudSourceDirectory } from "@/data/mobileSourceDirectories";
+import { toCloudLocalArchiveVolume } from "@/lib/localArchives/cloud";
+import type { LocalArchiveVolume } from "@/lib/localArchives/library";
+import { LOCAL_ARCHIVE_REGISTRY_ID } from "@/lib/localArchives/policy";
+import { getLocalArchiveProvider } from "@/lib/localArchives/registry";
 import {
   isApplyingMobileRemoteSnapshot,
   getMobileSyncEpoch,
@@ -161,6 +166,23 @@ export async function retargetMobileCloudHistoryLibraryItem(
   );
 }
 
+/** Queues the cloud copy of an imported-archive volume's metadata (never the file). */
+export async function pushLocalArchiveVolume(
+  store: MobileDataStore,
+  volume: LocalArchiveVolume,
+): Promise<void> {
+  const syncEpoch = getMobileSyncEpoch();
+  const generation = (await runLocalSyncMutation(store, async () => undefined)).generation;
+  if (generation === null) return;
+  enqueueMobileCloudMutation(syncEpoch, store, (context) =>
+    context.convex.mutation(api.settings.saveLocalArchiveVolume, {
+      expectedUserId: context.expectedUserId,
+      volume: toCloudLocalArchiveVolume(volume),
+      generation,
+    }),
+  );
+}
+
 class MobileSyncDataStore implements MobileDataStore {
   constructor(private readonly base: MobileDataStore) {}
 
@@ -225,12 +247,24 @@ class MobileSyncDataStore implements MobileDataStore {
     return runWithMobileSyncWrite(() => this.base.clearAllUserData());
   }
 
-  getInstalledSources(): Promise<InstalledSource[]> {
-    return this.base.getInstalledSources();
+  /**
+   * The imported-archive source is virtual: it exists in this view while the
+   * device knows of any volume, and is never stored, synced or listed by
+   * `getSyncSettings` (which the sync merge reads).
+   */
+  async getInstalledSources(): Promise<InstalledSource[]> {
+    const sources = await this.base.getInstalledSources();
+    const local = await getLocalArchiveProvider()?.getInstalledSource();
+    return local && !sources.some((source) => source.id === local.id)
+      ? [...sources, local]
+      : sources;
   }
 
-  getInstalledSource(id: string): Promise<InstalledSource | null> {
-    return this.base.getInstalledSource(id);
+  async getInstalledSource(id: string): Promise<InstalledSource | null> {
+    const stored = await this.base.getInstalledSource(id);
+    if (stored) return stored;
+    const local = await getLocalArchiveProvider()?.getInstalledSource();
+    return local?.id === id ? local : null;
   }
 
   async saveInstalledSource(source: InstalledSource): Promise<void> {
@@ -375,12 +409,73 @@ class MobileSyncDataStore implements MobileDataStore {
     return this.base.getRegistry(id);
   }
 
-  saveRegistry(registry: SourceRegistry): Promise<void> {
-    return this.base.saveRegistry(registry);
+  async saveRegistry(registry: SourceRegistry): Promise<void> {
+    // Only user-added https directories sync. A row that already carries a sync
+    // clock came from the cloud (or the installed-source stub has no url), so
+    // it is stored without being pushed back.
+    if (
+      registry.type !== "url" ||
+      registry.builtIn === true ||
+      !registry.url ||
+      registry.updatedAt !== undefined
+    ) {
+      return this.base.saveRegistry(registry);
+    }
+    const syncEpoch = getMobileSyncEpoch();
+    const { generation, value: stamped } = await runLocalSyncMutation(
+      this.base,
+      async () => {
+        const previous = await this.base.getRegistry(registry.id);
+        const updatedAt = nextSyncTimestamp(
+          previous?.type === "url" ? previous.updatedAt : undefined,
+        );
+        const next = { ...registry, updatedAt };
+        await this.base.saveRegistry(next);
+        return next;
+      },
+    );
+    if (generation === null) return;
+    const directory = toCloudSourceDirectory(stamped);
+    if (!directory) return;
+    enqueueMobileCloudMutation(syncEpoch, this, (context) =>
+      context.convex.mutation(api.settings.saveSourceDirectory, {
+        expectedUserId: context.expectedUserId,
+        directory,
+        generation,
+      }),
+    );
   }
 
-  removeRegistry(id: string): Promise<void> {
-    return this.base.removeRegistry(id);
+  async removeRegistry(id: string): Promise<void> {
+    const syncEpoch = getMobileSyncEpoch();
+    const { generation, value: removed } = await runLocalSyncMutation(
+      this.base,
+      async () => {
+        const previous = await this.base.getRegistry(id);
+        await this.base.removeRegistry(id);
+        return previous?.type === "url" && !previous.builtIn
+          ? {
+              id,
+              updatedAt: nextSyncTimestamp(previous.updatedAt),
+            }
+          : null;
+      },
+    );
+    if (generation === null || !removed) return;
+    enqueueMobileCloudMutation(syncEpoch, this, (context) =>
+      context.convex.mutation(api.settings.saveSourceDirectory, {
+        expectedUserId: context.expectedUserId,
+        directory: {
+          id: removed.id,
+          name: "",
+          indexUrl: "",
+          enabled: false,
+          updatedAt: removed.updatedAt,
+          removed: true,
+        },
+        generation,
+      }),
+    );
   }
 
   getLibraryEntries() {
@@ -473,10 +568,20 @@ class MobileSyncDataStore implements MobileDataStore {
     const { generation, value: updatedAt } = await runLocalSyncMutation(
       this.base,
       async (localGeneration) => {
-        const [existing, memberships] = await Promise.all([
+        const [existing, memberships, links] = await Promise.all([
           this.base.getLibraryItem(libraryItemId),
           this.base.getCollectionItems(),
+          this.base.getSourceLinksForItem(libraryItemId),
         ]);
+        // Removing an imported book deletes its files too.
+        const provider = getLocalArchiveProvider();
+        if (provider) {
+          for (const link of links) {
+            if (link.registryId === LOCAL_ARCHIVE_REGISTRY_ID) {
+              await provider.deleteWork(link.sourceMangaId);
+            }
+          }
+        }
         const updatedAt = nextSyncTimestamp(
           existing?.updatedAt,
           ...memberships

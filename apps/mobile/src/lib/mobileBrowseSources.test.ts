@@ -815,3 +815,26 @@ describe("mobile browse source filtering", () => {
     ).toBe(true);
   });
 });
+
+describe("source origin label", () => {
+  const base = { registryName: "My dir", registryId: "dir-aaaaaaaaaaaa" };
+  test("recommended sources with a licence show it, everything else the directory name", async () => {
+    const { getMobileSourceOriginLabel, formatMobileContentLicense } = await import("./mobileBrowseSources");
+    expect(
+      getMobileSourceOriginLabel({ ...base, registryId: "nemu-recommended", registryName: "nemu recommended", contentLicense: "CC-BY-4.0" }),
+    ).toBe("CC BY 4.0");
+    expect(getMobileSourceOriginLabel({ ...base, registryId: "nemu-recommended", registryName: "nemu recommended" })).toBe("nemu recommended");
+    expect(getMobileSourceOriginLabel({ ...base, contentLicense: "CC-BY-4.0" })).toBe("My dir");
+    expect(formatMobileContentLicense("CC-BY-SA-4.0")).toBe("CC BY-SA 4.0");
+    expect(formatMobileContentLicense("MIT")).toBe("MIT");
+  });
+});
+
+describe("source language summary", () => {
+  test("lists the first three and counts the rest", async () => {
+    const { formatMobileSourceLanguages } = await import("./mobileBrowseSources");
+    expect(formatMobileSourceLanguages(["en", "ja"])).toBe("EN, JA");
+    expect(formatMobileSourceLanguages(["en", "ja", "zh", "fr", "de"])).toBe("EN, JA, ZH +2");
+    expect(formatMobileSourceLanguages([])).toBeUndefined();
+  });
+});

@@ -193,10 +193,14 @@ describe("native HTTP SSRF policy", () => {
     const policy = read("ios/NemuNativeHttpAddressPolicy.swift");
     const proxy = read("ios/NemuNativeHttpLoopbackProxy.swift");
 
-    expect(module).toContain(
-      "try NemuNativeHttpAddressPolicy.validate(url: redirectURL)",
+    // Redirects are re-validated against the *session's own* grant, so a
+    // granted local server cannot bounce a source to another private host.
+    expect(module).toMatch(
+      /try NemuNativeHttpAddressPolicy\.validate\(\s*url: redirectURL,\s*grant: NemuNativeLocalNetworkAllowance\.grant\(forScope: scope\)\s*\)/,
     );
-    expect(module).toContain("NemuNativeHttpAddressPolicy.validatedURL(value)");
+    expect(module).toMatch(
+      /NemuNativeHttpAddressPolicy\.validatedURL\(\s*value,\s*grant: NemuNativeLocalNetworkAllowance\.grant\(forScope: cookieScope\)\s*\)/,
+    );
     expect(module).toContain(
       "didFinishCollecting metrics: URLSessionTaskMetrics",
     );
@@ -206,11 +210,22 @@ describe("native HTTP SSRF policy", () => {
     expect(module).toContain(
       "completionHandler(nil, nil, Self.peerValidationError())",
     );
+    // The stateless session stays public-only; a scoped session authenticates
+    // with its own proxy credential so the proxy can apply that source's grant.
     expect(
       module.match(
         /NemuNativeHttpLoopbackProxy\.shared\.harden\(configuration\)/g,
       ),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
+    expect(
+      module.match(
+        /NemuNativeHttpLoopbackProxy\.shared\.harden\(\s*configuration,\s*scope: normalizedScope\s*\)/g,
+      ),
+    ).toHaveLength(1);
+    // Only host-app code can grant: the allowance setter is a module Function,
+    // never reachable from a sandboxed package's HTTP bridge.
+    expect(module).toContain('Function("setLocalNetworkAllowance")');
+    expect(module.match(/NemuNativeLocalNetworkAllowance\.setGrant\(/g)).toHaveLength(1);
     // The Cloudflare solver is a WebView, so it cannot inherit this loopback
     // proxy boundary. Pin the narrower boundary it gets instead: the address
     // policy validates the url, a compiled allow-list plus `decidePolicyFor`
@@ -292,8 +307,15 @@ describe("native HTTP SSRF policy", () => {
     expect(proxy).toContain("IPv4Address(data)");
     expect(proxy).toContain("IPv6Address(data)");
     expect(proxy).toContain("proxy.allowFailover = false");
+    expect(proxy).toMatch(
+      /proxy\.applyCredential\(\s*username: credential\.username,\s*password: credential\.password\s*\)/,
+    );
+    // A scoped credential is an unguessable per-source user; the shared one
+    // never carries a grant, and a missing resolver cannot authenticate it.
+    expect(proxy).toContain('"nemu-" + UUID().uuidString');
+    expect(proxy).toContain("scopeForToken?(presentedToken)");
     expect(proxy).toContain(
-      "proxy.applyCredential(username: username, password: password)",
+      "NemuNativeLocalNetworkAllowance.grant(forScope: request.scope)",
     );
     expect(proxy).toContain('"ProxyAutoConfigEnable": false');
     expect(proxy).toContain("nemuNativeProxyHeaderLimit = 64 * 1024");
@@ -417,6 +439,7 @@ describe("native HTTP SSRF policy", () => {
         [
           "swiftc",
           path.join(moduleRoot, "ios/NemuNativeHttpAddressPolicy.swift"),
+          path.join(moduleRoot, "ios/NemuNativeLocalNetworkAllowance.swift"),
           path.join(moduleRoot, "ios/NemuNativeHttpLoopbackProxy.swift"),
           path.join(
             moduleRoot,
@@ -441,12 +464,37 @@ describe("native HTTP SSRF policy", () => {
         );
       }
 
+      const localNetworkExecutable = path.join(directory, "local-network-tests");
+      const compileLocalNetwork = runCommand(
+        "xcrun",
+        [
+          "swiftc",
+          path.join(moduleRoot, "ios/NemuNativeHttpAddressPolicy.swift"),
+          path.join(moduleRoot, "ios/NemuNativeLocalNetworkAllowance.swift"),
+          path.join(moduleRoot, "ios/NemuNativeHttpLoopbackProxy.swift"),
+          path.join(
+            moduleRoot,
+            "runtime/iosTest/NemuNativeLocalNetworkAllowanceTests.swift",
+          ),
+          "-framework", "Network", "-o", localNetworkExecutable,
+        ],
+        { env: swiftEnvironment(moduleCache) },
+      );
+      if (compileLocalNetwork.status !== 0) {
+        throw new Error(compileLocalNetwork.stderr || compileLocalNetwork.stdout);
+      }
+      const runLocalNetwork = runCommand(localNetworkExecutable, []);
+      if (runLocalNetwork.status !== 0) {
+        throw new Error(runLocalNetwork.stderr || runLocalNetwork.stdout);
+      }
+
       const connectionBudgetExecutable = path.join(directory, "connection-budget-tests");
       const compileConnectionBudget = runCommand(
         "xcrun",
         [
           "swiftc",
           path.join(moduleRoot, "ios/NemuNativeHttpAddressPolicy.swift"),
+          path.join(moduleRoot, "ios/NemuNativeLocalNetworkAllowance.swift"),
           path.join(moduleRoot, "ios/NemuNativeHttpLoopbackProxy.swift"),
           path.join(moduleRoot, "runtime/iosTest/NemuNativeHttpProxyConnectionBudgetTests.swift"),
           "-framework", "Network", "-o", connectionBudgetExecutable,
@@ -588,6 +636,7 @@ describe("native HTTP SSRF policy", () => {
           "swiftc",
           path.join(moduleRoot, "ios/NemuCloudflareChallengePolicy.swift"),
           path.join(moduleRoot, "ios/NemuNativeHttpAddressPolicy.swift"),
+          path.join(moduleRoot, "ios/NemuNativeLocalNetworkAllowance.swift"),
           path.join(moduleRoot, "ios/NemuNativeHttpLoopbackProxy.swift"),
           path.join(
             moduleRoot,

@@ -1117,7 +1117,7 @@ export function ReaderScreen() {
   } = useReaderDisplayPrefs();
   const readerConnectivity = useMobileConnectivity();
   const readerPlugins = useMobileReaderPlugins();
-  const installedReaderSources = useInstalledSources();
+  const installedReaderSources = useInstalledSources({ includeLocalArchive: true });
   const readerScrollRef = useRef<MobileReaderScrollHandle | null>(null);
   const readerContinuousScrubberRef =
     useRef<MobileReaderContinuousScrubberHandle | null>(null);

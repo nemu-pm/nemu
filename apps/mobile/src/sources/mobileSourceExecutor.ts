@@ -24,6 +24,8 @@ import {
   MOBILE_TACHIYOMI_UNSUPPORTED_DETAIL,
   type MobileRuntimeSource,
 } from "./mobileSourceRuntime";
+import { LOCAL_ARCHIVE_REGISTRY_ID } from "@/lib/localArchives/policy";
+import { getLocalArchiveProvider } from "@/lib/localArchives/registry";
 import { readCachedSourcePackageBytes } from "./sourcePackageCache";
 import { makeMobileSourceExecutionKey } from "./mobileSourceProfileScope";
 import type {
@@ -41,6 +43,8 @@ export type MobileSourcePage = AidokuPage & {
   id?: string;
   /** Headers already known by the source; avoids a per-page header lookup. */
   headers?: Record<string, string>;
+  /** App-resolved `file://` image of a local archive page (never source supplied). */
+  localUri?: string;
 };
 
 export type MobileAidokuExecutorSource = Omit<
@@ -222,6 +226,17 @@ export async function createMobileSourceExecutorSession(
       sourceKey: `${source.registryId}:${source.sourceId}`,
       reason: "native-bridge-missing",
       detail: MOBILE_TACHIYOMI_UNSUPPORTED_DETAIL,
+    };
+  }
+
+  const localArchive = source?.registryId === LOCAL_ARCHIVE_REGISTRY_ID ? getLocalArchiveProvider() : null;
+  if (localArchive) {
+    // Imported CBZ/ZIP books: no package, no network; the app's own provider.
+    return {
+      status: "ready",
+      sourceKey: `${source!.registryId}:${source!.sourceId}`,
+      runtime: "native-aidoku",
+      source: localArchive.createExecutorSource(),
     };
   }
 

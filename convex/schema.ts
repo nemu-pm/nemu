@@ -112,6 +112,36 @@ export default defineSchema({
         disabled: v.optional(v.boolean()), // User-disabled without uninstalling
       })
     ),
+    // The user's source-directory list. Optional so rows written by older
+    // clients stay valid; see packages/core/src/sources/directory-sync.ts.
+    sourceDirectories: v.optional(
+      v.array(
+        v.object({
+          id: v.string(),
+          name: v.string(),
+          indexUrl: v.string(),
+          enabled: v.boolean(),
+          updatedAt: v.number(),
+          removed: v.optional(v.boolean()),
+        }),
+      ),
+    ),
+    // Imported-archive volume metadata (never the files). Optional, like
+    // sourceDirectories; see packages/core/src/sources/local-archive-sync.ts.
+    localArchiveVolumes: v.optional(
+      v.array(
+        v.object({
+          volumeId: v.string(),
+          workId: v.string(),
+          title: v.string(),
+          contentHash: v.string(),
+          pageCount: v.number(),
+          importedAt: v.number(),
+          updatedAt: v.number(),
+          removed: v.optional(v.boolean()),
+        }),
+      ),
+    ),
     updatedAt: v.optional(v.number()),
   })
     .index("by_user", ["userId"])

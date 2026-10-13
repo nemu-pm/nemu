@@ -21,7 +21,7 @@ const LAST_TO_OVERFLOW: object = { visibilityPriority: "high" };
 export function renderExploreDetailBarMenu(
   actions: NemuNativeHeaderAction[],
   label: string,
-  icon: "ellipsis" | "gearshape" = "ellipsis",
+  icon: "ellipsis" | "gearshape" | "plus" = "ellipsis",
 ) {
   if (!actions.length) return null;
   return (

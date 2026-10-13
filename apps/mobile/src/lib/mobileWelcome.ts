@@ -1,3 +1,4 @@
+import { NEMU_RECOMMENDED_REGISTRY_ID } from "@nemu/core/sources";
 import type { AppLanguage, InstalledSource } from "@/data/schema";
 import {
   makeSourceKey,
@@ -10,11 +11,6 @@ import {
 } from "./mobileSourceErrors";
 import { getMobileInstalledSourceRegistryKeys } from "./mobileInstalledSourceKeys";
 import { resolveMobileNativeSheetBodyTopPadding } from "./mobileNativeSheet";
-
-export type MobileWelcomeSourceRef = {
-  registryId: string;
-  sourceId: string;
-};
 
 export type MobileWelcomeStep = "welcome" | "language" | "sources" | "done";
 
@@ -267,65 +263,52 @@ export function createMobileWelcomeCompletionWriteCoordinator(): MobileWelcomeCo
   };
 }
 
-const ENGLISH_SOURCES: MobileWelcomeSourceRef[] = [
-  { registryId: "aidoku-community", sourceId: "multi.mangaplus" },
-  { registryId: "aidoku-community", sourceId: "multi.mangadex" },
-  { registryId: "aidoku-community", sourceId: "ja.shonenjumpplus" },
-];
+/** Most sources the welcome step offers; the full list lives in Browse. */
+export const MOBILE_WELCOME_MAX_SOURCES = 6;
 
-const CHINESE_SOURCES: MobileWelcomeSourceRef[] = [
-  { registryId: "aidoku-zh", sourceId: "zh.manhuaren" },
-  { registryId: "aidoku-community", sourceId: "zh.copymanga" },
-  { registryId: "aidoku-community", sourceId: "ja.shonenjumpplus" },
-];
-
-const JAPANESE_SOURCES: MobileWelcomeSourceRef[] = [
-  { registryId: "aidoku-community", sourceId: "ja.shonenjumpplus" },
-  { registryId: "aidoku-community", sourceId: "multi.mangaplus" },
-  { registryId: "aidoku-community", sourceId: "multi.mangadex" },
-];
-
-export function mobileWelcomeSourceKey(source: MobileWelcomeSourceRef): string {
-  return makeSourceKey(source.registryId, source.sourceId);
-}
-
-export function getMobileWelcomeRecommendedSources(
+function mobileWelcomeSourceMatchesLanguage(
   language: AppLanguage,
-): MobileWelcomeSourceRef[] {
-  if (language === "zh") return CHINESE_SOURCES;
-  if (language === "ja") return JAPANESE_SOURCES;
-  return ENGLISH_SOURCES;
+  source: MobileRegistrySource,
+): boolean {
+  return (source.languages ?? []).some((value) => {
+    const base = value.toLowerCase().split("-")[0];
+    return base === language || base === "multi";
+  });
 }
 
+/**
+ * The onboarding list is the nemu recommended directory only: its entries are
+ * the ones whose content licence has been checked. Sources the user's language
+ * covers come first; sensitive-content sources are never offered here (the
+ * Browse switch is the only way to opt in to them).
+ */
 export function getMobileWelcomeAvailableSources(
   language: AppLanguage,
   sources: MobileRegistrySource[],
 ): MobileRegistrySource[] {
-  const byKey = new Map(
-    sources.map((source) => [
-      makeSourceKey(source.registryId, source.id),
-      source,
-    ]),
-  );
-
-  return getMobileWelcomeRecommendedSources(language)
-    .map((source) => byKey.get(mobileWelcomeSourceKey(source)))
-    .filter((source): source is MobileRegistrySource => Boolean(source));
+  return sources
+    .filter(
+      (source) =>
+        source.registryId === NEMU_RECOMMENDED_REGISTRY_ID &&
+        (source.contentRating ?? 0) < 2,
+    )
+    .map((source, index) => ({ source, index }))
+    .sort((a, b) => {
+      const aMatch = mobileWelcomeSourceMatchesLanguage(language, a.source);
+      const bMatch = mobileWelcomeSourceMatchesLanguage(language, b.source);
+      if (aMatch !== bMatch) return aMatch ? -1 : 1;
+      return a.index - b.index;
+    })
+    .map(({ source }) => source)
+    .slice(0, MOBILE_WELCOME_MAX_SOURCES);
 }
 
 export function getMobileWelcomeDefaultSelection(
   language: AppLanguage,
   sources: MobileRegistrySource[],
 ): string[] {
-  const available = getMobileWelcomeAvailableSources(language, sources);
-  if (available.length > 0) {
-    return available.map((source) =>
-      makeSourceKey(source.registryId, source.id),
-    );
-  }
-
-  return getMobileWelcomeRecommendedSources(language).map(
-    mobileWelcomeSourceKey,
+  return getMobileWelcomeAvailableSources(language, sources).map((source) =>
+    makeSourceKey(source.registryId, source.id),
   );
 }
 

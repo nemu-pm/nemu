@@ -10,6 +10,8 @@ import type {
 } from "@/data/schema";
 import { makeChapterProgressId, makeSourceLinkId } from "@/data/schema";
 import { api } from "../../../../convex/_generated/api";
+import { LOCAL_ARCHIVE_INSTALLED_SOURCE } from "@/lib/localArchives/executorSource";
+import { registerLocalArchiveProvider } from "@/lib/localArchives/registry";
 import {
   createMobileSyncDataStore,
   retargetMobileCloudHistoryLibraryItem,
@@ -1232,5 +1234,79 @@ describe("mobile sync data store", () => {
     expect((await store.getAllChapterProgress()).map((row) => row.id)).toEqual([
       chapterProgress().id,
     ]);
+  });
+
+  describe("imported archives (local-archive source)", () => {
+    afterEach(() => registerLocalArchiveProvider(null));
+
+    const provider = (deleted: string[], present = true) => ({
+      getInstalledSource: async () => (present ? LOCAL_ARCHIVE_INSTALLED_SOURCE : null),
+      createExecutorSource: () => {
+        throw new Error("not used");
+      },
+      deleteWork: async (workId: string) => void deleted.push(workId),
+      applyCloudVolumes: async () => ({ push: [], changed: false }),
+    });
+
+    test("the source is a virtual view: listed for the app, never stored or synced", async () => {
+      const calls: MutationCall[] = [];
+      installConvexRecorder(calls);
+      const store = createInitializedSyncStore();
+      registerLocalArchiveProvider(provider([]));
+      expect((await store.getInstalledSources()).map((source) => source.id)).toContain("local-archive:local");
+      expect((await store.getInstalledSource("local-archive:local"))?.registryId).toBe("local-archive");
+      expect((await store.getSyncSettings()).installedSources).toEqual([]);
+      registerLocalArchiveProvider(provider([], false));
+      expect(await store.getInstalledSources()).toEqual([]);
+      expect(calls).toHaveLength(0);
+    });
+
+    test("entry metadata and reading progress sync through the normal library and history paths", async () => {
+      const calls: MutationCall[] = [];
+      installConvexRecorder(calls);
+      const store = createInitializedSyncStore();
+      const link = { ...sourceLink(), registryId: "local-archive", sourceId: "local", sourceMangaId: "w1", id: makeSourceLinkId("local-archive", "local", "w1") };
+      await store.saveLibraryItem(libraryItem());
+      await store.saveSourceLink(link);
+      await store.saveChapterProgress(
+        chapterProgress({
+          registryId: "local-archive",
+          sourceId: "local",
+          sourceMangaId: "w1",
+          sourceChapterId: "v-" + "a".repeat(32),
+          id: makeChapterProgressId("local-archive", "local", "w1", "v-" + "a".repeat(32)),
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      // Library item + source link, then the chapter's progress: ordinary mutations,
+      // and nothing archive-specific (volumes sync separately, files never).
+      const mutations = calls.map((call) => call.mutation);
+      expect(mutations.slice(0, 2)).toEqual([api.library.save, api.history.save]);
+      expect(mutations).toHaveLength(2);
+    });
+
+    test("removing the library entry deletes the imported files of its work", async () => {
+      const calls: MutationCall[] = [];
+      installConvexRecorder(calls);
+      const store = createInitializedSyncStore();
+      const deleted: string[] = [];
+      registerLocalArchiveProvider(provider(deleted));
+      const link = { ...sourceLink(), registryId: "local-archive", sourceId: "local", sourceMangaId: "w1", id: makeSourceLinkId("local-archive", "local", "w1") };
+      await store.saveLibraryItem(libraryItem());
+      await store.saveSourceLink(link);
+      await store.removeLibraryItem("library-1");
+      expect(deleted).toEqual(["w1"]);
+    });
+
+    test("removing an ordinary source's entry never touches imported files", async () => {
+      installConvexRecorder([]);
+      const store = createInitializedSyncStore();
+      const deleted: string[] = [];
+      registerLocalArchiveProvider(provider(deleted));
+      await store.saveLibraryItem(libraryItem());
+      await store.saveSourceLink(sourceLink());
+      await store.removeLibraryItem("library-1");
+      expect(deleted).toEqual([]);
+    });
   });
 });

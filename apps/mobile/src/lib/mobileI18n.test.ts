@@ -71,9 +71,9 @@ describe("mobile i18n helpers", () => {
 
   test("uses Simplified Chinese product terminology", () => {
     const strings = getMobileStrings("zh");
-    expect(strings.nav.library).toBe("书架");
+    expect(strings.nav.library).toBe("书库");
     expect(strings.nav.settings).toBe("设置");
-    expect(strings.browse.searchRegistries).toBe("搜索源仓库");
+    expect(strings.browse.searchRegistries).toBe("搜索书源目录");
   });
 
   test("localizes reader plugin boolean values", () => {
@@ -221,8 +221,8 @@ describe("mobile i18n helpers", () => {
   });
 
   test("returns localized nav and settings labels", () => {
-    expect(getMobileStrings("zh").nav.library).toBe("书架");
-    expect(getMobileStrings("zh").browse.searchRegistries).toBe("搜索源仓库");
+    expect(getMobileStrings("zh").nav.library).toBe("书库");
+    expect(getMobileStrings("zh").browse.searchRegistries).toBe("搜索书源目录");
     expect(getMobileStrings("zh").about.sourceCode).toBe("源代码");
     expect(getMobileStrings("zh").common.sourceCloudflareBlocked).toBe(
       "检测到 Cloudflare 保护",
@@ -527,7 +527,7 @@ describe("mobile i18n helpers", () => {
       "Keep your local library and reading progress on this device.",
     );
     expect(getMobileStrings("zh").settings.cloudSyncRemoveDataDescription).toBe(
-      "退出登录后从此设备移除账号书架数据。",
+      "退出登录后从此设备移除账号书库数据。",
     );
     expect(
       formatMobileString(getMobileStrings("en").settings.sourceUpdated, {
@@ -539,7 +539,7 @@ describe("mobile i18n helpers", () => {
         count: 2,
         names: "A, B",
       }),
-    ).toBe("已更新 2 个源：A, B");
+    ).toBe("已更新 2 个书源：A, B");
     expect(
       formatMobileString(getMobileStrings("ja").settings.sourceUpdated, {
         name: "MangaDex",
@@ -676,7 +676,7 @@ describe("mobile i18n helpers", () => {
       "Collection not found",
     );
     expect(getMobileStrings("zh").library.collectionNotFoundDescription).toBe(
-      "这个收藏可能已经被删除。",
+      "这个收藏夹可能已经被删除。",
     );
   });
 });

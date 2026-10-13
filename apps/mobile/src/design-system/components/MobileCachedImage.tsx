@@ -29,6 +29,7 @@ import {
   type MobileImageCacheSource,
 } from "@/lib/mobileImageCache";
 import { isMobileAppLocalImageUri } from "@/lib/mobileAppLocalImageUris";
+import { resolveMobileLocalArchiveImageUri } from "@/lib/mobileLocalArchiveImageUri";
 import {
   isRepairableMobileSourceImageUri,
   reportMobileSourceImageLoadFailure,
@@ -102,7 +103,7 @@ function markSourceShown(sourceKey: string) {
 }
 
 export function MobileCachedImage({
-  source,
+  source: rawSource,
   uriOwnership,
   cacheKey,
   cacheKind = "cover",
@@ -116,6 +117,12 @@ export function MobileCachedImage({
   ...props
 }: MobileCachedImageProps) {
   const { reduceMotion } = useNemuTheme();
+  // Persisted references to imported-archive pages resolve against the current
+  // documents directory (the container path changes across updates/restores).
+  const source = useMemo(() => {
+    const uri = resolveMobileLocalArchiveImageUri(rawSource.uri);
+    return uri === rawSource.uri ? rawSource : { ...rawSource, uri };
+  }, [rawSource]);
   // Reduce Motion turns the 240ms cover fade into an instant reveal.
   const skipFade = reduceMotion === true || !fadeIn;
   const sourceUri = source.uri;

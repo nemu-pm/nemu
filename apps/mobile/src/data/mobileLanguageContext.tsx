@@ -8,6 +8,7 @@ import {
 } from "react";
 import { emitMobileDataChanged, useMobileDataRevision } from "./mobileDataEvents";
 import { useMobileDataStore } from "./mobileDataContext";
+import { setLocalArchiveLanguage } from "@/lib/localArchives/language";
 import type { AppLanguage, MetadataLanguagePreference } from "./schema";
 import {
   MobileLanguageContext,
@@ -105,6 +106,11 @@ export function MobileLanguageProvider({ children }: { children: ReactNode }) {
     },
     [metadataLanguagePreference, store],
   );
+
+  // The imported-archive source has no React context; keep its label language current.
+  useEffect(() => {
+    setLocalArchiveLanguage(appLanguage);
+  }, [appLanguage]);
 
   const value = useMemo<MobileLanguageSettingsValue>(
     () => ({

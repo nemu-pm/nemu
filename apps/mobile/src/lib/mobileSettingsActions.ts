@@ -21,6 +21,7 @@ export type MobileSettingsSkeletonSection =
   | null
   | "reader"
   | "sources"
+  | "directories"
   | "appearance"
   | "data"
   | "experimental";

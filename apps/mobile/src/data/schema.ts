@@ -188,6 +188,19 @@ export type UserSettings = {
   searchSelectedSourceIds?: string[];
   readerPlugins?: Record<string, ReaderPluginSettings>;
   mobileWelcomeCompleted?: boolean;
+  /**
+   * Set once the source-directory list has been seeded (nemu recommended) and
+   * the legacy Community/ZH directories have been migrated for profiles that
+   * installed from them. Without it a removed migrated directory would be
+   * re-created on every launch.
+   */
+  sourceDirectoriesSeeded?: boolean;
+  /**
+   * Install updates for sources whose directory lists a newer version as soon
+   * as the catalog is refreshed; `undefined` means enabled (the long-standing
+   * behaviour). Refreshing a directory never installs new sources either way.
+   */
+  autoUpdateSources?: boolean;
   /** Master switch for transient haptic feedback; `undefined` means enabled. */
   hapticsFeedbackEnabled?: boolean;
   /** End-of-chapter check animation; `undefined` means disabled. */
@@ -292,6 +305,16 @@ export type SourceRegistry =
       name: string;
       type: "url";
       url: string;
+      /** Shipped with the app: can be disabled but not removed. */
+      builtIn?: boolean;
+      /** Skipped by catalog loads and source updates; absent means enabled. */
+      disabled?: boolean;
+      addedAt?: number;
+      /**
+       * Sync clock of the last change. Set only by the sync layer: a row that
+       * arrives with one came from the cloud and is not pushed back.
+       */
+      updatedAt?: number;
     };
 
 export type UserOverrides = {

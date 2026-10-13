@@ -4,6 +4,8 @@ import SettingsIcon from "@expo/material-symbols/settings.xml";
 import ArrowBackIcon from "@expo/material-symbols/arrow_back.xml";
 import CloseIcon from "@expo/material-symbols/close.xml";
 import DeleteIcon from "@expo/material-symbols/delete.xml";
+import DownloadIcon from "@expo/material-symbols/download.xml";
+import NewFolderIcon from "@expo/material-symbols/create_new_folder.xml";
 import EditIcon from "@expo/material-symbols/edit.xml";
 import CollectionsIcon from "@expo/material-symbols/collections_bookmark.xml";
 import FolderManagedIcon from "@expo/material-symbols/folder_managed.xml";
@@ -17,12 +19,14 @@ const androidToolbarIcons: Record<NemuNativeToolbarSymbol, ImageSourcePropType> 
   "arrow.clockwise": RefreshIcon,
   "chevron.left": ArrowBackIcon,
   "folder.badge.gearshape": FolderManagedIcon,
+  "folder.badge.plus": NewFolderIcon,
   gearshape: SettingsIcon,
   "line.3.horizontal.decrease": TuneIcon,
   magnifyingglass: SearchIcon,
   pencil: EditIcon,
   plus: AddIcon,
   "rectangle.stack": CollectionsIcon,
+  "square.and.arrow.down": DownloadIcon,
   "square.stack.3d.up": LayersIcon,
   trash: DeleteIcon,
   "xmark.circle": CloseIcon,

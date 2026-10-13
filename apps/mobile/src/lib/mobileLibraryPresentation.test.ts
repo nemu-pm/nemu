@@ -368,7 +368,7 @@ describe("mobile library presentation", () => {
   test("falls back to source count for collection selection rows without authors", () => {
     const item = entry("book", 10, [sourceLink("one")], "Book");
 
-    expect(getMobileCollectionBookSubtitle(item, zh)).toBe("1 个源");
+    expect(getMobileCollectionBookSubtitle(item, zh)).toBe("1 个书源");
   });
 
   test("routes empty library states like the web library", () => {
