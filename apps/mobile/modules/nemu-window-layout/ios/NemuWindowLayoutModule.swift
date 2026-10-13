@@ -226,7 +226,11 @@ final class NemuContextMenuView: ExpoView, UIContextMenuInteractionDelegate {
       return UIMenu(title: title, children: actions)
     }
   }
-  private func menuPreview() -> UITargetedPreview {
+  /// nil when the view has left the window (unmounted, recycled or reparented
+  /// while the menu was opening or dismissing): UITargetedPreview asserts on a
+  /// windowless view, and UIKit falls back to its default preview for nil.
+  private func menuPreview() -> UITargetedPreview? {
+    guard window != nil, !bounds.isEmpty else { return nil }
     let parameters = UIPreviewParameters()
     parameters.backgroundColor = .clear
     parameters.visiblePath = UIBezierPath(roundedRect: bounds, cornerRadius: previewCornerRadius)

@@ -39,7 +39,7 @@ import {
   MobileSearchKindHeader,
   MobileSearchSourceSectionHeader,
 } from "@/components/search/MobileSearchSectionHeader";
-import { useMobilePoseTransition } from "@/lib/MobilePoseTransitionContext";
+import { useMobilePoseLayout, useMobilePoseTransition } from "@/lib/MobilePoseTransitionContext";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { useMobileContainerFold } from "@/lib/useMobileContainerFold";
 import { useMobileToast } from "@/components/MobileToastContext";
@@ -858,6 +858,7 @@ export function SearchScreen() {
     [pageGutters],
   );
   const pose = useMobilePoseTransition();
+  const poseLayout = useMobilePoseLayout();
 
   const sources = useMemo(
     () =>
@@ -1973,7 +1974,7 @@ export function SearchScreen() {
       {split ? (
         <Animated.View
           key="sidebar"
-          layout={pose.layout}
+          layout={poseLayout}
           entering={pose.entering}
           exiting={pose.exiting}
           style={[
@@ -2016,7 +2017,7 @@ export function SearchScreen() {
       ) : null}
       <Animated.View
         key="results"
-        layout={pose.layout}
+        layout={poseLayout}
         style={split ? [styles.pane, { width: split.trailing.width }] : styles.fill}
       >
       {resultsList}

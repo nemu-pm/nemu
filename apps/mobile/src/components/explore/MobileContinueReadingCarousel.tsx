@@ -918,6 +918,9 @@ const ContinueCard = memo(function ContinueCard({
 
   return (
     <Animated.View style={[{ width, marginRight }, cardStyle]}>
+      {/* The menu wraps the opaque backing too: the lifted preview carries the
+          whole card, so no backing colour is left behind where it was. */}
+      <MobileQuickActionMenu style={styles.cardPressContainer} actionKey={id} cornerRadius={CARD_RADIUS} beforeAction={() => preferExploreDissolveTarget(id, cardRef)}>
       <Animated.View
         style={[
           styles.cardShadow,
@@ -927,7 +930,6 @@ const ContinueCard = memo(function ContinueCard({
           glowStyle,
         ]}
       >
-        <MobileQuickActionMenu style={styles.cardPressContainer} actionKey={id} cornerRadius={CARD_RADIUS} beforeAction={() => preferExploreDissolveTarget(id, cardRef)}>
         <View ref={cardRef} style={[styles.cardFill, { backgroundColor: palette.card }]}>
           {/* A thumbnail cover looks for a sharper one on the title's other sources. */}
           <ExploreSharperCoverProbe entry={entry} installedSources={installedSources} />
@@ -959,8 +961,8 @@ const ContinueCard = memo(function ContinueCard({
           <View pointerEvents="none" style={[styles.rim, { borderColor: palette.cardRim }]} />
           <Animated.View pointerEvents="none" style={[styles.dim, dimStyle]} />
         </View>
-        </MobileQuickActionMenu>
       </Animated.View>
+      </MobileQuickActionMenu>
     </Animated.View>
   );
 });

@@ -3027,12 +3027,14 @@ export function SourceBrowseScreen() {
             onPress: openSourceFilterPanel,
           },
         ]
-      : source && !sourceSearchActive
+      : !sourceSearchActive
       ? [
           {
             icon: "magnifyingglass",
             label: strings.sourceBrowse.searchSource,
             hint: strings.sourceBrowse.searchSourceHint,
+            // Present from the first frame; enabled once the source resolves.
+            disabled: !source,
             onPress: enterSourceSearch,
           },
         ]
@@ -3485,7 +3487,7 @@ export function SourceBrowseScreen() {
         onSearch={enterSourceSearch} onCancel={clearSourceSearch}
         onFilters={showSourceSearchControls ? openSourceFilterPanel : undefined}
       /> : null}
-      {!compactHeader && source && (nativeHeaderActions.length || mobileDesignExploreFlag) ? (
+      {!compactHeader && (nativeHeaderActions.length || mobileDesignExploreFlag) ? (
         <Stack.Toolbar placement="right">
           {renderNemuNativeToolbarButtons(nativeHeaderActions)}
           {mobileDesignExploreFlag && !sourceSearchActive
@@ -3494,22 +3496,21 @@ export function SourceBrowseScreen() {
                   {
                     icon: "arrow.clockwise",
                     label: strings.designExplore.refreshSource,
-                    disabled: refreshingSource,
+                    disabled: refreshingSource || !source,
                     onPress: () => void refreshSourceData(),
                   },
-                  ...(installedSource
-                    ? [
-                        {
-                          icon: "gearshape" as const,
-                          label: strings.settings.sourceSettingsDefaultTitle,
-                          onPress: () =>
-                            router.push({
-                              pathname: "/(tabs)/settings/[section]",
-                              params: { section: "sources", sourceId: installedSource.id },
-                            }),
-                        },
-                      ]
-                    : []),
+                  {
+                    icon: "gearshape" as const,
+                    label: strings.settings.sourceSettingsDefaultTitle,
+                    disabled: !installedSource,
+                    onPress: () => {
+                      if (!installedSource) return;
+                      router.push({
+                        pathname: "/(tabs)/settings/[section]",
+                        params: { section: "sources", sourceId: installedSource.id },
+                      });
+                    },
+                  },
                 ],
                 strings.designExplore.sourceOptions,
                 "gearshape",
