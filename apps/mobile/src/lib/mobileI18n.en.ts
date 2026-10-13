@@ -1175,6 +1175,39 @@ export const mobileStringsEn: MobileStrings = {
     subtitle: "Reorder or unlink sources for this title",
     reorderHint: "Use the arrows to reorder",
   },
+  selfHosted: {
+    builtInSources: "Built-in sources",
+    groupTitle: "Your servers",
+    rowSubtitle: "Your own server",
+    serverAddress: "Server address",
+    serverAddressPlaceholder: "http://192.168.1.20:25600",
+    name: "Name",
+    username: "Username",
+    password: "Password",
+    apiKey: "API key",
+    loginFooter:
+      "Sign in with a username and password, or with an API key. The login is kept only on this device.",
+    connecting: "Connecting…",
+    connectFailedTitle: "Couldn't connect",
+    errorAddressEmpty: "Enter the address of your server.",
+    errorAddressInvalid: "That isn't a valid address.",
+    errorAddressScheme: "The address has to start with http:// or https://.",
+    errorAddressCredentials:
+      "Don't put a username or password in the address. Use the fields below.",
+    errorAddressLocal:
+      "This device can't be reached through localhost. Use the server's address on your network.",
+    errorUnreachable:
+      "The server didn't answer. Check the address, and that this device can reach it.",
+    errorUnauthorized: "The server didn't accept this login.",
+    errorForbidden: "This account isn't allowed to use the server's API.",
+    errorNotThisServer: "That address doesn't look like a {{kind}} server.",
+    errorServer: "The server returned an error ({{status}}).",
+    errorUnsupported: "This kind of server isn't supported yet.",
+    needsSignIn:
+      "This server's login isn't on this device. Open the source's settings to sign in.",
+    reservedSourceId:
+      "This source uses a name reserved for nemu's built-in sources.",
+  },
   account: {
     title: "Account",
     name: "Name",

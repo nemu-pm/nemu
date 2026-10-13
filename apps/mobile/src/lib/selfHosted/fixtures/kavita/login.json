@@ -1,0 +1,44 @@
+{
+ "id": 1,
+ "oidcId": null,
+ "username": "nemu",
+ "email": "reader@example.test",
+ "roles": [
+  "Admin",
+  "Login"
+ ],
+ "token": "TEST-JWT",
+ "refreshToken": "TEST-REFRESH",
+ "apiKey": "TEST-API-KEY",
+ "preferences": {},
+ "ageRestriction": {
+  "ageRating": -1,
+  "includeUnknowns": false
+ },
+ "kavitaVersion": "0.9.1.4",
+ "identityProvider": 0,
+ "created": "2026-10-13T06:25:19.9200689",
+ "createdUtc": "2026-10-13T06:25:19.9200705",
+ "authKeys": [
+  {
+   "id": 1,
+   "key": "TEST-OPDS-KEY",
+   "name": "opds",
+   "createdAtUtc": "2026-10-13T06:25:19.9206591",
+   "expiresAtUtc": null,
+   "lastAccessedAtUtc": "2026-10-13T06:34:45.8932107",
+   "provider": 1
+  },
+  {
+   "id": 2,
+   "key": "TEST-IMAGE-KEY",
+   "name": "image-only",
+   "createdAtUtc": "2026-10-13T06:25:19.9206884",
+   "expiresAtUtc": null,
+   "lastAccessedAtUtc": null,
+   "provider": 1
+  }
+ ],
+ "primaryColor": null,
+ "secondaryColor": null
+}

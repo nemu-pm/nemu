@@ -129,6 +129,46 @@ describe("resolveMobileLocalNetworkAllowanceTargets", () => {
   });
 });
 
+describe("built-in server sources", () => {
+  const komga = installed("self-hosted", "komga.home", {
+    selfHosted: { kind: "komga", server: "http://192.168.1.20:25600" },
+  });
+
+  test("get exactly the address on their own row, for their own scope", async () => {
+    const targets = await resolveMobileLocalNetworkAllowanceTargets(storeWith({}), [komga], "profile-a");
+    expect(targets).toEqual([
+      { scopeKey: "profile-a::self-hosted:komga.home", urls: ["http://192.168.1.20:25600"] },
+    ]);
+  });
+
+  test("never read a setting: a saved value cannot widen the grant", async () => {
+    const targets = await resolveMobileLocalNetworkAllowanceTargets(
+      storeWith({ "self-hosted:komga.home": { baseUrl: "http://10.0.0.1", server: "http://10.0.0.2" } }),
+      [komga],
+      "profile-a",
+    );
+    expect(targets.flatMap((target) => target.urls)).toEqual(["http://192.168.1.20:25600"]);
+  });
+
+  test("a disabled or removed server, or a row without an address, gets nothing", async () => {
+    expect(
+      await resolveMobileLocalNetworkAllowanceTargets(storeWith({}), [
+        { ...komga, disabled: true },
+        { ...komga, id: "self-hosted:komga.b", sourceId: "komga.b", removed: true },
+        installed("self-hosted", "kavita.c"),
+      ]),
+    ).toEqual([]);
+  });
+
+  test("an imported .aix posing as a server source id is not a self-hosted scope", async () => {
+    const targets = await resolveMobileLocalNetworkAllowanceTargets(
+      storeWith({ "aidoku-community:komga.home": { baseUrl: "http://192.168.1.20:25600" } }),
+      [installed("aidoku-community", "komga.home")],
+    );
+    expect(targets).toEqual([]);
+  });
+});
+
 describe("applyMobileLocalNetworkAllowances", () => {
   test("grants present endpoints and revokes ones that disappeared", () => {
     const calls: Array<[string, string[]]> = [];

@@ -8,6 +8,7 @@ enum NemuNativeLocalNetworkAllowanceTests {
     grantLifecycle()
     policyHonoursOnlyTheGrantedEndpoint()
     redirectsNeedTheirOwnGrant()
+    grantedDirectConnections()
     proxyScopesRequestsByCredential()
     print("NemuNativeLocalNetworkAllowanceTests passed")
   }
@@ -143,6 +144,78 @@ enum NemuNativeLocalNetworkAllowanceTests {
   }
 
   // MARK: Address policy
+
+  // MARK: Direct connections to a granted literal
+
+  /// iOS keeps local-network IP literals out of the proxy configuration, so a
+  /// granted server is reached directly. The peer gate accepts that only when it
+  /// is exactly the granted literal and port.
+  private static func grantedDirectConnections() {
+    let lan = grant(["http://192.168.2.109:25600", "https://10.0.0.5:8443", "http://nas.local:8080", "http://[fd00::5]:3000"])
+
+    func direct(
+      _ host: String?,
+      _ port: Int?,
+      scheme: String? = "http",
+      peer: String?,
+      peerPort: Int?,
+      grant: NemuLocalNetworkGrant? = nil
+    ) -> Bool {
+      NemuNativeLocalNetworkAllowance.isGrantedDirectConnection(
+        requestHost: host,
+        requestPort: port,
+        requestScheme: scheme,
+        remoteAddress: peer,
+        remotePort: peerPort,
+        grant: grant ?? lan
+      )
+    }
+
+    // The granted literal, reached at the granted port, is accepted.
+    precondition(direct("192.168.2.109", 25600, peer: "192.168.2.109", peerPort: 25600))
+    precondition(direct("10.0.0.5", 8443, scheme: "https", peer: "10.0.0.5", peerPort: 8443))
+    precondition(direct("fd00::5", 3000, peer: "fd00::5", peerPort: 3000))
+    // IPv4-mapped peers and zone suffixes are the same address.
+    precondition(direct("192.168.2.109", 25600, peer: "::ffff:192.168.2.109", peerPort: 25600))
+    precondition(direct("fd00::5", 3000, peer: "fd00::5%en0", peerPort: 3000))
+    // A default port is the scheme's.
+    let defaultPort = grant(["http://192.168.2.50"])
+    precondition(direct("192.168.2.50", nil, peer: "192.168.2.50", peerPort: 80, grant: defaultPort))
+
+    // No grant, or a grant for another scope, refuses it.
+    precondition(!direct("192.168.2.109", 25600, peer: "192.168.2.109", peerPort: 25600, grant: NemuLocalNetworkGrant.none))
+
+    // A different port, host or peer than the grant names is refused.
+    precondition(!direct("192.168.2.109", 22, peer: "192.168.2.109", peerPort: 22))
+    precondition(!direct("192.168.2.110", 25600, peer: "192.168.2.110", peerPort: 25600))
+    precondition(!direct("192.168.2.109", 25600, peer: "192.168.2.110", peerPort: 25600))
+    precondition(!direct("192.168.2.109", 25600, peer: "192.168.2.109", peerPort: 25601))
+    // The connection must have reached what the request named.
+    precondition(!direct("192.168.2.109", 25600, peer: "127.0.0.1", peerPort: 25600))
+    precondition(!direct("192.168.2.109", 25600, peer: "169.254.169.254", peerPort: 25600))
+
+    // Missing fields and non-http(s) schemes are refused.
+    precondition(!direct(nil, 25600, peer: "192.168.2.109", peerPort: 25600))
+    precondition(!direct("192.168.2.109", 25600, peer: nil, peerPort: 25600))
+    precondition(!direct("192.168.2.109", 25600, peer: "192.168.2.109", peerPort: nil))
+    precondition(!direct("192.168.2.109", 25600, scheme: "ftp", peer: "192.168.2.109", peerPort: 25600))
+
+    // A granted *name* is never accepted directly: the system would have
+    // resolved it, where the proxy pins the validated address.
+    precondition(!direct("nas.local", 8080, peer: "192.168.1.5", peerPort: 8080))
+
+    // Loopback and cloud-metadata literals can never be granted, so they can
+    // never be reached directly either.
+    // (Built by hand: the public constructor refuses to create such endpoints.)
+    let tricky = NemuLocalNetworkGrant(endpoints: [
+      NemuLocalNetworkEndpoint(host: "127.0.0.1", port: 3000),
+      NemuLocalNetworkEndpoint(host: "169.254.169.254", port: 80),
+      NemuLocalNetworkEndpoint(host: "localhost", port: 3000),
+    ])
+    precondition(!direct("127.0.0.1", 3000, peer: "127.0.0.1", peerPort: 3000, grant: tricky))
+    precondition(!direct("169.254.169.254", 80, peer: "169.254.169.254", peerPort: 80, grant: tricky))
+    precondition(!direct("localhost", 3000, peer: "127.0.0.1", peerPort: 3000, grant: tricky))
+  }
 
   private static func policyHonoursOnlyTheGrantedEndpoint() {
     let lan = grant(["http://192.168.1.20:3000", "http://nas.local:8080"])

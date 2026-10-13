@@ -7,10 +7,15 @@ import {
 } from "@/sources/mobileSourceRuntime";
 import { makeMobileSourceExecutionKey } from "@/sources/mobileSourceProfileScope";
 import { loadMobileSourceSettingsByKeys } from "./mobileSourceSettings";
+import { selfHostedCookieScope } from "./selfHosted/executorSource";
+import { SELF_HOSTED_REGISTRY_ID, isSelfHostedConfig } from "./selfHosted/policy";
 
 /**
  * Self-hosted sources whose server lives on the user's own network, and the
- * setting that holds the server address.
+ * setting that holds the server address. (The built-in Komga / Kavita /
+ * Suwayomi sources are not listed here: their address is part of the source
+ * row itself, and `resolveMobileLocalNetworkAllowanceTargets` grants it to
+ * their own scope.)
  *
  * The native HTTP layer refuses every private, loopback and reserved
  * destination for a source package. These entries are the only way a source
@@ -80,6 +85,16 @@ export async function resolveMobileLocalNetworkAllowanceTargets(
   const targets: MobileLocalNetworkAllowanceTarget[] = [];
   for (const installed of installedSources) {
     if (installed.removed || isMobileInstalledSourceDisabled(installed)) continue;
+    if (installed.registryId === SELF_HOSTED_REGISTRY_ID) {
+      // A built-in server source: its one address, for its own scope only.
+      if (isSelfHostedConfig(installed.selfHosted) && installed.sourceId) {
+        targets.push({
+          scopeKey: selfHostedCookieScope(installed.sourceId, profileScope),
+          urls: [installed.selfHosted.server],
+        });
+      }
+      continue;
+    }
     const runtime = normalizeInstalledSource(installed);
     if (runtime.sourceKind !== "aidoku") continue;
     const sourceId = (installedSourceIdFromKey(runtime) ?? runtime.sourceId).trim();

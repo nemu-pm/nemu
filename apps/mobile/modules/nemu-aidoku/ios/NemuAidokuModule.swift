@@ -491,6 +491,7 @@ private final class NemuScopedCookieSessionDelegate: NSObject, URLSessionDownloa
   ) {
     var isAllowed = !metrics.transactionMetrics.isEmpty
     if isAllowed {
+      let grant = NemuNativeLocalNetworkAllowance.grant(forScope: scope)
       for transaction in metrics.transactionMetrics {
         do {
           try NemuNativeHttpAddressPolicy.validateLoopbackProxy(
@@ -501,8 +502,22 @@ private final class NemuScopedCookieSessionDelegate: NSObject, URLSessionDownloa
             expectedPort: NemuNativeHttpLoopbackProxy.shared.port
           )
         } catch {
-          isAllowed = false
-          break
+          // iOS does not route local-network IP literals through the proxy
+          // configuration, so a granted self-hosted server is reached
+          // directly. That is exactly as safe: the destination is the IP
+          // literal the user typed, validated before the request was sent.
+          let url = transaction.request.url
+          guard NemuNativeLocalNetworkAllowance.isGrantedDirectConnection(
+            requestHost: url?.host,
+            requestPort: url?.port,
+            requestScheme: url?.scheme,
+            remoteAddress: transaction.remoteAddress,
+            remotePort: transaction.remotePort,
+            grant: grant
+          ) else {
+            isAllowed = false
+            break
+          }
         }
       }
     }

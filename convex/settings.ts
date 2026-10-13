@@ -91,6 +91,12 @@ const installedSourceWithClockValidator = v.object({
   updatedAt: v.optional(v.number()),
   removed: v.optional(v.boolean()),
   disabled: v.optional(v.boolean()),
+  selfHosted: v.optional(
+    v.object({
+      kind: v.union(v.literal("komga"), v.literal("kavita"), v.literal("suwayomi")),
+      server: v.string(),
+    }),
+  ),
 });
 
 type InstalledSourceRecord = {
@@ -109,6 +115,7 @@ type InstalledSourceRecord = {
   updatedAt?: number;
   removed?: boolean;
   disabled?: boolean;
+  selfHosted?: { kind: "komga" | "kavita" | "suwayomi"; server: string };
 };
 
 function mergeInstalledSources(

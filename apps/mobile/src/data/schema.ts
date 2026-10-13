@@ -55,6 +55,13 @@ export type InstalledSource = {
   removed?: boolean;
   /** User-disabled install: kept and synced, but never run. */
   disabled?: boolean;
+  /**
+   * Set only on a built-in self-hosted server source (Komga, Kavita,
+   * Suwayomi). The server address syncs with the row; the login never does
+   * (it lives in this device's secure storage), so another device shows the
+   * source as needing a sign-in.
+   */
+  selfHosted?: { kind: "komga" | "kavita" | "suwayomi"; server: string };
 };
 
 export type SourcePackageListing = {
