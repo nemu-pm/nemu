@@ -36,6 +36,8 @@ function source(
     registryName: registryId,
     name,
     version: 1,
+    // Entries the onboarding offers carry the content licence the directory vouches for.
+    ...(registryId === "nemu-recommended" ? { contentLicense: "CC-BY-4.0" } : {}),
   };
 }
 

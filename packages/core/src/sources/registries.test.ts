@@ -6,6 +6,7 @@ import {
   NEMU_RECOMMENDED_REGISTRY_ID,
   defaultSourceDirectoryName,
   normalizeSourceDirectoryUrl,
+  sourceDirectoryCandidateUrls,
   sourceDirectoryIdForUrl,
 } from "./registries";
 
@@ -117,5 +118,27 @@ describe("web default directories", () => {
         indexUrl: "https://raw.githubusercontent.com/suiyuran/aidoku-zh-sources/main/public/index.min.json",
       },
     ]);
+  });
+});
+
+describe("sourceDirectoryCandidateUrls", () => {
+  test("a URL with no .json file is tried as a list first, then as a folder", () => {
+    expect(sourceDirectoryCandidateUrls("https://example.com/lists/mine")).toEqual({
+      ok: true,
+      urls: ["https://example.com/lists/mine", "https://example.com/lists/mine/index.min.json"],
+    });
+    expect(sourceDirectoryCandidateUrls("https://example.com/#frag")).toEqual({
+      ok: true,
+      urls: ["https://example.com/", "https://example.com/index.min.json"],
+    });
+  });
+
+  test("a .json URL is tried alone, and bad URLs keep their reason", () => {
+    expect(sourceDirectoryCandidateUrls("https://example.com/a/list.json")).toEqual({
+      ok: true,
+      urls: ["https://example.com/a/list.json"],
+    });
+    expect(sourceDirectoryCandidateUrls("http://example.com/a")).toEqual({ ok: false, reason: "not-https" });
+    expect(sourceDirectoryCandidateUrls("nope")).toEqual({ ok: false, reason: "invalid" });
   });
 });

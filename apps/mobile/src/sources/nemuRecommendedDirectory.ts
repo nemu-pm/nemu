@@ -27,6 +27,19 @@ export const NEMU_RECOMMENDED_DIRECTORY_FALLBACK_INDEX = {
       contentRating: 0,
       contentLicense: "CC-BY-4.0",
     },
+    {
+      // No content of its own: it reads the user's own LANraragi server, so no
+      // `contentLicense`. Not an onboarding pick (see getMobileWelcomeAvailableSources).
+      id: "multi.lanraragi",
+      name: "LANraragi",
+      version: 4,
+      iconURL: "icons/multi.lanraragi-v4.png",
+      downloadURL: "sources/multi.lanraragi-v4.aix",
+      languages: ["multi"],
+      contentRating: 1,
+      baseURL: "https://github.com/Difegue/LANraragi",
+      minAppVersion: "0.7.1",
+    },
   ] as Array<Record<string, unknown>>,
 };
 

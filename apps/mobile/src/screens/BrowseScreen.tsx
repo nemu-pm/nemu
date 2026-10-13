@@ -106,6 +106,7 @@ import {
   shouldReopenMobileAddSourceSheetAfterInstall,
   type MobileSourceQuickActionId,
   getMobileSourceOriginLabel,
+  getMobileRegistryDisplayName,
   formatMobileSourceLanguages,
 } from "@/lib/mobileBrowseSources";
 import { getMobileInstalledSourceRegistryRef } from "@/lib/mobileInstalledSourceKeys";
@@ -656,7 +657,7 @@ const AvailableSourceRow = memo(function AvailableSourceRow({
             numberOfLines={1}
             style={[styles.sourceSubtitle, { color: tokens.mutedForeground }]}
           >
-            {[formatLanguages(source.languages), getMobileSourceOriginLabel(source)]
+            {[formatLanguages(source.languages), getMobileSourceOriginLabel(source, strings)]
               .filter(Boolean)
               .join(" / ")}
           </Text>
@@ -831,12 +832,12 @@ export function BrowseScreen() {
         name: source.name ?? sourceId,
         icon: source.icon,
         languages: source.languages,
-        subtitle: registryId,
+        subtitle: getMobileRegistryDisplayName(registryId, registryId, strings),
         unsupported: isMobileUnsupportedInstalledSource(source),
       };
     });
     return sortSourcesByLanguagePriority(cards, appLanguage);
-  }, [appLanguage, available.data, installed.data]);
+  }, [appLanguage, available.data, installed.data, strings]);
   // The registry most sources come from; only sources from another one say
   // where they are from (a row of "aidoku-community" says nothing).
   const mainRegistry = useMemo(() => {

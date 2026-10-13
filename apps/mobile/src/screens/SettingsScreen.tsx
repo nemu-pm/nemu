@@ -77,6 +77,7 @@ import {
   emitMobileSettingsDataChanged,
 } from "@/data/mobileDataEvents";
 import { useMobileToast } from "@/components/MobileToastContext";
+import { SOURCE_DIRECTORY_ERROR_KEYS } from "@/lib/mobileSourceDirectoryErrors";
 import {
   MobileSourceDirectoryPrompt,
   mobileSourceDirectoryPromptAvailable,
@@ -343,7 +344,7 @@ function sourceSubtitle(source: InstalledSource, strings: MobileStrings, appLang
       strings.sourceBrowse.multiLanguage,
     );
   }
-  return getMobileInstalledSourceSubtitle(source);
+  return getMobileInstalledSourceSubtitle(source, strings);
 }
 
 /**
@@ -1388,19 +1389,6 @@ function SourceDirectoryRow({
   );
 }
 
-const SOURCE_DIRECTORY_ERROR_KEYS = {
-  empty: "sourceDirectoryErrorInvalid",
-  invalid: "sourceDirectoryErrorInvalid",
-  "too-long": "sourceDirectoryErrorInvalid",
-  "not-https": "sourceDirectoryErrorNotHttps",
-  credentials: "sourceDirectoryErrorInvalid",
-  "local-host": "sourceDirectoryErrorLocal",
-  duplicate: "sourceDirectoryErrorDuplicate",
-  limit: "sourceDirectoryErrorLimit",
-  unreachable: "sourceDirectoryErrorUnreachable",
-  "no-sources": "sourceDirectoryErrorNoSources",
-  "built-in": "sourceDirectoryErrorInvalid",
-} as const;
 
 /**
  * Settings > Source directories: one grouped card of directories (name,

@@ -130,3 +130,16 @@ describe("applyMobileCatalogEntryToInstalledSource", () => {
     expect(repaired.packageMetadata).toBeNull();
   });
 });
+
+describe("imported source files", () => {
+  test("a source imported from a file is not treated as needing catalog repair", () => {
+    const imported: InstalledSource = {
+      ...bare("multi.lanraragi"),
+      id: "custom-aidoku:multi.lanraragi",
+      registryId: "custom-aidoku",
+      packageUri: "file:///cache/source-packages/multi.lanraragi.aix",
+    };
+    expect(mobileInstalledSourceNeedsCatalogRepair(imported)).toBe(false);
+    expect(mobileInstalledSourceNeedsCatalogRepair({ ...imported, packageUri: null })).toBe(true);
+  });
+});

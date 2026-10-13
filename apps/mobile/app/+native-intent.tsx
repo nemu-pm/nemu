@@ -1,4 +1,6 @@
 import { router } from "expo-router";
+import { parseMobileSourceDirectoryLink } from "@/lib/mobileSourceDirectoryLink";
+import { submitMobileSourceDirectoryLink } from "@/lib/mobileSourceDirectoryLinkInbox";
 import {
   mobileRootTabHrefForUrl,
   navigateToMobileRootTab,
@@ -18,6 +20,13 @@ export function redirectSystemPath({
   initial: boolean;
 }): string | null {
   try {
+    // addSourceList links (nemu:// and aidoku://) are confirmed, never routed;
+    // any other aidoku:// link is not ours: open normally, show nothing.
+    const link = parseMobileSourceDirectoryLink(path);
+    if (link) {
+      if (link.kind === "add-directory") submitMobileSourceDirectoryLink(link.url);
+      return initial ? "/" : null;
+    }
     if (initial) return path;
     const href = mobileRootTabHrefForUrl(path);
     if (!href) return path;

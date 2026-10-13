@@ -21,7 +21,9 @@ export function mobileInstalledSourceNeedsCatalogRepair(
   if (isMobileInstalledSourceDisabled(source)) return false;
   // Mobile has no Tachiyomi executor, so there is nothing to repair into.
   if (normalizeInstalledSource(source).sourceKind === "tachiyomi") return false;
-  return !source.downloadUrl;
+  // A file the user imported has a local package and no URL on purpose; there
+  // is nothing in any catalog to repair it from.
+  return !source.downloadUrl && !source.packageUri;
 }
 
 export function findMobileCatalogEntryForInstalledSource(

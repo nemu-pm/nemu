@@ -1,6 +1,7 @@
 import type { AppLanguage, InstalledSource } from "@/data/schema";
 import { NEMU_RECOMMENDED_REGISTRY_ID } from "@nemu/core/sources";
 import { makeSourceKey, type MobileRegistrySource } from "@/sources/aidokuRegistry";
+import { MOBILE_CUSTOM_AIDOKU_REGISTRY_ID } from "@/sources/mobileSourceImport";
 import {
   getMobileSourceKind,
   isMobileUnsupportedSourceKind,
@@ -466,14 +467,42 @@ export function formatMobileContentLicense(license: string): string {
  * What follows the languages on a source row: the content licence for a
  * nemu-recommended source that declares one, otherwise the directory name.
  */
-export function getMobileSourceOriginLabel(source: {
-  registryId: string;
-  registryName: string;
-  contentLicense?: string;
-}): string {
+export function getMobileSourceOriginLabel(
+  source: {
+    registryId: string;
+    registryName: string;
+    contentLicense?: string;
+  },
+  strings?: MobileOriginStrings,
+): string {
   return source.registryId === NEMU_RECOMMENDED_REGISTRY_ID && source.contentLicense
     ? formatMobileContentLicense(source.contentLicense)
-    : source.registryName;
+    : getMobileRegistryDisplayName(source.registryId, source.registryName, strings);
+}
+
+type MobileOriginStrings = {
+  settings: { nemuRecommendedDirectoryName: string; sourceFileOrigin: string };
+};
+
+/**
+ * Where a source comes from, in words: the built-in directory and imported
+ * `.aix` files use localised names (never the registry JSON name or the raw
+ * registry id); any other directory keeps its own name.
+ */
+export function getMobileRegistryDisplayName(
+  registryId: string,
+  fallback: string,
+  strings?: MobileOriginStrings,
+): string {
+  if (strings) {
+    if (registryId === NEMU_RECOMMENDED_REGISTRY_ID) {
+      return strings.settings.nemuRecommendedDirectoryName;
+    }
+    if (registryId === MOBILE_CUSTOM_AIDOKU_REGISTRY_ID) {
+      return strings.settings.sourceFileOrigin;
+    }
+  }
+  return fallback;
 }
 
 const MAX_LISTED_LANGUAGES = 3;

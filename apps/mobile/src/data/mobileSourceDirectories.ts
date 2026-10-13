@@ -5,7 +5,7 @@ import {
   SOURCE_DIRECTORY_MAX_COUNT,
   SOURCE_DIRECTORY_MAX_NAME_LENGTH,
   defaultSourceDirectoryName,
-  normalizeSourceDirectoryUrl,
+  sourceDirectoryCandidateUrls,
   sourceDirectoryIdForUrl,
   type SourceDirectory,
 } from "@nemu/core/sources";
@@ -19,6 +19,7 @@ import {
   fetchAidokuRegistryIndex,
   type AidokuRegistryIndex,
 } from "@/sources/aidokuRegistry";
+import { extractMobileSourceDirectoryUrl } from "@/lib/mobileSourceDirectoryLink";
 import { getMobileInstalledSourceRegistryKeys } from "@/lib/mobileInstalledSourceKeys";
 
 export type { SourceDirectory };
@@ -213,57 +214,120 @@ export function enabledSourceDirectories(
   return directories.filter((directory) => directory.enabled);
 }
 
-export async function addMobileSourceDirectory(
-  store: MobileDataStore,
-  input: { url: string; name?: string },
-  options: {
-    now?: () => number;
-    fetchIndex?: (directory: {
-      id: string;
-      name: string;
-      indexUrl: string;
-    }) => Promise<AidokuRegistryIndex>;
-    signal?: AbortSignal;
-  } = {},
-): Promise<SourceDirectory> {
-  const normalized = normalizeSourceDirectoryUrl(input.url);
-  if (!normalized.ok) throw new MobileSourceDirectoryError(normalized.reason);
-  const id = sourceDirectoryIdForUrl(normalized.indexUrl);
+type FetchDirectoryIndex = (directory: {
+  id: string;
+  name: string;
+  indexUrl: string;
+}) => Promise<AidokuRegistryIndex>;
 
+type AddDirectoryOptions = {
+  now?: () => number;
+  fetchIndex?: FetchDirectoryIndex;
+  signal?: AbortSignal;
+};
+
+/** A directory that was checked and is ready to be added. */
+export type MobileSourceDirectoryPreview = {
+  id: string;
+  /** The address that served a readable list (what gets stored). */
+  indexUrl: string;
+  /** The name typed, else the list's own, else the address. */
+  name: string;
+  host: string;
+  index: AidokuRegistryIndex;
+};
+
+async function assertDirectoryCanBeAdded(
+  store: MobileDataStore,
+  ids: readonly string[],
+  options: AddDirectoryOptions,
+): Promise<void> {
   const existing = await loadMobileSourceDirectories(store, options);
-  if (existing.some((directory) => directory.id === id)) {
+  if (existing.some((directory) => ids.includes(directory.id))) {
     throw new MobileSourceDirectoryError("duplicate");
   }
   if (existing.length >= SOURCE_DIRECTORY_MAX_COUNT) {
     throw new MobileSourceDirectoryError("limit");
   }
+}
+
+/**
+ * Everything adding a directory checks, without saving it: HTTPS only, not
+ * already added, under the count limit, and a readable list. Like Aidoku, an
+ * address with no `.json` file is tried as a list first and then as a folder
+ * holding `index.min.json`. A pasted `nemu://` / `aidoku://addSourceList?url=`
+ * link is unwrapped first. The link flow shows this result in a confirmation
+ * before anything is stored.
+ */
+export async function previewMobileSourceDirectory(
+  store: MobileDataStore,
+  input: { url: string; name?: string },
+  options: AddDirectoryOptions = {},
+): Promise<MobileSourceDirectoryPreview> {
+  const candidates = sourceDirectoryCandidateUrls(
+    extractMobileSourceDirectoryUrl(input.url),
+  );
+  if (!candidates.ok) throw new MobileSourceDirectoryError(candidates.reason);
+  await assertDirectoryCanBeAdded(
+    store,
+    candidates.urls.map(sourceDirectoryIdForUrl),
+    options,
+  );
 
   const typedName = input.name?.trim().slice(0, SOURCE_DIRECTORY_MAX_NAME_LENGTH);
-  const probe = {
-    id,
-    name: typedName || defaultSourceDirectoryName(normalized.indexUrl),
-    indexUrl: normalized.indexUrl,
-  };
-  // Only a URL that serves a readable index is worth keeping.
-  let index: AidokuRegistryIndex;
-  try {
-    index = await (options.fetchIndex ?? ((directory) =>
-      fetchAidokuRegistryIndex(directory, { signal: options.signal })))(probe);
-  } catch (error) {
-    if (options.signal?.aborted) throw error;
-    throw new MobileSourceDirectoryError(
-      "unreachable",
-      error instanceof Error ? error.message : String(error),
-    );
+  const fetchIndex: FetchDirectoryIndex =
+    options.fetchIndex ??
+    ((directory) =>
+      fetchAidokuRegistryIndex(directory, { signal: options.signal }));
+  let sawEmptyList = false;
+  let failure: unknown;
+  for (const indexUrl of candidates.urls) {
+    const id = sourceDirectoryIdForUrl(indexUrl);
+    const probe = {
+      id,
+      name: typedName || defaultSourceDirectoryName(indexUrl),
+      indexUrl,
+    };
+    try {
+      const index = await fetchIndex(probe);
+      if (index.sources.length === 0) {
+        sawEmptyList = true;
+        continue;
+      }
+      return {
+        id,
+        indexUrl,
+        name: typedName || index.name || probe.name,
+        host: new URL(indexUrl).hostname,
+        index,
+      };
+    } catch (error) {
+      if (options.signal?.aborted) throw error;
+      failure ??= error;
+    }
   }
-  if (index.sources.length === 0) {
-    throw new MobileSourceDirectoryError("no-sources");
-  }
+  if (sawEmptyList) throw new MobileSourceDirectoryError("no-sources");
+  throw new MobileSourceDirectoryError(
+    "unreachable",
+    failure instanceof Error ? failure.message : String(failure),
+  );
+}
 
+export async function addMobileSourceDirectory(
+  store: MobileDataStore,
+  input: { url: string; name?: string },
+  options: AddDirectoryOptions & { preview?: MobileSourceDirectoryPreview } = {},
+): Promise<SourceDirectory> {
+  const preview =
+    options.preview ?? (await previewMobileSourceDirectory(store, input, options));
+  if (options.preview) {
+    // The list may have changed since the confirmation was shown.
+    await assertDirectoryCanBeAdded(store, [preview.id], options);
+  }
   const directory: SourceDirectory = {
-    id,
-    name: typedName || index.name || probe.name,
-    indexUrl: normalized.indexUrl,
+    id: preview.id,
+    name: preview.name,
+    indexUrl: preview.indexUrl,
     builtIn: false,
     enabled: true,
     addedAt: (options.now ?? Date.now)(),

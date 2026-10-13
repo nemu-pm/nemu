@@ -4,6 +4,7 @@ import type { MobileDataStore } from "./storeTypes";
 import {
   MobileSourceDirectoryError,
   addMobileSourceDirectory,
+  previewMobileSourceDirectory,
   enabledSourceDirectories,
   isMobileSourceAutoUpdateEnabled,
   loadMobileSourceDirectories,
@@ -140,12 +141,18 @@ describe("user-added directories", () => {
     ],
   });
 
+  // Like a site whose folder holds index.min.json: the folder itself is HTML.
+  const folderOnlyFetch = async (directory: { indexUrl: string }) => {
+    if (!directory.indexUrl.endsWith(".json")) throw new Error("not json");
+    return fetchIndex();
+  };
+
   test("adds a directory by https URL, naming it from the index", async () => {
     const { store, registries } = fakeStore({ seeded: true });
     const added = await addMobileSourceDirectory(
       store,
       { url: "https://example.github.io/repo/" },
-      { fetchIndex, now: () => 7 },
+      { fetchIndex: folderOnlyFetch, now: () => 7 },
     );
     expect(added).toMatchObject({
       name: "My Directory",
@@ -237,5 +244,81 @@ describe("auto-update preference", () => {
     expect(isMobileSourceAutoUpdateEnabled({ autoUpdateSources: false })).toBe(
       false,
     );
+  });
+});
+
+describe("directory addresses and links", () => {
+  const list = (name?: string) => ({
+    ...(name ? { name } : {}),
+    sources: [{ id: "a", registryId: "x", registryName: "x", name: "A", version: 1 }],
+  });
+
+  test("an address with no .json file is tried as a list before as a folder", async () => {
+    const { store } = fakeStore({ seeded: true });
+    const tried: string[] = [];
+    const preview = await previewMobileSourceDirectory(
+      store,
+      { url: "https://example.com/lists/mine" },
+      { fetchIndex: async (d) => (tried.push(d.indexUrl), list("Mine")) },
+    );
+    expect(tried).toEqual(["https://example.com/lists/mine"]);
+    expect(preview).toMatchObject({ indexUrl: "https://example.com/lists/mine", name: "Mine", host: "example.com" });
+  });
+
+  test("falls back to <url>/index.min.json when the address is not a list", async () => {
+    const { store } = fakeStore({ seeded: true });
+    const tried: string[] = [];
+    const preview = await previewMobileSourceDirectory(
+      store,
+      { url: "https://example.com/lists/mine" },
+      {
+        fetchIndex: async (d) => {
+          tried.push(d.indexUrl);
+          return d.indexUrl.endsWith("index.min.json") ? list() : { sources: [] };
+        },
+      },
+    );
+    expect(tried).toEqual(["https://example.com/lists/mine", "https://example.com/lists/mine/index.min.json"]);
+    // A bare array has no name: the display name falls back to the host and path.
+    expect(preview.name).toBe("example.com/lists/mine");
+  });
+
+  test("previewing stores nothing; adding with a preview does not refetch", async () => {
+    const { store, registries } = fakeStore({ seeded: true });
+    let fetches = 0;
+    const fetchIndex = async () => (fetches++, list("Mine"));
+    const preview = await previewMobileSourceDirectory(store, { url: "https://example.com/a.json" }, { fetchIndex });
+    expect([...registries.keys()]).toEqual(["nemu-recommended"]);
+    const added = await addMobileSourceDirectory(store, { url: "" }, { preview, fetchIndex, now: () => 3 });
+    expect(fetches).toBe(1);
+    expect(registries.get(added.id)).toMatchObject({ url: "https://example.com/a.json", name: "Mine" });
+    await expect(
+      addMobileSourceDirectory(store, { url: "" }, { preview, fetchIndex }),
+    ).rejects.toMatchObject({ code: "duplicate" });
+  });
+
+  test("a pasted aidoku:// or nemu:// link is unwrapped", async () => {
+    const { store } = fakeStore({ seeded: true });
+    const fetchIndex = async () => list("L");
+    for (const link of [
+      "aidoku://addSourceList?url=https%3A%2F%2Fexample.com%2Fi.json",
+      "nemu://addSourceList?url=https://example.com/i.json",
+    ]) {
+      expect(await previewMobileSourceDirectory(store, { url: link }, { fetchIndex })).toMatchObject({
+        indexUrl: "https://example.com/i.json",
+      });
+    }
+  });
+
+  test("the failure reasons the link flow reports", async () => {
+    const { store } = fakeStore({ seeded: true });
+    const empty = async () => ({ sources: [] });
+    const boom = async () => {
+      throw new Error("down");
+    };
+    await expect(previewMobileSourceDirectory(store, { url: "https://example.com/i.json" }, { fetchIndex: empty })).rejects.toMatchObject({ code: "no-sources" });
+    await expect(previewMobileSourceDirectory(store, { url: "https://example.com/i.json" }, { fetchIndex: boom })).rejects.toMatchObject({ code: "unreachable" });
+    await expect(previewMobileSourceDirectory(store, { url: "ftp://x" }, { fetchIndex: empty })).rejects.toMatchObject({ code: "not-https" });
+    await expect(previewMobileSourceDirectory(store, { url: "garbage" }, { fetchIndex: empty })).rejects.toMatchObject({ code: "invalid" });
   });
 });

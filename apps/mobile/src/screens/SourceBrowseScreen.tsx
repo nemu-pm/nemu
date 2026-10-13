@@ -8,7 +8,6 @@ import { useMobileFoldAwareGrid } from "@/lib/useMobileFoldAwareGrid";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  LayoutAnimation,
   Platform,
   ScrollView,
   StyleSheet,
@@ -3076,9 +3075,9 @@ export function SourceBrowseScreen() {
       searchRequestPending: sourceSearchRequestPending,
     });
 
-  useEffect(() => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-  }, [sourceSearchActive]);
+  // No native LayoutAnimation here: Fabric's LayoutAnimation delegate ticking
+  // a transaction through Reanimated's layout-animation proxy aborts in
+  // LightNode::toHostIndexForRemove when the skeleton gives way to content.
 
   const listingGridSourceDisplay = useMemo<SearchSourceDisplay | null>(() => {
     if (source && sourceSearchActive) {

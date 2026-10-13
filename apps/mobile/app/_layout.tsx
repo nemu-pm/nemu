@@ -19,6 +19,7 @@ import { MobileFeedbackSettingsBridge } from "@/components/MobileFeedbackSetting
 import { MobileLocalNetworkAllowanceBridge } from "@/components/MobileLocalNetworkAllowanceBridge";
 import { MobileJapaneseLearningQaDemoLauncher } from "@/components/MobileJapaneseLearningQaDemoLauncher";
 import { MobileScrollEdgeEffectHost } from "@/components/MobileScrollEdgeEffectHost";
+import { MobileSourceDirectoryLinkHandler } from "@/components/MobileSourceDirectoryLinkHandler";
 import { MobileSyncProgressToast } from "@/components/MobileSyncProgressToast";
 import { MobileToastProvider } from "@/components/MobileToast";
 import { MobileAiConsentHost } from "@/components/MobileAiConsentHost";
@@ -215,6 +216,7 @@ export default function RootLayout() {
                         welcomeBlocksAccessibility={welcomeBlocksAccessibility}
                       />
                       <MobileSyncProgressToast />
+                      <MobileSourceDirectoryLinkHandler />
                       <MobileAiConsentHost />
                       <MobileWelcomeWizard
                         onVisibilityChange={setWelcomeBlocksAccessibility}

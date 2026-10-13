@@ -833,12 +833,16 @@ export type MobileStrings = {
     sourceDirectoriesFooter: string;
     addSourceDirectory: string;
     addSourceDirectoryMessage: string;
+    addSourceDirectoryLinkTitle: string;
+    addSourceDirectoryLinkMessage: string;
+    sourceDirectoryAdded: string;
     sourceDirectoryUrlPlaceholder: string;
     removeSourceDirectory: string;
     removeSourceDirectoryTitle: string;
     removeSourceDirectoryMessage: string;
     toggleSourceDirectoryEnabled: string;
     nemuRecommendedDirectoryName: string;
+    sourceFileOrigin: string;
     sourceDirectoryBuiltIn: string;
     sourceDirectoryErrorInvalid: string;
     sourceDirectoryErrorNotHttps: string;
