@@ -19,6 +19,8 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { selfHostedKindName } from "@/lib/selfHosted/messages";
+import { SELF_HOSTED_REGISTRY_ID, SELF_HOSTED_SETUP_KINDS, type SelfHostedKind } from "@/lib/selfHosted/policy";
 import { EmptyLibrary } from "@/components/EmptyLibrary";
 import { MobileBrowseSkeleton } from "@/components/MobileBrowseSkeleton";
 import { MobileConfirmationSheet } from "@/components/MobileConfirmationSheet";
@@ -149,7 +151,8 @@ type BrowseSheet = "add-source" | "source-language";
 type AddSourceDismissAction =
   | { type: "open-language" }
   | { type: "open-confirmation"; confirmation: BrowseConfirmation }
-  | { type: "start-install"; source: MobileRegistrySource };
+  | { type: "start-install"; source: MobileRegistrySource }
+  | { type: "open-server-form"; kind: SelfHostedKind };
 
 /**
  * Only one native `@expo/ui` bottom sheet can be presented at a time, so the
@@ -257,11 +260,15 @@ function sourceSettingsHref(source: SourceCardModel): Href {
 
 const formatLanguages = formatMobileSourceLanguages;
 
+/** Section key of the built-in server sources in Browse. */
+const SELF_HOSTED_GROUP = "self-hosted";
+
 function formatSourceLanguageLabel(
   language: string,
   strings: MobileStrings,
   appLanguage: AppLanguage,
 ): string {
+  if (language === SELF_HOSTED_GROUP) return strings.selfHosted.groupTitle;
   return formatMobileLanguageDisplayName(language, appLanguage, {
     multi: strings.sourceBrowse.multiLanguage,
     other: strings.browse.otherLanguages,
@@ -705,6 +712,50 @@ const AvailableSourceRow = memo(function AvailableSourceRow({
   );
 });
 
+/**
+ * A built-in server source in the Add Source sheet (Komga, Kavita): not
+ * downloaded, so there is nothing to install; the row opens the server's
+ * setup form.
+ */
+const BuiltInSourceRow = memo(function BuiltInSourceRow({
+  kind,
+  strings,
+  onPress,
+}: {
+  kind: SelfHostedKind;
+  strings: MobileStrings;
+  onPress: (kind: SelfHostedKind) => void;
+}) {
+  const { tokens } = useNemuTheme();
+  const name = selfHostedKindName(kind);
+  return (
+    <NemuPressable
+      accessibilityRole="button"
+      accessibilityLabel={`${name}. ${strings.selfHosted.rowSubtitle}`}
+      onPress={() => onPress(kind)}
+      style={[
+        styles.availableShell,
+        { backgroundColor: tokens.card, borderColor: tokens.border },
+      ]}
+    >
+      <View style={styles.availableRow}>
+        <View style={styles.sourceIcon}>
+          <Ionicons name="server-outline" size={22} color={tokens.mutedForeground} />
+        </View>
+        <View style={styles.availableText}>
+          <Text numberOfLines={1} style={[styles.sourceTitle, { color: tokens.foreground }]}>
+            {name}
+          </Text>
+          <Text numberOfLines={1} style={[styles.sourceSubtitle, { color: tokens.mutedForeground }]}>
+            {strings.selfHosted.rowSubtitle}
+          </Text>
+        </View>
+        <Ionicons name="chevron-forward" size={16} color={tokens.mutedForeground} />
+      </View>
+    </NemuPressable>
+  );
+});
+
 function availableSourceKeyExtractor(source: MobileRegistrySource) {
   return makeSourceKey(source.registryId, source.id);
 }
@@ -831,7 +882,10 @@ export function BrowseScreen() {
         name: source.name ?? sourceId,
         icon: source.icon,
         languages: source.languages,
-        subtitle: registryId,
+        subtitle:
+          registryId === SELF_HOSTED_REGISTRY_ID && source.selfHosted
+            ? selfHostedKindName(source.selfHosted.kind)
+            : registryId,
         unsupported: isMobileUnsupportedInstalledSource(source),
       };
     });
@@ -847,7 +901,14 @@ export function BrowseScreen() {
     return best;
   }, [installedSources]);
   const groupedInstalledSources = useMemo(
-    () => groupMobileSourcesByLanguage(installedSources, appLanguage),
+    () => {
+      // The user's own servers form one group of their own, ahead of the
+      // language groups.
+      const servers = installedSources.filter((source) => source.registryId === SELF_HOSTED_REGISTRY_ID);
+      const rest = installedSources.filter((source) => source.registryId !== SELF_HOSTED_REGISTRY_ID);
+      const groups = groupMobileSourcesByLanguage(rest, appLanguage);
+      return servers.length > 0 ? [{ label: SELF_HOSTED_GROUP, sources: servers }, ...groups] : groups;
+    },
     [appLanguage, installedSources],
   );
   // Design-explore: the sources the library reads from, first and with how
@@ -916,6 +977,21 @@ export function BrowseScreen() {
         : null,
     [mergedInstalledSources, quickActionSourceId],
   );
+  // A built-in server source has no package settings to show: its "Settings"
+  // is the same form it was added with, pushed instead of the settings sheet.
+  useEffect(() => {
+    if (
+      !quickActionSettingsVisible ||
+      quickActionSource?.registryId !== SELF_HOSTED_REGISTRY_ID ||
+      !quickActionSource.sourceId
+    ) {
+      return;
+    }
+    const sourceId = quickActionSource.sourceId;
+    setQuickActionSettingsVisible(false);
+    setQuickActionSourceId(null);
+    router.push({ pathname: "/(tabs)/browse/server", params: { sourceId } });
+  }, [quickActionSettingsVisible, quickActionSource]);
   const quickActionUpdate = useMemo(
     () =>
       quickActionSource
@@ -1038,6 +1114,12 @@ export function BrowseScreen() {
       }),
     [appLanguage, filteredAvailable],
   );
+  const builtInKinds = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return SELF_HOSTED_SETUP_KINDS.filter(
+      (kind) => !needle || selfHostedKindName(kind).toLowerCase().includes(needle),
+    );
+  }, [query]);
   const availableSourceSections = useMemo<AvailableSourceSection[]>(
     () =>
       groupedAvailable.map((section) => ({
@@ -1469,6 +1551,10 @@ export function BrowseScreen() {
       startInstallAfterAddSourceDismissal(next.source);
       return;
     }
+    if (next?.type === "open-server-form") {
+      router.push({ pathname: "/(tabs)/browse/server", params: { kind: next.kind } });
+      return;
+    }
     if (next?.type === "open-confirmation") {
       // Leave the destination unclaimed while the confirmation is visible.
       // Its first Cancel or Confirm tap owns the handoff; a native dismissal
@@ -1481,6 +1567,10 @@ export function BrowseScreen() {
   };
   const openLanguageSheet = () => {
     requestAddSourceDismissal({ type: "open-language" });
+  };
+  const openServerForm = (kind: SelfHostedKind) => {
+    void hapticSelection();
+    requestAddSourceDismissal({ type: "open-server-form", kind });
   };
   const closeLanguageSheet = () => {
     setActiveSheetVisible(false);
@@ -1945,6 +2035,27 @@ export function BrowseScreen() {
             </View>
 
             <SectionList
+              ListHeaderComponent={
+                builtInKinds.length > 0 ? (
+                  <View>
+                    <Text
+                      style={[
+                        styles.sourceLanguageHeader,
+                        styles.availableSourceLanguageHeader,
+                        { color: sheetTokens.mutedForeground },
+                      ]}
+                    >
+                      {strings.selfHosted.builtInSources}
+                    </Text>
+                    {builtInKinds.map((kind, index) => (
+                      <View key={kind}>
+                        {index > 0 ? <AvailableRowSeparator /> : null}
+                        <BuiltInSourceRow kind={kind} strings={strings} onPress={openServerForm} />
+                      </View>
+                    ))}
+                  </View>
+                ) : undefined
+              }
               // Android: inside a native sheet, hand the drag to the sheet at the top.
               nestedScrollEnabled
               alwaysBounceVertical={false}

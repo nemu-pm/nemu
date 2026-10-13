@@ -43,6 +43,11 @@ export type MobileNativeFetchInit = RequestInit & {
   responseMode?: NemuAidokuHttpResponseMode;
   maxResponseBytes?: number;
   requireHttps?: boolean;
+  /**
+   * Source cookie scope (profile-scoped execution key). Requests carrying it
+   * share that source's cookie jar and receive its scoped local-network grant.
+   */
+  cookieScope?: string;
 };
 
 function normalizeHeaders(
@@ -163,6 +168,7 @@ export async function mobileNativeFetch(
     responseMode: init.responseMode ?? "auto",
     maxResponseBytes,
     requireHttps: init.requireHttps === true,
+    ...(init.cookieScope ? { cookieScope: init.cookieScope } : {}),
   };
   const response = idempotent
     ? await runMobileHttpRequestWithRetry(

@@ -50,6 +50,8 @@ import {
   tint,
 } from "@expo/ui/swift-ui/modifiers";
 import { Stack, router, useFocusEffect, useLocalSearchParams, type Href } from "expo-router";
+import { SELF_HOSTED_REGISTRY_ID } from "@/lib/selfHosted/policy";
+import { selfHostedKindName } from "@/lib/selfHosted/messages";
 import * as DocumentPicker from "expo-document-picker";
 import { nextSyncTimestamp } from "@nemu/core";
 import { MobileOpenSourceLicensesSheet } from "@/components/MobileOpenSourceLicensesSheet";
@@ -335,6 +337,7 @@ function languageLabel(language: AppLanguage, strings: MobileStrings): string {
 }
 
 function sourceSubtitle(source: InstalledSource, strings: MobileStrings, appLanguage: AppLanguage): string {
+  if (source.registryId === SELF_HOSTED_REGISTRY_ID && source.selfHosted) return selfHostedKindName(source.selfHosted.kind);
   // Design-explore: the language by name and the version, not codes and the registry id.
   if (mobileDesignExploreFlag) {
     return getMobileExploreInstalledSourceSubtitle(
@@ -450,7 +453,7 @@ function SourceManagementRow({
           sourceDisabled && styles.disabledSourceMain,
         ]}
       >
-        <SourceIcon icon={iconUri} />
+        <SourceIcon icon={iconUri} server={source.registryId === SELF_HOSTED_REGISTRY_ID} />
         <View style={styles.sourceText}>
           <View style={styles.sourceTitleRow}>
             <NemuText
@@ -1993,6 +1996,14 @@ function SettingsScreenContent({
   }, [displayedSources, selectedSourceId]);
 
   const openSourceSettings = useCallback((sourceId: string) => {
+    if (sourceId.startsWith(`${SELF_HOSTED_REGISTRY_ID}:`)) {
+      // A built-in server source's settings are its setup form.
+      router.push({
+        pathname: "/(tabs)/settings/server",
+        params: { sourceId: sourceId.slice(SELF_HOSTED_REGISTRY_ID.length + 1) },
+      });
+      return;
+    }
     queuedSourceConfirmationRef.current = null;
     setOperationError(null);
     setSelectedSourceId(sourceId);

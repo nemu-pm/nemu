@@ -38,6 +38,8 @@ export function SourceCard({
   const { scheme, tokens } = useNemuTheme();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
+  // A built-in server source has no artwork of its own.
+  const fallbackIcon = item.registryId === "self-hosted" ? "server-outline" : "globe-outline";
   const visuals = resolveSourceCardVisuals(scheme);
   const longPressHandledRef = useRef(false);
 
@@ -104,7 +106,7 @@ export function SourceCard({
           <MobileCachedImage
             fallback={
               <Ionicons
-                name="globe-outline"
+                name={fallbackIcon}
                 size={24}
                 color={tokens.mutedForeground}
               />
@@ -115,7 +117,7 @@ export function SourceCard({
           />
         ) : (
           <Ionicons
-            name="globe-outline"
+            name={fallbackIcon}
             size={24}
             color={tokens.mutedForeground}
           />

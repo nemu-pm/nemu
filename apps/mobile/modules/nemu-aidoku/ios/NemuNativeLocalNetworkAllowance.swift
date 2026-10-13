@@ -152,6 +152,69 @@ enum NemuNativeLocalNetworkAllowance {
     return grants[scope] ?? .none
   }
 
+  /// Whether a finished transaction connected straight to the granted
+  /// endpoint. iOS keeps local-network IP literals out of the app's proxy
+  /// configuration, so a granted self-hosted server is reached directly rather
+  /// than through the loopback proxy. That connection is acceptable only when
+  /// it is exactly the endpoint the user granted:
+  ///
+  /// - the request's host is an IP *literal* in local-network space, named by
+  ///   the grant (a hostname would be resolved by the system, where the proxy
+  ///   would have pinned it);
+  /// - the peer the connection actually reached is that same address and port
+  ///   (so a redirect or a rebinding cannot have moved it elsewhere).
+  static func isGrantedDirectConnection(
+    requestHost: String?,
+    requestPort: Int?,
+    requestScheme: String?,
+    remoteAddress: String?,
+    remotePort: Int?,
+    grant: NemuLocalNetworkGrant
+  ) -> Bool {
+    guard
+      let requestHost,
+      let remoteAddress,
+      let remotePort
+    else {
+      return false
+    }
+    let host = normalizeHost(requestHost)
+    let scheme = requestScheme?.lowercased()
+    guard scheme == "http" || scheme == "https" else { return false }
+    let port = requestPort ?? (scheme == "https" ? 443 : 80)
+    guard
+      grant.allows(host: host, port: port),
+      remotePort == port,
+      NemuNativeHttpAddressPolicy.isNumericHostname(host),
+      let requested = parseIPLiteral(host),
+      isLocalNetworkAddress(requested)
+    else {
+      return false
+    }
+    var peer = normalizeHost(remoteAddress)
+    if let zone = peer.firstIndex(of: "%") {
+      peer = String(peer[..<zone])
+    }
+    guard let connected = parseIPLiteral(peer) else { return false }
+    return sameAddress(connected, requested)
+  }
+
+  /// Equal addresses, treating an IPv4-mapped IPv6 form as its IPv4 address.
+  private static func sameAddress(_ left: [UInt8], _ right: [UInt8]) -> Bool {
+    func unmapped(_ bytes: [UInt8]) -> [UInt8] {
+      if
+        bytes.count == 16,
+        bytes.prefix(10).allSatisfy({ $0 == 0 }),
+        bytes[10] == 0xff,
+        bytes[11] == 0xff
+      {
+        return Array(bytes[12...])
+      }
+      return bytes
+    }
+    return unmapped(left) == unmapped(right)
+  }
+
   /// Hostnames a grant can never name, whatever the user typed.
   static func isNeverGrantableHostname(_ host: String) -> Bool {
     return host == "localhost" ||

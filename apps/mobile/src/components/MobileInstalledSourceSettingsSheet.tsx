@@ -34,7 +34,10 @@ import { useMobileSourceSettingsTransientSheets } from "./useMobileSourceSetting
 export function MobileSourceIcon({
   icon,
   placement = "row",
+  server = false,
 }: {
+  /** A built-in server source: no artwork, so a server glyph stands in. */
+  server?: boolean;
   icon?: string | null;
   placement?: "row" | "title";
 }) {
@@ -43,7 +46,7 @@ export function MobileSourceIcon({
   const inTitle = placement === "title";
   const placeholder = (
     <Ionicons
-      name="globe-outline"
+      name={server ? "server-outline" : "globe-outline"}
       size={inTitle ? 20 : 22}
       color={tokens.mutedForeground}
     />

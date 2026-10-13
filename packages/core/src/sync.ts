@@ -78,6 +78,8 @@ export type InstalledSource = {
    * its settings are all left intact.
    */
   disabled?: boolean;
+  /** Built-in self-hosted server source: its kind and address (never a login). */
+  selfHosted?: { kind: "komga" | "kavita" | "suwayomi"; server: string };
 };
 
 export type CloudInstalledSource = Omit<InstalledSource, "updatedAt"> & {
@@ -481,6 +483,7 @@ export function toCloudInstalledSource(
     updatedAt: normalizeSyncClock(source.updatedAt),
     removed: source.removed,
     disabled: source.disabled,
+    ...(source.selfHosted == null ? {} : { selfHosted: source.selfHosted }),
   };
 }
 

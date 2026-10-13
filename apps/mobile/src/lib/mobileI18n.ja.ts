@@ -1183,6 +1183,38 @@ export const mobileStringsJa: MobileStrings = {
     subtitle: "このタイトルのソースを並べ替え、またはリンク解除します",
     reorderHint: "矢印で並べ替え",
   },
+  selfHosted: {
+    builtInSources: "内蔵ソース",
+    groupTitle: "自分のサーバー",
+    rowSubtitle: "自分のサーバー",
+    serverAddress: "サーバーのアドレス",
+    serverAddressPlaceholder: "http://192.168.1.20:25600",
+    name: "名前",
+    username: "ユーザー名",
+    password: "パスワード",
+    apiKey: "API キー",
+    loginFooter:
+      "ユーザー名とパスワード、または API キーでサインインします。ログイン情報はこのデバイスにのみ保存されます。",
+    connecting: "接続中…",
+    connectFailedTitle: "接続できません",
+    errorAddressEmpty: "サーバーのアドレスを入力してください。",
+    errorAddressInvalid: "有効なアドレスではありません。",
+    errorAddressScheme: "アドレスは http:// または https:// で始めてください。",
+    errorAddressCredentials:
+      "ユーザー名やパスワードをアドレスに含めないでください。下の欄に入力してください。",
+    errorAddressLocal:
+      "localhost ではこのデバイスから接続できません。ネットワーク上のサーバーのアドレスを使ってください。",
+    errorUnreachable:
+      "サーバーから応答がありません。アドレスと、このデバイスから接続できるかを確認してください。",
+    errorUnauthorized: "サーバーがこのログイン情報を受け付けませんでした。",
+    errorForbidden: "このアカウントにはサーバーの API を使う権限がありません。",
+    errorNotThisServer: "このアドレスは {{kind}} サーバーではないようです。",
+    errorServer: "サーバーがエラーを返しました（{{status}}）。",
+    errorUnsupported: "この種類のサーバーにはまだ対応していません。",
+    needsSignIn:
+      "このサーバーのログイン情報がこのデバイスにありません。ソースの設定からサインインしてください。",
+    reservedSourceId: "このソースは nemu の内蔵ソース用に予約された名前を使っています。",
+  },
   account: {
     title: "アカウント",
     name: "名前",

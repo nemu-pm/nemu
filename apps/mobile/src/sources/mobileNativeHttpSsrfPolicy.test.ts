@@ -193,6 +193,16 @@ describe("native HTTP SSRF policy", () => {
     const policy = read("ios/NemuNativeHttpAddressPolicy.swift");
     const proxy = read("ios/NemuNativeHttpLoopbackProxy.swift");
 
+    // iOS keeps local-network IP literals out of the proxy configuration, so
+    // the peer gate also accepts a direct connection, but only to the exact
+    // literal and port of this session's own grant.
+    expect(module).toMatch(
+      /NemuNativeLocalNetworkAllowance\.isGrantedDirectConnection\(\s*requestHost: url\?\.host,[\s\S]*grant: grant\s*\)/,
+    );
+    expect(module).toContain(
+      "let grant = NemuNativeLocalNetworkAllowance.grant(forScope: scope)",
+    );
+
     // Redirects are re-validated against the *session's own* grant, so a
     // granted local server cannot bounce a source to another private host.
     expect(module).toMatch(

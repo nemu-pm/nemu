@@ -992,6 +992,37 @@ export type MobileStrings = {
     subtitle: string;
     reorderHint: string;
   };
+  selfHosted: {
+    builtInSources: string;
+    /** Browse group title of the user's own servers. */
+    groupTitle: string;
+    rowSubtitle: string;
+    serverAddress: string;
+    serverAddressPlaceholder: string;
+    name: string;
+    username: string;
+    password: string;
+    apiKey: string;
+    loginFooter: string;
+    connecting: string;
+    connectFailedTitle: string;
+    errorAddressEmpty: string;
+    errorAddressInvalid: string;
+    errorAddressScheme: string;
+    errorAddressCredentials: string;
+    errorAddressLocal: string;
+    errorUnreachable: string;
+    errorUnauthorized: string;
+    errorForbidden: string;
+    /** `{{kind}}` is the server software's name. */
+    errorNotThisServer: string;
+    /** `{{status}}` is the HTTP status. */
+    errorServer: string;
+    errorUnsupported: string;
+    /** Shown instead of a source's content when its login is not on this device. */
+    needsSignIn: string;
+    reservedSourceId: string;
+  };
   account: {
     title: string;
     name: string;

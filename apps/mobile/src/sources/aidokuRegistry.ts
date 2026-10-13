@@ -3,6 +3,7 @@ import { mobileNativeFetch } from "./mobileNativeHttp";
 import type { AidokuRegistryDefinition } from "@nemu/core/sources";
 import { sha256Bytes } from "@nemu/core";
 import { throwIfMobileNativeHttpAborted } from "./mobileNativeHttpAbort";
+import { isReservedSourceId } from "@/lib/selfHosted/policy";
 
 // Re-export the shared type so existing `import { type AidokuRegistryDefinition
 // } from "./aidokuRegistry"` call sites (incl. the test fixture) keep working.
@@ -253,6 +254,8 @@ export function parseAidokuRegistryIndex(
           ? source.version
           : 1;
       if (!id || !name) return null;
+      // Ids of the app's built-in sources are never listable by a directory.
+      if (isReservedSourceId(id)) return null;
 
       const iconPath =
         source.iconURL ??

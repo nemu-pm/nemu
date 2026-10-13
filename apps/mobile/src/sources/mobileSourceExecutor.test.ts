@@ -413,3 +413,47 @@ describe("createMobileSourceExecutorSession", () => {
     expect(reads).toBe(0);
   });
 });
+
+describe("self-hosted server sources", () => {
+  const row: InstalledSource = {
+    id: "self-hosted:komga.home",
+    registryId: "self-hosted",
+    sourceKind: "aidoku",
+    sourceId: "komga.home",
+    name: "Home",
+    version: 1,
+    selfHosted: { kind: "komga", server: "http://192.168.1.20:25600" },
+  };
+
+  test("runs as app code: no package is read and no bridge is loaded", async () => {
+    let bridgeCalls = 0;
+    const session = await createMobileSourceExecutorSession(normalizeInstalledSource(row), {
+      bridge: {
+        loadSource: async () => {
+          bridgeCalls += 1;
+          return { status: "blocked", reason: "bridge-load-failed", detail: "unused" };
+        },
+      },
+      readBytes: async () => {
+        throw new Error("a server source must not read a package");
+      },
+    });
+    expect(session.status).toBe("ready");
+    expect(bridgeCalls).toBe(0);
+  });
+
+  test("a row that lost its address is blocked rather than run", async () => {
+    const { selfHosted: _removed, ...withoutAddress } = row;
+    void _removed;
+    const session = await createMobileSourceExecutorSession(normalizeInstalledSource(withoutAddress));
+    expect(session.status).toBe("blocked");
+  });
+
+  test("a disabled server source is refused like any other", async () => {
+    const session = await createMobileSourceExecutorSession(
+      normalizeInstalledSource({ ...row, disabled: true }),
+    );
+    expect(session).toMatchObject({ status: "blocked", reason: "source-disabled" });
+  });
+});
+

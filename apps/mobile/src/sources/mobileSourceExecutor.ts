@@ -26,6 +26,8 @@ import {
 } from "./mobileSourceRuntime";
 import { LOCAL_ARCHIVE_REGISTRY_ID } from "@/lib/localArchives/policy";
 import { getLocalArchiveProvider } from "@/lib/localArchives/registry";
+import { createSelfHostedExecutorSource } from "@/lib/selfHosted/executorSource";
+import { SELF_HOSTED_REGISTRY_ID, isSelfHostedConfig } from "@/lib/selfHosted/policy";
 import { readCachedSourcePackageBytes } from "./sourcePackageCache";
 import { makeMobileSourceExecutionKey } from "./mobileSourceProfileScope";
 import type {
@@ -226,6 +228,29 @@ export async function createMobileSourceExecutorSession(
       sourceKey: `${source.registryId}:${source.sourceId}`,
       reason: "native-bridge-missing",
       detail: MOBILE_TACHIYOMI_UNSUPPORTED_DETAIL,
+    };
+  }
+
+  if (source?.registryId === SELF_HOSTED_REGISTRY_ID) {
+    // Komga / Kavita / Suwayomi: built-in app code talking to the user's own
+    // server. There is no package to load and nothing downloaded to run.
+    if (!isSelfHostedConfig(source.selfHosted)) {
+      return {
+        status: "blocked",
+        sourceKey: `${source.registryId}:${source.sourceId}`,
+        reason: "unsupported-package",
+        detail: "This server source has no saved address.",
+      };
+    }
+    return {
+      status: "ready",
+      sourceKey: `${source.registryId}:${source.sourceId}`,
+      runtime: "native-aidoku",
+      source: createSelfHostedExecutorSource({
+        source,
+        settings: options.settings ?? {},
+        executionScope: options.executionScope,
+      }),
     };
   }
 
