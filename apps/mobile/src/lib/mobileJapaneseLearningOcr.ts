@@ -2,6 +2,7 @@ import {
   getMobileJapaneseLearningQaScenario,
   runMobileJapaneseLearningQaOcr,
 } from "./mobileJapaneseLearningQa";
+import { getMobileConvexAuthToken } from "./mobileAuthToken";
 import type { MobileReaderPage } from "@/sources/mobileSourcePages";
 import { mobileNativeFetch } from "@/sources/mobileNativeHttp";
 import { decodeBase64 } from "./mobileBase64";
@@ -72,6 +73,8 @@ export type MobileJapaneseLearningOcrResult = {
 
 export type MobileJapaneseLearningOcrOptions = {
   fetchImpl?: typeof fetch;
+  /** Convex/Better Auth JWT for the OCR gateway; defaults to the signed-in session's. */
+  getAuthToken?: () => Promise<string | null | undefined>;
   ocrApiBase?: string;
   readFileBytes?: (uri: string) => Promise<Uint8Array>;
   signal?: AbortSignal;
@@ -588,10 +591,14 @@ async function fetchMobileCloudOcrDetections(
   });
   throwIfMobileJapaneseLearningAborted(signal);
   const requestId = `mobile-ocr-${Date.now()}`;
+  const token = await (options.getAuthToken ?? getMobileConvexAuthToken)();
   const response = await awaitMobileJapaneseLearningAbortable(
     fetchImpl(`${getMobileOcrApiBase(options.ocrApiBase)}/ocr`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify({ imageBase64, requestId }),
       signal,
     }),

@@ -1,4 +1,5 @@
 import { mobileSyncConfig } from "@/sync/mobileSyncConfig";
+import { requireMobileAiConsent } from "./mobileAiConsent";
 import {
   getMobileJapaneseLearningAuthCookie,
   hasMobileAuthSessionCookie,
@@ -455,17 +456,20 @@ export async function generateMobileJapaneseLearningTts(
   assertMobileTtsCacheEpoch(generationEpoch);
   if (cachedUri) return { id, uri: cachedUri };
 
+  const getAuthCookie = options.getAuthCookie ?? getMobileJapaneseLearningAuthCookie;
+  if (!hasMobileAuthSessionCookie(getAuthCookie())) {
+    throw new MobileJapaneseLearningSignInRequiredError();
+  }
+
+  // Third-party AI (Gemini + ElevenLabs): one-time notice before sending text.
+  await requireMobileAiConsent();
+
   const inFlight = mobileTtsGenerationInFlight.get(id);
   if (inFlight) {
     return consumeMobileTtsGeneration(id, inFlight, options.signal);
   }
   // Listen is a server feature: signed out, a clip already on disk still
   // plays (above), but nothing new is requested (web `requireAuthOrPrompt`).
-  const getAuthCookie = options.getAuthCookie ?? getMobileJapaneseLearningAuthCookie;
-  if (!hasMobileAuthSessionCookie(getAuthCookie())) {
-    throw new MobileJapaneseLearningSignInRequiredError();
-  }
-
   const abortController = new AbortController();
   mobileTtsAbortControllers.add(abortController);
   const generation = (async () => {

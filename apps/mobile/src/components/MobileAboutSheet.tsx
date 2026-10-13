@@ -46,6 +46,7 @@ import {
 
 const APP_VERSION = packageJson.version;
 const SOURCE_URL = "https://github.com/nemu-pm/nemu";
+const PRIVACY_URL = "https://nemu.pm/privacy";
 // Shared with the wordmark tracking so both follow the same rendered size.
 const BRAND_TITLE_FONT_SIZE = 26;
 const githubIconPaths = [
@@ -128,6 +129,17 @@ export function MobileAboutSheet({ visible, onClose }: MobileAboutSheetProps) {
   const closeSheet = () => {
     setLinkError(null);
     onClose();
+  };
+
+  const openPrivacyPolicy = async () => {
+    setLinkError(null);
+    try {
+      await Linking.openURL(PRIVACY_URL);
+    } catch (error) {
+      setLinkError(
+        describeMobileErrorDetail(error, strings.common.externalLinkFailedDetail),
+      );
+    }
   };
 
   const openSourceCode = async () => {
@@ -276,6 +288,22 @@ export function MobileAboutSheet({ visible, onClose }: MobileAboutSheetProps) {
             size={17}
           />
         </NemuPressable>
+        <NemuPressable
+          accessibilityRole="link"
+          hitSlop={8}
+          onPress={() => {
+            void openPrivacyPolicy();
+          }}
+          pressedScale={0.97}
+          style={styles.privacyLink}
+        >
+          <Text
+            maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
+            style={[styles.privacyLinkText, { color: tokens.mutedForeground }]}
+          >
+            {strings.about.privacyPolicy}
+          </Text>
+        </NemuPressable>
       </View>
 
       {linkError ? (
@@ -373,6 +401,15 @@ const styles = StyleSheet.create({
     maxWidth: 420,
     gap: 8,
     paddingTop: 2,
+  },
+  privacyLink: {
+    alignSelf: "center",
+    paddingVertical: 4,
+  },
+  privacyLinkText: {
+    fontSize: 13,
+    lineHeight: 18,
+    textDecorationLine: "underline",
   },
   linkRow: {
     minHeight: 62,

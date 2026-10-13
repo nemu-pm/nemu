@@ -84,6 +84,17 @@ const userOverrides = v.object({
 });
 
 export default defineSchema({
+  // r2_uploads: ownership record for R2 objects uploaded by a signed-in user
+  // (key -> userId). The key itself carries no user id because cover URLs are
+  // public. Account deletion uses it to find and remove the user's objects.
+  r2_uploads: defineTable({
+    userId: v.string(),
+    key: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_key", ["key"]),
+
   sync_generations: defineTable({
     userId: v.string(),
     generation: v.number(),

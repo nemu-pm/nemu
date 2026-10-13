@@ -6,3 +6,4 @@ export * from "./settings-values";
 export * from "./auth";
 export * from "./source-oauth";
 export * from "./japanese-learning/prompts";
+export * from "./account-deletion";

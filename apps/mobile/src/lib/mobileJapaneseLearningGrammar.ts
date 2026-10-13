@@ -1,4 +1,6 @@
 import { ConvexHttpClient } from "convex/browser";
+import { getMobileConvexAuthToken } from "./mobileAuthToken";
+import { isMobileAiConsentDeclinedError, requireMobileAiConsent } from "./mobileAiConsent";
 import { PartOfSpeechLabels } from "../../../../src/lib/plugins/builtin/japanese-learning/grammar-analysis";
 import { api } from "../../../../convex/_generated/api";
 import { mobileSyncConfig } from "@/sync/mobileSyncConfig";
@@ -320,6 +322,11 @@ async function defaultNormalizeText(
   if (!client) return { normalized: clean, properNouns: [] };
 
   try {
+    // Third-party AI (Anthropic): one-time notice; declining throws out of here.
+    await requireMobileAiConsent();
+    // Signed in: call as the user (a no-op signed out, as before).
+    const token = await getMobileConvexAuthToken();
+    if (token) client.setAuth(token);
     const result = (await awaitMobileJapaneseLearningAbortable(
       client.action(api.japanese_learning.normalize, { text: clean }),
       signal,
@@ -335,8 +342,9 @@ async function defaultNormalizeText(
     });
     normalizeCache.set(clean, next, executionScope);
     return next;
-  } catch {
+  } catch (error) {
     throwIfMobileJapaneseLearningAborted(signal);
+    if (isMobileAiConsentDeclinedError(error)) throw error;
     return { normalized: clean, properNouns: [] };
   }
 }
@@ -930,7 +938,9 @@ async function runMobileJapaneseLearningGrammarOnDevice(
   const abortScope = createMobileJapaneseLearningAbortScope(options.signal);
   try {
     let normalized = originalText;
-    if (options.onlineEnhance) {
+    // The online clean-up is a signed-in cloud feature: signed out it is skipped
+    // silently and the sentence is analysed on-device as-is.
+    if (options.onlineEnhance && isMobileJapaneseLearningSignedIn()) {
       options.onStage?.("normalizing");
       const normalize =
         options.normalizeText ??
@@ -940,12 +950,17 @@ async function runMobileJapaneseLearningGrammarOnDevice(
             options.convexUrl ?? mobileSyncConfig.convexUrl,
             normalizeOptions?.signal,
           ));
-      normalized = validateMobileJapaneseLearningNormalizeResult(
-        await awaitMobileJapaneseLearningAbortable(
-          normalize(originalText, { signal: abortScope.signal }),
-          abortScope.signal,
-        ),
-      ).normalized;
+      try {
+        normalized = validateMobileJapaneseLearningNormalizeResult(
+          await awaitMobileJapaneseLearningAbortable(
+            normalize(originalText, { signal: abortScope.signal }),
+            abortScope.signal,
+          ),
+        ).normalized;
+      } catch (error) {
+        // On-device analysis still works without the optional online clean-up.
+        if (!isMobileAiConsentDeclinedError(error)) throw error;
+      }
       abortScope.throwIfAborted();
     }
     options.onStage?.("tokenizing");

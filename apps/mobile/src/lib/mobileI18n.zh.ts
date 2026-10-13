@@ -15,6 +15,7 @@ export const mobileStringsZh: MobileStrings = {
     description:
       "nemu 是一款跨平台漫画阅读器，让你可以从各种来源发现和阅读漫画。",
     openSourceCode: "在 GitHub 打开 nemu 源代码",
+    privacyPolicy: "隐私政策",
     sourceCode: "源代码",
     tagline: "魔法の漫画リーダー",
   },
@@ -1069,6 +1070,34 @@ export const mobileStringsZh: MobileStrings = {
     sourceSearchPlaceholder: "搜索源标题",
     subtitle: "重新排序或取消链接此标题的源",
     reorderHint: "使用箭头调整顺序",
+  },
+  account: {
+    title: "账号",
+    name: "名称",
+    email: "邮箱",
+    signInMethod: "登录方式",
+    deleteAccount: "删除账号",
+    deleteFooter: "删除后，云端书库、阅读进度和设置会被永久清除。",
+    deleteAlertTitle: "删除账号？",
+    deleteAlertMessage:
+      "这会永久删除你的账号，以及云端的书库、阅读进度、设置、已上传的封面和所有登录会话。此设备上的数据会保留。此操作无法撤销。",
+    deleteConfirm: "删除",
+    deleting: "正在删除…",
+    deleted: "账号已删除",
+    deleteFailed: "删除账号失败，请重试。",
+    deleteReauth: "需要重新确认 Apple 登录。请退出登录后重新登录再试。",
+    deleteUnavailable: "无法连接 Apple，请稍后重试。",
+    deleteCleanupFailed: "账号已删除，但此设备上的数据未能清除。",
+    openAccount: "账号",
+  },
+  aiConsent: {
+    title: "AI 功能",
+    bodyBefore:
+      "聊天、朗读和智能匹配等功能会把相关文字或页面发送给第三方 AI 服务处理。nemu 不会保存这些内容。继续即表示你同意 nemu ",
+    privacyPolicy: "隐私政策",
+    bodyAfter: "。",
+    decline: "暂不使用",
+    accept: "继续",
   },
   feedback: {
     dismiss: "关闭",

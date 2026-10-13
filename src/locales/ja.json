@@ -288,7 +288,8 @@
     "title": "このアプリについて",
     "tagline": "魔法の漫画リーダー",
     "description": "nemuはクロスプラットフォーム対応のウェブベース漫画リーダーです。さまざまなソースから漫画を発見して読むことができます。",
-    "sourceCode": "ソースコード"
+    "sourceCode": "ソースコード",
+    "privacyPolicy": "プライバシーポリシー"
   },
   "settings": {
     "aboutNemu": "nemuについて",
