@@ -5,7 +5,7 @@ import { useMobileDataStore } from "@/data/mobileDataContext";
 import { emitMobileDataChanged } from "@/data/mobileDataEvents";
 import { useMobileLanguageSettings } from "@/data/mobileHooks";
 import { hapticConfirm, hapticError } from "@/lib/haptics";
-import { getMobileStrings } from "@/lib/mobileI18n";
+import { formatMobileString, getMobileStrings } from "@/lib/mobileI18n";
 import { testSelfHostedConnection } from "@/lib/selfHosted/connectionTest";
 import { selfHostedCookieScope } from "@/lib/selfHosted/executorSource";
 import {
@@ -15,6 +15,7 @@ import {
   serverUrlErrorMessage,
 } from "@/lib/selfHosted/messages";
 import {
+  SELF_HOSTED_DEFAULT_PORTS,
   isSelfHostedKind,
   normalizeServerUrl,
   readSelfHostedCredentials,
@@ -143,6 +144,9 @@ export function useServerSourceForm(params: ServerSourceFormParams) {
     strings,
     kind,
     kindName: kind ? selfHostedKindName(kind) : "",
+    serverPlaceholder: formatMobileString(strings.selfHosted.serverAddressPlaceholder, {
+      port: SELF_HOSTED_DEFAULT_PORTS[kind ?? "komga"],
+    }),
     editing: Boolean(editingId),
     loaded,
     saving,

@@ -9,6 +9,13 @@ export type SelfHostedKind = (typeof SELF_HOSTED_KINDS)[number];
 /** The kinds the Add Source sheet offers a setup form for. */
 export const SELF_HOSTED_SETUP_KINDS: readonly SelfHostedKind[] = ["komga", "kavita", "suwayomi"];
 
+/** Each server's out-of-the-box port, shown in the address field's placeholder. */
+export const SELF_HOSTED_DEFAULT_PORTS: Readonly<Record<SelfHostedKind, number>> = {
+  komga: 25600,
+  kavita: 5000,
+  suwayomi: 4567,
+};
+
 /** What a self-hosted source row persists (and syncs). Credentials are never part of it. */
 export type SelfHostedConfig = {
   kind: SelfHostedKind;

@@ -1192,7 +1192,7 @@ export const mobileStringsJa: MobileStrings = {
     groupTitle: "自分のサーバー",
     rowSubtitle: "自分のサーバー",
     serverAddress: "サーバーのアドレス",
-    serverAddressPlaceholder: "http://192.168.1.20:25600",
+    serverAddressPlaceholder: "http://192.168.1.20:{{port}}",
     name: "名前",
     username: "ユーザー名",
     password: "パスワード",

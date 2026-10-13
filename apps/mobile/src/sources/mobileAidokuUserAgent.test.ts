@@ -122,6 +122,11 @@ describe("mobile Aidoku default user agent", () => {
     expect(bridge).toContain("NemuAidokuModule.decorateAidokuSourceImageRequest?.(key, url, headers)");
     expect(bridge).toContain("sourceKey: input.sourceKey,");
     expect(bridge).not.toContain("withMobileAidokuUserAgent");
+    // Both paths record the request for the session's own local-network grant
+    // (a LANraragi page on the user's server); `imageScopes` checks the endpoint.
+    expect(modify).toContain(").then(scopeImageRequest);");
+    expect(bridge).toMatch(/decorate:[\s\S]*?\}\)\.then\(scopeImageRequest\);/);
+    expect(bridge).toContain("registerLocalNetworkImageUrl(request.url, sourceKey)");
 
     const pages = readFileSync(
       path.join(mobileRoot, "src/sources/mobileSourcePages.ts"),

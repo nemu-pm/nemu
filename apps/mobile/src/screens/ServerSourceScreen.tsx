@@ -19,7 +19,7 @@ export function ServerSourceScreen() {
     url?: boolean;
     plain?: boolean;
   }> = [
-    { label: strings.selfHosted.serverAddress, value: fields.server, placeholder: strings.selfHosted.serverAddressPlaceholder, onChange: form.setServer, url: true, plain: true },
+    { label: strings.selfHosted.serverAddress, value: fields.server, placeholder: form.serverPlaceholder, onChange: form.setServer, url: true, plain: true },
     { label: strings.selfHosted.name, value: fields.name, placeholder: form.kindName, onChange: form.setName },
   ];
   const login = [

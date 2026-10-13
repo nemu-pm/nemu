@@ -83,12 +83,15 @@ export const deviceArchiveFs: ArchiveFs = {
         }
         const pages = new Directory(staging, "pages");
         pages.create({ idempotent: true });
-        order.forEach((entryId, position) => {
+        // `move` is asynchronous: every page must be in `pages/` before `raw/`
+        // is deleted and the staging directory moves, or the pages still in
+        // flight are lost (a 4-page book opened with 2 or 3).
+        for (const [position, entryId] of order.entries()) {
           const extension = extensions.get(entryId) ?? "jpg";
-          new File(raw, `${entryId}.${extension}`).move(new File(pages, pageName(position, extension)));
-        });
+          await new File(raw, `${entryId}.${extension}`).move(new File(pages, pageName(position, extension)));
+        }
         raw.delete();
-        staging.move(target);
+        await staging.move(target);
         return "moved";
       },
       async discard() {
@@ -139,6 +142,8 @@ export const deviceArchiveFs: ArchiveFs = {
   async writeIndex(index) {
     const file = new File(root(), INDEX_NAME);
     file.create({ overwrite: true });
-    file.write(JSON.stringify(index));
+    // Asynchronous too: the next read-modify-write must see this index, not
+    // the truncated file `create` just left behind.
+    await file.write(JSON.stringify(index));
   },
 };

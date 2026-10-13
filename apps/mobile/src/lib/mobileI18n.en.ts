@@ -1180,7 +1180,7 @@ export const mobileStringsEn: MobileStrings = {
     groupTitle: "Your servers",
     rowSubtitle: "Your own server",
     serverAddress: "Server address",
-    serverAddressPlaceholder: "http://192.168.1.20:25600",
+    serverAddressPlaceholder: "http://192.168.1.20:{{port}}",
     name: "Name",
     username: "Username",
     password: "Password",

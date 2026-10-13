@@ -36,6 +36,7 @@ import {
 import { getMobileImageUriPolicy } from "@/lib/mobileImageUriPolicy";
 import { sanitizeMobileErrorDiagnostic } from "@/lib/mobileSourceErrors";
 import { decorateMobileSourceImageRequest } from "./mobileSourceImageDecoration";
+import { registerLocalNetworkImageUrl } from "@/lib/selfHosted/imageScopes";
 
 type SandboxCapabilities = {
   id: string;
@@ -176,6 +177,15 @@ function wrapSandboxSource({
   let disposed = false;
   let settings = { ...initialSettings };
 
+  // A package holding a local-network grant (LANraragi) serves its covers and
+  // pages from the user's server. Record the image requests it produced for
+  // its own scope, so the image pipeline may reach exactly the endpoint the
+  // user granted this source (and nothing else; see `imageScopes`).
+  const scopeImageRequest = <T extends { url: string }>(request: T): T => {
+    if (!disposed) registerLocalNetworkImageUrl(request.url, sourceKey);
+    return request;
+  };
+
   const decorateImageRequest = (request: {
     url: string;
     headers: Record<string, string>;
@@ -189,7 +199,7 @@ function wrapSandboxSource({
               NemuAidokuModule.decorateAidokuSourceImageRequest?.(key, url, headers) ??
               Promise.resolve(null)
           : undefined,
-    });
+    }).then(scopeImageRequest);
 
   const dispose = async () => {
     if (disposed) return;
@@ -401,7 +411,7 @@ function wrapSandboxSource({
             kind: "modify-image-request",
             url,
           },
-        );
+        ).then(scopeImageRequest);
       },
       decorateImageRequest,
       async hasImageProcessor() {

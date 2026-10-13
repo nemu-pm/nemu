@@ -8,6 +8,7 @@ import {
 import { makeMobileSourceExecutionKey } from "@/sources/mobileSourceProfileScope";
 import { loadMobileSourceSettingsByKeys } from "./mobileSourceSettings";
 import { selfHostedCookieScope } from "./selfHosted/executorSource";
+import { resetLocalNetworkImageGrantsForTests, setLocalNetworkImageGrant } from "./selfHosted/imageScopes";
 import { SELF_HOSTED_REGISTRY_ID, isSelfHostedConfig } from "./selfHosted/policy";
 
 /**
@@ -136,10 +137,14 @@ export function applyMobileLocalNetworkAllowances(
   const wanted = new Set<string>();
   for (const target of targets) {
     wanted.add(target.scopeKey);
-    set.call(native, target.scopeKey, target.urls);
+    const accepted = set.call(native, target.scopeKey, target.urls);
+    // The image pipeline may use a grant only for what native accepted.
+    setLocalNetworkImageGrant(target.scopeKey, Array.isArray(accepted) ? accepted : []);
   }
   for (const previous of [...appliedScopeKeys]) {
-    if (!wanted.has(previous)) set.call(native, previous, []);
+    if (wanted.has(previous)) continue;
+    set.call(native, previous, []);
+    setLocalNetworkImageGrant(previous, []);
   }
   appliedScopeKeys.clear();
   for (const key of wanted) appliedScopeKeys.add(key);
@@ -147,4 +152,5 @@ export function applyMobileLocalNetworkAllowances(
 
 export function resetMobileLocalNetworkAllowanceStateForTests(): void {
   appliedScopeKeys.clear();
+  resetLocalNetworkImageGrantsForTests();
 }

@@ -1111,7 +1111,7 @@ export const mobileStringsZh: MobileStrings = {
     groupTitle: "自建服务器",
     rowSubtitle: "你自己的服务器",
     serverAddress: "服务器地址",
-    serverAddressPlaceholder: "http://192.168.1.20:25600",
+    serverAddressPlaceholder: "http://192.168.1.20:{{port}}",
     name: "名称",
     username: "用户名",
     password: "密码",

@@ -69,7 +69,7 @@ function ServerForm({ form }: { form: Form }) {
         <SwiftLabeledContent label={strings.selfHosted.serverAddress}>
           <SwiftTextField
             text={server}
-            placeholder={strings.selfHosted.serverAddressPlaceholder}
+            placeholder={form.serverPlaceholder}
             onTextChange={form.setServer}
             modifiers={[...plainText, keyboardType("url")]}
           />

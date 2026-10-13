@@ -7,6 +7,7 @@ import {
   resetMobileLocalNetworkAllowanceStateForTests,
   resolveMobileLocalNetworkAllowanceTargets,
 } from "./mobileLocalNetworkAllowance";
+import { registerLocalNetworkImageUrl } from "./selfHosted/imageScopes";
 
 function installed(
   registryId: string,
@@ -192,6 +193,30 @@ describe("applyMobileLocalNetworkAllowances", () => {
     calls.length = 0;
     applyMobileLocalNetworkAllowances(native, []);
     expect(calls).toEqual([]);
+  });
+
+  test("the image pipeline follows what native accepted, and a revoke", () => {
+    const scope = "local::a:multi.lanraragi";
+    const page = "http://192.168.2.109:3000/api/archives/x/page?path=1.jpg";
+    const native = {
+      // Native answers with the endpoints it accepted, as host:port.
+      setLocalNetworkAllowance: (_key: string, urls: string[]) =>
+        urls.length > 0 ? ["192.168.2.109:3000"] : [],
+    };
+    applyMobileLocalNetworkAllowances(native, [
+      { scopeKey: scope, urls: ["http://192.168.2.109:3000"] },
+    ]);
+    expect(registerLocalNetworkImageUrl(page, scope)).toBe(true);
+
+    applyMobileLocalNetworkAllowances(native, []);
+    expect(registerLocalNetworkImageUrl(`${page}&again`, scope)).toBe(false);
+
+    // A URL native refused (it returned nothing) is never usable for images.
+    applyMobileLocalNetworkAllowances(
+      { setLocalNetworkAllowance: () => [] },
+      [{ scopeKey: scope, urls: ["http://127.0.0.1:3000"] }],
+    );
+    expect(registerLocalNetworkImageUrl("http://127.0.0.1:3000/a.jpg", scope)).toBe(false);
   });
 
   test("is a no-op on a native build without the allowance", () => {
