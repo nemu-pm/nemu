@@ -1,6 +1,10 @@
 import { MOBILE_EXPLORE_RADIUS as R } from "@/lib/mobileExploreRadius";
-import { MobileMangaDetailTopHeaderContext } from "@/components/MobileMangaDetailPaneContext";
-import { useCallback, useContext, useEffect, useMemo, useRef, useState, type ComponentType, type ReactElement, type ReactNode } from "react";
+import {
+  MobileMangaDetailTopHeaderContext,
+  MobileMangaDetailWashContext,
+  useMobileMangaDetailPane,
+} from "@/components/MobileMangaDetailPaneContext";
+import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type ReactElement, type ReactNode } from "react";
 import {
   Image,
   PixelRatio,
@@ -38,7 +42,7 @@ import { useMobileCoverRegionTints, useMobileCoverTint } from "@/lib/useMobileCo
 import { ConcentricView, ZoomSource, ZoomTarget } from "../../../modules/nemu-window-layout";
 import { getMobileBooksHeroCoverWidth } from "./mobileExploreCover";
 import { useMobileExploreRestingFrame, useMobileExploreRestingTop } from "./useMobileExploreResting";
-import { fitMobileRestingContent, isMobileCompactHeight, type MobileRestingBlock } from "@/lib/mobileExploreRestingFit";
+import { fitMobileRestingContent, isMobileCompactHeight, MOBILE_RESTING, type MobileRestingBlock } from "@/lib/mobileExploreRestingFit";
 import { ExploreGlassButton, ExploreGlassChip, ExploreGlassIconButton } from "./ExploreGlass";
 import { ExploreGradient } from "./ExploreGradient";
 import RNCMaskedView from "@react-native-masked-view/masked-view";
@@ -101,6 +105,8 @@ const HERO_COMPACT_COVER_BELOW = 120;
 const COVER_MIN_WIDTH = 150;
 /** Gap between the hero's blocks (`styles.root.gap`). */
 const BLOCK_GAP = 16;
+/** `styles.head.paddingTop`: the cover's top below the hero's. */
+const HEAD_PADDING_TOP = 8;
 /** First-commit estimates of the blocks the cover's size depends on (scaled with the text). */
 /** Narrowest pane content width that fits the four facts in one row. */
 const PANE_FACTS_ROW_MIN_WIDTH = 340;
@@ -175,7 +181,7 @@ export function MobileMangaDetailBooksHero({
   readerZoomId,
   deferBody = false,
   dissolveId = null,
-  pane = false,
+  pane: paneProp = false,
   placeholder = false,
   pending = false,
   onTitleBottom,
@@ -235,8 +241,15 @@ export function MobileMangaDetailBooksHero({
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const bleed = useMobilePageBleedStyles();
   const gutters = useMobilePageGutters();
+  // The wide two-column page: the hero stands in the leading column as the
+  // phone's stacked hero (no panel, no wash of its own: the page behind both
+  // columns is the cover's colour, painted from what the hero publishes).
+  const detailPane = useMobileMangaDetailPane();
+  const inColumn = detailPane.role === "leading" && detailPane.columns === true;
+  const pane = paneProp && !inColumn;
+  const publishWash = useContext(MobileMangaDetailWashContext);
   const topHeader = useContext(MobileMangaDetailTopHeaderContext);
-  const top = topHeader !== null && !pane;
+  const top = topHeader !== null && !pane && !inColumn;
   const [tagSheetOpen, setTagSheetOpen] = useState(false);
   const remoteCover = isRemote(coverSource) ? coverSource : null;
   const tint = useMobileCoverTint(remoteCover);
@@ -247,6 +260,12 @@ export function MobileMangaDetailBooksHero({
   const inkSecondary = meshOn
     ? buildMobileCoverMeshInkSecondary(tint, buildMobileCoverMeshColors(tint, regionTints, scheme), scheme)
     : palette.inkSecondary;
+  // The two-column page paints the cover's colour behind both columns.
+  useLayoutEffect(() => {
+    if (!inColumn || !publishWash) return undefined;
+    publishWash({ tint, regions: regionTints, mesh: meshOn });
+    return () => publishWash(null);
+  }, [inColumn, meshOn, publishWash, regionTints, tint]);
   // Everything is sized from the hero's own frame (a page column, a split
   // pane, one side of a fold), not from the window. Until it is measured the
   // page's content width stands in, which is what a full-width hero gets, so
@@ -257,14 +276,22 @@ export function MobileMangaDetailBooksHero({
     setMeasuredWidth((current) => (current === next ? current : next));
   }, []);
   const frameWidth =
-    measuredWidth ?? Math.max(0, pane ? windowWidth * 0.4 : windowWidth - gutters.left - gutters.right);
+    measuredWidth ??
+    (inColumn && detailPane.columnContentWidth !== undefined
+      ? detailPane.columnContentWidth
+      : Math.max(0, pane ? windowWidth * 0.4 : windowWidth - gutters.left - gutters.right));
   const contentWidth = Math.max(0, pane ? frameWidth - PANE_PADDING * 2 : frameWidth);
   const shortPane = pane && isMobileCompactHeight(windowHeight);
   // Four facts side by side only where each keeps room for its value at the
 // one type size every fact shares; narrower, they stack 2 x 2 (never shrunk).
 const topCoverWidth = Math.round(Math.min(230, Math.max(150, contentWidth * 0.24)));
 const topTextWidth = contentWidth - topCoverWidth - 28;
-const paneFactColumns = PixelRatio.getFontScale() > 1.3 || (top ? topTextWidth : contentWidth) < PANE_FACTS_ROW_MIN_WIDTH ? 2 : 4;
+// The wide page's hero column always stacks them 2 x 2, like a side pane:
+// a quarter of it is narrower than a source name.
+const paneFactColumns =
+    inColumn || PixelRatio.getFontScale() > 1.3 || (top ? topTextWidth : contentWidth) < PANE_FACTS_ROW_MIN_WIDTH ? 2 : 4;
+  /** The facts and genres wrap in their column rather than run to the window edges. */
+  const grid = pane || top || inColumn;
   const rest = useMobileExploreRestingFrame();
   const rootRef = useRef<ViewInstance>(null);
   const { top: restTop, onLayout: onRestLayout } = useMobileExploreRestingTop(rootRef, rest.windowKey);
@@ -275,6 +302,19 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || (top ? topTextWidth :
   const sizing = placeholder || pending;
   const sizedFacts = sizing ? 4 : infoRowCount(infoTitle, infoChapters, infoLatest, status);
   const sizedSynopsis = sizing || Boolean(description);
+  // The hero column's blocks under the cover, estimated (the same at loading
+  // and loaded, and whether or not the synopsis is open).
+  const columnTop = detailPane.columnTop ?? rest.topEstimate;
+  const columnBlocks = (synopsisLines: number) => {
+    const scale = rest.fontScale(HERO_TEXT_MAX_SCALE);
+    return (
+      ESTIMATE.headText * scale +
+      (hasActions ? BLOCK_GAP + ESTIMATE.actions * scale : 0) +
+      (sizedFacts >= 2 ? BLOCK_GAP + ESTIMATE.facts * scale * 2 + 8 : 0) +
+      (sizedSynopsis ? BLOCK_GAP + synopsisLines * DESCRIPTION_LINE_HEIGHT * scale : 0) +
+      (sizing || badges.length || tags?.length ? BLOCK_GAP + CHIP_HEIGHT * scale : 0)
+    );
+  };
   // Resting content clears the tab bar (mobileExploreRestingFit). The
   // cover's size is the zoom's landing spot, so it comes from the window
   // alone, never from a later measurement: on a short window it gives up
@@ -302,6 +342,13 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || (top ? topTextWidth :
     }
     if (naturalCoverWidth <= COVER_MIN_WIDTH) return naturalCoverWidth;
     const scale = rest.fontScale(HERO_TEXT_MAX_SCALE);
+    if (inColumn) {
+      // The wide page's hero column holds still, as a whole: the cover takes
+      // what is left once the title, actions, facts (2 x 2), two synopsis
+      // lines and a row of genres rest above the window's bottom.
+      const room = rest.edge - MOBILE_RESTING.margin - columnTop - HEAD_PADDING_TOP - columnBlocks(DESCRIPTION_MIN_LINES);
+      return Math.max(COVER_MIN_WIDTH, Math.min(naturalCoverWidth, Math.floor(room / 1.5)));
+    }
     const naturalHeight = Math.round(naturalCoverWidth * 1.5);
     const minHeight = Math.round(COVER_MIN_WIDTH * 1.5);
     const blocks: MobileRestingBlock[] = [
@@ -333,11 +380,22 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || (top ? topTextWidth :
   // beside the title) comes from the window, never from the cover's pixels.
   const shownCoverWidth = coverWidth;
   const compactHead = top || shownCoverWidth < HERO_COMPACT_COVER_BELOW;
-  const wide = !pane && !top && contentWidth > WIDE_COLUMN;
+  const wide = !pane && !top && !inColumn && contentWidth > WIDE_COLUMN;
+  // A hero that fits its column stands in the middle of it (as the reference
+  // layout's does), placed from the estimates rather than its measured
+  // height, so it does not move when the details land or the synopsis opens.
+  const columnOffset = inColumn
+    ? Math.max(
+        0,
+        Math.floor(
+          (rest.edge - columnTop - HEAD_PADDING_TOP - Math.round(coverWidth * 1.5) - columnBlocks(DESCRIPTION_LINES)) / 2,
+        ),
+      )
+    : 0;
   // The first title line ends this far below the hero's top.
-  const titleBottom = compactHead
-    ? Math.round(shownCoverWidth * 1.5) + 8
-    : Math.round(shownCoverWidth * 1.5) + TITLE_BELOW_COVER;
+  const titleBottom =
+    columnOffset +
+    (compactHead ? Math.round(shownCoverWidth * 1.5) + 8 : Math.round(shownCoverWidth * 1.5) + TITLE_BELOW_COVER);
   useEffect(() => {
     if (!top) onTitleBottom?.(titleBottom);
   }, [onTitleBottom, titleBottom, top]);
@@ -435,9 +493,15 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || (top ? topTextWidth :
       }
       const height = blockHeights[key];
       if (height === undefined) return null;
+      // The hero column rests whole as far as its first row of genres: the
+      // synopsis gives up lines for it rather than the genres dropping away.
+      if (key === "tags" && inColumn) {
+        blocks.push({ key, gap: BLOCK_GAP, height, rests: "peek", minVisible: Math.min(height, CHIP_HEIGHT) });
+        continue;
+      }
       blocks.push({ key, gap: key === "head" ? 0 : BLOCK_GAP, height, rests: "whole" });
     }
-    return fitMobileRestingContent({ top: restTop, edge: rest.edge, blocks });
+    return fitMobileRestingContent({ top: restTop + columnOffset, edge: rest.edge, blocks });
   })();
   const synopsisLines =
     restingFit && synopsisMeasure && restingFit.heights.synopsis !== undefined
@@ -542,7 +606,7 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || (top ? topTextWidth :
   );
   const tagsNode =
     badges.length || tagList.length ? (
-      pane || top ? (
+      grid ? (
         // The two-column pane has the width to wrap them, centred, instead of a
         // strip whose last chip a hard edge cut in half.
         <View onLayout={onTagsLayout} style={[styles.tagsWrap, pushStyle("tags")]}>
@@ -683,7 +747,7 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || (top ? topTextWidth :
   );
   const factsNode = (
     <>
-      {factsRow && (pane || top) ? (
+      {factsRow && grid ? (
         <View style={[styles.facts, { flexWrap: "wrap", rowGap: 8 }, top ? { flexGrow: 0 } : null, pushStyle("facts")]} onLayout={onFactsLayout}>
           {facts.map((fact, index) => (
             <View
@@ -808,10 +872,10 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || (top ? topTextWidth :
       key={index}
       style={[
         styles.fact,
-        pane || top
+        grid
           ? { width: `${100 / paneFactColumns}%`, flexGrow: 0, minWidth: 0 }
           : { minWidth: Math.floor(Math.min(contentWidth, WIDE_COLUMN) / 4) },
-        (pane || top ? index % paneFactColumns > 0 : index > 0) ? [styles.factDivided, { borderLeftColor: palette.rule }] : null,
+        (grid ? index % paneFactColumns > 0 : index > 0) ? [styles.factDivided, { borderLeftColor: palette.rule }] : null,
       ]}
     >
       <View style={[styles.placeholderLine, styles.placeholderLineCentred, { height: styles.factLabel.lineHeight }]}>{bar("46%", 9)}</View>
@@ -819,7 +883,7 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || (top ? topTextWidth :
     </View>
   ));
   const placeholderFactsNode =
-    pane || top ? (
+    grid ? (
       <View style={[styles.facts, { flexWrap: "wrap", rowGap: 8 }, top ? { flexGrow: 0 } : null]}>{placeholderFacts}</View>
     ) : (
       <View style={wide ? column : bleed.frame}>
@@ -838,7 +902,7 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || (top ? topTextWidth :
   const placeholderChips = PLACEHOLDER_CHIP_WIDTHS.map((width, index) => (
     <View key={index}>{bar(width, CHIP_HEIGHT, styles.placeholderCapsule)}</View>
   ));
-  const placeholderTagsNode = pane ? (
+  const placeholderTagsNode = grid ? (
     <View style={styles.tagsWrap}>{placeholderChips}</View>
   ) : (
     <View style={bleed.frame}>
@@ -863,15 +927,16 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || (top ? topTextWidth :
       }}
       style={[
         styles.root,
-        !pane ? { paddingBottom: TINT_FADE + 8 } : null,
+        !pane && !inColumn ? { paddingBottom: TINT_FADE + 8 } : null,
+        columnOffset ? { paddingTop: columnOffset } : null,
         pane ? [styles.paneRoot, shortPane ? styles.paneRootShort : null, { backgroundColor: palette.page }] : null,
         // While the body is held back the hero still fills the screen, so the
         // page that zooms in is the cover's colour from top to bottom rather
         // than a tinted block that ends under the title.
-        deferBody && !pane ? { minHeight: windowHeight } : null,
+        deferBody && !pane && !inColumn ? { minHeight: windowHeight } : null,
       ]}
     >
-      {pane ? null : (
+      {pane || inColumn ? null : (
         <>
           {/* The page colour runs to both window edges, under a vertical
               system bar as well; only content keeps out of that column. */}
@@ -1154,7 +1219,7 @@ const styles = StyleSheet.create({
   },
   head: {
     alignItems: "center",
-    paddingTop: 8,
+    paddingTop: HEAD_PADDING_TOP,
     gap: 18,
   },
   // A small cover beside the title, both on the leading edge.

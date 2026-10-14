@@ -2273,7 +2273,9 @@ export function MangaDetailScreen() {
     // dissolve (Reduce Motion, no dust host): removed as before.
     // The sheet is closed here, so this path leaves the page itself (the
     // sheet's dismissal callback has nothing left to do), dust or not.
-    const closedSheet = booksHero && !heroInPane;
+    // The hero is on screen in the one-list page and in the wide page's hero
+    // column alike.
+    const closedSheet = booksHero;
     if (closedSheet) {
       setRemoveConfirmOpen(false);
       await dissolveExploreTitle(entry.item.libraryItemId, EXPLORE_SHEET_DISMISS_MS);

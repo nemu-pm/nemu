@@ -34,7 +34,13 @@ import {
   type MobileMangaDetailPane,
 } from "@/components/MobileMangaDetailPaneContext";
 import { MOBILE_DETAIL_PANE_METRICS } from "@/lib/mobileMangaDetailPaneLayout";
-import { MobileMangaDetailTopHeaderContext } from "@/components/MobileMangaDetailPaneContext";
+import {
+  MobileMangaDetailTopHeaderContext,
+  MobileMangaDetailWashContext,
+  type MobileMangaDetailWash,
+} from "@/components/MobileMangaDetailPaneContext";
+import { MobileMangaDetailColumnsWash } from "@/components/explore/MobileMangaDetailColumnsWash";
+import { getMobileDetailColumnsLayout } from "@/lib/mobileMangaDetailColumns";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { useMobileSplitPaneLayout } from "@/lib/useMobileSplitPaneLayout";
 import { useMobilePoseTransition } from "@/lib/MobilePoseTransitionContext";
@@ -102,21 +108,41 @@ export function MobileMangaDetailSplitLayout<ItemT>({
     : listProps.contentInsetAdjustmentBehavior
     ?? (Platform.OS === "ios" && listProps.nativeHeader ? "automatic" : "never");
   const gutters = useMobilePageGutters();
-  const { containerRef, onContainerLayout, layout } = useMobileSplitPaneLayout(
+  const { containerRef, onContainerLayout, layout, containerWidth, foldSplit, adaptive } = useMobileSplitPaneLayout(
     MOBILE_DETAIL_SPLIT_OPTIONS,
   );
-  // With the explore design on, one wide header over one chapter list
-  // wherever the window is wide enough for the cover beside the text. The
-  // info pane beside the chapters stays for the design off and non-iOS.
-  const { width: windowWidth } = useWindowDimensions();
+  const explore = Platform.OS === "ios" && mobileDesignExploreFlag;
+  // The explore design on a wide window (Duo inner landscape, tablets): the
+  // hero holds still in a column beside the chapters, the cover's colour
+  // behind both (`mobileMangaDetailColumns`). Every decision below reads the
+  // container's width from one snapshot, so a fold or resize changes the
+  // layout once rather than first by the window and then by the container.
+  const columnsLayout = useMemo(
+    () =>
+      explore && splitEnabled
+        ? getMobileDetailColumnsLayout({
+            containerWidth,
+            windowHeight: adaptive.height,
+            gutters,
+            posture: adaptive.posture,
+            foldSplit,
+          })
+        : null,
+    [adaptive.height, adaptive.posture, containerWidth, explore, foldSplit, gutters, splitEnabled],
+  );
+  const columns = columnsLayout?.mode === "split" ? columnsLayout : null;
+  // Narrower, with the explore design on: one wide header over one chapter
+  // list wherever the window is wide enough for the cover beside the text.
+  // The info pane beside the chapters stays for the design off and non-iOS.
   const top =
-    Platform.OS === "ios" &&
-    mobileDesignExploreFlag &&
+    explore &&
     splitEnabled &&
-    windowWidth - gutters.left - gutters.right >= 560;
+    !columns &&
+    containerWidth - gutters.left - gutters.right >= 560;
   const [topFooter, setTopFooter] = useState<ReactNode>(null);
   const topContext = useMemo(() => ({ setFooter: setTopFooter }), []);
-  const split = !top && splitEnabled && layout.mode === "split" ? layout : null;
+  const split = columns ?? (!top && splitEnabled && layout.mode === "split" ? layout : null);
+  const [wash, setWash] = useState<MobileMangaDetailWash | null>(null);
   // On iPad the system reserves the bar twice (tab strip row and title row)
   // above the content, though both draw on one line: the two panes pull up by
   // the unused row so they start a normal distance under what is drawn.
@@ -126,15 +152,28 @@ export function MobileMangaDetailSplitLayout<ItemT>({
   // Duo's inner display draws one row.
   const doubleBarRow = windowRegularWidth && !hasFoldRegion && !isMobileCompactHeight(height);
   const pull =
-    (split || (top && doubleBarRow)) && Platform.OS === "ios" && mobileDesignExploreFlag && !barOnSide
+    ((split && !columns) || ((top || columns) && doubleBarRow)) && Platform.OS === "ios" && mobileDesignExploreFlag && !barOnSide
       ? IPAD_BAR_ROW_PULL
       : 0;
   const regularWidth = windowRegularWidth || Boolean(split) || top;
+  const padding = getMobileSplitPanePadding({
+    pageGutters: gutters,
+    innerGutter: spacing.pageX,
+  });
+  // The hero column's content width (the column less its padding), for the
+  // hero's first commit before it measures itself.
+  const columnContentWidth = columns
+    ? Math.max(0, columns.leading.width - padding.leading.paddingLeft - padding.leading.paddingRight)
+    : undefined;
+  // Beside a vertical bar the column starts at the top safe area; under a
+  // bar, about a bar's height lower.
+  const columnTop = barOnSide ? (exploreTop?.paddingTop ?? insets.top) : insets.top + COLUMN_BAR_ESTIMATE;
   const leadingPane = useMemo<MobileMangaDetailPane>(
-    () => ({ role: "leading", regularWidth: true }),
-    [],
+    () => ({ role: "leading", regularWidth: true, columns: Boolean(columns), columnContentWidth, columnTop }),
+    [columns, columnContentWidth, columnTop],
   );
-  const leadingTop = (exploreTop?.paddingTop ?? 0) + (pull || 0) + PANE_HERO_TOP;
+  // The column hero starts at the column's top; the info pane's panel adds its own padding.
+  const leadingTop = (exploreTop?.paddingTop ?? 0) + (pull || 0) + (columns ? 0 : PANE_HERO_TOP);
   const onLeadingListScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       const { contentOffset, contentInset } = event.nativeEvent;
@@ -142,14 +181,22 @@ export function MobileMangaDetailSplitLayout<ItemT>({
     },
     [leadingTop, onLeadingScroll],
   );
+  // The chapter table spreads its metadata beside the title wherever its own
+  // column (the whole page, or the chapter column) has the room.
+  const chapterTableWidth = columns
+    ? columns.trailing.width - padding.trailing.paddingLeft - padding.trailing.paddingRight
+    : top
+      ? containerWidth - gutters.horizontal
+      : 0;
   const trailingPane = useMemo<MobileMangaDetailPane>(
-    () => ({ role: split ? "trailing" : "single", regularWidth, wideChapterRows: top && (windowWidth - gutters.horizontal) / fontScale >= 700 }),
-    [regularWidth, split, top, windowWidth, gutters.horizontal, fontScale],
+    () => ({
+      role: split ? "trailing" : "single",
+      regularWidth,
+      wideChapterRows: chapterTableWidth / fontScale >= 700,
+      columns: Boolean(columns),
+    }),
+    [regularWidth, split, columns, chapterTableWidth, fontScale],
   );
-  const padding = getMobileSplitPanePadding({
-    pageGutters: gutters,
-    innerGutter: spacing.pageX,
-  });
   const pose = useMobilePoseTransition();
   // One key per pane geometry: a fold / unfold / resize that moves a pane's
   // edges settles that pane's content.
@@ -173,16 +220,23 @@ export function MobileMangaDetailSplitLayout<ItemT>({
           split ? styles.row : null,
         ]}
       >
+        {columns ? (
+          // Behind both columns and a vertical system bar: the cover's colour.
+          <MobileMangaDetailColumnsWash key="wash" wash={wash} heroWidth={columns.leading.width} />
+        ) : null}
         {split ? (
           <Animated.View
             key="leading"
-            entering={pose.entering}
-            exiting={pose.exiting}
+            // No layout animation where a fold or resize re-parents the hero
+            // between the list and this column (the explore design): the
+            // pose veil and the settle fade cover the change.
+            entering={explore ? undefined : pose.entering}
+            exiting={explore ? undefined : pose.exiting}
             testID={leadingTestID}
             style={[
               styles.pane,
               { width: split.leading.width },
-              split.alignment === "flat"
+              split.alignment === "flat" && !columns
                 ? { borderEndWidth: StyleSheet.hairlineWidth, borderEndColor: tokens.border }
                 : null,
             ]}
@@ -190,21 +244,32 @@ export function MobileMangaDetailSplitLayout<ItemT>({
             <Animated.View style={[styles.fill, leadingSettle]}>
               <PageListScaffold
                 nativeHeader={listProps.nativeHeader}
-                contentInsetAdjustmentBehavior={contentInsetAdjustmentBehavior}
+                // A hero column that fits does not scroll, and UIKit's automatic
+                // adjustment skips the bar inset of a scroll view that cannot
+                // scroll: it would start under the bar.
+                contentInsetAdjustmentBehavior={
+                  columns && contentInsetAdjustmentBehavior === "automatic" ? "always" : contentInsetAdjustmentBehavior
+                }
                 data={NO_ROWS}
                 renderItem={renderNothing}
+                style={columns ? styles.clearList : undefined}
+                // The hero column holds still unless it is taller than the
+                // window; the chapters beside it own pull to refresh.
+                alwaysBounceVertical={columns ? false : undefined}
                 onScroll={onLeadingScroll ? onLeadingListScroll : undefined}
                 onScrollEndDrag={onLeadingScroll ? onLeadingListScroll : undefined}
                 onMomentumScrollEnd={onLeadingScroll ? onLeadingListScroll : undefined}
                 scrollEventThrottle={onLeadingScroll ? 64 : undefined}
-                onRefresh={listProps.onRefresh}
+                onRefresh={columns ? undefined : listProps.onRefresh}
                 refreshDisabled={listProps.refreshDisabled}
                 refreshLabel={listProps.refreshLabel}
-                refreshing={listProps.refreshing}
+                refreshing={columns ? false : listProps.refreshing}
                 contentContainerStyle={[padding.leading, exploreTop, exploreBottom]}
                 ListHeaderComponent={
                   <MobileMangaDetailPaneContext.Provider value={leadingPane}>
-                    <View style={[styles.leadingStack, pull ? { marginTop: pull } : null]}>{leading}</View>
+                    <MobileMangaDetailWashContext.Provider value={columns ? setWash : null}>
+                      <View style={[styles.leadingStack, pull ? { marginTop: pull } : null]}>{leading}</View>
+                    </MobileMangaDetailWashContext.Provider>
                   </MobileMangaDetailPaneContext.Provider>
                 }
               />
@@ -222,6 +287,7 @@ export function MobileMangaDetailSplitLayout<ItemT>({
           <MobileMangaDetailPaneContext.Provider value={trailingPane}>
             <PageListScaffold
               {...listProps}
+              style={columns ? styles.clearList : listProps.style}
               contentInsetAdjustmentBehavior={contentInsetAdjustmentBehavior}
               ListFooterComponent={
                 top && topFooter ? (
@@ -258,6 +324,9 @@ export function MobileMangaDetailSplitLayout<ItemT>({
 /** The info pane hero's own top padding (pt). */
 const PANE_HERO_TOP = 22;
 
+/** A horizontal navigation bar's height under the status bar, for the hero column's first estimate (pt). */
+const COLUMN_BAR_ESTIMATE = 50;
+
 /** The empty bar row the system still reserves on iPad (pt). */
 const IPAD_BAR_ROW_PULL = -44;
 
@@ -283,5 +352,10 @@ const styles = StyleSheet.create({
   },
   leadingStack: {
     gap: MOBILE_DETAIL_PANE_METRICS.blockGap,
+  },
+  // The columns' lists let the wash behind them show through.
+  clearList: {
+    flex: 1,
+    backgroundColor: "transparent",
   },
 });

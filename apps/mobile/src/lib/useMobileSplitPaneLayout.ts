@@ -26,6 +26,10 @@ export function useMobileSplitPaneLayout(options: MobileSplitPaneOptions): {
   containerRef: ReturnType<typeof useMobileContainerFold<ViewInstance>>["ref"];
   onContainerLayout: (event: LayoutChangeEvent) => void;
   layout: MobileSplitPaneLayout;
+  /** The container's width (the window's until measured), from the same snapshot as `layout`. */
+  containerWidth: number;
+  foldSplit: ReturnType<typeof mobileFoldSplitForContainer>;
+  adaptive: ReturnType<typeof useMobileContainerFold>["adaptive"];
 } {
   const container = useMobileContainerFold<ViewInstance>();
   const { rect } = container;
@@ -60,5 +64,12 @@ export function useMobileSplitPaneLayout(options: MobileSplitPaneOptions): {
     [adaptive.posture, adaptive.regularWidth, containerWidth, foldSplit, options],
   );
 
-  return { containerRef: container.ref, onContainerLayout: container.onLayout, layout };
+  return {
+    containerRef: container.ref,
+    onContainerLayout: container.onLayout,
+    layout,
+    containerWidth,
+    foldSplit,
+    adaptive,
+  };
 }

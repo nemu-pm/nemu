@@ -11,7 +11,27 @@ export type MobileMangaDetailPane = {
   regularWidth: boolean;
   /** Full-width chapter table: metadata fits beside the title. */
   wideChapterRows?: boolean;
+  /**
+   * New design, wide window: the hero stands in a leading column beside the
+   * chapters (`mobileMangaDetailColumns`), the cover's colour behind both.
+   */
+  columns?: boolean;
+  /** The column's content width (its padding taken off), before the hero measures itself. */
+  columnContentWidth?: number;
+  /** Where the column's content starts in the window (estimate, for sizing the cover before it lands). */
+  columnTop?: number;
 };
+
+/** The cover colours the columns' shared wash is painted in (published by the hero). */
+export type MobileMangaDetailWash = {
+  tint: import("@/lib/mobileCoverTint").MobileCoverRgb | null;
+  regions: import("@/lib/mobileCoverTint").MobileCoverRgb[] | null;
+  /** False while loading or zooming in: the plain page colour, no living mesh. */
+  mesh: boolean;
+};
+
+/** Set by the two-column layout; the hero in the leading column publishes its colours here. */
+export const MobileMangaDetailWashContext = createContext<((wash: MobileMangaDetailWash | null) => void) | null>(null);
 
 const SINGLE_COMPACT_PANE: MobileMangaDetailPane = { role: "single", regularWidth: false };
 export const MobileMangaDetailPaneContext = createContext<MobileMangaDetailPane>(SINGLE_COMPACT_PANE);
