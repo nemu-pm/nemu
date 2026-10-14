@@ -22,6 +22,8 @@ import {
   useWindowDimensions,
   View,
   type ListRenderItemInfo,
+  type StyleProp,
+  type ViewStyle,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { BottomSheetTextInput } from "@expo/ui/community/bottom-sheet";
@@ -121,7 +123,8 @@ import { MobileCollectionFolders } from "@/components/explore/MobileCollectionFo
 import { useMobileExploreCoverPreference } from "@/components/explore/mobileExploreCoverPreference";
 import { hasMobileUserCover, mobileExploreCoverOwnerUrl, pushMobileExploreDetail } from "@/components/explore/mobileExploreCover";
 import { ContentScrollMarker, ZoomSource } from "../../modules/nemu-window-layout";
-import { useReducedMotion } from "react-native-reanimated";
+import Animated, { useReducedMotion } from "react-native-reanimated";
+import { useMobilePoseResnapFade } from "@/lib/useMobilePoseResnapFade";
 import { useMobilePoseRenderProbe } from "@/lib/MobilePoseTransitionContext";
 import { useMobileGridScrollAnchor } from "@/lib/useMobileGridScrollAnchor";
 import { getMobileInstalledSourceSettingsKeys } from "@/lib/mobileInstalledSourceKeys";import {
@@ -225,16 +228,33 @@ function toMangaCard(
 /** The quick-action sheet's dismissal, before a removed title turns to dust. */
 const EXPLORE_SHEET_DISMISS_MS = 380;
 /**
- * Shelf ⇄ Grid and opening a collection (design-explore): moved rows glide on
- * one soft spring. New cells appear at once under the old ones, which fade
- * out over them, so the covers (same size and place in both layouts)
- * cross-dissolve without dipping to the page colour halfway.
+ * Opening a collection (design-explore): moved rows glide on one soft
+ * spring. New cells appear at once under the old ones, which fade out over
+ * them, so the covers (same size and place in both layouts) cross-dissolve
+ * without dipping to the page colour halfway.
  */
 const EXPLORE_LAYOUT_SPRING = {
   duration: 320,
   update: { type: LayoutAnimation.Types.spring, springDamping: 0.86 },
   delete: { type: LayoutAnimation.Types.easeOut, property: LayoutAnimation.Properties.opacity, duration: 220 },
 };
+/**
+ * One row of the library list. When Shelf ⇄ Grid changes `layoutKey`, the
+ * row is already in its new place and only dips and fades back in.
+ */
+function LibraryLayoutRow({
+  layoutKey,
+  style,
+  children,
+}: {
+  layoutKey: string;
+  style: StyleProp<ViewStyle>;
+  children: ReactNode;
+}) {
+  const settle = useMobilePoseResnapFade(layoutKey);
+  return <Animated.View style={[style, settle]}>{children}</Animated.View>;
+}
+
 const LibraryGridItem = memo(function LibraryGridItem({
   entry,
   entryProgress,
@@ -2032,18 +2052,15 @@ export function LibraryScreen({
   // The switch and the folders give their own press haptics.
   // Shelf and Grid draw the covers at the same size in the same columns, so
   // the switch only moves rows up or down (the Grid adds titles, the Shelf
-  // planks): each cover glides to its new place on one spring while the
-  // planks fade, in the same commit as the switch's pill.
-  // Reduce Motion: the new layout replaces the old at once.
+  // planks). The rows take their new places in one commit and settle there
+  // with a soft dip-and-fade (LibraryLayoutRow); a layout animation moved
+  // them twice (the spring, then the list's own re-measure) and crashed
+  // Reanimated's layout-animation proxy going back to the Shelf.
   const exploreReducedMotion = useReducedMotion();
-  const setShelfLayout = useCallback(
-    (next: boolean) => {
-      mobileLibraryShelfLayoutDefault = next;
-      if (!exploreReducedMotion) LayoutAnimation.configureNext(EXPLORE_LAYOUT_SPRING);
-      setShelfLayoutState(next);
-    },
-    [exploreReducedMotion],
-  );
+  const setShelfLayout = useCallback((next: boolean) => {
+    mobileLibraryShelfLayoutDefault = next;
+    setShelfLayoutState(next);
+  }, []);
   const shelfMode = designExplore && shelfLayout;
   const continueReadingItems = useMemo(
     () =>
@@ -2143,9 +2160,12 @@ export function LibraryScreen({
   );
   const renderLibraryRow = useCallback(
     ({ item: row, index: rowIndex }: ListRenderItemInfo<LibraryEntry[]>) => (
-      <View style={[styles.libraryRow, shelfMode ? styles.shelfRow : styles.gridRow, !shelfMode && rowIndex === 0 && designExplore && styles.firstGridRow]}>
+      <LibraryLayoutRow
+        layoutKey={shelfMode ? "shelf" : "grid"}
+        style={[styles.libraryRow, shelfMode ? styles.shelfRow : styles.gridRow, !shelfMode && rowIndex === 0 && designExplore && styles.firstGridRow]}
+      >
         {row.map((entry, column) => renderLibraryGridItem({ item: entry, index: rowIndex * gridColumns + column }))}
-      </View>
+      </LibraryLayoutRow>
     ),
     [designExplore, gridColumns, renderLibraryGridItem, shelfMode],
   );

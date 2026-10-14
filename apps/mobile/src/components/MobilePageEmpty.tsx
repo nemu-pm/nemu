@@ -79,7 +79,8 @@ export function MobilePageEmpty({
           style={[
             styles.media,
             compactHeight ? styles.compactMedia : null,
-            { backgroundColor: glyph ? tokens.primarySoft : tokens.muted },
+            // Design-explore: the glyph stands bare, no tinted tile behind it.
+            glyph ? null : { backgroundColor: tokens.muted },
           ]}
         >
           {glyph ? (

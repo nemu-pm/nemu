@@ -113,6 +113,28 @@ export function getMobileSourceBrowseRouteTabForListingId(
   return listingIndex + (hasHomeProvider ? 1 : 0);
 }
 
+/**
+ * A tab the page asked the route for (`router.setParams`), with the route's
+ * tab at that moment. The page's own selection changes at once; the route's
+ * `tab` can arrive a render later.
+ */
+export type MobileSourceBrowseRouteTabRequest = {
+  from: number | null;
+  to: number | null;
+};
+
+/**
+ * While the route still shows the tab it had when the page asked for another,
+ * the page's selection is the newer one: re-reading the old route tab would
+ * undo the tap (Home after a numbered tab snapped back to that tab).
+ */
+export function isMobileSourceBrowseRouteTabRequestPending(
+  request: MobileSourceBrowseRouteTabRequest | null,
+  routeTab: number | null,
+): boolean {
+  return request !== null && request.from !== request.to && routeTab === request.from;
+}
+
 export function getDefaultMobileSourceBrowseListingId(
   listings: SourceBrowseRouteListing[],
   hasHomeProvider: boolean,

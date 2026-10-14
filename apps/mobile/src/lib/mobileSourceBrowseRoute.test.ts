@@ -9,6 +9,7 @@ import {
   getMobileSourceBrowseRouteTabForListingId,
   hasMobileSourceBrowseRouteQuery,
   isMobileSourceBrowseHomeTabPending,
+  isMobileSourceBrowseRouteTabRequestPending,
   isMobileSourceBrowseSearchRequestPending,
   makeMobileSourceHomeGenerationKey,
   makeMobileSourceBrowseSearchRouteQuery,
@@ -717,5 +718,26 @@ describe("getMobileSourceBrowseFallbackErrorDetail", () => {
         ),
       ).toBeNull();
     }
+  });
+});
+
+describe("isMobileSourceBrowseRouteTabRequestPending", () => {
+  test("holds the page's selection while the route still shows the tab it had", () => {
+    // Recently Added (tab 2) -> Home: the route's tab is still 2 for a render.
+    expect(isMobileSourceBrowseRouteTabRequestPending({ from: 2, to: null }, 2)).toBe(true);
+    // Home -> Popular (tab 1) before the route has the new tab.
+    expect(isMobileSourceBrowseRouteTabRequestPending({ from: null, to: 1 }, null)).toBe(true);
+  });
+
+  test("lets the route lead once it has moved", () => {
+    expect(isMobileSourceBrowseRouteTabRequestPending({ from: 2, to: null }, null)).toBe(false);
+    // Moved somewhere else entirely (a link opened another tab): the route wins.
+    expect(isMobileSourceBrowseRouteTabRequestPending({ from: 2, to: null }, 3)).toBe(false);
+  });
+
+  test("nothing is pending without a request or when the tab does not change", () => {
+    expect(isMobileSourceBrowseRouteTabRequestPending(null, 2)).toBe(false);
+    // A See All listing that is not a tab of its own keeps the Home route tab.
+    expect(isMobileSourceBrowseRouteTabRequestPending({ from: null, to: null }, null)).toBe(false);
   });
 });

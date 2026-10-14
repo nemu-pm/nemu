@@ -176,8 +176,10 @@ import {
   hasMobileSourceBrowseRouteQuery,
   makeMobileSourceBrowseSearchRouteQuery,
   isMobileSourceBrowseHomeTabPending,
+  isMobileSourceBrowseRouteTabRequestPending,
   isMobileSourceBrowseSearchRequestPending,
   normalizeMobileSourceBrowseRouteQuery,
+  type MobileSourceBrowseRouteTabRequest,
   normalizeMobileSourceBrowseRouteTab,
   shouldPreserveSourceBrowseSearchItemsOnDeactivate,
   shouldRenderMobileSourceBrowseSearchHeader,
@@ -1362,6 +1364,13 @@ export function SourceBrowseScreen() {
   );
   const routeSourceSearchActive = hasMobileSourceBrowseRouteQuery(params.q);
   const routeSourceListingTab = normalizeMobileSourceBrowseRouteTab(params.tab);
+  // The tab a tap asked the route for, until the route shows it (see the
+  // selection effect): the page's selection is newer than a lagging `tab`.
+  const routeTabRequestRef = useRef<MobileSourceBrowseRouteTabRequest | null>(null);
+  const routeSourceListingTabRef = useRef(routeSourceListingTab);
+  useEffect(() => {
+    routeSourceListingTabRef.current = routeSourceListingTab;
+  }, [routeSourceListingTab]);
   const { tokens } = useNemuTheme();
   // iOS 26+: the system Liquid Glass search field, not a token-filled one.
   const headerSearchBarColors = resolveNemuHeaderSearchBarColors(
@@ -1737,8 +1746,10 @@ export function SourceBrowseScreen() {
     visibleListings.length,
   );
   // Reveal home tabs with the final home, rather than shifting a live
-  // skeleton down as metadata arrives independently of its content.
-  const homeLayoutPending = sourceHasHomeProvider && !sourceHomeHasComponents
+  // skeleton down as metadata arrives independently of its content. Only
+  // while the home is what the page shows: with a listing selected the home
+  // is not fetched, and holding the tabs left them placeholders for good.
+  const homeLayoutPending = sourceHasHomeProvider && !selectedListing && !sourceHomeHasComponents
     && (sourceHomeState.status === "idle" || sourceHomeState.status === "loading");
   const showListingTabBar = !homeLayoutPending && shouldShowMobileSourceBrowseListingTabBar({
     listingTabCount,
@@ -1890,6 +1901,18 @@ export function SourceBrowseScreen() {
     }
 
     if (routeTabSelectionPending) return;
+
+    // A tap just changed the selection and asked the route for its tab; the
+    // route still has the old one. Re-reading it would undo the tap.
+    if (
+      isMobileSourceBrowseRouteTabRequestPending(
+        routeTabRequestRef.current,
+        routeSourceListingTab,
+      )
+    ) {
+      return;
+    }
+    routeTabRequestRef.current = null;
 
     if (routeSelectedListingId) {
       if (
@@ -2757,6 +2780,7 @@ export function SourceBrowseScreen() {
       items: [],
       detail: strings.sourceBrowse.selectListingToBrowse,
     });
+    routeTabRequestRef.current = { from: routeSourceListingTabRef.current, to: null };
     router.setParams({ tab: undefined, q: undefined });
   }, [strings]);
 
@@ -2822,8 +2846,10 @@ export function SourceBrowseScreen() {
       setSubmittedSourceSearchQuery("");
       setSourceFilterValues([]);
       setSourceFilterPanelOpen(false);
+      const routeTab = nextTab === null || nextTab === 0 ? null : nextTab;
+      routeTabRequestRef.current = { from: routeSourceListingTabRef.current, to: routeTab };
       router.setParams({
-        tab: nextTab === null || nextTab === 0 ? undefined : String(nextTab),
+        tab: routeTab === null ? undefined : String(routeTab),
         q: undefined,
       });
     },

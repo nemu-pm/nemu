@@ -35,6 +35,7 @@ import { buildMobileCoverMeshColors, buildMobileCoverMeshInkSecondary } from "@/
 import { buildMobileCoverTintPalette } from "@/lib/mobileCoverTint";
 import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
 import { useMobileCoverRegionTints, useMobileCoverTint } from "@/lib/useMobileCoverTint";
+import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { ConcentricView, ZoomSource, ZoomTarget } from "../../../modules/nemu-window-layout";
 import { getMobileBooksHeroCoverWidth } from "./mobileExploreCover";
 import { useMobileExploreRestingFrame, useMobileExploreRestingTop } from "./useMobileExploreResting";
@@ -235,6 +236,7 @@ export function MobileMangaDetailBooksHero({
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const bleed = useMobilePageBleedStyles();
   const gutters = useMobilePageGutters();
+  const { verticalBarSide } = useMobileAdaptiveLayout();
   const topHeader = useContext(MobileMangaDetailTopHeaderContext);
   const top = topHeader !== null && !pane;
   const [tagSheetOpen, setTagSheetOpen] = useState(false);
@@ -362,7 +364,11 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || (top ? topTextWidth :
     statusLabel ? { label: strings.designExplore.factStatus, value: statusLabel } : null,
   ].filter((fact): fact is { label: string; value: string } => fact !== null);
   const factsRow = facts.length >= 2;
-  const factMinWidth = Math.floor(Math.min(contentWidth, WIDE_COLUMN) / Math.max(1, facts.length));
+  // Beside a vertical bar (the Duo's rail) the strip keeps to the content
+  // area the bar leaves instead of running to the window edge, and the facts
+  // share that width by what each value needs.
+  const factsInContent = verticalBarSide !== null && !pane && !top && !wide;
+  const factMinWidth = factsInContent ? 0 : Math.floor(Math.min(contentWidth, WIDE_COLUMN) / Math.max(1, facts.length));
   const primaryUnavailable = Boolean(primaryAction && (primaryAction.disabled || !primaryAction.available));
   const primaryInk = primaryUnavailable ? inkSecondary : palette.primaryInk;
   const libraryAction = secondaryActions.find((action) => action.key === "library");
@@ -726,9 +732,9 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || (top ? topTextWidth :
           // On a phone the strip runs to the screen edges (a fixed `width:
           // 100%` column kept it at the gutter, cutting the last value with
           // a hard edge); a wide window centres it in the column instead.
-          style={[wide ? column : pane ? null : bleed.frame, pushStyle("facts")]}
+          style={[wide ? column : pane || factsInContent ? null : bleed.frame, pushStyle("facts")]}
           onLayout={onFactsLayout}
-          contentContainerStyle={[styles.facts, pane || wide ? null : bleed.content]}
+          contentContainerStyle={[styles.facts, pane || wide || factsInContent ? null : bleed.content]}
         >
           {facts.map((fact, index) => (
             <View
@@ -822,8 +828,8 @@ const paneFactColumns = PixelRatio.getFontScale() > 1.3 || (top ? topTextWidth :
     pane || top ? (
       <View style={[styles.facts, { flexWrap: "wrap", rowGap: 8 }, top ? { flexGrow: 0 } : null]}>{placeholderFacts}</View>
     ) : (
-      <View style={wide ? column : bleed.frame}>
-        <View style={[styles.facts, wide ? null : bleed.content]}>{placeholderFacts}</View>
+      <View style={wide ? column : factsInContent ? null : bleed.frame}>
+        <View style={[styles.facts, wide || factsInContent ? null : bleed.content]}>{placeholderFacts}</View>
       </View>
     );
   const placeholderSynopsisNode = (

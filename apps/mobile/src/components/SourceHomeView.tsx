@@ -789,9 +789,12 @@ const EXPLORE_FEATURED_PAD = 12;
 function ExploreFeaturedWash({
   colors,
   shown,
+  reach,
 }: {
   colors: ReturnType<typeof buildMobileCoverTintPalette>;
   shown: boolean;
+  /** Solid wash above the frame, up past the window's top edge and the bounce (0: none). */
+  reach: number;
 }) {
   const opacity = useSharedValue(shown ? 1 : 0);
   useEffect(() => {
@@ -800,6 +803,9 @@ function ExploreFeaturedWash({
   const style = useAnimatedStyle(() => ({ opacity: opacity.value }));
   return (
     <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, style]}>
+      {reach > 0 ? (
+        <View style={[styles.exploreFeaturedWashReach, { height: reach, backgroundColor: colors.wash }]} />
+      ) : null}
       <ExploreGradient
         colors={[
           [colors.wash, 0],
@@ -918,6 +924,7 @@ function ExploreFeaturedCarousel({
   source,
   importingKey,
   strings,
+  first,
   onPressManga,
 }: {
   title?: string;
@@ -926,6 +933,8 @@ function ExploreFeaturedCarousel({
   source: SearchSourceDisplay;
   importingKey: string | null;
   strings: MobileStrings;
+  /** The home's first section: its wash runs up to the window's top edge, behind the bars. */
+  first: boolean;
   onPressManga: (source: SearchSourceDisplay, manga: MobileLiveSearchManga) => void;
 }) {
   const { scheme, tokens } = useNemuTheme();
@@ -968,7 +977,7 @@ function ExploreFeaturedCarousel({
       {/* Behind everything: the active card's colour, rising under the heading, fading in and out. */}
       <View pointerEvents="none" style={[styles.exploreFeaturedWashFrame, { left: -gutters.left, right: -gutters.right }]}>
         {palettes.map((colors, index) => (
-          <ExploreFeaturedWash key={index} colors={colors} shown={index === active} />
+          <ExploreFeaturedWash key={index} colors={colors} shown={index === active} reach={first ? windowHeight : 0} />
         ))}
       </View>
       <SectionHeader title={title} subtitle={subtitle} strings={strings} onListingPress={() => {}} />
@@ -1139,6 +1148,7 @@ function FeaturedSection({
   source,
   importingKey,
   strings,
+  first,
   onPressManga,
 }: {
   component: HomeComponent;
@@ -1147,6 +1157,7 @@ function FeaturedSection({
   source: SearchSourceDisplay;
   importingKey: string | null;
   strings: MobileStrings;
+  first: boolean;
   onPressManga: (
     source: SearchSourceDisplay,
     manga: MobileLiveSearchManga,
@@ -1205,6 +1216,7 @@ function FeaturedSection({
         source={source}
         importingKey={importingKey}
         strings={strings}
+        first={first}
         onPressManga={onPressManga}
       />
     );
@@ -2159,11 +2171,14 @@ const HomeFiltersSection = memo(function HomeFiltersSection({
 const HomeComponentView = memo(function HomeComponentView(
   props: SourceHomeViewProps & {
     component: HomeComponent;
+    /** The home's first section (the top of the page). */
+    first: boolean;
     onOpenLink: OpenLinkHandler;
   },
 ) {
   const {
     component,
+    first,
     status,
     source,
     importingKey,
@@ -2200,6 +2215,7 @@ const HomeComponentView = memo(function HomeComponentView(
         source={source}
         importingKey={importingKey}
         strings={strings}
+        first={first}
         onPressManga={onPressManga}
       />
     );
@@ -2487,6 +2503,7 @@ function SourceHomeViewImpl(props: SourceHomeViewProps) {
             onFilterPress={handleFilterPress}
             onOpenLink={handleOpenLink}
             component={component}
+            first={index === 0}
           />
         ))}
       </View>
@@ -2704,6 +2721,13 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: -150,
     bottom: -34,
+  },
+  // Solid wash from the frame's top up past the window's top edge.
+  exploreFeaturedWashReach: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: "100%",
   },
   exploreFeaturedPager: { flexGrow: 0 },
   exploreFeaturedCard: {
