@@ -185,6 +185,7 @@ import {
   shouldRenderMobileSourceBrowseSearchHeader,
   shouldRunMobileSourceBrowseSearchSubmitFeedback,
   shouldShowCenterSourceBrowseSearchProgress,
+  resolveMobileSourceBrowseKeptListing,
   shouldReserveMobileSourceBrowseListingTabRow,
   shouldShowMobileSourceBrowseListingTabBar,
   shouldShowMobileSourceBrowseNoMatches,
@@ -1387,6 +1388,12 @@ export function SourceBrowseScreen() {
   );
   const [selectedRuntimeListing, setSelectedRuntimeListing] =
     useState<SourcePackageListing | null>(null);
+  // The tab a home section's See All left at the end of the row (see
+  // `resolveMobileSourceBrowseKeptListing`), for this source only.
+  const [keptRuntimeListingState, setKeptRuntimeListingState] = useState<{
+    sourceKey: string | null;
+    listing: SourcePackageListing;
+  } | null>(null);
   const [listingState, setListingState] = useState<ListingBrowseState>({
     status: "idle",
     items: [],
@@ -1633,9 +1640,13 @@ export function SourceBrowseScreen() {
         : null,
     [runtimeRefreshKey, sourceProfileScope, sourceRuntimeKey],
   );
+  const keptRuntimeListing =
+    keptRuntimeListingState?.sourceKey === sourceRuntimeKey
+      ? keptRuntimeListingState.listing
+      : null;
   const visibleListings = useMemo(
-    () => mergeMobileSourceListingTabs(listings, selectedRuntimeListing),
-    [listings, selectedRuntimeListing],
+    () => mergeMobileSourceListingTabs(listings, keptRuntimeListing),
+    [keptRuntimeListing, listings],
   );
   // Filters shipped with the installed package, shaped exactly the way the
   // runtime metadata will shape them. They stand in for the runtime answer
@@ -2828,8 +2839,17 @@ export function SourceBrowseScreen() {
         sourceHasHomeProvider,
       );
 
+      const resolved = resolveMobileSourceBrowseKeptListing({
+        listing,
+        opened: options.runtimeListing,
+        kept: keptRuntimeListing,
+        listings,
+      });
       listingRequestRef.current += 1;
-      setSelectedRuntimeListing(options.runtimeListing ?? null);
+      setSelectedRuntimeListing(resolved.runtimeListing);
+      if (resolved.kept && resolved.kept !== keptRuntimeListing) {
+        setKeptRuntimeListingState({ sourceKey: sourceRuntimeKey, listing: resolved.kept });
+      }
       setSelectedListingId(listing.id);
       // Immediately switch the content area to a loading/progress state so the
       // tapped tab appears responsive: the selected tab updates and a progress
@@ -2853,7 +2873,13 @@ export function SourceBrowseScreen() {
         q: undefined,
       });
     },
-    [listings, sourceHasHomeProvider, strings.sourceBrowse.loadingListing],
+    [
+      keptRuntimeListing,
+      listings,
+      sourceHasHomeProvider,
+      sourceRuntimeKey,
+      strings.sourceBrowse.loadingListing,
+    ],
   );
 
   const changeSourceFilter = useCallback(

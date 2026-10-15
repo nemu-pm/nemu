@@ -114,6 +114,36 @@ export function getMobileSourceBrowseRouteTabForListingId(
 }
 
 /**
+ * The listing a home section's "See All" opened, as the tab it keeps at the
+ * end of the row. The tab stays for the rest of the visit: leaving it for
+ * Home or another tab only moves the selection, so the tabs never reflow
+ * under the finger. Another section's listing takes the same last slot; a
+ * package listing (already a tab) leaves it as it was.
+ *
+ * `listing` is the one being selected, `opened` the listing a home section
+ * hands over with it, `kept` the current trailing tab. Returns the runtime
+ * listing the selection resolves to (null for a package listing) and the
+ * trailing tab after it.
+ */
+export function resolveMobileSourceBrowseKeptListing<T extends SourceBrowseRouteListing>({
+  listing,
+  opened,
+  kept,
+  listings,
+}: {
+  listing: T;
+  opened: T | null | undefined;
+  kept: T | null;
+  listings: SourceBrowseRouteListing[];
+}): { runtimeListing: T | null; kept: T | null } {
+  if (listings.some((item) => item.id === listing.id)) {
+    return { runtimeListing: null, kept };
+  }
+  const runtimeListing = opened ?? (kept?.id === listing.id ? kept : listing);
+  return { runtimeListing, kept: runtimeListing };
+}
+
+/**
  * A tab the page asked the route for (`router.setParams`), with the route's
  * tab at that moment. The page's own selection changes at once; the route's
  * `tab` can arrive a render later.
