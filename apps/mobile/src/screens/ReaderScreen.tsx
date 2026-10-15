@@ -21,8 +21,12 @@ import {
   MOBILE_READER_HINGE_HINT_TIMEOUT_MS,
   type MobileReaderSideInsetLatch,
   mobileReaderVerticalBarPolicy,
+  READER_CAPSULE_ACTION_WIDTH,
+  READER_CAPSULE_HEIGHT,
   READER_CAPSULE_TITLE_FULL_MIN_WIDTH,
+  READER_CAPSULE_TITLE_MAX_WIDTH,
   READER_TOP_SCRIM_FEATHER,
+  mobileReaderTitleCapsuleWidthRange,
 } from "@/lib/mobileReaderPoseLayout";
 import type { ViewInstance } from "react-native";
 import {
@@ -137,6 +141,7 @@ import {
   READER_CAPSULE_TOKEN_OVERRIDES,
   ReaderCapsule,
 } from "@/components/reader/ReaderCapsule";
+import { ReaderBackGlyph } from "@/components/reader/ReaderBackGlyph";
 import { ReaderDarkThemeScope } from "@/components/reader/ReaderDarkThemeScope";
 import { ReaderMoreMenu } from "@/components/reader/ReaderMoreMenu";
 import { useReaderScrubPreviewThumbnails } from "@/components/reader/useReaderScrubPreviewThumbnails";
@@ -502,6 +507,7 @@ import {
   isMobileJapaneseLearningSignInRequiredError,
 } from "@/lib/mobileJapaneseLearningAuth";
 import {
+  MOBILE_READER_BACK_SYMBOL,
   MOBILE_READER_CHROME_GLYPHS,
   mobileReaderPluginGlyph,
 } from "@/lib/mobileReaderBarIcons";
@@ -2107,7 +2113,7 @@ export function ReaderScreen() {
     [enabledReaderPlugins],
   );
   // The system vertical bar shows the capsule's own Ionicons (template
-  // images the bar tints), never SF Symbols.
+  // images the bar tints); only Back is the system chevron, in both chromes.
   const dualReaderPluginIcon =
     enabledReaderPlugins.find((plugin) => plugin.id === "dual-reader")?.icon ?? null;
   const readerBarIconImages = useReaderBarIconImages(
@@ -7146,8 +7152,8 @@ export function ReaderScreen() {
       ? {
           x: readerPose.chrome.actions.x + readerPose.chrome.actions.width - 46,
           y: readerPose.chrome.actions.y,
-          width: 44,
-          height: 44,
+          width: READER_CAPSULE_ACTION_WIDTH,
+          height: READER_CAPSULE_HEIGHT,
         }
       : null);
 
@@ -7252,16 +7258,9 @@ export function ReaderScreen() {
         onPress={() => {
           navigateBack();
         }}
-        style={[
-          chromeButtonStyle,
-          { backgroundColor: "transparent" },
-        ]}
+        style={styles.readerBackButton}
       >
-        <Ionicons
-          name={MOBILE_READER_CHROME_GLYPHS.back.name}
-          size={MOBILE_READER_CHROME_GLYPHS.back.size}
-          color={readerChromeColors.secondaryText}
-        />
+        <ReaderBackGlyph color={readerChromeColors.primaryText} />
       </NemuPressable>
     );
     // Capsule chrome: one centred two-line label, like Safari's URL capsule.
@@ -7277,7 +7276,7 @@ export function ReaderScreen() {
     const compactCapsuleTitle =
       chrome.kind === "capsules" &&
       chrome.title !== null &&
-      chrome.title.width < READER_CAPSULE_TITLE_FULL_MIN_WIDTH &&
+      mobileReaderTitleCapsuleWidthRange(chrome.title.width, boundsWidth).maxWidth < READER_CAPSULE_TITLE_FULL_MIN_WIDTH &&
       readerTopPageCountLabel !== null &&
       !readerChromePagesPending;
     const capsuleTitleBlock = compactCapsuleTitle ? (
@@ -7732,7 +7731,19 @@ export function ReaderScreen() {
                 <View pointerEvents="box-none" style={{ width: actions.width }}>
                   <ReaderCapsule animateAppearance materializeDurationMs={readerChromeMaterialMs} style={styles.readerCapsuleCircle}>{backButton}</ReaderCapsule>
                 </View>
-                <ReaderCapsule animateAppearance materializeDurationMs={readerChromeMaterialMs} style={styles.readerConsoleTitleCapsule}>{capsuleTitleBlock}</ReaderCapsule>
+                {/* The flexible slot between Back and the actions; the capsule hugs its labels in it. */}
+                <View pointerEvents="box-none" style={styles.readerConsoleTitleSlot}>
+                  <ReaderCapsule
+                    animateAppearance
+                    materializeDurationMs={readerChromeMaterialMs}
+                    style={[
+                      styles.readerConsoleTitleCapsule,
+                      mobileReaderTitleCapsuleWidthRange(READER_CAPSULE_TITLE_MAX_WIDTH, boundsWidth),
+                    ]}
+                  >
+                    {capsuleTitleBlock}
+                  </ReaderCapsule>
+                </View>
                 {chrome.state === "filmstrip" ? actionsCapsule : null}
               </GlassContainer>
             }
@@ -7796,7 +7807,10 @@ export function ReaderScreen() {
                 </ReaderCapsule>
                 {titleRect ? (
                   <View pointerEvents="box-none" style={[mobileReaderAbsoluteRect(titleRect), styles.readerTitleSlot]}>
-                    <ReaderCapsule pointerEvents="auto" style={styles.readerTitleCapsule}>
+                    <ReaderCapsule
+                      pointerEvents="auto"
+                      style={[styles.readerTitleCapsule, mobileReaderTitleCapsuleWidthRange(titleRect.width, boundsWidth)]}
+                    >
                       {capsuleTitleBlock}
                     </ReaderCapsule>
                   </View>
@@ -7989,7 +8003,11 @@ export function ReaderScreen() {
                 pointerEvents="box-none"
                 style={[mobileReaderAbsoluteRect(titleRect), styles.readerTitleSlot]}
               >
-                <ReaderCapsule {...glass} pointerEvents="auto" style={styles.readerTitleCapsule}>
+                <ReaderCapsule
+                  {...glass}
+                  pointerEvents="auto"
+                  style={[styles.readerTitleCapsule, mobileReaderTitleCapsuleWidthRange(titleRect.width, boundsWidth)]}
+                >
                   {capsuleTitleBlock}
                 </ReaderCapsule>
               </Animated.View>
@@ -8241,7 +8259,7 @@ export function ReaderScreen() {
               image arrives. The label is the accessibility label. */}
           <Stack.Toolbar placement="left" tintColor={READER_CAPSULE_COLORS.primaryText}>
             <Stack.Toolbar.Button
-              icon={readerBarIconImages?.back ?? "chevron.backward"}
+              icon={MOBILE_READER_BACK_SYMBOL.name}
               iconRenderingMode="template"
               tintColor={READER_CAPSULE_COLORS.primaryText}
               accessibilityLabel={strings.common.back}
@@ -8921,10 +8939,18 @@ const styles = StyleSheet.create({
   // Safari on iPhone Duo, measured at 3x: 44pt circles and capsules, icon
   // slots 44pt wide, the title centred on two lines.
   readerCapsuleCircle: {
-    width: 44,
-    height: 44,
+    width: READER_CAPSULE_HEIGHT,
+    height: READER_CAPSULE_HEIGHT,
     alignItems: "center",
     justifyContent: "center",
+  },
+  // Back fills its circle, like a native bar's back button.
+  readerBackButton: {
+    width: READER_CAPSULE_HEIGHT,
+    height: READER_CAPSULE_HEIGHT,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: READER_CAPSULE_HEIGHT / 2,
   },
   readerCapsuleButton: {
     flexShrink: 0,
@@ -8940,7 +8966,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   readerActionsCapsule: {
-    height: 44,
+    height: READER_CAPSULE_HEIGHT,
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 2,
@@ -8950,8 +8976,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   readerTitleCapsule: {
-    maxWidth: "100%",
-    height: 44,
+    height: READER_CAPSULE_HEIGHT,
     justifyContent: "center",
     paddingHorizontal: 18,
   },
@@ -8993,10 +9018,15 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingHorizontal: 4,
   },
-  readerConsoleTitleCapsule: {
+  readerConsoleTitleSlot: {
     flex: 1,
     minWidth: 0,
-    height: 44,
+    flexDirection: "row",
+    justifyContent: "center",
+  },
+  readerConsoleTitleCapsule: {
+    flexShrink: 1,
+    height: READER_CAPSULE_HEIGHT,
     justifyContent: "center",
     paddingHorizontal: 18,
   },

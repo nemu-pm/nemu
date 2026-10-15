@@ -19,9 +19,10 @@ import {
 import type { SFSymbol } from "sf-symbols-typescript";
 import { StyleSheet, View } from "react-native";
 import { hapticSelection } from "@/lib/haptics";
+import { READER_CAPSULE_HEIGHT } from "@/lib/mobileReaderPoseLayout";
 import type { ReaderMoreMenuProps } from "./ReaderMoreMenu.types";
 
-const SIZE = 44;
+const SIZE = READER_CAPSULE_HEIGHT;
 
 /**
  * iOS: the ⋯ glyph is the label of a SwiftUI `Menu`, so a tap opens the real

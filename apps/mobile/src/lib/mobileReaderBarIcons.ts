@@ -17,6 +17,20 @@ export const MOBILE_READER_CHROME_GLYPHS = {
   notebookPanelClose: { name: "close", size: 22 },
 } as const satisfies Record<string, MobileReaderChromeGlyph>;
 
+/**
+ * iOS Back, in both chromes (the capsule and the system vertical bar): the
+ * system `chevron.backward` a native navigation bar's back button shows,
+ * measured against the app's own stack bars on iPhone Duo at 3x (a ~10.7 x
+ * 18.7pt chevron centred in a 48pt glass circle).
+ */
+export const MOBILE_READER_BACK_SYMBOL = {
+  name: "chevron.backward",
+  pointSize: 22,
+  weight: "medium",
+  /** The square the glyph is drawn in, centred in the circle. */
+  box: 28,
+} as const;
+
 /** A plugin action's glyph (the plugin's own Ionicon) at the capsule's action size. */
 export function mobileReaderPluginGlyph(icon: IoniconName): MobileReaderChromeGlyph {
   return { name: icon, size: MOBILE_READER_CHROME_GLYPHS.detectText.size };

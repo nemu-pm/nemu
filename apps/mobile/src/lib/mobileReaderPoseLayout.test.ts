@@ -12,11 +12,13 @@ import {
   mobileReaderHingeHintKey,
   mobileReaderNextSideInsetLatch,
   mobileReaderSideInsetLatchKey,
+  mobileReaderTitleCapsuleWidthRange,
   mobileReaderVerticalBarPolicy,
   MOBILE_READER_ANTICIPATED_FOLD_WIDTH,
   MOBILE_READER_HINGE_HINT_TIMEOUT_MS,
   READER_CAPSULE_EDGE,
   READER_CAPSULE_TITLE_FULL_MIN_WIDTH,
+  READER_TITLE_CAPSULE_MIN_WIDTH,
   READER_POPOVER_GAP,
   READER_SCRUBBER_CAPSULE_HEIGHT,
   READER_SCRUBBER_CAPSULE_MAX_WIDTH,
@@ -191,16 +193,16 @@ function capsules(result: MobileReaderPoseLayout) {
 }
 
 describe("reader pose: capsule chrome (regular width)", () => {
-  test("open landscape matches Safari's geometry: 44pt pieces on the status-bar row, title centred", () => {
+  test("open landscape matches the native bars' geometry: 48pt pieces on the status-bar row, title centred", () => {
     const result = pose(innerLandscapeNoBar(), { actionCount: 3 });
     expect(result.stage).toEqual({ x: 0, y: 0, width: 951, height: 669 });
     const chrome = capsules(result);
-    // Safari at 3x: back 16pt from the edge, top 26pt, 44pt tall.
-    expect(chrome.back).toEqual({ x: 16, y: 26, width: 44, height: 44 });
+    // The app's native stack bars at 3x: back 20pt from the edge, centred 48pt down, 48pt tall.
+    expect(chrome.back).toEqual({ x: 20, y: 24, width: 48, height: 48 });
     // Actions end exactly where the status bar island starts (Safari: 818).
-    expect(chrome.actions).toEqual({ x: 817 - mobileReaderCapsuleActionsWidth(3), y: 26, width: mobileReaderCapsuleActionsWidth(3), height: 44 });
+    expect(chrome.actions).toEqual({ x: 817 - mobileReaderCapsuleActionsWidth(3), y: 24, width: mobileReaderCapsuleActionsWidth(3), height: 48 });
     // 360pt title centred on the window (Safari: 296…657).
-    expect(chrome.title).toEqual({ x: 296, y: 26, width: 360, height: 44 });
+    expect(chrome.title).toEqual({ x: 296, y: 24, width: 360, height: 48 });
     expect(chrome.back.x).toBeLessThan(chrome.title!.x);
     expect(chrome.title!.x + chrome.title!.width).toBeLessThan(chrome.actions.x);
     // Scrubber: centred, width-capped, above the home indicator band.
@@ -210,7 +212,7 @@ describe("reader pose: capsule chrome (regular width)", () => {
     // Edgeless top scrim: full width, down past the 82pt inset by the feather.
     expect(chrome.topScrim).toEqual({ x: 0, y: 0, width: 951, height: 82 + 24 });
     // Cards and notices live between the rows.
-    expect(chrome.content.y).toBe(26 + 44 + 10);
+    expect(chrome.content.y).toBe(24 + 48 + 10);
     expect(chrome.content.y + chrome.content.height).toBe(chrome.scrubber.y - 10);
     // Capsule taps never turn pages; the page between them does.
     expect(mobileReaderTapExcluded({ x: 30, y: 40 }, result.tapExclusions, result.foldGap)).toBe(true);
@@ -220,7 +222,7 @@ describe("reader pose: capsule chrome (regular width)", () => {
 
   test("more actions push the title off-centre instead of overlapping it; Back never moves", () => {
     const chrome = capsules(pose(innerLandscapeNoBar(), { actionCount: 6 }));
-    expect(chrome.back.x).toBe(16);
+    expect(chrome.back.x).toBe(20);
     expect(chrome.actions.x + chrome.actions.width).toBe(817);
     expect(chrome.title).not.toBeNull();
     expect(chrome.title!.x + chrome.title!.width).toBeLessThanOrEqual(chrome.actions.x - 10);
@@ -230,7 +232,7 @@ describe("reader pose: capsule chrome (regular width)", () => {
   test("an active inner camera in the row pushes the actions left of it; Back stays top-leading", () => {
     const result = pose(innerLandscapeNoBar([], [{ id: "camera", x: 677, y: 21, width: 58, height: 37, active: true }]));
     const chrome = capsules(result);
-    expect(chrome.back.x).toBe(16);
+    expect(chrome.back.x).toBe(20);
     expect(chrome.actions.x + chrome.actions.width).toBeLessThanOrEqual(677);
   });
 
@@ -239,7 +241,7 @@ describe("reader pose: capsule chrome (regular width)", () => {
     const chrome = capsules(pose(tablet, { fallbackInsets: { top: 24, left: 0, bottom: 20, right: 0 } }));
     expect(chrome.back.y).toBe(24 + 8);
     // Below the row when the status bar spans the top.
-    expect(chrome.topScrim.height).toBe(32 + 44 + 24);
+    expect(chrome.topScrim.height).toBe(32 + 48 + 24);
   });
 
   test("a binary without the vertical-bar opt-out still keeps the capsules out of the side inset", () => {
@@ -252,7 +254,7 @@ describe("reader pose: capsule chrome (regular width)", () => {
   test("RTL layout mirrors the row: Back on the right, actions on the left", () => {
     const layout = { ...innerLandscapeNoBar(), occlusions: [{ id: "status", x: 0, y: 0, width: 134, height: 82, active: true }], layoutDirection: "rtl" as const };
     const chrome = capsules(pose(layout));
-    expect(chrome.back.x).toBe(951 - 16 - 44);
+    expect(chrome.back.x).toBe(951 - 20 - 48);
     expect(chrome.actions.x).toBe(134);
     expect(chrome.actions.x + chrome.actions.width).toBeLessThan(chrome.title!.x);
     expect(chrome.title!.x + chrome.title!.width).toBeLessThan(chrome.back.x);
@@ -261,8 +263,8 @@ describe("reader pose: capsule chrome (regular width)", () => {
   test("tablets keep the same row: Back leading, actions trailing", () => {
     const tablet: MobileWindowLayout = { width: 1366, height: 1024, supported: false, divisions: [], occlusions: [] };
     const chrome = capsules(pose(tablet, { fallbackInsets: { top: 24, left: 0, bottom: 20, right: 0 } }));
-    expect(chrome.back.x).toBe(16);
-    expect(chrome.actions.x + chrome.actions.width).toBe(1366 - 16);
+    expect(chrome.back.x).toBe(20);
+    expect(chrome.actions.x + chrome.actions.width).toBe(1366 - 20);
   });
 
   test("inner portrait keeps the full title capsule: it takes the gap between Back and the actions", () => {
@@ -278,12 +280,16 @@ describe("reader pose: capsule chrome (regular width)", () => {
       expect(chrome.actions.x + chrome.actions.width).toBe(535);
       expect(chrome.title).not.toBeNull();
       expect(chrome.title!.width).toBeGreaterThanOrEqual(READER_CAPSULE_TITLE_FULL_MIN_WIDTH);
-      expect(chrome.title!.x).toBeGreaterThanOrEqual(chrome.back.x + 44 + 10);
+      expect(chrome.title!.x).toBeGreaterThanOrEqual(chrome.back.x + 48 + 10);
       expect(chrome.title!.x + chrome.title!.width).toBeLessThanOrEqual(chrome.actions.x - 10);
+      // Centred between Back and the actions, not crowded against either.
+      const leftGap = chrome.title!.x - (chrome.back.x + chrome.back.width);
+      const rightGap = chrome.actions.x - (chrome.title!.x + chrome.title!.width);
+      expect(Math.abs(leftGap - rightGap)).toBeLessThanOrEqual(1);
     }
-    expect(capsules(pose(portrait)).back.x).toBe(16);
+    expect(capsules(pose(portrait)).back.x).toBe(20);
     // Landscape stays centred like Safari's URL capsule.
-    expect(capsules(pose(innerLandscapeNoBar(), { actionCount: 3 })).title).toEqual({ x: 296, y: 26, width: 360, height: 44 });
+    expect(capsules(pose(innerLandscapeNoBar(), { actionCount: 3 })).title).toEqual({ x: 296, y: 24, width: 360, height: 48 });
   });
 
   test("notebook: the capsule row over the top pane keeps the full title", () => {
@@ -331,7 +337,7 @@ describe("reader pose: book", () => {
       expect(overlapsBox(piece, fold)).toBe(false);
     }
     // Leading pane: Back + title; trailing pane: actions beside the status bar.
-    expect(chrome.back.x).toBe(16);
+    expect(chrome.back.x).toBe(20);
     expect(chrome.title!.x).toBeGreaterThan(chrome.back.x);
     expect(chrome.title!.x + chrome.title!.width).toBeLessThanOrEqual(455.5 - 16);
     expect(chrome.actions.x).toBeGreaterThanOrEqual(495.5);
@@ -347,7 +353,7 @@ describe("reader pose: book", () => {
     const chrome = capsules(pose(book, { twoPage: true, rtl: true }));
     expect(chrome.scrubber.x).toBeGreaterThanOrEqual(495.5);
     // Reading direction never moves Back: it stays top-leading.
-    expect(chrome.back.x).toBe(16);
+    expect(chrome.back.x).toBe(20);
   });
 
   test("single page sits in the reading-start half: left for LTR, right for RTL", () => {
@@ -358,7 +364,7 @@ describe("reader pose: book", () => {
 
   test("single page: the page keeps its pane; the controls still snap per pane, never on the fold", () => {
     const ltr = capsules(pose(book, { twoPage: false }));
-    expect(ltr.back.x).toBe(16);
+    expect(ltr.back.x).toBe(20);
     expect(ltr.actions.x).toBeGreaterThanOrEqual(495.5);
     expect(ltr.scrubber.x + ltr.scrubber.width).toBeLessThanOrEqual(455.5);
     const rtl = capsules(pose(book, { twoPage: false, rtl: true }));
@@ -369,7 +375,7 @@ describe("reader pose: book", () => {
   test("Android book (no insets, no occlusions) uses the same capsule chrome", () => {
     const android = { ...book, verticalBarEdge: null, occlusions: [], safeAreaInsets: noInsets };
     const chrome = capsules(pose(android, { twoPage: true }));
-    expect(chrome.actions.x + chrome.actions.width).toBe(951 - 16);
+    expect(chrome.actions.x + chrome.actions.width).toBe(951 - 20);
     expect(chrome.back.y).toBe(8);
   });
 
@@ -467,7 +473,7 @@ describe("reader pose helpers", () => {
     const phone = pose(phonePortrait, { fallbackInsets: insets });
     const chrome = capsules(phone);
     expect(mobileReaderPopoverPlacement(phone.chrome)).toEqual({ frame: chrome.content, bottomGap: READER_POPOVER_GAP });
-    expect(chrome.content.y).toBe(chrome.back.y + 44 + 10);
+    expect(chrome.content.y).toBe(chrome.back.y + 48 + 10);
     expect(chrome.content.y + chrome.content.height).toBe(Math.min(chrome.scrubber.y, chrome.actions.y) - 10);
     const notebook = pose(innerPortrait([hinge(0, 465, 669, 21)]));
     expect(notebook.popover).toEqual({ frame: { x: 8, y: 486, width: 653, height: 465 - 20 }, bottomGap: READER_POPOVER_GAP });
@@ -1164,14 +1170,14 @@ describe("reader pose: the trailing more (⋯) button", () => {
   const air = phone(420, 912, 68);
   const pro = phone(402, 874, 62);
 
-  test("phone portrait: a 44pt circle mirrors Back, the title centred between them", () => {
+  test("phone portrait: a 48pt circle mirrors Back, the title centred between them", () => {
     for (const layout of [air, pro]) {
       const result = pose(layout);
       const chrome = capsules(result);
       const more = chrome.more!;
       expect(more).not.toBeNull();
-      expect(more.width).toBe(44);
-      expect(more.height).toBe(44);
+      expect(more.width).toBe(48);
+      expect(more.height).toBe(48);
       expect(more.y).toBe(chrome.back.y);
       // Mirror image of Back across the window's centre line.
       expect(more.x + more.width).toBe(layout.width - READER_CAPSULE_EDGE);
@@ -1381,5 +1387,17 @@ describe("Duo full-screen canvas choices", () => {
       const landscape = pose(innerLandscapeNoBar(), { spreadMode });
       expect(landscape.spread).toBe(true);
     }
+  });
+});
+
+describe("reader title capsule width", () => {
+  test("hugs its labels between a minimum and a bit over half the window, never edge to edge", () => {
+    // Duo outer display: the slot beside the vertical bar is ~350pt, the capsule stops at 58% of the window.
+    expect(mobileReaderTitleCapsuleWidthRange(350, 466)).toEqual({ minWidth: READER_TITLE_CAPSULE_MIN_WIDTH, maxWidth: 270 });
+    // Wide windows keep the slot's own cap.
+    expect(mobileReaderTitleCapsuleWidthRange(360, 951).maxWidth).toBe(360);
+    // A narrow slot wins over the window share, and the minimum never exceeds it.
+    expect(mobileReaderTitleCapsuleWidthRange(120, 466)).toEqual({ minWidth: 120, maxWidth: 120 });
+    expect(mobileReaderTitleCapsuleWidthRange(0, 466)).toEqual({ minWidth: 0, maxWidth: 0 });
   });
 });

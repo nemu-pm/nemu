@@ -44,26 +44,50 @@ type Insets = WindowLayoutEdgeInsets;
 type Side = "left" | "right";
 
 /**
- * Capsule chrome geometry, measured from Safari on the iPhone Duo inner
- * display at 3x: 44pt circular buttons and capsules, 16pt from the window
- * edge, ~10pt between separate capsules, the URL capsule ~360pt wide and
- * centred, the row's bottom 12pt above the top safe-area edge (status bar on
- * the same row) — 26pt from the top with the Duo's 82pt top inset.
+ * Capsule chrome geometry, matched to the app's own native stack bars on the
+ * iPhone Duo inner display at 3x (iOS 26+ Liquid Glass bar items): 48pt glass
+ * circles and capsules, 20pt from the window edge, the row centred 48pt from
+ * the top with the Duo's 82pt top inset (its bottom 10pt above the top
+ * safe-area edge, the status bar on the same row); ~10pt between separate
+ * pieces and the title capsule at most ~360pt wide, centred.
  */
-export const READER_CAPSULE_HEIGHT = 44;
-export const READER_CAPSULE_EDGE = 16;
+export const READER_CAPSULE_HEIGHT = 48;
+export const READER_CAPSULE_EDGE = 20;
 export const READER_CAPSULE_GAP = 10;
-/** One icon slot in the actions capsule (a 44pt circle's width). */
+/** One icon slot in the actions capsule (a 44pt circle inside the 48pt capsule). */
 export const READER_CAPSULE_ACTION_WIDTH = 44;
-/** Inner padding at each end of the actions capsule. */
+/** Inner padding at each end of the actions capsule (its slots sit concentric in it). */
 export const READER_CAPSULE_ACTIONS_PADDING = 2;
 export const READER_CAPSULE_TITLE_MAX_WIDTH = 360;
 /** At or above this the title capsule shows the title + "Chapter · n/N"; below it only n/N. */
 export const READER_CAPSULE_TITLE_FULL_MIN_WIDTH = 160;
 /** Below this the title capsule is dropped rather than squeezed. */
 export const READER_CAPSULE_TITLE_MIN_WIDTH = 96;
+/**
+ * The title capsule itself (inside its slot) hugs its two label lines: an
+ * elongated capsule, never narrower than this...
+ */
+export const READER_TITLE_CAPSULE_MIN_WIDTH = 160;
+/** ...nor wider than this share of the window (a bit over half), so it never runs edge to edge. */
+export const READER_TITLE_CAPSULE_MAX_WINDOW_SHARE = 0.58;
+
+/**
+ * The width range of the title capsule drawn in a `title` slot of
+ * `slotWidth` (it is centred in the slot and hugs its labels within the
+ * range); long titles truncate inside it.
+ */
+export function mobileReaderTitleCapsuleWidthRange(
+  slotWidth: number,
+  windowWidth: number,
+): { minWidth: number; maxWidth: number } {
+  const maxWidth = Math.max(
+    0,
+    Math.min(slotWidth, READER_CAPSULE_TITLE_MAX_WIDTH, Math.round(windowWidth * READER_TITLE_CAPSULE_MAX_WINDOW_SHARE)),
+  );
+  return { minWidth: Math.min(READER_TITLE_CAPSULE_MIN_WIDTH, maxWidth), maxWidth };
+}
 /** Gap between the row's bottom and the top safe-area edge when the status bar shares the row. */
-export const READER_CAPSULE_ROW_BOTTOM_GAP = 12;
+export const READER_CAPSULE_ROW_BOTTOM_GAP = 10;
 /** Gap below the top safe-area edge when the status bar spans the top (no shared row). */
 export const READER_CAPSULE_ROW_TOP_GAP = 8;
 /** Gap under a status island when the row cannot share its band (compact outer display). */
@@ -468,23 +492,22 @@ function capsuleChromeAt(input: CapsuleChromeInput, rowTop: number): Extract<Mob
   const available = maxX - minX;
   let title: Rect | null = null;
   if (available >= READER_CAPSULE_TITLE_MIN_WIDTH) {
-    // Centred when a centred capsule still holds the full title (Safari's URL
-    // capsule); otherwise take the whole gap off-centre rather than shrink to
-    // a page count (inner portrait: the actions and status island crowd the
-    // centre).
-    const half = Math.min(input.titleCenterX - minX, maxX - input.titleCenterX);
-    const centredWidth = Math.min(READER_CAPSULE_TITLE_MAX_WIDTH, Math.max(0, half * 2));
-    const width = titleOnly
-      ? Math.min(READER_CAPSULE_TITLE_MAX_WIDTH, available)
-      : centredWidth >= READER_CAPSULE_TITLE_FULL_MIN_WIDTH
-        ? centredWidth
-        : Math.min(READER_CAPSULE_TITLE_MAX_WIDTH, available);
+    // Centred on `titleCenterX` (a native bar's centred title) when the
+    // whole slot fits there; otherwise centred in the gap between Back and
+    // the trailing piece (the actions, the ⋯ circle or the pane's inner
+    // edge), so neither side crowds it. The capsule drawn in this slot hugs
+    // its labels within `mobileReaderTitleCapsuleWidthRange`, centred in it.
+    const width = Math.min(READER_CAPSULE_TITLE_MAX_WIDTH, available);
     const centred = input.titleCenterX - width / 2;
+    const fitsCentred = centred >= minX && centred + width <= maxX;
     // Title only (the bar carries Back): top-leading, like a navigation title.
     const x = titleOnly
       ? ltr ? minX : maxX - width
-      : Math.max(minX, Math.min(maxX - width, centred));
-    title = { x: Math.round(x), y: rowTop, width: Math.round(width), height: h };
+      : fitsCentred ? centred : minX + (available - width) / 2;
+    // Whole points, still inside [minX, maxX] after rounding.
+    const roundedWidth = Math.floor(width);
+    const roundedX = Math.max(Math.ceil(minX), Math.min(Math.round(x), Math.floor(maxX - roundedWidth)));
+    title = { x: roundedX, y: rowTop, width: roundedWidth, height: h };
   }
   return capsuleChromeFinish(input, rowTop, back, title, more, actions, bottomActions);
 }
