@@ -139,6 +139,8 @@ const PANE_TOP_BELOW_REST = 70;
 const PANE_COVER_MIN_WIDTH = 52;
 /** The glass capsule and chip heights (ExploreGlass), for the loading bars. */
 const ACTION_HEIGHT = 46;
+/** The gap between the hero's action buttons (styles.actions). */
+const ACTION_GAP = 10;
 const CHIP_HEIGHT = 32;
 const PLACEHOLDER_CHIP_WIDTHS = [68, 56, 80] as const;
 /** The add sheet's dismissal, before the In Library pill celebrates. */
@@ -473,6 +475,15 @@ const paneFactColumns =
   }, []);
   const onHeadLayout = useMemo(() => measureBlock("head"), [measureBlock]);
   const onActionsLayout = useMemo(() => measureBlock("actions"), [measureBlock]);
+  // Beside the round tick, Continue keeps the width it has beside Add to
+  // Library: half the row less half the gap, in points from the row's own
+  // measured width (a % basis doesn't resolve here and collapsed it).
+  const [actionsRowWidth, setActionsRowWidth] = useState<number | null>(null);
+  const onActionsRowLayout = useCallback((event: LayoutChangeEvent) => {
+    const next = Math.round(event.nativeEvent.layout.width);
+    setActionsRowWidth((current) => (current === next ? current : next));
+  }, []);
+  const halfActionWidth = actionsRowWidth ? Math.floor((actionsRowWidth - ACTION_GAP) / 2) : null;
   const onFactsLayout = useMemo(() => measureBlock("facts"), [measureBlock]);
   const onTagsLayout = useMemo(() => measureBlock("tags"), [measureBlock]);
   const [synopsisMeasure, setSynopsisMeasure] = useState<{ lines: number; lineHeight: number } | null>(null);
@@ -744,8 +755,20 @@ const paneFactColumns =
     <>
       {primaryAction || secondaryActions.length ? (
         <View style={[styles.actionsBlock, column, inColumn ? styles.columnActions : null, pushStyle("actions")]} onLayout={onActionsLayout}>
-          <View style={styles.actions}>
+          <View style={[styles.actions, libraryAction && libraryAdded && !top ? styles.actionsCentred : null]} onLayout={onActionsRowLayout}>
             {primaryAction ? (
+              <View
+                // One view per state: changing flex props on the same view
+                // across add/remove left the old sizing in place.
+                key={libraryAction && libraryAdded && !top ? "half" : "flex"}
+                style={
+                  top
+                    ? styles.topPrimaryButton
+                    : libraryAction && libraryAdded && halfActionWidth
+                      ? { width: halfActionWidth }
+                      : styles.flexButton
+                }
+              >
               <ExploreGlassButton
                 prominent
                 // The cover's own colour at strength, on the page's lighter
@@ -779,8 +802,8 @@ const paneFactColumns =
                   )
                 }
                 onPress={primaryAction.onPress}
-                style={top ? styles.topPrimaryButton : styles.flexButton}
               />
+              </View>
             ) : null}
             {libraryAction ? (
               <LibraryPop
@@ -955,8 +978,12 @@ const paneFactColumns =
   );
   const placeholderActionsNode = (
     <View style={[styles.actionsBlock, column, inColumn ? styles.columnActions : null]}>
-      <View style={styles.actions}>
-        {bar("100%", ACTION_HEIGHT, [top ? styles.topPrimaryButton : styles.flexButton, styles.placeholderCapsule])}
+      <View style={[styles.actions, placeholderRoundSecondary && !top ? styles.actionsCentred : null]} onLayout={onActionsRowLayout}>
+        {placeholderRoundSecondary && !top ? (
+          <View style={halfActionWidth ? { width: halfActionWidth } : styles.flexButton}>{bar("100%", ACTION_HEIGHT, styles.placeholderCapsule)}</View>
+        ) : (
+          bar("100%", ACTION_HEIGHT, [top ? styles.topPrimaryButton : styles.flexButton, styles.placeholderCapsule])
+        )}
         {placeholderRoundSecondary
           ? bar(ACTION_HEIGHT, ACTION_HEIGHT, styles.placeholderCapsule)
           : bar("100%", ACTION_HEIGHT, [top ? styles.topPrimaryButton : styles.flexButton, styles.placeholderCapsule])}
@@ -1460,7 +1487,7 @@ const styles = StyleSheet.create({
   actions: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: ACTION_GAP,
   },
   compactButton: {
     flexGrow: 0,
@@ -1474,6 +1501,9 @@ const styles = StyleSheet.create({
   },
   // The wide header: the capsule keeps a phone-portrait width instead of
   // stretching across the text column, the library button right beside it.
+  actionsCentred: {
+    justifyContent: "center",
+  },
   topPrimaryButton: {
     flexGrow: 1,
     flexShrink: 1,
