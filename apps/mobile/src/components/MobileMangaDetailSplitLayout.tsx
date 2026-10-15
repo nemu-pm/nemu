@@ -45,6 +45,7 @@ import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { useMobileSplitPaneLayout } from "@/lib/useMobileSplitPaneLayout";
 import { useMobilePoseTransition } from "@/lib/MobilePoseTransitionContext";
 import { useMobilePoseResnapFade } from "@/lib/useMobilePoseResnapFade";
+import { useMobileStaleColumnsGuard } from "@/lib/useMobileStaleColumnsGuard";
 
 type ChapterListProps<ItemT> = Omit<
   ComponentProps<typeof PageListScaffold<ItemT>>,
@@ -165,9 +166,12 @@ export function MobileMangaDetailSplitLayout<ItemT>({
   const columnContentWidth = columns
     ? Math.max(0, columns.leading.width - padding.leading.paddingLeft - padding.leading.paddingRight)
     : undefined;
-  // Beside a vertical bar the column starts at the top safe area; under a
-  // bar, about a bar's height lower.
-  const columnTop = barOnSide ? (exploreTop?.paddingTop ?? insets.top) : insets.top + COLUMN_BAR_ESTIMATE;
+  // Where the hero column's content starts in the window. Beside a vertical
+  // bar: its own top padding. Under a bar: the bar's inset, the page's top
+  // padding and the iPad pull.
+  const columnTop = barOnSide
+    ? (exploreTop?.paddingTop ?? insets.top)
+    : insets.top + COLUMN_BAR_INSET + (exploreTop?.paddingTop ?? 0) + pull;
   const leadingPane = useMemo<MobileMangaDetailPane>(
     () => ({ role: "leading", regularWidth: true, columns: Boolean(columns), columnContentWidth, columnTop }),
     [columns, columnContentWidth, columnTop],
@@ -208,6 +212,9 @@ export function MobileMangaDetailSplitLayout<ItemT>({
     split ? `${split.alignment}:${Math.round(split.trailing.x)}:${Math.round(split.trailing.width)}` : "single",
     { poseChangesOnly: true },
   );
+  // A resize shows the columns at their old widths in the new window for a
+  // few frames before the layout for it commits: they are hidden meanwhile.
+  const { ref: staleGuardRef, style: staleGuardStyle } = useMobileStaleColumnsGuard(columns ? containerWidth : null);
 
   return (
     <LayoutAnimationConfig skipEntering skipExiting>
@@ -220,6 +227,7 @@ export function MobileMangaDetailSplitLayout<ItemT>({
           split ? styles.row : null,
         ]}
       >
+        <Animated.View key="guard" ref={staleGuardRef} pointerEvents="none" style={StyleSheet.absoluteFill} />
         {columns ? (
           // Behind both columns and a vertical system bar: the cover's colour.
           <MobileMangaDetailColumnsWash key="wash" wash={wash} heroWidth={columns.leading.width} />
@@ -239,6 +247,7 @@ export function MobileMangaDetailSplitLayout<ItemT>({
               split.alignment === "flat" && !columns
                 ? { borderEndWidth: StyleSheet.hairlineWidth, borderEndColor: tokens.border }
                 : null,
+              staleGuardStyle,
             ]}
           >
             <Animated.View style={[styles.fill, leadingSettle]}>
@@ -285,6 +294,7 @@ export function MobileMangaDetailSplitLayout<ItemT>({
           style={[split ? [styles.pane, { width: split.trailing.width }] : styles.fill, trailingSettle]}
         >
           <MobileMangaDetailPaneContext.Provider value={trailingPane}>
+            <Animated.View style={[styles.fill, staleGuardStyle]}>
             <PageListScaffold
               {...listProps}
               style={columns ? styles.clearList : listProps.style}
@@ -314,6 +324,7 @@ export function MobileMangaDetailSplitLayout<ItemT>({
                 </View>
               }
             />
+            </Animated.View>
           </MobileMangaDetailPaneContext.Provider>
         </Animated.View>
       </View>
@@ -324,8 +335,12 @@ export function MobileMangaDetailSplitLayout<ItemT>({
 /** The info pane hero's own top padding (pt). */
 const PANE_HERO_TOP = 22;
 
-/** A horizontal navigation bar's height under the status bar, for the hero column's first estimate (pt). */
-const COLUMN_BAR_ESTIMATE = 50;
+/**
+ * The inset a regular-width window's bar (with the tab strip) adds under the
+ * status bar (pt; measured on the iPad, iOS 27: the hero column's content
+ * starts at 24 + 62 + 4 - 44 = 46).
+ */
+const COLUMN_BAR_INSET = 62;
 
 /** The empty bar row the system still reserves on iPad (pt). */
 const IPAD_BAR_ROW_PULL = -44;

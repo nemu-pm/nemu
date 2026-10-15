@@ -942,7 +942,7 @@ export function SourceMangaScreen() {
     () => (mobileDesignExploreFlag ? getMobileChapterVolumeHeaders(visibleChapters) : null),
     [visibleChapters],
   );
-  // …and the group most chapters share, named once above the list.
+  // …and the group every chapter shares, which the rows leave out.
   const chapterCommonGroup = useMemo(
     () => (mobileDesignExploreFlag ? getMobileChapterListCommonGroup(visibleChapters) : null),
     [visibleChapters],
@@ -1158,7 +1158,7 @@ export function SourceMangaScreen() {
     [openReader],
   );
   const renderExploreChapterRow = useCallback(
-    ({ item, index }: ListRenderItemInfo<MobileChapterRow>) => {
+    ({ item }: ListRenderItemInfo<MobileChapterRow>) => {
       const chapter = item.chapters[0];
       return (
         <MobileExploreChapterRow
@@ -1166,11 +1166,6 @@ export function SourceMangaScreen() {
           progress={localState.chapterProgress[chapter.id]}
           header={chapterVolumeHeaders?.get(chapter.id) ?? null}
           commonGroup={chapterCommonGroup}
-          caption={
-            index === 0 && chapterCommonGroup
-              ? formatMobileString(strings.designExplore.chapterListGroup, { group: chapterCommonGroup })
-              : null
-          }
           upNext={chapter.id === upNextChapterId}
           dropVolume={Boolean(chapterVolumeHeaders?.size)}
           busy={readerActionBusy}

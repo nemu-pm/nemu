@@ -95,11 +95,13 @@ describe("design-explore chapter list", () => {
     expect(findMobileUpNextIndex(list, {}, { chapter: chapter("x", 40), sameSource: false })).toBeNull();
   });
 
-  test("a group most chapters share is said once, not under every row", () => {
+  test("a group every chapter shares is left off the rows; differing groups stay on them", () => {
     const withGroup = (id: string, scanlator?: string): ChapterSummary => ({ id, scanlator });
     const same = ["1", "2", "3", "4", "5"].map((id) => withGroup(id, "单话"));
     expect(getMobileChapterListCommonGroup(same)).toBe("单话");
-    expect(getMobileChapterListCommonGroup([...same.slice(0, 4), withGroup("x", "Flame Scans")])).toBe("单话");
+    // One chapter by another group: every row says its own.
+    expect(getMobileChapterListCommonGroup([...same.slice(0, 4), withGroup("x", "Flame Scans")])).toBeNull();
+    expect(getMobileChapterListCommonGroup([...same.slice(0, 4), withGroup("x")])).toBeNull();
     // Alternating groups, too few rows, or no groups: rows keep their own.
     expect(
       getMobileChapterListCommonGroup([withGroup("a", "A"), withGroup("b", "B"), withGroup("c", "A"), withGroup("d", "B")]),

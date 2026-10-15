@@ -163,12 +163,13 @@ export function findMobileUpNextIndex(
 }
 
 /**
- * The group (scanlator) most of the list shares, to say once above the list
- * instead of under every row: "单话" or "Flame Scans" under 150 chapters says
- * nothing per row. Needs at least four chapters and 80 % of them, so a list
- * that genuinely alternates groups keeps them on the rows. Null otherwise.
+ * The group (scanlator) every chapter of the list shares, which the rows then
+ * leave out: "单话" or "Flame Scans" under 150 chapters says nothing per row,
+ * and it is not named anywhere else either (a credit line over the list read
+ * as clutter). Needs at least four chapters, all of them in that group; a list
+ * whose groups differ keeps each row's own group on its second line.
  */
-export const MOBILE_CHAPTER_COMMON_GROUP_SHARE = 0.8;
+export const MOBILE_CHAPTER_COMMON_GROUP_SHARE = 1;
 
 export function getMobileChapterListCommonGroup(chapters: readonly Pick<ChapterSummary, "scanlator">[]): string | null {
   if (chapters.length < 4) return null;

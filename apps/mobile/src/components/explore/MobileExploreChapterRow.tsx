@@ -23,7 +23,7 @@ export type MobileExploreChapterAction = "read" | "start";
 /**
  * One chapter in the design-explore list: a single column whose state reads
  * at a glance from a glyph before the title (one stroke weight throughout):
- * a filled dot for a new chapter, a ring that fills with the pages read for
+ * a ring that fills with the pages read for
  * one in progress, a check for a read one (whose title also steps back), a
  * lock for a locked one, nothing for a plain unread one. The chapter to read
  * next carries a soft tint and an "Up next" tag. A volume header sits above
@@ -36,7 +36,6 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
   progress,
   header,
   commonGroup,
-  caption,
   upNext,
   dropVolume,
   busy,
@@ -46,10 +45,8 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
   chapter: ChapterSummary;
   progress: LocalChapterProgress | undefined;
   header: MobileChapterVolumeHeader | null;
-  /** The group most of the list shares: named once in `caption`, not on this row. */
+  /** The group every chapter of the list shares: left off this row. */
   commonGroup: string | null;
-  /** First row only: the line above the list naming that group. */
-  caption?: string | null;
   upNext: boolean;
   /** The volume is in the header: the row says just the chapter. */
   dropVolume: boolean;
@@ -102,16 +99,6 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
 
   return (
     <View>
-      {caption ? (
-        <NemuText
-          maxFontSizeMultiplier={TEXT_MAX_SCALE}
-          numberOfLines={1}
-          color={tokens.mutedForeground}
-          style={styles.caption}
-        >
-          {caption}
-        </NemuText>
-      ) : null}
       {header ? <VolumeHeader header={header} strings={strings} /> : null}
       <ContextMenuView items={items} onMenuAction={menu} style={styles.menu}>
         <NemuPressable
@@ -138,10 +125,7 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
               <CheckGlyph color={glyphColor} />
             ) : ratio !== null ? (
               <RingGlyph color={glyphColor} track={nemuColorWithAlpha(glyphColor, 0.22)} ratio={ratio} />
-            ) : (
-              // Every unread chapter carries the one dot; a new one a touch larger.
-              <View style={[styles.dot, presentation.isNew ? styles.dotNew : null, { backgroundColor: glyphColor }]} />
-            )}
+            ) : null}
           </View>
           <View style={[styles.text, styles.textRow, { borderBottomColor: tokens.border }]}>
             <View style={[styles.textBody, wide ? styles.wideBody : null]}>
@@ -278,16 +262,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingBottom: StyleSheet.hairlineWidth,
   },
-  dot: {
-    width: 7,
-    height: 7,
-    borderRadius: 7 / 2,
-  },
-  dotNew: {
-    width: 8,
-    height: 8,
-    borderRadius: 8 / 2,
-  },
   text: {
     flex: 1,
     minWidth: 0,
@@ -345,15 +319,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
     fontWeight: nemuFontWeight.semibold,
-  },
-  // On the titles' edge (past the state glyph column), as a line about them.
-  caption: {
-    paddingTop: 4,
-    paddingBottom: 2,
-    paddingLeft: 30,
-    paddingRight: 8,
-    fontSize: 13,
-    lineHeight: 17,
   },
   header: {
     flexDirection: "row",

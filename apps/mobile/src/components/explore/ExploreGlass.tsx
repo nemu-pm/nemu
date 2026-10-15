@@ -90,8 +90,15 @@ export function ExploreGlassButton({
   disabled = false,
   style,
   shortLabel,
+  subtitle,
+  iconOnly = false,
 }: {
+  /** Also the accessibility label of an `iconOnly` button. */
   label: string;
+  /** Only the glyph, centred; the label is not shown. */
+  iconOnly?: boolean;
+  /** A second, smaller line under the label. */
+  subtitle?: string;
   /**
    * Said instead of `label` when the whole label does not fit the capsule
    * ("Continue" for "Continue Chapter 131" in a narrow pane): a label is
@@ -168,15 +175,26 @@ export function ExploreGlassButton({
         ) : (
           iconNode ?? (icon ? <Ionicons name={icon} size={CAPSULE_GLYPH} color={ink} /> : null)
         )}
-        <NemuText
-          numberOfLines={1}
-          maxFontSizeMultiplier={GLASS_TEXT_MAX_SCALE}
-          color={ink}
-          style={styles.capsuleText}
-        >
-          {shown}
-        </NemuText>
-        {shortLabel ? (
+        {iconOnly ? null : subtitle ? (
+          <View style={styles.capsuleLabels}>
+            <NemuText numberOfLines={1} maxFontSizeMultiplier={GLASS_TEXT_MAX_SCALE} color={ink} style={styles.capsuleTextTight}>
+              {shown}
+            </NemuText>
+            <NemuText numberOfLines={1} maxFontSizeMultiplier={GLASS_TEXT_MAX_SCALE} color={ink} style={styles.capsuleSubtitle}>
+              {subtitle}
+            </NemuText>
+          </View>
+        ) : (
+          <NemuText
+            numberOfLines={1}
+            maxFontSizeMultiplier={GLASS_TEXT_MAX_SCALE}
+            color={ink}
+            style={styles.capsuleText}
+          >
+            {shown}
+          </NemuText>
+        )}
+        {shortLabel && !iconOnly ? (
           // The whole label's natural width, measured off screen.
           <View pointerEvents="none" style={styles.measureBox} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
             <NemuText
@@ -345,6 +363,21 @@ const styles = StyleSheet.create({
   },
   measureText: {
     flexShrink: 0,
+  },
+  capsuleLabels: {
+    flexShrink: 1,
+    alignItems: "flex-start",
+  },
+  capsuleTextTight: {
+    fontSize: 16,
+    lineHeight: 19,
+    fontWeight: nemuFontWeight.semibold,
+  },
+  capsuleSubtitle: {
+    fontSize: 11,
+    lineHeight: 13,
+    fontWeight: nemuFontWeight.medium,
+    opacity: 0.85,
   },
   capsuleText: {
     flexShrink: 1,

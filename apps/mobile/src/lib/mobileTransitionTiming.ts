@@ -18,6 +18,18 @@ let reduceMotion = false;
 let installed = false;
 let armedFor = "";
 let lastWindow = Dimensions.get("window");
+const listeners = new Set<(report: WindowTransitionTiming) => void>();
+
+/**
+ * Called with every native size-transition report, before the window takes
+ * the new size (from `viewWillTransition(to:with:)`). Returns the unsubscribe.
+ */
+export function subscribeMobileSystemTransition(listener: (report: WindowTransitionTiming) => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
 
 /** Duration of the latest system transition (ms), if one was reported in the last few seconds. */
 export function getMobileSystemTransitionMs(): number | null {
@@ -44,6 +56,7 @@ function arm(width: number, height: number) {
 export function reportMobileSystemTransition(report: WindowTransitionTiming) {
   if (!installed) return;
   timing = { durationMs: report.durationMs, curve: report.curve, at: Date.now() };
+  for (const listener of listeners) listener(report);
   if (report.width !== lastWindow.width || report.height !== lastWindow.height) arm(report.width, report.height);
 }
 

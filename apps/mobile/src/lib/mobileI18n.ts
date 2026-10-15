@@ -1158,6 +1158,10 @@ export type MobileStrings = {
     factChapters: string;
     factLatest: string;
     factStatus: string;
+    /** Wide detail meta line: chapter count and how far the series has got. */
+    metaChapterCountOne: string;
+    metaChapterCountOther: string;
+    metaLatest: string;
     /** Chapter list (design-explore): the chapter to read next, its menu and its volume headers. */
     chapterUpNext: string;
     chapterContinue: string;
@@ -1173,7 +1177,6 @@ export type MobileStrings = {
     libraryEmptyBrowse: string;
     libraryEmptySearch: string;
     /** Caption above a chapter list whose chapters (nearly) all come from one group or category. */
-    chapterListGroup: string;
     /** Search idle page: heading over recent searches. */
     searchRecent: string;
     /** Search idle page: clears the recent searches. */

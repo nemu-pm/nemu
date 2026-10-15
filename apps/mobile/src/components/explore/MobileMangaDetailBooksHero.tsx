@@ -31,6 +31,7 @@ import {
   NemuPressable,
   NemuText,
   radius,
+  spacing,
   useMobilePageBleedStyles,
   useMobilePageGutters,
   useNemuTheme,
@@ -44,6 +45,7 @@ import { getMobileBooksHeroCoverWidth } from "./mobileExploreCover";
 import { useMobileExploreRestingFrame, useMobileExploreRestingTop } from "./useMobileExploreResting";
 import { fitMobileRestingContent, isMobileCompactHeight, MOBILE_RESTING, type MobileRestingBlock } from "@/lib/mobileExploreRestingFit";
 import { ExploreGlassButton, ExploreGlassChip, ExploreGlassIconButton } from "./ExploreGlass";
+import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { ExploreGradient } from "./ExploreGradient";
 import RNCMaskedView from "@react-native-masked-view/masked-view";
 import { MobileCoverMeshBackground } from "./MobileCoverMeshBackground";
@@ -105,6 +107,14 @@ const HERO_COMPACT_COVER_BELOW = 120;
 const COVER_MIN_WIDTH = 150;
 /** Gap between the hero's blocks (`styles.root.gap`). */
 const BLOCK_GAP = 16;
+/**
+ * The wide page's hero column: the synopsis lines its cover leaves room for
+ * (a real paragraph, not two lines), and the smallest the cover gets for them.
+ */
+const COLUMN_PARAGRAPH_LINES = 5;
+const COLUMN_COVER_MIN_WIDTH = 120;
+/** The hero column's action row at most (pt): the Duo inner display's column. */
+const COLUMN_ACTIONS_MAX_WIDTH = 360;
 /** `styles.head.paddingTop`: the cover's top below the hero's. */
 const HEAD_PADDING_TOP = 8;
 /** First-commit estimates of the blocks the cover's size depends on (scaled with the text). */
@@ -183,6 +193,7 @@ export function MobileMangaDetailBooksHero({
   dissolveId = null,
   pane: paneProp = false,
   placeholder = false,
+  placeholderRoundSecondary = false,
   pending = false,
   onTitleBottom,
   strings,
@@ -229,6 +240,11 @@ export function MobileMangaDetailBooksHero({
    * place of the text, so the cover and the blocks stay put when it lands.
    */
   placeholder?: boolean;
+  /**
+   * The loaded row is Continue and a round button (the library page's
+   * collections), not two capsules: the placeholder row is the same.
+   */
+  placeholderRoundSecondary?: boolean;
   /** The details are still loading (what is shown came from the listing). */
   pending?: boolean;
   /** Where the title block ends, from the hero's top (the bar title appears once it scrolls away). */
@@ -240,6 +256,7 @@ export function MobileMangaDetailBooksHero({
   const pulseStyle = useAnimatedStyle(() => ({ opacity: pulse.value }));
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const bleed = useMobilePageBleedStyles();
+  const { verticalBarSide } = useMobileAdaptiveLayout();
   const gutters = useMobilePageGutters();
   // The wide two-column page: the hero stands in the leading column as the
   // phone's stacked hero (no panel, no wash of its own: the page behind both
@@ -286,10 +303,11 @@ export function MobileMangaDetailBooksHero({
 // one type size every fact shares; narrower, they stack 2 x 2 (never shrunk).
 const topCoverWidth = Math.round(Math.min(230, Math.max(150, contentWidth * 0.24)));
 const topTextWidth = contentWidth - topCoverWidth - 28;
-// The wide page's hero column always stacks them 2 x 2, like a side pane:
-// a quarter of it is narrower than a source name.
+// (The wide page's hero column shows them as one meta line instead.)
 const paneFactColumns =
-    inColumn || PixelRatio.getFontScale() > 1.3 || (top ? topTextWidth : contentWidth) < PANE_FACTS_ROW_MIN_WIDTH ? 2 : 4;
+    inColumn
+      ? 2
+      : PixelRatio.getFontScale() > 1.3 || (top ? topTextWidth : contentWidth) < PANE_FACTS_ROW_MIN_WIDTH ? 2 : 4;
   /** The facts and genres wrap in their column rather than run to the window edges. */
   const grid = pane || top || inColumn;
   const rest = useMobileExploreRestingFrame();
@@ -305,12 +323,14 @@ const paneFactColumns =
   // The hero column's blocks under the cover, estimated (the same at loading
   // and loaded, and whether or not the synopsis is open).
   const columnTop = detailPane.columnTop ?? rest.topEstimate;
+  // The facts sit in the head as one meta line under the authors.
+  const columnFactsEstimate = (scale: number) => (sizedFacts < 2 ? 0 : 4 + 18 * scale);
   const columnBlocks = (synopsisLines: number) => {
     const scale = rest.fontScale(HERO_TEXT_MAX_SCALE);
     return (
       ESTIMATE.headText * scale +
       (hasActions ? BLOCK_GAP + ESTIMATE.actions * scale : 0) +
-      (sizedFacts >= 2 ? BLOCK_GAP + ESTIMATE.facts * scale * 2 + 8 : 0) +
+      columnFactsEstimate(scale) +
       (sizedSynopsis ? BLOCK_GAP + synopsisLines * DESCRIPTION_LINE_HEIGHT * scale : 0) +
       (sizing || badges.length || tags?.length ? BLOCK_GAP + CHIP_HEIGHT * scale : 0)
     );
@@ -340,14 +360,14 @@ const paneFactColumns =
         PANE_PADDING;
       return Math.max(PANE_COVER_MIN_WIDTH, Math.min(HERO_COMPACT_COVER_BELOW - 1, Math.floor(room / 1.5)));
     }
-    if (naturalCoverWidth <= COVER_MIN_WIDTH) return naturalCoverWidth;
+    if (naturalCoverWidth <= (inColumn ? COLUMN_COVER_MIN_WIDTH : COVER_MIN_WIDTH)) return naturalCoverWidth;
     const scale = rest.fontScale(HERO_TEXT_MAX_SCALE);
     if (inColumn) {
       // The wide page's hero column holds still, as a whole: the cover takes
-      // what is left once the title, actions, facts (2 x 2), two synopsis
-      // lines and a row of genres rest above the window's bottom.
-      const room = rest.edge - MOBILE_RESTING.margin - columnTop - HEAD_PADDING_TOP - columnBlocks(DESCRIPTION_MIN_LINES);
-      return Math.max(COVER_MIN_WIDTH, Math.min(naturalCoverWidth, Math.floor(room / 1.5)));
+      // what is left once the title, actions, facts, a paragraph of synopsis
+      // and the row of genres rest above the window's bottom.
+      const room = rest.edge - MOBILE_RESTING.margin - columnTop - HEAD_PADDING_TOP - columnBlocks(COLUMN_PARAGRAPH_LINES);
+      return Math.max(COLUMN_COVER_MIN_WIDTH, Math.min(naturalCoverWidth, Math.floor(room / 1.5)));
     }
     const naturalHeight = Math.round(naturalCoverWidth * 1.5);
     const minHeight = Math.round(COVER_MIN_WIDTH * 1.5);
@@ -379,7 +399,7 @@ const paneFactColumns =
   // variant is picked upstream); only a short pane's small-cover head (cover
   // beside the title) comes from the window, never from the cover's pixels.
   const shownCoverWidth = coverWidth;
-  const compactHead = top || shownCoverWidth < HERO_COMPACT_COVER_BELOW;
+  const compactHead = top || (!inColumn && shownCoverWidth < HERO_COMPACT_COVER_BELOW);
   const wide = !pane && !top && !inColumn && contentWidth > WIDE_COLUMN;
   // A hero that fits its column stands in the middle of it (as the reference
   // layout's does), placed from the estimates rather than its measured
@@ -388,7 +408,7 @@ const paneFactColumns =
     ? Math.max(
         0,
         Math.floor(
-          (rest.edge - columnTop - HEAD_PADDING_TOP - Math.round(coverWidth * 1.5) - columnBlocks(DESCRIPTION_LINES)) / 2,
+          (rest.edge - columnTop - HEAD_PADDING_TOP - Math.round(coverWidth * 1.5) - columnBlocks(COLUMN_PARAGRAPH_LINES)) / 2,
         ),
       )
     : 0;
@@ -420,6 +440,9 @@ const paneFactColumns =
     statusLabel ? { label: strings.designExplore.factStatus, value: statusLabel } : null,
   ].filter((fact): fact is { label: string; value: string } => fact !== null);
   const factsRow = facts.length >= 2;
+  /** The facts stand as their own block; the hero column puts them in the head as one line. */
+  const factsBlock = factsRow && !inColumn;
+  const columnMeta = inColumn && factsRow;
   const factMinWidth = Math.floor(Math.min(contentWidth, WIDE_COLUMN) / Math.max(1, facts.length));
   const primaryUnavailable = Boolean(primaryAction && (primaryAction.disabled || !primaryAction.available));
   const primaryInk = primaryUnavailable ? inkSecondary : palette.primaryInk;
@@ -465,7 +488,7 @@ const paneFactColumns =
     : DESCRIPTION_LINES;
   const hasTags = Boolean(badges.length || tagList.length);
   const restingFit = (() => {
-    if (pane || top || deferBody || restTop === null) return null;
+    if (pane || top || inColumn || deferBody || restTop === null) return null;
     const order: [string, boolean][] = [
       ["head", true],
       ["actions", hasActions],
@@ -493,20 +516,33 @@ const paneFactColumns =
       }
       const height = blockHeights[key];
       if (height === undefined) return null;
-      // The hero column rests whole as far as its first row of genres: the
-      // synopsis gives up lines for it rather than the genres dropping away.
-      if (key === "tags" && inColumn) {
-        blocks.push({ key, gap: BLOCK_GAP, height, rests: "peek", minVisible: Math.min(height, CHIP_HEIGHT) });
-        continue;
-      }
       blocks.push({ key, gap: key === "head" ? 0 : BLOCK_GAP, height, rests: "whole" });
     }
-    return fitMobileRestingContent({ top: restTop + columnOffset, edge: rest.edge, blocks });
+    return fitMobileRestingContent({ top: restTop, edge: rest.edge, blocks });
+  })();
+  // The hero column: the synopsis fills what the column has left under the
+  // blocks above it and the genre row (more for the rest), from the column's
+  // top and its blocks' sizes (estimated until measured).
+  const columnSynopsisLines = (() => {
+    if (!inColumn || !synopsisMeasure) return null;
+    const scale = rest.fontScale(HERO_TEXT_MAX_SCALE);
+    const height = (key: string, estimate: number) => blockHeights[key] ?? estimate;
+    const used =
+      height("head", Math.round(coverWidth * 1.5) + ESTIMATE.headText * scale) +
+      (hasActions ? BLOCK_GAP + height("actions", ESTIMATE.actions * scale) : 0) +
+      (factsBlock ? BLOCK_GAP + height("facts", columnFactsEstimate(scale) - BLOCK_GAP) : 0) +
+      (hasTags ? BLOCK_GAP + height("tags", CHIP_HEIGHT * scale) : 0) +
+      BLOCK_GAP;
+    // The column's own top, not a measurement: the first layout happens
+    // before UIKit applies the bar inset, so a measured top is off by it.
+    const room = rest.edge - MOBILE_RESTING.margin - columnTop - columnOffset - used;
+    return Math.max(DESCRIPTION_MIN_LINES, Math.floor(room / synopsisMeasure.lineHeight));
   })();
   const synopsisLines =
-    restingFit && synopsisMeasure && restingFit.heights.synopsis !== undefined
+    columnSynopsisLines ??
+    (restingFit && synopsisMeasure && restingFit.heights.synopsis !== undefined
       ? Math.max(DESCRIPTION_MIN_LINES, Math.round(restingFit.heights.synopsis / synopsisMeasure.lineHeight))
-      : synopsisNatural;
+      : synopsisNatural);
   const pushStyle = (key: string) => {
     const gap = restingFit?.gaps[key];
     return gap !== undefined && gap > BLOCK_GAP ? { marginTop: gap - BLOCK_GAP } : null;
@@ -604,9 +640,29 @@ const paneFactColumns =
       ) : null}
     </>
   );
+  // The hero column's genre rail runs to the column's edges (not under a
+  // vertical bar on the leading edge) and dissolves there, like the phone's.
+  const columnBleedLeft = verticalBarSide === "left" ? 0 : gutters.left;
+  const columnBleed = {
+    frame: { marginLeft: -columnBleedLeft, marginRight: -spacing.pageX },
+    content: { paddingLeft: columnBleedLeft || spacing.pageX / 2, paddingRight: spacing.pageX },
+  };
   const tagsNode =
     badges.length || tagList.length ? (
-      grid ? (
+      inColumn ? (
+        // One row, scrolling sideways: never a lone chip on a second line.
+        <ExploreRailFade style={columnBleed.frame}>
+          <ScrollView
+            horizontal
+            scrollsToTop={false}
+            showsHorizontalScrollIndicator={false}
+            onLayout={onTagsLayout}
+            contentContainerStyle={[columnBleed.content, styles.tags]}
+          >
+            {tagChips}
+          </ScrollView>
+        </ExploreRailFade>
+      ) : grid ? (
         // The two-column pane has the width to wrap them, centred, instead of a
         // strip whose last chip a hard edge cut in half.
         <View onLayout={onTagsLayout} style={[styles.tagsWrap, pushStyle("tags")]}>
@@ -661,12 +717,33 @@ const paneFactColumns =
               {statusLabel}
             </NemuText>
           ) : null}
+          {columnMeta ? (
+            // One quiet line; the source is in the chapter header.
+            <NemuText maxFontSizeMultiplier={HERO_TEXT_MAX_SCALE} numberOfLines={1} color={inkSecondary} style={styles.metaLine}>
+              {[
+                statusLabel,
+                // One fact after the status: how far an ongoing series has
+                // got, or how long a finished one is (the count is also in the
+                // chapter header).
+                infoLatest && statusKey !== "statusCompleted"
+                  ? strings.designExplore.metaLatest.replace("{{chapter}}", infoLatest)
+                  : infoChapters
+                    ? (infoChapters === 1
+                        ? strings.designExplore.metaChapterCountOne
+                        : strings.designExplore.metaChapterCountOther
+                      ).replace("{{count}}", String(infoChapters))
+                    : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </NemuText>
+          ) : null}
         </View>
   );
   const actionsNode = (
     <>
       {primaryAction || secondaryActions.length ? (
-        <View style={[styles.actionsBlock, column, pushStyle("actions")]} onLayout={onActionsLayout}>
+        <View style={[styles.actionsBlock, column, inColumn ? styles.columnActions : null, pushStyle("actions")]} onLayout={onActionsLayout}>
           <View style={styles.actions}>
             {primaryAction ? (
               <ExploreGlassButton
@@ -677,6 +754,7 @@ const paneFactColumns =
                 tint={palette.primary}
                 ink={primaryInk}
                 // Paired with Add to Library (two equal capsules): the short label.
+                // Paired with a round tick (saved), Continue keeps its full label.
                 label={
                   libraryAction && !libraryAdded
                     ? (primaryAction.compactLabel ?? primaryAction.label)
@@ -713,19 +791,32 @@ const paneFactColumns =
                 key={libraryAdded ? "added" : "add"}
                 burstKey={libraryBurst}
                 colors={confettiColors}
-                // Saved: a compact pill, so Continue keeps its full label.
+                // Saved: a round tick, so Continue takes the freed width.
                 style={libraryAdded ? styles.compactButton : top ? styles.topPrimaryButton : styles.flexButton}
               >
-              <ExploreGlassButton
-                label={libraryAdded ? strings.designExplore.inLibrary : strings.designExplore.addToLibrary}
-                icon={libraryAdded ? "checkmark" : "add"}
-                accessibilityLabel={libraryAction.accessibilityLabel}
-                accessibilityHint={libraryAction.accessibilityHint}
-                busy={libraryAction.busy}
-                disabled={libraryAction.disabled}
-                ink={palette.ink}
-                onPress={libraryAction.onPress}
-              />
+              {libraryAdded ? (
+                <ExploreGlassIconButton
+                  icon="checkmark"
+                  size={ACTION_HEIGHT}
+                  accessibilityLabel={strings.designExplore.inLibrary}
+                  accessibilityHint={libraryAction.accessibilityHint}
+                  busy={libraryAction.busy}
+                  disabled={libraryAction.disabled}
+                  ink={palette.ink}
+                  onPress={libraryAction.onPress}
+                />
+              ) : (
+                <ExploreGlassButton
+                  label={strings.designExplore.addToLibrary}
+                  icon="add"
+                  accessibilityLabel={libraryAction.accessibilityLabel}
+                  accessibilityHint={libraryAction.accessibilityHint}
+                  busy={libraryAction.busy}
+                  disabled={libraryAction.disabled}
+                  ink={palette.ink}
+                  onPress={libraryAction.onPress}
+                />
+              )}
               </LibraryPop>
             ) : null}
             {iconActions.map((action) => (
@@ -747,7 +838,7 @@ const paneFactColumns =
   );
   const factsNode = (
     <>
-      {factsRow && grid ? (
+      {factsRow && inColumn ? null : factsRow && grid ? (
         <View style={[styles.facts, { flexWrap: "wrap", rowGap: 8 }, top ? { flexGrow: 0 } : null, pushStyle("facts")]} onLayout={onFactsLayout}>
           {facts.map((fact, index) => (
             <View
@@ -790,9 +881,9 @@ const paneFactColumns =
           // On a phone the strip runs to the screen edges (a fixed `width:
           // 100%` column kept it at the gutter, cutting the last value with
           // a hard edge); a wide window centres it in the column instead.
-          style={[wide ? column : pane ? null : bleed.frame, pushStyle("facts")]}
+          style={[wide ? column : pane || inColumn ? null : bleed.frame, pushStyle("facts")]}
           onLayout={onFactsLayout}
-          contentContainerStyle={[styles.facts, pane || wide ? null : bleed.content]}
+          contentContainerStyle={[styles.facts, pane || wide || inColumn ? null : bleed.content]}
         >
           {facts.map((fact, index) => (
             <View
@@ -857,13 +948,18 @@ const paneFactColumns =
       <View style={[styles.placeholderLine, { height: styles.authors.lineHeight }, compactHead ? null : styles.placeholderLineCentred]}>
         {bar("42%", 13)}
       </View>
+      {inColumn ? (
+        <View style={[styles.placeholderLine, styles.placeholderLineCentred, { height: styles.metaLine.lineHeight, marginTop: 4 }]}>{bar("60%", 11)}</View>
+      ) : null}
     </View>
   );
   const placeholderActionsNode = (
-    <View style={[styles.actionsBlock, column]}>
+    <View style={[styles.actionsBlock, column, inColumn ? styles.columnActions : null]}>
       <View style={styles.actions}>
         {bar("100%", ACTION_HEIGHT, [top ? styles.topPrimaryButton : styles.flexButton, styles.placeholderCapsule])}
-        {bar("100%", ACTION_HEIGHT, [top ? styles.topPrimaryButton : styles.flexButton, styles.placeholderCapsule])}
+        {placeholderRoundSecondary
+          ? bar(ACTION_HEIGHT, ACTION_HEIGHT, styles.placeholderCapsule)
+          : bar("100%", ACTION_HEIGHT, [top ? styles.topPrimaryButton : styles.flexButton, styles.placeholderCapsule])}
       </View>
     </View>
   );
@@ -883,7 +979,7 @@ const paneFactColumns =
     </View>
   ));
   const placeholderFactsNode =
-    grid ? (
+    inColumn ? null : grid ? (
       <View style={[styles.facts, { flexWrap: "wrap", rowGap: 8 }, top ? { flexGrow: 0 } : null]}>{placeholderFacts}</View>
     ) : (
       <View style={wide ? column : bleed.frame}>
@@ -902,7 +998,11 @@ const paneFactColumns =
   const placeholderChips = PLACEHOLDER_CHIP_WIDTHS.map((width, index) => (
     <View key={index}>{bar(width, CHIP_HEIGHT, styles.placeholderCapsule)}</View>
   ));
-  const placeholderTagsNode = grid ? (
+  const placeholderTagsNode = inColumn ? (
+    <View style={columnBleed.frame}>
+      <View style={[styles.facts, styles.tags, columnBleed.content]}>{placeholderChips}</View>
+    </View>
+  ) : grid ? (
     <View style={styles.tagsWrap}>{placeholderChips}</View>
   ) : (
     <View style={bleed.frame}>
@@ -1321,6 +1421,11 @@ const styles = StyleSheet.create({
   actionsBlock: {
     gap: 12,
   },
+  // The wide page's hero column: the action row keeps the Duo's measure,
+  // centred, rather than stretching across a tablet's wider column.
+  columnActions: {
+    maxWidth: COLUMN_ACTIONS_MAX_WIDTH,
+  },
   facts: {
     flexDirection: "row",
     flexGrow: 1,
@@ -1339,6 +1444,13 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 14,
     fontWeight: nemuFontWeight.medium,
+  },
+  metaLine: {
+    marginTop: 4,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: nemuFontWeight.medium,
+    textAlign: "center",
   },
   factValue: {
     fontSize: 15,

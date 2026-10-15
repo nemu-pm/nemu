@@ -1841,7 +1841,7 @@ export function MangaDetailScreen() {
     () => (booksHero ? getMobileChapterVolumeHeaders(visibleChapters) : null),
     [booksHero, visibleChapters],
   );
-  // …and the group most chapters share, named once above the list.
+  // …and the group every chapter shares, which the rows leave out.
   const chapterCommonGroup = useMemo(
     () => (booksHero ? getMobileChapterListCommonGroup(visibleChapters) : null),
     [booksHero, visibleChapters],
@@ -2097,7 +2097,7 @@ export function MangaDetailScreen() {
     [openReader, selectedSource],
   );
   const renderExploreChapterRow = useCallback(
-    ({ item, index }: ListRenderItemInfo<MobileChapterRow>) => {
+    ({ item }: ListRenderItemInfo<MobileChapterRow>) => {
       const chapter = item.chapters[0];
       return (
         <MobileExploreChapterRow
@@ -2105,11 +2105,6 @@ export function MangaDetailScreen() {
           progress={selectedChapterProgress[chapter.id]}
           header={chapterVolumeHeaders?.get(chapter.id) ?? null}
           commonGroup={chapterCommonGroup}
-          caption={
-            index === 0 && chapterCommonGroup
-              ? formatMobileString(strings.designExplore.chapterListGroup, { group: chapterCommonGroup })
-              : null
-          }
           upNext={chapter.id === upNextChapterId}
           dropVolume={Boolean(chapterVolumeHeaders?.size)}
           busy={detailActionBusy}
@@ -2516,6 +2511,8 @@ export function MangaDetailScreen() {
           }
           accessibilityLabel={strings.mangaDetail.loadingManga}
           actionsPlacement="copy"
+          // Continue beside the round collections button.
+          roundSecondaryAction
         />
       </>
     );
