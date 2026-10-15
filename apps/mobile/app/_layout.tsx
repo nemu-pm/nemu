@@ -44,7 +44,14 @@ import { MobilePoseTransitionProvider } from "@/lib/MobilePoseTransitionContext"
 import { useMobileBackgroundSync } from "@/sync/useMobileBackgroundSync";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import { installMobileSystemTransition } from "@/lib/mobileTransitionTiming";
-import { shouldHideMobileSplashScreen } from "@/lib/mobileSplashScreen";
+import {
+  isMobileLaunchContentReady,
+  markMobileLaunchContentReady,
+  MOBILE_SPLASH_CONTENT_TIMEOUT_MS,
+  shouldHideMobileSplashScreen,
+  subscribeMobileLaunchContentReady,
+} from "@/lib/mobileSplashScreen";
+import { isMobileLibraryRoute } from "@/lib/mobileRootTabs";
 import {
   MOBILE_PERFORMANCE_MARKS,
   markMobilePerformance,
@@ -136,25 +143,47 @@ function RootStack({
     lastPathnameRef.current = pathname;
     markMobilePerformance(MOBILE_PERFORMANCE_MARKS.routeChange, { pathname });
   }, [pathname]);
-  const hideSplashAfterLayout = useCallback(() => {
-    if (!rootLayoutMarkedRef.current) {
-      rootLayoutMarkedRef.current = true;
-      markMobilePerformance(MOBILE_PERFORMANCE_MARKS.bootRootLayout);
-    }
+  const hideSplashIfReady = useCallback(() => {
     if (
       !shouldHideMobileSplashScreen({
-        rootLaidOut: true,
+        rootLaidOut: rootLayoutMarkedRef.current,
         splashHidden: splashHiddenRef.current,
+        contentReady: isMobileLaunchContentReady(),
       })
     ) {
       return;
     }
 
     splashHiddenRef.current = true;
+    markMobilePerformance(MOBILE_PERFORMANCE_MARKS.bootSplashHidden);
     void SplashScreen.hideAsync().catch(() => {
       splashHiddenRef.current = false;
     });
   }, []);
+  const hideSplashAfterLayout = useCallback(() => {
+    if (!rootLayoutMarkedRef.current) {
+      rootLayoutMarkedRef.current = true;
+      markMobilePerformance(MOBILE_PERFORMANCE_MARKS.bootRootLayout);
+    }
+    hideSplashIfReady();
+  }, [hideSplashIfReady]);
+  // The launch screen holds until the Library shows its first local snapshot
+  // (LibraryScreen marks it), so the first visible frame is the final layout
+  // with data: no blank page, no skeleton swapped for content. A launch into
+  // any other screen (a deep link) has nothing to wait for; a stuck read is
+  // capped. Never waits on the network.
+  useEffect(() => {
+    if (!isMobileLibraryRoute(pathname)) markMobileLaunchContentReady();
+  }, [pathname]);
+  useEffect(() => {
+    const unsubscribe = subscribeMobileLaunchContentReady(hideSplashIfReady);
+    const cap = setTimeout(markMobileLaunchContentReady, MOBILE_SPLASH_CONTENT_TIMEOUT_MS);
+    hideSplashIfReady();
+    return () => {
+      unsubscribe();
+      clearTimeout(cap);
+    };
+  }, [hideSplashIfReady]);
 
   return (
     <ThemeProvider value={navigationTheme}>

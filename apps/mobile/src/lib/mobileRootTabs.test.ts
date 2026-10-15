@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   canNavigateMobileRootTab,
   exactMobileRootTabHrefForPathname,
+  isMobileLibraryRoute,
   getMobileRootTabPressAction,
   isMobileReaderRoute,
   isMobileRootTabSelected,
@@ -131,5 +132,15 @@ describe("mobile root tabs", () => {
         "/sources/aidoku/mangadex/blue-lock/chapter-1",
       ),
     ).toBe(false);
+  });
+});
+
+describe("isMobileLibraryRoute", () => {
+  test("the Library root and its collections, not other tabs or titles", () => {
+    expect(isMobileLibraryRoute("/")).toBe(true);
+    expect(isMobileLibraryRoute("/library")).toBe(true);
+    expect(isMobileLibraryRoute("/library/collection/abc")).toBe(true);
+    expect(isMobileLibraryRoute("/browse")).toBe(false);
+    expect(isMobileLibraryRoute("/sources/reg/src/manga")).toBe(false);
   });
 });

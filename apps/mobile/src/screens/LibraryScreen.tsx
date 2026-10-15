@@ -47,6 +47,8 @@ import {
 } from "@/components/MobileLibraryTitleMenu";
 import type { MobileLibraryTitleMenuProps } from "@/components/MobileLibraryTitleMenu.types";
 import { MobileLibrarySkeleton } from "@/components/MobileLibrarySkeleton";
+import { isMobileLaunchContentReady, markMobileLaunchContentReady } from "@/lib/mobileSplashScreen";
+import { MOBILE_PERFORMANCE_MARKS, markMobilePerformance } from "@/lib/mobilePerformance";
 import { useMobileToast } from "@/components/MobileToastContext";
 import { renderExploreDetailBarMenu } from "@/components/explore/ExploreDetailBarMenu";
 import * as DocumentPicker from "expo-document-picker";
@@ -1040,6 +1042,13 @@ export function LibraryScreen({
     progress.error ??
     installedSources.error;
   const hasError = Boolean(error);
+  // The launch screen holds until this first local snapshot (content, the
+  // empty state or an error) is committed; see `mobileSplashScreen.ts`.
+  useEffect(() => {
+    if (loading || isMobileLaunchContentReady()) return;
+    markMobilePerformance(MOBILE_PERFORMANCE_MARKS.bootLibraryReady, { entries: libraryEntries.length });
+    markMobileLaunchContentReady();
+  }, [libraryEntries.length, loading]);
   const hasAnyLibraryData = libraryEntries.length > 0;
   const hasInstalledSources = installedSources.data.length > 0;
   const showSkeleton = shouldRenderMobileLibrarySkeleton({
