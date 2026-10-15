@@ -154,11 +154,11 @@ export function NemuNativeSearchField({
   };
 
   return (
-    // `ignoreSafeArea="keyboard"` keeps SwiftUI from insetting this small
-    // inline host when the keyboard it raises comes up under the sheet.
+    // The RN layout and sheet already own safe-area and keyboard avoidance.
+    // Do not shrink this inline host again for Duo's rail or the keyboard.
     <SwiftHost
       colorScheme={scheme}
-      ignoreSafeArea="keyboard"
+      ignoreSafeArea="all"
       style={styles.host}
       testID={testID}
     >

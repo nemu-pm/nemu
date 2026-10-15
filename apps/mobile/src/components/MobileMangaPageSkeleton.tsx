@@ -50,8 +50,6 @@ type MobileMangaPageSkeletonProps = {
   nativeHeader?: boolean;
   /** Screen-drawn page header (when the native header is off); leads the info pane. */
   header?: ReactNode;
-  /** The new design's loaded actions are a capsule and a round button (the library page). */
-  roundSecondaryAction?: boolean;
 };
 
 /**
@@ -68,7 +66,6 @@ export function MobileMangaPageSkeleton({
   actionsPlacement = "copy",
   nativeHeader = true,
   header,
-  roundSecondaryAction = false,
 }: MobileMangaPageSkeletonProps) {
   const { reduceMotion } = useNemuTheme();
   const skeletonOpacity = useSkeletonPulse(reduceMotion === true);
@@ -83,7 +80,7 @@ export function MobileMangaPageSkeleton({
         leading={
           <>
             {header}
-            {skeletonReady ? <BooksHeroSkeleton accessibilityLabel={accessibilityLabel} roundSecondary={roundSecondaryAction} /> : null}
+            {skeletonReady ? <BooksHeroSkeleton accessibilityLabel={accessibilityLabel} /> : null}
           </>
         }
         chapterHeader={skeletonReady ? <ExploreChapterSectionSkeleton /> : null}
@@ -123,12 +120,12 @@ export function MobileMangaPageSkeleton({
  * New design: the Books hero itself in its placeholder mode (its own cover
  * size, blocks and gaps), so the loaded hero lands on the same geometry.
  */
-function BooksHeroSkeleton({ accessibilityLabel, roundSecondary }: { accessibilityLabel: string; roundSecondary: boolean }) {
+function BooksHeroSkeleton({ accessibilityLabel }: { accessibilityLabel: string }) {
   const strings = getMobileStrings(useMobileLanguageSettings().appLanguage);
   const pane = useMobileMangaDetailPane().role === "leading";
   return (
     <View accessible accessibilityLabel={accessibilityLabel} accessibilityRole="progressbar">
-      <MobileMangaDetailBooksHero placeholder placeholderRoundSecondary={roundSecondary} title="" badges={[]} pane={pane} strings={strings} />
+      <MobileMangaDetailBooksHero placeholder title="" badges={[]} pane={pane} strings={strings} />
     </View>
   );
 }

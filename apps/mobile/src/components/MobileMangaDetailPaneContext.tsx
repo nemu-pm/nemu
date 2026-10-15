@@ -16,6 +16,8 @@ export type MobileMangaDetailPane = {
    * chapters (`mobileMangaDetailColumns`), the cover's colour behind both.
    */
   columns?: boolean;
+  /** Chapter colours on the full-window cover wash; absent on plain pages. */
+  chapterPalette?: ReturnType<typeof import("@/lib/mobileCoverTint").buildMobileCoverTintPalette>;
   /** The column's content width (its padding taken off), before the hero measures itself. */
   columnContentWidth?: number;
   /** Where the column's content starts in the window (estimate, for sizing the cover before it lands). */

@@ -15,6 +15,7 @@ export const mobileSourceDirectoryPromptAvailable = true;
  */
 export function MobileSourceDirectoryPrompt({
   visible,
+  initialUrl,
   strings,
   onClose,
   onSubmit,
@@ -32,10 +33,11 @@ export function MobileSourceDirectoryPrompt({
       <SwiftHost colorScheme={scheme} seedColor={tokens.primary} style={StyleSheet.absoluteFill}>
         <NativeNameAlert
           presented={visible && open}
-          title={strings.settings.addSourceDirectory}
+          title={initialUrl ? strings.settings.editSourceDirectoryUrl : strings.settings.addSourceDirectory}
           message={strings.settings.addSourceDirectoryMessage}
           placeholder={strings.settings.sourceDirectoryUrlPlaceholder}
-          confirmLabel={strings.common.add}
+          initialValue={initialUrl ?? ""}
+          confirmLabel={initialUrl ? strings.common.save : strings.common.add}
           cancelLabel={strings.common.cancel}
           onConfirm={(url) => {
             setOpen(false);

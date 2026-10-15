@@ -2416,26 +2416,26 @@ export function MangaDetailScreen() {
   // A page opened by the cover zoom has its bar items from the first frame,
   // so they slide in with the push like any bar's (they used to wait for the
   // zoom to land and then pop in). The handlers wait for the record.
-  const nativeHeaderActions: NemuNativeHeaderAction[] = entry || (booksHero && seedEntry)
+  const nativeHeaderActions: NemuNativeHeaderAction[] = entry || booksHero
     ? [
         {
           icon: "pencil",
           label: strings.mangaDetail.editMetadata,
-          disabled: detailActionBusy,
+          disabled: !entry || detailActionBusy,
           onPress: openMetadataEditor,
         },
         {
           icon: "square.stack.3d.up",
           label: strings.mangaDetail.manageSources,
           hint: strings.mangaDetail.manageSourcesHint,
-          disabled: detailActionBusy,
+          disabled: !entry || detailActionBusy,
           onPress: openSourceManager,
         },
         {
           icon: "trash",
           label: strings.mangaDetail.removeFromLibrary,
           hint: strings.mangaDetail.removeFromLibraryHint,
-          disabled: detailActionBusy,
+          disabled: !entry || detailActionBusy,
           onPress: confirmRemoveFromLibrary,
         },
       ]
@@ -2494,7 +2494,14 @@ export function MangaDetailScreen() {
     return (
       <>
         {usesNativeHeader ? (
-          <Stack.Screen options={nativeHeaderOptions(strings.nav.library)} />
+          <>
+            <Stack.Screen options={nativeHeaderOptions(strings.nav.library)} />
+            {barMenu ? (
+              <Stack.Toolbar placement="right">
+                {renderExploreDetailBarMenu(nativeHeaderActions, strings.designExplore.moreActions)}
+              </Stack.Toolbar>
+            ) : null}
+          </>
         ) : null}
         {/* Laid out by the loaded page's split layout, so its panes hand off in place. */}
         <MobileMangaPageSkeleton
@@ -2511,8 +2518,6 @@ export function MangaDetailScreen() {
           }
           accessibilityLabel={strings.mangaDetail.loadingManga}
           actionsPlacement="copy"
-          // Continue beside the round collections button.
-          roundSecondaryAction
         />
       </>
     );

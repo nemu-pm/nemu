@@ -11,6 +11,7 @@ import {
   planSourceDirectorySeed,
   removeMobileSourceDirectory,
   setMobileSourceDirectoryEnabled,
+  updateMobileSourceDirectoryUrl,
 } from "./mobileSourceDirectories";
 
 function installed(registryId: string, sourceId: string): InstalledSource {
@@ -202,6 +203,45 @@ describe("user-added directories", () => {
         { fetchIndex: async () => ({ sources: [] }) },
       ),
     ).rejects.toBeInstanceOf(MobileSourceDirectoryError);
+  });
+
+  test("editing a URL preserves identity, enablement and installed source references", async () => {
+    const { store, registries, getSettings } = fakeStore({ seeded: true });
+    const added = await addMobileSourceDirectory(store, { url: "https://old.example/index.json" }, { fetchIndex, now: () => 7 });
+    await setMobileSourceDirectoryEnabled(store, added.id, false);
+    await store.updateSettings((current) => ({ ...current, installedSources: [installed(added.id, "en.example")] }));
+    await updateMobileSourceDirectoryUrl(store, added.id, "https://new.example/", { fetchIndex: folderOnlyFetch });
+    expect(registries.get(added.id)).toMatchObject({
+      url: "https://new.example/index.min.json", disabled: true, addedAt: 7, name: "My Directory",
+    });
+    expect(getSettings().installedSources?.[0]?.registryId).toBe(added.id);
+    await expect(addMobileSourceDirectory(store, { url: "https://new.example/index.min.json" }, { fetchIndex }))
+      .rejects.toMatchObject({ code: "duplicate" });
+  });
+
+  test("editing rejects duplicates and invalid indexes without changing the saved URL", async () => {
+    const { store, registries } = fakeStore({ seeded: true });
+    const added = await addMobileSourceDirectory(store, { url: "https://old.example/index.json" }, { fetchIndex });
+    await addMobileSourceDirectory(store, { url: "https://other.example/index.json" }, { fetchIndex });
+    await expect(updateMobileSourceDirectoryUrl(store, added.id, "https://other.example/index.json", { fetchIndex }))
+      .rejects.toMatchObject({ code: "duplicate" });
+    await expect(updateMobileSourceDirectoryUrl(store, added.id, "http://new.example/", { fetchIndex }))
+      .rejects.toMatchObject({ code: "not-https" });
+    await expect(updateMobileSourceDirectoryUrl(store, added.id, "https://new.example/", {
+      fetchIndex: async () => { throw new Error("offline"); },
+    })).rejects.toMatchObject({ code: "unreachable" });
+    expect(registries.get(added.id)).toMatchObject({ url: added.indexUrl });
+    await expect(updateMobileSourceDirectoryUrl(store, "nemu-recommended", "https://new.example/", { fetchIndex }))
+      .rejects.toMatchObject({ code: "built-in" });
+  });
+
+  test("a directory removed during URL validation is not resurrected", async () => {
+    const { store, registries } = fakeStore({ seeded: true });
+    const added = await addMobileSourceDirectory(store, { url: "https://old.example/index.json" }, { fetchIndex });
+    await updateMobileSourceDirectoryUrl(store, added.id, "https://new.example/index.json", {
+      fetchIndex: async () => { await store.removeRegistry(added.id); return fetchIndex(); },
+    });
+    expect(registries.has(added.id)).toBe(false);
   });
 
   test("disable keeps the entry; remove forgets it; built-in cannot be removed", async () => {

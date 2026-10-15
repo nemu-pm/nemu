@@ -30,7 +30,7 @@ Guideline 2.5.2 explicitly:
 
 - A source can only call a fixed set of host functions: HTTP requests (with an
   SSRF policy that refuses private/loopback addresses unless the user explicitly
-  allows a private server such as LANraragi, once that feature ships), HTML parsing, image
+  allows the configured private server), HTML parsing, image
   drawing, its own saved settings. It returns data (titles, chapters, page
   image URLs). It cannot add screens, change app features, call native iOS APIs,
   or read other apps' or the app's data.
@@ -46,9 +46,12 @@ Guideline 2.5.2 explicitly:
 ## Reviewer steps
 
 1. Install and launch. No account is required for reading.
-2. [Path per the final sources UI] Add the recommended nemu source
-   directory [name/URL once the registry is live], install the **Pepper&Carrot**
-   source, open a chapter and read.
+2. Open Browse > Add sources (+), install **Pepper&Carrot**, then open a chapter
+   and read. The built-in **nemu recommended** directory is enabled by default.
+   Manage it under Settings > Installed sources > Source directories. Its live
+   index is https://nemu-pm.github.io/source-registry/index.min.json
+   (HTTP/JSON checked on 2026-10-15). The directory also includes LANraragi,
+   a connector for the user's own server; it supplies no hosted comics.
 3. Optional: import a CBZ from Files (the app does not ship one; [attach a sample
    CBZ to the submission]).
 4. Sign in with the demo account (Sign in with Apple or Google):
@@ -68,7 +71,7 @@ Guideline 2.5.2 explicitly:
 - Microphone and Speech Recognition: dictate a message to the assistant. Both are
   optional; nothing else in the app requires them.
 - Local Network (NSLocalNetworkUsageDescription): asked only when the user
-  points a self-hosted source (LANraragi) at a server on their own network;
+  points a self-hosted source (LANraragi, Komga, Kavita or Suwayomi) at a server on their own network;
   only that configured host is reachable, and only for that source.
 - No camera, location, contacts, tracking (no ATT prompt) or notifications.
 - `ITSAppUsesNonExemptEncryption=false`: the app uses only standard TLS/OS
@@ -102,5 +105,9 @@ Guideline 2.5.2 explicitly:
    responsibility.
 2. **Copyright**: sources that point to unlicensed content are the user's choice,
    not nemu's, and nemu does not list them.
-3. Demo account, sample CBZ and live recommended directory must exist before
-   submission.
+3. Demo account and sample CBZ still need to be supplied and tested before
+   submission. The recommended directory is live; availability is not evidence
+   of App Review approval.
+4. Verify account deletion and Apple token revocation with a disposable
+   production test account. Confirm the 30-day log retention configuration
+   described in `log-retention.md`; do not represent it as deployed until verified.

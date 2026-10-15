@@ -491,7 +491,7 @@ describe("mobile i18n helpers", () => {
       formatMobileString(getMobileStrings("zh").mangaDetail.continueChapter, {
         chapter: "第 12 话",
       }),
-    ).toBe("继续 第 12 话");
+    ).toBe("继续第 12 话");
     expect(
       formatMobileString(getMobileStrings("en").mangaDetail.openChapter, {
         chapter: "Chapter 12",

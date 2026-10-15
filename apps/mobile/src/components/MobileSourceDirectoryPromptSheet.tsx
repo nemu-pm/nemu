@@ -19,6 +19,7 @@ export const mobileSourceDirectoryPromptAvailable = true;
  */
 export function MobileSourceDirectoryPrompt({
   visible,
+  initialUrl,
   strings,
   onClose,
   onSubmit,
@@ -32,16 +33,16 @@ export function MobileSourceDirectoryPrompt({
   useLayoutEffect(() => {
     if (visible && !wasVisibleRef.current) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setUrl("");
+      setUrl(initialUrl ?? "");
     }
     wasVisibleRef.current = visible;
-  }, [visible]);
+  }, [initialUrl, visible]);
 
   return (
     <MobileNativeSheetScaffold
       visible={visible}
       onClose={onClose}
-      title={strings.settings.addSourceDirectory}
+      title={initialUrl ? strings.settings.editSourceDirectoryUrl : strings.settings.addSourceDirectory}
       subtitle={strings.settings.addSourceDirectoryMessage}
       dismissLabel={strings.common.cancel}
       showDismissButton={false}
@@ -56,7 +57,7 @@ export function MobileSourceDirectoryPrompt({
         ]}
       >
         <BottomSheetTextInput
-          accessibilityLabel={strings.settings.addSourceDirectory}
+          accessibilityLabel={initialUrl ? strings.settings.editSourceDirectoryUrl : strings.settings.addSourceDirectory}
           autoCapitalize="none"
           autoCorrect={false}
           autoFocus
@@ -83,10 +84,10 @@ export function MobileSourceDirectoryPrompt({
           variant="secondary"
         />
         <NemuButton
-          accessibilityLabel={strings.common.add}
+          accessibilityLabel={initialUrl ? strings.common.save : strings.common.add}
           containerStyle={styles.action}
           disabled={disabled}
-          label={strings.common.add}
+          label={initialUrl ? strings.common.save : strings.common.add}
           onPress={() => {
             if (!disabled) onSubmit(trimmed);
           }}

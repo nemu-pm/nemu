@@ -1,3 +1,7 @@
+import { Image as ServerIconImage } from "react-native";
+import komgaIcon from "../../assets/server-icons/komga.png";
+import kavitaIcon from "../../assets/server-icons/kavita.png";
+import suwayomiIcon from "../../assets/server-icons/suwayomi.png";
 import { MobileQuickActionMenu, mobileNativeQuickMenuAvailable } from "@/components/MobileQuickActionMenu";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -7,6 +11,7 @@ import { Stack, router, type Href } from "expo-router";
 import {
   Linking,
   Platform,
+  ScrollView,
   SectionList,
   StyleSheet,
   Text,
@@ -718,6 +723,12 @@ const AvailableSourceRow = memo(function AvailableSourceRow({
  * downloaded, so there is nothing to install; the row opens the server's
  * setup form.
  */
+const SERVER_ICONS = {
+  komga: komgaIcon,
+  kavita: kavitaIcon,
+  suwayomi: suwayomiIcon,
+};
+
 const BuiltInSourceRow = memo(function BuiltInSourceRow({
   kind,
   strings,
@@ -741,7 +752,7 @@ const BuiltInSourceRow = memo(function BuiltInSourceRow({
     >
       <View style={styles.availableRow}>
         <View style={styles.sourceIcon}>
-          <Ionicons name="server-outline" size={22} color={tokens.mutedForeground} />
+          <ServerIconImage source={SERVER_ICONS[kind]} style={styles.sourceIcon} resizeMode="contain" />
         </View>
         <View style={styles.availableText}>
           <Text numberOfLines={1} style={[styles.sourceTitle, { color: tokens.foreground }]}>
@@ -798,6 +809,7 @@ export function BrowseScreen() {
   const [showAdult, setShowAdult] = useState(false);
   const [activeSheet, setActiveSheet] = useState<BrowseSheet | null>(null);
   const [activeSheetVisible, setActiveSheetVisible] = useState(false);
+  const [serverPickerOpen, setServerPickerOpen] = useState(false);
   const addSourceDismissActionRef = useRef<AddSourceDismissAction | null>(null);
   const [selectedLanguages, setSelectedLanguages] = useState<Set<string>>(
     () => new Set(),
@@ -1525,6 +1537,7 @@ export function BrowseScreen() {
   };
 
   const openAddSourceSheet = () => {
+    setServerPickerOpen(false);
     // A registry query is useful only for the current sheet visit. Keeping it
     // after installing or dismissing a source makes a later visit look empty
     // until the user notices and clears the stale filter.
@@ -1932,9 +1945,16 @@ export function BrowseScreen() {
           visible={activeSheetVisible}
           onClose={closeAddSourceSheet}
           onDismiss={handleAddSourceSheetDismissed}
-          title={strings.browse.addSources}
+          title={serverPickerOpen ? strings.selfHosted.connectServer : strings.browse.addSources}
           dismissLabel={strings.common.done}
-          headerLeading={
+          headerLeading={serverPickerOpen ? (
+            <NemuNativeSheetHeaderAction
+              accessibilityLabel={strings.common.back}
+              androidIcon="chevron-back"
+              iosSystemImage="chevron.backward"
+              onPress={() => setServerPickerOpen(false)}
+            />
+          ) : (
             <NemuNativeSheetHeaderAction
               accessibilityLabel={formatMobileString(
                 strings.browse.languageFilterOption,
@@ -1948,15 +1968,22 @@ export function BrowseScreen() {
                 openLanguageSheet();
               }}
             />
-          }
+          )}
           // Same height on both platforms; the scaffold maps the detent onto
           // Android's content-wrapping Material sheet.
           snapPoints={[addSourceSheetSnapPoint]}
           fillContent
           contentBottomInset={0}
+          contentIgnoresSafeAreaEdges="horizontal"
           testID="AddSourceSheet"
         >
-          <View style={styles.addSourceSheetBody}>
+          {serverPickerOpen ? (
+            <ScrollView contentContainerStyle={styles.serverPicker}>
+              {SELF_HOSTED_SETUP_KINDS.map((kind) => (
+                <BuiltInSourceRow key={kind} kind={kind} strings={strings} onPress={openServerForm} />
+              ))}
+            </ScrollView>
+          ) : <View style={styles.addSourceSheetBody}>
             {/*
               Everything above the list lives in one stack so the scroll
               container's top edge sits exactly at the search field's bottom.
@@ -2038,27 +2065,23 @@ export function BrowseScreen() {
             </View>
 
             <SectionList
-              ListHeaderComponent={
-                builtInKinds.length > 0 ? (
-                  <View>
-                    <Text
-                      style={[
-                        styles.sourceLanguageHeader,
-                        styles.availableSourceLanguageHeader,
-                        { color: sheetTokens.mutedForeground },
-                      ]}
-                    >
-                      {strings.selfHosted.builtInSources}
-                    </Text>
-                    {builtInKinds.map((kind, index) => (
-                      <View key={kind}>
-                        {index > 0 ? <AvailableRowSeparator /> : null}
-                        <BuiltInSourceRow kind={kind} strings={strings} onPress={openServerForm} />
-                      </View>
+              ListHeaderComponent={builtInKinds.length > 0 ? (
+                <NemuPressable
+                  accessibilityRole="button"
+                  onPress={() => setServerPickerOpen(true)}
+                  accessibilityLabel={strings.selfHosted.connectServer}
+                  pressHighlight
+                  style={styles.serverEntry}
+                >
+                  <View style={styles.serverEntryIcons}>
+                    {SELF_HOSTED_SETUP_KINDS.map((kind) => (
+                      <ServerIconImage key={kind} source={SERVER_ICONS[kind]} style={styles.serverEntryIcon} resizeMode="contain" />
                     ))}
                   </View>
-                ) : undefined
-              }
+                  <Text style={[styles.serverEntryLabel, { color: sheetTokens.foreground }]}>{strings.selfHosted.connectServer}</Text>
+                  <Ionicons name="chevron-forward" size={16} color={sheetTokens.mutedForeground} />
+                </NemuPressable>
+              ) : undefined}
               // Android: inside a native sheet, hand the drag to the sheet at the top.
               nestedScrollEnabled
               alwaysBounceVertical={false}
@@ -2106,7 +2129,7 @@ export function BrowseScreen() {
               updateCellsBatchingPeriod={32}
               windowSize={7}
             />
-          </View>
+          </View>}
         </MobileNativeSheetScaffold>
       ) : null}
 
@@ -2242,6 +2265,11 @@ const styles = StyleSheet.create({
   sections: {
     gap: 26,
   },
+  serverPicker: { gap: 12, paddingTop: 12, paddingBottom: 24 },
+  serverEntry: { minHeight: 52, flexDirection: "row", alignItems: "center", gap: 12, paddingBottom: 12 },
+  serverEntryIcons: { flexDirection: "row", gap: 3 },
+  serverEntryIcon: { width: 24, height: 24, borderRadius: 6 },
+  serverEntryLabel: { flex: 1, fontSize: 15 },
   addSourceSheetBody: {
     flex: 1,
     minHeight: 0,

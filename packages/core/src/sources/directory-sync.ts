@@ -12,7 +12,7 @@ import { shouldApplyLww } from "../sync-lww";
 import { normalizeSourceDirectoryUrl } from "./registries";
 
 export type CloudSourceDirectory = {
-  /** Deterministic id (`dir-…`, or a former built-in id such as `aidoku-zh`). */
+  /** Initially derived from the URL; retained when that URL is edited. */
   id: string;
   name: string;
   indexUrl: string;

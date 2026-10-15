@@ -20,6 +20,7 @@ const symbols: Record<string, string> = {
   "refresh-outline": "arrow.down.circle",
   "download-outline": "arrow.down.circle",
   "globe-outline": "globe",
+  "pencil-outline": "pencil",
 };
 
 /** The same action model drives the native menu and the cross-platform sheet. */

@@ -37,7 +37,7 @@ const MOBILE_DESIGN_EXPLORE_COPY: Partial<Record<AppLanguage, CopyOverrides>> = 
       newCollectionDescription: "新建收藏，并把这部作品放进去。",
     },
     settings: {
-      installedSourcesDescription: "你的漫画来自这些源。关闭一个源即可暂时停用。",
+      installedSourcesDescription: "你的漫画来自这些书源。关闭开关即可暂时停用。",
     },
   },
   ja: {

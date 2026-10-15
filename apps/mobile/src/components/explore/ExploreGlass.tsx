@@ -1,6 +1,7 @@
 import { useState, type ComponentProps, type ReactNode } from "react";
 import { StyleSheet, View, type LayoutChangeEvent, type StyleProp, type ViewStyle } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import Svg, { Path } from "react-native-svg";
 import {
   nemuColorWithAlpha,
   nemuFontWeight,
@@ -40,7 +41,7 @@ export function ExploreGlass({
   interactive?: boolean;
   pointerEvents?: "auto" | "none" | "box-none" | "box-only";
 }) {
-  const { scheme } = useNemuTheme();
+  const { scheme, reduceMotion } = useNemuTheme();
   if (!glassViewAvailable) {
     return (
       <View
@@ -65,6 +66,8 @@ export function ExploreGlass({
       tintColor={tintColor}
       cornerRadius={cornerRadius}
       interactive={interactive}
+      animateAppearance={!reduceMotion}
+      materializeDurationMs={reduceMotion ? 0 : 240}
     >
       {children}
     </GlassView>
@@ -229,6 +232,7 @@ function boldIconName(icon: IoniconName): IoniconName {
 /** A round glass icon button (44 pt target). */
 export function ExploreGlassIconButton({
   icon,
+  iconNode,
   onPress,
   accessibilityLabel,
   accessibilityHint,
@@ -239,6 +243,7 @@ export function ExploreGlassIconButton({
   size = 46,
 }: {
   icon: IoniconName;
+  iconNode?: ReactNode;
   onPress: () => void;
   accessibilityLabel: string;
   accessibilityHint?: string;
@@ -270,7 +275,7 @@ export function ExploreGlassIconButton({
         {busy ? (
           <NemuRingSpinner size={22} color={ink} accessibilityLabel={accessibilityLabel} />
         ) : (
-          <Ionicons name={boldIconName(icon)} size={ICON_BUTTON_GLYPH} color={ink} />
+          iconNode ?? <Ionicons name={boldIconName(icon)} size={ICON_BUTTON_GLYPH} color={ink} />
         )}
       </NemuPressable>
     </ExploreGlass>
@@ -412,3 +417,19 @@ const styles = StyleSheet.create({
     opacity: 0.55,
   },
 });
+
+/** Matched semibold strokes for the library button's two states. */
+export function ExploreLibraryGlyph({ added, color }: { added: boolean; color: string }) {
+  return (
+    <Svg width={24} height={24} viewBox="0 0 24 24">
+      <Path
+        d={added ? "M5 12.5 9.5 17 19 7" : "M12 5v14M5 12h14"}
+        fill="none"
+        stroke={color}
+        strokeWidth={2.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}

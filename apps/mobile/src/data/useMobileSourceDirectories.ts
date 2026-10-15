@@ -7,6 +7,7 @@ import {
   loadMobileSourceDirectories,
   removeMobileSourceDirectory,
   setMobileSourceDirectoryEnabled,
+  updateMobileSourceDirectoryUrl,
   type SourceDirectory,
 } from "./mobileSourceDirectories";
 
@@ -21,6 +22,7 @@ export function useMobileSourceDirectories(): {
   autoUpdateSources: boolean;
   addDirectory: (url: string, name?: string) => Promise<SourceDirectory>;
   removeDirectory: (id: string) => Promise<void>;
+  updateDirectoryUrl: (id: string, url: string) => Promise<void>;
   setDirectoryEnabled: (id: string, enabled: boolean) => Promise<void>;
   setAutoUpdateSources: (enabled: boolean) => Promise<void>;
 } {
@@ -65,6 +67,11 @@ export function useMobileSourceDirectories(): {
     },
     [store],
   );
+  const updateDirectoryUrl = useCallback(async (id: string, url: string) => {
+    await updateMobileSourceDirectoryUrl(store, id, url);
+    emitMobileDataChanged("registries");
+  }, [store]);
+
   const setDirectoryEnabled = useCallback(
     async (id: string, enabled: boolean) => {
       await setMobileSourceDirectoryEnabled(store, id, enabled);
@@ -89,6 +96,7 @@ export function useMobileSourceDirectories(): {
     autoUpdateSources,
     addDirectory,
     removeDirectory,
+    updateDirectoryUrl,
     setDirectoryEnabled,
     setAutoUpdateSources,
   };

@@ -40,6 +40,7 @@ import {
   type MobileMangaDetailWash,
 } from "@/components/MobileMangaDetailPaneContext";
 import { MobileMangaDetailColumnsWash } from "@/components/explore/MobileMangaDetailColumnsWash";
+import { buildMobileCoverTintPalette } from "@/lib/mobileCoverTint";
 import { getMobileDetailColumnsLayout } from "@/lib/mobileMangaDetailColumns";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { useMobileSplitPaneLayout } from "@/lib/useMobileSplitPaneLayout";
@@ -82,7 +83,7 @@ export function MobileMangaDetailSplitLayout<ItemT>({
    */
   onLeadingScroll?: (offsetFromHeroTop: number) => void;
 }) {
-  const { tokens } = useNemuTheme();
+  const { tokens, scheme } = useNemuTheme();
   const { height, fontScale } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const resting = useMobileExploreRestingFrame();
@@ -198,8 +199,9 @@ export function MobileMangaDetailSplitLayout<ItemT>({
       regularWidth,
       wideChapterRows: chapterTableWidth / fontScale >= 700,
       columns: Boolean(columns),
+      chapterPalette: columns ? buildMobileCoverTintPalette(wash?.tint ?? null, scheme) : undefined,
     }),
-    [regularWidth, split, columns, chapterTableWidth, fontScale],
+    [regularWidth, split, columns, chapterTableWidth, fontScale, wash?.tint, scheme],
   );
   const pose = useMobilePoseTransition();
   // One key per pane geometry: a fold / unfold / resize that moves a pane's

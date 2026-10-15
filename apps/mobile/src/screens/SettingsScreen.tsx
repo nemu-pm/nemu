@@ -1,5 +1,5 @@
 import { MobileQuickActionMenu, mobileNativeQuickMenuAvailable } from "@/components/MobileQuickActionMenu";
-import type { FlatList } from "react-native";
+import { FlatList } from "react-native";
 import {
   useCallback,
   useEffect,
@@ -113,6 +113,7 @@ import type {
 import {
   MobileChip,
   MobileNativeSheetScaffold,
+  useMobileNativeSheetTheme,
   NemuButton,
   NemuNativeSwitch,
   renderNemuNativeToolbarButtons,
@@ -1319,6 +1320,8 @@ function SourceDirectoryRow({
   first,
   onToggle,
   onRemove,
+  onOpen,
+  onEdit,
 }: {
   directory: SourceDirectory;
   strings: MobileStrings;
@@ -1326,6 +1329,8 @@ function SourceDirectoryRow({
   first: boolean;
   onToggle: (enabled: boolean) => void;
   onRemove: () => void;
+  onOpen: () => void;
+  onEdit: () => void;
 }) {
   const { tokens } = useNemuTheme();
   // The built-in directory's name comes from the strings, not the registry JSON.
@@ -1336,6 +1341,12 @@ function SourceDirectoryRow({
   const actions: QuickAction[] = directory.builtIn
     ? []
     : [
+        {
+          id: "edit-url",
+          label: strings.settings.editSourceDirectoryUrl,
+          icon: "pencil-outline",
+          onPress: onEdit,
+        },
         {
           id: "remove",
           label: strings.settings.removeSourceDirectory,
@@ -1350,16 +1361,21 @@ function SourceDirectoryRow({
         accessibilityLabel={displayName}
         accessibilityHint={directory.builtIn ? strings.settings.sourceDirectoryBuiltIn : undefined}
         accessibilityRole="button"
+        disabled={disabled}
+        onPress={onOpen}
         hapticFeedback="none"
         pressedScale={1}
-        // Long press removes a user-added directory (the built-in one can
-        // only be switched off), like the source rows' quick actions.
+        // User-added directories expose Edit URL and Remove on long press.
         onLongPress={
           directory.builtIn || mobileNativeQuickMenuAvailable || disabled
             ? undefined
             : () => {
                 void hapticSelection();
-                onRemove();
+                Alert.alert(displayName, undefined, [
+                  { text: strings.common.cancel, style: "cancel" },
+                  { text: strings.settings.editSourceDirectoryUrl, onPress: onEdit },
+                  { text: strings.settings.removeSourceDirectory, style: "destructive", onPress: onRemove },
+                ]);
               }
         }
         style={[
@@ -1369,7 +1385,7 @@ function SourceDirectoryRow({
         ]}
       >
         <View style={styles.dataActionText}>
-          <NemuText numberOfLines={1} style={[styles.settingTitle, { color: tokens.foreground }]}>
+          <NemuText style={[styles.settingTitle, { color: tokens.foreground }]}>
             {displayName}
           </NemuText>
           <NemuText numberOfLines={1} style={[styles.settingSubtitle, { color: tokens.mutedForeground }]}>
@@ -1398,15 +1414,25 @@ function SourceDirectoryRow({
  * where it lives, a switch), the toolbar + that asks for an HTTPS address in
  * a system prompt, and a footer saying what removing one keeps.
  */
-function SourceDirectoriesSection({ strings }: { strings: MobileStrings }) {
+function SourceDirectoriesSection({ strings, catalog }: {
+  strings: MobileStrings;
+  catalog: ReturnType<typeof useAvailableSources>;
+}) {
   const { tokens } = useNemuTheme();
+  const { tokens: sheetTokens } = useMobileNativeSheetTheme();
   const toast = useMobileToast();
   const manager = useMobileSourceDirectories();
+  const [selectedDirectory, setSelectedDirectory] = useState<SourceDirectory | null>(null);
+  const [directoryVisible, setDirectoryVisible] = useState(false);
+  const [editingDirectory, setEditingDirectory] = useState<SourceDirectory | null>(null);
   const [promptOpen, setPromptOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   // A prompt left open must not outlive the page: close it on blur/unmount.
   useFocusEffect(
-    useCallback(() => () => setPromptOpen(false), []),
+    useCallback(() => () => {
+      setPromptOpen(false);
+      setDirectoryVisible(false);
+    }, []),
   );
 
   const showError = (error: unknown) => {
@@ -1453,12 +1479,12 @@ function SourceDirectoriesSection({ strings }: { strings: MobileStrings }) {
               icon: "plus",
               label: strings.settings.addSourceDirectory,
               disabled: busy,
-              onPress: () => setPromptOpen(true),
+              onPress: () => { setEditingDirectory(null); setPromptOpen(true); },
             },
           ])}
         </Stack.Toolbar>
       ) : null}
-      <SettingsSurface style={styles.rowShell}>
+      <SettingsSurface style={styles.rowShell} contentStyle={styles.directoryRows}>
         {manager.directories.map((directory, index) => (
           <SourceDirectoryRow
             key={directory.id}
@@ -1468,19 +1494,69 @@ function SourceDirectoriesSection({ strings }: { strings: MobileStrings }) {
             first={index === 0}
             onToggle={(enabled) => void run(() => manager.setDirectoryEnabled(directory.id, enabled))}
             onRemove={() => confirmRemove(directory)}
+            onEdit={() => { setEditingDirectory(directory); setPromptOpen(true); }}
+            onOpen={() => {
+              setSelectedDirectory(directory);
+              setDirectoryVisible(true);
+            }}
           />
         ))}
       </SettingsSurface>
       <NemuText style={[styles.experimentalFooter, { color: tokens.mutedForeground }]}>
         {strings.settings.sourceDirectoriesFooter}
       </NemuText>
+      <MobileNativeSheetScaffold
+        visible={directoryVisible}
+        onClose={() => setDirectoryVisible(false)}
+        onDismiss={() => setSelectedDirectory(null)}
+        title={selectedDirectory?.id === NEMU_RECOMMENDED_REGISTRY_ID
+          ? strings.settings.nemuRecommendedDirectoryName : selectedDirectory?.name}
+        dismissLabel={strings.common.done}
+        snapPoints={["70%"]}
+        fillContent
+        contentIgnoresSafeAreaEdges="horizontal"
+      >
+        <FlatList
+          data={selectedDirectory?.enabled ? catalog.data.filter((source) => source.registryId === selectedDirectory.id) : []}
+          keyExtractor={(source) => source.id}
+          contentContainerStyle={styles.directoryContents}
+          ListHeaderComponent={
+            <View style={styles.directoryHeading}>
+              <NemuText selectable style={[styles.settingSubtitle, { color: sheetTokens.mutedForeground }]}>
+                {selectedDirectory?.indexUrl}
+              </NemuText>
+              <NemuText style={[styles.settingSubtitle, { color: sheetTokens.mutedForeground }]}>
+                {strings.settings.sourceDirectoryContentsHint}
+              </NemuText>
+            </View>
+          }
+          ListEmptyComponent={
+            catalog.loading ? <ActivityIndicator color={sheetTokens.primary} /> : (
+              <NemuText style={{ color: sheetTokens.mutedForeground }}>
+                {selectedDirectory?.enabled
+                  ? catalog.error ? strings.settings.sourceDirectoryErrorUnreachable : strings.browse.noSources
+                  : strings.settings.sourceDirectoryDisabledHint}
+              </NemuText>
+            )
+          }
+          renderItem={({ item }) => (
+            <View style={[styles.directorySource, { borderColor: sheetTokens.border }]}>
+              <NemuText style={[styles.directorySourceName, { color: sheetTokens.foreground }]}>{item.name}</NemuText>
+              <NemuText style={[styles.settingSubtitle, { color: sheetTokens.mutedForeground }]}>v{item.version}</NemuText>
+            </View>
+          )}
+        />
+      </MobileNativeSheetScaffold>
       <MobileSourceDirectoryPrompt
         visible={promptOpen}
+        initialUrl={editingDirectory?.indexUrl}
         strings={strings}
         onClose={() => setPromptOpen(false)}
         onSubmit={(url) => {
           setPromptOpen(false);
-          void run(() => manager.addDirectory(url));
+          void run(() => editingDirectory
+            ? manager.updateDirectoryUrl(editingDirectory.id, url)
+            : manager.addDirectory(url));
         }}
       />
     </View>
@@ -1506,6 +1582,7 @@ function SourceUpdatesGroup({
   onUpdateNow: () => void;
   onOpenDirectories: () => void;
 }) {
+  const { tokens } = useNemuTheme();
   const manager = useMobileSourceDirectories();
   return (
     <>
@@ -1516,7 +1593,7 @@ function SourceUpdatesGroup({
         disabled={disabled}
         onPress={onOpenDirectories}
       />
-      <SettingsSurface style={styles.rowShell}>
+      <SettingsSurface style={styles.rowShell} contentStyle={styles.directoryRows}>
         <FeedbackSettingRow
           first
           title={strings.settings.autoUpdateSources}
@@ -1524,24 +1601,23 @@ function SourceUpdatesGroup({
           value={manager.autoUpdateSources}
           onToggle={(next) => void manager.setAutoUpdateSources(next)}
         />
-        <View style={styles.importSourceCard}>
-          <NemuButton
-            accessibilityLabel={strings.settings.updateSourcesNow}
-            containerStyle={styles.importSourceAction}
-            disabled={disabled || updating || pendingCount === 0}
-            icon="refresh-outline"
-            label={
-              pendingCount > 0
-                ? `${strings.settings.updateSourcesNow} (${formatMobileString(strings.settings.updateSourcesCount, { count: pendingCount })})`
-                : strings.settings.updateSourcesUpToDate
-            }
-            loading={updating}
-            onPress={onUpdateNow}
-            size="lg"
-            style={styles.importSourceButton}
-            variant="outline"
-          />
-        </View>
+        <NemuPressable
+          accessibilityRole="button"
+          accessibilityState={{ disabled: disabled || updating, busy: updating }}
+          disabled={disabled || updating}
+          onPress={onUpdateNow}
+          pressHighlight
+          style={[styles.settingsActionRow, { borderColor: tokens.border }]}
+        >
+          <NemuText style={[styles.settingsActionLabel, { color: tokens.primary }]}>
+            {pendingCount > 0 ? strings.settings.updateSourcesNow : strings.settings.checkSourceUpdates}
+          </NemuText>
+          {updating ? <ActivityIndicator color={tokens.mutedForeground} /> : pendingCount > 0 ? (
+            <NemuText style={{ color: tokens.mutedForeground }}>
+              {formatMobileString(strings.settings.updateSourcesCount, { count: pendingCount })}
+            </NemuText>
+          ) : null}
+        </NemuPressable>
       </SettingsSurface>
     </>
   );
@@ -1871,7 +1947,7 @@ function SettingsScreenContent({
   // settings root (or Reader/Appearance/Data) would start a catalog download
   // and a silent source auto-update pass no visible row can use.
   const availableSources = useAvailableSources({
-    enabled: section === "sources",
+    enabled: section === "sources" || section === "directories",
   });
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const [selectedPluginId, setSelectedPluginId] = useState<string | null>(null);
@@ -2342,7 +2418,7 @@ function SettingsScreenContent({
               ? strings.settings.experimentalDesign
               : strings.nav.settings;
   const showRefreshAction =
-    activeSection === null || activeSection === "sources";
+    activeSection === "sources" || activeSection === "directories";
 
   useEffect(() => {
     // The split view's section list never owns a focus deep link; the split
@@ -3510,22 +3586,6 @@ function SettingsScreenContent({
                       title={strings.settings.installedSources}
                       description={strings.settings.installedSourcesDescription}
                       pageTitle={presentation === "detail-pane" ? undefined : settingsTitle}
-                      trailing={
-                        <View style={styles.sourceHeaderActions}>
-                          <NemuButton
-                            accessibilityLabel={strings.settings.addSource}
-                            disabled={settingsActionBusy}
-                            icon="add-outline"
-                            label={strings.common.add}
-                            onPress={() => {
-                              if (settingsActionBusy) return;
-                              router.push("/browse");
-                            }}
-                            size="sm"
-                            variant="default"
-                          />
-                        </View>
-                      }
                     />
                     {sourcesSectionLoading ? (
                       <View style={styles.emptyRow}>
@@ -3622,44 +3682,26 @@ function SettingsScreenContent({
                       </View>
                     )}
                   </SettingsSurface>
-                  {/*
-                    AIX import is a separate, deliberate flow rather than a
-                    second header pill competing with Add: it opens the system
-                    file picker and installs from local storage.
-                  */}
-                  <SettingsSurface
-                    style={styles.sourceSectionShell}
-                    contentStyle={styles.importSourceCard}
-                  >
-                    <SettingsGroupHeader
-                      icon="document-attach-outline"
-                      title={strings.settings.importSourceCardTitle}
-                      description={strings.settings.importSourceCardDescription}
-                      pageTitle={presentation === "detail-pane" ? undefined : settingsTitle}
-                    />
-                    <NemuButton
-                      accessibilityLabel={strings.settings.importSource}
-                      containerStyle={styles.importSourceAction}
-                      disabled={settingsActionBusy}
-                      icon="document-attach-outline"
-                      label={
-                        importingSource
-                          ? strings.settings.importingSource
-                          : strings.settings.importSourceChooseFile
-                      }
-                      loading={importingSource}
-                      onPress={importSourcePackage}
-                      size="lg"
-                      style={styles.importSourceButton}
-                      variant="outline"
-                    />
-                  </SettingsSurface>
+                  <ExploreSettingsActionGroup
+                    actions={[{
+                      key: "import-source",
+                      label: strings.settings.importSourceCardTitle,
+                      busy: importingSource,
+                      disabled: settingsActionBusy,
+                      onPress: importSourcePackage,
+                    }]}
+                    footer={strings.settings.importSourceCardDescription}
+                  />
                   <SourceUpdatesGroup
                     strings={strings}
                     disabled={settingsActionBusy}
                     pendingCount={availableSources.sourceUpdates.length}
-                    updating={updatingSources}
+                    updating={updatingSources || refreshingSources}
                     onUpdateNow={() => {
+                      if (availableSources.sourceUpdates.length === 0) {
+                        void refreshSources();
+                        return;
+                      }
                       setUpdatingSources(true);
                       void availableSources
                         .updateInstalledSources()
@@ -3672,7 +3714,7 @@ function SettingsScreenContent({
               ) : null}
 
               {activeSection === "directories" ? (
-                <SourceDirectoriesSection strings={strings} />
+                <SourceDirectoriesSection strings={strings} catalog={availableSources} />
               ) : null}
 
               {activeSection === "data" ? (
@@ -3944,10 +3986,19 @@ function SettingsScreenContent({
         <Stack.Screen
           options={{
             title: presentation === "list-pane" ? strings.nav.settings : settingsTitle,
-            scrollEdgeEffects: { top: "soft", bottom: "soft", left: "automatic", right: "automatic" },
           }}
         />
       )}
+      {activeSection === "sources" ? (
+        <Stack.Toolbar placement="right">
+          {renderNemuNativeToolbarButtons([{
+            icon: "plus",
+            label: strings.settings.addSource,
+            disabled: settingsActionBusy,
+            onPress: () => router.push("/browse"),
+          }])}
+        </Stack.Toolbar>
+      ) : null}
       <PageListScaffold
         // A newly selected section starts at UIKit's adjusted top. Resetting
         // to offset 0 scrolls past the transparent header's automatic inset.
@@ -3960,7 +4011,10 @@ function SettingsScreenContent({
         refreshDisabled={settingsActionBusy}
         refreshLabel={strings.settings.refreshSources}
         refreshing={refreshingSources}
-        contentContainerStyle={presentation === "page" ? undefined : paneContentStyle}
+        contentContainerStyle={[
+          presentation === "page" ? undefined : paneContentStyle,
+          styles.settingsContent,
+        ]}
         ListHeaderComponent={settingsBody}
       />
     </>
@@ -4145,6 +4199,41 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 17,
   },
+  settingsContent: { paddingTop: 8 },
+  settingsActionRow: {
+    minHeight: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingVertical: 12,
+  },
+  settingsActionLabel: {
+    flex: 1,
+    fontSize: 15,
+  },
+  directoryContents: {
+    paddingBottom: 24,
+  },
+  directoryHeading: {
+    gap: 10,
+    paddingBottom: 16,
+  },
+  directorySource: {
+    minHeight: 52,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingVertical: 12,
+  },
+  directorySourceName: {
+    flex: 1,
+    fontSize: 16,
+  },
+  directoryRows: {
+    paddingHorizontal: 14,
+  },
   rowShell: {
     minHeight: 68,
     borderRadius: radius.lg,
@@ -4315,13 +4404,6 @@ const styles = StyleSheet.create({
     gap: 10,
     padding: 12,
   },
-  sourceHeaderActions: {
-    flexShrink: 0,
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "flex-end",
-    gap: 8,
-  },
   pluginSectionShell: {
     borderRadius: radius.lg,
   },
@@ -4400,16 +4482,6 @@ const styles = StyleSheet.create({
   // icon and both text lines dim, and the switch says why.
   disabledSourceMain: {
     opacity: 0.4,
-  },
-  importSourceCard: {
-    gap: 12,
-    padding: 12,
-  },
-  importSourceAction: {
-    alignSelf: "stretch",
-  },
-  importSourceButton: {
-    alignSelf: "stretch",
   },
   pluginActions: {
     // The trailing cluster (switch + chevron) is sized by its content and

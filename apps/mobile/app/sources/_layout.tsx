@@ -1,4 +1,6 @@
 import { Stack } from "expo-router";
+import { createNemuNativeStackScreenOptions, useNemuTheme } from "@/design-system";
+import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import {
   MOBILE_READER_ROUTE_NAME,
   MOBILE_READER_STACK_GESTURE_OPTIONS,
@@ -6,10 +8,12 @@ import {
 } from "@/lib/mobileReaderRouteOptions";
 
 export default function SourcesLayout() {
+  const { tokens } = useNemuTheme();
+  const { verticalBarSide } = useMobileAdaptiveLayout();
   return (
     <Stack
       screenOptions={{
-        headerShown: false,
+        ...createNemuNativeStackScreenOptions(tokens, verticalBarSide),
         // Full-screen back swipe on manga detail like everywhere else; the
         // reader route below is the only screen without a pop gesture.
         ...MOBILE_STACK_FULL_SCREEN_GESTURE_OPTIONS,
@@ -20,7 +24,15 @@ export default function SourcesLayout() {
           live for the first frames of every chapter. */}
       <Stack.Screen
         name={MOBILE_READER_ROUTE_NAME}
-        options={MOBILE_READER_STACK_GESTURE_OPTIONS}
+        options={{
+          ...MOBILE_READER_STACK_GESTURE_OPTIONS,
+          // Match the reader before its component mounts, including Duo's
+          // persistent rail. UIKit can then transition the bar with the page.
+          headerShown: Boolean(verticalBarSide),
+          headerBackVisible: false,
+          title: "",
+          contentStyle: { backgroundColor: "#000000" },
+        }}
       />
     </Stack>
   );

@@ -830,7 +830,10 @@ export type MobileStrings = {
     importingSource: string;
     sourceDirectories: string;
     sourceDirectoriesHint: string;
+    sourceDirectoryContentsHint: string;
+    sourceDirectoryDisabledHint: string;
     sourceDirectoriesFooter: string;
+    editSourceDirectoryUrl: string;
     addSourceDirectory: string;
     addSourceDirectoryMessage: string;
     addSourceDirectoryLinkTitle: string;
@@ -853,6 +856,7 @@ export type MobileStrings = {
     sourceDirectoryErrorNoSources: string;
     autoUpdateSources: string;
     autoUpdateSourcesFooter: string;
+    checkSourceUpdates: string;
     updateSourcesNow: string;
     updateSourcesCount: string;
     updateSourcesUpToDate: string;
@@ -997,6 +1001,7 @@ export type MobileStrings = {
     reorderHint: string;
   };
   selfHosted: {
+    connectServer: string;
     builtInSources: string;
     /** Browse group title of the user's own servers. */
     groupTitle: string;

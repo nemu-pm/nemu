@@ -44,7 +44,7 @@ import { ConcentricView, ZoomSource, ZoomTarget } from "../../../modules/nemu-wi
 import { getMobileBooksHeroCoverWidth } from "./mobileExploreCover";
 import { useMobileExploreRestingFrame, useMobileExploreRestingTop } from "./useMobileExploreResting";
 import { fitMobileRestingContent, isMobileCompactHeight, MOBILE_RESTING, type MobileRestingBlock } from "@/lib/mobileExploreRestingFit";
-import { ExploreGlassButton, ExploreGlassChip, ExploreGlassIconButton } from "./ExploreGlass";
+import { ExploreGlassButton, ExploreGlassChip, ExploreGlassIconButton, ExploreLibraryGlyph } from "./ExploreGlass";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { ExploreGradient } from "./ExploreGradient";
 import RNCMaskedView from "@react-native-masked-view/masked-view";
@@ -195,7 +195,6 @@ export function MobileMangaDetailBooksHero({
   dissolveId = null,
   pane: paneProp = false,
   placeholder = false,
-  placeholderRoundSecondary = false,
   pending = false,
   onTitleBottom,
   strings,
@@ -242,11 +241,6 @@ export function MobileMangaDetailBooksHero({
    * place of the text, so the cover and the blocks stay put when it lands.
    */
   placeholder?: boolean;
-  /**
-   * The loaded row is Continue and a round button (the library page's
-   * collections), not two capsules: the placeholder row is the same.
-   */
-  placeholderRoundSecondary?: boolean;
   /** The details are still loading (what is shown came from the listing). */
   pending?: boolean;
   /** Where the title block ends, from the hero's top (the bar title appears once it scrolls away). */
@@ -403,17 +397,9 @@ const paneFactColumns =
   const shownCoverWidth = coverWidth;
   const compactHead = top || (!inColumn && shownCoverWidth < HERO_COMPACT_COVER_BELOW);
   const wide = !pane && !top && !inColumn && contentWidth > WIDE_COLUMN;
-  // A hero that fits its column stands in the middle of it (as the reference
-  // layout's does), placed from the estimates rather than its measured
-  // height, so it does not move when the details land or the synopsis opens.
-  const columnOffset = inColumn
-    ? Math.max(
-        0,
-        Math.floor(
-          (rest.edge - columnTop - HEAD_PADDING_TOP - Math.round(coverWidth * 1.5) - columnBlocks(COLUMN_PARAGRAPH_LINES)) / 2,
-        ),
-      )
-    : 0;
+  // Align the cover with the chapter pane instead of centering a short
+  // summary vertically in a tall portrait column.
+  const columnOffset = 0;
   // The first title line ends this far below the hero's top.
   const titleBottom =
     columnOffset +
@@ -452,7 +438,9 @@ const paneFactColumns =
   const factMinWidth = factsInContent ? 0 : Math.floor(Math.min(contentWidth, WIDE_COLUMN) / Math.max(1, facts.length));
   const primaryUnavailable = Boolean(primaryAction && (primaryAction.disabled || !primaryAction.available));
   const primaryInk = primaryUnavailable ? inkSecondary : palette.primaryInk;
-  const libraryAction = secondaryActions.find((action) => action.key === "library");
+  // Library entries expose collection management here; both entry paths use
+  // the same saved-state control and geometry.
+  const libraryAction = secondaryActions.find((action) => action.key === "library" || action.key === "collections");
   const iconActions = secondaryActions.filter((action) => action !== libraryAction);
   const libraryAdded = libraryAction ? libraryAction.iconName !== "add-outline" : false;
   // The moment a title joins the library: the In Library pill pops and
@@ -551,7 +539,7 @@ const paneFactColumns =
     // The column's own top, not a measurement: the first layout happens
     // before UIKit applies the bar inset, so a measured top is off by it.
     const room = rest.edge - MOBILE_RESTING.margin - columnTop - columnOffset - used;
-    return Math.max(DESCRIPTION_MIN_LINES, Math.floor(room / synopsisMeasure.lineHeight));
+    return Math.max(DESCRIPTION_MIN_LINES, Math.min(COLUMN_PARAGRAPH_LINES, Math.floor(room / synopsisMeasure.lineHeight)));
   })();
   const synopsisLines =
     columnSynopsisLines ??
@@ -759,16 +747,16 @@ const paneFactColumns =
     <>
       {primaryAction || secondaryActions.length ? (
         <View style={[styles.actionsBlock, column, inColumn ? styles.columnActions : null, pushStyle("actions")]} onLayout={onActionsLayout}>
-          <View style={[styles.actions, libraryAction && libraryAdded && !top ? styles.actionsCentred : null]} onLayout={onActionsRowLayout}>
+          <View style={[styles.actions, libraryAction && !top ? styles.actionsCentred : null]} onLayout={onActionsRowLayout}>
             {primaryAction ? (
               <View
-                // One view per state: changing flex props on the same view
-                // across add/remove left the old sizing in place.
-                key={libraryAction && libraryAdded && !top ? "half" : "flex"}
+                // Keep separate views for the measured and flexible layouts
+                // so a posture change cannot retain the previous flex sizing.
+                key={libraryAction && !top ? "half" : "flex"}
                 style={
                   top
                     ? styles.topPrimaryButton
-                    : libraryAction && libraryAdded && halfActionWidth
+                    : libraryAction && halfActionWidth
                       ? { width: halfActionWidth }
                       : styles.flexButton
                 }
@@ -780,13 +768,7 @@ const paneFactColumns =
                 // pale or grey that it reads as disabled (`palette.primary`).
                 tint={palette.primary}
                 ink={primaryInk}
-                // Paired with Add to Library (two equal capsules): the short label.
-                // Paired with a round tick (saved), Continue keeps its full label.
-                label={
-                  libraryAction && !libraryAdded
-                    ? (primaryAction.compactLabel ?? primaryAction.label)
-                    : primaryAction.label
-                }
+                label={primaryAction.label}
                 // A narrow pane: the short label rather than a cut one.
                 shortLabel={primaryAction.compactLabel}
                 accessibilityLabel={primaryAction.accessibilityLabel}
@@ -811,39 +793,21 @@ const paneFactColumns =
             ) : null}
             {libraryAction ? (
               <LibraryPop
-                // One view per state, each with its whole flex set: switching
-                // a layout prop off on the same animated view left the pill's
-                // old flex in place after remove + re-add (250 / 120 pt
-                // instead of two equal capsules, Continue cut short).
-                key={libraryAdded ? "added" : "add"}
                 burstKey={libraryBurst}
                 colors={confettiColors}
-                // Saved: a round tick, so Continue takes the freed width.
-                style={libraryAdded ? styles.compactButton : top ? styles.topPrimaryButton : styles.flexButton}
+                style={styles.compactButton}
               >
-              {libraryAdded ? (
                 <ExploreGlassIconButton
-                  icon="checkmark"
+                  icon={libraryAdded ? "checkmark" : "add"}
+                  iconNode={<ExploreLibraryGlyph added={libraryAdded} color={palette.ink} />}
                   size={ACTION_HEIGHT}
-                  accessibilityLabel={strings.designExplore.inLibrary}
+                  accessibilityLabel={libraryAdded && libraryAction.key === "library" ? strings.designExplore.inLibrary : libraryAction.accessibilityLabel}
                   accessibilityHint={libraryAction.accessibilityHint}
                   busy={libraryAction.busy}
                   disabled={libraryAction.disabled}
                   ink={palette.ink}
                   onPress={libraryAction.onPress}
                 />
-              ) : (
-                <ExploreGlassButton
-                  label={strings.designExplore.addToLibrary}
-                  icon="add"
-                  accessibilityLabel={libraryAction.accessibilityLabel}
-                  accessibilityHint={libraryAction.accessibilityHint}
-                  busy={libraryAction.busy}
-                  disabled={libraryAction.disabled}
-                  ink={palette.ink}
-                  onPress={libraryAction.onPress}
-                />
-              )}
               </LibraryPop>
             ) : null}
             {iconActions.map((action) => (
@@ -982,15 +946,13 @@ const paneFactColumns =
   );
   const placeholderActionsNode = (
     <View style={[styles.actionsBlock, column, inColumn ? styles.columnActions : null]}>
-      <View style={[styles.actions, placeholderRoundSecondary && !top ? styles.actionsCentred : null]} onLayout={onActionsRowLayout}>
-        {placeholderRoundSecondary && !top ? (
+      <View style={[styles.actions, !top ? styles.actionsCentred : null]} onLayout={onActionsRowLayout}>
+        {!top ? (
           <View style={halfActionWidth ? { width: halfActionWidth } : styles.flexButton}>{bar("100%", ACTION_HEIGHT, styles.placeholderCapsule)}</View>
         ) : (
           bar("100%", ACTION_HEIGHT, [top ? styles.topPrimaryButton : styles.flexButton, styles.placeholderCapsule])
         )}
-        {placeholderRoundSecondary
-          ? bar(ACTION_HEIGHT, ACTION_HEIGHT, styles.placeholderCapsule)
-          : bar("100%", ACTION_HEIGHT, [top ? styles.topPrimaryButton : styles.flexButton, styles.placeholderCapsule])}
+        {bar(ACTION_HEIGHT, ACTION_HEIGHT, styles.placeholderCapsule)}
       </View>
     </View>
   );

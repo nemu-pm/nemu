@@ -224,6 +224,8 @@ type AddDirectoryOptions = {
   now?: () => number;
   fetchIndex?: FetchDirectoryIndex;
   signal?: AbortSignal;
+  /** Existing identity retained when a directory moves to another URL. */
+  editingId?: string;
 };
 
 /** A directory that was checked and is ready to be added. */
@@ -242,11 +244,12 @@ async function assertDirectoryCanBeAdded(
   ids: readonly string[],
   options: AddDirectoryOptions,
 ): Promise<void> {
-  const existing = await loadMobileSourceDirectories(store, options);
-  if (existing.some((directory) => ids.includes(directory.id))) {
+  const existing = (await loadMobileSourceDirectories(store, options))
+    .filter((directory) => directory.id !== options.editingId);
+  if (existing.some((directory) => ids.includes(directory.id) || ids.includes(sourceDirectoryIdForUrl(directory.indexUrl)))) {
     throw new MobileSourceDirectoryError("duplicate");
   }
-  if (existing.length >= SOURCE_DIRECTORY_MAX_COUNT) {
+  if (!options.editingId && existing.length >= SOURCE_DIRECTORY_MAX_COUNT) {
     throw new MobileSourceDirectoryError("limit");
   }
 }
@@ -334,6 +337,28 @@ export async function addMobileSourceDirectory(
   };
   await store.saveRegistry(registryFromSourceDirectory(directory));
   return directory;
+}
+
+/** Edit in place: installed source keys and synced reading progress retain their identity. */
+export async function updateMobileSourceDirectoryUrl(
+  store: MobileDataStore,
+  id: string,
+  url: string,
+  options: AddDirectoryOptions = {},
+): Promise<void> {
+  const registry = await store.getRegistry(id);
+  const directory = registry ? sourceDirectoryFromRegistry(registry) : null;
+  if (!directory) return;
+  if (directory.builtIn) throw new MobileSourceDirectoryError("built-in");
+  if (url.trim() === directory.indexUrl) return;
+  const editingOptions = { ...options, editingId: id };
+  const preview = await previewMobileSourceDirectory(store, { url, name: directory.name }, editingOptions);
+  // Recheck after network validation, before any write. A failure leaves the
+  // old URL usable; removal while validating must not resurrect the row.
+  await assertDirectoryCanBeAdded(store, [preview.id], editingOptions);
+  const current = await store.getRegistry(id);
+  if (!current || current.type !== "url") return;
+  await store.saveRegistry({ ...current, url: preview.indexUrl });
 }
 
 export async function setMobileSourceDirectoryEnabled(

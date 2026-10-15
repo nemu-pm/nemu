@@ -56,7 +56,12 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
   onAction: (chapter: ChapterSummary, action: MobileExploreChapterAction) => void;
 }) {
   const { tokens } = useNemuTheme();
-  const { wideChapterRows: wide } = useMobileMangaDetailPane();
+  const { wideChapterRows: wide, chapterPalette } = useMobileMangaDetailPane();
+  const selectedInk = upNext ? chapterPalette?.primaryInk : undefined;
+  const foreground = selectedInk ?? chapterPalette?.ink ?? tokens.foreground;
+  const secondary = selectedInk ?? chapterPalette?.inkSecondary ?? tokens.mutedForeground;
+  const accent = selectedInk ?? chapterPalette?.ink ?? tokens.primary;
+  const selection = chapterPalette?.primary ?? tokens.primarySoft;
   const presentation = getMobileChapterPresentation(chapter, progress);
   const accessory = getMobileChapterProgressAccessory(progress, { locked: presentation.isLocked });
   const ratio = accessory.status === "progress" ? accessory.ratio : null;
@@ -95,7 +100,7 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
     (id: string) => onAction(chapter, id === "start" ? "start" : "read"),
     [chapter, onAction],
   );
-  const glyphColor = presentation.isRead || presentation.isLocked ? tokens.mutedForeground : tokens.primary;
+  const glyphColor = presentation.isRead || presentation.isLocked ? secondary : accent;
 
   return (
     <View>
@@ -115,7 +120,7 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
             styles.row,
             wide ? styles.wideRow : null,
             { borderRadius: R.row, borderCurve: "continuous" },
-            upNext ? { backgroundColor: tokens.primarySoft } : null,
+            upNext ? { backgroundColor: selection } : null,
           ]}
         >
           <View style={styles.glyph}>
@@ -127,25 +132,25 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
               <RingGlyph color={glyphColor} track={nemuColorWithAlpha(glyphColor, 0.22)} ratio={ratio} />
             ) : null}
           </View>
-          <View style={[styles.text, styles.textRow, { borderBottomColor: tokens.border }]}>
+          <View style={[styles.text, styles.textRow, { borderBottomColor: upNext && chapterPalette ? "transparent" : chapterPalette?.rule ?? tokens.border }]}>
             <View style={[styles.textBody, wide ? styles.wideBody : null]}>
             <View style={[styles.titleLine, wide ? styles.wideTitle : null]}>
               <NemuText
                 numberOfLines={1}
                 maxFontSizeMultiplier={TEXT_MAX_SCALE}
-                color={presentation.isRead || presentation.isLocked ? tokens.mutedForeground : upNext || presentation.isInProgress ? tokens.primary : tokens.foreground}
+                color={presentation.isRead || presentation.isLocked ? secondary : upNext || presentation.isInProgress ? accent : foreground}
                 style={[styles.title, presentation.isRead ? styles.titleRead : null]}
               >
                 {title}
               </NemuText>
               {upNext ? (
-                <NemuText maxFontSizeMultiplier={1.3} color={tokens.primary} style={styles.newText}>
+                <NemuText maxFontSizeMultiplier={1.3} color={accent} style={styles.newText}>
                   {strings.designExplore.chapterUpNext}
                 </NemuText>
               ) : presentation.isNew ? (
                 // Uploaded within the last 7 days and unread: a small tinted badge.
-                <View style={[styles.newBadge, { backgroundColor: tokens.primarySoft }]}>
-                  <NemuText maxFontSizeMultiplier={1.3} color={tokens.primary} style={styles.newBadgeText}>
+                <View style={[styles.newBadge, { backgroundColor: chapterPalette?.rule ?? tokens.primarySoft }]}>
+                  <NemuText maxFontSizeMultiplier={1.3} color={accent} style={styles.newBadgeText}>
                     {strings.common.new}
                   </NemuText>
                 </View>
@@ -155,7 +160,7 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
               <NemuText
                 numberOfLines={1}
                 maxFontSizeMultiplier={TEXT_MAX_SCALE}
-                color={tokens.mutedForeground}
+                color={secondary}
                 style={[styles.subtitle, wide ? styles.wideSubtitle : null]}
               >
                 {subtitle}
@@ -163,11 +168,11 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
             ) : null}
             </View>
             {wide && (presentation.isRead || presentation.isInProgress || presentation.isLocked) ? (
-              <NemuText numberOfLines={1} color={tokens.mutedForeground} style={styles.wideStatus}>{status}</NemuText>
+              <NemuText numberOfLines={1} color={secondary} style={styles.wideStatus}>{status}</NemuText>
             ) : null}
             <View style={[styles.trail, wide ? styles.wideTrail : null]} pointerEvents="none">
               {!disabled ? (
-                <Ionicons name="chevron-forward" size={15} color={nemuColorWithAlpha(tokens.mutedForeground, 0.7)} />
+                <Ionicons name="chevron-forward" size={15} color={nemuColorWithAlpha(secondary, 0.7)} />
               ) : null}
              </View>
           </View>
@@ -179,6 +184,8 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
 
 function VolumeHeader({ header, strings }: { header: MobileChapterVolumeHeader; strings: MobileStrings }) {
   const { tokens } = useNemuTheme();
+  const { chapterPalette } = useMobileMangaDetailPane();
+  const secondary = chapterPalette?.inkSecondary ?? tokens.mutedForeground;
   const title =
     header.volume !== null
       ? formatMobileString(strings.designExplore.chapterVolume, { volume: header.volume })
@@ -191,11 +198,11 @@ function VolumeHeader({ header, strings }: { header: MobileChapterVolumeHeader; 
       : null;
   return (
     <View accessibilityRole="header" accessible style={styles.header}>
-      <NemuText maxFontSizeMultiplier={TEXT_MAX_SCALE} color={tokens.foreground} style={styles.headerTitle}>
+      <NemuText maxFontSizeMultiplier={TEXT_MAX_SCALE} color={chapterPalette?.ink ?? tokens.foreground} style={styles.headerTitle}>
         {title}
       </NemuText>
       {range ? (
-        <NemuText maxFontSizeMultiplier={TEXT_MAX_SCALE} color={tokens.mutedForeground} style={styles.headerRange}>
+        <NemuText maxFontSizeMultiplier={TEXT_MAX_SCALE} color={secondary} style={styles.headerRange}>
           {range}
         </NemuText>
       ) : null}

@@ -56,7 +56,9 @@ export function NemuNativeSheetHeaderAction({
 
   return (
     <View style={styles.root}>
-      <SwiftHost colorScheme={scheme} style={styles.host}>
+      {/* The sheet already positions this 44pt control inside its safe area.
+          A nested host must not inset it again for Duo's vertical rail. */}
+      <SwiftHost colorScheme={scheme} ignoreSafeArea="all" style={styles.host}>
         <SwiftButton
           onPress={onPress}
           modifiers={[
