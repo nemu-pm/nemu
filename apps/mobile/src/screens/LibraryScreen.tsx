@@ -231,9 +231,8 @@ function toMangaCard(
 /** The quick-action sheet's dismissal, before a removed title turns to dust. */
 const EXPLORE_SHEET_DISMISS_MS = 380;
 /**
- * One row of the library list (or its sections above the rows). When
- * Shelf ⇄ Grid changes `layoutKey`, the row is already in its new place and
- * only dips and fades back in.
+ * One row of the library list (or its sections above the rows). Rows that
+ * mount with a newly shown collection start dipped and settle with it.
  */
 function LibraryLayoutRow({
   layoutKey,
@@ -2055,10 +2054,12 @@ export function LibraryScreen({
   // The switch and the folders give their own press haptics.
   // Shelf and Grid draw the covers at the same size in the same columns, so
   // the switch only moves rows up or down (the Grid adds titles, the Shelf
-  // planks). The rows take their new places in one commit and settle there
-  // with a soft dip-and-fade (LibraryLayoutRow); a layout animation moved
-  // them twice (the spring, then the list's own re-measure) and crashed
-  // Reanimated's layout-animation proxy going back to the Shelf.
+  // planks) and the first row's covers stay put. The rows take their new
+  // places in one commit at full opacity: a dip-and-fade of every row read as
+  // the whole list flashing, and a layout animation moved them twice (the
+  // spring, then the list's own re-measure) and crashed Reanimated's
+  // layout-animation proxy going back to the Shelf. Grid titles wrap to one
+  // or two lines, so no offset can be known before the commit to glide by.
   const setShelfLayout = useCallback((next: boolean) => {
     mobileLibraryShelfLayoutDefault = next;
     setShelfLayoutState(next);
@@ -2177,14 +2178,14 @@ export function LibraryScreen({
   const renderLibraryRow = useCallback(
     ({ item: row, index: rowIndex }: ListRenderItemInfo<LibraryEntry[]>) => (
       <LibraryLayoutRow
-        layoutKey={shelfMode ? "shelf" : "grid"}
+        layoutKey={collectionLayoutKey}
         settleOnMount={collectionSettleOnMount}
         style={[styles.libraryRow, shelfMode ? styles.shelfRow : styles.gridRow, !shelfMode && rowIndex === 0 && designExplore && styles.firstGridRow]}
       >
         {row.map((entry, column) => renderLibraryGridItem({ item: entry, index: rowIndex * gridColumns + column }))}
       </LibraryLayoutRow>
     ),
-    [designExplore, gridColumns, renderLibraryGridItem, collectionSettleOnMount, shelfMode],
+    [designExplore, gridColumns, renderLibraryGridItem, collectionLayoutKey, collectionSettleOnMount, shelfMode],
   );
   // A literal here is a new object on every render, so the cell bail-out
   // never fired; the memoized value only changes when a cell input does.
