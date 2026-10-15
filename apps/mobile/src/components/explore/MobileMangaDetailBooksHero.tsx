@@ -445,7 +445,11 @@ const paneFactColumns =
   /** The facts stand as their own block; the hero column puts them in the head as one line. */
   const factsBlock = factsRow && !inColumn;
   const columnMeta = inColumn && factsRow;
-  const factMinWidth = Math.floor(Math.min(contentWidth, WIDE_COLUMN) / Math.max(1, facts.length));
+  // Beside a vertical bar (the Duo's rail) the strip keeps to the content
+  // area the bar leaves instead of running to the window edge, and the facts
+  // share that width by what each value needs.
+  const factsInContent = verticalBarSide !== null && !pane && !top && !wide;
+  const factMinWidth = factsInContent ? 0 : Math.floor(Math.min(contentWidth, WIDE_COLUMN) / Math.max(1, facts.length));
   const primaryUnavailable = Boolean(primaryAction && (primaryAction.disabled || !primaryAction.available));
   const primaryInk = primaryUnavailable ? inkSecondary : palette.primaryInk;
   const libraryAction = secondaryActions.find((action) => action.key === "library");
@@ -904,9 +908,9 @@ const paneFactColumns =
           // On a phone the strip runs to the screen edges (a fixed `width:
           // 100%` column kept it at the gutter, cutting the last value with
           // a hard edge); a wide window centres it in the column instead.
-          style={[wide ? column : pane || inColumn ? null : bleed.frame, pushStyle("facts")]}
+          style={[wide ? column : pane || inColumn || factsInContent ? null : bleed.frame, pushStyle("facts")]}
           onLayout={onFactsLayout}
-          contentContainerStyle={[styles.facts, pane || wide || inColumn ? null : bleed.content]}
+          contentContainerStyle={[styles.facts, pane || wide || inColumn || factsInContent ? null : bleed.content]}
         >
           {facts.map((fact, index) => (
             <View
@@ -1009,8 +1013,8 @@ const paneFactColumns =
     inColumn ? null : grid ? (
       <View style={[styles.facts, { flexWrap: "wrap", rowGap: 8 }, top ? { flexGrow: 0 } : null]}>{placeholderFacts}</View>
     ) : (
-      <View style={wide ? column : bleed.frame}>
-        <View style={[styles.facts, wide ? null : bleed.content]}>{placeholderFacts}</View>
+      <View style={wide ? column : factsInContent ? null : bleed.frame}>
+        <View style={[styles.facts, wide || factsInContent ? null : bleed.content]}>{placeholderFacts}</View>
       </View>
     );
   const placeholderSynopsisNode = (

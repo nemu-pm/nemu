@@ -1,7 +1,8 @@
-import { ScrollView, StyleSheet, View } from "react-native";
+import { useEffect, useRef } from "react";
+import { ScrollView, StyleSheet, View, type LayoutRectangle, type ScrollViewInstance } from "react-native";
 import { ExploreShimmerSweep } from "./ExploreShimmerSweep";
 import type { MobilePageBleedStyles } from "@/lib/mobilePageGutters";
-import { getMobileSourceListingLabel } from "@/lib/mobileSourceListingsPresentation";
+import { getMobileSourceListingLabel, getMobileTabRevealOffset } from "@/lib/mobileSourceListingsPresentation";
 import type { SourcePackageListing } from "@/data/schema";
 import { nemuFontWeight, NemuPressable, NemuText, useNemuTheme } from "@/design-system";
 import { ExploreGlass } from "./ExploreGlass";
@@ -19,16 +20,19 @@ function GlassTab({
   selected,
   disabled,
   onPress,
+  onLayout,
   accessibilityLabel,
 }: {
   label: string;
   selected: boolean;
   disabled: boolean;
   onPress: () => void;
+  onLayout: (layout: LayoutRectangle) => void;
   accessibilityLabel: string;
 }) {
   const { tokens } = useNemuTheme();
   return (
+    <View onLayout={(event) => onLayout(event.nativeEvent.layout)}>
     <ExploreGlass interactive tintColor={selected ? tokens.primary : undefined} style={styles.tab}>
       <NemuPressable
         accessibilityRole="tab"
@@ -52,6 +56,7 @@ function GlassTab({
         </NemuText>
       </NemuPressable>
     </ExploreGlass>
+    </View>
   );
 }
 
@@ -89,10 +94,41 @@ export function SourceListingTabs({
       selected: !homeSelected && listing.id === selectedListingId,
     })),
   ];
+  // The selected capsule scrolls into view when it is (partly) off the row,
+  // as a See All listing's tab at the end of a full row is.
+  const scrollRef = useRef<ScrollViewInstance | null>(null);
+  const frames = useRef(new Map<string, LayoutRectangle>());
+  const viewportWidth = useRef(0);
+  const offset = useRef(0);
+  const selectedId = entries.find((entry) => entry.selected)?.id ?? null;
+  const revealSelected = (animated: boolean) => {
+    const frame = selectedId === null ? undefined : frames.current.get(selectedId);
+    const target = frame && getMobileTabRevealOffset({
+      start: frame.x,
+      end: frame.x + frame.width,
+      offset: offset.current,
+      viewport: viewportWidth.current,
+      inset: bleed.content.paddingLeft,
+    });
+    if (target !== null && target !== undefined) scrollRef.current?.scrollTo({ x: target, animated });
+  };
+  useEffect(() => {
+    revealSelected(true);
+    // Only when the selection moves; layouts reveal a capsule that lands later.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId]);
   if (entries.length < 2) return null;
   return (
     // Sits inside the page's bleeding tab frame: its padding puts the first capsule on the gutter.
     <ScrollView
+      ref={scrollRef}
+      onLayout={(event) => {
+        viewportWidth.current = event.nativeEvent.layout.width;
+      }}
+      onScroll={(event) => {
+        offset.current = event.nativeEvent.contentOffset.x;
+      }}
+      scrollEventThrottle={32}
       horizontal
       accessibilityRole="tablist"
       accessibilityLabel={accessibilityLabel}
@@ -103,6 +139,10 @@ export function SourceListingTabs({
       {entries.map((entry) => (
         <GlassTab
           key={entry.id}
+          onLayout={(layout) => {
+            frames.current.set(entry.id, layout);
+            if (entry.selected) revealSelected(true);
+          }}
           label={entry.label}
           accessibilityLabel={entry.label}
           selected={entry.selected}

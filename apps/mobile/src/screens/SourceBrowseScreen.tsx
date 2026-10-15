@@ -176,13 +176,16 @@ import {
   hasMobileSourceBrowseRouteQuery,
   makeMobileSourceBrowseSearchRouteQuery,
   isMobileSourceBrowseHomeTabPending,
+  isMobileSourceBrowseRouteTabRequestPending,
   isMobileSourceBrowseSearchRequestPending,
   normalizeMobileSourceBrowseRouteQuery,
+  type MobileSourceBrowseRouteTabRequest,
   normalizeMobileSourceBrowseRouteTab,
   shouldPreserveSourceBrowseSearchItemsOnDeactivate,
   shouldRenderMobileSourceBrowseSearchHeader,
   shouldRunMobileSourceBrowseSearchSubmitFeedback,
   shouldShowCenterSourceBrowseSearchProgress,
+  resolveMobileSourceBrowseKeptListing,
   shouldReserveMobileSourceBrowseListingTabRow,
   shouldShowMobileSourceBrowseListingTabBar,
   shouldShowMobileSourceBrowseNoMatches,
@@ -1362,6 +1365,13 @@ export function SourceBrowseScreen() {
   );
   const routeSourceSearchActive = hasMobileSourceBrowseRouteQuery(params.q);
   const routeSourceListingTab = normalizeMobileSourceBrowseRouteTab(params.tab);
+  // The tab a tap asked the route for, until the route shows it (see the
+  // selection effect): the page's selection is newer than a lagging `tab`.
+  const routeTabRequestRef = useRef<MobileSourceBrowseRouteTabRequest | null>(null);
+  const routeSourceListingTabRef = useRef(routeSourceListingTab);
+  useEffect(() => {
+    routeSourceListingTabRef.current = routeSourceListingTab;
+  }, [routeSourceListingTab]);
   const { tokens } = useNemuTheme();
   // iOS 26+: the system Liquid Glass search field, not a token-filled one.
   const headerSearchBarColors = resolveNemuHeaderSearchBarColors(
@@ -1378,6 +1388,12 @@ export function SourceBrowseScreen() {
   );
   const [selectedRuntimeListing, setSelectedRuntimeListing] =
     useState<SourcePackageListing | null>(null);
+  // The tab a home section's See All left at the end of the row (see
+  // `resolveMobileSourceBrowseKeptListing`), for this source only.
+  const [keptRuntimeListingState, setKeptRuntimeListingState] = useState<{
+    sourceKey: string | null;
+    listing: SourcePackageListing;
+  } | null>(null);
   const [listingState, setListingState] = useState<ListingBrowseState>({
     status: "idle",
     items: [],
@@ -1624,9 +1640,13 @@ export function SourceBrowseScreen() {
         : null,
     [runtimeRefreshKey, sourceProfileScope, sourceRuntimeKey],
   );
+  const keptRuntimeListing =
+    keptRuntimeListingState?.sourceKey === sourceRuntimeKey
+      ? keptRuntimeListingState.listing
+      : null;
   const visibleListings = useMemo(
-    () => mergeMobileSourceListingTabs(listings, selectedRuntimeListing),
-    [listings, selectedRuntimeListing],
+    () => mergeMobileSourceListingTabs(listings, keptRuntimeListing),
+    [keptRuntimeListing, listings],
   );
   // Filters shipped with the installed package, shaped exactly the way the
   // runtime metadata will shape them. They stand in for the runtime answer
@@ -1737,8 +1757,10 @@ export function SourceBrowseScreen() {
     visibleListings.length,
   );
   // Reveal home tabs with the final home, rather than shifting a live
-  // skeleton down as metadata arrives independently of its content.
-  const homeLayoutPending = sourceHasHomeProvider && !sourceHomeHasComponents
+  // skeleton down as metadata arrives independently of its content. Only
+  // while the home is what the page shows: with a listing selected the home
+  // is not fetched, and holding the tabs left them placeholders for good.
+  const homeLayoutPending = sourceHasHomeProvider && !selectedListing && !sourceHomeHasComponents
     && (sourceHomeState.status === "idle" || sourceHomeState.status === "loading");
   const showListingTabBar = !homeLayoutPending && shouldShowMobileSourceBrowseListingTabBar({
     listingTabCount,
@@ -1890,6 +1912,18 @@ export function SourceBrowseScreen() {
     }
 
     if (routeTabSelectionPending) return;
+
+    // A tap just changed the selection and asked the route for its tab; the
+    // route still has the old one. Re-reading it would undo the tap.
+    if (
+      isMobileSourceBrowseRouteTabRequestPending(
+        routeTabRequestRef.current,
+        routeSourceListingTab,
+      )
+    ) {
+      return;
+    }
+    routeTabRequestRef.current = null;
 
     if (routeSelectedListingId) {
       if (
@@ -2757,6 +2791,7 @@ export function SourceBrowseScreen() {
       items: [],
       detail: strings.sourceBrowse.selectListingToBrowse,
     });
+    routeTabRequestRef.current = { from: routeSourceListingTabRef.current, to: null };
     router.setParams({ tab: undefined, q: undefined });
   }, [strings]);
 
@@ -2804,8 +2839,17 @@ export function SourceBrowseScreen() {
         sourceHasHomeProvider,
       );
 
+      const resolved = resolveMobileSourceBrowseKeptListing({
+        listing,
+        opened: options.runtimeListing,
+        kept: keptRuntimeListing,
+        listings,
+      });
       listingRequestRef.current += 1;
-      setSelectedRuntimeListing(options.runtimeListing ?? null);
+      setSelectedRuntimeListing(resolved.runtimeListing);
+      if (resolved.kept && resolved.kept !== keptRuntimeListing) {
+        setKeptRuntimeListingState({ sourceKey: sourceRuntimeKey, listing: resolved.kept });
+      }
       setSelectedListingId(listing.id);
       // Immediately switch the content area to a loading/progress state so the
       // tapped tab appears responsive: the selected tab updates and a progress
@@ -2822,12 +2866,20 @@ export function SourceBrowseScreen() {
       setSubmittedSourceSearchQuery("");
       setSourceFilterValues([]);
       setSourceFilterPanelOpen(false);
+      const routeTab = nextTab === null || nextTab === 0 ? null : nextTab;
+      routeTabRequestRef.current = { from: routeSourceListingTabRef.current, to: routeTab };
       router.setParams({
-        tab: nextTab === null || nextTab === 0 ? undefined : String(nextTab),
+        tab: routeTab === null ? undefined : String(routeTab),
         q: undefined,
       });
     },
-    [listings, sourceHasHomeProvider, strings.sourceBrowse.loadingListing],
+    [
+      keptRuntimeListing,
+      listings,
+      sourceHasHomeProvider,
+      sourceRuntimeKey,
+      strings.sourceBrowse.loadingListing,
+    ],
   );
 
   const changeSourceFilter = useCallback(

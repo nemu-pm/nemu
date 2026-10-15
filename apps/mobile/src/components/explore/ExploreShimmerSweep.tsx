@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { StyleSheet, View, useWindowDimensions, type LayoutChangeEvent, type ViewInstance } from "react-native";
 import Animated, {
   Easing,
@@ -17,6 +17,7 @@ const REST_MS = 500;
 const BAND = 240;
 /** The band leans, so it crosses a block corner to corner rather than as a ruled line. */
 const LEAN_DEG = 16;
+const LEAN_SLOPE = Math.tan((LEAN_DEG * Math.PI) / 180);
 
 /** One clock for every sweep on screen, so placeholders shimmer as one surface. */
 const clock = makeMutable(0);
@@ -48,19 +49,37 @@ export function ExploreShimmerSweep() {
   // stops in a hard vertical line short of the edge (seen on source home).
   const gutters = useMobilePageGutters();
   const time = useShimmerClock();
-  const { width: windowWidth } = useWindowDimensions();
-  const [originX, setOriginX] = useState(0);
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  // Every sweep on screen draws the same window-wide band: its place comes
+  // from the frame's window position, and the band leans about the window's
+  // top rather than its own frame's middle, so a short row (the source tabs)
+  // and a tall block under it light up along one diagonal. The position is
+  // read again every cycle: a frame laid out during a push is still sliding
+  // in when it first measures.
+  const frameRef = useRef<ViewInstance | null>(null);
+  const [origin, setOrigin] = useState({ x: 0, y: 0 });
   const [height, setHeight] = useState(0);
+  const measure = useCallback(() => {
+    frameRef.current?.measureInWindow((x, y) => {
+      setOrigin((current) => (current.x === x && current.y === y ? current : { x, y }));
+    });
+  }, []);
+  useEffect(() => {
+    const timer = setInterval(measure, SWEEP_MS + REST_MS);
+    return () => clearInterval(timer);
+  }, [measure]);
   const onLayout = (event: LayoutChangeEvent) => {
     setHeight(event.nativeEvent.layout.height);
-    (event.target as unknown as ViewInstance).measureInWindow((x) => setOriginX(x));
+    measure();
   };
-  const travel = windowWidth + BAND * 2;
+  // The lean puts the band's foot up to a window height's slope behind its head.
+  const travel = windowWidth + BAND * 2 + LEAN_SLOPE * windowHeight;
+  const lean = LEAN_SLOPE * (origin.y + height / 2);
   const style = useAnimatedStyle(() => {
     const share = Math.min(1, (time.value * (SWEEP_MS + REST_MS)) / SWEEP_MS);
     // Ease-out: the band arrives quickly and slows as it leaves.
     const eased = 1 - (1 - share) * (1 - share) * (1 - share);
-    return { transform: [{ translateX: -BAND + eased * travel - originX }, { rotate: `${LEAN_DEG}deg` }] };
+    return { transform: [{ translateX: -BAND + eased * travel - origin.x - lean }, { rotate: `${LEAN_DEG}deg` }] };
   });
   if (reduceMotion) return null;
   // A mid grey: colour-dodge lifts the blocks by about half in light mode and
@@ -68,6 +87,7 @@ export function ExploreShimmerSweep() {
   const grey = scheme === "dark" ? "110, 110, 116" : "92, 92, 98";
   return (
     <View
+      ref={frameRef}
       pointerEvents="none"
       onLayout={onLayout}
       style={[styles.frame, { left: -gutters.left, right: -gutters.right }]}

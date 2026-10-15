@@ -22,6 +22,8 @@ import {
   useWindowDimensions,
   View,
   type ListRenderItemInfo,
+  type StyleProp,
+  type ViewStyle,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { BottomSheetTextInput } from "@expo/ui/community/bottom-sheet";
@@ -121,7 +123,9 @@ import { MobileCollectionFolders } from "@/components/explore/MobileCollectionFo
 import { useMobileExploreCoverPreference } from "@/components/explore/mobileExploreCoverPreference";
 import { hasMobileUserCover, mobileExploreCoverOwnerUrl, pushMobileExploreDetail } from "@/components/explore/mobileExploreCover";
 import { ContentScrollMarker, ZoomSource } from "../../modules/nemu-window-layout";
-import { useReducedMotion } from "react-native-reanimated";
+import Animated from "react-native-reanimated";
+import { MOBILE_MOTION } from "@/lib/mobileMotion";
+import { useMobilePoseResnapFade } from "@/lib/useMobilePoseResnapFade";
 import { useMobilePoseRenderProbe } from "@/lib/MobilePoseTransitionContext";
 import { useMobileGridScrollAnchor } from "@/lib/useMobileGridScrollAnchor";
 import { getMobileInstalledSourceSettingsKeys } from "@/lib/mobileInstalledSourceKeys";import {
@@ -225,16 +229,26 @@ function toMangaCard(
 /** The quick-action sheet's dismissal, before a removed title turns to dust. */
 const EXPLORE_SHEET_DISMISS_MS = 380;
 /**
- * Shelf ⇄ Grid and opening a collection (design-explore): moved rows glide on
- * one soft spring. New cells appear at once under the old ones, which fade
- * out over them, so the covers (same size and place in both layouts)
- * cross-dissolve without dipping to the page colour halfway.
+ * One row of the library list (or its sections above the rows). When
+ * Shelf ⇄ Grid changes `layoutKey`, the row is already in its new place and
+ * only dips and fades back in.
  */
-const EXPLORE_LAYOUT_SPRING = {
-  duration: 320,
-  update: { type: LayoutAnimation.Types.spring, springDamping: 0.86 },
-  delete: { type: LayoutAnimation.Types.easeOut, property: LayoutAnimation.Properties.opacity, duration: 220 },
-};
+function LibraryLayoutRow({
+  layoutKey,
+  settleOnMount,
+  style,
+  children,
+}: {
+  layoutKey: string;
+  /** Mounted by opening or leaving a collection: starts dipped and settles. */
+  settleOnMount: boolean;
+  style: StyleProp<ViewStyle>;
+  children: ReactNode;
+}) {
+  const settle = useMobilePoseResnapFade(layoutKey, { settleOnMount });
+  return <Animated.View style={[style, settle]}>{children}</Animated.View>;
+}
+
 const LibraryGridItem = memo(function LibraryGridItem({
   entry,
   entryProgress,
@@ -2032,18 +2046,14 @@ export function LibraryScreen({
   // The switch and the folders give their own press haptics.
   // Shelf and Grid draw the covers at the same size in the same columns, so
   // the switch only moves rows up or down (the Grid adds titles, the Shelf
-  // planks): each cover glides to its new place on one spring while the
-  // planks fade, in the same commit as the switch's pill.
-  // Reduce Motion: the new layout replaces the old at once.
-  const exploreReducedMotion = useReducedMotion();
-  const setShelfLayout = useCallback(
-    (next: boolean) => {
-      mobileLibraryShelfLayoutDefault = next;
-      if (!exploreReducedMotion) LayoutAnimation.configureNext(EXPLORE_LAYOUT_SPRING);
-      setShelfLayoutState(next);
-    },
-    [exploreReducedMotion],
-  );
+  // planks). The rows take their new places in one commit and settle there
+  // with a soft dip-and-fade (LibraryLayoutRow); a layout animation moved
+  // them twice (the spring, then the list's own re-measure) and crashed
+  // Reanimated's layout-animation proxy going back to the Shelf.
+  const setShelfLayout = useCallback((next: boolean) => {
+    mobileLibraryShelfLayoutDefault = next;
+    setShelfLayoutState(next);
+  }, []);
   const shelfMode = designExplore && shelfLayout;
   const continueReadingItems = useMemo(
     () =>
@@ -2062,14 +2072,28 @@ export function LibraryScreen({
     () => getMobileShelfRow(shelfGrid, MOBILE_MANGA_GRID_GAP, MOBILE_SHELF.overhang),
     [shelfGrid],
   );
-  // Opening a collection from its folder: the cards and folders give way and
-  // the collection's covers glide into the grid, instead of a cut.
-  const selectCollectionFromFolder = useCallback(
-    (id: string) => {
-      if (!exploreReducedMotion) LayoutAnimation.configureNext(EXPLORE_LAYOUT_SPRING);
-      setMobileLibraryCollectionSelection(id);
-    },
-    [exploreReducedMotion],
+  // Opening or leaving a collection swaps the page in one commit, like the
+  // Shelf ⇄ Grid switch: the sections and rows are keyed by the collection,
+  // so the new ones mount in their places already dipped (no frame at full
+  // opacity first) and fade in. A layout animation here moved the rows twice
+  // and aborted Reanimated's layout-animation proxy. Rows the list brings in
+  // later, while scrolling, appear as usual.
+  const collectionLayoutKey = effectiveCollectionId ?? "";
+  const [seenCollectionLayoutKey, setSeenCollectionLayoutKey] = useState(collectionLayoutKey);
+  const [enteringCollectionLayoutKey, setEnteringCollectionLayoutKey] = useState<string | null>(null);
+  if (seenCollectionLayoutKey !== collectionLayoutKey) {
+    setSeenCollectionLayoutKey(collectionLayoutKey);
+    setEnteringCollectionLayoutKey(collectionLayoutKey);
+  }
+  useEffect(() => {
+    if (enteringCollectionLayoutKey === null) return;
+    const timer = setTimeout(() => setEnteringCollectionLayoutKey(null), MOBILE_MOTION.fadeInMs);
+    return () => clearTimeout(timer);
+  }, [enteringCollectionLayoutKey]);
+  const collectionSettleOnMount = enteringCollectionLayoutKey === collectionLayoutKey;
+  const collectionRowKey = useCallback(
+    (row: LibraryEntry[]) => `${collectionLayoutKey}|${libraryRowKey(row)}`,
+    [collectionLayoutKey],
   );
   const renderLibraryGridItem = useCallback(
     ({ item: entry, index }: { item: LibraryEntry; index: number }) => (
@@ -2143,11 +2167,15 @@ export function LibraryScreen({
   );
   const renderLibraryRow = useCallback(
     ({ item: row, index: rowIndex }: ListRenderItemInfo<LibraryEntry[]>) => (
-      <View style={[styles.libraryRow, shelfMode ? styles.shelfRow : styles.gridRow, !shelfMode && rowIndex === 0 && designExplore && styles.firstGridRow]}>
+      <LibraryLayoutRow
+        layoutKey={shelfMode ? "shelf" : "grid"}
+        settleOnMount={collectionSettleOnMount}
+        style={[styles.libraryRow, shelfMode ? styles.shelfRow : styles.gridRow, !shelfMode && rowIndex === 0 && designExplore && styles.firstGridRow]}
+      >
         {row.map((entry, column) => renderLibraryGridItem({ item: entry, index: rowIndex * gridColumns + column }))}
-      </View>
+      </LibraryLayoutRow>
     ),
-    [designExplore, gridColumns, renderLibraryGridItem, shelfMode],
+    [designExplore, gridColumns, renderLibraryGridItem, collectionSettleOnMount, shelfMode],
   );
   // A literal here is a new object on every render, so the cell bail-out
   // never fired; the memoized value only changes when a cell input does.
@@ -2490,7 +2518,7 @@ export function LibraryScreen({
       // Keep one list (including its rich header) through column changes.
       listRef={gridScrollRef}
       data={showSkeleton ? [] : libraryRows}
-      keyExtractor={libraryRowKey}
+      keyExtractor={collectionRowKey}
       renderItem={renderLibraryRow}
       extraData={libraryGridExtraData}
       nativeHeader={usesNativeHeader}
@@ -2612,7 +2640,12 @@ export function LibraryScreen({
             ) : null}
 
             {designExplore && !showSkeleton ? (
-              <View style={styles.exploreSections}>
+              <LibraryLayoutRow
+                key={collectionLayoutKey}
+                layoutKey={collectionLayoutKey}
+                settleOnMount={collectionSettleOnMount}
+                style={styles.exploreSections}
+              >
                 {/* Lets the tab bar minimise on scroll (UIKit content scroll view). */}
                 <ContentScrollMarker generation={gridColumns} />
                 <MobileContinueReadingCarousel
@@ -2635,7 +2668,7 @@ export function LibraryScreen({
                     entries={sortedLibraryEntries}
                     installedSources={installedSources.data}
                     strings={strings}
-                    onSelect={selectCollectionFromFolder}
+                    onSelect={setMobileLibraryCollectionSelection}
                   />
                 ) : null}
                 {visibleEntryCount ? (
@@ -2650,7 +2683,7 @@ export function LibraryScreen({
                     strings={strings}
                   />
                 ) : null}
-              </View>
+              </LibraryLayoutRow>
             ) : null}
           </View>
         </>

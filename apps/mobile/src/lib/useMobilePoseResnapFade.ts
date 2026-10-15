@@ -27,16 +27,23 @@ export function useMobilePoseResnapFade(
      * screen, a data change — applies without a dip.
      */
     poseChangesOnly?: boolean;
+    /**
+     * Content that mounts as part of the change (rows of a newly shown list)
+     * starts dipped on its first frame and settles with the content that
+     * stayed. Read on mount only.
+     */
+    settleOnMount?: boolean;
   } = {},
 ) {
   const reduceMotion = useReducedMotion();
-  const opacity = useSharedValue(1);
-  const seenRef = useRef(snapKey);
-  const { poseChangesOnly = false } = options;
+  const { poseChangesOnly = false, settleOnMount = false } = options;
+  const opacity = useSharedValue(settleOnMount ? MOBILE_MOTION.resnapDipOpacity : 1);
+  const seenRef = useRef<string | number | null>(settleOnMount ? null : snapKey);
   useLayoutEffect(() => {
     if (seenRef.current === snapKey) return;
+    const mounting = seenRef.current === null;
     seenRef.current = snapKey;
-    if (poseChangesOnly && !isMobilePoseMotionWindowOpen()) return;
+    if (!mounting && poseChangesOnly && !isMobilePoseMotionWindowOpen()) return;
     cancelAnimation(opacity);
     opacity.value = MOBILE_MOTION.resnapDipOpacity;
     opacity.value = withTiming(1, {
