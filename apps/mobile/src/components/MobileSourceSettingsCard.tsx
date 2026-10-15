@@ -94,7 +94,7 @@ import {
 import { sanitizeMobileSourceSettings } from "@/sources/mobileSourceSettingsSafety";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import {
-  MOBILE_EXPLORE_RADIUS,
+  MOBILE_EXPLORE_GROUP_SHAPE,
   MOBILE_SETTINGS_CONTROL_RADIUS,
   MOBILE_SETTINGS_GROUP_INSET,
 } from "@/lib/mobileExploreRadius";
@@ -2070,9 +2070,7 @@ const styles = StyleSheet.create({
     gap: 12,
     padding: MOBILE_SETTINGS_GROUP_INSET,
   },
-  exploreShell: {
-    borderRadius: MOBILE_EXPLORE_RADIUS.group,
-  },
+  exploreShell: MOBILE_EXPLORE_GROUP_SHAPE,
   // A group heading stands clear of the footer above it.
   exploreGroupTitle: {
     marginTop: 22,

@@ -22,7 +22,7 @@ import { getMobileReaderPageListCacheStats } from "@/sources/mobileReaderPageLis
 import { useSkeletonPulse } from "@/lib/useSkeletonPulse";
 import { formatMobileInteger } from "@/lib/mobileLocaleFormat";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
-import { MOBILE_EXPLORE_RADIUS } from "@/lib/mobileExploreRadius";
+import { MOBILE_EXPLORE_GROUP_SHAPE } from "@/lib/mobileExploreRadius";
 import { ExploreSettingsActionGroup } from "@/components/explore/ExploreSettingsActionGroup";
 
 /** Proportion-bar segments, in the mock's order: covers → pages → packages → other. */
@@ -412,10 +412,7 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 14,
   },
-  exploreCard: {
-    borderRadius: MOBILE_EXPLORE_RADIUS.group,
-    borderCurve: "continuous",
-  },
+  exploreCard: MOBILE_EXPLORE_GROUP_SHAPE,
   exploreActions: {
     marginTop: 20,
   },

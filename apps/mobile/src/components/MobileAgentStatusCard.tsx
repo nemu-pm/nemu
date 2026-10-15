@@ -5,7 +5,7 @@ import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { useMobileLanguageSettings } from "@/data/mobileHooks";
 import { radius, nemuFontWeight, useNemuTheme } from "@/design-system";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
-import { MOBILE_EXPLORE_RADIUS } from "@/lib/mobileExploreRadius";
+import { MOBILE_EXPLORE_GROUP_SHAPE } from "@/lib/mobileExploreRadius";
 import { getMobileStrings } from "@/lib/mobileI18n";
 import {
   fetchMobileAgentStatus,
@@ -163,9 +163,8 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   exploreShell: {
+    ...MOBILE_EXPLORE_GROUP_SHAPE,
     minHeight: 0,
-    borderRadius: MOBILE_EXPLORE_RADIUS.group,
-    borderCurve: "continuous",
   },
   exploreRow: {
     flexDirection: "row",

@@ -1,4 +1,4 @@
-import { MOBILE_EXPLORE_RADIUS as R } from "@/lib/mobileExploreRadius";
+import { MOBILE_EXPLORE_GROUP_SHAPE } from "@/lib/mobileExploreRadius";
 import { Fragment, type ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -70,8 +70,7 @@ export function ExploreSettingsGroup({ rows }: { rows: ExploreSettingsRow[] }) {
 
 const styles = StyleSheet.create({
   group: {
-    borderRadius: R.group,
-    borderCurve: "continuous",
+    ...MOBILE_EXPLORE_GROUP_SHAPE,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
   },

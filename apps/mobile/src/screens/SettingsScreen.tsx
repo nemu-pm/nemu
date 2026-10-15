@@ -15,7 +15,7 @@ import { readMobileDesignExploreStored, writeMobileDesignExploreStored } from "@
 import { isMobileDesignExploreSwitchAvailable } from "@/lib/mobileDesignExploreSwitch";
 import { reloadAppAsync } from "expo";
 import { formatMobileLanguageDisplayName } from "@/lib/mobileLanguageSettings";
-import { MOBILE_EXPLORE_RADIUS } from "@/lib/mobileExploreRadius";
+import { MOBILE_EXPLORE_GROUP_SHAPE } from "@/lib/mobileExploreRadius";
 import { isMobileSettingsHeadingRepeat } from "@/lib/mobileSettingsHeading";
 import {
   AccessibilityInfo,
@@ -1012,6 +1012,7 @@ function PressableSettingsSurface({
         styles.settingsSurface,
         { backgroundColor: tokens.card, borderColor: tokens.border },
         style,
+        mobileDesignExploreFlag ? styles.exploreSurface : null,
       ]}
     >
       <View style={contentStyle}>{children}</View>
@@ -4278,10 +4279,7 @@ const styles = StyleSheet.create({
     fontWeight: nemuFontWeight.medium,
   },
   // The radius scale's group corner (design-explore).
-  exploreSurface: {
-    borderRadius: MOBILE_EXPLORE_RADIUS.group,
-    borderCurve: "continuous",
-  },
+  exploreSurface: MOBILE_EXPLORE_GROUP_SHAPE,
   exploreInnerRows: {
     gap: 0,
   },

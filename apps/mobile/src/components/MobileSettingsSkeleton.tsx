@@ -5,6 +5,11 @@ import {
   useSkeletonPulse,
 } from "@/lib/useSkeletonPulse";
 import { radius, useNemuTheme, GlassSurface } from "@/design-system";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
+import { MOBILE_EXPLORE_GROUP_SHAPE } from "@/lib/mobileExploreRadius";
+
+// Placeholders take the shape of the cards they stand in for.
+const exploreShape = mobileDesignExploreFlag ? MOBILE_EXPLORE_GROUP_SHAPE : null;
 
 const PLUGIN_ROWS = [0, 1] as const;
 const SOURCE_ROWS = [0, 1, 2] as const;
@@ -98,7 +103,7 @@ function SettingsRowSkeleton({ action }: { action?: "buttons" | "switch" }) {
   const { tokens } = useNemuTheme();
 
   return (
-    <GlassSurface style={styles.rowShell} contentStyle={styles.sourceRow}>
+    <GlassSurface style={[styles.rowShell, exploreShape]} contentStyle={styles.sourceRow}>
       <SkeletonIcon size={action === "switch" ? 40 : 34} />
       <View style={styles.rowCopy}>
         <SkeletonLine width="68%" height={14} />
@@ -151,7 +156,7 @@ export function MobileSettingsSkeleton({
       accessibilityRole="progressbar"
       style={[styles.stack, { opacity: skeletonOpacity }]}
     >
-      <GlassSurface style={styles.cardShell} contentStyle={styles.cardContent}>
+      <GlassSurface style={[styles.cardShell, exploreShape]} contentStyle={styles.cardContent}>
         <View style={styles.cardHeader}>
           <SkeletonIcon />
           <View style={styles.rowCopy}>
@@ -174,7 +179,7 @@ export function MobileSettingsSkeleton({
         </View>
       </GlassSurface>
 
-      <GlassSurface style={styles.cardShell} contentStyle={styles.cardContent}>
+      <GlassSurface style={[styles.cardShell, exploreShape]} contentStyle={styles.cardContent}>
         <View style={styles.cardHeader}>
           <SkeletonIcon />
           <View style={styles.rowCopy}>
@@ -196,7 +201,7 @@ export function MobileSettingsSkeleton({
         ))}
       </View>
 
-      <GlassSurface style={styles.cardShell} contentStyle={styles.cardContent}>
+      <GlassSurface style={[styles.cardShell, exploreShape]} contentStyle={styles.cardContent}>
         <View style={styles.cardHeader}>
           <SkeletonIcon />
           <View style={styles.rowCopy}>
@@ -216,7 +221,7 @@ export function MobileSettingsSkeleton({
         ))}
       </View>
 
-      <GlassSurface style={styles.cardShell} contentStyle={styles.cardContent}>
+      <GlassSurface style={[styles.cardShell, exploreShape]} contentStyle={styles.cardContent}>
         <View style={styles.cardHeader}>
           <SkeletonIcon />
           <View style={styles.rowCopy}>
@@ -238,7 +243,7 @@ export function MobileSettingsSkeleton({
         </View>
       </GlassSurface>
 
-      <GlassSurface style={styles.footerShell} contentStyle={styles.footerRow}>
+      <GlassSurface style={[styles.footerShell, exploreShape]} contentStyle={styles.footerRow}>
         <SkeletonIcon />
         <SkeletonLine width="58%" height={14} />
         <SkeletonLine width={22} height={22} subtle />

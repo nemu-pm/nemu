@@ -16,6 +16,8 @@ import {
   type MobileOpenSourceNotice,
   type MobileOpenSourceNoticeSection,
 } from "@/lib/mobileOpenSourceLicenses";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
+import { MOBILE_EXPLORE_GROUP_SHAPE, MOBILE_SETTINGS_CONTROL_RADIUS } from "@/lib/mobileExploreRadius";
 
 type MobileOpenSourceLicensesSheetProps = {
   visible: boolean;
@@ -80,6 +82,7 @@ export function MobileOpenSourceLicensesSheet({
             style={[
               styles.card,
               { backgroundColor: tokens.card, borderColor: tokens.border },
+              mobileDesignExploreFlag ? MOBILE_EXPLORE_GROUP_SHAPE : null,
             ]}
           >
             {group.notices.map((notice, index) => (
@@ -180,7 +183,13 @@ function MobileOpenSourceNoticeRow({
         ) : null}
       </View>
       {notice.licenseText && expanded ? (
-        <View style={[styles.licenseText, { backgroundColor: tokens.secondary }]}>
+        <View
+          style={[
+            styles.licenseText,
+            { backgroundColor: tokens.secondary },
+            mobileDesignExploreFlag ? { borderRadius: MOBILE_SETTINGS_CONTROL_RADIUS } : null,
+          ]}
+        >
           <NemuText
             color={tokens.mutedForeground}
             selectable

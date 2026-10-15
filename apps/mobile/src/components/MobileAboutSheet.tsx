@@ -43,6 +43,8 @@ import {
   MOBILE_ABOUT_VERSION_PULSE,
   shouldAnimateMobileAboutVersionPulse,
 } from "@/lib/mobileAboutLayout";
+import { MOBILE_EXPLORE_GROUP_SHAPE } from "@/lib/mobileExploreRadius";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 
 const APP_VERSION = packageJson.version;
 const SOURCE_URL = "https://github.com/nemu-pm/nemu";
@@ -254,6 +256,7 @@ export function MobileAboutSheet({ visible, onClose }: MobileAboutSheetProps) {
               backgroundColor: nemuColorWithAlpha(tokens.muted, 0.42),
               opacity: openingSourceCode ? 0.66 : 1,
             },
+            mobileDesignExploreFlag ? MOBILE_EXPLORE_GROUP_SHAPE : null,
           ]}
         >
           <View style={[styles.linkIcon, { backgroundColor: tokens.sourceIconGlass }]}>

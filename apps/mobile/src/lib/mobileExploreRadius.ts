@@ -48,6 +48,17 @@ export const MOBILE_SHEET_GROUP_RADIUS = concentricMobileExploreRadius(
   MOBILE_SHEET_BODY_INSET,
 );
 
+/**
+ * The one shape of a grouped card (a settings group, a card on a settings
+ * page or in a sheet's body, their loading placeholders): the scale's
+ * `group` corner, drawn continuous. Every such card spreads this instead of
+ * its own radius, so cards side by side never disagree on their corner.
+ */
+export const MOBILE_EXPLORE_GROUP_SHAPE = {
+  borderRadius: MOBILE_EXPLORE_RADIUS.group,
+  borderCurve: "continuous",
+} as const;
+
 /** Shared inset from a settings group's edge to its custom fields and marks. */
 export const MOBILE_SETTINGS_GROUP_INSET = 14;
 /** Custom controls follow the group's corner; native switches and menus keep system shapes. */

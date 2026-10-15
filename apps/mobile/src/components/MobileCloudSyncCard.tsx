@@ -36,7 +36,7 @@ import {
 } from "@/lib/mobileI18n";
 import { describeMobileErrorDetail } from "@/lib/mobileSourceErrors";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
-import { MOBILE_EXPLORE_RADIUS } from "@/lib/mobileExploreRadius";
+import { MOBILE_EXPLORE_GROUP_SHAPE } from "@/lib/mobileExploreRadius";
 import { mobileAuthClient } from "@/sync/mobileAuthClient";
 import { retryMobileConvexAuth } from "@/sync/mobileConvexAuthRetry";
 import { isMobileAuthStorageUnavailable } from "@/sync/mobileAuthSecureStorage";
@@ -106,6 +106,7 @@ function MobileCloudSyncUnavailableCard({
       style={[
         styles.shell,
         { backgroundColor: tokens.card, borderColor: tokens.border },
+        mobileDesignExploreFlag ? styles.exploreShell : null,
       ]}
     >
       <View style={styles.content}>
@@ -824,10 +825,7 @@ const styles = StyleSheet.create({
     padding: 14,
   },
   // Design-explore: the Settings groups' corner.
-  exploreShell: {
-    borderRadius: MOBILE_EXPLORE_RADIUS.group,
-    borderCurve: "continuous",
-  },
+  exploreShell: MOBILE_EXPLORE_GROUP_SHAPE,
   exploreTitle: {
     fontSize: 16,
     lineHeight: 21,

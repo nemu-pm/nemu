@@ -1,4 +1,4 @@
-import { MOBILE_EXPLORE_RADIUS as R } from "@/lib/mobileExploreRadius";
+import { MOBILE_EXPLORE_GROUP_SHAPE } from "@/lib/mobileExploreRadius";
 import { Fragment } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { nemuFontWeight, NemuPressable, NemuText, useNemuTheme } from "@/design-system";
@@ -82,8 +82,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   group: {
-    borderRadius: R.group,
-    borderCurve: "continuous",
+    ...MOBILE_EXPLORE_GROUP_SHAPE,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
   },
