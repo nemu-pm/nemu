@@ -427,6 +427,18 @@ export function getSourceSettingValue(
   return value ?? ownDataValue(setting, "default");
 }
 
+/** A slider value snapped to its step and kept inside its range. */
+export function snapSourceSettingSliderValue(
+  value: number,
+  min: number,
+  max: number,
+  step: number,
+): number {
+  const safeStep = step > 0 ? step : 1;
+  const snapped = Math.round((value - min) / safeStep) * safeStep + min;
+  return Number(Math.min(max, Math.max(min, snapped)).toPrecision(15));
+}
+
 export function formatSourceSettingSliderValue(
   setting: SourcePackageSetting,
   value: number,

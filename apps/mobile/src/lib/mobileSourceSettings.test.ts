@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   applyMobileSourceSettingsPatch,
+  snapSourceSettingSliderValue,
   canRetryMobileSourceSettingsLoadError,
   canRunMobileSourceTextSettingBlurFeedback,
   resolveMobileSourceTextSettingCommit,
@@ -752,3 +753,15 @@ describe("text setting drafts", () => {
     expect(block).toContain("editable={!disabled || draft !== null}");
   });
 });
+
+describe("source setting slider value", () => {
+  test("snaps to the step from the minimum and stays in range", () => {
+    expect(snapSourceSettingSliderValue(0.26, 0, 1, 0.05)).toBe(0.25);
+    expect(snapSourceSettingSliderValue(37, 10, 100, 5)).toBe(35);
+    expect(snapSourceSettingSliderValue(-4, 0, 100, 1)).toBe(0);
+    expect(snapSourceSettingSliderValue(140, 0, 100, 1)).toBe(100);
+    // A missing or zero step falls back to whole steps.
+    expect(snapSourceSettingSliderValue(2.4, 0, 10, 0)).toBe(2);
+  });
+});
+

@@ -35,6 +35,7 @@ import {
 } from "@expo/ui/swift-ui/modifiers";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import { MobileSourceLoginSheet } from "@/components/MobileSourceLoginSheet";
+import { SourceSettingSlider } from "@/components/SourceSettingSlider";
 import {
   createNemuButtonDepthStyle,
   getNemuButtonDepthVisual,
@@ -66,7 +67,6 @@ import {
   describeSourceSettingValue,
   sourceSettingControlShowsValue,
   flattenVisibleEditableSourceSettings,
-  formatSourceSettingSliderValue,
   formatSourceSettingAccessibilityLabel,
   getFirstVisibleSourceSettingIndex,
   getSourceSegmentIndex,
@@ -113,7 +113,6 @@ const EMPTY_SETTING_FEATURES: MobileSourceSettingFeatureFlags = {};
 // an ellipsis); the shipping rows keep one and two lines.
 const ROW_TITLE_LINES = mobileDesignExploreFlag ? 2 : 1;
 const ROW_DETAIL_LINES = mobileDesignExploreFlag ? undefined : 2;
-const SLIDER_VALUE_LABEL_WIDTH = 48;
 
 type MobileSourceSettingsCardProps = {
   settings: SourcePackageSetting[];
@@ -192,152 +191,6 @@ function stringListSettingValue(
 
 function clampNumber(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
-}
-
-function snapSliderValue(
-  value: number,
-  min: number,
-  max: number,
-  step: number,
-): number {
-  const snapped = Math.round((value - min) / step) * step + min;
-  return Number(clampNumber(snapped, min, max).toPrecision(15));
-}
-
-function SourceSettingSlider({
-  setting,
-  value,
-  disabled,
-  onChange,
-}: {
-  setting: SourcePackageSetting;
-  value: number;
-  disabled: boolean;
-  onChange: (value: number) => void;
-}) {
-  const { tokens } = useNemuTheme();
-  const [trackWidth, setTrackWidth] = useState(0);
-  const lastEmittedValueRef = useRef(value);
-  const min = setting.min ?? 0;
-  const max = setting.max ?? 100;
-  const step = setting.step ?? 1;
-  const range = max > min ? max - min : 1;
-  const progress = clampNumber((value - min) / range, 0, 1);
-  const formatted = formatSourceSettingSliderValue(setting, value);
-  const sliderValueLeft = trackWidth
-    ? clampNumber(
-        progress * trackWidth - SLIDER_VALUE_LABEL_WIDTH / 2,
-        0,
-        Math.max(0, trackWidth - SLIDER_VALUE_LABEL_WIDTH),
-      )
-    : 0;
-
-  useEffect(() => {
-    lastEmittedValueRef.current = value;
-  }, [value]);
-
-  const updateFromLocation = (locationX: number) => {
-    if (disabled) return;
-    if (!trackWidth) return;
-    const nextValue = snapSliderValue(
-      min + (clampNumber(locationX, 0, trackWidth) / trackWidth) * range,
-      min,
-      max,
-      step,
-    );
-    if (nextValue !== lastEmittedValueRef.current) {
-      lastEmittedValueRef.current = nextValue;
-      onChange(nextValue);
-      void hapticSelection();
-    }
-  };
-
-  return (
-    <View style={styles.sliderControl}>
-      <NemuText
-        density="compact"
-        pointerEvents="none"
-        numberOfLines={1}
-        style={[
-          styles.sliderFloatingValue,
-          {
-            color: tokens.mutedForeground,
-            left: sliderValueLeft,
-            width: SLIDER_VALUE_LABEL_WIDTH,
-          },
-        ]}
-      >
-        {formatted}
-      </NemuText>
-      <View
-        accessibilityRole="adjustable"
-        accessibilityLabel={setting.title}
-        accessibilityState={{ disabled }}
-        accessibilityValue={{
-          min,
-          max,
-          now: value,
-          text: formatted,
-        }}
-        onAccessibilityAction={(event) => {
-          if (disabled) return;
-          const action = event.nativeEvent.actionName;
-          if (action === "increment") {
-            const nextValue = snapSliderValue(value + step, min, max, step);
-            if (nextValue !== value) {
-              onChange(nextValue);
-              void hapticSelection();
-            }
-          } else if (action === "decrement") {
-            const nextValue = snapSliderValue(value - step, min, max, step);
-            if (nextValue !== value) {
-              onChange(nextValue);
-              void hapticSelection();
-            }
-          }
-        }}
-        accessibilityActions={[{ name: "increment" }, { name: "decrement" }]}
-        onLayout={(event) => setTrackWidth(event.nativeEvent.layout.width)}
-        onMoveShouldSetResponder={() => !disabled}
-        onStartShouldSetResponder={() => !disabled}
-        onResponderGrant={(event) => {
-          updateFromLocation(event.nativeEvent.locationX);
-        }}
-        onResponderMove={(event) => {
-          updateFromLocation(event.nativeEvent.locationX);
-        }}
-        onResponderRelease={() => {
-          if (!disabled) void hapticPress();
-        }}
-        style={[
-          styles.sliderTrackTouchTarget,
-          disabled && styles.disabledControl,
-        ]}
-      >
-        <View style={[styles.sliderTrack, { backgroundColor: tokens.muted }]}>
-          <View
-            style={[
-              styles.sliderFill,
-              {
-                backgroundColor: tokens.primary,
-                width: `${progress * 100}%`,
-              },
-            ]}
-          />
-          <View
-            style={[
-              styles.sliderThumb,
-              {
-                backgroundColor: tokens.primary,
-                borderColor: tokens.background,
-                left: `${progress * 100}%`,
-              },
-            ]}
-          />
-        </View>
-      </View>
-    </View>
-  );
 }
 
 function SourceSettingSelectMenu({
@@ -2303,42 +2156,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 14,
     textAlign: "right",
-  },
-  sliderControl: {
-    width: "100%",
-    minHeight: 48,
-    justifyContent: "flex-end",
-    paddingTop: 18,
-  },
-  sliderFloatingValue: {
-    position: "absolute",
-    top: 0,
-    textAlign: "center",
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: nemuFontWeight.medium,
-  },
-  sliderTrackTouchTarget: {
-    height: 24,
-    justifyContent: "center",
-  },
-  sliderTrack: {
-    height: 6,
-    overflow: "visible",
-    borderRadius: radius.pill,
-  },
-  sliderFill: {
-    height: 6,
-    borderRadius: radius.pill,
-  },
-  sliderThumb: {
-    position: "absolute",
-    top: -6,
-    width: 18,
-    height: 18,
-    marginLeft: -9,
-    borderRadius: 9,
-    borderWidth: 3,
   },
   stepper: {
     minHeight: 32,
