@@ -11,8 +11,8 @@ import type { WindowLayoutRect } from "@/lib/mobileWindowLayout";
  * - `filmstrip` (A): the expanded console — title, spoiler-safe thumbnails
  *   (only pages already read and the current page render images), the
  *   scrubber with chapter skips and the capsule actions.
- * - `continuous` (C): scroll / long-strip reading — the strip flows through
- *   both panes and the fold is a thin dark band the content passes under.
+ * - `continuous` (C): scroll / long-strip reading — no pane: the reader
+ *   lays out as on the open display and the strip flows through the fold.
  *
  * Japanese Learning tools are not part of the pane: they open in the same
  * system sheets as everywhere else, which the system moves off the fold.

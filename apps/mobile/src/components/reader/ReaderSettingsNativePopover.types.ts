@@ -14,6 +14,8 @@ export type ReaderSettingsNativePopoverProps = {
   availableHeight: number;
   /** Regular-width window (Duo inner display, tablets): only there may it be a popover; compact is a sheet. */
   regularWidth: boolean;
+  /** Tallest the sheet may be (the bottom pane while the device is half folded like a laptop); null: no cap. */
+  maxSheetHeight?: number | null;
   mode: ReadingMode;
   activeScrollWidthPct: number;
   isTwoPageMode: boolean;

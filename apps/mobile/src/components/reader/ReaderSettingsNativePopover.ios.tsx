@@ -57,6 +57,7 @@ import {
 import {
   readerSettingsNativePresentation,
   readerSettingsNativeSheetEstimatedHeight,
+  readerSettingsSheetDetentCap,
 } from "@/lib/readerSettingsNativePopoverLayout";
 import {
   isMobileReaderNotebookPanePreference,
@@ -125,6 +126,7 @@ export function ReaderSettingsNativePopover({
   showReaderPluginSettings = false,
   onOpenReaderPluginSettings,
   regularWidth,
+  maxSheetHeight = null,
 }: ReaderSettingsNativePopoverProps) {
   const { scheme, tokens } = useNemuTheme();
   const windowSize = useWindowDimensions();
@@ -420,10 +422,15 @@ export function ReaderSettingsNativePopover({
                 // Only as tall as the rows need (a handful of rows used to
                 // open a full-height sheet); capped at the screen, where the
                 // Form scrolls (landscape, large Dynamic Type).
+                // Half folded like a laptop: never past the hinge.
                 fitSheetDetentToContent({
                   group: READER_SETTINGS_SHEET_GROUP,
                   page: READER_SETTINGS_SHEET_PAGE,
                   initialHeight: readerSettingsNativeSheetEstimatedHeight(settingsRows),
+                  height: readerSettingsSheetDetentCap({
+                    estimatedHeight: readerSettingsNativeSheetEstimatedHeight(settingsRows),
+                    maxHeight: maxSheetHeight,
+                  }),
                 }),
                 presentationDragIndicator("visible"),
                 ...presentationModifiers,

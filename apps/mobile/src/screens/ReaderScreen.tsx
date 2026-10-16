@@ -145,7 +145,10 @@ import {
   ReaderSettingsNativePopover,
   readerSettingsNativePopoverAvailable,
 } from "@/components/reader/ReaderSettingsNativePopover";
-import { readerSettingsPopoverAvailableHeight } from "@/lib/readerSettingsNativePopoverLayout";
+import {
+  readerNotebookSheetMaxHeight,
+  readerSettingsPopoverAvailableHeight,
+} from "@/lib/readerSettingsNativePopoverLayout";
 import { mobileAdaptiveLayout } from "@/lib/mobileAdaptiveLayout";
 import { ReaderDisplaySettingsPopover } from "@/components/reader/ReaderDisplaySettingsPopover";
 import { ReaderNotebookPane } from "@/components/reader/ReaderNotebookPane";
@@ -2133,15 +2136,27 @@ export function ReaderScreen() {
   // the reader is then the ordinary flat one for this window, and the top row
   // carries "show the controls panel". A closed sheet is a choice for this
   // fold only: leaving the half-folded posture (unfold, rotate) brings it back.
-  const readerNotebookFold = mobileAdaptiveLayout(readerFoldedWindowLayout).posture === "notebook";
+  const readerFoldedAdaptive = mobileAdaptiveLayout(readerFoldedWindowLayout);
+  const readerNotebookFold = readerFoldedAdaptive.posture === "notebook";
+  // Half folded like a laptop, reader sheets belong to the bottom pane: never
+  // past the hinge over the page (scroll mode and a closed panel included).
+  const readerNotebookSheetCap = readerNotebookFold && readerFoldedAdaptive.panels.length === 2
+    ? readerNotebookSheetMaxHeight({
+        paneHeight: readerFoldedAdaptive.panels[1].height,
+        bottomInset: readerFoldedWindowLayout.safeAreaInsets?.bottom ?? insets.bottom,
+      })
+    : null;
   const [readerNotebookSheetClosedState, setReaderNotebookSheetClosed] = useState(false);
   if (readerNotebookSheetClosedState && !readerNotebookFold) setReaderNotebookSheetClosed(false);
   const readerNotebookPanelClosed = readerNotebookSheetClosedState && readerNotebookFold;
   // The panel toggle lives in the trailing action group wherever it is drawn (paged reading only: scroll has no sheet).
   const readerNotebookPanelToggle = readerNotebookFold && galleryPagedMode;
+  // Scroll / long strip has no sheet either: the strip reads exactly as on
+  // the open display, the fold no pane boundary.
+  const readerFoldIgnored = readerNotebookPanelClosed || (readerNotebookFold && !galleryPagedMode);
   const readerWindowLayout = useMemo(
-    () => (readerNotebookPanelClosed ? mobileReaderLayoutWithoutFold(readerFoldedWindowLayout) : readerFoldedWindowLayout),
-    [readerFoldedWindowLayout, readerNotebookPanelClosed],
+    () => (readerFoldIgnored ? mobileReaderLayoutWithoutFold(readerFoldedWindowLayout) : readerFoldedWindowLayout),
+    [readerFoldedWindowLayout, readerFoldIgnored],
   );
   const readerBaseActionSlots = mobileReaderCapsuleActionSlots({
     enabledPluginIds: enabledReaderPlugins.map((plugin) => plugin.id),
@@ -8468,19 +8483,6 @@ export function ReaderScreen() {
       />
       </Animated.View>
 
-      {readerPose.foldBand ? (
-        // Notebook scroll mode: the strip runs through both panes and passes
-        // under the fold, drawn as a thin dark crease.
-        <View pointerEvents="none" style={mobileReaderAbsoluteRect(readerPose.foldBand)}>
-          <LinearGradient
-            colors={["rgba(0,0,0,0)", "rgba(0,0,0,0.9)", "rgba(0,0,0,0.9)", "rgba(0,0,0,0)"]}
-            locations={[0, 0.3, 0.7, 1]}
-            style={StyleSheet.absoluteFill}
-          />
-          <View style={styles.readerFoldCrease} />
-        </View>
-      ) : null}
-
       {bilingualLayout ? (
         <DuoBilingualSpread
           layout={bilingualLayout}
@@ -8606,6 +8608,7 @@ export function ReaderScreen() {
           // Popover only on a regular-width window; compact (phones, Duo
           // outer display) presents the sheet.
           regularWidth={mobileAdaptiveLayout(readerWindowLayout).regularWidth}
+          maxSheetHeight={readerNotebookSheetCap}
           availableHeight={
             readerSettingsAnchorRect
               ? readerSettingsPopoverAvailableHeight({
@@ -8891,14 +8894,6 @@ const styles = StyleSheet.create({
   },
   readerStageClip: {
     overflow: "hidden",
-  },
-  readerFoldCrease: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    top: "50%",
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: "rgba(255,255,255,0.08)",
   },
   readerNotebookHeader: {
     flexDirection: "row",

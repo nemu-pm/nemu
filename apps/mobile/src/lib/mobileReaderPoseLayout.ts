@@ -25,7 +25,7 @@ import {
  * | flat, regular width, no vertical bar (tablets, unfolded Android, Duo inner display full-screen) | full bleed | capsule row on the status-bar row + scrubber centred on the display |
  * | book (vertical fold)                  | one page per pane / reading-start pane | capsules snapped per pane: Back + title leading, actions trailing (or Back + actions in the system bar), scrubber in the reading-start pane |
  * | notebook (horizontal fold), paged     | top pane                      | capsule row over the top pane + the bottom pane (trackpad / filmstrip) |
- * | notebook, scroll / long strip         | the whole display (the fold is a band the strip passes under) | capsule row + scrubber, like flat |
+ * | notebook, scroll / long strip         | flat: the strip flows through the fold, as on the open display | as flat |
  *
  * Japanese Learning tools are never part of this layout: in every pose they
  * are the same system sheets as on a phone, which the system itself moves off
@@ -200,8 +200,6 @@ export type MobileReaderPoseLayout = {
   spread: boolean;
   /** Stage-local x interval (the fold) that must never be a tap target. */
   foldGap: { start: number; end: number } | null;
-  /** Notebook continuous strip: the fold band drawn over the strip (reader-local). */
-  foldBand: Rect | null;
   chrome: MobileReaderChromeLayout;
   /** Chrome is always visible (notebook console). */
   chromePinned: boolean;
@@ -812,47 +810,9 @@ export function mobileReaderPoseLayout(input: MobileReaderPoseLayoutInput): Mobi
     const paneState: MobileReaderNotebookPaneState = input.notebookPane
       ?? (input.paged ? "filmstrip" : "continuous");
     if (paneState === "continuous") {
-      // Scroll / long strip: one viewport through both panes, the fold a thin
-      // band the strip passes under. The capsule row sits atop the top pane
-      // and the scrubber at the bottom of the bottom pane (HIG: a pane's
-      // controls sit on that pane; nothing on the fold).
-      const chrome = capsuleChrome({
-        frame: bounds,
-        bounds,
-        insets,
-        occlusions,
-        leading: topPane,
-        trailing: topPane,
-        scrubberRegion: bottomPane,
-        leadingSide,
-        actionCount: input.actionCount ?? 3,
-        titleCenterX: topPane.x + topPane.width / 2,
-      });
-      return {
-        posture: "notebook",
-        bounds,
-        safeInsets: insets,
-        stage: bounds,
-        constrained: false,
-        twoPageAvailable: false,
-        spread: false,
-        foldGap: null,
-        foldBand: adaptive.fold,
-        chrome,
-        chromePinned: false,
-        modalFrame: topPane,
-        // The settings popover stays in the bottom pane, above the scrubber,
-        // never across the fold.
-        popover: {
-          frame: mobileWindowUnoccludedRect(shrink(bottomPane, mobileReaderSafePadding(bottomPane, bounds, insets)), occlusions),
-          bottomGap: Math.max(
-            READER_POPOVER_GAP,
-            bottomPane.y + bottomPane.height - mobileReaderSafePadding(bottomPane, bounds, insets).bottom - chrome.scrubber.y + READER_POPOVER_GAP,
-          ),
-        },
-        tapExclusions: capsuleExclusions(chrome, bounds),
-        pageSideInsets: mobileReaderPageSideInsets(bounds, insets, occlusions),
-      };
+      // Scroll / long strip reads exactly as on the open display: the fold
+      // is not a pane boundary for a strip that flows through it.
+      return mobileReaderPoseLayout({ ...input, layout: mobileReaderLayoutWithoutFold(input.layout) });
     }
     // Paged: immersive, full-bleed page in the top pane (the reader hides the
     // status bar while reading); only the fold is avoided. The bottom pane
@@ -906,7 +866,6 @@ export function mobileReaderPoseLayout(input: MobileReaderPoseLayoutInput): Mobi
       twoPageAvailable,
       spread,
       foldGap: null,
-      foldBand: null,
       chrome,
       chromePinned: true,
       modalFrame: bottomPane,
@@ -968,7 +927,6 @@ export function mobileReaderPoseLayout(input: MobileReaderPoseLayoutInput): Mobi
       twoPageAvailable,
       spread,
       foldGap,
-      foldBand: null,
       chrome,
       chromePinned: false,
       // Reader-owned cards centre in the page's pane, between the capsule rows.
@@ -1053,7 +1011,6 @@ export function mobileReaderPoseLayout(input: MobileReaderPoseLayoutInput): Mobi
     twoPageAvailable,
     spread,
     foldGap: null,
-    foldBand: null,
     chrome,
     chromePinned: false,
     modalFrame: unoccluded,

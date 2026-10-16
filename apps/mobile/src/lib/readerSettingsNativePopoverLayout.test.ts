@@ -6,6 +6,8 @@ import {
   readerSettingsNativeSheetEstimatedHeight,
   readerSettingsNativePresentation,
   readerSettingsPopoverAvailableHeight,
+  readerNotebookSheetMaxHeight,
+  readerSettingsSheetDetentCap,
 } from "./readerSettingsNativePopoverLayout";
 
 const full = {
@@ -122,5 +124,28 @@ describe("compact-width reader settings sheet", () => {
     expect(readerSettingsNativeSheetEstimatedHeight({ ...phone, scrolling: true })).toBeGreaterThan(
       readerSettingsNativeSheetEstimatedHeight(phone),
     );
+  });
+});
+
+describe("settings sheet half folded like a laptop", () => {
+  test("the cap keeps the sheet's top level with the bottom pane on the iPhone Duo", () => {
+    // Inner display 951pt tall, fold 455.5–495.5, bottom inset 34, 8pt floating gutter.
+    const max = readerNotebookSheetMaxHeight({ paneHeight: 455.5, bottomInset: 34 });
+    expect(max).toBe(413);
+    expect(951 - 34 - 8 - max).toBeGreaterThanOrEqual(495);
+  });
+
+  test("a Form that could reach past the fold gets exactly the cap; a short one keeps fitting", () => {
+    const estimatedHeight = readerSettingsNativeSheetEstimatedHeight(full);
+    expect(readerSettingsSheetDetentCap({ estimatedHeight, maxHeight: 413 })).toBe(413);
+    expect(readerSettingsSheetDetentCap({ estimatedHeight: 200, maxHeight: 413 })).toBe(0);
+    // Close to the cap: the estimate may be short of the measured Form.
+    expect(readerSettingsSheetDetentCap({ estimatedHeight: 380, maxHeight: 413 })).toBe(413);
+  });
+
+  test("no fold, no cap", () => {
+    expect(readerSettingsSheetDetentCap({ estimatedHeight: 900, maxHeight: null })).toBe(0);
+    expect(readerSettingsSheetDetentCap({ estimatedHeight: 900, maxHeight: Number.NaN })).toBe(0);
+    expect(readerNotebookSheetMaxHeight({ paneHeight: 20, bottomInset: 34 })).toBe(0);
   });
 });
