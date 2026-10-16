@@ -171,6 +171,7 @@
       "expo-localization",
       "expo-status-bar",
       "./plugins/with-mobile-deep-link-schemes",
+      "./plugins/with-third-party-notices",
       [
         "expo-image-picker",
         {
