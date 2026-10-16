@@ -972,9 +972,6 @@ export const mobileStringsJa: MobileStrings = {
     cloudSyncSignOutLabel: "クラウド同期からサインアウト",
     cloudSyncSignOutMessage: "このデバイスに残す内容を選択してください。",
     cloudSyncSignOutTitle: "サインアウト",
-    cloudSyncUnavailable: "利用不可",
-    cloudSyncUnavailableDetail:
-      "このビルドではクラウド同期を利用できません。",
     localDataCleanupTitle: "端末データの削除を完了",
     localDataCleanupDescription:
       "サインアウト済みです。nemu がこの端末からアカウントデータを削除し終えるまで、そのデータは非表示になります。",
@@ -1376,7 +1373,7 @@ export const mobileStringsJa: MobileStrings = {
     searchClearRecent: "最近の検索を消去",
     searchRecentItem: "「{{query}}」をもう一度検索",
     searchNewChapters: "新着話",
-    browseInLibrary: "ライブラリで使用中",
+    browseInLibrary: "ライブラリ内のソース",
     browseLibraryTitles: "{{count}}作品",
     browseLibraryTitlesOne: "1作品",
     filtersMenu: "フィルター",

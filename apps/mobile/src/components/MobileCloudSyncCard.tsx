@@ -12,7 +12,6 @@ import {
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useConvexAuth, useQuery } from "convex/react";
 import {
-  MobileChip,
   MobileNativeSheetScaffold,
   nemuColorWithAlpha,
   NemuPressable,
@@ -88,58 +87,6 @@ type CloudSyncError = {
   detail: string;
   accountId?: string | null;
 };
-
-/** The sync state reads as a read-only chip, so it is the `static` pill. */
-function SyncStatusBadge({ label }: { label: string }) {
-  return <MobileChip accessibilityLabel={label} label={label} variant="static" />;
-}
-
-function MobileCloudSyncUnavailableCard({
-  strings,
-}: {
-  strings: MobileStrings;
-}) {
-  const { tokens } = useNemuTheme();
-
-  return (
-    <View
-      style={[
-        styles.shell,
-        { backgroundColor: tokens.card, borderColor: tokens.border },
-        mobileDesignExploreFlag ? styles.exploreShell : null,
-      ]}
-    >
-      <View style={styles.content}>
-        <View style={styles.header}>
-          <View style={styles.iconFrame}>
-            <Ionicons name="cloud-outline" size={20} color={tokens.primary} />
-          </View>
-          <View style={styles.copy}>
-            <Text
-              maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
-              style={[styles.title, { color: tokens.foreground }]}
-            >
-              {strings.settings.cloudSync}
-            </Text>
-            <Text
-              maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
-              style={[styles.subtitle, { color: tokens.mutedForeground }]}
-            >
-              {strings.settings.cloudSyncDescription}
-            </Text>
-          </View>
-          <SyncStatusBadge label={strings.settings.cloudSyncUnavailable} />
-        </View>
-        <Text
-          maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
-          style={[styles.detail, { color: tokens.mutedForeground }]}
-        >
-          {strings.settings.cloudSyncUnavailableDetail}
-        </Text>
-      </View>
-    </View>
-  );
-}
 
 function MobileCloudSyncConfiguredCard({
   strings,
@@ -806,9 +753,8 @@ export function MobileCloudSyncCard() {
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
 
-  if (!mobileSyncConfig.configured) {
-    return <MobileCloudSyncUnavailableCard strings={strings} />;
-  }
+  // A build without sync shows no card at all; the settings list closes up.
+  if (!mobileSyncConfig.configured) return null;
 
   return <MobileCloudSyncConfiguredCard strings={strings} />;
 }

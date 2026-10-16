@@ -910,8 +910,6 @@ export const mobileStringsZh: MobileStrings = {
     cloudSyncSignOutLabel: "退出云同步登录",
     cloudSyncSignOutMessage: "选择此设备上应保留的内容。",
     cloudSyncSignOutTitle: "退出登录",
-    cloudSyncUnavailable: "不可用",
-    cloudSyncUnavailableDetail: "此构建不支持云同步。",
     localDataCleanupTitle: "完成移除本机数据",
     localDataCleanupDescription:
       "你已退出登录。nemu 完成从此设备移除账号数据前，这些数据会保持隐藏。",
@@ -1288,7 +1286,7 @@ export const mobileStringsZh: MobileStrings = {
     searchClearRecent: "清除最近搜索",
     searchRecentItem: "再次搜索“{{query}}”",
     searchNewChapters: "有新章节",
-    browseInLibrary: "书库在用",
+    browseInLibrary: "书库中的书源",
     browseLibraryTitles: "{{count}} 部作品",
     browseLibraryTitlesOne: "1 部作品",
     filtersMenu: "筛选",

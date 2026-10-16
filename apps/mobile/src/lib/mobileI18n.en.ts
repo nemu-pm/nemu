@@ -966,8 +966,6 @@ export const mobileStringsEn: MobileStrings = {
     cloudSyncSignOutLabel: "Sign out of cloud sync",
     cloudSyncSignOutMessage: "Choose what should stay on this device.",
     cloudSyncSignOutTitle: "Sign Out",
-    cloudSyncUnavailable: "Unavailable",
-    cloudSyncUnavailableDetail: "Cloud sync is unavailable in this build.",
     localDataCleanupTitle: "Finish removing device data",
     localDataCleanupDescription:
       "You are signed out. Your account data stays hidden until nemu finishes removing it from this device.",
@@ -1366,7 +1364,7 @@ export const mobileStringsEn: MobileStrings = {
     searchClearRecent: "Clear recent searches",
     searchRecentItem: "Search again for {{query}}",
     searchNewChapters: "New Chapters",
-    browseInLibrary: "In Your Library",
+    browseInLibrary: "Sources in Your Library",
     browseLibraryTitles: "{{count}} titles",
     browseLibraryTitlesOne: "1 title",
     filtersMenu: "Filters",

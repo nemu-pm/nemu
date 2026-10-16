@@ -819,8 +819,6 @@ export type MobileStrings = {
     cloudSyncSignOutLabel: string;
     cloudSyncSignOutMessage: string;
     cloudSyncSignOutTitle: string;
-    cloudSyncUnavailable: string;
-    cloudSyncUnavailableDetail: string;
     localDataCleanupTitle: string;
     localDataCleanupDescription: string;
     dataManagement: string;
