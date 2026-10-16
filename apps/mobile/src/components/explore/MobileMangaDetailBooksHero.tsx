@@ -23,6 +23,7 @@ import type {
   MobileMangaDetailSurfaceBadge,
   MobileMangaDetailSurfacePrimaryAction,
 } from "@/components/MobileMangaDetailSurface";
+import { MobileMangaDetailDescriptionSheet } from "@/components/MobileMangaDetailDescriptionSheet";
 import { MobileMangaDetailTagSheet } from "@/components/MobileMangaDetailTagSheet";
 import {
   createNemuShadowStyle,
@@ -1157,8 +1158,8 @@ function LibraryPop({
 
 /**
  * The synopsis, in the hero's ink. A long one shows its first lines with a
- * trailing "more" that fades in over the last line; tapping it opens the rest
- * (and tapping again folds it back).
+ * trailing "more" that fades in over the last line; tapping it opens the
+ * whole description in a sheet, so the page never moves under it.
  */
 function HeroDescription({
   value,
@@ -1168,9 +1169,12 @@ function HeroDescription({
   style,
   lines,
   onMeasure,
+  sheetValue,
 }: {
   style?: StyleProp<ViewStyle>;
   value: string;
+  /** The sheet's text when it differs from the page's (the page leaves a line out). */
+  sheetValue?: string;
   ink: string;
   moreInk: string;
   strings: MobileStrings;
@@ -1182,13 +1186,12 @@ function HeroDescription({
   const [lineCount, setLineCount] = useState<number | null>(null);
   const [lineHeight, setLineHeight] = useState(DESCRIPTION_LINE_HEIGHT);
   const [moreWidth, setMoreWidth] = useState(44);
-  const [expanded, setExpanded] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
   const collapsible = lineCount !== null && lineCount > lines;
-  const clamped = collapsible && !expanded;
   const text = (
     <NemuText
       // Until measured, hold the collapsed height so a long synopsis never
-      // flashes open and shut.
+      // flashes open.
       numberOfLines={lineCount === null ? lines : undefined}
       color={ink}
       style={styles.description}
@@ -1220,51 +1223,52 @@ function HeroDescription({
         <NemuPressable
           accessibilityRole="button"
           accessibilityLabel={value}
-          accessibilityHint={expanded ? strings.common.collapse : strings.common.expand}
-          accessibilityState={{ expanded }}
+          accessibilityHint={strings.designExplore.descriptionMoreHint}
           hapticFeedback="press"
           pressedScale={1}
-          onPress={() => setExpanded((current) => !current)}
+          onPress={() => setSheetOpen(true)}
         >
-          {clamped ? (
-            // The last line's trailing end fades out through a mask on the
-            // text itself, so whatever is behind it (the drifting living
-            // page) shows through; a painted fade was one solid colour and
-            // read as a dark block over the moving pools.
-            <MaskedView
-              maskElement={
-                <View style={styles.maskFill}>
-                  <View style={{ height: (lines - 1) * lineHeight, backgroundColor: "#000" }} />
-                  <View style={[styles.maskLine, { height: lineHeight }]}>
-                    <View style={styles.maskSolid} />
-                    <ExploreGradient direction="right" colors={["#000000", "rgba(0,0,0,0)"]} style={styles.moreFade} />
-                    <View style={{ width: moreWidth }} />
-                  </View>
+          {/* The last line's trailing end fades out through a mask on the
+              text itself, so whatever is behind it (the drifting living
+              page) shows through; a painted fade was one solid colour and
+              read as a dark block over the moving pools. */}
+          <MaskedView
+            maskElement={
+              <View style={styles.maskFill}>
+                <View style={{ height: (lines - 1) * lineHeight, backgroundColor: "#000" }} />
+                <View style={[styles.maskLine, { height: lineHeight }]}>
+                  <View style={styles.maskSolid} />
+                  <ExploreGradient direction="right" colors={["#000000", "rgba(0,0,0,0)"]} style={styles.moreFade} />
+                  <View style={{ width: moreWidth }} />
                 </View>
-              }
+              </View>
+            }
+          >
+            <NemuText numberOfLines={lines} color={ink} style={styles.description}>
+              {value}
+            </NemuText>
+          </MaskedView>
+          <View pointerEvents="none" style={styles.more}>
+            <NemuText
+              color={moreInk}
+              style={styles.moreText}
+              onLayout={(event) => setMoreWidth(Math.ceil(event.nativeEvent.layout.width))}
             >
-              <NemuText numberOfLines={lines} color={ink} style={styles.description}>
-                {value}
-              </NemuText>
-            </MaskedView>
-          ) : (
-            text
-          )}
-          {clamped ? (
-            <View pointerEvents="none" style={styles.more}>
-              <NemuText
-                color={moreInk}
-                style={styles.moreText}
-                onLayout={(event) => setMoreWidth(Math.ceil(event.nativeEvent.layout.width))}
-              >
-                {strings.designExplore.descriptionMore}
-              </NemuText>
-            </View>
-          ) : null}
+              {strings.designExplore.descriptionMore}
+            </NemuText>
+          </View>
         </NemuPressable>
       ) : (
         text
       )}
+      {collapsible ? (
+        <MobileMangaDetailDescriptionSheet
+          visible={sheetOpen}
+          description={sheetValue ?? value}
+          strings={strings}
+          onClose={() => setSheetOpen(false)}
+        />
+      ) : null}
     </View>
   );
 }

@@ -1156,6 +1156,10 @@ export type MobileStrings = {
     inLibrary: string;
     latestChapterLine: string;
     descriptionMore: string;
+    /** The full description's sheet: its title, close button and the "more" hint. */
+    descriptionSheetTitle: string;
+    closeDescription: string;
+    descriptionMoreHint: string;
     /** Detail facts row: small labels over the values. */
     factSource: string;
     factChapters: string;
