@@ -126,6 +126,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import { MobileNemuAgentSheet } from "@/components/MobileNemuAgentSheet";
+import { useMobileSourceQuickSettings } from "@/components/useMobileSourceQuickSettings";
 import {
   MobileReaderContinuousScrubber,
   type MobileReaderContinuousScrubberHandle,
@@ -1573,6 +1574,10 @@ export function ReaderScreen() {
     onSuccess: () => setPagesRefreshNonce((value) => value + 1),
   });
   cloudflareSheetRef.current = cloudflareSheet;
+  const sourceSettings = useMobileSourceQuickSettings({
+    strings,
+    onSourceChanged: () => setPagesRefreshNonce((value) => value + 1),
+  });
 
   const selectReaderPluginSettings = useCallback(
     (pluginId: string) => {
@@ -8409,10 +8414,7 @@ export function ReaderScreen() {
         }}
         onLongStripScrollProgressChange={persistLongStripScrollProgress}
         onOpenSourceSettings={() => {
-          router.push({
-            pathname: "/(tabs)/settings/[section]",
-            params: { section: "sources" },
-          });
+          if (selectedInstalledSource) sourceSettings.open(selectedInstalledSource);
         }}
         onOpenNextChapter={
           nextChapterInReadingOrder
@@ -8808,6 +8810,7 @@ export function ReaderScreen() {
         onVerify={cloudflareSheet.verify}
         onDismiss={cloudflareSheet.dismiss}
       />
+      {sourceSettings.sheet}
       <MobileReaderConnectivityNotice
         topOffset={insets.top + 76}
         horizontalFrame={readerNoticeFrame}

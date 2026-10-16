@@ -7,7 +7,7 @@ import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import { MOBILE_EXPLORE_RADIUS } from "@/lib/mobileExploreRadius";
-import { Stack, router, type Href } from "expo-router";
+import { Stack, router } from "expo-router";
 import {
   Linking,
   Platform,
@@ -255,13 +255,6 @@ function UnsupportedSourceRow({
       </View>
     </NemuPressable>
   );
-}
-
-function sourceSettingsHref(source: SourceCardModel): Href {
-  return {
-    pathname: "/(tabs)/settings/[section]",
-    params: { section: "sources", sourceId: source.id },
-  };
 }
 
 const formatLanguages = formatMobileSourceLanguages;
@@ -1671,6 +1664,13 @@ export function BrowseScreen() {
         }))
       : [];
 
+  // An unsupported source's row opens its settings in place, as the long-press
+  // 设置 does; the Settings tab stays the place to manage every source.
+  const openUnsupportedSourceSettings = (id: string) => {
+    setQuickActionSourceId(id);
+    setQuickActionSettingsVisible(true);
+  };
+
   const sourceContextActions = (id: string): QuickAction[] => {
     const source = mergedInstalledSources.find((item) => item.id === id);
     if (!source) return [];
@@ -1858,9 +1858,7 @@ export function BrowseScreen() {
                                   <UnsupportedSourceRow
                                     source={source}
                                     strings={strings}
-                                    onPress={() => {
-                                      router.push(sourceSettingsHref(source));
-                                    }}
+                                    onPress={() => openUnsupportedSourceSettings(source.id)}
                                   />
                                 ) : (
                                   <MobileQuickActionMenu actions={sourceContextActions(source.id)}>
@@ -1894,9 +1892,7 @@ export function BrowseScreen() {
                                     <UnsupportedSourceRow
                                       source={source}
                                       strings={strings}
-                                      onPress={() => {
-                                        router.push(sourceSettingsHref(source));
-                                      }}
+                                      onPress={() => openUnsupportedSourceSettings(source.id)}
                                     />
                                   ) : (
                                     <MobileQuickActionMenu actions={sourceContextActions(source.id)}>

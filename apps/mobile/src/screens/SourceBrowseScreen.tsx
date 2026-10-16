@@ -6,6 +6,7 @@ import { chunkMobileGridRows, mobileFoldAwareGridCellStyle } from "@/lib/mobileF
 import { MobilePaneAlignedView } from "@/lib/MobilePaneAlignedView";
 import { useMobileFoldAwareGrid } from "@/lib/useMobileFoldAwareGrid";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
+import { useMobileSourceQuickSettings } from "@/components/useMobileSourceQuickSettings";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Platform,
@@ -2798,6 +2799,13 @@ export function SourceBrowseScreen() {
   const cloudflareSheet = useNemuAgentSheet({
     onSuccess: () => setRuntimeRefreshKey((current) => current + 1),
   });
+  // The options menu's 书源设置 opens in place; a committed change (a login, a
+  // mirror) reloads the source underneath once the sheet has closed.
+  const { open: openSourceSettings, sheet: sourceSettingsSheet } =
+    useMobileSourceQuickSettings({
+      strings,
+      onSourceChanged: () => setRuntimeRefreshKey((current) => current + 1),
+    });
   cloudflareSheetRef.current = cloudflareSheet;
 
   /**
@@ -3586,11 +3594,7 @@ export function SourceBrowseScreen() {
                     label: strings.settings.sourceSettingsDefaultTitle,
                     disabled: !installedSource,
                     onPress: () => {
-                      if (!installedSource) return;
-                      router.push({
-                        pathname: "/(tabs)/settings/[section]",
-                        params: { section: "sources", sourceId: installedSource.id },
-                      });
+                      if (installedSource) openSourceSettings(installedSource);
                     },
                   },
                 ],
@@ -3937,6 +3941,7 @@ export function SourceBrowseScreen() {
         onVerify={cloudflareSheet.verify}
         onDismiss={cloudflareSheet.dismiss}
       />
+      {sourceSettingsSheet}
     </>
   );
 }
