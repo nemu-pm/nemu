@@ -27,7 +27,7 @@ describe("native scroll edges follow toolbar placement", () => {
   test("vertical bars leave the top and bottom content clear", () => {
     for (const side of ["left", "right"] as const) {
       const effects = resolveNemuNativeScrollEdgeEffects(side);
-      expect(effects).toEqual({ top: "hidden", bottom: "hidden", left: "automatic", right: "automatic" });
+      expect(effects).toEqual({ top: "hidden", bottom: "hidden", left: "soft", right: "soft" });
       expect(resolveNemuNativeHeaderChrome("ios", "#000", side)).toMatchObject({ scrollEdgeEffects: effects });
     }
   });
@@ -36,5 +36,14 @@ describe("native scroll edges follow toolbar placement", () => {
   });
   test("Android remains opaque even if a bar side is supplied", () => {
     expect(resolveNemuNativeHeaderChrome("android", "#000", "right")).toEqual({ headerStyle: { backgroundColor: "#000" } });
+  });
+});
+
+describe("native scroll edges never fall back to the SDK default", () => {
+  test("no edge is automatic or hard, whatever the bar placement (iOS 27 resolves automatic to hard)", () => {
+    for (const side of [null, "left", "right"] as const) {
+      const edges = Object.values(resolveNemuNativeScrollEdgeEffects(side));
+      expect(edges.filter((edge) => edge === "automatic" || edge === "hard")).toEqual([]);
+    }
   });
 });

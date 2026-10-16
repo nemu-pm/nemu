@@ -47,6 +47,10 @@ import {
 } from "@/components/MobileLibraryTitleMenu";
 import type { MobileLibraryTitleMenuProps } from "@/components/MobileLibraryTitleMenu.types";
 import { MobileLibrarySkeleton } from "@/components/MobileLibrarySkeleton";
+import { MobileLaunchRevealGroup } from "@/components/MobileLaunchRevealGroup";
+import type { MobileLaunchRevealGroup as MobileLaunchRevealGroupName } from "@/lib/mobileLaunchRevealPlan";
+import { isMobileLaunchContentReady, markMobileLaunchContentReady } from "@/lib/mobileSplashScreen";
+import { MOBILE_PERFORMANCE_MARKS, markMobilePerformance } from "@/lib/mobilePerformance";
 import { useMobileToast } from "@/components/MobileToastContext";
 import { renderExploreDetailBarMenu } from "@/components/explore/ExploreDetailBarMenu";
 import * as DocumentPicker from "expo-document-picker";
@@ -145,7 +149,6 @@ import {
   buildMobileLibraryTitleMenu,
   getMobileLibraryCollectionSelection,
   reconcileMobileLibraryCollectionSelection,
-  resolveMobileLibraryCollectionRoute,
   resolveMobileLibraryTitleMenuAction,
   setMobileLibraryCollectionSelection,
   subscribeMobileLibraryCollectionSelection,
@@ -229,24 +232,27 @@ function toMangaCard(
 /** The quick-action sheet's dismissal, before a removed title turns to dust. */
 const EXPLORE_SHEET_DISMISS_MS = 380;
 /**
- * One row of the library list (or its sections above the rows). When
- * Shelf ⇄ Grid changes `layoutKey`, the row is already in its new place and
- * only dips and fades back in.
+ * One row of the library list (or its sections above the rows). Rows that
+ * mount with a newly shown collection start dipped and settle with it.
  */
 function LibraryLayoutRow({
   layoutKey,
   settleOnMount,
+  revealGroup,
   style,
   children,
 }: {
   layoutKey: string;
   /** Mounted by opening or leaving a collection: starts dipped and settles. */
   settleOnMount: boolean;
+  /** Cover rows take part in the cold-launch reveal as one group. */
+  revealGroup?: MobileLaunchRevealGroupName;
   style: StyleProp<ViewStyle>;
   children: ReactNode;
 }) {
   const settle = useMobilePoseResnapFade(layoutKey, { settleOnMount });
-  return <Animated.View style={[style, settle]}>{children}</Animated.View>;
+  const row = <Animated.View style={[style, settle]}>{children}</Animated.View>;
+  return revealGroup ? <MobileLaunchRevealGroup group={revealGroup}>{row}</MobileLaunchRevealGroup> : row;
 }
 
 const LibraryGridItem = memo(function LibraryGridItem({
@@ -862,6 +868,12 @@ export function LibraryScreen({
     ? routeCollectionId
     : sharedSelectedCollectionId;
   const setSelectedCollectionId = setMobileLibraryCollectionSelection;
+  // A folder opens its collection as a pushed screen, like every other
+  // destination of the stack (Back, title, edge swipe), not in place.
+  const openCollectionScreen = useCallback((nextCollectionId: string | null) => {
+    if (!nextCollectionId) return;
+    router.push({ pathname: "/library/collection/[id]", params: { id: nextCollectionId } });
+  }, []);
   const [showTitleMenuSheet, setShowTitleMenuSheet] = useState(false);
   const [showCreatePanel, setShowCreatePanel] = useState(false);
   const [showManagePanel, setShowManagePanel] = useState(false);
@@ -936,24 +948,10 @@ export function LibraryScreen({
     [],
   );
 
-  // `library/collection/[id]` (deep links) is a doorway, not a second
-  // Library: once the collection is known to exist it becomes the Library
-  // root's selection and the route pops back to the root, where the title
-  // menu switches collections. An unknown id keeps the not-found state.
-  const routeResolution = resolveMobileLibraryCollectionRoute({
-    collections: collections.data,
-    loading: collections.loading,
-    routeCollectionId,
-  });
-  const routeSelectionTarget =
-    isCollectionRoute && routeResolution.action === "select"
-      ? (routeResolution.collectionId ?? "")
-      : undefined;
-  useEffect(() => {
-    if (routeSelectionTarget === undefined) return;
-    setMobileLibraryCollectionSelection(routeSelectionTarget || null);
-    router.dismissTo("/library");
-  }, [routeSelectionTarget]);
+  // `library/collection/[id]` is a pushed screen of its own (a folder in the
+  // Collections row, a deep link): it shows its collection with the stack's
+  // Back button, title and edge swipe, and leaves the root's selection (the
+  // title menu's) alone. An unknown id keeps the not-found state.
 
   // A shown collection deleted elsewhere (another device, the manager sheet)
   // falls back to All once a reload no longer has it.
@@ -1040,6 +1038,13 @@ export function LibraryScreen({
     progress.error ??
     installedSources.error;
   const hasError = Boolean(error);
+  // The launch screen holds until this first local snapshot (content, the
+  // empty state or an error) is committed; see `mobileSplashScreen.ts`.
+  useEffect(() => {
+    if (loading || isMobileLaunchContentReady()) return;
+    markMobilePerformance(MOBILE_PERFORMANCE_MARKS.bootLibraryReady, { entries: libraryEntries.length });
+    markMobileLaunchContentReady();
+  }, [libraryEntries.length, loading]);
   const hasAnyLibraryData = libraryEntries.length > 0;
   const hasInstalledSources = installedSources.data.length > 0;
   const showSkeleton = shouldRenderMobileLibrarySkeleton({
@@ -2046,10 +2051,12 @@ export function LibraryScreen({
   // The switch and the folders give their own press haptics.
   // Shelf and Grid draw the covers at the same size in the same columns, so
   // the switch only moves rows up or down (the Grid adds titles, the Shelf
-  // planks). The rows take their new places in one commit and settle there
-  // with a soft dip-and-fade (LibraryLayoutRow); a layout animation moved
-  // them twice (the spring, then the list's own re-measure) and crashed
-  // Reanimated's layout-animation proxy going back to the Shelf.
+  // planks) and the first row's covers stay put. The rows take their new
+  // places in one commit at full opacity: a dip-and-fade of every row read as
+  // the whole list flashing, and a layout animation moved them twice (the
+  // spring, then the list's own re-measure) and crashed Reanimated's
+  // layout-animation proxy going back to the Shelf. Grid titles wrap to one
+  // or two lines, so no offset can be known before the commit to glide by.
   const setShelfLayout = useCallback((next: boolean) => {
     mobileLibraryShelfLayoutDefault = next;
     setShelfLayoutState(next);
@@ -2168,14 +2175,15 @@ export function LibraryScreen({
   const renderLibraryRow = useCallback(
     ({ item: row, index: rowIndex }: ListRenderItemInfo<LibraryEntry[]>) => (
       <LibraryLayoutRow
-        layoutKey={shelfMode ? "shelf" : "grid"}
+        layoutKey={collectionLayoutKey}
         settleOnMount={collectionSettleOnMount}
+        revealGroup="titles"
         style={[styles.libraryRow, shelfMode ? styles.shelfRow : styles.gridRow, !shelfMode && rowIndex === 0 && designExplore && styles.firstGridRow]}
       >
         {row.map((entry, column) => renderLibraryGridItem({ item: entry, index: rowIndex * gridColumns + column }))}
       </LibraryLayoutRow>
     ),
-    [designExplore, gridColumns, renderLibraryGridItem, collectionSettleOnMount, shelfMode],
+    [designExplore, gridColumns, renderLibraryGridItem, collectionLayoutKey, collectionSettleOnMount, shelfMode],
   );
   // A literal here is a new object on every render, so the cell bail-out
   // never fired; the memoized value only changes when a cell input does.
@@ -2648,6 +2656,7 @@ export function LibraryScreen({
               >
                 {/* Lets the tab bar minimise on scroll (UIKit content scroll view). */}
                 <ContentScrollMarker generation={gridColumns} />
+                <MobileLaunchRevealGroup group="header">
                 <MobileContinueReadingCarousel
                   items={continueReadingItems}
                   next={
@@ -2661,17 +2670,21 @@ export function LibraryScreen({
                   strings={strings}
                   onMore={handleGridItemLongPress}
                 />
+                </MobileLaunchRevealGroup>
                 {!selectedCollection ? (
+                  <MobileLaunchRevealGroup group="collections">
                   <MobileCollectionFolders
                     collections={collections.data}
                     membership={collections.membership}
                     entries={sortedLibraryEntries}
                     installedSources={installedSources.data}
                     strings={strings}
-                    onSelect={setMobileLibraryCollectionSelection}
+                    onSelect={openCollectionScreen}
                   />
+                  </MobileLaunchRevealGroup>
                 ) : null}
                 {visibleEntryCount ? (
+                  <MobileLaunchRevealGroup group="titlesHeader">
                   <MobileLibraryLayoutHeader
                     title={
                       selectedCollection
@@ -2682,6 +2695,7 @@ export function LibraryScreen({
                     onShelfChange={setShelfLayout}
                     strings={strings}
                   />
+                  </MobileLaunchRevealGroup>
                 ) : null}
               </LibraryLayoutRow>
             ) : null}

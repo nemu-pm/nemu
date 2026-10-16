@@ -89,3 +89,48 @@ export function resolveMobileBottomScrollEdgeEffect({
     scrimStops,
   };
 }
+
+/**
+ * iOS beside a vertical bar (iPhone Duo): the rail carries the status bar and
+ * the navigation items, so no bar floats over the top of the page and UIKit
+ * draws no top scroll edge effect there (the native effects are `hidden`
+ * beside the rail, see `nativeHeaderChrome.ts`). Content then scrolled into a
+ * hard cut at the screen's top edge. This band replaces it: a progressive
+ * blur, strongest at the edge, over exactly the page's top padding — it ends
+ * where resting content starts, so nothing at rest is ever blurred.
+ */
+export const MOBILE_RAIL_TOP_EDGE_BLUR_INTENSITY = 28;
+
+export type MobileRailTopScrollEdge = {
+  /** Band height (pt) from the window's top edge; 0 = no band. */
+  height: number;
+  /** Mask stops: blur opacity from the top edge (offset 0) to the band's end (1). */
+  maskStops: ReadonlyArray<readonly [string, number]>;
+};
+
+const RAIL_TOP_EDGE_STOP_COUNT = 6;
+
+export function resolveMobileRailTopScrollEdge({
+  platform,
+  verticalBarSide,
+  safeAreaTop,
+  pageTop,
+  reader,
+}: {
+  platform: string;
+  verticalBarSide: "left" | "right" | null;
+  safeAreaTop: number;
+  pageTop: number;
+  /** The reader is full-bleed and owns its own top scrim. */
+  reader: boolean;
+}): MobileRailTopScrollEdge {
+  if (platform !== "ios" || !verticalBarSide || reader) return { height: 0, maskStops: [] };
+  const height = Math.round(finiteNonNegative(safeAreaTop) + finiteNonNegative(pageTop));
+  // Ease out from the edge: fully blurred at the top, gone at the band's end.
+  const maskStops = Array.from({ length: RAIL_TOP_EDGE_STOP_COUNT }, (_, index) => {
+    const offset = index / (RAIL_TOP_EDGE_STOP_COUNT - 1);
+    const alpha = roundTo((1 - offset) ** 1.6, 3);
+    return [`rgba(0,0,0,${alpha})`, roundTo(offset, 4)] as const;
+  });
+  return { height, maskStops };
+}

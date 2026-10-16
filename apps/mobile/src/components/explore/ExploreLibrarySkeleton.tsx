@@ -9,6 +9,7 @@ import { mobileFoldAwareGridCellStyle } from "@/lib/mobileFoldAwareGrid";
 import { MOBILE_SHELF } from "@/lib/mobileLibraryShelf";
 import { NO_INSETS, useMobileFoldAwareGrid } from "@/lib/useMobileFoldAwareGrid";
 import { useSkeletonDisplayDelay } from "@/lib/useSkeletonPulse";
+import { ExploreRowFade } from "./ExploreRowFade";
 import { ExploreShimmerSweep } from "./ExploreShimmerSweep";
 import { useExploreShimmerBackdrop } from "./useExploreShimmerBackdrop";
 import { useMobileExploreRowBleed } from "./useMobileExploreRowBleed";
@@ -55,7 +56,11 @@ export function ExploreLibrarySkeleton({ accessibilityLabel }: { accessibilityLa
       style={[styles.stack, shimmerBackdrop]}
     >
       <View style={[styles.heading, styles.headingWide, block]} />
-      <View onLayout={onFrameLayout} style={[bleed.frame, styles.cardRow, { height: cardHeight }]}>
+      {/* Beside the vertical bar the neighbour card dissolves into the bar's
+          column like the loaded carousel's (ExploreRowFade), not a hard cut. */}
+      <View onLayout={onFrameLayout} style={bleed.frame}>
+        <ExploreRowFade bleed={bleed}>
+        <View style={[styles.cardRow, { height: cardHeight }]}>
         {geometry.cardWidth > 0
           ? [0, 1].map((index) => (
               <View
@@ -81,6 +86,8 @@ export function ExploreLibrarySkeleton({ accessibilityLabel }: { accessibilityLa
               </View>
             ))
           : null}
+        </View>
+        </ExploreRowFade>
       </View>
       <View style={[styles.heading, styles.headingNarrow, block]} />
       <View ref={gridRef} onLayout={onGridLayout} collapsable={false} style={styles.shelf}>

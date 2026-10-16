@@ -1,5 +1,5 @@
 import "react-native-gesture-handler";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   DarkTheme,
   DefaultTheme,
@@ -44,7 +44,15 @@ import { MobilePoseTransitionProvider } from "@/lib/MobilePoseTransitionContext"
 import { useMobileBackgroundSync } from "@/sync/useMobileBackgroundSync";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import { installMobileSystemTransition } from "@/lib/mobileTransitionTiming";
-import { shouldHideMobileSplashScreen } from "@/lib/mobileSplashScreen";
+import {
+  isMobileLaunchContentReady,
+  markMobileLaunchContentReady,
+  MOBILE_SPLASH_CONTENT_TIMEOUT_MS,
+  shouldHideMobileSplashScreen,
+  subscribeMobileLaunchContentReady,
+} from "@/lib/mobileSplashScreen";
+import { isMobileLibraryRoute } from "@/lib/mobileRootTabs";
+import { hideMobileLaunchScreenWithReveal } from "@/lib/mobileLaunchReveal";
 import {
   MOBILE_PERFORMANCE_MARKS,
   markMobilePerformance,
@@ -80,8 +88,13 @@ function RootStack({
 }: {
   welcomeBlocksAccessibility: boolean;
 }) {
-  const { scheme, tokens } = useNemuTheme();
+  const { scheme, tokens, reduceMotion } = useNemuTheme();
   const pathname = usePathname();
+  // Read when the launch screen hides (a callback with no dependencies).
+  const revealContextRef = useRef({ pathname, background: tokens.background, reduceMotion: reduceMotion === true });
+  useLayoutEffect(() => {
+    revealContextRef.current = { pathname, background: tokens.background, reduceMotion: reduceMotion === true };
+  });
   const navigationTheme = useMemo(() => {
     const baseTheme = scheme === "dark" ? DarkTheme : DefaultTheme;
     return {
@@ -136,25 +149,55 @@ function RootStack({
     lastPathnameRef.current = pathname;
     markMobilePerformance(MOBILE_PERFORMANCE_MARKS.routeChange, { pathname });
   }, [pathname]);
-  const hideSplashAfterLayout = useCallback(() => {
-    if (!rootLayoutMarkedRef.current) {
-      rootLayoutMarkedRef.current = true;
-      markMobilePerformance(MOBILE_PERFORMANCE_MARKS.bootRootLayout);
-    }
+  const hideSplashIfReady = useCallback(() => {
     if (
       !shouldHideMobileSplashScreen({
-        rootLaidOut: true,
+        rootLaidOut: rootLayoutMarkedRef.current,
         splashHidden: splashHiddenRef.current,
+        contentReady: isMobileLaunchContentReady(),
       })
     ) {
       return;
     }
 
     splashHiddenRef.current = true;
-    void SplashScreen.hideAsync().catch(() => {
+    markMobilePerformance(MOBILE_PERFORMANCE_MARKS.bootSplashHidden);
+    const reveal = revealContextRef.current;
+    // The reveal hook: the window's start state is set under the launch
+    // screen, then it hides and the reveal runs (see mobileLaunchReveal.ts).
+    void hideMobileLaunchScreenWithReveal({
+      libraryRoute: isMobileLibraryRoute(reveal.pathname),
+      reduceMotion: reveal.reduceMotion,
+      background: reveal.background,
+      hideSplash: () => SplashScreen.hideAsync(),
+    }).catch(() => {
       splashHiddenRef.current = false;
     });
   }, []);
+  const hideSplashAfterLayout = useCallback(() => {
+    if (!rootLayoutMarkedRef.current) {
+      rootLayoutMarkedRef.current = true;
+      markMobilePerformance(MOBILE_PERFORMANCE_MARKS.bootRootLayout);
+    }
+    hideSplashIfReady();
+  }, [hideSplashIfReady]);
+  // The launch screen holds until the Library shows its first local snapshot
+  // (LibraryScreen marks it), so the first visible frame is the final layout
+  // with data: no blank page, no skeleton swapped for content. A launch into
+  // any other screen (a deep link) has nothing to wait for; a stuck read is
+  // capped. Never waits on the network.
+  useEffect(() => {
+    if (!isMobileLibraryRoute(pathname)) markMobileLaunchContentReady();
+  }, [pathname]);
+  useEffect(() => {
+    const unsubscribe = subscribeMobileLaunchContentReady(hideSplashIfReady);
+    const cap = setTimeout(markMobileLaunchContentReady, MOBILE_SPLASH_CONTENT_TIMEOUT_MS);
+    hideSplashIfReady();
+    return () => {
+      unsubscribe();
+      clearTimeout(cap);
+    };
+  }, [hideSplashIfReady]);
 
   return (
     <ThemeProvider value={navigationTheme}>

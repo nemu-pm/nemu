@@ -170,8 +170,11 @@ export const MobileLibraryShelfCell = memo(function MobileLibraryShelfCell({
                   uriOwnership="source"
                   cacheKind="cover"
                   source={cover}
-                  // No fade inside the native zoom source.
+                  // No fade inside the native zoom source, and a refreshed
+                  // cover URL keeps this cover until the new one is ready, so
+                  // the zoom back never lands on the placeholder.
                   fadeIn={false}
+                  holdPreviousWhileLoading
                   fallback={placeholder}
                   style={styles.coverImage}
                 />
@@ -183,9 +186,8 @@ export const MobileLibraryShelfCell = memo(function MobileLibraryShelfCell({
           {info.badge ? (
             <View
               accessibilityElementsHidden
-              style={[styles.tag, { backgroundColor: tokens.danger, borderColor: dark ? "#000000" : "#ffffff" }]}
+              style={[styles.tag, { backgroundColor: tokens.danger }]}
             >
-              <View style={styles.tagDot} />
               {newCount ? (
                 <MobileOdometerText
                   value={formatMobileNewChapterTag(newCount)}
@@ -229,27 +231,18 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
-  // nemu's new-chapters tag: a rounded tab hanging off the corner, ringed by
-  // the page colour, carrying a dot and the count.
+  // nemu's new-chapters badge: a pill inside the cover's top corner, where
+  // the Grid card carries its own badge, so Shelf ⇄ Grid keeps it in place.
   tag: {
     position: "absolute",
-    top: -7,
-    right: -6,
-    minHeight: 20,
-    flexDirection: "row",
+    top: 6,
+    right: 6,
+    minWidth: 10,
+    minHeight: 18,
     alignItems: "center",
-    gap: 4,
-    paddingLeft: 6,
-    paddingRight: 7,
+    justifyContent: "center",
+    paddingHorizontal: 6,
     borderRadius: radius.pill,
-    borderTopLeftRadius: 4,
-    borderWidth: 1.5,
-  },
-  tagDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 5 / 2,
-    backgroundColor: "rgba(255,255,255,0.9)",
   },
   tagText: {
     fontSize: 11,

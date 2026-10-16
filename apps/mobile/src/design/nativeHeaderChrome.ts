@@ -25,11 +25,15 @@
  * inside another ScrollView or a nested screen) and re-applies whenever a
  * mounting transaction inserts a ScrollView.
  */
+// Every edge is pinned to `soft`, never `automatic`: apps built with the
+// iOS 27 SDK resolve `automatic` to `hard` (a cutoff with a dividing line;
+// iOS 26 resolved it to `soft`), and the design is the soft edge everywhere,
+// under pinned headers too. Only the reader canvas opts out.
 export const NEMU_SOFT_SCROLL_EDGE_EFFECTS = {
   top: "soft",
   bottom: "soft",
-  left: "automatic",
-  right: "automatic",
+  left: "soft",
+  right: "soft",
 } as const;
 
 /** No horizontal blur band when navigation and tabs occupy a vertical rail. */

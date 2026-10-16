@@ -65,8 +65,11 @@ describe("collection switching stays in place", () => {
     expect(main).toContain("{titleMenuAnchor}");
   });
 
-  test("switching collections never pushes or replaces a route", () => {
-    expect(librarySource).not.toMatch(/router\.(push|replace)\(\{\s*pathname: "\/library\/collection/);
+  test("the title menu switches in place; only a Collections folder pushes the collection screen", () => {
+    const pushes = librarySource.match(/router\.(push|replace)\(\{\s*pathname: "\/library\/collection/g) ?? [];
+    expect(pushes).toHaveLength(1);
+    expect(librarySource).toMatch(/const openCollectionScreen = useCallback\([^]*?router\.push\(\{ pathname: "\/library\/collection\/\[id\]"/);
+    expect(librarySource).toContain("onSelect={openCollectionScreen}");
     expect(librarySource).not.toContain('router.replace("/library")');
   });
 

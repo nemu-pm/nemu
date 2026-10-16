@@ -17,6 +17,12 @@ function isMobileLibraryRootAlias(pathname: string): boolean {
   return normalizedPathname === "/library";
 }
 
+/** The Library root or one of its collections. */
+export function isMobileLibraryRoute(pathname: string): boolean {
+  const normalizedPathname = normalizedComparablePathname(pathname);
+  return normalizedPathname === "/library" || normalizedPathname.startsWith("/library/");
+}
+
 export function isMobileReaderRoute(pathname: string): boolean {
   const segments = normalizedPathSegments(pathname);
   return segments[0] === "sources" && segments.length >= 5;
