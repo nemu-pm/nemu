@@ -2443,6 +2443,32 @@ export function MangaDetailScreen() {
   // zoom to land and then pop in). The handlers wait for the record.
   const nativeHeaderActions: NemuNativeHeaderAction[] = entry || booksHero
     ? [
+        // Mock (alan/polish-menus): the proposed items above the existing
+        // three, the destructive one last. Only Add to Collection is wired.
+        {
+          icon: "rectangle.stack.badge.plus",
+          label: strings.designExplore.menuAddToCollection,
+          disabled: !entry || detailActionBusy,
+          onPress: openCollectionMembership,
+        },
+        {
+          icon: "checkmark.circle",
+          label: strings.designExplore.menuMarkFinished,
+          disabled: !entry || detailActionBusy,
+          onPress: () => undefined,
+        },
+        {
+          icon: "square.and.arrow.up",
+          label: strings.designExplore.menuShare,
+          disabled: !entry,
+          onPress: () => undefined,
+        },
+        {
+          icon: "link",
+          label: strings.designExplore.menuCopyLink,
+          disabled: !entry,
+          onPress: () => undefined,
+        },
         {
           icon: "pencil",
           label: strings.mangaDetail.editMetadata,
