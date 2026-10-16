@@ -54,7 +54,6 @@ import { SELF_HOSTED_REGISTRY_ID } from "@/lib/selfHosted/policy";
 import { selfHostedKindName } from "@/lib/selfHosted/messages";
 import * as DocumentPicker from "expo-document-picker";
 import { nextSyncTimestamp } from "@nemu/core";
-import { MobileOpenSourceLicensesSheet } from "@/components/MobileOpenSourceLicensesSheet";
 import { MobileAboutSheet } from "@/components/MobileAboutSheet";
 import { MobileAgentStatusCard } from "@/components/MobileAgentStatusCard";
 import { MobileCloudSyncCard } from "@/components/MobileCloudSyncCard";
@@ -1989,7 +1988,6 @@ function SettingsScreenContent({
     useRef<SourceSettingsConfirmation | null>(null);
   const reopenSourceSettingsAfterConfirmationRef = useRef(false);
   const [aboutOpen, setAboutOpen] = useState(false);
-  const [licensesOpen, setLicensesOpen] = useState(false);
   const [operationError, setOperationError] = useState<string | null>(null);
   const [clearCloudData, setClearCloudData] = useState(false);
   const [agentCardY, setAgentCardY] = useState<number | null>(null);
@@ -3308,14 +3306,6 @@ function SettingsScreenContent({
                             accessibilityLabel: strings.settings.aboutNemuLabel,
                             onPress: () => setAboutOpen(true),
                           },
-                          {
-                            key: "licenses",
-                            icon: "document-text-outline",
-                            tint: tokens.mutedForeground,
-                            title: strings.openSourceLicenses.title,
-                            accessibilityLabel: strings.openSourceLicenses.title,
-                            onPress: () => setLicensesOpen(true),
-                          },
                         ]}
                       />
                     </>
@@ -3375,12 +3365,6 @@ function SettingsScreenContent({
                   <AboutSettingsRow
                     strings={strings}
                     onPress={() => setAboutOpen(true)}
-                  />
-                  <SettingsMenuRow
-                    icon="document-text-outline"
-                    title={strings.openSourceLicenses.title}
-                    subtitle={strings.openSourceLicenses.rowSubtitle}
-                    onPress={() => setLicensesOpen(true)}
                   />
                     </>
                   )}
@@ -3978,11 +3962,6 @@ function SettingsScreenContent({
         <MobileAboutSheet
           visible={aboutOpen}
           onClose={() => setAboutOpen(false)}
-        />
-        <MobileOpenSourceLicensesSheet
-          visible={licensesOpen}
-          strings={strings}
-          onClose={() => setLicensesOpen(false)}
         />
       </>
   );

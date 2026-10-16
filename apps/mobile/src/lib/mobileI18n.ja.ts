@@ -1403,15 +1403,4 @@ export const mobileStringsJa: MobileStrings = {
     seeAll: "すべて表示",
     sourceOptions: "ソースのオプション",
   },
-  openSourceLicenses: {
-    title: "オープンソースライセンス",
-    rowSubtitle: "サードパーティの表記",
-    intro: "nemu は以下のオープンソースソフトウェアとデータを利用しています。",
-    sectionJapaneseAnalysis: "日本語解析",
-    sectionFonts: "フォント",
-    sectionSoftware: "アプリのソフトウェア",
-    showLicense: "ライセンスを表示",
-    hideLicense: "ライセンスを隠す",
-    openLinkAccessibility: "{{name}} を開く",
-  },
 };

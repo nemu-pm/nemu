@@ -1394,15 +1394,4 @@ export const mobileStringsEn: MobileStrings = {
     seeAll: "See All",
     sourceOptions: "Source Options",
   },
-  openSourceLicenses: {
-    title: "Open-source licenses",
-    rowSubtitle: "Third-party notices",
-    intro: "nemu is built on the following open-source software and data.",
-    sectionJapaneseAnalysis: "Japanese analysis",
-    sectionFonts: "Fonts",
-    sectionSoftware: "App software",
-    showLicense: "Show license",
-    hideLicense: "Hide license",
-    openLinkAccessibility: "Open {{name}}",
-  },
 };

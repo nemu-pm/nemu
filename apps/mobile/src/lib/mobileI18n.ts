@@ -1227,18 +1227,6 @@ export type MobileStrings = {
     seeAll: string;
     sourceOptions: string;
   };
-  /** Settings → Open-source licenses. */
-  openSourceLicenses: {
-    title: string;
-    rowSubtitle: string;
-    intro: string;
-    sectionJapaneseAnalysis: string;
-    sectionFonts: string;
-    sectionSoftware: string;
-    showLicense: string;
-    hideLicense: string;
-    openLinkAccessibility: string;
-  };
 };
 
 type MobileLocaleCatalogs = Record<AppLanguage, MobileStrings>;

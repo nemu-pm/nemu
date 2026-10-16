@@ -1316,15 +1316,4 @@ export const mobileStringsZh: MobileStrings = {
     seeAll: "查看全部",
     sourceOptions: "书源选项",
   },
-  openSourceLicenses: {
-    title: "开源许可",
-    rowSubtitle: "第三方声明",
-    intro: "nemu 使用了以下开源软件和数据。",
-    sectionJapaneseAnalysis: "日语分析",
-    sectionFonts: "字体",
-    sectionSoftware: "应用软件",
-    showLicense: "显示许可证",
-    hideLicense: "隐藏许可证",
-    openLinkAccessibility: "打开 {{name}}",
-  },
 };
