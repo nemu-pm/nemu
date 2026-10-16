@@ -1,4 +1,6 @@
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
+import { formatMobileDetailDate } from "@/lib/mobileMangaDetailInfo";
+import { getMobileDetailLanguageNames, getMobileDetailSourceLicense } from "@/lib/mobileMangaDetailSourceInfo";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Stack,
@@ -17,6 +19,7 @@ import { MobileLibraryOptionsSheet } from "@/components/MobileLibraryOptionsShee
 import { withMobileExploreZoom } from "@/components/explore/mobileExploreCover";
 import {
   formatMobileExploreChapterLabel,
+  formatMobileExploreChapterNumber,
   withoutMobileZeroVolume,
 } from "@/lib/mobileContinueReadingCopy";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
@@ -907,6 +910,20 @@ export function SourceMangaScreen() {
     }),
     [chapterLanguages, chapterListPreference],
   );
+  // The 作品信息 sheet's languages: the ones the chapter list shows.
+  const detailLanguageNames = useMemo(
+    () =>
+      getMobileDetailLanguageNames(
+        (effectiveChapterListPreference.languages.length
+          ? effectiveChapterListPreference.languages
+          : chapterLanguages
+        ).map((lang) => ({ lang })),
+        localState.installedSource,
+        appLanguage,
+        strings,
+      ),
+    [appLanguage, chapterLanguages, effectiveChapterListPreference.languages, localState.installedSource, strings],
+  );
   // The chapter subtitle only repeats the language while the visible list can
   // actually mix languages: one selected language makes it noise.
   const showChapterLanguage =
@@ -1728,6 +1745,11 @@ export function SourceMangaScreen() {
               infoTitle={sourceName}
               infoChapters={chapters.length || null}
               infoLatest={chapters[0] ? formatMobileExploreChapterLabel(chapters[0], strings) : null}
+              infoLatestNumber={chapters[0] ? formatMobileExploreChapterNumber(chapters[0], strings) : null}
+              infoLanguages={detailLanguageNames}
+              infoLicense={getMobileDetailSourceLicense(localState.installedSource)}
+              infoAdded={inLibrary ? formatMobileDetailDate(localState.libraryEntry?.item.createdAt, appLanguage) : null}
+              infoLastRead={formatMobileDetailDate(localState.mangaProgress?.lastReadAt, appLanguage)}
               title={title}
               authors={metadata?.authors}
               coverSource={coverImage.source}

@@ -136,6 +136,12 @@ type MobileMangaDetailSurfaceProps = Parameters<typeof MobileMangaDetailSurfaceC
   infoTitle?: string | null;
   infoChapters?: number | null;
   infoLatest?: string | null;
+  infoLatestNumber?: string | null;
+  /** The 作品信息 sheet's languages, licence, and added / last-read dates (formatted). */
+  infoLanguages?: string[] | null;
+  infoLicense?: string | null;
+  infoAdded?: string | null;
+  infoLastRead?: string | null;
   zoomId?: string | null;
   readerZoomId?: string | null;
   /** The page is still zooming in: cover, title and meta only (see the hero). */
@@ -161,6 +167,11 @@ export function MobileMangaDetailSurface({
   infoTitle,
   infoChapters,
   infoLatest,
+  infoLatestNumber,
+  infoLanguages,
+  infoLicense,
+  infoAdded,
+  infoLastRead,
   zoomId,
   readerZoomId,
   deferBody,
@@ -185,6 +196,11 @@ export function MobileMangaDetailSurface({
         infoTitle={infoTitle}
         infoChapters={infoChapters}
         infoLatest={infoLatest}
+        infoLatestNumber={infoLatestNumber}
+        infoLanguages={infoLanguages}
+        infoLicense={infoLicense}
+        infoAdded={infoAdded}
+        infoLastRead={infoLastRead}
         zoomId={zoomId}
         readerZoomId={readerZoomId}
         deferBody={deferBody}

@@ -1162,6 +1162,22 @@ export type MobileStrings = {
     inLibrary: string;
     latestChapterLine: string;
     descriptionMore: string;
+    /** The full description's sheet: its title, close button and the "more" hint. */
+    descriptionSheetTitle: string;
+    closeDescription: string;
+    descriptionMoreHint: string;
+    /** The 作品信息 sheet (status, source, author, genres…), opened from the ⓘ by the hero's facts. */
+    infoSheetTitle: string;
+    infoButtonHint: string;
+    closeInfo: string;
+    infoLatestChapter: string;
+    infoSource: string;
+    infoLanguage: string;
+    infoAuthor: string;
+    infoLicense: string;
+    infoGenre: string;
+    infoDateAdded: string;
+    infoLastRead: string;
     /** Detail facts row: small labels over the values. */
     factSource: string;
     factChapters: string;
