@@ -17,6 +17,8 @@ export type ChapterSummary = {
   lang?: string;
   /** Scanlation group, when the source names one. */
   scanlator?: string;
+  /** The chapter's web page, when the source gives one (share, copy link). */
+  url?: string;
 };
 
 export type ExternalIds = {
