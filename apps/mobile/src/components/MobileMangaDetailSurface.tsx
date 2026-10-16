@@ -136,6 +136,7 @@ type MobileMangaDetailSurfaceProps = Parameters<typeof MobileMangaDetailSurfaceC
   infoTitle?: string | null;
   infoChapters?: number | null;
   infoLatest?: string | null;
+  infoLatestNumber?: string | null;
   /** The 作品信息 sheet's languages, licence, and added / last-read dates (formatted). */
   infoLanguages?: string[] | null;
   infoLicense?: string | null;
@@ -166,6 +167,7 @@ export function MobileMangaDetailSurface({
   infoTitle,
   infoChapters,
   infoLatest,
+  infoLatestNumber,
   infoLanguages,
   infoLicense,
   infoAdded,
@@ -194,6 +196,7 @@ export function MobileMangaDetailSurface({
         infoTitle={infoTitle}
         infoChapters={infoChapters}
         infoLatest={infoLatest}
+        infoLatestNumber={infoLatestNumber}
         infoLanguages={infoLanguages}
         infoLicense={infoLicense}
         infoAdded={infoAdded}

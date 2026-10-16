@@ -87,6 +87,19 @@ export function formatMobileExploreChapterLabel(
   return formatChapterShortLabel(withoutMobileZeroVolume(chapter), strings);
 }
 
+/**
+ * The chapter's number alone ("Ch.12"), for a line with no room for its
+ * volume or title; null for a chapter without a number.
+ */
+export function formatMobileExploreChapterNumber(
+  chapter: ChapterSummary,
+  strings: MobileStrings,
+): string | null {
+  return chapter.chapterNumber == null
+    ? null
+    : formatChapterShortLabel({ ...chapter, volumeNumber: undefined, title: undefined }, strings);
+}
+
 /** The chapter with a placeholder volume of 0 dropped. */
 export function withoutMobileZeroVolume<T extends ChapterSummary>(chapter: T): T {
   return chapter.volumeNumber === 0 ? { ...chapter, volumeNumber: undefined } : chapter;

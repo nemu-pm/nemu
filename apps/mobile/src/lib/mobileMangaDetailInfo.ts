@@ -122,3 +122,72 @@ export function formatMobileDetailDate(
     return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
   }
 }
+
+type MobileDetailMetaStrings = {
+  designExplore: {
+    metaLatest: string;
+    metaChapterCountOne: string;
+    metaChapterCountOther: string;
+  };
+};
+
+/**
+ * The wide hero column's one meta line, longest first: the status, then how
+ * far an ongoing series has got (or how long a finished one is), then the
+ * first genre. Each shorter one gives something up: the genre first, then
+ * the latest chapter's volume or title (its number alone), then the latest
+ * chapter for the count; the status is never cut.
+ */
+export function buildMobileDetailMetaCandidates(
+  {
+    status,
+    completed,
+    latest,
+    latestNumber,
+    chapters,
+    genre,
+  }: {
+    status?: string | null;
+    completed?: boolean;
+    latest?: string | null;
+    latestNumber?: string | null;
+    chapters?: number | null;
+    genre?: string | null;
+  },
+  strings: MobileDetailMetaStrings,
+): string[] {
+  const s = strings.designExplore;
+  const upTo = (chapter: string | null | undefined) => (chapter ? s.metaLatest.replace("{{chapter}}", chapter) : null);
+  const count = chapters
+    ? (chapters === 1 ? s.metaChapterCountOne : s.metaChapterCountOther).replace("{{count}}", String(chapters))
+    : null;
+  const facts = completed ? [count] : [upTo(latest), upTo(latestNumber), count];
+  const lead = facts.find(Boolean) ?? null;
+  const line = (...parts: (string | null | undefined)[]) => parts.filter(Boolean).join(" · ");
+  const candidates = [
+    genre ? line(status, lead, genre) : null,
+    ...facts.map((fact) => line(status, fact)),
+    line(status),
+  ];
+  return [...new Set(candidates.filter((candidate): candidate is string => Boolean(candidate)))];
+}
+
+/**
+ * The longest meta line that stays on one line, from each candidate's
+ * measured line count at the line's width (undefined until measured). Until
+ * the ones before it are measured, the line without the genre stands in, so
+ * a genre never shows and then drops away.
+ */
+export function pickMobileDetailMetaLine(
+  candidates: readonly string[],
+  lineCounts: readonly (number | undefined)[],
+  { hasGenre }: { hasGenre: boolean },
+): string | null {
+  if (!candidates.length) return null;
+  for (let index = 0; index < candidates.length; index += 1) {
+    const lines = lineCounts[index];
+    if (lines === undefined) return candidates[Math.min(hasGenre ? 1 : 0, candidates.length - 1)] ?? null;
+    if (lines <= 1) return candidates[index] ?? null;
+  }
+  return candidates[candidates.length - 1] ?? null;
+}

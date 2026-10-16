@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { formatMobileExploreChapterNumber } from "./mobileContinueReadingCopy";
 import { getMobileStrings } from "./mobileI18n";
 import {
   buildMobileDetailInfoRows,
+  buildMobileDetailMetaCandidates,
   formatMobileDetailDate,
+  pickMobileDetailMetaLine,
   splitMobileDescriptionParagraphs,
   withoutMobileDescriptionLicence,
 } from "./mobileMangaDetailInfo";
@@ -82,5 +85,61 @@ describe("formatMobileDetailDate", () => {
     expect(formatMobileDetailDate(day, "en")).toContain("2026");
     expect(formatMobileDetailDate(0, "en")).toBeNull();
     expect(formatMobileDetailDate(undefined, "ja")).toBeNull();
+  });
+});
+
+describe("detail meta line fit", () => {
+  const strings = getMobileStrings("zh");
+
+  test("ongoing: the genre goes first, then the volume or title, then the latest for the count; the status stays", () => {
+    expect(
+      buildMobileDetailMetaCandidates(
+        { status: "连载中", latest: "第 3 卷 第 39 章", latestNumber: "第 39 章", chapters: 39, genre: "Science Fiction" },
+        strings,
+      ),
+    ).toEqual([
+      "连载中 · 更新至第 3 卷 第 39 章 · Science Fiction",
+      "连载中 · 更新至第 3 卷 第 39 章",
+      "连载中 · 更新至第 39 章",
+      "连载中 · 共 39 章",
+      "连载中",
+    ]);
+  });
+
+  test("a finished series counts its chapters; a latest that is its number is not repeated", () => {
+    expect(
+      buildMobileDetailMetaCandidates(
+        { status: "已完结", completed: true, latest: "第 12 章", latestNumber: "第 12 章", chapters: 12, genre: "Comedy" },
+        strings,
+      ),
+    ).toEqual(["已完结 · 共 12 章 · Comedy", "已完结 · 共 12 章", "已完结"]);
+    expect(
+      buildMobileDetailMetaCandidates({ status: "连载中", latest: "第 9 章", latestNumber: "第 9 章" }, strings),
+    ).toEqual(["连载中 · 更新至第 9 章", "连载中"]);
+  });
+
+  const candidates = ["A · B · Genre", "A · B", "A"];
+
+  test("the longest candidate that stays on one line; never a cut genre", () => {
+    expect(pickMobileDetailMetaLine(candidates, [1, 1, 1], { hasGenre: true })).toBe("A · B · Genre");
+    expect(pickMobileDetailMetaLine(candidates, [2, 1, 1], { hasGenre: true })).toBe("A · B");
+    expect(pickMobileDetailMetaLine(candidates, [2, 2, 1], { hasGenre: true })).toBe("A");
+    // Nothing fits (a status longer than the line): the status alone, truncated by the caller.
+    expect(pickMobileDetailMetaLine(candidates, [3, 2, 2], { hasGenre: true })).toBe("A");
+  });
+
+  test("until measured, the line without the genre stands in", () => {
+    expect(pickMobileDetailMetaLine(candidates, [], { hasGenre: true })).toBe("A · B");
+    expect(pickMobileDetailMetaLine(["A · B", "A"], [], { hasGenre: false })).toBe("A · B");
+    expect(pickMobileDetailMetaLine([], [], { hasGenre: false })).toBeNull();
+  });
+});
+
+describe("formatMobileExploreChapterNumber", () => {
+  const strings = getMobileStrings("en");
+
+  test("the number alone, without its volume or title; nothing without a number", () => {
+    expect(formatMobileExploreChapterNumber({ id: "a", chapterNumber: 131, volumeNumber: 12, title: "A long title" }, strings)).toBe("Ch.131");
+    expect(formatMobileExploreChapterNumber({ id: "b", title: "Prologue" }, strings)).toBeNull();
   });
 });

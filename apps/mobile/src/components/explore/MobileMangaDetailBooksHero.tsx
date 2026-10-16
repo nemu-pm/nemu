@@ -40,7 +40,12 @@ import {
 import { buildMobileCoverMeshColors, buildMobileCoverMeshInkSecondary } from "@/lib/mobileCoverMesh";
 import { buildMobileCoverTintPalette } from "@/lib/mobileCoverTint";
 import type { MobileStrings } from "@/lib/mobileI18n";
-import { buildMobileDetailInfoRows, withoutMobileDescriptionLicence } from "@/lib/mobileMangaDetailInfo";
+import {
+  buildMobileDetailInfoRows,
+  buildMobileDetailMetaCandidates,
+  pickMobileDetailMetaLine,
+  withoutMobileDescriptionLicence,
+} from "@/lib/mobileMangaDetailInfo";
 import { useMobileCoverRegionTints, useMobileCoverTint } from "@/lib/useMobileCoverTint";
 import { ConcentricView, ZoomSource, ZoomTarget } from "../../../modules/nemu-window-layout";
 import { getMobileBooksHeroCoverWidth } from "./mobileExploreCover";
@@ -137,6 +142,10 @@ const ACTION_GAP = 10;
 const CHIP_HEIGHT = 32;
 /** The ⓘ that opens the 作品信息 sheet. */
 const INFO_GLYPH = 20;
+/** `styles.titleBlock`'s side padding. */
+const TITLE_BLOCK_PADDING = 12;
+/** The ⓘ's box and its gap from the text before it (styles.infoButton, styles.metaRow). */
+const INFO_ROOM = INFO_GLYPH + 4 + 6;
 /** The add sheet's dismissal, before the In Library pill celebrates. */
 const LIBRARY_BURST_DELAY_MS = 320;
 
@@ -183,6 +192,7 @@ export function MobileMangaDetailBooksHero({
   infoTitle,
   infoChapters,
   infoLatest,
+  infoLatestNumber,
   infoLanguages,
   infoLicense,
   infoAdded,
@@ -220,6 +230,8 @@ export function MobileMangaDetailBooksHero({
   /** Chapters the source lists, and its newest chapter ("Ch.131"). */
   infoChapters?: number | null;
   infoLatest?: string | null;
+  /** The newest chapter's number alone ("Ch.131"), for a meta line with no room for its volume or title. */
+  infoLatestNumber?: string | null;
   /**
    * What only the 作品信息 sheet shows: the languages the source lists the
    * title in, its content licence, and when it was added and last read
@@ -435,6 +447,9 @@ const paneFactColumns =
     statusLabel ? { label: strings.designExplore.factStatus, value: statusLabel } : null,
   ].filter((fact): fact is { label: string; value: string } => fact !== null);
   const factsRow = facts.length >= 2;
+  /** The facts stand as their own block; the hero column puts them in the head as one line. */
+  const factsBlock = factsRow && !inColumn;
+  const columnMeta = inColumn && factsRow;
   // Everything the hero leaves out, in the 作品信息 sheet the ⓘ beside the facts opens.
   const infoRows = buildMobileDetailInfoRows(
     {
@@ -460,11 +475,35 @@ const paneFactColumns =
       onPress={openInfo}
     />
   ) : null;
+  // The hero column's meta line: the longest of these that stays on one line
+  // at its width and text size (each measured, never seen), ending with the
+  // first genre only when the whole line fits.
+  const metaGenre = infoRows.find((row) => row.key === "genre")?.chips?.[0] ?? null;
+  const metaCandidates = columnMeta
+    ? buildMobileDetailMetaCandidates(
+        {
+          status: statusLabel,
+          completed: statusKey === "statusCompleted",
+          latest: infoLatest,
+          latestNumber: infoLatestNumber,
+          chapters: infoChapters,
+          genre: metaGenre,
+        },
+        strings,
+      )
+    : [];
+  // The line's room is the column's, less the title block's padding (the
+  // block itself is only as wide as its widest line, centred in the head).
+  const [metaLineCounts, setMetaLineCounts] = useState<Record<string, number>>({});
+  const metaTextWidth = Math.max(0, Math.floor(contentWidth - TITLE_BLOCK_PADDING * 2 - (infoButton ? INFO_ROOM : 0)));
+  const metaKey = (candidate: string) => `${metaTextWidth}:${candidate}`;
+  const metaLine = pickMobileDetailMetaLine(
+    metaCandidates,
+    metaCandidates.map((candidate) => metaLineCounts[metaKey(candidate)]),
+    { hasGenre: Boolean(metaGenre) },
+  );
   // The sheet has the licence: the synopsis on the page leaves out the line that restates it.
   const pageDescription = description && infoLicense ? withoutMobileDescriptionLicence(description) : description;
-  /** The facts stand as their own block; the hero column puts them in the head as one line. */
-  const factsBlock = factsRow && !inColumn;
-  const columnMeta = inColumn && factsRow;
   // Beside a vertical bar (the Duo's rail) the strip keeps to the content
   // area the bar leaves instead of running to the window edge, and the facts
   // share that width by what each value needs.
@@ -743,28 +782,34 @@ const paneFactColumns =
               {infoButton}
             </View>
           ) : null}
-          {columnMeta ? (
+          {columnMeta && metaLine ? (
             // One quiet line; the source is in the chapter header.
-            <View style={[styles.metaRow, styles.metaLineRow]}>
-            <NemuText maxFontSizeMultiplier={HERO_TEXT_MAX_SCALE} numberOfLines={1} color={inkSecondary} style={[styles.metaLine, styles.metaShrink]}>
-              {[
-                statusLabel,
-                // One fact after the status: how far an ongoing series has
-                // got, or how long a finished one is (the count is also in the
-                // chapter header).
-                infoLatest && statusKey !== "statusCompleted"
-                  ? strings.designExplore.metaLatest.replace("{{chapter}}", infoLatest)
-                  : infoChapters
-                    ? (infoChapters === 1
-                        ? strings.designExplore.metaChapterCountOne
-                        : strings.designExplore.metaChapterCountOther
-                      ).replace("{{count}}", String(infoChapters))
-                    : null,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-            </NemuText>
-            {infoButton}
+            <View style={styles.metaLineRow}>
+              {metaTextWidth > 0
+                ? metaCandidates.map((candidate) => (
+                    <NemuText
+                      key={candidate}
+                      accessibilityElementsHidden
+                      importantForAccessibility="no-hide-descendants"
+                      pointerEvents="none"
+                      maxFontSizeMultiplier={HERO_TEXT_MAX_SCALE}
+                      onTextLayout={(event) => {
+                        const lines = event.nativeEvent.lines.length;
+                        const key = metaKey(candidate);
+                        setMetaLineCounts((current) => (current[key] === lines ? current : { ...current, [key]: lines }));
+                      }}
+                      style={[styles.metaLine, styles.metaMeasure, { width: metaTextWidth }]}
+                    >
+                      {candidate}
+                    </NemuText>
+                  ))
+                : null}
+              <View style={styles.metaRow}>
+                <NemuText maxFontSizeMultiplier={HERO_TEXT_MAX_SCALE} numberOfLines={1} color={inkSecondary} style={[styles.metaLine, styles.metaShrink]}>
+                  {metaLine}
+                </NemuText>
+                {infoButton}
+              </View>
             </View>
           ) : null}
         </View>
@@ -1386,7 +1431,7 @@ const styles = StyleSheet.create({
   titleBlock: {
     alignItems: "center",
     gap: 4,
-    paddingHorizontal: 12,
+    paddingHorizontal: TITLE_BLOCK_PADDING,
   },
   titleBlockCompact: {
     flex: 1,
@@ -1517,6 +1562,13 @@ const styles = StyleSheet.create({
   },
   metaLineRow: {
     marginTop: 4,
+  },
+  // Off screen and unseen: a candidate meta line, laid out to count its lines.
+  metaMeasure: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    opacity: 0,
   },
   metaLine: {
     fontSize: 13,
