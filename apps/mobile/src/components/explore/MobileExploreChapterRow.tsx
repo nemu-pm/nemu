@@ -93,11 +93,21 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
       ...(started
         ? [{ id: "start", title: strings.designExplore.chapterReadFromStart, systemImage: "arrow.counterclockwise" }]
         : []),
+      // Mock (alan/polish-menus): the proposed items, not wired yet.
+      presentation.isRead
+        ? { id: "mock:unread", title: strings.designExplore.chapterMarkUnread, systemImage: "circle" }
+        : { id: "mock:read", title: strings.designExplore.chapterMarkRead, systemImage: "checkmark.circle" },
+      { id: "mock:previous", title: strings.designExplore.chapterMarkPreviousRead, systemImage: "checkmark.circle.badge.plus" },
+      { id: "mock:share", title: strings.designExplore.menuShare, systemImage: "square.and.arrow.up" },
+      { id: "mock:link", title: strings.designExplore.menuCopyLink, systemImage: "link" },
     ];
   }, [presentation.isInProgress, presentation.isLocked, presentation.isRead, strings]);
   const press = useCallback(() => onAction(chapter, "read"), [chapter, onAction]);
   const menu = useCallback(
-    (id: string) => onAction(chapter, id === "start" ? "start" : "read"),
+    (id: string) => {
+      if (id.startsWith("mock:")) return;
+      onAction(chapter, id === "start" ? "start" : "read");
+    },
     [chapter, onAction],
   );
   const glyphColor = presentation.isRead || presentation.isLocked ? secondary : accent;
