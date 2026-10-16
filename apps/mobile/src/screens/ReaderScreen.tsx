@@ -1695,12 +1695,11 @@ export function ReaderScreen() {
       mangaTitle: routeMangaTitle,
     });
     if (action.type === "back") {
-      readerZoomEntry.onLeave();
       router.back();
       return;
     }
     router.replace(action.href);
-  }, [mangaId, readerZoomEntry, routeMangaTitle, routeRef.registryId, routeRef.sourceId]);
+  }, [mangaId, routeMangaTitle, routeRef.registryId, routeRef.sourceId]);
 
   const resetReaderPluginSettings = useCallback(
     (plugin: MobileReaderPluginState) => {
@@ -1918,6 +1917,17 @@ export function ReaderScreen() {
   const currentDisplayedPageIdentity = currentDisplayedPage
     ? readerPageIdentityFor(currentDisplayedPage)
     : "";
+  // The cover a zoom landed on fades into the page on screen once it has
+  // decoded, or at once into a chapter or page that failed (its own state).
+  const readerZoomPageShown =
+    pagesState.status === "error" ||
+    pagesState.status === "blocked" ||
+    (currentDisplayedPageIdentity !== "" &&
+      (readerImageSizes.has(currentDisplayedPageIdentity) ||
+        readerImageErrors.has(currentDisplayedPageIdentity)));
+  useEffect(() => {
+    if (readerZoomPageShown) readerZoomEntry.onFirstPage();
+  }, [readerZoomEntry, readerZoomPageShown]);
   const savedIntraPageState = normalizeMobileReaderIntraPageState({
     intraPageProgress: state.chapterProgress?.intraPageProgress,
     intraPageContentIdentity: state.chapterProgress?.intraPageContentIdentity,
@@ -6409,8 +6419,6 @@ export function ReaderScreen() {
       : null;
   const measureReaderFirstContent = useCallback(
     (page: MobileReaderPage) => {
-      // The cover a zoom landed on fades into the first page once it has drawn.
-      if (page.id === currentDisplayedPageKey) readerZoomEntry.onFirstPage();
       const performanceRequest = readerFirstPageRequestRef.current;
       const performanceKey = `${registryId}:${sourceId}:${mangaId}:${chapterId}`;
       if (
@@ -6438,7 +6446,6 @@ export function ReaderScreen() {
       clampedPageIndex,
       currentDisplayedPageKey,
       mangaId,
-      readerZoomEntry,
       registryId,
       sourceId,
     ],

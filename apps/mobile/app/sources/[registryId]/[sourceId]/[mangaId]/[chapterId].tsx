@@ -11,11 +11,13 @@ import { getMobileReaderZoomCoverFrame, peekMobileReaderZoomCover } from "@/lib/
 import { ReaderScreen } from "@/screens/ReaderScreen";
 import { ZoomTarget } from "../../../../../modules/nemu-window-layout";
 
-/** The landing cover fades into the first page, and back in as the reader leaves. */
+/** The landing cover fades into the first page. */
 const COVER_REVEAL_MS = 240;
-const COVER_RETURN_MS = 180;
-/** A page that is slow to load (or fails) is not waited for any longer than this. */
-const COVER_HOLD_MAX_MS = 1500;
+/**
+ * A page that is slow to load is not waited for any longer than this. The
+ * reader's chrome draws over the cover, so it is usable meanwhile.
+ */
+const COVER_HOLD_MAX_MS = 5000;
 
 export default function ReaderRoute() {
   const { zoom } = useLocalSearchParams<{ zoom?: string }>();
@@ -52,10 +54,7 @@ function ReaderAfterZoom({ zoomId }: { zoomId: string | null }) {
   useEffect(() => {
     if (pageShown) opacity.value = withTiming(0, { duration: COVER_REVEAL_MS });
   }, [opacity, pageShown]);
-  const onLeave = useCallback(() => {
-    opacity.value = withTiming(1, { duration: COVER_RETURN_MS });
-  }, [opacity]);
-  const entry = useMemo<ReaderZoomEntry>(() => ({ onFirstPage, onLeave }), [onFirstPage, onLeave]);
+  const entry = useMemo<ReaderZoomEntry>(() => ({ onFirstPage }), [onFirstPage]);
   const coverStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
 
   return (
@@ -67,8 +66,8 @@ function ReaderAfterZoom({ zoomId }: { zoomId: string | null }) {
       ) : null}
       {cover && zoomId ? (
         <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, coverStyle]}>
-          {/* Where the zoom lands, both ways: the cover grows into this frame
-              and the zoom back shrinks it into the source cover. */}
+          {/* Where the zoom lands: the cover grows into this frame. Hidden
+              once the page shows, it still names where the zoom back starts. */}
           <ZoomTarget
             zoomId={zoomId}
             style={{ position: "absolute", left: frame.x, top: frame.y, width: frame.width, height: frame.height }}
