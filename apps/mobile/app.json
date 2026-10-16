@@ -222,6 +222,7 @@
         }
       ],
       "expo-asset",
+      "./plugins/with-launch-screen-background",
       [
         "expo-splash-screen",
         {
