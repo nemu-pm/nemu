@@ -25,6 +25,7 @@ import {
 import {
   BottomSheet,
   BottomSheetScrollView,
+  useBottomSheetSafeAreaInsets,
   type BottomSheetMethods,
 } from "@expo/ui/community/bottom-sheet";
 import { LinearGradient } from "expo-linear-gradient";
@@ -47,6 +48,7 @@ import {
   resolveMobileNativeSheetDismissLabel,
   resolveMobileNativeSheetIosBarEdges,
   resolveMobileNativeSheetIosFramedDetentHeight,
+  resolveMobileNativeSheetIosHeaderBarPadding,
   resolveMobileNativeSheetIosLayout,
   resolveMobileNativeSheetIosPresentation,
   resolveMobileNativeSheetSoftBottomEdge,
@@ -597,13 +599,13 @@ export function MobileNativeSheetScaffold({
   const sheetContent = (
     <>
       {shouldRenderChrome ? (
-        <View
+        <MobileNativeSheetHeaderRow
           accessibilityElementsHidden={interactionLocked}
           importantForAccessibility={
             interactionLocked ? "no-hide-descendants" : "auto"
           }
           pointerEvents={interactionLocked ? "none" : "auto"}
-          style={{ paddingLeft: barEdges.headerPadding.left, paddingRight: barEdges.headerPadding.right }}
+          barPadding={barEdges.headerPadding}
         >
           <MobileSheetHeader
             leading={headerLeading}
@@ -631,7 +633,7 @@ export function MobileNativeSheetScaffold({
               ) : null)
             }
           />
-        </View>
+        </MobileNativeSheetHeaderRow>
       ) : null}
       {isAndroid ? (
         androidFixedHeight !== undefined && !scroll ? (
@@ -789,6 +791,20 @@ export function MobileNativeSheetScaffold({
       )}
     </BottomSheet>
   );
+}
+
+/**
+ * The header row, padded on the system vertical bar's side by the sheet's own safe-area inset
+ * there once the sheet reports it (so it renders inside the sheet): a sheet floating clear of the
+ * bar (the iPhone Duo inner display) keeps no padding for it.
+ */
+function MobileNativeSheetHeaderRow({
+  barPadding,
+  style,
+  ...props
+}: ComponentProps<typeof View> & { barPadding: { left: number; right: number } }) {
+  const padding = resolveMobileNativeSheetIosHeaderBarPadding(barPadding, useBottomSheetSafeAreaInsets());
+  return <View {...props} style={[style, { paddingLeft: padding.left, paddingRight: padding.right }]} />;
 }
 
 /**

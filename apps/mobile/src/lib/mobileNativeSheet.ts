@@ -570,6 +570,23 @@ export function resolveMobileNativeSheetIosBarEdges(options: {
   };
 }
 
+/**
+ * The header's bar-side padding (`resolveMobileNativeSheetIosBarEdges`) for the sheet as
+ * presented: once the sheet reports its own horizontal safe-area insets, the inset on that side
+ * (0 for a sheet floating clear of the bar: a form or floating sheet at regular width, the iPhone
+ * Duo inner display), else the window's.
+ */
+export function resolveMobileNativeSheetIosHeaderBarPadding(
+  headerPadding: { left: number; right: number },
+  sheetInsets: { left: number; right: number } | null,
+): { left: number; right: number } {
+  if (!sheetInsets) return headerPadding;
+  return {
+    left: headerPadding.left > 0 ? Math.max(0, sheetInsets.left) : 0,
+    right: headerPadding.right > 0 ? Math.max(0, sheetInsets.right) : 0,
+  };
+}
+
 /** Short custom-chrome sheets sit below the system status area. Tall sheets
  * retain its side safe area, including when expanded to a second detent. */
 export function mobileSheetCanUseFullWidth(snapPoints: (string | number)[] | undefined, availableHeight: number): boolean {

@@ -1,4 +1,8 @@
-import { mobileSheetCanUseFullWidth, resolveMobileNativeSheetIosBarEdges } from "./mobileNativeSheet";
+import {
+  mobileSheetCanUseFullWidth,
+  resolveMobileNativeSheetIosBarEdges,
+  resolveMobileNativeSheetIosHeaderBarPadding,
+} from "./mobileNativeSheet";
 import { describe, expect, test } from "bun:test";
 import { mobileAdaptiveLayout } from "./mobileAdaptiveLayout";
 import { getMobileStrings } from "./mobileI18n";
@@ -676,3 +680,16 @@ describe("iOS sheet and the system vertical bar", () => {
   });
 });
 
+describe("iOS sheet header and the sheet's own bar inset", () => {
+  test("the sheet's reported inset replaces the window's on the bar's side; unknown keeps the window's", () => {
+    const padded = { left: 0, right: 84 };
+    // Duo outer display: the sheet spans the bar column (8pt floating inset).
+    expect(resolveMobileNativeSheetIosHeaderBarPadding(padded, { left: 0, right: 76 })).toEqual({ left: 0, right: 76 });
+    // Duo inner display: a floating sheet clear of the rail.
+    expect(resolveMobileNativeSheetIosHeaderBarPadding(padded, { left: 0, right: 0 })).toEqual({ left: 0, right: 0 });
+    expect(resolveMobileNativeSheetIosHeaderBarPadding(padded, null)).toEqual(padded);
+  });
+  test("no padding stays none whatever the sheet reports", () => {
+    expect(resolveMobileNativeSheetIosHeaderBarPadding({ left: 0, right: 0 }, { left: 20, right: 76 })).toEqual({ left: 0, right: 0 });
+  });
+});

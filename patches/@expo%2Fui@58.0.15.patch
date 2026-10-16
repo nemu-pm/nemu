@@ -51,25 +51,27 @@ index d39d9de..7aa2b6e 100644
                                  flexGrow: 1,
                                  height: 0
 diff --git a/build/community/bottom-sheet/BottomSheet.ios.js b/build/community/bottom-sheet/BottomSheet.ios.js
-index e776a03..aafa541 100644
+index e776a03..1f472b3 100644
 --- a/build/community/bottom-sheet/BottomSheet.ios.js
 +++ b/build/community/bottom-sheet/BottomSheet.ios.js
-@@ -1,10 +1,13 @@
--import { jsx as _jsx } from "react/jsx-runtime";
-+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+@@ -1,12 +1,13 @@
+ import { jsx as _jsx } from "react/jsx-runtime";
  import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
- import { useWindowDimensions, View, StyleSheet } from 'react-native';
+-import { useWindowDimensions, View, StyleSheet } from 'react-native';
++import { I18nManager, useWindowDimensions, View, StyleSheet } from 'react-native';
  import { BottomSheet as NativeBottomSheet } from '../../swift-ui/BottomSheet';
  import { Group } from '../../swift-ui/Group';
  import { Host } from '../../swift-ui/Host';
  import { RNHostView } from '../../swift-ui/RNHostView';
-+import { Rectangle } from '../../swift-ui/Shapes';
-+import { VStack } from '../../swift-ui/VStack';
-+import { accessibilityHidden, containerRelativeFrame, frame, hidden, ignoreSafeArea, onGeometryChange } from '../../swift-ui/modifiers';
- import { interactiveDismissDisabled, presentationBackground, presentationDetents, presentationDragIndicator, presentationSizing } from '../../swift-ui/modifiers/presentationModifiers';
- import { BottomSheetContext, BottomSheetInternalContext } from './context';
+-import { interactiveDismissDisabled, presentationBackground, presentationDetents, presentationDragIndicator, presentationSizing } from '../../swift-ui/modifiers/presentationModifiers';
+-import { BottomSheetContext, BottomSheetInternalContext } from './context';
++import { frame, ignoreSafeArea, offset } from '../../swift-ui/modifiers';
++import { interactiveDismissDisabled, presentationBackground, presentationDetents, presentationDragIndicator } from '../../swift-ui/modifiers/presentationModifiers';
++import { BottomSheetContext, BottomSheetInternalContext, BottomSheetSafeAreaContext } from './context';
  import { SheetScrollContextReset } from './scrollContextReset';
-@@ -71,8 +74,45 @@ function findNearestDetentIndex(detents, position) {
+ import { parseSnapPoint } from './types';
+ export { useBottomSheet } from './context';
+@@ -71,8 +72,43 @@ function findNearestDetentIndex(detents, position) {
   *
   * @remarks Uses SwiftUI's `.sheet()` presentation (modal overlay).
   */ export function BottomSheet(props) {
@@ -77,69 +79,91 @@ index e776a03..aafa541 100644
 -    const { width } = useWindowDimensions();
 +    const { ref, snapPoints: snapPointsProp, index: indexProp = 0, onChange, onClose, onDismiss, enablePanDownToClose = false, enableDynamicSizing = true, handleComponent, backgroundStyle, contentIgnoresSafeAreaEdges, children } = props;
 +    const { width: windowWidth } = useWindowDimensions();
-+    // Content-sized sheets lay their RN root out at the width SwiftUI proposes inside the sheet
-+    // (floating/form sheets and in-sheet horizontal safe areas make it narrower than the window).
-+    // The probe's local width is used: its global frame already carries the floating scale once
-+    // SwiftUI re-evaluates geometry, and `presentationScale` below would then apply it twice.
-+    const [measuredSheetWidth, setMeasuredSheetWidth] = useState(null);
-+    // iOS 26+ draws a sheet resting at a partial detent scaled down so it floats clear of the
-+    // screen edges. The host undoes that scale on the content (`compensatesPresentationScale`), so
-+    // the content is laid out at the width it is shown at: the sheet width times that scale.
-+    const [presentationScale, setPresentationScale] = useState(1);
++    // A content-sized sheet hosts its RN content at an explicit Yoga width; the host reports the
++    // sheet's own unscaled width and safe-area insets (see the TypeScript source), and the content
++    // takes that width less the insets it does not extend into, times the floating scale.
++    const [presentation, setPresentation] = useState({
++        scale: 1,
++        sheetWidth: 0,
++        safeAreaLeft: 0,
++        safeAreaRight: 0
++    });
 +    const handlePresentationScaleChange = useCallback((event)=>{
-+        const nextScale = event.nativeEvent.scale;
-+        if (Number.isFinite(nextScale) && nextScale > 0) setPresentationScale(nextScale);
-+    }, []);
-+    const width = (measuredSheetWidth && measuredSheetWidth.windowWidth === windowWidth ? measuredSheetWidth.width : windowWidth) * presentationScale;
-+    const handleSheetWidthProbe = useCallback((probeFrame)=>{
-+        const nextWidth = probeFrame.localWidth ?? probeFrame.width;
-+        if (!Number.isFinite(nextWidth) || nextWidth <= 0) return;
-+        setMeasuredSheetWidth((current)=>current && current.windowWidth === windowWidth && Math.abs(current.width - nextWidth) < 0.5 ? current : {
-+                windowWidth,
-+                width: nextWidth
++        const { scale, sheetWidth = 0, safeAreaLeft = 0, safeAreaRight = 0 } = event.nativeEvent;
++        if (!Number.isFinite(scale) || scale <= 0) return;
++        setPresentation((current)=>current.scale === scale && current.sheetWidth === sheetWidth && current.safeAreaLeft === safeAreaLeft && current.safeAreaRight === safeAreaRight ? current : {
++                scale,
++                sheetWidth,
++                safeAreaLeft,
++                safeAreaRight
 +            });
-+    }, [
-+        windowWidth
++    }, []);
++    const ignoredEdges = useMemo(()=>[
++            contentIgnoresSafeAreaEdges
++        ].flat().filter((edge)=>edge != null), [
++        contentIgnoresSafeAreaEdges
 +    ]);
-+    const sheetWidthProbeModifiers = useMemo(()=>[
-+            containerRelativeFrame({
-+                axes: 'horizontal'
-+            }),
-+            frame({
-+                height: 0
-+            }),
-+            hidden(),
-+            accessibilityHidden(true),
-+            onGeometryChange(handleSheetWidthProbe)
-+        ], [
-+        handleSheetWidthProbe
++    const ignoresLeft = ignoredEdges.includes('horizontal') || ignoredEdges.includes(I18nManager.isRTL ? 'trailing' : 'leading');
++    const ignoresRight = ignoredEdges.includes('horizontal') || ignoredEdges.includes(I18nManager.isRTL ? 'leading' : 'trailing');
++    const width = (presentation.sheetWidth > 0 ? presentation.sheetWidth - (ignoresLeft ? 0 : presentation.safeAreaLeft) - (ignoresRight ? 0 : presentation.safeAreaRight) : windowWidth) * presentation.scale;
++    const sheetSafeAreaInsets = useMemo(()=>presentation.sheetWidth > 0 ? {
++            left: presentation.safeAreaLeft,
++            right: presentation.safeAreaRight
++        } : null, [
++        presentation.sheetWidth,
++        presentation.safeAreaLeft,
++        presentation.safeAreaRight
 +    ]);
      const [isPresented, setIsPresented] = useState(indexProp >= 0);
      const [currentIndex, setCurrentIndex] = useState(Math.max(indexProp, 0));
      // Ref mirrors currentIndex for use in handleDetentChange without adding it as a useCallback dep
-@@ -189,7 +229,14 @@ function findNearestDetentIndex(detents, position) {
+@@ -177,9 +213,8 @@ function findNearestDetentIndex(detents, position) {
+     const modifiers = useMemo(()=>{
+         const bg = extractBackgroundColor(backgroundStyle);
+         return [
+-            ...fitToContents ? [
+-                presentationSizing('fitted')
+-            ] : [
++            // A content-sized sheet's sizing is the native view's (`BottomSheetView`).
++            ...fitToContents ? [] : [
+                 presentationDetents(detents, {
+                     selection: selectedDetent,
+                     onSelectionChange: handleDetentChange
+@@ -189,7 +224,23 @@ function findNearestDetentIndex(detents, position) {
              interactiveDismissDisabled(!enablePanDownToClose),
              ...bg ? [
                  presentationBackground(bg)
 -            ] : []
 +            ] : [],
-+            ...([contentIgnoresSafeAreaEdges].flat().includes('horizontal') ? [frame({ maxWidth: Infinity })] : []),
-+            ...(contentIgnoresSafeAreaEdges == null ? [] : Array.isArray(contentIgnoresSafeAreaEdges) ? contentIgnoresSafeAreaEdges : [
-+                contentIgnoresSafeAreaEdges
-+            ]).map((edges)=>ignoreSafeArea({
++            // A content-sized host is centred on the sheet's safe region; shifted by half the insets'
++            // difference it sits flush with the sheet's edges. In the chain from the first frame: a
++            // modifier joining mid-presentation rehosts the content without touches (see the source).
++            ...fitToContents ? ignoresLeft || ignoresRight ? [
++                offset({
++                    x: sheetSafeAreaInsets ? ((ignoresRight ? sheetSafeAreaInsets.right : 0) - (ignoresLeft ? sheetSafeAreaInsets.left : 0)) / 2 : 0
++                })
++            ] : [] : ignoredEdges.includes('horizontal') ? [
++                frame({
++                    maxWidth: Infinity
++                })
++            ] : [],
++            ...ignoredEdges.filter((edges)=>edges != null && (!fitToContents || edges === 'bottom')).map((edges)=>ignoreSafeArea({
 +                    regions: 'container',
 +                    edges
 +                }))
          ];
      }, [
          fitToContents,
-@@ -198,8 +245,27 @@ function findNearestDetentIndex(detents, position) {
+@@ -198,16 +249,40 @@ function findNearestDetentIndex(detents, position) {
          handleDetentChange,
          handleComponent,
          enablePanDownToClose,
 -        backgroundStyle
 +        backgroundStyle,
-+        contentIgnoresSafeAreaEdges
++        ignoredEdges,
++        ignoresLeft,
++        ignoresRight,
++        sheetSafeAreaInsets
      ]);
 +    const hostedContent = /*#__PURE__*/ _jsx(RNHostView, {
 +        matchContents: fitToContents,
@@ -162,7 +186,9 @@ index e776a03..aafa541 100644
      return /*#__PURE__*/ _jsx(BottomSheetInternalContext.Provider, {
          value: internalContextValue,
          children: /*#__PURE__*/ _jsx(BottomSheetContext.Provider, {
-@@ -207,7 +273,7 @@ function findNearestDetentIndex(detents, position) {
+             value: methods,
++            children: /*#__PURE__*/ _jsx(BottomSheetSafeAreaContext.Provider, {
++            value: sheetSafeAreaInsets,
              children: /*#__PURE__*/ _jsx(Host, {
                  style: {
                      position: 'absolute',
@@ -171,7 +197,7 @@ index e776a03..aafa541 100644
                  },
                  pointerEvents: "none",
                  children: /*#__PURE__*/ _jsx(NativeBottomSheet, {
-@@ -217,22 +283,15 @@ function findNearestDetentIndex(detents, position) {
+@@ -217,25 +292,11 @@ function findNearestDetentIndex(detents, position) {
                      fitToContents: fitToContents,
                      children: /*#__PURE__*/ _jsx(Group, {
                          modifiers: modifiers,
@@ -191,18 +217,84 @@ index e776a03..aafa541 100644
 -                                })
 -                            })
 -                        })
-+                        children: fitToContents ? /*#__PURE__*/ _jsxs(VStack, {
-+                            spacing: 0,
-+                            children: [
-+                                /*#__PURE__*/ _jsx(Rectangle, {
-+                                    modifiers: sheetWidthProbeModifiers
-+                                }),
-+                                hostedContent
-+                            ]
-+                        }) : hostedContent
++                        children: hostedContent
                      })
                  })
              })
++            })
+         })
+     });
+ }
+diff --git a/build/community/bottom-sheet/context.d.ts b/build/community/bottom-sheet/context.d.ts
+index e07e4ee..918246a 100644
+--- a/build/community/bottom-sheet/context.d.ts
++++ b/build/community/bottom-sheet/context.d.ts
+@@ -4,6 +4,18 @@ export declare const BottomSheetContext: import("react").Context<BottomSheetMeth
+ export declare const BottomSheetInternalContext: import("react").Context<{
+     fitToContents: boolean;
+ }>;
++export type BottomSheetSafeAreaInsets = {
++    left: number;
++    right: number;
++};
++export declare const BottomSheetSafeAreaContext: import("react").Context<BottomSheetSafeAreaInsets | null>;
++/**
++ * iOS: the presented sheet's own horizontal safe-area insets, in points (the iPhone Duo outer
++ * display's vertical bar column at a spanning sheet's trailing edge; 0 for a sheet floating clear
++ * of it, such as a form sheet at regular width). `null` until the sheet has reported them, and on
++ * other platforms.
++ */
++export declare function useBottomSheetSafeAreaInsets(): BottomSheetSafeAreaInsets | null;
+ /**
+  * Hook to access the bottom sheet methods from within its children.
+  * Must be used inside a `BottomSheet` component.
+diff --git a/build/community/bottom-sheet/context.js b/build/community/bottom-sheet/context.js
+index cf130fb..3183bb8 100644
+--- a/build/community/bottom-sheet/context.js
++++ b/build/community/bottom-sheet/context.js
+@@ -3,6 +3,15 @@ export const BottomSheetContext = /*#__PURE__*/ createContext(null);
+ /** Internal context for passing layout flags to BottomSheetView. Not part of public API. */ export const BottomSheetInternalContext = /*#__PURE__*/ createContext({
+     fitToContents: false
+ });
++export const BottomSheetSafeAreaContext = /*#__PURE__*/ createContext(null);
++/**
++ * iOS: the presented sheet's own horizontal safe-area insets, in points (the iPhone Duo outer
++ * display's vertical bar column at a spanning sheet's trailing edge; 0 for a sheet floating clear
++ * of it, such as a form sheet at regular width). `null` until the sheet has reported them, and on
++ * other platforms.
++ */ export function useBottomSheetSafeAreaInsets() {
++    return useContext(BottomSheetSafeAreaContext);
++}
+ /**
+  * Hook to access the bottom sheet methods from within its children.
+  * Must be used inside a `BottomSheet` component.
+diff --git a/build/community/bottom-sheet/index.d.ts b/build/community/bottom-sheet/index.d.ts
+index e684a24..eb26b0e 100644
+--- a/build/community/bottom-sheet/index.d.ts
++++ b/build/community/bottom-sheet/index.d.ts
+@@ -2,7 +2,8 @@ import { type ReactNode } from 'react';
+ import { FlatList, ScrollView, SectionList, TextInput } from 'react-native';
+ import { BottomSheet as BottomSheetComponent } from './BottomSheet';
+ import type { BottomSheetMethods, BottomSheetProps, BottomSheetViewProps } from './types';
+-export { useBottomSheet } from './context';
++export { useBottomSheet, useBottomSheetSafeAreaInsets } from './context';
++export type { BottomSheetSafeAreaInsets } from './context';
+ /**
+  * Bottom sheet component. Defaults to `index={0}` (open at first snap point on mount).
+  */
+diff --git a/build/community/bottom-sheet/index.js b/build/community/bottom-sheet/index.js
+index 60426c0..fecb203 100644
+--- a/build/community/bottom-sheet/index.js
++++ b/build/community/bottom-sheet/index.js
+@@ -4,7 +4,7 @@ import { FlatList, ScrollView, SectionList, StyleSheet, TextInput, View } from '
+ import { BottomSheet as BottomSheetComponent } from './BottomSheet';
+ import { BottomSheetInternalContext } from './context';
+ // Re-export the context hook from the shared context file
+-export { useBottomSheet } from './context';
++export { useBottomSheet, useBottomSheetSafeAreaInsets } from './context';
+ // #region BottomSheet / BottomSheetModal with companion types for ref compatibility
+ // TypeScript declaration merging: the value is the component, the type is the ref interface.
+ // This allows `useRef<BottomSheet>(null)` and `useRef<BottomSheetModal>(null)` to work
 diff --git a/build/community/bottom-sheet/types.d.ts b/build/community/bottom-sheet/types.d.ts
 index cf72b27..0822bad 100644
 --- a/build/community/bottom-sheet/types.d.ts
@@ -242,10 +334,10 @@ index cf72b27..0822bad 100644
       * Style for the handle area.
       *
 diff --git a/build/swift-ui/RNHostView.d.ts b/build/swift-ui/RNHostView.d.ts
-index f56e271..aefe956 100644
+index f56e271..71c9983 100644
 --- a/build/swift-ui/RNHostView.d.ts
 +++ b/build/swift-ui/RNHostView.d.ts
-@@ -13,6 +13,23 @@ export interface RNHostViewProps {
+@@ -13,6 +13,27 @@ export interface RNHostViewProps {
          vertical?: boolean;
          horizontal?: boolean;
      };
@@ -259,11 +351,15 @@ index f56e271..aefe956 100644
 +    compensatesPresentationScale?: boolean;
 +    /**
 +     * iOS only, with `compensatesPresentationScale`. Reports the scale the presentation draws the
-+     * host at (1 when it is not scaled).
++     * host at (1 when it is not scaled), and the presented sheet's own unscaled width and horizontal
++     * safe-area insets (`sheetWidth` is 0 until the sheet has been laid out).
 +     */
 +    onPresentationScaleChange?: (event: {
 +        nativeEvent: {
 +            scale: number;
++            sheetWidth?: number;
++            safeAreaLeft?: number;
++            safeAreaRight?: number;
 +        };
 +    }) => void;
      onLayout?: (event: LayoutChangeEvent) => void;
@@ -294,6 +390,47 @@ index 0de5cd2..6d6810f 100644
  }) => void) => ModifierConfig;
  /**
   * Marks a view as refreshable. Adds pull-to-refresh functionality.
+diff --git a/ios/BottomSheetView.swift b/ios/BottomSheetView.swift
+index 29b1a3a..bf57e0f 100644
+--- a/ios/BottomSheetView.swift
++++ b/ios/BottomSheetView.swift
+@@ -62,6 +62,21 @@ struct BottomSheetView: ExpoSwiftUI.View {
+   @ObservedObject var props: BottomSheetProps
+   @State private var isPresented: Bool = false
+   @State private var childrenSize: CGSize = .zero
++  #if os(iOS)
++  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
++  #endif
++
++  // Regular width (iPad, the iPhone Duo inner display): a content-sized sheet is a centred form
++  // sheet as tall as its content. A height detent makes it a bottom sheet spanning the window, and
++  // `.fitted` alone sizes its width to the content's, which the hosted React Native root takes from
++  // the sheet: the frame then lands off-centre.
++  private var presentsAsForm: Bool {
++    #if os(iOS)
++    return horizontalSizeClass == .regular
++    #else
++    return false
++    #endif
++  }
+ 
+   private func handleSizeChange(_ size: CGSize) {
+     guard childrenSize != size else { return }
+@@ -83,7 +98,13 @@ struct BottomSheetView: ExpoSwiftUI.View {
+         content: contentChildren(),
+         onSizeChange: handleSizeChange
+       )
+-      if #available(iOS 16.0, tvOS 16.0, *) {
++      if #available(iOS 18.0, tvOS 18.0, *), presentsAsForm {
++        content.presentationSizing(.form.fitted(horizontal: false, vertical: true))
++      } else if #available(iOS 18.0, tvOS 18.0, *) {
++        content
++          .presentationSizing(.fitted)
++          .presentationDetents(childrenSize.height > 0 ? [.height(childrenSize.height)] : [.medium])
++      } else if #available(iOS 16.0, tvOS 16.0, *) {
+         content.presentationDetents(childrenSize.height > 0 ? [.height(childrenSize.height)] : [.medium])
+       } else {
+         content
 diff --git a/ios/Modifiers/OnGeometryChangeModifier.swift b/ios/Modifiers/OnGeometryChangeModifier.swift
 index da8f363..a50ab78 100644
 --- a/ios/Modifiers/OnGeometryChangeModifier.swift
@@ -338,7 +475,7 @@ index da8f363..a50ab78 100644
    }
  }
 diff --git a/ios/RNHostView.swift b/ios/RNHostView.swift
-index 87e5228..a64c232 100644
+index 87e5228..efffd9d 100644
 --- a/ios/RNHostView.swift
 +++ b/ios/RNHostView.swift
 @@ -1,5 +1,6 @@
@@ -370,7 +507,7 @@ index 87e5228..a64c232 100644
 -    if matchesContents, let childUIView = firstChildUIView {
 +    if props.matchContentsHorizontal, props.matchContentsVertical, props.compensatesPresentationScale,
 +       let childUIView = firstChildUIView {
-+      PresentationScaleReader(onScaleChange: reportPresentationScale) { scale in
++      PresentationScaleReader(onMetricsChange: reportPresentationMetrics) { scale in
 +        ApplySizeFromYogaNode(
 +          childUIView: childUIView,
 +          horizontal: true,
@@ -398,7 +535,7 @@ index 87e5228..a64c232 100644
        // surrounding SwiftUI container - e.g. a spurious empty row in a `Form`'s `Section`.
        EmptyView()
 +    } else if props.compensatesPresentationScale {
-+      PresentationScaleReader(onScaleChange: reportPresentationScale) { scale in
++      PresentationScaleReader(onMetricsChange: reportPresentationMetrics) { scale in
 +        GeometryReader { geometry in
 +          Children()
 +            .frame(width: geometry.size.width * scale, height: geometry.size.height * scale)
@@ -417,18 +554,23 @@ index 87e5228..a64c232 100644
      } else {
        Children()
          .frame(maxWidth: .infinity, maxHeight: .infinity)
-@@ -100,6 +147,10 @@ struct RNHostView: ExpoSwiftUI.View {
+@@ -100,6 +147,15 @@ struct RNHostView: ExpoSwiftUI.View {
    private var firstChildUIView: UIView? {
      props.children?.first?.uiView
    }
 +
-+  private func reportPresentationScale(_ scale: CGFloat) {
-+    props.onPresentationScaleChange(["scale": scale])
++  private func reportPresentationMetrics(_ metrics: PresentationMetrics) {
++    props.onPresentationScaleChange([
++      "scale": metrics.scale,
++      "sheetWidth": metrics.sheetWidth,
++      "safeAreaLeft": metrics.safeAreaLeft,
++      "safeAreaRight": metrics.safeAreaRight
++    ])
 +  }
  }
  
  // Publishes where SwiftUI placed this view inside its `Host`, so `measure()` reports the position
-@@ -162,12 +213,14 @@ private struct ApplySizeFromYogaNode<Content: SwiftUI.View>: SwiftUI.View {
+@@ -162,12 +218,14 @@ private struct ApplySizeFromYogaNode<Content: SwiftUI.View>: SwiftUI.View {
    let vertical: Bool
    let shadowNodeProxy: ExpoSwiftUI.ShadowNodeProxy
    let content: Content
@@ -443,7 +585,7 @@ index 87e5228..a64c232 100644
      @ViewBuilder content: () -> Content
    ) {
      _observer = StateObject(wrappedValue: Observer(view: childUIView))
-@@ -175,10 +228,22 @@ private struct ApplySizeFromYogaNode<Content: SwiftUI.View>: SwiftUI.View {
+@@ -175,10 +233,22 @@ private struct ApplySizeFromYogaNode<Content: SwiftUI.View>: SwiftUI.View {
      self.vertical = vertical
      self.shadowNodeProxy = shadowNodeProxy
      self.content = content()
@@ -467,7 +609,7 @@ index 87e5228..a64c232 100644
        content
          .frame(width: observer.size.width, height: observer.size.height)
      } else {
-@@ -253,3 +318,138 @@ private struct ReportSizeToYogaNodeModifier: ViewModifier {
+@@ -253,3 +323,166 @@ private struct ReportSizeToYogaNodeModifier: ViewModifier {
      }
    }
  }
@@ -479,30 +621,47 @@ index 87e5228..a64c232 100644
 +// the sheet is actually shown at and applies the inverse scale, so it renders at exactly 1:1.
 +// Stacked sheets and dismissals keep the last scale (see `PresentationScaleProbeView.sample`).
 +// The scale is read from a probe's window-space frame, which includes every ancestor transform.
++// The probe also reports the sheet's own width and horizontal safe-area insets (its hosting
++// controller's view, unscaled): a content-sized sheet's React Native root has an explicit width,
++// and SwiftUI cannot say how wide the sheet is around content that sets its own (a probe sized by
++// the sheet only sees its safe region, e.g. the iPhone Duo outer display's 76pt bar column).
++private struct PresentationMetrics: Equatable {
++  var scale: CGFloat = 1
++  /// 0 until the sheet has been laid out.
++  var sheetWidth: CGFloat = 0
++  var safeAreaLeft: CGFloat = 0
++  var safeAreaRight: CGFloat = 0
++
++  func isClose(to other: PresentationMetrics) -> Bool {
++    abs(scale - other.scale) <= 0.0005 && abs(sheetWidth - other.sheetWidth) < 0.5
++      && abs(safeAreaLeft - other.safeAreaLeft) < 0.5 && abs(safeAreaRight - other.safeAreaRight) < 0.5
++  }
++}
++
 +private struct PresentationScaleReader<Content: SwiftUI.View>: SwiftUI.View {
-+  let onScaleChange: (CGFloat) -> Void
++  let onMetricsChange: (PresentationMetrics) -> Void
 +  let content: (CGFloat) -> Content
 +  @StateObject private var tracker = PresentationScaleTracker()
 +
-+  init(onScaleChange: @escaping (CGFloat) -> Void, @ViewBuilder content: @escaping (CGFloat) -> Content) {
-+    self.onScaleChange = onScaleChange
++  init(onMetricsChange: @escaping (PresentationMetrics) -> Void, @ViewBuilder content: @escaping (CGFloat) -> Content) {
++    self.onMetricsChange = onMetricsChange
 +    self.content = content
 +  }
 +
 +  var body: some SwiftUI.View {
-+    content(tracker.scale)
++    content(tracker.metrics.scale)
 +      .background(PresentationScaleProbe(tracker: tracker))
-+      .onReceive(tracker.$scale.removeDuplicates()) { onScaleChange($0) }
++      .onReceive(tracker.$metrics.removeDuplicates()) { onMetricsChange($0) }
 +  }
 +}
 +
 +@MainActor
 +private final class PresentationScaleTracker: ObservableObject {
-+  @Published private(set) var scale: CGFloat = 1
++  @Published private(set) var metrics = PresentationMetrics()
 +
-+  func update(_ nextScale: CGFloat) {
-+    if abs(nextScale - scale) > 0.0005 {
-+      scale = nextScale
++  func update(_ nextMetrics: PresentationMetrics) {
++    if !nextMetrics.isClose(to: metrics) {
++      metrics = nextMetrics
 +    }
 +  }
 +}
@@ -513,17 +672,17 @@ index 87e5228..a64c232 100644
 +  func makeUIView(context: Context) -> PresentationScaleProbeView {
 +    let view = PresentationScaleProbeView()
 +    view.isUserInteractionEnabled = false
-+    view.onScaleChange = { [weak tracker] scale in tracker?.update(scale) }
++    view.onMetricsChange = { [weak tracker] metrics in tracker?.update(metrics) }
 +    return view
 +  }
 +
 +  func updateUIView(_ uiView: PresentationScaleProbeView, context: Context) {
-+    uiView.onScaleChange = { [weak tracker] scale in tracker?.update(scale) }
++    uiView.onMetricsChange = { [weak tracker] metrics in tracker?.update(metrics) }
 +  }
 +}
 +
 +private final class PresentationScaleProbeView: UIView {
-+  var onScaleChange: ((CGFloat) -> Void)?
++  var onMetricsChange: ((PresentationMetrics) -> Void)?
 +  private var displayLink: CADisplayLink?
 +  private var sampleUntil: CFTimeInterval = 0
 +
@@ -539,6 +698,11 @@ index 87e5228..a64c232 100644
 +
 +  override func layoutSubviews() {
 +    super.layoutSubviews()
++    sampleForAWhile()
++  }
++
++  override func safeAreaInsetsDidChange() {
++    super.safeAreaInsetsDidChange()
 +    sampleForAWhile()
 +  }
 +
@@ -579,7 +743,13 @@ index 87e5228..a64c232 100644
 +    }
 +    let scale = convert(bounds, to: window).width / bounds.width
 +    guard scale.isFinite, scale > 0.5 else { return }
-+    onScaleChange?(min(scale, 1))
++    var metrics = PresentationMetrics(scale: min(scale, 1))
++    if let sheetView = owningViewController?.view, sheetView.bounds.width > 0 {
++      metrics.sheetWidth = sheetView.bounds.width
++      metrics.safeAreaLeft = sheetView.safeAreaInsets.left
++      metrics.safeAreaRight = sheetView.safeAreaInsets.right
++    }
++    onMetricsChange?(metrics)
 +  }
 +
 +  private var owningViewController: UIViewController? {
@@ -666,27 +836,38 @@ index 419edef..12c6d1e 100644
                </View>
              </RNHostView>
 diff --git a/src/community/bottom-sheet/BottomSheet.ios.tsx b/src/community/bottom-sheet/BottomSheet.ios.tsx
-index b6c0300..ae5eb75 100644
+index b6c0300..cf1b253 100644
 --- a/src/community/bottom-sheet/BottomSheet.ios.tsx
 +++ b/src/community/bottom-sheet/BottomSheet.ios.tsx
-@@ -6,6 +6,16 @@ import { BottomSheet as NativeBottomSheet } from '../../swift-ui/BottomSheet';
+@@ -1,20 +1,24 @@
+ import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+-import { useWindowDimensions, View, StyleSheet } from 'react-native';
++import { I18nManager, useWindowDimensions, View, StyleSheet } from 'react-native';
+ import type { StyleProp, ViewStyle } from 'react-native';
+ 
+ import { BottomSheet as NativeBottomSheet } from '../../swift-ui/BottomSheet';
  import { Group } from '../../swift-ui/Group';
  import { Host } from '../../swift-ui/Host';
  import { RNHostView } from '../../swift-ui/RNHostView';
-+import { Rectangle } from '../../swift-ui/Shapes';
-+import { VStack } from '../../swift-ui/VStack';
-+import {
-+  accessibilityHidden,
-+  containerRelativeFrame,
-+  frame,
-+  hidden,
-+  ignoreSafeArea,
-+  onGeometryChange,
-+} from '../../swift-ui/modifiers';
++import { frame, ignoreSafeArea, offset } from '../../swift-ui/modifiers';
  import {
    type PresentationDetent,
    interactiveDismissDisabled,
-@@ -92,9 +102,65 @@ export function BottomSheet(props: BottomSheetProps) {
+   presentationBackground,
+   presentationDetents,
+   presentationDragIndicator,
+-  presentationSizing,
+ } from '../../swift-ui/modifiers/presentationModifiers';
+-import { BottomSheetContext, BottomSheetInternalContext } from './context';
++import {
++  BottomSheetContext,
++  BottomSheetInternalContext,
++  BottomSheetSafeAreaContext,
++} from './context';
+ import { SheetScrollContextReset } from './scrollContextReset';
+ import type { BottomSheetMethods, BottomSheetProps } from './types';
+ import { parseSnapPoint } from './types';
+@@ -92,9 +96,67 @@ export function BottomSheet(props: BottomSheetProps) {
      enableDynamicSizing = true,
      handleComponent,
      backgroundStyle,
@@ -697,88 +878,120 @@ index b6c0300..ae5eb75 100644
 +  const { width: windowWidth } = useWindowDimensions();
 +  // A content-sized sheet hosts its RN content at an explicit Yoga width, and the window width is
 +  // wrong whenever the sheet is narrower than the window or insets its content: iOS 26 floating
-+  // sheets, form sheets on regular widths, and the horizontal safe area inside the sheet (the
-+  // iPhone Duo outer display reserves an 84pt trailing bar column). A window-wide root is then
-+  // centered on the narrower frame, clipping its leading edge and leaving a gap at the trailing
-+  // one. A zero-height probe sized by `containerRelativeFrame` (the sheet, not the content: a
-+  // `.fitted` sheet proposes the content's own ideal width) reports the real width, and the
-+  // content is laid out at it, keyed by the window width so a resize never reuses a stale value.
-+  // The width taken is the probe's local one (`localWidth`), the sheet's own unscaled width: its
-+  // global frame already carries the floating scale once SwiftUI re-evaluates geometry, and
-+  // multiplying that by `presentationScale` below would apply the scale twice (content 15pt
-+  // narrower than a 404pt floating sheet, centered, the bare sheet showing either side of it).
-+  const [measuredSheetWidth, setMeasuredSheetWidth] = useState<{
-+    windowWidth: number;
-+    width: number;
-+  } | null>(null);
++  // sheets, form sheets at regular widths, and the horizontal safe area inside the sheet (the
++  // iPhone Duo outer display reserves its vertical bar column at a spanning sheet's trailing
++  // edge). SwiftUI cannot measure the sheet around content that sets its own width (a probe sized
++  // by the sheet sees only its safe region), so the host reports the sheet's own unscaled width and
++  // safe-area insets, and the content takes that width less the insets it does not extend into.
++  // The window width stands in until the first report.
 +  // iOS 26+ draws a sheet resting at a partial detent scaled down so it floats clear of the
 +  // screen edges. The host undoes that scale on the content (`compensatesPresentationScale`), so
 +  // the content is laid out at the width it is shown at: the sheet width times that scale.
-+  const [presentationScale, setPresentationScale] = useState(1);
++  const [presentation, setPresentation] = useState({
++    scale: 1,
++    sheetWidth: 0,
++    safeAreaLeft: 0,
++    safeAreaRight: 0,
++  });
 +  const handlePresentationScaleChange = useCallback(
-+    (event: { nativeEvent: { scale: number } }) => {
-+      const nextScale = event.nativeEvent.scale;
-+      if (Number.isFinite(nextScale) && nextScale > 0) setPresentationScale(nextScale);
++    (event: {
++      nativeEvent: { scale: number; sheetWidth?: number; safeAreaLeft?: number; safeAreaRight?: number };
++    }) => {
++      const { scale, sheetWidth = 0, safeAreaLeft = 0, safeAreaRight = 0 } = event.nativeEvent;
++      if (!Number.isFinite(scale) || scale <= 0) return;
++      setPresentation((current) =>
++        current.scale === scale &&
++        current.sheetWidth === sheetWidth &&
++        current.safeAreaLeft === safeAreaLeft &&
++        current.safeAreaRight === safeAreaRight
++          ? current
++          : { scale, sheetWidth, safeAreaLeft, safeAreaRight }
++      );
 +    },
 +    []
 +  );
-+  const width =
-+    (measuredSheetWidth && measuredSheetWidth.windowWidth === windowWidth
-+      ? measuredSheetWidth.width
-+      : windowWidth) * presentationScale;
-+  const handleSheetWidthProbe = useCallback(
-+    (probeFrame: { width: number; localWidth?: number }) => {
-+      const nextWidth = probeFrame.localWidth ?? probeFrame.width;
-+      if (!Number.isFinite(nextWidth) || nextWidth <= 0) return;
-+      setMeasuredSheetWidth((current) =>
-+        current &&
-+        current.windowWidth === windowWidth &&
-+        Math.abs(current.width - nextWidth) < 0.5
-+          ? current
-+          : { windowWidth, width: nextWidth }
-+      );
-+    },
-+    [windowWidth]
++  const ignoredEdges = useMemo(
++    () => [contentIgnoresSafeAreaEdges].flat().filter((edge) => edge != null),
++    [contentIgnoresSafeAreaEdges]
 +  );
-+  const sheetWidthProbeModifiers = useMemo(
-+    () => [
-+      containerRelativeFrame({ axes: 'horizontal' }),
-+      frame({ height: 0 }),
-+      hidden(),
-+      accessibilityHidden(true),
-+      onGeometryChange(handleSheetWidthProbe),
-+    ],
-+    [handleSheetWidthProbe]
++  const ignoresLeft =
++    ignoredEdges.includes('horizontal') ||
++    ignoredEdges.includes(I18nManager.isRTL ? 'trailing' : 'leading');
++  const ignoresRight =
++    ignoredEdges.includes('horizontal') ||
++    ignoredEdges.includes(I18nManager.isRTL ? 'leading' : 'trailing');
++  const width =
++    (presentation.sheetWidth > 0
++      ? presentation.sheetWidth -
++        (ignoresLeft ? 0 : presentation.safeAreaLeft) -
++        (ignoresRight ? 0 : presentation.safeAreaRight)
++      : windowWidth) * presentation.scale;
++  const sheetSafeAreaInsets = useMemo(
++    () =>
++      presentation.sheetWidth > 0
++        ? { left: presentation.safeAreaLeft, right: presentation.safeAreaRight }
++        : null,
++    [presentation.sheetWidth, presentation.safeAreaLeft, presentation.safeAreaRight]
 +  );
  
    const [isPresented, setIsPresented] = useState(indexProp >= 0);
    const [currentIndex, setCurrentIndex] = useState(Math.max(indexProp, 0));
-@@ -210,6 +276,20 @@ export function BottomSheet(props: BottomSheetProps) {
+@@ -198,9 +260,10 @@ export function BottomSheet(props: BottomSheetProps) {
+   const modifiers = useMemo(() => {
+     const bg = extractBackgroundColor(backgroundStyle);
+     return [
++      // A content-sized sheet's sizing is the native view's (`BottomSheetView`): a form sheet at
++      // regular width, else fitted to a height detent.
+       ...(fitToContents
+-        ? // Makes the iPad sheet size to that content instead of opening near full height.
+-          [presentationSizing('fitted')]
++        ? []
+         : [
+             presentationDetents(detents, {
+               selection: selectedDetent,
+@@ -210,6 +273,34 @@ export function BottomSheet(props: BottomSheetProps) {
        presentationDragIndicator(handleComponent === null ? 'hidden' : 'visible'),
        interactiveDismissDisabled(!enablePanDownToClose),
        ...(bg ? [presentationBackground(bg)] : []),
-+      // A fitted host has an intrinsic width. Expand its frame before ignoring
-+      // horizontal insets so SwiftUI centers it in the entire sheet.
-+      ...([contentIgnoresSafeAreaEdges].flat().includes('horizontal')
-+        ? [frame({ maxWidth: Infinity })]
-+        : []),
++      // A content-sized host is as wide as the sheet's edges it extends into, and SwiftUI centres
++      // it on the sheet's safe region regardless (on the iPhone Duo outer display, 38pt towards the
++      // leading edge, past it). Shifted by half the difference of those insets it sits flush with
++      // the sheet's edges. It is in the chain from the first frame (x 0 until the sheet reports
++      // its insets): a modifier joining mid-presentation rehosts the content, which is then left
++      // without touches. (Negative padding instead shrinks the host's frame and loses them too.)
++      ...(fitToContents
++        ? ignoresLeft || ignoresRight
++          ? [
++              offset({
++                x: sheetSafeAreaInsets
++                  ? ((ignoresRight ? sheetSafeAreaInsets.right : 0) -
++                      (ignoresLeft ? sheetSafeAreaInsets.left : 0)) /
++                    2
++                  : 0,
++              }),
++            ]
++          : []
++        : // A detent host fills the sheet: expand its frame before ignoring horizontal insets.
++          ignoredEdges.includes('horizontal')
++          ? [frame({ maxWidth: Infinity })]
++          : []),
 +      // The iPhone Duo outer display's vertical bar column is a safe area inside a sheet that
 +      // spans it (content stopped short of its trailing edge), and a floating sheet keeps the home
 +      // indicator's inset below content it never reaches.
-+      ...(contentIgnoresSafeAreaEdges == null
-+        ? []
-+        : Array.isArray(contentIgnoresSafeAreaEdges)
-+          ? contentIgnoresSafeAreaEdges
-+          : [contentIgnoresSafeAreaEdges]
-+      ).map((edges) => ignoreSafeArea({ regions: 'container', edges })),
++      ...ignoredEdges
++        .filter((edges) => edges != null && (!fitToContents || edges === 'bottom'))
++        .map((edges) => ignoreSafeArea({ regions: 'container', edges })),
      ];
    }, [
      fitToContents,
-@@ -219,33 +299,50 @@ export function BottomSheet(props: BottomSheetProps) {
+@@ -219,36 +310,49 @@ export function BottomSheet(props: BottomSheetProps) {
      handleComponent,
      enablePanDownToClose,
      backgroundStyle,
-+    contentIgnoresSafeAreaEdges,
++    ignoredEdges,
++    ignoresLeft,
++    ignoresRight,
++    sheetSafeAreaInsets,
    ]);
  
 +  const hostedContent = (
@@ -806,13 +1019,12 @@ index b6c0300..ae5eb75 100644
      <BottomSheetInternalContext.Provider value={internalContextValue}>
        <BottomSheetContext.Provider value={methods}>
 -        <Host style={{ position: 'absolute', width }} pointerEvents="none">
-+        <Host style={{ position: 'absolute', width: windowWidth }} pointerEvents="none">
-           <NativeBottomSheet
-             isPresented={isPresented}
-             onIsPresentedChange={handlePresentedChange}
-             onDismiss={fireCloseCallbacks}
-             fitToContents={fitToContents}>
-             <Group modifiers={modifiers}>
+-          <NativeBottomSheet
+-            isPresented={isPresented}
+-            onIsPresentedChange={handlePresentedChange}
+-            onDismiss={fireCloseCallbacks}
+-            fitToContents={fitToContents}>
+-            <Group modifiers={modifiers}>
 -              <RNHostView matchContents={fitToContents}>
 -                {/* paddingTop compensates for tighter spacing between native drag indicator and content
 -                    compared to gorhom's handle. flexGrow:1 + height:0 (flex-basis 0) fills the snap-point
@@ -828,19 +1040,63 @@ index b6c0300..ae5eb75 100644
 -                  <SheetScrollContextReset>{children}</SheetScrollContextReset>
 -                </View>
 -              </RNHostView>
-+              {fitToContents ? (
-+                // A zero-height probe sized to the sheet by `containerRelativeFrame` reports its
-+                // real width whatever width the hosted content currently has.
-+                <VStack spacing={0}>
-+                  <Rectangle modifiers={sheetWidthProbeModifiers} />
-+                  {hostedContent}
-+                </VStack>
-+              ) : (
-+                hostedContent
-+              )}
-             </Group>
-           </NativeBottomSheet>
-         </Host>
+-            </Group>
+-          </NativeBottomSheet>
+-        </Host>
++        <BottomSheetSafeAreaContext.Provider value={sheetSafeAreaInsets}>
++          <Host style={{ position: 'absolute', width: windowWidth }} pointerEvents="none">
++            <NativeBottomSheet
++              isPresented={isPresented}
++              onIsPresentedChange={handlePresentedChange}
++              onDismiss={fireCloseCallbacks}
++              fitToContents={fitToContents}>
++              <Group modifiers={modifiers}>
++                {hostedContent}
++              </Group>
++            </NativeBottomSheet>
++          </Host>
++        </BottomSheetSafeAreaContext.Provider>
+       </BottomSheetContext.Provider>
+     </BottomSheetInternalContext.Provider>
+   );
+diff --git a/src/community/bottom-sheet/context.tsx b/src/community/bottom-sheet/context.tsx
+index f46ef77..76b8bab 100644
+--- a/src/community/bottom-sheet/context.tsx
++++ b/src/community/bottom-sheet/context.tsx
+@@ -7,6 +7,20 @@ export const BottomSheetContext = createContext<BottomSheetMethods | null>(null)
+ /** Internal context for passing layout flags to BottomSheetView. Not part of public API. */
+ export const BottomSheetInternalContext = createContext({ fitToContents: false });
+ 
++export type BottomSheetSafeAreaInsets = { left: number; right: number };
++
++export const BottomSheetSafeAreaContext = createContext<BottomSheetSafeAreaInsets | null>(null);
++
++/**
++ * iOS: the presented sheet's own horizontal safe-area insets, in points (the iPhone Duo outer
++ * display's vertical bar column at a spanning sheet's trailing edge; 0 for a sheet floating clear
++ * of it, such as a form sheet at regular width). `null` until the sheet has reported them, and on
++ * other platforms.
++ */
++export function useBottomSheetSafeAreaInsets(): BottomSheetSafeAreaInsets | null {
++  return useContext(BottomSheetSafeAreaContext);
++}
++
+ /**
+  * Hook to access the bottom sheet methods from within its children.
+  * Must be used inside a `BottomSheet` component.
+diff --git a/src/community/bottom-sheet/index.tsx b/src/community/bottom-sheet/index.tsx
+index c977541..56bda61 100644
+--- a/src/community/bottom-sheet/index.tsx
++++ b/src/community/bottom-sheet/index.tsx
+@@ -6,7 +6,7 @@ import { BottomSheetInternalContext } from './context';
+ import type { BottomSheetMethods, BottomSheetProps, BottomSheetViewProps } from './types';
+ 
+ // Re-export the context hook from the shared context file
+-export { useBottomSheet } from './context';
++export { useBottomSheet, useBottomSheetSafeAreaInsets } from './context';
+ 
+ // #region BottomSheet / BottomSheetModal with companion types for ref compatibility
+ // TypeScript declaration merging: the value is the component, the type is the ref interface.
 diff --git a/src/community/bottom-sheet/types.ts b/src/community/bottom-sheet/types.ts
 index 51326fb..d5e0c92 100644
 --- a/src/community/bottom-sheet/types.ts
@@ -880,10 +1136,10 @@ index 51326fb..d5e0c92 100644
     * Style for the handle area.
     *
 diff --git a/src/swift-ui/RNHostView.tsx b/src/swift-ui/RNHostView.tsx
-index a0b56ba..8af6ce3 100644
+index a0b56ba..e3da29e 100644
 --- a/src/swift-ui/RNHostView.tsx
 +++ b/src/swift-ui/RNHostView.tsx
-@@ -17,6 +17,23 @@ export interface RNHostViewProps {
+@@ -17,6 +17,27 @@ export interface RNHostViewProps {
     * @default false
     */
    matchContents?: boolean | { vertical?: boolean; horizontal?: boolean };
@@ -897,11 +1153,15 @@ index a0b56ba..8af6ce3 100644
 +  compensatesPresentationScale?: boolean;
 +  /**
 +   * iOS only, with `compensatesPresentationScale`. Reports the scale the presentation draws the
-+   * host at (1 when it is not scaled).
++   * host at (1 when it is not scaled), and the presented sheet's own unscaled width and horizontal
++   * safe-area insets (`sheetWidth` is 0 until the sheet has been laid out).
 +   */
 +  onPresentationScaleChange?: (event: {
 +    nativeEvent: {
 +      scale: number;
++      sheetWidth?: number;
++      safeAreaLeft?: number;
++      safeAreaRight?: number;
 +    };
 +  }) => void;
    onLayout?: (event: LayoutChangeEvent) => void;

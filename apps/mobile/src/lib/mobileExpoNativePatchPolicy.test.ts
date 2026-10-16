@@ -82,37 +82,43 @@ describe("mobile Expo native patch policy", () => {
         path.join(repositoryRoot, "node_modules/@expo/ui", file), "utf8");
       expect(bottomSheet).toMatch(pattern);
       // A content-sized sheet's Yoga width is the shown width too.
-      expect(bottomSheet).toMatch(/: windowWidth\)\s*\*\s*presentationScale;/);
+      expect(bottomSheet).toMatch(/: windowWidth\)\s*\*\s*presentation\.scale;/);
     }
   });
-  test("sizes a content-sized iOS sheet from the probe's local width, not its scaled global frame", () => {
-    // The width probe's global frame already carries the floating scale once
-    // SwiftUI re-evaluates geometry (404 instead of 420 on a 420pt iPhone);
-    // multiplied by the presentation scale again it left the content 388.7pt
-    // wide, centred in a 404pt sheet, with the bare sheet showing either
-    // side of the veil. The probe's own layout size has no transform in it.
-    const modifier = readFileSync(path.join(repositoryRoot,
-      "node_modules/@expo/ui/ios/Modifiers/OnGeometryChangeModifier.swift"), "utf8");
-    expect(modifier).toContain("Geometry(frame: proxy.frame(in: .global), localSize: proxy.size)");
-    expect(modifier).toContain('"localWidth": geometry.localSize.width');
-    expect(modifier).toContain('"localHeight": geometry.localSize.height');
-    // The global fields keep their meaning for the modifier's other users.
-    expect(modifier).toContain('"width": geometry.frame.size.width');
+  test("sizes a content-sized iOS sheet from the sheet's own reported width and safe-area insets", () => {
+    // A probe sized by the sheet (`containerRelativeFrame`) sees only its safe
+    // region: on the iPhone Duo outer display the 76pt bar column inside a
+    // spanning sheet left the content 374pt wide, centred in a 450pt sheet
+    // (~54pt side margins). The host reports the sheet's hosting view width
+    // and insets (unscaled), and the content drops only the insets it does
+    // not extend into.
+    const hostView = readFileSync(path.join(repositoryRoot,
+      "node_modules/@expo/ui/ios/RNHostView.swift"), "utf8");
+    expect(hostView).toContain("metrics.sheetWidth = sheetView.bounds.width");
+    expect(hostView).toContain("metrics.safeAreaRight = sheetView.safeAreaInsets.right");
+    expect(hostView).toContain('"sheetWidth": metrics.sheetWidth');
+    // Regular width: a centred form sheet as tall as its content, not a
+    // window-wide bottom sheet (iPad) or an off-centre fitted one (Duo inner).
+    const sheetView = readFileSync(path.join(repositoryRoot,
+      "node_modules/@expo/ui/ios/BottomSheetView.swift"), "utf8");
+    expect(sheetView).toContain("@Environment(\\.horizontalSizeClass) private var horizontalSizeClass");
+    expect(sheetView).toContain("content.presentationSizing(.form.fitted(horizontal: false, vertical: true))");
     for (const file of [
       "src/community/bottom-sheet/BottomSheet.ios.tsx",
       "build/community/bottom-sheet/BottomSheet.ios.js",
     ]) {
       const bottomSheet = readFileSync(
         path.join(repositoryRoot, "node_modules/@expo/ui", file), "utf8");
-      expect(bottomSheet).toContain("const nextWidth = probeFrame.localWidth ?? probeFrame.width;");
-      expect(bottomSheet).not.toContain("const nextWidth = probeFrame.width;");
+      expect(bottomSheet).toMatch(/presentation\.sheetWidth -\s*\(ignoresLeft \? 0 : presentation\.safeAreaLeft\)/);
+      expect(bottomSheet).not.toContain("containerRelativeFrame");
+      expect(bottomSheet).not.toContain("presentationSizing('fitted')");
     }
     // A fresh install reproduces it: the hunks are in the repository patch.
     const patch = readFileSync(
       path.join(repositoryRoot, "patches/@expo%2Fui@58.0.15.patch"), "utf8");
+    expect(patch).toContain("diff --git a/ios/BottomSheetView.swift");
+    expect(patch).toContain("+      metrics.sheetWidth = sheetView.bounds.width");
     expect(patch).toContain("diff --git a/ios/Modifiers/OnGeometryChangeModifier.swift");
-    expect(patch).toContain("+      of: { proxy in Geometry(frame: proxy.frame(in: .global), localSize: proxy.size) },");
-    expect(patch.match(/^\+\s+const nextWidth = probeFrame\.localWidth \?\? probeFrame\.width;$/gm)?.length).toBe(2);
   });
   test("keeps every version-exact repository patch attached", () => {
     for (const [dependency, patchPath] of Object.entries(
