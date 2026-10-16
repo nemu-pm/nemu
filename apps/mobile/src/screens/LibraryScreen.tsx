@@ -149,7 +149,6 @@ import {
   buildMobileLibraryTitleMenu,
   getMobileLibraryCollectionSelection,
   reconcileMobileLibraryCollectionSelection,
-  resolveMobileLibraryCollectionRoute,
   resolveMobileLibraryTitleMenuAction,
   setMobileLibraryCollectionSelection,
   subscribeMobileLibraryCollectionSelection,
@@ -869,6 +868,12 @@ export function LibraryScreen({
     ? routeCollectionId
     : sharedSelectedCollectionId;
   const setSelectedCollectionId = setMobileLibraryCollectionSelection;
+  // A folder opens its collection as a pushed screen, like every other
+  // destination of the stack (Back, title, edge swipe), not in place.
+  const openCollectionScreen = useCallback((nextCollectionId: string | null) => {
+    if (!nextCollectionId) return;
+    router.push({ pathname: "/library/collection/[id]", params: { id: nextCollectionId } });
+  }, []);
   const [showTitleMenuSheet, setShowTitleMenuSheet] = useState(false);
   const [showCreatePanel, setShowCreatePanel] = useState(false);
   const [showManagePanel, setShowManagePanel] = useState(false);
@@ -943,24 +948,10 @@ export function LibraryScreen({
     [],
   );
 
-  // `library/collection/[id]` (deep links) is a doorway, not a second
-  // Library: once the collection is known to exist it becomes the Library
-  // root's selection and the route pops back to the root, where the title
-  // menu switches collections. An unknown id keeps the not-found state.
-  const routeResolution = resolveMobileLibraryCollectionRoute({
-    collections: collections.data,
-    loading: collections.loading,
-    routeCollectionId,
-  });
-  const routeSelectionTarget =
-    isCollectionRoute && routeResolution.action === "select"
-      ? (routeResolution.collectionId ?? "")
-      : undefined;
-  useEffect(() => {
-    if (routeSelectionTarget === undefined) return;
-    setMobileLibraryCollectionSelection(routeSelectionTarget || null);
-    router.dismissTo("/library");
-  }, [routeSelectionTarget]);
+  // `library/collection/[id]` is a pushed screen of its own (a folder in the
+  // Collections row, a deep link): it shows its collection with the stack's
+  // Back button, title and edge swipe, and leaves the root's selection (the
+  // title menu's) alone. An unknown id keeps the not-found state.
 
   // A shown collection deleted elsewhere (another device, the manager sheet)
   // falls back to All once a reload no longer has it.
@@ -2688,7 +2679,7 @@ export function LibraryScreen({
                     entries={sortedLibraryEntries}
                     installedSources={installedSources.data}
                     strings={strings}
-                    onSelect={setMobileLibraryCollectionSelection}
+                    onSelect={openCollectionScreen}
                   />
                   </MobileLaunchRevealGroup>
                 ) : null}

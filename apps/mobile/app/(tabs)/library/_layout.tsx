@@ -22,9 +22,6 @@ export default function LibraryLayout() {
       screenListeners={anchorListeners}
       screenOptions={createNemuNativeStackScreenOptions(tokens, verticalBarSide)}
     >
-      {/* A doorway for deep links: it selects the collection on the Library
-          root and pops straight back (LibraryScreen), so it never animates. */}
-      <Stack.Screen name="collection/[id]" options={{ animation: "none" }} />
     </Stack>
   );
 }
