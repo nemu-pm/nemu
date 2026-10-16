@@ -52,6 +52,26 @@ export function mobileDeviceFormFactor(input: {
   return input.probeElapsed ? "phone" : "unknown";
 }
 
+/** Longer than the iPhone Duo outer display's long side (678pt), shorter than the inner one's (951pt). */
+const MOBILE_OUTER_DISPLAY_MAX_LENGTH = 800;
+
+/**
+ * A window on the iPhone Duo inner display. A closed hinge is the outer
+ * display; fully open, or a reported fold region, the inner one. Partly open
+ * with no fold region is either tent (the outer display) or the inner display
+ * whose region has not reported (iOS 27.1 reports none while it is flat, and
+ * may not yet while it folds): the window's size tells them apart.
+ */
+export function mobileWindowOnInnerDisplay(
+  layout: Partial<Pick<MobileWindowLayout, "hinge" | "divisions" | "width" | "height">>,
+): boolean {
+  if (layout.hinge === "closed") return false;
+  if (layout.hinge === "fullyOpen" || (layout.divisions?.length ?? 0) > 0) return true;
+  // No hinge (an ordinary phone, or before the hinge reports): not a fold.
+  if (layout.hinge !== "partiallyOpen") return false;
+  return Math.max(layout.width ?? 0, layout.height ?? 0) > MOBILE_OUTER_DISPLAY_MAX_LENGTH;
+}
+
 /**
  * The reader sits on a phone-sized display: an ordinary iPhone, or the
  * folded Duo (its outer display). Read from the reader's own window, so it
@@ -59,16 +79,14 @@ export function mobileDeviceFormFactor(input: {
  */
 export function mobileReaderOnPhoneSizedDisplay(input: {
   formFactor: MobileDeviceFormFactor;
-  layout: Pick<MobileWindowLayout, "hinge" | "divisions" | "fillsScreen"> | null | undefined;
+  layout: Pick<MobileWindowLayout, "hinge" | "divisions" | "fillsScreen" | "width" | "height"> | null | undefined;
 }): boolean {
   if (input.formFactor === "phone") return true;
   if (input.formFactor !== "foldable" || !input.layout) return false;
   if (input.layout.hinge === "closed") return true;
-  // Fully open is the inner display, whose fold is not reported while it is
-  // flat (tent, on the outer display, is never fully open).
-  if (input.layout.hinge === "fullyOpen") return false;
-  // A partly folded inner display reports its fold.
-  return (input.layout.divisions?.length ?? 0) === 0 && input.layout.fillsScreen !== false;
+  // Split View on the inner display is not the outer display.
+  if (input.layout.fillsScreen === false) return false;
+  return !mobileWindowOnInnerDisplay(input.layout);
 }
 
 /**

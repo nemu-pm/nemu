@@ -64,6 +64,9 @@ describe("orientation lock", () => {
     expect(mobileReaderPortraitRequest({ phoneSizedDisplay: outer, userLock: false })).toBe(true);
     expect(mobileReaderPortraitRequest({ phoneSizedDisplay: inner, userLock: false })).toBe(false);
     expect(mobileReaderPortraitRequest({ phoneSizedDisplay: inner, userLock: true })).toBe(true);
+    // Book or laptop before the fold region reports, and tent on the outer display.
+    expect(mobileReaderOnPhoneSizedDisplay({ formFactor: "foldable", layout: { ...duoInner, divisions: [], hinge: "partiallyOpen" } })).toBe(false);
+    expect(mobileReaderOnPhoneSizedDisplay({ formFactor: "foldable", layout: { ...duoOuter, width: 678, height: 466, hinge: "partiallyOpen" } })).toBe(true);
     // Fully open and flat, the inner display reports no fold.
     expect(mobileReaderOnPhoneSizedDisplay({ formFactor: "foldable", layout: { ...duoInner, divisions: [], hinge: "fullyOpen", fillsScreen: true } })).toBe(false);
     // Split View on the inner display is not the outer display.

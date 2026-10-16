@@ -1,4 +1,5 @@
 import { mobileAdaptiveLayout, type MobileWindowPosture } from "@/lib/mobileAdaptiveLayout";
+import { mobileWindowOnInnerDisplay } from "@/lib/mobileOrientationPolicy";
 import { resolveReaderSpreadWanted, type ReaderSpreadMode } from "@/lib/mobileReaderSpreadMode";
 import { READER_NOTEBOOK_SHEET_INSET, type MobileReaderNotebookPaneState } from "@/lib/mobileReaderNotebookPane";
 import {
@@ -664,17 +665,12 @@ export function mobileReaderPopoverPlacement(chrome: MobileReaderChromeLayout): 
  * window information: no opt-out, no side bar (the edge decides).
  */
 export function mobileReaderVerticalBarPolicy(
-  layout: Partial<Pick<MobileWindowLayout, "verticalBarEdge" | "divisions" | "fillsScreen" | "hinge">>,
+  layout: Partial<Pick<MobileWindowLayout, "verticalBarEdge" | "divisions" | "fillsScreen" | "hinge" | "width" | "height">>,
 ): {
   optOut: boolean;
   sideBar: boolean;
 } {
-  const innerFullScreen = layout.fillsScreen !== false
-    // A flat inner display may report no division at all (iOS 27.1): a fully
-    // open hinge is the inner display too (tent, on the outer, never is).
-    && ((layout.divisions?.length ?? 0) > 0 || layout.hinge === "fullyOpen")
-    // A closed hinge means the outer display, whatever regions are reported.
-    && layout.hinge !== "closed";
+  const innerFullScreen = layout.fillsScreen !== false && mobileWindowOnInnerDisplay(layout);
   if (innerFullScreen) return { optOut: true, sideBar: false };
   const edge = layout.verticalBarEdge === "leading" || layout.verticalBarEdge === "trailing";
   return { optOut: false, sideBar: edge };
