@@ -1271,7 +1271,6 @@ export function ReaderScreen() {
   });
   const readerOrientationLockAvailable = mobileReaderOrientationLockAvailable({
     formFactor: deviceFormFactor,
-    phoneSizedDisplay: readerOnPhoneSizedDisplay,
   });
   useReaderDisplayEnvironment({
     keepAwakeEnabled: readerKeepAwake,

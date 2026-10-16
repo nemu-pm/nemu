@@ -71,9 +71,13 @@ export function mobileReaderOnPhoneSizedDisplay(input: {
   return (input.layout.divisions?.length ?? 0) === 0 && input.layout.fillsScreen !== false;
 }
 
-/** The reader's Orientation Lock switch only means something where the reader can rotate. */
-export function mobileReaderOrientationLockAvailable(input: { formFactor: MobileDeviceFormFactor; phoneSizedDisplay: boolean }): boolean {
-  return input.formFactor !== "phone" && !input.phoneSizedDisplay;
+/**
+ * Where the reader shows its Orientation Lock switch: everywhere but an
+ * ordinary iPhone, which is portrait anyway. The iPhone Duo shows it on both
+ * displays (owner decision 2026-10-16).
+ */
+export function mobileReaderOrientationLockAvailable(input: { formFactor: MobileDeviceFormFactor }): boolean {
+  return input.formFactor !== "phone";
 }
 
 /** What the reader asks of the app while it is on screen. */
