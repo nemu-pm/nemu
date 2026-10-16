@@ -6,6 +6,7 @@ import {
   mobileReaderSafePadding,
   mobileReaderTapExcluded,
   mobileReaderCapsuleActionSlots,
+  mobileReaderBookSheetSide,
   mobileReaderLayoutWithoutFold,
   mobileReaderCapsuleActionsWidth,
   mobileReaderAnticipatedWindowLayout,
@@ -313,6 +314,25 @@ describe("reader pose: capsule chrome (regular width)", () => {
 
 describe("reader pose: book", () => {
   const book = innerLandscapeNoBar([hinge(455.5, 0, 40, 669)]);
+
+  test("a sheet beside the fold: the page moves to the free half, one page fitted there", () => {
+    for (const rtl of [false, true]) {
+      const result = pose(book, { twoPage: true, rtl, sheetSide: mobileReaderBookSheetSide("ltr") });
+      expect(result.spread).toBe(false);
+      expect(result.spreadSlots).toBeUndefined();
+      expect(result.foldGap).toBeNull();
+      // The sheet covers the leading (left) half: the page takes the right one.
+      expect(result.stage).toEqual({ x: 495.5, y: 0, width: 455.5, height: 669 });
+      expect(result.modalFrame).toEqual(result.stage);
+      // The setting itself stays available; only this render gives way.
+      expect(result.twoPageAvailable).toBe(true);
+    }
+    // A right-to-left interface puts the sheet on the right: the page goes left.
+    expect(mobileReaderBookSheetSide("rtl")).toBe("right");
+    expect(pose(book, { sheetSide: "right" }).stage).toEqual({ x: 0, y: 0, width: 455.5, height: 669 });
+    // Closed again: the spread comes back as it was.
+    expect(pose(book, { twoPage: true, sheetSide: null })).toEqual(pose(book, { twoPage: true }));
+  });
 
   test("two-page: one page per half, fold is never a tap target, capsules snap per pane", () => {
     const result = pose(book, { twoPage: true });

@@ -182,7 +182,25 @@ export type MobileReaderPoseLayoutInput = {
    * behind the controls, while still avoiding the physical camera.
    */
   sideBar?: boolean;
+  /**
+   * A reader sheet is open in the book posture and covers this half (the
+   * system places it beside the fold, `mobileReaderBookSheetSide`): the page
+   * moves to the other half for as long as it is open, one page fitted there.
+   */
+  sheetSide?: Side | null;
 };
+
+/**
+ * The half a system sheet takes in the book posture. Measured on the iPhone
+ * Duo (iOS 27.1, automatic placement): the leading half, so it follows the
+ * layout direction.
+ */
+/** A system sheet's presentation slide: the page leaves the sheet's half once it is covered. */
+export const MOBILE_READER_BOOK_SHEET_COVER_MS = 380;
+
+export function mobileReaderBookSheetSide(layoutDirection: "ltr" | "rtl" | undefined): Side {
+  return layoutDirection === "rtl" ? "right" : "left";
+}
 
 export type MobileReaderPoseLayout = {
   posture: MobileWindowPosture;
@@ -887,12 +905,15 @@ export function mobileReaderPoseLayout(input: MobileReaderPoseLayoutInput): Mobi
     const pagePanes = input.sideBar
       ? panes.map((pane) => horizontalSafe(pane, bounds, insets))
       : panes;
-    const startIndex = input.rtl ? 1 : 0;
+    // A sheet open over one half: the page takes the other (its reading
+    // start otherwise).
+    const sheetIndex = input.sheetSide === "left" ? 0 : input.sheetSide === "right" ? 1 : null;
+    const startIndex = sheetIndex !== null ? 1 - sheetIndex : input.rtl ? 1 : 0;
     const usablePair = input.paged && pagePanes.every(
       (pane) => pane.width >= READER_BOOK_MIN_PANE && pane.height >= READER_BOOK_MIN_PANE,
     );
     const twoPageAvailable = usablePair && multiPage;
-    const spread = wantsSpread(input, bounds) && twoPageAvailable;
+    const spread = wantsSpread(input, bounds) && twoPageAvailable && sheetIndex === null;
     const stage = spread ? bounds : pagePanes[startIndex];
     const spreadSlots = spread ? pagePanes.map((pane) => toLocal(pane, stage)) : undefined;
     const foldGap = spreadSlots

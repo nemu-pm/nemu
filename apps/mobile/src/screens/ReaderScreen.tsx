@@ -13,6 +13,8 @@ import {
   mobileReaderFrameInsets,
   mobileReaderAnticipatedWindowLayout,
   mobileReaderCapsuleActionSlots,
+  MOBILE_READER_BOOK_SHEET_COVER_MS,
+  mobileReaderBookSheetSide,
   mobileReaderLayoutWithoutFold,
   mobileReaderHingeHintKey,
   mobileReaderNextSideInsetLatch,
@@ -2123,6 +2125,8 @@ export function ReaderScreen() {
   // A Japanese Learning sheet (transcript, OCR result, chat) owns the stage:
   // the same system sheets in every pose, placed off the fold by the system.
   // The transcript → OCR result hand-off counts as open throughout.
+  const [japaneseLearningChatFromSentence, setJapaneseLearningChatFromSentence] =
+    useState(false);
   const japaneseLearningSurfaceOpen =
     japaneseLearningOcrSheetVisible ||
     japaneseLearningChatDrawerVisible ||
@@ -2178,8 +2182,36 @@ export function ReaderScreen() {
   const currentPageNaturalSize = displayedPages[clampedPageIndex]
     ? readerImageSizes.get(readerPageIdentityFor(displayedPages[clampedPageIndex])) : undefined;
   const readerPageAspectRatio = 1 / readerFitRatio(currentPageNaturalSize);
+  // Book posture: a reader sheet takes one half beside the fold, so the page
+  // moves to the other while it is open (one page fitted there) and returns
+  // when it closes. Sheets that point at a bubble on the page (the OCR
+  // result, the transcript, a chat asked from a sentence) keep the page
+  // where it is: their popout floats over that bubble.
+  const readerBookSheetOpen =
+    readerDisplaySettingsOpen ||
+    readerPluginSettingsOpen ||
+    japaneseLearningLauncherVisible ||
+    (japaneseLearningChatDrawerVisible && !japaneseLearningChatFromSentence);
+  const readerSheetSideWanted = readerBookSheetOpen && readerFoldedAdaptive.posture === "book"
+    ? mobileReaderBookSheetSide(readerWindowLayout.layoutDirection)
+    : null;
+  // The page leaves the sheet's half only once the sheet has slid over it
+  // (it never drops to black ahead of the sheet), and comes back the moment
+  // the sheet starts to close, so it is there as the sheet slides away.
+  const [readerSheetSideCovered, setReaderSheetSideCovered] = useState<typeof readerSheetSideWanted>(null);
+  if (readerSheetSideCovered !== null && readerSheetSideCovered !== readerSheetSideWanted) {
+    setReaderSheetSideCovered(null);
+  }
+  useEffect(() => {
+    if (readerSheetSideWanted === null) return;
+    const timer = setTimeout(() => setReaderSheetSideCovered(readerSheetSideWanted), MOBILE_READER_BOOK_SHEET_COVER_MS);
+    return () => clearTimeout(timer);
+  }, [readerSheetSideWanted]);
+  const readerSheetSide = readerSheetSideCovered !== null && readerSheetSideCovered === readerSheetSideWanted
+    ? readerSheetSideCovered
+    : null;
   const buildReaderPose = useCallback(
-    (actionCount: number, spreadMode: ReaderSpreadMode) =>
+    (actionCount: number, spreadMode: ReaderSpreadMode, sheetSide: typeof readerSheetSide = readerSheetSide) =>
       mobileReaderPoseLayout({
         layout: readerWindowLayout,
         pageAspectRatio: readerPageAspectRatio,
@@ -2193,8 +2225,10 @@ export function ReaderScreen() {
         notebookPane: readerNotebookPane,
         actionCount,
         sideBar: readerSideBar,
+        sheetSide,
       }),
     [
+      readerSheetSide,
       readerPageAspectRatio,
       readerAvoidCamera,
       readerSideBar,
@@ -2276,6 +2310,12 @@ export function ReaderScreen() {
       readerPose,
     ],
   );
+  // What the settings describe: the pose without a sheet beside the fold, so
+  // the rows (pairing, page fit) never change under the open sheet.
+  const readerPoseWithoutSheet = useMemo(
+    () => (readerSheetSide ? buildReaderPose(readerActionSlots, readerSpreadMode, null) : readerPose),
+    [buildReaderPose, readerActionSlots, readerPose, readerSheetSide, readerSpreadMode],
+  );
   // The notebook setting only means something on a device that folds.
   const readerNotebookPaneSettingAvailable =
     readerFoldedWindowLayout.divisions.length > 0 || readerPose.posture === "notebook";
@@ -2304,14 +2344,17 @@ export function ReaderScreen() {
   // and whether one is shown right now.
   const twoPageSupported = readerPose.twoPageAvailable;
   const isTwoPageMode = !bilingualOverrides && readerPose.spread && pageCount > 1;
+  // A spread that gave way to a sheet beside the fold still counts for the
+  // settings (and its one page is fitted whole in the free half).
+  const readerSettingsTwoPage = !bilingualOverrides && readerPoseWithoutSheet.spread && pageCount > 1;
   // Page fit is remembered per window shape (narrow, wide, large), judged by
   // the rectangle the page sits in — the pane in the notebook pose, the whole
   // window across a fold — never by orientation or idiom. Spreads, the
   // bilingual book and long strips are always fitted whole.
-  const readerWindowShape = classifyReaderWindowShape(readerStage);
+  const readerWindowShape = classifyReaderWindowShape(bilingualOverrides?.stage ?? readerPoseWithoutSheet.stage);
   const readerFitSetting = readerFitModeForShape(readerFitModes, readerWindowShape);
   const readerFitMode: ReaderFitMode =
-    galleryPagedMode && !isTwoPageMode && !bilingualOverrides ? readerFitSetting : "page";
+    galleryPagedMode && !readerSettingsTwoPage && !bilingualOverrides ? readerFitSetting : "page";
   const readerPageLayoutVisible = galleryPagedMode && pageCount > 0;
   const setReaderSpreadModeFromSettings = useCallback(
     (value: ReaderSpreadMode) => {
@@ -2336,7 +2379,7 @@ export function ReaderScreen() {
   );
   const showPagePairingControls = shouldShowReaderPagePairingControls({
     twoPageSupported,
-    twoPageEnabled: isTwoPageMode,
+    twoPageEnabled: readerSettingsTwoPage,
   });
   const readerSpreads = useMemo(
     () =>
@@ -4691,8 +4734,6 @@ export function ReaderScreen() {
   // The popout rides the chat only when that chat was opened from this
   // bubble's sentence (Ask). Decided when the chat presents, and kept through
   // its dismissal so the popout fades out with the sheet.
-  const [japaneseLearningChatFromSentence, setJapaneseLearningChatFromSentence] =
-    useState(false);
   useEffect(() => {
     if (!japaneseLearningChatDrawerVisible) return;
     setJapaneseLearningChatFromSentence(japaneseLearningChatReturnsToSentence);
@@ -8592,7 +8633,7 @@ export function ReaderScreen() {
           visible={readerDisplaySettingsOpen && !endOfChapterPromptVisible}
           mode={mode}
           activeScrollWidthPct={activeScrollWidthPct}
-          isTwoPageMode={isTwoPageMode}
+          isTwoPageMode={readerSettingsTwoPage}
           twoPageSupported={readerPageLayoutVisible}
           showPagePairingControls={showPagePairingControls}
           pagePairingMode={pagePairingMode}
@@ -8686,7 +8727,7 @@ export function ReaderScreen() {
           visible={readerDisplaySettingsOpen && !endOfChapterPromptVisible}
           mode={mode}
           activeScrollWidthPct={activeScrollWidthPct}
-          isTwoPageMode={isTwoPageMode}
+          isTwoPageMode={readerSettingsTwoPage}
           twoPageSupported={readerPageLayoutVisible}
           showPagePairingControls={showPagePairingControls}
           pagePairingMode={pagePairingMode}
