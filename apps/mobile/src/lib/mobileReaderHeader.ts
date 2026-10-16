@@ -120,13 +120,21 @@ export function readerChromePageCountLabel({
   pagesStatus,
   pageNumber,
   pageCount,
+  spreadPageNumbers,
 }: {
   pagesStatus: string;
   pageNumber: number;
   pageCount: number;
+  /** The source page numbers of the spread on screen ("6–7 / 7"). */
+  spreadPageNumbers?: readonly number[];
 }): string | null {
   if (isReaderChromeLoading(pagesStatus) || pageCount <= 0) {
     return null;
+  }
+  if (spreadPageNumbers && spreadPageNumbers.length > 1) {
+    const first = Math.min(...spreadPageNumbers);
+    const last = Math.max(...spreadPageNumbers);
+    if (last > first) return `${first}\u2013${last} / ${pageCount}`;
   }
   return `${pageNumber} / ${pageCount}`;
 }

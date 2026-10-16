@@ -2921,10 +2921,18 @@ export function ReaderScreen() {
   const readerChromePagesPending = pagesState.status === "loading";
   // Hidden entirely while the page list is unresolved: the ring spinner next
   // to it already says the chapter is loading, and "— / —" reads as broken.
+  // A spread names both of its pages, unless a scrub is previewing another.
+  const readerChromeSpread =
+    isTwoPageMode && readerChromePageIndex === clampedPageIndex
+      ? readerSpreads[currentSpreadIndex]
+      : undefined;
   const readerTopPageCountLabel = readerChromePageCountLabel({
     pagesStatus: pagesState.status,
     pageNumber: readerChromeSourcePageNumber,
     pageCount,
+    spreadPageNumbers: readerChromeSpread?.map((index) =>
+      readerRoutePageForDisplayIndex(index, pageCount, mode),
+    ),
   });
   const readerInteractionSurfaceOpen =
     readerDisplaySettingsOpen ||
