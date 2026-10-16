@@ -1092,6 +1092,7 @@ export function SourceMangaScreen() {
               mangaTitle: title,
             }),
             mobileDesignExploreFlag ? `source:${routeRef.sourceId}:${mangaId}` : null,
+            coverImage.source,
           ),
         );
       } catch {
@@ -1101,6 +1102,7 @@ export function SourceMangaScreen() {
       }
     },
     [
+      coverImage.source,
       getGuardedReaderActionState,
       localState.installedSource,
       mangaId,

@@ -146,6 +146,7 @@ import {
 } from "@/components/reader/ReaderCapsule";
 import { ReaderBackGlyph } from "@/components/reader/ReaderBackGlyph";
 import { ReaderDarkThemeScope } from "@/components/reader/ReaderDarkThemeScope";
+import { useReaderZoomEntry } from "@/components/reader/readerZoomEntry";
 import { ReaderMoreMenu } from "@/components/reader/ReaderMoreMenu";
 import { useReaderScrubPreviewThumbnails } from "@/components/reader/useReaderScrubPreviewThumbnails";
 import { ReaderPluginSettingsSheet } from "@/components/reader/ReaderPluginSettingsSheet";
@@ -1090,6 +1091,7 @@ export function ReaderScreen() {
     [chapterId, params.chapterLocked, params.chapterNumber, params.chapterTitle, params.volumeNumber],
   );
   const { reduceMotion, scheme } = useNemuTheme();
+  const readerZoomEntry = useReaderZoomEntry();
   // Reduce Motion keeps the chrome's cross-fade but drops its 8px slide.
   const readerChromeAnimations = readerChromeAnimationsForMotion(reduceMotion);
   const insets = useSafeAreaInsets();
@@ -1693,11 +1695,12 @@ export function ReaderScreen() {
       mangaTitle: routeMangaTitle,
     });
     if (action.type === "back") {
+      readerZoomEntry.onLeave();
       router.back();
       return;
     }
     router.replace(action.href);
-  }, [mangaId, routeMangaTitle, routeRef.registryId, routeRef.sourceId]);
+  }, [mangaId, readerZoomEntry, routeMangaTitle, routeRef.registryId, routeRef.sourceId]);
 
   const resetReaderPluginSettings = useCallback(
     (plugin: MobileReaderPluginState) => {
@@ -6406,6 +6409,8 @@ export function ReaderScreen() {
       : null;
   const measureReaderFirstContent = useCallback(
     (page: MobileReaderPage) => {
+      // The cover a zoom landed on fades into the first page once it has drawn.
+      if (page.id === currentDisplayedPageKey) readerZoomEntry.onFirstPage();
       const performanceRequest = readerFirstPageRequestRef.current;
       const performanceKey = `${registryId}:${sourceId}:${mangaId}:${chapterId}`;
       if (
@@ -6433,6 +6438,7 @@ export function ReaderScreen() {
       clampedPageIndex,
       currentDisplayedPageKey,
       mangaId,
+      readerZoomEntry,
       registryId,
       sourceId,
     ],
