@@ -24,7 +24,7 @@ import type {
   MobileMangaDetailSurfacePrimaryAction,
 } from "@/components/MobileMangaDetailSurface";
 import { MobileMangaDetailDescriptionSheet } from "@/components/MobileMangaDetailDescriptionSheet";
-import { MobileMangaDetailTagSheet } from "@/components/MobileMangaDetailTagSheet";
+import { MobileMangaDetailInfoSheet } from "@/components/MobileMangaDetailInfoSheet";
 import {
   createNemuShadowStyle,
   MobileCachedImage,
@@ -39,7 +39,8 @@ import {
 } from "@/design-system";
 import { buildMobileCoverMeshColors, buildMobileCoverMeshInkSecondary } from "@/lib/mobileCoverMesh";
 import { buildMobileCoverTintPalette } from "@/lib/mobileCoverTint";
-import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
+import type { MobileStrings } from "@/lib/mobileI18n";
+import { buildMobileDetailInfoRows, withoutMobileDescriptionLicence } from "@/lib/mobileMangaDetailInfo";
 import { useMobileCoverRegionTints, useMobileCoverTint } from "@/lib/useMobileCoverTint";
 import { ConcentricView, ZoomSource, ZoomTarget } from "../../../modules/nemu-window-layout";
 import { getMobileBooksHeroCoverWidth } from "./mobileExploreCover";
@@ -87,15 +88,6 @@ const TINT_FADE = 40;
 const MESH_OVERSCAN = 260;
 const MESH_TOP_BLEND = 120;
 const MESH_BOTTOM_BLEND = 90;
-const VISIBLE_TAGS = 8;
-/**
- * How many tag chips the rail shows: all of them when only one more would
- * hide behind a "+1" chip (a chip that opens a sheet to show one tag is a
- * detour), else `VISIBLE_TAGS` and a "+N" chip for the rest.
- */
-function shownTagCount(total: number): number {
-  return total - VISIBLE_TAGS <= 1 ? total : VISIBLE_TAGS;
-}
 /** The description shows this many lines until "more" (a line or two over stay whole). */
 const DESCRIPTION_LINES = 4;
 const DESCRIPTION_SLACK = 2;
@@ -143,7 +135,8 @@ const ACTION_HEIGHT = 46;
 /** The gap between the hero's action buttons (styles.actions). */
 const ACTION_GAP = 10;
 const CHIP_HEIGHT = 32;
-const PLACEHOLDER_CHIP_WIDTHS = [68, 56, 80] as const;
+/** The ⓘ that opens the 作品信息 sheet. */
+const INFO_GLYPH = 20;
 /** The add sheet's dismissal, before the In Library pill celebrates. */
 const LIBRARY_BURST_DELAY_MS = 320;
 
@@ -190,6 +183,10 @@ export function MobileMangaDetailBooksHero({
   infoTitle,
   infoChapters,
   infoLatest,
+  infoLanguages,
+  infoLicense,
+  infoAdded,
+  infoLastRead,
   zoomId,
   readerZoomId,
   deferBody = false,
@@ -223,6 +220,15 @@ export function MobileMangaDetailBooksHero({
   /** Chapters the source lists, and its newest chapter ("Ch.131"). */
   infoChapters?: number | null;
   infoLatest?: string | null;
+  /**
+   * What only the 作品信息 sheet shows: the languages the source lists the
+   * title in, its content licence, and when it was added and last read
+   * (formatted).
+   */
+  infoLanguages?: string[] | null;
+  infoLicense?: string | null;
+  infoAdded?: string | null;
+  infoLastRead?: string | null;
   /** The cover zooms in from the library source with this id. */
   zoomId?: string | null;
   /** The cover is the zoom source for opening the reader. */
@@ -264,7 +270,7 @@ export function MobileMangaDetailBooksHero({
   const publishWash = useContext(MobileMangaDetailWashContext);
   const topHeader = useContext(MobileMangaDetailTopHeaderContext);
   const top = topHeader !== null && !pane && !inColumn;
-  const [tagSheetOpen, setTagSheetOpen] = useState(false);
+  const [infoSheetOpen, setInfoSheetOpen] = useState(false);
   const remoteCover = isRemote(coverSource) ? coverSource : null;
   const tint = useMobileCoverTint(remoteCover);
   const regionTints = useMobileCoverRegionTints(pane || deferBody ? null : remoteCover);
@@ -329,7 +335,7 @@ const paneFactColumns =
       (hasActions ? BLOCK_GAP + ESTIMATE.actions * scale : 0) +
       columnFactsEstimate(scale) +
       (sizedSynopsis ? BLOCK_GAP + synopsisLines * DESCRIPTION_LINE_HEIGHT * scale : 0) +
-      (sizing || badges.length || tags?.length ? BLOCK_GAP + CHIP_HEIGHT * scale : 0)
+      (badges.length ? BLOCK_GAP + CHIP_HEIGHT * scale : 0)
     );
   };
   // Resting content clears the tab bar (mobileExploreRestingFit). The
@@ -418,7 +424,7 @@ const paneFactColumns =
   const column = pane || top ? null : styles.wideColumn;
   const statusKey = status != null ? MANGA_STATUS_LABEL[status] : undefined;
   const tagList = tags ?? [];
-  // Genres live in the chips below the description, not here as well.
+  // Genres live in the 作品信息 sheet, not on the page.
   const statusLabel = statusKey ? strings.metadataEditor[statusKey] : null;
   // Small labels over values, under the synopsis. With fewer than two facts
   // the status stays a line under the authors instead.
@@ -429,6 +435,33 @@ const paneFactColumns =
     statusLabel ? { label: strings.designExplore.factStatus, value: statusLabel } : null,
   ].filter((fact): fact is { label: string; value: string } => fact !== null);
   const factsRow = facts.length >= 2;
+  // Everything the hero leaves out, in the 作品信息 sheet the ⓘ beside the facts opens.
+  const infoRows = buildMobileDetailInfoRows(
+    {
+      status: statusLabel,
+      latest: infoLatest,
+      source: infoTitle,
+      languages: infoLanguages,
+      authors,
+      license: infoLicense,
+      tags: tagList,
+      added: infoAdded,
+      lastRead: infoLastRead,
+    },
+    strings,
+  );
+  const hasInfo = infoRows.length > 0;
+  const openInfo = useCallback(() => setInfoSheetOpen(true), []);
+  const infoButton = hasInfo ? (
+    <HeroInfoButton
+      ink={inkSecondary}
+      label={strings.designExplore.infoSheetTitle}
+      hint={strings.designExplore.infoButtonHint}
+      onPress={openInfo}
+    />
+  ) : null;
+  // The sheet has the licence: the synopsis on the page leaves out the line that restates it.
+  const pageDescription = description && infoLicense ? withoutMobileDescriptionLicence(description) : description;
   /** The facts stand as their own block; the hero column puts them in the head as one line. */
   const factsBlock = factsRow && !inColumn;
   const columnMeta = inColumn && factsRow;
@@ -490,7 +523,8 @@ const paneFactColumns =
       ? synopsisMeasure.lines
       : DESCRIPTION_LINES
     : DESCRIPTION_LINES;
-  const hasTags = Boolean(badges.length || tagList.length);
+  // Only the badges ("Updated") stay on the page as chips; the genres are in the info sheet.
+  const hasTags = badges.length > 0;
   const restingFit = (() => {
     if (pane || top || inColumn || deferBody || restTop === null) return null;
     const order: [string, boolean][] = [
@@ -622,28 +656,11 @@ const paneFactColumns =
       </ZoomTarget>
     );
   }
-  // The genres close the page's content; the two-column pane centres them under the synopsis.
-  const tagChips = (
-    <>
-      {badges.map((badge) => (
-        <ExploreGlassChip key={badge.key} label={badge.label} ink={palette.ink} selected={badge.tone === "primary"} />
-      ))}
-      {tagList.slice(0, shownTagCount(tagList.length)).map((tag, index) => (
-        <ExploreGlassChip key={`${index}:${tag}`} label={tag} ink={palette.ink} />
-      ))}
-      {tagList.length > shownTagCount(tagList.length) ? (
-        <ExploreGlassChip
-          label={`+${tagList.length - VISIBLE_TAGS}`}
-          ink={palette.ink}
-          accessibilityLabel={formatMobileString(strings.common.moreTags, {
-            count: tagList.length - VISIBLE_TAGS,
-          })}
-          accessibilityHint={strings.common.tagsSheetHint}
-          onPress={() => setTagSheetOpen(true)}
-        />
-      ) : null}
-    </>
-  );
+  // The badges ("Updated") close the page's content; the genres are in the
+  // 作品信息 sheet. The two-column pane centres them under the synopsis.
+  const tagChips = badges.map((badge) => (
+    <ExploreGlassChip key={badge.key} label={badge.label} ink={palette.ink} selected={badge.tone === "primary"} />
+  ));
   // The hero column's genre rail runs to the column's edges (not under a
   // vertical bar on the leading edge) and dissolves there, like the phone's.
   const columnBleedLeft = verticalBarSide === "left" ? 0 : gutters.left;
@@ -652,7 +669,7 @@ const paneFactColumns =
     content: { paddingLeft: columnBleedLeft || spacing.pageX / 2, paddingRight: spacing.pageX },
   };
   const tagsNode =
-    badges.length || tagList.length ? (
+    badges.length ? (
       inColumn ? (
         // One row, scrolling sideways: never a lone chip on a second line.
         <ExploreRailFade style={columnBleed.frame}>
@@ -711,19 +728,25 @@ const paneFactColumns =
               {authors.join(", ")}
             </NemuText>
           ) : null}
-          {statusLabel && !factsRow ? (
-            <NemuText
-              maxFontSizeMultiplier={HERO_TEXT_MAX_SCALE}
-              numberOfLines={1}
-              color={inkSecondary}
-              style={[styles.meta, compactHead ? styles.leading : null]}
-            >
-              {statusLabel}
-            </NemuText>
+          {!factsRow && (statusLabel || infoButton) ? (
+            <View style={[styles.metaRow, compactHead ? styles.metaRowLeading : null]}>
+              {statusLabel ? (
+                <NemuText
+                  maxFontSizeMultiplier={HERO_TEXT_MAX_SCALE}
+                  numberOfLines={1}
+                  color={inkSecondary}
+                  style={[styles.meta, styles.metaShrink, compactHead ? styles.leading : null]}
+                >
+                  {statusLabel}
+                </NemuText>
+              ) : null}
+              {infoButton}
+            </View>
           ) : null}
           {columnMeta ? (
             // One quiet line; the source is in the chapter header.
-            <NemuText maxFontSizeMultiplier={HERO_TEXT_MAX_SCALE} numberOfLines={1} color={inkSecondary} style={styles.metaLine}>
+            <View style={[styles.metaRow, styles.metaLineRow]}>
+            <NemuText maxFontSizeMultiplier={HERO_TEXT_MAX_SCALE} numberOfLines={1} color={inkSecondary} style={[styles.metaLine, styles.metaShrink]}>
               {[
                 statusLabel,
                 // One fact after the status: how far an ongoing series has
@@ -741,6 +764,8 @@ const paneFactColumns =
                 .filter(Boolean)
                 .join(" · ")}
             </NemuText>
+            {infoButton}
+            </View>
           ) : null}
         </View>
   );
@@ -831,7 +856,8 @@ const paneFactColumns =
   const factsNode = (
     <>
       {factsRow && inColumn ? null : factsRow && grid ? (
-        <View style={[styles.facts, { flexWrap: "wrap", rowGap: 8 }, top ? { flexGrow: 0 } : null, pushStyle("facts")]} onLayout={onFactsLayout}>
+        <View style={[styles.factsWithInfo, pushStyle("facts")]} onLayout={onFactsLayout}>
+        <View style={[styles.facts, styles.factsFill, { flexWrap: "wrap", rowGap: 8 }]}>
           {facts.map((fact, index) => (
             <View
               key={fact.label}
@@ -860,6 +886,8 @@ const paneFactColumns =
               </NemuText>
             </View>
           ))}
+        </View>
+        {infoButton}
         </View>
       ) : factsRow ? (
         // An info strip: each fact at least an equal share of the column,
@@ -905,6 +933,7 @@ const paneFactColumns =
               />
             </View>
           ))}
+          {infoButton ? <View style={styles.factsInfo}>{infoButton}</View> : null}
         </ScrollView>
       ) : null}
     </>
@@ -915,7 +944,8 @@ const paneFactColumns =
         <HeroDescription
           key={description}
           style={[column, pushStyle("synopsis")]}
-          value={description}
+          value={pageDescription || description}
+          sheetValue={description}
           lines={synopsisLines}
           onMeasure={onSynopsisMeasure}
           ink={inkSecondary}
@@ -989,23 +1019,8 @@ const paneFactColumns =
       ))}
     </View>
   );
-  const placeholderChips = PLACEHOLDER_CHIP_WIDTHS.map((width, index) => (
-    <View key={index}>{bar(width, CHIP_HEIGHT, styles.placeholderCapsule)}</View>
-  ));
-  const placeholderTagsNode = inColumn ? (
-    <View style={columnBleed.frame}>
-      <View style={[styles.facts, styles.tags, columnBleed.content]}>{placeholderChips}</View>
-    </View>
-  ) : grid ? (
-    <View style={styles.tagsWrap}>{placeholderChips}</View>
-  ) : (
-    <View style={bleed.frame}>
-      <View style={[styles.facts, styles.tags, bleed.content, wide ? styles.tagsCentred : null]}>{placeholderChips}</View>
-    </View>
-  );
-
-  // Prototype top header: the genres close the list, after the last chapter.
-  const footerKey = `${scheme}:${palette.ink}:${tagList.join("|")}:${badges.map((badge) => badge.label).join("|")}`;
+  // Prototype top header: the badges close the list, after the last chapter.
+  const footerKey = `${scheme}:${palette.ink}:${badges.map((badge) => badge.label).join("|")}`;
   useEffect(() => {
     topHeader?.setFooter(top ? tagsNode : null);
     return () => topHeader?.setFooter(null);
@@ -1093,7 +1108,6 @@ const paneFactColumns =
           {placeholderActionsNode}
           {placeholderFactsNode}
           {placeholderSynopsisNode}
-          {placeholderTagsNode}
         </>
       ) : null}
 
@@ -1107,17 +1121,44 @@ const paneFactColumns =
 
       {top ? null : tagsNode}
 
-      {tagList.length ? (
-        <MobileMangaDetailTagSheet
-          visible={tagSheetOpen}
-          tags={tagList}
+      {hasInfo ? (
+        <MobileMangaDetailInfoSheet
+          visible={infoSheetOpen}
+          rows={infoRows}
           strings={strings}
-          onClose={() => setTagSheetOpen(false)}
+          onClose={() => setInfoSheetOpen(false)}
         />
       ) : null}
         </>
       )}
     </View>
+  );
+}
+
+/** The ⓘ beside the hero's facts: opens the 作品信息 sheet. */
+function HeroInfoButton({
+  ink,
+  label,
+  hint,
+  onPress,
+}: {
+  ink: string;
+  label: string;
+  hint: string;
+  onPress: () => void;
+}) {
+  return (
+    <NemuPressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityHint={hint}
+      hitSlop={12}
+      pressedScale={0.88}
+      onPress={onPress}
+      style={styles.infoButton}
+    >
+      <Ionicons name="information-circle-outline" size={INFO_GLYPH} color={ink} />
+    </NemuPressable>
   );
 }
 
@@ -1427,6 +1468,19 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexGrow: 1,
   },
+  factsWithInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  factsFill: {
+    flex: 1,
+    minWidth: 0,
+  },
+  factsInfo: {
+    justifyContent: "center",
+    paddingLeft: 6,
+  },
   fact: {
     flexGrow: 1,
     alignItems: "center",
@@ -1442,8 +1496,29 @@ const styles = StyleSheet.create({
     lineHeight: 14,
     fontWeight: nemuFontWeight.medium,
   },
-  metaLine: {
+  metaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    maxWidth: "100%",
+  },
+  metaRowLeading: {
+    justifyContent: "flex-start",
+  },
+  metaShrink: {
+    flexShrink: 1,
+  },
+  infoButton: {
+    width: INFO_GLYPH + 4,
+    height: INFO_GLYPH + 4,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  metaLineRow: {
     marginTop: 4,
+  },
+  metaLine: {
     fontSize: 13,
     lineHeight: 18,
     fontWeight: nemuFontWeight.medium,
