@@ -3,6 +3,8 @@ import type { MobileReaderPluginState } from "@/lib/mobileReaderPlugins";
 
 export type ReaderPluginSettingsSheetProps = {
   visible: boolean;
+  /** iOS book posture: the sheet sits beside the page, which stays undimmed and interactive. */
+  pageInteractive?: boolean;
   plugins: MobileReaderPluginState[];
   /** The plugin whose settings are open (pushed), or null for the list. */
   selectedPluginId: string | null;

@@ -258,8 +258,9 @@ export function JapaneseLearningOcrResultSheet({
         ) : (
           <JapaneseLearningSentenceDisplay
             sentenceHeader={
-              // The floating popout is hidden behind a full-window sheet.
-              bubble && drawerFrame.fullScreen
+              // The floating popout is hidden behind a full-window sheet, and
+              // there is none beside the fold.
+              bubble && (drawerFrame.fullScreen || drawerFrame.besideFold)
                 ? (columnMaxHeight) => (
                     <JapaneseLearningBubblePreview
                       // Columns: centred in the empty details column; stacked: over the sentence.

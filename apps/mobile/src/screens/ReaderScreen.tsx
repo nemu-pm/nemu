@@ -2232,15 +2232,18 @@ export function ReaderScreen() {
   const readerPageAspectRatio = 1 / readerFitRatio(currentPageNaturalSize);
   // Book posture: a reader sheet takes one half beside the fold, so the page
   // moves to the other while it is open (one page fitted there) and returns
-  // when it closes. Sheets that point at a bubble on the page (the OCR
-  // result, the transcript, a chat asked from a sentence) keep the page
-  // where it is: their popout floats over that bubble.
+  // when it closes. The page stays live beside the sheet: the learning
+  // sheets show the selected bubble themselves (no popout over the page), and
+  // a word block tapped on the page fills the open sentence sheet.
+  const readerBookPosture = readerFoldedAdaptive.posture === "book";
   const readerBookSheetOpen =
     readerDisplaySettingsOpen ||
     readerPluginSettingsOpen ||
     japaneseLearningLauncherVisible ||
-    (japaneseLearningChatDrawerVisible && !japaneseLearningChatFromSentence);
-  const readerSheetSideWanted = readerBookSheetOpen && readerFoldedAdaptive.posture === "book"
+    japaneseLearningOcrSheetVisible ||
+    japaneseLearningTranscriptVisible ||
+    japaneseLearningChatDrawerVisible;
+  const readerSheetSideWanted = readerBookSheetOpen && readerBookPosture
     ? mobileReaderBookSheetSide(readerWindowLayout.layoutDirection)
     : null;
   // The page leaves the sheet's half only once the sheet has slid over it
@@ -8661,6 +8664,7 @@ export function ReaderScreen() {
       <ReaderDarkThemeScope>
         <ReaderPluginSettingsSheet
           visible={readerPluginSettingsOpen && !endOfChapterPromptVisible}
+          pageInteractive={readerBookPosture}
           plugins={readerPlugins.data}
           selectedPluginId={selectedReaderPluginSettingsId}
           loading={readerPlugins.loading}
@@ -8722,6 +8726,7 @@ export function ReaderScreen() {
           // outer display) presents the sheet.
           regularWidth={mobileAdaptiveLayout(readerWindowLayout).regularWidth}
           maxSheetHeight={readerNotebookSheetCap}
+          pageInteractive={readerBookPosture}
           availableHeight={
             readerSettingsAnchorRect
               ? readerSettingsPopoverAvailableHeight({
@@ -8884,6 +8889,9 @@ export function ReaderScreen() {
           selected bubble floats above everything (kept over a chat opened
           from its sentence, never over one opened from the capsule). Above the chrome layer (zIndex 20); the native sheet itself
           presents above this whole screen. */}
+      {/* Not in the book posture: the sheet sits beside the page, which stays
+          undimmed and live, and the sheet shows the bubble itself. */}
+      {readerBookPosture ? null : (
       <View pointerEvents="none" style={styles.japaneseLearningSheetOverlay}>
         <JapaneseLearningSheetBackdrop progress={japaneseLearningPresentationProgress} />
         {japaneseLearningPopoutBubbleSource ? (
@@ -8898,6 +8906,7 @@ export function ReaderScreen() {
           </ReaderDarkThemeScope>
         ) : null}
       </View>
+      )}
       <MobileNemuAgentSheet
         visible={cloudflareSheet.visible && !endOfChapterPromptVisible}
         status={cloudflareSheet.status}

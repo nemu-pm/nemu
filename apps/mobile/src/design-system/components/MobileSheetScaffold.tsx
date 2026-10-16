@@ -42,6 +42,8 @@ type MobileSheetScaffoldProps = {
    * edge, the home indicator's inset below its content.
    */
   contentIgnoresSafeAreaEdges?: MobileSheetSafeAreaEdge | MobileSheetSafeAreaEdge[];
+  /** iOS: the screen behind stays interactive and undimmed (`MobileNativeSheetScaffold`). */
+  backgroundInteraction?: boolean;
   children: ReactNode;
 };
 
@@ -75,6 +77,7 @@ export function MobileSheetScaffold({
   contentStyle,
   contentBottomInset,
   contentIgnoresSafeAreaEdges,
+  backgroundInteraction,
   children,
 }: MobileSheetScaffoldProps) {
   const snapPoints = useMemo(
@@ -103,6 +106,7 @@ export function MobileSheetScaffold({
       enablePanDownToClose={!backdropDisabled}
       contentBottomInset={contentBottomInset}
       contentIgnoresSafeAreaEdges={contentIgnoresSafeAreaEdges}
+      backgroundInteraction={backgroundInteraction}
       contentStyle={[
         contentStyle ?? styles.sheet,
         sheetMinHeight != null ? { minHeight: sheetMinHeight } : null,

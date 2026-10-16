@@ -28,6 +28,7 @@ import {
   opacity,
   pickerStyle,
   presentationBackground,
+  presentationBackgroundInteraction,
   presentationDragIndicator,
   scrollEdgeEffectStyle,
   tag,
@@ -129,6 +130,7 @@ export function ReaderSettingsNativePopover({
   onOpenReaderPluginSettings,
   regularWidth,
   maxSheetHeight = null,
+  pageInteractive = false,
 }: ReaderSettingsNativePopoverProps) {
   const { scheme, tokens } = useNemuTheme();
   const windowSize = useWindowDimensions();
@@ -443,6 +445,7 @@ export function ReaderSettingsNativePopover({
                   }),
                 }),
                 presentationDragIndicator("visible"),
+                ...(pageInteractive ? [presentationBackgroundInteraction("enabled")] : []),
                 ...presentationModifiers,
                 scrollEdgeEffectStyle("soft", "vertical"),
               ]}
