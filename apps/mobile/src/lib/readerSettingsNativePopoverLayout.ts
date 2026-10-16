@@ -31,26 +31,43 @@ export type ReaderSettingsNativeRows = {
   showNotebookPane?: boolean;
   showThumbnailSpoilers?: boolean;
   showCameraMode?: boolean;
+  /** The Orientation Lock row (absent on an iPhone and the Duo outer display); default shown. */
+  showOrientationLock?: boolean;
 };
+
+/** A one-line section footer with its margins (a longer one wraps; the sheet measures itself). */
+export const READER_SETTINGS_POPOVER_FOOTER = 36;
 
 /** Ideal (unclipped) Form height for the rows shown. */
 export function readerSettingsNativeContentHeight(rows: ReaderSettingsNativeRows): number {
   const row = READER_SETTINGS_POPOVER_ROW;
+  const footer = READER_SETTINGS_POPOVER_FOOTER;
   // 1. Reading direction: one segmented row.
   let height = row;
   let sections = 1;
-  // 2. Page layout + pairing + page fit (most used after direction).
+  // 2. Page layout (+ cover pairing while a spread shows), with its footer;
+  //    3. page fit, with its footer.
   if (rows.twoPageSupported) {
-    height += row * 2 + (rows.showPagePairingControls ? row : 0) + (rows.showCameraMode ? row : 0);
+    height += row + (rows.showPagePairingControls ? row : 0) + footer;
+    height += row + footer;
+    sections += 2;
+  }
+  // 4. Outer display: the camera switch under a header, with its footer.
+  if (rows.showCameraMode) {
+    height += READER_SETTINGS_POPOVER_HEADER + row + footer;
     sections += 1;
   }
-  // 3. "More": image processing, page width, keep awake, lock portrait,
-  //    notebook layout, spoiler protection, plugins, mark complete — one headed section.
+  // 5. Laptop Mode: the two-way choice and spoiler protection, header + footer.
+  if (rows.showNotebookPane) {
+    height += READER_SETTINGS_POPOVER_HEADER + row + (rows.showThumbnailSpoilers ? row : 0) + footer;
+    sections += 1;
+  }
+  // 6. "More": image processing, page width, keep awake, orientation lock,
+  //    plugins, mark complete — one headed section.
   height += READER_SETTINGS_POPOVER_HEADER
-    + row * 3
+    + row * 2
+    + (rows.showOrientationLock !== false ? row : 0)
     + (rows.scrolling ? READER_SETTINGS_POPOVER_SLIDER_ROW : 0)
-    + (rows.showNotebookPane ? row : 0)
-    + (rows.showThumbnailSpoilers ? row : 0)
     + (rows.showPlugins ? row : 0)
     + (rows.showMarkComplete ? row : 0);
   sections += 1;

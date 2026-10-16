@@ -34,6 +34,11 @@ export function MobileWindowLayoutProvider({ children }: { children: ReactNode }
   );
 }
 
+/** The observer's own report, or null before its first event (capability decisions must wait for it). */
+export function useMobileObservedWindowLayout(): MobileWindowLayout | null {
+  return useContext(MobileWindowLayoutContext);
+}
+
 /** Raw window geometry; falls back to window dimensions until native geometry arrives. */
 export function useMobileWindowLayout(): MobileWindowLayout {
   const observed = useContext(MobileWindowLayoutContext);

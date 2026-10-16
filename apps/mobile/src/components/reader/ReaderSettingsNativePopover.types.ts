@@ -47,6 +47,8 @@ export type ReaderSettingsNativePopoverProps = {
   onCommitScrollWidth: (value: number) => void;
   keepAwake: boolean;
   onToggleKeepAwake: () => void;
+  /** Orientation Lock row: only where the reader can rotate (Duo inner display, iPad, Android). */
+  showOrientationLock?: boolean;
   lockPortrait: boolean;
   onToggleLockPortrait: () => void;
   /** Foldables: what the bottom half holds in the notebook posture. */

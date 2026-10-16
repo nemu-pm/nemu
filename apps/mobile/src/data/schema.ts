@@ -220,6 +220,7 @@ export type UserSettings = {
    * What the bottom half holds in the notebook posture (Duo half-folded
    * portrait, Android tabletop); `undefined` means automatic.
    */
+  /** "automatic" is a value older builds saved; it reads as "filmstrip". */
   readerNotebookPane?: "automatic" | "trackpad" | "filmstrip";
   /** Hide unread filmstrip previews; defaults to false. */
   readerThumbnailSpoilerSafe?: boolean;

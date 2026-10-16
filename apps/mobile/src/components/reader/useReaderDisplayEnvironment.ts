@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as KeepAwake from "expo-keep-awake";
-import * as ScreenOrientation from "expo-screen-orientation";
+import { setMobileReaderPortraitRequest } from "@/lib/mobileOrientationStore";
 import { useMobileDataStore } from "@/data/mobileDataContext";
 import { useMobileDataRevision } from "@/data/mobileDataEvents";
 import type { UserSettings } from "@/data/schema";
@@ -30,7 +30,7 @@ import {
 const KEEP_AWAKE_TAG = "nemu-reader";
 
 /**
- * Reader session environment: keep-awake and portrait lock. Persistence of the
+ * Reader session environment: keep-awake and the portrait request. Persistence of the
  * two switches lives in `useReaderDisplayPrefs`; this hook applies them to the
  * device. Screen brightness is left to the system — the reader no longer
  * shadows the OS control.
@@ -38,7 +38,7 @@ const KEEP_AWAKE_TAG = "nemu-reader";
 export function useReaderDisplayEnvironment({
   keepAwakeEnabled,
   keepAwakeReady = true,
-  lockPortraitEnabled,
+  portraitRequested,
 }: {
   keepAwakeEnabled: boolean;
   /**
@@ -47,7 +47,8 @@ export function useReaderDisplayEnvironment({
    * walks away from) should not pin the display on.
    */
   keepAwakeReady?: boolean;
-  lockPortraitEnabled: boolean;
+  /** `mobileReaderPortraitRequest`: phone-sized display, or the reader's Orientation Lock. */
+  portraitRequested: boolean;
 }): void {
   useEffect(() => {
     if (!keepAwakeEnabled || !keepAwakeReady) return;
@@ -61,23 +62,13 @@ export function useReaderDisplayEnvironment({
     };
   }, [keepAwakeEnabled, keepAwakeReady]);
 
-  // Only a request: on iOS 27 resizable windows (iPhone Duo inner display,
-  // Split View, iPhone Mirroring) the system may refuse or ignore the lock
-  // (expo-screen-orientation v58; "The inner display doesn't honor your
-  // supported interface orientations"). No layout may depend on it — the
-  // reader lays out from its window geometry — so a refused lock only means
-  // the reader keeps rotating like the rest of the system.
+  // The reader's portrait request (the outer display, or its Orientation
+  // Lock), applied by the root `MobileOrientationController` with the app's
+  // own policy; withdrawn when the reader leaves, never unlocking an iPhone.
   useEffect(() => {
-    if (lockPortraitEnabled) {
-      void ScreenOrientation.lockAsync(
-        ScreenOrientation.OrientationLock.PORTRAIT_UP,
-      ).catch(() => undefined);
-      return () => {
-        void ScreenOrientation.unlockAsync().catch(() => undefined);
-      };
-    }
-    return undefined;
-  }, [lockPortraitEnabled]);
+    setMobileReaderPortraitRequest(portraitRequested);
+    return () => setMobileReaderPortraitRequest(false);
+  }, [portraitRequested]);
 }
 
 /**

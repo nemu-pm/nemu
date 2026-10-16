@@ -40,6 +40,7 @@ import {
 } from "@/sync/MobileSyncProvider";
 import { mobileSyncConfig } from "@/sync/mobileSyncConfig";
 import { MobileWindowLayoutProvider } from "@/lib/MobileWindowLayoutContext";
+import { MobileOrientationController } from "@/components/MobileOrientationController";
 import { MobilePoseTransitionProvider } from "@/lib/MobilePoseTransitionContext";
 import { useMobileBackgroundSync } from "@/sync/useMobileBackgroundSync";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
@@ -209,6 +210,7 @@ export default function RootLayout() {
               <MobileBackgroundSyncRegistrar />
               <NemuThemeProvider>
                 <MobileWindowLayoutProvider>
+                  <MobileOrientationController />
                   {/* Pose-change motion + the root pose veil (drawn above everything below). */}
                   <MobilePoseTransitionProvider>
                     <MobileToastProvider>

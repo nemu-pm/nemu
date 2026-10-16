@@ -151,6 +151,12 @@ import {
   readerNotebookSheetMaxHeight,
   readerSettingsPopoverAvailableHeight,
 } from "@/lib/readerSettingsNativePopoverLayout";
+import {
+  mobileReaderOnPhoneSizedDisplay,
+  mobileReaderOrientationLockAvailable,
+  mobileReaderPortraitRequest,
+} from "@/lib/mobileOrientationPolicy";
+import { useMobileDeviceFormFactor } from "@/lib/mobileOrientationStore";
 import { mobileAdaptiveLayout } from "@/lib/mobileAdaptiveLayout";
 import { ReaderDisplaySettingsPopover } from "@/components/reader/ReaderDisplaySettingsPopover";
 import { ReaderNotebookPane } from "@/components/reader/ReaderNotebookPane";
@@ -1244,10 +1250,27 @@ export function ReaderScreen() {
   });
   // Keep-awake waits for pages: a chapter stuck loading or blocked should not
   // hold the screen on. Portrait lock applies for the whole reader session.
+  // Portrait on a phone-sized display (an iPhone, the Duo outer display),
+  // re-read from the reader's own window as the device folds or unfolds;
+  // elsewhere (Duo inner display, iPad) only when Orientation Lock is on.
+  const deviceFormFactor = useMobileDeviceFormFactor();
+  const readerOnPhoneSizedDisplay = mobileReaderOnPhoneSizedDisplay({
+    formFactor: deviceFormFactor,
+    layout: reservedLayout,
+  });
+  const readerOrientationLockAvailable = mobileReaderOrientationLockAvailable({
+    formFactor: deviceFormFactor,
+    phoneSizedDisplay: readerOnPhoneSizedDisplay,
+  });
   useReaderDisplayEnvironment({
     keepAwakeEnabled: readerKeepAwake,
     keepAwakeReady: pagesState.status === "ready",
-    lockPortraitEnabled: readerLockPortrait,
+    // Only while the reader is the screen on top: a reader left mounted in
+    // another tab's stack must not hold the Library or Browse portrait.
+    portraitRequested: readerIsFocused && mobileReaderPortraitRequest({
+      phoneSizedDisplay: readerOnPhoneSizedDisplay,
+      userLock: readerLockPortrait && readerOrientationLockAvailable,
+    }),
   });
   const [japaneseLearningOcrState, setJapaneseLearningOcrState] =
     useState<JapaneseLearningOcrState>({ status: "idle" });
@@ -8667,6 +8690,7 @@ export function ReaderScreen() {
               setReaderKeepAwake(!readerKeepAwake),
             );
           }}
+          showOrientationLock={readerOrientationLockAvailable}
           lockPortrait={readerLockPortrait}
           onToggleLockPortrait={() => {
             void runReaderSettingsAction("lock-portrait", () =>
@@ -8686,7 +8710,7 @@ export function ReaderScreen() {
           }}
           spreadMode={readerSpreadMode}
           onSetSpreadMode={setReaderSpreadModeFromSettings}
-          showCameraMode={outerReaderCanvas || readerNotebookPaneSettingAvailable}
+          showCameraMode={outerReaderCanvas}
           avoidCamera={readerAvoidCamera}
           onSetAvoidCamera={setReaderAvoidCameraFromSettings}
           fitMode={readerFitSetting}
@@ -8749,6 +8773,7 @@ export function ReaderScreen() {
               setReaderKeepAwake(!readerKeepAwake),
             );
           }}
+          showOrientationLock={readerOrientationLockAvailable}
           lockPortrait={readerLockPortrait}
           onToggleLockPortrait={() => {
             void runReaderSettingsAction("lock-portrait", () =>
@@ -8768,7 +8793,7 @@ export function ReaderScreen() {
           }}
           spreadMode={readerSpreadMode}
           onSetSpreadMode={setReaderSpreadModeFromSettings}
-          showCameraMode={outerReaderCanvas || readerNotebookPaneSettingAvailable}
+          showCameraMode={outerReaderCanvas}
           avoidCamera={readerAvoidCamera}
           onSetAvoidCamera={setReaderAvoidCameraFromSettings}
           fitMode={readerFitSetting}
