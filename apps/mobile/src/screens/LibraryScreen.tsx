@@ -47,6 +47,8 @@ import {
 } from "@/components/MobileLibraryTitleMenu";
 import type { MobileLibraryTitleMenuProps } from "@/components/MobileLibraryTitleMenu.types";
 import { MobileLibrarySkeleton } from "@/components/MobileLibrarySkeleton";
+import { MobileLaunchRevealGroup } from "@/components/MobileLaunchRevealGroup";
+import type { MobileLaunchRevealGroup as MobileLaunchRevealGroupName } from "@/lib/mobileLaunchRevealPlan";
 import { isMobileLaunchContentReady, markMobileLaunchContentReady } from "@/lib/mobileSplashScreen";
 import { MOBILE_PERFORMANCE_MARKS, markMobilePerformance } from "@/lib/mobilePerformance";
 import { useMobileToast } from "@/components/MobileToastContext";
@@ -237,17 +239,21 @@ const EXPLORE_SHEET_DISMISS_MS = 380;
 function LibraryLayoutRow({
   layoutKey,
   settleOnMount,
+  revealGroup,
   style,
   children,
 }: {
   layoutKey: string;
   /** Mounted by opening or leaving a collection: starts dipped and settles. */
   settleOnMount: boolean;
+  /** Cover rows take part in the cold-launch reveal as one group. */
+  revealGroup?: MobileLaunchRevealGroupName;
   style: StyleProp<ViewStyle>;
   children: ReactNode;
 }) {
   const settle = useMobilePoseResnapFade(layoutKey, { settleOnMount });
-  return <Animated.View style={[style, settle]}>{children}</Animated.View>;
+  const row = <Animated.View style={[style, settle]}>{children}</Animated.View>;
+  return revealGroup ? <MobileLaunchRevealGroup group={revealGroup}>{row}</MobileLaunchRevealGroup> : row;
 }
 
 const LibraryGridItem = memo(function LibraryGridItem({
@@ -2180,6 +2186,7 @@ export function LibraryScreen({
       <LibraryLayoutRow
         layoutKey={collectionLayoutKey}
         settleOnMount={collectionSettleOnMount}
+        revealGroup="titles"
         style={[styles.libraryRow, shelfMode ? styles.shelfRow : styles.gridRow, !shelfMode && rowIndex === 0 && designExplore && styles.firstGridRow]}
       >
         {row.map((entry, column) => renderLibraryGridItem({ item: entry, index: rowIndex * gridColumns + column }))}
@@ -2658,6 +2665,7 @@ export function LibraryScreen({
               >
                 {/* Lets the tab bar minimise on scroll (UIKit content scroll view). */}
                 <ContentScrollMarker generation={gridColumns} />
+                <MobileLaunchRevealGroup group="header">
                 <MobileContinueReadingCarousel
                   items={continueReadingItems}
                   next={
@@ -2671,7 +2679,9 @@ export function LibraryScreen({
                   strings={strings}
                   onMore={handleGridItemLongPress}
                 />
+                </MobileLaunchRevealGroup>
                 {!selectedCollection ? (
+                  <MobileLaunchRevealGroup group="collections">
                   <MobileCollectionFolders
                     collections={collections.data}
                     membership={collections.membership}
@@ -2680,8 +2690,10 @@ export function LibraryScreen({
                     strings={strings}
                     onSelect={setMobileLibraryCollectionSelection}
                   />
+                  </MobileLaunchRevealGroup>
                 ) : null}
                 {visibleEntryCount ? (
+                  <MobileLaunchRevealGroup group="titlesHeader">
                   <MobileLibraryLayoutHeader
                     title={
                       selectedCollection
@@ -2692,6 +2704,7 @@ export function LibraryScreen({
                     onShelfChange={setShelfLayout}
                     strings={strings}
                   />
+                  </MobileLaunchRevealGroup>
                 ) : null}
               </LibraryLayoutRow>
             ) : null}

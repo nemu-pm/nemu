@@ -51,6 +51,17 @@ public final class NemuWindowLayoutModule: Module {
     AsyncFunction("setAppAppearance") { (appearance: String) in
       MainActor.assumeIsolated { NemuAppAppearance.set(appearance) }
     }.runOnQueue(.main)
+    // Cold-launch reveal: true until this process has revealed its window once,
+    // so a JS reload into an already visible UI never plays it again.
+    Function("launchRevealPending") { () -> Bool in
+      NemuLaunchReveal.pending
+    }
+    AsyncFunction("prepareLaunchReveal") { (mode: String, background: String?) -> Bool in
+      MainActor.assumeIsolated { NemuLaunchReveal.prepare(mode: mode, background: background) }
+    }.runOnQueue(.main)
+    AsyncFunction("startLaunchReveal") {
+      MainActor.assumeIsolated { NemuLaunchReveal.start() }
+    }.runOnQueue(.main)
     // The observer stays the first (default) view: `requireNativeViewManager("NemuWindowLayout")`.
     View(NemuWindowLayoutView.self) {
       Events("onRegionsChange", "onWillTransition")
@@ -1239,6 +1250,112 @@ enum NemuAppAppearance {
       guard let scene = note.object as? UIWindowScene else { return }
       MainActor.assumeIsolated { for window in scene.windows { style(window) } }
     })
+  }
+}
+
+// MARK: - Launch reveal
+
+/// The cold-launch reveal under the launch screen. The window's root view
+/// (which carries the native tab bar / Duo vertical bar with everything else,
+/// out of reach of a React transform) is set to its start state before the
+/// launch screen hides, so the first frame after it is the page background,
+/// then animates when JS starts its own content stagger:
+/// - "full": the window scales 0.97 → 1 over 700 ms on (.16, 1, .3, 1) from
+///   its centre while the tab bar and navigation bars fade in over 280 ms
+///   ease-out;
+/// - "fade": a 200 ms cross-fade of the whole window (Reduce Motion, or a
+///   launch straight into a screen other than the Library).
+/// Once per process; a missing `start` is recovered after a short cap.
+@MainActor
+enum NemuLaunchReveal {
+  nonisolated(unsafe) private(set) static var pending = true
+  private static weak var root: UIView?
+  private static var bars: [WeakView] = []
+  private static var mode = "full"
+  private static var started = false
+  private static let startCap: TimeInterval = 1.5
+
+  final class WeakView {
+    weak var view: UIView?
+    init(_ view: UIView) { self.view = view }
+  }
+
+  static func prepare(mode: String, background: String?) -> Bool {
+    guard pending, let window = keyWindow(), let controller = window.rootViewController, let view = controller.viewIfLoaded else {
+      pending = false
+      return false
+    }
+    pending = false
+    self.mode = mode
+    root = view
+    // The scaled window uncovers the window behind its edges: the page colour.
+    if let color = background.flatMap(color(fromHex:)) { window.backgroundColor = color }
+    if mode == "full" {
+      bars = barViews(under: controller).map(WeakView.init)
+      view.transform = CGAffineTransform(scaleX: 0.97, y: 0.97)
+      for bar in bars { bar.view?.alpha = 0 }
+    } else {
+      view.alpha = 0
+    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + startCap) { start() }
+    return true
+  }
+
+  static func start() {
+    guard !started, let view = root else { return }
+    started = true
+    if mode == "full" {
+      let scale = UIViewPropertyAnimator(
+        duration: 0.7,
+        timingParameters: UICubicTimingParameters(controlPoint1: CGPoint(x: 0.16, y: 1), controlPoint2: CGPoint(x: 0.3, y: 1))
+      )
+      scale.addAnimations { view.transform = .identity }
+      scale.startAnimation()
+      let fade = UIViewPropertyAnimator(duration: 0.28, curve: .easeOut) {
+        for bar in bars { bar.view?.alpha = 1 }
+      }
+      fade.addCompletion { _ in
+        for bar in bars { bar.view?.alpha = 1 }
+        bars = []
+      }
+      fade.startAnimation()
+    } else {
+      UIViewPropertyAnimator(duration: 0.2, curve: .easeInOut) { view.alpha = 1 }.startAnimation()
+    }
+  }
+
+  private static func keyWindow() -> UIWindow? {
+    let windows = UIApplication.shared.connectedScenes
+      .compactMap { $0 as? UIWindowScene }
+      .flatMap(\.windows)
+    return windows.first(where: \.isKeyWindow) ?? windows.first
+  }
+
+  /// The tab bar and every navigation bar under the root controller (the
+  /// Duo's vertical bar is drawn from these).
+  private static func barViews(under controller: UIViewController) -> [UIView] {
+    var result: [UIView] = []
+    var queue = [controller]
+    while let next = queue.popLast() {
+      if let tabs = next as? UITabBarController { result.append(tabs.tabBar) }
+      if let navigation = next as? UINavigationController, !navigation.isNavigationBarHidden {
+        result.append(navigation.navigationBar)
+      }
+      queue.append(contentsOf: next.children)
+    }
+    return result
+  }
+
+  private static func color(fromHex hex: String) -> UIColor? {
+    var value = hex.trimmingCharacters(in: .whitespaces)
+    if value.hasPrefix("#") { value.removeFirst() }
+    guard value.count == 6, let rgb = UInt32(value, radix: 16) else { return nil }
+    return UIColor(
+      red: CGFloat((rgb >> 16) & 0xff) / 255,
+      green: CGFloat((rgb >> 8) & 0xff) / 255,
+      blue: CGFloat(rgb & 0xff) / 255,
+      alpha: 1
+    )
   }
 }
 

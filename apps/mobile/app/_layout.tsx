@@ -1,5 +1,5 @@
 import "react-native-gesture-handler";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   DarkTheme,
   DefaultTheme,
@@ -52,6 +52,7 @@ import {
   subscribeMobileLaunchContentReady,
 } from "@/lib/mobileSplashScreen";
 import { isMobileLibraryRoute } from "@/lib/mobileRootTabs";
+import { hideMobileLaunchScreenWithReveal } from "@/lib/mobileLaunchReveal";
 import {
   MOBILE_PERFORMANCE_MARKS,
   markMobilePerformance,
@@ -87,8 +88,13 @@ function RootStack({
 }: {
   welcomeBlocksAccessibility: boolean;
 }) {
-  const { scheme, tokens } = useNemuTheme();
+  const { scheme, tokens, reduceMotion } = useNemuTheme();
   const pathname = usePathname();
+  // Read when the launch screen hides (a callback with no dependencies).
+  const revealContextRef = useRef({ pathname, background: tokens.background, reduceMotion: reduceMotion === true });
+  useLayoutEffect(() => {
+    revealContextRef.current = { pathname, background: tokens.background, reduceMotion: reduceMotion === true };
+  });
   const navigationTheme = useMemo(() => {
     const baseTheme = scheme === "dark" ? DarkTheme : DefaultTheme;
     return {
@@ -156,7 +162,15 @@ function RootStack({
 
     splashHiddenRef.current = true;
     markMobilePerformance(MOBILE_PERFORMANCE_MARKS.bootSplashHidden);
-    void SplashScreen.hideAsync().catch(() => {
+    const reveal = revealContextRef.current;
+    // The reveal hook: the window's start state is set under the launch
+    // screen, then it hides and the reveal runs (see mobileLaunchReveal.ts).
+    void hideMobileLaunchScreenWithReveal({
+      libraryRoute: isMobileLibraryRoute(reveal.pathname),
+      reduceMotion: reveal.reduceMotion,
+      background: reveal.background,
+      hideSplash: () => SplashScreen.hideAsync(),
+    }).catch(() => {
       splashHiddenRef.current = false;
     });
   }, []);

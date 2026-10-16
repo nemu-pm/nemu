@@ -11,6 +11,7 @@ export const MOBILE_PERFORMANCE_MARKS = {
   bootRootLayout: "boot.root-layout",
   bootLibraryReady: "boot.library-ready",
   bootSplashHidden: "boot.splash-hidden",
+  bootReveal: "boot.reveal",
   routeChange: "route.change",
   readerPagesRequest: "reader.pages-request",
   readerFirstPage: "reader.first-page",
