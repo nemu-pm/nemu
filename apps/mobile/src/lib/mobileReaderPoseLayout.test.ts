@@ -989,6 +989,13 @@ describe("reader pose: the iPhone Duo vertical bar", () => {
     }
   });
 
+  test("a fully open hinge is the inner display even when its flat fold is not reported", () => {
+    const layout: MobileWindowLayout = { ...innerLandscape([]), verticalBarEdge: "trailing", hinge: "fullyOpen" };
+    expect(mobileReaderVerticalBarPolicy(layout)).toEqual({ optOut: true, sideBar: false });
+    // Tent (outer display, partly open) keeps the system bar.
+    expect(mobileReaderVerticalBarPolicy({ ...layout, hinge: "partiallyOpen" })).toEqual({ optOut: false, sideBar: true });
+  });
+
   test("a closed hinge is the outer display even if a fold region is reported", () => {
     const layout: MobileWindowLayout = {
       ...innerLandscape([hinge(455.5, 0, 40, 669, false)]),
