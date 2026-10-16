@@ -1713,6 +1713,8 @@ export function SourceMangaScreen() {
 
       <MobileMangaDetailSplitLayout
         nativeHeader
+        // The bar row is empty until the compact title fades in.
+        barContentVisible={!mobileDesignExploreFlag || heroTitleAway}
         data={chapterRows}
         keyExtractor={mobileChapterRowKeyExtractor}
         initialNumToRender={MOBILE_CHAPTER_LIST_PERFORMANCE.initialNumToRender}

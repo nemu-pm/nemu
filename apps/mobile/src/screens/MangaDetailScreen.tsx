@@ -2727,6 +2727,8 @@ export function MangaDetailScreen() {
       ) : null}
       <MobileMangaDetailSplitLayout
         nativeHeader={usesNativeHeader}
+        // The Books-style bar row is empty until the compact title fades in.
+        barContentVisible={!booksHero || heroTitleScrolledAway}
         data={zoomLanded ? chapterRows : NO_CHAPTER_ROWS}
         keyExtractor={mobileChapterRowKeyExtractor}
         onRefresh={pullRefreshDetail}

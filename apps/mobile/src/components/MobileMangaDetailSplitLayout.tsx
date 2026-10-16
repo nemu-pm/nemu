@@ -255,6 +255,7 @@ export function MobileMangaDetailSplitLayout<ItemT>({
             <Animated.View style={[styles.fill, leadingSettle]}>
               <PageListScaffold
                 nativeHeader={listProps.nativeHeader}
+                barContentVisible={listProps.barContentVisible}
                 // A hero column that fits does not scroll, and UIKit's automatic
                 // adjustment skips the bar inset of a scroll view that cannot
                 // scroll: it would start under the bar.

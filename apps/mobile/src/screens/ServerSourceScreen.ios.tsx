@@ -21,7 +21,7 @@ import {
   textContentType,
   textInputAutocapitalization,
 } from "@expo/ui/swift-ui/modifiers";
-import { renderNemuNativeToolbarButtons, useNemuTheme } from "@/design-system";
+import { nemuSoftScrollEdge, renderNemuNativeToolbarButtons, useNemuTheme } from "@/design-system";
 import { useServerSourceForm, type ServerSourceFormParams } from "./useServerSourceForm";
 
 type Form = ReturnType<typeof useServerSourceForm>;
@@ -64,7 +64,7 @@ function ServerForm({ form }: { form: Form }) {
   };
 
   return (
-    <SwiftForm>
+    <SwiftForm modifiers={[nemuSoftScrollEdge()]}>
       <SwiftSection>
         <SwiftLabeledContent label={strings.selfHosted.serverAddress}>
           <SwiftTextField

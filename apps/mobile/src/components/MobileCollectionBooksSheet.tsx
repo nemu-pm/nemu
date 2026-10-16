@@ -14,15 +14,16 @@ import {
   MobileCachedImage,
   MobileNativeSheetEndSpacer,
   MobileNativeSheetScaffold,
-  NemuNativeSearchField,
-  NemuNativeSheetHeaderAction,
-  NemuPressable,
-  NemuText,
   nemuColorWithAlpha,
   nemuFontWeight,
   nemuMaxFontSizeMultiplier,
-  useMobileNativeSheetTheme,
+  NemuNativeSearchField,
+  NemuNativeSheetHeaderAction,
+  NemuPressable,
+  NemuSheetScrollEdge,
+  NemuText,
   type NemuTokens,
+  useMobileNativeSheetTheme,
 } from "@/design-system";
 import {
   getEntryTitle,
@@ -414,42 +415,47 @@ function MobileCollectionBooksSheetContent({
       contentStyle={styles.sheet}
       testID={testID}
     >
-      <FlatList
-        // Android: inside a native sheet, hand the drag to the sheet at the top.
-        nestedScrollEnabled
-        style={styles.list}
-        data={visibleEntries}
-        extraData={selectedIds}
-        keyExtractor={(entry) => entry.item.libraryItemId}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
-        initialNumToRender={12}
-        maxToRenderPerBatch={12}
-        windowSize={7}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.listContent}
-        ListHeaderComponent={header}
-        ListFooterComponent={
-          <>
-            {footer}
-            <MobileNativeSheetEndSpacer />
-          </>
-        }
-        ListEmptyComponent={empty}
-        renderItem={({ item, index }) => (
-          <CollectionBookRow
-            entry={item}
-            selected={selectedIds.has(item.item.libraryItemId)}
-            first={index === 0}
-            last={index === visibleEntries.length - 1}
-            disabled={locked}
-            installedSources={installedSources}
-            strings={strings}
-            tokens={tokens}
-            onToggle={toggle}
+      <NemuSheetScrollEdge style={styles.list}>
+        {(edge) => (
+          <FlatList
+            {...edge}
+            // Android: inside a native sheet, hand the drag to the sheet at the top.
+            nestedScrollEnabled
+            style={styles.list}
+            data={visibleEntries}
+            extraData={selectedIds}
+            keyExtractor={(entry) => entry.item.libraryItemId}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            initialNumToRender={12}
+            maxToRenderPerBatch={12}
+            windowSize={7}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.listContent}
+            ListHeaderComponent={header}
+            ListFooterComponent={
+              <>
+                {footer}
+                <MobileNativeSheetEndSpacer />
+              </>
+            }
+            ListEmptyComponent={empty}
+            renderItem={({ item, index }) => (
+              <CollectionBookRow
+                entry={item}
+                selected={selectedIds.has(item.item.libraryItemId)}
+                first={index === 0}
+                last={index === visibleEntries.length - 1}
+                disabled={locked}
+                installedSources={installedSources}
+                strings={strings}
+                tokens={tokens}
+                onToggle={toggle}
+              />
+            )}
           />
         )}
-      />
+      </NemuSheetScrollEdge>
     </MobileNativeSheetScaffold>
   );
 }

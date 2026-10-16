@@ -14,7 +14,7 @@ import {
 } from "@expo/ui/swift-ui";
 import { foregroundStyle, lineLimit } from "@expo/ui/swift-ui/modifiers";
 import { useState } from "react";
-import { useNemuTheme } from "@/design-system";
+import { nemuSoftScrollEdge, useNemuTheme } from "@/design-system";
 import { useMobileAccountPage } from "./useMobileAccountPage";
 
 /** Account: a native grouped list, pushed from Settings > Cloud sync. */
@@ -44,7 +44,7 @@ export function AccountScreen() {
     <View style={{ flex: 1 }}>
       <Stack.Screen options={{ title: strings.account.title }} />
       <SwiftHost colorScheme={scheme} style={{ flex: 1 }}>
-        <SwiftForm>
+        <SwiftForm modifiers={[nemuSoftScrollEdge()]}>
           <SwiftSection>
             <SwiftLabeledContent label={strings.account.name}>
               <SwiftText modifiers={[lineLimit(1)]}>{page.displayName}</SwiftText>
