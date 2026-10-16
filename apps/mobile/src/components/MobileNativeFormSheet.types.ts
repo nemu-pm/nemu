@@ -34,6 +34,12 @@ export type MobileNativeFormSheetProps = {
    * (design-explore; `grouped` always does).
    */
   tightTop?: boolean;
+  /**
+   * iPad at full width: present as a centred form sheet (SwiftUI
+   * `presentationSizing(.form)`) instead of a detent-high card. Compact
+   * widths (a narrow Split View, every iPhone) keep the detents.
+   */
+  padSizing?: "form";
   /** Blocks swipe-to-dismiss (unsaved changes, work in flight). */
   interactiveDismissDisabled?: boolean;
   /**

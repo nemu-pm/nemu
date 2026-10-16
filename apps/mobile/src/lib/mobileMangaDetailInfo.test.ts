@@ -4,7 +4,9 @@ import { getMobileStrings } from "./mobileI18n";
 import {
   buildMobileDetailInfoRows,
   buildMobileDetailMetaCandidates,
+  fitMobileDetailFacts,
   formatMobileDetailDate,
+  guessMobileDetailFactsLayout,
   pickMobileDetailMetaLine,
   splitMobileDescriptionParagraphs,
   withoutMobileDescriptionLicence,
@@ -141,5 +143,23 @@ describe("formatMobileExploreChapterNumber", () => {
   test("the number alone, without its volume or title; nothing without a number", () => {
     expect(formatMobileExploreChapterNumber({ id: "a", chapterNumber: 131, volumeNumber: 12, title: "A long title" }, strings)).toBe("Ch.131");
     expect(formatMobileExploreChapterNumber({ id: "b", title: "Prologue" }, strings)).toBeNull();
+  });
+});
+
+describe("detail facts layout", () => {
+  test("one row only when every cell's natural width fits; else 2 × 2", () => {
+    // iPhone SE: Pepper&Carrot · 39 · Ch.39 · Ongoing, less the ⓘ.
+    expect(fitMobileDetailFacts({ cellWidths: [117, 60, 57, 72], available: 307, guess: "grid" })).toBe("row");
+    expect(fitMobileDetailFacts({ cellWidths: [117, 60, 57, 80], available: 307, guess: "row" })).toBe("grid");
+    // The same at the 1.4× text cap.
+    expect(fitMobileDetailFacts({ cellWidths: [164, 84, 80, 104], available: 307, guess: "row" })).toBe("grid");
+  });
+
+  test("until measured, the guess", () => {
+    expect(fitMobileDetailFacts({ cellWidths: [117, undefined], available: 307, guess: "grid" })).toBe("grid");
+    expect(fitMobileDetailFacts({ cellWidths: [117, 60], available: null, guess: "row" })).toBe("row");
+    expect(guessMobileDetailFactsLayout({ width: 335, fontScale: 1 })).toBe("grid");
+    expect(guessMobileDetailFactsLayout({ width: 400, fontScale: 1 })).toBe("row");
+    expect(guessMobileDetailFactsLayout({ width: 600, fontScale: 1.5 })).toBe("grid");
   });
 });

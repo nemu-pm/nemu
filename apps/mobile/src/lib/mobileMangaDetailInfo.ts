@@ -191,3 +191,44 @@ export function pickMobileDetailMetaLine(
   }
   return candidates[candidates.length - 1] ?? null;
 }
+
+export type MobileDetailFactsLayout = "row" | "grid";
+
+/** Below this width, or past this text size, the facts are taken to stack 2 × 2 until measured. */
+const FACTS_ROW_MIN_WIDTH = 340;
+const FACTS_ROW_MAX_FONT_SCALE = 1.3;
+
+/** The hero's facts before their cells are measured (the first frame, and the cover's size estimate). */
+export function guessMobileDetailFactsLayout({
+  width,
+  fontScale,
+}: {
+  width: number;
+  fontScale: number;
+}): MobileDetailFactsLayout {
+  return fontScale > FACTS_ROW_MAX_FONT_SCALE || width < FACTS_ROW_MIN_WIDTH ? "grid" : "row";
+}
+
+/**
+ * The hero's facts side by side, each column as wide as its label or value
+ * needs (the room left shared out), when every cell's natural width fits the
+ * row; otherwise two columns, two rows. Never a value cut or broken mid-word
+ * to keep one row. Until every cell and the row are measured, `guess`.
+ */
+export function fitMobileDetailFacts({
+  cellWidths,
+  available,
+  guess,
+}: {
+  cellWidths: readonly (number | undefined)[];
+  available: number | null;
+  guess: MobileDetailFactsLayout;
+}): MobileDetailFactsLayout {
+  if (available === null || !cellWidths.length) return guess;
+  let total = 0;
+  for (const width of cellWidths) {
+    if (width === undefined) return guess;
+    total += width;
+  }
+  return total <= available ? "row" : "grid";
+}
