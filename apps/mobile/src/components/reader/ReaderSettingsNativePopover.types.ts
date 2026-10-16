@@ -14,6 +14,8 @@ export type ReaderSettingsNativePopoverProps = {
   availableHeight: number;
   /** Regular-width window (Duo inner display, tablets): only there may it be a popover; compact is a sheet. */
   regularWidth: boolean;
+  /** Tallest the sheet may be (the bottom pane while the device is half folded like a laptop); null: no cap. */
+  maxSheetHeight?: number | null;
   mode: ReadingMode;
   activeScrollWidthPct: number;
   isTwoPageMode: boolean;
@@ -45,6 +47,8 @@ export type ReaderSettingsNativePopoverProps = {
   onCommitScrollWidth: (value: number) => void;
   keepAwake: boolean;
   onToggleKeepAwake: () => void;
+  /** Orientation Lock row: only where the reader can rotate (Duo inner display, iPad, Android). */
+  showOrientationLock?: boolean;
   lockPortrait: boolean;
   onToggleLockPortrait: () => void;
   /** Foldables: what the bottom half holds in the notebook posture. */

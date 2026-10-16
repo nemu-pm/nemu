@@ -42,9 +42,7 @@ import {
   READER_SPREAD_MODE_ORDER,
   readerFitModeLabel,
   readerSpreadModeLabel,
-  readerWindowShapeLabel,
 } from "./readerPageOptions";
-import { formatMobileString } from "@/lib/mobileI18n";
 import type { ReaderFitMode } from "@/lib/mobileReaderFit";
 import type { ReaderSpreadMode } from "@/lib/mobileReaderSpreadMode";
 import type { ReaderWindowShape } from "@/lib/mobileReaderWindowShape";
@@ -88,6 +86,8 @@ type ReaderDisplaySettingsPopoverProps = {
   onScrollWidthInteractionEnd?: () => void;
   keepAwake: boolean;
   onToggleKeepAwake: () => void;
+  /** Orientation Lock row: only where the reader can rotate (Duo inner display, iPad, Android). */
+  showOrientationLock?: boolean;
   lockPortrait: boolean;
   onToggleLockPortrait: () => void;
   /** Foldables: what the bottom half holds in the notebook posture. */
@@ -176,12 +176,10 @@ export function ReaderDisplaySettingsPopover({
   visible,
   mode,
   activeScrollWidthPct,
-  isTwoPageMode,
   twoPageSupported,
   spreadMode,
   onSetSpreadMode,
   fitMode,
-  windowShape,
   onSetFitMode,
   showCameraMode = false,
   avoidCamera = true,
@@ -204,10 +202,11 @@ export function ReaderDisplaySettingsPopover({
   onScrollWidthInteractionEnd,
   keepAwake,
   onToggleKeepAwake,
+  showOrientationLock = true,
   lockPortrait,
   onToggleLockPortrait,
   showNotebookPane = false,
-  notebookPane = "automatic",
+  notebookPane = "filmstrip",
   thumbnailSpoilerSafe = false,
   onToggleThumbnailSpoilerSafe,
   onSetNotebookPane,
@@ -363,7 +362,7 @@ export function ReaderDisplaySettingsPopover({
               <ReaderSettingRow
                 icon="book-outline"
                 title={strings.reader.pageLayout}
-                description={isTwoPageMode ? strings.reader.spread : undefined}
+                description={strings.reader.pageLayoutFootnote}
                 below={
                   <View style={styles.settingControlBlock}>
                     <ReaderSegmentedChipRow<ReaderSpreadMode>
@@ -407,9 +406,7 @@ export function ReaderDisplaySettingsPopover({
               <ReaderSettingRow
                 icon="scan-outline"
                 title={strings.reader.pageFit}
-                description={formatMobileString(strings.reader.pageFitFootnote, {
-                  shape: readerWindowShapeLabel(windowShape, strings),
-                })}
+                description={strings.reader.pageFitFootnote}
                 below={
                   <View style={styles.settingControlBlock}>
                     <ReaderSegmentedChipRow<ReaderFitMode>
@@ -431,20 +428,17 @@ export function ReaderDisplaySettingsPopover({
             </>
           ) : null}
 
-          {twoPageSupported && showCameraMode && onSetAvoidCamera ? (
+          {showCameraMode && onSetAvoidCamera ? (
             <ReaderSettingRow
               icon="phone-portrait-outline"
-              title={strings.reader.outerDisplayMode}
-              below={
-                <ReaderSegmentedChipRow<"avoid" | "immersive">
-                  accessibilityLabel={strings.reader.outerDisplayMode}
+              title={strings.reader.avoidCamera}
+              description={strings.reader.avoidCameraFootnote}
+              control={
+                <NemuNativeSwitch
+                  accessibilityLabel={strings.reader.avoidCamera}
                   disabled={busy}
-                  value={avoidCamera ? "avoid" : "immersive"}
-                  onChange={(value) => onSetAvoidCamera(value === "avoid")}
-                  options={[
-                    { value: "avoid", label: strings.reader.avoidCamera },
-                    { value: "immersive", label: strings.reader.immersiveCanvas },
-                  ]}
+                  value={avoidCamera}
+                  onValueChange={(value) => onSetAvoidCamera(value)}
                 />
               }
             />
@@ -506,23 +500,26 @@ export function ReaderDisplaySettingsPopover({
             }
           />
 
-          <ReaderSettingRow
-            icon="phone-portrait-outline"
-            title={strings.feedback.displayLockPortrait}
-            control={
-              <NemuNativeSwitch
-                accessibilityLabel={strings.feedback.displayLockPortrait}
-                disabled={busy}
-                value={lockPortrait}
-                onValueChange={onToggleLockPortrait}
-              />
-            }
-          />
+          {showOrientationLock ? (
+            <ReaderSettingRow
+              icon="phone-portrait-outline"
+              title={strings.feedback.displayLockPortrait}
+              control={
+                <NemuNativeSwitch
+                  accessibilityLabel={strings.feedback.displayLockPortrait}
+                  disabled={busy}
+                  value={lockPortrait}
+                  onValueChange={onToggleLockPortrait}
+                />
+              }
+            />
+          ) : null}
 
           {showNotebookPane && onSetNotebookPane ? (
             <ReaderSettingRow
               icon="tablet-landscape-outline"
               title={strings.duo.notebookPane}
+              description={strings.duo.notebookPaneFootnote}
               below={
                 <View style={styles.settingControlBlock}>
                   <ReaderSegmentedChipRow<MobileReaderNotebookPanePreference>

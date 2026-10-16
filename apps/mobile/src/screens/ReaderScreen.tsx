@@ -13,6 +13,8 @@ import {
   mobileReaderFrameInsets,
   mobileReaderAnticipatedWindowLayout,
   mobileReaderCapsuleActionSlots,
+  MOBILE_READER_BOOK_SHEET_COVER_MS,
+  mobileReaderBookSheetSide,
   mobileReaderLayoutWithoutFold,
   mobileReaderHingeHintKey,
   mobileReaderNextSideInsetLatch,
@@ -151,7 +153,16 @@ import {
   ReaderSettingsNativePopover,
   readerSettingsNativePopoverAvailable,
 } from "@/components/reader/ReaderSettingsNativePopover";
-import { readerSettingsPopoverAvailableHeight } from "@/lib/readerSettingsNativePopoverLayout";
+import {
+  readerNotebookSheetMaxHeight,
+  readerSettingsPopoverAvailableHeight,
+} from "@/lib/readerSettingsNativePopoverLayout";
+import {
+  mobileReaderOnPhoneSizedDisplay,
+  mobileReaderOrientationLockAvailable,
+  mobileReaderPortraitRequest,
+} from "@/lib/mobileOrientationPolicy";
+import { useMobileDeviceFormFactor } from "@/lib/mobileOrientationStore";
 import { mobileAdaptiveLayout } from "@/lib/mobileAdaptiveLayout";
 import { ReaderDisplaySettingsPopover } from "@/components/reader/ReaderDisplaySettingsPopover";
 import { ReaderNotebookPane } from "@/components/reader/ReaderNotebookPane";
@@ -1246,10 +1257,27 @@ export function ReaderScreen() {
   });
   // Keep-awake waits for pages: a chapter stuck loading or blocked should not
   // hold the screen on. Portrait lock applies for the whole reader session.
+  // Portrait on a phone-sized display (an iPhone, the Duo outer display),
+  // re-read from the reader's own window as the device folds or unfolds;
+  // elsewhere (Duo inner display, iPad) only when Orientation Lock is on.
+  const deviceFormFactor = useMobileDeviceFormFactor();
+  const readerOnPhoneSizedDisplay = mobileReaderOnPhoneSizedDisplay({
+    formFactor: deviceFormFactor,
+    layout: reservedLayout,
+  });
+  const readerOrientationLockAvailable = mobileReaderOrientationLockAvailable({
+    formFactor: deviceFormFactor,
+    phoneSizedDisplay: readerOnPhoneSizedDisplay,
+  });
   useReaderDisplayEnvironment({
     keepAwakeEnabled: readerKeepAwake,
     keepAwakeReady: pagesState.status === "ready",
-    lockPortraitEnabled: readerLockPortrait,
+    // Only while the reader is the screen on top: a reader left mounted in
+    // another tab's stack must not hold the Library or Browse portrait.
+    portraitRequested: readerIsFocused && mobileReaderPortraitRequest({
+      phoneSizedDisplay: readerOnPhoneSizedDisplay,
+      userLock: readerLockPortrait && readerOrientationLockAvailable,
+    }),
   });
   const [japaneseLearningOcrState, setJapaneseLearningOcrState] =
     useState<JapaneseLearningOcrState>({ status: "idle" });
@@ -2131,6 +2159,8 @@ export function ReaderScreen() {
   // A Japanese Learning sheet (transcript, OCR result, chat) owns the stage:
   // the same system sheets in every pose, placed off the fold by the system.
   // The transcript → OCR result hand-off counts as open throughout.
+  const [japaneseLearningChatFromSentence, setJapaneseLearningChatFromSentence] =
+    useState(false);
   const japaneseLearningSurfaceOpen =
     japaneseLearningOcrSheetVisible ||
     japaneseLearningChatDrawerVisible ||
@@ -2144,15 +2174,27 @@ export function ReaderScreen() {
   // the reader is then the ordinary flat one for this window, and the top row
   // carries "show the controls panel". A closed sheet is a choice for this
   // fold only: leaving the half-folded posture (unfold, rotate) brings it back.
-  const readerNotebookFold = mobileAdaptiveLayout(readerFoldedWindowLayout).posture === "notebook";
+  const readerFoldedAdaptive = mobileAdaptiveLayout(readerFoldedWindowLayout);
+  const readerNotebookFold = readerFoldedAdaptive.posture === "notebook";
+  // Half folded like a laptop, reader sheets belong to the bottom pane: never
+  // past the hinge over the page (scroll mode and a closed panel included).
+  const readerNotebookSheetCap = readerNotebookFold && readerFoldedAdaptive.panels.length === 2
+    ? readerNotebookSheetMaxHeight({
+        paneHeight: readerFoldedAdaptive.panels[1].height,
+        bottomInset: readerFoldedWindowLayout.safeAreaInsets?.bottom ?? insets.bottom,
+      })
+    : null;
   const [readerNotebookSheetClosedState, setReaderNotebookSheetClosed] = useState(false);
   if (readerNotebookSheetClosedState && !readerNotebookFold) setReaderNotebookSheetClosed(false);
   const readerNotebookPanelClosed = readerNotebookSheetClosedState && readerNotebookFold;
   // The panel toggle lives in the trailing action group wherever it is drawn (paged reading only: scroll has no sheet).
   const readerNotebookPanelToggle = readerNotebookFold && galleryPagedMode;
+  // Scroll / long strip has no sheet either: the strip reads exactly as on
+  // the open display, the fold no pane boundary.
+  const readerFoldIgnored = readerNotebookPanelClosed || (readerNotebookFold && !galleryPagedMode);
   const readerWindowLayout = useMemo(
-    () => (readerNotebookPanelClosed ? mobileReaderLayoutWithoutFold(readerFoldedWindowLayout) : readerFoldedWindowLayout),
-    [readerFoldedWindowLayout, readerNotebookPanelClosed],
+    () => (readerFoldIgnored ? mobileReaderLayoutWithoutFold(readerFoldedWindowLayout) : readerFoldedWindowLayout),
+    [readerFoldedWindowLayout, readerFoldIgnored],
   );
   const readerBaseActionSlots = mobileReaderCapsuleActionSlots({
     enabledPluginIds: enabledReaderPlugins.map((plugin) => plugin.id),
@@ -2174,8 +2216,36 @@ export function ReaderScreen() {
   const currentPageNaturalSize = displayedPages[clampedPageIndex]
     ? readerImageSizes.get(readerPageIdentityFor(displayedPages[clampedPageIndex])) : undefined;
   const readerPageAspectRatio = 1 / readerFitRatio(currentPageNaturalSize);
+  // Book posture: a reader sheet takes one half beside the fold, so the page
+  // moves to the other while it is open (one page fitted there) and returns
+  // when it closes. Sheets that point at a bubble on the page (the OCR
+  // result, the transcript, a chat asked from a sentence) keep the page
+  // where it is: their popout floats over that bubble.
+  const readerBookSheetOpen =
+    readerDisplaySettingsOpen ||
+    readerPluginSettingsOpen ||
+    japaneseLearningLauncherVisible ||
+    (japaneseLearningChatDrawerVisible && !japaneseLearningChatFromSentence);
+  const readerSheetSideWanted = readerBookSheetOpen && readerFoldedAdaptive.posture === "book"
+    ? mobileReaderBookSheetSide(readerWindowLayout.layoutDirection)
+    : null;
+  // The page leaves the sheet's half only once the sheet has slid over it
+  // (it never drops to black ahead of the sheet), and comes back the moment
+  // the sheet starts to close, so it is there as the sheet slides away.
+  const [readerSheetSideCovered, setReaderSheetSideCovered] = useState<typeof readerSheetSideWanted>(null);
+  if (readerSheetSideCovered !== null && readerSheetSideCovered !== readerSheetSideWanted) {
+    setReaderSheetSideCovered(null);
+  }
+  useEffect(() => {
+    if (readerSheetSideWanted === null) return;
+    const timer = setTimeout(() => setReaderSheetSideCovered(readerSheetSideWanted), MOBILE_READER_BOOK_SHEET_COVER_MS);
+    return () => clearTimeout(timer);
+  }, [readerSheetSideWanted]);
+  const readerSheetSide = readerSheetSideCovered !== null && readerSheetSideCovered === readerSheetSideWanted
+    ? readerSheetSideCovered
+    : null;
   const buildReaderPose = useCallback(
-    (actionCount: number, spreadMode: ReaderSpreadMode) =>
+    (actionCount: number, spreadMode: ReaderSpreadMode, sheetSide: typeof readerSheetSide = readerSheetSide) =>
       mobileReaderPoseLayout({
         layout: readerWindowLayout,
         pageAspectRatio: readerPageAspectRatio,
@@ -2189,8 +2259,10 @@ export function ReaderScreen() {
         notebookPane: readerNotebookPane,
         actionCount,
         sideBar: readerSideBar,
+        sheetSide,
       }),
     [
+      readerSheetSide,
       readerPageAspectRatio,
       readerAvoidCamera,
       readerSideBar,
@@ -2272,6 +2344,12 @@ export function ReaderScreen() {
       readerPose,
     ],
   );
+  // What the settings describe: the pose without a sheet beside the fold, so
+  // the rows (pairing, page fit) never change under the open sheet.
+  const readerPoseWithoutSheet = useMemo(
+    () => (readerSheetSide ? buildReaderPose(readerActionSlots, readerSpreadMode, null) : readerPose),
+    [buildReaderPose, readerActionSlots, readerPose, readerSheetSide, readerSpreadMode],
+  );
   // The notebook setting only means something on a device that folds.
   const readerNotebookPaneSettingAvailable =
     readerFoldedWindowLayout.divisions.length > 0 || readerPose.posture === "notebook";
@@ -2300,14 +2378,17 @@ export function ReaderScreen() {
   // and whether one is shown right now.
   const twoPageSupported = readerPose.twoPageAvailable;
   const isTwoPageMode = !bilingualOverrides && readerPose.spread && pageCount > 1;
+  // A spread that gave way to a sheet beside the fold still counts for the
+  // settings (and its one page is fitted whole in the free half).
+  const readerSettingsTwoPage = !bilingualOverrides && readerPoseWithoutSheet.spread && pageCount > 1;
   // Page fit is remembered per window shape (narrow, wide, large), judged by
   // the rectangle the page sits in — the pane in the notebook pose, the whole
   // window across a fold — never by orientation or idiom. Spreads, the
   // bilingual book and long strips are always fitted whole.
-  const readerWindowShape = classifyReaderWindowShape(readerStage);
+  const readerWindowShape = classifyReaderWindowShape(bilingualOverrides?.stage ?? readerPoseWithoutSheet.stage);
   const readerFitSetting = readerFitModeForShape(readerFitModes, readerWindowShape);
   const readerFitMode: ReaderFitMode =
-    galleryPagedMode && !isTwoPageMode && !bilingualOverrides ? readerFitSetting : "page";
+    galleryPagedMode && !readerSettingsTwoPage && !bilingualOverrides ? readerFitSetting : "page";
   const readerPageLayoutVisible = galleryPagedMode && pageCount > 0;
   const setReaderSpreadModeFromSettings = useCallback(
     (value: ReaderSpreadMode) => {
@@ -2332,7 +2413,7 @@ export function ReaderScreen() {
   );
   const showPagePairingControls = shouldShowReaderPagePairingControls({
     twoPageSupported,
-    twoPageEnabled: isTwoPageMode,
+    twoPageEnabled: readerSettingsTwoPage,
   });
   const readerSpreads = useMemo(
     () =>
@@ -4687,8 +4768,6 @@ export function ReaderScreen() {
   // The popout rides the chat only when that chat was opened from this
   // bubble's sentence (Ask). Decided when the chat presents, and kept through
   // its dismissal so the popout fades out with the sheet.
-  const [japaneseLearningChatFromSentence, setJapaneseLearningChatFromSentence] =
-    useState(false);
   useEffect(() => {
     if (!japaneseLearningChatDrawerVisible) return;
     setJapaneseLearningChatFromSentence(japaneseLearningChatReturnsToSentence);
@@ -7629,8 +7708,9 @@ export function ReaderScreen() {
         />,
       );
     }
-    // One panel toggle in the trailing action group: closes the sheet while it
-    // is open (×), brings it back when closed (up chevron). Back exits the reader.
+    // One panel toggle in the trailing action group: lowers the sheet while it
+    // is open (down chevron), brings it back when closed (up chevron). Only
+    // Back exits the reader, so the row never shows two ways out.
     const notebookPanelButton = readerNotebookPanelToggle ? (
       <NemuPressable
         accessibilityRole="button"
@@ -8488,19 +8568,6 @@ export function ReaderScreen() {
       />
       </Animated.View>
 
-      {readerPose.foldBand ? (
-        // Notebook scroll mode: the strip runs through both panes and passes
-        // under the fold, drawn as a thin dark crease.
-        <View pointerEvents="none" style={mobileReaderAbsoluteRect(readerPose.foldBand)}>
-          <LinearGradient
-            colors={["rgba(0,0,0,0)", "rgba(0,0,0,0.9)", "rgba(0,0,0,0.9)", "rgba(0,0,0,0)"]}
-            locations={[0, 0.3, 0.7, 1]}
-            style={StyleSheet.absoluteFill}
-          />
-          <View style={styles.readerFoldCrease} />
-        </View>
-      ) : null}
-
       {bilingualLayout ? (
         <DuoBilingualSpread
           layout={bilingualLayout}
@@ -8609,7 +8676,7 @@ export function ReaderScreen() {
           visible={readerDisplaySettingsOpen && !endOfChapterPromptVisible}
           mode={mode}
           activeScrollWidthPct={activeScrollWidthPct}
-          isTwoPageMode={isTwoPageMode}
+          isTwoPageMode={readerSettingsTwoPage}
           twoPageSupported={readerPageLayoutVisible}
           showPagePairingControls={showPagePairingControls}
           pagePairingMode={pagePairingMode}
@@ -8626,6 +8693,7 @@ export function ReaderScreen() {
           // Popover only on a regular-width window; compact (phones, Duo
           // outer display) presents the sheet.
           regularWidth={mobileAdaptiveLayout(readerWindowLayout).regularWidth}
+          maxSheetHeight={readerNotebookSheetCap}
           availableHeight={
             readerSettingsAnchorRect
               ? readerSettingsPopoverAvailableHeight({
@@ -8642,6 +8710,7 @@ export function ReaderScreen() {
               setReaderKeepAwake(!readerKeepAwake),
             );
           }}
+          showOrientationLock={readerOrientationLockAvailable}
           lockPortrait={readerLockPortrait}
           onToggleLockPortrait={() => {
             void runReaderSettingsAction("lock-portrait", () =>
@@ -8661,7 +8730,7 @@ export function ReaderScreen() {
           }}
           spreadMode={readerSpreadMode}
           onSetSpreadMode={setReaderSpreadModeFromSettings}
-          showCameraMode={outerReaderCanvas || readerNotebookPaneSettingAvailable}
+          showCameraMode={outerReaderCanvas}
           avoidCamera={readerAvoidCamera}
           onSetAvoidCamera={setReaderAvoidCameraFromSettings}
           fitMode={readerFitSetting}
@@ -8702,7 +8771,7 @@ export function ReaderScreen() {
           visible={readerDisplaySettingsOpen && !endOfChapterPromptVisible}
           mode={mode}
           activeScrollWidthPct={activeScrollWidthPct}
-          isTwoPageMode={isTwoPageMode}
+          isTwoPageMode={readerSettingsTwoPage}
           twoPageSupported={readerPageLayoutVisible}
           showPagePairingControls={showPagePairingControls}
           pagePairingMode={pagePairingMode}
@@ -8724,6 +8793,7 @@ export function ReaderScreen() {
               setReaderKeepAwake(!readerKeepAwake),
             );
           }}
+          showOrientationLock={readerOrientationLockAvailable}
           lockPortrait={readerLockPortrait}
           onToggleLockPortrait={() => {
             void runReaderSettingsAction("lock-portrait", () =>
@@ -8743,7 +8813,7 @@ export function ReaderScreen() {
           }}
           spreadMode={readerSpreadMode}
           onSetSpreadMode={setReaderSpreadModeFromSettings}
-          showCameraMode={outerReaderCanvas || readerNotebookPaneSettingAvailable}
+          showCameraMode={outerReaderCanvas}
           avoidCamera={readerAvoidCamera}
           onSetAvoidCamera={setReaderAvoidCameraFromSettings}
           fitMode={readerFitSetting}
@@ -8912,14 +8982,6 @@ const styles = StyleSheet.create({
   },
   readerStageClip: {
     overflow: "hidden",
-  },
-  readerFoldCrease: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    top: "50%",
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: "rgba(255,255,255,0.08)",
   },
   readerNotebookHeader: {
     flexDirection: "row",

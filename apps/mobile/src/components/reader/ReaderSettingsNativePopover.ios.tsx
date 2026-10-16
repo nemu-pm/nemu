@@ -20,6 +20,7 @@ import {
   accessibilityLabel as swiftAccessibilityLabel,
   disabled as swiftDisabled,
   font,
+  foregroundStyle,
   frame,
   labelsHidden,
   lineLimit,
@@ -57,6 +58,7 @@ import {
 import {
   readerSettingsNativePresentation,
   readerSettingsNativeSheetEstimatedHeight,
+  readerSettingsSheetDetentCap,
 } from "@/lib/readerSettingsNativePopoverLayout";
 import {
   isMobileReaderNotebookPanePreference,
@@ -114,10 +116,11 @@ export function ReaderSettingsNativePopover({
   onCommitScrollWidth,
   keepAwake,
   onToggleKeepAwake,
+  showOrientationLock = true,
   lockPortrait,
   onToggleLockPortrait,
   showNotebookPane = false,
-  notebookPane = "automatic",
+  notebookPane = "filmstrip",
   thumbnailSpoilerSafe = false,
   onToggleThumbnailSpoilerSafe,
   onSetNotebookPane,
@@ -125,6 +128,7 @@ export function ReaderSettingsNativePopover({
   showReaderPluginSettings = false,
   onOpenReaderPluginSettings,
   regularWidth,
+  maxSheetHeight = null,
 }: ReaderSettingsNativePopoverProps) {
   const { scheme, tokens } = useNemuTheme();
   const windowSize = useWindowDimensions();
@@ -165,6 +169,7 @@ export function ReaderSettingsNativePopover({
     showMarkComplete: !completed && !mobileDesignExploreFlag,
     showNotebookPane: showNotebookRow,
     showThumbnailSpoilers: showNotebookRow && Boolean(onToggleThumbnailSpoilerSafe),
+    showOrientationLock,
   };
   const presentation = readerSettingsNativePresentation(
     settingsRows,
@@ -223,7 +228,7 @@ export function ReaderSettingsNativePopover({
           </SwiftPicker>
         </SwiftSection>
         {twoPageSupported ? (
-          <SwiftSection>
+          <SwiftSection footer={<SwiftText>{strings.reader.pageLayoutFootnote}</SwiftText>}>
             <SwiftPicker
               label={strings.reader.pageLayout}
               systemImage="rectangle.split.2x1"
@@ -257,6 +262,10 @@ export function ReaderSettingsNativePopover({
                 <SwiftText modifiers={[tag("manga")]}>{strings.reader.pairingCoverAlone}</SwiftText>
               </SwiftPicker>
             ) : null}
+          </SwiftSection>
+        ) : null}
+        {twoPageSupported ? (
+          <SwiftSection footer={<SwiftText>{strings.reader.pageFitFootnote}</SwiftText>}>
             <SwiftPicker
               label={strings.reader.pageFit}
               systemImage="arrow.up.left.and.down.right.magnifyingglass"
@@ -274,21 +283,56 @@ export function ReaderSettingsNativePopover({
                 </SwiftText>
               ))}
             </SwiftPicker>
-            {showCameraMode && onSetAvoidCamera ? (
-              <SwiftPicker
-                label={strings.reader.outerDisplayMode}
-                systemImage="iphone"
-                modifiers={[pickerStyle("menu"), ...busyModifiers]}
-                selection={avoidCamera ? "avoid" : "immersive"}
-                onSelectionChange={(selection) => {
-                  if (busy || (selection !== "avoid" && selection !== "immersive")) return;
-                  void hapticSelection();
-                  onSetAvoidCamera(selection === "avoid");
-                }}
-              >
-                <SwiftText modifiers={[tag("avoid")]}>{strings.reader.avoidCamera}</SwiftText>
-                <SwiftText modifiers={[tag("immersive")]}>{strings.reader.immersiveCanvas}</SwiftText>
-              </SwiftPicker>
+          </SwiftSection>
+        ) : null}
+        {showCameraMode && onSetAvoidCamera ? (
+          <SwiftSection
+            title={strings.reader.outerDisplayMode}
+            footer={<SwiftText>{strings.reader.avoidCameraFootnote}</SwiftText>}
+          >
+            <SwiftToggle
+              label={strings.reader.avoidCamera}
+              systemImage="camera.metering.center.weighted"
+              isOn={avoidCamera}
+              onIsOnChange={(isOn) => onSetAvoidCamera(isOn)}
+              modifiers={busyModifiers}
+            />
+          </SwiftSection>
+        ) : null}
+        {showNotebookRow && onSetNotebookPane ? (
+          // Laptop Mode: what the lower half shows, as a two-way choice.
+          <SwiftSection
+            title={strings.duo.notebookPane}
+            footer={<SwiftText>{strings.duo.notebookPaneFootnote}</SwiftText>}
+          >
+            <SwiftPicker
+              modifiers={[
+                pickerStyle("segmented"),
+                labelsHidden(),
+                swiftAccessibilityLabel(strings.duo.notebookPane),
+                ...busyModifiers,
+              ]}
+              selection={notebookPane}
+              onSelectionChange={(selection) => {
+                if (busy || !isMobileReaderNotebookPanePreference(selection) || selection === notebookPane) return;
+                void hapticSelection();
+                onSetNotebookPane(selection);
+              }}
+            >
+              {MOBILE_READER_NOTEBOOK_PANE_PREFERENCES.map((option) => (
+                <SwiftText key={option} modifiers={[tag(option)]}>
+                  {notebookPaneLabel(option, strings)}
+                </SwiftText>
+              ))}
+            </SwiftPicker>
+            {onToggleThumbnailSpoilerSafe ? (
+              <SwiftToggle
+                label={strings.duo.filmstripSpoilerSafe}
+                systemImage="eye.slash"
+                isOn={thumbnailSpoilerSafe}
+                onIsOnChange={onToggleThumbnailSpoilerSafe}
+                modifiers={busyModifiers}
+              />
             ) : null}
           </SwiftSection>
         ) : null}
@@ -328,40 +372,12 @@ export function ReaderSettingsNativePopover({
             onIsOnChange={() => onToggleKeepAwake()}
             modifiers={busyModifiers}
           />
-          <SwiftToggle
-            label={strings.feedback.displayLockPortrait}
-            systemImage="lock.rotation"
-            isOn={lockPortrait}
-            onIsOnChange={() => onToggleLockPortrait()}
-            modifiers={busyModifiers}
-          />
-          {showNotebookRow && onSetNotebookPane ? (
-            // A menu picker row (label left, value right), like
-            // Settings' own choice rows.
-            <SwiftPicker
-              label={strings.duo.notebookPane}
-              systemImage="rectangle.split.1x2"
-              modifiers={[pickerStyle("menu"), ...busyModifiers]}
-              selection={notebookPane}
-              onSelectionChange={(selection) => {
-                if (busy || !isMobileReaderNotebookPanePreference(selection) || selection === notebookPane) return;
-                void hapticSelection();
-                onSetNotebookPane(selection);
-              }}
-            >
-              {MOBILE_READER_NOTEBOOK_PANE_PREFERENCES.map((option) => (
-                <SwiftText key={option} modifiers={[tag(option)]}>
-                  {notebookPaneLabel(option, strings)}
-                </SwiftText>
-              ))}
-            </SwiftPicker>
-          ) : null}
-          {showNotebookRow && onToggleThumbnailSpoilerSafe ? (
+          {showOrientationLock ? (
             <SwiftToggle
-              label={strings.duo.filmstripSpoilerSafe}
-              systemImage="eye.slash"
-              isOn={thumbnailSpoilerSafe}
-              onIsOnChange={onToggleThumbnailSpoilerSafe}
+              label={strings.feedback.displayLockPortrait}
+              systemImage="lock.rotation"
+              isOn={lockPortrait}
+              onIsOnChange={() => onToggleLockPortrait()}
               modifiers={busyModifiers}
             />
           ) : null}
@@ -370,7 +386,8 @@ export function ReaderSettingsNativePopover({
                 label={strings.settings.plugins}
                 systemImage="puzzlepiece.extension"
                 onPress={() => onOpenReaderPluginSettings?.()}
-                modifiers={busyModifiers}
+                // A row that opens a page, like Settings' own: label colour, not an accent link.
+                modifiers={[foregroundStyle({ type: "hierarchical", style: "primary" }), ...busyModifiers]}
               />
             ) : null}
             {settingsRows.showMarkComplete ? (
@@ -420,10 +437,15 @@ export function ReaderSettingsNativePopover({
                 // Only as tall as the rows need (a handful of rows used to
                 // open a full-height sheet); capped at the screen, where the
                 // Form scrolls (landscape, large Dynamic Type).
+                // Half folded like a laptop: never past the hinge.
                 fitSheetDetentToContent({
                   group: READER_SETTINGS_SHEET_GROUP,
                   page: READER_SETTINGS_SHEET_PAGE,
                   initialHeight: readerSettingsNativeSheetEstimatedHeight(settingsRows),
+                  height: readerSettingsSheetDetentCap({
+                    estimatedHeight: readerSettingsNativeSheetEstimatedHeight(settingsRows),
+                    maxHeight: maxSheetHeight,
+                  }),
                 }),
                 presentationDragIndicator("visible"),
                 ...presentationModifiers,

@@ -31,26 +31,43 @@ export type ReaderSettingsNativeRows = {
   showNotebookPane?: boolean;
   showThumbnailSpoilers?: boolean;
   showCameraMode?: boolean;
+  /** The Orientation Lock row (absent on an iPhone and the Duo outer display); default shown. */
+  showOrientationLock?: boolean;
 };
+
+/** A one-line section footer with its margins (a longer one wraps; the sheet measures itself). */
+export const READER_SETTINGS_POPOVER_FOOTER = 36;
 
 /** Ideal (unclipped) Form height for the rows shown. */
 export function readerSettingsNativeContentHeight(rows: ReaderSettingsNativeRows): number {
   const row = READER_SETTINGS_POPOVER_ROW;
+  const footer = READER_SETTINGS_POPOVER_FOOTER;
   // 1. Reading direction: one segmented row.
   let height = row;
   let sections = 1;
-  // 2. Page layout + pairing + page fit (most used after direction).
+  // 2. Page layout (+ cover pairing while a spread shows), with its footer;
+  //    3. page fit, with its footer.
   if (rows.twoPageSupported) {
-    height += row * 2 + (rows.showPagePairingControls ? row : 0) + (rows.showCameraMode ? row : 0);
+    height += row + (rows.showPagePairingControls ? row : 0) + footer;
+    height += row + footer;
+    sections += 2;
+  }
+  // 4. Outer display: the camera switch under a header, with its footer.
+  if (rows.showCameraMode) {
+    height += READER_SETTINGS_POPOVER_HEADER + row + footer;
     sections += 1;
   }
-  // 3. "More": image processing, page width, keep awake, lock portrait,
-  //    notebook layout, spoiler protection, plugins, mark complete — one headed section.
+  // 5. Laptop Mode: the two-way choice and spoiler protection, header + footer.
+  if (rows.showNotebookPane) {
+    height += READER_SETTINGS_POPOVER_HEADER + row + (rows.showThumbnailSpoilers ? row : 0) + footer;
+    sections += 1;
+  }
+  // 6. "More": image processing, page width, keep awake, orientation lock,
+  //    plugins, mark complete — one headed section.
   height += READER_SETTINGS_POPOVER_HEADER
-    + row * 3
+    + row * 2
+    + (rows.showOrientationLock !== false ? row : 0)
     + (rows.scrolling ? READER_SETTINGS_POPOVER_SLIDER_ROW : 0)
-    + (rows.showNotebookPane ? row : 0)
-    + (rows.showThumbnailSpoilers ? row : 0)
     + (rows.showPlugins ? row : 0)
     + (rows.showMarkComplete ? row : 0);
   sections += 1;
@@ -120,4 +137,36 @@ export function readerSettingsPopoverAvailableHeight(input: {
   const below = input.bounds.height - input.safeInsets.bottom - (input.anchor.y + input.anchor.height) - margin;
   const above = input.anchor.y - input.safeInsets.top - margin;
   return Math.max(0, below, above);
+}
+
+/** Leeway for the estimate: a Form a little taller than estimated still gets the cap. */
+export const READER_SETTINGS_SHEET_CAP_SLACK = 48;
+
+/**
+ * Explicit detent for the settings sheet when it must stay below a fold (the
+ * iPhone Duo half folded like a laptop: the sheet belongs to the bottom pane,
+ * the half the hands rest on, and never covers the page above the hinge).
+ * The system caps a fitted sheet at the screen, not at the fold, so a Form
+ * that could reach past `maxHeight` gets exactly `maxHeight` and scrolls.
+ * 0: no cap (the sheet keeps fitting its content).
+ */
+export function readerSettingsSheetDetentCap(input: { estimatedHeight: number; maxHeight: number | null | undefined }): number {
+  const max = input.maxHeight;
+  if (max == null || !Number.isFinite(max) || max <= 0) return 0;
+  return input.estimatedHeight + READER_SETTINGS_SHEET_CAP_SLACK > max ? Math.floor(max) : 0;
+}
+
+/** The floating sheet's gutter above the bottom safe-area edge (iOS 26+, measured on the iPhone Duo inner display). */
+export const READER_SHEET_FLOAT_GUTTER = 8;
+
+/**
+ * Tallest detent that keeps a sheet's top (its grabber included) below the
+ * fold, level with the notebook pane's own top edge so the sheet covers the
+ * pane rather than doubling its edge: a `.height` detent excludes the bottom
+ * safe area and the floating sheet's gutter, so both come off the pane.
+ */
+export function readerNotebookSheetMaxHeight(input: { paneHeight: number; bottomInset: number }): number {
+  const pane = Number.isFinite(input.paneHeight) ? input.paneHeight : 0;
+  const bottom = Number.isFinite(input.bottomInset) ? Math.max(0, input.bottomInset) : 0;
+  return Math.max(0, Math.floor(pane - bottom - READER_SHEET_FLOAT_GUTTER));
 }

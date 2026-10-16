@@ -4,7 +4,6 @@ import {
   mobileReaderFilmstripOffset,
   mobileReaderFilmstripOrder,
   mobileReaderFilmstripPreviewAllowed,
-  mobileReaderNotebookPaneBase,
   mobileReaderNotebookPaneMotion,
   mobileReaderNotebookReveal,
   mobileReaderNotebookSheetFrame,
@@ -14,6 +13,8 @@ import {
   mobileReaderTrackpadStep,
   mobileReaderTrackpadSwipe,
   normalizeMobileReaderNotebookPanePreference,
+  DEFAULT_MOBILE_READER_NOTEBOOK_PANE,
+  MOBILE_READER_NOTEBOOK_PANE_PREFERENCES,
   READER_FILMSTRIP_GAP,
   READER_NOTEBOOK_HANDLE_HIT,
   READER_NOTEBOOK_PAD_INSET,
@@ -24,16 +25,16 @@ import {
 
 const resolve = (overrides: Partial<Parameters<typeof resolveMobileReaderNotebookPane>[0]> = {}) =>
   resolveMobileReaderNotebookPane({
-    preference: "automatic",
+    preference: "filmstrip",
     paged: true,
     override: null,
     ...overrides,
   });
 
 describe("notebook pane: which state", () => {
-  test("automatic is the controls console: the lower half carries the reading controls", () => {
-    expect(resolve()).toBe("filmstrip");
-    expect(mobileReaderNotebookPaneBase("automatic")).toBe("filmstrip");
+  test("the default is the controls console: the lower half carries the reading controls", () => {
+    expect(DEFAULT_MOBILE_READER_NOTEBOOK_PANE).toBe("filmstrip");
+    expect(MOBILE_READER_NOTEBOOK_PANE_PREFERENCES).toEqual(["filmstrip", "trackpad"]);
   });
 
   test("explicit preferences win in paged mode", () => {
@@ -42,7 +43,7 @@ describe("notebook pane: which state", () => {
   });
 
   test("scroll mode flows through both panes whatever the preference", () => {
-    for (const preference of ["automatic", "trackpad", "filmstrip"] as const) {
+    for (const preference of ["trackpad", "filmstrip"] as const) {
       expect(resolve({ preference, paged: false })).toBe("continuous");
     }
   });
@@ -52,11 +53,12 @@ describe("notebook pane: which state", () => {
     expect(resolve({ preference: "filmstrip", override: "trackpad" })).toBe("trackpad");
   });
 
-  test("unknown stored values fall back to automatic, including the retired study desk", () => {
-    expect(normalizeMobileReaderNotebookPanePreference("filmstrip")).toBe("filmstrip");
-    expect(normalizeMobileReaderNotebookPanePreference("continuous")).toBe("automatic");
-    expect(normalizeMobileReaderNotebookPanePreference("studyDesk")).toBe("automatic");
-    expect(normalizeMobileReaderNotebookPanePreference(undefined)).toBe("automatic");
+  test("older saved values read as the console: the retired Automatic and study desk", () => {
+    expect(normalizeMobileReaderNotebookPanePreference("trackpad")).toBe("trackpad");
+    expect(normalizeMobileReaderNotebookPanePreference("automatic")).toBe("filmstrip");
+    expect(normalizeMobileReaderNotebookPanePreference("continuous")).toBe("filmstrip");
+    expect(normalizeMobileReaderNotebookPanePreference("studyDesk")).toBe("filmstrip");
+    expect(normalizeMobileReaderNotebookPanePreference(undefined)).toBe("filmstrip");
   });
 });
 

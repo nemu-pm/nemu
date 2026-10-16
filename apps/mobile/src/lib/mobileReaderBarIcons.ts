@@ -14,7 +14,7 @@ export const MOBILE_READER_CHROME_GLYPHS = {
   nemuChat: { name: "chatbubbles-outline", size: 18 },
   settings: { name: "settings-outline", size: 20 },
   notebookPanel: { name: "chevron-up", size: 22 },
-  notebookPanelClose: { name: "close", size: 22 },
+  notebookPanelClose: { name: "chevron-down", size: 22 },
 } as const satisfies Record<string, MobileReaderChromeGlyph>;
 
 /**

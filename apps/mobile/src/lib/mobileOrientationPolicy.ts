@@ -1,0 +1,88 @@
+import type { MobileWindowLayout } from "@/lib/mobileWindowLayout";
+
+/**
+ * App orientation policy (owner decision 2026-10-15):
+ *
+ * - An ordinary iPhone is portrait everywhere (Library, Browse, Search,
+ *   Settings, the reader). Info.plist cannot say so: the iPhone Duo is an
+ *   iPhone too, and it keeps rotating.
+ * - iPhone Duo and iPad rotate on every screen. The reader alone stays
+ *   portrait on the Duo outer display (nobody reads sideways on a
+ *   phone-sized display) and wherever the reader's Orientation Lock is on.
+ * - The Duo inner display ignores orientation requests (Apple: "doesn't
+ *   honor your supported interface orientations"), so a lock there is a
+ *   request the system may refuse; no layout depends on it.
+ *
+ * "Foldable" is a capability read from the window observer (a hinge status
+ * or a fold region), never a model string. The observer only learns the
+ * hinge after `UIHingeInteraction` reports, so an iPhone is only called a
+ * phone once the observer has reported for `MOBILE_FOLDABLE_PROBE_MS`
+ * without either; a foldable seen once stays foldable for the session.
+ *
+ * Pure decisions; `MobileOrientationController` applies them.
+ */
+
+export type MobileDeviceFormFactor = "phone" | "foldable" | "tablet" | "unknown";
+
+/** How long the window observer may stay silent about a hinge before the device counts as an ordinary phone. */
+export const MOBILE_FOLDABLE_PROBE_MS = 600;
+
+export function mobileLayoutShowsFold(layout: Pick<MobileWindowLayout, "hinge" | "divisions"> | null | undefined): boolean {
+  if (!layout) return false;
+  return layout.hinge != null || (layout.divisions?.length ?? 0) > 0;
+}
+
+export function mobileDeviceFormFactor(input: {
+  platform: string;
+  isPad: boolean;
+  /** The app window's observer layout; null before its first report. */
+  layout: MobileWindowLayout | null;
+  previous: MobileDeviceFormFactor;
+  /** The observer has reported for at least `MOBILE_FOLDABLE_PROBE_MS`. */
+  probeElapsed: boolean;
+}): MobileDeviceFormFactor {
+  // Android keeps its own behaviour: the reader's switch only.
+  if (input.platform !== "ios") return "unknown";
+  if (input.isPad) return "tablet";
+  if (input.previous === "foldable" || mobileLayoutShowsFold(input.layout)) return "foldable";
+  if (input.previous === "phone") return "phone";
+  if (!input.layout) return "unknown";
+  // Before iOS 27.1 there are no region APIs and no foldable iPhone.
+  if (!input.layout.supported) return "phone";
+  return input.probeElapsed ? "phone" : "unknown";
+}
+
+/**
+ * The reader sits on a phone-sized display: an ordinary iPhone, or the
+ * folded Duo (its outer display). Read from the reader's own window, so it
+ * changes the moment the device folds or unfolds.
+ */
+export function mobileReaderOnPhoneSizedDisplay(input: {
+  formFactor: MobileDeviceFormFactor;
+  layout: Pick<MobileWindowLayout, "hinge" | "divisions" | "fillsScreen"> | null | undefined;
+}): boolean {
+  if (input.formFactor === "phone") return true;
+  if (input.formFactor !== "foldable" || !input.layout) return false;
+  if (input.layout.hinge === "closed") return true;
+  // The inner display always reports its fold (active or not).
+  return (input.layout.divisions?.length ?? 0) === 0 && input.layout.fillsScreen !== false;
+}
+
+/** The reader's Orientation Lock switch only means something where the reader can rotate. */
+export function mobileReaderOrientationLockAvailable(input: { formFactor: MobileDeviceFormFactor; phoneSizedDisplay: boolean }): boolean {
+  return input.formFactor !== "phone" && !input.phoneSizedDisplay;
+}
+
+/** What the reader asks of the app while it is on screen. */
+export function mobileReaderPortraitRequest(input: { phoneSizedDisplay: boolean; userLock: boolean }): boolean {
+  return input.phoneSizedDisplay || input.userLock;
+}
+
+/** The lock to apply now: "portrait" or the app's supported orientations. */
+export function mobileOrientationLock(input: {
+  formFactor: MobileDeviceFormFactor;
+  readerWantsPortrait: boolean;
+}): "portrait" | "default" {
+  if (input.formFactor === "phone") return "portrait";
+  return input.readerWantsPortrait ? "portrait" : "default";
+}

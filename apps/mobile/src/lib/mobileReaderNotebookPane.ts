@@ -11,8 +11,8 @@ import type { WindowLayoutRect } from "@/lib/mobileWindowLayout";
  * - `filmstrip` (A): the expanded console — title, spoiler-safe thumbnails
  *   (only pages already read and the current page render images), the
  *   scrubber with chapter skips and the capsule actions.
- * - `continuous` (C): scroll / long-strip reading — the strip flows through
- *   both panes and the fold is a thin dark band the content passes under.
+ * - `continuous` (C): scroll / long-strip reading — no pane: the reader
+ *   lays out as on the open display and the strip flows through the fold.
  *
  * Japanese Learning tools are not part of the pane: they open in the same
  * system sheets as everywhere else, which the system moves off the fold.
@@ -21,38 +21,34 @@ import type { WindowLayoutRect } from "@/lib/mobileWindowLayout";
  * `ReaderNotebookPane.tsx` draws it.
  */
 
-export type MobileReaderNotebookPanePreference = "automatic" | "trackpad" | "filmstrip";
+export type MobileReaderNotebookPanePreference = "trackpad" | "filmstrip";
 export type MobileReaderNotebookPaneState = "trackpad" | "filmstrip" | "continuous";
 /** A choice made in this reading session (expand, collapse). Never persisted. */
 export type MobileReaderNotebookPaneOverride = Exclude<MobileReaderNotebookPaneState, "continuous"> | null;
 
+/** Settings order: Thumbnails (the console), then Page Controls (the trackpad). */
 export const MOBILE_READER_NOTEBOOK_PANE_PREFERENCES: readonly MobileReaderNotebookPanePreference[] = [
-  "automatic",
-  "trackpad",
   "filmstrip",
+  "trackpad",
 ];
-export const DEFAULT_MOBILE_READER_NOTEBOOK_PANE: MobileReaderNotebookPanePreference = "automatic";
+/**
+ * The console: the lower half carries the reading controls (title, page
+ * thumbnails, the scrubber with chapter skips, the actions) the moment the
+ * device is set down; the trackpad is one tap away (the handle) or a saved
+ * choice.
+ */
+export const DEFAULT_MOBILE_READER_NOTEBOOK_PANE: MobileReaderNotebookPanePreference = "filmstrip";
 
 export function isMobileReaderNotebookPanePreference(value: unknown): value is MobileReaderNotebookPanePreference {
   return typeof value === "string" && (MOBILE_READER_NOTEBOOK_PANE_PREFERENCES as readonly string[]).includes(value);
 }
 
+/**
+ * A saved value from an older build ("automatic", which always meant the
+ * console, or the retired "studyDesk") reads as the default.
+ */
 export function normalizeMobileReaderNotebookPanePreference(value: unknown): MobileReaderNotebookPanePreference {
   return isMobileReaderNotebookPanePreference(value) ? value : DEFAULT_MOBILE_READER_NOTEBOOK_PANE;
-}
-
-/**
- * The paged state a preference asks for: Automatic is the filmstrip console,
- * so the lower half carries the reading controls (title, page thumbnails,
- * the scrubber with chapter skips, the actions with Japanese Learning and
- * settings) the moment the device is set down; the trackpad is one tap away
- * (the handle) or a saved choice. A value saved by an older build
- * ("studyDesk") normalizes to Automatic.
- */
-export function mobileReaderNotebookPaneBase(
-  preference: MobileReaderNotebookPanePreference,
-): Exclude<MobileReaderNotebookPaneState, "continuous"> {
-  return preference === "automatic" ? "filmstrip" : preference;
 }
 
 export function resolveMobileReaderNotebookPane(input: {
@@ -62,7 +58,7 @@ export function resolveMobileReaderNotebookPane(input: {
   override: MobileReaderNotebookPaneOverride;
 }): MobileReaderNotebookPaneState {
   if (!input.paged) return "continuous";
-  return input.override ?? mobileReaderNotebookPaneBase(input.preference);
+  return input.override ?? input.preference;
 }
 
 // --- Trackpad (B) ----------------------------------------------------------

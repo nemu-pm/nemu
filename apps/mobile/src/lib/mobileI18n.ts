@@ -655,15 +655,20 @@ export type MobileStrings = {
     pageLayoutSingle: string;
     pageLayoutDouble: string;
     pageLayoutAuto: string;
+    /** Footer under the page layout choice (what Automatic does). */
+    pageLayoutFootnote: string;
+    /** Group header for the outer display's settings. */
     outerDisplayMode: string;
     avoidCamera: string;
+    /** Footer under the outer display's camera switch. */
+    avoidCameraFootnote: string;
     immersiveCanvas: string;
     pageFit: string;
     pageFitPage: string;
     pageFitWidth: string;
     pageFitHeight: string;
     pageFitFill: string;
-    /** "For this window shape" footnote under the fit choice; {{shape}} is the localized shape. */
+    /** Footer under the fit choice: it is remembered per screen size. */
     pageFitFootnote: string;
     windowShapeNarrow: string;
     windowShapeWide: string;
@@ -1097,10 +1102,11 @@ export type MobileStrings = {
     handoffOuterDisplay: string;
     handoffInnerDisplay: string;
     handoffWithPage: string;
+    /** Group header for the half-folded (laptop) bottom pane choice. */
     notebookPane: string;
-    notebookPaneAutomatic: string;
     notebookPaneTrackpad: string;
     notebookPaneFilmstrip: string;
+    notebookPaneFootnote: string;
     notebookTrackpad: string;
     notebookShowFilmstrip: string;
     notebookHideFilmstrip: string;

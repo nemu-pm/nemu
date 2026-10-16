@@ -6,6 +6,7 @@ import {
   mobileReaderSafePadding,
   mobileReaderTapExcluded,
   mobileReaderCapsuleActionSlots,
+  mobileReaderBookSheetSide,
   mobileReaderLayoutWithoutFold,
   mobileReaderCapsuleActionsWidth,
   mobileReaderAnticipatedWindowLayout,
@@ -320,6 +321,25 @@ describe("reader pose: capsule chrome (regular width)", () => {
 describe("reader pose: book", () => {
   const book = innerLandscapeNoBar([hinge(455.5, 0, 40, 669)]);
 
+  test("a sheet beside the fold: the page moves to the free half, one page fitted there", () => {
+    for (const rtl of [false, true]) {
+      const result = pose(book, { twoPage: true, rtl, sheetSide: mobileReaderBookSheetSide("ltr") });
+      expect(result.spread).toBe(false);
+      expect(result.spreadSlots).toBeUndefined();
+      expect(result.foldGap).toBeNull();
+      // The sheet covers the leading (left) half: the page takes the right one.
+      expect(result.stage).toEqual({ x: 495.5, y: 0, width: 455.5, height: 669 });
+      expect(result.modalFrame).toEqual(result.stage);
+      // The setting itself stays available; only this render gives way.
+      expect(result.twoPageAvailable).toBe(true);
+    }
+    // A right-to-left interface puts the sheet on the right: the page goes left.
+    expect(mobileReaderBookSheetSide("rtl")).toBe("right");
+    expect(pose(book, { sheetSide: "right" }).stage).toEqual({ x: 0, y: 0, width: 455.5, height: 669 });
+    // Closed again: the spread comes back as it was.
+    expect(pose(book, { twoPage: true, sheetSide: null })).toEqual(pose(book, { twoPage: true }));
+  });
+
   test("two-page: one page per half, fold is never a tap target, capsules snap per pane", () => {
     const result = pose(book, { twoPage: true });
     expect(result.posture).toBe("book");
@@ -405,7 +425,6 @@ describe("reader pose: notebook", () => {
     expect(pose(notebook, { twoPage: false }).spread).toBe(false);
     expect(pose(notebook, { twoPage: true, pageCount: 1 }).twoPageAvailable).toBe(false);
     expect(result.chromePinned).toBe(true);
-    expect(result.foldBand).toBeNull();
     if (result.chrome.kind !== "console") throw new Error("expected console");
     expect(result.chrome.state).toBe("filmstrip");
     expect(result.chrome.frame).toEqual({ x: 0, y: 486, width: 669, height: 465 });
@@ -429,25 +448,13 @@ describe("reader pose: notebook", () => {
     expect(filmstrip.chrome.kind === "console" && filmstrip.chrome.state).toBe("filmstrip");
   });
 
-  test("scroll mode: one viewport through both panes, the fold drawn as a band", () => {
+  test("scroll mode reads exactly as on the open display: no fold band, no pane split", () => {
     const result = pose(notebook, { paged: false });
+    const open = pose(mobileReaderLayoutWithoutFold(notebook), { paged: false });
+    expect(result).toEqual(open);
+    expect(result.posture).toBe("flat");
     expect(result.stage).toEqual({ x: 0, y: 0, width: 669, height: 951 });
-    expect(result.constrained).toBe(false);
     expect(result.chromePinned).toBe(false);
-    expect(result.foldBand).toEqual({ x: 0, y: 465, width: 669, height: 21 });
-    if (result.chrome.kind !== "capsules") throw new Error("expected capsules");
-    // Row atop the top pane, scrubber at the bottom of the bottom pane.
-    expect(result.chrome.back.y + result.chrome.back.height).toBeLessThanOrEqual(465);
-    expect(result.chrome.scrubber.y).toBeGreaterThan(486);
-    expect(result.chrome.scrubber.y + result.chrome.scrubber.height).toBeLessThanOrEqual(951 - 20 + 8);
-  });
-
-  test("scroll mode keeps the settings popover in the bottom pane, above the scrubber", () => {
-    const result = pose(notebook, { paged: false });
-    if (result.chrome.kind !== "capsules") throw new Error("expected capsules");
-    expect(result.popover.frame.y).toBeGreaterThanOrEqual(486);
-    const popoverBottom = result.popover.frame.y + result.popover.frame.height - result.popover.bottomGap;
-    expect(popoverBottom).toBeLessThanOrEqual(result.chrome.scrubber.y);
   });
 
   test("the settings popover stays in the bottom pane", () => {
@@ -547,9 +554,10 @@ describe("reader pose on measured iPhone Duo geometry", () => {
             // Immersive pages are full-bleed like phones (status bar hidden
             // while reading, pages may pass under camera cut-outs): they only
             // stay off the fold and inside the window. A notebook long strip
-            // is the exception: it flows under the fold band (continuous
-            // content does not displace).
-            if (fold && !result.foldBand) expect(overlaps(page, fold)).toBe(false);
+            // is the exception: it flows through the fold as on the open
+            // display (continuous content does not displace).
+            const notebookStrip = label === "long strip" && fold !== null && fold.width > fold.height;
+            if (fold && !notebookStrip) expect(overlaps(page, fold)).toBe(false);
             expect(page.x).toBeGreaterThanOrEqual(0);
             expect(page.x + page.width).toBeLessThanOrEqual(m.bounds.width + 0.01);
           }
