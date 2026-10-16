@@ -170,8 +170,11 @@ export const MobileLibraryShelfCell = memo(function MobileLibraryShelfCell({
                   uriOwnership="source"
                   cacheKind="cover"
                   source={cover}
-                  // No fade inside the native zoom source.
+                  // No fade inside the native zoom source, and a refreshed
+                  // cover URL keeps this cover until the new one is ready, so
+                  // the zoom back never lands on the placeholder.
                   fadeIn={false}
+                  holdPreviousWhileLoading
                   fallback={placeholder}
                   style={styles.coverImage}
                 />

@@ -12,10 +12,12 @@ import {
   Animated as ReactAnimated,
   Image,
   StyleSheet,
+  View,
   type ImageProps,
   type ImageURISource,
 } from "react-native";
 import { useNemuTheme } from "@/design/useNemuTheme";
+import { resolveMobileHeldImage } from "./mobileCachedImageHold";
 import {
   getCachedMobileImageAssetByStorageKeySync,
   getMobileImageCacheSourceKey,
@@ -61,6 +63,14 @@ type MobileCachedImageProps = Omit<ImageProps, "source" | "onError"> & {
   onError?: (error: string) => void;
   /** Fade the image in once it loads (default true). Off for overlays that must match what is underneath. */
   fadeIn?: boolean;
+  /**
+   * The same title's cover changing URL (a detail refresh brought a new one)
+   * keeps showing the image it already shows until the new one is ready,
+   * instead of the fallback in between: a zoom back to a library cover lands
+   * on the cover, not on a placeholder that the image then replaces. Only for
+   * views that always show one title (never a recycled cell).
+   */
+  holdPreviousWhileLoading?: boolean;
 };
 
 function boundedLocalImageSourceKey(
@@ -114,6 +124,7 @@ export function MobileCachedImage({
   onLoad,
   style,
   fadeIn = true,
+  holdPreviousWhileLoading = false,
   ...props
 }: MobileCachedImageProps) {
   const { reduceMotion } = useNemuTheme();
@@ -340,13 +351,17 @@ export function MobileCachedImage({
       : synchronouslyCachedAsset;
   const cachedUri = cachedAsset?.kind === "file" ? cachedAsset.uri : null;
   const failed = failedSourceKey === sourceKey;
-  const imageSource = failed
-    ? undefined
-    : cachedUri
-      ? { uri: cachedUri }
-      : uriPolicy.allowed && !requiresLocalFile
-        ? source
-        : undefined;
+  const imageSource = useMemo(
+    () =>
+      failed
+        ? undefined
+        : cachedUri
+          ? { uri: cachedUri }
+          : uriPolicy.allowed && !requiresLocalFile
+            ? source
+            : undefined,
+    [cachedUri, failed, requiresLocalFile, source, uriPolicy.allowed],
+  );
 
   useEffect(() => {
     onSegmentedImageRef.current?.(
@@ -444,9 +459,18 @@ export function MobileCachedImage({
     ],
   );
 
+  const [shownImage, setShownImage] = useState<{
+    sourceKey: string;
+    source: ImageURISource;
+  } | null>(null);
   const handleImageLoad = useCallback<NonNullable<ImageProps["onLoad"]>>(
     (event) => {
       markSourceShown(sourceKey);
+      if (holdPreviousWhileLoading && imageSource) {
+        setShownImage((current) =>
+          current?.sourceKey === sourceKey ? current : { sourceKey, source: imageSource },
+        );
+      }
       if (activeSourceKeyRef.current === sourceKey) {
         setFailedSourceKey((current) =>
           current === sourceKey ? null : current,
@@ -473,7 +497,7 @@ export function MobileCachedImage({
       }
       onLoad?.(event);
     },
-    [imageFadeRef, onLoad, shownAtMount, skipFade, sourceKey],
+    [holdPreviousWhileLoading, imageFadeRef, imageSource, onLoad, shownAtMount, skipFade, sourceKey],
   );
 
   // Restart the fade whenever the source changes so a recycled cover cell
@@ -492,6 +516,20 @@ export function MobileCachedImage({
     if (sourceChanged) imageFadeRef.setValue(0);
   }, [imageFadeRef, skipFade, sourceKey]);
 
+  const heldImage = resolveMobileHeldImage({
+    hold: holdPreviousWhileLoading,
+    hasImage: Boolean(imageSource),
+    failed,
+    sourceKey,
+    shown: shownImage,
+  });
+  if (heldImage) {
+    return (
+      <View style={[styles.fadeShell, style]}>
+        <Image fadeDuration={0} {...props} source={heldImage} style={styles.fadeImage} />
+      </View>
+    );
+  }
   if (!imageSource && fallback !== undefined) return fallback;
 
   return (
