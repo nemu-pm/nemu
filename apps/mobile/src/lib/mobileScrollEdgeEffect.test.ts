@@ -3,6 +3,8 @@ import { describe, expect, it, test } from "bun:test";
 import { spacing } from "@/design/tokens";
 import { MOBILE_FLOATING_TAB_BAR_VISUAL_HEIGHT } from "./mobileFloatingTabBarClearance";
 import {
+  MOBILE_SCROLL_EDGE_REVEAL_DISTANCE,
+  mobileScrollEdgeReveal,
   MOBILE_SCROLL_EDGE_BAR_TAIL,
   resolveMobileRailBottomScrollEdge,
   resolveMobileScrollEdgeBarExtent,
@@ -95,7 +97,6 @@ describe("the band covers what is pinned at the top", () => {
     expect(bar).toEqual({ extent: 44, drawn: false });
     const edge = resolveMobileRailTopScrollEdge({ ...rail, bar });
     expect(edge.height).toBe(44 + MOBILE_SCROLL_EDGE_BAR_TAIL);
-    expect(edge.scrimAlpha).toBeGreaterThan(0);
     // The first two stops (the title's band) are still fully blurred.
     expect(edge.maskStops.slice(0, 2).map(([colour]) => colour)).toEqual(["rgba(0,0,0,1)", "rgba(0,0,0,1)"]);
     expect(edge.maskStops.at(-1)?.[0]).toBe("rgba(0,0,0,0)");
@@ -106,7 +107,7 @@ describe("the band covers what is pinned at the top", () => {
       platform: "ios", nativeHeader: true, barContentVisible: false, headerHeight: 44, headerBarHeight: undefined, safeAreaTop: 0,
     });
     expect(bar.extent).toBe(0);
-    expect(resolveMobileRailTopScrollEdge({ ...rail, bar })).toMatchObject({ height: 18, scrimAlpha: 0 });
+    expect(resolveMobileRailTopScrollEdge({ ...rail, bar })).toMatchObject({ height: 18 });
   });
 
   test("a bar the page draws itself gets the band with horizontal bars too", () => {
@@ -125,6 +126,48 @@ describe("the band covers what is pinned at the top", () => {
       platform: "android", nativeHeader: true, barContentVisible: true, headerHeight: 64, headerBarHeight: undefined, safeAreaTop: 24,
     }).extent).toBe(0);
     expect(resolveMobileRailTopScrollEdge({ ...rail, reader: true, bar: { extent: 44, drawn: false } }).height).toBe(0);
+  });
+});
+
+describe("a pane scrolling on its own beside the rail", () => {
+  const rail = { platform: "ios", verticalBarSide: "right" as const, safeAreaTop: 8, pageTop: 24, reader: false };
+
+  test("holds full strength over its top padding though nothing is in the bar row", () => {
+    const edge = resolveMobileRailTopScrollEdge({ ...rail, pane: true });
+    // Ends exactly where its resting rows start.
+    expect(edge.height).toBe(32);
+    // Held at full strength from the edge, gone at the band's end.
+    expect(edge.maskStops.slice(0, 3).map(([colour]) => colour)).toEqual([
+      "rgba(0,0,0,1)", "rgba(0,0,0,1)", "rgba(0,0,0,1)",
+    ]);
+    expect(edge.maskStops.at(-1)?.[0]).toBe("rgba(0,0,0,0)");
+    // The same page's other scroll views keep the eased padding band.
+    expect(resolveMobileRailTopScrollEdge(rail).maskStops[1]?.[0]).not.toBe("rgba(0,0,0,1)");
+  });
+
+  test("a title in the bar row still sizes the band", () => {
+    const edge = resolveMobileRailTopScrollEdge({ ...rail, pane: true, bar: { extent: 52, drawn: false } });
+    expect(edge.height).toBe(52 + MOBILE_SCROLL_EDGE_BAR_TAIL);
+  });
+
+  test("horizontal bars keep the system's edge (iPad), and the reader none", () => {
+    expect(resolveMobileRailTopScrollEdge({ ...rail, verticalBarSide: null, pane: true }).height).toBe(0);
+    expect(resolveMobileRailTopScrollEdge({ ...rail, reader: true, pane: true }).height).toBe(0);
+    expect(resolveMobileRailTopScrollEdge({ ...rail, platform: "android", pane: true }).height).toBe(0);
+  });
+});
+
+describe("the top band follows the scroll, like the system's soft edge", () => {
+  test("none at rest at the top or pulled down past it", () => {
+    expect(mobileScrollEdgeReveal(0)).toBe(0);
+    expect(mobileScrollEdgeReveal(-40)).toBe(0);
+    expect(mobileScrollEdgeReveal(Number.NaN)).toBe(0);
+  });
+
+  test("fades in over the first points of scroll, then holds", () => {
+    expect(mobileScrollEdgeReveal(MOBILE_SCROLL_EDGE_REVEAL_DISTANCE / 2)).toBeCloseTo(0.5);
+    expect(mobileScrollEdgeReveal(MOBILE_SCROLL_EDGE_REVEAL_DISTANCE)).toBe(1);
+    expect(mobileScrollEdgeReveal(600)).toBe(1);
   });
 });
 

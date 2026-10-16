@@ -11,6 +11,7 @@ import {
   StyleSheet,
   View,
   useWindowDimensions,
+  type LayoutChangeEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
@@ -101,7 +102,7 @@ export function MobileMangaDetailSplitLayout<ItemT>({
   const barOnSide = Platform.OS === "ios" && mobileDesignExploreFlag && verticalBarSide !== null;
   const exploreTop =
     Platform.OS === "ios" && mobileDesignExploreFlag
-      ? { paddingTop: barOnSide ? insets.top + 24 : 4 }
+      ? { paddingTop: barOnSide ? insets.top + RAIL_PANE_TOP : 4 }
       : null;
   // The detail screens use a transparent soft-edge navigation bar. Both
   // scroll views must start below it, while still scrolling underneath it.
@@ -193,15 +194,37 @@ export function MobileMangaDetailSplitLayout<ItemT>({
     : top
       ? containerWidth - gutters.horizontal
       : 0;
+  const chapterPalette = useMemo(
+    () => (columns ? buildMobileCoverTintPalette(wash?.tint ?? null, scheme) : undefined),
+    [columns, wash?.tint, scheme],
+  );
   const trailingPane = useMemo<MobileMangaDetailPane>(
     () => ({
       role: split ? "trailing" : "single",
       regularWidth,
       wideChapterRows: chapterTableWidth / fontScale >= 700,
       columns: Boolean(columns),
-      chapterPalette: columns ? buildMobileCoverTintPalette(wash?.tint ?? null, scheme) : undefined,
+      chapterPalette,
     }),
-    [regularWidth, split, columns, chapterTableWidth, fontScale, wash?.tint, scheme],
+    [regularWidth, split, columns, chapterTableWidth, fontScale, chapterPalette],
+  );
+  // Beside the vertical bar each column scrolls into the window's top edge on
+  // its own, and no title ever pins over it: each gets the soft edge held
+  // strong over its top padding. The hero column only while it is taller than
+  // the window (it holds still otherwise).
+  const [leadingOverflow, setLeadingOverflow] = useState({ content: 0, frame: 0 });
+  const leadingScrolls = leadingOverflow.content > leadingOverflow.frame + 1;
+  const onLeadingLayout = useCallback((event: LayoutChangeEvent) => {
+    const frame = Math.round(event.nativeEvent.layout.height);
+    setLeadingOverflow((current) => (current.frame === frame ? current : { ...current, frame }));
+  }, []);
+  const onLeadingContentSize = useCallback((_width: number, contentHeight: number) => {
+    const content = Math.round(contentHeight);
+    setLeadingOverflow((current) => (current.content === content ? current : { ...current, content }));
+  }, []);
+  const paneEdge = useMemo(
+    () => (columns && barOnSide ? { topPadding: RAIL_PANE_TOP } : undefined),
+    [barOnSide, columns],
   );
   const pose = useMobilePoseTransition();
   // One key per pane geometry: a fold / unfold / resize that moves a pane's
@@ -264,6 +287,9 @@ export function MobileMangaDetailSplitLayout<ItemT>({
                 }
                 data={NO_ROWS}
                 renderItem={renderNothing}
+                scrollEdgePane={leadingScrolls ? paneEdge : undefined}
+                onLayout={columns ? onLeadingLayout : undefined}
+                onContentSizeChange={columns ? onLeadingContentSize : undefined}
                 style={columns ? styles.clearList : undefined}
                 // The hero column holds still unless it is taller than the
                 // window; the chapters beside it own pull to refresh.
@@ -302,6 +328,7 @@ export function MobileMangaDetailSplitLayout<ItemT>({
               {...listProps}
               style={columns ? styles.clearList : listProps.style}
               contentInsetAdjustmentBehavior={contentInsetAdjustmentBehavior}
+              scrollEdgePane={paneEdge}
               ListFooterComponent={
                 top && topFooter ? (
                   <View style={styles.topFooter}>
@@ -334,6 +361,9 @@ export function MobileMangaDetailSplitLayout<ItemT>({
     </LayoutAnimationConfig>
   );
 }
+
+/** Beside a vertical bar, each pane's top padding below the safe area (pt). */
+const RAIL_PANE_TOP = 24;
 
 /** The info pane hero's own top padding (pt). */
 const PANE_HERO_TOP = 22;

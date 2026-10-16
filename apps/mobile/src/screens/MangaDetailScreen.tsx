@@ -12,11 +12,20 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
   Platform,
+  Share,
   StyleSheet,
   View,
   type ListRenderItemInfo,
 } from "react-native";
+import * as Clipboard from "expo-clipboard";
 import { EmptyLibrary } from "@/components/EmptyLibrary";
+import { useMobileToast } from "@/components/MobileToastContext";
+import {
+  buildMobileChapterReadMarks,
+  resolveMobileShareUrl,
+  selectMobileChaptersToMarkRead,
+  type MobileChapterReadMarkScope,
+} from "@/lib/mobileChapterReadMarks";
 import { MobileCollectionMembershipSheet } from "@/components/MobileCollectionMembershipSheet";
 import { MobileConfirmationSheet } from "@/components/MobileConfirmationSheet";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
@@ -2056,6 +2065,7 @@ export function MangaDetailScreen() {
               mangaTitle: effectiveMetadata?.title ?? null,
             }),
             readerZoomSourceId,
+            coverImage.source,
           ),
         );
       } catch {
@@ -2065,6 +2075,7 @@ export function MangaDetailScreen() {
       }
     },
     [
+      coverImage.source,
       effectiveMetadata?.title,
       getGuardedDetailActionState,
       readerZoomSourceId,
@@ -2115,11 +2126,96 @@ export function MangaDetailScreen() {
   );
   const upNextChapterId =
     upNextChapterIndex !== null ? (visibleChapters[upNextChapterIndex]?.id ?? null) : null;
+  // Marks read, as reading does: one batch through the synced store, then the
+  // list and Continue update at once (`mobileChapterReadMarks.ts`).
+  const markChaptersRead = useCallback(
+    async (scope: MobileChapterReadMarkScope) => {
+      if (!selectedSource) return;
+      const marked = selectMobileChaptersToMarkRead(chapters, selectedChapterProgress, scope);
+      const marks = buildMobileChapterReadMarks({
+        marked,
+        chapters,
+        progressById: selectedChapterProgress,
+        source: selectedSource,
+        libraryItemId: entry?.item.libraryItemId,
+        mangaProgress: selectedProgress,
+        now: Date.now(),
+      });
+      if (marks.chapterProgress.length === 0) return;
+      try {
+        await store.saveChapterProgressBatch(marks.chapterProgress);
+        if (marks.mangaProgress) await store.saveMangaProgress(marks.mangaProgress);
+        const saved = await store.getMangaChapterProgress(
+          selectedSource.registryId,
+          selectedSource.sourceId,
+          selectedSource.sourceMangaId,
+        );
+        const mangaProgress = marks.mangaProgress
+          ? ((await store.getMangaProgressById(marks.mangaProgress.id)) ?? marks.mangaProgress)
+          : null;
+        setState((current) => ({
+          ...current,
+          progress: mangaProgress
+            ? [...current.progress.filter((item) => item.id !== mangaProgress.id), mangaProgress]
+            : current.progress,
+          chapterProgressBySourceId: {
+            ...current.chapterProgressBySourceId,
+            [selectedSource.id]: saved,
+          },
+        }));
+        emitMobileDataChanged("progress");
+        await hapticConfirm();
+      } catch {
+        await hapticError();
+      }
+    },
+    [chapters, entry?.item.libraryItemId, selectedChapterProgress, selectedProgress, selectedSource, store],
+  );
+  const toast = useMobileToast();
+  const shareLink = useCallback(async (url: string | null) => {
+    if (!url) return;
+    try {
+      await Share.share(Platform.OS === "ios" ? { url } : { message: url });
+    } catch {
+      await hapticError();
+    }
+  }, []);
+  const copyLink = useCallback(
+    async (url: string | null) => {
+      if (!url) return;
+      try {
+        await Clipboard.setStringAsync(url);
+        toast.show({ id: "detail-copy-link", tone: "success", title: strings.designExplore.menuLinkCopied });
+      } catch {
+        await hapticError();
+      }
+    },
+    [strings.designExplore.menuLinkCopied, toast],
+  );
+  // The work's web page: the selected source's, else the record's own.
+  const workUrl = resolveMobileShareUrl(
+    selectedChapterListState?.metadata?.url ?? effectiveMetadata?.url,
+  );
   const onExploreChapterAction = useCallback(
     (chapter: ChapterSummary, action: MobileExploreChapterAction) => {
-      openReader(chapter, selectedSource, action === "start" ? 1 : undefined);
+      switch (action) {
+        case "markRead":
+          void markChaptersRead({ kind: "chapter", chapterId: chapter.id });
+          return;
+        case "markPreviousRead":
+          void markChaptersRead({ kind: "previous", chapterId: chapter.id });
+          return;
+        case "share":
+          void shareLink(resolveMobileShareUrl(chapter.url));
+          return;
+        case "copyLink":
+          void copyLink(resolveMobileShareUrl(chapter.url));
+          return;
+        default:
+          openReader(chapter, selectedSource, action === "start" ? 1 : undefined);
+      }
     },
-    [openReader, selectedSource],
+    [copyLink, markChaptersRead, openReader, selectedSource, shareLink],
   );
   const renderExploreChapterRow = useCallback(
     ({ item }: ListRenderItemInfo<MobileChapterRow>) => {
@@ -2135,6 +2231,7 @@ export function MangaDetailScreen() {
           busy={detailActionBusy}
           strings={strings}
           onAction={onExploreChapterAction}
+          moreActions
         />
       );
     },
@@ -2443,6 +2540,34 @@ export function MangaDetailScreen() {
   // zoom to land and then pop in). The handlers wait for the record.
   const nativeHeaderActions: NemuNativeHeaderAction[] = entry || booksHero
     ? [
+        // Above the record's own three, the destructive one last. Share and
+        // Copy Link only when the source gives the work a web page.
+        {
+          icon: "rectangle.stack.badge.plus",
+          label: strings.designExplore.menuAddToCollection,
+          disabled: !entry || detailActionBusy,
+          onPress: openCollectionMembership,
+        },
+        {
+          icon: "checkmark.circle",
+          label: strings.designExplore.menuMarkFinished,
+          disabled: !entry || !selectedSource || detailActionBusy,
+          onPress: () => void markChaptersRead({ kind: "all" }),
+        },
+        ...(workUrl
+          ? [
+              {
+                icon: "square.and.arrow.up" as const,
+                label: strings.designExplore.menuShare,
+                onPress: () => void shareLink(workUrl),
+              },
+              {
+                icon: "link" as const,
+                label: strings.designExplore.menuCopyLink,
+                onPress: () => void copyLink(workUrl),
+              },
+            ]
+          : []),
         {
           icon: "pencil",
           label: strings.mangaDetail.editMetadata,

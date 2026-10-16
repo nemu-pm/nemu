@@ -678,9 +678,10 @@ const ContinueCard = memo(function ContinueCard({
           mangaTitle: title,
         }),
         zoomId,
+        cover,
       ),
     );
-  }, [chapter, source.registryId, source.sourceId, source.sourceMangaId, title, zoomId]);
+  }, [chapter, cover, source.registryId, source.sourceId, source.sourceMangaId, title, zoomId]);
   const accessibilitySummary = [
     title,
     chapterLabel,

@@ -34,10 +34,11 @@ const EDGE_TO_EDGE_IOS_SHEET_CONTENT = { ...EDGE_TO_EDGE_CONTENT, paddingTop: 2 
  */
 export function JapaneseLearningSurfaceFrame({ onPresentationProgress, children, ...sheet }: JapaneseLearningSurfaceFrameProps) {
   const { tokens } = useNemuTheme();
-  const { contentIgnoresSafeAreaEdges } = useJapaneseLearningDrawerFrame();
+  const { contentIgnoresSafeAreaEdges, besideFold } = useJapaneseLearningDrawerFrame();
   return <MobileSheetScaffold
     backgroundColor={tokens.background}
     contentIgnoresSafeAreaEdges={contentIgnoresSafeAreaEdges}
+    backgroundInteraction={besideFold}
     {...sheet}
   >
     {onPresentationProgress ? <SheetProgressObserver visible={sheet.visible} onProgress={onPresentationProgress} /> : null}

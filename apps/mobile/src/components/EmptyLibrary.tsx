@@ -26,7 +26,7 @@ import { getMobileFloatingTabBarOverlayExtent } from "@/lib/mobileFloatingTabBar
 import { getMobileStrings } from "@/lib/mobileI18n";
 import {
   getMobileEmptyLibraryAdaptiveLayout,
-  NEMU_EMPTY_LIBRARY_SECONDARY_ACTION_HEIGHT,
+  getMobileEmptyLibrarySecondaryActionPlacement,
   NEMU_WEB_EMPTY_LIBRARY_VISUAL,
 } from "@/lib/mobileEmptyLibraryLayout";
 import { useMobileContainerFold } from "@/lib/useMobileContainerFold";
@@ -100,9 +100,36 @@ export function EmptyLibrary({
     bleedWidth,
     height: boxHeight,
     fold: containerSplit ? { axis: containerSplit.axis, gutter: containerSplit.gutter } : null,
-    extraCopyHeight:
-      secondaryActionLabel && onSecondaryActionPress ? NEMU_EMPTY_LIBRARY_SECONDARY_ACTION_HEIGHT : 0,
   });
+  // Where the stacked copy ends in the window, for the second link's room
+  // above what covers the bottom (the tab bar, or the home indicator beside
+  // a vertical bar): the safe area, not the hero's own box.
+  const [rootTop, setRootTop] = useState<number | null>(null);
+  const [detailsBottom, setDetailsBottom] = useState<number | null>(null);
+  const onRootLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      onContainerLayout(event);
+      containerRef.current?.measureInWindow((_x, y) => {
+        setRootTop((previous) => (previous !== null && Math.abs(previous - y) < 0.5 ? previous : y));
+      });
+    },
+    [containerRef, onContainerLayout],
+  );
+  const onDetailsLayout = useCallback((event: LayoutChangeEvent) => {
+    const { y, height: detailsHeight } = event.nativeEvent.layout;
+    const next = y + detailsHeight;
+    setDetailsBottom((previous) => (previous !== null && Math.abs(previous - next) < 0.5 ? previous : next));
+  }, []);
+  const secondaryPlacement =
+    secondaryActionLabel && onSecondaryActionPress
+      ? getMobileEmptyLibrarySecondaryActionPlacement({
+          arrangement: layout.arrangement,
+          spaceBelowStack:
+            rootTop !== null && detailsBottom !== null
+              ? height - insets.bottom - (rootTop + detailsBottom)
+              : null,
+        })
+      : "hidden";
   const disabled = Boolean(actionDisabled || actionLoading);
   const pose = useMobilePoseTransition();
   const artScaleStyle = useMobilePoseSizeSpring(layout.portraitMaxWidth);
@@ -205,14 +232,16 @@ export function EmptyLibrary({
         onPress={onActionPress}
         variant="default"
       />
-      {secondaryActionLabel && onSecondaryActionPress ? (
+      {secondaryPlacement !== "hidden" ? (
         <NemuPressable
           accessibilityRole="button"
           accessibilityLabel={secondaryActionLabel}
           hapticFeedback="press"
           pressProfile="row"
-          onPress={onSecondaryActionPress}
-          style={styles.secondaryAction}
+          onPress={() => onSecondaryActionPress?.()}
+          // Under the stacked copy it hangs below the button without moving
+          // anything above it.
+          style={[styles.secondaryAction, secondaryPlacement === "below" ? styles.secondaryBelow : null]}
         >
           <Text style={[nemuText.body, styles.secondaryActionText, { color: tokens.primary }]}>
             {secondaryActionLabel}
@@ -251,7 +280,7 @@ export function EmptyLibrary({
     <LayoutAnimationConfig skipEntering skipExiting>
       <View
         ref={containerRef}
-        onLayout={onContainerLayout}
+        onLayout={onRootLayout}
         collapsable={false}
         style={[
           layout.arrangement === "stack" ? styles.root : styles.splitRoot,
@@ -267,6 +296,7 @@ export function EmptyLibrary({
           entering={pose.entering}
           exiting={pose.exiting}
           style={detailsSlotStyle}
+          onLayout={layout.arrangement === "stack" ? onDetailsLayout : undefined}
         >
           {layout.arrangement === "row" ? (
             <View style={{ width: layout.copyWidth, alignItems: "center" }}>{details}</View>
@@ -336,6 +366,11 @@ const styles = StyleSheet.create({
     minHeight: 44,
     justifyContent: "center",
     paddingHorizontal: 12,
+  },
+  secondaryBelow: {
+    position: "absolute",
+    top: "100%",
+    alignSelf: "center",
   },
   secondaryActionText: {
     fontWeight: nemuFontWeight.semibold,

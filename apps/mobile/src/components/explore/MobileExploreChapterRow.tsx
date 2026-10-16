@@ -8,6 +8,7 @@ import type { ChapterSummary, LocalChapterProgress } from "@/data/schema";
 import { nemuColorWithAlpha, nemuFontWeight, NemuPressable, NemuText, useNemuTheme } from "@/design-system";
 import { formatChapterTitle } from "@/lib/formatChapter";
 import { getMobileChapterPresentation } from "@/lib/mobileChapterPresentation";
+import { resolveMobileShareUrl } from "@/lib/mobileChapterReadMarks";
 import { formatMobileChapterProgressStatus, getMobileChapterProgressAccessory } from "@/lib/mobileChapterProgress";
 import { getMobileExploreChapterRowSubtitle, type MobileChapterVolumeHeader } from "@/lib/mobileExploreChapterList";
 import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
@@ -18,7 +19,21 @@ const STROKE = 1.75;
 const ROW_MIN_HEIGHT = 56;
 const TEXT_MAX_SCALE = 1.6;
 
-export type MobileExploreChapterAction = "read" | "start";
+export type MobileExploreChapterAction =
+  | "read"
+  | "start"
+  | "markRead"
+  | "markPreviousRead"
+  | "share"
+  | "copyLink";
+
+const MENU_ACTIONS: readonly MobileExploreChapterAction[] = [
+  "start",
+  "markRead",
+  "markPreviousRead",
+  "share",
+  "copyLink",
+];
 
 /**
  * One chapter in the design-explore list: a single column whose state reads
@@ -28,8 +43,8 @@ export type MobileExploreChapterAction = "read" | "start";
  * lock for a locked one, nothing for a plain unread one. The chapter to read
  * next carries a soft tint and an "Up next" tag. A volume header sits above
  * the first chapter of each volume. Long press: the system context menu with
- * Read / Continue and Read from the beginning (both open the reader; neither
- * writes anything new).
+ * Read / Continue and Read from the beginning (both open the reader), and
+ * with `moreActions` Mark as Read, Mark Previous as Read, Share and Copy Link.
  */
 export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
   chapter,
@@ -41,6 +56,7 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
   busy,
   strings,
   onAction,
+  moreActions = false,
 }: {
   chapter: ChapterSummary;
   progress: LocalChapterProgress | undefined;
@@ -54,8 +70,14 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
   strings: MobileStrings;
   /** One stable handler for the list (rows are memoised). */
   onAction: (chapter: ChapterSummary, action: MobileExploreChapterAction) => void;
+  /**
+   * The long press also marks chapters read and shares the chapter's link
+   * (where the page handles them; the link only when the source gives one).
+   */
+  moreActions?: boolean;
 }) {
   const { tokens } = useNemuTheme();
+  const shareable = Boolean(resolveMobileShareUrl(chapter.url));
   const { wideChapterRows: wide, chapterPalette } = useMobileMangaDetailPane();
   const selectedInk = upNext ? chapterPalette?.primaryInk : undefined;
   const foreground = selectedInk ?? chapterPalette?.ink ?? tokens.foreground;
@@ -93,11 +115,34 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
       ...(started
         ? [{ id: "start", title: strings.designExplore.chapterReadFromStart, systemImage: "arrow.counterclockwise" }]
         : []),
+      ...(moreActions
+        ? [
+            // No "Mark as Unread": synced progress only moves forward (see
+            // `mobileChapterReadMarks.ts`).
+            ...(presentation.isRead
+              ? []
+              : [{ id: "markRead", title: strings.designExplore.chapterMarkRead, systemImage: "checkmark.circle" }]),
+            {
+              id: "markPreviousRead",
+              title: strings.designExplore.chapterMarkPreviousRead,
+              systemImage: "checkmark.circle.badge.plus",
+            },
+            ...(shareable
+              ? [
+                  { id: "share", title: strings.designExplore.menuShare, systemImage: "square.and.arrow.up" },
+                  { id: "copyLink", title: strings.designExplore.menuCopyLink, systemImage: "link" },
+                ]
+              : []),
+          ]
+        : []),
     ];
-  }, [presentation.isInProgress, presentation.isLocked, presentation.isRead, strings]);
+  }, [moreActions, presentation.isInProgress, presentation.isLocked, presentation.isRead, shareable, strings]);
   const press = useCallback(() => onAction(chapter, "read"), [chapter, onAction]);
   const menu = useCallback(
-    (id: string) => onAction(chapter, id === "start" ? "start" : "read"),
+    (id: string) => {
+      const action = MENU_ACTIONS.find((candidate) => candidate === id);
+      onAction(chapter, action ?? "read");
+    },
     [chapter, onAction],
   );
   const glyphColor = presentation.isRead || presentation.isLocked ? secondary : accent;

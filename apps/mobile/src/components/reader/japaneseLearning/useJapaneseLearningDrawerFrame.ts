@@ -47,7 +47,7 @@ export function useJapaneseLearningDrawerFrame() {
     safeAreaBottom: insets.bottom,
     horizontalFold,
   });
-  const { verticalBarEdge } = useMobileAdaptiveLayout();
+  const { verticalBarEdge, posture } = useMobileAdaptiveLayout();
   const fullScreen = isJapaneseLearningDrawerFullScreen({
     platform: Platform.OS,
     isPad,
@@ -75,6 +75,11 @@ export function useJapaneseLearningDrawerFrame() {
         }),
     /** UIKit shows the sheet over the whole window (compact height): the bubble popout is hidden behind it. */
     fullScreen,
+    /**
+     * Book posture: the sheet takes the half beside the fold and the page in
+     * the other stays live (undimmed, tappable), with no popout over it.
+     */
+    besideFold: posture === "book",
     /**
      * Safe-area edges the drawer's content extends into
      * (`resolveJapaneseLearningSheetIgnoredSafeAreaEdges`): with them, the

@@ -199,6 +199,7 @@ export function mapAidokuChapterToSummary(
   if (chapter.locked) summary.locked = true;
   if (chapter.lang) summary.lang = chapter.lang;
   if (chapter.scanlator) summary.scanlator = chapter.scanlator;
+  if (chapter.url) summary.url = chapter.url;
   return summary;
 }
 

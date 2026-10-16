@@ -193,6 +193,20 @@ describe("reader chrome loading state", () => {
       }),
     ).toBe("8 / 21");
   });
+
+  test("a spread names both of its pages, whatever the reading direction", () => {
+    expect(
+      readerChromePageCountLabel({ pagesStatus: "ready", pageNumber: 6, pageCount: 7, spreadPageNumbers: [6, 7] }),
+    ).toBe("6\u20137 / 7");
+    // Right to left lists the spread's pages in display order.
+    expect(
+      readerChromePageCountLabel({ pagesStatus: "ready", pageNumber: 3, pageCount: 7, spreadPageNumbers: [3, 2] }),
+    ).toBe("2\u20133 / 7");
+    // A cover or a wide page on its own.
+    expect(
+      readerChromePageCountLabel({ pagesStatus: "ready", pageNumber: 1, pageCount: 7, spreadPageNumbers: [1] }),
+    ).toBe("1 / 7");
+  });
 });
 
 describe("reader chrome page indicator during a scrub", () => {

@@ -104,6 +104,12 @@ type MobileNativeSheetScaffoldProps = {
    * last row still rests clear of the fade.
    */
   softBottomEdge?: boolean;
+  /**
+   * iOS: the screen behind the sheet stays interactive and undimmed, e.g. a
+   * reader sheet beside the fold of a book-posed iPhone Duo, next to the page
+   * it works on.
+   */
+  backgroundInteraction?: boolean;
   contentStyle?: StyleProp<ViewStyle>;
   testID?: string;
   children: ReactNode;
@@ -192,6 +198,7 @@ export function MobileNativeSheetScaffold({
   androidContentHandle = false,
   contentIgnoresSafeAreaEdges,
   softBottomEdge = false,
+  backgroundInteraction = false,
   contentStyle,
   testID,
   children,
@@ -771,6 +778,7 @@ export function MobileNativeSheetScaffold({
       onClose={handleClose}
       androidPlacement={androidSheetPlacement}
       contentIgnoresSafeAreaEdges={ignoredEdges}
+      backgroundInteraction={backgroundInteraction}
       {...(drawContentHandle ? { handleComponent: null } : null)}
     >
       {isAndroid ? (

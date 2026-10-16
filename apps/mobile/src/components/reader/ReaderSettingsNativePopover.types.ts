@@ -16,6 +16,8 @@ export type ReaderSettingsNativePopoverProps = {
   regularWidth: boolean;
   /** Tallest the sheet may be (the bottom pane while the device is half folded like a laptop); null: no cap. */
   maxSheetHeight?: number | null;
+  /** iOS book posture: the sheet sits beside the page, which stays undimmed and interactive. */
+  pageInteractive?: boolean;
   mode: ReadingMode;
   activeScrollWidthPct: number;
   isTwoPageMode: boolean;

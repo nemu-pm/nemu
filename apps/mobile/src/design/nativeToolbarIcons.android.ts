@@ -13,12 +13,20 @@ import FolderManagedIcon from "@expo/material-symbols/folder_managed.xml";
 import LayersIcon from "@expo/material-symbols/layers.xml";
 import SearchIcon from "@expo/material-symbols/search.xml";
 import TuneIcon from "@expo/material-symbols/tune.xml";
+import CheckCircleIcon from "@expo/material-symbols/check_circle.xml";
+import LibraryAddIcon from "@expo/material-symbols/library_add.xml";
+import LinkIcon from "@expo/material-symbols/link.xml";
+import ShareIcon from "@expo/material-symbols/share.xml";
 import type { ImageSourcePropType } from "react-native";
 import type { NemuNativeToolbarSymbol } from "./nativeToolbarIcons";
 
 const androidToolbarIcons: Record<NemuNativeToolbarSymbol, ImageSourcePropType> = {
   "arrow.clockwise": RefreshIcon,
   checkmark: CheckIcon,
+  "checkmark.circle": CheckCircleIcon,
+  link: LinkIcon,
+  "rectangle.stack.badge.plus": LibraryAddIcon,
+  "square.and.arrow.up": ShareIcon,
   "chevron.left": ArrowBackIcon,
   "folder.badge.gearshape": FolderManagedIcon,
   "folder.badge.plus": NewFolderIcon,

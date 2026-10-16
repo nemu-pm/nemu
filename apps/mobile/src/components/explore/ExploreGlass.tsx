@@ -1,7 +1,6 @@
 import { useState, type ComponentProps, type ReactNode } from "react";
 import { StyleSheet, View, type LayoutChangeEvent, type StyleProp, type ViewStyle } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import Svg, { Path } from "react-native-svg";
 import {
   nemuColorWithAlpha,
   nemuFontWeight,
@@ -418,18 +417,4 @@ const styles = StyleSheet.create({
   },
 });
 
-/** Matched semibold strokes for the library button's two states. */
-export function ExploreLibraryGlyph({ added, color }: { added: boolean; color: string }) {
-  return (
-    <Svg width={24} height={24} viewBox="0 0 24 24">
-      <Path
-        d={added ? "M5 12.5 9.5 17 19 7" : "M12 5v14M5 12h14"}
-        fill="none"
-        stroke={color}
-        strokeWidth={2.8}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </Svg>
-  );
-}
+export { ExploreLibraryGlyph } from "./ExploreLibraryGlyph";

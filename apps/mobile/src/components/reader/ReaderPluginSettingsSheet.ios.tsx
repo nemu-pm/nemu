@@ -23,6 +23,7 @@ import {
 import {
   interactiveDismissDisabled,
   presentationBackground,
+  presentationBackgroundInteraction,
   presentationDragIndicator,
 } from "@expo/ui/swift-ui/modifiers";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
@@ -104,6 +105,7 @@ type MeasuredPages = Record<string, { width: number; height: number } | undefine
  */
 export function ReaderPluginSettingsSheet({
   visible,
+  pageInteractive = false,
   plugins,
   selectedPluginId,
   loading,
@@ -240,6 +242,7 @@ export function ReaderPluginSettingsSheet({
                   height: sheet.detent,
                 }),
                 presentationDragIndicator("visible"),
+                ...(pageInteractive ? [presentationBackgroundInteraction("enabled")] : []),
                 // A toggle or reset in flight keeps the sheet up, so its
                 // outcome (and any error) lands here, not behind the reader.
                 interactiveDismissDisabled(busy),
