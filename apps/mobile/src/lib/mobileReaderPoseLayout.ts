@@ -670,7 +670,9 @@ export function mobileReaderVerticalBarPolicy(
   sideBar: boolean;
 } {
   const innerFullScreen = layout.fillsScreen !== false
-    && (layout.divisions?.length ?? 0) > 0
+    // A flat inner display may report no division at all (iOS 27.1): a fully
+    // open hinge is the inner display too (tent, on the outer, never is).
+    && ((layout.divisions?.length ?? 0) > 0 || layout.hinge === "fullyOpen")
     // A closed hinge means the outer display, whatever regions are reported.
     && layout.hinge !== "closed";
   if (innerFullScreen) return { optOut: true, sideBar: false };

@@ -64,7 +64,10 @@ export function mobileReaderOnPhoneSizedDisplay(input: {
   if (input.formFactor === "phone") return true;
   if (input.formFactor !== "foldable" || !input.layout) return false;
   if (input.layout.hinge === "closed") return true;
-  // The inner display always reports its fold (active or not).
+  // Fully open is the inner display, whose fold is not reported while it is
+  // flat (tent, on the outer display, is never fully open).
+  if (input.layout.hinge === "fullyOpen") return false;
+  // A partly folded inner display reports its fold.
   return (input.layout.divisions?.length ?? 0) === 0 && input.layout.fillsScreen !== false;
 }
 

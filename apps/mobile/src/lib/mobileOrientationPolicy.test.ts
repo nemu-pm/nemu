@@ -64,6 +64,8 @@ describe("orientation lock", () => {
     expect(mobileReaderPortraitRequest({ phoneSizedDisplay: outer, userLock: false })).toBe(true);
     expect(mobileReaderPortraitRequest({ phoneSizedDisplay: inner, userLock: false })).toBe(false);
     expect(mobileReaderPortraitRequest({ phoneSizedDisplay: inner, userLock: true })).toBe(true);
+    // Fully open and flat, the inner display reports no fold.
+    expect(mobileReaderOnPhoneSizedDisplay({ formFactor: "foldable", layout: { ...duoInner, divisions: [], hinge: "fullyOpen", fillsScreen: true } })).toBe(false);
     // Split View on the inner display is not the outer display.
     expect(mobileReaderOnPhoneSizedDisplay({ formFactor: "foldable", layout: { ...duoInner, divisions: [], hinge: "fullyOpen", fillsScreen: false } })).toBe(false);
   });
