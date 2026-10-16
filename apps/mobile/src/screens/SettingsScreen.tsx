@@ -111,24 +111,25 @@ import type {
   ThemePreference,
 } from "@/data/schema";
 import {
+  createNemuBrandWordmarkStyle,
   MobileChip,
   MobileNativeSheetScaffold,
-  useMobileNativeSheetTheme,
   NemuButton,
-  NemuNativeSwitch,
-  renderNemuNativeToolbarButtons,
-  NemuPressable,
-  useNemuRowHighlight,
-  NemuText,
-  PageListScaffold,
-  radius,
-  spacing,
-  createNemuBrandWordmarkStyle,
   nemuColorWithAlpha,
   nemuFontWeight,
   nemuMaxFontSizeMultiplier,
+  NemuNativeSwitch,
+  NemuPressable,
   nemuSheetMetrics,
+  NemuSheetScrollEdge,
+  NemuText,
+  PageListScaffold,
+  radius,
+  renderNemuNativeToolbarButtons,
+  spacing,
+  useMobileNativeSheetTheme,
   useMobilePageGutters,
+  useNemuRowHighlight,
   useNemuTheme,
 } from "@/design-system";
 import { MobileSheetSelectionIndicator } from "@/components/MobileSheetSelectionIndicator";
@@ -1517,36 +1518,41 @@ function SourceDirectoriesSection({ strings, catalog }: {
         fillContent
         contentIgnoresSafeAreaEdges="horizontal"
       >
-        <FlatList
-          data={selectedDirectory?.enabled ? catalog.data.filter((source) => source.registryId === selectedDirectory.id) : []}
-          keyExtractor={(source) => source.id}
-          contentContainerStyle={styles.directoryContents}
-          ListHeaderComponent={
-            <View style={styles.directoryHeading}>
-              <NemuText selectable style={[styles.settingSubtitle, { color: sheetTokens.mutedForeground }]}>
-                {selectedDirectory?.indexUrl}
-              </NemuText>
-              <NemuText style={[styles.settingSubtitle, { color: sheetTokens.mutedForeground }]}>
-                {strings.settings.sourceDirectoryContentsHint}
-              </NemuText>
-            </View>
-          }
-          ListEmptyComponent={
-            catalog.loading ? <ActivityIndicator color={sheetTokens.primary} /> : (
-              <NemuText style={{ color: sheetTokens.mutedForeground }}>
-                {selectedDirectory?.enabled
-                  ? catalog.error ? strings.settings.sourceDirectoryErrorUnreachable : strings.browse.noSources
-                  : strings.settings.sourceDirectoryDisabledHint}
-              </NemuText>
-            )
-          }
-          renderItem={({ item }) => (
-            <View style={[styles.directorySource, { borderColor: sheetTokens.border }]}>
-              <NemuText style={[styles.directorySourceName, { color: sheetTokens.foreground }]}>{item.name}</NemuText>
-              <NemuText style={[styles.settingSubtitle, { color: sheetTokens.mutedForeground }]}>v{item.version}</NemuText>
-            </View>
+        <NemuSheetScrollEdge>
+          {(edge) => (
+            <FlatList
+              {...edge}
+              data={selectedDirectory?.enabled ? catalog.data.filter((source) => source.registryId === selectedDirectory.id) : []}
+              keyExtractor={(source) => source.id}
+              contentContainerStyle={styles.directoryContents}
+              ListHeaderComponent={
+                <View style={styles.directoryHeading}>
+                  <NemuText selectable style={[styles.settingSubtitle, { color: sheetTokens.mutedForeground }]}>
+                    {selectedDirectory?.indexUrl}
+                  </NemuText>
+                  <NemuText style={[styles.settingSubtitle, { color: sheetTokens.mutedForeground }]}>
+                    {strings.settings.sourceDirectoryContentsHint}
+                  </NemuText>
+                </View>
+              }
+              ListEmptyComponent={
+                catalog.loading ? <ActivityIndicator color={sheetTokens.primary} /> : (
+                  <NemuText style={{ color: sheetTokens.mutedForeground }}>
+                    {selectedDirectory?.enabled
+                      ? catalog.error ? strings.settings.sourceDirectoryErrorUnreachable : strings.browse.noSources
+                      : strings.settings.sourceDirectoryDisabledHint}
+                  </NemuText>
+                )
+              }
+              renderItem={({ item }) => (
+                <View style={[styles.directorySource, { borderColor: sheetTokens.border }]}>
+                  <NemuText style={[styles.directorySourceName, { color: sheetTokens.foreground }]}>{item.name}</NemuText>
+                  <NemuText style={[styles.settingSubtitle, { color: sheetTokens.mutedForeground }]}>v{item.version}</NemuText>
+                </View>
+              )}
+            />
           )}
-        />
+        </NemuSheetScrollEdge>
       </MobileNativeSheetScaffold>
       <MobileSourceDirectoryPrompt
         visible={promptOpen}

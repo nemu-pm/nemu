@@ -41,6 +41,7 @@ import {
   resolveMobilePageContentInsetAdjustment,
 } from "@/lib/mobilePageLayout";
 import { shouldShowMobileFloatingTabBar } from "@/lib/mobileRootTabs";
+import { NemuScrollEdgeSurface } from "./NemuScrollEdgeSurface";
 
 /**
  * A live Dynamic Type change leaves already-mounted text with stale layout
@@ -68,6 +69,12 @@ type PageScaffoldProps = {
    * padding instead of deriving it from the bar.
    */
   headerSearchBar?: boolean;
+  /**
+   * The native bar's row shows something (a title, a search field): the soft
+   * edge then covers it whole where the system draws none (`useNemuScrollEdge`).
+   * False for a title page before its compact title fades in.
+   */
+  barContentVisible?: boolean;
   scrollRef?: Ref<ScrollViewInstance>;
 };
 
@@ -97,6 +104,12 @@ type PageListScaffoldProps<ItemT> = Omit<
    * padding instead of deriving it from the bar.
    */
   headerSearchBar?: boolean;
+  /**
+   * The native bar's row shows something (a title, a search field): the soft
+   * edge then covers it whole where the system draws none (`useNemuScrollEdge`).
+   * False for a title page before its compact title fades in.
+   */
+  barContentVisible?: boolean;
   listRef?: Ref<FlatList<ItemT>>;
 };
 
@@ -272,6 +285,7 @@ function usePageRefreshControl({
   ) : undefined;
 }
 
+
 export function PageScaffold({
   children,
   onRefresh,
@@ -282,6 +296,7 @@ export function PageScaffold({
   contentInsetAdjustmentBehavior: requestedContentInsetAdjustment,
   headerBarHeight,
   headerSearchBar,
+  barContentVisible,
   scrollRef,
 }: PageScaffoldProps) {
   const contentInsetAdjustmentBehavior = resolveMobilePageContentInsetAdjustment({
@@ -326,19 +341,25 @@ export function PageScaffold({
   }, [rootTabHref]);
 
   return (
-    <ScrollView
-      ref={setScrollRef}
-      style={[styles.root, { backgroundColor: tokens.background }]}
-      automaticallyAdjustContentInsets={contentInsetAdjustmentBehavior !== "never"}
-      automaticallyAdjustsScrollIndicatorInsets={contentInsetAdjustmentBehavior !== "never"}
-      contentContainerStyle={contentStyle}
-      contentInsetAdjustmentBehavior={contentInsetAdjustmentBehavior}
-      keyboardShouldPersistTaps="handled"
-      refreshControl={refreshControl}
-      showsVerticalScrollIndicator={false}
+    <NemuScrollEdgeSurface
+      nativeHeader={nativeHeader}
+      barContentVisible={barContentVisible}
+      headerBarHeight={headerBarHeight}
     >
-      <Fragment key={fontScaleLayoutKey}>{children}</Fragment>
-    </ScrollView>
+      <ScrollView
+        ref={setScrollRef}
+        style={[styles.root, { backgroundColor: tokens.background }]}
+        automaticallyAdjustContentInsets={contentInsetAdjustmentBehavior !== "never"}
+        automaticallyAdjustsScrollIndicatorInsets={contentInsetAdjustmentBehavior !== "never"}
+        contentContainerStyle={contentStyle}
+        contentInsetAdjustmentBehavior={contentInsetAdjustmentBehavior}
+        keyboardShouldPersistTaps="handled"
+        refreshControl={refreshControl}
+        showsVerticalScrollIndicator={false}
+      >
+        <Fragment key={fontScaleLayoutKey}>{children}</Fragment>
+      </ScrollView>
+    </NemuScrollEdgeSurface>
   );
 }
 
@@ -352,6 +373,7 @@ export function PageListScaffold<ItemT>({
   headerBarHeight,
   headerSearchBar,
   contentContainerStyle,
+  barContentVisible,
   listRef,
   ...flatListProps
 }: PageListScaffoldProps<ItemT>) {
@@ -397,21 +419,27 @@ export function PageListScaffold<ItemT>({
   }, [rootTabHref]);
 
   return (
-    <FlatList
-      key={fontScaleLayoutKey}
-      ref={setListRef}
-      style={[styles.root, { backgroundColor: tokens.background }]}
-      automaticallyAdjustContentInsets={contentInsetAdjustmentBehavior !== "never"}
-      automaticallyAdjustsScrollIndicatorInsets={contentInsetAdjustmentBehavior !== "never"}
-      contentContainerStyle={[contentStyle, contentContainerStyle]}
-      contentInsetAdjustmentBehavior={contentInsetAdjustmentBehavior}
-      keyboardShouldPersistTaps="handled"
-      refreshControl={refreshControl}
-      showsVerticalScrollIndicator={false}
-      {...flatListProps}
-      ListEmptyComponent={flatListProps.ListEmptyComponent ?? undefined}
-      ListFooterComponent={flatListProps.ListFooterComponent ?? undefined}
-    />
+    <NemuScrollEdgeSurface
+      nativeHeader={nativeHeader}
+      barContentVisible={barContentVisible}
+      headerBarHeight={headerBarHeight}
+    >
+      <FlatList
+        key={fontScaleLayoutKey}
+        ref={setListRef}
+        style={[styles.root, { backgroundColor: tokens.background }]}
+        automaticallyAdjustContentInsets={contentInsetAdjustmentBehavior !== "never"}
+        automaticallyAdjustsScrollIndicatorInsets={contentInsetAdjustmentBehavior !== "never"}
+        contentContainerStyle={[contentStyle, contentContainerStyle]}
+        contentInsetAdjustmentBehavior={contentInsetAdjustmentBehavior}
+        keyboardShouldPersistTaps="handled"
+        refreshControl={refreshControl}
+        showsVerticalScrollIndicator={false}
+        {...flatListProps}
+        ListEmptyComponent={flatListProps.ListEmptyComponent ?? undefined}
+        ListFooterComponent={flatListProps.ListFooterComponent ?? undefined}
+      />
+    </NemuScrollEdgeSurface>
   );
 }
 
