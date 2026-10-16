@@ -1,4 +1,4 @@
-import { mobileSheetCanUseFullWidth } from "./mobileNativeSheet";
+import { mobileSheetCanUseFullWidth, resolveMobileNativeSheetIosBarEdges } from "./mobileNativeSheet";
 import { describe, expect, test } from "bun:test";
 import { mobileAdaptiveLayout } from "./mobileAdaptiveLayout";
 import { getMobileStrings } from "./mobileI18n";
@@ -649,3 +649,30 @@ describe("custom outer-screen sheet width", () => {
     expect(mobileSheetCanUseFullWidth([400], 300)).toBe(false);
   });
 });
+
+describe("iOS sheet and the system vertical bar", () => {
+  const base = { platform: "ios", barInset: 84, callerEdges: undefined, shortDetent: false };
+  test("the body always spans the bar's column; only a tall sheet's header keeps the inset, on the bar's side", () => {
+    // Duo outer display: bar on the right.
+    expect(resolveMobileNativeSheetIosBarEdges({ ...base, verticalBarSide: "right" })).toEqual({
+      edges: ["horizontal"],
+      headerPadding: { left: 0, right: 84 },
+    });
+    // A leading Split View pane: bar on the left.
+    expect(resolveMobileNativeSheetIosBarEdges({ ...base, verticalBarSide: "left" }).headerPadding).toEqual({ left: 84, right: 0 });
+    // A short detent sits below the status glyphs: the header spans it too.
+    expect(resolveMobileNativeSheetIosBarEdges({ ...base, verticalBarSide: "right", shortDetent: true })).toEqual({
+      edges: ["horizontal"],
+      headerPadding: { left: 0, right: 0 },
+    });
+  });
+  test("no bar, Android, or the caller's own edges: untouched", () => {
+    expect(resolveMobileNativeSheetIosBarEdges({ ...base, verticalBarSide: null })).toEqual({ edges: [], headerPadding: { left: 0, right: 0 } });
+    expect(resolveMobileNativeSheetIosBarEdges({ ...base, platform: "android", verticalBarSide: "right" }).edges).toEqual([]);
+    expect(resolveMobileNativeSheetIosBarEdges({ ...base, verticalBarSide: "right", callerEdges: ["bottom"] })).toEqual({
+      edges: ["bottom"],
+      headerPadding: { left: 0, right: 0 },
+    });
+  });
+});
+

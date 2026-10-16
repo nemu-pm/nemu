@@ -538,6 +538,38 @@ export function canDismissMobileNativeSheetFromHardwareBack(
   );
 }
 
+/**
+ * iOS with the system vertical bar (the iPhone Duo outer display, a Split
+ * View pane): the bar's column is a safe area inside a sheet that spans it.
+ * The body always reaches across it, so the sheet's content fills it
+ * symmetrically (a body kept out of it left a bare strip on the bar's side:
+ * the right on the outer display, the left in a leading Split View pane).
+ * Only the header row of a sheet that may reach the status glyphs at the top
+ * of the bar (any sheet but a short detent) keeps the bar's inset, so its
+ * trailing action never lands under them. A caller's own edges win.
+ */
+export function resolveMobileNativeSheetIosBarEdges(options: {
+  platform: string;
+  verticalBarSide: "left" | "right" | null;
+  /** The window's safe-area inset on the bar's side. */
+  barInset: number;
+  callerEdges: readonly ("leading" | "trailing" | "horizontal" | "bottom")[] | undefined;
+  /** `mobileSheetCanUseFullWidth` for the sheet's snap points. */
+  shortDetent: boolean;
+}): {
+  edges: ("leading" | "trailing" | "horizontal" | "bottom")[];
+  headerPadding: { left: number; right: number };
+} {
+  const none = { left: 0, right: 0 };
+  if (options.callerEdges !== undefined) return { edges: [...options.callerEdges], headerPadding: none };
+  if (options.platform !== "ios" || options.verticalBarSide === null) return { edges: [], headerPadding: none };
+  const inset = options.shortDetent ? 0 : Math.max(0, options.barInset);
+  return {
+    edges: ["horizontal"],
+    headerPadding: options.verticalBarSide === "right" ? { left: 0, right: inset } : { left: inset, right: 0 },
+  };
+}
+
 /** Short custom-chrome sheets sit below the system status area. Tall sheets
  * retain its side safe area, including when expanded to a second detent. */
 export function mobileSheetCanUseFullWidth(snapPoints: (string | number)[] | undefined, availableHeight: number): boolean {

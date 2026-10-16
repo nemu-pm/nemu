@@ -45,6 +45,7 @@ import {
   resolveMobileNativeSheetBodyTopPadding,
   resolveMobileNativeSheetBottomPadding,
   resolveMobileNativeSheetDismissLabel,
+  resolveMobileNativeSheetIosBarEdges,
   resolveMobileNativeSheetIosFramedDetentHeight,
   resolveMobileNativeSheetIosLayout,
   resolveMobileNativeSheetIosPresentation,
@@ -432,12 +433,22 @@ export function MobileNativeSheetScaffold({
     </Text>
   ) : null;
   const hasMultipleSnapPoints = (effectiveSnapPoints?.length ?? 0) > 1;
-  const callerIgnoredEdges =
-    contentIgnoresSafeAreaEdges === undefined
-      ? (Platform.OS === "ios" && adaptive.verticalBarSide !== null && mobileSheetCanUseFullWidth(effectiveSnapPoints, availableSheetHeight) ? ["horizontal" as const] : [])
-      : Array.isArray(contentIgnoresSafeAreaEdges)
-        ? contentIgnoresSafeAreaEdges
-        : [contentIgnoresSafeAreaEdges];
+  const barEdges = resolveMobileNativeSheetIosBarEdges({
+    platform: Platform.OS,
+    verticalBarSide: adaptive.verticalBarSide,
+    barInset:
+      adaptive.verticalBarSide === "left"
+        ? (adaptive.safeAreaInsets?.left ?? insets.left)
+        : (adaptive.safeAreaInsets?.right ?? insets.right),
+    callerEdges:
+      contentIgnoresSafeAreaEdges === undefined
+        ? undefined
+        : Array.isArray(contentIgnoresSafeAreaEdges)
+          ? contentIgnoresSafeAreaEdges
+          : [contentIgnoresSafeAreaEdges],
+    shortDetent: mobileSheetCanUseFullWidth(effectiveSnapPoints, availableSheetHeight),
+  });
+  const callerIgnoredEdges = barEdges.edges;
   // iOS soft edge: the body reaches through the sheet's bottom safe area to
   // its own edge (the keyboard's region still applies).
   const ignoredEdgesSignature = JSON.stringify(
@@ -592,6 +603,7 @@ export function MobileNativeSheetScaffold({
             interactionLocked ? "no-hide-descendants" : "auto"
           }
           pointerEvents={interactionLocked ? "none" : "auto"}
+          style={{ paddingLeft: barEdges.headerPadding.left, paddingRight: barEdges.headerPadding.right }}
         >
           <MobileSheetHeader
             leading={headerLeading}
