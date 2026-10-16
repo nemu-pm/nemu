@@ -53,6 +53,7 @@ export function MobileLibraryOptionsSheet({
     fontScale,
     maxHeight: height - insets.top,
     tightTop,
+    bottomInset: insets.bottom,
   });
   const busyModifiers = busy ? [swiftDisabled(true)] : [];
 
@@ -64,6 +65,8 @@ export function MobileLibraryOptionsSheet({
       title={inLibrary ? strings.sourceManga.libraryOptionsTitle : strings.sourceManga.addOptionsTitle}
       detents={[{ height: sheetHeight }]}
       tightTop={tightTop}
+      // iPad: a centred form sheet, not a short card floating mid-screen.
+      padSizing="form"
       interactiveDismissDisabled={busy}
       closeAccessibilityLabel={strings.common.done}
       testID="SourceMangaLibraryOptionsSheet"

@@ -22,6 +22,12 @@ export const MOBILE_LIBRARY_OPTIONS_SHEET_METRICS = {
    * inset on top of a height detent (measured on iPhone 17 Pro, iOS 27).
    */
   bottom: 4,
+  /**
+   * The least room under the footer: where there is no home indicator (an
+   * iPhone SE) the system adds no inset below the detent, and the footnote's
+   * last line was cut at the sheet's edge.
+   */
+  minBottomRoom: 28,
 } as const;
 
 /**
@@ -37,6 +43,7 @@ export function getMobileLibraryOptionsNativeSheetHeight({
   fontScale = 1,
   maxHeight,
   tightTop = false,
+  bottomInset = 34,
 }: {
   /** Row count of each section, top to bottom. */
   sections: readonly number[];
@@ -46,6 +53,8 @@ export function getMobileLibraryOptionsNativeSheetHeight({
   maxHeight: number;
   /** The form starts just under the bar (`MobileNativeFormSheet` `tightTop`). */
   tightTop?: boolean;
+  /** The window's bottom safe-area inset, which the system adds under the detent. */
+  bottomInset?: number;
 }): number {
   const m = MOBILE_LIBRARY_OPTIONS_SHEET_METRICS;
   const scale = Math.max(1, fontScale);
@@ -53,6 +62,7 @@ export function getMobileLibraryOptionsNativeSheetHeight({
   const gaps = Math.max(0, sections.length - 1) * m.sectionGap;
   const footer = footerLines > 0 ? footerLines * m.footerLine * scale + m.footerPadding : 0;
   const top = m.chrome + m.formTop - (tightTop ? MOBILE_LIBRARY_OPTIONS_TIGHT_TOP_SAVING : 0);
-  const height = top + rows * m.row * scale + gaps + footer + m.bottom;
+  const bottom = Math.max(m.bottom, m.minBottomRoom - Math.max(0, bottomInset));
+  const height = top + rows * m.row * scale + gaps + footer + bottom;
   return Math.round(Math.min(height, Math.max(240, maxHeight)));
 }

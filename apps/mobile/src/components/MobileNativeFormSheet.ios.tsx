@@ -25,11 +25,12 @@ import {
   presentationBackground,
   presentationDetents,
   presentationDragIndicator,
+  presentationSizing,
   scrollContentBackground,
   scrollEdgeEffectStyle,
   tint,
 } from "@expo/ui/swift-ui/modifiers";
-import { PlatformColor, StyleSheet, View, type ColorValue } from "react-native";
+import { Platform, PlatformColor, StyleSheet, View, type ColorValue } from "react-native";
 import { useNemuTheme } from "@/design-system";
 import { MOBILE_GROUPED_FORM_TOP_MARGIN } from "@/lib/mobileLibrarySheetLayout";
 import {
@@ -77,6 +78,7 @@ export function MobileNativeFormSheet({
   detents,
   background = "glass",
   tightTop = false,
+  padSizing,
   interactiveDismissDisabled: dismissDisabled = false,
   cancel,
   closeAccessibilityLabel,
@@ -127,7 +129,10 @@ export function MobileNativeFormSheet({
         >
           <SwiftGroup
             modifiers={[
-              presentationDetents(detents),
+              // On iPad a form sheet sizes itself; the detents are the phone's.
+              ...(padSizing === "form" && Platform.OS === "ios" && Platform.isPad
+                ? [presentationSizing("form")]
+                : [presentationDetents(detents)]),
               presentationDragIndicator("visible"),
               ...(grouped ? [presentationBackground(GROUPED_SHEET_BACKGROUND)] : []),
               interactiveDismissDisabled(dismissDisabled),

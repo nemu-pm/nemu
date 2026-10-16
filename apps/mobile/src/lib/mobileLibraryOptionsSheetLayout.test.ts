@@ -27,3 +27,13 @@ describe("getMobileLibraryOptionsNativeSheetHeight", () => {
     expect(loose - tight).toBe(50);
   });
 });
+
+describe("library options sheet without a home indicator", () => {
+  test("an iPhone SE (no bottom inset) gets room under the footnote; a phone with one is unchanged", () => {
+    const base = { sections: [2], footerLines: 2, maxHeight: 800, tightTop: true };
+    const withIndicator = getMobileLibraryOptionsNativeSheetHeight({ ...base, bottomInset: 34 });
+    const homeButton = getMobileLibraryOptionsNativeSheetHeight({ ...base, bottomInset: 0 });
+    expect(homeButton - withIndicator).toBe(24);
+    expect(getMobileLibraryOptionsNativeSheetHeight(base)).toBe(withIndicator);
+  });
+});
