@@ -1996,7 +1996,7 @@ final class NemuZoomTargetView: ExpoView {
   private func observeSettle() {
     guard !alignsToSelf, !settleObserved else { return }
     settleObserved = true
-    let coordinator = owningViewController()?.transitionCoordinator
+    let coordinator = owningViewController().map(NemuZoomTargetView.pushedController(for:))?.transitionCoordinator
     guard let coordinator, coordinator.isAnimated else {
       DispatchQueue.main.async { [weak self] in self?.sendSettled() }
       return
@@ -2032,10 +2032,25 @@ final class NemuZoomTargetView: ExpoView {
     return nil
   }
 
+  /// The screen a stack actually pushes and pops for `controller`: the root
+  /// screen of a nested stack (the reader opening the sources flow) moves
+  /// with the outer screen that hosts that stack, so the zoom belongs there.
+  private static func pushedController(for controller: UIViewController) -> UIViewController {
+    var current = controller
+    while let stack = current.navigationController,
+          stack.viewControllers.first === current,
+          let host = stack.parent,
+          host.navigationController != nil {
+      current = host
+    }
+    return current
+  }
+
   private func setup() {
     // The hero only names where the zoom lands; the route-level target owns
     // the transition.
-    guard #available(iOS 18.0, *), !alignsToSelf, !zoomId.isEmpty, let controller = owningViewController() else { return }
+    guard #available(iOS 18.0, *), !alignsToSelf, !zoomId.isEmpty, let owner = owningViewController() else { return }
+    let controller = NemuZoomTargetView.pushedController(for: owner)
     let id = zoomId
     let key = "\(id)|\(interactiveDismiss)"
     // Assigning the same transition again (the second setup pass, a

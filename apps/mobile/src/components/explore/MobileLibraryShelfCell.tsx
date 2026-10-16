@@ -186,8 +186,9 @@ export const MobileLibraryShelfCell = memo(function MobileLibraryShelfCell({
           {info.badge ? (
             <View
               accessibilityElementsHidden
-              style={[styles.tag, { backgroundColor: tokens.danger }]}
+              style={[styles.tag, { backgroundColor: tokens.danger, borderColor: dark ? "#000000" : "#ffffff" }]}
             >
+              <View style={styles.tagDot} />
               {newCount ? (
                 <MobileOdometerText
                   value={formatMobileNewChapterTag(newCount)}
@@ -231,18 +232,27 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
-  // nemu's new-chapters badge: a pill inside the cover's top corner, where
-  // the Grid card carries its own badge, so Shelf ⇄ Grid keeps it in place.
+  // nemu's new-chapters tag: a rounded tab hanging off the corner, ringed by
+  // the page colour, carrying a dot and the count.
   tag: {
     position: "absolute",
-    top: 6,
-    right: 6,
-    minWidth: 10,
-    minHeight: 18,
+    top: -7,
+    right: -6,
+    minHeight: 20,
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 6,
+    gap: 4,
+    paddingLeft: 6,
+    paddingRight: 7,
     borderRadius: radius.pill,
+    borderTopLeftRadius: 4,
+    borderWidth: 1.5,
+  },
+  tagDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 5 / 2,
+    backgroundColor: "rgba(255,255,255,0.9)",
   },
   tagText: {
     fontSize: 11,

@@ -64,13 +64,20 @@ export function mobileReaderOnPhoneSizedDisplay(input: {
   if (input.formFactor === "phone") return true;
   if (input.formFactor !== "foldable" || !input.layout) return false;
   if (input.layout.hinge === "closed") return true;
-  // The inner display always reports its fold (active or not).
+  // Fully open is the inner display, whose fold is not reported while it is
+  // flat (tent, on the outer display, is never fully open).
+  if (input.layout.hinge === "fullyOpen") return false;
+  // A partly folded inner display reports its fold.
   return (input.layout.divisions?.length ?? 0) === 0 && input.layout.fillsScreen !== false;
 }
 
-/** The reader's Orientation Lock switch only means something where the reader can rotate. */
-export function mobileReaderOrientationLockAvailable(input: { formFactor: MobileDeviceFormFactor; phoneSizedDisplay: boolean }): boolean {
-  return input.formFactor !== "phone" && !input.phoneSizedDisplay;
+/**
+ * Where the reader shows its Orientation Lock switch: everywhere but an
+ * ordinary iPhone, which is portrait anyway. The iPhone Duo shows it on both
+ * displays (owner decision 2026-10-16).
+ */
+export function mobileReaderOrientationLockAvailable(input: { formFactor: MobileDeviceFormFactor }): boolean {
+  return input.formFactor !== "phone";
 }
 
 /** What the reader asks of the app while it is on screen. */

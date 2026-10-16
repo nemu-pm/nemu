@@ -7,6 +7,7 @@ import {
 } from "@/lib/mobileEntryCover";
 import { isMobileCoverSizeVariantOf } from "@/lib/mobileCoverPreference";
 import { primeMobileExploreDetailHandoff } from "@/lib/mobileExploreDetailHandoff";
+import { primeMobileReaderZoomCover } from "@/lib/mobileReaderZoomHandoff";
 import { mobileInstalledSourceMatchesLink } from "@/lib/mobileInstalledSourceKeys";
 import { useMobileSourceImageRequest } from "@/lib/useMobileSourceImageRequest";
 import { zoomTransitionAvailable } from "../../../modules/nemu-window-layout";
@@ -109,9 +110,17 @@ export function pushMobileExploreDetail(
   router.push(mobileExploreZoomHref(entry.item.libraryItemId, zoomId, sourceId));
 }
 
-/** Adds the zoom source to a reader href (a string from getMobileSourceReaderHref). */
-export function withMobileExploreZoom<T>(href: T, zoomId?: string | null): T {
+/**
+ * Adds the zoom source to a reader href (a string from getMobileSourceReaderHref).
+ * `cover` is the source cover as it is painted: the zoom lands on it.
+ */
+export function withMobileExploreZoom<T>(
+  href: T,
+  zoomId?: string | null,
+  cover?: MobileExploreCoverSource | null,
+): T {
   if (!zoomId || !zoomTransitionAvailable || typeof href !== "string") return href;
+  primeMobileReaderZoomCover(zoomId, cover);
   return `${href}${href.includes("?") ? "&" : "?"}zoom=${encodeURIComponent(zoomId)}` as T;
 }
 

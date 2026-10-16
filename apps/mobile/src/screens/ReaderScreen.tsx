@@ -146,6 +146,7 @@ import {
 } from "@/components/reader/ReaderCapsule";
 import { ReaderBackGlyph } from "@/components/reader/ReaderBackGlyph";
 import { ReaderDarkThemeScope } from "@/components/reader/ReaderDarkThemeScope";
+import { useReaderZoomEntry } from "@/components/reader/readerZoomEntry";
 import { ReaderMoreMenu } from "@/components/reader/ReaderMoreMenu";
 import { useReaderScrubPreviewThumbnails } from "@/components/reader/useReaderScrubPreviewThumbnails";
 import { ReaderPluginSettingsSheet } from "@/components/reader/ReaderPluginSettingsSheet";
@@ -633,6 +634,8 @@ const READER_TOP_SCRIM_COLORS = [
   "rgba(0,0,0,0)",
 ] as const;
 const READER_TOP_SCRIM_LOCATIONS = [0, 0.45, 0.8, 1] as const;
+/** The vertical bar's status column (time, signal) and a feather below it. */
+const READER_RAIL_STATUS_SCRIM_HEIGHT = 200;
 /** Glass pieces closer than this blend (the row's pieces sit 10pt apart, so they stay separate at rest). */
 const READER_CAPSULE_GLASS_SPACING = 8;
 /** How long the chrome stays up after a chapter opens before it fades away. */
@@ -1090,6 +1093,7 @@ export function ReaderScreen() {
     [chapterId, params.chapterLocked, params.chapterNumber, params.chapterTitle, params.volumeNumber],
   );
   const { reduceMotion, scheme } = useNemuTheme();
+  const readerZoomEntry = useReaderZoomEntry();
   // Reduce Motion keeps the chrome's cross-fade but drops its 8px slide.
   const readerChromeAnimations = readerChromeAnimationsForMotion(reduceMotion);
   const insets = useSafeAreaInsets();
@@ -1267,7 +1271,6 @@ export function ReaderScreen() {
   });
   const readerOrientationLockAvailable = mobileReaderOrientationLockAvailable({
     formFactor: deviceFormFactor,
-    phoneSizedDisplay: readerOnPhoneSizedDisplay,
   });
   useReaderDisplayEnvironment({
     keepAwakeEnabled: readerKeepAwake,
@@ -1915,6 +1918,17 @@ export function ReaderScreen() {
   const currentDisplayedPageIdentity = currentDisplayedPage
     ? readerPageIdentityFor(currentDisplayedPage)
     : "";
+  // The cover a zoom landed on fades into the page on screen once it has
+  // decoded, or at once into a chapter or page that failed (its own state).
+  const readerZoomPageShown =
+    pagesState.status === "error" ||
+    pagesState.status === "blocked" ||
+    (currentDisplayedPageIdentity !== "" &&
+      (readerImageSizes.has(currentDisplayedPageIdentity) ||
+        readerImageErrors.has(currentDisplayedPageIdentity)));
+  useEffect(() => {
+    if (readerZoomPageShown) readerZoomEntry.onFirstPage();
+  }, [readerZoomEntry, readerZoomPageShown]);
   const savedIntraPageState = normalizeMobileReaderIntraPageState({
     intraPageProgress: state.chapterProgress?.intraPageProgress,
     intraPageContentIdentity: state.chapterProgress?.intraPageContentIdentity,
@@ -2906,10 +2920,18 @@ export function ReaderScreen() {
   const readerChromePagesPending = pagesState.status === "loading";
   // Hidden entirely while the page list is unresolved: the ring spinner next
   // to it already says the chapter is loading, and "— / —" reads as broken.
+  // A spread names both of its pages, unless a scrub is previewing another.
+  const readerChromeSpread =
+    isTwoPageMode && readerChromePageIndex === clampedPageIndex
+      ? readerSpreads[currentSpreadIndex]
+      : undefined;
   const readerTopPageCountLabel = readerChromePageCountLabel({
     pagesStatus: pagesState.status,
     pageNumber: readerChromeSourcePageNumber,
     pageCount,
+    spreadPageNumbers: readerChromeSpread?.map((index) =>
+      readerRoutePageForDisplayIndex(index, pageCount, mode),
+    ),
   });
   const readerInteractionSurfaceOpen =
     readerDisplaySettingsOpen ||
@@ -7243,7 +7265,11 @@ export function ReaderScreen() {
 
   // Capsule chrome stays mounted for its dismiss animation (the glass
   // dematerializes with its content) instead of relying on exiting fades.
-  const readerChromePresent = showReaderChrome && !endOfChapterPromptVisible;
+  // With the vertical bar the settings sheet rises over the whole reader
+  // (its own bar replaces the reader's): the chrome fades out under it
+  // instead of being cut off by the sheet's edge, and back in after.
+  const readerChromeUnderSheet = readerSideBar && useNativeReaderSettings && readerDisplaySettingsOpen;
+  const readerChromePresent = showReaderChrome && !endOfChapterPromptVisible && !readerChromeUnderSheet;
   const { durationMs: readerChromeMaterialMs, slide: readerChromeSlide } = readerChromeMaterialTiming(reduceMotion);
   const [readerChromeLingering, setReaderChromeLingering] = useState(false);
   const [readerChromeWasPresent, setReaderChromeWasPresent] = useState(readerChromePresent);
@@ -8052,20 +8078,22 @@ export function ReaderScreen() {
                 style={StyleSheet.absoluteFill}
               />
             </Animated.View>
+            {/* Under the status column at the top of the vertical bar only:
+                the bar's own items are glass, and a scrim down its length
+                greyed the page that runs beneath it. */}
             {readerSideBar ? (
               <Animated.View pointerEvents="none" style={[
                 {
-                  position: "absolute", top: 0, bottom: 0,
+                  position: "absolute", top: 0, height: READER_RAIL_STATUS_SCRIM_HEIGHT,
                   ...(readerPose.safeInsets.left > readerPose.safeInsets.right ? { left: 0 } : { right: 0 }),
-                  width: Math.max(readerPose.safeInsets.left, readerPose.safeInsets.right) + 24,
+                  width: Math.max(readerPose.safeInsets.left, readerPose.safeInsets.right),
                 },
                 readerChromeFadeStyle,
               ]}>
                 <LinearGradient
                   pointerEvents="none"
-                  colors={["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0.6)"]}
-                  start={{ x: readerPose.safeInsets.left > readerPose.safeInsets.right ? 1 : 0, y: 0 }}
-                  end={{ x: readerPose.safeInsets.left > readerPose.safeInsets.right ? 0 : 1, y: 0 }}
+                  colors={READER_TOP_SCRIM_COLORS}
+                  locations={READER_TOP_SCRIM_LOCATIONS}
                   style={StyleSheet.absoluteFill}
                 />
               </Animated.View>

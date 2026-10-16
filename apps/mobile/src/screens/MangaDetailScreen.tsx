@@ -2056,6 +2056,7 @@ export function MangaDetailScreen() {
               mangaTitle: effectiveMetadata?.title ?? null,
             }),
             readerZoomSourceId,
+            coverImage.source,
           ),
         );
       } catch {
@@ -2065,6 +2066,7 @@ export function MangaDetailScreen() {
       }
     },
     [
+      coverImage.source,
       effectiveMetadata?.title,
       getGuardedDetailActionState,
       readerZoomSourceId,

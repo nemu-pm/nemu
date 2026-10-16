@@ -300,18 +300,13 @@ export function ReaderSettingsNativePopover({
           </SwiftSection>
         ) : null}
         {showNotebookRow && onSetNotebookPane ? (
-          // Laptop Mode: what the lower half shows, as a two-way choice.
-          <SwiftSection
-            title={strings.duo.notebookPane}
-            footer={<SwiftText>{strings.duo.notebookPaneFootnote}</SwiftText>}
-          >
+          // Laptop Mode: what the lower half shows. A menu row like the other
+          // choices; only the reading direction is a segmented control.
+          <SwiftSection footer={<SwiftText>{strings.duo.notebookPaneFootnote}</SwiftText>}>
             <SwiftPicker
-              modifiers={[
-                pickerStyle("segmented"),
-                labelsHidden(),
-                swiftAccessibilityLabel(strings.duo.notebookPane),
-                ...busyModifiers,
-              ]}
+              label={strings.duo.notebookPane}
+              systemImage="rectangle.split.1x2"
+              modifiers={[pickerStyle("menu"), ...busyModifiers]}
               selection={notebookPane}
               onSelectionChange={(selection) => {
                 if (busy || !isMobileReaderNotebookPanePreference(selection) || selection === notebookPane) return;
