@@ -43,6 +43,8 @@ import type { MobileStrings } from "@/lib/mobileI18n";
 import {
   buildMobileDetailInfoRows,
   buildMobileDetailMetaCandidates,
+  fitMobileDetailFacts,
+  guessMobileDetailFactsLayout,
   pickMobileDetailMetaLine,
   withoutMobileDescriptionLicence,
 } from "@/lib/mobileMangaDetailInfo";
@@ -116,8 +118,6 @@ const COLUMN_ACTIONS_MAX_WIDTH = 360;
 /** `styles.head.paddingTop`: the cover's top below the hero's. */
 const HEAD_PADDING_TOP = 8;
 /** First-commit estimates of the blocks the cover's size depends on (scaled with the text). */
-/** Narrowest pane content width that fits the four facts in one row. */
-const PANE_FACTS_ROW_MIN_WIDTH = 340;
 const ESTIMATE = { headText: 8 + 18 + 33 + 4 + 20, facts: 34, actions: 50 } as const;
 /** The primary button's leading glyph (the source's icon, or play): larger than the label's cap height. */
 const PRIMARY_GLYPH = 22;
@@ -146,6 +146,10 @@ const INFO_GLYPH = 20;
 const TITLE_BLOCK_PADDING = 12;
 /** The ⓘ's box and its gap from the text before it (styles.infoButton, styles.metaRow). */
 const INFO_ROOM = INFO_GLYPH + 4 + 6;
+/** The ⓘ's box and its gap after the facts (styles.infoButton, styles.factsWithInfo). */
+const FACTS_INFO_ROOM = INFO_GLYPH + 4 + 4;
+/** How far a long fact value in half the row shrinks before it is cut. */
+const FACT_VALUE_MIN_SCALE = 0.75;
 /** The add sheet's dismissal, before the In Library pill celebrates. */
 const LIBRARY_BURST_DELAY_MS = 320;
 
@@ -314,15 +318,16 @@ export function MobileMangaDetailBooksHero({
       : Math.max(0, pane ? windowWidth * 0.4 : windowWidth - gutters.left - gutters.right));
   const contentWidth = Math.max(0, pane ? frameWidth - PANE_PADDING * 2 : frameWidth);
   const shortPane = pane && isMobileCompactHeight(windowHeight);
-  // Four facts side by side only where each keeps room for its value at the
-// one type size every fact shares; narrower, they stack 2 x 2 (never shrunk).
-const topCoverWidth = Math.round(Math.min(230, Math.max(150, contentWidth * 0.24)));
-const topTextWidth = contentWidth - topCoverWidth - 28;
-// (The wide page's hero column shows them as one meta line instead.)
-const paneFactColumns =
-    inColumn
-      ? 2
-      : PixelRatio.getFontScale() > 1.3 || (top ? topTextWidth : contentWidth) < PANE_FACTS_ROW_MIN_WIDTH ? 2 : 4;
+  const topCoverWidth = Math.round(Math.min(230, Math.max(150, contentWidth * 0.24)));
+  const topTextWidth = contentWidth - topCoverWidth - 28;
+  // The facts sit side by side when every cell's natural width fits the row,
+  // else 2 x 2 (measured below); this guess stands in until then and sizes
+  // the cover. (The wide page's hero column shows them as one meta line.)
+  const factsGuess = guessMobileDetailFactsLayout({
+    width: top ? topTextWidth : contentWidth,
+    fontScale: PixelRatio.getFontScale(),
+  });
+  const paneFactColumns = factsGuess === "grid" ? 2 : 4;
   /** The facts and genres wrap in their column rather than run to the window edges. */
   const grid = pane || top || inColumn;
   const rest = useMobileExploreRestingFrame();
@@ -396,7 +401,12 @@ const paneFactColumns =
       },
     ];
     if (hasActions) blocks.push({ key: "actions", gap: BLOCK_GAP, height: ESTIMATE.actions * scale, rests: "whole" });
-    blocks.push({ key: "facts", gap: BLOCK_GAP, height: ESTIMATE.facts * scale, rests: "whole" });
+    blocks.push({
+      key: "facts",
+      gap: BLOCK_GAP,
+      height: (factsGuess === "grid" ? ESTIMATE.facts * 2 + 8 : ESTIMATE.facts) * scale,
+      rests: "whole",
+    });
     if (sizedSynopsis) {
       blocks.push({
         key: "synopsis",
@@ -504,11 +514,16 @@ const paneFactColumns =
   );
   // The sheet has the licence: the synopsis on the page leaves out the line that restates it.
   const pageDescription = description && infoLicense ? withoutMobileDescriptionLicence(description) : description;
-  // Beside a vertical bar (the Duo's rail) the strip keeps to the content
-  // area the bar leaves instead of running to the window edge, and the facts
-  // share that width by what each value needs.
-  const factsInContent = verticalBarSide !== null && !pane && !top && !wide;
-  const factMinWidth = factsInContent ? 0 : Math.floor(Math.min(contentWidth, WIDE_COLUMN) / Math.max(1, facts.length));
+  // Each fact cell's natural width (label or value, whichever is wider),
+  // measured off screen, against the row's own width less the ⓘ.
+  const [factCellWidths, setFactCellWidths] = useState<Record<string, number>>({});
+  const [factsBlockWidth, setFactsBlockWidth] = useState<number | null>(null);
+  const factCellKey = (fact: { label: string; value: string }) => `${fact.label}\u0000${fact.value}`;
+  const factsLayout = fitMobileDetailFacts({
+    cellWidths: facts.map((fact) => factCellWidths[factCellKey(fact)]),
+    available: factsBlockWidth === null ? null : factsBlockWidth - (infoButton ? FACTS_INFO_ROOM : 0),
+    guess: factsGuess,
+  });
   const primaryUnavailable = Boolean(primaryAction && (primaryAction.disabled || !primaryAction.available));
   const primaryInk = primaryUnavailable ? inkSecondary : palette.primaryInk;
   // Library entries expose collection management here; both entry paths use
@@ -549,7 +564,15 @@ const paneFactColumns =
     setActionsRowWidth((current) => (current === next ? current : next));
   }, []);
   const halfActionWidth = actionsRowWidth ? Math.floor((actionsRowWidth - ACTION_GAP) / 2) : null;
-  const onFactsLayout = useMemo(() => measureBlock("facts"), [measureBlock]);
+  const onFactsHeight = useMemo(() => measureBlock("facts"), [measureBlock]);
+  const onFactsLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      onFactsHeight(event);
+      const next = Math.round(event.nativeEvent.layout.width);
+      setFactsBlockWidth((current) => (current === next ? current : next));
+    },
+    [onFactsHeight],
+  );
   const onTagsLayout = useMemo(() => measureBlock("tags"), [measureBlock]);
   const [synopsisMeasure, setSynopsisMeasure] = useState<{ lines: number; lineHeight: number } | null>(null);
   const onSynopsisMeasure = useCallback((next: { lines: number; lineHeight: number }) => {
@@ -827,8 +850,15 @@ const paneFactColumns =
                 style={
                   top
                     ? styles.topPrimaryButton
-                    : libraryAction && halfActionWidth
-                      ? { width: halfActionWidth }
+                    : libraryAction && halfActionWidth && actionsRowWidth
+                      ? // Half the row, or wider when its label needs it
+                        // ("Start reading" on an SE), never cut while the
+                        // row has room beside the round buttons.
+                        {
+                          minWidth: halfActionWidth,
+                          maxWidth: actionsRowWidth - (1 + iconActions.length) * (ACTION_HEIGHT + ACTION_GAP),
+                          flexShrink: 1,
+                        }
                       : styles.flexButton
                 }
               >
@@ -898,91 +928,80 @@ const paneFactColumns =
       ) : null}
     </>
   );
-  const factsNode = (
-    <>
-      {factsRow && inColumn ? null : factsRow && grid ? (
-        <View style={[styles.factsWithInfo, pushStyle("facts")]} onLayout={onFactsLayout}>
-        <View style={[styles.facts, styles.factsFill, { flexWrap: "wrap", rowGap: 8 }]}>
-          {facts.map((fact, index) => (
-            <View
-              key={fact.label}
-              accessible
-              accessibilityLabel={`${fact.label}, ${fact.value}`}
-              style={[
-                styles.fact,
-                { width: `${100 / paneFactColumns}%`, flexGrow: 0, minWidth: 0 },
-                index % paneFactColumns > 0 ? [styles.factDivided, { borderLeftColor: palette.rule }] : null,
-              ]}
-            >
-              <NemuText
-                numberOfLines={1}
-                maxFontSizeMultiplier={HERO_TEXT_MAX_SCALE}
-                color={inkSecondary}
-                style={styles.factLabel}
-              >
-                {fact.label}
-              </NemuText>
-              <NemuText
-                maxFontSizeMultiplier={HERO_TEXT_MAX_SCALE}
-                color={palette.ink}
-                style={[styles.factValue, { textAlign: "center", width: "100%" }]}
-              >
-                {fact.value}
-              </NemuText>
-            </View>
-          ))}
-        </View>
-        {infoButton}
-        </View>
-      ) : factsRow ? (
-        // An info strip: each fact at least an equal share of the column,
-        // wider when its value needs it, and the strip scrolls sideways
-        // instead of cutting a long source name or chapter label short.
-        <ScrollView
-          horizontal
-          // Not a status-bar target: iOS scrolls to the top only when exactly one scroll view on screen asks to.
-          scrollsToTop={false}
-          showsHorizontalScrollIndicator={false}
-          // On a phone the strip runs to the screen edges (a fixed `width:
-          // 100%` column kept it at the gutter, cutting the last value with
-          // a hard edge); a wide window centres it in the column instead.
-          style={[wide ? column : pane || inColumn || factsInContent ? null : bleed.frame, pushStyle("facts")]}
-          onLayout={onFactsLayout}
-          contentContainerStyle={[styles.facts, pane || wide || inColumn || factsInContent ? null : bleed.content]}
+  const factCells = facts.map((fact, index) => {
+    const gridded = factsLayout === "grid";
+    return (
+      <View
+        key={fact.label}
+        accessible
+        accessibilityLabel={`${fact.label}, ${fact.value}`}
+        style={[
+          styles.fact,
+          gridded ? styles.factHalf : styles.factFit,
+          (gridded ? index % 2 > 0 : index > 0) ? [styles.factDivided, { borderLeftColor: palette.rule }] : null,
+        ]}
+      >
+        <NemuText numberOfLines={1} maxFontSizeMultiplier={HERO_TEXT_MAX_SCALE} color={inkSecondary} style={styles.factLabel}>
+          {fact.label}
+        </NemuText>
+        {gridded ? (
+          // Half the row: a long value shrinks a little rather than wrap mid-word.
+          <NemuText
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={FACT_VALUE_MIN_SCALE}
+            maxFontSizeMultiplier={HERO_TEXT_MAX_SCALE}
+            color={palette.ink}
+            style={[styles.factValue, styles.factValueCentred]}
+          >
+            {fact.value}
+          </NemuText>
+        ) : (
+          // Turns over when the value changes (another source picked, a refresh).
+          <MobileOdometerText
+            value={fact.value}
+            maxFontSizeMultiplier={HERO_TEXT_MAX_SCALE}
+            color={palette.ink}
+            style={styles.factValue}
+          />
+        )}
+      </View>
+    );
+  });
+  const factsMeasure = (
+    // Unclamped twins, never seen: each cell's natural width.
+    <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={styles.factsMeasure}>
+      {facts.map((fact, index) => (
+        <View
+          key={fact.label}
+          onLayout={(event) => {
+            const key = factCellKey(fact);
+            // A point of slack for the odometer's digit boxes.
+            const next = Math.ceil(event.nativeEvent.layout.width) + 1;
+            setFactCellWidths((current) => (current[key] === next ? current : { ...current, [key]: next }));
+          }}
+          style={[styles.fact, styles.factMeasureCell, index > 0 ? styles.factDivided : null]}
         >
-          {facts.map((fact, index) => (
-            <View
-              key={fact.label}
-              accessible
-              accessibilityLabel={`${fact.label}, ${fact.value}`}
-              style={[
-                styles.fact,
-                { minWidth: factMinWidth },
-                index > 0 ? [styles.factDivided, { borderLeftColor: palette.rule }] : null,
-              ]}
-            >
-              <NemuText
-                numberOfLines={1}
-                maxFontSizeMultiplier={HERO_TEXT_MAX_SCALE}
-                color={inkSecondary}
-                style={styles.factLabel}
-              >
-                {fact.label}
-              </NemuText>
-              {/* Turns over when the value changes (another source picked, a refresh). */}
-              <MobileOdometerText
-                value={fact.value}
-                maxFontSizeMultiplier={HERO_TEXT_MAX_SCALE}
-                color={palette.ink}
-                style={styles.factValue}
-              />
-            </View>
-          ))}
-          {infoButton ? <View style={styles.factsInfo}>{infoButton}</View> : null}
-        </ScrollView>
-      ) : null}
-    </>
+          <NemuText numberOfLines={1} maxFontSizeMultiplier={HERO_TEXT_MAX_SCALE} style={styles.factLabel}>
+            {fact.label}
+          </NemuText>
+          <NemuText numberOfLines={1} maxFontSizeMultiplier={HERO_TEXT_MAX_SCALE} style={styles.factValue}>
+            {fact.value}
+          </NemuText>
+        </View>
+      ))}
+    </View>
   );
+  const factsNode =
+    factsRow && !inColumn ? (
+      // Inside the content area on every width (it never scrolls sideways,
+      // so nothing is clipped at the window edge); centred on a wide window.
+      <View style={[styles.factsWithInfo, wide ? column : null, pushStyle("facts")]} onLayout={onFactsLayout}>
+        {factsMeasure}
+        <View style={[styles.facts, styles.factsFill, factsLayout === "grid" ? styles.factsGrid : null]}>{factCells}</View>
+        {infoButton}
+      </View>
+    ) : null;
   const synopsisNode = (
     <>
       {description ? (
@@ -1037,24 +1056,17 @@ const paneFactColumns =
       key={index}
       style={[
         styles.fact,
-        grid
-          ? { width: `${100 / paneFactColumns}%`, flexGrow: 0, minWidth: 0 }
-          : { minWidth: Math.floor(Math.min(contentWidth, WIDE_COLUMN) / 4) },
-        (grid ? index % paneFactColumns > 0 : index > 0) ? [styles.factDivided, { borderLeftColor: palette.rule }] : null,
+        { width: `${100 / paneFactColumns}%`, flexGrow: 0, minWidth: 0 },
+        index % paneFactColumns > 0 ? [styles.factDivided, { borderLeftColor: palette.rule }] : null,
       ]}
     >
       <View style={[styles.placeholderLine, styles.placeholderLineCentred, { height: styles.factLabel.lineHeight }]}>{bar("46%", 9)}</View>
       <View style={[styles.placeholderLine, styles.placeholderLineCentred, { height: styles.factValue.lineHeight }]}>{bar("64%", 13)}</View>
     </View>
   ));
-  const placeholderFactsNode =
-    inColumn ? null : grid ? (
-      <View style={[styles.facts, { flexWrap: "wrap", rowGap: 8 }, top ? { flexGrow: 0 } : null]}>{placeholderFacts}</View>
-    ) : (
-      <View style={wide ? column : factsInContent ? null : bleed.frame}>
-        <View style={[styles.facts, wide || factsInContent ? null : bleed.content]}>{placeholderFacts}</View>
-      </View>
-    );
+  const placeholderFactsNode = inColumn ? null : (
+    <View style={[styles.facts, styles.factsGrid, top ? { flexGrow: 0 } : null, wide ? column : null]}>{placeholderFacts}</View>
+  );
   const placeholderSynopsisNode = (
     <View style={column}>
       {(["100%", "100%", "68%"] as const).map((width, index) => (
@@ -1522,9 +1534,38 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
-  factsInfo: {
+  factsGrid: {
+    flexWrap: "wrap",
     justifyContent: "center",
-    paddingLeft: 6,
+    rowGap: 8,
+  },
+  factFit: {
+    flexGrow: 1,
+    flexShrink: 0,
+    flexBasis: "auto",
+  },
+  factHalf: {
+    width: "50%",
+    flexGrow: 0,
+    minWidth: 0,
+  },
+  factValueCentred: {
+    alignSelf: "stretch",
+    textAlign: "center",
+  },
+  // Off screen and unseen; wide enough that no cell is squeezed.
+  factsMeasure: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    width: 2000,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    opacity: 0,
+  },
+  factMeasureCell: {
+    flexGrow: 0,
+    flexShrink: 0,
   },
   fact: {
     flexGrow: 1,

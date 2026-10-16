@@ -6,7 +6,10 @@ import {
   NemuText,
   useNemuTheme,
 } from "@/design-system";
-import { getMobileExploreCoverPlaceholderSize } from "@/lib/mobileExploreCoverPlaceholder";
+import {
+  getMobileExploreCoverPlaceholderSize,
+  getMobileExploreCoverPlaceholderTitleScale,
+} from "@/lib/mobileExploreCoverPlaceholder";
 import { ExploreGradient } from "./ExploreGradient";
 
 /**
@@ -25,6 +28,15 @@ export function MobileExploreCoverPlaceholder({
   const dark = scheme === "dark";
   const size = getMobileExploreCoverPlaceholderSize(width);
   const compact = size === "compact" || size === "mini";
+  // The title's line inside the frame; its type shrinks until the longest
+  // word fits there, so a word never breaks across lines.
+  const titleStyle = compact ? styles.titleCompact : size === "large" ? styles.titleLarge : styles.title;
+  const inset = compact ? FRAME_INSET.compact : size === "large" ? FRAME_INSET.large : FRAME_INSET.regular;
+  const titleScale = getMobileExploreCoverPlaceholderTitleScale(
+    title,
+    width - inset * 2 - 2 * StyleSheet.hairlineWidth,
+    titleStyle.fontSize * TITLE_MAX_SCALE,
+  );
   return (
     <View
       accessibilityElementsHidden
@@ -50,9 +62,16 @@ export function MobileExploreCoverPlaceholder({
         {size === "mini" ? null : (
         <NemuText
           numberOfLines={compact || size === "large" ? 3 : 4}
-          maxFontSizeMultiplier={1.15}
+          maxFontSizeMultiplier={TITLE_MAX_SCALE}
           color={tokens.foreground}
-          style={[styles.title, compact ? styles.titleCompact : null, size === "large" ? styles.titleLarge : null]}
+          style={[
+            styles.title,
+            compact ? styles.titleCompact : null,
+            size === "large" ? styles.titleLarge : null,
+            titleScale < 1
+              ? { fontSize: titleStyle.fontSize * titleScale, lineHeight: titleStyle.lineHeight * titleScale }
+              : null,
+          ]}
         >
           {title}
         </NemuText>
@@ -62,6 +81,10 @@ export function MobileExploreCoverPlaceholder({
     </View>
   );
 }
+
+const TITLE_MAX_SCALE = 1.15;
+/** Each side's margin plus padding around the title (styles.frame*). */
+const FRAME_INSET = { regular: 6 + 7, compact: 4 + 4, large: 10 + 18 } as const;
 
 const styles = StyleSheet.create({
   root: {
