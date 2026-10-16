@@ -7640,8 +7640,9 @@ export function ReaderScreen() {
         />,
       );
     }
-    // One panel toggle in the trailing action group: closes the sheet while it
-    // is open (×), brings it back when closed (up chevron). Back exits the reader.
+    // One panel toggle in the trailing action group: lowers the sheet while it
+    // is open (down chevron), brings it back when closed (up chevron). Only
+    // Back exits the reader, so the row never shows two ways out.
     const notebookPanelButton = readerNotebookPanelToggle ? (
       <NemuPressable
         accessibilityRole="button"
