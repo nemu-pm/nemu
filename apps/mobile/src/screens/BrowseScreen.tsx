@@ -39,29 +39,30 @@ import {
 } from "@/components/QuickActionSheet";
 import { useMobileToast } from "@/components/MobileToastContext";
 import {
-  NemuButton,
+  createNemuNativeScreenOptions,
   GlassSurface,
   MobileCachedImage,
   MobileChip,
   MobileNativeSheetScaffold,
+  NemuButton,
+  nemuColorWithAlpha,
+  nemuFontWeight,
+  type NemuNativeHeaderAction,
   NemuNativeSearchField,
   NemuNativeSheetHeaderAction,
   NemuNativeSwitch,
   NemuPressable,
+  NemuSheetScrollEdge,
   PageHeader,
   PageScaffold,
-  SourceCard,
-  createNemuNativeScreenOptions,
-  nemuColorWithAlpha,
   radius,
   renderNemuNativeToolbarButtons,
-  nemuFontWeight,
+  SourceCard,
+  type SourceCardModel,
   useMobileNativeSheetTheme,
+  useMobilePageGutters,
   useNemuTheme,
   usesNemuNativeHeader,
-  type NemuNativeHeaderAction,
-  type SourceCardModel,
-  useMobilePageGutters,
 } from "@/design-system";
 import {
   isMobileSourceInstallCancellation,
@@ -1974,11 +1975,15 @@ export function BrowseScreen() {
           testID="AddSourceSheet"
         >
           {serverPickerOpen ? (
-            <ScrollView contentContainerStyle={styles.serverPicker}>
-              {SELF_HOSTED_SETUP_KINDS.map((kind) => (
-                <BuiltInSourceRow key={kind} kind={kind} strings={strings} onPress={openServerForm} />
-              ))}
-            </ScrollView>
+            <NemuSheetScrollEdge>
+              {(edge) => (
+                <ScrollView {...edge} contentContainerStyle={styles.serverPicker}>
+                  {SELF_HOSTED_SETUP_KINDS.map((kind) => (
+                    <BuiltInSourceRow key={kind} kind={kind} strings={strings} onPress={openServerForm} />
+                  ))}
+                </ScrollView>
+              )}
+            </NemuSheetScrollEdge>
           ) : <View style={styles.addSourceSheetBody}>
             {/*
               Everything above the list lives in one stack so the scroll
@@ -2060,71 +2065,76 @@ export function BrowseScreen() {
               ) : null}
             </View>
 
-            <SectionList
-              ListHeaderComponent={builtInKinds.length > 0 ? (
-                <NemuPressable
-                  accessibilityRole="button"
-                  onPress={() => setServerPickerOpen(true)}
-                  accessibilityLabel={strings.selfHosted.connectServer}
-                  pressHighlight
-                  style={styles.serverEntry}
-                >
-                  <View style={styles.serverEntryIcons}>
-                    {SELF_HOSTED_SETUP_KINDS.map((kind) => (
-                      <ServerIconImage key={kind} source={SERVER_ICONS[kind]} style={styles.serverEntryIcon} resizeMode="contain" />
-                    ))}
-                  </View>
-                  <Text style={[styles.serverEntryLabel, { color: sheetTokens.foreground }]}>{strings.selfHosted.connectServer}</Text>
-                  <Ionicons name="chevron-forward" size={16} color={sheetTokens.mutedForeground} />
-                </NemuPressable>
-              ) : undefined}
-              // Android: inside a native sheet, hand the drag to the sheet at the top.
-              nestedScrollEnabled
-              alwaysBounceVertical={false}
-              automaticallyAdjustContentInsets={false}
-              contentInsetAdjustmentBehavior="never"
-              onContentSizeChange={handleAvailableListContentSizeChange}
-              initialNumToRender={18}
-              maxToRenderPerBatch={18}
-              keyboardDismissMode="interactive"
-              keyboardShouldPersistTaps="handled"
-              sections={availableSourceSections}
-              keyExtractor={availableSourceKeyExtractor}
-              renderSectionHeader={renderAvailableSectionHeader}
-              renderItem={renderAvailableSourceRow}
-              ItemSeparatorComponent={AvailableRowSeparator}
-              SectionSeparatorComponent={AvailableSectionSeparator}
-              ListEmptyComponent={
-                <View
-                  style={[
-                    styles.inlineEmpty,
-                    {
-                      backgroundColor: sheetTokens.card,
-                      borderColor: sheetTokens.border,
-                    },
-                  ]}
-                >
-                  <Ionicons
-                    name="filter-outline"
-                    size={22}
-                    color={sheetTokens.mutedForeground}
-                  />
-                  <Text
-                    style={[
-                      styles.inlineEmptyText,
-                      { color: sheetTokens.mutedForeground },
-                    ]}
-                  >
-                    {strings.browse.noSourceResults}
-                  </Text>
-                </View>
-              }
-              style={styles.availableListScroller}
-              contentContainerStyle={styles.availableListContent}
-              stickySectionHeadersEnabled={false}
-              updateCellsBatchingPeriod={32}
-              windowSize={7}
-            />
+            <NemuSheetScrollEdge style={styles.availableListScroller}>
+              {(edge) => (
+                <SectionList
+                  {...edge}
+                  ListHeaderComponent={builtInKinds.length > 0 ? (
+                    <NemuPressable
+                      accessibilityRole="button"
+                      onPress={() => setServerPickerOpen(true)}
+                      accessibilityLabel={strings.selfHosted.connectServer}
+                      pressHighlight
+                      style={styles.serverEntry}
+                    >
+                      <View style={styles.serverEntryIcons}>
+                        {SELF_HOSTED_SETUP_KINDS.map((kind) => (
+                          <ServerIconImage key={kind} source={SERVER_ICONS[kind]} style={styles.serverEntryIcon} resizeMode="contain" />
+                        ))}
+                      </View>
+                      <Text style={[styles.serverEntryLabel, { color: sheetTokens.foreground }]}>{strings.selfHosted.connectServer}</Text>
+                      <Ionicons name="chevron-forward" size={16} color={sheetTokens.mutedForeground} />
+                    </NemuPressable>
+                  ) : undefined}
+                  // Android: inside a native sheet, hand the drag to the sheet at the top.
+                  nestedScrollEnabled
+                  alwaysBounceVertical={false}
+                  automaticallyAdjustContentInsets={false}
+                  contentInsetAdjustmentBehavior="never"
+                  onContentSizeChange={handleAvailableListContentSizeChange}
+                  initialNumToRender={18}
+                  maxToRenderPerBatch={18}
+                  keyboardDismissMode="interactive"
+                  keyboardShouldPersistTaps="handled"
+                  sections={availableSourceSections}
+                  keyExtractor={availableSourceKeyExtractor}
+                  renderSectionHeader={renderAvailableSectionHeader}
+                  renderItem={renderAvailableSourceRow}
+                  ItemSeparatorComponent={AvailableRowSeparator}
+                  SectionSeparatorComponent={AvailableSectionSeparator}
+                  ListEmptyComponent={
+                    <View
+                      style={[
+                        styles.inlineEmpty,
+                        {
+                          backgroundColor: sheetTokens.card,
+                          borderColor: sheetTokens.border,
+                        },
+                      ]}
+                    >
+                      <Ionicons
+                        name="filter-outline"
+                        size={22}
+                        color={sheetTokens.mutedForeground}
+                      />
+                      <Text
+                        style={[
+                          styles.inlineEmptyText,
+                          { color: sheetTokens.mutedForeground },
+                        ]}
+                      >
+                        {strings.browse.noSourceResults}
+                      </Text>
+                    </View>
+                  }
+                  style={styles.availableListScroller}
+                  contentContainerStyle={styles.availableListContent}
+                  stickySectionHeadersEnabled={false}
+                  updateCellsBatchingPeriod={32}
+                  windowSize={7}
+                />
+              )}
+            </NemuSheetScrollEdge>
           </View>}
         </MobileNativeSheetScaffold>
       ) : null}

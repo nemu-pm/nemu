@@ -54,7 +54,6 @@ import { SELF_HOSTED_REGISTRY_ID } from "@/lib/selfHosted/policy";
 import { selfHostedKindName } from "@/lib/selfHosted/messages";
 import * as DocumentPicker from "expo-document-picker";
 import { nextSyncTimestamp } from "@nemu/core";
-import { MobileOpenSourceLicensesSheet } from "@/components/MobileOpenSourceLicensesSheet";
 import { MobileAboutSheet } from "@/components/MobileAboutSheet";
 import { MobileAgentStatusCard } from "@/components/MobileAgentStatusCard";
 import { MobileCloudSyncCard } from "@/components/MobileCloudSyncCard";
@@ -111,24 +110,25 @@ import type {
   ThemePreference,
 } from "@/data/schema";
 import {
+  createNemuBrandWordmarkStyle,
   MobileChip,
   MobileNativeSheetScaffold,
-  useMobileNativeSheetTheme,
   NemuButton,
-  NemuNativeSwitch,
-  renderNemuNativeToolbarButtons,
-  NemuPressable,
-  useNemuRowHighlight,
-  NemuText,
-  PageListScaffold,
-  radius,
-  spacing,
-  createNemuBrandWordmarkStyle,
   nemuColorWithAlpha,
   nemuFontWeight,
   nemuMaxFontSizeMultiplier,
+  NemuNativeSwitch,
+  NemuPressable,
   nemuSheetMetrics,
+  NemuSheetScrollEdge,
+  NemuText,
+  PageListScaffold,
+  radius,
+  renderNemuNativeToolbarButtons,
+  spacing,
+  useMobileNativeSheetTheme,
   useMobilePageGutters,
+  useNemuRowHighlight,
   useNemuTheme,
 } from "@/design-system";
 import { MobileSheetSelectionIndicator } from "@/components/MobileSheetSelectionIndicator";
@@ -1517,36 +1517,41 @@ function SourceDirectoriesSection({ strings, catalog }: {
         fillContent
         contentIgnoresSafeAreaEdges="horizontal"
       >
-        <FlatList
-          data={selectedDirectory?.enabled ? catalog.data.filter((source) => source.registryId === selectedDirectory.id) : []}
-          keyExtractor={(source) => source.id}
-          contentContainerStyle={styles.directoryContents}
-          ListHeaderComponent={
-            <View style={styles.directoryHeading}>
-              <NemuText selectable style={[styles.settingSubtitle, { color: sheetTokens.mutedForeground }]}>
-                {selectedDirectory?.indexUrl}
-              </NemuText>
-              <NemuText style={[styles.settingSubtitle, { color: sheetTokens.mutedForeground }]}>
-                {strings.settings.sourceDirectoryContentsHint}
-              </NemuText>
-            </View>
-          }
-          ListEmptyComponent={
-            catalog.loading ? <ActivityIndicator color={sheetTokens.primary} /> : (
-              <NemuText style={{ color: sheetTokens.mutedForeground }}>
-                {selectedDirectory?.enabled
-                  ? catalog.error ? strings.settings.sourceDirectoryErrorUnreachable : strings.browse.noSources
-                  : strings.settings.sourceDirectoryDisabledHint}
-              </NemuText>
-            )
-          }
-          renderItem={({ item }) => (
-            <View style={[styles.directorySource, { borderColor: sheetTokens.border }]}>
-              <NemuText style={[styles.directorySourceName, { color: sheetTokens.foreground }]}>{item.name}</NemuText>
-              <NemuText style={[styles.settingSubtitle, { color: sheetTokens.mutedForeground }]}>v{item.version}</NemuText>
-            </View>
+        <NemuSheetScrollEdge>
+          {(edge) => (
+            <FlatList
+              {...edge}
+              data={selectedDirectory?.enabled ? catalog.data.filter((source) => source.registryId === selectedDirectory.id) : []}
+              keyExtractor={(source) => source.id}
+              contentContainerStyle={styles.directoryContents}
+              ListHeaderComponent={
+                <View style={styles.directoryHeading}>
+                  <NemuText selectable style={[styles.settingSubtitle, { color: sheetTokens.mutedForeground }]}>
+                    {selectedDirectory?.indexUrl}
+                  </NemuText>
+                  <NemuText style={[styles.settingSubtitle, { color: sheetTokens.mutedForeground }]}>
+                    {strings.settings.sourceDirectoryContentsHint}
+                  </NemuText>
+                </View>
+              }
+              ListEmptyComponent={
+                catalog.loading ? <ActivityIndicator color={sheetTokens.primary} /> : (
+                  <NemuText style={{ color: sheetTokens.mutedForeground }}>
+                    {selectedDirectory?.enabled
+                      ? catalog.error ? strings.settings.sourceDirectoryErrorUnreachable : strings.browse.noSources
+                      : strings.settings.sourceDirectoryDisabledHint}
+                  </NemuText>
+                )
+              }
+              renderItem={({ item }) => (
+                <View style={[styles.directorySource, { borderColor: sheetTokens.border }]}>
+                  <NemuText style={[styles.directorySourceName, { color: sheetTokens.foreground }]}>{item.name}</NemuText>
+                  <NemuText style={[styles.settingSubtitle, { color: sheetTokens.mutedForeground }]}>v{item.version}</NemuText>
+                </View>
+              )}
+            />
           )}
-        />
+        </NemuSheetScrollEdge>
       </MobileNativeSheetScaffold>
       <MobileSourceDirectoryPrompt
         visible={promptOpen}
@@ -1983,7 +1988,6 @@ function SettingsScreenContent({
     useRef<SourceSettingsConfirmation | null>(null);
   const reopenSourceSettingsAfterConfirmationRef = useRef(false);
   const [aboutOpen, setAboutOpen] = useState(false);
-  const [licensesOpen, setLicensesOpen] = useState(false);
   const [operationError, setOperationError] = useState<string | null>(null);
   const [clearCloudData, setClearCloudData] = useState(false);
   const [agentCardY, setAgentCardY] = useState<number | null>(null);
@@ -3302,14 +3306,6 @@ function SettingsScreenContent({
                             accessibilityLabel: strings.settings.aboutNemuLabel,
                             onPress: () => setAboutOpen(true),
                           },
-                          {
-                            key: "licenses",
-                            icon: "document-text-outline",
-                            tint: tokens.mutedForeground,
-                            title: strings.openSourceLicenses.title,
-                            accessibilityLabel: strings.openSourceLicenses.title,
-                            onPress: () => setLicensesOpen(true),
-                          },
                         ]}
                       />
                     </>
@@ -3369,12 +3365,6 @@ function SettingsScreenContent({
                   <AboutSettingsRow
                     strings={strings}
                     onPress={() => setAboutOpen(true)}
-                  />
-                  <SettingsMenuRow
-                    icon="document-text-outline"
-                    title={strings.openSourceLicenses.title}
-                    subtitle={strings.openSourceLicenses.rowSubtitle}
-                    onPress={() => setLicensesOpen(true)}
                   />
                     </>
                   )}
@@ -3972,11 +3962,6 @@ function SettingsScreenContent({
         <MobileAboutSheet
           visible={aboutOpen}
           onClose={() => setAboutOpen(false)}
-        />
-        <MobileOpenSourceLicensesSheet
-          visible={licensesOpen}
-          strings={strings}
-          onClose={() => setLicensesOpen(false)}
         />
       </>
   );

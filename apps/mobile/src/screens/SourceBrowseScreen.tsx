@@ -72,25 +72,26 @@ import {
   type InstalledSource,
 } from "@/data/schema";
 import {
+  createNemuNativeScreenOptions,
+  createNemuShadowStyle,
   GlassSurface,
   MobileCachedImage,
   MobileChip,
   MobileNativeSheetScaffold,
   NemuButton,
+  nemuColorWithAlpha,
+  nemuFontWeight,
   NemuInlineEmptyState,
+  type NemuNativeHeaderAction,
   NemuPressable,
+  NemuSheetScrollEdge,
   NemuTextFieldClearAction,
   PageListScaffold,
   PageScaffold,
-  createNemuNativeScreenOptions,
-  createNemuShadowStyle,
-  nemuColorWithAlpha,
   radius,
   renderNemuNativeToolbarButtons,
-  nemuFontWeight,
   useMobilePageBleedStyles,
   useNemuTheme,
-  type NemuNativeHeaderAction,
 } from "@/design-system";
 import { hapticConfirm, hapticError, hapticPress } from "@/lib/haptics";
 import {
@@ -1301,32 +1302,39 @@ function SourceFilterPanel({
       contentStyle={styles.filterPanel}
       testID="SourceFilterSheet"
     >
-      <ScrollView
-        // Android: inside a native sheet, hand the drag to the sheet at the top.
-        nestedScrollEnabled
-        contentContainerStyle={styles.filterPanelScrollContent}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-        style={
-          sheetLayout.bounded
-            ? styles.filterPanelScrollBounded
-            : styles.filterPanelScroll
-        }
+      <NemuSheetScrollEdge
+        style={sheetLayout.bounded ? styles.filterPanelScrollBounded : styles.filterPanelScroll}
       >
-        {filters.map((filter, index) => (
-          <SourceFilterControl
-            key={`${filter.name}:${filter.type}:${index}`}
-            filter={filter}
-            optionLimit={null}
-            value={valueMap.get(filterValueKey(filter))}
-            getValue={(filterForValue) =>
-              valueMap.get(filterValueKey(filterForValue))
+        {(edge) => (
+          <ScrollView
+            {...edge}
+            // Android: inside a native sheet, hand the drag to the sheet at the top.
+            nestedScrollEnabled
+            contentContainerStyle={styles.filterPanelScrollContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            style={
+              sheetLayout.bounded
+                ? styles.filterPanelScrollBounded
+                : styles.filterPanelScroll
             }
-            onChange={changeDraftFilter}
-            strings={strings}
-          />
-        ))}
-      </ScrollView>
+          >
+            {filters.map((filter, index) => (
+              <SourceFilterControl
+                key={`${filter.name}:${filter.type}:${index}`}
+                filter={filter}
+                optionLimit={null}
+                value={valueMap.get(filterValueKey(filter))}
+                getValue={(filterForValue) =>
+                  valueMap.get(filterValueKey(filterForValue))
+                }
+                onChange={changeDraftFilter}
+                strings={strings}
+              />
+            ))}
+          </ScrollView>
+        )}
+      </NemuSheetScrollEdge>
 
       <View style={styles.filterPanelActions}>
         <NemuButton

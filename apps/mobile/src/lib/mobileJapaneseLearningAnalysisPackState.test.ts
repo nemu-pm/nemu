@@ -221,13 +221,10 @@ describe("pack copy", () => {
     expect(row({ kind: "removing" })?.action).toBeNull();
   });
 
-  test("every locale has the dictionary and license copy", () => {
+  test("every locale has the dictionary copy", () => {
     for (const language of ["en", "ja", "zh"] as const) {
       const strings = getMobileStrings(language);
       for (const value of Object.values(strings.japaneseLearningDictionary)) {
-        expect(value.length).toBeGreaterThan(0);
-      }
-      for (const value of Object.values(strings.openSourceLicenses)) {
         expect(value.length).toBeGreaterThan(0);
       }
       expect(strings.japaneseLearningDictionary.downloadingProgress).toContain("{{completed}}");

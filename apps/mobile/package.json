@@ -22,10 +22,11 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "typecheck": "tsc --noEmit",
+    "notices": "bun scripts/generate-third-party-notices.ts",
     "ocr:models": "bun modules/nemu-japanese-learning/scripts/fetch-ocr-models.ts",
     "preflight:release": "node preflightRelease.cjs",
     "lint": "expo lint",
-    "test": "bun test --test-name-pattern '^(?!.*(?:checked-in bundle reproducible|Swift native policy executables)).*$' && bun test ./src/sources/mobileAidokuSandboxBundle.contract.test.ts ./src/sources/mobileNativeHttpSsrfPolicy.test.ts --test-name-pattern '(checked-in bundle reproducible|Swift native policy executables)'"
+    "test": "bun test --test-name-pattern '^(?!.*(?:checked-in bundle reproducible|Swift native policy executables|sandbox bundle is listed)).*$' && bun test ./src/sources/mobileAidokuSandboxBundle.contract.test.ts ./src/sources/mobileNativeHttpSsrfPolicy.test.ts ./scripts/thirdPartyNotices.test.ts --test-name-pattern '(checked-in bundle reproducible|Swift native policy executables|sandbox bundle is listed)'"
   },
   "dependencies": {
     "@better-auth/expo": "1.6.23",

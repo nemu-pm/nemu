@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { formatMobileDetailDate } from "@/lib/mobileMangaDetailInfo";
+import { getMobileDetailLanguageNames, getMobileDetailSourceLicense } from "@/lib/mobileMangaDetailSourceInfo";
 import {
   Stack,
   router,
@@ -71,6 +73,7 @@ import {
 import { formatContinueActionLabel } from "@/lib/formatChapter";
 import {
   formatMobileExploreChapterLabel,
+  formatMobileExploreChapterNumber,
   withoutMobileZeroVolume,
 } from "@/lib/mobileContinueReadingCopy";
 import { hapticConfirm, hapticError } from "@/lib/haptics";
@@ -1808,6 +1811,28 @@ export function MangaDetailScreen() {
     }),
     [chapterLanguages, chapterListPreference],
   );
+  // The 作品信息 sheet: the selected source's languages (as the chapter list
+  // shows them) and licence, and when the title was added and last read.
+  const selectedInstalledSource = selectedSource
+    ? sourceInfoForLink(selectedSource, state.installedSources)
+    : undefined;
+  const detailLanguageNames = useMemo(
+    () =>
+      getMobileDetailLanguageNames(
+        (effectiveChapterListPreference.languages.length
+          ? effectiveChapterListPreference.languages
+          : chapterLanguages
+        ).map((lang) => ({ lang })),
+        selectedInstalledSource,
+        appLanguage,
+        strings,
+      ),
+    [appLanguage, chapterLanguages, effectiveChapterListPreference.languages, selectedInstalledSource, strings],
+  );
+  let detailLastReadAt = 0;
+  for (const progress of entryProgressMap.values()) {
+    detailLastReadAt = Math.max(detailLastReadAt, progress.lastReadAt);
+  }
   // The chapter subtitle only repeats the language while the visible list can
   // actually mix languages: one selected language makes it noise.
   const showChapterLanguage =
@@ -2704,6 +2729,8 @@ export function MangaDetailScreen() {
       ) : null}
       <MobileMangaDetailSplitLayout
         nativeHeader={usesNativeHeader}
+        // The Books-style bar row is empty until the compact title fades in.
+        barContentVisible={!booksHero || heroTitleScrolledAway}
         data={zoomLanded ? chapterRows : NO_CHAPTER_ROWS}
         keyExtractor={mobileChapterRowKeyExtractor}
         onRefresh={pullRefreshDetail}
@@ -2864,6 +2891,15 @@ export function MangaDetailScreen() {
                       ? formatMobileExploreChapterLabel(selectedSource.latestChapter, strings)
                       : null
                   }
+                  infoLatestNumber={
+                    selectedSource?.latestChapter
+                      ? formatMobileExploreChapterNumber(selectedSource.latestChapter, strings)
+                      : null
+                  }
+                  infoLanguages={detailLanguageNames}
+                  infoLicense={getMobileDetailSourceLicense(selectedInstalledSource)}
+                  infoAdded={formatMobileDetailDate(entry?.item.createdAt, appLanguage)}
+                  infoLastRead={formatMobileDetailDate(detailLastReadAt, appLanguage)}
                 />
 
                 {actionError ? (
