@@ -146,19 +146,7 @@ export function MobileNativeFormSheet({
                     <SwiftToolbarItem placement="cancellationAction">
                       <ToolbarActionButton action={cancel} role="cancel" />
                     </SwiftToolbarItem>
-                  ) : (
-                    // Navigation/close stays first when the toolbar turns
-                    // vertical on the outer display.
-                    <SwiftToolbarItem placement="cancellationAction">
-                      <SwiftButton
-                        role="close"
-                        onPress={onClose}
-                        modifiers={
-                          closeAccessibilityLabel ? [swiftAccessibilityLabel(closeAccessibilityLabel)] : []
-                        }
-                      />
-                    </SwiftToolbarItem>
-                  )}
+                  ) : null}
                   <SwiftToolbarItem placement="principal">
                     <SwiftVStack spacing={1}>
                       <SwiftText modifiers={[font({ textStyle: "headline" }), lineLimit(1)]}>{title}</SwiftText>
@@ -197,6 +185,20 @@ export function MobileNativeFormSheet({
                       <ToolbarActionButton action={confirm} accent={tokens.primary} />
                     </SwiftToolbarItem>
                   ) : null}
+                  {cancel ? null : (
+                    // A sheet without Cancel closes from its top-right ✕,
+                    // like every other sheet in the app (the trailing end of
+                    // the bar; first in the vertical bar on the outer display).
+                    <SwiftToolbarItem placement="topBarTrailing">
+                      <SwiftButton
+                        role="close"
+                        onPress={onClose}
+                        modifiers={
+                          closeAccessibilityLabel ? [swiftAccessibilityLabel(closeAccessibilityLabel)] : []
+                        }
+                      />
+                    </SwiftToolbarItem>
+                  )}
                 </SwiftToolbar.Content>
               </SwiftToolbar>
             </SwiftNavigationStack>
