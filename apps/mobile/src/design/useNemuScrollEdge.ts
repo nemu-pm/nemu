@@ -22,6 +22,12 @@ export type NemuScrollEdgeOptions = {
   barContentVisible?: boolean;
   /** Height of a bar the page draws itself (below the safe area). */
   headerBarHeight?: number;
+  /**
+   * A column of a multi-pane page scrolling on its own: its top band is the
+   * full one whatever the bar shows (`resolveMobileRailTopScrollEdge`), over
+   * the column's own top padding (below the safe area).
+   */
+  pane?: { topPadding: number };
 };
 
 export type NemuScrollEdgeBands = {
@@ -55,6 +61,7 @@ export function useNemuScrollEdge({
   nativeHeader,
   barContentVisible = true,
   headerBarHeight,
+  pane,
 }: NemuScrollEdgeOptions): NemuScrollEdgeBands {
   const headerHeight = useContext(HeaderHeightContext);
   const insets = useSafeAreaInsets();
@@ -74,9 +81,10 @@ export function useNemuScrollEdge({
       platform: Platform.OS,
       verticalBarSide,
       safeAreaTop: insets.top,
-      pageTop: spacing.pageTop,
+      pageTop: pane?.topPadding ?? spacing.pageTop,
       reader,
       bar,
+      pane: Boolean(pane),
     }),
     bottom: resolveMobileRailBottomScrollEdge({
       platform: Platform.OS,

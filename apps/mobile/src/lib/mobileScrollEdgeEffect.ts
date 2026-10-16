@@ -106,11 +106,14 @@ export function resolveMobileBottomScrollEdgeEffect({
  *
  * There the page's scroll container draws a progressive blur band,
  * strongest at the edge, under the bar and over the content
- * (`NemuScrollEdgeSurface`). Its top band covers what the page has pinned at
- * the top (its bar extent, `useNemuScrollEdge`): the whole bar row while the
- * row shows something, so content fades out beneath the title instead of
- * colliding with it, and only the page's top padding otherwise. It always
- * ends where resting content starts, so nothing at rest is blurred.
+ * (`NemuScrollEdgeSurface`). Like the system's soft edge it is blur only (the
+ * content dissolves, it is never darkened or washed toward the page colour),
+ * and the top band shows only once content has scrolled under it: nothing at
+ * rest at the top, fading in over the first points of scroll
+ * (`mobileScrollEdgeReveal`). It covers what the page has pinned at the top
+ * (its bar extent, `useNemuScrollEdge`): the whole bar row while the row shows
+ * something, so content dissolves beneath the title instead of colliding with
+ * it, and only the page's top padding otherwise.
  */
 export const MOBILE_RAIL_TOP_EDGE_BLUR_INTENSITY = 28;
 /** Below a bar row's bottom the band fades out over this much (pt). */
@@ -163,17 +166,26 @@ export type MobileRailTopScrollEdge = {
   height: number;
   /** Mask stops: blur opacity from the top edge (offset 0) to the band's end (1). */
   maskStops: ReadonlyArray<readonly [string, number]>;
-  /**
-   * Under a bar row the content also fades toward the page background (the
-   * native soft edge's dimming), at this opacity times the mask's; 0 = none.
-   */
-  scrimAlpha: number;
 };
 
-/** Page-colour fade under a bar row, at the band's strongest. */
-export const MOBILE_SCROLL_EDGE_BAR_SCRIM_ALPHA = 0.55;
+/** A scrolling pane's band holds full strength over this share of it from the edge. */
+export const MOBILE_SCROLL_EDGE_PANE_PLATEAU = 0.4;
 
-const NO_BAND: MobileRailTopScrollEdge = { height: 0, maskStops: [], scrimAlpha: 0 };
+/** Scroll past the resting top (pt) over which the top band fades in. */
+export const MOBILE_SCROLL_EDGE_REVEAL_DISTANCE = 16;
+
+/**
+ * The top band's opacity for how far the content has scrolled past its
+ * resting top: none at rest (or pulled down past it), full once a few points
+ * of content sit under the edge. Runs on the UI thread.
+ */
+export function mobileScrollEdgeReveal(scrolledPastRest: number): number {
+  "worklet";
+  if (!(scrolledPastRest > 0)) return 0;
+  return Math.min(1, scrolledPastRest / MOBILE_SCROLL_EDGE_REVEAL_DISTANCE);
+}
+
+const NO_BAND: MobileRailTopScrollEdge = { height: 0, maskStops: [] };
 
 const RAIL_TOP_EDGE_STOP_COUNT = 6;
 
@@ -196,6 +208,7 @@ export function resolveMobileRailTopScrollEdge({
   pageTop,
   reader,
   bar = MOBILE_NO_SCROLL_EDGE_BAR,
+  pane = false,
 }: {
   platform: string;
   verticalBarSide: "left" | "right" | null;
@@ -205,6 +218,13 @@ export function resolveMobileRailTopScrollEdge({
   reader: boolean;
   /** What the page has pinned at the top. */
   bar?: MobileScrollEdgeBarExtent;
+  /**
+   * A column of a multi-pane page that scrolls on its own (the detail page's
+   * chapters beside its hero): nothing it scrolls brings a title into the bar,
+   * so its rows always run into the window's top edge, and its band is held
+   * strong over its top padding.
+   */
+  pane?: boolean;
 }): MobileRailTopScrollEdge {
   if (platform !== "ios" || reader) return NO_BAND;
   const barExtent = finiteNonNegative(bar.extent);
@@ -215,9 +235,10 @@ export function resolveMobileRailTopScrollEdge({
     const height = Math.round(barExtent + MOBILE_SCROLL_EDGE_BAR_TAIL);
     // Full strength down to the bar row's middle, then eased out.
     const plateau = roundTo(Math.max(0, (barExtent - restingTop / 2) / height) * 0.75, 4);
-    return { height, maskStops: easedMaskStops(plateau, "top"), scrimAlpha: MOBILE_SCROLL_EDGE_BAR_SCRIM_ALPHA };
+    return { height, maskStops: easedMaskStops(plateau, "top") };
   }
-  return { height: restingTop, maskStops: easedMaskStops(0, "top"), scrimAlpha: 0 };
+  const plateau = pane && verticalBarSide ? MOBILE_SCROLL_EDGE_PANE_PLATEAU : 0;
+  return { height: restingTop, maskStops: easedMaskStops(plateau, "top") };
 }
 
 /**
@@ -238,7 +259,7 @@ export function resolveMobileRailBottomScrollEdge({
 }): MobileRailTopScrollEdge {
   if (platform !== "ios" || reader || !verticalBarSide) return NO_BAND;
   const height = Math.round(finiteNonNegative(safeAreaBottom));
-  return height > 0 ? { height, maskStops: easedMaskStops(0, "bottom"), scrimAlpha: 0 } : NO_BAND;
+  return height > 0 ? { height, maskStops: easedMaskStops(0, "bottom") } : NO_BAND;
 }
 
 /**

@@ -1166,6 +1166,15 @@ export type MobileStrings = {
     descriptionSheetTitle: string;
     closeDescription: string;
     descriptionMoreHint: string;
+    /** The detail ··· menu and the chapter long-press menu. */
+    menuAddToCollection: string;
+    menuMarkFinished: string;
+    menuShare: string;
+    menuCopyLink: string;
+    /** Toast after Copy Link. */
+    menuLinkCopied: string;
+    chapterMarkRead: string;
+    chapterMarkPreviousRead: string;
     /** The 作品信息 sheet (status, source, author, genres…), opened from the ⓘ by the hero's facts. */
     infoSheetTitle: string;
     infoButtonHint: string;

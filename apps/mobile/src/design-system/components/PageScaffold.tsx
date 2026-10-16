@@ -41,7 +41,7 @@ import {
   resolveMobilePageContentInsetAdjustment,
 } from "@/lib/mobilePageLayout";
 import { shouldShowMobileFloatingTabBar } from "@/lib/mobileRootTabs";
-import { NemuScrollEdgeSurface } from "./NemuScrollEdgeSurface";
+import { NemuScrollEdgeSurface, useNemuScrollEdgeTracking } from "./NemuScrollEdgeSurface";
 
 /**
  * A live Dynamic Type change leaves already-mounted text with stale layout
@@ -110,6 +110,11 @@ type PageListScaffoldProps<ItemT> = Omit<
    * False for a title page before its compact title fades in.
    */
   barContentVisible?: boolean;
+  /**
+   * A column of a multi-pane page that scrolls on its own: the soft edge held
+   * strong over its top padding whatever the bar shows.
+   */
+  scrollEdgePane?: { topPadding: number };
   listRef?: Ref<FlatList<ItemT>>;
 };
 
@@ -311,12 +316,15 @@ export function PageScaffold({
     () => exactMobileRootTabHrefForPathname(pathname),
     [pathname],
   );
+  const edgeTracking = useNemuScrollEdgeTracking();
+  const edgeRef = edgeTracking.ref as unknown as (value: ScrollViewInstance | null) => void;
   const setScrollRef = useCallback(
     (value: ScrollViewInstance | null) => {
       localScrollRef.current = value;
+      edgeRef(value);
       assignScrollRef(scrollRef, value);
     },
-    [scrollRef],
+    [edgeRef, scrollRef],
   );
   const contentStyle = usePageContentStyle({
     nativeHeader,
@@ -345,6 +353,7 @@ export function PageScaffold({
       nativeHeader={nativeHeader}
       barContentVisible={barContentVisible}
       headerBarHeight={headerBarHeight}
+      tracking={edgeTracking}
     >
       <ScrollView
         ref={setScrollRef}
@@ -374,6 +383,7 @@ export function PageListScaffold<ItemT>({
   headerSearchBar,
   contentContainerStyle,
   barContentVisible,
+  scrollEdgePane,
   listRef,
   ...flatListProps
 }: PageListScaffoldProps<ItemT>) {
@@ -389,12 +399,15 @@ export function PageListScaffold<ItemT>({
     () => exactMobileRootTabHrefForPathname(pathname),
     [pathname],
   );
+  const edgeTracking = useNemuScrollEdgeTracking();
+  const edgeRef = edgeTracking.ref as unknown as (value: FlatList<ItemT> | null) => void;
   const setListRef = useCallback(
     (value: FlatList<ItemT> | null) => {
       localListRef.current = value;
+      edgeRef(value);
       assignFlatListRef(listRef, value);
     },
-    [listRef],
+    [edgeRef, listRef],
   );
   const contentStyle = usePageContentStyle({
     nativeHeader,
@@ -423,6 +436,8 @@ export function PageListScaffold<ItemT>({
       nativeHeader={nativeHeader}
       barContentVisible={barContentVisible}
       headerBarHeight={headerBarHeight}
+      pane={scrollEdgePane}
+      tracking={edgeTracking}
     >
       <FlatList
         key={fontScaleLayoutKey}

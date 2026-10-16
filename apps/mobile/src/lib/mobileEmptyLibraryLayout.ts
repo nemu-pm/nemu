@@ -96,13 +96,10 @@ export function getMobileEmptyLibraryAdaptiveLayout({
   height,
   fold,
   bleedWidth,
-  extraCopyHeight = 0,
 }: {
   width: number;
   height: number;
   fold?: MobileEmptyLibraryPaneSplit | null;
-  /** Copy below the button that the stacked art must leave room for (a second link). */
-  extraCopyHeight?: number;
   /** Stacked art may bleed past the page gutters to this width (web `w-[100vw]`). */
   bleedWidth?: number;
 }): MobileEmptyLibraryAdaptiveLayout {
@@ -151,7 +148,7 @@ export function getMobileEmptyLibraryAdaptiveLayout({
   }
 
   // Phone treatment: the art takes the column left after the copy stack.
-  const remaining = Math.max(1, boxHeight - NEMU_EMPTY_LIBRARY_COPY_STACK_HEIGHT - extraCopyHeight - pad * 2);
+  const remaining = Math.max(1, boxHeight - NEMU_EMPTY_LIBRARY_COPY_STACK_HEIGHT - pad * 2);
   const portraitHeight = remaining * NEMU_EMPTY_LIBRARY_PORTRAIT_REMAINING_RATIO;
   const stackWidth = Math.max(boxWidth, Math.round(bleedWidth ?? 0));
   const portraitMaxWidth = Math.max(
@@ -163,6 +160,28 @@ export function getMobileEmptyLibraryAdaptiveLayout({
 
 /** The new design's second link under the button (6pt above, 44pt touch row). */
 export const NEMU_EMPTY_LIBRARY_SECONDARY_ACTION_HEIGHT = 6 + 44;
+
+/**
+ * Where the new design's second link goes. It never takes room from the art:
+ * the stacked art keeps the size and place it has with one button, and the
+ * link hangs under the button only where the box has that much room left
+ * below it (clear of the tab bar and the home indicator); otherwise it is left
+ * out (Search is in the tab bar or the rail). Beside or below the art (row,
+ * column) the copy has its own pane, and the link sits in it.
+ */
+export function getMobileEmptyLibrarySecondaryActionPlacement({
+  arrangement,
+  spaceBelowStack,
+}: {
+  arrangement: MobileEmptyLibraryAdaptiveLayout["arrangement"];
+  /** Room (pt) between the stacked copy's bottom and the box's; null before it is measured. */
+  spaceBelowStack: number | null;
+}): "inline" | "below" | "hidden" {
+  if (arrangement !== "stack") return "inline";
+  return spaceBelowStack !== null && spaceBelowStack >= NEMU_EMPTY_LIBRARY_SECONDARY_ACTION_HEIGHT
+    ? "below"
+    : "hidden";
+}
 
 /** Web never lets the portrait exceed its `sm:max-w-md md:max-w-lg` caps. */
 function portraitWidthCap(contentWidth: number) {

@@ -4,6 +4,10 @@
 export type NemuNativeToolbarSymbol =
   | "arrow.clockwise"
   | "checkmark"
+  | "checkmark.circle"
+  | "link"
+  | "rectangle.stack.badge.plus"
+  | "square.and.arrow.up"
   | "chevron.left"
   | "folder.badge.gearshape"
   | "folder.badge.plus"
