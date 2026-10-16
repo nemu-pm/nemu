@@ -42,7 +42,7 @@ describe("native scroll edges follow toolbar placement", () => {
 describe("native scroll edges never fall back to the SDK default", () => {
   test("no edge is automatic or hard, whatever the bar placement (iOS 27 resolves automatic to hard)", () => {
     for (const side of [null, "left", "right"] as const) {
-      const edges = Object.values(resolveNemuNativeScrollEdgeEffects(side));
+      const edges: string[] = Object.values(resolveNemuNativeScrollEdgeEffects(side));
       expect(edges.filter((edge) => edge === "automatic" || edge === "hard")).toEqual([]);
     }
   });
