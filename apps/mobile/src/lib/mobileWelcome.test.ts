@@ -61,12 +61,6 @@ describe("mobile welcome helpers", () => {
     expect(shouldStackMobileWelcomeActions(768)).toBe(false);
   });
 
-  test("a form-sheet body keeps the stack on a wide window; a wide body does not", () => {
-    expect(shouldStackMobileWelcomeActions(1032, 492)).toBe(true);
-    expect(shouldStackMobileWelcomeActions(1032, 984)).toBe(false);
-    expect(shouldStackMobileWelcomeActions(874, 702)).toBe(false);
-  });
-
   test("coalesces successful completion writes and only retries failures", async () => {
     const coordinator = createMobileWelcomeCompletionWriteCoordinator();
     let writeCount = 0;

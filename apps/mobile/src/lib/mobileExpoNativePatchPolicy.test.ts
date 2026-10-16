@@ -97,12 +97,6 @@ describe("mobile Expo native patch policy", () => {
     expect(hostView).toContain("metrics.sheetWidth = sheetView.bounds.width");
     expect(hostView).toContain("metrics.safeAreaRight = sheetView.safeAreaInsets.right");
     expect(hostView).toContain('"sheetWidth": metrics.sheetWidth');
-    // Regular width: a centred form sheet as tall as its content, not a
-    // window-wide bottom sheet (iPad) or an off-centre fitted one (Duo inner).
-    const sheetView = readFileSync(path.join(repositoryRoot,
-      "node_modules/@expo/ui/ios/BottomSheetView.swift"), "utf8");
-    expect(sheetView).toContain("@Environment(\\.horizontalSizeClass) private var horizontalSizeClass");
-    expect(sheetView).toContain("content.presentationSizing(.form.fitted(horizontal: false, vertical: true))");
     for (const file of [
       "src/community/bottom-sheet/BottomSheet.ios.tsx",
       "build/community/bottom-sheet/BottomSheet.ios.js",
@@ -111,12 +105,13 @@ describe("mobile Expo native patch policy", () => {
         path.join(repositoryRoot, "node_modules/@expo/ui", file), "utf8");
       expect(bottomSheet).toMatch(/presentation\.sheetWidth -\s*\(ignoresLeft \? 0 : presentation\.safeAreaLeft\)/);
       expect(bottomSheet).not.toContain("containerRelativeFrame");
-      expect(bottomSheet).not.toContain("presentationSizing('fitted')");
+      // Flush with the sheet's edges by an offset, which keeps the host's
+      // frame (negative padding shrank it and the content lost its touches).
+      expect(bottomSheet).toMatch(/offset\(\{\s*x: sheetSafeAreaInsets/);
     }
     // A fresh install reproduces it: the hunks are in the repository patch.
     const patch = readFileSync(
       path.join(repositoryRoot, "patches/@expo%2Fui@58.0.15.patch"), "utf8");
-    expect(patch).toContain("diff --git a/ios/BottomSheetView.swift");
     expect(patch).toContain("+      metrics.sheetWidth = sheetView.bounds.width");
     expect(patch).toContain("diff --git a/ios/Modifiers/OnGeometryChangeModifier.swift");
   });

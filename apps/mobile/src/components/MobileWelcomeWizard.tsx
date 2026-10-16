@@ -688,7 +688,7 @@ function MobileWelcomeWizardContent({
     400,
     (sheetBodyWidth ?? windowWidth - 48) + 8,
   );
-  const stackActions = shouldStackMobileWelcomeActions(windowWidth, sheetBodyWidth);
+  const stackActions = shouldStackMobileWelcomeActions(windowWidth);
   const welcomeIntroLines = strings.welcome.introLines;
   const [welcomeTitleBeforeBrand, welcomeTitleAfterBrand] =
     splitWelcomeTitleAroundBrand(strings.welcome.title);
