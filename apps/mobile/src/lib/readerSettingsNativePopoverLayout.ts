@@ -44,12 +44,18 @@ export function readerSettingsNativeContentHeight(rows: ReaderSettingsNativeRows
   // 1. Reading direction: one segmented row.
   let height = row;
   let sections = 1;
-  // 2. Page layout (+ cover pairing while a spread shows), with its footer;
-  //    3. page fit, with its footer.
+  // 2. Page layout, with its footer; 3. while a spread shows, pairing and
+  //    Shift by One Page, with their footer; 4. page fit, with its footer;
+  //    5. page background.
   if (rows.twoPageSupported) {
-    height += row + (rows.showPagePairingControls ? row : 0) + footer;
     height += row + footer;
-    sections += 2;
+    if (rows.showPagePairingControls) {
+      height += row * 2 + footer;
+      sections += 1;
+    }
+    height += row + footer;
+    height += row;
+    sections += 3;
   }
   // 5. Laptop Mode: the two-way choice and spoiler protection, header + footer.
   if (rows.showNotebookPane) {

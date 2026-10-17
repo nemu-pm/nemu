@@ -306,6 +306,10 @@ export function ReaderSettingsNativePopover({
                 </SwiftText>
               ))}
             </SwiftPicker>
+          </SwiftSection>
+        ) : null}
+        {twoPageSupported ? (
+          <SwiftSection>
             <SwiftPicker
               label={strings.reader.pageBackground}
               systemImage="square.fill.on.square"
