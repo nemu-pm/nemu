@@ -32,6 +32,7 @@ import {
 } from "@/lib/mobileImageCache";
 import { isMobileAppLocalImageUri } from "@/lib/mobileAppLocalImageUris";
 import { resolveMobileLocalArchiveImageUri } from "@/lib/mobileLocalArchiveImageUri";
+import { holdMobileLaunchRevealForImage, isMobileLaunchContentReady } from "@/lib/mobileSplashScreen";
 import {
   isRepairableMobileSourceImageUri,
   reportMobileSourceImageLoadFailure,
@@ -134,8 +135,18 @@ export function MobileCachedImage({
     const uri = resolveMobileLocalArchiveImageUri(rawSource.uri);
     return uri === rawSource.uri ? rawSource : { ...rawSource, uri };
   }, [rawSource]);
+  // Mounted under the launch screen: the reveal waits for this image to
+  // paint, so it shows at once, never fading in after the screen has lifted.
+  const [underLaunch] = useState(() => !isMobileLaunchContentReady());
+  const releaseLaunchRef = useRef<(() => void) | null>(null);
+  useLayoutEffect(() => {
+    if (!underLaunch) return;
+    const release = holdMobileLaunchRevealForImage();
+    releaseLaunchRef.current = release;
+    return () => release?.();
+  }, [underLaunch]);
   // Reduce Motion turns the 240ms cover fade into an instant reveal.
-  const skipFade = reduceMotion === true || !fadeIn;
+  const skipFade = reduceMotion === true || !fadeIn || underLaunch;
   const sourceUri = source.uri;
   const sourceHeaders = source.headers;
   // Starts hidden unless the fade is skipped; a source already shown this
@@ -362,6 +373,10 @@ export function MobileCachedImage({
             : undefined,
     [cachedUri, failed, requiresLocalFile, source, uriPolicy.allowed],
   );
+  // A failed image has nothing to paint; one still resolving holds to the cap.
+  useEffect(() => {
+    if (failed) releaseLaunchRef.current?.();
+  }, [failed]);
 
   useEffect(() => {
     onSegmentedImageRef.current?.(
@@ -466,6 +481,7 @@ export function MobileCachedImage({
   const handleImageLoad = useCallback<NonNullable<ImageProps["onLoad"]>>(
     (event) => {
       markSourceShown(sourceKey);
+      releaseLaunchRef.current?.();
       if (holdPreviousWhileLoading && imageSource) {
         setShownImage((current) =>
           current?.sourceKey === sourceKey ? current : { sourceKey, source: imageSource },

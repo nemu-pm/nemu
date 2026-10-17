@@ -7,6 +7,10 @@ import {
 import type { InstalledSource } from "@/data/schema";
 import { getMobileInstalledSourceSettingsKeys } from "@/lib/mobileInstalledSourceKeys";
 import {
+  getRememberedMobileSourceImageRequest,
+  rememberMobileSourceImageRequestFor,
+} from "@/lib/mobileSourceImageRequestMemoryStore";
+import {
   loadMobileSourceSettingsByKeys,
   mergeSourceSettingValues,
   type MobileSourceSettingsReader,
@@ -161,6 +165,9 @@ function useMobileSourceImageRequestState(
     identityKey: string;
     request: MobileSourceImageRequest | null;
   } | null>(null);
+  // What this image resolved to last launch: painted from the first frame
+  // (a cold start included) until the live resolve settles.
+  const remembered = useMemo(() => getRememberedMobileSourceImageRequest(source, url), [source, url]);
   // A processed cover resolves to an app-local `file://` URI that is memoized
   // for this identity. If the file is pruned or lost the memoized entry is
   // still a hit, so nothing re-resolves and the cover stays broken. The render
@@ -199,6 +206,7 @@ function useMobileSourceImageRequestState(
         // the URI is unchanged and the view needs to be told explicitly that
         // it is worth another attempt.
         if (repairedUri) reportMobileSourceImageRepaired(repairedUri);
+        rememberMobileSourceImageRequestFor(source, url, request);
         setState((current) =>
           // A failed refresh keeps the last good request for the same image.
           request === null &&
@@ -237,9 +245,17 @@ function useMobileSourceImageRequestState(
     });
   }, [repair, source, sourceRequestKey, url]);
 
-  const settledRequest =
-    state?.identityKey === imageIdentityKey ? state.request : null;
   const settled = Boolean(imageIdentityKey) && state?.identityKey === imageIdentityKey;
+  const live = settled ? state.request : null;
+  // The remembered object stays when the live request is the same paint, so
+  // nothing downstream sees a new image source.
+  const settledRequest =
+    !settled
+      ? remembered
+      : live && remembered && makeMobileCoverRequestKey({ uri: live.url, headers: live.headers }) ===
+          makeMobileCoverRequestKey({ uri: remembered.url, headers: remembered.headers })
+        ? remembered
+        : live;
   return useMemo<MobileSourceImageRequestState>(
     () => ({
       status: !imageIdentityKey ? "idle" : settled ? "settled" : "pending",
