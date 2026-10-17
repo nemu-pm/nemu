@@ -49,6 +49,7 @@ public final class NemuWindowLayoutModule: Module {
     Constant("verticalBarBehaviorViewAvailable") { true }
     Constant("glassViewHostsChildren") { true }
     Constant("pageCurlViewAvailable") { true }
+    Constant("pageCurlTurnAvailable") { true }
     // The reader's Orientation Lock where the system only takes a preference
     // (iPad, resizable scenes): keep the scene's current orientation.
     AsyncFunction("setInterfaceOrientationLocked") { (locked: Bool) in
@@ -94,6 +95,11 @@ public final class NemuWindowLayoutModule: Module {
       Prop("turningEnabled") { (view: NemuPageCurlView, enabled: Bool) in view.turningEnabled = enabled }
       Prop("pageBackground") { (view: NemuPageCurlView, color: UIColor?) in view.pageBackground = color ?? .black }
       Prop("navigationIndex") { (view: NemuPageCurlView, index: Int) in view.navigationIndex = index; view.setNeedsLayout() }
+      // A tap turn starts here at once, ahead of the React commit that brings
+      // the same navigation as props (which then changes nothing).
+      AsyncFunction("turn") { (view: NemuPageCurlView, slot: Int, animated: Bool, token: Int) in
+        view.requestTurn(slot: slot, animated: animated, token: token)
+      }.runOnQueue(.main)
       Prop("navigationAnimated") { (view: NemuPageCurlView, animated: Bool) in view.navigationAnimated = animated }
       Prop("navigationToken") { (view: NemuPageCurlView, token: Int) in view.navigationToken = token }
     }

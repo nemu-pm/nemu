@@ -1,4 +1,4 @@
-import type { ComponentType, ReactNode } from "react";
+import type { ComponentType, ReactNode, Ref } from "react";
 import { requireNativeViewManager, requireOptionalNativeModule } from "expo-modules-core";
 import { Platform, type NativeSyntheticEvent, type StyleProp, type ViewStyle } from "react-native";
 
@@ -26,14 +26,23 @@ export type PageCurlViewProps = {
   onTurnEnd?: (event: NativeSyntheticEvent<Record<string, never>>) => void;
   style?: StyleProp<ViewStyle>;
   children?: ReactNode;
+  ref?: Ref<PageCurlViewHandle>;
+};
+
+/** View functions (`pageCurlTurnAvailable`). */
+export type PageCurlViewHandle = {
+  /** Starts the turn the next navigation props describe, without waiting for their commit. */
+  turn?: (slot: number, animated: boolean, token: number) => Promise<void>;
 };
 
 const nativeModule = Platform.OS === "ios"
-  ? requireOptionalNativeModule<{ pageCurlViewAvailable?: boolean }>("NemuWindowLayout")
+  ? requireOptionalNativeModule<{ pageCurlViewAvailable?: boolean; pageCurlTurnAvailable?: boolean }>("NemuWindowLayout")
   : null;
 
 /** True in iOS binaries with the curl pager; anything else keeps the slide. */
 export const pageCurlAvailable = nativeModule?.pageCurlViewAvailable === true;
+/** The curl view takes a tap turn imperatively (`PageCurlViewHandle.turn`). */
+export const pageCurlTurnAvailable = nativeModule?.pageCurlTurnAvailable === true;
 
 export const NativePageCurlView: ComponentType<PageCurlViewProps> | null = pageCurlAvailable
   ? requireNativeViewManager<PageCurlViewProps>("NemuWindowLayout", "NemuPageCurlView")

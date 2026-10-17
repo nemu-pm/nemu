@@ -172,6 +172,14 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
 
   // MARK: Navigation
 
+  /** The navigation JS is about to commit as props, applied now. */
+  func requestTurn(slot: Int, animated: Bool, token: Int) {
+    navigationIndex = slot
+    navigationAnimated = animated
+    navigationToken = token
+    layoutIfNeeded()
+  }
+
   private func applyNavigation() {
     guard let pageController, slotCount > 0, !transitioning else { return }
     let target = normalizedSlot(navigationIndex)

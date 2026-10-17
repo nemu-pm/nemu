@@ -244,6 +244,8 @@ type MobileReaderGalleryProps = {
   pageCurl?: boolean;
   /** The curl is turning a leaf: page overlays wait for the settled page. */
   onPageTurningChange?: (turning: boolean) => void;
+  /** Overlays are mounted on the pages (Japanese-learning bubbles): a curl waits for them to leave. */
+  pageOverlaysMounted?: boolean;
   /** A page wide enough to lie across the spine of a flat spread. */
   isWidePage?: (pageIndex: number) => boolean;
   /** Intrinsic size of a page, for the book-spine shading of a fold spread. */
@@ -350,6 +352,7 @@ export function MobileReaderGallery({
   contentIdentityKey,
   pageCurl = false,
   onPageTurningChange,
+  pageOverlaysMounted = false,
   isWidePage,
   pageNaturalSize,
   stateInsets,
@@ -1571,6 +1574,7 @@ export function MobileReaderGallery({
         onEdgeIntent={handleCurlEdgeIntent}
         onSettleFrame={handleCurlSettle}
         onTurningChange={onPageTurningChange}
+        overlaysOnPages={pageOverlaysMounted}
         pageGlide={pageGlide}
         pagerRef={curlPagerRef}
         renderImage={renderImage}

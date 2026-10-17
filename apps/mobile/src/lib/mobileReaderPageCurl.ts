@@ -237,6 +237,21 @@ export function mobileReaderCurlLayout(input: {
  */
 export type MobileReaderCurlNavigation = { slot: number; token: number; animated: boolean };
 
+/**
+ * A tap turn (one animated step) starts natively right away instead of after
+ * the React commit that carries it; the reader re-renders for the new page in
+ * that commit (55–70 ms on the iPhone Duo simulator). Not while page overlays
+ * are mounted: the commit that unmounts them must land first so the leaf
+ * never lifts with the bubbles. Binaries without the view function wait.
+ */
+export function mobileReaderCurlTurnsImmediately(input: {
+  step: boolean;
+  overlaysOnPages: boolean;
+  available: boolean;
+}): boolean {
+  return input.step && !input.overlaysOnPages && input.available;
+}
+
 export function nextMobileReaderCurlNavigation(
   current: MobileReaderCurlNavigation,
   slot: number,

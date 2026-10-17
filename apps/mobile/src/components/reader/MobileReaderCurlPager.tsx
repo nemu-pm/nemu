@@ -1,8 +1,12 @@
-import { useCallback, useImperativeHandle, useMemo, useState, type ReactNode, type Ref } from "react";
+import { useCallback, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import { StyleSheet, View } from "react-native";
 import Animated from "react-native-reanimated";
 import { mobileReaderPageFrameLayoutTransition } from "@/lib/mobileReaderMotionAnimations";
-import { NativePageCurlView } from "../../../modules/nemu-window-layout";
+import {
+  NativePageCurlView,
+  pageCurlTurnAvailable,
+  type PageCurlViewHandle,
+} from "../../../modules/nemu-window-layout";
 import type { ReadingMode } from "@/data/schema";
 import type { WindowLayoutRect } from "@/lib/mobileWindowLayout";
 import {
@@ -13,6 +17,7 @@ import {
   mobileReaderCurlSlotForFrame,
   mobileReaderCurlSlotWindow,
   mobileReaderCurlSpine,
+  mobileReaderCurlTurnsImmediately,
   nextMobileReaderCurlNavigation,
   type MobileReaderCurlNavigation,
   type MobileReaderCurlSlot,
@@ -42,6 +47,7 @@ export function MobileReaderCurlPager({
   onEdgeIntent,
   onSettleFrame,
   onTurningChange,
+  overlaysOnPages = false,
   pageGlide = false,
   pagerRef,
   renderImage,
@@ -64,6 +70,11 @@ export function MobileReaderCurlPager({
   onSettleFrame: (frame: number) => void;
   /** A leaf is turning (overlays wait for the settled page). */
   onTurningChange?: (turning: boolean) => void;
+  /**
+   * Page overlays (Japanese-learning bubbles) are mounted: a tap turn waits
+   * for the commit that unmounts them, so the leaf never lifts with them.
+   */
+  overlaysOnPages?: boolean;
   /**
    * Flat ⇄ book with a spread: the facing pages glide to their new boxes
    * (as the slide pager's slots do) instead of jumping there.
@@ -92,14 +103,31 @@ export function MobileReaderCurlPager({
   }));
   // The frame the native pager rests on (or is turning to): the mounted window follows it.
   const [settledFrame, setSettledFrame] = useState(initialFrame);
+  // The latest navigation asked for (ahead of its commit), so a tap turn can
+  // hand native the very token the props will carry.
+  const navigationRef = useRef(navigation);
+  const nativeRef = useRef<PageCurlViewHandle>(null);
   useImperativeHandle(pagerRef, () => ({
     goToFrame(frame, animated) {
+      const step = animated && Math.abs(frame - settledFrame) === 1;
+      const immediate = mobileReaderCurlTurnsImmediately({
+        step,
+        overlaysOnPages,
+        available: pageCurlTurnAvailable,
+      });
       // Same commit as the request, so the outgoing page curls without overlays.
-      if (animated && Math.abs(frame - settledFrame) === 1) onTurningChange?.(true);
-      setNavigation((current) => nextMobileReaderCurlNavigation(current, mobileReaderCurlSlotForFrame(frame, spreadMode), animated));
+      if (step) onTurningChange?.(true);
+      const next = nextMobileReaderCurlNavigation(navigationRef.current, mobileReaderCurlSlotForFrame(frame, spreadMode), animated);
+      navigationRef.current = next;
+      // A tap turn starts natively at once: the reader's re-render for the
+      // new page (tens of ms) no longer sits between the tap and the curl.
+      if (immediate) {
+        void nativeRef.current?.turn?.(next.slot, next.animated, next.token)?.catch(() => undefined);
+      }
+      setNavigation(next);
       setSettledFrame(frame);
     },
-  }), [onTurningChange, settledFrame, spreadMode]);
+  }), [onTurningChange, overlaysOnPages, settledFrame, spreadMode]);
 
   const window = mobileReaderCurlSlotWindow({ frame: settledFrame, frameCount: frames.length, spreadMode });
   const mounted = slots.slice(window.start, window.end + 1).map((slot, offset) => ({ slot, index: window.start + offset }));
@@ -117,6 +145,7 @@ export function MobileReaderCurlPager({
   if (!NativePageCurlView) return null;
   return (
     <NativePageCurlView
+      ref={nativeRef}
       style={styles.pager}
       spine={mobileReaderCurlSpine(spreadMode, mode)}
       slotCount={slots.length}

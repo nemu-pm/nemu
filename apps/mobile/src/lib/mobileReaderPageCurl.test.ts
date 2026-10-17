@@ -9,6 +9,7 @@ import {
   mobileReaderCurlSlotForFrame,
   mobileReaderCurlSlotWindow,
   mobileReaderCurlSpine,
+  mobileReaderCurlTurnsImmediately,
   nextMobileReaderCurlNavigation,
   normalizeMobileReaderPageTurn,
 } from "./mobileReaderPageCurl";
@@ -238,5 +239,16 @@ describe("curl layout", () => {
       expect(topLeft.x).toBeCloseTo(from.x, 5);
       expect(topLeft.x + to.width * flip.scale).toBeCloseTo(from.x + from.width, 5);
     }
+  });
+});
+
+describe("tap turn start", () => {
+  test("a one-step animated turn starts natively at once", () => {
+    expect(mobileReaderCurlTurnsImmediately({ step: true, overlaysOnPages: false, available: true })).toBe(true);
+  });
+  test("bubbles on the page, a jump, or an older binary wait for the commit", () => {
+    expect(mobileReaderCurlTurnsImmediately({ step: true, overlaysOnPages: true, available: true })).toBe(false);
+    expect(mobileReaderCurlTurnsImmediately({ step: false, overlaysOnPages: false, available: true })).toBe(false);
+    expect(mobileReaderCurlTurnsImmediately({ step: true, overlaysOnPages: false, available: false })).toBe(false);
   });
 });

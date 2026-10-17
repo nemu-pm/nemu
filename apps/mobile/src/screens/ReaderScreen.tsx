@@ -8858,6 +8858,7 @@ export function ReaderScreen() {
         foldGap={readerFoldGap}
         pageCurl={readerPageCurlActive}
         onPageTurningChange={setReaderPageTurning}
+        pageOverlaysMounted={japaneseLearningDetections.length > 0}
         isWidePage={readerIsWidePage}
       />
       <DuoPageFlipOverlay
