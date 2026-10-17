@@ -4,6 +4,7 @@ import {
   resolveMobileNativeFormSheetPadSizing,
   resolveMobileNativeSheetIosFormSheet,
   resolveMobileNativeSheetIosHeaderBarPadding,
+  resolveMobileNativeSheetIosHeaderTitleBalance,
 } from "./mobileNativeSheet";
 import { describe, expect, test } from "bun:test";
 import { mobileAdaptiveLayout } from "./mobileAdaptiveLayout";
@@ -454,6 +455,14 @@ describe("mobile native sheet behavior", () => {
       snapPoints: ["82%"],
       availableHeight: 759,
     });
+  });
+});
+
+describe("ios sheet header title balance", () => {
+  test("the bar side's padding is matched on the title's other side", () => {
+    expect(resolveMobileNativeSheetIosHeaderTitleBalance({ left: 76, right: 0 })).toEqual({ left: 0, right: 76 });
+    expect(resolveMobileNativeSheetIosHeaderTitleBalance({ left: 0, right: 76 })).toEqual({ left: 76, right: 0 });
+    expect(resolveMobileNativeSheetIosHeaderTitleBalance({ left: 0, right: 0 })).toEqual({ left: 0, right: 0 });
   });
 });
 

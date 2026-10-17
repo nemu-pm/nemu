@@ -51,6 +51,7 @@ import {
   resolveMobileNativeSheetIosFormSheet,
   resolveMobileNativeSheetIosFramedDetentHeight,
   resolveMobileNativeSheetIosHeaderBarPadding,
+  resolveMobileNativeSheetIosHeaderTitleBalance,
   resolveMobileNativeSheetIosLayout,
   resolveMobileNativeSheetIosPresentation,
   resolveMobileNativeSheetSoftBottomEdge,
@@ -633,32 +634,35 @@ export function MobileNativeSheetScaffold({
           pointerEvents={interactionLocked ? "none" : "auto"}
           barPadding={barEdges.headerPadding}
         >
-          <MobileSheetHeader
-            leading={headerLeading}
-            onLayout={(event) => {
-              const nextHeight = Math.ceil(event.nativeEvent.layout.height);
-              setMeasuredHeaderHeight((currentHeight) =>
-                currentHeight === nextHeight ? currentHeight : nextHeight,
-              );
-            }}
-            title={title ?? ""}
-            trailing={
-              headerTrailing ??
-              // One dismiss control on every platform: the SwiftUI `xmark`
-              // button on iOS, a bare `close-outline` glyph on a 48dp target
-              // on Android. An Android text label would silently render as an
-              // empty pressable, because this chrome never shows action labels.
-              (shouldRenderDismissButton ? (
-                <NemuNativeSheetHeaderAction
-                  accessibilityLabel={resolvedDismissLabel}
-                  androidIcon="close-outline"
-                  iosSystemImage="xmark"
-                  disabled={dismissDisabled}
-                  onPress={requestSheetClose}
-                />
-              ) : null)
-            }
-          />
+          {(titleInsets) => (
+            <MobileSheetHeader
+              leading={headerLeading}
+              titleInsets={titleInsets}
+              onLayout={(event) => {
+                const nextHeight = Math.ceil(event.nativeEvent.layout.height);
+                setMeasuredHeaderHeight((currentHeight) =>
+                  currentHeight === nextHeight ? currentHeight : nextHeight,
+                );
+              }}
+              title={title ?? ""}
+              trailing={
+                headerTrailing ??
+                // One dismiss control on every platform: the SwiftUI `xmark`
+                // button on iOS, a bare `close-outline` glyph on a 48dp target
+                // on Android. An Android text label would silently render as an
+                // empty pressable, because this chrome never shows action labels.
+                (shouldRenderDismissButton ? (
+                  <NemuNativeSheetHeaderAction
+                    accessibilityLabel={resolvedDismissLabel}
+                    androidIcon="close-outline"
+                    iosSystemImage="xmark"
+                    disabled={dismissDisabled}
+                    onPress={requestSheetClose}
+                  />
+                ) : null)
+              }
+            />
+          )}
         </MobileNativeSheetHeaderRow>
       ) : null}
       {isAndroid ? (
@@ -824,15 +828,24 @@ export function MobileNativeSheetScaffold({
 /**
  * The header row, padded on the system vertical bar's side by the sheet's own safe-area inset
  * there once the sheet reports it (so it renders inside the sheet): a sheet floating clear of the
- * bar (the iPhone Duo inner display) keeps no padding for it.
+ * bar (the iPhone Duo inner display) keeps no padding for it. The title stays centred on the
+ * sheet (the header balances the padding on the title's other side).
  */
 function MobileNativeSheetHeaderRow({
   barPadding,
   style,
+  children,
   ...props
-}: ComponentProps<typeof View> & { barPadding: { left: number; right: number } }) {
+}: Omit<ComponentProps<typeof View>, "children"> & {
+  barPadding: { left: number; right: number };
+  children: (titleInsets: { left: number; right: number }) => ReactNode;
+}) {
   const padding = resolveMobileNativeSheetIosHeaderBarPadding(barPadding, useBottomSheetSafeAreaInsets());
-  return <View {...props} style={[style, { paddingLeft: padding.left, paddingRight: padding.right }]} />;
+  return (
+    <View {...props} style={[style, { paddingLeft: padding.left, paddingRight: padding.right }]}>
+      {children(resolveMobileNativeSheetIosHeaderTitleBalance(padding))}
+    </View>
+  );
 }
 
 /**

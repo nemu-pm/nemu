@@ -650,6 +650,21 @@ export function resolveMobileNativeSheetIosHeaderBarPadding(
   };
 }
 
+/**
+ * Margins that keep a padded header's centred title on the sheet's centre:
+ * the bar-side padding is matched on the title's other side, so the title
+ * narrows instead of shifting towards the side without the bar.
+ */
+export function resolveMobileNativeSheetIosHeaderTitleBalance(barPadding: {
+  left: number;
+  right: number;
+}): { left: number; right: number } {
+  return {
+    left: Math.max(0, barPadding.right - barPadding.left),
+    right: Math.max(0, barPadding.left - barPadding.right),
+  };
+}
+
 /** Short custom-chrome sheets sit below the system status area. Tall sheets
  * retain its side safe area, including when expanded to a second detent. */
 export function mobileSheetCanUseFullWidth(snapPoints: (string | number)[] | undefined, availableHeight: number): boolean {

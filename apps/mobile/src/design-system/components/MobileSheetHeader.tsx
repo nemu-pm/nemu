@@ -19,6 +19,8 @@ export type MobileSheetHeaderProps = {
   leading?: ReactNode;
   onLayout?: (event: LayoutChangeEvent) => void;
   title: string;
+  /** Extra space on each side of the centred title (iOS), e.g. to balance a padded side. */
+  titleInsets?: { left: number; right: number };
   trailing?: ReactNode;
 };
 
@@ -27,6 +29,7 @@ export function MobileSheetHeader({
   leading,
   onLayout,
   title,
+  titleInsets,
   trailing,
 }: MobileSheetHeaderProps) {
   const { tokens } = useNemuTheme();
@@ -70,6 +73,9 @@ export function MobileSheetHeader({
         style={[
           styles.titleBlock,
           metrics.titleAlignment === "center" ? styles.centeredTitleBlock : null,
+          !isAndroid && titleInsets
+            ? { marginLeft: titleInsets.left, marginRight: titleInsets.right }
+            : null,
         ]}
       >
         <Text
