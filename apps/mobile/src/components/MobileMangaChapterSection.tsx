@@ -7,6 +7,7 @@ import type { AppLanguage, ChapterSummary, LocalChapterProgress } from "@/data/s
 import {
   getNemuButtonMinimumTargetSize,
   nemuFontWeight,
+  nemuMaxFontSizeMultiplier,
   useNemuTheme,
   MobileChip,
   NemuInlineEmptyState,
@@ -237,7 +238,10 @@ export function MobileMangaChapterSectionHeader({
           { minHeight: alignedControl ? 46 : rhythm.headerRowHeight, marginBottom: rhythm.headerRowMarginBottom },
         ]}
       >
-        <Text style={[styles.sectionTitle, { color: tokens.foreground }]}>
+        <Text
+          maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
+          style={[styles.sectionTitle, { color: tokens.foreground }]}
+        >
           {title}
         </Text>
         {loading && !loadingPlaceholder ? (

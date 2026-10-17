@@ -59,6 +59,7 @@ import {
   radius,
   type NemuTokens,
   nemuFontWeight,
+  nemuMaxFontSizeMultiplier,
   useMobilePageBleedStyles,
   useMobilePageGutters,
   useNemuTheme,
@@ -382,6 +383,7 @@ function SectionHeader({
         {title ? (
           <Text
             accessibilityRole="header"
+            maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
             numberOfLines={1}
             style={[
               styles.sectionTitle,
