@@ -569,7 +569,11 @@ export const mobileStringsZh: MobileStrings = {
   reader: {
     bookPairing: "书籍式配对",
     pairingCoverPaired: "封面合页",
-    pairingCoverAlone: "封面单页",
+    pairingCoverAlone: "封面单独",
+    spreadPairing: "跨页配对",
+    pairingAutomatic: "自动",
+    spreadPairingFootnote: "选择“自动”时，将根据页面的装订边距配对。宽幅页面始终单独显示。“错开一页”仅应用于此作品。",
+    shiftByOnePage: "错开一页",
     chapterAccessibility: "{{direction}}：{{chapter}}",
     closeSettings: "关闭阅读器设置",
     closePlugin: "关闭阅读器插件",

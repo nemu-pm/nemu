@@ -192,6 +192,17 @@ export type UserSettings = {
    */
   readerFitModes?: Partial<Record<"narrow" | "wide" | "large", "page" | "width" | "height" | "fill">>;
   readerPagePairingMode?: PagePairingMode;
+  /**
+   * Spread pairing: automatic (from the pages' binding margins), the cover
+   * alone or the cover paired. Supersedes `readerPagePairingMode`, read as
+   * the fallback for profiles saved before it.
+   */
+  readerSpreadPairing?: "auto" | "cover-alone" | "cover-paired";
+  /**
+   * "Shift by One Page", per manga (`mobileReaderPairingShiftKey`): the
+   * latest choice, which a chapter without its own takes, and each chapter's.
+   */
+  readerPairingShifts?: Record<string, { shift: boolean; chapters?: Record<string, boolean> }>;
   readerProcessPageImages?: boolean;
   themePreference?: ThemePreference;
   searchSelectedSourceIds?: string[];

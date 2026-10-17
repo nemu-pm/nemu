@@ -1,4 +1,5 @@
 import type { ReadingMode } from "@/data/schema";
+import type { MobileReaderSpreadPairing } from "@/lib/mobileReaderPairing";
 import type { ReaderFitMode } from "@/lib/mobileReaderFit";
 import type { ReaderSpreadMode } from "@/lib/mobileReaderSpreadMode";
 import type { ReaderWindowShape } from "@/lib/mobileReaderWindowShape";
@@ -34,7 +35,10 @@ export type ReaderSettingsNativePopoverProps = {
   avoidCamera?: boolean;
   onSetAvoidCamera?: (enabled: boolean) => void;
   showPagePairingControls: boolean;
-  pagePairingMode: "book" | "manga";
+  /** How pages pair into spreads (自动 / 封面单独 / 封面合页). */
+  spreadPairing: MobileReaderSpreadPairing;
+  /** This chapter is shifted by one page (错开一页). */
+  pairingShifted: boolean;
   processPageImages: boolean;
   busy: boolean;
   saving: boolean;
@@ -43,7 +47,9 @@ export type ReaderSettingsNativePopoverProps = {
   onClose: () => void;
   onDismissComplete?: () => void;
   onSetMode: (mode: ReadingMode) => void;
-  onTogglePagePairingMode: () => void;
+  onSetSpreadPairing: (value: MobileReaderSpreadPairing) => void;
+  /** Shifts this manga's pairing by one page from the current chapter on. */
+  onShiftPairing: () => void;
   onToggleProcessPageImages: () => void;
   onPreviewScrollWidth: (value: number) => void;
   onCommitScrollWidth: (value: number) => void;

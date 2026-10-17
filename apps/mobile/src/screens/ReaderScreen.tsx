@@ -286,6 +286,11 @@ import {
   type MobileReaderPageSize,
 } from "@/lib/mobileReaderPairing";
 import {
+  mobileReaderPairingShiftKey,
+  mobileReaderPairingShifted,
+} from "@/lib/mobileReaderPairingShift";
+import { useReaderPairingPrefs } from "@/components/reader/useReaderPairingPrefs";
+import {
   clampReaderPageIndex,
   getReaderContinuousScrollMetrics,
   readerContinuousAccessibilityAction,
@@ -1118,8 +1123,6 @@ export function ReaderScreen() {
     setMode,
     scrollWidthPct,
     setScrollWidthPct,
-    pagePairingMode,
-    setPagePairingMode,
     processPageImages,
     setProcessPageImages,
   } = useReadingMode();
@@ -2446,7 +2449,17 @@ export function ReaderScreen() {
     },
     [displayedPages, readerImageSizes, readerPageIdentityFor],
   );
-  const readerSpreadPairing = pagePairingMode === "book" ? "cover-paired" : "cover-alone";
+  const {
+    spreadPairing: readerSpreadPairing,
+    setSpreadPairing: setReaderSpreadPairing,
+    pairingShifts: readerPairingShifts,
+    togglePairingShift: toggleReaderPairingShift,
+  } = useReaderPairingPrefs();
+  const readerPairingShiftKey = mobileReaderPairingShiftKey(registryId, sourceId, mangaId);
+  const readerPairingShift = mobileReaderPairingShifted(readerPairingShifts[readerPairingShiftKey], chapterId);
+  // What the user chose: changing it re-pairs the whole chapter around the
+  // page they are on (that page leads, Komikku-style).
+  const readerPairingChoiceKey = `${readerSpreadPairing}:${readerPairingShift ? "shift" : "base"}`;
   const readerComputedSpreads = useMemo(
     () =>
       isTwoPageMode
@@ -2454,12 +2467,13 @@ export function ReaderScreen() {
             pageCount,
             sizeAt: readerPageSizeAt,
             pairing: readerSpreadPairing,
+            shift: readerPairingShift,
           })
         : [],
-    [isTwoPageMode, pageCount, readerPageSizeAt, readerSpreadPairing],
+    [isTwoPageMode, pageCount, readerPageSizeAt, readerPairingShift, readerSpreadPairing],
   );
   const readerSpreadTableRef = useRef<{ key: string; spreads: number[][] } | null>(null);
-  const readerSpreadTableKey = `${chapterId}:${pagesState.status === "ready" ? pagesState.fetchedAt : 0}:${pageCount}:${readerSpreadPairing}`;
+  const readerSpreadTableKey = `${chapterId}:${pagesState.status === "ready" ? pagesState.fetchedAt : 0}:${pageCount}:${readerPairingChoiceKey}`;
   const readerSpreads = useMemo(() => {
     const previous = readerSpreadTableRef.current;
     const spreads = isTwoPageMode
@@ -2722,7 +2736,7 @@ export function ReaderScreen() {
       ? // routePage must NOT be part of this key: syncRoutePage rewrites the
         // route param after every page change, and re-arming the restore effect
         // from that echo snaps the scrolling-mode viewport to the page top.
-        `${readyFetchedAt}:${chapterId}:${mode}:${pageCount}:${isTwoPageMode ? pagePairingMode : "single"}:${
+        `${readyFetchedAt}:${chapterId}:${mode}:${pageCount}:${isTwoPageMode ? readerPairingChoiceKey : "single"}:${
           // Stage geometry is not part of the key: a fold, dock or rail keeps
           // the mounted list at its logical page (MobileReaderGallery
           // re-places the offset). Only the user's column width re-anchors.
@@ -2735,7 +2749,7 @@ export function ReaderScreen() {
           // Presentation only (spread ⇄ single remounts under a cross-fade);
           // stage size changes never remount the gallery.
           galleryPagedMode
-            ? `${isTwoPageMode ? pagePairingMode : "single"}`
+            ? `${isTwoPageMode ? readerPairingChoiceKey : "single"}`
             : currentSegmentedImage
               ? `segmented:${currentSegmentedImage.generation}:${activeScrollWidthPct}`
               : isLongStripLogicalPage
@@ -8752,7 +8766,8 @@ export function ReaderScreen() {
           isTwoPageMode={readerSettingsTwoPage}
           twoPageSupported={readerPageLayoutVisible}
           showPagePairingControls={showPagePairingControls}
-          pagePairingMode={pagePairingMode}
+          spreadPairing={readerSpreadPairing}
+          pairingShifted={readerPairingShift}
           processPageImages={processPageImages}
           busy={readerSettingsActionBusy}
           saving={saving}
@@ -8810,10 +8825,14 @@ export function ReaderScreen() {
           fitMode={readerFitSetting}
           windowShape={readerWindowShape}
           onSetFitMode={setReaderFitModeFromSettings}
-          onTogglePagePairingMode={() => {
+          onSetSpreadPairing={(value) => {
+            if (readerSettingsActionBusy || value === readerSpreadPairing) return;
+            void runReaderSettingsAction("page-pairing-mode", () => setReaderSpreadPairing(value));
+          }}
+          onShiftPairing={() => {
             if (readerSettingsActionBusy) return;
             void runReaderSettingsAction("page-pairing-mode", () =>
-              setPagePairingMode(pagePairingMode === "book" ? "manga" : "book"),
+              toggleReaderPairingShift(readerPairingShiftKey, chapterId),
             );
           }}
           onToggleProcessPageImages={() => {
@@ -8848,7 +8867,8 @@ export function ReaderScreen() {
           isTwoPageMode={readerSettingsTwoPage}
           twoPageSupported={readerPageLayoutVisible}
           showPagePairingControls={showPagePairingControls}
-          pagePairingMode={pagePairingMode}
+          spreadPairing={readerSpreadPairing}
+          pairingShifted={readerPairingShift}
           processPageImages={processPageImages}
           busy={readerSettingsActionBusy}
           saving={saving}
@@ -8893,10 +8913,14 @@ export function ReaderScreen() {
           fitMode={readerFitSetting}
           windowShape={readerWindowShape}
           onSetFitMode={setReaderFitModeFromSettings}
-          onTogglePagePairingMode={() => {
+          onSetSpreadPairing={(value) => {
+            if (readerSettingsActionBusy || value === readerSpreadPairing) return;
+            void runReaderSettingsAction("page-pairing-mode", () => setReaderSpreadPairing(value));
+          }}
+          onShiftPairing={() => {
             if (readerSettingsActionBusy) return;
             void runReaderSettingsAction("page-pairing-mode", () =>
-              setPagePairingMode(pagePairingMode === "book" ? "manga" : "book"),
+              toggleReaderPairingShift(readerPairingShiftKey, chapterId),
             );
           }}
           onToggleProcessPageImages={() => {

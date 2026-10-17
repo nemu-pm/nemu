@@ -488,6 +488,12 @@ export type MobileStrings = {
     pairingCoverPaired: string;
     /** Segmented label for manga pairing: page 1 (the cover) stands alone. */
     pairingCoverAlone: string;
+    /** Menu row: how pages pair into spreads (自动 / 封面单独 / 封面合页). */
+    spreadPairing: string;
+    pairingAutomatic: string;
+    spreadPairingFootnote: string;
+    /** Action: shift this manga's pairing by one page (错开一页). */
+    shiftByOnePage: string;
     chapterAccessibility: string;
     closeSettings: string;
     closePlugin: string;
