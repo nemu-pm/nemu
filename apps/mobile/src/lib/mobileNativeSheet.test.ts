@@ -7,6 +7,11 @@ import {
   resolveMobileNativeSheetIosHeaderTitleBalance,
 } from "./mobileNativeSheet";
 import { describe, expect, test } from "bun:test";
+import {
+  capMobileNativeSheetSnapPoints,
+  mobileNativeSheetMaxHeight,
+  resolveMobileNativeSheetSnapPointHeight,
+} from "./mobileNativeSheet";
 import { mobileAdaptiveLayout } from "./mobileAdaptiveLayout";
 import { getMobileStrings } from "./mobileI18n";
 import {
@@ -755,5 +760,30 @@ describe("iOS sheet header and the sheet's own bar inset", () => {
   });
   test("no padding stays none whatever the sheet reports", () => {
     expect(resolveMobileNativeSheetIosHeaderBarPadding({ left: 0, right: 0 }, { left: 20, right: 76 })).toEqual({ left: 0, right: 0 });
+  });
+});
+
+describe("sheet height cap (below a fold)", () => {
+  test("detents taller than the cap come down to it; the rest stay as given", () => {
+    expect(capMobileNativeSheetSnapPoints(["70%"], 400, 800)).toEqual([400]);
+    expect(capMobileNativeSheetSnapPoints(["40%"], 400, 800)).toEqual(["40%"]);
+    expect(capMobileNativeSheetSnapPoints([300, 620], 400.7, 800)).toEqual([300, 400]);
+  });
+
+  test("no cap, no detents (a content-sized sheet) or nothing over the cap changes nothing", () => {
+    const points = ["70%"];
+    expect(capMobileNativeSheetSnapPoints(points, null, 800)).toBe(points);
+    expect(capMobileNativeSheetSnapPoints(points, 0, 800)).toBe(points);
+    expect(capMobileNativeSheetSnapPoints(points, Number.NaN, 800)).toBe(points);
+    expect(capMobileNativeSheetSnapPoints(points, 600, 800)).toBe(points);
+    expect(capMobileNativeSheetSnapPoints(undefined, 400, 800)).toBeUndefined();
+  });
+
+  test("snap point heights resolve like the scaffold's", () => {
+    expect(resolveMobileNativeSheetSnapPointHeight("50%", 801)).toBe(401);
+    expect(resolveMobileNativeSheetSnapPointHeight("320", 800)).toBe(320);
+    expect(resolveMobileNativeSheetSnapPointHeight(undefined, 800)).toBeUndefined();
+    expect(mobileNativeSheetMaxHeight(412.9)).toBe(412);
+    expect(mobileNativeSheetMaxHeight(-1)).toBeNull();
   });
 });

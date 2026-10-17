@@ -675,3 +675,45 @@ export function mobileSheetCanUseFullWidth(snapPoints: (string | number)[] | und
     return Number.isFinite(height) && height > 0 && height <= availableHeight * 0.75;
   });
 }
+
+/** A snap point's height in points: numbers as they are, "70%" of `availableHeight`, numeric strings parsed. */
+export function resolveMobileNativeSheetSnapPointHeight(
+  snapPoint: string | number | undefined,
+  availableHeight: number,
+): number | undefined {
+  if (typeof snapPoint === "number") return snapPoint;
+  if (!snapPoint) return undefined;
+  if (snapPoint.endsWith("%")) {
+    const percentage = Number.parseFloat(snapPoint);
+    return Number.isFinite(percentage) ? Math.round(availableHeight * (percentage / 100)) : undefined;
+  }
+  const height = Number.parseFloat(snapPoint);
+  return Number.isFinite(height) ? height : undefined;
+}
+
+/** A usable sheet height cap: a positive finite number, else none. */
+export function mobileNativeSheetMaxHeight(maxHeight: number | null | undefined): number | null {
+  return maxHeight != null && Number.isFinite(maxHeight) && maxHeight > 0 ? Math.floor(maxHeight) : null;
+}
+
+/**
+ * A sheet that must stay below a fold (the iPhone Duo half folded like a
+ * laptop: sheets belong to the bottom pane): detents taller than `maxHeight`
+ * come down to it; the others are left exactly as the caller gave them.
+ */
+export function capMobileNativeSheetSnapPoints(
+  snapPoints: (string | number)[] | undefined,
+  maxHeight: number | null | undefined,
+  availableHeight: number,
+): (string | number)[] | undefined {
+  const cap = mobileNativeSheetMaxHeight(maxHeight);
+  if (!snapPoints?.length || cap == null) return snapPoints;
+  let changed = false;
+  const capped = snapPoints.map((snapPoint) => {
+    const height = resolveMobileNativeSheetSnapPointHeight(snapPoint, availableHeight);
+    if (height == null || height <= cap) return snapPoint;
+    changed = true;
+    return cap;
+  });
+  return changed ? capped : snapPoints;
+}

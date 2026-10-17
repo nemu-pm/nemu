@@ -55,12 +55,16 @@ import {
   resolveMobileNativeSheetIosLayout,
   resolveMobileNativeSheetIosPresentation,
   resolveMobileNativeSheetSoftBottomEdge,
+  resolveMobileNativeSheetSnapPointHeight,
+  capMobileNativeSheetSnapPoints,
+  mobileNativeSheetMaxHeight,
   shouldBoundMobileNativeSheetForPlatform,
 } from "@/lib/mobileNativeSheet";
 import { mobileSheetGlassLook } from "@/lib/mobileSheetGlass";
 import { NemuGlassSheetThemeScope, useNemuGlassSheetTheme } from "./NemuGlassSheetThemeScope";
 import { NemuNativeSheetHeaderAction } from "./NemuNativeSheetHeaderAction";
 import { MobileSheetHeader } from "./MobileSheetHeader";
+import { useMobileSheetMaxHeight } from "./mobileSheetMaxHeight";
 
 type MobileNativeSheetScaffoldProps = {
   visible: boolean;
@@ -113,6 +117,12 @@ type MobileNativeSheetScaffoldProps = {
    * it works on.
    */
   backgroundInteraction?: boolean;
+  /**
+   * The tallest the sheet may be (a detent height, in points): taller detents
+   * come down to it and a content-sized sheet stops growing there. Defaults to
+   * the nearest `MobileSheetMaxHeightProvider`; null: no cap.
+   */
+  maxHeight?: number | null;
   contentStyle?: StyleProp<ViewStyle>;
   testID?: string;
   children: ReactNode;
@@ -136,23 +146,7 @@ export function MobileNativeSheetEndSpacer() {
 /** A safe-area edge sheet content may extend into (`contentIgnoresSafeAreaEdges`). */
 export type MobileSheetSafeAreaEdge = "leading" | "trailing" | "horizontal" | "bottom";
 
-function resolveSnapPointHeight(
-  snapPoint: string | number | undefined,
-  availableHeight: number,
-) {
-  if (typeof snapPoint === "number") return snapPoint;
-  if (!snapPoint) return undefined;
-
-  if (snapPoint.endsWith("%")) {
-    const percentage = Number.parseFloat(snapPoint);
-    return Number.isFinite(percentage)
-      ? Math.round(availableHeight * (percentage / 100))
-      : undefined;
-  }
-
-  const height = Number.parseFloat(snapPoint);
-  return Number.isFinite(height) ? height : undefined;
-}
+const resolveSnapPointHeight = resolveMobileNativeSheetSnapPointHeight;
 
 /** The look this platform draws a scaffold sheet with (see `mobileSheetGlassLook`). */
 function resolveScaffoldGlassLook(backgroundColor: string | undefined) {
@@ -202,6 +196,7 @@ export function MobileNativeSheetScaffold({
   contentIgnoresSafeAreaEdges,
   softBottomEdge = false,
   backgroundInteraction = false,
+  maxHeight: maxHeightProp,
   contentStyle,
   testID,
   children,
@@ -282,11 +277,16 @@ export function MobileNativeSheetScaffold({
     androidFrameKind?.kind === "fixed" ? androidFrameKind.height : undefined;
   const androidContentMaxHeight =
     androidFrameKind?.kind === "content" ? androidFrameKind.maxHeight : undefined;
+  const contextMaxHeight = useMobileSheetMaxHeight();
+  const maxHeight = mobileNativeSheetMaxHeight(maxHeightProp === undefined ? contextMaxHeight : maxHeightProp);
   const normalizedSnapPoints = isAndroid
     ? undefined
     : boundDynamicAndroidLandscapeSheet
       ? MOBILE_NATIVE_ANDROID_SNAP_POINTS
-      : normalizeMobileNativeSheetSnapPointsForPlatform(snapPoints, Platform.OS);
+      : normalizeMobileNativeSheetSnapPointsForPlatform(
+          capMobileNativeSheetSnapPoints(snapPoints, maxHeight, availableSheetHeight),
+          Platform.OS,
+        );
   const effectiveSnapPointsSignature = normalizedSnapPoints
     ? JSON.stringify(normalizedSnapPoints)
     : null;
@@ -816,6 +816,9 @@ export function MobileNativeSheetScaffold({
         <NemuGlassSheetThemeScope look={glassLook}>
           {framedDetentHeight !== undefined ? (
             <View style={{ height: framedDetentHeight }}>{sheetContent}</View>
+          ) : maxHeight != null && !nativeSnapPoints?.length ? (
+            // Content-sized: the sheet wraps its content, so the cap bounds that.
+            <View style={{ maxHeight }}>{sheetContent}</View>
           ) : (
             sheetContent
           )}

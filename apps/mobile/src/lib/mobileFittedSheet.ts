@@ -169,3 +169,14 @@ export function fittedSheetPresentation({
       height !== null ? fittedSheetDetentForPage(height, scale) : stillUp ? current.detent : 0,
   };
 }
+
+/**
+ * The fitted detent kept below a fold (the iPhone Duo half folded like a
+ * laptop: the reader's sheets belong to the bottom pane): a page taller than
+ * `maxHeight` gets exactly `maxHeight` and scrolls; null leaves it as fitted.
+ */
+export function fittedSheetDetentWithin(detent: number, maxHeight: number | null | undefined): number {
+  if (maxHeight == null || !Number.isFinite(maxHeight) || maxHeight <= 0) return detent;
+  const cap = Math.floor(maxHeight);
+  return detent > cap ? cap : detent;
+}

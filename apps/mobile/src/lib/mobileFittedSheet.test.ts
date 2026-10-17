@@ -9,6 +9,7 @@ import {
   READER_PLUGIN_SHEET_LIST_PAGE,
   readerPluginSheetActivePage,
   readerPluginSheetPage,
+  fittedSheetDetentWithin,
 } from "./mobileFittedSheet";
 
 describe("fitted sheet measuring copy", () => {
@@ -96,5 +97,14 @@ describe("React Native pages in a fitted sheet", () => {
     expect(
       fittedSheetPresentation({ visible: false, page: "plugins", pageWidth: 404, measured, scale: 1, current: up }),
     ).toEqual({ presented: false, detent: 296 });
+  });
+});
+
+describe("fitted sheet below a fold", () => {
+  test("a page taller than the cap gets exactly the cap", () => {
+    expect(fittedSheetDetentWithin(720, 401.6)).toBe(401);
+    expect(fittedSheetDetentWithin(300, 401)).toBe(300);
+    expect(fittedSheetDetentWithin(720, null)).toBe(720);
+    expect(fittedSheetDetentWithin(720, 0)).toBe(720);
   });
 });

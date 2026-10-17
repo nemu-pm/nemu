@@ -43,6 +43,7 @@ import {
 import {
   createFittedSheetHostMetricsCache,
   fittedSheetGuessHostMetrics,
+  fittedSheetDetentWithin,
   fittedSheetPresentation,
   READER_PLUGIN_SHEET_GROUP,
   READER_PLUGIN_SHEET_LIST_PAGE,
@@ -106,6 +107,7 @@ type MeasuredPages = Record<string, { width: number; height: number } | undefine
 export function ReaderPluginSettingsSheet({
   visible,
   pageInteractive = false,
+  maxSheetHeight = null,
   plugins,
   selectedPluginId,
   loading,
@@ -236,10 +238,11 @@ export function ReaderPluginSettingsSheet({
               modifiers={[
                 // As tall as the page on top (measured before presenting);
                 // capped at the large detent, where the page scrolls.
+                // Half folded like a laptop: never past the hinge.
                 fitSheetDetentToContent({
                   group: READER_PLUGIN_SHEET_GROUP,
                   page: activePage,
-                  height: sheet.detent,
+                  height: fittedSheetDetentWithin(sheet.detent, maxSheetHeight),
                 }),
                 presentationDragIndicator("visible"),
                 ...(pageInteractive ? [presentationBackgroundInteraction("enabled")] : []),

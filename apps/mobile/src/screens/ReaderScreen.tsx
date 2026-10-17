@@ -209,6 +209,7 @@ import { JapaneseLearningNemuChatDrawer } from "@/components/reader/japaneseLear
 import { JapaneseLearningTranscriptSheet } from "@/components/reader/japaneseLearning/JapaneseLearningTranscriptSheet";
 import {
   MobileCachedImage,
+  MobileSheetMaxHeightProvider,
   NemuPressable,
   NemuRingSpinner,
   nemuFontWeight,
@@ -8863,7 +8864,9 @@ export function ReaderScreen() {
       />
 
       {japaneseLearningPresentationPlugin ? (
-        <>
+        // Half folded like a laptop, these sheets belong to the bottom pane
+        // like the reader's own: never past the hinge.
+        <MobileSheetMaxHeightProvider value={readerNotebookSheetCap}>
           <JapaneseLearningPluginLauncherSheet
             visible={japaneseLearningLauncherVisible}
             strings={strings}
@@ -8899,13 +8902,14 @@ export function ReaderScreen() {
               The same system sheets in every pose: the system moves them off
               the fold. */}
           <ReaderDarkThemeScope>{japaneseLearningSurfaces}</ReaderDarkThemeScope>
-        </>
+        </MobileSheetMaxHeightProvider>
       ) : null}
 
       <ReaderDarkThemeScope>
         <ReaderPluginSettingsSheet
           visible={readerPluginSettingsOpen && !endOfChapterPromptVisible}
           pageInteractive={readerBookPosture}
+          maxSheetHeight={readerNotebookSheetCap}
           plugins={readerPlugins.data}
           selectedPluginId={selectedReaderPluginSettingsId}
           loading={readerPlugins.loading}

@@ -53,6 +53,7 @@ export {
   MobileNativeSheetEndSpacer,
   useMobileNativeSheetTheme,
 } from "./components/MobileNativeSheetScaffold";
+export { MobileSheetMaxHeightProvider } from "./components/mobileSheetMaxHeight";
 export { NemuGlassSheetThemeScope } from "./components/NemuGlassSheetThemeScope";
 export {
   MobileSheetHeader,

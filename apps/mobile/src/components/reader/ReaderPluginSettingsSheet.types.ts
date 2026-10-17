@@ -5,6 +5,8 @@ export type ReaderPluginSettingsSheetProps = {
   visible: boolean;
   /** iOS book posture: the sheet sits beside the page, which stays undimmed and interactive. */
   pageInteractive?: boolean;
+  /** iOS: the tallest detent, e.g. below the hinge of an iPhone Duo half folded like a laptop; null: no cap. */
+  maxSheetHeight?: number | null;
   plugins: MobileReaderPluginState[];
   /** The plugin whose settings are open (pushed), or null for the list. */
   selectedPluginId: string | null;

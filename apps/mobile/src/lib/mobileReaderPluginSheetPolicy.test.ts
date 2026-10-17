@@ -73,9 +73,10 @@ describe("reader plugin settings sheet policy", () => {
 
     expect(source).toContain("<SwiftBottomSheet");
     // Sized to the page on screen (list or pushed plugin) from heights
-    // measured before it presents: one detent, never a fixed one.
+    // measured before it presents: one detent, never a fixed one. Half
+    // folded like a laptop it never reaches past the hinge (the reader's cap).
     expect(source).toMatch(
-      /fitSheetDetentToContent\(\{\s*group: READER_PLUGIN_SHEET_GROUP,\s*page: activePage,\s*height: sheet\.detent,\s*\}\)/,
+      /fitSheetDetentToContent\(\{\s*group: READER_PLUGIN_SHEET_GROUP,\s*page: activePage,\s*height: fittedSheetDetentWithin\(sheet\.detent, maxSheetHeight\),\s*\}\)/,
     );
     expect(source).toContain("isPresented={sheet.presented}");
     expect(source).not.toContain("presentationDetents(");
