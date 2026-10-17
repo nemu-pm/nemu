@@ -37,3 +37,5 @@ export { NativeSegmentedControl } from "./src/SegmentedControl";
 export { ConcentricView } from "./src/ConcentricView";
 
 export { analyzePageFile, pageAnalysisAvailable, type NativePageAnalysis } from "./src/PageAnalysis";
+
+export { NativePageCurlView, pageCurlAvailable, type PageCurlViewProps } from "./src/PageCurl";

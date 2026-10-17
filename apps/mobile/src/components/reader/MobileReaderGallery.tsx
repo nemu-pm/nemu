@@ -69,6 +69,8 @@ import {
   type ReaderScrollPageMetric,
 } from "@/lib/mobileReaderProgress";
 import { ZoomableReaderStrip } from "./ZoomableReaderStrip";
+import { MobileReaderCurlPager, type MobileReaderCurlPagerHandle } from "./MobileReaderCurlPager";
+import { pageCurlAvailable } from "../../../modules/nemu-window-layout";
 import { MOBILE_READER_DOUBLE_TAP_MAX_DELAY_MS } from "@/lib/mobileReaderZoom";
 import {
   isReaderAdvancePastEndDrag,
@@ -224,6 +226,14 @@ type MobileReaderGalleryProps = {
    * a new content remounts plainly.
    */
   contentIdentityKey?: string;
+  /**
+   * Paged turns curl (翻页 › 卷页) instead of sliding. The reader decides it
+   * (setting, Reduce Motion); the gallery keeps the slide for long strips and
+   * tiled pages.
+   */
+  pageCurl?: boolean;
+  /** A page wide enough to lie across the spine of a flat spread. */
+  isWidePage?: (pageIndex: number) => boolean;
   /** Intrinsic size of a page, for the book-spine shading of a fold spread. */
   pageNaturalSize?: (page: MobileReaderPage) => { width: number; height: number } | null;
   /** Extra horizontal padding that centres the loading / locked / error card beside the rail. */
@@ -325,6 +335,8 @@ export function MobileReaderGallery({
   geometryKey,
   onStageOriginChange,
   contentIdentityKey,
+  pageCurl = false,
+  isWidePage,
   pageNaturalSize,
   stateInsets,
   stateTopPadding,
@@ -427,6 +439,8 @@ export function MobileReaderGallery({
     logicalScrollAccessibility.scrollMountKey === scrollMountKey
       ? logicalScrollAccessibility.percent
       : 0;
+  const curlActive = pageCurl && pageCurlAvailable && pagedMode && !logicalLongStripMode;
+  const curlPagerRef = useRef<MobileReaderCurlPagerHandle | null>(null);
   const galleryItemCount = segmentedMode
     ? segmentedImageFrames!.length
     : isTwoPageMode
@@ -511,6 +525,10 @@ export function MobileReaderGallery({
     readerScrollRef,
     () => ({
       scrollTo({ x = 0, y = 0, index, animated = true }) {
+        if (curlActive) {
+          curlPagerRef.current?.goToFrame(readerPageWidth > 0 ? Math.round(x / readerPageWidth) : 0, animated);
+          return;
+        }
         if (
           !pagedMode &&
           index != null &&
@@ -562,7 +580,7 @@ export function MobileReaderGallery({
         };
       },
     }),
-    [galleryItemCount, pagedMode, resolvedContinuousContentIdentity],
+    [curlActive, galleryItemCount, pagedMode, readerPageWidth, resolvedContinuousContentIdentity],
   );
 
   const handleScrollToIndexFailed = (info: {
@@ -987,6 +1005,7 @@ export function MobileReaderGallery({
     // toward the next or previous chapter.
     if (
       pagedMode &&
+      !curlActive &&
       pagesState.status === "ready" &&
       pages.length > 0 &&
       pagedDisplayRef.current.count === 1
@@ -1469,6 +1488,72 @@ export function MobileReaderGallery({
     pagedMode && !segmentedMode && galleryItemCount > 0 && readerPageWidth > 0
       ? Math.max(0, Math.min(galleryItemCount - 1, Math.round(initialContentOffset.x / readerPageWidth)))
       : undefined;
+  const curlFrames = useMemo(
+    () => (isTwoPageMode ? pagedSpreads : pagedSinglePages.map(({ index }) => [index])),
+    [isTwoPageMode, pagedSinglePages, pagedSpreads],
+  );
+  const handleCurlSettle = useCallback(
+    (frame: number) => {
+      // The reader reads a settled curl like the slide pager's momentum end.
+      const width = Math.max(1, readerPageWidth);
+      handleGalleryMomentumScrollEnd({
+        nativeEvent: {
+          contentOffset: { x: frame * width, y: 0 },
+          contentSize: { width: width * Math.max(1, galleryItemCount), height: windowHeight },
+          layoutMeasurement: { width, height: windowHeight },
+        },
+      } as NativeSyntheticEvent<NativeScrollEvent>);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reads the latest handlers like the list's own callbacks.
+    [galleryItemCount, readerPageWidth, windowHeight, onMomentumScrollEnd],
+  );
+  const handleCurlEdgeIntent = useCallback((intent: "next" | "previous") => {
+    if (pagesState.status !== "ready" || pages.length === 0) return;
+    if (intent === "next") onRequestAdvancePastEndRef.current?.();
+    else onRequestRetreatPastStartRef.current?.();
+  }, [pages.length, pagesState.status]);
+  const renderCurlTextPage = useCallback(
+    (page: MobileReaderPage, pageIndex: number) => (
+      <TextPage
+        text={page.text}
+        fallbackPage={sourcePageForDisplayIndex(pageIndex)}
+        strings={strings}
+      />
+    ),
+    [sourcePageForDisplayIndex, strings],
+  );
+  const curlStage = useMemo(() => ({ width: readerPageWidth, height: windowHeight }), [readerPageWidth, windowHeight]);
+  const isWidePageOrNever = useCallback((pageIndex: number) => isWidePage?.(pageIndex) ?? false, [isWidePage]);
+  const curlPager = curlActive ? (
+    <LayoutAnimationConfig skipExiting>
+    <Animated.View
+      key={scrollMountKey}
+      entering={mobileReaderStageCrossFadeEntering}
+      exiting={mobileReaderStageCrossFadeExiting}
+      style={styles.readerScroll}
+    >
+      <MobileReaderCurlPager
+        backgroundColor={backgroundColor}
+        displayedPages={displayedPages}
+        fitClip={fitClip}
+        foldGap={foldGap}
+        frames={curlFrames}
+        initialFrame={galleryInitialScrollIndex ?? 0}
+        isWide={isWidePageOrNever}
+        mode={mode}
+        onEdgeIntent={handleCurlEdgeIntent}
+        onSettleFrame={handleCurlSettle}
+        pagerRef={curlPagerRef}
+        renderImage={renderImage}
+        renderTextPage={renderCurlTextPage}
+        spreadMode={isTwoPageMode}
+        spreadSlots={spreadSlots}
+        stage={curlStage}
+        turningEnabled={!pageZoomActive}
+      />
+    </Animated.View>
+    </LayoutAnimationConfig>
+  ) : null;
   const galleryList = (
     // A key change inside keeps the old list drawn while it fades (exiting);
     // leaving the reader skips it.
@@ -1651,7 +1736,7 @@ export function MobileReaderGallery({
             {galleryList}
           </ZoomableReaderStrip>
         ) : (
-          galleryList
+          curlPager ?? galleryList
         )
       ) : (
         <ScrollView

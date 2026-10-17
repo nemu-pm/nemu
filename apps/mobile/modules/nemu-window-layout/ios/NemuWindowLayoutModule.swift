@@ -48,6 +48,7 @@ public final class NemuWindowLayoutModule: Module {
     // Lets JS tell a binary with these views from one built before them.
     Constant("verticalBarBehaviorViewAvailable") { true }
     Constant("glassViewHostsChildren") { true }
+    Constant("pageCurlViewAvailable") { true }
     AsyncFunction("setAppAppearance") { (appearance: String) in
       MainActor.assumeIsolated { NemuAppAppearance.set(appearance) }
     }.runOnQueue(.main)
@@ -74,6 +75,21 @@ public final class NemuWindowLayoutModule: Module {
       Prop("enabled") { (view: NemuWindowLayoutView, enabled: Bool) in
         view.observationEnabled = enabled
       }
+    }
+    View(NemuPageCurlView.self) {
+      Events("onSettle", "onEdgeDrag", "onTurnBegin")
+      Prop("spine") { (view: NemuPageCurlView, spine: String) in view.spine = spine }
+      Prop("slotCount") { (view: NemuPageCurlView, count: Int) in view.slotCount = count }
+      // Changes whenever a mounted child takes another slot: re-host them.
+      Prop("slotsKey") { (view: NemuPageCurlView, _: String) in view.setNeedsLayout() }
+      Prop("curlFrame") { (view: NemuPageCurlView, frame: [String: Double]) in
+        view.curlFrame = CGRect(x: frame["x"] ?? 0, y: frame["y"] ?? 0, width: frame["width"] ?? 0, height: frame["height"] ?? 0)
+      }
+      Prop("turningEnabled") { (view: NemuPageCurlView, enabled: Bool) in view.turningEnabled = enabled }
+      Prop("pageBackground") { (view: NemuPageCurlView, color: UIColor?) in view.pageBackground = color ?? .black }
+      Prop("navigationIndex") { (view: NemuPageCurlView, index: Int) in view.navigationIndex = index; view.setNeedsLayout() }
+      Prop("navigationAnimated") { (view: NemuPageCurlView, animated: Bool) in view.navigationAnimated = animated }
+      Prop("navigationToken") { (view: NemuPageCurlView, token: Int) in view.navigationToken = token }
     }
     View(NemuSheetProgressView.self) {
       Events("onProgress")

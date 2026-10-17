@@ -5,7 +5,7 @@ import { markMobileChapterFinished } from "@/components/explore/mobileChapterFin
 import { resolveMobileReaderRestorePosition } from "@/lib/mobileReaderRestore";
 import { shouldDismissMobileReaderSurfacesOnFocusChange } from "@/lib/mobileReaderFocus";
 import { mobileReaderOcrPageReadiness } from "@/lib/mobileReaderOcrReadiness";
-import { GlassContainer, VerticalBarBehavior, WindowLayoutObserver } from "../../modules/nemu-window-layout";
+import { GlassContainer, pageCurlAvailable, VerticalBarBehavior, WindowLayoutObserver } from "../../modules/nemu-window-layout";
 import { MOBILE_READER_QA_CHROME, MOBILE_READER_QA_NOTEBOOK, MOBILE_READER_QA_PANEL, MOBILE_READER_QA_PLUGIN } from "@/lib/mobileReaderQa";
 import { mobileWindowAbsoluteBand, type MobileWindowLayout, type WindowLayoutRect } from "@/lib/mobileWindowLayout";
 import {
@@ -283,9 +283,14 @@ import {
 } from "@/lib/mobileReaderSpreads";
 import {
   buildMobileReaderPairedSpreads,
+  isMobileReaderWidePage,
   nextMobileReaderSpreadTable,
   type MobileReaderPageSize,
 } from "@/lib/mobileReaderPairing";
+import {
+  DEFAULT_MOBILE_READER_PAGE_TURN,
+  isMobileReaderPageCurlActive,
+} from "@/lib/mobileReaderPageCurl";
 import {
   mobileReaderPairingShiftKey,
   mobileReaderPairingShifted,
@@ -2065,6 +2070,15 @@ export function ReaderScreen() {
   // its geometry after the single page's intrinsic dimensions prove that
   // viewport-contain would make it unreadably narrow.
   const galleryPagedMode = pagedMode && !useLongStripPresentation;
+  // 翻页 › 卷页: paged turns curl like a book (Reduce Motion keeps the slide).
+  const readerPageCurlActive = isMobileReaderPageCurlActive({
+    pageTurn: DEFAULT_MOBILE_READER_PAGE_TURN,
+    pagedMode: galleryPagedMode,
+    reduceMotion,
+    longStrip: useLongStripPresentation,
+    segmented: Boolean(currentSegmentedImage),
+    available: pageCurlAvailable,
+  });
   // The capsule's page number: the displayed page while a paged scrub only
   // previews its target (see readerChromeIndicatorPageIndex).
   const readerChromePageIndex = readerChromeIndicatorPageIndex({
@@ -2468,6 +2482,10 @@ export function ReaderScreen() {
         ?? null;
     },
     [displayedPages, readerImageSizes, readerPageFeatures, readerPageIdentityFor],
+  );
+  const readerIsWidePage = useCallback(
+    (index: number) => isMobileReaderWidePage(readerPageSizeAt(index)),
+    [readerPageSizeAt],
   );
   const readerPairingShiftKey = mobileReaderPairingShiftKey(registryId, sourceId, mangaId);
   const readerPairingShift = mobileReaderPairingShifted(readerPairingShifts[readerPairingShiftKey], chapterId);
@@ -6500,9 +6518,14 @@ export function ReaderScreen() {
           });
           return frames[visual.indexOf(index)] ?? frames[0];
         }
+        // The curl lays a lone page on one leaf beside the spine; only a wide
+        // page of a flat spread lies across both.
+        const loneOnLeaf = readerPageCurlActive && !isMobileReaderWidePage(readerPageSizeAt(index));
         const lone = readerSpreadSlots && readerSpreadSlots.length === 2
           ? readerSpreadSlots[mode === "rtl" ? 1 : 0]!
-          : { width: readerSafeContentWidth, height: readerMaxPagedImageHeight };
+          : loneOnLeaf
+            ? half
+            : { width: readerSafeContentWidth, height: readerMaxPagedImageHeight };
         return getMobileReaderSpreadImageFrameSize({
           availableWidth: lone.width,
           availableHeight: Math.min(lone.height, readerMaxPagedImageHeight),
@@ -6529,6 +6552,7 @@ export function ReaderScreen() {
       readerPageIdentityFor,
       readerPageSizeAt,
       readerSafeContentWidth,
+      readerPageCurlActive,
       readerSpreadSlots,
       readerSpreads,
     ],
@@ -6665,7 +6689,7 @@ export function ReaderScreen() {
             })
           : null;
       const decision = mobileReaderPageFlipDecision({
-        paged: galleryPagedMode,
+        paged: galleryPagedMode && !readerPageCurlActive,
         spreadMode: isTwoPageMode,
         reduceMotion: readerPageFlip.reduceMotion,
         zoomed: zoomedReaderPageId != null,
@@ -6730,6 +6754,7 @@ export function ReaderScreen() {
       currentSpreadIndex,
       displayedPages,
       galleryPagedMode,
+      readerPageCurlActive,
       getReaderImageFrameSize,
       isTwoPageMode,
       markReaderPageFlipLeafLoaded,
@@ -8730,6 +8755,8 @@ export function ReaderScreen() {
         chromeDismissing={readerChromeLingering && !readerChromePresent}
         onRevealChrome={() => setShowControls(true)}
         foldGap={readerFoldGap}
+        pageCurl={readerPageCurlActive}
+        isWidePage={readerIsWidePage}
       />
       <DuoPageFlipOverlay
         flip={readerPageFlip.flip}
