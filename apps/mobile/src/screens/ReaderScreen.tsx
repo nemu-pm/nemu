@@ -290,6 +290,7 @@ import {
   mobileReaderPairingShifted,
 } from "@/lib/mobileReaderPairingShift";
 import { useReaderPairingPrefs } from "@/components/reader/useReaderPairingPrefs";
+import { useMobileReaderPageFeatures } from "@/components/reader/useMobileReaderPageFeatures";
 import {
   clampReaderPageIndex,
   getReaderContinuousScrollMetrics,
@@ -2442,12 +2443,27 @@ export function ReaderScreen() {
   // Spread pairing from page shape: a wide page stands alone and parity
   // restarts after it. Sizes arrive as pages decode; the spreads the reader
   // has seen stay put and only the pages ahead re-pair.
+  // Pages near the reader are measured natively while a spread can show:
+  // their size (wide pages are known before they decode) and their binding
+  // margins (automatic pairing). Cached per chapter.
+  const readerPageAnalysisIds = useMemo(
+    () => displayedPages.map((page) => (page.imageUri ? page.id : null)),
+    [displayedPages],
+  );
+  const readerPageFeatures = useMobileReaderPageFeatures({
+    enabled: galleryPagedMode && twoPageSupported,
+    chapterKey: JSON.stringify([registryId, sourceId, mangaId, chapterId]),
+    pageIds: readerPageAnalysisIds,
+    currentPageIndex: clampedPageIndex,
+    resolveFile: readerNotebookThumbnailUri,
+  });
   const readerPageSizeAt = useCallback(
     (index: number): MobileReaderPageSize | null => {
       const page = displayedPages[index];
-      return page ? readerImageSizes.get(readerPageIdentityFor(page)) ?? null : null;
+      if (!page) return null;
+      return readerImageSizes.get(readerPageIdentityFor(page)) ?? readerPageFeatures.get(page.id) ?? null;
     },
-    [displayedPages, readerImageSizes, readerPageIdentityFor],
+    [displayedPages, readerImageSizes, readerPageFeatures, readerPageIdentityFor],
   );
   const {
     spreadPairing: readerSpreadPairing,
@@ -2482,10 +2498,7 @@ export function ReaderScreen() {
           computed: readerComputedSpreads,
           reset: previous?.key !== readerSpreadTableKey,
           currentPageIndex: clampedPageIndex,
-          settled: (index) => {
-            const page = displayedPages[index];
-            return !page?.imageUri || readerImageSizes.has(readerPageIdentityFor(page));
-          },
+          settled: (index) => !displayedPages[index]?.imageUri || readerPageSizeAt(index) !== null,
         })
       : [];
     readerSpreadTableRef.current = isTwoPageMode ? { key: readerSpreadTableKey, spreads } : null;
