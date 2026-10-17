@@ -47,6 +47,8 @@ import {
   resolveMobileNativeSheetBottomPadding,
   resolveMobileNativeSheetDismissLabel,
   resolveMobileNativeSheetIosBarEdges,
+  MOBILE_NATIVE_SHEET_IOS_FORM_WIDTH,
+  resolveMobileNativeSheetIosFormSheet,
   resolveMobileNativeSheetIosFramedDetentHeight,
   resolveMobileNativeSheetIosHeaderBarPadding,
   resolveMobileNativeSheetIosLayout,
@@ -316,6 +318,23 @@ export function MobileNativeSheetScaffold({
   });
   if (iosPresentation !== heldIosPresentation) {
     setHeldIosPresentation(iosPresentation);
+  }
+  // iPad: a centred form sheet as tall as its content (held like the sizing).
+  const iosFormSheetInputs = {
+    platform: Platform.OS,
+    isPad: Platform.OS === "ios" && Platform.isPad,
+    windowWidth,
+  };
+  const [heldIosFormSheet, setHeldIosFormSheet] = useState(() =>
+    resolveMobileNativeSheetIosFormSheet({ ...iosFormSheetInputs, held: false, presented: false }),
+  );
+  const iosFormSheet = resolveMobileNativeSheetIosFormSheet({
+    ...iosFormSheetInputs,
+    held: heldIosFormSheet,
+    presented: sheetPresented,
+  });
+  if (iosFormSheet !== heldIosFormSheet) {
+    setHeldIosFormSheet(iosFormSheet);
   }
   const iosLayout =
     Platform.OS === "ios"
@@ -779,6 +798,7 @@ export function MobileNativeSheetScaffold({
       androidPlacement={androidSheetPlacement}
       contentIgnoresSafeAreaEdges={ignoredEdges}
       backgroundInteraction={backgroundInteraction}
+      formSheetWidth={iosFormSheet ? MOBILE_NATIVE_SHEET_IOS_FORM_WIDTH : 0}
       {...(drawContentHandle ? { handleComponent: null } : null)}
     >
       {isAndroid ? (

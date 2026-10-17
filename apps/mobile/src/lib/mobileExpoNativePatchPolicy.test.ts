@@ -115,6 +115,33 @@ describe("mobile Expo native patch policy", () => {
     expect(patch).toContain("+      metrics.sheetWidth = sheetView.bounds.width");
     expect(patch).toContain("diff --git a/ios/Modifiers/OnGeometryChangeModifier.swift");
   });
+  test("presents a regular-width iPad sheet as a centred form sheet of an explicit size", () => {
+    // `.fitted` and the system `.form` sizing both opened the content-sized
+    // onboarding sheet page-sized on iPad (a hosted React Native root reports
+    // no ideal size), so the native view takes the form's width from JS and
+    // the measured (or given) height, and later heights reach the presented
+    // controller as its `preferredContentSize` (the sizing is read once).
+    const sheetView = readFileSync(path.join(repositoryRoot,
+      "node_modules/@expo/ui/ios/BottomSheetView.swift"), "utf8");
+    expect(sheetView).toContain("@Field var formSheetWidth: Double = 0");
+    expect(sheetView).toContain("@Field var formSheetHeight: Double = 0");
+    expect(sheetView).toContain("private struct FormSheetSizing: PresentationSizing");
+    expect(sheetView).toContain("controller.preferredContentSize = contentSize");
+    expect(sheetView).toContain(
+      ".presentationSizing(FormSheetSizing(width: props.formSheetWidth, height: childrenSize.height))",
+    );
+    for (const [file, pattern] of [
+      ["src/community/bottom-sheet/BottomSheet.ios.tsx", /formSheetWidth=\{fitToContents \? formSheetWidth : 0\}/],
+      ["build/community/bottom-sheet/BottomSheet.ios.js", /formSheetWidth: fitToContents \? formSheetWidth : 0,/],
+    ] as const) {
+      const bottomSheet = readFileSync(
+        path.join(repositoryRoot, "node_modules/@expo/ui", file), "utf8");
+      expect(bottomSheet).toMatch(pattern);
+    }
+    const patch = readFileSync(
+      path.join(repositoryRoot, "patches/@expo%2Fui@58.0.15.patch"), "utf8");
+    expect(patch).toContain("+private struct FormSheetSizing: PresentationSizing {");
+  });
   test("keeps every version-exact repository patch attached", () => {
     for (const [dependency, patchPath] of Object.entries(
       rootPackage.patchedDependencies ?? {},

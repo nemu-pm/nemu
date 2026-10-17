@@ -1,6 +1,8 @@
 import {
   mobileSheetCanUseFullWidth,
   resolveMobileNativeSheetIosBarEdges,
+  resolveMobileNativeFormSheetPadSizing,
+  resolveMobileNativeSheetIosFormSheet,
   resolveMobileNativeSheetIosHeaderBarPadding,
 } from "./mobileNativeSheet";
 import { describe, expect, test } from "bun:test";
@@ -452,6 +454,59 @@ describe("mobile native sheet behavior", () => {
       snapPoints: ["82%"],
       availableHeight: 759,
     });
+  });
+});
+
+describe("ios content-sized form sheet", () => {
+  const closed = { held: false, presented: false, platform: "ios" };
+
+  test("a regular-width iPad window presents a form sheet", () => {
+    expect(resolveMobileNativeSheetIosFormSheet({ ...closed, isPad: true, windowWidth: 834 })).toBe(true);
+    expect(resolveMobileNativeSheetIosFormSheet({ ...closed, isPad: true, windowWidth: 600 })).toBe(true);
+  });
+
+  test("compact iPad windows, phones (the Duo inner display too) and Android keep bottom sheets", () => {
+    expect(resolveMobileNativeSheetIosFormSheet({ ...closed, isPad: true, windowWidth: 507 })).toBe(false);
+    expect(resolveMobileNativeSheetIosFormSheet({ ...closed, isPad: false, windowWidth: 951 })).toBe(false);
+    expect(
+      resolveMobileNativeSheetIosFormSheet({ ...closed, platform: "android", isPad: true, windowWidth: 900 }),
+    ).toBe(false);
+  });
+
+  test("a presented sheet keeps the kind it opened with", () => {
+    expect(
+      resolveMobileNativeSheetIosFormSheet({ held: true, presented: true, platform: "ios", isPad: true, windowWidth: 400 }),
+    ).toBe(true);
+    expect(
+      resolveMobileNativeSheetIosFormSheet({ held: false, presented: true, platform: "ios", isPad: true, windowWidth: 1194 }),
+    ).toBe(false);
+  });
+});
+
+describe("ios SwiftUI form sheet on iPad", () => {
+  test("a regular-width iPad window is a centred form sheet as tall as the height detent", () => {
+    expect(
+      resolveMobileNativeFormSheetPadSizing({
+        platform: "ios",
+        isPad: true,
+        windowWidth: 834,
+        detents: [{ height: 262 }],
+      }),
+    ).toEqual({ kind: "form", width: 540, height: 262 });
+  });
+
+  test("without a height detent the system form size applies", () => {
+    expect(
+      resolveMobileNativeFormSheetPadSizing({ platform: "ios", isPad: true, windowWidth: 1194, detents: ["medium"] }),
+    ).toEqual({ kind: "form", width: 540, height: null });
+  });
+
+  test("compact iPad windows and phones keep the detents", () => {
+    for (const [isPad, windowWidth] of [[true, 507], [false, 951]] as const) {
+      expect(
+        resolveMobileNativeFormSheetPadSizing({ platform: "ios", isPad, windowWidth, detents: [{ height: 262 }] }),
+      ).toEqual({ kind: "detents" });
+    }
   });
 });
 

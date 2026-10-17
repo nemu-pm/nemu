@@ -345,6 +345,69 @@ export function resolveMobileNativeSheetIosPresentation({
 }
 
 /**
+ * Narrowest window that presents a content-sized iPad sheet as a form sheet
+ * (the regular width class). Narrower Split View windows keep the phone's
+ * bottom sheet.
+ */
+export const MOBILE_NATIVE_SHEET_IOS_FORM_MIN_WIDTH = 600;
+/** Width of a content-sized iPad form sheet (UIKit's form sheet width). */
+export const MOBILE_NATIVE_SHEET_IOS_FORM_WIDTH = 540;
+
+/**
+ * iOS: whether a content-sized sheet is a centred form sheet, as tall as its
+ * content, instead of a bottom sheet: on iPad in a regular-width window. The
+ * iPhone Duo keeps bottom sheets, which the system moves to one half in book
+ * posture. Held while the sheet is presented (switching it rehosts the
+ * content, which is then left without touches).
+ */
+export function resolveMobileNativeSheetIosFormSheet({
+  held,
+  presented,
+  platform,
+  isPad,
+  windowWidth,
+}: {
+  held: boolean;
+  presented: boolean;
+  platform: string;
+  isPad: boolean;
+  windowWidth: number;
+}): boolean {
+  if (presented) return held;
+  return platform === "ios" && isPad && windowWidth >= MOBILE_NATIVE_SHEET_IOS_FORM_MIN_WIDTH;
+}
+
+/**
+ * iOS: how a SwiftUI form sheet that asks for iPad form sizing presents. A
+ * regular-width iPad window gets a centred form sheet: as tall as its first
+ * height detent when it has one (the height its rows were measured at), else
+ * the system's own form size. Compact widths keep the detents.
+ */
+export function resolveMobileNativeFormSheetPadSizing({
+  platform,
+  isPad,
+  windowWidth,
+  detents,
+}: {
+  platform: string;
+  isPad: boolean;
+  windowWidth: number;
+  detents: readonly ("medium" | "large" | { fraction: number } | { height: number })[];
+}): { kind: "detents" } | { kind: "form"; width: number; height: number | null } {
+  if (platform !== "ios" || !isPad || windowWidth < MOBILE_NATIVE_SHEET_IOS_FORM_MIN_WIDTH) {
+    return { kind: "detents" };
+  }
+  const heightDetent = detents.find(
+    (detent): detent is { height: number } => typeof detent === "object" && "height" in detent,
+  );
+  return {
+    kind: "form",
+    width: MOBILE_NATIVE_SHEET_IOS_FORM_WIDTH,
+    height: heightDetent && heightDetent.height > 0 ? heightDetent.height : null,
+  };
+}
+
+/**
  * iOS: what the native sheet is given for a held presentation, and whether
  * the scaffold frames the content itself.
  *
