@@ -61,7 +61,7 @@ import {
   type NativeSyntheticEvent,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { Gesture, GestureDetector, type GestureType } from "react-native-gesture-handler";
 import Animated, {
   Easing,
   LayoutAnimationConfig,
@@ -174,6 +174,10 @@ import {
 } from "@/components/reader/MobileReaderGallery";
 import { MobileReaderPageFrame } from "@/components/reader/MobileReaderPageFrame";
 import { readerCentreTapBand, readerChromeDismissSweep } from "@/components/reader/readerTapZones";
+import {
+  ReaderPairingShiftToast,
+  type ReaderPairingShiftToastState,
+} from "@/components/reader/ReaderPairingShiftToast";
 import { MobileReaderEndOfChapterOverlay } from "@/components/reader/MobileReaderEndOfChapterOverlay";
 import { MobileReaderConnectivityNotice } from "@/components/reader/MobileReaderConnectivityNotice";
 import {
@@ -655,6 +659,10 @@ const READER_RAIL_STATUS_SCRIM_HEIGHT = 200;
 const READER_CAPSULE_GLASS_SPACING = 8;
 /** How long the chrome stays up after a chapter opens before it fades away. */
 const READER_CHROME_AUTO_HIDE_MS = 3000;
+// Two-finger double tap (错开一页): each tap is short and the fingers stay put
+// (a pinch or a two-finger pan never counts).
+const READER_TWO_FINGER_TAP_MAX_DURATION_MS = 300;
+const READER_TWO_FINGER_TAP_MAX_DISTANCE = 24;
 /** A segmented strip's on-screen tiles are re-read once scrolling rests. */
 const READER_SEGMENT_OCR_SETTLE_MS = 180;
 /**
@@ -772,10 +780,17 @@ function ZoomableReaderImageFrame({
   onZoomActiveChange,
   pageId,
   rtl = false,
+  stageTwoFingerTap,
   viewport,
   zoomTapBand,
 }: {
   children: ReactNode;
+  /**
+   * The stage's two-finger double tap (错开一页): the page's own double-tap
+   * zoom waits for it to fail (RNGH taps count any number of fingers), and
+   * a two-finger pan never cancels it.
+   */
+  stageTwoFingerTap?: GestureType;
   frameSize: MobileImageSize;
   /** Reports whether this page is currently zoomed in past its fit scale. */
   onZoomActiveChange?: (pageId: string, active: boolean) => void;
@@ -1047,6 +1062,11 @@ function ZoomableReaderImageFrame({
         runOnJS(hapticSelection)();
       });
 
+    if (stageTwoFingerTap) {
+      pinchGesture.simultaneousWithExternalGesture(stageTwoFingerTap);
+      panGesture.simultaneousWithExternalGesture(stageTwoFingerTap);
+      doubleTapGesture.requireExternalGestureToFail(stageTwoFingerTap);
+    }
     return Gesture.Simultaneous(pinchGesture, panGesture, doubleTapGesture);
   }, [
     frameHeight,
@@ -1059,6 +1079,7 @@ function ZoomableReaderImageFrame({
     savedTranslateX,
     savedTranslateY,
     scale,
+    stageTwoFingerTap,
     touchStartX,
     touchStartY,
     translateX,
@@ -2490,6 +2511,47 @@ export function ReaderScreen() {
   );
   const readerPairingShiftKey = mobileReaderPairingShiftKey(registryId, sourceId, mangaId);
   const readerPairingShift = mobileReaderPairingShifted(readerPairingShifts[readerPairingShiftKey], chapterId);
+  // Two fingers, double tap: 错开一页 exactly as the menu row (this chapter,
+  // remembered for the manga; the page on screen leads), with a haptic and a
+  // short toast. Only while the row is offered (spreads in paged reading).
+  const [readerPairingShiftToast, setReaderPairingShiftToast] = useState<ReaderPairingShiftToastState | null>(null);
+  const dismissReaderPairingShiftToast = useCallback(
+    (id: number) => setReaderPairingShiftToast((current) => (current?.id === id ? null : current)),
+    [],
+  );
+  const readerTwoFingerDoubleTapRef = useRef<() => void>(() => undefined);
+  useLayoutEffect(() => {
+    readerTwoFingerDoubleTapRef.current = () => {
+      if (!showPagePairingControls || readerSettingsActionBusy) return;
+      void hapticConfirm();
+      setReaderPairingShiftToast({ id: Date.now(), on: !readerPairingShift });
+      void runReaderSettingsAction("page-pairing-mode", () =>
+        toggleReaderPairingShift(readerPairingShiftKey, chapterId),
+      );
+    };
+  }, [
+    chapterId,
+    readerPairingShift,
+    readerPairingShiftKey,
+    readerSettingsActionBusy,
+    runReaderSettingsAction,
+    showPagePairingControls,
+    toggleReaderPairingShift,
+  ]);
+  // One gesture for the whole stage, so two fingers on either page of a
+  // spread (or across the spine) count; fixed so pages never re-serialize.
+  const readerTwoFingerDoubleTap = useMemo(
+    () =>
+      Gesture.Tap()
+        .numberOfTaps(2)
+        .minPointers(2)
+        .maxDuration(READER_TWO_FINGER_TAP_MAX_DURATION_MS)
+        .maxDelay(MOBILE_READER_DOUBLE_TAP_MAX_DELAY_MS)
+        .maxDistance(READER_TWO_FINGER_TAP_MAX_DISTANCE)
+        .runOnJS(true)
+        .onStart(() => readerTwoFingerDoubleTapRef.current()),
+    [],
+  );
   // What the user chose: changing it re-pairs the whole chapter around the
   // page they are on (that page leads, Komikku-style).
   const readerPairingChoiceKey = `${readerSpreadPairing}:${readerPairingShift ? "shift" : "base"}`;
@@ -6940,6 +7002,7 @@ export function ReaderScreen() {
           rtl={mode === "rtl"}
           onZoomActiveChange={handleReaderPageZoomActiveChange}
           pageId={page.id}
+          stageTwoFingerTap={readerTwoFingerDoubleTap}
           zoomTapBand={readerZoomTapBand}
         >
           {pageFrame}
@@ -6973,6 +7036,7 @@ export function ReaderScreen() {
       readerPageIdentityFor,
       readerSegmentedCacheKeyFor,
       readerZoomTapBand,
+      readerTwoFingerDoubleTap,
       retryReaderImage,
       selectJapaneseLearningDetection,
       setReaderImageLoadError,
@@ -8719,6 +8783,7 @@ export function ReaderScreen() {
           zoomedReaderPageId === currentDisplayedPageKey
         }
         tapGesturesEnabled={!readerStageTapOwned}
+        stageGesture={readerTwoFingerDoubleTap}
         visiblePageLoading={readerVisiblePageLoading}
         pagedMode={galleryPagedMode}
         fitClip={readerFitMode !== "page"}
@@ -9125,6 +9190,17 @@ export function ReaderScreen() {
           or unfolding moves the reader between displays; a short toast
           confirms it continued at the same page. Never for rotation, book ⇄
           flat, resizes or non-foldables (`mobileDuoDisplayTransition`). */}
+      <ReaderPairingShiftToast
+        toast={readerPairingShiftToast}
+        onDone={dismissReaderPairingShiftToast}
+        topOffset={insets.top + 76}
+        insets={
+          readerNoticeFrame
+            ? { left: readerNoticeFrame.left + 12, right: readerNoticeFrame.right + 12 }
+            : undefined
+        }
+        strings={strings}
+      />
       <DuoDisplayHandoffToast
         width={readerWindowLayout.width}
         height={readerWindowLayout.height}

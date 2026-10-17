@@ -611,6 +611,8 @@ export const mobileStringsEn: MobileStrings = {
     pairingAutomatic: "Automatic",
     spreadPairingFootnote: "Automatic pairs pages by their binding margins. Wide pages always appear alone. Shift by One Page applies to this title only.",
     shiftByOnePage: "Shift by One Page",
+    shiftByOnePageOn: "Shift by One Page: On",
+    shiftByOnePageOff: "Shift by One Page: Off",
     pageBackground: "Page Background",
     pageTurning: "Page Turning",
     pageTurningCurl: "Curl",

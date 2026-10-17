@@ -26,6 +26,7 @@ import {
   type ViewInstance,
 } from "react-native";
 import Animated, { LayoutAnimationConfig, useSharedValue } from "react-native-reanimated";
+import { GestureDetector, type GestureType } from "react-native-gesture-handler";
 import { DuoBookSpineShade } from "@/components/duo/DuoBookSpineShade";
 import { mobileDuoSpreadPageRects } from "@/lib/mobileDuoSpine";
 import { READER_CAPSULE_COLORS } from "@/components/reader/ReaderCapsule";
@@ -84,6 +85,10 @@ import {
   readerTapDispatchForZone,
   readerTapZoneForPosition,
 } from "./readerTapZones";
+import {
+  readerStageMultiTouchOnEnd,
+  readerStageMultiTouchOnStart,
+} from "./readerStageMultiTouch";
 import {
   getMobileReaderLogicalOffsetForProgress,
   getMobileReaderLogicalAccessibilityPercent,
@@ -184,6 +189,11 @@ type MobileReaderGalleryProps = {
   fitClip?: boolean;
   /** Prevents modal/sheet taps from reaching the reader's page-turn zones. */
   tapGesturesEnabled?: boolean;
+  /**
+   * A gesture the whole stage recognises across pages and spreads (the
+   * two-finger double tap for 错开一页). Fixed for the gallery's lifetime.
+   */
+  stageGesture?: GestureType;
   /** A page on screen is still loading: tap zones don't turn the page yet. */
   visiblePageLoading?: boolean;
   pagedMode: boolean;
@@ -316,6 +326,7 @@ export function MobileReaderGallery({
   pageZoomActive = false,
   fitClip = false,
   tapGesturesEnabled = true,
+  stageGesture,
   visiblePageLoading = false,
   pagedMode,
   pageTurnAccessibilityEnabled,
@@ -458,6 +469,8 @@ export function MobileReaderGallery({
     contentKey: string;
     pageTurnEnabled: boolean;
   } | null>(null);
+  // Two fingers down: the sequence is a pinch or a two-finger tap, never a tap.
+  const multiTouchRef = useRef(false);
   const pendingToggleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -842,6 +855,11 @@ export function MobileReaderGallery({
       };
   const handleStageTouchStart = (event: GestureResponderEvent) => {
     const touch = event.nativeEvent;
+    multiTouchRef.current = readerStageMultiTouchOnStart(multiTouchRef.current, touch);
+    if (multiTouchRef.current) {
+      touchStartRef.current = null;
+      return;
+    }
     const x = touch.pageX - stageOriginRef.current.x;
     const y = touch.pageY - stageOriginRef.current.y;
     if (spreadSlots && !spreadSlots.some((slot) =>
@@ -961,6 +979,12 @@ export function MobileReaderGallery({
     ],
   );
   const handleStageTouchEnd = (event: GestureResponderEvent) => {
+    const multiTouch = readerStageMultiTouchOnEnd(multiTouchRef.current, event.nativeEvent);
+    multiTouchRef.current = multiTouch.multiTouch;
+    if (multiTouch.ignore) {
+      touchStartRef.current = null;
+      return;
+    }
     const start = touchStartRef.current;
     touchStartRef.current = null;
     if (!start || !readerStageTouchMatchesContent(start.contentKey, resolvedContentIdentityKey)) return;
@@ -1618,7 +1642,7 @@ export function MobileReaderGallery({
     </LayoutAnimationConfig>
   );
 
-  return (
+  const stage = (
     <View
       ref={stageViewRef}
       onLayout={measureStageOrigin}
@@ -1689,7 +1713,10 @@ export function MobileReaderGallery({
       style={[styles.stageContainer, styles.stage, { backgroundColor }]}
       onTouchStart={readerStageTapEnabled ? handleStageTouchStart : undefined}
       onTouchEnd={readerStageTapEnabled ? handleStageTouchEnd : undefined}
-      onTouchCancel={() => { touchStartRef.current = null; }}
+      onTouchCancel={() => {
+        touchStartRef.current = null;
+        multiTouchRef.current = false;
+      }}
     >
       {isReaderLoading ? (
         <View
@@ -1847,6 +1874,7 @@ export function MobileReaderGallery({
       )}
     </View>
   );
+  return stageGesture ? <GestureDetector gesture={stageGesture}>{stage}</GestureDetector> : stage;
 }
 
 function TextPage({

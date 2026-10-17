@@ -574,6 +574,8 @@ export const mobileStringsZh: MobileStrings = {
     pairingAutomatic: "自动",
     spreadPairingFootnote: "选择“自动”时，将根据页面的装订边距配对。宽幅页面始终单独显示。“错开一页”仅应用于此作品。",
     shiftByOnePage: "错开一页",
+    shiftByOnePageOn: "错开一页：打开",
+    shiftByOnePageOff: "错开一页：关闭",
     pageBackground: "页面背景",
     pageTurning: "翻页",
     pageTurningCurl: "卷页",

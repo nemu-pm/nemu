@@ -609,6 +609,8 @@ export const mobileStringsJa: MobileStrings = {
     pairingAutomatic: "自動",
     spreadPairingFootnote: "「自動」を選択すると、ページの綴じ代をもとに組み合わせます。横長のページは常に単独で表示されます。「1ページずらす」はこの作品にのみ適用されます。",
     shiftByOnePage: "1ページずらす",
+    shiftByOnePageOn: "1ページずらす: オン",
+    shiftByOnePageOff: "1ページずらす: オフ",
     pageBackground: "ページの背景",
     pageTurning: "ページめくり",
     pageTurningCurl: "カール",
