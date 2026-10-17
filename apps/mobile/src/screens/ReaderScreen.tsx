@@ -291,6 +291,7 @@ import {
 } from "@/lib/mobileReaderPairingShift";
 import { useReaderPairingPrefs } from "@/components/reader/useReaderPairingPrefs";
 import { useMobileReaderPageFeatures } from "@/components/reader/useMobileReaderPageFeatures";
+import { inferMobileReaderSegmentParity } from "@/lib/mobileReaderParityInference";
 import {
   clampReaderPageIndex,
   getReaderContinuousScrollMetrics,
@@ -2484,29 +2485,57 @@ export function ReaderScreen() {
             sizeAt: readerPageSizeAt,
             pairing: readerSpreadPairing,
             shift: readerPairingShift,
+            inferParity: (segment) =>
+              inferMobileReaderSegmentParity({
+                segment,
+                featuresAt: (index) => {
+                  const page = displayedPages[index];
+                  return page ? readerPageFeatures.get(page.id) : null;
+                },
+                rtl: mode === "rtl",
+              }),
           })
         : [],
-    [isTwoPageMode, pageCount, readerPageSizeAt, readerPairingShift, readerSpreadPairing],
+    [
+      displayedPages,
+      isTwoPageMode,
+      mode,
+      pageCount,
+      readerPageFeatures,
+      readerPageSizeAt,
+      readerPairingShift,
+      readerSpreadPairing,
+    ],
   );
-  const readerSpreadTableRef = useRef<{ key: string; spreads: number[][] } | null>(null);
+  const readerSpreadTableRef = useRef<{ key: string; spreads: number[][]; generation: number } | null>(null);
   const readerSpreadTableKey = `${chapterId}:${pagesState.status === "ready" ? pagesState.fetchedAt : 0}:${pageCount}:${readerPairingChoiceKey}`;
-  const readerSpreads = useMemo(() => {
+  // Until the reader turns a page the whole table may still re-pair (the
+  // opening pages are measured within moments); the gallery re-anchors on
+  // the page the reader is on (`readerSpreadGeneration`). After that only
+  // the pages ahead re-pair.
+  const readerSpreadsProvisional = pageArrival === "initial";
+  const { spreads: readerSpreads, generation: readerSpreadGeneration } = useMemo(() => {
     const previous = readerSpreadTableRef.current;
+    const sameKey = previous?.key === readerSpreadTableKey;
     const spreads = isTwoPageMode
       ? nextMobileReaderSpreadTable({
           previous: previous?.spreads ?? null,
           computed: readerComputedSpreads,
-          reset: previous?.key !== readerSpreadTableKey,
+          reset: !sameKey || readerSpreadsProvisional,
           currentPageIndex: clampedPageIndex,
           settled: (index) => !displayedPages[index]?.imageUri || readerPageSizeAt(index) !== null,
         })
       : [];
-    readerSpreadTableRef.current = isTwoPageMode ? { key: readerSpreadTableKey, spreads } : null;
-    return spreads;
+    const spreadOf = (table: readonly number[][]) => table.findIndex((spread) => spread.includes(clampedPageIndex));
+    const moved = sameKey && previous !== null && spreads !== previous.spreads
+      && spreadOf(spreads) !== spreadOf(previous.spreads);
+    const generation = (previous?.generation ?? 0) + (moved ? 1 : 0);
+    readerSpreadTableRef.current = isTwoPageMode ? { key: readerSpreadTableKey, spreads, generation } : null;
+    return { spreads, generation };
     // The current page only matters at the moment the table changes: a page
     // turn alone must not rebuild it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isTwoPageMode, readerComputedSpreads, readerSpreadTableKey]);
+  }, [isTwoPageMode, readerComputedSpreads, readerSpreadTableKey, readerSpreadsProvisional]);
   const currentSpreadIndex = useMemo(
     () => findMobileReaderSpreadIndex(readerSpreads, clampedPageIndex),
     [clampedPageIndex, readerSpreads],
@@ -2749,7 +2778,7 @@ export function ReaderScreen() {
       ? // routePage must NOT be part of this key: syncRoutePage rewrites the
         // route param after every page change, and re-arming the restore effect
         // from that echo snaps the scrolling-mode viewport to the page top.
-        `${readyFetchedAt}:${chapterId}:${mode}:${pageCount}:${isTwoPageMode ? readerPairingChoiceKey : "single"}:${
+        `${readyFetchedAt}:${chapterId}:${mode}:${pageCount}:${isTwoPageMode ? `${readerPairingChoiceKey}:${readerSpreadGeneration}` : "single"}:${
           // Stage geometry is not part of the key: a fold, dock or rail keeps
           // the mounted list at its logical page (MobileReaderGallery
           // re-places the offset). Only the user's column width re-anchors.
