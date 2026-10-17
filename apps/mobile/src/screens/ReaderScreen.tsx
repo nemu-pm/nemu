@@ -2462,7 +2462,10 @@ export function ReaderScreen() {
     (index: number): MobileReaderPageSize | null => {
       const page = displayedPages[index];
       if (!page) return null;
-      return readerImageSizes.get(readerPageIdentityFor(page)) ?? readerPageFeatures.get(page.id) ?? null;
+      return readerImageSizes.get(readerPageIdentityFor(page))
+        ?? readerPageFeatures.get(page.id)
+        ?? page.sourceSize
+        ?? null;
     },
     [displayedPages, readerImageSizes, readerPageFeatures, readerPageIdentityFor],
   );

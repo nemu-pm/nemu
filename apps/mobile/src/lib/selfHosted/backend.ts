@@ -12,6 +12,9 @@ import type { SelfHostedKind } from "./policy";
 export type SelfHostedPageRef = {
   index: number;
   url: string;
+  /** Pixel size of the page when the server knows it (Komga after analysis). */
+  width?: number;
+  height?: number;
 };
 
 /**
