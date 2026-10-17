@@ -30,7 +30,6 @@ export type ReaderSettingsNativeRows = {
   /** Foldables: the notebook layout menu row. */
   showNotebookPane?: boolean;
   showThumbnailSpoilers?: boolean;
-  showCameraMode?: boolean;
   /** The Orientation Lock row (absent on an iPhone and the Duo outer display); default shown. */
   showOrientationLock?: boolean;
 };
@@ -51,11 +50,6 @@ export function readerSettingsNativeContentHeight(rows: ReaderSettingsNativeRows
     height += row + (rows.showPagePairingControls ? row : 0) + footer;
     height += row + footer;
     sections += 2;
-  }
-  // 4. Outer display: the camera switch under a header, with its footer.
-  if (rows.showCameraMode) {
-    height += READER_SETTINGS_POPOVER_HEADER + row + footer;
-    sections += 1;
   }
   // 5. Laptop Mode: the two-way choice and spoiler protection, header + footer.
   if (rows.showNotebookPane) {

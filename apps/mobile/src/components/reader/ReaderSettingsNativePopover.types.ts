@@ -31,9 +31,6 @@ export type ReaderSettingsNativePopoverProps = {
   fitMode: ReaderFitMode;
   windowShape: ReaderWindowShape;
   onSetFitMode: (mode: ReaderFitMode) => void;
-  showCameraMode?: boolean;
-  avoidCamera?: boolean;
-  onSetAvoidCamera?: (enabled: boolean) => void;
   showPagePairingControls: boolean;
   /** How pages pair into spreads (自动 / 封面单独 / 封面合页). */
   spreadPairing: MobileReaderSpreadPairing;

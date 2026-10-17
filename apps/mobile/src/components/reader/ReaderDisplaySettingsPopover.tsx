@@ -69,9 +69,6 @@ type ReaderDisplaySettingsPopoverProps = {
   fitMode: ReaderFitMode;
   windowShape: ReaderWindowShape;
   onSetFitMode: (mode: ReaderFitMode) => void;
-  showCameraMode?: boolean;
-  avoidCamera?: boolean;
-  onSetAvoidCamera?: (enabled: boolean) => void;
   showPagePairingControls: boolean;
   spreadPairing: MobileReaderSpreadPairing;
   pairingShifted: boolean;
@@ -187,9 +184,6 @@ export function ReaderDisplaySettingsPopover({
   onSetSpreadMode,
   fitMode,
   onSetFitMode,
-  showCameraMode = false,
-  avoidCamera = true,
-  onSetAvoidCamera,
   showPagePairingControls,
   spreadPairing,
   pairingShifted,
@@ -445,22 +439,6 @@ export function ReaderDisplaySettingsPopover({
                 }
               />
             </>
-          ) : null}
-
-          {showCameraMode && onSetAvoidCamera ? (
-            <ReaderSettingRow
-              icon="phone-portrait-outline"
-              title={strings.reader.avoidCamera}
-              description={strings.reader.avoidCameraFootnote}
-              control={
-                <NemuNativeSwitch
-                  accessibilityLabel={strings.reader.avoidCamera}
-                  disabled={busy}
-                  value={avoidCamera}
-                  onValueChange={(value) => onSetAvoidCamera(value)}
-                />
-              }
-            />
           ) : null}
 
           <ReaderSettingRow

@@ -31,5 +31,4 @@ export type ReaderSettingsAction =
   | "lock-portrait"
   | "notebook-pane"
   | "thumbnail-spoilers"
-  | "page-fit"
-  | "camera-mode";
+  | "page-fit";

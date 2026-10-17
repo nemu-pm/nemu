@@ -237,7 +237,10 @@ export type UserSettings = {
   readerNotebookPane?: "automatic" | "trackpad" | "filmstrip";
   /** Hide unread filmstrip previews; defaults to false. */
   readerThumbnailSpoilerSafe?: boolean;
-  /** Outer foldable display: keep the physical camera clear (default true). */
+  /**
+   * Outer foldable display: keep the physical camera clear. No longer read:
+   * the page always keeps clear of the camera.
+   */
   readerAvoidCamera?: boolean;
   mobileChapterListPreferences?: Record<
     string,

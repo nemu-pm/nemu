@@ -663,12 +663,6 @@ export type MobileStrings = {
     pageLayoutAuto: string;
     /** Footer under the page layout choice (what Automatic does). */
     pageLayoutFootnote: string;
-    /** Group header for the outer display's settings. */
-    outerDisplayMode: string;
-    avoidCamera: string;
-    /** Footer under the outer display's camera switch. */
-    avoidCameraFootnote: string;
-    immersiveCanvas: string;
     pageFit: string;
     pageFitPage: string;
     pageFitWidth: string;

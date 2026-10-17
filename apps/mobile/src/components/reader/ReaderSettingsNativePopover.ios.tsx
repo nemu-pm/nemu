@@ -100,9 +100,6 @@ export function ReaderSettingsNativePopover({
   onSetSpreadMode,
   fitMode,
   onSetFitMode,
-  showCameraMode = false,
-  avoidCamera = true,
-  onSetAvoidCamera,
   showPagePairingControls,
   spreadPairing,
   pairingShifted,
@@ -165,7 +162,6 @@ export function ReaderSettingsNativePopover({
   const showPlugins = showReaderPluginSettings && Boolean(onOpenReaderPluginSettings);
   const showNotebookRow = showNotebookPane && Boolean(onSetNotebookPane);
   const settingsRows = {
-    showCameraMode,
     twoPageSupported,
     showPagePairingControls: twoPageSupported && showPagePairingControls,
     scrolling: mode === "scrolling",
@@ -306,20 +302,6 @@ export function ReaderSettingsNativePopover({
                 </SwiftText>
               ))}
             </SwiftPicker>
-          </SwiftSection>
-        ) : null}
-        {showCameraMode && onSetAvoidCamera ? (
-          <SwiftSection
-            title={strings.reader.outerDisplayMode}
-            footer={<SwiftText>{strings.reader.avoidCameraFootnote}</SwiftText>}
-          >
-            <SwiftToggle
-              label={strings.reader.avoidCamera}
-              systemImage="camera.metering.center.weighted"
-              isOn={avoidCamera}
-              onIsOnChange={(isOn) => onSetAvoidCamera(isOn)}
-              modifiers={busyModifiers}
-            />
           </SwiftSection>
         ) : null}
         {showNotebookRow && onSetNotebookPane ? (
