@@ -40,7 +40,10 @@ describe("self-hosted executor source", () => {
     const t = transport({ [`${SERVER}/api/v1/books/${book}/pages`]: { body: fixture("book-pages.json") } });
     const source = createSelfHostedExecutorSource(base({ transport: t.fn }));
     const pages = await source.getPageList({ key: series.id }, { key: book });
-    expect(pages[0]).toEqual({ index: 0, url: `${SERVER}/api/v1/books/${book}/pages/1`, id: `${book}:1` });
+    // The recorded server analyzed the book, so the page size comes along.
+    expect(pages[0]).toEqual({
+      index: 0, url: `${SERVER}/api/v1/books/${book}/pages/1`, id: `${book}:1`, width: 400, height: 600,
+    });
     expect(pages.every((page) => !page.url?.includes("K"))).toBe(true);
   });
 

@@ -1386,15 +1386,12 @@ describe("outer camera-aware page fitting", () => {
 
 
 describe("Duo full-screen canvas choices", () => {
-  test("outer immersion uses every edge while controls retain their camera-safe placement", () => {
+  test("the outer display's page always keeps clear of the camera", () => {
     const m = fixture.measurements.find((m) => m.screen === "iphone-duo-outer" && m.orientation === "portrait")!;
     const layout: MobileWindowLayout = { ...duoLayout(m), hinge: "closed", fillsScreen: true };
-    const safe = pose(layout, { sideBar: true, pageAspectRatio: 1 / 1.45 });
-    const immersive = pose(layout, { sideBar: true, avoidCamera: false, pageAspectRatio: 1 / 1.45 });
-    expect(immersive.stage).toEqual(immersive.bounds);
-    expect(immersive.stage.height).toBeGreaterThan(safe.stage.height);
-    expect(immersive.pageSideInsets).toEqual({ left: 0, right: 0 });
-    expect(immersive.chrome).toEqual(safe.chrome);
+    const page = pose(layout, { sideBar: true, pageAspectRatio: 1 / 1.45 });
+    expect(page.stage).not.toEqual(page.bounds);
+    expect(page.stage.width * page.stage.height).toBeLessThan(page.bounds.width * page.bounds.height);
   });
 
   test("flat inner portrait stays one full-size page, even with Double saved, and restores spreads after rotation", () => {

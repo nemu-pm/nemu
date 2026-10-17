@@ -75,6 +75,8 @@ export type MobileReaderScreenOptions = {
   statusBarAnimation: "fade";
   statusBarHidden: boolean;
   statusBarStyle: "light";
+  /** iOS: the home indicator fades out while reading immersively (back on the first touch, as in Photos and TV). */
+  autoHideHomeIndicator: boolean;
 };
 
 /**
@@ -96,5 +98,6 @@ export function mobileReaderScreenOptions({
     statusBarAnimation: "fade",
     statusBarHidden: !showControls,
     statusBarStyle: "light",
+    autoHideHomeIndicator: !showControls,
   };
 }

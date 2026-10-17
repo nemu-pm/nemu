@@ -47,6 +47,9 @@ export type MobileSourcePage = AidokuPage & {
   headers?: Record<string, string>;
   /** App-resolved `file://` image of a local archive page (never source supplied). */
   localUri?: string;
+  /** Pixel size of the page when a server reports it before download (Komga). */
+  width?: number;
+  height?: number;
 };
 
 export type MobileAidokuExecutorSource = Omit<

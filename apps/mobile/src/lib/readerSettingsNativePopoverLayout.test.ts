@@ -28,11 +28,11 @@ describe("native reader settings presentation", () => {
       showPlugins: false,
       showMarkComplete: false,
     });
-    // Page layout (layout, pairing, footer) and page fit (fit, footer), two
-    // more sections; Laptop Mode (header, choice, footer, a section); plugins
-    // and mark complete rows.
+    // Page layout (row, footer), pairing (pairing, shift, footer), page fit
+    // (row, footer) and page background (row), four more sections; Laptop
+    // Mode (header, choice, footer, a section); plugins and mark complete rows.
     expect(readerSettingsNativeContentHeight(full) - minimal)
-      .toBe(52 * 2 + 36 + 52 + 36 + 20 * 2 + (28 + 52 + 36 + 20) + 52 * 2);
+      .toBe(52 + 36 + 52 * 2 + 36 + 52 + 36 + 52 + 20 * 4 + (28 + 52 + 36 + 20) + 52 * 2);
     // No Orientation Lock row on an iPhone or the Duo outer display.
     expect(readerSettingsNativeContentHeight({ ...full, showOrientationLock: false }))
       .toBe(readerSettingsNativeContentHeight(full) - 52);
@@ -61,10 +61,12 @@ describe("native reader settings presentation", () => {
       safeInsets: { top: 82, bottom: 34 },
     });
     expect(available).toBe(669 - 34 - 70 - 16);
-    // The full Form (cover pairing, plugins, mark complete) is taller than the
-    // space below the capsule row; a single-page Form without those rows
+    // The paged Form (layout, pairing, fit, background) is taller than the
+    // space below the capsule row; the scrolling Form without the page rows
     // still fits.
-    const lean = { ...full, showPagePairingControls: false, showNotebookPane: false, showPlugins: false, showMarkComplete: false };
+    const lean = {
+      ...full, twoPageSupported: false, showPagePairingControls: false, showNotebookPane: false, showPlugins: false, showMarkComplete: false,
+    };
     const presentation = readerSettingsNativePresentation(lean, { availableHeight: available, regularWidth: true });
     expect(presentation.kind).toBe("popover");
     expect(readerSettingsNativePresentation({ ...full, showNotebookPane: false }, { availableHeight: available, regularWidth: true }).kind).toBe("sheet");

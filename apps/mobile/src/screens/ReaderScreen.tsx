@@ -274,13 +274,26 @@ import {
 import { classifyReaderWindowShape } from "@/lib/mobileReaderWindowShape";
 import type { ReaderSpreadMode } from "@/lib/mobileReaderSpreadMode";
 import {
-  buildMobileReaderDisplaySpreads,
   findMobileReaderSpreadIndex,
   firstPageIndexForMobileReaderSpread,
   getMobileReaderSpreadImageFrameSize,
+  getMobileReaderSpreadSheetFrames,
   pageIndexForMobileReaderSpreadStep,
   visualPageIndexesForMobileReaderSpread,
 } from "@/lib/mobileReaderSpreads";
+import {
+  buildMobileReaderPairedSpreads,
+  nextMobileReaderSpreadTable,
+  type MobileReaderPageSize,
+} from "@/lib/mobileReaderPairing";
+import {
+  mobileReaderPairingShiftKey,
+  mobileReaderPairingShifted,
+} from "@/lib/mobileReaderPairingShift";
+import { useReaderPagePrefs } from "@/components/reader/useReaderPagePrefs";
+import { useMobileReaderPageFeatures } from "@/components/reader/useMobileReaderPageFeatures";
+import { inferMobileReaderSegmentParity } from "@/lib/mobileReaderParityInference";
+import { mobileReaderPageBackgroundColor } from "@/lib/mobileReaderPageBackground";
 import {
   clampReaderPageIndex,
   getReaderContinuousScrollMetrics,
@@ -1114,8 +1127,6 @@ export function ReaderScreen() {
     setMode,
     scrollWidthPct,
     setScrollWidthPct,
-    pagePairingMode,
-    setPagePairingMode,
     processPageImages,
     setProcessPageImages,
   } = useReadingMode();
@@ -1132,8 +1143,6 @@ export function ReaderScreen() {
     setNotebookPane: setReaderNotebookPanePreference,
     spreadMode: readerSpreadMode,
     setSpreadMode: setReaderSpreadMode,
-    avoidCamera: readerAvoidCamera,
-    setAvoidCamera: setReaderAvoidCamera,
     fitModes: readerFitModes,
     setFitMode: setReaderFitMode,
   } = useReaderDisplayPrefs();
@@ -2266,7 +2275,6 @@ export function ReaderScreen() {
       mobileReaderPoseLayout({
         layout: readerWindowLayout,
         pageAspectRatio: readerPageAspectRatio,
-        avoidCamera: readerAvoidCamera,
         fallbackInsets: insets,
         paged: galleryPagedMode,
         pageCount,
@@ -2281,7 +2289,6 @@ export function ReaderScreen() {
     [
       readerSheetSide,
       readerPageAspectRatio,
-      readerAvoidCamera,
       readerSideBar,
       galleryPagedMode,
       insets,
@@ -2414,13 +2421,6 @@ export function ReaderScreen() {
     },
     [readerSettingsActionBusy, readerSpreadMode, runReaderSettingsAction, setReaderSpreadMode],
   );
-  const setReaderAvoidCameraFromSettings = useCallback(
-    (enabled: boolean) => {
-      if (enabled === readerAvoidCamera || readerSettingsActionBusy) return;
-      void runReaderSettingsAction("camera-mode", () => setReaderAvoidCamera(enabled));
-    },
-    [readerAvoidCamera, readerSettingsActionBusy, runReaderSettingsAction, setReaderAvoidCamera],
-  );
   const setReaderFitModeFromSettings = useCallback(
     (value: ReaderFitMode) => {
       if (value === readerFitSetting || readerSettingsActionBusy) return;
@@ -2432,13 +2432,107 @@ export function ReaderScreen() {
     twoPageSupported,
     twoPageEnabled: readerSettingsTwoPage,
   });
-  const readerSpreads = useMemo(
+  // Spread pairing from page shape: a wide page stands alone and parity
+  // restarts after it. Sizes arrive as pages decode; the spreads the reader
+  // has seen stay put and only the pages ahead re-pair.
+  const {
+    spreadPairing: readerSpreadPairing,
+    setSpreadPairing: setReaderSpreadPairing,
+    pairingShifts: readerPairingShifts,
+    togglePairingShift: toggleReaderPairingShift,
+    pageBackground: readerPageBackground,
+    setPageBackground: setReaderPageBackground,
+  } = useReaderPagePrefs();
+  // Pages near the reader are measured natively while a spread can show:
+  // their size (wide pages are known before they decode) and their binding
+  // margins (automatic pairing). Cached per chapter.
+  const readerPageAnalysisIds = useMemo(
+    () => displayedPages.map((page) => (page.imageUri ? page.id : null)),
+    [displayedPages],
+  );
+  const readerPageFeatures = useMobileReaderPageFeatures({
+    // Spreads pair from the measurements; "Match Page" reads the border colour.
+    enabled: galleryPagedMode && (twoPageSupported || readerPageBackground === "page"),
+    chapterKey: JSON.stringify([registryId, sourceId, mangaId, chapterId]),
+    pageIds: readerPageAnalysisIds,
+    currentPageIndex: clampedPageIndex,
+    resolveFile: readerNotebookThumbnailUri,
+  });
+  const readerPageSizeAt = useCallback(
+    (index: number): MobileReaderPageSize | null => {
+      const page = displayedPages[index];
+      if (!page) return null;
+      return readerImageSizes.get(readerPageIdentityFor(page))
+        ?? readerPageFeatures.get(page.id)
+        ?? page.sourceSize
+        ?? null;
+    },
+    [displayedPages, readerImageSizes, readerPageFeatures, readerPageIdentityFor],
+  );
+  const readerPairingShiftKey = mobileReaderPairingShiftKey(registryId, sourceId, mangaId);
+  const readerPairingShift = mobileReaderPairingShifted(readerPairingShifts[readerPairingShiftKey], chapterId);
+  // What the user chose: changing it re-pairs the whole chapter around the
+  // page they are on (that page leads, Komikku-style).
+  const readerPairingChoiceKey = `${readerSpreadPairing}:${readerPairingShift ? "shift" : "base"}`;
+  const readerComputedSpreads = useMemo(
     () =>
       isTwoPageMode
-        ? buildMobileReaderDisplaySpreads(pageCount, pagePairingMode, mode)
+        ? buildMobileReaderPairedSpreads({
+            pageCount,
+            sizeAt: readerPageSizeAt,
+            pairing: readerSpreadPairing,
+            shift: readerPairingShift,
+            inferParity: (segment) =>
+              inferMobileReaderSegmentParity({
+                segment,
+                featuresAt: (index) => {
+                  const page = displayedPages[index];
+                  return page ? readerPageFeatures.get(page.id) : null;
+                },
+                rtl: mode === "rtl",
+              }),
+          })
         : [],
-    [isTwoPageMode, mode, pageCount, pagePairingMode],
+    [
+      displayedPages,
+      isTwoPageMode,
+      mode,
+      pageCount,
+      readerPageFeatures,
+      readerPageSizeAt,
+      readerPairingShift,
+      readerSpreadPairing,
+    ],
   );
+  const readerSpreadTableRef = useRef<{ key: string; spreads: number[][]; generation: number } | null>(null);
+  const readerSpreadTableKey = `${chapterId}:${pagesState.status === "ready" ? pagesState.fetchedAt : 0}:${pageCount}:${readerPairingChoiceKey}`;
+  // Until the reader turns a page the whole table may still re-pair (the
+  // opening pages are measured within moments); the gallery re-anchors on
+  // the page the reader is on (`readerSpreadGeneration`). After that only
+  // the pages ahead re-pair.
+  const readerSpreadsProvisional = pageArrival === "initial";
+  const { spreads: readerSpreads, generation: readerSpreadGeneration } = useMemo(() => {
+    const previous = readerSpreadTableRef.current;
+    const sameKey = previous?.key === readerSpreadTableKey;
+    const spreads = isTwoPageMode
+      ? nextMobileReaderSpreadTable({
+          previous: previous?.spreads ?? null,
+          computed: readerComputedSpreads,
+          reset: !sameKey || readerSpreadsProvisional,
+          currentPageIndex: clampedPageIndex,
+          settled: (index) => !displayedPages[index]?.imageUri || readerPageSizeAt(index) !== null,
+        })
+      : [];
+    const spreadOf = (table: readonly number[][]) => table.findIndex((spread) => spread.includes(clampedPageIndex));
+    const moved = sameKey && previous !== null && spreads !== previous.spreads
+      && spreadOf(spreads) !== spreadOf(previous.spreads);
+    const generation = (previous?.generation ?? 0) + (moved ? 1 : 0);
+    readerSpreadTableRef.current = isTwoPageMode ? { key: readerSpreadTableKey, spreads, generation } : null;
+    return { spreads, generation };
+    // The current page only matters at the moment the table changes: a page
+    // turn alone must not rebuild it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isTwoPageMode, readerComputedSpreads, readerSpreadTableKey, readerSpreadsProvisional]);
   const currentSpreadIndex = useMemo(
     () => findMobileReaderSpreadIndex(readerSpreads, clampedPageIndex),
     [clampedPageIndex, readerSpreads],
@@ -2681,7 +2775,7 @@ export function ReaderScreen() {
       ? // routePage must NOT be part of this key: syncRoutePage rewrites the
         // route param after every page change, and re-arming the restore effect
         // from that echo snaps the scrolling-mode viewport to the page top.
-        `${readyFetchedAt}:${chapterId}:${mode}:${pageCount}:${isTwoPageMode ? pagePairingMode : "single"}:${
+        `${readyFetchedAt}:${chapterId}:${mode}:${pageCount}:${isTwoPageMode ? `${readerPairingChoiceKey}:${readerSpreadGeneration}` : "single"}:${
           // Stage geometry is not part of the key: a fold, dock or rail keeps
           // the mounted list at its logical page (MobileReaderGallery
           // re-places the offset). Only the user's column width re-anchors.
@@ -2694,7 +2788,7 @@ export function ReaderScreen() {
           // Presentation only (spread ⇄ single remounts under a cross-fade);
           // stage size changes never remount the gallery.
           galleryPagedMode
-            ? `${isTwoPageMode ? pagePairingMode : "single"}`
+            ? `${isTwoPageMode ? readerPairingChoiceKey : "single"}`
             : currentSegmentedImage
               ? `segmented:${currentSegmentedImage.generation}:${activeScrollWidthPct}`
               : isLongStripLogicalPage
@@ -2840,7 +2934,11 @@ export function ReaderScreen() {
     },
     [publishReaderVisibleSegments],
   );
-  const readerBackgroundColor = "#000000";
+  // Around the page: black, white, or the first-read visible page's border.
+  const readerBackgroundColor = mobileReaderPageBackgroundColor(
+    galleryPagedMode ? readerPageBackground : "black",
+    readerVisiblePages[0] ? readerPageFeatures.get(readerVisiblePages[0].id)?.edgeColor : null,
+  );
   // Only the status bar follows the chrome here. The pop gesture is disabled
   // statically on the route (app/sources/_layout.tsx) and on the root stack
   // that hosts the flow (app/_layout.tsx) — see mobileReaderRouteOptions.
@@ -6384,10 +6482,31 @@ export function ReaderScreen() {
         return { width: fitted.width, height: fitted.height };
       }
       if (galleryPagedMode && isTwoPageMode) {
+        // Facing pages are fitted as one sheet in their slots (the stage
+        // halves, or the panes beside a fold); a page alone (a cover, a wide
+        // page) gets the whole stage, or its reading-start pane.
+        const index = readerDisplayIndexByPageId.get(page.id) ?? -1;
+        const spread = readerSpreads[findMobileReaderSpreadIndex(readerSpreads, index)] ?? [index];
+        const half = { width: Math.max(1, readerSafeContentWidth / 2), height: readerMaxPagedImageHeight };
+        if (spread.length === 2 && spread.includes(index)) {
+          const visual = visualPageIndexesForMobileReaderSpread(spread, mode);
+          const slots: [{ width: number; height: number }, { width: number; height: number }] =
+            readerSpreadSlots && readerSpreadSlots.length === 2
+              ? [readerSpreadSlots[0]!, readerSpreadSlots[1]!]
+              : [half, half];
+          const frames = getMobileReaderSpreadSheetFrames({
+            slots,
+            sizes: [readerPageSizeAt(visual[0]!), readerPageSizeAt(visual[1]!)],
+          });
+          return frames[visual.indexOf(index)] ?? frames[0];
+        }
+        const lone = readerSpreadSlots && readerSpreadSlots.length === 2
+          ? readerSpreadSlots[mode === "rtl" ? 1 : 0]!
+          : { width: readerSafeContentWidth, height: readerMaxPagedImageHeight };
         return getMobileReaderSpreadImageFrameSize({
-          availableWidth: readerImageWidth,
-          availableHeight: readerMaxPagedImageHeight,
-          naturalSize: readerImageSizes.get(readerPageIdentityFor(page)),
+          availableWidth: lone.width,
+          availableHeight: Math.min(lone.height, readerMaxPagedImageHeight),
+          naturalSize: readerPageSizeAt(index) ?? readerImageSizes.get(readerPageIdentityFor(page)),
         });
       }
       return getMobileReaderImageFrameSize({
@@ -6400,12 +6519,18 @@ export function ReaderScreen() {
     [
       galleryPagedMode,
       isTwoPageMode,
+      mode,
+      readerDisplayIndexByPageId,
       readerFitMode,
       readerFitViewport,
       readerImageSizes,
       readerImageWidth,
       readerMaxPagedImageHeight,
       readerPageIdentityFor,
+      readerPageSizeAt,
+      readerSafeContentWidth,
+      readerSpreadSlots,
+      readerSpreads,
     ],
   );
   // The detections flow into `renderReaderImage`, which every mounted page
@@ -6511,8 +6636,20 @@ export function ReaderScreen() {
       // side hugs the centre seam at its page width (the pages meet there).
       const frameWidth = (page: MobileReaderPage | undefined) =>
         page ? getReaderImageFrameSize(page).width : 0;
+      // In the book posture the pages lean on the fold edge of their panes.
+      const spineSlot = (slot: WindowLayoutRect, side: "left" | "right", width: number): WindowLayoutRect => {
+        const leafWidth = Math.max(1, Math.min(slot.width, width || slot.width));
+        return { ...slot, x: side === "left" ? slot.x + slot.width - leafWidth : slot.x, width: leafWidth };
+      };
       const panes = readerSpreadSlots && readerSpreadSlots.length === 2
-        ? { left: readerSpreadSlots[0], right: readerSpreadSlots[1] }
+        ? {
+            left: spineSlot(readerSpreadSlots[0], "left", Math.max(
+              frameWidth(displayedPages[oldVisual[0]]), frameWidth(displayedPages[newVisual[0]]),
+            )),
+            right: spineSlot(readerSpreadSlots[1], "right", Math.max(
+              frameWidth(displayedPages[oldVisual[1]]), frameWidth(displayedPages[newVisual[1]]),
+            )),
+          }
         : isTwoPageMode && !readerStageConstrained
           ? mobileReaderFlatSpreadFlipPanes({
               stageWidth: readerStage.width,
@@ -6589,6 +6726,7 @@ export function ReaderScreen() {
       return true;
     },
     [
+      readerBackgroundColor,
       currentSpreadIndex,
       displayedPages,
       galleryPagedMode,
@@ -6776,6 +6914,7 @@ export function ReaderScreen() {
       );
     },
     [
+      readerBackgroundColor,
       activeJapaneseLearningTranscriptOrder,
       chapter?.id,
       clampedPageIndex,
@@ -6887,6 +7026,7 @@ export function ReaderScreen() {
       );
     },
     [
+      readerBackgroundColor,
       activeJapaneseLearningTranscriptOrder,
       clearReaderImageError,
       currentDisplayedPage,
@@ -8711,7 +8851,8 @@ export function ReaderScreen() {
           isTwoPageMode={readerSettingsTwoPage}
           twoPageSupported={readerPageLayoutVisible}
           showPagePairingControls={showPagePairingControls}
-          pagePairingMode={pagePairingMode}
+          spreadPairing={readerSpreadPairing}
+          pairingShifted={readerPairingShift}
           processPageImages={processPageImages}
           busy={readerSettingsActionBusy}
           saving={saving}
@@ -8763,16 +8904,22 @@ export function ReaderScreen() {
           }}
           spreadMode={readerSpreadMode}
           onSetSpreadMode={setReaderSpreadModeFromSettings}
-          showCameraMode={outerReaderCanvas}
-          avoidCamera={readerAvoidCamera}
-          onSetAvoidCamera={setReaderAvoidCameraFromSettings}
           fitMode={readerFitSetting}
           windowShape={readerWindowShape}
           onSetFitMode={setReaderFitModeFromSettings}
-          onTogglePagePairingMode={() => {
+          onSetSpreadPairing={(value) => {
+            if (readerSettingsActionBusy || value === readerSpreadPairing) return;
+            void runReaderSettingsAction("page-pairing-mode", () => setReaderSpreadPairing(value));
+          }}
+          pageBackground={readerPageBackground}
+          onSetPageBackground={(value) => {
+            if (readerSettingsActionBusy || value === readerPageBackground) return;
+            void runReaderSettingsAction("page-background", () => setReaderPageBackground(value));
+          }}
+          onShiftPairing={() => {
             if (readerSettingsActionBusy) return;
             void runReaderSettingsAction("page-pairing-mode", () =>
-              setPagePairingMode(pagePairingMode === "book" ? "manga" : "book"),
+              toggleReaderPairingShift(readerPairingShiftKey, chapterId),
             );
           }}
           onToggleProcessPageImages={() => {
@@ -8807,7 +8954,8 @@ export function ReaderScreen() {
           isTwoPageMode={readerSettingsTwoPage}
           twoPageSupported={readerPageLayoutVisible}
           showPagePairingControls={showPagePairingControls}
-          pagePairingMode={pagePairingMode}
+          spreadPairing={readerSpreadPairing}
+          pairingShifted={readerPairingShift}
           processPageImages={processPageImages}
           busy={readerSettingsActionBusy}
           saving={saving}
@@ -8846,16 +8994,22 @@ export function ReaderScreen() {
           }}
           spreadMode={readerSpreadMode}
           onSetSpreadMode={setReaderSpreadModeFromSettings}
-          showCameraMode={outerReaderCanvas}
-          avoidCamera={readerAvoidCamera}
-          onSetAvoidCamera={setReaderAvoidCameraFromSettings}
           fitMode={readerFitSetting}
           windowShape={readerWindowShape}
           onSetFitMode={setReaderFitModeFromSettings}
-          onTogglePagePairingMode={() => {
+          onSetSpreadPairing={(value) => {
+            if (readerSettingsActionBusy || value === readerSpreadPairing) return;
+            void runReaderSettingsAction("page-pairing-mode", () => setReaderSpreadPairing(value));
+          }}
+          pageBackground={readerPageBackground}
+          onSetPageBackground={(value) => {
+            if (readerSettingsActionBusy || value === readerPageBackground) return;
+            void runReaderSettingsAction("page-background", () => setReaderPageBackground(value));
+          }}
+          onShiftPairing={() => {
             if (readerSettingsActionBusy) return;
             void runReaderSettingsAction("page-pairing-mode", () =>
-              setPagePairingMode(pagePairingMode === "book" ? "manga" : "book"),
+              toggleReaderPairingShift(readerPairingShiftKey, chapterId),
             );
           }}
           onToggleProcessPageImages={() => {

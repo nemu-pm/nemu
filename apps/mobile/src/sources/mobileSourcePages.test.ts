@@ -171,6 +171,13 @@ describe("mobile source reader pages", () => {
     await defaultMobileSourceSessionCache.clear();
   });
 
+  test("keeps a page size the server reported before download", () => {
+    expect(mapAidokuPageToReaderPage({ index: 0, url: "https://k.test/p/1", id: "b:1", width: 2264, height: 1600 }, 0))
+      .toMatchObject({ id: "b:1", sourceSize: { width: 2264, height: 1600 } });
+    expect(mapAidokuPageToReaderPage({ index: 0, url: "https://k.test/p/1", width: 0, height: 1600 }, 0))
+      .not.toHaveProperty("sourceSize");
+  });
+
   test("maps Aidoku page URLs and base64 data into renderable reader pages", () => {
     expect(mapAidokuPageToReaderPage({ index: 3, url: "https://example.test/p.jpg" }, 0)).toEqual({
       id: "3:https://example.test/p.jpg",

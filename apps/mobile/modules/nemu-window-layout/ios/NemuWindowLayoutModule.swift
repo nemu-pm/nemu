@@ -62,6 +62,12 @@ public final class NemuWindowLayoutModule: Module {
     AsyncFunction("startLaunchReveal") {
       MainActor.assumeIsolated { NemuLaunchReveal.start() }
     }.runOnQueue(.main)
+    // Spread pairing evidence for one cached reader page file (margins, edge
+    // profiles, border colour; see `NemuPageAnalysis`). Runs on the module's
+    // background queue, one page at a time.
+    AsyncFunction("analyzePage") { (uri: String) -> [String: Any]? in
+      NemuPageAnalysis.analyze(uri: uri)
+    }
     // The observer stays the first (default) view: `requireNativeViewManager("NemuWindowLayout")`.
     View(NemuWindowLayoutView.self) {
       Events("onRegionsChange", "onWillTransition")

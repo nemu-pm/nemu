@@ -32,4 +32,4 @@ export type ReaderSettingsAction =
   | "notebook-pane"
   | "thumbnail-spoilers"
   | "page-fit"
-  | "camera-mode";
+  | "page-background";

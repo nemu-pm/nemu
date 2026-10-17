@@ -151,6 +151,21 @@ describe("komga backend", () => {
     expect(await backend.imageRequest(refs[0]!.url)).toEqual({ url: refs[0]!.url, headers: { "X-API-Key": "K" } });
   });
 
+  test("passes page sizes on when the server has analyzed them, and leaves null sizes out", async () => {
+    const bookId = books.content[0]!.id;
+    const pages = [
+      { number: 1, fileName: "001.jpg", mediaType: "image/jpeg", width: 1132, height: 1600, sizeBytes: 1 },
+      { number: 2, fileName: "002.jpg", mediaType: "image/jpeg", width: 2264, height: 1600, sizeBytes: 1 },
+      { number: 3, fileName: "003.jpg", mediaType: "image/jpeg", width: null, height: null, sizeBytes: null },
+    ];
+    const { transport } = replay({
+      [`${SERVER}/api/v1/books/${bookId}/pages`]: { body: JSON.stringify(pages) },
+    });
+    const backend = createKomgaBackend({ server: SERVER, credentials: { apiKey: "K" }, transport });
+    const refs = await backend.getPageList({ key: series.id }, { key: bookId });
+    expect(refs.map((ref) => [ref.width, ref.height])).toEqual([[1132, 1600], [2264, 1600], [undefined, undefined]]);
+  });
+
   test("recognises only its own server's urls", () => {
     const backend = createKomgaBackend({ server: SERVER, credentials: {}, transport: replay({}).transport });
     expect(backend.isServerUrl(`${SERVER}/api/v1/series/1/thumbnail`)).toBe(true);

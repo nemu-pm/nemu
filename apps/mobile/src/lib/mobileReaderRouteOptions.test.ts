@@ -67,10 +67,14 @@ describe("mobile reader route options", () => {
     expect(hidden.statusBarHidden).toBe(true);
     expect(shown.statusBarStyle).toBe("light");
     expect(shown.statusBarAnimation).toBe("fade");
+    // Immersive reading: the home indicator hides with the chrome.
+    expect(shown.autoHideHomeIndicator).toBe(false);
+    expect(hidden.autoHideHomeIndicator).toBe(true);
     // Toggling the chrome must never re-set gesture options: they are declared
     // on the route, and a re-set from inside the screen races the pop gesture.
     for (const options of [shown, hidden]) {
       expect(Object.keys(options).sort()).toEqual([
+        "autoHideHomeIndicator",
         "statusBarAnimation",
         "statusBarHidden",
         "statusBarStyle",
