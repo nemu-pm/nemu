@@ -33,4 +33,5 @@ export type ReaderSettingsAction =
   | "thumbnail-spoilers"
   | "page-fit"
   | "page-background"
-  | "page-turn";
+  | "page-turn"
+  | "camera-mode";

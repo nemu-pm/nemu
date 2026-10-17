@@ -182,6 +182,8 @@ export type MobileReaderPoseLayoutInput = {
   pageCount: number;
   /** Natural width / height of the current page, for camera-aware contain fitting. */
   pageAspectRatio?: number;
+  /** Keep the outer hardware camera clear; immersive mode explicitly opts out. */
+  avoidCamera?: boolean;
   /** The user's two-page preference. Never rewritten by this function. */
   twoPage: boolean;
   /**
@@ -993,7 +995,7 @@ export function mobileReaderPoseLayout(input: MobileReaderPoseLayoutInput): Mobi
     && rect.x + rect.width < bounds.x + bounds.width
     && rect.y + rect.height < bounds.y + bounds.height);
   let stage = fullBleedBehindRail ? bounds : chromeStage;
-  if (fullBleedBehindRail && input.paged && cameraOcclusions.length > 0) {
+  if (fullBleedBehindRail && input.paged && input.avoidCamera !== false && cameraOcclusions.length > 0) {
     const aspect = input.pageAspectRatio && Number.isFinite(input.pageAspectRatio) && input.pageAspectRatio > 0
       ? input.pageAspectRatio : 1 / 1.45;
     const fittedArea = (rect: Rect) => {

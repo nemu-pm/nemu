@@ -32,6 +32,7 @@ export type ReaderSettingsNativeRows = {
   showThumbnailSpoilers?: boolean;
   /** Paged reading: the Page Turning menu row in its own section. */
   showPageTurn?: boolean;
+  showCameraMode?: boolean;
   /** The Orientation Lock row (absent on an iPhone and the Duo outer display); default shown. */
   showOrientationLock?: boolean;
 };
@@ -63,6 +64,11 @@ export function readerSettingsNativeContentHeight(rows: ReaderSettingsNativeRows
     height += row + footer;
     height += row;
     sections += 3;
+  }
+  // 4. Outer display: the camera switch under a header, with its footer.
+  if (rows.showCameraMode) {
+    height += READER_SETTINGS_POPOVER_HEADER + row + footer;
+    sections += 1;
   }
   // 5. Laptop Mode: the two-way choice and spoiler protection, header + footer.
   if (rows.showNotebookPane) {

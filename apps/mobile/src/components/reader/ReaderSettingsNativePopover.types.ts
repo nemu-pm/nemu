@@ -40,6 +40,9 @@ export type ReaderSettingsNativePopoverProps = {
   showPageTurn?: boolean;
   pageTurn?: MobileReaderPageTurn;
   onSetPageTurn?: (value: MobileReaderPageTurn) => void;
+  showCameraMode?: boolean;
+  avoidCamera?: boolean;
+  onSetAvoidCamera?: (enabled: boolean) => void;
   showPagePairingControls: boolean;
   /** How pages pair into spreads (自动 / 封面单独 / 封面合页). */
   spreadPairing: MobileReaderSpreadPairing;

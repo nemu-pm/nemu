@@ -1186,6 +1186,8 @@ export function ReaderScreen() {
     setNotebookPane: setReaderNotebookPanePreference,
     spreadMode: readerSpreadMode,
     setSpreadMode: setReaderSpreadMode,
+    avoidCamera: readerAvoidCamera,
+    setAvoidCamera: setReaderAvoidCamera,
     fitModes: readerFitModes,
     setFitMode: setReaderFitMode,
   } = useReaderDisplayPrefs();
@@ -2321,6 +2323,7 @@ export function ReaderScreen() {
       mobileReaderPoseLayout({
         layout: readerWindowLayout,
         pageAspectRatio: readerPageAspectRatio,
+        avoidCamera: readerAvoidCamera,
         fallbackInsets: insets,
         paged: galleryPagedMode,
         pageCount,
@@ -2335,6 +2338,7 @@ export function ReaderScreen() {
     [
       readerSheetSide,
       readerPageAspectRatio,
+      readerAvoidCamera,
       readerSideBar,
       galleryPagedMode,
       insets,
@@ -2466,6 +2470,13 @@ export function ReaderScreen() {
       void runReaderSettingsAction("two-page-mode", () => setReaderSpreadMode(value));
     },
     [readerSettingsActionBusy, readerSpreadMode, runReaderSettingsAction, setReaderSpreadMode],
+  );
+  const setReaderAvoidCameraFromSettings = useCallback(
+    (enabled: boolean) => {
+      if (enabled === readerAvoidCamera || readerSettingsActionBusy) return;
+      void runReaderSettingsAction("camera-mode", () => setReaderAvoidCamera(enabled));
+    },
+    [readerAvoidCamera, readerSettingsActionBusy, runReaderSettingsAction, setReaderAvoidCamera],
   );
   const setReaderFitModeFromSettings = useCallback(
     (value: ReaderFitMode) => {
@@ -9037,6 +9048,9 @@ export function ReaderScreen() {
           }}
           spreadMode={readerSpreadMode}
           onSetSpreadMode={setReaderSpreadModeFromSettings}
+          showCameraMode={outerReaderCanvas}
+          avoidCamera={readerAvoidCamera}
+          onSetAvoidCamera={setReaderAvoidCameraFromSettings}
           fitMode={readerFitSetting}
           windowShape={readerWindowShape}
           onSetFitMode={setReaderFitModeFromSettings}
@@ -9133,6 +9147,9 @@ export function ReaderScreen() {
           }}
           spreadMode={readerSpreadMode}
           onSetSpreadMode={setReaderSpreadModeFromSettings}
+          showCameraMode={outerReaderCanvas}
+          avoidCamera={readerAvoidCamera}
+          onSetAvoidCamera={setReaderAvoidCameraFromSettings}
           fitMode={readerFitSetting}
           windowShape={readerWindowShape}
           onSetFitMode={setReaderFitModeFromSettings}
