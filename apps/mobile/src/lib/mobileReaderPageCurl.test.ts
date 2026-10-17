@@ -12,6 +12,7 @@ import {
   nextMobileReaderCurlNavigation,
   normalizeMobileReaderPageTurn,
 } from "./mobileReaderPageCurl";
+import { mobileReaderApplyFlip, mobileReaderPageFrameFlip } from "./mobileReaderStageMotion";
 
 const never = () => false;
 
@@ -207,5 +208,35 @@ describe("curl layout", () => {
     const [left, right] = layout.boxes;
     expect(layout.frame.x + left!.x + left!.width).toBe(320);
     expect(layout.frame.x + layout.leaf.width + right!.x).toBe(340);
+  });
+
+  test("flat → book: each facing page glides from its flat box to its book box (the page-frame FLIP)", () => {
+    const stage = { width: 700, height: 900 };
+    const flat = mobileReaderCurlLayout({
+      stage,
+      spreadMode: true,
+      spreadSlots: [
+        { x: 30, y: 0, width: 320, height: 900 },
+        { x: 350, y: 0, width: 320, height: 900 },
+      ],
+    });
+    const book = mobileReaderCurlLayout({
+      stage,
+      spreadMode: true,
+      spreadSlots: [
+        { x: 20, y: 30, width: 300, height: 840 },
+        { x: 340, y: 30, width: 300, height: 840 },
+      ],
+      foldGap: { start: 320, end: 340 },
+    });
+    for (const side of [0, 1] as const) {
+      const from = flat.boxes[side]!;
+      const to = book.boxes[side]!;
+      const flip = mobileReaderPageFrameFlip(from, to);
+      // At the start of the glide the page is drawn over its flat box.
+      const topLeft = mobileReaderApplyFlip({ x: to.x, y: to.y }, to, flip);
+      expect(topLeft.x).toBeCloseTo(from.x, 5);
+      expect(topLeft.x + to.width * flip.scale).toBeCloseTo(from.x + from.width, 5);
+    }
   });
 });

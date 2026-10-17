@@ -1,5 +1,7 @@
 import { useCallback, useImperativeHandle, useMemo, useState, type ReactNode, type Ref } from "react";
 import { StyleSheet, View } from "react-native";
+import Animated from "react-native-reanimated";
+import { mobileReaderPageFrameLayoutTransition } from "@/lib/mobileReaderMotionAnimations";
 import { NativePageCurlView } from "../../../modules/nemu-window-layout";
 import type { ReadingMode } from "@/data/schema";
 import type { WindowLayoutRect } from "@/lib/mobileWindowLayout";
@@ -40,6 +42,7 @@ export function MobileReaderCurlPager({
   onEdgeIntent,
   onSettleFrame,
   onTurningChange,
+  pageGlide = false,
   pagerRef,
   renderImage,
   renderTextPage,
@@ -61,6 +64,11 @@ export function MobileReaderCurlPager({
   onSettleFrame: (frame: number) => void;
   /** A leaf is turning (overlays wait for the settled page). */
   onTurningChange?: (turning: boolean) => void;
+  /**
+   * Flat ⇄ book with a spread: the facing pages glide to their new boxes
+   * (as the slide pager's slots do) instead of jumping there.
+   */
+  pageGlide?: boolean;
   pagerRef: Ref<MobileReaderCurlPagerHandle>;
   renderImage: (page: MobileReaderPage) => ReactNode;
   renderTextPage: (page: MobileReaderPage, pageIndex: number) => ReactNode;
@@ -137,6 +145,7 @@ export function MobileReaderCurlPager({
             layout,
             spreadMode,
             fitClip,
+            pageGlide,
             displayedPages,
             renderImage,
             renderTextPage,
@@ -158,6 +167,7 @@ function renderSlot({
   layout,
   spreadMode,
   fitClip,
+  pageGlide,
   displayedPages,
   renderImage,
   renderTextPage,
@@ -167,6 +177,7 @@ function renderSlot({
   layout: ReturnType<typeof mobileReaderCurlLayout>;
   spreadMode: boolean;
   fitClip: boolean;
+  pageGlide: boolean;
   displayedPages: MobileReaderPage[];
   renderImage: (page: MobileReaderPage) => ReactNode;
   renderTextPage: (page: MobileReaderPage, pageIndex: number) => ReactNode;
@@ -194,7 +205,8 @@ function renderSlot({
   const left = index % 2 === 0;
   const box = layout.boxes[left ? 0 : 1] ?? layout.boxes[0]!;
   return (
-    <View
+    <Animated.View
+      layout={pageGlide ? mobileReaderPageFrameLayoutTransition : undefined}
       style={[
         styles.box,
         { left: box.x, top: box.y, width: box.width, height: box.height },
@@ -203,7 +215,7 @@ function renderSlot({
       ]}
     >
       {content}
-    </View>
+    </Animated.View>
   );
 }
 

@@ -1571,6 +1571,7 @@ export function MobileReaderGallery({
         onEdgeIntent={handleCurlEdgeIntent}
         onSettleFrame={handleCurlSettle}
         onTurningChange={onPageTurningChange}
+        pageGlide={pageGlide}
         pagerRef={curlPagerRef}
         renderImage={renderImage}
         renderTextPage={renderCurlTextPage}
