@@ -48,6 +48,7 @@ export function MobileReaderCurlPager({
   onSettleFrame,
   onTurningChange,
   overlaysOnPages = false,
+  pageFrameSize,
   pageGlide = false,
   pagerRef,
   renderImage,
@@ -70,6 +71,8 @@ export function MobileReaderCurlPager({
   onSettleFrame: (frame: number) => void;
   /** A leaf is turning (overlays wait for the settled page). */
   onTurningChange?: (turning: boolean) => void;
+  /** Single pages: the leaf is the page's own box, so its margins never curl. */
+  pageFrameSize?: (page: MobileReaderPage) => { width: number; height: number };
   /**
    * Page overlays (Japanese-learning bubbles) are mounted: a tap turn waits
    * for the commit that unmounts them, so the leaf never lifts with them.
@@ -92,10 +95,6 @@ export function MobileReaderCurlPager({
     () => buildMobileReaderCurlSlots({ frames, spreadMode, mode, splitWide: !foldGap, isWide }),
     [foldGap, frames, isWide, mode, spreadMode],
   );
-  const layout = useMemo(
-    () => mobileReaderCurlLayout({ stage, spreadMode, spreadSlots, foldGap }),
-    [foldGap, spreadMode, spreadSlots, stage],
-  );
   const [navigation, setNavigation] = useState<MobileReaderCurlNavigation>(() => ({
     slot: mobileReaderCurlSlotForFrame(initialFrame, spreadMode),
     token: 0,
@@ -107,6 +106,21 @@ export function MobileReaderCurlPager({
   // hand native the very token the props will carry.
   const navigationRef = useRef(navigation);
   const nativeRef = useRef<PageCurlViewHandle>(null);
+  // Single pages curl as the page itself: the leaf is the settled page's box.
+  const settledPage = !spreadMode ? displayedPages[frames[settledFrame]?.[0] ?? -1] : undefined;
+  const settledPageBox = settledPage && pageFrameSize ? pageFrameSize(settledPage) : null;
+  const pageBoxWidth = settledPageBox?.width ?? 0;
+  const pageBoxHeight = settledPageBox?.height ?? 0;
+  const layout = useMemo(
+    () => mobileReaderCurlLayout({
+      stage,
+      spreadMode,
+      spreadSlots,
+      foldGap,
+      pageBox: pageBoxWidth > 0 && pageBoxHeight > 0 ? { width: pageBoxWidth, height: pageBoxHeight } : null,
+    }),
+    [foldGap, pageBoxHeight, pageBoxWidth, spreadMode, spreadSlots, stage],
+  );
   useImperativeHandle(pagerRef, () => ({
     goToFrame(frame, animated) {
       const step = animated && Math.abs(frame - settledFrame) === 1;
@@ -216,7 +230,7 @@ function renderSlot({
   if (!page) return null;
   const content = page.imageUri ? renderImage(page) : renderTextPage(page, slot.pageIndex);
   if (!spreadMode) {
-    return <View style={[styles.single, fitClip ? styles.clip : null]}>{content}</View>;
+    return <View style={[layout.pageLeaf ? styles.pageLeaf : styles.single, fitClip ? styles.clip : null]}>{content}</View>;
   }
   if (slot.part !== "whole") {
     // A wide page across the spine: each leaf shows its half of the sheet.
@@ -264,6 +278,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 10,
+  },
+  pageLeaf: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
   clip: {
     overflow: "hidden",

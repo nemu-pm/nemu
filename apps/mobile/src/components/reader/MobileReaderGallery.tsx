@@ -248,6 +248,8 @@ type MobileReaderGalleryProps = {
   pageOverlaysMounted?: boolean;
   /** A page wide enough to lie across the spine of a flat spread. */
   isWidePage?: (pageIndex: number) => boolean;
+  /** The box a single page is fitted to (the curl's leaf is that box). */
+  pageFrameSize?: (page: MobileReaderPage) => { width: number; height: number };
   /** Intrinsic size of a page, for the book-spine shading of a fold spread. */
   pageNaturalSize?: (page: MobileReaderPage) => { width: number; height: number } | null;
   /** Extra horizontal padding that centres the loading / locked / error card beside the rail. */
@@ -354,6 +356,7 @@ export function MobileReaderGallery({
   onPageTurningChange,
   pageOverlaysMounted = false,
   isWidePage,
+  pageFrameSize,
   pageNaturalSize,
   stateInsets,
   stateTopPadding,
@@ -1578,6 +1581,7 @@ export function MobileReaderGallery({
         pageGlide={pageGlide}
         pagerRef={curlPagerRef}
         renderImage={renderImage}
+        pageFrameSize={pageFrameSize}
         renderTextPage={renderCurlTextPage}
         spreadMode={isTwoPageMode}
         spreadSlots={spreadSlots}

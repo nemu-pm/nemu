@@ -168,6 +168,8 @@ export function mobileReaderCurlEdgeIntent(side: "before" | "after", mode: Readi
 }
 
 export type MobileReaderCurlLayout = {
+  /** A single page curls as itself: the leaf is the page's box (no margins). */
+  pageLeaf?: boolean;
   /** The curl's frame in the stage: centred on the spine for spreads. */
   frame: WindowLayoutRect;
   /** One leaf (a slot's child): the frame, or half of it around a middle spine. */
@@ -191,9 +193,23 @@ export function mobileReaderCurlLayout(input: {
   spreadMode: boolean;
   spreadSlots?: readonly WindowLayoutRect[] | null;
   foldGap?: { start: number; end: number } | null;
+  /** Single pages: the settled page's fitted box; the leaf is that box, centred (its margins never curl). */
+  pageBox?: { width: number; height: number } | null;
 }): MobileReaderCurlLayout {
   const width = Math.max(1, input.stage.width);
   const height = Math.max(1, input.stage.height);
+  if (!input.spreadMode && input.pageBox && input.pageBox.width > 0 && input.pageBox.height > 0) {
+    const leafWidth = Math.round(Math.min(width, input.pageBox.width));
+    const leafHeight = Math.round(Math.min(height, input.pageBox.height));
+    const x = Math.round((width - leafWidth) / 2);
+    const y = Math.round((height - leafHeight) / 2);
+    return {
+      frame: { x, y, width: leafWidth, height: leafHeight },
+      leaf: { width: leafWidth, height: leafHeight },
+      boxes: [{ x: 0, y: 0, width: leafWidth, height: leafHeight }],
+      pageLeaf: true,
+    };
+  }
   if (!input.spreadMode) {
     return {
       frame: { x: 0, y: 0, width, height },

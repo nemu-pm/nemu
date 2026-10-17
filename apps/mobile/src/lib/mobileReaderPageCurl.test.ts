@@ -240,6 +240,19 @@ describe("curl layout", () => {
       expect(topLeft.x + to.width * flip.scale).toBeCloseTo(from.x + from.width, 5);
     }
   });
+
+  test("option: a single page curls as its own box, centred, so its margins stay background", () => {
+    const layout = mobileReaderCurlLayout({
+      stage: { width: 402, height: 874 },
+      spreadMode: false,
+      pageBox: { width: 378, height: 540.4 },
+    });
+    expect(layout.pageLeaf).toBe(true);
+    expect(layout.frame).toEqual({ x: 12, y: 167, width: 378, height: 540 });
+    expect(layout.leaf).toEqual({ width: 378, height: 540 });
+    // No box yet (the page not measured): the whole stage, as before.
+    expect(mobileReaderCurlLayout({ stage: { width: 402, height: 874 }, spreadMode: false }).pageLeaf).toBeUndefined();
+  });
 });
 
 describe("tap turn start", () => {

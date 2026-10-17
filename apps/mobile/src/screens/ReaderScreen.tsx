@@ -8871,6 +8871,7 @@ export function ReaderScreen() {
         onPageTurningChange={setReaderPageTurning}
         pageOverlaysMounted={japaneseLearningDetections.length > 0}
         isWidePage={readerIsWidePage}
+        pageFrameSize={getReaderImageFrameSize}
       />
       <DuoPageFlipOverlay
         flip={readerPageFlip.flip}
