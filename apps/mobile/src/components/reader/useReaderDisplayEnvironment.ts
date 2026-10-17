@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as KeepAwake from "expo-keep-awake";
 import { setMobileReaderPortraitRequest } from "@/lib/mobileOrientationStore";
+import { setInterfaceOrientationLocked } from "../../../modules/nemu-window-layout";
 import { useMobileDataStore } from "@/data/mobileDataContext";
 import { useMobileDataRevision } from "@/data/mobileDataEvents";
 import type { UserSettings } from "@/data/schema";
@@ -39,6 +40,7 @@ export function useReaderDisplayEnvironment({
   keepAwakeEnabled,
   keepAwakeReady = true,
   portraitRequested,
+  keepOrientationRequested = false,
 }: {
   keepAwakeEnabled: boolean;
   /**
@@ -47,8 +49,10 @@ export function useReaderDisplayEnvironment({
    * walks away from) should not pin the display on.
    */
   keepAwakeReady?: boolean;
-  /** `mobileReaderPortraitRequest`: phone-sized display, or the reader's Orientation Lock. */
+  /** `mobileReaderOrientationRequest().portrait`: a phone-sized display. */
   portraitRequested: boolean;
+  /** `mobileReaderOrientationRequest().keepOrientation`: the Orientation Lock on iPad / the Duo's inner display. */
+  keepOrientationRequested?: boolean;
 }): void {
   useEffect(() => {
     if (!keepAwakeEnabled || !keepAwakeReady) return;
@@ -69,6 +73,13 @@ export function useReaderDisplayEnvironment({
     setMobileReaderPortraitRequest(portraitRequested);
     return () => setMobileReaderPortraitRequest(false);
   }, [portraitRequested]);
+  // The Orientation Lock where the system only takes a preference: the scene
+  // keeps its orientation while the reader is on top; released when it leaves.
+  useEffect(() => {
+    if (!keepOrientationRequested) return;
+    setInterfaceOrientationLocked(true);
+    return () => setInterfaceOrientationLocked(false);
+  }, [keepOrientationRequested]);
 }
 
 /**

@@ -4,6 +4,7 @@ import {
   buildMobileReaderSpreads,
   findMobileReaderSpreadIndex,
   firstPageIndexForMobileReaderSpread,
+  mobileReaderPageIndexForSettledSpread,
   getMobileReaderSpreadImageFrameSize,
   getMobileReaderSpreadSheetFrames,
   mobileReaderSpreadPageAlignment,
@@ -142,5 +143,18 @@ describe("mobile reader spreads", () => {
     })).toEqual({ width: 120, height: 180 });
     const fallback = getMobileReaderSpreadImageFrameSize({ availableWidth: 400, availableHeight: 600 });
     expect(fallback).toEqual({ width: 400, height: 580 });
+  });
+});
+
+describe("settled spread page", () => {
+  const spreads = [[0], [1, 2], [3, 4], [5]];
+  test("keeps the page the reader was on when the spread shows it (rotate / unfold and back)", () => {
+    expect(mobileReaderPageIndexForSettledSpread(spreads, 1, 2)).toBe(2);
+    expect(mobileReaderPageIndexForSettledSpread(spreads, 2, 3)).toBe(3);
+  });
+  test("a new spread starts at its first page", () => {
+    expect(mobileReaderPageIndexForSettledSpread(spreads, 2, 2)).toBe(3);
+    expect(mobileReaderPageIndexForSettledSpread(spreads, 3, 4)).toBe(5);
+    expect(mobileReaderPageIndexForSettledSpread(spreads, 9, 0)).toBe(5);
   });
 });

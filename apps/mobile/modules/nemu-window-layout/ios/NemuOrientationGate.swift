@@ -86,3 +86,49 @@ enum NemuOrientationGate {
   }
   #endif
 }
+
+/// The reader's Orientation Lock (方向锁定) where a forced orientation is only
+/// a preference (iPad, the Duo's inner display, iOS 27 resizable scenes): the
+/// scene keeps the orientation it has, the way the system's own Orientation
+/// Lock does (`prefersInterfaceOrientationLocked`, iOS 26). UIKit asks the
+/// root view controller; Expo's root controller does not override the getter,
+/// so it is added to `UIViewController` once, answering for root controllers
+/// only.
+@MainActor
+enum NemuInterfaceOrientationLock {
+  private static var locked = false
+  private static var installed = false
+
+  static func set(_ value: Bool) {
+    guard #available(iOS 26.0, *) else { return }
+    install()
+    guard value != locked else { return }
+    locked = value
+    orientationGateLog.debug("interface orientation lock \(value ? "on" : "off", privacy: .public)")
+    for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
+      for window in scene.windows {
+        window.rootViewController?.setNeedsUpdateOfPrefersInterfaceOrientationLocked()
+      }
+    }
+  }
+
+  @available(iOS 26.0, *)
+  private static func install() {
+    guard !installed else { return }
+    installed = true
+    let cls: AnyClass = UIViewController.self
+    let selector = NSSelectorFromString("prefersInterfaceOrientationLocked")
+    guard let method = class_getInstanceMethod(cls, selector) else { return }
+    typealias Getter = @convention(c) (UIViewController, Selector) -> Bool
+    let original = unsafeBitCast(method_getImplementation(method), to: Getter.self)
+    let block: @convention(block) (UIViewController) -> Bool = { controller in
+      MainActor.assumeIsolated {
+        (locked && controller.view.window?.rootViewController === controller) || original(controller, selector)
+      }
+    }
+    let imp = imp_implementationWithBlock(block)
+    if !class_addMethod(cls, selector, imp, method_getTypeEncoding(method)) {
+      method_setImplementation(method, imp)
+    }
+  }
+}

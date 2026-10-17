@@ -49,6 +49,12 @@ public final class NemuWindowLayoutModule: Module {
     Constant("verticalBarBehaviorViewAvailable") { true }
     Constant("glassViewHostsChildren") { true }
     Constant("pageCurlViewAvailable") { true }
+    // The reader's Orientation Lock where the system only takes a preference
+    // (iPad, resizable scenes): keep the scene's current orientation.
+    AsyncFunction("setInterfaceOrientationLocked") { (locked: Bool) in
+      MainActor.assumeIsolated { NemuInterfaceOrientationLock.set(locked) }
+    }.runOnQueue(.main)
+    Constant("interfaceOrientationLockAvailable") { true }
     AsyncFunction("setAppAppearance") { (appearance: String) in
       MainActor.assumeIsolated { NemuAppAppearance.set(appearance) }
     }.runOnQueue(.main)

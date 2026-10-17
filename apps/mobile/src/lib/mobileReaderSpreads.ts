@@ -55,6 +55,23 @@ export function firstPageIndexForMobileReaderSpread(
   return spreads[clamped]?.[0] ?? 0;
 }
 
+/**
+ * The page the reader is on once a spread settles: the page it was already on
+ * when that spread shows it (a single page that became a spread by rotating
+ * or unfolding, so turning back to single pages lands on the same page), else
+ * the spread's first page.
+ */
+export function mobileReaderPageIndexForSettledSpread(
+  spreads: number[][],
+  spreadIndex: number,
+  currentPageIndex: number,
+): number {
+  const clamped = Math.max(0, Math.min(spreads.length - 1, Math.round(spreadIndex)));
+  return spreads[clamped]?.includes(currentPageIndex)
+    ? currentPageIndex
+    : firstPageIndexForMobileReaderSpread(spreads, spreadIndex);
+}
+
 /** Steps one visual spread in source reading order and returns its anchor page. */
 export function pageIndexForMobileReaderSpreadStep(
   spreads: number[][],

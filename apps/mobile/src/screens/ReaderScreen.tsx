@@ -5,7 +5,13 @@ import { markMobileChapterFinished } from "@/components/explore/mobileChapterFin
 import { resolveMobileReaderRestorePosition } from "@/lib/mobileReaderRestore";
 import { shouldDismissMobileReaderSurfacesOnFocusChange } from "@/lib/mobileReaderFocus";
 import { mobileReaderOcrPageReadiness } from "@/lib/mobileReaderOcrReadiness";
-import { GlassContainer, pageCurlAvailable, VerticalBarBehavior, WindowLayoutObserver } from "../../modules/nemu-window-layout";
+import {
+  GlassContainer,
+  interfaceOrientationLockAvailable,
+  pageCurlAvailable,
+  VerticalBarBehavior,
+  WindowLayoutObserver,
+} from "../../modules/nemu-window-layout";
 import { MOBILE_READER_QA_CHROME, MOBILE_READER_QA_NOTEBOOK, MOBILE_READER_QA_PANEL, MOBILE_READER_QA_PLUGIN } from "@/lib/mobileReaderQa";
 import { mobileWindowAbsoluteBand, type MobileWindowLayout, type WindowLayoutRect } from "@/lib/mobileWindowLayout";
 import {
@@ -161,7 +167,7 @@ import {
 import {
   mobileReaderOnPhoneSizedDisplay,
   mobileReaderOrientationLockAvailable,
-  mobileReaderPortraitRequest,
+  mobileReaderOrientationRequest,
 } from "@/lib/mobileOrientationPolicy";
 import { useMobileDeviceFormFactor } from "@/lib/mobileOrientationStore";
 import { mobileAdaptiveLayout } from "@/lib/mobileAdaptiveLayout";
@@ -281,6 +287,7 @@ import type { ReaderSpreadMode } from "@/lib/mobileReaderSpreadMode";
 import {
   findMobileReaderSpreadIndex,
   firstPageIndexForMobileReaderSpread,
+  mobileReaderPageIndexForSettledSpread,
   getMobileReaderSpreadImageFrameSize,
   getMobileReaderSpreadSheetFrames,
   pageIndexForMobileReaderSpreadStep,
@@ -1317,15 +1324,18 @@ export function ReaderScreen() {
   const readerOrientationLockAvailable = mobileReaderOrientationLockAvailable({
     formFactor: deviceFormFactor,
   });
+  const readerOrientationRequest = mobileReaderOrientationRequest({
+    phoneSizedDisplay: readerOnPhoneSizedDisplay,
+    userLock: readerLockPortrait && readerOrientationLockAvailable,
+    sceneLockAvailable: interfaceOrientationLockAvailable,
+  });
   useReaderDisplayEnvironment({
     keepAwakeEnabled: readerKeepAwake,
     keepAwakeReady: pagesState.status === "ready",
     // Only while the reader is the screen on top: a reader left mounted in
     // another tab's stack must not hold the Library or Browse portrait.
-    portraitRequested: readerIsFocused && mobileReaderPortraitRequest({
-      phoneSizedDisplay: readerOnPhoneSizedDisplay,
-      userLock: readerLockPortrait && readerOrientationLockAvailable,
-    }),
+    portraitRequested: readerIsFocused && readerOrientationRequest.portrait,
+    keepOrientationRequested: readerIsFocused && readerOrientationRequest.keepOrientation,
   });
   const [japaneseLearningOcrState, setJapaneseLearningOcrState] =
     useState<JapaneseLearningOcrState>({ status: "idle" });
@@ -3651,7 +3661,7 @@ export function ReaderScreen() {
         : requestedPageIndex;
       const nextPageIndex =
         galleryPagedMode && isTwoPageMode
-          ? firstPageIndexForMobileReaderSpread(readerSpreads, targetFrameIndex)
+          ? mobileReaderPageIndexForSettledSpread(readerSpreads, targetFrameIndex, requestedPageIndex)
           : requestedPageIndex;
       armReaderProgrammaticScroll(
         galleryPagedMode
@@ -6060,8 +6070,10 @@ export function ReaderScreen() {
     const targetFrameIndex = isTwoPageMode
       ? findMobileReaderSpreadIndex(readerSpreads, targetPageIndex)
       : targetPageIndex;
+    // The spread that shows the anchored page; that page stays the current
+    // one, so turning back to single pages returns to it.
     const nextPageIndex = isTwoPageMode
-      ? firstPageIndexForMobileReaderSpread(readerSpreads, targetFrameIndex)
+      ? mobileReaderPageIndexForSettledSpread(readerSpreads, targetFrameIndex, targetPageIndex)
       : targetPageIndex;
     armReaderProgrammaticScroll(
       galleryPagedMode
@@ -6502,8 +6514,10 @@ export function ReaderScreen() {
         frameCount,
         mode,
       );
+      // A spread that still shows the page the reader was on keeps it (a
+      // rotation or unfold into spreads and back lands on the same page).
       const nextPageIndex = isTwoPageMode
-        ? firstPageIndexForMobileReaderSpread(readerSpreads, nextFrameIndex)
+        ? mobileReaderPageIndexForSettledSpread(readerSpreads, nextFrameIndex, clampedPageIndex)
         : nextFrameIndex;
       // A tap turn arms a programmatic target and already played its haptic in
       // `goToPage`; only a user swipe reaches this branch.
