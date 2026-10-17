@@ -16,9 +16,12 @@ function getMobileCarouselActiveIndex(
   interval: number,
   count: number,
   current: number,
-  hysteresis: number = MOBILE_CAROUSEL_SWITCH_HYSTERESIS,
+  hysteresisOverride?: number,
 ): number {
   "worklet";
+  // Not a parameter default: the worklet plugin binds captured constants in the
+  // body, after defaults run, so a default naming one throws on the UI runtime.
+  const hysteresis = hysteresisOverride ?? MOBILE_CAROUSEL_SWITCH_HYSTERESIS;
   if (count <= 1 || !(interval > 0) || !Number.isFinite(offset)) return 0;
   const last = count - 1;
   const held = Math.max(0, Math.min(last, Math.round(current)));
