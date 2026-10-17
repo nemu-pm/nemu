@@ -203,6 +203,8 @@ export type UserSettings = {
    * latest choice, which a chapter without its own takes, and each chapter's.
    */
   readerPairingShifts?: Record<string, { shift: boolean; chapters?: Record<string, boolean> }>;
+  /** Around the page: black (default), white, or the page's own border colour. */
+  readerPageBackground?: "black" | "white" | "page";
   readerProcessPageImages?: boolean;
   themePreference?: ThemePreference;
   searchSelectedSourceIds?: string[];

@@ -290,9 +290,10 @@ import {
   mobileReaderPairingShiftKey,
   mobileReaderPairingShifted,
 } from "@/lib/mobileReaderPairingShift";
-import { useReaderPairingPrefs } from "@/components/reader/useReaderPairingPrefs";
+import { useReaderPagePrefs } from "@/components/reader/useReaderPagePrefs";
 import { useMobileReaderPageFeatures } from "@/components/reader/useMobileReaderPageFeatures";
 import { inferMobileReaderSegmentParity } from "@/lib/mobileReaderParityInference";
+import { mobileReaderPageBackgroundColor } from "@/lib/mobileReaderPageBackground";
 import {
   clampReaderPageIndex,
   getReaderContinuousScrollMetrics,
@@ -2434,6 +2435,14 @@ export function ReaderScreen() {
   // Spread pairing from page shape: a wide page stands alone and parity
   // restarts after it. Sizes arrive as pages decode; the spreads the reader
   // has seen stay put and only the pages ahead re-pair.
+  const {
+    spreadPairing: readerSpreadPairing,
+    setSpreadPairing: setReaderSpreadPairing,
+    pairingShifts: readerPairingShifts,
+    togglePairingShift: toggleReaderPairingShift,
+    pageBackground: readerPageBackground,
+    setPageBackground: setReaderPageBackground,
+  } = useReaderPagePrefs();
   // Pages near the reader are measured natively while a spread can show:
   // their size (wide pages are known before they decode) and their binding
   // margins (automatic pairing). Cached per chapter.
@@ -2442,7 +2451,8 @@ export function ReaderScreen() {
     [displayedPages],
   );
   const readerPageFeatures = useMobileReaderPageFeatures({
-    enabled: galleryPagedMode && twoPageSupported,
+    // Spreads pair from the measurements; "Match Page" reads the border colour.
+    enabled: galleryPagedMode && (twoPageSupported || readerPageBackground === "page"),
     chapterKey: JSON.stringify([registryId, sourceId, mangaId, chapterId]),
     pageIds: readerPageAnalysisIds,
     currentPageIndex: clampedPageIndex,
@@ -2456,12 +2466,6 @@ export function ReaderScreen() {
     },
     [displayedPages, readerImageSizes, readerPageFeatures, readerPageIdentityFor],
   );
-  const {
-    spreadPairing: readerSpreadPairing,
-    setSpreadPairing: setReaderSpreadPairing,
-    pairingShifts: readerPairingShifts,
-    togglePairingShift: toggleReaderPairingShift,
-  } = useReaderPairingPrefs();
   const readerPairingShiftKey = mobileReaderPairingShiftKey(registryId, sourceId, mangaId);
   const readerPairingShift = mobileReaderPairingShifted(readerPairingShifts[readerPairingShiftKey], chapterId);
   // What the user chose: changing it re-pairs the whole chapter around the
@@ -2927,7 +2931,11 @@ export function ReaderScreen() {
     },
     [publishReaderVisibleSegments],
   );
-  const readerBackgroundColor = "#000000";
+  // Around the page: black, white, or the first-read visible page's border.
+  const readerBackgroundColor = mobileReaderPageBackgroundColor(
+    galleryPagedMode ? readerPageBackground : "black",
+    readerVisiblePages[0] ? readerPageFeatures.get(readerVisiblePages[0].id)?.edgeColor : null,
+  );
   // Only the status bar follows the chrome here. The pop gesture is disabled
   // statically on the route (app/sources/_layout.tsx) and on the root stack
   // that hosts the flow (app/_layout.tsx) — see mobileReaderRouteOptions.
@@ -6715,6 +6723,7 @@ export function ReaderScreen() {
       return true;
     },
     [
+      readerBackgroundColor,
       currentSpreadIndex,
       displayedPages,
       galleryPagedMode,
@@ -6902,6 +6911,7 @@ export function ReaderScreen() {
       );
     },
     [
+      readerBackgroundColor,
       activeJapaneseLearningTranscriptOrder,
       chapter?.id,
       clampedPageIndex,
@@ -7013,6 +7023,7 @@ export function ReaderScreen() {
       );
     },
     [
+      readerBackgroundColor,
       activeJapaneseLearningTranscriptOrder,
       clearReaderImageError,
       currentDisplayedPage,
@@ -8897,6 +8908,11 @@ export function ReaderScreen() {
             if (readerSettingsActionBusy || value === readerSpreadPairing) return;
             void runReaderSettingsAction("page-pairing-mode", () => setReaderSpreadPairing(value));
           }}
+          pageBackground={readerPageBackground}
+          onSetPageBackground={(value) => {
+            if (readerSettingsActionBusy || value === readerPageBackground) return;
+            void runReaderSettingsAction("page-background", () => setReaderPageBackground(value));
+          }}
           onShiftPairing={() => {
             if (readerSettingsActionBusy) return;
             void runReaderSettingsAction("page-pairing-mode", () =>
@@ -8981,6 +8997,11 @@ export function ReaderScreen() {
           onSetSpreadPairing={(value) => {
             if (readerSettingsActionBusy || value === readerSpreadPairing) return;
             void runReaderSettingsAction("page-pairing-mode", () => setReaderSpreadPairing(value));
+          }}
+          pageBackground={readerPageBackground}
+          onSetPageBackground={(value) => {
+            if (readerSettingsActionBusy || value === readerPageBackground) return;
+            void runReaderSettingsAction("page-background", () => setReaderPageBackground(value));
           }}
           onShiftPairing={() => {
             if (readerSettingsActionBusy) return;

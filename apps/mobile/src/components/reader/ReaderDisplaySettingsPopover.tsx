@@ -42,6 +42,7 @@ import {
   READER_SPREAD_MODE_ORDER,
   readerFitModeLabel,
   readerSpreadModeLabel,
+  readerPageBackgroundLabel,
   readerSpreadPairingLabel,
 } from "./readerPageOptions";
 import type { ReaderFitMode } from "@/lib/mobileReaderFit";
@@ -52,6 +53,10 @@ import {
   type MobileReaderNotebookPanePreference,
 } from "@/lib/mobileReaderNotebookPane";
 
+import {
+  MOBILE_READER_PAGE_BACKGROUNDS,
+  type MobileReaderPageBackground,
+} from "@/lib/mobileReaderPageBackground";
 import {
   MOBILE_READER_SPREAD_PAIRINGS,
   type MobileReaderSpreadPairing,
@@ -69,6 +74,8 @@ type ReaderDisplaySettingsPopoverProps = {
   fitMode: ReaderFitMode;
   windowShape: ReaderWindowShape;
   onSetFitMode: (mode: ReaderFitMode) => void;
+  pageBackground: MobileReaderPageBackground;
+  onSetPageBackground: (value: MobileReaderPageBackground) => void;
   showPagePairingControls: boolean;
   spreadPairing: MobileReaderSpreadPairing;
   pairingShifted: boolean;
@@ -196,6 +203,8 @@ export function ReaderDisplaySettingsPopover({
   onDismissComplete,
   onSetMode,
   onSetSpreadPairing,
+  pageBackground,
+  onSetPageBackground,
   onShiftPairing,
   onToggleProcessPageImages,
   onPreviewScrollWidth,
@@ -434,6 +443,27 @@ export function ReaderDisplaySettingsPopover({
                         label: readerFitModeLabel(option, strings),
                       }))}
                       value={fitMode}
+                    />
+                  </View>
+                }
+              />
+              <ReaderSettingRow
+                icon="contrast-outline"
+                title={strings.reader.pageBackground}
+                below={
+                  <View style={styles.settingControlBlock}>
+                    <ReaderSegmentedChipRow<MobileReaderPageBackground>
+                      accessibilityLabel={strings.reader.pageBackground}
+                      disabled={busy}
+                      onChange={(next) => {
+                        if (next === pageBackground) return;
+                        onSetPageBackground(next);
+                      }}
+                      options={MOBILE_READER_PAGE_BACKGROUNDS.map((option) => ({
+                        value: option,
+                        label: readerPageBackgroundLabel(option, strings),
+                      }))}
+                      value={pageBackground}
                     />
                   </View>
                 }

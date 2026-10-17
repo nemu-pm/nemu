@@ -31,4 +31,5 @@ export type ReaderSettingsAction =
   | "lock-portrait"
   | "notebook-pane"
   | "thumbnail-spoilers"
-  | "page-fit";
+  | "page-fit"
+  | "page-background";

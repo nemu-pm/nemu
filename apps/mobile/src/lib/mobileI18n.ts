@@ -494,6 +494,11 @@ export type MobileStrings = {
     spreadPairingFootnote: string;
     /** Action: shift this manga's pairing by one page (错开一页). */
     shiftByOnePage: string;
+    /** Menu row: what shows around the page (黑色 / 白色 / 跟随页面). */
+    pageBackground: string;
+    pageBackgroundBlack: string;
+    pageBackgroundWhite: string;
+    pageBackgroundMatchPage: string;
     chapterAccessibility: string;
     closeSettings: string;
     closePlugin: string;

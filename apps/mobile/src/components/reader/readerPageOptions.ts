@@ -3,6 +3,7 @@ import { READER_FIT_MODES, type ReaderFitMode } from "@/lib/mobileReaderFit";
 import { READER_SPREAD_MODES, type ReaderSpreadMode } from "@/lib/mobileReaderSpreadMode";
 import type { ReaderWindowShape } from "@/lib/mobileReaderWindowShape";
 import type { MobileReaderSpreadPairing } from "@/lib/mobileReaderPairing";
+import type { MobileReaderPageBackground } from "@/lib/mobileReaderPageBackground";
 
 export const READER_SPREAD_MODE_ORDER = READER_SPREAD_MODES;
 export const READER_FIT_MODE_ORDER = READER_FIT_MODES;
@@ -26,6 +27,17 @@ export function readerSpreadPairingLabel(pairing: MobileReaderSpreadPairing, str
       return strings.reader.pairingCoverPaired;
     default:
       return strings.reader.pairingAutomatic;
+  }
+}
+
+export function readerPageBackgroundLabel(background: MobileReaderPageBackground, strings: MobileStrings): string {
+  switch (background) {
+    case "white":
+      return strings.reader.pageBackgroundWhite;
+    case "page":
+      return strings.reader.pageBackgroundMatchPage;
+    default:
+      return strings.reader.pageBackgroundBlack;
   }
 }
 

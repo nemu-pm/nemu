@@ -71,11 +71,13 @@ import {
   READER_SPREAD_MODE_ORDER,
   readerFitModeLabel,
   readerSpreadModeLabel,
+  readerPageBackgroundLabel,
   readerSpreadPairingLabel,
 } from "./readerPageOptions";
 import { isReaderFitMode } from "@/lib/mobileReaderFit";
 import { isReaderSpreadMode } from "@/lib/mobileReaderSpreadMode";
 import { MOBILE_READER_SPREAD_PAIRINGS, type MobileReaderSpreadPairing } from "@/lib/mobileReaderPairing";
+import { MOBILE_READER_PAGE_BACKGROUNDS, type MobileReaderPageBackground } from "@/lib/mobileReaderPageBackground";
 import { READER_READING_MODE_ORDER, isReaderReadingMode } from "./readerReadingModeOptions";
 import type { ReaderSettingsNativePopoverProps } from "./ReaderSettingsNativePopover.types";
 
@@ -112,6 +114,8 @@ export function ReaderSettingsNativePopover({
   onDismissComplete,
   onSetMode,
   onSetSpreadPairing,
+  pageBackground,
+  onSetPageBackground,
   onShiftPairing,
   onToggleProcessPageImages,
   onPreviewScrollWidth,
@@ -299,6 +303,24 @@ export function ReaderSettingsNativePopover({
               {READER_FIT_MODE_ORDER.map((option) => (
                 <SwiftText key={option} modifiers={[tag(option)]}>
                   {readerFitModeLabel(option, strings)}
+                </SwiftText>
+              ))}
+            </SwiftPicker>
+            <SwiftPicker
+              label={strings.reader.pageBackground}
+              systemImage="square.fill.on.square"
+              modifiers={[pickerStyle("menu"), ...busyModifiers]}
+              selection={pageBackground}
+              onSelectionChange={(selection) => {
+                if (busy || selection === pageBackground) return;
+                if (!(MOBILE_READER_PAGE_BACKGROUNDS as readonly string[]).includes(String(selection))) return;
+                void hapticSelection();
+                onSetPageBackground(selection as MobileReaderPageBackground);
+              }}
+            >
+              {MOBILE_READER_PAGE_BACKGROUNDS.map((option) => (
+                <SwiftText key={option} modifiers={[tag(option)]}>
+                  {readerPageBackgroundLabel(option, strings)}
                 </SwiftText>
               ))}
             </SwiftPicker>

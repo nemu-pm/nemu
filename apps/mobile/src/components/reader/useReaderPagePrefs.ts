@@ -8,17 +8,24 @@ import {
   type MobileReaderSpreadPairing,
 } from "@/lib/mobileReaderPairing";
 import {
+  DEFAULT_MOBILE_READER_PAGE_BACKGROUND,
+  normalizeMobileReaderPageBackground,
+  type MobileReaderPageBackground,
+} from "@/lib/mobileReaderPageBackground";
+import {
   normalizeMobileReaderPairingShifts,
   toggleMobileReaderPairingShift,
   type MobileReaderPairingShifts,
 } from "@/lib/mobileReaderPairingShift";
 
-/** Persisted spread pairing: the pairing rule and the per-manga "Shift by One Page". */
-export function useReaderPairingPrefs(): {
+/** Persisted page prefs: the pairing rule, the per-manga "Shift by One Page" and the page background. */
+export function useReaderPagePrefs(): {
   spreadPairing: MobileReaderSpreadPairing;
   setSpreadPairing: (value: MobileReaderSpreadPairing) => Promise<void>;
   pairingShifts: MobileReaderPairingShifts;
   togglePairingShift: (mangaKey: string, chapterId: string) => Promise<void>;
+  pageBackground: MobileReaderPageBackground;
+  setPageBackground: (value: MobileReaderPageBackground) => Promise<void>;
 } {
   const store = useMobileDataStore();
   const revision = useMobileDataRevision(["settings"]);
@@ -29,6 +36,11 @@ export function useReaderPairingPrefs(): {
   const savedSpreadPairing = useRef<MobileReaderSpreadPairing>(DEFAULT_MOBILE_READER_SPREAD_PAIRING);
   const savedPairingShifts = useRef<MobileReaderPairingShifts>({});
   const spreadPairingRun = useRef(0);
+  const [pageBackground, setPageBackgroundState] = useState<MobileReaderPageBackground>(
+    DEFAULT_MOBILE_READER_PAGE_BACKGROUND,
+  );
+  const savedPageBackground = useRef<MobileReaderPageBackground>(DEFAULT_MOBILE_READER_PAGE_BACKGROUND);
+  const pageBackgroundRun = useRef(0);
   const pairingShiftRun = useRef(0);
 
   useEffect(() => {
@@ -46,6 +58,9 @@ export function useReaderPairingPrefs(): {
         const nextShifts = normalizeMobileReaderPairingShifts(settings.readerPairingShifts);
         setPairingShiftsState(nextShifts);
         savedPairingShifts.current = nextShifts;
+        const nextBackground = normalizeMobileReaderPageBackground(settings.readerPageBackground);
+        setPageBackgroundState(nextBackground);
+        savedPageBackground.current = nextBackground;
       })
       .catch(() => undefined);
     return () => {
@@ -101,5 +116,30 @@ export function useReaderPairingPrefs(): {
     [pairingShifts, store],
   );
 
-  return { spreadPairing, setSpreadPairing, pairingShifts, togglePairingShift };
+  const setPageBackground = useCallback(
+    async (value: MobileReaderPageBackground) => {
+      if (value === pageBackground) return;
+      const run = pageBackgroundRun.current + 1;
+      pageBackgroundRun.current = run;
+      setPageBackgroundState(value);
+      try {
+        await store.updateSettings((settings) => ({ ...settings, readerPageBackground: value }));
+        savedPageBackground.current = value;
+        emitMobileDataChanged("settings");
+      } catch (error) {
+        if (pageBackgroundRun.current === run) setPageBackgroundState(savedPageBackground.current);
+        throw error;
+      }
+    },
+    [pageBackground, store],
+  );
+
+  return {
+    spreadPairing,
+    setSpreadPairing,
+    pairingShifts,
+    togglePairingShift,
+    pageBackground,
+    setPageBackground,
+  };
 }

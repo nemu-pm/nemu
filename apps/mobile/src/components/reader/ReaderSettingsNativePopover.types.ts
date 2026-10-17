@@ -1,5 +1,6 @@
 import type { ReadingMode } from "@/data/schema";
 import type { MobileReaderSpreadPairing } from "@/lib/mobileReaderPairing";
+import type { MobileReaderPageBackground } from "@/lib/mobileReaderPageBackground";
 import type { ReaderFitMode } from "@/lib/mobileReaderFit";
 import type { ReaderSpreadMode } from "@/lib/mobileReaderSpreadMode";
 import type { ReaderWindowShape } from "@/lib/mobileReaderWindowShape";
@@ -31,6 +32,9 @@ export type ReaderSettingsNativePopoverProps = {
   fitMode: ReaderFitMode;
   windowShape: ReaderWindowShape;
   onSetFitMode: (mode: ReaderFitMode) => void;
+  /** What shows around the page (paged reading). */
+  pageBackground: MobileReaderPageBackground;
+  onSetPageBackground: (value: MobileReaderPageBackground) => void;
   showPagePairingControls: boolean;
   /** How pages pair into spreads (自动 / 封面单独 / 封面合页). */
   spreadPairing: MobileReaderSpreadPairing;
