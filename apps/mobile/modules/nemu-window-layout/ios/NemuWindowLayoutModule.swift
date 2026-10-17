@@ -56,6 +56,12 @@ public final class NemuWindowLayoutModule: Module {
       MainActor.assumeIsolated { NemuInterfaceOrientationLock.set(locked) }
     }.runOnQueue(.main)
     Constant("interfaceOrientationLockAvailable") { true }
+    // Resolves once no view controller transition is running in the app's
+    // windows (see `NemuTransitionSettle`): orientation changes wait for it.
+    AsyncFunction("afterTransitions") { (promise: Promise) in
+      MainActor.assumeIsolated { NemuTransitionSettle.wait { promise.resolve() } }
+    }.runOnQueue(.main)
+    Constant("afterTransitionsAvailable") { true }
     AsyncFunction("setAppAppearance") { (appearance: String) in
       MainActor.assumeIsolated { NemuAppAppearance.set(appearance) }
     }.runOnQueue(.main)

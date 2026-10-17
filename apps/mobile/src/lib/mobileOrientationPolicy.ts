@@ -126,3 +126,18 @@ export function mobileOrientationLock(input: {
   if (input.formFactor === "phone") return "portrait";
   return input.readerWantsPortrait ? "portrait" : "default";
 }
+
+/**
+ * Whether applying `next` over `previous` waits for the running screen
+ * transition. Releasing the reader's portrait (Back) waits for the pop to
+ * finish: rotating the scene under it made react-native-screens commit the
+ * new bounds inside the transition, which aborted the app on the iPhone Duo
+ * outer display (Reanimated's layout-animation tree, UIKit's vertical bar
+ * corners). Taking portrait (opening the reader) applies at once.
+ */
+export function mobileOrientationLockWaitsForTransition(
+  previous: "portrait" | "default",
+  next: "portrait" | "default",
+): boolean {
+  return previous === "portrait" && next === "default";
+}

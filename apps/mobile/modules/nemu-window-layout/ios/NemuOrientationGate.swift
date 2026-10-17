@@ -87,6 +87,71 @@ enum NemuOrientationGate {
   #endif
 }
 
+/// Waits out the view controller transitions running in the app's windows
+/// (a navigation pop, a push, a modal presentation) before an orientation
+/// change. The reader released its portrait lock as Back began, so the scene
+/// rotated under the pop: react-native-screens then commits the new screen
+/// bounds synchronously inside the transition's layout pass, which tripped
+/// Reanimated's layout-animation tree ("Indices are wrong in Remove
+/// mutation", SIGABRT) or sent the vertical bar container
+/// (`_UIFloatingBarContainerView`) into an Observation tracking feedback
+/// loop on its corners (iPhone Duo outer display).
+///
+/// The request usually arrives just before the transition exists: React
+/// commits the pop, then the screen's blur releases the lock, while UIKit
+/// only starts a navigation transition at the stack's next layout pass
+/// (`startDeferredTransitionIfNeeded`). So it watches for one for
+/// `grace` seconds; with none (a tab switch) `done` runs after that.
+@MainActor
+enum NemuTransitionSettle {
+  static let grace: CFTimeInterval = 0.25
+
+  static func wait(_ done: @escaping @MainActor () -> Void) {
+    poll(until: CACurrentMediaTime() + grace, waited: false, done)
+  }
+
+  private static func poll(until deadline: CFTimeInterval, waited: Bool, _ done: @escaping @MainActor () -> Void) {
+    if let coordinator = activeCoordinator() {
+      orientationGateLog.debug("orientation change waits for a transition")
+      coordinator.animate(alongsideTransition: nil) { _ in
+        // A finished transition can hand over to another (a pop that lands on
+        // a screen which presents); look again on the next turn.
+        DispatchQueue.main.async {
+          MainActor.assumeIsolated { poll(until: CACurrentMediaTime() + 0.05, waited: true, done) }
+        }
+      }
+      return
+    }
+    if CACurrentMediaTime() >= deadline {
+      orientationGateLog.debug("orientation change applies (\(waited ? "transition finished" : "no transition", privacy: .public))")
+      done()
+      return
+    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / 60.0) {
+      MainActor.assumeIsolated { poll(until: deadline, waited: waited, done) }
+    }
+  }
+
+  private static func activeCoordinator() -> UIViewControllerTransitionCoordinator? {
+    for case let scene as UIWindowScene in UIApplication.shared.connectedScenes
+    where scene.activationState != .background {
+      for window in scene.windows where !window.isHidden {
+        if let coordinator = coordinator(in: window.rootViewController) { return coordinator }
+      }
+    }
+    return nil
+  }
+
+  private static func coordinator(in controller: UIViewController?) -> UIViewControllerTransitionCoordinator? {
+    guard let controller else { return nil }
+    if let coordinator = controller.transitionCoordinator { return coordinator }
+    for child in controller.children {
+      if let coordinator = coordinator(in: child) { return coordinator }
+    }
+    return coordinator(in: controller.presentedViewController)
+  }
+}
+
 /// The reader's Orientation Lock (方向锁定) where a forced orientation is only
 /// a preference (iPad, the Duo's inner display, iOS 27 resizable scenes): the
 /// scene keeps the orientation it has, the way the system's own Orientation
@@ -97,11 +162,24 @@ enum NemuOrientationGate {
 @MainActor
 enum NemuInterfaceOrientationLock {
   private static var locked = false
+  private static var wanted = false
   private static var installed = false
 
+  /// Locks at once; a release waits for the transition that caused it (the
+  /// reader's Back) to finish, see `NemuTransitionSettle`.
   static func set(_ value: Bool) {
     guard #available(iOS 26.0, *) else { return }
     install()
+    wanted = value
+    if value {
+      apply(true)
+    } else {
+      NemuTransitionSettle.wait { if !wanted { apply(false) } }
+    }
+  }
+
+  @available(iOS 26.0, *)
+  private static func apply(_ value: Bool) {
     guard value != locked else { return }
     locked = value
     orientationGateLog.debug("interface orientation lock \(value ? "on" : "off", privacy: .public)")

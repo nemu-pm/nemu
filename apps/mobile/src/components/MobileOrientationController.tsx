@@ -6,7 +6,9 @@ import {
   MOBILE_FOLDABLE_PROBE_MS,
   mobileDeviceFormFactor,
   mobileOrientationLock,
+  mobileOrientationLockWaitsForTransition,
 } from "@/lib/mobileOrientationPolicy";
+import { afterViewControllerTransitions } from "../../modules/nemu-window-layout";
 import {
   setMobileDeviceFormFactor,
   useMobileDeviceFormFactor,
@@ -45,12 +47,23 @@ export function MobileOrientationController() {
   const applied = useRef<"portrait" | "default">("default");
   useEffect(() => {
     if (Platform.OS === "web" || lock === applied.current) return;
+    const waits = mobileOrientationLockWaitsForTransition(applied.current, lock);
     applied.current = lock;
-    // A request: the Duo inner display and resizable windows may refuse it.
-    void (lock === "portrait"
-      ? ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP)
-      : ScreenOrientation.unlockAsync()
-    ).catch(() => undefined);
+    let current = true;
+    const apply = () => {
+      if (!current) return;
+      // A request: the Duo inner display and resizable windows may refuse it.
+      void (lock === "portrait"
+        ? ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP)
+        : ScreenOrientation.unlockAsync()
+      ).catch(() => undefined);
+    };
+    // Back from the reader: rotate once the pop has finished, never under it.
+    if (waits) void afterViewControllerTransitions().then(apply);
+    else apply();
+    return () => {
+      current = false;
+    };
   }, [lock]);
   return null;
 }

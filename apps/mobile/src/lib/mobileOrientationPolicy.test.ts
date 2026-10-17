@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   mobileDeviceFormFactor,
   mobileOrientationLock,
+  mobileOrientationLockWaitsForTransition,
   mobileReaderOnPhoneSizedDisplay,
   mobileReaderOrientationLockAvailable,
   mobileReaderOrientationRequest,
@@ -45,6 +46,14 @@ describe("device form factor", () => {
 });
 
 describe("orientation lock", () => {
+  test("releasing the reader's portrait waits for Back to finish; taking it does not", () => {
+    // The Duo outer display aborted when the scene rotated under the pop.
+    expect(mobileOrientationLockWaitsForTransition("portrait", "default")).toBe(true);
+    expect(mobileOrientationLockWaitsForTransition("default", "portrait")).toBe(false);
+    expect(mobileOrientationLockWaitsForTransition("portrait", "portrait")).toBe(false);
+    expect(mobileOrientationLockWaitsForTransition("default", "default")).toBe(false);
+  });
+
   test("an iPhone is portrait everywhere, reader or not", () => {
     expect(mobileOrientationLock({ formFactor: "phone", readerWantsPortrait: false })).toBe("portrait");
   });

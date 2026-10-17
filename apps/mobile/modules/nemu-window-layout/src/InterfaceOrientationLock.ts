@@ -4,6 +4,7 @@ import { Platform } from "react-native";
 type NativeModule = {
   interfaceOrientationLockAvailable?: boolean;
   setInterfaceOrientationLocked?: (locked: boolean) => Promise<void>;
+  afterTransitions?: () => Promise<void>;
 };
 
 const nativeModule = Platform.OS === "ios"
@@ -21,4 +22,14 @@ export const interfaceOrientationLockAvailable = nativeModule?.interfaceOrientat
  */
 export function setInterfaceOrientationLocked(locked: boolean): void {
   void nativeModule?.setInterfaceOrientationLocked?.(locked)?.catch(() => undefined);
+}
+
+/**
+ * Resolves once no view controller transition (a push, a pop, a sheet) is
+ * running in the app's windows, so an orientation change never lands under
+ * one. Resolves at once on Android, web and binaries built before it.
+ */
+export function afterViewControllerTransitions(): Promise<void> {
+  const settle = nativeModule?.afterTransitions;
+  return settle ? settle().catch(() => undefined) : Promise.resolve();
 }
