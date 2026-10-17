@@ -21,6 +21,8 @@ type ExploreSettingsRow = {
   /** Trailing value, e.g. a count. */
   detail?: string;
   disabled?: boolean;
+  /** Split view: the section shown in the trailing pane (an accent-filled row). */
+  selected?: boolean;
   onPress: () => void;
 };
 
@@ -32,38 +34,65 @@ const ROW_HEIGHT = 52;
  * (bare, no tile), a single title line, a chevron, hairline separators inset
  * to the text. Settings are a rare stop, so rows are short and scan at a
  * glance; the longer descriptions move to the VoiceOver hint.
+ *
+ * The regular-width split view's section list is the same group, its
+ * selected row filled with the accent (as the system Settings sidebar).
  */
 export function ExploreSettingsGroup({ rows }: { rows: ExploreSettingsRow[] }) {
   const { tokens } = useNemuTheme();
   return (
     <View style={[styles.group, { backgroundColor: tokens.card, borderColor: tokens.border }]}>
-      {rows.map((row, index) => (
-        <Fragment key={row.key}>
-          {index > 0 ? <View style={[styles.separator, { backgroundColor: tokens.border }]} /> : null}
-          <NemuPressable
-            accessibilityRole="button"
-            accessibilityLabel={row.accessibilityLabel}
-            accessibilityHint={row.accessibilityHint}
-            accessibilityState={{ disabled: row.disabled || undefined }}
-            disabled={row.disabled}
-            hapticFeedback="press"
-            pressedScale={1}
-            onPress={row.onPress}
-            style={styles.row}
-          >
-            <ExploreSettingsGlyph name={row.icon} color={row.tint} />
-            <NemuText numberOfLines={1} color={tokens.foreground} style={styles.title}>
-              {row.title}
-            </NemuText>
-            {row.detail ? (
-              <NemuText numberOfLines={1} color={tokens.mutedForeground} style={styles.detail}>
-                {row.detail}
-              </NemuText>
+      {rows.map((row, index) => {
+        const selected = row.selected === true;
+        // A selected row's fill reaches its neighbours: no hairline beside it.
+        const separated = index > 0 && !selected && rows[index - 1]?.selected !== true;
+        const ink = selected ? tokens.primaryForeground : undefined;
+        return (
+          <Fragment key={row.key}>
+            {index > 0 ? (
+              <View
+                style={[
+                  styles.separator,
+                  { backgroundColor: separated ? tokens.border : "transparent" },
+                ]}
+              />
             ) : null}
-            <Ionicons name="chevron-forward" size={16} color={tokens.mutedForeground} />
-          </NemuPressable>
-        </Fragment>
-      ))}
+            <NemuPressable
+              accessibilityRole="button"
+              accessibilityLabel={row.accessibilityLabel}
+              accessibilityHint={row.accessibilityHint}
+              accessibilityState={{
+                disabled: row.disabled || undefined,
+                selected: row.selected,
+              }}
+              disabled={row.disabled}
+              hapticFeedback={row.selected === undefined ? "press" : "selection"}
+              pressedScale={1}
+              onPress={row.onPress}
+              style={[styles.row, selected ? { backgroundColor: tokens.primary } : null]}
+            >
+              <ExploreSettingsGlyph name={row.icon} color={ink ?? row.tint} />
+              <NemuText numberOfLines={1} color={ink ?? tokens.foreground} style={styles.title}>
+                {row.title}
+              </NemuText>
+              {row.detail ? (
+                <NemuText
+                  numberOfLines={1}
+                  color={ink ?? tokens.mutedForeground}
+                  style={styles.detail}
+                >
+                  {row.detail}
+                </NemuText>
+              ) : null}
+              <Ionicons
+                name="chevron-forward"
+                size={16}
+                color={ink ?? tokens.mutedForeground}
+              />
+            </NemuPressable>
+          </Fragment>
+        );
+      })}
     </View>
   );
 }

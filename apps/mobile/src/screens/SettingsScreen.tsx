@@ -3240,7 +3240,7 @@ function SettingsScreenContent({
               {activeSection === null ? (
                 <>
                   <MobileCloudSyncCard />
-                  {mobileDesignExploreFlag && !inSplit ? (
+                  {mobileDesignExploreFlag ? (
                     <>
                       <ExploreSettingsGroup
                         rows={[
@@ -3251,6 +3251,7 @@ function SettingsScreenContent({
                             accessibilityLabel: strings.reader.title,
                             accessibilityHint: strings.settings.readerDescriptionWithFeedback,
                             disabled: settingsActionBusy,
+                            selected: inSplit ? selectedSection === "reader" : undefined,
                             onPress: () => openSection("reader"),
                           },
                           {
@@ -3261,6 +3262,7 @@ function SettingsScreenContent({
                             accessibilityHint: strings.settings.installedSourcesDescription,
                             detail: sources.data.length ? String(sources.data.length) : undefined,
                             disabled: settingsActionBusy,
+                            selected: inSplit ? selectedSection === "sources" : undefined,
                             onPress: () => openSection("sources"),
                           },
                           {
@@ -3270,6 +3272,7 @@ function SettingsScreenContent({
                             accessibilityLabel: strings.settings.appearance,
                             accessibilityHint: strings.settings.appearanceDescription,
                             disabled: settingsActionBusy,
+                            selected: inSplit ? selectedSection === "appearance" : undefined,
                             onPress: () => openSection("appearance"),
                           },
                           {
@@ -3279,6 +3282,7 @@ function SettingsScreenContent({
                             accessibilityLabel: strings.settings.dataManagement,
                             accessibilityHint: strings.settings.dataManagementDescription,
                             disabled: settingsActionBusy,
+                            selected: inSplit ? selectedSection === "data" : undefined,
                             onPress: () => openSection("data"),
                           },
                           ...(isMobileDesignExploreSwitchAvailable(Platform.OS)
@@ -3290,6 +3294,7 @@ function SettingsScreenContent({
                                   accessibilityLabel: strings.settings.experimentalDesign,
                                   accessibilityHint: strings.settings.designPreviewHint,
                                   disabled: settingsActionBusy,
+                                  selected: inSplit ? selectedSection === "experimental" : undefined,
                                   onPress: () => openSection("experimental"),
                                 },
                               ]
