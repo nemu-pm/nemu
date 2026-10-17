@@ -38,6 +38,12 @@ describe("native reader settings presentation", () => {
       .toBe(readerSettingsNativeContentHeight(full) - 52);
   });
 
+  test("Page Turning adds one menu row in its own section", () => {
+    const without = readerSettingsNativeContentHeight(full);
+    const withTurn = readerSettingsNativeContentHeight({ ...full, showPageTurn: true });
+    expect(withTurn - without).toBe(52 + 20);
+  });
+
   test("spoiler protection reserves one more row without changing other settings", () => {
     expect(readerSettingsNativeContentHeight({ ...full, showThumbnailSpoilers: true })
       - readerSettingsNativeContentHeight(full)).toBe(52);

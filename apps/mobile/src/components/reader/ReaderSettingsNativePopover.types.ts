@@ -1,6 +1,7 @@
 import type { ReadingMode } from "@/data/schema";
 import type { MobileReaderSpreadPairing } from "@/lib/mobileReaderPairing";
 import type { MobileReaderPageBackground } from "@/lib/mobileReaderPageBackground";
+import type { MobileReaderPageTurn } from "@/lib/mobileReaderPageCurl";
 import type { ReaderFitMode } from "@/lib/mobileReaderFit";
 import type { ReaderSpreadMode } from "@/lib/mobileReaderSpreadMode";
 import type { ReaderWindowShape } from "@/lib/mobileReaderWindowShape";
@@ -35,6 +36,10 @@ export type ReaderSettingsNativePopoverProps = {
   /** What shows around the page (paged reading). */
   pageBackground: MobileReaderPageBackground;
   onSetPageBackground: (value: MobileReaderPageBackground) => void;
+  /** 翻页 (Page Turning): a menu row in paged reading, where this binary can curl. */
+  showPageTurn?: boolean;
+  pageTurn?: MobileReaderPageTurn;
+  onSetPageTurn?: (value: MobileReaderPageTurn) => void;
   showPagePairingControls: boolean;
   /** How pages pair into spreads (自动 / 封面单独 / 封面合页). */
   spreadPairing: MobileReaderSpreadPairing;

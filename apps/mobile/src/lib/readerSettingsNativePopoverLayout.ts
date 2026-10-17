@@ -30,6 +30,8 @@ export type ReaderSettingsNativeRows = {
   /** Foldables: the notebook layout menu row. */
   showNotebookPane?: boolean;
   showThumbnailSpoilers?: boolean;
+  /** Paged reading: the Page Turning menu row in its own section. */
+  showPageTurn?: boolean;
   /** The Orientation Lock row (absent on an iPhone and the Duo outer display); default shown. */
   showOrientationLock?: boolean;
 };
@@ -44,6 +46,11 @@ export function readerSettingsNativeContentHeight(rows: ReaderSettingsNativeRows
   // 1. Reading direction: one segmented row.
   let height = row;
   let sections = 1;
+  // 1b. Page Turning: one menu row.
+  if (rows.showPageTurn) {
+    height += row;
+    sections += 1;
+  }
   // 2. Page layout, with its footer; 3. while a spread shows, pairing and
   //    Shift by One Page, with their footer; 4. page fit, with its footer;
   //    5. page background.

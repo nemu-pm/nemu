@@ -4,6 +4,7 @@ import { READER_SPREAD_MODES, type ReaderSpreadMode } from "@/lib/mobileReaderSp
 import type { ReaderWindowShape } from "@/lib/mobileReaderWindowShape";
 import type { MobileReaderSpreadPairing } from "@/lib/mobileReaderPairing";
 import type { MobileReaderPageBackground } from "@/lib/mobileReaderPageBackground";
+import type { MobileReaderPageTurn } from "@/lib/mobileReaderPageCurl";
 
 export const READER_SPREAD_MODE_ORDER = READER_SPREAD_MODES;
 export const READER_FIT_MODE_ORDER = READER_FIT_MODES;
@@ -28,6 +29,10 @@ export function readerSpreadPairingLabel(pairing: MobileReaderSpreadPairing, str
     default:
       return strings.reader.pairingAutomatic;
   }
+}
+
+export function readerPageTurnLabel(turn: MobileReaderPageTurn, strings: MobileStrings): string {
+  return turn === "slide" ? strings.reader.pageTurningSlide : strings.reader.pageTurningCurl;
 }
 
 export function readerPageBackgroundLabel(background: MobileReaderPageBackground, strings: MobileStrings): string {

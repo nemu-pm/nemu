@@ -287,10 +287,7 @@ import {
   nextMobileReaderSpreadTable,
   type MobileReaderPageSize,
 } from "@/lib/mobileReaderPairing";
-import {
-  DEFAULT_MOBILE_READER_PAGE_TURN,
-  isMobileReaderPageCurlActive,
-} from "@/lib/mobileReaderPageCurl";
+import { isMobileReaderPageCurlActive } from "@/lib/mobileReaderPageCurl";
 import {
   mobileReaderPairingShiftKey,
   mobileReaderPairingShifted,
@@ -2070,15 +2067,6 @@ export function ReaderScreen() {
   // its geometry after the single page's intrinsic dimensions prove that
   // viewport-contain would make it unreadably narrow.
   const galleryPagedMode = pagedMode && !useLongStripPresentation;
-  // 翻页 › 卷页: paged turns curl like a book (Reduce Motion keeps the slide).
-  const readerPageCurlActive = isMobileReaderPageCurlActive({
-    pageTurn: DEFAULT_MOBILE_READER_PAGE_TURN,
-    pagedMode: galleryPagedMode,
-    reduceMotion,
-    longStrip: useLongStripPresentation,
-    segmented: Boolean(currentSegmentedImage),
-    available: pageCurlAvailable,
-  });
   // The capsule's page number: the displayed page while a paged scrub only
   // previews its target (see readerChromeIndicatorPageIndex).
   const readerChromePageIndex = readerChromeIndicatorPageIndex({
@@ -2456,7 +2444,18 @@ export function ReaderScreen() {
     togglePairingShift: toggleReaderPairingShift,
     pageBackground: readerPageBackground,
     setPageBackground: setReaderPageBackground,
+    pageTurn: readerPageTurn,
+    setPageTurn: setReaderPageTurn,
   } = useReaderPagePrefs();
+  // 翻页 › 卷页: paged turns curl like a book (Reduce Motion keeps the slide).
+  const readerPageCurlActive = isMobileReaderPageCurlActive({
+    pageTurn: readerPageTurn,
+    pagedMode: galleryPagedMode,
+    reduceMotion,
+    longStrip: useLongStripPresentation,
+    segmented: Boolean(currentSegmentedImage),
+    available: pageCurlAvailable,
+  });
   // Pages near the reader are measured natively while a spread can show:
   // their size (wide pages are known before they decode) and their binding
   // margins (automatic pairing). Cached per chapter.
@@ -8942,6 +8941,12 @@ export function ReaderScreen() {
           onSetPageBackground={(value) => {
             if (readerSettingsActionBusy || value === readerPageBackground) return;
             void runReaderSettingsAction("page-background", () => setReaderPageBackground(value));
+          }}
+          showPageTurn={pageCurlAvailable && galleryPagedMode}
+          pageTurn={readerPageTurn}
+          onSetPageTurn={(value) => {
+            if (readerSettingsActionBusy || value === readerPageTurn) return;
+            void runReaderSettingsAction("page-turn", () => setReaderPageTurn(value));
           }}
           onShiftPairing={() => {
             if (readerSettingsActionBusy) return;

@@ -32,4 +32,5 @@ export type ReaderSettingsAction =
   | "notebook-pane"
   | "thumbnail-spoilers"
   | "page-fit"
-  | "page-background";
+  | "page-background"
+  | "page-turn";

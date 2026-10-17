@@ -205,6 +205,8 @@ export type UserSettings = {
   readerPairingShifts?: Record<string, { shift: boolean; chapters?: Record<string, boolean> }>;
   /** Around the page: black (default), white, or the page's own border colour. */
   readerPageBackground?: "black" | "white" | "page";
+  /** 翻页: curl (default) or slide. */
+  readerPageTurn?: "curl" | "slide";
   readerProcessPageImages?: boolean;
   themePreference?: ThemePreference;
   searchSelectedSourceIds?: string[];

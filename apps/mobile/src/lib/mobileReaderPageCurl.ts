@@ -19,6 +19,9 @@ export type MobileReaderPageTurn = "curl" | "slide";
 
 export const DEFAULT_MOBILE_READER_PAGE_TURN: MobileReaderPageTurn = "curl";
 
+/** The 翻页 menu, in Apple's order. */
+export const MOBILE_READER_PAGE_TURNS: readonly MobileReaderPageTurn[] = ["curl", "slide"];
+
 export function normalizeMobileReaderPageTurn(value: unknown): MobileReaderPageTurn {
   return value === "slide" ? "slide" : DEFAULT_MOBILE_READER_PAGE_TURN;
 }

@@ -72,8 +72,10 @@ import {
   readerFitModeLabel,
   readerSpreadModeLabel,
   readerPageBackgroundLabel,
+  readerPageTurnLabel,
   readerSpreadPairingLabel,
 } from "./readerPageOptions";
+import { MOBILE_READER_PAGE_TURNS, normalizeMobileReaderPageTurn, type MobileReaderPageTurn } from "@/lib/mobileReaderPageCurl";
 import { isReaderFitMode } from "@/lib/mobileReaderFit";
 import { isReaderSpreadMode } from "@/lib/mobileReaderSpreadMode";
 import { MOBILE_READER_SPREAD_PAIRINGS, type MobileReaderSpreadPairing } from "@/lib/mobileReaderPairing";
@@ -116,6 +118,9 @@ export function ReaderSettingsNativePopover({
   onSetSpreadPairing,
   pageBackground,
   onSetPageBackground,
+  showPageTurn = false,
+  pageTurn = "curl",
+  onSetPageTurn,
   onShiftPairing,
   onToggleProcessPageImages,
   onPreviewScrollWidth,
@@ -165,7 +170,9 @@ export function ReaderSettingsNativePopover({
     option === "rtl" ? strings.reader.rtl : option === "ltr" ? strings.reader.ltr : strings.reader.scroll;
   const showPlugins = showReaderPluginSettings && Boolean(onOpenReaderPluginSettings);
   const showNotebookRow = showNotebookPane && Boolean(onSetNotebookPane);
+  const showPageTurnRow = showPageTurn && mode !== "scrolling" && Boolean(onSetPageTurn);
   const settingsRows = {
+    showPageTurn: showPageTurnRow,
     twoPageSupported,
     showPagePairingControls: twoPageSupported && showPagePairingControls,
     scrolling: mode === "scrolling",
@@ -233,6 +240,28 @@ export function ReaderSettingsNativePopover({
             ))}
           </SwiftPicker>
         </SwiftSection>
+        {showPageTurnRow && onSetPageTurn ? (
+          <SwiftSection>
+            <SwiftPicker
+              label={strings.reader.pageTurning}
+              systemImage="book.pages"
+              modifiers={[pickerStyle("menu"), ...busyModifiers]}
+              selection={pageTurn}
+              onSelectionChange={(selection) => {
+                if (busy || selection === pageTurn) return;
+                if (!(MOBILE_READER_PAGE_TURNS as readonly string[]).includes(String(selection))) return;
+                void hapticSelection();
+                onSetPageTurn(normalizeMobileReaderPageTurn(selection) as MobileReaderPageTurn);
+              }}
+            >
+              {MOBILE_READER_PAGE_TURNS.map((option) => (
+                <SwiftText key={option} modifiers={[tag(option)]}>
+                  {readerPageTurnLabel(option, strings)}
+                </SwiftText>
+              ))}
+            </SwiftPicker>
+          </SwiftSection>
+        ) : null}
         {twoPageSupported ? (
           <SwiftSection footer={<SwiftText>{strings.reader.pageLayoutFootnote}</SwiftText>}>
             <SwiftPicker

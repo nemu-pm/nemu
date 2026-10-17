@@ -496,6 +496,9 @@ export type MobileStrings = {
     shiftByOnePage: string;
     /** Menu row: what shows around the page (黑色 / 白色 / 跟随页面). */
     pageBackground: string;
+    pageTurning: string;
+    pageTurningCurl: string;
+    pageTurningSlide: string;
     pageBackgroundBlack: string;
     pageBackgroundWhite: string;
     pageBackgroundMatchPage: string;
