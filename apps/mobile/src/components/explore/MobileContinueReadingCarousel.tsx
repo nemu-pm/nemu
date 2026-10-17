@@ -46,6 +46,7 @@ import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
 import { getMobileSourceReaderHref } from "@/lib/mobileSourceRoutes";
 import {
   getMobileContinueCardGeometry,
+  getMobileContinueCardRestOffset,
   getMobileContinueCardVariant,
   MOBILE_CONTINUE_TALL_CARD,
   SINGLE_COVER_SHARE,
@@ -328,8 +329,9 @@ export function MobileContinueReadingCarousel({
     if (cardWidth <= 0 || previous.interval <= 1) return;
     if (previous.interval === interval && previous.paddingLeft === geometry.paddingLeft) return;
     userDriven.set(false);
-    scrollRef.current?.scrollTo({ x: activeIndex.get() * interval, y: 0, animated: false });
-  }, [activeIndex, cardWidth, geometry.paddingLeft, interval, scrollRef, userDriven]);
+    const x = getMobileContinueCardRestOffset(geometry, { index: activeIndex.get(), count, frameWidth });
+    scrollRef.current?.scrollTo({ x, y: 0, animated: false });
+  }, [activeIndex, cardWidth, count, frameWidth, geometry, interval, scrollRef, userDriven]);
   // The list shrank under the active card.
   useEffect(() => {
     if (activeIndex.get() > Math.max(0, count - 1)) activeIndex.set(Math.max(0, count - 1));

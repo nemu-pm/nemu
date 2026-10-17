@@ -101,10 +101,11 @@ const NONE: MobileContinueCardGeometry = {
  *   the leading gutter and only the next card peeks; a lone card too.
  * - Wide (two or more fit): as many whole cards as fit side by side, an even
  *   number when the window has a fold region so folding barely moves them;
- *   a peek of the next card only when more cards follow.
- * - Folded with a vertical fold: one card per pane. The leading card starts on
- *   the page gutter and ends before the fold, the next starts where the fold
- *   ends, and the row snaps by one pane, so no card ever rests on the fold.
+ *   a peek of the next card only when more cards follow; the row ends with
+ *   the last card on the trailing gutter, the gaps all equal.
+ * - Folded with a vertical fold: one card per pane, each centred in its pane
+ *   with the fold edge keeping the pane's own outer margin, and the row snaps
+ *   by one pane, so no card ever rests on or against the fold.
  */
 export function getMobileContinueCardGeometry({
   frameWidth,
@@ -133,18 +134,23 @@ export function getMobileContinueCardGeometry({
   const right = Math.max(0, gutterRight);
 
   if (fold && fold.end > fold.start) {
-    const leading = fold.start - left;
-    const trailing = frameWidth - right - fold.end;
+    // Each pane is a page of its own: the fold edge keeps the same margin as
+    // the pane's outer edge, and the card sits centred between them. Both
+    // cards share one width, the narrower pane's (the vertical bar's side).
+    const leading = fold.start - 2 * left;
+    const trailing = frameWidth - fold.end - 2 * right;
     const cardWidth = Math.min(maxWidth, leading, trailing);
     // A pane too narrow for a card: fall through to the flat rules.
     if (cardWidth >= minWidth * 0.75) {
-      const interval = fold.end - left;
+      const first = left + (leading - cardWidth) / 2;
+      const second = fold.end + right + (trailing - cardWidth) / 2;
       return {
         cardWidth,
-        interval,
-        paddingLeft: left,
-        // The last card can rest in the trailing pane, never further.
-        paddingRight: Math.max(right, frameWidth - fold.end - cardWidth),
+        // One step moves a card from the trailing pane's place to the leading pane's.
+        interval: second - first,
+        paddingLeft: first,
+        // The last card rests in the trailing pane's place, never further.
+        paddingRight: frameWidth - second - cardWidth,
         columns: 2,
         turns: false,
         foldAligned: true,
@@ -202,10 +208,25 @@ export function getMobileContinueCardGeometry({
     cardWidth,
     interval: cardWidth + gap,
     paddingLeft: left,
-    // The last `columns` cards rest with the first of them on the gutter.
-    paddingRight: overflows
-      ? Math.max(right, frameWidth - left - columns * cardWidth - (columns - 1) * gap)
-      : right,
+    // The row ends as it starts, mirrored: the last card on the trailing
+    // gutter and the one before the last peeking on the leading side, never
+    // an empty stretch where the peek was. That last step is shorter than an
+    // interval (the scroll view clamps the snap to its end).
+    paddingRight: right,
     columns,
   };
+}
+
+/**
+ * Where the row rests with `index` leading (the snap point), clamped to the
+ * row's end: a whole-cards row ends on the trailing gutter, short of a full
+ * interval.
+ */
+export function getMobileContinueCardRestOffset(
+  geometry: MobileContinueCardGeometry,
+  { index, count, frameWidth }: { index: number; count: number; frameWidth: number },
+): number {
+  if (count <= 0 || geometry.cardWidth <= 0) return 0;
+  const content = geometry.paddingLeft + (count - 1) * geometry.interval + geometry.cardWidth + geometry.paddingRight;
+  return Math.max(0, Math.min(index * geometry.interval, content - frameWidth));
 }

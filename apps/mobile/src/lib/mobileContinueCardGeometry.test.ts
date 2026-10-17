@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   getMobileContinueCardGeometry,
+  getMobileContinueCardRestOffset,
   getMobileContinueCardVariant,
 } from "./mobileContinueCardGeometry";
 
@@ -87,8 +88,33 @@ describe("getMobileContinueCardGeometry", () => {
     const resting = cardsAt(many, 5, 0);
     expect(resting[1][1]).toBeLessThanOrEqual(951);
     expect(951 - resting[2][0]).toBeCloseTo(28);
-    // The last two cards rest with the fourth on the gutter.
-    expect(maxOffset(many, 5, 951)).toBeCloseTo(3 * many.interval);
+    // The row ends as it starts, mirrored: the last card on the trailing
+    // gutter, the gaps all equal, no empty stretch where the peek was.
+    const end = maxOffset(many, 5, 951);
+    const ending = cardsAt(many, 5, 0).map(([left, right]) => [left - end, right - end] as const);
+    expect(ending[4][1]).toBeCloseTo(951 - 20);
+    for (let card = 1; card < 5; card += 1) expect(ending[card][0] - ending[card - 1][1]).toBeCloseTo(12);
+    // The card before the last two peeks on the leading side, as the third did on the trailing.
+    expect(ending[2][1]).toBeGreaterThan(0);
+    expect(ending[2][1]).toBeLessThan(ending[3][0]);
+    // The last step is shorter than an interval; the rest offset clamps to it.
+    expect(end).toBeLessThan(3 * many.interval);
+    expect(getMobileContinueCardRestOffset(many, { index: 3, count: 5, frameWidth: 951 })).toBeCloseTo(end);
+    expect(getMobileContinueCardRestOffset(many, { index: 1, count: 5, frameWidth: 951 })).toBe(many.interval);
+  });
+
+  test("open flat with the vertical bar: equal gaps from the first resting place to the last", () => {
+    for (const [gutterLeft, gutterRight] of [[20, 16], [16, 20]]) {
+      const g = getMobileContinueCardGeometry({ frameWidth: 867, gutterLeft, gutterRight, count: 6, preferEven: true });
+      expect(g.columns).toBe(2);
+      const end = maxOffset(g, 6, 867);
+      for (const offset of [0, g.interval, end]) {
+        const cards = cardsAt(g, 6, 0).map(([left, right]) => [left - offset, right - offset] as const);
+        for (let card = 1; card < 6; card += 1) expect(cards[card][0] - cards[card - 1][1]).toBeCloseTo(12);
+      }
+      expect(cardsAt(g, 6, 0)[0][0]).toBe(gutterLeft);
+      expect(cardsAt(g, 6, 0)[5][1] - end).toBeCloseTo(867 - gutterRight);
+    }
   });
 
   test("Duo inner display, portrait: two cards, never narrower than the minimum", () => {
@@ -106,39 +132,59 @@ describe("getMobileContinueCardGeometry", () => {
     expect(foldable.cardWidth).toBe(460);
   });
 
-  test("Duo book posture: one card per pane, nothing on the fold, at every resting position", () => {
-    // Measured inner display in book posture: panes 0–455.5 and 495.5–951.
-    const fold = { start: 455.5, end: 495.5 };
-    for (const count of [1, 2, 3, 6]) {
-      const g = getMobileContinueCardGeometry({ frameWidth: 951, gutterLeft: 20, count, fold, preferEven: true });
-      expect(g).toMatchObject({ columns: 2, turns: false, foldAligned: true, cardWidth: 435.5 });
-      const last = Math.round(maxOffset(g, count, 951) / g.interval);
-      expect(last).toBe(Math.max(0, count - 2));
-      for (let index = 0; index <= last; index += 1) {
-        for (const [left, right] of cardsAt(g, count, index)) {
-          // Off screen, or wholly inside one pane.
-          const visible = right > 0 && left < 951;
-          if (!visible) continue;
-          expect(right <= fold.start + 0.01 || left >= fold.end - 0.01).toBe(true);
-        }
-        // The leading card rests on the page gutter, the next where the fold ends.
-        const cards = cardsAt(g, count, index);
-        expect(cards[index][0]).toBeCloseTo(20);
-        if (cards[index + 1]) expect(cards[index + 1][0]).toBeCloseTo(fold.end);
-      }
-    }
-  });
+  /**
+   * The open Duo in book posture, as measured: 951 pt across, the fold
+   * 455.5–495.5, the 84 pt vertical bar on one side. The row's frame ends at
+   * the bar; its gutters are the page gutter (20) and the bar-side gap (16).
+   */
+  const BOOK = {
+    barRight: { frameWidth: 867, gutterLeft: 20, gutterRight: 16, fold: { start: 455.5, end: 495.5 } },
+    barLeft: { frameWidth: 867, gutterLeft: 16, gutterRight: 20, fold: { start: 371.5, end: 411.5 } },
+  } as const;
 
-  test("book posture with the vertical bar on one side: both cards take the narrower pane's width", () => {
-    // Row frame 0…867 after an 84 pt bar on the left; the fold in row coordinates.
-    const fold = { start: 371.5, end: 411.5 };
-    const g = getMobileContinueCardGeometry({ frameWidth: 867, gutterLeft: 8, gutterRight: 20, count: 3, fold });
-    expect(g.foldAligned).toBe(true);
-    expect(g.cardWidth).toBe(371.5 - 8);
-    const [first, second] = cardsAt(g, 3, 0);
-    expect(first[1]).toBeLessThanOrEqual(fold.start);
-    expect(second[0]).toBe(fold.end);
-    expect(second[1]).toBeLessThanOrEqual(867 - 20);
+  for (const [side, frame] of Object.entries(BOOK)) {
+    test(`Duo book posture (${side}): each card centred in its own pane, never on the fold, one pane a step`, () => {
+      const { frameWidth, gutterLeft, gutterRight, fold } = frame;
+      for (const count of [1, 2, 3, 6]) {
+        const g = getMobileContinueCardGeometry({ ...frame, count, preferEven: true });
+        expect(g).toMatchObject({ columns: 2, turns: false, foldAligned: true });
+        // One width for both panes: the narrower pane's, inside its two margins.
+        const narrower = Math.min(fold.start - 2 * gutterLeft, frameWidth - fold.end - 2 * gutterRight);
+        expect(g.cardWidth).toBeCloseTo(Math.min(460, narrower));
+        // Every snap point is one pane further, the last with the last card in the trailing pane.
+        const last = Math.max(0, count - 2);
+        expect(maxOffset(g, count, frameWidth)).toBeCloseTo(last * g.interval);
+        for (let index = 0; index <= last; index += 1) {
+          const cards = cardsAt(g, count, index);
+          for (const [left, right] of cards) {
+            if (right <= 0 || left >= frameWidth) continue;
+            expect(right <= fold.start + 0.01 || left >= fold.end - 0.01).toBe(true);
+          }
+          // Leading pane: as far from its outer edge (the gutter's own margin counted) as from the fold.
+          const [a0, a1] = cards[index];
+          expect(a0).toBeGreaterThanOrEqual(gutterLeft - 0.01);
+          expect(a0).toBeCloseTo(fold.start - a1);
+          // Trailing pane: the same balance against the frame's far edge.
+          if (cards[index + 1]) {
+            const [b0, b1] = cards[index + 1];
+            expect(b1).toBeLessThanOrEqual(frameWidth - gutterRight + 0.01);
+            expect(b0 - fold.end).toBeCloseTo(frameWidth - b1);
+          }
+        }
+      }
+    });
+  }
+
+  test("book posture: the narrower pane keeps the plain page margins, the wider one centres the same card", () => {
+    const g = getMobileContinueCardGeometry({ ...BOOK.barRight, count: 4 });
+    const [first, second] = cardsAt(g, 4, 0);
+    // The bar's pane: 16 pt from the fold and from the frame's edge at the bar.
+    expect(second[0] - 495.5).toBeCloseTo(16);
+    expect(867 - second[1]).toBeCloseTo(16);
+    expect(g.cardWidth).toBeCloseTo(867 - 495.5 - 32);
+    // The other pane: equal margins, wider than the gutter.
+    expect(first[0]).toBeCloseTo(455.5 - first[1]);
+    expect(first[0]).toBeGreaterThan(20);
   });
 
   test("a fold that leaves a pane too narrow for a card falls back to the flat rules", () => {
