@@ -1279,7 +1279,7 @@ export function MobileReaderGallery({
                   displayedPages[visualIndexes[0]] ? pageNaturalSize(displayedPages[visualIndexes[0]]) : null,
                   displayedPages[visualIndexes[1]] ? pageNaturalSize(displayedPages[visualIndexes[1]]) : null,
                 ],
-                align: "center",
+                align: "spine",
               })
             : null;
         return (
@@ -1303,9 +1303,7 @@ export function MobileReaderGallery({
                     // The halves slide apart into (or back from) the fold panes.
                     layout={pageGlide ? mobileReaderSlotLayoutTransition : undefined}
                     style={[styles.spreadPageSlot, {
-                    alignItems: mobileReaderSpreadPageAlignment(
-                      slotIndex, item.spread.length, Boolean(spreadSlots),
-                    ),
+                    alignItems: mobileReaderSpreadPageAlignment(slotIndex, item.spread.length),
                   },
                   // While a page glides from its old (larger) box the slot
                   // must not clip it; the zoom clip returns once it settles.

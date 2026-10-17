@@ -5,6 +5,7 @@ import {
   findMobileReaderSpreadIndex,
   firstPageIndexForMobileReaderSpread,
   getMobileReaderSpreadImageFrameSize,
+  getMobileReaderSpreadSheetFrames,
   mobileReaderSpreadPageAlignment,
   pageIndexForMobileReaderSpreadStep,
   visualPageIndexesForMobileReaderSpread,
@@ -84,7 +85,7 @@ describe("mobile reader spreads", () => {
       const frames = visualPageIndexesForMobileReaderSpread([0, 1], mode).map(
         (pageIndex, slotIndex) => {
           const width = fittedWidths[pageIndex]!;
-          const alignment = mobileReaderSpreadPageAlignment(slotIndex, 2, false);
+          const alignment = mobileReaderSpreadPageAlignment(slotIndex, 2);
           const offset = alignment === "flex-end" ? slotWidth - width
             : alignment === "center" ? (slotWidth - width) / 2 : 0;
           return { x: slotIndex * slotWidth + offset, width };
@@ -96,10 +97,35 @@ describe("mobile reader spreads", () => {
     }
   });
 
-  test("centers covers and real fold-region pages in their available viewport", () => {
-    expect(mobileReaderSpreadPageAlignment(0, 1, false)).toBe("center");
-    expect(mobileReaderSpreadPageAlignment(0, 2, true)).toBe("center");
-    expect(mobileReaderSpreadPageAlignment(1, 2, true)).toBe("center");
+  test("a page alone is centred; facing pages lean on the spine, fold panes included", () => {
+    expect(mobileReaderSpreadPageAlignment(0, 1)).toBe("center");
+    expect(mobileReaderSpreadPageAlignment(0, 2)).toBe("flex-end");
+    expect(mobileReaderSpreadPageAlignment(1, 2)).toBe("flex-start");
+  });
+
+  test("facing pages are fitted as one sheet: same height, each inside its slot", () => {
+    const page = { width: 1000, height: 1500 };
+    // Flat stage halves 475×669: the height limits (475 / (2/3) = 712.5 > 669).
+    expect(getMobileReaderSpreadSheetFrames({
+      slots: [{ width: 475, height: 669 }, { width: 475, height: 669 }],
+      sizes: [page, page],
+    })).toEqual([{ width: 446, height: 669 }, { width: 446, height: 669 }]);
+    // Different shapes: both share the height the wider page fits at, nothing crosses the spine.
+    const [left, right] = getMobileReaderSpreadSheetFrames({
+      slots: [{ width: 400, height: 800 }, { width: 400, height: 800 }],
+      sizes: [{ width: 800, height: 1000 }, page],
+    });
+    expect(left.height).toBe(right.height);
+    expect(left.width).toBeLessThanOrEqual(400);
+    expect(right.width).toBeLessThanOrEqual(400);
+    expect(left.width).toBe(400);
+    // Fold panes of different sizes: the smaller one decides.
+    const panes = getMobileReaderSpreadSheetFrames({
+      slots: [{ width: 455, height: 669 }, { width: 400, height: 669 }],
+      sizes: [page, null],
+    });
+    expect(panes[0].height).toBe(panes[1].height);
+    expect(panes[1].width).toBeLessThanOrEqual(400);
   });
 
   test("fits the frame to the page without cropping or an internal contain gutter", () => {

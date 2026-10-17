@@ -277,6 +277,7 @@ import {
   findMobileReaderSpreadIndex,
   firstPageIndexForMobileReaderSpread,
   getMobileReaderSpreadImageFrameSize,
+  getMobileReaderSpreadSheetFrames,
   pageIndexForMobileReaderSpreadStep,
   visualPageIndexesForMobileReaderSpread,
 } from "@/lib/mobileReaderSpreads";
@@ -6481,10 +6482,31 @@ export function ReaderScreen() {
         return { width: fitted.width, height: fitted.height };
       }
       if (galleryPagedMode && isTwoPageMode) {
+        // Facing pages are fitted as one sheet in their slots (the stage
+        // halves, or the panes beside a fold); a page alone (a cover, a wide
+        // page) gets the whole stage, or its reading-start pane.
+        const index = readerDisplayIndexByPageId.get(page.id) ?? -1;
+        const spread = readerSpreads[findMobileReaderSpreadIndex(readerSpreads, index)] ?? [index];
+        const half = { width: Math.max(1, readerSafeContentWidth / 2), height: readerMaxPagedImageHeight };
+        if (spread.length === 2 && spread.includes(index)) {
+          const visual = visualPageIndexesForMobileReaderSpread(spread, mode);
+          const slots: [{ width: number; height: number }, { width: number; height: number }] =
+            readerSpreadSlots && readerSpreadSlots.length === 2
+              ? [readerSpreadSlots[0]!, readerSpreadSlots[1]!]
+              : [half, half];
+          const frames = getMobileReaderSpreadSheetFrames({
+            slots,
+            sizes: [readerPageSizeAt(visual[0]!), readerPageSizeAt(visual[1]!)],
+          });
+          return frames[visual.indexOf(index)] ?? frames[0];
+        }
+        const lone = readerSpreadSlots && readerSpreadSlots.length === 2
+          ? readerSpreadSlots[mode === "rtl" ? 1 : 0]!
+          : { width: readerSafeContentWidth, height: readerMaxPagedImageHeight };
         return getMobileReaderSpreadImageFrameSize({
-          availableWidth: readerImageWidth,
-          availableHeight: readerMaxPagedImageHeight,
-          naturalSize: readerImageSizes.get(readerPageIdentityFor(page)),
+          availableWidth: lone.width,
+          availableHeight: Math.min(lone.height, readerMaxPagedImageHeight),
+          naturalSize: readerPageSizeAt(index) ?? readerImageSizes.get(readerPageIdentityFor(page)),
         });
       }
       return getMobileReaderImageFrameSize({
@@ -6497,12 +6519,18 @@ export function ReaderScreen() {
     [
       galleryPagedMode,
       isTwoPageMode,
+      mode,
+      readerDisplayIndexByPageId,
       readerFitMode,
       readerFitViewport,
       readerImageSizes,
       readerImageWidth,
       readerMaxPagedImageHeight,
       readerPageIdentityFor,
+      readerPageSizeAt,
+      readerSafeContentWidth,
+      readerSpreadSlots,
+      readerSpreads,
     ],
   );
   // The detections flow into `renderReaderImage`, which every mounted page
@@ -6608,8 +6636,20 @@ export function ReaderScreen() {
       // side hugs the centre seam at its page width (the pages meet there).
       const frameWidth = (page: MobileReaderPage | undefined) =>
         page ? getReaderImageFrameSize(page).width : 0;
+      // In the book posture the pages lean on the fold edge of their panes.
+      const spineSlot = (slot: WindowLayoutRect, side: "left" | "right", width: number): WindowLayoutRect => {
+        const leafWidth = Math.max(1, Math.min(slot.width, width || slot.width));
+        return { ...slot, x: side === "left" ? slot.x + slot.width - leafWidth : slot.x, width: leafWidth };
+      };
       const panes = readerSpreadSlots && readerSpreadSlots.length === 2
-        ? { left: readerSpreadSlots[0], right: readerSpreadSlots[1] }
+        ? {
+            left: spineSlot(readerSpreadSlots[0], "left", Math.max(
+              frameWidth(displayedPages[oldVisual[0]]), frameWidth(displayedPages[newVisual[0]]),
+            )),
+            right: spineSlot(readerSpreadSlots[1], "right", Math.max(
+              frameWidth(displayedPages[oldVisual[1]]), frameWidth(displayedPages[newVisual[1]]),
+            )),
+          }
         : isTwoPageMode && !readerStageConstrained
           ? mobileReaderFlatSpreadFlipPanes({
               stageWidth: readerStage.width,
