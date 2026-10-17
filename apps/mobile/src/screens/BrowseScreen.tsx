@@ -2253,10 +2253,9 @@ const EXPLORE_LIBRARY_SECTION = "explore:library";
 
 const styles = StyleSheet.create({
   exploreSourceSection: {
-    // A wide window (iPad, Duo open) keeps the phone's reading width, centred.
+    // The page's width between its gutters on every window, as Library and
+    // Settings use it (a 640pt centred column left most of an iPad empty).
     width: "100%",
-    maxWidth: 640,
-    alignSelf: "center",
   },
   exploreSourceGroup: {
     borderRadius: MOBILE_EXPLORE_RADIUS.group,
