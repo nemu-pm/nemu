@@ -232,6 +232,8 @@ type MobileReaderGalleryProps = {
    * tiled pages.
    */
   pageCurl?: boolean;
+  /** The curl is turning a leaf: page overlays wait for the settled page. */
+  onPageTurningChange?: (turning: boolean) => void;
   /** A page wide enough to lie across the spine of a flat spread. */
   isWidePage?: (pageIndex: number) => boolean;
   /** Intrinsic size of a page, for the book-spine shading of a fold spread. */
@@ -336,6 +338,7 @@ export function MobileReaderGallery({
   onStageOriginChange,
   contentIdentityKey,
   pageCurl = false,
+  onPageTurningChange,
   isWidePage,
   pageNaturalSize,
   stateInsets,
@@ -1543,6 +1546,7 @@ export function MobileReaderGallery({
         mode={mode}
         onEdgeIntent={handleCurlEdgeIntent}
         onSettleFrame={handleCurlSettle}
+        onTurningChange={onPageTurningChange}
         pagerRef={curlPagerRef}
         renderImage={renderImage}
         renderTextPage={renderCurlTextPage}

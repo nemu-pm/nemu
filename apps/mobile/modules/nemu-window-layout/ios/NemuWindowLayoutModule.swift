@@ -77,7 +77,7 @@ public final class NemuWindowLayoutModule: Module {
       }
     }
     View(NemuPageCurlView.self) {
-      Events("onSettle", "onEdgeDrag", "onTurnBegin")
+      Events("onSettle", "onEdgeDrag", "onTurnBegin", "onTurnEnd")
       Prop("spine") { (view: NemuPageCurlView, spine: String) in view.spine = spine }
       Prop("slotCount") { (view: NemuPageCurlView, count: Int) in view.slotCount = count }
       // Changes whenever a mounted child takes another slot: re-host them.

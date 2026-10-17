@@ -1,8 +1,5 @@
 import ExpoModulesCore
-import OSLog
 import UIKit
-
-private let curlLog = Logger(subsystem: "pm.nemu", category: "curl")
 
 /**
  * The reader's curl page turn: a `UIPageViewController` with the `.pageCurl`
@@ -21,12 +18,15 @@ private let curlLog = Logger(subsystem: "pm.nemu", category: "curl")
  * gesture turn, and a requested turn once it reaches the latest request (an
  * interrupted chain reports only where it ends, like a scroll view's
  * momentum end). `onEdgeDrag` reports a drag past the first or last slot,
- * where there is no leaf to lift.
+ * where there is no leaf to lift. `onTurnBegin` / `onTurnEnd` bracket every
+ * curl on screen (a cancelled drag included), so page overlays can wait for
+ * the settled page.
  */
 final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageViewControllerDelegate, UIGestureRecognizerDelegate {
   let onSettle = EventDispatcher()
   let onEdgeDrag = EventDispatcher()
   let onTurnBegin = EventDispatcher()
+  let onTurnEnd = EventDispatcher()
 
   /** "min" (binding on the left), "max" (on the right) or "mid" (spreads). */
   var spine: String = "min" {
@@ -128,7 +128,6 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
     if pageController.view.frame != frame { pageController.view.frame = frame }
     reconcileChildren()
     applyNavigation()
-    curlLog.debug("layout frame=\(NSCoder.string(for: frame), privacy: .public) children=\(self.managedChildren.count) slots=\(self.managedChildren.map { Self.slot(of: $0).map(String.init) ?? "nil" }.joined(separator: ","), privacy: .public) count=\(self.slotCount) current=\(self.currentSlot) vcs=\(self.pageController?.viewControllers?.count ?? -1) ds=\(self.pageController?.dataSource != nil)")
   }
 
   /** Every mounted child goes into its slot's controller (created on demand). */
@@ -186,8 +185,10 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
     }
     guard appliedToken != navigationToken else { return }
     appliedToken = navigationToken
-    curlLog.debug("navigate target=\(target) current=\(self.currentSlot) animated=\(self.navigationAnimated)")
-    guard target != currentSlot, let vcs = controllers(at: target) else { return }
+    guard target != currentSlot, let vcs = controllers(at: target) else {
+      onTurnEnd([:])
+      return
+    }
     let frames = (target - currentSlot) / step
     if navigationAnimated && abs(frames) == 1 && window != nil {
       transitioning = true
@@ -201,6 +202,7 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
       pageController.setViewControllers(vcs, direction: frames > 0 ? .forward : .reverse, animated: false)
       currentSlot = target
       onSettle(["slot": target])
+      onTurnEnd([:])
     }
   }
 
@@ -210,6 +212,7 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
     if appliedToken == navigationToken && normalizedSlot(navigationIndex) == slot {
       onSettle(["slot": slot])
     }
+    onTurnEnd([:])
     setNeedsLayout()
   }
 
@@ -258,7 +261,6 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
 
   func pageViewController(_ pageViewController: UIPageViewController, viewControllerBefore viewController: UIViewController) -> UIViewController? {
     guard turningEnabled, let page = viewController as? NemuPageCurlPageController else { return nil }
-    curlLog.debug("before \(page.slot)")
     return controller(for: page.slot - 1)
   }
 
@@ -281,6 +283,7 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
     let moved = settled != currentSlot
     currentSlot = settled
     if completed && moved { onSettle(["slot": settled, "gesture": true]) }
+    onTurnEnd([:])
     setNeedsLayout()
   }
 

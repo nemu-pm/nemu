@@ -22,6 +22,8 @@ export type PageCurlViewProps = {
   onSettle?: (event: NativeSyntheticEvent<{ slot: number; gesture?: boolean }>) => void;
   onEdgeDrag?: (event: NativeSyntheticEvent<{ side: "before" | "after" }>) => void;
   onTurnBegin?: (event: NativeSyntheticEvent<{ slot: number }>) => void;
+  /** Every curl's end: landed, cancelled or jumped. */
+  onTurnEnd?: (event: NativeSyntheticEvent<Record<string, never>>) => void;
   style?: StyleProp<ViewStyle>;
   children?: ReactNode;
 };

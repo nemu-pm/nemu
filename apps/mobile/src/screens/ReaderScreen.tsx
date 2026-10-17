@@ -764,6 +764,8 @@ function JapaneseLearningDetectionOverlay({
   );
 }
 
+const MOBILE_READER_NO_DETECTIONS: ReturnType<typeof sortedMobileOcrLines> = [];
+
 function ZoomableReaderImageFrame({
   children,
   frameSize,
@@ -6559,7 +6561,7 @@ export function ReaderScreen() {
   // The detections flow into `renderReaderImage`, which every mounted page
   // cell is memoized against, so a fresh array identity per render would undo
   // that memoization for the whole gallery.
-  const japaneseLearningOverlayDetections = useMemo(
+  const japaneseLearningDetections = useMemo(
     () =>
       japaneseLearningOcrState.status === "ready"
         ? sortedMobileOcrLines(japaneseLearningOcrState.result)
@@ -6568,11 +6570,18 @@ export function ReaderScreen() {
           : [],
     [japaneseLearningOcrState],
   );
+  // The curl turns the page views themselves: the bubbles leave as a leaf
+  // lifts and mount again on the settled page.
+  const [readerPageTurning, setReaderPageTurning] = useState(false);
+  const japaneseLearningOverlayDetections =
+    readerPageTurning && japaneseLearningDetections.length > 0
+      ? MOBILE_READER_NO_DETECTIONS
+      : japaneseLearningDetections;
   const activeJapaneseLearningTranscriptOrder =
     japaneseLearningTtsState.status === "playing" &&
     japaneseLearningTtsState.source === "transcript"
       ? findMobileTranscriptPlaybackLineOrder(
-          japaneseLearningOverlayDetections,
+          japaneseLearningDetections,
           japaneseLearningTtsState.currentTime ?? 0,
           japaneseLearningTtsState.duration ?? 0,
         )
@@ -8755,6 +8764,7 @@ export function ReaderScreen() {
         onRevealChrome={() => setShowControls(true)}
         foldGap={readerFoldGap}
         pageCurl={readerPageCurlActive}
+        onPageTurningChange={setReaderPageTurning}
         isWidePage={readerIsWidePage}
       />
       <DuoPageFlipOverlay

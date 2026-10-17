@@ -39,6 +39,7 @@ export function MobileReaderCurlPager({
   mode,
   onEdgeIntent,
   onSettleFrame,
+  onTurningChange,
   pagerRef,
   renderImage,
   renderTextPage,
@@ -58,6 +59,8 @@ export function MobileReaderCurlPager({
   mode: ReadingMode;
   onEdgeIntent: (intent: "next" | "previous") => void;
   onSettleFrame: (frame: number) => void;
+  /** A leaf is turning (overlays wait for the settled page). */
+  onTurningChange?: (turning: boolean) => void;
   pagerRef: Ref<MobileReaderCurlPagerHandle>;
   renderImage: (page: MobileReaderPage) => ReactNode;
   renderTextPage: (page: MobileReaderPage, pageIndex: number) => ReactNode;
@@ -83,10 +86,12 @@ export function MobileReaderCurlPager({
   const [settledFrame, setSettledFrame] = useState(initialFrame);
   useImperativeHandle(pagerRef, () => ({
     goToFrame(frame, animated) {
+      // Same commit as the request, so the outgoing page curls without overlays.
+      if (animated && Math.abs(frame - settledFrame) === 1) onTurningChange?.(true);
       setNavigation((current) => nextMobileReaderCurlNavigation(current, mobileReaderCurlSlotForFrame(frame, spreadMode), animated));
       setSettledFrame(frame);
     },
-  }), [spreadMode]);
+  }), [onTurningChange, settledFrame, spreadMode]);
 
   const window = mobileReaderCurlSlotWindow({ frame: settledFrame, frameCount: frames.length, spreadMode });
   const mounted = slots.slice(window.start, window.end + 1).map((slot, offset) => ({ slot, index: window.start + offset }));
@@ -116,6 +121,8 @@ export function MobileReaderCurlPager({
       navigationToken={navigation.token}
       onSettle={(event) => handleSettle(event.nativeEvent.slot)}
       onEdgeDrag={(event) => onEdgeIntent(mobileReaderCurlEdgeIntent(event.nativeEvent.side, mode))}
+      onTurnBegin={() => onTurningChange?.(true)}
+      onTurnEnd={() => onTurningChange?.(false)}
     >
       {mounted.map(({ slot, index }) => (
         <View
