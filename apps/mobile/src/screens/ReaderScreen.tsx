@@ -300,7 +300,10 @@ import {
 import { useReaderPagePrefs } from "@/components/reader/useReaderPagePrefs";
 import { useMobileReaderPageFeatures } from "@/components/reader/useMobileReaderPageFeatures";
 import { inferMobileReaderSegmentParity } from "@/lib/mobileReaderParityInference";
-import { mobileReaderPageBackgroundColor } from "@/lib/mobileReaderPageBackground";
+import {
+  mobileReaderPageBackgroundColor,
+  mobileReaderPageBackgroundIsLight,
+} from "@/lib/mobileReaderPageBackground";
 import {
   clampReaderPageIndex,
   getReaderContinuousScrollMetrics,
@@ -652,6 +655,13 @@ const READER_TOP_SCRIM_COLORS = [
   "rgba(0,0,0,0.42)",
   "rgba(0,0,0,0.14)",
   "rgba(0,0,0,0)",
+] as const;
+/** The same scrim over a light page background (白色), under dark status glyphs. */
+const READER_TOP_SCRIM_LIGHT_COLORS = [
+  "rgba(255,255,255,0.62)",
+  "rgba(255,255,255,0.42)",
+  "rgba(255,255,255,0.14)",
+  "rgba(255,255,255,0)",
 ] as const;
 const READER_TOP_SCRIM_LOCATIONS = [0, 0.45, 0.8, 1] as const;
 /** The vertical bar's status column (time, signal) and a feather below it. */
@@ -3021,6 +3031,9 @@ export function ReaderScreen() {
     galleryPagedMode ? readerPageBackground : "black",
     readerVisiblePages[0] ? readerPageFeatures.get(readerVisiblePages[0].id)?.edgeColor : null,
   );
+  // A light page background turns the status glyphs dark, over a light scrim.
+  const readerPageIsLight = mobileReaderPageBackgroundIsLight(readerBackgroundColor);
+  const readerTopScrimColors = readerPageIsLight ? READER_TOP_SCRIM_LIGHT_COLORS : READER_TOP_SCRIM_COLORS;
   // Only the status bar follows the chrome here. The pop gesture is disabled
   // statically on the route (app/sources/_layout.tsx) and on the root stack
   // that hosts the flow (app/_layout.tsx) — see mobileReaderRouteOptions.
@@ -3038,7 +3051,7 @@ export function ReaderScreen() {
     () =>
       readerSideBar
         ? {
-            ...mobileReaderScreenOptions({ showControls }),
+            ...mobileReaderScreenOptions({ showControls, lightPage: readerPageIsLight }),
             // A transparent native header that only carries Back and the
             // toolbar items (the system presents them in the vertical bar);
             // it stays mounted — its items hide with the chrome — so the
@@ -3050,8 +3063,8 @@ export function ReaderScreen() {
             headerTintColor: READER_CAPSULE_COLORS.primaryText,
             title: "",
           }
-        : { ...mobileReaderScreenOptions({ showControls }), headerShown: false },
-    [readerSideBar, showControls],
+        : { ...mobileReaderScreenOptions({ showControls, lightPage: readerPageIsLight }), headerShown: false },
+    [readerPageIsLight, readerSideBar, showControls],
   );
   const readerChromeTopPadding = showReaderChrome
     ? insets.top + 80
@@ -8141,7 +8154,7 @@ export function ReaderScreen() {
                   status glyphs stay legible over the top pane's page. */}
               <LinearGradient
                 pointerEvents="none"
-                colors={READER_TOP_SCRIM_COLORS}
+                colors={readerTopScrimColors}
                 locations={READER_TOP_SCRIM_LOCATIONS}
                 style={{
                   position: "absolute",
@@ -8314,7 +8327,7 @@ export function ReaderScreen() {
             <Animated.View pointerEvents="none" style={[mobileReaderAbsoluteRect(chrome.topScrim), readerChromeFadeStyle]}>
               <LinearGradient
                 pointerEvents="none"
-                colors={READER_TOP_SCRIM_COLORS}
+                colors={readerTopScrimColors}
                 locations={READER_TOP_SCRIM_LOCATIONS}
                 style={StyleSheet.absoluteFill}
               />
@@ -8333,7 +8346,7 @@ export function ReaderScreen() {
               ]}>
                 <LinearGradient
                   pointerEvents="none"
-                  colors={READER_TOP_SCRIM_COLORS}
+                  colors={readerTopScrimColors}
                   locations={READER_TOP_SCRIM_LOCATIONS}
                   style={StyleSheet.absoluteFill}
                 />

@@ -66,6 +66,8 @@ describe("mobile reader route options", () => {
     expect(shown.statusBarHidden).toBe(false);
     expect(hidden.statusBarHidden).toBe(true);
     expect(shown.statusBarStyle).toBe("light");
+    // A light page background (白色) takes dark glyphs.
+    expect(mobileReaderScreenOptions({ showControls: true, lightPage: true }).statusBarStyle).toBe("dark");
     expect(shown.statusBarAnimation).toBe("fade");
     // Immersive reading: the home indicator hides with the chrome.
     expect(shown.autoHideHomeIndicator).toBe(false);
