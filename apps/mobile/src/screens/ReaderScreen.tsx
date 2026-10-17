@@ -274,13 +274,17 @@ import {
 import { classifyReaderWindowShape } from "@/lib/mobileReaderWindowShape";
 import type { ReaderSpreadMode } from "@/lib/mobileReaderSpreadMode";
 import {
-  buildMobileReaderDisplaySpreads,
   findMobileReaderSpreadIndex,
   firstPageIndexForMobileReaderSpread,
   getMobileReaderSpreadImageFrameSize,
   pageIndexForMobileReaderSpreadStep,
   visualPageIndexesForMobileReaderSpread,
 } from "@/lib/mobileReaderSpreads";
+import {
+  buildMobileReaderPairedSpreads,
+  nextMobileReaderSpreadTable,
+  type MobileReaderPageSize,
+} from "@/lib/mobileReaderPairing";
 import {
   clampReaderPageIndex,
   getReaderContinuousScrollMetrics,
@@ -2432,13 +2436,50 @@ export function ReaderScreen() {
     twoPageSupported,
     twoPageEnabled: readerSettingsTwoPage,
   });
-  const readerSpreads = useMemo(
+  // Spread pairing from page shape: a wide page stands alone and parity
+  // restarts after it. Sizes arrive as pages decode; the spreads the reader
+  // has seen stay put and only the pages ahead re-pair.
+  const readerPageSizeAt = useCallback(
+    (index: number): MobileReaderPageSize | null => {
+      const page = displayedPages[index];
+      return page ? readerImageSizes.get(readerPageIdentityFor(page)) ?? null : null;
+    },
+    [displayedPages, readerImageSizes, readerPageIdentityFor],
+  );
+  const readerSpreadPairing = pagePairingMode === "book" ? "cover-paired" : "cover-alone";
+  const readerComputedSpreads = useMemo(
     () =>
       isTwoPageMode
-        ? buildMobileReaderDisplaySpreads(pageCount, pagePairingMode, mode)
+        ? buildMobileReaderPairedSpreads({
+            pageCount,
+            sizeAt: readerPageSizeAt,
+            pairing: readerSpreadPairing,
+          })
         : [],
-    [isTwoPageMode, mode, pageCount, pagePairingMode],
+    [isTwoPageMode, pageCount, readerPageSizeAt, readerSpreadPairing],
   );
+  const readerSpreadTableRef = useRef<{ key: string; spreads: number[][] } | null>(null);
+  const readerSpreadTableKey = `${chapterId}:${pagesState.status === "ready" ? pagesState.fetchedAt : 0}:${pageCount}:${readerSpreadPairing}`;
+  const readerSpreads = useMemo(() => {
+    const previous = readerSpreadTableRef.current;
+    const spreads = isTwoPageMode
+      ? nextMobileReaderSpreadTable({
+          previous: previous?.spreads ?? null,
+          computed: readerComputedSpreads,
+          reset: previous?.key !== readerSpreadTableKey,
+          currentPageIndex: clampedPageIndex,
+          settled: (index) => {
+            const page = displayedPages[index];
+            return !page?.imageUri || readerImageSizes.has(readerPageIdentityFor(page));
+          },
+        })
+      : [];
+    readerSpreadTableRef.current = isTwoPageMode ? { key: readerSpreadTableKey, spreads } : null;
+    return spreads;
+    // The current page only matters at the moment the table changes: a page
+    // turn alone must not rebuild it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isTwoPageMode, readerComputedSpreads, readerSpreadTableKey]);
   const currentSpreadIndex = useMemo(
     () => findMobileReaderSpreadIndex(readerSpreads, clampedPageIndex),
     [clampedPageIndex, readerSpreads],
