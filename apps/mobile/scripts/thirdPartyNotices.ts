@@ -16,7 +16,7 @@
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { NOTICE_TEXT_ISC_PERMISSION, NOTICE_TEXT_MIT_PERMISSION } from "./thirdPartyNoticeTexts";
+import { NOTICE_TEXT_ISC_PERMISSION, NOTICE_TEXT_MIT_PERMISSION, UPSTREAM_LICENSE_TEXTS } from "./thirdPartyNoticeTexts";
 
 export type NoticeSource = "js" | "native" | "pod" | "vendored" | "font";
 
@@ -214,6 +214,7 @@ function licenseTextFor(dir: string, pkg: PackageJson): string {
     }
   }
   for (const file of licenseFiles) parts.push(readText(path.join(repoRoot, licenseDir, file)));
+  if (!parts.length && pkg.name && UPSTREAM_LICENSE_TEXTS[pkg.name]) parts.push(normalizeText(UPSTREAM_LICENSE_TEXTS[pkg.name]!));
   if (!parts.length) {
     const section = readmeLicenseSection(dir);
     const author = typeof pkg.author === "string" ? pkg.author.replace(/\s*<[^>]*>/, "") : pkg.author?.name;

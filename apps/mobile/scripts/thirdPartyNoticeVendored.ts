@@ -7,7 +7,12 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { repoRoot, mobileRoot, normalizeText, type NoticeComponent } from "./thirdPartyNotices";
-import { NOTICE_TEXT_FSL_1_1_MIT, NOTICE_TEXT_GPL_2_0, NOTICE_TEXT_MIT_PERMISSION } from "./thirdPartyNoticeTexts";
+import {
+  NOTICE_TEXT_CC_BY_SA_4_0,
+  NOTICE_TEXT_FSL_1_1_MIT,
+  NOTICE_TEXT_GPL_2_0,
+  NOTICE_TEXT_MIT_PERMISSION,
+} from "./thirdPartyNoticeTexts";
 
 const ICHIRAN_NODE_COMMIT = "35dcfdc";
 const EDRDG_LICENCE_URL = "https://www.edrdg.org/edrdg/licence.html";
@@ -80,7 +85,7 @@ export function vendoredComponents(): NoticeComponent[] {
       text: [
         "This application uses the JMdict/EDICT and KANJIDIC dictionary files. These files are the property of the Electronic Dictionary Research and Development Group, and are used in conformance with the Group's licence.",
         EDRDG_LICENCE_URL,
-        "https://creativecommons.org/licenses/by-sa/4.0/",
+        NOTICE_TEXT_CC_BY_SA_4_0,
       ].join("\n\n"),
     }),
     vendored({
@@ -98,7 +103,7 @@ export function vendoredComponents(): NoticeComponent[] {
       text: [
         "Kanji readings from KANJIDIC2, the property of the Electronic Dictionary Research and Development Group, are used in conformance with the Group's licence.",
         EDRDG_LICENCE_URL,
-        "https://creativecommons.org/licenses/by-sa/4.0/",
+        NOTICE_TEXT_CC_BY_SA_4_0,
       ].join("\n\n"),
     }),
     vendored({
