@@ -1115,7 +1115,8 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   doneBlock: {
-    alignItems: "center",
+    // Full width, so the left-aligned hint starts where the title does.
+    alignItems: "stretch",
     gap: 12,
   },
   actions: {
