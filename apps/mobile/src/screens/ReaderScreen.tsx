@@ -279,6 +279,7 @@ import {
   mobileReaderPanBound,
   mobileReaderPanClaim,
   mobileReaderPanStepTarget,
+  READER_PAN_RESET_AFTER_TURN_MS,
   readerFitModeForShape,
   readerFitRatio,
   type ReaderFitMode,
@@ -2526,13 +2527,8 @@ export function ReaderScreen() {
   // A wide page alone in a portrait window fits the window's height and pans
   // (mobileReaderPageFitMode); its frame registers here so a tap turn pans it
   // a window at a time before the page turns. A page the reader has left goes
-  // back to its reading-start edge.
+  // back to its reading-start edge once the turn has finished (see below).
   const readerPagePanControlsRef = useRef(new Map<string, MobileReaderPagePanControl>());
-  useEffect(() => {
-    for (const [pageId, control] of readerPagePanControlsRef.current) {
-      if (pageId !== currentDisplayedPageKey) control.reset();
-    }
-  }, [currentDisplayedPageKey]);
   const readerPageLayoutVisible = galleryPagedMode && pageCount > 0;
   const setReaderSpreadModeFromSettings = useCallback(
     (value: ReaderSpreadMode) => {
@@ -6796,6 +6792,19 @@ export function ReaderScreen() {
   // The curl turns the page views themselves: the bubbles leave as a leaf
   // lifts and mount again on the settled page.
   const [readerPageTurning, setReaderPageTurning] = useState(false);
+  // A wide page the reader has left goes back to its reading-start edge, but
+  // only once it is off screen: a tap turn changes the page at once, and a
+  // reset then snapped the page that was still sliding (or curling) away
+  // to its other edge for the whole turn.
+  useEffect(() => {
+    if (readerPageTurning) return;
+    const timer = setTimeout(() => {
+      for (const [pageId, control] of readerPagePanControlsRef.current) {
+        if (pageId !== currentDisplayedPageKey) control.reset();
+      }
+    }, READER_PAN_RESET_AFTER_TURN_MS);
+    return () => clearTimeout(timer);
+  }, [currentDisplayedPageKey, readerPageTurning]);
   const japaneseLearningOverlayDetections =
     readerPageTurning && japaneseLearningDetections.length > 0
       ? MOBILE_READER_NO_DETECTIONS

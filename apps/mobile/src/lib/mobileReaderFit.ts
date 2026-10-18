@@ -181,6 +181,12 @@ export function mobileReaderPageFitMode({
 export const READER_PAN_STEP_FRACTION = 0.9;
 /** A step that would stop closer to the edge than this share of the window goes to the edge. */
 export const READER_PAN_STEP_SNAP_FRACTION = 0.25;
+/**
+ * How long after a page change a page the reader has left waits before going
+ * back to its reading-start edge: longer than a slide turn (~0.3 s), so the
+ * page is off screen. A curl reports its own end and waits for it first.
+ */
+export const READER_PAN_RESET_AFTER_TURN_MS = 450;
 
 /**
  * Where a tap page turn moves a page that overflows its window sideways: one
