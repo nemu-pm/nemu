@@ -39,8 +39,13 @@ export type MobileSplitPaneLayout =
     };
 
 export type MobileSplitPaneOptions = {
-  /** Leading share of the container when flat. */
-  leadingFraction: number;
+  /** Flat leading width: a share of the container, clamped to min/maxLeading. */
+  leadingFraction?: number;
+  /**
+   * Flat leading width: the container minus this, clamped to min/maxLeading
+   * (the detail keeps this much first). Takes precedence over `leadingFraction`.
+   */
+  trailingReserve?: number;
   minLeading: number;
   maxLeading: number;
   /** Below this the trailing pane is too cramped: stay single column. */
@@ -60,13 +65,26 @@ export const MOBILE_DETAIL_SPLIT_OPTIONS: MobileSplitPaneOptions = {
   minFlatSplitWidth: MOBILE_EXPANDED_WIDTH,
 };
 
+/**
+ * The system Settings sidebar: 320pt wherever the detail still gets 419pt,
+ * narrowing to 250pt below that (the Duo's inner display in portrait, 669pt,
+ * splits 250 / 419).
+ */
 export const MOBILE_SETTINGS_SPLIT_OPTIONS: MobileSplitPaneOptions = {
-  leadingFraction: 0.36,
-  minLeading: 300,
-  maxLeading: 380,
+  trailingReserve: 419,
+  minLeading: 250,
+  maxLeading: 320,
   minTrailing: 320,
   minFoldPane: 280,
 };
+
+function flatLeadingWidth(containerWidth: number, options: MobileSplitPaneOptions): number {
+  const preferred =
+    options.trailingReserve !== undefined
+      ? containerWidth - options.trailingReserve
+      : containerWidth * (options.leadingFraction ?? 0);
+  return Math.round(Math.min(options.maxLeading, Math.max(options.minLeading, preferred)));
+}
 
 export function getMobileSplitPaneLayout({
   containerWidth,
@@ -102,12 +120,7 @@ export function getMobileSplitPaneLayout({
   }
 
   if (containerWidth < (options.minFlatSplitWidth ?? 0)) return { mode: "single" };
-  const leadingWidth = Math.round(
-    Math.min(
-      options.maxLeading,
-      Math.max(options.minLeading, containerWidth * options.leadingFraction),
-    ),
-  );
+  const leadingWidth = flatLeadingWidth(containerWidth, options);
   const trailingWidth = containerWidth - leadingWidth;
   if (trailingWidth < options.minTrailing) return { mode: "single" };
   return {

@@ -22,15 +22,33 @@ describe("split pane layout", () => {
       trailing: { x: 380, width: 571 },
       gutter: 0,
     });
-    // Settings on a 669pt-wide window: 36% would be 241, so the sidebar
-    // keeps its minimum.
-    expect(split({ containerWidth: 669, regularWidth: true, posture: "flat", foldSplit: null, options: settings })).toMatchObject({
-      leading: { width: 300 },
-      trailing: { x: 300, width: 369 },
-    });
     // Wide tablets cap the leading pane.
     expect(split({ containerWidth: 1366, regularWidth: true, posture: "flat", foldSplit: null, options: detail })).toMatchObject({
       leading: { width: 460 },
+    });
+  });
+
+  test("settings sidebar follows the system Settings: 320pt, or what leaves the detail 419pt", () => {
+    // Measured on the system Settings app (window width → sidebar / detail).
+    const measured: [number, number, number][] = [
+      [669, 250, 419], // Duo inner display, portrait
+      [834, 320, 514], // iPad Pro 11-inch, portrait
+      [951, 320, 631], // Duo inner display, landscape
+      [1210, 320, 890], // iPad Pro 11-inch, landscape
+    ];
+    for (const [containerWidth, leading, trailing] of measured) {
+      expect(split({ containerWidth, regularWidth: true, posture: "flat", foldSplit: null, options: settings })).toEqual({
+        mode: "split",
+        alignment: "flat",
+        leading: { x: 0, width: leading },
+        trailing: { x: leading, width: trailing },
+        gutter: 0,
+      });
+    }
+    // In between, the sidebar gives way before the detail does.
+    expect(split({ containerWidth: 700, regularWidth: true, posture: "flat", foldSplit: null, options: settings })).toMatchObject({
+      leading: { width: 281 },
+      trailing: { width: 419 },
     });
   });
 
@@ -46,7 +64,7 @@ describe("split pane layout", () => {
   });
 
   test("too narrow for two usable panes stays single", () => {
-    expect(split({ containerWidth: 610, regularWidth: true, posture: "flat", foldSplit: null, options: settings })).toEqual({ mode: "single" });
+    expect(split({ containerWidth: 560, regularWidth: true, posture: "flat", foldSplit: null, options: settings })).toEqual({ mode: "single" });
     expect(split({ containerWidth: 0, regularWidth: true, posture: "flat", foldSplit: null, options: detail })).toEqual({ mode: "single" });
   });
 
@@ -87,7 +105,7 @@ describe("split pane layout", () => {
   test("book posture without a usable fold split falls back to the flat rule", () => {
     expect(split({ containerWidth: 951, regularWidth: true, posture: "book", foldSplit: null, options: settings })).toMatchObject({
       alignment: "flat",
-      leading: { width: 342 },
+      leading: { width: 320 },
     });
   });
 
