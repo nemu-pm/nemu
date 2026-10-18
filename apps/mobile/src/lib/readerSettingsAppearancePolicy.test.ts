@@ -19,7 +19,7 @@ describe("reader settings appearance policy", () => {
 
     expect(source).toContain("const { scheme, tokens } = useNemuTheme();");
     expect(source).toContain("presentationColorScheme(scheme)");
-    expect(source.match(/<SwiftHost colorScheme=\{scheme\}/g)?.length).toBe(2);
+    expect(source.match(/<SwiftHost colorScheme=\{scheme\}/g)?.length).toBe(3);
     // No second, content-only source that can drift from the container.
     expect(source).not.toContain('environment("colorScheme"');
     expect(source).not.toContain('colorScheme="dark"');
@@ -76,7 +76,7 @@ describe("reader settings sheet presentation", () => {
     expect(copy).toContain("{settingsSections}");
     expect(copy).not.toContain("presentationModifiers");
     // Re-rendered only when the rows' height can change, never by `visible`.
-    expect(copy).toContain("heightKey={JSON.stringify([measureFrame, settingsRows, saving,");
+    expect(copy).toContain("heightKey={JSON.stringify([measurePage, measureFrame, settingsRows, saving,");
     expect(source).toContain("(previous, next) => previous.heightKey === next.heightKey");
     expect(source).toMatch(
       /fitSheetDetentToContent\(\{\s*group: READER_SETTINGS_SHEET_GROUP,\s*page: READER_SETTINGS_SHEET_PAGE,/,

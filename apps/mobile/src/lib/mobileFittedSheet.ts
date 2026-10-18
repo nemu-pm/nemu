@@ -28,6 +28,8 @@ export function fittedSheetMeasureFrame(window: { width: number; height: number 
 /** Measured pages of the reader's sheets (one store per sheet). */
 export const READER_SETTINGS_SHEET_GROUP = "reader-settings";
 export const READER_SETTINGS_SHEET_PAGE = "settings";
+/** The same rows measured at the popover's width (iPad, Duo inner display). */
+export const READER_SETTINGS_POPOVER_PAGE = "settings-popover";
 export const READER_PLUGIN_SHEET_GROUP = "reader-plugins";
 export const READER_PLUGIN_SHEET_LIST_PAGE = "plugins";
 
