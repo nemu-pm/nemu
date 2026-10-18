@@ -1,5 +1,5 @@
 import { Slot } from "expo-router";
-import { NativeTabs } from "expo-router/unstable-native-tabs";
+import { NativeTabs } from "expo-router/native-tabs";
 import { Platform } from "react-native";
 import { MobileShell } from "@/components/MobileShell";
 import { useMobileLanguageSettings } from "@/data/mobileHooks";

@@ -341,7 +341,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 
 ================================================================================
-@expo/cli 58.1.6
+@expo/cli 58.1.11
 https://github.com/expo/expo/tree/main/packages/@expo/cli
 License: MIT
 ================================================================================
@@ -530,7 +530,7 @@ You may obtain a copy of the license at:
 https://www.apache.org/licenses/LICENSE-2.0
 
 ================================================================================
-@expo/metro 58.0.0-rc.0
+@expo/metro 58.0.0
 https://github.com/expo/expo-metro
 License: MIT
 ================================================================================
@@ -585,7 +585,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@expo/ui 58.0.15
+@expo/ui 58.0.20
 https://docs.expo.dev/versions/latest/sdk/ui/
 License: MIT
 ================================================================================
@@ -811,7 +811,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@react-native/asset-utils 0.88.0-rc.4
+@react-native/asset-utils 0.88.0
 https://github.com/react/react-native/tree/HEAD/packages/asset-utils
 License: MIT
 ================================================================================
@@ -838,7 +838,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@react-native/js-polyfills 0.88.0-rc.4
+@react-native/js-polyfills 0.88.0
 https://github.com/react/react-native/tree/HEAD/packages/polyfills
 License: MIT
 ================================================================================
@@ -865,7 +865,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@react-native/normalize-colors 0.88.0-rc.4
+@react-native/normalize-colors 0.88.0
 https://github.com/react/react-native/tree/HEAD/packages/normalize-color
 License: MIT
 ================================================================================
@@ -892,7 +892,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@react-native/virtualized-lists 0.88.0-rc.4
+@react-native/virtualized-lists 0.88.0
 https://github.com/react/react-native/tree/HEAD/packages/virtualized-lists
 License: MIT
 ================================================================================
@@ -919,7 +919,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@shopify/react-native-skia 2.13.1
+@shopify/react-native-skia 2.14.0
 https://github.com/Shopify/react-native-skia
 License: MIT
 ================================================================================
@@ -1821,7 +1821,7 @@ THIS IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRE
 EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ================================================================================
-expo 58.0.7
+expo 58.0.14
 https://github.com/expo/expo/tree/main/packages/expo
 License: MIT
 ================================================================================
@@ -1848,7 +1848,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-expo-asset 58.0.13
+expo-asset 58.0.16
 https://docs.expo.dev/versions/latest/sdk/asset/
 License: MIT
 ================================================================================
@@ -1875,7 +1875,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-expo-audio 58.0.8
+expo-audio 58.0.9
 https://docs.expo.dev/versions/latest/sdk/audio/
 License: MIT
 ================================================================================
@@ -1902,7 +1902,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-expo-background-task 58.0.10
+expo-background-task 58.0.11
 https://docs.expo.dev/versions/latest/sdk/background-task/
 License: MIT
 ================================================================================
@@ -1929,7 +1929,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-expo-blur 58.0.3
+expo-blur 58.0.4
 https://docs.expo.dev/versions/latest/sdk/blur-view/
 License: MIT
 ================================================================================
@@ -1983,7 +1983,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-expo-constants 58.0.10
+expo-constants 58.0.12
 https://docs.expo.dev/versions/latest/sdk/constants/
 License: MIT
 ================================================================================
@@ -2010,7 +2010,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-expo-crypto 58.0.6
+expo-crypto 58.0.7
 https://docs.expo.dev/versions/latest/sdk/crypto/
 License: MIT
 ================================================================================
@@ -2064,7 +2064,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-expo-file-system 58.0.8
+expo-file-system 58.0.9
 https://docs.expo.dev/versions/latest/sdk/filesystem/
 License: MIT
 ================================================================================
@@ -2091,7 +2091,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-expo-font 58.0.7
+expo-font 58.0.8
 https://docs.expo.dev/versions/latest/sdk/font/
 License: MIT
 ================================================================================
@@ -2118,7 +2118,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-expo-glass-effect 58.0.3
+expo-glass-effect 58.0.4
 https://docs.expo.dev/versions/latest/sdk/glass-effect/
 License: MIT
 ================================================================================
@@ -2145,7 +2145,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-expo-haptics 58.0.5
+expo-haptics 58.0.7
 https://docs.expo.dev/versions/latest/sdk/haptics/
 License: MIT
 ================================================================================
@@ -2253,7 +2253,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-expo-linking 58.0.11
+expo-linking 58.0.13
 https://docs.expo.dev/versions/latest/sdk/linking
 License: MIT
 ================================================================================
@@ -2307,7 +2307,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-expo-modules-core 58.0.15
+expo-modules-core 58.0.22
 https://github.com/expo/expo/tree/main/packages/expo-modules-core
 License: MIT
 ================================================================================
@@ -2334,7 +2334,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-expo-modules-jsi 58.0.10
+expo-modules-jsi 58.0.15
 https://github.com/expo/expo/tree/main/packages/expo-modules-jsi
 License: MIT
 ================================================================================
@@ -2388,7 +2388,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-expo-router 58.0.17
+expo-router 58.0.23
 https://docs.expo.dev/routing/introduction/
 License: MIT
 ================================================================================
@@ -2496,7 +2496,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-expo-splash-screen 58.0.7
+expo-splash-screen 58.0.10
 https://docs.expo.dev/versions/latest/sdk/splash-screen/
 License: MIT
 ================================================================================
@@ -2523,7 +2523,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-expo-sqlite 58.0.11
+expo-sqlite 58.0.13
 https://docs.expo.dev/versions/latest/sdk/sqlite/
 License: MIT
 ================================================================================
@@ -2550,7 +2550,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-expo-system-ui 58.0.5
+expo-system-ui 58.0.6
 https://docs.expo.dev/versions/latest/sdk/system-ui
 License: MIT
 ================================================================================
@@ -2577,7 +2577,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-expo-task-manager 58.0.11
+expo-task-manager 58.0.12
 https://docs.expo.dev/versions/latest/sdk/task-manager/
 License: MIT
 ================================================================================
@@ -5574,7 +5574,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-react-native 0.88.0-rc.4
+react-native 0.88.0
 https://reactnative.dev/
 License: MIT
 ================================================================================
@@ -5601,7 +5601,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-react-native-gesture-handler 3.2.1
+react-native-gesture-handler 3.3.0
 https://docs.swmansion.com/react-native-gesture-handler/
 License: MIT
 ================================================================================
@@ -5655,7 +5655,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-react-native-reanimated 4.7.0
+react-native-reanimated 4.7.1
 https://docs.swmansion.com/react-native-reanimated
 License: MIT
 ================================================================================
@@ -5682,7 +5682,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-react-native-safe-area-context 5.9.1
+react-native-safe-area-context 5.10.1
 https://github.com/AppAndFlow/react-native-safe-area-context
 License: MIT
 ================================================================================
@@ -5709,7 +5709,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-react-native-screens 4.29.0
+react-native-screens 4.30.0
 https://github.com/software-mansion/react-native-screens
 License: MIT
 ================================================================================
@@ -5736,7 +5736,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-react-native-svg 15.15.5
+react-native-svg 15.16.0
 https://github.com/software-mansion/react-native-svg
 License: MIT
 ================================================================================
