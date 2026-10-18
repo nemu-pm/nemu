@@ -1602,13 +1602,29 @@ function SourceUpdatesGroup({
   const manager = useMobileSourceDirectories();
   return (
     <>
-      <SettingsMenuRow
-        icon="albums-outline"
-        title={strings.settings.sourceDirectories}
-        subtitle={strings.settings.sourceDirectoriesHint}
-        disabled={disabled}
-        onPress={onOpenDirectories}
-      />
+      {mobileDesignExploreFlag ? (
+        // Design-explore: a navigation row like the section list's, its
+        // description read by VoiceOver.
+        <ExploreSettingsGroup
+          rows={[{
+            key: "directories",
+            icon: "albums-outline",
+            title: strings.settings.sourceDirectories,
+            accessibilityLabel: strings.settings.sourceDirectories,
+            accessibilityHint: strings.settings.sourceDirectoriesHint,
+            disabled,
+            onPress: onOpenDirectories,
+          }]}
+        />
+      ) : (
+        <SettingsMenuRow
+          icon="albums-outline"
+          title={strings.settings.sourceDirectories}
+          subtitle={strings.settings.sourceDirectoriesHint}
+          disabled={disabled}
+          onPress={onOpenDirectories}
+        />
+      )}
       <SettingsSurface style={styles.rowShell} contentStyle={styles.directoryRows}>
         <FeedbackSettingRow
           first
@@ -1625,7 +1641,15 @@ function SourceUpdatesGroup({
           pressHighlight
           style={[styles.settingsActionRow, { borderColor: tokens.border }]}
         >
-          <NemuText style={[styles.settingsActionLabel, { color: tokens.primary }]}>
+          <NemuText
+            style={[
+              styles.settingsActionLabel,
+              // Design-explore: the type of the action rows above
+              // (`ExploreSettingsActionGroup`).
+              mobileDesignExploreFlag ? styles.exploreActionLabel : null,
+              { color: tokens.primary },
+            ]}
+          >
             {pendingCount > 0 ? strings.settings.updateSourcesNow : strings.settings.checkSourceUpdates}
           </NemuText>
           {updating ? <ActivityIndicator color={tokens.mutedForeground} /> : pendingCount > 0 ? (
@@ -4369,6 +4393,11 @@ const styles = StyleSheet.create({
   settingsActionLabel: {
     flex: 1,
     fontSize: 15,
+  },
+  exploreActionLabel: {
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: nemuFontWeight.medium,
   },
   directoryContents: {
     paddingBottom: 24,
