@@ -1959,24 +1959,40 @@ function settingsSectionTitle(strings: MobileStrings, section: SettingsSectionId
  * per column: invisible, it reports where the bar centres its title row so
  * the column titles sit exactly there on every device and posture.
  */
-function SettingsBarTitleProbe({ onCenter }: { onCenter: (y: number) => void }) {
+function SettingsBarTitleProbe({
+  revision,
+  onCenter,
+}: {
+  /** Changes when the bar may have moved (a resize, a posture change): measure again. */
+  revision: string;
+  onCenter: (y: number) => void;
+}) {
   const ref = useRef<ViewInstance>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const measure = useCallback(() => {
     if (timer.current) clearTimeout(timer.current);
-    // The bar places its title view after React lays it out, and until it is
-    // in the window it measures at the origin: retry briefly.
+    // The bar places its title view after React lays it out (until then it
+    // measures at the origin) and may still be moving into place (a tab
+    // switch, a rotation): keep measuring until two readings agree.
+    let last: number | null = null;
     const attempt = (left: number) => {
       ref.current?.measureInWindow((x, y, _width, height) => {
-        if (height > 0 && (x > 0 || y > 0)) {
-          onCenter(y + height / 2);
-        } else if (left > 0) {
-          timer.current = setTimeout(() => attempt(left - 1), 80);
-        }
+        const placed = height > 0 && (x > 0 || y > 0);
+        const center = y + height / 2;
+        if (placed) onCenter(center);
+        if (placed && last !== null && Math.abs(center - last) < 0.5) return;
+        last = placed ? center : null;
+        if (left > 0) timer.current = setTimeout(() => attempt(left - 1), 120);
       });
     };
-    attempt(10);
+    attempt(40);
   }, [onCenter]);
+  useEffect(() => {
+    measure();
+    // A resize settles over a few frames: measure again once it has.
+    const settle = setTimeout(measure, 400);
+    return () => clearTimeout(settle);
+  }, [measure, revision]);
   useEffect(() => () => {
     if (timer.current) clearTimeout(timer.current);
   }, []);
@@ -2052,6 +2068,7 @@ function SettingsScreenContent({
   paneContentStyle,
   columnTitled = false,
   onBarTitleCenter,
+  barTitleRevision = "",
 }: {
   section?: SettingsSectionId | null;
   /**
@@ -2067,6 +2084,8 @@ function SettingsScreenContent({
   columnTitled?: boolean;
   /** Split list pane: the native title is replaced by a probe reporting its row. */
   onBarTitleCenter?: (y: number) => void;
+  /** Changes whenever the bar may have moved (`SettingsBarTitleProbe`). */
+  barTitleRevision?: string;
 }) {
   const params = useLocalSearchParams<{
     focus?: string | string[];
@@ -4130,7 +4149,11 @@ function SettingsScreenContent({
           options={{
             title: presentation === "list-pane" ? strings.nav.settings : settingsTitle,
             ...(onBarTitleCenter
-              ? { headerTitle: () => <SettingsBarTitleProbe onCenter={onBarTitleCenter} /> }
+              ? {
+                  headerTitle: () => (
+                    <SettingsBarTitleProbe revision={barTitleRevision} onCenter={onBarTitleCenter} />
+                  ),
+                }
               : null),
           }}
         />
@@ -4205,6 +4228,8 @@ export function SettingsScreen({
     verticalBar: verticalBarSide !== null,
   });
   const [barTitleCenterY, setBarTitleCenterY] = useState<number | null>(null);
+  const window = useWindowDimensions();
+  const barTitleRevision = `${window.width}x${window.height}:${verticalBarSide ?? "top"}:${split?.alignment ?? "single"}`;
 
   const pose = useMobilePoseTransition();
   const poseLayout = useMobilePoseLayout();
@@ -4235,6 +4260,7 @@ export function SettingsScreen({
         onSelectSection={setSelected}
         paneContentStyle={padding.leading}
         onBarTitleCenter={columnTitles ? setBarTitleCenterY : undefined}
+        barTitleRevision={barTitleRevision}
       />
     </Animated.View>
   ) : null;
