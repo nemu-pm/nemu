@@ -4198,6 +4198,8 @@ function SettingsScreenContent({
         data={NO_SETTINGS_ROWS}
         renderItem={renderNoSettingsRow}
         listRef={settingsPaneListRef}
+        // The split's section list shows its pane's sidebar surface.
+        style={presentation === "list-pane" ? styles.listPaneScroll : undefined}
         onRefresh={onRefreshSettings}
         refreshDisabled={settingsActionBusy}
         refreshLabel={strings.settings.refreshSources}
@@ -4275,13 +4277,9 @@ export function SettingsScreen({
         split
           ? [
               styles.pane,
-              { width: split.leading.width },
-              split.alignment === "flat"
-                ? {
-                    borderEndWidth: StyleSheet.hairlineWidth,
-                    borderEndColor: tokens.border,
-                  }
-                : null,
+              // The section list on its own lighter surface, no divider (the
+              // system Settings sidebar); the detail keeps the page colour.
+              { width: split.leading.width, backgroundColor: tokens.card },
             ]
           : styles.fill
       }
@@ -4327,8 +4325,12 @@ export function SettingsScreen({
       >
         {listPane}
         {split && split.gutter > 0 ? (
-          // The fold band: nothing is drawn or tappable on it.
-          <View key="fold" style={{ width: split.gutter }} />
+          // The fold band: nothing is drawn or tappable on it. The sidebar's
+          // surface runs to the crease, the detail's from it.
+          <View key="fold" style={[styles.splitRow, { width: split.gutter }]}>
+            <View style={[styles.fill, { backgroundColor: tokens.card }]} />
+            <View style={styles.fill} />
+          </View>
         ) : null}
         {detailPane}
         {split && columnTitles && barTitleCenterY !== null ? (
@@ -4382,6 +4384,10 @@ const styles = StyleSheet.create({
   },
   splitRow: {
     flexDirection: "row",
+  },
+  listPaneScroll: {
+    flex: 1,
+    backgroundColor: "transparent",
   },
   barTitleProbe: {
     width: 1,
