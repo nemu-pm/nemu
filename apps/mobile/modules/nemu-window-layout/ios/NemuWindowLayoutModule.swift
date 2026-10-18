@@ -56,6 +56,10 @@ public final class NemuWindowLayoutModule: Module {
       MainActor.assumeIsolated { NemuInterfaceOrientationLock.set(locked) }
     }.runOnQueue(.main)
     Constant("interfaceOrientationLockAvailable") { true }
+    // The orientation gate remembers a hinge; JS clears it on an ordinary iPhone.
+    AsyncFunction("forgetFoldableDevice") {
+      MainActor.assumeIsolated { NemuOrientationGate.forgetFoldable() }
+    }.runOnQueue(.main)
     // Resolves once no view controller transition is running in the app's
     // windows (see `NemuTransitionSettle`): orientation changes wait for it.
     AsyncFunction("afterTransitions") { (promise: Promise) in
