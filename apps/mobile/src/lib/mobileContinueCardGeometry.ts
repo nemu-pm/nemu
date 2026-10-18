@@ -230,3 +230,30 @@ export function getMobileContinueCardRestOffset(
   const content = geometry.paddingLeft + (count - 1) * geometry.interval + geometry.cardWidth + geometry.paddingRight;
   return Math.max(0, Math.min(index * geometry.interval, content - frameWidth));
 }
+
+/** Where the row sat for a FLIP: its geometry and its scroll offset. */
+export type MobileContinueCardRowPlacement = Pick<MobileContinueCardGeometry, "paddingLeft" | "interval" | "cardWidth"> & {
+  scroll: number;
+};
+
+/**
+ * A pose change re-lays the row in one commit (new card width, interval and
+ * padding, the offset re-snapped to the active card). Each card starts where
+ * it was on screen, at its old width, and glides to its new place:
+ * `progress` runs 1 → 0, the transform is about the card's centre.
+ */
+export function getMobileContinueCardFlip(
+  from: MobileContinueCardRowPlacement,
+  to: MobileContinueCardRowPlacement,
+  index: number,
+  progress: number,
+): { translateX: number; scale: number } {
+  "worklet";
+  if (!(to.cardWidth > 0) || !(from.cardWidth > 0) || !(progress > 0)) return { translateX: 0, scale: 1 };
+  const centre = (row: MobileContinueCardRowPlacement) =>
+    row.paddingLeft + index * row.interval - row.scroll + row.cardWidth / 2;
+  return {
+    translateX: (centre(from) - centre(to)) * progress,
+    scale: 1 + (from.cardWidth / to.cardWidth - 1) * progress,
+  };
+}
