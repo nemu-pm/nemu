@@ -8143,9 +8143,9 @@ export function ReaderScreen() {
         style={[
           chromeButtonStyle,
           {
-            backgroundColor: readerDisplaySettingsOpen
-              ? readerChromeColors.hover
-              : "transparent",
+            // No fill while the settings are open: like the other chrome
+            // buttons, only the glyph brightens.
+            backgroundColor: "transparent",
             opacity: readerChromeLoading
               ? READER_CHROME_LOADING_OPACITY
               : 1,
