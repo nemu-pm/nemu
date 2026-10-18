@@ -1,4 +1,9 @@
-import { mangaProgressFromChapterProgress } from "@nemu/core";
+import {
+  chapterProgressHasReading,
+  chapterProgressMarkedUnread,
+  mangaProgressAfterChapterReset,
+  mangaProgressFromChapterProgress,
+} from "@nemu/core";
 import {
   makeChapterProgressId,
   type ChapterSummary,
@@ -9,12 +14,8 @@ import {
 /**
  * The detail page's "mark read" actions: one chapter (标记为已读), every
  * chapter before it (将之前的章节标记为已读), or the whole work (标记为已读完).
- *
- * There is no "mark unread": chapter progress merges by high-water mark on
- * both sides (`mergeChapterProgressHighWater` in core and in Convex's
- * `history.save`), so progress never drops, `completed` is sticky and no
- * chapter-progress tombstone exists. A local unread would be undone by the
- * next pull; it needs a sync protocol change first.
+ * Mark as Unread (标记为未读) is below: chapter progress merges by high-water
+ * mark, so it saves a reset clock instead (`mergeChapterProgressHighWater`).
  */
 export type MobileChapterReadMarkScope =
   | { kind: "chapter"; chapterId: string }
@@ -128,6 +129,60 @@ export function buildMobileChapterReadMarks({
       : mangaProgress
         ? { ...mangaProgress, updatedAt: now }
         : null,
+  };
+}
+
+/** Mark as Unread: one chapter's long press, or the whole work's menu. */
+export type MobileChapterUnreadMarkScope =
+  | { kind: "chapter"; chapterId: string }
+  | { kind: "all" };
+
+/** The stored rows a Mark as Unread covers that hold any reading. */
+export function selectMobileChapterProgressToMarkUnread(
+  chapters: readonly ChapterSummary[],
+  progressById: Record<string, LocalChapterProgress | undefined>,
+  scope: MobileChapterUnreadMarkScope,
+): LocalChapterProgress[] {
+  const covered =
+    scope.kind === "all"
+      ? chapters
+      : chapters.filter((chapter) => chapter.id === scope.chapterId);
+  return covered.flatMap((chapter) => {
+    const progress = progressById[chapter.id];
+    return progress && chapterProgressHasReading(progress) ? [progress] : [];
+  });
+}
+
+/**
+ * The rows for marking `marked` unread: each keeps its identity and metadata
+ * and loses its reading behind a reset clock that every device and the
+ * server honour. When the work's Continue target is one of them it moves back
+ * to the newest chapter still read, or is cleared with nothing left.
+ */
+export function buildMobileChapterUnreadMarks({
+  marked,
+  progressById,
+  mangaProgress,
+}: {
+  marked: readonly LocalChapterProgress[];
+  progressById: Record<string, LocalChapterProgress | undefined>;
+  mangaProgress: LocalMangaProgress | null | undefined;
+}): MobileChapterReadMarks {
+  if (marked.length === 0) return { chapterProgress: [], mangaProgress: null };
+  const chapterProgress = marked.map((progress) => chapterProgressMarkedUnread(progress));
+  const resetIds = new Set(chapterProgress.map((progress) => progress.sourceChapterId));
+  const remaining = Object.values(progressById).filter(
+    (progress): progress is LocalChapterProgress =>
+      progress !== undefined && !resetIds.has(progress.sourceChapterId),
+  );
+  return {
+    chapterProgress,
+    mangaProgress: mangaProgressAfterChapterReset(
+      mangaProgress,
+      [...remaining, ...chapterProgress],
+      resetIds,
+      Math.max(...chapterProgress.map((progress) => progress.updatedAt)),
+    ),
   };
 }
 

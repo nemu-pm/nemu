@@ -1374,6 +1374,8 @@ export const mobileStringsJa: MobileStrings = {
     menuLinkCopied: "リンクをコピーしました",
     chapterMarkRead: "既読にする",
     chapterMarkPreviousRead: "これより前を既読にする",
+    chapterMarkUnread: "未読にする",
+    menuMarkUnread: "未読にする",
     infoSheetTitle: "詳細",
     infoButtonHint: "状態、ソース、著者、ジャンルを表示します",
     closeInfo: "詳細を閉じる",

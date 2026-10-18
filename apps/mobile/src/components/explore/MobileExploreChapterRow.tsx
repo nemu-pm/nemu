@@ -23,6 +23,7 @@ export type MobileExploreChapterAction =
   | "read"
   | "start"
   | "markRead"
+  | "markUnread"
   | "markPreviousRead"
   | "share"
   | "copyLink";
@@ -30,6 +31,7 @@ export type MobileExploreChapterAction =
 const MENU_ACTIONS: readonly MobileExploreChapterAction[] = [
   "start",
   "markRead",
+  "markUnread",
   "markPreviousRead",
   "share",
   "copyLink",
@@ -44,7 +46,8 @@ const MENU_ACTIONS: readonly MobileExploreChapterAction[] = [
  * next carries a soft tint and an "Up next" tag. A volume header sits above
  * the first chapter of each volume. Long press: the system context menu with
  * Read / Continue and Read from the beginning (both open the reader), and
- * with `moreActions` Mark as Read, Mark Previous as Read, Share and Copy Link.
+ * with `moreActions` Mark as Read (or as Unread once started), Mark Previous
+ * as Read, Share and Copy Link.
  */
 export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
   chapter,
@@ -117,11 +120,12 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
         : []),
       ...(moreActions
         ? [
-            // No "Mark as Unread": synced progress only moves forward (see
-            // `mobileChapterReadMarks.ts`).
             ...(presentation.isRead
               ? []
               : [{ id: "markRead", title: strings.designExplore.chapterMarkRead, systemImage: "checkmark.circle" }]),
+            ...(started
+              ? [{ id: "markUnread", title: strings.designExplore.chapterMarkUnread, systemImage: "circle" }]
+              : []),
             {
               id: "markPreviousRead",
               title: strings.designExplore.chapterMarkPreviousRead,

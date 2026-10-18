@@ -1365,6 +1365,8 @@ export const mobileStringsEn: MobileStrings = {
     menuLinkCopied: "Link Copied",
     chapterMarkRead: "Mark as Read",
     chapterMarkPreviousRead: "Mark Previous as Read",
+    chapterMarkUnread: "Mark as Unread",
+    menuMarkUnread: "Mark as Unread",
     infoSheetTitle: "Details",
     infoButtonHint: "Shows status, source, author and genre",
     closeInfo: "Close details",
