@@ -1,12 +1,29 @@
+import type { ReadingMode } from "@/data/schema";
+import { readerRoutePageForDisplayIndex } from "./mobileReaderProgress";
 import {
   MOBILE_SLIDER_THUMB_SIZE,
   type MobileSliderTrackWindowFrame,
 } from "@/lib/mobileSliderTrack";
 
-/** Bubble box width, kept in sync with `MobileReaderScrubberPreview`. */
-export const READER_SCRUBBER_PREVIEW_BUBBLE_WIDTH = 60;
-/** Bubble box height (thumbnail plus page number), same source of truth. */
-export const READER_SCRUBBER_PREVIEW_BUBBLE_HEIGHT = 98;
+/** Thumbnail of the target page inside the bubble (a manga page's ~0.7 aspect). */
+export const READER_SCRUBBER_PREVIEW_IMAGE_WIDTH = 56;
+export const READER_SCRUBBER_PREVIEW_IMAGE_HEIGHT = 80;
+/** Gap between a spread's two thumbnails. */
+export const READER_SCRUBBER_PREVIEW_IMAGE_GAP = 4;
+/** Bubble box width for one page, kept in sync with `MobileReaderScrubberPreview`. */
+export const READER_SCRUBBER_PREVIEW_BUBBLE_WIDTH = 76;
+
+/** The bubble's width for one page or a spread's pages side by side. */
+export function readerScrubberPreviewBubbleWidth(pageCount: number): number {
+  const count = Math.max(1, Math.min(2, Math.trunc(pageCount) || 1));
+  return (
+    READER_SCRUBBER_PREVIEW_BUBBLE_WIDTH +
+    (count - 1) * (READER_SCRUBBER_PREVIEW_IMAGE_WIDTH + READER_SCRUBBER_PREVIEW_IMAGE_GAP)
+  );
+}
+/** Bubble box height: padding 8 + thumbnail + gap 6 + 15pt label + padding 6. */
+export const READER_SCRUBBER_PREVIEW_BUBBLE_HEIGHT =
+  8 + READER_SCRUBBER_PREVIEW_IMAGE_HEIGHT + 6 + 15 + 6;
 /** Gap between the bubble's bottom edge and the top of the slider thumb. */
 export const READER_SCRUBBER_PREVIEW_THUMB_GAP = 6;
 /** Keeps the bubble off the screen edges when the thumb sits at an extreme. */
@@ -40,9 +57,20 @@ export function readerScrubberTrackWindowFrame({
   panel: MobileSliderTrackWindowFrame | null;
 }): MobileSliderTrackWindowFrame {
   if (!panel || !(panel.width > 0) || !(panel.height > 0)) return track;
-  const insidePanelInWindowSpace =
-    track.y >= panel.y && track.y + track.height <= panel.y + panel.height;
-  if (insidePanelInWindowSpace) return track;
+  // Whichever reading puts the track's centre nearer the panel's centre. A
+  // containment test is not enough: the slider's touch box is taller than the
+  // 48pt capsule it sits in (it overhangs above and below), so a window-space
+  // box never fits inside the panel and was re-offset by the panel's own
+  // position, pushing the bubble off the screen — no preview while dragging.
+  const panelCentreY = panel.y + panel.height / 2;
+  const windowCentreY = track.y + track.height / 2;
+  const panelRelativeCentreY = panel.y + track.y + track.height / 2;
+  if (
+    Math.abs(windowCentreY - panelCentreY) <=
+    Math.abs(panelRelativeCentreY - panelCentreY)
+  ) {
+    return track;
+  }
   return {
     x: panel.x + track.x,
     y: panel.y + track.y,
@@ -108,4 +136,36 @@ export function readerScrubberPreviewBubblePosition({
   const bottom = layer.y + layer.height - (thumbTopY - thumbGap);
 
   return { left, bottom };
+}
+
+/**
+ * The bubble's caption: the previewed page's 1-based number over the
+ * chapter's page count ("12 / 53"), in the reader's page numbering (RTL
+ * display order maps back to the source page).
+ */
+export function readerScrubberPreviewLabel(
+  displayIndex: number,
+  pageCount: number,
+  mode: ReadingMode,
+): string {
+  const count = Math.max(1, Math.trunc(pageCount));
+  return `${readerRoutePageForDisplayIndex(displayIndex, count, mode)} / ${count}`;
+}
+
+/**
+ * The ratio a paged scrub commits on release: the one the bubble last showed.
+ * The release event's own position can land a hair past the final move (and
+ * the bubble publishes once per frame), so committing it could jump to the
+ * page next to the one the reader was looking at in the preview.
+ */
+export function readerScrubberCommitRatio({
+  releaseRatio,
+  lastPreviewRatio,
+}: {
+  releaseRatio: number;
+  lastPreviewRatio: number | null;
+}): number {
+  return lastPreviewRatio != null && Number.isFinite(lastPreviewRatio)
+    ? lastPreviewRatio
+    : releaseRatio;
 }

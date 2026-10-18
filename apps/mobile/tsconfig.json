@@ -17,6 +17,10 @@
       ]
     }
   },
+  // Expo CLI regenerates expo-env.d.ts with RN Web ambient types. Those
+  // widen native styles (e.g. position: fixed/sticky), conflicting with
+  // RN 0.88's strict native props. Use src/types/expo-native.d.ts instead.
+  "exclude": ["node_modules", "android", "ios", "expo-env.d.ts"],
   "include": [
     "app/**/*.ts",
     "app/**/*.tsx",

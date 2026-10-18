@@ -28,8 +28,10 @@ import {
   nemuFontWeight,
   radius,
   useNemuTheme,
+  useMobilePageGutters,
   nemuToneColor,
 } from "@/design-system";
+import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { getMobileFloatingTabBarOverlayExtent } from "@/lib/mobileFloatingTabBarClearance";
 import { getMobileStrings } from "@/lib/mobileI18n";
 import {
@@ -260,9 +262,13 @@ function MobileToastHost({
 }) {
   const { reduceMotion } = useNemuTheme();
   const insets = useSafeAreaInsets();
+  const gutters = useMobilePageGutters();
+  const { verticalBarSide } = useMobileAdaptiveLayout();
   const reducedMotion = useReducedMotion();
   const motionDisabled = reduceMotion || reducedMotion === true;
-  const bottom = getMobileFloatingTabBarOverlayExtent(insets.bottom) + 12;
+  const bottom = verticalBarSide
+    ? insets.bottom + 16
+    : getMobileFloatingTabBarOverlayExtent(insets.bottom) + 12;
 
   if (!toast) return null;
 
@@ -280,7 +286,7 @@ function MobileToastHost({
           : FadeInDown.springify().damping(22).stiffness(340)
       }
       exiting={motionDisabled ? undefined : FadeOutDown.duration(120)}
-      style={[styles.host, { bottom }]}
+      style={[styles.host, { bottom, left: gutters.left, right: gutters.right }]}
     >
       <MobileToastSurface
         action={

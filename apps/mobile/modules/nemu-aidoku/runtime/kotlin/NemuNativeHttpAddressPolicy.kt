@@ -24,12 +24,27 @@ internal object NemuNativeHttpAddressPolicy {
   private const val BLOCKED_DESTINATION_MESSAGE =
     "Native source networking blocked a private or reserved destination."
 
+  /**
+   * [grant] is the calling source's user-configured local-network endpoint
+   * (see [NemuNativeLocalNetworkAllowance]). It only has effect for exactly its
+   * host; every other destination keeps the public-only rule. The port cannot
+   * be seen here ([okhttp3.Dns] has none) and is enforced on the connected
+   * peer by [NemuPublicAddressNetworkInterceptor].
+   */
   internal fun resolvePublicAddresses(
     hostname: String,
+    grant: NemuLocalNetworkGrant = NemuLocalNetworkGrant.NONE,
     resolver: (String) -> List<InetAddress>
   ): List<InetAddress> {
     val normalized = normalizeHostname(hostname)
-    if (isForbiddenHostname(normalized)) throw blockedDestination()
+    val granted = grant.allowsHost(normalized)
+    if (granted) {
+      if (NemuNativeLocalNetworkAllowance.isNeverGrantableHostname(normalized)) {
+        throw blockedDestination()
+      }
+    } else if (isForbiddenHostname(normalized)) {
+      throw blockedDestination()
+    }
 
     val addresses = try {
       resolver(normalized)
@@ -45,16 +60,24 @@ internal object NemuNativeHttpAddressPolicy {
     }
     val validatedAddresses = addresses.filter {
       isPublicAddress(it.address) ||
-        (!isNumericHostname(normalized) && isProxySyntheticAddress(it.address))
+        (!isNumericHostname(normalized) && isProxySyntheticAddress(it.address)) ||
+        (granted && NemuNativeLocalNetworkAllowance.isLocalNetworkAddress(it.address))
     }
     if (validatedAddresses.isEmpty()) throw blockedDestination()
     return validatedAddresses
   }
 
-  internal fun requirePublicAddress(address: InetAddress, hostname: String) {
+  internal fun requirePublicAddress(
+    address: InetAddress,
+    hostname: String,
+    port: Int? = null,
+    grant: NemuLocalNetworkGrant = NemuLocalNetworkGrant.NONE
+  ) {
     val normalized = normalizeHostname(hostname)
+    val granted = port != null && grant.allows(normalized, port)
     val allowed = isPublicAddress(address.address) ||
-      (!isNumericHostname(normalized) && isProxySyntheticAddress(address.address))
+      (!isNumericHostname(normalized) && isProxySyntheticAddress(address.address)) ||
+      (granted && NemuNativeLocalNetworkAllowance.isLocalNetworkAddress(address.address))
     if (!allowed) throw blockedDestination()
   }
 
@@ -68,12 +91,28 @@ internal object NemuNativeHttpAddressPolicy {
    * the application layer, so a private destination fails closed before any
    * connection is attempted.
    */
-  internal fun requirePublicDestination(hostname: String) {
+  internal fun requirePublicDestination(
+    hostname: String,
+    port: Int? = null,
+    grant: NemuLocalNetworkGrant = NemuLocalNetworkGrant.NONE
+  ) {
     val normalized = normalizeHostname(hostname)
-    if (isForbiddenHostname(normalized)) throw blockedDestination()
+    val granted = port != null && grant.allows(normalized, port)
+    if (granted) {
+      if (NemuNativeLocalNetworkAllowance.isNeverGrantableHostname(normalized)) {
+        throw blockedDestination()
+      }
+    } else if (isForbiddenHostname(normalized)) {
+      throw blockedDestination()
+    }
     if (!isNumericHostname(normalized)) return
     val literal = parseIpLiteral(normalized) ?: throw blockedDestination()
-    if (!isPublicAddress(literal)) throw blockedDestination()
+    if (
+      !isPublicAddress(literal) &&
+      !(granted && NemuNativeLocalNetworkAllowance.isLocalNetworkAddress(literal))
+    ) {
+      throw blockedDestination()
+    }
   }
 
   /**
@@ -298,24 +337,39 @@ internal object NemuNativeHttpAddressPolicy {
   }
 }
 
-/** Returns only validated DNS answers to OkHttp, including redirect lookups. */
-internal object NemuPublicAddressDns : Dns {
+/**
+ * Returns only validated DNS answers to OkHttp, including redirect lookups.
+ * [grantProvider] is read at lookup time, so a server URL the user just changed
+ * (or cleared) applies to the very next request.
+ */
+internal class NemuScopedAddressDns(
+  private val grantProvider: () -> NemuLocalNetworkGrant
+) : Dns {
   override fun lookup(hostname: String): List<InetAddress> {
-    return NemuNativeHttpAddressPolicy.resolvePublicAddresses(hostname) {
+    return NemuNativeHttpAddressPolicy.resolvePublicAddresses(hostname, grantProvider()) {
       Dns.SYSTEM.lookup(it)
     }
   }
 }
 
+/** The stateless, public-only resolver. */
+internal object NemuPublicAddressDns : Dns {
+  override fun lookup(hostname: String): List<InetAddress> =
+    NemuScopedAddressDns { NemuLocalNetworkGrant.NONE }.lookup(hostname)
+}
+
 /**
  * Runs before OkHttp selects a route, so an IP-literal destination is refused
  * without opening a socket. Application interceptors do not re-run for redirect
- * hops; those stay covered by [NemuPublicAddressDns] and the connected-peer
+ * hops; those stay covered by [NemuScopedAddressDns] and the connected-peer
  * network interceptor below.
  */
-internal class NemuPublicAddressPreflightInterceptor : Interceptor {
+internal class NemuPublicAddressPreflightInterceptor(
+  private val grantProvider: () -> NemuLocalNetworkGrant = { NemuLocalNetworkGrant.NONE }
+) : Interceptor {
   override fun intercept(chain: Interceptor.Chain): Response {
-    NemuNativeHttpAddressPolicy.requirePublicDestination(chain.request().url.host)
+    val url = chain.request().url
+    NemuNativeHttpAddressPolicy.requirePublicDestination(url.host, url.port, grantProvider())
     return chain.proceed(chain.request())
   }
 }
@@ -324,18 +378,37 @@ internal class NemuPublicAddressPreflightInterceptor : Interceptor {
  * Runs once per network hop after connect but before request headers/body. With
  * proxies disabled on the client, the route address is the actual destination;
  * rejecting it here prevents a DNS answer that changed after lookup from being
- * used for SSRF.
+ * used for SSRF. This is also where a grant's port is enforced.
  */
-internal class NemuPublicAddressNetworkInterceptor : Interceptor {
+internal class NemuPublicAddressNetworkInterceptor(
+  private val grantProvider: () -> NemuLocalNetworkGrant = { NemuLocalNetworkGrant.NONE }
+) : Interceptor {
   override fun intercept(chain: Interceptor.Chain): Response {
     val address = chain.connection()?.route()?.socketAddress?.address
       ?: throw IOException("Native source destination could not be validated.")
-    NemuNativeHttpAddressPolicy.requirePublicAddress(
-      address,
-      chain.request().url.host
-    )
+    val url = chain.request().url
+    NemuNativeHttpAddressPolicy.requirePublicAddress(address, url.host, url.port, grantProvider())
     return chain.proceed(chain.request())
   }
+}
+
+/**
+ * Swaps the public-only address interceptors of [NemuPublicAddressDns]-based
+ * clients for ones that honour [scope]'s local-network grant. The base client's
+ * interceptors are removed rather than stacked, so a granted endpoint is never
+ * blocked by the stricter copy.
+ */
+internal fun okhttp3.OkHttpClient.Builder.withLocalNetworkScope(
+  scope: String?
+): okhttp3.OkHttpClient.Builder {
+  val provider = { NemuNativeLocalNetworkAllowance.grantFor(scope) }
+  dns(NemuScopedAddressDns(provider))
+  interceptors().removeAll { it is NemuPublicAddressPreflightInterceptor }
+  networkInterceptors().removeAll { it is NemuPublicAddressNetworkInterceptor }
+  // The preflight must run before any other application interceptor.
+  interceptors().add(0, NemuPublicAddressPreflightInterceptor(provider))
+  addNetworkInterceptor(NemuPublicAddressNetworkInterceptor(provider))
+  return this
 }
 
 internal val NEMU_NATIVE_HTTP_DIRECT_PROXY: Proxy = Proxy.NO_PROXY

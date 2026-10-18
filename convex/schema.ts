@@ -84,6 +84,17 @@ const userOverrides = v.object({
 });
 
 export default defineSchema({
+  // r2_uploads: ownership record for R2 objects uploaded by a signed-in user
+  // (key -> userId). The key itself carries no user id because cover URLs are
+  // public. Account deletion uses it to find and remove the user's objects.
+  r2_uploads: defineTable({
+    userId: v.string(),
+    key: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_key", ["key"]),
+
   sync_generations: defineTable({
     userId: v.string(),
     generation: v.number(),
@@ -110,7 +121,45 @@ export default defineSchema({
         updatedAt: v.optional(v.number()), // For LWW sync conflict resolution
         removed: v.optional(v.boolean()), // Tombstone: true = uninstalled
         disabled: v.optional(v.boolean()), // User-disabled without uninstalling
+        // Built-in self-hosted server source (Komga/Kavita/Suwayomi): kind and
+        // address only; credentials never leave the device.
+        selfHosted: v.optional(
+          v.object({
+            kind: v.union(v.literal("komga"), v.literal("kavita"), v.literal("suwayomi")),
+            server: v.string(),
+          })
+        ),
       })
+    ),
+    // The user's source-directory list. Optional so rows written by older
+    // clients stay valid; see packages/core/src/sources/directory-sync.ts.
+    sourceDirectories: v.optional(
+      v.array(
+        v.object({
+          id: v.string(),
+          name: v.string(),
+          indexUrl: v.string(),
+          enabled: v.boolean(),
+          updatedAt: v.number(),
+          removed: v.optional(v.boolean()),
+        }),
+      ),
+    ),
+    // Imported-archive volume metadata (never the files). Optional, like
+    // sourceDirectories; see packages/core/src/sources/local-archive-sync.ts.
+    localArchiveVolumes: v.optional(
+      v.array(
+        v.object({
+          volumeId: v.string(),
+          workId: v.string(),
+          title: v.string(),
+          contentHash: v.string(),
+          pageCount: v.number(),
+          importedAt: v.number(),
+          updatedAt: v.number(),
+          removed: v.optional(v.boolean()),
+        }),
+      ),
     ),
     updatedAt: v.optional(v.number()),
   })
@@ -256,6 +305,10 @@ export default defineSchema({
     intraPageProgress: v.optional(v.number()),
     intraPageContentIdentity: v.optional(v.string()),
 
+    // Sync clock of the newest Mark as Unread; reading recorded before it is
+    // discarded by the merge (`mergeChapterProgressHighWater`).
+    resetAt: v.optional(v.number()),
+
     // Sync fields
     updatedAt: v.number(),
   })
@@ -282,7 +335,8 @@ export default defineSchema({
 
     // Summary fields
     lastReadAt: v.number(),
-    lastReadSourceChapterId: v.string(),
+    // Absent once every chapter of the work is marked unread.
+    lastReadSourceChapterId: v.optional(v.string()),
     lastReadChapterNumber: v.optional(v.number()),
     lastReadVolumeNumber: v.optional(v.number()),
     lastReadChapterTitle: v.optional(v.string()),

@@ -2,6 +2,13 @@ export const MOBILE_READER_MIN_ZOOM_SCALE = 1;
 export const MOBILE_READER_MAX_ZOOM_SCALE = 4;
 export const MOBILE_READER_DOUBLE_TAP_ZOOM_SCALE = 2.25;
 export const MOBILE_READER_ZOOM_RESET_THRESHOLD = 1.02;
+/**
+ * Longest gap (first tap's lift → second tap's touch-down) that still makes
+ * a double tap. The page zoom gesture and the gallery's chrome toggle both
+ * use it, so two separate taps (show the chrome, hide it again) never zoom
+ * the page while also toggling the chrome twice. RNGH's default is 500 ms.
+ */
+export const MOBILE_READER_DOUBLE_TAP_MAX_DELAY_MS = 200;
 
 export function clampMobileReaderZoomScale(value: number): number {
   "worklet";

@@ -14,7 +14,9 @@ import {
   chunkCollectionMutationItems,
   normalizeSyncClock,
   resolveLibraryItemMergeAlias,
+  chapterProgressWinnersForPush,
   supportsChapterProgressIntraPageSync,
+  supportsChapterProgressResetSync,
   toCloudInstalledSource,
   toCloudHistorySaveInput,
   toCloudLibrarySaveInput,
@@ -440,8 +442,18 @@ export async function applyWebChapterProgressSyncSnapshot(options: {
   const includeIntraPageState = supportsChapterProgressIntraPageSync(
     options.chapterProgressIntraPageVersion,
   );
-  const saveInputs = applied.localWinners.map((progress) =>
-    toCloudHistorySaveInput(progress, { includeIntraPageState }),
+  const includeResetState = supportsChapterProgressResetSync(
+    options.chapterProgressIntraPageVersion,
+  );
+  const saveInputs = chapterProgressWinnersForPush(
+    applied.localWinners,
+    options.cloudProgress,
+    { resetState: includeResetState },
+  ).map((progress) =>
+    toCloudHistorySaveInput(progress, {
+      includeIntraPageState,
+      includeResetState,
+    }),
   );
   for (const items of chunkChapterProgressSaveInputs(saveInputs)) {
     if (!options.shouldContinue()) return null;

@@ -1,6 +1,8 @@
 import { Platform, StyleSheet, type TextStyle } from "react-native";
 
 import { nemuBrandLetterSpacing } from "@/lib/nemuBrandWordmark";
+import { nemuFontWeight } from "./fontWeights";
+import { nemuMaterialTypeScale } from "./sheetMetrics";
 
 export const NEMU_BRAND_FONT_FAMILY = Platform.select({
   // iOS resolves statically embedded fonts by their PostScript name, while
@@ -18,12 +20,7 @@ export const NEMU_BRAND_FONT_FAMILY = Platform.select({
 // from drawing glyphs outside those measured native surfaces.
 export const nemuMaxFontSizeMultiplier = 1.6;
 
-export const nemuFontWeight = {
-  regular: "400",
-  medium: "500",
-  semibold: "600",
-  bold: "700",
-} as const satisfies Record<string, TextStyle["fontWeight"]>;
+export { nemuFontWeight };
 
 export const nemuText = StyleSheet.create({
   screenTitle: {
@@ -32,10 +29,13 @@ export const nemuText = StyleSheet.create({
     fontWeight: nemuFontWeight.bold,
     letterSpacing: 0,
   },
+  // Composed sheet titles. Android: Material 3 titleLarge (see
+  // `sheetMetrics.ts`); iOS keeps its approved 20/25 semibold.
   sheetTitle: {
-    fontSize: 20,
-    lineHeight: 25,
-    fontWeight: nemuFontWeight.semibold,
+    ...Platform.select<TextStyle>({
+      android: nemuMaterialTypeScale.titleLarge,
+      default: { fontSize: 20, lineHeight: 25, fontWeight: nemuFontWeight.semibold },
+    }),
     letterSpacing: 0,
   },
   sectionTitle: {

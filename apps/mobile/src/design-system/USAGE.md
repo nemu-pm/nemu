@@ -6,17 +6,19 @@ Use `@/design-system` for new mobile UI. The package is the public entry point f
 
 - Foundations: `nemuTokens`, `radius`, `spacing`, `nemuText`, `nemuFontWeight`, `createNemuShadowStyle`, and native navigation helpers.
 - Button depth colors follow web `src/index.css` `.btn-nemu-*` classes via `nemuWebButtonPalette` / `nemuButtonDepth`.
-- Primitives in `src/design-system/components`: `NemuPressable`, `GlassSurface`, `NemuButton`, `NemuToolbarAction`, `NemuInlineEmptyState`, `NemuListRow`, `NemuNativeProgressView`, and `NemuNativeSwitch`.
+- Primitives in `src/design-system/components`: `NemuPressable`, `GlassSurface`, `NemuButton`, `NemuInlineEmptyState`, `NemuListRow`, `NemuNativeProgressView`, and `NemuNativeSwitch`.
 - Composites in `src/design-system/components`: `PageScaffold`, `PageHeader`, `MobileNativeSheetScaffold`, `MobileSheetScaffold` compatibility wrapper, and `MobileSheetBackdrop`.
 - Feature components: `MangaCard`, `SourceCard`, manga/source sheets, empty states, skeletons, and reader controls remain in `src/components` unless they become general primitives/patterns. Components exported by `@/design-system` must still be imported through the public entry point.
 
 ## Rules
 
 - Import shared UI from `@/design-system` in screens and shared components. Do not import `@/design/*`, `@/design-system/components/*`, or design-system-owned `@/components/*` paths outside `src/design-system`.
-- Use `Stack.Toolbar` on iOS and Android through `renderNemuNativeToolbarButtons`; use `PageHeader` and `NemuToolbarAction` for web fallback.
+- Use `Stack.Toolbar` on iOS and Android through `renderNemuNativeToolbarButtons`; use `PageHeader` for the web fallback (its `NemuToolbarAction` buttons are internal, not exported).
 - Android-native controls should use Expo UI Material/Jetpack Compose primitives when available. Prefer `@expo/ui/jetpack-compose` or `@expo/ui/community/*` drop-ins for Android switches, menus, progress, segmented controls, sliders, sheets, and similar controls instead of hand-rolled React Native fallbacks.
 - Use `NemuPressable` with `buttonDepth` for custom icon/text buttons that should share Nemu's glass halo, inset highlight, and pressed depth instead of hand-rolled `boxShadow` strings. Depth variants mirror web `Button` variants (`default` → `primary`, `outline`, `secondary`, `ghost`, `destructive`).
-- Toolbar actions use Nemu purple by default through `NemuToolbarAction` depth styling. Do not hand-code white toolbar buttons with custom shadows in screens.
+- Native navigation-bar items (back, close, add, filter, menus, delete) keep the platform's own colour: do not pass `tintColor` to `Stack.Toolbar` / `Stack.Toolbar.Button` or set `headerTintColor`. On iOS 26+ that is the monochrome Liquid Glass item; on Android the item follows the header's content colour. The reader's capsule bar is the one exception (its own dark chrome over the page). In a SwiftUI sheet bar only the confirming action carries `tokens.primary`.
+- Colour tokens in `src/design/tokens.ts` are the web theme variables, pinned to `src/index.css` by `webThemeParity.test.ts`. Native controls take `tokens.primary` explicitly (`seedColor` / `tint` on SwiftUI and Compose hosts, `selectionColor` on text inputs); do not leave one on the system accent.
+- The web fallback header (`PageHeader`) keeps its Nemu-purple depth styling. Do not hand-code white toolbar buttons with custom shadows in screens.
 - Use `PageScaffold` pull-to-refresh instead of adding a refresh toolbar button unless the action is not equivalent to drag-to-refresh.
 - Use `nemuText` and `nemuFontWeight`; never hard-code raw `fontWeight` values in screens or components.
 - Use `GlassSurface`, `NemuListRow`, `NemuButton`, `MangaCard`, and `SourceCard` before adding local card, list row, button, manga, or source layouts.

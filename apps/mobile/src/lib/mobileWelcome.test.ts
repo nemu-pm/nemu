@@ -15,8 +15,6 @@ import {
   getMobileWelcomeInstallErrorCopy,
   getMobileWelcomePendingSourceInstallCount,
   getMobileWelcomeUnderlyingContentState,
-  getMobileWelcomeRecommendedSources,
-  mobileWelcomeSourceKey,
   shouldScrollMobileWelcomeContent,
   shouldBlockMobileWelcomeUnderlyingContent,
   shouldStackMobileWelcomeActions,
@@ -38,6 +36,8 @@ function source(
     registryName: registryId,
     name,
     version: 1,
+    // Entries the onboarding offers carry the content licence the directory vouches for.
+    ...(registryId === "nemu-recommended" ? { contentLicense: "CC-BY-4.0" } : {}),
   };
 }
 
@@ -59,6 +59,12 @@ describe("mobile welcome helpers", () => {
     expect(shouldStackMobileWelcomeActions(390)).toBe(true);
     expect(shouldStackMobileWelcomeActions(767)).toBe(true);
     expect(shouldStackMobileWelcomeActions(768)).toBe(false);
+  });
+
+  test("a form-sheet body keeps the stack on a wide window; a wide body does not", () => {
+    expect(shouldStackMobileWelcomeActions(1032, 492)).toBe(true);
+    expect(shouldStackMobileWelcomeActions(1032, 984)).toBe(false);
+    expect(shouldStackMobileWelcomeActions(874, 702)).toBe(false);
   });
 
   test("coalesces successful completion writes and only retries failures", async () => {
@@ -309,52 +315,56 @@ describe("mobile welcome helpers", () => {
     });
   });
 
-  test("matches web recommended source order by app language", () => {
-    expect(
-      getMobileWelcomeRecommendedSources("en").map(mobileWelcomeSourceKey),
-    ).toEqual([
-      "aidoku-community:multi.mangaplus",
-      "aidoku-community:multi.mangadex",
-      "aidoku-community:ja.shonenjumpplus",
-    ]);
-    expect(
-      getMobileWelcomeRecommendedSources("zh").map(mobileWelcomeSourceKey),
-    ).toEqual([
-      "aidoku-zh:zh.manhuaren",
-      "aidoku-community:zh.copymanga",
-      "aidoku-community:ja.shonenjumpplus",
-    ]);
-    expect(
-      getMobileWelcomeRecommendedSources("ja").map(mobileWelcomeSourceKey)[0],
-    ).toBe("aidoku-community:ja.shonenjumpplus");
-  });
-
-  test("keeps only available recommended sources for the install list", () => {
+  test("offers only the nemu recommended directory's sources", () => {
     const available = [
       source("aidoku-community", "multi.mangadex", "MangaDex"),
-      source("aidoku-community", "ja.shonenjumpplus", "Shonen Jump+"),
-      source("other", "source"),
+      source("aidoku-zh", "zh.manhuaren", "Manhuaren"),
+      source("nemu-recommended", "multi.peppercarrot", "Pepper&Carrot"),
+      source("dir-0123456789ab", "en.user", "User added"),
     ];
 
     expect(
       getMobileWelcomeAvailableSources("en", available).map(
         (item) => item.name,
       ),
-    ).toEqual(["MangaDex", "Shonen Jump+"]);
+    ).toEqual(["Pepper&Carrot"]);
+    expect(getMobileWelcomeAvailableSources("en", [])).toEqual([]);
   });
 
-  test("defaults to available recommendations when registries have loaded", () => {
+  test("ranks sources covering the app language first and hides sensitive ones", () => {
+    const withLanguages = (
+      id: string,
+      languages: string[],
+      contentRating?: number,
+    ): MobileRegistrySource => ({
+      ...source("nemu-recommended", id),
+      languages,
+      ...(contentRating == null ? {} : { contentRating }),
+    });
+    const catalog = [
+      withLanguages("en.only", ["en"]),
+      withLanguages("ja.only", ["ja"]),
+      withLanguages("multi.all", ["multi"]),
+      withLanguages("ja.adult", ["ja"], 2),
+    ];
+
+    expect(
+      getMobileWelcomeAvailableSources("ja", catalog).map((item) => item.id),
+    ).toEqual(["ja.only", "multi.all", "en.only"]);
+    expect(
+      getMobileWelcomeAvailableSources("zh", catalog).map((item) => item.id),
+    ).toEqual(["multi.all", "en.only", "ja.only"]);
+  });
+
+  test("defaults to the offered recommendations, and to nothing before they load", () => {
     expect(
       getMobileWelcomeDefaultSelection("en", [
+        source("nemu-recommended", "multi.peppercarrot"),
         source("aidoku-community", "multi.mangadex"),
       ]),
-    ).toEqual(["aidoku-community:multi.mangadex"]);
+    ).toEqual(["nemu-recommended:multi.peppercarrot"]);
 
-    expect(getMobileWelcomeDefaultSelection("en", [])).toEqual([
-      "aidoku-community:multi.mangaplus",
-      "aidoku-community:multi.mangadex",
-      "aidoku-community:ja.shonenjumpplus",
-    ]);
+    expect(getMobileWelcomeDefaultSelection("en", [])).toEqual([]);
   });
 
   test("counts only selected sources that still need installation", () => {

@@ -36,7 +36,24 @@ import {
   mergeMobileInstalledSources,
   mergeLibrarySnapshot,
 } from "./mobileSyncSnapshots";
-import { hydrateMobileSyncedSourcePackages } from "./mobileSyncedSourcePackages";
+import {
+  createMobileSourceCatalogResolver,
+  hydrateMobileSyncedSourcePackages,
+} from "./mobileSyncedSourcePackages";
+import {
+  fetchAllAidokuRegistrySources,
+} from "@/sources/aidokuRegistry";
+import {
+  canonicalCloudLocalArchiveVolumes,
+  canonicalCloudSourceDirectories,
+  syncMobileLocalArchiveVolumes,
+  syncMobileSourceDirectories,
+} from "./mobileSourceDirectorySync";
+import { loadCachedRegistryIndex } from "@/sources/mobileRegistryIndexCache";
+import {
+  enabledSourceDirectories,
+  loadMobileSourceDirectories,
+} from "@/data/mobileSourceDirectories";
 import {
   reconcilePendingCollectionDeletions,
   reconcilePendingSourceLinkDeletions,
@@ -295,6 +312,8 @@ async function pullMobileCloudSnapshot(deps: MobileBackgroundSyncDeps) {
       settings: {
         generation,
         installedSources,
+        sourceDirectories: canonicalCloudSourceDirectories(settings),
+        localArchiveVolumes: canonicalCloudLocalArchiveVolumes(settings),
         updatedAt: Math.max(0, ...settings.map((row) => row.updatedAt)),
       },
     },
@@ -490,6 +509,20 @@ async function pullAndMergeSettings(
   const localSettings = await store.getSyncSettings();
   if (shouldStop(deps)) return;
 
+  await syncMobileSourceDirectories({
+    store,
+    convex: deps.convex,
+    cloud: snapshot.settings.sourceDirectories ?? [],
+    generation: snapshot.generation,
+    shouldContinue: () => !shouldStop(deps),
+  });
+  await syncMobileLocalArchiveVolumes({
+    convex: deps.convex,
+    cloud: snapshot.settings.localArchiveVolumes ?? [],
+    generation: snapshot.generation,
+    shouldContinue: () => !shouldStop(deps),
+  });
+  if (shouldStop(deps)) return;
   const mergedSources = mergeMobileInstalledSources(
     localSettings.installedSources,
     snapshot.settings.installedSources ?? [],
@@ -497,6 +530,14 @@ async function pullAndMergeSettings(
   const hydrateSourcePackages =
     deps.hydrateSourcePackages ?? hydrateMobileSyncedSourcePackages;
   const hydratedSources = await hydrateSourcePackages(mergedSources, {
+    resolveCatalogEntry: createMobileSourceCatalogResolver({
+      loadCached: loadCachedRegistryIndex,
+      fetchCatalog: async () =>
+        fetchAllAidokuRegistrySources(
+          enabledSourceDirectories(await loadMobileSourceDirectories(store)),
+          { signal: deps.signal },
+        ),
+    }),
     onHydrationError(source, error) {
       console.warn(
         `[MobileBackgroundSync] Failed to cache synced source package for ${source.id}:`,

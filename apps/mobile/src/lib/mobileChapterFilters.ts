@@ -48,25 +48,24 @@ export function getMobileChapterLanguages(
     );
 }
 
+/**
+ * The chapter list as shown: `chapters` arrive newest first in the source's
+ * order (`orderMobileChaptersNewestFirst`), so "desc" keeps that order and
+ * "asc" reverses it — the web detail page's and Aidoku's "source order".
+ * Chapter numbers never reorder it: many sources omit them, and falling back
+ * to an id comparison sorted numeric ids lexicographically.
+ */
 export function filterAndSortMobileChapters(
   chapters: ChapterSummary[],
   progressByChapterId: Record<string, LocalChapterProgress | undefined>,
   preference: MobileChapterListPreference,
 ): ChapterSummary[] {
   const selectedLanguages = new Set(preference.languages);
-  return chapters
-    .filter((chapter) => {
-      if (preference.unreadOnly && progressByChapterId[chapter.id]?.completed) {
-        return false;
-      }
-      return selectedLanguages.size === 0 || Boolean(chapter.lang && selectedLanguages.has(chapter.lang));
-    })
-    .sort((left, right) => {
-      const leftNumber = left.chapterNumber ?? Number.NEGATIVE_INFINITY;
-      const rightNumber = right.chapterNumber ?? Number.NEGATIVE_INFINITY;
-      const result = leftNumber === rightNumber
-        ? left.id.localeCompare(right.id)
-        : leftNumber - rightNumber;
-      return preference.sortDirection === "asc" ? result : -result;
-    });
+  const visible = chapters.filter((chapter) => {
+    if (preference.unreadOnly && progressByChapterId[chapter.id]?.completed) {
+      return false;
+    }
+    return selectedLanguages.size === 0 || Boolean(chapter.lang && selectedLanguages.has(chapter.lang));
+  });
+  return preference.sortDirection === "asc" ? visible.reverse() : visible;
 }

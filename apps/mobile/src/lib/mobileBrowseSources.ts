@@ -1,5 +1,7 @@
 import type { AppLanguage, InstalledSource } from "@/data/schema";
+import { NEMU_RECOMMENDED_REGISTRY_ID } from "@nemu/core/sources";
 import { makeSourceKey, type MobileRegistrySource } from "@/sources/aidokuRegistry";
+import { MOBILE_CUSTOM_AIDOKU_REGISTRY_ID } from "@/sources/mobileSourceImport";
 import {
   getMobileSourceKind,
   isMobileUnsupportedSourceKind,
@@ -79,18 +81,6 @@ export function filterMobileAvailableSources<T extends MobileBrowseSource>(
       return haystack.includes(normalized);
     });
   return sortSourcesByLanguagePriority(filtered, options.appLanguage);
-}
-
-export function canClearMobileBrowseSourceQuery(query: string): boolean {
-  return query.length > 0;
-}
-
-export function canSelectMobileBrowseAllLanguages({
-  selected,
-}: {
-  selected: boolean;
-}): boolean {
-  return !selected;
 }
 
 export function groupMobileSourcesByLanguage<T extends MobileBrowseLanguageSource>(
@@ -204,13 +194,8 @@ export type MobileSourceQuickActionId =
   | "uninstall";
 
 /**
- * Where a quick-action row is allowed to act. The quick-action sheet is a
- * native `@expo/ui` bottom sheet and only one of those can be presented at a
- * time, so every row whose destination is another sheet — or whose only
- * feedback surface is the toast host that sits *underneath* the sheet — has to
- * dismiss the quick actions first and run from the post-dismiss callback.
- * Opening a homepage leaves the app entirely, so it is the one row that may act
- * while the sheet is still on screen.
+ * Where a quick-action row may act: a row that opens another sheet or reports into the toast
+ * host under the sheet dismisses the quick actions first, then runs.
  */
 export type MobileSourceQuickActionHandoff =
   | "dismiss-then-open-settings"
@@ -260,19 +245,8 @@ export type MobileSourceQuickActionDescriptor = {
 };
 
 /**
- * The installed-source quick-action rows, in the single order every surface
- * shows them. Browse opens this sheet from a long-pressed source card and
- * Settings from the row's overflow button, so the row set is decided here
- * instead of being spelled out twice and drifting apart.
- *
- * `canOpenSettings` is false for a source the user switched off: it is not
- * runnable, so its settings form would look live while every apply path that
- * reaches the source is refused with `source-disabled`. Settings also closes
- * an open settings sheet the moment a source is disabled, and this keeps the
- * overflow menu from reopening what that just closed.
- *
- * Settings has no per-source update state — it auto-updates sources in the
- * background — so it passes `hasUpdate: false` and that row drops out.
+ * The installed-source quick-action rows, in one order for every surface.
+ * A disabled source has no settings; Settings has no update row.
  */
 export function buildMobileSourceQuickActions({
   canOpenSettings,
@@ -436,4 +410,107 @@ export function mergeMobileInstalledSourceRegistryMetadata(
       ...(packageMetadata === undefined ? {} : { packageMetadata }),
     };
   });
+}
+
+/**
+ * The installed sources the library reads from, most titles first (ties keep
+ * the given order), with how many library titles each holds — for a short
+ * group above the language groups (design-explore), so the few sources in use
+ * are not one row among twenty.
+ */
+export function selectMobileBrowseLibrarySources<T extends { registryId: string; sourceId: string }>(
+  sources: readonly T[],
+  links: readonly { registryId: string; sourceId: string; libraryItemId: string; removed?: boolean }[],
+  limit = 6,
+): { source: T; titles: number }[] {
+  const titles = new Map<string, Set<string>>();
+  for (const link of links) {
+    if (link.removed === true) continue;
+    const key = `${link.registryId}\u0000${link.sourceId}`;
+    const set = titles.get(key) ?? new Set<string>();
+    set.add(link.libraryItemId);
+    titles.set(key, set);
+  }
+  return sources
+    .map((source) => ({ source, titles: titles.get(`${source.registryId}\u0000${source.sourceId}`)?.size ?? 0 }))
+    .filter((item) => item.titles > 0)
+    .sort((a, b) => b.titles - a.titles)
+    .slice(0, Math.max(0, limit));
+}
+
+/**
+ * The language groups without the sources the "In your library" group already
+ * lists (each source appears once); a group left empty goes away.
+ */
+export function omitMobileBrowseSourcesFromGroups<
+  S extends { registryId: string; sourceId: string },
+  G extends { sources: readonly S[] },
+>(groups: readonly G[], omitted: readonly { registryId: string; sourceId: string }[]): G[] {
+  if (!omitted.length) return [...groups];
+  const keys = new Set(omitted.map((source) => `${source.registryId}\u0000${source.sourceId}`));
+  return groups
+    .map((group) => ({ ...group, sources: group.sources.filter((source) => !keys.has(`${source.registryId}\u0000${source.sourceId}`)) }))
+    .filter((group) => group.sources.length > 0);
+}
+
+const CONTENT_LICENSE_LABELS: Record<string, string> = {
+  "CC-BY-4.0": "CC BY 4.0",
+  "CC-BY-SA-4.0": "CC BY-SA 4.0",
+  "CC0-1.0": "CC0 1.0",
+};
+
+export function formatMobileContentLicense(license: string): string {
+  return CONTENT_LICENSE_LABELS[license] ?? license.replace(/-/g, " ");
+}
+
+/**
+ * What follows the languages on a source row: the content licence for a
+ * nemu-recommended source that declares one, otherwise the directory name.
+ */
+export function getMobileSourceOriginLabel(
+  source: {
+    registryId: string;
+    registryName: string;
+    contentLicense?: string;
+  },
+  strings?: MobileOriginStrings,
+): string {
+  return source.registryId === NEMU_RECOMMENDED_REGISTRY_ID && source.contentLicense
+    ? formatMobileContentLicense(source.contentLicense)
+    : getMobileRegistryDisplayName(source.registryId, source.registryName, strings);
+}
+
+type MobileOriginStrings = {
+  settings: { nemuRecommendedDirectoryName: string; sourceFileOrigin: string };
+};
+
+/**
+ * Where a source comes from, in words: the built-in directory and imported
+ * `.aix` files use localised names (never the registry JSON name or the raw
+ * registry id); any other directory keeps its own name.
+ */
+export function getMobileRegistryDisplayName(
+  registryId: string,
+  fallback: string,
+  strings?: MobileOriginStrings,
+): string {
+  if (strings) {
+    if (registryId === NEMU_RECOMMENDED_REGISTRY_ID) {
+      return strings.settings.nemuRecommendedDirectoryName;
+    }
+    if (registryId === MOBILE_CUSTOM_AIDOKU_REGISTRY_ID) {
+      return strings.settings.sourceFileOrigin;
+    }
+  }
+  return fallback;
+}
+
+const MAX_LISTED_LANGUAGES = 3;
+
+/** `EN, JA, ZH +7`: a source in many languages must leave room for what follows. */
+export function formatMobileSourceLanguages(languages?: string[]): string | undefined {
+  if (!languages?.length) return undefined;
+  const listed = languages.slice(0, MAX_LISTED_LANGUAGES).join(", ").toUpperCase();
+  const rest = languages.length - MAX_LISTED_LANGUAGES;
+  return rest > 0 ? `${listed} +${rest}` : listed;
 }

@@ -167,6 +167,45 @@ describe("web snapshot sync run identity", () => {
     });
   });
 
+  test("pushes a Mark as Unread reset only to a backend that stores it", async () => {
+    const cloud = chapterProgress("reset", { completed: true, updatedAt: 200 });
+    const reset = chapterProgress("reset", {
+      progress: 0,
+      total: 0,
+      lastReadAt: 0,
+      resetAt: 200,
+      updatedAt: 200,
+    });
+    const run = async (chapterProgressIntraPageVersion: number) => {
+      const items: Record<string, unknown>[] = [];
+      await applyWebChapterProgressSyncSnapshot({
+        localStore: {
+          applyChapterProgressSnapshot: async () => ({
+            progress: [reset],
+            changed: [],
+            localWinners: [reset],
+          }),
+        },
+        convex: {
+          mutation: async (_mutation: unknown, args: Record<string, unknown>) => {
+            items.push(...(args.items as Record<string, unknown>[]));
+          },
+        } as unknown as Pick<ConvexReactClient, "mutation">,
+        cloudProgress: [cloud],
+        generation: 7,
+        expectedUserId: "a",
+        chapterProgressIntraPageVersion,
+        shouldContinue: () => true,
+      });
+      return items;
+    };
+
+    // Version 1 cannot store the reset: re-pushing it would loop forever.
+    expect(await run(1)).toEqual([]);
+    const [item] = await run(2);
+    expect(item).toMatchObject({ progress: 0, completed: false, resetAt: 200 });
+  });
+
   test("pushes local-only and equal-clock high-water chapter progress", async () => {
     const localOnly = chapterProgress("local-only", { progress: 3 });
     const cloud = chapterProgress("merged", { progress: 5 });

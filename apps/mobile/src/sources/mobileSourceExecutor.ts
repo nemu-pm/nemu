@@ -24,8 +24,17 @@ import {
   MOBILE_TACHIYOMI_UNSUPPORTED_DETAIL,
   type MobileRuntimeSource,
 } from "./mobileSourceRuntime";
+import { LOCAL_ARCHIVE_REGISTRY_ID } from "@/lib/localArchives/policy";
+import { getLocalArchiveProvider } from "@/lib/localArchives/registry";
+import { createSelfHostedExecutorSource } from "@/lib/selfHosted/executorSource";
+import { SELF_HOSTED_REGISTRY_ID, isSelfHostedConfig } from "@/lib/selfHosted/policy";
 import { readCachedSourcePackageBytes } from "./sourcePackageCache";
 import { makeMobileSourceExecutionKey } from "./mobileSourceProfileScope";
+import type {
+  MobileSourcePriorityInput,
+  MobileSourcePriorityTicket,
+  MobileSourceTaskPriority,
+} from "./mobileSourceRuntimeScheduler";
 
 type ReadCachedPackageBytes = (packageCacheKey: string) => Promise<Uint8Array | null>;
 
@@ -36,6 +45,11 @@ export type MobileSourcePage = AidokuPage & {
   id?: string;
   /** Headers already known by the source; avoids a per-page header lookup. */
   headers?: Record<string, string>;
+  /** App-resolved `file://` image of a local archive page (never source supplied). */
+  localUri?: string;
+  /** Pixel size of the page when a server reports it before download (Komga). */
+  width?: number;
+  height?: number;
 };
 
 export type MobileAidokuExecutorSource = Omit<
@@ -111,6 +125,15 @@ export type MobileAidokuExecutorSource = Omit<
     cookies: Record<string, string>,
   ) => Promise<boolean>;
   handleNotification?: (notification: string) => Promise<void>;
+  /**
+   * The same source with every runtime operation scheduled at `priority`
+   * (see `mobileSourceRuntimeScheduler`). State (settings, disposal) is
+   * shared with the original. Optional: bridges without a shared native
+   * queue have nothing to order.
+   */
+  withPriority?: (
+    priority: MobileSourcePriorityTicket | MobileSourceTaskPriority,
+  ) => MobileAidokuExecutorSource;
 };
 
 export type MobileAidokuExecutorLoadInput = {
@@ -121,6 +144,9 @@ export type MobileAidokuExecutorLoadInput = {
   byteLength?: number;
   metadata: SourcePackageMetadata;
   settings: Record<string, unknown>;
+  /** Priority of the caller that needs this session (session creation is a
+   * runtime operation too). */
+  priority?: MobileSourcePriorityInput;
 };
 
 export type MobileAidokuExecutorLoadResult =
@@ -178,6 +204,8 @@ export type MobileSourceExecutorOptions = {
   settings?: Record<string, unknown>;
   /** Opaque account namespace captured before async session creation. */
   executionScope?: string;
+  /** Scheduling priority for creating the session (see the load input). */
+  priority?: MobileSourcePriorityInput;
 };
 export async function createMobileSourceExecutorSession(
   source: MobileRuntimeSource | null | undefined,
@@ -203,6 +231,40 @@ export async function createMobileSourceExecutorSession(
       sourceKey: `${source.registryId}:${source.sourceId}`,
       reason: "native-bridge-missing",
       detail: MOBILE_TACHIYOMI_UNSUPPORTED_DETAIL,
+    };
+  }
+
+  if (source?.registryId === SELF_HOSTED_REGISTRY_ID) {
+    // Komga / Kavita / Suwayomi: built-in app code talking to the user's own
+    // server. There is no package to load and nothing downloaded to run.
+    if (!isSelfHostedConfig(source.selfHosted)) {
+      return {
+        status: "blocked",
+        sourceKey: `${source.registryId}:${source.sourceId}`,
+        reason: "unsupported-package",
+        detail: "This server source has no saved address.",
+      };
+    }
+    return {
+      status: "ready",
+      sourceKey: `${source.registryId}:${source.sourceId}`,
+      runtime: "native-aidoku",
+      source: createSelfHostedExecutorSource({
+        source,
+        settings: options.settings ?? {},
+        executionScope: options.executionScope,
+      }),
+    };
+  }
+
+  const localArchive = source?.registryId === LOCAL_ARCHIVE_REGISTRY_ID ? getLocalArchiveProvider() : null;
+  if (localArchive) {
+    // Imported CBZ/ZIP books: no package, no network; the app's own provider.
+    return {
+      status: "ready",
+      sourceKey: `${source!.registryId}:${source!.sourceId}`,
+      runtime: "native-aidoku",
+      source: localArchive.createExecutorSource(),
     };
   }
 
@@ -247,6 +309,7 @@ export async function createMobileSourceExecutorSession(
         : {}),
       metadata: packageResult.metadata,
       settings: options.settings ?? {},
+      ...(options.priority ? { priority: options.priority } : {}),
     });
   } catch (error) {
     return {

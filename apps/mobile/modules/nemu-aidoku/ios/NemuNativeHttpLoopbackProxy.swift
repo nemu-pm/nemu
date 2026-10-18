@@ -52,10 +52,14 @@ struct NemuNativeHttpProxyRequest {
   let isTunnel: Bool
   let upstreamPreamble: Data
   let trailingData: Data
+  /// The source scope whose per-scope proxy credential authenticated this
+  /// request, or nil for the shared (public-destinations-only) credential.
+  var scope: String? = nil
 
   static func parse(
     _ data: Data,
-    expectedBasicToken: String
+    expectedBasicToken: String,
+    scopeForToken: ((String) -> String?)? = nil
   ) throws -> NemuNativeHttpProxyRequest {
     let separator = Data([13, 10, 13, 10])
     guard let separatorRange = data.range(of: separator) else {
@@ -118,10 +122,17 @@ struct NemuNativeHttpProxyRequest {
     )
     guard
       authorizationParts.count == 2,
-      authorizationParts[0].caseInsensitiveCompare("Basic") == .orderedSame,
-      constantTimeEqual(String(authorizationParts[1]), expectedBasicToken)
+      authorizationParts[0].caseInsensitiveCompare("Basic") == .orderedSame
     else {
       throw NemuNativeHttpProxyRequestError.unauthorized
+    }
+    let presentedToken = String(authorizationParts[1])
+    var requestScope: String? = nil
+    if !constantTimeEqual(presentedToken, expectedBasicToken) {
+      guard let scope = scopeForToken?(presentedToken) else {
+        throw NemuNativeHttpProxyRequestError.unauthorized
+      }
+      requestScope = scope
     }
 
     let trailing = data.subdata(in: separatorRange.upperBound..<data.endIndex)
@@ -132,7 +143,8 @@ struct NemuNativeHttpProxyRequest {
         port: endpoint.port,
         isTunnel: true,
         upstreamPreamble: Data(),
-        trailingData: trailing
+        trailingData: trailing,
+        scope: requestScope
       )
     }
 
@@ -188,7 +200,8 @@ struct NemuNativeHttpProxyRequest {
       port: UInt16(portValue),
       isTunnel: false,
       upstreamPreamble: preamble,
-      trailingData: trailing
+      trailingData: trailing,
+      scope: requestScope
     )
   }
 
@@ -345,9 +358,51 @@ final class NemuNativeHttpLoopbackProxy: @unchecked Sendable {
     Data("\(username):\(password)".utf8).base64EncodedString()
   }
 
+  private let credentialLock = NSLock()
+  private var scopeUsernames: [String: String] = [:]
+  private var scopeByToken: [String: String] = [:]
+
+  /// Per-source proxy credential. A scoped URLSession authenticates as an
+  /// unguessable user bound to its source scope, so the proxy can tell whose
+  /// request it is serving and apply that source's local-network grant (and
+  /// nobody else's). Packages never see the credential: URLSession adds it.
+  func credentials(
+    forScope scope: String?
+  ) -> (username: String, password: String) {
+    guard
+      let scope = scope?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !scope.isEmpty
+    else {
+      return (username, password)
+    }
+    credentialLock.lock()
+    defer { credentialLock.unlock() }
+    if let existing = scopeUsernames[scope] { return (existing, password) }
+    let scopedUsername = "nemu-" + UUID().uuidString
+      .replacingOccurrences(of: "-", with: "")
+      .lowercased()
+    scopeUsernames[scope] = scopedUsername
+    scopeByToken[
+      Data("\(scopedUsername):\(password)".utf8).base64EncodedString()
+    ] = scope
+    return (scopedUsername, password)
+  }
+
+  func basicToken(forScope scope: String?) -> String {
+    let credential = credentials(forScope: scope)
+    return Data("\(credential.username):\(credential.password)".utf8)
+      .base64EncodedString()
+  }
+
+  fileprivate func scope(forToken token: String) -> String? {
+    credentialLock.lock()
+    defer { credentialLock.unlock() }
+    return scopeByToken[token]
+  }
+
   /** Applies an explicit, no-failover proxy. A listener startup failure points
    * at the closed loopback port 1, failing source networking closed. */
-  func harden(_ configuration: URLSessionConfiguration) {
+  func harden(_ configuration: URLSessionConfiguration, scope: String? = nil) {
     let configuredPort = port ?? 1
     if #available(iOS 17.0, tvOS 17.0, macOS 14.0, *) {
       guard let endpointPort = NWEndpoint.Port(rawValue: configuredPort) else {
@@ -361,7 +416,11 @@ final class NemuNativeHttpLoopbackProxy: @unchecked Sendable {
       )
       proxy.allowFailover = false
       proxy.excludedDomains = []
-      proxy.applyCredential(username: username, password: password)
+      let credential = credentials(forScope: scope)
+      proxy.applyCredential(
+        username: credential.username,
+        password: credential.password
+      )
       configuration.proxyConfigurations = [proxy]
       configuration.connectionProxyDictionary = nil
       return
@@ -394,16 +453,19 @@ final class NemuNativeHttpLoopbackProxy: @unchecked Sendable {
   /// as an ordinary response for absolute-form HTTP. Authenticate that one
   /// legacy form preemptively; the loopback proxy strips the hop-by-hop field
   /// before forwarding it. iOS 17+ applies credentials to its CONNECT proxy.
-  func authorizeLegacyPlainHttp(_ request: inout URLRequest) {
+  func authorizeLegacyPlainHttp(_ request: inout URLRequest, scope: String? = nil) {
     guard request.url?.scheme?.lowercased() == "http" else { return }
     if #available(iOS 17.0, tvOS 17.0, macOS 14.0, *) { return }
     request.setValue(
-      "Basic \(basicToken)",
+      "Basic \(basicToken(forScope: scope))",
       forHTTPHeaderField: "Proxy-Authorization"
     )
   }
 
-  func proxyCredential(for challenge: URLAuthenticationChallenge) -> URLCredential? {
+  func proxyCredential(
+    for challenge: URLAuthenticationChallenge,
+    scope: String? = nil
+  ) -> URLCredential? {
     let protectionSpace = challenge.protectionSpace
     guard
       challenge.previousFailureCount == 0,
@@ -414,9 +476,10 @@ final class NemuNativeHttpLoopbackProxy: @unchecked Sendable {
     else {
       return nil
     }
+    let credential = credentials(forScope: scope)
     return URLCredential(
-      user: username,
-      password: password,
+      user: credential.username,
+      password: credential.password,
       persistence: .forSession
     )
   }
@@ -428,7 +491,8 @@ final class NemuNativeHttpLoopbackProxy: @unchecked Sendable {
       client: connection,
       queue: queue,
       resolverQueue: resolverQueue,
-      expectedBasicToken: basicToken
+      expectedBasicToken: basicToken,
+      scopeForToken: { [weak self] token in self?.scope(forToken: token) }
     ) { [weak self] in
       // Every connection callback (state, receive, send, timeout, and the
       // resolver hop) runs on `queue`, the same queue `accept` requires.
@@ -454,6 +518,7 @@ private final class NemuNativeHttpProxyConnection: @unchecked Sendable {
   private let queue: DispatchQueue
   private let resolverQueue: DispatchQueue
   private let expectedBasicToken: String
+  private let scopeForToken: (String) -> String?
   private let didFinish: () -> Void
   private var upstream: NWConnection?
   private var headerBuffer = Data()
@@ -469,12 +534,14 @@ private final class NemuNativeHttpProxyConnection: @unchecked Sendable {
     queue: DispatchQueue,
     resolverQueue: DispatchQueue,
     expectedBasicToken: String,
+    scopeForToken: @escaping (String) -> String?,
     didFinish: @escaping () -> Void
   ) {
     self.client = client
     self.queue = queue
     self.resolverQueue = resolverQueue
     self.expectedBasicToken = expectedBasicToken
+    self.scopeForToken = scopeForToken
     self.didFinish = didFinish
   }
 
@@ -512,7 +579,8 @@ private final class NemuNativeHttpProxyConnection: @unchecked Sendable {
       do {
         self.request = try NemuNativeHttpProxyRequest.parse(
           self.headerBuffer,
-          expectedBasicToken: self.expectedBasicToken
+          expectedBasicToken: self.expectedBasicToken,
+          scopeForToken: self.scopeForToken
         )
         self.resolveDestination()
       } catch NemuNativeHttpProxyRequestError.incomplete {
@@ -538,9 +606,14 @@ private final class NemuNativeHttpProxyConnection: @unchecked Sendable {
     }
     let host = request.host
     let port = request.port
+    // The grant is read when the connection is resolved, so a setting the user
+    // just changed (or cleared) applies to the very next request.
+    let grant = NemuNativeLocalNetworkAllowance.grant(forScope: request.scope)
     resolverQueue.async { [weak self] in
       let addresses = try? NemuNativeHttpAddressPolicy.validatedAddresses(
-        hostname: host
+        hostname: host,
+        port: Int(port),
+        grant: grant
       )
       self?.queue.async { [weak self] in
         guard let self, !self.finished else { return }

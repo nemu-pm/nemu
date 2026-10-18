@@ -1,0 +1,324 @@
+import { useCallback, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
+import { StyleSheet, View } from "react-native";
+import Animated from "react-native-reanimated";
+import { mobileReaderPageFrameLayoutTransition } from "@/lib/mobileReaderMotionAnimations";
+import {
+  NativePageCurlView,
+  pageCurlTurnAvailable,
+  type PageCurlViewHandle,
+} from "../../../modules/nemu-window-layout";
+import type { ReadingMode } from "@/data/schema";
+import type { WindowLayoutRect } from "@/lib/mobileWindowLayout";
+import {
+  buildMobileReaderCurlSlots,
+  mobileReaderCurlEdgeIntent,
+  mobileReaderCurlFrameForSlot,
+  mobileReaderCurlLayout,
+  mobileReaderCurlSlotForFrame,
+  mobileReaderCurlSlotWindow,
+  mobileReaderCurlSpine,
+  mobileReaderCurlTurnsImmediately,
+  nextMobileReaderCurlNavigation,
+  type MobileReaderCurlNavigation,
+  type MobileReaderCurlSlot,
+} from "@/lib/mobileReaderPageCurl";
+import { mobileReaderSplitWideHalfRects } from "@/lib/mobileReaderSpreads";
+import type { MobileReaderPage } from "@/sources/mobileSourcePages";
+import { MobileReaderSplitWideHalf } from "./MobileReaderSplitWideHalf";
+
+export type MobileReaderCurlPagerHandle = {
+  /** Visual frame (the slide pager's scroll index); one frame away curls, further jumps. */
+  goToFrame(frame: number, animated: boolean): void;
+};
+
+/**
+ * Paged reading with the curl page turn (翻页 › 卷页): the native page curl
+ * over the gallery's visual frames. It only replaces the slide pager's
+ * scrolling: the frames, the spread table, tap zones, chrome and progress all
+ * stay the gallery's and the reader's.
+ */
+export function MobileReaderCurlPager({
+  backgroundColor,
+  displayedPages,
+  fitClip,
+  foldGap,
+  frames,
+  initialFrame,
+  isWide,
+  mode,
+  onEdgeIntent,
+  onSettleFrame,
+  onTurningChange,
+  overlaysOnPages = false,
+  pageFrameSize,
+  pageGlide = false,
+  pagerRef,
+  renderImage,
+  renderTextPage,
+  spreadMode,
+  spreadSlots,
+  stage,
+  turningEnabled,
+}: {
+  backgroundColor: string;
+  displayedPages: MobileReaderPage[];
+  fitClip: boolean;
+  foldGap?: { start: number; end: number } | null;
+  /** Visual frames: page indexes (single) or spreads in reading order, RTL reversed. */
+  frames: readonly (readonly number[])[];
+  initialFrame: number;
+  isWide: (pageIndex: number) => boolean;
+  mode: ReadingMode;
+  onEdgeIntent: (intent: "next" | "previous") => void;
+  onSettleFrame: (frame: number) => void;
+  /** A leaf is turning (overlays wait for the settled page). */
+  onTurningChange?: (turning: boolean) => void;
+  /** Single pages: the leaf is the page's own box, so its margins never curl. */
+  pageFrameSize?: (page: MobileReaderPage) => { width: number; height: number };
+  /**
+   * Page overlays (Japanese-learning bubbles) are mounted: a tap turn waits
+   * for the commit that unmounts them, so the leaf never lifts with them.
+   */
+  overlaysOnPages?: boolean;
+  /**
+   * Flat ⇄ book with a spread: the facing pages glide to their new boxes
+   * (as the slide pager's slots do) instead of jumping there.
+   */
+  pageGlide?: boolean;
+  pagerRef: Ref<MobileReaderCurlPagerHandle>;
+  renderImage: (page: MobileReaderPage) => ReactNode;
+  renderTextPage: (page: MobileReaderPage, pageIndex: number) => ReactNode;
+  spreadMode: boolean;
+  spreadSlots?: readonly WindowLayoutRect[] | null;
+  stage: { width: number; height: number };
+  turningEnabled: boolean;
+}) {
+  const slots = useMemo(
+    () => buildMobileReaderCurlSlots({ frames, spreadMode, mode, isWide }),
+    [frames, isWide, mode, spreadMode],
+  );
+  const [navigation, setNavigation] = useState<MobileReaderCurlNavigation>(() => ({
+    slot: mobileReaderCurlSlotForFrame(initialFrame, spreadMode),
+    token: 0,
+    animated: false,
+  }));
+  // The frame the native pager rests on (or is turning to): the mounted window follows it.
+  const [settledFrame, setSettledFrame] = useState(initialFrame);
+  // The latest navigation asked for (ahead of its commit), so a tap turn can
+  // hand native the very token the props will carry.
+  const navigationRef = useRef(navigation);
+  const nativeRef = useRef<PageCurlViewHandle>(null);
+  // Single pages curl as the page itself: the leaf is the settled page's box.
+  const settledPage = !spreadMode ? displayedPages[frames[settledFrame]?.[0] ?? -1] : undefined;
+  const settledPageBox = settledPage && pageFrameSize ? pageFrameSize(settledPage) : null;
+  const pageBoxWidth = settledPageBox?.width ?? 0;
+  const pageBoxHeight = settledPageBox?.height ?? 0;
+  const layout = useMemo(
+    () => mobileReaderCurlLayout({
+      stage,
+      spreadMode,
+      spreadSlots,
+      foldGap,
+      pageBox: pageBoxWidth > 0 && pageBoxHeight > 0 ? { width: pageBoxWidth, height: pageBoxHeight } : null,
+    }),
+    [foldGap, pageBoxHeight, pageBoxWidth, spreadMode, spreadSlots, stage],
+  );
+  useImperativeHandle(pagerRef, () => ({
+    goToFrame(frame, animated) {
+      const step = animated && Math.abs(frame - settledFrame) === 1;
+      const immediate = mobileReaderCurlTurnsImmediately({
+        step,
+        overlaysOnPages,
+        available: pageCurlTurnAvailable,
+      });
+      // Same commit as the request, so the outgoing page curls without overlays.
+      if (step) onTurningChange?.(true);
+      const next = nextMobileReaderCurlNavigation(navigationRef.current, mobileReaderCurlSlotForFrame(frame, spreadMode), animated);
+      navigationRef.current = next;
+      // A tap turn starts natively at once: the reader's re-render for the
+      // new page (tens of ms) no longer sits between the tap and the curl.
+      if (immediate) {
+        void nativeRef.current?.turn?.(next.slot, next.animated, next.token)?.catch(() => undefined);
+      }
+      setNavigation(next);
+      setSettledFrame(frame);
+    },
+  }), [onTurningChange, overlaysOnPages, settledFrame, spreadMode]);
+
+  const window = mobileReaderCurlSlotWindow({ frame: settledFrame, frameCount: frames.length, spreadMode });
+  const mounted = slots.slice(window.start, window.end + 1).map((slot, offset) => ({ slot, index: window.start + offset }));
+  const slotsKey = mounted.map(({ slot, index }) => `${index}:${slotKey(slot, displayedPages)}`).join("|");
+
+  const handleSettle = useCallback(
+    (slot: number) => {
+      const frame = mobileReaderCurlFrameForSlot(slot, spreadMode);
+      setSettledFrame(frame);
+      onSettleFrame(frame);
+    },
+    [onSettleFrame, spreadMode],
+  );
+
+  if (!NativePageCurlView) return null;
+  return (
+    <NativePageCurlView
+      ref={nativeRef}
+      style={styles.pager}
+      spine={mobileReaderCurlSpine(spreadMode, mode)}
+      slotCount={slots.length}
+      slotsKey={slotsKey}
+      curlFrame={layout.frame}
+      turningEnabled={turningEnabled}
+      pageBackground={backgroundColor}
+      navigationIndex={navigation.slot}
+      navigationAnimated={navigation.animated}
+      navigationToken={navigation.token}
+      onSettle={(event) => handleSettle(event.nativeEvent.slot)}
+      onEdgeDrag={(event) => onEdgeIntent(mobileReaderCurlEdgeIntent(event.nativeEvent.side, mode))}
+      onTurnBegin={() => onTurningChange?.(true)}
+      onTurnEnd={() => onTurningChange?.(false)}
+    >
+      {mounted.map(({ slot, index }) => (
+        <View
+          key={slotKey(slot, displayedPages)}
+          nativeID={`nemu-curl:${index}`}
+          collapsable={false}
+          style={[styles.leaf, { width: layout.leaf.width, height: layout.leaf.height, backgroundColor }]}
+        >
+          {renderSlot({
+            slot,
+            index,
+            layout,
+            spreadMode,
+            panes: Boolean(spreadSlots && spreadSlots.length === 2),
+            fitClip,
+            pageGlide,
+            displayedPages,
+            pageFrameSize,
+            renderImage,
+            renderTextPage,
+          })}
+        </View>
+      ))}
+    </NativePageCurlView>
+  );
+}
+
+function slotKey(slot: MobileReaderCurlSlot, displayedPages: MobileReaderPage[]): string {
+  if (slot.kind === "blank") return `blank:${slot.frame}`;
+  return `${displayedPages[slot.pageIndex]?.id ?? slot.pageIndex}:${slot.part}`;
+}
+
+function renderSlot({
+  slot,
+  index,
+  layout,
+  spreadMode,
+  panes,
+  fitClip,
+  pageGlide,
+  displayedPages,
+  pageFrameSize,
+  renderImage,
+  renderTextPage,
+}: {
+  slot: MobileReaderCurlSlot;
+  index: number;
+  layout: ReturnType<typeof mobileReaderCurlLayout>;
+  spreadMode: boolean;
+  /** The spread rests in two panes beside a fold (the book posture). */
+  panes: boolean;
+  fitClip: boolean;
+  pageGlide: boolean;
+  displayedPages: MobileReaderPage[];
+  pageFrameSize?: (page: MobileReaderPage) => { width: number; height: number };
+  renderImage: (page: MobileReaderPage) => ReactNode;
+  renderTextPage: (page: MobileReaderPage, pageIndex: number) => ReactNode;
+}): ReactNode {
+  if (slot.kind === "blank") return null;
+  const page = displayedPages[slot.pageIndex];
+  if (!page) return null;
+  const content = page.imageUri ? renderImage(page) : renderTextPage(page, slot.pageIndex);
+  if (!spreadMode) {
+    return <View style={[layout.pageLeaf ? styles.pageLeaf : styles.single, fitClip ? styles.clip : null]}>{content}</View>;
+  }
+  const splitFrame = slot.part !== "whole" && panes ? pageFrameSize?.(page) : undefined;
+  if (slot.part !== "whole" && splitFrame && layout.boxes.length === 2) {
+    // Book posture: each leaf shows its half against the fold edge of its
+    // pane (the leaves' boxes), as the slide gallery lays the halves out.
+    const halves = mobileReaderSplitWideHalfRects({
+      slots: [layout.boxes[0]!, layout.boxes[1]!],
+      frame: splitFrame,
+    });
+    return (
+      <MobileReaderSplitWideHalf part={slot.part} frame={splitFrame} rect={halves[slot.part === "left" ? 0 : 1]}>
+        {content}
+      </MobileReaderSplitWideHalf>
+    );
+  }
+  if (slot.part !== "whole") {
+    // A wide page across the spine: each leaf shows its half of the sheet.
+    return (
+      <View
+        style={[
+          styles.sheet,
+          { width: layout.leaf.width * 2, height: layout.leaf.height, left: slot.part === "left" ? 0 : -layout.leaf.width },
+        ]}
+      >
+        {content}
+      </View>
+    );
+  }
+  const left = index % 2 === 0;
+  const box = layout.boxes[left ? 0 : 1] ?? layout.boxes[0]!;
+  return (
+    <Animated.View
+      layout={pageGlide ? mobileReaderPageFrameLayoutTransition : undefined}
+      style={[
+        styles.box,
+        { left: box.x, top: box.y, width: box.width, height: box.height },
+        // Facing pages lean on the spine (the fold edge of their panes).
+        { alignItems: left ? "flex-end" : "flex-start" },
+      ]}
+    >
+      {content}
+    </Animated.View>
+  );
+}
+
+const styles = StyleSheet.create({
+  pager: {
+    flex: 1,
+    alignSelf: "stretch",
+  },
+  leaf: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    overflow: "hidden",
+  },
+  single: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 10,
+  },
+  pageLeaf: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  clip: {
+    overflow: "hidden",
+  },
+  sheet: {
+    position: "absolute",
+    top: 0,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  box: {
+    position: "absolute",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+});

@@ -7,14 +7,17 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import {
   Animated as ReactAnimated,
   Image,
   StyleSheet,
+  View,
   type ImageProps,
   type ImageURISource,
 } from "react-native";
 import { useNemuTheme } from "@/design/useNemuTheme";
+import { resolveMobileHeldImage } from "./mobileCachedImageHold";
 import {
   getCachedMobileImageAssetByStorageKeySync,
   getMobileImageCacheSourceKey,
@@ -28,6 +31,8 @@ import {
   type MobileImageCacheSource,
 } from "@/lib/mobileImageCache";
 import { isMobileAppLocalImageUri } from "@/lib/mobileAppLocalImageUris";
+import { resolveMobileLocalArchiveImageUri } from "@/lib/mobileLocalArchiveImageUri";
+import { holdMobileLaunchRevealForImage, isMobileLaunchContentReady } from "@/lib/mobileSplashScreen";
 import {
   isRepairableMobileSourceImageUri,
   reportMobileSourceImageLoadFailure,
@@ -57,6 +62,16 @@ type MobileCachedImageProps = Omit<ImageProps, "source" | "onError"> & {
   onSegmentedImage?: (asset: MobileCachedSegmentedImageAsset | null) => void;
   fallback?: ReactNode;
   onError?: (error: string) => void;
+  /** Fade the image in once it loads (default true). Off for overlays that must match what is underneath. */
+  fadeIn?: boolean;
+  /**
+   * The same title's cover changing URL (a detail refresh brought a new one)
+   * keeps showing the image it already shows until the new one is ready,
+   * instead of the fallback in between: a zoom back to a library cover lands
+   * on the cover, not on a placeholder that the image then replaces. Only for
+   * views that always show one title (never a recycled cell).
+   */
+  holdPreviousWhileLoading?: boolean;
 };
 
 function boundedLocalImageSourceKey(
@@ -77,8 +92,29 @@ function boundedLocalImageSourceKey(
   return `${uriOwnership}:${cacheKey ?? ""}:${uri.length}:${first >>> 0}:${second >>> 0}`;
 }
 
+/**
+ * Sources this session has already shown. A view that mounts again for one of
+ * them (a reader list remounted by a rotation or spread ⇄ single, a recycled
+ * cover cell scrolling back) reveals it at once instead of fading from blank:
+ * the bitmap is in the native memory cache and was on screen a moment ago, so
+ * a fade would only read as a flash of empty background. Bounded LRU.
+ */
+const SHOWN_SOURCE_LIMIT = 512;
+const shownSourceKeys = new Set<string>();
+/** After this, a cover's fade is over whatever became of its native animation. */
+const FADE_SETTLE_MS = 400;
+
+function markSourceShown(sourceKey: string) {
+  if (shownSourceKeys.has(sourceKey)) shownSourceKeys.delete(sourceKey);
+  shownSourceKeys.add(sourceKey);
+  if (shownSourceKeys.size > SHOWN_SOURCE_LIMIT) {
+    const oldest = shownSourceKeys.values().next().value;
+    if (oldest !== undefined) shownSourceKeys.delete(oldest);
+  }
+}
+
 export function MobileCachedImage({
-  source,
+  source: rawSource,
   uriOwnership,
   cacheKey,
   cacheKind = "cover",
@@ -88,13 +124,33 @@ export function MobileCachedImage({
   onError,
   onLoad,
   style,
+  fadeIn = true,
+  holdPreviousWhileLoading = false,
   ...props
 }: MobileCachedImageProps) {
   const { reduceMotion } = useNemuTheme();
+  // Persisted references to imported-archive pages resolve against the current
+  // documents directory (the container path changes across updates/restores).
+  const source = useMemo(() => {
+    const uri = resolveMobileLocalArchiveImageUri(rawSource.uri);
+    return uri === rawSource.uri ? rawSource : { ...rawSource, uri };
+  }, [rawSource]);
+  // Mounted under the launch screen: the reveal waits for this image to
+  // paint, so it shows at once, never fading in after the screen has lifted.
+  const [underLaunch] = useState(() => !isMobileLaunchContentReady());
+  const releaseLaunchRef = useRef<(() => void) | null>(null);
+  useLayoutEffect(() => {
+    if (!underLaunch) return;
+    const release = holdMobileLaunchRevealForImage();
+    releaseLaunchRef.current = release;
+    return () => release?.();
+  }, [underLaunch]);
   // Reduce Motion turns the 240ms cover fade into an instant reveal.
-  const skipFade = reduceMotion === true;
+  const skipFade = reduceMotion === true || !fadeIn || underLaunch;
   const sourceUri = source.uri;
   const sourceHeaders = source.headers;
+  // Starts hidden unless the fade is skipped; a source already shown this
+  // session is revealed as soon as its key is known (below, same render).
   const [imageFadeRef] = useState(
     () => new ReactAnimated.Value(skipFade ? 1 : 0),
   );
@@ -145,6 +201,11 @@ export function MobileCachedImage({
     uriOwnership,
     uriPolicy,
   ]);
+  // A source already on screen this session (a remounted reader list, a
+  // cover cell scrolling back) is shown at once: its bitmap is in the native
+  // cache, and a fade from blank would read as a flash of empty background.
+  // Read once per source key; the set only grows while it is on screen.
+  const shownAtMount = useMemo(() => shownSourceKeys.has(sourceKey), [sourceKey]);
   const cacheSource = useMemo(
     () => ({
       uri: source.uri,
@@ -301,13 +362,21 @@ export function MobileCachedImage({
       : synchronouslyCachedAsset;
   const cachedUri = cachedAsset?.kind === "file" ? cachedAsset.uri : null;
   const failed = failedSourceKey === sourceKey;
-  const imageSource = failed
-    ? undefined
-    : cachedUri
-      ? { uri: cachedUri }
-      : uriPolicy.allowed && !requiresLocalFile
-        ? source
-        : undefined;
+  const imageSource = useMemo(
+    () =>
+      failed
+        ? undefined
+        : cachedUri
+          ? { uri: cachedUri }
+          : uriPolicy.allowed && !requiresLocalFile
+            ? source
+            : undefined,
+    [cachedUri, failed, requiresLocalFile, source, uriPolicy.allowed],
+  );
+  // A failed image has nothing to paint; one still resolving holds to the cap.
+  useEffect(() => {
+    if (failed) releaseLaunchRef.current?.();
+  }, [failed]);
 
   useEffect(() => {
     onSegmentedImageRef.current?.(
@@ -405,15 +474,26 @@ export function MobileCachedImage({
     ],
   );
 
+  const [shownImage, setShownImage] = useState<{
+    sourceKey: string;
+    source: ImageURISource;
+  } | null>(null);
   const handleImageLoad = useCallback<NonNullable<ImageProps["onLoad"]>>(
     (event) => {
+      markSourceShown(sourceKey);
+      releaseLaunchRef.current?.();
+      if (holdPreviousWhileLoading && imageSource) {
+        setShownImage((current) =>
+          current?.sourceKey === sourceKey ? current : { sourceKey, source: imageSource },
+        );
+      }
       if (activeSourceKeyRef.current === sourceKey) {
         setFailedSourceKey((current) =>
           current === sourceKey ? null : current,
         );
         reportedErrorSourceKeyRef.current = null;
       }
-      if (skipFade) {
+      if (skipFade || shownAtMount) {
         imageFadeRef.setValue(1);
       } else {
         ReactAnimated.timing(imageFadeRef, {
@@ -421,10 +501,19 @@ export function MobileCachedImage({
           duration: 240,
           useNativeDriver: true,
         }).start();
+        // Design-explore: a native-driven fade can be cut off part way when
+        // its view changes hosts (a cover in a sheet as it presents was left
+        // at a quarter opacity in Add Books). Land the end value whatever
+        // happened to the animation.
+        if (mobileDesignExploreFlag) {
+          setTimeout(() => {
+            if (activeSourceKeyRef.current === sourceKey) imageFadeRef.setValue(1);
+          }, FADE_SETTLE_MS);
+        }
       }
       onLoad?.(event);
     },
-    [imageFadeRef, onLoad, skipFade, sourceKey],
+    [holdPreviousWhileLoading, imageFadeRef, imageSource, onLoad, shownAtMount, skipFade, sourceKey],
   );
 
   // Restart the fade whenever the source changes so a recycled cover cell
@@ -443,6 +532,20 @@ export function MobileCachedImage({
     if (sourceChanged) imageFadeRef.setValue(0);
   }, [imageFadeRef, skipFade, sourceKey]);
 
+  const heldImage = resolveMobileHeldImage({
+    hold: holdPreviousWhileLoading,
+    hasImage: Boolean(imageSource),
+    failed,
+    sourceKey,
+    shown: shownImage,
+  });
+  if (heldImage) {
+    return (
+      <View style={[styles.fadeShell, style]}>
+        <Image fadeDuration={0} {...props} source={heldImage} style={styles.fadeImage} />
+      </View>
+    );
+  }
   if (!imageSource && fallback !== undefined) return fallback;
 
   return (
@@ -450,10 +553,14 @@ export function MobileCachedImage({
       style={[
         styles.fadeShell,
         style,
-        { opacity: imageFadeRef },
+        { opacity: shownAtMount && !skipFade ? 1 : imageFadeRef },
       ]}
     >
       <Image
+        // Android's image view adds its own 300ms fade from transparent on
+        // every load — including a re-decode after a resize or a remounted
+        // cell — on top of ours; the shell above owns the one fade.
+        fadeDuration={0}
         {...props}
         // Only a repair changes this key: the native loader will not retry a
         // URI it already failed on unless the view element is replaced.

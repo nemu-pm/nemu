@@ -23,6 +23,8 @@ import {
   nemuFontWeight,
   nemuMaxFontSizeMultiplier,
   useNemuTheme,
+  useMobileNativeSheetTheme,
+  nemuColorWithAlpha,
 } from "@/design-system";
 import { NemuAppIconHalo } from "@/components/NemuAppIconHalo";
 import { useMobileLanguageSettings } from "@/data/mobileHooks";
@@ -34,13 +36,19 @@ import {
 import { getMobileStrings } from "@/lib/mobileI18n";
 import { describeMobileErrorDetail } from "@/lib/mobileSourceErrors";
 import {
+  getMobileAboutHeroGlowRoomTop,
+  getMobileAboutSheetBodyTopPadding,
   getMobileAboutSheetLayout,
+  MOBILE_ABOUT_HERO_METRICS,
   MOBILE_ABOUT_VERSION_PULSE,
   shouldAnimateMobileAboutVersionPulse,
 } from "@/lib/mobileAboutLayout";
+import { MOBILE_EXPLORE_GROUP_SHAPE } from "@/lib/mobileExploreRadius";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 
 const APP_VERSION = packageJson.version;
 const SOURCE_URL = "https://github.com/nemu-pm/nemu";
+const PRIVACY_URL = "https://nemu.pm/privacy";
 // Shared with the wordmark tracking so both follow the same rendered size.
 const BRAND_TITLE_FONT_SIZE = 26;
 const githubIconPaths = [
@@ -99,7 +107,7 @@ function MobileVersionPulseDot({ active, color }: { active: boolean; color: stri
 }
 
 export function MobileAboutSheet({ visible, onClose }: MobileAboutSheetProps) {
-  const { tokens } = useNemuTheme();
+  const { tokens } = useMobileNativeSheetTheme();
   const insets = useSafeAreaInsets();
   const { fontScale, height, width } = useWindowDimensions();
   const sheetLayout = getMobileAboutSheetLayout({
@@ -110,12 +118,12 @@ export function MobileAboutSheet({ visible, onClose }: MobileAboutSheetProps) {
     topInset: insets.top,
     width,
   });
+  const heroMetrics = MOBILE_ABOUT_HERO_METRICS[sheetLayout.hero];
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
   const [linkError, setLinkError] = useState<string | null>(null);
   const [openingSourceCode, setOpeningSourceCode] = useState(false);
   const openingSourceCodeRef = useRef(false);
-
   const getGuardedActionState = (): MobileAboutActionState => ({
     openingSourceCode: openingSourceCodeRef.current || openingSourceCode,
   });
@@ -123,6 +131,17 @@ export function MobileAboutSheet({ visible, onClose }: MobileAboutSheetProps) {
   const closeSheet = () => {
     setLinkError(null);
     onClose();
+  };
+
+  const openPrivacyPolicy = async () => {
+    setLinkError(null);
+    try {
+      await Linking.openURL(PRIVACY_URL);
+    } catch (error) {
+      setLinkError(
+        describeMobileErrorDetail(error, strings.common.externalLinkFailedDetail),
+      );
+    }
   };
 
   const openSourceCode = async () => {
@@ -151,18 +170,33 @@ export function MobileAboutSheet({ visible, onClose }: MobileAboutSheetProps) {
     <MobileNativeSheetScaffold
       visible={visible}
       onClose={closeSheet}
+      // This sheet has no side toolbar; center within its own full width.
+      contentIgnoresSafeAreaEdges="horizontal"
       snapPoints={sheetLayout.snapPoint ? [sheetLayout.snapPoint] : undefined}
       scroll={sheetLayout.scroll}
       scrollContentBottomInset={18}
       testID="AboutNemuSheet"
       // The app-icon glow bleeds upward; see the prop.
       androidContentHandle
-      contentStyle={styles.sheet}
+      contentStyle={[
+        styles.sheet,
+        { gap: heroMetrics.gap },
+        // iOS: a little more room above the icon so its glow fades out inside
+        // the sheet (Android's in-content drag handle already gives it 48dp).
+        Platform.OS === "ios"
+          ? { paddingTop: getMobileAboutSheetBodyTopPadding(sheetLayout.hero) }
+          : null,
+      ]}
     >
       <NemuAppIconHalo
         accessibilityLabel={strings.about.appIconLabel}
+        iconSize={heroMetrics.iconSize}
+        // The sheet's top edge clips the glow: bound it to fade out before.
+        glowRoomTop={getMobileAboutHeroGlowRoomTop({
+          hero: sheetLayout.hero,
+          platform: Platform.OS,
+        })}
         source={appIcon}
-        style={styles.iconCluster}
       />
 
       <View style={styles.titleBlock}>
@@ -219,9 +253,10 @@ export function MobileAboutSheet({ visible, onClose }: MobileAboutSheetProps) {
           style={[
             styles.linkRow,
             {
-              backgroundColor: colorWithOpacity(tokens.muted, 0.42),
+              backgroundColor: nemuColorWithAlpha(tokens.muted, 0.42),
               opacity: openingSourceCode ? 0.66 : 1,
             },
+            mobileDesignExploreFlag ? MOBILE_EXPLORE_GROUP_SHAPE : null,
           ]}
         >
           <View style={[styles.linkIcon, { backgroundColor: tokens.sourceIconGlass }]}>
@@ -255,6 +290,22 @@ export function MobileAboutSheet({ visible, onClose }: MobileAboutSheetProps) {
             paths={linkSquareIconPaths}
             size={17}
           />
+        </NemuPressable>
+        <NemuPressable
+          accessibilityRole="link"
+          hitSlop={8}
+          onPress={() => {
+            void openPrivacyPolicy();
+          }}
+          pressedScale={0.97}
+          style={styles.privacyLink}
+        >
+          <Text
+            maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
+            style={[styles.privacyLinkText, { color: tokens.mutedForeground }]}
+          >
+            {strings.about.privacyPolicy}
+          </Text>
         </NemuPressable>
       </View>
 
@@ -297,16 +348,6 @@ function HugeiconsNativeIcon({
   );
 }
 
-function colorWithOpacity(color: string, opacity: number) {
-  const hex = color.match(/^#([0-9a-f]{6})$/i);
-  if (!hex) return color;
-  const raw = hex[1];
-  const red = Number.parseInt(raw.slice(0, 2), 16);
-  const green = Number.parseInt(raw.slice(2, 4), 16);
-  const blue = Number.parseInt(raw.slice(4, 6), 16);
-  return `rgba(${red},${green},${blue},${Math.max(0, Math.min(1, opacity))})`;
-}
-
 const styles = StyleSheet.create({
   // Top padding comes from the scaffold (8pt on iOS as before; on Android the
   // drag handle is drawn inside the content, above the halo).
@@ -314,10 +355,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 13,
     paddingHorizontal: 24,
-  },
-  iconCluster: {
-    width: 104,
-    height: 96,
   },
   titleBlock: {
     alignItems: "center",
@@ -364,8 +401,18 @@ const styles = StyleSheet.create({
   },
   links: {
     width: "100%",
+    maxWidth: 420,
     gap: 8,
     paddingTop: 2,
+  },
+  privacyLink: {
+    alignSelf: "center",
+    paddingVertical: 4,
+  },
+  privacyLinkText: {
+    fontSize: 13,
+    lineHeight: 18,
+    textDecorationLine: "underline",
   },
   linkRow: {
     minHeight: 62,

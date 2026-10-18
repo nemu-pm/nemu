@@ -21,8 +21,10 @@ export type MobileSettingsSkeletonSection =
   | null
   | "reader"
   | "sources"
+  | "directories"
   | "appearance"
-  | "data";
+  | "data"
+  | "experimental";
 
 export type MobileSettingsMutationResultAction =
   | "close-confirmation"

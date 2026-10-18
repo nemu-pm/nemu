@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
   MOBILE_JAPANESE_LEARNING_GRAMMAR_MAX_INPUT_CHARACTERS,
   MOBILE_JAPANESE_LEARNING_GRAMMAR_MAX_RESPONSE_BYTES,
@@ -11,6 +11,11 @@ import {
   runMobileJapaneseLearningGrammar,
   serializeMobileGrammarTokens,
 } from "./mobileJapaneseLearningGrammar";
+import { setMobileJapaneseLearningAuthCookieReaderForTesting } from "./mobileJapaneseLearningAuth";
+
+// Cloud paths are server features: these tests run signed in.
+beforeAll(() => setMobileJapaneseLearningAuthCookieReaderForTesting(() => "nemu.session_token=test"));
+afterAll(() => setMobileJapaneseLearningAuthCookieReaderForTesting(undefined));
 
 describe("mobile Japanese Learning grammar", () => {
   test("keeps normalized reading text private to one profile cache", () => {
@@ -123,6 +128,43 @@ describe("mobile Japanese Learning grammar", () => {
         partOfSpeech: "Punctuation",
       },
     ]);
+  });
+
+  test("retains all alternative readings in an unscored wrapper", () => {
+    const [token] = convertMobileIchiranSegments([[[[["nama", {
+      text: "生",
+      alternative: [
+        { text: "生", kana: "なま", score: 10, gloss: [{ pos: "adj-no", gloss: "raw" }] },
+        { text: "生", kana: "せい", score: 9, gloss: [{ pos: "n", gloss: "life" }] },
+      ],
+    }, []]], 10]]]);
+    expect(token?.reading).toBe("なま");
+    expect(token?.partOfSpeech).toBe("No-Adjective");
+    expect(token?.alternatives).toMatchObject([{ reading: "せい", meanings: [{ text: "life" }] }]);
+  });
+
+  test("preserves suffix metadata and nested conjugation paths", () => {
+    const [token] = convertMobileIchiranSegments([[[[["saserareta", {
+      text: "させられた", suffix: "Polite", conj: [{
+        reading: "させる", prop: [{ type: "Past (~ta)", pos: "v1-s" }],
+        via: [{ reading: "する", prop: [{ type: "Causative", pos: "vs-i" }] }],
+      }],
+    }, []]], 10]]]);
+    expect(token).toMatchObject({ isSuffix: true, suffix: "Polite", partOfSpeech: "Ichidan Verb (-ru Special)" });
+    expect(token?.conjugations[0]).toMatchObject({
+      hasConjugationVia: true, conjugations: [{ word: "する", hasConjugationVia: false }],
+    });
+  });
+
+  test("uses compound POS and scored alternative kana without dropping the main entry", () => {
+    const [token] = convertMobileIchiranSegments([[[[["nama", {
+      text: "生", score: 10,
+      alternative: [{ text: "生", kana: "なま", score: 9 }],
+      compound: ["生"], components: [{ text: "生", gloss: [{ pos: "n-pref", gloss: "raw" }] }],
+    }, []]], 10]]]);
+    expect(token).toMatchObject({ word: "生", reading: "なま", partOfSpeech: "Noun Prefix" });
+    expect(token?.alternatives).toHaveLength(1);
+    expect(token?.components).toHaveLength(1);
   });
 
   test("normalizes Ichiran fields without String.prototype.replaceAll", () => {
@@ -257,9 +299,9 @@ describe("mobile Japanese Learning grammar", () => {
     expect(token).toMatchObject({
       word: "食べた",
       components: [{ word: "食べ", reading: "たべ" }, { word: "た" }],
-      conjugationTypes: ["past"],
       conjugations: [
         {
+          conjugationTypes: ["past"],
           word: "食べる",
           reading: "たべる",
           partOfSpeech: "Ichidan Verb (-ru)",
@@ -268,6 +310,8 @@ describe("mobile Japanese Learning grammar", () => {
       ],
       alternatives: [{ word: "喰べた", reading: "たべた" }],
     });
+    // Web shows the types on the conjugation entry only.
+    expect(token.conjugationTypes).toBeUndefined();
   });
 
   test("serializes mobile grammar tokens for Nemu Chat context", () => {

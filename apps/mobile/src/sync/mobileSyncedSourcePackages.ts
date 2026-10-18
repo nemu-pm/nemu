@@ -14,6 +14,11 @@ import type {
   SourcePackageCacheResult,
 } from "@/sources/sourcePackageCacheTypes";
 import { assertAidokuSourcePackageIdentity } from "@/sources/sourcePackageCacheTypes";
+import {
+  applyMobileCatalogEntryToInstalledSource,
+  findMobileCatalogEntryForInstalledSource,
+  mobileInstalledSourceNeedsCatalogRepair,
+} from "@/lib/mobileInstalledSourceCatalogRepair";
 
 type CacheSourcePackage = (
   source: MobileRegistrySource,
@@ -24,8 +29,18 @@ type HasCachedSourcePackage = (
   packageCacheKey: string,
 ) => Promise<boolean>;
 
+export type ResolveMobileSourceCatalogEntry = (
+  source: InstalledSource,
+) => Promise<MobileRegistrySource | null>;
+
 export type HydrateMobileSyncedSourcePackagesOptions = {
   cachePackage?: CacheSourcePackage;
+  /**
+   * Looks up the registry catalog entry for a synced record that carries no
+   * download URL (a bare `{ id, registryId, version }` record from an older
+   * client), so it can be filled in and its package fetched.
+   */
+  resolveCatalogEntry?: ResolveMobileSourceCatalogEntry;
   hasPackage?: HasCachedSourcePackage;
   onHydrationError?: (source: InstalledSource, error: unknown) => void;
   shouldContinue?: () => boolean;
@@ -141,9 +156,25 @@ export async function hydrateMobileSyncedSourcePackages(
   const hasPackage = options.hasPackage ?? hasCachedSourcePackage;
   const hydrated: InstalledSource[] = [];
 
-  for (const source of sources) {
+  for (const syncedSource of sources) {
     if (options.signal?.aborted || options.shouldContinue?.() === false) {
       return sources;
+    }
+    let source = syncedSource;
+    if (options.resolveCatalogEntry && mobileInstalledSourceNeedsCatalogRepair(source)) {
+      try {
+        const entry = await options.resolveCatalogEntry(source);
+        // Only fill a record at the catalog's own version. A newer catalog
+        // version is the registry update pass's job: it installs and bumps the
+        // sync clock, so the fixed record also reaches the cloud; filling it
+        // here would be reverted by the next (older) cloud delivery.
+        if (entry && entry.version === source.version) {
+          source = applyMobileCatalogEntryToInstalledSource(source, entry);
+        }
+      } catch (error) {
+        if (options.signal?.aborted) return sources;
+        options.onHydrationError?.(source, error);
+      }
     }
     try {
       const next = await hydrateMobileSyncedSourcePackage(source, {
@@ -163,4 +194,24 @@ export async function hydrateMobileSyncedSourcePackages(
   }
 
   return hydrated;
+}
+
+/**
+ * A per-pass catalog lookup for `resolveCatalogEntry`: the persisted registry
+ * index first (no network), then one fresh catalog fetch for records the
+ * cached index does not know — a fresh install has no cached index at all.
+ */
+export function createMobileSourceCatalogResolver(deps: {
+  loadCached: () => Promise<MobileRegistrySource[] | null>;
+  fetchCatalog: () => Promise<MobileRegistrySource[]>;
+}): ResolveMobileSourceCatalogEntry {
+  let cached: Promise<MobileRegistrySource[]> | null = null;
+  let fresh: Promise<MobileRegistrySource[]> | null = null;
+  return async (source) => {
+    cached ??= deps.loadCached().then((value) => value ?? [], () => []);
+    const hit = findMobileCatalogEntryForInstalledSource(source, await cached);
+    if (hit) return hit;
+    fresh ??= deps.fetchCatalog();
+    return findMobileCatalogEntryForInstalledSource(source, await fresh);
+  };
 }

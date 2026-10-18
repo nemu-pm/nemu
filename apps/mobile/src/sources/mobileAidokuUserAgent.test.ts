@@ -122,6 +122,11 @@ describe("mobile Aidoku default user agent", () => {
     expect(bridge).toContain("NemuAidokuModule.decorateAidokuSourceImageRequest?.(key, url, headers)");
     expect(bridge).toContain("sourceKey: input.sourceKey,");
     expect(bridge).not.toContain("withMobileAidokuUserAgent");
+    // Both paths record the request for the session's own local-network grant
+    // (a LANraragi page on the user's server); `imageScopes` checks the endpoint.
+    expect(modify).toContain(").then(scopeImageRequest);");
+    expect(bridge).toMatch(/decorate:[\s\S]*?\}\)\.then\(scopeImageRequest\);/);
+    expect(bridge).toContain("registerLocalNetworkImageUrl(request.url, sourceKey)");
 
     const pages = readFileSync(
       path.join(mobileRoot, "src/sources/mobileSourcePages.ts"),
@@ -135,7 +140,9 @@ describe("mobile Aidoku default user agent", () => {
     // the source UA only alongside the jar's cookies.
     const iosModule = read("ios/NemuAidokuModule.swift");
     expect(iosModule).toContain('AsyncFunction("decorateAidokuSourceImageRequest")');
-    expect(iosModule).toContain("NemuNativeHttpAddressPolicy.validatedURL(urlString)");
+    expect(iosModule).toMatch(
+      /NemuNativeHttpAddressPolicy\.validatedURL\(\s*urlString,\s*grant: NemuNativeLocalNetworkAllowance\.grant\(forScope: sourceKey\)\s*\)/,
+    );
     expect(iosModule).toMatch(
       /sourceImageHeaders\(\s*output,\s*sourceCookie: explicitCookie,\s*sourceUserAgent: nemuAidokuDefaultUserAgent\s*\)/,
     );
@@ -149,7 +156,7 @@ describe("mobile Aidoku default user agent", () => {
     expect(androidModule).toContain(
       "decorateSourceImageRequest(sourceKey, urlString, existingHeaders) ?: existingHeaders",
     );
-    expect(androidModule).toContain("NemuNativeHttpAddressPolicy.resolvePublicAddresses(url.host)");
+    expect(androidModule).toContain("NemuNativeHttpAddressPolicy.resolvePublicAddresses(url.host, grant)");
     expect(androidModule).toContain("sourceUserAgent = NEMU_AIDOKU_DEFAULT_USER_AGENT");
     expect(
       androidModule.match(/sourceDefault = NEMU_AIDOKU_DEFAULT_USER_AGENT/g),

@@ -315,6 +315,16 @@ const ANDROID_HEADLESS_APP_LOADER_PROGUARD_BLOCK = `
 # can run only while the foreground React runtime happens to remain alive.
 -keep class ${ANDROID_HEADLESS_APP_LOADER_CLASS} { *; }
 `;
+const ANDROID_WORK_DATABASE_PROGUARD_MARKER = "nemuKeepWorkDatabaseConstructor";
+const ANDROID_WORK_DATABASE_PROGUARD_BLOCK = `
+
+# ${ANDROID_WORK_DATABASE_PROGUARD_MARKER}: Room 2.5 creates this implementation
+# reflectively during WorkManager startup. Its consumer rule keeps only the
+# class, which does not retain the no-arg constructor under R8 full mode.
+-keep class androidx.work.impl.WorkDatabase_Impl {
+    public <init>();
+}
+`;
 const ANDROID_SPLASH_STYLE_PATTERN =
   /^[ \t]*<style name="Theme\.App\.SplashScreen"[^>]*>[\s\S]*?^[ \t]*<\/style>/m;
 const ANDROID_SPLASH_BEHAVIOR_PATTERN =
@@ -504,43 +514,36 @@ function ensureOptionalAndroidCameraFeature(androidManifest) {
   return androidManifest;
 }
 
-function ensureAndroidPublicSourceCleartextTraffic(androidManifest) {
+function setAndroidApplicationAttribute(androidManifest, attribute, value) {
   const application = androidManifest.manifest.application?.[0];
   if (!application) {
     throw new Error("Android manifest is missing its application element.");
   }
-
-  // Aidoku packages may legitimately target public legacy HTTP origins. Expo's
-  // debug overlay opts in to cleartext, but Android 9+ blocks OkHttp in release
-  // unless the main manifest does too. Keep the behavior explicit here so a
-  // debug device test cannot pass while the Play build fails. Source requests
-  // remain behind Nemu's direct-proxy, DNS-answer, and connected-peer SSRF
-  // checks; first-party auth and sync endpoints remain HTTPS-only.
-  //
-  // The generated network security config is what actually governs on the
-  // supported API floor (26+): it permits cleartext in its base config and
-  // denies it for first-party domains, and the platform ignores this attribute
-  // whenever a config is present. The attribute stays for older tooling and
-  // manifest readers that only understand the flag.
-  application.$ = {
-    ...application.$,
-    [ANDROID_CLEARTEXT_TRAFFIC_ATTRIBUTE]: "true",
-  };
+  application.$ = { ...application.$, [attribute]: value };
   return androidManifest;
 }
 
-function ensureAndroidFirstPartyNetworkSecurityConfig(androidManifest) {
-  const application = androidManifest.manifest.application?.[0];
-  if (!application) {
-    throw new Error("Android manifest is missing its application element.");
-  }
+// Aidoku packages may legitimately target public legacy HTTP origins, and
+// Android 9+ blocks OkHttp cleartext in release unless the main manifest opts
+// in (Expo's debug overlay does, so a debug test alone would pass). Source
+// requests stay behind the direct-proxy, DNS-answer and connected-peer SSRF
+// checks. On the API floor (26+) the generated network security config governs
+// instead (cleartext in its base config, denied for first-party domains); the
+// attribute stays for tooling that only reads the flag.
+function ensureAndroidPublicSourceCleartextTraffic(androidManifest) {
+  return setAndroidApplicationAttribute(
+    androidManifest,
+    ANDROID_CLEARTEXT_TRAFFIC_ATTRIBUTE,
+    "true"
+  );
+}
 
-  application.$ = {
-    ...application.$,
-    [ANDROID_NETWORK_SECURITY_CONFIG_ATTRIBUTE]:
-      ANDROID_NETWORK_SECURITY_CONFIG_RESOURCE,
-  };
-  return androidManifest;
+function ensureAndroidFirstPartyNetworkSecurityConfig(androidManifest) {
+  return setAndroidApplicationAttribute(
+    androidManifest,
+    ANDROID_NETWORK_SECURITY_CONFIG_ATTRIBUTE,
+    ANDROID_NETWORK_SECURITY_CONFIG_RESOURCE
+  );
 }
 
 function removeLegacyAndroidBackgroundAudioLintIgnore(androidManifest) {
@@ -699,19 +702,25 @@ async function migrateAndroidSplashStyle(platformProjectRoot) {
   }
 }
 
-async function ensureAndroidHeadlessAppLoaderProguardRule(platformProjectRoot) {
+function patchAndroidReflectionProguardRules(contents) {
+  let next = contents;
+  if (!next.includes(ANDROID_HEADLESS_APP_LOADER_PROGUARD_MARKER)) {
+    next = `${next.trimEnd()}${ANDROID_HEADLESS_APP_LOADER_PROGUARD_BLOCK}`;
+  }
+  if (!next.includes(ANDROID_WORK_DATABASE_PROGUARD_MARKER)) {
+    next = `${next.trimEnd()}${ANDROID_WORK_DATABASE_PROGUARD_BLOCK}`;
+  }
+  return next;
+}
+
+async function ensureAndroidReflectionProguardRules(platformProjectRoot) {
   const proguardRulesPath = path.join(
     platformProjectRoot,
     "app/proguard-rules.pro",
   );
   const contents = await fs.readFile(proguardRulesPath, "utf8");
-  if (contents.includes(ANDROID_HEADLESS_APP_LOADER_PROGUARD_MARKER)) {
-    return;
-  }
-  await fs.writeFile(
-    proguardRulesPath,
-    `${contents.trimEnd()}${ANDROID_HEADLESS_APP_LOADER_PROGUARD_BLOCK}`,
-  );
+  const next = patchAndroidReflectionProguardRules(contents);
+  if (next !== contents) await fs.writeFile(proguardRulesPath, next);
 }
 
 function patchSwiftAppDelegate(contents) {
@@ -743,7 +752,12 @@ function patchSwiftAppDelegate(contents) {
     "normalize the JS runtime factory return type",
   );
 
-  if (!next.includes(IOS_SCENE_LIFECYCLE_MARKER)) {
+  // SDK 58 supplies SceneDelegate: ExpoAppSceneDelegate in its own file and
+  // exposes the factory through this protocol. Preserve Expo's scene/deep-link
+  // dispatch instead of duplicating the legacy fallback below.
+  const usesExpoSceneLifecycle =
+    /class AppDelegate:[^{]*\bExpoReactNativeFactoryProvider\b/.test(next);
+  if (!usesExpoSceneLifecycle && !next.includes(IOS_SCENE_LIFECYCLE_MARKER)) {
     next = replaceOnceOrThrow(
       next,
       /(  var reactNativeFactory: RCTReactNativeFactory\?\n)/,
@@ -904,16 +918,28 @@ function patchPodfile(contents) {
     );
   }
 
-  // The patched ExpoModulesJSI standalone runtime uses React-jsc. Remove the
-  // old direct Hermes pod so two JSI engines cannot interpose each other's C++
-  // symbols in the same process. Already gone once a previous prebuild removed
-  // it from a Podfile that is not regenerated.
+  // SDK 58 / Worklets 0.13 runs its isolated UI runtime on Hermes even when
+  // React Native and ExpoModulesJSI use JSC. RN skips setup_hermes! for a JSC
+  // host, so explicitly register both hermes-engine and React-hermes using
+  // RN's helper (including its matching Hermes version tag). This does not
+  // change USE_THIRD_PARTY_JSC, USE_HERMES, or the app runtime factory.
+  // Normalize a legacy direct pod declaration to avoid duplicate pod sources.
   next = replaceOptional(
     next,
     /\n  pod 'hermes-engine', :podspec => "#\{config\[:reactNativePath\]\}\/sdks\/hermes-engine\/hermes-engine\.podspec"\n/g,
     "\n",
-    "remove the direct hermes-engine pod",
+    "remove the legacy direct hermes-engine pod",
   );
+  const workletsHermesSetup =
+    "  setup_hermes!(:react_native_path => config[:reactNativePath]) if use_third_party_jsc()";
+  if (!next.includes(workletsHermesSetup)) {
+    next = replaceOnceOrThrow(
+      next,
+      /(  use_react_native!\([\s\S]*?\n  \)\n)/,
+      `$1\n  # Hermes is only the Worklets UI engine; the app runtime stays JSC.\n${workletsHermesSetup}\n`,
+      "register the isolated Worklets Hermes pods after React Native setup",
+    );
+  }
 
   next = replaceOptional(
     next,
@@ -1025,6 +1051,17 @@ function patchAndroidAppBuildGradle(contents) {
       /(implementation\("com\.facebook\.react:react-android"\)\n)/,
       `$1    ${ANDROID_JSC_APP_DEPENDENCY}\n`,
       "add the JavaScriptCore project dependency to the app module",
+    );
+  }
+  const dualEnginePackaging = "react { enableSoCleanup = false }";
+  if (!next.includes(dualEnginePackaging)) {
+    next = replaceOnceOrThrow(
+      next,
+      /(^dependencies \{\n)/m,
+      "// Worklets 0.13 brings its own Hermes runtime alongside the main JSC host.\n" +
+        "// RNGP's single-engine cleanup otherwise removes libhermesvm.so from the APK.\n" +
+        `${dualEnginePackaging}\n\n$1`,
+      "retain both JSC and Worklets Hermes native libraries",
     );
   }
 
@@ -1158,7 +1195,7 @@ function withThirdPartyJsc(config) {
   config = withFinalizedMod(config, [
     "android",
     async (finalizedConfig) => {
-      await ensureAndroidHeadlessAppLoaderProguardRule(
+      await ensureAndroidReflectionProguardRules(
         finalizedConfig.modRequest.platformProjectRoot,
       );
       await writeAndroidNetworkSecurityConfig(
@@ -1195,6 +1232,8 @@ module.exports.androidNetworkSecurityConfigXml =
   ANDROID_NETWORK_SECURITY_CONFIG_XML;
 module.exports.androidLintXml = ANDROID_LINT_XML;
 module.exports.patchAndroidDebugManifest = patchAndroidDebugManifest;
+module.exports.patchAndroidReflectionProguardRules =
+  patchAndroidReflectionProguardRules;
 module.exports.migrateAndroidSplashStyleContents =
   migrateAndroidSplashStyleContents;
 module.exports.replaceOnceOrThrow = replaceOnceOrThrow;

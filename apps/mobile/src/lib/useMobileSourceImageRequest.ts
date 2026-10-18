@@ -7,6 +7,10 @@ import {
 import type { InstalledSource } from "@/data/schema";
 import { getMobileInstalledSourceSettingsKeys } from "@/lib/mobileInstalledSourceKeys";
 import {
+  getRememberedMobileSourceImageRequest,
+  rememberMobileSourceImageRequestFor,
+} from "@/lib/mobileSourceImageRequestMemoryStore";
+import {
   loadMobileSourceSettingsByKeys,
   mergeSourceSettingValues,
   type MobileSourceSettingsReader,
@@ -161,6 +165,9 @@ function useMobileSourceImageRequestState(
     identityKey: string;
     request: MobileSourceImageRequest | null;
   } | null>(null);
+  // What this image resolved to last launch: painted from the first frame
+  // (a cold start included) until the live resolve settles.
+  const remembered = useMemo(() => getRememberedMobileSourceImageRequest(source, url), [source, url]);
   // A processed cover resolves to an app-local `file://` URI that is memoized
   // for this identity. If the file is pruned or lost the memoized entry is
   // still a hit, so nothing re-resolves and the cover stays broken. The render
@@ -199,6 +206,7 @@ function useMobileSourceImageRequestState(
         // the URI is unchanged and the view needs to be told explicitly that
         // it is worth another attempt.
         if (repairedUri) reportMobileSourceImageRepaired(repairedUri);
+        rememberMobileSourceImageRequestFor(source, url, request);
         setState((current) =>
           // A failed refresh keeps the last good request for the same image.
           request === null &&
@@ -237,9 +245,17 @@ function useMobileSourceImageRequestState(
     });
   }, [repair, source, sourceRequestKey, url]);
 
-  const settledRequest =
-    state?.identityKey === imageIdentityKey ? state.request : null;
   const settled = Boolean(imageIdentityKey) && state?.identityKey === imageIdentityKey;
+  const live = settled ? state.request : null;
+  // The remembered object stays when the live request is the same paint, so
+  // nothing downstream sees a new image source.
+  const settledRequest =
+    !settled
+      ? remembered
+      : live && remembered && makeMobileCoverRequestKey({ uri: live.url, headers: live.headers }) ===
+          makeMobileCoverRequestKey({ uri: remembered.url, headers: remembered.headers })
+        ? remembered
+        : live;
   return useMemo<MobileSourceImageRequestState>(
     () => ({
       status: !imageIdentityKey ? "idle" : settled ? "settled" : "pending",
@@ -378,18 +394,38 @@ export type MobileStickySourceCover = {
 /**
  * Cover source for a manga hero image that never flickers back to a headerless
  * URL or to the placeholder while a source rewrite is resolving.
+ *
+ * `sources` lists the installed sources to request the cover through, likely
+ * owner first (see `resolveMobileEntryCoverSources`). When the painted request
+ * fails, the next source's request is tried before giving up, so a cover whose
+ * owner guess was wrong still shows up instead of the gradient placeholder.
  */
 export function useMobileStickySourceCover({
   source,
+  sources,
   cover,
   coverHeaders,
 }: {
-  source: InstalledSource | null | undefined;
+  source?: InstalledSource | null | undefined;
+  sources?: readonly InstalledSource[] | null;
   cover: string | null | undefined;
   /** Headers already resolved for `cover` (listing seed / stored library row). */
   coverHeaders?: Record<string, string> | null;
 }): MobileStickySourceCover {
-  const requestState = useMobileSourceImageRequestState(source, cover);
+  const candidates: readonly (InstalledSource | null | undefined)[] =
+    sources?.length ? sources : [source];
+  const candidatesKey = candidates
+    .map((candidate) => candidate?.id ?? "")
+    .join("|");
+  const attemptKey = `${cover ?? ""}\u0000${candidatesKey}`;
+  const [attempt, setAttempt] = useState<{ key: string; index: number }>({
+    key: attemptKey,
+    index: 0,
+  });
+  const candidateIndex = attempt.key === attemptKey ? attempt.index : 0;
+  const candidateCount = candidates.length;
+  const activeSource = candidates[candidateIndex] ?? null;
+  const requestState = useMobileSourceImageRequestState(activeSource, cover);
   const [lastResolved, setLastResolved] =
     useState<MobileStickyCoverPaint | null>(null);
   const [failedKey, setFailedKey] = useState<string | null>(null);
@@ -401,7 +437,7 @@ export function useMobileStickySourceCover({
     cover,
     coverHeaders,
     requestState,
-    requiresSourceRequest: Boolean(source),
+    requiresSourceRequest: Boolean(activeSource),
   });
   // Remember the resolved paint during render (React's "adjust state while
   // rendering" pattern): the next render has to be able to keep showing it
@@ -424,8 +460,14 @@ export function useMobileStickySourceCover({
   const displayedKey = makeMobileCoverRequestKey(displayed);
   const onCoverError = useCallback(() => {
     if (!displayedKey) return;
+    if (candidateIndex + 1 < candidateCount) {
+      // Wrong owner guess (403, hotlink placeholder): request the cover
+      // through the next linked source before falling back further.
+      setAttempt({ key: attemptKey, index: candidateIndex + 1 });
+      return;
+    }
     setFailedKey(displayedKey);
-  }, [displayedKey]);
+  }, [attemptKey, candidateCount, candidateIndex, displayedKey]);
   const onCoverLoad = useCallback(() => {
     if (!displayed) return;
     setLastLoaded(displayed);

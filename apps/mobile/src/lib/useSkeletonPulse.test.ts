@@ -85,7 +85,9 @@ describe("skeleton components", () => {
   test("chapter placeholders match MobileChapterCell geometry", () => {
     const source = readComponent("MobileMangaPageSkeleton.tsx");
     expect(source).toContain("minHeight: 52");
-    expect(source).toContain('flexBasis: "48%"');
+    // Two equal columns that fill the row, like MobileChapterGrid.
+    expect(source).toContain("flex: 1,\n    minWidth: 0,");
+    expect(readComponent("MobileChapterGrid.tsx")).toContain("flex: 1,\n    minWidth: 0,");
   });
 
   test("settings rows use the real 68/72pt heights and icon frames", () => {

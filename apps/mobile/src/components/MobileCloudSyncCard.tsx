@@ -1,4 +1,6 @@
+import { ExploreSettingsGlyph } from "@/components/explore/ExploreSettingsGlyph";
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "expo-router";
 import {
   AccessibilityInfo,
   ActivityIndicator,
@@ -10,16 +12,18 @@ import {
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useConvexAuth, useQuery } from "convex/react";
 import {
-  MobileChip,
   MobileNativeSheetScaffold,
   nemuColorWithAlpha,
   NemuPressable,
   radius,
   nemuFontWeight,
   nemuMaxFontSizeMultiplier,
+  nemuSheetMetrics,
   useNemuTheme,
+  useMobileNativeSheetTheme,
   NemuButton,
 } from "@/design-system";
+import { MobileSheetSelectionIndicator } from "@/components/MobileSheetSelectionIndicator";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import { MobileConfirmationSheet } from "@/components/MobileConfirmationSheet";
 import { useMobileLanguageSettings } from "@/data/mobileHooks";
@@ -30,6 +34,8 @@ import {
   type MobileStrings,
 } from "@/lib/mobileI18n";
 import { describeMobileErrorDetail } from "@/lib/mobileSourceErrors";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
+import { MOBILE_EXPLORE_GROUP_SHAPE } from "@/lib/mobileExploreRadius";
 import { mobileAuthClient } from "@/sync/mobileAuthClient";
 import { retryMobileConvexAuth } from "@/sync/mobileConvexAuthRetry";
 import { isMobileAuthStorageUnavailable } from "@/sync/mobileAuthSecureStorage";
@@ -82,275 +88,19 @@ type CloudSyncError = {
   accountId?: string | null;
 };
 
-type SignOutChoiceSheetProps = {
-  visible: boolean;
-  strings: MobileStrings;
-  keepData: boolean;
-  loading: boolean;
-  error?: CloudSyncError | null;
-  onKeepDataChange: (keepData: boolean) => void;
-  onErrorDismiss: () => void;
-  onCancel: () => void;
-  onConfirm: () => void;
-};
-
-/** The sync state reads as a read-only chip, so it is the `static` pill. */
-function SyncStatusBadge({ label }: { label: string }) {
-  return <MobileChip accessibilityLabel={label} label={label} variant="static" />;
-}
-
-function MobileCloudSyncUnavailableCard({
-  strings,
-}: {
-  strings: MobileStrings;
-}) {
-  const { tokens } = useNemuTheme();
-
-  return (
-    <View
-      style={[
-        styles.shell,
-        { backgroundColor: tokens.card, borderColor: tokens.border },
-      ]}
-    >
-      <View style={styles.content}>
-        <View style={styles.header}>
-          <View style={styles.iconFrame}>
-            <Ionicons name="cloud-outline" size={20} color={tokens.primary} />
-          </View>
-          <View style={styles.copy}>
-            <Text
-              maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
-              style={[styles.title, { color: tokens.foreground }]}
-            >
-              {strings.settings.cloudSync}
-            </Text>
-            <Text
-              maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
-              style={[styles.subtitle, { color: tokens.mutedForeground }]}
-            >
-              {strings.settings.cloudSyncDescription}
-            </Text>
-          </View>
-          <SyncStatusBadge label={strings.settings.cloudSyncUnavailable} />
-        </View>
-        <Text
-          maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
-          style={[styles.detail, { color: tokens.mutedForeground }]}
-        >
-          {strings.settings.cloudSyncUnavailableDetail}
-        </Text>
-      </View>
-    </View>
-  );
-}
-
-function SignOutChoiceSheet({
-  visible,
-  strings,
-  keepData,
-  loading,
-  error,
-  onKeepDataChange,
-  onErrorDismiss,
-  onCancel,
-  onConfirm,
-}: SignOutChoiceSheetProps) {
-  const { tokens } = useNemuTheme();
-
-  const requestClose = () => {
-    if (visible && !loading) {
-      onCancel();
-    }
-  };
-
-  const selectChoice = (nextKeepData: boolean) => {
-    if (!loading) {
-      onKeepDataChange(nextKeepData);
-    }
-  };
-
-  return (
-    <MobileNativeSheetScaffold
-      visible={visible}
-      onClose={requestClose}
-      title={strings.settings.cloudSyncSignOutTitle}
-      subtitle={strings.settings.cloudSyncSignOutMessage}
-      headerLeading={
-        <View style={styles.sheetIconFrame}>
-          <Ionicons name="log-out-outline" size={22} color={tokens.danger} />
-        </View>
-      }
-      dismissLabel={strings.common.cancel}
-      dismissDisabled={loading}
-      enablePanDownToClose={!loading}
-      contentStyle={styles.sheetContent}
-    >
-      <View style={styles.signOutOptions}>
-        <SignOutOption
-          active={keepData}
-          description={strings.settings.cloudSyncKeepDataDescription}
-          disabled={loading}
-          iconName="phone-portrait-outline"
-          label={strings.settings.cloudSyncKeepData}
-          onPress={() => selectChoice(true)}
-        />
-        <SignOutOption
-          active={!keepData}
-          description={strings.settings.cloudSyncRemoveDataDescription}
-          destructive
-          disabled={loading}
-          iconName="trash-outline"
-          label={strings.settings.cloudSyncRemoveData}
-          onPress={() => selectChoice(false)}
-        />
-      </View>
-
-      {error ? (
-        <MobileInlineErrorBanner
-          title={error.title}
-          detail={error.detail}
-          dismissLabel={strings.common.clear}
-          onDismiss={onErrorDismiss}
-          variant="embedded"
-        />
-      ) : null}
-
-      <View style={styles.sheetActions}>
-        <NemuButton
-          accessibilityLabel={strings.common.cancel}
-          containerStyle={styles.sheetButton}
-          disabled={loading}
-          hapticFeedback="none"
-          label={strings.common.cancel}
-          onPress={onCancel}
-          variant="secondary"
-        />
-        <NemuButton
-          accessibilityLabel={strings.settings.cloudSyncSignOutLabel}
-          containerStyle={styles.sheetButton}
-          disabled={loading}
-          label={strings.settings.cloudSyncSignOut}
-          loading={loading}
-          onPress={onConfirm}
-          style={styles.sheetDestructiveButton}
-          variant="destructive"
-        />
-      </View>
-    </MobileNativeSheetScaffold>
-  );
-}
-
-function SignOutOption({
-  active,
-  description,
-  destructive = false,
-  disabled,
-  iconName,
-  label,
-  onPress,
-}: {
-  active: boolean;
-  description: string;
-  destructive?: boolean;
-  disabled: boolean;
-  iconName: keyof typeof Ionicons.glyphMap;
-  label: string;
-  onPress: () => void;
-}) {
-  const { tokens } = useNemuTheme();
-  const activeColor = destructive ? tokens.danger : tokens.primary;
-  const canSelect = canSelectMobileCloudSignOutChoice({
-    active,
-    loading: disabled,
-  });
-
-  return (
-    <NemuPressable
-      accessibilityRole="radio"
-      accessibilityLabel={label}
-      accessibilityState={{ checked: active, disabled }}
-      disabled={disabled}
-      hapticFeedback={canSelect ? "selection" : "none"}
-      onPress={() => {
-        if (canSelect) {
-          onPress();
-        }
-      }}
-      pressedScale={0.985}
-      style={[
-        styles.optionRow,
-        {
-          backgroundColor: active
-            ? nemuColorWithAlpha(activeColor, 0.09)
-            : tokens.muted,
-          borderColor: active ? activeColor : tokens.border,
-          opacity: disabled ? 0.65 : 1,
-        },
-      ]}
-    >
-      <View style={styles.optionIconFrame}>
-        <Ionicons
-          name={iconName}
-          size={19}
-          color={active ? activeColor : tokens.mutedForeground}
-        />
-      </View>
-      <View style={styles.optionCopy}>
-        <Text
-          numberOfLines={1}
-          style={[
-            styles.optionTitle,
-            { color: active ? activeColor : tokens.foreground },
-          ]}
-        >
-          {label}
-        </Text>
-        <Text
-          numberOfLines={2}
-          style={[styles.optionDescription, { color: tokens.mutedForeground }]}
-        >
-          {description}
-        </Text>
-      </View>
-      <View
-        style={[
-          styles.optionRadio,
-          {
-            borderColor: active ? activeColor : tokens.border,
-            backgroundColor: active ? activeColor : "transparent",
-          },
-        ]}
-      >
-        {active ? (
-          <Ionicons
-            name="checkmark"
-            size={13}
-            color={tokens.primaryForeground}
-          />
-        ) : null}
-      </View>
-    </NemuPressable>
-  );
-}
-
 function MobileCloudSyncConfiguredCard({
   strings,
 }: {
   strings: MobileStrings;
 }) {
   const { tokens } = useNemuTheme();
+  const router = useRouter();
+  // The erase confirmation's acknowledgement row, built here outside the sheet.
+  const sheetTokens = useMobileNativeSheetTheme().tokens;
   const store = useMobileDataStore();
   const { data: session, isPending } = mobileAuthClient.useSession();
   const [busyProvider, setBusyProvider] = useState<AuthProviderId | null>(null);
   const busyProviderRef = useRef<AuthProviderId | null>(null);
-  const [signingOut, setSigningOut] = useState(false);
-  const signingOutRef = useRef(false);
-  const [signOutSheetOpen, setSignOutSheetOpen] = useState(false);
-  const [signOutSheetAccountId, setSignOutSheetAccountId] = useState<
-    string | null
-  >(null);
-  const [keepDataOnSignOut, setKeepDataOnSignOut] = useState(true);
   const [error, setError] = useState<CloudSyncError | null>(null);
   const [syncSnapshotState, setSyncSnapshotState] =
     useState<MobileSyncSnapshotState | null>(null);
@@ -427,8 +177,6 @@ function MobileCloudSyncConfiguredCard({
       setError(null);
       setSyncSnapshotReadError(null);
       setRecoveryError(null);
-      setSignOutSheetOpen(false);
-      setSignOutSheetAccountId(null);
       setRecoverySheetOpen(false);
       setRecoverySheetAccountId(null);
       setRecoveryAcknowledged(false);
@@ -638,7 +386,7 @@ function MobileCloudSyncConfiguredCard({
     if (
       !canStartMobileOAuthSignIn(
         busyProviderRef.current ?? busyProvider,
-        signingOutRef.current || signingOut,
+        false,
       )
     ) {
       return;
@@ -709,104 +457,34 @@ function MobileCloudSyncConfiguredCard({
     }
   };
 
-  const signOut = async (keepData: boolean) => {
-    const errorAccountId = user?.id ?? null;
-    if (
-      !canStartMobileCloudSignOut(
-        busyProviderRef.current ?? busyProvider,
-        signingOutRef.current || signingOut,
-      )
-    ) {
-      return;
-    }
-
-    signingOutRef.current = true;
-    setSigningOut(true);
-    setError(null);
-    try {
-      await runWithMobileSyncSuspended(async () => {
-        await completeMobileCloudSignOut({
-          keepData,
-          signOutAndUnregister: (onSignOutConfirmed) =>
-            signOutAndUnregisterMobileBackgroundSync({
-              onSignOutConfirmed,
-              signOut: () => mobileAuthClient.signOut(),
-              unregister: unregisterMobileBackgroundSyncAsync,
-            }),
-          retainLocalData: async () => {
-            const profileId = makeMobileProfileId(user?.id);
-            if (profileId) await retainMobileDataProfile(profileId);
-          },
-          clearLocalData: async () => {
-            const profileId = makeMobileProfileId(errorAccountId);
-            if (!profileId) {
-              throw new Error(MOBILE_LOCAL_DATA_CLEANUP_UNAVAILABLE);
-            }
-            await removeMobileDataProfileAfterSignOut({
-              profileId,
-              clearSandboxData: clearMobileAidokuSandboxDataForProfile,
-              clearAccountData: () => store.clearAccountData(),
-            });
-            emitMobileDataChanged("all");
-          },
-        });
-      });
-      if (
-        getMobileCloudSignOutResultAction({ succeeded: true }) ===
-        "close-confirmation"
-      ) {
-        setSignOutSheetOpen(false);
-      }
-      await hapticConfirm();
-    } catch (nextError) {
-      if (
-        getMobileCloudSignOutResultAction({ succeeded: false }) ===
-        "close-confirmation"
-      ) {
-        setSignOutSheetOpen(false);
-      }
-      setError({
-        title: strings.settings.cloudSyncSignOutFailed,
-        detail: isMobileAuthStorageUnavailable(nextError)
-          ? strings.settings.cloudSyncAuthenticationStorageUnavailable
-          : describeMobileErrorDetail(
-              nextError,
-              strings.settings.cloudSyncSignOutFailed,
-            ),
-        accountId: errorAccountId,
-      });
-      await hapticError();
-    } finally {
-      signingOutRef.current = false;
-      setSigningOut(false);
-    }
-  };
-
-  const confirmSignOut = () => {
-    if (!user?.id) return;
-    setError(null);
-    setKeepDataOnSignOut(true);
-    setSignOutSheetAccountId(user.id);
-    setSignOutSheetOpen(true);
-  };
-
   return (
     <>
       <View
         style={[
           styles.shell,
           { backgroundColor: tokens.card, borderColor: tokens.border },
+          mobileDesignExploreFlag ? styles.exploreShell : null,
         ]}
       >
         <View style={styles.content}>
           <View style={styles.header}>
-            <View style={styles.iconFrame}>
-              <Ionicons name="cloud-outline" size={20} color={tokens.primary} />
-            </View>
+            {mobileDesignExploreFlag ? (
+              // The Settings list's bare outline glyph (ExploreSettingsGroup).
+              <ExploreSettingsGlyph name="cloud-outline" />
+            ) : (
+              <View style={styles.iconFrame}>
+                <Ionicons name="cloud-outline" size={20} color={tokens.primary} />
+              </View>
+            )}
             <View style={styles.copy}>
               <Text
+                accessibilityRole={mobileDesignExploreFlag ? "header" : undefined}
                 maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
-                style={[styles.title, { color: tokens.foreground }]}
+                style={[
+                  styles.title,
+                  mobileDesignExploreFlag ? styles.exploreTitle : null,
+                  { color: tokens.foreground },
+                ]}
               >
                 {strings.settings.cloudSync}
               </Text>
@@ -814,7 +492,10 @@ function MobileCloudSyncConfiguredCard({
                 maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
                 style={[styles.subtitle, { color: tokens.mutedForeground }]}
               >
-                {strings.settings.cloudSyncDescription}
+                {/* Design-explore: one line that says what to do, not two. */}
+                {mobileDesignExploreFlag && !signedIn && !isPending
+                  ? strings.settings.cloudSyncSignInPrompt
+                  : strings.settings.cloudSyncDescription}
               </Text>
             </View>
           </View>
@@ -830,7 +511,12 @@ function MobileCloudSyncConfiguredCard({
               </Text>
             </View>
           ) : signedIn ? (
-            <View style={[styles.accountRow, { borderColor: tokens.border }]}>
+            <NemuPressable
+              accessibilityLabel={strings.account.openAccount}
+              accessibilityRole="button"
+              onPress={() => router.push("/settings/account")}
+              style={[styles.accountRow, { borderColor: tokens.border }]}
+            >
               <View style={styles.accountIdentity}>
                 {accountProvider ? (
                   <View
@@ -863,25 +549,22 @@ function MobileCloudSyncConfiguredCard({
                   ) : null}
                 </View>
               </View>
-              <NemuButton
-                accessibilityLabel={strings.settings.cloudSyncSignOutLabel}
-                disabled={signingOut}
-                label={strings.settings.cloudSyncSignOut}
-                loading={signingOut}
-                onPress={confirmSignOut}
-                size="sm"
-                style={styles.signOutButton}
-                variant="secondary"
+              <Ionicons
+                name="chevron-forward-outline"
+                size={17}
+                color={tokens.mutedForeground}
               />
-            </View>
+            </NemuPressable>
           ) : (
             <View style={styles.signInBlock}>
-              <Text
-                maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
-                style={[styles.detail, { color: tokens.mutedForeground }]}
-              >
-                {strings.settings.cloudSyncSignInPrompt}
-              </Text>
+              {mobileDesignExploreFlag ? null : (
+                <Text
+                  maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
+                  style={[styles.detail, { color: tokens.mutedForeground }]}
+                >
+                  {strings.settings.cloudSyncSignInPrompt}
+                </Text>
+              )}
               <View style={styles.providerActions}>
                 {authProviders.map((provider) => {
                   const busy = busyProvider === provider.id;
@@ -914,7 +597,7 @@ function MobileCloudSyncConfiguredCard({
           {convexAuthStalled ? (
             <View accessibilityLiveRegion="polite">
               <MobileInlineErrorBanner
-                actionDisabled={retryingTransport || signingOut}
+                actionDisabled={retryingTransport}
                 actionLabel={strings.settings.cloudSyncRetry}
                 actionLoading={retryingTransport}
                 detail={strings.settings.cloudSyncTransportStalledDetail}
@@ -938,7 +621,7 @@ function MobileCloudSyncConfiguredCard({
             >
               <MobileInlineErrorBanner
                 announce={false}
-                actionDisabled={retryingSync || signingOut}
+                actionDisabled={retryingSync}
                 actionLabel={strings.settings.cloudSyncRetry}
                 actionLoading={retryingSync}
                 detail={strings.settings.cloudSyncPausedDetail}
@@ -951,7 +634,7 @@ function MobileCloudSyncConfiguredCard({
               />
               <NemuButton
                 accessibilityLabel={strings.settings.cloudSyncRecovery}
-                disabled={retryingSync || signingOut}
+                disabled={retryingSync}
                 label={strings.settings.cloudSyncRecovery}
                 onPress={openSyncRecovery}
                 size="sm"
@@ -985,24 +668,6 @@ function MobileCloudSyncConfiguredCard({
           ) : null}
         </View>
       </View>
-      <SignOutChoiceSheet
-        error={visibleError}
-        keepData={keepDataOnSignOut}
-        loading={signingOut}
-        onErrorDismiss={() => setError(null)}
-        onCancel={() => {
-          setSignOutSheetOpen(false);
-          setSignOutSheetAccountId(null);
-        }}
-        onConfirm={() => {
-          void signOut(keepDataOnSignOut);
-        }}
-        onKeepDataChange={setKeepDataOnSignOut}
-        strings={strings}
-        visible={
-          signOutSheetOpen && signOutSheetAccountId === (user?.id ?? null)
-        }
-      />
       <MobileConfirmationSheet
         cancelLabel={strings.common.cancel}
         confirmAccessibilityLabel={strings.settings.cloudSyncEraseConfirm}
@@ -1043,39 +708,28 @@ function MobileCloudSyncConfiguredCard({
           pressedScale={0.985}
           style={[
             styles.recoveryAcknowledgement,
+            nemuSheetMetrics.twoLineRowLayout,
             {
               backgroundColor: recoveryAcknowledged
-                ? nemuColorWithAlpha(tokens.danger, 0.07)
-                : tokens.muted,
-              borderColor: recoveryAcknowledged ? tokens.danger : tokens.border,
+                ? nemuColorWithAlpha(sheetTokens.danger, 0.07)
+                : sheetTokens.muted,
+              borderColor: recoveryAcknowledged ? sheetTokens.danger : sheetTokens.border,
             },
           ]}
         >
-          <View
-            style={[
-              styles.recoveryCheckbox,
-              {
-                backgroundColor: recoveryAcknowledged
-                  ? tokens.danger
-                  : "transparent",
-                borderColor: recoveryAcknowledged
-                  ? tokens.danger
-                  : tokens.mutedForeground,
-              },
-            ]}
-          >
-            {recoveryAcknowledged ? (
-              <Ionicons
-                name="checkmark"
-                size={14}
-                color={tokens.primaryForeground}
-              />
-            ) : null}
-          </View>
+          <MobileSheetSelectionIndicator
+            kind="checkbox"
+            checked={recoveryAcknowledged}
+            color={sheetTokens.danger}
+            iosStyle={styles.recoveryCheckbox}
+            iosUncheckedBorderColor={sheetTokens.mutedForeground}
+            iosGlyphSize={14}
+          />
           <Text
             style={[
               styles.recoveryAcknowledgementText,
-              { color: tokens.foreground },
+              nemuSheetMetrics.description,
+              { color: sheetTokens.foreground },
             ]}
           >
             {strings.settings.cloudSyncEraseAcknowledgement}
@@ -1099,9 +753,8 @@ export function MobileCloudSyncCard() {
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
 
-  if (!mobileSyncConfig.configured) {
-    return <MobileCloudSyncUnavailableCard strings={strings} />;
-  }
+  // A build without sync shows no card at all; the settings list closes up.
+  if (!mobileSyncConfig.configured) return null;
 
   return <MobileCloudSyncConfiguredCard strings={strings} />;
 }
@@ -1116,6 +769,12 @@ const styles = StyleSheet.create({
   content: {
     gap: 12,
     padding: 14,
+  },
+  // Design-explore: the Settings groups' corner.
+  exploreShell: MOBILE_EXPLORE_GROUP_SHAPE,
+  exploreTitle: {
+    fontSize: 16,
+    lineHeight: 21,
   },
   header: {
     minHeight: 44,
@@ -1183,9 +842,6 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     fontWeight: nemuFontWeight.semibold,
   },
-  signOutButton: {
-    minWidth: 82,
-  },
   syncPausedBlock: {
     gap: 8,
   },
@@ -1225,65 +881,5 @@ const styles = StyleSheet.create({
   },
   providerButton: {
     width: "100%",
-  },
-  sheetContent: {
-    gap: 16,
-  },
-  sheetIconFrame: {
-    width: 24,
-    height: 24,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  signOutOptions: {
-    gap: 10,
-  },
-  optionRow: {
-    minHeight: 74,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  optionIconFrame: {
-    width: 24,
-    height: 24,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  optionCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  optionTitle: {
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: nemuFontWeight.semibold,
-  },
-  optionDescription: {
-    marginTop: 2,
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  optionRadio: {
-    width: 22,
-    height: 22,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.pill,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  sheetActions: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  sheetButton: {
-    flex: 1,
-  },
-  sheetDestructiveButton: {
-    minWidth: 132,
   },
 });

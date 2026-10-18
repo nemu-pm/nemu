@@ -1,0 +1,743 @@
+{
+ "source": "https://safearea.info/ (measured on Xcode 27.1 iPhone Duo simulator, iOS 27.1 24A94401, 2026-09-20..23)",
+ "note": "Region frames are UIView.reservedRegions(kind:) frames in window points and already include margins.",
+ "measurements": [
+  {
+   "screen": "iphone-duo-outer",
+   "pose": "closed",
+   "orientation": "portrait",
+   "camera": false,
+   "displayZoom": "standard",
+   "bounds": {
+    "height": 678,
+    "width": 466,
+    "x": 0,
+    "y": 0
+   },
+   "insets": {
+    "bottom": 34,
+    "left": 0,
+    "right": 84,
+    "top": 0
+   },
+   "regions": [
+    {
+     "active": true,
+     "frame": {
+      "height": 37,
+      "width": 37,
+      "x": 399.6666666666667,
+      "y": 29.333333333333332
+     },
+     "kind": "occlusion",
+     "margins": {
+      "bottom": 0,
+      "left": 0,
+      "right": 0,
+      "top": 0
+     }
+    },
+    {
+     "active": true,
+     "frame": {
+      "height": 170,
+      "width": 84,
+      "x": 382,
+      "y": 0
+     },
+     "kind": "occlusion",
+     "margins": {
+      "bottom": 0,
+      "left": 0,
+      "right": 0,
+      "top": 0
+     }
+    }
+   ],
+   "sizeClass": {
+    "horizontal": "compact",
+    "vertical": "regular"
+   }
+  },
+  {
+   "screen": "iphone-duo-outer",
+   "pose": "closed",
+   "orientation": "landscape-left",
+   "camera": false,
+   "displayZoom": "standard",
+   "bounds": {
+    "height": 466,
+    "width": 678,
+    "x": 0,
+    "y": 0
+   },
+   "insets": {
+    "bottom": 34,
+    "left": 0,
+    "right": 84,
+    "top": 0
+   },
+   "regions": [
+    {
+     "active": true,
+     "frame": {
+      "height": 37,
+      "width": 37,
+      "x": 611.6666666666666,
+      "y": 399.6666666666667
+     },
+     "kind": "occlusion",
+     "margins": {
+      "bottom": 0,
+      "left": 0,
+      "right": 0,
+      "top": 0
+     }
+    },
+    {
+     "active": true,
+     "frame": {
+      "height": 82,
+      "width": 84,
+      "x": 594,
+      "y": 384
+     },
+     "kind": "occlusion",
+     "margins": {
+      "bottom": 0,
+      "left": 0,
+      "right": 0,
+      "top": 0
+     }
+    }
+   ],
+   "sizeClass": {
+    "horizontal": "compact",
+    "vertical": "compact"
+   }
+  },
+  {
+   "screen": "iphone-duo-outer",
+   "pose": "closed",
+   "orientation": "landscape-right",
+   "camera": false,
+   "displayZoom": "standard",
+   "bounds": {
+    "height": 466,
+    "width": 678,
+    "x": 0,
+    "y": 0
+   },
+   "insets": {
+    "bottom": 34,
+    "left": 84,
+    "right": 0,
+    "top": 0
+   },
+   "regions": [
+    {
+     "active": true,
+     "frame": {
+      "height": 37,
+      "width": 37,
+      "x": 29.333333333333332,
+      "y": 29.333333333333314
+     },
+     "kind": "occlusion",
+     "margins": {
+      "bottom": 0,
+      "left": 0,
+      "right": 0,
+      "top": 0
+     }
+    },
+    {
+     "active": true,
+     "frame": {
+      "height": 82,
+      "width": 84,
+      "x": 0,
+      "y": 0
+     },
+     "kind": "occlusion",
+     "margins": {
+      "bottom": 0,
+      "left": 0,
+      "right": 0,
+      "top": 0
+     }
+    }
+   ],
+   "sizeClass": {
+    "horizontal": "compact",
+    "vertical": "compact"
+   }
+  },
+  {
+   "screen": "iphone-duo-inner",
+   "pose": "open",
+   "orientation": "portrait",
+   "camera": false,
+   "displayZoom": "standard",
+   "bounds": {
+    "height": 951,
+    "width": 669,
+    "x": 0,
+    "y": 0
+   },
+   "insets": {
+    "bottom": 34,
+    "left": 0,
+    "right": 0,
+    "top": 82
+   },
+   "regions": [
+    {
+     "active": false,
+     "frame": {
+      "height": 57.99999999999997,
+      "width": 37,
+      "x": 21,
+      "y": 215.66666666666666
+     },
+     "kind": "occlusion",
+     "margins": {
+      "bottom": 0,
+      "left": 0,
+      "right": 0,
+      "top": 0
+     }
+    },
+    {
+     "active": true,
+     "frame": {
+      "height": 82,
+      "width": 134,
+      "x": 535,
+      "y": 0
+     },
+     "kind": "occlusion",
+     "margins": {
+      "bottom": 0,
+      "left": 0,
+      "right": 0,
+      "top": 0
+     }
+    },
+    {
+     "active": false,
+     "frame": {
+      "height": 40,
+      "width": 669,
+      "x": 0,
+      "y": 455.5
+     },
+     "kind": "division",
+     "margins": {
+      "bottom": 20,
+      "left": 0,
+      "right": 0,
+      "top": 20
+     }
+    }
+   ],
+   "sizeClass": null
+  },
+  {
+   "screen": "iphone-duo-inner",
+   "pose": "partially-folded",
+   "orientation": "landscape-left",
+   "camera": false,
+   "displayZoom": "standard",
+   "bounds": {
+    "height": 669,
+    "width": 951,
+    "x": 0,
+    "y": 0
+   },
+   "insets": {
+    "bottom": 34,
+    "left": 0,
+    "right": 84,
+    "top": 0
+   },
+   "regions": [
+    {
+     "active": false,
+     "frame": {
+      "height": 37,
+      "width": 58,
+      "x": 677.3333333333334,
+      "y": 21
+     },
+     "kind": "occlusion",
+     "margins": {
+      "bottom": 0,
+      "left": 0,
+      "right": 0,
+      "top": 0
+     }
+    },
+    {
+     "active": true,
+     "frame": {
+      "height": 120,
+      "width": 84,
+      "x": 867,
+      "y": 0
+     },
+     "kind": "occlusion",
+     "margins": {
+      "bottom": 0,
+      "left": 0,
+      "right": 0,
+      "top": 0
+     }
+    },
+    {
+     "active": true,
+     "frame": {
+      "height": 669,
+      "width": 40,
+      "x": 455.5,
+      "y": 0
+     },
+     "kind": "division",
+     "margins": {
+      "bottom": 0,
+      "left": 20,
+      "right": 20,
+      "top": 0
+     }
+    }
+   ],
+   "sizeClass": {
+    "horizontal": "regular",
+    "vertical": "regular"
+   }
+  },
+  {
+   "screen": "iphone-duo-inner",
+   "pose": "open",
+   "orientation": "landscape-left",
+   "camera": false,
+   "displayZoom": "standard",
+   "bounds": {
+    "height": 669,
+    "width": 951,
+    "x": 0,
+    "y": 0
+   },
+   "insets": {
+    "bottom": 34,
+    "left": 0,
+    "right": 84,
+    "top": 0
+   },
+   "regions": [
+    {
+     "active": false,
+     "frame": {
+      "height": 37,
+      "width": 58,
+      "x": 677.3333333333334,
+      "y": 21
+     },
+     "kind": "occlusion",
+     "margins": {
+      "bottom": 0,
+      "left": 0,
+      "right": 0,
+      "top": 0
+     }
+    },
+    {
+     "active": true,
+     "frame": {
+      "height": 120,
+      "width": 84,
+      "x": 867,
+      "y": 0
+     },
+     "kind": "occlusion",
+     "margins": {
+      "bottom": 0,
+      "left": 0,
+      "right": 0,
+      "top": 0
+     }
+    },
+    {
+     "active": false,
+     "frame": {
+      "height": 669,
+      "width": 40,
+      "x": 455.5,
+      "y": 0
+     },
+     "kind": "division",
+     "margins": {
+      "bottom": 0,
+      "left": 20,
+      "right": 20,
+      "top": 0
+     }
+    }
+   ],
+   "sizeClass": {
+    "horizontal": "regular",
+    "vertical": "regular"
+   }
+  },
+  {
+   "screen": "iphone-duo-inner",
+   "pose": "open",
+   "orientation": "landscape-right",
+   "camera": false,
+   "displayZoom": "standard",
+   "bounds": {
+    "height": 669,
+    "width": 951,
+    "x": 0,
+    "y": 0
+   },
+   "insets": {
+    "bottom": 34,
+    "left": 0,
+    "right": 84,
+    "top": 0
+   },
+   "regions": [
+    {
+     "active": false,
+     "frame": {
+      "height": 37,
+      "width": 57.99999999999997,
+      "x": 215.66666666666666,
+      "y": 611
+     },
+     "kind": "occlusion",
+     "margins": {
+      "bottom": 0,
+      "left": 0,
+      "right": 0,
+      "top": 0
+     }
+    },
+    {
+     "active": true,
+     "frame": {
+      "height": 120,
+      "width": 84,
+      "x": 867,
+      "y": 0
+     },
+     "kind": "occlusion",
+     "margins": {
+      "bottom": 0,
+      "left": 0,
+      "right": 0,
+      "top": 0
+     }
+    },
+    {
+     "active": false,
+     "frame": {
+      "height": 669,
+      "width": 40,
+      "x": 455.5,
+      "y": 0
+     },
+     "kind": "division",
+     "margins": {
+      "bottom": 0,
+      "left": 20,
+      "right": 20,
+      "top": 0
+     }
+    }
+   ],
+   "sizeClass": null
+  },
+  {
+   "screen": "iphone-duo-inner",
+   "pose": "partially-folded",
+   "orientation": "upside-down",
+   "camera": false,
+   "displayZoom": "standard",
+   "bounds": {
+    "height": 951,
+    "width": 669,
+    "x": 0,
+    "y": 0
+   },
+   "insets": {
+    "bottom": 34,
+    "left": 0,
+    "right": 0,
+    "top": 82
+   },
+   "regions": [
+    {
+     "active": false,
+     "frame": {
+      "height": 58,
+      "width": 37,
+      "x": 611,
+      "y": 677.3333333333334
+     },
+     "kind": "occlusion",
+     "margins": {
+      "bottom": 0,
+      "left": 0,
+      "right": 0,
+      "top": 0
+     }
+    },
+    {
+     "active": true,
+     "frame": {
+      "height": 82,
+      "width": 134,
+      "x": 535,
+      "y": 0
+     },
+     "kind": "occlusion",
+     "margins": {
+      "bottom": 0,
+      "left": 0,
+      "right": 0,
+      "top": 0
+     }
+    },
+    {
+     "active": true,
+     "frame": {
+      "height": 40,
+      "width": 669,
+      "x": 0,
+      "y": 455.5
+     },
+     "kind": "division",
+     "margins": {
+      "bottom": 20,
+      "left": 0,
+      "right": 0,
+      "top": 20
+     }
+    }
+   ],
+   "sizeClass": null
+  },
+  {
+   "screen": "iphone-duo-inner",
+   "pose": "partially-folded",
+   "orientation": "portrait",
+   "camera": false,
+   "displayZoom": "standard",
+   "bounds": {
+    "height": 951,
+    "width": 669,
+    "x": 0,
+    "y": 0
+   },
+   "insets": {
+    "bottom": 34,
+    "left": 0,
+    "right": 0,
+    "top": 82
+   },
+   "regions": [
+    {
+     "active": false,
+     "frame": {
+      "height": 57.99999999999997,
+      "width": 37,
+      "x": 21,
+      "y": 215.66666666666666
+     },
+     "kind": "occlusion",
+     "margins": {
+      "bottom": 0,
+      "left": 0,
+      "right": 0,
+      "top": 0
+     }
+    },
+    {
+     "active": true,
+     "frame": {
+      "height": 82,
+      "width": 134,
+      "x": 535,
+      "y": 0
+     },
+     "kind": "occlusion",
+     "margins": {
+      "bottom": 0,
+      "left": 0,
+      "right": 0,
+      "top": 0
+     }
+    },
+    {
+     "active": true,
+     "frame": {
+      "height": 40,
+      "width": 669,
+      "x": 0,
+      "y": 455.5
+     },
+     "kind": "division",
+     "margins": {
+      "bottom": 20,
+      "left": 0,
+      "right": 0,
+      "top": 20
+     }
+    }
+   ],
+   "sizeClass": null
+  },
+  {
+   "screen": "iphone-duo-inner",
+   "pose": "partially-folded",
+   "orientation": "landscape-right",
+   "camera": false,
+   "displayZoom": "standard",
+   "bounds": {
+    "height": 669,
+    "width": 951,
+    "x": 0,
+    "y": 0
+   },
+   "insets": {
+    "bottom": 34,
+    "left": 0,
+    "right": 84,
+    "top": 0
+   },
+   "regions": [
+    {
+     "active": false,
+     "frame": {
+      "height": 37,
+      "width": 57.99999999999997,
+      "x": 215.66666666666666,
+      "y": 611
+     },
+     "kind": "occlusion",
+     "margins": {
+      "bottom": 0,
+      "left": 0,
+      "right": 0,
+      "top": 0
+     }
+    },
+    {
+     "active": true,
+     "frame": {
+      "height": 120,
+      "width": 84,
+      "x": 867,
+      "y": 0
+     },
+     "kind": "occlusion",
+     "margins": {
+      "bottom": 0,
+      "left": 0,
+      "right": 0,
+      "top": 0
+     }
+    },
+    {
+     "active": true,
+     "frame": {
+      "height": 669,
+      "width": 40,
+      "x": 455.5,
+      "y": 0
+     },
+     "kind": "division",
+     "margins": {
+      "bottom": 0,
+      "left": 20,
+      "right": 20,
+      "top": 0
+     }
+    }
+   ],
+   "sizeClass": null
+  },
+  {
+   "screen": "iphone-duo-inner",
+   "pose": "open",
+   "orientation": "upside-down",
+   "camera": false,
+   "displayZoom": "standard",
+   "bounds": {
+    "height": 951,
+    "width": 669,
+    "x": 0,
+    "y": 0
+   },
+   "insets": {
+    "bottom": 34,
+    "left": 0,
+    "right": 0,
+    "top": 82
+   },
+   "regions": [
+    {
+     "active": false,
+     "frame": {
+      "height": 58,
+      "width": 37,
+      "x": 611,
+      "y": 677.3333333333334
+     },
+     "kind": "occlusion",
+     "margins": {
+      "bottom": 0,
+      "left": 0,
+      "right": 0,
+      "top": 0
+     }
+    },
+    {
+     "active": true,
+     "frame": {
+      "height": 82,
+      "width": 134,
+      "x": 535,
+      "y": 0
+     },
+     "kind": "occlusion",
+     "margins": {
+      "bottom": 0,
+      "left": 0,
+      "right": 0,
+      "top": 0
+     }
+    },
+    {
+     "active": false,
+     "frame": {
+      "height": 40,
+      "width": 669,
+      "x": 0,
+      "y": 455.5
+     },
+     "kind": "division",
+     "margins": {
+      "bottom": 20,
+      "left": 0,
+      "right": 0,
+      "top": 20
+     }
+    }
+   ],
+   "sizeClass": null
+  }
+ ]
+}

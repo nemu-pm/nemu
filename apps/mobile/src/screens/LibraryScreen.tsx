@@ -1,3 +1,5 @@
+import { MobileQuickActionMenu, MobileQuickActionProvider, mobileNativeQuickMenuAvailable } from "@/components/MobileQuickActionMenu";
+import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import {
   memo,
   useCallback,
@@ -6,29 +8,56 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
+  type ReactNode,
 } from "react";
+import { orderMobileTitleQuickActions } from "@/lib/mobileQuickActionOrder";
 import {
   AppState,
   FlatList,
+  LayoutAnimation,
   Platform,
   StyleSheet,
   Text,
-  TextInput,
   useWindowDimensions,
   View,
   type ListRenderItemInfo,
+  type StyleProp,
+  type ViewStyle,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { BottomSheetTextInput } from "@expo/ui/community/bottom-sheet";
 import { Stack, router, useFocusEffect } from "expo-router";
 import { EmptyLibrary } from "@/components/EmptyLibrary";
 import { QuickActionSheet, type QuickAction } from "@/components/QuickActionSheet";
-import { MobileAddBooksSheet } from "@/components/MobileAddBooksSheet";
+import { MobileCollectionBooksSheet } from "@/components/MobileCollectionBooksSheet";
 import { MobileCollectionMembershipSheet } from "@/components/MobileCollectionMembershipSheet";
 import { MobileConfirmationSheet } from "@/components/MobileConfirmationSheet";
+import {
+  MobileCollectionNameNativeSheet,
+  MobileCollectionsManagerNativeSheet,
+  MobileLibraryTitleMenuNativeSheet,
+  mobileLibraryCollectionNativeSheetsAvailable,
+} from "@/components/MobileLibraryCollectionNativeSheets";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
+import {
+  getMobileLibraryTitleMenuHeaderOptions,
+  MobileLibraryTitleMenuAnchor,
+  mobileLibraryTitleMenuAvailable,
+} from "@/components/MobileLibraryTitleMenu";
+import type { MobileLibraryTitleMenuProps } from "@/components/MobileLibraryTitleMenu.types";
 import { MobileLibrarySkeleton } from "@/components/MobileLibrarySkeleton";
+import { MobileLaunchRevealGroup } from "@/components/MobileLaunchRevealGroup";
+import type { MobileLaunchRevealGroup as MobileLaunchRevealGroupName } from "@/lib/mobileLaunchRevealPlan";
+import { isMobileLaunchContentReady, markMobileLaunchContentReady } from "@/lib/mobileSplashScreen";
+import { MOBILE_PERFORMANCE_MARKS, markMobilePerformance } from "@/lib/mobilePerformance";
 import { useMobileToast } from "@/components/MobileToastContext";
+import { renderExploreDetailBarMenu } from "@/components/explore/ExploreDetailBarMenu";
+import * as DocumentPicker from "expo-document-picker";
+import { File as FsFile } from "expo-file-system";
+import { pushLocalArchiveVolume } from "@/sync/mobileSyncDataStore";
+import { importLocalArchive } from "@/lib/localArchives/importArchive";
+import { deviceArchiveFs } from "@/lib/localArchives/fileSystem";
 import { useMobileDataStore } from "@/data/mobileDataContext";
 import { emitMobileDataChanged, emitMobileLibraryDataChanged } from "@/data/mobileDataEvents";
 import {
@@ -39,13 +68,11 @@ import {
   useMangaProgress,
 } from "@/data/mobileHooks";
 import {
-  getEntryCover,
   getEntryTitle,
   type InstalledSource,
   type LibraryEntry,
   type LocalCollection,
   type LocalMangaProgress,
-  type LocalSourceLink,
 } from "@/data/schema";
 import {
   createNemuNativeScreenOptions,
@@ -61,7 +88,8 @@ import {
   radius,
   renderNemuNativeToolbarButtons,
   nemuFontWeight,
-  useMobilePageGutters,
+  nemuSheetMetrics,
+  useMobileNativeSheetTheme,
   useNemuTheme,
   usesNemuNativeHeader,
   type MangaCardModel,
@@ -80,21 +108,31 @@ import {
   describeMobileErrorDetail,
   sanitizeMobileErrorDiagnostic,
 } from "@/lib/mobileSourceErrors";
-import {
-  getMobileMangaGridColumns,
-  getMobileMangaGridItemWidth,
-  MOBILE_MANGA_GRID_GAP,
-} from "@/lib/mobileAdaptiveGrid";
-import {
-  captureMobileGridScrollRatio,
-  resolveMobileGridScrollRestoreOffset,
-  shouldRestoreMobileGridScroll,
-  type MobileGridScrollSnapshot,
-} from "@/lib/mobileGridScrollRestore";
-import {
-  getMobileInstalledSourceSettingsKeys,
-  mobileInstalledSourceMatchesLink,
-} from "@/lib/mobileInstalledSourceKeys";import {
+import { MOBILE_MANGA_GRID_GAP, mobileLibraryGridMinItemWidth } from "@/lib/mobileAdaptiveGrid";
+import { chunkMobileGridRows, mobileFoldAwareGridCellStyle } from "@/lib/mobileFoldAwareGrid";
+import { MobilePaneAlignedView } from "@/lib/MobilePaneAlignedView";
+import { useMobileFoldAwareGrid } from "@/lib/useMobileFoldAwareGrid";
+import { MobilePoseLayoutView } from "@/components/MobilePoseLayoutView";
+import { MobileContinueReadingCarousel } from "@/components/explore/MobileContinueReadingCarousel";
+import { MobileLibraryLayoutHeader } from "@/components/explore/MobileLibraryLayoutHeader";
+import { MobileLibraryShelfCell } from "@/components/explore/MobileLibraryShelfCell";
+import { MobileExploreCoverPlaceholder } from "@/components/explore/MobileExploreCoverPlaceholder";
+import { selectMobileContinueReading } from "@/lib/mobileContinueReading";
+import { MobileExploreDustHost } from "@/components/explore/MobileExploreDustHost";
+import { dissolveExploreTitle } from "@/components/explore/mobileExploreDissolve";
+import { ExploreDissolveTarget } from "@/components/explore/ExploreDissolveTarget";
+import { mobileDesignExploreFlag, useMobileDesignExplore } from "@/lib/mobileDesignExplore";
+import { getMobileShelfRow, MOBILE_SHELF } from "@/lib/mobileLibraryShelf";
+import { MobileCollectionFolders } from "@/components/explore/MobileCollectionFolders";
+import { useMobileExploreCoverPreference } from "@/components/explore/mobileExploreCoverPreference";
+import { hasMobileUserCover, mobileExploreCoverOwnerUrl, pushMobileExploreDetail } from "@/components/explore/mobileExploreCover";
+import { ContentScrollMarker, ZoomSource } from "../../modules/nemu-window-layout";
+import Animated from "react-native-reanimated";
+import { MOBILE_MOTION } from "@/lib/mobileMotion";
+import { useMobilePoseResnapFade } from "@/lib/useMobilePoseResnapFade";
+import { useMobilePoseRenderProbe } from "@/lib/MobilePoseTransitionContext";
+import { useMobileGridScrollAnchor } from "@/lib/useMobileGridScrollAnchor";
+import { getMobileInstalledSourceSettingsKeys } from "@/lib/mobileInstalledSourceKeys";import {
   canCreateMobileCollection,
   canRenameMobileCollection,
   canSaveMobileCollectionMembership,
@@ -108,24 +146,30 @@ import {
   type MobileCollectionActionState,
 } from "@/lib/mobileCollections";
 import {
+  buildMobileLibraryTitleMenu,
+  getMobileLibraryCollectionSelection,
+  reconcileMobileLibraryCollectionSelection,
+  resolveMobileLibraryTitleMenuAction,
+  setMobileLibraryCollectionSelection,
+  subscribeMobileLibraryCollectionSelection,
+} from "@/lib/mobileLibraryTitleMenu";
+import {
   getMobileCollectionsManagerSheetLayout,
   getMobileLibraryTitleMenuSheetLayout,
-  getMobileManageCollectionSheetLayout,
 } from "@/lib/mobileLibrarySheetLayout";
 import {
   MOBILE_LIBRARY_REFRESH_INTERVAL_MS,
   getMobileLibraryRefreshLifecycleDecision,
   hasMobileLibraryStaleSourceLinks,
   isMobileLibraryRefreshAppActive,
+  findInstalledSourceForLink,
   refreshMobileLibraryLatestChapters,
 } from "@/lib/mobileLibraryRefresh";
 import { resolveMobileSheetHeaderMetrics } from "@/lib/mobileNativeSheet";
 import {
-  buildMobileEntryProgressMap,
   buildMobileLibraryEntryProgressMaps,
   buildMobileProgressIndex,
-  getMobileEntryMostRecentSource,
-  getMobileCollectionBookSubtitle,
+  getMobileEntryQuickActionSource,
   getMobileLibraryEmptyState,
   getMobileLibraryProgressInfo,
   shouldRenderMobileLibrarySkeleton,
@@ -146,6 +190,10 @@ import {
   type MobileIdleTaskHandle,
 } from "@/lib/mobileIdleTask";
 import { useMobileSourceImageRequest } from "@/lib/useMobileSourceImageRequest";
+import {
+  resolveMobileEntryCoverSources,
+  resolveMobileEntryDisplayCover,
+} from "@/lib/mobileEntryCover";
 import type { MobileSourceImageRequest } from "@/sources/mobileSourceImages";
 import { makeMobileRuntimeSourceKey, normalizeInstalledSource } from "@/sources/mobileSourceRuntime";
 
@@ -167,7 +215,7 @@ function toMangaCard(
     strings,
     entryProgress,
   );
-  const cover = getEntryCover(entry);
+  const cover = resolveMobileEntryDisplayCover(entry);
   return {
     id: entry.item.libraryItemId,
     title: getEntryTitle(entry),
@@ -178,31 +226,35 @@ function toMangaCard(
   };
 }
 
-function findInstalledSourceForLink(
-  sources: InstalledSource[],
-  sourceLink: LocalSourceLink | null | undefined,
-): InstalledSource | null {
-  if (!sourceLink) return null;
-  return (
-    sources.find((source) =>
-      mobileInstalledSourceMatchesLink(source, sourceLink)
-    ) ?? null
-  );
-}
-
-function selectLibraryCoverSource(
-  entry: LibraryEntry,
-  progressIndex: MobileLibraryProgressIndex,
-  entryProgress?: Map<string, LocalMangaProgress>,
-): LocalSourceLink | undefined {
-  const progress =
-    entryProgress ?? buildMobileEntryProgressMap(entry, progressIndex);
-  return getMobileEntryMostRecentSource(entry, progress) ?? entry.sources[0];
-}
-
 // Memoized so a list-level state change (a sheet opening, a refresh flag)
 // re-renders only the cells whose own inputs moved. Every prop is either a
 // primitive or a value the screen keeps referentially stable.
+/** The quick-action sheet's dismissal, before a removed title turns to dust. */
+const EXPLORE_SHEET_DISMISS_MS = 380;
+/**
+ * One row of the library list (or its sections above the rows). Rows that
+ * mount with a newly shown collection start dipped and settle with it.
+ */
+function LibraryLayoutRow({
+  layoutKey,
+  settleOnMount,
+  revealGroup,
+  style,
+  children,
+}: {
+  layoutKey: string;
+  /** Mounted by opening or leaving a collection: starts dipped and settles. */
+  settleOnMount: boolean;
+  /** Cover rows take part in the cold-launch reveal as one group. */
+  revealGroup?: MobileLaunchRevealGroupName;
+  style: StyleProp<ViewStyle>;
+  children: ReactNode;
+}) {
+  const settle = useMobilePoseResnapFade(layoutKey, { settleOnMount });
+  const row = <Animated.View style={[style, settle]}>{children}</Animated.View>;
+  return revealGroup ? <MobileLaunchRevealGroup group={revealGroup}>{row}</MobileLaunchRevealGroup> : row;
+}
+
 const LibraryGridItem = memo(function LibraryGridItem({
   entry,
   entryProgress,
@@ -210,22 +262,31 @@ const LibraryGridItem = memo(function LibraryGridItem({
   strings,
   installedSources,
   onLongPress,
+  placeholderWidth,
 }: {
   entry: LibraryEntry;
+  /** Design-explore: draws the shelf's cloth-book placeholder at this width (Shelf ⇄ Grid keeps it). */
+  placeholderWidth?: number;
   entryProgress?: Map<string, LocalMangaProgress>;
   progressIndex: MobileLibraryProgressIndex;
   strings: MobileStrings;
   installedSources: InstalledSource[];
   onLongPress?: (entry: LibraryEntry) => void;
 }) {
-  const cover = getEntryCover(entry);
-  const sourceLink = useMemo(
-    () => selectLibraryCoverSource(entry, progressIndex, entryProgress),
-    [entry, entryProgress, progressIndex],
-  );
+  // Design-explore: the sharper cover another source has, as on the shelf
+  // (Shelf ⇄ Grid keeps the same image); always null with the flag off.
+  const preferredCover = useMobileExploreCoverPreference(entry.item.libraryItemId);
+  const cover =
+    (preferredCover && !hasMobileUserCover(entry) ? preferredCover : null) ??
+    resolveMobileEntryDisplayCover(entry);
+  // Requested through the source that owns the cover URL (same resolution as
+  // the detail header), so both share one request and one cached image.
   const installedSource = useMemo(
-    () => findInstalledSourceForLink(installedSources, sourceLink),
-    [installedSources, sourceLink],
+    () =>
+      resolveMobileEntryCoverSources(entry, installedSources, {
+        cover: preferredCover ? mobileExploreCoverOwnerUrl(entry, cover) : cover,
+      })[0] ?? null,
+    [cover, entry, installedSources, preferredCover],
   );
   const coverRequest = useMobileSourceImageRequest(installedSource, cover);
   const item = useMemo(
@@ -238,11 +299,35 @@ const LibraryGridItem = memo(function LibraryGridItem({
     onLongPress?.(entry);
   }, [entry, onLongPress]);
 
+  // Design-explore: the cover zooms into the title page, as from the shelf.
+  const designExplore = useMobileDesignExplore();
+  const zoomId = `grid:${entry.item.libraryItemId}`;
+  const exploreOpen = useCallback(() => {
+    pushMobileExploreDetail(entry, item.cover ? { uri: item.cover, headers: item.coverHeaders } : null, zoomId);
+  }, [entry, item.cover, item.coverHeaders, zoomId]);
+  const wrapCover = useCallback(
+    (cover: ReactNode) => (
+      <ZoomSource zoomId={zoomId} style={styles.gridZoomSource}>
+        {cover}
+      </ZoomSource>
+    ),
+    [zoomId],
+  );
+
   return (
+    <MobileQuickActionMenu actionKey={entry.item.libraryItemId}>
     <MangaCard
       item={item}
-      onLongPress={onLongPress ? handleLongPress : undefined}
+      onLongPress={!mobileNativeQuickMenuAvailable && onLongPress ? handleLongPress : undefined}
+      onPress={designExplore ? exploreOpen : undefined}
+      wrapCover={designExplore ? wrapCover : undefined}
+      placeholder={
+        designExplore && placeholderWidth ? (
+          <MobileExploreCoverPlaceholder title={getEntryTitle(entry)} width={placeholderWidth} />
+        ) : undefined
+      }
     />
+    </MobileQuickActionMenu>
   );
 });
 
@@ -255,9 +340,16 @@ function collectionBookCountText(count: number, strings: MobileStrings): string 
   );
 }
 
+/** Shelf vs grid survives remounts for the session (design-explore only). */
+let mobileLibraryShelfLayoutDefault = true;
+
 const LIBRARY_TITLE_MENU_ALL = "library:all";
 const LIBRARY_TITLE_MENU_MANAGE = "library:manage";
 const LIBRARY_TITLE_MENU_COLLECTION_PREFIX = "library:collection:";
+
+function libraryRowKey(row: LibraryEntry[]): string {
+  return row.map(libraryEntryKey).join(":");
+}
 
 function libraryEntryKey(entry: LibraryEntry): string {
   return entry.item.libraryItemId;
@@ -302,13 +394,16 @@ function LibraryTitleMenuSheet({
   onSelect: (collectionId: string | null) => void;
   onManage: () => void;
 }) {
-  const { tokens } = useNemuTheme();
+  const { tokens } = useMobileNativeSheetTheme();
   const { fontScale, height, width } = useWindowDimensions();
   const sheetLayout = getMobileLibraryTitleMenuSheetLayout({
     collectionCount: collections.length,
     fontScale,
     height,
     width,
+    rowHeight: nemuSheetMetrics.listRowLayout
+      ? nemuSheetMetrics.listRowLayout.minHeight + 8
+      : undefined,
   });
 
   const renderRow = ({
@@ -335,6 +430,7 @@ function LibraryTitleMenuSheet({
       pressedScale={0.985}
       style={[
         styles.titleMenuSheetRow,
+        nemuSheetMetrics.listRowLayout,
         {
           backgroundColor: selected
             ? nemuColorWithAlpha(tokens.primary, 0.07)
@@ -347,12 +443,16 @@ function LibraryTitleMenuSheet({
     >
       <Ionicons
         name={icon}
-        size={20}
+        size={nemuSheetMetrics.rowIconSize}
         color={selected ? tokens.primary : tokens.mutedForeground}
       />
       <Text
         numberOfLines={1}
-        style={[styles.titleMenuSheetRowText, { color: tokens.foreground }]}
+        style={[
+          styles.titleMenuSheetRowText,
+          nemuSheetMetrics.rowLabel,
+          { color: tokens.foreground },
+        ]}
       >
         {label}
       </Text>
@@ -419,7 +519,7 @@ function CollectionNameSheet({
   onDismiss?: () => void;
   onSubmit: (name: string) => void;
 }) {
-  const { tokens } = useNemuTheme();
+  const { tokens } = useMobileNativeSheetTheme();
   const { height, width } = useWindowDimensions();
   const landscape = width > height;
   const [name, setName] = useState(initialName);
@@ -479,6 +579,9 @@ function CollectionNameSheet({
       <View
         style={[
           styles.nameInputShell,
+          nemuSheetMetrics.textFieldMinHeight
+            ? { minHeight: nemuSheetMetrics.textFieldMinHeight }
+            : null,
           { backgroundColor: tokens.muted, borderColor: tokens.border },
         ]}
       >
@@ -497,7 +600,11 @@ function CollectionNameSheet({
             if (disabled) return;
             onSubmit(trimmedName);
           }}
-          style={[styles.nameInput, { color: tokens.foreground }]}
+          style={[
+            styles.nameInput,
+            nemuSheetMetrics.textFieldText,
+            { color: tokens.foreground },
+          ]}
         />
       </View>
 
@@ -555,7 +662,7 @@ function CollectionsManagerSheet({
   onRename: (collection: LocalCollection) => void;
   onRemove: (collection: LocalCollection) => void;
 }) {
-  const { tokens } = useNemuTheme();
+  const { tokens } = useMobileNativeSheetTheme();
   const { fontScale, height, width } = useWindowDimensions();
   const actionBusy = isMobileCollectionActionBusy(actionState);
   const sheetLayout = getMobileCollectionsManagerSheetLayout({
@@ -563,6 +670,9 @@ function CollectionsManagerSheet({
     fontScale,
     height,
     width,
+    rowHeight: nemuSheetMetrics.twoLineRowLayout
+      ? nemuSheetMetrics.twoLineRowLayout.minHeight + 9
+      : undefined,
   });
   const headerMetrics = resolveMobileSheetHeaderMetrics(Platform.OS);
 
@@ -595,7 +705,13 @@ function CollectionsManagerSheet({
             { backgroundColor: tokens.muted, borderColor: tokens.border },
           ]}
         >
-          <Text style={[styles.managerEmptyText, { color: tokens.mutedForeground }]}>
+          <Text
+            style={[
+              styles.managerEmptyText,
+              nemuSheetMetrics.description,
+              { color: tokens.mutedForeground },
+            ]}
+          >
             {strings.collectionMembership.noCollections}
           </Text>
         </View>
@@ -610,6 +726,9 @@ function CollectionsManagerSheet({
                 key={collection.collectionId}
                 style={[
                   styles.managerRow,
+                  nemuSheetMetrics.twoLineRowLayout
+                    ? { minHeight: nemuSheetMetrics.twoLineRowLayout.minHeight }
+                    : null,
                   {
                     backgroundColor: selected
                       ? nemuColorWithAlpha(tokens.primary, 0.07)
@@ -636,23 +755,31 @@ function CollectionsManagerSheet({
                   onPress={() => onSelect(collection.collectionId)}
                   pressedScale={0.985}
                   containerStyle={styles.managerRowMainContainer}
-                  style={styles.managerRowMain}
+                  style={[styles.managerRowMain, nemuSheetMetrics.twoLineRowLayout]}
                 >
                   <Ionicons
                     name={selected ? "albums" : "albums-outline"}
-                    size={20}
+                    size={nemuSheetMetrics.rowIconSize}
                     color={selected ? tokens.primary : tokens.mutedForeground}
                   />
                   <View style={styles.managerRowCopy}>
                     <Text
                       numberOfLines={1}
-                      style={[styles.managerRowTitle, { color: tokens.foreground }]}
+                      style={[
+                        styles.managerRowTitle,
+                        nemuSheetMetrics.twoLineRowTitle,
+                        { color: tokens.foreground },
+                      ]}
                     >
                       {collection.name}
                     </Text>
                     <Text
                       numberOfLines={1}
-                      style={[styles.managerRowMeta, { color: tokens.mutedForeground }]}
+                      style={[
+                        styles.managerRowMeta,
+                        nemuSheetMetrics.twoLineRowSupporting,
+                        { color: tokens.mutedForeground },
+                      ]}
                     >
                       {countLabel}
                     </Text>
@@ -697,321 +824,22 @@ function CollectionsManagerSheet({
   );
 }
 
-function ManageCollectionPanel({
-  collection,
-  strings,
-  entries,
-  membership,
-  removeArmed,
-  renaming,
-  savingMembership,
-  removing,
-  onRenameCollection,
-  onSaveMembership,
-  onCancelMembership,
-  onRemoveCollection,
-  onCancelRemove,
-}: {
-  collection: LocalCollection;
-  strings: MobileStrings;
-  entries: LibraryEntry[];
-  membership: Map<string, Set<string>>;
-  removeArmed: boolean;
-  renaming: boolean;
-  savingMembership: boolean;
-  removing: boolean;
-  onRenameCollection: (name: string) => Promise<boolean>;
-  onSaveMembership: (selectedLibraryItemIds: Set<string>) => Promise<boolean>;
-  onCancelMembership: () => void;
-  onRemoveCollection: () => void;
-  onCancelRemove: () => void;
-}) {
-  const { tokens } = useNemuTheme();
-  const [editingName, setEditingName] = useState(false);
-  const [draftName, setDraftName] = useState(collection.name);
-  const initialMemberIds = useMemo(
-    () => new Set(membership.get(collection.collectionId) ?? []),
-    [collection.collectionId, membership]
-  );
-  const validLibraryItemIds = useMemo(
-    () => new Set(entries.map((entry) => entry.item.libraryItemId)),
-    [entries]
-  );
-  const [selectedIds, setSelectedIds] = useState(initialMemberIds);
-  const trimmedDraftName = draftName.trim();
-  const actionState: MobileCollectionActionState = {
-    creating: false,
-    renaming,
-    savingMembership,
-    removing,
-  };
-  const collectionActionBusy = isMobileCollectionActionBusy(actionState);
-  const renameDisabled = !canRenameMobileCollection(
-    actionState,
-    draftName,
-    collection.name
-  );
-  const membershipDiff = useMemo(
-    () => diffLibraryItemSelection(initialMemberIds, selectedIds, validLibraryItemIds),
-    [initialMemberIds, selectedIds, validLibraryItemIds]
-  );
-  const membershipChangeCount =
-    membershipDiff.idsToAdd.length + membershipDiff.idsToRemove.length;
-  const membershipSaveDisabled = !canSaveMobileCollectionMembership(
-    actionState,
-    membershipChangeCount
-  );
-
-  useEffect(() => {
-    setSelectedIds(initialMemberIds);
-  }, [initialMemberIds]);
-
-  const cancelRename = () => {
-    setDraftName(collection.name);
-    setEditingName(false);
-  };
-
-  const saveRename = async () => {
-    if (renameDisabled) return;
-    const renamed = await onRenameCollection(trimmedDraftName);
-    if (renamed) {
-      setDraftName(trimmedDraftName);
-      setEditingName(false);
-    }
-  };
-
-  return (
-    <GlassSurface style={styles.panelShell} contentStyle={styles.panel}>
-      <View style={styles.panelHeader}>
-        <Ionicons name="albums-outline" size={20} color={tokens.primary} />
-        <View style={styles.panelTitleWrap}>
-          <Text numberOfLines={1} style={[styles.panelTitle, { color: tokens.foreground }]}>
-            {editingName ? strings.library.renameCollection : collection.name}
-          </Text>
-          <Text style={[styles.panelSubtitle, { color: tokens.mutedForeground }]}>
-            {editingName
-              ? strings.library.renameDescription
-              : strings.library.updateMembershipDescription}
-          </Text>
-        </View>
-        {!editingName ? (
-          <NemuButton
-            accessibilityLabel={formatMobileString(
-              strings.library.renameCollectionAccessibility,
-              { name: collection.name }
-            )}
-            accessibilityState={{ disabled: collectionActionBusy }}
-            disabled={collectionActionBusy}
-            icon="create-outline"
-            onPress={() => {
-              setDraftName(collection.name);
-              setEditingName(true);
-            }}
-            size="icon-sm"
-            variant="secondary"
-          />
-        ) : null}
-      </View>
-
-      {editingName ? (
-        <View style={styles.renameEditor}>
-          <TextInput
-            accessibilityLabel={strings.library.collectionName}
-            accessibilityState={{ disabled: collectionActionBusy }}
-            autoCapitalize="words"
-            autoFocus
-            editable={!collectionActionBusy}
-            placeholder={strings.library.collectionName}
-            placeholderTextColor={tokens.mutedForeground}
-            returnKeyType="done"
-            selectionColor={tokens.primary}
-            value={draftName}
-            onChangeText={setDraftName}
-            onSubmitEditing={() => {
-              void saveRename();
-            }}
-            style={[
-              styles.panelInput,
-              {
-                backgroundColor: tokens.muted,
-                color: tokens.foreground,
-                opacity: collectionActionBusy ? 0.72 : 1,
-              },
-            ]}
-          />
-          <View style={styles.panelActions}>
-            <NemuButton
-              accessibilityLabel={strings.common.cancel}
-              containerStyle={styles.actionButton}
-              disabled={collectionActionBusy}
-              hapticFeedback="none"
-              label={strings.common.cancel}
-              onPress={cancelRename}
-              variant="secondary"
-            />
-            <NemuButton
-              accessibilityLabel={strings.common.save}
-              containerStyle={styles.actionButton}
-              disabled={renameDisabled}
-              label={strings.common.save}
-              loading={renaming}
-              onPress={() => {
-                void saveRename();
-              }}
-              variant={renaming || !renameDisabled ? "default" : "secondary"}
-            />
-          </View>
-        </View>
-      ) : null}
-
-      <View style={styles.bookList}>
-        {entries.map((entry) => {
-          const member = selectedIds.has(entry.item.libraryItemId);
-          const subtitle = getMobileCollectionBookSubtitle(entry, strings);
-          return (
-            <NemuPressable
-              key={entry.item.libraryItemId}
-              accessibilityLabel={formatMobileString(
-                strings.library.collectionMangaAccessibility,
-                {
-                  title: getEntryTitle(entry),
-                  sourceCountLabel: subtitle,
-                }
-              )}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: member, disabled: collectionActionBusy }}
-              disabled={collectionActionBusy}
-              hapticFeedback="selection"
-              onPress={() => {
-                setSelectedIds((current) => {
-                  const next = new Set(current);
-                  if (next.has(entry.item.libraryItemId)) {
-                    next.delete(entry.item.libraryItemId);
-                  } else {
-                    next.add(entry.item.libraryItemId);
-                  }
-                  return next;
-                });
-              }}
-              style={[
-                styles.bookRow,
-                {
-                  backgroundColor: member ? tokens.primarySoft : tokens.muted,
-                  borderColor: member ? tokens.primary : tokens.border,
-                  opacity: collectionActionBusy ? 0.68 : 1,
-                },
-              ]}
-              pressedScale={0.985}
-            >
-              <View style={styles.bookRowText}>
-                <Text numberOfLines={1} style={[styles.bookTitle, { color: tokens.foreground }]}>
-                  {getEntryTitle(entry)}
-                </Text>
-                <Text numberOfLines={1} style={[styles.bookSubtitle, { color: tokens.mutedForeground }]}>
-                  {subtitle}
-                </Text>
-              </View>
-              <Ionicons
-                name={member ? "checkmark-circle" : "add-circle-outline"}
-                size={21}
-                color={member ? tokens.primary : tokens.mutedForeground}
-              />
-            </NemuPressable>
-          );
-        })}
-      </View>
-
-      <View style={styles.panelActions}>
-        <NemuButton
-          accessibilityLabel={strings.common.cancel}
-          containerStyle={styles.actionButton}
-          disabled={collectionActionBusy}
-          hapticFeedback="none"
-          label={strings.common.cancel}
-          onPress={onCancelMembership}
-          variant="secondary"
-        />
-        <NemuButton
-          accessibilityLabel={strings.common.save}
-          containerStyle={styles.actionButton}
-          disabled={membershipSaveDisabled}
-          label={
-            membershipChangeCount > 0
-              ? formatMobileString(strings.collectionMembership.saveWithCount, {
-                  count: membershipChangeCount,
-                })
-              : strings.common.save
-          }
-          loading={savingMembership}
-          onPress={() => {
-            void (async () => {
-              const saved = await onSaveMembership(selectedIds);
-              if (saved) {
-                setSelectedIds(new Set(selectedIds));
-              }
-            })();
-          }}
-          variant={savingMembership || !membershipSaveDisabled ? "default" : "secondary"}
-        />
-      </View>
-
-      <View style={styles.removeBlock}>
-        {removeArmed ? (
-          <>
-            <Text style={[styles.removeText, { color: tokens.mutedForeground }]}>
-              {strings.library.removeCollectionConfirm}
-            </Text>
-            <View style={styles.panelActions}>
-              <NemuButton
-                accessibilityLabel={strings.common.cancel}
-                containerStyle={styles.actionButton}
-                disabled={removing}
-                hapticFeedback="none"
-                label={strings.common.cancel}
-                onPress={onCancelRemove}
-                variant="secondary"
-              />
-              <NemuButton
-                accessibilityLabel={formatMobileString(
-                  strings.library.removeCollectionNamed,
-                  { name: collection.name }
-                )}
-                containerStyle={styles.actionButton}
-                disabled={collectionActionBusy}
-                hapticFeedback="warning"
-                label={strings.common.remove}
-                loading={removing}
-                onPress={onRemoveCollection}
-                variant="destructive"
-              />
-            </View>
-          </>
-        ) : (
-          <NemuButton
-            accessibilityLabel={formatMobileString(
-              strings.library.removeCollectionNamed,
-              { name: collection.name }
-            )}
-            disabled={collectionActionBusy}
-            icon="trash-outline"
-            label={strings.library.removeCollection}
-            onPress={onRemoveCollection}
-            style={styles.stretchedButton}
-            variant="destructive"
-          />
-        )}
-      </View>
-    </GlassSurface>
-  );
-}
+// iOS presents these as SwiftUI Form sheets (native rows, checkmarks, swipe
+// actions, Cancel / Save in the navigation bar); Android keeps the Material
+// React Native sheets above.
+const TitleMenuSheet = mobileLibraryCollectionNativeSheetsAvailable
+  ? MobileLibraryTitleMenuNativeSheet
+  : LibraryTitleMenuSheet;
+const NameSheet = mobileLibraryCollectionNativeSheetsAvailable
+  ? MobileCollectionNameNativeSheet
+  : CollectionNameSheet;
 
 export function LibraryScreen({
   collectionId = null,
   mode = "library",
 }: LibraryScreenProps = {}) {
-  const { tokens } = useNemuTheme();
-  const { fontScale, height, width } = useWindowDimensions();
-  const pageGutters = useMobilePageGutters();
+  const { verticalBarSide, width: windowWidth, height: windowHeight, hasFoldRegion } = useMobileAdaptiveLayout();
+  const { scheme, tokens } = useNemuTheme();
   const usesNativeHeader = usesNemuNativeHeader;
   const store = useMobileDataStore();
   const {
@@ -1020,16 +848,32 @@ export function LibraryScreen({
     error: libraryError,
     reload: reloadLibrary,
   } = useLibraryEntries();
-  const installedSources = useInstalledSources();
+  const installedSources = useInstalledSources({ includeLocalArchive: true });
   const progress = useMangaProgress();
   const collections = useCollections();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
   const routeCollectionId = collectionId?.trim() ? collectionId.trim() : null;
   const isCollectionRoute = mode === "collection";
-  const [selectedCollectionId, setSelectedCollectionId] = useState<
-    string | null
-  >(routeCollectionId);
+  // The shown collection is a session store shared with the collection
+  // deep-link route (`mobileLibraryTitleMenu.ts`): the title menu switches it
+  // in place, so the Library root never navigates to show a collection and
+  // All is always one tap away.
+  const sharedSelectedCollectionId = useSyncExternalStore(
+    subscribeMobileLibraryCollectionSelection,
+    getMobileLibraryCollectionSelection,
+    getMobileLibraryCollectionSelection,
+  );
+  const selectedCollectionId = isCollectionRoute
+    ? routeCollectionId
+    : sharedSelectedCollectionId;
+  const setSelectedCollectionId = setMobileLibraryCollectionSelection;
+  // A folder opens its collection as a pushed screen, like every other
+  // destination of the stack (Back, title, edge swipe), not in place.
+  const openCollectionScreen = useCallback((nextCollectionId: string | null) => {
+    if (!nextCollectionId) return;
+    router.push({ pathname: "/library/collection/[id]", params: { id: nextCollectionId } });
+  }, []);
   const [showTitleMenuSheet, setShowTitleMenuSheet] = useState(false);
   const [showCreatePanel, setShowCreatePanel] = useState(false);
   const [showManagePanel, setShowManagePanel] = useState(false);
@@ -1052,7 +896,6 @@ export function LibraryScreen({
   const removingCollectionRef = useRef(false);
   const [refreshingLibrary, setRefreshingLibrary] = useState(false);
   const [retryingData, setRetryingData] = useState(false);
-  const [removeArmed, setRemoveArmed] = useState(false);
   const [operationError, setOperationError] = useState<string | null>(null);
   const [quickActionEntry, setQuickActionEntry] = useState<LibraryEntry | null>(null);
   const [membershipSheetEntry, setMembershipSheetEntry] = useState<LibraryEntry | null>(null);
@@ -1060,53 +903,34 @@ export function LibraryScreen({
   const pendingSheetTransitionRef = useRef<PendingLibrarySheetTransition | null>(null);
   const refreshInFlightRef = useRef(false);
   const retryDataGuardRef = useRef(false);
-  const appStateRef = useRef(AppState.currentState);
+  const appStateRef = useRef((AppState.currentState ?? "unknown"));
   const foregroundCatchupPendingRef = useRef(false);
-  // Abort flag for the background latest-chapter refresh. The refresh
-  // serializes through the same `aidokuRuntimeQueue` as interactive source
-  // taps, so a long library sweep would otherwise freeze every source tap
-  // until the whole library is checked. Flipping `aborted` between chunks
-  // lets a tap (which navigates away and blurs this screen) preempt the
-  // remaining work.
+  // Abort flag for the background latest-chapter refresh. Its operations run
+  // at `background` priority, so a tap's requests already go first on the
+  // shared source runtime; flipping `aborted` (on blur) also stops the sweep
+  // from queueing more work while the user is elsewhere.
   const libraryRefreshAbortRef = useRef<{ aborted: boolean }>({ aborted: false });
   const libraryFocusedRef = useRef(true);
-  const gridScrollRef = useRef<FlatList<LibraryEntry> | null>(null);
-  const gridScrollSnapshotRef = useRef<MobileGridScrollSnapshot>({
-    offset: 0,
-    contentHeight: 0,
-    viewportHeight: 0,
+  const gridScrollRef = useRef<FlatList<LibraryEntry[]> | null>(null);
+  // The library grid adapts exactly like browse and search: columns come from
+  // the list's measured width minus the scaffold's safe-area gutters (an even
+  // count on regular widths), and in book posture the middle gutter sits on
+  // the fold so no cover straddles it.
+  const grid = useMobileFoldAwareGrid({
+    // Larger covers on an iPad (mobileLibraryGridMinItemWidth).
+    minItemWidth: mobileLibraryGridMinItemWidth({ width: windowWidth, height: windowHeight, hasFoldRegion }),
+    getNode: () =>
+      gridScrollRef.current?.getNativeScrollRef?.() as
+        | { measureInWindow?: (callback: (x: number, y: number, width: number, height: number) => void) => void }
+        | null
+        | undefined,
   });
-  const pendingGridScrollRatioRef = useRef<number | null>(null);
-  const gridColumnsRef = useRef(0);
-  // The library grid adapts exactly like browse and search: a landscape phone
-  // or an iPad must not show three giant covers next to a wider search grid.
-  // Columns come from the width left after the scaffold's safe-area gutters.
-  const gridColumns = useMemo(
-    () =>
-      getMobileMangaGridColumns({
-        windowWidth: width,
-        horizontalPadding: pageGutters.horizontal,
-      }),
-    [pageGutters.horizontal, width],
-  );
-  const gridItemWidth = useMemo(
-    () =>
-      getMobileMangaGridItemWidth({
-        windowWidth: width,
-        horizontalPadding: pageGutters.horizontal,
-      }),
-    [pageGutters.horizontal, width],
-  );
-  // `FlatList` throws when `numColumns` changes on a mounted list, so a
-  // rotation has to remount the grid. Capture the scroll proportion in the
-  // same pass that changes the key — the remounted list reports its new
-  // content size before effects run.
-  if (gridColumnsRef.current !== 0 && gridColumnsRef.current !== gridColumns) {
-    pendingGridScrollRatioRef.current = captureMobileGridScrollRatio(
-      gridScrollSnapshotRef.current,
-    );
-  }
-  gridColumnsRef.current = gridColumns;
+  const gridColumns = grid.columns;
+  const gridItemWidth = grid.itemWidth;
+  const gridColumnMargins = grid.columnMargins;
+  // Virtualize rows so a column change keeps the list/header mounted. The
+  // carousel retains its measured height and selected card across displays.
+  useMobilePoseRenderProbe("LibraryScreen");
 
   const queueAfterSheetDismiss = useCallback(
     (source: LibrarySheetTransitionSource, run: () => void) => {
@@ -1126,20 +950,26 @@ export function LibraryScreen({
     [],
   );
 
+  // `library/collection/[id]` is a pushed screen of its own (a folder in the
+  // Collections row, a deep link): it shows its collection with the stack's
+  // Back button, title and edge swipe, and leaves the root's selection (the
+  // title menu's) alone. An unknown id keeps the not-found state.
+
+  // A shown collection deleted elsewhere (another device, the manager sheet)
+  // falls back to All once a reload no longer has it.
+  const previousCollectionsRef = useRef(collections.data);
   useEffect(() => {
-    pendingSheetTransitionRef.current = null;
-    if (!isCollectionRoute) return;
-    setSelectedCollectionId(routeCollectionId);
-    setShowTitleMenuSheet(false);
-    setShowCreatePanel(false);
-    setShowManagePanel(false);
-    setShowCollectionsManagerSheet(false);
-    setShowAddBooksSheet(false);
-    setAddBooksPresentation(null);
-    setRenameTarget(null);
-    setRemoveTarget(null);
-    setRemoveArmed(false);
-  }, [isCollectionRoute, routeCollectionId]);
+    const previous = previousCollectionsRef.current;
+    previousCollectionsRef.current = collections.data;
+    if (isCollectionRoute) return;
+    const next = reconcileMobileLibraryCollectionSelection({
+      previousCollections: previous,
+      collections: collections.data,
+      loading: collections.loading,
+      selectedCollectionId: sharedSelectedCollectionId,
+    });
+    if (next !== sharedSelectedCollectionId) setMobileLibraryCollectionSelection(next);
+  }, [collections.data, collections.loading, isCollectionRoute, sharedSelectedCollectionId]);
 
   useEffect(
     () => () => {
@@ -1182,12 +1012,6 @@ export function LibraryScreen({
       sortMobileLibraryEntries(libraryEntries, progressIndex, entryProgressMaps),
     [entryProgressMaps, libraryEntries, progressIndex]
   );
-  const manageCollectionSheetLayout = getMobileManageCollectionSheetLayout({
-    collectionCount: sortedLibraryEntries.length,
-    fontScale,
-    height,
-    width,
-  });
   const visibleEntries = useMemo(
     () =>
       entriesForCollection(
@@ -1197,6 +1021,13 @@ export function LibraryScreen({
       ),
     [collections.membership, effectiveCollectionId, sortedLibraryEntries]
   );
+  const gridScrollAnchor = useMobileGridScrollAnchor({
+    listRef: gridScrollRef,
+    columns: gridColumns,
+    itemWidth: gridItemWidth,
+    itemCount: visibleEntries.length,
+    viewabilityUnit: "row",
+  });
   const title = selectedCollection?.name ?? strings.nav.library;
   const loading =
     libraryLoading ||
@@ -1209,6 +1040,13 @@ export function LibraryScreen({
     progress.error ??
     installedSources.error;
   const hasError = Boolean(error);
+  // The launch screen holds until this first local snapshot (content, the
+  // empty state or an error) is committed; see `mobileSplashScreen.ts`.
+  useEffect(() => {
+    if (loading || isMobileLaunchContentReady()) return;
+    markMobilePerformance(MOBILE_PERFORMANCE_MARKS.bootLibraryReady, { entries: libraryEntries.length });
+    markMobileLaunchContentReady();
+  }, [libraryEntries.length, loading]);
   const hasAnyLibraryData = libraryEntries.length > 0;
   const hasInstalledSources = installedSources.data.length > 0;
   const showSkeleton = shouldRenderMobileLibrarySkeleton({
@@ -1278,7 +1116,7 @@ export function LibraryScreen({
 
   const selectCollection = (
     nextCollectionId: string | null,
-    source: "title-menu" | "collections-manager",
+    source: "title-menu" | "collections-manager" | "native-title-menu",
   ) => {
     if (
       !canSelectMobileCollectionScope({
@@ -1299,18 +1137,15 @@ export function LibraryScreen({
       setShowAddBooksSheet(false);
       setRenameTarget(null);
       setRemoveTarget(null);
-      setRemoveArmed(false);
-
-      if (!isCollectionRoute) return;
-      if (nextCollectionId) {
-        router.replace({
-          pathname: "/library/collection/[id]",
-          params: { id: nextCollectionId },
-        });
-      } else {
-        router.replace("/library");
-      }
+      // In place: no push/replace, so Back and tab reselection stay put and
+      // the title menu can always switch back to All.
+      if (isCollectionRoute) router.dismissTo("/library");
     };
+    // The UIKit / Compose menu has already closed itself: no sheet to wait for.
+    if (source === "native-title-menu") {
+      commitSelection();
+      return;
+    }
     if (!queueAfterSheetDismiss(source, commitSelection)) return;
     if (source === "title-menu") {
       setShowTitleMenuSheet(false);
@@ -1328,7 +1163,6 @@ export function LibraryScreen({
     setShowAddBooksSheet(true);
     setShowCreatePanel(false);
     setShowCollectionsManagerSheet(false);
-    setRemoveArmed(false);
   }, [collectionActionBusy, selectedCollection]);
 
   const toggleCollectionManagement = useCallback(() => {
@@ -1347,7 +1181,6 @@ export function LibraryScreen({
     setShowCollectionsManagerSheet(false);
     setRenameTarget(null);
     setRemoveTarget(null);
-    setRemoveArmed(false);
   }, [collectionActionBusy, selectedCollection, showManagePanel]);
 
   const toggleCreateCollection = useCallback(() => {
@@ -1372,7 +1205,6 @@ export function LibraryScreen({
     setShowCreatePanel(false);
     setRenameTarget(null);
     setRemoveTarget(null);
-    setRemoveArmed(false);
   }, [collectionActionBusy]);
 
   const openCollectionRename = useCallback((collection: LocalCollection) => {
@@ -1389,7 +1221,6 @@ export function LibraryScreen({
     setShowManagePanel(false);
     setShowCreatePanel(false);
     setShowAddBooksSheet(false);
-    setRemoveArmed(false);
   }, [collectionActionBusy, queueAfterSheetDismiss]);
 
   const openCollectionRemoveConfirmation = useCallback((collection: LocalCollection) => {
@@ -1406,7 +1237,6 @@ export function LibraryScreen({
     setShowManagePanel(false);
     setShowCreatePanel(false);
     setShowAddBooksSheet(false);
-    setRemoveArmed(false);
   }, [collectionActionBusy, queueAfterSheetDismiss]);
 
   const reportCollectionError = async (error: unknown) => {
@@ -1420,11 +1250,16 @@ export function LibraryScreen({
     options: { force?: boolean; interactive?: boolean } = {}
   ) => {
     const force = options.force ?? false;
+    if (libraryLoading || installedSources.loading) {
+      // The launch sweep fires on the first idle frame, usually before the
+      // library rows have loaded; run it once they have (see below) instead
+      // of skipping the launch check entirely.
+      if (!options.interactive) launchRefreshPendingRef.current = true;
+      return;
+    }
     if (
-      !isMobileLibraryRefreshAppActive(AppState.currentState) ||
+      !isMobileLibraryRefreshAppActive((AppState.currentState ?? "unknown")) ||
       refreshInFlightRef.current ||
-      libraryLoading ||
-      installedSources.loading ||
       libraryEntries.length === 0 ||
       !libraryFocusedRef.current ||
       (!force &&
@@ -1442,7 +1277,7 @@ export function LibraryScreen({
     // foreground could revive a native request that was already cancelled
     // while the app was backgrounding.
     const refreshSignal = {
-      aborted: !isMobileLibraryRefreshAppActive(AppState.currentState),
+      aborted: !isMobileLibraryRefreshAppActive((AppState.currentState ?? "unknown")),
     };
     if (refreshSignal.aborted) return;
     libraryRefreshAbortRef.current = refreshSignal;
@@ -1479,12 +1314,10 @@ export function LibraryScreen({
           toast.show({
             tone: "danger",
             title: strings.feedback.libraryRefreshFailedTitle,
-            // The count string is authored to trail a summary line, so drop
-            // its leading separator when it stands alone as the detail.
             detail: formatMobileString(
-              strings.feedback.libraryRefreshUnavailableSuffix,
+              strings.feedback.libraryRefreshUnavailableDetail,
               { count: result.failed },
-            ).replace(/^\s*·\s*/, ""),
+            ),
           });
         }
       }
@@ -1511,7 +1344,7 @@ export function LibraryScreen({
     reloadLibrary,
     store,
     strings.feedback.libraryRefreshFailedTitle,
-    strings.feedback.libraryRefreshUnavailableSuffix,
+    strings.feedback.libraryRefreshUnavailableDetail,
     toast,
   ]);
 
@@ -1533,6 +1366,25 @@ export function LibraryScreen({
   // re-creates on every library/source write (including the reload its own
   // sweep triggers), and re-arming the schedule on each one restarted the
   // interval and queued redundant initial sweeps.
+  // Set when the launch update check found the library still loading.
+  const launchRefreshPendingRef = useRef(false);
+  useEffect(() => {
+    if (
+      !launchRefreshPendingRef.current ||
+      libraryLoading ||
+      installedSources.loading
+    ) {
+      return;
+    }
+    // Update checks run at `background` priority on the source runtime and
+    // keep every title's chapter list cached, so opening a title from the
+    // library paints at once instead of waiting on its source.
+    const task = scheduleMobileIdleTask(() => {
+      launchRefreshPendingRef.current = false;
+      void refreshLatestChapters();
+    });
+    return () => task.cancel();
+  }, [installedSources.loading, libraryLoading, refreshLatestChapters]);
   const refreshLatestChaptersRef = useRef(refreshLatestChapters);
   useEffect(() => {
     refreshLatestChaptersRef.current = refreshLatestChapters;
@@ -1555,7 +1407,7 @@ export function LibraryScreen({
     const startRefreshSchedule = (scheduleInitial: boolean) => {
       if (
         interval ||
-        !isMobileLibraryRefreshAppActive(AppState.currentState)
+        !isMobileLibraryRefreshAppActive((AppState.currentState ?? "unknown"))
       ) {
         return;
       }
@@ -1601,24 +1453,42 @@ export function LibraryScreen({
     };
   }, []);
 
-  const createCollection = async (submittedName?: string) => {
+  // iOS names collections in an alert, which has already closed by the time
+  // the save settles: a create that does not go through ends the prompt
+  // too (the error shows on the page) instead of leaving it armed.
+  const endCreatePromptAfterFailure = () => {
+    if (!mobileLibraryCollectionNativeSheetsAvailable) return;
+    setShowCreatePanel(false);
+    setNewCollectionName("");
+  };
+
+  /**
+   * `inPlace`: created from the Manage Collections sheet, which stays open
+   * and shows the new row; otherwise the sheets close and the library
+   * switches to the new collection.
+   */
+  const createCollection = async (
+    submittedName?: string,
+    { inPlace = false }: { inPlace?: boolean } = {},
+  ) => {
     const name = (submittedName ?? newCollectionName).trim();
-    if (!canCreateMobileCollection(getGuardedCollectionActionState(), name)) return;
+    if (!canCreateMobileCollection(getGuardedCollectionActionState(), name)) {
+      if (!inPlace) endCreatePromptAfterFailure();
+      return;
+    }
     savingCollectionRef.current = true;
     setSavingCollection(true);
     setOperationError(null);
     try {
       const collection = await collections.createCollection(name);
+      if (inPlace) {
+        await hapticConfirm();
+        return;
+      }
       if (
         !queueAfterSheetDismiss("create-collection", () => {
-          if (isCollectionRoute) {
-            router.replace({
-              pathname: "/library/collection/[id]",
-              params: { id: collection.collectionId },
-            });
-          } else {
-            setSelectedCollectionId(collection.collectionId);
-          }
+          setSelectedCollectionId(collection.collectionId);
+          if (isCollectionRoute) router.dismissTo("/library");
         })
       ) {
         return;
@@ -1630,6 +1500,7 @@ export function LibraryScreen({
       setShowAddBooksSheet(false);
       await hapticConfirm();
     } catch (error) {
+      if (!inPlace) endCreatePromptAfterFailure();
       await reportCollectionError(error);
     } finally {
       savingCollectionRef.current = false;
@@ -1674,7 +1545,6 @@ export function LibraryScreen({
         await collections.addBooksToCollection(selectedCollection.collectionId, diff.idsToAdd);
       }
       setShowManagePanel(false);
-      setRemoveArmed(false);
       await hapticConfirm();
       return true;
     } catch (error) {
@@ -1720,14 +1590,30 @@ export function LibraryScreen({
     }
   };
 
-  const renameCollection = async (name: string) => {
-    if (!selectedCollection) return false;
-    return renameCollectionById(selectedCollection, name);
+  // The book picker's ✓: a staged rename (Edit Collection) first, then the
+  // membership diff. A failed rename keeps the sheet open with nothing else
+  // written; an unchanged selection still closes it.
+  const saveCollectionBooks = async (
+    collection: LocalCollection,
+    selectedLibraryItemIds: Set<string>,
+    renameTo: string | null,
+  ) => {
+    if (collection.collectionId !== selectedCollection?.collectionId) return false;
+    if (renameTo !== null) {
+      const renamed = await renameCollectionById(collection, renameTo);
+      if (!renamed) return false;
+    }
+    return saveCollectionMembership(selectedLibraryItemIds);
   };
 
+  /**
+   * `collections-manager`: confirmed inside the iOS Manage Collections sheet,
+   * which stays open with the row gone (the library behind falls back to
+   * All when it was showing this collection).
+   */
   const removeCollectionById = async (
     collection: LocalCollection,
-    source: "manage-collection" | "remove-confirmation",
+    source: "manage-collection" | "remove-confirmation" | "collections-manager",
   ) => {
     if (!canStartMobileCollectionAction(getGuardedCollectionActionState())) return;
     removingCollectionRef.current = true;
@@ -1735,16 +1621,16 @@ export function LibraryScreen({
     setOperationError(null);
     try {
       await collections.removeCollection(collection.collectionId);
+      if (source === "collections-manager") {
+        if (effectiveCollectionId === collection.collectionId) setSelectedCollectionId(null);
+        await hapticConfirm();
+        return;
+      }
       if (
         !queueAfterSheetDismiss(source, () => {
-          if (
-            isCollectionRoute &&
-            effectiveCollectionId === collection.collectionId
-          ) {
-            router.replace("/library");
-          } else if (effectiveCollectionId === collection.collectionId) {
-            setSelectedCollectionId(null);
-          }
+          if (effectiveCollectionId !== collection.collectionId) return;
+          setSelectedCollectionId(null);
+          if (isCollectionRoute) router.dismissTo("/library");
         })
       ) {
         return;
@@ -1754,7 +1640,6 @@ export function LibraryScreen({
       setShowAddBooksSheet(false);
       setRenameTarget(null);
       setRemoveTarget(null);
-      setRemoveArmed(false);
       await hapticConfirm();
     } catch (error) {
       await reportCollectionError(error);
@@ -1762,16 +1647,6 @@ export function LibraryScreen({
       removingCollectionRef.current = false;
       setRemovingCollection(false);
     }
-  };
-
-  const removeCollection = async () => {
-    if (!selectedCollection) return;
-    if (!removeArmed) {
-      setOperationError(null);
-      setRemoveArmed(true);
-      return;
-    }
-    await removeCollectionById(selectedCollection, "manage-collection");
   };
 
   const retryLibraryData = async () => {
@@ -1794,45 +1669,174 @@ export function LibraryScreen({
       setRetryingData(false);
     }
   };
+  // The navigation title is the collection switcher (iOS: UIKit title menu
+  // with the system chevron, like Files; Android: Material title dropdown).
+  // Without it (a binary built before the native module) the toolbar keeps
+  // the switcher button that opens the title-menu sheet.
+  const titleMenuSections = useMemo(
+    () =>
+      buildMobileLibraryTitleMenu({
+        collections: collections.data,
+        membership: collections.membership,
+        libraryCount: libraryEntries.length,
+        selectedCollectionId: effectiveCollectionId,
+        labels: {
+          all: strings.library.all,
+          editCollection: strings.library.titleMenuEditCollection,
+          newCollection: strings.library.titleMenuNewCollection,
+          manageCollections: strings.library.titleMenuManageCollections,
+          bookCount: (count) => collectionBookCountText(count, strings),
+        },
+        disabled: collectionActionBusy,
+      }),
+    [
+      collectionActionBusy,
+      collections.data,
+      collections.membership,
+      effectiveCollectionId,
+      libraryEntries.length,
+      strings,
+    ],
+  );
+  const handleTitleMenuAction = (id: string) => {
+    const action = resolveMobileLibraryTitleMenuAction(id);
+    if (!action || collectionActionBusy) return;
+    switch (action.type) {
+      case "select":
+        selectCollection(action.collectionId, "native-title-menu");
+        return;
+      case "edit-current":
+        if (!showManagePanel) toggleCollectionManagement();
+        return;
+      case "create":
+        if (!showCreatePanel) toggleCreateCollection();
+        return;
+      case "manage":
+        openCollectionsManager();
+        return;
+    }
+  };
+  const titleMenu: MobileLibraryTitleMenuProps | null =
+    mobileLibraryTitleMenuAvailable && !isCollectionRoute
+      ? {
+          title,
+          sections: titleMenuSections,
+          accessibilityHint: strings.library.titleMenuHint,
+          tokens,
+          scheme,
+          onAction: handleTitleMenuAction,
+        }
+      : null;
+  const titleMenuAnchor = titleMenu ? <MobileLibraryTitleMenuAnchor {...titleMenu} /> : null;
   const nativeHeaderOptions = (
     screenTitle: string,
-  ) => createNemuNativeScreenOptions(tokens, screenTitle);
-  // Library-level collection actions (create + the collections menu). Shared
-  // with the empty-library state so collections stay manageable before the
-  // first title is added.
-  const libraryHeaderActions: NemuNativeHeaderAction[] = [
+  ) => createNemuNativeScreenOptions(tokens, screenTitle, verticalBarSide);
+  // The Library root's header: on Android the title becomes the dropdown.
+  const titleMenuHeaderOptions = (screenTitle: string) => ({
+    ...nativeHeaderOptions(screenTitle),
+    ...(titleMenu
+      ? getMobileLibraryTitleMenuHeaderOptions({ ...titleMenu, title: screenTitle })
+      : {}),
+  });
+  const collectionSwitcherAction: NemuNativeHeaderAction = {
+    // Fallback switcher (no native title menu). Not an ellipsis: HIG
+    // reserves it for the system overflow menu (which the vertical bar adds).
+    icon: "rectangle.stack",
+    label: strings.collectionMembership.title,
+    hint: strings.library.manageCollectionsHint,
+    disabled: collectionActionBusy,
+    onPress: () => setShowTitleMenuSheet(true),
+  };
+  // Library-level collection actions. Shared with the empty-library state so
+  // collections stay manageable before the first title is added.
+  const importComics = useCallback(async () => {
+    try {
+      const picked = await DocumentPicker.getDocumentAsync({
+        copyToCacheDirectory: true,
+        multiple: false,
+        type: ["application/zip", "application/x-cbz", "application/vnd.comicbook+zip", "application/octet-stream"],
+      });
+      if (picked.canceled) return;
+      const asset = picked.assets?.[0];
+      if (!asset?.uri) return;
+      try {
+        const result = await importLocalArchive({
+          uri: asset.uri,
+          fileName: asset.name,
+          fs: deviceArchiveFs,
+          store,
+          now: Date.now(),
+          newId: () => `work-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
+        });
+        if (result.kind === "created") void pushLocalArchiveVolume(store, result.volume);
+        emitMobileLibraryDataChanged();
+        toast.show({
+          id: "comic-import",
+          tone: "success",
+          title: formatMobileString(
+            result.kind === "created" ? strings.library.importComicsDone : strings.library.importComicsRelinked,
+            { title: result.volume.title },
+          ),
+        });
+      } finally {
+        // The picker's cache copy is no longer needed; the book lives in documents.
+        try {
+          new FsFile(asset.uri).delete();
+        } catch {
+          // already gone
+        }
+      }
+    } catch {
+      toast.show({ id: "comic-import", tone: "danger", title: strings.library.importComicsFailed });
+    }
+  }, [store, strings, toast]);
+  // The Library toolbar's "+" is a menu: import a CBZ/ZIP, or start a collection.
+  const libraryAddMenuActions: NemuNativeHeaderAction[] = [
     {
-      icon: "plus",
-      label: strings.library.createCollection,
+      icon: "square.and.arrow.down",
+      label: strings.library.importComics,
+      hint: strings.library.importComicsHint,
+      disabled: collectionActionBusy,
+      onPress: () => void importComics(),
+    },
+    {
+      icon: "folder.badge.plus",
+      // Opens a name prompt, so the label ends in an ellipsis like the import entry.
+      label: `${strings.library.createCollection}…`,
       hint: strings.library.createCollectionHint,
       disabled: collectionActionBusy,
       onPress: toggleCreateCollection,
     },
+  ];
+  const libraryHeaderActions: NemuNativeHeaderAction[] = [
+    ...(Platform.OS === "ios" ? [] : [libraryAddMenuActions[1]!]),
+    ...(titleMenu ? [] : [collectionSwitcherAction]),
+  ];
+  // A shown collection adds books from the toolbar; editing it lives in the
+  // title menu ("Edit Collection…"), next to switching back to All.
+  const collectionHeaderActions: NemuNativeHeaderAction[] = [
     {
-      icon: "ellipsis.circle",
-      label: `${strings.nav.library} menu`,
-      hint: strings.library.manageCollectionsHint,
+      icon: "plus",
+      label: strings.library.addBooksAction,
+      hint: strings.library.addBooksHint,
       disabled: collectionActionBusy,
-      onPress: () => setShowTitleMenuSheet(true),
+      onPress: openAddBooksSheet,
     },
+    ...(titleMenu
+      ? []
+      : [
+          collectionSwitcherAction,
+          {
+            icon: "folder.badge.gearshape" as const,
+            label: strings.library.manageCollection,
+            hint: strings.library.manageCollectionHint,
+            disabled: collectionActionBusy,
+            onPress: toggleCollectionManagement,
+          },
+        ]),
   ];
   const nativeHeaderActions: NemuNativeHeaderAction[] = selectedCollection
-    ? [
-        {
-          icon: "plus",
-          label: strings.library.addBooksAction,
-          hint: strings.library.addBooksHint,
-          disabled: collectionActionBusy,
-          onPress: openAddBooksSheet,
-        },
-        {
-          icon: "ellipsis.circle",
-          label: strings.library.manageCollection,
-          hint: strings.library.manageCollectionHint,
-          disabled: collectionActionBusy,
-          onPress: toggleCollectionManagement,
-        },
-      ]
+    ? collectionHeaderActions
     : libraryHeaderActions;
   const handleQuickActionMarkAllRead = useCallback(
     async (entry: LibraryEntry) => {
@@ -1874,6 +1878,14 @@ export function LibraryScreen({
 
   const handleQuickActionRemove = useCallback(
     async (entry: LibraryEntry) => {
+      if (mobileDesignExploreFlag) {
+        // Design-explore: once the sheet has slid away, the title's cover (or
+        // card) turns to dust where it stands, and the list closes the gap
+        // behind the drifting dust. Nothing on screen: removed as before.
+        if (await dissolveExploreTitle(entry.item.libraryItemId, EXPLORE_SHEET_DISMISS_MS)) {
+          LayoutAnimation.configureNext(LayoutAnimation.create(320, "easeInEaseOut", "opacity"));
+        }
+      }
       try {
         await store.removeLibraryItem(entry.item.libraryItemId);
         emitMobileLibraryDataChanged({ collectionsChanged: true });
@@ -1909,8 +1921,7 @@ export function LibraryScreen({
 
   const openEntryInSource = useCallback(
     (entry: LibraryEntry) => {
-      const link =
-        selectLibraryCoverSource(entry, progressIndex) ?? entry.sources[0];
+      const link = getMobileEntryQuickActionSource(entry, progressIndex);
       if (!link) return;
       router.push(
         getMobileSourceMangaHref({
@@ -1927,18 +1938,35 @@ export function LibraryScreen({
   const quickActionLink = useMemo(
     () =>
       quickActionEntry
-        ? (selectLibraryCoverSource(quickActionEntry, progressIndex) ??
-          quickActionEntry.sources[0])
+        ? (getMobileEntryQuickActionSource(quickActionEntry, progressIndex) ??
+          null)
         : null,
     [progressIndex, quickActionEntry],
   );
   const quickActionSource = useMemo(
-    () => findInstalledSourceForLink(installedSources.data, quickActionLink),
+    () =>
+      quickActionLink
+        ? findInstalledSourceForLink(installedSources.data, quickActionLink)
+        : null,
     [installedSources.data, quickActionLink],
   );
+  const quickActionCover = quickActionEntry
+    ? resolveMobileEntryDisplayCover(quickActionEntry)
+    : null;
+  const quickActionCoverSource = useMemo(
+    () =>
+      quickActionEntry
+        ? (resolveMobileEntryCoverSources(
+            quickActionEntry,
+            installedSources.data,
+            { cover: quickActionCover },
+          )[0] ?? null)
+        : null,
+    [installedSources.data, quickActionCover, quickActionEntry],
+  );
   const quickActionCoverRequest = useMobileSourceImageRequest(
-    quickActionSource,
-    quickActionEntry ? getEntryCover(quickActionEntry) : null,
+    quickActionCoverSource,
+    quickActionCover,
   );
   const quickActionSubtitle = useMemo(() => {
     if (!quickActionEntry) return undefined;
@@ -1958,10 +1986,9 @@ export function LibraryScreen({
     strings,
   ]);
 
-  const quickActions = useMemo<QuickAction[]>(() => {
-    const entry = quickActionEntry;
-    if (!entry) return [];
-    const link = quickActionLink;
+  const getEntryActions = useCallback((entry: LibraryEntry): QuickAction[] => {
+    const link = getMobileEntryQuickActionSource(entry, progressIndex);
+    const actionSource = link ? findInstalledSourceForLink(installedSources.data, link) : null;
     const actions: QuickAction[] = [
       {
         id: "markAllRead",
@@ -1986,7 +2013,7 @@ export function LibraryScreen({
       actions.push({
         id: "openInSource",
         label: formatMobileString(strings.feedback.quickMenuOpenInSource, {
-          source: quickActionSource?.name ?? link.sourceId,
+          source: actionSource?.name ?? link.sourceId,
         }),
         icon: "open-outline",
         onPress: () => {
@@ -2005,45 +2032,160 @@ export function LibraryScreen({
         void handleQuickActionRemove(entry);
       },
     });
-    return actions;
-  }, [
-    quickActionEntry,
-    quickActionLink,
-    quickActionSource,
-    strings,
-    handleQuickActionMarkAllRead,
-    handleQuickActionRemove,
-    openEntryInSource,
-  ]);
+    return mobileDesignExploreFlag ? orderMobileTitleQuickActions(actions) : actions;
+  }, [progressIndex, installedSources.data, strings, handleQuickActionMarkAllRead, handleQuickActionRemove, openEntryInSource]);
+  const quickActions = useMemo(() => quickActionEntry ? getEntryActions(quickActionEntry) : [], [quickActionEntry, getEntryActions]);
+  const quickMenuEntries = useMemo(() => new Map(libraryEntries.map(entry => [entry.item.libraryItemId, entry])), [libraryEntries]);
+  const getContextActions = useCallback((id: string) => {
+    const entry = quickMenuEntries.get(id);
+    return entry ? getEntryActions(entry) : [];
+  }, [getEntryActions, quickMenuEntries]);
 
   // The card's own NemuPressable already fires the long-press haptic; a
   // second manual pulse here made every long press buzz twice.
   const handleGridItemLongPress = useCallback((entry: LibraryEntry) => {
     setQuickActionEntry(entry);
   }, []);
+  // Design-explore: continue-reading cards
+  // above the grid and a bookshelf layout for it, on compact iPhone widths.
+  const designExplore = useMobileDesignExplore();
+  const [shelfLayout, setShelfLayoutState] = useState(mobileLibraryShelfLayoutDefault);
+  // The switch and the folders give their own press haptics.
+  // Shelf and Grid draw the covers at the same size in the same columns, so
+  // the switch only moves rows up or down (the Grid adds titles, the Shelf
+  // planks) and the first row's covers stay put. The rows take their new
+  // places in one commit at full opacity: a dip-and-fade of every row read as
+  // the whole list flashing, and a layout animation moved them twice (the
+  // spring, then the list's own re-measure) and crashed Reanimated's
+  // layout-animation proxy going back to the Shelf. Grid titles wrap to one
+  // or two lines, so no offset can be known before the commit to glide by.
+  const setShelfLayout = useCallback((next: boolean) => {
+    mobileLibraryShelfLayoutDefault = next;
+    setShelfLayoutState(next);
+  }, []);
+  const shelfMode = designExplore && shelfLayout;
+  const continueReadingItems = useMemo(
+    () =>
+      designExplore && !selectedCollection
+        ? selectMobileContinueReading(sortedLibraryEntries, progressIndex, entryProgressMaps)
+        : [],
+    [designExplore, entryProgressMaps, progressIndex, selectedCollection, sortedLibraryEntries],
+  );
+  const visibleEntryCount = visibleEntries.length;
+  const shelfGrid = useMemo(
+    () => ({ columns: gridColumns, itemWidth: gridItemWidth, columnMargins: gridColumnMargins }),
+    [gridColumnMargins, gridColumns, gridItemWidth],
+  );
+  // One object for every row, so the memoised shelf cells keep their props.
+  const shelfRow = useMemo(
+    () => getMobileShelfRow(shelfGrid, MOBILE_MANGA_GRID_GAP, MOBILE_SHELF.overhang),
+    [shelfGrid],
+  );
+  // Opening or leaving a collection swaps the page in one commit, like the
+  // Shelf ⇄ Grid switch: the sections and rows are keyed by the collection,
+  // so the new ones mount in their places already dipped (no frame at full
+  // opacity first) and fade in. A layout animation here moved the rows twice
+  // and aborted Reanimated's layout-animation proxy. Rows the list brings in
+  // later, while scrolling, appear as usual.
+  const collectionLayoutKey = effectiveCollectionId ?? "";
+  const [seenCollectionLayoutKey, setSeenCollectionLayoutKey] = useState(collectionLayoutKey);
+  const [enteringCollectionLayoutKey, setEnteringCollectionLayoutKey] = useState<string | null>(null);
+  if (seenCollectionLayoutKey !== collectionLayoutKey) {
+    setSeenCollectionLayoutKey(collectionLayoutKey);
+    setEnteringCollectionLayoutKey(collectionLayoutKey);
+  }
+  useEffect(() => {
+    if (enteringCollectionLayoutKey === null) return;
+    const timer = setTimeout(() => setEnteringCollectionLayoutKey(null), MOBILE_MOTION.fadeInMs);
+    return () => clearTimeout(timer);
+  }, [enteringCollectionLayoutKey]);
+  const collectionSettleOnMount = enteringCollectionLayoutKey === collectionLayoutKey;
+  const collectionRowKey = useCallback(
+    (row: LibraryEntry[]) => `${collectionLayoutKey}|${libraryRowKey(row)}`,
+    [collectionLayoutKey],
+  );
   const renderLibraryGridItem = useCallback(
-    ({ item: entry }: ListRenderItemInfo<LibraryEntry>) => (
+    ({ item: entry, index }: { item: LibraryEntry; index: number }) => (
       // The fixed width keeps a partly filled last row aligned with the rows
-      // above it instead of letting `flex: 1` stretch its cells.
-      <View style={[styles.gridItem, { width: gridItemWidth }]}>
-        <LibraryGridItem
-          entry={entry}
-          entryProgress={entryProgressMaps.get(entry.item.libraryItemId)}
-          progressIndex={progressIndex}
-          strings={strings}
-          installedSources={installedSources.data}
-          onLongPress={handleGridItemLongPress}
-        />
-      </View>
+      // above it instead of letting `flex: 1` stretch its cells; the per-column
+      // margin carries the fold gutter in book posture. Folding at the same
+      // column count glides each cell to its new column (pose settle spring).
+      <MobilePoseLayoutView
+        key={libraryEntryKey(entry)}
+        style={[
+          styles.gridItem,
+          mobileFoldAwareGridCellStyle(
+            { columns: gridColumns, itemWidth: gridItemWidth, columnMargins: gridColumnMargins },
+            index,
+          ),
+        ]}
+      >
+        {shelfMode ? (
+          <MobileLibraryShelfCell
+            entry={entry}
+            entryProgress={entryProgressMaps.get(entry.item.libraryItemId)}
+            progressIndex={progressIndex}
+            strings={strings}
+            installedSources={installedSources.data}
+            row={index % gridColumns === 0 ? shelfRow : null}
+            itemWidth={gridItemWidth}
+            onLongPress={handleGridItemLongPress}
+          />
+        ) : designExplore ? (
+          // The grid cell turns to dust too when its title is removed.
+          <ExploreDissolveTarget id={entry.item.libraryItemId}>
+            <LibraryGridItem
+              entry={entry}
+              entryProgress={entryProgressMaps.get(entry.item.libraryItemId)}
+              progressIndex={progressIndex}
+              strings={strings}
+              installedSources={installedSources.data}
+              onLongPress={handleGridItemLongPress}
+              placeholderWidth={gridItemWidth}
+            />
+          </ExploreDissolveTarget>
+        ) : (
+          <LibraryGridItem
+            entry={entry}
+            entryProgress={entryProgressMaps.get(entry.item.libraryItemId)}
+            progressIndex={progressIndex}
+            strings={strings}
+            installedSources={installedSources.data}
+            onLongPress={handleGridItemLongPress}
+          />
+        )}
+      </MobilePoseLayoutView>
     ),
     [
+      designExplore,
+      shelfMode,
+      shelfRow,
       entryProgressMaps,
+      gridColumnMargins,
+      gridColumns,
       gridItemWidth,
       handleGridItemLongPress,
       installedSources.data,
       progressIndex,
       strings,
     ],
+  );
+  const libraryRows = useMemo(
+    () => chunkMobileGridRows(visibleEntries, gridColumns),
+    [visibleEntries, gridColumns],
+  );
+  const renderLibraryRow = useCallback(
+    ({ item: row, index: rowIndex }: ListRenderItemInfo<LibraryEntry[]>) => (
+      <LibraryLayoutRow
+        layoutKey={collectionLayoutKey}
+        settleOnMount={collectionSettleOnMount}
+        revealGroup="titles"
+        style={[styles.libraryRow, shelfMode ? styles.shelfRow : styles.gridRow, !shelfMode && rowIndex === 0 && designExplore && styles.firstGridRow]}
+      >
+        {row.map((entry, column) => renderLibraryGridItem({ item: entry, index: rowIndex * gridColumns + column }))}
+      </LibraryLayoutRow>
+    ),
+    [designExplore, gridColumns, renderLibraryGridItem, collectionLayoutKey, collectionSettleOnMount, shelfMode],
   );
   // A literal here is a new object on every render, so the cell bail-out
   // never fired; the memoized value only changes when a cell input does.
@@ -2053,8 +2195,9 @@ export function LibraryScreen({
       installedSources: installedSources.data,
       progressIndex,
       strings,
+      shelfMode,
     }),
-    [entryProgressMaps, installedSources.data, progressIndex, strings],
+    [entryProgressMaps, installedSources.data, progressIndex, shelfMode, strings],
   );
 
   // Collection management sheets. Rendered by the empty-library state too, so
@@ -2062,7 +2205,7 @@ export function LibraryScreen({
   // added (the header's + and … used to vanish with an empty library).
   const librarySheets = (
     <>
-      <LibraryTitleMenuSheet
+      <TitleMenuSheet
         visible={!showSkeleton && showTitleMenuSheet}
         collections={collections.data}
         strings={strings}
@@ -2091,8 +2234,7 @@ export function LibraryScreen({
         title={quickActionEntry ? getEntryTitle(quickActionEntry) : ""}
         subtitle={quickActionSubtitle}
         image={
-          quickActionCoverRequest?.url ??
-          (quickActionEntry ? getEntryCover(quickActionEntry) : undefined)
+          quickActionCoverRequest?.url ?? quickActionCover ?? undefined
         }
         imageHeaders={quickActionCoverRequest?.headers}
         actions={quickActions}
@@ -2108,7 +2250,7 @@ export function LibraryScreen({
           onClose={() => setMembershipSheetEntry(null)}
         />
       ) : null}
-      <CollectionNameSheet
+      <NameSheet
         visible={!showSkeleton && showCreatePanel}
         mode="create"
         strings={strings}
@@ -2123,34 +2265,61 @@ export function LibraryScreen({
           void createCollection(name);
         }}
       />
-      <CollectionsManagerSheet
-        visible={!showSkeleton && showCollectionsManagerSheet}
-        collections={collections.data}
-        strings={strings}
-        membership={collections.membership}
-        selectedCollectionId={effectiveCollectionId}
-        actionState={collectionActionState}
-        onClose={() => setShowCollectionsManagerSheet(false)}
-        onDismiss={() => completeSheetDismiss("collections-manager")}
-        onSelect={(collectionId) =>
-          selectCollection(collectionId, "collections-manager")
-        }
-        onCreate={() => {
-          if (collectionActionBusy) return;
-          if (
-            !queueAfterSheetDismiss("collections-manager", () => {
-              setNewCollectionName("");
-              setShowCreatePanel(true);
-            })
-          ) {
-            return;
+      {mobileLibraryCollectionNativeSheetsAvailable ? (
+        // iOS asks for names and confirmations in alerts over the sheet, so
+        // these commit in place and the manager stays open.
+        <MobileCollectionsManagerNativeSheet
+          visible={!showSkeleton && showCollectionsManagerSheet}
+          collections={collections.data}
+          strings={strings}
+          membership={collections.membership}
+          selectedCollectionId={effectiveCollectionId}
+          actionState={collectionActionState}
+          onClose={() => setShowCollectionsManagerSheet(false)}
+          onDismiss={() => completeSheetDismiss("collections-manager")}
+          onSelect={(collectionId) =>
+            selectCollection(collectionId, "collections-manager")
           }
-          setShowCollectionsManagerSheet(false);
-        }}
-        onRename={openCollectionRename}
-        onRemove={openCollectionRemoveConfirmation}
-      />
-      <CollectionNameSheet
+          onCreate={(name) => {
+            void createCollection(name, { inPlace: true });
+          }}
+          onRename={(collection, name) => {
+            void renameCollectionById(collection, name);
+          }}
+          onRemove={(collection) => {
+            void removeCollectionById(collection, "collections-manager");
+          }}
+        />
+      ) : (
+        <CollectionsManagerSheet
+          visible={!showSkeleton && showCollectionsManagerSheet}
+          collections={collections.data}
+          strings={strings}
+          membership={collections.membership}
+          selectedCollectionId={effectiveCollectionId}
+          actionState={collectionActionState}
+          onClose={() => setShowCollectionsManagerSheet(false)}
+          onDismiss={() => completeSheetDismiss("collections-manager")}
+          onSelect={(collectionId) =>
+            selectCollection(collectionId, "collections-manager")
+          }
+          onCreate={() => {
+            if (collectionActionBusy) return;
+            if (
+              !queueAfterSheetDismiss("collections-manager", () => {
+                setNewCollectionName("");
+                setShowCreatePanel(true);
+              })
+            ) {
+              return;
+            }
+            setShowCollectionsManagerSheet(false);
+          }}
+          onRename={openCollectionRename}
+          onRemove={openCollectionRemoveConfirmation}
+        />
+      )}
+      <NameSheet
         visible={!showSkeleton && renameTarget !== null}
         mode="rename"
         initialName={renameTarget?.name ?? ""}
@@ -2162,47 +2331,37 @@ export function LibraryScreen({
           void renameCollectionById(renameTarget, name);
         }}
       />
-      <MobileNativeSheetScaffold
-        visible={
-          !showSkeleton &&
-          showManagePanel &&
-          Boolean(manageCollectionPresentation)
-        }
-        onClose={() => {
-          setShowManagePanel(false);
-          setRemoveArmed(false);
-        }}
-        onDismiss={() => {
-          completeSheetDismiss("manage-collection");
-          setManageCollectionPresentation(null);
-        }}
-        snapPoints={manageCollectionSheetLayout.snapPoints}
-        scroll={manageCollectionSheetLayout.scroll}
-        testID="ManageCollectionSheet"
-      >
-        {manageCollectionPresentation ? (
-          <ManageCollectionPanel
-            collection={manageCollectionPresentation}
-            strings={strings}
-            entries={sortedLibraryEntries}
-            membership={collections.membership}
-            removeArmed={removeArmed}
-            renaming={renamingCollection}
-            savingMembership={savingCollectionMembership}
-            removing={removingCollection}
-            onRenameCollection={renameCollection}
-            onSaveMembership={saveCollectionMembership}
-            onCancelMembership={() => {
-              setShowManagePanel(false);
-              setRemoveArmed(false);
-            }}
-            onRemoveCollection={() => {
-              void removeCollection();
-            }}
-            onCancelRemove={() => setRemoveArmed(false)}
-          />
-        ) : null}
-      </MobileNativeSheetScaffold>
+      {manageCollectionPresentation ? (
+        <MobileCollectionBooksSheet
+          visible={
+            !showSkeleton &&
+            showManagePanel &&
+            Boolean(manageCollectionPresentation)
+          }
+          mode="edit"
+          collection={manageCollectionPresentation}
+          entries={sortedLibraryEntries}
+          membership={collections.membership}
+          installedSources={installedSources.data}
+          strings={strings}
+          actionState={collectionActionState}
+          saving={savingCollectionMembership || renamingCollection}
+          error={operationError}
+          onErrorDismiss={() => setOperationError(null)}
+          onClose={() => setShowManagePanel(false)}
+          onDismiss={() => {
+            completeSheetDismiss("manage-collection");
+            setManageCollectionPresentation(null);
+          }}
+          onSave={(selected, renameTo) =>
+            saveCollectionBooks(manageCollectionPresentation, selected, renameTo)
+          }
+          onRemove={() => {
+            void removeCollectionById(manageCollectionPresentation, "manage-collection");
+          }}
+          testID="ManageCollectionSheet"
+        />
+      ) : null}
       <MobileConfirmationSheet
         visible={!showSkeleton && removeTarget !== null}
         title={strings.library.removeCollection}
@@ -2247,6 +2406,7 @@ export function LibraryScreen({
             onLeadingPress={isCollectionRoute ? () => router.back() : undefined}
           />
         )}
+        {/* The nemu hero lays itself out per pane (EmptyLibrary). */}
         <EmptyLibrary
           title={loadErrorState.title}
           description={loadErrorState.description}
@@ -2278,11 +2438,12 @@ export function LibraryScreen({
             onLeadingPress={() => router.back()}
           />
         )}
+        {/* The nemu hero lays itself out per pane (EmptyLibrary). */}
         <EmptyLibrary
           title={strings.library.collectionNotFoundTitle}
           description={strings.library.collectionNotFoundDescription}
           actionLabel={strings.nav.library}
-          onActionPress={() => router.replace("/library")}
+          onActionPress={() => router.dismissTo("/library")}
         />
       </PageScaffold>
       </>
@@ -2294,13 +2455,12 @@ export function LibraryScreen({
       <>
       {usesNativeHeader ? (
         <>
-          <Stack.Screen options={nativeHeaderOptions(strings.nav.library)} />
-          <Stack.Toolbar placement="right" tintColor={tokens.primary}>
-            {renderNemuNativeToolbarButtons(
-              libraryHeaderActions,
-              tokens.primary,
-            )}
+          <Stack.Screen options={titleMenuHeaderOptions(strings.nav.library)} />
+          <Stack.Toolbar placement="right">
+            {Platform.OS === "ios" ? renderExploreDetailBarMenu(libraryAddMenuActions, strings.library.createCollection, "plus") : null}
+            {renderNemuNativeToolbarButtons(libraryHeaderActions)}
           </Stack.Toolbar>
+          {titleMenuAnchor}
         </>
       ) : null}
       <PageScaffold nativeHeader={usesNativeHeader}>
@@ -2319,13 +2479,28 @@ export function LibraryScreen({
             ]}
           />
         )}
-        <EmptyLibrary
-          title={emptyState.title}
-          description={emptyState.description}
-          actionLabel={emptyState.actionLabel}
-          actionIcon={emptyState.actionRoute === "/browse" ? "add-outline" : undefined}
-          onActionPress={() => router.navigate(emptyState.actionRoute)}
-        />
+        {/* The nemu hero lays itself out per pane (EmptyLibrary). */}
+        {designExplore && hasInstalledSources ? (
+          // Design-explore: the first screen a new reader sees points at
+          // Browse, where series are found; Search stays one tap away.
+          <EmptyLibrary
+            title={strings.designExplore.libraryEmptyTitle}
+            description={strings.designExplore.libraryEmptyDescription}
+            actionLabel={strings.designExplore.libraryEmptyBrowse}
+            actionIcon="compass-outline"
+            onActionPress={() => router.navigate("/browse")}
+            secondaryActionLabel={strings.designExplore.libraryEmptySearch}
+            onSecondaryActionPress={() => router.navigate("/search")}
+          />
+        ) : (
+          <EmptyLibrary
+            title={emptyState.title}
+            description={emptyState.description}
+            actionLabel={emptyState.actionLabel}
+            actionIcon={emptyState.actionRoute === "/browse" ? "add-outline" : undefined}
+            onActionPress={() => router.navigate(emptyState.actionRoute)}
+          />
+        )}
       </PageScaffold>
       {librarySheets}
       </>
@@ -2333,73 +2508,49 @@ export function LibraryScreen({
   }
 
   return (
-    <>
+    <MobileQuickActionProvider value={getContextActions}>
+    {designExplore ? <MobileExploreDustHost /> : null}
     {usesNativeHeader ? (
       <>
-        <Stack.Screen options={nativeHeaderOptions(title)} />
-        {nativeHeaderActions.length ? (
-          <Stack.Toolbar placement="right" tintColor={tokens.primary}>
-            {renderNemuNativeToolbarButtons(nativeHeaderActions, tokens.primary)}
+        <Stack.Screen options={titleMenuHeaderOptions(title)} />
+        {nativeHeaderActions.length || (Platform.OS === "ios" && !selectedCollection) ? (
+          <Stack.Toolbar placement="right">
+            {Platform.OS === "ios" && !selectedCollection
+              ? renderExploreDetailBarMenu(libraryAddMenuActions, strings.library.createCollection, "plus")
+              : null}
+            {renderNemuNativeToolbarButtons(nativeHeaderActions)}
           </Stack.Toolbar>
         ) : null}
+        {titleMenuAnchor}
       </>
     ) : null}
     <PageListScaffold
-      key={`library-grid-${gridColumns}`}
+      // Keep one list (including its rich header) through column changes.
       listRef={gridScrollRef}
-      data={showSkeleton ? [] : visibleEntries}
-      keyExtractor={libraryEntryKey}
-      numColumns={gridColumns}
-      columnWrapperStyle={styles.gridRow}
-      renderItem={renderLibraryGridItem}
+      data={showSkeleton ? [] : libraryRows}
+      keyExtractor={collectionRowKey}
+      renderItem={renderLibraryRow}
       extraData={libraryGridExtraData}
       nativeHeader={usesNativeHeader}
-      onLayout={(event) => {
-        gridScrollSnapshotRef.current = {
-          ...gridScrollSnapshotRef.current,
-          viewportHeight: event.nativeEvent.layout.height,
-        };
-      }}
-      onScroll={(event) => {
-        gridScrollSnapshotRef.current = {
-          offset: event.nativeEvent.contentOffset.y,
-          contentHeight: event.nativeEvent.contentSize.height,
-          viewportHeight: event.nativeEvent.layoutMeasurement.height,
-        };
-      }}
-      // The handler only stores a snapshot for the rotation restore, so it
-      // does not need a frame-rate feed.
+      onLayout={grid.onLayout}
+      // Keeps the first visible cover at the top across a column/cell-size
+      // change (display switch, rotation, folding).
+      onViewableItemsChanged={gridScrollAnchor.onViewableItemsChanged}
+      viewabilityConfig={gridScrollAnchor.viewabilityConfig}
+      onScrollToIndexFailed={gridScrollAnchor.onScrollToIndexFailed}
+      onScroll={gridScrollAnchor.onScroll}
+      // The handler only tracks the adjusted top inset for the anchor
+      // restore, so it does not need a frame-rate feed.
       scrollEventThrottle={100}
-      onContentSizeChange={(_width, contentHeight) => {
-        const ratio = pendingGridScrollRatioRef.current;
-        const viewportHeight = gridScrollSnapshotRef.current.viewportHeight;
-        if (
-          !shouldRestoreMobileGridScroll({
-            ratio,
-            contentHeight,
-            viewportHeight,
-          })
-        ) {
-          return;
-        }
-        pendingGridScrollRatioRef.current = null;
-        gridScrollRef.current?.scrollToOffset({
-          offset: resolveMobileGridScrollRestoreOffset({
-            ratio: ratio ?? 0,
-            contentHeight,
-            viewportHeight,
-          }),
-          animated: false,
-        });
-      }}
+      onContentSizeChange={gridScrollAnchor.onContentSizeChange}
       onRefresh={() => {
         void refreshLatestChapters({ force: true, interactive: true });
       }}
       refreshDisabled={libraryRefreshDisabled}
       refreshLabel={strings.library.refreshLibrary}
       refreshing={refreshingLibrary}
-      initialNumToRender={18}
-      maxToRenderPerBatch={18}
+      initialNumToRender={Math.ceil(18 / gridColumns)}
+      maxToRenderPerBatch={Math.ceil(18 / gridColumns)}
       updateCellsBatchingPeriod={32}
       windowSize={7}
       ListHeaderComponent={
@@ -2477,12 +2628,13 @@ export function LibraryScreen({
             ) : null}
 
             {addBooksPresentation ? (
-              <MobileAddBooksSheet
+              <MobileCollectionBooksSheet
                 visible={!showSkeleton && showAddBooksSheet}
-                collectionId={addBooksPresentation.collectionId}
-                collectionName={addBooksPresentation.name}
+                mode="add"
+                collection={addBooksPresentation}
                 entries={sortedLibraryEntries}
                 membership={collections.membership}
+                installedSources={installedSources.data}
                 strings={strings}
                 actionState={collectionActionState}
                 saving={savingCollectionMembership}
@@ -2490,14 +2642,71 @@ export function LibraryScreen({
                 onClose={() => setShowAddBooksSheet(false)}
                 onDismiss={() => setAddBooksPresentation(null)}
                 onErrorDismiss={() => setOperationError(null)}
-                onSave={saveCollectionMembership}
+                onSave={(selected) =>
+                  saveCollectionBooks(addBooksPresentation, selected, null)
+                }
+                testID="AddBooksSheet"
               />
+            ) : null}
+
+            {designExplore && !showSkeleton ? (
+              <LibraryLayoutRow
+                key={collectionLayoutKey}
+                layoutKey={collectionLayoutKey}
+                settleOnMount={collectionSettleOnMount}
+                style={styles.exploreSections}
+              >
+                {/* Lets the tab bar minimise on scroll (UIKit content scroll view). */}
+                <ContentScrollMarker generation={gridColumns} />
+                <MobileLaunchRevealGroup group="header">
+                <MobileContinueReadingCarousel
+                  items={continueReadingItems}
+                  next={
+                    !selectedCollection && collections.data.some((collection) => !collection.removed)
+                      ? { kind: "collections" }
+                      : visibleEntryCount
+                        ? { kind: "titles", coverHeight: Math.round(gridItemWidth * 1.5) }
+                        : null
+                  }
+                  installedSources={installedSources.data}
+                  strings={strings}
+                  onMore={handleGridItemLongPress}
+                />
+                </MobileLaunchRevealGroup>
+                {!selectedCollection ? (
+                  <MobileLaunchRevealGroup group="collections">
+                  <MobileCollectionFolders
+                    collections={collections.data}
+                    membership={collections.membership}
+                    entries={sortedLibraryEntries}
+                    installedSources={installedSources.data}
+                    strings={strings}
+                    onSelect={openCollectionScreen}
+                  />
+                  </MobileLaunchRevealGroup>
+                ) : null}
+                {visibleEntryCount ? (
+                  <MobileLaunchRevealGroup group="titlesHeader">
+                  <MobileLibraryLayoutHeader
+                    title={
+                      selectedCollection
+                        ? selectedCollection.name
+                        : strings.designExplore.shelfSectionTitle
+                    }
+                    shelf={shelfLayout}
+                    onShelfChange={setShelfLayout}
+                    strings={strings}
+                  />
+                  </MobileLaunchRevealGroup>
+                ) : null}
+              </LibraryLayoutRow>
             ) : null}
           </View>
         </>
       }
       ListEmptyComponent={
         !showSkeleton && selectedCollection ? (
+          <MobilePaneAlignedView>
           <GlassSurface contentStyle={styles.inlineEmpty}>
             <Ionicons name="albums-outline" size={22} color={tokens.mutedForeground} />
             <Text style={[styles.inlineEmptyText, { color: tokens.mutedForeground }]}>
@@ -2512,11 +2721,12 @@ export function LibraryScreen({
               variant={collectionActionBusy ? "secondary" : "default"}
             />
           </GlassSurface>
+          </MobilePaneAlignedView>
         ) : null
       }
     />
     {librarySheets}
-    </>
+    </MobileQuickActionProvider>
   );
 }
 
@@ -2631,89 +2841,31 @@ const styles = StyleSheet.create({
     gap: 7,
     paddingLeft: 8,
   },
+  // Column spacing is each cell's `marginLeft` (mobileFoldAwareGridCellStyle).
+  libraryRow: {
+    flexDirection: "row",
+  },
+  firstGridRow: {
+    paddingTop: MOBILE_SHELF.headroom,
+  },
   gridRow: {
-    gap: MOBILE_MANGA_GRID_GAP,
     marginBottom: MOBILE_MANGA_GRID_GAP,
+  },
+  // Design-explore sections (cards, folders, the shelf header): one step apart.
+  exploreSections: {
+    gap: 28,
+  },
+  // Air between a plank and the next row of covers.
+  // The Grid cover's zoom source spans the cell; the cover keeps its ratio inside.
+  gridZoomSource: {
+    alignSelf: "stretch",
+  },
+  shelfRow: {
+    marginBottom: MOBILE_SHELF.rowGap,
   },
   // `width` is supplied per render from the adaptive column width.
   gridItem: {
     minWidth: 0,
-  },
-  panelShell: {
-    borderRadius: radius.xl,
-  },
-  panel: {
-    gap: 13,
-    padding: 14,
-  },
-  panelHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  panelTitleWrap: {
-    flex: 1,
-    minWidth: 0,
-  },
-  panelTitle: {
-    fontSize: 15,
-    lineHeight: 19,
-    fontWeight: nemuFontWeight.semibold,
-  },
-  panelSubtitle: {
-    marginTop: 2,
-    fontSize: 12,
-    lineHeight: 17,
-  },
-  panelInput: {
-    height: 46,
-    borderRadius: radius.lg,
-    paddingHorizontal: 12,
-    fontSize: 15,
-    lineHeight: 19,
-  },
-  renameEditor: {
-    gap: 9,
-  },
-  panelActions: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  bookList: {
-    gap: 8,
-  },
-  bookRow: {
-    minHeight: 58,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 12,
-  },
-  bookRowText: {
-    flex: 1,
-    minWidth: 0,
-  },
-  bookTitle: {
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: nemuFontWeight.medium,
-  },
-  bookSubtitle: {
-    marginTop: 2,
-    fontSize: 11,
-    lineHeight: 14,
-  },
-  removeBlock: {
-    gap: 9,
-  },
-  removeText: {
-    fontSize: 12,
-    lineHeight: 17,
-  },
-  stretchedButton: {
-    width: "100%",
   },
   inlineEmpty: {
     minHeight: 78,

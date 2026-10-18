@@ -3,9 +3,12 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
   canRunNemuPressableHaptic,
+  createNemuRowHighlightController,
+  NEMU_ROW_HIGHLIGHT,
   resolveNemuButtonAccessibility,
   resolveNemuPressableAccessibility,
   resolveNemuPressableAnimationEnabled,
+  resolveNemuRowHighlightRadii,
   shouldResetNemuPressableInteraction,
 } from "./nemuPressable";
 
@@ -85,47 +88,23 @@ describe("NemuPressable helpers", () => {
   });
 
   test("keeps every pressable's motion unresolved-safe", () => {
+    // Changed deliberately: plain pressables used to spring regardless of
+    // the setting. Reduce Motion now suppresses every press animation, and
+    // an unresolved (`null`) read stays still rather than animating first.
     for (const reduceMotion of [null, true] as const) {
-      expect(
-        resolveNemuPressableAnimationEnabled({
-          hasButtonDepth: true,
-          reduceMotion,
-        }),
-      ).toBe(false);
-      // Changed deliberately: plain pressables used to spring regardless of
-      // the setting. Reduce Motion now suppresses every press animation, and
-      // an unresolved (`null`) read stays still rather than animating first.
-      expect(
-        resolveNemuPressableAnimationEnabled({
-          hasButtonDepth: false,
-          reduceMotion,
-        }),
-      ).toBe(false);
+      expect(resolveNemuPressableAnimationEnabled({ reduceMotion })).toBe(false);
     }
-
+    expect(resolveNemuPressableAnimationEnabled({ reduceMotion: false })).toBe(
+      true,
+    );
     expect(
       resolveNemuPressableAnimationEnabled({
-        hasButtonDepth: false,
-        reduceMotion: false,
-      }),
-    ).toBe(true);
-
-    expect(
-      resolveNemuPressableAnimationEnabled({
-        hasButtonDepth: true,
-        reduceMotion: false,
-      }),
-    ).toBe(true);
-    expect(
-      resolveNemuPressableAnimationEnabled({
-        hasButtonDepth: true,
         pressAnimationEnabled: false,
         reduceMotion: false,
       }),
     ).toBe(false);
     expect(
       resolveNemuPressableAnimationEnabled({
-        hasButtonDepth: true,
         pressAnimationEnabled: true,
         reduceMotion: true,
       }),
@@ -179,8 +158,8 @@ describe("NemuPressable helpers", () => {
     expect(component).toContain(
       "const depthMotion = buttonDepth ? getNemuButtonPressMotion(buttonDepth) : null;",
     );
-    expect(component).toContain(
-      "resolveNemuPressablePressedScale({ pressProfile, pressedScale }) ??",
+    expect(component).toMatch(
+      /resolveNemuPressablePressedScale\(\{\s*pressProfile,\s*pressedScale: pressedScale \?\? \(pressHighlight \? 1 : undefined\),\s*\}\) \?\?/,
     );
     expect(component).toContain(
       "(depthMotion ? depthMotion.scale : 0.96)",
@@ -237,5 +216,78 @@ describe("NemuPressable helpers", () => {
       accessibilityState: { disabled: true, busy: false },
       disabled: true,
     });
+  });
+});
+
+describe("row highlight shape", () => {
+  test("follows the row's corners, concentric inside its border", () => {
+    expect(resolveNemuRowHighlightRadii({ borderRadius: 16, borderWidth: 1 })).toEqual({
+      borderTopLeftRadius: 15,
+      borderTopRightRadius: 15,
+      borderBottomLeftRadius: 15,
+      borderBottomRightRadius: 15,
+    });
+  });
+
+  test("a first row keeps only its top corners; a middle row is square", () => {
+    expect(resolveNemuRowHighlightRadii({ borderTopLeftRadius: 12, borderTopRightRadius: 12 })).toEqual({
+      borderTopLeftRadius: 12,
+      borderTopRightRadius: 12,
+      borderBottomLeftRadius: 0,
+      borderBottomRightRadius: 0,
+    });
+    expect(resolveNemuRowHighlightRadii({})).toEqual({
+      borderTopLeftRadius: 0,
+      borderTopRightRadius: 0,
+      borderBottomLeftRadius: 0,
+      borderBottomRightRadius: 0,
+    });
+  });
+
+  test("start/end corners and non-numeric values", () => {
+    expect(resolveNemuRowHighlightRadii({ borderRadius: "50%", borderTopStartRadius: 8 })).toMatchObject({
+      borderTopLeftRadius: 8,
+      borderBottomRightRadius: 0,
+    });
+  });
+});
+
+describe("row highlight controller", () => {
+  function setup() {
+    const events: string[] = [];
+    const controller = createNemuRowHighlightController(
+      {
+        setValue: (value) => events.push(`set ${value}`),
+        stopAnimation: () => events.push("stop"),
+      },
+      () => events.push("fade"),
+    );
+    return { controller, events };
+  }
+  const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  test("a quick tap still flashes the highlight once", () => {
+    const { controller, events } = setup();
+    controller.onPressIn();
+    controller.onPressOut();
+    controller.onPress();
+    expect(events).toEqual(["stop", "fade", "stop", "set 1", "fade"]);
+  });
+
+  test("a hold fills after the delay and only fades on release", async () => {
+    const { controller, events } = setup();
+    controller.onPressIn();
+    await wait(NEMU_ROW_HIGHLIGHT.delayMs + 40);
+    controller.onPressOut();
+    controller.onPress();
+    expect(events).toEqual(["stop", "set 1", "fade"]);
+  });
+
+  test("dispose cancels a pending fill", async () => {
+    const { controller, events } = setup();
+    controller.onPressIn();
+    controller.dispose();
+    await wait(NEMU_ROW_HIGHLIGHT.delayMs + 40);
+    expect(events).toEqual(["stop"]);
   });
 });

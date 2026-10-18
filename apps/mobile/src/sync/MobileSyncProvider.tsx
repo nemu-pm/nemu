@@ -24,6 +24,7 @@ import type { MobileDataStore } from "@/data/storeTypes";
 import {
   areSyncAccountIdentitiesAligned,
   canonicalizeSyncSnapshotRecords,
+  chapterProgressWinnersForPush,
   chunkCollectionMutationItems,
   completeSyncSnapshot,
   consistentSyncGeneration,
@@ -66,6 +67,7 @@ import {
   isMobileSyncEpochCurrent,
   makeMobileSyncRunGuard,
   mobileChapterProgressIntraPageSyncSupportedRef,
+  mobileChapterProgressResetSyncSupportedRef,
   mobileConvexRef,
   mobileIsAuthenticatedRef,
   mobileSessionUserIdRef,
@@ -74,7 +76,24 @@ import {
   setActiveMobileSyncStore,
   setMobileChapterProgressIntraPageSyncVersion,
 } from "./mobileSyncRuntime";
-import { hydrateMobileSyncedSourcePackages } from "./mobileSyncedSourcePackages";
+import {
+  createMobileSourceCatalogResolver,
+  hydrateMobileSyncedSourcePackages,
+} from "./mobileSyncedSourcePackages";
+import {
+  fetchAllAidokuRegistrySources,
+} from "@/sources/aidokuRegistry";
+import {
+  canonicalCloudLocalArchiveVolumes,
+  canonicalCloudSourceDirectories,
+  syncMobileLocalArchiveVolumes,
+  syncMobileSourceDirectories,
+} from "./mobileSourceDirectorySync";
+import { loadCachedRegistryIndex } from "@/sources/mobileRegistryIndexCache";
+import {
+  enabledSourceDirectories,
+  loadMobileSourceDirectories,
+} from "@/data/mobileSourceDirectories";
 import {
   reconcilePendingCollectionDeletions,
   reconcilePendingSourceLinkDeletions,
@@ -386,6 +405,7 @@ async function pushLocalChapterProgressWinners(
       ...toCloudHistorySaveInput(entry, {
         includeIntraPageState:
           mobileChapterProgressIntraPageSyncSupportedRef.current,
+        includeResetState: mobileChapterProgressResetSyncSupportedRef.current,
       }),
       generation,
     });
@@ -448,7 +468,9 @@ async function applyMobileProgressSnapshots(
   if (!chapterResult || !shouldContinue()) return null;
 
   await pushLocalChapterProgressWinners(
-    chapterResult.localWinners,
+    chapterProgressWinnersForPush(chapterResult.localWinners, chapterProgress, {
+      resetState: mobileChapterProgressResetSyncSupportedRef.current,
+    }),
     convex,
     shouldContinue,
     generation,
@@ -1061,6 +1083,8 @@ function ConfiguredMobileSyncBridge() {
         (source) => source.id,
         (source) => source.removed === true,
       ),
+      sourceDirectories: canonicalCloudSourceDirectories(rows),
+      localArchiveVolumes: canonicalCloudLocalArchiveVolumes(rows),
       updatedAt: Math.max(0, ...rows.map((row) => row.updatedAt)),
     };
   }, [generation, settingsPages.results, settingsPages.status]);
@@ -1524,6 +1548,22 @@ function ConfiguredMobileSyncBridge() {
 
         const localSettings = await store.getSyncSettings();
         if (!shouldContinue()) return;
+        await syncMobileSourceDirectories({
+          store,
+          convex,
+          cloud: cloudSettings.sourceDirectories ?? [],
+          generation: snapshotGeneration,
+          expectedUserId,
+          shouldContinue,
+        });
+        await syncMobileLocalArchiveVolumes({
+          convex,
+          cloud: cloudSettings.localArchiveVolumes ?? [],
+          generation: snapshotGeneration,
+          expectedUserId,
+          shouldContinue,
+        });
+        if (!shouldContinue()) return;
         const cloudSources = cloudSettings.installedSources ?? [];
         const mergedSources = mergeMobileInstalledSources(
           localSettings.installedSources,
@@ -1535,6 +1575,15 @@ function ConfiguredMobileSyncBridge() {
         const hydratedSources = await hydrateMobileSyncedSourcePackages(
           mergedSources,
           {
+            resolveCatalogEntry: createMobileSourceCatalogResolver({
+              loadCached: loadCachedRegistryIndex,
+              fetchCatalog: async () =>
+                fetchAllAidokuRegistrySources(
+                  enabledSourceDirectories(
+                    await loadMobileSourceDirectories(store),
+                  ),
+                ),
+            }),
             onHydrationError(source, error) {
               console.warn(
                 `[MobileSync] Failed to cache synced source package for ${source.id}:`,

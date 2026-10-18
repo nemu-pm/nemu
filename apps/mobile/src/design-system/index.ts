@@ -14,6 +14,12 @@ export {
   nemuMaxFontSizeMultiplier,
   nemuText,
 } from "@/design/typography";
+export {
+  nemuMaterialTypeScale,
+  resolveNemuSheetMetrics,
+  type NemuSheetMetrics,
+} from "@/design/sheetMetrics";
+export { nemuSheetMetrics } from "@/design/nemuSheetMetrics";
 export { createNemuShadowStyle } from "@/design/shadows";
 export { nemuColorWithAlpha } from "@/design/colorAlpha";
 export {
@@ -26,6 +32,8 @@ export {
 export { createNemuButtonDepthStyle } from "@/design/nemuButtonDepthStyle";
 export {
   createNemuNativeScreenOptions,
+  createNemuSoftEdgeScreenOptions,
+  NEMU_SOFT_SCROLL_EDGE_EFFECTS,
   createNemuNativeStackScreenOptions,
   renderNemuNativeToolbarButtons,
   usesNemuNativeHeader,
@@ -40,7 +48,13 @@ export {
 } from "@/design/useMobilePageGutters";
 
 export { GlassSurface } from "./components/GlassSurface";
-export { MobileNativeSheetScaffold } from "./components/MobileNativeSheetScaffold";
+export {
+  MobileNativeSheetScaffold,
+  MobileNativeSheetEndSpacer,
+  useMobileNativeSheetTheme,
+} from "./components/MobileNativeSheetScaffold";
+export { MobileSheetMaxHeightProvider } from "./components/mobileSheetMaxHeight";
+export { NemuGlassSheetThemeScope } from "./components/NemuGlassSheetThemeScope";
 export {
   MobileSheetHeader,
   type MobileSheetHeaderProps,
@@ -62,12 +76,19 @@ export {
 } from "./components/NemuButton";
 export { NemuInlineEmptyState } from "./components/NemuInlineEmptyState";
 export { NemuListRow } from "./components/NemuListRow";
-export { NemuNativeProgressView } from "./components/NemuNativeProgressView";
+export {
+  NemuNativeProgressBar,
+  NemuNativeProgressView,
+} from "./components/NemuNativeProgressView";
 export { NemuNativeSearchField } from "./components/NemuNativeSearchField";
-export type { NemuNativeSearchFieldProps } from "./components/NemuNativeSearchField.types";
+export type {
+  NemuNativeSearchFieldHandle,
+  NemuNativeSearchFieldProps,
+} from "./components/NemuNativeSearchField.types";
 export { NemuNativeSheetHeaderAction } from "./components/NemuNativeSheetHeaderAction";
 export { NemuNativeSwitch } from "./components/NemuNativeSwitch";
 export { NemuPressable } from "./components/NemuPressable";
+export { useNemuRowHighlight, type NemuRowHighlight } from "./components/useNemuRowHighlight";
 export {
   NemuRingSpinner,
   type NemuRingSpinnerProps,
@@ -81,5 +102,7 @@ export {
 export { NemuTextFieldClearAction } from "./components/NemuTextFieldClearAction";
 export { PageHeader, type PageHeaderAction } from "./components/PageHeader";
 export { PageListScaffold, PageScaffold } from "./components/PageScaffold";
+export { NemuSheetScrollEdge } from "./components/NemuSheetScrollEdge";
+export { nemuSoftScrollEdge } from "@/design/nemuScrollEdge";
 export { MangaCard, type MangaCardModel } from "./components/MangaCard";
 export { SourceCard, type SourceCardModel } from "./components/SourceCard";

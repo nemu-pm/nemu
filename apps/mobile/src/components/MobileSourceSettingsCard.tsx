@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   ActivityIndicator,
   Platform,
@@ -27,6 +35,7 @@ import {
 } from "@expo/ui/swift-ui/modifiers";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import { MobileSourceLoginSheet } from "@/components/MobileSourceLoginSheet";
+import { SourceSettingSlider } from "@/components/SourceSettingSlider";
 import {
   createNemuButtonDepthStyle,
   getNemuButtonDepthVisual,
@@ -53,12 +62,13 @@ import {
 import { compactMobileLabelList } from "@/lib/mobileInstalledSourcePresentation";
 import { useMobileSourceLoginSubmission } from "@/lib/useMobileSourceLoginSubmission";
 import {
-  canRunMobileSourceTextSettingBlurFeedback,
+  resolveMobileSourceTextSettingCommit,
   canSelectMobileSourceSettingOption,
   describeSourceSettingValue,
+  sourceSettingControlShowsValue,
   flattenVisibleEditableSourceSettings,
-  formatSourceSettingSliderValue,
   formatSourceSettingAccessibilityLabel,
+  getFirstVisibleSourceSettingIndex,
   getSourceSegmentIndex,
   getSourceSegmentOptions,
   getSourceSettingOptions,
@@ -82,6 +92,13 @@ import {
   type MobileSourceLoginCapabilities,
 } from "@/sources/mobileSourceSettingsExecutor";
 import { sanitizeMobileSourceSettings } from "@/sources/mobileSourceSettingsSafety";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
+import {
+  MOBILE_EXPLORE_GROUP_SHAPE,
+  MOBILE_SETTINGS_CONTROL_RADIUS,
+  MOBILE_SETTINGS_GROUP_INSET,
+} from "@/lib/mobileExploreRadius";
+import { isMobileSettingsHeadingEmpty, isMobileSettingsHeadingRepeat } from "@/lib/mobileSettingsHeading";
 import {
   MAX_SOURCE_SETTING_VALUE_ARRAY_ITEMS,
   MAX_SOURCE_SETTING_VALUE_STRING_LENGTH,
@@ -91,7 +108,11 @@ import {
 } from "@nemu/core";
 
 const EMPTY_SETTING_FEATURES: MobileSourceSettingFeatureFlags = {};
-const SLIDER_VALUE_LABEL_WIDTH = 48;
+// Design-explore: a setting's title may take a second line and its
+// explanation is never cut (an engine's privacy note lost its second half to
+// an ellipsis); the shipping rows keep one and two lines.
+const ROW_TITLE_LINES = mobileDesignExploreFlag ? 2 : 1;
+const ROW_DETAIL_LINES = mobileDesignExploreFlag ? undefined : 2;
 
 type MobileSourceSettingsCardProps = {
   settings: SourcePackageSetting[];
@@ -121,6 +142,11 @@ type MobileSourceSettingsCardProps = {
   onLogout?: (setting: SourcePackageSetting) => void;
   onRetry?: () => void;
   onReset?: () => void;
+  /** Extra content rendered directly under one setting's row (e.g. a status line). */
+  renderSettingAccessory?: (
+    setting: SourcePackageSetting,
+    values: Record<string, unknown>,
+  ) => ReactNode;
   retryDisabled?: boolean;
   retrying?: boolean;
   onEmbeddedBackHandlerChange?: (handler: (() => void) | null) => void;
@@ -167,152 +193,6 @@ function clampNumber(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function snapSliderValue(
-  value: number,
-  min: number,
-  max: number,
-  step: number,
-): number {
-  const snapped = Math.round((value - min) / step) * step + min;
-  return Number(clampNumber(snapped, min, max).toPrecision(15));
-}
-
-function SourceSettingSlider({
-  setting,
-  value,
-  disabled,
-  onChange,
-}: {
-  setting: SourcePackageSetting;
-  value: number;
-  disabled: boolean;
-  onChange: (value: number) => void;
-}) {
-  const { tokens } = useNemuTheme();
-  const [trackWidth, setTrackWidth] = useState(0);
-  const lastEmittedValueRef = useRef(value);
-  const min = setting.min ?? 0;
-  const max = setting.max ?? 100;
-  const step = setting.step ?? 1;
-  const range = max > min ? max - min : 1;
-  const progress = clampNumber((value - min) / range, 0, 1);
-  const formatted = formatSourceSettingSliderValue(setting, value);
-  const sliderValueLeft = trackWidth
-    ? clampNumber(
-        progress * trackWidth - SLIDER_VALUE_LABEL_WIDTH / 2,
-        0,
-        Math.max(0, trackWidth - SLIDER_VALUE_LABEL_WIDTH),
-      )
-    : 0;
-
-  useEffect(() => {
-    lastEmittedValueRef.current = value;
-  }, [value]);
-
-  const updateFromLocation = (locationX: number) => {
-    if (disabled) return;
-    if (!trackWidth) return;
-    const nextValue = snapSliderValue(
-      min + (clampNumber(locationX, 0, trackWidth) / trackWidth) * range,
-      min,
-      max,
-      step,
-    );
-    if (nextValue !== lastEmittedValueRef.current) {
-      lastEmittedValueRef.current = nextValue;
-      onChange(nextValue);
-      void hapticSelection();
-    }
-  };
-
-  return (
-    <View style={styles.sliderControl}>
-      <NemuText
-        density="compact"
-        pointerEvents="none"
-        numberOfLines={1}
-        style={[
-          styles.sliderFloatingValue,
-          {
-            color: tokens.mutedForeground,
-            left: sliderValueLeft,
-            width: SLIDER_VALUE_LABEL_WIDTH,
-          },
-        ]}
-      >
-        {formatted}
-      </NemuText>
-      <View
-        accessibilityRole="adjustable"
-        accessibilityLabel={setting.title}
-        accessibilityState={{ disabled }}
-        accessibilityValue={{
-          min,
-          max,
-          now: value,
-          text: formatted,
-        }}
-        onAccessibilityAction={(event) => {
-          if (disabled) return;
-          const action = event.nativeEvent.actionName;
-          if (action === "increment") {
-            const nextValue = snapSliderValue(value + step, min, max, step);
-            if (nextValue !== value) {
-              onChange(nextValue);
-              void hapticSelection();
-            }
-          } else if (action === "decrement") {
-            const nextValue = snapSliderValue(value - step, min, max, step);
-            if (nextValue !== value) {
-              onChange(nextValue);
-              void hapticSelection();
-            }
-          }
-        }}
-        accessibilityActions={[{ name: "increment" }, { name: "decrement" }]}
-        onLayout={(event) => setTrackWidth(event.nativeEvent.layout.width)}
-        onMoveShouldSetResponder={() => !disabled}
-        onStartShouldSetResponder={() => !disabled}
-        onResponderGrant={(event) => {
-          updateFromLocation(event.nativeEvent.locationX);
-        }}
-        onResponderMove={(event) => {
-          updateFromLocation(event.nativeEvent.locationX);
-        }}
-        onResponderRelease={() => {
-          if (!disabled) void hapticPress();
-        }}
-        style={[
-          styles.sliderTrackTouchTarget,
-          disabled && styles.disabledControl,
-        ]}
-      >
-        <View style={[styles.sliderTrack, { backgroundColor: tokens.muted }]}>
-          <View
-            style={[
-              styles.sliderFill,
-              {
-                backgroundColor: tokens.primary,
-                width: `${progress * 100}%`,
-              },
-            ]}
-          />
-          <View
-            style={[
-              styles.sliderThumb,
-              {
-                backgroundColor: tokens.primary,
-                borderColor: tokens.background,
-                left: `${progress * 100}%`,
-              },
-            ]}
-          />
-        </View>
-      </View>
-    </View>
-  );
-}
-
 function SourceSettingSelectMenu({
   setting,
   options,
@@ -328,7 +208,7 @@ function SourceSettingSelectMenu({
   disabled: boolean;
   onSelect: (value: string) => void;
 }) {
-  const { scheme, tokens } = useNemuTheme();
+  const { scheme, sheetGlass, tokens } = useNemuTheme();
   const selectedOption = options.find((option) => option.value === value);
   const selectedValue =
     selectedOption?.value ?? String(value ?? options[0]?.value ?? "");
@@ -343,6 +223,7 @@ function SourceSettingSelectMenu({
       state: "rest",
       scheme,
       tokens,
+      onGlassSheet: sheetGlass !== undefined,
     }),
   );
 
@@ -560,8 +441,6 @@ function SourceSettingControl({
   const options = getSourceSettingOptions(setting);
   const value = settingValue(setting, values);
   const [draftListItem, setDraftListItem] = useState("");
-  const textFocusValueRef = useRef<string | null>(null);
-  const textCurrentValueRef = useRef<string | null>(null);
 
   const setValue = (nextValue: unknown) => {
     if (disabled) return;
@@ -908,51 +787,18 @@ function SourceSettingControl({
   }
 
   if (setting.type === "text") {
-    const textValue = typeof value === "string" ? value : "";
     return (
-      <GlassSurface
-        style={styles.settingInputShell}
-        contentStyle={styles.settingInputContent}
-      >
-        <TextInput
-          accessibilityLabel={formatSourceSettingAccessibilityLabel(
-            setting,
-            values,
-            strings,
-          )}
-          autoCapitalize="none"
-          autoCorrect={false}
-          editable={!disabled}
-          maxLength={MAX_SOURCE_SETTING_VALUE_STRING_LENGTH}
-          returnKeyType="done"
-          value={textValue}
-          onChangeText={(nextValue) => {
-            textCurrentValueRef.current = nextValue;
-            setValue(nextValue);
-          }}
-          onFocus={() => {
-            textFocusValueRef.current = textValue;
-            textCurrentValueRef.current = textValue;
-          }}
-          onBlur={() => {
-            const shouldRunFeedback = canRunMobileSourceTextSettingBlurFeedback(
-              {
-                initialValue: textFocusValueRef.current,
-                currentValue: textCurrentValueRef.current ?? textValue,
-                disabled,
-              },
-            );
-            textFocusValueRef.current = null;
-            textCurrentValueRef.current = null;
-            if (shouldRunFeedback) void hapticPress();
-          }}
-          placeholder={setting.placeholder ?? setting.title}
-          placeholderTextColor={tokens.mutedForeground}
-          selectionColor={tokens.primary}
-          secureTextEntry={setting.secure === true}
-          style={[styles.settingInput, { color: tokens.foreground }]}
-        />
-      </GlassSurface>
+      <SourceTextSettingInput
+        setting={setting}
+        value={typeof value === "string" ? value : ""}
+        disabled={disabled}
+        accessibilityLabel={formatSourceSettingAccessibilityLabel(
+          setting,
+          values,
+          strings,
+        )}
+        onCommit={setValue}
+      />
     );
   }
 
@@ -967,17 +813,91 @@ function SourceSettingControl({
 }
 
 /**
+ * Text and secure settings. The typed text is a local draft; the setting is
+ * written when editing ends (blur, return, or the sheet closing), never per
+ * keystroke. `editable` stays on while a draft exists so the busy state a
+ * commit triggers cannot take focus away.
+ */
+function SourceTextSettingInput({
+  setting,
+  value,
+  disabled,
+  accessibilityLabel,
+  onCommit,
+}: {
+  setting: SourcePackageSetting;
+  value: string;
+  disabled: boolean;
+  accessibilityLabel: string;
+  onCommit: (value: string) => void;
+}) {
+  const { tokens } = useNemuTheme();
+  const [draft, setDraft] = useState<string | null>(null);
+  const draftRef = useRef<string | null>(null);
+  const valueRef = useRef(value);
+  valueRef.current = value;
+  const commitRef = useRef(onCommit);
+  commitRef.current = onCommit;
+
+  const finish = () => {
+    const next = resolveMobileSourceTextSettingCommit(
+      draftRef.current,
+      valueRef.current,
+    );
+    draftRef.current = null;
+    setDraft(null);
+    if (next !== null) {
+      commitRef.current(next);
+      void hapticPress();
+    }
+  };
+  const finishRef = useRef(finish);
+  finishRef.current = finish;
+  useEffect(() => () => finishRef.current(), []);
+
+  return (
+    <GlassSurface
+      style={styles.settingInputShell}
+      contentStyle={styles.settingInputContent}
+    >
+      <TextInput
+        accessibilityLabel={accessibilityLabel}
+        autoCapitalize="none"
+        autoCorrect={false}
+        editable={!disabled || draft !== null}
+        maxLength={MAX_SOURCE_SETTING_VALUE_STRING_LENGTH}
+        returnKeyType="done"
+        value={draft ?? value}
+        onChangeText={(next) => {
+          draftRef.current = next;
+          setDraft(next);
+        }}
+        onBlur={finish}
+        onSubmitEditing={finish}
+        placeholder={setting.placeholder ?? setting.title}
+        placeholderTextColor={tokens.mutedForeground}
+        selectionColor={tokens.primary}
+        secureTextEntry={setting.secure === true}
+        style={[styles.settingInput, { color: tokens.foreground }]}
+      />
+    </GlassSurface>
+  );
+}
+
+/**
  * The single-row stand-in for settings that open a dedicated sheet (multi
  * select, string list): title plus the current selection summary, chevron,
  * exactly the login/page-row geometry.
  */
 function SourceSettingPickerRow({
+  leading = false,
   title,
   summary,
   disabled,
   accessibilityLabel,
   onPress,
 }: {
+  leading?: boolean;
   title: string;
   summary: string;
   disabled: boolean;
@@ -995,6 +915,7 @@ function SourceSettingPickerRow({
       pressedScale={0.98}
       style={[
         styles.pageRow,
+        leading && styles.exploreLeadingRow,
         { borderColor: tokens.border },
         disabled && styles.disabledControl,
       ]}
@@ -1002,7 +923,7 @@ function SourceSettingPickerRow({
       <View style={styles.settingText}>
         <NemuText
           density="compact"
-          numberOfLines={1}
+          numberOfLines={ROW_TITLE_LINES}
           style={[styles.settingTitle, { color: tokens.foreground }]}
         >
           {title}
@@ -1025,12 +946,14 @@ function SourceSettingPickerRow({
 }
 
 function SourceSettingRow({
+  leading = false,
   setting,
   values,
   strings,
   disabled,
   onChange,
 }: {
+  leading?: boolean;
   setting: SourcePackageSetting;
   values: Record<string, unknown>;
   strings: MobileStrings;
@@ -1044,10 +967,17 @@ function SourceSettingRow({
   const { tokens } = useNemuTheme();
   const isSlider = setting.type === "slider";
 
+  // Design-explore: the value is said once, by the control that shows it.
+  const detail =
+    setting.subtitle ??
+    (mobileDesignExploreFlag && sourceSettingControlShowsValue(setting)
+      ? null
+      : describeSourceSettingValue(setting, values, strings));
   return (
     <View
       style={[
         styles.settingRow,
+        leading && styles.exploreLeadingRow,
         isSlider && styles.settingRowStacked,
         { borderColor: tokens.border },
       ]}
@@ -1056,26 +986,27 @@ function SourceSettingRow({
         <View style={styles.settingTitleLine}>
           <NemuText
             density="compact"
-            numberOfLines={1}
+            numberOfLines={ROW_TITLE_LINES}
             style={[styles.settingTitle, { color: tokens.foreground }]}
           >
             {setting.title}
           </NemuText>
         </View>
-        <NemuText
-          density="compact"
-          numberOfLines={2}
-          style={[styles.settingSubtitle, { color: tokens.mutedForeground }]}
-        >
-          {setting.subtitle ??
-            describeSourceSettingValue(setting, values, strings)}
-        </NemuText>
+        {detail ? (
+          <NemuText
+            density="compact"
+            numberOfLines={ROW_DETAIL_LINES}
+            style={[styles.settingSubtitle, { color: tokens.mutedForeground }]}
+          >
+            {detail}
+          </NemuText>
+        ) : null}
       </View>
       <SourceSettingControl
         setting={setting}
         values={values}
         strings={strings}
-        disabled={disabled}
+        disabled={disabled || setting.disabled === true}
         onChange={onChange}
       />
     </View>
@@ -1083,11 +1014,13 @@ function SourceSettingRow({
 }
 
 function SourceSettingsPageRow({
+  leading = false,
   setting,
   strings,
   disabled,
   onPress,
 }: {
+  leading?: boolean;
   setting: SourcePackageSetting;
   strings: MobileStrings;
   disabled: boolean;
@@ -1113,6 +1046,7 @@ function SourceSettingsPageRow({
       pressedScale={0.98}
       style={[
         styles.pageRow,
+        leading && styles.exploreLeadingRow,
         { borderColor: tokens.border },
         disabled && styles.disabledControl,
       ]}
@@ -1120,7 +1054,7 @@ function SourceSettingsPageRow({
       <View style={styles.settingText}>
         <NemuText
           density="compact"
-          numberOfLines={1}
+          numberOfLines={ROW_TITLE_LINES}
           style={[styles.settingTitle, { color: tokens.foreground }]}
         >
           {setting.title}
@@ -1128,7 +1062,7 @@ function SourceSettingsPageRow({
         {detail ? (
           <NemuText
             density="compact"
-            numberOfLines={2}
+            numberOfLines={ROW_DETAIL_LINES}
             style={[styles.settingSubtitle, { color: tokens.mutedForeground }]}
           >
             {detail}
@@ -1145,6 +1079,7 @@ function SourceSettingsPageRow({
 }
 
 function SourceSettingLoginRow({
+  leading = false,
   setting,
   values,
   strings,
@@ -1154,6 +1089,7 @@ function SourceSettingLoginRow({
   onRequestLogin,
   loginCapabilities,
 }: {
+  leading?: boolean;
   setting: MobileSourceLoginSetting;
   values: Record<string, unknown>;
   strings: MobileStrings;
@@ -1260,7 +1196,9 @@ function SourceSettingLoginRow({
           return;
         }
         if (loginError) setError(loginError);
-      } else {
+      } else if (!(mobileDesignExploreFlag && result.code === "cancelled")) {
+        // Design-explore: closing the login page is the reader's own choice,
+        // not a failure: the row goes back to "Not signed in", no red line.
         setError(strings.settings.sourceOAuthErrors[result.code]);
       }
     } catch (nextError) {
@@ -1311,6 +1249,7 @@ function SourceSettingLoginRow({
       pressedScale={0.98}
       style={[
         styles.pageRow,
+        leading && styles.exploreLeadingRow,
         { borderColor: tokens.border },
         rowDisabled && styles.disabledControl,
       ]}
@@ -1318,14 +1257,14 @@ function SourceSettingLoginRow({
       <View style={styles.settingText}>
         <NemuText
           density="compact"
-          numberOfLines={1}
+          numberOfLines={ROW_TITLE_LINES}
           style={[styles.settingTitle, { color: tokens.foreground }]}
         >
           {setting.title}
         </NemuText>
         <NemuText
           density="compact"
-          numberOfLines={2}
+          numberOfLines={ROW_DETAIL_LINES}
           style={[
             styles.settingSubtitle,
             { color: error ? tokens.danger : tokens.mutedForeground },
@@ -1350,11 +1289,13 @@ function SourceSettingLoginRow({
 }
 
 function SourceSettingActionRow({
+  leading = false,
   setting,
   strings,
   disabled,
   onPress,
 }: {
+  leading?: boolean;
   setting: SourcePackageSetting;
   strings: MobileStrings;
   disabled: boolean;
@@ -1379,6 +1320,7 @@ function SourceSettingActionRow({
       pressedScale={0.98}
       style={[
         styles.pageRow,
+        leading && styles.exploreLeadingRow,
         { borderColor: tokens.border },
         disabled && styles.disabledControl,
       ]}
@@ -1386,7 +1328,7 @@ function SourceSettingActionRow({
       <View style={styles.settingText}>
         <NemuText
           density="compact"
-          numberOfLines={1}
+          numberOfLines={ROW_TITLE_LINES}
           style={[
             styles.settingTitle,
             { color: destructive ? tokens.danger : tokens.foreground },
@@ -1397,7 +1339,7 @@ function SourceSettingActionRow({
         {setting.subtitle ? (
           <NemuText
             density="compact"
-            numberOfLines={2}
+            numberOfLines={ROW_DETAIL_LINES}
             style={[styles.settingSubtitle, { color: tokens.mutedForeground }]}
           >
             {setting.subtitle}
@@ -1415,6 +1357,7 @@ function SourceSettingActionRow({
 }
 
 function SourceSettingsList({
+  leading = false,
   settings,
   values,
   strings,
@@ -1429,7 +1372,14 @@ function SourceSettingsList({
   loginCapabilities,
   onRequestMultiSelectSheet,
   onRequestStringListSheet,
+  renderSettingAccessory,
 }: {
+  /**
+   * Design-explore: this list starts the card, so its first row has no rule
+   * above it and no top padding of its own (a rule needs something above it;
+   * the card's inset already stands off the edge).
+   */
+  leading?: boolean;
   settings: SourcePackageSetting[];
   values: Record<string, unknown>;
   strings: MobileStrings;
@@ -1452,174 +1402,207 @@ function SourceSettingsList({
   loginCapabilities: MobileSourceLoginCapabilities | null;
   onRequestMultiSelectSheet?: (setting: SourcePackageSetting) => void;
   onRequestStringListSheet?: (setting: SourcePackageSetting) => void;
+  renderSettingAccessory?: MobileSourceSettingsCardProps["renderSettingAccessory"];
 }) {
   const { tokens } = useNemuTheme();
 
-  return (
-    <>
-      {settings.map((setting, index) => {
-        if (!isSourceSettingVisible(setting, values, features)) return null;
-        if (!isRenderableSourceSetting(setting)) return null;
+  const firstVisibleIndex = getFirstVisibleSourceSettingIndex(settings, values, features);
+  return <>{settings.map(renderSetting)}</>;
 
-        const key = `${setting.type}:${setting.key}:${index}`;
+  function renderSetting(setting: SourcePackageSetting, index: number): ReactNode {
+    if (!isSourceSettingVisible(setting, values, features)) return null;
+    if (!isRenderableSourceSetting(setting)) return null;
+    const firstShown = index === firstVisibleIndex;
+    const leadingRow = leading && mobileDesignExploreFlag && firstShown;
 
-        if (setting.type === "group") {
-          if (
-            !setting.items?.length ||
-            !hasVisibleSourceSettingRows(setting.items, values, features)
-          ) {
-            return null;
-          }
+    const key = `${setting.type}:${setting.key}:${index}`;
 
-          return (
-            <View key={key} style={styles.settingGroup}>
-              <NemuText
-                density="compact"
-                numberOfLines={1}
-                style={[
-                  styles.settingGroupTitle,
-                  { color: tokens.mutedForeground },
-                ]}
-              >
-                {setting.title}
-              </NemuText>
-              <View style={styles.settingGroupRows}>
-                <SourceSettingsList
-                  settings={setting.items}
-                  values={values}
-                  strings={strings}
-                  features={features}
-                  disabled={disabled}
-                  onChange={onChange}
-                  onAction={onAction}
-                  onLogin={onLogin}
-                  onLogout={onLogout}
-                  onRequestLogin={onRequestLogin}
-                  onPushPage={onPushPage}
-                  loginCapabilities={loginCapabilities}
-                  onRequestMultiSelectSheet={onRequestMultiSelectSheet}
-                  onRequestStringListSheet={onRequestStringListSheet}
-                />
-              </View>
-              {setting.footer ? (
-                <NemuText
-                  density="compact"
-                  style={[
-                    styles.settingGroupFooter,
-                    { color: tokens.mutedForeground },
-                  ]}
-                >
-                  {setting.footer}
-                </NemuText>
-              ) : null}
-            </View>
-          );
-        }
+    if (setting.type === "group") {
+      if (
+        !setting.items?.length ||
+        !hasVisibleSourceSettingRows(setting.items, values, features)
+      ) {
+        return null;
+      }
 
-        if (setting.type === "page") {
-          return (
-            <SourceSettingsPageRow
-              key={key}
-              setting={setting}
-              strings={strings}
-              disabled={disabled}
-              onPress={() => onPushPage(setting)}
-            />
-          );
-        }
-
-        if (isMobileSourceLoginSetting(setting)) {
-          return (
-            <SourceSettingLoginRow
-              key={key}
-              setting={setting}
+      // Design-explore: no heading that says nothing ("Settings") or only
+      // names its one row ("Blocked Groups" over "Blocked Groups").
+      const visibleItems = setting.items.filter(
+        (item) => isSourceSettingVisible(item, values, features) && isRenderableSourceSetting(item),
+      );
+      const silentHeading =
+        mobileDesignExploreFlag &&
+        (isMobileSettingsHeadingEmpty(setting.title) ||
+          (visibleItems.length === 1 &&
+            Boolean(setting.title) &&
+            isMobileSettingsHeadingRepeat(visibleItems[0]!.title ?? "", setting.title)));
+      return (
+        <View key={key} style={styles.settingGroup}>
+          {silentHeading ? null : (
+          <NemuText
+            density="compact"
+            numberOfLines={1}
+            style={[
+              styles.settingGroupTitle,
+              mobileDesignExploreFlag ? (firstShown ? styles.exploreGroupTitleFirst : styles.exploreGroupTitle) : null,
+              { color: tokens.mutedForeground },
+            ]}
+          >
+            {setting.title}
+          </NemuText>
+          )}
+          <View style={styles.settingGroupRows}>
+            <SourceSettingsList
+              leading={mobileDesignExploreFlag && firstShown}
+              settings={setting.items}
               values={values}
               strings={strings}
-              disabled={disabled || !onLogin || !onLogout}
-              onLogin={onLogin ?? (() => null)}
-              onLogout={onLogout ?? (() => undefined)}
-              onRequestLogin={onRequestLogin}
-              loginCapabilities={loginCapabilities}
-            />
-          );
-        }
-
-        if (setting.type === "button" || setting.type === "link") {
-          return (
-            <SourceSettingActionRow
-              key={key}
-              setting={setting}
-              strings={strings}
-              disabled={disabled || !onAction}
-              onPress={() => onAction?.(setting)}
-            />
-          );
-        }
-
-        if (setting.type === "multi-select" && onRequestMultiSelectSheet) {
-          const options = getSourceSettingOptions(setting);
-          if (options.length > 0) {
-            const optionValues = new Set(options.map((option) => option.value));
-            const selectedLabels = stringListSettingValue(setting, values)
-              .filter((item) => optionValues.has(item))
-              .map(
-                (item) =>
-                  options.find((option) => option.value === item)?.label ??
-                  item,
-              );
-            return (
-              <SourceSettingPickerRow
-                key={key}
-                accessibilityLabel={formatMobileString(
-                  strings.settings.sourceSettingsOpenPage,
-                  { name: setting.title },
-                )}
-                disabled={disabled}
-                onPress={() => onRequestMultiSelectSheet(setting)}
-                summary={
-                  compactMobileLabelList(selectedLabels) ??
-                  strings.settings.sourceSettingsNone
-                }
-                title={setting.title}
-              />
-            );
-          }
-        }
-
-        if (setting.type === "editable-list" && onRequestStringListSheet) {
-          const itemCount = stringListSettingValue(setting, values).length;
-          return (
-            <SourceSettingPickerRow
-              key={key}
-              accessibilityLabel={formatMobileString(
-                strings.settings.sourceSettingsOpenPage,
-                { name: setting.title },
-              )}
+              features={features}
               disabled={disabled}
-              onPress={() => onRequestStringListSheet(setting)}
-              summary={
-                itemCount
-                  ? formatMobileSourceItemListCount(itemCount, strings)
-                  : strings.settings.sourceSettingsNone
-              }
-              title={setting.title}
+              onChange={onChange}
+              onAction={onAction}
+              onLogin={onLogin}
+              onLogout={onLogout}
+              onRequestLogin={onRequestLogin}
+              onPushPage={onPushPage}
+              loginCapabilities={loginCapabilities}
+              onRequestMultiSelectSheet={onRequestMultiSelectSheet}
+              onRequestStringListSheet={onRequestStringListSheet}
+              renderSettingAccessory={renderSettingAccessory}
             />
-          );
-        }
+          </View>
+          {setting.footer ? (
+            <NemuText
+              density="compact"
+              style={[
+                styles.settingGroupFooter,
+                { color: tokens.mutedForeground },
+              ]}
+            >
+              {setting.footer}
+            </NemuText>
+          ) : null}
+        </View>
+      );
+    }
 
+    if (setting.type === "page") {
+      return (
+        <SourceSettingsPageRow
+          leading={leadingRow}
+          key={key}
+          setting={setting}
+          strings={strings}
+          disabled={disabled}
+          onPress={() => onPushPage(setting)}
+        />
+      );
+    }
+
+    if (isMobileSourceLoginSetting(setting)) {
+      return (
+        <SourceSettingLoginRow
+          leading={leadingRow}
+          key={key}
+          setting={setting}
+          values={values}
+          strings={strings}
+          disabled={disabled || !onLogin || !onLogout}
+          onLogin={onLogin ?? (() => null)}
+          onLogout={onLogout ?? (() => undefined)}
+          onRequestLogin={onRequestLogin}
+          loginCapabilities={loginCapabilities}
+        />
+      );
+    }
+
+    if (setting.type === "button" || setting.type === "link") {
+      return (
+        <SourceSettingActionRow
+          leading={leadingRow}
+          key={key}
+          setting={setting}
+          strings={strings}
+          disabled={disabled || !onAction}
+          onPress={() => onAction?.(setting)}
+        />
+      );
+    }
+
+    if (setting.type === "multi-select" && onRequestMultiSelectSheet) {
+      const options = getSourceSettingOptions(setting);
+      if (options.length > 0) {
+        const optionValues = new Set(options.map((option) => option.value));
+        const selectedLabels = stringListSettingValue(setting, values)
+          .filter((item) => optionValues.has(item))
+          .map(
+            (item) =>
+              options.find((option) => option.value === item)?.label ??
+              item,
+          );
         return (
-          <SourceSettingRow
+          <SourceSettingPickerRow
+            leading={leadingRow}
             key={key}
-            setting={setting}
-            values={values}
-            strings={strings}
+            accessibilityLabel={formatMobileString(
+              strings.settings.sourceSettingsOpenPage,
+              { name: setting.title },
+            )}
             disabled={disabled}
-            onChange={onChange}
+            onPress={() => onRequestMultiSelectSheet(setting)}
+            summary={
+              compactMobileLabelList(selectedLabels) ??
+              strings.settings.sourceSettingsNone
+            }
+            title={setting.title}
           />
         );
-      })}
-    </>
-  );
+      }
+    }
+
+    if (setting.type === "editable-list" && onRequestStringListSheet) {
+      const itemCount = stringListSettingValue(setting, values).length;
+      return (
+        <SourceSettingPickerRow
+          leading={leadingRow}
+          key={key}
+          accessibilityLabel={formatMobileString(
+            strings.settings.sourceSettingsOpenPage,
+            { name: setting.title },
+          )}
+          disabled={disabled}
+          onPress={() => onRequestStringListSheet(setting)}
+          summary={
+            itemCount
+              ? formatMobileSourceItemListCount(itemCount, strings)
+              : strings.settings.sourceSettingsNone
+          }
+          title={setting.title}
+        />
+      );
+    }
+
+    const accessory = renderSettingAccessory?.(setting, values);
+    const row = (
+      <SourceSettingRow
+        leading={leadingRow}
+        key={key}
+        setting={setting}
+        values={values}
+        strings={strings}
+        disabled={disabled}
+        onChange={onChange}
+      />
+    );
+    return accessory ? (
+      <Fragment key={key}>
+        {row}
+        {accessory}
+      </Fragment>
+    ) : (
+      row
+    );
+  }
 }
 
 export function MobileSourceSettingsCard(props: MobileSourceSettingsCardProps) {
@@ -1656,6 +1639,7 @@ function MobileSourceSettingsCardContent({
   onRequestLoginSheet,
   onRequestMultiSelectSheet,
   onRequestStringListSheet,
+  renderSettingAccessory,
 }: MobileSourceSettingsCardProps) {
   const { tokens } = useNemuTheme();
   const { appLanguage } = useMobileLanguageSettings();
@@ -1743,14 +1727,44 @@ function MobileSourceSettingsCardContent({
     );
   }
 
+  // Design-explore: on the root page the sheet's own title names the source
+  // or plugin, so the card drops its "Source Settings" heading (a third
+  // "settings" under the title) and Reset closes the list as a row instead
+  // of a boxed button at its head. Sub-pages keep their back + title header.
+  const exploreRoot = mobileDesignExploreFlag && !currentPage;
+  const canReset = Boolean(!currentPage && onReset && editableSettings.length);
+  const resetRow =
+    exploreRoot && canReset ? (
+      <NemuPressable
+        accessibilityRole="button"
+        accessibilityLabel={strings.settings.sourceSettingsResetLabel}
+        accessibilityState={{ disabled }}
+        disabled={disabled}
+        onPress={() => {
+          if (disabled) return;
+          setDismissedError(null);
+          onReset?.();
+        }}
+        pressedScale={0.98}
+        style={[styles.pageRow, styles.exploreResetRow, { borderColor: tokens.border }, disabled && styles.disabledControl]}
+      >
+        <Ionicons name="refresh-outline" size={18} color={tokens.primary} />
+        <NemuText density="compact" style={[styles.settingTitle, { color: tokens.primary }]}>
+          {strings.settings.sourceSettingsResetLabel}
+        </NemuText>
+      </NemuPressable>
+    ) : null;
+
   return (
     <View
         style={[
           styles.settingsShell,
+          mobileDesignExploreFlag ? styles.exploreShell : null,
           { backgroundColor: tokens.card, borderColor: tokens.border },
         ]}
       >
         <View style={styles.settingsContent}>
+          {exploreRoot ? null : (
           <View style={styles.settingsHeader}>
             {currentPage ? (
               <View style={styles.capabilityHeader}>
@@ -1813,7 +1827,7 @@ function MobileSourceSettingsCardContent({
                 </View>
               </View>
             )}
-            {!currentPage && onReset && editableSettings.length ? (
+            {canReset ? (
               <NemuButton
                 accessibilityLabel={strings.settings.sourceSettingsResetLabel}
                 accessibilityState={{ disabled }}
@@ -1823,7 +1837,7 @@ function MobileSourceSettingsCardContent({
                 onPress={() => {
                   if (disabled) return;
                   setDismissedError(null);
-                  onReset();
+                  onReset?.();
                 }}
                 size="sm"
                 style={styles.settingsHeaderAction}
@@ -1831,6 +1845,7 @@ function MobileSourceSettingsCardContent({
               />
             ) : null}
           </View>
+          )}
           {activeError ? (
             <MobileInlineErrorBanner
               title={strings.settings.settingsActionFailed}
@@ -1847,6 +1862,7 @@ function MobileSourceSettingsCardContent({
           {hasCurrentRows ? (
             <View style={styles.settingList}>
               <SourceSettingsList
+                leading={exploreRoot}
                 settings={currentSettings}
                 values={safeValues}
                 strings={strings}
@@ -1873,7 +1889,9 @@ function MobileSourceSettingsCardContent({
                 loginCapabilities={loginCapabilities}
                 onRequestMultiSelectSheet={onRequestMultiSelectSheet}
                 onRequestStringListSheet={onRequestStringListSheet}
+                renderSettingAccessory={renderSettingAccessory}
               />
+              {resetRow}
             </View>
           ) : (
             <View style={styles.emptyRow}>
@@ -1903,7 +1921,24 @@ const styles = StyleSheet.create({
   },
   settingsContent: {
     gap: 12,
-    padding: 14,
+    padding: MOBILE_SETTINGS_GROUP_INSET,
+  },
+  exploreShell: MOBILE_EXPLORE_GROUP_SHAPE,
+  // A group heading stands clear of the footer above it.
+  exploreGroupTitle: {
+    marginTop: 22,
+  },
+  exploreGroupTitleFirst: {
+    marginTop: 0,
+  },
+  // A leading row has no preceding content to separate or stand off.
+  exploreLeadingRow: {
+    borderTopWidth: 0,
+    paddingTop: 0,
+  },
+  exploreResetRow: {
+    minHeight: 50,
+    justifyContent: "flex-start",
   },
   settingsHeader: {
     minHeight: 34,
@@ -1967,6 +2002,8 @@ const styles = StyleSheet.create({
     gap: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
     paddingTop: 10,
+    // A row whose text runs to several lines clears the next row's rule.
+    paddingBottom: mobileDesignExploreFlag ? 10 : 0,
   },
   settingRowStacked: {
     alignItems: "stretch",
@@ -1997,6 +2034,10 @@ const styles = StyleSheet.create({
   },
   settingTextFull: {
     width: "100%",
+    // In the stacked (column) slider row the base `flex: 1` (basis 0) sizes
+    // the title block to zero height: the title and subtitle vanished above
+    // the track. Sized by its content instead.
+    flex: 0,
   },
   settingTitleLine: {
     flexDirection: "row",
@@ -2039,7 +2080,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
-    borderRadius: radius.md,
+    borderRadius: mobileDesignExploreFlag ? MOBILE_SETTINGS_CONTROL_RADIUS : radius.md,
     paddingHorizontal: 12,
   },
   settingMenuHost: {
@@ -2055,7 +2096,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 6,
     overflow: "hidden",
-    borderRadius: radius.md,
+    borderRadius: mobileDesignExploreFlag ? MOBILE_SETTINGS_CONTROL_RADIUS : radius.md,
     paddingHorizontal: 12,
   },
   settingMaterialMenuText: {
@@ -2067,7 +2108,7 @@ const styles = StyleSheet.create({
   settingInputShell: {
     width: "48%",
     minHeight: 38,
-    borderRadius: radius.md,
+    borderRadius: mobileDesignExploreFlag ? MOBILE_SETTINGS_CONTROL_RADIUS : radius.md,
   },
   settingInputContent: {
     paddingHorizontal: 10,
@@ -2090,7 +2131,7 @@ const styles = StyleSheet.create({
   editableListInputShell: {
     flex: 1,
     minHeight: 34,
-    borderRadius: radius.md,
+    borderRadius: mobileDesignExploreFlag ? MOBILE_SETTINGS_CONTROL_RADIUS : radius.md,
   },
   editableListInputContent: {
     paddingHorizontal: 9,
@@ -2115,42 +2156,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 14,
     textAlign: "right",
-  },
-  sliderControl: {
-    width: "100%",
-    minHeight: 48,
-    justifyContent: "flex-end",
-    paddingTop: 18,
-  },
-  sliderFloatingValue: {
-    position: "absolute",
-    top: 0,
-    textAlign: "center",
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: nemuFontWeight.medium,
-  },
-  sliderTrackTouchTarget: {
-    height: 24,
-    justifyContent: "center",
-  },
-  sliderTrack: {
-    height: 6,
-    overflow: "visible",
-    borderRadius: radius.pill,
-  },
-  sliderFill: {
-    height: 6,
-    borderRadius: radius.pill,
-  },
-  sliderThumb: {
-    position: "absolute",
-    top: -6,
-    width: 18,
-    height: 18,
-    marginLeft: -9,
-    borderRadius: 9,
-    borderWidth: 3,
   },
   stepper: {
     minHeight: 32,

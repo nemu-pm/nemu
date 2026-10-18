@@ -117,6 +117,19 @@ export function canRunMobileSourceTextSettingBlurFeedback({
   return !disabled && initialValue !== null && initialValue !== currentValue;
 }
 
+/**
+ * A text setting is edited as a local draft and written once, when editing
+ * ends. Writing on every keystroke put the settings sheet into its busy state,
+ * which disabled the field mid-edit and dropped the keyboard after a character
+ * or two. Returns the value to commit, or null when nothing changed.
+ */
+export function resolveMobileSourceTextSettingCommit(
+  draft: string | null,
+  committed: string,
+): string | null {
+  return draft !== null && draft !== committed ? draft : null;
+}
+
 export function isSourceSettingVisible(
   setting: SourcePackageSetting,
   values: Record<string, unknown>,
@@ -148,14 +161,6 @@ export function sourceSettingRequestsDataRefresh(
   if (!setting || typeof setting !== "object") return false;
   const refreshes = asOwnArray(ownDataValue(setting, "refreshes"));
   return refreshes !== null && safeOwnArrayLength(refreshes) > 0;
-}
-
-export function sourceSettingsRequestDataRefresh(
-  settings: SourcePackageSetting[],
-): boolean {
-  return flattenSourceSettings(settings)
-    .filter(isEditableSourceSetting)
-    .some(sourceSettingRequestsDataRefresh);
 }
 
 export function flattenSourceSettings(
@@ -213,6 +218,20 @@ export function countVisibleSourceSettings(
     return false;
   });
   return count;
+}
+
+/** First sibling that paints a row or a nonempty group, after visibility gates. */
+export function getFirstVisibleSourceSettingIndex(
+  settings: SourcePackageSetting[],
+  values: Record<string, unknown>,
+  features: MobileSourceSettingFeatureFlags = {},
+): number {
+  return settings.findIndex((setting) => {
+    if (!isSourceSettingVisible(setting, values, features) || !isRenderableSourceSetting(setting)) return false;
+    if (ownDataValue(setting, "type") !== "group") return true;
+    const items = asOwnArray(ownDataValue(setting, "items")) as SourcePackageSetting[] | null;
+    return hasVisibleSourceSettingRows(items ?? [], values, features);
+  });
 }
 
 export function hasVisibleSourceSettingRows(
@@ -323,14 +342,6 @@ function walkVisibleSourceSettings(
   }
 }
 
-export function extractSourceSettingDefaults(
-  settings: SourcePackageSetting[],
-): Record<string, unknown> {
-  return sanitizeSourceSettingValues(
-    extractCoreSettingDefaults(flattenSourceSettings(settings)),
-  );
-}
-
 export function mergeSourceSettingValues(
   settings: SourcePackageSetting[],
   values: Record<string, unknown> | null | undefined,
@@ -341,18 +352,6 @@ export function mergeSourceSettingValues(
       sanitizeSourceSettingValues(values),
     ),
   );
-}
-
-export function applyMobileSourceSettingChange(
-  settings: SourcePackageSetting[],
-  userValues: Record<string, unknown> | null | undefined,
-  key: string,
-  value: unknown,
-): {
-  values: Record<string, unknown>;
-  userValues: Record<string, unknown>;
-} {
-  return applyMobileSourceSettingsPatch(settings, userValues, { [key]: value });
 }
 
 export function applyMobileSourceSettingsPatch(
@@ -428,6 +427,18 @@ export function getSourceSettingValue(
   return value ?? ownDataValue(setting, "default");
 }
 
+/** A slider value snapped to its step and kept inside its range. */
+export function snapSourceSettingSliderValue(
+  value: number,
+  min: number,
+  max: number,
+  step: number,
+): number {
+  const safeStep = step > 0 ? step : 1;
+  const snapped = Math.round((value - min) / safeStep) * safeStep + min;
+  return Number(Math.min(max, Math.max(min, snapped)).toPrecision(15));
+}
+
 export function formatSourceSettingSliderValue(
   setting: SourcePackageSetting,
   value: number,
@@ -457,6 +468,22 @@ export function getSourceSegmentIndex(
     if (titleIndex >= 0) return titleIndex;
   }
   return 0;
+}
+
+/**
+ * Design-explore: whether a row's control already shows its value (a switch,
+ * a segmented control, a menu button with the choice in it, a slider with its
+ * reading), so the row says nothing more under its title. A value repeated
+ * under its own control read as noise ("Cover Quality / Medium" beside a
+ * "Medium" menu), and "Default" there disagreed with the menu's "Primary".
+ */
+export function sourceSettingControlShowsValue(setting: Pick<SourcePackageSetting, "type">): boolean {
+  return (
+    setting.type === "switch" ||
+    setting.type === "segment" ||
+    setting.type === "select" ||
+    setting.type === "slider"
+  );
 }
 
 export function describeSourceSettingValue(
@@ -533,3 +560,6 @@ export function formatSourceSettingAccessibilityLabel(
     .filter(Boolean)
     .join(", ");
 }
+
+/** The settings of a source whose package has none (a stable empty list). */
+export const EMPTY_SOURCE_SETTINGS: SourcePackageSetting[] = [];

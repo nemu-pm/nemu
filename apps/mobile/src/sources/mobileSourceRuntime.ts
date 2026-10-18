@@ -1,4 +1,5 @@
 import type { InstalledSource, SourcePackageMetadata } from "@/data/schema";
+import { SELF_HOSTED_REGISTRY_ID, isReservedSourceId } from "@/lib/selfHosted/policy";
 import {
   MOBILE_SOURCE_DISABLED_MARKER,
   MOBILE_TACHIYOMI_UNSUPPORTED_MARKER,
@@ -74,6 +75,8 @@ export type MobileRuntimeSource = {
   packageMetadata?: SourcePackageMetadata | null;
   /** User-disabled install: kept, synced and listed, but never executed. */
   disabled?: boolean;
+  /** Built-in self-hosted server source (see `lib/selfHosted`). */
+  selfHosted?: InstalledSource["selfHosted"];
 };
 
 /**
@@ -152,6 +155,7 @@ export function normalizeInstalledSource(source: InstalledSource): MobileRuntime
     packageCacheKey: source.packageCacheKey,
     packageMetadata: source.packageMetadata,
     ...(source.disabled == null ? {} : { disabled: source.disabled }),
+    ...(source.selfHosted == null ? {} : { selfHosted: source.selfHosted }),
   };
 }
 
@@ -201,6 +205,22 @@ export function buildMobileSourcePackageLoadPlan(
   }
 
   const sourceKey = makeMobileRuntimeSourceKey(source);
+  // Server-source ids are the app's own. A downloaded package may never run
+  // under one, whatever record claims it (imported file, directory entry,
+  // a row synced from another device).
+  if (
+    source.registryId !== SELF_HOSTED_REGISTRY_ID &&
+    [source.sourceId, source.packageMetadata?.sourceId, ...expectedMobileSourcePackageIds(source)].some(
+      isReservedSourceId,
+    )
+  ) {
+    return {
+      status: "blocked",
+      sourceKey,
+      reason: "unsupported-runtime",
+      detail: "This source id is reserved for the app's built-in sources.",
+    };
+  }
   if (!source.packageUri) {
     return {
       status: "blocked",

@@ -3,11 +3,12 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
 import {
-  NEMU_APP_ICON_PRESS_MOTION,
+  getNemuAppIconGlowReachTop,
   getNemuAppIconHaloMetrics,
   getNemuAppIconHaloRenderMode,
-  shouldAnimateNemuAppIconPress,
+  NEMU_APP_ICON_GLOW_VISIBLE_SIGMAS,
 } from "./nemuAppIconHalo";
+import { getMobileAboutHeroGlowRoomTop, MOBILE_ABOUT_HERO_METRICS } from "./mobileAboutLayout";
 
 describe("nemu app icon halo", () => {
   test("stays contract-linked to the production web icon treatment", () => {
@@ -74,9 +75,8 @@ describe("nemu app icon halo", () => {
     );
 
     expect(component).toMatch(
-      /<Pressable\s+accessible\s+accessibilityLabel=\{accessibilityLabel\}\s+accessibilityRole="image"/,
+      /<View\s+accessible\s+accessibilityLabel=\{accessibilityLabel\}\s+accessibilityRole="image"/,
     );
-    expect(component).not.toContain("<Pressable\n      accessible={false}");
     expect(component).toContain("accessibilityElementsHidden");
     expect(component).toContain('importantForAccessibility="no-hide-descendants"');
     expect(component.match(/accessibilityLabel=\{accessibilityLabel\}/g)).toHaveLength(1);
@@ -89,18 +89,61 @@ describe("nemu app icon halo", () => {
       glowBlurRadius: 40,
       iconRadius: 16,
       rectOffset: 140,
+      glowScale: 1.25,
+      glowOffsetY: 0,
+      rasterScale: 1,
     });
+    // Enough room: the web halo is kept as is.
+    expect(getNemuAppIconHaloMetrics(80, 120)).toEqual(getNemuAppIconHaloMetrics(80));
   });
 
-  test("matches the web icon's playful active interaction unless motion is reduced", () => {
-    expect(NEMU_APP_ICON_PRESS_MOTION).toEqual({
-      duration: 300,
-      rotateDegrees: -4,
-      scale: 0.82,
-    });
-    expect(shouldAnimateNemuAppIconPress(false)).toBe(true);
-    expect(shouldAnimateNemuAppIconPress(true)).toBe(false);
-    expect(shouldAnimateNemuAppIconPress(null)).toBe(false);
+  test("tightens only the glow so it fades out before a clipping sheet edge", () => {
+    for (const hero of ["regular", "compact"] as const) {
+      for (const platform of ["ios", "android"]) {
+        const room = getMobileAboutHeroGlowRoomTop({ hero, platform });
+        const { iconSize } = MOBILE_ABOUT_HERO_METRICS[hero];
+        const bounded = getNemuAppIconHaloMetrics(iconSize, room);
+        const web = getNemuAppIconHaloMetrics(iconSize);
+        // The web glow would have been cut by the sheet's top edge...
+        expect(getNemuAppIconGlowReachTop(iconSize, web)).toBeGreaterThan(room);
+        // ...the bounded one reaches under 1% before it.
+        expect(getNemuAppIconGlowReachTop(iconSize, bounded)).toBeLessThanOrEqual(room + 0.5);
+        expect(bounded.glowBlurRadius).toBeGreaterThan(iconSize * 0.15);
+        // Android's baked raster shrinks until its reach fits too.
+        const rasterReach =
+          bounded.rasterScale *
+            ((iconSize * web.glowScale) / 2 + NEMU_APP_ICON_GLOW_VISIBLE_SIGMAS * web.glowBlurRadius) -
+          iconSize / 2 -
+          bounded.glowOffsetY;
+        expect(rasterReach).toBeLessThanOrEqual(room + 0.5);
+        // The icon itself never changes.
+        expect(bounded.iconRadius).toBe(web.iconRadius);
+        expect(bounded.rectOffset).toBe(web.rectOffset);
+      }
+    }
+  });
+
+  test("iOS About gives the regular glow a soft ~20pt blur", () => {
+    const room = getMobileAboutHeroGlowRoomTop({ hero: "regular", platform: "ios" });
+    expect(room).toBe(44);
+    expect(getNemuAppIconHaloMetrics(80, room).glowBlurRadius).toBeCloseTo(20, 0);
+  });
+
+  test("is decorative artwork, never an interactive control", () => {
+    const component = readFileSync(
+      path.join(import.meta.dir, "../components/NemuAppIconHalo.tsx"),
+      "utf8",
+    );
+
+    for (const interactive of [
+      "Pressable",
+      "onPress",
+      "hitSlop",
+      "Animated",
+      'accessibilityRole="button"',
+    ]) {
+      expect(component).not.toContain(interactive);
+    }
   });
 
   test("ships density-matched Android rasters for the 360dp glow canvas", () => {

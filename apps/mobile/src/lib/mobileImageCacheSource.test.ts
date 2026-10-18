@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { MobileImageCacheSource } from "./mobileImageCache";
 import {
   normalizeMobileImageCacheSource,
   upgradeMobileImageUriScheme,
@@ -44,5 +45,34 @@ describe("mobile image cache source normalisation", () => {
       uri: "https://example.test/a.png",
       headers: { Referer: "x" },
     });
+  });
+});
+
+describe("hotlink-guarded image sources", () => {
+  test("drops a foreign Referer before the cache key and the download", () => {
+    // A MangaDex cover requested with Manhuagui's Referer is answered with
+    // MangaDex's placeholder; the normalized source must not carry it.
+    const source: MobileImageCacheSource = {
+      uri: "https://uploads.mangadex.org/covers/a/b.jpg.512.jpg",
+      headers: { Referer: "https://www.manhuagui.com/" },
+      cacheKind: "cover",
+    };
+    expect(normalizeMobileImageCacheSource(source)).toEqual({
+      uri: "https://uploads.mangadex.org/covers/a/b.jpg.512.jpg",
+      cacheKind: "cover",
+    });
+  });
+
+  test("keeps same-site and unrelated headers", () => {
+    const own = {
+      uri: "https://uploads.mangadex.org/covers/a/b.jpg",
+      headers: { Referer: "https://mangadex.org/" },
+    };
+    expect(normalizeMobileImageCacheSource(own)).toBe(own);
+    const manhuagui = {
+      uri: "https://cf.hamreus.com/cpic/b/1.jpg",
+      headers: { Referer: "https://www.manhuagui.com/" },
+    };
+    expect(normalizeMobileImageCacheSource(manhuagui)).toBe(manhuagui);
   });
 });

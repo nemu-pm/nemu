@@ -5,6 +5,9 @@ const {
 const path = require("path");
 const crypto = require("crypto");
 const rootEnv = require("./loadRootEnv.cjs")();
+// A production bundle (Xcode Release archive, Gradle release, production
+// `expo export`) must not bake the dev backend; fail the bundle step instead.
+require("./preflightRelease.cjs").enforceReleaseEnv(rootEnv);
 
 const config = getDefaultConfig(__dirname);
 
@@ -33,6 +36,10 @@ config.cacheVersion = [config.cacheVersion, publicEnvFingerprint]
 const defaultResolveRequest = config.resolver.resolveRequest;
 const defaultGetModulesRunBeforeMainModule =
   config.serializer.getModulesRunBeforeMainModule;
+// Expo's lazy global `URL` (whatwg-url-minimum) decodes its tables with `atob`
+// while its module initialises, and the dev client reaches it (getBundleUrl in
+// the HMR setup) before the entry file's own imports run. Install base64 first.
+const base64Polyfill = path.join(__dirname, "src/polyfills/base64.ts");
 const textEncodingPolyfill = path.join(
   __dirname,
   "src/polyfills/textEncoding.ts",
@@ -72,6 +79,7 @@ const resolveWithExistingConfig = (context, moduleName, platform) => {
 };
 
 config.serializer.getModulesRunBeforeMainModule = (...args) => [
+  base64Polyfill,
   textEncodingPolyfill,
   ...defaultGetModulesRunBeforeMainModule(...args),
 ];

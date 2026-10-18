@@ -1,3 +1,4 @@
+import type { ViewInstance } from "react-native";
 import { useCallback, useMemo, useRef, useState } from "react";
 import {
   PanResponder,
@@ -23,8 +24,6 @@ type MobileSliderTrackProps = {
   onRatioChange: (ratio: number) => void;
   onRatioEnd?: (ratio: number) => void;
   onRatioCancel?: () => void;
-  /** Legacy release callback. Prefer onRatioEnd for new gesture-aware callers. */
-  onRatioCommit?: (ratio: number) => void;
   /**
    * Reports the track's window-space box on layout and again when a drag
    * starts, for callers that anchor an overlay to the thumb from outside the
@@ -47,12 +46,11 @@ export function MobileSliderTrack({
   onRatioChange,
   onRatioEnd,
   onRatioCancel,
-  onRatioCommit,
   onTrackWindowFrame,
   touchTargetStyle,
 }: MobileSliderTrackProps) {
   const { tokens } = useNemuTheme();
-  const trackRef = useRef<View | null>(null);
+  const trackRef = useRef<ViewInstance | null>(null);
   const [trackWidth, setTrackWidth] = useState(0);
   const clampedProgress = Math.max(0, Math.min(1, progress));
   const visualProgress =
@@ -102,7 +100,7 @@ export function MobileSliderTrack({
       onPanResponderRelease: (event) =>
         emitRatio(
           event.nativeEvent.locationX,
-          onRatioEnd ?? onRatioCommit ?? onRatioChange,
+          onRatioEnd ?? onRatioChange,
         ),
       onPanResponderTerminate: (event) => {
         if (onRatioCancel) {
@@ -111,7 +109,7 @@ export function MobileSliderTrack({
         }
         // Preserve the historical behavior for callers that have not adopted
         // the explicit cancellation lifecycle yet.
-        emitRatio(event.nativeEvent.locationX, onRatioCommit ?? onRatioChange);
+        emitRatio(event.nativeEvent.locationX, onRatioChange);
       },
     });
   }, [
@@ -119,7 +117,6 @@ export function MobileSliderTrack({
     measureTrackWindowFrame,
     onRatioCancel,
     onRatioChange,
-    onRatioCommit,
     onRatioEnd,
     onRatioStart,
     trackWidth,

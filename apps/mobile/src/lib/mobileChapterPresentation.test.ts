@@ -177,3 +177,18 @@ describe("mobile chapter cell web parity", () => {
     expect(accessory).toContain("flexShrink: 0");
   });
 });
+
+describe("the new badge window", () => {
+  const now = 1_800_000_000_000;
+  const chapter = (age: number) => ({ id: "c", dateUploaded: now - age });
+  test("6 days 23 hours old is new, 7 days is not, a missing date is not", () => {
+    const day = 24 * 60 * 60 * 1000;
+    expect(getMobileChapterPresentation(chapter(6 * day + 23 * 3_600_000), null, now).isNew).toBe(true);
+    expect(getMobileChapterPresentation(chapter(7 * day), null, now).isNew).toBe(false);
+    expect(getMobileChapterPresentation({ id: "c" }, null, now).isNew).toBe(false);
+  });
+  test("an in-progress chapter within the window still counts as new until it is finished", () => {
+    expect(getMobileChapterPresentation(chapter(1000), { completed: false, progress: 3 }, now).isNew).toBe(true);
+    expect(getMobileChapterPresentation(chapter(1000), { completed: true, progress: 9 }, now).isNew).toBe(false);
+  });
+});

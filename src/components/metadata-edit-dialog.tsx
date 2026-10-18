@@ -40,6 +40,7 @@ import type { LibraryEntry } from "@/data/view";
 import { getEntryEffectiveMetadata, getEntryCover } from "@/data/view";
 import { MangaStatus } from "@/lib/sources/types";
 import { metadataFromSource } from "@/lib/metadata";
+import { useConvexAuth } from "convex/react";
 import { useCoverUpload, getR2PublicUrl } from "@/hooks/use-cover-upload";
 import { useStores } from "@/data/context";
 import { proxyUrl } from "@/config";
@@ -88,6 +89,8 @@ export function MetadataEditDialog({
 }: MetadataEditDialogProps) {
   const { t } = useTranslation();
   const { uploadCover } = useCoverUpload();
+  // Cover uploads are stored per account, so they need a signed-in user.
+  const { isAuthenticated: canUploadCover } = useConvexAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const baseMetadata = entry.item.metadata;
@@ -248,7 +251,15 @@ export function MetadataEditDialog({
       }));
 
       // Download cover image to blob if provided (use proxy for CORS)
-      if (metadata.cover) {
+      if (metadata.cover && !canUploadCover) {
+        // Signed out: keep the source URL, nothing can be uploaded.
+        setForm(f => ({
+          ...f,
+          coverFile: null,
+          coverUrl: metadata.cover ?? null,
+          coverPreview: metadata.cover ?? f.coverPreview,
+        }));
+      } else if (metadata.cover) {
         try {
           const response = await fetch(proxyUrl(metadata.cover));
           if (!response.ok) throw new Error("Failed to fetch cover");
@@ -285,7 +296,7 @@ export function MetadataEditDialog({
     } finally {
       setFetchingFromSource(null);
     }
-  }, [getSource, t, form.coverPreview]);
+  }, [getSource, t, form.coverPreview, canUploadCover]);
 
   // Handle single source click or dropdown selection
   const handleFetchFromSource = useCallback(() => {
@@ -310,7 +321,15 @@ export function MetadataEditDialog({
     setPendingExternalIds(prev => ({ ...prev, ...externalIds }));
     
     // Download cover image to blob if provided (use proxy for CORS)
-    if (metadata.cover) {
+    if (metadata.cover && !canUploadCover) {
+      // Signed out: keep the match URL, nothing can be uploaded.
+      setForm(f => ({
+        ...f,
+        coverFile: null,
+        coverUrl: metadata.cover ?? null,
+        coverPreview: metadata.cover ?? f.coverPreview,
+      }));
+    } else if (metadata.cover) {
       try {
         const response = await fetch(proxyUrl(metadata.cover));
         if (!response.ok) throw new Error("Failed to fetch cover");
@@ -340,7 +359,7 @@ export function MetadataEditDialog({
         }));
       }
     }
-  }, [form.coverPreview]);
+  }, [form.coverPreview, canUploadCover]);
 
   const handleSave = useCallback(async () => {
     setSaving(true);
@@ -368,6 +387,9 @@ export function MetadataEditDialog({
         // Upload local file to R2
         const key = await uploadCover(form.coverFile);
         coverUrl = getR2PublicUrl(key);
+      } else if (form.coverUrl && form.coverUrl !== currentOverrides?.coverUrl && !canUploadCover) {
+        // External URL while signed out - uploads need an account, keep the URL
+        coverUrl = form.coverUrl;
       } else if (form.coverUrl && form.coverUrl !== currentOverrides?.coverUrl) {
         // External URL (new, not existing override) - download via proxy and upload to R2
         try {
@@ -395,7 +417,7 @@ export function MetadataEditDialog({
     } finally {
       setSaving(false);
     }
-  }, [form, isOverridden, uploadCover, onSave, onOpenChange, pendingExternalIds, currentOverrides]);
+  }, [form, isOverridden, uploadCover, canUploadCover, onSave, onOpenChange, pendingExternalIds, currentOverrides]);
 
   const tagInputStyles = {
     inlineTagsContainer: "tag-input-nemu",
@@ -514,15 +536,17 @@ export function MetadataEditDialog({
                 
                 {/* Desktop: hover overlay with buttons */}
                 <div className="absolute inset-0 bg-black/60 rounded-lg opacity-0 sm:group-hover/cover:opacity-100 transition-opacity hidden sm:flex flex-col items-center justify-center gap-2 p-2">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    className="w-full text-xs"
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    <HugeiconsIcon icon={Upload04Icon} className="size-3.5 mr-1" />
-                    {t("metadata.uploadImage")}
-                  </Button>
+                  {canUploadCover && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="w-full text-xs"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <HugeiconsIcon icon={Upload04Icon} className="size-3.5 mr-1" />
+                      {t("metadata.uploadImage")}
+                    </Button>
+                  )}
                   <Button
                     variant="secondary"
                     size="sm"
@@ -539,15 +563,17 @@ export function MetadataEditDialog({
               {/* Mobile only: label and buttons */}
               <div className="flex flex-col gap-2 flex-1 sm:hidden">
                 <span className="text-sm font-medium">{t("metadata.cover")}</span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <HugeiconsIcon icon={Upload04Icon} className="size-4 mr-1.5" />
-                  {t("metadata.uploadImage")}
-                </Button>
+                {canUploadCover && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <HugeiconsIcon icon={Upload04Icon} className="size-4 mr-1.5" />
+                    {t("metadata.uploadImage")}
+                  </Button>
+                )}
                 <Button
                   variant="outline"
                   size="sm"

@@ -10,6 +10,9 @@ import "./src/polyfills/weakRef";
 import "./src/polyfills/base64";
 import "./src/polyfills/textEncoding";
 import "./src/polyfills/crypto";
+// The "New design (preview)" switch is read here, synchronously, before any
+// module that reads it at load time and before the first screen.
+import "./src/lib/mobileDesignExploreBoot";
 import "./src/lib/mobilePerformanceEntry";
 // A cold OS-launched background task loads this entry bundle without mounting
 // the Expo Router tree. Import the platform module here so TaskManager's

@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { LibraryEntry, LocalSourceLink } from "@/data/schema";
 import {
+  applyMobileSourceChaptersRefresh,
   applyMobileSourceDetailsRefresh,
+  isMobilePrimarySourceLink,
   mergeDefinedMangaMetadata,
+  resolveMobileLibraryCoverAfterRefresh,
   resolveMobileSeedCoverHeaders,
 } from "./mobileLibraryDetails";
 
@@ -196,5 +199,225 @@ describe("mobile library detail refresh helpers", () => {
         seedCoverHeaders,
       }),
     ).toBeUndefined();
+  });
+});
+
+describe("multi-source library titles", () => {
+  const MANHUAGUI_COVER = "https://cf.hamreus.com/cpic/b/16891.jpg";
+  const MANGADEX_COVER =
+    "https://uploads.mangadex.org/covers/a4b39b6e/2c300b23.jpg.512.jpg";
+  const manhuaguiLink: LocalSourceLink = {
+    id: "aidoku-community:zh.manhuagui:16891",
+    libraryItemId: "item",
+    registryId: "aidoku-community",
+    sourceId: "zh.manhuagui",
+    sourceMangaId: "16891",
+    createdAt: 1,
+    updatedAt: 1,
+  };
+  const mangadexLink: LocalSourceLink = {
+    id: "aidoku-community:multi.mangadex:a4b39b6e",
+    libraryItemId: "item",
+    registryId: "aidoku-community",
+    sourceId: "multi.mangadex",
+    sourceMangaId: "a4b39b6e",
+    createdAt: 2,
+    updatedAt: 2,
+  };
+  const entry: LibraryEntry = {
+    item: {
+      libraryItemId: "item",
+      metadata: {
+        title: "地缚少年花子君",
+        cover: MANHUAGUI_COVER,
+        description: "中文简介",
+      },
+      inLibrary: true,
+      createdAt: 1,
+      updatedAt: 1,
+    },
+    sources: [mangadexLink, manhuaguiLink],
+  };
+  const refresh = (
+    metadata: { title: string; cover?: string; description?: string; tags?: string[] },
+    fetchedAt = 500,
+  ) => ({
+    status: "ready" as const,
+    runtime: "native-aidoku" as const,
+    metadata,
+    chapters: [{ id: "c1", chapterNumber: 1 }],
+    latestChapter: { id: "c1", chapterNumber: 1 },
+    fetchedAt,
+  });
+
+  test("the primary source is the first linked source (or the user order)", () => {
+    expect(isMobilePrimarySourceLink(entry, manhuaguiLink)).toBe(true);
+    expect(isMobilePrimarySourceLink(entry, mangadexLink)).toBe(false);
+    expect(
+      isMobilePrimarySourceLink(
+        { ...entry, item: { ...entry.item, sourceOrder: [mangadexLink.id] } },
+        mangadexLink,
+      ),
+    ).toBe(true);
+  });
+
+  test("refreshing a non-primary tab never replaces the library cover or title", () => {
+    const applied = applyMobileSourceDetailsRefresh(
+      entry,
+      mangadexLink,
+      refresh({
+        title: "Jibaku Shounen: Hanako-kun",
+        cover: MANGADEX_COVER,
+        description: "English synopsis",
+        tags: ["Comedy"],
+      }),
+    );
+    expect(applied.item.metadata.cover).toBe(MANHUAGUI_COVER);
+    expect(applied.item.metadata.title).toBe("地缚少年花子君");
+    expect(applied.item.metadata.description).toBe("中文简介");
+    // Missing fields may still be filled.
+    expect(applied.item.metadata.tags).toEqual(["Comedy"]);
+    expect(applied.sourceLink.latestChapter).toEqual({ id: "c1", chapterNumber: 1 });
+  });
+
+  test("switching MangaDex <-> Manhuagui repeatedly keeps one stable cover", () => {
+    let current = entry;
+    for (let round = 0; round < 3; round += 1) {
+      for (const [link, cover, title] of [
+        [mangadexLink, MANGADEX_COVER, "Jibaku Shounen: Hanako-kun"],
+        [manhuaguiLink, MANHUAGUI_COVER, "地缚少年花子君"],
+      ] as const) {
+        const applied = applyMobileSourceDetailsRefresh(
+          current,
+          link,
+          refresh({ title, cover }, 500 + round),
+        );
+        current = { ...current, item: applied.item };
+        expect(current.item.metadata.cover).toBe(MANHUAGUI_COVER);
+        expect(current.item.metadata.title).toBe("地缚少年花子君");
+      }
+    }
+  });
+
+  test("a no-op refresh keeps the library row identity (no write, no sync)", () => {
+    const applied = applyMobileSourceDetailsRefresh(
+      entry,
+      mangadexLink,
+      refresh({ title: "Jibaku Shounen: Hanako-kun", cover: MANGADEX_COVER }),
+    );
+    expect(applied.item).toBe(entry.item);
+    const primary = applyMobileSourceDetailsRefresh(
+      entry,
+      manhuaguiLink,
+      refresh({ title: "地缚少年花子君", cover: MANHUAGUI_COVER, description: "中文简介" }),
+    );
+    expect(primary.item).toBe(entry.item);
+  });
+
+  test("the primary source heals a cover a previous build stored from another tab", () => {
+    const polluted: LibraryEntry = {
+      ...entry,
+      item: {
+        ...entry.item,
+        metadata: { title: "Jibaku Shounen: Hanako-kun", cover: MANGADEX_COVER },
+      },
+    };
+    const applied = applyMobileSourceDetailsRefresh(
+      polluted,
+      manhuaguiLink,
+      refresh({ title: "地缚少年花子君", cover: MANHUAGUI_COVER }),
+    );
+    expect(applied.item.metadata.cover).toBe(MANHUAGUI_COVER);
+    expect(applied.item.metadata.title).toBe("地缚少年花子君");
+  });
+
+  test("a placeholder cover is never stored", () => {
+    const placeholder = "https://mangadex.org/img/cover-placeholder.jpg";
+    const noCover: LibraryEntry = {
+      ...entry,
+      item: { ...entry.item, metadata: { title: "地缚少年花子君" } },
+    };
+    expect(
+      applyMobileSourceDetailsRefresh(
+        noCover,
+        manhuaguiLink,
+        refresh({ title: "地缚少年花子君", cover: placeholder }),
+      ).item.metadata.cover,
+    ).toBeUndefined();
+    expect(
+      applyMobileSourceDetailsRefresh(
+        entry,
+        manhuaguiLink,
+        refresh({ title: "地缚少年花子君", cover: placeholder }),
+      ).item.metadata.cover,
+    ).toBe(MANHUAGUI_COVER);
+    // A stored placeholder is replaced even by a non-primary source.
+    expect(
+      applyMobileSourceDetailsRefresh(
+        { ...entry, item: { ...entry.item, metadata: { title: "x", cover: placeholder } } },
+        mangadexLink,
+        refresh({ title: "y", cover: MANGADEX_COVER }),
+      ).item.metadata.cover,
+    ).toBe(MANGADEX_COVER);
+  });
+
+  test("a non-primary source fills a missing cover", () => {
+    expect(
+      resolveMobileLibraryCoverAfterRefresh({
+        existing: undefined,
+        refreshed: MANGADEX_COVER,
+        primary: false,
+      }),
+    ).toBe(MANGADEX_COVER);
+    expect(
+      resolveMobileLibraryCoverAfterRefresh({
+        existing: MANHUAGUI_COVER,
+        refreshed: MANGADEX_COVER,
+        primary: false,
+      }),
+    ).toBe(MANHUAGUI_COVER);
+    expect(
+      resolveMobileLibraryCoverAfterRefresh({
+        existing: MANHUAGUI_COVER,
+        refreshed: "  ",
+        primary: true,
+      }),
+    ).toBe(MANHUAGUI_COVER);
+  });
+});
+
+describe("chapter-only refresh of a link", () => {
+  const link: LocalSourceLink = {
+    id: "aidoku-zh:zh.manhuaren:85245",
+    libraryItemId: "item",
+    registryId: "aidoku-zh",
+    sourceId: "zh.manhuaren",
+    sourceMangaId: "85245",
+    latestChapter: { id: "old", title: "第29话" },
+    updateAckChapter: { id: "older", title: "第28话" },
+    createdAt: 1,
+    updatedAt: 1,
+  };
+
+  test("records the newest chapter, acknowledges it and stamps the fetch", () => {
+    const next = applyMobileSourceChaptersRefresh(link, {
+      latestChapter: { id: "new", title: "第30话", chapterNumber: 30 },
+      fetchedAt: 5_000,
+    });
+    expect(next).toMatchObject({
+      latestChapter: { id: "new", title: "第30话", chapterNumber: 30 },
+      updateAckChapter: { id: "new", title: "第30话", chapterNumber: 30 },
+      updateAckAt: 5_000,
+      latestFetchedAt: 5_000,
+      updatedAt: 5_000,
+    });
+    expect(next.latestChapterSortKey).toBe(next.updateAckChapterSortKey);
+  });
+
+  test("an empty list keeps the known latest chapter", () => {
+    const next = applyMobileSourceChaptersRefresh(link, { fetchedAt: 5_000 });
+    expect(next.latestChapter).toEqual(link.latestChapter);
+    expect(next.updateAckChapter).toEqual(link.updateAckChapter);
+    expect(next.latestFetchedAt).toBe(5_000);
   });
 });

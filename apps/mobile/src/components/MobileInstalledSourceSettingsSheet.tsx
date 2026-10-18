@@ -5,14 +5,17 @@ import type { InstalledSource, SourcePackageSetting } from "@/data/schema";
 import {
   MobileCachedImage,
   MobileNativeSheetScaffold,
+  NemuNativeSheetHeaderAction,
   NemuText,
   radius,
   useNemuTheme,
+  useMobileNativeSheetTheme,
 } from "@/design-system";
 import type { MobileStrings } from "@/lib/mobileI18n";
 import { getMobileInstalledSourceName } from "@/lib/mobileInstalledSourcePresentation";
 import { normalizeMobileSourceIconUri } from "@/lib/mobileSourceIconResolution";
 import { getMobileSettingsSheetLayout } from "@/lib/mobileSettingsSheetLayout";
+import { getMobileLocalNetworkServerSettingKeys } from "@/lib/mobileLocalNetworkAllowance";
 import { countVisibleSourceSettings } from "@/lib/mobileSourceSettings";
 import type { MobileSourceLoginSubmission } from "@/lib/mobileSourceSettingActions";
 import type { MobileSourceLoginCapabilities } from "@/sources/mobileSourceSettingsExecutor";
@@ -32,7 +35,10 @@ import { useMobileSourceSettingsTransientSheets } from "./useMobileSourceSetting
 export function MobileSourceIcon({
   icon,
   placement = "row",
+  server = false,
 }: {
+  /** A built-in server source: no artwork, so a server glyph stands in. */
+  server?: boolean;
   icon?: string | null;
   placement?: "row" | "title";
 }) {
@@ -41,7 +47,7 @@ export function MobileSourceIcon({
   const inTitle = placement === "title";
   const placeholder = (
     <Ionicons
-      name="globe-outline"
+      name={server ? "server-outline" : "globe-outline"}
       size={inTitle ? 20 : 22}
       color={tokens.mutedForeground}
     />
@@ -135,7 +141,7 @@ export function MobileInstalledSourceSettingsSheet({
   loginCapabilities?: MobileSourceLoginCapabilities | null;
 }) {
   const name = getMobileInstalledSourceName(source);
-  const { tokens } = useNemuTheme();
+  const { tokens } = useMobileNativeSheetTheme();
   const { fontScale, height, width } = useWindowDimensions();
   const embeddedBackHandlerRef = useRef<(() => void) | null>(null);
   const sheetLayout = getMobileSettingsSheetLayout({
@@ -178,6 +184,8 @@ export function MobileInstalledSourceSettingsSheet({
           optically centered, so compose both into one centered row.
         */}
         <View style={styles.header}>
+          {/* Equal side columns keep the title centred; the only control, Close, sits trailing. */}
+          <View style={styles.headerSide} />
           <View style={styles.titleRow}>
             <MobileSourceIcon icon={iconUri} placement="title" />
             <NemuText
@@ -190,6 +198,14 @@ export function MobileInstalledSourceSettingsSheet({
             >
               {name}
             </NemuText>
+          </View>
+          <View style={styles.headerSide}>
+            <NemuNativeSheetHeaderAction
+              accessibilityLabel={strings.feedback.dismiss}
+              androidIcon="close-outline"
+              iosSystemImage="xmark"
+              onPress={transientSheets.settingsSheetProps.onClose}
+            />
           </View>
         </View>
         <MobileSourceSettingsCard
@@ -217,6 +233,17 @@ export function MobileInstalledSourceSettingsSheet({
           loginCapabilities={loginCapabilities}
           {...transientSheets.cardProps}
         />
+        {getMobileLocalNetworkServerSettingKeys(source.sourceId ?? "").length > 0 ? (
+          // A self-hosted source may reach the address typed above, and only
+          // that one: say so where the address is entered.
+          <NemuText
+            color={tokens.mutedForeground}
+            style={styles.localNetworkHint}
+            variant="caption"
+          >
+            {strings.settings.sourceLocalNetworkHint}
+          </NemuText>
+        ) : null}
       </MobileNativeSheetScaffold>
       {transientSheets.renderTransientSheet()}
     </>
@@ -224,11 +251,23 @@ export function MobileInstalledSourceSettingsSheet({
 }
 
 const styles = StyleSheet.create({
+  localNetworkHint: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
   header: {
+    flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    paddingHorizontal: 16,
+  },
+  headerSide: {
+    width: 44,
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
   },
   titleRow: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",

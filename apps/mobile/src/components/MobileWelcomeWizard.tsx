@@ -9,6 +9,8 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
+import { NEMU_RECOMMENDED_REGISTRY_ID } from "@nemu/core/sources";
+import { formatMobileContentLicense, formatMobileSourceLanguages } from "@/lib/mobileBrowseSources";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import appIcon from "../../assets/icon.jpg";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
@@ -49,6 +51,8 @@ import {
   type MobileStrings,
 } from "@/lib/mobileI18n";
 import { describeMobileErrorDetail } from "@/lib/mobileSourceErrors";
+import { MOBILE_IOS_SHEET_HOST_TOP } from "@/lib/mobileAboutLayout";
+import { MOBILE_NATIVE_ANDROID_DRAG_HANDLE_HEIGHT } from "@/lib/mobileNativeSheet";
 import {
   canSelectMobileWelcomeLanguageOption,
   canRunMobileWelcomePrimaryAction,
@@ -73,15 +77,16 @@ import {
   type MobileRegistrySource,
 } from "@/sources/aidokuRegistry";
 
+/** The intro icon's box; the icon is centred in it. */
+const WELCOME_ICON_BOX = 128;
+
 const languageOptions: Array<{ value: AppLanguage; label: string }> = [
   { value: "en", label: "English" },
   { value: "zh", label: "简体中文" },
   { value: "ja", label: "日本語" },
 ];
 
-function formatLanguages(languages?: string[]): string | undefined {
-  return languages?.length ? languages.join(", ").toUpperCase() : undefined;
-}
+const formatLanguages = formatMobileSourceLanguages;
 
 const BRAND_TOKEN = "{{brand}}";
 // Shared with the wordmark tracking so both follow the same rendered size.
@@ -253,7 +258,14 @@ function SourceOption({
           numberOfLines={1}
           style={[styles.sourceSubtitle, { color: tokens.mutedForeground }]}
         >
-          {formatLanguages(source.languages)}
+          {[
+            formatLanguages(source.languages),
+            source.registryId === NEMU_RECOMMENDED_REGISTRY_ID && source.contentLicense
+              ? formatMobileContentLicense(source.contentLicense)
+              : undefined,
+          ]
+            .filter(Boolean)
+            .join(" / ")}
         </Text>
       </View>
     </NemuPressable>
@@ -653,6 +665,14 @@ function MobileWelcomeWizardContent({
   };
 
   const welcomeSheetPlatform = Platform.OS === "android" ? "android" : "ios";
+  // The intro icon's glow is clipped by the sheet's top edge (the content
+  // draws under the grabber): bound it to the room between them.
+  const welcomeIconGlowRoomTop =
+    (welcomeSheetPlatform === "android"
+      ? MOBILE_NATIVE_ANDROID_DRAG_HANDLE_HEIGHT
+      : MOBILE_IOS_SHEET_HOST_TOP +
+        resolveMobileWelcomeSheetContentTopPadding(welcomeSheetPlatform)) +
+    (WELCOME_ICON_BOX - MOBILE_WELCOME_ICON_SIZE) / 2;
   const welcomeSheetPresentation = useMemo(
     () =>
       resolveMobileWelcomeNativeSheetPresentation({
@@ -660,8 +680,15 @@ function MobileWelcomeWizardContent({
       }),
     [welcomeSheetPlatform],
   );
-  const welcomeIntroWidth = Math.min(400, windowWidth - 40);
-  const stackActions = shouldStackMobileWelcomeActions(windowWidth);
+  // The sheet's own body width, not the window's: iOS floating/form sheets
+  // and the iPhone Duo's in-sheet bar-column safe area make it narrower. The
+  // intro may reach 4pt into the 24pt body padding on each side (as before).
+  const [sheetBodyWidth, setSheetBodyWidth] = useState<number | null>(null);
+  const welcomeIntroWidth = Math.min(
+    400,
+    (sheetBodyWidth ?? windowWidth - 48) + 8,
+  );
+  const stackActions = shouldStackMobileWelcomeActions(windowWidth, sheetBodyWidth);
   const welcomeIntroLines = strings.welcome.introLines;
   const [welcomeTitleBeforeBrand, welcomeTitleAfterBrand] =
     splitWelcomeTitleAroundBrand(strings.welcome.title);
@@ -724,6 +751,7 @@ function MobileWelcomeWizardContent({
         <NemuAppIconHalo
           accessibilityLabel={strings.about.appIconLabel}
           iconSize={MOBILE_WELCOME_ICON_SIZE}
+          glowRoomTop={welcomeIconGlowRoomTop}
           source={appIcon}
           style={styles.iconWrap}
         />
@@ -851,7 +879,15 @@ function MobileWelcomeWizardContent({
         </View>
       ) : null}
 
-      <View style={[styles.actions, stackActions && styles.stackedActions]}>
+      <View
+        onLayout={(event) => {
+          const nextWidth = Math.round(event.nativeEvent.layout.width);
+          setSheetBodyWidth((current) =>
+            current === nextWidth ? current : nextWidth,
+          );
+        }}
+        style={[styles.actions, stackActions && styles.stackedActions]}
+      >
         {step !== "done" ? (
           <NemuButton
             label={
@@ -954,8 +990,8 @@ const styles = StyleSheet.create({
   },
   iconWrap: {
     alignSelf: "center",
-    height: 128,
-    width: 128,
+    height: WELCOME_ICON_BOX,
+    width: WELCOME_ICON_BOX,
   },
   header: {
     alignItems: "stretch",
@@ -1079,7 +1115,8 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   doneBlock: {
-    alignItems: "center",
+    // Full width, so the left-aligned hint starts where the title does.
+    alignItems: "stretch",
     gap: 12,
   },
   actions: {

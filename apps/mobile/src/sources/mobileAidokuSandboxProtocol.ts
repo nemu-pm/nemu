@@ -175,7 +175,9 @@ export function stringifyMobileAidokuSandboxValue(
   return json;
 }
 
-export function parseMobileAidokuSandboxResponse<T>(json: string): T {
+function parseSandboxReply(
+  json: string,
+): { status?: unknown; value?: unknown; detail?: unknown } {
   if (
     typeof json !== "string" ||
     json.length === 0 ||
@@ -200,8 +202,27 @@ export function parseMobileAidokuSandboxResponse<T>(json: string): T {
       "The isolated Aidoku runtime failed.",
     );
   }
+  return parsed;
+}
+
+export function parseMobileAidokuSandboxResponse<T>(json: string): T {
+  const parsed = parseSandboxReply(json);
   if (parsed.status !== "complete" || !("value" in parsed)) {
     throw new Error("The isolated Aidoku runtime returned an invalid response.");
   }
   return parsed.value as T;
+}
+
+/**
+ * For replies that carry only a status (e.g. `{"status":"updated"}`): same
+ * size, JSON and error handling as `parseMobileAidokuSandboxResponse`.
+ */
+export function parseMobileAidokuSandboxStatusResponse(
+  json: string,
+  expectedStatus: string,
+  fallbackMessage: string,
+): void {
+  const parsed = parseSandboxReply(json);
+  if (parsed.status === expectedStatus) return;
+  throw new Error(boundedErrorField(parsed.detail) ?? fallbackMessage);
 }

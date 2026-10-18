@@ -29,6 +29,7 @@ describe("mobile source install persistence", () => {
   test("blocks before any persistence while account cleanup is pending", async () => {
     const calls: string[] = [];
     const store = storeWith({
+      getRegistry: async () => null,
       saveRegistry: async () => {
         calls.push("registry");
       },
@@ -52,6 +53,7 @@ describe("mobile source install persistence", () => {
     const calls: string[] = [];
     let blocked = false;
     const store = storeWith({
+      getRegistry: async () => null,
       saveRegistry: async () => {
         calls.push("registry");
         blocked = true;
@@ -75,6 +77,7 @@ describe("mobile source install persistence", () => {
   test("uses revision-CAS for auto-updates and reports a stale update as skipped", async () => {
     const calls: unknown[] = [];
     const store = storeWith({
+      getRegistry: async () => null,
       saveRegistry: async () => undefined,
       saveInstalledSource: async () => {
         throw new Error("unconditional save must not run");
@@ -100,6 +103,7 @@ describe("mobile source install persistence", () => {
   test("fails closed when an auto-update store cannot provide revision-CAS", async () => {
     let saved = false;
     const store = storeWith({
+      getRegistry: async () => null,
       saveRegistry: async () => undefined,
       saveInstalledSource: async () => {
         saved = true;
@@ -122,6 +126,7 @@ describe("mobile source install persistence", () => {
     const controller = new AbortController();
     controller.abort();
     const store = storeWith({
+      getRegistry: async () => null,
       saveRegistry: async () => {
         throw new Error("must not write");
       },
@@ -138,5 +143,21 @@ describe("mobile source install persistence", () => {
         signal: controller.signal,
       }),
     ).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  test("keeps an existing registry entry instead of overwriting it", async () => {
+    const calls: string[] = [];
+    const store = storeWith({
+      getRegistry: async () => ({ ...registry, name: "Typed by the user" }),
+      saveRegistry: async () => {
+        calls.push("registry");
+      },
+      saveInstalledSource: async () => {
+        calls.push("source");
+      },
+    });
+
+    await persistMobileRegistrySourceInstall({ store, registry, source });
+    expect(calls).toEqual(["source"]);
   });
 });

@@ -224,7 +224,7 @@
     "noChapters": "No chapters",
     "sourceNotInstalled": "Source not installed",
     "sourceNotInstalledDescription": "\"{{name}}\" is not installed on this device. Install it to load chapters.",
-    "sourceNotInstalledUnavailable": "\"{{name}}\" is not installed on this device and is not available from your source registries.",
+    "sourceNotInstalledUnavailable": "\"{{name}}\" is not installed on this device and is not available from your source directories.",
     "installSourceNamed": "Install {{name}}",
     "removeFromLibrary": "Remove from Library",
     "removeFromLibraryDescription": "Are you sure you want to remove \"{{name}}\" from your library?",
@@ -293,7 +293,8 @@
     "title": "About",
     "tagline": "魔法の漫画リーダー",
     "description": "nemu is a web-based cross-platform manga reader that lets you discover and read manga from various online sources.",
-    "sourceCode": "Source Code"
+    "sourceCode": "Source Code",
+    "privacyPolicy": "Privacy Policy"
   },
   "settings": {
     "aboutNemu": "About nemu",
@@ -395,9 +396,9 @@
   "addSource": {
     "title": "Add Source",
     "selectMethod": "Choose how to add a manga source",
-    "fromRegistry": "Select a source from available registries",
+    "fromRegistry": "Select a source from available source directories",
     "customFile": "Upload a custom .aix source file",
-    "fromRegistryTitle": "From Registry",
+    "fromRegistryTitle": "From Source Directory",
     "fromRegistryDescription": "Browse available sources",
     "customTitle": "Custom .aix File",
     "customDescription": "Upload your own source",
@@ -731,5 +732,96 @@
     "doneDescription": "Start exploring manga from your installed sources.",
     "syncHint": "Sign in to sync your library and reading progress across all your devices.",
     "startReading": "Start Reading"
+  },
+  "privacy": {
+    "title": "Privacy Policy",
+    "updated": "Last updated: 2026-10-12",
+    "sections": [
+      {
+        "heading": "About nemu",
+        "body": [
+          "nemu (nemu.pm) is a reader for comics and manga files on your device and from sources you choose, with tools for learning Japanese. nemu does not host or provide comic content.",
+          "Questions, requests and support: open an issue at https://github.com/nemu-pm/nemu/issues. Issues are public, so do not post personal data there; say that you have a privacy request and we will tell you how to continue."
+        ]
+      },
+      {
+        "heading": "Data that stays on your device",
+        "body": [
+          "Without an account, nemu works entirely on your device. Your library, collections, reading progress, settings, installed sources, source settings (including any sign-in you make to a source), cached images, imported files and chat history are stored locally and are not sent to us."
+        ]
+      },
+      {
+        "heading": "Data we store if you sign in",
+        "body": [
+          "Signing in with Google or Apple is optional and enables syncing between your devices. We store:",
+          [
+            "Account: your name, email address and profile image from Google or Apple, and the sign-in tokens issued by that provider.",
+            "Sessions: a session token with the IP address and device or browser identifier (user agent) of each signed-in device.",
+            "Synced data: your library entries (title, cover link, authors, tags, description and your edits), collections, which source each entry comes from, per-chapter reading progress and timestamps, and your list of installed sources.",
+            "Cover images you upload or select, stored with Cloudflare R2 and linked to your account."
+          ],
+          "We use this data only to provide sign-in and sync. We do not sell it, use it for advertising, or build profiles. Account data is kept until you delete your account."
+        ]
+      },
+      {
+        "heading": "AI and other services that receive your content",
+        "body": [
+          "These features run only when you use them, and most need you to be signed in. Your content passes through our servers to the provider named below and is not stored by nemu. The provider's own retention applies.",
+          [
+            "Chat: your messages, the conversation so far, the title of the work and the text recognised on the page you are discussing are sent to Anthropic (Claude).",
+            "Listen (text to speech): the text to be read aloud is sent to Google (Gemini) to add expression and then to ElevenLabs to produce audio.",
+            "Metadata matching: the title and authors of a work are sent to Google (Gemini, with Google Search) to find other-language titles and descriptions. Metadata searches also query AniList, MyAnimeList (Jikan) and MangaUpdates.",
+            "Japanese text clean-up: a line of recognised Japanese text is sent to Anthropic (Claude) through the Vercel AI Gateway.",
+            "Cloud text recognition: when you run text recognition in the cloud, the page image is sent to nemu's own text-recognition service (ocr.nemu.pm), which runs on a rented GPU server (vast.ai). The image is processed in memory and is not saved. Cloud sentence analysis sends the Japanese text to a third-party dictionary analysis service (ichiran.komi.to), which is not run by nemu and applies its own policy.",
+            "Dictation: if you dictate a message, the microphone audio is processed by Apple's speech recognition, which may happen on Apple's servers."
+          ],
+          "On-device text recognition and analysis do not send anything off your device."
+        ]
+      },
+      {
+        "heading": "Sources you choose",
+        "body": [
+          "nemu contacts the websites and source directories that you or your sources configure to fetch titles, chapters and images. Those sites receive your IP address and request, under their own policies. In the web app these requests go through nemu's relay (service.nemu.pm, run on Cloudflare), which does not keep their content. Source files (.aix) are code packages that run in an isolated runtime on your device."
+        ]
+      },
+      {
+        "heading": "Analytics, advertising and logs",
+        "body": [
+          "nemu has no analytics, crash-reporting, advertising or tracking software and does not track you across other apps or sites.",
+          "nemu does not store diagnostic records. Operational logs from our servers (Convex function logs, and the text-recognition service's logs) contain counts, durations and error types but not your messages, page text, titles or images, and are kept for 30 days. Our hosting providers may keep their own infrastructure records under their own schedules."
+        ]
+      },
+      {
+        "heading": "Retention and deletion",
+        "body": [
+          "Account and synced data are kept until you delete your account. You can delete your account and all data associated with it inside the app, in every region. Deletion removes your account, sessions, sign-in tokens, synced data and uploaded covers from our systems, and revokes Sign in with Apple access. Data on your device is removed by clearing local data or uninstalling the app.",
+          "AI providers apply their own retention to content you sent them: for example Anthropic deletes API inputs and outputs within 30 days and Google keeps Gemini API prompts for abuse monitoring for 55 days."
+        ]
+      },
+      {
+        "heading": "Your choices and rights",
+        "body": [
+          "You can use nemu without an account, sign out at any time, stop using AI features, and delete your account. Depending on where you live you may have rights to access, correct or delete your data; contact us as described above."
+        ]
+      },
+      {
+        "heading": "Children",
+        "body": [
+          "nemu is not directed at children and we do not knowingly collect personal data from them."
+        ]
+      },
+      {
+        "heading": "Service providers and transfers",
+        "body": [
+          "We use Convex (database and server functions), Cloudflare (file storage and relay), vast.ai (GPU server for text recognition), Google and Apple (sign-in), Anthropic, Google, ElevenLabs and Vercel (AI processing). Providers may process data outside your country."
+        ]
+      },
+      {
+        "heading": "Changes",
+        "body": [
+          "If this policy changes we will update this page and its date."
+        ]
+      }
+    ]
   }
 }

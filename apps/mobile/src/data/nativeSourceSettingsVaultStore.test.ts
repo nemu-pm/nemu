@@ -1,11 +1,18 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import type { SQLiteDatabase } from "expo-sqlite";
 import type { LocalSourceSettings } from "./schema";
-import type { MobileSourceSettingsVault } from "./mobileSourceSettingsVault";
+import {
+  encodeMobileSourceSettingsVaultMarker,
+  MobileSourceSettingsVaultEntryMissingError,
+  type MobileSourceSettingsVault,
+} from "./mobileSourceSettingsVault";
 import { NativeUserDataStore } from "./nativeStore";
 
 class MemorySourceSettingsVault implements MobileSourceSettingsVault {
   readonly values = new Map<string, LocalSourceSettings>();
+  readonly removed: string[] = [];
+  /** Thrown by every read, like a keychain locked before first unlock. */
+  readError: Error | null = null;
 
   constructor(private readonly cleanupEvents?: string[]) {}
 
@@ -16,12 +23,15 @@ class MemorySourceSettingsVault implements MobileSourceSettingsVault {
   }
 
   async get(ref: string, expectedSourceKey: string): Promise<LocalSourceSettings> {
+    if (this.readError) throw this.readError;
     const value = this.values.get(ref);
-    if (!value || value.sourceKey !== expectedSourceKey) throw new Error("missing");
+    if (!value) throw new MobileSourceSettingsVaultEntryMissingError();
+    if (value.sourceKey !== expectedSourceKey) throw new Error("wrong source");
     return structuredClone(value);
   }
 
   async remove(ref: string): Promise<void> {
+    this.removed.push(ref);
     this.values.delete(ref);
   }
 
@@ -125,5 +135,99 @@ describe("NativeUserDataStore secure source settings", () => {
 
     expect(cleanupEvents).toEqual(["vault", "database"]);
     expect(vault.values.size).toBe(0);
+  });
+  test("drops a marker whose secure item is gone and reads the source as unset", async () => {
+    const sourceKey = "aidoku-community:ja.rawfree";
+    const danglingMarker = encodeMobileSourceSettingsVaultMarker(
+      "secure.aidoku-community.ja.rawfree",
+    );
+    let sqliteJson: string | null = danglingMarker;
+    const deletes: unknown[][] = [];
+    const db = {
+      getFirstAsync: async () =>
+        sqliteJson === null ? null : { json: sqliteJson },
+      runAsync: async (sql: string, ...args: unknown[]) => {
+        if (sql.startsWith("INSERT")) sqliteJson = String(args[2]);
+        if (sql.startsWith("DELETE")) {
+          deletes.push(args);
+          if (args[1] === undefined || args[1] === sqliteJson) sqliteJson = null;
+        }
+        return {} as never;
+      },
+    } as unknown as SQLiteDatabase;
+    const vault = new MemorySourceSettingsVault();
+    const store = new NativeUserDataStore(db, vault);
+    const warn = spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      expect(await store.getSourceSettings(sourceKey)).toBeNull();
+      expect(sqliteJson).toBeNull();
+      expect(deletes).toEqual([[sourceKey, danglingMarker]]);
+      expect(vault.removed).toEqual(["secure.aidoku-community.ja.rawfree"]);
+
+      // The same dangling state again (another stale copy): still recovered,
+      // but reported only once.
+      sqliteJson = danglingMarker;
+      expect(await store.getSourceSettings(sourceKey)).toBeNull();
+      expect(sqliteJson).toBeNull();
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0]?.[0])).toContain(sourceKey);
+
+      // Settings saved afterwards work normally.
+      const settings: LocalSourceSettings = {
+        sourceKey,
+        values: { domain: "rawfree.me" },
+        updatedAt: 3,
+      };
+      await store.saveSourceSettings(settings);
+      expect(await store.getSourceSettings(sourceKey)).toEqual(settings);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test("keeps the marker when the keychain cannot be read", async () => {
+    const sourceKey = "registry:locked";
+    const db = {
+      getFirstAsync: async () => ({ json: marker }),
+      runAsync: async () => {
+        throw new Error("a locked keychain must not delete anything");
+      },
+    } as unknown as SQLiteDatabase;
+    const vault = new MemorySourceSettingsVault();
+    const marker = encodeMobileSourceSettingsVaultMarker(
+      await vault.put({ sourceKey, values: { token: "kept" }, updatedAt: 1 }),
+    );
+    const store = new NativeUserDataStore(db, vault);
+    const locked = new Error("User interaction is not allowed.");
+    vault.readError = locked;
+
+    await expect(store.getSourceSettings(sourceKey)).rejects.toBe(locked);
+    expect(vault.removed).toEqual([]);
+    expect(vault.values.size).toBe(1);
+  });
+
+  test("saves over a dangling marker without trying to roll back to it", async () => {
+    const sourceKey = "registry:replaced";
+    let sqliteJson: string | null = encodeMobileSourceSettingsVaultMarker(
+      "secure.registry.replaced",
+    );
+    const db = {
+      getFirstAsync: async () =>
+        sqliteJson === null ? null : { json: sqliteJson },
+      runAsync: async (sql: string, ...args: unknown[]) => {
+        if (sql.startsWith("INSERT")) sqliteJson = String(args[2]);
+        return {} as never;
+      },
+    } as unknown as SQLiteDatabase;
+    const vault = new MemorySourceSettingsVault();
+    const store = new NativeUserDataStore(db, vault);
+    const settings: LocalSourceSettings = {
+      sourceKey,
+      values: { token: "fresh" },
+      updatedAt: 5,
+    };
+
+    await store.saveSourceSettings(settings);
+    expect(await store.getSourceSettings(sourceKey)).toEqual(settings);
   });
 });

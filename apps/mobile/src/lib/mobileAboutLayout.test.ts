@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
+  estimateMobileAboutSheetContentHeight,
   getMobileAboutSheetLayout,
   MOBILE_ABOUT_VERSION_PULSE,
   shouldAnimateMobileAboutVersionPulse,
@@ -38,10 +39,10 @@ describe("getMobileAboutSheetLayout", () => {
         topInset: 47,
         width: 390,
       }),
-    ).toEqual({ scroll: false, snapPoint: undefined });
+    ).toEqual({ hero: "regular", scroll: false, snapPoint: undefined });
   });
 
-  test("allows a taller scrollable sheet for accessibility text", () => {
+  test("keeps accessibility text content-sized when the window has room", () => {
     expect(
       getMobileAboutSheetLayout({
         bottomInset: 34,
@@ -51,7 +52,60 @@ describe("getMobileAboutSheetLayout", () => {
         topInset: 47,
         width: 390,
       }),
-    ).toEqual({ scroll: true, snapPoint: 512 });
+    ).toEqual({ hero: "regular", scroll: false, snapPoint: undefined });
+  });
+
+  test("never scrolls at default text on any iPhone or iPhone Duo pose", () => {
+    const poses = [
+      // iPhone 17 Pro portrait / landscape.
+      { width: 402, height: 874, topInset: 62, bottomInset: 34 },
+      { width: 874, height: 402, topInset: 0, bottomInset: 21 },
+      // iPhone Duo closed portrait / landscape, open landscape / portrait.
+      { width: 466, height: 678, topInset: 0, bottomInset: 34 },
+      { width: 678, height: 466, topInset: 0, bottomInset: 34 },
+      { width: 951, height: 669, topInset: 0, bottomInset: 34 },
+      { width: 669, height: 951, topInset: 82, bottomInset: 34 },
+    ];
+    for (const pose of poses) {
+      const layout = getMobileAboutSheetLayout({
+        ...pose,
+        fontScale: 1,
+        platform: "ios",
+      });
+      expect(layout.scroll).toBe(false);
+      expect(layout.snapPoint).toBeUndefined();
+    }
+  });
+
+  test("tightens the hero before it ever scrolls in a short window", () => {
+    expect(
+      getMobileAboutSheetLayout({
+        bottomInset: 21,
+        fontScale: 1,
+        height: 402,
+        platform: "ios",
+        topInset: 0,
+        width: 874,
+      }),
+    ).toEqual({ hero: "compact", scroll: false, snapPoint: undefined });
+    expect(
+      estimateMobileAboutSheetContentHeight({ fontScale: 1, hero: "compact" }),
+    ).toBeLessThan(
+      estimateMobileAboutSheetContentHeight({ fontScale: 1, hero: "regular" }),
+    );
+  });
+
+  test("scrolls only as the last resort for large text in a short window", () => {
+    expect(
+      getMobileAboutSheetLayout({
+        bottomInset: 21,
+        fontScale: 1.6,
+        height: 402,
+        platform: "ios",
+        topInset: 0,
+        width: 874,
+      }),
+    ).toEqual({ hero: "compact", scroll: true, snapPoint: 392 });
   });
 
   test("bounds the sheet to the usable landscape viewport", () => {
@@ -64,7 +118,7 @@ describe("getMobileAboutSheetLayout", () => {
         topInset: 24,
         width: 780,
       }),
-    ).toEqual({ scroll: true, snapPoint: "82%" });
+    ).toEqual({ hero: "regular", scroll: true, snapPoint: "82%" });
   });
 
   test("keeps normal Android portrait dynamic", () => {
@@ -77,7 +131,7 @@ describe("getMobileAboutSheetLayout", () => {
         topInset: 24,
         width: 360,
       }),
-    ).toEqual({ scroll: false, snapPoint: undefined });
+    ).toEqual({ hero: "regular", scroll: false, snapPoint: undefined });
   });
 
   test("keeps large Android portrait content-sized", () => {
@@ -90,6 +144,6 @@ describe("getMobileAboutSheetLayout", () => {
         topInset: 24,
         width: 393,
       }),
-    ).toEqual({ scroll: false, snapPoint: undefined });
+    ).toEqual({ hero: "regular", scroll: false, snapPoint: undefined });
   });
 });

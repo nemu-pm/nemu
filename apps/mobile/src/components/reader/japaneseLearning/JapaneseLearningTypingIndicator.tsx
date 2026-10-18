@@ -5,7 +5,9 @@ import Animated, {
   Easing,
   useAnimatedStyle,
   useSharedValue,
+  withDelay,
   withRepeat,
+  withSequence,
   withTiming,
 } from "react-native-reanimated";
 import { useNemuTheme } from "@/design-system";
@@ -13,7 +15,16 @@ import { getJapaneseLearningAssistantBubbleColors } from "@/lib/mobileJapaneseLe
 import { JapaneseLearningNemuAvatar } from "./JapaneseLearningNemuAvatar";
 
 const DOT_COUNT = 3;
+/**
+ * Web dot: `animate={{ y: [0, -5, 0] }}`, `duration: 0.6`, `repeat: Infinity`,
+ * `delay: i * 0.15`, `ease: 'easeInOut'` — two 300ms keyframe segments, each
+ * eased with motion's easeInOut (cubic-bezier(0.42, 0, 0.58, 1)); the delay
+ * staggers the first cycle only.
+ */
 const DOT_BOUNCE_MS = 600;
+const DOT_RISE_PX = -5;
+const DOT_STAGGER_MS = 150;
+const DOT_EASING = Easing.bezier(0.42, 0, 0.58, 1);
 
 function TypingDot({
   index,
@@ -34,23 +45,24 @@ function TypingDot({
       return;
     }
     offset.value = 0;
-    offset.value = withRepeat(
-      withTiming(1, {
-        duration: DOT_BOUNCE_MS,
-        easing: Easing.inOut(Easing.sin),
-      }),
-      -1,
-      false,
+    const segment = { duration: DOT_BOUNCE_MS / 2, easing: DOT_EASING };
+    offset.value = withDelay(
+      index * DOT_STAGGER_MS,
+      withRepeat(
+        withSequence(
+          withTiming(DOT_RISE_PX, segment),
+          withTiming(0, segment),
+        ),
+        -1,
+        false,
+      ),
     );
     return () => cancelAnimation(offset);
-  }, [animate, offset]);
+  }, [animate, index, offset]);
 
-  const animatedStyle = useAnimatedStyle(() => {
-    if (!animate) return { transform: [{ translateY: 0 }] };
-    const phase = (offset.value + index / DOT_COUNT) % 1;
-    const translateY = -5 * Math.sin(phase * Math.PI * 2);
-    return { transform: [{ translateY }] };
-  });
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: animate ? offset.value : 0 }],
+  }));
 
   return (
     <Animated.View

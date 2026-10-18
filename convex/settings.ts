@@ -20,10 +20,58 @@ import {
   compactInstalledSourceTombstone,
 } from "./settingsLimits";
 import { normalizeSyncClock } from "../packages/core/src/sync-clock";
+import {
+  mergeCloudLocalArchiveVolumes,
+  type CloudLocalArchiveVolume,
+} from "../packages/core/src/sources/local-archive-sync";
+import {
+  mergeCloudSourceDirectories,
+  type CloudSourceDirectory,
+} from "../packages/core/src/sources/directory-sync";
 
 const DEFAULT_SETTINGS = {
   installedSources: [] as [],
+  sourceDirectories: [] as [],
+  localArchiveVolumes: [] as [],
 };
+
+const sourceDirectoryValidator = v.object({
+  id: v.string(),
+  name: v.string(),
+  indexUrl: v.string(),
+  enabled: v.boolean(),
+  updatedAt: v.number(),
+  removed: v.optional(v.boolean()),
+});
+
+function canonicalSourceDirectories(
+  rows: readonly { sourceDirectories?: readonly CloudSourceDirectory[] }[],
+): CloudSourceDirectory[] {
+  return mergeCloudSourceDirectories(
+    [],
+    rows.flatMap((row) => row.sourceDirectories ?? []),
+  ).records;
+}
+
+const localArchiveVolumeValidator = v.object({
+  volumeId: v.string(),
+  workId: v.string(),
+  title: v.string(),
+  contentHash: v.string(),
+  pageCount: v.number(),
+  importedAt: v.number(),
+  updatedAt: v.number(),
+  removed: v.optional(v.boolean()),
+});
+
+function canonicalLocalArchiveVolumes(
+  rows: readonly { localArchiveVolumes?: readonly CloudLocalArchiveVolume[] }[],
+): CloudLocalArchiveVolume[] {
+  return mergeCloudLocalArchiveVolumes(
+    [],
+    rows.flatMap((row) => row.localArchiveVolumes ?? []),
+  ).records;
+}
 
 const SNAPSHOT_PAGE_MAX_ITEMS = 128;
 
@@ -43,6 +91,12 @@ const installedSourceWithClockValidator = v.object({
   updatedAt: v.optional(v.number()),
   removed: v.optional(v.boolean()),
   disabled: v.optional(v.boolean()),
+  selfHosted: v.optional(
+    v.object({
+      kind: v.union(v.literal("komga"), v.literal("kavita"), v.literal("suwayomi")),
+      server: v.string(),
+    }),
+  ),
 });
 
 type InstalledSourceRecord = {
@@ -61,6 +115,7 @@ type InstalledSourceRecord = {
   updatedAt?: number;
   removed?: boolean;
   disabled?: boolean;
+  selfHosted?: { kind: "komga" | "kavita" | "suwayomi"; server: string };
 };
 
 function mergeInstalledSources(
@@ -143,6 +198,8 @@ async function readSettings(ctx: QueryCtx, userId: string) {
 
   return {
     installedSources,
+    sourceDirectories: canonicalSourceDirectories(settingsRows),
+    localArchiveVolumes: canonicalLocalArchiveVolumes(settingsRows),
     updatedAt: maxAcceptableClock(
       ...settingsRows.map((settings) => settings.updatedAt),
       maxSourceClock(installedSources),
@@ -201,6 +258,8 @@ export const getV2 = query({
           generation,
           row: {
             installedSources: row.installedSources,
+            sourceDirectories: row.sourceDirectories ?? [],
+            localArchiveVolumes: row.localArchiveVolumes ?? [],
             updatedAt: row.updatedAt ?? 0,
           },
         })),
@@ -373,6 +432,99 @@ export const removeInstalledSource = mutation({
         syncGeneration: storedSyncGeneration(generation),
         installedSources: merged.sources,
         updatedAt,
+      });
+    }
+  },
+});
+
+/**
+ * Upserts or tombstones one source directory with record-level LWW. Separate
+ * from the installed-source mutations so older clients, which never call it,
+ * leave the field untouched, and `save` (which patches only installedSources)
+ * cannot overwrite it.
+ */
+export const saveSourceDirectory = mutation({
+  args: {
+    expectedUserId: v.optional(v.string()),
+    directory: sourceDirectoryValidator,
+    generation: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const { userId, generation, resolveClock } =
+      await requireSyncMutationContext(ctx, args);
+    const directory: CloudSourceDirectory = {
+      ...args.directory,
+      updatedAt: resolveClock(args.directory.updatedAt, Date.now()),
+    };
+    const matches = currentSyncGenerationRows(
+      await ctx.db
+        .query("settings")
+        .withIndex("by_user", (q) => q.eq("userId", userId))
+        .collect(),
+      generation,
+    );
+    const existing = newestLwwRecord(matches);
+    const merged = mergeCloudSourceDirectories(
+      canonicalSourceDirectories(matches),
+      [directory],
+    );
+    await pruneDuplicateRows(ctx.db, matches, existing);
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        sourceDirectories: merged.records,
+        updatedAt: maxAcceptableClock(existing.updatedAt, directory.updatedAt),
+      });
+    } else {
+      await ctx.db.insert("settings", {
+        userId,
+        syncGeneration: storedSyncGeneration(generation),
+        installedSources: [],
+        sourceDirectories: merged.records,
+        updatedAt: directory.updatedAt,
+      });
+    }
+  },
+});
+
+/** Upserts or tombstones one imported-archive volume (metadata only) with LWW. */
+export const saveLocalArchiveVolume = mutation({
+  args: {
+    expectedUserId: v.optional(v.string()),
+    volume: localArchiveVolumeValidator,
+    generation: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const { userId, generation, resolveClock } =
+      await requireSyncMutationContext(ctx, args);
+    const volume: CloudLocalArchiveVolume = {
+      ...args.volume,
+      updatedAt: resolveClock(args.volume.updatedAt, Date.now()),
+    };
+    const matches = currentSyncGenerationRows(
+      await ctx.db
+        .query("settings")
+        .withIndex("by_user", (q) => q.eq("userId", userId))
+        .collect(),
+      generation,
+    );
+    const existing = newestLwwRecord(matches);
+    const merged = mergeCloudLocalArchiveVolumes(
+      canonicalLocalArchiveVolumes(matches),
+      [volume],
+    );
+    await pruneDuplicateRows(ctx.db, matches, existing);
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        localArchiveVolumes: merged.records,
+        updatedAt: maxAcceptableClock(existing.updatedAt, volume.updatedAt),
+      });
+    } else {
+      await ctx.db.insert("settings", {
+        userId,
+        syncGeneration: storedSyncGeneration(generation),
+        installedSources: [],
+        localArchiveVolumes: merged.records,
+        updatedAt: volume.updatedAt,
       });
     }
   },

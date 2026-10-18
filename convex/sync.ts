@@ -17,7 +17,7 @@ import { requireAuth, requireAuthForUser } from "./_lib";
 import { canonicalizeLwwRecords } from "./lww";
 import { newestLibraryMergeAwareItem } from "./libraryMerge";
 import {
-  CHAPTER_PROGRESS_INTRA_PAGE_SYNC_VERSION,
+  CHAPTER_PROGRESS_SYNC_VERSION,
   makeChapterProgressId,
   makeMangaProgressId,
   makeSourceLinkId,
@@ -56,8 +56,7 @@ export async function readSyncGenerationObservation(
   return {
     generation: await getCurrentSyncGeneration(ctx, userId),
     serverNow: Date.now(),
-    chapterProgressIntraPageVersion:
-      CHAPTER_PROGRESS_INTRA_PAGE_SYNC_VERSION,
+    chapterProgressIntraPageVersion: CHAPTER_PROGRESS_SYNC_VERSION,
   };
 }
 
@@ -73,8 +72,7 @@ export const generation = query({
     const userId = await requireAuth(ctx);
     return {
       generation: await getCurrentSyncGeneration(ctx, userId),
-      chapterProgressIntraPageVersion:
-        CHAPTER_PROGRESS_INTRA_PAGE_SYNC_VERSION,
+      chapterProgressIntraPageVersion: CHAPTER_PROGRESS_SYNC_VERSION,
     };
   },
 });
@@ -260,6 +258,7 @@ function mapChapterProgress(entry: Doc<"chapter_progress">) {
     volumeNumber: entry.volumeNumber,
     chapterTitle: entry.chapterTitle,
     ...(intraPageState ?? {}),
+    ...(entry.resetAt === undefined ? {} : { resetAt: entry.resetAt }),
     updatedAt: entry.updatedAt,
   };
 }

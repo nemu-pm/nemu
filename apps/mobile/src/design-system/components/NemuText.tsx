@@ -1,3 +1,4 @@
+import type { TextInstance } from "react-native";
 import { forwardRef, type ReactNode } from "react";
 import {
   Text,
@@ -36,7 +37,7 @@ export type NemuTextProps = Omit<TextProps, "style"> & {
  * stays audit-able, and the max font-size multiplier is bounded by default so
  * enlarged type cannot escape measured native chrome.
  */
-export const NemuText = forwardRef<Text, NemuTextProps>(function NemuText(
+export const NemuText = forwardRef<TextInstance, NemuTextProps>(function NemuText(
   { variant, density, color, style, maxFontSizeMultiplier, ...props },
   ref,
 ) {

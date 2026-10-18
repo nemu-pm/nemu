@@ -1,29 +1,32 @@
 import { describe, expect, test } from "bun:test";
 import {
   canSelectMobileSourceBrowseTab,
-  canClearMobileSourceBrowseTextInput,
   getDefaultMobileSourceBrowseListingId,
+  findMobileSourceBrowseFallbackErrorStep,
+  getMobileSourceBrowseFallbackErrorDetail,
   getMobileSourceBrowseListingIdForRouteTab,
   getMobileSourceBrowseListingTabCount,
   getMobileSourceBrowseRouteTabForListingId,
   hasMobileSourceBrowseRouteQuery,
   isMobileSourceBrowseHomeTabPending,
+  isMobileSourceBrowseRouteTabRequestPending,
   isMobileSourceBrowseSearchRequestPending,
   makeMobileSourceHomeGenerationKey,
   makeMobileSourceBrowseSearchRouteQuery,
   normalizeMobileSourceBrowseRouteQuery,
   normalizeMobileSourceBrowseRouteTab,
   shouldRenderMobileSourceBrowseSearchHeader,
+  shouldReserveMobileSourceBrowseListingTabRow,
   shouldRunMobileSourceBrowseSearchSubmitFeedback,
   shouldShowCenterSourceBrowseSearchProgress,
   shouldShowMobileSourceBrowseListingTabBar,
-  shouldShowMobileSourceBrowseLoadError,
   shouldShowMobileSourceBrowseNoMatches,
   shouldShowMobileSourceBrowseNotInstalled,
   shouldShowSourceBrowseBootstrapping,
   shouldShowSourceBrowseHomeSkeleton,
   shouldFetchMobileSourceHome,
   shouldPreserveSourceBrowseSearchItemsOnDeactivate,
+  resolveMobileSourceBrowseKeptListing,
 } from "./mobileSourceBrowseRoute";
 
 const listings = [
@@ -122,12 +125,6 @@ describe("mobile source browse route helpers", () => {
     expect(makeMobileSourceBrowseSearchRouteQuery("  yotsuba  ")).toBe(
       "yotsuba",
     );
-  });
-
-  test("enables source browse text clearing only while input has content", () => {
-    expect(canClearMobileSourceBrowseTextInput("")).toBe(false);
-    expect(canClearMobileSourceBrowseTextInput(" ")).toBe(true);
-    expect(canClearMobileSourceBrowseTextInput("one piece")).toBe(true);
   });
 
   test("matches source search submit feedback to actionable route changes", () => {
@@ -252,6 +249,23 @@ describe("mobile source browse route helpers", () => {
       "popular",
     );
     expect(getDefaultMobileSourceBrowseListingId([], false)).toBeNull();
+  });
+
+  test("holds the listing tab row from the first frame while the tabs are on their way", () => {
+    // A home still loading over one listing: two tabs are coming.
+    expect(
+      shouldReserveMobileSourceBrowseListingTabRow({ showing: false, onlySearch: false, homePossible: true, listingCount: 1 }),
+    ).toBe(true);
+    // Shown already, search-only, or a single tab: nothing to hold.
+    expect(
+      shouldReserveMobileSourceBrowseListingTabRow({ showing: true, onlySearch: false, homePossible: true, listingCount: 2 }),
+    ).toBe(false);
+    expect(
+      shouldReserveMobileSourceBrowseListingTabRow({ showing: false, onlySearch: true, homePossible: true, listingCount: 2 }),
+    ).toBe(false);
+    expect(
+      shouldReserveMobileSourceBrowseListingTabRow({ showing: false, onlySearch: false, homePossible: false, listingCount: 1 }),
+    ).toBe(false);
   });
 
   test("counts listing tabs and hides single-tab chrome", () => {
@@ -587,36 +601,7 @@ describe("mobile source browse route helpers", () => {
     expect(canSelectMobileSourceBrowseTab({ selected: true })).toBe(false);
   });
 
-  test("keeps source browse load errors retryable before not-installed fallback", () => {
-    expect(
-      shouldShowMobileSourceBrowseLoadError({
-        loading: false,
-        hasSource: false,
-        hasError: true,
-      }),
-    ).toBe(true);
-    expect(
-      shouldShowMobileSourceBrowseLoadError({
-        loading: true,
-        hasSource: false,
-        hasError: true,
-      }),
-    ).toBe(false);
-    expect(
-      shouldShowMobileSourceBrowseLoadError({
-        loading: false,
-        hasSource: true,
-        hasError: true,
-      }),
-    ).toBe(false);
-    expect(
-      shouldShowMobileSourceBrowseLoadError({
-        loading: false,
-        hasSource: false,
-        hasError: false,
-      }),
-    ).toBe(false);
-
+  test("shows not-installed only once loading settles without a source or error", () => {
     expect(
       shouldShowMobileSourceBrowseNotInstalled({
         loading: false,
@@ -657,4 +642,141 @@ test("only a completed search may report no matches", () => {
   expect(shouldShowMobileSourceBrowseNoMatches("loading")).toBe(false);
   expect(shouldShowMobileSourceBrowseNoMatches("blocked")).toBe(false);
   expect(shouldShowMobileSourceBrowseNoMatches("error")).toBe(false);
+});
+
+describe("getMobileSourceBrowseFallbackErrorDetail", () => {
+  const localized = "Source unavailable";
+
+  test("surfaces a blocked metadata load behind the localized description", () => {
+    // ja.comicaction synced without a package: metadata and home are both
+    // blocked, no listing is known, and the body used to render nothing.
+    expect(
+      getMobileSourceBrowseFallbackErrorDetail(
+        {
+          metadata: {
+            status: "blocked",
+            detail: "The AIX package bytes are not cached on this device.",
+          },
+          home: { status: "blocked", detail: "ignored" },
+        },
+        localized,
+      ),
+    ).toBe(
+      "Source unavailable\nThe AIX package bytes are not cached on this device.",
+    );
+  });
+
+  test("passes an error's banner detail through and falls back to home", () => {
+    expect(
+      getMobileSourceBrowseFallbackErrorDetail(
+        {
+          metadata: { status: "error", detail: "Could not load.\nboom" },
+          home: { status: "idle" },
+        },
+        localized,
+      ),
+    ).toBe("Could not load.\nboom");
+    expect(
+      getMobileSourceBrowseFallbackErrorDetail(
+        {
+          metadata: { status: "ready" },
+          home: { status: "blocked", detail: null },
+        },
+        localized,
+      ),
+    ).toBe(localized);
+  });
+
+  test("names the step the banner reports so a blocked reason can be classified", () => {
+    const blockedHome = { status: "blocked", detail: "raw reason" };
+    expect(
+      findMobileSourceBrowseFallbackErrorStep({
+        metadata: { status: "ready" },
+        home: blockedHome,
+      }),
+    ).toBe(blockedHome);
+    const erroredMetadata = { status: "error", detail: "Could not load.\nboom" };
+    expect(
+      findMobileSourceBrowseFallbackErrorStep({
+        metadata: erroredMetadata,
+        home: blockedHome,
+      }),
+    ).toBe(erroredMetadata);
+    expect(
+      findMobileSourceBrowseFallbackErrorStep({
+        metadata: { status: "loading" },
+        home: { status: "ready" },
+      }),
+    ).toBeNull();
+  });
+
+  test("returns null while loading or once ready", () => {
+    for (const status of ["idle", "loading", "ready"]) {
+      expect(
+        getMobileSourceBrowseFallbackErrorDetail(
+          { metadata: { status }, home: { status } },
+          localized,
+        ),
+      ).toBeNull();
+    }
+  });
+});
+
+describe("isMobileSourceBrowseRouteTabRequestPending", () => {
+  test("holds the page's selection while the route still shows the tab it had", () => {
+    // Recently Added (tab 2) -> Home: the route's tab is still 2 for a render.
+    expect(isMobileSourceBrowseRouteTabRequestPending({ from: 2, to: null }, 2)).toBe(true);
+    // Home -> Popular (tab 1) before the route has the new tab.
+    expect(isMobileSourceBrowseRouteTabRequestPending({ from: null, to: 1 }, null)).toBe(true);
+  });
+
+  test("lets the route lead once it has moved", () => {
+    expect(isMobileSourceBrowseRouteTabRequestPending({ from: 2, to: null }, null)).toBe(false);
+    // Moved somewhere else entirely (a link opened another tab): the route wins.
+    expect(isMobileSourceBrowseRouteTabRequestPending({ from: 2, to: null }, 3)).toBe(false);
+  });
+
+  test("nothing is pending without a request or when the tab does not change", () => {
+    expect(isMobileSourceBrowseRouteTabRequestPending(null, 2)).toBe(false);
+    // A See All listing that is not a tab of its own keeps the Home route tab.
+    expect(isMobileSourceBrowseRouteTabRequestPending({ from: null, to: null }, null)).toBe(false);
+  });
+});
+
+describe("resolveMobileSourceBrowseKeptListing", () => {
+  const popular = { id: "popular" };
+  const recent = { id: "recent" };
+  const latest = { id: "latest", name: "Latest Updates" };
+  const seasonal = { id: "seasonal", name: "Seasonal" };
+  const listings = [popular, recent];
+
+  test("See All opens the section's listing and keeps its tab", () => {
+    expect(
+      resolveMobileSourceBrowseKeptListing({ listing: latest, opened: latest, kept: null, listings }),
+    ).toEqual({ runtimeListing: latest, kept: latest });
+  });
+
+  test("leaving it for a package tab keeps the tab, so the row does not reflow", () => {
+    expect(
+      resolveMobileSourceBrowseKeptListing({ listing: popular, opened: undefined, kept: latest, listings }),
+    ).toEqual({ runtimeListing: null, kept: latest });
+  });
+
+  test("tapping the kept tab again selects its listing", () => {
+    expect(
+      resolveMobileSourceBrowseKeptListing({ listing: latest, opened: undefined, kept: latest, listings }),
+    ).toEqual({ runtimeListing: latest, kept: latest });
+  });
+
+  test("another section's See All takes the same last slot", () => {
+    expect(
+      resolveMobileSourceBrowseKeptListing({ listing: seasonal, opened: seasonal, kept: latest, listings }),
+    ).toEqual({ runtimeListing: seasonal, kept: seasonal });
+  });
+
+  test("a See All for a listing that is already a tab selects that tab", () => {
+    expect(
+      resolveMobileSourceBrowseKeptListing({ listing: popular, opened: popular, kept: latest, listings }),
+    ).toEqual({ runtimeListing: null, kept: latest });
+  });
 });

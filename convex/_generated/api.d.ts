@@ -9,7 +9,11 @@
  */
 
 import type * as _lib from "../_lib.js";
+import type * as accountDeletion from "../accountDeletion.js";
+import type * as accountDeletionPlan from "../accountDeletionPlan.js";
+import type * as accountDeletionRun from "../accountDeletionRun.js";
 import type * as ai_metadata from "../ai_metadata.js";
+import type * as appleRevoke from "../appleRevoke.js";
 import type * as auth from "../auth.js";
 import type * as authCookiePolicy from "../authCookiePolicy.js";
 import type * as authMobileOriginBridge from "../authMobileOriginBridge.js";
@@ -24,6 +28,7 @@ import type * as nemu_chat from "../nemu_chat.js";
 import type * as prompts_nemu_chat from "../prompts/nemu_chat.js";
 import type * as proxy from "../proxy.js";
 import type * as r2 from "../r2.js";
+import type * as r2Ownership from "../r2Ownership.js";
 import type * as removalCascade from "../removalCascade.js";
 import type * as settings from "../settings.js";
 import type * as settingsLimits from "../settingsLimits.js";
@@ -41,7 +46,11 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   _lib: typeof _lib;
+  accountDeletion: typeof accountDeletion;
+  accountDeletionPlan: typeof accountDeletionPlan;
+  accountDeletionRun: typeof accountDeletionRun;
   ai_metadata: typeof ai_metadata;
+  appleRevoke: typeof appleRevoke;
   auth: typeof auth;
   authCookiePolicy: typeof authCookiePolicy;
   authMobileOriginBridge: typeof authMobileOriginBridge;
@@ -56,6 +65,7 @@ declare const fullApi: ApiFromModules<{
   "prompts/nemu_chat": typeof prompts_nemu_chat;
   proxy: typeof proxy;
   r2: typeof r2;
+  r2Ownership: typeof r2Ownership;
   removalCascade: typeof removalCascade;
   settings: typeof settings;
   settingsLimits: typeof settingsLimits;

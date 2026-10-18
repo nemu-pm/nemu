@@ -169,6 +169,9 @@ private struct NemuNativeHttpResult {
   var headers: [String: String]
   var data: Data
   var error: String?
+  /// The response's URL after redirects (`HTTPURLResponse.url`), for a
+  /// completed response only.
+  var url: String? = nil
 }
 
 private struct NemuNativeHttpFileResult {
@@ -280,10 +283,18 @@ private final class NemuScopedCookieSessionDelegate: NSObject, URLSessionDownloa
   private var policies: [Int: NemuExplicitCookiePolicy] = [:]
   private var downloads: [Int: NemuNativeDownloadRegistration] = [:]
   private let peerValidationGate = NemuNativeHttpPeerValidationGate()
+  /// The source scope this session serves; selects its proxy credential and
+  /// local-network grant. nil for the stateless public-only session.
+  private let scope: String?
 
-  init(cookieStorage: HTTPCookieStorage, persistsResponseCookies: Bool) {
+  init(
+    cookieStorage: HTTPCookieStorage,
+    persistsResponseCookies: Bool,
+    scope: String? = nil
+  ) {
     self.cookieStorage = cookieStorage
     self.persistsResponseCookies = persistsResponseCookies
+    self.scope = scope
   }
 
   func register(
@@ -480,6 +491,7 @@ private final class NemuScopedCookieSessionDelegate: NSObject, URLSessionDownloa
   ) {
     var isAllowed = !metrics.transactionMetrics.isEmpty
     if isAllowed {
+      let grant = NemuNativeLocalNetworkAllowance.grant(forScope: scope)
       for transaction in metrics.transactionMetrics {
         do {
           try NemuNativeHttpAddressPolicy.validateLoopbackProxy(
@@ -490,8 +502,22 @@ private final class NemuScopedCookieSessionDelegate: NSObject, URLSessionDownloa
             expectedPort: NemuNativeHttpLoopbackProxy.shared.port
           )
         } catch {
-          isAllowed = false
-          break
+          // iOS does not route local-network IP literals through the proxy
+          // configuration, so a granted self-hosted server is reached
+          // directly. That is exactly as safe: the destination is the IP
+          // literal the user typed, validated before the request was sent.
+          let url = transaction.request.url
+          guard NemuNativeLocalNetworkAllowance.isGrantedDirectConnection(
+            requestHost: url?.host,
+            requestPort: url?.port,
+            requestScheme: url?.scheme,
+            remoteAddress: transaction.remoteAddress,
+            remotePort: transaction.remotePort,
+            grant: grant
+          ) else {
+            isAllowed = false
+            break
+          }
         }
       }
     }
@@ -513,7 +539,8 @@ private final class NemuScopedCookieSessionDelegate: NSObject, URLSessionDownloa
     ) -> Void
   ) {
     if let credential = NemuNativeHttpLoopbackProxy.shared.proxyCredential(
-      for: challenge
+      for: challenge,
+      scope: scope
     ) {
       completionHandler(.useCredential, credential)
     } else {
@@ -559,12 +586,23 @@ private final class NemuScopedCookieSessionDelegate: NSObject, URLSessionDownloa
   ) {
     // Preserve the early policy error, while the loopback proxy independently
     // resolves and pins an exact public address before this redirect is sent.
-    guard let redirectURL = request.url else {
+    guard let proposedURL = request.url else {
       completionHandler(nil)
       return
     }
+    let redirectURL = NemuNativeHttpRedirectPolicy.upgradingSameHostDowngrade(
+      proposedURL,
+      from: response.url ?? task.currentRequest?.url
+    )
+    var request = request
+    request.url = redirectURL
     do {
-      try NemuNativeHttpAddressPolicy.validate(url: redirectURL)
+      // A redirect is a new destination: it needs its own grant, so a granted
+      // server cannot bounce the source to another private host.
+      try NemuNativeHttpAddressPolicy.validate(
+        url: redirectURL,
+        grant: NemuNativeLocalNetworkAllowance.grant(forScope: scope)
+      )
     } catch {
       completionHandler(nil)
       return
@@ -595,7 +633,8 @@ private final class NemuScopedCookieSessionDelegate: NSObject, URLSessionDownloa
     )
     redirectedRequest.setValue(mergedHeader, forHTTPHeaderField: "Cookie")
     NemuNativeHttpLoopbackProxy.shared.authorizeLegacyPlainHttp(
-      &redirectedRequest
+      &redirectedRequest,
+      scope: scope
     )
     completionHandler(redirectedRequest)
   }
@@ -609,7 +648,8 @@ private final class NemuHttpSessionContext: @unchecked Sendable {
   init(
     configuration: URLSessionConfiguration,
     isolated: Bool,
-    persistsResponseCookies: Bool = true
+    persistsResponseCookies: Bool = true,
+    scope: String? = nil
   ) {
     guard let cookieStorage = configuration.httpCookieStorage else {
       preconditionFailure("URLSession did not provide an isolated cookie store.")
@@ -618,7 +658,8 @@ private final class NemuHttpSessionContext: @unchecked Sendable {
     if isolated {
       let delegate = NemuScopedCookieSessionDelegate(
         cookieStorage: cookieStorage,
-        persistsResponseCookies: persistsResponseCookies
+        persistsResponseCookies: persistsResponseCookies,
+        scope: scope
       )
       redirectDelegate = delegate
       session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
@@ -790,7 +831,10 @@ private final class NemuSyncHttpCoordinator {
       scopedContextOrder.append(normalizedScope)
     } else {
       let configuration = URLSessionConfiguration.ephemeral
-      NemuNativeHttpLoopbackProxy.shared.harden(configuration)
+      NemuNativeHttpLoopbackProxy.shared.harden(
+        configuration,
+        scope: normalizedScope
+      )
       configuration.timeoutIntervalForRequest = nemuAsyncHttpMaxTimeoutSeconds
       configuration.timeoutIntervalForResource = nemuAsyncHttpMaxTimeoutSeconds
       configuration.httpCookieAcceptPolicy = .always
@@ -800,7 +844,8 @@ private final class NemuSyncHttpCoordinator {
       configuration.urlCache = nil
       let created = NemuHttpSessionContext(
         configuration: configuration,
-        isolated: true
+        isolated: true,
+        scope: normalizedScope
       )
       scopedContexts[normalizedScope] = created
       scopedContextOrder.append(normalizedScope)
@@ -1346,7 +1391,10 @@ public class NemuAidokuModule: Module {
   }
 
   private lazy var iosSandboxManager = NemuAidokuIOSandboxManager(
-    httpRequest: Self.sendAidokuSandboxHttpRequest
+    httpRequest: Self.sendAidokuSandboxHttpRequest,
+    cancelHttpRequest: { requestId in
+      _ = NemuSyncHttpCoordinator.shared.cancel(id: requestId)
+    }
   )
 
   public func definition() -> ModuleDefinition {
@@ -1414,6 +1462,21 @@ public class NemuAidokuModule: Module {
 
     Function("releaseHttpRequest") { (requestId: String) in
       NemuSyncHttpCoordinator.shared.release(id: requestId)
+    }
+
+    // Scoped local-network allowance. Only the host app calls these, from the
+    // server-URL setting the user typed; a source package has no way to reach
+    // them (see NemuNativeLocalNetworkAllowance).
+    Function("setLocalNetworkAllowance") {
+        (sourceKey: String, urls: [String]) -> [String] in
+      return NemuNativeLocalNetworkAllowance.setGrant(
+        scope: sourceKey,
+        configuredURLs: urls
+      )
+    }
+
+    Function("clearAllLocalNetworkAllowances") {
+      NemuNativeLocalNetworkAllowance.clearAllGrants()
     }
 
     AsyncFunction("resetMobileSourceProfileAuthState") { (promise: Promise) in
@@ -1487,6 +1550,13 @@ public class NemuAidokuModule: Module {
       ) { result in
         Self.settleSandboxPromise(result, promise: promise)
       }
+    }
+
+    // Cancels the sandbox operation that carries `cancelToken`, now if it is
+    // running, or when it starts. Synchronous on purpose: the sandbox's serial
+    // executor is exactly what is busy.
+    Function("cancelAidokuSandboxOperation") { (cancelToken: String) -> Bool in
+      return self.iosSandboxManager.cancelOperation(token: cancelToken)
     }
 
     AsyncFunction("executeAidokuSandboxOperation") {
@@ -1622,7 +1692,10 @@ public class NemuAidokuModule: Module {
   static func sendAidokuSandboxHttpRequest(
     _ request: NemuAidokuIOSandboxHTTPRequest
   ) -> NemuAidokuIOSandboxHTTPResponse {
-    let destination = validatedRemoteHttpURL(request.url)
+    let destination = validatedRemoteHttpURL(
+      request.url,
+      cookieScope: request.sourceKey
+    )
     guard let url = destination.url else {
       return NemuAidokuIOSandboxHTTPResponse(
         status: 0,
@@ -1670,6 +1743,7 @@ public class NemuAidokuModule: Module {
       urlRequest,
       timeoutSeconds: timeoutSeconds,
       maxResponseBytes: nemuIOSAidokuMaxHttpResponseBytes,
+      requestId: request.requestId,
       allowBackground: true,
       sessionContext: sessionContext,
       explicitCookieHeader: explicitCookieHeader
@@ -1684,7 +1758,8 @@ public class NemuAidokuModule: Module {
       status: result.status,
       headers: result.headers,
       data: result.data,
-      error: result.error
+      error: result.error,
+      url: result.url
     )
   }
 
@@ -1717,7 +1792,10 @@ public class NemuAidokuModule: Module {
   ) -> [String: String]? {
     guard
       headers.count <= maxSourceImageRequestHeaders,
-      (try? NemuNativeHttpAddressPolicy.validatedURL(urlString)) != nil
+      (try? NemuNativeHttpAddressPolicy.validatedURL(
+        urlString,
+        grant: NemuNativeLocalNetworkAllowance.grant(forScope: sourceKey)
+      )) != nil
     else {
       return nil
     }
@@ -1819,7 +1897,10 @@ public class NemuAidokuModule: Module {
     let promiseBox = NemuNativeHttpPromiseBox(promise)
     DispatchQueue.global(qos: .utility).async {
       Self.pruneNativeHttpTemporaryFiles()
-      let destination = Self.validatedRemoteHttpURL(request.url)
+      let destination = Self.validatedRemoteHttpURL(
+        request.url,
+        cookieScope: request.cookieScope
+      )
       guard let url = destination.url else {
         promiseBox.promise.resolve(Self.fileResponse(
           status: 0,
@@ -2015,49 +2096,69 @@ public class NemuAidokuModule: Module {
                 location,
                 policy: imagePolicy
               )
-            } catch {
-              guard
+            } catch is NemuImageDimensionLimitError {
+              // Too large to decode as published, but well formed: keep its
+              // source width as bounded tiles when the caller can show them,
+              // otherwise (or when the tiles cannot fit their byte budget)
+              // publish one bounded downscale, as Android does.
+              operation.extendTimeout(120)
+              let deadline = NemuIOSLongStripImageTranscoder.newDeadline()
+              let isCancelled = { coordinator.isCancelled(id: nativeRequestId) }
+              if
                 request.allowLongStripSegments,
                 Int64(request.maxResponseBytes) >
                   NemuIOSLongStripImageTranscoder.manifestReserveBytes
-              else { throw error }
-              operation.extendTimeout(120)
-              let transcoded = try NemuIOSLongStripImageTranscoder.transcodeSegments(
+              {
+                do {
+                  let transcoded = try NemuIOSLongStripImageTranscoder.transcodeSegments(
+                    source: location,
+                    outputDirectory: outputDirectory,
+                    policy: imagePolicy,
+                    maximumOutputBytes:
+                      Int64(request.maxResponseBytes) -
+                        NemuIOSLongStripImageTranscoder.manifestReserveBytes,
+                    deadline: deadline,
+                    isCancelled: isCancelled
+                  )
+                  let mimeType = transcoded.segments.first?.mimeType ?? "image/jpeg"
+                  operation.finish(NemuNativeHttpFileResult(
+                    status: status,
+                    headers: Self.transcodedImageHeaders(headers, mimeType: mimeType),
+                    kind: "segmented-image",
+                    fileURL: nil,
+                    byteLength: transcoded.byteLength,
+                    manifestVersion: 1,
+                    imageWidth: transcoded.dimensions.width,
+                    imageHeight: transcoded.dimensions.height,
+                    imageSegments: transcoded.segments.map { segment in
+                      NemuNativeHttpImageSegmentResult(
+                        fileURL: segment.fileURL,
+                        byteLength: segment.byteLength,
+                        width: segment.dimensions.width,
+                        height: segment.dimensions.height,
+                        mimeType: segment.mimeType
+                      )
+                    },
+                    error: nil
+                  ))
+                  return
+                } catch let error as NemuIOSLongStripError where error.allowsSingleImageFallback {
+                  // Not strip geometry, or over budget: downscale below.
+                }
+              }
+              let downscaled = try NemuIOSLongStripImageTranscoder.transcodeSingle(
                 source: location,
                 outputDirectory: outputDirectory,
                 policy: imagePolicy,
-                maximumOutputBytes:
-                  Int64(request.maxResponseBytes) -
-                    NemuIOSLongStripImageTranscoder.manifestReserveBytes,
-                isCancelled: {
-                  coordinator.isCancelled(id: nativeRequestId)
-                }
+                maximumOutputBytes: Int64(request.maxResponseBytes),
+                deadline: deadline,
+                isCancelled: isCancelled
               )
-              let mimeType = transcoded.segments.first?.mimeType ?? "image/jpeg"
-              var rewrittenHeaders = headers.filter {
-                $0.key.caseInsensitiveCompare("content-length") != .orderedSame &&
-                  $0.key.caseInsensitiveCompare("content-encoding") != .orderedSame &&
-                  $0.key.caseInsensitiveCompare("content-type") != .orderedSame
-              }
-              rewrittenHeaders["Content-Type"] = mimeType
               operation.finish(NemuNativeHttpFileResult(
                 status: status,
-                headers: rewrittenHeaders,
-                kind: "segmented-image",
-                fileURL: nil,
-                byteLength: transcoded.byteLength,
-                manifestVersion: 1,
-                imageWidth: transcoded.dimensions.width,
-                imageHeight: transcoded.dimensions.height,
-                imageSegments: transcoded.segments.map { segment in
-                  NemuNativeHttpImageSegmentResult(
-                    fileURL: segment.fileURL,
-                    byteLength: segment.byteLength,
-                    width: segment.dimensions.width,
-                    height: segment.dimensions.height,
-                    mimeType: segment.mimeType
-                  )
-                },
+                headers: Self.transcodedImageHeaders(headers, mimeType: downscaled.mimeType),
+                fileURL: downscaled.fileURL,
+                byteLength: downscaled.byteLength,
                 error: nil
               ))
               return
@@ -2095,11 +2196,29 @@ public class NemuAidokuModule: Module {
     }
   }
 
+  /// A transcoded body no longer matches the response's own length,
+  /// encoding or type.
+  private static func transcodedImageHeaders(
+    _ headers: [String: String],
+    mimeType: String
+  ) -> [String: String] {
+    var rewritten = headers.filter {
+      $0.key.caseInsensitiveCompare("content-length") != .orderedSame &&
+        $0.key.caseInsensitiveCompare("content-encoding") != .orderedSame &&
+        $0.key.caseInsensitiveCompare("content-type") != .orderedSame
+    }
+    rewritten["Content-Type"] = mimeType
+    return rewritten
+  }
+
   private static func sendHttpRequestAsync(
     _ request: NemuAidokuHttpRequest,
     promise: Promise
   ) {
-    let destination = validatedRemoteHttpURL(request.url)
+    let destination = validatedRemoteHttpURL(
+      request.url,
+      cookieScope: request.cookieScope
+    )
     guard let url = destination.url else {
       promise.resolve(response(
         status: 0,
@@ -2174,7 +2293,6 @@ public class NemuAidokuModule: Module {
       promiseBox.promise.resolve(
         response(
           from: result,
-          handledCloudflare: false,
           responseMode: responseMode
         )
       )
@@ -2283,7 +2401,8 @@ public class NemuAidokuModule: Module {
             status: httpResponse?.statusCode ?? 0,
             headers: headers,
             data: data,
-            error: nil
+            error: nil,
+            url: httpResponse?.url?.absoluteString
           ))
         } catch {
           operation.finish(NemuNativeHttpResult(
@@ -2314,7 +2433,8 @@ public class NemuAidokuModule: Module {
         status: error == nil ? (httpResponse?.statusCode ?? 0) : 0,
         headers: responseHeaders(from: httpResponse),
         data: error == nil ? (data ?? Data()) : Data(),
-        error: error?.localizedDescription
+        error: error?.localizedDescription,
+        url: error == nil ? httpResponse?.url?.absoluteString : nil
       ))
     }
     operation.start(
@@ -2342,7 +2462,10 @@ public class NemuAidokuModule: Module {
     maxTimeoutSeconds: Double,
     allowBackground: Bool
   ) -> [String: Any?] {
-    let destination = validatedRemoteHttpURL(request.url)
+    let destination = validatedRemoteHttpURL(
+      request.url,
+      cookieScope: request.cookieScope
+    )
     guard let url = destination.url else {
       return response(status: 0, error: destination.error)
     }
@@ -2411,7 +2534,6 @@ public class NemuAidokuModule: Module {
     )
     return response(
       from: result,
-      handledCloudflare: false,
       responseMode: request.responseMode
     )
   }
@@ -2449,7 +2571,10 @@ public class NemuAidokuModule: Module {
     if let body = request.body, let bodyData = body.data(using: .utf8) {
       urlRequest.httpBody = bodyData
     }
-    NemuNativeHttpLoopbackProxy.shared.authorizeLegacyPlainHttp(&urlRequest)
+    NemuNativeHttpLoopbackProxy.shared.authorizeLegacyPlainHttp(
+      &urlRequest,
+      scope: request.cookieScope?.trimmingCharacters(in: .whitespacesAndNewlines)
+    )
 
     return urlRequest
   }
@@ -2522,19 +2647,14 @@ public class NemuAidokuModule: Module {
 
       let httpResponse = urlResponse as? HTTPURLResponse
       let status = httpResponse?.statusCode ?? 0
-      var headers: [String: String] = [:]
-
-      if let allHeaders = httpResponse?.allHeaderFields {
-        for (key, value) in allHeaders {
-          headers[String(describing: key).lowercased()] = String(describing: value)
-        }
-      }
+      let headers = responseHeaders(from: httpResponse)
 
       result.set(NemuNativeHttpResult(
         status: status,
         headers: headers,
         data: data ?? Data(),
-        error: nil
+        error: nil,
+        url: httpResponse?.url?.absoluteString
       ))
     }
     sessionContext.registerRedirectPolicy(
@@ -2638,12 +2758,7 @@ public class NemuAidokuModule: Module {
       }
 
       let httpResponse = urlResponse as? HTTPURLResponse
-      var headers: [String: String] = [:]
-      if let allHeaders = httpResponse?.allHeaderFields {
-        for (key, value) in allHeaders {
-          headers[String(describing: key).lowercased()] = String(describing: value)
-        }
-      }
+      let headers = responseHeaders(from: httpResponse)
       let limitError = "HTTP response exceeds the \(maxResponseBytes) byte safety limit."
       if (urlResponse?.expectedContentLength ?? -1) > Int64(maxResponseBytes) {
         result.set(NemuNativeHttpResult(
@@ -2698,7 +2813,8 @@ public class NemuAidokuModule: Module {
           status: httpResponse?.statusCode ?? 0,
           headers: headers,
           data: responseData,
-          error: nil
+          error: nil,
+          url: httpResponse?.url?.absoluteString
         ))
       } catch {
         result.set(NemuNativeHttpResult(
@@ -2843,10 +2959,17 @@ public class NemuAidokuModule: Module {
   /// Source packages are untrusted. Never let their HTTP bridge become an
   /// ambient file/custom-scheme, loopback, LAN, or cloud-metadata reader.
   private static func validatedRemoteHttpURL(
-    _ value: String
+    _ value: String,
+    cookieScope: String? = nil
   ) -> (url: URL?, error: String) {
     do {
-      return (try NemuNativeHttpAddressPolicy.validatedURL(value), "")
+      return (
+        try NemuNativeHttpAddressPolicy.validatedURL(
+          value,
+          grant: NemuNativeLocalNetworkAllowance.grant(forScope: cookieScope)
+        ),
+        ""
+      )
     } catch {
       let detail = error.localizedDescription.trimmingCharacters(
         in: .whitespacesAndNewlines
@@ -2862,7 +2985,6 @@ public class NemuAidokuModule: Module {
 
   private static func response(
     from result: NemuNativeHttpResult,
-    handledCloudflare: Bool,
     responseMode: String = "both"
   ) -> [String: Any?] {
     return response(
@@ -2870,7 +2992,6 @@ public class NemuAidokuModule: Module {
       headers: result.headers,
       data: result.data,
       error: result.error,
-      handledCloudflare: handledCloudflare,
       responseMode: responseMode
     )
   }
@@ -2945,7 +3066,6 @@ public class NemuAidokuModule: Module {
     headers: [String: String] = [:],
     data: Data = Data(),
     error: String?,
-    handledCloudflare: Bool = false,
     responseMode: String = "both"
   ) -> [String: Any?] {
     let mode = resolvedResponseMode(responseMode, headers: headers)
@@ -2957,7 +3077,6 @@ public class NemuAidokuModule: Module {
       "body": mode == "bytes" ? nil : String(decoding: data, as: UTF8.self),
       "bytesBase64": mode == "text" ? nil : data.base64EncodedString(),
       "error": error,
-      "handledCloudflare": handledCloudflare,
     ]
   }
 }

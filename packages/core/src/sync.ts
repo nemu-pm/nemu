@@ -1,11 +1,14 @@
 import {
+  chapterProgressHasReading,
   chapterProgressIntraPageState,
   chapterProgressHighWaterValues,
+  chapterProgressResetClock,
   mergeChapterProgressHighWater,
 } from "./sync-lww";
 import {
   estimatedSyncServerTime,
   isAcceptableSyncClock,
+  nextSyncTimestamp,
   normalizeSyncClock,
 } from "./sync-clock";
 
@@ -78,6 +81,8 @@ export type InstalledSource = {
    * its settings are all left intact.
    */
   disabled?: boolean;
+  /** Built-in self-hosted server source: its kind and address (never a login). */
+  selfHosted?: { kind: "komga" | "kavita" | "suwayomi"; server: string };
 };
 
 export type CloudInstalledSource = Omit<InstalledSource, "updatedAt"> & {
@@ -130,15 +135,19 @@ export type LocalChapterProgress = {
   chapterTitle?: string;
   intraPageProgress?: number;
   intraPageContentIdentity?: string;
+  /** Sync clock of the newest Mark as Unread (see `mergeChapterProgressHighWater`). */
+  resetAt?: number;
   updatedAt: number;
 };
 
-function withoutChapterProgressIntraPageState<
+/** The record without the fields only the canonical merge may set. */
+function withoutChapterProgressMergedState<
   TProgress extends LocalChapterProgress,
 >(progress: TProgress): TProgress {
   const copy = { ...progress };
   delete copy.intraPageProgress;
   delete copy.intraPageContentIdentity;
+  delete copy.resetAt;
   return copy;
 }
 
@@ -219,6 +228,7 @@ export type CloudChapterProgress = {
   chapterTitle?: string;
   intraPageProgress?: number;
   intraPageContentIdentity?: string;
+  resetAt?: number;
   updatedAt: number;
 };
 
@@ -277,6 +287,7 @@ export type CloudHistorySaveInput = {
   chapterTitle?: string;
   intraPageProgress?: number;
   intraPageContentIdentity?: string;
+  resetAt?: number;
   updatedAt: number;
 };
 
@@ -481,17 +492,24 @@ export function toCloudInstalledSource(
     updatedAt: normalizeSyncClock(source.updatedAt),
     removed: source.removed,
     disabled: source.disabled,
+    ...(source.selfHosted == null ? {} : { selfHosted: source.selfHosted }),
   };
 }
 
 export function toCloudHistorySaveInput(
   progress: LocalChapterProgress,
-  options: { includeIntraPageState?: boolean } = {},
+  options: { includeIntraPageState?: boolean; includeResetState?: boolean } = {},
 ): CloudHistorySaveInput {
   const now = estimatedSyncServerTime();
   const intraPageState =
     options.includeIntraPageState === true
       ? chapterProgressIntraPageState(progress)
+      : undefined;
+  // Only a backend that advertises the reset protocol accepts the field; an
+  // older validator would reject the whole write.
+  const resetAt =
+    options.includeResetState === true
+      ? chapterProgressResetClock(progress, now)
       : undefined;
   return {
     registryId: progress.registryId,
@@ -506,12 +524,13 @@ export function toCloudHistorySaveInput(
     volumeNumber: progress.volumeNumber,
     chapterTitle: progress.chapterTitle,
     ...(intraPageState ?? {}),
+    ...(resetAt === undefined ? {} : { resetAt }),
     updatedAt: normalizeSyncClock(progress.updatedAt, now),
   };
 }
 
 export function mangaProgressFromChapterProgress(
-  progress: LocalChapterProgress,
+  progress: Omit<LocalChapterProgress, "id">,
   updatedAt = progress.updatedAt,
 ): LocalMangaProgress {
   return {
@@ -529,6 +548,92 @@ export function mangaProgressFromChapterProgress(
     lastReadChapterNumber: progress.chapterNumber,
     lastReadVolumeNumber: progress.volumeNumber,
     lastReadChapterTitle: progress.chapterTitle,
+    updatedAt,
+  };
+}
+
+/**
+ * The record Mark as Unread saves for a chapter: no reading at all, and a
+ * reset clock strictly newer than anything the stored row has seen, so the
+ * merge discards every page recorded before it on every device.
+ */
+export function chapterProgressMarkedUnread<
+  TProgress extends LocalChapterProgress,
+>(existing: TProgress, resetAt?: number): TProgress {
+  const clock =
+    resetAt ?? nextSyncTimestamp(existing.updatedAt, existing.resetAt);
+  return {
+    ...withoutChapterProgressMergedState(existing),
+    progress: 0,
+    total: 0,
+    completed: false,
+    lastReadAt: 0,
+    resetAt: clock,
+    updatedAt: clock,
+  };
+}
+
+/**
+ * The chapter a work was last read at: the newest read event among chapters
+ * that still hold reading. Ties go to the newer write, then the chapter id, so
+ * every device and the server pick the same one.
+ */
+export function latestChapterProgressReadEvent<
+  TProgress extends Pick<
+    LocalChapterProgress,
+    "sourceChapterId" | "progress" | "completed" | "lastReadAt" | "updatedAt"
+  >,
+>(progress: readonly TProgress[]): TProgress | undefined {
+  let latest: TProgress | undefined;
+  for (const entry of progress) {
+    if (!chapterProgressHasReading(entry)) continue;
+    if (
+      !latest ||
+      entry.lastReadAt > latest.lastReadAt ||
+      (entry.lastReadAt === latest.lastReadAt &&
+        (entry.updatedAt > latest.updatedAt ||
+          (entry.updatedAt === latest.updatedAt &&
+            entry.sourceChapterId > latest.sourceChapterId)))
+    ) {
+      latest = entry;
+    }
+  }
+  return latest;
+}
+
+/**
+ * The work's summary after `resetChapterIds` were marked unread, or null when
+ * it does not change (no summary, or it is on a chapter still read). It moves
+ * back to the newest remaining read event, or is cleared (no chapter, read at
+ * 0) when nothing is read any more. `progress` is every chapter row of the
+ * work as saved, the reset ones included.
+ */
+export function mangaProgressAfterChapterReset(
+  current: LocalMangaProgress | null | undefined,
+  progress: readonly Omit<LocalChapterProgress, "id">[],
+  resetChapterIds: ReadonlySet<string>,
+  updatedAt: number,
+): LocalMangaProgress | null {
+  if (
+    !current?.lastReadSourceChapterId ||
+    !resetChapterIds.has(current.lastReadSourceChapterId)
+  ) {
+    return null;
+  }
+  const latest = latestChapterProgressReadEvent(progress);
+  if (latest) {
+    return {
+      ...mangaProgressFromChapterProgress(latest, updatedAt),
+      libraryItemId: current.libraryItemId ?? latest.libraryItemId,
+    };
+  }
+  return {
+    id: current.id,
+    registryId: current.registryId,
+    sourceId: current.sourceId,
+    sourceMangaId: current.sourceMangaId,
+    libraryItemId: current.libraryItemId,
+    lastReadAt: 0,
     updatedAt,
   };
 }
@@ -624,6 +729,7 @@ export function mapCloudChapterProgress<T extends CloudChapterProgress>(
       volumeNumber: entry.volumeNumber,
       chapterTitle: entry.chapterTitle,
       ...(intraPageState ?? {}),
+      ...(entry.resetAt === undefined ? {} : { resetAt: entry.resetAt }),
       updatedAt: entry.updatedAt,
     };
   });
@@ -1043,7 +1149,7 @@ export function mergeChapterProgressForSave<
       chapterProgressHighWaterValues(incoming),
     );
     return {
-      ...withoutChapterProgressIntraPageState(incoming),
+      ...withoutChapterProgressMergedState(incoming),
       ...normalized,
     };
   }
@@ -1068,7 +1174,7 @@ export function mergeChapterProgressForSave<
   const other = owner === incoming ? existing : incoming;
 
   return {
-    ...withoutChapterProgressIntraPageState(owner),
+    ...withoutChapterProgressMergedState(owner),
     // The server derives this from source links and may not have resolved one
     // yet; never let a cloud row without a link erase the local association.
     libraryItemId: owner.libraryItemId ?? other.libraryItemId,
@@ -1080,6 +1186,7 @@ export function mergeChapterProgressForSave<
     volumeNumber: merged.volumeNumber,
     chapterTitle: merged.chapterTitle,
     ...chapterProgressIntraPageState(merged),
+    ...(merged.resetAt === undefined ? {} : { resetAt: merged.resetAt }),
     updatedAt: merged.updatedAt,
   } as TProgress;
 }
@@ -1167,8 +1274,11 @@ export type ProgressSnapshotMerge<TProgress> = {
 export function chapterProgressNeedsPush(
   local: LocalChapterProgress,
   cloud: LocalChapterProgress | undefined,
+  options: { resetState?: boolean } = {},
 ): boolean {
   const now = estimatedSyncServerTime();
+  const localResetAt = chapterProgressResetClock(local, now);
+  const cloudResetAt = cloud ? chapterProgressResetClock(cloud, now) : undefined;
   const localIntraPageState = chapterProgressIntraPageState(local);
   const cloudIntraPageState = cloud
     ? chapterProgressIntraPageState(cloud)
@@ -1191,7 +1301,34 @@ export function chapterProgressNeedsPush(
     (local.chapterNumber !== undefined && cloud.chapterNumber === undefined) ||
     (local.volumeNumber !== undefined && cloud.volumeNumber === undefined) ||
     (local.chapterTitle !== undefined && cloud.chapterTitle === undefined) ||
-    (localIntraPageState !== undefined && cloudIntraPageState === undefined)
+    (localIntraPageState !== undefined && cloudIntraPageState === undefined) ||
+    // A reset the server has not stored yet (made offline, or while the
+    // backend predated the protocol). Callers pass `resetState: false` for a
+    // backend that cannot store one, or this would push on every snapshot.
+    (options.resetState !== false &&
+      localResetAt !== undefined &&
+      (cloudResetAt === undefined || localResetAt > cloudResetAt))
+  );
+}
+
+/**
+ * The snapshot's local winners a backend can actually take. Without the
+ * reset protocol a winner that only differs by its reset would be pushed,
+ * dropped by the validator-stripped payload, and pushed again forever.
+ */
+export function chapterProgressWinnersForPush<
+  TProgress extends LocalChapterProgress,
+>(
+  winners: readonly TProgress[],
+  cloud: readonly LocalChapterProgress[],
+  options: { resetState: boolean },
+): TProgress[] {
+  if (options.resetState) return [...winners];
+  const cloudById = new Map(cloud.map((entry) => [entry.id, entry]));
+  return winners.filter((winner) =>
+    chapterProgressNeedsPush(winner, cloudById.get(winner.id), {
+      resetState: false,
+    }),
   );
 }
 
@@ -1215,6 +1352,7 @@ function chapterProgressEquals(
     left.chapterTitle === right.chapterTitle &&
     left.intraPageProgress === right.intraPageProgress &&
     left.intraPageContentIdentity === right.intraPageContentIdentity &&
+    left.resetAt === right.resetAt &&
     left.updatedAt === right.updatedAt
   );
 }

@@ -272,7 +272,7 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
         if (file.exists) file.delete();
         return;
       }
-      file.write(
+      file.writeSync(
         JSON.stringify({
           version: 1,
           access: Object.fromEntries(access),
@@ -799,7 +799,7 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
         }
         const file = new File(this.cacheDir, `${encodedKey}.${nextExtension}`);
         this.removeTrackedFile(file);
-        file.write(bytes);
+        file.writeSync(bytes);
         this.cacheFileNames.set(encodedKey, file.name);
         this.assertCurrentWrite(writeLease);
         if (this.policy) {
@@ -1021,7 +1021,7 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
                 "Segmented image cache manifest exceeds its byte limit.",
               );
             }
-            stageManifest.write(serialized);
+            stageManifest.writeSync(serialized);
             const manifestBytes = stageManifest.info().size ?? 0;
             if (
               manifestBytes <= 0 ||
