@@ -5,6 +5,7 @@ import {
   formatMobileNewChapterCount,
   formatMobileNewChapterTag,
   getMobileExploreNewChapters,
+  isMobileSourceNameRedundantWithTitle,
   withoutMobileZeroVolume,
 } from "./mobileContinueReadingCopy";
 import { getMobileStrings } from "./mobileI18n";
@@ -45,5 +46,19 @@ describe("continue-reading copy", () => {
     expect(formatMobileExploreChapterLabel({ id: "a", volumeNumber: 0 }, en)).toBeNull();
     const numbered = { id: "a", volumeNumber: 2, chapterNumber: 5 };
     expect(withoutMobileZeroVolume(numbered)).toBe(numbered);
+  });
+});
+
+describe("isMobileSourceNameRedundantWithTitle", () => {
+  test("a source named after the title repeats it", () => {
+    expect(isMobileSourceNameRedundantWithTitle("Pepper&Carrot", "Pepper&Carrot")).toBe(true);
+    expect(isMobileSourceNameRedundantWithTitle("PEPPER & CARROT", "Pepper&Carrot")).toBe(true);
+    expect(isMobileSourceNameRedundantWithTitle("Ｐｅｐｐｅｒ＆Ｃａｒｒｏｔ", "Pepper&Carrot")).toBe(true);
+  });
+
+  test("any other source keeps its eyebrow", () => {
+    expect(isMobileSourceNameRedundantWithTitle("Pepper&Carrot", "Iron Lantern")).toBe(false);
+    expect(isMobileSourceNameRedundantWithTitle("MangaDex", "Pepper&Carrot")).toBe(false);
+    expect(isMobileSourceNameRedundantWithTitle("", "")).toBe(false);
   });
 });

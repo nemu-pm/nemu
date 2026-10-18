@@ -104,3 +104,14 @@ export function formatMobileExploreChapterNumber(
 export function withoutMobileZeroVolume<T extends ChapterSummary>(chapter: T): T {
   return chapter.volumeNumber === 0 ? { ...chapter, volumeNumber: undefined } : chapter;
 }
+
+/**
+ * The card's source eyebrow says nothing when the source is named after the
+ * title itself (a single-title source): the title right under it repeats it.
+ * Case, width and spacing aside, the two must read the same.
+ */
+export function isMobileSourceNameRedundantWithTitle(sourceName: string, title: string): boolean {
+  const normalize = (value: string) => value.normalize("NFKC").replace(/\s+/g, "").toLocaleLowerCase();
+  const name = normalize(sourceName);
+  return name.length > 0 && name === normalize(title);
+}

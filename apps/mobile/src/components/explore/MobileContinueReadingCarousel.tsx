@@ -37,6 +37,7 @@ import {
   formatMobileLastRead,
   formatMobileNewChapterCount,
   getMobileExploreNewChapters,
+  isMobileSourceNameRedundantWithTitle,
 } from "@/lib/mobileContinueReadingCopy";
 import {
   buildMobileCoverTintPalette,
@@ -706,14 +707,16 @@ const ContinueCard = memo(function ContinueCard({
     ) : null;
   const titleBlock = (
     <>
-      <NemuText
-        numberOfLines={1}
-        maxFontSizeMultiplier={CARD_TEXT_MAX_SCALE}
-        color={palette.cardInkSecondary}
-        style={styles.eyebrow}
-      >
-        {sourceName.toLocaleUpperCase()}
-      </NemuText>
+      {isMobileSourceNameRedundantWithTitle(sourceName, title) ? null : (
+        <NemuText
+          numberOfLines={1}
+          maxFontSizeMultiplier={CARD_TEXT_MAX_SCALE}
+          color={palette.cardInkSecondary}
+          style={styles.eyebrow}
+        >
+          {sourceName.toLocaleUpperCase()}
+        </NemuText>
+      )}
       <NemuText
         numberOfLines={2}
         maxFontSizeMultiplier={CARD_TEXT_MAX_SCALE}
