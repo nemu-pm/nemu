@@ -2,15 +2,19 @@ import ExpoModulesCore
 import OSLog
 import UIKit
 
-/// The app's orientations from the first frame (owner decision 2026-10-15):
-/// an ordinary iPhone is portrait everywhere; the iPhone Duo and iPad rotate.
+/// The app's orientations (owner decisions 2026-10-15, 2026-10-19): an
+/// ordinary iPhone is portrait everywhere; the iPhone Duo (both displays) and
+/// iPad rotate, the reader included.
 ///
-/// Info.plist declares portrait for iPhone (the launch screen is drawn from it
-/// before any code runs) and every orientation for iPad. The Duo is an iPhone
-/// too, so this delegate widens the mask once the window's hinge reports:
-/// `UIHingeInteraction` only reports a hinge on a device that has one. The JS
-/// orientation policy still layers the reader's portrait lock on top (Expo
-/// intersects every subscriber's mask).
+/// Info.plist declares every orientation for iPhone and iPad, so a Duo opened
+/// sideways on its outer display launches in landscape. An ordinary iPhone is
+/// narrowed to portrait here from the first time UIKit asks (before the first
+/// frame of the app's own UI; the launch screen is a plain background colour,
+/// so a settle behind it is invisible), and this delegate widens the mask once
+/// the window's hinge reports: `UIHingeInteraction` only reports a hinge on a
+/// device that has one. The reader's Orientation Lock narrows the Duo's mask
+/// to the orientation it has (`NemuInterfaceOrientationLock`); Expo intersects
+/// every subscriber's mask.
 public final class NemuOrientationGateAppDelegate: ExpoAppDelegateSubscriber {
   public func application(
     _ application: UIApplication,
@@ -36,8 +40,43 @@ enum NemuOrientationGate {
   private static var observer: NSObjectProtocol?
   private static var probes: [ObjectIdentifier: AnyObject] = [:]
 
+  /// The reader's Orientation Lock on a foldable iPhone: the orientation the
+  /// scene had when it locked (the outer display honours the mask; the inner
+  /// one ignores it and keeps the scene lock instead).
+  @MainActor static var heldMask: UIInterfaceOrientationMask?
+
   static func mask(idiom: UIUserInterfaceIdiom) -> UIInterfaceOrientationMask {
-    idiom == .phone && !foldable ? .portrait : .all
+    guard idiom == .phone else { return .all }
+    guard foldable else { return .portrait }
+    return MainActor.assumeIsolated { heldMask } ?? .all
+  }
+
+  /// Holds (or releases) a foldable iPhone's current orientation.
+  @available(iOS 26.0, *)
+  @MainActor static func hold(_ value: Bool) {
+    let next: UIInterfaceOrientationMask? = value && foldable ? currentMask() : nil
+    guard next != heldMask else { return }
+    heldMask = next
+    orientationGateLog.debug("orientation hold \(next == nil ? "off" : "on", privacy: .public)")
+    for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
+      for window in scene.windows {
+        window.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+      }
+    }
+  }
+
+  @available(iOS 26.0, *)
+  @MainActor private static func currentMask() -> UIInterfaceOrientationMask? {
+    let scene = UIApplication.shared.connectedScenes
+      .compactMap { $0 as? UIWindowScene }
+      .first { $0.activationState == .foregroundActive } ?? UIApplication.shared.connectedScenes.first as? UIWindowScene
+    switch scene?.effectiveGeometry.interfaceOrientation {
+    case .portrait: return .portrait
+    case .portraitUpsideDown: return .portraitUpsideDown
+    case .landscapeLeft: return .landscapeLeft
+    case .landscapeRight: return .landscapeRight
+    default: return nil
+    }
   }
 
   static func start() {
@@ -166,15 +205,22 @@ enum NemuInterfaceOrientationLock {
   private static var installed = false
 
   /// Locks at once; a release waits for the transition that caused it (the
-  /// reader's Back) to finish, see `NemuTransitionSettle`.
+  /// reader's Back) to finish, see `NemuTransitionSettle`. On a foldable
+  /// iPhone the gate also holds the current orientation (the outer display
+  /// honours supported orientations, not the scene lock).
   static func set(_ value: Bool) {
     guard #available(iOS 26.0, *) else { return }
     install()
     wanted = value
     if value {
       apply(true)
+      NemuOrientationGate.hold(true)
     } else {
-      NemuTransitionSettle.wait { if !wanted { apply(false) } }
+      NemuTransitionSettle.wait {
+        guard !wanted else { return }
+        apply(false)
+        NemuOrientationGate.hold(false)
+      }
     }
   }
 
