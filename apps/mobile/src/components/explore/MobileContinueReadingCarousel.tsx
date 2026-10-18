@@ -318,7 +318,6 @@ export function MobileContinueReadingCarousel({
         if (step.tick) runOnJS(tick)();
       },
     },
-    [count, interval, tick],
   );
 
   // The window changed under the row (rotation, fold, a bar moving): keep the
