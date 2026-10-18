@@ -4,7 +4,8 @@ import { StyleSheet, useWindowDimensions, View, type LayoutChangeEvent } from "r
 import { createNemuShadowStyle, radius, useNemuTheme } from "@/design-system";
 import { getMobileContinueCardGeometry, getMobileContinueCardVariant } from "@/lib/mobileContinueCardGeometry";
 import { getMobileExploreSkeletonCardHeight } from "@/lib/mobileExploreSkeleton";
-import { MOBILE_MANGA_GRID_GAP } from "@/lib/mobileAdaptiveGrid";
+import { MOBILE_MANGA_GRID_GAP, mobileLibraryGridMinItemWidth } from "@/lib/mobileAdaptiveGrid";
+import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { mobileFoldAwareGridCellStyle } from "@/lib/mobileFoldAwareGrid";
 import { MOBILE_SHELF } from "@/lib/mobileLibraryShelf";
 import { NO_INSETS, useMobileFoldAwareGrid } from "@/lib/useMobileFoldAwareGrid";
@@ -28,7 +29,12 @@ export function ExploreLibrarySkeleton({ accessibilityLabel }: { accessibilityLa
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const shimmerBackdrop = useExploreShimmerBackdrop();
   const bleed = useMobileExploreRowBleed();
-  const { ref: gridRef, onLayout: onGridLayout, ...grid } = useMobileFoldAwareGrid({ insets: NO_INSETS });
+  const adaptive = useMobileAdaptiveLayout();
+  const { ref: gridRef, onLayout: onGridLayout, ...grid } = useMobileFoldAwareGrid({
+    insets: NO_INSETS,
+    // Same covers as the Library it stands in for.
+    minItemWidth: mobileLibraryGridMinItemWidth(adaptive),
+  });
   const [frameWidth, setFrameWidth] = useState(0);
   const displayReady = useSkeletonDisplayDelay(150);
   if (!displayReady) return null;

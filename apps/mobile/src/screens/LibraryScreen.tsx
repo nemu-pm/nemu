@@ -108,7 +108,7 @@ import {
   describeMobileErrorDetail,
   sanitizeMobileErrorDiagnostic,
 } from "@/lib/mobileSourceErrors";
-import { MOBILE_MANGA_GRID_GAP } from "@/lib/mobileAdaptiveGrid";
+import { MOBILE_MANGA_GRID_GAP, mobileLibraryGridMinItemWidth } from "@/lib/mobileAdaptiveGrid";
 import { chunkMobileGridRows, mobileFoldAwareGridCellStyle } from "@/lib/mobileFoldAwareGrid";
 import { MobilePaneAlignedView } from "@/lib/MobilePaneAlignedView";
 import { useMobileFoldAwareGrid } from "@/lib/useMobileFoldAwareGrid";
@@ -838,7 +838,7 @@ export function LibraryScreen({
   collectionId = null,
   mode = "library",
 }: LibraryScreenProps = {}) {
-  const { verticalBarSide } = useMobileAdaptiveLayout();
+  const { verticalBarSide, width: windowWidth, height: windowHeight, hasFoldRegion } = useMobileAdaptiveLayout();
   const { scheme, tokens } = useNemuTheme();
   const usesNativeHeader = usesNemuNativeHeader;
   const store = useMobileDataStore();
@@ -917,6 +917,8 @@ export function LibraryScreen({
   // count on regular widths), and in book posture the middle gutter sits on
   // the fold so no cover straddles it.
   const grid = useMobileFoldAwareGrid({
+    // Larger covers on an iPad (mobileLibraryGridMinItemWidth).
+    minItemWidth: mobileLibraryGridMinItemWidth({ width: windowWidth, height: windowHeight, hasFoldRegion }),
     getNode: () =>
       gridScrollRef.current?.getNativeScrollRef?.() as
         | { measureInWindow?: (callback: (x: number, y: number, width: number, height: number) => void) => void }

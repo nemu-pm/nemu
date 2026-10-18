@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildMobileReaderPairedSpreads,
+  describeMobileReaderPairing,
   freezeMobileReaderSpreadsThrough,
+  isMobileReaderStripChapter,
+  mobileReaderColourOddPages,
+  mobileReaderFirstHeadSegment,
   isMobileReaderWidePage,
   mobileReaderPagesPairable,
   mobileReaderPairingSegments,
@@ -106,5 +110,69 @@ describe("mobile reader pairing", () => {
     expect(nextMobileReaderSpreadTable({
       previous, computed, reset: true, currentPageIndex: 1, settled: () => true,
     })).toBe(computed);
+  });
+});
+
+describe("mobile reader pairing v2", () => {
+  const n = (count: number) => Array.from({ length: count }, () => P);
+
+  test("a colour page inside a black-and-white chapter stands alone and the chapter proper starts after it", () => {
+    const chroma = [0.6, 0, 0, 0, 0, 0, 0, 0, 0];
+    const oddAt = mobileReaderColourOddPages(chroma.length, (i) => chroma[i]);
+    expect(oddAt(0)).toBe(true);
+    expect(oddAt(1)).toBe(false);
+    // The first page of the chapter proper stands alone (cover alone), after the colour credit.
+    expect(buildMobileReaderPairedSpreads({ pageCount: 9, sizeAt: sizes(n(9)), pairing: "cover-alone", oddAt }))
+      .toEqual([[0], [1], [2, 3], [4, 5], [6, 7], [8]]);
+  });
+
+  test("in a colour chapter, or with too few pages measured, no page is odd for its colour", () => {
+    const colour = [0.5, 0.4, 0.6, 0.5, 0.3, 0.7, 0.5];
+    expect(mobileReaderColourOddPages(colour.length, (i) => colour[i])(0)).toBe(false);
+    const few = [0.6, 0, 0];
+    expect(mobileReaderColourOddPages(few.length, (i) => few[i])(0)).toBe(false);
+  });
+
+  test("webtoon strips never pair", () => {
+    const strip = { width: 700, height: 2200 };
+    expect(isMobileReaderStripChapter(4, sizes([strip, strip, P, strip]))).toBe(true);
+    expect(buildMobileReaderPairedSpreads({ pageCount: 4, sizeAt: sizes([strip, strip, P, strip]), pairing: "cover-paired" }))
+      .toEqual([[0], [1], [2], [3]]);
+  });
+
+  test("the first head is the first run of ordinary pages within the opening; the old rule only looked at page 0", () => {
+    const list = [W, ...n(5)];
+    const segments = mobileReaderPairingSegments(6, sizes(list));
+    expect(mobileReaderFirstHeadSegment(segments)).toBe(1);
+    // After a wide page the book pairs from the head, whatever the rule.
+    expect(buildMobileReaderPairedSpreads({ pageCount: 6, sizeAt: sizes(list), pairing: "cover-alone" }))
+      .toEqual([[0], [1, 2], [3, 4], [5]]);
+  });
+
+  test("automatic: the opening run that ends at a wide page ends on a full pair (anchor)", () => {
+    const list = [...n(5), W, ...n(4)];
+    const result = describeMobileReaderPairing({ pageCount: 10, sizeAt: sizes(list), pairing: "auto" });
+    expect(result.spreads.slice(0, 4)).toEqual([[0], [1, 2], [3, 4], [5]]);
+    expect(result.segments[0]?.source).toBe("anchor");
+    const even = [...n(4), W, ...n(2)];
+    expect(buildMobileReaderPairedSpreads({ pageCount: 7, sizeAt: sizes(even), pairing: "auto" }))
+      .toEqual([[0, 1], [2, 3], [4], [5, 6]]);
+    // The fixed rule ignores the anchor.
+    expect(buildMobileReaderPairedSpreads({ pageCount: 7, sizeAt: sizes(even), pairing: "cover-alone" }))
+      .toEqual([[0], [1, 2], [3], [4], [5, 6]]);
+  });
+
+  test("the learned default flips only rule-decided spreads; a chapter's own shift flips everything but anchors after wide pages", () => {
+    const list = [...n(5), W, ...n(4)];
+    const sizeAt = sizes(list);
+    // Anchored opening: the learned default leaves it alone.
+    expect(buildMobileReaderPairedSpreads({ pageCount: 10, sizeAt, pairing: "auto", fallbackShift: true }).slice(0, 3))
+      .toEqual([[0], [1, 2], [3, 4]]);
+    // No evidence: the learned default flips the fallback.
+    expect(buildMobileReaderPairedSpreads({ pageCount: 5, sizeAt: sizes(n(5)), pairing: "auto", fallbackShift: true }))
+      .toEqual([[0, 1], [2, 3], [4]]);
+    // The chapter's own choice wins over evidence.
+    expect(buildMobileReaderPairedSpreads({ pageCount: 10, sizeAt, pairing: "auto", shift: true }).slice(0, 3))
+      .toEqual([[0, 1], [2, 3], [4]]);
   });
 });

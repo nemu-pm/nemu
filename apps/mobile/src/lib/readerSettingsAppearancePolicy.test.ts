@@ -57,9 +57,8 @@ describe("reader settings sheet presentation", () => {
   const source = mobileSource("components/reader/ReaderSettingsNativePopover.ios.tsx");
 
   test("presentation modifiers are on the presented root: the popover's Form, the sheet's Group", () => {
-    expect(source).toContain(
-      "? [frame({ width: presentation.width, height: presentation.height }), ...presentationModifiers]",
-    );
+    const popover = source.slice(source.indexOf('presentation.kind === "popover" && !sheet'), source.indexOf("reportSheetContentHeight({ page"));
+    expect(popover).toContain("...presentationModifiers,");
     const sheet = source.indexOf("<SwiftBottomSheet");
     const stack = source.indexOf("<SwiftNavigationStack", sheet);
     expect(source.slice(sheet, stack)).toContain("...presentationModifiers,");

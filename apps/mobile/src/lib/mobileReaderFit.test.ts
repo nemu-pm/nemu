@@ -3,7 +3,9 @@ import {
   clampMobileReaderPan,
   mobileReaderFitFrame,
   mobileReaderFitRestingOffset,
+  mobileReaderPageFitMode,
   mobileReaderPanBound,
+  mobileReaderPanStepTarget,
   mobileReaderPanClaim,
   normalizeReaderFitMode,
   normalizeReaderFitModes,
@@ -137,6 +139,102 @@ describe("pan claim at rest", () => {
     expect(mobileReaderPanClaim({ ...tall, dy: -30 })).toBe("claim");
     expect(mobileReaderPanClaim({ ...tall, dy: 30 })).toBe("yield");
     expect(mobileReaderPanClaim({ ...tall, offsetY: -454, dy: -30 })).toBe("yield");
+  });
+});
+
+describe("a wide page alone in a portrait window", () => {
+  const wide = { width: 1800, height: 1200 };
+  const tall = { width: 800, height: 1200 };
+
+  test("fits the height and pans instead of shrinking", () => {
+    expect(mobileReaderPageFitMode({ mode: "page", single: true, viewport: phonePortrait, naturalSize: wide })).toBe(
+      "height",
+    );
+    const frame = mobileReaderFitFrame({ mode: "height", viewport: phonePortrait, ratio: readerFitRatio(wide) });
+    expect(frame.height).toBe(874);
+    expect(frame.width).toBeCloseTo(1311, 5);
+    expect(frame.overflowX).toBe(true);
+    expect(frame.overflowY).toBe(false);
+  });
+
+  test("only pages wider than 1.2 : 1 count as wide", () => {
+    const at = (width: number) =>
+      mobileReaderPageFitMode({ mode: "page", single: true, viewport: phonePortrait, naturalSize: { width, height: 1000 } });
+    expect(at(1200)).toBe("page");
+    expect(at(1201)).toBe("height");
+    expect(mobileReaderPageFitMode({ mode: "page", single: true, viewport: phonePortrait, naturalSize: tall })).toBe(
+      "page",
+    );
+    expect(mobileReaderPageFitMode({ mode: "page", single: true, viewport: phonePortrait, naturalSize: null })).toBe(
+      "page",
+    );
+  });
+
+  test("spreads, landscape windows and explicit fits are unchanged", () => {
+    expect(mobileReaderPageFitMode({ mode: "page", single: false, viewport: phonePortrait, naturalSize: wide })).toBe(
+      "page",
+    );
+    expect(mobileReaderPageFitMode({ mode: "page", single: true, viewport: phoneLandscape, naturalSize: wide })).toBe(
+      "page",
+    );
+    for (const mode of ["width", "height", "fill"] as const) {
+      expect(mobileReaderPageFitMode({ mode, single: true, viewport: phonePortrait, naturalSize: wide })).toBe(mode);
+    }
+  });
+
+  test("rests at the reading-start edge", () => {
+    const frame = mobileReaderFitFrame({ mode: "height", viewport: phonePortrait, ratio: readerFitRatio(wide) });
+    const bound = mobileReaderPanBound(frame.width, phonePortrait.width, 1);
+    // Right-to-left shows the page's right edge (shifted left), left-to-right its left edge.
+    expect(mobileReaderFitRestingOffset({ frame, viewport: phonePortrait, rtl: true }).x).toBeCloseTo(-bound, 5);
+    expect(mobileReaderFitRestingOffset({ frame, viewport: phonePortrait, rtl: false }).x).toBeCloseTo(bound, 5);
+  });
+});
+
+describe("tap turns pan a wide page first", () => {
+  const bound = 450;
+  const viewportWidth = 400;
+
+  test("right-to-left: next pans towards the left edge in window steps, then turns", () => {
+    let offset = -bound;
+    const stops: number[] = [];
+    for (;;) {
+      const next = mobileReaderPanStepTarget({ offset, bound, viewportWidth, direction: "next", rtl: true });
+      if (next === null) break;
+      stops.push(next);
+      offset = next;
+    }
+    expect(stops).toEqual([-90, 270, 450]);
+  });
+
+  test("left-to-right: next pans towards the right edge, then turns", () => {
+    expect(mobileReaderPanStepTarget({ offset: bound, bound, viewportWidth, direction: "next", rtl: false })).toBe(90);
+    expect(mobileReaderPanStepTarget({ offset: -bound, bound, viewportWidth, direction: "next", rtl: false })).toBeNull();
+  });
+
+  test("previous pans back towards the reading start, then turns", () => {
+    expect(mobileReaderPanStepTarget({ offset: bound, bound, viewportWidth, direction: "previous", rtl: true })).toBe(
+      90,
+    );
+    expect(
+      mobileReaderPanStepTarget({ offset: -bound, bound, viewportWidth, direction: "previous", rtl: true }),
+    ).toBeNull();
+    expect(
+      mobileReaderPanStepTarget({ offset: bound, bound, viewportWidth, direction: "previous", rtl: false }),
+    ).toBeNull();
+  });
+
+  test("a last stretch shorter than a quarter window is taken in the same step", () => {
+    // 434 pt of overflow against a 419 pt step: one tap reaches the far edge.
+    expect(mobileReaderPanStepTarget({ offset: -217, bound: 217, viewportWidth: 466, direction: "next", rtl: true })).toBe(
+      217,
+    );
+    expect(mobileReaderPanStepTarget({ offset: 217, bound: 217, viewportWidth: 466, direction: "next", rtl: true })).toBeNull();
+  });
+
+  test("a page with no sideways overflow always turns", () => {
+    expect(mobileReaderPanStepTarget({ offset: 0, bound: 0, viewportWidth, direction: "next", rtl: true })).toBeNull();
+    expect(mobileReaderPanStepTarget({ offset: Number.NaN, bound, viewportWidth, direction: "next", rtl: true })).toBeNull();
   });
 });
 

@@ -202,7 +202,7 @@ export type UserSettings = {
    * "Shift by One Page", per manga (`mobileReaderPairingShiftKey`): the
    * latest choice, which a chapter without its own takes, and each chapter's.
    */
-  readerPairingShifts?: Record<string, { shift: boolean; chapters?: Record<string, boolean> }>;
+  readerPairingShifts?: Record<string, { chapters?: Record<string, boolean>; learned?: boolean; shift?: boolean }>;
   /** Around the page: black (default), white, or the page's own border colour. */
   readerPageBackground?: "black" | "white" | "page";
   /** 翻页: curl (default) or slide. */

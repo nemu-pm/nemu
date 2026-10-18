@@ -28,7 +28,8 @@ export function useReaderPagePrefs(): {
   spreadPairing: MobileReaderSpreadPairing;
   setSpreadPairing: (value: MobileReaderSpreadPairing) => Promise<void>;
   pairingShifts: MobileReaderPairingShifts;
-  togglePairingShift: (mangaKey: string, chapterId: string) => Promise<void>;
+  /** `neighbourIds`: the chapters before and after, so a repeated correction is learned for the manga. */
+  togglePairingShift: (mangaKey: string, chapterId: string, neighbourIds?: ReadonlyArray<string | null | undefined>) => Promise<void>;
   pageBackground: MobileReaderPageBackground;
   setPageBackground: (value: MobileReaderPageBackground) => Promise<void>;
   pageTurn: MobileReaderPageTurn;
@@ -105,10 +106,10 @@ export function useReaderPagePrefs(): {
   );
 
   const togglePairingShift = useCallback(
-    async (mangaKey: string, chapterId: string) => {
+    async (mangaKey: string, chapterId: string, neighbourIds: ReadonlyArray<string | null | undefined> = []) => {
       const run = pairingShiftRun.current + 1;
       pairingShiftRun.current = run;
-      const next = toggleMobileReaderPairingShift(pairingShifts, mangaKey, chapterId);
+      const next = toggleMobileReaderPairingShift(pairingShifts, mangaKey, chapterId, neighbourIds);
       setPairingShiftsState(next);
       try {
         await store.updateSettings((settings) => ({
@@ -117,6 +118,7 @@ export function useReaderPagePrefs(): {
             normalizeMobileReaderPairingShifts(settings.readerPairingShifts),
             mangaKey,
             chapterId,
+            neighbourIds,
           ),
         }));
         savedPairingShifts.current = next;

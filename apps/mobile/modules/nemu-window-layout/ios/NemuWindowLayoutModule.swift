@@ -2183,7 +2183,13 @@ final class NemuSegmentedControlView: ExpoView {
     updateText()
   }
 
+  /// Props land before Fabric's first layout, while the control still has the size
+  /// `insertSegment` gave it. A segment selected then gets its indicator placed on a
+  /// later layout pass, one frame after the labels, so the control takes this view's
+  /// frame first and selection waits until there is one (see `layoutSubviews`).
   private func applySelection() {
+    guard !bounds.isEmpty else { return }
+    if control.frame != bounds { control.frame = bounds }
     guard labels.indices.contains(selectedIndex), control.selectedSegmentIndex != selectedIndex else { return }
     control.selectedSegmentIndex = selectedIndex
   }
@@ -2197,7 +2203,13 @@ final class NemuSegmentedControlView: ExpoView {
 
   override func layoutSubviews() {
     super.layoutSubviews()
-    control.frame = bounds
+    if control.frame != bounds || control.selectedSegmentIndex != selectedIndex {
+      // Frame, then selection, then the indicator's layout, all in this pass.
+      UIView.performWithoutAnimation {
+        applySelection()
+        control.layoutIfNeeded()
+      }
+    }
     updateText()
   }
 

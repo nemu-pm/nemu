@@ -13,9 +13,12 @@ import Animated, {
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
+  withSpring,
   withTiming,
   type SharedValue,
 } from "react-native-reanimated";
+import { MOBILE_MOTION } from "@/lib/mobileMotion";
+import { isMobilePoseMotionWindowOpen, isMobilePoseReduceMotion } from "@/lib/mobilePoseLayoutAnimations";
 import { useMangaChapterProgress } from "@/data/mobileHooks";
 import { getEntryTitle, type InstalledSource, type LibraryEntry } from "@/data/schema";
 import {
@@ -46,8 +49,10 @@ import {
 import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
 import { getMobileSourceReaderHref } from "@/lib/mobileSourceRoutes";
 import {
+  getMobileContinueCardFlip,
   getMobileContinueCardGeometry,
   getMobileContinueCardRestOffset,
+  type MobileContinueCardRowPlacement,
   getMobileContinueCardVariant,
   MOBILE_CONTINUE_TALL_CARD,
   SINGLE_COVER_SHARE,
@@ -321,17 +326,41 @@ export function MobileContinueReadingCarousel({
   );
 
   // The window changed under the row (rotation, fold, a bar moving): keep the
-  // active card where it was. Not the user's scroll, so nothing ticks.
-  const anchored = useRef({ interval, paddingLeft: geometry.paddingLeft });
+  // active card where it was. Not the user's scroll, so nothing ticks. In a
+  // pose change (book ⇄ flat) the cards glide from their old places with the
+  // settle spring instead of jumping there in one frame.
+  const anchored = useRef({ interval, paddingLeft: geometry.paddingLeft, cardWidth });
+  const flipFrom = useSharedValue<MobileContinueCardRowPlacement | null>(null);
+  const flipTo = useSharedValue<MobileContinueCardRowPlacement | null>(null);
+  const flipProgress = useSharedValue(0);
   useLayoutEffect(() => {
     const previous = anchored.current;
-    anchored.current = { interval, paddingLeft: geometry.paddingLeft };
+    anchored.current = { interval, paddingLeft: geometry.paddingLeft, cardWidth };
     if (cardWidth <= 0 || previous.interval <= 1) return;
     if (previous.interval === interval && previous.paddingLeft === geometry.paddingLeft) return;
     userDriven.set(false);
     const x = getMobileContinueCardRestOffset(geometry, { index: activeIndex.get(), count, frameWidth });
+    if (isMobilePoseMotionWindowOpen() && !isMobilePoseReduceMotion() && previous.cardWidth > 0) {
+      flipFrom.set({ ...previous, scroll: scrollX.get() });
+      flipTo.set({ interval, paddingLeft: geometry.paddingLeft, cardWidth, scroll: x });
+      flipProgress.set(1);
+      flipProgress.set(withSpring(0, { ...MOBILE_MOTION.settleSpring }));
+    }
     scrollRef.current?.scrollTo({ x, y: 0, animated: false });
-  }, [activeIndex, cardWidth, count, frameWidth, geometry, interval, scrollRef, userDriven]);
+  }, [
+    activeIndex,
+    cardWidth,
+    count,
+    flipFrom,
+    flipProgress,
+    flipTo,
+    frameWidth,
+    geometry,
+    interval,
+    scrollRef,
+    scrollX,
+    userDriven,
+  ]);
   // The list shrank under the active card.
   useEffect(() => {
     if (activeIndex.get() > Math.max(0, count - 1)) activeIndex.set(Math.max(0, count - 1));
@@ -414,6 +443,9 @@ export function MobileContinueReadingCarousel({
                 marginRight={index === items.length - 1 ? 0 : interval - cardWidth}
                 interval={interval}
                 scrollX={scrollX}
+                flipFrom={flipFrom}
+                flipTo={flipTo}
+                flipProgress={flipProgress}
                 turns={turns}
                 variant={variant}
                 coverShare={coverShare}
@@ -528,6 +560,9 @@ const ContinueCard = memo(function ContinueCard({
   marginRight,
   interval,
   scrollX,
+  flipFrom,
+  flipTo,
+  flipProgress,
   turns,
   variant,
   coverShare,
@@ -548,6 +583,10 @@ const ContinueCard = memo(function ContinueCard({
   marginRight: number;
   interval: number;
   scrollX: SharedValue<number>;
+  /** The row's placement before and after a pose change; the card glides between them. */
+  flipFrom: SharedValue<MobileContinueCardRowPlacement | null>;
+  flipTo: SharedValue<MobileContinueCardRowPlacement | null>;
+  flipProgress: SharedValue<number>;
   turns: boolean;
   variant: MobileContinueCardVariant;
   /** Cover width over the card width (wide card). */
@@ -632,11 +671,16 @@ const ContinueCard = memo(function ContinueCard({
   // tall card, never squeezed.
   const sideWindowHeight = Math.min(Math.round(sideCoverWidth * 1.5), artHeight ?? Number.POSITIVE_INFINITY);
   const cardStyle = useAnimatedStyle(() => {
-    if (!turns || interval <= 0) return { transform: [] };
+    const from = flipFrom.value;
+    const to = flipTo.value;
+    const flip = from && to ? getMobileContinueCardFlip(from, to, index, flipProgress.value) : { translateX: 0, scale: 1 };
+    const glide = [{ translateX: flip.translateX }, { scale: flip.scale }];
+    if (!turns || interval <= 0) return { transform: glide };
     const position = scrollX.value / interval - index;
     const clamped = Math.max(-1, Math.min(1, position));
     return {
       transform: [
+        ...glide,
         { perspective: 900 },
         // Pull a turned, scaled-down neighbour back toward the active card
         // so it still peeks past the screen edge.

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  getMobileContinueCardFlip,
   getMobileContinueCardGeometry,
   getMobileContinueCardRestOffset,
   getMobileContinueCardVariant,
@@ -241,5 +242,32 @@ describe("getMobileContinueCardGeometry", () => {
     expect(getMobileContinueCardVariant("tall", 678, 466)).toBe("tall");
     expect(getMobileContinueCardVariant("tall", 466, 678)).toBe("wide");
     expect(getMobileContinueCardVariant("tall", 669, 951)).toBe("wide");
+  });
+});
+
+describe("pose change glide", () => {
+  // Duo inner display, landscape: book pose (cards on the fold halves) to flat.
+  const book = { paddingLeft: 30.5, interval: 475.5, cardWidth: 385, scroll: 475.5 };
+  const open = { paddingLeft: 20, interval: 431.5, cardWidth: 419.5, scroll: 431.5 };
+
+  test("each card starts where it was, at its old width", () => {
+    for (const index of [0, 1, 2, 3]) {
+      const flip = getMobileContinueCardFlip(book, open, index, 1);
+      const centre = (row: typeof book) => row.paddingLeft + index * row.interval - row.scroll + row.cardWidth / 2;
+      expect(centre(open) + flip.translateX).toBeCloseTo(centre(book), 5);
+      expect(open.cardWidth * flip.scale).toBeCloseTo(book.cardWidth, 5);
+    }
+  });
+
+  test("the active card's left edge barely moves; it settles at rest", () => {
+    const flip = getMobileContinueCardFlip(book, open, 1, 1);
+    const left = (row: typeof book) => row.paddingLeft + row.interval - row.scroll;
+    expect(Math.abs(left(open) - left(book))).toBeLessThan(11);
+    expect(getMobileContinueCardFlip(book, open, 1, 0)).toEqual({ translateX: 0, scale: 1 });
+    expect(Math.abs(flip.translateX)).toBeLessThan(30);
+  });
+
+  test("an unmeasured row never transforms", () => {
+    expect(getMobileContinueCardFlip({ ...book, cardWidth: 0 }, open, 1, 1)).toEqual({ translateX: 0, scale: 1 });
   });
 });
