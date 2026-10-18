@@ -2017,12 +2017,27 @@ function SettingsSplitColumnTitles({
 }: {
   alignment: MobileSettingsSplitTitleAlignment;
   centerY: number;
-  columns: { key: string; title: string; x: number; width: number; paddingLeft: number; paddingRight: number }[];
+  columns: {
+    key: string;
+    title: string;
+    x: number;
+    width: number;
+    paddingLeft: number;
+    paddingRight: number;
+    /** Bar buttons over this column's trailing edge. */
+    trailingItems?: number;
+  }[];
 }) {
   const { tokens } = useNemuTheme();
   return (
     <>
-      {columns.map((column) => (
+      {columns.map((column) => {
+        const trailingItems = column.trailingItems ?? 0;
+        // Bar buttons leave no room to centre the title over the column: it
+        // hugs the column's leading edge instead (as \`MobileExploreBarTitle\`
+        // does beside the bar's buttons) and stops short of them.
+        const leading = alignment === "leading" || trailingItems > 0;
+        return (
         <View
           key={column.key}
           pointerEvents="none"
@@ -2030,10 +2045,11 @@ function SettingsSplitColumnTitles({
             styles.columnTitle,
             {
               top: centerY - COLUMN_TITLE_LINE_HEIGHT / 2,
-              left: column.x + (alignment === "leading" ? column.paddingLeft : 0),
+              left: column.x + (leading ? column.paddingLeft : 0),
               width:
                 column.width -
-                (alignment === "leading" ? column.paddingLeft + column.paddingRight : 0),
+                (leading ? column.paddingLeft + column.paddingRight : 0) -
+                trailingItems * COLUMN_TITLE_BAR_ITEM_RESERVE,
             },
           ]}
         >
@@ -2044,13 +2060,14 @@ function SettingsSplitColumnTitles({
             color={tokens.foreground}
             style={[
               styles.columnTitleText,
-              alignment === "center" ? styles.columnTitleCentered : null,
+              leading ? null : styles.columnTitleCentered,
             ]}
           >
             {column.title}
           </NemuText>
         </View>
-      ))}
+        );
+      })}
     </>
   );
 }
@@ -2058,6 +2075,8 @@ function SettingsSplitColumnTitles({
 const NO_SETTINGS_ROWS: never[] = [];
 /** The native bar title's line (17pt semibold, `createNemuNativeStackScreenOptions`). */
 const COLUMN_TITLE_LINE_HEIGHT = 22;
+/** A bar button and its spacing, kept clear of a column title. */
+const COLUMN_TITLE_BAR_ITEM_RESERVE = 60;
 const renderNoSettingsRow = () => null;
 
 function SettingsScreenContent({
@@ -4310,6 +4329,8 @@ export function SettingsScreen({
                 title: settingsSectionTitle(strings, detailSection),
                 ...split.trailing,
                 ...padding.trailing,
+                // Installed Sources puts its Add button in the bar.
+                trailingItems: detailSection === "sources" ? 1 : 0,
               },
             ]}
           />
