@@ -3,6 +3,11 @@ name: Mobile
 permissions:
   contents: read
 
+env:
+  # The release bundles here only check that the app builds; none ships, and
+  # CI has no production Convex URL (see apps/mobile/preflightRelease.cjs).
+  NEMU_CI_LOCAL_ONLY_BUNDLE: "1"
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}

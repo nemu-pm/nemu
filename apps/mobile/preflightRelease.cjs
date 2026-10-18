@@ -55,6 +55,12 @@ function checkReleaseEnv(options = {}) {
   const problems = [];
 
   if (!convexUrl) {
+    // CI's release builds only check that the app bundles and compiles; none
+    // of them ships. They have no production URL, so CI may opt in to a
+    // local-only bundle. A URL that is set is still checked below.
+    if (env.CI === "true" && env.NEMU_CI_LOCAL_ONLY_BUNDLE === "1") {
+      return { ok: true, problems, mode };
+    }
     problems.push(
       "no production Convex URL (set EXPO_PUBLIC_CONVEX_URL in the environment or the root .env.production.local); the build would be local-only",
     );

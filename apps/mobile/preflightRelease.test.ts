@@ -160,6 +160,23 @@ describe("bundle-time enforcement (metro.config.js hook)", () => {
     ).toThrow();
   });
 
+  test("CI may opt in to a local-only bundle, but a dev URL still fails", () => {
+    const rootDir = makeRoot({});
+    const ci = { CI: "true", NEMU_CI_LOCAL_ONLY_BUNDLE: "1" };
+    expect(() => enforceReleaseEnv({ mode: "production" }, { env: ci, rootDir })).not.toThrow();
+    // The opt-in needs both: outside CI, or without it, no URL still fails.
+    expect(() =>
+      enforceReleaseEnv({ mode: "production" }, { env: { NEMU_CI_LOCAL_ONLY_BUNDLE: "1" }, rootDir }),
+    ).toThrow();
+    expect(() => enforceReleaseEnv({ mode: "production" }, { env: { CI: "true" }, rootDir })).toThrow();
+    expect(() =>
+      enforceReleaseEnv(
+        { mode: "production" },
+        { env: { ...ci, EXPO_PUBLIC_CONVEX_URL: KNOWN_DEV_URL }, rootDir },
+      ),
+    ).toThrow();
+  });
+
   test("production mode with the production host passes", () => {
     const rootDir = makeRoot({ ".env.local": `VITE_CONVEX_URL=${DEV_URL}\n` });
     expect(() =>
