@@ -132,11 +132,9 @@ function secondaryActionDepth(
 }
 
 type MobileMangaDetailSurfaceProps = Parameters<typeof MobileMangaDetailSurfaceClassic>[0] & {
-  /** Books-style hero (design-explore) facts row (source, chapter count, newest chapter), and its cover zoom ids. */
+  /** Books-style hero (design-explore) 作品信息 sheet: source and newest chapter, and its cover zoom ids. */
   infoTitle?: string | null;
-  infoChapters?: number | null;
   infoLatest?: string | null;
-  infoLatestNumber?: string | null;
   /** The 作品信息 sheet's languages, licence, and added / last-read dates (formatted). */
   infoLanguages?: string[] | null;
   infoLicense?: string | null;
@@ -165,9 +163,7 @@ type MobileMangaDetailSurfaceProps = Parameters<typeof MobileMangaDetailSurfaceC
  */
 export function MobileMangaDetailSurface({
   infoTitle,
-  infoChapters,
   infoLatest,
-  infoLatestNumber,
   infoLanguages,
   infoLicense,
   infoAdded,
@@ -194,9 +190,7 @@ export function MobileMangaDetailSurface({
         coverSource={props.coverSource ?? heldCoverSource}
         underCover={heldCoverSource}
         infoTitle={infoTitle}
-        infoChapters={infoChapters}
         infoLatest={infoLatest}
-        infoLatestNumber={infoLatestNumber}
         infoLanguages={infoLanguages}
         infoLicense={infoLicense}
         infoAdded={infoAdded}

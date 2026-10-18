@@ -82,7 +82,6 @@ import {
 import { formatContinueActionLabel } from "@/lib/formatChapter";
 import {
   formatMobileExploreChapterLabel,
-  formatMobileExploreChapterNumber,
   withoutMobileZeroVolume,
 } from "@/lib/mobileContinueReadingCopy";
 import { hapticConfirm, hapticError } from "@/lib/haptics";
@@ -3008,15 +3007,9 @@ export function MangaDetailScreen() {
                       ? sourcePresentationForLink(selectedSource, state.installedSources).name
                       : null
                   }
-                  infoChapters={chapters.length || null}
                   infoLatest={
                     selectedSource?.latestChapter
                       ? formatMobileExploreChapterLabel(selectedSource.latestChapter, strings)
-                      : null
-                  }
-                  infoLatestNumber={
-                    selectedSource?.latestChapter
-                      ? formatMobileExploreChapterNumber(selectedSource.latestChapter, strings)
                       : null
                   }
                   infoLanguages={detailLanguageNames}

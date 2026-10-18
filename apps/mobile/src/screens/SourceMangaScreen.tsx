@@ -19,7 +19,6 @@ import { MobileLibraryOptionsSheet } from "@/components/MobileLibraryOptionsShee
 import { withMobileExploreZoom } from "@/components/explore/mobileExploreCover";
 import {
   formatMobileExploreChapterLabel,
-  formatMobileExploreChapterNumber,
   withoutMobileZeroVolume,
 } from "@/lib/mobileContinueReadingCopy";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
@@ -1747,9 +1746,7 @@ export function SourceMangaScreen() {
               onHeroPaneChange={setHeroInPane}
               onHeroTitleBottom={setHeroTitleBottom}
               infoTitle={sourceName}
-              infoChapters={chapters.length || null}
               infoLatest={chapters[0] ? formatMobileExploreChapterLabel(chapters[0], strings) : null}
-              infoLatestNumber={chapters[0] ? formatMobileExploreChapterNumber(chapters[0], strings) : null}
               infoLanguages={detailLanguageNames}
               infoLicense={getMobileDetailSourceLicense(localState.installedSource)}
               infoAdded={inLibrary ? formatMobileDetailDate(localState.libraryEntry?.item.createdAt, appLanguage) : null}

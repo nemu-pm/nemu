@@ -7,7 +7,6 @@ import {
 import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type ReactElement, type ReactNode } from "react";
 import {
   Image,
-  PixelRatio,
   ScrollView,
   StyleSheet,
   useWindowDimensions,
@@ -42,10 +41,6 @@ import { buildMobileCoverTintPalette } from "@/lib/mobileCoverTint";
 import type { MobileStrings } from "@/lib/mobileI18n";
 import {
   buildMobileDetailInfoRows,
-  buildMobileDetailMetaCandidates,
-  fitMobileDetailFacts,
-  guessMobileDetailFactsLayout,
-  pickMobileDetailMetaLine,
   withoutMobileDescriptionLicence,
 } from "@/lib/mobileMangaDetailInfo";
 import { useMobileCoverRegionTints, useMobileCoverTint } from "@/lib/useMobileCoverTint";
@@ -63,7 +58,6 @@ import { ExploreDissolveTarget } from "./ExploreDissolveTarget";
 import { ExploreRailFade } from "./ExploreSourceHome";
 import { MobileExploreCoverPlaceholder } from "./MobileExploreCoverPlaceholder";
 import { MobileExploreConfetti } from "./MobileExploreConfetti";
-import { MobileOdometerText } from "./MobileOdometerText";
 import { useSkeletonPulse } from "@/lib/useSkeletonPulse";
 import Animated, {
   useAnimatedStyle,
@@ -103,7 +97,7 @@ const DESCRIPTION_MIN_LINES = 2;
 const DESCRIPTION_LINE_HEIGHT = 22;
 /** A cover shown narrower than this (a thumbnail, never blown up) sits beside the title. */
 const HERO_COMPACT_COVER_BELOW = 120;
-/** The smallest the hero cover gets on a short window, so the actions and facts rest clear. */
+/** The smallest the hero cover gets on a short window, so the actions rest clear. */
 const COVER_MIN_WIDTH = 150;
 /** Gap between the hero's blocks (`styles.root.gap`). */
 const BLOCK_GAP = 16;
@@ -118,7 +112,7 @@ const COLUMN_ACTIONS_MAX_WIDTH = 360;
 /** `styles.head.paddingTop`: the cover's top below the hero's. */
 const HEAD_PADDING_TOP = 8;
 /** First-commit estimates of the blocks the cover's size depends on (scaled with the text). */
-const ESTIMATE = { headText: 8 + 18 + 33 + 4 + 20, facts: 34, actions: 50 } as const;
+const ESTIMATE = { headText: 8 + 18 + 33 + 4 + 20, actions: 50 } as const;
 /** The primary button's leading glyph (the source's icon, or play): larger than the label's cap height. */
 const PRIMARY_GLYPH = 22;
 /** The Continue capsule in the wide header (pt): about a phone portrait's button. */
@@ -144,12 +138,6 @@ const CHIP_HEIGHT = 32;
 const INFO_GLYPH = 20;
 /** `styles.titleBlock`'s side padding. */
 const TITLE_BLOCK_PADDING = 12;
-/** The ⓘ's box and its gap from the text before it (styles.infoButton, styles.metaRow). */
-const INFO_ROOM = INFO_GLYPH + 4 + 6;
-/** The ⓘ's box and its gap after the facts (styles.infoButton, styles.factsWithInfo). */
-const FACTS_INFO_ROOM = INFO_GLYPH + 4 + 4;
-/** How far a long fact value in half the row shrinks before it is cut. */
-const FACT_VALUE_MIN_SCALE = 0.75;
 /** The add sheet's dismissal, before the In Library pill celebrates. */
 const LIBRARY_BURST_DELAY_MS = 320;
 
@@ -159,11 +147,6 @@ const MANGA_STATUS_LABEL: Record<number, keyof MobileStrings["metadataEditor"]> 
   3: "statusCancelled",
   4: "statusHiatus",
 };
-
-/** How many facts the hero's strip would show (it shows from two). */
-function infoRowCount(...values: Array<string | number | null | undefined>): number {
-  return values.filter((value) => value !== null && value !== undefined && value !== "" && value !== 0).length;
-}
 
 function isRemote(
   source: CoverSource | null | undefined,
@@ -194,9 +177,7 @@ export function MobileMangaDetailBooksHero({
   tags,
   description,
   infoTitle,
-  infoChapters,
   infoLatest,
-  infoLatestNumber,
   infoLanguages,
   infoLicense,
   infoAdded,
@@ -231,11 +212,8 @@ export function MobileMangaDetailBooksHero({
   description?: string | null;
   /** Source the primary action opens (e.g. "MangaDex"). */
   infoTitle?: string | null;
-  /** Chapters the source lists, and its newest chapter ("Ch.131"). */
-  infoChapters?: number | null;
+  /** The source's newest chapter ("Ch.131"). */
   infoLatest?: string | null;
-  /** The newest chapter's number alone ("Ch.131"), for a meta line with no room for its volume or title. */
-  infoLatestNumber?: string | null;
   /**
    * What only the 作品信息 sheet shows: the languages the source lists the
    * title in, its content licence, and when it was added and last read
@@ -319,16 +297,7 @@ export function MobileMangaDetailBooksHero({
   const contentWidth = Math.max(0, pane ? frameWidth - PANE_PADDING * 2 : frameWidth);
   const shortPane = pane && isMobileCompactHeight(windowHeight);
   const topCoverWidth = Math.round(Math.min(230, Math.max(150, contentWidth * 0.24)));
-  const topTextWidth = contentWidth - topCoverWidth - 28;
-  // The facts sit side by side when every cell's natural width fits the row,
-  // else 2 x 2 (measured below); this guess stands in until then and sizes
-  // the cover. (The wide page's hero column shows them as one meta line.)
-  const factsGuess = guessMobileDetailFactsLayout({
-    width: top ? topTextWidth : contentWidth,
-    fontScale: PixelRatio.getFontScale(),
-  });
-  const paneFactColumns = factsGuess === "grid" ? 2 : 4;
-  /** The facts and genres wrap in their column rather than run to the window edges. */
+  /** The genres wrap in their column rather than run to the window edges. */
   const grid = pane || top || inColumn;
   const rest = useMobileExploreRestingFrame();
   const rootRef = useRef<ViewInstance>(null);
@@ -336,21 +305,16 @@ export function MobileMangaDetailBooksHero({
   const naturalCoverWidth = getMobileBooksHeroCoverWidth(contentWidth);
   const hasActions = placeholder || Boolean(primaryAction || secondaryActions.length);
   // While the details load, the cover is sized for the page most titles land
-  // as (a synopsis and every fact), so it does not resize when they arrive.
-  const sizing = placeholder || pending;
-  const sizedFacts = sizing ? 4 : infoRowCount(infoTitle, infoChapters, infoLatest, status);
-  const sizedSynopsis = sizing || Boolean(description);
+  // as (with a synopsis), so it does not resize when it arrives.
+  const sizedSynopsis = placeholder || pending || Boolean(description);
   // The hero column's blocks under the cover, estimated (the same at loading
   // and loaded, and whether or not the synopsis is open).
   const columnTop = detailPane.columnTop ?? rest.topEstimate;
-  // The facts sit in the head as one meta line under the authors.
-  const columnFactsEstimate = (scale: number) => (sizedFacts < 2 ? 0 : 4 + 18 * scale);
   const columnBlocks = (synopsisLines: number) => {
     const scale = rest.fontScale(HERO_TEXT_MAX_SCALE);
     return (
       ESTIMATE.headText * scale +
       (hasActions ? BLOCK_GAP + ESTIMATE.actions * scale : 0) +
-      columnFactsEstimate(scale) +
       (sizedSynopsis ? BLOCK_GAP + synopsisLines * DESCRIPTION_LINE_HEIGHT * scale : 0) +
       (badges.length ? BLOCK_GAP + CHIP_HEIGHT * scale : 0)
     );
@@ -358,7 +322,7 @@ export function MobileMangaDetailBooksHero({
   // Resting content clears the tab bar (mobileExploreRestingFit). The
   // cover's size is the zoom's landing spot, so it comes from the window
   // alone, never from a later measurement: on a short window it gives up
-  // height until the actions, the facts and two synopsis lines rest above the
+  // height until the actions and two synopsis lines rest above the
   // tab bar.
   const coverWidth = (() => {
     if (top) return topCoverWidth;
@@ -369,14 +333,11 @@ export function MobileMangaDetailBooksHero({
       // as tall as that head leaves room for with the actions under it.
       if (!shortPane) return naturalCoverWidth;
       const scale = rest.fontScale(HERO_TEXT_MAX_SCALE);
-      // The facts rest above the tab bar too.
-      const factsRoom = sizedFacts >= 2 ? BLOCK_GAP + ESTIMATE.facts * scale * (paneFactColumns === 2 ? 2 : 1) + (paneFactColumns === 2 ? 8 : 0) : 0;
       const room =
         rest.edge -
         (rest.topEstimate + PANE_TOP_BELOW_REST) -
         BLOCK_GAP -
         ESTIMATE.actions * scale -
-        factsRoom -
         PANE_PADDING;
       return Math.max(PANE_COVER_MIN_WIDTH, Math.min(HERO_COMPACT_COVER_BELOW - 1, Math.floor(room / 1.5)));
     }
@@ -384,7 +345,7 @@ export function MobileMangaDetailBooksHero({
     const scale = rest.fontScale(HERO_TEXT_MAX_SCALE);
     if (inColumn) {
       // The wide page's hero column holds still, as a whole: the cover takes
-      // what is left once the title, actions, facts, a paragraph of synopsis
+      // what is left once the title, actions, a paragraph of synopsis
       // and the row of genres rest above the window's bottom.
       const room = rest.edge - MOBILE_RESTING.margin - columnTop - HEAD_PADDING_TOP - columnBlocks(COLUMN_PARAGRAPH_LINES);
       return Math.max(COLUMN_COVER_MIN_WIDTH, Math.min(naturalCoverWidth, Math.floor(room / 1.5)));
@@ -401,12 +362,6 @@ export function MobileMangaDetailBooksHero({
       },
     ];
     if (hasActions) blocks.push({ key: "actions", gap: BLOCK_GAP, height: ESTIMATE.actions * scale, rests: "whole" });
-    blocks.push({
-      key: "facts",
-      gap: BLOCK_GAP,
-      height: (factsGuess === "grid" ? ESTIMATE.facts * 2 + 8 : ESTIMATE.facts) * scale,
-      rests: "whole",
-    });
     if (sizedSynopsis) {
       blocks.push({
         key: "synopsis",
@@ -448,19 +403,8 @@ export function MobileMangaDetailBooksHero({
   const tagList = tags ?? [];
   // Genres live in the 作品信息 sheet, not on the page.
   const statusLabel = statusKey ? strings.metadataEditor[statusKey] : null;
-  // Small labels over values, under the synopsis. With fewer than two facts
-  // the status stays a line under the authors instead.
-  const facts = [
-    infoTitle ? { label: strings.designExplore.factSource, value: infoTitle } : null,
-    infoChapters ? { label: strings.designExplore.factChapters, value: String(infoChapters) } : null,
-    infoLatest ? { label: strings.designExplore.factLatest, value: infoLatest } : null,
-    statusLabel ? { label: strings.designExplore.factStatus, value: statusLabel } : null,
-  ].filter((fact): fact is { label: string; value: string } => fact !== null);
-  const factsRow = facts.length >= 2;
-  /** The facts stand as their own block; the hero column puts them in the head as one line. */
-  const factsBlock = factsRow && !inColumn;
-  const columnMeta = inColumn && factsRow;
-  // Everything the hero leaves out, in the 作品信息 sheet the ⓘ beside the facts opens.
+  // Everything about the title beyond its name and authors, in the 作品信息
+  // sheet the ⓘ beside the authors opens.
   const infoRows = buildMobileDetailInfoRows(
     {
       status: statusLabel,
@@ -485,45 +429,8 @@ export function MobileMangaDetailBooksHero({
       onPress={openInfo}
     />
   ) : null;
-  // The hero column's meta line: the longest of these that stays on one line
-  // at its width and text size (each measured, never seen), ending with the
-  // first genre only when the whole line fits.
-  const metaGenre = infoRows.find((row) => row.key === "genre")?.chips?.[0] ?? null;
-  const metaCandidates = columnMeta
-    ? buildMobileDetailMetaCandidates(
-        {
-          status: statusLabel,
-          completed: statusKey === "statusCompleted",
-          latest: infoLatest,
-          latestNumber: infoLatestNumber,
-          chapters: infoChapters,
-          genre: metaGenre,
-        },
-        strings,
-      )
-    : [];
-  // The line's room is the column's, less the title block's padding (the
-  // block itself is only as wide as its widest line, centred in the head).
-  const [metaLineCounts, setMetaLineCounts] = useState<Record<string, number>>({});
-  const metaTextWidth = Math.max(0, Math.floor(contentWidth - TITLE_BLOCK_PADDING * 2 - (infoButton ? INFO_ROOM : 0)));
-  const metaKey = (candidate: string) => `${metaTextWidth}:${candidate}`;
-  const metaLine = pickMobileDetailMetaLine(
-    metaCandidates,
-    metaCandidates.map((candidate) => metaLineCounts[metaKey(candidate)]),
-    { hasGenre: Boolean(metaGenre) },
-  );
   // The sheet has the licence: the synopsis on the page leaves out the line that restates it.
   const pageDescription = description && infoLicense ? withoutMobileDescriptionLicence(description) : description;
-  // Each fact cell's natural width (label or value, whichever is wider),
-  // measured off screen, against the row's own width less the ⓘ.
-  const [factCellWidths, setFactCellWidths] = useState<Record<string, number>>({});
-  const [factsBlockWidth, setFactsBlockWidth] = useState<number | null>(null);
-  const factCellKey = (fact: { label: string; value: string }) => `${fact.label}\u0000${fact.value}`;
-  const factsLayout = fitMobileDetailFacts({
-    cellWidths: facts.map((fact) => factCellWidths[factCellKey(fact)]),
-    available: factsBlockWidth === null ? null : factsBlockWidth - (infoButton ? FACTS_INFO_ROOM : 0),
-    guess: factsGuess,
-  });
   const primaryUnavailable = Boolean(primaryAction && (primaryAction.disabled || !primaryAction.available));
   const primaryInk = primaryUnavailable ? inkSecondary : palette.primaryInk;
   // Library entries expose collection management here; both entry paths use
@@ -564,15 +471,6 @@ export function MobileMangaDetailBooksHero({
     setActionsRowWidth((current) => (current === next ? current : next));
   }, []);
   const halfActionWidth = actionsRowWidth ? Math.floor((actionsRowWidth - ACTION_GAP) / 2) : null;
-  const onFactsHeight = useMemo(() => measureBlock("facts"), [measureBlock]);
-  const onFactsLayout = useCallback(
-    (event: LayoutChangeEvent) => {
-      onFactsHeight(event);
-      const next = Math.round(event.nativeEvent.layout.width);
-      setFactsBlockWidth((current) => (current === next ? current : next));
-    },
-    [onFactsHeight],
-  );
   const onTagsLayout = useMemo(() => measureBlock("tags"), [measureBlock]);
   const [synopsisMeasure, setSynopsisMeasure] = useState<{ lines: number; lineHeight: number } | null>(null);
   const onSynopsisMeasure = useCallback((next: { lines: number; lineHeight: number }) => {
@@ -592,7 +490,6 @@ export function MobileMangaDetailBooksHero({
     const order: [string, boolean][] = [
       ["head", true],
       ["actions", hasActions],
-      ["facts", factsRow],
       ["synopsis", Boolean(description)],
       ["tags", hasTags],
     ];
@@ -630,7 +527,6 @@ export function MobileMangaDetailBooksHero({
     const used =
       height("head", Math.round(coverWidth * 1.5) + ESTIMATE.headText * scale) +
       (hasActions ? BLOCK_GAP + height("actions", ESTIMATE.actions * scale) : 0) +
-      (factsBlock ? BLOCK_GAP + height("facts", columnFactsEstimate(scale) - BLOCK_GAP) : 0) +
       (hasTags ? BLOCK_GAP + height("tags", CHIP_HEIGHT * scale) : 0) +
       BLOCK_GAP;
     // The column's own top, not a measurement: the first layout happens
@@ -781,16 +677,20 @@ export function MobileMangaDetailBooksHero({
             {title}
           </NemuText>
           {authors?.length ? (
-            <NemuText
-              maxFontSizeMultiplier={HERO_TEXT_MAX_SCALE}
-              numberOfLines={2}
-              color={inkSecondary}
-              style={[styles.authors, compactHead ? styles.leading : null]}
-            >
-              {authors.join(", ")}
-            </NemuText>
-          ) : null}
-          {!factsRow && (statusLabel || infoButton) ? (
+            // The ⓘ follows the authors; status, chapters and genres are in its sheet.
+            <View style={[styles.metaRow, compactHead ? styles.metaRowLeading : null]}>
+              <NemuText
+                maxFontSizeMultiplier={HERO_TEXT_MAX_SCALE}
+                numberOfLines={2}
+                color={inkSecondary}
+                style={[styles.authors, styles.metaShrink, compactHead ? styles.leading : null]}
+              >
+                {authors.join(", ")}
+              </NemuText>
+              {infoButton}
+            </View>
+          ) : statusLabel || infoButton ? (
+            // No authors to sit beside: the status carries the ⓘ.
             <View style={[styles.metaRow, compactHead ? styles.metaRowLeading : null]}>
               {statusLabel ? (
                 <NemuText
@@ -803,36 +703,6 @@ export function MobileMangaDetailBooksHero({
                 </NemuText>
               ) : null}
               {infoButton}
-            </View>
-          ) : null}
-          {columnMeta && metaLine ? (
-            // One quiet line; the source is in the chapter header.
-            <View style={styles.metaLineRow}>
-              {metaTextWidth > 0
-                ? metaCandidates.map((candidate) => (
-                    <NemuText
-                      key={candidate}
-                      accessibilityElementsHidden
-                      importantForAccessibility="no-hide-descendants"
-                      pointerEvents="none"
-                      maxFontSizeMultiplier={HERO_TEXT_MAX_SCALE}
-                      onTextLayout={(event) => {
-                        const lines = event.nativeEvent.lines.length;
-                        const key = metaKey(candidate);
-                        setMetaLineCounts((current) => (current[key] === lines ? current : { ...current, [key]: lines }));
-                      }}
-                      style={[styles.metaLine, styles.metaMeasure, { width: metaTextWidth }]}
-                    >
-                      {candidate}
-                    </NemuText>
-                  ))
-                : null}
-              <View style={styles.metaRow}>
-                <NemuText maxFontSizeMultiplier={HERO_TEXT_MAX_SCALE} numberOfLines={1} color={inkSecondary} style={[styles.metaLine, styles.metaShrink]}>
-                  {metaLine}
-                </NemuText>
-                {infoButton}
-              </View>
             </View>
           ) : null}
         </View>
@@ -928,80 +798,6 @@ export function MobileMangaDetailBooksHero({
       ) : null}
     </>
   );
-  const factCells = facts.map((fact, index) => {
-    const gridded = factsLayout === "grid";
-    return (
-      <View
-        key={fact.label}
-        accessible
-        accessibilityLabel={`${fact.label}, ${fact.value}`}
-        style={[
-          styles.fact,
-          gridded ? styles.factHalf : styles.factFit,
-          (gridded ? index % 2 > 0 : index > 0) ? [styles.factDivided, { borderLeftColor: palette.rule }] : null,
-        ]}
-      >
-        <NemuText numberOfLines={1} maxFontSizeMultiplier={HERO_TEXT_MAX_SCALE} color={inkSecondary} style={styles.factLabel}>
-          {fact.label}
-        </NemuText>
-        {gridded ? (
-          // Half the row: a long value shrinks a little rather than wrap mid-word.
-          <NemuText
-            numberOfLines={1}
-            adjustsFontSizeToFit
-            minimumFontScale={FACT_VALUE_MIN_SCALE}
-            maxFontSizeMultiplier={HERO_TEXT_MAX_SCALE}
-            color={palette.ink}
-            style={[styles.factValue, styles.factValueCentred]}
-          >
-            {fact.value}
-          </NemuText>
-        ) : (
-          // Turns over when the value changes (another source picked, a refresh).
-          <MobileOdometerText
-            value={fact.value}
-            maxFontSizeMultiplier={HERO_TEXT_MAX_SCALE}
-            color={palette.ink}
-            style={styles.factValue}
-          />
-        )}
-      </View>
-    );
-  });
-  const factsMeasure = (
-    // Unclamped twins, never seen: each cell's natural width.
-    <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={styles.factsMeasure}>
-      {facts.map((fact, index) => (
-        <View
-          key={fact.label}
-          onLayout={(event) => {
-            const key = factCellKey(fact);
-            // A point of slack for the odometer's digit boxes.
-            const next = Math.ceil(event.nativeEvent.layout.width) + 1;
-            setFactCellWidths((current) => (current[key] === next ? current : { ...current, [key]: next }));
-          }}
-          style={[styles.fact, styles.factMeasureCell, index > 0 ? styles.factDivided : null]}
-        >
-          <NemuText numberOfLines={1} maxFontSizeMultiplier={HERO_TEXT_MAX_SCALE} style={styles.factLabel}>
-            {fact.label}
-          </NemuText>
-          <NemuText numberOfLines={1} maxFontSizeMultiplier={HERO_TEXT_MAX_SCALE} style={styles.factValue}>
-            {fact.value}
-          </NemuText>
-        </View>
-      ))}
-    </View>
-  );
-  const factsNode =
-    factsRow && !inColumn ? (
-      // Inside the content area on every width (it never scrolls sideways,
-      // so nothing is clipped at the window edge); centred on a wide window.
-      <View style={[styles.factsWithInfo, wide ? column : null, pushStyle("facts")]} onLayout={onFactsLayout}>
-        {factsMeasure}
-        <View style={[styles.facts, styles.factsFill, factsLayout === "grid" ? styles.factsGrid : null]}>{factCells}</View>
-        {infoButton}
-      </View>
-    ) : null;
   const synopsisNode = (
     <>
       {description ? (
@@ -1021,7 +817,7 @@ export function MobileMangaDetailBooksHero({
   );
 
   // Loading: each block keeps its loaded box (line heights, button and chip
-  // sizes, the facts' columns) with a quiet bar where its text will be.
+  // sizes) with a quiet bar where its text will be.
   const bar = (width: `${number}%` | number, height: number, extra?: StyleProp<ViewStyle>) => (
     <Animated.View style={[styles.placeholderBar, { width, height, backgroundColor: palette.actionSoft }, pulseStyle, extra]} />
   );
@@ -1034,9 +830,6 @@ export function MobileMangaDetailBooksHero({
       <View style={[styles.placeholderLine, { height: styles.authors.lineHeight }, compactHead ? null : styles.placeholderLineCentred]}>
         {bar("42%", 13)}
       </View>
-      {inColumn ? (
-        <View style={[styles.placeholderLine, styles.placeholderLineCentred, { height: styles.metaLine.lineHeight, marginTop: 4 }]}>{bar("60%", 11)}</View>
-      ) : null}
     </View>
   );
   const placeholderActionsNode = (
@@ -1050,22 +843,6 @@ export function MobileMangaDetailBooksHero({
         {bar(ACTION_HEIGHT, ACTION_HEIGHT, styles.placeholderCapsule)}
       </View>
     </View>
-  );
-  const placeholderFacts = [0, 1, 2, 3].map((index) => (
-    <View
-      key={index}
-      style={[
-        styles.fact,
-        { width: `${100 / paneFactColumns}%`, flexGrow: 0, minWidth: 0 },
-        index % paneFactColumns > 0 ? [styles.factDivided, { borderLeftColor: palette.rule }] : null,
-      ]}
-    >
-      <View style={[styles.placeholderLine, styles.placeholderLineCentred, { height: styles.factLabel.lineHeight }]}>{bar("46%", 9)}</View>
-      <View style={[styles.placeholderLine, styles.placeholderLineCentred, { height: styles.factValue.lineHeight }]}>{bar("64%", 13)}</View>
-    </View>
-  ));
-  const placeholderFactsNode = inColumn ? null : (
-    <View style={[styles.facts, styles.factsGrid, top ? { flexGrow: 0 } : null, wide ? column : null]}>{placeholderFacts}</View>
   );
   const placeholderSynopsisNode = (
     <View style={column}>
@@ -1140,13 +917,11 @@ export function MobileMangaDetailBooksHero({
             {placeholder ? placeholderTitleNode : titleBlockNode}
             {deferBody ? null : placeholder ? (
               <>
-                {placeholderFactsNode}
                 {placeholderSynopsisNode}
                 {placeholderActionsNode}
               </>
             ) : (
               <>
-                {factsNode}
                 {synopsisNode}
                 {actionsNode}
               </>
@@ -1163,7 +938,6 @@ export function MobileMangaDetailBooksHero({
       {deferBody || top ? null : placeholder ? (
         <>
           {placeholderActionsNode}
-          {placeholderFactsNode}
           {placeholderSynopsisNode}
         </>
       ) : null}
@@ -1171,8 +945,6 @@ export function MobileMangaDetailBooksHero({
       {deferBody || placeholder ? null : (
         <>
       {top ? null : actionsNode}
-
-      {top ? null : factsNode}
 
       {top ? null : synopsisNode}
 
@@ -1192,7 +964,7 @@ export function MobileMangaDetailBooksHero({
   );
 }
 
-/** The ⓘ beside the hero's facts: opens the 作品信息 sheet. */
+/** The ⓘ beside the hero's authors: opens the 作品信息 sheet. */
 function HeroInfoButton({
   ink,
   label,
@@ -1376,7 +1148,7 @@ const styles = StyleSheet.create({
     gap: 16,
     paddingBottom: 8,
   },
-  // A phone in landscape: tighter spacing between head, actions and facts.
+  // A phone in landscape: tighter spacing between head and actions.
   paneRootShort: {
     gap: 10,
   },
@@ -1521,67 +1293,6 @@ const styles = StyleSheet.create({
   columnActions: {
     maxWidth: COLUMN_ACTIONS_MAX_WIDTH,
   },
-  facts: {
-    flexDirection: "row",
-    flexGrow: 1,
-  },
-  factsWithInfo: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  factsFill: {
-    flex: 1,
-    minWidth: 0,
-  },
-  factsGrid: {
-    flexWrap: "wrap",
-    justifyContent: "center",
-    rowGap: 8,
-  },
-  factFit: {
-    flexGrow: 1,
-    flexShrink: 0,
-    flexBasis: "auto",
-  },
-  factHalf: {
-    width: "50%",
-    flexGrow: 0,
-    minWidth: 0,
-  },
-  factValueCentred: {
-    alignSelf: "stretch",
-    textAlign: "center",
-  },
-  // Off screen and unseen; wide enough that no cell is squeezed.
-  factsMeasure: {
-    position: "absolute",
-    left: 0,
-    top: 0,
-    width: 2000,
-    flexDirection: "row",
-    alignItems: "flex-start",
-    opacity: 0,
-  },
-  factMeasureCell: {
-    flexGrow: 0,
-    flexShrink: 0,
-  },
-  fact: {
-    flexGrow: 1,
-    alignItems: "center",
-    gap: 2,
-    paddingHorizontal: 6,
-  },
-  // A hairline rule between facts.
-  factDivided: {
-    borderLeftWidth: StyleSheet.hairlineWidth,
-  },
-  factLabel: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: nemuFontWeight.medium,
-  },
   metaRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1600,27 +1311,6 @@ const styles = StyleSheet.create({
     height: INFO_GLYPH + 4,
     alignItems: "center",
     justifyContent: "center",
-  },
-  metaLineRow: {
-    marginTop: 4,
-  },
-  // Off screen and unseen: a candidate meta line, laid out to count its lines.
-  metaMeasure: {
-    position: "absolute",
-    left: 0,
-    top: 0,
-    opacity: 0,
-  },
-  metaLine: {
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: nemuFontWeight.medium,
-    textAlign: "center",
-  },
-  factValue: {
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: nemuFontWeight.semibold,
   },
   actions: {
     flexDirection: "row",

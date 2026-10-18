@@ -1199,14 +1199,8 @@ export type MobileStrings = {
     infoDateAdded: string;
     infoLastRead: string;
     /** Detail facts row: small labels over the values. */
-    factSource: string;
-    factChapters: string;
-    factLatest: string;
     factStatus: string;
     /** Wide detail meta line: chapter count and how far the series has got. */
-    metaChapterCountOne: string;
-    metaChapterCountOther: string;
-    metaLatest: string;
     /** Chapter list (design-explore): the chapter to read next, its menu and its volume headers. */
     chapterUpNext: string;
     chapterContinue: string;
