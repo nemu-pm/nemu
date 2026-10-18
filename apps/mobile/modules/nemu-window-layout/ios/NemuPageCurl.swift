@@ -21,6 +21,10 @@ import UIKit
  * where there is no leaf to lift. `onTurnBegin` / `onTurnEnd` bracket every
  * curl on screen (a cancelled drag included), so page overlays can wait for
  * the settled page.
+ *
+ * Every leaf is double-sided. A spread's leaf carries the next spread's facing
+ * page; a single page's leaf carries a render of the page the turn lands on
+ * (`NemuPageCurlLeaves`), so it turns opaque with a real page on its back.
  */
 final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageViewControllerDelegate, UIGestureRecognizerDelegate {
   let onSettle = EventDispatcher()
@@ -163,11 +167,44 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
     return isMid ? clamped - clamped % 2 : clamped
   }
 
-  private func controllers(at slot: Int) -> [UIViewController]? {
-    guard let first = controller(for: slot) else { return nil }
-    guard isMid else { return [first] }
-    guard let second = controller(for: slot + 1) else { return nil }
-    return [first, second]
+  private func controllers(at slot: Int, animated: Bool = false) -> [UIViewController]? {
+    guard let leaves = NemuPageCurlLeaves.shown(slot: slot, slotCount: slotCount, mid: isMid, animated: animated) else { return nil }
+    let shown = leaves.compactMap(controller(for:))
+    return shown.count == leaves.count ? shown : nil
+  }
+
+  private func controller(for leaf: NemuPageCurlLeaf) -> UIViewController? {
+    switch leaf {
+    case .front(let slot): return controller(for: slot)
+    case .back(let target): return backController(landingOn: target)
+    }
+  }
+
+  /**
+   * The back of a single page's turning leaf: a render of the page it lands
+   * on, laid out as that page's own leaf (taken as the turn starts, from the
+   * mounted child; a page still loading shows as it is).
+   */
+  private func backController(landingOn target: Int) -> UIViewController? {
+    guard let front = controller(for: target) else { return nil }
+    let back = NemuPageCurlBackController(target: target, background: pageBackground)
+    let size = pageController?.view.bounds.size ?? .zero
+    back.show(Self.render(front.view, size: size))
+    return back
+  }
+
+  private static func render(_ view: UIView, size: CGSize) -> UIImage? {
+    guard size.width > 0, size.height > 0 else { return nil }
+    // An off-screen page's root view has no frame until the curl shows it.
+    if view.superview == nil && view.bounds.size != size {
+      view.frame = CGRect(origin: .zero, size: size)
+    }
+    view.layoutIfNeeded()
+    let format = UIGraphicsImageRendererFormat.preferred()
+    format.opaque = true
+    return UIGraphicsImageRenderer(size: size, format: format).image { context in
+      view.layer.render(in: context.cgContext)
+    }
   }
 
   // MARK: Navigation
@@ -193,12 +230,13 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
     }
     guard appliedToken != navigationToken else { return }
     appliedToken = navigationToken
-    guard target != currentSlot, let vcs = controllers(at: target) else {
+    let frames = (target - currentSlot) / step
+    let animated = navigationAnimated && abs(frames) == 1 && window != nil
+    guard target != currentSlot, let vcs = controllers(at: target, animated: animated) else {
       onTurnEnd([:])
       return
     }
-    let frames = (target - currentSlot) / step
-    if navigationAnimated && abs(frames) == 1 && window != nil {
+    if animated {
       transitioning = true
       onTurnBegin(["slot": target])
       pageController.setViewControllers(vcs, direction: frames > 0 ? .forward : .reverse, animated: true) { [weak self] _ in
@@ -238,7 +276,8 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
       navigationOrientation: .horizontal,
       options: [.spineLocation: NSNumber(value: location.rawValue)]
     )
-    controller.isDoubleSided = location == .mid
+    // Required for spreads; a single page's leaf back is the page it lands on.
+    controller.isDoubleSided = true
     controller.delegate = self
     controller.view.backgroundColor = .clear
     controller.view.semanticContentAttribute = .forceLeftToRight
@@ -268,25 +307,33 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
   }
 
   func pageViewController(_ pageViewController: UIPageViewController, viewControllerBefore viewController: UIViewController) -> UIViewController? {
-    guard turningEnabled, let page = viewController as? NemuPageCurlPageController else { return nil }
-    return controller(for: page.slot - 1)
+    guard turningEnabled, let leaf = Self.leaf(of: viewController),
+          let next = NemuPageCurlLeaves.before(leaf, slotCount: slotCount, backs: !isMid) else { return nil }
+    return controller(for: next)
   }
 
   func pageViewController(_ pageViewController: UIPageViewController, viewControllerAfter viewController: UIViewController) -> UIViewController? {
-    guard turningEnabled, let page = viewController as? NemuPageCurlPageController else { return nil }
-    return controller(for: page.slot + 1)
+    guard turningEnabled, let leaf = Self.leaf(of: viewController),
+          let next = NemuPageCurlLeaves.after(leaf, slotCount: slotCount, backs: !isMid) else { return nil }
+    return controller(for: next)
+  }
+
+  private static func leaf(of controller: UIViewController) -> NemuPageCurlLeaf? {
+    if let page = controller as? NemuPageCurlPageController { return .front(page.slot) }
+    if let back = controller as? NemuPageCurlBackController { return .back(back.target) }
+    return nil
   }
 
   func pageViewController(_ pageViewController: UIPageViewController, willTransitionTo pendingViewControllers: [UIViewController]) {
     transitioning = true
-    if let slot = (pendingViewControllers.first as? NemuPageCurlPageController)?.slot {
+    if let slot = pendingViewControllers.lazy.compactMap({ $0 as? NemuPageCurlPageController }).first?.slot {
       onTurnBegin(["slot": normalizedSlot(slot)])
     }
   }
 
   func pageViewController(_ pageViewController: UIPageViewController, didFinishAnimating finished: Bool, previousViewControllers: [UIViewController], transitionCompleted completed: Bool) {
     transitioning = false
-    guard let slot = (pageViewController.viewControllers?.first as? NemuPageCurlPageController)?.slot else { return }
+    guard let slot = (pageViewController.viewControllers ?? []).lazy.compactMap({ $0 as? NemuPageCurlPageController }).first?.slot else { return }
     let settled = normalizedSlot(slot)
     let moved = settled != currentSlot
     currentSlot = settled
@@ -349,5 +396,37 @@ final class NemuPageCurlPageController: UIViewController {
     if let hosted, hosted.superview === view, hosted !== child { hosted.removeFromSuperview() }
     hosted = child
     if let child { view.addSubview(child) }
+  }
+}
+
+/** The back of a single page's turning leaf: a still of the page it lands on. */
+final class NemuPageCurlBackController: UIViewController {
+  let target: Int
+  private let background: UIColor
+  private let imageView = UIImageView()
+
+  init(target: Int, background: UIColor) {
+    self.target = target
+    self.background = background
+    super.init(nibName: nil, bundle: nil)
+  }
+
+  @available(*, unavailable)
+  required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+  override func loadView() {
+    let view = UIView()
+    view.backgroundColor = background
+    view.clipsToBounds = true
+    imageView.frame = view.bounds
+    imageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    imageView.contentMode = .scaleToFill
+    view.addSubview(imageView)
+    self.view = view
+  }
+
+  func show(_ image: UIImage?) {
+    loadViewIfNeeded()
+    imageView.image = image
   }
 }
