@@ -17,6 +17,11 @@ export type MobileReaderPageFeatures = {
   edgeL: number[];
   edgeR: number[];
   edgeColor: string;
+  /**
+   * Share of pixels whose colour differs from the page's own tint (0 for a
+   * black-and-white or evenly yellowed scan); null when not measured.
+   */
+  chroma: number | null;
 };
 
 /** Pages behind the reader that are measured (a reader who turns back). */
@@ -73,6 +78,7 @@ export function normalizeMobileReaderPageFeatures(value: unknown): MobileReaderP
   const edgeColor = typeof raw.edgeColor === "string" && /^#[0-9a-f]{6}$/i.test(raw.edgeColor)
     ? raw.edgeColor.toLowerCase()
     : "#000000";
+  const chroma = finiteNumber(raw.chroma);
   return {
     width,
     height,
@@ -81,10 +87,12 @@ export function normalizeMobileReaderPageFeatures(value: unknown): MobileReaderP
     edgeL,
     edgeR,
     edgeColor,
+    chroma: chroma === null ? null : Math.max(0, Math.min(1, chroma)),
   };
 }
 
-export const MOBILE_READER_PAGE_ANALYSIS_CACHE_VERSION = 1;
+/** 2: adds `chroma` (colour pages stand alone); older caches are measured again. */
+export const MOBILE_READER_PAGE_ANALYSIS_CACHE_VERSION = 2;
 
 /** One chapter's cache file: page id → features. */
 export function serializeMobileReaderPageAnalysisCache(entries: ReadonlyMap<string, MobileReaderPageFeatures>): string {

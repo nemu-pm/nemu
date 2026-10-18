@@ -14,6 +14,8 @@ export type NativePageAnalysis = {
   edgeR: number[];
   /** Mean colour of the page's outer border, `#rrggbb`. */
   edgeColor: string;
+  /** Share of pixels whose colour differs from the page's median tint (0 = black and white). */
+  chroma?: number;
 };
 
 type NativeModule = {
