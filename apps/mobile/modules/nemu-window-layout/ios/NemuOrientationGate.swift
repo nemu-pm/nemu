@@ -43,6 +43,13 @@ enum NemuOrientationGate {
   /// A hinge has reported on this device (this session, or remembered from
   /// an earlier one).
   private(set) static var foldable = UserDefaults.standard.bool(forKey: foldableKey)
+  /// The mask allows landscape: a remembered hinge from the first time UIKit
+  /// asks, a newly reported one `widenDelay` later (see `becameFoldable`).
+  private static var widened = UserDefaults.standard.bool(forKey: foldableKey)
+  /// A hinge often reports within ~20 ms of the app becoming active, while
+  /// the launch is still settling: the scene then takes the wider mask as its
+  /// preferences but stays portrait. Reported 110 ms or more after, it turns.
+  private static let widenDelay: TimeInterval = 0.25
   private static var observer: NSObjectProtocol?
   private static var probes: [ObjectIdentifier: AnyObject] = [:]
 
@@ -53,7 +60,7 @@ enum NemuOrientationGate {
 
   static func mask(idiom: UIUserInterfaceIdiom) -> UIInterfaceOrientationMask {
     guard idiom == .phone else { return .all }
-    guard foldable else { return .portrait }
+    guard widened else { return .portrait }
     return MainActor.assumeIsolated { heldMask } ?? .all
   }
 
@@ -61,6 +68,7 @@ enum NemuOrientationGate {
   @MainActor static func forgetFoldable() {
     guard foldable else { return }
     foldable = false
+    widened = false
     heldMask = nil
     UserDefaults.standard.removeObject(forKey: foldableKey)
     orientationGateLog.debug("no hinge: portrait like an iPhone")
@@ -138,9 +146,15 @@ enum NemuOrientationGate {
     probes.removeAll()
     if let observer { NotificationCenter.default.removeObserver(observer) }
     observer = nil
-    for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
-      for window in scene.windows {
-        window.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+    DispatchQueue.main.asyncAfter(deadline: .now() + widenDelay) {
+      MainActor.assumeIsolated {
+        guard foldable, !widened else { return }
+        widened = true
+        for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
+          for window in scene.windows {
+            window.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+          }
+        }
       }
     }
   }
