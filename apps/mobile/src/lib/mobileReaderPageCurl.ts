@@ -32,7 +32,7 @@ export type MobileReaderCurlSpine = "min" | "max" | "mid";
 export type MobileReaderCurlSlot =
   /** A page on its own leaf (single page, or one side of a spread). */
   | { kind: "page"; frame: number; pageIndex: number; part: "whole" }
-  /** One half of a wide page laid across the spine. */
+  /** One half of a wide page laid across the spine (a fold's two panes in the book posture). */
   | { kind: "page"; frame: number; pageIndex: number; part: "left" | "right" }
   /** The empty side of a page that stands alone in a spread. */
   | { kind: "blank"; frame: number };
@@ -93,8 +93,7 @@ export function buildMobileReaderCurlSlots(input: {
   frames: readonly (readonly number[])[];
   spreadMode: boolean;
   mode: ReadingMode;
-  /** A lone wide page is laid across the spine (flat spreads only). */
-  splitWide: boolean;
+  /** A lone wide page is laid across the spine, flat or on a fold, turning as one spread. */
   isWide: (pageIndex: number) => boolean;
 }): MobileReaderCurlSlot[] {
   const slots: MobileReaderCurlSlot[] = [];
@@ -111,7 +110,7 @@ export function buildMobileReaderCurlSlots(input: {
       return;
     }
     const pageIndex = spread[0]!;
-    if (input.splitWide && input.isWide(pageIndex)) {
+    if (input.isWide(pageIndex)) {
       slots.push({ kind: "page", frame, pageIndex, part: "left" });
       slots.push({ kind: "page", frame, pageIndex, part: "right" });
       return;

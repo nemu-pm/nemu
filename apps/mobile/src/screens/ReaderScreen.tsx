@@ -290,6 +290,7 @@ import {
   mobileReaderPageIndexForSettledSpread,
   getMobileReaderSpreadImageFrameSize,
   getMobileReaderSpreadSheetFrames,
+  getMobileReaderSplitWidePageFrame,
   pageIndexForMobileReaderSpreadStep,
   visualPageIndexesForMobileReaderSpread,
 } from "@/lib/mobileReaderSpreads";
@@ -6620,8 +6621,16 @@ export function ReaderScreen() {
           });
           return frames[visual.indexOf(index)] ?? frames[0];
         }
-        // The curl lays a lone page on one leaf beside the spine; only a wide
-        // page of a flat spread lies across both.
+        // Book posture: a wide page reads as a printed spread, split at its
+        // centre across the two panes.
+        if (readerSpreadSlots && readerSpreadSlots.length === 2 && isMobileReaderWidePage(readerPageSizeAt(index))) {
+          return getMobileReaderSplitWidePageFrame({
+            slots: [readerSpreadSlots[0]!, readerSpreadSlots[1]!],
+            size: readerPageSizeAt(index),
+          });
+        }
+        // The curl lays a lone page on one leaf beside the spine; a wide page
+        // lies across both.
         const loneOnLeaf = readerPageCurlActive && !isMobileReaderWidePage(readerPageSizeAt(index));
         const lone = readerSpreadSlots && readerSpreadSlots.length === 2
           ? readerSpreadSlots[mode === "rtl" ? 1 : 0]!
