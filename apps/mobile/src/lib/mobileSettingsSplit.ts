@@ -30,6 +30,18 @@ export function resolveMobileSettingsSplitSelection({
 }
 
 /**
+ * The section-list row highlighted for the section in the trailing pane.
+ * Source Directories is opened from Installed Sources and has no row of its
+ * own, so Installed Sources stays selected (the system Settings keeps a
+ * parent's row selected for its subpages).
+ */
+export function getMobileSettingsSplitHighlightedRow(
+  section: MobileSettingsSplitSectionId,
+): MobileSettingsSplitSectionId {
+  return section === "directories" ? "sources" : section;
+}
+
+/**
  * Which pane the route's own screen instance is. It keeps that React identity
  * across a resize (compact ⇄ split), so its state survives: the index route is
  * the section list, a `settings/[section]` route is the section content.

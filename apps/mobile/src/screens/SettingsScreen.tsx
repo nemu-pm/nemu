@@ -135,6 +135,7 @@ import {
 import { MobileSheetSelectionIndicator } from "@/components/MobileSheetSelectionIndicator";
 import {
   getMobileSettingsPrimaryPane,
+  getMobileSettingsSplitHighlightedRow,
   resolveMobileSettingsSplitSelection,
 } from "@/lib/mobileSettingsSplit";
 import {
@@ -4074,7 +4075,7 @@ export function SettingsScreen({
     >
       <SettingsScreenContent
         presentation={split ? "list-pane" : "page"}
-        selectedSection={split ? detailSection : null}
+        selectedSection={split ? getMobileSettingsSplitHighlightedRow(detailSection) : null}
         onSelectSection={setSelected}
         paneContentStyle={padding.leading}
       />

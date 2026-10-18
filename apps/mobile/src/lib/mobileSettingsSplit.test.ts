@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   getMobileSettingsPrimaryPane,
+  getMobileSettingsSplitHighlightedRow,
   resolveMobileSettingsSplitSelection as resolve,
 } from "./mobileSettingsSplit";
 
@@ -19,6 +20,13 @@ describe("settings split selection", () => {
 
   test("an explicit selection wins over the route", () => {
     expect(resolve({ selected: "appearance", routeSection: "sources", focus: "agent" })).toBe("appearance");
+  });
+
+  test("Source Directories keeps Installed Sources selected in the section list", () => {
+    expect(getMobileSettingsSplitHighlightedRow("directories")).toBe("sources");
+    for (const section of ["reader", "sources", "appearance", "data", "experimental"] as const) {
+      expect(getMobileSettingsSplitHighlightedRow(section)).toBe(section);
+    }
   });
 
   test("the route's own instance keeps its pane across a resize", () => {
