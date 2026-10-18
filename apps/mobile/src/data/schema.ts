@@ -393,6 +393,8 @@ export type LocalChapterProgress = {
   intraPageProgress?: number;
   /** Content identity that must match before `intraPageProgress` is restored. */
   intraPageContentIdentity?: string;
+  /** Sync clock of the newest Mark as Unread; reading before it is discarded. */
+  resetAt?: number;
   updatedAt: number;
 };
 

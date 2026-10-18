@@ -21,6 +21,7 @@ import type {
 } from "@/data/storeTypes";
 import {
   chunkCollectionMutationItems,
+  chapterProgressHasReading,
   mangaProgressFromChapterProgress,
   mergeChapterProgressSnapshot,
   mergeCollectionSnapshot,
@@ -46,6 +47,7 @@ import {
   isMobileSyncEpochCurrent,
   isMobileSyncSuspended,
   mobileChapterProgressIntraPageSyncSupportedRef,
+  mobileChapterProgressResetSyncSupportedRef,
   mobileConvexRef,
   mobileIsAuthenticatedRef,
   mobileSessionUserIdRef,
@@ -104,6 +106,7 @@ async function saveCloudChapterProgress(
     ...toCloudHistorySaveInput(progress, {
       includeIntraPageState:
         mobileChapterProgressIntraPageSyncSupportedRef.current,
+      includeResetState: mobileChapterProgressResetSyncSupportedRef.current,
     }),
     generation,
   });
@@ -850,6 +853,9 @@ class MobileSyncDataStore implements MobileDataStore {
     progress: LocalChapterProgress,
     generation: number | null,
   ): Promise<void> {
+    // A chapter marked unread is never the work's last read; Mark as Unread
+    // saves the rolled-back summary itself.
+    if (!chapterProgressHasReading(progress)) return;
     const derived = mangaProgressFromChapterProgress(progress);
     const existing = await this.base.getMangaProgressById(derived.id);
     if (!existing || progress.updatedAt > existing.updatedAt) {

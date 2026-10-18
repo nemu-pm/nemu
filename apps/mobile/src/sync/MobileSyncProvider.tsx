@@ -24,6 +24,7 @@ import type { MobileDataStore } from "@/data/storeTypes";
 import {
   areSyncAccountIdentitiesAligned,
   canonicalizeSyncSnapshotRecords,
+  chapterProgressWinnersForPush,
   chunkCollectionMutationItems,
   completeSyncSnapshot,
   consistentSyncGeneration,
@@ -66,6 +67,7 @@ import {
   isMobileSyncEpochCurrent,
   makeMobileSyncRunGuard,
   mobileChapterProgressIntraPageSyncSupportedRef,
+  mobileChapterProgressResetSyncSupportedRef,
   mobileConvexRef,
   mobileIsAuthenticatedRef,
   mobileSessionUserIdRef,
@@ -403,6 +405,7 @@ async function pushLocalChapterProgressWinners(
       ...toCloudHistorySaveInput(entry, {
         includeIntraPageState:
           mobileChapterProgressIntraPageSyncSupportedRef.current,
+        includeResetState: mobileChapterProgressResetSyncSupportedRef.current,
       }),
       generation,
     });
@@ -465,7 +468,9 @@ async function applyMobileProgressSnapshots(
   if (!chapterResult || !shouldContinue()) return null;
 
   await pushLocalChapterProgressWinners(
-    chapterResult.localWinners,
+    chapterProgressWinnersForPush(chapterResult.localWinners, chapterProgress, {
+      resetState: mobileChapterProgressResetSyncSupportedRef.current,
+    }),
     convex,
     shouldContinue,
     generation,

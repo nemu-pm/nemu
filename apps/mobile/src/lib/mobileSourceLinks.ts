@@ -9,6 +9,7 @@ import type {
   LocalSourceLink,
 } from "@/data/schema";
 import { makeMangaProgressId, makeSourceLinkId } from "@/data/schema";
+import { chapterProgressHasReading, mergeChapterProgressForSave } from "@nemu/core";
 import { makeSourceKey, parseSourceKey } from "@/sources/aidokuRegistry";
 import {
   getMobileSourceLinkRegistryKeys,
@@ -461,6 +462,11 @@ function mergeMobileChapterProgressRows(
   existing: LocalChapterProgress,
   incoming: LocalChapterProgress,
 ): LocalChapterProgress {
+  // A Mark as Unread on either side: only the canonical merge knows which
+  // pages it discards.
+  if (existing.resetAt !== undefined || incoming.resetAt !== undefined) {
+    return mergeChapterProgressForSave(existing, incoming);
+  }
   const metadata = newerMobileProgressMetadata(existing, incoming);
   return {
     ...incoming,
@@ -561,6 +567,7 @@ export function mergeMobileRetargetedMangaProgress(
     keepNewestMobileMangaProgress(progressById, progress);
   }
   for (const progress of retargetedChapterProgress) {
+    if (!chapterProgressHasReading(progress)) continue;
     keepNewestMobileMangaProgress(
       progressById,
       mobileMangaProgressFromChapterProgress(progress),
