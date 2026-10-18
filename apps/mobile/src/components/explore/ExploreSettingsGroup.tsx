@@ -31,8 +31,9 @@ const ROW_HEIGHT = 52;
 /**
  * An inset grouped list in the system Settings idiom (design-explore): one
  * rounded group, the original design's outline glyph per row in the accent
- * (bare, no tile), a single title line, a chevron, hairline separators inset
- * to the text. Settings are a rare stop, so rows are short and scan at a
+ * (bare, no tile), a title (wrapping to a second line in the narrow split
+ * sidebar, as the system's does), a chevron, hairline separators inset to the
+ * text. Settings are a rare stop, so rows are short and scan at a
  * glance; the longer descriptions move to the VoiceOver hint.
  *
  * The regular-width split view's section list is the same group, its
@@ -72,7 +73,7 @@ export function ExploreSettingsGroup({ rows }: { rows: ExploreSettingsRow[] }) {
               style={[styles.row, selected ? { backgroundColor: tokens.primary } : null]}
             >
               <ExploreSettingsGlyph name={row.icon} color={ink ?? row.tint} />
-              <NemuText numberOfLines={1} color={ink ?? tokens.foreground} style={styles.title}>
+              <NemuText numberOfLines={2} color={ink ?? tokens.foreground} style={styles.title}>
                 {row.title}
               </NemuText>
               {row.detail ? (
