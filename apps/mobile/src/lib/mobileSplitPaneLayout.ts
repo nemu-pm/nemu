@@ -16,7 +16,8 @@ import {
  * - fully open windows use a narrower leading pane, like the Notes sidebar;
  *   an inactive fold does not reserve a gutter or force equal-width panes;
  * - notebook (horizontal fold) keeps a single column: side-by-side panes would
- *   each straddle the fold.
+ *   each straddle the fold. Settings is the exception (`splitInNotebook`): the
+ *   system Settings keeps its sidebar there, as in flat portrait.
  *
  * `minFlatSplitWidth` gates the flat (unfolded) split. Manga detail only splits
  * flat on expanded widths: HIG arrangement views go side by side when wider
@@ -54,6 +55,12 @@ export type MobileSplitPaneOptions = {
   minFoldPane: number;
   /** Narrower containers keep one column while flat (the fold split ignores it). */
   minFlatSplitWidth?: number;
+  /**
+   * Notebook posture keeps the flat split instead of one column. For panes
+   * that each scroll on their own (a section list beside its section), where
+   * the horizontal fold crosses both like any other row.
+   */
+  splitInNotebook?: boolean;
 };
 
 export const MOBILE_DETAIL_SPLIT_OPTIONS: MobileSplitPaneOptions = {
@@ -68,7 +75,7 @@ export const MOBILE_DETAIL_SPLIT_OPTIONS: MobileSplitPaneOptions = {
 /**
  * The system Settings sidebar: 320pt wherever the detail still gets 419pt,
  * narrowing to 250pt below that (the Duo's inner display in portrait, 669pt,
- * splits 250 / 419).
+ * splits 250 / 419). Notebook keeps the same two columns as flat portrait.
  */
 export const MOBILE_SETTINGS_SPLIT_OPTIONS: MobileSplitPaneOptions = {
   trailingReserve: 419,
@@ -76,6 +83,7 @@ export const MOBILE_SETTINGS_SPLIT_OPTIONS: MobileSplitPaneOptions = {
   maxLeading: 320,
   minTrailing: 320,
   minFoldPane: 280,
+  splitInNotebook: true,
 };
 
 function flatLeadingWidth(containerWidth: number, options: MobileSplitPaneOptions): number {
@@ -100,7 +108,8 @@ export function getMobileSplitPaneLayout({
   foldSplit: MobileContainerFoldSplit | null;
   options: MobileSplitPaneOptions;
 }): MobileSplitPaneLayout {
-  if (!regularWidth || posture === "notebook") return { mode: "single" };
+  if (!regularWidth) return { mode: "single" };
+  if (posture === "notebook" && !options.splitInNotebook) return { mode: "single" };
   if (!Number.isFinite(containerWidth) || containerWidth <= 0) return { mode: "single" };
 
   if (posture === "book" && foldSplit?.axis === "horizontal") {

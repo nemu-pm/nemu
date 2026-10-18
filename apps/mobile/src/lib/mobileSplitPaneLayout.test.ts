@@ -133,6 +133,32 @@ describe("split pane layout", () => {
     expect(split({ containerWidth: 951, regularWidth: true, posture: "notebook", foldSplit: null, options: detail })).toEqual({ mode: "single" });
   });
 
+  test("settings keep the flat sidebar in notebook posture, like flat portrait", () => {
+    const flatPortrait = { width: 669, height: 951, supported: true, divisions: [{ id: "hinge", x: 0, y: 455.5, width: 669, height: 40, active: false }], occlusions: [] };
+    const notebook = { ...flatPortrait, divisions: [{ ...flatPortrait.divisions[0], active: true }] };
+    const container = { x: 0, y: 0, width: 669, height: 951 };
+    const panes = (layout: typeof flatPortrait) => {
+      const adaptive = mobileAdaptiveLayout(layout);
+      return {
+        posture: adaptive.posture,
+        layout: split({
+          containerWidth: 669,
+          regularWidth: adaptive.regularWidth,
+          posture: adaptive.posture,
+          foldSplit: mobileFoldSplitForContainer(adaptive, container),
+          options: settings,
+        }),
+      };
+    };
+    const flat = panes(flatPortrait);
+    const folded = panes(notebook);
+    expect(folded.posture).toBe("notebook");
+    expect(flat.layout).toMatchObject({ alignment: "flat", leading: { width: 250 }, trailing: { x: 250, width: 419 } });
+    expect(folded.layout).toEqual(flat.layout);
+    // Manga detail still keeps one column there.
+    expect(split({ containerWidth: 669, regularWidth: true, posture: "notebook", foldSplit: null, options: detail })).toEqual({ mode: "single" });
+  });
+
   test("outer edges keep the safe-area gutters; inner edges use the plain gutter", () => {
     expect(getMobileSplitPanePadding({ pageGutters: { left: 16, right: 59 }, innerGutter: 16 })).toEqual({
       leading: { paddingLeft: 16, paddingRight: 16 },
