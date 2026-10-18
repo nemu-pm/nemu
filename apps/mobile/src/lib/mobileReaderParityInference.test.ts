@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
+  inferMobileReaderCalibratedParity,
   inferMobileReaderSegmentParity,
+  mobileReaderMarginSign,
   mobileReaderEdgeContinuity,
   mobileReaderSideEvidence,
   type MobileReaderParityFeatures,
@@ -78,5 +80,28 @@ describe("automatic spread parity", () => {
     const left = { ...page("none"), edgeR: art };
     expect(mobileReaderEdgeContinuity(right, left)).toBe(1);
     expect(mobileReaderEdgeContinuity(page("none"), page("none"))).toBe(0);
+  });
+});
+
+describe("margin calibration", () => {
+  const known = (start: number, length: number, parity: 0 | 1) => ({ segment: { start, end: start + length, wide: false }, parity });
+
+  test("margins are checked against a segment whose parity is certain", () => {
+    // Pages 0..5 of a cover-alone RTL book: page 1 sits on the right. Known: the run from 1 pairs from its head.
+    const pages = book(0, 12);
+    const featuresAt = (i: number) => pages[i];
+    expect(mobileReaderMarginSign({ known: [known(1, 6, 0)], featuresAt, rtl: true })).toBe(1);
+    expect(mobileReaderMarginSign({ known: [known(1, 6, 1)], featuresAt, rtl: true })).toBe(-1);
+    expect(mobileReaderMarginSign({ known: [], featuresAt, rtl: true })).toBeNull();
+  });
+
+  test("without calibration automatic pairing abstains; reversed margins are read the other way", () => {
+    const pages = book(0, 12);
+    const featuresAt = (i: number) => pages[i];
+    const segment = { start: 7, end: 12, wide: false };
+    expect(inferMobileReaderCalibratedParity({ segment, known: [], featuresAt, rtl: true })).toBeNull();
+    // Page 7 sits on the right and starts a pair.
+    expect(inferMobileReaderCalibratedParity({ segment, known: [known(1, 6, 0)], featuresAt, rtl: true })).toBe(0);
+    expect(inferMobileReaderCalibratedParity({ segment, known: [known(1, 6, 1)], featuresAt, rtl: true })).toBe(1);
   });
 });
