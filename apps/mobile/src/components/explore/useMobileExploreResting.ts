@@ -22,11 +22,13 @@ const MOBILE_EXPLORE_REST_TOP_BELOW_INSET = 67;
  */
 export function useMobileExploreRestingFrame() {
   const insets = useSafeAreaInsets();
-  const { width, height } = useWindowDimensions();
+  const { width, height, fontScale } = useWindowDimensions();
   return {
     edge: getMobileExploreRestingEdge(height, insets.bottom, isMobileCompactHeight(height)),
     topEstimate: insets.top + MOBILE_EXPLORE_REST_TOP_BELOW_INSET,
-    windowKey: `${Math.round(width)}x${Math.round(height)}`,
+    // The text size too: headings above a section grow with it, so a top
+    // measured at another size (before a rotation and back) is stale.
+    windowKey: `${Math.round(width)}x${Math.round(height)}@${fontScale}`,
     /** Text scale for estimates, capped like the text it stands for. */
     fontScale: (cap: number) => Math.min(cap, PixelRatio.getFontScale()),
   };
@@ -34,7 +36,7 @@ export function useMobileExploreRestingFrame() {
 
 /**
  * Where `ref`'s top rests in the window, measured the first time it lays out
- * in each window size (the page is at rest then; later layouts can happen
+ * in each window size and text size (the page is at rest then; later layouts can happen
  * while it is scrolled, so they are ignored). Null until measured.
  */
 export function useMobileExploreRestingTop(ref: RefObject<ViewInstance | null>, windowKey: string) {

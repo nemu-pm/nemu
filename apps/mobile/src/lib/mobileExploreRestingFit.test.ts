@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   fitMobileRestingContent,
   getMobileExploreRestingEdge,
+  getMobileRestingSynopsisLines,
   MOBILE_RESTING,
   type MobileRestingBlock,
 } from "./mobileExploreRestingFit";
@@ -157,5 +158,16 @@ describe("resting edge", () => {
     expect(getMobileExploreRestingEdge(420, 21, true)).toBe(356);
     // A larger inset still wins.
     expect(getMobileExploreRestingEdge(420, 90, true)).toBe(330);
+  });
+
+  test("a synopsis above the actions gives up lines so they rest above the edge", () => {
+    // iPhone landscape: 402 tall, edge 338; hero at 80, title/facts/actions take 180.
+    const lines = getMobileRestingSynopsisLines({ top: 80, edge: 338, fixed: 180, lineHeight: 22, natural: 6 });
+    expect(lines).toBe(3);
+    expect(80 + 180 + lines * 22).toBeLessThanOrEqual(338 - MOBILE_RESTING.margin);
+    // Room to spare: the natural count stands.
+    expect(getMobileRestingSynopsisLines({ top: 80, edge: 338, fixed: 100, lineHeight: 22, natural: 4 })).toBe(4);
+    // No room at all: still one line (zero is unlimited to a text view).
+    expect(getMobileRestingSynopsisLines({ top: 80, edge: 338, fixed: 400, lineHeight: 22, natural: 4 })).toBe(1);
   });
 });

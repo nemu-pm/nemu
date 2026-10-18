@@ -247,3 +247,21 @@ export function getMobileExploreRestingEdge(
   const band = compactHeight ? MOBILE_COMPACT_TAB_BAR_BAND : 0;
   return windowHeight - Math.max(insetBottom, band);
 }
+
+/**
+ * A synopsis with blocks under it (the wide top header: the actions follow
+ * it): the lines it may show so everything below still ends `margin` above
+ * the edge. `fixed` is the column's height without the synopsis. Never below
+ * one line (zero would mean "unlimited" to a text view), never above `natural`.
+ */
+export function getMobileRestingSynopsisLines(input: {
+  top: number;
+  edge: number;
+  fixed: number;
+  lineHeight: number;
+  natural: number;
+}): number {
+  const room = input.edge - MOBILE_RESTING.margin - input.top - input.fixed;
+  const fits = input.lineHeight > 0 ? Math.floor(room / input.lineHeight) : input.natural;
+  return Math.max(1, Math.min(input.natural, fits));
+}

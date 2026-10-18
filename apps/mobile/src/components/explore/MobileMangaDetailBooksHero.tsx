@@ -47,7 +47,13 @@ import { useMobileCoverRegionTints, useMobileCoverTint } from "@/lib/useMobileCo
 import { ConcentricView, ZoomSource, ZoomTarget } from "../../../modules/nemu-window-layout";
 import { getMobileBooksHeroCoverWidth } from "./mobileExploreCover";
 import { useMobileExploreRestingFrame, useMobileExploreRestingTop } from "./useMobileExploreResting";
-import { fitMobileRestingContent, isMobileCompactHeight, MOBILE_RESTING, type MobileRestingBlock } from "@/lib/mobileExploreRestingFit";
+import {
+  fitMobileRestingContent,
+  getMobileRestingSynopsisLines,
+  isMobileCompactHeight,
+  MOBILE_RESTING,
+  type MobileRestingBlock,
+} from "@/lib/mobileExploreRestingFit";
 import { ExploreGlassButton, ExploreGlassChip, ExploreGlassIconButton, ExploreLibraryGlyph } from "./ExploreGlass";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { ExploreGradient } from "./ExploreGradient";
@@ -391,10 +397,15 @@ export function MobileMangaDetailBooksHero({
   useEffect(() => {
     if (!top) onTitleBottom?.(titleBottom);
   }, [onTitleBottom, titleBottom, top]);
+  // Measured block heights, for the resting fits below.
+  const [blockHeights, setBlockHeights] = useState<Record<string, number>>({});
   const onTopTitleLayout = useCallback(
     (event: LayoutChangeEvent) => {
       const { y, height } = event.nativeEvent.layout;
       onTitleBottom?.(Math.round(y + height) + 8);
+      // The top header's resting fit (below) needs the title block's height.
+      const titleHeight = Math.round(height);
+      setBlockHeights((current) => (current.title === titleHeight ? current : { ...current, title: titleHeight }));
     },
     [onTitleBottom],
   );
@@ -455,7 +466,6 @@ export function MobileMangaDetailBooksHero({
   // The measured fit, once the body is on screen: the synopsis ends on a
   // whole line above the tab bar (it gives lines down to two), and a block
   // the tab bar would still cut drops under it by a slightly wider gap.
-  const [blockHeights, setBlockHeights] = useState<Record<string, number>>({});
   const measureBlock = useCallback((key: string) => (event: LayoutChangeEvent) => {
     const height = Math.round(event.nativeEvent.layout.height);
     setBlockHeights((current) => (current[key] === height ? current : { ...current, [key]: height }));
@@ -534,8 +544,29 @@ export function MobileMangaDetailBooksHero({
     const room = rest.edge - MOBILE_RESTING.margin - columnTop - columnOffset - used;
     return Math.max(DESCRIPTION_MIN_LINES, Math.min(COLUMN_PARAGRAPH_LINES, Math.floor(room / synopsisMeasure.lineHeight)));
   })();
+  // The top header (a window wide enough for the cover beside the text: the
+  // Duo outer display in landscape): the actions sit under the
+  // synopsis in the title's column, so the synopsis gives up lines until they
+  // rest above the tab bar.
+  const topSynopsisLines = (() => {
+    if (!top || deferBody || restTop === null || !synopsisMeasure || !description) return null;
+    const title = blockHeights.title;
+    const actions = hasActions ? blockHeights.actions : 0;
+    if (title === undefined || actions === undefined) return null;
+    // The row's top padding (8), then the column's blocks a gap apart
+    // (title, synopsis, actions; the facts strip is gone, aa42ef6e).
+    const fixed = 8 + title + BLOCK_GAP + (hasActions ? BLOCK_GAP + actions : 0);
+    return getMobileRestingSynopsisLines({
+      top: restTop,
+      edge: rest.edge,
+      fixed,
+      lineHeight: synopsisMeasure.lineHeight,
+      natural: synopsisNatural,
+    });
+  })();
   const synopsisLines =
     columnSynopsisLines ??
+    topSynopsisLines ??
     (restingFit && synopsisMeasure && restingFit.heights.synopsis !== undefined
       ? Math.max(DESCRIPTION_MIN_LINES, Math.round(restingFit.heights.synopsis / synopsisMeasure.lineHeight))
       : synopsisNatural);

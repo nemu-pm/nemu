@@ -964,6 +964,15 @@ function ExploreFeaturedCarousel({
     () => entries.map((_, index) => buildMobileCoverTintPalette(tints[index] ?? null, scheme)),
     [entries, scheme, tints],
   );
+  // The window changed under the rail (rotation, fold): keep the active card
+  // where it rests. Not the user's scroll, so nothing ticks.
+  const aligned = useRef({ interval, sidePad });
+  useLayoutEffect(() => {
+    const previous = aligned.current;
+    aligned.current = { interval, sidePad };
+    if (interval <= 0 || (previous.interval === interval && previous.sidePad === sidePad)) return;
+    scrollRef.current?.scrollTo({ x: active * interval, animated: false });
+  }, [active, interval, sidePad]);
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     if (interval <= 0) return;
     const next = Math.max(0, Math.min(entries.length - 1, Math.round(event.nativeEvent.contentOffset.x / interval)));
