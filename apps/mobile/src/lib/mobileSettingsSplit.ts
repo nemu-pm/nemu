@@ -51,3 +51,31 @@ export function getMobileSettingsPrimaryPane(
 ): "list" | "detail" {
   return routeSection ? "detail" : "list";
 }
+
+export type MobileSettingsSplitTitleAlignment = "center" | "leading";
+
+/**
+ * How the split view titles its two columns, or null to keep the one native
+ * title. The system Settings puts each column's title over that column (the
+ * selected section's centred over the detail), never one title across both.
+ *
+ * iOS on the Duo's inner display (and any non-iPad split): both columns get a
+ * title in the native bar's title row — centred per column under a top bar,
+ * leading per column beside a vertical bar (where the bar's own title sits
+ * leading). iPad keeps the native title: its tab bar floats in that row, over
+ * where a detail title would go. Android's opaque bar keeps its own title.
+ */
+export function getMobileSettingsSplitColumnTitles({
+  split,
+  platform,
+  isPad,
+  verticalBar,
+}: {
+  split: boolean;
+  platform: string;
+  isPad: boolean;
+  verticalBar: boolean;
+}): MobileSettingsSplitTitleAlignment | null {
+  if (!split || platform !== "ios" || isPad) return null;
+  return verticalBar ? "leading" : "center";
+}

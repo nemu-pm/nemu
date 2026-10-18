@@ -1,5 +1,5 @@
 import { MobileQuickActionMenu, mobileNativeQuickMenuAvailable } from "@/components/MobileQuickActionMenu";
-import { FlatList } from "react-native";
+import { FlatList, type ViewInstance } from "react-native";
 import {
   useCallback,
   useEffect,
@@ -135,8 +135,10 @@ import {
 import { MobileSheetSelectionIndicator } from "@/components/MobileSheetSelectionIndicator";
 import {
   getMobileSettingsPrimaryPane,
+  getMobileSettingsSplitColumnTitles,
   getMobileSettingsSplitHighlightedRow,
   resolveMobileSettingsSplitSelection,
+  type MobileSettingsSplitTitleAlignment,
 } from "@/lib/mobileSettingsSplit";
 import {
   getMobileSplitPanePadding,
@@ -144,6 +146,7 @@ import {
   MOBILE_SETTINGS_SPLIT_OPTIONS,
 } from "@/lib/mobileSplitPaneLayout";
 import { useMobileSplitPaneLayout } from "@/lib/useMobileSplitPaneLayout";
+import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import Animated, { LayoutAnimationConfig } from "react-native-reanimated";
 import { useMobilePoseLayout, useMobilePoseTransition } from "@/lib/MobilePoseTransitionContext";
 import {
@@ -1908,7 +1911,113 @@ function AboutSettingsRow({
 
 type SettingsPresentation = "page" | "list-pane" | "detail-pane";
 
+function settingsSectionTitle(strings: MobileStrings, section: SettingsSectionId | null): string {
+  switch (section) {
+    case "reader":
+      return strings.reader.title;
+    case "sources":
+      return strings.settings.installedSources;
+    case "directories":
+      return strings.settings.sourceDirectories;
+    case "appearance":
+      return strings.settings.appearance;
+    case "data":
+      return strings.settings.dataManagement;
+    case "experimental":
+      return strings.settings.experimentalDesign;
+    default:
+      return strings.nav.settings;
+  }
+}
+
+/**
+ * Stands in for the native bar's title while the split view draws one title
+ * per column: invisible, it reports where the bar centres its title row so
+ * the column titles sit exactly there on every device and posture.
+ */
+function SettingsBarTitleProbe({ onCenter }: { onCenter: (y: number) => void }) {
+  const ref = useRef<ViewInstance>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const measure = useCallback(() => {
+    if (timer.current) clearTimeout(timer.current);
+    // The bar places its title view after React lays it out, and until it is
+    // in the window it measures at the origin: retry briefly.
+    const attempt = (left: number) => {
+      ref.current?.measureInWindow((x, y, _width, height) => {
+        if (height > 0 && (x > 0 || y > 0)) {
+          onCenter(y + height / 2);
+        } else if (left > 0) {
+          timer.current = setTimeout(() => attempt(left - 1), 80);
+        }
+      });
+    };
+    attempt(10);
+  }, [onCenter]);
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+  }, []);
+  return (
+    <View
+      ref={ref}
+      collapsable={false}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      pointerEvents="none"
+      onLayout={measure}
+      style={styles.barTitleProbe}
+    />
+  );
+}
+
+/** One title per split column, in the native bar's title row (see `getMobileSettingsSplitColumnTitles`). */
+function SettingsSplitColumnTitles({
+  alignment,
+  centerY,
+  columns,
+}: {
+  alignment: MobileSettingsSplitTitleAlignment;
+  centerY: number;
+  columns: { key: string; title: string; x: number; width: number; paddingLeft: number; paddingRight: number }[];
+}) {
+  const { tokens } = useNemuTheme();
+  return (
+    <>
+      {columns.map((column) => (
+        <View
+          key={column.key}
+          pointerEvents="none"
+          style={[
+            styles.columnTitle,
+            {
+              top: centerY - COLUMN_TITLE_LINE_HEIGHT / 2,
+              left: column.x + (alignment === "leading" ? column.paddingLeft : 0),
+              width:
+                column.width -
+                (alignment === "leading" ? column.paddingLeft + column.paddingRight : 0),
+            },
+          ]}
+        >
+          <NemuText
+            accessibilityRole="header"
+            numberOfLines={1}
+            maxFontSizeMultiplier={1.2}
+            color={tokens.foreground}
+            style={[
+              styles.columnTitleText,
+              alignment === "center" ? styles.columnTitleCentered : null,
+            ]}
+          >
+            {column.title}
+          </NemuText>
+        </View>
+      ))}
+    </>
+  );
+}
+
 const NO_SETTINGS_ROWS: never[] = [];
+/** The native bar title's line (17pt semibold, `createNemuNativeStackScreenOptions`). */
+const COLUMN_TITLE_LINE_HEIGHT = 22;
 const renderNoSettingsRow = () => null;
 
 function SettingsScreenContent({
@@ -1917,6 +2026,8 @@ function SettingsScreenContent({
   selectedSection = null,
   onSelectSection,
   paneContentStyle,
+  columnTitled = false,
+  onBarTitleCenter,
 }: {
   section?: SettingsSectionId | null;
   /**
@@ -1928,6 +2039,10 @@ function SettingsScreenContent({
   selectedSection?: SettingsSectionId | null;
   onSelectSection?: (section: SettingsSectionId) => void;
   paneContentStyle?: StyleProp<ViewStyle>;
+  /** Split view: this pane's title is drawn over the column (`SettingsSplitColumnTitles`). */
+  columnTitled?: boolean;
+  /** Split list pane: the native title is replaced by a probe reporting its row. */
+  onBarTitleCenter?: (y: number) => void;
 }) {
   const params = useLocalSearchParams<{
     focus?: string | string[];
@@ -2417,20 +2532,11 @@ function SettingsScreenContent({
     }
     router.push(settingsSectionHref(next));
   };
-  const settingsTitle =
-    activeSection === "reader"
-      ? strings.reader.title
-      : activeSection === "sources"
-        ? strings.settings.installedSources
-        : activeSection === "directories"
-          ? strings.settings.sourceDirectories
-          : activeSection === "appearance"
-          ? strings.settings.appearance
-          : activeSection === "data"
-            ? strings.settings.dataManagement
-            : activeSection === "experimental"
-              ? strings.settings.experimentalDesign
-              : strings.nav.settings;
+  const settingsTitle = settingsSectionTitle(strings, activeSection);
+  // The title the page shows above its cards (the bar's, or the split
+  // column's); a first card repeating it drops its heading.
+  const shownPageTitle =
+    presentation === "detail-pane" && !columnTitled ? undefined : settingsTitle;
   const showRefreshAction =
     activeSection === "sources" || activeSection === "directories";
 
@@ -3395,7 +3501,7 @@ function SettingsScreenContent({
                       icon="book-outline"
                       title={strings.reader.title}
                       description={strings.reader.description}
-                      pageTitle={presentation === "detail-pane" ? undefined : settingsTitle}
+                      pageTitle={shownPageTitle}
                     />
                     <View style={styles.nativeSegmentedShell}>
                       <SettingsSegmentedPicker
@@ -3435,7 +3541,7 @@ function SettingsScreenContent({
                       icon="options-outline"
                       title={strings.settings.plugins}
                       description={strings.settings.pluginsDescription}
-                      pageTitle={presentation === "detail-pane" ? undefined : settingsTitle}
+                      pageTitle={shownPageTitle}
                     />
                     {readerPlugins.error ? (
                       <View style={styles.emptyRow}>
@@ -3526,7 +3632,7 @@ function SettingsScreenContent({
                     icon="color-palette-outline"
                     title={strings.settings.appearance}
                     description={strings.settings.appearanceDescription}
-                    pageTitle={presentation === "detail-pane" ? undefined : settingsTitle}
+                    pageTitle={shownPageTitle}
                   />
                   <SegmentedSetting
                     title={strings.settings.language}
@@ -3590,7 +3696,7 @@ function SettingsScreenContent({
                       icon="server-outline"
                       title={strings.settings.installedSources}
                       description={strings.settings.installedSourcesDescription}
-                      pageTitle={presentation === "detail-pane" ? undefined : settingsTitle}
+                      pageTitle={shownPageTitle}
                     />
                     {sourcesSectionLoading ? (
                       <View style={styles.emptyRow}>
@@ -3986,6 +4092,9 @@ function SettingsScreenContent({
         <Stack.Screen
           options={{
             title: presentation === "list-pane" ? strings.nav.settings : settingsTitle,
+            ...(onBarTitleCenter
+              ? { headerTitle: () => <SettingsBarTitleProbe onCenter={onBarTitleCenter} /> }
+              : null),
           }}
         />
       )}
@@ -4050,6 +4159,16 @@ export function SettingsScreen({
     innerGutter: MOBILE_SETTINGS_SPLIT_INNER_GUTTER,
   });
 
+  const strings = getMobileStrings(useMobileLanguageSettings().appLanguage);
+  const { verticalBarSide } = useMobileAdaptiveLayout();
+  const columnTitles = getMobileSettingsSplitColumnTitles({
+    split: split !== null,
+    platform: Platform.OS,
+    isPad: Platform.OS === "ios" && Platform.isPad,
+    verticalBar: verticalBarSide !== null,
+  });
+  const [barTitleCenterY, setBarTitleCenterY] = useState<number | null>(null);
+
   const pose = useMobilePoseTransition();
   const poseLayout = useMobilePoseLayout();
   const listPane = split || primaryPane === "list" ? (
@@ -4078,6 +4197,7 @@ export function SettingsScreen({
         selectedSection={split ? getMobileSettingsSplitHighlightedRow(detailSection) : null}
         onSelectSection={setSelected}
         paneContentStyle={padding.leading}
+        onBarTitleCenter={columnTitles ? setBarTitleCenterY : undefined}
       />
     </Animated.View>
   ) : null;
@@ -4094,6 +4214,7 @@ export function SettingsScreen({
         presentation={split ? "detail-pane" : "page"}
         onSelectSection={setSelected}
         paneContentStyle={padding.trailing}
+        columnTitled={columnTitles !== null}
       />
     </Animated.View>
   ) : null;
@@ -4115,6 +4236,21 @@ export function SettingsScreen({
           <View key="fold" style={{ width: split.gutter }} />
         ) : null}
         {detailPane}
+        {split && columnTitles && barTitleCenterY !== null ? (
+          <SettingsSplitColumnTitles
+            alignment={columnTitles}
+            centerY={barTitleCenterY}
+            columns={[
+              { key: "list", title: strings.nav.settings, ...split.leading, ...padding.leading },
+              {
+                key: "detail",
+                title: settingsSectionTitle(strings, detailSection),
+                ...split.trailing,
+                ...padding.trailing,
+              },
+            ]}
+          />
+        ) : null}
       </View>
     </LayoutAnimationConfig>
   );
@@ -4149,6 +4285,21 @@ const styles = StyleSheet.create({
   },
   splitRow: {
     flexDirection: "row",
+  },
+  barTitleProbe: {
+    width: 1,
+    height: COLUMN_TITLE_LINE_HEIGHT,
+  },
+  columnTitle: {
+    position: "absolute",
+  },
+  columnTitleText: {
+    fontSize: 17,
+    lineHeight: COLUMN_TITLE_LINE_HEIGHT,
+    fontWeight: nemuFontWeight.semibold,
+  },
+  columnTitleCentered: {
+    textAlign: "center",
   },
   pane: {
     height: "100%",
