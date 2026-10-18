@@ -85,8 +85,9 @@ export function MobileAgentStatusCard() {
     );
 
   if (mobileDesignExploreFlag) {
-    // Design-explore: one row of the Settings groups — the outline glyph, the
-    // name and its state, the state's glyph on the trailing edge.
+    // Design-explore: laid out like the other Settings cards — the outline
+    // glyph beside the card's title, then the state as a row below it with
+    // its glyph on the trailing edge.
     return (
       <View
         accessible
@@ -97,10 +98,14 @@ export function MobileAgentStatusCard() {
           { backgroundColor: tokens.card, borderColor: tokens.border },
         ]}
       >
-        <View style={styles.exploreRow}>
+        <View style={styles.header}>
           <ExploreSettingsGlyph name="hardware-chip-outline" />
-          <View style={styles.headerText}>
-            <Text style={[styles.exploreTitle, { color: tokens.foreground }]}>{strings.settings.agent}</Text>
+          <Text style={[styles.headerText, styles.title, { color: tokens.foreground }]}>
+            {strings.settings.agent}
+          </Text>
+        </View>
+        <View style={styles.exploreStatusRow}>
+          <View style={styles.statusCopy}>
             <Text style={[styles.statusTitle, { color: tokens.foreground }]}>{statusTitle}</Text>
             <Text style={[styles.statusDetail, { color: tokens.mutedForeground }]}>{statusDetail}</Text>
           </View>
@@ -165,19 +170,13 @@ const styles = StyleSheet.create({
   exploreShell: {
     ...MOBILE_EXPLORE_GROUP_SHAPE,
     minHeight: 0,
+    gap: 12,
+    padding: 12,
   },
-  exploreRow: {
+  exploreStatusRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  exploreTitle: {
-    fontSize: 16,
-    lineHeight: 21,
-    fontWeight: nemuFontWeight.medium,
-    marginBottom: 2,
   },
   header: {
     flexDirection: "row",
