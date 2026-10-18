@@ -49,9 +49,9 @@ export function useReaderDisplayEnvironment({
    * walks away from) should not pin the display on.
    */
   keepAwakeReady?: boolean;
-  /** `mobileReaderOrientationRequest().portrait`: a phone-sized display. */
+  /** `mobileReaderOrientationRequest().portrait`: the Orientation Lock on a binary without the scene lock. */
   portraitRequested: boolean;
-  /** `mobileReaderOrientationRequest().keepOrientation`: the Orientation Lock on iPad / the Duo's inner display. */
+  /** `mobileReaderOrientationRequest().keepOrientation`: the Orientation Lock on iPad and both Duo displays. */
   keepOrientationRequested?: boolean;
 }): void {
   useEffect(() => {

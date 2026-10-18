@@ -4,6 +4,7 @@ export { setAppAppearance, type AppAppearance } from "./src/AppAppearance";
 export {
   afterViewControllerTransitions,
   interfaceOrientationLockAvailable,
+  forgetFoldableDevice,
   setInterfaceOrientationLocked,
 } from "./src/InterfaceOrientationLock";
 export {

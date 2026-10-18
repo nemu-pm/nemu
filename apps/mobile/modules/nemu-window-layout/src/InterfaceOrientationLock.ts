@@ -5,6 +5,7 @@ type NativeModule = {
   interfaceOrientationLockAvailable?: boolean;
   setInterfaceOrientationLocked?: (locked: boolean) => Promise<void>;
   afterTransitions?: () => Promise<void>;
+  forgetFoldableDevice?: () => Promise<void>;
 };
 
 const nativeModule = Platform.OS === "ios"
@@ -22,6 +23,15 @@ export const interfaceOrientationLockAvailable = nativeModule?.interfaceOrientat
  */
 export function setInterfaceOrientationLocked(locked: boolean): void {
   void nativeModule?.setInterfaceOrientationLocked?.(locked)?.catch(() => undefined);
+}
+
+/**
+ * The device turned out to be an ordinary iPhone: the native orientation gate
+ * forgets a hinge it remembered (a foldable's backup restored here) and holds
+ * portrait again. No-op elsewhere and on older binaries.
+ */
+export function forgetFoldableDevice(): void {
+  void nativeModule?.forgetFoldableDevice?.()?.catch(() => undefined);
 }
 
 /**

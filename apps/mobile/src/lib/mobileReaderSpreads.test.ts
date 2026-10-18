@@ -7,6 +7,8 @@ import {
   mobileReaderPageIndexForSettledSpread,
   getMobileReaderSpreadImageFrameSize,
   getMobileReaderSpreadSheetFrames,
+  getMobileReaderSplitWidePageFrame,
+  mobileReaderSplitWideHalfRects,
   mobileReaderSpreadPageAlignment,
   pageIndexForMobileReaderSpreadStep,
   visualPageIndexesForMobileReaderSpread,
@@ -156,5 +158,55 @@ describe("settled spread page", () => {
     expect(mobileReaderPageIndexForSettledSpread(spreads, 2, 2)).toBe(3);
     expect(mobileReaderPageIndexForSettledSpread(spreads, 3, 4)).toBe(5);
     expect(mobileReaderPageIndexForSettledSpread(spreads, 9, 0)).toBe(5);
+  });
+
+  describe("a wide page in the book posture", () => {
+    // Duo book posture: two panes beside a vertical fold (the right pane is
+    // narrower beside the rail), stage-local.
+    const left = { x: 0, y: 0, width: 455.5, height: 669 };
+    const right = { x: 479.5, y: 0, width: 371.5, height: 669 };
+
+    test("is split at its centre: each half fits its pane, the whole page shown at its own shape", () => {
+      const frame = getMobileReaderSplitWidePageFrame({ slots: [left, right], size: { width: 2264, height: 1600 } });
+      expect(frame.width / 2).toBeLessThanOrEqual(371.5 + 1e-9);
+      expect(frame.width / 2).toBeCloseTo(371.5, 6);
+      expect(frame.height).toBeLessThanOrEqual(669);
+      expect(frame.width / frame.height).toBeCloseTo(2264 / 1600, 6);
+    });
+
+    test("a shorter, very wide page is held by the panes' height", () => {
+      const frame = getMobileReaderSplitWidePageFrame({
+        slots: [{ ...left, width: 900 }, { ...right, width: 900 }],
+        size: { width: 2000, height: 1000 },
+      });
+      expect(frame.height).toBeCloseTo(669, 6);
+      expect(frame.width).toBeCloseTo(1338, 6);
+    });
+
+    test("the halves rest against the fold edges at the same height, nothing on the fold", () => {
+      const frame = getMobileReaderSplitWidePageFrame({ slots: [left, right], size: { width: 2264, height: 1600 } });
+      const [l, r] = mobileReaderSplitWideHalfRects({ slots: [left, right], frame });
+      expect(l.x + l.width).toBeCloseTo(455.5, 6);
+      expect(r.x).toBeCloseTo(479.5, 6);
+      expect(l.width).toBeCloseTo(frame.width / 2, 6);
+      expect(r.width).toBeCloseTo(frame.width / 2, 6);
+      expect(l.y).toBe(r.y);
+      expect(l.height).toBe(r.height);
+      // Centred vertically in the panes.
+      expect(l.y).toBeCloseTo((669 - frame.height) / 2, 6);
+      expect(l.x).toBeGreaterThanOrEqual(left.x);
+      expect(r.x + r.width).toBeLessThanOrEqual(right.x + right.width + 1e-9);
+    });
+
+    test("panes of different heights share their common band", () => {
+      const tall = { x: 0, y: 0, width: 455.5, height: 669 };
+      const short = { x: 479.5, y: 40, width: 455.5, height: 600 };
+      const frame = getMobileReaderSplitWidePageFrame({ slots: [tall, short], size: { width: 1000, height: 300 } });
+      const [l, r] = mobileReaderSplitWideHalfRects({ slots: [tall, short], frame });
+      expect(frame.height).toBeLessThanOrEqual(600);
+      expect(l.y).toBe(r.y);
+      expect(l.y).toBeGreaterThanOrEqual(40);
+      expect(l.y + l.height).toBeLessThanOrEqual(640 + 1e-9);
+    });
   });
 });

@@ -22,7 +22,9 @@ import {
   type MobileReaderCurlNavigation,
   type MobileReaderCurlSlot,
 } from "@/lib/mobileReaderPageCurl";
+import { mobileReaderSplitWideHalfRects } from "@/lib/mobileReaderSpreads";
 import type { MobileReaderPage } from "@/sources/mobileSourcePages";
+import { MobileReaderSplitWideHalf } from "./MobileReaderSplitWideHalf";
 
 export type MobileReaderCurlPagerHandle = {
   /** Visual frame (the slide pager's scroll index); one frame away curls, further jumps. */
@@ -92,8 +94,8 @@ export function MobileReaderCurlPager({
   turningEnabled: boolean;
 }) {
   const slots = useMemo(
-    () => buildMobileReaderCurlSlots({ frames, spreadMode, mode, splitWide: !foldGap, isWide }),
-    [foldGap, frames, isWide, mode, spreadMode],
+    () => buildMobileReaderCurlSlots({ frames, spreadMode, mode, isWide }),
+    [frames, isWide, mode, spreadMode],
   );
   const [navigation, setNavigation] = useState<MobileReaderCurlNavigation>(() => ({
     slot: mobileReaderCurlSlotForFrame(initialFrame, spreadMode),
@@ -187,9 +189,11 @@ export function MobileReaderCurlPager({
             index,
             layout,
             spreadMode,
+            panes: Boolean(spreadSlots && spreadSlots.length === 2),
             fitClip,
             pageGlide,
             displayedPages,
+            pageFrameSize,
             renderImage,
             renderTextPage,
           })}
@@ -209,9 +213,11 @@ function renderSlot({
   index,
   layout,
   spreadMode,
+  panes,
   fitClip,
   pageGlide,
   displayedPages,
+  pageFrameSize,
   renderImage,
   renderTextPage,
 }: {
@@ -219,9 +225,12 @@ function renderSlot({
   index: number;
   layout: ReturnType<typeof mobileReaderCurlLayout>;
   spreadMode: boolean;
+  /** The spread rests in two panes beside a fold (the book posture). */
+  panes: boolean;
   fitClip: boolean;
   pageGlide: boolean;
   displayedPages: MobileReaderPage[];
+  pageFrameSize?: (page: MobileReaderPage) => { width: number; height: number };
   renderImage: (page: MobileReaderPage) => ReactNode;
   renderTextPage: (page: MobileReaderPage, pageIndex: number) => ReactNode;
 }): ReactNode {
@@ -231,6 +240,20 @@ function renderSlot({
   const content = page.imageUri ? renderImage(page) : renderTextPage(page, slot.pageIndex);
   if (!spreadMode) {
     return <View style={[layout.pageLeaf ? styles.pageLeaf : styles.single, fitClip ? styles.clip : null]}>{content}</View>;
+  }
+  const splitFrame = slot.part !== "whole" && panes ? pageFrameSize?.(page) : undefined;
+  if (slot.part !== "whole" && splitFrame && layout.boxes.length === 2) {
+    // Book posture: each leaf shows its half against the fold edge of its
+    // pane (the leaves' boxes), as the slide gallery lays the halves out.
+    const halves = mobileReaderSplitWideHalfRects({
+      slots: [layout.boxes[0]!, layout.boxes[1]!],
+      frame: splitFrame,
+    });
+    return (
+      <MobileReaderSplitWideHalf part={slot.part} frame={splitFrame} rect={halves[slot.part === "left" ? 0 : 1]}>
+        {content}
+      </MobileReaderSplitWideHalf>
+    );
   }
   if (slot.part !== "whole") {
     // A wide page across the spine: each leaf shows its half of the sheet.

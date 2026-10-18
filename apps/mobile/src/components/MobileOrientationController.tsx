@@ -8,7 +8,7 @@ import {
   mobileOrientationLock,
   mobileOrientationLockWaitsForTransition,
 } from "@/lib/mobileOrientationPolicy";
-import { afterViewControllerTransitions } from "../../modules/nemu-window-layout";
+import { afterViewControllerTransitions, forgetFoldableDevice } from "../../modules/nemu-window-layout";
 import {
   setMobileDeviceFormFactor,
   useMobileDeviceFormFactor,
@@ -42,6 +42,11 @@ export function MobileOrientationController() {
   useEffect(() => {
     if (next !== formFactor) setMobileDeviceFormFactor(next);
   }, [formFactor, next]);
+  // The native gate remembers a hinge across launches (a sideways Duo launch
+  // never turns through portrait); an ordinary iPhone clears it.
+  useEffect(() => {
+    if (next === "phone") forgetFoldableDevice();
+  }, [next]);
 
   const lock = mobileOrientationLock({ formFactor: next, readerWantsPortrait: readerPortrait });
   const applied = useRef<"portrait" | "default">("default");
