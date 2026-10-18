@@ -569,9 +569,12 @@ could not be checked from here; verify each.
   only.
 - The web app has no Mark as Read / Mark as Unread UI.
 - Automatic pairing v2 was not checked in the reader with real spreads.
-- `nemu://library` while the reader is open used to leave the reader up; the
-  final-fixes round checked deep links on several devices but the result is
-  not recorded in a commit. Status unknown, verify.
+- `nemu://library` while the reader is open: reported as leaving the reader
+  up, but it did not reproduce on this base. The final-fixes round checked SE,
+  iPad and the Duo (inner and outer), from detail → reader, with the settings
+  popover open, while backgrounded, and for the settings, browse and search
+  links: the reader closed and progress was saved each time. No code change was
+  needed, so no commit records it; recheck on a device.
 
 ## 6. Open owner decisions
 
