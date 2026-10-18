@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 const repositoryRoot = path.resolve(import.meta.dir, "../../../..");
@@ -14,7 +14,7 @@ const mobilePackage = JSON.parse(
 ) as { dependencies?: Record<string, string> };
 
 const patchedPackages = [
-  "expo-background-task", "expo-modules-jsi", "@expo/cli", "@expo/ui",
+  "expo-modules-jsi", "@expo/cli", "@expo/ui",
 ];
 
 describe("mobile Expo native patch policy", () => {
@@ -37,8 +37,8 @@ describe("mobile Expo native patch policy", () => {
     expect(start).toMatch(/const auto parent = node->parent.lock\(\);\s*if \(!parent\) \{\s*return;/);
     expect(start.indexOf("if (!parent)")).toBeLessThan(start.indexOf("resolveLightNodeProps(node)"));
     expect(start.indexOf("if (!parent)")).toBeLessThan(start.indexOf("parent->current.tag"));
-    expect(rootPackage.patchedDependencies?.["react-native-reanimated@4.7.0"])
-      .toBe("patches/react-native-reanimated@4.7.0.patch");
+    expect(rootPackage.patchedDependencies?.["react-native-reanimated@4.7.1"])
+      .toBe("patches/react-native-reanimated@4.7.1.patch");
   });
 
   test("bounds the direct Android RNHost child to Material's sheet width", () => {
@@ -111,7 +111,7 @@ describe("mobile Expo native patch policy", () => {
     }
     // A fresh install reproduces it: the hunks are in the repository patch.
     const patch = readFileSync(
-      path.join(repositoryRoot, "patches/@expo%2Fui@58.0.15.patch"), "utf8");
+      path.join(repositoryRoot, "patches/@expo%2Fui@58.0.20.patch"), "utf8");
     expect(patch).toContain("+      metrics.sheetWidth = sheetView.bounds.width");
     expect(patch).toContain("diff --git a/ios/Modifiers/OnGeometryChangeModifier.swift");
   });
@@ -139,7 +139,7 @@ describe("mobile Expo native patch policy", () => {
       expect(bottomSheet).toMatch(pattern);
     }
     const patch = readFileSync(
-      path.join(repositoryRoot, "patches/@expo%2Fui@58.0.15.patch"), "utf8");
+      path.join(repositoryRoot, "patches/@expo%2Fui@58.0.20.patch"), "utf8");
     expect(patch).toContain("+private struct FormSheetSizing: PresentationSizing {");
   });
   test("keeps every version-exact repository patch attached", () => {
@@ -227,7 +227,24 @@ describe("mobile Expo native patch policy", () => {
     expect(runtime).not.toContain("facebook::hermes::makeHermesRuntime()");
   });
 
-  test("selects active background work instead of a historical predecessor", () => {
+  test("calls expo-modules-jsi's typed-array check by its patched name everywhere", () => {
+    // The patch renames `expo::isTypedArray` so it does not collide with
+    // ExpoModulesCore's in the final link; a caller left on the old name (58.0.15
+    // added JavaScriptUnownedValue.swift) fails the Swift build.
+    const sourcesRoot = path.join(repositoryRoot, "node_modules/expo-modules-jsi/apple/Sources");
+    const swiftFiles = readdirSync(sourcesRoot, { recursive: true, encoding: "utf8" })
+      .filter((file) => file.endsWith(".swift"));
+    const callers = swiftFiles.filter((file) =>
+      readFileSync(path.join(sourcesRoot, file), "utf8").includes("expo.isExpoModulesJSITypedArray("));
+    expect(callers.length).toBeGreaterThan(0);
+    for (const file of swiftFiles) {
+      expect(readFileSync(path.join(sourcesRoot, file), "utf8")).not.toContain("expo.isTypedArray(");
+    }
+  });
+
+  test("selects active background work instead of a historical predecessor, unpatched", () => {
+    // 58.0.11 picks the RUNNING/ENQUEUED run itself (`selectCurrentWorkInfo`),
+    // which replaced the repository patch that did the same.
     const source = readFileSync(
       path.join(
         repositoryRoot,
@@ -239,6 +256,9 @@ describe("mobile Expo native patch policy", () => {
     expect(source).toContain(
       "it.state == WorkInfo.State.RUNNING || it.state == WorkInfo.State.ENQUEUED",
     );
+    expect(source).toContain("return selectCurrentWorkInfo(workInfos)");
+    expect(Object.keys(rootPackage.patchedDependencies ?? {})
+      .some((dependency) => dependency.startsWith("expo-background-task@"))).toBe(false);
   });
 
   test("relies on expo-sqlite's own Android connection lifecycle, unpatched", () => {
