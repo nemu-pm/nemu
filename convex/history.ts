@@ -3,6 +3,7 @@ import { internal } from "./_generated/api";
 import { internalMutation, mutation } from "./_generated/server";
 import { requireAuth, requireAuthForUser } from "./_lib";
 import {
+  canonicalizeLwwRecords,
   mergeChapterProgressHighWater,
   newestLwwRecord,
   pruneDuplicateRows,
@@ -19,7 +20,16 @@ import {
 } from "./syncGeneration";
 import { requireSyncMutationContext } from "./syncCompatibility";
 import { normalizeSyncClock } from "../packages/core/src/sync-clock";
-import { chapterProgressIntraPageState } from "../packages/core/src/sync-lww";
+import {
+  chapterProgressHasReading,
+  chapterProgressIntraPageState,
+  chapterProgressReadingSurvivesMerge,
+  chapterProgressResetClock,
+} from "../packages/core/src/sync-lww";
+import {
+  makeMangaProgressId,
+  mangaProgressAfterChapterReset,
+} from "../packages/core/src/sync";
 import { resolveLibraryMergeAlias } from "./libraryMerge";
 
 const HISTORY_RETARGET_PAGE_ITEMS = 128;
@@ -57,6 +67,7 @@ const historySaveItem = v.object({
   chapterTitle: v.optional(v.string()),
   intraPageProgress: v.optional(v.number()),
   intraPageContentIdentity: v.optional(v.string()),
+  resetAt: v.optional(v.number()),
   updatedAt: v.optional(v.number()),
 });
 
@@ -74,6 +85,7 @@ type HistorySaveItem = {
   chapterTitle?: string;
   intraPageProgress?: number;
   intraPageContentIdentity?: string;
+  resetAt?: number;
   updatedAt?: number;
 };
 
@@ -175,12 +187,14 @@ export const save = mutation({
     chapterTitle: v.optional(v.string()),
     intraPageProgress: v.optional(v.number()),
     intraPageContentIdentity: v.optional(v.string()),
+    resetAt: v.optional(v.number()),
     updatedAt: v.optional(v.number()),
     generation: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const context = await requireSyncMutationContext(ctx, args);
-    await saveChapterProgressItem(ctx, context, args);
+    const reset = await saveChapterProgressItem(ctx, context, args);
+    if (reset) await rollUpMangaProgressAfterResets(ctx, context, [reset]);
   },
 });
 
@@ -205,21 +219,45 @@ export const saveBatch = mutation({
         `${HISTORY_SAVE_BATCH_LIMIT_EXCEEDED}: ${args.items.length} > ${MAX_HISTORY_SAVE_BATCH_ITEMS}`,
       );
     }
+    // A reset batch (Mark as Unread on a whole work) rolls each work's
+    // summary up once, after every row of the batch is written.
+    const resets: ChapterProgressReset[] = [];
     for (const item of args.items) {
-      await saveChapterProgressItem(ctx, context, item);
+      const reset = await saveChapterProgressItem(ctx, context, item);
+      if (reset) resets.push(reset);
     }
+    await rollUpMangaProgressAfterResets(ctx, context, resets);
     return null;
   },
 });
 
-/** The single-row body of `save`, reused verbatim by `saveBatch`. */
+/** A chapter whose stored reset clock moved forward in this mutation. */
+type ChapterProgressReset = {
+  registryId: string;
+  sourceId: string;
+  sourceMangaId: string;
+  sourceChapterId: string;
+  updatedAt: number;
+};
+
+/**
+ * The single-row body of `save`, reused verbatim by `saveBatch`. Returns the
+ * chapter when the save stored a newer reset, so the caller can move the
+ * work's summary off it.
+ */
 async function saveChapterProgressItem(
   ctx: MutationCtx,
   context: SyncMutationContext,
   args: HistorySaveItem,
-): Promise<void> {
+): Promise<ChapterProgressReset | null> {
   const { userId, generation, resolveClock } = context;
   const updatedAt = resolveClock(args.updatedAt, Date.now());
+  // Validated like any clock; `resolveSyncClock` rejects a missing value, so
+  // only call it for a client that sent one.
+  const resetAt =
+    args.resetAt === undefined
+      ? undefined
+      : resolveSyncClock(args.resetAt, generation, Date.now());
   const progress = assertNonNegativeSafeInteger(args.progress, "progress");
   const total = assertNonNegativeSafeInteger(args.total, "total");
   const lastReadAt = resolveSyncClock(args.lastReadAt, generation, Date.now());
@@ -250,7 +288,7 @@ async function saveChapterProgressItem(
   );
   const existing = newestLwwRecord(existingRows);
   await pruneDuplicateRows(ctx.db, existingRows, existing);
-  const merged = mergeChapterProgressHighWater(existing, {
+  const incoming = {
     progress,
     total,
     completed: args.completed,
@@ -259,8 +297,20 @@ async function saveChapterProgressItem(
     volumeNumber,
     chapterTitle: args.chapterTitle,
     ...(intraPageState ?? {}),
+    ...(resetAt === undefined ? {} : { resetAt }),
     updatedAt,
-  });
+  };
+  const existingResetAt = existing
+    ? chapterProgressResetClock(existing)
+    : undefined;
+  const merged = mergeChapterProgressHighWater(existing, incoming);
+  // Reading recorded before a newer stored reset (an offline device, or an
+  // older client echoing the reset row's clock) is discarded by the merge and
+  // must not become the work's last read event either.
+  const readingSurvives = chapterProgressReadingSurvivesMerge(
+    existing,
+    incoming,
+  );
 
   // Try to find libraryItemId from library_source_links
   const sourceLinks = currentSyncGenerationRows(
@@ -285,7 +335,7 @@ async function saveChapterProgressItem(
     : sourceLink?.libraryItemId;
 
   if (existing) {
-    await ctx.db.patch(existing._id, {
+    const patch = {
       ...merged,
       libraryItemId,
       // Convex patch omission preserves an old field. Spell both halves out
@@ -293,7 +343,18 @@ async function saveChapterProgressItem(
       // canonical merge has no valid content-bound position.
       intraPageProgress: merged.intraPageProgress,
       intraPageContentIdentity: merged.intraPageContentIdentity,
-    });
+      resetAt: merged.resetAt,
+    };
+    // A write the merge discards (or a repeated reset) changes nothing;
+    // skipping the patch keeps an older client that re-pushes it from waking
+    // every subscriber.
+    if (
+      (Object.keys(patch) as (keyof typeof patch)[]).some(
+        (key) => patch[key] !== existing[key],
+      )
+    ) {
+      await ctx.db.patch(existing._id, patch);
+    }
   } else {
     await ctx.db.insert("chapter_progress", {
       userId,
@@ -306,6 +367,18 @@ async function saveChapterProgressItem(
       ...merged,
     });
   }
+
+  const reset =
+    merged.resetAt !== undefined && merged.resetAt !== existingResetAt
+      ? {
+          registryId: args.registryId,
+          sourceId: args.sourceId,
+          sourceMangaId: args.sourceMangaId,
+          sourceChapterId: args.sourceChapterId,
+          updatedAt: merged.updatedAt,
+        }
+      : null;
+  if (!readingSurvives || !chapterProgressHasReading(incoming)) return reset;
 
   // Update manga_progress (materialized summary)
   await updateMangaProgress(ctx, userId, generation, {
@@ -322,6 +395,92 @@ async function saveChapterProgressItem(
     libraryItemId,
     updatedAt: merged.updatedAt,
   });
+  return reset;
+}
+
+/**
+ * Moves each work's summary off chapters just marked unread: back to the
+ * newest chapter still read, or cleared when none is. A summary on another
+ * chapter is left alone. Clients adopt the result by its newer clock.
+ */
+async function rollUpMangaProgressAfterResets(
+  ctx: MutationCtx,
+  context: SyncMutationContext,
+  resets: readonly ChapterProgressReset[],
+): Promise<void> {
+  const { userId, generation } = context;
+  const byWork = new Map<string, ChapterProgressReset[]>();
+  for (const reset of resets) {
+    const key = makeMangaProgressId(
+      reset.registryId,
+      reset.sourceId,
+      reset.sourceMangaId,
+    );
+    byWork.set(key, [...(byWork.get(key) ?? []), reset]);
+  }
+  for (const [id, workResets] of byWork) {
+    const { registryId, sourceId, sourceMangaId } = workResets[0]!;
+    const summaryRows = currentSyncGenerationRows(
+      await ctx.db
+        .query("manga_progress")
+        .withIndex("by_user_source_manga", (q) =>
+          q
+            .eq("userId", userId)
+            .eq("registryId", registryId)
+            .eq("sourceId", sourceId)
+            .eq("sourceMangaId", sourceMangaId),
+        )
+        .collect(),
+      generation,
+    );
+    const summary = newestLwwRecord(summaryRows);
+    const resetChapterIds = new Set(
+      workResets.map((reset) => reset.sourceChapterId),
+    );
+    if (
+      !summary?.lastReadSourceChapterId ||
+      !resetChapterIds.has(summary.lastReadSourceChapterId)
+    ) {
+      continue;
+    }
+    await pruneDuplicateRows(ctx.db, summaryRows, summary);
+    const chapters = canonicalizeLwwRecords(
+      currentSyncGenerationRows(
+        await ctx.db
+          .query("chapter_progress")
+          .withIndex("by_user_source_manga", (q) =>
+            q
+              .eq("userId", userId)
+              .eq("registryId", registryId)
+              .eq("sourceId", sourceId)
+              .eq("sourceMangaId", sourceMangaId),
+          )
+          .collect(),
+        generation,
+      ),
+      (row) => row.sourceChapterId,
+    );
+    const now = Date.now();
+    const rolled = mangaProgressAfterChapterReset(
+      { ...summary, id },
+      chapters,
+      resetChapterIds,
+      Math.max(
+        normalizeSyncClock(summary.updatedAt, now),
+        ...workResets.map((reset) => reset.updatedAt),
+      ),
+    );
+    if (!rolled) continue;
+    await ctx.db.patch(summary._id, {
+      libraryItemId: rolled.libraryItemId,
+      lastReadAt: rolled.lastReadAt,
+      lastReadSourceChapterId: rolled.lastReadSourceChapterId,
+      lastReadChapterNumber: rolled.lastReadChapterNumber,
+      lastReadVolumeNumber: rolled.lastReadVolumeNumber,
+      lastReadChapterTitle: rolled.lastReadChapterTitle,
+      updatedAt: rolled.updatedAt,
+    });
+  }
 }
 
 // ============================================================================
