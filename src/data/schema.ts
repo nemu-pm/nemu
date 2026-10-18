@@ -200,6 +200,9 @@ const LocalChapterProgressValueSchema = z.object({
   intraPageProgress: z.number().finite().min(0).max(1).optional(),
   intraPageContentIdentity: z.string().optional(),
 
+  // Sync clock of the newest Mark as Unread (validated by the merge).
+  resetAt: z.number().optional(),
+
   // Sync fields
   updatedAt: z.number(),
 });
