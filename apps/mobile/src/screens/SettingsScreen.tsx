@@ -2136,6 +2136,12 @@ function SettingsScreenContent({
     useRef<SourceSettingsConfirmation | null>(null);
   const reopenSourceSettingsAfterConfirmationRef = useRef(false);
   const [aboutOpen, setAboutOpen] = useState(false);
+  // A deep link asks for a screen: the About sheet must not stay over it (a
+  // link to Settings itself changes no route, so nothing else closes it).
+  useEffect(() => {
+    const subscription = Linking.addEventListener("url", () => setAboutOpen(false));
+    return () => subscription.remove();
+  }, []);
   const [operationError, setOperationError] = useState<string | null>(null);
   const [clearCloudData, setClearCloudData] = useState(false);
   const [agentCardY, setAgentCardY] = useState<number | null>(null);
