@@ -71,6 +71,7 @@ import {
 } from "@/lib/useSkeletonPulse";
 import { getMobileSourceFeaturedGeometry, MOBILE_SOURCE_FEATURED_GAP } from "@/lib/mobileSourceFeaturedGeometry";
 import { hapticConfirm, hapticError, hapticSelection } from "@/lib/haptics";
+import { stepMobileCarouselSwitch } from "@/lib/mobileCarouselActiveIndex";
 import { buildMobileCoverTintPalette, type MobileCoverRgb } from "@/lib/mobileCoverTint";
 import { useMobileCoverTint } from "@/lib/useMobileCoverTint";
 import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
@@ -964,23 +965,40 @@ function ExploreFeaturedCarousel({
     () => entries.map((_, index) => buildMobileCoverTintPalette(tints[index] ?? null, scheme)),
     [entries, scheme, tints],
   );
+  // Only the user's finger (a drag and the fling after it) picks the active
+  // card: the scroll a rotation makes (the old offset clamped to the new
+  // content) must not, or the last card loses its place to the one before.
+  const userDriven = useRef(false);
   // The window changed under the rail (rotation, fold): keep the active card
-  // where it rests. Not the user's scroll, so nothing ticks.
+  // where it rests, exactly at its own snap point. Not the user's scroll, so
+  // nothing ticks. Again once the content has its new size, in case the
+  // first scroll landed before it and was clamped.
+  const realign = () => {
+    if (interval <= 0) return;
+    userDriven.current = false;
+    scrollRef.current?.scrollTo({ x: active * interval, animated: false });
+  };
   const aligned = useRef({ interval, sidePad });
   useLayoutEffect(() => {
     const previous = aligned.current;
     aligned.current = { interval, sidePad };
     if (interval <= 0 || (previous.interval === interval && previous.sidePad === sidePad)) return;
+    userDriven.current = false;
     scrollRef.current?.scrollTo({ x: active * interval, animated: false });
   }, [active, interval, sidePad]);
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     if (interval <= 0) return;
-    const next = Math.max(0, Math.min(entries.length - 1, Math.round(event.nativeEvent.contentOffset.x / interval)));
-    if (next !== active) {
+    const step = stepMobileCarouselSwitch(
+      { index: active, userDriven: userDriven.current },
+      event.nativeEvent.contentOffset.x,
+      interval,
+      entries.length,
+    );
+    if (step.index !== active) {
       // The wash and the tick change at the instant the active card does, mid-drag.
-      setActive(next);
-      void hapticSelection();
+      setActive(step.index);
     }
+    if (step.tick) void hapticSelection();
   };
   return (
     <View style={styles.homeSection}>
@@ -1004,6 +1022,13 @@ function ExploreFeaturedCarousel({
               disableIntervalMomentum
               showsHorizontalScrollIndicator={false}
               onScroll={handleScroll}
+              onScrollBeginDrag={() => {
+                userDriven.current = true;
+              }}
+              onMomentumScrollEnd={() => {
+                userDriven.current = false;
+              }}
+              onContentSizeChange={realign}
               scrollEventThrottle={16}
               contentContainerStyle={{ paddingLeft: sidePad, paddingRight: sidePadRight, paddingVertical: 10 }}
               style={styles.exploreFeaturedPager}
@@ -1043,6 +1068,8 @@ function ExploreFeaturedCarousel({
                 hapticFeedback={selected ? "none" : "selection"}
                 onPress={() => {
                   if (selected) return;
+                  userDriven.current = false;
+                  setActive(index);
                   scrollRef.current?.scrollTo({ x: interval * index, animated: true });
                 }}
                 pressedScale={0.9}

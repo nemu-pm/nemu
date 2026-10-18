@@ -307,7 +307,9 @@ export function MobileMangaDetailBooksHero({
   const grid = pane || top || inColumn;
   const rest = useMobileExploreRestingFrame();
   const rootRef = useRef<ViewInstance>(null);
-  const { top: restTop, onLayout: onRestLayout } = useMobileExploreRestingTop(rootRef, rest.windowKey);
+  // Not while the zoom is still carrying the page in (deferBody): its frames
+  // are scaled to the cover it left, so the window position is not the rest.
+  const { top: restTop, onLayout: onRestLayout } = useMobileExploreRestingTop(rootRef, rest.windowKey, !deferBody);
   const naturalCoverWidth = getMobileBooksHeroCoverWidth(contentWidth);
   const hasActions = placeholder || Boolean(primaryAction || secondaryActions.length);
   // While the details load, the cover is sized for the page most titles land
@@ -555,11 +557,12 @@ export function MobileMangaDetailBooksHero({
     if (title === undefined || actions === undefined) return null;
     // The row's top padding (8), then the column's blocks a gap apart
     // (title, synopsis, actions; the facts strip is gone, aa42ef6e).
-    const fixed = 8 + title + BLOCK_GAP + (hasActions ? BLOCK_GAP + actions : 0);
+    const fixed = 8 + title + (hasActions ? BLOCK_GAP + actions : 0);
     return getMobileRestingSynopsisLines({
       top: restTop,
       edge: rest.edge,
       fixed,
+      gap: BLOCK_GAP,
       lineHeight: synopsisMeasure.lineHeight,
       natural: synopsisNatural,
     });
@@ -838,6 +841,7 @@ export function MobileMangaDetailBooksHero({
           value={pageDescription || description}
           sheetValue={description}
           lines={synopsisLines}
+          collapsed={synopsisLines === 0}
           onMeasure={onSynopsisMeasure}
           ink={inkSecondary}
           moreInk={palette.ink}
@@ -1069,10 +1073,13 @@ function HeroDescription({
   strings,
   style,
   lines,
+  collapsed = false,
   onMeasure,
   sheetValue,
 }: {
   style?: StyleProp<ViewStyle>;
+  /** Not shown at all (no room above the actions); still measured. */
+  collapsed?: boolean;
   value: string;
   /** The sheet's text when it differs from the page's (the page leaves a line out). */
   sheetValue?: string;
@@ -1100,9 +1107,8 @@ function HeroDescription({
       {value}
     </NemuText>
   );
-  return (
-    <View style={style}>
-      {/* Unclamped twin, never seen: counts the synopsis' lines at this width. */}
+  // Unclamped twin, never seen: counts the synopsis' lines at this width.
+  const measureTwin = (
       <NemuText
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
@@ -1120,6 +1126,24 @@ function HeroDescription({
       >
         {value}
       </NemuText>
+  );
+  if (collapsed) {
+    // Out of the column's flow (no gap, no height), still measuring, so it
+    // comes back when the room does.
+    return (
+      <View
+        pointerEvents="none"
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        style={[style, styles.descriptionCollapsed]}
+      >
+        {measureTwin}
+      </View>
+    );
+  }
+  return (
+    <View style={style}>
+      {measureTwin}
       {collapsible ? (
         <NemuPressable
           accessibilityRole="button"
@@ -1288,6 +1312,13 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 0,
     right: 0,
+    opacity: 0,
+  },
+  descriptionCollapsed: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
     opacity: 0,
   },
   // Sits on the last collapsed line's trailing end.

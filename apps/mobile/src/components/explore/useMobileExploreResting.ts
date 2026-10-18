@@ -1,7 +1,12 @@
-import { useCallback, useState, type RefObject } from "react";
+import { useCallback, useEffect, useState, type RefObject } from "react";
+import { useIsFocused } from "expo-router";
 import { PixelRatio, useWindowDimensions, type ViewInstance } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { getMobileExploreRestingEdge, isMobileCompactHeight } from "@/lib/mobileExploreRestingFit";
+import {
+  getMobileExploreRestingEdge,
+  isMobileCompactHeight,
+  keepMobileExploreRestingTop,
+} from "@/lib/mobileExploreRestingFit";
 
 /**
  * Where a tab page's content starts at rest below the top inset: the
@@ -35,17 +40,35 @@ export function useMobileExploreRestingFrame() {
 }
 
 /**
- * Where `ref`'s top rests in the window, measured the first time it lays out
- * in each window size and text size (the page is at rest then; later layouts can happen
- * while it is scrolled, so they are ignored). Null until measured.
+ * Where `ref`'s top rests in the window, measured when it lays out in each
+ * window and text size. Only while its screen is focused and `enabled`: an
+ * unfocused screen is out of the window (its scroll view loses the bars'
+ * inset) and a zoom in flight scales the page to the cover it left, so
+ * neither is the rest. It is measured again when either turns on.
+ *
+ * Of the measurements for one size the lowest is kept: the page at rest is
+ * scrolled to its top, so a later layout while it is scrolled (higher up) is
+ * ignored, and one taken too high (a transition the gates missed) gives way
+ * to the rest. Null until measured.
  */
-export function useMobileExploreRestingTop(ref: RefObject<ViewInstance | null>, windowKey: string) {
+export function useMobileExploreRestingTop(
+  ref: RefObject<ViewInstance | null>,
+  windowKey: string,
+  enabled = true,
+) {
+  const focused = useIsFocused();
+  const active = focused && enabled;
   const [measured, setMeasured] = useState<Record<string, number>>({});
   const onLayout = useCallback(() => {
+    if (!active) return;
     ref.current?.measureInWindow((_x, y, width, height) => {
       if (!(width > 0 && height > 0)) return;
-      setMeasured((current) => (current[windowKey] !== undefined ? current : { ...current, [windowKey]: y }));
+      setMeasured((current) => keepMobileExploreRestingTop(current, windowKey, y));
     });
-  }, [ref, windowKey]);
+  }, [active, ref, windowKey]);
+  // Focus regained, the zoom landed, a new size: no layout may follow.
+  useEffect(() => {
+    onLayout();
+  }, [onLayout]);
   return { top: measured[windowKey] ?? null, onLayout };
 }

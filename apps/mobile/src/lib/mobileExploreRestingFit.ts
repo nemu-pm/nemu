@@ -251,17 +251,36 @@ export function getMobileExploreRestingEdge(
 /**
  * A synopsis with blocks under it (the wide top header: the actions follow
  * it): the lines it may show so everything below still ends `margin` above
- * the edge. `fixed` is the column's height without the synopsis. Never below
- * one line (zero would mean "unlimited" to a text view), never above `natural`.
+ * the edge. `fixed` is the column's height without the synopsis and the
+ * `gap` before it. 0 when not even one line fits: the primary action beats
+ * the synopsis, which is then not shown at all (the caller must not pass 0
+ * to a text view, where it means "unlimited"). Never above `natural`.
  */
 export function getMobileRestingSynopsisLines(input: {
   top: number;
   edge: number;
   fixed: number;
+  gap: number;
   lineHeight: number;
   natural: number;
 }): number {
-  const room = input.edge - MOBILE_RESTING.margin - input.top - input.fixed;
+  const room = input.edge - MOBILE_RESTING.margin - input.top - input.fixed - input.gap;
   const fits = input.lineHeight > 0 ? Math.floor(room / input.lineHeight) : input.natural;
-  return Math.max(1, Math.min(input.natural, fits));
+  return Math.max(0, Math.min(input.natural, fits));
+}
+
+/**
+ * A page's resting top per window size: of the measurements for one size the
+ * lowest on screen is kept (the page at rest is scrolled to its top; a
+ * measurement while scrolled, or caught mid-transition higher up, is not the
+ * rest). Returns `current` when nothing changes.
+ */
+export function keepMobileExploreRestingTop(
+  current: Readonly<Record<string, number>>,
+  key: string,
+  y: number,
+): Record<string, number> {
+  if (!Number.isFinite(y)) return current;
+  const kept = current[key];
+  return kept !== undefined && kept >= y ? current : { ...current, [key]: y };
 }

@@ -3,6 +3,7 @@ import {
   fitMobileRestingContent,
   getMobileExploreRestingEdge,
   getMobileRestingSynopsisLines,
+  keepMobileExploreRestingTop,
   MOBILE_RESTING,
   type MobileRestingBlock,
 } from "./mobileExploreRestingFit";
@@ -161,13 +162,33 @@ describe("resting edge", () => {
   });
 
   test("a synopsis above the actions gives up lines so they rest above the edge", () => {
-    // iPhone landscape: 402 tall, edge 338; hero at 80, title/facts/actions take 180.
-    const lines = getMobileRestingSynopsisLines({ top: 80, edge: 338, fixed: 180, lineHeight: 22, natural: 6 });
+    // iPhone landscape: 402 tall, edge 338; hero at 80, title/facts/actions take 164 + the synopsis' 16 gap.
+    const lines = getMobileRestingSynopsisLines({ top: 80, edge: 338, fixed: 164, gap: 16, lineHeight: 22, natural: 6 });
     expect(lines).toBe(3);
-    expect(80 + 180 + lines * 22).toBeLessThanOrEqual(338 - MOBILE_RESTING.margin);
+    expect(80 + 164 + 16 + lines * 22).toBeLessThanOrEqual(338 - MOBILE_RESTING.margin);
     // Room to spare: the natural count stands.
-    expect(getMobileRestingSynopsisLines({ top: 80, edge: 338, fixed: 100, lineHeight: 22, natural: 4 })).toBe(4);
-    // No room at all: still one line (zero is unlimited to a text view).
-    expect(getMobileRestingSynopsisLines({ top: 80, edge: 338, fixed: 400, lineHeight: 22, natural: 4 })).toBe(1);
+    expect(getMobileRestingSynopsisLines({ top: 80, edge: 338, fixed: 84, gap: 16, lineHeight: 22, natural: 4 })).toBe(4);
+  });
+
+  test("a synopsis that cannot keep one line above the actions collapses", () => {
+    // The Hanako-kun page at its measured rest (hero top 97): one line fits.
+    expect(getMobileRestingSynopsisLines({ top: 97, edge: 338, fixed: 177, gap: 16, lineHeight: 22, natural: 4 })).toBe(1);
+    // Larger text: not even one line; the synopsis gives way to Continue.
+    expect(getMobileRestingSynopsisLines({ top: 97, edge: 338, fixed: 215, gap: 16, lineHeight: 30, natural: 4 })).toBe(0);
+    expect(getMobileRestingSynopsisLines({ top: 80, edge: 338, fixed: 400, gap: 16, lineHeight: 22, natural: 4 })).toBe(0);
+  });
+});
+
+describe("resting top", () => {
+  test("the lowest measurement per size is kept", () => {
+    const first = keepMobileExploreRestingTop({}, "402x874@1", 140);
+    expect(first).toEqual({ "402x874@1": 140 });
+    // Scrolled (higher up): ignored, same object.
+    expect(keepMobileExploreRestingTop(first, "402x874@1", 60)).toBe(first);
+    // Caught too high before (mid-transition): the rest replaces it.
+    expect(keepMobileExploreRestingTop({ "874x402@1": 47 }, "874x402@1", 97)).toEqual({ "874x402@1": 97 });
+    // Another text size is its own entry.
+    expect(keepMobileExploreRestingTop(first, "402x874@3.1", 180)).toEqual({ "402x874@1": 140, "402x874@3.1": 180 });
+    expect(keepMobileExploreRestingTop(first, "402x874@1", Number.NaN)).toBe(first);
   });
 });
