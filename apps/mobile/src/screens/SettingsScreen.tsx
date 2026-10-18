@@ -2,6 +2,7 @@ import { MobileQuickActionMenu, mobileNativeQuickMenuAvailable } from "@/compone
 import { FlatList, type ViewInstance } from "react-native";
 import {
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -147,6 +148,8 @@ import {
 } from "@/lib/mobileSplitPaneLayout";
 import { useMobileSplitPaneLayout } from "@/lib/useMobileSplitPaneLayout";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
+import { HeaderHeightContext } from "expo-router/react-navigation";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { LayoutAnimationConfig } from "react-native-reanimated";
 import { useMobilePoseLayout, useMobilePoseTransition } from "@/lib/MobilePoseTransitionContext";
 import {
@@ -4248,7 +4251,17 @@ export function SettingsScreen({
   });
   const [barTitleCenterY, setBarTitleCenterY] = useState<number | null>(null);
   const window = useWindowDimensions();
-  const barTitleRevision = `${window.width}x${window.height}:${verticalBarSide ?? "top"}:${split?.alignment ?? "single"}`;
+  // The bar moves when the window, its side, the safe area or its own height
+  // changes (the last two settle late on a cold launch).
+  const insets = useSafeAreaInsets();
+  const headerHeight = useContext(HeaderHeightContext) ?? 0;
+  const barTitleRevision = [
+    `${window.width}x${window.height}`,
+    verticalBarSide ?? "top",
+    split?.alignment ?? "single",
+    insets.top,
+    headerHeight,
+  ].join(":");
 
   const pose = useMobilePoseTransition();
   const poseLayout = useMobilePoseLayout();
