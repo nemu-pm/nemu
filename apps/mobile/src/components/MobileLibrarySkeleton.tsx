@@ -7,7 +7,8 @@ import {
   radius,
   useNemuTheme,
 } from "@/design-system";
-import { MOBILE_MANGA_GRID_GAP } from "@/lib/mobileAdaptiveGrid";
+import { MOBILE_MANGA_GRID_GAP, mobileLibraryGridMinItemWidth } from "@/lib/mobileAdaptiveGrid";
+import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { mobileFoldAwareGridCellStyle } from "@/lib/mobileFoldAwareGrid";
 import { NO_INSETS, useMobileFoldAwareGrid } from "@/lib/useMobileFoldAwareGrid";
 import {
@@ -45,7 +46,12 @@ function ShippingLibrarySkeleton({
   // so the skeleton hands off without a reflow and never straddles the fold.
   // It already sits inside the page gutters.
   // Refs stay out of the layout object read during render.
-  const { ref: gridRef, onLayout: onGridLayout, ...grid } = useMobileFoldAwareGrid({ insets: NO_INSETS });
+  const adaptive = useMobileAdaptiveLayout();
+  const { ref: gridRef, onLayout: onGridLayout, ...grid } = useMobileFoldAwareGrid({
+    insets: NO_INSETS,
+    // Same covers as the Library it stands in for.
+    minItemWidth: mobileLibraryGridMinItemWidth(adaptive),
+  });
   const pulseOpacity = useSkeletonPulse(reduceMotion === true);
   const skeletonOpacity = pulseOpacity;
   const displayReady = useSkeletonDisplayDelay(150);
