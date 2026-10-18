@@ -78,9 +78,10 @@ describe("mobile reader pairing", () => {
 
   test("legacy book pairing keeps pairing from the first page", () => {
     expect(normalizeMobileReaderSpreadPairing(undefined, "book")).toBe("cover-paired");
-    expect(normalizeMobileReaderSpreadPairing(undefined, "manga")).toBe("auto");
+    expect(normalizeMobileReaderSpreadPairing(undefined, "manga")).toBe("cover-alone");
+    expect(normalizeMobileReaderSpreadPairing(undefined)).toBe("cover-alone");
     expect(normalizeMobileReaderSpreadPairing("cover-alone", "book")).toBe("cover-alone");
-    expect(normalizeMobileReaderSpreadPairing("bogus")).toBe("auto");
+    expect(normalizeMobileReaderSpreadPairing("bogus")).toBe("cover-alone");
   });
 
   test("the spreads already seen stay put when pairing learns about pages ahead", () => {

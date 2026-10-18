@@ -38,13 +38,18 @@ export const MOBILE_READER_SPREAD_PAIRINGS: readonly MobileReaderSpreadPairing[]
   "cover-alone",
   "cover-paired",
 ];
-export const DEFAULT_MOBILE_READER_SPREAD_PAIRING: MobileReaderSpreadPairing = "auto";
+/**
+ * Cover alone (the first page alone, as most books open) until automatic
+ * pairing is validated beyond the one scanned series it was tuned on; a
+ * confident wrong guess reads worse than the fixed rule.
+ */
+export const DEFAULT_MOBILE_READER_SPREAD_PAIRING: MobileReaderSpreadPairing = "cover-alone";
 
 /**
  * The saved pairing. Builds before this setting stored `manga` (the first
  * page alone, the old default) or `book` (pairs from the first page); an
  * explicit `book` keeps pairing from the first page, everything else reads
- * as automatic.
+ * as the default.
  */
 export function normalizeMobileReaderSpreadPairing(
   value: unknown,
