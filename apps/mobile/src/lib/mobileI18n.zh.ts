@@ -719,7 +719,9 @@ export const mobileStringsZh: MobileStrings = {
     pluginJapaneseLearningSignInRequired: "请登录后使用此功能。",
     pluginJapaneseLearningSignInRequiredTitle: "需要登录",
     pluginJapaneseLearningSignInRequiredDescription:
-      "此功能使用 nemu 的在线服务。请在设置中登录后使用，或将识别引擎设为“自动”或“设备端”。",
+      "“云端”引擎使用 nemu 的在线服务。请在设置中登录后使用，或将识别引擎改为“自动”或“设备端”。",
+    pluginJapaneseLearningSignInRequiredAutomaticDescription:
+      "这项功能目前无法在本设备上完成，“自动”会改用 nemu 的在线服务。请在设置中登录后使用。",
     pluginJapaneseLearningSignInToUse: "登录后可用",
     pluginJapaneseLearningStopListening: "停止",
     pluginJapaneseLearningStructure: "结构",

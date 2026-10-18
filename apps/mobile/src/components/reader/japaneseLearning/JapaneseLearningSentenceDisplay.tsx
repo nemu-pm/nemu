@@ -56,6 +56,7 @@ import {
   mobileJapaneseLearningSurfaceColors,
 } from "@/lib/mobileJapaneseLearningSurfaceTheme";
 import { getMobileJapaneseLearningEnginePreference } from "@/lib/mobileJapaneseLearningEngine";
+import { mobileJapaneseLearningSignInDescription } from "@/lib/mobileJapaneseLearningOcr";
 import { isMobileJapaneseLearningSignedIn } from "@/lib/mobileJapaneseLearningAuth";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import { describeMobileJapaneseLearningPackLoading } from "@/lib/mobileJapaneseLearningAnalysisPackState";
@@ -442,7 +443,7 @@ export function JapaneseLearningSentenceDisplay({
         {strings.reader.pluginJapaneseLearningSignInRequiredTitle}
       </Text>
       <Text style={[styles.errorText, { color: tokens.mutedForeground }]}>
-        {strings.reader.pluginJapaneseLearningSignInRequiredDescription}
+        {mobileJapaneseLearningSignInDescription(strings, getMobileJapaneseLearningEnginePreference())}
       </Text>
     </View>
   ) : grammarState.status === "error" ? (

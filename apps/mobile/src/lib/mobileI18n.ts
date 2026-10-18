@@ -633,7 +633,10 @@ export type MobileStrings = {
     pluginJapaneseLearningSelectedText: string;
     pluginJapaneseLearningSignInRequired: string;
     pluginJapaneseLearningSignInRequiredTitle: string;
+    /** Engine = Cloud, signed out. */
     pluginJapaneseLearningSignInRequiredDescription: string;
+    /** Engine = Automatic, signed out, and the device cannot do the step itself. */
+    pluginJapaneseLearningSignInRequiredAutomaticDescription: string;
     pluginJapaneseLearningSignInToUse: string;
     pluginJapaneseLearningStopListening: string;
     pluginJapaneseLearningStructure: string;

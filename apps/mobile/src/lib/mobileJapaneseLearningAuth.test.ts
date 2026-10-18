@@ -18,6 +18,7 @@ import { runMobileJapaneseLearningChat } from "./mobileJapaneseLearningChat";
 import { getMobileStrings } from "./mobileI18n";
 import {
   describeJapaneseLearningOcrError,
+  mobileJapaneseLearningSignInDescription,
   runMobileJapaneseLearningOcr,
 } from "./mobileJapaneseLearningOcr";
 import { mobileJapaneseLearningAnalysisErrorText } from "./mobileJapaneseLearningReaderHelpers";
@@ -175,14 +176,29 @@ describe("server features send nothing signed out", () => {
 describe("sign-in prompts", () => {
   test("cloud OCR signed out reads as a sign-in prompt, not a failure", () => {
     for (const detail of ["auth_required", en.reader.pluginJapaneseLearningSignInRequired]) {
-      expect(describeJapaneseLearningOcrError(detail, en)).toEqual({
+      expect(describeJapaneseLearningOcrError(detail, en, "cloud")).toEqual({
         kind: "signIn",
         title: en.reader.pluginJapaneseLearningSignInRequiredTitle,
         description: en.reader.pluginJapaneseLearningSignInRequiredDescription,
         diagnostic: null,
       });
     }
-    expect(describeJapaneseLearningOcrError("OCR /ocr failed: 521", en).kind).toBe("unavailable");
+    expect(describeJapaneseLearningOcrError("OCR /ocr failed: 521", en, "cloud").kind).toBe("unavailable");
+  });
+
+  test("Automatic falling back to the cloud signed out suggests no other engine", () => {
+    for (const detail of ["auth_required", en.reader.pluginJapaneseLearningSignInRequired]) {
+      expect(describeJapaneseLearningOcrError(detail, en, "auto")).toEqual({
+        kind: "signIn",
+        title: en.reader.pluginJapaneseLearningSignInRequiredTitle,
+        description: en.reader.pluginJapaneseLearningSignInRequiredAutomaticDescription,
+        diagnostic: null,
+      });
+    }
+    expect(mobileJapaneseLearningSignInDescription(en, "auto")).not.toContain("On Device");
+    expect(mobileJapaneseLearningSignInDescription(en, "cloud")).toBe(
+      en.reader.pluginJapaneseLearningSignInRequiredDescription,
+    );
   });
 
   test("the sentence view's analysis error", () => {

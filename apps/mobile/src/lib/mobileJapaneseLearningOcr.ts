@@ -409,9 +409,24 @@ const MOBILE_JAPANESE_LEARNING_OCR_UNAVAILABLE_PATTERN =
  * English exception text is a bounded diagnostic shown only inside the
  * collapsed "technical details" disclosure.
  */
+/**
+ * The sign-in prompt's line for the engine preference: Automatic only asks
+ * for sign-in when the device cannot do the step itself, so it suggests no
+ * other engine; Cloud suggests Automatic or On Device.
+ */
+export function mobileJapaneseLearningSignInDescription(
+  strings: Pick<MobileStrings, "reader">,
+  preference: MobileJapaneseLearningEnginePreference = getMobileJapaneseLearningEnginePreference(),
+): string {
+  return preference === "auto"
+    ? strings.reader.pluginJapaneseLearningSignInRequiredAutomaticDescription
+    : strings.reader.pluginJapaneseLearningSignInRequiredDescription;
+}
+
 export function describeJapaneseLearningOcrError(
   error: unknown,
   strings: Pick<MobileStrings, "reader">,
+  preference: MobileJapaneseLearningEnginePreference = getMobileJapaneseLearningEnginePreference(),
 ): MobileJapaneseLearningOcrErrorCopy {
   let message = "";
   if (typeof error === "string") {
@@ -434,7 +449,7 @@ export function describeJapaneseLearningOcrError(
     return {
       kind: "signIn",
       title: strings.reader.pluginJapaneseLearningSignInRequiredTitle,
-      description: strings.reader.pluginJapaneseLearningSignInRequiredDescription,
+      description: mobileJapaneseLearningSignInDescription(strings, preference),
       diagnostic: null,
     };
   }
