@@ -60,8 +60,9 @@ export function useMobileSplitPaneLayout(options: MobileSplitPaneOptions): {
         posture: adaptive.posture,
         foldSplit,
         options,
+        sideInsets: adaptive.safeAreaInsets,
       }),
-    [adaptive.posture, adaptive.regularWidth, containerWidth, foldSplit, options],
+    [adaptive.posture, adaptive.regularWidth, adaptive.safeAreaInsets, containerWidth, foldSplit, options],
   );
 
   return {

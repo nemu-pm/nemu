@@ -61,6 +61,12 @@ export type MobileSplitPaneOptions = {
    * the horizontal fold crosses both like any other row.
    */
   splitInNotebook?: boolean;
+  /**
+   * The flat rule measures the width between the side safe areas (a vertical
+   * bar, the outer display's rail) and the leading inset is added back to the
+   * leading pane, so a bar beside the sidebar does not eat into its rows.
+   */
+  measureInsideSideInsets?: boolean;
 };
 
 export const MOBILE_DETAIL_SPLIT_OPTIONS: MobileSplitPaneOptions = {
@@ -84,6 +90,7 @@ export const MOBILE_SETTINGS_SPLIT_OPTIONS: MobileSplitPaneOptions = {
   minTrailing: 320,
   minFoldPane: 280,
   splitInNotebook: true,
+  measureInsideSideInsets: true,
 };
 
 /**
@@ -107,6 +114,7 @@ export function getMobileSplitPaneLayout({
   posture,
   foldSplit,
   options,
+  sideInsets,
 }: {
   containerWidth: number;
   regularWidth: boolean;
@@ -114,6 +122,8 @@ export function getMobileSplitPaneLayout({
   /** `mobileFoldSplitForContainer` for the measured container, or null. */
   foldSplit: MobileContainerFoldSplit | null;
   options: MobileSplitPaneOptions;
+  /** The window's left/right safe-area insets (`measureInsideSideInsets`). */
+  sideInsets?: { left: number; right: number } | null;
 }): MobileSplitPaneLayout {
   if (!regularWidth) return { mode: "single" };
   if (posture === "notebook" && !options.splitInNotebook) return { mode: "single" };
@@ -136,9 +146,13 @@ export function getMobileSplitPaneLayout({
   }
 
   if (containerWidth < (options.minFlatSplitWidth ?? 0)) return { mode: "single" };
-  const leadingWidth = flatLeadingWidth(containerWidth, options);
+  const inset = options.measureInsideSideInsets
+    ? { left: Math.max(0, sideInsets?.left ?? 0), right: Math.max(0, sideInsets?.right ?? 0) }
+    : { left: 0, right: 0 };
+  const leadingWidth =
+    inset.left + flatLeadingWidth(containerWidth - inset.left - inset.right, options);
   const trailingWidth = containerWidth - leadingWidth;
-  if (trailingWidth < options.minTrailing) return { mode: "single" };
+  if (trailingWidth - inset.right < options.minTrailing) return { mode: "single" };
   return {
     mode: "split",
     alignment: "flat",

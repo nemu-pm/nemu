@@ -53,6 +53,27 @@ describe("split pane layout", () => {
     });
   });
 
+  test("settings measure the sidebar between the side safe areas (a bar beside it keeps its rows)", () => {
+    // Duo inner display in landscape, vertical bar on the trailing edge: unchanged.
+    expect(split({ containerWidth: 951, regularWidth: true, posture: "flat", foldSplit: null, options: settings, sideInsets: { left: 0, right: 84 } })).toMatchObject({
+      leading: { width: 320 },
+    });
+    // Outer display in landscape, rail on the leading edge: 250pt beside the rail.
+    expect(split({ containerWidth: 678, regularWidth: true, posture: "flat", foldSplit: null, options: settings, sideInsets: { left: 84, right: 0 } })).toMatchObject({
+      leading: { x: 0, width: 334 },
+      trailing: { x: 334, width: 344 },
+    });
+    // Rail on the trailing edge: the detail keeps 419pt beside it.
+    expect(split({ containerWidth: 678, regularWidth: true, posture: "flat", foldSplit: null, options: settings, sideInsets: { left: 0, right: 84 } })).toMatchObject({
+      leading: { width: 250 },
+      trailing: { width: 428 },
+    });
+    // Manga detail ignores the insets.
+    expect(split({ containerWidth: 951, regularWidth: true, posture: "flat", foldSplit: null, options: detail, sideInsets: { left: 84, right: 0 } })).toMatchObject({
+      leading: { width: 380 },
+    });
+  });
+
   test("manga detail only splits flat on expanded widths (web, Material list-detail)", () => {
     // Duo inner portrait and tablets in portrait keep the single list.
     for (const containerWidth of [669, 744, 834]) {
