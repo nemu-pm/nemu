@@ -3,9 +3,9 @@ import {
   mobileDeviceFormFactor,
   mobileOrientationLock,
   mobileOrientationLockWaitsForTransition,
-  mobileReaderOnPhoneSizedDisplay,
   mobileReaderOrientationLockAvailable,
   mobileReaderOrientationRequest,
+  mobileWindowOnInnerDisplay,
 } from "./mobileOrientationPolicy";
 import type { MobileWindowLayout } from "./mobileWindowLayout";
 
@@ -65,27 +65,27 @@ describe("orientation lock", () => {
     }
   });
 
-  test("the reader stays portrait on the Duo outer display and follows the switch inside", () => {
-    const outer = mobileReaderOnPhoneSizedDisplay({ formFactor: "foldable", layout: duoOuter });
-    const inner = mobileReaderOnPhoneSizedDisplay({ formFactor: "foldable", layout: duoInner });
-    expect(outer).toBe(true);
-    expect(inner).toBe(false);
-    const request = (phoneSizedDisplay: boolean, userLock: boolean, sceneLockAvailable = true) =>
-      mobileReaderOrientationRequest({ phoneSizedDisplay, userLock, sceneLockAvailable });
-    expect(request(outer, false)).toEqual({ portrait: true, keepOrientation: false });
-    expect(request(inner, false)).toEqual({ portrait: false, keepOrientation: false });
-    // The Orientation Lock keeps the scene's orientation where a forced one is refused (iOS 27).
-    expect(request(inner, true)).toEqual({ portrait: false, keepOrientation: true });
-    expect(request(outer, true)).toEqual({ portrait: true, keepOrientation: false });
+  test("the reader rotates on both Duo displays; only the Orientation Lock holds it", () => {
+    const request = (userLock: boolean, sceneLockAvailable = true) =>
+      mobileReaderOrientationRequest({ userLock, sceneLockAvailable });
+    expect(request(false)).toEqual({ portrait: false, keepOrientation: false });
+    // The lock keeps the scene's orientation (the outer display's mask, the inner display's scene lock).
+    expect(request(true)).toEqual({ portrait: false, keepOrientation: true });
     // An older binary without the scene lock still asks for portrait.
-    expect(request(inner, true, false)).toEqual({ portrait: true, keepOrientation: false });
+    expect(request(true, false)).toEqual({ portrait: true, keepOrientation: false });
+    // With the lock off the app-wide lock stays the device's own: a Duo rotates, an iPhone does not.
+    expect(mobileOrientationLock({ formFactor: "foldable", readerWantsPortrait: request(false).portrait })).toBe("default");
+    expect(mobileOrientationLock({ formFactor: "phone", readerWantsPortrait: request(false).portrait })).toBe("portrait");
+  });
+
+  test("tells the Duo inner display from the outer one", () => {
+    expect(mobileWindowOnInnerDisplay(duoOuter)).toBe(false);
+    expect(mobileWindowOnInnerDisplay(duoInner)).toBe(true);
     // Book or laptop before the fold region reports, and tent on the outer display.
-    expect(mobileReaderOnPhoneSizedDisplay({ formFactor: "foldable", layout: { ...duoInner, divisions: [], hinge: "partiallyOpen" } })).toBe(false);
-    expect(mobileReaderOnPhoneSizedDisplay({ formFactor: "foldable", layout: { ...duoOuter, width: 678, height: 466, hinge: "partiallyOpen" } })).toBe(true);
+    expect(mobileWindowOnInnerDisplay({ ...duoInner, divisions: [], hinge: "partiallyOpen" })).toBe(true);
+    expect(mobileWindowOnInnerDisplay({ ...duoOuter, width: 678, height: 466, hinge: "partiallyOpen" })).toBe(false);
     // Fully open and flat, the inner display reports no fold.
-    expect(mobileReaderOnPhoneSizedDisplay({ formFactor: "foldable", layout: { ...duoInner, divisions: [], hinge: "fullyOpen", fillsScreen: true } })).toBe(false);
-    // Split View on the inner display is not the outer display.
-    expect(mobileReaderOnPhoneSizedDisplay({ formFactor: "foldable", layout: { ...duoInner, divisions: [], hinge: "fullyOpen", fillsScreen: false } })).toBe(false);
+    expect(mobileWindowOnInnerDisplay({ ...duoInner, divisions: [], hinge: "fullyOpen" })).toBe(true);
   });
 
   test("the Orientation Lock row shows everywhere but an ordinary iPhone, on both Duo displays", () => {
@@ -93,7 +93,7 @@ describe("orientation lock", () => {
     expect(mobileReaderOrientationLockAvailable({ formFactor: "foldable" })).toBe(true);
     expect(mobileReaderOrientationLockAvailable({ formFactor: "tablet" })).toBe(true);
     expect(mobileReaderOrientationLockAvailable({ formFactor: "unknown" })).toBe(true);
-    // The outer display still holds the reader portrait, switch or not.
-    expect(mobileReaderOrientationRequest({ phoneSizedDisplay: true, userLock: false, sceneLockAvailable: true }).portrait).toBe(true);
+    // The outer display no longer holds the reader portrait.
+    expect(mobileReaderOrientationRequest({ userLock: false, sceneLockAvailable: true }).portrait).toBe(false);
   });
 });

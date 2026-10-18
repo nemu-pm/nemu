@@ -67,6 +67,17 @@ export function fitSheetDetentToContent(options: {
  * On each Form of a `fitSheetDetentToContent()` sheet: which measured page it
  * is, so the sheet takes that page's height when the Form appears.
  */
+/**
+ * On a popover's Form: its ideal size is `width` × the height its off-screen
+ * copy measured (`measureSheetPage`, same `group` / `page`; the copy at the
+ * popover's width). The system shows the popover whole when there is room
+ * and caps it otherwise, the Form scrolling from its top. `initialHeight`
+ * until the copy has measured.
+ */
+export function fitPopoverToContent(options: { group: string; page: string; width: number; initialHeight: number }) {
+  return createModifier("nemuFitPopoverToContent", options);
+}
+
 export function reportSheetContentHeight(options: { page: string }) {
   return createModifier("nemuReportSheetContentHeight", { page: options.page });
 }

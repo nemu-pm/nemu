@@ -165,7 +165,6 @@ import {
   readerSettingsPopoverAvailableHeight,
 } from "@/lib/readerSettingsNativePopoverLayout";
 import {
-  mobileReaderOnPhoneSizedDisplay,
   mobileReaderOrientationLockAvailable,
   mobileReaderOrientationRequest,
 } from "@/lib/mobileOrientationPolicy";
@@ -292,6 +291,7 @@ import {
   mobileReaderPageIndexForSettledSpread,
   getMobileReaderSpreadImageFrameSize,
   getMobileReaderSpreadSheetFrames,
+  getMobileReaderSplitWidePageFrame,
   pageIndexForMobileReaderSpreadStep,
   visualPageIndexesForMobileReaderSpread,
 } from "@/lib/mobileReaderSpreads";
@@ -1380,20 +1380,14 @@ export function ReaderScreen() {
     detail: strings.reader.readerPagesIdle,
   });
   // Keep-awake waits for pages: a chapter stuck loading or blocked should not
-  // hold the screen on. Portrait lock applies for the whole reader session.
-  // Portrait on a phone-sized display (an iPhone, the Duo outer display),
-  // re-read from the reader's own window as the device folds or unfolds;
-  // elsewhere (Duo inner display, iPad) only when Orientation Lock is on.
+  // hold the screen on. The reader rotates like the rest of the app (an
+  // ordinary iPhone is portrait everywhere); on iPad and both Duo displays
+  // only its Orientation Lock holds the orientation it has.
   const deviceFormFactor = useMobileDeviceFormFactor();
-  const readerOnPhoneSizedDisplay = mobileReaderOnPhoneSizedDisplay({
-    formFactor: deviceFormFactor,
-    layout: reservedLayout,
-  });
   const readerOrientationLockAvailable = mobileReaderOrientationLockAvailable({
     formFactor: deviceFormFactor,
   });
   const readerOrientationRequest = mobileReaderOrientationRequest({
-    phoneSizedDisplay: readerOnPhoneSizedDisplay,
     userLock: readerLockPortrait && readerOrientationLockAvailable,
     sceneLockAvailable: interfaceOrientationLockAvailable,
   });
@@ -6740,8 +6734,16 @@ export function ReaderScreen() {
           });
           return frames[visual.indexOf(index)] ?? frames[0];
         }
-        // The curl lays a lone page on one leaf beside the spine; only a wide
-        // page of a flat spread lies across both.
+        // Book posture: a wide page reads as a printed spread, split at its
+        // centre across the two panes.
+        if (readerSpreadSlots && readerSpreadSlots.length === 2 && isMobileReaderWidePage(readerPageSizeAt(index))) {
+          return getMobileReaderSplitWidePageFrame({
+            slots: [readerSpreadSlots[0]!, readerSpreadSlots[1]!],
+            size: readerPageSizeAt(index),
+          });
+        }
+        // The curl lays a lone page on one leaf beside the spine; a wide page
+        // lies across both.
         const loneOnLeaf = readerPageCurlActive && !isMobileReaderWidePage(readerPageSizeAt(index));
         const lone = readerSpreadSlots && readerSpreadSlots.length === 2
           ? readerSpreadSlots[mode === "rtl" ? 1 : 0]!

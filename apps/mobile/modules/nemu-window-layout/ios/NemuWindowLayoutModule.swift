@@ -32,6 +32,9 @@ public final class NemuWindowLayoutModule: Module {
       ViewModifierRegistry.register(NemuMeasureSheetPageModifier.type) { params, _, _ in
         NemuMeasureSheetPageModifier(params: params)
       }
+      ViewModifierRegistry.register(NemuFitPopoverToContentModifier.type) { params, _, _ in
+        NemuFitPopoverToContentModifier(params: params)
+      }
       // The in-app theme from the last run, before any JS (see `NemuAppAppearance`).
       DispatchQueue.main.async {
         MainActor.assumeIsolated { NemuAppAppearance.restore() }
@@ -56,6 +59,10 @@ public final class NemuWindowLayoutModule: Module {
       MainActor.assumeIsolated { NemuInterfaceOrientationLock.set(locked) }
     }.runOnQueue(.main)
     Constant("interfaceOrientationLockAvailable") { true }
+    // The orientation gate remembers a hinge; JS clears it on an ordinary iPhone.
+    AsyncFunction("forgetFoldableDevice") {
+      MainActor.assumeIsolated { NemuOrientationGate.forgetFoldable() }
+    }.runOnQueue(.main)
     // Resolves once no view controller transition is running in the app's
     // windows (see `NemuTransitionSettle`): orientation changes wait for it.
     AsyncFunction("afterTransitions") { (promise: Promise) in
@@ -622,6 +629,38 @@ struct NemuMeasureSheetPageModifier: ViewModifier {
     let margins = max(0, metrics.insets - safeArea.top - safeArea.bottom)
     NemuSheetFitStore.named(group).setContentHeight(metrics.content + margins, page: page)
     sheetFitLog.debug("measured \(group, privacy: .public)/\(page, privacy: .public) content=\(metrics.content) insets=\(metrics.insets) safe=\(safeArea.top)+\(safeArea.bottom)")
+  }
+}
+
+/// On a popover's Form: its ideal size is `width` × the height its
+/// off-screen copy measured (`NemuMeasureSheetPageModifier`, same `group` and
+/// `page`). A Form has no ideal height of its own, so without one the popover
+/// would not know how tall its rows are. The system shows the popover at that
+/// height when there is room and caps it otherwise, the Form scrolling from
+/// its top. Unmeasured (before iOS 18, or before the copy has laid out), the
+/// ideal height is `initialHeight`.
+struct NemuFitPopoverToContentModifier: ViewModifier {
+  static let type = "nemuFitPopoverToContent"
+  let page: String
+  let width: CGFloat
+  let initialHeight: CGFloat
+  @ObservedObject private var store: NemuSheetFitStore
+
+  init(params: [String: Any]) {
+    page = (params["page"] as? String) ?? "root"
+    width = CGFloat((params["width"] as? Double) ?? 0)
+    initialHeight = CGFloat((params["initialHeight"] as? Double) ?? 0)
+    store = NemuSheetFitStore.named((params["group"] as? String) ?? "default")
+  }
+
+  func body(content: Content) -> some View {
+    let height = store.contentHeights[page] ?? (initialHeight > 0 ? initialHeight : nil)
+    content.frame(
+      minWidth: width > 0 ? width : nil,
+      idealWidth: width > 0 ? width : nil,
+      maxWidth: width > 0 ? width : nil,
+      idealHeight: height
+    )
   }
 }
 

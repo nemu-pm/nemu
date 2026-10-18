@@ -13,6 +13,7 @@ import {
   nextMobileReaderCurlNavigation,
   normalizeMobileReaderPageTurn,
 } from "./mobileReaderPageCurl";
+import { getMobileReaderSplitWidePageFrame, mobileReaderSplitWideHalfRects } from "./mobileReaderSpreads";
 import { mobileReaderApplyFlip, mobileReaderPageFrameFlip } from "./mobileReaderStageMotion";
 
 const never = () => false;
@@ -60,7 +61,6 @@ describe("curl slots", () => {
       frames: [[2], [1], [0]],
       spreadMode: false,
       mode: "rtl",
-      splitWide: true,
       isWide: never,
     });
     expect(slots.map((slot) => (slot.kind === "page" ? slot.pageIndex : -1))).toEqual([2, 1, 0]);
@@ -71,7 +71,6 @@ describe("curl slots", () => {
       frames: [[1, 2], [3, 4]],
       spreadMode: true,
       mode: "ltr",
-      splitWide: true,
       isWide: never,
     });
     expect(ltr.map((slot) => (slot.kind === "page" ? slot.pageIndex : -1))).toEqual([1, 2, 3, 4]);
@@ -80,7 +79,6 @@ describe("curl slots", () => {
       frames: [[3, 4], [1, 2]],
       spreadMode: true,
       mode: "rtl",
-      splitWide: true,
       isWide: never,
     });
     expect(rtl.map((slot) => (slot.kind === "page" ? slot.pageIndex : -1))).toEqual([4, 3, 2, 1]);
@@ -91,7 +89,6 @@ describe("curl slots", () => {
       frames: [[0], [1, 2]],
       spreadMode: true,
       mode: "ltr",
-      splitWide: true,
       isWide: never,
     });
     expect(ltr.map((slot) => slot.kind === "page" ? slot.pageIndex : "blank")).toEqual(["blank", 0, 1, 2]);
@@ -99,7 +96,6 @@ describe("curl slots", () => {
       frames: [[1, 2], [0]],
       spreadMode: true,
       mode: "rtl",
-      splitWide: true,
       isWide: never,
     });
     expect(rtl.map((slot) => slot.kind === "page" ? slot.pageIndex : "blank")).toEqual([2, 1, 0, "blank"]);
@@ -110,33 +106,32 @@ describe("curl slots", () => {
       frames: [[0, 1], [2]],
       spreadMode: true,
       mode: "ltr",
-      splitWide: true,
       isWide: never,
     });
     expect(slots.map((slot) => slot.kind === "page" ? slot.pageIndex : "blank")).toEqual([0, 1, 2, "blank"]);
   });
 
-  test("a wide page lies across the spine of a flat spread and stands in one pane on a fold", () => {
+  test("a wide page lies across the spine, flat or on a fold, and turns as one spread", () => {
     const wide = (index: number) => index === 2;
-    const flat = buildMobileReaderCurlSlots({
+    const ltr = buildMobileReaderCurlSlots({
       frames: [[0, 1], [2], [3, 4]],
       spreadMode: true,
       mode: "ltr",
-      splitWide: true,
       isWide: wide,
     });
-    expect(flat.slice(2, 4)).toEqual([
-      { kind: "page", frame: 1, pageIndex: 2, part: "left" },
-      { kind: "page", frame: 1, pageIndex: 2, part: "right" },
-    ]);
-    const fold = buildMobileReaderCurlSlots({
-      frames: [[0, 1], [2], [3, 4]],
+    // Leaves pair about the spine: the back of slot 1 is slot 2 (the wide
+    // page's left half), the back of slot 3 (its right half) is slot 4.
+    expect(ltr.map((slot) => (slot.kind === "page" ? `${slot.pageIndex}${slot.part === "whole" ? "" : slot.part[0]}` : "blank")))
+      .toEqual(["0", "1", "2l", "2r", "3", "4"]);
+    // Manga: frames run right to left, the image itself never mirrors.
+    const rtl = buildMobileReaderCurlSlots({
+      frames: [[3, 4], [2], [0, 1]],
       spreadMode: true,
-      mode: "ltr",
-      splitWide: false,
+      mode: "rtl",
       isWide: wide,
     });
-    expect(fold.slice(2, 4).map((slot) => slot.kind)).toEqual(["blank", "page"]);
+    expect(rtl.map((slot) => (slot.kind === "page" ? `${slot.pageIndex}${slot.part === "whole" ? "" : slot.part[0]}` : "blank")))
+      .toEqual(["4", "3", "2l", "2r", "1", "0"]);
   });
 
   test("the page before a wide page is a verso", () => {
@@ -209,6 +204,35 @@ describe("curl layout", () => {
     const [left, right] = layout.boxes;
     expect(layout.frame.x + left!.x + left!.width).toBe(320);
     expect(layout.frame.x + layout.leaf.width + right!.x).toBe(340);
+  });
+
+  test("a book-pose wide page: its leaves show the halves exactly where the slide gallery puts them", () => {
+    const spreadSlots = [
+      { x: 20, y: 0, width: 300, height: 900 },
+      { x: 340, y: 0, width: 340, height: 900 },
+    ];
+    const layout = mobileReaderCurlLayout({
+      stage: { width: 700, height: 900 },
+      spreadMode: true,
+      spreadSlots,
+      foldGap: { start: 320, end: 340 },
+    });
+    const frame = getMobileReaderSplitWidePageFrame({
+      slots: [spreadSlots[0]!, spreadSlots[1]!],
+      size: { width: 1600, height: 1100 },
+    });
+    // Stage rects (slide gallery) and leaf-local rects (curl) of the halves.
+    const stage = mobileReaderSplitWideHalfRects({ slots: [spreadSlots[0]!, spreadSlots[1]!], frame });
+    const leaves = mobileReaderSplitWideHalfRects({ slots: [layout.boxes[0]!, layout.boxes[1]!], frame });
+    expect(layout.frame.x + leaves[0].x).toBeCloseTo(stage[0].x, 6);
+    expect(layout.frame.y + leaves[0].y).toBeCloseTo(stage[0].y, 6);
+    expect(layout.frame.x + layout.leaf.width + leaves[1].x).toBeCloseTo(stage[1].x, 6);
+    expect(layout.frame.y + leaves[1].y).toBeCloseTo(stage[1].y, 6);
+    // Against the fold edges, inside each leaf.
+    expect(layout.frame.x + leaves[0].x + leaves[0].width).toBeCloseTo(320, 6);
+    expect(layout.frame.x + layout.leaf.width + leaves[1].x).toBeCloseTo(340, 6);
+    expect(leaves[0].x).toBeGreaterThanOrEqual(0);
+    expect(leaves[1].x + leaves[1].width).toBeLessThanOrEqual(layout.leaf.width + 1e-9);
   });
 
   test("flat → book: each facing page glides from its flat box to its book box (the page-frame FLIP)", () => {

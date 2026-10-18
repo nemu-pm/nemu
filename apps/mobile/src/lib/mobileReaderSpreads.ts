@@ -161,3 +161,59 @@ export function getMobileReaderSpreadImageFrameSize({
   const fittedWidth = Math.min(width, height / ratio);
   return { width: fittedWidth, height: fittedWidth * ratio };
 }
+
+type MobileReaderSlotRect = { x: number; y: number; width: number; height: number };
+
+/**
+ * A wide page in the book posture, laid out like a printed spread: split at
+ * its centre line, its left half in the left pane and its right half in the
+ * right pane, nothing on the fold. The size of the whole page; each half,
+ * half that width, fits its own pane and both share the panes' common height.
+ */
+export function getMobileReaderSplitWidePageFrame({
+  slots,
+  size,
+}: {
+  slots: readonly [MobileReaderSlotRect, MobileReaderSlotRect];
+  size: { width: number; height: number } | null | undefined;
+}): { width: number; height: number } {
+  const ratio = mobileReaderPageRatio(size);
+  const [left, right] = slots;
+  const { height: common } = mobileReaderSplitCommonBand(left, right);
+  const fit = (slot: MobileReaderSlotRect) => {
+    const width = Number.isFinite(slot.width) && slot.width > 0 ? slot.width : 1;
+    return width / (ratio / 2);
+  };
+  const height = Math.max(1, Math.min(common, fit(left), fit(right)));
+  return { width: height * ratio, height };
+}
+
+/**
+ * Where the two halves of a split wide page rest, in the slots' coordinates:
+ * the left half against the left pane's fold edge, the right half against the
+ * right pane's, both centred on the band the panes share (the same height,
+ * as facing pages are).
+ */
+export function mobileReaderSplitWideHalfRects({
+  slots,
+  frame,
+}: {
+  slots: readonly [MobileReaderSlotRect, MobileReaderSlotRect];
+  frame: { width: number; height: number };
+}): [MobileReaderSlotRect, MobileReaderSlotRect] {
+  const [left, right] = slots;
+  const band = mobileReaderSplitCommonBand(left, right);
+  const halfWidth = frame.width / 2;
+  const y = band.y + (band.height - frame.height) / 2;
+  return [
+    { x: left.x + left.width - halfWidth, y, width: halfWidth, height: frame.height },
+    { x: right.x, y, width: halfWidth, height: frame.height },
+  ];
+}
+
+function mobileReaderSplitCommonBand(a: MobileReaderSlotRect, b: MobileReaderSlotRect): { y: number; height: number } {
+  const top = Math.max(a.y, b.y);
+  const bottom = Math.min(a.y + a.height, b.y + b.height);
+  if (!(bottom > top)) return { y: Math.min(a.y, b.y), height: Math.max(1, Math.min(a.height, b.height)) };
+  return { y: top, height: bottom - top };
+}

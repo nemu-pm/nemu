@@ -37,6 +37,7 @@ import {
 } from "@expo/ui/swift-ui/modifiers";
 import { StyleSheet, useWindowDimensions, View } from "react-native";
 import {
+  fitPopoverToContent,
   fitSheetDetentToContent,
   inlineToolbarTitle,
   measureSheetPage,
@@ -54,6 +55,7 @@ import {
 } from "@/lib/mobileReaderSettings";
 import {
   fittedSheetMeasureFrame,
+  READER_SETTINGS_POPOVER_PAGE,
   READER_SETTINGS_SHEET_GROUP,
   READER_SETTINGS_SHEET_PAGE,
 } from "@/lib/mobileFittedSheet";
@@ -217,12 +219,18 @@ export function ReaderSettingsNativePopover({
     // bar keeps the system's item colours (the close X), as the form sheets do.
     ...(mobileDesignExploreFlag ? [tint(tokens.primary)] : []),
     ...(presentation.kind === "popover" && !sheet
-      ? // A Form has no ideal height of its own, so the popover gets the rows'
-        // height as its ideal: the system shows it whole when there is room
-        // and caps it otherwise, the Form scrolling from its top. (A fixed
-        // height taller than the popover was centred in it, top rows cut off.)
+      ? // A Form has no ideal height of its own, so the popover gets the
+        // height its off-screen copy measured at the popover's width (any
+        // text size): the system shows it whole when there is room and caps
+        // it otherwise, the Form scrolling from its top. (A fixed height
+        // taller than the popover was centred in it, top rows cut off.)
         [
-          frame({ minWidth: presentation.width, idealWidth: presentation.width, maxWidth: presentation.width, idealHeight: presentation.height }),
+          fitPopoverToContent({
+            group: READER_SETTINGS_SHEET_GROUP,
+            page: READER_SETTINGS_POPOVER_PAGE,
+            width: presentation.width,
+            initialHeight: presentation.height,
+          }),
           ...presentationModifiers,
         ]
       : // The sheet is as tall as this Form (see `fitSheetDetentToContent`).
@@ -489,13 +497,18 @@ export function ReaderSettingsNativePopover({
   // is closed: the sheet knows its height before it presents, so it opens in
   // one native motion at that height instead of resizing once its own Form
   // has measured itself.
-  const measureFrame = fittedSheetMeasureFrame(windowSize);
+  // The popover's copy is measured at the popover's width, under its own page.
+  const measureFrame =
+    presentation.kind === "popover" && !sheet
+      ? { width: presentation.width, height: Math.round(windowSize.height) }
+      : fittedSheetMeasureFrame(windowSize);
+  const measurePage = presentation.kind === "popover" && !sheet ? READER_SETTINGS_POPOVER_PAGE : READER_SETTINGS_SHEET_PAGE;
   const measuringCopy = (
     <ReaderSettingsMeasuringCopy
-      heightKey={JSON.stringify([measureFrame, settingsRows, saving, strings.reader.markComplete])}
+      heightKey={JSON.stringify([measurePage, measureFrame, settingsRows, saving, strings.reader.markComplete])}
       modifiers={[
         ...formLayoutModifiers,
-        measureSheetPage({ group: READER_SETTINGS_SHEET_GROUP, page: READER_SETTINGS_SHEET_PAGE, ...measureFrame }),
+        measureSheetPage({ group: READER_SETTINGS_SHEET_GROUP, page: measurePage, ...measureFrame }),
       ]}
     >
       {settingsSections}
@@ -563,6 +576,14 @@ export function ReaderSettingsNativePopover({
     );
   }
   return (
+    <>
+      {/* Its own host: inside the popover's, the window-tall copy moved the
+          trigger (and so the popover's arrow) off the button. */}
+      <View pointerEvents="none" style={styles.sheetHost}>
+        <SwiftHost colorScheme={scheme} style={StyleSheet.absoluteFill}>
+          {measuringCopy}
+        </SwiftHost>
+      </View>
     <View
       pointerEvents="none"
       style={[styles.anchor, { left: anchor.x, top: anchor.y, width: anchor.width, height: anchor.height }]}
@@ -583,6 +604,7 @@ export function ReaderSettingsNativePopover({
         </SwiftPopover>
       </SwiftHost>
     </View>
+    </>
   );
 }
 

@@ -54,6 +54,7 @@ import type { ChapterSummary, ReadingMode } from "@/data/schema";
 import { formatChapterTitle } from "@/lib/formatChapter";
 import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
 import {
+  mobileReaderSplitWideHalfRects,
   mobileReaderSpreadPageAlignment,
   visualPageIndexesForMobileReaderSpread,
 } from "@/lib/mobileReaderSpreads";
@@ -71,6 +72,7 @@ import {
 } from "@/lib/mobileReaderProgress";
 import { ZoomableReaderStrip } from "./ZoomableReaderStrip";
 import { MobileReaderCurlPager, type MobileReaderCurlPagerHandle } from "./MobileReaderCurlPager";
+import { MobileReaderSplitWideHalf } from "./MobileReaderSplitWideHalf";
 import { pageCurlAvailable } from "../../../modules/nemu-window-layout";
 import { MOBILE_READER_DOUBLE_TAP_MAX_DELAY_MS } from "@/lib/mobileReaderZoom";
 import {
@@ -246,7 +248,7 @@ type MobileReaderGalleryProps = {
   onPageTurningChange?: (turning: boolean) => void;
   /** Overlays are mounted on the pages (Japanese-learning bubbles): a curl waits for them to leave. */
   pageOverlaysMounted?: boolean;
-  /** A page wide enough to lie across the spine of a flat spread. */
+  /** A page wide enough to lie across the spine of a spread (split across the panes of a fold). */
   isWidePage?: (pageIndex: number) => boolean;
   /** The box a single page is fitted to (the curl's leaf is that box). */
   pageFrameSize?: (page: MobileReaderPage) => { width: number; height: number };
@@ -1323,6 +1325,34 @@ export function MobileReaderGallery({
         // Book posture: faint binding shade at both inner edges (stage-local,
         // like the slots). Hidden while zoomed; none for a lone cover page.
         const visualIndexes = visualPageIndexesForMobileReaderSpread(item.spread, mode);
+        // Book posture: a wide page alone reads as a printed spread, split at
+        // its centre, each half against the fold edge of its pane.
+        const widePage = item.spread.length === 1 ? displayedPages[item.spread[0]!] : undefined;
+        if (
+          spreadSlots && spreadSlots.length === 2 && widePage?.imageUri && pageFrameSize
+          && isWidePage?.(item.spread[0]!)
+        ) {
+          const frame = pageFrameSize(widePage);
+          const halves = mobileReaderSplitWideHalfRects({ slots: [spreadSlots[0]!, spreadSlots[1]!], frame });
+          return (
+            <View style={[styles.pagedFrame, styles.spreadFrame, { width: readerPageWidth, minHeight: windowHeight }]}>
+              <MobileReaderSplitWideHalf part="left" frame={frame} rect={halves[0]}>
+                {renderImage(widePage)}
+              </MobileReaderSplitWideHalf>
+              <MobileReaderSplitWideHalf part="right" frame={frame} rect={halves[1]}>
+                {renderImage(widePage)}
+              </MobileReaderSplitWideHalf>
+              {foldGap ? (
+                <DuoBookSpineShade
+                  leftPage={halves[0]}
+                  rightPage={halves[1]}
+                  spine={foldGap}
+                  visible={!pageZoomActive}
+                />
+              ) : null}
+            </View>
+          );
+        }
         const spinePages =
           spreadSlots && spreadSlots.length === 2 && foldGap && pageNaturalSize && item.spread.length === 2
             ? mobileDuoSpreadPageRects({
@@ -1459,6 +1489,8 @@ export function MobileReaderGallery({
       spreadSlots,
       pageGlide,
       foldGap,
+      isWidePage,
+      pageFrameSize,
       pageNaturalSize,
       pageZoomActive,
       fitClip,
