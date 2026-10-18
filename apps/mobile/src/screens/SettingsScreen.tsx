@@ -3499,7 +3499,14 @@ function SettingsScreenContent({
                   >
                     <SettingsGroupHeader
                       icon="book-outline"
-                      title={strings.reader.title}
+                      // The new design names the card after its control, so
+                      // it keeps a heading like Plugins and Haptics & Cues
+                      // below it instead of repeating the page's title.
+                      title={
+                        mobileDesignExploreFlag
+                          ? strings.reader.readingDirection
+                          : strings.reader.title
+                      }
                       description={strings.reader.description}
                       pageTitle={shownPageTitle}
                     />
