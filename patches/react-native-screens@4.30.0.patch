@@ -24,7 +24,7 @@ index c435fdd..bd912c2 100644
  
      NSDictionary *titleStyle = dict[@"titleStyle"];
 diff --git a/ios/RNSScreen.mm b/ios/RNSScreen.mm
-index 4625688..96b3820 100644
+index 049fd22..0a948e5 100644
 --- a/ios/RNSScreen.mm
 +++ b/ios/RNSScreen.mm
 @@ -1,4 +1,5 @@
@@ -49,7 +49,7 @@ index 4625688..96b3820 100644
                               CAAnimationDelegate>
  @end
  
-@@ -1132,10 +1135,81 @@ - (void)overrideScrollViewBehaviorInFirstDescendantChainIfNeeded
+@@ -1151,10 +1154,81 @@ - (void)overrideScrollViewBehaviorInFirstDescendantChainIfNeeded
    }
  }
  

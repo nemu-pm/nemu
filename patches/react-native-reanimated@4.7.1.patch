@@ -1,8 +1,8 @@
 diff --git a/Common/cpp/reanimated/LayoutAnimations/LayoutAnimationsProxy.cpp b/Common/cpp/reanimated/LayoutAnimations/LayoutAnimationsProxy.cpp
-index 2061614..86970a2 100644
+index c0825bb..044210d 100644
 --- a/Common/cpp/reanimated/LayoutAnimations/LayoutAnimationsProxy.cpp
 +++ b/Common/cpp/reanimated/LayoutAnimations/LayoutAnimationsProxy.cpp
-@@ -1097,14 +1097,19 @@ void LayoutAnimationsProxy::startExitingAnimation(
+@@ -1140,14 +1140,19 @@ void LayoutAnimationsProxy::startExitingAnimation(
  void LayoutAnimationsProxy::startLayoutAnimation(
      const std::shared_ptr<LightNode> &node,
      const std::shared_ptr<Serializable> &config) const {

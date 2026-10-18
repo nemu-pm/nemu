@@ -51,7 +51,7 @@ index d39d9de..7aa2b6e 100644
                                  flexGrow: 1,
                                  height: 0
 diff --git a/build/community/bottom-sheet/BottomSheet.ios.js b/build/community/bottom-sheet/BottomSheet.ios.js
-index e776a03..6869405 100644
+index 5ab7aff..6869405 100644
 --- a/build/community/bottom-sheet/BottomSheet.ios.js
 +++ b/build/community/bottom-sheet/BottomSheet.ios.js
 @@ -1,12 +1,13 @@
@@ -117,16 +117,24 @@ index e776a03..6869405 100644
      const [isPresented, setIsPresented] = useState(indexProp >= 0);
      const [currentIndex, setCurrentIndex] = useState(Math.max(indexProp, 0));
      // Ref mirrors currentIndex for use in handleDetentChange without adding it as a useCallback dep
-@@ -177,7 +213,7 @@ function findNearestDetentIndex(detents, position) {
+@@ -177,14 +213,8 @@ function findNearestDetentIndex(detents, position) {
      const modifiers = useMemo(()=>{
          const bg = extractBackgroundColor(backgroundStyle);
          return [
--            ...fitToContents ? [
+-            ...fitToContents ? // the system choose the width.
+-            [
+-                presentationSizing('automatic', {
+-                    fitted: {
+-                        horizontal: false,
+-                        vertical: true
+-                    }
+-                })
 +            ...fitToContents ? formSheetWidth > 0 ? [] : [
-                 presentationSizing('fitted')
++                presentationSizing('fitted')
              ] : [
                  presentationDetents(detents, {
-@@ -186,10 +222,29 @@ function findNearestDetentIndex(detents, position) {
+                     selection: selectedDetent,
+@@ -192,10 +222,29 @@ function findNearestDetentIndex(detents, position) {
                  })
              ],
              presentationDragIndicator(handleComponent === null ? 'hidden' : 'visible'),
@@ -157,7 +165,7 @@ index e776a03..6869405 100644
          ];
      }, [
          fitToContents,
-@@ -198,16 +253,42 @@ function findNearestDetentIndex(detents, position) {
+@@ -204,16 +253,42 @@ function findNearestDetentIndex(detents, position) {
          handleDetentChange,
          handleComponent,
          enablePanDownToClose,
@@ -202,7 +210,7 @@ index e776a03..6869405 100644
                  },
                  pointerEvents: "none",
                  children: /*#__PURE__*/ _jsx(NativeBottomSheet, {
-@@ -215,27 +296,14 @@ function findNearestDetentIndex(detents, position) {
+@@ -221,28 +296,14 @@ function findNearestDetentIndex(detents, position) {
                      onIsPresentedChange: handlePresentedChange,
                      onDismiss: fireCloseCallbacks,
                      fitToContents: fitToContents,
@@ -210,10 +218,11 @@ index e776a03..6869405 100644
                      children: /*#__PURE__*/ _jsx(Group, {
                          modifiers: modifiers,
 -                        children: /*#__PURE__*/ _jsx(RNHostView, {
--                            matchContents: fitToContents,
+-                            matchContents: fitToContents ? {
+-                                vertical: true
+-                            } : false,
 -                            children: /*#__PURE__*/ _jsx(View, {
 -                                style: fitToContents ? {
--                                    width,
 -                                    paddingTop: handleComponent !== null ? 16 : 0
 -                                } : {
 -                                    flexGrow: 1,
@@ -580,7 +589,7 @@ index da8f363..a50ab78 100644
    }
  }
 diff --git a/ios/RNHostView.swift b/ios/RNHostView.swift
-index 87e5228..efffd9d 100644
+index 447fa6c..5649b0f 100644
 --- a/ios/RNHostView.swift
 +++ b/ios/RNHostView.swift
 @@ -1,5 +1,6 @@
@@ -675,7 +684,7 @@ index 87e5228..efffd9d 100644
  }
  
  // Publishes where SwiftUI placed this view inside its `Host`, so `measure()` reports the position
-@@ -162,12 +218,14 @@ private struct ApplySizeFromYogaNode<Content: SwiftUI.View>: SwiftUI.View {
+@@ -177,12 +233,14 @@ private struct ApplySizeFromYogaNode<Content: SwiftUI.View>: SwiftUI.View {
    let vertical: Bool
    let shadowNodeProxy: ExpoSwiftUI.ShadowNodeProxy
    let content: Content
@@ -690,7 +699,7 @@ index 87e5228..efffd9d 100644
      @ViewBuilder content: () -> Content
    ) {
      _observer = StateObject(wrappedValue: Observer(view: childUIView))
-@@ -175,10 +233,22 @@ private struct ApplySizeFromYogaNode<Content: SwiftUI.View>: SwiftUI.View {
+@@ -190,10 +248,22 @@ private struct ApplySizeFromYogaNode<Content: SwiftUI.View>: SwiftUI.View {
      self.vertical = vertical
      self.shadowNodeProxy = shadowNodeProxy
      self.content = content()
@@ -714,7 +723,7 @@ index 87e5228..efffd9d 100644
        content
          .frame(width: observer.size.width, height: observer.size.height)
      } else {
-@@ -253,3 +323,166 @@ private struct ReportSizeToYogaNodeModifier: ViewModifier {
+@@ -268,3 +338,166 @@ private struct ReportSizeToYogaNodeModifier: ViewModifier {
      }
    }
  }
@@ -941,7 +950,7 @@ index 419edef..12c6d1e 100644
                </View>
              </RNHostView>
 diff --git a/src/community/bottom-sheet/BottomSheet.ios.tsx b/src/community/bottom-sheet/BottomSheet.ios.tsx
-index b6c0300..284b689 100644
+index d0eb811..284b689 100644
 --- a/src/community/bottom-sheet/BottomSheet.ios.tsx
 +++ b/src/community/bottom-sheet/BottomSheet.ios.tsx
 @@ -1,20 +1,26 @@
@@ -1046,12 +1055,13 @@ index b6c0300..284b689 100644
  
    const [isPresented, setIsPresented] = useState(indexProp >= 0);
    const [currentIndex, setCurrentIndex] = useState(Math.max(indexProp, 0));
-@@ -199,8 +267,11 @@ export function BottomSheet(props: BottomSheetProps) {
+@@ -199,9 +267,11 @@ export function BottomSheet(props: BottomSheetProps) {
      const bg = extractBackgroundColor(backgroundStyle);
      return [
        ...(fitToContents
--        ? // Makes the iPad sheet size to that content instead of opening near full height.
--          [presentationSizing('fitted')]
+-        ? // Fits the sheet height to the content (iPad opens near full height otherwise) and lets
+-          // the system choose the width.
+-          [presentationSizing('automatic', { fitted: { horizontal: false, vertical: true } })]
 +        ? // Makes the iPad sheet size to that content instead of opening near full height. A form
 +          // sheet's sizing is the native view's (`formSheetWidth`).
 +          formSheetWidth > 0
@@ -1060,7 +1070,7 @@ index b6c0300..284b689 100644
          : [
              presentationDetents(detents, {
                selection: selectedDetent,
-@@ -208,8 +279,37 @@ export function BottomSheet(props: BottomSheetProps) {
+@@ -209,8 +279,37 @@ export function BottomSheet(props: BottomSheetProps) {
              }),
            ]),
        presentationDragIndicator(handleComponent === null ? 'hidden' : 'visible'),
@@ -1098,7 +1108,7 @@ index b6c0300..284b689 100644
      ];
    }, [
      fitToContents,
-@@ -219,36 +319,52 @@ export function BottomSheet(props: BottomSheetProps) {
+@@ -220,36 +319,52 @@ export function BottomSheet(props: BottomSheetProps) {
      handleComponent,
      enablePanDownToClose,
      backgroundStyle,
@@ -1141,16 +1151,16 @@ index b6c0300..284b689 100644
 -            onDismiss={fireCloseCallbacks}
 -            fitToContents={fitToContents}>
 -            <Group modifiers={modifiers}>
--              <RNHostView matchContents={fitToContents}>
+-              <RNHostView matchContents={fitToContents ? { vertical: true } : false}>
 -                {/* paddingTop compensates for tighter spacing between native drag indicator and content
 -                    compared to gorhom's handle. flexGrow:1 + height:0 (flex-basis 0) fills the snap-point
 -                    height without inheriting the scrollable child's intrinsic content height. With matchContents,
--                    RNHostView lays the hosted view out at its own size, so `width` gives it the sheet width
--                    while its height stays content-sized. */}
+-                    RNHostView takes the width from the sheet, which can be narrower than the window, and
+-                    the height from the content. */}
 -                <View
 -                  style={
 -                    fitToContents
--                      ? { width, paddingTop: handleComponent !== null ? 16 : 0 }
+-                      ? { paddingTop: handleComponent !== null ? 16 : 0 }
 -                      : { flexGrow: 1, height: 0, paddingTop: handleComponent !== null ? 16 : 0 }
 -                  }>
 -                  <SheetScrollContextReset>{children}</SheetScrollContextReset>
@@ -1289,10 +1299,10 @@ index c6327bb..e7f711f 100644
  
  type NativeBottomSheetProps = Omit<
 diff --git a/src/swift-ui/RNHostView.tsx b/src/swift-ui/RNHostView.tsx
-index a0b56ba..e3da29e 100644
+index 03e802b..e4f6f26 100644
 --- a/src/swift-ui/RNHostView.tsx
 +++ b/src/swift-ui/RNHostView.tsx
-@@ -17,6 +17,27 @@ export interface RNHostViewProps {
+@@ -18,6 +18,27 @@ export interface RNHostViewProps {
     * @default false
     */
    matchContents?: boolean | { vertical?: boolean; horizontal?: boolean };

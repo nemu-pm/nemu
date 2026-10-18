@@ -1,5 +1,5 @@
 diff --git a/apple/Package.swift b/apple/Package.swift
-index 5b77e0f..cab1b08 100644
+index cdb2c16..98bb400 100644
 --- a/apple/Package.swift
 +++ b/apple/Package.swift
 @@ -24,6 +24,7 @@ let reactNative =
@@ -19,7 +19,7 @@ index 5b77e0f..cab1b08 100644
        targets: ["ExpoModulesJSI"],
      )
    ],
-@@ -116,14 +117,6 @@ let package = Package(
+@@ -117,14 +118,6 @@ let package = Package(
  
          .unsafeFlags(swiftIncludeFlags),
        ],
@@ -34,7 +34,7 @@ index 5b77e0f..cab1b08 100644
      ),
  
      // C++ target (internal)
-@@ -179,10 +172,10 @@ func resolvePodsRoot() -> String {
+@@ -180,10 +173,10 @@ func resolvePodsRoot() -> String {
    return "\(repoRoot)/apps/bare-expo/ios/Pods"
  }
  
@@ -49,8 +49,95 @@ index 5b77e0f..cab1b08 100644
  //
  // SwiftPM requires `binaryTarget` paths to be relative to the package root,
  // so the test wrapper script (`scripts/test.sh`) symlinks each xcframework
+diff --git a/apple/Sources/ExpoModulesJSI-Cxx/JSIUtils.cpp b/apple/Sources/ExpoModulesJSI-Cxx/JSIUtils.cpp
+index 84681df..f263770 100644
+--- a/apple/Sources/ExpoModulesJSI-Cxx/JSIUtils.cpp
++++ b/apple/Sources/ExpoModulesJSI-Cxx/JSIUtils.cpp
+@@ -1,14 +1,14 @@
+ #include "JSIUtils.h"
+ 
+-#include <hermes/hermes.h>
++#include <JSCRuntime.h>
+ 
+ namespace expo {
+ 
+-jsi::Runtime* createHermesRuntime() {
+-  std::unique_ptr<facebook::hermes::HermesRuntime> runtimePtr = facebook::hermes::makeHermesRuntime();
++jsi::Runtime* createStandaloneRuntime() {
++  std::unique_ptr<jsi::Runtime> runtimePtr = facebook::jsc::makeJSCRuntime();
+   jsi::Runtime *runtime = runtimePtr.release();
+ 
+-  // This version of the Hermes uses a Promise implementation that is provided by the RN.
++  // The JSC runtime uses a Promise implementation that is provided by React Native.
+   // The `setImmediate` function isn't defined, but is required by the Promise implementation.
+   // That's why we inject it here.
+   auto setImmediatePropName = jsi::PropNameID::forUtf8(*runtime, "setImmediate");
+diff --git a/apple/Sources/ExpoModulesJSI-Cxx/TypedArray.cpp b/apple/Sources/ExpoModulesJSI-Cxx/TypedArray.cpp
+index f96e818..5881ab8 100644
+--- a/apple/Sources/ExpoModulesJSI-Cxx/TypedArray.cpp
++++ b/apple/Sources/ExpoModulesJSI-Cxx/TypedArray.cpp
+@@ -5,7 +5,10 @@
+ 
+ namespace expo {
+ 
+-std::unordered_map<std::string, TypedArrayKind> nameToKindMap = {
++// ExpoModulesCore ships a public TypedArray implementation in the same host.
++// Keep this standalone runtime's lookup table and helper internal so the final
++// static link has one definition for each process-wide Expo C++ symbol.
++static const std::unordered_map<std::string, TypedArrayKind> nameToKindMap = {
+     {"Int8Array", TypedArrayKind::Int8Array},
+     {"Int16Array", TypedArrayKind::Int16Array},
+     {"Int32Array", TypedArrayKind::Int32Array},
+@@ -19,7 +22,7 @@ std::unordered_map<std::string, TypedArrayKind> nameToKindMap = {
+     {"BigUint64Array", TypedArrayKind::BigUint64Array},
+ };
+ 
+-TypedArrayKind getTypedArrayKindForName(const std::string &name) {
++static TypedArrayKind getTypedArrayKindForName(const std::string &name) {
+   return nameToKindMap.at(name);
+ }
+ 
+@@ -53,7 +56,7 @@ jsi::ArrayBuffer getTypedArrayBuffer(
+   throw std::runtime_error("no ArrayBuffer attached");
+ }
+ 
+-bool isTypedArray(jsi::IRuntime &runtime, const jsi::Object &jsObj) {
++bool isExpoModulesJSITypedArray(jsi::IRuntime &runtime, const jsi::Object &jsObj) {
+   jsi::Object ArrayBuffer = runtime
+     .global()
+     .getPropertyAsObject(runtime, "ArrayBuffer");
+diff --git a/apple/Sources/ExpoModulesJSI-Cxx/include/JSIUtils.h b/apple/Sources/ExpoModulesJSI-Cxx/include/JSIUtils.h
+index 967947a..f158356 100644
+--- a/apple/Sources/ExpoModulesJSI-Cxx/include/JSIUtils.h
++++ b/apple/Sources/ExpoModulesJSI-Cxx/include/JSIUtils.h
+@@ -158,10 +158,10 @@ inline bool isHostObject(jsi::IRuntime &runtime, const jsi::Object &object) {
+   return object.isHostObject<jsi::HostObject>(runtime);
+ }
+ 
+-jsi::Runtime* createHermesRuntime();
++jsi::Runtime* createStandaloneRuntime();
+ 
+ /**
+- Destroys a `jsi::Runtime` created by `createHermesRuntime()`. Since the runtime is imported into
++ Destroys a `jsi::Runtime` created by `createStandaloneRuntime()`. Since the runtime is imported into
+  Swift as an immortal reference type (no ARC-managed lifetime), Swift can't `delete` it directly, so
+  the standalone `JavaScriptRuntime` calls this from its `deinit` to free the runtime it owns. Must
+  not be called on a runtime owned elsewhere (e.g. the React Native-provided one).
+diff --git a/apple/Sources/ExpoModulesJSI-Cxx/include/TypedArray.h b/apple/Sources/ExpoModulesJSI-Cxx/include/TypedArray.h
+index dbae451..a59fede 100644
+--- a/apple/Sources/ExpoModulesJSI-Cxx/include/TypedArray.h
++++ b/apple/Sources/ExpoModulesJSI-Cxx/include/TypedArray.h
+@@ -26,7 +26,7 @@ enum class TypedArrayKind {
+   BigUint64Array = 11,
+ };
+ 
+-bool isTypedArray(jsi::IRuntime &runtime, const jsi::Object &jsObj);
++bool isExpoModulesJSITypedArray(jsi::IRuntime &runtime, const jsi::Object &jsObj);
+ 
+ /**
+  * Returns the `TypedArrayKind` of the given typed-array object, derived from its
 diff --git a/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift b/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift
-index fda12bf..66fae7c 100644
+index c4f18d2..2d38e91 100644
 --- a/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift
 +++ b/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift
 @@ -44,7 +44,7 @@ open class JavaScriptRuntime: Equatable, Identifiable, @unchecked Sendable {
@@ -76,7 +163,7 @@ index fda12bf..66fae7c 100644
      self.pointee = expo.iruntime(runtime)
      self.handle = JavaScriptRuntimeHandle(self.pointee)
 diff --git a/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptObject.swift b/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptObject.swift
-index e6fdcf2..48de8bf 100644
+index a9ccaf5..9759eed 100644
 --- a/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptObject.swift
 +++ b/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptObject.swift
 @@ -97,7 +97,7 @@ public struct JavaScriptObject: JavaScriptType, Sendable, ~Copyable {
@@ -88,11 +175,24 @@ index e6fdcf2..48de8bf 100644
    }
  
    /// Returns the object as an array buffer, or asserts if not an array buffer.
+diff --git a/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptUnownedValue.swift b/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptUnownedValue.swift
+index 0bdd94c..b30c398 100644
+--- a/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptUnownedValue.swift
++++ b/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptUnownedValue.swift
+@@ -175,7 +175,7 @@ public struct JavaScriptUnownedValue: ~Copyable {
+ 
+   /// Whether the value is a typed array. The zero-copy counterpart of ``JavaScriptValue/isTypedArray()``.
+   public func isTypedArray() -> Bool {
+-    return pointer.pointee.isObject() && expo.isTypedArray(runtime, pointer.pointee.getObject(runtime))
++    return pointer.pointee.isObject() && expo.isExpoModulesJSITypedArray(runtime, pointer.pointee.getObject(runtime))
+   }
+ 
+   /// Whether the value is an `ArrayBuffer`. The zero-copy counterpart of ``JavaScriptValue/isArrayBuffer()``.
 diff --git a/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptValue.swift b/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptValue.swift
-index e2665b4..514b442 100644
+index 7d76c90..38691d9 100644
 --- a/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptValue.swift
 +++ b/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptValue.swift
-@@ -213,7 +213,7 @@ public final class JavaScriptValue: JavaScriptType, Equatable, Escapable {
+@@ -235,7 +235,7 @@ public struct JavaScriptValue: JavaScriptType, Sendable, ~Copyable {
      guard let jsiRuntime else {
        FatalError.runtimeLost()
      }
@@ -101,95 +201,8 @@ index e2665b4..514b442 100644
    }
  
    /// Checks whether the value is an `ArrayBuffer`.
-diff --git a/apple/Sources/ExpoModulesJSI-Cxx/JSIUtils.cpp b/apple/Sources/ExpoModulesJSI-Cxx/JSIUtils.cpp
-index 84681df..f263770 100644
---- a/apple/Sources/ExpoModulesJSI-Cxx/JSIUtils.cpp
-+++ b/apple/Sources/ExpoModulesJSI-Cxx/JSIUtils.cpp
-@@ -1,14 +1,14 @@
- #include "JSIUtils.h"
- 
--#include <hermes/hermes.h>
-+#include <JSCRuntime.h>
- 
- namespace expo {
- 
--jsi::Runtime* createHermesRuntime() {
--  std::unique_ptr<facebook::hermes::HermesRuntime> runtimePtr = facebook::hermes::makeHermesRuntime();
-+jsi::Runtime* createStandaloneRuntime() {
-+  std::unique_ptr<jsi::Runtime> runtimePtr = facebook::jsc::makeJSCRuntime();
-   jsi::Runtime *runtime = runtimePtr.release();
- 
--  // This version of the Hermes uses a Promise implementation that is provided by the RN.
-+  // The JSC runtime uses a Promise implementation that is provided by React Native.
-   // The `setImmediate` function isn't defined, but is required by the Promise implementation.
-   // That's why we inject it here.
-   auto setImmediatePropName = jsi::PropNameID::forUtf8(*runtime, "setImmediate");
-diff --git a/apple/Sources/ExpoModulesJSI-Cxx/TypedArray.cpp b/apple/Sources/ExpoModulesJSI-Cxx/TypedArray.cpp
-index 1efa258..3f896c1 100644
---- a/apple/Sources/ExpoModulesJSI-Cxx/TypedArray.cpp
-+++ b/apple/Sources/ExpoModulesJSI-Cxx/TypedArray.cpp
-@@ -5,7 +5,10 @@
- 
- namespace expo {
- 
--std::unordered_map<std::string, TypedArrayKind> nameToKindMap = {
-+// ExpoModulesCore ships a public TypedArray implementation in the same host.
-+// Keep this standalone runtime's lookup table and helper internal so the final
-+// static link has one definition for each process-wide Expo C++ symbol.
-+static const std::unordered_map<std::string, TypedArrayKind> nameToKindMap = {
-     {"Int8Array", TypedArrayKind::Int8Array},
-     {"Int16Array", TypedArrayKind::Int16Array},
-     {"Int32Array", TypedArrayKind::Int32Array},
-@@ -19,7 +22,7 @@ std::unordered_map<std::string, TypedArrayKind> nameToKindMap = {
-     {"BigUint64Array", TypedArrayKind::BigUint64Array},
- };
- 
--TypedArrayKind getTypedArrayKindForName(const std::string &name) {
-+static TypedArrayKind getTypedArrayKindForName(const std::string &name) {
-   return nameToKindMap.at(name);
- }
- 
-@@ -39,7 +42,7 @@ jsi::ArrayBuffer getTypedArrayBuffer(jsi::IRuntime &runtime, const jsi::Object &
-   throw std::runtime_error("no ArrayBuffer attached");
- }
- 
--bool isTypedArray(jsi::IRuntime &runtime, const jsi::Object &jsObj) {
-+bool isExpoModulesJSITypedArray(jsi::IRuntime &runtime, const jsi::Object &jsObj) {
-   jsi::Object ArrayBuffer = runtime
-     .global()
-     .getPropertyAsObject(runtime, "ArrayBuffer");
-diff --git a/apple/Sources/ExpoModulesJSI-Cxx/include/JSIUtils.h b/apple/Sources/ExpoModulesJSI-Cxx/include/JSIUtils.h
-index 13ffb8b..ed90c0e 100644
---- a/apple/Sources/ExpoModulesJSI-Cxx/include/JSIUtils.h
-+++ b/apple/Sources/ExpoModulesJSI-Cxx/include/JSIUtils.h
-@@ -131,10 +131,10 @@ inline bool isHostObject(jsi::IRuntime &runtime, const jsi::Object &object) {
-   return object.isHostObject<jsi::HostObject>(runtime);
- }
- 
--jsi::Runtime* createHermesRuntime();
-+jsi::Runtime* createStandaloneRuntime();
- 
- /**
-- Destroys a `jsi::Runtime` created by `createHermesRuntime()`. Since the runtime is imported into
-+ Destroys a `jsi::Runtime` created by `createStandaloneRuntime()`. Since the runtime is imported into
-  Swift as an immortal reference type (no ARC-managed lifetime), Swift can't `delete` it directly, so
-  the standalone `JavaScriptRuntime` calls this from its `deinit` to free the runtime it owns. Must
-  not be called on a runtime owned elsewhere (e.g. the React Native-provided one).
-diff --git a/apple/Sources/ExpoModulesJSI-Cxx/include/TypedArray.h b/apple/Sources/ExpoModulesJSI-Cxx/include/TypedArray.h
-index 60e99b4..2337a06 100644
---- a/apple/Sources/ExpoModulesJSI-Cxx/include/TypedArray.h
-+++ b/apple/Sources/ExpoModulesJSI-Cxx/include/TypedArray.h
-@@ -26,7 +26,7 @@ enum class TypedArrayKind {
-   BigUint64Array = 11,
- };
- 
--bool isTypedArray(jsi::IRuntime &runtime, const jsi::Object &jsObj);
-+bool isExpoModulesJSITypedArray(jsi::IRuntime &runtime, const jsi::Object &jsObj);
- 
- /**
-  * Returns the `TypedArrayKind` of the given typed-array object, derived from its
 diff --git a/apple/scripts/build-xcframework.sh b/apple/scripts/build-xcframework.sh
-index 30cd6f3..f8f5389 100755
+index 530a35a..c5a853b 100755
 --- a/apple/scripts/build-xcframework.sh
 +++ b/apple/scripts/build-xcframework.sh
 @@ -10,7 +10,7 @@
@@ -201,7 +214,7 @@ index 30cd6f3..f8f5389 100755
  #     same configuration works for both prebuilt and source-built React Native
  #   - Cleans .swiftinterface files for cross-compiler compatibility
  #
-@@ -85,6 +85,7 @@ SOURCE_FILES=(
+@@ -93,6 +93,7 @@ SOURCE_FILES=(
    # installs into Pods/Headers/Public so the real header contents get hashed.
    "${PODS_ROOT}/Headers/Public/React-jsi/jsi/jsi.h"
    "${PODS_ROOT}/Headers/Public/React-jsi/jsi/jsi-inl.h"
@@ -209,7 +222,7 @@ index 30cd6f3..f8f5389 100755
  )
  
  compute_hash() {
-@@ -249,6 +250,8 @@ build_slice() {
+@@ -269,6 +270,8 @@ build_slice() {
  
    local product_path="${BUILD_PRODUCTS_PATH}/${build_dir_name}"
    local framework_src="${product_path}/PackageFrameworks/${PACKAGE_NAME}.framework"
@@ -218,7 +231,7 @@ index 30cd6f3..f8f5389 100755
    local swiftmodule_src="${product_path}/${PACKAGE_NAME}.swiftmodule"
    # GeneratedModuleMaps follows the same $EFFECTIVE_PLATFORM_NAME convention as
    # build products: no suffix for macOS, "-${platform}" for everything else.
-@@ -259,8 +262,8 @@ build_slice() {
+@@ -279,8 +282,8 @@ build_slice() {
      generated_maps="${DERIVED_DATA_PATH}/Build/Intermediates.noindex/GeneratedModuleMaps-${platform}"
    fi
  
@@ -229,7 +242,7 @@ index 30cd6f3..f8f5389 100755
      exit 1
    fi
  
-@@ -271,22 +274,47 @@ build_slice() {
+@@ -291,22 +294,47 @@ build_slice() {
    rm -rf "$staging_dir"
    mkdir -p "$staging_dir"
  
@@ -288,7 +301,7 @@ index 30cd6f3..f8f5389 100755
    fi
  
    # Copy Swift module interfaces and generated headers into the staged framework.
-@@ -368,6 +396,9 @@ build_slice() {
+@@ -388,6 +416,9 @@ build_slice() {
    # and Resources -> Versions/Current/Resources, but not Headers/Modules since
    # the SPM build doesn't emit those at that point.
    if [[ "$platform" == "macosx" || "$platform" == "maccatalyst" ]]; then

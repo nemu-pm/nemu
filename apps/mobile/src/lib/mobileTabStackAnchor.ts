@@ -6,7 +6,7 @@
  * settings section) leaves no way back to the tab's root on iOS, including
  * iPhone Duo's vertical bar.
  *
- * Expo Router only seeds the anchor (`unstable_settings.initialRouteName`)
+ * Expo Router only seeds the anchor (`unstable_settings.anchor`)
  * for cold deep links and for navigations made `withAnchor`. Anything that
  * creates the tab's stack fresh without it — e.g. the manga screen's
  * fallback `router.replace("/browse/<registry>/<source>")` when it was
