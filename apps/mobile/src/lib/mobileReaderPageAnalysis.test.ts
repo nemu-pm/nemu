@@ -17,6 +17,7 @@ const features = (width = 700): MobileReaderPageFeatures => ({
   edgeL: [1, 0.9],
   edgeR: [1, 1],
   edgeColor: "#ffffff",
+  chroma: 0,
 });
 
 describe("page analysis", () => {
@@ -32,12 +33,20 @@ describe("page analysis", () => {
     expect(normalizeMobileReaderPageFeatures({ ...features(), edgeL: ["x"] })).toBeNull();
     expect(normalizeMobileReaderPageFeatures({ ...features(), edgeColor: "red" })?.edgeColor).toBe("#000000");
     expect(normalizeMobileReaderPageFeatures(null)).toBeNull();
+    // Colour is optional (older binaries) and clamped.
+    const { chroma: _chroma, ...withoutChroma } = features();
+    void _chroma;
+    expect(normalizeMobileReaderPageFeatures(withoutChroma)?.chroma).toBeNull();
+    expect(normalizeMobileReaderPageFeatures({ ...features(), chroma: 3 })?.chroma).toBe(1);
   });
 
   test("the chapter cache round-trips and ignores other versions", () => {
     const entries = new Map([["p1", features()], ["p2", features(1400)]]);
     expect(parseMobileReaderPageAnalysisCache(serializeMobileReaderPageAnalysisCache(entries))).toEqual(entries);
     expect(parseMobileReaderPageAnalysisCache('{"v":0,"pages":{"p1":{}}}').size).toBe(0);
+    // Caches from before colour was measured are measured again.
+    const v1 = JSON.stringify({ v: 1, pages: { p1: features() } });
+    expect(parseMobileReaderPageAnalysisCache(v1).size).toBe(0);
     expect(parseMobileReaderPageAnalysisCache("not json").size).toBe(0);
     expect(mobileReaderPageAnalysisCacheName("a")).not.toBe(mobileReaderPageAnalysisCacheName("b"));
     expect(mobileReaderPageAnalysisCacheName("a")).toMatch(/^[0-9a-f]{16}$/);

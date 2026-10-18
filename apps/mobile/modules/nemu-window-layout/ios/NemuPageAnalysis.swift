@@ -6,8 +6,9 @@ import ImageIO
 /// thumbnail of the cached file (never the full decode): the blank margin at
 /// each side edge (a scanned book's binding margin is wider than its outer
 /// one), the brightness profile of each side edge (artwork that runs across
-/// two facing pages matches at the seam) and the colour of the page's outer
-/// border (the "match page" background).
+/// two facing pages matches at the seam), the colour of the page's outer
+/// border (the "match page" background) and how much of the page is in
+/// colour (a colour page inside a black-and-white chapter stands alone).
 enum NemuPageAnalysis {
   /// Rows of the analysis thumbnail; the research scans used the same height.
   static let analysisHeight = 480
@@ -124,6 +125,30 @@ enum NemuPageAnalysis {
     let edgeColor = samples > 0
       ? String(format: "#%02x%02x%02x", red / samples, green / samples, blue / samples)
       : "#000000"
+    // Colour: the share of pixels far from the page's median tint in the
+    // opponent channels (r - g, (r + g) / 2 - b), so an evenly yellowed or
+    // sepia scan reads as black and white.
+    var rgHistogram = [Int](repeating: 0, count: 511), ybHistogram = [Int](repeating: 0, count: 511)
+    let pixels = w * h
+    for index in 0..<pixels {
+      let r = Int(rgba[index * 4]), g = Int(rgba[index * 4 + 1]), b = Int(rgba[index * 4 + 2])
+      rgHistogram[r - g + 255] += 1
+      ybHistogram[(r + g) / 2 - b + 255] += 1
+    }
+    func median(_ histogram: [Int]) -> Int {
+      var accumulated = 0
+      for (index, count) in histogram.enumerated() {
+        accumulated += count
+        if accumulated * 2 >= pixels { return index - 255 }
+      }
+      return 0
+    }
+    let rgMedian = median(rgHistogram), ybMedian = median(ybHistogram)
+    var coloured = 0
+    for index in 0..<pixels {
+      let r = Int(rgba[index * 4]), g = Int(rgba[index * 4 + 1]), b = Int(rgba[index * 4 + 2])
+      if abs(r - g - rgMedian) + abs((r + g) / 2 - b - ybMedian) > 24 { coloured += 1 }
+    }
     let round3 = { (value: Double) in (value * 1000).rounded() / 1000 }
     return [
       "width": pixelWidth,
@@ -133,6 +158,7 @@ enum NemuPageAnalysis {
       "edgeL": edgeProfile(left: true),
       "edgeR": edgeProfile(left: false),
       "edgeColor": edgeColor,
+      "chroma": round3(Double(coloured) / Double(max(1, pixels))),
     ]
   }
 }

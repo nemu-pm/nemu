@@ -297,18 +297,20 @@ import {
 } from "@/lib/mobileReaderSpreads";
 import {
   buildMobileReaderPairedSpreads,
+  mobileReaderColourOddPages,
   isMobileReaderWidePage,
   nextMobileReaderSpreadTable,
   type MobileReaderPageSize,
 } from "@/lib/mobileReaderPairing";
 import { isMobileReaderPageCurlActive } from "@/lib/mobileReaderPageCurl";
 import {
+  mobileReaderPairingShiftFor,
   mobileReaderPairingShiftKey,
   mobileReaderPairingShifted,
 } from "@/lib/mobileReaderPairingShift";
 import { useReaderPagePrefs } from "@/components/reader/useReaderPagePrefs";
 import { useMobileReaderPageFeatures } from "@/components/reader/useMobileReaderPageFeatures";
-import { inferMobileReaderSegmentParity } from "@/lib/mobileReaderParityInference";
+import { inferMobileReaderCalibratedParity } from "@/lib/mobileReaderParityInference";
 import {
   mobileReaderPageBackgroundColor,
   mobileReaderPageBackgroundIsLight,
@@ -2616,7 +2618,14 @@ export function ReaderScreen() {
     [readerPageSizeAt],
   );
   const readerPairingShiftKey = mobileReaderPairingShiftKey(registryId, sourceId, mangaId);
+  // 错开一页 is this chapter's own; the manga's learned default (the same
+  // correction on two neighbouring chapters) flips only rule-decided spreads.
   const readerPairingShift = mobileReaderPairingShifted(readerPairingShifts[readerPairingShiftKey], chapterId);
+  const readerPairingShiftApplied = mobileReaderPairingShiftFor(readerPairingShifts[readerPairingShiftKey], chapterId);
+  const readerPairingNeighbourIds = useMemo(
+    () => [chapterNavigation.leftChapter?.id ?? null, chapterNavigation.rightChapter?.id ?? null],
+    [chapterNavigation.leftChapter?.id, chapterNavigation.rightChapter?.id],
+  );
   // Two fingers, double tap: 错开一页 exactly as the menu row (this chapter,
   // remembered for the manga; the page on screen leads), with a haptic and a
   // short toast. Only while the row is offered (spreads in paged reading).
@@ -2632,11 +2641,12 @@ export function ReaderScreen() {
       void hapticConfirm();
       setReaderPairingShiftToast({ id: Date.now(), on: !readerPairingShift });
       void runReaderSettingsAction("page-pairing-mode", () =>
-        toggleReaderPairingShift(readerPairingShiftKey, chapterId),
+        toggleReaderPairingShift(readerPairingShiftKey, chapterId, readerPairingNeighbourIds),
       );
     };
   }, [
     chapterId,
+    readerPairingNeighbourIds,
     readerPairingShift,
     readerPairingShiftKey,
     readerSettingsActionBusy,
@@ -2660,7 +2670,17 @@ export function ReaderScreen() {
   );
   // What the user chose: changing it re-pairs the whole chapter around the
   // page they are on (that page leads, Komikku-style).
-  const readerPairingChoiceKey = `${readerSpreadPairing}:${readerPairingShift ? "shift" : "base"}`;
+  const readerPairingChoiceKey = `${readerSpreadPairing}:${readerPairingShiftApplied.shift ? "shift" : readerPairingShiftApplied.fallbackShift ? "learned" : "base"}`;
+  // A colour page inside a black-and-white chapter (cover, insert, credits)
+  // stands alone and pairing restarts after it.
+  const readerColourOddAt = useMemo(
+    () =>
+      mobileReaderColourOddPages(pageCount, (index) => {
+        const page = displayedPages[index];
+        return page ? readerPageFeatures.get(page.id)?.chroma ?? null : null;
+      }),
+    [displayedPages, pageCount, readerPageFeatures],
+  );
   const readerComputedSpreads = useMemo(
     () =>
       isTwoPageMode
@@ -2668,10 +2688,13 @@ export function ReaderScreen() {
             pageCount,
             sizeAt: readerPageSizeAt,
             pairing: readerSpreadPairing,
-            shift: readerPairingShift,
-            inferParity: (segment) =>
-              inferMobileReaderSegmentParity({
+            oddAt: readerColourOddAt,
+            shift: readerPairingShiftApplied.shift,
+            fallbackShift: readerPairingShiftApplied.fallbackShift,
+            inferParity: (segment, known) =>
+              inferMobileReaderCalibratedParity({
                 segment,
+                known,
                 featuresAt: (index) => {
                   const page = displayedPages[index];
                   return page ? readerPageFeatures.get(page.id) : null;
@@ -2685,9 +2708,11 @@ export function ReaderScreen() {
       isTwoPageMode,
       mode,
       pageCount,
+      readerColourOddAt,
       readerPageFeatures,
       readerPageSizeAt,
-      readerPairingShift,
+      readerPairingShiftApplied.fallbackShift,
+      readerPairingShiftApplied.shift,
       readerSpreadPairing,
     ],
   );
@@ -9171,7 +9196,7 @@ export function ReaderScreen() {
           onShiftPairing={() => {
             if (readerSettingsActionBusy) return;
             void runReaderSettingsAction("page-pairing-mode", () =>
-              toggleReaderPairingShift(readerPairingShiftKey, chapterId),
+              toggleReaderPairingShift(readerPairingShiftKey, chapterId, readerPairingNeighbourIds),
             );
           }}
           onToggleProcessPageImages={() => {
@@ -9264,7 +9289,7 @@ export function ReaderScreen() {
           onShiftPairing={() => {
             if (readerSettingsActionBusy) return;
             void runReaderSettingsAction("page-pairing-mode", () =>
-              toggleReaderPairingShift(readerPairingShiftKey, chapterId),
+              toggleReaderPairingShift(readerPairingShiftKey, chapterId, readerPairingNeighbourIds),
             );
           }}
           onToggleProcessPageImages={() => {

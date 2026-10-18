@@ -14,8 +14,19 @@
  * parity changes inside the segment. Measured on 13 scanned volumes
  * (2,859 pages): 99%+ correct when it decides, and it abstains on web
  * comics without margins instead of guessing.
+ *
+ * Not every book binds with the wider margin: about one release in seven
+ * (6 of 44 scanned volumes) has the wider margin outside, and there the
+ * margins point the other way on every page. The margins' sign is therefore
+ * checked against the segments whose parity is certain (around a wide page)
+ * before it is trusted; without such a segment automatic pairing abstains
+ * (`mobileReaderMarginSign`, `inferMobileReaderCalibratedParity`).
  */
-import type { MobileReaderPairingSegment, MobileReaderSegmentParity } from "./mobileReaderPairing";
+import type {
+  MobileReaderKnownSegmentParity,
+  MobileReaderPairingSegment,
+  MobileReaderSegmentParity,
+} from "./mobileReaderPairing";
 
 /** What inference reads from one page (`MobileReaderPageFeatures`). */
 export type MobileReaderParityFeatures = {
@@ -81,12 +92,15 @@ export function inferMobileReaderSegmentParity(input: {
   segment: MobileReaderPairingSegment;
   featuresAt: (index: number) => MobileReaderParityFeatures | null | undefined;
   rtl: boolean;
+  /** How far binding margins are trusted: `1` as measured, `-1` reversed (outer margin wider), `0` not at all. */
+  marginSign?: 1 | -1 | 0;
 }): MobileReaderSegmentParity | null {
   const { segment, rtl } = input;
   const length = segment.end - segment.start;
-  if (segment.wide || length < 2) return null;
+  if (segment.wide || segment.odd || length < 2) return null;
+  const marginSign = input.marginSign ?? 1;
   const pages = Array.from({ length }, (_, j) => input.featuresAt(segment.start + j) ?? null);
-  const evidence = pages.map(mobileReaderSideEvidence);
+  const evidence = pages.map((page) => mobileReaderSideEvidence(page) * marginSign);
   // continuity[j]: pages j and j + 1 facing each other (j on the right when j % 2 === q).
   const continuity = Array.from({ length: length - 1 }, (_, j) => ({
     // Under q with j % 2 === q, page j is the right-hand page.
@@ -153,4 +167,48 @@ export function inferMobileReaderSegmentParity(input: {
     return path.map((q) => pairStateForRightParity(q, rtl));
   }
   return constant === null ? null : pairStateForRightParity(constant, rtl);
+}
+
+/**
+ * Which way this chapter's binding margins point, from the segments whose
+ * parity is certain: `1` the wider margin is the binding (most books), `-1`
+ * the outer margin is wider, `null` when those segments don't say.
+ */
+export function mobileReaderMarginSign(input: {
+  known: readonly MobileReaderKnownSegmentParity[];
+  featuresAt: (index: number) => MobileReaderParityFeatures | null | undefined;
+  rtl: boolean;
+}): 1 | -1 | null {
+  let agreement = 0;
+  for (const { segment, parity } of input.known) {
+    // The right-hand pages of the segment: the pair starts in RTL, the second page in LTR.
+    const right = pairStateForRightParity(parity, input.rtl);
+    for (let index = segment.start; index < segment.end; index += 1) {
+      const j = index - segment.start;
+      agreement += mobileReaderSideEvidence(input.featuresAt(index)) * (j % 2 === right ? 1 : -1);
+    }
+  }
+  if (agreement >= READER_PARITY_CONFIDENT_MARGIN) return 1;
+  if (agreement <= -READER_PARITY_CONFIDENT_MARGIN) return -1;
+  return null;
+}
+
+/**
+ * A segment's automatic parity, with the margins' sign calibrated on the
+ * chapter's certain segments. Uncalibrated margins are not trusted.
+ */
+export function inferMobileReaderCalibratedParity(input: {
+  segment: MobileReaderPairingSegment;
+  known: readonly MobileReaderKnownSegmentParity[];
+  featuresAt: (index: number) => MobileReaderParityFeatures | null | undefined;
+  rtl: boolean;
+  /** Research only: trust uncalibrated margins as measured (the v1 behaviour). */
+  trustUncalibrated?: boolean;
+}): MobileReaderSegmentParity | null {
+  const sign = mobileReaderMarginSign(input) ?? (input.trustUncalibrated ? 1 : null);
+  // Artwork across the inner edges alone was wrong on a quarter of the
+  // chapters it decided (13 scanned volumes): without calibrated margins,
+  // abstain and let the fixed rule stand.
+  if (sign === null) return null;
+  return inferMobileReaderSegmentParity({ ...input, marginSign: sign });
 }

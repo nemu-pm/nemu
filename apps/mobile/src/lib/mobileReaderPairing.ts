@@ -94,6 +94,29 @@ export function mobileReaderPagesPairable(
   return Math.max(aspectA, aspectB) / Math.min(aspectA, aspectB) <= 1 + READER_PAIR_ASPECT_TOLERANCE + 1e-9;
 }
 
+/** A page narrower than this (width / height) is a slice of a vertical strip; it never pairs. */
+export const READER_STRIP_PAGE_ASPECT = 0.5;
+/** The first pair head is looked for within this many opening pages (credits, colour pages, wide pages first). */
+export const READER_FIRST_HEAD_WINDOW = 8;
+
+/**
+ * A chapter of vertical-strip slices (a webtoon): most pages are taller than
+ * a strip page. Such a chapter shows one page at a time.
+ */
+export function isMobileReaderStripChapter(
+  pageCount: number,
+  sizeAt: (index: number) => MobileReaderPageSize | null | undefined,
+): boolean {
+  const aspects: number[] = [];
+  for (let index = 0; index < pageCount; index += 1) {
+    const aspect = aspectOf(sizeAt(index));
+    if (aspect !== null) aspects.push(aspect);
+  }
+  if (aspects.length < 3) return false;
+  aspects.sort((a, b) => a - b);
+  return aspects[Math.floor(aspects.length / 2)]! < READER_STRIP_PAGE_ASPECT;
+}
+
 export type MobileReaderPairingSegment = {
   /** First page index (inclusive). */
   start: number;
@@ -101,32 +124,83 @@ export type MobileReaderPairingSegment = {
   end: number;
   /** A lone wide page: never paired, whatever the parity. */
   wide: boolean;
+  /** A lone page unlike its neighbours (a colour page in a black-and-white chapter, a strip slice). */
+  odd?: boolean;
 };
 
-/** Runs of consecutive pages that can share spreads; each wide page is a run of its own. */
+/**
+ * Runs of consecutive pages that can share spreads. Each wide page is a run
+ * of its own, and so is each odd page (`oddAt`: a page unlike its
+ * neighbours); a change of shape ends a run.
+ */
 export function mobileReaderPairingSegments(
   pageCount: number,
   sizeAt: (index: number) => MobileReaderPageSize | null | undefined,
+  oddAt?: (index: number) => boolean,
 ): MobileReaderPairingSegment[] {
   if (!Number.isFinite(pageCount) || pageCount <= 0) return [];
+  const strip = isMobileReaderStripChapter(pageCount, sizeAt);
+  const alone = (index: number): "wide" | "odd" | null => {
+    const size = sizeAt(index);
+    if (isMobileReaderWidePage(size)) return "wide";
+    if (strip || oddAt?.(index)) return "odd";
+    const aspect = aspectOf(size);
+    return aspect !== null && aspect < READER_STRIP_PAGE_ASPECT ? "odd" : null;
+  };
   const segments: MobileReaderPairingSegment[] = [];
   let start = 0;
   for (let index = 0; index < pageCount; index += 1) {
-    const size = sizeAt(index);
-    if (isMobileReaderWidePage(size)) {
+    const kind = alone(index);
+    if (kind) {
       if (start < index) segments.push({ start, end: index, wide: false });
-      segments.push({ start: index, end: index + 1, wide: true });
+      segments.push(kind === "wide" ? { start: index, end: index + 1, wide: true } : { start: index, end: index + 1, wide: false, odd: true });
       start = index + 1;
       continue;
     }
     const next = index + 1;
-    if (next < pageCount && !isMobileReaderWidePage(sizeAt(next)) && !mobileReaderPagesPairable(size, sizeAt(next))) {
+    if (next < pageCount && !alone(next) && !mobileReaderPagesPairable(sizeAt(index), sizeAt(next))) {
       segments.push({ start, end: next, wide: false });
       start = next;
     }
   }
   if (start < pageCount) segments.push({ start, end: pageCount, wide: false });
   return segments;
+}
+
+/** A page whose colourfulness (`chroma`, the share of pixels off the page's own tint) is below this is black and white. */
+export const READER_MONOCHROME_PAGE_CHROMA = 0.05;
+/** A page at or above this is a colour page. */
+export const READER_COLOUR_PAGE_CHROMA = 0.1;
+/** A chapter is black and white when at least this share of its measured pages is (and enough are measured). */
+export const READER_MONOCHROME_CHAPTER_SHARE = 0.6;
+export const READER_MONOCHROME_CHAPTER_MIN_PAGES = 6;
+
+/**
+ * Colour pages inside a black-and-white chapter: a colour cover, a colour
+ * insert or a scanlator's credits page. They don't belong to the printed
+ * spreads around them, so each stands alone and pairing restarts after it.
+ * In a colour chapter no page is odd for its colour. `chromaAt` is null for
+ * a page not measured yet.
+ */
+export function mobileReaderColourOddPages(
+  pageCount: number,
+  chromaAt: (index: number) => number | null | undefined,
+): (index: number) => boolean {
+  let measured = 0;
+  let monochrome = 0;
+  for (let index = 0; index < pageCount; index += 1) {
+    const chroma = chromaAt(index);
+    if (typeof chroma !== "number" || !Number.isFinite(chroma)) continue;
+    measured += 1;
+    if (chroma < READER_MONOCHROME_PAGE_CHROMA) monochrome += 1;
+  }
+  if (measured < READER_MONOCHROME_CHAPTER_MIN_PAGES || monochrome / measured < READER_MONOCHROME_CHAPTER_SHARE) {
+    return () => false;
+  }
+  return (index) => {
+    const chroma = chromaAt(index);
+    return typeof chroma === "number" && chroma >= READER_COLOUR_PAGE_CHROMA;
+  };
 }
 
 /**
@@ -142,7 +216,7 @@ export function mobileReaderSegmentSpreads(
   parity: MobileReaderSegmentParity,
 ): number[][] {
   const length = segment.end - segment.start;
-  if (segment.wide || length <= 1) {
+  if (segment.wide || segment.odd || length <= 1) {
     return Array.from({ length: Math.max(0, length) }, (_, j) => [segment.start + j]);
   }
   const stateAt = (j: number): 0 | 1 =>
@@ -161,12 +235,16 @@ export function mobileReaderSegmentSpreads(
   return spreads;
 }
 
-/** The fixed rules' parity: the chapter's first segment alone for `cover-alone`, every other segment pairs from its head. */
-export function mobileReaderFixedSegmentParity(
-  pairing: Exclude<MobileReaderSpreadPairing, "auto"> | "auto",
-  segment: MobileReaderPairingSegment,
-): 0 | 1 {
-  return segment.start === 0 && pairing !== "cover-paired" ? 1 : 0;
+/**
+ * The chapter's first pair head: the first run of two or more ordinary pages
+ * that starts within the opening pages. Credits, colour pages and wide pages
+ * before it stand alone, so "the first page alone" means the first page of
+ * the chapter proper. -1 when the opening has none.
+ */
+export function mobileReaderFirstHeadSegment(segments: readonly MobileReaderPairingSegment[]): number {
+  return segments.findIndex(
+    (segment) => !segment.wide && !segment.odd && segment.end - segment.start >= 2 && segment.start < READER_FIRST_HEAD_WINDOW,
+  );
 }
 
 function flipParity(parity: MobileReaderSegmentParity): MobileReaderSegmentParity {
@@ -174,31 +252,107 @@ function flipParity(parity: MobileReaderSegmentParity): MobileReaderSegmentParit
   return parity.map((state) => (state === 0 ? 1 : 0));
 }
 
+/**
+ * Where a segment's parity came from, strongest first:
+ * - `wide` / `odd`: a lone page;
+ * - `anchor`: the opening run ends at a wide page (a printed double page sits
+ *   on one opening, so the page before it ends a pair);
+ * - `evidence`: binding margins and artwork across the inner edges;
+ * - `fallback`: automatic pairing found nothing, the fixed rule stands;
+ * - `fixed`: the user chose a fixed rule.
+ */
+export type MobileReaderSegmentSource = "wide" | "odd" | "anchor" | "evidence" | "fallback" | "fixed";
+
+/** A segment whose parity is known without looking at its pages (inference calibrates on these). */
+export type MobileReaderKnownSegmentParity = { segment: MobileReaderPairingSegment; parity: 0 | 1 };
+
 export type MobileReaderPairingInput = {
   pageCount: number;
   sizeAt: (index: number) => MobileReaderPageSize | null | undefined;
   pairing: MobileReaderSpreadPairing;
-  /** "Shift by One Page": flips the parity of every segment. */
+  /** Pages unlike their neighbours, which stand alone (see `mobileReaderColourOddPages`). */
+  oddAt?: (index: number) => boolean;
+  /** "Shift by One Page" for this chapter: flips every segment, whatever decided it. */
   shift?: boolean;
+  /** The manga's learned shift: flips only the segments the fixed rule decided. */
+  fallbackShift?: boolean;
   /**
    * The automatic parity for a segment, or null to fall back to the fixed
-   * rule (the first page alone). Only consulted for `auto`.
+   * rule. `known` lists the segments whose parity is certain (after a wide
+   * page, before one), to calibrate on. Only consulted for `auto`.
    */
-  inferParity?: (segment: MobileReaderPairingSegment) => MobileReaderSegmentParity | null;
+  /**
+   * Which segment the fixed rule's "first page alone" applies to: the first
+   * run of ordinary pages within the opening (default), or only a run that
+   * starts at the chapter's first page (the rule before odd pages existed).
+   */
+  fallbackHead?: "first-pairable" | "first-page";
+  inferParity?: (
+    segment: MobileReaderPairingSegment,
+    known: readonly MobileReaderKnownSegmentParity[],
+  ) => MobileReaderSegmentParity | null;
 };
+
+export type MobileReaderPairingResult = {
+  spreads: number[][];
+  segments: Array<MobileReaderPairingSegment & { source: MobileReaderSegmentSource }>;
+};
+
+/** The chapter's spread table, in source order, with where each segment's parity came from. */
+export function describeMobileReaderPairing(input: MobileReaderPairingInput): MobileReaderPairingResult {
+  const segments = mobileReaderPairingSegments(input.pageCount, input.sizeAt, input.oddAt);
+  const head = input.fallbackHead === "first-page"
+    ? segments.findIndex((segment) => segment.start === 0 && !segment.wide && !segment.odd)
+    : mobileReaderFirstHeadSegment(segments);
+  const auto = input.pairing === "auto";
+  // Parity known by construction: a run right after a wide page starts a
+  // pair (always); the opening run that ends at a wide page ends on a full
+  // pair (automatic pairing).
+  const anchored = new Map<number, { parity: 0 | 1; physical: boolean }>();
+  segments.forEach((segment, index) => {
+    if (segment.wide || segment.odd || segment.end - segment.start < 2) return;
+    if (segments[index - 1]?.wide) anchored.set(index, { parity: 0, physical: true });
+    else if (index === head && segments[index + 1]?.wide) {
+      anchored.set(index, { parity: ((segment.end - segment.start) % 2) as 0 | 1, physical: false });
+    }
+  });
+  const known = [...anchored].map(([index, { parity }]) => ({ segment: segments[index]!, parity }));
+  const spreads: number[][] = [];
+  const described: MobileReaderPairingResult["segments"] = [];
+  segments.forEach((segment, index) => {
+    if (segment.wide || segment.odd) {
+      spreads.push(...mobileReaderSegmentSpreads(segment, 0));
+      described.push({ ...segment, source: segment.wide ? "wide" : "odd" });
+      return;
+    }
+    const anchor = anchored.get(index);
+    let source: MobileReaderSegmentSource = auto ? "fallback" : "fixed";
+    let parity: MobileReaderSegmentParity = index === head && input.pairing !== "cover-paired" ? 1 : 0;
+    if (anchor?.physical) {
+      // After a wide page the reader's rule and the book agree: pair from the head.
+      parity = 0;
+    } else if (auto && anchor) {
+      parity = anchor.parity;
+      source = "anchor";
+    } else if (auto) {
+      const inferred = input.inferParity?.(segment, known) ?? null;
+      if (inferred !== null) {
+        parity = inferred;
+        source = "evidence";
+      }
+    }
+    if (input.shift || (input.fallbackShift && (source === "fallback" || source === "fixed"))) {
+      parity = flipParity(parity);
+    }
+    spreads.push(...mobileReaderSegmentSpreads(segment, parity));
+    described.push({ ...segment, source });
+  });
+  return { spreads, segments: described };
+}
 
 /** The chapter's spread table, in source order. */
 export function buildMobileReaderPairedSpreads(input: MobileReaderPairingInput): number[][] {
-  const segments = mobileReaderPairingSegments(input.pageCount, input.sizeAt);
-  const spreads: number[][] = [];
-  for (const segment of segments) {
-    let parity: MobileReaderSegmentParity =
-      (input.pairing === "auto" ? input.inferParity?.(segment) : null)
-      ?? mobileReaderFixedSegmentParity(input.pairing, segment);
-    if (input.shift) parity = flipParity(parity);
-    spreads.push(...mobileReaderSegmentSpreads(segment, parity));
-  }
-  return spreads;
+  return describeMobileReaderPairing(input).spreads;
 }
 
 /**
