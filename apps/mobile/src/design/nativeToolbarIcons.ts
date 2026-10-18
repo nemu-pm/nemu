@@ -5,6 +5,7 @@ export type NemuNativeToolbarSymbol =
   | "arrow.clockwise"
   | "checkmark"
   | "checkmark.circle"
+  | "circle"
   | "link"
   | "rectangle.stack.badge.plus"
   | "square.and.arrow.up"

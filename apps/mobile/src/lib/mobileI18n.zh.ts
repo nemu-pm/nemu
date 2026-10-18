@@ -1287,6 +1287,8 @@ export const mobileStringsZh: MobileStrings = {
     menuLinkCopied: "已拷贝链接",
     chapterMarkRead: "标记为已读",
     chapterMarkPreviousRead: "将之前的章节标记为已读",
+    chapterMarkUnread: "标记为未读",
+    menuMarkUnread: "标记为未读",
     infoSheetTitle: "作品信息",
     infoButtonHint: "显示状态、书源、作者和类型",
     closeInfo: "关闭作品信息",

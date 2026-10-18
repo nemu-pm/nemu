@@ -22,9 +22,13 @@ import { EmptyLibrary } from "@/components/EmptyLibrary";
 import { useMobileToast } from "@/components/MobileToastContext";
 import {
   buildMobileChapterReadMarks,
+  buildMobileChapterUnreadMarks,
   resolveMobileShareUrl,
+  selectMobileChapterProgressToMarkUnread,
   selectMobileChaptersToMarkRead,
+  type MobileChapterReadMarks,
   type MobileChapterReadMarkScope,
+  type MobileChapterUnreadMarkScope,
 } from "@/lib/mobileChapterReadMarks";
 import { MobileCollectionMembershipSheet } from "@/components/MobileCollectionMembershipSheet";
 import { MobileConfirmationSheet } from "@/components/MobileConfirmationSheet";
@@ -2125,22 +2129,11 @@ export function MangaDetailScreen() {
   );
   const upNextChapterId =
     upNextChapterIndex !== null ? (visibleChapters[upNextChapterIndex]?.id ?? null) : null;
-  // Marks read, as reading does: one batch through the synced store, then the
-  // list and Continue update at once (`mobileChapterReadMarks.ts`).
-  const markChaptersRead = useCallback(
-    async (scope: MobileChapterReadMarkScope) => {
-      if (!selectedSource) return;
-      const marked = selectMobileChaptersToMarkRead(chapters, selectedChapterProgress, scope);
-      const marks = buildMobileChapterReadMarks({
-        marked,
-        chapters,
-        progressById: selectedChapterProgress,
-        source: selectedSource,
-        libraryItemId: entry?.item.libraryItemId,
-        mangaProgress: selectedProgress,
-        now: Date.now(),
-      });
-      if (marks.chapterProgress.length === 0) return;
+  // Saves read or unread marks, as reading does: one batch through the synced
+  // store, then the list and Continue update at once (`mobileChapterReadMarks.ts`).
+  const saveChapterMarks = useCallback(
+    async (marks: MobileChapterReadMarks) => {
+      if (!selectedSource || marks.chapterProgress.length === 0) return;
       try {
         await store.saveChapterProgressBatch(marks.chapterProgress);
         if (marks.mangaProgress) await store.saveMangaProgress(marks.mangaProgress);
@@ -2168,7 +2161,42 @@ export function MangaDetailScreen() {
         await hapticError();
       }
     },
-    [chapters, entry?.item.libraryItemId, selectedChapterProgress, selectedProgress, selectedSource, store],
+    [selectedSource, store],
+  );
+  const markChaptersRead = useCallback(
+    async (scope: MobileChapterReadMarkScope) => {
+      if (!selectedSource) return;
+      const marked = selectMobileChaptersToMarkRead(chapters, selectedChapterProgress, scope);
+      await saveChapterMarks(
+        buildMobileChapterReadMarks({
+          marked,
+          chapters,
+          progressById: selectedChapterProgress,
+          source: selectedSource,
+          libraryItemId: entry?.item.libraryItemId,
+          mangaProgress: selectedProgress,
+          now: Date.now(),
+        }),
+      );
+    },
+    [chapters, entry?.item.libraryItemId, saveChapterMarks, selectedChapterProgress, selectedProgress, selectedSource],
+  );
+  // Mark as Unread clears the reading on every device (a synced reset clock).
+  const markChaptersUnread = useCallback(
+    async (scope: MobileChapterUnreadMarkScope) => {
+      await saveChapterMarks(
+        buildMobileChapterUnreadMarks({
+          marked: selectMobileChapterProgressToMarkUnread(chapters, selectedChapterProgress, scope),
+          progressById: selectedChapterProgress,
+          mangaProgress: selectedProgress,
+        }),
+      );
+    },
+    [chapters, saveChapterMarks, selectedChapterProgress, selectedProgress],
+  );
+  const hasChapterReading = useMemo(
+    () => selectMobileChapterProgressToMarkUnread(chapters, selectedChapterProgress, { kind: "all" }).length > 0,
+    [chapters, selectedChapterProgress],
   );
   const toast = useMobileToast();
   const shareLink = useCallback(async (url: string | null) => {
@@ -2201,6 +2229,9 @@ export function MangaDetailScreen() {
         case "markRead":
           void markChaptersRead({ kind: "chapter", chapterId: chapter.id });
           return;
+        case "markUnread":
+          void markChaptersUnread({ kind: "chapter", chapterId: chapter.id });
+          return;
         case "markPreviousRead":
           void markChaptersRead({ kind: "previous", chapterId: chapter.id });
           return;
@@ -2214,7 +2245,7 @@ export function MangaDetailScreen() {
           openReader(chapter, selectedSource, action === "start" ? 1 : undefined);
       }
     },
-    [copyLink, markChaptersRead, openReader, selectedSource, shareLink],
+    [copyLink, markChaptersRead, markChaptersUnread, openReader, selectedSource, shareLink],
   );
   const renderExploreChapterRow = useCallback(
     ({ item }: ListRenderItemInfo<MobileChapterRow>) => {
@@ -2552,6 +2583,12 @@ export function MangaDetailScreen() {
           label: strings.designExplore.menuMarkFinished,
           disabled: !entry || !selectedSource || detailActionBusy,
           onPress: () => void markChaptersRead({ kind: "all" }),
+        },
+        {
+          icon: "circle",
+          label: strings.designExplore.menuMarkUnread,
+          disabled: !entry || !selectedSource || !hasChapterReading || detailActionBusy,
+          onPress: () => void markChaptersUnread({ kind: "all" }),
         },
         ...(workUrl
           ? [

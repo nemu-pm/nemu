@@ -1192,6 +1192,9 @@ export type MobileStrings = {
     menuLinkCopied: string;
     chapterMarkRead: string;
     chapterMarkPreviousRead: string;
+    /** Clears the chapter's (or, as `menuMarkUnread`, the work's) reading on every device. */
+    chapterMarkUnread: string;
+    menuMarkUnread: string;
     /** The 作品信息 sheet (status, source, author, genres…), opened from the ⓘ by the hero's facts. */
     infoSheetTitle: string;
     infoButtonHint: string;

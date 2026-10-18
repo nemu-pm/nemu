@@ -14,6 +14,7 @@ import LayersIcon from "@expo/material-symbols/layers.xml";
 import SearchIcon from "@expo/material-symbols/search.xml";
 import TuneIcon from "@expo/material-symbols/tune.xml";
 import CheckCircleIcon from "@expo/material-symbols/check_circle.xml";
+import UncheckedCircleIcon from "@expo/material-symbols/radio_button_unchecked.xml";
 import LibraryAddIcon from "@expo/material-symbols/library_add.xml";
 import LinkIcon from "@expo/material-symbols/link.xml";
 import ShareIcon from "@expo/material-symbols/share.xml";
@@ -24,6 +25,7 @@ const androidToolbarIcons: Record<NemuNativeToolbarSymbol, ImageSourcePropType> 
   "arrow.clockwise": RefreshIcon,
   checkmark: CheckIcon,
   "checkmark.circle": CheckCircleIcon,
+  circle: UncheckedCircleIcon,
   link: LinkIcon,
   "rectangle.stack.badge.plus": LibraryAddIcon,
   "square.and.arrow.up": ShareIcon,

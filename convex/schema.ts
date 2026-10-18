@@ -305,6 +305,10 @@ export default defineSchema({
     intraPageProgress: v.optional(v.number()),
     intraPageContentIdentity: v.optional(v.string()),
 
+    // Sync clock of the newest Mark as Unread; reading recorded before it is
+    // discarded by the merge (`mergeChapterProgressHighWater`).
+    resetAt: v.optional(v.number()),
+
     // Sync fields
     updatedAt: v.number(),
   })
@@ -331,7 +335,8 @@ export default defineSchema({
 
     // Summary fields
     lastReadAt: v.number(),
-    lastReadSourceChapterId: v.string(),
+    // Absent once every chapter of the work is marked unread.
+    lastReadSourceChapterId: v.optional(v.string()),
     lastReadChapterNumber: v.optional(v.number()),
     lastReadVolumeNumber: v.optional(v.number()),
     lastReadChapterTitle: v.optional(v.string()),

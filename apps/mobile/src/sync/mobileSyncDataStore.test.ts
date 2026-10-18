@@ -9,6 +9,7 @@ import type {
   LocalSourceLink,
 } from "@/data/schema";
 import { makeChapterProgressId, makeSourceLinkId } from "@/data/schema";
+import { chapterProgressMarkedUnread } from "@nemu/core";
 import { api } from "../../../../convex/_generated/api";
 import { LOCAL_ARCHIVE_INSTALLED_SOURCE } from "@/lib/localArchives/executorSource";
 import { registerLocalArchiveProvider } from "@/lib/localArchives/registry";
@@ -873,6 +874,54 @@ describe("mobile sync data store", () => {
       intraPageProgress: 0.625,
       intraPageContentIdentity,
     });
+  });
+
+  test("sends a Mark as Unread reset only to a backend that stores it", async () => {
+    const calls: MutationCall[] = [];
+    installConvexRecorder(calls);
+    const store = createInitializedSyncStore();
+    await store.saveChapterProgress(chapterProgress({ completed: true }));
+    const reset = chapterProgressMarkedUnread(
+      (await store.getChapterProgress(
+        "aidoku-community",
+        "en.example",
+        "manga-1",
+        "chapter-2",
+      ))!,
+    );
+
+    // Version 1 accepts the reader position but would reject `resetAt`.
+    setMobileChapterProgressIntraPageSyncVersion(1);
+    await store.saveChapterProgress(reset);
+    expect(calls[1]?.args).not.toHaveProperty("resetAt");
+
+    setMobileChapterProgressIntraPageSyncVersion(2);
+    await store.saveChapterProgress(reset);
+    expect(calls[2]?.args).toMatchObject({
+      progress: 0,
+      completed: false,
+      lastReadAt: 0,
+      resetAt: reset.resetAt,
+    });
+    expect(
+      await store.getChapterProgress("aidoku-community", "en.example", "manga-1", "chapter-2"),
+    ).toMatchObject({ progress: 0, completed: false, resetAt: reset.resetAt });
+  });
+
+  test("a chapter marked unread never becomes the work's last read", async () => {
+    const store = createInitializedSyncStore();
+    await store.saveChapterProgress(chapterProgress({ lastReadAt: 10, updatedAt: 11 }));
+    const before = await store.getMangaProgress();
+    const saved = (await store.getChapterProgress(
+      "aidoku-community",
+      "en.example",
+      "manga-1",
+      "chapter-2",
+    ))!;
+    await store.saveChapterProgressBatch([
+      chapterProgressMarkedUnread({ ...saved, sourceChapterId: "chapter-3", id: `${saved.id}-3` }),
+    ]);
+    expect(await store.getMangaProgress()).toEqual(before);
   });
 
   test("keeps newer manga progress when saving an older chapter progress row", async () => {
