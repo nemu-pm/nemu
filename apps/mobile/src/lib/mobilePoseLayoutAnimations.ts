@@ -1,6 +1,7 @@
 import {
   Easing,
   makeMutable,
+  runOnUI,
   withSpring,
   withTiming,
   type EntryExitAnimationFunction,
@@ -29,7 +30,13 @@ let closeTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** Let pose layout transitions run for the next `MOBILE_POSE_MOTION_WINDOW_MS`. */
 export function openMobilePoseMotionWindow() {
-  poseMotionActive.value = true;
+  // The provider calls this while rendering the change, and Reanimated warns
+  // about a JS-side shared-value write during render. Queueing the write on
+  // the UI runtime keeps it ahead of the commit that mounts the new frames.
+  runOnUI(() => {
+    "worklet";
+    poseMotionActive.value = true;
+  })();
   if (closeTimer) clearTimeout(closeTimer);
   closeTimer = setTimeout(() => {
     closeTimer = null;

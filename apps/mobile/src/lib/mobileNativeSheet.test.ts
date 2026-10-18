@@ -1,9 +1,17 @@
 import {
   mobileSheetCanUseFullWidth,
   resolveMobileNativeSheetIosBarEdges,
+  resolveMobileNativeFormSheetPadSizing,
+  resolveMobileNativeSheetIosFormSheet,
   resolveMobileNativeSheetIosHeaderBarPadding,
+  resolveMobileNativeSheetIosHeaderTitleBalance,
 } from "./mobileNativeSheet";
 import { describe, expect, test } from "bun:test";
+import {
+  capMobileNativeSheetSnapPoints,
+  mobileNativeSheetMaxHeight,
+  resolveMobileNativeSheetSnapPointHeight,
+} from "./mobileNativeSheet";
 import { mobileAdaptiveLayout } from "./mobileAdaptiveLayout";
 import { getMobileStrings } from "./mobileI18n";
 import {
@@ -455,6 +463,67 @@ describe("mobile native sheet behavior", () => {
   });
 });
 
+describe("ios sheet header title balance", () => {
+  test("the bar side's padding is matched on the title's other side", () => {
+    expect(resolveMobileNativeSheetIosHeaderTitleBalance({ left: 76, right: 0 })).toEqual({ left: 0, right: 76 });
+    expect(resolveMobileNativeSheetIosHeaderTitleBalance({ left: 0, right: 76 })).toEqual({ left: 76, right: 0 });
+    expect(resolveMobileNativeSheetIosHeaderTitleBalance({ left: 0, right: 0 })).toEqual({ left: 0, right: 0 });
+  });
+});
+
+describe("ios content-sized form sheet", () => {
+  const closed = { held: false, presented: false, platform: "ios" };
+
+  test("a regular-width iPad window presents a form sheet", () => {
+    expect(resolveMobileNativeSheetIosFormSheet({ ...closed, isPad: true, windowWidth: 834 })).toBe(true);
+    expect(resolveMobileNativeSheetIosFormSheet({ ...closed, isPad: true, windowWidth: 600 })).toBe(true);
+  });
+
+  test("compact iPad windows, phones (the Duo inner display too) and Android keep bottom sheets", () => {
+    expect(resolveMobileNativeSheetIosFormSheet({ ...closed, isPad: true, windowWidth: 507 })).toBe(false);
+    expect(resolveMobileNativeSheetIosFormSheet({ ...closed, isPad: false, windowWidth: 951 })).toBe(false);
+    expect(
+      resolveMobileNativeSheetIosFormSheet({ ...closed, platform: "android", isPad: true, windowWidth: 900 }),
+    ).toBe(false);
+  });
+
+  test("a presented sheet keeps the kind it opened with", () => {
+    expect(
+      resolveMobileNativeSheetIosFormSheet({ held: true, presented: true, platform: "ios", isPad: true, windowWidth: 400 }),
+    ).toBe(true);
+    expect(
+      resolveMobileNativeSheetIosFormSheet({ held: false, presented: true, platform: "ios", isPad: true, windowWidth: 1194 }),
+    ).toBe(false);
+  });
+});
+
+describe("ios SwiftUI form sheet on iPad", () => {
+  test("a regular-width iPad window is a centred form sheet as tall as the height detent", () => {
+    expect(
+      resolveMobileNativeFormSheetPadSizing({
+        platform: "ios",
+        isPad: true,
+        windowWidth: 834,
+        detents: [{ height: 262 }],
+      }),
+    ).toEqual({ kind: "form", width: 540, height: 262 });
+  });
+
+  test("without a height detent the system form size applies", () => {
+    expect(
+      resolveMobileNativeFormSheetPadSizing({ platform: "ios", isPad: true, windowWidth: 1194, detents: ["medium"] }),
+    ).toEqual({ kind: "form", width: 540, height: null });
+  });
+
+  test("compact iPad windows and phones keep the detents", () => {
+    for (const [isPad, windowWidth] of [[true, 507], [false, 951]] as const) {
+      expect(
+        resolveMobileNativeFormSheetPadSizing({ platform: "ios", isPad, windowWidth, detents: [{ height: 262 }] }),
+      ).toEqual({ kind: "detents" });
+    }
+  });
+});
+
 describe("ios sheet sizing held for a presentation", () => {
   const contentSized: MobileNativeSheetIosPresentation = {
     sizing: "content",
@@ -691,5 +760,30 @@ describe("iOS sheet header and the sheet's own bar inset", () => {
   });
   test("no padding stays none whatever the sheet reports", () => {
     expect(resolveMobileNativeSheetIosHeaderBarPadding({ left: 0, right: 0 }, { left: 20, right: 76 })).toEqual({ left: 0, right: 0 });
+  });
+});
+
+describe("sheet height cap (below a fold)", () => {
+  test("detents taller than the cap come down to it; the rest stay as given", () => {
+    expect(capMobileNativeSheetSnapPoints(["70%"], 400, 800)).toEqual([400]);
+    expect(capMobileNativeSheetSnapPoints(["40%"], 400, 800)).toEqual(["40%"]);
+    expect(capMobileNativeSheetSnapPoints([300, 620], 400.7, 800)).toEqual([300, 400]);
+  });
+
+  test("no cap, no detents (a content-sized sheet) or nothing over the cap changes nothing", () => {
+    const points = ["70%"];
+    expect(capMobileNativeSheetSnapPoints(points, null, 800)).toBe(points);
+    expect(capMobileNativeSheetSnapPoints(points, 0, 800)).toBe(points);
+    expect(capMobileNativeSheetSnapPoints(points, Number.NaN, 800)).toBe(points);
+    expect(capMobileNativeSheetSnapPoints(points, 600, 800)).toBe(points);
+    expect(capMobileNativeSheetSnapPoints(undefined, 400, 800)).toBeUndefined();
+  });
+
+  test("snap point heights resolve like the scaffold's", () => {
+    expect(resolveMobileNativeSheetSnapPointHeight("50%", 801)).toBe(401);
+    expect(resolveMobileNativeSheetSnapPointHeight("320", 800)).toBe(320);
+    expect(resolveMobileNativeSheetSnapPointHeight(undefined, 800)).toBeUndefined();
+    expect(mobileNativeSheetMaxHeight(412.9)).toBe(412);
+    expect(mobileNativeSheetMaxHeight(-1)).toBeNull();
   });
 });

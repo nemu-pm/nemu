@@ -345,6 +345,69 @@ export function resolveMobileNativeSheetIosPresentation({
 }
 
 /**
+ * Narrowest window that presents a content-sized iPad sheet as a form sheet
+ * (the regular width class). Narrower Split View windows keep the phone's
+ * bottom sheet.
+ */
+export const MOBILE_NATIVE_SHEET_IOS_FORM_MIN_WIDTH = 600;
+/** Width of a content-sized iPad form sheet (UIKit's form sheet width). */
+export const MOBILE_NATIVE_SHEET_IOS_FORM_WIDTH = 540;
+
+/**
+ * iOS: whether a content-sized sheet is a centred form sheet, as tall as its
+ * content, instead of a bottom sheet: on iPad in a regular-width window. The
+ * iPhone Duo keeps bottom sheets, which the system moves to one half in book
+ * posture. Held while the sheet is presented (switching it rehosts the
+ * content, which is then left without touches).
+ */
+export function resolveMobileNativeSheetIosFormSheet({
+  held,
+  presented,
+  platform,
+  isPad,
+  windowWidth,
+}: {
+  held: boolean;
+  presented: boolean;
+  platform: string;
+  isPad: boolean;
+  windowWidth: number;
+}): boolean {
+  if (presented) return held;
+  return platform === "ios" && isPad && windowWidth >= MOBILE_NATIVE_SHEET_IOS_FORM_MIN_WIDTH;
+}
+
+/**
+ * iOS: how a SwiftUI form sheet that asks for iPad form sizing presents. A
+ * regular-width iPad window gets a centred form sheet: as tall as its first
+ * height detent when it has one (the height its rows were measured at), else
+ * the system's own form size. Compact widths keep the detents.
+ */
+export function resolveMobileNativeFormSheetPadSizing({
+  platform,
+  isPad,
+  windowWidth,
+  detents,
+}: {
+  platform: string;
+  isPad: boolean;
+  windowWidth: number;
+  detents: readonly ("medium" | "large" | { fraction: number } | { height: number })[];
+}): { kind: "detents" } | { kind: "form"; width: number; height: number | null } {
+  if (platform !== "ios" || !isPad || windowWidth < MOBILE_NATIVE_SHEET_IOS_FORM_MIN_WIDTH) {
+    return { kind: "detents" };
+  }
+  const heightDetent = detents.find(
+    (detent): detent is { height: number } => typeof detent === "object" && "height" in detent,
+  );
+  return {
+    kind: "form",
+    width: MOBILE_NATIVE_SHEET_IOS_FORM_WIDTH,
+    height: heightDetent && heightDetent.height > 0 ? heightDetent.height : null,
+  };
+}
+
+/**
  * iOS: what the native sheet is given for a held presentation, and whether
  * the scaffold frames the content itself.
  *
@@ -587,6 +650,21 @@ export function resolveMobileNativeSheetIosHeaderBarPadding(
   };
 }
 
+/**
+ * Margins that keep a padded header's centred title on the sheet's centre:
+ * the bar-side padding is matched on the title's other side, so the title
+ * narrows instead of shifting towards the side without the bar.
+ */
+export function resolveMobileNativeSheetIosHeaderTitleBalance(barPadding: {
+  left: number;
+  right: number;
+}): { left: number; right: number } {
+  return {
+    left: Math.max(0, barPadding.right - barPadding.left),
+    right: Math.max(0, barPadding.left - barPadding.right),
+  };
+}
+
 /** Short custom-chrome sheets sit below the system status area. Tall sheets
  * retain its side safe area, including when expanded to a second detent. */
 export function mobileSheetCanUseFullWidth(snapPoints: (string | number)[] | undefined, availableHeight: number): boolean {
@@ -596,4 +674,46 @@ export function mobileSheetCanUseFullWidth(snapPoints: (string | number)[] | und
       : /^\d+(?:\.\d+)?%$/.test(point) ? parseFloat(point) / 100 * availableHeight : NaN;
     return Number.isFinite(height) && height > 0 && height <= availableHeight * 0.75;
   });
+}
+
+/** A snap point's height in points: numbers as they are, "70%" of `availableHeight`, numeric strings parsed. */
+export function resolveMobileNativeSheetSnapPointHeight(
+  snapPoint: string | number | undefined,
+  availableHeight: number,
+): number | undefined {
+  if (typeof snapPoint === "number") return snapPoint;
+  if (!snapPoint) return undefined;
+  if (snapPoint.endsWith("%")) {
+    const percentage = Number.parseFloat(snapPoint);
+    return Number.isFinite(percentage) ? Math.round(availableHeight * (percentage / 100)) : undefined;
+  }
+  const height = Number.parseFloat(snapPoint);
+  return Number.isFinite(height) ? height : undefined;
+}
+
+/** A usable sheet height cap: a positive finite number, else none. */
+export function mobileNativeSheetMaxHeight(maxHeight: number | null | undefined): number | null {
+  return maxHeight != null && Number.isFinite(maxHeight) && maxHeight > 0 ? Math.floor(maxHeight) : null;
+}
+
+/**
+ * A sheet that must stay below a fold (the iPhone Duo half folded like a
+ * laptop: sheets belong to the bottom pane): detents taller than `maxHeight`
+ * come down to it; the others are left exactly as the caller gave them.
+ */
+export function capMobileNativeSheetSnapPoints(
+  snapPoints: (string | number)[] | undefined,
+  maxHeight: number | null | undefined,
+  availableHeight: number,
+): (string | number)[] | undefined {
+  const cap = mobileNativeSheetMaxHeight(maxHeight);
+  if (!snapPoints?.length || cap == null) return snapPoints;
+  let changed = false;
+  const capped = snapPoints.map((snapPoint) => {
+    const height = resolveMobileNativeSheetSnapPointHeight(snapPoint, availableHeight);
+    if (height == null || height <= cap) return snapPoint;
+    changed = true;
+    return cap;
+  });
+  return changed ? capped : snapPoints;
 }

@@ -688,7 +688,7 @@ function MobileWelcomeWizardContent({
     400,
     (sheetBodyWidth ?? windowWidth - 48) + 8,
   );
-  const stackActions = shouldStackMobileWelcomeActions(windowWidth);
+  const stackActions = shouldStackMobileWelcomeActions(windowWidth, sheetBodyWidth);
   const welcomeIntroLines = strings.welcome.introLines;
   const [welcomeTitleBeforeBrand, welcomeTitleAfterBrand] =
     splitWelcomeTitleAroundBrand(strings.welcome.title);
@@ -1115,7 +1115,8 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   doneBlock: {
-    alignItems: "center",
+    // Full width, so the left-aligned hint starts where the title does.
+    alignItems: "stretch",
     gap: 12,
   },
   actions: {

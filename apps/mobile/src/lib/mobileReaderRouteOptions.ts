@@ -74,7 +74,9 @@ export function resetMobileReaderHostGestureLocksForTesting(): void {
 export type MobileReaderScreenOptions = {
   statusBarAnimation: "fade";
   statusBarHidden: boolean;
-  statusBarStyle: "light";
+  statusBarStyle: "light" | "dark";
+  /** iOS: the home indicator fades out while reading immersively (back on the first touch, as in Photos and TV). */
+  autoHideHomeIndicator: boolean;
 };
 
 /**
@@ -86,15 +88,19 @@ export type MobileReaderScreenOptions = {
  */
 export function mobileReaderScreenOptions({
   showControls,
+  lightPage = false,
 }: {
   showControls: boolean;
+  /** The page background is light (白色, or a light border under 跟随页面). */
+  lightPage?: boolean;
 }): MobileReaderScreenOptions {
-  // Light glyphs everywhere: over the page's black letterbox on phones, and on
-  // the dark status capsule the capsule chrome draws under the iPhone Duo's
-  // horizontal status bar.
+  // Glyphs that read against what is around the page: light over a dark
+  // background and its dark top scrim, dark over a light one and its light
+  // scrim.
   return {
     statusBarAnimation: "fade",
     statusBarHidden: !showControls,
-    statusBarStyle: "light",
+    statusBarStyle: lightPage ? "dark" : "light",
+    autoHideHomeIndicator: !showControls,
   };
 }

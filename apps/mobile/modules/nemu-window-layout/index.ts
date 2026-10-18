@@ -2,6 +2,11 @@ export { default as WindowLayoutObserver } from "./src/WindowLayoutObserver";
 export { default as VerticalBarBehavior } from "./src/VerticalBarBehavior";
 export { setAppAppearance, type AppAppearance } from "./src/AppAppearance";
 export {
+  afterViewControllerTransitions,
+  interfaceOrientationLockAvailable,
+  setInterfaceOrientationLocked,
+} from "./src/InterfaceOrientationLock";
+export {
   isLaunchRevealPending,
   prepareLaunchReveal,
   startLaunchReveal,
@@ -35,3 +40,13 @@ export { default as SheetProgressObserver } from "./src/SheetProgressObserver";
 export { NativeSegmentedControl } from "./src/SegmentedControl";
 
 export { ConcentricView } from "./src/ConcentricView";
+
+export { analyzePageFile, pageAnalysisAvailable, type NativePageAnalysis } from "./src/PageAnalysis";
+
+export {
+  NativePageCurlView,
+  pageCurlAvailable,
+  pageCurlTurnAvailable,
+  type PageCurlViewHandle,
+  type PageCurlViewProps,
+} from "./src/PageCurl";

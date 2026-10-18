@@ -32,8 +32,13 @@ export function normalizeReaderSpreadMode(
   return DEFAULT_READER_SPREAD_MODE;
 }
 
-/** A page is about 1.42 times taller than wide; a spread of two fits when the stage is this wide per unit of height. */
-export const READER_AUTO_SPREAD_MIN_ASPECT = 1.35;
+/**
+ * A page is about 1.42 times taller than wide, so a spread of two is about
+ * 1.41 wide per unit of height. From this stage shape on, the spread's
+ * pages keep at least ~90% of a single page's height (the Duo's open
+ * display in landscape beside its vertical bar, 867×669, is 1.30).
+ */
+export const READER_AUTO_SPREAD_MIN_ASPECT = 1.25;
 /** Below these a stage is phone-sized even when wide (a landscape phone): pages stay single. */
 export const READER_AUTO_SPREAD_MIN_WIDTH = 600;
 export const READER_AUTO_SPREAD_MIN_HEIGHT = 450;

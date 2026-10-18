@@ -98,9 +98,24 @@ export function mobileReaderOrientationLockAvailable(input: { formFactor: Mobile
   return input.formFactor !== "phone";
 }
 
-/** What the reader asks of the app while it is on screen. */
-export function mobileReaderPortraitRequest(input: { phoneSizedDisplay: boolean; userLock: boolean }): boolean {
-  return input.phoneSizedDisplay || input.userLock;
+/**
+ * What the reader asks of the app while it is on screen: portrait on a
+ * phone-sized display. Its Orientation Lock elsewhere (iPad, the Duo's inner
+ * display) keeps the orientation the scene has, as the system's Orientation
+ * Lock does; iOS 27 refuses a forced orientation there (a resizable scene's
+ * supported orientations are only a preference). A binary without the scene
+ * lock falls back to the portrait request.
+ */
+export function mobileReaderOrientationRequest(input: {
+  phoneSizedDisplay: boolean;
+  userLock: boolean;
+  sceneLockAvailable: boolean;
+}): { portrait: boolean; keepOrientation: boolean } {
+  if (input.phoneSizedDisplay) return { portrait: true, keepOrientation: false };
+  if (!input.userLock) return { portrait: false, keepOrientation: false };
+  return input.sceneLockAvailable
+    ? { portrait: false, keepOrientation: true }
+    : { portrait: true, keepOrientation: false };
 }
 
 /** The lock to apply now: "portrait" or the app's supported orientations. */
@@ -110,4 +125,19 @@ export function mobileOrientationLock(input: {
 }): "portrait" | "default" {
   if (input.formFactor === "phone") return "portrait";
   return input.readerWantsPortrait ? "portrait" : "default";
+}
+
+/**
+ * Whether applying `next` over `previous` waits for the running screen
+ * transition. Releasing the reader's portrait (Back) waits for the pop to
+ * finish: rotating the scene under it made react-native-screens commit the
+ * new bounds inside the transition, which aborted the app on the iPhone Duo
+ * outer display (Reanimated's layout-animation tree, UIKit's vertical bar
+ * corners). Taking portrait (opening the reader) applies at once.
+ */
+export function mobileOrientationLockWaitsForTransition(
+  previous: "portrait" | "default",
+  next: "portrait" | "default",
+): boolean {
+  return previous === "portrait" && next === "default";
 }

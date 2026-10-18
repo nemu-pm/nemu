@@ -42,6 +42,8 @@ import {
   READER_SPREAD_MODE_ORDER,
   readerFitModeLabel,
   readerSpreadModeLabel,
+  readerPageBackgroundLabel,
+  readerSpreadPairingLabel,
 } from "./readerPageOptions";
 import type { ReaderFitMode } from "@/lib/mobileReaderFit";
 import type { ReaderSpreadMode } from "@/lib/mobileReaderSpreadMode";
@@ -51,7 +53,14 @@ import {
   type MobileReaderNotebookPanePreference,
 } from "@/lib/mobileReaderNotebookPane";
 
-type ReaderPagePairingMode = "book" | "manga";
+import {
+  MOBILE_READER_PAGE_BACKGROUNDS,
+  type MobileReaderPageBackground,
+} from "@/lib/mobileReaderPageBackground";
+import {
+  MOBILE_READER_SPREAD_PAIRINGS,
+  type MobileReaderSpreadPairing,
+} from "@/lib/mobileReaderPairing";
 
 type ReaderDisplaySettingsPopoverProps = {
   visible: boolean;
@@ -65,11 +74,11 @@ type ReaderDisplaySettingsPopoverProps = {
   fitMode: ReaderFitMode;
   windowShape: ReaderWindowShape;
   onSetFitMode: (mode: ReaderFitMode) => void;
-  showCameraMode?: boolean;
-  avoidCamera?: boolean;
-  onSetAvoidCamera?: (enabled: boolean) => void;
+  pageBackground: MobileReaderPageBackground;
+  onSetPageBackground: (value: MobileReaderPageBackground) => void;
   showPagePairingControls: boolean;
-  pagePairingMode: ReaderPagePairingMode;
+  spreadPairing: MobileReaderSpreadPairing;
+  pairingShifted: boolean;
   processPageImages: boolean;
   busy: boolean;
   saving: boolean;
@@ -78,7 +87,8 @@ type ReaderDisplaySettingsPopoverProps = {
   onClose: () => void;
   onDismissComplete?: () => void;
   onSetMode: (mode: ReadingMode) => void;
-  onTogglePagePairingMode: () => void;
+  onSetSpreadPairing: (value: MobileReaderSpreadPairing) => void;
+  onShiftPairing: () => void;
   onToggleProcessPageImages: () => void;
   onPreviewScrollWidth: (value: number) => void;
   onCommitScrollWidth: (value: number) => void;
@@ -181,11 +191,9 @@ export function ReaderDisplaySettingsPopover({
   onSetSpreadMode,
   fitMode,
   onSetFitMode,
-  showCameraMode = false,
-  avoidCamera = true,
-  onSetAvoidCamera,
   showPagePairingControls,
-  pagePairingMode,
+  spreadPairing,
+  pairingShifted,
   processPageImages,
   busy,
   saving,
@@ -194,7 +202,10 @@ export function ReaderDisplaySettingsPopover({
   onClose,
   onDismissComplete,
   onSetMode,
-  onTogglePagePairingMode,
+  onSetSpreadPairing,
+  pageBackground,
+  onSetPageBackground,
+  onShiftPairing,
   onToggleProcessPageImages,
   onPreviewScrollWidth,
   onCommitScrollWidth,
@@ -378,31 +389,42 @@ export function ReaderDisplaySettingsPopover({
                       }))}
                       value={spreadMode}
                     />
-                    {showPagePairingControls ? (
-                      <ReaderSegmentedChipRow<ReaderPagePairingMode>
-                        disabled={busy}
-                        onChange={(next) => {
-                          if (next === pagePairingMode) return;
-                          onTogglePagePairingMode();
-                        }}
-                        options={[
-                          {
-                            value: "book",
-                            label: strings.reader.pairingCoverPaired,
-                            accessibilityLabel: strings.reader.bookPairing,
-                          },
-                          {
-                            value: "manga",
-                            label: strings.reader.pairingCoverAlone,
-                            accessibilityLabel: strings.reader.mangaPairing,
-                          },
-                        ]}
-                        value={pagePairingMode}
-                      />
-                    ) : null}
                   </View>
                 }
               />
+              {showPagePairingControls ? (
+                <ReaderSettingRow
+                  icon="albums-outline"
+                  title={strings.reader.spreadPairing}
+                  description={strings.reader.spreadPairingFootnote}
+                  below={
+                    <View style={styles.settingControlBlock}>
+                      <ReaderSegmentedChipRow<MobileReaderSpreadPairing>
+                        accessibilityLabel={strings.reader.spreadPairing}
+                        disabled={busy}
+                        onChange={(next) => {
+                          if (next === spreadPairing) return;
+                          onSetSpreadPairing(next);
+                        }}
+                        options={MOBILE_READER_SPREAD_PAIRINGS.map((option) => ({
+                          value: option,
+                          label: readerSpreadPairingLabel(option, strings),
+                        }))}
+                        value={spreadPairing}
+                      />
+                      <NemuButton
+                        accessibilityLabel={strings.reader.shiftByOnePage}
+                        accessibilityState={{ selected: pairingShifted }}
+                        disabled={busy}
+                        label={strings.reader.shiftByOnePage}
+                        onPress={onShiftPairing}
+                        size="sm"
+                        variant="secondary"
+                      />
+                    </View>
+                  }
+                />
+              ) : null}
               <ReaderSettingRow
                 icon="scan-outline"
                 title={strings.reader.pageFit}
@@ -425,23 +447,28 @@ export function ReaderDisplaySettingsPopover({
                   </View>
                 }
               />
+              <ReaderSettingRow
+                icon="contrast-outline"
+                title={strings.reader.pageBackground}
+                below={
+                  <View style={styles.settingControlBlock}>
+                    <ReaderSegmentedChipRow<MobileReaderPageBackground>
+                      accessibilityLabel={strings.reader.pageBackground}
+                      disabled={busy}
+                      onChange={(next) => {
+                        if (next === pageBackground) return;
+                        onSetPageBackground(next);
+                      }}
+                      options={MOBILE_READER_PAGE_BACKGROUNDS.map((option) => ({
+                        value: option,
+                        label: readerPageBackgroundLabel(option, strings),
+                      }))}
+                      value={pageBackground}
+                    />
+                  </View>
+                }
+              />
             </>
-          ) : null}
-
-          {showCameraMode && onSetAvoidCamera ? (
-            <ReaderSettingRow
-              icon="phone-portrait-outline"
-              title={strings.reader.avoidCamera}
-              description={strings.reader.avoidCameraFootnote}
-              control={
-                <NemuNativeSwitch
-                  accessibilityLabel={strings.reader.avoidCamera}
-                  disabled={busy}
-                  value={avoidCamera}
-                  onValueChange={(value) => onSetAvoidCamera(value)}
-                />
-              }
-            />
           ) : null}
 
           <ReaderSettingRow

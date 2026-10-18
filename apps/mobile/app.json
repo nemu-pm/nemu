@@ -224,6 +224,7 @@
       ],
       "expo-asset",
       "./plugins/with-launch-screen-background",
+      "./plugins/with-phone-portrait-launch",
       [
         "expo-splash-screen",
         {

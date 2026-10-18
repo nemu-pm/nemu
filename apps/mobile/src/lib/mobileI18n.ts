@@ -488,6 +488,23 @@ export type MobileStrings = {
     pairingCoverPaired: string;
     /** Segmented label for manga pairing: page 1 (the cover) stands alone. */
     pairingCoverAlone: string;
+    /** Menu row: how pages pair into spreads (自动 / 封面单独 / 封面合页). */
+    spreadPairing: string;
+    pairingAutomatic: string;
+    spreadPairingFootnote: string;
+    /** Action: shift this manga's pairing by one page (错开一页). */
+    shiftByOnePage: string;
+    /** Toast after a two-finger double tap shifts the pairing (Apple's "Orientation Lock: On" pattern). */
+    shiftByOnePageOn: string;
+    shiftByOnePageOff: string;
+    /** Menu row: what shows around the page (黑色 / 白色 / 跟随页面). */
+    pageBackground: string;
+    pageTurning: string;
+    pageTurningCurl: string;
+    pageTurningSlide: string;
+    pageBackgroundBlack: string;
+    pageBackgroundWhite: string;
+    pageBackgroundMatchPage: string;
     chapterAccessibility: string;
     closeSettings: string;
     closePlugin: string;
@@ -657,12 +674,6 @@ export type MobileStrings = {
     pageLayoutAuto: string;
     /** Footer under the page layout choice (what Automatic does). */
     pageLayoutFootnote: string;
-    /** Group header for the outer display's settings. */
-    outerDisplayMode: string;
-    avoidCamera: string;
-    /** Footer under the outer display's camera switch. */
-    avoidCameraFootnote: string;
-    immersiveCanvas: string;
     pageFit: string;
     pageFitPage: string;
     pageFitWidth: string;

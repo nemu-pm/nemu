@@ -44,6 +44,8 @@ type MobileSheetScaffoldProps = {
   contentIgnoresSafeAreaEdges?: MobileSheetSafeAreaEdge | MobileSheetSafeAreaEdge[];
   /** iOS: the screen behind stays interactive and undimmed (`MobileNativeSheetScaffold`). */
   backgroundInteraction?: boolean;
+  /** The tallest the sheet may be, e.g. below a fold (`MobileNativeSheetScaffold`'s `maxHeight`). */
+  maxHeight?: number | null;
   children: ReactNode;
 };
 
@@ -78,6 +80,7 @@ export function MobileSheetScaffold({
   contentBottomInset,
   contentIgnoresSafeAreaEdges,
   backgroundInteraction,
+  maxHeight,
   children,
 }: MobileSheetScaffoldProps) {
   const snapPoints = useMemo(
@@ -107,6 +110,7 @@ export function MobileSheetScaffold({
       contentBottomInset={contentBottomInset}
       contentIgnoresSafeAreaEdges={contentIgnoresSafeAreaEdges}
       backgroundInteraction={backgroundInteraction}
+      maxHeight={maxHeight}
       contentStyle={[
         contentStyle ?? styles.sheet,
         sheetMinHeight != null ? { minHeight: sheetMinHeight } : null,

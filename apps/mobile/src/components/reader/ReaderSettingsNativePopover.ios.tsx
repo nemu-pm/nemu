@@ -71,9 +71,15 @@ import {
   READER_SPREAD_MODE_ORDER,
   readerFitModeLabel,
   readerSpreadModeLabel,
+  readerPageBackgroundLabel,
+  readerPageTurnLabel,
+  readerSpreadPairingLabel,
 } from "./readerPageOptions";
+import { MOBILE_READER_PAGE_TURNS, normalizeMobileReaderPageTurn, type MobileReaderPageTurn } from "@/lib/mobileReaderPageCurl";
 import { isReaderFitMode } from "@/lib/mobileReaderFit";
 import { isReaderSpreadMode } from "@/lib/mobileReaderSpreadMode";
+import { MOBILE_READER_SPREAD_PAIRINGS, type MobileReaderSpreadPairing } from "@/lib/mobileReaderPairing";
+import { MOBILE_READER_PAGE_BACKGROUNDS, type MobileReaderPageBackground } from "@/lib/mobileReaderPageBackground";
 import { READER_READING_MODE_ORDER, isReaderReadingMode } from "./readerReadingModeOptions";
 import type { ReaderSettingsNativePopoverProps } from "./ReaderSettingsNativePopover.types";
 
@@ -98,11 +104,9 @@ export function ReaderSettingsNativePopover({
   onSetSpreadMode,
   fitMode,
   onSetFitMode,
-  showCameraMode = false,
-  avoidCamera = true,
-  onSetAvoidCamera,
   showPagePairingControls,
-  pagePairingMode,
+  spreadPairing,
+  pairingShifted,
   processPageImages,
   busy,
   saving,
@@ -111,7 +115,13 @@ export function ReaderSettingsNativePopover({
   onClose,
   onDismissComplete,
   onSetMode,
-  onTogglePagePairingMode,
+  onSetSpreadPairing,
+  pageBackground,
+  onSetPageBackground,
+  showPageTurn = false,
+  pageTurn = "curl",
+  onSetPageTurn,
+  onShiftPairing,
   onToggleProcessPageImages,
   onPreviewScrollWidth,
   onCommitScrollWidth,
@@ -160,8 +170,9 @@ export function ReaderSettingsNativePopover({
     option === "rtl" ? strings.reader.rtl : option === "ltr" ? strings.reader.ltr : strings.reader.scroll;
   const showPlugins = showReaderPluginSettings && Boolean(onOpenReaderPluginSettings);
   const showNotebookRow = showNotebookPane && Boolean(onSetNotebookPane);
+  const showPageTurnRow = showPageTurn && mode !== "scrolling" && Boolean(onSetPageTurn);
   const settingsRows = {
-    showCameraMode,
+    showPageTurn: showPageTurnRow,
     twoPageSupported,
     showPagePairingControls: twoPageSupported && showPagePairingControls,
     scrolling: mode === "scrolling",
@@ -229,6 +240,28 @@ export function ReaderSettingsNativePopover({
             ))}
           </SwiftPicker>
         </SwiftSection>
+        {showPageTurnRow && onSetPageTurn ? (
+          <SwiftSection>
+            <SwiftPicker
+              label={strings.reader.pageTurning}
+              systemImage="book.pages"
+              modifiers={[pickerStyle("menu"), ...busyModifiers]}
+              selection={pageTurn}
+              onSelectionChange={(selection) => {
+                if (busy || selection === pageTurn) return;
+                if (!(MOBILE_READER_PAGE_TURNS as readonly string[]).includes(String(selection))) return;
+                void hapticSelection();
+                onSetPageTurn(normalizeMobileReaderPageTurn(selection) as MobileReaderPageTurn);
+              }}
+            >
+              {MOBILE_READER_PAGE_TURNS.map((option) => (
+                <SwiftText key={option} modifiers={[tag(option)]}>
+                  {readerPageTurnLabel(option, strings)}
+                </SwiftText>
+              ))}
+            </SwiftPicker>
+          </SwiftSection>
+        ) : null}
         {twoPageSupported ? (
           <SwiftSection footer={<SwiftText>{strings.reader.pageLayoutFootnote}</SwiftText>}>
             <SwiftPicker
@@ -248,22 +281,39 @@ export function ReaderSettingsNativePopover({
                 </SwiftText>
               ))}
             </SwiftPicker>
-            {showPagePairingControls ? (
-              <SwiftPicker
-                label={strings.duo.coverPage}
-                systemImage="book.closed"
-                modifiers={[pickerStyle("menu"), ...busyModifiers]}
-                selection={pagePairingMode}
-                onSelectionChange={(selection) => {
-                  if (busy || selection === pagePairingMode) return;
-                  void hapticSelection();
-                  onTogglePagePairingMode();
-                }}
-              >
-                <SwiftText modifiers={[tag("book")]}>{strings.reader.pairingCoverPaired}</SwiftText>
-                <SwiftText modifiers={[tag("manga")]}>{strings.reader.pairingCoverAlone}</SwiftText>
-              </SwiftPicker>
-            ) : null}
+          </SwiftSection>
+        ) : null}
+        {twoPageSupported && showPagePairingControls ? (
+          <SwiftSection footer={<SwiftText>{strings.reader.spreadPairingFootnote}</SwiftText>}>
+            <SwiftPicker
+              label={strings.reader.spreadPairing}
+              systemImage="book.closed"
+              modifiers={[pickerStyle("menu"), ...busyModifiers]}
+              selection={spreadPairing}
+              onSelectionChange={(selection) => {
+                if (busy || selection === spreadPairing) return;
+                if (!(MOBILE_READER_SPREAD_PAIRINGS as readonly string[]).includes(String(selection))) return;
+                void hapticSelection();
+                onSetSpreadPairing(selection as MobileReaderSpreadPairing);
+              }}
+            >
+              {MOBILE_READER_SPREAD_PAIRINGS.map((option) => (
+                <SwiftText key={option} modifiers={[tag(option)]}>
+                  {readerSpreadPairingLabel(option, strings)}
+                </SwiftText>
+              ))}
+            </SwiftPicker>
+            <SwiftButton
+              label={strings.reader.shiftByOnePage}
+              systemImage={pairingShifted ? "arrow.uturn.backward" : "arrow.left.and.right"}
+              onPress={() => {
+                if (busy) return;
+                void hapticSelection();
+                onShiftPairing();
+              }}
+              // An action row in the label colour, like Settings' own.
+              modifiers={[foregroundStyle({ type: "hierarchical", style: "primary" }), ...busyModifiers]}
+            />
           </SwiftSection>
         ) : null}
         {twoPageSupported ? (
@@ -287,18 +337,26 @@ export function ReaderSettingsNativePopover({
             </SwiftPicker>
           </SwiftSection>
         ) : null}
-        {showCameraMode && onSetAvoidCamera ? (
-          <SwiftSection
-            title={strings.reader.outerDisplayMode}
-            footer={<SwiftText>{strings.reader.avoidCameraFootnote}</SwiftText>}
-          >
-            <SwiftToggle
-              label={strings.reader.avoidCamera}
-              systemImage="camera.metering.center.weighted"
-              isOn={avoidCamera}
-              onIsOnChange={(isOn) => onSetAvoidCamera(isOn)}
-              modifiers={busyModifiers}
-            />
+        {twoPageSupported ? (
+          <SwiftSection>
+            <SwiftPicker
+              label={strings.reader.pageBackground}
+              systemImage="square.fill.on.square"
+              modifiers={[pickerStyle("menu"), ...busyModifiers]}
+              selection={pageBackground}
+              onSelectionChange={(selection) => {
+                if (busy || selection === pageBackground) return;
+                if (!(MOBILE_READER_PAGE_BACKGROUNDS as readonly string[]).includes(String(selection))) return;
+                void hapticSelection();
+                onSetPageBackground(selection as MobileReaderPageBackground);
+              }}
+            >
+              {MOBILE_READER_PAGE_BACKGROUNDS.map((option) => (
+                <SwiftText key={option} modifiers={[tag(option)]}>
+                  {readerPageBackgroundLabel(option, strings)}
+                </SwiftText>
+              ))}
+            </SwiftPicker>
           </SwiftSection>
         ) : null}
         {showNotebookRow && onSetNotebookPane ? (

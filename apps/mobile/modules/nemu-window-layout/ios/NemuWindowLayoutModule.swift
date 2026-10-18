@@ -48,6 +48,20 @@ public final class NemuWindowLayoutModule: Module {
     // Lets JS tell a binary with these views from one built before them.
     Constant("verticalBarBehaviorViewAvailable") { true }
     Constant("glassViewHostsChildren") { true }
+    Constant("pageCurlViewAvailable") { true }
+    Constant("pageCurlTurnAvailable") { true }
+    // The reader's Orientation Lock where the system only takes a preference
+    // (iPad, resizable scenes): keep the scene's current orientation.
+    AsyncFunction("setInterfaceOrientationLocked") { (locked: Bool) in
+      MainActor.assumeIsolated { NemuInterfaceOrientationLock.set(locked) }
+    }.runOnQueue(.main)
+    Constant("interfaceOrientationLockAvailable") { true }
+    // Resolves once no view controller transition is running in the app's
+    // windows (see `NemuTransitionSettle`): orientation changes wait for it.
+    AsyncFunction("afterTransitions") { (promise: Promise) in
+      MainActor.assumeIsolated { NemuTransitionSettle.wait { promise.resolve() } }
+    }.runOnQueue(.main)
+    Constant("afterTransitionsAvailable") { true }
     AsyncFunction("setAppAppearance") { (appearance: String) in
       MainActor.assumeIsolated { NemuAppAppearance.set(appearance) }
     }.runOnQueue(.main)
@@ -62,12 +76,38 @@ public final class NemuWindowLayoutModule: Module {
     AsyncFunction("startLaunchReveal") {
       MainActor.assumeIsolated { NemuLaunchReveal.start() }
     }.runOnQueue(.main)
+    // Spread pairing evidence for one cached reader page file (margins, edge
+    // profiles, border colour; see `NemuPageAnalysis`). Runs on the module's
+    // background queue, one page at a time.
+    AsyncFunction("analyzePage") { (uri: String) -> [String: Any]? in
+      NemuPageAnalysis.analyze(uri: uri)
+    }
     // The observer stays the first (default) view: `requireNativeViewManager("NemuWindowLayout")`.
     View(NemuWindowLayoutView.self) {
       Events("onRegionsChange", "onWillTransition")
       Prop("enabled") { (view: NemuWindowLayoutView, enabled: Bool) in
         view.observationEnabled = enabled
       }
+    }
+    View(NemuPageCurlView.self) {
+      Events("onSettle", "onEdgeDrag", "onTurnBegin", "onTurnEnd")
+      Prop("spine") { (view: NemuPageCurlView, spine: String) in view.spine = spine }
+      Prop("slotCount") { (view: NemuPageCurlView, count: Int) in view.slotCount = count }
+      // Changes whenever a mounted child takes another slot: re-host them.
+      Prop("slotsKey") { (view: NemuPageCurlView, _: String) in view.setNeedsLayout() }
+      Prop("curlFrame") { (view: NemuPageCurlView, frame: [String: Double]) in
+        view.curlFrame = CGRect(x: frame["x"] ?? 0, y: frame["y"] ?? 0, width: frame["width"] ?? 0, height: frame["height"] ?? 0)
+      }
+      Prop("turningEnabled") { (view: NemuPageCurlView, enabled: Bool) in view.turningEnabled = enabled }
+      Prop("pageBackground") { (view: NemuPageCurlView, color: UIColor?) in view.pageBackground = color ?? .black }
+      Prop("navigationIndex") { (view: NemuPageCurlView, index: Int) in view.navigationIndex = index; view.setNeedsLayout() }
+      // A tap turn starts here at once, ahead of the React commit that brings
+      // the same navigation as props (which then changes nothing).
+      AsyncFunction("turn") { (view: NemuPageCurlView, slot: Int, animated: Bool, token: Int) in
+        view.requestTurn(slot: slot, animated: animated, token: token)
+      }.runOnQueue(.main)
+      Prop("navigationAnimated") { (view: NemuPageCurlView, animated: Bool) in view.navigationAnimated = animated }
+      Prop("navigationToken") { (view: NemuPageCurlView, token: Int) in view.navigationToken = token }
     }
     View(NemuSheetProgressView.self) {
       Events("onProgress")

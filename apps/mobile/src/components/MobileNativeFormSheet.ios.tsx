@@ -30,9 +30,10 @@ import {
   scrollEdgeEffectStyle,
   tint,
 } from "@expo/ui/swift-ui/modifiers";
-import { Platform, PlatformColor, StyleSheet, View, type ColorValue } from "react-native";
+import { Platform, PlatformColor, StyleSheet, View, useWindowDimensions, type ColorValue } from "react-native";
 import { useNemuTheme } from "@/design-system";
 import { MOBILE_GROUPED_FORM_TOP_MARGIN } from "@/lib/mobileLibrarySheetLayout";
+import { resolveMobileNativeFormSheetPadSizing } from "@/lib/mobileNativeSheet";
 import {
   inlineToolbarTitle,
   zeroTopScrollContentMargin,
@@ -90,7 +91,20 @@ export function MobileNativeFormSheet({
   testID,
 }: MobileNativeFormSheetProps) {
   const { scheme, tokens } = useNemuTheme();
+  const { width: windowWidth } = useWindowDimensions();
   const grouped = background === "grouped";
+  const padForm =
+    padSizing === "form"
+      ? resolveMobileNativeFormSheetPadSizing({
+          platform: Platform.OS,
+          isPad: Platform.OS === "ios" && Platform.isPad,
+          windowWidth,
+          detents,
+        })
+      : null;
+  // An explicit form size is the native sheet's (`formSheetWidth`/`Height`);
+  // without a height the system form sizing applies.
+  const padFormSize = padForm?.kind === "form" && padForm.height !== null ? padForm : null;
   const form = (
     <SwiftForm
       key={formKey}
@@ -126,13 +140,18 @@ export function MobileNativeFormSheet({
             if (!presented && visible) onClose();
           }}
           onDismiss={onDismiss}
+          formSheetWidth={padFormSize?.width ?? 0}
+          formSheetHeight={padFormSize?.height ?? 0}
         >
           <SwiftGroup
             modifiers={[
-              // On iPad a form sheet sizes itself; the detents are the phone's.
-              ...(padSizing === "form" && Platform.OS === "ios" && Platform.isPad
-                ? [presentationSizing("form")]
-                : [presentationDetents(detents)]),
+              // On a regular-width iPad a centred form sheet, as tall as the
+              // phone's detent; the detents are the phone's.
+              ...(padFormSize
+                ? []
+                : padForm?.kind === "form"
+                  ? [presentationSizing("form")]
+                  : [presentationDetents(detents)]),
               presentationDragIndicator("visible"),
               ...(grouped ? [presentationBackground(GROUPED_SHEET_BACKGROUND)] : []),
               interactiveDismissDisabled(dismissDisabled),

@@ -47,17 +47,24 @@ import {
   resolveMobileNativeSheetBottomPadding,
   resolveMobileNativeSheetDismissLabel,
   resolveMobileNativeSheetIosBarEdges,
+  MOBILE_NATIVE_SHEET_IOS_FORM_WIDTH,
+  resolveMobileNativeSheetIosFormSheet,
   resolveMobileNativeSheetIosFramedDetentHeight,
   resolveMobileNativeSheetIosHeaderBarPadding,
+  resolveMobileNativeSheetIosHeaderTitleBalance,
   resolveMobileNativeSheetIosLayout,
   resolveMobileNativeSheetIosPresentation,
   resolveMobileNativeSheetSoftBottomEdge,
+  resolveMobileNativeSheetSnapPointHeight,
+  capMobileNativeSheetSnapPoints,
+  mobileNativeSheetMaxHeight,
   shouldBoundMobileNativeSheetForPlatform,
 } from "@/lib/mobileNativeSheet";
 import { mobileSheetGlassLook } from "@/lib/mobileSheetGlass";
 import { NemuGlassSheetThemeScope, useNemuGlassSheetTheme } from "./NemuGlassSheetThemeScope";
 import { NemuNativeSheetHeaderAction } from "./NemuNativeSheetHeaderAction";
 import { MobileSheetHeader } from "./MobileSheetHeader";
+import { useMobileSheetMaxHeight } from "./mobileSheetMaxHeight";
 
 type MobileNativeSheetScaffoldProps = {
   visible: boolean;
@@ -110,6 +117,12 @@ type MobileNativeSheetScaffoldProps = {
    * it works on.
    */
   backgroundInteraction?: boolean;
+  /**
+   * The tallest the sheet may be (a detent height, in points): taller detents
+   * come down to it and a content-sized sheet stops growing there. Defaults to
+   * the nearest `MobileSheetMaxHeightProvider`; null: no cap.
+   */
+  maxHeight?: number | null;
   contentStyle?: StyleProp<ViewStyle>;
   testID?: string;
   children: ReactNode;
@@ -133,23 +146,7 @@ export function MobileNativeSheetEndSpacer() {
 /** A safe-area edge sheet content may extend into (`contentIgnoresSafeAreaEdges`). */
 export type MobileSheetSafeAreaEdge = "leading" | "trailing" | "horizontal" | "bottom";
 
-function resolveSnapPointHeight(
-  snapPoint: string | number | undefined,
-  availableHeight: number,
-) {
-  if (typeof snapPoint === "number") return snapPoint;
-  if (!snapPoint) return undefined;
-
-  if (snapPoint.endsWith("%")) {
-    const percentage = Number.parseFloat(snapPoint);
-    return Number.isFinite(percentage)
-      ? Math.round(availableHeight * (percentage / 100))
-      : undefined;
-  }
-
-  const height = Number.parseFloat(snapPoint);
-  return Number.isFinite(height) ? height : undefined;
-}
+const resolveSnapPointHeight = resolveMobileNativeSheetSnapPointHeight;
 
 /** The look this platform draws a scaffold sheet with (see `mobileSheetGlassLook`). */
 function resolveScaffoldGlassLook(backgroundColor: string | undefined) {
@@ -199,6 +196,7 @@ export function MobileNativeSheetScaffold({
   contentIgnoresSafeAreaEdges,
   softBottomEdge = false,
   backgroundInteraction = false,
+  maxHeight: maxHeightProp,
   contentStyle,
   testID,
   children,
@@ -279,11 +277,16 @@ export function MobileNativeSheetScaffold({
     androidFrameKind?.kind === "fixed" ? androidFrameKind.height : undefined;
   const androidContentMaxHeight =
     androidFrameKind?.kind === "content" ? androidFrameKind.maxHeight : undefined;
+  const contextMaxHeight = useMobileSheetMaxHeight();
+  const maxHeight = mobileNativeSheetMaxHeight(maxHeightProp === undefined ? contextMaxHeight : maxHeightProp);
   const normalizedSnapPoints = isAndroid
     ? undefined
     : boundDynamicAndroidLandscapeSheet
       ? MOBILE_NATIVE_ANDROID_SNAP_POINTS
-      : normalizeMobileNativeSheetSnapPointsForPlatform(snapPoints, Platform.OS);
+      : normalizeMobileNativeSheetSnapPointsForPlatform(
+          capMobileNativeSheetSnapPoints(snapPoints, maxHeight, availableSheetHeight),
+          Platform.OS,
+        );
   const effectiveSnapPointsSignature = normalizedSnapPoints
     ? JSON.stringify(normalizedSnapPoints)
     : null;
@@ -316,6 +319,23 @@ export function MobileNativeSheetScaffold({
   });
   if (iosPresentation !== heldIosPresentation) {
     setHeldIosPresentation(iosPresentation);
+  }
+  // iPad: a centred form sheet as tall as its content (held like the sizing).
+  const iosFormSheetInputs = {
+    platform: Platform.OS,
+    isPad: Platform.OS === "ios" && Platform.isPad,
+    windowWidth,
+  };
+  const [heldIosFormSheet, setHeldIosFormSheet] = useState(() =>
+    resolveMobileNativeSheetIosFormSheet({ ...iosFormSheetInputs, held: false, presented: false }),
+  );
+  const iosFormSheet = resolveMobileNativeSheetIosFormSheet({
+    ...iosFormSheetInputs,
+    held: heldIosFormSheet,
+    presented: sheetPresented,
+  });
+  if (iosFormSheet !== heldIosFormSheet) {
+    setHeldIosFormSheet(iosFormSheet);
   }
   const iosLayout =
     Platform.OS === "ios"
@@ -614,32 +634,35 @@ export function MobileNativeSheetScaffold({
           pointerEvents={interactionLocked ? "none" : "auto"}
           barPadding={barEdges.headerPadding}
         >
-          <MobileSheetHeader
-            leading={headerLeading}
-            onLayout={(event) => {
-              const nextHeight = Math.ceil(event.nativeEvent.layout.height);
-              setMeasuredHeaderHeight((currentHeight) =>
-                currentHeight === nextHeight ? currentHeight : nextHeight,
-              );
-            }}
-            title={title ?? ""}
-            trailing={
-              headerTrailing ??
-              // One dismiss control on every platform: the SwiftUI `xmark`
-              // button on iOS, a bare `close-outline` glyph on a 48dp target
-              // on Android. An Android text label would silently render as an
-              // empty pressable, because this chrome never shows action labels.
-              (shouldRenderDismissButton ? (
-                <NemuNativeSheetHeaderAction
-                  accessibilityLabel={resolvedDismissLabel}
-                  androidIcon="close-outline"
-                  iosSystemImage="xmark"
-                  disabled={dismissDisabled}
-                  onPress={requestSheetClose}
-                />
-              ) : null)
-            }
-          />
+          {(titleInsets) => (
+            <MobileSheetHeader
+              leading={headerLeading}
+              titleInsets={titleInsets}
+              onLayout={(event) => {
+                const nextHeight = Math.ceil(event.nativeEvent.layout.height);
+                setMeasuredHeaderHeight((currentHeight) =>
+                  currentHeight === nextHeight ? currentHeight : nextHeight,
+                );
+              }}
+              title={title ?? ""}
+              trailing={
+                headerTrailing ??
+                // One dismiss control on every platform: the SwiftUI `xmark`
+                // button on iOS, a bare `close-outline` glyph on a 48dp target
+                // on Android. An Android text label would silently render as an
+                // empty pressable, because this chrome never shows action labels.
+                (shouldRenderDismissButton ? (
+                  <NemuNativeSheetHeaderAction
+                    accessibilityLabel={resolvedDismissLabel}
+                    androidIcon="close-outline"
+                    iosSystemImage="xmark"
+                    disabled={dismissDisabled}
+                    onPress={requestSheetClose}
+                  />
+                ) : null)
+              }
+            />
+          )}
         </MobileNativeSheetHeaderRow>
       ) : null}
       {isAndroid ? (
@@ -779,6 +802,7 @@ export function MobileNativeSheetScaffold({
       androidPlacement={androidSheetPlacement}
       contentIgnoresSafeAreaEdges={ignoredEdges}
       backgroundInteraction={backgroundInteraction}
+      formSheetWidth={iosFormSheet ? MOBILE_NATIVE_SHEET_IOS_FORM_WIDTH : 0}
       {...(drawContentHandle ? { handleComponent: null } : null)}
     >
       {isAndroid ? (
@@ -792,6 +816,9 @@ export function MobileNativeSheetScaffold({
         <NemuGlassSheetThemeScope look={glassLook}>
           {framedDetentHeight !== undefined ? (
             <View style={{ height: framedDetentHeight }}>{sheetContent}</View>
+          ) : maxHeight != null && !nativeSnapPoints?.length ? (
+            // Content-sized: the sheet wraps its content, so the cap bounds that.
+            <View style={{ maxHeight }}>{sheetContent}</View>
           ) : (
             sheetContent
           )}
@@ -804,15 +831,24 @@ export function MobileNativeSheetScaffold({
 /**
  * The header row, padded on the system vertical bar's side by the sheet's own safe-area inset
  * there once the sheet reports it (so it renders inside the sheet): a sheet floating clear of the
- * bar (the iPhone Duo inner display) keeps no padding for it.
+ * bar (the iPhone Duo inner display) keeps no padding for it. The title stays centred on the
+ * sheet (the header balances the padding on the title's other side).
  */
 function MobileNativeSheetHeaderRow({
   barPadding,
   style,
+  children,
   ...props
-}: ComponentProps<typeof View> & { barPadding: { left: number; right: number } }) {
+}: Omit<ComponentProps<typeof View>, "children"> & {
+  barPadding: { left: number; right: number };
+  children: (titleInsets: { left: number; right: number }) => ReactNode;
+}) {
   const padding = resolveMobileNativeSheetIosHeaderBarPadding(barPadding, useBottomSheetSafeAreaInsets());
-  return <View {...props} style={[style, { paddingLeft: padding.left, paddingRight: padding.right }]} />;
+  return (
+    <View {...props} style={[style, { paddingLeft: padding.left, paddingRight: padding.right }]}>
+      {children(resolveMobileNativeSheetIosHeaderTitleBalance(padding))}
+    </View>
+  );
 }
 
 /**

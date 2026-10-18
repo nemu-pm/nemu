@@ -71,13 +71,19 @@ type KomgaBook = {
   };
 };
 
-type KomgaPage = { number: number; mediaType: string };
+/** `PageDto`; width and height are null until the server has analyzed the book's page sizes. */
+type KomgaPage = { number: number; mediaType: string; width?: number | null; height?: number | null };
 
 export type KomgaBackendOptions = {
   server: string;
   credentials: SelfHostedCredentials;
   transport: SelfHostedTransport;
 };
+
+function validPageSize(width: number | null | undefined, height: number | null | undefined): boolean {
+  return typeof width === "number" && typeof height === "number"
+    && Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0;
+}
 
 export function komgaAuthHeaders(credentials: SelfHostedCredentials): Record<string, string> {
   if (credentials.apiKey) return { "X-API-Key": credentials.apiKey };
@@ -238,6 +244,9 @@ export function createKomgaBackend(options: KomgaBackendOptions): SelfHostedBack
           url: buildUrl(server, `/api/v1/books/${encodeURIComponent(chapter.key)}/pages/${page.number}`, {
             convert: WEB_SAFE_PAGE_TYPES.has(page.mediaType) ? undefined : "jpeg",
           }),
+          // Known page sizes let the reader pair spreads (a wide page stands
+          // alone) before the pages download.
+          ...(validPageSize(page.width, page.height) ? { width: page.width!, height: page.height! } : {}),
         }));
     },
 

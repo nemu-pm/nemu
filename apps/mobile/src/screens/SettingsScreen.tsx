@@ -11,6 +11,7 @@ import {
 import { ExploreSettingsGroup } from "@/components/explore/ExploreSettingsGroup";
 import { ExploreSettingsGlyph } from "@/components/explore/ExploreSettingsGlyph";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
+import { MOBILE_SETTINGS_GLYPH } from "@/lib/mobileSettingsGlyph";
 import { readMobileDesignExploreStored, writeMobileDesignExploreStored } from "@/lib/mobileDesignExploreBoot";
 import { isMobileDesignExploreSwitchAvailable } from "@/lib/mobileDesignExploreSwitch";
 import { reloadAppAsync } from "expo";
@@ -658,6 +659,7 @@ function ReaderPluginManagementRow({
       <View
         style={[
           styles.pluginEmbeddedRow,
+          mobileDesignExploreFlag ? styles.explorePluginEmbeddedRow : null,
           { borderColor: tokens.border },
           selected &&
             plugin.enabled && {
@@ -1263,10 +1265,13 @@ function FeedbackSettingRow({
   value,
   onToggle,
   first = false,
+  underHeading = false,
 }: {
   title: string;
   subtitle: string;
   first?: boolean;
+  /** The row sits under a card heading with a glyph: it takes the glyph's inset. */
+  underHeading?: boolean;
   value: boolean;
   onToggle: (nextValue: boolean) => void;
 }) {
@@ -1280,7 +1285,7 @@ function FeedbackSettingRow({
         styles.dataAction,
         { borderColor: tokens.border },
         // Design-explore: rows of the card, not cards inside it.
-        mobileDesignExploreFlag ? [styles.exploreInnerRow, first ? styles.exploreInnerRowFirst : null] : null,
+        mobileDesignExploreFlag ? [styles.exploreInnerRow, underHeading ? styles.exploreSwitchRow : null, first ? styles.exploreInnerRowFirst : null] : null,
       ]}
     >
       <View style={styles.dataActionText}>
@@ -1733,6 +1738,7 @@ function MobileFeedbackSettingsCard() {
       >
         <FeedbackSettingRow
           first
+          underHeading
           title={strings.feedback.hapticsFeedback}
           subtitle={strings.feedback.hapticsFeedbackHint}
           value={hapticsFeedbackEnabled}
@@ -1741,6 +1747,7 @@ function MobileFeedbackSettingsCard() {
           }}
         />
         <FeedbackSettingRow
+          underHeading
           title={strings.feedback.chapterCompleteFeedback}
           subtitle={strings.feedback.chapterCompleteFeedbackHint}
           value={chapterCompleteCelebration}
@@ -3240,7 +3247,7 @@ function SettingsScreenContent({
               {activeSection === null ? (
                 <>
                   <MobileCloudSyncCard />
-                  {mobileDesignExploreFlag && !inSplit ? (
+                  {mobileDesignExploreFlag ? (
                     <>
                       <ExploreSettingsGroup
                         rows={[
@@ -3251,6 +3258,7 @@ function SettingsScreenContent({
                             accessibilityLabel: strings.reader.title,
                             accessibilityHint: strings.settings.readerDescriptionWithFeedback,
                             disabled: settingsActionBusy,
+                            selected: inSplit ? selectedSection === "reader" : undefined,
                             onPress: () => openSection("reader"),
                           },
                           {
@@ -3261,6 +3269,7 @@ function SettingsScreenContent({
                             accessibilityHint: strings.settings.installedSourcesDescription,
                             detail: sources.data.length ? String(sources.data.length) : undefined,
                             disabled: settingsActionBusy,
+                            selected: inSplit ? selectedSection === "sources" : undefined,
                             onPress: () => openSection("sources"),
                           },
                           {
@@ -3270,6 +3279,7 @@ function SettingsScreenContent({
                             accessibilityLabel: strings.settings.appearance,
                             accessibilityHint: strings.settings.appearanceDescription,
                             disabled: settingsActionBusy,
+                            selected: inSplit ? selectedSection === "appearance" : undefined,
                             onPress: () => openSection("appearance"),
                           },
                           {
@@ -3279,6 +3289,7 @@ function SettingsScreenContent({
                             accessibilityLabel: strings.settings.dataManagement,
                             accessibilityHint: strings.settings.dataManagementDescription,
                             disabled: settingsActionBusy,
+                            selected: inSplit ? selectedSection === "data" : undefined,
                             onPress: () => openSection("data"),
                           },
                           ...(isMobileDesignExploreSwitchAvailable(Platform.OS)
@@ -3290,6 +3301,7 @@ function SettingsScreenContent({
                                   accessibilityLabel: strings.settings.experimentalDesign,
                                   accessibilityHint: strings.settings.designPreviewHint,
                                   disabled: settingsActionBusy,
+                                  selected: inSplit ? selectedSection === "experimental" : undefined,
                                   onPress: () => openSection("experimental"),
                                 },
                               ]
@@ -4273,6 +4285,18 @@ const styles = StyleSheet.create({
     borderRadius: 0,
     borderTopWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 0,
+  },
+  // Design-explore: one inset down a card of switches. Inside the card's 12pt
+  // padding, a switch row's title and switch sit where the heading's glyph is
+  // drawn (its box centres a narrower glyph), as in the Settings list.
+  exploreSwitchRow: {
+    paddingHorizontal: (MOBILE_SETTINGS_GLYPH.box - MOBILE_SETTINGS_GLYPH.size) / 2,
+  },
+  // The plugin list bleeds to the card edge: its icons start on that inset
+  // and its chevron's glyph (not its box) ends on it, level with the switches.
+  explorePluginEmbeddedRow: {
+    paddingLeft: 12 + (MOBILE_SETTINGS_GLYPH.box - MOBILE_SETTINGS_GLYPH.size) / 2,
+    paddingRight: 11,
   },
   exploreInnerRowFirst: {
     borderTopWidth: 0,

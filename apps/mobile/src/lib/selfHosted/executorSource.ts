@@ -86,7 +86,12 @@ export function createSelfHostedExecutorSource(input: SelfHostedExecutorInput): 
     getChapterList: (manga: Manga) => localized((backend) => backend.getChapterList(manga)),
     async getPageList(manga: Manga, chapter: Chapter): Promise<MobileSourcePage[]> {
       const refs = await localized((backend) => backend.getPageList(manga, chapter));
-      return refs.map((ref) => ({ index: ref.index, url: ref.url, id: `${chapter.key}:${ref.index + 1}` }));
+      return refs.map((ref) => ({
+        index: ref.index,
+        url: ref.url,
+        id: `${chapter.key}:${ref.index + 1}`,
+        ...(ref.width && ref.height ? { width: ref.width, height: ref.height } : {}),
+      }));
     },
     getFilters: async () => current().getFilters(),
     getListings: (): Promise<Listing[]> => localized((backend) => backend.getListings()),

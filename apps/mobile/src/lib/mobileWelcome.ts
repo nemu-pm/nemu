@@ -17,6 +17,12 @@ export type MobileWelcomeStep = "welcome" | "language" | "sources" | "done";
 export const MOBILE_WELCOME_ICON_SIZE = 80;
 export const MOBILE_WELCOME_STACK_BREAKPOINT = 768;
 /**
+ * A sheet body narrower than this stacks the actions whatever the window's
+ * width: a regular-width iPad window presents the onboarding sheet
+ * as a centred form sheet, which keeps the phone's button stack.
+ */
+export const MOBILE_WELCOME_STACK_BODY_BREAKPOINT = 600;
+/**
  * iOS onboarding body inset under the grabber (approved; unchanged). Android
  * uses the shared native-sheet value instead, see
  * [resolveMobileWelcomeSheetContentTopPadding].
@@ -41,8 +47,14 @@ export function shouldScrollMobileWelcomeContent({
   return platform !== "web" || step === "sources";
 }
 
-export function shouldStackMobileWelcomeActions(width: number): boolean {
-  return width < MOBILE_WELCOME_STACK_BREAKPOINT;
+export function shouldStackMobileWelcomeActions(
+  width: number,
+  sheetBodyWidth: number | null = null,
+): boolean {
+  return (
+    width < MOBILE_WELCOME_STACK_BREAKPOINT ||
+    (sheetBodyWidth !== null && sheetBodyWidth < MOBILE_WELCOME_STACK_BODY_BREAKPOINT)
+  );
 }
 
 export function shouldBlockMobileWelcomeUnderlyingContent({

@@ -45,6 +45,8 @@ type MobileReaderPageBase = {
   text?: string;
   context?: Record<string, string>;
   imageProcessing?: "pending" | "ready" | "fallback";
+  /** Pixel size reported by the server before download (Komga), for spread pairing. */
+  sourceSize?: { width: number; height: number };
 };
 
 export type MobileReaderPage = MobileReaderPageBase &
@@ -446,6 +448,9 @@ export function mapAidokuPageToReaderPage(
     headers: request?.headers ?? page.headers,
     text: page.text,
     context: page.context,
+    ...(page.width && page.height && page.width > 0 && page.height > 0
+      ? { sourceSize: { width: page.width, height: page.height } }
+      : {}),
   };
   if (!imageUri || !imageUriOwnership) return result;
   return { ...result, imageUri, imageUriOwnership };

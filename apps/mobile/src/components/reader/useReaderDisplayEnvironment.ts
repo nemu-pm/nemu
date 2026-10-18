@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as KeepAwake from "expo-keep-awake";
 import { setMobileReaderPortraitRequest } from "@/lib/mobileOrientationStore";
+import { setInterfaceOrientationLocked } from "../../../modules/nemu-window-layout";
 import { useMobileDataStore } from "@/data/mobileDataContext";
 import { useMobileDataRevision } from "@/data/mobileDataEvents";
 import type { UserSettings } from "@/data/schema";
@@ -39,6 +40,7 @@ export function useReaderDisplayEnvironment({
   keepAwakeEnabled,
   keepAwakeReady = true,
   portraitRequested,
+  keepOrientationRequested = false,
 }: {
   keepAwakeEnabled: boolean;
   /**
@@ -47,8 +49,10 @@ export function useReaderDisplayEnvironment({
    * walks away from) should not pin the display on.
    */
   keepAwakeReady?: boolean;
-  /** `mobileReaderPortraitRequest`: phone-sized display, or the reader's Orientation Lock. */
+  /** `mobileReaderOrientationRequest().portrait`: a phone-sized display. */
   portraitRequested: boolean;
+  /** `mobileReaderOrientationRequest().keepOrientation`: the Orientation Lock on iPad / the Duo's inner display. */
+  keepOrientationRequested?: boolean;
 }): void {
   useEffect(() => {
     if (!keepAwakeEnabled || !keepAwakeReady) return;
@@ -69,6 +73,13 @@ export function useReaderDisplayEnvironment({
     setMobileReaderPortraitRequest(portraitRequested);
     return () => setMobileReaderPortraitRequest(false);
   }, [portraitRequested]);
+  // The Orientation Lock where the system only takes a preference: the scene
+  // keeps its orientation while the reader is on top; released when it leaves.
+  useEffect(() => {
+    if (!keepOrientationRequested) return;
+    setInterfaceOrientationLocked(true);
+    return () => setInterfaceOrientationLocked(false);
+  }, [keepOrientationRequested]);
 }
 
 /**
@@ -80,8 +91,6 @@ export function useReaderDisplayPrefs(): {
   setKeepAwake: (enabled: boolean) => Promise<void>;
   lockPortrait: boolean;
   setLockPortrait: (enabled: boolean) => Promise<void>;
-  avoidCamera: boolean;
-  setAvoidCamera: (enabled: boolean) => Promise<void>;
   thumbnailSpoilerSafe: boolean;
   thumbnailSpoilerSafeReady: boolean;
   setThumbnailSpoilerSafe: (enabled: boolean) => Promise<void>;
@@ -102,9 +111,6 @@ export function useReaderDisplayPrefs(): {
   const [notebookPane, setNotebookPaneState] = useState<MobileReaderNotebookPanePreference>(
     DEFAULT_MOBILE_READER_NOTEBOOK_PANE,
   );
-  const [avoidCamera, setAvoidCameraState] = useState(true);
-  const savedAvoidCamera = useRef(true);
-  const avoidCameraRun = useRef(0);
   const [thumbnailSpoilerSafe, setThumbnailSpoilerSafeState] = useState(false);
   const [thumbnailSpoilerSafeReady, setThumbnailSpoilerSafeReady] = useState(false);
   const savedThumbnailSpoilerSafe = useRef(false);
@@ -135,9 +141,6 @@ export function useReaderDisplayPrefs(): {
           settings.readerLockPortrait ?? DEFAULT_READER_LOCK_PORTRAIT;
         setLockPortraitState(nextLockPortrait);
         savedLockPortrait.current = nextLockPortrait;
-        const nextAvoidCamera = settings.readerAvoidCamera !== false;
-        setAvoidCameraState(nextAvoidCamera);
-        savedAvoidCamera.current = nextAvoidCamera;
         const nextThumbnailSpoilerSafe = settings.readerThumbnailSpoilerSafe === true;
         setThumbnailSpoilerSafeState(nextThumbnailSpoilerSafe);
         savedThumbnailSpoilerSafe.current = nextThumbnailSpoilerSafe;
@@ -222,22 +225,6 @@ export function useReaderDisplayPrefs(): {
     [notebookPane, store],
   );
 
-  const setAvoidCamera = useCallback(
-    async (enabled: boolean) => {
-      if (enabled === avoidCamera) return;
-      const run = ++avoidCameraRun.current;
-      setAvoidCameraState(enabled);
-      try {
-        await store.updateSettings((settings) => ({ ...settings, readerAvoidCamera: enabled }));
-        savedAvoidCamera.current = enabled;
-        emitMobileDataChanged("settings");
-      } catch (error) {
-        if (avoidCameraRun.current === run) setAvoidCameraState(savedAvoidCamera.current);
-        throw error;
-      }
-    },
-    [avoidCamera, store],
-  );
 
   const setThumbnailSpoilerSafe = useCallback(
     async (enabled: boolean) => {
@@ -302,8 +289,6 @@ export function useReaderDisplayPrefs(): {
   );
 
   return {
-    avoidCamera,
-    setAvoidCamera,
     keepAwake,
     setKeepAwake,
     lockPortrait,

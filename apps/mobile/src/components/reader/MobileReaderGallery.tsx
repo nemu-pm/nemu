@@ -26,6 +26,7 @@ import {
   type ViewInstance,
 } from "react-native";
 import Animated, { LayoutAnimationConfig, useSharedValue } from "react-native-reanimated";
+import { GestureDetector, type GestureType } from "react-native-gesture-handler";
 import { DuoBookSpineShade } from "@/components/duo/DuoBookSpineShade";
 import { mobileDuoSpreadPageRects } from "@/lib/mobileDuoSpine";
 import { READER_CAPSULE_COLORS } from "@/components/reader/ReaderCapsule";
@@ -69,6 +70,8 @@ import {
   type ReaderScrollPageMetric,
 } from "@/lib/mobileReaderProgress";
 import { ZoomableReaderStrip } from "./ZoomableReaderStrip";
+import { MobileReaderCurlPager, type MobileReaderCurlPagerHandle } from "./MobileReaderCurlPager";
+import { pageCurlAvailable } from "../../../modules/nemu-window-layout";
 import { MOBILE_READER_DOUBLE_TAP_MAX_DELAY_MS } from "@/lib/mobileReaderZoom";
 import {
   isReaderAdvancePastEndDrag,
@@ -82,6 +85,10 @@ import {
   readerTapDispatchForZone,
   readerTapZoneForPosition,
 } from "./readerTapZones";
+import {
+  readerStageMultiTouchOnEnd,
+  readerStageMultiTouchOnStart,
+} from "./readerStageMultiTouch";
 import {
   getMobileReaderLogicalOffsetForProgress,
   getMobileReaderLogicalAccessibilityPercent,
@@ -182,6 +189,11 @@ type MobileReaderGalleryProps = {
   fitClip?: boolean;
   /** Prevents modal/sheet taps from reaching the reader's page-turn zones. */
   tapGesturesEnabled?: boolean;
+  /**
+   * A gesture the whole stage recognises across pages and spreads (the
+   * two-finger double tap for 错开一页). Fixed for the gallery's lifetime.
+   */
+  stageGesture?: GestureType;
   /** A page on screen is still loading: tap zones don't turn the page yet. */
   visiblePageLoading?: boolean;
   pagedMode: boolean;
@@ -224,6 +236,18 @@ type MobileReaderGalleryProps = {
    * a new content remounts plainly.
    */
   contentIdentityKey?: string;
+  /**
+   * Paged turns curl (翻页 › 卷页) instead of sliding. The reader decides it
+   * (setting, Reduce Motion); the gallery keeps the slide for long strips and
+   * tiled pages.
+   */
+  pageCurl?: boolean;
+  /** The curl is turning a leaf: page overlays wait for the settled page. */
+  onPageTurningChange?: (turning: boolean) => void;
+  /** Overlays are mounted on the pages (Japanese-learning bubbles): a curl waits for them to leave. */
+  pageOverlaysMounted?: boolean;
+  /** A page wide enough to lie across the spine of a flat spread. */
+  isWidePage?: (pageIndex: number) => boolean;
   /** Intrinsic size of a page, for the book-spine shading of a fold spread. */
   pageNaturalSize?: (page: MobileReaderPage) => { width: number; height: number } | null;
   /** Extra horizontal padding that centres the loading / locked / error card beside the rail. */
@@ -304,6 +328,7 @@ export function MobileReaderGallery({
   pageZoomActive = false,
   fitClip = false,
   tapGesturesEnabled = true,
+  stageGesture,
   visiblePageLoading = false,
   pagedMode,
   pageTurnAccessibilityEnabled,
@@ -325,6 +350,10 @@ export function MobileReaderGallery({
   geometryKey,
   onStageOriginChange,
   contentIdentityKey,
+  pageCurl = false,
+  onPageTurningChange,
+  pageOverlaysMounted = false,
+  isWidePage,
   pageNaturalSize,
   stateInsets,
   stateTopPadding,
@@ -427,6 +456,8 @@ export function MobileReaderGallery({
     logicalScrollAccessibility.scrollMountKey === scrollMountKey
       ? logicalScrollAccessibility.percent
       : 0;
+  const curlActive = pageCurl && pageCurlAvailable && pagedMode && !logicalLongStripMode;
+  const curlPagerRef = useRef<MobileReaderCurlPagerHandle | null>(null);
   const galleryItemCount = segmentedMode
     ? segmentedImageFrames!.length
     : isTwoPageMode
@@ -441,6 +472,8 @@ export function MobileReaderGallery({
     contentKey: string;
     pageTurnEnabled: boolean;
   } | null>(null);
+  // Two fingers down: the sequence is a pinch or a two-finger tap, never a tap.
+  const multiTouchRef = useRef(false);
   const pendingToggleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -511,6 +544,10 @@ export function MobileReaderGallery({
     readerScrollRef,
     () => ({
       scrollTo({ x = 0, y = 0, index, animated = true }) {
+        if (curlActive) {
+          curlPagerRef.current?.goToFrame(readerPageWidth > 0 ? Math.round(x / readerPageWidth) : 0, animated);
+          return;
+        }
         if (
           !pagedMode &&
           index != null &&
@@ -562,7 +599,7 @@ export function MobileReaderGallery({
         };
       },
     }),
-    [galleryItemCount, pagedMode, resolvedContinuousContentIdentity],
+    [curlActive, galleryItemCount, pagedMode, readerPageWidth, resolvedContinuousContentIdentity],
   );
 
   const handleScrollToIndexFailed = (info: {
@@ -821,6 +858,11 @@ export function MobileReaderGallery({
       };
   const handleStageTouchStart = (event: GestureResponderEvent) => {
     const touch = event.nativeEvent;
+    multiTouchRef.current = readerStageMultiTouchOnStart(multiTouchRef.current, touch);
+    if (multiTouchRef.current) {
+      touchStartRef.current = null;
+      return;
+    }
     const x = touch.pageX - stageOriginRef.current.x;
     const y = touch.pageY - stageOriginRef.current.y;
     if (spreadSlots && !spreadSlots.some((slot) =>
@@ -940,6 +982,12 @@ export function MobileReaderGallery({
     ],
   );
   const handleStageTouchEnd = (event: GestureResponderEvent) => {
+    const multiTouch = readerStageMultiTouchOnEnd(multiTouchRef.current, event.nativeEvent);
+    multiTouchRef.current = multiTouch.multiTouch;
+    if (multiTouch.ignore) {
+      touchStartRef.current = null;
+      return;
+    }
     const start = touchStartRef.current;
     touchStartRef.current = null;
     if (!start || !readerStageTouchMatchesContent(start.contentKey, resolvedContentIdentityKey)) return;
@@ -987,6 +1035,7 @@ export function MobileReaderGallery({
     // toward the next or previous chapter.
     if (
       pagedMode &&
+      !curlActive &&
       pagesState.status === "ready" &&
       pages.length > 0 &&
       pagedDisplayRef.current.count === 1
@@ -1279,7 +1328,7 @@ export function MobileReaderGallery({
                   displayedPages[visualIndexes[0]] ? pageNaturalSize(displayedPages[visualIndexes[0]]) : null,
                   displayedPages[visualIndexes[1]] ? pageNaturalSize(displayedPages[visualIndexes[1]]) : null,
                 ],
-                align: "center",
+                align: "spine",
               })
             : null;
         return (
@@ -1303,9 +1352,7 @@ export function MobileReaderGallery({
                     // The halves slide apart into (or back from) the fold panes.
                     layout={pageGlide ? mobileReaderSlotLayoutTransition : undefined}
                     style={[styles.spreadPageSlot, {
-                    alignItems: mobileReaderSpreadPageAlignment(
-                      slotIndex, item.spread.length, Boolean(spreadSlots),
-                    ),
+                    alignItems: mobileReaderSpreadPageAlignment(slotIndex, item.spread.length),
                   },
                   // While a page glides from its old (larger) box the slot
                   // must not clip it; the zoom clip returns once it settles.
@@ -1471,6 +1518,75 @@ export function MobileReaderGallery({
     pagedMode && !segmentedMode && galleryItemCount > 0 && readerPageWidth > 0
       ? Math.max(0, Math.min(galleryItemCount - 1, Math.round(initialContentOffset.x / readerPageWidth)))
       : undefined;
+  const curlFrames = useMemo(
+    () => (isTwoPageMode ? pagedSpreads : pagedSinglePages.map(({ index }) => [index])),
+    [isTwoPageMode, pagedSinglePages, pagedSpreads],
+  );
+  const handleCurlSettle = useCallback(
+    (frame: number) => {
+      // The reader reads a settled curl like the slide pager's momentum end.
+      const width = Math.max(1, readerPageWidth);
+      handleGalleryMomentumScrollEnd({
+        nativeEvent: {
+          contentOffset: { x: frame * width, y: 0 },
+          contentSize: { width: width * Math.max(1, galleryItemCount), height: windowHeight },
+          layoutMeasurement: { width, height: windowHeight },
+        },
+      } as NativeSyntheticEvent<NativeScrollEvent>);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reads the latest handlers like the list's own callbacks.
+    [galleryItemCount, readerPageWidth, windowHeight, onMomentumScrollEnd],
+  );
+  const handleCurlEdgeIntent = useCallback((intent: "next" | "previous") => {
+    if (pagesState.status !== "ready" || pages.length === 0) return;
+    if (intent === "next") onRequestAdvancePastEndRef.current?.();
+    else onRequestRetreatPastStartRef.current?.();
+  }, [pages.length, pagesState.status]);
+  const renderCurlTextPage = useCallback(
+    (page: MobileReaderPage, pageIndex: number) => (
+      <TextPage
+        text={page.text}
+        fallbackPage={sourcePageForDisplayIndex(pageIndex)}
+        strings={strings}
+      />
+    ),
+    [sourcePageForDisplayIndex, strings],
+  );
+  const curlStage = useMemo(() => ({ width: readerPageWidth, height: windowHeight }), [readerPageWidth, windowHeight]);
+  const isWidePageOrNever = useCallback((pageIndex: number) => isWidePage?.(pageIndex) ?? false, [isWidePage]);
+  const curlPager = curlActive ? (
+    <LayoutAnimationConfig skipExiting>
+    <Animated.View
+      key={scrollMountKey}
+      entering={mobileReaderStageCrossFadeEntering}
+      exiting={mobileReaderStageCrossFadeExiting}
+      style={styles.readerScroll}
+    >
+      <MobileReaderCurlPager
+        backgroundColor={backgroundColor}
+        displayedPages={displayedPages}
+        fitClip={fitClip}
+        foldGap={foldGap}
+        frames={curlFrames}
+        initialFrame={galleryInitialScrollIndex ?? 0}
+        isWide={isWidePageOrNever}
+        mode={mode}
+        onEdgeIntent={handleCurlEdgeIntent}
+        onSettleFrame={handleCurlSettle}
+        onTurningChange={onPageTurningChange}
+        overlaysOnPages={pageOverlaysMounted}
+        pageGlide={pageGlide}
+        pagerRef={curlPagerRef}
+        renderImage={renderImage}
+        renderTextPage={renderCurlTextPage}
+        spreadMode={isTwoPageMode}
+        spreadSlots={spreadSlots}
+        stage={curlStage}
+        turningEnabled={!pageZoomActive}
+      />
+    </Animated.View>
+    </LayoutAnimationConfig>
+  ) : null;
   const galleryList = (
     // A key change inside keeps the old list drawn while it fades (exiting);
     // leaving the reader skips it.
@@ -1531,7 +1647,7 @@ export function MobileReaderGallery({
     </LayoutAnimationConfig>
   );
 
-  return (
+  const stage = (
     <View
       ref={stageViewRef}
       onLayout={measureStageOrigin}
@@ -1602,7 +1718,10 @@ export function MobileReaderGallery({
       style={[styles.stageContainer, styles.stage, { backgroundColor }]}
       onTouchStart={readerStageTapEnabled ? handleStageTouchStart : undefined}
       onTouchEnd={readerStageTapEnabled ? handleStageTouchEnd : undefined}
-      onTouchCancel={() => { touchStartRef.current = null; }}
+      onTouchCancel={() => {
+        touchStartRef.current = null;
+        multiTouchRef.current = false;
+      }}
     >
       {isReaderLoading ? (
         <View
@@ -1653,7 +1772,7 @@ export function MobileReaderGallery({
             {galleryList}
           </ZoomableReaderStrip>
         ) : (
-          galleryList
+          curlPager ?? galleryList
         )
       ) : (
         <ScrollView
@@ -1760,6 +1879,7 @@ export function MobileReaderGallery({
       )}
     </View>
   );
+  return stageGesture ? <GestureDetector gesture={stageGesture}>{stage}</GestureDetector> : stage;
 }
 
 function TextPage({
