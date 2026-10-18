@@ -18,6 +18,7 @@ import {
 } from "@expo/ui/swift-ui";
 import {
   accessibilityLabel as swiftAccessibilityLabel,
+  defaultScrollAnchor,
   disabled as swiftDisabled,
   font,
   foregroundStyle,
@@ -197,8 +198,9 @@ export function ReaderSettingsNativePopover({
 
   const sheet = presentation.kind === "sheet" || !anchor;
   // The Form's own layout, shared by the presented Form and the sheet's
-  // off-screen measuring copy, so both have the same height.
-  const formLayoutModifiers = [listSectionSpacing("compact"), zeroTopScrollContentMargin()];
+  // off-screen measuring copy, so both have the same height. A Form taller
+  // than its presentation opens at its first row (reading direction).
+  const formLayoutModifiers = [listSectionSpacing("compact"), zeroTopScrollContentMargin(), defaultScrollAnchor("top")];
   // The presentation's own appearance (not just this content's): the
   // container resolves its traits from the controller UIKit presents it
   // from, never from the reader screen. Translucent over the page, resolved
@@ -215,7 +217,14 @@ export function ReaderSettingsNativePopover({
     // bar keeps the system's item colours (the close X), as the form sheets do.
     ...(mobileDesignExploreFlag ? [tint(tokens.primary)] : []),
     ...(presentation.kind === "popover" && !sheet
-      ? [frame({ width: presentation.width, height: presentation.height }), ...presentationModifiers]
+      ? // A Form has no ideal height of its own, so the popover gets the rows'
+        // height as its ideal: the system shows it whole when there is room
+        // and caps it otherwise, the Form scrolling from its top. (A fixed
+        // height taller than the popover was centred in it, top rows cut off.)
+        [
+          frame({ minWidth: presentation.width, idealWidth: presentation.width, maxWidth: presentation.width, idealHeight: presentation.height }),
+          ...presentationModifiers,
+        ]
       : // The sheet is as tall as this Form (see `fitSheetDetentToContent`).
         [inlineToolbarTitle(), reportSheetContentHeight({ page: READER_SETTINGS_SHEET_PAGE })]),
     ...formLayoutModifiers,
