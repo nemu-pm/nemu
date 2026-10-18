@@ -86,6 +86,13 @@ export const MOBILE_SETTINGS_SPLIT_OPTIONS: MobileSplitPaneOptions = {
   splitInNotebook: true,
 };
 
+/**
+ * Settings content sits 20pt from the pane boundary on either side, as in the
+ * system Settings (40pt from the crease in book posture, where the 40pt fold
+ * band lies between the panes).
+ */
+export const MOBILE_SETTINGS_SPLIT_INNER_GUTTER = 20;
+
 function flatLeadingWidth(containerWidth: number, options: MobileSplitPaneOptions): number {
   const preferred =
     options.trailingReserve !== undefined

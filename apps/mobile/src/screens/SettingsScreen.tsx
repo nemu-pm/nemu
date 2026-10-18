@@ -139,6 +139,7 @@ import {
 } from "@/lib/mobileSettingsSplit";
 import {
   getMobileSplitPanePadding,
+  MOBILE_SETTINGS_SPLIT_INNER_GUTTER,
   MOBILE_SETTINGS_SPLIT_OPTIONS,
 } from "@/lib/mobileSplitPaneLayout";
 import { useMobileSplitPaneLayout } from "@/lib/useMobileSplitPaneLayout";
@@ -4045,7 +4046,7 @@ export function SettingsScreen({
   const primaryPane = getMobileSettingsPrimaryPane(section);
   const padding = getMobileSplitPanePadding({
     pageGutters: gutters,
-    innerGutter: spacing.pageX,
+    innerGutter: MOBILE_SETTINGS_SPLIT_INNER_GUTTER,
   });
 
   const pose = useMobilePoseTransition();

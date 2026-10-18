@@ -4,6 +4,7 @@ import {
   getMobileSplitPaneLayout as split,
   getMobileSplitPanePadding,
   MOBILE_DETAIL_SPLIT_OPTIONS as detail,
+  MOBILE_SETTINGS_SPLIT_INNER_GUTTER,
   MOBILE_SETTINGS_SPLIT_OPTIONS as settings,
 } from "./mobileSplitPaneLayout";
 
@@ -157,6 +158,23 @@ describe("split pane layout", () => {
     expect(folded.layout).toEqual(flat.layout);
     // Manga detail still keeps one column there.
     expect(split({ containerWidth: 669, regularWidth: true, posture: "notebook", foldSplit: null, options: detail })).toEqual({ mode: "single" });
+  });
+
+  test("settings content sits 20pt from the boundary: 40pt from the crease in book posture", () => {
+    const bookDuo = mobileAdaptiveLayout({ width: 951, height: 669, supported: true, divisions: [{ ...hinge, x: 455.5, width: 40 }], occlusions: [] });
+    const layout = split({
+      containerWidth: 951,
+      regularWidth: true,
+      posture: "book",
+      foldSplit: mobileFoldSplitForContainer(bookDuo, { x: 0, y: 0, width: 951, height: 669 }),
+      options: settings,
+    });
+    if (layout.mode !== "split") throw new Error("expected a split");
+    const padding = getMobileSplitPanePadding({ pageGutters: { left: 16, right: 16 }, innerGutter: MOBILE_SETTINGS_SPLIT_INNER_GUTTER });
+    const crease = 455.5 + 20;
+    // Measured on the system Settings: content edges at 436 and 516.
+    expect(crease - (layout.leading.width - padding.leading.paddingRight)).toBe(40);
+    expect(layout.trailing.x + padding.trailing.paddingLeft - crease).toBe(40);
   });
 
   test("outer edges keep the safe-area gutters; inner edges use the plain gutter", () => {
