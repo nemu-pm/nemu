@@ -1,3 +1,4 @@
+import { isMobileReaderWidePage } from "@/lib/mobileReaderPairing";
 import type { ReaderWindowShape } from "@/lib/mobileReaderWindowShape";
 
 /**
@@ -149,6 +150,70 @@ export function mobileReaderFitRestingOffset({
     x: (rtl ? -1 : 1) * overflowX / 2,
     y: overflowY / 2,
   };
+}
+
+/**
+ * The fit one page actually gets. A wide page (a double page) shown alone in
+ * a portrait window at the default fit would shrink to a strip, so it is
+ * fitted to the window's height instead and pans sideways from its
+ * reading-start edge (nothing is cropped). Spreads, landscape windows and an
+ * explicit fit choice keep the reader's fit.
+ */
+export function mobileReaderPageFitMode({
+  mode,
+  single,
+  viewport,
+  naturalSize,
+}: {
+  /** The reader's fit for this window. */
+  mode: ReaderFitMode;
+  /** The page is shown alone (no two-page spread). */
+  single: boolean;
+  viewport: { width: number; height: number };
+  naturalSize: { width: number; height: number } | null | undefined;
+}): ReaderFitMode {
+  if (mode !== "page" || !single) return mode;
+  if (!(viewport.height > viewport.width)) return mode;
+  return isMobileReaderWidePage(naturalSize) ? "height" : mode;
+}
+
+/** Share of the window a tap pans a wide page by, so consecutive views overlap a little. */
+export const READER_PAN_STEP_FRACTION = 0.9;
+/** A step that would stop closer to the edge than this share of the window goes to the edge. */
+export const READER_PAN_STEP_SNAP_FRACTION = 0.25;
+
+/**
+ * Where a tap page turn moves a page that overflows its window sideways: one
+ * window (less a little overlap) towards its reading end for `next`, back
+ * towards its reading start for `previous`, stopping at the edge (or going to it when only a sliver would remain). `null`
+ * when the page is already at that edge, so the tap turns the page.
+ * `offset` is the page's translation (+ shows its left side); a right-to-left
+ * page reads from its right edge (-bound) to its left (+bound).
+ */
+export function mobileReaderPanStepTarget({
+  offset,
+  bound,
+  viewportWidth,
+  direction,
+  rtl,
+}: {
+  offset: number;
+  bound: number;
+  viewportWidth: number;
+  direction: "next" | "previous";
+  rtl: boolean;
+}): number | null {
+  if (!Number.isFinite(offset) || !Number.isFinite(bound) || bound <= 0) return null;
+  const towardsEnd = direction === "next";
+  // Reading towards the end moves an RTL page right (+), an LTR page left (-).
+  const sign = (rtl ? 1 : -1) * (towardsEnd ? 1 : -1);
+  const step = Math.max(1, viewportWidth * READER_PAN_STEP_FRACTION);
+  const current = Math.max(-bound, Math.min(bound, offset));
+  const edge = sign * bound;
+  let target = Math.max(-bound, Math.min(bound, current + sign * step));
+  // No sliver of a view: the last stretch is one step, not a step and a nudge.
+  if (Math.abs(edge - target) < viewportWidth * READER_PAN_STEP_SNAP_FRACTION) target = edge;
+  return Math.abs(target - current) < READER_FIT_OVERFLOW_EPSILON ? null : target;
 }
 
 /** Pan limit on one axis: how far the scaled page may sit off-centre. */
