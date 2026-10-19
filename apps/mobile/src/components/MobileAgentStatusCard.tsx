@@ -5,8 +5,9 @@ import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { useMobileLanguageSettings } from "@/data/mobileHooks";
 import { radius, nemuFontWeight, useNemuTheme } from "@/design-system";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
-import { MOBILE_EXPLORE_GROUP_SHAPE } from "@/lib/mobileExploreRadius";
+import { MOBILE_EXPLORE_GROUP_SHAPE, MOBILE_SETTINGS_GROUP_INSET } from "@/lib/mobileExploreRadius";
 import { getMobileStrings } from "@/lib/mobileI18n";
+import { MOBILE_SETTINGS_GLYPH } from "@/lib/mobileSettingsGlyph";
 import {
   fetchMobileAgentStatus,
   getMobileAgentCapability,
@@ -99,7 +100,9 @@ export function MobileAgentStatusCard() {
         ]}
       >
         <View style={styles.header}>
-          <ExploreSettingsGlyph name="hardware-chip-outline" />
+          <View style={styles.exploreHeaderGlyph}>
+            <ExploreSettingsGlyph name="hardware-chip-outline" />
+          </View>
           <Text style={[styles.headerText, styles.title, { color: tokens.foreground }]}>
             {strings.settings.agent}
           </Text>
@@ -171,7 +174,13 @@ const styles = StyleSheet.create({
     ...MOBILE_EXPLORE_GROUP_SHAPE,
     minHeight: 0,
     gap: 12,
-    padding: 12,
+    paddingVertical: 12,
+    paddingHorizontal: MOBILE_SETTINGS_GROUP_INSET,
+  },
+  // The glyph itself, not its box, sits on the group's inset, as the
+  // Settings card headings do.
+  exploreHeaderGlyph: {
+    marginLeft: -(MOBILE_SETTINGS_GLYPH.box - MOBILE_SETTINGS_GLYPH.size) / 2,
   },
   exploreStatusRow: {
     flexDirection: "row",
