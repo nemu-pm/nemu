@@ -124,12 +124,16 @@ export function ExploreGlassButton({
   const [innerWidth, setInnerWidth] = useState<number | null>(null);
   const [labelWidth, setLabelWidth] = useState<number | null>(null);
   const hasGlyph = Boolean(busy || iconNode || icon);
+  // A button with a short label picks its label only once both widths are
+  // in. Until then it holds the short label, unseen, so its first visible
+  // frame is already the label it keeps (no truncated long label first).
+  const measured = !shortLabel || (innerWidth !== null && labelWidth !== null);
   const fits =
     !shortLabel ||
-    innerWidth === null ||
-    labelWidth === null ||
-    labelWidth <= innerWidth - CAPSULE_PADDING_X * 2 - (hasGlyph ? CAPSULE_GLYPH + CAPSULE_GAP : 0);
+    (measured &&
+      labelWidth! <= innerWidth! - CAPSULE_PADDING_X * 2 - (hasGlyph ? CAPSULE_GLYPH + CAPSULE_GAP : 0));
   const shown = fits ? label : (shortLabel ?? label);
+  const labelHold = measured ? null : styles.labelHold;
   return (
     <ExploreGlass
       interactive
@@ -179,7 +183,7 @@ export function ExploreGlassButton({
         )}
         {iconOnly ? null : subtitle ? (
           <View style={styles.capsuleLabels}>
-            <NemuText numberOfLines={1} maxFontSizeMultiplier={GLASS_TEXT_MAX_SCALE} color={ink} style={styles.capsuleTextTight}>
+            <NemuText numberOfLines={1} maxFontSizeMultiplier={GLASS_TEXT_MAX_SCALE} color={ink} style={[styles.capsuleTextTight, labelHold]}>
               {shown}
             </NemuText>
             <NemuText numberOfLines={1} maxFontSizeMultiplier={GLASS_TEXT_MAX_SCALE} color={ink} style={styles.capsuleSubtitle}>
@@ -191,7 +195,7 @@ export function ExploreGlassButton({
             numberOfLines={1}
             maxFontSizeMultiplier={GLASS_TEXT_MAX_SCALE}
             color={ink}
-            style={styles.capsuleText}
+            style={[styles.capsuleText, labelHold]}
           >
             {shown}
           </NemuText>
@@ -356,6 +360,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: CAPSULE_GAP,
     paddingHorizontal: CAPSULE_PADDING_X,
+  },
+  labelHold: {
+    opacity: 0,
   },
   measureBox: {
     position: "absolute",
