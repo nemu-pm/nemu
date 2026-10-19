@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import {
   Easing,
+  runOnJS,
+  runOnUI,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
@@ -32,6 +34,41 @@ function setPhase(next: MobileLaunchRevealPhase) {
 }
 
 /**
+ * The longest a fade reveal holds the launch screen for the veils to come
+ * off (`afterUiFrames`): a stuck UI thread must never hold the launch.
+ */
+const FADE_VEIL_SETTLE_CAP_MS = 600;
+
+/**
+ * Resolves once the UI thread has drawn `frames` frames after everything
+ * already scheduled on it (a shared-value write from JS included), or after
+ * `capMs`.
+ */
+function afterUiFrames(frames: number, capMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(cap);
+      resolve();
+    };
+    const cap = setTimeout(done, capMs);
+    runOnUI((left: number) => {
+      "worklet";
+      const tick = (remaining: number) => {
+        if (remaining <= 0) {
+          runOnJS(done)();
+          return;
+        }
+        requestAnimationFrame(() => tick(remaining - 1));
+      };
+      tick(left);
+    })(frames);
+  });
+}
+
+/**
  * Hides the launch screen with the reveal (see `mobileLaunchRevealPlan.ts`):
  * the window takes its start state natively while the launch screen still
  * covers it, the launch screen goes, then the native scale / bar fade and
@@ -59,6 +96,11 @@ export async function hideMobileLaunchScreenWithReveal({
   // Only the full reveal staggers the content; otherwise it is in place
   // before the launch screen goes.
   if (!prepared || mode === "fade") setPhase("done");
+  // Fade: the groups' veils come off on the UI thread, which is busiest
+  // right at launch; hiding the launch screen at once let the window fade in
+  // (natively, off that thread) with the content still veiled, which then
+  // popped in a few hundred ms later. Hold until the veils are off.
+  if (prepared && mode === "fade") await afterUiFrames(2, FADE_VEIL_SETTLE_CAP_MS);
   try {
     await hideSplash();
   } finally {
