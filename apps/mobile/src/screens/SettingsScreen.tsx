@@ -1973,9 +1973,9 @@ function SettingsBarTitleProbe({
   revision: string;
   onCenter: (y: number) => void;
   /**
-   * The detail column's back button. The transparent bar sits over the
-   * column title row and takes its touches, so the button lives in the bar,
-   * inside this title view, stretched wide enough to reach the column.
+   * The detail column's back button. The transparent bar spans the column
+   * title row (beside a vertical bar too) and cancels touches on anything
+   * under it, so the button lives in the bar, inside this title view.
    */
   back?: SettingsColumnBack | null;
 }) {
@@ -1988,8 +1988,7 @@ function SettingsBarTitleProbe({
     // The bar places its title view after React lays it out (until then it
     // measures at the origin) and may still be moving into place (a tab
     // switch, a rotation): keep measuring until two readings agree.
-    // The column back button needs the title view's x as well.
-    let last: { center: number; x: number } | null = null;
+    let last: { center: number; x: number; width: number } | null = null;
     const attempt = (left: number) => {
       ref.current?.measureInWindow((x, y, width, height) => {
         const placed = height > 0 && (x > 0 || y > 0);
@@ -2004,10 +2003,11 @@ function SettingsBarTitleProbe({
           placed &&
           last !== null &&
           Math.abs(center - last.center) < 0.5 &&
-          Math.abs(x - last.x) < 0.5
+          Math.abs(x - last.x) < 0.5 &&
+          Math.abs(width - last.width) < 0.5
         )
           return;
-        last = placed ? { center, x } : null;
+        last = placed ? { center, x, width } : null;
         if (left > 0) timer.current = setTimeout(() => attempt(left - 1), 120);
       });
     };
@@ -2022,30 +2022,36 @@ function SettingsBarTitleProbe({
   useEffect(() => () => {
     if (timer.current) clearTimeout(timer.current);
   }, []);
-  // The bar centres its title view: one wide enough, either side of that
-  // centre, to hold the button (a view takes no touches past its bounds).
-  const centerX = probeFrame ? probeFrame.x + probeFrame.width / 2 : window.width / 2;
-  const backWidth = back
-    ? 2 * Math.max(
-        Math.abs(back.x - centerX),
-        Math.abs(back.x + COLUMN_BACK_SIZE - centerX),
+  // The bar centres its title view near the window's centre (off it by up
+  // to half a vertical bar): wide enough either side of it to hold the
+  // button (a view takes no touches past its bounds), and 44pt tall. The
+  // size follows the window alone, the same whether or not the button
+  // shows, so nothing moves or is measured again when it comes and goes.
+  const width = back
+    ? 2 * Math.ceil(
+        Math.max(
+          Math.abs(back.x - window.width / 2),
+          Math.abs(back.x + COLUMN_BACK_SIZE - window.width / 2),
+        ) + COLUMN_BACK_CENTER_SLACK,
       )
-    : 0;
+    : 1;
+  // Until the bar has placed this size (after a resize), the button's
+  // offset would come from a stale frame.
+  const placedFrame =
+    probeFrame && Math.abs(probeFrame.width - width) < 0.5 ? probeFrame : null;
+  const shown = back?.shown === true;
   return (
     <View
       ref={ref}
       collapsable={false}
-      accessibilityElementsHidden={!back}
-      importantForAccessibility={back ? "auto" : "no-hide-descendants"}
-      pointerEvents={back ? "box-none" : "none"}
+      accessibilityElementsHidden={!shown}
+      importantForAccessibility={shown ? "auto" : "no-hide-descendants"}
+      pointerEvents={shown ? "box-none" : "none"}
       onLayout={measure}
-      style={[
-        styles.barTitleProbe,
-        back ? { width: backWidth, height: COLUMN_BACK_SIZE } : null,
-      ]}
+      style={[styles.barTitleProbe, back ? { width, height: COLUMN_BACK_SIZE } : null]}
     >
-      {back && probeFrame !== null ? (
-        <View style={[styles.columnBack, { top: 0, left: back.x - probeFrame.x }]}>
+      {back && shown && placedFrame ? (
+        <View style={[styles.columnBack, { top: 0, left: back.x - placedFrame.x }]}>
           <NemuNativeSheetHeaderAction
             accessibilityLabel={back.label}
             androidIcon="chevron-back"
@@ -2064,6 +2070,8 @@ type SettingsColumnBack = {
   x: number;
   label: string;
   onPress: () => void;
+  /** On the page it returns from (Source Directories); the bar keeps its room either way. */
+  shown: boolean;
 };
 
 /** One title per split column, in the native bar's title row (see `getMobileSettingsSplitColumnTitles`). */
@@ -2096,21 +2104,14 @@ function SettingsSplitColumnTitles({
         // Bar buttons leave no room to centre the title over the column: it
         // hugs the column's leading edge instead (as \`MobileExploreBarTitle\`
         // does beside the bar's buttons) and stops short of them. A back
-        // button keeps a centred title centred, between equal insets clear
-        // of it and of the bar buttons; a leading one starts after it.
-        const leading = alignment === "leading" || (trailingItems > 0 && !back);
-        const trailingReserve = trailingItems * COLUMN_TITLE_BAR_ITEM_RESERVE;
-        const backInset = back
-          ? leading
-            ? COLUMN_BACK_RESERVE
-            : Math.max(COLUMN_BACK_RESERVE, trailingReserve)
-          : 0;
-        const left = back
-          ? backInset
-          : leading ? column.paddingLeft : 0;
-        const right = back
-          ? leading ? column.paddingRight + trailingReserve : backInset
-          : (leading ? column.paddingRight : 0) + trailingReserve;
+        // button pushes a leading title past it and keeps a centred one
+        // centred between equal insets.
+        const leading = alignment === "leading" || trailingItems > 0;
+        const backInset = back ? COLUMN_BACK_RESERVE : 0;
+        const left = leading ? (back ? backInset : column.paddingLeft) : backInset;
+        const right =
+          (leading ? column.paddingRight : backInset) +
+          trailingItems * COLUMN_TITLE_BAR_ITEM_RESERVE;
         return (
         <View
           key={column.key}
@@ -2153,6 +2154,8 @@ const COLUMN_BACK_SIZE = 44;
 const COLUMN_BACK_INSET = 16;
 /** The back button and a gap, kept clear of a column title. */
 const COLUMN_BACK_RESERVE = COLUMN_BACK_INSET + COLUMN_BACK_SIZE + 8;
+/** How far the bar's title centre may sit from the window's (a vertical bar shifts it ~32pt). */
+const COLUMN_BACK_CENTER_SLACK = 64;
 const renderNoSettingsRow = () => null;
 
 function SettingsScreenContent({
@@ -4369,21 +4372,22 @@ export function SettingsScreen({
   ].join(":");
 
   // Source Directories is a page pushed inside the detail column: its back
-  // button returns that column alone to Installed Sources. Under a top bar it
-  // rides in the bar (which takes the title row's touches); beside a vertical
-  // bar it sits over the column; with the one native title, atop the pane.
-  const columnBack =
-    split && detailSection === "directories"
-      ? {
-          // The container spans the window from its origin (the column
-          // titles assume as much), so a column's x is its window x.
-          x: split.trailing.x + COLUMN_BACK_INSET,
-          label: formatMobileString(strings.common.backTo, {
-            title: strings.settings.installedSources,
-          }),
-          onPress: () => setSelected("sources"),
-        }
-      : null;
+  // button returns that column alone to Installed Sources. With column
+  // titles it rides in the bar (which takes the title row's touches); with
+  // the one native title, atop the pane.
+  const backToSources = useCallback(() => setSelected("sources"), []);
+  const columnBack: SettingsColumnBack | null = split
+    ? {
+        // The container spans the window from its origin (the column
+        // titles assume as much), so a column's x is its window x.
+        x: split.trailing.x + COLUMN_BACK_INSET,
+        label: formatMobileString(strings.common.backTo, {
+          title: strings.settings.installedSources,
+        }),
+        onPress: backToSources,
+        shown: detailSection === "directories",
+      }
+    : null;
 
   const pose = useMobilePoseTransition();
   const poseLayout = useMobilePoseLayout();
@@ -4415,7 +4419,7 @@ export function SettingsScreen({
         paneContentStyle={padding.leading}
         onBarTitleCenter={columnTitles ? setBarTitleCenterY : undefined}
         barTitleRevision={barTitleRevision}
-        barColumnBack={columnTitles === "center" ? columnBack : null}
+        barColumnBack={columnTitles ? columnBack : null}
       />
     </Animated.View>
   ) : null;
@@ -4433,7 +4437,7 @@ export function SettingsScreen({
         onSelectSection={setSelected}
         paneContentStyle={padding.trailing}
         columnTitled={columnTitles !== null}
-        paneBack={columnTitles === null ? columnBack : null}
+        paneBack={columnTitles === null && columnBack?.shown ? columnBack : null}
       />
     </Animated.View>
   ) : null;
@@ -4466,7 +4470,7 @@ export function SettingsScreen({
                 title: settingsSectionTitle(strings, detailSection),
                 ...split.trailing,
                 ...padding.trailing,
-                back: columnBack !== null,
+                back: columnBack?.shown === true,
                 // Installed Sources and Source Directories put their Add
                 // button in the bar.
                 trailingItems:
@@ -4477,23 +4481,6 @@ export function SettingsScreen({
               },
             ]}
           />
-        ) : null}
-        {columnTitles === "leading" && columnBack && barTitleCenterY !== null ? (
-          // A vertical bar leaves the title row clear: the button sits over
-          // the column, centred on its title.
-          <View
-            style={[
-              styles.columnBack,
-              { top: barTitleCenterY - COLUMN_BACK_SIZE / 2, left: columnBack.x },
-            ]}
-          >
-            <NemuNativeSheetHeaderAction
-              accessibilityLabel={columnBack.label}
-              androidIcon="chevron-back"
-              iosSystemImage="chevron.backward"
-              onPress={columnBack.onPress}
-            />
-          </View>
         ) : null}
       </View>
     </LayoutAnimationConfig>
