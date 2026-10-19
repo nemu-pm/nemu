@@ -3897,7 +3897,16 @@ function SettingsScreenContent({
                         .catch((error) => reportSettingsError(error))
                         .finally(() => setUpdatingSources(false));
                     }}
-                    onOpenDirectories={() => router.push(settingsSectionHref("directories"))}
+                    onOpenDirectories={() => {
+                      // In the split view Source Directories opens in this
+                      // column (Installed Sources stays selected in the list);
+                      // a push would stack a whole new split over this one.
+                      if (presentation === "detail-pane" && onSelectSection) {
+                        onSelectSection("directories");
+                        return;
+                      }
+                      router.push(settingsSectionHref("directories"));
+                    }}
                   />
                 </>
               ) : null}
