@@ -332,8 +332,8 @@ describe("mobile library presentation", () => {
     const progressIndex = buildMobileProgressIndex([progress("caught-up", 100, "c5")]);
 
     expect(getMobileLibraryProgressInfo(item, progressIndex, zh)).toMatchObject({
-      badge: "已更新",
-      subtitle: "已读到最新",
+      badge: "更新",
+      subtitle: "已读至最新话",
     });
   });
 

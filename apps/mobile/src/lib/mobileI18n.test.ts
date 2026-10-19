@@ -527,7 +527,7 @@ describe("mobile i18n helpers", () => {
       "Keep your local library and reading progress on this device.",
     );
     expect(getMobileStrings("zh").settings.cloudSyncRemoveDataDescription).toBe(
-      "退出登录后从此设备移除账号书库数据。",
+      "登出后从此设备移除账号书库数据。",
     );
     expect(
       formatMobileString(getMobileStrings("en").settings.sourceUpdated, {
