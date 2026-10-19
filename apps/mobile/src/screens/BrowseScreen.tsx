@@ -1862,7 +1862,14 @@ export function BrowseScreen() {
                                     onPress={() => openUnsupportedSourceSettings(source.id)}
                                   />
                                 ) : (
-                                  <MobileQuickActionMenu actions={sourceContextActions(source.id)}>
+                                  <MobileQuickActionMenu
+                                    actions={sourceContextActions(source.id)}
+                                    // The group draws the row's fill, so the lifted preview
+                                    // was clear: the row carries the group's colour itself
+                                    // (no change at rest) and lifts with the group's corners.
+                                    style={{ backgroundColor: tokens.card }}
+                                    cornerRadius={MOBILE_EXPLORE_RADIUS.group}
+                                  >
                                   <SourceCard
                                     compact
                                     item={
