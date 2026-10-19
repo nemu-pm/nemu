@@ -2536,12 +2536,14 @@ const styles = StyleSheet.create({
     fontWeight: nemuFontWeight.regular,
   },
   installStatus: {
+    // The Install button's slot, so the text column holds still; the status
+    // ends where the button does.
     width: 112,
     minHeight: 32,
     flexShrink: 0,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "flex-end",
     gap: 6,
   },
   installText: {
