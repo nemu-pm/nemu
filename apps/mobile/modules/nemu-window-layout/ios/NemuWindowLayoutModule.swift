@@ -38,6 +38,9 @@ public final class NemuWindowLayoutModule: Module {
       ViewModifierRegistry.register(NemuNavigationBarHiddenModifier.type) { _, _, _ in
         NemuNavigationBarHiddenModifier()
       }
+      ViewModifierRegistry.register(NemuReportFormGroupInsetModifier.type) { _, _, eventDispatcher in
+        NemuReportFormGroupInsetModifier(eventDispatcher: eventDispatcher)
+      }
       // The in-app theme from the last run, before any JS (see `NemuAppAppearance`).
       DispatchQueue.main.async {
         MainActor.assumeIsolated { NemuAppAppearance.restore() }
@@ -57,6 +60,7 @@ public final class NemuWindowLayoutModule: Module {
       ViewModifierRegistry.unregister(NemuMeasureSheetPageModifier.type)
       ViewModifierRegistry.unregister(NemuFitPopoverToContentModifier.type)
       ViewModifierRegistry.unregister(NemuNavigationBarHiddenModifier.type)
+      ViewModifierRegistry.unregister(NemuReportFormGroupInsetModifier.type)
     }
     // Lets JS tell a binary with these views from one built before them.
     Constant("verticalBarBehaviorViewAvailable") { true }
@@ -382,6 +386,107 @@ struct NemuNavigationBarHiddenModifier: ViewModifier {
 
   func body(content: Content) -> some View {
     content.toolbar(.hidden, for: .navigationBar)
+  }
+}
+
+/// On a row inside a Form: reports where the Form draws its groups — the
+/// leading and trailing distance from the list's edges to the row's cell (the
+/// inset-grouped margin UIKit picks for this width, size class and safe
+/// area: 20pt on a Pro Max sheet, 16pt on the Duo's), minus the list's own
+/// horizontal safe area (where a page's content starts). A React Native page
+/// pushed in the same NavigationStack sets its groups on these edges. In the
+/// list's own (unscaled) points, which the pushed page shares.
+struct NemuReportFormGroupInsetModifier: ViewModifier {
+  static let type = "nemuReportFormGroupInset"
+  let eventDispatcher: EventDispatcher
+
+  func body(content: Content) -> some View {
+    content.background(
+      NemuFormGroupInsetProbe { inset in
+        eventDispatcher([
+          NemuReportFormGroupInsetModifier.type: [
+            "left": inset.left,
+            "right": inset.right,
+            "width": inset.width,
+          ],
+        ])
+      }
+      .allowsHitTesting(false)
+      .accessibilityHidden(true)
+    )
+  }
+}
+
+struct NemuFormGroupInset: Equatable {
+  var left: CGFloat
+  var right: CGFloat
+  var width: CGFloat
+}
+
+private struct NemuFormGroupInsetProbe: UIViewRepresentable {
+  let onChange: (NemuFormGroupInset) -> Void
+
+  func makeUIView(context: Context) -> NemuFormGroupInsetProbeView {
+    let view = NemuFormGroupInsetProbeView()
+    view.isUserInteractionEnabled = false
+    view.onChange = onChange
+    return view
+  }
+
+  func updateUIView(_ uiView: NemuFormGroupInsetProbeView, context: Context) {
+    uiView.onChange = onChange
+    uiView.sampleSoon()
+  }
+}
+
+final class NemuFormGroupInsetProbeView: UIView {
+  var onChange: ((NemuFormGroupInset) -> Void)?
+  private var last: NemuFormGroupInset?
+
+  override func didMoveToWindow() {
+    super.didMoveToWindow()
+    if window != nil { sampleSoon() }
+  }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    sample()
+  }
+
+  /// After the cell has its frame (a probe can lay out before its cell does).
+  func sampleSoon() {
+    DispatchQueue.main.async { [weak self] in self?.sample() }
+  }
+
+  private func sample() {
+    guard window != nil else { return }
+    var view = superview
+    var cell: UIView?
+    while let current = view {
+      if current is UICollectionViewCell || current is UITableViewCell {
+        cell = current
+        break
+      }
+      view = current.superview
+    }
+    guard let cell else { return }
+    var container = cell.superview
+    while let current = container, !(current is UIScrollView) {
+      container = current.superview
+    }
+    guard let list = container, list.bounds.width > 0, cell.bounds.width > 0 else { return }
+    let frame = cell.convert(cell.bounds, to: list)
+    let left = frame.minX - list.bounds.minX - list.safeAreaInsets.left
+    let right = list.bounds.maxX - frame.maxX - list.safeAreaInsets.right
+    guard left >= 0, right >= 0, left < list.bounds.width / 3, right < list.bounds.width / 3 else { return }
+    let inset = NemuFormGroupInset(
+      left: (left * 2).rounded() / 2,
+      right: (right * 2).rounded() / 2,
+      width: list.bounds.width
+    )
+    if inset == last { return }
+    last = inset
+    onChange?(inset)
   }
 }
 

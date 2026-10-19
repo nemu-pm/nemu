@@ -1,4 +1,4 @@
-import { createModifier } from "@expo/ui/swift-ui/modifiers";
+import { createModifier, createModifierWithEventListener } from "@expo/ui/swift-ui/modifiers";
 
 /**
  * `@expo/ui` modifier: SwiftUI `preferredColorScheme` for the presentation
@@ -31,6 +31,20 @@ export function inlineToolbarTitle() {
  */
 export function navigationBarHidden() {
   return createModifier("nemuNavigationBarHidden");
+}
+
+/** Where a Form draws its groups, measured from the list's (safe-area) edges. */
+export type FormGroupInset = { left: number; right: number; width: number };
+
+/**
+ * `@expo/ui` modifier, on a row inside a Form: reports the Form's actual
+ * inset-grouped margins (UIKit picks them from the width, size class and
+ * safe area: 20pt on a Pro Max sheet, 16pt on the Duo's), so a React Native
+ * page pushed beside the Form can set its groups on the same edges. A binary
+ * built before the modifier existed never reports.
+ */
+export function reportFormGroupInset(handler: (inset: FormGroupInset) => void) {
+  return createModifierWithEventListener("nemuReportFormGroupInset", (inset: FormGroupInset) => handler(inset));
 }
 
 /** Remove the grouped Form's extra top scroll-content margin below its toolbar. */

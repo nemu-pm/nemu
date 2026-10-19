@@ -102,6 +102,13 @@ type MeasuredPages = Record<string, { width: number; height: number } | undefine
 export type ReaderPluginPageChrome = "sheet" | "stack";
 
 /**
+ * `stack`: the leading / trailing edges of the groups, the reader settings
+ * Form's own as it drew them (its inset-grouped margins differ per width and
+ * size class); the iPhone default until it has reported.
+ */
+export type ReaderPluginStackInset = { left: number; right: number };
+
+/**
  * The reader's Plugins sheet on iOS: a system sheet (dark, on iOS 26 Liquid
  * Glass) whose pages are the same React Native components as Settings →
  * Reader → Plugins: the plugin list (`ReaderPluginListItem`), and each
@@ -395,18 +402,29 @@ function ReaderPluginSheetPager({
 function ReaderPluginSheetPage({
   measuring,
   chrome = "sheet",
+  stackInset,
   header,
   children,
 }: {
   measuring: boolean;
   chrome?: ReaderPluginPageChrome;
+  stackInset?: ReaderPluginStackInset;
   header: ReactNode;
   children: ReactNode;
 }) {
   if (chrome === "stack") {
     // Pushed in a native stack: the bar above is the system's, and the
     // native host scrolls the page (laid out flat, at its natural height).
-    return <View style={styles.stackBody}>{children}</View>;
+    return (
+      <View
+        style={[
+          styles.stackBody,
+          stackInset ? { paddingLeft: stackInset.left, paddingRight: stackInset.right } : null,
+        ]}
+      >
+        {children}
+      </View>
+    );
   }
   return (
     <View style={[styles.page, measuring ? null : styles.pageFill]}>
@@ -440,6 +458,7 @@ export function ReaderPluginListPage({
   strings,
   measuring,
   chrome = "sheet",
+  stackInset,
   onClose,
   onDismissError,
   onDismissLoadError,
@@ -457,6 +476,7 @@ export function ReaderPluginListPage({
   strings: MobileStrings;
   measuring: boolean;
   chrome?: ReaderPluginPageChrome;
+  stackInset?: ReaderPluginStackInset;
   onClose: () => void;
   onDismissError: () => void;
   onDismissLoadError: () => void;
@@ -469,6 +489,7 @@ export function ReaderPluginListPage({
     <ReaderPluginSheetPage
       measuring={measuring}
       chrome={chrome}
+      stackInset={stackInset}
       header={
         <MobileSheetHeader
           title={strings.settings.plugins}
@@ -512,7 +533,7 @@ export function ReaderPluginListPage({
         // Settings → Reader → Plugins' own rows, in one group. The row opens
         // a plugin that is off too: its page has the on / off row.
         plugins.length > 0 ? (
-          <View style={[styles.stackGroup, { backgroundColor: tokens.card, borderColor: tokens.border }]}>
+          <View style={[styles.stackGroup, { backgroundColor: tokens.card }]}>
             {plugins.map((plugin, index) => (
               <ReaderPluginManagementRow
                 key={plugin.id}
@@ -557,6 +578,7 @@ export function ReaderPluginDetailPage({
   strings,
   measuring = false,
   chrome = "sheet",
+  stackInset,
   onBack,
   onTogglePlugin,
   onResetPlugin,
@@ -570,6 +592,7 @@ export function ReaderPluginDetailPage({
   /** The off-screen measuring copy: inert, never starts a dictionary download. */
   measuring?: boolean;
   chrome?: ReaderPluginPageChrome;
+  stackInset?: ReaderPluginStackInset;
   onBack: () => void;
   onTogglePlugin: ReaderPluginSettingsSheetProps["onTogglePlugin"];
   onResetPlugin: ReaderPluginSettingsSheetProps["onResetPlugin"];
@@ -580,6 +603,7 @@ export function ReaderPluginDetailPage({
     <ReaderPluginSheetPage
       measuring={measuring}
       chrome={chrome}
+      stackInset={stackInset}
       header={
         <View style={styles.detailHeader}>
           <View style={styles.detailHeaderSide}>
@@ -733,8 +757,9 @@ const styles = StyleSheet.create({
     paddingBottom: MOBILE_NATIVE_SHEET_BOTTOM_GUTTER,
   },
   // Pushed in the reader settings' native stack: the groups' edges on the
-  // reader settings Form's own (the system's inset-grouped margin), so the
-  // pushed page lines up with the page it came from.
+  // reader settings Form's own (`stackInset`, as the Form reported them; the
+  // iPhone default until then), so the pushed page lines up with the page it
+  // came from.
   stackBody: {
     gap: 14,
     paddingHorizontal: READER_SETTINGS_FORM_INSET,
@@ -742,10 +767,11 @@ const styles = StyleSheet.create({
     paddingBottom: MOBILE_NATIVE_SHEET_BOTTOM_GUTTER,
   },
   // A Settings group: the card the Settings → Reader → Plugins rows sit in.
+  // No outline: the Form's groups beside it have none (the same width, the
+  // same fill edge).
   stackGroup: {
     ...MOBILE_EXPLORE_GROUP_SHAPE,
     overflow: "hidden",
-    borderWidth: StyleSheet.hairlineWidth,
   },
   detailHeader: {
     minHeight: 52,

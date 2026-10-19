@@ -405,7 +405,19 @@ describe("reader plugin settings sheet policy", () => {
     expect(pushed).toContain("<RNHostView matchContents={PUSHED_PAGE_MATCH_CONTENTS}>");
     expect(native).toContain("const PUSHED_PAGE_MATCH_CONTENTS = { vertical: true } as const;");
     expect(native).not.toContain("onGeometryChange");
-    expect(mobileSource(iosSheetPath)).toContain("paddingHorizontal: READER_SETTINGS_FORM_INSET,");
+    // The groups sit on the Form's own margins as the presented Form drew
+    // them (16pt on the Duo's sheet, 20pt on a Pro Max's), the iPhone default
+    // until it has reported; never the off-screen copy's.
+    const ios = mobileSource(iosSheetPath);
+    expect(ios).toContain("paddingHorizontal: READER_SETTINGS_FORM_INSET,");
+    expect(ios).toContain("stackInset ? { paddingLeft: stackInset.left, paddingRight: stackInset.right } : null,");
+    expect(native).toContain("{renderSettingsSections([reportFormGroupInset(learnFormGroupInset)])}");
+    expect(native).toContain("const settingsSections = renderSettingsSections([]);");
+    expect(native.match(/stackInset=\{pushedPageInset\}/g) ?? []).toHaveLength(2);
+    // No outline around the plugin group: the Form's groups have none.
+    const stackGroup = ios.slice(ios.indexOf("  stackGroup: {"), ios.indexOf("},", ios.indexOf("  stackGroup: {")));
+    expect(stackGroup).not.toContain("borderWidth");
+    expect(ios).toContain("<View style={[styles.stackGroup, { backgroundColor: tokens.card }]}>");
   });
 
   test("keeps vertical scrolling native and paging props paged-only", () => {

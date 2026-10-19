@@ -59,6 +59,8 @@ import {
   reportSheetContentHeight,
   zeroTopScrollContentMargin,
   presentationColorScheme,
+  reportFormGroupInset,
+  type FormGroupInset,
 } from "../../../modules/nemu-window-layout/src/presentationColorScheme";
 import { NemuGlassSheetThemeScope, useNemuTheme } from "@/design-system";
 import { supportsNemuLiquidGlass } from "@/lib/nemuLiquidGlass";
@@ -79,6 +81,7 @@ import {
 } from "@/lib/mobileFittedSheet";
 import {
   readerSettingsNativePresentation,
+  READER_SETTINGS_FORM_INSET,
   readerSettingsNativeSheetEstimatedHeight,
   readerSettingsSheetDetentCap,
 } from "@/lib/readerSettingsNativePopoverLayout";
@@ -122,6 +125,15 @@ const PUSHED_PAGE_LOOK = supportsNemuLiquidGlass(Platform.OS, Platform.Version) 
  * the floating sheet's scale on every report down to a ~100pt column.
  */
 const PUSHED_PAGE_MATCH_CONTENTS = { vertical: true } as const;
+
+/**
+ * The Reader Form's group margins as the presented Form drew them (UIKit
+ * picks them per width / size class: 20pt on a Pro Max sheet, 16pt on the
+ * Duo's), per presentation and window size, so a pushed page opened later
+ * (or in a later presentation) starts on them. Until the Form has reported,
+ * the iPhone default.
+ */
+const formGroupInsets = new Map<string, FormGroupInset>();
 
 /**
  * Reader settings as a native grouped Form: a popover beside the button on
@@ -226,6 +238,23 @@ export function ReaderSettingsNativePopover({
 
   const sheet = presentation.kind === "sheet" || !anchor;
 
+  // Where the presented Form draws its groups: the pushed plugin pages set
+  // theirs on the same edges.
+  const formInsetKey = `${sheet ? "sheet" : "popover"}:${Math.round(windowSize.width)}x${Math.round(windowSize.height)}`;
+  const [, setFormInsetRevision] = useState(0);
+  const formGroupInset = formGroupInsets.get(formInsetKey) ?? null;
+  const pushedPageInset = {
+    left: formGroupInset?.left ?? READER_SETTINGS_FORM_INSET,
+    right: formGroupInset?.right ?? READER_SETTINGS_FORM_INSET,
+  };
+  const learnFormGroupInset = (inset: FormGroupInset) => {
+    if (![inset.left, inset.right, inset.width].every(Number.isFinite) || inset.width <= 0) return;
+    const known = formGroupInsets.get(formInsetKey);
+    if (known && Math.abs(known.left - inset.left) < 0.25 && Math.abs(known.right - inset.right) < 0.25) return;
+    formGroupInsets.set(formInsetKey, inset);
+    setFormInsetRevision((revision) => revision + 1);
+  };
+
   // ── The plugin pages pushed from the Plugins row ──
   // React Native pages (the reader's Plugins sheet's own) in the stack. Like
   // a system sheet, a push or pop never resizes the presentation: the sheet
@@ -298,7 +327,9 @@ export function ReaderSettingsNativePopover({
         [inlineToolbarTitle(), reportSheetContentHeight({ page: READER_SETTINGS_SHEET_PAGE })]),
     ...formLayoutModifiers,
   ];
-  const settingsSections = (
+  // The presented Form's first row reports where the Form draws its groups
+  // (not the off-screen copy: its width and traits are not the page's).
+  const renderSettingsSections = (firstRowModifiers: ComponentProps<typeof SwiftPicker>["modifiers"]) => (
       <>
         <SwiftSection>
           <SwiftPicker
@@ -307,6 +338,7 @@ export function ReaderSettingsNativePopover({
               labelsHidden(),
               swiftAccessibilityLabel(strings.reader.readingDirection),
               ...busyModifiers,
+              ...(firstRowModifiers ?? []),
             ]}
             selection={mode}
             onSelectionChange={(selection) => {
@@ -550,7 +582,12 @@ export function ReaderSettingsNativePopover({
         </SwiftSection>
       </>
   );
-  const settingsForm = <SwiftForm modifiers={formModifiers}>{settingsSections}</SwiftForm>;
+  const settingsSections = renderSettingsSections([]);
+  const settingsForm = (
+    <SwiftForm modifiers={formModifiers}>
+      {renderSettingsSections([reportFormGroupInset(learnFormGroupInset)])}
+    </SwiftForm>
+  );
 
   // The same rows, laid out off screen at the sheet's width while the sheet
   // is closed: the sheet knows its height before it presents, so it opens in
@@ -612,6 +649,7 @@ export function ReaderSettingsNativePopover({
             strings.settings.plugins,
             <ReaderPluginListPage
               chrome="stack"
+              stackInset={pushedPageInset}
               plugins={readerPlugins.plugins}
               loading={readerPlugins.loading}
               error={readerPlugins.error}
@@ -636,6 +674,7 @@ export function ReaderSettingsNativePopover({
               detailPlugin.name,
               <ReaderPluginDetailPage
                 chrome="stack"
+                stackInset={pushedPageInset}
                 plugin={detailPlugin}
                 busy={readerPlugins.busy}
                 loading={readerPlugins.loading}
