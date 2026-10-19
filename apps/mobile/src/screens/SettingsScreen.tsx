@@ -969,7 +969,7 @@ function SettingsSurface({
     <View
       style={[
         styles.settingsSurface,
-        { backgroundColor: tokens.card, borderColor: tokens.border },
+        { backgroundColor: tokens.card, borderColor: tokens.cardBorder },
         style,
         mobileDesignExploreFlag ? styles.exploreSurface : null,
       ]}
@@ -1022,7 +1022,7 @@ function PressableSettingsSurface({
       pressedScale={pressedScale}
       style={[
         styles.settingsSurface,
-        { backgroundColor: tokens.card, borderColor: tokens.border },
+        { backgroundColor: tokens.card, borderColor: tokens.cardBorder },
         style,
         mobileDesignExploreFlag ? styles.exploreSurface : null,
       ]}

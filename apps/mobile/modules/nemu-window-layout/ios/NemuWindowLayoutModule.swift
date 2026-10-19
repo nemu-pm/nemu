@@ -39,6 +39,11 @@ public final class NemuWindowLayoutModule: Module {
       DispatchQueue.main.async {
         MainActor.assumeIsolated { NemuAppAppearance.restore() }
       }
+      // Header search bars follow a live text-size change
+      // (see `NemuSearchHeaderRelayout`).
+      DispatchQueue.main.async {
+        MainActor.assumeIsolated { NemuSearchHeaderRelayout.install() }
+      }
     }
     OnDestroy {
       ViewModifierRegistry.unregister(NemuPresentationColorSchemeModifier.type)

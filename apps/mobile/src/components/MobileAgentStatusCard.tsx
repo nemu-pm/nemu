@@ -96,7 +96,7 @@ export function MobileAgentStatusCard() {
         style={[
           styles.shell,
           styles.exploreShell,
-          { backgroundColor: tokens.card, borderColor: tokens.border },
+          { backgroundColor: tokens.card, borderColor: tokens.cardBorder },
         ]}
       >
         <View style={styles.header}>
@@ -122,7 +122,7 @@ export function MobileAgentStatusCard() {
     <View
       style={[
         styles.shell,
-        { backgroundColor: tokens.card, borderColor: tokens.border },
+        { backgroundColor: tokens.card, borderColor: tokens.cardBorder },
       ]}
     >
       <View style={styles.card}>

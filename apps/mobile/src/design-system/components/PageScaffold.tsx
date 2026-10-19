@@ -1,6 +1,9 @@
 import type { ScrollViewInstance } from "react-native";
 import {
+  cloneElement,
+  createElement,
   Fragment,
+  isValidElement,
   useCallback,
   useContext,
   useEffect,
@@ -8,7 +11,9 @@ import {
   useMemo,
   useRef,
   useState,
+  type ComponentType,
   type MutableRefObject,
+  type ReactElement,
   type ReactNode,
   type Ref,
 } from "react";
@@ -22,7 +27,10 @@ import {
   StyleSheet,
   useWindowDimensions,
   type FlatListProps,
+  type LayoutChangeEvent,
   type ScrollViewProps,
+  type StyleProp,
+  type ViewStyle,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNemuTheme } from "@/design/useNemuTheme";
@@ -159,6 +167,57 @@ function scrollPageScaffoldToTop(scrollView: ScrollViewInstance | null) {
 
 function scrollPageListScaffoldToTop<ItemT>(list: FlatList<ItemT> | null) {
   list?.scrollToOffset({ offset: 0, animated: true });
+}
+
+/** FlatList's own key fallback (`item.key`, then `item.id`, then the index). */
+function defaultListItemKey(item: unknown, index: number): string {
+  if (item && typeof item === "object") {
+    const { key, id } = item as { key?: unknown; id?: unknown };
+    if (key != null) return String(key);
+    if (id != null) return String(id);
+  }
+  return String(index);
+}
+
+type FontScaleKeyedListSlotProps = {
+  slot: ComponentType<object> | ReactElement;
+  layoutKey: string;
+  /** Injected by VirtualizedList into an empty-list element (see below). */
+  onLayout?: (event: LayoutChangeEvent) => void;
+  style?: StyleProp<ViewStyle>;
+};
+
+/**
+ * Renders a list header/footer/empty slot under a key on the font scale, so a
+ * text-size change remounts what it renders. VirtualizedList clones its empty
+ * element with `onLayout` and a composed `style`; those land on this wrapper
+ * and are passed on to the slot's element exactly as VirtualizedList would
+ * have applied them (a fragment is left untouched, as it does).
+ */
+function FontScaleKeyedListSlot({ slot, layoutKey, onLayout, style }: FontScaleKeyedListSlotProps) {
+  let element = (isValidElement(slot) ? slot : createElement(slot)) as ReactElement<{
+    onLayout?: (event: LayoutChangeEvent) => void;
+    style?: StyleProp<ViewStyle>;
+  }>;
+  if ((onLayout || style !== undefined) && element.type !== Fragment) {
+    const own = element.props;
+    element = cloneElement(element, {
+      onLayout: (event: LayoutChangeEvent) => {
+        onLayout?.(event);
+        own.onLayout?.(event);
+      },
+      style: StyleSheet.compose(style, own.style),
+    });
+  }
+  return <Fragment key={layoutKey}>{element}</Fragment>;
+}
+
+function fontScaleKeyedListSlot(
+  slot: ComponentType<object> | ReactElement | null | undefined,
+  fontScaleLayoutKey: string,
+): ReactElement | undefined {
+  if (slot == null) return undefined;
+  return <FontScaleKeyedListSlot slot={slot} layoutKey={fontScaleLayoutKey} />;
 }
 
 function usePageContentStyle({
@@ -423,6 +482,19 @@ export function PageListScaffold<ItemT>({
     refreshLabel,
     refreshing,
   });
+  // A text-size change remounts the list's rows and header/footer (their
+  // text measures at the new size), never the list itself. A new scroll view
+  // is not the one the native header tracks: UIKit then neither keeps it at
+  // the top of a bar that grows or shrinks with the text (the header search
+  // field covered the first row, or left a gap above it, until reopened) nor
+  // settles its pull-to-refresh, and the scroll edge effect is not re-applied.
+  // The kept scroll view stays pinned under the bar's new bottom.
+  const { keyExtractor: callerKeyExtractor } = flatListProps;
+  const keyExtractor = useCallback(
+    (item: ItemT, index: number) =>
+      `${fontScaleLayoutKey}:${(callerKeyExtractor ?? defaultListItemKey)(item, index)}`,
+    [callerKeyExtractor, fontScaleLayoutKey],
+  );
 
   useEffect(() => {
     if (!rootTabHref) return undefined;
@@ -440,7 +512,6 @@ export function PageListScaffold<ItemT>({
       tracking={edgeTracking}
     >
       <FlatList
-        key={fontScaleLayoutKey}
         ref={setListRef}
         style={[styles.root, { backgroundColor: tokens.background }]}
         automaticallyAdjustContentInsets={contentInsetAdjustmentBehavior !== "never"}
@@ -451,8 +522,10 @@ export function PageListScaffold<ItemT>({
         refreshControl={refreshControl}
         showsVerticalScrollIndicator={false}
         {...flatListProps}
-        ListEmptyComponent={flatListProps.ListEmptyComponent ?? undefined}
-        ListFooterComponent={flatListProps.ListFooterComponent ?? undefined}
+        keyExtractor={keyExtractor}
+        ListHeaderComponent={fontScaleKeyedListSlot(flatListProps.ListHeaderComponent, fontScaleLayoutKey)}
+        ListEmptyComponent={fontScaleKeyedListSlot(flatListProps.ListEmptyComponent, fontScaleLayoutKey)}
+        ListFooterComponent={fontScaleKeyedListSlot(flatListProps.ListFooterComponent, fontScaleLayoutKey)}
       />
     </NemuScrollEdgeSurface>
   );

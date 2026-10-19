@@ -1847,7 +1847,7 @@ export function BrowseScreen() {
                           <View
                             style={[
                               styles.exploreSourceGroup,
-                              { backgroundColor: tokens.card, borderColor: tokens.border },
+                              { backgroundColor: tokens.card, borderColor: tokens.cardBorder },
                             ]}
                           >
                             {section.sources.map((source, index) => (

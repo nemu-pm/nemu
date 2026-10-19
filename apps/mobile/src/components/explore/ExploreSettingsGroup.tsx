@@ -42,7 +42,7 @@ const ROW_HEIGHT = 52;
 export function ExploreSettingsGroup({ rows }: { rows: ExploreSettingsRow[] }) {
   const { tokens } = useNemuTheme();
   return (
-    <View style={[styles.group, { backgroundColor: tokens.card, borderColor: tokens.border }]}>
+    <View style={[styles.group, { backgroundColor: tokens.card, borderColor: tokens.cardBorder }]}>
       {rows.map((row, index) => {
         const selected = row.selected === true;
         // A selected row's fill reaches its neighbours: no hairline beside it.

@@ -34,7 +34,7 @@ export function ExploreSettingsActionGroup({
   const { tokens } = useNemuTheme();
   return (
     <View style={styles.wrap}>
-      <View style={[styles.group, { backgroundColor: tokens.card, borderColor: tokens.border }]}>
+      <View style={[styles.group, { backgroundColor: tokens.card, borderColor: tokens.cardBorder }]}>
         {actions.map((action, index) => {
           const disabled = action.disabled || action.busy;
           const color = action.destructive ? tokens.danger : tokens.primary;

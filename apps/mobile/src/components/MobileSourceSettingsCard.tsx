@@ -1760,7 +1760,7 @@ function MobileSourceSettingsCardContent({
         style={[
           styles.settingsShell,
           mobileDesignExploreFlag ? styles.exploreShell : null,
-          { backgroundColor: tokens.card, borderColor: tokens.border },
+          { backgroundColor: tokens.card, borderColor: tokens.cardBorder },
         ]}
       >
         <View style={styles.settingsContent}>

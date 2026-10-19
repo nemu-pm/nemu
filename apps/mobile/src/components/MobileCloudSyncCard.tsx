@@ -462,7 +462,7 @@ function MobileCloudSyncConfiguredCard({
       <View
         style={[
           styles.shell,
-          { backgroundColor: tokens.card, borderColor: tokens.border },
+          { backgroundColor: tokens.card, borderColor: tokens.cardBorder },
           mobileDesignExploreFlag ? styles.exploreShell : null,
         ]}
       >

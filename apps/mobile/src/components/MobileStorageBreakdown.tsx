@@ -224,7 +224,7 @@ export function MobileStorageBreakdown({
       <View
         style={[
           styles.card,
-          { backgroundColor: tokens.card, borderColor: tokens.border },
+          { backgroundColor: tokens.card, borderColor: tokens.cardBorder },
           mobileDesignExploreFlag ? styles.exploreCard : null,
         ]}
       >
