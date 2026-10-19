@@ -87,6 +87,18 @@ export function readerSettingsNativeContentHeight(rows: ReaderSettingsNativeRows
   return Math.round(height + (sections - 1) * READER_SETTINGS_POPOVER_SECTION_SPACING + READER_SETTINGS_POPOVER_MARGIN * 2);
 }
 
+/**
+ * The reader settings Form's group inset: the system's inset-grouped margin
+ * (20pt on iPhone, in the sheet and the popover alike), in the Form's own
+ * points. A React Native page pushed in the same NavigationStack sets its
+ * groups this far in, so their edges meet the Form's (both draw at the
+ * sheet's scale, so they meet on screen too).
+ */
+export const READER_SETTINGS_FORM_INSET = 20;
+
+/** A popover's inline navigation bar above a pushed page (until the page measures it). */
+export const READER_SETTINGS_POPOVER_BAR = 52;
+
 /** A sheet's inline navigation bar (title + close button) above the Form. */
 export const READER_SETTINGS_SHEET_BAR = 56;
 

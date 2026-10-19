@@ -10,6 +10,7 @@ const iosSheetPath = "components/reader/ReaderPluginSettingsSheet.ios.tsx";
 const sheetPath = "components/reader/ReaderPluginSettingsSheet.tsx";
 const rowsPath = "components/reader/ReaderPluginSettingsRows.tsx";
 const contentPath = "components/MobileReaderPluginSettingsContent.tsx";
+const nativeSettingsPath = "components/reader/ReaderSettingsNativePopover.ios.tsx";
 
 describe("reader plugin settings sheet policy", () => {
   test("lives in its own platform files and the reader only renders it", () => {
@@ -53,6 +54,19 @@ describe("reader plugin settings sheet policy", () => {
     for (const swiftOnly of ["SwiftForm", "SwiftNavigationStack", "SwiftSection", "buildMobileReaderPluginNativeSections"]) {
       expect(ios).not.toContain(swiftOnly);
     }
+    // Pushed inside the iOS reader settings, the pages are these same React
+    // Native components (exported from the sheet, hosted in the stack), not a
+    // second implementation; the list uses Settings → Reader → Plugins' rows.
+    const native = mobileSource(nativeSettingsPath);
+    expect(native).toContain('} from "./ReaderPluginSettingsSheet.ios";');
+    expect(native).toContain("<ReaderPluginListPage\n              chrome=\"stack\"");
+    expect(native).toContain("<ReaderPluginDetailPage\n                chrome=\"stack\"");
+    expect(native).toContain("<RNHostView matchContents>");
+    for (const swiftOnly of ["buildMobileReaderPluginNativeSections", "<MobileReaderPluginSettingsCard"]) {
+      expect(native).not.toContain(swiftOnly);
+    }
+    expect(ios).toContain("<ReaderPluginManagementRow");
+    expect(mobileSource("screens/SettingsScreen.tsx")).toContain("<ReaderPluginManagementRow");
   });
 
   test("one guarded dismissal policy: no dismissing while a save is in flight", () => {
@@ -238,9 +252,10 @@ describe("reader plugin settings sheet policy", () => {
       'Platform.OS === "android" && !visible',
     );
     expect(display).toContain("dismissPendingRef.current = false;");
-    // The popover's "Plugins" row is the in-reader way into the plugin
-    // settings sheet; that sheet presents only after the popover's native
-    // dismissal completes (see the dedicated wiring test below).
+    // The React Native popover's (Android, fallback) "Plugins" row is its way
+    // into the plugin settings sheet; that sheet presents only after the
+    // popover's native dismissal completes (see the dedicated wiring test
+    // below). The iOS native settings push it instead (test below).
     expect(screen).toContain(
       "onDismissComplete={handleReaderDisplaySettingsDismissed}",
     );
@@ -346,6 +361,39 @@ describe("reader plugin settings sheet policy", () => {
     expect(display).toContain("onPress={onOpenReaderPluginSettings}");
     expect(display).toContain("title={strings.settings.plugins}");
     expect(display).not.toContain('Platform.OS === "ios" && showReaderPluginSettings');
+  });
+
+  test("iOS native reader settings push Plugins in their own stack: no hand-off, one close", () => {
+    const screen = mobileSource("screens/ReaderScreen.tsx");
+    const native = mobileSource(nativeSettingsPath);
+
+    // The screen hands the plugin state to the native settings, and no
+    // dismiss-then-present callbacks.
+    const start = screen.indexOf("<ReaderSettingsNativePopover");
+    expect(start).toBeGreaterThan(-1);
+    const props = screen.slice(start, screen.indexOf("anchor={readerSettingsAnchorRect}", start));
+    expect(props).not.toContain("onDismissComplete");
+    expect(props).not.toContain("onOpenReaderPluginSettings");
+    expect(props).toContain("showReaderPluginSettings={showReaderPluginSettingsEntry}");
+    expect(props).toContain("readerPlugins={{");
+    expect(props).toContain("onTogglePlugin: toggleReaderPluginSetting,");
+    expect(native).not.toContain("onOpenReaderPluginSettings");
+    expect(native).not.toContain("onDismissComplete");
+
+    // The Plugins row is a NavigationLink (the system chevron), pushing a
+    // destination of the same controlled stack in the sheet and the popover.
+    expect(native).toContain("<SwiftNavigationLink value={READER_SETTINGS_PLUGINS_PAGE}");
+    expect(native).toContain("<SwiftNavigationDestination value={READER_SETTINGS_PLUGINS_PAGE}>");
+    expect(native).toContain("<SwiftNavigationDestination value={readerPluginSheetPage(detailPlugin.id)}>");
+    expect(native.match(/<SwiftNavigationStack path=\{path\} onPathChange=\{onPathChange\}/g) ?? []).toHaveLength(2);
+    expect(native.match(/\{pluginDestinations\}/g) ?? []).toHaveLength(2);
+    // The pushed pages' ✕ is the root's toolbar close button, closing the
+    // whole sheet (the system back sits on the left).
+    const pushed = native.slice(native.indexOf("const pushedPage = ("), native.indexOf("const pluginDestinations ="));
+    expect(pushed).toContain('<SwiftButton role="close" onPress={onClose}');
+    expect(native.match(/role="close"/g) ?? []).toHaveLength(2);
+    // Each page sizes the sheet / popover as it appears.
+    expect(pushed).toContain("reportSheetContentHeight({ page, contentHeight: pluginPageHeight(page) })");
   });
 
   test("keeps vertical scrolling native and paging props paged-only", () => {

@@ -27,6 +27,7 @@ import {
   presentationDragIndicator,
 } from "@expo/ui/swift-ui/modifiers";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
+import { ReaderPluginManagementRow } from "@/components/ReaderPluginManagementRow";
 import {
   MobileReaderPluginSettingsCard,
   MobileReaderPluginSettingsDescription,
@@ -50,12 +51,14 @@ import {
   readerPluginSheetActivePage,
   readerPluginSheetPage,
 } from "@/lib/mobileFittedSheet";
+import { MOBILE_EXPLORE_GROUP_SHAPE } from "@/lib/mobileExploreRadius";
 import type { MobileStrings } from "@/lib/mobileI18n";
 import { MOBILE_NATIVE_SHEET_BOTTOM_GUTTER } from "@/lib/mobileNativeSheet";
 import type { MobileReaderPluginState } from "@/lib/mobileReaderPlugins";
 import type { MobileSheetGlassLook } from "@/lib/mobileSheetGlass";
 import { MOBILE_SHEET_PAGE_TRANSITION_MS, mobileSheetSmoothEasing } from "@/lib/mobileSheetMotion";
 import { supportsNemuLiquidGlass } from "@/lib/nemuLiquidGlass";
+import { READER_SETTINGS_FORM_INSET } from "@/lib/readerSettingsNativePopoverLayout";
 import {
   fitSheetDetentToContent,
   presentationColorScheme,
@@ -87,6 +90,16 @@ function guessHostMetrics(width: number, height: number) {
 const GRABBER_CLEARANCE = 16;
 
 type MeasuredPages = Record<string, { width: number; height: number } | undefined>;
+
+/**
+ * Where a plugin page is shown: `sheet`, this sheet (its own React Native
+ * header: the title and ✕, the plugin page's back); `stack`, pushed in the
+ * reader settings sheet's (or popover's) NavigationStack, whose system bar
+ * carries the title, the back chevron and the ✕ — no header of its own, the
+ * Settings → Reader → Plugins rows in a group, the groups on the reader
+ * settings Form's inset.
+ */
+export type ReaderPluginPageChrome = "sheet" | "stack";
 
 /**
  * The reader's Plugins sheet on iOS: a system sheet (dark, on iOS 26 Liquid
@@ -381,13 +394,20 @@ function ReaderPluginSheetPager({
  */
 function ReaderPluginSheetPage({
   measuring,
+  chrome = "sheet",
   header,
   children,
 }: {
   measuring: boolean;
+  chrome?: ReaderPluginPageChrome;
   header: ReactNode;
   children: ReactNode;
 }) {
+  if (chrome === "stack") {
+    // Pushed in a native stack: the bar above is the system's, and the
+    // native host scrolls the page (laid out flat, at its natural height).
+    return <View style={styles.stackBody}>{children}</View>;
+  }
   return (
     <View style={[styles.page, measuring ? null : styles.pageFill]}>
       {header}
@@ -409,7 +429,7 @@ function ReaderPluginSheetPage({
 
 const noop = () => {};
 
-function ReaderPluginListPage({
+export function ReaderPluginListPage({
   plugins,
   loading,
   error,
@@ -419,6 +439,7 @@ function ReaderPluginListPage({
   canRetryLoadError,
   strings,
   measuring,
+  chrome = "sheet",
   onClose,
   onDismissError,
   onDismissLoadError,
@@ -435,6 +456,7 @@ function ReaderPluginListPage({
   canRetryLoadError: boolean;
   strings: MobileStrings;
   measuring: boolean;
+  chrome?: ReaderPluginPageChrome;
   onClose: () => void;
   onDismissError: () => void;
   onDismissLoadError: () => void;
@@ -442,9 +464,11 @@ function ReaderPluginListPage({
   onSelectPlugin: (pluginId: string) => void;
   onTogglePlugin: ReaderPluginSettingsSheetProps["onTogglePlugin"];
 }) {
+  const { tokens } = useNemuTheme();
   return (
     <ReaderPluginSheetPage
       measuring={measuring}
+      chrome={chrome}
       header={
         <MobileSheetHeader
           title={strings.settings.plugins}
@@ -484,6 +508,25 @@ function ReaderPluginListPage({
       ) : null}
       {loading && plugins.length === 0 ? (
         <NemuInlineEmptyState icon="hourglass-outline" title={strings.settings.loadingReaderPlugins} />
+      ) : chrome === "stack" ? (
+        // Settings → Reader → Plugins' own rows, in one group. The row opens
+        // a plugin that is off too: its page has the on / off row.
+        plugins.length > 0 ? (
+          <View style={[styles.stackGroup, { backgroundColor: tokens.card, borderColor: tokens.border }]}>
+            {plugins.map((plugin, index) => (
+              <ReaderPluginManagementRow
+                key={plugin.id}
+                plugin={plugin}
+                strings={strings}
+                disabled={busy}
+                opensWhileOff
+                first={index === 0}
+                onSelect={measuring ? noop : () => onSelectPlugin(plugin.id)}
+                onToggle={measuring ? noop : (enabled) => onTogglePlugin(plugin, enabled)}
+              />
+            ))}
+          </View>
+        ) : null
       ) : (
         plugins.map((plugin) => (
           <ReaderPluginListItem
@@ -506,13 +549,14 @@ function ReaderPluginListPage({
  * and name, plus the plugin's on / off row. Off, the settings stay visible
  * (dimmed) so the page keeps its shape when the switch flips.
  */
-function ReaderPluginDetailPage({
+export function ReaderPluginDetailPage({
   plugin: storedPlugin,
   busy,
   loading,
   error,
   strings,
   measuring = false,
+  chrome = "sheet",
   onBack,
   onTogglePlugin,
   onResetPlugin,
@@ -525,6 +569,7 @@ function ReaderPluginDetailPage({
   strings: MobileStrings;
   /** The off-screen measuring copy: inert, never starts a dictionary download. */
   measuring?: boolean;
+  chrome?: ReaderPluginPageChrome;
   onBack: () => void;
   onTogglePlugin: ReaderPluginSettingsSheetProps["onTogglePlugin"];
   onResetPlugin: ReaderPluginSettingsSheetProps["onResetPlugin"];
@@ -534,6 +579,7 @@ function ReaderPluginDetailPage({
   return (
     <ReaderPluginSheetPage
       measuring={measuring}
+      chrome={chrome}
       header={
         <View style={styles.detailHeader}>
           <View style={styles.detailHeaderSide}>
@@ -579,7 +625,7 @@ function ReaderPluginDetailPage({
  * it. Memoised on what changes a page's height only: opening the sheet (or a
  * busy flag) must not re-render them while the sheet animates.
  */
-const ReaderPluginSheetMeasuringCopies = memo(function ReaderPluginSheetMeasuringCopies({
+export const ReaderPluginSheetMeasuringCopies = memo(function ReaderPluginSheetMeasuringCopies({
   plugins,
   loading,
   error,
@@ -588,6 +634,7 @@ const ReaderPluginSheetMeasuringCopies = memo(function ReaderPluginSheetMeasurin
   canRetryLoadError,
   strings,
   width,
+  chrome = "sheet",
   onMeasure,
 }: {
   plugins: MobileReaderPluginState[];
@@ -598,6 +645,7 @@ const ReaderPluginSheetMeasuringCopies = memo(function ReaderPluginSheetMeasurin
   canRetryLoadError: boolean;
   strings: MobileStrings;
   width: number;
+  chrome?: ReaderPluginPageChrome;
   onMeasure: (page: string, width: number, height: number) => void;
 }) {
   const measure = (page: string) => (event: LayoutChangeEvent) => {
@@ -622,6 +670,7 @@ const ReaderPluginSheetMeasuringCopies = memo(function ReaderPluginSheetMeasurin
           canRetryLoadError={canRetryLoadError}
           strings={strings}
           measuring
+          chrome={chrome}
           onClose={noop}
           onDismissError={noop}
           onDismissLoadError={noop}
@@ -639,6 +688,7 @@ const ReaderPluginSheetMeasuringCopies = memo(function ReaderPluginSheetMeasurin
             error={error}
             strings={strings}
             measuring
+            chrome={chrome}
             onBack={noop}
             onTogglePlugin={noop}
             onResetPlugin={noop}
@@ -685,6 +735,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 8,
     paddingBottom: MOBILE_NATIVE_SHEET_BOTTOM_GUTTER,
+  },
+  // Pushed in the reader settings' native stack: the groups' edges on the
+  // reader settings Form's own (the system's inset-grouped margin), so the
+  // pushed page lines up with the page it came from.
+  stackBody: {
+    gap: 14,
+    paddingHorizontal: READER_SETTINGS_FORM_INSET,
+    paddingTop: 8,
+    paddingBottom: MOBILE_NATIVE_SHEET_BOTTOM_GUTTER,
+  },
+  // A Settings group: the card the Settings → Reader → Plugins rows sit in.
+  stackGroup: {
+    ...MOBILE_EXPLORE_GROUP_SHAPE,
+    overflow: "hidden",
+    borderWidth: StyleSheet.hairlineWidth,
   },
   detailHeader: {
     minHeight: 52,

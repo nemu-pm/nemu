@@ -66,8 +66,8 @@ import { MobileSettingsSkeleton } from "@/components/MobileSettingsSkeleton";
 import {
   MobileReaderPluginSettingsCard,
   MobileReaderPluginSettingsHeader,
-  ReaderPluginIcon,
 } from "@/components/MobileReaderPluginSettingsContent";
+import { ReaderPluginManagementRow } from "@/components/ReaderPluginManagementRow";
 import { useMobileReaderPluginSignedInState } from "@/components/useMobileReaderPluginSignedInState";
 import { MobileStorageBreakdown } from "@/components/MobileStorageBreakdown";
 import {
@@ -172,7 +172,6 @@ import {
   getMobileInstalledSourceRegistryRef,
   getMobileInstalledSourceSettingsKeys,
 } from "@/lib/mobileInstalledSourceKeys";
-import { mobileReaderPluginRowSubtitle } from "@/lib/mobileReaderPluginSheet";
 import type { MobileReaderPluginState } from "@/lib/mobileReaderPlugins";
 import {
   buildMobileSourceQuickActions,
@@ -547,152 +546,6 @@ function SourceManagementRow({
       </View>
     </View>
     </MobileQuickActionMenu>
-  );
-}
-
-function ReaderPluginManagementRow({
-  plugin,
-  strings,
-  selected,
-  disabled,
-  embedded = false,
-  onSelect,
-  onToggle,
-}: {
-  plugin: MobileReaderPluginState;
-  strings: MobileStrings;
-  selected: boolean;
-  disabled: boolean;
-  embedded?: boolean;
-  onSelect: () => void;
-  onToggle: (enabled: boolean) => void;
-}) {
-  const { tokens } = useNemuTheme();
-  const selectDisabled = disabled || !plugin.enabled;
-  const hasSettings = countRenderableSourceSettings(plugin.settings) > 0;
-  const canOpenSettings = hasSettings && !selectDisabled;
-
-  const openSettings = () => {
-    if (!canOpenSettings) return;
-    void hapticPress();
-    onSelect();
-  };
-
-  // The same row as the reader's Plugins sheet: name and "5 settings", the
-  // switch, then the chevron. The switch turns the plugin on or off; the rest
-  // of the row, chevron included, opens its settings (once it is on).
-  const rowContent = (
-    <>
-      <NemuPressable
-        accessibilityRole={hasSettings ? "button" : undefined}
-        accessibilityLabel={
-          hasSettings
-            ? formatMobileString(strings.settings.editReaderPluginSettings, {
-                name: plugin.name,
-              })
-            : plugin.name
-        }
-        accessibilityHint={mobileReaderPluginRowSubtitle(plugin, strings)}
-        accessibilityState={hasSettings ? { disabled: selectDisabled } : undefined}
-        disabled={!canOpenSettings}
-        onPress={openSettings}
-        pressedScale={0.985}
-        containerStyle={styles.pluginMainWrap}
-        style={[styles.pluginMain, !plugin.enabled && styles.disabledMain]}
-        testID={`ReaderPluginSettings:${plugin.id}`}
-      >
-        <ReaderPluginIcon plugin={plugin} />
-        <View style={styles.sourceText}>
-          <NemuText
-            numberOfLines={1}
-            style={[styles.settingTitle, { color: tokens.foreground }]}
-          >
-            {plugin.name}
-          </NemuText>
-          <NemuText
-            numberOfLines={1}
-            style={[styles.settingSubtitle, { color: tokens.mutedForeground }]}
-          >
-            {mobileReaderPluginRowSubtitle(plugin, strings)}
-          </NemuText>
-        </View>
-      </NemuPressable>
-      <View style={styles.pluginActions}>
-        <NemuNativeSwitch
-          accessibilityLabel={formatMobileString(
-            strings.settings.readerPluginSwitch,
-            {
-              name: plugin.name,
-            },
-          )}
-          disabled={disabled}
-          value={plugin.enabled}
-          onValueChange={(nextValue) => {
-            if (
-              !canRunMobileSwitchSelectionFeedback({
-                checked: plugin.enabled,
-                disabled,
-                nextChecked: nextValue,
-              })
-            ) {
-              return;
-            }
-            void hapticSelection();
-            onToggle(nextValue);
-          }}
-        />
-        {hasSettings ? (
-          <NemuPressable
-            accessibilityElementsHidden
-            importantForAccessibility="no-hide-descendants"
-            disabled={!canOpenSettings}
-            onPress={openSettings}
-            pressedScale={0.94}
-            containerStyle={styles.pluginChevronContainer}
-            style={[styles.pluginChevron, selectDisabled && styles.disabledMain]}
-          >
-            <Ionicons
-              name="chevron-forward"
-              size={18}
-              color={tokens.mutedForeground}
-            />
-          </NemuPressable>
-        ) : null}
-      </View>
-    </>
-  );
-
-  if (embedded) {
-    return (
-      <View
-        style={[
-          styles.pluginEmbeddedRow,
-          mobileDesignExploreFlag ? styles.explorePluginEmbeddedRow : null,
-          { borderColor: tokens.border },
-          selected &&
-            plugin.enabled && {
-              backgroundColor: nemuColorWithAlpha(tokens.primary, 0.03),
-            },
-        ]}
-      >
-        {rowContent}
-      </View>
-    );
-  }
-
-  return (
-    <SettingsSurface
-      style={[
-        styles.pluginRowShell,
-        selected &&
-          plugin.enabled && {
-            backgroundColor: nemuColorWithAlpha(tokens.primary, 0.03),
-          },
-      ]}
-      contentStyle={styles.pluginRow}
-    >
-      {rowContent}
-    </SettingsSurface>
   );
 }
 
@@ -3765,7 +3618,6 @@ function SettingsScreenContent({
                               settingsMutationKey ===
                               `reader-plugin:${plugin.id}`
                             }
-                            embedded
                             onSelect={() => {
                               if (settingsActionBusy) return;
                               setSelectedPluginId(plugin.id);
@@ -4697,10 +4549,6 @@ const styles = StyleSheet.create({
   },
   // The plugin list bleeds to the card edge: its icons start on the group's
   // inset and its chevron ends on it, as the switches of the cards around it.
-  explorePluginEmbeddedRow: {
-    paddingLeft: MOBILE_SETTINGS_GROUP_INSET,
-    paddingRight: MOBILE_SETTINGS_GROUP_INSET,
-  },
   // The heading's glyph is drawn (not its box) on the group's inset; the
   // title keeps its column after the box.
   exploreHeaderGlyph: {
@@ -4832,34 +4680,6 @@ const styles = StyleSheet.create({
     marginHorizontal: -MOBILE_SETTINGS_GROUP_INSET,
     marginBottom: -8,
   },
-  pluginEmbeddedRow: {
-    minHeight: 72,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    // The list bleeds to the card edge (`pluginEmbeddedList` cancels the
-    // card's 12pt padding), so this row supplies the whole trailing inset.
-    // 24 = the card padding plus the 12pt inner-row padding the sibling
-    // "触感与提示" toggle rows use, so every switch on the screen shares one
-    // right edge. The installed-source rows can sit at 6 because their icon
-    // buttons carry a 44pt touch target around a 32pt pill; the bare 51pt
-    // native switch has no such slack.
-    paddingLeft: 12,
-    paddingRight: 24,
-    paddingVertical: 10,
-  },
-  pluginRowShell: {
-    minHeight: 72,
-    borderRadius: radius.lg,
-  },
-  pluginRow: {
-    minHeight: 72,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    padding: 12,
-  },
   sourceEmbeddedRow: {
     minHeight: 72,
     flexDirection: "row",
@@ -4881,17 +4701,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
   },
-  pluginMainWrap: {
-    flex: 1,
-    minWidth: 0,
-  },
-  pluginMain: {
-    flex: 1,
-    minWidth: 0,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
   disabledMain: {
     opacity: 0.62,
   },
@@ -4899,28 +4708,6 @@ const styles = StyleSheet.create({
   // icon and both text lines dim, and the switch says why.
   disabledSourceMain: {
     opacity: 0.4,
-  },
-  pluginActions: {
-    // The trailing cluster (switch + chevron) is sized by its content and
-    // never shrinks; `pluginMain` is the flex child that absorbs a narrow
-    // screen or enlarged type, so the row can not grow wider than its card.
-    // It spans the row's height so the chevron's press area does too.
-    flexShrink: 0,
-    alignSelf: "stretch",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-end",
-  },
-  pluginChevronContainer: {
-    alignSelf: "stretch",
-  },
-  // Past the switch, ending on the right edge the screen's switches share
-  // (`pluginEmbeddedRow`'s trailing inset), so trailing controls still line up.
-  pluginChevron: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingLeft: 10,
   },
   sourceText: {
     flex: 1,

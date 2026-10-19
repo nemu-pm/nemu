@@ -8,6 +8,28 @@ import type { ReaderWindowShape } from "@/lib/mobileReaderWindowShape";
 import type { MobileStrings } from "@/lib/mobileI18n";
 import type { MobileReaderNotebookPanePreference } from "@/lib/mobileReaderNotebookPane";
 import type { WindowLayoutRect } from "@/lib/mobileWindowLayout";
+import type { ReaderPluginSettingsSheetProps } from "./ReaderPluginSettingsSheet.types";
+
+/**
+ * The reader's plugins for the Plugins page pushed inside the settings sheet
+ * / popover (the same React Native pages as the reader's Plugins sheet).
+ */
+export type ReaderSettingsPluginPages = Pick<
+  ReaderPluginSettingsSheetProps,
+  | "plugins"
+  | "loading"
+  | "error"
+  | "loadError"
+  | "busy"
+  | "retryingLoad"
+  | "canRetryLoadError"
+  | "onDismissError"
+  | "onDismissLoadError"
+  | "onRetryLoad"
+  | "onTogglePlugin"
+  | "onResetPlugin"
+  | "onChangePluginValue"
+>;
 
 export type ReaderSettingsNativePopoverProps = {
   visible: boolean;
@@ -54,7 +76,6 @@ export type ReaderSettingsNativePopoverProps = {
   completed: boolean;
   strings: MobileStrings;
   onClose: () => void;
-  onDismissComplete?: () => void;
   onSetMode: (mode: ReadingMode) => void;
   onSetSpreadPairing: (value: MobileReaderSpreadPairing) => void;
   /** Shifts this manga's pairing by one page from the current chapter on. */
@@ -75,6 +96,7 @@ export type ReaderSettingsNativePopoverProps = {
   onToggleThumbnailSpoilerSafe?: () => void;
   onSetNotebookPane?: (value: MobileReaderNotebookPanePreference) => void;
   onMarkComplete: () => void;
+  /** The Plugins row (it pushes the plugin pages; needs `readerPlugins`). */
   showReaderPluginSettings?: boolean;
-  onOpenReaderPluginSettings?: () => void;
+  readerPlugins?: ReaderSettingsPluginPages;
 };

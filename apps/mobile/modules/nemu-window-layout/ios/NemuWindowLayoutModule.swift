@@ -35,6 +35,9 @@ public final class NemuWindowLayoutModule: Module {
       ViewModifierRegistry.register(NemuFitPopoverToContentModifier.type) { params, _, _ in
         NemuFitPopoverToContentModifier(params: params)
       }
+      ViewModifierRegistry.register(NemuNavigationBarHiddenModifier.type) { _, _, _ in
+        NemuNavigationBarHiddenModifier()
+      }
       // The in-app theme from the last run, before any JS (see `NemuAppAppearance`).
       DispatchQueue.main.async {
         MainActor.assumeIsolated { NemuAppAppearance.restore() }
@@ -52,6 +55,8 @@ public final class NemuWindowLayoutModule: Module {
       ViewModifierRegistry.unregister(NemuFitSheetDetentModifier.type)
       ViewModifierRegistry.unregister(NemuReportSheetContentHeightModifier.type)
       ViewModifierRegistry.unregister(NemuMeasureSheetPageModifier.type)
+      ViewModifierRegistry.unregister(NemuFitPopoverToContentModifier.type)
+      ViewModifierRegistry.unregister(NemuNavigationBarHiddenModifier.type)
     }
     // Lets JS tell a binary with these views from one built before them.
     Constant("verticalBarBehaviorViewAvailable") { true }
@@ -369,6 +374,17 @@ struct NemuZeroTopScrollContentMarginModifier: ViewModifier {
   }
 }
 
+/// `toolbar(.hidden, for: .navigationBar)`: a popover's root page in a
+/// NavigationStack keeps its bar-less look; the pages pushed from it show the
+/// bar (title, system back).
+struct NemuNavigationBarHiddenModifier: ViewModifier {
+  static let type = "nemuNavigationBarHidden"
+
+  func body(content: Content) -> some View {
+    content.toolbar(.hidden, for: .navigationBar)
+  }
+}
+
 /// Measured heights of the pages of one content-sized sheet (`group`), fed by
 /// an off-screen copy of each page (`NemuMeasureSheetPageModifier`) that stays
 /// laid out while the sheet is closed. The sheet reads them when it presents,
@@ -394,6 +410,8 @@ final class NemuSheetFitStore: ObservableObject {
   /// presentation reports it: the iOS 26 compact sheet's inline bar.
   @Published private(set) var barHeight: CGFloat = NemuSheetFitStore.defaultBarHeight
   static let defaultBarHeight: CGFloat = 74
+  /// `barHeight` was measured (not the default).
+  @Published private(set) var barMeasured = false
 
   func setContentHeight(_ height: CGFloat, page: String) {
     guard height > 0 else { return }
@@ -405,6 +423,7 @@ final class NemuSheetFitStore: ObservableObject {
     guard height > 0 else { return }
     let rounded = height.rounded(.up)
     if barHeight != rounded { barHeight = rounded }
+    if !barMeasured { barMeasured = true }
   }
 
   /// The detent that shows all of `page` (the system caps it at the large
@@ -558,20 +577,31 @@ struct NemuFitSheetDetentModifier: ViewModifier {
 /// back to — it becomes the page the sheet is sized to, so the sheet resizes
 /// alongside the navigation transition. It also reports the sheet's bar
 /// height (the safe area above the Form) for the next presentations.
+///
+/// `contentHeight` > 0: the page's content height measured by the caller (a
+/// React Native page pushed in the sheet, laid out off screen before the
+/// push), recorded for `page` as it appears, so the sheet resizes to it in
+/// the same transaction that makes it the page on top.
 struct NemuReportSheetContentHeightModifier: ViewModifier {
   static let type = "nemuReportSheetContentHeight"
   let page: String?
+  let contentHeight: CGFloat
   @Environment(\.nemuSheetFit) private var fit
   @Environment(\.nemuSheetFitStore) private var store
 
   init(params: [String: Any]) {
     page = params["page"] as? String
+    contentHeight = CGFloat((params["contentHeight"] as? Double) ?? 0)
   }
 
   func body(content: Content) -> some View {
     content
       .onAppear {
+        if let page, contentHeight > 0 { store?.setContentHeight(contentHeight, page: page) }
         if let page, fit?.activePage != page { fit?.activePage = page }
+      }
+      .onChange(of: contentHeight) { next in
+        if let page, next > 0 { store?.setContentHeight(next, page: page) }
       }
       .onGeometryChange(for: CGFloat.self) { proxy in proxy.safeAreaInsets.top } action: { top in
         store?.setBarHeight(top)
@@ -637,35 +667,59 @@ struct NemuMeasureSheetPageModifier: ViewModifier {
   }
 }
 
-/// On a popover's Form: its ideal size is `width` × the height its
+/// On a popover's content: its ideal size is `width` × the height its
 /// off-screen copy measured (`NemuMeasureSheetPageModifier`, same `group` and
 /// `page`). A Form has no ideal height of its own, so without one the popover
 /// would not know how tall its rows are. The system shows the popover at that
 /// height when there is room and caps it otherwise, the Form scrolling from
 /// its top. Unmeasured (before iOS 18, or before the copy has laid out), the
 /// ideal height is `initialHeight`.
+///
+/// On a NavigationStack in a popover, `page` is the page on top: `height` > 0
+/// is that page's content height measured by the caller (a React Native page
+/// laid out off screen), and `bar` adds the navigation bar the pushed pages
+/// show (measured by their `NemuReportSheetContentHeightModifier`, which
+/// reports into this popover's own bar store; `barHeight` until then). The
+/// popover resizes with each push and pop.
 struct NemuFitPopoverToContentModifier: ViewModifier {
   static let type = "nemuFitPopoverToContent"
   let page: String
   let width: CGFloat
   let initialHeight: CGFloat
+  let explicitHeight: CGFloat?
+  let bar: Bool
+  let guessedBarHeight: CGFloat
   @ObservedObject private var store: NemuSheetFitStore
+  @ObservedObject private var barStore: NemuSheetFitStore
 
   init(params: [String: Any]) {
     page = (params["page"] as? String) ?? "root"
     width = CGFloat((params["width"] as? Double) ?? 0)
     initialHeight = CGFloat((params["initialHeight"] as? Double) ?? 0)
-    store = NemuSheetFitStore.named((params["group"] as? String) ?? "default")
+    let height = CGFloat((params["height"] as? Double) ?? 0)
+    explicitHeight = height > 0 ? height.rounded(.up) : nil
+    bar = (params["bar"] as? Bool) ?? false
+    guessedBarHeight = CGFloat((params["barHeight"] as? Double) ?? 0)
+    let group = (params["group"] as? String) ?? "default"
+    store = NemuSheetFitStore.named(group)
+    barStore = NemuSheetFitStore.named("\(group)#popover-bar")
   }
 
   func body(content: Content) -> some View {
-    let height = store.contentHeights[page] ?? (initialHeight > 0 ? initialHeight : nil)
-    content.frame(
-      minWidth: width > 0 ? width : nil,
-      idealWidth: width > 0 ? width : nil,
-      maxWidth: width > 0 ? width : nil,
-      idealHeight: height
-    )
+    let contentHeight = explicitHeight ?? store.contentHeights[page] ?? (initialHeight > 0 ? initialHeight : nil)
+    let barHeight = bar ? (barStore.barMeasured ? barStore.barHeight : guessedBarHeight) : 0
+    let height = contentHeight.map { $0 + barHeight }
+    content
+      // Pushed pages report their bar here, never into the sheet's store.
+      .environment(\.nemuSheetFitStore, barStore)
+      .frame(
+        minWidth: width > 0 ? width : nil,
+        idealWidth: width > 0 ? width : nil,
+        maxWidth: width > 0 ? width : nil,
+        idealHeight: height
+      )
+      // The sheet's own resize curve (`NemuSheetFitState.move`: smooth, 0.35s).
+      .animation(.spring(response: 0.35, dampingFraction: 1), value: height)
   }
 }
 

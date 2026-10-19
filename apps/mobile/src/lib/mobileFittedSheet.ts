@@ -30,6 +30,12 @@ export const READER_SETTINGS_SHEET_GROUP = "reader-settings";
 export const READER_SETTINGS_SHEET_PAGE = "settings";
 /** The same rows measured at the popover's width (iPad, Duo inner display). */
 export const READER_SETTINGS_POPOVER_PAGE = "settings-popover";
+/**
+ * The plugin list pushed in the reader settings sheet / popover (its
+ * NavigationStack path value and its measured page; a plugin's page pushed
+ * from it is `readerPluginSheetPage(id)`).
+ */
+export const READER_SETTINGS_PLUGINS_PAGE = "plugins";
 export const READER_PLUGIN_SHEET_GROUP = "reader-plugins";
 export const READER_PLUGIN_SHEET_LIST_PAGE = "plugins";
 

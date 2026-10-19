@@ -7344,6 +7344,19 @@ export function ReaderScreen() {
     setSelectedReaderPluginSettingsId(null);
     setReaderPluginSettingsOpen(true);
   }, []);
+  // Shared by the Plugins sheet and the plugin pages pushed inside the iOS
+  // native reader settings (one set of React Native plugin pages).
+  const dismissReaderPluginSettingsError = useCallback(() => {
+    setReaderSettingsError(null);
+    if (readerPlugins.error) {
+      setDismissedReaderPluginSettingsError(readerPlugins.error);
+    }
+  }, [readerPlugins.error]);
+  const dismissReaderPluginSettingsLoadError = useCallback(() => {
+    if (readerPlugins.error) {
+      setDismissedReaderPluginSettingsError(readerPlugins.error);
+    }
+  }, [readerPlugins.error]);
 
   // Native sheets are presented above the whole navigation stack, not inside
   // the reader's screen: when the reader loses focus (a deep link, a pushed
@@ -9106,17 +9119,8 @@ export function ReaderScreen() {
           canRetryLoadError={canRetryReaderPluginSettingsLoadError}
           strings={strings}
           onClose={() => setReaderPluginSettingsOpen(false)}
-          onDismissError={() => {
-            setReaderSettingsError(null);
-            if (readerPlugins.error) {
-              setDismissedReaderPluginSettingsError(readerPlugins.error);
-            }
-          }}
-          onDismissLoadError={() => {
-            if (readerPlugins.error) {
-              setDismissedReaderPluginSettingsError(readerPlugins.error);
-            }
-          }}
+          onDismissError={dismissReaderPluginSettingsError}
+          onDismissLoadError={dismissReaderPluginSettingsLoadError}
           onRetryLoad={retryReaderPluginSettingsLoad}
           onSelectPlugin={selectReaderPluginSettings}
           onClearSelectedPlugin={() => setSelectedReaderPluginSettingsId(null)}
@@ -9148,9 +9152,24 @@ export function ReaderScreen() {
           completed={completed}
           strings={strings}
           onClose={closeReaderDisplaySettings}
-          onDismissComplete={handleReaderDisplaySettingsDismissed}
+          // Plugins pushes inside this sheet / popover (no hand-off to the
+          // Plugins sheet): the same React Native plugin pages.
           showReaderPluginSettings={showReaderPluginSettingsEntry}
-          onOpenReaderPluginSettings={openReaderPluginSettingsFromDisplaySettings}
+          readerPlugins={{
+            plugins: readerPlugins.data,
+            loading: readerPlugins.loading,
+            error: readerSettingsError,
+            loadError: showReaderPluginSettingsLoadError ? readerPlugins.error : null,
+            busy: readerPluginSettingsBusy,
+            retryingLoad: retryingReaderPluginSettingsLoad,
+            canRetryLoadError: canRetryReaderPluginSettingsLoadError,
+            onDismissError: dismissReaderPluginSettingsError,
+            onDismissLoadError: dismissReaderPluginSettingsLoadError,
+            onRetryLoad: retryReaderPluginSettingsLoad,
+            onTogglePlugin: toggleReaderPluginSetting,
+            onResetPlugin: resetReaderPluginSettings,
+            onChangePluginValue: changeReaderPluginSetting,
+          }}
           anchor={readerSettingsAnchorRect}
           // Popover only on a regular-width window; compact (phones, Duo
           // outer display) presents the sheet.
