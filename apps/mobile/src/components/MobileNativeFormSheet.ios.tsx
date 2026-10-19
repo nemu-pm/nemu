@@ -57,9 +57,11 @@ function ToolbarActionButton({
   return (
     <SwiftButton
       label={action.label}
+      systemImage={action.systemImage as SFSymbol | undefined}
       role={role}
       onPress={action.onPress}
       modifiers={[
+        ...(action.systemImage ? [labelStyle("iconOnly")] : []),
         ...(accent ? [tint(accent)] : []),
         ...(action.disabled ? [swiftDisabled(true)] : []),
       ]}

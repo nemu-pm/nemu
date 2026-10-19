@@ -34,8 +34,8 @@ export const mobileCollectionMembershipNativeFormAvailable = true;
 
 /**
  * Collections for one title as a native sheet (Photos "Add to Album",
- * Reminders' list pickers) on the opaque grouped background: Cancel / Save
- * in the navigation bar, "New Collection" heading the group (an alert with a
+ * Reminders' list pickers) on the opaque grouped background: ✕ / ✓ in the
+ * navigation bar, "New Collection" heading the group (an alert with a
  * name field), then every collection as a compact checkmark row with its
  * book count trailing. Rename and Delete are the row's swipe actions and its
  * context menu, not buttons crowded into every row.
@@ -91,8 +91,15 @@ export function MobileCollectionMembershipNativeForm({
       })}
       background="grouped"
       interactiveDismissDisabled={dirty}
-      cancel={{ label: strings.common.cancel, onPress: onCancel }}
-      confirm={{ label: strings.common.save, onPress: onSave, disabled: saveDisabled, busy: saving }}
+      // An edit sheet: ✕ leading, ✓ trailing (✓ disabled until something changed).
+      cancel={{ label: strings.common.cancel, onPress: onCancel, systemImage: "xmark" }}
+      confirm={{
+        label: strings.common.save,
+        onPress: onSave,
+        disabled: saveDisabled,
+        busy: saving,
+        systemImage: "checkmark",
+      }}
       testID="MobileCollectionMembershipSheet"
       formKey={rows.map((row) => row.collection.collectionId).join("|")}
       wrapForm={(form) => (

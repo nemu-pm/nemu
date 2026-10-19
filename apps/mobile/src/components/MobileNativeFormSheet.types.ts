@@ -9,6 +9,11 @@ export type MobileNativeFormSheetAction = {
   disabled?: boolean;
   /** Replaces the action with a spinner while its work runs. */
   busy?: boolean;
+  /**
+   * Draws the action as this symbol alone (an edit sheet's ✕ / ✓ glass
+   * buttons); `label` becomes its accessibility label.
+   */
+  systemImage?: string;
 };
 
 export type MobileNativeFormSheetProps = {
