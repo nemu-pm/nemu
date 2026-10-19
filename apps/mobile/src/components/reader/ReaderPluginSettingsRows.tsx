@@ -156,11 +156,14 @@ export function ReaderPluginEnableRow({
   plugin,
   busy,
   strings,
+  outlined = true,
   onToggle,
 }: {
   plugin: MobileReaderPluginState;
   busy: boolean;
   strings: MobileStrings;
+  /** False drops the row's hairline outline (beside a native Form). */
+  outlined?: boolean;
   onToggle: (enabled: boolean) => void;
 }) {
   const { tokens } = useNemuTheme();
@@ -172,6 +175,7 @@ export function ReaderPluginEnableRow({
           styles.enableRow,
           nemuSheetMetrics.listRowLayout,
           { backgroundColor: tokens.card, borderColor: tokens.border },
+          outlined ? null : styles.bareRow,
         ]}
       >
         <NemuText
@@ -218,6 +222,9 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
+  },
+  bareRow: {
+    borderWidth: 0,
   },
   enableRow: {
     gap: 12,

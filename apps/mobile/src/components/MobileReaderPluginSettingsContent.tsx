@@ -151,6 +151,7 @@ export function MobileReaderPluginSettingsCard({
   retryDisabled,
   retrying,
   inert = false,
+  outlined = true,
   onRetry,
   onReset,
   onChange,
@@ -166,6 +167,8 @@ export function MobileReaderPluginSettingsCard({
   retrying?: boolean;
   /** An off-screen copy that only measures the page: it never starts a dictionary download. */
   inert?: boolean;
+  /** False drops the group's hairline outline (beside a native Form). */
+  outlined?: boolean;
   onRetry?: () => void;
   onReset: () => void;
   onChange: (key: string, value: unknown, setting: SourcePackageSetting) => void;
@@ -183,6 +186,7 @@ export function MobileReaderPluginSettingsCard({
       error={error}
       title={strings.settings.pluginSettings}
       hideSubtitle
+      outlined={outlined}
       navigationResetKey={plugin.id}
       emptyMessage={strings.settings.noPluginSettings}
       showEmpty

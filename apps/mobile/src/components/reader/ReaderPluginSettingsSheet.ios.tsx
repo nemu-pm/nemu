@@ -626,6 +626,7 @@ export function ReaderPluginDetailPage({
         plugin={plugin}
         busy={busy}
         strings={strings}
+        outlined={chrome !== "stack"}
         onToggle={measuring ? noop : (enabled) => onTogglePlugin(plugin, enabled)}
       />
       <MobileReaderPluginSettingsCard
@@ -635,6 +636,7 @@ export function ReaderPluginDetailPage({
         loading={loading}
         error={error}
         inert={measuring}
+        outlined={chrome !== "stack"}
         onReset={measuring ? noop : () => onResetPlugin(plugin)}
         onChange={measuring ? noop : (key, value) => onChangePluginValue(plugin, key, value)}
       />

@@ -429,6 +429,13 @@ describe("reader plugin settings sheet policy", () => {
     const stackGroup = ios.slice(ios.indexOf("  stackGroup: {"), ios.indexOf("},", ios.indexOf("  stackGroup: {")));
     expect(stackGroup).not.toContain("borderWidth");
     expect(ios).toContain("<View style={[styles.stackGroup, { backgroundColor: tokens.card }]}>");
+    // The plugin's own page drops its cards' outline in the stack too (its
+    // on / off row and the settings card); the sheet and Settings keep it.
+    const detail = ios.slice(ios.indexOf("export function ReaderPluginDetailPage"), ios.indexOf("const ReaderPluginSheetMeasuringCopies"));
+    expect(detail.split('outlined={chrome !== "stack"}').length - 1).toBe(2);
+    expect(mobileSource(rowsPath)).toContain("outlined ? null : styles.bareRow,");
+    expect(mobileSource("components/MobileSourceSettingsCard.tsx")).toContain("outlined ? null : styles.settingsShellBare,");
+    expect(mobileSource(contentPath)).toContain("outlined={outlined}");
   });
 
   test("keeps vertical scrolling native and paging props paged-only", () => {

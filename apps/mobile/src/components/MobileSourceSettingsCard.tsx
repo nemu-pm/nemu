@@ -147,6 +147,11 @@ type MobileSourceSettingsCardProps = {
     setting: SourcePackageSetting,
     values: Record<string, unknown>,
   ) => ReactNode;
+  /**
+   * False drops the hairline outline around the group — beside a native Form
+   * (the Reader settings stack), whose groups have none.
+   */
+  outlined?: boolean;
   retryDisabled?: boolean;
   retrying?: boolean;
   onEmbeddedBackHandlerChange?: (handler: (() => void) | null) => void;
@@ -1640,6 +1645,7 @@ function MobileSourceSettingsCardContent({
   onRequestMultiSelectSheet,
   onRequestStringListSheet,
   renderSettingAccessory,
+  outlined = true,
 }: MobileSourceSettingsCardProps) {
   const { tokens } = useNemuTheme();
   const { appLanguage } = useMobileLanguageSettings();
@@ -1761,6 +1767,7 @@ function MobileSourceSettingsCardContent({
           styles.settingsShell,
           mobileDesignExploreFlag ? styles.exploreShell : null,
           { backgroundColor: tokens.card, borderColor: tokens.cardBorder },
+          outlined ? null : styles.settingsShellBare,
         ]}
       >
         <View style={styles.settingsContent}>
@@ -1918,6 +1925,9 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
+  },
+  settingsShellBare: {
+    borderWidth: 0,
   },
   settingsContent: {
     gap: 12,
