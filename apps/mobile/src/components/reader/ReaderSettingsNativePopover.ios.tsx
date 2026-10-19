@@ -59,6 +59,9 @@ import {
   reportSheetContentHeight,
   zeroTopScrollContentMargin,
   presentationColorScheme,
+  formRowIcon,
+  formRowMenuTitle,
+  isAccessibilityFontScale,
   reportFormGroupInset,
   reportPageWidth,
   type FormGroupInset,
@@ -135,6 +138,8 @@ const PUSHED_PAGE_MATCH_CONTENTS = { vertical: true } as const;
  * the iPhone default.
  */
 const formGroupInsets = new Map<string, FormGroupInset>();
+
+type SwiftPickerSymbol = NonNullable<ComponentProps<typeof SwiftPicker>["systemImage"]>;
 
 /**
  * Reader settings as a native grouped Form: a popover beside the button on
@@ -347,6 +352,16 @@ export function ReaderSettingsNativePopover({
         [inlineToolbarTitle(), reportSheetContentHeight({ page: READER_SETTINGS_SHEET_PAGE })]),
     ...formLayoutModifiers,
   ];
+  const shiftPairingSystemImage = pairingShifted ? "arrow.uturn.backward" : "arrow.left.and.right";
+  // Rows with an icon carry `formRowIcon` (the same symbol): at accessibility
+  // text sizes the icon keeps its own column and every line of the row's text
+  // (wrapped title, a menu's value) starts on the first title line's edge.
+  // There the controls come without their own icon (`axRows`).
+  const axRows = isAccessibilityFontScale(windowSize.fontScale);
+  const menuRowLabel = (title: string, systemImage: SwiftPickerSymbol) =>
+    axRows
+      ? { label: <SwiftText modifiers={[formRowMenuTitle()]}>{title}</SwiftText> }
+      : { label: title, systemImage };
   // The presented Form's first row reports where the Form draws its groups
   // (not the off-screen copy: its width and traits are not the page's).
   const renderSettingsSections = (firstRowModifiers: ComponentProps<typeof SwiftPicker>["modifiers"]) => (
@@ -377,9 +392,8 @@ export function ReaderSettingsNativePopover({
         {showPageTurnRow && onSetPageTurn ? (
           <SwiftSection>
             <SwiftPicker
-              label={strings.reader.pageTurning}
-              systemImage="book.pages"
-              modifiers={[pickerStyle("menu"), ...busyModifiers]}
+              {...menuRowLabel(strings.reader.pageTurning, "book.pages")}
+              modifiers={[formRowIcon("book.pages", { menu: true }), pickerStyle("menu"), ...busyModifiers]}
               selection={pageTurn}
               onSelectionChange={(selection) => {
                 if (busy || selection === pageTurn) return;
@@ -399,9 +413,8 @@ export function ReaderSettingsNativePopover({
         {twoPageSupported ? (
           <SwiftSection footer={<SwiftText>{readerSpreadModeFootnote(spreadMode, strings)}</SwiftText>}>
             <SwiftPicker
-              label={strings.reader.pageLayout}
-              systemImage="rectangle.split.2x1"
-              modifiers={[pickerStyle("menu"), ...busyModifiers]}
+              {...menuRowLabel(strings.reader.pageLayout, "rectangle.split.2x1")}
+              modifiers={[formRowIcon("rectangle.split.2x1", { menu: true }), pickerStyle("menu"), ...busyModifiers]}
               selection={spreadMode}
               onSelectionChange={(selection) => {
                 if (busy || !isReaderSpreadMode(selection) || selection === spreadMode) return;
@@ -420,9 +433,8 @@ export function ReaderSettingsNativePopover({
         {twoPageSupported && showPagePairingControls ? (
           <SwiftSection footer={<SwiftText>{strings.reader.spreadPairingFootnote}</SwiftText>}>
             <SwiftPicker
-              label={strings.reader.spreadPairing}
-              systemImage="book.closed"
-              modifiers={[pickerStyle("menu"), ...busyModifiers]}
+              {...menuRowLabel(strings.reader.spreadPairing, "book.closed")}
+              modifiers={[formRowIcon("book.closed", { menu: true }), pickerStyle("menu"), ...busyModifiers]}
               selection={spreadPairing}
               onSelectionChange={(selection) => {
                 if (busy || selection === spreadPairing) return;
@@ -439,23 +451,30 @@ export function ReaderSettingsNativePopover({
             </SwiftPicker>
             <SwiftButton
               label={strings.reader.shiftByOnePage}
-              systemImage={pairingShifted ? "arrow.uturn.backward" : "arrow.left.and.right"}
+              systemImage={axRows ? undefined : shiftPairingSystemImage}
               onPress={() => {
                 if (busy) return;
                 void hapticSelection();
                 onShiftPairing();
               }}
               // An action row in the label colour, like Settings' own.
-              modifiers={[foregroundStyle({ type: "hierarchical", style: "primary" }), ...busyModifiers]}
+              modifiers={[
+                formRowIcon(shiftPairingSystemImage, { tinted: false }),
+                foregroundStyle({ type: "hierarchical", style: "primary" }),
+                ...busyModifiers,
+              ]}
             />
           </SwiftSection>
         ) : null}
         {twoPageSupported ? (
           <SwiftSection footer={<SwiftText>{strings.reader.pageFitFootnote}</SwiftText>}>
             <SwiftPicker
-              label={strings.reader.pageFit}
-              systemImage="arrow.up.left.and.down.right.magnifyingglass"
-              modifiers={[pickerStyle("menu"), ...busyModifiers]}
+              {...menuRowLabel(strings.reader.pageFit, "arrow.up.left.and.down.right.magnifyingglass")}
+              modifiers={[
+                formRowIcon("arrow.up.left.and.down.right.magnifyingglass", { menu: true }),
+                pickerStyle("menu"),
+                ...busyModifiers,
+              ]}
               selection={fitMode}
               onSelectionChange={(selection) => {
                 if (busy || !isReaderFitMode(selection) || selection === fitMode) return;
@@ -474,9 +493,8 @@ export function ReaderSettingsNativePopover({
         {twoPageSupported ? (
           <SwiftSection>
             <SwiftPicker
-              label={strings.reader.pageBackground}
-              systemImage="square.fill.on.square"
-              modifiers={[pickerStyle("menu"), ...busyModifiers]}
+              {...menuRowLabel(strings.reader.pageBackground, "square.fill.on.square")}
+              modifiers={[formRowIcon("square.fill.on.square", { menu: true }), pickerStyle("menu"), ...busyModifiers]}
               selection={pageBackground}
               onSelectionChange={(selection) => {
                 if (busy || selection === pageBackground) return;
@@ -500,10 +518,10 @@ export function ReaderSettingsNativePopover({
           >
             <SwiftToggle
               label={strings.reader.avoidCamera}
-              systemImage="camera.metering.center.weighted"
+              systemImage={axRows ? undefined : "camera.metering.center.weighted"}
               isOn={avoidCamera}
               onIsOnChange={(isOn) => onSetAvoidCamera(isOn)}
-              modifiers={busyModifiers}
+              modifiers={[formRowIcon("camera.metering.center.weighted"), ...busyModifiers]}
             />
           </SwiftSection>
         ) : null}
@@ -512,9 +530,8 @@ export function ReaderSettingsNativePopover({
           // choices; only the reading direction is a segmented control.
           <SwiftSection footer={<SwiftText>{strings.duo.notebookPaneFootnote}</SwiftText>}>
             <SwiftPicker
-              label={strings.duo.notebookPane}
-              systemImage="rectangle.split.1x2"
-              modifiers={[pickerStyle("menu"), ...busyModifiers]}
+              {...menuRowLabel(strings.duo.notebookPane, "rectangle.split.1x2")}
+              modifiers={[formRowIcon("rectangle.split.1x2", { menu: true }), pickerStyle("menu"), ...busyModifiers]}
               selection={notebookPane}
               onSelectionChange={(selection) => {
                 if (busy || !isMobileReaderNotebookPanePreference(selection) || selection === notebookPane) return;
@@ -531,10 +548,10 @@ export function ReaderSettingsNativePopover({
             {onToggleThumbnailSpoilerSafe ? (
               <SwiftToggle
                 label={strings.duo.filmstripSpoilerSafe}
-                systemImage="eye.slash"
+                systemImage={axRows ? undefined : "eye.slash"}
                 isOn={thumbnailSpoilerSafe}
                 onIsOnChange={onToggleThumbnailSpoilerSafe}
-                modifiers={busyModifiers}
+                modifiers={[formRowIcon("eye.slash"), ...busyModifiers]}
               />
             ) : null}
           </SwiftSection>
@@ -542,10 +559,10 @@ export function ReaderSettingsNativePopover({
         <SwiftSection title={strings.reader.moreSettings}>
           <SwiftToggle
             label={strings.reader.processPageImages}
-            systemImage="wand.and.stars"
+            systemImage={axRows ? undefined : "wand.and.stars"}
             isOn={processPageImages}
             onIsOnChange={() => onToggleProcessPageImages()}
-            modifiers={busyModifiers}
+            modifiers={[formRowIcon("wand.and.stars"), ...busyModifiers]}
           />
           {mode === "scrolling" ? (
             <SwiftSlider
@@ -570,33 +587,37 @@ export function ReaderSettingsNativePopover({
           ) : null}
           <SwiftToggle
             label={strings.feedback.displayKeepAwake}
-            systemImage="moon"
+            systemImage={axRows ? undefined : "moon"}
             isOn={keepAwake}
             onIsOnChange={() => onToggleKeepAwake()}
-            modifiers={busyModifiers}
+            modifiers={[formRowIcon("moon"), ...busyModifiers]}
           />
           {showOrientationLock ? (
             <SwiftToggle
               label={strings.feedback.displayLockPortrait}
-              systemImage="lock.rotation"
+              systemImage={axRows ? undefined : "lock.rotation"}
               isOn={lockPortrait}
               onIsOnChange={() => onToggleLockPortrait()}
-              modifiers={busyModifiers}
+              modifiers={[formRowIcon("lock.rotation"), ...busyModifiers]}
             />
           ) : null}
             {showPlugins ? (
               // Pushes the plugin list in this stack: the system disclosure
               // chevron on the form's trailing inset, the row in the label colour.
               <SwiftNavigationLink value={READER_SETTINGS_PLUGINS_PAGE} modifiers={busyModifiers}>
-                <SwiftLabel title={strings.settings.plugins} systemImage="puzzlepiece.extension" />
+                <SwiftLabel
+                  title={strings.settings.plugins}
+                  systemImage="puzzlepiece.extension"
+                  modifiers={[formRowIcon("puzzlepiece.extension")]}
+                />
               </SwiftNavigationLink>
             ) : null}
             {settingsRows.showMarkComplete ? (
               <SwiftButton
                 label={saving ? strings.reader.savingProgress : strings.reader.markComplete}
-                systemImage="checkmark.circle"
+                systemImage={axRows ? undefined : "checkmark.circle"}
                 onPress={onMarkComplete}
-                modifiers={saving ? [swiftDisabled(true)] : []}
+                modifiers={[formRowIcon("checkmark.circle"), ...(saving ? [swiftDisabled(true)] : [])]}
               />
             ) : null}
         </SwiftSection>
@@ -621,7 +642,14 @@ export function ReaderSettingsNativePopover({
   const measurePage = presentation.kind === "popover" && !sheet ? READER_SETTINGS_POPOVER_PAGE : READER_SETTINGS_SHEET_PAGE;
   const measuringCopy = (
     <ReaderSettingsMeasuringCopy
-      heightKey={JSON.stringify([measurePage, measureFrame, settingsRows, saving, strings.reader.markComplete])}
+      heightKey={JSON.stringify([
+        measurePage,
+        measureFrame,
+        settingsRows,
+        saving,
+        strings.reader.markComplete,
+        axRows,
+      ])}
       modifiers={[
         ...formLayoutModifiers,
         measureSheetPage({ group: READER_SETTINGS_SHEET_GROUP, page: measurePage, ...measureFrame }),

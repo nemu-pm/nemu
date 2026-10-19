@@ -61,6 +61,43 @@ export function reportPageWidth(handler: (width: number) => void) {
   return createModifierWithEventListener("nemuReportPageWidth", (event: { width: number }) => handler(event.width));
 }
 
+/**
+ * `@expo/ui` modifier, on a Form row's control with an icon (Picker, Toggle,
+ * Button, a NavigationLink's Label; pass its symbol): at accessibility text
+ * sizes (`isAccessibilityFontScale`) the icon gets its own column, so wrapped
+ * title lines and a menu Picker's value start on the first title line's edge
+ * instead of under the icon. There a Picker / Toggle / Button must come
+ * without its `systemImage` (a Form draws theirs whatever the label style);
+ * a Label is shown title-only by the modifier. Other sizes: the stock row,
+ * the control with its `systemImage`. Put it first in the modifiers, so
+ * `disabled` / `foregroundStyle` after it reach the icon. `tinted: false` for
+ * a row in the label colour (an action Button: the icon follows its
+ * `foregroundStyle`; a NavigationLink's Label icon is in the tint, as stock); `menu: true` on a menu Picker, whose title
+ * then goes in its `label` with `formRowMenuTitle()` (the value line, drawn
+ * inset in a button, and the title move onto one edge). A binary built
+ * before the modifier existed ignores it (no icon at accessibility sizes).
+ */
+export function formRowIcon(systemImage: string, options?: { tinted?: boolean; menu?: boolean }) {
+  return createModifier("nemuFormRowIcon", {
+    systemImage,
+    tinted: options?.tinted ?? true,
+    menu: options?.menu ?? false,
+  });
+}
+
+/** On the title (`label`) of a menu Picker with `formRowIcon(…, { menu: true })`. */
+export function formRowMenuTitle() {
+  return createModifier("nemuFormRowMenuTitle");
+}
+
+/**
+ * React Native's font scale for the accessibility text sizes (AX1 is 1.786,
+ * the largest standard size 1.353): where `formRowIcon` takes the icon.
+ */
+export function isAccessibilityFontScale(fontScale: number) {
+  return fontScale >= 1.5;
+}
+
 /** Remove the grouped Form's extra top scroll-content margin below its toolbar. */
 export function zeroTopScrollContentMargin() {
   return createModifier("nemuZeroTopScrollContentMargin");

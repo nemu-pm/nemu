@@ -38,6 +38,12 @@ public final class NemuWindowLayoutModule: Module {
       ViewModifierRegistry.register(NemuNavigationBarHiddenModifier.type) { _, _, _ in
         NemuNavigationBarHiddenModifier()
       }
+      ViewModifierRegistry.register(NemuFormRowIconModifier.type) { params, _, _ in
+        NemuFormRowIconModifier(params: params)
+      }
+      ViewModifierRegistry.register(NemuFormRowMenuTitleModifier.type) { _, _, _ in
+        NemuFormRowMenuTitleModifier()
+      }
       ViewModifierRegistry.register(NemuReportFormGroupInsetModifier.type) { _, _, eventDispatcher in
         NemuReportFormGroupInsetModifier(eventDispatcher: eventDispatcher)
       }
@@ -63,6 +69,8 @@ public final class NemuWindowLayoutModule: Module {
       ViewModifierRegistry.unregister(NemuMeasureSheetPageModifier.type)
       ViewModifierRegistry.unregister(NemuFitPopoverToContentModifier.type)
       ViewModifierRegistry.unregister(NemuNavigationBarHiddenModifier.type)
+      ViewModifierRegistry.unregister(NemuFormRowIconModifier.type)
+      ViewModifierRegistry.unregister(NemuFormRowMenuTitleModifier.type)
       ViewModifierRegistry.unregister(NemuReportFormGroupInsetModifier.type)
       ViewModifierRegistry.unregister(NemuReportPageWidthModifier.type)
     }
@@ -353,6 +361,137 @@ struct NemuPresentationColorSchemeModifier: ViewModifier {
 
   func body(content: Content) -> some View {
     content.preferredColorScheme(colorScheme)
+  }
+}
+
+/// On a Form row with an icon (Picker, Toggle, Button, a NavigationLink's
+/// Label): at accessibility text sizes the icon gets a column of its own,
+/// beside the control. The stock row draws its icon inline with the title,
+/// so wrapped title lines run under the icon, and starts a menu Picker's
+/// value line on the row's edge; here every title line and the value line
+/// start on the first title line's edge (as Settings lays out its rows at
+/// these sizes), the icon centred in its column on that line's baseline, at
+/// the stock icon's size and in its place. At the other sizes the row is the
+/// stock one, untouched.
+///
+/// At accessibility sizes the control itself must come without its icon: a
+/// Form's Picker and Toggle draw theirs whatever the `labelStyle`, so the
+/// JS side passes those (and Buttons) no `systemImage` there; a Label gets
+/// `.titleOnly` here. Put the modifier first in the control's modifiers so
+/// `disabled` / `foregroundStyle` after it reach the icon too. The icon is in
+/// the tint, like a stock Picker's / Toggle's / NavigationLink Label's,
+/// unless `tinted` is false (a row in the label colour, an action Button's:
+/// the icon takes the row's `foregroundStyle`). `menu`: a menu Picker, whose
+/// value line the system draws in a button `menuValueInset` inside the
+/// Picker's edge; the Picker moves out by that inset and its title (in a
+/// `nemuFormRowMenuTitle` label) back in, so both start on the column's edge.
+struct NemuFormRowIconModifier: ViewModifier {
+  static let type = "nemuFormRowIcon"
+  /// How far a Form's menu Picker draws its value line inside the Picker's
+  /// edge at accessibility sizes (iOS 26/27, the same at AX1…AX5).
+  static let menuValueInset: CGFloat = 11.67
+  let systemImage: String
+  let tinted: Bool
+  let menu: Bool
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+  @Environment(\.isEnabled) private var isEnabled
+  // The stock row's first title line and icon, measured at AX1, AX3 and AX5
+  // (iOS 26/27): the title starts 25.03 × the body's `ScaledMetric` factor
+  // + 9.83 in from the row's edge, the icon is centred half of 25.03 × the
+  // factor − 13.9 in. So: an icon column of that width, then the rest.
+  @ScaledMetric(relativeTo: .body) private var scaledIconWidth: CGFloat = 25.03
+  private static let iconWidthExtra: CGFloat = -13.9
+  private static let iconSpacing: CGFloat = 23.73
+
+  init(params: [String: Any]) {
+    systemImage = params["systemImage"] as? String ?? ""
+    tinted = params["tinted"] as? Bool ?? true
+    menu = params["menu"] as? Bool ?? false
+  }
+
+  @ViewBuilder
+  func body(content: Content) -> some View {
+    if dynamicTypeSize.isAccessibilitySize && !systemImage.isEmpty {
+      HStack(alignment: .firstTextBaseline, spacing: Self.iconSpacing) {
+        icon
+          // No height of its own: a symbol taller than the first line (the
+          // page one, at AX1) sits on the line's baseline as before but no
+          // longer makes its row taller and pushes the text down.
+          .frame(width: scaledIconWidth + Self.iconWidthExtra, height: 0)
+          .accessibilityHidden(true)
+        control(content)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          // The row's separator starts on the title's edge.
+          .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] }
+      }
+    } else {
+      content
+    }
+  }
+
+  @ViewBuilder
+  private func control(_ content: Content) -> some View {
+    if menu {
+      NemuFormRowMenuPickerLayout {
+        content
+          .labelStyle(.titleOnly)
+          .padding(.leading, -Self.menuValueInset)
+      }
+    } else {
+      content.labelStyle(.titleOnly)
+    }
+  }
+
+  @ViewBuilder
+  private var icon: some View {
+    // The stock icon steps down a symbol scale from AX3 on.
+    let image = Image(systemName: systemImage)
+      .imageScale(dynamicTypeSize >= .accessibility3 ? .small : .medium)
+    if !isEnabled {
+      image.foregroundStyle(.tertiary)
+    } else if tinted {
+      image.foregroundStyle(.tint)
+    } else {
+      image
+    }
+  }
+}
+
+/// The title of a menu Picker carrying `nemuFormRowIcon(menu: true)`, in its
+/// `label`: in by the inset of the Picker's value line, on that line's edge.
+struct NemuFormRowMenuTitleModifier: ViewModifier {
+  static let type = "nemuFormRowMenuTitle"
+
+  func body(content: Content) -> some View {
+    content.padding(.leading, NemuFormRowIconModifier.menuValueInset)
+  }
+}
+
+/// Around a menu Picker in `nemuFormRowIcon`: the Picker draws as wide as its
+/// title's longest line, so a longer value wraps there; but asked for its size
+/// with no height proposed it answers for the whole width offered, the value
+/// on one line, and the row, sized on that, clipped the extra line and lost
+/// its top and bottom inset. Asked with an unbounded height it answers with
+/// the lines it draws: the row takes that height.
+struct NemuFormRowMenuPickerLayout: Layout {
+  func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    guard let picker = subviews.first else { return .zero }
+    var size = picker.sizeThatFits(proposal)
+    let drawn = picker.sizeThatFits(ProposedViewSize(width: size.width, height: .infinity))
+    if drawn.height.isFinite, drawn.height > size.height { size.height = drawn.height }
+    return size
+  }
+
+  func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    guard let picker = subviews.first else { return }
+    picker.place(at: bounds.origin, anchor: .topLeading, proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
+  }
+
+  func explicitAlignment(
+    of guide: VerticalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()
+  ) -> CGFloat? {
+    guard let picker = subviews.first else { return nil }
+    return bounds.minY + picker.dimensions(in: ProposedViewSize(width: bounds.width, height: bounds.height))[guide]
   }
 }
 
