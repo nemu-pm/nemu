@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { ComponentProps } from "react";
 import {
   type LayoutChangeEvent,
@@ -30,6 +30,12 @@ import {
   NEMU_WEB_EMPTY_LIBRARY_VISUAL,
 } from "@/lib/mobileEmptyLibraryLayout";
 import { useMobileContainerFold } from "@/lib/useMobileContainerFold";
+import { useMobileWindowLayout } from "@/lib/MobileWindowLayoutContext";
+import {
+  mobileRestingFoldMinGutter,
+  mobileVerticalFoldBand,
+  mobileVerticalFoldGutterForContainer,
+} from "@/lib/mobileRestingFold";
 import { useMobilePoseTransition } from "@/lib/MobilePoseTransitionContext";
 import { useMobilePoseSizeSpring } from "@/lib/useMobilePoseSizeSpring";
 import { MobilePoseLayoutView } from "./MobilePoseLayoutView";
@@ -83,9 +89,20 @@ export function EmptyLibrary({
     ref: containerRef,
     onLayout: onContainerLayout,
     width: containerWidth,
+    rect: containerRect,
     split: containerSplit,
     adaptive,
   } = useMobileContainerFold<ViewInstance>();
+  // A vertical fold splits art and copy whether the device is half open or
+  // fully open (design decision): one band for both states, so the copy keeps
+  // its place when the Duo folds instead of jumping ~20pt between the
+  // container's centre (flat) and the fold (book).
+  const windowLayout = useMobileWindowLayout();
+  const verticalFoldBand = useMemo(
+    () => mobileVerticalFoldBand(windowLayout, mobileRestingFoldMinGutter(Platform.OS)),
+    [windowLayout],
+  );
+  const verticalFoldGutter = mobileVerticalFoldGutterForContainer(verticalFoldBand, containerRect);
   const barsOnSide = adaptive.verticalBarEdge !== null;
   // The box the hero really gets: header and bottom tab bar only when the
   // system draws them horizontally (Duo's outer display and inner landscape
@@ -99,7 +116,11 @@ export function EmptyLibrary({
     width: containerWidth ?? bleedWidth,
     bleedWidth,
     height: boxHeight,
-    fold: containerSplit ? { axis: containerSplit.axis, gutter: containerSplit.gutter } : null,
+    fold: verticalFoldGutter
+      ? { axis: "horizontal", gutter: verticalFoldGutter }
+      : containerSplit?.axis === "vertical"
+        ? { axis: "vertical", gutter: containerSplit.gutter }
+        : null,
   });
   // Where the stacked copy ends in the window, for the second link's room
   // above what covers the bottom (the tab bar, or the home indicator beside

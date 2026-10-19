@@ -87,8 +87,10 @@ function glowFor(portraitWidth: number) {
  *
  * - Portrait-shaped boxes stack art over copy exactly like phones.
  * - Wide boxes (and book posture) put the art beside the copy, each in its
- *   own half; in book posture the halves are the fold's panes.
- * - Fully open wide boxes use an even split with the ordinary pane gap.
+ *   own half; across a vertical fold the halves are the fold's panes, half
+ *   open or fully open alike (`mobileVerticalFoldBand`), so folding never
+ *   moves the copy.
+ * - Wide boxes without a fold use an even split with the ordinary pane gap.
  * - Notebook posture puts the art in the top pane and the copy in the bottom.
  */
 export function getMobileEmptyLibraryAdaptiveLayout({

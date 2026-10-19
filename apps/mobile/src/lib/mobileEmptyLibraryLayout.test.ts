@@ -11,6 +11,8 @@ import {
 } from "./mobileEmptyLibraryLayout";
 import { getMobilePageGutters } from "./mobilePageGutters";
 import { mobileAdaptiveLayout, mobileFoldSplitForContainer } from "./mobileAdaptiveLayout";
+import { MOBILE_IOS_FOLD_GUTTER, mobileVerticalFoldBand, mobileVerticalFoldGutterForContainer } from "./mobileRestingFold";
+import type { MobileWindowLayout } from "./mobileWindowLayout";
 
 describe("empty library web contract", () => {
   test("pins spacing and type to the production web empty state", () => {
@@ -95,6 +97,39 @@ describe("getMobileEmptyLibraryAdaptiveLayout", () => {
       fold: { axis: "horizontal", gutter: { start: 405, end: 426 } },
     });
     expect(book).toMatchObject({ arrangement: "row", artPane: { x: 0, width: 405 }, copyPane: { x: 426, width: 441 } });
+  });
+
+  test("Duo inner landscape: art and copy split at the fold flat and half open, copy at the same x", () => {
+    // The Library page box measured on the Duo (951×669 window): x 20 (layout
+    // margin) to 867 (the 84pt trailing bar column), so its centre is not the fold.
+    const container = { x: 20, width: 847 };
+    const duo = (active: boolean): MobileWindowLayout => ({
+      width: 951, height: 669, supported: true, occlusions: [],
+      divisions: [{ id: "division-0", x: 455.5, y: 0, width: 40, height: 669, active }],
+    });
+    const hero = (active: boolean) => {
+      const gutter = mobileVerticalFoldGutterForContainer(mobileVerticalFoldBand(duo(active), MOBILE_IOS_FOLD_GUTTER), container);
+      return getMobileEmptyLibraryAdaptiveLayout({
+        width: container.width,
+        height: 560,
+        fold: gutter ? { axis: "horizontal", gutter } : null,
+      });
+    };
+    const flat = hero(false);
+    const half = hero(true);
+    expect(flat).toEqual(half);
+    expect(half).toMatchObject({ arrangement: "row", artPane: { x: 0, width: 435.5 }, copyPane: { x: 475.5, width: 371.5 } });
+    if (half.arrangement === "row") {
+      // Copy centred between the fold and the bar column, in window points.
+      expect(container.x + half.copyPane.x + half.copyPane.width / 2).toBe(681.25);
+      // Art centred left of the fold.
+      expect(container.x + half.artPane.width / 2).toBe(237.75);
+    }
+    // Without the fold the same box keeps the container-centre split (the old flat layout).
+    expect(getMobileEmptyLibraryAdaptiveLayout({ width: 847, height: 560 })).toMatchObject({
+      artPane: { x: 0, width: 412 },
+      copyPane: { x: 436 },
+    });
   });
 
   test("a zero-width Pixel Fold hinge splits art and copy with a real gutter", () => {

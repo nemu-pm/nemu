@@ -3,7 +3,12 @@ import fixture from "../../../../tests/fixtures/iphone-duo/safearea-measurements
 import { mobileAdaptiveLayout, mobileFoldSplitForContainer } from "./mobileAdaptiveLayout";
 import { getMobileEmptyLibraryAdaptiveLayout } from "./mobileEmptyLibraryLayout";
 import { mobileFoldAwareGridLayout, mobileFoldPagerLayout, mobilePaneContentRegion } from "./mobileFoldAwareGrid";
-import { MOBILE_IOS_FOLD_GUTTER, mobileRestingFoldMinGutter } from "./mobileRestingFold";
+import {
+  MOBILE_IOS_FOLD_GUTTER,
+  mobileRestingFoldMinGutter,
+  mobileVerticalFoldBand,
+  mobileVerticalFoldGutterForContainer,
+} from "./mobileRestingFold";
 import type { MobileWindowLayout } from "./mobileWindowLayout";
 
 type Measurement = (typeof fixture.measurements)[number];
@@ -47,27 +52,56 @@ describe("fold rule: book splits at the fold, fully open uses the ordinary layou
   });
 });
 
-describe("empty-state hero: unfolding releases the fold gutter", () => {
+describe("empty-state hero: the copy does not move when the Duo folds", () => {
   function heroFor(layout: MobileWindowLayout, container: typeof LANDSCAPE_CONTAINER) {
     const adaptive = mobileAdaptiveLayout(layout);
-    const fold = mobileFoldSplitForContainer(adaptive, container);
+    const split = mobileFoldSplitForContainer(adaptive, container);
+    // As EmptyLibrary: a vertical fold splits art and copy folded or flat;
+    // only the notebook (horizontal fold) split still needs the active fold.
+    const gutter = mobileVerticalFoldGutterForContainer(
+      mobileVerticalFoldBand(layout, mobileRestingFoldMinGutter("ios")),
+      container,
+    );
     return getMobileEmptyLibraryAdaptiveLayout({
       width: container.width,
       height: container.height,
       bleedWidth: container.width,
-      fold: fold ? { axis: fold.axis, gutter: fold.gutter } : null,
+      fold: gutter
+        ? { axis: "horizontal", gutter }
+        : split?.axis === "vertical"
+          ? { axis: "vertical", gutter: split.gutter }
+          : null,
     });
   }
 
   for (const orientation of ["landscape-left", "landscape-right"]) {
-    test(`book ⇄ fully open (${orientation}) restore the ordinary pane gap`, () => {
+    test(`book ⇄ fully open (${orientation}) keep the same fold split`, () => {
       const book = heroFor(measured("partially-folded", orientation), LANDSCAPE_CONTAINER);
       const flat = heroFor(measured("open", orientation), LANDSCAPE_CONTAINER);
-      expect(book.arrangement).toBe("row");
-      expect(flat).not.toEqual(book);
-      expect(flat).toMatchObject({ artPane: { x: 0, width: 422 }, copyPane: { x: 446 } });
+      expect(book).toMatchObject({ arrangement: "row", artPane: { x: 0, width: 455.5 }, copyPane: { x: 495.5, width: 371.5 } });
+      expect(flat).toEqual(book);
     });
   }
+
+  test("the band is the same folded and flat, and ignores the inactive division's width", () => {
+    const book = mobileVerticalFoldBand(measured("partially-folded", "landscape-left"), MOBILE_IOS_FOLD_GUTTER);
+    const flat = mobileVerticalFoldBand(measured("open", "landscape-left"), MOBILE_IOS_FOLD_GUTTER);
+    expect(book).toEqual({ left: 455.5, right: 495.5, active: true });
+    expect(flat).toEqual({ left: 455.5, right: 495.5, active: false });
+    // Apple: an inactive division may be reported zero-wide; only its centre counts.
+    const zeroWide: MobileWindowLayout = {
+      width: 951, height: 669, supported: true, occlusions: [],
+      divisions: [{ id: "d", x: 475.5, y: 0, width: 0, height: 669, active: false }],
+    };
+    expect(mobileVerticalFoldBand(zeroWide, MOBILE_IOS_FOLD_GUTTER)).toEqual(flat);
+  });
+
+  test("a horizontal fold (inner portrait) or a box on one side of the fold has no vertical split", () => {
+    expect(mobileVerticalFoldBand(measured("open", "portrait"), MOBILE_IOS_FOLD_GUTTER)).toBeNull();
+    const band = mobileVerticalFoldBand(measured("open", "landscape-left"), MOBILE_IOS_FOLD_GUTTER);
+    expect(mobileVerticalFoldGutterForContainer(band, { x: 495.5, width: 371.5 })).toBeNull();
+    expect(mobileVerticalFoldGutterForContainer(band, null)).toBeNull();
+  });
 
   test("without the reported division a wide flat box keeps its even split", () => {
     const flat = getMobileEmptyLibraryAdaptiveLayout({ width: 867, height: 541 });
