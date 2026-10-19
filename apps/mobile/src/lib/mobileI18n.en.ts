@@ -1309,7 +1309,7 @@ export const mobileStringsEn: MobileStrings = {
     notebookTrackpad: "Page turning pad",
     notebookShowFilmstrip: "Show filmstrip",
     notebookHideFilmstrip: "Hide filmstrip",
-    notebookClosePanel: "Close bottom panel",
+    notebookClosePanel: "Hide bottom panel",
     notebookShowPanel: "Show bottom panel",
     notebookFilmstrip: "Chapter pages",
     coverPage: "Cover page",

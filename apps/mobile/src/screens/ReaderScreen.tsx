@@ -151,6 +151,7 @@ import {
   ReaderCapsule,
 } from "@/components/reader/ReaderCapsule";
 import { ReaderBackGlyph } from "@/components/reader/ReaderBackGlyph";
+import { ReaderNotebookPanelGlyph } from "@/components/reader/ReaderNotebookPanelGlyph";
 import { ReaderDarkThemeScope } from "@/components/reader/ReaderDarkThemeScope";
 import { useReaderZoomEntry } from "@/components/reader/readerZoomEntry";
 import { ReaderMoreMenu } from "@/components/reader/ReaderMoreMenu";
@@ -8148,7 +8149,8 @@ export function ReaderScreen() {
       );
     }
     // One panel toggle in the trailing action group: lowers the sheet while it
-    // is open (down chevron), brings it back when closed (up chevron). Only
+    // is open, brings it back when closed (iOS: one panel symbol, highlighted
+    // while open; Android: down / up chevrons). Only
     // Back exits the reader, so the row never shows two ways out.
     const notebookPanelButton = readerNotebookPanelToggle ? (
       <NemuPressable
@@ -8159,10 +8161,10 @@ export function ReaderScreen() {
         pressedScale={0.98}
         style={[chromeButtonStyle, { backgroundColor: "transparent" }]}
       >
-        <Ionicons
-          name={readerNotebookPanelClosed ? MOBILE_READER_CHROME_GLYPHS.notebookPanel.name : MOBILE_READER_CHROME_GLYPHS.notebookPanelClose.name}
-          size={MOBILE_READER_CHROME_GLYPHS.notebookPanel.size}
-          color={readerNotebookPanelClosed ? readerChromeColors.secondaryText : readerChromeColors.primaryText}
+        <ReaderNotebookPanelGlyph
+          open={!readerNotebookPanelClosed}
+          primaryColor={readerChromeColors.primaryText}
+          secondaryColor={readerChromeColors.secondaryText}
         />
       </NemuPressable>
     ) : null;

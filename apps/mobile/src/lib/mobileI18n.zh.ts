@@ -1231,7 +1231,7 @@ export const mobileStringsZh: MobileStrings = {
     notebookTrackpad: "翻页触控板",
     notebookShowFilmstrip: "显示胶片条",
     notebookHideFilmstrip: "隐藏胶片条",
-    notebookClosePanel: "关闭底部面板",
+    notebookClosePanel: "收起底部面板",
     notebookShowPanel: "展开底部面板",
     notebookFilmstrip: "本章页面",
     coverPage: "封面配对",

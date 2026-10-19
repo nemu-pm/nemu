@@ -1318,7 +1318,7 @@ export const mobileStringsJa: MobileStrings = {
     notebookTrackpad: "ページめくりパッド",
     notebookShowFilmstrip: "フィルムストリップを表示",
     notebookHideFilmstrip: "フィルムストリップを隠す",
-    notebookClosePanel: "下部パネルを閉じる",
+    notebookClosePanel: "下部パネルを隠す",
     notebookShowPanel: "下部パネルを表示",
     notebookFilmstrip: "章のページ",
     coverPage: "表紙の配置",
