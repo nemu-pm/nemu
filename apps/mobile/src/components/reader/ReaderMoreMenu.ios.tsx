@@ -41,7 +41,10 @@ export function ReaderMoreMenu({
 }: ReaderMoreMenuProps) {
   return (
     <View style={styles.root} onTouchStart={onInteract}>
-      <SwiftHost colorScheme="dark" style={styles.host}>
+      {/* The circle already sits clear of the status bar and the camera; the
+          nested host must not inset the glyph again (it drew below the circle
+          where the row crosses the top safe area). */}
+      <SwiftHost colorScheme="dark" ignoreSafeArea="all" style={styles.host}>
         <SwiftMenu
           label={
             <SwiftImage

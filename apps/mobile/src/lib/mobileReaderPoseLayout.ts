@@ -126,17 +126,17 @@ export type MobileReaderChromeLayout =
       /**
        * Trailing circular "more" (⋯) button mirroring Back, so the title sits
        * between two equal pieces. Only when the actions ride the bottom row
-       * (compact width): everywhere else the actions capsule already holds
+       * (`actionsRow`): everywhere else the actions capsule already holds
        * the top row's trailing end. Null otherwise.
        */
       more: Rect | null;
       /** Trailing actions capsule (plugins, dual read, settings). */
       actions: Rect;
       /**
-       * Which row carries the actions capsule: the status-bar row (regular
-       * width, Safari), or the bottom row beside the scrubber (compact width
-       * with a hardware corner — iPhone Duo outer display — where the top
-       * row only has room for Back and the title clear of the camera).
+       * Which row carries the actions capsule: the bottom row beside the
+       * scrubber wherever the scrubber keeps its minimum width there
+       * (`mobileReaderActionsRow`: phones, the Duo inner display, tablets),
+       * else the status-bar row (a narrow book pane with several actions).
        */
       actionsRow: "top" | "bottom";
       /** Bottom scrubber capsule (previous chapter · slider · next chapter). */
@@ -201,6 +201,12 @@ export type MobileReaderPoseLayoutInput = {
   notebookPane?: MobileReaderNotebookPaneState;
   /** Icon buttons in the trailing actions capsule (capsule chrome). Default 3. */
   actionCount?: number;
+  /**
+   * Half folded like a laptop, whatever the reader lays out (the console, or
+   * the flat window once the panel is closed or in scroll mode): the actions
+   * stay in the top row's trailing group, never beside the scrubber.
+   */
+  notebookFold?: boolean;
   /**
    * The system vertical bar is in use (`mobileReaderVerticalBarPolicy`): it
    * carries Back and the actions. Full-screen outer-display pages may extend
@@ -385,6 +391,54 @@ export function mobileReaderCapsuleActionsWidth(count: number): number {
   return slots * READER_CAPSULE_ACTION_WIDTH + READER_CAPSULE_ACTIONS_PADDING * 2;
 }
 
+/** The narrowest scrubber the bottom row gives up its width to: beside it, the actions capsule. */
+export const READER_SCRUBBER_MIN_WIDTH = 200;
+
+/**
+ * Which row carries the actions capsule, from the room in the scrubber's
+ * region: the bottom row (beside the scrubber, as on phones) whenever the
+ * scrubber keeps `READER_SCRUBBER_MIN_WIDTH` there next to the capsule and
+ * its gap, the status-bar row otherwise (a narrow book pane with several
+ * actions). The room is the region less its side margins, each the safe
+ * area or the capsule edge, whichever is larger.
+ */
+export function mobileReaderActionsRow(
+  region: Rect,
+  padding: Pick<Insets, "left" | "right">,
+  actionCount: number,
+): "top" | "bottom" {
+  const room = region.width
+    - Math.max(READER_CAPSULE_EDGE, finite(padding.left))
+    - Math.max(READER_CAPSULE_EDGE, finite(padding.right));
+  const scrubberRoom = room - mobileReaderCapsuleActionsWidth(actionCount) - READER_CAPSULE_GAP;
+  return scrubberRoom >= READER_SCRUBBER_MIN_WIDTH ? "bottom" : "top";
+}
+
+/**
+ * The bottom row with the actions beside the scrubber: the scrubber takes the
+ * room the capsule leaves (at most `READER_SCRUBBER_CAPSULE_MAX_WIDTH`), and
+ * the group (scrubber, gap, actions; the actions trailing) is centred in the
+ * region, kept between `start` and `end` (its safe, unoccluded span). Where
+ * the group fills that span (phones) this is the scrubber from the leading
+ * edge and the actions at the trailing one.
+ */
+export function mobileReaderBottomRowLayout(input: {
+  region: Rect;
+  start: number;
+  end: number;
+  actionsWidth: number;
+  ltr: boolean;
+}): { scrubberX: number; scrubberWidth: number; actionsX: number } {
+  const room = Math.max(0, input.end - input.start);
+  const scrubberWidth = Math.max(0, Math.min(READER_SCRUBBER_CAPSULE_MAX_WIDTH, room - input.actionsWidth - READER_CAPSULE_GAP));
+  const group = scrubberWidth + READER_CAPSULE_GAP + input.actionsWidth;
+  const centred = input.region.x + (input.region.width - group) / 2;
+  const groupX = Math.max(input.start, Math.min(input.end - group, centred));
+  return input.ltr
+    ? { scrubberX: groupX, scrubberWidth, actionsX: groupX + scrubberWidth + READER_CAPSULE_GAP }
+    : { scrubberX: groupX + input.actionsWidth + READER_CAPSULE_GAP, scrubberWidth, actionsX: groupX };
+}
+
 /** Right edge available to the row inside `region`, left of any occlusion the row would hit. */
 function rowTrailingLimit(region: Rect, rowTop: number, height: number, occlusions: Rect[], padRight: number): number {
   let limit = region.x + region.width - Math.max(READER_CAPSULE_EDGE, padRight);
@@ -514,13 +568,24 @@ function capsuleChromeAt(input: CapsuleChromeInput, rowTop: number): Extract<Mob
     // the trailing piece (the actions, the ⋯ circle or the pane's inner
     // edge), so neither side crowds it. The capsule drawn in this slot hugs
     // its labels within `mobileReaderTitleCapsuleWidthRange`, centred in it.
-    const width = Math.min(READER_CAPSULE_TITLE_MAX_WIDTH, available);
+    let width = Math.min(READER_CAPSULE_TITLE_MAX_WIDTH, available);
     const centred = input.titleCenterX - width / 2;
     const fitsCentred = centred >= minX && centred + width <= maxX;
+    // Between Back and the ⋯: the same width reserved on both sides of
+    // `titleCenterX` (the window's centre) keeps the title on it even where
+    // the ⋯ moves in past a camera or the status island, as long as that
+    // leaves a full-label capsule.
+    const symmetric = Math.min(
+      READER_CAPSULE_TITLE_MAX_WIDTH,
+      2 * Math.min(input.titleCenterX - minX, maxX - input.titleCenterX),
+    );
+    const keepsCentre = more !== null && !titleOnly && !fitsCentred
+      && symmetric >= READER_CAPSULE_TITLE_FULL_MIN_WIDTH;
+    if (keepsCentre) width = symmetric;
     // Title only (the bar carries Back): top-leading, like a navigation title.
     const x = titleOnly
       ? ltr ? minX : maxX - width
-      : fitsCentred ? centred : minX + (available - width) / 2;
+      : fitsCentred || keepsCentre ? input.titleCenterX - width / 2 : minX + (available - width) / 2;
     // Whole points, still inside [minX, maxX] after rounding.
     const roundedWidth = Math.floor(width);
     const roundedX = Math.max(Math.ceil(minX), Math.min(Math.round(x), Math.floor(maxX - roundedWidth)));
@@ -551,19 +616,38 @@ function capsuleChromeFinish(
   const scrubberY = region.y + region.height - bottomGap - sh;
   let scrubber: Rect;
   if (bottomActions) {
-    // Compact: scrubber from the leading edge, the actions capsule at the
-    // trailing end of the same row (vertically centred on it), both clear of
-    // a camera in a bottom corner.
+    // Scrubber and the actions capsule on one row (the actions trailing,
+    // vertically centred on it), the pair centred in the region, both clear
+    // of a camera in a bottom corner (`mobileReaderBottomRowLayout`).
     const start = rowLeadingLimit(region, scrubberY, sh, occlusions, regionPad.left);
     const end = rowTrailingLimit(region, scrubberY, sh, occlusions, regionPad.right);
-    actions.y = scrubberY + (sh - h) / 2;
-    actions.x = ltr ? end - actionsWidth : start;
-    const scrubberStart = ltr ? start : start + actionsWidth + READER_CAPSULE_GAP;
-    const scrubberEnd = ltr ? end - actionsWidth - READER_CAPSULE_GAP : end;
+    const clear = mobileReaderBottomRowLayout({ region, start, end, actionsWidth, ltr });
+    // Where dodging a running camera sideways would starve the scrubber (a
+    // book pane, inner landscape-right), keep the full row and lift it above
+    // the camera instead, as the scrubber alone does.
+    const lift = clear.scrubberWidth < READER_SCRUBBER_MIN_WIDTH;
+    const row = lift
+      ? mobileReaderBottomRowLayout({
+          region,
+          start: region.x + Math.max(READER_CAPSULE_EDGE, regionPad.left),
+          end: region.x + region.width - Math.max(READER_CAPSULE_EDGE, regionPad.right),
+          actionsWidth,
+          ltr,
+        })
+      : clear;
+    let rowY = scrubberY;
+    if (lift) {
+      const band: Rect = { x: region.x, y: scrubberY, width: region.width, height: sh };
+      for (const rect of occlusions) {
+        if (intersects(band, rect)) rowY = Math.min(rowY, rect.y - READER_CAPSULE_GAP / 2 - sh);
+      }
+    }
+    actions.y = rowY + (sh - h) / 2;
+    actions.x = row.actionsX;
     scrubber = {
-      x: Math.round(scrubberStart),
-      y: scrubberY,
-      width: Math.round(Math.max(0, Math.min(READER_SCRUBBER_CAPSULE_MAX_WIDTH, scrubberEnd - scrubberStart))),
+      x: Math.round(row.scrubberX),
+      y: rowY,
+      width: Math.round(row.scrubberWidth),
       height: sh,
     };
   } else {
@@ -957,6 +1041,11 @@ export function mobileReaderPoseLayout(input: MobileReaderPoseLayoutInput): Mobi
       leadingSide,
       actionCount: input.actionCount ?? 3,
       titleCenterX: panes[leadingIndex].x + panes[leadingIndex].width / 2,
+      // With room beside the scrubber the actions join it in the
+      // reading-start pane and the ⋯ ends the leading pane's row.
+      actionsRow: input.sideBar
+        ? undefined
+        : mobileReaderActionsRow(panes[startIndex], mobileReaderSafePadding(panes[startIndex], bounds, insets), input.actionCount ?? 3),
       titleOnly: input.sideBar === true,
     });
     return {
@@ -1034,7 +1123,18 @@ export function mobileReaderPoseLayout(input: MobileReaderPoseLayoutInput): Mobi
     leadingSide,
     actionCount: input.actionCount ?? 3,
     titleCenterX: chromeStage.x + chromeStage.width / 2,
-    actionsRow: adaptive.widthClass === "compact" ? "bottom" : "top",
+    // Compact width keeps the actions on the bottom row. Regular width puts
+    // them there too wherever the scrubber keeps its minimum width beside
+    // them (the Duo inner display, tablets). The system bar (outer display)
+    // carries them itself: its row choice is unchanged.
+    // Laptop pose keeps them on top with the panel closed too.
+    actionsRow: input.notebookFold
+      ? "top"
+      : adaptive.widthClass === "compact"
+        ? "bottom"
+        : input.sideBar
+          ? "top"
+          : mobileReaderActionsRow(chromeStage, mobileReaderSafePadding(chromeStage, bounds, insets), input.actionCount ?? 3),
     titleOnly: input.sideBar === true,
   });
   if (input.sideBar && chrome.title) {

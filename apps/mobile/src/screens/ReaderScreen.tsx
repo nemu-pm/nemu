@@ -2395,10 +2395,13 @@ export function ReaderScreen() {
         notebookPane: readerNotebookPane,
         actionCount,
         sideBar: readerSideBar,
+        // Laptop pose: the actions stay on top with the panel closed too.
+        notebookFold: readerNotebookFold,
         sheetSide,
       }),
     [
       readerSheetSide,
+      readerNotebookFold,
       readerPageAspectRatio,
       readerAvoidCamera,
       readerSideBar,
@@ -7808,6 +7811,7 @@ export function ReaderScreen() {
         <Text
           accessibilityLabel={[mangaTitle, chapterTitle, readerTopPageCountLabel].filter(Boolean).join(", ")}
           numberOfLines={1}
+          maxFontSizeMultiplier={READER_CAPSULE_TITLE_MAX_FONT_SCALE}
           style={[styles.readerCapsuleTitle, { color: READER_CAPSULE_COLORS.primaryText, fontVariant: ["tabular-nums"] }]}
         >
           {readerTopPageCountLabel}
@@ -7817,6 +7821,7 @@ export function ReaderScreen() {
       <View style={styles.readerCapsuleTitleBlock}>
         <Text
           numberOfLines={1}
+          maxFontSizeMultiplier={READER_CAPSULE_TITLE_MAX_FONT_SCALE}
           style={[styles.readerCapsuleTitle, { color: READER_CAPSULE_COLORS.primaryText }]}
         >
           {capsuleLabels.title}
@@ -7832,7 +7837,10 @@ export function ReaderScreen() {
           ) : null}
           <Text
             numberOfLines={1}
-            style={[styles.readerCapsuleSubtitle, { color: READER_CAPSULE_COLORS.secondaryText }]}
+            maxFontSizeMultiplier={READER_CAPSULE_TITLE_MAX_FONT_SCALE}
+            // Both lines in the primary colour, as a system photo viewer's
+            // title: size and weight carry the hierarchy.
+            style={[styles.readerCapsuleSubtitle, { color: READER_CAPSULE_COLORS.primaryText }]}
           >
             {capsuleLabels.subtitle}
           </Text>
@@ -9443,6 +9451,9 @@ export function ReaderScreen() {
 const READER_SCRUBBER_LEADING_BUTTON_HIT_SLOP = { top: 6, bottom: 6, left: 6, right: 0 } as const;
 const READER_SCRUBBER_TRAILING_BUTTON_HIT_SLOP = { top: 6, bottom: 6, left: 0, right: 6 } as const;
 
+/** The title lines grow with Dynamic Type only so far (about 19pt at AX5), so both fit the 48pt capsule. */
+const READER_CAPSULE_TITLE_MAX_FONT_SCALE = 1.25;
+
 const styles = StyleSheet.create({
   root: {
     flex: 1,
@@ -9538,7 +9549,7 @@ const styles = StyleSheet.create({
   readerTitleCapsule: {
     height: READER_CAPSULE_HEIGHT,
     justifyContent: "center",
-    paddingHorizontal: 18,
+    paddingHorizontal: 24,
   },
   readerCapsuleTitleBlock: {
     alignItems: "center",
@@ -9547,8 +9558,8 @@ const styles = StyleSheet.create({
   },
   readerCapsuleTitle: {
     maxWidth: "100%",
-    fontSize: 13,
-    lineHeight: 16,
+    fontSize: 15,
+    lineHeight: 18,
     fontWeight: nemuFontWeight.semibold,
     textAlign: "center",
   },
