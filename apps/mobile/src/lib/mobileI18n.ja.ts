@@ -22,6 +22,7 @@ export const mobileStringsJa: MobileStrings = {
   common: {
     add: "追加",
     back: "戻る",
+    backTo: "{{title}}に戻る",
     cancel: "キャンセル",
     clear: "クリア",
     collapse: "折りたたむ",

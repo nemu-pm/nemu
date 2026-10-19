@@ -22,6 +22,7 @@ export const mobileStringsEn: MobileStrings = {
   common: {
     add: "Add",
     back: "Back",
+    backTo: "Back to {{title}}",
     cancel: "Cancel",
     clear: "Clear",
     collapse: "Collapse",

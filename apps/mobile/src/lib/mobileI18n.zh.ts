@@ -22,6 +22,7 @@ export const mobileStringsZh: MobileStrings = {
   common: {
     add: "添加",
     back: "返回",
+    backTo: "返回{{title}}",
     cancel: "取消",
     clear: "清除",
     collapse: "收起",

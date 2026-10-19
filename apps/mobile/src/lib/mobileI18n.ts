@@ -17,6 +17,8 @@ export type MobileStrings = {
   common: {
     add: string;
     back: string;
+    /** A back button that names where it goes back to; `{{title}}`. */
+    backTo: string;
     cancel: string;
     clear: string;
     collapse: string;
