@@ -2082,14 +2082,28 @@ export function BrowseScreen() {
                       onPress={() => setServerPickerOpen(true)}
                       accessibilityLabel={strings.selfHosted.connectServer}
                       pressHighlight
-                      style={styles.serverEntry}
+                      style={[
+                        styles.serverEntry,
+                        { backgroundColor: sheetTokens.card, borderColor: sheetTokens.border },
+                      ]}
                     >
+                      {/* The servers stack into a source row's 44pt icon slot, each
+                          ringed in the card colour so the overlaps read as tiles. */}
                       <View style={styles.serverEntryIcons}>
-                        {SELF_HOSTED_SETUP_KINDS.map((kind) => (
-                          <ServerIconImage key={kind} source={SERVER_ICONS[kind]} style={styles.serverEntryIcon} resizeMode="contain" />
+                        {SELF_HOSTED_SETUP_KINDS.map((kind, index) => (
+                          <View
+                            key={kind}
+                            style={[
+                              styles.serverEntryIconRing,
+                              kind === "suwayomi" ? styles.serverEntryIconRingRound : null,
+                              { left: index * 10 - 1.5, borderColor: sheetTokens.card },
+                            ]}
+                          >
+                            <ServerIconImage source={SERVER_ICONS[kind]} style={styles.serverEntryIcon} resizeMode="contain" />
+                          </View>
                         ))}
                       </View>
-                      <Text style={[styles.serverEntryLabel, { color: sheetTokens.foreground }]}>{strings.selfHosted.connectServer}</Text>
+                      <Text numberOfLines={1} style={[styles.serverEntryLabel, { color: sheetTokens.foreground }]}>{strings.selfHosted.connectServer}</Text>
                       <Ionicons name="chevron-forward" size={16} color={sheetTokens.mutedForeground} />
                     </NemuPressable>
                   ) : undefined}
@@ -2278,10 +2292,36 @@ const styles = StyleSheet.create({
     gap: 26,
   },
   serverPicker: { gap: 12, paddingTop: 12, paddingBottom: 24 },
-  serverEntry: { minHeight: 52, flexDirection: "row", alignItems: "center", gap: 12, paddingBottom: 12 },
-  serverEntryIcons: { flexDirection: "row", gap: 3 },
-  serverEntryIcon: { width: 24, height: 24, borderRadius: 6 },
-  serverEntryLabel: { flex: 1, fontSize: 15 },
+  // A source row's card and columns (`availableShell`, `availableRow`), so
+  // icons, label and chevron line up with the rows below.
+  serverEntry: {
+    height: 56,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 12,
+    borderRadius: radius.xl,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: "hidden",
+    // The gap between language groups (`availableSectionSeparator`): the
+    // first header belongs to the rows beneath it, not to this card.
+    marginBottom: 18,
+  },
+  serverEntryIcons: { width: 44, height: 24 },
+  // The ring sits outside the 24pt icon, as a shadow ring would.
+  serverEntryIconRing: {
+    position: "absolute",
+    top: -1.5,
+    width: 27,
+    height: 27,
+    borderRadius: 7.5,
+    borderWidth: 1.5,
+    overflow: "hidden",
+  },
+  // Suwayomi's mark is a circle.
+  serverEntryIconRingRound: { borderRadius: 13.5 },
+  serverEntryIcon: { width: 24, height: 24 },
+  serverEntryLabel: { flex: 1, fontSize: 15, fontWeight: nemuFontWeight.medium },
   addSourceSheetBody: {
     flex: 1,
     minHeight: 0,
