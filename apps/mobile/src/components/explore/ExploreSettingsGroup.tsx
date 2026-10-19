@@ -1,4 +1,4 @@
-import { MOBILE_EXPLORE_GROUP_SHAPE } from "@/lib/mobileExploreRadius";
+import { MOBILE_EXPLORE_GROUP_SHAPE, MOBILE_SETTINGS_GROUP_INSET } from "@/lib/mobileExploreRadius";
 import { Fragment, type ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -109,7 +109,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    paddingHorizontal: 14,
+    paddingHorizontal: MOBILE_SETTINGS_GROUP_INSET,
     paddingVertical: 8,
   },
   title: {
@@ -124,6 +124,6 @@ const styles = StyleSheet.create({
   },
   separator: {
     height: StyleSheet.hairlineWidth,
-    marginLeft: 14 + MOBILE_SETTINGS_GLYPH.box + 12,
+    marginLeft: MOBILE_SETTINGS_GROUP_INSET + MOBILE_SETTINGS_GLYPH.box + 12,
   },
 });

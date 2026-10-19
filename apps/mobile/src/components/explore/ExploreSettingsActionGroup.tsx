@@ -1,4 +1,4 @@
-import { MOBILE_EXPLORE_GROUP_SHAPE } from "@/lib/mobileExploreRadius";
+import { MOBILE_EXPLORE_GROUP_SHAPE, MOBILE_SETTINGS_GROUP_INSET } from "@/lib/mobileExploreRadius";
 import { Fragment } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { nemuFontWeight, NemuPressable, NemuText, useNemuTheme } from "@/design-system";
@@ -91,7 +91,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    paddingHorizontal: 16,
+    paddingHorizontal: MOBILE_SETTINGS_GROUP_INSET,
     paddingVertical: 10,
   },
   disabled: {
@@ -109,9 +109,9 @@ const styles = StyleSheet.create({
   },
   separator: {
     height: StyleSheet.hairlineWidth,
-    marginLeft: 16,
+    marginLeft: MOBILE_SETTINGS_GROUP_INSET,
   },
   footer: {
-    paddingHorizontal: 16,
+    paddingHorizontal: MOBILE_SETTINGS_GROUP_INSET,
   },
 });

@@ -22,7 +22,7 @@ import { getMobileReaderPageListCacheStats } from "@/sources/mobileReaderPageLis
 import { useSkeletonPulse } from "@/lib/useSkeletonPulse";
 import { formatMobileInteger } from "@/lib/mobileLocaleFormat";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
-import { MOBILE_EXPLORE_GROUP_SHAPE } from "@/lib/mobileExploreRadius";
+import { MOBILE_EXPLORE_GROUP_SHAPE, MOBILE_SETTINGS_GROUP_INSET } from "@/lib/mobileExploreRadius";
 import { ExploreSettingsActionGroup } from "@/components/explore/ExploreSettingsActionGroup";
 
 /** Proportion-bar segments, in the mock's order: covers → pages → packages → other. */
@@ -378,6 +378,8 @@ export function MobileStorageBreakdown({
   );
 }
 
+const LEGEND_SWATCH = 8;
+
 const styles = StyleSheet.create({
   bar: {
     height: 8,
@@ -392,15 +394,16 @@ const styles = StyleSheet.create({
     gap: 14,
     marginTop: 6,
   },
+  // A label starts on the group inset, level with the rows' text below.
   legendItem: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
+    gap: MOBILE_SETTINGS_GROUP_INSET - LEGEND_SWATCH,
   },
   legendSwatch: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: LEGEND_SWATCH,
+    height: LEGEND_SWATCH,
+    borderRadius: LEGEND_SWATCH / 2,
   },
   legendLabel: {
     fontSize: 11,
@@ -410,7 +413,7 @@ const styles = StyleSheet.create({
     marginTop: 14,
     borderRadius: radius.xl,
     borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 14,
+    paddingHorizontal: MOBILE_SETTINGS_GROUP_INSET,
   },
   exploreCard: MOBILE_EXPLORE_GROUP_SHAPE,
   exploreActions: {

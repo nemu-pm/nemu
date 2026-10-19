@@ -17,7 +17,7 @@ import { readMobileDesignExploreStored, writeMobileDesignExploreStored } from "@
 import { isMobileDesignExploreSwitchAvailable } from "@/lib/mobileDesignExploreSwitch";
 import { reloadAppAsync } from "expo";
 import { formatMobileLanguageDisplayName } from "@/lib/mobileLanguageSettings";
-import { MOBILE_EXPLORE_GROUP_SHAPE } from "@/lib/mobileExploreRadius";
+import { MOBILE_EXPLORE_GROUP_SHAPE, MOBILE_SETTINGS_GROUP_INSET } from "@/lib/mobileExploreRadius";
 import { isMobileSettingsHeadingRepeat } from "@/lib/mobileSettingsHeading";
 import {
   AccessibilityInfo,
@@ -128,7 +128,6 @@ import {
   PageListScaffold,
   radius,
   renderNemuNativeToolbarButtons,
-  spacing,
   useMobileNativeSheetTheme,
   useMobilePageGutters,
   useNemuRowHighlight,
@@ -941,7 +940,9 @@ function SettingsGroupHeader({
   }
   return (
     <View style={styles.readerHeader}>
-      <ExploreSettingsGlyph name={icon} />
+      <View style={styles.exploreHeaderGlyph}>
+        <ExploreSettingsGlyph name={icon} />
+      </View>
       <View style={styles.rowText}>
         <NemuText accessibilityRole="header" style={[styles.rowTitle, { color: tokens.foreground }]}>
           {title}
@@ -1279,7 +1280,7 @@ function FeedbackSettingRow({
   title: string;
   subtitle: string;
   first?: boolean;
-  /** The row sits under a card heading with a glyph: it takes the glyph's inset. */
+  /** The row sits under a card heading with a glyph: it bleeds to the card's trailing edge (`exploreSwitchRows`). */
   underHeading?: boolean;
   value: boolean;
   onToggle: (nextValue: boolean) => void;
@@ -1766,7 +1767,7 @@ function MobileFeedbackSettingsCard() {
         description={strings.settings.feedbackSectionDescription}
       />
       <View
-        style={[styles.dataActions, mobileDesignExploreFlag ? styles.exploreInnerRows : null]}
+        style={[styles.dataActions, mobileDesignExploreFlag ? [styles.exploreInnerRows, styles.exploreSwitchRows] : null]}
         testID="FeedbackSettingsCard"
       >
         <FeedbackSettingRow
@@ -4637,7 +4638,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   directoryRows: {
-    paddingHorizontal: 14,
+    paddingHorizontal: MOBILE_SETTINGS_GROUP_INSET,
   },
   rowShell: {
     minHeight: 68,
@@ -4645,15 +4646,18 @@ const styles = StyleSheet.create({
   },
   readerRow: {
     gap: 12,
-    padding: 12,
+    paddingHorizontal: MOBILE_SETTINGS_GROUP_INSET,
+    paddingVertical: 12,
   },
   appearanceRow: {
     gap: 14,
-    padding: 12,
+    paddingHorizontal: MOBILE_SETTINGS_GROUP_INSET,
+    paddingVertical: 12,
   },
   dataManagementCard: {
     gap: 12,
-    padding: 12,
+    paddingHorizontal: MOBILE_SETTINGS_GROUP_INSET,
+    paddingVertical: 12,
   },
   aboutShell: {
     minHeight: 50,
@@ -4693,17 +4697,27 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 0,
   },
-  // Design-explore: one inset down a card of switches. Inside the card's 12pt
-  // padding, a switch row's title and switch sit where the heading's glyph is
-  // drawn (its box centres a narrower glyph), as in the Settings list.
-  exploreSwitchRow: {
-    paddingHorizontal: (MOBILE_SETTINGS_GLYPH.box - MOBILE_SETTINGS_GLYPH.size) / 2,
+  // Design-explore: one inset down a card of switches. The rows bleed to the
+  // card's trailing edge, so a row's hairline runs from its title to the
+  // group's edge (as in the Settings list); the title starts on the card's
+  // inset, where the heading's glyph is drawn, and the switch ends on it.
+  exploreSwitchRows: {
+    marginRight: -MOBILE_SETTINGS_GROUP_INSET,
   },
-  // The plugin list bleeds to the card edge: its icons start on that inset
-  // and its chevron's glyph (not its box) ends on it, level with the switches.
+  exploreSwitchRow: {
+    paddingLeft: 0,
+    paddingRight: MOBILE_SETTINGS_GROUP_INSET,
+  },
+  // The plugin list bleeds to the card edge: its icons start on the group's
+  // inset and its chevron ends on it, as the switches of the cards around it.
   explorePluginEmbeddedRow: {
-    paddingLeft: 12 + (MOBILE_SETTINGS_GLYPH.box - MOBILE_SETTINGS_GLYPH.size) / 2,
-    paddingRight: 11,
+    paddingLeft: MOBILE_SETTINGS_GROUP_INSET,
+    paddingRight: MOBILE_SETTINGS_GROUP_INSET,
+  },
+  // The heading's glyph is drawn (not its box) on the group's inset; the
+  // title keeps its column after the box.
+  exploreHeaderGlyph: {
+    marginLeft: -(MOBILE_SETTINGS_GLYPH.box - MOBILE_SETTINGS_GLYPH.size) / 2,
   },
   exploreInnerRowFirst: {
     borderTopWidth: 0,
@@ -4808,7 +4822,7 @@ const styles = StyleSheet.create({
     minHeight: 34,
   },
   sourceList: {
-    marginHorizontal: -12,
+    marginHorizontal: -MOBILE_SETTINGS_GROUP_INSET,
     marginBottom: -8,
   },
   sourceSectionShell: {
@@ -4816,17 +4830,19 @@ const styles = StyleSheet.create({
   },
   sourceSectionCard: {
     gap: 10,
-    padding: 12,
+    paddingHorizontal: MOBILE_SETTINGS_GROUP_INSET,
+    paddingVertical: 12,
   },
   pluginSectionShell: {
     borderRadius: radius.lg,
   },
   pluginSectionCard: {
     gap: 10,
-    padding: 12,
+    paddingHorizontal: MOBILE_SETTINGS_GROUP_INSET,
+    paddingVertical: 12,
   },
   pluginEmbeddedList: {
-    marginHorizontal: -12,
+    marginHorizontal: -MOBILE_SETTINGS_GROUP_INSET,
     marginBottom: -8,
   },
   pluginEmbeddedRow: {
@@ -4865,7 +4881,7 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     // One inset on both edges, the card header's: the switch's trailing edge
     // lines up with the Add button above it.
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: MOBILE_SETTINGS_GROUP_INSET,
     paddingVertical: 10,
   },
   sourceMainContainer: {
@@ -4945,7 +4961,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    padding: 16,
+    paddingHorizontal: MOBILE_SETTINGS_GROUP_INSET,
+    paddingVertical: 16,
   },
   emptyText: {
     flex: 1,
