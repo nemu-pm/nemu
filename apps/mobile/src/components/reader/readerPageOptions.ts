@@ -20,6 +20,18 @@ export function readerSpreadModeLabel(mode: ReaderSpreadMode, strings: MobileStr
   }
 }
 
+/** The note under the page layout choice: what the chosen option does. */
+export function readerSpreadModeFootnote(mode: ReaderSpreadMode, strings: MobileStrings): string {
+  switch (mode) {
+    case "single":
+      return strings.reader.pageLayoutFootnoteSingle;
+    case "double":
+      return strings.reader.pageLayoutFootnoteDouble;
+    default:
+      return strings.reader.pageLayoutFootnoteAuto;
+  }
+}
+
 export function readerSpreadPairingLabel(pairing: MobileReaderSpreadPairing, strings: MobileStrings): string {
   switch (pairing) {
     case "cover-alone":

@@ -41,6 +41,7 @@ import {
   READER_FIT_MODE_ORDER,
   READER_SPREAD_MODE_ORDER,
   readerFitModeLabel,
+  readerSpreadModeFootnote,
   readerSpreadModeLabel,
   readerPageBackgroundLabel,
   readerSpreadPairingLabel,
@@ -379,7 +380,7 @@ export function ReaderDisplaySettingsPopover({
               <ReaderSettingRow
                 icon="book-outline"
                 title={strings.reader.pageLayout}
-                description={strings.reader.pageLayoutFootnote}
+                description={readerSpreadModeFootnote(spreadMode, strings)}
                 below={
                   <View style={styles.settingControlBlock}>
                     <ReaderSegmentedChipRow<ReaderSpreadMode>

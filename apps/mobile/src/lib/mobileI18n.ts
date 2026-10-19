@@ -675,8 +675,10 @@ export type MobileStrings = {
     pageLayoutSingle: string;
     pageLayoutDouble: string;
     pageLayoutAuto: string;
-    /** Footer under the page layout choice (what Automatic does). */
-    pageLayoutFootnote: string;
+    /** Footer under the page layout choice: what the chosen option does. */
+    pageLayoutFootnoteSingle: string;
+    pageLayoutFootnoteDouble: string;
+    pageLayoutFootnoteAuto: string;
     /** Group header for the outer display's settings. */
     outerDisplayMode: string;
     avoidCamera: string;

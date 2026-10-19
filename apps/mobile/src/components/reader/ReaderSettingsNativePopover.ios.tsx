@@ -73,6 +73,7 @@ import {
   READER_FIT_MODE_ORDER,
   READER_SPREAD_MODE_ORDER,
   readerFitModeLabel,
+  readerSpreadModeFootnote,
   readerSpreadModeLabel,
   readerPageBackgroundLabel,
   readerPageTurnLabel,
@@ -284,7 +285,7 @@ export function ReaderSettingsNativePopover({
           </SwiftSection>
         ) : null}
         {twoPageSupported ? (
-          <SwiftSection footer={<SwiftText>{strings.reader.pageLayoutFootnote}</SwiftText>}>
+          <SwiftSection footer={<SwiftText>{readerSpreadModeFootnote(spreadMode, strings)}</SwiftText>}>
             <SwiftPicker
               label={strings.reader.pageLayout}
               systemImage="rectangle.split.2x1"
