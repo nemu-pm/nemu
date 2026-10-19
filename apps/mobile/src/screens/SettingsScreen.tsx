@@ -4170,13 +4170,12 @@ function SettingsScreenContent({
         <Stack.Screen
           options={{
             title: presentation === "list-pane" ? strings.nav.settings : settingsTitle,
-            ...(onBarTitleCenter
-              ? {
-                  headerTitle: () => (
-                    <SettingsBarTitleProbe revision={barTitleRevision} onCenter={onBarTitleCenter} />
-                  ),
-                }
-              : null),
+            // Always set, so leaving the split (a Duo rotated back to
+            // portrait) clears the probe: `setOptions` merges, and a probe
+            // left over from the split hid the bar's own title.
+            headerTitle: onBarTitleCenter
+              ? () => <SettingsBarTitleProbe revision={barTitleRevision} onCenter={onBarTitleCenter} />
+              : undefined,
           }}
         />
       )}
