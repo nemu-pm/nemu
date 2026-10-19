@@ -859,6 +859,17 @@ export function SearchScreen() {
   );
   const pose = useMobilePoseTransition();
   const poseLayout = useMobilePoseLayout();
+  // The results pane is the one view that lives through a single ↔ split
+  // switch, and that switch moves its left edge (0 → the sidebar's width).
+  // Sprung, that move can stop part-way when the tab is off screen during a
+  // rotation, leaving the pane drawn over the sidebar while its layout is
+  // right. It takes the new frame at once on that switch, and springs only
+  // between two splits (a fold).
+  const wasSplitRef = useRef(split !== null);
+  const resultsPaneSprings = split !== null && wasSplitRef.current;
+  useEffect(() => {
+    wasSplitRef.current = split !== null;
+  });
 
   const sources = useMemo(
     () =>
@@ -2017,7 +2028,7 @@ export function SearchScreen() {
       ) : null}
       <Animated.View
         key="results"
-        layout={poseLayout}
+        layout={resultsPaneSprings ? poseLayout : undefined}
         style={split ? [styles.pane, { width: split.trailing.width }] : styles.fill}
       >
       {resultsList}
