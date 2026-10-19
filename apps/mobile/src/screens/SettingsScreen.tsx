@@ -4341,8 +4341,13 @@ export function SettingsScreen({
                 title: settingsSectionTitle(strings, detailSection),
                 ...split.trailing,
                 ...padding.trailing,
-                // Installed Sources puts its Add button in the bar.
-                trailingItems: detailSection === "sources" ? 1 : 0,
+                // Installed Sources and Source Directories put their Add
+                // button in the bar.
+                trailingItems:
+                  detailSection === "sources" ||
+                  (detailSection === "directories" && mobileSourceDirectoryPromptAvailable)
+                    ? 1
+                    : 0,
               },
             ]}
           />
