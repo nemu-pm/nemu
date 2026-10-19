@@ -8,10 +8,32 @@ import {
   useFocusEffect,
   useLocalSearchParams,
 } from "expo-router";
-import { type FlatList, type NativeScrollEvent, type NativeSyntheticEvent, Platform, type ListRenderItemInfo } from "react-native";
+import { type FlatList, type NativeScrollEvent, type NativeSyntheticEvent, Platform, Share, type ListRenderItemInfo } from "react-native";
+import * as Clipboard from "expo-clipboard";
 import { useSharedValue, withTiming } from "react-native-reanimated";
 import { getMobileExploreBarTitleShown, MOBILE_EXPLORE_BAR_TITLE_FADE_MS } from "@/lib/mobileExploreBarTitle";
 import { EmptyLibrary } from "@/components/EmptyLibrary";
+import { useMobileToast } from "@/components/MobileToastContext";
+import {
+  buildMobileChapterReadMarks,
+  buildMobileChapterUnreadMarks,
+  resolveMobileShareUrl,
+  selectMobileChapterProgressToMarkUnread,
+  selectMobileChaptersToMarkRead,
+  type MobileChapterReadMarks,
+  type MobileChapterReadMarkScope,
+  type MobileChapterUnreadMarkScope,
+} from "@/lib/mobileChapterReadMarks";
+import { renderExploreDetailBarMenu } from "@/components/explore/ExploreDetailBarMenu";
+import { MobileMetadataEditorSheet } from "@/components/MobileMetadataEditorSheet";
+import { MobileSourceManagerSheet } from "@/components/MobileSourceManagerSheet";
+import { getMobileMetadataEditorSaveResultAction } from "@/lib/mobileMetadataEditorBackBehavior";
+import {
+  buildMobileMetadataEditedItem,
+  type MobileMetadataFormValues,
+} from "@/lib/mobileMetadataOverrides";
+import { sortMobileSourceLinks } from "@/lib/mobileSourceLinks";
+import { withMobileSourceOperationTimeout } from "@/sources/mobileSourceOperationTimeout";
 import { MobileNemuAgentSheet } from "@/components/MobileNemuAgentSheet";
 import { MobileCollectionMembershipSheet } from "@/components/MobileCollectionMembershipSheet";
 import { MobileConfirmationSheet } from "@/components/MobileConfirmationSheet";
@@ -74,6 +96,7 @@ import {
 import {
   PageScaffold,
   createNemuSoftEdgeScreenOptions,
+  type NemuNativeHeaderAction,
   renderNemuNativeToolbarButtons,
   useNemuTheme,
 } from "@/design-system";
@@ -168,6 +191,7 @@ import {
 } from "@/sources/mobileReaderPagesPrefetch";
 import {
   refreshMobileSourceDetails,
+  refreshMobileSourceMetadata,
   resolveMobileSourceMangaMetadataTitle,
   type MobileSourceDetailsRefresh,
 } from "@/sources/mobileSourceDetails";
@@ -375,6 +399,15 @@ export function SourceMangaScreen() {
   const [collectionSheetPresentation, setCollectionSheetPresentation] =
     useState<{ libraryItemId: string; title: string } | null>(null);
   const [libraryOptionsOpen, setLibraryOptionsOpen] = useState(false);
+  // The ··· menu's editors, as on the library title page.
+  const [metadataEditorOpen, setMetadataEditorOpen] = useState(false);
+  const [metadataEditorPresentation, setMetadataEditorPresentation] =
+    useState<LibraryEntry | null>(null);
+  const [savingMetadata, setSavingMetadata] = useState(false);
+  const savingMetadataRef = useRef(false);
+  const [sourceManagerOpen, setSourceManagerOpen] = useState(false);
+  const [sourceManagerPresentation, setSourceManagerPresentation] =
+    useState<LibraryEntry | null>(null);
   const [libraryOptionsPresentationMode, setLibraryOptionsPresentationMode] =
     useState<"add" | "in-library" | null>(null);
   const libraryOptionsNextSheetRef = useRef<
@@ -1169,11 +1202,121 @@ export function SourceMangaScreen() {
   );
   const upNextChapterId =
     upNextChapterIndex !== null ? (visibleChapters[upNextChapterIndex]?.id ?? null) : null;
+  // The library title page's chapter and ··· actions: read marks go through
+  // the synced store as reading does (`mobileChapterReadMarks.ts`), on the
+  // library's link for this source when the title is in the library.
+  const markSource = useMemo(
+    () =>
+      librarySource ??
+      sourceLinkReference(routeRef.registryId, routeRef.sourceId, mangaId),
+    [librarySource, mangaId, routeRef.registryId, routeRef.sourceId],
+  );
+  const saveChapterMarks = useCallback(
+    async (marks: MobileChapterReadMarks) => {
+      if (marks.chapterProgress.length === 0) return;
+      try {
+        await store.saveChapterProgressBatch(marks.chapterProgress);
+        if (marks.mangaProgress) await store.saveMangaProgress(marks.mangaProgress);
+        const next = await reloadLocalState({ includeInstalledSource: true });
+        setLocalState((current) => ({
+          ...current,
+          mangaProgress: next.mangaProgress,
+          chapterProgress: next.chapterProgress,
+        }));
+        emitMobileDataChanged("progress");
+        await hapticConfirm();
+      } catch {
+        await hapticError();
+      }
+    },
+    [reloadLocalState, store],
+  );
+  const markChaptersRead = useCallback(
+    async (scope: MobileChapterReadMarkScope) => {
+      await saveChapterMarks(
+        buildMobileChapterReadMarks({
+          marked: selectMobileChaptersToMarkRead(chapters, localState.chapterProgress, scope),
+          chapters,
+          progressById: localState.chapterProgress,
+          source: markSource,
+          libraryItemId: localState.libraryEntry?.item.libraryItemId,
+          mangaProgress: localState.mangaProgress,
+          now: Date.now(),
+        }),
+      );
+    },
+    [
+      chapters,
+      localState.chapterProgress,
+      localState.libraryEntry?.item.libraryItemId,
+      localState.mangaProgress,
+      markSource,
+      saveChapterMarks,
+    ],
+  );
+  const markChaptersUnread = useCallback(
+    async (scope: MobileChapterUnreadMarkScope) => {
+      await saveChapterMarks(
+        buildMobileChapterUnreadMarks({
+          marked: selectMobileChapterProgressToMarkUnread(chapters, localState.chapterProgress, scope),
+          progressById: localState.chapterProgress,
+          mangaProgress: localState.mangaProgress,
+        }),
+      );
+    },
+    [chapters, localState.chapterProgress, localState.mangaProgress, saveChapterMarks],
+  );
+  const hasChapterReading = useMemo(
+    () =>
+      selectMobileChapterProgressToMarkUnread(chapters, localState.chapterProgress, { kind: "all" })
+        .length > 0,
+    [chapters, localState.chapterProgress],
+  );
+  const toast = useMobileToast();
+  const shareLink = useCallback(async (url: string | null) => {
+    if (!url) return;
+    try {
+      await Share.share(Platform.OS === "ios" ? { url } : { message: url });
+    } catch {
+      await hapticError();
+    }
+  }, []);
+  const copyLink = useCallback(
+    async (url: string | null) => {
+      if (!url) return;
+      try {
+        await Clipboard.setStringAsync(url);
+        toast.show({ id: "detail-copy-link", tone: "success", title: strings.designExplore.menuLinkCopied });
+      } catch {
+        await hapticError();
+      }
+    },
+    [strings.designExplore.menuLinkCopied, toast],
+  );
+  const workUrl = resolveMobileShareUrl(metadata?.url);
   const onExploreChapterAction = useCallback(
     (chapter: ChapterSummary, action: MobileExploreChapterAction) => {
-      openReader(chapter, action === "start" ? 1 : undefined);
+      switch (action) {
+        case "markRead":
+          void markChaptersRead({ kind: "chapter", chapterId: chapter.id });
+          return;
+        case "markUnread":
+          void markChaptersUnread({ kind: "chapter", chapterId: chapter.id });
+          return;
+        case "markPreviousRead":
+          void markChaptersRead({ kind: "previous", chapterId: chapter.id });
+          return;
+        case "share":
+          void shareLink(resolveMobileShareUrl(chapter.url));
+          return;
+        case "copyLink":
+          void copyLink(resolveMobileShareUrl(chapter.url));
+          return;
+        default:
+          openReader(chapter, action === "start" ? 1 : undefined);
+      }
     },
-    [openReader],
+    [copyLink, markChaptersRead, markChaptersUnread, openReader, shareLink],
   );
   const renderExploreChapterRow = useCallback(
     ({ item }: ListRenderItemInfo<MobileChapterRow>) => {
@@ -1189,6 +1332,7 @@ export function SourceMangaScreen() {
           busy={readerActionBusy}
           strings={strings}
           onAction={onExploreChapterAction}
+          moreActions
         />
       );
     },
@@ -1430,6 +1574,210 @@ export function SourceMangaScreen() {
     }
   }, [localState.libraryEntry, store, strings.sourceManga.actionFailedDetail]);
 
+  // The library title page's ··· editors, on this page's library record.
+  const detailActionBusy = adding || removing || openingReader || savingMetadata;
+  const librarySources = useMemo(
+    () =>
+      libraryEntry
+        ? sortMobileSourceLinks(libraryEntry.sources, libraryEntry.item.sourceOrder)
+        : [],
+    [libraryEntry],
+  );
+  const findInstalledSourceForLink = useCallback(
+    (source: LocalSourceLink) =>
+      allInstalledSources.data.find((installed) =>
+        mobileInstalledSourceMatchesLink(installed, source),
+      ),
+    [allInstalledSources.data],
+  );
+  const metadataSourceChoices = useMemo(
+    () =>
+      librarySources.map((source) => {
+        const installedSource = findInstalledSourceForLink(source);
+        return {
+          id: source.id,
+          label:
+            installedSource?.name ??
+            (source.sourceId.split(".").slice(1).join(".") || source.sourceId),
+          detail: source.sourceId,
+          icon: installedSource?.icon,
+          installedSource,
+        };
+      }),
+    [findInstalledSourceForLink, librarySources],
+  );
+  const fetchMetadataFromSource = useCallback(
+    async (choiceId: string) => {
+      const sourceLink = librarySources.find((source) => source.id === choiceId);
+      const installedSource = sourceLink
+        ? findInstalledSourceForLink(sourceLink)
+        : undefined;
+      if (!sourceLink || !installedSource) {
+        throw new Error(strings.mangaDetail.sourcePackageUnavailable);
+      }
+      const refreshed = await withMobileSourceOperationTimeout(
+        refreshMobileSourceMetadata(installedSource, sourceLink.sourceMangaId, {
+          getSourceSettings: async (_sourceKey, sourceRecord) => {
+            const normalized = normalizeInstalledSource(sourceRecord);
+            const runtimeSourceKey = makeMobileRuntimeSourceKey(normalized);
+            const saved = await loadMobileSourceSettingsByKeys(store, [
+              runtimeSourceKey,
+              ...getMobileInstalledSourceSettingsKeys(sourceRecord),
+            ]);
+            return mergeSourceSettingValues(
+              sourceRecord.packageMetadata?.settings ?? [],
+              saved?.values,
+            );
+          },
+          onSourcePackageHydrated: saveSourcePackageHydration,
+        }),
+        { message: strings.sourceBrowse.sourceOperationTimedOut },
+      );
+      if (refreshed.status === "blocked") {
+        throw new Error(refreshed.detail);
+      }
+      return refreshed.metadata;
+    },
+    [
+      findInstalledSourceForLink,
+      librarySources,
+      saveSourcePackageHydration,
+      store,
+      strings.mangaDetail.sourcePackageUnavailable,
+      strings.sourceBrowse.sourceOperationTimedOut,
+    ],
+  );
+  const saveMetadata = async (form: MobileMetadataFormValues) => {
+    const entry = localState.libraryEntry;
+    if (
+      !entry ||
+      savingMetadataRef.current ||
+      openingReaderRef.current ||
+      addingRef.current ||
+      removingRef.current
+    ) {
+      return;
+    }
+    savingMetadataRef.current = true;
+    setSavingMetadata(true);
+    setActionError(null);
+    try {
+      const updated = buildMobileMetadataEditedItem(
+        entry,
+        form,
+        nextSyncTimestamp(entry.item.updatedAt),
+      );
+      await store.saveLibraryItem(updated);
+      emitMobileDataChanged("library");
+      setLocalState((current) =>
+        current.libraryEntry?.item.libraryItemId === updated.libraryItemId
+          ? { ...current, libraryEntry: { ...current.libraryEntry, item: updated } }
+          : current,
+      );
+      if (
+        getMobileMetadataEditorSaveResultAction({ saved: true }) ===
+        "close-sheet"
+      ) {
+        setMetadataEditorOpen(false);
+      }
+      await hapticConfirm();
+    } catch (error) {
+      if (
+        getMobileMetadataEditorSaveResultAction({ saved: false }) ===
+        "close-sheet"
+      ) {
+        setMetadataEditorOpen(false);
+      }
+      setActionError(
+        describeMobileErrorDetail(error, strings.mangaDetail.actionFailedDetail),
+      );
+      await hapticError();
+    } finally {
+      savingMetadataRef.current = false;
+      setSavingMetadata(false);
+    }
+  };
+  const openCollectionMembership = () => {
+    const entry = localState.libraryEntry;
+    if (detailActionBusy || !entry) return;
+    setActionError(null);
+    setCollectionSheetPresentation({ libraryItemId: entry.item.libraryItemId, title });
+    setCollectionSheetOpen(true);
+  };
+  const openMetadataEditor = () => {
+    if (detailActionBusy || !localState.libraryEntry) return;
+    setActionError(null);
+    setMetadataEditorPresentation(localState.libraryEntry);
+    setMetadataEditorOpen(true);
+  };
+  const openSourceManager = () => {
+    if (detailActionBusy || !localState.libraryEntry) return;
+    setActionError(null);
+    setSourceManagerPresentation(localState.libraryEntry);
+    setSourceManagerOpen(true);
+  };
+  const confirmRemoveFromLibrary = () => {
+    if (detailActionBusy || !localState.libraryEntry) return;
+    setActionError(null);
+    setRemoveConfirmOpen(true);
+  };
+  // The library title page's ··· menu: the same items in the same order,
+  // those that need the library record disabled until the title is in it.
+  const nativeHeaderActions: NemuNativeHeaderAction[] = [
+    {
+      icon: "rectangle.stack.badge.plus",
+      label: strings.designExplore.menuAddToCollection,
+      disabled: !inLibrary || detailActionBusy,
+      onPress: openCollectionMembership,
+    },
+    {
+      icon: "checkmark.circle",
+      label: strings.designExplore.menuMarkFinished,
+      disabled: !inLibrary || detailActionBusy,
+      onPress: () => void markChaptersRead({ kind: "all" }),
+    },
+    {
+      icon: "circle",
+      label: strings.designExplore.menuMarkUnread,
+      disabled: !inLibrary || !hasChapterReading || detailActionBusy,
+      onPress: () => void markChaptersUnread({ kind: "all" }),
+    },
+    ...(workUrl
+      ? [
+          {
+            icon: "square.and.arrow.up" as const,
+            label: strings.designExplore.menuShare,
+            onPress: () => void shareLink(workUrl),
+          },
+          {
+            icon: "link" as const,
+            label: strings.designExplore.menuCopyLink,
+            onPress: () => void copyLink(workUrl),
+          },
+        ]
+      : []),
+    {
+      icon: "pencil",
+      label: strings.mangaDetail.editMetadata,
+      disabled: !inLibrary || detailActionBusy,
+      onPress: openMetadataEditor,
+    },
+    {
+      icon: "square.stack.3d.up",
+      label: strings.mangaDetail.manageSources,
+      hint: strings.mangaDetail.manageSourcesHint,
+      disabled: !inLibrary || detailActionBusy,
+      onPress: openSourceManager,
+    },
+    {
+      icon: "trash",
+      label: strings.mangaDetail.removeFromLibrary,
+      hint: strings.mangaDetail.removeFromLibraryHint,
+      disabled: !inLibrary || detailActionBusy,
+      onPress: confirmRemoveFromLibrary,
+    },
+  ];
+
   const retrySourceMangaDetails = () => {
     if (retryDataGuardRef.current) return;
     retryDataGuardRef.current = true;
@@ -1574,7 +1922,9 @@ export function SourceMangaScreen() {
       <MobileExploreBarTitle
         title={title}
         cover={coverImage.source ?? null}
-        trailingItems={0}
+        // Centred between Back and the ··· menu, as on the library title page.
+        trailingItems={1}
+        centred
         shown={barTitleShown}
         hidden={!heroTitleAway}
       />
@@ -1607,6 +1957,11 @@ export function SourceMangaScreen() {
       ])}
     </Stack.Toolbar>
   );
+  const nativeMenuToolbar = mobileDesignExploreFlag ? (
+    <Stack.Toolbar placement="right">
+      {renderExploreDetailBarMenu(nativeHeaderActions, strings.designExplore.moreActions)}
+    </Stack.Toolbar>
+  ) : null;
 
   if (showLoadError) {
     return (
@@ -1632,6 +1987,7 @@ export function SourceMangaScreen() {
       <>
         <Stack.Screen options={nativeHeaderOptions} />
         {nativeBackToolbar}
+        {nativeMenuToolbar}
         {/* Laid out by the loaded page's split layout, so its panes hand off in place. */}
         <MobileMangaPageSkeleton
           accessibilityLabel={strings.sourceManga.loadingDetails}
@@ -1645,6 +2001,7 @@ export function SourceMangaScreen() {
     <>
       <Stack.Screen options={nativeHeaderOptions} />
       {nativeBackToolbar}
+      {nativeMenuToolbar}
       {collectionSheetPresentation ? (
         <MobileCollectionMembershipSheet
           visible={collectionSheetOpen}
@@ -1652,6 +2009,44 @@ export function SourceMangaScreen() {
           title={collectionSheetPresentation.title}
           onClose={() => setCollectionSheetOpen(false)}
           onDismiss={() => setCollectionSheetPresentation(null)}
+        />
+      ) : null}
+      {metadataEditorPresentation ? (
+        <MobileMetadataEditorSheet
+          visible={metadataEditorOpen}
+          entry={
+            libraryEntry?.item.libraryItemId ===
+            metadataEditorPresentation.item.libraryItemId
+              ? libraryEntry
+              : metadataEditorPresentation
+          }
+          saving={savingMetadata}
+          coverSource={libraryCoverSources?.[0] ?? null}
+          sourceChoices={metadataSourceChoices}
+          onClose={() => setMetadataEditorOpen(false)}
+          onDismiss={() => setMetadataEditorPresentation(null)}
+          onFetchFromSource={fetchMetadataFromSource}
+          onSave={saveMetadata}
+        />
+      ) : null}
+      {sourceManagerPresentation ? (
+        <MobileSourceManagerSheet
+          visible={sourceManagerOpen}
+          entry={
+            libraryEntry?.item.libraryItemId ===
+            sourceManagerPresentation.item.libraryItemId
+              ? libraryEntry
+              : sourceManagerPresentation
+          }
+          selectedSourceId={librarySource?.id ?? null}
+          onClose={() => setSourceManagerOpen(false)}
+          onDismiss={() => setSourceManagerPresentation(null)}
+          // This page shows one source's chapters: there is no tab to switch.
+          onSelectSource={() => undefined}
+          onEntryChange={(nextEntry) => {
+            setSourceManagerPresentation(nextEntry);
+            setLocalState((current) => ({ ...current, libraryEntry: nextEntry }));
+          }}
         />
       ) : null}
       <MobileConfirmationSheet

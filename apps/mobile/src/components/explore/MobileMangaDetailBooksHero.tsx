@@ -757,10 +757,14 @@ export function MobileMangaDetailBooksHero({
                     : libraryAction && halfActionWidth && actionsRowWidth
                       ? // Half the row, or wider when its label needs it
                         // ("Start reading" on an SE), never cut while the
-                        // row has room beside the round buttons.
+                        // row has room beside the round buttons. A label
+                        // with a short form ("Continue Chapter 1") keeps the
+                        // half and says the short one, on every entry path.
                         {
                           minWidth: halfActionWidth,
-                          maxWidth: actionsRowWidth - (1 + iconActions.length) * (ACTION_HEIGHT + ACTION_GAP),
+                          maxWidth: primaryAction.compactLabel
+                            ? halfActionWidth
+                            : actionsRowWidth - (1 + iconActions.length) * (ACTION_HEIGHT + ACTION_GAP),
                           flexShrink: 1,
                         }
                       : styles.flexButton
