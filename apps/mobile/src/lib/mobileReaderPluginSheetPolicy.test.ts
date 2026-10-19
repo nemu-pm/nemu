@@ -414,6 +414,10 @@ describe("reader plugin settings sheet policy", () => {
     expect(native).toContain("{renderSettingsSections([reportFormGroupInset(learnFormGroupInset)])}");
     expect(native).toContain("const settingsSections = renderSettingsSections([]);");
     expect(native.match(/stackInset=\{pushedPageInset\}/g) ?? []).toHaveLength(2);
+    // …and lays the page out at the Form's measured content width from its
+    // first layout (its rows' text wraps; their controls stay in the card).
+    expect(native).toContain("const pushedPageWidth = formGroupInset && formGroupInset.width > 0 ? formGroupInset.width : null;");
+    expect(native).toContain("style={[styles.pushedPage, pushedPageWidth ? { width: pushedPageWidth } : null]}");
     // No outline around the plugin group: the Form's groups have none.
     const stackGroup = ios.slice(ios.indexOf("  stackGroup: {"), ios.indexOf("},", ios.indexOf("  stackGroup: {")));
     expect(stackGroup).not.toContain("borderWidth");

@@ -33,7 +33,10 @@ export function navigationBarHidden() {
   return createModifier("nemuNavigationBarHidden");
 }
 
-/** Where a Form draws its groups, measured from the list's (safe-area) edges. */
+/**
+ * Where a Form draws its groups, measured from the list's (safe-area) edges,
+ * and the width between those edges (the page's content width).
+ */
 export type FormGroupInset = { left: number; right: number; width: number };
 
 /**

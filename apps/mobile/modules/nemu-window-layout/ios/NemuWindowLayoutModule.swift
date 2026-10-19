@@ -393,9 +393,10 @@ struct NemuNavigationBarHiddenModifier: ViewModifier {
 /// leading and trailing distance from the list's edges to the row's cell (the
 /// inset-grouped margin UIKit picks for this width, size class and safe
 /// area: 20pt on a Pro Max sheet, 16pt on the Duo's), minus the list's own
-/// horizontal safe area (where a page's content starts). A React Native page
-/// pushed in the same NavigationStack sets its groups on these edges. In the
-/// list's own (unscaled) points, which the pushed page shares.
+/// horizontal safe area (where a page's content starts) — and that content
+/// width. A React Native page pushed in the same NavigationStack is laid out
+/// at that width and sets its groups on these edges. In the list's own
+/// (unscaled) points, which the pushed page shares.
 struct NemuReportFormGroupInsetModifier: ViewModifier {
   static let type = "nemuReportFormGroupInset"
   let eventDispatcher: EventDispatcher
@@ -482,7 +483,9 @@ final class NemuFormGroupInsetProbeView: UIView {
     let inset = NemuFormGroupInset(
       left: (left * 2).rounded() / 2,
       right: (right * 2).rounded() / 2,
-      width: list.bounds.width
+      // The page's content width (inside the list's horizontal safe area):
+      // what a page pushed beside the Form lays its content out at.
+      width: list.bounds.width - list.safeAreaInsets.left - list.safeAreaInsets.right
     )
     if inset == last { return }
     last = inset

@@ -243,6 +243,11 @@ export function ReaderSettingsNativePopover({
   const formInsetKey = `${sheet ? "sheet" : "popover"}:${Math.round(windowSize.width)}x${Math.round(windowSize.height)}`;
   const [, setFormInsetRevision] = useState(0);
   const formGroupInset = formGroupInsets.get(formInsetKey) ?? null;
+  // The page's width, as the Form beside it measured it: the pushed page is
+  // laid out at a definite width from its first layout (mounted ahead of the
+  // push, before its host has a frame), so its rows' text wraps and their
+  // controls stay in the card. Unknown (an older binary): the host's width.
+  const pushedPageWidth = formGroupInset && formGroupInset.width > 0 ? formGroupInset.width : null;
   const pushedPageInset = {
     left: formGroupInset?.left ?? READER_SETTINGS_FORM_INSET,
     right: formGroupInset?.right ?? READER_SETTINGS_FORM_INSET,
@@ -624,7 +629,7 @@ export function ReaderSettingsNativePopover({
     <SwiftToolbar>
       <SwiftScrollView modifiers={[inlineToolbarTitle(), defaultScrollAnchor("top")]}>
         <RNHostView matchContents={PUSHED_PAGE_MATCH_CONTENTS}>
-          <View collapsable={false} style={styles.pushedPage}>
+          <View collapsable={false} style={[styles.pushedPage, pushedPageWidth ? { width: pushedPageWidth } : null]}>
             <NemuGlassSheetThemeScope look={PUSHED_PAGE_LOOK}>{content}</NemuGlassSheetThemeScope>
           </View>
         </RNHostView>
@@ -831,7 +836,8 @@ const styles = StyleSheet.create({
   anchor: {
     position: "absolute",
   },
-  // Fills the host's width (the page's), its height its own.
+  // Fills the host's width (the page's; explicit once the Form measured it),
+  // its height its own.
   pushedPage: {
     alignSelf: "stretch",
   },
