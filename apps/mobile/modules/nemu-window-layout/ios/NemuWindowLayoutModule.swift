@@ -41,6 +41,9 @@ public final class NemuWindowLayoutModule: Module {
       ViewModifierRegistry.register(NemuReportFormGroupInsetModifier.type) { _, _, eventDispatcher in
         NemuReportFormGroupInsetModifier(eventDispatcher: eventDispatcher)
       }
+      ViewModifierRegistry.register(NemuReportPageWidthModifier.type) { _, _, eventDispatcher in
+        NemuReportPageWidthModifier(eventDispatcher: eventDispatcher)
+      }
       // The in-app theme from the last run, before any JS (see `NemuAppAppearance`).
       DispatchQueue.main.async {
         MainActor.assumeIsolated { NemuAppAppearance.restore() }
@@ -61,6 +64,7 @@ public final class NemuWindowLayoutModule: Module {
       ViewModifierRegistry.unregister(NemuFitPopoverToContentModifier.type)
       ViewModifierRegistry.unregister(NemuNavigationBarHiddenModifier.type)
       ViewModifierRegistry.unregister(NemuReportFormGroupInsetModifier.type)
+      ViewModifierRegistry.unregister(NemuReportPageWidthModifier.type)
     }
     // Lets JS tell a binary with these views from one built before them.
     Constant("verticalBarBehaviorViewAvailable") { true }
@@ -418,6 +422,108 @@ struct NemuReportFormGroupInsetModifier: ViewModifier {
   }
 }
 
+/// On a view in a NavigationStack page: reports the page's content width —
+/// its hosting controller's view, inside its horizontal safe area — whatever
+/// the view itself is sized to (a ScrollView around content that sets its own
+/// width hugs it). Reported on appearing and whenever the page resizes
+/// (rotation, a resized window), also while the page is on top of the stack
+/// and the Form below it is off screen.
+struct NemuReportPageWidthModifier: ViewModifier {
+  static let type = "nemuReportPageWidth"
+  let eventDispatcher: EventDispatcher
+
+  func body(content: Content) -> some View {
+    content.background(
+      NemuPageWidthProbe { width in
+        eventDispatcher([NemuReportPageWidthModifier.type: ["width": width]])
+      }
+      .allowsHitTesting(false)
+      .accessibilityHidden(true)
+    )
+  }
+}
+
+private struct NemuPageWidthProbe: UIViewRepresentable {
+  let onChange: (CGFloat) -> Void
+
+  func makeUIView(context: Context) -> NemuPageWidthProbeView {
+    let view = NemuPageWidthProbeView()
+    view.isUserInteractionEnabled = false
+    view.onChange = onChange
+    return view
+  }
+
+  func updateUIView(_ uiView: NemuPageWidthProbeView, context: Context) {
+    uiView.onChange = onChange
+    uiView.sampleSoon()
+  }
+}
+
+final class NemuPageWidthProbeView: UIView {
+  var onChange: ((CGFloat) -> Void)?
+  private var last: CGFloat?
+  private weak var observedPage: UIView?
+  private var boundsToken: NSKeyValueObservation?
+
+  deinit {
+    boundsToken?.invalidate()
+  }
+
+  override func didMoveToWindow() {
+    super.didMoveToWindow()
+    // Every appearance reports (a new presentation starts without a width).
+    last = nil
+    if window != nil {
+      sampleSoon()
+    } else {
+      boundsToken?.invalidate()
+      boundsToken = nil
+      observedPage = nil
+    }
+  }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    sample()
+  }
+
+  override func safeAreaInsetsDidChange() {
+    super.safeAreaInsetsDidChange()
+    sampleSoon()
+  }
+
+  /// After the page has its frame (a probe can lay out before its page does).
+  func sampleSoon() {
+    DispatchQueue.main.async { [weak self] in self?.sample() }
+  }
+
+  private var pageView: UIView? {
+    var responder: UIResponder? = self
+    while let current = responder {
+      if let controller = current as? UIViewController { return controller.view }
+      responder = current.next
+    }
+    return nil
+  }
+
+  private func sample() {
+    guard window != nil, let page = pageView else { return }
+    if observedPage !== page {
+      boundsToken?.invalidate()
+      observedPage = page
+      // The page resizes (rotation) without this zero-size probe laying out.
+      boundsToken = page.observe(\.bounds, options: [.new]) { [weak self] _, _ in
+        MainActor.assumeIsolated { self?.sampleSoon() }
+      }
+    }
+    let width = page.bounds.width - page.safeAreaInsets.left - page.safeAreaInsets.right
+    guard width > 0 else { return }
+    if let last, abs(last - width) < 0.25 { return }
+    last = width
+    onChange?(width)
+  }
+}
+
 struct NemuFormGroupInset: Equatable {
   var left: CGFloat
   var right: CGFloat
@@ -446,6 +552,8 @@ final class NemuFormGroupInsetProbeView: UIView {
 
   override func didMoveToWindow() {
     super.didMoveToWindow()
+    // Every appearance reports (a new presentation starts without a width).
+    last = nil
     if window != nil { sampleSoon() }
   }
 

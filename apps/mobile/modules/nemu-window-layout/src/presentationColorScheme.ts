@@ -50,6 +50,17 @@ export function reportFormGroupInset(handler: (inset: FormGroupInset) => void) {
   return createModifierWithEventListener("nemuReportFormGroupInset", (inset: FormGroupInset) => handler(inset));
 }
 
+/**
+ * `@expo/ui` modifier, on a view in a NavigationStack page: reports the
+ * page's content width (its hosting controller's view, inside the horizontal
+ * safe area), whatever the view is sized to, on appearing and on every
+ * resize (rotation) — also while the Form below the page is off screen. A
+ * binary built before the modifier existed never reports.
+ */
+export function reportPageWidth(handler: (width: number) => void) {
+  return createModifierWithEventListener("nemuReportPageWidth", (event: { width: number }) => handler(event.width));
+}
+
 /** Remove the grouped Form's extra top scroll-content margin below its toolbar. */
 export function zeroTopScrollContentMargin() {
   return createModifier("nemuZeroTopScrollContentMargin");

@@ -60,6 +60,7 @@ import {
   zeroTopScrollContentMargin,
   presentationColorScheme,
   reportFormGroupInset,
+  reportPageWidth,
   type FormGroupInset,
 } from "../../../modules/nemu-window-layout/src/presentationColorScheme";
 import { NemuGlassSheetThemeScope, useNemuTheme } from "@/design-system";
@@ -197,10 +198,14 @@ export function ReaderSettingsNativePopover({
   // plugin rows can push too): `plugins`, then `plugin:<id>`. Each
   // presentation opens on the Reader page.
   const [path, setPath] = useState<string[]>([]);
+  // The pushed pages' layout width, as this presentation reported it (below).
+  const [pushedPageWidth, setPushedPageWidth] = useState<number | null>(null);
   const [shownVisible, setShownVisible] = useState(visible);
   if (shownVisible !== visible) {
     setShownVisible(visible);
     if (visible && path.length > 0) setPath([]);
+    // Each presentation lays its pages out at a width it reported itself.
+    if (visible && pushedPageWidth !== null) setPushedPageWidth(null);
   }
   // The slider previews continuously and commits on release.
   const [scrollWidth, setScrollWidth] = useState(activeScrollWidthPct);
@@ -243,17 +248,27 @@ export function ReaderSettingsNativePopover({
   const formInsetKey = `${sheet ? "sheet" : "popover"}:${Math.round(windowSize.width)}x${Math.round(windowSize.height)}`;
   const [, setFormInsetRevision] = useState(0);
   const formGroupInset = formGroupInsets.get(formInsetKey) ?? null;
-  // The page's width, as the Form beside it measured it: the pushed page is
-  // laid out at a definite width from its first layout (mounted ahead of the
-  // push, before its host has a frame), so its rows' text wraps and their
-  // controls stay in the card. Unknown (an older binary): the host's width.
-  const pushedPageWidth = formGroupInset && formGroupInset.width > 0 ? formGroupInset.width : null;
+  // The width the pushed pages lay out at: the latest the presented stack
+  // itself reported — the Reader Form as it lays out, or a pushed page's own
+  // probe (it resizes on a rotation while the Form below is off screen).
+  // Never a cached or JS-guessed size (after a rotation, the window size JS
+  // sees and the native layout disagree for a moment): until this
+  // presentation has reported one, the pages mount no content, and every
+  // new width remounts their content (`key`), laid out from scratch at a
+  // definite width, so no row keeps a text measurement from another width.
+  const learnPushedPageWidth = (width: number) => {
+    if (!Number.isFinite(width) || width <= 0) return;
+    // Both probes measure the same page; sub-point disagreements between
+    // them must not remount the pages back and forth.
+    setPushedPageWidth((current) => (current !== null && Math.abs(current - width) < 0.75 ? current : width));
+  };
   const pushedPageInset = {
     left: formGroupInset?.left ?? READER_SETTINGS_FORM_INSET,
     right: formGroupInset?.right ?? READER_SETTINGS_FORM_INSET,
   };
   const learnFormGroupInset = (inset: FormGroupInset) => {
     if (![inset.left, inset.right, inset.width].every(Number.isFinite) || inset.width <= 0) return;
+    learnPushedPageWidth(inset.width);
     const known = formGroupInsets.get(formInsetKey);
     if (known && Math.abs(known.left - inset.left) < 0.25 && Math.abs(known.right - inset.right) < 0.25) return;
     formGroupInsets.set(formInsetKey, inset);
@@ -627,12 +642,17 @@ export function ReaderSettingsNativePopover({
   // 20pt inset of the same width as the Form's.
   const pushedPage = (title: string, content: ReactElement) => (
     <SwiftToolbar>
-      <SwiftScrollView modifiers={[inlineToolbarTitle(), defaultScrollAnchor("top")]}>
-        <RNHostView matchContents={PUSHED_PAGE_MATCH_CONTENTS}>
-          <View collapsable={false} style={[styles.pushedPage, pushedPageWidth ? { width: pushedPageWidth } : null]}>
-            <NemuGlassSheetThemeScope look={PUSHED_PAGE_LOOK}>{content}</NemuGlassSheetThemeScope>
-          </View>
-        </RNHostView>
+      <SwiftScrollView
+        modifiers={[inlineToolbarTitle(), defaultScrollAnchor("top"), reportPageWidth(learnPushedPageWidth)]}
+      >
+        {pushedPageWidth !== null ? (
+          // A new width is a new host (and a fresh native size observer).
+          <RNHostView key={`width:${Math.round(pushedPageWidth * 2) / 2}`} matchContents={PUSHED_PAGE_MATCH_CONTENTS}>
+            <View collapsable={false} style={[styles.pushedPage, { width: pushedPageWidth }]}>
+              <NemuGlassSheetThemeScope look={PUSHED_PAGE_LOOK}>{content}</NemuGlassSheetThemeScope>
+            </View>
+          </RNHostView>
+        ) : null}
       </SwiftScrollView>
       <SwiftToolbar.Content>
         {sheet ? (

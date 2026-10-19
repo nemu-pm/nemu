@@ -61,7 +61,7 @@ describe("reader plugin settings sheet policy", () => {
     expect(native).toContain('} from "./ReaderPluginSettingsSheet.ios";');
     expect(native).toContain("<ReaderPluginListPage\n              chrome=\"stack\"");
     expect(native).toContain("<ReaderPluginDetailPage\n                chrome=\"stack\"");
-    expect(native).toContain("<RNHostView matchContents={PUSHED_PAGE_MATCH_CONTENTS}>");
+    expect(native).toContain("<RNHostView key={`width:${Math.round(pushedPageWidth * 2) / 2}`} matchContents={PUSHED_PAGE_MATCH_CONTENTS}>");
     for (const swiftOnly of ["buildMobileReaderPluginNativeSections", "<MobileReaderPluginSettingsCard"]) {
       expect(native).not.toContain(swiftOnly);
     }
@@ -402,7 +402,7 @@ describe("reader plugin settings sheet policy", () => {
     );
     // The hosted page takes the page's width (never a width JS learned) and
     // its own height, so its groups' edges are the Form's.
-    expect(pushed).toContain("<RNHostView matchContents={PUSHED_PAGE_MATCH_CONTENTS}>");
+    expect(pushed).toContain("<RNHostView key={`width:${Math.round(pushedPageWidth * 2) / 2}`} matchContents={PUSHED_PAGE_MATCH_CONTENTS}>");
     expect(native).toContain("const PUSHED_PAGE_MATCH_CONTENTS = { vertical: true } as const;");
     expect(native).not.toContain("onGeometryChange");
     // The groups sit on the Form's own margins as the presented Form drew
@@ -414,10 +414,17 @@ describe("reader plugin settings sheet policy", () => {
     expect(native).toContain("{renderSettingsSections([reportFormGroupInset(learnFormGroupInset)])}");
     expect(native).toContain("const settingsSections = renderSettingsSections([]);");
     expect(native.match(/stackInset=\{pushedPageInset\}/g) ?? []).toHaveLength(2);
-    // …and lays the page out at the Form's measured content width from its
-    // first layout (its rows' text wraps; their controls stay in the card).
-    expect(native).toContain("const pushedPageWidth = formGroupInset && formGroupInset.width > 0 ? formGroupInset.width : null;");
-    expect(native).toContain("style={[styles.pushedPage, pushedPageWidth ? { width: pushedPageWidth } : null]}");
+    // …and lays the page out at a definite width this presentation's stack
+    // reported (the Form, or the pushed page's own probe after a rotation),
+    // never a cached or JS-guessed one: no content until then, and a new
+    // width remounts the host (keyed), so no row keeps a stale text layout.
+    expect(native).toContain("const [pushedPageWidth, setPushedPageWidth] = useState<number | null>(null);");
+    expect(native).toContain("if (visible && pushedPageWidth !== null) setPushedPageWidth(null);");
+    expect(native).toContain("learnPushedPageWidth(inset.width);");
+    expect(pushed).toContain("reportPageWidth(learnPushedPageWidth)");
+    expect(pushed).toContain("{pushedPageWidth !== null ? (");
+    expect(pushed).toContain("style={[styles.pushedPage, { width: pushedPageWidth }]}");
+    expect(native).not.toContain("formGroupInset.width");
     // No outline around the plugin group: the Form's groups have none.
     const stackGroup = ios.slice(ios.indexOf("  stackGroup: {"), ios.indexOf("},", ios.indexOf("  stackGroup: {")));
     expect(stackGroup).not.toContain("borderWidth");
