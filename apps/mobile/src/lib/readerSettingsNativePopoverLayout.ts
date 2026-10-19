@@ -96,9 +96,6 @@ export function readerSettingsNativeContentHeight(rows: ReaderSettingsNativeRows
  */
 export const READER_SETTINGS_FORM_INSET = 20;
 
-/** A popover's inline navigation bar above a pushed page (until the page measures it). */
-export const READER_SETTINGS_POPOVER_BAR = 52;
-
 /** A sheet's inline navigation bar (title + close button) above the Form. */
 export const READER_SETTINGS_SHEET_BAR = 56;
 

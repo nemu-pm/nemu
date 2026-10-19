@@ -1,6 +1,5 @@
 import {
   memo,
-  useCallback,
   useEffect,
   useRef,
   useState,
@@ -41,7 +40,6 @@ import {
   labelsHidden,
   lineLimit,
   listSectionSpacing,
-  onGeometryChange,
   opacity,
   pickerStyle,
   presentationBackground,
@@ -72,7 +70,6 @@ import {
   READER_SCROLL_WIDTH_MIN,
 } from "@/lib/mobileReaderSettings";
 import {
-  FITTED_SHEET_MIN_HOST_WIDTH,
   fittedSheetMeasureFrame,
   READER_SETTINGS_PLUGINS_PAGE,
   READER_SETTINGS_POPOVER_PAGE,
@@ -81,8 +78,6 @@ import {
   readerPluginSheetPage,
 } from "@/lib/mobileFittedSheet";
 import {
-  READER_SETTINGS_POPOVER_BAR,
-  READER_SETTINGS_SHEET_BAR,
   readerSettingsNativePresentation,
   readerSettingsNativeSheetEstimatedHeight,
   readerSettingsSheetDetentCap,
@@ -109,11 +104,7 @@ import { MOBILE_READER_SPREAD_PAIRINGS, type MobileReaderSpreadPairing } from "@
 import { MOBILE_READER_PAGE_BACKGROUNDS, type MobileReaderPageBackground } from "@/lib/mobileReaderPageBackground";
 import { READER_READING_MODE_ORDER, isReaderReadingMode } from "./readerReadingModeOptions";
 import type { ReaderSettingsNativePopoverProps } from "./ReaderSettingsNativePopover.types";
-import {
-  ReaderPluginDetailPage,
-  ReaderPluginListPage,
-  ReaderPluginSheetMeasuringCopies,
-} from "./ReaderPluginSettingsSheet.ios";
+import { ReaderPluginDetailPage, ReaderPluginListPage } from "./ReaderPluginSettingsSheet.ios";
 
 export const readerSettingsNativePopoverAvailable = true;
 
@@ -125,12 +116,12 @@ export const readerSettingsNativePopoverAvailable = true;
 const PUSHED_PAGE_LOOK = supportsNemuLiquidGlass(Platform.OS, Platform.Version) ? "clear" : "opaque";
 
 /**
- * Width the pushed plugin pages are laid out at, learned from the presented
- * stack per presentation and window size (survives the reader).
+ * The pushed pages' React Native host: its width is the page's (SwiftUI's,
+ * reported to Yoga), its height the content's. Matching both axes laid the
+ * page out at a width JS learned from a scaled global frame, which shrank by
+ * the floating sheet's scale on every report down to a ~100pt column.
  */
-const learnedPluginPageWidths = new Map<string, number>();
-
-type MeasuredPages = Record<string, { width: number; height: number } | undefined>;
+const PUSHED_PAGE_MATCH_CONTENTS = { vertical: true } as const;
 
 /**
  * Reader settings as a native grouped Form: a popover beside the button on
@@ -234,40 +225,12 @@ export function ReaderSettingsNativePopover({
   const busyModifiers = busy ? [swiftDisabled(true)] : [];
 
   const sheet = presentation.kind === "sheet" || !anchor;
-  const popoverWidth = presentation.kind === "popover" ? presentation.width : 0;
 
   // ── The plugin pages pushed from the Plugins row ──
-  // React Native pages (the reader's Plugins sheet's own) in the stack. Each
-  // is laid out off screen at the width it is pushed at and measured first,
-  // so the sheet (or popover) resizes to it in one motion with the push.
-  const pluginWidthKey = `${sheet ? "sheet" : "popover"}:${Math.round(windowSize.width)}x${Math.round(windowSize.height)}`;
-  const [, setPluginWidthRevision] = useState(0);
-  const pluginPageWidth =
-    learnedPluginPageWidths.get(pluginWidthKey) ?? (sheet ? Math.round(windowSize.width) : popoverWidth);
-  const learnPluginPageWidth = useCallback(
-    (width: number) => {
-      if (!Number.isFinite(width) || width < FITTED_SHEET_MIN_HOST_WIDTH) return;
-      const rounded = Math.round(width);
-      if (learnedPluginPageWidths.get(pluginWidthKey) === rounded) return;
-      learnedPluginPageWidths.set(pluginWidthKey, rounded);
-      setPluginWidthRevision((revision) => revision + 1);
-    },
-    [pluginWidthKey],
-  );
-  // The copies mount the first time the settings open with the row, and stay.
-  const [measuringPluginPages, setMeasuringPluginPages] = useState(false);
-  if (visible && showPlugins && !measuringPluginPages) setMeasuringPluginPages(true);
-  const [pluginPages, setPluginPages] = useState<MeasuredPages>({});
-  const recordPluginPage = useCallback((page: string, width: number, height: number) => {
-    setPluginPages((current) => {
-      const entry = current[page];
-      if (entry && Math.abs(entry.width - width) < 0.5 && Math.abs(entry.height - height) < 0.5) return current;
-      return { ...current, [page]: { width, height } };
-    });
-  }, []);
-  /** A pushed page's content height (0 until measured; a stale width's height until re-measured). */
-  const pluginPageHeight = (page: string) => pluginPages[page]?.height ?? 0;
-
+  // React Native pages (the reader's Plugins sheet's own) in the stack. Like
+  // a system sheet, a push or pop never resizes the presentation: the sheet
+  // keeps the Reader page's fitted detent (the user can drag it taller), the
+  // popover its Reader page size, and a pushed page scrolls inside it.
   // A plugin's page mounts (and lays out) before it is pushed, and stays
   // mounted while it pops, so the slide never shows an empty page.
   const [detailPluginId, setDetailPluginId] = useState<string | null>(null);
@@ -311,19 +274,15 @@ export function ReaderSettingsNativePopover({
   // measured at the popover's width (any text size): the system shows it
   // whole when there is room and caps it otherwise, the Form scrolling from
   // its top. (A fixed height taller than the popover was centred in it, top
-  // rows cut off.) A pushed plugin page takes its own measured height plus
-  // the bar it shows, so the popover resizes with each push and pop.
+  // rows cut off.) The pushed plugin pages keep that size and scroll in it.
   const popoverStackModifiers =
     presentation.kind === "popover" && !sheet
       ? [
           fitPopoverToContent({
             group: READER_SETTINGS_SHEET_GROUP,
-            page: topPage ?? READER_SETTINGS_POPOVER_PAGE,
+            page: READER_SETTINGS_POPOVER_PAGE,
             width: presentation.width,
             initialHeight: presentation.height,
-            height: topPage ? pluginPageHeight(topPage) : 0,
-            bar: topPage !== null,
-            barHeight: READER_SETTINGS_POPOVER_BAR,
           }),
           ...presentationModifiers,
         ]
@@ -618,24 +577,17 @@ export function ReaderSettingsNativePopover({
   // ── The pushed pages ──
   // Each a native page in the stack: the system back chevron, the title, and
   // (in the sheet) the same ✕ as the Reader page, closing the whole sheet.
-  // The React Native page is laid out at its measured width and height
-  // before the push (`matchContents`), so the slide starts with it drawn; a
-  // native ScrollView scrolls it once it is taller than the sheet can grow.
-  const pushedPage = (page: string, title: string, content: ReactElement) => (
+  // The page never sizes the presentation (no `reportSheetContentHeight`): it
+  // fills what the Reader page set, and its native ScrollView scrolls it.
+  // The React Native content takes its width from the page (`matchContents`
+  // vertically only: the host fills the ScrollView's width and reports it to
+  // Yoga) and its height from its own layout, so its groups sit on the same
+  // 20pt inset of the same width as the Form's.
+  const pushedPage = (title: string, content: ReactElement) => (
     <SwiftToolbar>
-      <SwiftScrollView
-        modifiers={[
-          inlineToolbarTitle(),
-          // Sheet: this page's measured height becomes the detent as it
-          // appears. Popover: reports the bar it shows for the fitted size.
-          reportSheetContentHeight({ page, contentHeight: pluginPageHeight(page) }),
-          defaultScrollAnchor("top"),
-          // The width the stack shows the page at, for the copies.
-          onGeometryChange((geometry) => learnPluginPageWidth(geometry.width)),
-        ]}
-      >
-        <RNHostView matchContents>
-          <View collapsable={false} style={{ width: pluginPageWidth }}>
+      <SwiftScrollView modifiers={[inlineToolbarTitle(), defaultScrollAnchor("top")]}>
+        <RNHostView matchContents={PUSHED_PAGE_MATCH_CONTENTS}>
+          <View collapsable={false} style={styles.pushedPage}>
             <NemuGlassSheetThemeScope look={PUSHED_PAGE_LOOK}>{content}</NemuGlassSheetThemeScope>
           </View>
         </RNHostView>
@@ -657,7 +609,6 @@ export function ReaderSettingsNativePopover({
       <>
         <SwiftNavigationDestination value={READER_SETTINGS_PLUGINS_PAGE}>
           {pushedPage(
-            READER_SETTINGS_PLUGINS_PAGE,
             strings.settings.plugins,
             <ReaderPluginListPage
               chrome="stack"
@@ -682,7 +633,6 @@ export function ReaderSettingsNativePopover({
         {detailPlugin ? (
           <SwiftNavigationDestination value={readerPluginSheetPage(detailPlugin.id)}>
             {pushedPage(
-              readerPluginSheetPage(detailPlugin.id),
               detailPlugin.name,
               <ReaderPluginDetailPage
                 chrome="stack"
@@ -701,23 +651,6 @@ export function ReaderSettingsNativePopover({
         ) : null}
       </>
     ) : null;
-  // The pushed pages measured off screen at their width (outside any
-  // presentation, ahead of it), the list and each plugin's page.
-  const pluginPageCopies =
-    measuringPluginPages && readerPlugins ? (
-      <ReaderPluginSheetMeasuringCopies
-        chrome="stack"
-        plugins={readerPlugins.plugins}
-        loading={readerPlugins.loading}
-        error={readerPlugins.error}
-        loadError={readerPlugins.loadError}
-        retryingLoad={readerPlugins.retryingLoad}
-        canRetryLoadError={readerPlugins.canRetryLoadError}
-        strings={strings}
-        width={pluginPageWidth}
-        onMeasure={recordPluginPage}
-      />
-    ) : null;
   const onPathChange = (next: string[]) => {
     // A back swipe or the back chevron pops; only the Plugins row pushes
     // natively (a plugin's page is pushed from its row, above).
@@ -725,16 +658,12 @@ export function ReaderSettingsNativePopover({
   };
 
   if (sheet) {
-    // Half folded like a laptop: never past the hinge, the page on top
-    // included (a pushed plugin page taller than the pane scrolls).
+    // Half folded like a laptop: never past the hinge (a pushed plugin page
+    // scrolls in the same height).
     const sheetEstimate = readerSettingsNativeSheetEstimatedHeight(settingsRows);
-    const activeEstimate =
-      topPage !== null && pluginPageHeight(topPage) > 0
-        ? pluginPageHeight(topPage) + READER_SETTINGS_SHEET_BAR
-        : sheetEstimate;
+    const sheetCap = readerSettingsSheetDetentCap({ estimatedHeight: sheetEstimate, maxHeight: maxSheetHeight });
     return (
       <>
-      {pluginPageCopies}
       <View pointerEvents="none" style={styles.sheetHost}>
         {/* Design-explore: no seed (it tints the bar's close X too); the Form carries the accent. */}
         <SwiftHost colorScheme={scheme} seedColor={mobileDesignExploreFlag ? undefined : tokens.primary} style={StyleSheet.absoluteFill}>
@@ -747,19 +676,19 @@ export function ReaderSettingsNativePopover({
           >
             <SwiftGroup
               modifiers={[
-                // Only as tall as the page on top needs (a handful of rows
-                // used to open a full-height sheet): the Reader Form, or a
-                // pushed plugin page, which resizes it along with the push.
-                // Capped at the screen, where the page scrolls (landscape,
-                // large Dynamic Type).
+                // Only as tall as the Reader Form needs (a handful of rows
+                // used to open a full-height sheet), and that height for the
+                // whole presentation: pushing Plugins or a plugin, and popping
+                // back, never moves the sheet (a system sheet's push). The
+                // user can still drag it to the large detent; below a fold it
+                // stays capped at the hinge. Capped at the screen, where the
+                // page scrolls (landscape, large Dynamic Type).
                 fitSheetDetentToContent({
                   group: READER_SETTINGS_SHEET_GROUP,
                   page: READER_SETTINGS_SHEET_PAGE,
                   initialHeight: sheetEstimate,
-                  height: readerSettingsSheetDetentCap({
-                    estimatedHeight: activeEstimate,
-                    maxHeight: maxSheetHeight,
-                  }),
+                  height: sheetCap,
+                  expandable: sheetCap === 0 && maxSheetHeight == null,
                 }),
                 presentationDragIndicator("visible"),
                 ...(pageInteractive ? [presentationBackgroundInteraction("enabled")] : []),
@@ -802,7 +731,6 @@ export function ReaderSettingsNativePopover({
   }
   return (
     <>
-      {pluginPageCopies}
       {/* Its own host: inside the popover's, the window-tall copy moved the
           trigger (and so the popover's arrow) off the button. */}
       <View pointerEvents="none" style={styles.sheetHost}>
@@ -863,6 +791,10 @@ const ReaderSettingsMeasuringCopy = memo(
 const styles = StyleSheet.create({
   anchor: {
     position: "absolute",
+  },
+  // Fills the host's width (the page's), its height its own.
+  pushedPage: {
+    alignSelf: "stretch",
   },
   sheetHost: {
     position: "absolute",

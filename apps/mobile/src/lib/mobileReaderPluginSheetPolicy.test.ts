@@ -61,7 +61,7 @@ describe("reader plugin settings sheet policy", () => {
     expect(native).toContain('} from "./ReaderPluginSettingsSheet.ios";');
     expect(native).toContain("<ReaderPluginListPage\n              chrome=\"stack\"");
     expect(native).toContain("<ReaderPluginDetailPage\n                chrome=\"stack\"");
-    expect(native).toContain("<RNHostView matchContents>");
+    expect(native).toContain("<RNHostView matchContents={PUSHED_PAGE_MATCH_CONTENTS}>");
     for (const swiftOnly of ["buildMobileReaderPluginNativeSections", "<MobileReaderPluginSettingsCard"]) {
       expect(native).not.toContain(swiftOnly);
     }
@@ -392,8 +392,20 @@ describe("reader plugin settings sheet policy", () => {
     const pushed = native.slice(native.indexOf("const pushedPage = ("), native.indexOf("const pluginDestinations ="));
     expect(pushed).toContain('<SwiftButton role="close" onPress={onClose}');
     expect(native.match(/role="close"/g) ?? []).toHaveLength(2);
-    // Each page sizes the sheet / popover as it appears.
-    expect(pushed).toContain("reportSheetContentHeight({ page, contentHeight: pluginPageHeight(page) })");
+    // A push or pop never resizes the presentation (a system sheet's push):
+    // the pushed pages report no height and are not measured; they scroll in
+    // the Reader page's fitted detent, which the user can drag to large.
+    expect(pushed).not.toContain("reportSheetContentHeight(");
+    expect(native).not.toContain("ReaderPluginSheetMeasuringCopies");
+    expect(native).toMatch(
+      /fitSheetDetentToContent\(\{\s*group: READER_SETTINGS_SHEET_GROUP,\s*page: READER_SETTINGS_SHEET_PAGE,\s*initialHeight: sheetEstimate,\s*height: sheetCap,\s*expandable: sheetCap === 0 && maxSheetHeight == null,\s*\}\)/,
+    );
+    // The hosted page takes the page's width (never a width JS learned) and
+    // its own height, so its groups' edges are the Form's.
+    expect(pushed).toContain("<RNHostView matchContents={PUSHED_PAGE_MATCH_CONTENTS}>");
+    expect(native).toContain("const PUSHED_PAGE_MATCH_CONTENTS = { vertical: true } as const;");
+    expect(native).not.toContain("onGeometryChange");
+    expect(mobileSource(iosSheetPath)).toContain("paddingHorizontal: READER_SETTINGS_FORM_INSET,");
   });
 
   test("keeps vertical scrolling native and paging props paged-only", () => {

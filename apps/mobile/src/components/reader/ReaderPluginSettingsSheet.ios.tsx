@@ -625,7 +625,7 @@ export function ReaderPluginDetailPage({
  * it. Memoised on what changes a page's height only: opening the sheet (or a
  * busy flag) must not re-render them while the sheet animates.
  */
-export const ReaderPluginSheetMeasuringCopies = memo(function ReaderPluginSheetMeasuringCopies({
+const ReaderPluginSheetMeasuringCopies = memo(function ReaderPluginSheetMeasuringCopies({
   plugins,
   loading,
   error,
@@ -634,7 +634,6 @@ export const ReaderPluginSheetMeasuringCopies = memo(function ReaderPluginSheetM
   canRetryLoadError,
   strings,
   width,
-  chrome = "sheet",
   onMeasure,
 }: {
   plugins: MobileReaderPluginState[];
@@ -645,7 +644,6 @@ export const ReaderPluginSheetMeasuringCopies = memo(function ReaderPluginSheetM
   canRetryLoadError: boolean;
   strings: MobileStrings;
   width: number;
-  chrome?: ReaderPluginPageChrome;
   onMeasure: (page: string, width: number, height: number) => void;
 }) {
   const measure = (page: string) => (event: LayoutChangeEvent) => {
@@ -670,7 +668,6 @@ export const ReaderPluginSheetMeasuringCopies = memo(function ReaderPluginSheetM
           canRetryLoadError={canRetryLoadError}
           strings={strings}
           measuring
-          chrome={chrome}
           onClose={noop}
           onDismissError={noop}
           onDismissLoadError={noop}
@@ -688,7 +685,6 @@ export const ReaderPluginSheetMeasuringCopies = memo(function ReaderPluginSheetM
             error={error}
             strings={strings}
             measuring
-            chrome={chrome}
             onBack={noop}
             onTogglePlugin={noop}
             onResetPlugin={noop}

@@ -64,62 +64,38 @@ export function fitSheetDetentToContent(options: {
    * the measured store decides.
    */
   height?: number;
+  /**
+   * The large detent stays available beside the fitted one: the user can
+   * drag the sheet taller (and it stays there). Off below a fold.
+   */
+  expandable?: boolean;
 }) {
   return createModifier("nemuFitSheetDetent", {
     group: options.group,
     page: options.page,
     initialHeight: options.initialHeight ?? 0,
     height: options.height ?? 0,
+    expandable: options.expandable ?? false,
   });
 }
 
 /**
- * On a popover's content: its ideal size is `width` × the height its
- * off-screen copy measured (`measureSheetPage`, same `group` / `page`; the
- * copy at the popover's width). The system shows the popover whole when
- * there is room and caps it otherwise, the Form scrolling from its top.
- * `initialHeight` until the copy has measured.
- *
- * On a NavigationStack in the popover, `page` is the page on top, and it
- * resizes the popover with each push and pop: `height` (> 0) is a page's
- * content height the caller measured itself (a React Native page laid out
- * off screen), and `bar` adds the navigation bar a pushed page shows — as
- * measured by the pushed page's `reportSheetContentHeight`, `barHeight`
- * until then.
+ * On each Form of a `fitSheetDetentToContent()` sheet: which measured page it
+ * is, so the sheet takes that page's height when the Form appears.
  */
-export function fitPopoverToContent(options: {
-  group: string;
-  page: string;
-  width: number;
-  initialHeight: number;
-  height?: number;
-  bar?: boolean;
-  barHeight?: number;
-}) {
-  return createModifier("nemuFitPopoverToContent", {
-    group: options.group,
-    page: options.page,
-    width: options.width,
-    initialHeight: options.initialHeight,
-    height: options.height ?? 0,
-    bar: options.bar ?? false,
-    barHeight: options.barHeight ?? 0,
-  });
+/**
+ * On a popover's Form: its ideal size is `width` × the height its off-screen
+ * copy measured (`measureSheetPage`, same `group` / `page`; the copy at the
+ * popover's width). The system shows the popover whole when there is room
+ * and caps it otherwise, the Form scrolling from its top. `initialHeight`
+ * until the copy has measured.
+ */
+export function fitPopoverToContent(options: { group: string; page: string; width: number; initialHeight: number }) {
+  return createModifier("nemuFitPopoverToContent", options);
 }
 
-/**
- * On each page of a `fitSheetDetentToContent()` sheet's NavigationStack (the
- * root Form, a pushed page): which measured page it is, so the sheet takes
- * that page's height as the page appears — pushed or popped back to — in one
- * motion with the navigation transition. `contentHeight` (> 0): the page's
- * content height measured by the caller (a React Native page laid out off
- * screen before it is pushed), recorded for `page` as it appears.
- */
-export function reportSheetContentHeight(options: { page: string; contentHeight?: number }) {
-  return createModifier("nemuReportSheetContentHeight", {
-    page: options.page,
-    contentHeight: options.contentHeight ?? 0,
-  });
+export function reportSheetContentHeight(options: { page: string }) {
+  return createModifier("nemuReportSheetContentHeight", { page: options.page });
 }
 
 /**

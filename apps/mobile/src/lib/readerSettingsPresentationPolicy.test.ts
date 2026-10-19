@@ -19,9 +19,10 @@ describe("reader settings presentation", () => {
 
   test("the popover's Form takes its measured height as its ideal, never a fixed one", () => {
     expect(source).toContain("fitPopoverToContent({");
-    // The Reader page's measured height; a pushed plugin page's own (plus its bar) on top.
-    expect(source).toContain("page: topPage ?? READER_SETTINGS_POPOVER_PAGE,");
-    expect(source).toContain("height: topPage ? pluginPageHeight(topPage) : 0,");
+    // The Reader page's measured size for the whole presentation: a pushed
+    // plugin page keeps it (and scrolls), like a system popover's push.
+    expect(source).toContain("page: READER_SETTINGS_POPOVER_PAGE,");
+    expect(source).not.toContain("page: topPage");
     expect(source).not.toContain("frame({ width: presentation.width, height: presentation.height })");
   });
 
