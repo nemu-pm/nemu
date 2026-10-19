@@ -1379,8 +1379,6 @@ export const mobileStringsEn: MobileStrings = {
     chapterNoVolume: "Other chapters",
     chapterAfterVolume: "After Volume {{volume}}",
     chapterRange: "Ch.{{from}}–{{to}}",
-    libraryEmptyTitle: "Start your shelf",
-    libraryEmptyDescription: "Find a series in Browse and add it. It waits here, ready to pick up where you left off.",
     libraryEmptyBrowse: "Browse sources",
     libraryEmptySearch: "Search all sources",
     searchRecent: "Recent",

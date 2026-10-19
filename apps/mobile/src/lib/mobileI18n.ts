@@ -1212,8 +1212,6 @@ export type MobileStrings = {
     chapterNoVolume: string;
     chapterAfterVolume: string;
     chapterRange: string;
-    libraryEmptyTitle: string;
-    libraryEmptyDescription: string;
     libraryEmptyBrowse: string;
     libraryEmptySearch: string;
     /** Caption above a chapter list whose chapters (nearly) all come from one group or category. */

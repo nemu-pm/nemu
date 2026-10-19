@@ -2431,8 +2431,8 @@ export function LibraryScreen({
           // Design-explore: the first screen a new reader sees points at
           // Browse, where series are found; Search stays one tap away.
           <EmptyLibrary
-            title={strings.designExplore.libraryEmptyTitle}
-            description={strings.designExplore.libraryEmptyDescription}
+            title={strings.library.empty}
+            description={strings.library.emptyDescription}
             actionLabel={strings.designExplore.libraryEmptyBrowse}
             actionIcon="compass-outline"
             onActionPress={() => router.navigate("/browse")}

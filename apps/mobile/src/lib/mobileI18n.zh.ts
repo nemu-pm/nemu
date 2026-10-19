@@ -1301,8 +1301,6 @@ export const mobileStringsZh: MobileStrings = {
     chapterNoVolume: "其他章节",
     chapterAfterVolume: "第 {{volume}} 卷之后",
     chapterRange: "第 {{from}}–{{to}} 话",
-    libraryEmptyTitle: "开始你的书库",
-    libraryEmptyDescription: "在浏览中找到作品并加入书库，它会在这里等你继续阅读。",
     libraryEmptyBrowse: "浏览书源",
     libraryEmptySearch: "搜索所有书源",
     searchRecent: "最近搜索",
