@@ -16,6 +16,9 @@ import {
  */
 const MOBILE_EXPLORE_REST_TOP_BELOW_INSET = 67;
 
+/** Re-measures of a resting top after it starts measuring (ms). */
+const RESTING_TOP_REMEASURE_MS = [120, 400, 1000] as const;
+
 /**
  * The resting frame of a tab page (design-explore): `edge` is the top of what
  * floats over the page's bottom — the tab bar, or the home indicator on a
@@ -66,9 +69,16 @@ export function useMobileExploreRestingTop(
       setMeasured((current) => keepMobileExploreRestingTop(current, windowKey, y));
     });
   }, [active, ref, windowKey]);
-  // Focus regained, the zoom landed, a new size: no layout may follow.
+  // Focus regained, the zoom landed, a new size: no layout may follow. A
+  // page remounted by a text-size change (PageScaffold keys its list on the
+  // font scale) lays out before UIKit applies the bar's content inset, and the
+  // inset moves it down without a layout event: measure again once it has
+  // settled (the lowest is kept, so a later scroll changes nothing).
   useEffect(() => {
     onLayout();
-  }, [onLayout]);
+    if (!active) return undefined;
+    const timers = RESTING_TOP_REMEASURE_MS.map((ms) => setTimeout(onLayout, ms));
+    return () => timers.forEach(clearTimeout);
+  }, [active, onLayout]);
   return { top: measured[windowKey] ?? null, onLayout };
 }
