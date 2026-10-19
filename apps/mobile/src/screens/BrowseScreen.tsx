@@ -2104,7 +2104,7 @@ export function BrowseScreen() {
                         ))}
                       </View>
                       <Text numberOfLines={1} style={[styles.serverEntryLabel, { color: sheetTokens.foreground }]}>{strings.selfHosted.connectServer}</Text>
-                      <Ionicons name="chevron-forward" size={16} color={sheetTokens.mutedForeground} />
+                      <Ionicons name="chevron-forward" size={16} color={sheetTokens.mutedForeground} style={{ marginRight: -4 }} />
                     </NemuPressable>
                   ) : undefined}
                   // Android: inside a native sheet, hand the drag to the sheet at the top.
