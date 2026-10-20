@@ -550,7 +550,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
   },
   inputSurface: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     borderRadius: radius.pill,
     borderWidth: 1,
   },
