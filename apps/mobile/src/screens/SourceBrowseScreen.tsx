@@ -2807,7 +2807,7 @@ export function SourceBrowseScreen() {
   const cloudflareSheet = useNemuAgentSheet({
     onSuccess: () => setRuntimeRefreshKey((current) => current + 1),
   });
-  // The options menu's 书源设置 opens in place; a committed change (a login, a
+  // The options menu's 来源设置 opens in place; a committed change (a login, a
   // mirror) reloads the source underneath once the sheet has closed.
   const { open: openSourceSettings, sheet: sourceSettingsSheet } =
     useMobileSourceQuickSettings({

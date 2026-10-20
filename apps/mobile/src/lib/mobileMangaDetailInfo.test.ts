@@ -66,7 +66,7 @@ describe("buildMobileDetailInfoRows", () => {
       "genre",
       "lastRead",
     ]);
-    expect(rows.map((row) => row.label)).toEqual(["状态", "最新章节", "书源", "语言", "作者", "许可", "类型", "上次阅读"]);
+    expect(rows.map((row) => row.label)).toEqual(["状态", "最新章节", "来源", "语言", "作者", "许可", "类型", "上次阅读"]);
     expect(rows.find((row) => row.key === "author")?.value).toBe("David Revoy、Someone");
     expect(rows.find((row) => row.key === "genre")?.chips).toEqual(["Fantasy", "Comedy"]);
   });

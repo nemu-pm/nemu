@@ -73,7 +73,7 @@ describe("mobile i18n helpers", () => {
     const strings = getMobileStrings("zh");
     expect(strings.nav.library).toBe("书库");
     expect(strings.nav.settings).toBe("设置");
-    expect(strings.browse.searchRegistries).toBe("搜索书源目录");
+    expect(strings.browse.searchRegistries).toBe("搜索来源目录");
   });
 
   test("localizes reader plugin boolean values", () => {
@@ -222,7 +222,7 @@ describe("mobile i18n helpers", () => {
 
   test("returns localized nav and settings labels", () => {
     expect(getMobileStrings("zh").nav.library).toBe("书库");
-    expect(getMobileStrings("zh").browse.searchRegistries).toBe("搜索书源目录");
+    expect(getMobileStrings("zh").browse.searchRegistries).toBe("搜索来源目录");
     expect(getMobileStrings("zh").about.sourceCode).toBe("源代码");
     expect(getMobileStrings("zh").common.sourceCloudflareBlocked).toBe(
       "检测到 Cloudflare 保护",
@@ -539,7 +539,7 @@ describe("mobile i18n helpers", () => {
         count: 2,
         names: "A, B",
       }),
-    ).toBe("已更新 2 个书源：A, B");
+    ).toBe("已更新 2 个来源：A, B");
     expect(
       formatMobileString(getMobileStrings("ja").settings.sourceUpdated, {
         name: "MangaDex",

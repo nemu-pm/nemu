@@ -9,7 +9,7 @@ on 2026-10-12.
 ## What nemu is
 
 nemu is a manga/comic **reader**. It reads files that the user imports on the
-device (CBZ/ZIP) and content from **source directories the user chooses** (书源目录),
+device (CBZ/ZIP) and content from **source directories the user chooses** (来源目录),
 and it adds tools for learning Japanese (text recognition, dictionary, text to
 speech, an assistant). nemu ships **no comic content and does not host any**. The
 recommended source directory that nemu suggests lists only content that is
@@ -21,7 +21,7 @@ tracking.
 
 ## What `.aix` source files are (be direct about this)
 
-A source file (书源文件, `.aix`) is a package that the user or a directory
+A source file (来源文件, `.aix`) is a package that the user or a directory
 supplies. It contains a **WebAssembly module** (`Payload/main.wasm`) plus JSON
 metadata (and, for some sources, small JavaScript snippets) written against the
 open Aidoku source API. The **runtime that executes it ships inside the app

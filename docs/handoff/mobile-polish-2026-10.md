@@ -160,7 +160,7 @@ Apple's system string tables wherever a term exists (for example 卷页 / Curl /
 カール, 方向锁定 / Orientation Lock, 单页 / 双页 / 自动). Reader settings copy:
 `31039d9e`; 翻页 options: `6eabe366`; Browse's 书库中的书源: `a2416f1c`; cache
 rows: `93d2783a`; empty Library line break: `36a6acd8`. Names: Library = 书库,
-Shelf = 书架, 书源, 书源目录, 收藏夹. The Laptop Mode options are 缩略视图 /
+Shelf = 书架, 来源, 来源目录, 收藏夹. The Laptop Mode options are 缩略视图 /
 翻页控制 (the owner's wording, not Apple's 缩略图).
 
 ### Third-party notices
