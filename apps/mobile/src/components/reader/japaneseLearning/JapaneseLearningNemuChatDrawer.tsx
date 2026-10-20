@@ -195,8 +195,10 @@ export function JapaneseLearningNemuChatDrawer({
           atBottomRef.current = contentSize.height - contentOffset.y - layoutMeasurement.height < 48;
         }}
         scrollEventThrottle={32}
+        // Web `use-stick-to-bottom` resize="smooth": growth while at the
+        // bottom glides to the new end instead of jumping.
         onContentSizeChange={() => {
-          if (atBottomRef.current) scrollRef.current?.scrollToEnd({ animated: false });
+          if (atBottomRef.current) scrollRef.current?.scrollToEnd({ animated: true });
         }}
       >
         {hasContent ? (
