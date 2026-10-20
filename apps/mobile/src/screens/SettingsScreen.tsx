@@ -134,8 +134,11 @@ import {
   useNemuTheme,
 } from "@/design-system";
 import { MobileSheetSelectionIndicator } from "@/components/MobileSheetSelectionIndicator";
+import { ExploreGlassIconButton } from "@/components/explore/ExploreGlass";
+import { ReaderBackGlyph } from "@/components/reader/ReaderBackGlyph";
 import {
   getMobileSettingsPrimaryPane,
+  getMobileSettingsSplitColumnBack,
   getMobileSettingsSplitColumnTitles,
   getMobileSettingsSplitHighlightedRow,
   resolveMobileSettingsSplitSelection,
@@ -1826,9 +1829,11 @@ function SettingsBarTitleProbe({
   revision: string;
   onCenter: (y: number) => void;
   /**
-   * The detail column's back button. The transparent bar spans the column
-   * title row (beside a vertical bar too) and cancels touches on anything
-   * under it, so the button lives in the bar, inside this title view.
+   * The detail column's drawn back button, shown under a top bar only
+   * (beside a vertical bar it is a native bar item instead, and this keeps
+   * just its room). The transparent bar spans the column title row and
+   * cancels touches on anything under it, so the button lives in the bar,
+   * inside this title view.
    */
   back?: SettingsColumnBack | null;
 }) {
@@ -1877,7 +1882,7 @@ function SettingsBarTitleProbe({
   }, []);
   // The bar centres its title view near the window's centre (off it by up
   // to half a vertical bar): wide enough either side of it to hold the
-  // button (a view takes no touches past its bounds), and 44pt tall. The
+  // button (a view takes no touches past its bounds), and 48pt tall. The
   // size follows the window alone, the same whether or not the button
   // shows, so nothing moves or is measured again when it comes and goes.
   const width = back
@@ -1889,9 +1894,13 @@ function SettingsBarTitleProbe({
       )
     : 1;
   // Until the bar has placed this size (after a resize), the button's
-  // offset would come from a stale frame.
+  // offset would come from a stale frame: it goes where a top bar centres
+  // the title view (the window's centre) meanwhile, rather than missing for
+  // the frames between a pose change taking Back out of the vertical bar
+  // and the measurement.
   const placedFrame =
     probeFrame && Math.abs(probeFrame.width - width) < 0.5 ? probeFrame : null;
+  const frameX = placedFrame ? placedFrame.x : (window.width - width) / 2;
   const shown = back?.shown === true;
   return (
     <View
@@ -1903,17 +1912,32 @@ function SettingsBarTitleProbe({
       onLayout={measure}
       style={[styles.barTitleProbe, back ? { width, height: COLUMN_BACK_SIZE } : null]}
     >
-      {back && shown && placedFrame ? (
-        <View style={[styles.columnBack, { top: 0, left: back.x - placedFrame.x }]}>
-          <NemuNativeSheetHeaderAction
-            accessibilityLabel={back.label}
-            androidIcon="chevron-back"
-            iosSystemImage="chevron.backward"
-            onPress={back.onPress}
-          />
+      {back && shown ? (
+        <View style={[styles.columnBack, { top: 0, left: back.x - frameX }]}>
+          <SettingsColumnBackButton label={back.label} onPress={back.onPress} />
         </View>
       ) : null}
     </View>
+  );
+}
+
+/**
+ * The drawn column back: a system bar button's 48pt Liquid Glass circle
+ * (UIKit glass, exact size, as the reader's Back) around the system
+ * `chevron.backward`, where a native bar's back button would sit.
+ */
+function SettingsColumnBackButton({ label, onPress }: { label: string; onPress: () => void }) {
+  const { tokens } = useNemuTheme();
+  const ink = mobileDesignExploreFlag ? tokens.foreground : tokens.primary;
+  return (
+    <ExploreGlassIconButton
+      icon="chevron-back"
+      iconNode={<ReaderBackGlyph color={ink} />}
+      ink={ink}
+      size={COLUMN_BACK_SIZE}
+      accessibilityLabel={label}
+      onPress={onPress}
+    />
   );
 }
 
@@ -2002,9 +2026,14 @@ const NO_SETTINGS_ROWS: never[] = [];
 const COLUMN_TITLE_LINE_HEIGHT = 22;
 /** A bar button and its spacing, kept clear of a column title. */
 const COLUMN_TITLE_BAR_ITEM_RESERVE = 60;
-/** The column back button: a 44pt glass circle 16pt in from the column's leading edge. */
-const COLUMN_BACK_SIZE = 44;
-const COLUMN_BACK_INSET = 16;
+/**
+ * The drawn column back (under a top bar): a system bar button's 48pt glass
+ * circle 20pt in from the column's leading edge, as system Settings' detail
+ * Back on iPhone Duo (x 270.3–318.3 in the 669pt flat-portrait window). The
+ * bar centres it on its title row (y 24–72 there).
+ */
+const COLUMN_BACK_SIZE = 48;
+const COLUMN_BACK_INSET = 20;
 /** The back button and a gap, kept clear of a column title. */
 const COLUMN_BACK_RESERVE = COLUMN_BACK_INSET + COLUMN_BACK_SIZE + 8;
 /** How far the bar's title centre may sit from the window's (a vertical bar shifts it ~32pt). */
@@ -4224,20 +4253,28 @@ export function SettingsScreen({
   ].join(":");
 
   // Source Directories is a page pushed inside the detail column: its back
-  // button returns that column alone to Installed Sources. With column
-  // titles it rides in the bar (which takes the title row's touches); with
-  // the one native title, atop the pane.
+  // button returns that column alone to Installed Sources. Beside a vertical
+  // bar it is a native bar item, first in the bar (custom views never go
+  // vertical); under a top bar it is drawn in the bar's title row (which
+  // takes that row's touches); with the one native title, atop the pane.
+  // One placement, from the same `verticalBarSide` as the column titles, so
+  // a pose change swaps one back for the other in the same render.
   const backToSources = useCallback(() => setSelected("sources"), []);
+  const columnBackPlacement = getMobileSettingsSplitColumnBack({
+    columnTitles,
+    pushed: split !== null && detailSection === "directories",
+  });
+  const columnBackLabel = formatMobileString(strings.common.backTo, {
+    title: strings.settings.installedSources,
+  });
   const columnBack: SettingsColumnBack | null = split
     ? {
         // The container spans the window from its origin (the column
         // titles assume as much), so a column's x is its window x.
         x: split.trailing.x + COLUMN_BACK_INSET,
-        label: formatMobileString(strings.common.backTo, {
-          title: strings.settings.installedSources,
-        }),
+        label: columnBackLabel,
         onPress: backToSources,
-        shown: detailSection === "directories",
+        shown: columnBackPlacement === "column" || columnBackPlacement === "pane",
       }
     : null;
 
@@ -4289,13 +4326,26 @@ export function SettingsScreen({
         onSelectSection={setSelected}
         paneContentStyle={padding.trailing}
         columnTitled={columnTitles !== null}
-        paneBack={columnTitles === null && columnBack?.shown ? columnBack : null}
+        paneBack={columnBackPlacement === "pane" ? columnBack : null}
       />
     </Animated.View>
   ) : null;
 
   return (
     <LayoutAnimationConfig skipEntering skipExiting>
+      {columnBackPlacement === "bar" ? (
+        // Left placement: the bar's leading items, so Back is first in the
+        // vertical bar, before the detail page's Add Directory.
+        <Stack.Toolbar placement="left">
+          {renderNemuNativeToolbarButtons([
+            {
+              icon: "chevron.backward",
+              label: columnBackLabel,
+              onPress: backToSources,
+            },
+          ])}
+        </Stack.Toolbar>
+      ) : null}
       <View
         ref={containerRef}
         onLayout={onContainerLayout}
@@ -4322,7 +4372,7 @@ export function SettingsScreen({
                 title: settingsSectionTitle(strings, detailSection),
                 ...split.trailing,
                 ...padding.trailing,
-                back: columnBack?.shown === true,
+                back: columnBackPlacement === "column",
                 // Installed Sources and Source Directories put their Add
                 // button in the bar.
                 trailingItems:

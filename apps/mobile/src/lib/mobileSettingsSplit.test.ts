@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   getMobileSettingsPrimaryPane,
+  getMobileSettingsSplitColumnBack as columnBack,
   getMobileSettingsSplitColumnTitles as columnTitles,
   getMobileSettingsSplitHighlightedRow,
   resolveMobileSettingsSplitSelection as resolve,
@@ -42,5 +43,19 @@ describe("settings split selection", () => {
     expect(columnTitles({ ...base, split: false })).toBeNull();
     expect(columnTitles({ ...base, isPad: true })).toBeNull();
     expect(columnTitles({ ...base, platform: "android" })).toBeNull();
+  });
+});
+
+describe("settings split column back", () => {
+  test("rides in the vertical bar, drawn under a top bar, atop the pane otherwise", () => {
+    expect(columnBack({ columnTitles: "leading", pushed: true })).toBe("bar");
+    expect(columnBack({ columnTitles: "center", pushed: true })).toBe("column");
+    expect(columnBack({ columnTitles: null, pushed: true })).toBe("pane");
+  });
+
+  test("shows only while Source Directories is pushed", () => {
+    expect(columnBack({ columnTitles: "leading", pushed: false })).toBeNull();
+    expect(columnBack({ columnTitles: "center", pushed: false })).toBeNull();
+    expect(columnBack({ columnTitles: null, pushed: false })).toBeNull();
   });
 });

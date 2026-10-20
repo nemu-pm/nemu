@@ -9,6 +9,7 @@ export type NemuNativeToolbarSymbol =
   | "link"
   | "rectangle.stack.badge.plus"
   | "square.and.arrow.up"
+  | "chevron.backward"
   | "chevron.left"
   | "folder.badge.gearshape"
   | "folder.badge.plus"

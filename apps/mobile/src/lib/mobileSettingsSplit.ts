@@ -79,3 +79,26 @@ export function getMobileSettingsSplitColumnTitles({
   if (!split || platform !== "ios" || isPad) return null;
   return verticalBar ? "leading" : "center";
 }
+
+/**
+ * Where the split's detail-column Back (Source Directories → Installed
+ * Sources) goes, from the same column-title policy so a pose change moves it
+ * in one render: `bar` — a native bar item, first in the vertical bar (custom
+ * views never go vertical); `column` — the drawn 48pt back at the detail
+ * column's leading edge, in the horizontal bar's title row; `pane` — atop the
+ * pane where the split keeps the one native title (iPad, Android); null while
+ * the column shows no pushed page.
+ */
+export function getMobileSettingsSplitColumnBack({
+  columnTitles,
+  pushed,
+}: {
+  columnTitles: MobileSettingsSplitTitleAlignment | null;
+  /** Source Directories is showing in the detail column. */
+  pushed: boolean;
+}): "bar" | "column" | "pane" | null {
+  if (!pushed) return null;
+  if (columnTitles === "leading") return "bar";
+  if (columnTitles === "center") return "column";
+  return "pane";
+}

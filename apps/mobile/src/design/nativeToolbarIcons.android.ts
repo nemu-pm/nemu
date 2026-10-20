@@ -29,6 +29,7 @@ const androidToolbarIcons: Record<NemuNativeToolbarSymbol, ImageSourcePropType> 
   link: LinkIcon,
   "rectangle.stack.badge.plus": LibraryAddIcon,
   "square.and.arrow.up": ShareIcon,
+  "chevron.backward": ArrowBackIcon,
   "chevron.left": ArrowBackIcon,
   "folder.badge.gearshape": FolderManagedIcon,
   "folder.badge.plus": NewFolderIcon,
