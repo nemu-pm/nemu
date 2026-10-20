@@ -26,6 +26,13 @@ type MobileSheetScaffoldProps = {
   dismissDisabled?: boolean;
   showDismissButton?: boolean;
   frameMaxHeight?: DimensionValue;
+  /**
+   * With a bounded `frameMaxHeight`: the body scrolls inside the detent
+   * (`MobileNativeSheetScaffold`'s `scroll`). Without it a bounded body is a
+   * fixed-height plain View, so only callers that scroll their own list (a
+   * FlatList filling the frame) should leave it off.
+   */
+  scroll?: boolean;
   sheetMinHeight?: DimensionValue;
   contentStyle?: StyleProp<ViewStyle>;
   /**
@@ -75,6 +82,7 @@ export function MobileSheetScaffold({
   dismissDisabled,
   showDismissButton,
   frameMaxHeight,
+  scroll = false,
   sheetMinHeight,
   contentStyle,
   contentBottomInset,
@@ -103,6 +111,7 @@ export function MobileSheetScaffold({
       dismissDisabled={dismissDisabled}
       showDismissButton={showDismissButton}
       snapPoints={snapPoints}
+      scroll={scroll}
       fillContent={Boolean(snapPoints)}
       // A disabled backdrop also disables pan-down-to-close. Callers that
       // still want a chrome escape provide its localized label above.

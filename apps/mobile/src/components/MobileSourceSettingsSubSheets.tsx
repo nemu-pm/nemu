@@ -15,6 +15,7 @@ import {
 import type { SourcePackageSetting } from "@/data/schema";
 import { hapticPress } from "@/lib/haptics";
 import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
+import { resolveMobileSourceOptionSheetFrame } from "@/lib/mobileSourceOptionSheetFrame";
 import {
   MAX_SOURCE_SETTING_VALUE_ARRAY_ITEMS,
   MAX_SOURCE_SETTING_VALUE_STRING_LENGTH,
@@ -29,9 +30,6 @@ import {
  * form no longer crowds its host sheet with inline pill grids and UUID chip
  * editors. Both apply every change immediately — there is no confirm step.
  */
-
-/** Options lists beyond this many rows scroll inside a bounded detent. */
-const SCROLLING_OPTION_LIMIT = 6;
 
 /**
  * The sheet only ever needs a heading and a footnote from its subject, so a
@@ -84,9 +82,11 @@ export function MobileSourceMultiSelectSheet({
   const { tokens } = useMobileNativeSheetTheme();
   // Long option lists (MangaDex's excluded tags) cannot fit a content-sized
   // detent, so they present inside a bounded, scrollable one instead; short
-  // lists keep hugging their content.
-  const frameMaxHeight =
-    options.length > SCROLLING_OPTION_LIMIT ? "80%" : undefined;
+  // lists keep hugging their content. The bounded detent must scroll: without
+  // it the rows collapsed and only the title and Done showed.
+  const { frameMaxHeight, scroll } = resolveMobileSourceOptionSheetFrame(
+    options.length,
+  );
 
   return (
     <MobileSheetScaffold
@@ -95,7 +95,7 @@ export function MobileSourceMultiSelectSheet({
       onDismiss={onDismiss}
       title={setting.title}
       dismissLabel={strings.common.done}
-      {...(frameMaxHeight ? { frameMaxHeight } : null)}
+      {...(frameMaxHeight ? { frameMaxHeight, scroll } : null)}
     >
       <GlassSurface
         style={styles.optionGroup}
@@ -219,9 +219,8 @@ export function MobileSourceStringListSheet({
   // content-sized and a bounded detent mid-session would fight the native
   // sheet's memoized presentation inputs as the chip list grows.
   const [initialItemCount] = useState(items.length);
-  const frameMaxHeight = initialItemCount > SCROLLING_OPTION_LIMIT
-    ? "80%"
-    : undefined;
+  const { frameMaxHeight, scroll } =
+    resolveMobileSourceOptionSheetFrame(initialItemCount);
   const trimmedDraft = draft.trim();
   const remainingListStringChars = Math.max(
     0,
@@ -256,7 +255,7 @@ export function MobileSourceStringListSheet({
       onDismiss={onDismiss}
       title={setting.title}
       dismissLabel={strings.common.done}
-      {...(frameMaxHeight ? { frameMaxHeight } : null)}
+      {...(frameMaxHeight ? { frameMaxHeight, scroll } : null)}
     >
       <View style={styles.editorInputRow}>
         <GlassSurface
@@ -359,7 +358,10 @@ const styles = StyleSheet.create({
   optionGroup: {
     borderRadius: radius.xl,
   },
+  // Rows set the group's height: GlassSurface's own `flex: 1` content would
+  // otherwise resolve against a bounded parent instead of the rows.
   optionGroupContent: {
+    flex: 0,
     paddingHorizontal: 0,
     paddingVertical: 0,
   },
