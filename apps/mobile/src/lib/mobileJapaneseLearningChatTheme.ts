@@ -51,6 +51,16 @@ export function getJapaneseLearningAssistantBubbleColors(
   };
 }
 
+/**
+ * Web suggestion `Button`: `active:scale-[0.97]` over
+ * `transition-all duration-200 ease-out` (the fill brightens to
+ * `pressedBackgroundColor`, web's hover fill, over the same time).
+ */
+export const JAPANESE_LEARNING_FOLLOW_UP_SUGGESTION_PRESS = {
+  scale: 0.97,
+  durationMs: 200,
+} as const;
+
 export type JapaneseLearningFollowUpSuggestionColors = {
   backgroundColor: string;
   borderColor: string;

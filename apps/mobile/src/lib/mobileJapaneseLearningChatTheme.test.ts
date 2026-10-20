@@ -5,10 +5,15 @@ import {
   getJapaneseLearningAssistantBubbleColors,
   getJapaneseLearningFollowUpSuggestionColors,
   JAPANESE_LEARNING_FOLLOW_UP_SUGGESTION_INDENT,
+  JAPANESE_LEARNING_FOLLOW_UP_SUGGESTION_PRESS,
   LINE_USER_BUBBLE_COLOR,
 } from "./mobileJapaneseLearningChatTheme";
 
 describe("mobileJapaneseLearningChatTheme", () => {
+  test("follow-up pills press like web Button (scale 0.97 over 200ms)", () => {
+    expect(JAPANESE_LEARNING_FOLLOW_UP_SUGGESTION_PRESS).toEqual({ scale: 0.97, durationMs: 200 });
+  });
+
   test("uses LINE green for user bubbles", () => {
     expect(LINE_USER_BUBBLE_COLOR).toBe("#5ac463");
   });

@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { StyleSheet, View } from "react-native";
 import Animated, {
   Easing,
+  interpolateColor,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
@@ -17,6 +18,8 @@ import { JapaneseLearningText as Text } from "./JapaneseLearningText";
 import {
   getJapaneseLearningFollowUpSuggestionColors,
   JAPANESE_LEARNING_FOLLOW_UP_SUGGESTION_INDENT,
+  JAPANESE_LEARNING_FOLLOW_UP_SUGGESTION_PRESS,
+  type JapaneseLearningFollowUpSuggestionColors,
 } from "@/lib/mobileJapaneseLearningChatTheme";
 
 type JapaneseLearningFollowUpSuggestionsProps = {
@@ -77,31 +80,73 @@ export function JapaneseLearningFollowUpSuggestions({
     >
       <View style={styles.row}>
         {suggestions.map((suggestion) => (
-          <NemuPressable
+          <SuggestionPill
             key={suggestion}
-            accessibilityRole="button"
-            accessibilityLabel={suggestion}
-            hitSlop={{ top: 4, bottom: 4 }}
-            // The send path plays web's single `hapticPress`.
-            hapticFeedback="none"
-            onPress={() => onSelect(suggestion)}
-            pressedScale={0.985}
-            style={[
-              styles.pill,
-              {
-                backgroundColor: colors.backgroundColor,
-                borderColor: colors.borderColor,
-                boxShadow: colors.boxShadow,
-              },
-            ]}
-          >
-            <Text style={[styles.text, { color: colors.textColor }]}>
-              {suggestion}
-            </Text>
-          </NemuPressable>
+            suggestion={suggestion}
+            colors={colors}
+            animate={animate}
+            onSelect={onSelect}
+          />
         ))}
       </View>
     </Animated.View>
+  );
+}
+
+type SuggestionPillProps = {
+  suggestion: string;
+  colors: JapaneseLearningFollowUpSuggestionColors;
+  animate: boolean;
+  onSelect: (suggestion: string) => void;
+};
+
+/**
+ * Web `Button` (`active:scale-[0.97] transition-all duration-200 ease-out`)
+ * with `.btn-nemu-outline:hover`'s brighter fill while pressed. The fill
+ * animates on its own layer (Reanimated) so it never shares a node with the
+ * pressable's native-driven scale.
+ */
+function SuggestionPill({ suggestion, colors, animate, onSelect }: SuggestionPillProps) {
+  const pressed = useSharedValue(0);
+  const setPressed = (value: 0 | 1) => {
+    pressed.value = animate
+      ? withTiming(value, {
+          duration: JAPANESE_LEARNING_FOLLOW_UP_SUGGESTION_PRESS.durationMs,
+          // CSS `ease-out`.
+          easing: Easing.bezier(0, 0, 0.58, 1),
+        })
+      : value;
+  };
+  const restBackground = colors.backgroundColor;
+  const pressedBackground = colors.pressedBackgroundColor;
+  const fillStyle = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(
+      pressed.value,
+      [0, 1],
+      [restBackground, pressedBackground],
+    ),
+  }));
+
+  return (
+    <NemuPressable
+      accessibilityRole="button"
+      accessibilityLabel={suggestion}
+      hitSlop={{ top: 4, bottom: 4 }}
+      // The send path plays web's single `hapticPress`.
+      hapticFeedback="none"
+      onPress={() => onSelect(suggestion)}
+      onPressIn={() => setPressed(1)}
+      onPressOut={() => setPressed(0)}
+      pressedScale={JAPANESE_LEARNING_FOLLOW_UP_SUGGESTION_PRESS.scale}
+      pressAnimationDuration={JAPANESE_LEARNING_FOLLOW_UP_SUGGESTION_PRESS.durationMs}
+      style={[styles.pill, { borderColor: colors.borderColor }]}
+    >
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.pillFill, { boxShadow: colors.boxShadow }, fillStyle]}
+      />
+      <Text style={[styles.text, { color: colors.textColor }]}>{suggestion}</Text>
+    </NemuPressable>
   );
 }
 
@@ -124,6 +169,15 @@ const styles = StyleSheet.create({
     borderWidth: 0.5,
     paddingHorizontal: 16,
     paddingVertical: 8,
+  },
+  // The pill's fill and shadow, under its 0.5px edge (inset to cover it).
+  pillFill: {
+    position: "absolute",
+    top: -0.5,
+    right: -0.5,
+    bottom: -0.5,
+    left: -0.5,
+    borderRadius: radius.pill,
   },
   text: {
     fontSize: 12,
