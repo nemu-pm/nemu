@@ -77,6 +77,10 @@ public final class NemuWindowLayoutModule: Module {
     // Lets JS tell a binary with these views from one built before them.
     Constant("verticalBarBehaviorViewAvailable") { true }
     Constant("verticalBarOnlyLeadingItemsViewAvailable") { true }
+    // 2: hides the items from a horizontal bar on every OS (none has a
+    // vertical bar before iOS 27.1) and re-hides rebuilt items, so JS may
+    // keep them mounted under a top bar; with `NemuBarAxisVisibilityView`.
+    Constant("barAxisViewsVersion") { 2 }
     Constant("glassViewHostsChildren") { true }
     Constant("pageCurlViewAvailable") { true }
     Constant("pageCurlTurnAvailable") { true }
@@ -163,6 +167,11 @@ public final class NemuWindowLayoutModule: Module {
     View(NemuVerticalBarOnlyLeadingItemsView.self) {
       Prop("enabled") { (view: NemuVerticalBarOnlyLeadingItemsView, enabled: Bool) in
         view.guardEnabled = enabled
+      }
+    }
+    View(NemuBarAxisVisibilityView.self) {
+      Prop("axis") { (view: NemuBarAxisVisibilityView, axis: String) in
+        view.axis = axis
       }
     }
     Constant("nameAlertViewAvailable") { true }
@@ -1623,20 +1632,32 @@ final class WeakViewController {
 /// (`UITraitCollection.verticalBarEdge` leading or trailing), and hidden the
 /// moment it does not.
 ///
-/// JS already mounts such items only beside a vertical bar, but it hears of a
-/// new edge a main-queue turn plus a React commit late (the window observer
-/// coalesces, then the bar items are rebuilt): about two frames in which the
-/// bar has already turned horizontal and shows the item at its leading end.
-/// `UIBarButtonItem.AxisBehavior` cannot say "vertical only" (its cases are
-/// automatic, horizontal-only and vertical-preferred), so this hides the items
-/// from the trait change itself. The handler is registered on the navigation
-/// controller, whose view hosts both the navigation bar and the vertical bar:
-/// UIKit updates that controller's traits before it lays the bars out for the
-/// new edge, so the item is gone in the same frame the bar turns.
+/// JS mounts such items only beside a vertical bar, but hears of a new edge
+/// late, and not in one step: the window observer publishes a main-queue turn
+/// later; then the stack's screen options (which follow the bar side) commit
+/// first, and react-native-screens rebuilds every bar item from the header
+/// config — a new, visible `UIBarButtonItem` for the Back the screen has not
+/// yet removed — and only a commit after that does the screen drop its
+/// toolbar. `UIBarButtonItem.AxisBehavior` cannot say "vertical only" (its
+/// cases are automatic, horizontal-only and vertical-preferred), so the items
+/// are hidden natively, at each point the bar or the items can change:
 ///
-/// Only items this view hid are shown again (bars going vertical while it is
-/// still mounted). Items are left as they are when it unmounts: JS removes it
-/// with the items, which react-native-screens rebuilds without them.
+/// - the edge changes: a trait-change registration on the navigation
+///   controller (its view hosts the navigation bar and the vertical bar),
+///   then the bar is laid out again at once;
+/// - a size transition: the coordinator's alongside-animation block, where the
+///   new traits are in place, re-checks (no speculative hide at its start: a
+///   transition that keeps the bar vertical must not blink the item);
+/// - the items are replaced: key-value observation of the navigation item's
+///   `leftBarButtonItems`, so a rebuilt item is hidden in the setter call,
+///   before anything draws it — and an item that arrives while the bar is
+///   horizontal is never shown;
+/// - the view moves to a window.
+///
+/// Showing follows the same points, so the item appears as soon as the edge
+/// is vertical (the trait change), never later than the bar itself. Only
+/// items this view hid are shown again. Items are left as they are when it
+/// unmounts: JS removes it with the items.
 final class NemuVerticalBarOnlyLeadingItemsView: ExpoView {
   /// Off: leaves the items alone (and shows again any this view hid).
   var guardEnabled = true {
@@ -1645,6 +1666,9 @@ final class NemuVerticalBarOnlyLeadingItemsView: ExpoView {
   private weak var observed: UIViewController?
   /// `any UITraitChangeRegistration` (iOS 17+; the deployment target is lower).
   private var registration: Any?
+  private weak var observedItem: UINavigationItem?
+  private var itemsToken: NSKeyValueObservation?
+  private var transitionProbe: NemuLeadingItemsTransitionProbe?
   private let hiddenItems = NSHashTable<UIBarButtonItem>.weakObjects()
 
   required init(appContext: AppContext? = nil) {
@@ -1675,49 +1699,174 @@ final class NemuVerticalBarOnlyLeadingItemsView: ExpoView {
   }
 
   private func reconcile() {
-    #if NEMU_SDK_27_1
-    guard #available(iOS 27.1, *) else { return }
     let screen = window == nil ? nil : owningController()
     let target = screen?.navigationController ?? screen
     if target !== observed {
-      if let registration = registration as? any UITraitChangeRegistration, let observed {
-        observed.unregisterForTraitChanges(registration)
-      }
-      registration = nil
+      unregisterTraits()
       observed = target
-      if let target {
-        var traits: [UITrait] = [UITraitHorizontalSizeClass.self, UITraitVerticalSizeClass.self]
-        traits += UITraitCollection.systemTraitsAffectingVerticalBarEdge
-        registration = target.registerForTraitChanges(traits) { [weak self] (_: UIViewController, _: UITraitCollection) in
-          self?.applyVisibility()
-        }
+      registerTraits()
+    }
+    let item = screen?.navigationItem
+    if item !== observedItem {
+      itemsToken?.invalidate()
+      itemsToken = nil
+      observedItem = item
+      // react-native-screens assigns the property on every header update.
+      itemsToken = item?.observe(\.leftBarButtonItems, options: []) { [weak self] _, _ in
+        MainActor.assumeIsolated { self?.applyVisibility(relayoutBar: false) }
       }
     }
-    applyVisibility()
+    installTransitionProbe()
+    applyVisibility(relayoutBar: false)
+  }
+
+  private func unregisterTraits() {
+    #if NEMU_SDK_27_1
+    if #available(iOS 27.1, *), let registration = registration as? any UITraitChangeRegistration, let observed {
+      observed.unregisterForTraitChanges(registration)
+    }
+    #endif
+    registration = nil
+  }
+
+  private func registerTraits() {
+    #if NEMU_SDK_27_1
+    guard #available(iOS 27.1, *), let observed else { return }
+    var traits: [UITrait] = [UITraitHorizontalSizeClass.self, UITraitVerticalSizeClass.self]
+    traits += UITraitCollection.systemTraitsAffectingVerticalBarEdge
+    registration = observed.registerForTraitChanges(traits) { [weak self] (_: UIViewController, _: UITraitCollection) in
+      self?.applyVisibility(relayoutBar: true)
+    }
     #endif
   }
 
-  #if NEMU_SDK_27_1
-  @available(iOS 27.1, *)
-  private func applyVisibility() {
-    guard window != nil, let screen = owningController() else { return }
-    let vertical: Bool = switch (observed ?? screen).traitCollection.verticalBarEdge {
-    case .leading, .trailing: true
-    default: false
+  /// A zero-size child of the window's root view controller: UIKit forwards
+  /// `viewWillTransition(to:with:)` to every child (as for `NemuTransitionProbeController`).
+  private func installTransitionProbe() {
+    let root = window?.rootViewController
+    if let probe = transitionProbe, let root, probe.parent === root { return }
+    transitionProbe?.willMove(toParent: nil)
+    transitionProbe?.view.removeFromSuperview()
+    transitionProbe?.removeFromParent()
+    transitionProbe = nil
+    guard let root else { return }
+    let probe = NemuLeadingItemsTransitionProbe()
+    probe.onWillTransition = { [weak self] coordinator in
+      coordinator.animate(alongsideTransition: { _ in
+        MainActor.assumeIsolated { self?.applyVisibility(relayoutBar: true) }
+      }, completion: { _ in
+        MainActor.assumeIsolated { self?.applyVisibility(relayoutBar: true) }
+      })
     }
-    let hide = guardEnabled && !vertical
+    root.addChild(probe)
+    probe.view.frame = .zero
+    probe.view.isUserInteractionEnabled = false
+    probe.view.isHidden = true
+    root.view.addSubview(probe.view)
+    probe.didMove(toParent: root)
+    transitionProbe = probe
+  }
+
+  /// Whether the system places this screen's bars vertically. Without the
+  /// iOS 27.1 API (older SDK or OS) there is no vertical bar: never.
+  private func barIsVertical(_ screen: UIViewController) -> Bool {
+    #if NEMU_SDK_27_1
+    if #available(iOS 27.1, *) {
+      switch (observed ?? screen).traitCollection.verticalBarEdge {
+      case .leading, .trailing: return true
+      default: return false
+      }
+    }
+    #endif
+    return false
+  }
+
+  private func applyVisibility(relayoutBar: Bool) {
+    guard window != nil, let screen = owningController() else { return }
+    let hide = guardEnabled && !barIsVertical(screen)
+    var changed = false
     for item in screen.navigationItem.leftBarButtonItems ?? [] {
       if hide {
         guard !item.isHidden else { continue }
         item.isHidden = true
         hiddenItems.add(item)
+        changed = true
       } else if hiddenItems.contains(item) {
         item.isHidden = false
         hiddenItems.remove(item)
+        changed = true
       }
     }
+    // The bar may already have laid out for the new edge in this pass: lay it
+    // out again now rather than on the next one.
+    if changed, relayoutBar, let bar = screen.navigationController?.navigationBar {
+      bar.setNeedsLayout()
+      bar.layoutIfNeeded()
+    }
   }
-  #endif
+}
+
+/// Container shown only while the system bars are on one axis
+/// (`axis` "horizontal": no vertical bar; "vertical": a vertical bar), from
+/// its own trait changes, which UIKit delivers as it lays the container out
+/// for new traits — so content that belongs to one bar axis (a drawn back
+/// button in a top bar's title row) comes and goes in the same frame as the
+/// bar, not a React commit later. Without the iOS 27.1 API bars are always
+/// horizontal.
+final class NemuBarAxisVisibilityView: ExpoView {
+  var axis = "horizontal" {
+    didSet { if axis != oldValue { apply() } }
+  }
+
+  required init(appContext: AppContext? = nil) {
+    super.init(appContext: appContext)
+    #if NEMU_SDK_27_1
+    if #available(iOS 27.1, *) {
+      var traits: [UITrait] = [UITraitHorizontalSizeClass.self, UITraitVerticalSizeClass.self]
+      traits += UITraitCollection.systemTraitsAffectingVerticalBarEdge
+      // UIKit keeps the registration for the view's lifetime.
+      _ = registerForTraitChanges(traits) { (view: NemuBarAxisVisibilityView, _: UITraitCollection) in
+        view.apply()
+      }
+    }
+    #endif
+    apply()
+  }
+
+  override func didMoveToWindow() {
+    super.didMoveToWindow()
+    apply()
+  }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    apply()
+  }
+
+  private func apply() {
+    var vertical = false
+    #if NEMU_SDK_27_1
+    if #available(iOS 27.1, *) {
+      switch traitCollection.verticalBarEdge {
+      case .leading, .trailing: vertical = true
+      default: vertical = false
+      }
+    }
+    #endif
+    let shown = (axis == "vertical") == vertical
+    if isHidden == shown { isHidden = !shown }
+    if accessibilityElementsHidden == shown { accessibilityElementsHidden = !shown }
+  }
+}
+
+/// Hears each size transition with its coordinator (see `NemuVerticalBarOnlyLeadingItemsView`).
+final class NemuLeadingItemsTransitionProbe: UIViewController {
+  var onWillTransition: ((any UIViewControllerTransitionCoordinator) -> Void)?
+
+  override func viewWillTransition(to size: CGSize, with coordinator: any UIViewControllerTransitionCoordinator) {
+    super.viewWillTransition(to: size, with: coordinator)
+    onWillTransition?(coordinator)
+  }
 }
 
 #if NEMU_SDK_27_1

@@ -3,6 +3,7 @@ import {
   applyMobileSettingsCollapsePlan,
   getMobileSettingsPageChain,
   getMobileSettingsPrimaryPane,
+  getMobileSettingsSplitColumnBackMounts as backMounts,
   getMobileSettingsStackSections,
   isMobileSettingsRestoredPush,
   isMobileSettingsStackTop,
@@ -142,5 +143,25 @@ describe("settings split collapse keeps the page", () => {
     const rebuilt = applyMobileSettingsCollapsePlan(rootless, { keep: 0, push: ["sources", "directories"] });
     expect(rebuilt.routes.map((route) => route.name)).toEqual(["index", "[section]", "[section]"]);
     expect(rebuilt.index).toBe(2);
+  });
+});
+
+describe("settings split column back mounts", () => {
+  test("with native bar-axis views both bar-row backs stay mounted and the bar picks one", () => {
+    for (const placement of ["bar", "column"] as const) {
+      expect(backMounts({ placement, axisViews: true })).toEqual({ barItem: true, titleRow: true, pane: false });
+    }
+  });
+
+  test("without them only the placement's own back is mounted", () => {
+    expect(backMounts({ placement: "bar", axisViews: false })).toEqual({ barItem: true, titleRow: false, pane: false });
+    expect(backMounts({ placement: "column", axisViews: false })).toEqual({ barItem: false, titleRow: true, pane: false });
+  });
+
+  test("the pane back and no page pushed are unchanged", () => {
+    for (const axisViews of [true, false]) {
+      expect(backMounts({ placement: "pane", axisViews })).toEqual({ barItem: false, titleRow: false, pane: true });
+      expect(backMounts({ placement: null, axisViews })).toEqual({ barItem: false, titleRow: false, pane: false });
+    }
   });
 });

@@ -147,6 +147,7 @@ import {
   planMobileSettingsSplitCollapse,
   type MobileSettingsStackState,
   getMobileSettingsSplitColumnBack,
+  getMobileSettingsSplitColumnBackMounts,
   getMobileSettingsSplitColumnTitles,
   getMobileSettingsSplitHighlightedRow,
   resolveMobileSettingsSplitSelection,
@@ -159,7 +160,11 @@ import {
 } from "@/lib/mobileSplitPaneLayout";
 import { useMobileSplitPaneLayout } from "@/lib/useMobileSplitPaneLayout";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
-import { VerticalBarOnlyLeadingItems } from "../../modules/nemu-window-layout";
+import {
+  BarAxisVisibility,
+  barAxisViewsAvailable,
+  VerticalBarOnlyLeadingItems,
+} from "../../modules/nemu-window-layout";
 import { HeaderHeightContext } from "expo-router/react-navigation";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { LayoutAnimationConfig } from "react-native-reanimated";
@@ -1922,9 +1927,13 @@ function SettingsBarTitleProbe({
       style={[styles.barTitleProbe, back ? { width, height: COLUMN_BACK_SIZE } : null]}
     >
       {back && shown ? (
-        <View style={[styles.columnBack, { top: 0, left: back.x - frameX }]}>
-          <SettingsColumnBackButton label={back.label} onPress={back.onPress} />
-        </View>
+        // Mounted beside a vertical bar too (where the bar item is Back),
+        // shown natively only under a top bar, in the frame the bar turns.
+        <BarAxisVisibility axis="horizontal" fallbackShown style={StyleSheet.absoluteFill}>
+          <View style={[styles.columnBack, { top: 0, left: back.x - frameX }]}>
+            <SettingsColumnBackButton label={back.label} onPress={back.onPress} />
+          </View>
+        </BarAxisVisibility>
       ) : null}
     </View>
   );
@@ -4384,12 +4393,17 @@ export function SettingsScreen({
   // bar it is a native bar item, first in the bar (custom views never go
   // vertical); under a top bar it is drawn in the bar's title row (which
   // takes that row's touches); with the one native title, atop the pane.
-  // One placement, from the same `verticalBarSide` as the column titles, so
-  // a pose change swaps one back for the other in the same render.
+  // One placement, from the same `verticalBarSide` as the column titles; with
+  // the native bar-axis views both bar-row backs stay mounted and the bar
+  // swaps them itself, in the frame it turns (a render is frames later).
   const backToSources = useCallback(() => setSelected("sources"), []);
   const columnBackPlacement = getMobileSettingsSplitColumnBack({
     columnTitles,
     pushed: split !== null && detailSection === "directories",
+  });
+  const columnBackMounts = getMobileSettingsSplitColumnBackMounts({
+    placement: columnBackPlacement,
+    axisViews: barAxisViewsAvailable,
   });
   const columnBackLabel = formatMobileString(strings.common.backTo, {
     title: strings.settings.installedSources,
@@ -4401,7 +4415,7 @@ export function SettingsScreen({
         x: split.trailing.x + COLUMN_BACK_INSET,
         label: columnBackLabel,
         onPress: backToSources,
-        shown: columnBackPlacement === "column" || columnBackPlacement === "pane",
+        shown: columnBackMounts.titleRow || columnBackMounts.pane,
       }
     : null;
 
@@ -4460,7 +4474,7 @@ export function SettingsScreen({
 
   return (
     <LayoutAnimationConfig skipEntering skipExiting>
-      {columnBackPlacement === "bar" ? (
+      {columnBackMounts.barItem ? (
         <>
           {/* Left placement: the bar's leading items, so Back is first in the
               vertical bar, before the detail page's Add Directory. */}
@@ -4473,9 +4487,9 @@ export function SettingsScreen({
               },
             ])}
           </Stack.Toolbar>
-          {/* The bar turns horizontal (vertical → top) natively before this
-              render hears of it; this hides the leading item from that trait
-              change, so it never shows at the start of the top bar. */}
+          {/* Shows the leading item only in a vertical bar, natively: the
+              bar turns before this render hears of it, and the stack
+              rebuilds bar items from options that follow the bar side. */}
           <VerticalBarOnlyLeadingItems />
         </>
       ) : null}

@@ -225,3 +225,26 @@ export function getMobileSettingsSplitColumnBack({
   if (columnTitles === "center") return "column";
   return "pane";
 }
+
+/**
+ * Which column backs are mounted for a placement. With native bar-axis views
+ * (`axisViews`) the bar item and the title-row back are both mounted for
+ * either bar axis, and the native side shows the one that fits the bar in the
+ * frame the bar turns (the bar item only in a vertical bar, the drawn one
+ * only in a top bar) — a React commit would land frames later, showing two
+ * backs or none. Without them, only the one for `placement` is mounted.
+ */
+export function getMobileSettingsSplitColumnBackMounts({
+  placement,
+  axisViews,
+}: {
+  placement: "bar" | "column" | "pane" | null;
+  axisViews: boolean;
+}): { barItem: boolean; titleRow: boolean; pane: boolean } {
+  const inBarRow = placement === "bar" || placement === "column";
+  return {
+    barItem: axisViews ? inBarRow : placement === "bar",
+    titleRow: axisViews ? inBarRow : placement === "column",
+    pane: placement === "pane",
+  };
+}
