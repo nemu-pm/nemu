@@ -2,6 +2,10 @@ import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { Stack } from "expo-router";
 import { createNemuNativeStackScreenOptions, useNemuTheme } from "@/design-system";
 import { createMobileTabStackAnchorListeners } from "@/lib/mobileTabStackAnchor";
+import {
+  isMobileSettingsRestoredPush,
+  MOBILE_SETTINGS_SECTION_ROUTE,
+} from "@/lib/mobileSettingsSplit";
 
 // Expo Router layouts can export route config alongside the component.
 // eslint-disable-next-line react-refresh/only-export-components
@@ -21,6 +25,18 @@ export default function SettingsLayout() {
     <Stack
       screenListeners={anchorListeners}
       screenOptions={createNemuNativeStackScreenOptions(tokens, verticalBarSide)}
-    />
+    >
+      {/* A section the split showed, pushed as it collapses to one column
+          (`SettingsScreen`): already on screen, so no push animation, also
+          when it replaces the top route. The route clears the param once in
+          place, and its pop and edge swipe are the system's again. */}
+      <Stack.Screen
+        name={MOBILE_SETTINGS_SECTION_ROUTE}
+        options={({ route }: { route: { params?: object } }) =>
+          isMobileSettingsRestoredPush(route.params)
+            ? { animation: "none" as const, animationTypeForReplace: "push" as const }
+            : {}}
+      />
+    </Stack>
   );
 }

@@ -4,6 +4,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -51,7 +52,7 @@ import {
   tag,
   tint,
 } from "@expo/ui/swift-ui/modifiers";
-import { Stack, router, useFocusEffect, useLocalSearchParams, type Href } from "expo-router";
+import { Stack, router, useFocusEffect, useLocalSearchParams, useNavigation, type Href } from "expo-router";
 import { SELF_HOSTED_REGISTRY_ID } from "@/lib/selfHosted/policy";
 import { selfHostedKindName } from "@/lib/selfHosted/messages";
 import * as DocumentPicker from "expo-document-picker";
@@ -137,7 +138,14 @@ import { MobileSheetSelectionIndicator } from "@/components/MobileSheetSelection
 import { ExploreGlassIconButton } from "@/components/explore/ExploreGlass";
 import { ReaderBackGlyph } from "@/components/reader/ReaderBackGlyph";
 import {
+  applyMobileSettingsCollapsePlan,
   getMobileSettingsPrimaryPane,
+  getMobileSettingsStackSections,
+  isMobileSettingsRestoredPush,
+  isMobileSettingsStackTop,
+  MOBILE_SETTINGS_RESTORED_PARAM,
+  planMobileSettingsSplitCollapse,
+  type MobileSettingsStackState,
   getMobileSettingsSplitColumnBack,
   getMobileSettingsSplitColumnTitles,
   getMobileSettingsSplitHighlightedRow,
@@ -4211,6 +4219,114 @@ function SettingsScreenContent({
   );
 }
 
+type SettingsStackEvent = { data?: { state?: MobileSettingsStackState } };
+/** The parts of the screen's (Settings stack) navigation the collapse uses. */
+type SettingsStackNavigation = {
+  getState: () => MobileSettingsStackState | undefined;
+  dispatch: (action: { type: "RESET"; payload: MobileSettingsStackState }) => void;
+  setParams: (params: Record<string, string | undefined>) => void;
+  addListener: (event: "state" | "transitionEnd", callback: (event: SettingsStackEvent) => void) => () => void;
+};
+
+/**
+ * The top route being re-pushed for in this commit, so two screen instances
+ * that both read as the top (two routes of one section) push once. Cleared
+ * after the commit's layout effects, so a later collapse on the same route
+ * pushes again.
+ */
+let lastCollapsedTopKey: string | undefined;
+
+/**
+ * The split's page survives its collapse to one column (a Duo rotating or
+ * folding to a narrow window), as UISplitViewController's secondary does:
+ * the selection the split showed in its detail column becomes routes, so
+ * Back and the edge swipe then go Source Directories → Installed Sources →
+ * Settings. The routes are pushed without animation (the page is already on
+ * screen: the collapsing screen renders the selection in place until the
+ * push lands, `getMobileSettingsPrimaryPane`), and each clears its
+ * `MOBILE_SETTINGS_RESTORED_PARAM` once in place so its own pop and swipe
+ * animate again. Back to a split, the top route renders the split with its
+ * section in the detail column and no stack Back (`headerBackVisible`).
+ */
+function useSettingsCollapseKeepsPage({
+  section,
+  selected,
+  setSelected,
+  split,
+}: {
+  section: SettingsSectionId | null;
+  selected: SettingsSectionId | null;
+  setSelected: (next: SettingsSectionId | null) => void;
+  split: boolean;
+}) {
+  const navigation = useNavigation() as unknown as SettingsStackNavigation;
+  const params = useLocalSearchParams();
+  const restored = isMobileSettingsRestoredPush(params);
+  const wasSplit = useRef(split);
+  // This screen pushed its selection; it drops it once it is no longer the
+  // top (the push has landed over it), so going back to it shows its own page.
+  const handedOff = useRef(false);
+
+  // Layout effect: the push goes out in the same frame as the collapse.
+  useLayoutEffect(() => {
+    const was = wasSplit.current;
+    wasSplit.current = split;
+    if (!was || split) return;
+    const state = navigation.getState();
+    if (!state) return;
+    if (!isMobileSettingsStackTop(state, section)) {
+      // Covered (another page over Settings): nothing on screen to keep;
+      // come back to this route's own page.
+      if (selected) setSelected(null);
+      return;
+    }
+    const plan = planMobileSettingsSplitCollapse({
+      routeSections: getMobileSettingsStackSections(state),
+      shown: selected ?? section,
+    });
+    if (!plan) return;
+    const topKey = state.routes[state.index]?.key;
+    if (topKey !== undefined && topKey === lastCollapsedTopKey) return;
+    lastCollapsedTopKey = topKey;
+    void Promise.resolve().then(() => {
+      lastCollapsedTopKey = undefined;
+    });
+    handedOff.current = true;
+    navigation.dispatch({ type: "RESET", payload: applyMobileSettingsCollapsePlan(state, plan) });
+  }, [navigation, section, selected, setSelected, split]);
+
+  useEffect(
+    () =>
+      navigation.addListener("state", (event) => {
+        const state = event.data?.state;
+        if (!handedOff.current || !state || isMobileSettingsStackTop(state, section)) return;
+        handedOff.current = false;
+        setSelected(null);
+      }),
+    [navigation, section, setSelected],
+  );
+
+  // A route pushed by a collapse: unanimated only for that push.
+  useEffect(() => {
+    if (!restored) return;
+    const clear = () => navigation.setParams({ [MOBILE_SETTINGS_RESTORED_PARAM]: undefined });
+    const state = navigation.getState();
+    // Beneath the new top it never animates in; its own pop comes later.
+    if (state && !isMobileSettingsStackTop(state, section)) {
+      clear();
+      return;
+    }
+    // On top: once the (instant) push has finished. The timer only backs up a
+    // transitionEnd that went out before this effect subscribed.
+    const unsubscribe = navigation.addListener("transitionEnd", clear);
+    const fallback = setTimeout(clear, 1000);
+    return () => {
+      unsubscribe();
+      clearTimeout(fallback);
+    };
+  }, [navigation, restored, section]);
+}
+
 /**
  * Settings on any width: push navigation on compact widths, a section list
  * beside the selected section on regular ones.
@@ -4234,7 +4350,8 @@ export function SettingsScreen({
     routeSection: section,
     focus,
   });
-  const primaryPane = getMobileSettingsPrimaryPane(section);
+  const primaryPane = getMobileSettingsPrimaryPane(section, split ? null : selected);
+  useSettingsCollapseKeepsPage({ section, selected, setSelected, split: split !== null });
   const padding = getMobileSplitPanePadding({
     pageGutters: gutters,
     innerGutter: MOBILE_SETTINGS_SPLIT_INNER_GUTTER,

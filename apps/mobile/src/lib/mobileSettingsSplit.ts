@@ -44,12 +44,135 @@ export function getMobileSettingsSplitHighlightedRow(
 /**
  * Which pane the route's own screen instance is. It keeps that React identity
  * across a resize (compact ⇄ split), so its state survives: the index route is
- * the section list, a `settings/[section]` route is the section content.
+ * the section list, a `settings/[section]` route is the section content. An
+ * index route that still holds a split selection (it has just collapsed, and
+ * the routes that keep that page are being pushed) shows the selection in
+ * place, so the root list never flashes before the push lands.
  */
 export function getMobileSettingsPrimaryPane(
   routeSection: MobileSettingsSplitSectionId | null,
+  collapsedSelection: MobileSettingsSplitSectionId | null = null,
 ): "list" | "detail" {
-  return routeSection ? "detail" : "list";
+  return routeSection || collapsedSelection ? "detail" : "list";
+}
+
+/** The `settings/[section]` route's name in the Settings stack. */
+export const MOBILE_SETTINGS_SECTION_ROUTE = "[section]";
+/** The Settings stack's root route (its anchor). */
+export const MOBILE_SETTINGS_ROOT_ROUTE = "index";
+/**
+ * Route param marking a route pushed to keep the page through a collapse. The
+ * Settings stack gives such a route no push animation (it is already on
+ * screen); the route clears the param once it is in place, so its pop and
+ * the edge swipe are the system's again.
+ */
+export const MOBILE_SETTINGS_RESTORED_PARAM = "restored";
+
+export function isMobileSettingsRestoredPush(params: object | undefined): boolean {
+  return (params as Record<string, unknown> | undefined)?.[MOBILE_SETTINGS_RESTORED_PARAM] === "1";
+}
+
+/**
+ * The pages a section sits on in one column, root excluded: Source
+ * Directories is opened from Installed Sources, everything else from the root.
+ */
+export function getMobileSettingsPageChain(
+  page: MobileSettingsSplitSectionId,
+): MobileSettingsSplitSectionId[] {
+  return page === "directories" ? ["sources", "directories"] : [page];
+}
+
+export type MobileSettingsCollapsePlan = {
+  /** How many of the routes above the root stay (with their keys and state). */
+  keep: number;
+  /** Sections pushed on top of them, bottom to top. */
+  push: MobileSettingsSplitSectionId[];
+};
+
+/**
+ * When the split collapses to one column, the routes that keep the page the
+ * detail column showed (`shown`: the split's explicit selection, else the
+ * route's own section; null keeps the root list). `routeSections` are the
+ * stack's routes above the root, bottom to top (null for a route that is not
+ * a section). Null when the stack already ends in that page's chain.
+ *
+ * The page on top is always a new route, even when the chain is a prefix of
+ * the stack (Installed Sources under a Source Directories route): the change
+ * is then a push, which can go unanimated, never a pop.
+ */
+export function planMobileSettingsSplitCollapse({
+  routeSections,
+  shown,
+}: {
+  routeSections: readonly (MobileSettingsSplitSectionId | null)[];
+  shown: MobileSettingsSplitSectionId | null;
+}): MobileSettingsCollapsePlan | null {
+  if (!shown) return null;
+  const chain = getMobileSettingsPageChain(shown);
+  let keep = 0;
+  while (keep < routeSections.length && keep < chain.length && routeSections[keep] === chain[keep]) keep++;
+  if (keep === routeSections.length && keep === chain.length) return null;
+  keep = Math.min(keep, chain.length - 1);
+  return { keep, push: chain.slice(keep) };
+}
+
+export type MobileSettingsStackRoute = { key?: string; name: string; params?: object };
+export type MobileSettingsStackState = {
+  index: number;
+  routes: MobileSettingsStackRoute[];
+  [key: string]: unknown;
+};
+
+function routeSection(route: MobileSettingsStackRoute | undefined): MobileSettingsSplitSectionId | null {
+  if (route?.name !== MOBILE_SETTINGS_SECTION_ROUTE) return null;
+  const section = (route.params as { section?: unknown } | undefined)?.section;
+  return section === "reader" || section === "sources" || section === "directories" ||
+    section === "appearance" || section === "data" || section === "experimental"
+    ? section
+    : null;
+}
+
+/** Sections of the stack's routes above its root, bottom to top. */
+export function getMobileSettingsStackSections(
+  state: MobileSettingsStackState,
+): (MobileSettingsSplitSectionId | null)[] {
+  const above = state.routes[0]?.name === MOBILE_SETTINGS_ROOT_ROUTE ? state.routes.slice(1) : state.routes;
+  return above.map(routeSection);
+}
+
+/** Whether the stack's top route is this screen's route (the root for a null section). */
+export function isMobileSettingsStackTop(
+  state: MobileSettingsStackState,
+  section: MobileSettingsSplitSectionId | null,
+): boolean {
+  const top = state.routes[state.index];
+  if (!top) return false;
+  return section === null ? top.name === MOBILE_SETTINGS_ROOT_ROUTE : routeSection(top) === section;
+}
+
+/**
+ * The stack after a collapse plan, as a RESET payload: the root (inserted if
+ * the stack lacks it) and the kept routes keep their keys, so their screens
+ * stay mounted; pushed routes have no key (the router's RESET handler mints
+ * them) and carry `MOBILE_SETTINGS_RESTORED_PARAM`.
+ */
+export function applyMobileSettingsCollapsePlan<State extends MobileSettingsStackState>(
+  state: State,
+  plan: MobileSettingsCollapsePlan,
+): State {
+  const first = state.routes[0];
+  const hasRoot = first?.name === MOBILE_SETTINGS_ROOT_ROUTE;
+  const root: MobileSettingsStackRoute = first && hasRoot ? first : { name: MOBILE_SETTINGS_ROOT_ROUTE, params: {} };
+  const above = hasRoot ? state.routes.slice(1) : state.routes;
+  const routes = [
+    root,
+    ...above.slice(0, plan.keep),
+    ...plan.push.map((section) => ({
+      name: MOBILE_SETTINGS_SECTION_ROUTE,
+      params: { section, [MOBILE_SETTINGS_RESTORED_PARAM]: "1" },
+    })),
+  ];
+  return { ...state, index: routes.length - 1, routes, stale: false };
 }
 
 export type MobileSettingsSplitTitleAlignment = "center" | "leading";
