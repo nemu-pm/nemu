@@ -399,6 +399,8 @@ export function JapaneseLearningNemuChatDrawer({
               accessibilityLabel={strings.reader.pluginJapaneseLearningChatInputPlaceholder}
               autoCapitalize="sentences"
               autoCorrect
+              // The reader and its chat are always dark.
+              keyboardAppearance="dark"
               onFocus={() => setInputFocused(true)}
               onBlur={() => setInputFocused(false)}
               onChangeText={onChangeInput}
