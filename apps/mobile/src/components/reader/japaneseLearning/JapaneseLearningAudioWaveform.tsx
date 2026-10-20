@@ -1,9 +1,17 @@
-import { useMemo, useState } from "react";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { ActivityIndicator, PanResponder, StyleSheet, View } from "react-native";
 import { JapaneseLearningWebIcon } from "./JapaneseLearningWebIcon";
 import { NemuPressable, useNemuTheme } from "@/design-system";
 import { JapaneseLearningText as Text } from "./JapaneseLearningText";
 import { JAPANESE_LEARNING_AUDIO_COLORS } from "@/lib/mobileJapaneseLearningSurfaceTheme";
+import {
+  estimateJapaneseLearningWaveDuration,
+  getJapaneseLearningWaveVersion,
+  isJapaneseLearningWaveBarPlayed,
+  japaneseLearningWaveSeekTime,
+  readJapaneseLearningWave,
+  subscribeJapaneseLearningWave,
+} from "@/lib/mobileJapaneseLearningWave";
 
 const BAR_WIDTH = 3;
 const BAR_GAP = 2;
@@ -37,6 +45,14 @@ function formatDuration(seconds: number): string {
 type AudioWaveformProps = {
   /** Seeds the bar shape so a page keeps the same waveform. */
   seed: string;
+  /**
+   * The audio's id in the wave store (`mobileJapaneseLearningWave`): the bars
+   * are its real peaks, read while it plays (web `AudioWaveform`), instead of
+   * the seed's shape.
+   */
+  waveId?: string;
+  /** With `waveId`: drag on the waveform to seek while it plays (seconds). */
+  onSeek?: (seconds: number) => void;
   loading: boolean;
   playing: boolean;
   /** Web `showWaveform`: bars appear once this audio has been played. */
@@ -56,6 +72,8 @@ type AudioWaveformProps = {
  */
 export function JapaneseLearningAudioWaveform({
   seed,
+  waveId,
+  onSeek,
   loading,
   playing,
   showWaveform,
@@ -68,19 +86,69 @@ export function JapaneseLearningAudioWaveform({
   const { scheme, tokens } = useNemuTheme();
   const [width, setWidth] = useState(0);
   const barCount = width > 0 ? Math.max(8, Math.floor((width + BAR_GAP) / (BAR_WIDTH + BAR_GAP))) : 0;
-  const peaks = useMemo(() => peaksForSeed(seed, barCount), [barCount, seed]);
+  const waveVersion = useSyncExternalStore(
+    useCallback(
+      (listener: () => void) =>
+        waveId ? subscribeJapaneseLearningWave(waveId, listener) : () => undefined,
+      [waveId],
+    ),
+    () => (waveId ? getJapaneseLearningWaveVersion(waveId) : 0),
+  );
+  const fallbackDuration = useMemo(() => estimateJapaneseLearningWaveDuration(seed), [seed]);
+  const wave = useMemo(
+    () =>
+      waveId && barCount > 0
+        ? readJapaneseLearningWave(waveId, fallbackDuration, barCount)
+        : null,
+    // `waveVersion` is the store's change signal.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [barCount, fallbackDuration, waveId, waveVersion],
+  );
+  const peaks = useMemo(
+    () => wave?.peaks ?? (waveId ? [] : peaksForSeed(seed, barCount)),
+    [barCount, seed, wave, waveId],
+  );
   const active = loading || playing;
+  // Web draws progress against the visual duration (the real one, or the
+  // text's estimate while it is longer or unknown).
+  const progressDuration = wave ? wave.duration : duration;
   const progress =
-    playing && duration && duration > 0 && currentTime != null
-      ? Math.min(1, Math.max(0, currentTime / duration))
+    playing && progressDuration && progressDuration > 0 && currentTime != null
+      ? Math.min(1, Math.max(0, currentTime / progressDuration))
       : 0;
+
+  // Web `seekFromPointer` on pointer down / move: only the playing audio.
+  const seekStateRef = useRef({ enabled: false, width: 0, duration: 0, onSeek });
+  seekStateRef.current = {
+    enabled: Boolean(waveId && onSeek && playing),
+    width,
+    duration: wave?.duration ?? 0,
+    onSeek,
+  };
+  const seekResponder = useMemo(() => {
+    const seekTo = (x: number) => {
+      const state = seekStateRef.current;
+      const time = japaneseLearningWaveSeekTime(x, state.width, state.duration);
+      if (time != null) state.onSeek?.(time);
+    };
+    return PanResponder.create({
+      onStartShouldSetPanResponder: () => seekStateRef.current.enabled,
+      onMoveShouldSetPanResponder: () => seekStateRef.current.enabled,
+      // A scrub keeps the touch (the chat's scroll view does not take it over).
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderGrant: (event) => seekTo(event.nativeEvent.locationX),
+      onPanResponderMove: (event) => seekTo(event.nativeEvent.locationX),
+    });
+  }, []);
   const timeText = loading
     ? "--:--"
     : playing && currentTime != null
       ? formatDuration(currentTime)
       : duration && duration > 0
         ? formatDuration(duration)
-        : "--:--";
+        : wave && wave.audioDuration > 0
+          ? formatDuration(wave.audioDuration)
+          : "--:--";
   const waveColor = JAPANESE_LEARNING_AUDIO_COLORS.wave[scheme === "dark" ? "dark" : "light"];
 
   return (
@@ -119,10 +187,10 @@ export function JapaneseLearningAudioWaveform({
             importantForAccessibility="no-hide-descendants"
             onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
             style={styles.waveform}
+            {...(waveId && onSeek ? seekResponder.panHandlers : {})}
           >
             {peaks.map((peak, index) => {
-              const x = index * (BAR_WIDTH + BAR_GAP);
-              const played = x + BAR_WIDTH <= progress * (barCount * (BAR_WIDTH + BAR_GAP) - BAR_GAP) + 0.5;
+              const played = isJapaneseLearningWaveBarPlayed(index, barCount, progress);
               return (
                 <View
                   key={index}

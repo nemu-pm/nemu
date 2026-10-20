@@ -213,6 +213,16 @@ import {
 } from "@/lib/mobileJapaneseLearningQa";
 import { JapaneseLearningNemuChatDrawer } from "@/components/reader/japaneseLearning/JapaneseLearningNemuChatDrawer";
 import { JapaneseLearningSignInSheet } from "@/components/reader/japaneseLearning/JapaneseLearningSignInSheet";
+import {
+  addJapaneseLearningWaveSample,
+  beginJapaneseLearningWave,
+  commitJapaneseLearningWave,
+  estimateJapaneseLearningWaveDuration,
+  flushJapaneseLearningWave,
+  JAPANESE_LEARNING_WAVE_RENDER_THROTTLE_MS,
+  japaneseLearningWaveAmplitude,
+  setJapaneseLearningWaveDuration,
+} from "@/lib/mobileJapaneseLearningWave";
 import { JapaneseLearningTranscriptSheet } from "@/components/reader/japaneseLearning/JapaneseLearningTranscriptSheet";
 import {
   MobileCachedImage,
@@ -1332,6 +1342,8 @@ export function ReaderScreen() {
   const japaneseLearningGrammarRunRef = useRef(0);
   const japaneseLearningTtsRunRef = useRef(0);
   const japaneseLearningTtsPlayerRef = useRef<AudioPlayer | null>(null);
+  /** The chat voice message whose live peaks are being read (web `commitPeaks` on stop). */
+  const japaneseLearningChatWaveIdRef = useRef<string | null>(null);
   const japaneseLearningLifecycleRef = useRef<ReturnType<
     typeof createMobileJapaneseLearningScreenLifecycle
   > | null>(null);
@@ -5106,6 +5118,10 @@ export function ReaderScreen() {
       : undefined;
 
   const stopJapaneseLearningTts = useCallback(() => {
+    if (japaneseLearningChatWaveIdRef.current) {
+      commitJapaneseLearningWave(japaneseLearningChatWaveIdRef.current);
+      japaneseLearningChatWaveIdRef.current = null;
+    }
     japaneseLearningLifecycleRef.current?.abort("tts-playback");
     japaneseLearningTtsRunRef.current += 1;
     japaneseLearningChatTtsAutoPlayRef.current = {
@@ -5684,15 +5700,73 @@ export function ReaderScreen() {
         japaneseLearningTtsPlayerRef.current?.remove();
         const player = createAudioPlayer({ uri: audio.uri });
         japaneseLearningTtsPlayerRef.current = player;
+        // Web `AudioWaveform`: the bars are this audio's amplitude, read
+        // while it plays (an AnalyserNode there, expo-audio's samples here),
+        // redrawn every 80ms and kept once playback stops.
+        if (japaneseLearningChatWaveIdRef.current) {
+          commitJapaneseLearningWave(japaneseLearningChatWaveIdRef.current);
+        }
+        japaneseLearningChatWaveIdRef.current = message.id;
+        beginJapaneseLearningWave(message.id, estimateJapaneseLearningWaveDuration(text));
+        let sampleSubscription: { remove: () => void } | null = null;
+        let lastWaveFlush = 0;
+        try {
+          player.setAudioSamplingEnabled(true);
+          sampleSubscription = player.addListener("audioSampleUpdate", (sample) => {
+            if (japaneseLearningTtsRunRef.current !== ttsRun) return;
+            const frames = sample.channels[0]?.frames;
+            if (!frames || frames.length === 0) return;
+            addJapaneseLearningWaveSample(
+              message.id,
+              player.currentTime,
+              japaneseLearningWaveAmplitude(frames),
+            );
+            const now = Date.now();
+            if (now - lastWaveFlush > JAPANESE_LEARNING_WAVE_RENDER_THROTTLE_MS) {
+              lastWaveFlush = now;
+              flushJapaneseLearningWave(message.id);
+            }
+          });
+        } catch {
+          // No sample stream: the bars stay flat, as web's do without an analyser.
+        }
         const subscription = player.addListener(
           "playbackStatusUpdate",
           (status) => {
             if (japaneseLearningTtsRunRef.current !== ttsRun) return;
+            if (!status.didJustFinish) {
+              const duration = Number.isFinite(status.duration) ? status.duration : 0;
+              setJapaneseLearningWaveDuration(message.id, duration);
+              setJapaneseLearningTtsState((current) => {
+                if (
+                  current.status !== "playing" ||
+                  current.source !== "chat" ||
+                  current.messageId !== message.id
+                ) {
+                  return current;
+                }
+                const currentTime = Number.isFinite(status.currentTime)
+                  ? status.currentTime
+                  : 0;
+                if (
+                  current.currentTime === currentTime &&
+                  current.duration === duration
+                ) {
+                  return current;
+                }
+                return { ...current, currentTime, duration };
+              });
+            }
             if (status.didJustFinish) {
               subscription.remove();
+              sampleSubscription?.remove();
               player.remove();
               if (japaneseLearningTtsPlayerRef.current === player) {
                 japaneseLearningTtsPlayerRef.current = null;
+              }
+              if (japaneseLearningChatWaveIdRef.current === message.id) {
+                commitJapaneseLearningWave(message.id);
+                japaneseLearningChatWaveIdRef.current = null;
               }
 
               const autoPlayState = japaneseLearningChatTtsAutoPlayRef.current;
@@ -5741,6 +5815,8 @@ export function ReaderScreen() {
           id: audio.id,
           source: "chat",
           messageId: message.id,
+          currentTime: 0,
+          duration: 0,
         });
         if (playHaptic) void hapticConfirm();
       })().catch((error) => {
@@ -5772,6 +5848,13 @@ export function ReaderScreen() {
   useEffect(() => {
     playJapaneseLearningChatTtsRef.current = playJapaneseLearningChatTts;
   }, [playJapaneseLearningChatTts]);
+
+  /** Web waveform scrub (`seekFromPointer` → `seek`): the playing voice message. */
+  const seekJapaneseLearningChatTts = useCallback((seconds: number) => {
+    const player = japaneseLearningTtsPlayerRef.current;
+    if (!player || !Number.isFinite(seconds)) return;
+    void player.seekTo(Math.max(0, seconds)).catch(() => undefined);
+  }, []);
 
   const toggleJapaneseLearningChatTts = useCallback(
     (message: JapaneseLearningChatThreadMessage) => {
@@ -8801,6 +8884,7 @@ export function ReaderScreen() {
       onSendInput={sendJapaneseLearningChatInput}
       onSendSuggestion={sendJapaneseLearningChatSuggestion}
       onToggleChatTts={toggleJapaneseLearningChatTts}
+      onSeekChatTts={seekJapaneseLearningChatTts}
       stackedSurface={
         Platform.OS === "ios" && japaneseLearningChatStackedOnSentence === stacked
           ? renderJapaneseLearningSignInSheet("chat")

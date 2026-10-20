@@ -7,7 +7,6 @@ import {
   useNemuTheme,
 } from "@/design-system";
 import { JapaneseLearningText as Text } from "./JapaneseLearningText";
-import { hapticPress } from "@/lib/haptics";
 import { formatMobileJapaneseLearningChatTime } from "@/lib/mobileJapaneseLearningReaderHelpers";
 import {
   getJapaneseLearningAssistantBubbleColors,
@@ -60,6 +59,8 @@ interface MessageBubbleProps {
   ttsDisabled: boolean;
   ttsErrorDetail?: string;
   onVoiceAction: (message: JapaneseLearningChatThreadMessage) => void;
+  /** Web waveform scrub: seek the playing voice message (seconds). */
+  onVoiceSeek?: (seconds: number) => void;
 }
 
 /** Mobile mirror of web `MessageBubble` (message-bubble.tsx). */
@@ -77,6 +78,7 @@ export function JapaneseLearningMessageBubble({
   ttsDisabled,
   ttsErrorDetail,
   onVoiceAction,
+  onVoiceSeek,
 }: MessageBubbleProps) {
   const { tokens, scheme } = useNemuTheme();
   const isUser = message.role === "user";
@@ -91,8 +93,8 @@ export function JapaneseLearningMessageBubble({
     Boolean(message.isError),
   );
 
+  // The play button's own press haptic is web's single `hapticPress`.
   const handleToggle = useCallback(() => {
-    void hapticPress();
     onVoiceAction(message);
   }, [message, onVoiceAction]);
 
@@ -159,6 +161,8 @@ export function JapaneseLearningMessageBubble({
           <View style={styles.voiceContent}>
             <JapaneseLearningAudioWaveform
               seed={message.ttsText ?? message.text}
+              waveId={message.id}
+              onSeek={onVoiceSeek}
               showWaveform
               currentTime={ttsCurrentTime}
               duration={ttsDuration}

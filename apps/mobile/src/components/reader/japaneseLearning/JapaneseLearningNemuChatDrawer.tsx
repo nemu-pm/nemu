@@ -64,6 +64,8 @@ interface NemuChatDrawerProps {
   onSendInput: () => void;
   onSendSuggestion: (suggestion: string) => void;
   onToggleChatTts: (message: JapaneseLearningChatThreadMessage) => void;
+  /** Web waveform scrub: seek the playing voice message (seconds). */
+  onSeekChatTts?: (seconds: number) => void;
   /** Called after the surface has closed (sheet dismissal finished / dock removed). */
   onDismiss?: () => void;
   onPresentationProgress?: (progress: number) => void;
@@ -98,6 +100,7 @@ export function JapaneseLearningNemuChatDrawer({
   onSendInput,
   onSendSuggestion,
   onToggleChatTts,
+  onSeekChatTts,
   onDismiss,
   onPresentationProgress,
   stackedSurface = null,
@@ -261,6 +264,7 @@ export function JapaneseLearningNemuChatDrawer({
                   ttsDisabled={chatTtsDisabled}
                   ttsErrorDetail={chatTtsError}
                   onVoiceAction={onToggleChatTts}
+                  onVoiceSeek={chatTtsPlaying ? onSeekChatTts : undefined}
                 />
               );
             })}
