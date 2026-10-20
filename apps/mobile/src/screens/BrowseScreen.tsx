@@ -10,19 +10,16 @@ import { MOBILE_EXPLORE_RADIUS } from "@/lib/mobileExploreRadius";
 import { Stack, router } from "expo-router";
 import {
   Linking,
-  Platform,
   ScrollView,
   SectionList,
   StyleSheet,
   Text,
   View,
   useWindowDimensions,
-  type LayoutChangeEvent,
   type SectionListData,
   type SectionListRenderItemInfo,
   type ViewInstance,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { selfHostedKindName } from "@/lib/selfHosted/messages";
 import { SELF_HOSTED_REGISTRY_ID, SELF_HOSTED_SETUP_KINDS, type SelfHostedKind } from "@/lib/selfHosted/policy";
@@ -85,7 +82,6 @@ import {
   getMobileStrings,
   type MobileStrings,
 } from "@/lib/mobileI18n";
-import { resolveMobileSheetHeaderMetrics } from "@/lib/mobileNativeSheet";
 import { mobileGridPrefersEvenColumns } from "@/lib/mobileAdaptiveLayout";
 import { getMobileSourceGridLayout } from "@/lib/mobilePageLayout";
 import { chunkMobileGridRows, mobileFoldAwareGridCellStyle } from "@/lib/mobileFoldAwareGrid";
@@ -787,12 +783,20 @@ function AvailableSectionSeparator({
 }
 
 /**
- * The Add Sources sheet sizes its detent to its content, clamped to
- * `[320, 88%]` of the available height; longer catalogs scroll inside it.
+ * The Add Sources sheet opens at three quarters of the screen and drags up to
+ * full height; the catalog scrolls inside it.
+ *
+ * Fixed fractions, never a measured height: the native sheet's selected
+ * detent is the snap point at its index, and the single measured height this
+ * sheet used to pass (an 88% placeholder, then header + list content) changed
+ * while the sheet was up. Since @expo/ui 58.0.21 the presented sheet picks
+ * that change up, leaving SwiftUI's selection outside the new one-detent list
+ * ("Cannot set selected sheet detent if it is not included"); the sheet then
+ * settled near half height with no other detent to drag to. A
+ * module-level array keeps the detents' identity (and so the selection) stable
+ * too.
  */
-const ADD_SOURCE_SHEET_MAX_DETENT_FRACTION = 0.88;
-const ADD_SOURCE_SHEET_MIN_DETENT = 320;
-const ADD_SOURCE_SHEET_CORNER_CLEARANCE = 12;
+const ADD_SOURCE_SHEET_SNAP_POINTS: (string | number)[] = ["75%", "100%"];
 
 export function BrowseScreen() {
   const { verticalBarSide } = useMobileAdaptiveLayout();
@@ -831,7 +835,7 @@ export function BrowseScreen() {
   const toast = useMobileToast();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
-  const { height: windowHeight, width: windowWidth, fontScale } = useWindowDimensions();
+  const { width: windowWidth, fontScale } = useWindowDimensions();
   const pageGutters = useMobilePageGutters();
   // Source cards size from the measured content box (Duo's trailing system
   // bars narrow it), even columns whenever the window has a fold region
@@ -862,7 +866,6 @@ export function BrowseScreen() {
       windowWidth,
     ],
   );
-  const insets = useSafeAreaInsets();
   const usesNativeHeader = usesNemuNativeHeader;
 
   const installedKeys = useMemo(
@@ -1179,72 +1182,6 @@ export function BrowseScreen() {
   );
   const activeFilterCount = selectedLanguages.size + (showAdult ? 1 : 0);
 
-  // Measured Add Sources sheet detent (iOS). Both inputs come from the
-  // sheet's own layout: the header stack's `onLayout` and the list's
-  // `onContentSizeChange`, which reports natural content height because the
-  // list's content container does not stretch (`availableListContent` opts
-  // out of `flexGrow` for exactly this reason). Until the first measurement
-  // lands, the detent stays at the 88% ceiling so the snap-point prop is
-  // always a one-element numeric array — iOS animates numeric detent changes
-  // in place, but it must never see `undefined` swap in for the array.
-  const [
-    addSourceHeaderStackHeight,
-    setAddSourceHeaderStackHeight,
-  ] = useState(0);
-  const [
-    addSourceListContentHeight,
-    setAddSourceListContentHeight,
-  ] = useState(0);
-  const addSourceSheetSnapPoint = useMemo(() => {
-    const metrics = resolveMobileSheetHeaderMetrics(Platform.OS);
-    const maxDetent = Math.round(
-      ADD_SOURCE_SHEET_MAX_DETENT_FRACTION *
-        (windowHeight - insets.top - insets.bottom),
-    );
-    const measuredDetent =
-      metrics.minimumHeight +
-      metrics.bodyTopPadding +
-      addSourceHeaderStackHeight +
-      addSourceListContentHeight +
-      ADD_SOURCE_SHEET_CORNER_CLEARANCE;
-    const detent =
-      addSourceHeaderStackHeight > 0 && addSourceListContentHeight > 0
-        ? measuredDetent
-        : maxDetent;
-    return Math.min(
-      Math.max(Math.round(detent), ADD_SOURCE_SHEET_MIN_DETENT),
-      maxDetent,
-    );
-  }, [
-    addSourceHeaderStackHeight,
-    addSourceListContentHeight,
-    insets.bottom,
-    insets.top,
-    windowHeight,
-  ]);
-  const handleAddSourceHeaderStackLayout = useCallback(
-    (event: LayoutChangeEvent) => {
-      const nextHeight = Math.ceil(event.nativeEvent.layout.height);
-      setAddSourceHeaderStackHeight((currentHeight) =>
-        currentHeight === nextHeight ? currentHeight : nextHeight,
-      );
-    },
-    [],
-  );
-  // A virtualized list re-reports its content height on every render batch,
-  // and each report re-ran the detent memo and re-rendered the sheet. The
-  // detent only needs one number: the first measurement wins and the next
-  // dismissal clears it for the next open.
-  const handleAvailableListContentSizeChange = useCallback(
-    (_contentWidth: number, contentHeight: number) => {
-      const nextHeight = Math.ceil(contentHeight);
-      setAddSourceListContentHeight((currentHeight) =>
-        currentHeight > 0 ? currentHeight : nextHeight,
-      );
-    },
-    [],
-  );
-
   const restoreAddSourceSheet = useCallback(() => {
     setActiveSheet("add-source");
     setActiveSheetVisible(true);
@@ -1548,7 +1485,6 @@ export function BrowseScreen() {
     addSourceDismissActionRef.current = null;
     setActiveSheet(null);
     setActiveSheetVisible(false);
-    setAddSourceListContentHeight(0);
 
     if (next?.type === "open-language") {
       setActiveSheet("source-language");
@@ -1973,9 +1909,10 @@ export function BrowseScreen() {
               }}
             />
           )}
-          // Same height on both platforms; the scaffold maps the detent onto
-          // Android's content-wrapping Material sheet.
-          snapPoints={[addSourceSheetSnapPoint]}
+          // Opens at the first detent (75%); iOS drags up to the second
+          // (100%). The scaffold maps the first onto Android's
+          // content-wrapping Material sheet.
+          snapPoints={ADD_SOURCE_SHEET_SNAP_POINTS}
           fillContent
           contentBottomInset={0}
           contentIgnoresSafeAreaEdges="horizontal"
@@ -2002,7 +1939,6 @@ export function BrowseScreen() {
               starts 12pt clear of the field at rest.
             */}
             <View
-              onLayout={handleAddSourceHeaderStackLayout}
               style={styles.addSourceSheetHeaderStack}
             >
               {available.error ? (
@@ -2112,7 +2048,6 @@ export function BrowseScreen() {
                   alwaysBounceVertical={false}
                   automaticallyAdjustContentInsets={false}
                   contentInsetAdjustmentBehavior="never"
-                  onContentSizeChange={handleAvailableListContentSizeChange}
                   initialNumToRender={18}
                   maxToRenderPerBatch={18}
                   keyboardDismissMode="interactive"
@@ -2362,13 +2297,8 @@ const styles = StyleSheet.create({
     // the scroll viewport starts at the field's bottom edge and nothing is
     // ever clipped in the empty space between them.
     paddingTop: 12,
-    // Rounded-corner tail: the measured detent adds 12pt of clearance on top
-    // of this padding, leaving ~36pt under the last row at full scroll.
-    paddingBottom: 24,
-    // No `flexGrow`: a content container stretched to the viewport would
-    // report the viewport height from `onContentSizeChange`, and the sheet's
-    // measured detent depends on that callback reporting the natural content
-    // height to stay out of a feedback loop.
+    // Rounded-corner tail: ~36pt under the last row at full scroll.
+    paddingBottom: 36,
   },
   availableRowSeparator: {
     height: 12,
