@@ -615,6 +615,66 @@ describe("mobile source reader pages", () => {
     ]);
   });
 
+  test("processes remote pages without a context like Aidoku and the web reader", async () => {
+    // Shonen Jump+ style: the source descrambles every page but its page list
+    // carries no per-page context.
+    const processedContexts: unknown[] = [];
+    let hasImageProcessorCalls = 0;
+    const bridge: MobileAidokuExecutorBridge = {
+      async loadSource() {
+        return {
+          status: "ready",
+          runtime: "native-aidoku",
+          source: makeExecutorSource(undefined, {
+            async getPageList() {
+              return [
+                { index: 0, url: "https://example.test/no-context.jpg" },
+              ];
+            },
+            async hasImageProcessor() {
+              hasImageProcessorCalls += 1;
+              return true;
+            },
+            async processPageImage(imageData, context, requestUrl) {
+              expect(imageData).toEqual(new Uint8Array([1, 2, 3]));
+              expect(requestUrl).toBe("https://example.test/no-context.jpg");
+              processedContexts.push(context);
+              return VALID_PNG_BYTES.slice();
+            },
+          }),
+        };
+      },
+    };
+
+    const result = await refreshMobileReaderPages(
+      installedSource(),
+      "blue-lock",
+      { id: "c2", chapterNumber: 2 },
+      {
+        executor: { bridge, readBytes: async () => makeAixPackage() },
+        processPageImages: true,
+        fetchImpl: fetchResponse(
+          new Response(new Uint8Array([1, 2, 3]), {
+            status: 200,
+            headers: { "content-type": "image/jpeg" },
+          }),
+        ),
+      },
+    );
+    if (result.status !== "ready" || !result.pageProcessor) {
+      throw new Error("expected a page processor");
+    }
+
+    expect(hasImageProcessorCalls).toBe(1);
+    expect((await result.pageProcessor.processWindow(0))?.pages[0]).toMatchObject({
+      id: "0:https://example.test/no-context.jpg",
+      imageUri: VALID_PNG_DATA_URI,
+      imageUriOwnership: "app",
+      imageProcessing: "ready",
+    });
+    expect(processedContexts).toEqual([null]);
+  });
+
   test("falls back before base64-expanding an oversized processor result", async () => {
     const bridge: MobileAidokuExecutorBridge = {
       async loadSource() {

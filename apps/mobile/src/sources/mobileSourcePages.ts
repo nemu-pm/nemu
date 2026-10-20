@@ -484,7 +484,11 @@ async function processMobileReaderPageImage({
   fetchImpl: typeof fetch;
   signal?: AbortSignal;
 }): Promise<string | null> {
-  if (!page.context || signal?.aborted) return null;
+  // Like Aidoku and the web adapter, every remote page goes through the
+  // source's processor; `context` is optional and passed through as null.
+  // Sources such as Shonen Jump+ descramble pages that carry no context.
+  if (signal?.aborted) return null;
+  const context = page.context ?? null;
 
   try {
     if (fetchImpl === fetch) {
@@ -497,7 +501,7 @@ async function processMobileReaderPageImage({
       if (!response.ok || signal?.aborted) return null;
       const processed = await source.processPageImage(
         response.bytes,
-        page.context,
+        context,
         request.url,
         request.headers,
         response.status,
@@ -523,7 +527,7 @@ async function processMobileReaderPageImage({
     assertPageProcessingInputByteLength(bytes.byteLength);
     const processed = await source.processPageImage(
       bytes,
-      page.context,
+      context,
       request.url,
       request.headers,
       response.status,
@@ -700,11 +704,7 @@ function createMobileReaderPageProcessor({
               .catch(() => undefined);
         if (isStale()) return basePage;
         if (!request) return { ...basePage, imageProcessing: "fallback" };
-        if (
-          !options.processPageImages ||
-          !hasImageProcessor ||
-          !page.context
-        ) {
+        if (!options.processPageImages || !hasImageProcessor) {
           return {
             ...mapAidokuPageToReaderPage(page, index, request),
             id: basePage.id,
@@ -899,10 +899,12 @@ export async function refreshMobileReaderPages(
         rawPages = await session.source.getPageList({ key: mangaId }, listed);
       }
       const shouldProcessPageImages = options.processPageImages === true;
-      const hasProcessorContext =
+      // Every remote page is a processor candidate (context is optional, as
+      // in Aidoku and the web reader); app-local archive pages never are.
+      const hasRemotePages =
         shouldProcessPageImages &&
-        rawPages.some((page) => page.url && page.context);
-      const hasImageProcessor = hasProcessorContext
+        rawPages.some((page) => page.url && !page.localUri);
+      const hasImageProcessor = hasRemotePages
         ? await session.source.hasImageProcessor()
         : false;
       // Keep the initial refresh to the page-list request only. Request

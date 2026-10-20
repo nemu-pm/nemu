@@ -523,9 +523,15 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
       else {
         throw Self.error("The isolated Aidoku image runtime returned an invalid result.")
       }
-      // iOS currently falls back to the original bytes for declarative canvas
-      // plans, matching the previous in-process implementation.
-      if kind == "canvas-plan" { return nil }
+      // Canvas-based processors (tile descramblers such as Shonen Jump+)
+      // return a declarative plan instead of bytes; render it natively from
+      // the original input, like Android's renderCanvasPlan.
+      if kind == "canvas-plan" {
+        guard let plan = value["plan"] as? [String: Any] else {
+          throw Self.error("The isolated Aidoku image runtime returned an invalid result.")
+        }
+        return try NemuAidokuCanvasPlanRenderer.render(inputBytes: imageBytes, plan: plan)
+      }
       guard
         kind == "binary",
         let expectedLength = value["byteLength"] as? NSNumber,
