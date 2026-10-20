@@ -36,7 +36,7 @@ const strings = {
     chapterAccessibility: "{{direction}}: {{chapter}}",
     pluginValueOn: "On",
     pluginValueOff: "Off",
-    pluginValueSimpleJapanese: "Simple Japanese",
+    pluginValueSimpleJapanese: "Simple Japanese (N4-N3)",
     pluginValueAppLanguage: "App language",
     pluginValueDefault: "Default",
     pluginJapaneseLearningResponseModeApp: "App language",
@@ -301,7 +301,7 @@ describe("pluginValueText", () => {
     expect(pluginValueText(42, strings)).toBe("42%");
   });
   test('"jlpt" → Simple Japanese', () => {
-    expect(pluginValueText("jlpt", strings)).toBe("Simple Japanese");
+    expect(pluginValueText("jlpt", strings)).toBe("Simple Japanese (N4-N3)");
   });
   test('"app" → App language', () => {
     expect(pluginValueText("app", strings)).toBe("App language");

@@ -746,7 +746,7 @@ export const mobileStringsZh: MobileStrings = {
     pluginValueDefault: "默认",
     pluginValueOff: "关闭",
     pluginValueOn: "开启",
-    pluginValueSimpleJapanese: "简明日语",
+    pluginValueSimpleJapanese: "简单日语（N4-N3）",
     previousChapter: "上一章",
     previousPage: "上一页",
     previousSpread: "上一组双页",

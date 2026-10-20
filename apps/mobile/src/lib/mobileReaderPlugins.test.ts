@@ -58,7 +58,7 @@ describe("mobile reader plugin helpers", () => {
     expect(japaneseLearning.settings[0].items?.[0].title).toBe("自动检测文字");
     expect(japaneseLearning.settings[1].items?.[0].titles).toEqual([
       "应用语言",
-      "简明日语",
+      "简单日语（N4-N3）",
     ]);
     expect(dualRead.name).toBe("双源阅读");
     expect(dualRead.settings[0].items?.[0].title).toBe("调试浮层");

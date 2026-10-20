@@ -791,7 +791,7 @@ export const mobileStringsJa: MobileStrings = {
     pluginValueDefault: "デフォルト",
     pluginValueOff: "オフ",
     pluginValueOn: "オン",
-    pluginValueSimpleJapanese: "やさしい日本語",
+    pluginValueSimpleJapanese: "やさしい日本語（N4-N3）",
     previousChapter: "前の話",
     previousPage: "前のページ",
     previousSpread: "前の見開き",

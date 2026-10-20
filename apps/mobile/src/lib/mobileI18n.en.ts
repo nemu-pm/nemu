@@ -786,7 +786,7 @@ export const mobileStringsEn: MobileStrings = {
     pluginValueDefault: "Default",
     pluginValueOff: "Off",
     pluginValueOn: "On",
-    pluginValueSimpleJapanese: "Simple Japanese",
+    pluginValueSimpleJapanese: "Simple Japanese (N4-N3)",
     previousChapter: "Previous chapter",
     previousPage: "Previous page",
     previousSpread: "Previous spread",
