@@ -212,6 +212,7 @@ import {
   pickMobileJapaneseLearningQaDetection,
 } from "@/lib/mobileJapaneseLearningQa";
 import { JapaneseLearningNemuChatDrawer } from "@/components/reader/japaneseLearning/JapaneseLearningNemuChatDrawer";
+import { JapaneseLearningSignInSheet } from "@/components/reader/japaneseLearning/JapaneseLearningSignInSheet";
 import { JapaneseLearningTranscriptSheet } from "@/components/reader/japaneseLearning/JapaneseLearningTranscriptSheet";
 import {
   MobileCachedImage,
@@ -553,8 +554,18 @@ import {
 } from "@/lib/mobileReaderLockedChapter";
 import {
   getMobileJapaneseLearningAuthCookie,
+  isMobileJapaneseLearningSignedIn,
   isMobileJapaneseLearningSignInRequiredError,
+  useMobileJapaneseLearningAuthState,
 } from "@/lib/mobileJapaneseLearningAuth";
+import {
+  getMobileJapaneseLearningAuthGateStatus,
+  resolveMobileJapaneseLearningAuthGate,
+  resolveMobileJapaneseLearningChatSignInFailure,
+  resolveMobileJapaneseLearningSignInHost,
+  type MobileJapaneseLearningSignInHost,
+} from "@/lib/mobileJapaneseLearningAuthGate";
+import { mobileSyncConfig } from "@/sync/mobileSyncConfig";
 import {
   MOBILE_READER_BACK_SYMBOL,
   MOBILE_READER_CHROME_GLYPHS,
@@ -1449,7 +1460,7 @@ export function ReaderScreen() {
   const [japaneseLearningLauncherVisible, setJapaneseLearningLauncherVisible] =
     useState(false);
   const japaneseLearningLauncherNextSurfaceRef = useRef<
-    "transcript" | "chat" | null
+    "transcript" | "chat" | "signIn" | null
   >(null);
   const [japaneseLearningOcrSheetVisible, setJapaneseLearningOcrSheetVisibleState] =
     useState(false);
@@ -1483,6 +1494,63 @@ export function ReaderScreen() {
     japaneseLearningTranscriptVisible,
     setJapaneseLearningTranscriptVisible,
   ] = useState(false);
+  // Web `useAuthGate` + `AuthGateDialog`: Nemu Chat's entries check sign-in
+  // first (`requireAuthOrPrompt`), and signed out present the app's sign-in
+  // UI instead of the chat. An iOS sheet presents from the topmost one, so
+  // the sign-in sheet stacks on the open chat or sentence sheet.
+  const japaneseLearningAuth = useMobileJapaneseLearningAuthState();
+  const japaneseLearningAuthPendingRef = useRef(japaneseLearningAuth.pending);
+  japaneseLearningAuthPendingRef.current = japaneseLearningAuth.pending;
+  const japaneseLearningLauncherVisibleRef = useRef(japaneseLearningLauncherVisible);
+  japaneseLearningLauncherVisibleRef.current = japaneseLearningLauncherVisible;
+  const [japaneseLearningSignInHost, setJapaneseLearningSignInHost] =
+    useState<MobileJapaneseLearningSignInHost | null>(null);
+  const closeJapaneseLearningSignIn = useCallback(() => {
+    setJapaneseLearningSignInHost(null);
+  }, []);
+  const promptJapaneseLearningSignIn = useCallback(() => {
+    // A build without sync has no sign-in to show.
+    if (!mobileSyncConfig.configured) return;
+    if (japaneseLearningLauncherVisibleRef.current) {
+      // The launcher finishes closing first (one native sheet at a time).
+      japaneseLearningLauncherNextSurfaceRef.current = "signIn";
+      setJapaneseLearningLauncherVisible(false);
+      return;
+    }
+    setJapaneseLearningSignInHost(
+      resolveMobileJapaneseLearningSignInHost({
+        platform: Platform.OS,
+        chatVisible: japaneseLearningChatDrawerPresenceRef.current.wanted,
+        sentenceVisible: japaneseLearningOcrSheetPresenceRef.current.wanted,
+      }),
+    );
+  }, []);
+  /** Web `requireAuthOrPrompt`. */
+  const requireJapaneseLearningAuthOrPrompt = useCallback((): boolean => {
+    // QA fixtures answer without the server, like `runMobileJapaneseLearningChat`.
+    if (getMobileJapaneseLearningQaScenario("chat")) return true;
+    const gate = resolveMobileJapaneseLearningAuthGate(
+      getMobileJapaneseLearningAuthGateStatus({
+        signedIn: isMobileJapaneseLearningSignedIn(),
+        pending: japaneseLearningAuthPendingRef.current,
+      }),
+    );
+    if (gate.promptSignIn) promptJapaneseLearningSignIn();
+    return gate.allowed;
+  }, [promptJapaneseLearningSignIn]);
+  // The sheet the sign-in stacked on went away: it went with it.
+  useEffect(() => {
+    if (
+      (japaneseLearningSignInHost === "chat" && !japaneseLearningChatDrawerVisible) ||
+      (japaneseLearningSignInHost === "sentence" && !japaneseLearningOcrSheetVisible)
+    ) {
+      setJapaneseLearningSignInHost(null);
+    }
+  }, [
+    japaneseLearningChatDrawerVisible,
+    japaneseLearningOcrSheetVisible,
+    japaneseLearningSignInHost,
+  ]);
   const japaneseLearningTranscriptNextSurfaceRef = useRef<"ocr" | null>(null);
   const [readerImageSizes, setReaderImageSizes] = useState(
     () => new Map<string, MobileImageSize>(),
@@ -4737,11 +4805,18 @@ export function ReaderScreen() {
           if (!inFlight.finish()) return;
           // A stream `error` event already produced its bubble via `onError`.
           if (controller.isCompleted()) return;
-          controller.onError(
-            isMobileJapaneseLearningSignInRequiredError(error)
-              ? MOBILE_JAPANESE_LEARNING_CHAT_SIGN_IN_ERROR
-              : "",
+          if (!isMobileJapaneseLearningSignInRequiredError(error)) {
+            controller.onError("");
+            return;
+          }
+          // Web `streamChat` 401: the bubble, and sign-in unless the session
+          // is still loading.
+          const failure = resolveMobileJapaneseLearningChatSignInFailure(
+            japaneseLearningAuthPendingRef.current,
+            MOBILE_JAPANESE_LEARNING_CHAT_SIGN_IN_ERROR,
           );
+          controller.onError(failure.message);
+          if (failure.promptSignIn) promptJapaneseLearningSignIn();
         },
       );
       return true;
@@ -4760,6 +4835,7 @@ export function ReaderScreen() {
       state.entry?.item.metadata.tags,
       mangaTitle,
       japaneseLearningChatSession,
+      promptJapaneseLearningSignIn,
     ],
   );
 
@@ -4767,6 +4843,7 @@ export function ReaderScreen() {
     (text: string, kind: "sentence" | "word" | "words") => {
       const selectedText = text.trim();
       if (!selectedText) return;
+      if (!requireJapaneseLearningAuthOrPrompt()) return;
 
       const responseMode = parseMobileJapaneseLearningResponseMode(
         activeReaderPlugin?.values.nemuResponseMode,
@@ -4789,6 +4866,7 @@ export function ReaderScreen() {
       activeReaderPlugin,
       appLanguage,
       japaneseLearningGrammarContext,
+      requireJapaneseLearningAuthOrPrompt,
       startJapaneseLearningChatRequest,
     ],
   );
@@ -4851,6 +4929,8 @@ export function ReaderScreen() {
       setJapaneseLearningTranscriptVisible(true);
     } else if (nextSurface === "chat") {
       setJapaneseLearningChatDrawerVisible(true);
+    } else if (nextSurface === "signIn") {
+      setJapaneseLearningSignInHost("reader");
     }
   }, [setJapaneseLearningChatDrawerVisible]);
 
@@ -4872,6 +4952,7 @@ export function ReaderScreen() {
 
   /** Web `handleNemuChatClick`: open, and greet only an empty, idle chat. */
   const openJapaneseLearningChatTool = useCallback(() => {
+    if (!requireJapaneseLearningAuthOrPrompt()) return;
     if (
       !japaneseLearningChatStreaming &&
       japaneseLearningChatSession.getState().messages.length === 0
@@ -4885,6 +4966,7 @@ export function ReaderScreen() {
     japaneseLearningChatSession,
     japaneseLearningChatStreaming,
     openJapaneseLearningSurfaceAfterLauncher,
+    requireJapaneseLearningAuthOrPrompt,
     runJapaneseLearningChat,
   ]);
 
@@ -4902,6 +4984,8 @@ export function ReaderScreen() {
       void hapticError();
       return;
     }
+    // Web `openChatAndSend`: sign-in first, before the page is even read.
+    if (!requireJapaneseLearningAuthOrPrompt()) return;
 
     const existingSentenceText = getJapaneseLearningSentenceText();
     if (existingSentenceText) {
@@ -4974,6 +5058,7 @@ export function ReaderScreen() {
     recognizeJapaneseLearningReaderPage,
     japaneseLearningGrammarContext,
     japaneseLearningSelectedDetectionOrder,
+    requireJapaneseLearningAuthOrPrompt,
     startJapaneseLearningChatRequest,
     strings,
   ]);
@@ -7377,6 +7462,7 @@ export function ReaderScreen() {
     japaneseLearningTranscriptNextSurfaceRef.current = null;
     openReaderPluginSettingsAfterDisplaySettingsRef.current = false;
     setJapaneseLearningChatReturnsToSentence(false);
+    setJapaneseLearningSignInHost(null);
     setJapaneseLearningLauncherVisible(false);
     setJapaneseLearningOcrSheetVisible(false);
     setJapaneseLearningChatDrawerVisible(false);
@@ -8633,6 +8719,16 @@ export function ReaderScreen() {
         }
       : null;
 
+  // Web `AuthGateDialog`, mounted on every surface it can stack on (iOS) and
+  // presented from the one `promptJapaneseLearningSignIn` chose.
+  const renderJapaneseLearningSignInSheet = (host: MobileJapaneseLearningSignInHost) => (
+    <JapaneseLearningSignInSheet
+      visible={japaneseLearningSignInHost === host}
+      strings={strings}
+      onClose={closeJapaneseLearningSignIn}
+    />
+  );
+
   // Transcript / OCR result / chat: the same native sheets in every pose.
   const japaneseLearningSurfaces = japaneseLearningPresentationPlugin ? (
     <>
@@ -8699,6 +8795,9 @@ export function ReaderScreen() {
         onAskSentence={askJapaneseLearningSentence}
         onCopySentence={copyJapaneseLearningSentence}
         bubble={japaneseLearningBubbleSource}
+        stackedSurface={
+          Platform.OS === "ios" ? renderJapaneseLearningSignInSheet("sentence") : null
+        }
       />
 
       <JapaneseLearningNemuChatDrawer
@@ -8734,7 +8833,12 @@ export function ReaderScreen() {
         onSendInput={sendJapaneseLearningChatInput}
         onSendSuggestion={sendJapaneseLearningChatSuggestion}
         onToggleChatTts={toggleJapaneseLearningChatTts}
+        stackedSurface={
+          Platform.OS === "ios" ? renderJapaneseLearningSignInSheet("chat") : null
+        }
       />
+
+      {renderJapaneseLearningSignInSheet("reader")}
 
       <JapaneseLearningTranscriptSheet
         visible={japaneseLearningTranscriptVisible}

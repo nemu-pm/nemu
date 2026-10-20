@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import {
   Platform,
   StyleSheet,
@@ -77,6 +77,11 @@ interface OcrResultSheetProps {
    * whole window (compact height), where the floating popout cannot be seen.
    */
   bubble?: JapaneseLearningBubbleSource | null;
+  /**
+   * iOS: a sheet stacked on this one (sheet-on-sheet). A native sheet can
+   * only be presented by the topmost one, so it is hosted in this content.
+   */
+  stackedSurface?: ReactNode;
 }
 
 /**
@@ -109,6 +114,7 @@ export function JapaneseLearningOcrResultSheet({
   onDismiss,
   onPresentationProgress,
   bubble = null,
+  stackedSurface = null,
 }: OcrResultSheetProps) {
   const { tokens } = useNemuTheme();
   const { fontScale } = useWindowDimensions();
@@ -439,6 +445,7 @@ export function JapaneseLearningOcrResultSheet({
           </NemuPressable>
         </View>
       </View>
+      {stackedSurface}
     </JapaneseLearningSurfaceFrame>
   );
 }

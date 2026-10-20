@@ -93,3 +93,16 @@ export function useMobileJapaneseLearningSignedIn(): boolean {
     [session, isPending],
   );
 }
+
+/**
+ * Web `getAuthGateStatus` inputs for the reader's chat gate: the cookie check
+ * the requests use, and whether the Better Auth session is still loading.
+ */
+export function useMobileJapaneseLearningAuthState(): { signedIn: boolean; pending: boolean } {
+  const { data: session, isPending } = mobileAuthClient.useSession();
+  return useMemo(
+    () => ({ signedIn: isMobileJapaneseLearningSignedIn(), pending: isPending }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [session, isPending],
+  );
+}

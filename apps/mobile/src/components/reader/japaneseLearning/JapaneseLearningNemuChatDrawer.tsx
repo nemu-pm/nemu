@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -67,6 +67,11 @@ interface NemuChatDrawerProps {
   /** Called after the surface has closed (sheet dismissal finished / dock removed). */
   onDismiss?: () => void;
   onPresentationProgress?: (progress: number) => void;
+  /**
+   * iOS: a sheet stacked on the chat (sign-in). A native sheet can only be
+   * presented by the topmost one, so it is hosted in this content.
+   */
+  stackedSurface?: ReactNode;
 }
 
 /** Web drawer header: the character's name, untranslated in every locale. */
@@ -95,6 +100,7 @@ export function JapaneseLearningNemuChatDrawer({
   onToggleChatTts,
   onDismiss,
   onPresentationProgress,
+  stackedSurface = null,
 }: NemuChatDrawerProps) {
   const { tokens, scheme } = useNemuTheme();
   const drawerFrame = useJapaneseLearningDrawerFrame();
@@ -388,6 +394,7 @@ export function JapaneseLearningNemuChatDrawer({
       contentStyle={japaneseLearningEdgeToEdgeContentStyle(drawerFrame.contentBleed)}
     >
       {body}
+      {stackedSurface}
     </JapaneseLearningSurfaceFrame>
   );
 }
