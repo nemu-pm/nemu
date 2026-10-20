@@ -760,6 +760,8 @@ export const mobileStringsJa: MobileStrings = {
     pluginJapaneseLearningResponseLanguage: "応答言語",
     pluginJapaneseLearningResponseLanguageDescription:
       "Nemuの応答言語を選択してください",
+    pluginJapaneseLearningResponseModeApp: "アプリの言語",
+    pluginJapaneseLearningResponseModeJlpt: "やさしい日本語（N4-N3）",
     pluginJapaneseLearningSelectedText: "選択されたテキスト",
     pluginJapaneseLearningSignInRequired:
       "この機能を使うにはサインインしてください。",

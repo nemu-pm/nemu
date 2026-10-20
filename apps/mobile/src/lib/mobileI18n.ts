@@ -632,6 +632,10 @@ export type MobileStrings = {
     pluginJapaneseLearningOcrUnavailableTitle: string;
     pluginJapaneseLearningResponseLanguage: string;
     pluginJapaneseLearningResponseLanguageDescription: string;
+    /** Web `chat.responseModeApp`: the launcher's Response pill for `app`. */
+    pluginJapaneseLearningResponseModeApp: string;
+    /** Web `chat.responseModeJlpt`: the launcher's Response pill for `jlpt`. */
+    pluginJapaneseLearningResponseModeJlpt: string;
     pluginJapaneseLearningSelectedText: string;
     pluginJapaneseLearningSignInRequired: string;
     pluginJapaneseLearningSignInRequiredTitle: string;

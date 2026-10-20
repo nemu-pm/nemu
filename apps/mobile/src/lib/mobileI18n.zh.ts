@@ -716,6 +716,8 @@ export const mobileStringsZh: MobileStrings = {
     pluginJapaneseLearningResponseLanguage: "回复语言",
     pluginJapaneseLearningResponseLanguageDescription:
       "选择 Nemu 的回复语言",
+    pluginJapaneseLearningResponseModeApp: "应用语言",
+    pluginJapaneseLearningResponseModeJlpt: "简单日语（N4-N3）",
     pluginJapaneseLearningSelectedText: "选中的文字",
     pluginJapaneseLearningSignInRequired: "请登录后使用此功能。",
     pluginJapaneseLearningSignInRequiredTitle: "需要登录",

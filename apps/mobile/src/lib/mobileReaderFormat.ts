@@ -149,6 +149,17 @@ export function formatChapterAccessibilityLabel(
   });
 }
 
+/**
+ * The Japanese Learning launcher's Response pill: web's Response Language
+ * option labels (`chat.responseModeApp` / `chat.responseModeJlpt`) instead
+ * of the raw stored value (`app` / `jlpt`). Unknown values read as the app
+ * language, the setting's default.
+ */
+export function japaneseLearningResponseModeLabel(value: unknown, strings: MobileStrings): string {
+  if (value === "jlpt") return strings.reader.pluginJapaneseLearningResponseModeJlpt;
+  return strings.reader.pluginJapaneseLearningResponseModeApp;
+}
+
 export function pluginValueText(value: unknown, strings: MobileStrings): string {
   if (typeof value === "boolean") {
     return value ? strings.reader.pluginValueOn : strings.reader.pluginValueOff;

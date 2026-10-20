@@ -17,6 +17,7 @@ import {
   firstParam,
   mobileReaderSettingsActionStateFromAction,
   pluginValueText,
+  japaneseLearningResponseModeLabel,
   readerSourceLinkReference,
 } from "./mobileReaderFormat";
 import type { ReaderSettingsAction, ReaderState } from "./mobileReaderTypes";
@@ -38,6 +39,8 @@ const strings = {
     pluginValueSimpleJapanese: "Simple Japanese",
     pluginValueAppLanguage: "App language",
     pluginValueDefault: "Default",
+    pluginJapaneseLearningResponseModeApp: "App language",
+    pluginJapaneseLearningResponseModeJlpt: "Simple Japanese (N4-N3)",
   },
 } as unknown as MobileStrings;
 
@@ -276,6 +279,14 @@ describe("formatChapterAccessibilityLabel", () => {
     expect(
       formatChapterAccessibilityLabel("next", chapter, strings),
     ).toBe("Next: Vol.1 Ch.5");
+  });
+});
+
+describe("japaneseLearningResponseModeLabel", () => {
+  test("shows web's Response Language option copy, never the raw value", () => {
+    expect(japaneseLearningResponseModeLabel("app", strings)).toBe("App language");
+    expect(japaneseLearningResponseModeLabel("jlpt", strings)).toBe("Simple Japanese (N4-N3)");
+    expect(japaneseLearningResponseModeLabel(undefined, strings)).toBe("App language");
   });
 });
 

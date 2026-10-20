@@ -10,6 +10,7 @@ import {
   useNemuTheme,
 } from "@/design-system";
 import type { MobileStrings } from "@/lib/mobileI18n";
+import { japaneseLearningResponseModeLabel } from "@/lib/mobileReaderFormat";
 
 export interface JapaneseLearningPluginValues {
   autoDetect: boolean;
@@ -126,7 +127,10 @@ export function JapaneseLearningPluginLauncherSheet({
             [strings.reader.pluginAutoDetect, values.autoDetect],
             [strings.reader.pluginAllLanguages, values.enableForAllLanguages],
             [strings.reader.pluginConfidence, values.minConfidence],
-            [strings.reader.pluginResponse, values.nemuResponseMode],
+            [
+              strings.reader.pluginResponse,
+              japaneseLearningResponseModeLabel(values.nemuResponseMode, strings),
+            ],
           ] as Array<[string, unknown]>
         ).map(([label, value]) => (
           <View
