@@ -160,7 +160,11 @@ public final class NemuWindowLayoutModule: Module {
         view.coversBars = covers
       }
     }
-    View(NemuVerticalBarOnlyLeadingItemsView.self)
+    View(NemuVerticalBarOnlyLeadingItemsView.self) {
+      Prop("enabled") { (view: NemuVerticalBarOnlyLeadingItemsView, enabled: Bool) in
+        view.guardEnabled = enabled
+      }
+    }
     Constant("nameAlertViewAvailable") { true }
     View(NemuNameAlertView.self)
     Constant("segmentedControlViewAvailable") { true }
@@ -1634,8 +1638,13 @@ final class WeakViewController {
 /// still mounted). Items are left as they are when it unmounts: JS removes it
 /// with the items, which react-native-screens rebuilds without them.
 final class NemuVerticalBarOnlyLeadingItemsView: ExpoView {
+  /// Off: leaves the items alone (and shows again any this view hid).
+  var guardEnabled = true {
+    didSet { if guardEnabled != oldValue { reconcile() } }
+  }
   private weak var observed: UIViewController?
-  private var registration: (any UITraitChangeRegistration)?
+  /// `any UITraitChangeRegistration` (iOS 17+; the deployment target is lower).
+  private var registration: Any?
   private let hiddenItems = NSHashTable<UIBarButtonItem>.weakObjects()
 
   required init(appContext: AppContext? = nil) {
@@ -1671,12 +1680,14 @@ final class NemuVerticalBarOnlyLeadingItemsView: ExpoView {
     let screen = window == nil ? nil : owningController()
     let target = screen?.navigationController ?? screen
     if target !== observed {
-      if let registration, let observed { observed.unregisterForTraitChanges(registration) }
+      if let registration = registration as? any UITraitChangeRegistration, let observed {
+        observed.unregisterForTraitChanges(registration)
+      }
       registration = nil
       observed = target
       if let target {
-        let traits: [UITrait] = UITraitCollection.systemTraitsAffectingVerticalBarEdge
-          + [UITraitHorizontalSizeClass.self, UITraitVerticalSizeClass.self]
+        var traits: [UITrait] = [UITraitHorizontalSizeClass.self, UITraitVerticalSizeClass.self]
+        traits += UITraitCollection.systemTraitsAffectingVerticalBarEdge
         registration = target.registerForTraitChanges(traits) { [weak self] (_: UIViewController, _: UITraitCollection) in
           self?.applyVisibility()
         }
@@ -1694,8 +1705,9 @@ final class NemuVerticalBarOnlyLeadingItemsView: ExpoView {
     case .leading, .trailing: true
     default: false
     }
+    let hide = guardEnabled && !vertical
     for item in screen.navigationItem.leftBarButtonItems ?? [] {
-      if !vertical {
+      if hide {
         guard !item.isHidden else { continue }
         item.isHidden = true
         hiddenItems.add(item)
