@@ -139,6 +139,7 @@ function SuggestionPill({ suggestion, colors, animate, onSelect }: SuggestionPil
       onPressOut={() => setPressed(0)}
       pressedScale={JAPANESE_LEARNING_FOLLOW_UP_SUGGESTION_PRESS.scale}
       pressAnimationDuration={JAPANESE_LEARNING_FOLLOW_UP_SUGGESTION_PRESS.durationMs}
+      containerStyle={styles.pillTarget}
       style={[styles.pill, { borderColor: colors.borderColor }]}
     >
       <Animated.View
@@ -151,15 +152,27 @@ function SuggestionPill({ suggestion, colors, animate, onSelect }: SuggestionPil
 }
 
 const styles = StyleSheet.create({
-  // Web: `ml-11` + `ml-4` puts the pills on the bubble column (x = 60);
-  // no right padding, the pills wrap at the thread's edge.
+  // Web: `ml-11` + `ml-4` puts the pills on the bubble column (x = 60).
+  // Web's drawer is at most 672 wide, so a long pill wraps inside it; on a
+  // phone the thread runs to the screen edge, so keep a 12pt right margin
+  // (Colo msg 854) and let long pills wrap inside the row.
   container: {
     marginTop: 0,
+    paddingRight: 12,
   },
   row: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
+    // Spans the container's content box (inside its right padding), so the
+    // pills' `maxWidth: "100%"` is the row's width.
+    alignSelf: "stretch",
+  },
+  // The Pressable itself is the row's flex item; capping it at the row's
+  // width is what lets the pill (and its text) wrap instead of overflowing.
+  pillTarget: {
+    maxWidth: "100%",
+    flexShrink: 1,
   },
   pill: {
     alignSelf: "flex-start",
@@ -184,5 +197,7 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     fontWeight: nemuFontWeight.medium,
     textAlign: "left",
+    // Wraps within the pill instead of pushing it past the row.
+    flexShrink: 1,
   },
 });
