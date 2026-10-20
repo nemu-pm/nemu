@@ -76,6 +76,7 @@ public final class NemuWindowLayoutModule: Module {
     }
     // Lets JS tell a binary with these views from one built before them.
     Constant("verticalBarBehaviorViewAvailable") { true }
+    Constant("verticalBarOnlyLeadingItemsViewAvailable") { true }
     Constant("glassViewHostsChildren") { true }
     Constant("pageCurlViewAvailable") { true }
     Constant("pageCurlTurnAvailable") { true }
@@ -159,6 +160,7 @@ public final class NemuWindowLayoutModule: Module {
         view.coversBars = covers
       }
     }
+    View(NemuVerticalBarOnlyLeadingItemsView.self)
     Constant("nameAlertViewAvailable") { true }
     View(NemuNameAlertView.self)
     Constant("segmentedControlViewAvailable") { true }
@@ -1606,6 +1608,104 @@ final class NemuVerticalBarBehaviorView: ExpoView {
 final class WeakViewController {
   weak var value: UIViewController?
   init(_ value: UIViewController) { self.value = value }
+}
+
+// MARK: - Vertical-bar-only leading items
+
+/// Zero-size, noninteractive view: while mounted, the leading bar items of the
+/// screen it is in (`navigationItem.leftBarButtonItems` of the owning view
+/// controller, which react-native-screens fills from `Stack.Toolbar
+/// placement="left"`) are shown only while the system places bars vertically
+/// (`UITraitCollection.verticalBarEdge` leading or trailing), and hidden the
+/// moment it does not.
+///
+/// JS already mounts such items only beside a vertical bar, but it hears of a
+/// new edge a main-queue turn plus a React commit late (the window observer
+/// coalesces, then the bar items are rebuilt): about two frames in which the
+/// bar has already turned horizontal and shows the item at its leading end.
+/// `UIBarButtonItem.AxisBehavior` cannot say "vertical only" (its cases are
+/// automatic, horizontal-only and vertical-preferred), so this hides the items
+/// from the trait change itself. The handler is registered on the navigation
+/// controller, whose view hosts both the navigation bar and the vertical bar:
+/// UIKit updates that controller's traits before it lays the bars out for the
+/// new edge, so the item is gone in the same frame the bar turns.
+///
+/// Only items this view hid are shown again (bars going vertical while it is
+/// still mounted). Items are left as they are when it unmounts: JS removes it
+/// with the items, which react-native-screens rebuilds without them.
+final class NemuVerticalBarOnlyLeadingItemsView: ExpoView {
+  private weak var observed: UIViewController?
+  private var registration: (any UITraitChangeRegistration)?
+  private let hiddenItems = NSHashTable<UIBarButtonItem>.weakObjects()
+
+  required init(appContext: AppContext? = nil) {
+    super.init(appContext: appContext)
+    isUserInteractionEnabled = false
+    accessibilityElementsHidden = true
+    isHidden = true
+  }
+
+  override func didMoveToWindow() {
+    super.didMoveToWindow()
+    reconcile()
+  }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    reconcile()
+  }
+
+  /// Owning view controller (the `RNSScreen` whose navigation item holds the items).
+  private func owningController() -> UIViewController? {
+    var responder: UIResponder? = self
+    while let next = responder?.next {
+      if let controller = next as? UIViewController { return controller }
+      responder = next
+    }
+    return nil
+  }
+
+  private func reconcile() {
+    #if NEMU_SDK_27_1
+    guard #available(iOS 27.1, *) else { return }
+    let screen = window == nil ? nil : owningController()
+    let target = screen?.navigationController ?? screen
+    if target !== observed {
+      if let registration, let observed { observed.unregisterForTraitChanges(registration) }
+      registration = nil
+      observed = target
+      if let target {
+        let traits: [UITrait] = UITraitCollection.systemTraitsAffectingVerticalBarEdge
+          + [UITraitHorizontalSizeClass.self, UITraitVerticalSizeClass.self]
+        registration = target.registerForTraitChanges(traits) { [weak self] (_: UIViewController, _: UITraitCollection) in
+          self?.applyVisibility()
+        }
+      }
+    }
+    applyVisibility()
+    #endif
+  }
+
+  #if NEMU_SDK_27_1
+  @available(iOS 27.1, *)
+  private func applyVisibility() {
+    guard window != nil, let screen = owningController() else { return }
+    let vertical: Bool = switch (observed ?? screen).traitCollection.verticalBarEdge {
+    case .leading, .trailing: true
+    default: false
+    }
+    for item in screen.navigationItem.leftBarButtonItems ?? [] {
+      if !vertical {
+        guard !item.isHidden else { continue }
+        item.isHidden = true
+        hiddenItems.add(item)
+      } else if hiddenItems.contains(item) {
+        item.isHidden = false
+        hiddenItems.remove(item)
+      }
+    }
+  }
+  #endif
 }
 
 #if NEMU_SDK_27_1

@@ -151,6 +151,7 @@ import {
 } from "@/lib/mobileSplitPaneLayout";
 import { useMobileSplitPaneLayout } from "@/lib/useMobileSplitPaneLayout";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
+import { VerticalBarOnlyLeadingItems } from "../../modules/nemu-window-layout";
 import { HeaderHeightContext } from "expo-router/react-navigation";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { LayoutAnimationConfig } from "react-native-reanimated";
@@ -4334,17 +4335,23 @@ export function SettingsScreen({
   return (
     <LayoutAnimationConfig skipEntering skipExiting>
       {columnBackPlacement === "bar" ? (
-        // Left placement: the bar's leading items, so Back is first in the
-        // vertical bar, before the detail page's Add Directory.
-        <Stack.Toolbar placement="left">
-          {renderNemuNativeToolbarButtons([
-            {
-              icon: "chevron.backward",
-              label: columnBackLabel,
-              onPress: backToSources,
-            },
-          ])}
-        </Stack.Toolbar>
+        <>
+          {/* Left placement: the bar's leading items, so Back is first in the
+              vertical bar, before the detail page's Add Directory. */}
+          <Stack.Toolbar placement="left">
+            {renderNemuNativeToolbarButtons([
+              {
+                icon: "chevron.backward",
+                label: columnBackLabel,
+                onPress: backToSources,
+              },
+            ])}
+          </Stack.Toolbar>
+          {/* The bar turns horizontal (vertical → top) natively before this
+              render hears of it; this hides the leading item from that trait
+              change, so it never shows at the start of the top bar. */}
+          <VerticalBarOnlyLeadingItems />
+        </>
       ) : null}
       <View
         ref={containerRef}
