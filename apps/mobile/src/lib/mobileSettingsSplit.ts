@@ -150,27 +150,72 @@ export function isMobileSettingsStackTop(
   return section === null ? top.name === MOBILE_SETTINGS_ROOT_ROUTE : routeSection(top) === section;
 }
 
+function splitRoot(state: MobileSettingsStackState): {
+  root: MobileSettingsStackRoute;
+  above: MobileSettingsStackRoute[];
+} {
+  const first = state.routes[0];
+  const hasRoot = first?.name === MOBILE_SETTINGS_ROOT_ROUTE;
+  return {
+    root: first && hasRoot ? first : { name: MOBILE_SETTINGS_ROOT_ROUTE, params: {} },
+    above: hasRoot ? state.routes.slice(1) : state.routes,
+  };
+}
+
 /**
- * The stack after a collapse plan, as a RESET payload: the root (inserted if
- * the stack lacks it) and the kept routes keep their keys, so their screens
- * stay mounted; pushed routes have no key (the router's RESET handler mints
- * them) and carry `MOBILE_SETTINGS_RESTORED_PARAM`.
+ * The stack after a collapse plan, as a RESET payload — its first step: the
+ * root (inserted if the stack lacks it) and the kept routes keep their keys,
+ * so their screens stay mounted, and only the plan's top page is pushed (no
+ * key: the router's RESET handler mints it), carrying
+ * `MOBILE_SETTINGS_RESTORED_PARAM`. Pages under it (Installed Sources under
+ * Source Directories) are inserted once it is in place
+ * (`completeMobileSettingsRestoredStack`): pushing two screens at once makes
+ * react-native-screens set the lower one as the top without animation and
+ * then push the upper one, so the lower page showed for a frame or two.
  */
 export function applyMobileSettingsCollapsePlan<State extends MobileSettingsStackState>(
   state: State,
   plan: MobileSettingsCollapsePlan,
 ): State {
-  const first = state.routes[0];
-  const hasRoot = first?.name === MOBILE_SETTINGS_ROOT_ROUTE;
-  const root: MobileSettingsStackRoute = first && hasRoot ? first : { name: MOBILE_SETTINGS_ROOT_ROUTE, params: {} };
-  const above = hasRoot ? state.routes.slice(1) : state.routes;
+  const { root, above } = splitRoot(state);
+  const top = plan.push[plan.push.length - 1];
   const routes = [
     root,
     ...above.slice(0, plan.keep),
-    ...plan.push.map((section) => ({
-      name: MOBILE_SETTINGS_SECTION_ROUTE,
-      params: { section, [MOBILE_SETTINGS_RESTORED_PARAM]: "1" },
-    })),
+    ...(top
+      ? [{ name: MOBILE_SETTINGS_SECTION_ROUTE, params: { section: top, [MOBILE_SETTINGS_RESTORED_PARAM]: "1" } }]
+      : []),
+  ];
+  return { ...state, index: routes.length - 1, routes, stale: false };
+}
+
+/**
+ * The second step, once the restored top route is in place: the pages of its
+ * chain missing beneath it are inserted (a change under the top, which
+ * react-native-screens applies without a transition, out of sight), routes
+ * beneath it that are not in its chain are dropped, and its
+ * `MOBILE_SETTINGS_RESTORED_PARAM` is cleared so its own pop and edge swipe
+ * animate again. Null when the top is not this section's route.
+ */
+export function completeMobileSettingsRestoredStack<State extends MobileSettingsStackState>(
+  state: State,
+  section: MobileSettingsSplitSectionId,
+): State | null {
+  if (!isMobileSettingsStackTop(state, section)) return null;
+  const { root, above } = splitRoot(state);
+  const top = above[above.length - 1];
+  if (!top) return null;
+  const below = above.slice(0, -1);
+  const chainBelow = getMobileSettingsPageChain(section).slice(0, -1);
+  let keep = 0;
+  while (keep < below.length && keep < chainBelow.length && routeSection(below[keep]) === chainBelow[keep]) keep++;
+  const params: Record<string, unknown> = { ...(top.params ?? {}) };
+  delete params[MOBILE_SETTINGS_RESTORED_PARAM];
+  const routes = [
+    root,
+    ...below.slice(0, keep),
+    ...chainBelow.slice(keep).map((page) => ({ name: MOBILE_SETTINGS_SECTION_ROUTE, params: { section: page } })),
+    { ...top, params },
   ];
   return { ...state, index: routes.length - 1, routes, stale: false };
 }

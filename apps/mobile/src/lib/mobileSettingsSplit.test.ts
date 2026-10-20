@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   applyMobileSettingsCollapsePlan,
+  completeMobileSettingsRestoredStack,
   getMobileSettingsPageChain,
   getMobileSettingsPrimaryPane,
   getMobileSettingsSplitColumnBackMounts as backMounts,
@@ -141,8 +142,43 @@ describe("settings split collapse keeps the page", () => {
     const rootless: MobileSettingsStackState = { index: 0, routes: [{ key: "d", name: "[section]", params: { section: "directories" } }] };
     expect(getMobileSettingsStackSections(rootless)).toEqual(["directories"]);
     const rebuilt = applyMobileSettingsCollapsePlan(rootless, { keep: 0, push: ["sources", "directories"] });
-    expect(rebuilt.routes.map((route) => route.name)).toEqual(["index", "[section]", "[section]"]);
-    expect(rebuilt.index).toBe(2);
+    // Only the top page goes in first: a two-screen push shows the lower one.
+    expect(rebuilt.routes).toEqual([
+      { name: "index", params: {} },
+      { name: "[section]", params: { section: "directories", restored: "1" } },
+    ]);
+    expect(rebuilt.index).toBe(1);
+  });
+
+  test("once in place, the restored top gets its chain beneath it and loses the param", () => {
+    const pushed = applyMobileSettingsCollapsePlan(stack([]), { keep: 0, push: ["sources", "directories"] });
+    const placed = { ...pushed, routes: pushed.routes.map((route, i) => ({ ...route, key: route.key ?? `new-${i}` })) };
+    const done = completeMobileSettingsRestoredStack(placed, "directories");
+    expect(done?.routes).toEqual([
+      { key: "index-1", name: "index", params: {} },
+      { name: "[section]", params: { section: "sources" } },
+      { key: "new-1", name: "[section]", params: { section: "directories" } },
+    ]);
+    expect(done?.index).toBe(2);
+    // A stack already holding the chain keeps its routes; only the param goes.
+    const kept = completeMobileSettingsRestoredStack(
+      {
+        ...stack(["sources"]),
+        index: 2,
+        routes: [...stack(["sources"]).routes, { key: "d", name: "[section]", params: { section: "directories", restored: "1" } }],
+      },
+      "directories",
+    );
+    expect(kept?.routes.map((route) => route.key)).toEqual(["index-1", "section-0", "d"]);
+    expect(kept?.routes[2]?.params).toEqual({ section: "directories" });
+    // A section on the root: anything left beneath it goes.
+    const appearance = completeMobileSettingsRestoredStack(
+      { ...stack(["sources"]), index: 2, routes: [...stack(["sources"]).routes, { key: "a", name: "[section]", params: { section: "appearance", restored: "1" } }] },
+      "appearance",
+    );
+    expect(appearance?.routes.map((route) => route.key)).toEqual(["index-1", "a"]);
+    // Not the top: nothing to complete.
+    expect(completeMobileSettingsRestoredStack(stack(["sources", "directories"]), "sources")).toBeNull();
   });
 });
 

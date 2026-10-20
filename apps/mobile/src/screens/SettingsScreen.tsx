@@ -139,6 +139,7 @@ import { ExploreGlassIconButton } from "@/components/explore/ExploreGlass";
 import { ReaderBackGlyph } from "@/components/reader/ReaderBackGlyph";
 import {
   applyMobileSettingsCollapsePlan,
+  completeMobileSettingsRestoredStack,
   getMobileSettingsPrimaryPane,
   getMobileSettingsStackSections,
   isMobileSettingsRestoredPush,
@@ -4315,20 +4316,30 @@ function useSettingsCollapseKeepsPage({
     [navigation, section, setSelected],
   );
 
-  // A route pushed by a collapse: unanimated only for that push.
+  // A route pushed by a collapse: unanimated only for that push. Once it is
+  // in place, the pages of its chain go in beneath it (Installed Sources under
+  // Source Directories) and its param is cleared, in one RESET.
   useEffect(() => {
     if (!restored) return;
-    const clear = () => navigation.setParams({ [MOBILE_SETTINGS_RESTORED_PARAM]: undefined });
+    let settled = false;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      const state = navigation.getState();
+      const next = state && section ? completeMobileSettingsRestoredStack(state, section) : null;
+      if (next) navigation.dispatch({ type: "RESET", payload: next });
+      else navigation.setParams({ [MOBILE_SETTINGS_RESTORED_PARAM]: undefined });
+    };
     const state = navigation.getState();
-    // Beneath the new top it never animates in; its own pop comes later.
+    // Not the top (covered since): it never animates in; its own pop comes later.
     if (state && !isMobileSettingsStackTop(state, section)) {
-      clear();
+      settle();
       return;
     }
     // On top: once the (instant) push has finished. The timer only backs up a
     // transitionEnd that went out before this effect subscribed.
-    const unsubscribe = navigation.addListener("transitionEnd", clear);
-    const fallback = setTimeout(clear, 1000);
+    const unsubscribe = navigation.addListener("transitionEnd", settle);
+    const fallback = setTimeout(settle, 1000);
     return () => {
       unsubscribe();
       clearTimeout(fallback);
