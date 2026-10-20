@@ -27,6 +27,7 @@ import type { AppLanguage } from "@/data/schema";
 import type { JapaneseLearningChatThreadMessage } from "@/lib/mobileJapaneseLearningReaderHelpers";
 import type { MobileStrings } from "@/lib/mobileI18n";
 import { JapaneseLearningFollowUpSuggestions } from "./JapaneseLearningFollowUpSuggestions";
+import { JAPANESE_LEARNING_CHAT_INPUT_REST_SHADOW } from "@/lib/mobileJapaneseLearningChatTheme";
 import {
   JapaneseLearningDatePill,
   JapaneseLearningMessageBubble,
@@ -348,6 +349,8 @@ export function JapaneseLearningNemuChatDrawer({
                     : inputFocused ? "rgba(252,252,252,0.95)" : "rgba(244,244,245,0.85)",
                 borderColor: inputFocused ? nemuColorWithAlpha(tokens.primary, 0.55)
                   : scheme === "dark" ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)",
+                boxShadow:
+                  JAPANESE_LEARNING_CHAT_INPUT_REST_SHADOW[scheme === "dark" ? "dark" : "light"],
               },
               // Web: `!border-primary/50 !ring-2 !ring-primary/20` while listening.
               dictation.listening
@@ -501,7 +504,6 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     fontSize: 16,
     borderWidth: 1,
-    boxShadow: "0px 1px 3px 0px rgba(0,0,0,0.25)",
   },
   sendButton: {
     width: 36,

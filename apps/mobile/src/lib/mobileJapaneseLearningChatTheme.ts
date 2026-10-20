@@ -100,3 +100,14 @@ export function getJapaneseLearningFollowUpSuggestionColors(
       "0px 1px 4px 0px rgba(46,65,135,0.06), 0px 0px 1px 0px rgba(46,65,135,0.08), inset 0px 0.5px 0px 0px rgba(255,255,255,0.5)",
   };
 }
+
+/**
+ * Web `.input-nemu` resting depth (src/index.css): light is a faint
+ * `0 1px 2px / 0.03` drop plus the glass's inner top highlight and bottom
+ * edge; dark keeps `0 1px 3px / 0.25`.
+ */
+export const JAPANESE_LEARNING_CHAT_INPUT_REST_SHADOW = {
+  light:
+    "0px 1px 2px 0px rgba(0,0,0,0.03), inset 0px 1px 0px 0px rgba(255,255,255,0.6), inset 0px -1px 0px 0px rgba(0,0,0,0.02)",
+  dark: "0px 1px 3px 0px rgba(0,0,0,0.25)",
+} as const;

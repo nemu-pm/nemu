@@ -4,12 +4,18 @@ import { nemuTokens } from "@/design/tokens";
 import {
   getJapaneseLearningAssistantBubbleColors,
   getJapaneseLearningFollowUpSuggestionColors,
+  JAPANESE_LEARNING_CHAT_INPUT_REST_SHADOW,
   JAPANESE_LEARNING_FOLLOW_UP_SUGGESTION_INDENT,
   JAPANESE_LEARNING_FOLLOW_UP_SUGGESTION_PRESS,
   LINE_USER_BUBBLE_COLOR,
 } from "./mobileJapaneseLearningChatTheme";
 
 describe("mobileJapaneseLearningChatTheme", () => {
+  test("chat input rests on web .input-nemu depth (light faint, dark unchanged)", () => {
+    expect(JAPANESE_LEARNING_CHAT_INPUT_REST_SHADOW.light.startsWith("0px 1px 2px 0px rgba(0,0,0,0.03)")).toBe(true);
+    expect(JAPANESE_LEARNING_CHAT_INPUT_REST_SHADOW.dark).toBe("0px 1px 3px 0px rgba(0,0,0,0.25)");
+  });
+
   test("follow-up pills press like web Button (scale 0.97 over 200ms)", () => {
     expect(JAPANESE_LEARNING_FOLLOW_UP_SUGGESTION_PRESS).toEqual({ scale: 0.97, durationMs: 200 });
   });
