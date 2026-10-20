@@ -170,8 +170,21 @@ export function formatMobileClockTime12h(
   }
   const hour12 = hours % 12 === 0 ? 12 : hours % 12;
   if (appLanguage === "zh") {
-    // CLDR zh `ah:mm`.
-    return `${pm ? "下午" : "上午"}${hour12}:${minutes}`;
+    // ICU zh hour12 uses CLDR flexible day periods (`Bh:mm`): 凌晨 00–05,
+    // 早上 05–08, 上午 08–12, 中午 12–13, 下午 13–19, 晚上 19–24.
+    const period =
+      hours < 5
+        ? "凌晨"
+        : hours < 8
+          ? "早上"
+          : hours < 12
+            ? "上午"
+            : hours < 13
+              ? "中午"
+              : hours < 19
+                ? "下午"
+                : "晚上";
+    return `${period}${hour12}:${minutes}`;
   }
   return `${hour12}:${minutes} ${pm ? "PM" : "AM"}`;
 }
