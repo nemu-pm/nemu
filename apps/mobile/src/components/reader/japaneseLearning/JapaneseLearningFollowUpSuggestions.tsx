@@ -151,10 +151,10 @@ function SuggestionPill({ suggestion, colors, animate, onSelect }: SuggestionPil
 }
 
 const styles = StyleSheet.create({
-  // Web: `ml-11` + `ml-4` puts the pills on the bubble column (x = 60).
+  // Web: `ml-11` + `ml-4` puts the pills on the bubble column (x = 60);
+  // no right padding, the pills wrap at the thread's edge.
   container: {
     marginTop: 0,
-    paddingRight: 12,
   },
   row: {
     flexDirection: "row",
