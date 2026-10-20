@@ -172,6 +172,9 @@ export function JapaneseLearningNemuChatDrawer({
     // tap, which would refill the draft that was just sent.
     dictation.abort();
     onSendInput();
+    // Web `sendMessage`: clear, then refocus the input so the keyboard stays
+    // up for the next message (suggestion taps opt out, as on web).
+    inputRef.current?.focus();
   }, [canSend, dictation, onSendInput]);
 
   const inputFont = japaneseLearningInterStyle("400");
