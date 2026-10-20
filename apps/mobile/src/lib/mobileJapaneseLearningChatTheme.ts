@@ -111,3 +111,56 @@ export const JAPANESE_LEARNING_CHAT_INPUT_REST_SHADOW = {
     "0px 1px 2px 0px rgba(0,0,0,0.03), inset 0px 1px 0px 0px rgba(255,255,255,0.6), inset 0px -1px 0px 0px rgba(0,0,0,0.02)",
   dark: "0px 1px 3px 0px rgba(0,0,0,0.25)",
 } as const;
+
+/** Web `.input-nemu` `transition: … 250ms ease` (border, box-shadow, background). */
+export const JAPANESE_LEARNING_CHAT_INPUT_TRANSITION_MS = 250;
+
+export type JapaneseLearningChatInputSurface = {
+  backgroundColor: string;
+  borderColor: string;
+  boxShadow: string;
+};
+
+/**
+ * Web `.input-nemu` and `.input-nemu:focus` (src/index.css), with the
+ * relative OKLCH colours resolved against `--primary` and converted to sRGB:
+ * - light focus border `oklch(from primary l+0.15 c×0.6 h / 0.5)`
+ *   = oklch(0.766 0.113 269) → rgb(150,176,251);
+ *   glow `0 0 8px -2px oklch(from primary l+0.2 c h / 0.2)`
+ *   = oklch(0.816 0.188 269) → rgb(146,186,255) (clipped to sRGB);
+ * - dark focus border and glow `oklch(from primary l+0.15 c h)`
+ *   = oklch(0.80 0.18 269) → rgb(143,181,255), at 0.55 / 0.35,
+ *   glow `0 0 12px -3px`.
+ * The inner luminosity insets are left out (spec: skip inset glow).
+ */
+export function getJapaneseLearningChatInputSurfaces(
+  scheme: ColorSchemeName,
+): { rest: JapaneseLearningChatInputSurface; focus: JapaneseLearningChatInputSurface } {
+  if (scheme === "dark") {
+    return {
+      rest: {
+        backgroundColor: "rgba(255,255,255,0.05)",
+        borderColor: "rgba(255,255,255,0.1)",
+        boxShadow: JAPANESE_LEARNING_CHAT_INPUT_REST_SHADOW.dark,
+      },
+      focus: {
+        backgroundColor: "rgba(255,255,255,0.09)",
+        borderColor: "rgba(143,181,255,0.55)",
+        boxShadow: "0px 0px 12px -3px rgba(143,181,255,0.35), 0px 1px 4px 0px rgba(0,0,0,0.3)",
+      },
+    };
+  }
+  return {
+    rest: {
+      backgroundColor: "rgba(244,244,245,0.85)",
+      borderColor: "rgba(0,0,0,0.08)",
+      boxShadow: JAPANESE_LEARNING_CHAT_INPUT_REST_SHADOW.light,
+    },
+    focus: {
+      backgroundColor: "rgba(252,252,252,0.95)",
+      borderColor: "rgba(150,176,251,0.5)",
+      boxShadow:
+        "0px 0px 8px -2px rgba(146,186,255,0.2), 0px 1px 2px 0px rgba(0,0,0,0.03), inset 0px 1px 0px 0px rgba(255,255,255,0.9)",
+    },
+  };
+}

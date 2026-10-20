@@ -27,7 +27,16 @@ import type { AppLanguage } from "@/data/schema";
 import type { JapaneseLearningChatThreadMessage } from "@/lib/mobileJapaneseLearningReaderHelpers";
 import type { MobileStrings } from "@/lib/mobileI18n";
 import { JapaneseLearningFollowUpSuggestions } from "./JapaneseLearningFollowUpSuggestions";
-import { JAPANESE_LEARNING_CHAT_INPUT_REST_SHADOW } from "@/lib/mobileJapaneseLearningChatTheme";
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
+import {
+  getJapaneseLearningChatInputSurfaces,
+  JAPANESE_LEARNING_CHAT_INPUT_TRANSITION_MS,
+} from "@/lib/mobileJapaneseLearningChatTheme";
 import {
   JapaneseLearningDatePill,
   JapaneseLearningMessageBubble,
@@ -106,7 +115,7 @@ export function JapaneseLearningNemuChatDrawer({
   onPresentationProgress,
   stackedSurface = null,
 }: NemuChatDrawerProps) {
-  const { tokens, scheme } = useNemuTheme();
+  const { reduceMotion, tokens, scheme } = useNemuTheme();
   const drawerFrame = useJapaneseLearningDrawerFrame();
   const [inputFocused, setInputFocused] = useState(false);
   const atBottomRef = useRef(true);
@@ -179,6 +188,25 @@ export function JapaneseLearningNemuChatDrawer({
   }, [canSend, dictation, onSendInput]);
 
   const inputFont = japaneseLearningInterStyle("400");
+
+  // Web `.input-nemu` / `:focus` surfaces, cross-faded like its 250ms
+  // `transition` on background, border and box-shadow.
+  const inputSurfaces = getJapaneseLearningChatInputSurfaces(scheme);
+  const listeningBorder = { borderColor: nemuColorWithAlpha(tokens.primary, 0.5) };
+  const inputFocusProgress = useSharedValue(0);
+  useEffect(() => {
+    const target = inputFocused ? 1 : 0;
+    inputFocusProgress.value =
+      reduceMotion === true
+        ? target
+        : withTiming(target, {
+            duration: JAPANESE_LEARNING_CHAT_INPUT_TRANSITION_MS,
+            // CSS `ease`.
+            easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+          });
+  }, [inputFocusProgress, inputFocused, reduceMotion]);
+  const restSurfaceStyle = useAnimatedStyle(() => ({ opacity: 1 - inputFocusProgress.value }));
+  const focusSurfaceStyle = useAnimatedStyle(() => ({ opacity: inputFocusProgress.value }));
 
   const body = (
     <>
@@ -325,45 +353,53 @@ export function JapaneseLearningNemuChatDrawer({
             { paddingBottom: INPUT_BAR_INSET_X + drawerFrame.bottomInset },
           ]}
         >
-          <TextInput
-            ref={inputRef}
-            accessibilityLabel={strings.reader.pluginJapaneseLearningChatInputPlaceholder}
-            autoCapitalize="sentences"
-            autoCorrect
-            onFocus={() => setInputFocused(true)}
-            onBlur={() => setInputFocused(false)}
-            onChangeText={onChangeInput}
-            onSubmitEditing={handleSubmit}
-            placeholder={strings.reader.pluginJapaneseLearningChatInputPlaceholder}
-            placeholderTextColor={scheme === "dark" ? "rgba(255,255,255,0.35)" : "rgba(86,86,86,0.55)"}
-            returnKeyType="send"
-            selectionColor={tokens.primary}
+          {/* Web `.input-nemu`: the rest and focus surfaces cross-fade over
+              250ms (bg, border, glow); the text field sits clear on top. */}
+          <View
             style={[
-              styles.input,
-              inputFont,
-              {
-                color: tokens.foreground,
-                backgroundColor:
-                  scheme === "dark"
-                    ? `rgba(255,255,255,${inputFocused ? 0.09 : 0.05})`
-                    : inputFocused ? "rgba(252,252,252,0.95)" : "rgba(244,244,245,0.85)",
-                borderColor: inputFocused ? nemuColorWithAlpha(tokens.primary, 0.55)
-                  : scheme === "dark" ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)",
-                boxShadow:
-                  JAPANESE_LEARNING_CHAT_INPUT_REST_SHADOW[scheme === "dark" ? "dark" : "light"],
-              },
-              // Web: `!border-primary/50 !ring-2 !ring-primary/20` while listening.
+              styles.inputShell,
+              // Web: `!ring-2 !ring-primary/20` while listening.
               dictation.listening
-                ? {
-                    borderColor: nemuColorWithAlpha(tokens.primary, 0.5),
-                    outlineWidth: 2,
-                    outlineColor: nemuColorWithAlpha(tokens.primary, 0.2),
-                  }
+                ? { outlineWidth: 2, outlineColor: nemuColorWithAlpha(tokens.primary, 0.2) }
                 : null,
             ]}
-            submitBehavior="submit"
-            value={chatInput}
-          />
+          >
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.inputSurface,
+                inputSurfaces.rest,
+                dictation.listening ? listeningBorder : null,
+                restSurfaceStyle,
+              ]}
+            />
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.inputSurface,
+                inputSurfaces.focus,
+                dictation.listening ? listeningBorder : null,
+                focusSurfaceStyle,
+              ]}
+            />
+            <TextInput
+              ref={inputRef}
+              accessibilityLabel={strings.reader.pluginJapaneseLearningChatInputPlaceholder}
+              autoCapitalize="sentences"
+              autoCorrect
+              onFocus={() => setInputFocused(true)}
+              onBlur={() => setInputFocused(false)}
+              onChangeText={onChangeInput}
+              onSubmitEditing={handleSubmit}
+              placeholder={strings.reader.pluginJapaneseLearningChatInputPlaceholder}
+              placeholderTextColor={scheme === "dark" ? "rgba(255,255,255,0.35)" : "rgba(86,86,86,0.55)"}
+              returnKeyType="send"
+              selectionColor={tokens.primary}
+              style={[styles.input, inputFont, { color: tokens.foreground }]}
+              submitBehavior="submit"
+              value={chatInput}
+            />
+          </View>
           {canSend ? (
             <NemuPressable
               accessibilityRole="button"
@@ -496,14 +532,23 @@ const styles = StyleSheet.create({
     paddingTop: 10,
   },
   // Web `.input-nemu rounded-full px-4 py-2.5 text-base`: 46pt tall.
-  input: {
+  inputShell: {
     flex: 1,
     height: 46,
     borderRadius: radius.pill,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    fontSize: 16,
+  },
+  inputSurface: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: radius.pill,
     borderWidth: 1,
+  },
+  input: {
+    flex: 1,
+    height: 46,
+    // Inside the surface's 1pt border.
+    paddingHorizontal: 17,
+    paddingVertical: 11,
+    fontSize: 16,
   },
   sendButton: {
     width: 36,

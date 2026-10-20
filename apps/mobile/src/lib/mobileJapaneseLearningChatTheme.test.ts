@@ -3,6 +3,8 @@ import { describe, expect, test } from "bun:test";
 import { nemuTokens } from "@/design/tokens";
 import {
   getJapaneseLearningAssistantBubbleColors,
+  getJapaneseLearningChatInputSurfaces,
+  JAPANESE_LEARNING_CHAT_INPUT_TRANSITION_MS,
   getJapaneseLearningFollowUpSuggestionColors,
   JAPANESE_LEARNING_CHAT_INPUT_REST_SHADOW,
   JAPANESE_LEARNING_FOLLOW_UP_SUGGESTION_INDENT,
@@ -11,6 +13,17 @@ import {
 } from "./mobileJapaneseLearningChatTheme";
 
 describe("mobileJapaneseLearningChatTheme", () => {
+  test("chat input focus matches web .input-nemu:focus (lightened primary edge + glow, 250ms)", () => {
+    expect(JAPANESE_LEARNING_CHAT_INPUT_TRANSITION_MS).toBe(250);
+    const light = getJapaneseLearningChatInputSurfaces("light");
+    expect(light.focus.borderColor).toBe("rgba(150,176,251,0.5)");
+    expect(light.focus.boxShadow.startsWith("0px 0px 8px -2px rgba(146,186,255,0.2)")).toBe(true);
+    const dark = getJapaneseLearningChatInputSurfaces("dark");
+    expect(dark.focus.borderColor).toBe("rgba(143,181,255,0.55)");
+    expect(dark.focus.boxShadow.startsWith("0px 0px 12px -3px rgba(143,181,255,0.35)")).toBe(true);
+    expect(dark.rest.boxShadow).toBe("0px 1px 3px 0px rgba(0,0,0,0.25)");
+  });
+
   test("chat input rests on web .input-nemu depth (light faint, dark unchanged)", () => {
     expect(JAPANESE_LEARNING_CHAT_INPUT_REST_SHADOW.light.startsWith("0px 1px 2px 0px rgba(0,0,0,0.03)")).toBe(true);
     expect(JAPANESE_LEARNING_CHAT_INPUT_REST_SHADOW.dark).toBe("0px 1px 3px 0px rgba(0,0,0,0.25)");
