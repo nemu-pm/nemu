@@ -62,6 +62,12 @@ type AudioWaveformProps = {
   accessibilityLabel: string;
   disabled?: boolean;
   onToggle: () => void;
+  /**
+   * The time label's colour (shown at 50%). Web inherits the surrounding
+   * text colour — inside a chat bubble that is the bubble's text, not the
+   * page foreground (dark bubbles are white with #111 text).
+   */
+  textColor?: string;
 };
 
 /**
@@ -72,6 +78,7 @@ type AudioWaveformProps = {
  */
 export function JapaneseLearningAudioWaveform({
   seed,
+  textColor,
   waveId,
   onSeek,
   loading,
@@ -205,7 +212,7 @@ export function JapaneseLearningAudioWaveform({
               );
             })}
           </View>
-          <Text style={[styles.time, { color: tokens.foreground }]}>{timeText}</Text>
+          <Text style={[styles.time, { color: textColor ?? tokens.foreground }]}>{timeText}</Text>
         </>
       ) : null}
     </View>

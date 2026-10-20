@@ -161,6 +161,7 @@ export function JapaneseLearningMessageBubble({
           <View style={styles.voiceContent}>
             <JapaneseLearningAudioWaveform
               seed={message.ttsText ?? message.text}
+              textColor={assistantColors.textColor}
               waveId={message.id}
               onSeek={onVoiceSeek}
               showWaveform
