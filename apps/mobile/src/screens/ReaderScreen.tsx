@@ -701,6 +701,12 @@ const READER_TWO_FINGER_TAP_MAX_DISTANCE = 24;
 /** A segmented strip's on-screen tiles are re-read once scrolling rests. */
 const READER_SEGMENT_OCR_SETTLE_MS = 180;
 /**
+ * iOS presents a sheet on top of another (sheet-on-sheet) when the second is
+ * hosted inside the first one's content: the chat opened from the sentence
+ * sheet stacks on it, as web's drawer does.
+ */
+const JAPANESE_LEARNING_CHAT_STACKS_ON_SENTENCE = Platform.OS === "ios";
+/**
  * The root pose veil over the reader: a dark frost (the stage is black), so a
  * display switch never flashes the light page background over the manga.
  * Capped low: a near-opaque black wash over black pages read as a blank frame
@@ -5127,12 +5133,19 @@ export function ReaderScreen() {
 
   // Web parity (`openChatAndSend` opens the chat drawer over the sentence
   // sheet): when a chat request starts while the sentence view is open, the
-  // conversation replaces it, sheet after sheet (a native sheet must finish
-  // dismissing before the next presents). Closing the chat then brings the
-  // same sentence back, as uncovering it does on web.
+  // chat opens over it. iOS stacks the chat sheet on the sentence sheet
+  // (hosted in its content: only the topmost sheet can present), and closing
+  // the chat leaves the sentence sheet where it was. Elsewhere the
+  // conversation replaces it, sheet after sheet, and closing the chat brings
+  // the same sentence back, as uncovering it does on web.
   const japaneseLearningOcrNextSurfaceRef = useRef<"chat" | null>(null);
   const japaneseLearningChatNextSurfaceRef = useRef<"ocr" | null>(null);
   const [japaneseLearningChatReturnsToSentence, setJapaneseLearningChatReturnsToSentence] = useState(false);
+  // The open chat is the one stacked on the sentence sheet (iOS).
+  const [japaneseLearningChatStackedOnSentence, setJapaneseLearningChatStackedOnSentence] =
+    useState(false);
+  const japaneseLearningChatStackedOnSentenceRef = useRef(false);
+  japaneseLearningChatStackedOnSentenceRef.current = japaneseLearningChatStackedOnSentence;
   const japaneseLearningChatHandledRequestSeqRef = useRef(japaneseLearningChatRequestSeq);
   useEffect(() => {
     const started =
@@ -5141,9 +5154,15 @@ export function ReaderScreen() {
     if (!started) return;
     if (!japaneseLearningOcrSheetVisible || japaneseLearningChatDrawerVisible) return;
     setJapaneseLearningChatReturnsToSentence(true);
+    if (JAPANESE_LEARNING_CHAT_STACKS_ON_SENTENCE) {
+      setJapaneseLearningChatStackedOnSentence(true);
+      setJapaneseLearningChatDrawerVisible(true);
+      return;
+    }
     japaneseLearningOcrNextSurfaceRef.current = "chat";
     setJapaneseLearningOcrSheetVisible(false);
   }, [
+    setJapaneseLearningChatDrawerVisible,
     setJapaneseLearningOcrSheetVisible,
     japaneseLearningChatDrawerVisible,
     japaneseLearningChatRequestSeq,
@@ -5277,10 +5296,21 @@ export function ReaderScreen() {
     // last sample that reached JS said, and later samples are ignored.
     if (dismissal.resetProgress) japaneseLearningOcrProgress.value = 0;
     if (dismissal.releaseSelection) releaseJapaneseLearningSentenceSelection();
+    // A chat stacked on this sheet left with it (e.g. the reader lost focus);
+    // its own dismissal may not be reported, so the overlay stops following it.
+    if (
+      japaneseLearningChatStackedOnSentenceRef.current &&
+      !japaneseLearningChatDrawerPresenceRef.current.wanted
+    ) {
+      japaneseLearningChatDrawerPresenceRef.current = JAPANESE_LEARNING_SHEET_GONE;
+      japaneseLearningChatProgress.value = 0;
+      setJapaneseLearningChatStackedOnSentence(false);
+    }
     if (!dismissal.presentChat) return;
     japaneseLearningOcrNextSurfaceRef.current = null;
     setJapaneseLearningChatDrawerVisible(true);
   }, [
+    japaneseLearningChatProgress,
     japaneseLearningOcrProgress,
     releaseJapaneseLearningSentenceSelection,
     setJapaneseLearningChatDrawerVisible,
@@ -5293,6 +5323,7 @@ export function ReaderScreen() {
     });
     japaneseLearningChatDrawerPresenceRef.current = dismissal.presence;
     if (dismissal.resetProgress) japaneseLearningChatProgress.value = 0;
+    if (!dismissal.presence.onScreen) setJapaneseLearningChatStackedOnSentence(false);
     if (dismissal.releaseSelection) {
       // An Ask chat closed for good (e.g. the reader lost focus): the bubble
       // it was about leaves with it instead of floating over a later chat.
@@ -5309,11 +5340,13 @@ export function ReaderScreen() {
     setJapaneseLearningOcrSheetVisible,
   ]);
   // Web drawer has no Back: closing it uncovers whatever was underneath —
-  // the sentence sheet when the chat was opened from it, else the reader.
+  // the sentence sheet when the chat was opened from it (still in place
+  // under a stacked chat, presented again otherwise), else the reader.
   const closeJapaneseLearningChatDrawer = useCallback(() => {
-    japaneseLearningChatNextSurfaceRef.current = japaneseLearningChatReturnsToSentence
-      ? "ocr"
-      : null;
+    japaneseLearningChatNextSurfaceRef.current =
+      japaneseLearningChatReturnsToSentence && !japaneseLearningChatStackedOnSentenceRef.current
+        ? "ocr"
+        : null;
     setJapaneseLearningChatReturnsToSentence(false);
     setJapaneseLearningChatDrawerVisible(false);
   }, [japaneseLearningChatReturnsToSentence, setJapaneseLearningChatDrawerVisible]);
@@ -8729,6 +8762,53 @@ export function ReaderScreen() {
     />
   );
 
+  // The chat at the reader, and the one stacked on the sentence sheet (iOS);
+  // only the one `japaneseLearningChatStackedOnSentence` names is shown.
+  const renderJapaneseLearningChatDrawer = (stacked: boolean) => (
+    <JapaneseLearningNemuChatDrawer
+      visible={
+        japaneseLearningChatDrawerVisible &&
+        japaneseLearningChatStackedOnSentence === stacked
+      }
+      appLanguage={appLanguage}
+      strings={strings}
+      chatMessages={japaneseLearningChatMessages}
+      chatInput={japaneseLearningChatInput}
+      chatLoading={japaneseLearningChatStreaming}
+      followUpSuggestions={japaneseLearningChatFollowUps}
+      showTypingIndicator={japaneseLearningChatShowTypingIndicator}
+      ttsState={{
+        status: japaneseLearningTtsState.status,
+        currentTime: japaneseLearningTtsState.status === "playing" ? japaneseLearningTtsState.currentTime : undefined,
+        duration: japaneseLearningTtsState.status === "playing" ? japaneseLearningTtsState.duration : undefined,
+        source:
+          japaneseLearningTtsState.status !== "idle"
+            ? japaneseLearningTtsState.source
+            : undefined,
+        messageId:
+          japaneseLearningTtsState.status !== "idle"
+            ? japaneseLearningTtsState.messageId
+            : undefined,
+        detail:
+          japaneseLearningTtsState.status === "error"
+            ? japaneseLearningTtsState.detail
+            : undefined,
+      }}
+      onClose={closeJapaneseLearningChatDrawer}
+      onDismiss={handleJapaneseLearningChatDismissed}
+      onPresentationProgress={handleJapaneseLearningChatProgress}
+      onChangeInput={setJapaneseLearningChatInput}
+      onSendInput={sendJapaneseLearningChatInput}
+      onSendSuggestion={sendJapaneseLearningChatSuggestion}
+      onToggleChatTts={toggleJapaneseLearningChatTts}
+      stackedSurface={
+        Platform.OS === "ios" && japaneseLearningChatStackedOnSentence === stacked
+          ? renderJapaneseLearningSignInSheet("chat")
+          : null
+      }
+    />
+  );
+
   // Transcript / OCR result / chat: the same native sheets in every pose.
   const japaneseLearningSurfaces = japaneseLearningPresentationPlugin ? (
     <>
@@ -8796,47 +8876,18 @@ export function ReaderScreen() {
         onCopySentence={copyJapaneseLearningSentence}
         bubble={japaneseLearningBubbleSource}
         stackedSurface={
-          Platform.OS === "ios" ? renderJapaneseLearningSignInSheet("sentence") : null
+          Platform.OS === "ios" ? (
+            <>
+              {JAPANESE_LEARNING_CHAT_STACKS_ON_SENTENCE
+                ? renderJapaneseLearningChatDrawer(true)
+                : null}
+              {renderJapaneseLearningSignInSheet("sentence")}
+            </>
+          ) : null
         }
       />
 
-      <JapaneseLearningNemuChatDrawer
-        visible={japaneseLearningChatDrawerVisible}
-        appLanguage={appLanguage}
-        strings={strings}
-        chatMessages={japaneseLearningChatMessages}
-        chatInput={japaneseLearningChatInput}
-        chatLoading={japaneseLearningChatStreaming}
-        followUpSuggestions={japaneseLearningChatFollowUps}
-        showTypingIndicator={japaneseLearningChatShowTypingIndicator}
-        ttsState={{
-          status: japaneseLearningTtsState.status,
-          currentTime: japaneseLearningTtsState.status === "playing" ? japaneseLearningTtsState.currentTime : undefined,
-          duration: japaneseLearningTtsState.status === "playing" ? japaneseLearningTtsState.duration : undefined,
-          source:
-            japaneseLearningTtsState.status !== "idle"
-              ? japaneseLearningTtsState.source
-              : undefined,
-          messageId:
-            japaneseLearningTtsState.status !== "idle"
-              ? japaneseLearningTtsState.messageId
-              : undefined,
-          detail:
-            japaneseLearningTtsState.status === "error"
-              ? japaneseLearningTtsState.detail
-              : undefined,
-        }}
-        onClose={closeJapaneseLearningChatDrawer}
-        onDismiss={handleJapaneseLearningChatDismissed}
-        onPresentationProgress={handleJapaneseLearningChatProgress}
-        onChangeInput={setJapaneseLearningChatInput}
-        onSendInput={sendJapaneseLearningChatInput}
-        onSendSuggestion={sendJapaneseLearningChatSuggestion}
-        onToggleChatTts={toggleJapaneseLearningChatTts}
-        stackedSurface={
-          Platform.OS === "ios" ? renderJapaneseLearningSignInSheet("chat") : null
-        }
-      />
+      {renderJapaneseLearningChatDrawer(false)}
 
       {renderJapaneseLearningSignInSheet("reader")}
 
