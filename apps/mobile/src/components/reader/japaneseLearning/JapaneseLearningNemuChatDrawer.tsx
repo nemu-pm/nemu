@@ -10,6 +10,7 @@ import {
   type TextInputInstance,
 } from "react-native";
 import Svg, { Path } from "react-native-svg";
+import { BlurView } from "expo-blur";
 import {
   nemuColorWithAlpha,
   nemuFontWeight,
@@ -35,6 +36,7 @@ import Animated, {
 } from "react-native-reanimated";
 import {
   getJapaneseLearningChatInputSurfaces,
+  JAPANESE_LEARNING_CHAT_INPUT_BAND_BLUR_INTENSITY,
   JAPANESE_LEARNING_CHAT_INPUT_TRANSITION_MS,
 } from "@/lib/mobileJapaneseLearningChatTheme";
 import {
@@ -331,6 +333,16 @@ export function JapaneseLearningNemuChatDrawer({
       >
         {/* The native sheet owns the safe area below the React host. Extend
             only the band's paint into it; keep the input's layout unchanged. */}
+        {/* Web `backdrop-blur-xl` under the band's colour: the system
+            material blur (iOS; Android's blur is experimental, keep colour). */}
+        {Platform.OS === "ios" ? (
+          <BlurView
+            pointerEvents="none"
+            intensity={JAPANESE_LEARNING_CHAT_INPUT_BAND_BLUR_INTENSITY}
+            tint={scheme === "dark" ? "systemUltraThinMaterialDark" : "systemUltraThinMaterialLight"}
+            style={StyleSheet.absoluteFill}
+          />
+        ) : null}
         <View
           pointerEvents="none"
           style={[

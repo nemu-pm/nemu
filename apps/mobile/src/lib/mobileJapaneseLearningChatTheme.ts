@@ -164,3 +164,10 @@ export function getJapaneseLearningChatInputSurfaces(
     },
   };
 }
+
+/**
+ * Web input band `backdrop-blur-xl` (24px): expo-blur's ultra-thin system
+ * material at a strong intensity, under the band's own colour overlay
+ * (`bg-background/80`, dark `bg-black/40`) so the colour stays web's.
+ */
+export const JAPANESE_LEARNING_CHAT_INPUT_BAND_BLUR_INTENSITY = 80;
