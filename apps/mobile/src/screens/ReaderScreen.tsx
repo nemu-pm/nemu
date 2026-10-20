@@ -1547,6 +1547,8 @@ export function ReaderScreen() {
   const requireJapaneseLearningAuthOrPrompt = useCallback((): boolean => {
     // QA fixtures answer without the server, like `runMobileJapaneseLearningChat`.
     if (getMobileJapaneseLearningQaScenario("chat")) return true;
+    // A build without sync has no sign-in to ask for: the chat opens as before.
+    if (!mobileSyncConfig.configured) return true;
     const gate = resolveMobileJapaneseLearningAuthGate(
       getMobileJapaneseLearningAuthGateStatus({
         signedIn: isMobileJapaneseLearningSignedIn(),
