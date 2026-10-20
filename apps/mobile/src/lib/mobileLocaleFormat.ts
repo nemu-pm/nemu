@@ -137,3 +137,41 @@ export function formatMobileClockTime(
   }
   return `${hours}:${minutes}`;
 }
+
+/**
+ * Web chat `formatTime`: `toLocaleTimeString(locale, { hour: "numeric",
+ * minute: "2-digit", hour12: true })` — always 12-hour: "1:05 PM" (en),
+ * "午後1:05" (ja, hours 0–11), "下午1:05" (zh). Chat timestamps only; the
+ * rest of the app keeps `formatMobileClockTime`.
+ */
+export function formatMobileClockTime12h(
+  timestamp: number,
+  appLanguage: AppLanguage,
+  hasIntl: boolean = mobileEngineHasIntl(),
+): string {
+  const date = new Date(timestamp);
+  if (hasIntl) {
+    try {
+      return date.toLocaleTimeString(TIME_LOCALE_BY_LANGUAGE[appLanguage], {
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      });
+    } catch {
+      // Fall through to the table below.
+    }
+  }
+  const hours = date.getHours();
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const pm = hours >= 12;
+  if (appLanguage === "ja") {
+    // CLDR ja `aK:mm`: 午前0:05 … 午後11:59.
+    return `${pm ? "午後" : "午前"}${hours % 12}:${minutes}`;
+  }
+  const hour12 = hours % 12 === 0 ? 12 : hours % 12;
+  if (appLanguage === "zh") {
+    // CLDR zh `ah:mm`.
+    return `${pm ? "下午" : "上午"}${hour12}:${minutes}`;
+  }
+  return `${hour12}:${minutes} ${pm ? "PM" : "AM"}`;
+}

@@ -12,7 +12,7 @@ import {
   type MobileJapaneseLearningOcrResult,
   type MobileOcrDetection,
 } from "@/lib/mobileJapaneseLearningOcr";
-import { formatMobileClockTime } from "./mobileLocaleFormat";
+import { formatMobileClockTime12h } from "./mobileLocaleFormat";
 import type { MobileStrings } from "./mobileI18n";
 
 /**
@@ -69,7 +69,8 @@ export function formatMobileJapaneseLearningChatTime(
   appLanguage: AppLanguage,
 ): string {
   // Android's ICU-less JSC ignores the locale and options of Date#toLocale*.
-  return formatMobileClockTime(timestamp, appLanguage);
+  // Web chat `formatTime` is always 12-hour (`hour12: true`).
+  return formatMobileClockTime12h(timestamp, appLanguage);
 }
 
 export function sortedMobileOcrLines(
