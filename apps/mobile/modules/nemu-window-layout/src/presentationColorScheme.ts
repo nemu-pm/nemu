@@ -74,14 +74,18 @@ export function reportPageWidth(handler: (width: number) => void) {
  * a row in the label colour (an action Button: the icon follows its
  * `foregroundStyle`; a NavigationLink's Label icon is in the tint, as stock); `menu: true` on a menu Picker, whose title
  * then goes in its `label` with `formRowMenuTitle()` (the value line, drawn
- * inset in a button, and the title move onto one edge). A binary built
+ * inset in a button, and the title move onto one edge); `toggle: true` on a
+ * Toggle (its title and switch are laid out by the modifier, the icon on the
+ * title's first line: the stock Toggle reports a baseline from another
+ * layout than the one it draws). A binary built
  * before the modifier existed ignores it (no icon at accessibility sizes).
  */
-export function formRowIcon(systemImage: string, options?: { tinted?: boolean; menu?: boolean }) {
+export function formRowIcon(systemImage: string, options?: { tinted?: boolean; menu?: boolean; toggle?: boolean }) {
   return createModifier("nemuFormRowIcon", {
     systemImage,
     tinted: options?.tinted ?? true,
     menu: options?.menu ?? false,
+    toggle: options?.toggle ?? false,
   });
 }
 

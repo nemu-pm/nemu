@@ -521,7 +521,7 @@ export function ReaderSettingsNativePopover({
               systemImage={axRows ? undefined : "camera.metering.center.weighted"}
               isOn={avoidCamera}
               onIsOnChange={(isOn) => onSetAvoidCamera(isOn)}
-              modifiers={[formRowIcon("camera.metering.center.weighted"), ...busyModifiers]}
+              modifiers={[formRowIcon("camera.metering.center.weighted", { toggle: true }), ...busyModifiers]}
             />
           </SwiftSection>
         ) : null}
@@ -551,7 +551,7 @@ export function ReaderSettingsNativePopover({
                 systemImage={axRows ? undefined : "eye.slash"}
                 isOn={thumbnailSpoilerSafe}
                 onIsOnChange={onToggleThumbnailSpoilerSafe}
-                modifiers={[formRowIcon("eye.slash"), ...busyModifiers]}
+                modifiers={[formRowIcon("eye.slash", { toggle: true }), ...busyModifiers]}
               />
             ) : null}
           </SwiftSection>
@@ -562,7 +562,7 @@ export function ReaderSettingsNativePopover({
             systemImage={axRows ? undefined : "wand.and.stars"}
             isOn={processPageImages}
             onIsOnChange={() => onToggleProcessPageImages()}
-            modifiers={[formRowIcon("wand.and.stars"), ...busyModifiers]}
+            modifiers={[formRowIcon("wand.and.stars", { toggle: true }), ...busyModifiers]}
           />
           {mode === "scrolling" ? (
             <SwiftSlider
@@ -590,7 +590,7 @@ export function ReaderSettingsNativePopover({
             systemImage={axRows ? undefined : "moon"}
             isOn={keepAwake}
             onIsOnChange={() => onToggleKeepAwake()}
-            modifiers={[formRowIcon("moon"), ...busyModifiers]}
+            modifiers={[formRowIcon("moon", { toggle: true }), ...busyModifiers]}
           />
           {showOrientationLock ? (
             <SwiftToggle
@@ -598,7 +598,7 @@ export function ReaderSettingsNativePopover({
               systemImage={axRows ? undefined : "lock.rotation"}
               isOn={lockPortrait}
               onIsOnChange={() => onToggleLockPortrait()}
-              modifiers={[formRowIcon("lock.rotation"), ...busyModifiers]}
+              modifiers={[formRowIcon("lock.rotation", { toggle: true }), ...busyModifiers]}
             />
           ) : null}
             {showPlugins ? (

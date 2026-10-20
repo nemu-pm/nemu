@@ -385,6 +385,8 @@ struct NemuPresentationColorSchemeModifier: ViewModifier {
 /// value line the system draws in a button `menuValueInset` inside the
 /// Picker's edge; the Picker moves out by that inset and its title (in a
 /// `nemuFormRowMenuTitle` label) back in, so both start on the column's edge.
+/// `toggle`: a Toggle, drawn with `NemuFormRowIconToggleStyle` (its title and
+/// switch laid out here, the icon on the title's first line).
 struct NemuFormRowIconModifier: ViewModifier {
   static let type = "nemuFormRowIcon"
   /// How far a Form's menu Picker draws its value line inside the Picker's
@@ -393,6 +395,7 @@ struct NemuFormRowIconModifier: ViewModifier {
   let systemImage: String
   let tinted: Bool
   let menu: Bool
+  let toggle: Bool
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   @Environment(\.isEnabled) private var isEnabled
   // The stock row's first title line and icon, measured at AX1, AX3 and AX5
@@ -407,18 +410,16 @@ struct NemuFormRowIconModifier: ViewModifier {
     systemImage = params["systemImage"] as? String ?? ""
     tinted = params["tinted"] as? Bool ?? true
     menu = params["menu"] as? Bool ?? false
+    toggle = params["toggle"] as? Bool ?? false
   }
 
   @ViewBuilder
   func body(content: Content) -> some View {
-    if dynamicTypeSize.isAccessibilitySize && !systemImage.isEmpty {
+    if dynamicTypeSize.isAccessibilitySize && !systemImage.isEmpty && toggle {
+      content.toggleStyle(NemuFormRowIconToggleStyle(icon: AnyView(iconColumn), spacing: Self.iconSpacing))
+    } else if dynamicTypeSize.isAccessibilitySize && !systemImage.isEmpty {
       HStack(alignment: .firstTextBaseline, spacing: Self.iconSpacing) {
-        icon
-          // No height of its own: a symbol taller than the first line (the
-          // page one, at AX1) sits on the line's baseline as before but no
-          // longer makes its row taller and pushes the text down.
-          .frame(width: scaledIconWidth + Self.iconWidthExtra, height: 0)
-          .accessibilityHidden(true)
+        iconColumn
         control(content)
           .frame(maxWidth: .infinity, alignment: .leading)
           // The row's separator starts on the title's edge.
@@ -442,6 +443,15 @@ struct NemuFormRowIconModifier: ViewModifier {
     }
   }
 
+  private var iconColumn: some View {
+    icon
+      // No height of its own: a symbol taller than the first line (the page
+      // one, at AX1) sits on the line's baseline but doesn't make its row
+      // taller and push the text down.
+      .frame(width: scaledIconWidth + Self.iconWidthExtra, height: 0)
+      .accessibilityHidden(true)
+  }
+
   @ViewBuilder
   private var icon: some View {
     // The stock icon steps down a symbol scale from AX3 on.
@@ -453,6 +463,36 @@ struct NemuFormRowIconModifier: ViewModifier {
       image.foregroundStyle(.tint)
     } else {
       image
+    }
+  }
+}
+
+/// A Form Toggle with `nemuFormRowIcon` at accessibility sizes. The stock
+/// Toggle sizes its title for a narrower width than it draws it at and
+/// reports that layout's first baseline (a title that fits on one line is
+/// sized for two and drawn on one, centred), so an icon on the Toggle's
+/// baseline sat up to a line above the title. Here the title is laid out
+/// beside the icon, on the title's own first baseline, and the switch (a
+/// stock one, the title hidden but still its accessibility label) centred
+/// beside the two, as the stock row centres it.
+struct NemuFormRowIconToggleStyle: ToggleStyle {
+  let icon: AnyView
+  let spacing: CGFloat
+
+  func makeBody(configuration: Configuration) -> some View {
+    HStack(alignment: .center) {
+      HStack(alignment: .firstTextBaseline, spacing: spacing) {
+        icon
+        configuration.label
+          .labelStyle(.titleOnly)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          // The row's separator starts on the title's edge.
+          .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] }
+          .accessibilityHidden(true)
+      }
+      Toggle(isOn: configuration.$isOn) { configuration.label }
+        .labelsHidden()
+        .toggleStyle(.switch)
     }
   }
 }
