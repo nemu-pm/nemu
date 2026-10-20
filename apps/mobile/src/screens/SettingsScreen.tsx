@@ -14,6 +14,7 @@ import { ExploreSettingsGroup } from "@/components/explore/ExploreSettingsGroup"
 import { ExploreSettingsGlyph } from "@/components/explore/ExploreSettingsGlyph";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import { MOBILE_SETTINGS_GLYPH } from "@/lib/mobileSettingsGlyph";
+import { requestMobileAddSourceSheet } from "@/lib/mobileAddSourceSheetRequest";
 import { readMobileDesignExploreStored, writeMobileDesignExploreStored } from "@/lib/mobileDesignExploreBoot";
 import { isMobileDesignExploreSwitchAvailable } from "@/lib/mobileDesignExploreSwitch";
 import { reloadAppAsync } from "expo";
@@ -4203,7 +4204,12 @@ function SettingsScreenContent({
             icon: "plus",
             label: strings.settings.addSource,
             disabled: settingsActionBusy,
-            onPress: () => router.push("/browse"),
+            // Browse's Add Sources sheet is local to that screen: file a
+            // one-shot request it consumes once focused, then switch tabs.
+            onPress: () => {
+              requestMobileAddSourceSheet();
+              router.push("/browse");
+            },
           }])}
         </Stack.Toolbar>
       ) : null}

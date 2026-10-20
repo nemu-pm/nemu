@@ -7,7 +7,11 @@ import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import { MOBILE_EXPLORE_RADIUS } from "@/lib/mobileExploreRadius";
-import { Stack, router } from "expo-router";
+import { Stack, router, useFocusEffect } from "expo-router";
+import {
+  consumeMobileAddSourceSheetRequest,
+  subscribeMobileAddSourceSheetRequest,
+} from "@/lib/mobileAddSourceSheetRequest";
 import {
   Linking,
   ScrollView,
@@ -1477,6 +1481,26 @@ export function BrowseScreen() {
     setActiveSheet("add-source");
     setActiveSheetVisible(true);
   };
+  // Settings → Installed Sources' "+" switches to this tab and files a
+  // one-shot request for the same sheet the header "+" opens. It is consumed
+  // when Browse is focused: right away on a first mount, or through the
+  // subscription when the tab was already mounted. The request is cleared
+  // either way, so it never reopens the sheet on a later visit; it is dropped
+  // (like the disabled "+") while an install runs or another sheet is up.
+  const addSourceRequestHandlerRef = useRef<() => void>(() => undefined);
+  addSourceRequestHandlerRef.current = () => {
+    if (!consumeMobileAddSourceSheetRequest()) return;
+    if (activeInstallKey !== null || activeSheet !== null) return;
+    openAddSourceSheet();
+  };
+  useFocusEffect(
+    useCallback(() => {
+      addSourceRequestHandlerRef.current();
+      return subscribeMobileAddSourceSheetRequest(() => {
+        addSourceRequestHandlerRef.current();
+      });
+    }, []),
+  );
   const closeAddSourceSheet = () => {
     setActiveSheetVisible(false);
   };
