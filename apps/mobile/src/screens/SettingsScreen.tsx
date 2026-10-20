@@ -4155,6 +4155,15 @@ function SettingsScreenContent({
         <Stack.Screen
           options={{
             title: presentation === "list-pane" ? strings.nav.settings : settingsTitle,
+            // In the split a pushed `settings/[section]` route (a compact
+            // push kept through a resize, or a deep link) is the selection,
+            // not a page: the detail column's first page has no Back, and
+            // the only Back is the column's own (Source Directories →
+            // Installed Sources). Neither the stack's Back nor its edge swipe
+            // may pop the route out from under the split. Always set, so
+            // leaving the split restores them (`setOptions` merges).
+            headerBackVisible: !inSplit,
+            gestureEnabled: !inSplit,
             // Always set, so leaving the split (a Duo rotated back to
             // portrait) clears the probe: `setOptions` merges, and a probe
             // left over from the split hid the bar's own title.
