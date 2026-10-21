@@ -1219,7 +1219,6 @@ export type MobileStrings = {
     chapterAfterVolume: string;
     chapterRange: string;
     libraryEmptyBrowse: string;
-    libraryEmptySearch: string;
     /** Caption above a chapter list whose chapters (nearly) all come from one group or category. */
     /** Search idle page: heading over recent searches. */
     searchRecent: string;

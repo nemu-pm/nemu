@@ -1383,7 +1383,6 @@ export const mobileStringsEn: MobileStrings = {
     chapterAfterVolume: "After Volume {{volume}}",
     chapterRange: "Ch.{{from}}–{{to}}",
     libraryEmptyBrowse: "Browse sources",
-    libraryEmptySearch: "Search all sources",
     searchRecent: "Recent",
     searchClearRecent: "Clear recent searches",
     searchRecentItem: "Search again for {{query}}",

@@ -1305,7 +1305,6 @@ export const mobileStringsZh: MobileStrings = {
     chapterAfterVolume: "第 {{volume}} 卷之后",
     chapterRange: "第 {{from}}–{{to}} 话",
     libraryEmptyBrowse: "浏览来源",
-    libraryEmptySearch: "搜索所有来源",
     searchRecent: "最近搜索",
     searchClearRecent: "清除最近搜索",
     searchRecentItem: "再次搜索“{{query}}”",

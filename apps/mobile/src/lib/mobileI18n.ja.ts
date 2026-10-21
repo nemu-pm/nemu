@@ -1392,7 +1392,6 @@ export const mobileStringsJa: MobileStrings = {
     chapterAfterVolume: "第{{volume}}巻の後",
     chapterRange: "第{{from}}–{{to}}話",
     libraryEmptyBrowse: "ソースをブラウズ",
-    libraryEmptySearch: "すべてのソースを検索",
     searchRecent: "最近の検索",
     searchClearRecent: "最近の検索を消去",
     searchRecentItem: "「{{query}}」をもう一度検索",
