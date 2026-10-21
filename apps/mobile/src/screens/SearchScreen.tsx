@@ -123,8 +123,6 @@ import {
   resolveMobileLiveSearchRetrySourceIds,
 } from "@/lib/mobileSearchResults";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
-import { ExploreSearchIdle } from "@/components/explore/ExploreSearchIdle";
-import { hasMobileSearchIdleContent } from "@/lib/mobileSearchIdle";
 import { pushMobileExploreDetail } from "@/components/explore/mobileExploreCover";
 import { setMobileSourceDetailSeed } from "@/lib/mobileSourceDetailSeed";
 import { ZoomSource } from "../../modules/nemu-window-layout";
@@ -1258,8 +1256,6 @@ export function SearchScreen() {
     setRecentSearches([]);
     void saveMobileSearchRecents([]).catch(() => undefined);
   }, []);
-  const exploreIdle =
-    mobileDesignExploreFlag && hasMobileSearchIdleContent(split ? [] : recentSearches, library.data);
   // "Library" / "Live Source Results" only when both groups are on screen.
   const showKindHeaders = mobileSearchShowsKindHeaders({
     libraryRows: localSearchRows.length,
@@ -1853,16 +1849,6 @@ export function SearchScreen() {
                     />
                   )}
                 </MobilePaneAlignedView>
-              ) : !trimmedQuery && exploreIdle ? (
-                // Design-explore: recent searches and library titles with new chapters.
-                <ExploreSearchIdle
-                  recents={split ? [] : recentSearches}
-                  entries={library.data}
-                  installedSources={installed.data}
-                  strings={strings}
-                  onPressRecent={pressRecentSearch}
-                  onClearRecents={clearRecentSearches}
-                />
               ) : !trimmedQuery ? (
                 <MobilePaneAlignedView>
                   {({ minHeight }) => (

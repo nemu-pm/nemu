@@ -23,7 +23,6 @@ const SCREENS = [
   "screens/MangaDetailScreen.tsx",
   "components/MobileMangaDetailSplitLayout.tsx",
   "components/SourceHomeView.tsx",
-  "components/explore/ExploreSearchIdle.tsx",
   "components/MobileCollectionBooksSheet.tsx",
 ] as const;
 

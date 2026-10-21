@@ -1220,14 +1220,6 @@ export type MobileStrings = {
     chapterRange: string;
     libraryEmptyBrowse: string;
     /** Caption above a chapter list whose chapters (nearly) all come from one group or category. */
-    /** Search idle page: heading over recent searches. */
-    searchRecent: string;
-    /** Search idle page: clears the recent searches. */
-    searchClearRecent: string;
-    /** Search idle page: VoiceOver label of a recent search. */
-    searchRecentItem: string;
-    /** Search idle page: heading over library titles with new chapters. */
-    searchNewChapters: string;
     /** Browse: heading over the sources the library's titles come from. */
     browseInLibrary: string;
     /** Browse: how many library titles a source holds (more than one). */
