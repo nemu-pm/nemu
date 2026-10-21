@@ -725,7 +725,6 @@ export type MobileStrings = {
     liveSourceResults: string;
     noLiveMatches: string;
     noSavedMatchesForQuery: string;
-    noSources: string;
     noSourcesDescription: string;
     noSourcesInstalled: string;
     noSourcesSelected: string;

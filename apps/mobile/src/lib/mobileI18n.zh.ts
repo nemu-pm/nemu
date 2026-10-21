@@ -804,7 +804,6 @@ export const mobileStringsZh: MobileStrings = {
     liveSourceResults: "实时来源结果",
     noLiveMatches: "此来源没有找到最新匹配结果。",
     noSavedMatchesForQuery: "没有已保存漫画匹配“{{query}}”。",
-    noSources: "无来源",
     noSourcesDescription: "添加来源以开始搜索漫画",
     noSourcesInstalled: "未安装来源",
     noSourcesSelected: "未选择来源",

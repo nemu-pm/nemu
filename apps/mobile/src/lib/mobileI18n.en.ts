@@ -847,7 +847,6 @@ export const mobileStringsEn: MobileStrings = {
     liveSourceResults: "Live Source Results",
     noLiveMatches: "No live matches from this source.",
     noSavedMatchesForQuery: 'No saved manga matched "{{query}}".',
-    noSources: "No sources",
     noSourcesDescription: "Add a source to start searching for manga",
     noSourcesInstalled: "No sources installed",
     noSourcesSelected: "No sources selected",

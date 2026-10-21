@@ -853,7 +853,6 @@ export const mobileStringsJa: MobileStrings = {
     noLiveMatches: "このソースでは一致する作品が見つかりませんでした。",
     noSavedMatchesForQuery:
       "「{{query}}」に一致する保存済み漫画はありません。",
-    noSources: "ソースなし",
     noSourcesDescription: "ソースを追加して漫画の検索を始めましょう",
     noSourcesInstalled: "ソースがインストールされていません",
     noSourcesSelected: "ソースが選択されていません",
