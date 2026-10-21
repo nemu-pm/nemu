@@ -4,9 +4,6 @@ import { radius } from "@/design/tokens";
 import { nemuText } from "@/design/typography";
 import { useNemuTheme } from "@/design/useNemuTheme";
 import { GlassSurface } from "./GlassSurface";
-import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
-import { ExploreStateGlyph } from "@/components/explore/ExploreStateGlyph";
-import { exploreStateGlyphForIcon } from "@/lib/mobileExploreStateGlyph";
 import { NemuButton } from "./NemuButton";
 
 type NemuInlineEmptyStateProps = {
@@ -34,7 +31,6 @@ export function NemuInlineEmptyState({
 }: NemuInlineEmptyStateProps) {
   const { tokens } = useNemuTheme();
   const iconColor = tone === "danger" ? tokens.danger : tokens.mutedForeground;
-  const glyph = mobileDesignExploreFlag ? exploreStateGlyphForIcon(icon) : null;
 
   return (
     <GlassSurface
@@ -43,17 +39,7 @@ export function NemuInlineEmptyState({
       contentStyle={styles.content}
       testID={testID}
     >
-      {glyph ? (
-        // Design-explore: nemu's own state glyphs instead of a stock symbol.
-        <ExploreStateGlyph
-          kind={glyph}
-          size={36}
-          base={tokens.mutedForeground}
-          accent={tone === "danger" ? tokens.danger : tokens.primary}
-        />
-      ) : (
-        <Ionicons name={icon} size={20} color={iconColor} />
-      )}
+      <Ionicons name={icon} size={20} color={iconColor} />
       <View style={styles.copy}>
         <Text style={[nemuText.body, styles.title, { color: tokens.mutedForeground }]}>
           {title}

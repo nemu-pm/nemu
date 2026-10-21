@@ -18,9 +18,6 @@ import {
 } from "@/design-system";
 import { getMobileStrings } from "@/lib/mobileI18n";
 import { shouldUseCompactMobilePageEmptyLayout } from "@/lib/mobilePageEmptyLayout";
-import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
-import { ExploreStateGlyph } from "@/components/explore/ExploreStateGlyph";
-import { exploreStateGlyphForIcon } from "@/lib/mobileExploreStateGlyph";
 
 type MobilePageEmptyProps = {
   icon: keyof typeof Ionicons.glyphMap;
@@ -63,7 +60,6 @@ export function MobilePageEmpty({
   const compactHeight = shouldUseCompactMobilePageEmptyLayout(height);
   const disabled = Boolean(actionDisabled || actionLoading);
   const [diagnosticOpen, setDiagnosticOpen] = useState(false);
-  const glyph = mobileDesignExploreFlag ? exploreStateGlyphForIcon(icon) : null;
 
   return (
     <View
@@ -79,20 +75,14 @@ export function MobilePageEmpty({
           style={[
             styles.media,
             compactHeight ? styles.compactMedia : null,
-            // Design-explore: the glyph stands bare, no tinted tile behind it.
-            glyph ? null : { backgroundColor: tokens.muted },
+            { backgroundColor: tokens.muted },
           ]}
         >
-          {glyph ? (
-            // Design-explore: nemu's own state glyphs instead of a stock symbol.
-            <ExploreStateGlyph kind={glyph} size={compactHeight ? 32 : 60} base={tokens.mutedForeground} accent={tokens.primary} />
-          ) : (
-            <Ionicons
-              name={icon}
-              size={compactHeight ? 24 : 48}
-              color={tokens.mutedForeground}
-            />
-          )}
+          <Ionicons
+            name={icon}
+            size={compactHeight ? 24 : 48}
+            color={tokens.mutedForeground}
+          />
         </View>
         <Text style={[nemuText.pageEmptyTitle, styles.title, { color: tokens.foreground }]}>
           {title}
