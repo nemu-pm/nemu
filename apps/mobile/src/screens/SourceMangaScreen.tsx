@@ -24,6 +24,7 @@ import {
   type MobileChapterReadMarkScope,
   type MobileChapterUnreadMarkScope,
 } from "@/lib/mobileChapterReadMarks";
+import { clearMobileReaderResumePositions } from "@/lib/mobileReaderResumePosition";
 import { renderExploreDetailBarMenu } from "@/components/explore/ExploreDetailBarMenu";
 import { MobileMetadataEditorSheet } from "@/components/MobileMetadataEditorSheet";
 import { MobileSourceManagerSheet } from "@/components/MobileSourceManagerSheet";
@@ -1256,9 +1257,12 @@ export function SourceMangaScreen() {
   );
   const markChaptersUnread = useCallback(
     async (scope: MobileChapterUnreadMarkScope) => {
+      const marked = selectMobileChapterProgressToMarkUnread(chapters, localState.chapterProgress, scope);
+      // This device's own resume spots go too (local only).
+      clearMobileReaderResumePositions(marked.map((progress) => progress.id));
       await saveChapterMarks(
         buildMobileChapterUnreadMarks({
-          marked: selectMobileChapterProgressToMarkUnread(chapters, localState.chapterProgress, scope),
+          marked,
           progressById: localState.chapterProgress,
           mangaProgress: localState.mangaProgress,
         }),

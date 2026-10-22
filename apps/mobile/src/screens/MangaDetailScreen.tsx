@@ -30,6 +30,7 @@ import {
   type MobileChapterReadMarkScope,
   type MobileChapterUnreadMarkScope,
 } from "@/lib/mobileChapterReadMarks";
+import { clearMobileReaderResumePositions } from "@/lib/mobileReaderResumePosition";
 import { MobileCollectionMembershipSheet } from "@/components/MobileCollectionMembershipSheet";
 import { MobileConfirmationSheet } from "@/components/MobileConfirmationSheet";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
@@ -2184,9 +2185,12 @@ export function MangaDetailScreen() {
   // Mark as Unread clears the reading on every device (a synced reset clock).
   const markChaptersUnread = useCallback(
     async (scope: MobileChapterUnreadMarkScope) => {
+      const marked = selectMobileChapterProgressToMarkUnread(chapters, selectedChapterProgress, scope);
+      // This device's own resume spots go too (local only).
+      clearMobileReaderResumePositions(marked.map((progress) => progress.id));
       await saveChapterMarks(
         buildMobileChapterUnreadMarks({
-          marked: selectMobileChapterProgressToMarkUnread(chapters, selectedChapterProgress, scope),
+          marked,
           progressById: selectedChapterProgress,
           mangaProgress: selectedProgress,
         }),

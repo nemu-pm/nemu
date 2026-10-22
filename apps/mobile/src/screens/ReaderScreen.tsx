@@ -408,6 +408,14 @@ import {
   mobileReaderScrollSideMargin,
 } from "@/lib/mobileReaderScrollPresentation";
 import {
+  chooseMobileReaderResumePosition,
+  flushMobileReaderResumePositions,
+  loadMobileReaderResumePosition,
+  noteMobileReaderResumeProgressWrite,
+  saveMobileReaderResumePosition,
+  type MobileReaderResumePosition,
+} from "@/lib/mobileReaderResumePosition";
+import {
   buildMobileReaderScrollLayout,
   mobileReaderScrollOffsetForAnchor,
   mobileReaderScrollPageRatios,
@@ -1358,6 +1366,9 @@ export function ReaderScreen() {
   const readerRelayoutPageAnchorRef = useRef<number | null>(null);
   // How far into the anchored page the reading line sat (scroll layout).
   const readerRelayoutPageFractionRef = useRef(0);
+  const readerRelayoutSeekFractionRef = useRef<{ key: string; fraction: number } | null>(null);
+  // Remembers where this device stopped (local only); set further down.
+  const saveReaderLocalResumeRef = useRef<() => void>(() => undefined);
   /** Scroll mode: remembers the page (and spot on it) a relayout keeps. */
   const captureReaderRelayoutAnchor = useCallback(() => {
     if (readerRelayoutPageAnchorRef.current != null) return;
@@ -1365,6 +1376,7 @@ export function ReaderScreen() {
     readerRelayoutPageAnchorRef.current =
       anchor?.pageIndex ?? scrollingVisiblePageIndexRef.current;
     readerRelayoutPageFractionRef.current = anchor?.fraction ?? 0;
+    saveReaderLocalResumeRef.current();
   }, []);
   const readerRelayoutInteractionActiveRef = useRef(false);
   const readerRelayoutAnchorClearTimerRef = useRef<ReturnType<
@@ -1669,6 +1681,12 @@ export function ReaderScreen() {
     chapterProgress: null,
     mangaProgress: null,
   });
+  // Where this device stopped in the chapter (local only, read with the
+  // synced progress; see mobileReaderResumePosition).
+  const [readerLocalResume, setReaderLocalResume] = useState<{
+    key: string;
+    position: MobileReaderResumePosition | null;
+  } | null>(null);
   const [sourceMangaTitle, setSourceMangaTitle] = useState<string | null>(null);
   const [readerSettingsError, setReaderSettingsError] = useState<string | null>(
     null,
@@ -2062,12 +2080,21 @@ export function ReaderScreen() {
         mangaId,
       );
       const progressSourceRef = sourceLink ?? routeSourceRef;
-      const chapterProgress = await loadMobileChapterProgressForSourceChapter(
-        store,
-        progressSourceRef,
-        installedSources,
+      const localResumeKey = makeChapterProgressId(
+        progressSourceRef.registryId,
+        progressSourceRef.sourceId,
+        progressSourceRef.sourceMangaId,
         chapterId,
       );
+      const [chapterProgress, localResume] = await Promise.all([
+        loadMobileChapterProgressForSourceChapter(
+          store,
+          progressSourceRef,
+          installedSources,
+          chapterId,
+        ),
+        loadMobileReaderResumePosition(localResumeKey).catch(() => null),
+      ]);
       const progressIndex = new Map(
         mangaProgressItems.map((item) => [item.id, item]),
       );
@@ -2077,6 +2104,13 @@ export function ReaderScreen() {
           installedSources,
           progressIndex,
         ) ?? null;
+      setReaderLocalResume((current) =>
+        // One snapshot per chapter: a reload while reading (a sync, a data
+        // change) must not move the opening position under the reader.
+        current?.key === localResumeKey
+          ? current
+          : { key: localResumeKey, position: localResume },
+      );
       setState({ entry, sourceLink, chapterProgress, mangaProgress });
     } finally {
       setLoading(false);
@@ -3177,19 +3211,50 @@ export function ReaderScreen() {
     () => readerDisplayIndexForRoutePage(routePage, pageCount, mode),
     [mode, pageCount, routePage],
   );
+  const readerResumeSourceRef = state.sourceLink ?? routeSourceRef;
+  const readerResumeKey = makeChapterProgressId(
+    readerResumeSourceRef.registryId,
+    readerResumeSourceRef.sourceId,
+    readerResumeSourceRef.sourceMangaId,
+    chapterId,
+  );
+  // This device's own last spot when nothing newer was read elsewhere, else
+  // the synced (high-water) page. The page row and read state stay on the
+  // synced record.
+  const readerResumeChoice = useMemo(
+    () =>
+      chooseMobileReaderResumePosition({
+        local:
+          readerLocalResume?.key === readerResumeKey
+            ? readerLocalResume.position
+            : null,
+        progress: state.chapterProgress,
+        pageCount,
+      }),
+    [pageCount, readerLocalResume, readerResumeKey, state.chapterProgress],
+  );
   const readerRestorePageIndex = useMemo(() => {
     if (pageCount <= 0) return 0;
-    const savedProgress = state.chapterProgress;
-    const savedIndex =
-      savedProgress && savedProgress.total > 1
-        ? readerDisplayIndexForSourceIndex(
-            savedProgress.progress,
-            pageCount,
-            mode,
-          )
-        : 0;
+    const savedIndex = readerResumeChoice
+      ? readerDisplayIndexForSourceIndex(
+          readerResumeChoice.sourceIndex,
+          pageCount,
+          mode,
+        )
+      : 0;
     return clampReaderPageIndex(routePageDisplayIndex ?? savedIndex, pageCount);
-  }, [mode, pageCount, routePageDisplayIndex, state.chapterProgress]);
+  }, [mode, pageCount, readerResumeChoice, routePageDisplayIndex]);
+  // Scroll reading resumes at the same spot on the page, not its top.
+  // (A route page elsewhere — an explicit "open at page" — starts at its top;
+  // the route echo of the restored page itself keeps the spot.)
+  const readerRestorePageFraction =
+    !galleryPagedMode &&
+    readerResumeChoice &&
+    (routePageDisplayIndex == null ||
+      routePageDisplayIndex ===
+        readerDisplayIndexForSourceIndex(readerResumeChoice.sourceIndex, pageCount, mode))
+      ? readerResumeChoice.fraction
+      : 0;
   const layoutRestorePageIndex = restoredReaderKey.startsWith(`${readyFetchedAt}:${chapterId}:`)
     ? clampedPageIndex : readerRestorePageIndex;
   const readerRestoreFrameIndex = useMemo(
@@ -3214,7 +3279,7 @@ export function ReaderScreen() {
         : 0,
       y: galleryPagedMode
         ? 0
-        : scrollingPageOffsetForIndex(readerRestorePageIndex),
+        : scrollingPageOffsetForIndex(readerRestorePageIndex, readerRestorePageFraction),
     }),
     [
       galleryPagedMode,
@@ -3222,6 +3287,7 @@ export function ReaderScreen() {
       readerPageWidth,
       readerRestoreFrameCount,
       readerRestoreFrameIndex,
+      readerRestorePageFraction,
       readerRestorePageIndex,
       scrollingPageOffsetForIndex,
     ],
@@ -4184,6 +4250,7 @@ export function ReaderScreen() {
     if (!readerUserScrollingRef.current) return;
     readerUserScrollingRef.current = false;
     publishScrollingVisiblePage();
+    saveReaderLocalResumeRef.current();
   }, [publishScrollingVisiblePage]);
   const beginReaderUserScroll = useCallback(() => {
     clearReaderProgrammaticScroll();
@@ -6673,11 +6740,20 @@ export function ReaderScreen() {
       pageCount,
     });
     if (targetPageIndex === null) return;
+    if (readerRelayoutPageAnchorRef.current != null) {
+      // Kept for this restore key: the effect may re-run before its seek.
+      readerRelayoutSeekFractionRef.current = {
+        key: restoreReaderKey,
+        fraction:
+          !galleryPagedMode &&
+          clampReaderPageIndex(readerRelayoutPageAnchorRef.current, pageCount) === targetPageIndex
+            ? readerRelayoutPageFractionRef.current
+            : 0,
+      };
+    }
     const relayoutFraction =
-      !galleryPagedMode &&
-      readerRelayoutPageAnchorRef.current != null &&
-      clampReaderPageIndex(readerRelayoutPageAnchorRef.current, pageCount) === targetPageIndex
-        ? readerRelayoutPageFractionRef.current
+      readerRelayoutSeekFractionRef.current?.key === restoreReaderKey
+        ? readerRelayoutSeekFractionRef.current.fraction
         : 0;
     if (!readerRelayoutInteractionActiveRef.current) {
       readerRelayoutPageAnchorRef.current = null;
@@ -6695,7 +6771,14 @@ export function ReaderScreen() {
     const scrollOpeningRestore =
       !galleryPagedMode &&
       !restoredReaderKey.startsWith(`${readyFetchedAt}:${chapterId}:`);
-    if (scrollOpeningRestore && nextPageIndex === 0) {
+    // Where on the page: this device's own spot when opening, the kept
+    // spot when re-anchoring.
+    const seekFraction = scrollOpeningRestore
+      ? nextPageIndex === readerRestorePageIndex
+        ? readerRestorePageFraction
+        : 0
+      : relayoutFraction;
+    if (scrollOpeningRestore && nextPageIndex === 0 && seekFraction <= 0) {
       // A fresh chapter (or one saved on its first page) already opens at
       // its very top, title area below the chrome: no seek at all.
       setPageArrival("initial");
@@ -6716,7 +6799,7 @@ export function ReaderScreen() {
     setPageArrival("initial");
     setCurrentPageIndex(nextPageIndex);
     const timeout = setTimeout(() => {
-      scrollToPageIndex(nextPageIndex, false, relayoutFraction);
+      scrollToPageIndex(nextPageIndex, false, seekFraction);
       setRestoredReaderKey(restoreReaderKey);
     }, 0);
     syncRoutePage(nextPageIndex);
@@ -6732,6 +6815,7 @@ export function ReaderScreen() {
     pageCount,
     pagesState.status,
     readyFetchedAt,
+    readerRestorePageFraction,
     readerRestorePageIndex,
     readerSpreads,
     restoreReaderKey,
@@ -6826,6 +6910,8 @@ export function ReaderScreen() {
 
         try {
           await store.saveChapterProgress(chapterProgress);
+          // This device's own write: not "read elsewhere since".
+          noteMobileReaderResumeProgressWrite(chapterProgress.id, lastReadAt);
           await store.saveMangaProgress(mangaProgress);
           if (options?.updateState !== false) {
             // Read back the one row that was just written; scanning
@@ -7006,9 +7092,77 @@ export function ReaderScreen() {
     const subscription = AppState.addEventListener("change", (nextState) => {
       if (nextState === "active") return;
       flushPendingReaderProgress();
+      saveReaderLocalResumeRef.current();
+      flushMobileReaderResumePositions();
     });
     return () => subscription.remove();
   }, [flushPendingReaderProgress]);
+
+  // Where this device stopped (local only, never synced): the page — and in
+  // scroll reading the spot on it — the reader rests on. Saved once the
+  // opening restore has landed, on page changes, when a scroll settles,
+  // before a relayout, on backgrounding and on leaving.
+  const saveReaderLocalResume = useCallback(() => {
+    if (!readerProgressRestoreComplete) return;
+    if (pagesState.status !== "ready" || pageCount <= 0) return;
+    let displayIndex = clampedPageIndex;
+    let fraction = 0;
+    if (!galleryPagedMode) {
+      // A relayout in flight keeps the spot it captured before the geometry
+      // changed; the live anchor is stale until its seek lands.
+      const anchor =
+        readerRelayoutPageAnchorRef.current != null
+          ? {
+              pageIndex: readerRelayoutPageAnchorRef.current,
+              fraction: readerRelayoutPageFractionRef.current,
+            }
+          : (readerScrollRef.current?.pageAnchor() ?? null);
+      if (anchor) {
+        displayIndex = anchor.pageIndex;
+        fraction = anchor.fraction;
+      }
+    }
+    saveMobileReaderResumePosition(readerResumeKey, {
+      sourceIndex: readerSourceIndexForDisplayIndex(
+        clampReaderPageIndex(displayIndex, pageCount),
+        pageCount,
+        mode,
+      ),
+      fraction,
+      total: pageCount,
+      savedAt: Date.now(),
+      // Saved while reading here: at least as new as the synced record this
+      // reader holds (whose sync clock may run ahead of the wall clock).
+      progressAt: Math.max(
+        state.chapterProgress?.lastReadAt ?? 0,
+        state.chapterProgress?.resetAt ?? 0,
+      ),
+    });
+  }, [
+    clampedPageIndex,
+    galleryPagedMode,
+    mode,
+    pageCount,
+    pagesState.status,
+    readerProgressRestoreComplete,
+    readerResumeKey,
+    state.chapterProgress?.lastReadAt,
+    state.chapterProgress?.resetAt,
+  ]);
+  useEffect(() => {
+    saveReaderLocalResumeRef.current = saveReaderLocalResume;
+    // Also the page-change save (its deps include the current page).
+    saveReaderLocalResume();
+  }, [saveReaderLocalResume]);
+  // A layout cleanup runs before the gallery's handle detaches, so leaving
+  // still reads the live scroll anchor.
+  useLayoutEffect(
+    () => () => {
+      saveReaderLocalResumeRef.current();
+      flushMobileReaderResumePositions();
+    },
+    [],
+  );
 
   useEffect(() => {
     if (pagesState.status !== "ready") return;
