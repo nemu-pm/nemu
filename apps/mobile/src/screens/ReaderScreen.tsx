@@ -365,6 +365,7 @@ import {
 import {
   getMobileReaderPageRenderPolicy,
   nextMobileReaderScrollDirection,
+  orderMobileReaderScrollProcessing,
   resolveMobileReaderScrollPageRange,
   type MobileReaderPageRange,
   type MobileReaderScrollDirection,
@@ -2232,8 +2233,12 @@ export function ReaderScreen() {
   }, [clampedPageIndex]);
   const pageProcessor =
     pagesState.status === "ready" ? pagesState.pageProcessor : undefined;
+  // Scroll reading processes from the live page (see
+  // `topUpReaderScrollPrefetch`), not around the settled one.
+  const readerScrollProcessing =
+    mode === "scrolling" && pageProcessor?.processPages != null;
   useEffect(() => {
-    if (!pageProcessor || pageCount <= 0) return;
+    if (readerScrollProcessing || !pageProcessor || pageCount <= 0) return;
     const controller = new AbortController();
     let active = true;
     const applyWindowResult = (result: MobileReaderPageWindowResult) => {
@@ -2262,7 +2267,49 @@ export function ReaderScreen() {
       controller.abort();
       pageProcessor.cancel();
     };
-  }, [clampedPageIndex, pageCount, pageProcessor]);
+  }, [clampedPageIndex, pageCount, pageProcessor, readerScrollProcessing]);
+  // Scroll reading: the wanted pages are handed over on every page crossing;
+  // pages finish one by one and are published at most once a frame.
+  const readerScrollProcessPagesRef = useRef<
+    (indexes: readonly number[]) => void
+  >(() => undefined);
+  useEffect(() => {
+    if (!readerScrollProcessing || !pageProcessor || pageCount <= 0) {
+      readerScrollProcessPagesRef.current = () => undefined;
+      return;
+    }
+    let active = true;
+    let frame: number | null = null;
+    let latestPages: MobileReaderPage[] | null = null;
+    const flush = () => {
+      frame = null;
+      const nextPages = latestPages;
+      latestPages = null;
+      if (!active || !nextPages) return;
+      setPagesState((current) => {
+        if (
+          current.status !== "ready" ||
+          current.pageProcessor !== pageProcessor
+        ) {
+          return current;
+        }
+        return { ...current, pages: nextPages };
+      });
+    };
+    const onUpdate = (result: MobileReaderPageWindowResult) => {
+      if (!active) return;
+      latestPages = result.pages;
+      if (frame == null) frame = requestAnimationFrame(flush);
+    };
+    readerScrollProcessPagesRef.current = (indexes) =>
+      pageProcessor.processPages?.(indexes, { onUpdate });
+    return () => {
+      active = false;
+      if (frame != null) cancelAnimationFrame(frame);
+      readerScrollProcessPagesRef.current = () => undefined;
+      pageProcessor.processPages?.([]);
+    };
+  }, [pageCount, pageProcessor, readerScrollProcessing]);
   useEffect(() => {
     return () => pageProcessor?.dispose();
   }, [pageProcessor]);
@@ -6848,6 +6895,32 @@ export function ReaderScreen() {
         minBehind: MOBILE_READER_SCROLL_PREFETCH_MIN_BEHIND,
       });
       if (!range) return;
+      // Pages that still need their request resolved (or descrambling) are
+      // worked on in the same reach, the pages on screen first, so nothing
+      // ahead of the reader is still a grey plate when it arrives.
+      const visible = resolveMobileReaderScrollPageRange({
+        pageCount: pages.length,
+        anchorIndex: pageIndex,
+        direction: readerScrollDirectionRef.current,
+        viewportTop: viewport?.top ?? null,
+        viewportHeight: viewport?.height ?? 0,
+        layout: readerScrollLayout,
+        estimatedPageHeight: scrollingPageEstimatedHeight,
+        aheadViewports: 0,
+        behindViewports: 0,
+        minAhead: 0,
+        minBehind: 0,
+      });
+      readerScrollProcessPagesRef.current(
+        orderMobileReaderScrollProcessing({
+          currentIndex: pageIndex,
+          pageCount: pages.length,
+          range,
+          visible,
+          landing: readerScrollFlingLandingRef.current,
+          direction: readerScrollDirectionRef.current,
+        }),
+      );
       readerImagePrefetcher.update([
         ...planMobileReaderScrollPrefetch({
           pages,

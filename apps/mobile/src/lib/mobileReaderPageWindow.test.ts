@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  orderMobileReaderScrollProcessing,
   MOBILE_READER_PAGE_RENDER_WINDOW,
   getMobileReaderPageRenderPolicy,
   isMobileReaderPageInRange,
@@ -247,5 +248,40 @@ describe("scroll render window", () => {
         inRenderWindow: false,
       }),
     ).toBe("far-placeholder");
+  });
+});
+
+describe("orderMobileReaderScrollProcessing", () => {
+  test("pages on screen first, then the fling's landing, then ahead, then behind", () => {
+    expect(
+      orderMobileReaderScrollProcessing({
+        currentIndex: 10,
+        pageCount: 40,
+        visible: { first: 9, last: 11 },
+        landing: { first: 20, last: 21 },
+        range: { first: 8, last: 14 },
+        direction: "forward",
+      }),
+    ).toEqual([10, 11, 9, 20, 21, 12, 13, 14, 8]);
+  });
+
+  test("backward scrolling works upwards and stays inside the chapter", () => {
+    expect(
+      orderMobileReaderScrollProcessing({
+        currentIndex: 2,
+        pageCount: 4,
+        visible: { first: 1, last: 3 },
+        range: { first: -3, last: 9 },
+        direction: "backward",
+      }),
+    ).toEqual([2, 1, 3, 0]);
+    expect(
+      orderMobileReaderScrollProcessing({
+        currentIndex: 0,
+        pageCount: 0,
+        range: null,
+        direction: "forward",
+      }),
+    ).toEqual([]);
   });
 });

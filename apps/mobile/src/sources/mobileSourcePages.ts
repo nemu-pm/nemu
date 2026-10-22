@@ -33,10 +33,7 @@ import {
   makeMobileRuntimeSourceKey,
   normalizeInstalledSource,
 } from "./mobileSourceRuntime";
-import {
-  MOBILE_READER_PAGE_IMAGE_CACHE_MAX_BYTES,
-  isMobileReaderPageImageCacheLimitExceeded,
-} from "./mobileSourcePageSafety";
+import { isMobileReaderPageImageCacheLimitExceeded } from "./mobileSourcePageSafety";
 
 type MobileReaderPageBase = {
   id: string;
@@ -75,6 +72,17 @@ export type MobileReaderPageProcessor = {
       onUpdate?: (result: MobileReaderPageWindowResult) => void;
     },
   ): Promise<MobileReaderPageWindowResult | null>;
+  /**
+   * Scroll reading: the pages wanted now, most urgent first (the pages on
+   * screen, then where a fling lands, then ahead in the scroll direction,
+   * then behind). Replaces the previous list: work for pages still listed
+   * keeps running, work for dropped pages is aborted, and resolved pages are
+   * not resolved again. `onUpdate` gets every page the moment it is ready.
+   */
+  processPages?(
+    indexes: readonly number[],
+    options?: { onUpdate?: (result: MobileReaderPageWindowResult) => void },
+  ): void;
   /**
    * One page, resolved exactly as the window would (decorated request,
    * processed bytes), without moving the window or caching the result.
@@ -155,7 +163,22 @@ export type MobileReaderPagesOptions = {
 };
 
 export const MOBILE_READER_PAGE_PROCESSING_WINDOW_RADIUS = 2;
-export const MOBILE_READER_PAGE_PROCESSING_CACHE_SIZE = 7;
+/**
+ * Most processed pages held as image data in the JS heap (data URIs). Pages
+ * that resolved to a request only (a decorated URL and headers) are a few
+ * hundred bytes each and are kept for the whole chapter, outside this cap.
+ */
+export const MOBILE_READER_PAGE_PROCESSING_CACHE_SIZE = 24;
+/**
+ * Scroll reading (`processPages`): at most this many wanted pages at once,
+ * and this many resolving concurrently. Sources with an image processor
+ * fetch, descramble and encode every page, so they get a shorter list —
+ * the pages on screen must never wait behind a long run-ahead.
+ */
+export const MOBILE_READER_PAGE_PROCESSING_MAX_IMAGE_TARGETS = 24;
+export const MOBILE_READER_PAGE_PROCESSING_MAX_REQUEST_TARGETS = 48;
+export const MOBILE_READER_PAGE_PROCESSING_IMAGE_CONCURRENCY = 3;
+export const MOBILE_READER_PAGE_PROCESSING_REQUEST_CONCURRENCY = 2;
 // The native sandbox accepts at most 8 MiB for page-image processing. Reject
 // larger responses before the bridge performs native buffer/base64/JS copies;
 // the reader falls back to the original image URL instead of doing doomed work.
@@ -164,8 +187,7 @@ export const MOBILE_READER_PAGE_PROCESSING_INPUT_MAX_BYTES = 8 * 1024 * 1024;
 // processor output before base64 expansion and the actual estimated JS string
 // footprint retained by the shared near-page LRU.
 export const MOBILE_READER_PROCESSED_IMAGE_MAX_BYTES = 8 * 1024 * 1024;
-export const MOBILE_READER_PROCESSED_IMAGE_CACHE_MAX_BYTES =
-  MOBILE_READER_PAGE_IMAGE_CACHE_MAX_BYTES;
+export const MOBILE_READER_PROCESSED_IMAGE_CACHE_MAX_BYTES = 64 * 1024 * 1024;
 
 /**
  * Chapter index to keep when a refresh comes back.
@@ -368,12 +390,24 @@ export function detectProcessedImageMimeType(
   return null;
 }
 
-function processedImageUri(bytes: Uint8Array): string {
+type ProcessedImageMimeType = NonNullable<
+  ReturnType<typeof detectProcessedImageMimeType>
+>;
+
+/** Throws unless `bytes` is a supported image with safe metadata. */
+function assertProcessedImageBytes(bytes: Uint8Array): ProcessedImageMimeType {
   const mimeType = detectProcessedImageMimeType(bytes);
   if (!mimeType) {
     throw new Error("Aidoku image processor returned an unsupported image format.");
   }
   assertMobileImageMetadataSafety(bytes, "Processed reader page image");
+  return mimeType;
+}
+
+function processedImageDataUri(
+  bytes: Uint8Array,
+  mimeType: ProcessedImageMimeType,
+): string {
   return `data:${mimeType};base64,${bytesToBase64(bytes)}`;
 }
 
@@ -474,16 +508,26 @@ function chapterFromSummary(chapter: ChapterSummary): AidokuChapter {
 async function processMobileReaderPageImage({
   page,
   request,
-  source,
+  processBytes,
   fetchImpl,
   signal,
 }: {
   page: MobileSourcePage;
   request: { url: string; headers: Record<string, string> };
-  source: MobileAidokuExecutorSource;
+  /**
+   * Runs the source's processor on the fetched bytes. Its own session turn:
+   * the fetch above it holds no source session, so other pages' request
+   * rewrites (and other processors) are not queued behind the network.
+   */
+  processBytes: (input: {
+    bytes: Uint8Array;
+    context: Record<string, string> | null;
+    status: number;
+    headers: Record<string, string>;
+  }) => Promise<Uint8Array | null | undefined>;
   fetchImpl: typeof fetch;
   signal?: AbortSignal;
-}): Promise<string | null> {
+}): Promise<{ bytes: Uint8Array; mimeType: ProcessedImageMimeType } | null> {
   // Like Aidoku and the web adapter, every remote page goes through the
   // source's processor; `context` is optional and passed through as null.
   // Sources such as Shonen Jump+ descramble pages that carry no context.
@@ -499,17 +543,15 @@ async function processMobileReaderPageImage({
         signal,
       });
       if (!response.ok || signal?.aborted) return null;
-      const processed = await source.processPageImage(
-        response.bytes,
+      const processed = await processBytes({
+        bytes: response.bytes,
         context,
-        request.url,
-        request.headers,
-        response.status,
-        response.headers,
-      );
+        status: response.status,
+        headers: response.headers,
+      });
       if (!processed || signal?.aborted) return null;
       assertProcessedImageByteLength(processed.byteLength);
-      return processedImageUri(processed);
+      return { bytes: processed, mimeType: assertProcessedImageBytes(processed) };
     }
 
     const response = await fetchImpl(request.url, {
@@ -525,17 +567,15 @@ async function processMobileReaderPageImage({
     const bytes = new Uint8Array(await response.arrayBuffer());
     if (signal?.aborted) return null;
     assertPageProcessingInputByteLength(bytes.byteLength);
-    const processed = await source.processPageImage(
+    const processed = await processBytes({
       bytes,
       context,
-      request.url,
-      request.headers,
-      response.status,
-      responseHeadersMap(response.headers),
-    );
+      status: response.status,
+      headers: responseHeadersMap(response.headers),
+    });
     if (!processed || signal?.aborted) return null;
     assertProcessedImageByteLength(processed.byteLength);
-    return processedImageUri(processed);
+    return { bytes: processed, mimeType: assertProcessedImageBytes(processed) };
   } catch {
     return null;
   }
@@ -566,6 +606,12 @@ function decoratePageImageRequest(
   return source.decorateImageRequest(request).catch(() => request);
 }
 
+type ProcessedPageEntry = {
+  page: MobileReaderPage;
+  /** Estimated JS heap held by the entry (a data URI); 0 for request-only. */
+  byteSize: number;
+};
+
 function createMobileReaderPageProcessor({
   normalizedSource,
   rawPages,
@@ -583,6 +629,7 @@ function createMobileReaderPageProcessor({
 }): MobileReaderPageProcessor {
   const cache = options.sessionCache ?? defaultMobileSourceSessionCache;
   const fetchImpl = options.fetchImpl ?? fetch;
+  const processesBytes = options.processPageImages === true && hasImageProcessor;
   const requestedRadius =
     options.pageProcessingWindowRadius ??
     MOBILE_READER_PAGE_PROCESSING_WINDOW_RADIUS;
@@ -610,36 +657,72 @@ function createMobileReaderPageProcessor({
           MOBILE_READER_PROCESSED_IMAGE_CACHE_MAX_BYTES,
         )
       : MOBILE_READER_PROCESSED_IMAGE_CACHE_MAX_BYTES;
-  const processedPages = new Map<
-    number,
-    { page: MobileReaderPage; byteSize: number }
-  >();
+  // Resolved pages, insertion order = recency. Request-only results (a
+  // decorated URL and headers, nothing else) are kept for the whole chapter;
+  // only entries holding image data in the JS heap count against the LRU.
+  const processedPages = new Map<number, ProcessedPageEntry>();
   let processedCacheBytes = 0;
+  let heldImageEntries = 0;
   let generation = 0;
   let disposed = false;
+
+  // Scroll reading's prioritized queue (`processPages`).
+  const targetLimit = processesBytes
+    ? MOBILE_READER_PAGE_PROCESSING_MAX_IMAGE_TARGETS
+    : MOBILE_READER_PAGE_PROCESSING_MAX_REQUEST_TARGETS;
+  const targetConcurrency = processesBytes
+    ? MOBILE_READER_PAGE_PROCESSING_IMAGE_CONCURRENCY
+    : MOBILE_READER_PAGE_PROCESSING_REQUEST_CONCURRENCY;
+  let targetOrder: number[] = [];
+  let targetSet = new Set<number>();
+  // Indexes finished (or failed) while continuously targeted: not queued
+  // again until they leave the target list, so an evicted or failing page
+  // cannot loop.
+  const targetHandled = new Set<number>();
+  const targetJobs = new Map<number, AbortController>();
+  let targetListener:
+    | ((result: MobileReaderPageWindowResult) => void)
+    | undefined;
 
   const isCancelled = (run: number, signal?: AbortSignal) =>
     disposed || run !== generation || signal?.aborted === true;
 
-  const touch = (index: number, page: MobileReaderPage) => {
-    const existing = processedPages.get(index);
-    if (existing) processedCacheBytes -= existing.byteSize;
+  const evict = (index: number) => {
+    const evicted = processedPages.get(index);
+    if (!evicted) return;
+    processedCacheBytes -= evicted.byteSize;
+    if (evicted.byteSize > 0) heldImageEntries -= 1;
     processedPages.delete(index);
+  };
+
+  const touch = (index: number, page: MobileReaderPage) => {
+    evict(index);
     const byteSize = estimatedDataUriBytes(page.imageUri);
     processedPages.set(index, { page, byteSize });
     processedCacheBytes += byteSize;
+    if (byteSize > 0) heldImageEntries += 1;
     while (
-      processedPages.size > maxCacheSize ||
+      heldImageEntries > maxCacheSize ||
       isMobileReaderPageImageCacheLimitExceeded(
         processedCacheBytes,
         maxCacheBytes,
       )
     ) {
-      const oldest = processedPages.keys().next().value;
-      if (oldest === undefined) break;
-      const evicted = processedPages.get(oldest);
-      if (evicted) processedCacheBytes -= evicted.byteSize;
-      processedPages.delete(oldest);
+      // Oldest image entry first, sparing pages the reader still wants;
+      // only when every held image is wanted does the oldest go anyway.
+      let victim: number | undefined;
+      let fallbackVictim: number | undefined;
+      for (const [candidate, entry] of processedPages) {
+        if (entry.byteSize <= 0) continue;
+        fallbackVictim ??= candidate;
+        if (!targetSet.has(candidate)) {
+          victim = candidate;
+          break;
+        }
+      }
+      const chosen = victim ?? fallbackVictim;
+      if (chosen === undefined) break;
+      evict(chosen);
     }
   };
 
@@ -652,44 +735,72 @@ function createMobileReaderPageProcessor({
     processedIndexes: [...processedIndexes],
   });
 
+  const sessionOptions = (
+    priority: MobileSourcePriorityInput,
+    signal: AbortSignal | undefined,
+  ) => ({
+    ...options.executor,
+    settings,
+    priority,
+    ...(signal ? { signal } : {}),
+  });
+
   /**
-   * Resolves one pending page (request decoration, then optional byte
-   * processing) on the shared source session. `isStale` is re-checked after
-   * every await; a stale run hands back the unprocessed base page.
+   * Resolves one pending page: request rewriting on the shared source
+   * session, then (sources with an image processor) the byte fetch outside
+   * the session and the processor in a second, short session turn.
+   * `isStale` is re-checked after every await; a stale run hands back the
+   * unprocessed base page. `queueSignal` drops a turn still waiting in the
+   * per-source queue (the session call then rejects).
    */
-  const resolvePendingPage = (
+  const resolvePendingPage = async (
     page: MobileSourcePage,
     basePage: MobileReaderPage,
     index: number,
     isStale: () => boolean,
     signal: AbortSignal | undefined,
     priority: MobileSourcePriorityInput,
-  ): Promise<MobileReaderPage> =>
-    cache.withSession(
+    queueSignal?: AbortSignal,
+  ): Promise<MobileReaderPage> => {
+    const step = await cache.withSession(
       normalizedSource,
-      { ...options.executor, settings, priority },
-      async (session): Promise<MobileReaderPage> => {
+      sessionOptions(priority, queueSignal),
+      async (
+        session,
+      ): Promise<
+        | { kind: "done"; page: MobileReaderPage }
+        | {
+            kind: "process";
+            request: { url: string; headers: Record<string, string> };
+          }
+      > => {
         // `withSession` is a per-source queue. A newer viewport can cancel
         // this run while it is waiting for its turn, so re-check inside
         // the queue before starting any source/network/image work.
-        if (isStale()) return basePage;
+        if (isStale()) return { kind: "done", page: basePage };
         if (session.status === "blocked") {
-          return { ...basePage, imageProcessing: "fallback" };
+          return {
+            kind: "done",
+            page: { ...basePage, imageProcessing: "fallback" },
+          };
         }
         const resolvedBase64 = session.source.resolvePageImage
           ? await session.source.resolvePageImage(page).catch(() => null)
           : null;
-        if (isStale()) return basePage;
+        if (isStale()) return { kind: "done", page: basePage };
         const resolvedImageUri = resolvedBase64
           ? trustedBase64ImageUri(resolvedBase64)
           : null;
         if (resolvedImageUri) {
           return {
-            ...basePage,
-            imageUri: resolvedImageUri,
-            imageUriOwnership: "app",
-            headers: undefined,
-            imageProcessing: "ready",
+            kind: "done",
+            page: {
+              ...basePage,
+              imageUri: resolvedImageUri,
+              imageUriOwnership: "app",
+              headers: undefined,
+              imageProcessing: "ready",
+            },
           };
         }
         // Page headers skip `modifyImageRequest`, so they go through the
@@ -702,39 +813,126 @@ function createMobileReaderPageProcessor({
           : await session.source
               .modifyImageRequest(page.url!)
               .catch(() => undefined);
-        if (isStale()) return basePage;
-        if (!request) return { ...basePage, imageProcessing: "fallback" };
-        if (!options.processPageImages || !hasImageProcessor) {
+        if (isStale()) return { kind: "done", page: basePage };
+        if (!request) {
           return {
-            ...mapAidokuPageToReaderPage(page, index, request),
-            id: basePage.id,
-            imageProcessing: "fallback",
+            kind: "done",
+            page: { ...basePage, imageProcessing: "fallback" },
           };
         }
-        const processedImageUri = await processMobileReaderPageImage({
-          page,
-          request,
-          source: session.source,
-          fetchImpl,
-          signal,
-        });
-        if (isStale()) return basePage;
-        if (!processedImageUri) {
+        if (!processesBytes) {
           return {
-            ...mapAidokuPageToReaderPage(page, index, request),
-            id: basePage.id,
-            imageProcessing: "fallback",
+            kind: "done",
+            page: {
+              ...mapAidokuPageToReaderPage(page, index, request),
+              id: basePage.id,
+              imageProcessing: "fallback",
+            },
           };
         }
-        return {
-          ...basePage,
-          imageUri: processedImageUri,
-          imageUriOwnership: "app",
-          headers: undefined,
-          imageProcessing: "ready",
-        };
+        return { kind: "process", request };
       },
     );
+    if (step.kind === "done") return step.page;
+    const { request } = step;
+    const processed = await processMobileReaderPageImage({
+      page,
+      request,
+      processBytes: (input) =>
+        cache.withSession(
+          normalizedSource,
+          sessionOptions(priority, queueSignal),
+          async (session) => {
+            if (isStale() || session.status === "blocked") return null;
+            return session.source.processPageImage(
+              input.bytes,
+              input.context,
+              request.url,
+              request.headers,
+              input.status,
+              input.headers,
+            );
+          },
+        ),
+      fetchImpl,
+      signal,
+    });
+    if (isStale()) return basePage;
+    if (!processed) {
+      return {
+        ...mapAidokuPageToReaderPage(page, index, request),
+        id: basePage.id,
+        imageProcessing: "fallback",
+      };
+    }
+    return {
+      ...basePage,
+      imageUri: processedImageDataUri(processed.bytes, processed.mimeType),
+      imageUriOwnership: "app",
+      headers: undefined,
+      imageProcessing: "ready",
+    };
+  };
+
+  const isProcessable = (index: number) => {
+    const page = rawPages[index];
+    const basePage = basePages[index];
+    return Boolean(
+      page && basePage && basePage.imageProcessing === "pending" && page.url,
+    );
+  };
+
+  const pumpTargets = () => {
+    if (disposed) return;
+    for (const index of targetOrder) {
+      if (targetJobs.size >= targetConcurrency) return;
+      if (
+        targetJobs.has(index) ||
+        targetHandled.has(index) ||
+        processedPages.has(index) ||
+        !isProcessable(index)
+      ) {
+        continue;
+      }
+      const controller = new AbortController();
+      targetJobs.set(index, controller);
+      const isStale = () => disposed || controller.signal.aborted;
+      const settle = (resolved: MobileReaderPage | null) => {
+        if (targetJobs.get(index) === controller) targetJobs.delete(index);
+        if (!isStale()) {
+          targetHandled.add(index);
+          if (resolved) {
+            touch(index, resolved);
+            // Each page is published the moment it is ready; the caller
+            // coalesces bursts into one render.
+            try {
+              targetListener?.(makeResult(generation, [index]));
+            } catch {
+              // A view subscriber must not stop the queue.
+            }
+          }
+        }
+        pumpTargets();
+      };
+      void resolvePendingPage(
+        rawPages[index]!,
+        basePages[index]!,
+        index,
+        isStale,
+        controller.signal,
+        options.priority ?? "user",
+        controller.signal,
+      ).then(settle, () => settle(null));
+    }
+  };
+
+  const clearTargets = () => {
+    for (const controller of targetJobs.values()) controller.abort();
+    targetJobs.clear();
+    targetOrder = [];
+    targetSet = new Set();
+    targetHandled.clear();
+  };
 
   return {
     async processWindow(centerIndex, processOptions = {}) {
@@ -756,16 +954,9 @@ function createMobileReaderPageProcessor({
           processedIndexes.push(index);
           continue;
         }
-        const page = rawPages[index];
-        const basePage = basePages[index];
-        if (
-          !page ||
-          !basePage ||
-          basePage.imageProcessing !== "pending" ||
-          !page.url
-        ) {
-          continue;
-        }
+        if (!isProcessable(index)) continue;
+        const page = rawPages[index]!;
+        const basePage = basePages[index]!;
 
         const resolvedPage = await resolvePendingPage(
           page,
@@ -793,6 +984,34 @@ function createMobileReaderPageProcessor({
       if (isCancelled(run, processOptions.signal)) return null;
       return makeResult(run, processedIndexes);
     },
+    processPages(indexes, processOptions = {}) {
+      if (disposed) return;
+      targetListener = processOptions.onUpdate;
+      const order: number[] = [];
+      const wanted = new Set<number>();
+      for (const raw of indexes) {
+        if (order.length >= targetLimit) break;
+        if (!Number.isFinite(raw)) continue;
+        const index = Math.round(raw);
+        if (index < 0 || index >= rawPages.length || wanted.has(index)) {
+          continue;
+        }
+        wanted.add(index);
+        order.push(index);
+      }
+      targetOrder = order;
+      targetSet = wanted;
+      // Work for pages still wanted keeps running; the rest is dropped.
+      for (const [index, controller] of targetJobs) {
+        if (wanted.has(index)) continue;
+        controller.abort();
+        targetJobs.delete(index);
+      }
+      for (const index of targetHandled) {
+        if (!wanted.has(index)) targetHandled.delete(index);
+      }
+      pumpTargets();
+    },
     async resolvePage(index, resolveOptions = {}) {
       const signal = resolveOptions.signal;
       const isStale = () => disposed || signal?.aborted === true;
@@ -818,12 +1037,16 @@ function createMobileReaderPageProcessor({
     },
     cancel() {
       generation += 1;
+      clearTargets();
     },
     dispose() {
       disposed = true;
       generation += 1;
+      clearTargets();
+      targetListener = undefined;
       processedPages.clear();
       processedCacheBytes = 0;
+      heldImageEntries = 0;
     },
     cacheSize() {
       return processedPages.size;

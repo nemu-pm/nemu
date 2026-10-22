@@ -160,6 +160,74 @@ export function resolveMobileReaderScrollPageRange({
   };
 }
 
+/**
+ * Scroll reading: the order in which pages that must be resolved before they
+ * can load (source request rewriting, descrambling) are worked on. The pages
+ * on screen come first, nearest the reading page; then the screen a fling
+ * comes to rest on; then the rest of `range` ahead in the scroll direction,
+ * nearest first; then behind. No index appears twice.
+ */
+export function orderMobileReaderScrollProcessing({
+  currentIndex,
+  pageCount,
+  range,
+  visible,
+  landing,
+  direction,
+}: {
+  currentIndex: number;
+  pageCount: number;
+  range: MobileReaderPageRange | null;
+  visible?: MobileReaderPageRange | null;
+  landing?: MobileReaderPageRange | null;
+  direction: MobileReaderScrollDirection;
+}): number[] {
+  if (!Number.isFinite(pageCount) || pageCount <= 0) return [];
+  const count = Math.floor(pageCount);
+  const current = Number.isFinite(currentIndex)
+    ? Math.max(0, Math.min(count - 1, Math.round(currentIndex)))
+    : 0;
+  const order: number[] = [];
+  const seen = new Set<number>();
+  const push = (index: number) => {
+    if (index < 0 || index >= count || seen.has(index)) return;
+    seen.add(index);
+    order.push(index);
+  };
+  const step = direction === "forward" ? 1 : -1;
+  // Nearest first, ahead before behind at equal distance.
+  const pushAround = (span: MobileReaderPageRange) => {
+    const first = Math.max(0, span.first);
+    const last = Math.min(count - 1, span.last);
+    if (first > last) return;
+    const center = Math.max(first, Math.min(last, current));
+    const reach = Math.max(center - first, last - center);
+    for (let distance = 0; distance <= reach; distance += 1) {
+      for (const index of [center + distance * step, center - distance * step]) {
+        if (index >= first && index <= last) push(index);
+      }
+    }
+  };
+  push(current);
+  if (visible) pushAround(visible);
+  if (landing) {
+    const from = direction === "forward" ? landing.first : landing.last;
+    const to = direction === "forward" ? landing.last : landing.first;
+    for (let index = from; (index - to) * step <= 0; index += step) push(index);
+  }
+  if (range) {
+    const aheadEnd = direction === "forward" ? range.last : range.first;
+    const behindEnd = direction === "forward" ? range.first : range.last;
+    for (let index = current + step; (index - aheadEnd) * step <= 0; index += step) {
+      push(index);
+    }
+    for (let index = current - step; (index - behindEnd) * step >= 0; index -= step) {
+      push(index);
+    }
+  }
+  return order;
+}
+
 export function isMobileReaderPageInRange(
   displayIndex: number | undefined,
   range: MobileReaderPageRange | null,

@@ -7,6 +7,7 @@ import {
   mapAidokuPageToReaderPage,
   refreshMobileReaderPages,
   resolveMobileReaderChapterIndex,
+  type MobileReaderPageWindowResult,
 } from "./mobileSourcePages";
 import { defaultMobileSourceSessionCache } from "./mobileSourceExecutorCache";
 import type {
@@ -1044,6 +1045,156 @@ describe("mobile source reader pages", () => {
     firstFetch.resolve();
     expect(await stale).toBeNull();
     expect((await current)?.pages[3]?.imageProcessing).toBe("ready");
+  });
+
+  test("scroll reading resolves wanted pages in priority order and keeps request-only results for the chapter", async () => {
+    const rewritten: number[] = [];
+    const bridge: MobileAidokuExecutorBridge = {
+      async loadSource() {
+        return {
+          status: "ready",
+          runtime: "native-aidoku",
+          source: makeExecutorSource(undefined, {
+            async getPageList() {
+              return Array.from({ length: 40 }, (_, index) => ({
+                index,
+                url: `https://example.test/${index}.jpg`,
+              }));
+            },
+            async modifyImageRequest(url) {
+              rewritten.push(Number(url.match(/\/(\d+)\.jpg$/)?.[1]));
+              return { url, headers: { Referer: "https://example.test" } };
+            },
+          }),
+        };
+      },
+    };
+    const result = await refreshMobileReaderPages(
+      installedSource(),
+      "blue-lock",
+      { id: "c2", chapterNumber: 2 },
+      {
+        executor: { bridge, readBytes: async () => makeAixPackage() },
+        pageProcessingCacheSize: 1,
+      },
+    );
+    const processor = result.status === "ready" ? result.pageProcessor : undefined;
+    if (!processor?.processPages) throw new Error("expected processPages");
+
+    const updates: number[][] = [];
+    const firstBatch = [10, 11, 9, 12, 13];
+    const done = Promise.withResolvers<void>();
+    processor.processPages(firstBatch, {
+      onUpdate: (update) => {
+        updates.push(update.processedIndexes);
+        if (updates.length === firstBatch.length) done.resolve();
+      },
+    });
+    await done.promise;
+    // One update per page, as each one finishes, nearest first.
+    expect(updates.flat()).toEqual(firstBatch);
+    expect(rewritten).toEqual(firstBatch);
+
+    const later = Promise.withResolvers<MobileReaderPageWindowResult>();
+    processor.processPages([20, 10, 11], { onUpdate: later.resolve });
+    const update = await later.promise;
+    expect(update.processedIndexes).toEqual([20]);
+    // Already-resolved pages are not resolved again, and request-only
+    // results outlive a one-entry image cache.
+    expect(rewritten).toEqual([...firstBatch, 20]);
+    expect(update.pages[9]?.imageProcessing).toBe("fallback");
+    expect(update.pages[13]?.imageProcessing).toBe("fallback");
+    expect(processor.cacheSize()).toBe(6);
+  });
+
+  test("scroll reading keeps in-flight work for pages still wanted and drops the rest", async () => {
+    const gates = new Map<number, PromiseWithResolvers<void>>();
+    const entered = new Map<number, PromiseWithResolvers<void>>();
+    const fetched: number[] = [];
+    for (const index of [0, 1, 2, 3, 4, 5]) {
+      gates.set(index, Promise.withResolvers<void>());
+      entered.set(index, Promise.withResolvers<void>());
+    }
+    const bridge: MobileAidokuExecutorBridge = {
+      async loadSource() {
+        return {
+          status: "ready",
+          runtime: "native-aidoku",
+          source: makeExecutorSource(undefined, {
+            async getPageList() {
+              return Array.from({ length: 6 }, (_, index) => ({
+                index,
+                url: `https://example.test/${index}.jpg`,
+              }));
+            },
+            async hasImageProcessor() {
+              return true;
+            },
+            async processPageImage() {
+              return VALID_PNG_BYTES.slice();
+            },
+          }),
+        };
+      },
+    };
+    const fetchImpl = Object.assign(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input instanceof Request ? input.url : input);
+        const index = Number(url.match(/\/(\d+)\.jpg$/)?.[1]);
+        fetched.push(index);
+        entered.get(index)?.resolve();
+        await Promise.race([
+          gates.get(index)!.promise,
+          new Promise<void>((_, reject) =>
+            init?.signal?.addEventListener("abort", () =>
+              reject(new Error("aborted")),
+            ),
+          ),
+        ]);
+        return new Response(new Uint8Array([1]), { status: 200 });
+      },
+      { preconnect: () => undefined },
+    ) as typeof fetch;
+    const result = await refreshMobileReaderPages(
+      installedSource(),
+      "blue-lock",
+      { id: "c2", chapterNumber: 2 },
+      {
+        executor: { bridge, readBytes: async () => makeAixPackage() },
+        processPageImages: true,
+        fetchImpl,
+      },
+    );
+    const processor = result.status === "ready" ? result.pageProcessor : undefined;
+    if (!processor?.processPages) throw new Error("expected processPages");
+
+    const ready: number[] = [];
+    const onUpdate = (update: MobileReaderPageWindowResult) => {
+      ready.push(...update.processedIndexes);
+    };
+    processor.processPages([0, 1, 2, 3], { onUpdate });
+    // Byte fetches run outside the source session, several at once.
+    await entered.get(0)!.promise;
+    await entered.get(1)!.promise;
+    await entered.get(2)!.promise;
+    expect(fetched).toEqual([0, 1, 2]);
+
+    // The reader moved on: 1 is still wanted, 0 and 2 are not.
+    processor.processPages([5, 1, 4], { onUpdate });
+    await entered.get(5)!.promise;
+    await entered.get(4)!.promise;
+    gates.get(1)!.resolve();
+    gates.get(5)!.resolve();
+    gates.get(4)!.resolve();
+    gates.get(0)!.resolve();
+    gates.get(2)!.resolve();
+    for (let attempt = 0; attempt < 20 && ready.length < 3; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    expect(ready.sort()).toEqual([1, 4, 5]);
+    expect(fetched.filter((index) => index === 1)).toHaveLength(1);
+    expect(fetched).not.toContain(3);
+    processor.dispose();
   });
 
   test("resolves a far page for Nemu Chat without moving, cancelling or evicting the window", async () => {
