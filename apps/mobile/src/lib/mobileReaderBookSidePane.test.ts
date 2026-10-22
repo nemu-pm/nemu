@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   mobileReaderBookThumbnailAtRest,
   mobileReaderBookThumbnailKey,
+  mobileReaderBookThumbnailMovedVisibly,
   READER_BOOK_THUMBNAIL_STALE,
   mobileReaderBookThumbnailResumeDelay,
   mobileReaderBookThumbnailSnapOffset,
@@ -167,6 +168,22 @@ describe("book pane snap-back", () => {
     expect(mobileReaderBookThumbnailAtRest([])).toBe(false);
   });
 
+  test("a drag with no fling rests where the list last visibly moved: at the release, not UIKit's momentum end", () => {
+    // Sub-point (pixel-rounded) changes are not a visible move; they add up.
+    expect(mobileReaderBookThumbnailMovedVisibly(100, 100.33)).toBe(false);
+    expect(mobileReaderBookThumbnailMovedVisibly(100, 100.5)).toBe(true);
+    expect(mobileReaderBookThumbnailMovedVisibly(100, 99.4)).toBe(true);
+    // Every rest path times the snap from the last visible move.
+    expect(sidePaneSource).not.toContain("scheduleResume(Date.now())");
+    expect(sidePaneSource).not.toContain("scheduleResume(now)");
+    expect(sidePaneSource).toMatch(/onScrollEndDrag=\{\(\) => \{[\s\S]*?scheduleResume\(lastMoveRef\.current\.time\)/);
+    // A momentum that never moves the list sends no scroll event: the quiet
+    // fallback is armed from its start, not only from a scroll event.
+    expect(sidePaneSource).toMatch(/onMomentumScrollBegin=\{\(\) => \{[\s\S]*?armQuietRest\(\);\s*\}\}/);
+    // A drag release at rest: 1.5s from the last move (≤1.7s even if noticed 0.2s late).
+    expect(mobileReaderBookThumbnailResumeDelay(1_000, 1_000)).toBe(1_500);
+  });
+
   test("the snap moves at once (ease-out) and lands on the target at 280ms", () => {
     expect(mobileReaderBookThumbnailSnapOffset(100, 400, 0)).toBe(100);
     const first = mobileReaderBookThumbnailSnapOffset(100, 400, 16);
@@ -179,7 +196,7 @@ describe("book pane snap-back", () => {
   test("the pane snaps straight from the timer; a late momentum end never restarts it", () => {
     expect(sidePaneSource).not.toContain("setResumed");
     expect(sidePaneSource).toMatch(/pausedRef\.current = false;\s*follow\(true\);/);
-    expect(sidePaneSource).toContain("if (pausedRef.current && flingingRef.current) scheduleResume(Date.now());");
+    expect(sidePaneSource).toContain("if (pausedRef.current && flingingRef.current) scheduleResume(lastMoveRef.current.time);");
     // The follow is driven frame by frame (280ms), not by UIKit's animated scroll.
     expect(sidePaneSource).not.toContain("animated: placedRef.current");
   });

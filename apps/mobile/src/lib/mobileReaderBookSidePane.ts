@@ -37,6 +37,17 @@ export const READER_BOOK_THUMBNAIL_REST_SPEED = 0.012;
 export const READER_BOOK_THUMBNAIL_REST_WINDOW_MS = 80;
 /** No scroll event for this long during a fling: it stopped at the last one. */
 export const READER_BOOK_THUMBNAIL_REST_QUIET_MS = 100;
+/**
+ * The list visibly moved: this far (pt) from where it last visibly moved.
+ * The rest the snap-back is timed from is the last such move, whichever way
+ * the list stops: a fling resting, a drag released with no momentum (or a
+ * momentum that never moves it), or the finger held still before the release.
+ */
+export const READER_BOOK_THUMBNAIL_VISIBLE_MOVE = 0.5;
+
+export function mobileReaderBookThumbnailMovedVisibly(lastVisibleOffset: number, offset: number): boolean {
+  return Math.abs(offset - lastVisibleOffset) >= READER_BOOK_THUMBNAIL_VISIBLE_MOVE;
+}
 
 export type MobileReaderBookThumbnailScrollSample = { offset: number; time: number };
 

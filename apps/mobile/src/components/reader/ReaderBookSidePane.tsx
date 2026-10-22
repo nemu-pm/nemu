@@ -25,6 +25,7 @@ import {
   mobileReaderBookThumbnailAtRest,
   mobileReaderBookThumbnailFollowOffset,
   mobileReaderBookThumbnailLayout,
+  mobileReaderBookThumbnailMovedVisibly,
   mobileReaderBookThumbnailResumeDelay,
   mobileReaderBookThumbnailSnapOffset,
   READER_BOOK_THUMBNAIL_CURRENT_COLOR,
@@ -242,7 +243,10 @@ function ReaderBookThumbnailList({
   // a drag pauses it until 1.5s after the list visibly comes to rest, then it
   // snaps back in 280ms. The rest is read off the scroll events (the native
   // momentum end arrives only after an invisible sub-point tail), and the
-  // snap starts straight from the timer (no render in between).
+  // snap starts straight from the timer (no render in between). The 1.5s
+  // count from the list's last visible move, not from when the rest is
+  // noticed: a drag released with no momentum (or one that never moves the
+  // list, whose end UIKit reports ~0.3s later) rested when it stopped moving.
   const listRef = useRef<FlatList<number>>(null);
   const placedRef = useRef(false);
   const pausedRef = useRef(false);
@@ -250,6 +254,8 @@ function ReaderBookThumbnailList({
   const flingingRef = useRef(false);
   const samplesRef = useRef<MobileReaderBookThumbnailScrollSample[]>([]);
   const offsetRef = useRef(0);
+  /** Where and when the list last visibly moved (the rest is timed from there). */
+  const lastMoveRef = useRef({ offset: 0, time: 0 });
   const resumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const quietTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const snapFrameRef = useRef<number | null>(null);
@@ -297,6 +303,18 @@ function ReaderBookThumbnailList({
       follow(true);
     }, mobileReaderBookThumbnailResumeDelay(restAt, Date.now()));
   }, [clearResume, follow]);
+  /**
+   * Pixel-rounded offsets stop arriving before a fling ends, and a momentum
+   * that never moves the list sends none: no event for a moment means it
+   * rested where it last visibly moved.
+   */
+  const armQuietRest = useCallback(() => {
+    if (quietTimerRef.current) clearTimeout(quietTimerRef.current);
+    quietTimerRef.current = setTimeout(() => {
+      quietTimerRef.current = null;
+      if (flingingRef.current) scheduleResume(lastMoveRef.current.time);
+    }, READER_BOOK_THUMBNAIL_REST_QUIET_MS);
+  }, [scheduleResume]);
   useEffect(() => () => {
     clearResume();
     stopSnap();
@@ -309,23 +327,20 @@ function ReaderBookThumbnailList({
     const { contentOffset } = event.nativeEvent;
     const offset = horizontal ? contentOffset.x : contentOffset.y;
     offsetRef.current = offset;
-    if (!flingingRef.current) return;
     const now = Date.now();
+    if (mobileReaderBookThumbnailMovedVisibly(lastMoveRef.current.offset, offset)) {
+      lastMoveRef.current = { offset, time: now };
+    }
+    if (!flingingRef.current) return;
     const samples = samplesRef.current;
     samples.push({ offset, time: now });
     while (samples.length > 2 && now - samples[1]!.time >= READER_BOOK_THUMBNAIL_REST_WINDOW_MS) samples.shift();
     if (mobileReaderBookThumbnailAtRest(samples)) {
-      scheduleResume(now);
+      scheduleResume(lastMoveRef.current.time);
       return;
     }
-    // Pixel-rounded offsets stop arriving before the fling ends: no event
-    // for a moment means it stopped at this one.
-    if (quietTimerRef.current) clearTimeout(quietTimerRef.current);
-    quietTimerRef.current = setTimeout(() => {
-      quietTimerRef.current = null;
-      if (flingingRef.current) scheduleResume(now);
-    }, READER_BOOK_THUMBNAIL_REST_QUIET_MS);
-  }, [horizontal, scheduleResume]);
+    armQuietRest();
+  }, [armQuietRest, horizontal, scheduleResume]);
 
   const getItemLayout = useCallback(
     (_: ArrayLike<number> | null | undefined, index: number) => ({
@@ -393,20 +408,26 @@ function ReaderBookThumbnailList({
           flingingRef.current = false;
           stopSnap();
           clearResume();
+          lastMoveRef.current = { offset: offsetRef.current, time: Date.now() };
         }}
         onScrollEndDrag={() => {
-          if (pausedRef.current) scheduleResume(Date.now());
+          // Released with no momentum: at rest since it last visibly moved
+          // (a finger held still before lifting included).
+          if (pausedRef.current) scheduleResume(lastMoveRef.current.time);
         }}
         onMomentumScrollBegin={() => {
           if (!pausedRef.current) return;
           clearResume();
           flingingRef.current = true;
           samplesRef.current = [];
+          // A momentum that never visibly moves the list sends no scroll
+          // event: it rested at the release.
+          armQuietRest();
         }}
         onMomentumScrollEnd={() => {
           // Only a fling not yet seen to rest: a late report never restarts
           // a timer already running.
-          if (pausedRef.current && flingingRef.current) scheduleResume(Date.now());
+          if (pausedRef.current && flingingRef.current) scheduleResume(lastMoveRef.current.time);
         }}
         horizontal={horizontal}
         contentContainerStyle={horizontal ? styles.rowContent : styles.listContent}
