@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { StyleSheet } from "react-native";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import {
@@ -24,9 +24,16 @@ const SETTLE_FALLBACK_MS = zoomSettledEventAvailable ? 1200 : 480;
 export function MobileExploreZoomRoute({
   zoomId,
   interactiveDismiss = true,
+  onLanded,
   children,
 }: {
   zoomId?: string | null;
+  /**
+   * Called once, synchronously, from the landing event itself — before the
+   * re-render that tells the screen (`useMobileExploreZoomLanded`), which can
+   * be a heavy one. Start UI-thread work here.
+   */
+  onLanded?: () => void;
   /** Swipe-to-dismiss back into the source (off for the reader: page turns own its gestures). */
   interactiveDismiss?: boolean;
   children: ReactNode;
@@ -34,7 +41,16 @@ export function MobileExploreZoomRoute({
   const zooms = mobileDesignExploreFlag && Boolean(zoomId);
   const staged = zooms && zoomTransitionAvailable;
   const [landed, setLanded] = useState(!staged);
-  const settle = useCallback(() => setLanded(true), []);
+  const onLandedRef = useRef(onLanded);
+  onLandedRef.current = onLanded;
+  const notifiedRef = useRef(false);
+  const settle = useCallback(() => {
+    if (!notifiedRef.current) {
+      notifiedRef.current = true;
+      onLandedRef.current?.();
+    }
+    setLanded(true);
+  }, []);
   useEffect(() => {
     if (landed) return;
     const timer = setTimeout(settle, SETTLE_FALLBACK_MS);
