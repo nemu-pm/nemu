@@ -1967,6 +1967,8 @@ export function ReaderScreen() {
         // half-placed list happened to sit. (A drag instead makes the
         // reader's own position the real one.)
         scrollingVisiblePageIndexRef.current = landing.pageIndex;
+        // Process from the restored page, with the list's viewport there.
+        readerScrollPrefetchTopUpRef.current(landing.pageIndex);
         const target = readerProgrammaticScrollRef.current;
         if (target?.kind === "page" && target.pageIndex === landing.pageIndex) {
           clearReaderProgrammaticScroll();
@@ -3698,6 +3700,7 @@ export function ReaderScreen() {
   });
   readerStripRetainsProcessorRef.current = readerChapterStrip.isRetainedProcessor;
   const requestReaderStripPrevious = readerChapterStrip.requestPrevious;
+  const recheckReaderStripPrevious = readerChapterStrip.recheckPrevious;
   const retryReaderStripNext = readerChapterStrip.retryNext;
   const readerStrip =
     readerSeamlessEnabled &&
@@ -4977,6 +4980,9 @@ export function ReaderScreen() {
       if (scrollingVisiblePageIndexRef.current === nextPageIndex) {
         if (requestedPageIndex === nextPageIndex) {
           clearReaderProgrammaticScroll();
+          // A seek landed: process from where the list really is now.
+          readerScrollPrefetchTopUpRef.current(nextPageIndex);
+          recheckReaderStripPrevious();
         }
         return;
       }
@@ -4986,11 +4992,17 @@ export function ReaderScreen() {
         readerScrollDirectionRef.current,
       );
       scrollingVisiblePageIndexRef.current = nextPageIndex;
+      // A seek (a scrubber jump) has no settle and may commit no new page:
+      // the processor takes the page the list reports, with its fresh viewport.
+      if (requestedPageIndex != null) {
+        readerScrollPrefetchTopUpRef.current(nextPageIndex);
+      }
       if (requestedPageIndex != null && nextPageIndex !== requestedPageIndex) {
         return;
       }
       if (requestedPageIndex === nextPageIndex) {
         clearReaderProgrammaticScroll();
+        recheckReaderStripPrevious();
       }
       if (readerUserScrollingRef.current && programmaticTarget == null) {
         // Mid-scroll: the progress bar, the toolbar's page counter and the
@@ -5033,6 +5045,7 @@ export function ReaderScreen() {
       mode,
       pageCount,
       readerLivePageStore,
+      recheckReaderStripPrevious,
       syncRoutePage,
     ],
   );
@@ -5085,8 +5098,15 @@ export function ReaderScreen() {
     if (!galleryPagedMode) {
       readerUserScrollingRef.current = true;
       readerStripUserScrolledRef.current = true;
+      // A prepend held back by a seek (a jump to p1) may land now.
+      recheckReaderStripPrevious();
     }
-  }, [clearReaderProgrammaticScroll, finishReaderScrollLanding, galleryPagedMode]);
+  }, [
+    clearReaderProgrammaticScroll,
+    finishReaderScrollLanding,
+    galleryPagedMode,
+    recheckReaderStripPrevious,
+  ]);
   /** Seamless scroll: the chapter just opened was scrolled into (mid-scroll). */
   const readerStripCrossedIntoRef = useRef<string | null>(null);
   useEffect(() => {
@@ -7678,8 +7698,16 @@ export function ReaderScreen() {
   }, [galleryPagedMode, topUpReaderScrollPrefetch]);
   useEffect(() => {
     if (galleryPagedMode || pagesState.status !== "ready") return;
+    // A page seek in flight (a scrubber jump, a restore) has not moved the
+    // live page yet: process from where it is going.
+    const programmaticTarget = readerProgrammaticScrollRef.current;
     topUpReaderScrollPrefetch(
-      clampReaderPageIndex(scrollingVisiblePageIndexRef.current, pageCount),
+      clampReaderPageIndex(
+        programmaticTarget?.kind === "page"
+          ? programmaticTarget.pageIndex
+          : scrollingVisiblePageIndexRef.current,
+        pageCount,
+      ),
     );
   }, [
     clampedPageIndex,

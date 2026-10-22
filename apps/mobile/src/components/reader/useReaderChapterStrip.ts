@@ -299,6 +299,37 @@ export function useReaderChapterStrip(input: {
     [],
   );
 
+  // Prepend: in the first pages of its first chapter, fetch the previous —
+  // once `canPrepend` allows it. That gate is the reader's (refs), so the
+  // reader calls this again when it opens (a drag begins, a seek lands).
+  const prependInputsRef = useRef({ live, current, currentLocalIndex });
+  prependInputsRef.current = { live, current, currentLocalIndex };
+  const recheckPrevious = useCallback(() => {
+    const { live: isLive, current: open, currentLocalIndex: localIndex } = prependInputsRef.current;
+    if (!isLive || !open || chaptersRef.current.length === 0) return;
+    const { currentIndex, previous: edge } = stateRef.current;
+    if (currentIndex !== 0 || edge != null) return;
+    const previous = getMobileReaderChapterNavigation(
+      [...chaptersRef.current],
+      open.chapter.id,
+      "scrolling",
+    ).previousChapter;
+    if (
+      previous &&
+      !previous.locked &&
+      shouldPrependMobileReaderStripSegment(localIndex, true) &&
+      canPrependRef.current()
+    ) {
+      fetchSegment(previous, "previous");
+      // Called from the reader's events too: a second call before the
+      // render must not fetch it again.
+      stateRef.current = {
+        ...stateRef.current,
+        previous: { chapterId: previous.id, status: "loading" },
+      };
+    }
+  }, [fetchSegment]);
+
   // Append: in the last pages of the list's last chapter, fetch the next.
   // Prepend: in the first pages of its first chapter, fetch the previous.
   useEffect(() => {
@@ -315,22 +346,8 @@ export function useReaderChapterStrip(input: {
         fetchSegment(next, "next");
       }
     }
-    if (currentIndex === 0 && state.previous == null) {
-      const previous = getMobileReaderChapterNavigation(
-        [...chapters],
-        current.chapter.id,
-        "scrolling",
-      ).previousChapter;
-      if (
-        previous &&
-        !previous.locked &&
-        shouldPrependMobileReaderStripSegment(currentLocalIndex, true) &&
-        canPrependRef.current()
-      ) {
-        fetchSegment(previous, "previous");
-      }
-    }
-  }, [chapters, current, currentLocalIndex, fetchSegment, live, state]);
+    recheckPrevious();
+  }, [chapters, current, currentLocalIndex, fetchSegment, live, recheckPrevious, state]);
 
   // Keep the open chapter and one on each side; a chapter above is dropped
   // only once it is off screen.
@@ -436,6 +453,8 @@ export function useReaderChapterStrip(input: {
     segments: segmentsData,
     rebase,
     requestPrevious,
+    /** Prepend if the reader is now in its first pages and allows it. */
+    recheckPrevious,
     retryNext,
     isRetainedProcessor,
   };
