@@ -598,7 +598,7 @@ index da8f363..a50ab78 100644
    }
  }
 diff --git a/ios/RNHostView.swift b/ios/RNHostView.swift
-index f2d5a18..2af646f 100644
+index f2d5a18..b38ba10 100644
 --- a/ios/RNHostView.swift
 +++ b/ios/RNHostView.swift
 @@ -1,5 +1,6 @@
@@ -677,7 +677,72 @@ index f2d5a18..2af646f 100644
  }
  
  // Publishes where SwiftUI placed this view inside its `Host`, so `measure()` reports the position
-@@ -184,12 +224,14 @@ private struct ApplySizeFromYogaNode<Content: SwiftUI.View>: SwiftUI.View {
+@@ -148,25 +188,58 @@ private struct PublishContentOriginModifier: ViewModifier {
+ 
+ // Tracks the `RCTSurfaceTouchHandler` attached to a hosted RN view so it can be detached when the
+ // `RNHostView` disappears, instead of leaking onto the recycled component view.
++//
++// One handler per hosted view, shared by every `RNHostView` that attaches to it. A remounted host
++// (e.g. a new `key`) gets its child from Fabric's recycle pool, often the very view the old host
++// still has its handler on, and SwiftUI may run the new host's `onAppear` before the old one's
++// `onDisappear`. Owning the handler per host, the new host found a handler there and attached none,
++// then the old host removed its own: the content got no touches at all.
+ private final class RNHostTouchHandler: ObservableObject {
+-  private weak var touchHandler: UIGestureRecognizer?
++  private final class Attachment {
++    let handler: UIGestureRecognizer
++    var hosts = 0
++
++    init(handler: UIGestureRecognizer) {
++      self.handler = handler
++    }
++  }
++
++  private static let attachments = NSMapTable<UIView, Attachment>.weakToStrongObjects()
++
+   private weak var attachedView: UIView?
+ 
+   func attach(to view: UIView) {
+-    if attachedView === view, touchHandler != nil {
++    if attachedView === view, Self.attachments.object(forKey: view) != nil {
+       return
+     }
+     detach()
+-    touchHandler = ExpoUITouchHandlerHelper.createAndAttachTouchHandler(for: view)
++    let attachment: Attachment
++    if let existing = Self.attachments.object(forKey: view) {
++      attachment = existing
++    } else {
++      guard let handler = ExpoUITouchHandlerHelper.createAndAttachTouchHandler(for: view) else {
++        return
++      }
++      attachment = Attachment(handler: handler)
++      Self.attachments.setObject(attachment, forKey: view)
++    }
++    attachment.hosts += 1
+     attachedView = view
+   }
+ 
+   func detach() {
+-    if let touchHandler, let attachedView {
+-      ExpoUITouchHandlerHelper.detachTouchHandler(touchHandler, from: attachedView)
++    guard let view = attachedView else {
++      return
+     }
+-    touchHandler = nil
+     attachedView = nil
++    guard let attachment = Self.attachments.object(forKey: view) else {
++      return
++    }
++    attachment.hosts -= 1
++    if attachment.hosts <= 0 {
++      ExpoUITouchHandlerHelper.detachTouchHandler(attachment.handler, from: view)
++      Self.attachments.removeObject(forKey: view)
++    }
+   }
+ 
+   deinit {
+@@ -184,12 +257,14 @@ private struct ApplySizeFromYogaNode<Content: SwiftUI.View>: SwiftUI.View {
    let vertical: Bool
    let shadowNodeProxy: ExpoSwiftUI.ShadowNodeProxy
    let content: Content
@@ -692,7 +757,7 @@ index f2d5a18..2af646f 100644
      @ViewBuilder content: () -> Content
    ) {
      _observer = StateObject(wrappedValue: Observer(view: childUIView))
-@@ -198,6 +240,7 @@ private struct ApplySizeFromYogaNode<Content: SwiftUI.View>: SwiftUI.View {
+@@ -198,6 +273,7 @@ private struct ApplySizeFromYogaNode<Content: SwiftUI.View>: SwiftUI.View {
      self.vertical = vertical
      self.shadowNodeProxy = shadowNodeProxy
      self.content = content()
@@ -700,7 +765,7 @@ index f2d5a18..2af646f 100644
    }
  
    var body: some SwiftUI.View {
-@@ -209,7 +252,18 @@ private struct ApplySizeFromYogaNode<Content: SwiftUI.View>: SwiftUI.View {
+@@ -209,7 +285,18 @@ private struct ApplySizeFromYogaNode<Content: SwiftUI.View>: SwiftUI.View {
  
    @ViewBuilder
    private var sizedContent: some SwiftUI.View {
@@ -720,7 +785,7 @@ index f2d5a18..2af646f 100644
        content
          .frame(width: observer.size.width, height: observer.size.height)
      } else {
-@@ -290,3 +344,166 @@ private struct ReportSizeToYogaNodeModifier: ViewModifier {
+@@ -290,3 +377,166 @@ private struct ReportSizeToYogaNodeModifier: ViewModifier {
      }
    }
  }
