@@ -40,6 +40,22 @@ export function peekMobileReaderZoomCover(
   return pending.zoomId === zoomId ? pending.cover : null;
 }
 
+/**
+ * The cover a reader zoom starts from is the one the hero paints: its own
+ * resolved request, or — while that is unknown or failed — the cover the
+ * tapped cell handed over, which the hero shows meanwhile. Priming only the
+ * former left the zoom landing on black (and the reader without a cover
+ * fade) whenever the hero was still showing the handed-over cover.
+ */
+export function resolveMobileReaderZoomHandoffCover(
+  painted: MobileReaderZoomCover | null | undefined,
+  held: MobileReaderZoomCover | null | undefined,
+): MobileReaderZoomCover | null {
+  if (painted?.uri) return painted;
+  if (held?.uri) return held;
+  return null;
+}
+
 /** Covers are drawn 2:3 everywhere a reader zoom starts. */
 const COVER_ASPECT = 2 / 3;
 

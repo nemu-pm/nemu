@@ -159,6 +159,7 @@ import { renderExploreDetailBarMenu } from "@/components/explore/ExploreDetailBa
 import { hasMobileUserCover, mobileExploreCoverOwnerUrl, withMobileExploreZoom } from "@/components/explore/mobileExploreCover";
 import { useMobileExploreZoomLanded } from "@/components/explore/mobileExploreZoomLanded";
 import { peekMobileExploreDetailHandoff } from "@/lib/mobileExploreDetailHandoff";
+import { resolveMobileReaderZoomHandoffCover } from "@/lib/mobileReaderZoomHandoff";
 import { dissolveExploreTitle } from "@/components/explore/mobileExploreDissolve";
 import { getMobileMetadataEditorSaveResultAction } from "@/lib/mobileMetadataEditorBackBehavior";
 import { nextSyncTimestamp } from "@nemu/core";
@@ -2069,7 +2070,8 @@ export function MangaDetailScreen() {
               mangaTitle: effectiveMetadata?.title ?? null,
             }),
             readerZoomSourceId,
-            coverImage.source,
+            // What the hero paints: its own request, else the held cover.
+            resolveMobileReaderZoomHandoffCover(coverImage.source, zoomSeed?.cover),
           ),
         );
       } catch {
@@ -2080,6 +2082,7 @@ export function MangaDetailScreen() {
     },
     [
       coverImage.source,
+      zoomSeed?.cover,
       effectiveMetadata?.title,
       getGuardedDetailActionState,
       readerZoomSourceId,

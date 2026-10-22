@@ -3,7 +3,10 @@ import {
   getMobileReaderZoomCoverFrame,
   peekMobileReaderZoomCover,
   primeMobileReaderZoomCover,
+  resolveMobileReaderZoomHandoffCover,
 } from "./mobileReaderZoomHandoff";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 
 describe("mobileReaderZoomHandoff", () => {
   test("the cover goes to the zoom it was primed for, more than once, and expires", () => {
@@ -31,5 +34,28 @@ describe("mobileReaderZoomHandoff", () => {
     expect(
       getMobileReaderZoomCoverFrame({ width: 951, height: 669, insets: { top: 0, right: 0, bottom: 0, left: 0 } }),
     ).toEqual({ x: 253, y: 0, width: 446, height: 669 });
+  });
+
+  test("the reader zoom starts from the cover the hero paints, its held cover included", () => {
+    const own = { uri: "https://example.test/own.jpg", headers: { Referer: "https://example.test/" } };
+    const held = { uri: "https://example.test/held.jpg" };
+    expect(resolveMobileReaderZoomHandoffCover(own, held)).toBe(own);
+    // The page's own cover request unresolved or failed: the hero shows the
+    // cover the tapped cell handed over, and so does the zoom.
+    expect(resolveMobileReaderZoomHandoffCover(null, held)).toBe(held);
+    expect(resolveMobileReaderZoomHandoffCover({ uri: "" }, held)).toBe(held);
+    expect(resolveMobileReaderZoomHandoffCover(undefined, null)).toBeNull();
+  });
+
+  test("the title page primes the reader zoom with what its hero paints", () => {
+    const detail = readFileSync(
+      path.resolve(import.meta.dir, "../screens/MangaDetailScreen.tsx"),
+      "utf8",
+    );
+    expect(detail).toContain(
+      "resolveMobileReaderZoomHandoffCover(coverImage.source, zoomSeed?.cover),",
+    );
+    // The hero's own fallback, which the zoom has to match.
+    expect(detail).toContain("heldCoverSource={zoomSeed?.cover ?? null}");
   });
 });

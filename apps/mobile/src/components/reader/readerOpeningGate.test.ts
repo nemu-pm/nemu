@@ -164,8 +164,16 @@ describe("reader opening gate wiring", () => {
     expect(effect.slice(wait, refresh)).toContain(
       "if (readerPagesRequestRunRef.current !== requestRun) return;",
     );
-    // A warm-up prefetch is taken as before, without waiting.
-    expect(effect).toContain("let refreshed: MobileReaderPagesRefresh | null = prefetched");
+    // A prefetch started at the tap (title / source page) is taken at once
+    // but applied only after the window, like the live refresh.
+    const prefetchWait = effect.indexOf('what: "prefetched-page-list",');
+    const prefetchApply = effect.indexOf("refreshed = await prefetched;");
+    expect(prefetchWait).toBeGreaterThan(take);
+    expect(prefetchApply).toBeGreaterThan(prefetchWait);
+    expect(prefetchApply).toBeLessThan(refresh);
+    expect(effect.slice(take, prefetchApply)).toContain(
+      "paintedFromCache: restoredPersistedPageList,",
+    );
   });
 
   test("the strip's neighbour loader takes the same gate before asking the source", () => {

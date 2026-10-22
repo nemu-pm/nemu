@@ -108,7 +108,7 @@ export async function waitForReaderOpeningWindow(
   gate: ReaderOpeningGate,
   input: {
     paintedFromCache: boolean;
-    what: "page-list" | "strip-neighbour";
+    what: "page-list" | "prefetched-page-list" | "strip-neighbour";
     now?: () => number;
     log?: (message: string, data: Record<string, unknown>) => void;
   },

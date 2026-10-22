@@ -7391,9 +7391,18 @@ export function ReaderScreen() {
             processPageImages,
           }),
         );
-        let refreshed: MobileReaderPagesRefresh | null = prefetched
-          ? await prefetched
-          : null;
+        let refreshed: MobileReaderPagesRefresh | null = null;
+        if (prefetched) {
+          // The title / source page starts this prefetch at the tap, so it
+          // lands in the opening window: applying it re-renders the reader
+          // and starts page processing under the cover's fade. A chapter the
+          // cache already painted takes it once the fade has ended.
+          await waitForReaderOpeningWindow(readerOpeningGateRef.current, {
+            paintedFromCache: restoredPersistedPageList,
+            what: "prefetched-page-list",
+          });
+          refreshed = await prefetched;
+        }
         if (!refreshed) {
           // The cache already painted the chapter: its live refresh starts
           // once the cover has faded in (the opening window), so a cold
