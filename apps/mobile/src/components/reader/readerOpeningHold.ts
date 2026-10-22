@@ -1,15 +1,18 @@
 /**
- * How a zoom opening treats a chapter whose pages wait for the source's page
- * processor (Jump+ / SPY descrambling: the cached page list paints them as
- * `imageProcessing: "pending"` plates until the processor arrives). A QA
- * switch, so both can be compared on device in one build:
+ * How a zoom opening treats a chapter of a source that processes its page
+ * images (Jump+ / SPY descrambling — the source's `hasImageProcessor`,
+ * recorded with the page list): its pages are plates until the processor
+ * has run. Ordinary remote pages (ToG) are "pending" too until their request
+ * is resolved, but show at once after: they never hold.
  *
- * - `defer` (default): the cover fades on time (the scroll cap), the source
- *   calls wait for the fade (`readerOpeningGate`); grey plates show, then
- *   the images.
- * - `hold`: the source calls (the tap-time prefetch included) run at once and
- *   the cover stays until the first screen's images have painted, then
- *   fades — at most `READER_OPENING_IMAGE_HOLD_MAX_MS` after the landing.
+ * - `hold` (default, Colo's call: r15 measured 0.6–1.5 s of plates under
+ *   `defer`): the source calls (the tap-time prefetch included) run at once
+ *   and the cover stays until the first screen's images have painted, then
+ *   fades — at most `READER_OPENING_IMAGE_HOLD_MAX_MS` after the landing
+ *   (then it fades onto the plates anyway).
+ * - `defer` (override): the cover fades on time (the scroll cap), the source
+ *   calls wait for the fade (`readerOpeningGate`); plates show, then the
+ *   images.
  *
  * Plus the first-screen measure every open logs (all sources): when every
  * page in the first viewport has painted its real image.
@@ -35,7 +38,7 @@ export const READER_OPENING_IMAGE_HOLD_MAX_MS = 2500;
  */
 export const READER_OPENING_HOLD_REARM_MARGIN_MS = 50;
 
-/** The first valid value wins (`hold` / `defer`, any case); else `defer`. */
+/** The first valid value wins (`hold` / `defer`, any case); else `hold`. */
 export function resolveReaderProcessedSourceOpening(
   ...candidates: unknown[]
 ): ReaderProcessedSourceOpening {
@@ -44,7 +47,28 @@ export function resolveReaderProcessedSourceOpening(
     const value = candidate.trim().toLowerCase();
     if (value === "hold" || value === "defer") return value;
   }
-  return "defer";
+  return "hold";
+}
+
+export type ReaderImageProcessorReason =
+  /** Recorded with the cached page list. */
+  | "page-list"
+  /** Remembered for the source (a page list saved before it was recorded). */
+  | "source-record"
+  /** The source's own answer (no cache, or the refresh). */
+  | "source"
+  | "unknown";
+
+/** What is known about the source processing its images, and from where. */
+export function resolveReaderImageProcessor(input: {
+  listed?: boolean | null;
+  sourceRecord?: boolean | null;
+}): { imageProcessor: boolean | null; reason: ReaderImageProcessorReason } {
+  if (typeof input.listed === "boolean") return { imageProcessor: input.listed, reason: "page-list" };
+  if (typeof input.sourceRecord === "boolean") {
+    return { imageProcessor: input.sourceRecord, reason: "source-record" };
+  }
+  return { imageProcessor: null, reason: "unknown" };
 }
 
 /** Some page shows a plate until the source's processor has run. */
@@ -55,16 +79,24 @@ export function readerPagesNeedProcessing(
 }
 
 /**
- * Whether this open holds its cover for the first screen's images: `hold`,
- * pages waiting for processing, and the cover still up (an open without a
- * fade, or one whose fade has ended, has nothing to hold).
+ * Whether this open holds its cover for the first screen's images: `hold`, a
+ * source known to process its images (unknown never holds: an ordinary
+ * source must not be slowed), pages still waiting for it, and the cover
+ * still up (an open without a fade, or one whose fade has ended, has nothing
+ * to hold).
  */
 export function shouldHoldReaderOpeningForImages(input: {
   opening: ReaderProcessedSourceOpening;
+  imageProcessor: boolean | null;
   pagesNeedProcessing: boolean;
   openingSettled: boolean;
 }): boolean {
-  return input.opening === "hold" && input.pagesNeedProcessing && !input.openingSettled;
+  return (
+    input.opening === "hold" &&
+    input.imageProcessor === true &&
+    input.pagesNeedProcessing &&
+    !input.openingSettled
+  );
 }
 
 /** The hold can still be taken: no fade is running or about to start. */
@@ -173,4 +205,53 @@ export function readerOpeningSince(
     sinceLandedMs: since(times.landedAt),
     sinceFadeEndMs: since(times.fadeEndAt),
   };
+}
+
+/** The first screen still not painted this long after it was placed: one diagnostic line. */
+export const READER_FIRST_SCREEN_PENDING_LOG_MS = 4000;
+
+/** A first screen never counts more pages than this. */
+export const READER_FIRST_SCREEN_MAX_PAGES = 4;
+
+/**
+ * The first viewport's pages (scroll reading): the viewport's own range when
+ * it holds the page the opening placed; otherwise (viewport not reported yet,
+ * or measured in another coordinate space — r15 never logged the first
+ * screen) that page and the ones below it until a screen is filled.
+ */
+export function resolveReaderFirstScreenIndexes(input: {
+  pageCount: number;
+  currentIndex: number;
+  viewportRange: { first: number; last: number } | null;
+  viewportHeight: number;
+  pageHeight: (index: number) => number;
+}): number[] {
+  const count = Math.max(0, Math.floor(input.pageCount));
+  if (count === 0) return [];
+  const current = Math.max(0, Math.min(count - 1, Math.round(input.currentIndex) || 0));
+  const range = input.viewportRange;
+  if (
+    range &&
+    range.first <= current &&
+    current <= range.last &&
+    range.last - range.first < READER_FIRST_SCREEN_MAX_PAGES
+  ) {
+    const indexes: number[] = [];
+    for (let index = Math.max(0, range.first); index <= Math.min(count - 1, range.last); index += 1) {
+      indexes.push(index);
+    }
+    return indexes;
+  }
+  const indexes = [current];
+  let filled = Math.max(0, input.pageHeight(current) || 0);
+  const screen = Number.isFinite(input.viewportHeight) && input.viewportHeight > 0 ? input.viewportHeight : 0;
+  for (
+    let index = current + 1;
+    index < count && filled < screen && indexes.length < READER_FIRST_SCREEN_MAX_PAGES;
+    index += 1
+  ) {
+    indexes.push(index);
+    filled += Math.max(0, input.pageHeight(index) || 0);
+  }
+  return indexes;
 }

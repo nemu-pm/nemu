@@ -168,7 +168,11 @@ import {
   readerOpeningSince,
   readerPagesNeedProcessing,
   resolveReaderFirstScreenImages,
+  resolveReaderFirstScreenIndexes,
+  resolveReaderImageProcessor,
+  READER_FIRST_SCREEN_PENDING_LOG_MS,
   shouldHoldReaderOpeningForImages,
+  type ReaderImageProcessorReason,
 } from "@/components/reader/readerOpeningHold";
 import { getMobileReaderProcessedSourceOpening } from "@/lib/mobileReaderProcessedSourceOpening";
 import { ReaderMoreMenu } from "@/components/reader/ReaderMoreMenu";
@@ -640,6 +644,8 @@ import {
 import {
   loadMobileReaderPageListCache,
   saveMobileReaderPageListCache,
+  loadMobileReaderSourceImageProcessor,
+  saveMobileReaderSourceImageProcessor,
 } from "@/sources/mobileReaderPageListCache";
 import { refreshMobileSourceMetadata } from "@/sources/mobileSourceDetails";
 import {
@@ -1424,23 +1430,35 @@ export function ReaderScreen() {
   /** The opening's processed-source choice, logged once per open. */
   const readerOpeningProcessedLoggedRef = useRef(false);
   const holdReaderOpeningIfProcessed = useCallback(
-    (openingPages: readonly MobileReaderPage[], from: "cache" | "source") => {
+    (
+      openingPages: readonly MobileReaderPage[],
+      from: "cache" | "source",
+      processor: { imageProcessor: boolean | null; reason: ReaderImageProcessorReason },
+    ) => {
       if (readerOpeningHeldRef.current) return;
       const gate = readerOpeningGateRef.current;
       const pagesNeedProcessing = readerPagesNeedProcessing(openingPages);
-      if (!pagesNeedProcessing || gate.isSettled()) return;
+      if (!pagesNeedProcessing) return;
       const opening = getMobileReaderProcessedSourceOpening();
+      const openingSettled = gate.isSettled();
+      const hold = shouldHoldReaderOpeningForImages({
+        opening,
+        imageProcessor: processor.imageProcessor,
+        pagesNeedProcessing,
+        openingSettled,
+      });
       if (!readerOpeningProcessedLoggedRef.current) {
         readerOpeningProcessedLoggedRef.current = true;
-        console.info("[reader-open] processed-source opening", { opening, from });
-      }
-      if (
-        !shouldHoldReaderOpeningForImages({
+        console.info("[reader-open] processed-source opening", {
           opening,
-          pagesNeedProcessing,
-          openingSettled: gate.isSettled(),
-        })
-      ) {
+          from,
+          reason: processor.reason,
+          imageProcessor: processor.imageProcessor,
+          openingSettled,
+          hold,
+        });
+      }
+      if (!hold) {
         return;
       }
       readerOpeningHeldRef.current = true;
@@ -4151,7 +4169,7 @@ export function ReaderScreen() {
   // The first screen (every source): the pages in the first viewport, taken
   // once the opening has placed the reader, then `first-screen-images-ready`
   // once each has painted its real image (or failed) — how long plates show.
-  // QA `hold` reveals the cover on it.
+  // `hold` reveals the cover on it.
   const [readerFirstScreenPageIds, setReaderFirstScreenPageIds] = useState<
     readonly string[] | null
   >(null);
@@ -4163,20 +4181,41 @@ export function ReaderScreen() {
   readerFirstScreenPageIdsNowRef.current = () => {
     if (galleryPagedMode) return readerVisiblePages.map((page) => page.id);
     const viewport = readerScrollRef.current?.scrollViewport() ?? null;
-    const visible = resolveMobileReaderScrollPageRange({
+    const visible = viewport
+      ? resolveMobileReaderScrollPageRange({
+          pageCount: pages.length,
+          anchorIndex: clampedPageIndex,
+          direction: readerScrollDirectionRef.current,
+          viewportTop: viewport.top,
+          viewportHeight: viewport.height,
+          layout: readerScrollLayout,
+          estimatedPageHeight: scrollingPageEstimatedHeight,
+          aheadViewports: 0,
+          behindViewports: 0,
+          minAhead: 0,
+          minBehind: 0,
+        })
+      : null;
+    // A viewport that does not hold the page the opening placed (not yet
+    // reported, another coordinate space) is not trusted: the placed page and
+    // the ones below it filling a screen stand in.
+    const indexes = resolveReaderFirstScreenIndexes({
       pageCount: pages.length,
-      anchorIndex: clampReaderPageIndex(scrollingVisiblePageIndexRef.current, pageCount),
-      direction: readerScrollDirectionRef.current,
-      viewportTop: viewport?.top ?? null,
-      viewportHeight: viewport?.height ?? 0,
-      layout: readerScrollLayout,
-      estimatedPageHeight: scrollingPageEstimatedHeight,
-      aheadViewports: 0,
-      behindViewports: 0,
-      minAhead: 0,
-      minBehind: 0,
+      currentIndex: clampedPageIndex,
+      viewportRange: visible,
+      viewportHeight: viewport?.height ?? window.height,
+      pageHeight: (index) =>
+        readerScrollLayout?.heights[index] ?? scrollingPageEstimatedHeight,
     });
-    return visible ? pages.slice(visible.first, visible.last + 1).map((page) => page.id) : [];
+    console.info("[reader-open] first-screen", {
+      indexes,
+      current: clampedPageIndex,
+      viewport: viewport
+        ? { top: Math.round(viewport.top), height: Math.round(viewport.height) }
+        : null,
+      fromViewport: visible != null && indexes[0] === visible.first,
+    });
+    return indexes.map((index) => pages[index]!.id);
   };
   useEffect(() => {
     if (readerFirstScreenPageIds != null || !readerFirstScreenPlaced) return;
@@ -4187,26 +4226,43 @@ export function ReaderScreen() {
     return () => cancelAnimationFrame(frame);
   }, [readerFirstScreenPageIds, readerFirstScreenPlaced]);
   const readerFirstScreenLoggedRef = useRef(false);
-  useEffect(() => {
-    if (readerFirstScreenLoggedRef.current || readerFirstScreenPageIds == null) return;
+  /** Each first-screen page's state now (for the ready check and its diagnostic). */
+  const readerFirstScreenStatesRef = useRef<() => ReturnType<typeof resolveReaderFirstScreenImages> & {
+    detail: { index: number; pending: boolean; painted: boolean; failed: boolean }[];
+  } | null>(() => null);
+  readerFirstScreenStatesRef.current = () => {
+    if (readerFirstScreenPageIds == null) return null;
     const pageById = new Map(pages.map((page) => [page.id, page]));
     const firstScreen = readerFirstScreenPageIds.map((id) => pageById.get(id));
-    if (firstScreen.length === 0 || firstScreen.some((page) => !page)) {
+    if (firstScreen.length === 0 || firstScreen.some((page) => !page)) return null;
+    const states = (firstScreen as MobileReaderPage[]).map((page) => {
+      const identity = readerPageIdentityFor(page);
+      return {
+        index: readerDisplayIndexByPageId.get(page.id) ?? -1,
+        hasImage: Boolean(page.imageUri),
+        processingPending: page.imageProcessing === "pending",
+        failed: page.imageProcessing === "failed" || readerImageErrors.has(identity),
+        painted: readerImageSizes.has(identity),
+      };
+    });
+    return {
+      ...resolveReaderFirstScreenImages(states),
+      detail: states.map((state) => ({
+        index: state.index,
+        pending: state.processingPending,
+        painted: state.painted,
+        failed: state.failed,
+      })),
+    };
+  };
+  useEffect(() => {
+    if (readerFirstScreenLoggedRef.current || readerFirstScreenPageIds == null) return;
+    const images = readerFirstScreenStatesRef.current();
+    if (!images) {
       // A page list with other pages replaced the one measured: take again.
       if (pagesState.status === "ready" && pageCount > 0) setReaderFirstScreenPageIds(null);
       return;
     }
-    const images = resolveReaderFirstScreenImages(
-      (firstScreen as MobileReaderPage[]).map((page) => {
-        const identity = readerPageIdentityFor(page);
-        return {
-          hasImage: Boolean(page.imageUri),
-          processingPending: page.imageProcessing === "pending",
-          failed: page.imageProcessing === "failed" || readerImageErrors.has(identity),
-          painted: readerImageSizes.has(identity),
-        };
-      }),
-    );
     if (!images.ready) return;
     readerFirstScreenLoggedRef.current = true;
     console.info("[reader-open] first-screen-images-ready", {
@@ -4229,6 +4285,18 @@ export function ReaderScreen() {
     readerPageIdentityFor,
     readerZoomEntry,
   ]);
+  // Diagnostic: what the first screen still waits for, if it is slow.
+  useEffect(() => {
+    if (readerFirstScreenPageIds == null) return;
+    const timer = setTimeout(() => {
+      if (readerFirstScreenLoggedRef.current) return;
+      console.info("[reader-open] first-screen-images-pending", {
+        afterMs: READER_FIRST_SCREEN_PENDING_LOG_MS,
+        pages: readerFirstScreenStatesRef.current()?.detail ?? null,
+      });
+    }, READER_FIRST_SCREEN_PENDING_LOG_MS);
+    return () => clearTimeout(timer);
+  }, [readerFirstScreenPageIds]);
   // Notebook filmstrip / scrub previews are spoiler-safe: only pages read
   // before this chapter opened (saved position, a completed chapter), pages
   // actually shown in this session and the current page show their image.
@@ -4600,6 +4668,7 @@ export function ReaderScreen() {
           chapters: cacheableChapters,
           chapter: result.chapter,
           fetchedAt: result.fetchedAt,
+          imageProcessor: result.imageProcessor === true,
         }).catch(() => undefined);
       }
     }
@@ -7464,10 +7533,19 @@ export function ReaderScreen() {
 
         const pageSizeChapterKey = readerPageSizeChapterKeyRef.current;
         const stablePageSizeKeyFor = readerStablePageSizeKeyForRef.current;
-        const [persisted, persistedPageSizes] = await Promise.all([
+        const sourceImageProcessorKey = `${registryId}:${sourceId}`;
+        const [persisted, persistedPageSizes, sourceImageProcessor] = await Promise.all([
           loadMobileReaderPageListCache(pageListCacheKey),
           loadMobileReaderPageSizes(pageSizeChapterKey),
+          loadMobileReaderSourceImageProcessor(sourceImageProcessorKey).catch(() => null),
         ]);
+        // The source's own answer about processing its images: remembered
+        // for the source, for page lists saved before it was recorded.
+        const noteSourceImageProcessor = (imageProcessor: boolean | undefined) => {
+          const value = imageProcessor === true;
+          if (sourceImageProcessor === value) return;
+          void saveMobileReaderSourceImageProcessor(sourceImageProcessorKey, value).catch(() => undefined);
+        };
         // A cold start knows the pages' real heights before any decodes, so
         // the opening seek lands on the saved spot instead of an estimate.
         for (const [pageId, size] of persistedPageSizes) {
@@ -7490,7 +7568,14 @@ export function ReaderScreen() {
           restoredPersistedPageList = true;
           readerOpenPaintedFromCacheRef.current = true;
           // Before the paint: `hold` must reach the cover ahead of its cap.
-          holdReaderOpeningIfProcessed(persisted.pages, "cache");
+          holdReaderOpeningIfProcessed(
+            persisted.pages,
+            "cache",
+            resolveReaderImageProcessor({
+              listed: persisted.imageProcessor,
+              sourceRecord: sourceImageProcessor,
+            }),
+          );
           readerPagesLoadedKeyRef.current = pagesRequestKey;
           setPagesState({
             status: "ready",
@@ -7551,7 +7636,11 @@ export function ReaderScreen() {
               // the final result a moment later with the same `fetchedAt`.
               onPagesReady: (firstPaint) => {
                 if (readerPagesRequestRunRef.current !== requestRun) return;
-                holdReaderOpeningIfProcessed(firstPaint.pages, "source");
+                noteSourceImageProcessor(firstPaint.imageProcessor);
+                holdReaderOpeningIfProcessed(firstPaint.pages, "source", {
+                  imageProcessor: firstPaint.imageProcessor === true,
+                  reason: "source",
+                });
                 setPagesState({
                   status: "ready",
                   pages: firstPaint.pages,
@@ -7630,9 +7719,14 @@ export function ReaderScreen() {
             chapters: cacheableChapters,
             chapter: refreshed.chapter,
             fetchedAt: refreshed.fetchedAt,
+            imageProcessor: refreshed.imageProcessor === true,
           }).catch(() => undefined);
         }
-        holdReaderOpeningIfProcessed(refreshed.pages, "source");
+        noteSourceImageProcessor(refreshed.imageProcessor);
+        holdReaderOpeningIfProcessed(refreshed.pages, "source", {
+          imageProcessor: refreshed.imageProcessor === true,
+          reason: "source",
+        });
         setPagesState((previous) => ({
           status: "ready",
           pages: refreshed.pages,

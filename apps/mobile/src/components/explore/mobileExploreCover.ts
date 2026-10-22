@@ -7,7 +7,11 @@ import {
 } from "@/lib/mobileEntryCover";
 import { isMobileCoverSizeVariantOf } from "@/lib/mobileCoverPreference";
 import { primeMobileExploreDetailHandoff } from "@/lib/mobileExploreDetailHandoff";
-import { primeMobileReaderZoomCover } from "@/lib/mobileReaderZoomHandoff";
+import {
+  mobileReaderZoomIdForDetail,
+  noteMobileReaderZoomSourceCover,
+  primeMobileReaderZoomCover,
+} from "@/lib/mobileReaderZoomHandoff";
 import { useMobileSourceImageRequest } from "@/lib/useMobileSourceImageRequest";
 import { zoomTransitionAvailable } from "../../../modules/nemu-window-layout";
 import { useMobileExploreCoverPreference } from "./mobileExploreCoverPreference";
@@ -88,6 +92,9 @@ export function pushMobileExploreDetail(
   zoomId: string,
 ) {
   if (zoomTransitionAvailable) primeMobileExploreDetailHandoff({ entry, cover });
+  // The title page's Continue zooms the reader out of its hero: until the
+  // hero resolves its own cover, it lands on the one this tile painted.
+  noteMobileReaderZoomSourceCover(mobileReaderZoomIdForDetail(entry.item.libraryItemId), cover);
   router.push(mobileExploreZoomHref(entry.item.libraryItemId, zoomId));
 }
 
@@ -101,7 +108,11 @@ export function withMobileExploreZoom<T>(
   cover?: MobileExploreCoverSource | null,
 ): T {
   if (!zoomId || !zoomTransitionAvailable || typeof href !== "string") return href;
-  primeMobileReaderZoomCover(zoomId, cover);
+  const landing = primeMobileReaderZoomCover(zoomId, cover);
+  console.info("[reader-zoom] primed", {
+    zoomId,
+    cover: cover?.uri ? "own" : landing ? "known" : "none",
+  });
   return `${href}${href.includes("?") ? "&" : "?"}zoom=${encodeURIComponent(zoomId)}` as T;
 }
 

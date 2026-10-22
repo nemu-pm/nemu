@@ -131,6 +131,12 @@ export type MobileReaderPagesFirstPaint = {
   runtime: MobileSourceExecutorRuntime;
   pages: MobileReaderPage[];
   pageProcessor?: MobileReaderPageProcessor;
+  /**
+   * The source processes its page images (`hasImageProcessor`, e.g. Jump+
+   * descrambling) and processing is on: no page shows before its processor
+   * has run. Persisted with the page list (see `readerOpeningHold`).
+   */
+  imageProcessor?: boolean;
   chapter: ChapterSummary;
   fetchedAt: number;
 };
@@ -141,6 +147,8 @@ export type MobileReaderPagesRefresh =
       runtime: MobileSourceExecutorRuntime;
       pages: MobileReaderPage[];
       pageProcessor?: MobileReaderPageProcessor;
+      /** See `MobileReaderPagesFirstPaint.imageProcessor`. */
+      imageProcessor?: boolean;
       chapters: ChapterSummary[];
       /**
        * Whether the chapter index came back. `"unavailable"` means the index
@@ -1297,10 +1305,13 @@ export async function refreshMobileReaderPages(
       // identity on `fetchedAt`, so the chapter index landing must not look
       // like a different fetch.
       const fetchedAt = options.now?.() ?? Date.now();
+      // Byte processing (descrambling) the reader must wait for.
+      const imageProcessor = shouldProcessPageImages && hasImageProcessor;
       options.onPagesReady?.({
         runtime: session.runtime,
         pages,
         pageProcessor,
+        imageProcessor,
         chapter: mapAidokuChapterToSummary(pageListChapter),
         fetchedAt,
       });
@@ -1317,6 +1328,7 @@ export async function refreshMobileReaderPages(
         runtime: session.runtime,
         pages,
         pageProcessor,
+        imageProcessor,
         chapters: chapterSummaries,
         chapterIndexStatus: chapters ? "ready" : "unavailable",
         chapter: mapAidokuChapterToSummary(sourceChapter),

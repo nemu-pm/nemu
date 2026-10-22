@@ -3,7 +3,10 @@ import {
   getMobileReaderZoomCoverFrame,
   peekMobileReaderZoomCover,
   peekMobileReaderZoomTapAt,
+  mobileReaderZoomIdForDetail,
+  noteMobileReaderZoomSourceCover,
   primeMobileReaderZoomCover,
+  recallMobileReaderZoomSourceCover,
   resolveMobileReaderZoomHandoffCover,
 } from "./mobileReaderZoomHandoff";
 import { readFileSync } from "node:fs";
@@ -17,13 +20,39 @@ describe("mobileReaderZoomHandoff", () => {
     expect(peekMobileReaderZoomCover("continue:a", 1010)).toEqual(cover);
     expect(peekMobileReaderZoomCover("continue:a", 1020)).toEqual(cover);
     expect(peekMobileReaderZoomCover(null, 1020)).toBeNull();
-    expect(peekMobileReaderZoomCover("continue:a", 1000 + 3000 + 1)).toBeNull();
+    // Past the handoff: the cover that zoom source last painted.
+    expect(peekMobileReaderZoomCover("continue:a", 1000 + 3000 + 1)).toEqual(cover);
+    expect(peekMobileReaderZoomCover("continue:never", 1010)).toBeNull();
   });
 
-  test("a push without a cover clears an earlier one", () => {
-    primeMobileReaderZoomCover("detail:a", { uri: "https://example.test/c.jpg" }, 1000);
-    primeMobileReaderZoomCover("detail:a", null, 1005);
-    expect(peekMobileReaderZoomCover("detail:a", 1010)).toBeNull();
+  test("a push without a cover of its own lands on the one its source last painted", () => {
+    const painted = { uri: "https://example.test/painted.jpg" };
+    primeMobileReaderZoomCover("detail:a", painted, 1000);
+    expect(primeMobileReaderZoomCover("detail:a", null, 1005)).toEqual(painted);
+    expect(peekMobileReaderZoomCover("detail:a", 1010)).toEqual(painted);
+    // Nothing known: none (the route lands on a plate).
+    expect(primeMobileReaderZoomCover("detail:unknown", null, 1020)).toBeNull();
+    expect(peekMobileReaderZoomCover("detail:unknown", 1021)).toBeNull();
+  });
+
+  test("the Library tile's cover stands in for the title page's hero (SPY: Library tile → title page → Continue)", () => {
+    const tile = { uri: "https://example.test/tile.jpg", headers: { Referer: "https://example.test/" } };
+    const zoomId = mobileReaderZoomIdForDetail("lib-spy");
+    expect(zoomId).toBe("detail:lib-spy");
+    noteMobileReaderZoomSourceCover(zoomId, tile);
+    expect(recallMobileReaderZoomSourceCover(zoomId)).toEqual(tile);
+    // The hero's own request still unresolved at the tap.
+    expect(primeMobileReaderZoomCover(zoomId, null, 5000)).toEqual(tile);
+    expect(peekMobileReaderZoomTapAt(zoomId, 5300)).toBe(5000);
+    noteMobileReaderZoomSourceCover(zoomId, null);
+    expect(recallMobileReaderZoomSourceCover(zoomId)).toEqual(tile);
+  });
+
+  test("taps are kept per zoom: a later prime for another zoom does not take an earlier one's", () => {
+    primeMobileReaderZoomCover("detail:x", null, 7000);
+    primeMobileReaderZoomCover("continue:y", null, 7100);
+    expect(peekMobileReaderZoomTapAt("detail:x", 7200)).toBe(7000);
+    expect(peekMobileReaderZoomTapAt("continue:y", 7200)).toBe(7100);
   });
 
   test("the tap that started a zoom is kept for it, with or without a cover, and expires", () => {
@@ -34,7 +63,7 @@ describe("mobileReaderZoomHandoff", () => {
     expect(peekMobileReaderZoomTapAt("detail:t", 2000 + 3000 + 1)).toBeNull();
     primeMobileReaderZoomCover("continue:t", { uri: "https://example.test/c.jpg" }, 2100);
     expect(peekMobileReaderZoomTapAt("continue:t", 2200)).toBe(2100);
-    expect(peekMobileReaderZoomTapAt("detail:t", 2200)).toBeNull();
+    expect(peekMobileReaderZoomTapAt("detail:t", 2200)).toBe(2000);
   });
 
   test("the landing cover is a 2:3 cover fitted and centred in the reading area", () => {
@@ -69,5 +98,15 @@ describe("mobileReaderZoomHandoff", () => {
     );
     // The hero's own fallback, which the zoom has to match.
     expect(detail).toContain("heldCoverSource={zoomSeed?.cover ?? null}");
+
+    // …and remembers it for the zoom, as the Library tile does for the hero.
+    expect(detail).toContain("noteMobileReaderZoomSourceCover(readerZoomSourceId, readerZoomHeroCover);");
+    const explore = readFileSync(
+      path.resolve(import.meta.dir, "../components/explore/mobileExploreCover.ts"),
+      "utf8",
+    );
+    expect(explore).toContain(
+      "noteMobileReaderZoomSourceCover(mobileReaderZoomIdForDetail(entry.item.libraryItemId), cover);",
+    );
   });
 });

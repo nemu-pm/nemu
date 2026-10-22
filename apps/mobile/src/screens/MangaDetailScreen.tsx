@@ -159,7 +159,11 @@ import { renderExploreDetailBarMenu } from "@/components/explore/ExploreDetailBa
 import { hasMobileUserCover, mobileExploreCoverOwnerUrl, withMobileExploreZoom } from "@/components/explore/mobileExploreCover";
 import { useMobileExploreZoomLanded } from "@/components/explore/mobileExploreZoomLanded";
 import { peekMobileExploreDetailHandoff } from "@/lib/mobileExploreDetailHandoff";
-import { resolveMobileReaderZoomHandoffCover } from "@/lib/mobileReaderZoomHandoff";
+import {
+  mobileReaderZoomIdForDetail,
+  noteMobileReaderZoomSourceCover,
+  resolveMobileReaderZoomHandoffCover,
+} from "@/lib/mobileReaderZoomHandoff";
 import { dissolveExploreTitle } from "@/components/explore/mobileExploreDissolve";
 import { getMobileMetadataEditorSaveResultAction } from "@/lib/mobileMetadataEditorBackBehavior";
 import { nextSyncTimestamp } from "@nemu/core";
@@ -1993,7 +1997,13 @@ export function MangaDetailScreen() {
   // element before and after the record arrives and is not remounted.)
   const readerZoomEntry = entry ?? seedEntry;
   const readerZoomSourceId =
-    booksHero && readerZoomEntry ? `detail:${readerZoomEntry.item.libraryItemId}` : null;
+    booksHero && readerZoomEntry ? mobileReaderZoomIdForDetail(readerZoomEntry.item.libraryItemId) : null;
+  // What the hero paints, remembered for the reader zoom: a Continue tapped
+  // before the hero's own request resolves still lands on a cover.
+  const readerZoomHeroCover = resolveMobileReaderZoomHandoffCover(coverImage.source, zoomSeed?.cover);
+  useEffect(() => {
+    noteMobileReaderZoomSourceCover(readerZoomSourceId, readerZoomHeroCover);
+  }, [readerZoomHeroCover, readerZoomSourceId]);
   const openReader = useCallback(
     (
       chapter: ChapterSummary | null,

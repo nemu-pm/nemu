@@ -140,8 +140,8 @@ describe("reader opening gate wiring", () => {
     expect(route).toContain('if (finished) runOnJS(onFadeEnd)("scroll-cap", landedAt);');
     expect(route).toContain("if (finished) runOnJS(onFadeEnd)(reason, fadeLandedAt);");
     expect(route).toContain("openingGate.armBackstop();");
-    // No cover fades in: closed from the first render.
-    expect(route).toContain('if (!zoomCover || !zoomId) coverReveal.openingGate.settle("no-fade");');
+    // No zoom, nothing fades in: closed from the first render.
+    expect(route).toContain('if (!zoomId) coverReveal.openingGate.settle("no-fade");');
     expect(route).toContain(
       "() => ({ onFirstPage, openingGate, holdForFirstScreenImages, onFirstScreenImagesReady, openingTimes })",
     );
@@ -150,7 +150,7 @@ describe("reader opening gate wiring", () => {
   });
 
   test("the page-list effect defers only the live refresh of a cache-painted open", () => {
-    const effectStart = reader.indexOf("const [persisted, persistedPageSizes] = await Promise.all([");
+    const effectStart = reader.indexOf("const [persisted, persistedPageSizes, sourceImageProcessor] = await Promise.all([");
     const effect = reader.slice(effectStart, reader.indexOf("const cacheableChapters = resolveMobileReaderChapterIndex({", effectStart));
     const paint = effect.indexOf("restoredPersistedPageList = true;");
     const take = effect.indexOf("mobileReaderPagesPrefetchCache.take(");

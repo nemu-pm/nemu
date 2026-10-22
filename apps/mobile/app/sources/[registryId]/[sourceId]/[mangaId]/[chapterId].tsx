@@ -34,6 +34,7 @@ import {
   peekMobileReaderZoomCover,
   peekMobileReaderZoomTapAt,
 } from "@/lib/mobileReaderZoomHandoff";
+import { MOBILE_READER_SCROLL_PLACEHOLDER_COLOR } from "@/lib/mobileReaderScrollPresentation";
 import { ReaderScreen } from "@/screens/ReaderScreen";
 import { noteMobileReaderOpened } from "@/lib/mobileAidokuPrewarm";
 import { ZoomTarget } from "../../../../../modules/nemu-window-layout";
@@ -316,10 +317,16 @@ function ReaderAfterZoom({
   const landed = useMobileExploreZoomLanded();
   const [cover] = useState(() => {
     const zoomCover = peekMobileReaderZoomCover(zoomId);
-    // No cover fades in: the opening window is closed from the start. Settled
-    // here, in the first render, because the reader's effects run before this
-    // route's.
-    if (!zoomCover || !zoomId) coverReveal.openingGate.settle("no-fade");
+    console.info("[reader-zoom] route", {
+      zoomId,
+      cover: Boolean(zoomCover),
+      tap: coverReveal.openingTimes().tapAt != null,
+    });
+    // No zoom, nothing fades in: the opening window is closed from the
+    // start. Settled here, in the first render, because the reader's effects
+    // run before this route's. A zoom always lands on something that fades:
+    // its cover, else a cover-shaped plate (never black).
+    if (!zoomId) coverReveal.openingGate.settle("no-fade");
     return zoomCover;
   });
   const window = useWindowDimensions();
@@ -365,7 +372,7 @@ function ReaderAfterZoom({
           <ReaderScreen />
         </ReaderZoomEntryContext.Provider>
       ) : null}
-      {cover && zoomId ? (
+      {zoomId ? (
         <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, coverStyle]}>
           {/* Where the zoom lands: the cover grows into this frame. Hidden
               once the page shows, it still names where the zoom back starts. */}
@@ -373,16 +380,32 @@ function ReaderAfterZoom({
             zoomId={zoomId}
             style={{ position: "absolute", left: frame.x, top: frame.y, width: frame.width, height: frame.height }}
           >
-            <MobileCachedImage
-              uriOwnership="source"
-              cacheKind="cover"
-              source={cover}
-              // No fade inside the native zoom target.
-              fadeIn={false}
-              fallback={null}
-              resizeMode="cover"
-              style={StyleSheet.absoluteFill}
-            />
+            {cover ? (
+              <MobileCachedImage
+                uriOwnership="source"
+                cacheKind="cover"
+                source={cover}
+                // No fade inside the native zoom target.
+                fadeIn={false}
+                fallback={<View style={[StyleSheet.absoluteFill, styles.coverPlate]} />}
+                // Diagnostic: the cover's pixel size (a large one decodes on
+                // the main thread as the reader mounts).
+                onLoad={(event) => {
+                  const { width, height } = event.nativeEvent.source;
+                  const landedAt = openingTimes().landedAt;
+                  console.info("[reader-zoom] cover-loaded", {
+                    width,
+                    height,
+                    sinceLandedMs: landedAt == null ? null : Math.round(Date.now() - landedAt),
+                  });
+                }}
+                resizeMode="cover"
+                style={StyleSheet.absoluteFill}
+              />
+            ) : (
+              // No cover known at all: a plate the shape of one, not black.
+              <View style={[StyleSheet.absoluteFill, styles.coverPlate]} />
+            )}
           </ZoomTarget>
         </Animated.View>
       ) : null}
@@ -395,5 +418,9 @@ const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
     backgroundColor: "#000000",
+  },
+  // A cover that is not there (yet): the reader's page plate.
+  coverPlate: {
+    backgroundColor: MOBILE_READER_SCROLL_PLACEHOLDER_COLOR,
   },
 });

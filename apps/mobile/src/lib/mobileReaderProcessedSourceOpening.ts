@@ -6,11 +6,11 @@ import {
 } from "@/components/reader/readerOpeningHold";
 
 /**
- * QA switch (see `readerOpeningHold`): `defer` | `hold`, default `defer`.
+ * QA override (see `readerOpeningHold`): `hold` | `defer`, default `hold`.
  * Switchable without a rebuild on iOS — the app's user defaults, which take
  * launch arguments too:
- *   xcrun simctl launch booted <bundle id> -NEMU_READER_PROCESSED_SOURCE_OPENING hold
- *   xcrun simctl spawn booted defaults write <bundle id> NEMU_READER_PROCESSED_SOURCE_OPENING hold
+ *   xcrun simctl launch booted <bundle id> -NEMU_READER_PROCESSED_SOURCE_OPENING defer
+ *   xcrun simctl spawn booted defaults write <bundle id> NEMU_READER_PROCESSED_SOURCE_OPENING defer
  * (read when the app starts; a written default lasts until deleted). Else the
  * build's `EXPO_PUBLIC_NEMU_READER_PROCESSED_SOURCE_OPENING`.
  */

@@ -6,6 +6,8 @@ import {
   readerOpeningSince,
   readerPagesNeedProcessing,
   resolveReaderFirstScreenImages,
+  resolveReaderFirstScreenIndexes,
+  resolveReaderImageProcessor,
   resolveReaderOpeningHoldDelay,
   resolveReaderProcessedSourceOpening,
   shouldHoldReaderOpeningForImages,
@@ -15,16 +17,17 @@ import {
 } from "./readerOpeningHold";
 
 describe("readerOpeningHold", () => {
-  test("the switch: the first valid value wins, defer by default", () => {
-    expect(resolveReaderProcessedSourceOpening()).toBe("defer");
-    expect(resolveReaderProcessedSourceOpening(undefined, undefined)).toBe("defer");
+  test("the switch: the first valid value wins, hold by default", () => {
+    expect(resolveReaderProcessedSourceOpening()).toBe("hold");
+    expect(resolveReaderProcessedSourceOpening(undefined, undefined)).toBe("hold");
     expect(resolveReaderProcessedSourceOpening("hold")).toBe("hold");
     expect(resolveReaderProcessedSourceOpening(" HOLD ")).toBe("hold");
     // The runtime default beats the build's env.
     expect(resolveReaderProcessedSourceOpening("defer", "hold")).toBe("defer");
     expect(resolveReaderProcessedSourceOpening(undefined, "hold")).toBe("hold");
     expect(resolveReaderProcessedSourceOpening("bogus", 1, "hold")).toBe("hold");
-    expect(resolveReaderProcessedSourceOpening("bogus")).toBe("defer");
+    expect(resolveReaderProcessedSourceOpening("bogus")).toBe("hold");
+    expect(resolveReaderProcessedSourceOpening(undefined, "defer")).toBe("defer");
     expect(READER_PROCESSED_SOURCE_OPENING_KEY).toBe("NEMU_READER_PROCESSED_SOURCE_OPENING");
   });
 
@@ -36,12 +39,91 @@ describe("readerOpeningHold", () => {
     expect(readerPagesNeedProcessing([])).toBe(false);
   });
 
-  test("only hold, with pages to process and the cover still up, holds", () => {
-    const base = { opening: "hold" as const, pagesNeedProcessing: true, openingSettled: false };
+  test("only hold, for a source known to process its images, with pages to process and the cover up, holds", () => {
+    const base = {
+      opening: "hold" as const,
+      imageProcessor: true as boolean | null,
+      pagesNeedProcessing: true,
+      openingSettled: false,
+    };
     expect(shouldHoldReaderOpeningForImages(base)).toBe(true);
+    // An ordinary remote source (ToG: pending until its request resolves) or
+    // an unknown one is never slowed.
+    expect(shouldHoldReaderOpeningForImages({ ...base, imageProcessor: false })).toBe(false);
+    expect(shouldHoldReaderOpeningForImages({ ...base, imageProcessor: null })).toBe(false);
     expect(shouldHoldReaderOpeningForImages({ ...base, opening: "defer" })).toBe(false);
     expect(shouldHoldReaderOpeningForImages({ ...base, pagesNeedProcessing: false })).toBe(false);
     expect(shouldHoldReaderOpeningForImages({ ...base, openingSettled: true })).toBe(false);
+  });
+
+  test("the processor signal: the page list's record, else the source's, else unknown", () => {
+    expect(resolveReaderImageProcessor({ listed: true, sourceRecord: false })).toEqual({
+      imageProcessor: true,
+      reason: "page-list",
+    });
+    expect(resolveReaderImageProcessor({ listed: false, sourceRecord: true })).toEqual({
+      imageProcessor: false,
+      reason: "page-list",
+    });
+    expect(resolveReaderImageProcessor({ listed: undefined, sourceRecord: true })).toEqual({
+      imageProcessor: true,
+      reason: "source-record",
+    });
+    expect(resolveReaderImageProcessor({ listed: undefined, sourceRecord: null })).toEqual({
+      imageProcessor: null,
+      reason: "unknown",
+    });
+  });
+
+  test("the first screen: the viewport's pages when it holds the placed page, else the placed page filling a screen", () => {
+    const heights = (index: number) => [600, 600, 600, 600, 600, 600][index] ?? 600;
+    expect(
+      resolveReaderFirstScreenIndexes({
+        pageCount: 6,
+        currentIndex: 2,
+        viewportRange: { first: 2, last: 3 },
+        viewportHeight: 900,
+        pageHeight: heights,
+      }),
+    ).toEqual([2, 3]);
+    // A viewport elsewhere (not reported yet / other coordinates): from the placed page.
+    expect(
+      resolveReaderFirstScreenIndexes({
+        pageCount: 6,
+        currentIndex: 2,
+        viewportRange: { first: 0, last: 0 },
+        viewportHeight: 900,
+        pageHeight: heights,
+      }),
+    ).toEqual([2, 3]);
+    expect(
+      resolveReaderFirstScreenIndexes({
+        pageCount: 6,
+        currentIndex: 5,
+        viewportRange: null,
+        viewportHeight: 900,
+        pageHeight: heights,
+      }),
+    ).toEqual([5]);
+    // Short pages: at most four.
+    expect(
+      resolveReaderFirstScreenIndexes({
+        pageCount: 10,
+        currentIndex: 0,
+        viewportRange: null,
+        viewportHeight: 5000,
+        pageHeight: () => 100,
+      }),
+    ).toEqual([0, 1, 2, 3]);
+    expect(
+      resolveReaderFirstScreenIndexes({
+        pageCount: 0,
+        currentIndex: 0,
+        viewportRange: null,
+        viewportHeight: 900,
+        pageHeight: heights,
+      }),
+    ).toEqual([]);
   });
 
   test("the hold re-arms a pending fade, never one running or about to start", () => {
@@ -113,16 +195,21 @@ describe("readerOpeningHold wiring", () => {
   });
 
   test("the cache paint decides the hold before painting; held, the source calls are not deferred", () => {
-    const effectStart = reader.indexOf("const [persisted, persistedPageSizes] = await Promise.all([");
+    const effectStart = reader.indexOf("const [persisted, persistedPageSizes, sourceImageProcessor] = await Promise.all([");
     const effect = reader.slice(effectStart, reader.indexOf("} catch (nextError) {", effectStart));
-    const hold = effect.indexOf('holdReaderOpeningIfProcessed(persisted.pages, "cache");');
+    const hold = effect.indexOf("holdReaderOpeningIfProcessed(\n            persisted.pages,\n            \"cache\",");
     const paint = effect.indexOf("setPagesState({", hold);
+    // The page list's own record of a processor, else the source's.
+    expect(effect).toContain("listed: persisted.imageProcessor,");
+    expect(effect).toContain("sourceRecord: sourceImageProcessor,");
     expect(hold).toBeGreaterThan(0);
     expect(paint).toBeGreaterThan(hold);
     expect(effect.split("paintedFromCache: restoredPersistedPageList && !readerOpeningHeldRef.current,").length).toBe(3);
     // Pages straight from the source (no cache) can take the hold too.
-    expect(effect).toContain('holdReaderOpeningIfProcessed(firstPaint.pages, "source");');
-    expect(effect).toContain('holdReaderOpeningIfProcessed(refreshed.pages, "source");');
+    expect(effect).toContain('holdReaderOpeningIfProcessed(firstPaint.pages, "source", {');
+    expect(effect).toContain('holdReaderOpeningIfProcessed(refreshed.pages, "source", {');
+    expect(effect).toContain("noteSourceImageProcessor(refreshed.imageProcessor);");
+    expect(effect).toContain("imageProcessor: refreshed.imageProcessor === true,");
     expect(reader).toContain("readerZoomEntryRef.current.holdForFirstScreenImages();");
   });
 
@@ -133,6 +220,10 @@ describe("readerOpeningHold wiring", () => {
     expect(block).toContain("...readerOpeningSince(readerZoomEntry.openingTimes(), Date.now()),");
     expect(block).toContain("readerZoomEntry.onFirstScreenImagesReady();");
     expect(reader).toContain("painted: readerImageSizes.has(identity),");
+    // The first screen is taken with a fallback to the placed page, and a
+    // slow one says what it waits for.
+    expect(reader).toContain("const indexes = resolveReaderFirstScreenIndexes({");
+    expect(reader).toContain('console.info("[reader-open] first-screen-images-pending", {');
   });
 
   test("the route holds on the UI thread, logs fade-end since the tap, and takes the tap from the handoff", () => {
@@ -143,6 +234,10 @@ describe("readerOpeningHold wiring", () => {
     expect(route).toContain("useState(() => peekMobileReaderZoomTapAt(zoomId))");
     expect(route).toContain("sinceTapMs,");
     // The tap is primed in the tap handler's zoom href helper.
-    expect(handoff).toContain("primeMobileReaderZoomCover(zoomId, cover);");
+    expect(handoff).toContain("const landing = primeMobileReaderZoomCover(zoomId, cover);");
+    // A zoom lands on its cover, else a plate: only no zoom at all is no-fade.
+    expect(route).toContain('if (!zoomId) coverReveal.openingGate.settle("no-fade");');
+    expect(route).toContain("{zoomId ? (");
+    expect(route).toContain("styles.coverPlate");
   });
 });
