@@ -560,6 +560,10 @@ import {
 } from "@/sources/mobileReaderPageListCache";
 import { refreshMobileSourceMetadata } from "@/sources/mobileSourceDetails";
 import {
+  loadMobileSourceMangaViewer,
+  type MobileSourceMangaViewer,
+} from "@/lib/mobileSourceMangaViewer";
+import {
   getCachedMobileSourceDetail,
   makeMobileSourceDetailCacheKey,
 } from "@/lib/mobileSourceDetailCache";
@@ -1688,6 +1692,12 @@ export function ReaderScreen() {
     position: MobileReaderResumePosition | null;
   } | null>(null);
   const [sourceMangaTitle, setSourceMangaTitle] = useState<string | null>(null);
+  // The source's reading format for this manga (Aidoku `viewer`), as last
+  // reported to this device; decides the scroll spacing before page sizes do.
+  const [readerSourceViewer, setReaderSourceViewer] = useState<{
+    key: string;
+    viewer: MobileSourceMangaViewer | null;
+  } | null>(null);
   const [readerSettingsError, setReaderSettingsError] = useState<string | null>(
     null,
   );
@@ -3160,14 +3170,27 @@ export function ReaderScreen() {
         : [],
     [currentSegmentedImage, pageCount, readerImageWidth],
   );
+  const readerSourceViewerKey = makeMobileSourceDetailCacheKey(registryId, sourceId, mangaId);
   // Vertical list spacing: webtoon strips meet edge to edge, ordinary pages
   // keep 8pt; a 100% page width has no side margin. Paged mode ignores both.
   const readerScrollPageGaps = useMemo(
     () =>
       galleryPagedMode
         ? null
-        : mobileReaderScrollPageGaps(displayedPages.length, readerPageSizeAt),
-    [displayedPages.length, galleryPagedMode, readerPageSizeAt],
+        : mobileReaderScrollPageGaps(
+            displayedPages.length,
+            readerPageSizeAt,
+            readerSourceViewer?.key === readerSourceViewerKey
+              ? readerSourceViewer.viewer
+              : null,
+          ),
+    [
+      displayedPages.length,
+      galleryPagedMode,
+      readerPageSizeAt,
+      readerSourceViewer,
+      readerSourceViewerKey,
+    ],
   );
   // (A paged chapter's single long page shown as a strip keeps its margin.)
   const readerScrollSideMargin = pagedMode
@@ -3694,6 +3717,53 @@ export function ReaderScreen() {
     selectedInstalledSource,
     sourceId,
     state.entry,
+  ]);
+
+  // The source's viewer: remembered from a details fetch; once per manga the
+  // reader asks the source itself (after the pages are up, so the page list
+  // never waits behind it).
+  const readerSourceViewerFetchRef = useRef<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const key = readerSourceViewerKey;
+    void loadMobileSourceMangaViewer(key).then((viewer) => {
+      if (cancelled) return;
+      setReaderSourceViewer((current) =>
+        current?.key === key && current.viewer === viewer ? current : { key, viewer },
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [readerSourceViewerKey]);
+  useEffect(() => {
+    if (pagesState.status !== "ready" || !selectedInstalledSource) return;
+    if (readerSourceViewer?.key !== readerSourceViewerKey) return;
+    if (readerSourceViewer.viewer != null) return;
+    if (readerSourceViewerFetchRef.current === readerSourceViewerKey) return;
+    readerSourceViewerFetchRef.current = readerSourceViewerKey;
+    const key = readerSourceViewerKey;
+    void refreshMobileSourceMetadata(selectedInstalledSource, mangaId, {
+      getSourceSettings: getReaderSourceSettings,
+      onSourcePackageHydrated: saveReaderSourcePackageHydration,
+      priority: "background",
+    })
+      .then(() => loadMobileSourceMangaViewer(key))
+      .then((viewer) => {
+        if (viewer == null) return;
+        setReaderSourceViewer((current) =>
+          current?.key === key ? { key, viewer } : current,
+        );
+      })
+      .catch(() => undefined);
+  }, [
+    getReaderSourceSettings,
+    mangaId,
+    pagesState.status,
+    readerSourceViewer,
+    readerSourceViewerKey,
+    saveReaderSourcePackageHydration,
+    selectedInstalledSource,
   ]);
 
   // Dual-reader orchestrator context (mobile counterpart to web's

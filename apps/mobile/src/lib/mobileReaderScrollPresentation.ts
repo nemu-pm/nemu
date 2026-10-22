@@ -23,12 +23,19 @@ export const MOBILE_READER_SCROLL_PAGE_SPACING = 8;
 export const MOBILE_READER_SCROLL_SIDE_MARGIN = 10;
 
 /**
- * Below this median width/height a same-width chapter is a webtoon outright:
- * printed formats are wider (manga 0.70, US comics 0.65), while webtoon
- * slices are cut at a height cap (WEBTOON 800×1280 ≈ 0.625).
+ * Aidoku's per-manga `viewer` (the source's own reading format):
+ * 0 default/unknown, 1 right-to-left, 2 left-to-right, 3 vertical, 4 webtoon.
  */
-export const MOBILE_READER_SCROLL_STRIP_ASPECT = 0.64;
-/** Up to this median aspect, slices of varying height still read as a strip. */
+export type MobileReaderSourceViewer = 0 | 1 | 2 | 3 | 4;
+export const MOBILE_READER_SOURCE_VIEWER_WEBTOON = 4;
+
+/**
+ * Up to this median aspect, same-width slices cut at varying heights read as
+ * a strip. The aspect alone decides nothing between 1:2 and here: a uniform
+ * webtoon slice (WEBTOON 800×1280 ≈ 0.625) and a printed page served at one
+ * size (少年ジャンプ＋ 764×1200 ≈ 0.637, US comics 0.65) look alike — the cut
+ * heights are what differ.
+ */
 export const MOBILE_READER_SCROLL_VARIED_STRIP_ASPECT = 0.68;
 /** At least this share of the known pages must share one pixel width (±1px). */
 export const MOBILE_READER_SCROLL_SAME_WIDTH_SHARE = 0.75;
@@ -56,16 +63,21 @@ function median(sorted: number[]): number {
 
 /**
  * Whether the scroll view should run a chapter's pages edge to edge (the gap
- * decision only; paged mode keeps `isMobileReaderStripChapter`). Besides a
- * median narrower than 1:2, a webtoon is recognised by its slicing: nearly
- * every page has the same pixel width, and either the slices are narrower
- * than any print format, or they are a little wider but cut at varying
- * heights — manga pages of one width keep one height.
+ * decision only; paged mode keeps `isMobileReaderStripChapter`).
+ *
+ * The source says first: Aidoku's `viewer` 4 (webtoon) is a strip, 1/2/3 (a
+ * paged or vertical manga) is not. Only without it do the pages decide:
+ * a median narrower than 1:2, or slicing — nearly every page has the same
+ * pixel width and the slices are cut at varying heights (manga pages of one
+ * width keep one height).
  */
 export function isMobileReaderScrollStripChapter(
   pageCount: number,
   sizeAt: (index: number) => MobileReaderPageSize | null | undefined,
+  viewer?: number | null,
 ): boolean {
+  if (viewer === MOBILE_READER_SOURCE_VIEWER_WEBTOON) return true;
+  if (viewer === 1 || viewer === 2 || viewer === 3) return false;
   if (!Number.isFinite(pageCount) || pageCount <= 0) return false;
   if (isMobileReaderStripChapter(pageCount, sizeAt)) return true;
   const sizes: MobileReaderPageSize[] = [];
@@ -92,7 +104,7 @@ export function isMobileReaderScrollStripChapter(
   }
   const slices = sizes.filter((size) => Math.abs(size.width - bestWidth) <= 1);
   const aspect = median(slices.map((size) => size.width / size.height).sort((a, b) => a - b));
-  if (aspect < READER_STRIP_PAGE_ASPECT || aspect < MOBILE_READER_SCROLL_STRIP_ASPECT) return true;
+  if (aspect < READER_STRIP_PAGE_ASPECT) return true;
   if (aspect >= MOBILE_READER_SCROLL_VARIED_STRIP_ASPECT) return false;
   const height = median(slices.map((size) => size.height).sort((a, b) => a - b));
   const varied = slices.filter(
@@ -110,9 +122,10 @@ export function isMobileReaderScrollStripChapter(
 export function mobileReaderScrollPageGaps(
   pageCount: number,
   sizeAt: (index: number) => MobileReaderPageSize | null | undefined,
+  viewer?: number | null,
 ): number[] {
   if (!Number.isFinite(pageCount) || pageCount <= 0) return [];
-  const stripChapter = isMobileReaderScrollStripChapter(pageCount, sizeAt);
+  const stripChapter = isMobileReaderScrollStripChapter(pageCount, sizeAt, viewer);
   const stripSlice = (index: number) => {
     const size = sizeAt(index);
     return Boolean(

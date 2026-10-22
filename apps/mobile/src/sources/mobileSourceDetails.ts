@@ -28,6 +28,8 @@ import { mergeAuthors } from "@nemu/core/sources";
 import { orderMobileChaptersNewestFirst } from "@/lib/mobileChapterOrder";
 import { markMobilePerformance } from "@/lib/mobilePerformance";
 import { isMobileSourceMangaTitlePathLike } from "@/lib/mobileReaderMangaTitle";
+import { makeMobileSourceDetailCacheKey } from "@/lib/mobileSourceDetailCacheCore";
+import { rememberMobileSourceMangaViewer } from "@/lib/mobileSourceMangaViewer";
 
 export type MobileSourceDetailsRefresh =
   | {
@@ -244,6 +246,11 @@ export async function refreshMobileSourceDetails(
           };
         }
         const manga = await session.source.getMangaDetails({ key: mangaId });
+        // The reader's scroll spacing follows the source's format (local only).
+        rememberMobileSourceMangaViewer(
+          makeMobileSourceDetailCacheKey(normalized.registryId, normalized.sourceId, mangaId),
+          manga.viewer,
+        );
         markMobilePerformance("source.details.manga-done", { sourceKey });
         const chapters = mapAidokuChapterList(
           await session.source.getChapterList({ key: mangaId }),
@@ -294,6 +301,11 @@ export async function refreshMobileSourceMetadata(
           };
         }
         const manga = await session.source.getMangaDetails({ key: mangaId });
+        // The reader's scroll spacing follows the source's format (local only).
+        rememberMobileSourceMangaViewer(
+          makeMobileSourceDetailCacheKey(normalized.registryId, normalized.sourceId, mangaId),
+          manga.viewer,
+        );
         return {
           status: "ready",
           runtime: session.runtime,
