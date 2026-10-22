@@ -262,6 +262,16 @@ type MobileReaderGalleryProps = {
     placement?: MobileReaderImagePlacement,
   ) => ReactNode;
   /**
+   * Scroll mode: a row that is not one of this chapter's pages (seamless
+   * scroll — a chapter divider, or a page of the chapter before or after).
+   * Returns `undefined` for an ordinary page. The row's height still comes
+   * from `scrollPageLayout`; its render identity from `scrollPageRenderKeys`.
+   */
+  renderScrollRow?: (
+    page: MobileReaderPage,
+    placement: MobileReaderImagePlacement,
+  ) => ReactNode | undefined;
+  /**
    * Scroll mode: per-page render identity (page id → key). A memoized page
    * cell re-renders only when its own key, the epoch, or its place in the
    * render window changes — not when another page loads.
@@ -433,6 +443,7 @@ type MobileReaderScrollPageCellProps = {
   renderKey: string | undefined;
   renderEpoch: unknown;
   renderImage: MobileReaderGalleryProps["renderImage"];
+  renderScrollRow?: MobileReaderGalleryProps["renderScrollRow"];
   onScrollingPageLayout?: MobileReaderGalleryProps["onScrollingPageLayout"];
   fallbackPage: number;
   strings: MobileStrings;
@@ -452,6 +463,7 @@ const MobileReaderScrollPageCell = memo(
     gapBefore,
     height,
     renderImage,
+    renderScrollRow,
     onScrollingPageLayout,
     fallbackPage,
     strings,
@@ -460,6 +472,7 @@ const MobileReaderScrollPageCell = memo(
       renderRangeStore.subscribe,
       () => renderRangeStore.includes(index),
     );
+    const row = renderScrollRow?.(page, { inRenderWindow });
     return (
       <View
         onLayout={
@@ -480,7 +493,9 @@ const MobileReaderScrollPageCell = memo(
           height != null ? { height } : null,
         ]}
       >
-        {page.imageUri ? (
+        {row !== undefined ? (
+          row
+        ) : page.imageUri ? (
           renderImage(page, { inRenderWindow })
         ) : (
           <TextPage text={page.text} fallbackPage={fallbackPage} strings={strings} />
@@ -557,6 +572,7 @@ export function MobileReaderGallery({
   readerScrollRef,
   renderImage,
   renderImageSegment,
+  renderScrollRow,
   scrollPageRenderKeys,
   scrollPageRenderEpoch,
   scrollPageGaps,
@@ -2107,6 +2123,7 @@ export function MobileReaderGallery({
             renderKey={scrollPageRenderKeys?.get(page.id)}
             renderEpoch={scrollPageRenderEpoch}
             renderImage={renderImage}
+            renderScrollRow={renderScrollRow}
             onScrollingPageLayout={onScrollingPageLayout}
             fallbackPage={sourcePageForDisplayIndex(index)}
             strings={strings}
@@ -2172,6 +2189,7 @@ export function MobileReaderGallery({
       readerPageWidth,
       renderImage,
       renderImageSegment,
+      renderScrollRow,
       scrollPageGaps,
       scrollPageLayout,
       scrollPageRenderEpoch,
