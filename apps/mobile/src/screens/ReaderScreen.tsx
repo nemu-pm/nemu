@@ -163,6 +163,7 @@ import { ReaderBackGlyph } from "@/components/reader/ReaderBackGlyph";
 import { ReaderNotebookPanelGlyph } from "@/components/reader/ReaderNotebookPanelGlyph";
 import { ReaderDarkThemeScope } from "@/components/reader/ReaderDarkThemeScope";
 import { useReaderZoomEntry } from "@/components/reader/readerZoomEntry";
+import { waitForReaderOpeningWindow } from "@/components/reader/readerOpeningGate";
 import { ReaderMoreMenu } from "@/components/reader/ReaderMoreMenu";
 import { useReaderScrubPreviewThumbnails } from "@/components/reader/useReaderScrubPreviewThumbnails";
 import { ReaderPluginSettingsSheet } from "@/components/reader/ReaderPluginSettingsSheet";
@@ -1398,6 +1399,14 @@ export function ReaderScreen() {
   );
   const { reduceMotion, scheme } = useNemuTheme();
   const readerZoomEntry = useReaderZoomEntry();
+  // The opening window (zoom landing → cover fade end): a chapter the page-list
+  // cache already painted asks the source only once it has closed, so a cold
+  // app's first sandbox boot (~1 s on main) cannot freeze the fade. Read
+  // through a ref: the page-list effect must not re-run for it.
+  const readerOpeningGateRef = useRef(readerZoomEntry.openingGate);
+  readerOpeningGateRef.current = readerZoomEntry.openingGate;
+  /** The open chapter was painted from the persisted page list. */
+  const readerOpenPaintedFromCacheRef = useRef(false);
   // Reduce Motion keeps the chrome's cross-fade but drops its 8px slide.
   const readerChromeAnimations = readerChromeAnimationsForMotion(reduceMotion);
   const insets = useSafeAreaInsets();
@@ -4429,15 +4438,22 @@ export function ReaderScreen() {
       processPageImages,
     });
     const prefetched = mobileReaderPagesPrefetchCache.take(pageListCacheKey);
-    const result =
-      (prefetched ? await prefetched : null) ??
-      (await refreshMobileReaderPages(installedSource, mangaId, target, {
+    let result: MobileReaderPagesRefresh | null = prefetched ? await prefetched : null;
+    if (!result) {
+      // A source call in the opening window of a cache-painted open would boot
+      // a cold sandbox under the cover's fade: it waits for the fade to end.
+      await waitForReaderOpeningWindow(readerOpeningGateRef.current, {
+        paintedFromCache: readerOpenPaintedFromCacheRef.current,
+        what: "strip-neighbour",
+      });
+      result = await refreshMobileReaderPages(installedSource, mangaId, target, {
         getSourceSettings: getReaderSourceSettings,
         onSourcePackageHydrated: saveReaderSourcePackageHydration,
         processPageImages,
         // The open chapter's own page work goes first.
         priority: "normal",
-      }));
+      });
+    }
     for (const [pageId, size] of (await sizes) ?? []) {
       const stableKey = readerStablePageSizeKeyForChapter(target.id, { id: pageId });
       if (!recallMobileReaderPageNaturalSize(stableKey)) {
@@ -7343,6 +7359,7 @@ export function ReaderScreen() {
           });
         if (persisted && readerPagesRequestRunRef.current === requestRun) {
           restoredPersistedPageList = true;
+          readerOpenPaintedFromCacheRef.current = true;
           readerPagesLoadedKeyRef.current = pagesRequestKey;
           setPagesState({
             status: "ready",
@@ -7368,9 +7385,19 @@ export function ReaderScreen() {
             processPageImages,
           }),
         );
-        const refreshed =
-          (prefetched ? await prefetched : null) ??
-          (await refreshMobileReaderPages(
+        let refreshed: MobileReaderPagesRefresh | null = prefetched
+          ? await prefetched
+          : null;
+        if (!refreshed) {
+          // The cache already painted the chapter: its live refresh starts
+          // once the cover has faded in (the opening window), so a cold
+          // sandbox boot cannot hold the fade. Without a cache it asks at once.
+          await waitForReaderOpeningWindow(readerOpeningGateRef.current, {
+            paintedFromCache: restoredPersistedPageList,
+            what: "page-list",
+          });
+          if (readerPagesRequestRunRef.current !== requestRun) return;
+          refreshed = await refreshMobileReaderPages(
             installedSource,
             mangaId,
             sourceChapterForRequest,
@@ -7397,7 +7424,8 @@ export function ReaderScreen() {
                 });
               },
             },
-          ));
+          );
+        }
 
         if (readerPagesRequestRunRef.current !== requestRun) return;
         if (refreshed.status === "blocked") {

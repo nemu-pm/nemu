@@ -13,6 +13,11 @@ import { useLocalSearchParams } from "expo-router";
 import { MobileExploreZoomRoute } from "@/components/explore/MobileExploreZoomRoute";
 import { useMobileExploreZoomLanded } from "@/components/explore/mobileExploreZoomLanded";
 import { ReaderZoomEntryContext, type ReaderZoomEntry } from "@/components/reader/readerZoomEntry";
+import {
+  createReaderOpeningGate,
+  type ReaderOpeningGate,
+  type ReaderOpeningSettleReason,
+} from "@/components/reader/readerOpeningGate";
 import { useReadingMode } from "@/data/mobileHooks";
 import { MobileCachedImage } from "@/design-system";
 import { getMobileReaderZoomCoverFrame, peekMobileReaderZoomCover } from "@/lib/mobileReaderZoomHandoff";
@@ -54,6 +59,11 @@ type ReaderCoverReveal = {
   onLanded: () => void;
   /** Fade now, unless a fade already started. */
   reveal: (reason: CoverRevealReason) => void;
+  /**
+   * Closes when the cover's fade has ended (either path): the reader holds
+   * its cache-painted chapter's live source refresh until then.
+   */
+  openingGate: ReaderOpeningGate;
 };
 
 /**
@@ -74,6 +84,26 @@ function useReaderCoverReveal(): ReaderCoverReveal {
   /** When the (possibly delayed) fade begins, by the JS clock; null: none armed. */
   const fadeStartsAtRef = useRef<number | null>(null);
   const capArmedRef = useRef(false);
+  const [openingGate] = useState(() =>
+    createReaderOpeningGate({
+      onSettled: (reason: ReaderOpeningSettleReason) => {
+        const landedAt = landedAtRef.current;
+        console.info("[reader-zoom] opening-settled", {
+          reason,
+          sinceLandedMs: landedAt == null ? null : Math.round(Date.now() - landedAt),
+        });
+      },
+    }),
+  );
+  useEffect(() => () => openingGate.dispose(), [openingGate]);
+  /** The fade's UI-thread completion, sent to JS: the opening window closes. */
+  const onFadeEnd = useCallback(
+    (reason: CoverRevealReason, landedAt: number) => {
+      logFadeEnd(reason, landedAt);
+      openingGate.settle("fade-end");
+    },
+    [openingGate],
+  );
 
   const logFadeStart = useCallback((reason: CoverRevealReason, sinceLandedMs: number | null) => {
     console.info("[reader-zoom] fade-start", {
@@ -101,17 +131,18 @@ function useReaderCoverReveal(): ReaderCoverReveal {
       delay,
       withTiming(0, { duration: COVER_REVEAL_MS }, (finished?: boolean) => {
         "worklet";
-        if (finished) runOnJS(logFadeEnd)("scroll-cap", landedAt);
+        if (finished) runOnJS(onFadeEnd)("scroll-cap", landedAt);
       }),
     );
-  }, [opacity]);
+  }, [onFadeEnd, opacity]);
 
   const onLanded = useCallback(() => {
     if (landedAtRef.current != null) return;
     landedAtRef.current = Date.now();
-    console.info("[reader-zoom] landed", { mode: modeRef.current.mode });
+    console.info("[reader-zoom] landed", { mode: modeRef.current.mode, atWall: landedAtRef.current });
+    openingGate.armBackstop();
     if (modeRef.current.scrollReading) armScrollCap();
-  }, [armScrollCap]);
+  }, [armScrollCap, openingGate]);
 
   // The stored mode can arrive after the landing: arm with the time left.
   useEffect(() => {
@@ -131,15 +162,22 @@ function useReaderCoverReveal(): ReaderCoverReveal {
       if (startsAt != null && reason !== "reader-ready") return;
       fadeStartsAtRef.current = now;
       logFadeStart(reason, sinceLandedMs);
-      opacity.value = withTiming(0, { duration: COVER_REVEAL_MS });
+      const fadeLandedAt = landedAt ?? now;
+      opacity.value = withTiming(0, { duration: COVER_REVEAL_MS }, (finished?: boolean) => {
+        "worklet";
+        if (finished) runOnJS(onFadeEnd)(reason, fadeLandedAt);
+      });
     },
-    [logFadeStart, opacity],
+    [logFadeStart, onFadeEnd, opacity],
   );
 
-  return useMemo(() => ({ opacity, onLanded, reveal }), [onLanded, opacity, reveal]);
+  return useMemo(
+    () => ({ opacity, onLanded, reveal, openingGate }),
+    [onLanded, opacity, reveal, openingGate],
+  );
 }
 
-/** Logged when the UI-thread cap's fade ends (it started `COVER_REVEAL_MS` before). */
+/** Logged when the cover's fade ends (it started `COVER_REVEAL_MS` before). */
 function logFadeEnd(reason: CoverRevealReason, landedAt: number) {
   // JS clock: late by however long the JS thread was busy.
   console.info("[reader-zoom] fade-end", { reason, sinceLandedMs: Math.round(Date.now() - landedAt) });
@@ -162,11 +200,18 @@ function ReaderAfterZoom({
   coverReveal: ReaderCoverReveal;
 }) {
   const landed = useMobileExploreZoomLanded();
-  const [cover] = useState(() => peekMobileReaderZoomCover(zoomId));
+  const [cover] = useState(() => {
+    const zoomCover = peekMobileReaderZoomCover(zoomId);
+    // No cover fades in: the opening window is closed from the start. Settled
+    // here, in the first render, because the reader's effects run before this
+    // route's.
+    if (!zoomCover || !zoomId) coverReveal.openingGate.settle("no-fade");
+    return zoomCover;
+  });
   const window = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const frame = getMobileReaderZoomCoverFrame({ width: window.width, height: window.height, insets });
-  const { opacity, onLanded, reveal } = coverReveal;
+  const { opacity, onLanded, reveal, openingGate } = coverReveal;
   const [pageShown, setPageShown] = useState(false);
   // A route that never staged a zoom (landed from the start) has no landing
   // event: count the first landed render as the landing.
@@ -185,7 +230,10 @@ function ReaderAfterZoom({
     }, COVER_HOLD_MAX_MS);
     return () => clearTimeout(timer);
   }, [landed, pageShown, reveal]);
-  const entry = useMemo<ReaderZoomEntry>(() => ({ onFirstPage }), [onFirstPage]);
+  const entry = useMemo<ReaderZoomEntry>(
+    () => ({ onFirstPage, openingGate }),
+    [onFirstPage, openingGate],
+  );
   const coverStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
 
   return (
