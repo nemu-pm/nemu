@@ -2,8 +2,10 @@ import { describe, expect, test } from "bun:test";
 import {
   mobileReaderBookThumbnailFollowOffset,
   mobileReaderBookThumbnailLayout,
+  mobileReaderBookThumbnailRatios,
   READER_BOOK_THUMBNAIL_GAP,
   READER_BOOK_THUMBNAIL_MAX_RATIO,
+  READER_BOOK_THUMBNAIL_UNKNOWN_RATIO,
 } from "./mobileReaderBookSidePane";
 import {
   MOBILE_READER_BOOK_SCROLL_SIDE_MARGIN,
@@ -38,8 +40,8 @@ describe("book posture thumbnails", () => {
     expect(layout.offsets).toEqual([8, 8 + 140 + 8, 8 + 140 + 8 + 140 + 8]);
     expect(layout.cropped).toEqual([false, false, true]);
     expect(layout.contentHeight).toBe(8 + 140 + 8 + 140 + 8 + 150 + 8);
-    // An unknown ratio falls back to a manga page.
-    expect(mobileReaderBookThumbnailLayout([Number.NaN], 100).heights).toEqual([142]);
+    // An unknown ratio falls back to a manga page, width / height 0.7.
+    expect(mobileReaderBookThumbnailLayout([Number.NaN], 100).heights).toEqual([143]);
   });
 
   test("the followed page is centred, clamped to the list's range", () => {
@@ -70,5 +72,18 @@ describe("one screen of scroll reading", () => {
     expect(readerContinuousScreenStep({ ...metrics, contentOffset: 9_200 }, "next", safe)).toEqual({ kind: "scroll", offset: 10_000 - 669 });
     expect(readerContinuousScreenStep({ ...metrics, contentOffset: 10_000 - 669 }, "next", safe)).toEqual({ kind: "end" });
     expect(readerContinuousScreenStep({ ...metrics, viewportLength: 0 }, "next", safe)).toEqual({ kind: "scroll", offset: 0 });
+  });
+});
+
+describe("book posture thumbnail shapes", () => {
+  test("a known page keeps its own shape; an unknown one is 0.7 wide to 1 tall", () => {
+    const sizes = [{ width: 800, height: 1200 }, null, { width: 0, height: 100 }, { width: 1600, height: 1200 }];
+    const ratios = mobileReaderBookThumbnailRatios(4, (index) => sizes[index]);
+    expect(ratios[0]).toBeCloseTo(1.5, 10);
+    expect(ratios[1]).toBeCloseTo(1 / 0.7, 10);
+    expect(ratios[2]).toBeCloseTo(1 / 0.7, 10);
+    expect(ratios[3]).toBeCloseTo(0.75, 10);
+    expect(READER_BOOK_THUMBNAIL_UNKNOWN_RATIO).toBeCloseTo(1 / 0.7, 10);
+    expect(mobileReaderBookThumbnailRatios(0, () => null)).toEqual([]);
   });
 });

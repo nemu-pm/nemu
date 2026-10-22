@@ -177,6 +177,7 @@ import { mobileAdaptiveLayout } from "@/lib/mobileAdaptiveLayout";
 import { ReaderDisplaySettingsPopover } from "@/components/reader/ReaderDisplaySettingsPopover";
 import { ReaderNotebookPane } from "@/components/reader/ReaderNotebookPane";
 import { ReaderBookSidePane } from "@/components/reader/ReaderBookSidePane";
+import { mobileReaderBookThumbnailRatios } from "@/lib/mobileReaderBookSidePane";
 import { LinearGradient } from "expo-linear-gradient";
 import {
   MobileReaderGallery,
@@ -4955,7 +4956,7 @@ export function ReaderScreen() {
   const readerBookThumbnailRatios = useMemo(
     () =>
       readerBookThumbnails
-        ? mobileReaderScrollPageRatios(displayedPages.length, readerPageSizeAt)
+        ? mobileReaderBookThumbnailRatios(displayedPages.length, readerPageSizeAt)
         : EMPTY_READER_BOOK_THUMBNAIL_RATIOS,
     [displayedPages.length, readerBookThumbnails, readerPageSizeAt],
   );

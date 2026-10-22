@@ -27,6 +27,32 @@ export const READER_BOOK_THUMBNAIL_MAX_RATIO = 1.5;
 /** Flattest thumbnail (a spread or a short slice), as height / width. */
 export const READER_BOOK_THUMBNAIL_MIN_RATIO = 0.25;
 
+/**
+ * A page of unknown size is drawn as a printed manga page: width / height
+ * 0.7, stored here as height / width.
+ */
+export const READER_BOOK_THUMBNAIL_UNKNOWN_RATIO = 1 / 0.7;
+
+/**
+ * Each thumbnail's height / width: the page's own size where known, else
+ * {@link READER_BOOK_THUMBNAIL_UNKNOWN_RATIO}. (Unlike the strip, an
+ * unknown page does not borrow the chapter's typical shape.)
+ */
+export function mobileReaderBookThumbnailRatios(
+  pageCount: number,
+  sizeAt: (index: number) => { width: number; height: number } | null | undefined,
+): number[] {
+  if (!Number.isFinite(pageCount) || pageCount <= 0) return [];
+  return Array.from({ length: Math.floor(pageCount) }, (_, index) => {
+    const size = sizeAt(index);
+    if (!size) return READER_BOOK_THUMBNAIL_UNKNOWN_RATIO;
+    const { width, height } = size;
+    return Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0
+      ? height / width
+      : READER_BOOK_THUMBNAIL_UNKNOWN_RATIO;
+  });
+}
+
 export type MobileReaderBookThumbnailLayout = {
   /** Thumbnail heights, in page order. */
   heights: number[];
@@ -38,7 +64,7 @@ export type MobileReaderBookThumbnailLayout = {
 };
 
 function clampRatio(ratio: number): { ratio: number; cropped: boolean } {
-  if (!Number.isFinite(ratio) || ratio <= 0) return { ratio: 1.42, cropped: false };
+  if (!Number.isFinite(ratio) || ratio <= 0) return { ratio: READER_BOOK_THUMBNAIL_UNKNOWN_RATIO, cropped: false };
   if (ratio > READER_BOOK_THUMBNAIL_MAX_RATIO) return { ratio: READER_BOOK_THUMBNAIL_MAX_RATIO, cropped: true };
   return { ratio: Math.max(READER_BOOK_THUMBNAIL_MIN_RATIO, ratio), cropped: false };
 }

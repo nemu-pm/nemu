@@ -9,8 +9,8 @@ import {
   useSyncExternalStore,
 } from "react";
 import {
+  Animated,
   FlatList,
-  Image,
   Pressable,
   StyleSheet,
   View,
@@ -40,6 +40,7 @@ import {
   mobileReaderAbsoluteRect,
   type MobileReaderBookSidePane,
 } from "@/lib/mobileReaderPoseLayout";
+import { MOBILE_READER_SCROLL_PLACEHOLDER_COLOR } from "@/lib/mobileReaderScrollPresentation";
 import type { WindowLayoutRect } from "@/lib/mobileWindowLayout";
 import { ReaderScreenStepGlyph } from "./ReaderScreenStepGlyph";
 
@@ -76,6 +77,10 @@ export type ReaderBookSidePaneProps = {
 
 const TITLE_COLOR = "rgba(255,255,255,0.85)";
 const QUIET = "rgba(235,235,245,0.30)";
+/** A thumbnail not ready yet shows its page number in this. */
+const PLACEHOLDER_NUMBER_COLOR = "rgba(255,255,255,0.45)";
+/** A thumbnail's image fades in over its placeholder. */
+const THUMBNAIL_FADE_MS = 150;
 const CONTROL_FILL = "rgba(255,255,255,0.12)";
 const CONTROL_GLYPH = "rgba(255,255,255,0.85)";
 const THUMB_VIEWABILITY = { itemVisiblePercentThreshold: 1 };
@@ -371,6 +376,29 @@ const ReaderBookThumbnail = memo(function ReaderBookThumbnail({
     { page },
   );
   const left = Math.max(0, (rowWidth - width) / 2);
+  const uri = revealed && visible ? (shown?.uri ?? null) : null;
+  // The image fades in over the placeholder once it has decoded; a new image
+  // (a recycled row, a retry) starts from the placeholder again.
+  const fade = useRef(new Animated.Value(0)).current;
+  const [loadedUri, setLoadedUri] = useState<string | null>(null);
+  useEffect(() => {
+    if (uri !== null && uri === loadedUri) return;
+    fade.stopAnimation();
+    fade.setValue(0);
+  }, [fade, loadedUri, uri]);
+  const onImageLoad = useCallback(() => {
+    if (uri === null) return;
+    setLoadedUri(uri);
+    Animated.timing(fade, {
+      toValue: 1,
+      duration: THUMBNAIL_FADE_MS,
+      useNativeDriver: true,
+    }).start();
+  }, [fade, uri]);
+  const placeholderOpacity = useMemo(
+    () => fade.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
+    [fade],
+  );
   // One row per page across the whole list width: the thumbnail selects its
   // page, the margins and the gap above it toggle the toolbar.
   const onPress = (event: GestureResponderEvent) => {
@@ -394,21 +422,31 @@ const ReaderBookThumbnail = memo(function ReaderBookThumbnail({
       style={{ width: rowWidth, height: height + READER_BOOK_THUMBNAIL_GAP, paddingTop: READER_BOOK_THUMBNAIL_GAP }}
     >
       <View style={[styles.thumb, { marginLeft: left, width, height }]}>
-        {revealed && visible && shown?.uri ? (
-          <Image
-            source={{ uri: shown.uri }}
+        {failed || !revealed ? (
+          <Ionicons name={failed ? "reload-outline" : "eye-off-outline"} size={22} color={QUIET} />
+        ) : (
+          // Not ready yet (still processing, offscreen or loading): the page
+          // number on the reader's page-placeholder grey, in the page's own
+          // shape, so nothing moves when the image arrives.
+          <Animated.Text
+            allowFontScaling={false}
+            numberOfLines={1}
+            style={[styles.placeholderNumber, { opacity: placeholderOpacity }]}
+          >
+            {page}
+          </Animated.Text>
+        )}
+        {uri && !failed ? (
+          <Animated.Image
+            key={uri}
+            source={{ uri }}
             resizeMode={cropped ? "cover" : "contain"}
             fadeDuration={0}
+            onLoad={onImageLoad}
             onError={() => setPreview({ key: requestKey ?? "", uri: null, failed: true })}
-            style={StyleSheet.absoluteFill}
+            style={[StyleSheet.absoluteFill, { opacity: fade }]}
           />
-        ) : (
-          <Ionicons
-            name={failed ? "reload-outline" : revealed ? "image-outline" : "eye-off-outline"}
-            size={22}
-            color={QUIET}
-          />
-        )}
+        ) : null}
         {current ? <View pointerEvents="none" style={styles.thumbCurrent} /> : null}
       </View>
     </Pressable>
@@ -428,9 +466,15 @@ const styles = StyleSheet.create({
   thumb: {
     borderRadius: READER_BOOK_THUMBNAIL_RADIUS,
     overflow: "hidden",
-    backgroundColor: "rgba(255,255,255,0.05)",
+    backgroundColor: MOBILE_READER_SCROLL_PLACEHOLDER_COLOR,
     alignItems: "center",
     justifyContent: "center",
+  },
+  placeholderNumber: {
+    fontSize: 13,
+    lineHeight: 16,
+    fontVariant: ["tabular-nums"],
+    color: PLACEHOLDER_NUMBER_COLOR,
   },
   thumbCurrent: {
     ...StyleSheet.absoluteFill,
