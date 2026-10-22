@@ -177,6 +177,61 @@ export function resolveMobileReaderScrollEventOffset(
 }
 
 /**
+ * After a head shift or a resize of the rows above the reading line: the
+ * longest the rows count as settling when the list never reports.
+ */
+export const MOBILE_READER_STRIP_ROWS_SETTLE_MAX_MS = 1_000;
+
+/**
+ * After a head shift or a resize of the rows above the reading line: what
+ * the native offset must have moved by. Until it is checked the list's rows
+ * are settling (no crossing, no head prune).
+ */
+export type MobileReaderStripRowsSettle = Readonly<{
+  kind: "head-shift" | "above-resize";
+  /** The native offset when the rows changed (old rows' terms). */
+  before: number;
+  /** How far the JS layout moved the reading line's row (content offset). */
+  jsDelta: number;
+  /** Height of the rows inserted (negative: removed) or the size change above. */
+  rowsHeight: number;
+  /** Rows inserted (negative: removed); 0 for a resize. */
+  rows: number;
+}>;
+
+/** A second change before the first was checked: one settle, both deltas. */
+export function mergeMobileReaderStripRowsSettle(
+  current: MobileReaderStripRowsSettle | null,
+  next: MobileReaderStripRowsSettle,
+): MobileReaderStripRowsSettle {
+  if (!current) return next;
+  return {
+    kind: current.kind === "head-shift" || next.kind === "head-shift" ? "head-shift" : "above-resize",
+    before: current.before,
+    jsDelta: current.jsDelta + next.jsDelta,
+    rowsHeight: current.rowsHeight + next.rowsHeight,
+    rows: current.rows + next.rows,
+  };
+}
+
+/**
+ * The check once the list reported its new size: the offset must now be
+ * `before + jsDelta` (the same picture at the reading line). When it is not
+ * and the reader is not scrolling, the list is put there (an absolute
+ * offset: harmless if the native correction is merely late).
+ */
+export function resolveMobileReaderStripRowsSettle(
+  settle: MobileReaderStripRowsSettle,
+  nativeOffset: number,
+  userScrolling: boolean,
+): { expected: number; moved: number; ok: boolean; fixTo: number | null } {
+  const expected = settle.before + settle.jsDelta;
+  const moved = nativeOffset - settle.before;
+  const ok = Math.abs(nativeOffset - expected) <= 1;
+  return { expected, moved, ok, fixTo: ok || userScrolling ? null : expected };
+}
+
+/**
  * After a head shift: whether the list left the open chapter's spot (more
  * than half a screen from where it should be), so it must be put back.
  */

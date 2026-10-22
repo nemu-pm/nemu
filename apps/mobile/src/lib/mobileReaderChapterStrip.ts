@@ -21,6 +21,17 @@ import {
  */
 export const readerSeamlessScroll = true;
 
+/**
+ * How the chapter above joins the list.
+ * - `auto`: fetched as soon as the reader is in the open chapter's first
+ *   pages, spliced at rest.
+ * - `pull`: never fetched on its own; only a pull past the very top of p1
+ *   (see mobileReaderStripPull) fetches it, and it is inserted above with
+ *   the screen kept where it is.
+ */
+export type MobileReaderStripPrependMode = "auto" | "pull";
+export const MOBILE_READER_STRIP_PREPEND_MODE: MobileReaderStripPrependMode = "auto";
+
 /** The divider's own box (two centred lines). */
 export const MOBILE_READER_STRIP_DIVIDER_HEIGHT = 64;
 /** Space above and below the divider's box. */
@@ -259,6 +270,43 @@ export function combineMobileReaderStripLayouts(
     previousKind = row.kind;
   }
   return buildMobileReaderScrollLayout(heights, gaps, 0, known);
+}
+
+/** Row heights of the list's last layout, by row key (see freeze below). */
+export type MobileReaderStripRowHeights = ReadonlyMap<string, number>;
+
+/**
+ * Rows of the chapters above the open one never change height en masse.
+ * A row whose size is not known stands in at its chapter's typical page —
+ * and that typical page moves the moment one page of the chapter decodes,
+ * which would move every unknown row above the screen at once (+25% for
+ * Tower of God's slices against the 1:1.45 default). An unknown row of a
+ * chapter above the open one keeps the height it already had in the list;
+ * only a row's own real size changes it.
+ */
+export function freezeMobileReaderStripRowsAbove(
+  rows: readonly MobileReaderStripRow[],
+  currentIndex: number,
+  layout: MobileReaderScrollLayout,
+  previous: MobileReaderStripRowHeights | null | undefined,
+): { layout: MobileReaderScrollLayout; heights: MobileReaderStripRowHeights } {
+  let frozen: number[] | null = null;
+  if (previous && previous.size > 0) {
+    rows.forEach((row, index) => {
+      if (row.kind !== "page" || row.segmentIndex >= currentIndex) return;
+      if (layout.known ? layout.known[index] === true : true) return;
+      const kept = previous.get(row.key);
+      if (kept == null || Math.abs(kept - layout.heights[index]!) < 0.01) return;
+      frozen ??= [...layout.heights];
+      frozen[index] = kept;
+    });
+  }
+  const next: MobileReaderScrollLayout = frozen
+    ? buildMobileReaderScrollLayout(frozen, layout.gaps, 0, layout.known)
+    : layout;
+  const heights = new Map<string, number>();
+  rows.forEach((row, index) => heights.set(row.key, next.heights[index] ?? 0));
+  return { layout: next, heights };
 }
 
 /**

@@ -9,7 +9,9 @@ import {
   rebaseMobileReaderStrip,
   shouldAppendMobileReaderStripSegment,
   shouldPrependMobileReaderStripSegment,
+  MOBILE_READER_STRIP_PREPEND_MODE,
   type MobileReaderStrip,
+  type MobileReaderStripPrependMode,
   type MobileReaderStripTail,
 } from "@/lib/mobileReaderChapterStrip";
 import { getMobileReaderChapterNavigation } from "@/lib/mobileReaderChapters";
@@ -87,6 +89,12 @@ export function useReaderChapterStrip(input: {
   canSplicePrevious: () => boolean;
   /** Where the reader is, for the one-line device log of a prepend. */
   describePosition?: () => string;
+  /**
+   * `auto` (default: MOBILE_READER_STRIP_PREPEND_MODE): the chapter above is
+   * fetched in the open chapter's first pages. `pull`: only `requestPrevious`
+   * (a pull past the top of p1) fetches it.
+   */
+  prependMode?: MobileReaderStripPrependMode;
 }) {
   const {
     enabled,
@@ -99,7 +107,10 @@ export function useReaderChapterStrip(input: {
     canPrepend,
     canSplicePrevious,
     describePosition,
+    prependMode = MOBILE_READER_STRIP_PREPEND_MODE,
   } = input;
+  const prependModeRef = useRef(prependMode);
+  prependModeRef.current = prependMode;
   const [state, setState] = useState<StripState>(EMPTY_STATE);
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -405,6 +416,8 @@ export function useReaderChapterStrip(input: {
       flushPrevious();
       return;
     }
+    // Pull mode: never on its own (see requestPrevious).
+    if (prependModeRef.current === "pull") return;
     const { currentIndex, previous: edge } = stateRef.current;
     if (currentIndex !== 0 || edge != null) return;
     const previous = getMobileReaderChapterNavigation(
@@ -448,7 +461,15 @@ export function useReaderChapterStrip(input: {
   }, [chapters, current, currentLocalIndex, fetchSegment, live, recheckPrevious, state]);
 
   // Keep the open chapter and one on each side; a chapter above is dropped
-  // only once it is off screen.
+  // only once it is off screen (and the list's rows have settled: the
+  // reader asks again with recheckPrune when they have).
+  const [pruneTick, setPruneTick] = useState(0);
+  const pruneWaitingRef = useRef(false);
+  const recheckPrune = useCallback(() => {
+    if (!pruneWaitingRef.current) return;
+    pruneWaitingRef.current = false;
+    setPruneTick((tick) => tick + 1);
+  }, []);
   useEffect(() => {
     if (!live) return;
     const base: ReaderChapterStrip = {
@@ -459,7 +480,10 @@ export function useReaderChapterStrip(input: {
     const pruned = pruneMobileReaderStrip(base);
     if (pruned.removedHead.length === 0 && pruned.removedTail.length === 0) return;
     const headCount = pruned.removedHead.length;
-    if (headCount > 0 && strip && !isHeadRemovalOffscreenRef.current(strip, headCount)) return;
+    if (headCount > 0 && strip && !isHeadRemovalOffscreenRef.current(strip, headCount)) {
+      pruneWaitingRef.current = true;
+      return;
+    }
     const removedHead = state.segments.slice(0, headCount);
     const removedTail = state.segments.slice(state.segments.length - pruned.removedTail.length);
     disposeSegments([...removedHead, ...removedTail]);
@@ -473,7 +497,7 @@ export function useReaderChapterStrip(input: {
             next: pruned.removedTail.length > 0 ? null : previous.next,
           },
     );
-  }, [currentLocalIndex, disposeSegments, live, state, strip]);
+  }, [currentLocalIndex, disposeSegments, live, pruneTick, state, strip]);
 
   /**
    * The reader crossed into segment `segmentIndex`: it becomes the open
@@ -561,5 +585,7 @@ export function useReaderChapterStrip(input: {
     isRetainedProcessor,
     /** Splice a fetched previous chapter held back until the list rests. */
     flushPrevious,
+    /** Try the head prune again (it waited for the rows to settle). */
+    recheckPrune,
   };
 }

@@ -49,11 +49,13 @@ function ratioOf(size: MobileReaderScrollPageSize | null | undefined): number | 
 /**
  * Height / width per page: its own known size, else the median of the
  * chapter's known pages (a chapter's pages are nearly always one format),
- * else 1:1.45.
+ * else `fallbackRatio` (seamless scroll: the open chapter's typical page —
+ * a series keeps one format), else 1:1.45.
  */
 export function mobileReaderScrollPageRatios(
   pageCount: number,
   sizeAt: (index: number) => MobileReaderScrollPageSize | null | undefined,
+  fallbackRatio?: number | null,
 ): number[] {
   if (!Number.isFinite(pageCount) || pageCount <= 0) return [];
   const known: (number | null)[] = [];
@@ -66,11 +68,33 @@ export function mobileReaderScrollPageRatios(
   sorted.sort((a, b) => a - b);
   const fallback =
     sorted.length === 0
-      ? MOBILE_READER_SCROLL_DEFAULT_PAGE_RATIO
+      ? fallbackRatio != null && Number.isFinite(fallbackRatio) && fallbackRatio > 0
+        ? fallbackRatio
+        : MOBILE_READER_SCROLL_DEFAULT_PAGE_RATIO
       : sorted.length % 2 === 1
         ? sorted[(sorted.length - 1) / 2]!
         : (sorted[sorted.length / 2 - 1]! + sorted[sorted.length / 2]!) / 2;
   return known.map((ratio) => ratio ?? fallback);
+}
+
+/**
+ * The typical page of a layout (median height / width of its pages with a
+ * real size); null when none is known yet.
+ */
+export function mobileReaderScrollKnownMedianRatio(
+  layout: Pick<MobileReaderScrollLayout, "heights" | "known"> | null | undefined,
+  width: number,
+): number | null {
+  if (!layout || !(width > 0)) return null;
+  const sorted: number[] = [];
+  layout.heights.forEach((height, index) => {
+    if ((layout.known ? layout.known[index] === true : true) && height > 0) sorted.push(height / width);
+  });
+  if (sorted.length === 0) return null;
+  sorted.sort((a, b) => a - b);
+  return sorted.length % 2 === 1
+    ? sorted[(sorted.length - 1) / 2]!
+    : (sorted[sorted.length / 2 - 1]! + sorted[sorted.length / 2]!) / 2;
 }
 
 export function buildMobileReaderScrollLayout(

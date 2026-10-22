@@ -28,7 +28,8 @@ import {
   type ListViewToken,
   type ViewInstance,
 } from "react-native";
-import Animated, { LayoutAnimationConfig, useSharedValue } from "react-native-reanimated";
+import Animated, { LayoutAnimationConfig, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
+import { hapticSelection } from "@/lib/haptics";
 import { GestureDetector, type GestureType } from "react-native-gesture-handler";
 import { DuoBookSpineShade } from "@/components/duo/DuoBookSpineShade";
 import { mobileDuoSpreadPageRects } from "@/lib/mobileDuoSpine";
@@ -140,13 +141,24 @@ import {
 } from "@/lib/mobileReaderScrollLayout";
 import {
   MOBILE_READER_SCROLL_HEAD_SHIFT_WINDOW_MS,
+  MOBILE_READER_STRIP_ROWS_SETTLE_MAX_MS,
+  mergeMobileReaderStripRowsSettle,
   mobileReaderStripHeadRowShift,
   mobileReaderStripHeadShiftOffset,
   resolveMobileReaderScrollEventOffset,
+  resolveMobileReaderStripRowsSettle,
   shiftMobileReaderRowIndex,
   shiftMobileReaderScrollAnchorRows,
   type MobileReaderScrollHeadShift,
+  type MobileReaderStripRowsSettle,
 } from "@/lib/mobileReaderStripBridge";
+import {
+  MOBILE_READER_STRIP_PULL_IDLE,
+  mobileReaderStripPullHeaderOpacity,
+  mobileReaderStripPullReleases,
+  nextMobileReaderStripPull,
+  type MobileReaderStripPullState,
+} from "@/lib/mobileReaderStripPull";
 
 type MobileReaderGalleryState = {
   status: string;
@@ -215,8 +227,26 @@ type MobileReaderGalleryProps = {
   onScrollScreenStep?: (direction: "previous" | "next") => void;
   /** The reader tried to move past the final page of the chapter. */
   onRequestAdvancePastEnd?: () => void;
-  /** Paged mode: the reader tried to move back past the chapter's first page. */
+  /**
+   * Paged mode: the reader tried to move back past the chapter's first page.
+   * Scroll mode with `scrollPullHeader`: a pull past the top of the list
+   * beyond MOBILE_READER_STRIP_PULL_THRESHOLD, released there.
+   */
   onRequestRetreatPastStart?: () => void;
+  /**
+   * Seamless scroll, pull prepend mode: shown above the list's first row
+   * while it is pulled down (fading in up to the pull threshold). Kept
+   * mounted for the whole pull mode (the list's header cell never comes
+   * and goes under maintainVisibleContentPosition).
+   */
+  scrollPullHeader?: ReactNode;
+  /** With `scrollPullHeader`: a pull may fetch the chapter above now. */
+  scrollPullEnabled?: boolean;
+  /**
+   * Scroll mode: rows inserted / removed above or resized above the reading
+   * line were checked (see MobileReaderScrollHandle.rowsSettling).
+   */
+  onRowsSettled?: () => void;
   /**
    * Paged mode: reading-order index of the page (or spread, in two-page mode)
    * the reader state says is on screen. Chapter edges are judged from this and
@@ -387,6 +417,11 @@ export type MobileReaderScrollHandle = {
   }): void;
   /** Scroll mode with a page layout: the page (and fraction) at the reading line. */
   pageAnchor(): MobileReaderScrollPageAnchor | null;
+  /**
+   * Scroll mode: rows above were inserted, removed or resized and the list
+   * has not reported its new offset yet (no crossing, no head prune).
+   */
+  rowsSettling(): boolean;
   /** Scroll mode: where the screen is now; null before the list has a size. */
   scrollViewport(): MobileReaderScrollViewport | null;
   /**
@@ -575,6 +610,9 @@ export function MobileReaderGallery({
   onScrollScreenStep,
   onRequestAdvancePastEnd,
   onRequestRetreatPastStart,
+  scrollPullHeader,
+  scrollPullEnabled = false,
+  onRowsSettled,
   pagedDisplayIndex,
   pagedDisplayCount,
   onSegmentedLogicalEndReached,
@@ -1071,6 +1109,106 @@ export function MobileReaderGallery({
   // TEMP DIAG (tog jump): one-line [reader-strip-diag] events for 20s after
   // a head shift (or any rescale of the rows above the reading line).
   const stripDiagRef = useRef({ until: 0, lastAt: 0, lastRaw: Number.NaN, lastContent: Number.NaN });
+  // The native offset as the list last reported it (never re-measured).
+  const latestRawOffsetRef = useRef(0);
+  // Rows inserted / removed above, or rows above the reading line resized:
+  // until the list has reported its new size and the offset is checked
+  // (put back if it did not follow), the rows are settling — no crossing,
+  // no head prune (see rowsSettling on the handle).
+  const rowsSettleRef = useRef<{
+    settle: MobileReaderStripRowsSettle;
+    events: number;
+    contentSeen: boolean;
+    tries: number;
+    timer: ReturnType<typeof setTimeout> | null;
+    frame: number | null;
+  } | null>(null);
+  const settlePostRef = useRef<{ expected: number; until: number } | null>(null);
+  const onRowsSettledRef = useRef(onRowsSettled);
+  onRowsSettledRef.current = onRowsSettled;
+  // Pull prepend mode (see scrollPullHeader).
+  const pullStateRef = useRef<MobileReaderStripPullState>(MOBILE_READER_STRIP_PULL_IDLE);
+  const pullHeaderOpacity = useSharedValue(0);
+  const pullHeaderAnimatedStyle = useAnimatedStyle(() => ({ opacity: pullHeaderOpacity.value }));
+  const scrollPullActiveRef = useRef(false);
+  scrollPullActiveRef.current = scrollPullHeader != null && scrollPullEnabled;
+  const galleryUserScrolling = () => dragStartOffsetRef.current != null || scrollGlidingRef.current;
+  const clearRowsSettle = () => {
+    const pending = rowsSettleRef.current;
+    if (!pending) return;
+    if (pending.timer) clearTimeout(pending.timer);
+    if (pending.frame != null) cancelAnimationFrame(pending.frame);
+    rowsSettleRef.current = null;
+  };
+  const checkRowsSettle = (timedOut: boolean) => {
+    const pending = rowsSettleRef.current;
+    if (!pending) return;
+    // The native correction's own scroll event may still be on its way:
+    // give it a few frames before judging the offset.
+    if (!timedOut && pending.events === 0 && pending.tries < 3) {
+      pending.tries += 1;
+      pending.frame = requestAnimationFrame(() => {
+        pending.frame = null;
+        checkRowsSettle(false);
+      });
+      return;
+    }
+    clearRowsSettle();
+    const { settle } = pending;
+    const native = latestRawOffsetRef.current;
+    const scrolling = galleryUserScrolling();
+    const seekHeld = pendingPageSeekRef.current != null;
+    const result = resolveMobileReaderStripRowsSettle(settle, native, scrolling || seekHeld);
+    console.info(
+      `[reader-strip-diag] settle kind=${settle.kind} rows=${settle.rows} before=${Math.round(settle.before)} after=${Math.round(
+        native,
+      )} moved=${Math.round(result.moved)} jsDelta=${Math.round(settle.jsDelta)} rowsHeight=${Math.round(
+        settle.rowsHeight,
+      )} expected=${Math.round(result.expected)} ok=${result.ok} events=${pending.events} content=${pending.contentSeen} timedOut=${timedOut} scrolling=${scrolling} seek=${seekHeld} fix=${
+        result.fixTo != null ? Math.round(result.fixTo) : "none"
+      }`,
+    );
+    settlePostRef.current =
+      result.fixTo != null ? { expected: result.fixTo, until: Date.now() + 1_500 } : null;
+    if (result.fixTo != null) {
+      // An absolute offset in the new rows' terms: no event is stale now.
+      scrollHeadShiftRef.current = null;
+      listRef.current?.scrollToOffset({ offset: result.fixTo, animated: false });
+    }
+    onRowsSettledRef.current?.();
+  };
+  /** The list reported (an event or its new size): judge the offset soon. */
+  const noteRowsSettleReport = (kind: "event" | "content") => {
+    const pending = rowsSettleRef.current;
+    if (!pending) return;
+    if (kind === "event") pending.events += 1;
+    else pending.contentSeen = true;
+    if (!pending.contentSeen || pending.frame != null) return;
+    pending.frame = requestAnimationFrame(() => {
+      pending.frame = null;
+      if (rowsSettleRef.current === pending) checkRowsSettle(false);
+    });
+  };
+  const armRowsSettle = (settle: MobileReaderStripRowsSettle) => {
+    const pending = rowsSettleRef.current;
+    if (pending?.timer) clearTimeout(pending.timer);
+    if (pending?.frame != null) cancelAnimationFrame(pending.frame);
+    const next = {
+      settle: mergeMobileReaderStripRowsSettle(pending?.settle ?? null, settle),
+      events: 0,
+      contentSeen: false,
+      tries: 0,
+      timer: null as ReturnType<typeof setTimeout> | null,
+      frame: null as number | null,
+    };
+    next.timer = setTimeout(() => {
+      next.timer = null;
+      if (rowsSettleRef.current === next) checkRowsSettle(true);
+    }, MOBILE_READER_STRIP_ROWS_SETTLE_MAX_MS);
+    rowsSettleRef.current = next;
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- reads refs only.
+  useEffect(() => clearRowsSettle, [scrollMountKey]);
   useLayoutEffect(() => {
     const previous = scrollRowsRef.current;
     const keys = displayedPages.map((page) => page.id);
@@ -1093,24 +1231,56 @@ export function MobileReaderGallery({
     }
     const rows = mobileReaderStripHeadRowShift(previous.keys, keys);
     if (rows === 0 && previous.layout !== scrollPageLayout) {
-      // TEMP DIAG: rows above the reading line resized (no rows added).
+      // Rows above the reading line resized (no rows added): the same
+      // picture must stay at the reading line — checked once the list reports.
       const anchorRow = scrollAnchorRef.current?.pageIndex;
       if (anchorRow != null) {
         const before = previous.layout.starts[anchorRow];
         const after = scrollPageLayout.starts[anchorRow];
         if (before != null && after != null && Math.abs(after - before) > 1) {
           let changed = 0;
+          let rowsHeight = 0;
           for (let row = 0; row < anchorRow; row += 1) {
-            if (Math.abs((previous.layout.heights[row] ?? 0) - (scrollPageLayout.heights[row] ?? 0)) > 0.5) changed += 1;
+            const grown =
+              (scrollPageLayout.heights[row] ?? 0) +
+              (scrollPageLayout.gaps[row] ?? 0) -
+              (previous.layout.heights[row] ?? 0) -
+              (previous.layout.gaps[row] ?? 0);
+            if (Math.abs(grown) > 0.5) {
+              changed += 1;
+              rowsHeight += grown;
+            }
           }
+          const delta = after - before;
+          const scrolling = galleryUserScrolling();
           stripDiagRef.current.until = Date.now() + 20_000;
           console.info(
             `[reader-strip-diag] above-resize anchor=row${anchorRow} start=${Math.round(before)}->${Math.round(after)} delta=${Math.round(
-              after - before,
-            )} rowsChanged=${changed} recorded=${Math.round(latestScrollMetricsRef.current.contentOffset)} jsTotal=${Math.round(
-              previous.layout.length,
-            )}->${Math.round(scrollPageLayout.length)}`,
+              delta,
+            )} rowsChanged=${changed} rowsHeight=${Math.round(rowsHeight)} before=${Math.round(latestRawOffsetRef.current)} recorded=${Math.round(
+              latestScrollMetricsRef.current.contentOffset,
+            )} jsTotal=${Math.round(previous.layout.length)}->${Math.round(scrollPageLayout.length)} scrolling=${scrolling}`,
           );
+          armRowsSettle({
+            kind: "above-resize",
+            before: latestRawOffsetRef.current,
+            jsDelta: delta,
+            rowsHeight,
+            rows: 0,
+          });
+          // At rest, events still on their way carry the offset before the
+          // native correction: measured where those rows are now.
+          if (!scrolling) {
+            const active = scrollHeadShiftRef.current;
+            scrollHeadShiftRef.current =
+              active && Date.now() <= active.until
+                ? { ...active, offset: active.offset + delta, until: Date.now() + MOBILE_READER_SCROLL_HEAD_SHIFT_WINDOW_MS }
+                : {
+                    offset: delta,
+                    lastOffset: latestScrollMetricsRef.current.contentOffset,
+                    until: Date.now() + MOBILE_READER_SCROLL_HEAD_SHIFT_WINDOW_MS,
+                  };
+          }
         }
       }
     }
@@ -1148,8 +1318,30 @@ export function MobileReaderGallery({
       const viewportTop = currentScrollViewportTop() + offset;
       setScrollRenderWindow((current) => ({ ...current, anchor: centre, viewportTop }));
     }
+    // The real height of the rows inserted (removed: from the old layout).
+    let insertedHeight = 0;
+    if (rows > 0) {
+      for (let row = 0; row < rows; row += 1) {
+        insertedHeight += (scrollPageLayout.heights[row] ?? 0) + (scrollPageLayout.gaps[row] ?? 0);
+      }
+    } else {
+      for (let row = 0; row < -rows; row += 1) {
+        insertedHeight -= (previous.layout.heights[row] ?? 0) + (previous.layout.gaps[row] ?? 0);
+      }
+    }
+    if (offset !== 0) {
+      armRowsSettle({
+        kind: "head-shift",
+        before: latestRawOffsetRef.current,
+        jsDelta: offset,
+        rowsHeight: insertedHeight,
+        rows,
+      });
+    }
     console.info(
-      `[reader-strip-diag] head-shift recorded=${Math.round(latestScrollMetricsRef.current.contentOffset)} expected=${Math.round(
+      `[reader-strip-diag] head-shift rows=${rows} before=${Math.round(latestRawOffsetRef.current)} insertedHeight=${Math.round(
+        insertedHeight,
+      )} recorded=${Math.round(latestScrollMetricsRef.current.contentOffset)} expected=${Math.round(
         latestScrollMetricsRef.current.contentOffset + offset,
       )} jsInserted=${Math.round(offset)} nativeContent=${Math.round(latestScrollMetricsRef.current.contentLength)} jsTotal=${Math.round(
         previous.layout.length,
@@ -1255,6 +1447,9 @@ export function MobileReaderGallery({
       },
       pageAnchor() {
         return scrollPageLayoutRef.current ? scrollAnchorRef.current : null;
+      },
+      rowsSettling() {
+        return !pagedMode && rowsSettleRef.current != null;
       },
       scrollViewport() {
         if (pagedMode) return null;
@@ -1970,6 +2165,33 @@ export function MobileReaderGallery({
       );
       scrollHeadShiftRef.current = resolved.shift;
       const contentOffset = { y: resolved.offset };
+      const rawOffset = event.nativeEvent.contentOffset.y;
+      latestRawOffsetRef.current = rawOffset;
+      noteRowsSettleReport("event");
+      const post = settlePostRef.current;
+      if (post) {
+        if (Date.now() > post.until) settlePostRef.current = null;
+        else if (Math.abs(rawOffset - post.expected) > 1 && !galleryUserScrolling()) {
+          settlePostRef.current = null;
+          console.info(
+            `[reader-strip-diag] settle-post raw=${Math.round(rawOffset)} expected=${Math.round(post.expected)} off=${Math.round(
+              rawOffset - post.expected,
+            )}`,
+          );
+        }
+      }
+      if (scrollPullHeader != null) {
+        const pulled = nextMobileReaderStripPull(pullStateRef.current, {
+          offset: rawOffset,
+          dragging: dragStartOffsetRef.current != null,
+          enabled: scrollPullActiveRef.current,
+        });
+        if (pulled.state !== pullStateRef.current) {
+          pullStateRef.current = pulled.state;
+          pullHeaderOpacity.value = mobileReaderStripPullHeaderOpacity(pulled.state.pull);
+        }
+        if (pulled.haptic) void hapticSelection();
+      }
       {
         // TEMP DIAG: native vs resolved offset, native vs JS content length.
         const diag = stripDiagRef.current;
@@ -2057,6 +2279,7 @@ export function MobileReaderGallery({
     });
     recordContinuousScrollMetrics(measuredMetrics, false);
     publishLogicalScrollAccessibility();
+    noteRowsSettleReport("content");
     if (Date.now() < stripDiagRef.current.until) {
       // TEMP DIAG
       const diagLayout = scrollPageLayoutRef.current;
@@ -2137,6 +2360,19 @@ export function MobileReaderGallery({
     event: NativeSyntheticEvent<NativeScrollEvent>,
   ) => {
     publishLogicalScrollAccessibility();
+    if (!pagedMode && scrollPullHeader != null) {
+      // Pull prepend mode: let go past the threshold fetches the chapter above.
+      const released = mobileReaderStripPullReleases(pullStateRef.current) && scrollPullActiveRef.current;
+      pullStateRef.current = { pull: pullStateRef.current.pull, armed: false };
+      if (released) {
+        console.info(
+          `[reader-strip] pull release pull=${Math.round(pullStateRef.current.pull)} offset=${Math.round(
+            event.nativeEvent.contentOffset.y,
+          )}`,
+        );
+        onRequestRetreatPastStartRef.current?.();
+      }
+    }
     if (!pagedMode) {
       // iOS reports where the fling will rest (Android only the finger's
       // velocity); the reader warms that screen while the list travels.
@@ -2708,6 +2944,17 @@ export function MobileReaderGallery({
       showsHorizontalScrollIndicator={false}
       showsVerticalScrollIndicator={false}
       contentContainerStyle={galleryContentContainerStyle}
+      // Pull prepend mode: a 0pt header (no layout) whose content hangs
+      // above the first row, in the bounce area.
+      ListHeaderComponent={
+        !pagedMode && scrollPullHeader != null ? (
+          <View pointerEvents="none" style={styles.pullHeaderCell}>
+            <Animated.View style={[styles.pullHeaderContent, pullHeaderAnimatedStyle]}>
+              {scrollPullHeader}
+            </Animated.View>
+          </View>
+        ) : undefined
+      }
       style={styles.readerScroll}
     />
     </Animated.View>
@@ -2978,6 +3225,16 @@ function TextPage({
 }
 
 const styles = StyleSheet.create({
+  pullHeaderCell: {
+    height: 0,
+    overflow: "visible",
+  },
+  pullHeaderContent: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
   stageContainer: {
     flex: 1,
   },

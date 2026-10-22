@@ -14,8 +14,11 @@ import type { ChapterSummary } from "@/data/schema";
 const READER_STRIP_DIVIDER_ACTION_COLOR = "#5B6CEB";
 
 export type ReaderChapterDividerProps = {
-  /** `next`: the chapter below; `end`: nothing follows (caught up). */
-  variant: "next" | "end";
+  /**
+   * `next`: the chapter below; `end`: nothing follows (caught up);
+   * `previous`: the chapter above (the pull-to-load header).
+   */
+  variant: "next" | "end" | "previous";
   chapter: ChapterSummary | null;
   /** The chapter below's state when it is not in the list yet. */
   status: "ready" | "idle" | "loading" | "failed" | "locked";
@@ -57,7 +60,13 @@ export const ReaderChapterDivider = memo(function ReaderChapterDivider({
   const accessibilityLabel =
     variant === "end"
       ? title
-      : [strings.reader.nextChapter, title, secondLine].filter(Boolean).join(", ");
+      : [
+          variant === "previous" ? strings.reader.previousChapter : strings.reader.nextChapter,
+          title,
+          secondLine,
+        ]
+          .filter(Boolean)
+          .join(", ");
   const content = (
     <View style={styles.box}>
       <Text numberOfLines={1} style={styles.title}>
