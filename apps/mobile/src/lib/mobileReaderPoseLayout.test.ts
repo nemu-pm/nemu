@@ -548,7 +548,9 @@ describe("reader pose: laptop (notebook), scroll reading (side pane)", () => {
     verticalBarEdge: null, layoutDirection: "ltr",
     safeAreaInsets: { top: 82, left: 0, bottom: 34, right: 0 },
   };
-  const crease = 455.5 + 20;
+  // The QA's acceptance: no artwork in 435.5–515.5 (20pt off the region's edges).
+  const foldTop = 455.5;
+  const foldBottom = 495.5;
   const scroll = (layout: MobileWindowLayout = laptop, overrides: Partial<MobileReaderPoseLayoutInput> = {}) =>
     pose(layout, { paged: false, scrollSidePane: true, ...overrides });
 
@@ -556,21 +558,27 @@ describe("reader pose: laptop (notebook), scroll reading (side pane)", () => {
     const result = scroll();
     expect(result.posture).toBe("notebook");
     expect(result.constrained).toBe(true);
-    expect(result.stage).toEqual({ x: 0, y: 0, width: 669, height: 455.5 });
-    expect(result.stage.y + result.stage.height).toBeLessThanOrEqual(crease - READER_LAPTOP_CREASE_CLEARANCE);
+    expect(result.stage).toEqual({ x: 0, y: 0, width: 669, height: 435.5 });
+    expect(result.stage.y + result.stage.height).toBeLessThanOrEqual(foldTop - READER_LAPTOP_CREASE_CLEARANCE);
     expect(result.chrome.kind).toBe("capsules");
     expect(result.chromePinned).toBe(false);
   });
 
-  test("a fold region narrower than ±20pt still keeps the strip and the pane 20pt off the crease", () => {
+  test("the clearance is from the fold region's edges, not its centre line (a 40pt region swallowed it)", () => {
     const narrow = scroll({ ...laptop, divisions: [hinge(0, 470, 669, 10)] });
-    expect(narrow.stage.y + narrow.stage.height).toBe(475 - 20);
-    expect(narrow.sidePane!.frame.y).toBe(475 + 20);
+    expect(narrow.stage.y + narrow.stage.height).toBeLessThanOrEqual(470 - 20);
+    expect(narrow.sidePane!.frame.y).toBeGreaterThanOrEqual(480 + 20);
+    expect(mobileReaderLaptopCreaseClearance(
+      { x: 0, y: 0, width: 669, height: 455.5 },
+      { x: 0, y: 495.5, width: 669, height: 455.5 },
+      { x: 0, y: 455.5, width: 669, height: 40 },
+    )).toEqual({ crease: 475.5, stripBottom: 435.5, paneTop: 515.5 });
+    // No region known: 20pt off the gap between the panes.
     expect(mobileReaderLaptopCreaseClearance(
       { x: 0, y: 0, width: 669, height: 470 },
       { x: 0, y: 480, width: 669, height: 471 },
       null,
-    )).toEqual({ crease: 475, stripBottom: 455, paneTop: 495 });
+    )).toEqual({ crease: 475, stripBottom: 450, paneTop: 500 });
   });
 
   test("the toolbar stays in the top half: title centred on its width with the full label, actions top right", () => {
@@ -588,9 +596,9 @@ describe("reader pose: laptop (notebook), scroll reading (side pane)", () => {
       expect(overlapsBox(chrome.title!, { x: 535, y: 0, width: 134, height: 82 })).toBe(false);
       // Every piece above the crease's clearance.
       for (const piece of [chrome.back, chrome.title!, chrome.actions, chrome.scrubber]) {
-        expect(piece.y + piece.height).toBeLessThanOrEqual(crease - READER_LAPTOP_CREASE_CLEARANCE);
+        expect(piece.y + piece.height).toBeLessThanOrEqual(foldTop - READER_LAPTOP_CREASE_CLEARANCE);
       }
-      expect(chrome.scrubber.y).toBeGreaterThan(455.5 / 2);
+      expect(chrome.scrubber.y).toBeGreaterThan(435.5 / 2);
       expect(Math.abs(chrome.scrubber.x + chrome.scrubber.width / 2 - 669 / 2)).toBeLessThanOrEqual(1);
     }
   });
@@ -604,27 +612,26 @@ describe("reader pose: laptop (notebook), scroll reading (side pane)", () => {
   test("bottom half: a thumbnail row the half's height less 16pt above and below; page controls side by side", () => {
     const side = scroll().sidePane!;
     expect(side.orientation).toBe("horizontal");
-    expect(side.frame).toEqual({ x: 0, y: 495.5, width: 669, height: 455.5 });
-    expect(side.frame.y).toBeGreaterThanOrEqual(crease + READER_LAPTOP_CREASE_CLEARANCE);
+    expect(side.frame).toEqual({ x: 0, y: 515.5, width: 669, height: 435.5 });
+    expect(side.frame.y).toBeGreaterThanOrEqual(foldBottom + READER_LAPTOP_CREASE_CLEARANCE);
     expect(side.list).toEqual(side.frame);
-    expect(side.thumbnailSize).toBe(455.5 - 32);
+    expect(side.thumbnailSize).toBe(435.5 - 32);
     expect(side.header.height).toBe(0);
     expect(side.pageUp.width).toBe(64);
     expect(side.pageUp.y).toBe(side.pageDown.y);
     expect(side.pageDown.x - (side.pageUp.x + 64)).toBe(24);
     expect((side.pageUp.x + side.pageDown.x + 64) / 2).toBeCloseTo(669 / 2, 5);
-    expect(side.pageUp.y + 32).toBeCloseTo(495.5 + 455.5 / 2, 5);
+    expect(side.pageUp.y + 32).toBeCloseTo(515.5 + 435.5 / 2, 5);
   });
 
   test("measured Duo fixtures (half folded, portrait and upside down): strip and pane 20pt off the crease", () => {
     for (const m of fixture.measurements.filter((entry) => entry.pose === "partially-folded" && entry.bounds.height > entry.bounds.width)) {
       const layout = duoLayout(m);
       const fold = activeFold(layout)!;
-      const centre = fold.y + fold.height / 2;
       const result = scroll(layout);
       expect(result.posture).toBe("notebook");
-      expect(result.stage.y + result.stage.height).toBeLessThanOrEqual(centre - 20);
-      expect(result.sidePane!.frame.y).toBeGreaterThanOrEqual(centre + 20);
+      expect(result.stage.y + result.stage.height).toBeLessThanOrEqual(fold.y - 20);
+      expect(result.sidePane!.frame.y).toBeGreaterThanOrEqual(fold.y + fold.height + 20);
       const chrome = capsules(result);
       expect(Math.abs(chrome.title!.x + chrome.title!.width / 2 - m.bounds.width / 2)).toBeLessThanOrEqual(1);
       for (const piece of [chrome.back, chrome.title!, chrome.actions, chrome.scrubber]) {

@@ -252,7 +252,9 @@ export const READER_BOOK_PAGE_CONTROL_SIZE = 64;
 export const READER_BOOK_PAGE_CONTROL_GAP = 24;
 /**
  * Notebook (laptop) posture, scroll reading: no artwork within this distance
- * of the crease's centre line, on either side.
+ * of the crease, on either side — measured from the fold region's edges
+ * (the Duo's region is 40pt tall: from its centre line the clearance was all
+ * inside the region, and the strip ran down to its top edge).
  */
 export const READER_LAPTOP_CREASE_CLEARANCE = 20;
 
@@ -1447,8 +1449,9 @@ function mobileReaderLaptopScrollPose(
 /**
  * Where the strip must end and the bottom pane may start in the laptop
  * posture: the panes as the fold leaves them, never closer than
- * `READER_LAPTOP_CREASE_CLEARANCE` to the crease's centre line (the fold
- * region's middle; the panes' meeting line when no region is known).
+ * `READER_LAPTOP_CREASE_CLEARANCE` to the crease — the fold region's top and
+ * bottom edges (the gap between the panes when no region is known).
+ * `crease` is the region's centre line.
  */
 export function mobileReaderLaptopCreaseClearance(
   topPane: Rect,
@@ -1456,13 +1459,13 @@ export function mobileReaderLaptopCreaseClearance(
   fold: Rect | null,
 ): { crease: number; stripBottom: number; paneTop: number } {
   const topEnd = topPane.y + topPane.height;
-  const crease = fold && fold.height >= 0
-    ? fold.y + fold.height / 2
-    : (topEnd + bottomPane.y) / 2;
+  const region = fold && fold.height >= 0
+    ? fold
+    : { y: Math.min(topEnd, bottomPane.y), height: Math.abs(bottomPane.y - topEnd) };
   return {
-    crease,
-    stripBottom: Math.min(topEnd, crease - READER_LAPTOP_CREASE_CLEARANCE),
-    paneTop: Math.max(bottomPane.y, crease + READER_LAPTOP_CREASE_CLEARANCE),
+    crease: region.y + region.height / 2,
+    stripBottom: Math.min(topEnd, region.y) - READER_LAPTOP_CREASE_CLEARANCE,
+    paneTop: Math.max(bottomPane.y, region.y + region.height) + READER_LAPTOP_CREASE_CLEARANCE,
   };
 }
 
