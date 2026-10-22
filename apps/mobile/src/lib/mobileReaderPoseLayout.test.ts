@@ -1884,6 +1884,24 @@ describe("reader scroll: stable top inset", () => {
       expect(mobileReaderScrollStableTopInset({ reader: layout, app: layout, window: outer, insets: { top: 0 } })).toBe(0);
     });
 
+    test("Duo outer display with its vertical bar: 0 (80pt band, not 104) though the reader's view reports a 24pt top", () => {
+      const outerWindow = { width: 466, height: 678 };
+      const barred: MobileWindowLayout = {
+        ...outerWindow, supported: true, divisions: [],
+        occlusions: [{ id: "camera", x: 399.67, y: 29.33, width: 37, height: 37, active: true }],
+        verticalBarEdge: "trailing", layoutDirection: "ltr",
+        safeAreaInsets: { top: 24, left: 0, bottom: 20, right: 84 },
+      };
+      for (const insets of [{ top: 0 }, { top: 24 }]) {
+        expect(mobileReaderScrollStableTopInset({ reader: null, app: barred, window: outerWindow, insets }) + 80).toBe(80);
+        expect(mobileReaderScrollStableTopInset({ reader: barred, app: barred, window: outerWindow, insets }) + 80).toBe(80);
+      }
+      // RTL: the bar on the leading edge, same.
+      expect(mobileReaderScrollStableTopInset({ reader: { ...barred, verticalBarEdge: "leading" }, app: null, window: outerWindow, insets: { top: 24 } })).toBe(0);
+      // Without the bar (the opted-out inner display) the inset is kept as before.
+      expect(mobileReaderScrollStableTopInset({ reader: { ...barred, verticalBarEdge: null }, app: null, window: outerWindow, insets: { top: 0 } })).toBe(24);
+    });
+
     test("no native sample, or one without insets (bounds-only hosts): the live inset, as before", () => {
       expect(mobileReaderScrollStableTopInset({ reader: null, app: null, window, insets: { top: 24 } })).toBe(24);
       const boundsOnly: MobileWindowLayout = { ...window, supported: false, divisions: [], occlusions: [] };

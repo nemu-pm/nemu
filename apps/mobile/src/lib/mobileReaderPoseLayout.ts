@@ -461,9 +461,9 @@ export function mobileReaderStableTopInset(
  */
 export function mobileReaderScrollStableTopInset(input: {
   /** The reader's own report (folded/anticipated), null before its first one. */
-  reader: Pick<MobileWindowLayout, "width" | "height" | "occlusions" | "safeAreaInsets"> | null;
+  reader: Pick<MobileWindowLayout, "width" | "height" | "occlusions" | "safeAreaInsets" | "verticalBarEdge"> | null;
   /** The app-wide observer's report, null before its first one. */
-  app: Pick<MobileWindowLayout, "width" | "height" | "occlusions" | "safeAreaInsets"> | null;
+  app: Pick<MobileWindowLayout, "width" | "height" | "occlusions" | "safeAreaInsets" | "verticalBarEdge"> | null;
   window: { width: number; height: number };
   insets: Pick<Insets, "top">;
 }): number {
@@ -473,6 +473,11 @@ export function mobileReaderScrollStableTopInset(input: {
   if (!sample) {
     return mobileReaderStableTopInset({ width: window.width, height: window.height, occlusions: [] }, input.insets);
   }
+  // A system vertical bar (the Duo outer display) carries the status bar in
+  // its column: no status bar across the top to clear. The reader's view
+  // still reports a 24pt top there, which padded the outer display's list
+  // 104pt instead of 80 (the live inset the list used before read 0).
+  if (sample.verticalBarEdge === "leading" || sample.verticalBarEdge === "trailing") return 0;
   return mobileReaderStableTopInset(sample, { top: sample.safeAreaInsets?.top ?? input.insets.top });
 }
 
