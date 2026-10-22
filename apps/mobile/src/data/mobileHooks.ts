@@ -1184,6 +1184,8 @@ export function useMobileFeedbackSettings(): {
 
 export function useReadingMode(): {
   mode: ReadingMode;
+  /** The stored reading mode has been read (until then `mode` is the default). */
+  modeLoaded: boolean;
   setMode: (mode: ReadingMode) => Promise<void>;
   scrollWidthPct: number;
   setScrollWidthPct: (value: number) => Promise<void>;
@@ -1197,6 +1199,7 @@ export function useReadingMode(): {
   const store = useMobileDataStore();
   const revision = useMobileDataRevision(["settings"]);
   const [mode, setModeState] = useState<ReadingMode>("rtl");
+  const [modeLoaded, setModeLoaded] = useState(false);
   const [scrollWidthPct, setScrollWidthPctState] = useState(
     DEFAULT_READER_SCROLL_WIDTH_PCT,
   );
@@ -1257,8 +1260,12 @@ export function useReadingMode(): {
         );
         setProcessPageImagesState(nextProcessPageImages);
         savedProcessPageImages.current = nextProcessPageImages;
+        setModeLoaded(true);
       })
-      .catch(() => undefined);
+      .catch(() => {
+        // The default mode stands.
+        if (mounted) setModeLoaded(true);
+      });
     return () => {
       mounted = false;
     };
@@ -1382,6 +1389,7 @@ export function useReadingMode(): {
 
   return {
     mode,
+    modeLoaded,
     setMode,
     scrollWidthPct,
     setScrollWidthPct,
