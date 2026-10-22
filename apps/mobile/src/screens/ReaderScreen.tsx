@@ -463,6 +463,7 @@ import {
   chooseMobileReaderResumePosition,
   flushMobileReaderResumePositions,
   loadMobileReaderResumePosition,
+  markMobileReaderResumeFinished,
   noteMobileReaderResumeProgressWrite,
   saveMobileReaderResumePosition,
   type MobileReaderResumePosition,
@@ -2571,11 +2572,6 @@ export function ReaderScreen() {
     intraPageProgress: readerChapterProgress?.intraPageProgress,
     intraPageContentIdentity: readerChapterProgress?.intraPageContentIdentity,
   });
-  const initialLongStripScrollProgress =
-    savedIntraPageState?.intraPageContentIdentity ===
-    currentDisplayedPageIdentity
-      ? savedIntraPageState.intraPageProgress
-      : undefined;
   const currentSegmentedImage = currentDisplayedPage
     ? (readerSegmentedImages.get(currentDisplayedPageIdentity) ?? null)
     : null;
@@ -3806,6 +3802,19 @@ export function ReaderScreen() {
       }),
     [pageCount, readerLocalResume, readerResumeKey, readerChapterProgress],
   );
+  // Opened already completed (from the snapshot taken when the chapter
+  // opened): spots saved in this session are re-read spots.
+  const readerOpenedCompleted =
+    readerLocalResume?.key === readerResumeKey &&
+    readerLocalResume.progress?.completed === true;
+  // A completed chapter with no re-read spot opens at the top of page 1: the
+  // saved in-page spot (left by finishing it) must not leak into the strip.
+  const initialLongStripScrollProgress =
+    savedIntraPageState?.intraPageContentIdentity ===
+      currentDisplayedPageIdentity &&
+    !(readerOpenedCompleted && readerResumeChoice == null)
+      ? savedIntraPageState.intraPageProgress
+      : undefined;
   // A page-list refresh (a new `fetchedAt`: the cached list first, then the
   // network's) re-places a chapter this screen already placed: it keeps the
   // spot the reader holds, never the route page — which the reader rewrites
@@ -7872,6 +7881,9 @@ export function ReaderScreen() {
           await store.saveChapterProgress(chapterProgress);
           // This device's own write: not "read elsewhere since".
           noteMobileReaderResumeProgressWrite(chapterProgress.id, lastReadAt);
+          // Finished (the end prompt, auto-complete, a seamless crossing —
+          // each with its own target): the chapter reopens at page 1.
+          if (complete) markMobileReaderResumeFinished(chapterProgress.id);
           await store.saveMangaProgress(mangaProgress);
           if (
             shouldApplyMobileReaderProgressToScreen(
@@ -8117,6 +8129,7 @@ export function ReaderScreen() {
         readerChapterProgress?.lastReadAt ?? 0,
         readerChapterProgress?.resetAt ?? 0,
       ),
+      reread: readerOpenedCompleted,
     });
   }, [
     chapterId,
@@ -8127,6 +8140,7 @@ export function ReaderScreen() {
     pagesState.status,
     readerProgressRestoreComplete,
     readerResumeKey,
+    readerOpenedCompleted,
     readerChapterProgress?.lastReadAt,
     readerChapterProgress?.resetAt,
   ]);

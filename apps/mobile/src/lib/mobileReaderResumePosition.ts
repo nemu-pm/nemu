@@ -25,6 +25,13 @@ export type MobileReaderResumePosition = {
    * of the chapter (sync clocks may run ahead of the wall clock).
    */
   progressAt: number;
+  /**
+   * Saved while re-reading: the reader opened the chapter already completed.
+   * A completed chapter reopens only at such a spot (and only short of its
+   * last page); any other spot — the one left by finishing it, or a legacy
+   * entry without the flag — reopens it at the top of page 1.
+   */
+  reread?: boolean;
 };
 
 /** The synced progress fields the choice reads. */
@@ -33,6 +40,7 @@ export type MobileReaderResumeSyncedProgress = {
   total: number;
   lastReadAt: number;
   resetAt?: number;
+  completed?: boolean;
 };
 
 export type MobileReaderResumeChoice = {
@@ -69,6 +77,7 @@ function normalizePosition(value: unknown): MobileReaderResumePosition | null {
     total: Math.trunc(record.total),
     savedAt: record.savedAt,
     progressAt: finiteNumber(record.progressAt) ? record.progressAt : 0,
+    ...(record.reread === true ? { reread: true } : {}),
   };
 }
 
@@ -76,6 +85,10 @@ function normalizePosition(value: unknown): MobileReaderResumePosition | null {
  * The page to reopen a chapter at: this device's own last position, unless
  * another device has read (or reset) the chapter since — then the synced
  * high-water page. `null`: start at the beginning.
+ *
+ * A completed chapter starts at the top of page 1 (its synced page is the
+ * last one, kept there by the high-water merge), unless this device holds a
+ * spot from a re-read short of the last page.
  */
 export function chooseMobileReaderResumePosition({
   local,
@@ -86,8 +99,9 @@ export function chooseMobileReaderResumePosition({
   progress: MobileReaderResumeSyncedProgress | null | undefined;
   pageCount: number;
 }): MobileReaderResumeChoice | null {
+  const completed = progress?.completed === true;
   const synced: MobileReaderResumeChoice | null =
-    progress && progress.total > 1 && finiteNumber(progress.progress)
+    !completed && progress && progress.total > 1 && finiteNumber(progress.progress)
       ? { sourceIndex: progress.progress, fraction: 0, origin: "progress" }
       : null;
   if (
@@ -107,6 +121,9 @@ export function chooseMobileReaderResumePosition({
     );
     // Read (or marked unread) somewhere else after this device stopped.
     if (remoteLatest > ownLatest + REMOTE_NEWER_SLACK_MS) return synced;
+  }
+  if (completed && (!local.reread || local.sourceIndex >= local.total - 1)) {
+    return null;
   }
   return {
     sourceIndex: local.sourceIndex,
@@ -226,7 +243,8 @@ export function saveMobileReaderResumePosition(
       existing.sourceIndex === next.sourceIndex &&
       Math.abs(existing.fraction - next.fraction) < 0.001 &&
       existing.total === next.total &&
-      existing.progressAt === next.progressAt
+      existing.progressAt === next.progressAt &&
+      (existing.reread ?? false) === (next.reread ?? false)
     ) {
       return false;
     }
@@ -246,6 +264,20 @@ export function noteMobileReaderResumeProgressWrite(
     const existing = map.get(key);
     if (!existing || existing.progressAt >= lastReadAt) return false;
     map.set(key, { ...existing, progressAt: lastReadAt });
+    return true;
+  });
+}
+
+/**
+ * The chapter was just completed: the spot this device holds is no longer a
+ * re-read spot, so the chapter reopens at the top of page 1.
+ */
+export function markMobileReaderResumeFinished(key: string): void {
+  if (!key) return;
+  update((map) => {
+    const existing = map.get(key);
+    if (!existing || !existing.reread) return false;
+    map.set(key, { ...existing, reread: false });
     return true;
   });
 }

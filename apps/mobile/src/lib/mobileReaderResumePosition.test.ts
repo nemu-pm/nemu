@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import {
   chooseMobileReaderResumePosition,
   clearMobileReaderResumePositions,
   flushMobileReaderResumePositions,
   loadMobileReaderResumePosition,
+  markMobileReaderResumeFinished,
   noteMobileReaderResumeProgressWrite,
   parseMobileReaderResumePositions,
   resetMobileReaderResumePositionsForTests,
@@ -186,5 +189,159 @@ describe("resume position store", () => {
     flushMobileReaderResumePositions();
     clearMobileReaderResumePositions(["k"]);
     expect(await loadMobileReaderResumePosition("k")).toBeNull();
+  });
+});
+
+describe("completed chapters", () => {
+  // Finished: the synced page is the last one (high-water merge).
+  const completedProgress = {
+    progress: 19,
+    total: 20,
+    lastReadAt: 9_000,
+    completed: true,
+  };
+
+  test("completed, not re-read: the top of page 1", () => {
+    expect(
+      chooseMobileReaderResumePosition({
+        local: null,
+        progress: completedProgress,
+        pageCount: 20,
+      }),
+    ).toBeNull();
+    // The spot left by finishing it (the last page) is not a re-read spot.
+    expect(
+      chooseMobileReaderResumePosition({
+        local: local({ sourceIndex: 19, fraction: 0.9, reread: false }),
+        progress: completedProgress,
+        pageCount: 20,
+      }),
+    ).toBeNull();
+  });
+
+  test("a re-read spot mid-chapter reopens there", () => {
+    expect(
+      chooseMobileReaderResumePosition({
+        local: local({ sourceIndex: 7, fraction: 0.3, reread: true }),
+        progress: completedProgress,
+        pageCount: 20,
+      }),
+    ).toEqual({ sourceIndex: 7, fraction: 0.3, origin: "local" });
+  });
+
+  test("a re-read spot on the last page: the top of page 1", () => {
+    expect(
+      chooseMobileReaderResumePosition({
+        local: local({ sourceIndex: 19, fraction: 0.5, reread: true }),
+        progress: completedProgress,
+        pageCount: 20,
+      }),
+    ).toBeNull();
+  });
+
+  test("a legacy entry without the flag: the top of page 1", () => {
+    const legacy = parseMobileReaderResumePositions(
+      JSON.stringify({
+        version: 1,
+        entries: [["k", { sourceIndex: 7, fraction: 0.3, total: 20, savedAt: 10_000 }]],
+      }),
+    ).get("k");
+    expect(legacy?.reread).toBeUndefined();
+    expect(
+      chooseMobileReaderResumePosition({
+        local: legacy,
+        progress: completedProgress,
+        pageCount: 20,
+      }),
+    ).toBeNull();
+  });
+
+  test("partly read (not completed): unchanged", () => {
+    expect(
+      chooseMobileReaderResumePosition({
+        local: local(),
+        progress: { progress: 12, total: 20, lastReadAt: 9_000, completed: false },
+        pageCount: 20,
+      }),
+    ).toEqual({ sourceIndex: 3, fraction: 0.4, origin: "local" });
+    expect(
+      chooseMobileReaderResumePosition({
+        local: null,
+        progress: { progress: 12, total: 20, lastReadAt: 9_000, completed: false },
+        pageCount: 20,
+      }),
+    ).toEqual({ sourceIndex: 12, fraction: 0, origin: "progress" });
+  });
+
+  test("completed on another device since: the top of page 1", () => {
+    expect(
+      chooseMobileReaderResumePosition({
+        local: local({ sourceIndex: 7, fraction: 0.3, reread: true }),
+        progress: { ...completedProgress, lastReadAt: 60_000 },
+        pageCount: 20,
+      }),
+    ).toBeNull();
+  });
+
+  test("the reread flag round-trips; finishing clears it", async () => {
+    const parsed = parseMobileReaderResumePositions(
+      serializeMobileReaderResumePositions(new Map([["k", local({ reread: true })]])),
+    );
+    expect(parsed.get("k")?.reread).toBe(true);
+
+    saveMobileReaderResumePosition("k", {
+      sourceIndex: 7,
+      fraction: 0.3,
+      total: 20,
+      savedAt: 100,
+      reread: true,
+    });
+    expect((await loadMobileReaderResumePosition("k"))?.reread).toBe(true);
+    markMobileReaderResumeFinished("k");
+    const finished = await loadMobileReaderResumePosition("k");
+    expect(finished?.reread).toBe(false);
+    expect(
+      chooseMobileReaderResumePosition({
+        local: finished,
+        progress: { progress: 19, total: 20, lastReadAt: 50, completed: true },
+        pageCount: 20,
+      }),
+    ).toBeNull();
+    // The same spot saved again as a re-read spot is not deduped away.
+    saveMobileReaderResumePosition("k", {
+      sourceIndex: 7,
+      fraction: 0.3,
+      total: 20,
+      savedAt: 100,
+      reread: true,
+    });
+    expect((await loadMobileReaderResumePosition("k"))?.reread).toBe(true);
+    resetMobileReaderResumePositionsForTests();
+  });
+});
+
+describe("ReaderScreen wiring for completed chapters", () => {
+  const screen = readFileSync(
+    path.join(import.meta.dir, "..", "screens/ReaderScreen.tsx"),
+    "utf8",
+  );
+
+  test("spots saved in a session that opened the chapter completed are re-read spots", () => {
+    expect(screen).toContain(
+      "readerLocalResume.progress?.completed === true;",
+    );
+    expect(screen).toContain("reread: readerOpenedCompleted,");
+  });
+
+  test("a complete save marks the local spot finished", () => {
+    expect(screen).toContain(
+      "if (complete) markMobileReaderResumeFinished(chapterProgress.id);",
+    );
+  });
+
+  test("a completed chapter without a re-read spot drops the saved in-page spot", () => {
+    expect(screen).toContain(
+      "!(readerOpenedCompleted && readerResumeChoice == null)",
+    );
   });
 });
