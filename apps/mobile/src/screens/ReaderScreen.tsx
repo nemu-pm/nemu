@@ -29,6 +29,9 @@ import {
   mobileReaderNextSideInsetLatch,
   mobileReaderPoseLayout,
   mobileReaderSideInsetLatchKey,
+  mobileReaderNextTopInsetLatch,
+  mobileReaderTopInsetLatchKey,
+  type MobileReaderTopInsetLatch,
   mobileReaderStableTopInset,
   mobileReaderSafePadding,
   MOBILE_READER_HINGE_HINT_TIMEOUT_MS,
@@ -2827,6 +2830,16 @@ export function ReaderScreen() {
   // carries "show the controls panel". A closed sheet is a choice for this
   // fold only: leaving the half-folded posture (unfold, rotate) brings it back.
   const readerFoldedAdaptive = mobileAdaptiveLayout(readerFoldedWindowLayout);
+  // Book posture: the side pane's title sits under the status bar, which
+  // hides with the toolbar; keep the widest top inset so the pane never moves.
+  const [readerBookPaneTopLatch, setReaderBookPaneTopLatch] = useState<MobileReaderTopInsetLatch | null>(null);
+  const readerBookPaneTop = mobileReaderNextTopInsetLatch(
+    readerBookPaneTopLatch,
+    mobileReaderTopInsetLatchKey(readerFoldedWindowLayout, readerFoldedAdaptive.posture === "book"),
+    readerFoldedWindowLayout.safeAreaInsets?.top ?? insets.top,
+  );
+  if (readerBookPaneTop !== readerBookPaneTopLatch) setReaderBookPaneTopLatch(readerBookPaneTop);
+  const readerBookPaneTopInset = readerBookPaneTop?.top ?? null;
   const readerNotebookFold = readerFoldedAdaptive.posture === "notebook";
   // Half folded like a laptop, reader sheets belong to the bottom pane: never
   // past the hinge over the page (scroll mode and a closed panel included).
@@ -2923,9 +2936,11 @@ export function ReaderScreen() {
         // Book and laptop postures, scroll reading: the strip keeps its half
         // and the other half shows the Laptop Mode content.
         scrollSidePane: !pagedMode,
+        sidePaneTopInset: readerBookPaneTopInset,
       }),
     [
       pagedMode,
+      readerBookPaneTopInset,
       readerSheetSide,
       readerNotebookFold,
       readerPageAspectRatio,
@@ -11453,6 +11468,7 @@ export function ReaderScreen() {
           regularWidth={mobileAdaptiveLayout(readerWindowLayout).regularWidth}
           maxSheetHeight={readerNotebookSheetCap}
           pageInteractive={readerBookPosture}
+          sheetHostFrame={readerPose.posture === "book" ? (readerPose.sidePane?.frame ?? null) : null}
           availableHeight={
             readerSettingsAnchorRect
               ? readerSettingsPopoverAvailableHeight({

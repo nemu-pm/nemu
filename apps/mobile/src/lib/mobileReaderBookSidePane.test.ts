@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import {
+  mobileReaderBookThumbnailAtRest,
+  mobileReaderBookThumbnailResumeDelay,
+  mobileReaderBookThumbnailSnapOffset,
+  READER_BOOK_THUMBNAIL_FOLLOW_RESUME_MS,
+  READER_BOOK_THUMBNAIL_REST_QUIET_MS,
+  READER_BOOK_THUMBNAIL_SNAP_MS,
   mobileReaderBookThumbnailFollowOffset,
   mobileReaderBookThumbnailLayout,
   mobileReaderBookThumbnailRatios,
@@ -125,5 +133,80 @@ describe("book posture thumbnail shapes", () => {
     expect(ratios[3]).toBeCloseTo(0.75, 10);
     expect(READER_BOOK_THUMBNAIL_UNKNOWN_RATIO).toBeCloseTo(1 / 0.7, 10);
     expect(mobileReaderBookThumbnailRatios(0, () => null)).toEqual([]);
+  });
+});
+
+const sidePaneSource = readFileSync(
+  path.join(import.meta.dir, "../components/reader/ReaderBookSidePane.tsx"),
+  "utf8",
+);
+
+describe("book pane snap-back", () => {
+  test("starts 1.5s after the list rests (never past 1.7s) and runs 280ms", () => {
+    expect(READER_BOOK_THUMBNAIL_FOLLOW_RESUME_MS).toBe(1_500);
+    expect(READER_BOOK_THUMBNAIL_SNAP_MS).toBe(280);
+    // Rest detected late by the quiet fallback: the delay counts from the rest.
+    expect(mobileReaderBookThumbnailResumeDelay(1_000, 1_000)).toBe(1_500);
+    expect(mobileReaderBookThumbnailResumeDelay(1_000, 1_000 + READER_BOOK_THUMBNAIL_REST_QUIET_MS)).toBe(1_400);
+    expect(mobileReaderBookThumbnailResumeDelay(0, 5_000)).toBe(0);
+    expect(mobileReaderBookThumbnailResumeDelay(Number.NaN, 0)).toBe(1_500);
+    // The quiet fallback detects a rest within the 0.2s tolerance.
+    expect(READER_BOOK_THUMBNAIL_REST_QUIET_MS).toBeLessThanOrEqual(200);
+  });
+
+  test("a fling rests once it is slower than 12pt/s over 80ms, before UIKit's momentum end", () => {
+    const fling = [0, 16, 32, 48, 64, 80, 96].map((time, index) => ({ time, offset: index * 8 }));
+    expect(mobileReaderBookThumbnailAtRest(fling)).toBe(false);
+    // The sub-point tail: a third of a point in 96ms.
+    const tail = [{ time: 0, offset: 500 }, { time: 48, offset: 500.33 }, { time: 96, offset: 500.33 }];
+    expect(mobileReaderBookThumbnailAtRest(tail)).toBe(true);
+    // Not until the samples span the window.
+    expect(mobileReaderBookThumbnailAtRest([{ time: 0, offset: 0 }, { time: 16, offset: 0 }])).toBe(false);
+    expect(mobileReaderBookThumbnailAtRest([])).toBe(false);
+  });
+
+  test("the snap moves at once (ease-out) and lands on the target at 280ms", () => {
+    expect(mobileReaderBookThumbnailSnapOffset(100, 400, 0)).toBe(100);
+    const first = mobileReaderBookThumbnailSnapOffset(100, 400, 16);
+    expect(first).toBeGreaterThan(100 + 300 * (16 / 280));
+    expect(mobileReaderBookThumbnailSnapOffset(100, 400, 140)).toBeGreaterThan(250);
+    expect(mobileReaderBookThumbnailSnapOffset(100, 400, 280)).toBe(400);
+    expect(mobileReaderBookThumbnailSnapOffset(400, 100, 1_000)).toBe(100);
+  });
+
+  test("the pane snaps straight from the timer; a late momentum end never restarts it", () => {
+    expect(sidePaneSource).not.toContain("setResumed");
+    expect(sidePaneSource).toMatch(/pausedRef\.current = false;\s*follow\(true\);/);
+    expect(sidePaneSource).toContain("if (pausedRef.current && flingingRef.current) scheduleResume(Date.now());");
+    // The follow is driven frame by frame (280ms), not by UIKit's animated scroll.
+    expect(sidePaneSource).not.toContain("animated: placedRef.current");
+  });
+});
+
+describe("book pane thumbnail cells", () => {
+  test("a loading thumbnail keeps its numbered placeholder: no spinner, no retry glyph", () => {
+    expect(sidePaneSource).not.toContain("ActivityIndicator");
+    expect(sidePaneSource).toContain("setPreview({ key: requestKey, uri, failed: false })");
+    expect(sidePaneSource).not.toContain("failed: !uri");
+  });
+
+  test("the chapter title is white at 85%, never tied to the toolbar", () => {
+    expect(sidePaneSource).toContain('const TITLE_COLOR = "rgba(255,255,255,0.85)";');
+    expect(sidePaneSource).toMatch(/title: \{[^}]*color: TITLE_COLOR,/);
+  });
+});
+
+describe("book posture wiring (ReaderScreen)", () => {
+  const readerScreen = readFileSync(path.join(import.meta.dir, "../screens/ReaderScreen.tsx"), "utf8");
+
+  test("the pane's title keeps under the widest top inset seen (the status bar hides with the toolbar)", () => {
+    expect(readerScreen).toContain("sidePaneTopInset: readerBookPaneTopInset,");
+    expect(readerScreen).toContain("mobileReaderNextTopInsetLatch(");
+  });
+
+  test("the reader settings sheet presents from the side pane", () => {
+    expect(readerScreen).toContain(
+      'sheetHostFrame={readerPose.posture === "book" ? (readerPose.sidePane?.frame ?? null) : null}',
+    );
   });
 });

@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   mobileReaderStableTopInset,
+  mobileReaderNextTopInsetLatch,
+  mobileReaderTopInsetLatchKey,
   mobileReaderFrameInsets,
   mobileReaderPopoverPlacement,
   mobileReaderPoseLayout,
@@ -478,12 +480,14 @@ describe("reader pose: book, scroll reading (side pane)", () => {
     expect(Math.abs(chrome.title!.x + chrome.title!.width / 2 - 455.5 / 2)).toBeLessThanOrEqual(1);
   });
 
-  test("side pane: title 16pt in, clear of the status island; thumbnails the half less 16pt either side; controls centred", () => {
+  test("side pane: title 16pt in, 8pt under the top safe area; thumbnails the half less 16pt either side; controls centred", () => {
     const side = scroll().sidePane!;
     expect(side.header.x).toBe(495.5 + 16);
-    expect(side.header.y).toBe(16);
-    // The island at (817, 0) ends the title line before it.
-    expect(side.header.x + side.header.width).toBeLessThanOrEqual(817);
+    // Under the 82pt status bar (its clock), never beside it at y≈16.
+    expect(side.header.y).toBe(82 + 8);
+    expect(side.header.width).toBe(455.5 - 32);
+    // Thumbnails start 8pt under the title line.
+    expect(side.list.y).toBe(side.header.y + side.header.height + 8);
     expect(side.list.x).toBe(495.5);
     expect(side.list.width).toBe(455.5);
     expect(side.orientation).toBe("vertical");
@@ -497,10 +501,32 @@ describe("reader pose: book, scroll reading (side pane)", () => {
     expect((side.pageUp.y + side.pageDown.y + 64) / 2).toBeCloseTo(669 / 2, 5);
   });
 
-  test("a sheet over the left half moves the strip right; the side pane takes the covered half", () => {
-    const result = scroll({ sheetSide: "left" });
-    expect(result.stage.x).toBe(495.5);
-    expect(result.sidePane?.frame.x).toBe(0);
+  test("the status bar hiding with the toolbar never moves the pane: the latched inset keeps the title under it", () => {
+    const hidden = { ...book, occlusions: [], safeAreaInsets: { top: 0, left: 0, bottom: 34, right: 0 } };
+    const shown = scroll().sidePane!;
+    const latched = pose(hidden, { paged: false, scrollSidePane: true, sidePaneTopInset: 82 }).sidePane!;
+    expect(latched.header).toEqual(shown.header);
+    expect(latched.list).toEqual(shown.list);
+    // Without a latch the live inset applies.
+    expect(pose(hidden, { paged: false, scrollSidePane: true }).sidePane!.header.y).toBe(8);
+  });
+
+  test("a reader sheet never moves the strip: it presents over the pane, which is unchanged", () => {
+    const closed = scroll();
+    for (const sheetSide of ["left", "right"] as const) {
+      const open = scroll({ sheetSide });
+      expect(open.stage).toEqual(closed.stage);
+      expect(open.sidePane).toEqual(closed.sidePane!);
+      expect(open.chrome).toEqual(closed.chrome);
+    }
+    // The settings popover's region is the pane (inside its safe area), not the strip.
+    expect(closed.popover.frame).toEqual({ x: 495.5, y: 82, width: 455.5, height: 669 - 82 - 34 });
+  });
+
+  test("the toolbar's top scrim stays over the strip: the pane's title is never dimmed with the toolbar", () => {
+    const chrome = capsules(scroll());
+    expect(chrome.topScrim.x).toBe(0);
+    expect(chrome.topScrim.width).toBe(455.5);
   });
 
   test("paged reading and the flag-less strip keep their book layout", () => {
@@ -1804,5 +1830,20 @@ describe("reader scroll: stable top inset", () => {
   test("a status bar spanning the top (wider than most of the window) keeps the inset", () => {
     const wide = { ...shown, occlusions: [{ ...island, x: 0, width: 951 }] };
     expect(mobileReaderStableTopInset(wide, { top: 82 })).toBe(82);
+  });
+});
+
+describe("reader book pane: top inset latch", () => {
+  test("keeps the widest top inset seen for the window; a new window starts over", () => {
+    const key = mobileReaderTopInsetLatchKey({ width: 951, height: 669 }, true)!;
+    const shown = mobileReaderNextTopInsetLatch(null, key, 82);
+    expect(shown).toEqual({ key, top: 82 });
+    // The status bar hides with the toolbar: the latch stays.
+    expect(mobileReaderNextTopInsetLatch(shown, key, 0)).toBe(shown);
+    expect(mobileReaderNextTopInsetLatch(shown, key, undefined)).toBe(shown);
+    const other = mobileReaderTopInsetLatchKey({ width: 669, height: 951 }, true);
+    expect(mobileReaderNextTopInsetLatch(shown, other, 0)).toEqual({ key: other!, top: 0 });
+    expect(mobileReaderTopInsetLatchKey({ width: 951, height: 669 }, false)).toBeNull();
+    expect(mobileReaderNextTopInsetLatch(shown, null, 82)).toBeNull();
   });
 });

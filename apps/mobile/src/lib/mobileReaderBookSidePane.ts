@@ -18,8 +18,64 @@ export const READER_BOOK_THUMBNAIL_RADIUS = 6;
 /** The current page's outline, in the primary colour. */
 export const READER_BOOK_THUMBNAIL_CURRENT_STROKE = 2;
 export const READER_BOOK_THUMBNAIL_CURRENT_COLOR = "#5B6CEB";
-/** Following the current page pauses while the list is dragged and resumes this long after. */
+/**
+ * Following the current page pauses while the list is dragged and resumes
+ * (the list snaps back to the current page) this long after the list comes
+ * to rest — from when it visibly stops, not from the native momentum-end
+ * event (`mobileReaderBookThumbnailResumeDelay`).
+ */
 export const READER_BOOK_THUMBNAIL_FOLLOW_RESUME_MS = 1_500;
+/** The snap back to the current page (and every animated follow) takes this long. */
+export const READER_BOOK_THUMBNAIL_SNAP_MS = 280;
+/**
+ * A fling reads as stopped below this speed (pt/ms, i.e. 12pt/s): the long
+ * sub-point tail UIKit decelerates through before it reports the momentum
+ * end is invisible, and timing the snap from that report made it late.
+ */
+export const READER_BOOK_THUMBNAIL_REST_SPEED = 0.012;
+/** Speed is measured over at least this window (offsets arrive pixel-rounded). */
+export const READER_BOOK_THUMBNAIL_REST_WINDOW_MS = 80;
+/** No scroll event for this long during a fling: it stopped at the last one. */
+export const READER_BOOK_THUMBNAIL_REST_QUIET_MS = 100;
+
+export type MobileReaderBookThumbnailScrollSample = { offset: number; time: number };
+
+/**
+ * Whether a fling has come to rest at the newest sample: its speed over the
+ * last {@link READER_BOOK_THUMBNAIL_REST_WINDOW_MS} (or more) is below
+ * {@link READER_BOOK_THUMBNAIL_REST_SPEED}. Samples are oldest first; false
+ * until they span the window.
+ */
+export function mobileReaderBookThumbnailAtRest(
+  samples: readonly MobileReaderBookThumbnailScrollSample[],
+): boolean {
+  const latest = samples[samples.length - 1];
+  if (!latest) return false;
+  for (let index = samples.length - 2; index >= 0; index -= 1) {
+    const sample = samples[index]!;
+    const elapsed = latest.time - sample.time;
+    if (elapsed < READER_BOOK_THUMBNAIL_REST_WINDOW_MS) continue;
+    return Math.abs(latest.offset - sample.offset) / elapsed < READER_BOOK_THUMBNAIL_REST_SPEED;
+  }
+  return false;
+}
+
+/** How long to wait before snapping back, the list having come to rest at `restAt`. */
+export function mobileReaderBookThumbnailResumeDelay(restAt: number, now: number): number {
+  if (!Number.isFinite(restAt) || !Number.isFinite(now)) return READER_BOOK_THUMBNAIL_FOLLOW_RESUME_MS;
+  return Math.max(0, Math.min(READER_BOOK_THUMBNAIL_FOLLOW_RESUME_MS, READER_BOOK_THUMBNAIL_FOLLOW_RESUME_MS - (now - restAt)));
+}
+
+/**
+ * The list offset `elapsed` ms into a snap from `from` to `to`
+ * ({@link READER_BOOK_THUMBNAIL_SNAP_MS}, ease-out cubic: it moves at once).
+ */
+export function mobileReaderBookThumbnailSnapOffset(from: number, to: number, elapsed: number): number {
+  if (!(elapsed > 0)) return from;
+  if (elapsed >= READER_BOOK_THUMBNAIL_SNAP_MS) return to;
+  const t = elapsed / READER_BOOK_THUMBNAIL_SNAP_MS;
+  return from + (to - from) * (1 - (1 - t) ** 3);
+}
 /**
  * Tallest thumbnail, as height / width. A long webtoon slice would otherwise
  * repeat the strip beside it at the same size; taller pages are cropped to

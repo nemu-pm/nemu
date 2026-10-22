@@ -229,10 +229,20 @@ export type MobileReaderPoseLayoutInput = {
    * half shows it.
    */
   scrollSidePane?: boolean;
+  /**
+   * Book posture, scroll reading: the top safe-area inset the side pane lays
+   * its title out under. The status bar (and its inset) comes and goes with
+   * the toolbar; the reader passes the widest seen
+   * (`mobileReaderNextTopInsetLatch`) so toggling the toolbar never moves the
+   * pane. The live inset when absent.
+   */
+  sidePaneTopInset?: number | null;
 };
 
 /** Book posture, scroll reading: the half beside the strip. */
 export const READER_BOOK_SIDE_PANE_INSET = 16;
+/** Book posture: the chapter title line's distance below the top safe area. */
+export const READER_BOOK_SIDE_PANE_TOP_GAP = 8;
 /** Gap between the chapter title line and the thumbnail list. */
 export const READER_BOOK_SIDE_PANE_HEADER_GAP = 8;
 /** The chapter title line (15pt semibold). */
@@ -906,6 +916,36 @@ export function mobileReaderNextSideInsetLatch(
   return next.left === current.left && next.right === current.right ? current : next;
 }
 
+export type MobileReaderTopInsetLatch = { key: string; top: number };
+
+/** Configuration key for the top-inset latch: the window's size; null when not latching. */
+export function mobileReaderTopInsetLatchKey(
+  layout: Pick<MobileWindowLayout, "width" | "height"> | null | undefined,
+  active: boolean,
+): string | null {
+  if (!layout || !active) return null;
+  return `${Math.round(finite(layout.width))}x${Math.round(finite(layout.height))}`;
+}
+
+/**
+ * The widest top safe-area inset seen for this configuration (the status bar
+ * shown), so a layout under it does not move when the status bar hides with
+ * the toolbar. A new key starts over; the previous latch is returned
+ * unchanged when nothing grew.
+ */
+export function mobileReaderNextTopInsetLatch(
+  previous: MobileReaderTopInsetLatch | null,
+  key: string | null,
+  top: number | null | undefined,
+): MobileReaderTopInsetLatch | null {
+  if (!key) return null;
+  const current = previous?.key === key ? previous : null;
+  const seen = typeof top === "number" && Number.isFinite(top) ? Math.max(0, top) : null;
+  if (seen === null) return current;
+  if (!current) return { key, top: seen };
+  return seen > current.top ? { key, top: seen } : current;
+}
+
 /**
  * How long a "partially open" hinge may lead the fold region before the
  * reader stops anticipating it and falls back to the flat layout. The region
@@ -1263,8 +1303,10 @@ function mobileReaderBookScrollPose(
   context: { bounds: Rect; insets: Insets; occlusions: Rect[]; leadingSide: Side },
 ): MobileReaderPoseLayout {
   const { bounds, insets, occlusions, leadingSide } = context;
-  const sheetIndex = input.sheetSide === "left" ? 0 : input.sheetSide === "right" ? 1 : null;
-  const stripIndex = sheetIndex !== null ? 1 - sheetIndex : input.rtl ? 1 : 0;
+  // The strip never moves: a reader sheet presents over the side pane and,
+  // once it closes, reveals the pane unchanged (`sheetSide` is ignored here;
+  // following it swapped the strip and the pane while the sheet was open).
+  const stripIndex = input.rtl ? 1 : 0;
   const pane = panes[stripIndex];
   // Same immersive rule as the paged book: the strip is full-bleed in its
   // half; only a kept system bar column trims it.
@@ -1286,7 +1328,12 @@ function mobileReaderBookScrollPose(
       : mobileReaderActionsRow(stage, mobileReaderSafePadding(stage, bounds, insets), actionCount),
     titleOnly: input.sideBar === true,
   });
-  const sidePane = mobileReaderBookSidePaneLayout(panes[1 - stripIndex], bounds, insets, occlusions);
+  const sidePane = mobileReaderBookSidePaneLayout(panes[1 - stripIndex], bounds, insets, occlusions, input.sidePaneTopInset);
+  // The toolbar's top scrim darkens the strip's half only: over the pane it
+  // dimmed the chapter title whenever the toolbar showed.
+  if (chrome.kind === "capsules") {
+    chrome.topScrim = { ...chrome.topScrim, x: pane.x, width: pane.width };
+  }
   return {
     posture: "book",
     bounds,
@@ -1299,7 +1346,8 @@ function mobileReaderBookScrollPose(
     chrome,
     chromePinned: false,
     modalFrame: stage,
-    popover: mobileReaderPopoverPlacement(chrome),
+    // Reader settings present over the pane, never over the strip.
+    popover: { frame: shrink(sidePane.frame, mobileReaderSafePadding(sidePane.frame, bounds, insets)), bottomGap: READER_POPOVER_GAP },
     tapExclusions: capsuleExclusions(chrome, stage),
     pageSideInsets: NO_SIDE_INSETS,
     sidePane,
@@ -1449,17 +1497,24 @@ export function mobileReaderBookSidePaneLayout(
   bounds: Rect,
   insets: Insets,
   occlusions: Rect[],
+  /** The top safe-area inset with the status bar shown (`sidePaneTopInset`); the live one when absent. */
+  stableTopInset?: number | null,
 ): MobileReaderBookSidePane {
   const pad = mobileReaderSafePadding(frame, bounds, insets);
+  const topInset = frame.y <= bounds.y + EPSILON
+    ? Math.max(pad.top, Number.isFinite(stableTopInset) ? Math.max(0, stableTopInset!) : 0)
+    : 0;
   // Side insets the status island alone explains are not real edges.
   const side = mobileReaderPageSideInsets(bounds, insets, occlusions);
   const left = frame.x <= bounds.x + EPSILON ? side.left : 0;
   const right = frame.x + frame.width >= bounds.x + bounds.width - EPSILON ? side.right : 0;
   const inset = READER_BOOK_SIDE_PANE_INSET;
   const headerHeight = READER_BOOK_SIDE_PANE_HEADER_HEIGHT;
+  // The title line sits 8pt below the top safe area (under the status bar,
+  // never beside its clock); the thumbnails start 8pt below it.
   let header: Rect = {
     x: frame.x + left + inset,
-    y: frame.y + inset,
+    y: frame.y + topInset + READER_BOOK_SIDE_PANE_TOP_GAP,
     width: Math.max(0, frame.width - left - right - inset * 2),
     height: headerHeight,
   };

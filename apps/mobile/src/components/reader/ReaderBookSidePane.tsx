@@ -15,18 +15,26 @@ import {
   StyleSheet,
   View,
   type GestureResponderEvent,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from "react-native";
 import { NemuText, nemuFontWeight, radius } from "@/design-system";
 import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
 import {
+  mobileReaderBookThumbnailAtRest,
   mobileReaderBookThumbnailFollowOffset,
   mobileReaderBookThumbnailLayout,
+  mobileReaderBookThumbnailResumeDelay,
+  mobileReaderBookThumbnailSnapOffset,
   READER_BOOK_THUMBNAIL_CURRENT_COLOR,
   READER_BOOK_THUMBNAIL_CURRENT_STROKE,
-  READER_BOOK_THUMBNAIL_FOLLOW_RESUME_MS,
   READER_BOOK_THUMBNAIL_GAP,
   READER_BOOK_THUMBNAIL_RADIUS,
+  READER_BOOK_THUMBNAIL_REST_QUIET_MS,
+  READER_BOOK_THUMBNAIL_REST_WINDOW_MS,
   READER_BOOK_THUMBNAIL_ROW_EDGE,
+  READER_BOOK_THUMBNAIL_SNAP_MS,
+  type MobileReaderBookThumbnailScrollSample,
 } from "@/lib/mobileReaderBookSidePane";
 import {
   mobileReaderLivePageIndex,
@@ -221,31 +229,93 @@ function ReaderBookThumbnailList({
   }, []);
 
   // Follow the current page, except while the list is in the reader's hands:
-  // a drag pauses it until 1.5s after the list comes to rest.
+  // a drag pauses it until 1.5s after the list visibly comes to rest, then it
+  // snaps back in 280ms. The rest is read off the scroll events (the native
+  // momentum end arrives only after an invisible sub-point tail), and the
+  // snap starts straight from the timer (no render in between).
   const listRef = useRef<FlatList<number>>(null);
   const placedRef = useRef(false);
   const pausedRef = useRef(false);
+  /** Paused and flinging: the resume timer starts once the fling rests. */
+  const flingingRef = useRef(false);
+  const samplesRef = useRef<MobileReaderBookThumbnailScrollSample[]>([]);
+  const offsetRef = useRef(0);
   const resumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [resumed, setResumed] = useState(0);
+  const quietTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const snapFrameRef = useRef<number | null>(null);
+  const followRef = useRef({ currentIndex, geometry, viewportLength });
+  followRef.current = { currentIndex, geometry, viewportLength };
+  const stopSnap = useCallback(() => {
+    if (snapFrameRef.current !== null) cancelAnimationFrame(snapFrameRef.current);
+    snapFrameRef.current = null;
+  }, []);
+  const follow = useCallback((animated: boolean) => {
+    const { currentIndex: index, geometry: list, viewportLength: viewport } = followRef.current;
+    if (pausedRef.current || !(viewport > 0) || list.lengths.length === 0) return;
+    const target = mobileReaderBookThumbnailFollowOffset(list, index, viewport);
+    stopSnap();
+    const from = offsetRef.current;
+    if (!animated || Math.abs(target - from) < 0.5) {
+      listRef.current?.scrollToOffset({ offset: target, animated: false });
+      offsetRef.current = target;
+      return;
+    }
+    const start = Date.now();
+    const step = () => {
+      const elapsed = Date.now() - start;
+      const offset = mobileReaderBookThumbnailSnapOffset(from, target, elapsed);
+      listRef.current?.scrollToOffset({ offset, animated: false });
+      offsetRef.current = offset;
+      snapFrameRef.current = elapsed < READER_BOOK_THUMBNAIL_SNAP_MS ? requestAnimationFrame(step) : null;
+    };
+    snapFrameRef.current = requestAnimationFrame(step);
+  }, [stopSnap]);
   const clearResume = useCallback(() => {
     if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current);
     resumeTimerRef.current = null;
+    if (quietTimerRef.current) clearTimeout(quietTimerRef.current);
+    quietTimerRef.current = null;
   }, []);
-  const scheduleResume = useCallback(() => {
+  /** The list came to rest at `restAt`: snap back 1.5s after that. */
+  const scheduleResume = useCallback((restAt: number) => {
     clearResume();
+    flingingRef.current = false;
+    samplesRef.current = [];
     resumeTimerRef.current = setTimeout(() => {
       resumeTimerRef.current = null;
       pausedRef.current = false;
-      setResumed((value) => value + 1);
-    }, READER_BOOK_THUMBNAIL_FOLLOW_RESUME_MS);
-  }, [clearResume]);
-  useEffect(() => clearResume, [clearResume]);
+      follow(true);
+    }, mobileReaderBookThumbnailResumeDelay(restAt, Date.now()));
+  }, [clearResume, follow]);
+  useEffect(() => () => {
+    clearResume();
+    stopSnap();
+  }, [clearResume, stopSnap]);
   useEffect(() => {
-    if (pausedRef.current || !(viewportLength > 0) || geometry.lengths.length === 0) return;
-    const offset = mobileReaderBookThumbnailFollowOffset(geometry, currentIndex, viewportLength);
-    listRef.current?.scrollToOffset({ offset, animated: placedRef.current });
-    placedRef.current = true;
-  }, [currentIndex, geometry, resumed, viewportLength]);
+    follow(placedRef.current);
+    if (viewportLength > 0 && geometry.lengths.length > 0) placedRef.current = true;
+  }, [currentIndex, follow, geometry, viewportLength]);
+  const onListScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset } = event.nativeEvent;
+    const offset = horizontal ? contentOffset.x : contentOffset.y;
+    offsetRef.current = offset;
+    if (!flingingRef.current) return;
+    const now = Date.now();
+    const samples = samplesRef.current;
+    samples.push({ offset, time: now });
+    while (samples.length > 2 && now - samples[1]!.time >= READER_BOOK_THUMBNAIL_REST_WINDOW_MS) samples.shift();
+    if (mobileReaderBookThumbnailAtRest(samples)) {
+      scheduleResume(now);
+      return;
+    }
+    // Pixel-rounded offsets stop arriving before the fling ends: no event
+    // for a moment means it stopped at this one.
+    if (quietTimerRef.current) clearTimeout(quietTimerRef.current);
+    quietTimerRef.current = setTimeout(() => {
+      quietTimerRef.current = null;
+      if (flingingRef.current) scheduleResume(now);
+    }, READER_BOOK_THUMBNAIL_REST_QUIET_MS);
+  }, [horizontal, scheduleResume]);
 
   const getItemLayout = useCallback(
     (_: ArrayLike<number> | null | undefined, index: number) => ({
@@ -306,16 +376,27 @@ function ReaderBookThumbnailList({
         getItemLayout={getItemLayout}
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={THUMB_VIEWABILITY}
+        onScroll={onListScroll}
+        scrollEventThrottle={16}
         onScrollBeginDrag={() => {
           pausedRef.current = true;
+          flingingRef.current = false;
+          stopSnap();
           clearResume();
         }}
-        onScrollEndDrag={scheduleResume}
+        onScrollEndDrag={() => {
+          if (pausedRef.current) scheduleResume(Date.now());
+        }}
         onMomentumScrollBegin={() => {
-          if (pausedRef.current) clearResume();
+          if (!pausedRef.current) return;
+          clearResume();
+          flingingRef.current = true;
+          samplesRef.current = [];
         }}
         onMomentumScrollEnd={() => {
-          if (pausedRef.current) scheduleResume();
+          // Only a fling not yet seen to rest: a late report never restarts
+          // a timer already running.
+          if (pausedRef.current && flingingRef.current) scheduleResume(Date.now());
         }}
         horizontal={horizontal}
         contentContainerStyle={horizontal ? styles.rowContent : styles.listContent}
@@ -380,7 +461,10 @@ const ReaderBookThumbnail = memo(function ReaderBookThumbnail({
     const controller = new AbortController();
     void resolve(index, controller.signal).then(
       (uri) => {
-        if (!controller.signal.aborted) setPreview({ key: requestKey, uri, failed: !uri });
+        // Nothing yet (a load cancelled or still shared elsewhere) is not a
+        // failure: the cell keeps its numbered placeholder — never a retry
+        // glyph while loading — and asks again the next time it shows.
+        if (!controller.signal.aborted) setPreview({ key: requestKey, uri, failed: false });
       },
       () => {
         if (!controller.signal.aborted) setPreview({ key: requestKey, uri: null, failed: true });

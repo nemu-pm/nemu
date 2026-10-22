@@ -196,6 +196,7 @@ export function ReaderSettingsNativePopover({
   regularWidth,
   maxSheetHeight = null,
   pageInteractive = false,
+  sheetHostFrame = null,
 }: ReaderSettingsNativePopoverProps) {
   const { scheme, tokens } = useNemuTheme();
   const windowSize = useWindowDimensions();
@@ -754,9 +755,14 @@ export function ReaderSettingsNativePopover({
     // scrolls in the same height).
     const sheetEstimate = readerSettingsNativeSheetEstimatedHeight(settingsRows);
     const sheetCap = readerSettingsSheetDetentCap({ estimatedHeight: sheetEstimate, maxHeight: maxSheetHeight });
+    // Presented from the side pane in the book posture's scroll reading: the
+    // sheet takes the pane's half, never the strip's.
+    const sheetHostStyle = sheetHostFrame
+      ? [styles.sheetHost, { left: sheetHostFrame.x + sheetHostFrame.width / 2, top: sheetHostFrame.y + sheetHostFrame.height / 2 }]
+      : styles.sheetHost;
     return (
       <>
-      <View pointerEvents="none" style={styles.sheetHost}>
+      <View pointerEvents="none" style={sheetHostStyle}>
         {/* Design-explore: no seed (it tints the bar's close X too); the Form carries the accent. */}
         <SwiftHost colorScheme={scheme} seedColor={mobileDesignExploreFlag ? undefined : tokens.primary} style={StyleSheet.absoluteFill}>
           {measuringCopy}
