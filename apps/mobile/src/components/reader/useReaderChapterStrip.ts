@@ -145,11 +145,14 @@ export function useReaderChapterStrip(input: {
 
   // The strip as rendered: the open chapter always from the reader's live
   // state (its pages are processed in place), neighbours from here.
+  // Until this list's state is set up (the render that opens it), the open
+  // chapter alone: the list's rows never change identity under it.
   const strip = useMemo<ReaderChapterStrip | null>(() => {
-    if (!live || !current) return null;
-    const segments = state.segments.map((segment, index) =>
-      index === state.currentIndex ? current : segment,
-    );
+    if (!activeSessionKey || !current) return null;
+    const currentIndex = live ? state.currentIndex : 0;
+    const segments = live
+      ? state.segments.map((segment, index) => (index === currentIndex ? current : segment))
+      : [current];
     const last = segments[segments.length - 1]!;
     const nextOfLast = getMobileReaderChapterNavigation(
       [...chapters],
@@ -171,17 +174,19 @@ export function useReaderChapterStrip(input: {
     }
     return {
       segments: segments.map((segment) => ({ ...segment, pages: segment.pages })),
-      currentIndex: state.currentIndex,
+      currentIndex,
       tail,
     } as ReaderChapterStrip;
-  }, [chapters, current, live, state]);
+  }, [activeSessionKey, chapters, current, live, state]);
 
   const segmentsData = useMemo<ReaderStripSegmentData[]>(
     () =>
-      live && current
-        ? state.segments.map((segment, index) => (index === state.currentIndex ? current : segment))
-        : [],
-    [current, live, state.currentIndex, state.segments],
+      !activeSessionKey || !current
+        ? []
+        : live
+          ? state.segments.map((segment, index) => (index === state.currentIndex ? current : segment))
+          : [current],
+    [activeSessionKey, current, live, state.currentIndex, state.segments],
   );
 
   // Neighbour page processing: the pages next to the open chapter decode
@@ -405,7 +410,11 @@ export function useReaderChapterStrip(input: {
       "scrolling",
     ).previousChapter;
     if (!chapter || chapter.locked) return false;
-    if (previous?.chapterId === chapter.id && previous.status === "loading") return true;
+    if (previous?.chapterId === chapter.id) {
+      // Joining: wait for it. Failed or locked: the old way (open it).
+      if (previous.status === "loading") return true;
+      return false;
+    }
     fetchSegment(chapter, "previous");
     return true;
   }, [fetchSegment]);

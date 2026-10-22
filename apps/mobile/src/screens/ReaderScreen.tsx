@@ -178,6 +178,35 @@ import { mobileAdaptiveLayout } from "@/lib/mobileAdaptiveLayout";
 import { ReaderDisplaySettingsPopover } from "@/components/reader/ReaderDisplaySettingsPopover";
 import { ReaderNotebookPane } from "@/components/reader/ReaderNotebookPane";
 import { ReaderBookSidePane } from "@/components/reader/ReaderBookSidePane";
+import { ReaderChapterDivider } from "@/components/reader/ReaderChapterDivider";
+import {
+  readerStripSessionKey,
+  useReaderChapterStrip,
+  type ReaderChapterStrip,
+  type ReaderStripSegmentData,
+} from "@/components/reader/useReaderChapterStrip";
+import {
+  combineMobileReaderStripLayouts,
+  isMobileReaderStripHeadRemovalOffscreen,
+  mobileReaderStripCrossing,
+  mobileReaderStripHeadRemoval,
+  mobileReaderStripRows,
+  mobileReaderStripSegmentOffset,
+  mobileReaderStripSegmentStarts,
+  MOBILE_READER_STRIP_PREPEND_LEAD_PAGES,
+  readerSeamlessScroll,
+  shouldAppendMobileReaderStripSegment,
+  shouldPrependMobileReaderStripSegment,
+  type MobileReaderStripRow,
+} from "@/lib/mobileReaderChapterStrip";
+import {
+  MOBILE_READER_STRIP_IDENTITY_BRIDGE,
+  mobileReaderStripBridgeClampedLocalIndex,
+  mobileReaderStripBridgeGlobalIndex,
+  mobileReaderStripBridgeLocalAnchor,
+  mobileReaderStripBridgeLocalIndex,
+  type MobileReaderStripBridge,
+} from "@/lib/mobileReaderStripBridge";
 import { mobileReaderBookThumbnailRatios } from "@/lib/mobileReaderBookSidePane";
 import { LinearGradient } from "expo-linear-gradient";
 import {
@@ -569,6 +598,7 @@ import {
   resolveMobileReaderChapterIndex,
   type MobileReaderPage,
   type MobileReaderPageProcessor,
+  type MobileReaderPagesRefresh,
   type MobileReaderPageWindowResult,
 } from "@/sources/mobileSourcePages";
 import {
@@ -1301,7 +1331,24 @@ export function ReaderScreen() {
   const registryId = normalizeMobileSourceRouteParam(params.registryId);
   const sourceId = normalizeMobileSourceRouteParam(params.sourceId);
   const mangaId = normalizeMobileSourceRouteParam(params.mangaId);
-  const chapterId = normalizeMobileSourceRouteParam(params.chapterId);
+  const routeChapterId = normalizeMobileSourceRouteParam(params.chapterId);
+  // Seamless scroll: crossing into the next (or previous) chapter in the same
+  // list makes it the open chapter at once, without remounting the screen.
+  // The route follows through `setParams`, a moment later; until then (and
+  // for any route id this list has set) the crossed-into chapter is open.
+  const [readerSeamlessChapter, setReaderSeamlessChapter] = useState<{
+    chapterId: string;
+    /** Route chapter ids this list has stood on (the opening one included). */
+    routeChapterIds: readonly string[];
+    /** The list's session (see readerStripSessionKey): unchanged by crossings. */
+    sessionKey: string;
+    /** The arriving chapter's page list identity. */
+    fetchedAt: number;
+  } | null>(null);
+  const chapterId =
+    readerSeamlessChapter && readerSeamlessChapter.routeChapterIds.includes(routeChapterId)
+      ? readerSeamlessChapter.chapterId
+      : routeChapterId;
   /** The open chapter, for async work that must not write into another one. */
   const currentChapterIdRef = useRef(chapterId);
   currentChapterIdRef.current = chapterId;
@@ -1311,7 +1358,11 @@ export function ReaderScreen() {
     mangaId,
   );
   const routeChapterFallback = useMemo<ChapterSummary>(
-    () => ({
+    () => routeChapterId !== chapterId
+      // A seamless crossing ahead of its route update: the route's labels
+      // are still the previous chapter's.
+      ? { id: chapterId }
+      : ({
       id: chapterId,
       title:
         normalizeMobileReaderRouteLabel(params.chapterTitle, chapterId) ||
@@ -1320,7 +1371,7 @@ export function ReaderScreen() {
       volumeNumber: parseMobileReaderRouteNumber(params.volumeNumber),
       locked: firstParam(params.chapterLocked) === "true" ? true : undefined,
     }),
-    [chapterId, params.chapterLocked, params.chapterNumber, params.chapterTitle, params.volumeNumber],
+    [chapterId, routeChapterId, params.chapterLocked, params.chapterNumber, params.chapterTitle, params.volumeNumber],
   );
   const { reduceMotion, scheme } = useNemuTheme();
   const readerZoomEntry = useReaderZoomEntry();
@@ -1368,7 +1419,52 @@ export function ReaderScreen() {
   const readerConnectivity = useMobileConnectivity();
   const readerPlugins = useMobileReaderPlugins();
   const installedReaderSources = useInstalledSources({ includeLocalArchive: true });
+  // The gallery's own handle (list rows and list offsets) ...
+  const readerGalleryScrollRef = useRef<MobileReaderScrollHandle | null>(null);
+  // ... and where the open chapter sits in that list (seamless scroll).
+  const readerStripBridgeRef = useRef<MobileReaderStripBridge>(MOBILE_READER_STRIP_IDENTITY_BRIDGE);
+  // The reader's handle: the open chapter's own page indexes and layout
+  // offsets, translated to and from the list's through the bridge.
   const readerScrollRef = useRef<MobileReaderScrollHandle | null>(null);
+  if (!readerScrollRef.current) {
+    readerScrollRef.current = {
+      scrollTo(options) {
+        const bridge = readerStripBridgeRef.current;
+        readerGalleryScrollRef.current?.scrollTo({
+          ...options,
+          y: options.y != null ? options.y + bridge.offsetBase : options.y,
+          index:
+            options.index != null
+              ? mobileReaderStripBridgeGlobalIndex(bridge, options.index)
+              : options.index,
+        });
+      },
+      pageAnchor() {
+        return mobileReaderStripBridgeLocalAnchor(
+          readerStripBridgeRef.current,
+          readerGalleryScrollRef.current?.pageAnchor() ?? null,
+        );
+      },
+      scrollViewport() {
+        const viewport = readerGalleryScrollRef.current?.scrollViewport() ?? null;
+        return viewport
+          ? { top: viewport.top - readerStripBridgeRef.current.offsetBase, height: viewport.height }
+          : null;
+      },
+      centrePageIndex() {
+        return mobileReaderStripBridgeClampedLocalIndex(
+          readerStripBridgeRef.current,
+          readerGalleryScrollRef.current?.centrePageIndex() ?? null,
+        );
+      },
+      scrollToProgress(progress, animated) {
+        return readerGalleryScrollRef.current?.scrollToProgress(progress, animated) ?? false;
+      },
+      scrollToProgressAfterContentChange(progress) {
+        readerGalleryScrollRef.current?.scrollToProgressAfterContentChange(progress);
+      },
+    };
+  }
   const readerContinuousScrubberRef =
     useRef<MobileReaderContinuousScrubberHandle | null>(null);
   const routeSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1396,6 +1492,8 @@ export function ReaderScreen() {
   // page stays out of React state (one commit when the scroll settles); only
   // the progress bar follows it live, through this store.
   const readerUserScrollingRef = useRef(false);
+  /** Seamless scroll: the reader has scrolled this list itself (a prepend may then land). */
+  const readerStripUserScrolledRef = useRef(false);
   const readerScrollPublishTimerRef = useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
@@ -1476,6 +1574,12 @@ export function ReaderScreen() {
   // QA builds (EXPO_PUBLIC_READER_QA_CHROME=1) keep the chrome up for screenshots.
   const showControls = MOBILE_READER_QA_CHROME || showControlsState;
   const [loading, setLoading] = useState(true);
+  /**
+   * The chapter whose saved progress `state` holds. A seamless crossing opens
+   * the next chapter before its progress is read; until then nothing may
+   * write (or show) progress for it from the previous chapter's record.
+   */
+  const [readerProgressLoadedFor, setReaderProgressLoadedFor] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [readerSettingsAction, setReaderSettingsAction] =
     useState<ReaderSettingsAction | null>(null);
@@ -2071,30 +2175,40 @@ export function ReaderScreen() {
       ),
     [mangaId, routeRef.registryId, routeRef.sourceId],
   );
-  const readerPageIdentityFor = useCallback(
-    (page: MobileReaderPage) =>
+  // Any chapter's page identity and stable size key: seamless scroll holds
+  // the chapters around the open one, keyed exactly as each will be when open.
+  const readerPageIdentityForChapter = useCallback(
+    (forChapterId: string, page: MobileReaderPage) =>
       getMobileReaderLogicalPageIdentity({
         registryId: routeRef.registryId,
         sourceId: routeRef.sourceId,
         mangaId,
-        chapterId,
+        chapterId: forChapterId,
         pageId: page.id,
         imageUri: page.imageUri,
         headers: page.headers,
       }),
-    [chapterId, mangaId, routeRef.registryId, routeRef.sourceId],
+    [mangaId, routeRef.registryId, routeRef.sourceId],
   );
-  const readerStablePageSizeKeyFor = useCallback(
-    (page: MobileReaderPage) =>
+  const readerStablePageSizeKeyForChapter = useCallback(
+    (forChapterId: string, page: Pick<MobileReaderPage, "id">) =>
       JSON.stringify([
         "reader-page-size",
         routeRef.registryId,
         routeRef.sourceId,
         mangaId,
-        chapterId,
+        forChapterId,
         page.id,
       ]),
-    [chapterId, mangaId, routeRef.registryId, routeRef.sourceId],
+    [mangaId, routeRef.registryId, routeRef.sourceId],
+  );
+  const readerPageIdentityFor = useCallback(
+    (page: MobileReaderPage) => readerPageIdentityForChapter(chapterId, page),
+    [chapterId, readerPageIdentityForChapter],
+  );
+  const readerStablePageSizeKeyFor = useCallback(
+    (page: MobileReaderPage) => readerStablePageSizeKeyForChapter(chapterId, page),
+    [chapterId, readerStablePageSizeKeyForChapter],
   );
   // Natural page sizes persist per chapter (see mobileReaderPageSizeCache):
   // the pages effect restores them before the chapter paints. Refs, so that
@@ -2209,9 +2323,26 @@ export function ReaderScreen() {
           ? current
           : { key: localResumeKey, position: localResume, progress: chapterProgress },
       );
+      // A seamless crossing may have opened another chapter meanwhile: its
+      // own load owns the state (this chapter's progress must not stand in
+      // for it).
+      if (currentChapterIdRef.current !== chapterId) return;
       setState({ entry, sourceLink, chapterProgress, mangaProgress });
+      setReaderProgressLoadedFor(chapterId);
+    } catch (error) {
+      // As before a failed read: the chapter opens without saved progress
+      // (never with another chapter's).
+      if (currentChapterIdRef.current === chapterId) {
+        setState((current) =>
+          current.chapterProgress && current.chapterProgress.sourceChapterId !== chapterId
+            ? { ...current, chapterProgress: null }
+            : current,
+        );
+        setReaderProgressLoadedFor(chapterId);
+      }
+      throw error;
     } finally {
-      setLoading(false);
+      if (currentChapterIdRef.current === chapterId) setLoading(false);
     }
   }, [
     chapterId,
@@ -2260,7 +2391,10 @@ export function ReaderScreen() {
         )
       : requestedChapter;
   const chapterLanguage = chapter.lang ?? null;
-  const completed = state.chapterProgress?.completed ?? false;
+  // Only the open chapter's own record (see readerProgressLoadedFor).
+  const readerChapterProgress =
+    readerProgressLoadedFor === chapterId ? state.chapterProgress : null;
+  const completed = readerChapterProgress?.completed ?? false;
   // `null` while unknown: the chrome then leads with the chapter line.
   const mangaTitle = getMobileReaderTitle(
     state.entry,
@@ -2359,8 +2493,17 @@ export function ReaderScreen() {
       pageProcessor.processPages?.([]);
     };
   }, [pageCount, pageProcessor, readerScrollProcessing]);
+  // Seamless scroll: a chapter the reader crossed out of stays in the list,
+  // its processor now the strip's (it disposes it when the chapter leaves).
+  const readerStripRetainsProcessorRef = useRef<
+    (processor: MobileReaderPageProcessor) => boolean
+  >(() => false);
   useEffect(() => {
-    return () => pageProcessor?.dispose();
+    return () => {
+      if (pageProcessor && !readerStripRetainsProcessorRef.current(pageProcessor)) {
+        pageProcessor.dispose();
+      }
+    };
   }, [pageProcessor]);
   const sourcePageNumber = pageCount
     ? readerRoutePageForDisplayIndex(clampedPageIndex, pageCount, mode)
@@ -2424,8 +2567,8 @@ export function ReaderScreen() {
     ? readerPageIdentityFor(currentDisplayedPage)
     : "";
   const savedIntraPageState = normalizeMobileReaderIntraPageState({
-    intraPageProgress: state.chapterProgress?.intraPageProgress,
-    intraPageContentIdentity: state.chapterProgress?.intraPageContentIdentity,
+    intraPageProgress: readerChapterProgress?.intraPageProgress,
+    intraPageContentIdentity: readerChapterProgress?.intraPageContentIdentity,
   });
   const initialLongStripScrollProgress =
     savedIntraPageState?.intraPageContentIdentity ===
@@ -2461,8 +2604,12 @@ export function ReaderScreen() {
     () => retainCachedMobileImageAsset(currentSegmentedImage),
     [currentSegmentedImage],
   );
+  // Seamless scroll: the identities of the neighbouring chapters' pages
+  // (their sizes and errors are kept as well as the open chapter's).
+  const readerStripNeighbourIdentitiesRef = useRef<ReadonlySet<string>>(new Set());
   useEffect(() => {
     const pageIdentities = new Set(pages.map(readerPageIdentityFor));
+    readerStripNeighbourIdentitiesRef.current.forEach((identity) => pageIdentities.add(identity));
     setReaderImageSizes((current) => {
       if (
         [...current.keys()].every((identity) => pageIdentities.has(identity))
@@ -3419,6 +3566,207 @@ export function ReaderScreen() {
   );
   const readyFetchedAt =
     pagesState.status === "ready" ? pagesState.fetchedAt : 0;
+
+  // ---- Seamless scroll (readerSeamlessScroll) -----------------------------
+  // Scroll mode keeps reading into the next chapter in the same list: the
+  // chapters before and after the open one join it (with a divider between),
+  // and crossing a divider makes the chapter below (or above) the open one
+  // without a remount. Paged, two-page, long-strip and segmented chapters
+  // keep their own presentation (and the chapter turn as before).
+  const readerSeamlessEnabled =
+    readerSeamlessScroll &&
+    mode === "scrolling" &&
+    !galleryPagedMode &&
+    readerScrollLayout != null &&
+    pagesState.status === "ready" &&
+    pageCount > 1;
+  /** The crossing this chapter was opened by, while its pages are the ones shown. */
+  const readerSeamlessArrived =
+    readerSeamlessChapter != null &&
+    readerSeamlessChapter.chapterId === chapterId &&
+    pagesState.status === "ready" &&
+    readerSeamlessChapter.fetchedAt === readyFetchedAt;
+  const readerStripSession = readerSeamlessArrived
+    ? readerSeamlessChapter.sessionKey
+    : readerStripSessionKey(chapterId, readyFetchedAt);
+  const readerStripCurrent = useMemo<ReaderStripSegmentData | null>(
+    () =>
+      pagesState.status === "ready"
+        ? {
+            chapter: { ...pagesState.chapter, id: chapterId },
+            pages: pagesState.pages,
+            pageProcessor: pagesState.pageProcessor,
+            fetchedAt: pagesState.fetchedAt,
+          }
+        : null,
+    [chapterId, pagesState],
+  );
+  // The open chapter's page as the strip's fetch triggers see it: only
+  // whether it is near either end matters (so a page crossing does not
+  // re-render the screen for it).
+  const [readerStripTriggerIndex, setReaderStripTriggerIndex] = useState(0);
+  const readerStripTriggerFor = useCallback(
+    (localIndex: number) =>
+      shouldAppendMobileReaderStripSegment(localIndex, pageCount)
+        ? Math.max(0, pageCount - 1)
+        : shouldPrependMobileReaderStripSegment(localIndex, true)
+          ? 0
+          : Math.min(Math.max(0, pageCount - 1), MOBILE_READER_STRIP_PREPEND_LEAD_PAGES),
+    [pageCount],
+  );
+  useEffect(() => {
+    setReaderStripTriggerIndex(readerStripTriggerFor(clampedPageIndex));
+  }, [clampedPageIndex, readerStripTriggerFor]);
+  // Set further down (they read what is declared there).
+  const readerStripLoadChapterRef = useRef<
+    (chapter: ChapterSummary) => Promise<MobileReaderPagesRefresh | null>
+  >(async () => null);
+  const readerStripCanPrependRef = useRef<() => boolean>(() => false);
+  const readerStripHeadOffscreenRef = useRef<
+    (strip: ReaderChapterStrip, count: number) => boolean
+  >(() => false);
+  const readerStripLoadChapter = useCallback(
+    (target: ChapterSummary) => readerStripLoadChapterRef.current(target),
+    [],
+  );
+  const readerStripCanPrepend = useCallback(() => readerStripCanPrependRef.current(), []);
+  const readerStripHeadOffscreen = useCallback(
+    (strip: ReaderChapterStrip, count: number) => readerStripHeadOffscreenRef.current(strip, count),
+    [],
+  );
+  const readerChapterStrip = useReaderChapterStrip({
+    enabled: readerSeamlessEnabled,
+    current: readerStripCurrent,
+    sessionKey: readerStripSession,
+    chapters: readerChapters,
+    currentLocalIndex: readerStripTriggerIndex,
+    loadChapter: readerStripLoadChapter,
+    isHeadRemovalOffscreen: readerStripHeadOffscreen,
+    canPrepend: readerStripCanPrepend,
+  });
+  readerStripRetainsProcessorRef.current = readerChapterStrip.isRetainedProcessor;
+  const requestReaderStripPrevious = readerChapterStrip.requestPrevious;
+  const retryReaderStripNext = readerChapterStrip.retryNext;
+  const readerStrip =
+    readerSeamlessEnabled &&
+    readerChapterStrip.strip &&
+    readerChapterStrip.strip.segments[readerChapterStrip.strip.currentIndex]?.chapter.id === chapterId
+      ? readerChapterStrip.strip
+      : null;
+  const readerStripRows = useMemo<MobileReaderStripRow<ChapterSummary, MobileReaderPage>[] | null>(
+    () => (readerStrip ? mobileReaderStripRows(readerStrip) : null),
+    [readerStrip],
+  );
+  const readerStripStarts = useMemo(
+    () =>
+      readerStrip && readerStripRows
+        ? mobileReaderStripSegmentStarts(readerStripRows, readerStrip.segments.length)
+        : null,
+    [readerStrip, readerStripRows],
+  );
+  const readerStripViewer =
+    readerSourceViewer?.key === readerSourceViewerKey ? readerSourceViewer.viewer : null;
+  // A neighbouring chapter's page size, as it will be once that chapter is
+  // the open one (decoded now, earlier, persisted, or sent by the source).
+  const readerStripPageSize = useCallback(
+    (forChapterId: string, page: MobileReaderPage): MobileReaderPageSize | null => {
+      const identity = readerPageIdentityForChapter(forChapterId, page);
+      return readerImageSizes.get(identity)
+        ?? recallMobileReaderPageNaturalSize(identity)
+        ?? recallMobileReaderPageNaturalSize(readerStablePageSizeKeyForChapter(forChapterId, page))
+        ?? page.sourceSize
+        ?? null;
+    },
+    [readerImageSizes, readerPageIdentityForChapter, readerStablePageSizeKeyForChapter],
+  );
+  const readerStripLayout = useMemo(() => {
+    if (!readerStrip || !readerStripRows || !readerScrollLayout) return null;
+    const layouts = readerStrip.segments.map((segment, index) => {
+      if (index === readerStrip.currentIndex) return readerScrollLayout;
+      const sizeAt = (pageIndex: number) => {
+        const page = segment.pages[pageIndex];
+        return page ? readerStripPageSize(segment.chapter.id, page) : null;
+      };
+      const count = segment.pages.length;
+      const ratios = mobileReaderScrollPageRatios(count, sizeAt);
+      return buildMobileReaderScrollLayout(
+        ratios.map((ratio) => readerImageWidth * ratio),
+        mobileReaderScrollPageGaps(count, sizeAt, readerStripViewer),
+        MOBILE_READER_SCROLL_PAGE_SPACING,
+        segment.pages.map((page) => {
+          const identity = readerPageIdentityForChapter(segment.chapter.id, page);
+          return readerImageSizes.has(identity) || recallMobileReaderPageNaturalSize(identity) != null;
+        }),
+      );
+    });
+    return combineMobileReaderStripLayouts(readerStripRows, layouts);
+  }, [
+    readerImageSizes,
+    readerImageWidth,
+    readerPageIdentityForChapter,
+    readerScrollLayout,
+    readerStrip,
+    readerStripPageSize,
+    readerStripRows,
+    readerStripViewer,
+  ]);
+  const readerStripBridge = useMemo<MobileReaderStripBridge>(() => {
+    if (!readerStrip || !readerStripStarts || !readerStripLayout) {
+      return MOBILE_READER_STRIP_IDENTITY_BRIDGE;
+    }
+    return {
+      indexBase: readerStripStarts[readerStrip.currentIndex] ?? 0,
+      offsetBase: mobileReaderStripSegmentOffset(
+        readerStripLayout,
+        readerStripStarts,
+        readerStrip.currentIndex,
+      ),
+      localCount: pageCount,
+    };
+  }, [pageCount, readerStrip, readerStripLayout, readerStripStarts]);
+  // Read by the reader's scroll handle and the gallery callbacks: always the
+  // list as rendered now.
+  readerStripBridgeRef.current = readerStripBridge;
+  // Neighbour pages keep their sizes (see the size prune above).
+  readerStripNeighbourIdentitiesRef.current = useMemo(() => {
+    const identities = new Set<string>();
+    readerStrip?.segments.forEach((segment, index) => {
+      if (index === readerStrip.currentIndex) return;
+      for (const page of segment.pages) {
+        identities.add(readerPageIdentityForChapter(segment.chapter.id, page));
+      }
+    });
+    return identities;
+  }, [readerPageIdentityForChapter, readerStrip]);
+  // The list's rows as gallery pages: ids unique across chapters (the strip
+  // key), objects kept while their page is (cells are memoized on them).
+  const readerStripGalleryPageCacheRef = useRef(
+    new Map<string, { source: MobileReaderPage | null; page: MobileReaderPage }>(),
+  );
+  const readerStripGalleryPages = useMemo(() => {
+    if (!readerStripRows) return null;
+    const previous = readerStripGalleryPageCacheRef.current;
+    const next = new Map<string, { source: MobileReaderPage | null; page: MobileReaderPage }>();
+    const rows = readerStripRows.map((row) => {
+      const source = row.kind === "page" ? row.page : null;
+      const kept = previous.get(row.key);
+      const page =
+        kept && kept.source === source
+          ? kept.page
+          : source
+            ? ({ ...source, id: row.key } as MobileReaderPage)
+            : ({ id: row.key, index: -1 } as MobileReaderPage);
+      next.set(row.key, { source, page });
+      return page;
+    });
+    readerStripGalleryPageCacheRef.current = next;
+    return rows;
+  }, [readerStripRows]);
+  const readerStripRowByKey = useMemo(() => {
+    const map = new Map<string, { row: MobileReaderStripRow<ChapterSummary, MobileReaderPage>; index: number }>();
+    readerStripRows?.forEach((row, index) => map.set(row.key, { row, index }));
+    return map;
+  }, [readerStripRows]);
   const routePageDisplayIndex = useMemo(
     () => readerDisplayIndexForRoutePage(routePage, pageCount, mode),
     [mode, pageCount, routePage],
@@ -3446,10 +3794,10 @@ export function ReaderScreen() {
         progress:
           readerLocalResume?.key === readerResumeKey
             ? readerLocalResume.progress
-            : state.chapterProgress,
+            : readerChapterProgress,
         pageCount,
       }),
-    [pageCount, readerLocalResume, readerResumeKey, state.chapterProgress],
+    [pageCount, readerLocalResume, readerResumeKey, readerChapterProgress],
   );
   // A page-list refresh (a new `fetchedAt`: the cached list first, then the
   // network's) re-places a chapter this screen already placed: it keeps the
@@ -3546,7 +3894,11 @@ export function ReaderScreen() {
       : "";
   const readerScrollMountKey =
     pagesState.status === "ready"
-      ? `${chapterId}:${readyFetchedAt}:${mode}:${
+      ? `${
+          // Seamless scroll: one list for every chapter it joins (a crossing
+          // must not remount it).
+          readerSeamlessEnabled ? `strip:${readerStripSession}` : `${chapterId}:${readyFetchedAt}`
+        }:${mode}:${
           // Presentation only (spread ⇄ single remounts under a cross-fade);
           // stage size changes never remount the gallery.
           galleryPagedMode
@@ -3560,23 +3912,28 @@ export function ReaderScreen() {
       : "loading";
   const readerContinuousContentIdentity =
     pagesState.status === "ready" && !galleryPagedMode
-      ? JSON.stringify([
-          registryId,
-          sourceId,
-          mangaId,
-          chapterId,
-          readyFetchedAt,
-          mode,
-          pageCount,
-        ])
+      ? JSON.stringify(
+          readerSeamlessEnabled
+            ? [registryId, sourceId, mangaId, "strip", readerStripSession, mode]
+            : [registryId, sourceId, mangaId, chapterId, readyFetchedAt, mode, pageCount],
+        )
       : undefined;
   const readerScrollMetricsScopeKey = readerScrollMetricsResetKey({
     continuousContentIdentity: readerContinuousContentIdentity,
     pagedMode: galleryPagedMode,
     scrollMountKey: readerScrollMountKey,
   });
+  // A chapter opened by a seamless crossing is placed already (the reader
+  // scrolled into it): it never runs the opening restore.
+  const readerSeamlessArrivalPending =
+    readerSeamlessArrived &&
+    Boolean(restoreReaderKey) &&
+    !restoredReaderKey.startsWith(`${readyFetchedAt}:${chapterId}:`);
   const readerRestoreComplete =
-    Boolean(restoreReaderKey) && restoredReaderKey === restoreReaderKey;
+    Boolean(restoreReaderKey) &&
+    (restoredReaderKey === restoreReaderKey || readerSeamlessArrivalPending);
+  const readerRestoreCompleteRef = useRef(readerRestoreComplete);
+  readerRestoreCompleteRef.current = readerRestoreComplete;
   // The cover a zoom landed on fades into the reader (at once into a chapter
   // that failed: its own state). Scroll reading opens straight into the
   // reading position: as soon as the opening seek has placed the list —
@@ -3611,7 +3968,7 @@ export function ReaderScreen() {
   } | null>(null);
   if (readerRestoreComplete && pageCount > 0) {
     if (readerNotebookVisits?.chapterId !== chapterId) {
-      const saved = state.chapterProgress;
+      const saved = readerChapterProgress;
       setReaderNotebookVisits({
         chapterId,
         openedAt: saved && saved.sourceChapterId === chapterId && saved.total > 1 ? saved.progress : null,
@@ -3642,7 +3999,8 @@ export function ReaderScreen() {
   // Progress is saved only once the reader rests where it was restored to.
   const readerProgressRestoreComplete =
     readerRestoreComplete && !readerScrollLandingPending;
-  const silentProgressPersistenceKey = readerProgressRestoreComplete
+  const silentProgressPersistenceKey =
+    readerProgressRestoreComplete && readerProgressLoadedFor === chapterId
     ? mobileReaderProgressPersistenceKey(
         restoreReaderKey,
         visibleProgressPageIndex,
@@ -3903,6 +4261,61 @@ export function ReaderScreen() {
     },
     [store],
   );
+
+  // Seamless scroll: a neighbouring chapter's page list. The warm-up the
+  // reader already started for the next chapter is taken when there is one;
+  // the chapter's persisted page sizes are recalled first, so its pages join
+  // the list at their real heights.
+  readerStripLoadChapterRef.current = async (target) => {
+    const installedSource = selectedInstalledSource;
+    if (!installedSource) return null;
+    const sizes = loadMobileReaderPageSizes(
+      makeMobileReaderPageSizeChapterKey({
+        registryId: routeRef.registryId,
+        sourceId: routeRef.sourceId,
+        mangaId,
+        chapterId: target.id,
+      }),
+    ).catch(() => null);
+    const pageListCacheKey = makeMobileReaderPagesPrefetchKey({
+      registryId,
+      sourceId,
+      mangaId,
+      chapterId: target.id,
+      processPageImages,
+    });
+    const prefetched = mobileReaderPagesPrefetchCache.take(pageListCacheKey);
+    const result =
+      (prefetched ? await prefetched : null) ??
+      (await refreshMobileReaderPages(installedSource, mangaId, target, {
+        getSourceSettings: getReaderSourceSettings,
+        onSourcePackageHydrated: saveReaderSourcePackageHydration,
+        processPageImages,
+        // The open chapter's own page work goes first.
+        priority: "normal",
+      }));
+    for (const [pageId, size] of (await sizes) ?? []) {
+      const stableKey = readerStablePageSizeKeyForChapter(target.id, { id: pageId });
+      if (!recallMobileReaderPageNaturalSize(stableKey)) {
+        rememberMobileReaderPageNaturalSize(stableKey, size);
+      }
+    }
+    if (result.status === "ready" && result.pages.length > 0) {
+      const cacheableChapters = resolveMobileReaderChapterIndex({
+        chapterIndexStatus: result.chapterIndexStatus,
+        chapters: result.chapters,
+      });
+      if (cacheableChapters) {
+        void saveMobileReaderPageListCache(pageListCacheKey, {
+          pages: result.pages,
+          chapters: cacheableChapters,
+          chapter: result.chapter,
+          fetchedAt: result.fetchedAt,
+        }).catch(() => undefined);
+      }
+    }
+    return result;
+  };
 
   useEffect(() => {
     setSourceMangaTitle(null);
@@ -4600,11 +5013,20 @@ export function ReaderScreen() {
     // A drag during the opening restore cancels it: where the reader takes
     // the list is the real position.
     finishReaderScrollLanding("user");
-    if (!galleryPagedMode) readerUserScrollingRef.current = true;
+    if (!galleryPagedMode) {
+      readerUserScrollingRef.current = true;
+      readerStripUserScrolledRef.current = true;
+    }
   }, [clearReaderProgrammaticScroll, finishReaderScrollLanding, galleryPagedMode]);
+  /** Seamless scroll: the chapter just opened was scrolled into (mid-scroll). */
+  const readerStripCrossedIntoRef = useRef<string | null>(null);
   useEffect(() => {
-    // A new chapter or presentation starts outside any user scroll.
-    readerUserScrollingRef.current = false;
+    // A new chapter or presentation starts outside any user scroll — but a
+    // chapter scrolled into is still in the scroll that crossed into it.
+    if (readerStripCrossedIntoRef.current !== chapterId) {
+      readerUserScrollingRef.current = false;
+    }
+    readerStripCrossedIntoRef.current = null;
     readerLivePageStore.set(null);
     return () => {
       if (readerScrollPublishTimerRef.current) {
@@ -7243,6 +7665,18 @@ export function ReaderScreen() {
   ]);
 
   useEffect(() => {
+    if (readerSeamlessArrivalPending) {
+      // Scrolled into from the chapter before (or after): the list is already
+      // on the page the crossing set. Only mark this chapter as placed.
+      readerHeldSpotRef.current = {
+        chapterId,
+        mode,
+        pageIndex: clampedPageIndex,
+        fraction: 0,
+      };
+      setRestoredReaderKey(restoreReaderKey);
+      return;
+    }
     // Prefetched pages may arrive before the persisted progress query.
     const targetPageIndex = resolveMobileReaderRestorePosition({
       progressLoading: loading,
@@ -7335,6 +7769,7 @@ export function ReaderScreen() {
     galleryPagedMode,
     isTwoPageMode,
     loading,
+    readerSeamlessArrivalPending,
     mode,
     pageCount,
     pagesState.status,
@@ -7360,12 +7795,12 @@ export function ReaderScreen() {
         title: chapter.title,
       },
       pageCount,
-      savedProgress: state.chapterProgress
+      savedProgress: readerChapterProgress
         ? {
-            completed: state.chapterProgress.completed,
-            intraPageProgress: state.chapterProgress.intraPageProgress,
-            intraPageContentIdentity: state.chapterProgress.intraPageContentIdentity,
-            updatedAt: state.chapterProgress.updatedAt,
+            completed: readerChapterProgress.completed,
+            intraPageProgress: readerChapterProgress.intraPageProgress,
+            intraPageContentIdentity: readerChapterProgress.intraPageContentIdentity,
+            updatedAt: readerChapterProgress.updatedAt,
           }
         : null,
     }),
@@ -7375,7 +7810,7 @@ export function ReaderScreen() {
       chapter.volumeNumber,
       chapterId,
       pageCount,
-      state.chapterProgress,
+      readerChapterProgress,
     ],
   );
   const readerProgressTargetRef = useRef(readerProgressTarget);
@@ -7666,8 +8101,8 @@ export function ReaderScreen() {
       // Saved while reading here: at least as new as the synced record this
       // reader holds (whose sync clock may run ahead of the wall clock).
       progressAt: Math.max(
-        state.chapterProgress?.lastReadAt ?? 0,
-        state.chapterProgress?.resetAt ?? 0,
+        readerChapterProgress?.lastReadAt ?? 0,
+        readerChapterProgress?.resetAt ?? 0,
       ),
     });
   }, [
@@ -7679,8 +8114,8 @@ export function ReaderScreen() {
     pagesState.status,
     readerProgressRestoreComplete,
     readerResumeKey,
-    state.chapterProgress?.lastReadAt,
-    state.chapterProgress?.resetAt,
+    readerChapterProgress?.lastReadAt,
+    readerChapterProgress?.resetAt,
   ]);
   useEffect(() => {
     saveReaderLocalResumeRef.current = saveReaderLocalResume;
@@ -8258,14 +8693,25 @@ export function ReaderScreen() {
   }, [bilingualSideBySide]);
 
   const renderReaderImage = useCallback(
-    (page: MobileReaderPage, placement?: MobileReaderImagePlacement) => {
-      const pageIdentity = readerPageIdentityFor(page);
+    (
+      page: MobileReaderPage,
+      placement?: MobileReaderImagePlacement,
+      /**
+       * Seamless scroll: a page of the chapter before or after the open one.
+       * Keyed (identity, sizes) as that chapter's own, framed by its row in
+       * the list, without the open chapter's reading tools.
+       */
+      neighbour?: { chapterId: string; frameSize: MobileImageSize },
+    ) => {
+      const pageIdentity = neighbour
+        ? readerPageIdentityForChapter(neighbour.chapterId, page)
+        : readerPageIdentityFor(page);
       // The vertical list: the gallery's directional window (following the
       // live visible page) decides which pages decode; the paged gallery
       // keeps the symmetric window around the committed page.
       const renderPolicy = getMobileReaderPageRenderPolicy({
         currentPageIndex: clampedPageIndex,
-        displayIndex: readerDisplayIndexByPageId.get(page.id),
+        displayIndex: neighbour ? undefined : readerDisplayIndexByPageId.get(page.id),
         hasImageUri: Boolean(page.imageUri),
         processingPending: page.imageProcessing === "pending",
         inRenderWindow: galleryPagedMode
@@ -8278,7 +8724,18 @@ export function ReaderScreen() {
       if (renderPolicy === "none" || !page.imageUri) return null;
       const imageUri = page.imageUri;
 
-      const readerImageFrameSize = getReaderImageFrameSize(page);
+      const readerImageFrameSize = neighbour?.frameSize ?? getReaderImageFrameSize(page);
+      const stablePageSizeKey = neighbour
+        ? readerStablePageSizeKeyForChapter(neighbour.chapterId, page)
+        : readerStablePageSizeKeyFor(page);
+      const pageSizeChapterKey = neighbour
+        ? makeMobileReaderPageSizeChapterKey({
+            registryId: routeRef.registryId,
+            sourceId: routeRef.sourceId,
+            mangaId,
+            chapterId: neighbour.chapterId,
+          })
+        : readerPageSizeChapterKey;
       // The gallery mounts every page in a plain ScrollView; apply the far-page
       // placeholder before the pending spinner so long chapters do not mount an
       // ActivityIndicator for every page awaiting lazy source processing.
@@ -8359,10 +8816,10 @@ export function ReaderScreen() {
             setReaderImageNaturalSize(
               pageIdentity,
               { width, height },
-              readerStablePageSizeKeyFor(page),
+              stablePageSizeKey,
             );
-            saveMobileReaderPageSize(readerPageSizeChapterKey, page.id, { width, height });
-            measureReaderFirstContent(page);
+            saveMobileReaderPageSize(pageSizeChapterKey, page.id, { width, height });
+            if (!neighbour) measureReaderFirstContent(page);
           }}
           onImageError={(error) => {
             setReaderImageLoadError(pageIdentity, error);
@@ -8391,9 +8848,9 @@ export function ReaderScreen() {
             setReaderImageNaturalSize(
               pageIdentity,
               { width: asset.width, height: asset.height },
-              readerStablePageSizeKeyFor(page),
+              stablePageSizeKey,
             );
-            saveMobileReaderPageSize(readerPageSizeChapterKey, page.id, {
+            saveMobileReaderPageSize(pageSizeChapterKey, page.id, {
               width: asset.width,
               height: asset.height,
             });
@@ -8402,7 +8859,7 @@ export function ReaderScreen() {
             retryReaderImage(pageIdentity);
           }}
         >
-          {japaneseLearningOverlayDetections.some((detection) => detection.pageId === page.id) ? (
+          {!neighbour && japaneseLearningOverlayDetections.some((detection) => detection.pageId === page.id) ? (
             <JapaneseLearningDetectionOverlay
               detections={japaneseLearningOverlayDetections.filter((detection) => detection.pageId === page.id)}
               frameSize={readerImageFrameSize}
@@ -8417,7 +8874,8 @@ export function ReaderScreen() {
               it can decide it has nothing to draw, so a disabled dual reader
               must not mount it at all. `dualReadEnabled` is the same flag the
               overlay itself gates every render path on. */}
-          {dualReadEnabled &&
+          {!neighbour &&
+          dualReadEnabled &&
           // Side by side: the secondary has its own pane — never paint it
           // over the primary as well.
           !bilingualSideBySide &&
@@ -8492,6 +8950,11 @@ export function ReaderScreen() {
       setReaderImageNaturalSize,
       readerPageSizeChapterKey,
       readerStablePageSizeKeyFor,
+      readerPageIdentityForChapter,
+      readerStablePageSizeKeyForChapter,
+      routeRef.registryId,
+      routeRef.sourceId,
+      mangaId,
       strings,
     ],
   );
@@ -8572,6 +9035,334 @@ export function ReaderScreen() {
     readerImageSizes,
     readerPageIdentityFor,
   ]);
+  // ---- Seamless scroll: the list's rows, crossings, gallery callbacks ------
+  const readerStripRef = useRef({ strip: readerStrip, rows: readerStripRows });
+  readerStripRef.current = { strip: readerStrip, rows: readerStripRows };
+  useEffect(() => {
+    readerStripUserScrolledRef.current = false;
+  }, [readerScrollMountKey]);
+  readerStripCanPrependRef.current = () =>
+    readerStripUserScrolledRef.current &&
+    readerRestoreCompleteRef.current &&
+    readerScrollLandingRef.current == null &&
+    readerProgrammaticScrollRef.current == null;
+  readerStripHeadOffscreenRef.current = (_strip, count) => {
+    if (!readerStripLayout || !readerStripStarts) return false;
+    const viewport = readerGalleryScrollRef.current?.scrollViewport() ?? null;
+    if (!viewport) return false;
+    return isMobileReaderStripHeadRemovalOffscreen(
+      mobileReaderStripHeadRemoval(readerStripLayout, readerStripStarts, count),
+      viewport.top,
+    );
+  };
+  /**
+   * The screen's centre crossed a divider into another chapter of the list:
+   * that chapter becomes the open one, in place (no remount, no loading
+   * state, no animation). The chapter left keeps its own progress: its
+   * pending position is written to it, and leaving it forward marks it read.
+   */
+  const crossIntoReaderStripSegment = (crossing: {
+    segmentIndex: number;
+    localIndex: number;
+    direction: "forward" | "backward";
+  }): boolean => {
+    if (!readerStrip || pagesState.status !== "ready") return false;
+    // The opening restore (or a seek) owns the list until it lands.
+    if (!readerRestoreCompleteRef.current || readerScrollLandingRef.current) return false;
+    const leavingTarget = readerProgressTargetRef.current;
+    if (leavingTarget.chapterId !== chapterId) return false;
+    const leaving: ReaderStripSegmentData = {
+      chapter: { ...pagesState.chapter, id: chapterId },
+      pages: pagesState.pages,
+      pageProcessor: pagesState.pageProcessor,
+      fetchedAt: pagesState.fetchedAt,
+    };
+    // Writes for the chapter left are queued before it stops being open,
+    // each naming it explicitly.
+    flushPendingReaderProgress({ updateState: false });
+    flushPendingIntraPageProgress(false);
+    if (crossing.direction === "forward") {
+      void persistProgressRef.current(true, Math.max(0, leavingTarget.pageCount - 1), {
+        silent: true,
+        target: leavingTarget,
+        updateState: false,
+      }).catch(() => undefined);
+    }
+    const arriving = readerChapterStrip.rebase(crossing.segmentIndex, leaving);
+    if (!arriving) return false;
+    const arrivingId = arriving.chapter.id;
+    const arrivingCount = arriving.pages.length;
+    const localIndex = clampReaderPageIndex(crossing.localIndex, arrivingCount);
+    // The pages effect must find this chapter loaded (not reset it to a
+    // loading state), and a request still in flight for the chapter left
+    // must not land on top of it.
+    readerPagesLoadedKeyRef.current = `${makeMobileReaderPagesPrefetchKey({
+      registryId,
+      sourceId,
+      mangaId,
+      chapterId: arrivingId,
+      processPageImages,
+    })}:${pagesRefreshNonce}:${appLanguage}`;
+    readerPagesRequestRunRef.current += 1;
+    readerPagesInFlightKeyRef.current = null;
+    currentChapterIdRef.current = arrivingId;
+    readerStripCrossedIntoRef.current = arrivingId;
+    const sessionKey = readerStripSession;
+    setReaderSeamlessChapter((current) => ({
+      chapterId: arrivingId,
+      routeChapterIds: [
+        ...new Set([...(current?.routeChapterIds ?? []), routeChapterId, arrivingId]),
+      ],
+      sessionKey,
+      fetchedAt: arriving.fetchedAt,
+    }));
+    setPagesState((previous) => ({
+      status: "ready",
+      pages: arriving.pages,
+      pageProcessor: arriving.pageProcessor,
+      chapters: previous.status === "ready" ? previous.chapters : [...readerChapters],
+      detail: formatReaderLoadedPages(arrivingCount, strings),
+      fetchedAt: arriving.fetchedAt,
+      chapter: arriving.chapter,
+    }));
+    setEndOfChapterPromptVisible(false);
+    clearReaderProgrammaticScroll();
+    scrollingVisiblePageIndexRef.current = localIndex;
+    readerLivePageStore.set(null);
+    setPageArrival("initial");
+    setCurrentPageIndex(localIndex);
+    setReaderStripTriggerIndex(
+      shouldAppendMobileReaderStripSegment(localIndex, arrivingCount)
+        ? Math.max(0, arrivingCount - 1)
+        : shouldPrependMobileReaderStripSegment(localIndex, true)
+          ? 0
+          : Math.min(Math.max(0, arrivingCount - 1), MOBILE_READER_STRIP_PREPEND_LEAD_PAGES),
+    );
+    const chapterTitleParam = normalizeMobileReaderRouteLabel(arriving.chapter.title, arrivingId);
+    router.setParams({
+      chapterId: arrivingId,
+      page: String(readerRoutePageForDisplayIndex(localIndex, arrivingCount, mode)),
+      chapterTitle: chapterTitleParam || undefined,
+      chapterNumber:
+        arriving.chapter.chapterNumber != null ? String(arriving.chapter.chapterNumber) : undefined,
+      volumeNumber:
+        arriving.chapter.volumeNumber != null ? String(arriving.chapter.volumeNumber) : undefined,
+      chapterLocked: arriving.chapter.locked === true ? "true" : undefined,
+    });
+    return true;
+  };
+  const crossIntoReaderStripSegmentRef = useRef(crossIntoReaderStripSegment);
+  crossIntoReaderStripSegmentRef.current = crossIntoReaderStripSegment;
+  // The gallery speaks in list rows; the reader in the open chapter's pages.
+  const onGalleryScrollingVisiblePageChange = useCallback(
+    (globalIndex: number) => {
+      const { strip, rows } = readerStripRef.current;
+      const bridge = readerStripBridgeRef.current;
+      if (strip && rows) {
+        const crossing = mobileReaderStripCrossing(rows, strip, globalIndex);
+        if (crossing && crossIntoReaderStripSegmentRef.current(crossing)) return;
+      }
+      const local = mobileReaderStripBridgeClampedLocalIndex(bridge, globalIndex);
+      if (local == null) return;
+      if (strip) setReaderStripTriggerIndex(readerStripTriggerFor(local));
+      onScrollingVisiblePageChange(local);
+    },
+    [onScrollingVisiblePageChange, readerStripTriggerFor],
+  );
+  const onGalleryScrollingPageLayout = useCallback(
+    (globalIndex: number, metric: ReaderScrollPageMetric) => {
+      const local = mobileReaderStripBridgeLocalIndex(readerStripBridgeRef.current, globalIndex);
+      if (local != null) onScrollingPageLayout(local, metric);
+    },
+    [onScrollingPageLayout],
+  );
+  const onGalleryScrollingSeekLanded = useCallback(
+    (globalIndex: number) => {
+      const local = mobileReaderStripBridgeLocalIndex(readerStripBridgeRef.current, globalIndex);
+      if (local != null) onScrollingSeekLanded(local);
+    },
+    [onScrollingSeekLanded],
+  );
+  const onGalleryScrollingSeekFailed = useCallback(
+    (globalIndex: number) => {
+      const local = mobileReaderStripBridgeClampedLocalIndex(readerStripBridgeRef.current, globalIndex);
+      if (local != null) onScrollingSeekFailed(local);
+    },
+    [onScrollingSeekFailed],
+  );
+  const onGalleryScrollingFlingTarget = useCallback(
+    (viewport: MobileReaderScrollViewport) => {
+      onScrollingFlingTarget({
+        top: viewport.top - readerStripBridgeRef.current.offsetBase,
+        height: viewport.height,
+      });
+    },
+    [onScrollingFlingTarget],
+  );
+  // Past the list's end: the end-of-chapter prompt only at the true end
+  // (nothing follows) or when the next chapter failed or is locked; while it
+  // is joining the list, nothing.
+  const onGalleryRequestAdvancePastEnd = useCallback(() => {
+    const strip = readerStripRef.current.strip;
+    if (strip) {
+      if (strip.currentIndex !== strip.segments.length - 1) return;
+      const tail = strip.tail;
+      if (tail?.kind === "next" && (tail.status === "idle" || tail.status === "loading")) return;
+    }
+    showEndOfChapterPrompt();
+  }, [showEndOfChapterPrompt]);
+  const onGalleryRequestRetreatPastStart = useCallback(() => {
+    const strip = readerStripRef.current.strip;
+    if (strip) {
+      if (strip.currentIndex !== 0) return;
+      if (requestReaderStripPrevious()) return;
+    }
+    showPreviousChapterFromEnd();
+  }, [requestReaderStripPrevious, showPreviousChapterFromEnd]);
+  // A prepend (or a chapter dropped above) moves the open chapter's rows:
+  // maintainVisibleContentPosition keeps the screen on the same picture.
+  // Should it not have (a jump), the reading spot is put back.
+  const readerStripPlacementRef = useRef<{ chapterId: string; bridge: MobileReaderStripBridge } | null>(null);
+  useLayoutEffect(() => {
+    const previous = readerStripPlacementRef.current;
+    readerStripPlacementRef.current = { chapterId, bridge: readerStripBridge };
+    if (
+      !readerStrip ||
+      !previous ||
+      previous.chapterId !== chapterId ||
+      previous.bridge.indexBase === readerStripBridge.indexBase
+    ) {
+      return;
+    }
+    const before = readerGalleryScrollRef.current?.pageAnchor() ?? null;
+    if (!before) return;
+    const local = before.pageIndex - previous.bridge.indexBase;
+    if (local < 0 || local >= pageCount) return;
+    const fraction = before.fraction;
+    const expected = mobileReaderStripBridgeGlobalIndex(readerStripBridge, local);
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => {
+        const after = readerGalleryScrollRef.current?.pageAnchor() ?? null;
+        if (!after || Math.abs(after.pageIndex - expected) <= 2) return;
+        readerGalleryScrollRef.current?.scrollTo({
+          index: expected,
+          fraction,
+          y: readerStripLayout
+            ? mobileReaderScrollOffsetForAnchor(readerStripLayout, expected, fraction)
+            : 0,
+          animated: false,
+        });
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the bridge moving is the trigger.
+  }, [readerStripBridge]);
+  const readerStripSourceName = selectedInstalledSource?.name ?? null;
+  const renderReaderStripImage = useCallback(
+    (galleryPage: MobileReaderPage, placement?: MobileReaderImagePlacement) => {
+      const entry = readerStripRowByKey.get(galleryPage.id);
+      if (!entry || entry.row.kind !== "page" || !readerStrip) return null;
+      const { row, index } = entry;
+      if (row.segmentIndex === readerStrip.currentIndex) {
+        return renderReaderImage(row.page, placement);
+      }
+      const segment = readerStrip.segments[row.segmentIndex];
+      if (!segment) return null;
+      return renderReaderImage(row.page, placement, {
+        chapterId: segment.chapter.id,
+        frameSize: {
+          width: readerImageWidth,
+          height: readerStripLayout?.heights[index] ?? readerImageWidth * 1.45,
+        },
+      });
+    },
+    [readerImageWidth, readerStrip, readerStripLayout, readerStripRowByKey, renderReaderImage],
+  );
+  const renderReaderStripRow = useCallback(
+    (galleryPage: MobileReaderPage) => {
+      const entry = readerStripRowByKey.get(galleryPage.id);
+      if (!entry || entry.row.kind !== "divider") return undefined;
+      const { row } = entry;
+      const target = row.chapter;
+      return (
+        <ReaderChapterDivider
+          variant={row.variant}
+          chapter={row.chapter}
+          status={row.status}
+          sourceName={readerStripSourceName}
+          strings={strings}
+          onRetry={
+            row.status === "failed"
+              ? retryReaderStripNext
+              : row.status === "locked" && target
+                ? () => goToChapter(target, { startAt: "start" })
+                : undefined
+          }
+        />
+      );
+    },
+    [goToChapter, retryReaderStripNext, readerStripRowByKey, readerStripSourceName, strings],
+  );
+  // Render identity per list row (see readerScrollPageRenderKeys).
+  const readerStripRenderKeys = useMemo(() => {
+    if (!readerStrip || !readerStripRows) return null;
+    const keys = new Map<string, string>();
+    readerStripRows.forEach((row, index) => {
+      if (row.kind === "divider") {
+        keys.set(
+          row.key,
+          ["divider", row.variant, row.status, row.chapter?.id ?? "", readerStripSourceName ?? ""].join("|"),
+        );
+        return;
+      }
+      if (row.segmentIndex === readerStrip.currentIndex) {
+        keys.set(row.key, `${chapterId}|open|${readerScrollPageRenderKeys?.get(row.page.id) ?? ""}`);
+        return;
+      }
+      const segmentChapterId = readerStrip.segments[row.segmentIndex]?.chapter.id ?? "";
+      const identity = readerPageIdentityForChapter(segmentChapterId, row.page);
+      const size = readerImageSizes.get(identity);
+      keys.set(
+        row.key,
+        [
+          segmentChapterId,
+          "neighbour",
+          readerStripLayout?.heights[index] ?? 0,
+          size ? `${size.width}x${size.height}` : "",
+          readerImageErrors.get(identity) ?? "",
+          readerImageRetryNonces.get(identity) ?? 0,
+          row.page.imageProcessing ?? "",
+          row.page.imageUri ?? "",
+        ].join("|"),
+      );
+    });
+    return keys;
+  }, [
+    chapterId,
+    readerImageErrors,
+    readerImageRetryNonces,
+    readerImageSizes,
+    readerPageIdentityForChapter,
+    readerScrollPageRenderKeys,
+    readerStrip,
+    readerStripLayout,
+    readerStripRows,
+    readerStripSourceName,
+  ]);
+  const readerGallerySourcePageForDisplayIndex = useCallback(
+    (displayIndex: number) =>
+      sourcePageForDisplayIndex(
+        mobileReaderStripBridgeClampedLocalIndex(readerStripBridge, displayIndex) ?? displayIndex,
+      ),
+    [readerStripBridge, sourcePageForDisplayIndex],
+  );
+  const readerGalleryInitialContentOffset = useMemo(
+    () =>
+      readerStripBridge.offsetBase === 0 || galleryPagedMode
+        ? readerInitialContentOffset
+        : { x: readerInitialContentOffset.x, y: readerInitialContentOffset.y + readerStripBridge.offsetBase },
+    [galleryPagedMode, readerInitialContentOffset, readerStripBridge.offsetBase],
+  );
   const renderReaderImageSegment = useCallback(
     (frame: MobileReaderSegmentFrame) => {
       const page = currentDisplayedPage;
@@ -10324,11 +11115,13 @@ export function ReaderScreen() {
           readerPose.chrome.kind === "console" ? 0 : galleryPagedMode ? readerChromeTopPadding : readerScrollTopInset
         }
         completed={completed}
-        displayedPages={displayedPages}
-        initialContentOffset={readerInitialContentOffset}
+        displayedPages={readerStripGalleryPages ?? displayedPages}
+        initialContentOffset={readerGalleryInitialContentOffset}
         scrollMountKey={readerScrollMountKey}
         isTwoPageMode={isTwoPageMode}
-        loading={loading}
+        // A chapter scrolled into reads its saved progress in the background:
+        // the list it is already in never goes back to a loading state.
+        loading={loading && !readerSeamlessArrived}
         longStripPresentationMode={isLongStripLogicalPage}
         longStripContentIdentity={
           isLongStripLogicalPage || currentSegmentedImage
@@ -10343,31 +11136,39 @@ export function ReaderScreen() {
         onContinuousScrollMetricsChange={onReaderContinuousScrollMetricsChange}
         onUserScrollBegin={beginReaderUserScroll}
         onUserScrollSettle={settleReaderUserScroll}
-        onScrollingPageLayout={onScrollingPageLayout}
-        onScrollingSeekFailed={onScrollingSeekFailed}
-        onScrollingSeekLanded={onScrollingSeekLanded}
-        onScrollingFlingTarget={onScrollingFlingTarget}
-        scrollPageLayout={readerScrollLayout}
-        onScrollingVisiblePageChange={onScrollingVisiblePageChange}
+        onScrollingPageLayout={onGalleryScrollingPageLayout}
+        onScrollingSeekFailed={onGalleryScrollingSeekFailed}
+        onScrollingSeekLanded={onGalleryScrollingSeekLanded}
+        onScrollingFlingTarget={onGalleryScrollingFlingTarget}
+        scrollPageLayout={readerStripLayout ?? readerScrollLayout}
+        onScrollingVisiblePageChange={onGalleryScrollingVisiblePageChange}
         onRetry={() => {
           setPagesRefreshNonce((value) => value + 1);
         }}
         onPageStep={stepReaderPage}
-        onRequestAdvancePastEnd={showEndOfChapterPrompt}
-        onRequestRetreatPastStart={showPreviousChapterFromEnd}
+        onRequestAdvancePastEnd={onGalleryRequestAdvancePastEnd}
+        onRequestRetreatPastStart={onGalleryRequestRetreatPastStart}
         pagedDisplayIndex={
           // Until the opening position is restored the list sits at the
           // restore frame (its initial offset), not at the placeholder page
           // 0: a stage relayout in that window (the Duo outer display
           // settling its vertical bar) re-placed the list on page 1 and the
           // reader then reported 1/53 instead of the requested 8/53.
-          !readerRestoreComplete
+          // (Scroll mode: as a list row — seamless scroll puts the open
+          // chapter after the one before it.)
+          (!readerRestoreComplete
             ? readerRestoreFrameIndex
             : isTwoPageMode
               ? currentSpreadIndex
-              : clampedPageIndex
+              : clampedPageIndex) + (galleryPagedMode ? 0 : readerStripBridge.indexBase)
         }
-        pagedDisplayCount={isTwoPageMode ? readerSpreads.length : pageCount}
+        pagedDisplayCount={
+          isTwoPageMode
+            ? readerSpreads.length
+            : galleryPagedMode
+              ? pageCount
+              : (readerStripGalleryPages?.length ?? pageCount)
+        }
         onSegmentedLogicalEndReached={() => {
           if (currentLogicalEndIdentity) {
             setSegmentedLogicalEndReachedIdentity(currentLogicalEndIdentity);
@@ -10412,15 +11213,16 @@ export function ReaderScreen() {
         pagesState={pagesState}
         readerImageWidth={readerImageWidth}
         readerPageWidth={readerPageWidth}
-        readerScrollRef={readerScrollRef}
-        renderImage={renderReaderImage}
+        readerScrollRef={readerGalleryScrollRef}
+        renderImage={readerStrip ? renderReaderStripImage : renderReaderImage}
+        renderScrollRow={readerStrip ? renderReaderStripRow : undefined}
         renderImageSegment={renderReaderImageSegment}
-        scrollPageGaps={readerScrollPageGaps}
+        scrollPageGaps={readerStripLayout?.gaps ?? readerScrollPageGaps}
         scrollPageRenderEpoch={readerScrollPageRenderEpoch}
-        scrollPageRenderKeys={readerScrollPageRenderKeys}
+        scrollPageRenderKeys={readerStripRenderKeys ?? readerScrollPageRenderKeys}
         scrollSideMargin={readerScrollSideMargin}
         segmentedImageFrames={segmentedImageFrames}
-        sourcePageForDisplayIndex={sourcePageForDisplayIndex}
+        sourcePageForDisplayIndex={readerGallerySourcePageForDisplayIndex}
         spreads={readerSpreads}
         stateTopPadding={readerStateTopPadding}
         strings={strings}

@@ -9,6 +9,9 @@ import {
 } from "@/lib/mobileReaderChapterStrip";
 import type { ChapterSummary } from "@/data/schema";
 
+/** The app's primary colour (as the book side pane's current thumbnail). */
+const READER_STRIP_DIVIDER_ACTION_COLOR = "#5B6CEB";
+
 export type ReaderChapterDividerProps = {
   /** `next`: the chapter below; `end`: nothing follows (caught up). */
   variant: "next" | "end";
@@ -60,7 +63,7 @@ export const ReaderChapterDivider = memo(function ReaderChapterDivider({
         {title}
       </Text>
       {secondLine ? (
-        <Text numberOfLines={1} style={styles.subtitle}>
+        <Text numberOfLines={1} style={[styles.subtitle, actionable ? styles.subtitleAction : null]}>
           {secondLine}
         </Text>
       ) : null}
@@ -110,5 +113,10 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.55)",
     fontSize: 13,
     textAlign: "center",
+  },
+  // Failed / locked: the second line is the tap target (retry / locked), in
+  // the app's primary colour at full opacity so it reads as tappable.
+  subtitleAction: {
+    color: READER_STRIP_DIVIDER_ACTION_COLOR,
   },
 });
