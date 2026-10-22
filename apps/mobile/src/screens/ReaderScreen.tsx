@@ -571,6 +571,7 @@ import {
   saveMobileReaderPageListCache,
 } from "@/sources/mobileReaderPageListCache";
 import { refreshMobileSourceMetadata } from "@/sources/mobileSourceDetails";
+import { resolveMobileReaderPageListFetchedAt } from "@/lib/mobileReaderPageListFetchedAt";
 import {
   loadMobileSourceMangaViewer,
   type MobileSourceMangaViewer,
@@ -6540,6 +6541,16 @@ export function ReaderScreen() {
         }
 
         const persisted = await loadMobileReaderPageListCache(pageListCacheKey);
+        // The source's answer, when it is the very list already painted from
+        // the cache, keeps the cache's `fetchedAt`: no second remount.
+        const fetchedAtFor = (fetched: {
+          pages: MobileReaderPage[];
+          fetchedAt: number;
+        }) =>
+          resolveMobileReaderPageListFetchedAt({
+            shown: restoredPersistedPageList ? persisted : null,
+            fetched,
+          });
         if (persisted && readerPagesRequestRunRef.current === requestRun) {
           restoredPersistedPageList = true;
           readerPagesLoadedKeyRef.current = pagesRequestKey;
@@ -6591,7 +6602,7 @@ export function ReaderScreen() {
                     firstPaint.pages.length,
                     effectStrings,
                   ),
-                  fetchedAt: firstPaint.fetchedAt,
+                  fetchedAt: fetchedAtFor(firstPaint),
                   chapter: firstPaint.chapter,
                 });
               },
@@ -6677,7 +6688,7 @@ export function ReaderScreen() {
             refreshed.pages.length,
             effectStrings,
           ),
-          fetchedAt: refreshed.fetchedAt,
+          fetchedAt: fetchedAtFor(refreshed),
           chapter: refreshed.chapter,
         }));
       } catch (nextError) {
