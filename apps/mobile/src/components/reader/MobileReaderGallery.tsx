@@ -1034,6 +1034,13 @@ export function MobileReaderGallery({
       seek.fraction,
     );
     if (forced || Math.abs(latestScrollMetricsRef.current.contentOffset - offset) > 1) {
+      if (Date.now() < stripDiagRef.current.until) {
+        console.info(
+          `[reader-strip-diag] seek-place row${seek.pageIndex}@${seek.fraction.toFixed(2)} recorded=${Math.round(
+            latestScrollMetricsRef.current.contentOffset,
+          )} to=${Math.round(offset)} forced=${forced}`,
+        );
+      }
       listRef.current?.scrollToOffset({ offset, animated: false });
     } else {
       checkPageSeekLanded(offset);
@@ -1061,6 +1068,9 @@ export function MobileReaderGallery({
     layout: MobileReaderScrollLayout | null;
   } | null>(null);
   const scrollHeadShiftRef = useRef<MobileReaderScrollHeadShift | null>(null);
+  // TEMP DIAG (tog jump): one-line [reader-strip-diag] events for 20s after
+  // a head shift (or any rescale of the rows above the reading line).
+  const stripDiagRef = useRef({ until: 0, lastAt: 0, lastRaw: Number.NaN, lastContent: Number.NaN });
   useLayoutEffect(() => {
     const previous = scrollRowsRef.current;
     const keys = displayedPages.map((page) => page.id);
@@ -1072,10 +1082,40 @@ export function MobileReaderGallery({
       !previous.layout ||
       !scrollPageLayout
     ) {
+      if (!pagedMode && previous?.mountKey !== scrollMountKey) {
+        console.info(
+          `[reader-strip-diag] mount key=${scrollMountKey.slice(-40)} rows=${keys.length} js=${
+            scrollPageLayout ? Math.round(scrollPageLayout.length) : "none"
+          } initialY=${Math.round(initialContentOffset.y)}`,
+        );
+      }
       return;
     }
     const rows = mobileReaderStripHeadRowShift(previous.keys, keys);
+    if (rows === 0 && previous.layout !== scrollPageLayout) {
+      // TEMP DIAG: rows above the reading line resized (no rows added).
+      const anchorRow = scrollAnchorRef.current?.pageIndex;
+      if (anchorRow != null) {
+        const before = previous.layout.starts[anchorRow];
+        const after = scrollPageLayout.starts[anchorRow];
+        if (before != null && after != null && Math.abs(after - before) > 1) {
+          let changed = 0;
+          for (let row = 0; row < anchorRow; row += 1) {
+            if (Math.abs((previous.layout.heights[row] ?? 0) - (scrollPageLayout.heights[row] ?? 0)) > 0.5) changed += 1;
+          }
+          stripDiagRef.current.until = Date.now() + 20_000;
+          console.info(
+            `[reader-strip-diag] above-resize anchor=row${anchorRow} start=${Math.round(before)}->${Math.round(after)} delta=${Math.round(
+              after - before,
+            )} rowsChanged=${changed} recorded=${Math.round(latestScrollMetricsRef.current.contentOffset)} jsTotal=${Math.round(
+              previous.layout.length,
+            )}->${Math.round(scrollPageLayout.length)}`,
+          );
+        }
+      }
+    }
     if (rows == null || rows === 0) return;
+    stripDiagRef.current.until = Date.now() + 20_000;
     scrollAnchorRef.current = shiftMobileReaderScrollAnchorRows(scrollAnchorRef.current, rows);
     scrollCentreAnchorRef.current = shiftMobileReaderScrollAnchorRows(scrollCentreAnchorRef.current, rows);
     lastCentrePageRef.current = shiftMobileReaderRowIndex(lastCentrePageRef.current, rows);
@@ -1108,6 +1148,15 @@ export function MobileReaderGallery({
       const viewportTop = currentScrollViewportTop() + offset;
       setScrollRenderWindow((current) => ({ ...current, anchor: centre, viewportTop }));
     }
+    console.info(
+      `[reader-strip-diag] head-shift recorded=${Math.round(latestScrollMetricsRef.current.contentOffset)} expected=${Math.round(
+        latestScrollMetricsRef.current.contentOffset + offset,
+      )} jsInserted=${Math.round(offset)} nativeContent=${Math.round(latestScrollMetricsRef.current.contentLength)} jsTotal=${Math.round(
+        previous.layout.length,
+      )}->${Math.round(scrollPageLayout.length)} knownAbove=${
+        scrollPageLayout.known ? scrollPageLayout.known.slice(0, Math.max(0, rows)).filter(Boolean).length : "all"
+      }/${rows}`,
+    );
     console.info(
       `[reader-strip] head shift rows=${rows} offset=${Math.round(offset)} anchor=${
         scrollAnchorRef.current
@@ -1171,6 +1220,13 @@ export function MobileReaderGallery({
                   { pageIndex: targetIndex, fraction: seekFraction },
                   false,
                 );
+            if (Date.now() < stripDiagRef.current.until) {
+              console.info(
+                `[reader-strip-diag] scrollTo row${targetIndex}@${seekFraction.toFixed(2)} recorded=${Math.round(
+                  latestScrollMetricsRef.current.contentOffset,
+                )} to=${Math.round(offset)} animated=${animated}`,
+              );
+            }
             listRef.current?.scrollToOffset({ offset, animated });
             // Already there: no scroll event will report the landing.
             if (!animated) {
@@ -1914,6 +1970,33 @@ export function MobileReaderGallery({
       );
       scrollHeadShiftRef.current = resolved.shift;
       const contentOffset = { y: resolved.offset };
+      {
+        // TEMP DIAG: native vs resolved offset, native vs JS content length.
+        const diag = stripDiagRef.current;
+        const now = Date.now();
+        const raw = event.nativeEvent.contentOffset.y;
+        if (
+          now < diag.until &&
+          (resolved.offset !== raw ||
+            contentSize.height !== diag.lastContent ||
+            (Math.abs(raw - diag.lastRaw) > 150 && now - diag.lastAt > 60))
+        ) {
+          diag.lastAt = now;
+          diag.lastRaw = raw;
+          diag.lastContent = contentSize.height;
+          const diagLayout = scrollPageLayoutRef.current;
+          const centre = diagLayout
+            ? mobileReaderScrollCentrePageIndex(diagLayout, resolved.offset, layoutMeasurement.height, chromeTopPaddingRef.current)
+            : null;
+          console.info(
+            `[reader-strip-diag] scroll raw=${Math.round(raw)} used=${Math.round(resolved.offset)} nativeContent=${Math.round(
+              contentSize.height,
+            )} jsContent=${diagLayout ? Math.round(diagLayout.length + chromeTopPaddingRef.current + bottomPadding) : "none"} centre=row${centre ?? "-"} stale=${
+              resolved.offset !== raw
+            }`,
+          );
+        }
+      }
       const metrics = {
         contentOffset: contentOffset.y,
         // Progress follows the physical native scroll range, including the
@@ -1974,6 +2057,17 @@ export function MobileReaderGallery({
     });
     recordContinuousScrollMetrics(measuredMetrics, false);
     publishLogicalScrollAccessibility();
+    if (Date.now() < stripDiagRef.current.until) {
+      // TEMP DIAG
+      const diagLayout = scrollPageLayoutRef.current;
+      console.info(
+        `[reader-strip-diag] content-size native=${Math.round(height)} js=${
+          diagLayout ? Math.round(diagLayout.length + chromeTopPaddingRef.current + bottomPadding) : "none"
+        } recorded=${Math.round(latestScrollMetricsRef.current.contentOffset)} seek=${
+          pendingPageSeekRef.current ? `row${pendingPageSeekRef.current.pageIndex}` : "none"
+        }`,
+      );
+    }
     if (scrollPageLayoutRef.current && pendingPageSeekRef.current) {
       // A held page seek owns the offset; progress re-placement would fight it.
       pendingContentSizeScrollProgressRef.current = null;

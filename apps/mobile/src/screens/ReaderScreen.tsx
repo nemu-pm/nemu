@@ -9352,6 +9352,16 @@ export function ReaderScreen() {
     }
     const arriving = readerChapterStrip.rebase(crossing.segmentIndex, leaving);
     if (!arriving) return false;
+    // TEMP DIAG (tog jump)
+    console.info(
+      `[reader-strip-diag] cross dir=${crossing.direction} from=${chapterId.slice(-12)} to=${arriving.chapter.id.slice(-12)} local=p${
+        crossing.localIndex + 1
+      }/${arriving.pages.length} recorded=${Math.round(
+        readerGalleryScrollRef.current?.contentOffset?.() ?? -1,
+      )} centre=row${readerGalleryScrollRef.current?.centrePageIndex() ?? "-"} offsetBase=${Math.round(
+        readerStripBridgeRef.current.offsetBase,
+      )} landing=${readerScrollLandingRef.current ? "yes" : "no"}`,
+    );
     const arrivingId = arriving.chapter.id;
     const arrivingCount = arriving.pages.length;
     const localIndex = clampReaderPageIndex(crossing.localIndex, arrivingCount);
@@ -9525,6 +9535,12 @@ export function ReaderScreen() {
     frame = requestAnimationFrame(() => {
       frame = requestAnimationFrame(() => {
         readerStripBridgeMovingRef.current = false;
+        // TEMP DIAG (tog jump)
+        console.info(
+          `[reader-strip-diag] fixup recorded=${Math.round(
+            readerGalleryScrollRef.current?.contentOffset?.() ?? -1,
+          )} expected=${Math.round(expectedOffset)} row${expected}@${fraction.toFixed(2)} userScrolling=${readerUserScrollingRef.current}`,
+        );
         if (readerUserScrollingRef.current) return;
         const gallery = readerGalleryScrollRef.current;
         const viewport = gallery?.scrollViewport() ?? null;
