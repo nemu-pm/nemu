@@ -1831,10 +1831,20 @@ export function ReaderScreen() {
         if (target?.kind === "page" && target.pageIndex === landing.pageIndex) {
           clearReaderProgrammaticScroll();
         }
+        // The restore puts its page's spot at the reading line, so the page
+        // under the screen's centre can be the next one. The gallery already
+        // knows it (and will not report it again until it changes): show it
+        // in the counter like any scroll would, without committing it.
+        const centre = readerScrollRef.current?.centrePageIndex() ?? null;
+        readerLivePageStore.set(
+          centre != null && centre !== landing.pageIndex
+            ? { index: centre, baseIndex: landing.pageIndex }
+            : null,
+        );
       }
       setReaderScrollLandingPending(false);
     },
-    [clearReaderProgrammaticScroll],
+    [clearReaderProgrammaticScroll, readerLivePageStore],
   );
   const armReaderScrollLanding = useCallback(
     (pageIndex: number) => {

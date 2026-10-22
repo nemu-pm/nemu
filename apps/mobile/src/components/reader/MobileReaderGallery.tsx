@@ -359,6 +359,11 @@ export type MobileReaderScrollHandle = {
   pageAnchor(): MobileReaderScrollPageAnchor | null;
   /** Scroll mode: where the screen is now; null before the list has a size. */
   scrollViewport(): MobileReaderScrollViewport | null;
+  /**
+   * Scroll mode with a page layout: the page under the screen's centre now
+   * (what the toolbar counter shows while scrolling); null when unknown.
+   */
+  centrePageIndex(): number | null;
   scrollToProgress(progress: number, animated?: boolean): boolean;
   scrollToProgressAfterContentChange(progress: number): void;
 };
@@ -1076,6 +1081,20 @@ export function MobileReaderGallery({
           metrics.viewportLength > 0 ? metrics.viewportLength : windowHeight;
         if (!(height > 0)) return null;
         return { top: currentScrollViewportTop(), height };
+      },
+      centrePageIndex() {
+        const layout = scrollPageLayoutRef.current;
+        if (pagedMode || !layout) return null;
+        const metrics = latestScrollMetricsRef.current;
+        const height =
+          metrics.viewportLength > 0 ? metrics.viewportLength : windowHeight;
+        if (!(height > 0)) return null;
+        return mobileReaderScrollCentrePageIndex(
+          layout,
+          metrics.contentOffset,
+          height,
+          chromeTopPaddingRef.current,
+        );
       },
       scrollToProgress(progress, animated = false) {
         if (pagedMode) return false;
