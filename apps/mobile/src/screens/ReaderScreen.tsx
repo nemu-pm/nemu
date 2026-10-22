@@ -9344,18 +9344,34 @@ export function ReaderScreen() {
     },
     [onScrollingFlingTarget],
   );
-  // Past the list's end: the end-of-chapter prompt only at the true end
-  // (nothing follows) or when the next chapter failed or is locked; while it
-  // is joining the list, nothing.
+  // Past the list's end: the end-of-chapter prompt only when the next
+  // chapter failed or is locked; while it is joining the list, nothing. At
+  // the true end (nothing follows) the list's "Caught up" divider says it:
+  // no card, the chapter is only marked complete (once), as the card would.
+  const readerStripCaughtUpCompletedRef = useRef<string | null>(null);
   const onGalleryRequestAdvancePastEnd = useCallback(() => {
     const strip = readerStripRef.current.strip;
     if (strip) {
       if (strip.currentIndex !== strip.segments.length - 1) return;
       const tail = strip.tail;
       if (tail?.kind === "next" && (tail.status === "idle" || tail.status === "loading")) return;
+      if (tail?.kind === "end") {
+        if (readerStripCaughtUpCompletedRef.current === chapterId) return;
+        readerStripCaughtUpCompletedRef.current = chapterId;
+        if (chapterCompleteCelebration) void hapticConfirm();
+        void persistProgressRef.current(true, visibleProgressPageIndex, {
+          silent: true,
+        }).catch(() => {
+          // Not saved: a later pull past the end tries again.
+          if (readerStripCaughtUpCompletedRef.current === chapterId) {
+            readerStripCaughtUpCompletedRef.current = null;
+          }
+        });
+        return;
+      }
     }
     showEndOfChapterPrompt();
-  }, [showEndOfChapterPrompt]);
+  }, [chapterCompleteCelebration, chapterId, showEndOfChapterPrompt, visibleProgressPageIndex]);
   const onGalleryRequestRetreatPastStart = useCallback(() => {
     const strip = readerStripRef.current.strip;
     if (strip) {
