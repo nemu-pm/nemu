@@ -58,3 +58,16 @@ test("restore spot: explicit route pages and paged reading", () => {
     pageCount: 23, scrollReading: true, heldSpot: null, routePageIndex: null, saved: null,
   })).toEqual({ pageIndex: 0, fraction: 0 });
 });
+
+test("a fresh chapter (no saved spot, no route page) opens at the very top of page 1", () => {
+  // The Duo outer display used to open ~150pt into page 1: the restore spot
+  // itself is the top, the strip's own padding the only space above it.
+  for (const scrollReading of [true, false]) {
+    expect(resolveMobileReaderRestoreSpot({
+      pageCount: 23, scrollReading, heldSpot: null, routePageIndex: null, saved: null,
+    })).toEqual({ pageIndex: 0, fraction: 0 });
+    expect(resolveMobileReaderRestoreSpot({
+      pageCount: 23, scrollReading, heldSpot: null, routePageIndex: 0, saved: null,
+    })).toEqual({ pageIndex: 0, fraction: 0 });
+  }
+});

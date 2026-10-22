@@ -892,6 +892,19 @@ describe("reader pose on measured iPhone Duo geometry", () => {
     }
   });
 
+  test("closed, scroll reading: the strip keeps to the safe column, clear of the bar column and the camera", () => {
+    for (const orientation of ["portrait", "landscape-left", "landscape-right"]) {
+      const m = find("iphone-duo-outer", "closed", orientation);
+      const layout: MobileWindowLayout = { ...duoLayout(m), hinge: "closed", fillsScreen: true };
+      const result = pose(layout, { paged: false, sideBar: true });
+      expect(result.stage.x).toBe(m.insets.left);
+      expect(result.stage.x + result.stage.width).toBeCloseTo(m.bounds.width - m.insets.right, 6);
+      for (const region of activeOcclusions(layout)) expect(overlaps(result.stage, region)).toBe(false);
+      // Paged reading (camera avoidance off) still full-bleeds behind the bar column.
+      expect(pose(layout, { paged: true, sideBar: true, avoidCamera: false }).stage.width).toBe(m.bounds.width);
+    }
+  });
+
   test("book: measured 40pt fold at 455.5–495.5 separates the two page slots", () => {
     const result = pose(duoLayout(find("iphone-duo-inner", "partially-folded", "landscape-left")), { twoPage: true });
     expect(result.posture).toBe("book");

@@ -1168,7 +1168,10 @@ export function mobileReaderPoseLayout(input: MobileReaderPoseLayoutInput): Mobi
     rect.x > bounds.x && rect.y > bounds.y
     && rect.x + rect.width < bounds.x + bounds.width
     && rect.y + rect.height < bounds.y + bounds.height);
-  let stage = fullBleedBehindRail ? bounds : chromeStage;
+  // Scroll reading keeps the strip in the safe column: its first screen (and
+  // every screen after) would otherwise run under the bar column and the
+  // camera, which a page fitted around the camera (below) never does.
+  let stage = fullBleedBehindRail && input.paged ? bounds : chromeStage;
   if (fullBleedBehindRail && input.paged && input.avoidCamera !== false && cameraOcclusions.length > 0) {
     const aspect = input.pageAspectRatio && Number.isFinite(input.pageAspectRatio) && input.pageAspectRatio > 0
       ? input.pageAspectRatio : 1 / 1.45;
