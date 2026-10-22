@@ -245,6 +245,60 @@ export function resolveMobileReaderStripRowsSettle(
 export const MOBILE_READER_STRIP_ROWS_SETTLE_MIN_SCROLLING_FIX = 24;
 
 /**
+ * The settle check found that the list never reported after the rows changed
+ * (no scroll event at all: v14, a page sheet over the reader while the
+ * device turns). The offset JS holds is then the old one measured against
+ * the new rows, so it decides nothing: at rest the list is placed on its
+ * target (the held seek, else `before + jsDelta`) and the rows stay
+ * "unreported" — still settling — until the list reports again.
+ */
+export function isMobileReaderStripRowsSettleUnreported(events: number, userScrolling: boolean): boolean {
+  return events === 0 && !userScrolling;
+}
+
+/** While unreported: how often the placement is sent again (the list may be off screen). */
+export const MOBILE_READER_STRIP_UNREPORTED_RETRY_MS = 400;
+/** While unreported: the longest the rows are held as settling (a sheet left open). */
+export const MOBILE_READER_STRIP_UNREPORTED_MAX_MS = 10 * 60_000;
+
+/**
+ * The first report after an unreported settle: where the list really is. At
+ * rest off its target it is put there (an absolute offset); a scroll of the
+ * reader's own is left alone.
+ */
+export function resolveMobileReaderStripUnreportedReport(input: {
+  target: number;
+  nativeOffset: number;
+  userScrolling: boolean;
+}): { fixTo: number | null } {
+  const { target, nativeOffset, userScrolling } = input;
+  if (userScrolling || !Number.isFinite(target) || !Number.isFinite(nativeOffset)) return { fixTo: null };
+  return { fixTo: Math.abs(nativeOffset - target) > 0.5 ? target : null };
+}
+
+/**
+ * A width / viewport change re-places the list (the gallery's relayout):
+ * - the spot of the last exact placement (the opening restore, a page
+ *   seek) while the reader has not scrolled since — the reading line on the
+ *   same row and fraction. Re-deriving it from the screen's centre in rows
+ *   of another height moved it (v14: a resume mounts at a provisional
+ *   width, every reopen of 635 p40 lost ~0.11 page: @0.89 → 0.78 → 0.66);
+ * - else the page under the centre (a posture change keeps what the reader
+ *   was looking at), unless a seek is still on its way: its own anchor.
+ */
+export function resolveMobileReaderRelayoutSeekAnchor(input: {
+  restingSpot: MobileReaderScrollPageAnchor | null;
+  heldSeek: (MobileReaderScrollPageAnchor & { landed: boolean }) | null;
+  centreTarget: MobileReaderScrollPageAnchor | null;
+  anchor: MobileReaderScrollPageAnchor;
+}): MobileReaderScrollPageAnchor {
+  const { restingSpot, heldSeek, centreTarget, anchor } = input;
+  if (restingSpot) return { pageIndex: restingSpot.pageIndex, fraction: restingSpot.fraction };
+  if (heldSeek && !heldSeek.landed) return { pageIndex: heldSeek.pageIndex, fraction: heldSeek.fraction };
+  return centreTarget ?? anchor;
+}
+
+/**
  * After a head shift: whether the list left the open chapter's spot (more
  * than half a screen from where it should be), so it must be put back.
  */

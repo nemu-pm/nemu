@@ -142,11 +142,16 @@ import {
 import {
   MOBILE_READER_SCROLL_HEAD_SHIFT_WINDOW_MS,
   MOBILE_READER_STRIP_ROWS_SETTLE_MAX_MS,
+  MOBILE_READER_STRIP_UNREPORTED_MAX_MS,
+  MOBILE_READER_STRIP_UNREPORTED_RETRY_MS,
+  isMobileReaderStripRowsSettleUnreported,
   mergeMobileReaderStripRowsSettle,
   mobileReaderStripHeadRowShift,
   mobileReaderStripHeadShiftOffset,
   resolveMobileReaderScrollEventOffset,
+  resolveMobileReaderRelayoutSeekAnchor,
   resolveMobileReaderStripRowsSettle,
+  resolveMobileReaderStripUnreportedReport,
   shiftMobileReaderRowIndex,
   shiftMobileReaderScrollAnchorRows,
   type MobileReaderScrollHeadShift,
@@ -790,6 +795,10 @@ export function MobileReaderGallery({
   // The page (and the spot on it) under the viewport's centre at the last
   // scroll event: a stage relayout (fold ⇄ unfold) keeps it at the centre.
   const scrollCentreAnchorRef = useRef<MobileReaderScrollPageAnchor | null>(null);
+  // The spot of the last exact placement (the opening restore, a page seek)
+  // while the reader has not scrolled since: a relayout keeps it, not the
+  // centre (see resolveMobileReaderRelayoutSeekAnchor).
+  const restingSpotRef = useRef<MobileReaderScrollPageAnchor | null>(null);
   const onScrollingSeekLandedRef = useRef(onScrollingSeekLanded);
   const touchStartRef = useRef<{
     x: number;
@@ -1125,6 +1134,17 @@ export function MobileReaderGallery({
     frame: number | null;
   } | null>(null);
   const settlePostRef = useRef<{ expected: number; until: number } | null>(null);
+  // The settle found no report at all since the rows changed (v14: a sheet
+  // over the reader while the device turns): the list is placed on its
+  // target and the rows stay settling until it reports again (see
+  // isMobileReaderStripRowsSettleUnreported).
+  const rowsUnreportedRef = useRef<{
+    target: number;
+    since: number;
+    tries: number;
+    fixes: number;
+    timer: ReturnType<typeof setTimeout> | null;
+  } | null>(null);
   const onRowsSettledRef = useRef(onRowsSettled);
   onRowsSettledRef.current = onRowsSettled;
   // Pull prepend mode (see scrollPullHeader).
@@ -1140,6 +1160,109 @@ export function MobileReaderGallery({
     if (pending.timer) clearTimeout(pending.timer);
     if (pending.frame != null) cancelAnimationFrame(pending.frame);
     rowsSettleRef.current = null;
+  };
+  const clearRowsUnreported = () => {
+    const unreported = rowsUnreportedRef.current;
+    if (!unreported) return;
+    if (unreported.timer) clearTimeout(unreported.timer);
+    rowsUnreportedRef.current = null;
+  };
+  /** Where the list must be: a held seek's spot, else the resting spot, else `fallback`. */
+  const rowsPlacementTarget = (fallback: number): number => {
+    const layout = scrollPageLayoutRef.current;
+    const spot = pendingPageSeekRef.current ?? restingSpotRef.current;
+    return layout && spot ? mobileReaderScrollOffsetForAnchor(layout, spot.pageIndex, spot.fraction) : fallback;
+  };
+  /**
+   * The list did not report: JS holds the target as where it is (anchors,
+   * page window) — never the old offset read against the new rows (v14: a
+   * centre read there crossed 631→630 at p106, and after the sheet closed
+   * the strip was blank where the list really was).
+   */
+  const placeUnreportedRows = (target: number, probe: boolean) => {
+    const metrics = latestScrollMetricsRef.current;
+    recordContinuousScrollMetrics(
+      { contentOffset: target, contentLength: metrics.contentLength, viewportLength: metrics.viewportLength },
+      false,
+    );
+    latestRawOffsetRef.current = target;
+    scrollHeadShiftRef.current = null;
+    lastCentrePageRef.current = null;
+    const layout = scrollPageLayoutRef.current;
+    if (layout) {
+      scrollAnchorRef.current = mobileReaderScrollAnchorForOffset(layout, target);
+      const height = metrics.viewportLength > 0 ? metrics.viewportLength : windowHeight;
+      scrollCentreAnchorRef.current = mobileReaderScrollCentreAnchor(layout, target, height, chromeTopPaddingRef.current);
+      const centre = mobileReaderScrollCentrePageIndex(layout, target, height, chromeTopPaddingRef.current);
+      if (centre != null) {
+        setScrollRenderWindow((current) => {
+          const viewportTop = currentScrollViewportTop();
+          return current.anchor === centre && current.viewportTop === viewportTop
+            ? current
+            : { ...current, anchor: centre, viewportTop };
+        });
+      }
+    }
+    // A list already on its target sends no event for the same offset: a
+    // 1pt step and back makes a live list report (an off-screen one ignores it).
+    if (probe) listRef.current?.scrollToOffset({ offset: target + 1, animated: false });
+    listRef.current?.scrollToOffset({ offset: target, animated: false });
+  };
+  const retryRowsUnreported = () => {
+    const unreported = rowsUnreportedRef.current;
+    if (!unreported) return;
+    unreported.timer = null;
+    if (Date.now() - unreported.since > MOBILE_READER_STRIP_UNREPORTED_MAX_MS) {
+      clearRowsUnreported();
+      console.info(`[reader-strip-diag] settle-unreported gave up tries=${unreported.tries}`);
+      onRowsSettledRef.current?.(true);
+      return;
+    }
+    unreported.tries += 1;
+    unreported.target = rowsPlacementTarget(unreported.target);
+    placeUnreportedRows(unreported.target, true);
+    unreported.timer = setTimeout(retryRowsUnreported, MOBILE_READER_STRIP_UNREPORTED_RETRY_MS);
+  };
+  const enterRowsUnreported = (target: number) => {
+    const current = rowsUnreportedRef.current;
+    if (current?.timer) clearTimeout(current.timer);
+    const next = {
+      target,
+      since: current?.since ?? Date.now(),
+      tries: current?.tries ?? 0,
+      fixes: current?.fixes ?? 0,
+      timer: null as ReturnType<typeof setTimeout> | null,
+    };
+    rowsUnreportedRef.current = next;
+    placeUnreportedRows(target, false);
+    next.timer = setTimeout(retryRowsUnreported, MOBILE_READER_STRIP_UNREPORTED_RETRY_MS);
+  };
+  /**
+   * A scroll event while unreported (after the handler read it): on the
+   * target, or the reader's own scroll, ends it; at rest elsewhere the list
+   * is put on the target again (a few times at most).
+   */
+  const noteRowsUnreportedEvent = (nativeOffset: number) => {
+    const unreported = rowsUnreportedRef.current;
+    if (!unreported) return;
+    const target = rowsPlacementTarget(unreported.target);
+    const { fixTo } = resolveMobileReaderStripUnreportedReport({
+      target,
+      nativeOffset,
+      userScrolling: galleryUserScrolling(),
+    });
+    console.info(
+      `[reader-strip-diag] settle-reported raw=${Math.round(nativeOffset)} target=${Math.round(target)} waitedMs=${
+        Date.now() - unreported.since
+      } tries=${unreported.tries} fixes=${unreported.fixes} fix=${fixTo != null ? Math.round(fixTo) : "none"}`,
+    );
+    if (fixTo != null && unreported.fixes < 4) {
+      unreported.fixes += 1;
+      enterRowsUnreported(fixTo);
+      return;
+    }
+    clearRowsUnreported();
+    if (!rowsSettleRef.current) onRowsSettledRef.current?.(fixTo != null);
   };
   const checkRowsSettle = (timedOut: boolean) => {
     const pending = rowsSettleRef.current;
@@ -1163,6 +1286,21 @@ export function MobileReaderGallery({
     const seekHeld = pendingPageSeekRef.current != null;
     // A held seek owns the offset (it re-places in the new rows' terms).
     const judged = resolveMobileReaderStripRowsSettle(settle, native, scrolling);
+    if (isMobileReaderStripRowsSettleUnreported(pending.events, scrolling)) {
+      // Not one event since the rows changed: `native` is the old offset,
+      // not where the list is. Placed on its target; still settling.
+      const target = rowsPlacementTarget(judged.expected);
+      console.info(
+        `[reader-strip-diag] settle kind=${settle.kind} rows=${settle.rows} before=${Math.round(settle.before)} jsDelta=${Math.round(
+          settle.jsDelta,
+        )} expected=${Math.round(judged.expected)} events=0/0 content=${pending.contentSeen} timedOut=${timedOut} seek=${seekHeld} unreported place=${Math.round(
+          target,
+        )}`,
+      );
+      settlePostRef.current = null;
+      enterRowsUnreported(target);
+      return;
+    }
     const result = seekHeld ? { ...judged, fixTo: null } : judged;
     console.info(
       `[reader-strip-diag] settle kind=${settle.kind} rows=${settle.rows} before=${Math.round(settle.before)} after=${Math.round(
@@ -1219,7 +1357,13 @@ export function MobileReaderGallery({
     rowsSettleRef.current = next;
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- reads refs only.
-  useEffect(() => clearRowsSettle, [scrollMountKey]);
+  useEffect(
+    () => () => {
+      clearRowsSettle();
+      clearRowsUnreported();
+    },
+    [scrollMountKey],
+  );
   useLayoutEffect(() => {
     const previous = scrollRowsRef.current;
     const keys = displayedPages.map((page) => page.id);
@@ -1299,6 +1443,7 @@ export function MobileReaderGallery({
     stripDiagRef.current.until = Date.now() + 20_000;
     scrollAnchorRef.current = shiftMobileReaderScrollAnchorRows(scrollAnchorRef.current, rows);
     scrollCentreAnchorRef.current = shiftMobileReaderScrollAnchorRows(scrollCentreAnchorRef.current, rows);
+    restingSpotRef.current = shiftMobileReaderScrollAnchorRows(restingSpotRef.current, rows);
     lastCentrePageRef.current = shiftMobileReaderRowIndex(lastCentrePageRef.current, rows);
     const seek = pendingPageSeekRef.current;
     if (seek) {
@@ -1389,6 +1534,8 @@ export function MobileReaderGallery({
           curlPagerRef.current?.goToFrame(readerPageWidth > 0 ? Math.round(x / readerPageWidth) : 0, animated);
           return;
         }
+        // Only an exact page seek (below) leaves a spot a relayout keeps.
+        restingSpotRef.current = null;
         if (
           !pagedMode &&
           index != null &&
@@ -1423,6 +1570,7 @@ export function MobileReaderGallery({
                   { pageIndex: targetIndex, fraction: seekFraction },
                   false,
                 );
+            restingSpotRef.current = animated ? null : { pageIndex: targetIndex, fraction: seekFraction };
             if (Date.now() < stripDiagRef.current.until) {
               console.info(
                 `[reader-strip-diag] scrollTo row${targetIndex}@${seekFraction.toFixed(2)} recorded=${Math.round(
@@ -1460,7 +1608,7 @@ export function MobileReaderGallery({
         return scrollPageLayoutRef.current ? scrollAnchorRef.current : null;
       },
       rowsSettling() {
-        return !pagedMode && rowsSettleRef.current != null;
+        return !pagedMode && (rowsSettleRef.current != null || rowsUnreportedRef.current != null);
       },
       scrollViewport() {
         if (pagedMode) return null;
@@ -1497,6 +1645,7 @@ export function MobileReaderGallery({
         }
         pendingScrollToIndexRef.current = null;
         pendingPageSeekRef.current = null;
+        restingSpotRef.current = null;
         listRef.current?.scrollToOffset({
           offset: readerContinuousScrollOffsetForProgress(progress, metrics),
           animated,
@@ -1683,6 +1832,7 @@ export function MobileReaderGallery({
         ? holdMobileReaderPageSeek(scrollAnchorRef.current, false)
         : null;
     if (pendingPageSeekRef.current) pendingLogicalScrollProgressRef.current = null;
+    restingSpotRef.current = scrollAnchorRef.current;
     listRef.current?.scrollToOffset({
       offset: initialOffset,
       animated: false,
@@ -1730,20 +1880,36 @@ export function MobileReaderGallery({
     // on it) at the centre — flat ⇄ half folded keeps what the reader was
     // looking at, not the chapter's progress or the top line. While an
     // opening restore is still on its way the reading-line spot is kept, as
-    // before. The new layout already has the new heights.
+    // before, and so is the spot of the last exact placement while the
+    // reader has not scrolled since (a resume mounted at a provisional
+    // width: v14 635 p40 crept up ~0.11 page per reopen). The new layout
+    // already has the new heights.
     const anchor = scrollAnchorRef.current;
     if (scrollPageLayout && anchor) {
       pendingContentSizeScrollProgressRef.current = null;
       pendingLogicalScrollProgressRef.current = null;
       const heldSeek = pendingPageSeekRef.current;
-      const centre = heldSeek && !heldSeek.landed ? null : scrollCentreAnchorRef.current;
+      const restingSpot = restingSpotRef.current;
+      const centre = restingSpot || (heldSeek && !heldSeek.landed) ? null : scrollCentreAnchorRef.current;
       const target = centre
         ? mobileReaderScrollAnchorForOffset(
             scrollPageLayout,
             mobileReaderScrollOffsetForCentreAnchor(scrollPageLayout, centre, windowHeight, chromeTopPadding),
           )
         : null;
-      const seekAnchor = target ?? anchor;
+      const seekAnchor = resolveMobileReaderRelayoutSeekAnchor({
+        restingSpot,
+        heldSeek,
+        centreTarget: target,
+        anchor,
+      });
+      if (Date.now() < stripDiagRef.current.until || restingSpot) {
+        console.info(
+          `[reader-strip-diag] relayout extent=${Math.round(previous.extent)}->${Math.round(next.extent)} keep=${
+            restingSpot ? "spot" : target ? "centre" : "anchor"
+          } row${seekAnchor.pageIndex}@${seekAnchor.fraction.toFixed(2)}`,
+        );
+      }
       scrollAnchorRef.current = seekAnchor;
       // Placed by the content-size event this relayout causes: by then the
       // native list (and maintainVisibleContentPosition) has the new frames.
@@ -2154,6 +2320,7 @@ export function MobileReaderGallery({
     }
     pendingScrollToIndexRef.current = null;
     pendingPageSeekRef.current = null;
+    restingSpotRef.current = null;
     forcePageSeekRef.current = false;
     pendingLogicalScrollProgressRef.current = null;
     pendingContentSizeScrollProgressRef.current = null;
@@ -2265,6 +2432,8 @@ export function MobileReaderGallery({
           reportScrollingVisiblePage(centrePage);
         }
       }
+      // After the rows' report: an unreported settle ends (or re-places) here.
+      noteRowsUnreportedEvent(rawOffset);
       if (logicalLongStripMode && isMobileReaderLogicalEndReached(metrics)) {
         onSegmentedLogicalEndReached?.();
       }
