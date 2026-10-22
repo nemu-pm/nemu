@@ -166,6 +166,35 @@ export function readerTapZoneForPosition({
 }
 
 /**
+ * Scroll reading's screen tap zones (§4b; the Duo outer display): the top
+ * quarter of the stage goes back one screen, the bottom quarter forward one
+ * screen, the middle half toggles the chrome. Rows, not columns: the strip
+ * moves vertically whatever the reading direction.
+ */
+export const READER_SCROLL_TAP_EDGE_ZONE_RATIO = 0.25;
+
+export function readerScrollTapZoneForPosition({
+  y,
+  height,
+  edgeRatio = READER_SCROLL_TAP_EDGE_ZONE_RATIO,
+}: {
+  /** Stage-local touch position. */
+  y: number;
+  height: number;
+  edgeRatio?: number;
+}): ReaderTapZone {
+  if (!Number.isFinite(y) || !Number.isFinite(height) || height <= 0) {
+    return "toggle";
+  }
+  const clampedEdgeRatio = Math.max(0, Math.min(0.5, edgeRatio));
+  if (clampedEdgeRatio <= 0) return "toggle";
+  const ratio = Math.max(0, Math.min(1, y / height));
+  if (ratio < clampedEdgeRatio) return "previous";
+  if (ratio > 1 - clampedEdgeRatio) return "next";
+  return "toggle";
+}
+
+/**
  * What a resolved stage tap should do *right now*.
  *
  * Page turns are unambiguous: nothing in the edge bands offers a double-tap

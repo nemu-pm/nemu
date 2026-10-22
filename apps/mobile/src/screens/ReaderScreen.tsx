@@ -11159,6 +11159,10 @@ export function ReaderScreen() {
           setPagesRefreshNonce((value) => value + 1);
         }}
         onPageStep={stepReaderPage}
+        // Duo outer display, scroll reading: §4b screen tap zones (top quarter
+        // back one screen, bottom quarter forward, middle half the toolbar).
+        scrollScreenTapZones={outerReaderCanvas && !galleryPagedMode}
+        onScrollScreenStep={stepReaderScrollScreen}
         onRequestAdvancePastEnd={onGalleryRequestAdvancePastEnd}
         onRequestRetreatPastStart={onGalleryRequestRetreatPastStart}
         pagedDisplayIndex={

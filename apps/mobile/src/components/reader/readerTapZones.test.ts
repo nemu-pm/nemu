@@ -9,6 +9,8 @@ import {
   readerStageTouchMatchesContent,
   readerTapDispatchForZone,
   readerTapZoneForPosition,
+  readerScrollTapZoneForPosition,
+  READER_SCROLL_TAP_EDGE_ZONE_RATIO,
 } from "./readerTapZones";
 
 const WIDTH = 400;
@@ -459,5 +461,42 @@ describe("reader touch chapter identity", () => {
       expect(readerStageTouchOwner({ x, y: 450, height: 874, topInset: 62, bottomInset: 52 })).toBe("stage");
       expect(readerTapDispatchForZone({ zone: "toggle", isSecondCentreTap: false }).kind).toBe("deferToggle");
     }
+  });
+});
+
+describe("scroll reading screen tap zones (§4b)", () => {
+  test("a 3×3 grid on the Duo outer display: top row back, middle row toggles, bottom row forward", () => {
+    // Outer display portrait: a 678pt-tall stage; the grid's rows sit at the
+    // centres of the three bands (columns never matter: the zones are rows).
+    const height = 678;
+    expect(READER_SCROLL_TAP_EDGE_ZONE_RATIO).toBe(0.25);
+    const rows: [number, ReturnType<typeof readerScrollTapZoneForPosition>][] = [[85, "previous"], [339, "toggle"], [593, "next"]];
+    for (const [y, expected] of rows) {
+      for (let column = 0; column < 3; column += 1) {
+        expect(readerScrollTapZoneForPosition({ y, height })).toBe(expected);
+      }
+    }
+  });
+
+  test("with the chrome hidden the strip's padding bands belong to the zones", () => {
+    // The gallery passes 0 insets once no chrome piece is on screen: a tap in
+    // the old 80pt top padding band is the stage's (and so "previous").
+    expect(readerStageTouchOwner({ x: 191, y: 40, height: 678, topInset: 0, bottomInset: 0 })).toBe("stage");
+    expect(readerStageTouchOwner({ x: 191, y: 40, height: 678, topInset: 80, bottomInset: 34 })).toBe("chrome");
+    expect(readerScrollTapZoneForPosition({ y: 40, height: 678 })).toBe("previous");
+    expect(readerScrollTapZoneForPosition({ y: 660, height: 678 })).toBe("next");
+  });
+
+  test("the bands are exactly 25% / 50% / 25%", () => {
+    expect(readerScrollTapZoneForPosition({ y: 99.9, height: 400 })).toBe("previous");
+    expect(readerScrollTapZoneForPosition({ y: 100, height: 400 })).toBe("toggle");
+    expect(readerScrollTapZoneForPosition({ y: 300, height: 400 })).toBe("toggle");
+    expect(readerScrollTapZoneForPosition({ y: 300.1, height: 400 })).toBe("next");
+  });
+
+  test("unusable geometry only toggles", () => {
+    expect(readerScrollTapZoneForPosition({ y: Number.NaN, height: 400 })).toBe("toggle");
+    expect(readerScrollTapZoneForPosition({ y: 10, height: 0 })).toBe("toggle");
+    expect(readerScrollTapZoneForPosition({ y: 10, height: 400, edgeRatio: 0 })).toBe("toggle");
   });
 });

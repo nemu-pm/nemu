@@ -89,6 +89,7 @@ import {
   readerStageTouchMatchesContent,
   readerTapDispatchForZone,
   readerTapZoneForPosition,
+  readerScrollTapZoneForPosition,
 } from "./readerTapZones";
 import {
   readerStageMultiTouchOnEnd,
@@ -195,6 +196,14 @@ type MobileReaderGalleryProps = {
   onRetry?: () => void;
   /** Steps one page in source order. Only wired in paged reading modes. */
   onPageStep?: (direction: "previous" | "next") => void;
+  /**
+   * Scroll reading with screen tap zones (§4b, the Duo outer display): the
+   * top quarter of the stage scrolls back one screen, the bottom quarter
+   * forward one screen, the middle half toggles the chrome.
+   */
+  scrollScreenTapZones?: boolean;
+  /** Moves the strip one screen (with `scrollScreenTapZones`). */
+  onScrollScreenStep?: (direction: "previous" | "next") => void;
   /** The reader tried to move past the final page of the chapter. */
   onRequestAdvancePastEnd?: () => void;
   /** Paged mode: the reader tried to move back past the chapter's first page. */
@@ -548,6 +557,8 @@ export function MobileReaderGallery({
   onUserScrollSettle,
   onRetry,
   onPageStep,
+  scrollScreenTapZones = false,
+  onScrollScreenStep,
   onRequestAdvancePastEnd,
   onRequestRetreatPastStart,
   pagedDisplayIndex,
@@ -732,7 +743,11 @@ export function MobileReaderGallery({
     revealsChrome?: boolean;
     contentKey: string;
     pageTurnEnabled: boolean;
+    /** Landed while the strip was still gliding: the touch stops it, nothing more. */
+    stopsGlide?: boolean;
   } | null>(null);
+  // Scroll mode: a fling is decelerating (a touch then catches the strip).
+  const scrollGlidingRef = useRef(false);
   // Two fingers down: the sequence is a pinch or a two-finger tap, never a tap.
   const multiTouchRef = useRef(false);
   const pendingToggleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -761,6 +776,8 @@ export function MobileReaderGallery({
   const onToggleControlsRef = useRef(onToggleControls);
   const onRevealChromeRef = useRef(onRevealChrome);
   const onPageStepRef = useRef(onPageStep);
+  const onScrollScreenStepRef = useRef(onScrollScreenStep);
+  onScrollScreenStepRef.current = onScrollScreenStep;
   const onRequestAdvancePastEndRef = useRef(onRequestAdvancePastEnd);
   const onRequestRetreatPastStartRef = useRef(onRequestRetreatPastStart);
   const pagedDisplayRef = useRef({
@@ -1491,12 +1508,16 @@ export function MobileReaderGallery({
       touchStartRef.current = null;
       return;
     }
+    // Screen tap zones: with the chrome gone the strip's padding bands are
+    // only padding (the page scrolls under them), so they belong to the top
+    // and bottom zones; shown chrome still owns its own rects and bands.
+    const screenZonesOwnBands = readerScrollScreenTapEnabled && !tapExclusions;
     const owner = readerStageTouchOwner({
       x,
       y,
       height: windowHeight,
-      topInset: chromeTopPadding,
-      bottomInset: bottomPadding,
+      topInset: screenZonesOwnBands ? 0 : chromeTopPadding,
+      bottomInset: screenZonesOwnBands ? 0 : bottomPadding,
       chromePieces: tapExclusions,
       chromeDismissing,
     });
@@ -1531,8 +1552,11 @@ export function MobileReaderGallery({
       y: touch.pageY,
       time: now,
       contentKey: resolvedContentIdentityKey,
-      pageTurnEnabled: readerPageTurnEnabled,
+      pageTurnEnabled: readerPageTurnEnabled || readerScrollScreenTapEnabled,
+      stopsGlide: !pagedMode && scrollGlidingRef.current,
     };
+    // The touch itself catches the glide (iOS may not report its end).
+    scrollGlidingRef.current = false;
   };
   // The chrome toggle is the only way out of a black screen, so it must keep
   // working while the chapter is loading or in an error/blocked state; there
@@ -1547,6 +1571,15 @@ export function MobileReaderGallery({
     pages.length > 0 &&
     pagedMode &&
     Boolean(onPageStep);
+  // Scroll mode's screen zones: the strip moves a screen at a time, so they
+  // only need a ready, non-empty strip (a page still loading is a screen too).
+  const readerScrollScreenTapEnabled =
+    scrollScreenTapZones &&
+    !pagedMode &&
+    !isReaderLoading &&
+    pagesState.status === "ready" &&
+    pages.length > 0 &&
+    Boolean(onScrollScreenStep);
   const readerAccessibilityPageTurnEnabled =
     !isReaderLoading &&
     pagesState.status === "ready" &&
@@ -1696,14 +1729,24 @@ export function MobileReaderGallery({
     ) {
       return;
     }
-    const zone = start.pageTurnEnabled && readerPageTurnEnabled
-      ? readerTapZoneForPosition({
-          x: touch.pageX - stageOriginRef.current.x,
-          width: readerPageWidth,
-          mode,
-          pagedMode,
-        })
-      : "toggle";
+    // A tap that caught a gliding strip only stopped it (iOS): no screen
+    // step and no chrome toggle on top.
+    if (start.stopsGlide) return;
+    const zone = !start.pageTurnEnabled
+      ? "toggle"
+      : readerScrollScreenTapEnabled
+        ? readerScrollTapZoneForPosition({
+            y: touch.pageY - stageOriginRef.current.y,
+            height: windowHeight,
+          })
+        : readerPageTurnEnabled
+          ? readerTapZoneForPosition({
+              x: touch.pageX - stageOriginRef.current.x,
+              width: readerPageWidth,
+              mode,
+              pagedMode,
+            })
+          : "toggle";
     const now = Date.now();
     const dispatch = readerTapDispatchForZone({
       zone,
@@ -1726,7 +1769,8 @@ export function MobileReaderGallery({
     // affordance — so it lands on touch-up instead of sitting out the
     // double-tap window that used to delay every single tap by 280 ms.
     if (dispatch.kind === "turn") {
-      onPageStepRef.current?.(dispatch.zone);
+      if (readerScrollScreenTapEnabled) onScrollScreenStepRef.current?.(dispatch.zone);
+      else onPageStepRef.current?.(dispatch.zone);
       return;
     }
     // The centre band still shares its space with the page's double-tap zoom:
@@ -1742,6 +1786,7 @@ export function MobileReaderGallery({
   const handleScrollBeginDrag = (
     event: NativeSyntheticEvent<NativeScrollEvent>,
   ) => {
+    scrollGlidingRef.current = false;
     if (scrollFlingLandingRef.current) setScrollFlingLanding(null);
     clearDragSettleTimer();
     if (scrollToIndexRetryTimerRef.current) {
@@ -1877,11 +1922,13 @@ export function MobileReaderGallery({
   };
   const handleGalleryMomentumScrollBegin = () => {
     clearDragSettleTimer();
+    scrollGlidingRef.current = true;
   };
   const handleGalleryMomentumScrollEnd = (
     event: NativeSyntheticEvent<NativeScrollEvent>,
   ) => {
     clearDragSettleTimer();
+    scrollGlidingRef.current = false;
     if (scrollFlingLandingRef.current) setScrollFlingLanding(null);
     publishLogicalScrollAccessibility();
     onMomentumScrollEnd(event);
