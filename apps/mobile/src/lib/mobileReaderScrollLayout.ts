@@ -24,6 +24,11 @@ export type MobileReaderScrollLayout = {
   readonly starts: readonly number[];
   /** Total length of all cells (no list padding). */
   readonly length: number;
+  /**
+   * Whether each page's height is its real size (measured or remembered)
+   * rather than the chapter's typical page standing in. Absent: all real.
+   */
+  readonly known?: readonly boolean[];
 };
 
 export type MobileReaderScrollPageAnchor = {
@@ -72,6 +77,7 @@ export function buildMobileReaderScrollLayout(
   heights: readonly number[],
   gaps: readonly (number | null | undefined)[] | null | undefined,
   defaultGap = 0,
+  known?: readonly boolean[] | null,
 ): MobileReaderScrollLayout {
   const safeHeights = heights.map((height) =>
     Number.isFinite(height) && height > 0 ? height : 0,
@@ -87,7 +93,44 @@ export function buildMobileReaderScrollLayout(
     starts.push(offset);
     offset += safeGaps[index]! + safeHeights[index]!;
   }
-  return { heights: safeHeights, gaps: safeGaps, starts, length: offset };
+  return {
+    heights: safeHeights,
+    gaps: safeGaps,
+    starts,
+    length: offset,
+    ...(known ? { known: safeHeights.map((_, index) => known[index] === true) } : {}),
+  };
+}
+
+/**
+ * A page seek can be let go once every page that decides what sits at the
+ * reading line has its real height: the page at the top of the viewport
+ * (under the chrome, `topPadding` above the line) down to the target page.
+ * Until then a decode re-sizes a page the native scroll anchoring may not
+ * compensate (it anchors at the viewport top, not at the reading line, and a
+ * re-sized target page moves the spot on it), so the seek must be re-placed.
+ */
+export function isMobileReaderScrollSeekSettled(
+  layout: MobileReaderScrollLayout,
+  pageIndex: number,
+  fraction: number,
+  topPadding: number,
+): boolean {
+  const known = layout.known;
+  if (!known) return true;
+  const count = layout.heights.length;
+  if (count === 0 || !Number.isFinite(pageIndex)) return true;
+  const target = Math.max(0, Math.min(count - 1, Math.floor(pageIndex)));
+  const offset = mobileReaderScrollOffsetForAnchor(layout, target, fraction);
+  const top = mobileReaderScrollAnchorForOffset(
+    layout,
+    offset - (Number.isFinite(topPadding) ? Math.max(0, topPadding) : 0),
+  );
+  const first = Math.min(target, top?.pageIndex ?? target);
+  for (let index = first; index <= target; index += 1) {
+    if (!known[index]) return false;
+  }
+  return true;
 }
 
 /**

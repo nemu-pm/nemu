@@ -4,6 +4,7 @@ import {
   buildMobileReaderScrollLayout,
   clearMobileReaderPageNaturalSizes,
   isMobileReaderScrollSeekLanded,
+  isMobileReaderScrollSeekSettled,
   mobileReaderScrollAnchorForOffset,
   mobileReaderScrollIndexViewOffset,
   mobileReaderScrollItemLayout,
@@ -124,6 +125,49 @@ describe("isMobileReaderScrollSeekLanded", () => {
   test("unknown maximum: only the target itself", () => {
     expect(isMobileReaderScrollSeekLanded({ currentOffset: 0, targetOffset: 400, maximumOffset: 0 })).toBe(false);
     expect(isMobileReaderScrollSeekLanded({ currentOffset: 400, targetOffset: 400, maximumOffset: 0 })).toBe(true);
+  });
+});
+
+describe("resume round trip (save on one layout, restore on another)", () => {
+  // 20 pages, 650pt wide. Saved with every page decoded; reopened after a
+  // relaunch where only some heights are known and the rest stand in at the
+  // chapter's typical ratio.
+  const width = 650;
+  const real = Array.from({ length: 20 }, (_, index) => (index % 3 === 0 ? 1.62 : 1.4) * width);
+  const saved = buildMobileReaderScrollLayout(real, null, 8, real.map(() => true));
+  const estimatedKnown = real.map((_, index) => index >= 9);
+  const estimated = buildMobileReaderScrollLayout(
+    real.map((height, index) => (estimatedKnown[index] ? height : 1.45 * width)),
+    null,
+    8,
+    estimatedKnown,
+  );
+
+  test("the spot on the page survives different heights above it", () => {
+    const leftAt = mobileReaderScrollOffsetForAnchor(saved, 9, 0) + 0.37 * real[9]!;
+    const anchor = mobileReaderScrollAnchorForOffset(saved, leftAt)!;
+    expect(anchor.pageIndex).toBe(9);
+    // Restore against the estimated layout: same page, same point of it at
+    // the reading line (pixels into the page), though the offset differs.
+    const reopenedAt = mobileReaderScrollOffsetForAnchor(estimated, anchor.pageIndex, anchor.fraction);
+    expect(reopenedAt).not.toBeCloseTo(leftAt, 0);
+    const pageTop = mobileReaderScrollOffsetForAnchor(estimated, 9, 0);
+    expect(reopenedAt - pageTop).toBeCloseTo(leftAt - mobileReaderScrollOffsetForAnchor(saved, 9, 0), 6);
+    // And once the heights above resolve, re-placing lands on the exact spot.
+    expect(
+      mobileReaderScrollOffsetForAnchor(saved, anchor.pageIndex, anchor.fraction),
+    ).toBeCloseTo(leftAt, 6);
+  });
+
+  test("a seek is held until the pages up to the viewport top are real", () => {
+    // Near the page's top: the page above still shows under the chrome.
+    expect(isMobileReaderScrollSeekSettled(estimated, 9, 0.05, 150)).toBe(false);
+    // Deep into the page: only the page itself decides.
+    expect(isMobileReaderScrollSeekSettled(estimated, 9, 0.5, 150)).toBe(true);
+    // The target page itself standing in.
+    expect(isMobileReaderScrollSeekSettled(estimated, 5, 0.5, 150)).toBe(false);
+    // No flags: everything real.
+    expect(isMobileReaderScrollSeekSettled(buildMobileReaderScrollLayout(real, null, 8), 9, 0, 150)).toBe(true);
   });
 });
 

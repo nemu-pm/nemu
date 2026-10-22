@@ -2011,6 +2011,18 @@ export function ReaderScreen() {
       }),
     [chapterId, mangaId, routeRef.registryId, routeRef.sourceId],
   );
+  const readerStablePageSizeKeyFor = useCallback(
+    (page: MobileReaderPage) =>
+      JSON.stringify([
+        "reader-page-size",
+        routeRef.registryId,
+        routeRef.sourceId,
+        mangaId,
+        chapterId,
+        page.id,
+      ]),
+    [chapterId, mangaId, routeRef.registryId, routeRef.sourceId],
+  );
   const readerSegmentedCacheKeyFor = useCallback(
     (page: MobileReaderPage) =>
       getMobileReaderSegmentedCacheDiscriminator({
@@ -2828,19 +2840,27 @@ export function ReaderScreen() {
     currentPageIndex: clampedPageIndex,
     resolveFile: readerNotebookThumbnailUri,
   });
+  // Measured on an earlier visit (this app session). Also by the page's place
+  // in the chapter: a source may sign its image URLs per fetch, which changes
+  // the identity of the same page on every open.
+  const readerRecalledPageSizeFor = useCallback(
+    (page: MobileReaderPage): MobileReaderPageSize | undefined =>
+      recallMobileReaderPageNaturalSize(readerPageIdentityFor(page)) ??
+      recallMobileReaderPageNaturalSize(readerStablePageSizeKeyFor(page)),
+    [readerPageIdentityFor, readerStablePageSizeKeyFor],
+  );
   const readerPageSizeAt = useCallback(
     (index: number): MobileReaderPageSize | null => {
       const page = displayedPages[index];
       if (!page) return null;
       const identity = readerPageIdentityFor(page);
       return readerImageSizes.get(identity)
-        // Measured on an earlier visit (this app session).
-        ?? recallMobileReaderPageNaturalSize(identity)
+        ?? readerRecalledPageSizeFor(page)
         ?? readerPageFeatures.get(page.id)
         ?? page.sourceSize
         ?? null;
     },
-    [displayedPages, readerImageSizes, readerPageFeatures, readerPageIdentityFor],
+    [displayedPages, readerImageSizes, readerPageFeatures, readerPageIdentityFor, readerRecalledPageSizeFor],
   );
   const readerIsWidePage = useCallback(
     (index: number) => isMobileReaderWidePage(readerPageSizeAt(index)),
@@ -3174,9 +3194,19 @@ export function ReaderScreen() {
       ratios.map((ratio) => readerImageWidth * ratio),
       readerScrollPageGaps,
       MOBILE_READER_SCROLL_PAGE_SPACING,
+      // Real heights: decoded now or earlier this session. A size the source
+      // reported may still differ from the decoded picture.
+      displayedPages.map(
+        (page) =>
+          readerImageSizes.has(readerPageIdentityFor(page)) ||
+          readerRecalledPageSizeFor(page) != null,
+      ),
     );
   }, [
-    displayedPages.length,
+    displayedPages,
+    readerImageSizes,
+    readerPageIdentityFor,
+    readerRecalledPageSizeFor,
     readerImageWidth,
     readerPageSizeAt,
     readerScrollLayoutEnabled,
@@ -4752,8 +4782,9 @@ export function ReaderScreen() {
   ]);
 
   const setReaderImageNaturalSize = useCallback(
-    (pageId: string, size: MobileImageSize) => {
+    (pageId: string, size: MobileImageSize, stableKey?: string) => {
       rememberMobileReaderPageNaturalSize(pageId, size);
+      if (stableKey) rememberMobileReaderPageNaturalSize(stableKey, size);
       setReaderImageSizes((current) => {
         const existing = current.get(pageId);
         if (
@@ -7823,7 +7854,11 @@ export function ReaderScreen() {
           }}
           onImageLoad={({ width, height }) => {
             clearReaderImageError(pageIdentity);
-            setReaderImageNaturalSize(pageIdentity, { width, height });
+            setReaderImageNaturalSize(
+              pageIdentity,
+              { width, height },
+              readerStablePageSizeKeyFor(page),
+            );
             measureReaderFirstContent(page);
           }}
           onImageError={(error) => {
@@ -7850,10 +7885,11 @@ export function ReaderScreen() {
             });
             // Aggregate metadata is the logical page size. Individual tile
             // load callbacks below never write into this page-scoped map.
-            setReaderImageNaturalSize(pageIdentity, {
-              width: asset.width,
-              height: asset.height,
-            });
+            setReaderImageNaturalSize(
+              pageIdentity,
+              { width: asset.width, height: asset.height },
+              readerStablePageSizeKeyFor(page),
+            );
           }}
           onRetry={() => {
             retryReaderImage(pageIdentity);
@@ -7947,6 +7983,7 @@ export function ReaderScreen() {
       selectJapaneseLearningDetection,
       setReaderImageLoadError,
       setReaderImageNaturalSize,
+      readerStablePageSizeKeyFor,
       strings,
     ],
   );

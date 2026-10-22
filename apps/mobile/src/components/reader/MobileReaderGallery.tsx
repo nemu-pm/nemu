@@ -114,6 +114,7 @@ import {
 } from "@/lib/mobileReaderScrollPresentation";
 import {
   isMobileReaderScrollSeekLanded,
+  isMobileReaderScrollSeekSettled,
   mobileReaderScrollAnchorForOffset,
   mobileReaderScrollIndexViewOffset,
   mobileReaderScrollItemLayout,
@@ -365,10 +366,30 @@ const READER_SCROLL_MAINTAIN_VISIBLE_POSITION = Object.freeze({
   minIndexForVisible: 0,
 });
 
+// A held seek outlives its hold while the pages that decide the reading line
+// still have stand-in heights (their images not decoded yet), up to this.
+const READER_SCROLL_SEEK_SETTLE_MAX_MS = 12_000;
+
 type MobileReaderPageSeek = MobileReaderScrollPageAnchor & {
   until: number;
+  /** Let go at `until` only once settled; at the latest here. */
+  settleBy: number;
   landed: boolean;
 };
+
+function holdMobileReaderPageSeek(
+  anchor: MobileReaderScrollPageAnchor,
+  landed: boolean,
+): MobileReaderPageSeek {
+  const now = Date.now();
+  return {
+    pageIndex: anchor.pageIndex,
+    fraction: anchor.fraction,
+    until: now + READER_SCROLL_SEEK_HOLD_MS,
+    settleBy: now + READER_SCROLL_SEEK_SETTLE_MAX_MS,
+    landed,
+  };
+}
 
 type MobileReaderScrollPageCellProps = {
   page: MobileReaderPage;
@@ -640,6 +661,8 @@ export function MobileReaderGallery({
       ? scrollPageLayoutProp
       : null;
   const scrollPageLayoutRef = useRef(scrollPageLayout);
+  const chromeTopPaddingRef = useRef(chromeTopPadding);
+  chromeTopPaddingRef.current = chromeTopPadding;
   const pendingPageSeekRef = useRef<MobileReaderPageSeek | null>(null);
   const scrollAnchorRef = useRef<MobileReaderScrollPageAnchor | null>(null);
   const onScrollingSeekLandedRef = useRef(onScrollingSeekLanded);
@@ -793,7 +816,17 @@ export function MobileReaderGallery({
     const seek = pendingPageSeekRef.current;
     const layout = scrollPageLayoutRef.current;
     if (!seek || !layout) return;
-    if (Date.now() > seek.until) {
+    const now = Date.now();
+    if (
+      now > seek.until &&
+      (now > seek.settleBy ||
+        isMobileReaderScrollSeekSettled(
+          layout,
+          seek.pageIndex,
+          seek.fraction,
+          chromeTopPaddingRef.current,
+        ))
+    ) {
       pendingPageSeekRef.current = null;
       return;
     }
@@ -868,12 +901,10 @@ export function MobileReaderGallery({
             );
             pendingPageSeekRef.current = animated
               ? null
-              : {
-                  pageIndex: targetIndex,
-                  fraction: seekFraction,
-                  until: Date.now() + READER_SCROLL_SEEK_HOLD_MS,
-                  landed: false,
-                };
+              : holdMobileReaderPageSeek(
+                  { pageIndex: targetIndex, fraction: seekFraction },
+                  false,
+                );
             listRef.current?.scrollToOffset({ offset, animated });
             // Already there: no scroll event will report the landing.
             if (!animated) {
@@ -1093,11 +1124,7 @@ export function MobileReaderGallery({
     // The first layout of a fresh list may clamp the opening offset: hold it.
     pendingPageSeekRef.current =
       layout && scrollAnchorRef.current && initialOffset > 0
-        ? {
-            ...scrollAnchorRef.current,
-            until: Date.now() + READER_SCROLL_SEEK_HOLD_MS,
-            landed: false,
-          }
+        ? holdMobileReaderPageSeek(scrollAnchorRef.current, false)
         : null;
     if (pendingPageSeekRef.current) pendingLogicalScrollProgressRef.current = null;
     listRef.current?.scrollToOffset({
@@ -1151,11 +1178,7 @@ export function MobileReaderGallery({
       pendingLogicalScrollProgressRef.current = null;
       // Placed by the content-size event this relayout causes: by then the
       // native list (and maintainVisibleContentPosition) has the new frames.
-      pendingPageSeekRef.current = {
-        ...anchor,
-        until: Date.now() + READER_SCROLL_SEEK_HOLD_MS,
-        landed: true,
-      };
+      pendingPageSeekRef.current = holdMobileReaderPageSeek(anchor, true);
       return;
     }
     if (!(metrics.contentLength > 0)) return;
