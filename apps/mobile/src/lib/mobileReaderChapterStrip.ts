@@ -314,6 +314,27 @@ export function shouldPrependMobileReaderStripSegment(
   return localIndex < lead;
 }
 
+/**
+ * A fetched previous chapter is spliced in above the open one only when that
+ * is safe: the list is at rest (no drag, no fling — rows inserted under a
+ * moving list are measured against the wrong rows), the reader's gate still
+ * allows a prepend (no seek, no landing) and the reading line is still in the
+ * open chapter's first pages. Otherwise it waits (see `flushPrevious`).
+ */
+export function shouldSpliceMobileReaderStripPrevious(input: {
+  /** No drag or momentum in progress. */
+  atRest: boolean;
+  /** The reader's prepend gate, checked now (not when the fetch started). */
+  canPrepend: boolean;
+  /** The reading line's open-chapter page; null when it is outside the open chapter. */
+  localIndex: number | null;
+  lead?: number;
+}): boolean {
+  const { atRest, canPrepend, localIndex, lead = MOBILE_READER_STRIP_PREPEND_LEAD_PAGES } = input;
+  if (!atRest || !canPrepend || localIndex == null) return false;
+  return shouldPrependMobileReaderStripSegment(localIndex, true, lead);
+}
+
 /** Pages of the first chapter to decode as soon as it joins the list. */
 export function mobileReaderStripWarmIndexes(
   pageCount: number,

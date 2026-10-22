@@ -138,6 +138,15 @@ import {
   type MobileReaderScrollLayout,
   type MobileReaderScrollPageAnchor,
 } from "@/lib/mobileReaderScrollLayout";
+import {
+  MOBILE_READER_SCROLL_HEAD_SHIFT_WINDOW_MS,
+  mobileReaderStripHeadRowShift,
+  mobileReaderStripHeadShiftOffset,
+  resolveMobileReaderScrollEventOffset,
+  shiftMobileReaderRowIndex,
+  shiftMobileReaderScrollAnchorRows,
+  type MobileReaderScrollHeadShift,
+} from "@/lib/mobileReaderStripBridge";
 
 type MobileReaderGalleryState = {
   status: string;
@@ -385,6 +394,11 @@ export type MobileReaderScrollHandle = {
    * (what the toolbar counter shows while scrolling); null when unknown.
    */
   centrePageIndex(): number | null;
+  /**
+   * Scroll mode: the list's content offset as last reported by the list
+   * (not moved by a head shift until the list reports it); null when paged.
+   */
+  contentOffset?(): number | null;
   scrollToProgress(progress: number, animated?: boolean): boolean;
   scrollToProgressAfterContentChange(progress: number): void;
 };
@@ -1035,6 +1049,74 @@ export function MobileReaderGallery({
     // that correction and be shifted twice.
     scrollPageLayoutRef.current = scrollPageLayout;
   }, [scrollPageLayout]);
+  // Seamless scroll: rows inserted above (a previous chapter joined) or
+  // removed from the head (a chapter dropped above) move every row index.
+  // The anchors the scroll handler keeps are row indexes: they move with
+  // their rows now, not at the next scroll event, and events still on their
+  // way in the old rows' terms are measured as the shifted offset (see
+  // resolveMobileReaderScrollEventOffset), so none lands in the wrong rows.
+  const scrollRowsRef = useRef<{
+    mountKey: string;
+    keys: string[];
+    layout: MobileReaderScrollLayout | null;
+  } | null>(null);
+  const scrollHeadShiftRef = useRef<MobileReaderScrollHeadShift | null>(null);
+  useLayoutEffect(() => {
+    const previous = scrollRowsRef.current;
+    const keys = displayedPages.map((page) => page.id);
+    scrollRowsRef.current = { mountKey: scrollMountKey, keys, layout: scrollPageLayout };
+    if (
+      pagedMode ||
+      !previous ||
+      previous.mountKey !== scrollMountKey ||
+      !previous.layout ||
+      !scrollPageLayout
+    ) {
+      return;
+    }
+    const rows = mobileReaderStripHeadRowShift(previous.keys, keys);
+    if (rows == null || rows === 0) return;
+    scrollAnchorRef.current = shiftMobileReaderScrollAnchorRows(scrollAnchorRef.current, rows);
+    scrollCentreAnchorRef.current = shiftMobileReaderScrollAnchorRows(scrollCentreAnchorRef.current, rows);
+    lastCentrePageRef.current = shiftMobileReaderRowIndex(lastCentrePageRef.current, rows);
+    const seek = pendingPageSeekRef.current;
+    if (seek) {
+      const shifted = shiftMobileReaderRowIndex(seek.pageIndex, rows);
+      if (shifted == null) pendingPageSeekRef.current = null;
+      else seek.pageIndex = shifted;
+    }
+    const toIndex = pendingScrollToIndexRef.current;
+    if (toIndex) {
+      const shifted = shiftMobileReaderRowIndex(toIndex.index, rows);
+      if (shifted == null) pendingScrollToIndexRef.current = null;
+      else toIndex.index = shifted;
+    }
+    const offset = mobileReaderStripHeadShiftOffset(previous.layout.starts, scrollPageLayout.starts, rows);
+    scrollHeadShiftRef.current =
+      offset !== 0
+        ? {
+            offset,
+            lastOffset: latestScrollMetricsRef.current.contentOffset,
+            until: Date.now() + MOBILE_READER_SCROLL_HEAD_SHIFT_WINDOW_MS,
+          }
+        : null;
+    // The render window stays on the screen's rows (maintainVisibleContentPosition
+    // keeps the picture): never a window left on the old row numbers, which
+    // mounts nothing where the list is (a black screen) until it reports.
+    const centre = lastCentrePageRef.current;
+    if (centre != null) {
+      const viewportTop = currentScrollViewportTop() + offset;
+      setScrollRenderWindow((current) => ({ ...current, anchor: centre, viewportTop }));
+    }
+    console.info(
+      `[reader-strip] head shift rows=${rows} offset=${Math.round(offset)} anchor=${
+        scrollAnchorRef.current
+          ? `row${scrollAnchorRef.current.pageIndex}@${scrollAnchorRef.current.fraction.toFixed(2)}`
+          : "none"
+      } seek=${pendingPageSeekRef.current ? `row${pendingPageSeekRef.current.pageIndex}` : "none"}`,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the rows changing is the trigger.
+  }, [displayedPages, scrollPageLayout]);
   const scrollIndexViewOffset = useCallback(
     (index: number) =>
       pagedMode || segmentedMode
@@ -1125,6 +1207,9 @@ export function MobileReaderGallery({
           metrics.viewportLength > 0 ? metrics.viewportLength : windowHeight;
         if (!(height > 0)) return null;
         return { top: currentScrollViewportTop(), height };
+      },
+      contentOffset() {
+        return pagedMode ? null : latestScrollMetricsRef.current.contentOffset;
       },
       centrePageIndex() {
         const layout = scrollPageLayoutRef.current;
@@ -1819,8 +1904,16 @@ export function MobileReaderGallery({
     event: NativeSyntheticEvent<NativeScrollEvent>,
   ) => {
     if (!pagedMode) {
-      const { contentOffset, contentSize, layoutMeasurement } =
-        event.nativeEvent;
+      const { contentSize, layoutMeasurement } = event.nativeEvent;
+      // After a head shift, an event still in the old rows' terms is
+      // measured where those rows are now.
+      const resolved = resolveMobileReaderScrollEventOffset(
+        scrollHeadShiftRef.current,
+        event.nativeEvent.contentOffset.y,
+        Date.now(),
+      );
+      scrollHeadShiftRef.current = resolved.shift;
+      const contentOffset = { y: resolved.offset };
       const metrics = {
         contentOffset: contentOffset.y,
         // Progress follows the physical native scroll range, including the

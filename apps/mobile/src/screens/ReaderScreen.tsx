@@ -202,14 +202,17 @@ import {
   readerSeamlessScroll,
   shouldAppendMobileReaderStripSegment,
   shouldPrependMobileReaderStripSegment,
+  shouldSpliceMobileReaderStripPrevious,
   type MobileReaderStripRow,
 } from "@/lib/mobileReaderChapterStrip";
 import {
+  isMobileReaderStripPlacementOff,
   MOBILE_READER_STRIP_IDENTITY_BRIDGE,
   mobileReaderStripBridgeClampedLocalIndex,
   mobileReaderStripBridgeGlobalIndex,
   mobileReaderStripBridgeLocalAnchor,
   mobileReaderStripBridgeLocalIndex,
+  mobileReaderStripBridgeOpenAnchor,
   type MobileReaderStripBridge,
 } from "@/lib/mobileReaderStripBridge";
 import {
@@ -484,6 +487,7 @@ import {
   mobileReaderScrollPageRatios,
   recallMobileReaderPageNaturalSize,
   rememberMobileReaderPageNaturalSize,
+  type MobileReaderScrollPageAnchor,
 } from "@/lib/mobileReaderScrollLayout";
 import {
   MOBILE_PERFORMANCE_MARKS,
@@ -3678,6 +3682,7 @@ export function ReaderScreen() {
     (chapter: ChapterSummary) => Promise<MobileReaderPagesRefresh | null>
   >(async () => null);
   const readerStripCanPrependRef = useRef<() => boolean>(() => false);
+  const readerStripCanSplicePreviousRef = useRef<() => boolean>(() => false);
   const readerStripHeadOffscreenRef = useRef<
     (strip: ReaderChapterStrip, count: number) => boolean
   >(() => false);
@@ -3686,6 +3691,19 @@ export function ReaderScreen() {
     [],
   );
   const readerStripCanPrepend = useCallback(() => readerStripCanPrependRef.current(), []);
+  const readerStripCanSplicePrevious = useCallback(
+    () => readerStripCanSplicePreviousRef.current(),
+    [],
+  );
+  const readerStripDescribePosition = useCallback(() => {
+    const anchor = mobileReaderStripBridgeOpenAnchor(
+      readerStripBridgeRef.current,
+      readerGalleryScrollRef.current?.pageAnchor() ?? null,
+    );
+    return `${anchor ? `p${anchor.pageIndex + 1}@${anchor.fraction.toFixed(2)}` : "outside"}${
+      readerUserScrollingRef.current ? " scrolling" : " rest"
+    }`;
+  }, []);
   const readerStripHeadOffscreen = useCallback(
     (strip: ReaderChapterStrip, count: number) => readerStripHeadOffscreenRef.current(strip, count),
     [],
@@ -3699,10 +3717,13 @@ export function ReaderScreen() {
     loadChapter: readerStripLoadChapter,
     isHeadRemovalOffscreen: readerStripHeadOffscreen,
     canPrepend: readerStripCanPrepend,
+    canSplicePrevious: readerStripCanSplicePrevious,
+    describePosition: readerStripDescribePosition,
   });
   readerStripRetainsProcessorRef.current = readerChapterStrip.isRetainedProcessor;
   const requestReaderStripPrevious = readerChapterStrip.requestPrevious;
   const recheckReaderStripPrevious = readerChapterStrip.recheckPrevious;
+  const flushReaderStripPrevious = readerChapterStrip.flushPrevious;
   const retryReaderStripNext = readerChapterStrip.retryNext;
   const readerStrip =
     readerSeamlessEnabled &&
@@ -5093,11 +5114,15 @@ export function ReaderScreen() {
   }, [publishScrollingVisiblePage]);
   const settleReaderUserScroll = useCallback(() => {
     readerScrollFlingLandingRef.current = null;
-    if (!readerUserScrollingRef.current) return;
-    readerUserScrollingRef.current = false;
-    publishScrollingVisiblePage();
-    saveReaderLocalResumeRef.current();
-  }, [publishScrollingVisiblePage]);
+    if (readerUserScrollingRef.current) {
+      readerUserScrollingRef.current = false;
+      publishScrollingVisiblePage();
+      saveReaderLocalResumeRef.current();
+    }
+    // At rest: a previous chapter fetched mid-scroll joins the list now (if
+    // the reader is still in the first pages and no seek owns the list).
+    flushReaderStripPrevious();
+  }, [flushReaderStripPrevious, publishScrollingVisiblePage]);
   const beginReaderUserScroll = useCallback(() => {
     clearReaderProgrammaticScroll();
     readerScrollFlingLandingRef.current = null;
@@ -8215,13 +8240,22 @@ export function ReaderScreen() {
     if (!galleryPagedMode) {
       // A relayout in flight keeps the spot it captured before the geometry
       // changed; the live anchor is stale until its seek lands.
-      const anchor =
+      let anchor: MobileReaderScrollPageAnchor | null =
         readerRelayoutPageAnchorRef.current != null
           ? {
               pageIndex: readerRelayoutPageAnchorRef.current,
               fraction: readerRelayoutPageFractionRef.current,
             }
-          : (readerScrollRef.current?.pageAnchor() ?? null);
+          : null;
+      if (!anchor) {
+        const listAnchor = readerGalleryScrollRef.current?.pageAnchor() ?? null;
+        if (listAnchor) {
+          // Never a clamped spot: a list anchor outside the open chapter
+          // (another chapter, a divider, rows that just moved) saves nothing.
+          anchor = mobileReaderStripBridgeOpenAnchor(readerStripBridgeRef.current, listAnchor);
+          if (!anchor) return;
+        }
+      }
       if (anchor) {
         displayIndex = anchor.pageIndex;
         fraction = anchor.fraction;
@@ -9219,6 +9253,8 @@ export function ReaderScreen() {
   ]);
   // ---- Seamless scroll: the list's rows, crossings, gallery callbacks ------
   const readerStripRef = useRef({ strip: readerStrip, rows: readerStripRows });
+  /** Rows just moved above the open chapter (a prepend, a head drop): no crossing yet. */
+  const readerStripBridgeMovingRef = useRef(false);
   readerStripRef.current = { strip: readerStrip, rows: readerStripRows };
   useEffect(() => {
     readerStripUserScrolledRef.current = false;
@@ -9228,6 +9264,18 @@ export function ReaderScreen() {
     readerRestoreCompleteRef.current &&
     readerScrollLandingRef.current == null &&
     readerProgrammaticScrollRef.current == null;
+  // The fetched previous chapter joins only at rest, with the gate still
+  // open and the reading line still in the open chapter's first pages.
+  readerStripCanSplicePreviousRef.current = () =>
+    shouldSpliceMobileReaderStripPrevious({
+      atRest: !readerUserScrollingRef.current,
+      canPrepend: readerStripCanPrependRef.current(),
+      localIndex:
+        mobileReaderStripBridgeOpenAnchor(
+          readerStripBridgeRef.current,
+          readerGalleryScrollRef.current?.pageAnchor() ?? null,
+        )?.pageIndex ?? null,
+    });
   readerStripHeadOffscreenRef.current = (_strip, count) => {
     if (!readerStripLayout || !readerStripStarts) return false;
     const viewport = readerGalleryScrollRef.current?.scrollViewport() ?? null;
@@ -9251,6 +9299,9 @@ export function ReaderScreen() {
     if (!readerStrip || pagesState.status !== "ready") return false;
     // The opening restore (or a seek) owns the list until it lands.
     if (!readerRestoreCompleteRef.current || readerScrollLandingRef.current) return false;
+    // Rows were just inserted or removed above: a report may still be in
+    // the old rows' terms.
+    if (readerStripBridgeMovingRef.current) return false;
     const leavingTarget = readerProgressTargetRef.current;
     if (leavingTarget.chapterId !== chapterId) return false;
     const leaving: ReaderStripSegmentData = {
@@ -9343,6 +9394,9 @@ export function ReaderScreen() {
       if (strip && rows) {
         const crossing = mobileReaderStripCrossing(rows, strip, globalIndex);
         if (crossing && crossIntoReaderStripSegmentRef.current(crossing)) return;
+        // Not crossed while the bridge moves: the report is not the open
+        // chapter's page either (never clamped onto its edge).
+        if (crossing && readerStripBridgeMovingRef.current) return;
       }
       const local = mobileReaderStripBridgeClampedLocalIndex(bridge, globalIndex);
       if (local == null) return;
@@ -9405,7 +9459,9 @@ export function ReaderScreen() {
   }, [requestReaderStripPrevious, showPreviousChapterFromEnd]);
   // A prepend (or a chapter dropped above) moves the open chapter's rows:
   // maintainVisibleContentPosition keeps the screen on the same picture.
-  // Should it not have (a jump), the reading spot is put back.
+  // Should it not have (a jump of more than half a screen), the reading spot
+  // is put back — never under the reader's own scroll. Until that check, no
+  // crossing (see crossIntoReaderStripSegment).
   const readerStripPlacementRef = useRef<{ chapterId: string; bridge: MobileReaderStripBridge } | null>(null);
   useLayoutEffect(() => {
     const previous = readerStripPlacementRef.current;
@@ -9418,27 +9474,46 @@ export function ReaderScreen() {
     ) {
       return;
     }
-    const before = readerGalleryScrollRef.current?.pageAnchor() ?? null;
-    if (!before) return;
-    const local = before.pageIndex - previous.bridge.indexBase;
-    if (local < 0 || local >= pageCount) return;
-    const fraction = before.fraction;
-    const expected = mobileReaderStripBridgeGlobalIndex(readerStripBridge, local);
+    readerStripBridgeMovingRef.current = true;
     let frame = requestAnimationFrame(() => {
       frame = requestAnimationFrame(() => {
-        const after = readerGalleryScrollRef.current?.pageAnchor() ?? null;
-        if (!after || Math.abs(after.pageIndex - expected) <= 2) return;
-        readerGalleryScrollRef.current?.scrollTo({
-          index: expected,
-          fraction,
-          y: readerStripLayout
-            ? mobileReaderScrollOffsetForAnchor(readerStripLayout, expected, fraction)
-            : 0,
-          animated: false,
-        });
+        readerStripBridgeMovingRef.current = false;
       });
     });
-    return () => cancelAnimationFrame(frame);
+    const release = () => {
+      cancelAnimationFrame(frame);
+      readerStripBridgeMovingRef.current = false;
+    };
+    // The gallery has already moved its anchor with its rows (same commit).
+    const before = readerGalleryScrollRef.current?.pageAnchor() ?? null;
+    if (!before || !readerStripLayout) return release;
+    const local = mobileReaderStripBridgeOpenAnchor(readerStripBridge, before);
+    if (!local) return release;
+    const expected = mobileReaderStripBridgeGlobalIndex(readerStripBridge, local.pageIndex);
+    const fraction = local.fraction;
+    const expectedOffset = mobileReaderScrollOffsetForAnchor(readerStripLayout, expected, fraction);
+    cancelAnimationFrame(frame);
+    frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => {
+        readerStripBridgeMovingRef.current = false;
+        if (readerUserScrollingRef.current) return;
+        const gallery = readerGalleryScrollRef.current;
+        const viewport = gallery?.scrollViewport() ?? null;
+        if (
+          !gallery ||
+          !viewport ||
+          !isMobileReaderStripPlacementOff({
+            currentOffset: gallery.contentOffset?.() ?? null,
+            expectedOffset,
+            viewportHeight: viewport.height,
+          })
+        ) {
+          return;
+        }
+        gallery.scrollTo({ index: expected, fraction, y: expectedOffset, animated: false });
+      });
+    });
+    return release;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the bridge moving is the trigger.
   }, [readerStripBridge]);
   const readerStripSourceName = selectedInstalledSource?.name ?? null;

@@ -73,3 +73,122 @@ export function mobileReaderStripBridgeClampedLocalIndex(
   if (bridge.localCount <= 0) return null;
   return Math.max(0, Math.min(bridge.localCount - 1, local));
 }
+
+/**
+ * The list's reading-line anchor in the open chapter's terms, or null when
+ * it lies outside the open chapter (another chapter, a divider). Unlike
+ * `mobileReaderStripBridgeLocalAnchor` it never clamps: what is saved as
+ * the reader's spot must be a spot in the chapter it is saved for.
+ */
+export function mobileReaderStripBridgeOpenAnchor(
+  bridge: MobileReaderStripBridge,
+  anchor: MobileReaderScrollPageAnchor | null,
+): MobileReaderScrollPageAnchor | null {
+  if (!anchor || !Number.isFinite(anchor.pageIndex)) return null;
+  const local = Math.floor(anchor.pageIndex) - bridge.indexBase;
+  if (local < 0 || local >= bridge.localCount) return null;
+  return { pageIndex: local, fraction: anchor.fraction };
+}
+
+/**
+ * How many rows were inserted at (positive) or removed from (negative) the
+ * head of the list between two renders of its row keys: 0 when the head is
+ * unchanged, null when the lists are unrelated (a new list).
+ */
+export function mobileReaderStripHeadRowShift(
+  previousKeys: readonly string[],
+  nextKeys: readonly string[],
+): number | null {
+  if (previousKeys.length === 0 || nextKeys.length === 0) return null;
+  if (previousKeys[0] === nextKeys[0]) return 0;
+  const inserted = nextKeys.indexOf(previousKeys[0]!);
+  if (inserted > 0) return inserted;
+  const removed = previousKeys.indexOf(nextKeys[0]!);
+  if (removed > 0) return -removed;
+  return null;
+}
+
+/** A row anchor carried over a head shift; null when its row was removed. */
+export function shiftMobileReaderScrollAnchorRows(
+  anchor: MobileReaderScrollPageAnchor | null,
+  rows: number,
+): MobileReaderScrollPageAnchor | null {
+  if (!anchor) return null;
+  const pageIndex = anchor.pageIndex + rows;
+  return pageIndex >= 0 ? { pageIndex, fraction: anchor.fraction } : null;
+}
+
+/** A row index carried over a head shift; null when its row was removed. */
+export function shiftMobileReaderRowIndex(index: number | null, rows: number): number | null {
+  if (index == null) return null;
+  const shifted = index + rows;
+  return shifted >= 0 ? shifted : null;
+}
+
+/**
+ * How far (content offset) the rows that stayed moved with a head shift:
+ * the old first kept row's start in the new layout minus its start in the
+ * old one.
+ */
+export function mobileReaderStripHeadShiftOffset(
+  previousStarts: readonly number[],
+  nextStarts: readonly number[],
+  rows: number,
+): number {
+  const before = previousStarts[Math.max(0, -rows)];
+  const after = nextStarts[Math.max(0, rows)];
+  return before != null && after != null ? after - before : 0;
+}
+
+/**
+ * A head shift whose native offset correction (maintainVisibleContentPosition)
+ * has not been reported yet. Scroll events still on their way carry the old
+ * offset; measured against the new rows they would land in another chapter.
+ */
+export type MobileReaderScrollHeadShift = {
+  /** Content offset the kept rows moved by. */
+  offset: number;
+  /** The last offset reported in the old rows' terms. */
+  lastOffset: number;
+  /** Wall clock after which events are taken as they come. */
+  until: number;
+};
+
+/** How long scroll events may still arrive in the old rows' terms. */
+export const MOBILE_READER_SCROLL_HEAD_SHIFT_WINDOW_MS = 500;
+
+/**
+ * A scroll event's offset in the current rows' terms: an event closer to
+ * the old offset than to the shifted one is still in the old rows' terms
+ * (and is moved by the shift); the first one in the new terms ends the
+ * window (`shift` null).
+ */
+export function resolveMobileReaderScrollEventOffset(
+  shift: MobileReaderScrollHeadShift | null,
+  offset: number,
+  now: number,
+): { offset: number; shift: MobileReaderScrollHeadShift | null } {
+  if (!shift || now > shift.until || shift.offset === 0 || !Number.isFinite(offset)) {
+    return { offset, shift: null };
+  }
+  const stale = Math.abs(offset - shift.lastOffset) < Math.abs(offset - (shift.lastOffset + shift.offset));
+  if (!stale) return { offset, shift: null };
+  return { offset: offset + shift.offset, shift: { ...shift, lastOffset: offset } };
+}
+
+/**
+ * After a head shift: whether the list left the open chapter's spot (more
+ * than half a screen from where it should be), so it must be put back.
+ */
+export function isMobileReaderStripPlacementOff(input: {
+  currentOffset: number | null;
+  expectedOffset: number;
+  viewportHeight: number;
+}): boolean {
+  const { currentOffset, expectedOffset, viewportHeight } = input;
+  if (currentOffset == null || !Number.isFinite(currentOffset) || !Number.isFinite(expectedOffset)) {
+    return false;
+  }
+  const tolerance = viewportHeight > 0 ? viewportHeight / 2 : 0;
+  return Math.abs(currentOffset - expectedOffset) > tolerance;
+}

@@ -78,6 +78,15 @@ export function useReaderChapterStrip(input: {
   isHeadRemovalOffscreen: (strip: ReaderChapterStrip, count: number) => boolean;
   /** The reader is near the top of its list and not mid-seek: a prepend may land. */
   canPrepend: () => boolean;
+  /**
+   * A fetched previous chapter may be spliced in now: the list is at rest,
+   * `canPrepend` still passes and the reading line is still in the open
+   * chapter's first pages (see shouldSpliceMobileReaderStripPrevious).
+   * Until then it is held, and spliced by `flushPrevious`.
+   */
+  canSplicePrevious: () => boolean;
+  /** Where the reader is, for the one-line device log of a prepend. */
+  describePosition?: () => string;
 }) {
   const {
     enabled,
@@ -88,6 +97,8 @@ export function useReaderChapterStrip(input: {
     loadChapter,
     isHeadRemovalOffscreen,
     canPrepend,
+    canSplicePrevious,
+    describePosition,
   } = input;
   const [state, setState] = useState<StripState>(EMPTY_STATE);
   const stateRef = useRef(state);
@@ -100,6 +111,25 @@ export function useReaderChapterStrip(input: {
   isHeadRemovalOffscreenRef.current = isHeadRemovalOffscreen;
   const canPrependRef = useRef(canPrepend);
   canPrependRef.current = canPrepend;
+  const canSplicePreviousRef = useRef(canSplicePrevious);
+  canSplicePreviousRef.current = canSplicePrevious;
+  const describePositionRef = useRef(describePosition);
+  describePositionRef.current = describePosition;
+  /** One line per prepend event, for QA on device (low volume). */
+  const logPrepend = useCallback((event: string, segment: ReaderStripSegmentData) => {
+    console.info(
+      `[reader-strip] prepend ${event} chapter=${segment.chapter.id} rows=${segment.pages.length + 1} anchor=${
+        describePositionRef.current?.() ?? "?"
+      }`,
+    );
+  }, []);
+  /** The previous chapter, fetched while a splice was not safe (see canSplicePrevious). */
+  const heldPreviousRef = useRef<{
+    run: number;
+    segment: ReaderStripSegmentData;
+    /** Its deferral was logged (once). */
+    logged?: boolean;
+  } | null>(null);
   const runRef = useRef(0);
   const chaptersRef = useRef(chapters);
   chaptersRef.current = chapters;
@@ -113,6 +143,11 @@ export function useReaderChapterStrip(input: {
       }
     }
   }, []);
+  const discardHeldPrevious = useCallback(() => {
+    const held = heldPreviousRef.current;
+    heldPreviousRef.current = null;
+    held?.segment.pageProcessor?.dispose();
+  }, []);
 
   // A new list (another chapter opened the normal way, a refetch, the flag
   // or the mode turned off): neighbours go, their processors with them.
@@ -124,6 +159,7 @@ export function useReaderChapterStrip(input: {
     if (previous.sessionKey === activeSessionKey) return;
     runRef.current += 1;
     disposeSegments(previous.segments);
+    discardHeldPrevious();
     setState(
       activeSessionKey && current
         ? { ...EMPTY_STATE, sessionKey: activeSessionKey, segments: [current] }
@@ -131,14 +167,15 @@ export function useReaderChapterStrip(input: {
     );
     // `current` is read for the opening segment only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSessionKey, disposeSegments]);
+  }, [activeSessionKey, discardHeldPrevious, disposeSegments]);
 
   useEffect(
     () => () => {
       runRef.current += 1;
       disposeSegments(stateRef.current.segments);
+      discardHeldPrevious();
     },
-    [disposeSegments],
+    [discardHeldPrevious, disposeSegments],
   );
 
   const live = state.sessionKey !== "" && state.sessionKey === activeSessionKey;
@@ -237,6 +274,76 @@ export function useReaderChapterStrip(input: {
     }
   }, [live, state.currentIndex, state.segments]);
 
+  /** Joins a fetched chapter to the list (after the last or before the first). */
+  const spliceSegment = useCallback(
+    (chapter: ChapterSummary, segment: ReaderStripSegmentData, side: "next" | "previous") => {
+      if (segment.pageProcessor) retainedProcessorsRef.current.add(segment.pageProcessor);
+      setState((previous) => {
+        if (previous.segments.some((existing) => existing.chapter.id === chapter.id)) {
+          if (segment.pageProcessor && retainedProcessorsRef.current.delete(segment.pageProcessor)) {
+            segment.pageProcessor.dispose();
+          }
+          return { ...previous, [side]: null };
+        }
+        const base: ReaderChapterStrip = {
+          segments: previous.segments,
+          currentIndex: previous.currentIndex,
+          tail: null,
+        };
+        const joined =
+          side === "next"
+            ? appendMobileReaderStripSegment(base, segment, null)
+            : prependMobileReaderStripSegment(base, segment);
+        return {
+          ...previous,
+          segments: joined.segments as ReaderStripSegmentData[],
+          currentIndex: joined.currentIndex,
+          [side]: null,
+        };
+      });
+    },
+    [],
+  );
+
+  /**
+   * Splices a held previous chapter once that is safe (the reader calls this
+   * when a scroll settles; rechecks call it too). A held chapter that is no
+   * longer the one above the list (the reader crossed on) is dropped, so it
+   * is fetched again when wanted. True when it was spliced.
+   */
+  const flushPrevious = useCallback((): boolean => {
+    const held = heldPreviousRef.current;
+    if (!held) return false;
+    const { segments, currentIndex } = stateRef.current;
+    const first = segments[0];
+    const above = first
+      ? getMobileReaderChapterNavigation([...chaptersRef.current], first.chapter.id, "scrolling")
+          .previousChapter
+      : null;
+    if (held.run !== runRef.current || currentIndex !== 0 || above?.id !== held.segment.chapter.id) {
+      logPrepend("dropped", held.segment);
+      discardHeldPrevious();
+      if (held.run === runRef.current) {
+        stateRef.current = { ...stateRef.current, previous: null };
+        setState((previous) =>
+          previous.previous?.chapterId === held.segment.chapter.id ? { ...previous, previous: null } : previous,
+        );
+      }
+      return false;
+    }
+    if (!canSplicePreviousRef.current()) {
+      if (!held.logged) {
+        held.logged = true;
+        logPrepend("deferred", held.segment);
+      }
+      return false;
+    }
+    heldPreviousRef.current = null;
+    logPrepend(held.logged ? "applied (flushed)" : "applied", held.segment);
+    spliceSegment(held.segment.chapter, held.segment, "previous");
+    return true;
+  }, [discardHeldPrevious, logPrepend, spliceSegment]);
+
   const fetchSegment = useCallback(
     (chapter: ChapterSummary, side: "next" | "previous") => {
       const run = runRef.current;
@@ -270,33 +377,19 @@ export function useReaderChapterStrip(input: {
             pageProcessor: ready.pageProcessor,
             fetchedAt: ready.fetchedAt,
           };
-          if (segment.pageProcessor) retainedProcessorsRef.current.add(segment.pageProcessor);
-          setState((previous) => {
-            if (previous.segments.some((existing) => existing.chapter.id === chapter.id)) {
-              if (segment.pageProcessor && retainedProcessorsRef.current.delete(segment.pageProcessor)) {
-                segment.pageProcessor.dispose();
-              }
-              return { ...previous, [side]: null };
-            }
-            const base: ReaderChapterStrip = {
-              segments: previous.segments,
-              currentIndex: previous.currentIndex,
-              tail: null,
-            };
-            const joined =
-              side === "next"
-                ? appendMobileReaderStripSegment(base, segment, null)
-                : prependMobileReaderStripSegment(base, segment);
-            return {
-              ...previous,
-              segments: joined.segments as ReaderStripSegmentData[],
-              currentIndex: joined.currentIndex,
-              [side]: null,
-            };
-          });
+          if (side === "previous") {
+            // `canPrepend` held when the fetch started, not necessarily now:
+            // rows inserted above a moving list (or once the reader has left
+            // the first pages) put in-flight scroll reports in the wrong rows.
+            discardHeldPrevious();
+            heldPreviousRef.current = { run, segment };
+            flushPrevious();
+            return;
+          }
+          spliceSegment(chapter, segment, side);
         });
     },
-    [],
+    [discardHeldPrevious, flushPrevious, spliceSegment],
   );
 
   // Prepend: in the first pages of its first chapter, fetch the previous —
@@ -307,6 +400,11 @@ export function useReaderChapterStrip(input: {
   const recheckPrevious = useCallback(() => {
     const { live: isLive, current: open, currentLocalIndex: localIndex } = prependInputsRef.current;
     if (!isLive || !open || chaptersRef.current.length === 0) return;
+    // Fetched already: it lands once that is safe.
+    if (heldPreviousRef.current) {
+      flushPrevious();
+      return;
+    }
     const { currentIndex, previous: edge } = stateRef.current;
     if (currentIndex !== 0 || edge != null) return;
     const previous = getMobileReaderChapterNavigation(
@@ -328,7 +426,7 @@ export function useReaderChapterStrip(input: {
         previous: { chapterId: previous.id, status: "loading" },
       };
     }
-  }, [fetchSegment]);
+  }, [fetchSegment, flushPrevious]);
 
   // Append: in the last pages of the list's last chapter, fetch the next.
   // Prepend: in the first pages of its first chapter, fetch the previous.
@@ -428,13 +526,17 @@ export function useReaderChapterStrip(input: {
     ).previousChapter;
     if (!chapter || chapter.locked) return false;
     if (previous?.chapterId === chapter.id) {
-      // Joining: wait for it. Failed or locked: the old way (open it).
-      if (previous.status === "loading") return true;
+      // Joining: wait for it (a fetched one lands once the list rests).
+      // Failed or locked: the old way (open it).
+      if (previous.status === "loading") {
+        flushPrevious();
+        return true;
+      }
       return false;
     }
     fetchSegment(chapter, "previous");
     return true;
-  }, [fetchSegment]);
+  }, [fetchSegment, flushPrevious]);
 
   /** A failed / locked neighbour: try it again. */
   const retryNext = useCallback(() => {
@@ -457,5 +559,7 @@ export function useReaderChapterStrip(input: {
     recheckPrevious,
     retryNext,
     isRetainedProcessor,
+    /** Splice a fetched previous chapter held back until the list rests. */
+    flushPrevious,
   };
 }
