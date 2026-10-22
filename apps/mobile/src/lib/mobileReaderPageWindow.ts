@@ -24,15 +24,21 @@ export function isMobileReaderPageNearViewport(
 }
 
 /**
- * Scroll (continuous vertical) reading: a fling runs ahead of the page the
- * reader settles on, so the window is directional — six pages ahead in the
- * scroll direction, four behind (a back-fling to pages seen seconds ago
- * shows their art, not placeholders) — and follows the live visible page
- * rather than the committed one. Eleven decoded pages at most, against seven
- * paged.
+ * Scroll (continuous vertical) reading: the window is measured in screen
+ * heights, not pages. A fixed page count ran out on a hard fling through
+ * short webtoon slices (the strip outran six pages and showed bare plates),
+ * while tall pages held far more picture than needed. So: the pages that
+ * cover three viewport heights past the bottom of the screen in the scroll
+ * direction, and one viewport height past its other edge, within page caps —
+ * at least a couple of pages each way, and never more than ~two dozen ahead
+ * (very short slices), which also bounds the decoded bitmaps held.
  */
-export const MOBILE_READER_SCROLL_RENDER_AHEAD = 6;
-export const MOBILE_READER_SCROLL_RENDER_BEHIND = 4;
+export const MOBILE_READER_SCROLL_RENDER_AHEAD_VIEWPORTS = 3;
+export const MOBILE_READER_SCROLL_RENDER_BEHIND_VIEWPORTS = 1;
+export const MOBILE_READER_SCROLL_RENDER_MIN_AHEAD = 2;
+export const MOBILE_READER_SCROLL_RENDER_MAX_AHEAD = 24;
+export const MOBILE_READER_SCROLL_RENDER_MIN_BEHIND = 2;
+export const MOBILE_READER_SCROLL_RENDER_MAX_BEHIND = 8;
 
 export type MobileReaderScrollDirection = "forward" | "backward";
 
@@ -47,24 +53,122 @@ export function nextMobileReaderScrollDirection(
   return current;
 }
 
-export function isMobileReaderPageInScrollRenderWindow(
+/** Inclusive display-index range. */
+export type MobileReaderPageRange = { first: number; last: number };
+
+/** The strip's geometry (see `MobileReaderScrollLayout`); content coordinates. */
+export type MobileReaderScrollStripGeometry = {
+  readonly heights: readonly number[];
+  readonly gaps: readonly number[];
+  readonly starts: readonly number[];
+};
+
+/**
+ * The pages to keep near a scroll position, by distance.
+ *
+ * `viewportTop` is the content coordinate (the layout's, list padding
+ * excluded: scroll offset minus the top padding) of the screen's top edge.
+ * Unknown (`null`): the screen is taken as centred on the anchor page.
+ * Without a layout every page is `estimatedPageHeight` tall (unknown sizes in
+ * a layout are already the chapter's typical page). Page caps count from
+ * `anchorIndex`, the page the reader is on.
+ */
+export function resolveMobileReaderScrollPageRange({
+  pageCount,
+  anchorIndex,
+  direction,
+  viewportTop,
+  viewportHeight,
+  layout,
+  estimatedPageHeight,
+  aheadViewports = MOBILE_READER_SCROLL_RENDER_AHEAD_VIEWPORTS,
+  behindViewports = MOBILE_READER_SCROLL_RENDER_BEHIND_VIEWPORTS,
+  minAhead = MOBILE_READER_SCROLL_RENDER_MIN_AHEAD,
+  maxAhead = MOBILE_READER_SCROLL_RENDER_MAX_AHEAD,
+  minBehind = MOBILE_READER_SCROLL_RENDER_MIN_BEHIND,
+  maxBehind = MOBILE_READER_SCROLL_RENDER_MAX_BEHIND,
+}: {
+  pageCount: number;
+  anchorIndex: number;
+  direction: MobileReaderScrollDirection;
+  viewportTop: number | null;
+  viewportHeight: number;
+  layout?: MobileReaderScrollStripGeometry | null;
+  estimatedPageHeight: number;
+  aheadViewports?: number;
+  behindViewports?: number;
+  minAhead?: number;
+  maxAhead?: number;
+  minBehind?: number;
+  maxBehind?: number;
+}): MobileReaderPageRange | null {
+  if (!Number.isFinite(pageCount) || pageCount <= 0) return null;
+  const count = Math.floor(pageCount);
+  const anchor = Number.isFinite(anchorIndex)
+    ? Math.max(0, Math.min(count - 1, Math.round(anchorIndex)))
+    : 0;
+  const geometry =
+    layout && layout.heights.length === count ? layout : null;
+  const fallbackHeight =
+    Number.isFinite(estimatedPageHeight) && estimatedPageHeight > 0
+      ? estimatedPageHeight
+      : 1;
+  const pageTop = (index: number) =>
+    geometry ? geometry.starts[index]! + geometry.gaps[index]! : index * fallbackHeight;
+  const pageBottom = (index: number) =>
+    geometry ? pageTop(index) + geometry.heights[index]! : (index + 1) * fallbackHeight;
+  const screen =
+    Number.isFinite(viewportHeight) && viewportHeight > 0
+      ? viewportHeight
+      : fallbackHeight;
+  const top =
+    viewportTop != null && Number.isFinite(viewportTop)
+      ? viewportTop
+      : (pageTop(anchor) + pageBottom(anchor)) / 2 - screen / 2;
+  const bottom = top + screen;
+  const reachDown =
+    bottom + screen * (direction === "forward" ? aheadViewports : behindViewports);
+  const reachUp =
+    top - screen * (direction === "forward" ? behindViewports : aheadViewports);
+  // Last page starting above the lower reach; first page ending below the
+  // upper one (pages are in content order, so both are binary searches).
+  let low = 0;
+  let high = count - 1;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (pageTop(mid) < reachDown) low = mid;
+    else high = mid - 1;
+  }
+  let last = low;
+  low = 0;
+  high = count - 1;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (pageBottom(mid) > reachUp) high = mid;
+    else low = mid + 1;
+  }
+  let first = low;
+  const [downMin, downMax, upMin, upMax] =
+    direction === "forward"
+      ? [minAhead, maxAhead, minBehind, maxBehind]
+      : [minBehind, maxBehind, minAhead, maxAhead];
+  last = Math.max(anchor + downMin, Math.min(anchor + downMax, last));
+  first = Math.min(anchor - upMin, Math.max(anchor - upMax, first));
+  return {
+    first: Math.max(0, first),
+    last: Math.min(count - 1, last),
+  };
+}
+
+export function isMobileReaderPageInRange(
   displayIndex: number | undefined,
-  anchorIndex: number,
-  direction: MobileReaderScrollDirection,
-  ahead: number = MOBILE_READER_SCROLL_RENDER_AHEAD,
-  behind: number = MOBILE_READER_SCROLL_RENDER_BEHIND,
+  range: MobileReaderPageRange | null,
 ): boolean {
-  if (
-    displayIndex === undefined ||
-    !Number.isFinite(displayIndex) ||
-    !Number.isFinite(anchorIndex)
-  ) {
+  // Unknown position or no range: keep the page mounted.
+  if (displayIndex === undefined || !Number.isFinite(displayIndex) || !range) {
     return true;
   }
-  const offset = displayIndex - anchorIndex;
-  return direction === "forward"
-    ? offset >= -behind && offset <= ahead
-    : offset >= -ahead && offset <= behind;
+  return displayIndex >= range.first && displayIndex <= range.last;
 }
 
 export type MobileReaderPageRenderPolicy =

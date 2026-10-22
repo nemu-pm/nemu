@@ -178,6 +178,7 @@ import {
   MobileReaderGallery,
   type MobileReaderImagePlacement,
   type MobileReaderScrollHandle,
+  type MobileReaderScrollViewport,
 } from "@/components/reader/MobileReaderGallery";
 import { MobileReaderPageFrame } from "@/components/reader/MobileReaderPageFrame";
 import { readerCentreTapBand, readerChromeDismissSweep } from "@/components/reader/readerTapZones";
@@ -360,6 +361,8 @@ import {
 import {
   getMobileReaderPageRenderPolicy,
   nextMobileReaderScrollDirection,
+  resolveMobileReaderScrollPageRange,
+  type MobileReaderPageRange,
   type MobileReaderScrollDirection,
 } from "@/lib/mobileReaderPageWindow";
 import { isMobileReaderImageLoading } from "@/lib/mobileReaderImageStatus";
@@ -393,6 +396,9 @@ import {
 } from "@/lib/mobileImageCache";
 import {
   MOBILE_READER_PREFETCH_PAGES_BEHIND,
+  MOBILE_READER_SCROLL_PREFETCH_LANDING_MAX,
+  MOBILE_READER_SCROLL_PREFETCH_MIN_AHEAD,
+  MOBILE_READER_SCROLL_PREFETCH_MIN_BEHIND,
   MobileReaderImagePrefetcher,
   planMobileReaderNextChapterPrefetch,
   planMobileReaderPagePrefetch,
@@ -417,6 +423,7 @@ import {
 } from "@/lib/mobileReaderResumePosition";
 import {
   buildMobileReaderScrollLayout,
+  mobileReaderScrollAnchorForOffset,
   mobileReaderScrollOffsetForAnchor,
   mobileReaderScrollPageRatios,
   recallMobileReaderPageNaturalSize,
@@ -1366,6 +1373,9 @@ export function ReaderScreen() {
   const readerScrollPrefetchTopUpRef = useRef<(pageIndex: number) => void>(
     () => undefined,
   );
+  // The pages around where the running fling comes to rest (iOS), warmed
+  // until the scroll settles.
+  const readerScrollFlingLandingRef = useRef<MobileReaderPageRange | null>(null);
   const [readerLivePageStore] = useState(createMobileReaderLivePageStore);
   const readerRelayoutPageAnchorRef = useRef<number | null>(null);
   // How far into the anchored page the reading line sat (scroll layout).
@@ -4347,6 +4357,7 @@ export function ReaderScreen() {
     publishScrollingVisiblePageRef.current = publishScrollingVisiblePage;
   }, [publishScrollingVisiblePage]);
   const settleReaderUserScroll = useCallback(() => {
+    readerScrollFlingLandingRef.current = null;
     if (!readerUserScrollingRef.current) return;
     readerUserScrollingRef.current = false;
     publishScrollingVisiblePage();
@@ -4354,6 +4365,7 @@ export function ReaderScreen() {
   }, [publishScrollingVisiblePage]);
   const beginReaderUserScroll = useCallback(() => {
     clearReaderProgrammaticScroll();
+    readerScrollFlingLandingRef.current = null;
     // A drag during the opening restore cancels it: where the reader takes
     // the list is the real position.
     finishReaderScrollLanding("user");
@@ -6739,24 +6751,88 @@ export function ReaderScreen() {
         : [],
     [nearChapterEnd, nextChapterPrefetchKey, nextChapterPrefetchPages],
   );
-  // Scroll mode: the next eight pages in the scroll direction are warmed as
-  // soon as the chapter is ready and topped up on every page crossing (live,
-  // from the visible page). Nothing waits for the page on screen to load —
-  // the mounted page's own request outranks prefetches in the image cache
-  // queue anyway.
+  // Scroll mode: the pages covering three screens ahead in the scroll
+  // direction (one behind) are warmed as soon as the chapter is ready and
+  // topped up on every page crossing (live, from the visible page), plus the
+  // screen a fling will rest on. Nothing waits for the page on screen to
+  // load — the mounted page's own request outranks prefetches in the image
+  // cache queue anyway.
   const topUpReaderScrollPrefetch = useCallback(
     (pageIndex: number) => {
       if (pagesState.status !== "ready") return;
+      const viewport = readerScrollRef.current?.scrollViewport() ?? null;
+      const range = resolveMobileReaderScrollPageRange({
+        pageCount: pages.length,
+        anchorIndex: pageIndex,
+        direction: readerScrollDirectionRef.current,
+        viewportTop: viewport?.top ?? null,
+        viewportHeight: viewport?.height ?? 0,
+        layout: readerScrollLayout,
+        estimatedPageHeight: scrollingPageEstimatedHeight,
+        minAhead: MOBILE_READER_SCROLL_PREFETCH_MIN_AHEAD,
+        minBehind: MOBILE_READER_SCROLL_PREFETCH_MIN_BEHIND,
+      });
+      if (!range) return;
       readerImagePrefetcher.update([
         ...planMobileReaderScrollPrefetch({
           pages,
           currentIndex: pageIndex,
+          range,
           direction: readerScrollDirectionRef.current,
+          landing: readerScrollFlingLandingRef.current,
         }),
         ...readerNextChapterPrefetchImages,
       ]);
     },
-    [pages, pagesState.status, readerImagePrefetcher, readerNextChapterPrefetchImages],
+    [
+      pages,
+      pagesState.status,
+      readerImagePrefetcher,
+      readerNextChapterPrefetchImages,
+      readerScrollLayout,
+      scrollingPageEstimatedHeight,
+    ],
+  );
+  const onScrollingFlingTarget = useCallback(
+    (viewport: MobileReaderScrollViewport) => {
+      if (galleryPagedMode || pages.length <= 1) return;
+      const direction: MobileReaderScrollDirection =
+        viewport.top >= (readerScrollRef.current?.scrollViewport()?.top ?? 0)
+          ? "forward"
+          : "backward";
+      // The resting screen and one more past it, from the page at its top.
+      const restingTop = readerScrollLayout
+        ? (mobileReaderScrollAnchorForOffset(readerScrollLayout, Math.max(0, viewport.top))
+            ?.pageIndex ?? 0)
+        : Math.floor(Math.max(0, viewport.top) / Math.max(1, scrollingPageEstimatedHeight));
+      readerScrollFlingLandingRef.current = resolveMobileReaderScrollPageRange({
+        pageCount: pages.length,
+        anchorIndex: restingTop,
+        direction,
+        viewportTop: viewport.top,
+        viewportHeight: viewport.height,
+        layout: readerScrollLayout,
+        estimatedPageHeight: scrollingPageEstimatedHeight,
+        aheadViewports: 1,
+        behindViewports: 0,
+        minAhead: 1,
+        maxAhead: MOBILE_READER_SCROLL_PREFETCH_LANDING_MAX,
+        minBehind: 0,
+        maxBehind: MOBILE_READER_SCROLL_PREFETCH_LANDING_MAX,
+      });
+      readerScrollDirectionRef.current = direction;
+      topUpReaderScrollPrefetch(
+        clampReaderPageIndex(scrollingVisiblePageIndexRef.current, pageCount),
+      );
+    },
+    [
+      galleryPagedMode,
+      pageCount,
+      pages.length,
+      readerScrollLayout,
+      scrollingPageEstimatedHeight,
+      topUpReaderScrollPrefetch,
+    ],
   );
   useLayoutEffect(() => {
     readerScrollPrefetchTopUpRef.current = galleryPagedMode
@@ -9889,6 +9965,7 @@ export function ReaderScreen() {
         onScrollingPageLayout={onScrollingPageLayout}
         onScrollingSeekFailed={onScrollingSeekFailed}
         onScrollingSeekLanded={onScrollingSeekLanded}
+        onScrollingFlingTarget={onScrollingFlingTarget}
         scrollPageLayout={readerScrollLayout}
         onScrollingVisiblePageChange={onScrollingVisiblePageChange}
         onRetry={() => {

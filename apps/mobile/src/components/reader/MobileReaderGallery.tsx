@@ -15,6 +15,7 @@ import {
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   FlatList,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -104,8 +105,9 @@ import {
   useSkeletonPulse,
 } from "@/lib/useSkeletonPulse";
 import {
-  isMobileReaderPageInScrollRenderWindow,
+  isMobileReaderPageInRange,
   nextMobileReaderScrollDirection,
+  resolveMobileReaderScrollPageRange,
   type MobileReaderScrollDirection,
 } from "@/lib/mobileReaderPageWindow";
 import {
@@ -119,6 +121,7 @@ import {
   mobileReaderScrollIndexViewOffset,
   mobileReaderScrollItemLayout,
   mobileReaderScrollOffsetForAnchor,
+  MOBILE_READER_SCROLL_DEFAULT_PAGE_RATIO,
   type MobileReaderScrollLayout,
   type MobileReaderScrollPageAnchor,
 } from "@/lib/mobileReaderScrollLayout";
@@ -162,6 +165,11 @@ type MobileReaderGalleryProps = {
    * at its target offset.
    */
   onScrollingSeekLanded?: (pageIndex: number) => void;
+  /**
+   * Scroll mode (iOS): a released drag flings the list toward `top` (content
+   * coordinate of the screen's top edge where the fling comes to rest).
+   */
+  onScrollingFlingTarget?: (viewport: MobileReaderScrollViewport) => void;
   onContinuousScrollMetricsChange?: (
     metrics: ReaderContinuousScrollMetrics,
   ) => void;
@@ -322,6 +330,12 @@ export type MobileReaderImagePlacement = {
   inRenderWindow: boolean;
 };
 
+/**
+ * Scroll mode: the screen in the strip's content coordinates (the page
+ * layout's: list top padding excluded).
+ */
+export type MobileReaderScrollViewport = { top: number; height: number };
+
 export type MobileReaderScrollHandle = {
   scrollTo(options: {
     x?: number;
@@ -333,6 +347,8 @@ export type MobileReaderScrollHandle = {
   }): void;
   /** Scroll mode with a page layout: the page (and fraction) at the reading line. */
   pageAnchor(): MobileReaderScrollPageAnchor | null;
+  /** Scroll mode: where the screen is now; null before the list has a size. */
+  scrollViewport(): MobileReaderScrollViewport | null;
   scrollToProgress(progress: number, animated?: boolean): boolean;
   scrollToProgressAfterContentChange(progress: number): void;
 };
@@ -489,6 +505,7 @@ export function MobileReaderGallery({
   onScrollingVisiblePageChange,
   onScrollingSeekFailed,
   onScrollingSeekLanded,
+  onScrollingFlingTarget,
   onContinuousScrollMetricsChange,
   onUserScrollBegin,
   onUserScrollSettle,
@@ -722,25 +739,69 @@ export function MobileReaderGallery({
     attempts: number;
   } | null>(null);
   // Scroll mode: which pages decode their image. The window follows the
-  // live visible page (a fling runs far ahead of the committed one) and
-  // leans toward the scroll direction; a committed page change (a jump, a
-  // restore, a settle) re-anchors it at once.
+  // live visible page (a fling runs far ahead of the committed one), reaches
+  // by screen heights toward the scroll direction (see
+  // resolveMobileReaderScrollPageRange) and is re-measured at every page
+  // crossing; a committed page change (a jump, a restore, a settle)
+  // re-anchors it at once.
+  // Reads refs only: safe in the list's once-created callbacks.
+  const currentScrollViewportTop = (): number =>
+    latestScrollMetricsRef.current.contentOffset -
+    Math.max(0, chromeTopPaddingRef.current);
   const [scrollRenderWindow, setScrollRenderWindow] = useState<{
     anchor: number;
     direction: MobileReaderScrollDirection;
     committedIndex: number | undefined;
+    /** Screen top (layout coordinates) at the crossing; null: from the anchor. */
+    viewportTop: number | null;
   }>(() => ({
     anchor: pagedDisplayIndex ?? 0,
     direction: "forward",
     committedIndex: pagedDisplayIndex,
+    viewportTop: null,
   }));
   if (scrollRenderWindow.committedIndex !== pagedDisplayIndex) {
-    setScrollRenderWindow((current) => ({
-      anchor: pagedDisplayIndex ?? current.anchor,
-      direction: current.direction,
-      committedIndex: pagedDisplayIndex,
-    }));
+    setScrollRenderWindow((current) => {
+      const anchor = pagedDisplayIndex ?? current.anchor;
+      return {
+        anchor,
+        direction: current.direction,
+        committedIndex: pagedDisplayIndex,
+        // A settle commits the page the list already rests on: keep the
+        // measured screen. A jump has not moved the list yet.
+        viewportTop: anchor === current.anchor ? current.viewportTop : null,
+      };
+    });
   }
+  const scrollRenderRange = useMemo(() => {
+    if (pagedMode) return null;
+    const { anchor, direction, viewportTop } = scrollRenderWindow;
+    const viewportLength = latestScrollMetricsRef.current.viewportLength;
+    return resolveMobileReaderScrollPageRange({
+      pageCount: displayedPages.length,
+      anchorIndex: anchor,
+      direction,
+      // An unmeasured screen sits where a seek puts the anchor page: its top
+      // at the reading line, right below the chrome.
+      viewportTop:
+        viewportTop ??
+        (scrollPageLayout
+          ? mobileReaderScrollOffsetForAnchor(scrollPageLayout, anchor, 0) -
+            Math.max(0, chromeTopPadding)
+          : null),
+      viewportHeight: viewportLength > 0 ? viewportLength : windowHeight,
+      layout: scrollPageLayout,
+      estimatedPageHeight: readerImageWidth * MOBILE_READER_SCROLL_DEFAULT_PAGE_RATIO,
+    });
+  }, [
+    chromeTopPadding,
+    displayedPages.length,
+    pagedMode,
+    readerImageWidth,
+    scrollPageLayout,
+    scrollRenderWindow,
+    windowHeight,
+  ]);
   const onViewableItemsChanged = useCallback(
     ({
       viewableItems,
@@ -768,6 +829,7 @@ export function MobileReaderGallery({
                   current.direction,
                 ),
                 committedIndex: current.committedIndex,
+                viewportTop: currentScrollViewportTop(),
               },
         );
         onScrollingVisiblePageChangeRef.current?.(nextPageIndex);
@@ -934,6 +996,14 @@ export function MobileReaderGallery({
       pageAnchor() {
         return scrollPageLayoutRef.current ? scrollAnchorRef.current : null;
       },
+      scrollViewport() {
+        if (pagedMode) return null;
+        const metrics = latestScrollMetricsRef.current;
+        const height =
+          metrics.viewportLength > 0 ? metrics.viewportLength : windowHeight;
+        if (!(height > 0)) return null;
+        return { top: currentScrollViewportTop(), height };
+      },
       scrollToProgress(progress, animated = false) {
         if (pagedMode) return false;
         const metrics = latestScrollMetricsRef.current;
@@ -967,6 +1037,7 @@ export function MobileReaderGallery({
       readerPageWidth,
       resolvedContinuousContentIdentity,
       scrollIndexViewOffset,
+      windowHeight,
     ],
   );
 
@@ -1651,6 +1722,30 @@ export function MobileReaderGallery({
   ) => {
     publishLogicalScrollAccessibility();
     if (!pagedMode) {
+      // iOS reports where the fling will rest (Android only the finger's
+      // velocity); the reader warms that screen while the list travels.
+      const flingTarget = (
+        event.nativeEvent as NativeScrollEvent & {
+          targetContentOffset?: { x: number; y: number };
+        }
+      ).targetContentOffset;
+      if (
+        Platform.OS === "ios" &&
+        flingTarget &&
+        Number.isFinite(flingTarget.y) &&
+        onScrollingFlingTarget
+      ) {
+        const height = event.nativeEvent.layoutMeasurement.height;
+        if (
+          height > 0 &&
+          Math.abs(flingTarget.y - event.nativeEvent.contentOffset.y) > height
+        ) {
+          onScrollingFlingTarget({
+            top: flingTarget.y - Math.max(0, chromeTopPadding),
+            height,
+          });
+        }
+      }
       clearDragSettleTimer();
       dragSettleTimerRef.current = setTimeout(() => {
         dragSettleTimerRef.current = null;
@@ -1867,11 +1962,7 @@ export function MobileReaderGallery({
           <MobileReaderScrollPageCell
             page={page}
             index={index}
-            inRenderWindow={isMobileReaderPageInScrollRenderWindow(
-              index,
-              scrollRenderWindow.anchor,
-              scrollRenderWindow.direction,
-            )}
+            inRenderWindow={isMobileReaderPageInRange(index, scrollRenderRange)}
             gapBefore={
               scrollPageLayout?.gaps[index] ??
               scrollPageGaps?.[index] ??
