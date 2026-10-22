@@ -85,6 +85,7 @@ import {
   readerPluginSheetPage,
 } from "@/lib/mobileFittedSheet";
 import {
+  pushedPageWidthKey,
   readerSettingsNativePresentation,
   READER_SETTINGS_FORM_INSET,
   readerSettingsNativeSheetEstimatedHeight,
@@ -676,10 +677,16 @@ export function ReaderSettingsNativePopover({
         modifiers={[inlineToolbarTitle(), defaultScrollAnchor("top"), reportPageWidth(learnPushedPageWidth)]}
       >
         {pushedPageWidth !== null ? (
-          // A new width is a new host (and a fresh native size observer).
-          <RNHostView key={`width:${Math.round(pushedPageWidth * 2) / 2}`} matchContents={PUSHED_PAGE_MATCH_CONTENTS}>
+          // A new width remounts the page's rows, never the host or its
+          // hosted view: a re-keyed host takes that view back from Fabric's
+          // recycle pool into a new SwiftUI container, and a page re-keyed
+          // twice in one posture change (book → laptop → book) was left
+          // blank, its hosted view in no container on screen.
+          <RNHostView matchContents={PUSHED_PAGE_MATCH_CONTENTS}>
             <View collapsable={false} style={[styles.pushedPage, { width: pushedPageWidth }]}>
-              <NemuGlassSheetThemeScope look={PUSHED_PAGE_LOOK}>{content}</NemuGlassSheetThemeScope>
+              <NemuGlassSheetThemeScope key={pushedPageWidthKey(pushedPageWidth)} look={PUSHED_PAGE_LOOK}>
+                {content}
+              </NemuGlassSheetThemeScope>
             </View>
           </RNHostView>
         ) : null}

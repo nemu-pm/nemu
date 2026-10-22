@@ -192,3 +192,13 @@ export function readerNotebookSheetMaxHeight(input: { paneHeight: number; bottom
   const bottom = Number.isFinite(input.bottomInset) ? Math.max(0, input.bottomInset) : 0;
   return Math.max(0, Math.floor(pane - bottom - READER_SHEET_FLOAT_GUTTER));
 }
+
+/**
+ * Key of a pushed plugin page's rows at a page width (half-point steps): a new
+ * width lays the rows out from scratch, so no row keeps a text measurement
+ * from another width. It keys the rows inside the page's `RNHostView`, never
+ * the host or its hosted view.
+ */
+export function pushedPageWidthKey(width: number): string {
+  return `width:${Math.round(width * 2) / 2}`;
+}

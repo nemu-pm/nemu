@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import {
+  pushedPageWidthKey,
   READER_SETTINGS_POPOVER_WIDTH,
   READER_SETTINGS_SHEET_BAR,
   readerSettingsNativeContentHeight,
@@ -161,5 +164,26 @@ describe("settings sheet half folded like a laptop", () => {
     expect(readerSettingsSheetDetentCap({ estimatedHeight: 900, maxHeight: null })).toBe(0);
     expect(readerSettingsSheetDetentCap({ estimatedHeight: 900, maxHeight: Number.NaN })).toBe(0);
     expect(readerNotebookSheetMaxHeight({ paneHeight: 20, bottomInset: 34 })).toBe(0);
+  });
+});
+
+describe("pushed plugin pages across width changes", () => {
+  test("a width keys the rows in half-point steps", () => {
+    expect(pushedPageWidthKey(361.2)).toBe("width:361");
+    expect(pushedPageWidthKey(361.3)).toBe("width:361.5");
+    expect(pushedPageWidthKey(361.2)).not.toBe(pushedPageWidthKey(402));
+  });
+
+  test("a new width re-keys the rows inside the host, never the RNHostView itself", () => {
+    // A re-keyed host takes its hosted view back from Fabric's recycle pool
+    // into a new SwiftUI container: book → laptop → book left the page blank.
+    const source = readFileSync(
+      path.join(import.meta.dir, "../components/reader/ReaderSettingsNativePopover.ios.tsx"),
+      "utf8",
+    );
+    const hosts = source.match(/<RNHostView\b[^>]*>/g) ?? [];
+    expect(hosts.length).toBeGreaterThan(0);
+    for (const host of hosts) expect(host).not.toContain("key=");
+    expect(source).toContain("<NemuGlassSheetThemeScope key={pushedPageWidthKey(pushedPageWidth)}");
   });
 });
