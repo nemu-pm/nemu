@@ -18,6 +18,7 @@ import {
   registerMobileSourceProfileTransitionHandler,
 } from "@/sources/mobileSourceProfileScope";
 import { makeMobileImageCacheStorageKey } from "./mobileImageCacheKey";
+import { registerMobileAppLocalImageUri } from "./mobileAppLocalImageUris";
 import { parseNativeSegmentedImageCacheManifest } from "@/data/nativeSegmentedImageCache";
 import { hasMobileUserAgentHeader } from "@/sources/mobileAidokuUserAgent";
 import {
@@ -395,6 +396,74 @@ export function invalidateCachedMobileImage(
   return coordinatorForSource(source).invalidate(
     mobileImageCacheStorageKey(source, cacheKey, executionScope),
   );
+}
+
+/**
+ * A reader page a source's image processor produced (descrambled pages),
+ * stored in the page cache beside the page downloads. `url` is the source's
+ * own page URL and `variant` names the processing (source and page context);
+ * request headers are left out, so a refreshed cookie still finds the page.
+ */
+export type MobileProcessedReaderPageIdentity = {
+  url: string;
+  variant: string;
+};
+
+function processedReaderPageKey(
+  identity: MobileProcessedReaderPageIdentity,
+  executionScope: string,
+) {
+  return `page:${makeMobileImageCacheStorageKey(
+    executionScope,
+    { uri: identity.url },
+    `processed-v1:${identity.variant}`,
+  )}`;
+}
+
+/** The stored page's app-local `file://` URI, or `null` when not stored. */
+export async function getProcessedMobileReaderPageUri(
+  identity: MobileProcessedReaderPageIdentity,
+  executionScope = getActiveMobileSourceProfileScope(),
+): Promise<string | null> {
+  try {
+    const uri = await mobileReaderPageImageCache.getUri(
+      processedReaderPageKey(identity, executionScope),
+    );
+    if (!uri) return null;
+    registerMobileAppLocalImageUri(uri);
+    return uri;
+  } catch {
+    return null;
+  }
+}
+
+/** Stores processed page bytes; their `file://` URI, or `null` on failure. */
+export async function storeProcessedMobileReaderPage(
+  identity: MobileProcessedReaderPageIdentity,
+  bytes: Uint8Array,
+  mimeType: string,
+  executionScope = getActiveMobileSourceProfileScope(),
+): Promise<string | null> {
+  try {
+    const uri = await mobileReaderPageImageCache.setBytes(
+      processedReaderPageKey(identity, executionScope),
+      bytes,
+      mimeType,
+    );
+    registerMobileAppLocalImageUri(uri);
+    return uri;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether a stored page's file is still there (the cache evicts by policy). */
+export function isProcessedMobileReaderPageStored(uri: string): boolean {
+  try {
+    return new File(uri).exists;
+  } catch {
+    return false;
+  }
 }
 
 export async function prefetchCachedMobileImages(

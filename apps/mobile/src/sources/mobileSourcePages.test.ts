@@ -8,6 +8,7 @@ import {
   refreshMobileReaderPages,
   resolveMobileReaderChapterIndex,
   type MobileReaderPageWindowResult,
+  type MobileReaderProcessedPageStore,
 } from "./mobileSourcePages";
 import { defaultMobileSourceSessionCache } from "./mobileSourceExecutorCache";
 import type {
@@ -1195,6 +1196,102 @@ describe("mobile source reader pages", () => {
     expect(fetched.filter((index) => index === 1)).toHaveLength(1);
     expect(fetched).not.toContain(3);
     processor.dispose();
+  });
+
+  test("keeps processed pages in the page store and shows them from a file on later visits", async () => {
+    let fetchCalls = 0;
+    let processCalls = 0;
+    let rewriteCalls = 0;
+    const files = new Map<string, Uint8Array>();
+    const present = new Set<string>();
+    const store: MobileReaderProcessedPageStore = {
+      async get(identity) {
+        const uri = `file:///cache/${encodeURIComponent(identity.url + identity.variant)}`;
+        return files.has(uri) && present.has(uri) ? uri : null;
+      },
+      async put(identity, bytes, mimeType) {
+        expect(mimeType).toBe("image/png");
+        const uri = `file:///cache/${encodeURIComponent(identity.url + identity.variant)}`;
+        files.set(uri, bytes);
+        present.add(uri);
+        return uri;
+      },
+      has: (uri) => present.has(uri),
+    };
+    const bridge: MobileAidokuExecutorBridge = {
+      async loadSource() {
+        return {
+          status: "ready",
+          runtime: "native-aidoku",
+          source: makeExecutorSource(undefined, {
+            async getPageList() {
+              return [0, 1].map((index) => ({
+                index,
+                url: `https://example.test/${index}.jpg`,
+                context: { mode: "descramble" },
+              }));
+            },
+            async hasImageProcessor() {
+              return true;
+            },
+            async modifyImageRequest(url) {
+              rewriteCalls += 1;
+              return { url, headers: { Cookie: `session=${rewriteCalls}` } };
+            },
+            async processPageImage() {
+              processCalls += 1;
+              return VALID_PNG_BYTES.slice();
+            },
+          }),
+        };
+      },
+    };
+    const fetchImpl = Object.assign(
+      async () => {
+        fetchCalls += 1;
+        return new Response(new Uint8Array([1]), { status: 200 });
+      },
+      { preconnect: () => undefined },
+    ) as typeof fetch;
+    const open = async () => {
+      const result = await refreshMobileReaderPages(
+        installedSource(),
+        "blue-lock",
+        { id: "c2", chapterNumber: 2 },
+        {
+          executor: { bridge, readBytes: async () => makeAixPackage() },
+          processPageImages: true,
+          pageProcessingWindowRadius: 0,
+          processedPageStore: store,
+          fetchImpl,
+        },
+      );
+      if (result.status !== "ready" || !result.pageProcessor) {
+        throw new Error("expected a page processor");
+      }
+      return result.pageProcessor;
+    };
+
+    const first = await open();
+    const page = (await first.processWindow(0))?.pages[0];
+    expect(page?.imageUri?.startsWith("file:///cache/")).toBe(true);
+    expect(page?.imageUriOwnership).toBe("app");
+    expect(page?.imageProcessing).toBe("ready");
+    expect(page?.headers).toBeUndefined();
+    // A file is not image data in the JS heap.
+    expect(first.cacheByteSize?.()).toBe(0);
+    expect([fetchCalls, processCalls, rewriteCalls]).toEqual([1, 1, 1]);
+    first.dispose();
+
+    // Reopened (new cookie and all): straight from the store.
+    const second = await open();
+    expect((await second.processWindow(0))?.pages[0]?.imageUri).toBe(page?.imageUri);
+    expect([fetchCalls, processCalls, rewriteCalls]).toEqual([1, 1, 1]);
+
+    // The cache evicted the file: the page is processed again.
+    present.delete(page!.imageUri!);
+    expect((await second.processWindow(0))?.pages[0]?.imageUri).toBe(page?.imageUri);
+    expect([fetchCalls, processCalls, rewriteCalls]).toEqual([2, 2, 2]);
   });
 
   test("resolves a far page for Nemu Chat without moving, cancelling or evicting the window", async () => {

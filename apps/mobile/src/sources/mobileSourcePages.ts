@@ -5,6 +5,12 @@ import type {
 } from "@/data/schema";
 import type { MobileImageUriOwnership } from "@/lib/mobileImageUriPolicy";
 import {
+  getProcessedMobileReaderPageUri,
+  isProcessedMobileReaderPageStored,
+  storeProcessedMobileReaderPage,
+  type MobileProcessedReaderPageIdentity,
+} from "@/lib/mobileImageCache";
+import {
   assertMobileBase64ImageMetadataSafety,
   assertMobileImageMetadataSafety,
 } from "@/lib/mobileImageMetadataSafety";
@@ -148,6 +154,12 @@ export type MobileReaderPagesOptions = {
   pageProcessingCacheSize?: number;
   pageProcessingCacheMaxBytes?: number;
   /**
+   * Where processed (descrambled) page bytes are kept. Defaults to the
+   * reader's page disk cache on native: a page is processed once, then
+   * shown from an app-local file. `null` keeps them as in-memory data URIs.
+   */
+  processedPageStore?: MobileReaderProcessedPageStore | null;
+  /**
    * Called the moment the page list is renderable, before the chapter index
    * resolves. The returned promise still carries the full result (chapters
    * included); this only exists so a reader can paint its first page without
@@ -160,6 +172,24 @@ export type MobileReaderPagesOptions = {
    * at this chapter. Warm-ups for a chapter nobody opened yet pass `normal`.
    */
   priority?: MobileSourcePriorityInput;
+};
+
+export type MobileReaderProcessedPageStore = {
+  get(identity: MobileProcessedReaderPageIdentity): Promise<string | null>;
+  put(
+    identity: MobileProcessedReaderPageIdentity,
+    bytes: Uint8Array,
+    mimeType: string,
+  ): Promise<string | null>;
+  /** Synchronous: is a URI `put`/`get` returned still backed by its file? */
+  has(uri: string): boolean;
+};
+
+const defaultMobileReaderProcessedPageStore: MobileReaderProcessedPageStore = {
+  get: (identity) => getProcessedMobileReaderPageUri(identity),
+  put: (identity, bytes, mimeType) =>
+    storeProcessedMobileReaderPage(identity, bytes, mimeType),
+  has: (uri) => isProcessedMobileReaderPageStored(uri),
 };
 
 export const MOBILE_READER_PAGE_PROCESSING_WINDOW_RADIUS = 2;
@@ -610,6 +640,8 @@ type ProcessedPageEntry = {
   page: MobileReaderPage;
   /** Estimated JS heap held by the entry (a data URI); 0 for request-only. */
   byteSize: number;
+  /** Shown from the processed-page store's file (which the cache may evict). */
+  stored: boolean;
 };
 
 function createMobileReaderPageProcessor({
@@ -630,6 +662,27 @@ function createMobileReaderPageProcessor({
   const cache = options.sessionCache ?? defaultMobileSourceSessionCache;
   const fetchImpl = options.fetchImpl ?? fetch;
   const processesBytes = options.processPageImages === true && hasImageProcessor;
+  const processedStore =
+    options.processedPageStore === undefined
+      ? defaultMobileReaderProcessedPageStore
+      : options.processedPageStore;
+  const sourceIdentity = makeMobileRuntimeSourceKey(normalizedSource);
+  const processedIdentity = (
+    page: MobileSourcePage,
+  ): MobileProcessedReaderPageIdentity => ({
+    url: page.url!,
+    variant: JSON.stringify([sourceIdentity, page.context ?? null]),
+  });
+  const storedPage = (
+    basePage: MobileReaderPage,
+    uri: string,
+  ): MobileReaderPage => ({
+    ...basePage,
+    imageUri: uri,
+    imageUriOwnership: "app",
+    headers: undefined,
+    imageProcessing: "ready",
+  });
   const requestedRadius =
     options.pageProcessingWindowRadius ??
     MOBILE_READER_PAGE_PROCESSING_WINDOW_RADIUS;
@@ -698,7 +751,11 @@ function createMobileReaderPageProcessor({
   const touch = (index: number, page: MobileReaderPage) => {
     evict(index);
     const byteSize = estimatedDataUriBytes(page.imageUri);
-    processedPages.set(index, { page, byteSize });
+    // Only the processed-page store hands out file URIs here.
+    const stored =
+      page.imageProcessing === "ready" &&
+      page.imageUri?.startsWith("file:") === true;
+    processedPages.set(index, { page, byteSize, stored });
     processedCacheBytes += byteSize;
     if (byteSize > 0) heldImageEntries += 1;
     while (
@@ -724,6 +781,14 @@ function createMobileReaderPageProcessor({
       if (chosen === undefined) break;
       evict(chosen);
     }
+  };
+
+  /** A stored page whose file the disk cache evicted is resolved again. */
+  const dropIfFileGone = (index: number) => {
+    const entry = processedPages.get(index);
+    if (!entry?.stored || !processedStore) return;
+    if (entry.page.imageUri && processedStore.has(entry.page.imageUri)) return;
+    evict(index);
   };
 
   const materializePages = () =>
@@ -762,6 +827,14 @@ function createMobileReaderPageProcessor({
     priority: MobileSourcePriorityInput,
     queueSignal?: AbortSignal,
   ): Promise<MobileReaderPage> => {
+    // Processed before (this session or an earlier one): shown from its
+    // file, with no source, network or processor work at all.
+    const identity = processesBytes && processedStore ? processedIdentity(page) : null;
+    if (identity && processedStore) {
+      const storedUri = await processedStore.get(identity).catch(() => null);
+      if (isStale()) return basePage;
+      if (storedUri) return storedPage(basePage, storedUri);
+    }
     const step = await cache.withSession(
       normalizedSource,
       sessionOptions(priority, queueSignal),
@@ -865,6 +938,14 @@ function createMobileReaderPageProcessor({
         imageProcessing: "fallback",
       };
     }
+    if (identity && processedStore) {
+      const storedUri = await processedStore
+        .put(identity, processed.bytes, processed.mimeType)
+        .catch(() => null);
+      if (isStale()) return basePage;
+      if (storedUri) return storedPage(basePage, storedUri);
+    }
+    // No store (or it failed): the page is held as a data URI instead.
     return {
       ...basePage,
       imageUri: processedImageDataUri(processed.bytes, processed.mimeType),
@@ -948,6 +1029,7 @@ function createMobileReaderPageProcessor({
 
       for (const index of targetIndexes) {
         if (isCancelled(run, processOptions.signal)) return null;
+        dropIfFileGone(index);
         const cached = processedPages.get(index);
         if (cached) {
           touch(index, cached.page);
@@ -999,6 +1081,9 @@ function createMobileReaderPageProcessor({
         wanted.add(index);
         order.push(index);
       }
+      for (const index of order) {
+        if (!targetSet.has(index)) dropIfFileGone(index);
+      }
       targetOrder = order;
       targetSet = wanted;
       // Work for pages still wanted keeps running; the rest is dropped.
@@ -1016,6 +1101,7 @@ function createMobileReaderPageProcessor({
       const signal = resolveOptions.signal;
       const isStale = () => disposed || signal?.aborted === true;
       if (isStale()) return null;
+      dropIfFileGone(index);
       const cached = processedPages.get(index);
       if (cached) return cached.page;
       const page = rawPages[index];

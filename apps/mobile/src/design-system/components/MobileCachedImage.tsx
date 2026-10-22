@@ -87,6 +87,11 @@ function boundedLocalImageSourceKey(
   uriOwnership: MobileImageUriOwnership,
   cacheKey?: string,
 ): string {
+  // A local file (a processed reader page, an archive page) is a short path:
+  // it is its own key, with no per-mount walk over the string.
+  if (!uri.startsWith("data:")) {
+    return `${uriOwnership}:${cacheKey ?? ""}:${uri}`;
+  }
   // A reader data URI can retain tens of MiB as UTF-16. Never concatenate the
   // URI into another state key; two independent 32-bit hashes plus length keep
   // identity bounded without retaining a second copy of the image payload.
