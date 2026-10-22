@@ -139,7 +139,7 @@ import {
   MobileReaderContinuousScrubber,
   type MobileReaderContinuousScrubberHandle,
 } from "@/components/MobileReaderContinuousScrubber";
-import { MobileReaderScrubber } from "@/components/MobileReaderScrubber";
+import { MobileReaderLiveScrubber } from "@/components/MobileReaderScrubber";
 import {
   MobileReaderScrubberPreview,
   type MobileReaderScrubberPreviewHandle,
@@ -176,6 +176,7 @@ import { ReaderNotebookPane } from "@/components/reader/ReaderNotebookPane";
 import { LinearGradient } from "expo-linear-gradient";
 import {
   MobileReaderGallery,
+  type MobileReaderImagePlacement,
   type MobileReaderScrollHandle,
 } from "@/components/reader/MobileReaderGallery";
 import { MobileReaderPageFrame } from "@/components/reader/MobileReaderPageFrame";
@@ -356,7 +357,11 @@ import {
   normalizeMobileReaderIntraPageState,
   persistMobileReaderCompletionBeforeNavigation,
 } from "@/lib/mobileReaderProgressPersistence";
-import { getMobileReaderPageRenderPolicy } from "@/lib/mobileReaderPageWindow";
+import {
+  getMobileReaderPageRenderPolicy,
+  nextMobileReaderScrollDirection,
+  type MobileReaderScrollDirection,
+} from "@/lib/mobileReaderPageWindow";
 import { isMobileReaderImageLoading } from "@/lib/mobileReaderImageStatus";
 import {
   getMobileReaderImageFrameSize,
@@ -391,8 +396,11 @@ import {
   MobileReaderImagePrefetcher,
   planMobileReaderNextChapterPrefetch,
   planMobileReaderPagePrefetch,
+  planMobileReaderScrollPrefetch,
   shouldPrefetchMobileReaderNextChapter,
 } from "@/lib/mobileReaderPagePrefetch";
+import { createMobileReaderLivePageStore } from "@/lib/mobileReaderLivePage";
+import { MOBILE_READER_SCROLL_PLACEHOLDER_COLOR } from "@/lib/mobileReaderScrollPresentation";
 import {
   MOBILE_PERFORMANCE_MARKS,
   markMobilePerformance,
@@ -710,6 +718,11 @@ const READER_TWO_FINGER_TAP_MAX_DURATION_MS = 300;
 const READER_TWO_FINGER_TAP_MAX_DISTANCE = 24;
 /** A segmented strip's on-screen tiles are re-read once scrolling rests. */
 const READER_SEGMENT_OCR_SETTLE_MS = 180;
+/**
+ * Scroll mode: a visible page held back during the reader's own scroll lands
+ * in the reader state after this pause even if no settle event arrives.
+ */
+const READER_SCROLL_PAGE_PUBLISH_IDLE_MS = 700;
 /**
  * iOS presents a sheet on top of another (sheet-on-sheet) when the second is
  * hosted inside the first one's content: the chat opened from the sentence
@@ -1311,6 +1324,19 @@ export function ReaderScreen() {
   > | null>(null);
   const scrollingPageMetricsRef = useRef<ReaderScrollPageMetric[]>([]);
   const scrollingVisiblePageIndexRef = useRef(0);
+  // Scroll mode: while the reader's own drag/fling is running, the visible
+  // page stays out of React state (one commit when the scroll settles); only
+  // the progress bar follows it live, through this store.
+  const readerUserScrollingRef = useRef(false);
+  const readerScrollPublishTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const readerScrollDirectionRef =
+    useRef<MobileReaderScrollDirection>("forward");
+  const readerScrollPrefetchTopUpRef = useRef<(pageIndex: number) => void>(
+    () => undefined,
+  );
+  const [readerLivePageStore] = useState(createMobileReaderLivePageStore);
   const readerRelayoutPageAnchorRef = useRef<number | null>(null);
   const readerRelayoutInteractionActiveRef = useRef(false);
   const readerRelayoutAnchorClearTimerRef = useRef<ReturnType<
@@ -3920,12 +3946,36 @@ export function ReaderScreen() {
         }
         return;
       }
+      readerScrollDirectionRef.current = nextMobileReaderScrollDirection(
+        scrollingVisiblePageIndexRef.current,
+        nextPageIndex,
+        readerScrollDirectionRef.current,
+      );
       scrollingVisiblePageIndexRef.current = nextPageIndex;
       if (requestedPageIndex != null && nextPageIndex !== requestedPageIndex) {
         return;
       }
       if (requestedPageIndex === nextPageIndex) {
         clearReaderProgrammaticScroll();
+      }
+      if (readerUserScrollingRef.current && programmaticTarget == null) {
+        // Mid-scroll: the progress bar and the prefetch follow the page; the
+        // reader state (toolbar label, history, learning tools) takes it
+        // when the scroll settles. A scroll that never reports its settle
+        // still lands after a pause.
+        readerLivePageStore.set({
+          index: nextPageIndex,
+          baseIndex: clampedPageIndex,
+        });
+        readerScrollPrefetchTopUpRef.current(nextPageIndex);
+        if (readerScrollPublishTimerRef.current) {
+          clearTimeout(readerScrollPublishTimerRef.current);
+        }
+        readerScrollPublishTimerRef.current = setTimeout(() => {
+          readerScrollPublishTimerRef.current = null;
+          publishScrollingVisiblePageRef.current();
+        }, READER_SCROLL_PAGE_PUBLISH_IDLE_MS);
+        return;
       }
       setPageArrival(
         programmaticTarget == null
@@ -3946,9 +3996,53 @@ export function ReaderScreen() {
       galleryPagedMode,
       mode,
       pageCount,
+      readerLivePageStore,
       syncRoutePage,
     ],
   );
+
+  /** Scroll mode: the reader state takes the page the list rests on. */
+  const publishScrollingVisiblePage = useCallback(() => {
+    if (readerScrollPublishTimerRef.current) {
+      clearTimeout(readerScrollPublishTimerRef.current);
+      readerScrollPublishTimerRef.current = null;
+    }
+    if (galleryPagedMode || pageCount <= 0) return;
+    const nextPageIndex = clampReaderPageIndex(
+      scrollingVisiblePageIndexRef.current,
+      pageCount,
+    );
+    if (nextPageIndex === clampedPageIndex) return;
+    setPageArrival(
+      readerPageArrivalForStep(clampedPageIndex, nextPageIndex, pageCount, mode),
+    );
+    setCurrentPageIndex(nextPageIndex);
+    syncRoutePage(nextPageIndex);
+  }, [clampedPageIndex, galleryPagedMode, mode, pageCount, syncRoutePage]);
+  const publishScrollingVisiblePageRef = useRef(publishScrollingVisiblePage);
+  useLayoutEffect(() => {
+    publishScrollingVisiblePageRef.current = publishScrollingVisiblePage;
+  }, [publishScrollingVisiblePage]);
+  const settleReaderUserScroll = useCallback(() => {
+    if (!readerUserScrollingRef.current) return;
+    readerUserScrollingRef.current = false;
+    publishScrollingVisiblePage();
+  }, [publishScrollingVisiblePage]);
+  const beginReaderUserScroll = useCallback(() => {
+    clearReaderProgrammaticScroll();
+    if (!galleryPagedMode) readerUserScrollingRef.current = true;
+  }, [clearReaderProgrammaticScroll, galleryPagedMode]);
+  useEffect(() => {
+    // A new chapter or presentation starts outside any user scroll.
+    readerUserScrollingRef.current = false;
+    readerLivePageStore.set(null);
+    return () => {
+      if (readerScrollPublishTimerRef.current) {
+        clearTimeout(readerScrollPublishTimerRef.current);
+        readerScrollPublishTimerRef.current = null;
+      }
+    };
+  }, [chapterId, galleryPagedMode, readerLivePageStore]);
 
   const onScrollingSeekFailed = useCallback(
     (requestedPageIndex: number) => {
@@ -6305,11 +6399,58 @@ export function ReaderScreen() {
     registryId,
     sourceId,
   ]);
+  const readerNextChapterPrefetchImages = useMemo(
+    () =>
+      nearChapterEnd &&
+      nextChapterPrefetchPages &&
+      nextChapterPrefetchPages.key === nextChapterPrefetchKey
+        ? planMobileReaderNextChapterPrefetch(nextChapterPrefetchPages.pages)
+        : [],
+    [nearChapterEnd, nextChapterPrefetchKey, nextChapterPrefetchPages],
+  );
+  // Scroll mode: the next eight pages in the scroll direction are warmed as
+  // soon as the chapter is ready and topped up on every page crossing (live,
+  // from the visible page). Nothing waits for the page on screen to load —
+  // the mounted page's own request outranks prefetches in the image cache
+  // queue anyway.
+  const topUpReaderScrollPrefetch = useCallback(
+    (pageIndex: number) => {
+      if (pagesState.status !== "ready") return;
+      readerImagePrefetcher.update([
+        ...planMobileReaderScrollPrefetch({
+          pages,
+          currentIndex: pageIndex,
+          direction: readerScrollDirectionRef.current,
+        }),
+        ...readerNextChapterPrefetchImages,
+      ]);
+    },
+    [pages, pagesState.status, readerImagePrefetcher, readerNextChapterPrefetchImages],
+  );
+  useLayoutEffect(() => {
+    readerScrollPrefetchTopUpRef.current = galleryPagedMode
+      ? () => undefined
+      : topUpReaderScrollPrefetch;
+  }, [galleryPagedMode, topUpReaderScrollPrefetch]);
+  useEffect(() => {
+    if (galleryPagedMode || pagesState.status !== "ready") return;
+    topUpReaderScrollPrefetch(
+      clampReaderPageIndex(scrollingVisiblePageIndexRef.current, pageCount),
+    );
+  }, [
+    clampedPageIndex,
+    galleryPagedMode,
+    pageCount,
+    pagesState.status,
+    topUpReaderScrollPrefetch,
+  ]);
   useEffect(() => {
     if (pagesState.status !== "ready") {
       readerImagePrefetcher.cancelAll();
       return;
     }
+    // Scroll mode prefetches above, never gated on the current page.
+    if (!galleryPagedMode) return;
     // The page on screen gets the bandwidth first: until its image has
     // loaded (or failed) nothing is prefetched, and prefetches from the
     // previous position are released. A load the mounted page shares keeps
@@ -6330,12 +6471,7 @@ export function ReaderScreen() {
     // Settle first: a fast scrub or swipe run should not queue downloads for
     // every page it passes.
     const timer = setTimeout(() => {
-      const nextChapterPages =
-        nearChapterEnd &&
-        nextChapterPrefetchPages &&
-        nextChapterPrefetchPages.key === nextChapterPrefetchKey
-          ? planMobileReaderNextChapterPrefetch(nextChapterPrefetchPages.pages)
-          : [];
+      const nextChapterPages = readerNextChapterPrefetchImages;
       readerImagePrefetcher.update([
         ...planMobileReaderPagePrefetch({
           pages,
@@ -6349,15 +6485,14 @@ export function ReaderScreen() {
     return () => clearTimeout(timer);
   }, [
     clampedPageIndex,
+    galleryPagedMode,
     isTwoPageMode,
-    nearChapterEnd,
-    nextChapterPrefetchKey,
-    nextChapterPrefetchPages,
     pages,
     pagesState.status,
     readerImageErrors,
     readerImagePrefetcher,
     readerImageSizes,
+    readerNextChapterPrefetchImages,
     readerPageIdentityFor,
   ]);
 
@@ -6853,6 +6988,12 @@ export function ReaderScreen() {
       return;
     }
 
+    if (readerUserScrollingRef.current) {
+      // The reader's own fling came to rest: one commit, no page-turn haptic
+      // (scrolling past pages never played one).
+      settleReaderUserScroll();
+      return;
+    }
     const nextPageIndex = clampReaderPageIndex(
       scrollingVisiblePageIndexRef.current,
       pageCount,
@@ -7232,14 +7373,23 @@ export function ReaderScreen() {
   }, [bilingualSideBySide]);
 
   const renderReaderImage = useCallback(
-    (page: MobileReaderPage) => {
+    (page: MobileReaderPage, placement?: MobileReaderImagePlacement) => {
       const pageIdentity = readerPageIdentityFor(page);
+      // The vertical list: the gallery's directional window (following the
+      // live visible page) decides which pages decode; the paged gallery
+      // keeps the symmetric window around the committed page.
       const renderPolicy = getMobileReaderPageRenderPolicy({
         currentPageIndex: clampedPageIndex,
         displayIndex: readerDisplayIndexByPageId.get(page.id),
         hasImageUri: Boolean(page.imageUri),
         processingPending: page.imageProcessing === "pending",
+        inRenderWindow: galleryPagedMode
+          ? undefined
+          : placement?.inRenderWindow,
       });
+      // Scroll reading: quiet placeholders and no fade for cached pages.
+      // (A paged chapter shown as a long strip keeps the paged look.)
+      const scrollPresentation = !pagedMode;
       if (renderPolicy === "none" || !page.imageUri) return null;
       const imageUri = page.imageUri;
 
@@ -7253,6 +7403,9 @@ export function ReaderScreen() {
             style={{
               width: readerImageFrameSize.width,
               height: readerImageFrameSize.height,
+              backgroundColor: scrollPresentation
+                ? MOBILE_READER_SCROLL_PLACEHOLDER_COLOR
+                : undefined,
             }}
           />
         );
@@ -7260,16 +7413,23 @@ export function ReaderScreen() {
       if (renderPolicy === "processing-placeholder") {
         return (
           <View
+            accessibilityLabel={
+              scrollPresentation ? strings.reader.pageImageLoading : undefined
+            }
             style={[
               styles.readerImageProcessingPlaceholder,
               {
                 width: readerImageFrameSize.width,
                 height: readerImageFrameSize.height,
-                backgroundColor: readerBackgroundColor,
+                backgroundColor: scrollPresentation
+                  ? MOBILE_READER_SCROLL_PLACEHOLDER_COLOR
+                  : readerBackgroundColor,
               },
             ]}
           >
-            <ActivityIndicator color="#f8fafc" size="small" />
+            {scrollPresentation ? null : (
+              <ActivityIndicator color="#f8fafc" size="small" />
+            )}
           </View>
         );
       }
@@ -7283,13 +7443,18 @@ export function ReaderScreen() {
       const pageFrame = (
         <MobileReaderPageFrame
           allowLongStripSegments={pageCount === 1}
-          backgroundColor={readerBackgroundColor}
+          backgroundColor={
+            scrollPresentation
+              ? MOBILE_READER_SCROLL_PLACEHOLDER_COLOR
+              : readerBackgroundColor
+          }
           cacheKey={pageCount === 1 ? segmentedCacheKey : undefined}
           frameSize={readerImageFrameSize}
           headers={page.headers}
           imageUri={imageUri}
           imageUriOwnership={page.imageUriOwnership ?? "source"}
           loading={imageLoading}
+          quietLoading={scrollPresentation}
           offline={readerConnectivity.offline}
           error={imageError}
           strings={strings}
@@ -7400,6 +7565,7 @@ export function ReaderScreen() {
       galleryPagedMode,
       getReaderImageFrameSize,
       handleReaderPageZoomActiveChange,
+      pagedMode,
       readerFitMode,
       readerFitViewport,
       readerPageFitModeFor,
@@ -7424,6 +7590,83 @@ export function ReaderScreen() {
       strings,
     ],
   );
+  // Scroll mode: `renderReaderImage` changes identity whenever any page
+  // loads (its size, error and nonce maps), which re-rendered every mounted
+  // page cell. The vertical list's cells are memoized on these instead: a
+  // per-page key for what is page-scoped, and an epoch for what every page
+  // shares. Anything new `renderReaderImage` reads for the vertical list
+  // must land in one of the two.
+  const readerScrollPageRenderEpoch = useMemo(
+    () => ({
+      readerBackgroundColor,
+      activeJapaneseLearningTranscriptOrder,
+      chapterId: chapter?.id,
+      dualReadEnabled,
+      bilingualSideBySide,
+      galleryPagedMode,
+      japaneseLearningOverlayDetections,
+      japaneseLearningSelectedDetectionOrder,
+      mode,
+      pageCount,
+      pagedMode,
+      offline: readerConnectivity.offline,
+      readerDisplayIndexByPageId,
+      readerPageIdentityFor,
+      readerSegmentedCacheKeyFor,
+      selectJapaneseLearningDetection,
+      strings,
+    }),
+    [
+      readerBackgroundColor,
+      activeJapaneseLearningTranscriptOrder,
+      chapter?.id,
+      dualReadEnabled,
+      bilingualSideBySide,
+      galleryPagedMode,
+      japaneseLearningOverlayDetections,
+      japaneseLearningSelectedDetectionOrder,
+      mode,
+      pageCount,
+      pagedMode,
+      readerConnectivity.offline,
+      readerDisplayIndexByPageId,
+      readerPageIdentityFor,
+      readerSegmentedCacheKeyFor,
+      selectJapaneseLearningDetection,
+      strings,
+    ],
+  );
+  const readerScrollPageRenderKeys = useMemo(() => {
+    if (galleryPagedMode) return null;
+    const keys = new Map<string, string>();
+    for (const page of displayedPages) {
+      const identity = readerPageIdentityFor(page);
+      const naturalSize = readerImageSizes.get(identity);
+      const frame = getReaderImageFrameSize(page);
+      keys.set(
+        page.id,
+        [
+          frame.width,
+          frame.height,
+          naturalSize ? `${naturalSize.width}x${naturalSize.height}` : "",
+          readerImageErrors.get(identity) ?? "",
+          readerImageRetryNonces.get(identity) ?? 0,
+          dualReadEnabled && page.id === currentDisplayedPageKey ? "current" : "",
+        ].join("|"),
+      );
+    }
+    return keys;
+  }, [
+    currentDisplayedPageKey,
+    displayedPages,
+    dualReadEnabled,
+    galleryPagedMode,
+    getReaderImageFrameSize,
+    readerImageErrors,
+    readerImageRetryNonces,
+    readerImageSizes,
+    readerPageIdentityFor,
+  ]);
   const renderReaderImageSegment = useCallback(
     (frame: MobileReaderSegmentFrame) => {
       const page = currentDisplayedPage;
@@ -8126,7 +8369,12 @@ export function ReaderScreen() {
             color={readerChromeColors.secondaryText}
           />
         ) : !usePhysicalScrollScrubber ? (
-          <MobileReaderScrubber
+          <MobileReaderLiveScrubber
+            liveStore={
+              galleryPagedMode || isTwoPageMode
+                ? undefined
+                : readerLivePageStore
+            }
             pageIndex={visibleProgressPageIndex}
             pageCount={pageCount}
             scrubIndex={
@@ -9169,7 +9417,8 @@ export function ReaderScreen() {
         onMomentumScrollEnd={onReaderMomentumEnd}
         onScroll={onReaderScroll}
         onContinuousScrollMetricsChange={onReaderContinuousScrollMetricsChange}
-        onUserScrollBegin={clearReaderProgrammaticScroll}
+        onUserScrollBegin={beginReaderUserScroll}
+        onUserScrollSettle={settleReaderUserScroll}
         onScrollingPageLayout={onScrollingPageLayout}
         onScrollingSeekFailed={onScrollingSeekFailed}
         onScrollingVisiblePageChange={onScrollingVisiblePageChange}
@@ -9239,6 +9488,8 @@ export function ReaderScreen() {
         readerScrollRef={readerScrollRef}
         renderImage={renderReaderImage}
         renderImageSegment={renderReaderImageSegment}
+        scrollPageRenderEpoch={readerScrollPageRenderEpoch}
+        scrollPageRenderKeys={readerScrollPageRenderKeys}
         segmentedImageFrames={segmentedImageFrames}
         sourcePageForDisplayIndex={sourcePageForDisplayIndex}
         spreads={readerSpreads}

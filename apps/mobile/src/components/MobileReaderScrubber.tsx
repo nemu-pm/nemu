@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type RefObject,
 } from "react";
 import { StyleSheet, View } from "react-native";
@@ -28,6 +29,11 @@ import {
 import { READER_CHROME_PANEL_CONTENT_MIN_HEIGHT } from "@/lib/mobileReaderHeader";
 import { readerScrubberCommitRatio } from "@/lib/mobileReaderScrubberPreview";
 import type { MobileSliderTrackWindowFrame } from "@/lib/mobileSliderTrack";
+import {
+  mobileReaderLivePageIndex,
+  type MobileReaderLivePage,
+  type MobileReaderLivePageStore,
+} from "@/lib/mobileReaderLivePage";
 
 export type MobileReaderScrubberProps = {
   pageIndex: number;
@@ -64,6 +70,41 @@ export type MobileReaderScrubberProps = {
    */
   previewRef?: RefObject<MobileReaderScrubberPreviewHandle | null>;
 };
+
+const NO_LIVE_PAGE_STORE: MobileReaderLivePageStore = {
+  get: () => null,
+  set: () => undefined,
+  subscribe: () => () => undefined,
+};
+
+/**
+ * Scroll reading: the thumb follows the page the list shows while the
+ * reader scrolls (a store only this component subscribes to), so a page
+ * crossing repaints the bar, not the reader. Committed pages win as soon as
+ * the reader state takes one (see `mobileReaderLivePageIndex`).
+ */
+export function MobileReaderLiveScrubber({
+  liveStore,
+  ...props
+}: MobileReaderScrubberProps & { liveStore?: MobileReaderLivePageStore }) {
+  const store = liveStore ?? NO_LIVE_PAGE_STORE;
+  const live: MobileReaderLivePage | null = useSyncExternalStore(
+    store.subscribe,
+    store.get,
+    store.get,
+  );
+  return (
+    <MobileReaderScrubber
+      {...props}
+      pageIndex={mobileReaderLivePageIndex(live, props.pageIndex)}
+      scrubIndex={
+        props.scrubIndex == null
+          ? undefined
+          : mobileReaderLivePageIndex(live, props.scrubIndex)
+      }
+    />
+  );
+}
 
 export function MobileReaderScrubber({
   pageIndex,

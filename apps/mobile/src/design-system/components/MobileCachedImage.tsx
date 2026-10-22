@@ -64,6 +64,14 @@ type MobileCachedImageProps = Omit<ImageProps, "source" | "onError"> & {
   onError?: (error: string) => void;
   /** Fade the image in once it loads (default true). Off for overlays that must match what is underneath. */
   fadeIn?: boolean;
+  /** Length of that fade (default 240 ms). */
+  fadeDurationMs?: number;
+  /**
+   * Fade an image that was already in the disk or memory cache (default
+   * true). Off, only a first display that waited on the network fades: a
+   * cached reader page appears the moment it decodes.
+   */
+  fadeFromCache?: boolean;
   /**
    * The same title's cover changing URL (a detail refresh brought a new one)
    * keeps showing the image it already shows until the new one is ready,
@@ -103,6 +111,11 @@ const SHOWN_SOURCE_LIMIT = 512;
 const shownSourceKeys = new Set<string>();
 /** After this, a cover's fade is over whatever became of its native animation. */
 const FADE_SETTLE_MS = 400;
+/**
+ * A cache resolve that lands this soon after it started was a disk hit (a
+ * local stat), not a download: with `fadeFromCache` off it shows unfaded.
+ */
+const CACHE_HIT_RESOLVE_MS = 80;
 
 function markSourceShown(sourceKey: string) {
   if (shownSourceKeys.has(sourceKey)) shownSourceKeys.delete(sourceKey);
@@ -125,6 +138,8 @@ export function MobileCachedImage({
   onLoad,
   style,
   fadeIn = true,
+  fadeDurationMs = 240,
+  fadeFromCache = true,
   holdPreviousWhileLoading = false,
   ...props
 }: MobileCachedImageProps) {
@@ -222,6 +237,14 @@ export function MobileCachedImage({
     () => getCachedMobileImageAssetByStorageKeySync(cacheStorageKey),
     [cacheStorageKey],
   );
+  // `fadeFromCache` off: an app-local image or one whose file is already
+  // known never waited on the network; a resolve that came back as fast as a
+  // disk stat is marked by source key below.
+  const revealedFromCacheAtRender =
+    !fadeFromCache &&
+    uriPolicy.allowed &&
+    (uriPolicy.kind !== "source-remote" || synchronouslyCachedAsset != null);
+  const diskHitSourceKeyRef = useRef<string | null>(null);
   const [cachedState, setCachedState] = useState<{
     sourceKey: string;
     asset: MobileCachedImageAsset | null;
@@ -303,6 +326,7 @@ export function MobileCachedImage({
     const controller = new AbortController();
     cacheResolveAbortControllerRef.current?.abort();
     cacheResolveAbortControllerRef.current = controller;
+    const resolveStartedAt = Date.now();
     const resolution = allowLongStripSegments
       ? resolveCachedMobileImageAsset(cacheSource, cacheKey, undefined, {
           signal: controller.signal,
@@ -316,6 +340,9 @@ export function MobileCachedImage({
       .then((asset) => {
         if (!active) return;
         if (asset) {
+          if (Date.now() - resolveStartedAt <= CACHE_HIT_RESOLVE_MS) {
+            diskHitSourceKeyRef.current = sourceKey;
+          }
           setFailedSourceKey((current) =>
             current === sourceKey ? null : current,
           );
@@ -493,12 +520,17 @@ export function MobileCachedImage({
         );
         reportedErrorSourceKeyRef.current = null;
       }
-      if (skipFade || shownAtMount) {
+      if (
+        skipFade ||
+        shownAtMount ||
+        revealedFromCacheAtRender ||
+        (!fadeFromCache && diskHitSourceKeyRef.current === sourceKey)
+      ) {
         imageFadeRef.setValue(1);
       } else {
         ReactAnimated.timing(imageFadeRef, {
           toValue: 1,
-          duration: 240,
+          duration: fadeDurationMs,
           useNativeDriver: true,
         }).start();
         // Design-explore: a native-driven fade can be cut off part way when
@@ -513,7 +545,18 @@ export function MobileCachedImage({
       }
       onLoad?.(event);
     },
-    [holdPreviousWhileLoading, imageFadeRef, imageSource, onLoad, shownAtMount, skipFade, sourceKey],
+    [
+      fadeDurationMs,
+      fadeFromCache,
+      holdPreviousWhileLoading,
+      imageFadeRef,
+      imageSource,
+      onLoad,
+      revealedFromCacheAtRender,
+      shownAtMount,
+      skipFade,
+      sourceKey,
+    ],
   );
 
   // Restart the fade whenever the source changes so a recycled cover cell

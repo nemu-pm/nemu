@@ -23,6 +23,48 @@ export function isMobileReaderPageNearViewport(
   return Math.abs(displayIndex - currentPageIndex) <= windowRadius;
 }
 
+/**
+ * Scroll (continuous vertical) reading: a fling runs ahead of the page the
+ * reader settles on, so the window is directional — six pages ahead in the
+ * scroll direction, two behind — and follows the live visible page rather
+ * than the committed one. Nine decoded pages at most, against seven paged.
+ */
+export const MOBILE_READER_SCROLL_RENDER_AHEAD = 6;
+export const MOBILE_READER_SCROLL_RENDER_BEHIND = 2;
+
+export type MobileReaderScrollDirection = "forward" | "backward";
+
+/** Forward is down the strip (increasing display index). */
+export function nextMobileReaderScrollDirection(
+  previousIndex: number,
+  nextIndex: number,
+  current: MobileReaderScrollDirection,
+): MobileReaderScrollDirection {
+  if (nextIndex > previousIndex) return "forward";
+  if (nextIndex < previousIndex) return "backward";
+  return current;
+}
+
+export function isMobileReaderPageInScrollRenderWindow(
+  displayIndex: number | undefined,
+  anchorIndex: number,
+  direction: MobileReaderScrollDirection,
+  ahead: number = MOBILE_READER_SCROLL_RENDER_AHEAD,
+  behind: number = MOBILE_READER_SCROLL_RENDER_BEHIND,
+): boolean {
+  if (
+    displayIndex === undefined ||
+    !Number.isFinite(displayIndex) ||
+    !Number.isFinite(anchorIndex)
+  ) {
+    return true;
+  }
+  const offset = displayIndex - anchorIndex;
+  return direction === "forward"
+    ? offset >= -behind && offset <= ahead
+    : offset >= -ahead && offset <= behind;
+}
+
 export type MobileReaderPageRenderPolicy =
   | "none"
   | "far-placeholder"
@@ -35,24 +77,24 @@ export function getMobileReaderPageRenderPolicy({
   hasImageUri,
   processingPending,
   windowRadius = MOBILE_READER_PAGE_RENDER_WINDOW,
+  inRenderWindow,
 }: {
   currentPageIndex: number;
   displayIndex: number | undefined;
   hasImageUri: boolean;
   processingPending: boolean;
   windowRadius?: number;
+  /** Decided by the caller (the scroll gallery's directional window). */
+  inRenderWindow?: boolean;
 }): MobileReaderPageRenderPolicy {
   if (!hasImageUri) return "none";
   // Apply virtualization before processing UI: otherwise every pending page in
   // a long chapter mounts its own ActivityIndicator despite being far outside
   // the visible window.
-  if (
-    !isMobileReaderPageNearViewport(
-      displayIndex,
-      currentPageIndex,
-      windowRadius,
-    )
-  ) {
+  const near =
+    inRenderWindow ??
+    isMobileReaderPageNearViewport(displayIndex, currentPageIndex, windowRadius);
+  if (!near) {
     return "far-placeholder";
   }
   return processingPending ? "processing-placeholder" : "image";

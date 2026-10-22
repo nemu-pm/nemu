@@ -19,6 +19,13 @@ import { getMobileImageUriPolicy } from "@/lib/mobileImageUriPolicy";
  */
 export const MOBILE_READER_PREFETCH_PAGES_AHEAD = 5;
 export const MOBILE_READER_PREFETCH_PAGES_BEHIND = 1;
+/**
+ * Scroll reading: past the directional render window (6 ahead), so a fling
+ * lands on pages already on disk. Topped up on every page crossing, never
+ * held back for the current page.
+ */
+export const MOBILE_READER_SCROLL_PREFETCH_PAGES_AHEAD = 8;
+export const MOBILE_READER_SCROLL_PREFETCH_PAGES_BEHIND = 2;
 /** Opening pages of the next chapter warmed once the reader nears the end. */
 export const MOBILE_READER_PREFETCH_NEXT_CHAPTER_PAGES = 2;
 /** How close to the last page (in pages) the next chapter starts warming. */
@@ -84,6 +91,41 @@ export function planMobileReaderPagePrefetch({
   for (let offset = 1; offset <= behind; offset += 1) {
     indexes.push(current - offset);
   }
+  const images: MobileReaderPrefetchImage[] = [];
+  for (const index of indexes) {
+    const page = pages[index];
+    if (!page) continue;
+    const image = mobileReaderPrefetchImageForPage(page);
+    if (image) images.push(image);
+  }
+  return images;
+}
+
+/**
+ * Scroll reading: the pages ahead in the scroll direction first (down the
+ * strip by default), then a couple the other way.
+ */
+export function planMobileReaderScrollPrefetch({
+  pages,
+  currentIndex,
+  direction = "forward",
+  ahead = MOBILE_READER_SCROLL_PREFETCH_PAGES_AHEAD,
+  behind = MOBILE_READER_SCROLL_PREFETCH_PAGES_BEHIND,
+}: {
+  pages: readonly MobileReaderPage[];
+  currentIndex: number;
+  direction?: "forward" | "backward";
+  ahead?: number;
+  behind?: number;
+}): MobileReaderPrefetchImage[] {
+  if (direction === "forward") {
+    return planMobileReaderPagePrefetch({ pages, currentIndex, ahead, behind });
+  }
+  if (pages.length <= 1 || !Number.isFinite(currentIndex)) return [];
+  const current = Math.max(0, Math.min(pages.length - 1, Math.round(currentIndex)));
+  const indexes: number[] = [];
+  for (let offset = 1; offset <= ahead; offset += 1) indexes.push(current - offset);
+  for (let offset = 1; offset <= behind; offset += 1) indexes.push(current + offset);
   const images: MobileReaderPrefetchImage[] = [];
   for (const index of indexes) {
     const page = pages[index];

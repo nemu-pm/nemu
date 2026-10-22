@@ -16,6 +16,7 @@ import type { MobileImageSize } from "@/lib/mobileJapaneseLearningOverlay";
 import type { MobileImageUriOwnership } from "@/lib/mobileImageUriPolicy";
 import type { MobileCachedSegmentedImageAsset } from "@/lib/mobileImageCache";
 import { ReaderCapsuleButton } from "@/components/reader/ReaderCapsuleButton";
+import { MOBILE_READER_SCROLL_IMAGE_FADE_MS } from "@/lib/mobileReaderScrollPresentation";
 
 const READER_IMAGE_STATUS_BACKGROUND = "rgba(0,0,0,0.58)";
 const READER_IMAGE_STATUS_TEXT = "rgba(255,255,255,0.86)";
@@ -33,6 +34,12 @@ type MobileReaderPageFrameProps = {
   allowLongStripSegments?: boolean;
   cacheKey?: string;
   loading: boolean;
+  /**
+   * Scroll reading: a loading page is only its background plate (the label
+   * stays for VoiceOver); failures still show their status and Retry. Cached
+   * pages appear unfaded, network ones fade in briefly.
+   */
+  quietLoading?: boolean;
   offline?: boolean;
   strings: MobileStrings;
   onImageError: (error: string) => void;
@@ -55,6 +62,7 @@ export function MobileReaderPageFrame({
   allowLongStripSegments,
   cacheKey,
   loading,
+  quietLoading = false,
   offline = false,
   strings,
   onImageError,
@@ -64,9 +72,15 @@ export function MobileReaderPageFrame({
   onSegmentedImage,
 }: MobileReaderPageFrameProps) {
   const canRetry = Boolean(error) && Boolean(onRetry);
+  const showStatus = Boolean(error) || (loading && !quietLoading);
 
   return (
     <View
+      accessibilityLabel={
+        quietLoading && loading && !error
+          ? strings.reader.pageImageLoading
+          : undefined
+      }
       style={[
         styles.readerImageFrame,
         {
@@ -84,6 +98,8 @@ export function MobileReaderPageFrame({
         cacheKind="page"
         allowLongStripSegments={allowLongStripSegments}
         cacheKey={cacheKey}
+        fadeDurationMs={quietLoading ? MOBILE_READER_SCROLL_IMAGE_FADE_MS : undefined}
+        fadeFromCache={!quietLoading}
         fallback={null}
         uriOwnership={imageUriOwnership}
         source={{ uri: imageUri, headers }}
@@ -97,7 +113,7 @@ export function MobileReaderPageFrame({
         resizeMode={imageResizeMode}
         style={styles.readerImage}
       />
-      {loading || error ? (
+      {showStatus ? (
         <View
           // A failed page must be recoverable: the overlay only stays inert
           // while there is nothing to tap.

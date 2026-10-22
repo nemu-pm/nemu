@@ -225,9 +225,13 @@ describe("reader plugin settings sheet policy", () => {
     );
     expect(gallery).toContain("onUserScrollBegin?.();");
     expect(gallery).toContain("gestureDelta: touch.pageY - start.y");
-    expect(source).toContain(
-      "onUserScrollBegin={clearReaderProgrammaticScroll}",
+    // User touch still supersedes queued programmatic scrolls; scroll mode
+    // additionally holds the visible page until the scroll settles.
+    expect(source).toContain("onUserScrollBegin={beginReaderUserScroll}");
+    expect(source).toMatch(
+      /const beginReaderUserScroll = useCallback\(\(\) => \{\s*clearReaderProgrammaticScroll\(\);/,
     );
+    expect(source).toContain("onUserScrollSettle={settleReaderUserScroll}");
     expect(source).toContain(
       "readerScrollMetrics.contentLength > 0",
     );

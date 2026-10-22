@@ -1,6 +1,7 @@
 import type { WindowLayoutRect } from "@/lib/mobileWindowLayout";
 import { mobileReaderTapExcluded } from "@/lib/mobileReaderPoseLayout";
 import {
+  memo,
   useCallback,
   useEffect,
   useImperativeHandle,
@@ -102,6 +103,11 @@ import {
   useSkeletonDisplayDelay,
   useSkeletonPulse,
 } from "@/lib/useSkeletonPulse";
+import {
+  isMobileReaderPageInScrollRenderWindow,
+  nextMobileReaderScrollDirection,
+  type MobileReaderScrollDirection,
+} from "@/lib/mobileReaderPageWindow";
 
 type MobileReaderGalleryState = {
   status: string;
@@ -142,6 +148,11 @@ type MobileReaderGalleryProps = {
   ) => void;
   /** User touch always supersedes queued restore/seek work. */
   onUserScrollBegin?: () => void;
+  /**
+   * Scroll mode: a user drag came to rest without a fling (a fling settles
+   * through `onMomentumScrollEnd`).
+   */
+  onUserScrollSettle?: () => void;
   onRetry?: () => void;
   /** Steps one page in source order. Only wired in paged reading modes. */
   onPageStep?: (direction: "previous" | "next") => void;
@@ -209,7 +220,18 @@ type MobileReaderGalleryProps = {
   readerImageWidth: number;
   readerPageWidth: number;
   readerScrollRef: RefObject<MobileReaderScrollHandle | null>;
-  renderImage: (page: MobileReaderPage) => ReactNode;
+  renderImage: (
+    page: MobileReaderPage,
+    placement?: MobileReaderImagePlacement,
+  ) => ReactNode;
+  /**
+   * Scroll mode: per-page render identity (page id → key). A memoized page
+   * cell re-renders only when its own key, the epoch, or its place in the
+   * render window changes — not when another page loads.
+   */
+  scrollPageRenderKeys?: ReadonlyMap<string, string> | null;
+  /** Scroll mode: changes whenever every page's rendering may change. */
+  scrollPageRenderEpoch?: unknown;
   renderImageSegment?: (frame: MobileReaderSegmentFrame) => ReactNode;
   segmentedImageFrames?: ReadonlyArray<MobileReaderSegmentFrame>;
   sourcePageForDisplayIndex: (displayIndex: number) => number;
@@ -263,6 +285,11 @@ type MobileReaderGalleryProps = {
   windowHeight: number;
 };
 
+export type MobileReaderImagePlacement = {
+  /** Scroll mode: inside the directional render window (decode the image). */
+  inRenderWindow: boolean;
+};
+
 export type MobileReaderScrollHandle = {
   scrollTo(options: {
     x?: number;
@@ -289,6 +316,70 @@ const READER_DOUBLE_TAP_WINDOW_MS = 280;
 const READER_VIEWABILITY_CONFIG = Object.freeze({
   viewAreaCoveragePercentThreshold: 50,
 });
+/**
+ * A drag that ends without a fling has settled; iOS and Android both start
+ * momentum (cancelling this) well within it.
+ */
+const READER_SCROLL_DRAG_SETTLE_MS = 120;
+
+type MobileReaderScrollPageCellProps = {
+  page: MobileReaderPage;
+  index: number;
+  inRenderWindow: boolean;
+  renderKey: string | undefined;
+  renderEpoch: unknown;
+  renderImage: MobileReaderGalleryProps["renderImage"];
+  onScrollingPageLayout?: MobileReaderGalleryProps["onScrollingPageLayout"];
+  fallbackPage: number;
+  strings: MobileStrings;
+};
+
+/**
+ * One page of the scroll (continuous vertical) list. `renderImage` is left
+ * out of the comparison on purpose: its identity changes whenever any page
+ * loads, while everything this page's own rendering depends on is folded
+ * into `renderKey` / `renderEpoch` by the reader.
+ */
+const MobileReaderScrollPageCell = memo(
+  function MobileReaderScrollPageCell({
+    page,
+    index,
+    inRenderWindow,
+    renderImage,
+    onScrollingPageLayout,
+    fallbackPage,
+    strings,
+  }: MobileReaderScrollPageCellProps) {
+    return (
+      <View
+        onLayout={
+          onScrollingPageLayout
+            ? (event) => {
+                const { y, height } = event.nativeEvent.layout;
+                onScrollingPageLayout(index, { y, height });
+              }
+            : undefined
+        }
+        style={[styles.scrollingFrame, { width: "100%" }]}
+      >
+        {page.imageUri ? (
+          renderImage(page, { inRenderWindow })
+        ) : (
+          <TextPage text={page.text} fallbackPage={fallbackPage} strings={strings} />
+        )}
+      </View>
+    );
+  },
+  (previous, next) =>
+    previous.page === next.page &&
+    previous.index === next.index &&
+    previous.inRenderWindow === next.inRenderWindow &&
+    previous.renderKey === next.renderKey &&
+    previous.renderEpoch === next.renderEpoch &&
+    previous.onScrollingPageLayout === next.onScrollingPageLayout &&
+    previous.fallbackPage === next.fallbackPage &&
+    previous.strings === next.strings,
+);
 
 export function MobileReaderGallery({
   accessibilityLabel,
@@ -315,6 +406,7 @@ export function MobileReaderGallery({
   onScrollingSeekFailed,
   onContinuousScrollMetricsChange,
   onUserScrollBegin,
+  onUserScrollSettle,
   onRetry,
   onPageStep,
   onRequestAdvancePastEnd,
@@ -343,6 +435,8 @@ export function MobileReaderGallery({
   readerScrollRef,
   renderImage,
   renderImageSegment,
+  scrollPageRenderKeys,
+  scrollPageRenderEpoch,
   segmentedImageFrames,
   sourcePageForDisplayIndex,
   spreads,
@@ -523,6 +617,26 @@ export function MobileReaderGallery({
     animated: boolean;
     attempts: number;
   } | null>(null);
+  // Scroll mode: which pages decode their image. The window follows the
+  // live visible page (a fling runs far ahead of the committed one) and
+  // leans toward the scroll direction; a committed page change (a jump, a
+  // restore, a settle) re-anchors it at once.
+  const [scrollRenderWindow, setScrollRenderWindow] = useState<{
+    anchor: number;
+    direction: MobileReaderScrollDirection;
+    committedIndex: number | undefined;
+  }>(() => ({
+    anchor: pagedDisplayIndex ?? 0,
+    direction: "forward",
+    committedIndex: pagedDisplayIndex,
+  }));
+  if (scrollRenderWindow.committedIndex !== pagedDisplayIndex) {
+    setScrollRenderWindow((current) => ({
+      anchor: pagedDisplayIndex ?? current.anchor,
+      direction: current.direction,
+      committedIndex: pagedDisplayIndex,
+    }));
+  }
   const onViewableItemsChanged = useCallback(
     ({
       viewableItems,
@@ -539,11 +653,38 @@ export function MobileReaderGallery({
         displayedPageCountRef.current,
       );
       if (nextPageIndex != null) {
+        setScrollRenderWindow((current) =>
+          current.anchor === nextPageIndex
+            ? current
+            : {
+                anchor: nextPageIndex,
+                direction: nextMobileReaderScrollDirection(
+                  current.anchor,
+                  nextPageIndex,
+                  current.direction,
+                ),
+                committedIndex: current.committedIndex,
+              },
+        );
         onScrollingVisiblePageChangeRef.current?.(nextPageIndex);
       }
     },
     [],
   );
+  const onUserScrollSettleRef = useRef(onUserScrollSettle);
+  const dragSettleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const clearDragSettleTimer = useCallback(() => {
+    if (dragSettleTimerRef.current) {
+      clearTimeout(dragSettleTimerRef.current);
+      dragSettleTimerRef.current = null;
+    }
+  }, []);
+  useLayoutEffect(() => {
+    onUserScrollSettleRef.current = onUserScrollSettle;
+  }, [onUserScrollSettle]);
+  useEffect(() => clearDragSettleTimer, [clearDragSettleTimer]);
 
   useImperativeHandle(
     readerScrollRef,
@@ -1130,6 +1271,7 @@ export function MobileReaderGallery({
   const handleScrollBeginDrag = (
     event: NativeSyntheticEvent<NativeScrollEvent>,
   ) => {
+    clearDragSettleTimer();
     if (scrollToIndexRetryTimerRef.current) {
       clearTimeout(scrollToIndexRetryTimerRef.current);
       scrollToIndexRetryTimerRef.current = null;
@@ -1227,9 +1369,13 @@ export function MobileReaderGallery({
     );
     publishLogicalScrollAccessibility();
   };
+  const handleGalleryMomentumScrollBegin = () => {
+    clearDragSettleTimer();
+  };
   const handleGalleryMomentumScrollEnd = (
     event: NativeSyntheticEvent<NativeScrollEvent>,
   ) => {
+    clearDragSettleTimer();
     publishLogicalScrollAccessibility();
     onMomentumScrollEnd(event);
   };
@@ -1237,6 +1383,13 @@ export function MobileReaderGallery({
     event: NativeSyntheticEvent<NativeScrollEvent>,
   ) => {
     publishLogicalScrollAccessibility();
+    if (!pagedMode) {
+      clearDragSettleTimer();
+      dragSettleTimerRef.current = setTimeout(() => {
+        dragSettleTimerRef.current = null;
+        onUserScrollSettleRef.current?.();
+      }, READER_SCROLL_DRAG_SETTLE_MS);
+    }
     const startOffset = dragStartOffsetRef.current;
     const startDisplayIndex = dragStartDisplayIndexRef.current;
     dragStartOffsetRef.current = null;
@@ -1442,6 +1595,25 @@ export function MobileReaderGallery({
       }
 
       const { page, index } = item;
+      if (!pagedMode) {
+        return (
+          <MobileReaderScrollPageCell
+            page={page}
+            index={index}
+            inRenderWindow={isMobileReaderPageInScrollRenderWindow(
+              index,
+              scrollRenderWindow.anchor,
+              scrollRenderWindow.direction,
+            )}
+            renderKey={scrollPageRenderKeys?.get(page.id)}
+            renderEpoch={scrollPageRenderEpoch}
+            renderImage={renderImage}
+            onScrollingPageLayout={onScrollingPageLayout}
+            fallbackPage={sourcePageForDisplayIndex(index)}
+            strings={strings}
+          />
+        );
+      }
       return (
         <View
           onLayout={
@@ -1501,6 +1673,10 @@ export function MobileReaderGallery({
       readerPageWidth,
       renderImage,
       renderImageSegment,
+      scrollPageRenderEpoch,
+      scrollPageRenderKeys,
+      scrollRenderWindow.anchor,
+      scrollRenderWindow.direction,
       sourcePageForDisplayIndex,
       strings,
       windowHeight,
@@ -1651,7 +1827,10 @@ export function MobileReaderGallery({
       scrollsToTop={!pagedMode}
       initialNumToRender={segmentedMode ? 2 : pagedMode ? 3 : 5}
       maxToRenderPerBatch={segmentedMode ? 2 : 5}
-      windowSize={segmentedMode ? 3 : 7}
+      // Scroll mode keeps five screens of cells either side so the render
+      // window (six pages ahead) is always inside the list's own window;
+      // cells outside the render window are cheap sized placeholders.
+      windowSize={segmentedMode ? 3 : pagedMode ? 7 : 11}
       viewabilityConfig={READER_VIEWABILITY_CONFIG}
       // Not on the paged list: Android's clipped-subview pass drops cells
       // when a remounted list (spread ⇄ single after a fold) gets its offset
@@ -1663,6 +1842,7 @@ export function MobileReaderGallery({
       // around the page being read, not around page 0: otherwise the new
       // list shows empty black cells until the offset scroll lands.
       initialScrollIndex={galleryInitialScrollIndex}
+      onMomentumScrollBegin={pagedMode ? undefined : handleGalleryMomentumScrollBegin}
       onMomentumScrollEnd={handleGalleryMomentumScrollEnd}
       onContentSizeChange={handleGalleryContentSizeChange}
       onLayout={handleGalleryLayout}

@@ -5,6 +5,7 @@ import {
   mobileReaderPrefetchImageForPage,
   planMobileReaderNextChapterPrefetch,
   planMobileReaderPagePrefetch,
+  planMobileReaderScrollPrefetch,
   shouldPrefetchMobileReaderNextChapter,
   type MobileReaderPrefetchImage,
 } from "./mobileReaderPagePrefetch";
@@ -97,6 +98,43 @@ describe("reader page prefetch plan", () => {
       "0.jpg",
       "1.jpg",
     ]);
+  });
+});
+
+describe("scroll reader prefetch plan", () => {
+  const long = Array.from({ length: 30 }, (_, index) => page(index));
+
+  test("warms eight pages down the strip, then two above", () => {
+    expect(
+      uris(planMobileReaderScrollPrefetch({ pages: long, currentIndex: 10 })),
+    ).toEqual([
+      "11.jpg", "12.jpg", "13.jpg", "14.jpg", "15.jpg", "16.jpg", "17.jpg", "18.jpg",
+      "9.jpg", "8.jpg",
+    ]);
+  });
+
+  test("scrolling up warms the pages above first", () => {
+    expect(
+      uris(
+        planMobileReaderScrollPrefetch({
+          pages: long,
+          currentIndex: 10,
+          direction: "backward",
+        }),
+      ),
+    ).toEqual([
+      "9.jpg", "8.jpg", "7.jpg", "6.jpg", "5.jpg", "4.jpg", "3.jpg", "2.jpg",
+      "11.jpg", "12.jpg",
+    ]);
+  });
+
+  test("stays inside the chapter and skips single-page strips", () => {
+    expect(
+      uris(planMobileReaderScrollPrefetch({ pages: long, currentIndex: 27 })),
+    ).toEqual(["28.jpg", "29.jpg", "26.jpg", "25.jpg"]);
+    expect(
+      planMobileReaderScrollPrefetch({ pages: [page(0)], currentIndex: 0 }),
+    ).toEqual([]);
   });
 });
 
