@@ -5,8 +5,10 @@ import {
   chooseMobileReaderResumePosition,
   clearMobileReaderResumePositions,
   flushMobileReaderResumePositions,
+  isMobileReaderLastPageVisible,
   loadMobileReaderResumePosition,
   markMobileReaderResumeFinished,
+  mobileReaderResumeReread,
   noteMobileReaderResumeProgressWrite,
   parseMobileReaderResumePositions,
   resetMobileReaderResumePositionsForTests,
@@ -14,6 +16,7 @@ import {
   serializeMobileReaderResumePositions,
   type MobileReaderResumePosition,
 } from "./mobileReaderResumePosition";
+import { buildMobileReaderScrollLayout, mobileReaderScrollAnchorForOffset } from "./mobileReaderScrollLayout";
 
 const local = (
   overrides: Partial<MobileReaderResumePosition> = {},
@@ -330,7 +333,21 @@ describe("ReaderScreen wiring for completed chapters", () => {
     expect(screen).toContain(
       "readerLocalResume.progress?.completed === true;",
     );
-    expect(screen).toContain("reread: readerOpenedCompleted,");
+    expect(screen).toMatch(
+      /reread: mobileReaderResumeReread\(\s*readerOpenedCompleted,\s*readerResumeFinishedKeyRef\.current === readerResumeKey,\s*\),/,
+    );
+  });
+
+  test("the last page on screen latches the session's saves as finished", () => {
+    const save = screen.slice(
+      screen.indexOf("const saveReaderLocalResume = useCallback(() => {"),
+      screen.indexOf("saveReaderLocalResumeRef.current = saveReaderLocalResume;"),
+    );
+    expect(save).toMatch(
+      /isMobileReaderLastPageVisible\(layout, readerScrollRef\.current\?\.scrollViewport\(\) \?\? null\)\s*\) \{\s*readerResumeFinishedKeyRef\.current = readerResumeKey;/,
+    );
+    // Never cleared within the session: the unmount save keeps it.
+    expect(screen.match(/readerResumeFinishedKeyRef\.current = /g)?.length).toBe(1);
   });
 
   test("a complete save marks the local spot finished", () => {
@@ -343,5 +360,53 @@ describe("ReaderScreen wiring for completed chapters", () => {
     expect(screen).toContain(
       "!(readerOpenedCompleted && readerResumeChoice == null)",
     );
+  });
+});
+
+describe("re-reading a completed chapter of short slices to its end (ToG)", () => {
+  // 40 slices of 300pt, the screen 900pt: at the end the reading line rests
+  // on slice 37, the last one (39) is on screen.
+  const layout = buildMobileReaderScrollLayout(new Array(40).fill(300), new Array(40).fill(0), 0);
+  const endTop = layout.length - 900;
+  const completedProgress = { progress: 39, total: 40, lastReadAt: 5_000, completed: true };
+
+  test("the last page visible counts as finished, though the reading line is short of it", () => {
+    expect(mobileReaderScrollAnchorForOffset(layout, endTop)?.pageIndex).toBe(37);
+    expect(isMobileReaderLastPageVisible(layout, { top: endTop, height: 900 })).toBe(true);
+    // The bottom exactly at the last page's top counts; a pixel short does not.
+    expect(isMobileReaderLastPageVisible(layout, { top: layout.starts[39]! - 900, height: 900 })).toBe(true);
+    expect(isMobileReaderLastPageVisible(layout, { top: layout.starts[39]! - 901, height: 900 })).toBe(false);
+    expect(isMobileReaderLastPageVisible(layout, null)).toBe(false);
+  });
+
+  test("a finished save reopens at p1; the old re-read save reopened on the last screen", () => {
+    const spot = { sourceIndex: 37, fraction: 0, total: 40, savedAt: 10_000, progressAt: 5_000 };
+    // Before: saved as a re-read spot short of the last page.
+    expect(
+      chooseMobileReaderResumePosition({
+        local: { ...spot, reread: mobileReaderResumeReread(true, false) },
+        progress: completedProgress,
+        pageCount: 40,
+      }),
+    ).toEqual({ sourceIndex: 37, fraction: 0, origin: "local" });
+    // Now: the session saw the last page — finished, the top of p1.
+    expect(mobileReaderResumeReread(true, true)).toBe(false);
+    expect(
+      chooseMobileReaderResumePosition({
+        local: { ...spot, reread: mobileReaderResumeReread(true, true) },
+        progress: completedProgress,
+        pageCount: 40,
+      }),
+    ).toBeNull();
+    // A later save (scrolled back up, the unmount) keeps the latch.
+    expect(
+      chooseMobileReaderResumePosition({
+        local: { ...spot, sourceIndex: 20, reread: mobileReaderResumeReread(true, true) },
+        progress: completedProgress,
+        pageCount: 40,
+      }),
+    ).toBeNull();
+    // A first read is never a re-read.
+    expect(mobileReaderResumeReread(false, false)).toBe(false);
   });
 });

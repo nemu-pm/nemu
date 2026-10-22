@@ -132,6 +132,33 @@ export function chooseMobileReaderResumePosition({
   };
 }
 
+/**
+ * Scroll reading: the chapter's last page is on screen — the screen's bottom
+ * is at or past that page's top. On a chapter of short slices (Tower of God)
+ * the reading line rests a few pages short of the last one at the end, so
+ * this, not the saved page, says the chapter was read to its end.
+ */
+export function isMobileReaderLastPageVisible(
+  layout: { readonly starts: readonly number[]; readonly gaps: readonly number[] } | null | undefined,
+  viewport: { top: number; height: number } | null | undefined,
+): boolean {
+  if (!layout || !viewport) return false;
+  const last = layout.starts.length - 1;
+  if (last < 0 || !Number.isFinite(viewport.top) || !(viewport.height > 0)) return false;
+  const lastTop = layout.starts[last]! + (layout.gaps[last] ?? 0);
+  return viewport.top + viewport.height >= lastTop;
+}
+
+/**
+ * The `reread` flag of a save: a session that opened the chapter completed
+ * saves re-read spots — until it has seen the last page, which (latched for
+ * the session) makes every later save, the unmount's included, a finished
+ * one: the chapter reopens at the top of page 1.
+ */
+export function mobileReaderResumeReread(openedCompleted: boolean, finishedThisSession: boolean): boolean {
+  return openedCompleted && !finishedThisSession;
+}
+
 export function parseMobileReaderResumePositions(
   text: string | null | undefined,
 ): Map<string, MobileReaderResumePosition> {

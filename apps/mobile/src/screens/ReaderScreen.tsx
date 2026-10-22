@@ -477,7 +477,9 @@ import {
   chooseMobileReaderResumePosition,
   flushMobileReaderResumePositions,
   loadMobileReaderResumePosition,
+  isMobileReaderLastPageVisible,
   markMobileReaderResumeFinished,
+  mobileReaderResumeReread,
   noteMobileReaderResumeProgressWrite,
   saveMobileReaderResumePosition,
   type MobileReaderResumePosition,
@@ -8238,6 +8240,11 @@ export function ReaderScreen() {
     return () => subscription.remove();
   }, [flushPendingReaderProgress]);
 
+  // This session saw the chapter's last page (its resume key): finished.
+  const readerResumeFinishedKeyRef = useRef<string | null>(null);
+  // Read when saving (a layout change alone does not save).
+  const readerResumeLayoutRef = useRef(readerScrollLayout);
+  readerResumeLayoutRef.current = readerScrollLayout;
   // Where this device stopped (local only, never synced): the page — and in
   // scroll reading the spot on it — the reader rests on. Saved once the
   // opening restore has landed, on page changes, when a scroll settles,
@@ -8270,6 +8277,15 @@ export function ReaderScreen() {
         displayIndex = anchor.pageIndex;
         fraction = anchor.fraction;
       }
+      // The last page on screen: read to the end (the reading line may rest
+      // a few short slices before it). Latched for the session.
+      const layout = readerResumeLayoutRef.current;
+      if (
+        layout?.heights.length === pageCount &&
+        isMobileReaderLastPageVisible(layout, readerScrollRef.current?.scrollViewport() ?? null)
+      ) {
+        readerResumeFinishedKeyRef.current = readerResumeKey;
+      }
     }
     readerHeldSpotRef.current = {
       chapterId,
@@ -8292,7 +8308,10 @@ export function ReaderScreen() {
         readerChapterProgress?.lastReadAt ?? 0,
         readerChapterProgress?.resetAt ?? 0,
       ),
-      reread: readerOpenedCompleted,
+      reread: mobileReaderResumeReread(
+        readerOpenedCompleted,
+        readerResumeFinishedKeyRef.current === readerResumeKey,
+      ),
     });
   }, [
     chapterId,
