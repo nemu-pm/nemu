@@ -408,6 +408,13 @@ import {
   mobileReaderScrollSideMargin,
 } from "@/lib/mobileReaderScrollPresentation";
 import {
+  buildMobileReaderScrollLayout,
+  mobileReaderScrollOffsetForAnchor,
+  mobileReaderScrollPageRatios,
+  recallMobileReaderPageNaturalSize,
+  rememberMobileReaderPageNaturalSize,
+} from "@/lib/mobileReaderScrollLayout";
+import {
   MOBILE_PERFORMANCE_MARKS,
   markMobilePerformance,
   measureMobilePerformance,
@@ -729,6 +736,11 @@ const READER_SEGMENT_OCR_SETTLE_MS = 180;
  * in the reader state after this pause even if no settle event arrives.
  */
 const READER_SCROLL_PAGE_PUBLISH_IDLE_MS = 700;
+/**
+ * Scroll reading: how long an opening restore may take to come to rest on
+ * its page. Past it the restored page stands as the reader's page anyway.
+ */
+const READER_SCROLL_RESTORE_LANDING_MS = 4_000;
 /**
  * iOS presents a sheet on top of another (sheet-on-sheet) when the second is
  * hosted inside the first one's content: the chat opened from the sentence
@@ -1344,6 +1356,16 @@ export function ReaderScreen() {
   );
   const [readerLivePageStore] = useState(createMobileReaderLivePageStore);
   const readerRelayoutPageAnchorRef = useRef<number | null>(null);
+  // How far into the anchored page the reading line sat (scroll layout).
+  const readerRelayoutPageFractionRef = useRef(0);
+  /** Scroll mode: remembers the page (and spot on it) a relayout keeps. */
+  const captureReaderRelayoutAnchor = useCallback(() => {
+    if (readerRelayoutPageAnchorRef.current != null) return;
+    const anchor = readerScrollRef.current?.pageAnchor() ?? null;
+    readerRelayoutPageAnchorRef.current =
+      anchor?.pageIndex ?? scrollingVisiblePageIndexRef.current;
+    readerRelayoutPageFractionRef.current = anchor?.fraction ?? 0;
+  }, []);
   const readerRelayoutInteractionActiveRef = useRef(false);
   const readerRelayoutAnchorClearTimerRef = useRef<ReturnType<
     typeof setTimeout
@@ -1437,6 +1459,15 @@ export function ReaderScreen() {
   const [continuousReaderScrubActive, setContinuousReaderScrubActive] =
     useState(false);
   const [restoredReaderKey, setRestoredReaderKey] = useState("");
+  // Scroll reading: the opening restore is placing the list on its page.
+  // Until it rests there nothing the list reports (viewability, a settle,
+  // a failed seek) moves the reader's page, and progress is not saved.
+  const readerScrollLandingRef = useRef<{
+    pageIndex: number;
+    timer: ReturnType<typeof setTimeout>;
+  } | null>(null);
+  const [readerScrollLandingPending, setReaderScrollLandingPending] =
+    useState(false);
   const [pagesState, setPagesState] = useState<ReaderPagesState>({
     status: "idle",
     pages: [],
@@ -1729,6 +1760,53 @@ export function ReaderScreen() {
     setContinuousReaderScrubActive(false);
     return clearReaderProgrammaticScroll;
   }, [chapterId, clearReaderProgrammaticScroll, mode]);
+
+  const finishReaderScrollLanding = useCallback(
+    (outcome: "landed" | "timeout" | "user") => {
+      const landing = readerScrollLandingRef.current;
+      if (!landing) return;
+      clearTimeout(landing.timer);
+      readerScrollLandingRef.current = null;
+      if (outcome !== "user") {
+        // The restored page is the reader's page — never wherever a
+        // half-placed list happened to sit. (A drag instead makes the
+        // reader's own position the real one.)
+        scrollingVisiblePageIndexRef.current = landing.pageIndex;
+        const target = readerProgrammaticScrollRef.current;
+        if (target?.kind === "page" && target.pageIndex === landing.pageIndex) {
+          clearReaderProgrammaticScroll();
+        }
+      }
+      setReaderScrollLandingPending(false);
+    },
+    [clearReaderProgrammaticScroll],
+  );
+  const armReaderScrollLanding = useCallback(
+    (pageIndex: number) => {
+      if (readerScrollLandingRef.current) {
+        clearTimeout(readerScrollLandingRef.current.timer);
+      }
+      readerScrollLandingRef.current = {
+        pageIndex,
+        timer: setTimeout(
+          () => finishReaderScrollLanding("timeout"),
+          READER_SCROLL_RESTORE_LANDING_MS,
+        ),
+      };
+      setReaderScrollLandingPending(true);
+    },
+    [finishReaderScrollLanding],
+  );
+  useEffect(
+    () => () => {
+      // A new chapter or presentation restores (and lands) anew.
+      const landing = readerScrollLandingRef.current;
+      if (landing) clearTimeout(landing.timer);
+      readerScrollLandingRef.current = null;
+      setReaderScrollLandingPending(false);
+    },
+    [chapterId, mode],
+  );
 
   const reportReaderSettingsError = useCallback(
     async (error: unknown) => {
@@ -2720,7 +2798,10 @@ export function ReaderScreen() {
     (index: number): MobileReaderPageSize | null => {
       const page = displayedPages[index];
       if (!page) return null;
-      return readerImageSizes.get(readerPageIdentityFor(page))
+      const identity = readerPageIdentityFor(page);
+      return readerImageSizes.get(identity)
+        // Measured on an earlier visit (this app session).
+        ?? recallMobileReaderPageNaturalSize(identity)
         ?? readerPageFeatures.get(page.id)
         ?? page.sourceSize
         ?? null;
@@ -3038,9 +3119,41 @@ export function ReaderScreen() {
   const readerScrollSideMargin = pagedMode
     ? MOBILE_READER_SCROLL_SIDE_MARGIN
     : mobileReaderScrollSideMargin(activeScrollWidthPct);
+  // Scroll reading: every page's height is known up front — its own size
+  // (decoded now, earlier this session, measured, or sent by the source),
+  // else the chapter's typical page — so a page index is one exact offset.
+  // Only for an all-image page list (a text page sizes itself).
+  const readerScrollLayoutEnabled =
+    !pagedMode &&
+    !galleryPagedMode &&
+    !isLongStripLogicalPage &&
+    !currentSegmentedImage &&
+    displayedPages.length > 0 &&
+    displayedPages.every((page) => Boolean(page.imageUri) || !page.text);
+  const readerScrollLayout = useMemo(() => {
+    if (!readerScrollLayoutEnabled) return null;
+    const ratios = mobileReaderScrollPageRatios(
+      displayedPages.length,
+      readerPageSizeAt,
+    );
+    return buildMobileReaderScrollLayout(
+      ratios.map((ratio) => readerImageWidth * ratio),
+      readerScrollPageGaps,
+      MOBILE_READER_SCROLL_PAGE_SPACING,
+    );
+  }, [
+    displayedPages.length,
+    readerImageWidth,
+    readerPageSizeAt,
+    readerScrollLayoutEnabled,
+    readerScrollPageGaps,
+  ]);
   const scrollingPageEstimatedHeight = readerImageWidth * 1.45;
   const scrollingPageOffsetForIndex = useCallback(
-    (pageIndex: number): number => {
+    (pageIndex: number, fraction = 0): number => {
+      if (readerScrollLayout) {
+        return mobileReaderScrollOffsetForAnchor(readerScrollLayout, pageIndex, fraction);
+      }
       const targetIndex = clampReaderPageIndex(pageIndex, pageCount);
       let offset = 0;
       for (let index = 0; index < targetIndex; index += 1) {
@@ -3056,7 +3169,7 @@ export function ReaderScreen() {
       }
       return offset;
     },
-    [pageCount, readerScrollPageGaps, scrollingPageEstimatedHeight],
+    [pageCount, readerScrollLayout, readerScrollPageGaps, scrollingPageEstimatedHeight],
   );
   const readyFetchedAt =
     pagesState.status === "ready" ? pagesState.fetchedAt : 0;
@@ -3196,7 +3309,10 @@ export function ReaderScreen() {
   );
   const readerChromeChapterKey = JSON.stringify([registryId, sourceId, mangaId, chapterId]);
   const readerChromeAutoHideKey = readerRestoreComplete ? readerChromeChapterKey : "";
-  const silentProgressPersistenceKey = readerRestoreComplete
+  // Progress is saved only once the reader rests where it was restored to.
+  const readerProgressRestoreComplete =
+    readerRestoreComplete && !readerScrollLandingPending;
+  const silentProgressPersistenceKey = readerProgressRestoreComplete
     ? mobileReaderProgressPersistenceKey(
         restoreReaderKey,
         visibleProgressPageIndex,
@@ -3567,12 +3683,11 @@ export function ReaderScreen() {
         readerScrollMetricsRef.current.progress,
       );
     } else if (!pagedMode) {
-      readerRelayoutPageAnchorRef.current ??=
-        scrollingVisiblePageIndexRef.current;
+      captureReaderRelayoutAnchor();
     }
     scrollWidthDraftRef.current = scrollWidthPct;
     setScrollWidthDraft(scrollWidthPct);
-  }, [pagedMode, scrollWidthPct, usePhysicalScrollScrubber]);
+  }, [captureReaderRelayoutAnchor, pagedMode, scrollWidthPct, usePhysicalScrollScrubber]);
 
   useEffect(() => {
     if (!activeReaderPluginId) return;
@@ -3735,7 +3850,7 @@ export function ReaderScreen() {
   }, []);
 
   const scrollToPageIndex = useCallback(
-    (nextPageIndex: number, animated: boolean) => {
+    (nextPageIndex: number, animated: boolean, fraction = 0) => {
       const targetFrameIndex = isTwoPageMode
         ? findMobileReaderSpreadIndex(readerSpreads, nextPageIndex)
         : nextPageIndex;
@@ -3748,8 +3863,9 @@ export function ReaderScreen() {
       );
       readerScrollRef.current?.scrollTo({
         x: galleryPagedMode ? xOffset : 0,
-        y: galleryPagedMode ? 0 : scrollingPageOffsetForIndex(nextPageIndex),
+        y: galleryPagedMode ? 0 : scrollingPageOffsetForIndex(nextPageIndex, fraction),
         index: galleryPagedMode ? undefined : nextPageIndex,
+        fraction: galleryPagedMode ? undefined : fraction,
         animated,
       });
     },
@@ -3808,9 +3924,8 @@ export function ReaderScreen() {
       readerRelayoutAnchorClearTimerRef.current = null;
     }
     readerRelayoutInteractionActiveRef.current = true;
-    readerRelayoutPageAnchorRef.current ??=
-      scrollingVisiblePageIndexRef.current;
-  }, [pagedMode, usePhysicalScrollScrubber]);
+    captureReaderRelayoutAnchor();
+  }, [captureReaderRelayoutAnchor, pagedMode, usePhysicalScrollScrubber]);
 
   const endScrollWidthInteraction = useCallback(() => {
     readerRelayoutInteractionActiveRef.current = false;
@@ -3846,16 +3961,14 @@ export function ReaderScreen() {
           readerScrollMetricsRef.current.progress,
         );
       } else if (!pagedMode) {
-        // A multi-page FlatList has no stable physical content length until
-        // every page is measured. Preserve the visible logical page and let
-        // the post-remount scrollToIndex retry path restore it exactly.
-        readerRelayoutPageAnchorRef.current ??=
-          scrollingVisiblePageIndexRef.current;
+        // Preserve the page (and the spot on it) being read; the remounted
+        // list's restore seek places it again.
+        captureReaderRelayoutAnchor();
       }
       scrollWidthDraftRef.current = nextValue;
       setScrollWidthDraft(nextValue);
     },
-    [pagedMode, usePhysicalScrollScrubber],
+    [captureReaderRelayoutAnchor, pagedMode, usePhysicalScrollScrubber],
   );
 
   const commitScrollWidth = useCallback(
@@ -3958,6 +4071,16 @@ export function ReaderScreen() {
     (pageIndex: number) => {
       if (galleryPagedMode || pageCount <= 0) return;
       const nextPageIndex = clampReaderPageIndex(pageIndex, pageCount);
+      const landing = readerScrollLandingRef.current;
+      if (landing) {
+        // The opening restore is still placing the list: only its own page
+        // ends it; a page passed on the way is never committed.
+        scrollingVisiblePageIndexRef.current = nextPageIndex;
+        if (nextPageIndex === landing.pageIndex) {
+          finishReaderScrollLanding("landed");
+        }
+        return;
+      }
       const programmaticTarget = readerProgrammaticScrollRef.current;
       const requestedPageIndex =
         programmaticTarget?.kind === "page"
@@ -4016,12 +4139,23 @@ export function ReaderScreen() {
     [
       clampedPageIndex,
       clearReaderProgrammaticScroll,
+      finishReaderScrollLanding,
       galleryPagedMode,
       mode,
       pageCount,
       readerLivePageStore,
       syncRoutePage,
     ],
+  );
+  /** Scroll mode: the list came to rest on a page seek's exact offset. */
+  const onScrollingSeekLanded = useCallback(
+    (pageIndex: number) => {
+      const landing = readerScrollLandingRef.current;
+      if (landing && landing.pageIndex === pageIndex) {
+        finishReaderScrollLanding("landed");
+      }
+    },
+    [finishReaderScrollLanding],
   );
 
   /** Scroll mode: the reader state takes the page the list rests on. */
@@ -4053,8 +4187,11 @@ export function ReaderScreen() {
   }, [publishScrollingVisiblePage]);
   const beginReaderUserScroll = useCallback(() => {
     clearReaderProgrammaticScroll();
+    // A drag during the opening restore cancels it: where the reader takes
+    // the list is the real position.
+    finishReaderScrollLanding("user");
     if (!galleryPagedMode) readerUserScrollingRef.current = true;
-  }, [clearReaderProgrammaticScroll, galleryPagedMode]);
+  }, [clearReaderProgrammaticScroll, finishReaderScrollLanding, galleryPagedMode]);
   useEffect(() => {
     // A new chapter or presentation starts outside any user scroll.
     readerUserScrollingRef.current = false;
@@ -4069,6 +4206,8 @@ export function ReaderScreen() {
 
   const onScrollingSeekFailed = useCallback(
     (requestedPageIndex: number) => {
+      // The opening restore keeps its page; its timeout settles it there.
+      if (readerScrollLandingRef.current?.pageIndex === requestedPageIndex) return;
       const programmaticTarget = readerProgrammaticScrollRef.current;
       if (
         programmaticTarget?.kind === "page" &&
@@ -4547,6 +4686,7 @@ export function ReaderScreen() {
 
   const setReaderImageNaturalSize = useCallback(
     (pageId: string, size: MobileImageSize) => {
+      rememberMobileReaderPageNaturalSize(pageId, size);
       setReaderImageSizes((current) => {
         const existing = current.get(pageId);
         if (
@@ -6533,6 +6673,12 @@ export function ReaderScreen() {
       pageCount,
     });
     if (targetPageIndex === null) return;
+    const relayoutFraction =
+      !galleryPagedMode &&
+      readerRelayoutPageAnchorRef.current != null &&
+      clampReaderPageIndex(readerRelayoutPageAnchorRef.current, pageCount) === targetPageIndex
+        ? readerRelayoutPageFractionRef.current
+        : 0;
     if (!readerRelayoutInteractionActiveRef.current) {
       readerRelayoutPageAnchorRef.current = null;
     }
@@ -6544,23 +6690,40 @@ export function ReaderScreen() {
     const nextPageIndex = isTwoPageMode
       ? mobileReaderPageIndexForSettledSpread(readerSpreads, targetFrameIndex, targetPageIndex)
       : targetPageIndex;
+    // Scroll reading, opening the chapter (not a re-anchor after a width
+    // change): the list must come to rest on the page before it counts.
+    const scrollOpeningRestore =
+      !galleryPagedMode &&
+      !restoredReaderKey.startsWith(`${readyFetchedAt}:${chapterId}:`);
+    if (scrollOpeningRestore && nextPageIndex === 0) {
+      // A fresh chapter (or one saved on its first page) already opens at
+      // its very top, title area below the chrome: no seek at all.
+      setPageArrival("initial");
+      setCurrentPageIndex(0);
+      setRestoredReaderKey(restoreReaderKey);
+      syncRoutePage(0);
+      return;
+    }
     armReaderProgrammaticScroll(
       galleryPagedMode
         ? { kind: "frame", frameIndex: targetFrameIndex }
         : { kind: "page", pageIndex: nextPageIndex },
+      scrollOpeningRestore ? READER_SCROLL_RESTORE_LANDING_MS + 500 : undefined,
     );
+    if (scrollOpeningRestore) armReaderScrollLanding(nextPageIndex);
     // Restoring saved progress (or a route page) places the reader; it never
     // counts as having read forward onto that page.
     setPageArrival("initial");
     setCurrentPageIndex(nextPageIndex);
     const timeout = setTimeout(() => {
-      scrollToPageIndex(nextPageIndex, false);
+      scrollToPageIndex(nextPageIndex, false, relayoutFraction);
       setRestoredReaderKey(restoreReaderKey);
     }, 0);
     syncRoutePage(nextPageIndex);
     return () => clearTimeout(timeout);
   }, [
     armReaderProgrammaticScroll,
+    armReaderScrollLanding,
     chapterId,
     clampedPageIndex,
     galleryPagedMode,
@@ -6849,7 +7012,7 @@ export function ReaderScreen() {
 
   useEffect(() => {
     if (pagesState.status !== "ready") return;
-    if (!readerRestoreComplete) return;
+    if (!readerProgressRestoreComplete) return;
     if (
       pageCount === 1 &&
       !shouldCompleteSingleImageReaderPage({
@@ -6887,7 +7050,7 @@ export function ReaderScreen() {
     pageCount,
     pagesState.status,
     persistProgress,
-    readerRestoreComplete,
+    readerProgressRestoreComplete,
     readerImageSizes,
     readerPageIdentityFor,
     currentSegmentedImage,
@@ -7017,6 +7180,8 @@ export function ReaderScreen() {
       settleReaderUserScroll();
       return;
     }
+    // The opening restore decides the page until it lands.
+    if (readerScrollLandingRef.current) return;
     const nextPageIndex = clampReaderPageIndex(
       scrollingVisiblePageIndexRef.current,
       pageCount,
@@ -7123,6 +7288,15 @@ export function ReaderScreen() {
           naturalSize: readerPageSizeAt(index) ?? readerImageSizes.get(readerPageIdentityFor(page)),
         });
       }
+      // Scroll reading: the frame is the page's cell in the scroll layout,
+      // placeholder or loaded, so cells never change size under the reader
+      // except when a page's real size replaces its estimate.
+      const scrollLayoutHeight = readerScrollLayout
+        ? readerScrollLayout.heights[readerDisplayIndexByPageId.get(page.id) ?? -1]
+        : undefined;
+      if (scrollLayoutHeight != null && scrollLayoutHeight > 0) {
+        return { width: readerImageWidth, height: scrollLayoutHeight };
+      }
       return getMobileReaderImageFrameSize({
         imageWidth: readerImageWidth,
         naturalSize: readerImageSizes.get(readerPageIdentityFor(page)),
@@ -7144,6 +7318,7 @@ export function ReaderScreen() {
       readerPageSizeAt,
       readerSafeContentWidth,
       readerPageCurlActive,
+      readerScrollLayout,
       readerSpreadSlots,
       readerSpreads,
     ],
@@ -9452,6 +9627,8 @@ export function ReaderScreen() {
         onUserScrollSettle={settleReaderUserScroll}
         onScrollingPageLayout={onScrollingPageLayout}
         onScrollingSeekFailed={onScrollingSeekFailed}
+        onScrollingSeekLanded={onScrollingSeekLanded}
+        scrollPageLayout={readerScrollLayout}
         onScrollingVisiblePageChange={onScrollingVisiblePageChange}
         onRetry={() => {
           setPagesRefreshNonce((value) => value + 1);
