@@ -401,6 +401,26 @@ function statusIsland(bounds: Rect, insets: Insets, occlusions: Rect[]): Rect | 
 }
 
 /**
+ * The top inset the scroll list is padded by: one that does not change when
+ * the status bar shows or hides with the chrome. The iPhone Duo reports its
+ * status island as a top inset only while the status bar is shown (82pt, then
+ * 0), and a list padding that follows it is shifted by the native scroll
+ * anchoring when the chrome hides. Its island shares the capsule row, so the
+ * stable top there is 0 in both states. Elsewhere (a status bar spanning the
+ * top, the Dynamic Island) the inset does not change with the status bar and
+ * is used as is.
+ */
+export function mobileReaderStableTopInset(
+  layout: Pick<MobileWindowLayout, "width" | "height" | "occlusions">,
+  insets: Pick<Insets, "top">,
+): number {
+  const top = Math.max(0, insets.top);
+  const bounds: Rect = { x: 0, y: 0, width: layout.width, height: layout.height };
+  const occlusions = layout.occlusions.filter((rect) => rect.active);
+  return statusIsland(bounds, { top, left: 0, right: 0, bottom: 0 }, occlusions) ? 0 : top;
+}
+
+/**
  * Icon buttons in the actions capsule: Japanese Learning contributes two
  * (detect text, nemu chat), every other enabled plugin one, plus the bilingual
  * toggle when shown and settings.

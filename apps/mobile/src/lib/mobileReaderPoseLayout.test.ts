@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  mobileReaderStableTopInset,
   mobileReaderFrameInsets,
   mobileReaderPopoverPlacement,
   mobileReaderPoseLayout,
@@ -1649,5 +1650,39 @@ describe("reader pose: laptop pose keeps the actions on top", () => {
   test("panel open: the console row keeps its actions on top", () => {
     const result = pose(innerPortrait([hinge(0, 455.5, 669, 40)]), { notebookFold: true });
     expect(result.chrome.kind).toBe("console");
+  });
+});
+
+describe("reader scroll: stable top inset", () => {
+  // Duo inner display: the 134×82 status island and its 82pt top inset come
+  // and go with the status bar (the chrome).
+  const island = { id: "status", x: 817, y: 0, width: 134, height: 82, active: true };
+  const shown: MobileWindowLayout = {
+    width: 951, height: 669, supported: true, divisions: [], occlusions: [island],
+    safeAreaInsets: { top: 82, left: 0, bottom: 34, right: 0 },
+  };
+  const hidden: MobileWindowLayout = { ...shown, occlusions: [], safeAreaInsets: { top: 0, left: 0, bottom: 34, right: 0 } };
+
+  test("the Duo's status island never moves the list: 0 with the status bar shown and hidden", () => {
+    expect(mobileReaderStableTopInset(shown, { top: 82 })).toBe(0);
+    expect(mobileReaderStableTopInset(hidden, { top: 0 })).toBe(0);
+    // The island still reported while the inset is already gone (or the reverse).
+    expect(mobileReaderStableTopInset(shown, { top: 0 })).toBe(0);
+    expect(mobileReaderStableTopInset(hidden, { top: 82 })).toBe(82);
+  });
+
+  test("an inactive island is not one", () => {
+    expect(mobileReaderStableTopInset({ ...shown, occlusions: [{ ...island, active: false }] }, { top: 82 })).toBe(82);
+  });
+
+  test("phones (Dynamic Island, notch, no reported occlusions) keep the live inset", () => {
+    const proMax: MobileWindowLayout = { width: 440, height: 956, supported: false, divisions: [], occlusions: [] };
+    expect(mobileReaderStableTopInset(proMax, { top: 62 })).toBe(62);
+    expect(mobileReaderStableTopInset(proMax, { top: 0 })).toBe(0);
+  });
+
+  test("a status bar spanning the top (wider than most of the window) keeps the inset", () => {
+    const wide = { ...shown, occlusions: [{ ...island, x: 0, width: 951 }] };
+    expect(mobileReaderStableTopInset(wide, { top: 82 })).toBe(82);
   });
 });

@@ -1377,6 +1377,28 @@ export function MobileReaderGallery({
     listRef.current?.scrollToOffset({ offset: relayout.offset, animated: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- geometry is the trigger; the rest is read at that moment.
   }, [pagedMode, readerImageWidth, readerPageWidth, scrollMountKey, windowHeight]);
+  // Scroll mode: a change of the list's top padding (a safe-area inset that
+  // came or went) is compensated by maintainVisibleContentPosition, which
+  // moves the offset by the difference and strands the page that far from
+  // the reading line. Re-place the page being read (and the spot on it)
+  // through a held seek; the content-size event of the new padding applies it.
+  const chromeTopPaddingTrackRef = useRef<{ mountKey: string; padding: number } | null>(null);
+  useLayoutEffect(() => {
+    const previous = chromeTopPaddingTrackRef.current;
+    chromeTopPaddingTrackRef.current = { mountKey: scrollMountKey, padding: chromeTopPadding };
+    if (
+      pagedMode ||
+      !previous ||
+      previous.mountKey !== scrollMountKey ||
+      Math.abs(previous.padding - chromeTopPadding) < 0.5
+    ) {
+      return;
+    }
+    const anchor = scrollAnchorRef.current;
+    // A seek still held (the opening restore) is re-placed by the same event.
+    if (!scrollPageLayoutRef.current || !anchor || pendingPageSeekRef.current) return;
+    pendingPageSeekRef.current = holdMobileReaderPageSeek(anchor, true);
+  }, [chromeTopPadding, pagedMode, scrollMountKey]);
   const readerStatePadding = {
     paddingTop: stateTopPadding,
     paddingBottom: bottomPadding,

@@ -29,6 +29,7 @@ import {
   mobileReaderNextSideInsetLatch,
   mobileReaderPoseLayout,
   mobileReaderSideInsetLatchKey,
+  mobileReaderStableTopInset,
   MOBILE_READER_HINGE_HINT_TIMEOUT_MS,
   type MobileReaderSideInsetLatch,
   mobileReaderVerticalBarPolicy,
@@ -3766,7 +3767,11 @@ export function ReaderScreen() {
     ? insets.top + 80
     : Math.max(insets.top + 8, 12);
   const readerCompactControlsHeight = 82;
-  const readerScrollTopInset = insets.top + 80;
+  // Not the live inset: the Duo's status island comes and goes with the
+  // status bar (chrome shown / hidden), and a list padding that followed it
+  // was shifted 82pt by the native scroll anchoring on every auto-hide.
+  const readerScrollTopInset =
+    mobileReaderStableTopInset(readerFoldedWindowLayout, insets) + 80;
   // The segmented list's leading padding (see the gallery's chromeTopPadding).
   const readerSegmentTopInset =
     readerPose.chrome.kind === "console" ? 0 : readerScrollTopInset;
