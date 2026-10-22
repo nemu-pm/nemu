@@ -14,11 +14,12 @@ import {
  */
 
 /**
- * Seamless continuation in scroll mode. Off: a chapter's end shows the
- * end-of-chapter prompt and the next chapter opens with a route replace,
- * exactly as before.
+ * Seamless continuation in scroll mode (the only mode it applies to: paged,
+ * two-page and single long-strip chapters always turn chapters as before).
+ * Off: a chapter's end shows the end-of-chapter prompt and the next chapter
+ * opens with a route replace, exactly as before.
  */
-export const readerSeamlessScroll = false;
+export const readerSeamlessScroll = true;
 
 /** The divider's own box (two centred lines). */
 export const MOBILE_READER_STRIP_DIVIDER_HEIGHT = 64;
