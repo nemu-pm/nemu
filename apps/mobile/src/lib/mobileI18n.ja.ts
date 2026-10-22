@@ -1322,7 +1322,7 @@ export const mobileStringsJa: MobileStrings = {
     notebookHideFilmstrip: "フィルムストリップを隠す",
     notebookClosePanel: "下部パネルを隠す",
     notebookShowPanel: "下部パネルを表示",
-    notebookFilmstrip: "章のページ",
+    notebookFilmstrip: "この話のページ",
     coverPage: "表紙の配置",
     filmstripSpoilerSafe: "未読ページのプレビューを隠す",
     filmstripSpoilerSafeDescription: "保存された読書位置を含め、既読ページのみ表示します。",
