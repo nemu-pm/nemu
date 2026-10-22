@@ -5436,13 +5436,39 @@ export function ReaderScreen() {
     setContinuousReaderScrubActive(false);
   }, [settleReaderProgrammaticScroll]);
 
+  // Seamless scroll, past the end of the last chapter there is: the list's
+  // "Caught up" divider says it, so no end-of-chapter card — the chapter is
+  // only marked complete (once), as the card would. False: not that end.
+  const readerStripCaughtUpCompletedRef = useRef<string | null>(null);
+  const completeReaderStripCaughtUp = useCallback((): boolean => {
+    if (
+      !readerStrip ||
+      readerStrip.currentIndex !== readerStrip.segments.length - 1 ||
+      readerStrip.tail?.kind !== "end"
+    ) {
+      return false;
+    }
+    if (readerStripCaughtUpCompletedRef.current === chapterId) return true;
+    readerStripCaughtUpCompletedRef.current = chapterId;
+    if (chapterCompleteCelebration) void hapticConfirm();
+    void persistProgressRef.current(true, visibleProgressPageIndex, {
+      silent: true,
+    }).catch(() => {
+      // Not saved: the next try past the end saves it again.
+      if (readerStripCaughtUpCompletedRef.current === chapterId) {
+        readerStripCaughtUpCompletedRef.current = null;
+      }
+    });
+    return true;
+  }, [chapterCompleteCelebration, chapterId, readerStrip, visibleProgressPageIndex]);
+
   const stepContinuousReaderAccessibility = useCallback(
     (direction: "previous" | "next") => {
       const metrics = readerScrollMetricsRef.current;
       if (!metrics.scrollable || metrics.maximumOffset <= 0) return;
       const action = readerContinuousAccessibilityAction(metrics, direction);
       if (action.kind === "end") {
-        if (direction === "next") showEndOfChapterPrompt();
+        if (direction === "next" && !completeReaderStripCaughtUp()) showEndOfChapterPrompt();
         return;
       }
       readerScrollRef.current?.scrollToProgress(
@@ -5450,7 +5476,7 @@ export function ReaderScreen() {
         true,
       );
     },
-    [showEndOfChapterPrompt],
+    [completeReaderStripCaughtUp, showEndOfChapterPrompt],
   );
 
   // Book / laptop posture page controls: one screen (the viewport less the
@@ -5466,8 +5492,10 @@ export function ReaderScreen() {
         top: readerSafeInsetTop,
         bottom: readerSafeInsetBottom,
       });
+      // The steps before reach the list's end (the "Caught up" divider on
+      // screen); one more stays there.
       if (action.kind === "end") {
-        if (direction === "next") showEndOfChapterPrompt();
+        if (direction === "next" && !completeReaderStripCaughtUp()) showEndOfChapterPrompt();
         return;
       }
       readerScrollRef.current?.scrollToProgress(
@@ -5475,7 +5503,7 @@ export function ReaderScreen() {
         true,
       );
     },
-    [readerSafeInsetBottom, readerSafeInsetTop, showEndOfChapterPrompt],
+    [completeReaderStripCaughtUp, readerSafeInsetBottom, readerSafeInsetTop, showEndOfChapterPrompt],
   );
 
   // Book / laptop posture side pane (Laptop Mode: thumbnails, a column beside
@@ -9347,31 +9375,17 @@ export function ReaderScreen() {
   // Past the list's end: the end-of-chapter prompt only when the next
   // chapter failed or is locked; while it is joining the list, nothing. At
   // the true end (nothing follows) the list's "Caught up" divider says it:
-  // no card, the chapter is only marked complete (once), as the card would.
-  const readerStripCaughtUpCompletedRef = useRef<string | null>(null);
+  // no card (see `completeReaderStripCaughtUp`).
   const onGalleryRequestAdvancePastEnd = useCallback(() => {
     const strip = readerStripRef.current.strip;
     if (strip) {
       if (strip.currentIndex !== strip.segments.length - 1) return;
       const tail = strip.tail;
       if (tail?.kind === "next" && (tail.status === "idle" || tail.status === "loading")) return;
-      if (tail?.kind === "end") {
-        if (readerStripCaughtUpCompletedRef.current === chapterId) return;
-        readerStripCaughtUpCompletedRef.current = chapterId;
-        if (chapterCompleteCelebration) void hapticConfirm();
-        void persistProgressRef.current(true, visibleProgressPageIndex, {
-          silent: true,
-        }).catch(() => {
-          // Not saved: a later pull past the end tries again.
-          if (readerStripCaughtUpCompletedRef.current === chapterId) {
-            readerStripCaughtUpCompletedRef.current = null;
-          }
-        });
-        return;
-      }
     }
+    if (completeReaderStripCaughtUp()) return;
     showEndOfChapterPrompt();
-  }, [chapterCompleteCelebration, chapterId, showEndOfChapterPrompt, visibleProgressPageIndex]);
+  }, [completeReaderStripCaughtUp, showEndOfChapterPrompt]);
   const onGalleryRequestRetreatPastStart = useCallback(() => {
     const strip = readerStripRef.current.strip;
     if (strip) {
