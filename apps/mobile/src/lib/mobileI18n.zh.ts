@@ -1241,6 +1241,8 @@ export const mobileStringsZh: MobileStrings = {
     filmstripSpoilerSafeDescription: "仅预览已读页面，包含此前保存的阅读进度。",
     filmstripPreviewFailed: "第 {{page}} 页预览加载失败，点按重试。",
     filmstripUnreadPage: "第 {{page}} 页，尚未阅读",
+    bookScrollUp: "向上翻一屏",
+    bookScrollDown: "向下翻一屏",
   },
   japaneseLearningDictionary: {
     title: "设备端词典",

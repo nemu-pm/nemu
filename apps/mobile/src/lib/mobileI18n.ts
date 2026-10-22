@@ -1145,6 +1145,9 @@ export type MobileStrings = {
     filmstripSpoilerSafeDescription: string;
     filmstripPreviewFailed: string;
     filmstripUnreadPage: string;
+    /** Book posture, scroll reading: the side half's page controls. */
+    bookScrollUp: string;
+    bookScrollDown: string;
   };
   /** On-device Japanese dictionary pack (reader analysis + settings). */
   japaneseLearningDictionary: {

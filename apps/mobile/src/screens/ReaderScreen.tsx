@@ -176,6 +176,7 @@ import { useMobileDeviceFormFactor } from "@/lib/mobileOrientationStore";
 import { mobileAdaptiveLayout } from "@/lib/mobileAdaptiveLayout";
 import { ReaderDisplaySettingsPopover } from "@/components/reader/ReaderDisplaySettingsPopover";
 import { ReaderNotebookPane } from "@/components/reader/ReaderNotebookPane";
+import { ReaderBookSidePane } from "@/components/reader/ReaderBookSidePane";
 import { LinearGradient } from "expo-linear-gradient";
 import {
   MobileReaderGallery,
@@ -338,6 +339,7 @@ import {
   clampReaderPageIndex,
   getReaderContinuousScrollMetrics,
   readerContinuousAccessibilityAction,
+  readerContinuousScreenStep,
   readerDisplayIndexForRoutePage,
   readerDisplayIndexForSourceIndex,
   readerDisplayIndexFromOffset,
@@ -416,6 +418,8 @@ import {
   MOBILE_READER_SCROLL_PLACEHOLDER_COLOR,
   MOBILE_READER_SCROLL_SIDE_MARGIN,
   mobileReaderScrollPageGaps,
+  mobileReaderBookScrollStrip,
+  isMobileReaderScrollStripChapter,
   mobileReaderScrollSideMargin,
 } from "@/lib/mobileReaderScrollPresentation";
 import {
@@ -734,6 +738,8 @@ type JapaneseLearningTtsState =
 const CHAPTER_FINISHED_BELOW_INSET = 72;
 const EMPTY_READER_SOURCE_LANGUAGES: string[] = [];
 const EMPTY_READER_VISITED_PAGES: ReadonlySet<number> = new Set();
+const EMPTY_READER_BOOK_THUMBNAIL_KEYS: readonly (string | null)[] = [];
+const EMPTY_READER_BOOK_THUMBNAIL_RATIOS: readonly number[] = [];
 /** Top scrim: dark at the edge (status glyphs), gone by the feather below the row. */
 const READER_TOP_SCRIM_COLORS = [
   "rgba(0,0,0,0.62)",
@@ -2753,8 +2759,12 @@ export function ReaderScreen() {
         // Laptop pose: the actions stay on top with the panel closed too.
         notebookFold: readerNotebookFold,
         sheetSide,
+        // Book posture, scroll reading: the strip keeps its half and the
+        // other half shows the Laptop Mode content.
+        scrollSidePane: !pagedMode,
       }),
     [
+      pagedMode,
       readerSheetSide,
       readerNotebookFold,
       readerPageAspectRatio,
@@ -3256,7 +3266,40 @@ export function ReaderScreen() {
     && readerWindowLayout.divisions.length > 0
     && readerPose.posture === "flat"
   );
-  const readerImageWidth = pagedMode
+  const readerSourceViewerKey = makeMobileSourceDetailCacheKey(registryId, sourceId, mangaId);
+  // Book posture, scroll reading: the strip fills its half less 8pt either
+  // side for ordinary manga, edge to edge for a webtoon strip.
+  const readerBookScrollStripChapter = useMemo(
+    () =>
+      readerPose.sidePane && !galleryPagedMode
+        ? isMobileReaderScrollStripChapter(
+            displayedPages.length,
+            readerPageSizeAt,
+            readerSourceViewer?.key === readerSourceViewerKey
+              ? readerSourceViewer.viewer
+              : null,
+          )
+        : false,
+    [
+      displayedPages.length,
+      galleryPagedMode,
+      readerPageSizeAt,
+      readerPose.sidePane,
+      readerSourceViewer,
+      readerSourceViewerKey,
+    ],
+  );
+  const readerBookScrollStrip =
+    readerPose.sidePane && !galleryPagedMode
+      ? mobileReaderBookScrollStrip({
+          paneWidth: readerStage.width,
+          stripChapter: readerBookScrollStripChapter,
+          widthScale: readerScrollWidthScale(activeScrollWidthPct),
+        })
+      : null;
+  const readerImageWidth = readerBookScrollStrip
+    ? readerBookScrollStrip.imageWidth
+    : pagedMode
     ? isTwoPageMode
       ? Math.max(1, readerSafeContentWidth / 2)
       : // The whole page as large as fits: a regular-width window (an iPad, the
@@ -3271,7 +3314,6 @@ export function ReaderScreen() {
         : [],
     [currentSegmentedImage, pageCount, readerImageWidth],
   );
-  const readerSourceViewerKey = makeMobileSourceDetailCacheKey(registryId, sourceId, mangaId);
   // Vertical list spacing: webtoon strips meet edge to edge, ordinary pages
   // keep 8pt; a 100% page width has no side margin. Paged mode ignores both.
   const readerScrollPageGaps = useMemo(
@@ -3296,7 +3338,9 @@ export function ReaderScreen() {
   // (A paged chapter's single long page shown as a strip keeps its margin.)
   const readerScrollSideMargin = pagedMode
     ? MOBILE_READER_SCROLL_SIDE_MARGIN
-    : mobileReaderScrollSideMargin(activeScrollWidthPct);
+    : readerBookScrollStrip
+      ? readerBookScrollStrip.sideMargin
+      : mobileReaderScrollSideMargin(activeScrollWidthPct);
   // Scroll reading: every page's height is known up front — its own size
   // (decoded now, earlier this session, measured, or sent by the source),
   // else the chapter's typical page — so a page index is one exact offset.
@@ -4867,6 +4911,61 @@ export function ReaderScreen() {
     },
     [showEndOfChapterPrompt],
   );
+
+  // Book posture page controls: one screen (the viewport less the safe
+  // areas, 12% kept on screen), animated by the list itself.
+  const readerSafeInsetTop = readerPose.safeInsets.top;
+  const readerSafeInsetBottom = readerPose.safeInsets.bottom;
+  const stepReaderScrollScreen = useCallback(
+    (direction: "previous" | "next") => {
+      const metrics = readerScrollMetricsRef.current;
+      if (!metrics.scrollable || metrics.maximumOffset <= 0) return;
+      const action = readerContinuousScreenStep(metrics, direction, {
+        top: readerSafeInsetTop,
+        bottom: readerSafeInsetBottom,
+      });
+      if (action.kind === "end") {
+        if (direction === "next") showEndOfChapterPrompt();
+        return;
+      }
+      readerScrollRef.current?.scrollToProgress(
+        action.offset / metrics.maximumOffset,
+        true,
+      );
+    },
+    [readerSafeInsetBottom, readerSafeInsetTop, showEndOfChapterPrompt],
+  );
+
+  // Book posture side pane (Laptop Mode: thumbnails). A thumbnail shows the
+  // page's own image: a processed (descrambled) page only once its file is
+  // there — never the source's scrambled original while processing waits.
+  const readerBookSidePane = !galleryPagedMode ? (readerPose.sidePane ?? null) : null;
+  const readerBookThumbnails = readerBookSidePane !== null && readerNotebookPanePreference === "filmstrip";
+  const readerBookThumbnailKeys = useMemo(
+    () =>
+      readerBookThumbnails
+        ? displayedPages.map((page) =>
+            !page.imageUri || page.imageProcessing === "pending"
+              ? null
+              : `${page.id}\u0001${page.imageUri}`,
+          )
+        : EMPTY_READER_BOOK_THUMBNAIL_KEYS,
+    [displayedPages, readerBookThumbnails],
+  );
+  const readerBookThumbnailRatios = useMemo(
+    () =>
+      readerBookThumbnails
+        ? mobileReaderScrollPageRatios(displayedPages.length, readerPageSizeAt)
+        : EMPTY_READER_BOOK_THUMBNAIL_RATIOS,
+    [displayedPages.length, readerBookThumbnails, readerPageSizeAt],
+  );
+  const readerBookSelectPage = useCallback(
+    (index: number) => goToPage(index, "initial", { animated: true }),
+    [goToPage],
+  );
+  const toggleReaderControls = useCallback(() => {
+    setShowControls((value) => !value);
+  }, []);
 
   const goToNextChapterFromPrompt = useCallback(() => {
     if (endOfChapterProgressSaving) return;
@@ -10327,6 +10426,29 @@ export function ReaderScreen() {
         onFinished={readerPageFlip.finish}
       />
       </Animated.View>
+
+      {readerBookSidePane ? (
+        <ReaderBookSidePane
+          // A new chapter starts a new list (scroll position, follow state).
+          key={chapterId}
+          layout={readerBookSidePane}
+          content={readerNotebookPanePreference}
+          backgroundColor={readerBackgroundColor}
+          strings={strings}
+          chapterTitle={formatChapterTitle(chapter, strings)}
+          pageCount={pageCount}
+          thumbnailRatios={readerBookThumbnailRatios}
+          thumbnailKeys={readerBookThumbnailKeys}
+          thumbnailUri={readerNotebookThumbnailUri}
+          revealed={readerNotebookRevealed}
+          spoilerSafe={!readerThumbnailSpoilerSafeReady || readerThumbnailSpoilerSafe}
+          liveStore={readerLivePageStore}
+          committedIndex={clampedPageIndex}
+          onSelectPage={readerBookSelectPage}
+          onStep={stepReaderScrollScreen}
+          onToggleControls={toggleReaderControls}
+        />
+      ) : null}
 
       {bilingualLayout ? (
         <DuoBilingualSpread

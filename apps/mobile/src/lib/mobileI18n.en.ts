@@ -1319,6 +1319,8 @@ export const mobileStringsEn: MobileStrings = {
     filmstripSpoilerSafeDescription: "Show only pages already read, including saved progress.",
     filmstripPreviewFailed: "Page {{page}} preview failed. Tap to retry.",
     filmstripUnreadPage: "Page {{page}}, not read yet",
+    bookScrollUp: "Scroll up one screen",
+    bookScrollDown: "Scroll down one screen",
   },
   japaneseLearningDictionary: {
     title: "On-device dictionary",

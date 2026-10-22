@@ -1328,6 +1328,8 @@ export const mobileStringsJa: MobileStrings = {
     filmstripSpoilerSafeDescription: "保存された読書位置を含め、既読ページのみ表示します。",
     filmstripPreviewFailed: "{{page}}ページのプレビューを読み込めませんでした。タップして再試行。",
     filmstripUnreadPage: "{{page}}ページ（未読）",
+    bookScrollUp: "1画面上へ",
+    bookScrollDown: "1画面下へ",
   },
   japaneseLearningDictionary: {
     title: "端末内辞書",
