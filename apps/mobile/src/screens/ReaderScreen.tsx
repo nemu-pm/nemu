@@ -3805,7 +3805,15 @@ export function ReaderScreen() {
     isTwoPageMode && readerChromePageIndex === clampedPageIndex
       ? readerSpreads[currentSpreadIndex]
       : undefined;
-  const readerTopPageCountLabel = readerChromePageCountLabel({
+  // Scroll reading's opening restore: until the list rests on the restored
+  // spot the reader's page is not known yet (page 1 before the seek, the
+  // target before the centre page is read), so the counter stays empty
+  // rather than flash a wrong number under the landing cover.
+  const readerOpeningCounterHidden =
+    !galleryPagedMode &&
+    pagesState.status === "ready" &&
+    !readerProgressRestoreComplete;
+  const readerTopPageCountLabel = readerOpeningCounterHidden ? null : readerChromePageCountLabel({
     pagesStatus: pagesState.status,
     pageNumber: readerChromeSourcePageNumber,
     pageCount,
@@ -3823,7 +3831,7 @@ export function ReaderScreen() {
       ? readerLivePageStore
       : undefined;
   const readerPageCountLabelAt = (displayIndex: number): string | null =>
-    displayIndex === clampedPageIndex || pageCount <= 0
+    displayIndex === clampedPageIndex || pageCount <= 0 || readerOpeningCounterHidden
       ? readerTopPageCountLabel
       : readerChromePageCountLabel({
           pagesStatus: pagesState.status,
