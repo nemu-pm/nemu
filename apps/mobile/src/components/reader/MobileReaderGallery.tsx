@@ -108,6 +108,10 @@ import {
   nextMobileReaderScrollDirection,
   type MobileReaderScrollDirection,
 } from "@/lib/mobileReaderPageWindow";
+import {
+  MOBILE_READER_SCROLL_PAGE_SPACING,
+  MOBILE_READER_SCROLL_SIDE_MARGIN,
+} from "@/lib/mobileReaderScrollPresentation";
 
 type MobileReaderGalleryState = {
   status: string;
@@ -232,6 +236,13 @@ type MobileReaderGalleryProps = {
   scrollPageRenderKeys?: ReadonlyMap<string, string> | null;
   /** Scroll mode: changes whenever every page's rendering may change. */
   scrollPageRenderEpoch?: unknown;
+  /**
+   * Scroll mode: space above each page (by display index). Webtoon strips
+   * meet edge to edge; ordinary pages keep a small gap.
+   */
+  scrollPageGaps?: readonly number[] | null;
+  /** Scroll mode: the list's side margin (0 at a 100% page width). */
+  scrollSideMargin?: number;
   renderImageSegment?: (frame: MobileReaderSegmentFrame) => ReactNode;
   segmentedImageFrames?: ReadonlyArray<MobileReaderSegmentFrame>;
   sourcePageForDisplayIndex: (displayIndex: number) => number;
@@ -326,6 +337,7 @@ type MobileReaderScrollPageCellProps = {
   page: MobileReaderPage;
   index: number;
   inRenderWindow: boolean;
+  gapBefore: number;
   renderKey: string | undefined;
   renderEpoch: unknown;
   renderImage: MobileReaderGalleryProps["renderImage"];
@@ -345,6 +357,7 @@ const MobileReaderScrollPageCell = memo(
     page,
     index,
     inRenderWindow,
+    gapBefore,
     renderImage,
     onScrollingPageLayout,
     fallbackPage,
@@ -360,7 +373,9 @@ const MobileReaderScrollPageCell = memo(
               }
             : undefined
         }
-        style={[styles.scrollingFrame, { width: "100%" }]}
+        // The space sits above the page as a margin, outside the measured
+        // frame, so a page's layout height is its picture alone.
+        style={[styles.scrollingFrame, { width: "100%", marginTop: gapBefore }]}
       >
         {page.imageUri ? (
           renderImage(page, { inRenderWindow })
@@ -374,6 +389,7 @@ const MobileReaderScrollPageCell = memo(
     previous.page === next.page &&
     previous.index === next.index &&
     previous.inRenderWindow === next.inRenderWindow &&
+    previous.gapBefore === next.gapBefore &&
     previous.renderKey === next.renderKey &&
     previous.renderEpoch === next.renderEpoch &&
     previous.onScrollingPageLayout === next.onScrollingPageLayout &&
@@ -437,6 +453,8 @@ export function MobileReaderGallery({
   renderImageSegment,
   scrollPageRenderKeys,
   scrollPageRenderEpoch,
+  scrollPageGaps,
+  scrollSideMargin = MOBILE_READER_SCROLL_SIDE_MARGIN,
   segmentedImageFrames,
   sourcePageForDisplayIndex,
   spreads,
@@ -1605,6 +1623,10 @@ export function MobileReaderGallery({
               scrollRenderWindow.anchor,
               scrollRenderWindow.direction,
             )}
+            gapBefore={
+              scrollPageGaps?.[index] ??
+              (index === 0 ? 0 : MOBILE_READER_SCROLL_PAGE_SPACING)
+            }
             renderKey={scrollPageRenderKeys?.get(page.id)}
             renderEpoch={scrollPageRenderEpoch}
             renderImage={renderImage}
@@ -1673,6 +1695,7 @@ export function MobileReaderGallery({
       readerPageWidth,
       renderImage,
       renderImageSegment,
+      scrollPageGaps,
       scrollPageRenderEpoch,
       scrollPageRenderKeys,
       scrollRenderWindow.anchor,
@@ -1721,8 +1744,11 @@ export function MobileReaderGallery({
             paddingTop: chromeTopPadding,
             paddingBottom: bottomPadding,
           },
+      pagedMode || segmentedMode
+        ? null
+        : { paddingHorizontal: scrollSideMargin },
     ],
-    [bottomPadding, chromeTopPadding, pagedMode, segmentedMode],
+    [bottomPadding, chromeTopPadding, pagedMode, scrollSideMargin, segmentedMode],
   );
 
   const galleryInitialScrollIndex =
@@ -2169,8 +2195,10 @@ const styles = StyleSheet.create({
   },
   scrollingContent: {
     alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 10,
+    // Page spacing is per page (`scrollPageGaps`, a margin above each cell):
+    // a flat 10pt gap here was the black bar between webtoon strips.
+    gap: 0,
+    paddingHorizontal: MOBILE_READER_SCROLL_SIDE_MARGIN,
   },
   segmentedContent: {
     alignItems: "center",

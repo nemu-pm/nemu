@@ -400,7 +400,13 @@ import {
   shouldPrefetchMobileReaderNextChapter,
 } from "@/lib/mobileReaderPagePrefetch";
 import { createMobileReaderLivePageStore } from "@/lib/mobileReaderLivePage";
-import { MOBILE_READER_SCROLL_PLACEHOLDER_COLOR } from "@/lib/mobileReaderScrollPresentation";
+import {
+  MOBILE_READER_SCROLL_PAGE_SPACING,
+  MOBILE_READER_SCROLL_PLACEHOLDER_COLOR,
+  MOBILE_READER_SCROLL_SIDE_MARGIN,
+  mobileReaderScrollPageGaps,
+  mobileReaderScrollSideMargin,
+} from "@/lib/mobileReaderScrollPresentation";
 import {
   MOBILE_PERFORMANCE_MARKS,
   markMobilePerformance,
@@ -3019,7 +3025,20 @@ export function ReaderScreen() {
         : [],
     [currentSegmentedImage, pageCount, readerImageWidth],
   );
-  const scrollingPageExtent = readerImageWidth * 1.45 + 10;
+  // Vertical list spacing: webtoon strips meet edge to edge, ordinary pages
+  // keep 8pt; a 100% page width has no side margin. Paged mode ignores both.
+  const readerScrollPageGaps = useMemo(
+    () =>
+      galleryPagedMode
+        ? null
+        : mobileReaderScrollPageGaps(displayedPages.length, readerPageSizeAt),
+    [displayedPages.length, galleryPagedMode, readerPageSizeAt],
+  );
+  // (A paged chapter's single long page shown as a strip keeps its margin.)
+  const readerScrollSideMargin = pagedMode
+    ? MOBILE_READER_SCROLL_SIDE_MARGIN
+    : mobileReaderScrollSideMargin(activeScrollWidthPct);
+  const scrollingPageEstimatedHeight = readerImageWidth * 1.45;
   const scrollingPageOffsetForIndex = useCallback(
     (pageIndex: number): number => {
       const targetIndex = clampReaderPageIndex(pageIndex, pageCount);
@@ -3028,12 +3047,16 @@ export function ReaderScreen() {
         const measuredHeight = scrollingPageMetricsRef.current[index]?.height;
         offset +=
           measuredHeight && measuredHeight > 0
-            ? measuredHeight + 10
-            : scrollingPageExtent;
+            ? measuredHeight
+            : scrollingPageEstimatedHeight;
+      }
+      // Each page's gap sits above it, the target page's own gap included.
+      for (let index = 1; index <= targetIndex; index += 1) {
+        offset += readerScrollPageGaps?.[index] ?? MOBILE_READER_SCROLL_PAGE_SPACING;
       }
       return offset;
     },
-    [pageCount, scrollingPageExtent],
+    [pageCount, readerScrollPageGaps, scrollingPageEstimatedHeight],
   );
   const readyFetchedAt =
     pagesState.status === "ready" ? pagesState.fetchedAt : 0;
@@ -7453,6 +7476,14 @@ export function ReaderScreen() {
           headers={page.headers}
           imageUri={imageUri}
           imageUriOwnership={page.imageUriOwnership ?? "source"}
+          // Scroll reading sizes a loaded page's frame to its own aspect, so
+          // stretch only absorbs sub-point rounding: "contain" there left a
+          // hairline of plate between strips that should meet seamlessly.
+          imageResizeMode={
+            scrollPresentation && readerImageSizes.has(pageIdentity)
+              ? "stretch"
+              : undefined
+          }
           loading={imageLoading}
           quietLoading={scrollPresentation}
           offline={readerConnectivity.offline}
@@ -9488,8 +9519,10 @@ export function ReaderScreen() {
         readerScrollRef={readerScrollRef}
         renderImage={renderReaderImage}
         renderImageSegment={renderReaderImageSegment}
+        scrollPageGaps={readerScrollPageGaps}
         scrollPageRenderEpoch={readerScrollPageRenderEpoch}
         scrollPageRenderKeys={readerScrollPageRenderKeys}
+        scrollSideMargin={readerScrollSideMargin}
         segmentedImageFrames={segmentedImageFrames}
         sourcePageForDisplayIndex={sourcePageForDisplayIndex}
         spreads={readerSpreads}
