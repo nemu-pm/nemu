@@ -328,6 +328,11 @@ export type MobileReaderPageRenderPolicy =
   | "none"
   | "far-placeholder"
   | "processing-placeholder"
+  /**
+   * Processing a page that needs it (descrambling) failed: the reader's
+   * load-failed placeholder with its retry, never the unusable original.
+   */
+  | "processing-failed"
   | "image";
 
 export function getMobileReaderPageRenderPolicy({
@@ -335,6 +340,7 @@ export function getMobileReaderPageRenderPolicy({
   displayIndex,
   hasImageUri,
   processingPending,
+  processingFailed = false,
   windowRadius = MOBILE_READER_PAGE_RENDER_WINDOW,
   inRenderWindow,
 }: {
@@ -342,6 +348,8 @@ export function getMobileReaderPageRenderPolicy({
   displayIndex: number | undefined;
   hasImageUri: boolean;
   processingPending: boolean;
+  /** `imageProcessing: "failed"`: the page's image is unusable. */
+  processingFailed?: boolean;
   windowRadius?: number;
   /** Decided by the caller (the scroll gallery's directional window). */
   inRenderWindow?: boolean;
@@ -356,5 +364,6 @@ export function getMobileReaderPageRenderPolicy({
   if (!near) {
     return "far-placeholder";
   }
+  if (processingFailed) return "processing-failed";
   return processingPending ? "processing-placeholder" : "image";
 }

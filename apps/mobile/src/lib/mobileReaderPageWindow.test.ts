@@ -46,6 +46,16 @@ describe("isMobileReaderPageNearViewport", () => {
 });
 
 describe("getMobileReaderPageRenderPolicy", () => {
+  test("a page whose processing failed is a load failure near the viewport, never its image", () => {
+    const near = { currentPageIndex: 4, displayIndex: 4, hasImageUri: true, processingPending: false };
+    expect(getMobileReaderPageRenderPolicy({ ...near, processingFailed: true })).toBe("processing-failed");
+    // Far away it stays the cheap placeholder like any page.
+    expect(
+      getMobileReaderPageRenderPolicy({ ...near, displayIndex: 4 + MOBILE_READER_PAGE_RENDER_WINDOW + 1, processingFailed: true }),
+    ).toBe("far-placeholder");
+    expect(getMobileReaderPageRenderPolicy(near)).toBe("image");
+  });
+
   test("far pending pages stay cheap placeholders instead of mounting spinners", () => {
     expect(
       getMobileReaderPageRenderPolicy({

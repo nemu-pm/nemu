@@ -47,7 +47,17 @@ type MobileReaderPageBase = {
   headers?: Record<string, string>;
   text?: string;
   context?: Record<string, string>;
-  imageProcessing?: "pending" | "ready" | "fallback";
+  /**
+   * Source processing of the page's image:
+   * - `pending`: not done yet; `imageUri` is the source's original.
+   * - `ready`: processed (an app-owned file or data URI).
+   * - `fallback`: a source with nothing to process (no image processor, or
+   *   processing off): the original, with its rewritten request, is the page.
+   * - `failed`: processing a source that needs it (descrambling, e.g. Jump+)
+   *   failed. `imageUri` is still the unusable original: a load failure,
+   *   never shown; `MobileReaderPageProcessor.retryPage` runs it again.
+   */
+  imageProcessing?: "pending" | "ready" | "fallback" | "failed";
   /** Pixel size reported by the server before download (Komga), for spread pairing. */
   sourceSize?: { width: number; height: number };
 };
@@ -98,6 +108,18 @@ export type MobileReaderPageProcessor = {
     index: number,
     options?: { signal?: AbortSignal; priority?: MobileSourcePriorityInput },
   ): Promise<MobileReaderPage | null>;
+  /**
+   * A page whose processing failed (`imageProcessing: "failed"`), processed
+   * again: its result is dropped (`onUpdate` then shows it pending) and the
+   * page resolved anew. Null when disposed, aborted or nothing to retry.
+   */
+  retryPage?(
+    index: number,
+    options?: {
+      signal?: AbortSignal;
+      onUpdate?: (result: MobileReaderPageWindowResult) => void;
+    },
+  ): Promise<MobileReaderPageWindowResult | null>;
   cancel(): void;
   dispose(): void;
   cacheSize(): number;
@@ -662,6 +684,10 @@ function createMobileReaderPageProcessor({
   const cache = options.sessionCache ?? defaultMobileSourceSessionCache;
   const fetchImpl = options.fetchImpl ?? fetch;
   const processesBytes = options.processPageImages === true && hasImageProcessor;
+  // A page left unprocessed: the original is the page when the source has
+  // nothing to process, a load failure when it needed processing (a
+  // scrambled original must never be shown).
+  const unprocessed = processesBytes ? ("failed" as const) : ("fallback" as const);
   const processedStore =
     options.processedPageStore === undefined
       ? defaultMobileReaderProcessedPageStore
@@ -854,7 +880,7 @@ function createMobileReaderPageProcessor({
         if (session.status === "blocked") {
           return {
             kind: "done",
-            page: { ...basePage, imageProcessing: "fallback" },
+            page: { ...basePage, imageProcessing: unprocessed },
           };
         }
         const resolvedBase64 = session.source.resolvePageImage
@@ -890,7 +916,7 @@ function createMobileReaderPageProcessor({
         if (!request) {
           return {
             kind: "done",
-            page: { ...basePage, imageProcessing: "fallback" },
+            page: { ...basePage, imageProcessing: unprocessed },
           };
         }
         if (!processesBytes) {
@@ -935,7 +961,7 @@ function createMobileReaderPageProcessor({
       return {
         ...mapAidokuPageToReaderPage(page, index, request),
         id: basePage.id,
-        imageProcessing: "fallback",
+        imageProcessing: unprocessed,
       };
     }
     if (identity && processedStore) {
@@ -1120,6 +1146,35 @@ function createMobileReaderPageProcessor({
         resolveOptions.priority ?? "normal",
       );
       return isStale() ? null : resolved;
+    },
+    async retryPage(index, retryOptions = {}) {
+      const signal = retryOptions.signal;
+      const isStale = () => disposed || signal?.aborted === true;
+      if (isStale()) return null;
+      const cached = processedPages.get(index);
+      if (cached?.page.imageProcessing !== "failed") return null;
+      const page = rawPages[index];
+      const basePage = basePages[index];
+      if (!page || !basePage || !isProcessable(index)) return null;
+      // Stays in `targetHandled` (when targeted): the scroll queue does not
+      // pick the page up again while this retry runs.
+      evict(index);
+      try {
+        retryOptions.onUpdate?.(makeResult(generation, []));
+      } catch {
+        // A view subscriber must not stop the retry.
+      }
+      const resolved = await resolvePendingPage(
+        page,
+        basePage,
+        index,
+        isStale,
+        signal,
+        options.priority ?? "user",
+      );
+      if (isStale()) return null;
+      touch(index, resolved);
+      return makeResult(generation, [index]);
     },
     cancel() {
       generation += 1;

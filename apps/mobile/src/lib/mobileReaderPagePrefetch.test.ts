@@ -53,6 +53,10 @@ describe("reader page prefetch plan", () => {
     expect(
       mobileReaderPrefetchImageForPage(page(1, { imageProcessing: "pending" })),
     ).toBeNull();
+    // Processing failed: the scrambled original is never fetched for display.
+    expect(
+      mobileReaderPrefetchImageForPage(page(1, { imageProcessing: "failed" })),
+    ).toBeNull();
     expect(
       mobileReaderPrefetchImageForPage(
         page(1, {

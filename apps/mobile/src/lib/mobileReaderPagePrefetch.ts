@@ -60,7 +60,8 @@ export function mobileReaderPrefetchImageForPage(
   page: MobileReaderPage,
 ): MobileReaderPrefetchImage | null {
   if (!page.imageUri || page.imageUriOwnership !== "source") return null;
-  if (page.imageProcessing === "pending") return null;
+  // Pending: the URI is replaced. Failed: the original is never shown.
+  if (page.imageProcessing === "pending" || page.imageProcessing === "failed") return null;
   const policy = getMobileImageUriPolicy(page.imageUri, "source");
   if (!policy.allowed || policy.kind !== "source-remote") return null;
   return {

@@ -726,7 +726,7 @@ describe("mobile source reader pages", () => {
 
     expect((await result.pageProcessor.processWindow(0))?.pages[0]).toMatchObject({
       imageUri: "https://example.test/oversized.jpg",
-      imageProcessing: "fallback",
+      imageProcessing: "failed",
     });
     expect(result.pageProcessor.cacheByteSize?.()).toBe(0);
   });
@@ -784,7 +784,7 @@ describe("mobile source reader pages", () => {
     expect((await result.pageProcessor.processWindow(0))?.pages[0]).toMatchObject({
       imageUri: "https://example.test/unsafe-dimensions.jpg",
       imageUriOwnership: "source",
-      imageProcessing: "fallback",
+      imageProcessing: "failed",
     });
     expect(result.pageProcessor.cacheByteSize?.()).toBe(0);
   });
@@ -1367,7 +1367,8 @@ describe("mobile source reader pages", () => {
     expect(await processor.resolvePage(6)).toBeNull();
   });
 
-  test("falls back to the source image request when page processing fails", async () => {
+  test("a page whose processing fails is a load failure (never the scrambled original); retry processes it again", async () => {
+    let processCalls = 0;
     const bridge: MobileAidokuExecutorBridge = {
       async loadSource() {
         return {
@@ -1387,7 +1388,8 @@ describe("mobile source reader pages", () => {
               return true;
             },
             async processPageImage() {
-              return null;
+              processCalls += 1;
+              return processCalls > 1 ? VALID_PNG_BYTES : null;
             },
           }),
         };
@@ -1403,9 +1405,11 @@ describe("mobile source reader pages", () => {
           bridge,
           readBytes: async () => makeAixPackage(),
         },
-        fetchImpl: fetchResponse(
-          new Response(new Uint8Array([1, 2, 3]), { status: 200 }),
-        ),
+        // A fresh body per fetch: the retry downloads the page again.
+        fetchImpl: Object.assign(
+          async () => new Response(new Uint8Array([1, 2, 3]), { status: 200 }),
+          { preconnect: () => undefined },
+        ) as typeof fetch,
         processPageImages: true,
       }
     );
@@ -1420,9 +1424,24 @@ describe("mobile source reader pages", () => {
         imageUri: "https://example.test/scrambled.jpg",
         headers: { Referer: "https://example.test" },
         context: { mode: "descramble" },
-        imageProcessing: "fallback",
+        imageProcessing: "failed",
       },
     ]);
+    const processor = result.pageProcessor;
+    // Cached as failed: the window does not loop on it.
+    expect((await processor.processWindow(0))?.pages[0]?.imageProcessing).toBe("failed");
+    expect(processCalls).toBe(1);
+    // Retry: shown pending at once, then processed again.
+    const shown: Array<string | undefined> = [];
+    const retried = await processor.retryPage?.(0, {
+      onUpdate: (update) => shown.push(update.pages[0]?.imageProcessing),
+    });
+    expect(shown).toEqual(["pending"]);
+    expect(processCalls).toBe(2);
+    expect(retried?.processedIndexes).toEqual([0]);
+    expect(retried?.pages[0]).toMatchObject({ imageProcessing: "ready", imageUriOwnership: "app" });
+    // Nothing to retry on a page that did not fail.
+    expect(await processor.retryPage?.(0)).toBeNull();
   });
 
   test("pages that arrive with headers go through the source's native decoration", async () => {

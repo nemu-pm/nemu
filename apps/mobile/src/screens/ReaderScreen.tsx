@@ -2503,6 +2503,28 @@ export function ReaderScreen() {
       pageProcessor.processPages?.([]);
     };
   }, [pageCount, pageProcessor, readerScrollProcessing]);
+  // Retry on a page whose processing failed: processed again (shown pending
+  // meanwhile). Stable, so the scroll cells' memo never changes with it.
+  const retryReaderPageProcessingRef = useRef<(index: number) => void>(() => undefined);
+  retryReaderPageProcessingRef.current = (index) => {
+    if (!pageProcessor?.retryPage) return;
+    const apply = (result: MobileReaderPageWindowResult) =>
+      setPagesState((current) =>
+        current.status === "ready" && current.pageProcessor === pageProcessor
+          ? { ...current, pages: result.pages }
+          : current,
+      );
+    void pageProcessor
+      .retryPage(index, { onUpdate: apply })
+      .then((result) => {
+        if (result) apply(result);
+      })
+      .catch(() => undefined);
+  };
+  const retryReaderPageProcessing = useCallback(
+    (index: number) => retryReaderPageProcessingRef.current(index),
+    [],
+  );
   // Seamless scroll: a chapter the reader crossed out of stays in the list,
   // its processor now the strip's (it disposes it when the chapter leaves).
   const readerStripRetainsProcessorRef = useRef<
@@ -2545,9 +2567,9 @@ export function ReaderScreen() {
   const readerNotebookThumbnailUri = useCallback(
     async (index: number, signal: AbortSignal): Promise<string | null> => {
       const page = displayedPages[index];
-      // A page waiting for its processing holds the source's original (raw,
-      // scrambled for Jump+): never a thumbnail.
-      if (!page?.imageUri || page.imageProcessing === "pending") return null;
+      // A page waiting for its processing, or whose processing failed, holds
+      // the source's original (raw, scrambled for Jump+): never a thumbnail.
+      if (!page?.imageUri || page.imageProcessing === "pending" || page.imageProcessing === "failed") return null;
       if (page.imageUriOwnership === "app") return page.imageUri;
       const resolvedByPageId = readerScrubPreviewUriByPageIdRef.current;
       const memoKey = `${page.id}\u0001${page.imageUri}`;
@@ -3346,6 +3368,8 @@ export function ReaderScreen() {
   // Any page on screen still without an image: tap zones must not turn past it.
   const readerVisiblePageLoading = readerVisiblePages.some((page) => {
     if (page.imageProcessing === "pending") return true;
+    // Processing failed: a load failure, nothing to wait for.
+    if (page.imageProcessing === "failed") return false;
     // A page without an image (text-only) has nothing to wait for.
     if (!page.imageUri) return false;
     const pageIdentity = readerPageIdentityFor(page);
@@ -8771,6 +8795,7 @@ export function ReaderScreen() {
         displayIndex: neighbour ? undefined : readerDisplayIndexByPageId.get(page.id),
         hasImageUri: Boolean(page.imageUri),
         processingPending: page.imageProcessing === "pending",
+        processingFailed: page.imageProcessing === "failed",
         inRenderWindow: galleryPagedMode
           ? undefined
           : placement?.inRenderWindow,
@@ -8830,6 +8855,40 @@ export function ReaderScreen() {
               <ActivityIndicator color="#f8fafc" size="small" />
             )}
           </View>
+        );
+      }
+      if (renderPolicy === "processing-failed") {
+        // Processing a page that needs it (descrambling) failed: the load
+        // failure (its copy and Retry, which processes the page again), never
+        // the scrambled original.
+        return (
+          <MobileReaderPageFrame
+            withholdImage
+            backgroundColor={
+              scrollPresentation
+                ? MOBILE_READER_SCROLL_PLACEHOLDER_COLOR
+                : readerBackgroundColor
+            }
+            frameSize={readerImageFrameSize}
+            imageUri={imageUri}
+            imageUriOwnership={page.imageUriOwnership ?? "source"}
+            loading={false}
+            quietLoading={scrollPresentation}
+            error="processing-failed"
+            strings={strings}
+            onImageError={() => undefined}
+            onImageLoad={() => undefined}
+            onImageLoadStart={() => undefined}
+            onRetry={
+              neighbour
+                ? undefined
+                : () => {
+                    // The processor's index: the page's place in the list.
+                    const index = readerDisplayIndexByPageId.get(page.id);
+                    if (index !== undefined) retryReaderPageProcessing(index);
+                  }
+            }
+          />
         );
       }
       const imageError = readerImageErrors.get(pageIdentity);
@@ -9002,6 +9061,7 @@ export function ReaderScreen() {
       readerZoomTapBand,
       readerTwoFingerDoubleTap,
       retryReaderImage,
+      retryReaderPageProcessing,
       selectJapaneseLearningDetection,
       setReaderImageLoadError,
       setReaderImageNaturalSize,

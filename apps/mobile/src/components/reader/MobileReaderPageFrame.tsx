@@ -48,6 +48,11 @@ type MobileReaderPageFrameProps = {
   /** Clears the latched failure and re-requests this page's image. */
   onRetry?: () => void;
   onSegmentedImage?: (asset: MobileCachedSegmentedImageAsset | null) => void;
+  /**
+   * The page's image must not be shown (its processing failed: the source's
+   * scrambled original): only the frame and its status, never a request.
+   */
+  withholdImage?: boolean;
 };
 
 export function MobileReaderPageFrame({
@@ -70,6 +75,7 @@ export function MobileReaderPageFrame({
   onImageLoadStart,
   onRetry,
   onSegmentedImage,
+  withholdImage = false,
 }: MobileReaderPageFrameProps) {
   const canRetry = Boolean(error) && Boolean(onRetry);
   const showStatus = Boolean(error) || (loading && !quietLoading);
@@ -97,7 +103,7 @@ export function MobileReaderPageFrame({
         },
       ]}
     >
-      <MobileCachedImage
+      {withholdImage ? null : <MobileCachedImage
         cacheKind="page"
         allowLongStripSegments={allowLongStripSegments}
         cacheKey={cacheKey}
@@ -118,7 +124,7 @@ export function MobileReaderPageFrame({
         onSegmentedImage={onSegmentedImage}
         resizeMode={imageResizeMode}
         style={styles.readerImage}
-      />
+      />}
       {showStatus ? (
         <View
           // A failed page must be recoverable: the overlay only stays inert

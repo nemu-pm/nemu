@@ -50,7 +50,8 @@ export function useReaderScrubPreviewThumbnails({
   }, [pages]);
 
   const lookup = useCallback((page: MobileReaderPage | undefined): string | null => {
-    if (!page?.imageUri) return null;
+    // Processing failed: the original (scrambled) is never shown.
+    if (!page?.imageUri || page.imageProcessing === "failed") return null;
     if (page.imageUriOwnership === "app") return page.imageUri;
     const key = thumbnailKey(page);
     const remembered = cacheRef.current.get(key);
@@ -89,7 +90,7 @@ export function useReaderScrubPreviewThumbnails({
     const revealed = (index: number) => isRevealedRef.current?.(index) ?? true;
     const request = (index: number) => {
       const page = pages[index];
-      if (!page?.imageUri || page.imageUriOwnership === "app") return;
+      if (!page?.imageUri || page.imageUriOwnership === "app" || page.imageProcessing === "failed") return;
       if (inFlight.has(index) || !revealed(index) || lookup(page) != null) return;
       const controller = new AbortController();
       inFlight.set(index, controller);

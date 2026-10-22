@@ -190,14 +190,14 @@ export function mobileReaderBookThumbnailFollowOffset(
 /**
  * The image a book-pane thumbnail shows: the page id and its current image
  * URI, or null while there is nothing it may show — no image yet, or a page
- * still waiting for its source processing (its `imageUri` is then the
- * source's original, which a scrambling source such as Jump+ serves
- * scrambled).
+ * still waiting for its source processing or whose processing failed (its
+ * `imageUri` is then the source's original, which a scrambling source such
+ * as Jump+ serves scrambled): the cell shows its page number on grey.
  */
 export function mobileReaderBookThumbnailKey(
   page: { id: string; imageUri?: string; imageProcessing?: string } | null | undefined,
 ): string | null {
-  if (!page?.imageUri || page.imageProcessing === "pending") return null;
+  if (!page?.imageUri || page.imageProcessing === "pending" || page.imageProcessing === "failed") return null;
   return `${page.id}\u0001${page.imageUri}`;
 }
 

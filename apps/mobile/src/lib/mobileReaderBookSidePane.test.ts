@@ -223,13 +223,13 @@ describe("book pane thumbnails never show a page's raw original while it is pend
     expect(mobileReaderBookThumbnailKey(undefined)).toBeNull();
     expect(mobileReaderBookThumbnailKey({ id: "p14", imageUri: "file:///p14.webp", imageProcessing: "ready" }))
       .toBe("p14\u0001file:///p14.webp");
-    // "fallback" is unchanged here (processing failed; handled separately).
+    // A source with nothing to process: its original is the page.
     expect(mobileReaderBookThumbnailKey({ id: "p14", imageUri: raw, imageProcessing: "fallback" }))
       .toBe(`p14\u0001${raw}`);
   });
 
   test("the resolver refuses pending pages and remembers per page image, not per page id", () => {
-    expect(readerScreen).toContain('if (!page?.imageUri || page.imageProcessing === "pending") return null;');
+    expect(readerScreen).toContain('if (!page?.imageUri || page.imageProcessing === "pending" || page.imageProcessing === "failed") return null;');
     expect(readerScreen).toContain("const memoKey = `${page.id}\\u0001${page.imageUri}`;");
     expect(readerScreen).not.toContain("resolvedByPageId.get(page.id)");
     expect(readerScreen).not.toContain("resolvedByPageId.set(page.id,");
@@ -249,5 +249,37 @@ describe("book pane thumbnails never show a page's raw original while it is pend
     expect(sidePaneSource).toContain("resolve(index, imageKey, controller.signal)");
     expect(sidePaneSource).toContain("if (uri === READER_BOOK_THUMBNAIL_STALE) return;");
     expect(READER_BOOK_THUMBNAIL_STALE).toBe("stale");
+  });
+});
+
+describe("a page whose processing failed (scrambling source) is a load failure", () => {
+  const readerScreen = readFileSync(path.join(import.meta.dir, "../screens/ReaderScreen.tsx"), "utf8");
+  const pageFrame = readFileSync(path.join(import.meta.dir, "../components/reader/MobileReaderPageFrame.tsx"), "utf8");
+
+  test("the pane thumbnail is the page number on grey: no key, no request", () => {
+    const raw = "https://cdn-ak-img.shonenjumpplus.com/p14.jpg";
+    expect(mobileReaderBookThumbnailKey({ id: "p14", imageUri: raw, imageProcessing: "failed" })).toBeNull();
+  });
+
+  test("the strip shows the existing load-failed frame without the image, and Retry processes the page again", () => {
+    expect(readerScreen).toContain('processingFailed: page.imageProcessing === "failed",');
+    expect(readerScreen).toMatch(/renderPolicy === "processing-failed"\) \{[\s\S]{0,400}<MobileReaderPageFrame\s+withholdImage/);
+    expect(readerScreen).toContain("retryReaderPageProcessing(index)");
+    expect(readerScreen).toMatch(/pageProcessor\s*\.retryPage\(index, \{ onUpdate: apply \}\)/);
+    // The frame never mounts the image when withheld; its copy stays the existing one.
+    expect(pageFrame).toContain("{withholdImage ? null : <MobileCachedImage");
+    expect(pageFrame).toContain("strings.reader.pageImageFailed");
+    expect(pageFrame).toContain("label={strings.common.retry}");
+  });
+});
+
+describe("the scrub preview never shows a failed page's original", () => {
+  test("lookup and request both skip it", () => {
+    const scrub = readFileSync(
+      path.join(import.meta.dir, "../components/reader/useReaderScrubPreviewThumbnails.ts"),
+      "utf8",
+    );
+    expect(scrub).toContain('if (!page?.imageUri || page.imageProcessing === "failed") return null;');
+    expect(scrub).toContain('page.imageUriOwnership === "app" || page.imageProcessing === "failed") return;');
   });
 });
