@@ -78,6 +78,42 @@ export function mobileReaderScrollPageRatios(
 }
 
 /**
+ * The height / width a page with no size of its own was first laid out at,
+ * by page identity, for the reader's lifetime (see
+ * mobileReaderScrollStablePageRatios).
+ */
+export type MobileReaderScrollRowEstimates = Map<string, number>;
+
+/**
+ * Like mobileReaderScrollPageRatios, but a page with no size of its own
+ * keeps the estimate it was first laid out with until its own size is known
+ * — whichever chapter is the open one, whatever the chapter's median does.
+ * A median follows the chapter's decoded pages (one odd page — a short
+ * "to be continued" slice — halves it, the next one restores it): every
+ * unknown row of the chapter moved with it at once, above the screen too,
+ * which put the reading line tens of pages away. Rows only ever change by
+ * their own real size now. `estimates` is written (first estimate wins).
+ */
+export function mobileReaderScrollStablePageRatios(
+  pageCount: number,
+  sizeAt: (index: number) => MobileReaderScrollPageSize | null | undefined,
+  keyAt: (index: number) => string | null,
+  estimates: MobileReaderScrollRowEstimates,
+  fallbackRatio?: number | null,
+): number[] {
+  const ratios = mobileReaderScrollPageRatios(pageCount, sizeAt, fallbackRatio);
+  for (let index = 0; index < ratios.length; index += 1) {
+    if (ratioOf(sizeAt(index)) != null) continue;
+    const key = keyAt(index);
+    if (key == null) continue;
+    const kept = estimates.get(key);
+    if (kept != null) ratios[index] = kept;
+    else estimates.set(key, ratios[index]!);
+  }
+  return ratios;
+}
+
+/**
  * The typical page of a layout (median height / width of its pages with a
  * real size); null when none is known yet.
  */

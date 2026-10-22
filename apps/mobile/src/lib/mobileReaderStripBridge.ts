@@ -216,9 +216,14 @@ export function mergeMobileReaderStripRowsSettle(
 
 /**
  * The check once the list reported its new size: the offset must now be
- * `before + jsDelta` (the same picture at the reading line). When it is not
- * and the reader is not scrolling, the list is put there (an absolute
- * offset: harmless if the native correction is merely late).
+ * `before + jsDelta` (the same picture at the reading line).
+ * - At rest, when it is not, the list is put there (an absolute offset:
+ *   harmless if the native correction is merely late).
+ * - While the reader scrolls the finger moves the offset too, so only a
+ *   correction the native list clearly skipped (it moved less than half the
+ *   rows' change — r12: +30662 asked, -13 moved) is made, by the rows'
+ *   change from where the list is now: what maintainVisibleContentPosition
+ *   itself does mid-drag (a contentOffset step; the drag goes on from it).
  */
 export function resolveMobileReaderStripRowsSettle(
   settle: MobileReaderStripRowsSettle,
@@ -228,8 +233,16 @@ export function resolveMobileReaderStripRowsSettle(
   const expected = settle.before + settle.jsDelta;
   const moved = nativeOffset - settle.before;
   const ok = Math.abs(nativeOffset - expected) <= 1;
-  return { expected, moved, ok, fixTo: ok || userScrolling ? null : expected };
+  if (ok) return { expected, moved, ok, fixTo: null };
+  if (!userScrolling) return { expected, moved, ok, fixTo: expected };
+  const skipped =
+    Math.abs(settle.jsDelta) >= MOBILE_READER_STRIP_ROWS_SETTLE_MIN_SCROLLING_FIX &&
+    Math.abs(moved) < Math.abs(settle.jsDelta) / 2;
+  return { expected, moved, ok, fixTo: skipped ? nativeOffset + settle.jsDelta : null };
 }
+
+/** Below this (pt) a skipped correction mid-scroll is left alone (finger noise). */
+export const MOBILE_READER_STRIP_ROWS_SETTLE_MIN_SCROLLING_FIX = 24;
 
 /**
  * After a head shift: whether the list left the open chapter's spot (more

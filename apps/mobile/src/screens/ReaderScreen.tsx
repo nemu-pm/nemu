@@ -193,10 +193,8 @@ import {
 } from "@/components/reader/useReaderChapterStrip";
 import {
   combineMobileReaderStripLayouts,
-  freezeMobileReaderStripRowsAbove,
   isMobileReaderStripHeadRemovalOffscreen,
   MOBILE_READER_STRIP_PREPEND_MODE,
-  type MobileReaderStripRowHeights,
   mobileReaderStripCrossing,
   mobileReaderStripHeadRemoval,
   mobileReaderStripRows,
@@ -493,8 +491,9 @@ import {
   mobileReaderScrollAnchorForOffset,
   mobileReaderScrollOffsetForAnchor,
   mobileReaderScrollKnownMedianRatio,
-  mobileReaderScrollPageRatios,
+  mobileReaderScrollStablePageRatios,
   recallMobileReaderPageNaturalSize,
+  type MobileReaderScrollRowEstimates,
   rememberMobileReaderPageNaturalSize,
   type MobileReaderScrollPageAnchor,
 } from "@/lib/mobileReaderScrollLayout";
@@ -3598,11 +3597,21 @@ export function ReaderScreen() {
   // crossing into the chapter below — stands in at it, not at 1:1.45, so
   // its rows do not all rescale the moment one of its pages decodes.
   const readerTypicalPageRatioRef = useRef<number | null>(null);
+  // Every page with no size of its own keeps the estimate it was first laid
+  // out with (by page identity) until its own size is known — open chapter
+  // or neighbour, before and after a crossing: rows above the reading line
+  // never move with a chapter's median (see mobileReaderScrollStablePageRatios).
+  const readerRowEstimatesRef = useRef<MobileReaderScrollRowEstimates>(new Map());
   const readerScrollLayout = useMemo(() => {
     if (!readerScrollLayoutEnabled) return null;
-    const ratios = mobileReaderScrollPageRatios(
+    const ratios = mobileReaderScrollStablePageRatios(
       displayedPages.length,
       readerPageSizeAt,
+      (index) => {
+        const page = displayedPages[index];
+        return page ? readerPageIdentityFor(page) : null;
+      },
+      readerRowEstimatesRef.current,
       readerTypicalPageRatioRef.current,
     );
     const layout = buildMobileReaderScrollLayout(
@@ -3790,15 +3799,14 @@ export function ReaderScreen() {
     },
     [readerImageSizes, readerPageIdentityForChapter, readerStablePageSizeKeyForChapter],
   );
-  // The list's last row heights (by row key), for the rows of the chapters
-  // above the open one that have no size yet (see freezeMobileReaderStripRowsAbove).
-  const readerStripRowHeightsRef = useRef<{ width: number; heights: MobileReaderStripRowHeights } | null>(null);
   const readerStripLayout = useMemo(() => {
     if (!readerStrip || !readerStripRows || !readerScrollLayout) return null;
     // A neighbour with no page size yet stands in at the open chapter's
     // typical page (a series keeps one format), not 1:1.45: its rows are
-    // near their real heights when they join.
-    const openRatio = mobileReaderScrollKnownMedianRatio(readerScrollLayout, readerImageWidth);
+    // near their real heights when they join — and keep that estimate
+    // (readerRowEstimatesRef) until their own size is known.
+    const openRatio =
+      mobileReaderScrollKnownMedianRatio(readerScrollLayout, readerImageWidth) ?? readerTypicalPageRatioRef.current;
     const layouts = readerStrip.segments.map((segment, index) => {
       if (index === readerStrip.currentIndex) return readerScrollLayout;
       const sizeAt = (pageIndex: number) => {
@@ -3806,7 +3814,16 @@ export function ReaderScreen() {
         return page ? readerStripPageSize(segment.chapter.id, page) : null;
       };
       const count = segment.pages.length;
-      const ratios = mobileReaderScrollPageRatios(count, sizeAt, openRatio);
+      const ratios = mobileReaderScrollStablePageRatios(
+        count,
+        sizeAt,
+        (pageIndex) => {
+          const page = segment.pages[pageIndex];
+          return page ? readerPageIdentityForChapter(segment.chapter.id, page) : null;
+        },
+        readerRowEstimatesRef.current,
+        openRatio,
+      );
       return buildMobileReaderScrollLayout(
         ratios.map((ratio) => readerImageWidth * ratio),
         mobileReaderScrollPageGaps(count, sizeAt, readerStripViewer),
@@ -3817,18 +3834,7 @@ export function ReaderScreen() {
         }),
       );
     });
-    const combined = combineMobileReaderStripLayouts(readerStripRows, layouts);
-    // Rows above the open chapter never rescale en masse when one of their
-    // chapter's pages decodes (only a row's own size moves it).
-    const kept = readerStripRowHeightsRef.current;
-    const frozen = freezeMobileReaderStripRowsAbove(
-      readerStripRows,
-      readerStrip.currentIndex,
-      combined,
-      kept && kept.width === readerImageWidth ? kept.heights : null,
-    );
-    readerStripRowHeightsRef.current = { width: readerImageWidth, heights: frozen.heights };
-    return frozen.layout;
+    return combineMobileReaderStripLayouts(readerStripRows, layouts);
   }, [
     readerImageSizes,
     readerImageWidth,
@@ -9504,6 +9510,11 @@ export function ReaderScreen() {
     (globalIndex: number) => {
       const { strip, rows } = readerStripRef.current;
       const bridge = readerStripBridgeRef.current;
+      // Rows above changed and the list has not been checked yet: the
+      // centre may be read against rows the native offset did not follow
+      // (r12: p270 of 306 for a moment) — neither a crossing nor a page of
+      // the open chapter. The settle reports the centre again.
+      if (strip && readerGalleryScrollRef.current?.rowsSettling() === true) return;
       if (strip && rows) {
         const crossing = mobileReaderStripCrossing(rows, strip, globalIndex);
         if (crossing && crossIntoReaderStripSegmentRef.current(crossing)) return;
@@ -9643,12 +9654,13 @@ export function ReaderScreen() {
   const readerStripSourceName = selectedInstalledSource?.name ?? null;
   // The rows settled (see readerStripRowsSettling): a crossing or a head
   // prune held back meanwhile is judged again now.
-  const onGalleryRowsSettled = useCallback(() => {
+  const onGalleryRowsSettled = useCallback((corrected: boolean) => {
     recheckReaderStripPrune();
+    // Put back: the list's next scroll event reports the centre.
+    if (corrected) return;
     const centre = readerGalleryScrollRef.current?.centrePageIndex() ?? null;
-    const { strip, rows } = readerStripRef.current;
-    if (centre == null || !strip || !rows) return;
-    if (mobileReaderStripCrossing(rows, strip, centre)) onGalleryScrollingVisiblePageChange(centre);
+    if (centre == null || !readerStripRef.current.strip) return;
+    onGalleryScrollingVisiblePageChange(centre);
   }, [onGalleryScrollingVisiblePageChange, recheckReaderStripPrune]);
   // Pull prepend mode: the chapter above the list's first one, shown while
   // the list is pulled past its top (and fetched when let go past 72pt).

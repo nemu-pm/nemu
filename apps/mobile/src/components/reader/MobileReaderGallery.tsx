@@ -246,7 +246,7 @@ type MobileReaderGalleryProps = {
    * Scroll mode: rows inserted / removed above or resized above the reading
    * line were checked (see MobileReaderScrollHandle.rowsSettling).
    */
-  onRowsSettled?: () => void;
+  onRowsSettled?: (corrected: boolean) => void;
   /**
    * Paged mode: reading-order index of the page (or spread, in two-page mode)
    * the reader state says is on screen. Chapter edges are judged from this and
@@ -1118,6 +1118,7 @@ export function MobileReaderGallery({
   const rowsSettleRef = useRef<{
     settle: MobileReaderStripRowsSettle;
     events: number;
+    eventsAfterContent: number;
     contentSeen: boolean;
     tries: number;
     timer: ReturnType<typeof setTimeout> | null;
@@ -1144,8 +1145,10 @@ export function MobileReaderGallery({
     const pending = rowsSettleRef.current;
     if (!pending) return;
     // The native correction's own scroll event may still be on its way:
-    // give it a few frames before judging the offset.
-    if (!timedOut && pending.events === 0 && pending.tries < 3) {
+    // give it a few frames before judging the offset (mid-scroll, an event
+    // sent after the new size — an earlier one may predate the commit).
+    const waiting = galleryUserScrolling() ? pending.eventsAfterContent === 0 : pending.events === 0;
+    if (!timedOut && waiting && pending.tries < 3) {
       pending.tries += 1;
       pending.frame = requestAnimationFrame(() => {
         pending.frame = null;
@@ -1158,13 +1161,15 @@ export function MobileReaderGallery({
     const native = latestRawOffsetRef.current;
     const scrolling = galleryUserScrolling();
     const seekHeld = pendingPageSeekRef.current != null;
-    const result = resolveMobileReaderStripRowsSettle(settle, native, scrolling || seekHeld);
+    // A held seek owns the offset (it re-places in the new rows' terms).
+    const judged = resolveMobileReaderStripRowsSettle(settle, native, scrolling);
+    const result = seekHeld ? { ...judged, fixTo: null } : judged;
     console.info(
       `[reader-strip-diag] settle kind=${settle.kind} rows=${settle.rows} before=${Math.round(settle.before)} after=${Math.round(
         native,
       )} moved=${Math.round(result.moved)} jsDelta=${Math.round(settle.jsDelta)} rowsHeight=${Math.round(
         settle.rowsHeight,
-      )} expected=${Math.round(result.expected)} ok=${result.ok} events=${pending.events} content=${pending.contentSeen} timedOut=${timedOut} scrolling=${scrolling} seek=${seekHeld} fix=${
+      )} expected=${Math.round(result.expected)} ok=${result.ok} events=${pending.events}/${pending.eventsAfterContent} content=${pending.contentSeen} timedOut=${timedOut} scrolling=${scrolling} seek=${seekHeld} fix=${
         result.fixTo != null ? Math.round(result.fixTo) : "none"
       }`,
     );
@@ -1173,16 +1178,21 @@ export function MobileReaderGallery({
     if (result.fixTo != null) {
       // An absolute offset in the new rows' terms: no event is stale now.
       scrollHeadShiftRef.current = null;
+      // The centre read meanwhile was not reported (see rowsSettling): the
+      // next event reports it again even when it is the same row.
+      lastCentrePageRef.current = null;
       listRef.current?.scrollToOffset({ offset: result.fixTo, animated: false });
     }
-    onRowsSettledRef.current?.();
+    onRowsSettledRef.current?.(result.fixTo != null);
   };
   /** The list reported (an event or its new size): judge the offset soon. */
   const noteRowsSettleReport = (kind: "event" | "content") => {
     const pending = rowsSettleRef.current;
     if (!pending) return;
-    if (kind === "event") pending.events += 1;
-    else pending.contentSeen = true;
+    if (kind === "event") {
+      pending.events += 1;
+      if (pending.contentSeen) pending.eventsAfterContent += 1;
+    } else pending.contentSeen = true;
     if (!pending.contentSeen || pending.frame != null) return;
     pending.frame = requestAnimationFrame(() => {
       pending.frame = null;
@@ -1196,6 +1206,7 @@ export function MobileReaderGallery({
     const next = {
       settle: mergeMobileReaderStripRowsSettle(pending?.settle ?? null, settle),
       events: 0,
+      eventsAfterContent: 0,
       contentSeen: false,
       tries: 0,
       timer: null as ReturnType<typeof setTimeout> | null,

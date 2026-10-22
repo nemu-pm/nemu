@@ -5,7 +5,6 @@ import path from "node:path";
 import {
   appendMobileReaderStripSegment,
   combineMobileReaderStripLayouts,
-  freezeMobileReaderStripRowsAbove,
   isMobileReaderStripHeadRemovalOffscreen,
   mobileReaderStripCrossing,
   mobileReaderStripHeadRemoval,
@@ -18,7 +17,6 @@ import {
   shouldPrependMobileReaderStripSegment,
   shouldSpliceMobileReaderStripPrevious,
   type MobileReaderStrip,
-  type MobileReaderStripRowHeights,
 } from "./mobileReaderChapterStrip";
 import { chooseMobileReaderResumePosition } from "./mobileReaderResumePosition";
 import {
@@ -28,7 +26,9 @@ import {
   mobileReaderScrollKnownMedianRatio,
   mobileReaderScrollOffsetForAnchor,
   mobileReaderScrollPageRatios,
+  mobileReaderScrollStablePageRatios,
   MOBILE_READER_SCROLL_DEFAULT_PAGE_RATIO,
+  type MobileReaderScrollRowEstimates,
   type MobileReaderScrollLayout,
 } from "./mobileReaderScrollLayout";
 import {
@@ -321,10 +321,23 @@ const TOG_SLICE = WIDTH * TOG_RATIO; // 360
 
 type Sizes = Map<string, { width: number; height: number }>;
 
-/** A chapter's layout as the reader builds it (ReaderScreen readerStripLayout). */
-function sizedLayout(chapterId: string, count: number, sizes: Sizes, fallbackRatio: number | null) {
+/**
+ * A chapter's layout as the reader builds it (ReaderScreen readerScrollLayout
+ * / readerStripLayout): with `estimates`, a page with no size keeps its first
+ * estimate (mobileReaderScrollStablePageRatios); without, the r11 rule (the
+ * chapter's median of the moment).
+ */
+function sizedLayout(
+  chapterId: string,
+  count: number,
+  sizes: Sizes,
+  fallbackRatio: number | null,
+  estimates: MobileReaderScrollRowEstimates | null = null,
+) {
   const sizeAt = (index: number) => sizes.get(`${chapterId}:${index}`) ?? null;
-  const ratios = mobileReaderScrollPageRatios(count, sizeAt, fallbackRatio);
+  const ratios = estimates
+    ? mobileReaderScrollStablePageRatios(count, sizeAt, (index) => `${chapterId}:${index}`, estimates, fallbackRatio)
+    : mobileReaderScrollPageRatios(count, sizeAt, fallbackRatio);
   return buildMobileReaderScrollLayout(
     ratios.map((ratio) => WIDTH * ratio),
     new Array(count).fill(0),
@@ -341,37 +354,41 @@ function decodedAll(chapterId: string, count: number, sizes: Sizes) {
 
 /**
  * The strip's combined layout with the reader's rules: the open chapter's
- * own layout, neighbours seeded from its median (`seed`), rows above frozen
- * (`freeze`, carrying `kept` between commits).
+ * own layout, neighbours seeded from its median (`seed`), every unknown row
+ * keeping its first estimate (`stable`, the reader's readerRowEstimatesRef
+ * carried in `kept` between commits).
  */
 function readerStripList(
   strip: MobileReaderStrip<Chapter, Page>,
   sizes: Sizes,
   options: {
     seed: boolean;
-    freeze: boolean;
-    /** Carried between commits as the reader's refs (frozen heights, the session's typical page). */
-    kept: { heights: MobileReaderStripRowHeights | null; typical?: number | null };
+    stable: boolean;
+    /** Carried between commits as the reader's refs (row estimates, the session's typical page). */
+    kept: { estimates: MobileReaderScrollRowEstimates; typical?: number | null };
   },
 ) {
   const rows = mobileReaderStripRows(strip);
   const starts = mobileReaderStripSegmentStarts(rows, strip.segments.length);
   const open = strip.segments[strip.currentIndex]!;
-  const openLayout = sizedLayout(open.chapter.id, open.pages.length, sizes, options.seed ? (options.kept.typical ?? null) : null);
+  const estimates = options.stable ? options.kept.estimates : null;
+  const openLayout = sizedLayout(
+    open.chapter.id,
+    open.pages.length,
+    sizes,
+    options.seed ? (options.kept.typical ?? null) : null,
+    estimates,
+  );
   if (options.seed) options.kept.typical = mobileReaderScrollKnownMedianRatio(openLayout, WIDTH) ?? options.kept.typical ?? null;
-  const openRatio = options.seed ? mobileReaderScrollKnownMedianRatio(openLayout, WIDTH) : null;
-  const combined = combineMobileReaderStripLayouts(
+  const openRatio = options.seed ? (mobileReaderScrollKnownMedianRatio(openLayout, WIDTH) ?? options.kept.typical ?? null) : null;
+  const layout = combineMobileReaderStripLayouts(
     rows,
     strip.segments.map((segment, index) =>
-      index === strip.currentIndex ? openLayout : sizedLayout(segment.chapter.id, segment.pages.length, sizes, openRatio),
+      index === strip.currentIndex
+        ? openLayout
+        : sizedLayout(segment.chapter.id, segment.pages.length, sizes, openRatio, estimates),
     ),
   );
-  let layout = combined;
-  if (options.freeze) {
-    const frozen = freezeMobileReaderStripRowsAbove(rows, strip.currentIndex, combined, options.kept.heights);
-    options.kept.heights = frozen.heights;
-    layout = frozen.layout;
-  }
   const bridge: MobileReaderStripBridge = {
     indexBase: starts[strip.currentIndex] ?? 0,
     offsetBase: mobileReaderStripSegmentOffset(layout, starts, strip.currentIndex),
@@ -388,13 +405,13 @@ describe("seamless scroll: rows above never rescale when a page of their chapter
    * the anchor row's JS start delta — what the settle check enforces) and
    * what an un-moved native offset would read.
    */
-  function run(options: { seed: boolean; freeze: boolean; openDecoded: number }) {
+  function run(options: { seed: boolean; stable: boolean; openDecoded: number }) {
     const sizes: Sizes = new Map();
     // The open chapter: its first pages decoded (the screen at p1).
     for (let index = 0; index < options.openDecoded; index += 1) {
       sizes.set(`${OPEN.id}:${index}`, { width: WIDTH, height: TOG_SLICE });
     }
-    const kept = { heights: null as MobileReaderStripRowHeights | null };
+    const kept = { estimates: new Map() as MobileReaderScrollRowEstimates };
     const before = readerStripList(
       { segments: [{ chapter: OPEN, pages: pagesOf(OPEN_PAGES) }], currentIndex: 0, tail: null },
       sizes,
@@ -434,7 +451,7 @@ describe("seamless scroll: rows above never rescale when a page of their chapter
   }
 
   test("the bug: 1:1.45 rows rescaled by one decode put the reading line deep in the previous chapter", () => {
-    const { decoded, afterInsert, delta, rowsResized } = run({ seed: false, freeze: false, openDecoded: 0 });
+    const { decoded, afterInsert, delta, rowsResized } = run({ seed: false, stable: false, openDecoded: 0 });
     // Every row of the chapter above moved at once (~+25%).
     expect(rowsResized).toBe(PREVIOUS_PAGES);
     expect(delta).toBeCloseTo(PREVIOUS_PAGES * WIDTH * (TOG_RATIO - MOBILE_READER_SCROLL_DEFAULT_PAGE_RATIO), 6);
@@ -454,8 +471,8 @@ describe("seamless scroll: rows above never rescale when a page of their chapter
     expect(mobileReaderStripCrossing(decoded.rows, decoded.strip, measure(decoded, settle.fixTo!).centre!)).toBeNull();
   });
 
-  test("frozen rows above: only the decoded row changes (its own real size); no crossing", () => {
-    const { inserted, decoded, afterInsert, delta, rowsResized, anchorRow } = run({ seed: false, freeze: true, openDecoded: 0 });
+  test("stable estimates: only the decoded row changes (its own real size); no crossing", () => {
+    const { inserted, decoded, afterInsert, delta, rowsResized, anchorRow } = run({ seed: false, stable: true, openDecoded: 0 });
     expect(rowsResized).toBe(1);
     // The other rows above keep the height they joined with.
     for (let row = 0; row < PREVIOUS_PAGES - 1; row += 1) {
@@ -476,7 +493,7 @@ describe("seamless scroll: rows above never rescale when a page of their chapter
   test("seeded from the open chapter's median: the rows join at their real height; a decode moves nothing", () => {
     const { inserted, decoded, afterInsert, delta, rowsResized, jsInserted, insertedHeight } = run({
       seed: true,
-      freeze: true,
+      stable: true,
       openDecoded: 3,
     });
     expect(inserted.layout.heights[0]).toBeCloseTo(TOG_SLICE, 6);
@@ -488,7 +505,7 @@ describe("seamless scroll: rows above never rescale when a page of their chapter
     expect(resumeSave(decoded, seen.anchor)).toEqual({ chapterId: OPEN.id, pageIndex: 1, fraction: expect.any(Number) });
   });
 
-  test("the settle check: an offset that followed is left alone; a moving list is never fought", () => {
+  test("the settle check: an offset that followed is left alone; one the native list skipped is corrected, mid-drag too", () => {
     const settle = mergeMobileReaderStripRowsSettle(
       { kind: "head-shift", before: 400, jsDelta: 54_000, rowsHeight: 54_000, rows: 151 },
       { kind: "above-resize", before: 54_400, jsDelta: 70, rowsHeight: 70, rows: 0 },
@@ -501,7 +518,156 @@ describe("seamless scroll: rows above never rescale when a page of their chapter
       fixTo: null,
     });
     expect(resolveMobileReaderStripRowsSettle(settle, 400, false).fixTo).toBe(54_470);
-    expect(resolveMobileReaderStripRowsSettle(settle, 400, true).fixTo).toBeNull();
+    // Mid-drag: the finger moved it a little as well — followed, left alone.
+    expect(resolveMobileReaderStripRowsSettle(settle, 54_470 - 26, true).fixTo).toBeNull();
+    // Mid-drag, skipped (r12 645→644: +30662 asked, -13 moved): stepped by
+    // the rows' change from where the finger has it now.
+    const reverse = { kind: "above-resize" as const, before: 223_815, jsDelta: 30_662, rowsHeight: 30_662, rows: 0 };
+    expect(resolveMobileReaderStripRowsSettle(reverse, 223_801, true)).toEqual({
+      expected: 254_477,
+      moved: -14,
+      ok: false,
+      fixTo: 254_463,
+    });
+    // Finger noise around a small change is never "corrected".
+    const small = { kind: "above-resize" as const, before: 1_000, jsDelta: 12, rowsHeight: 12, rows: 0 };
+    expect(resolveMobileReaderStripRowsSettle(small, 1_003, true).fixTo).toBeNull();
+    expect(resolveMobileReaderStripRowsSettle(small, 1_003, false).fixTo).toBe(1_012);
+  });
+
+  test("backward crossing into the chapter above: its unknown rows keep their estimate when it becomes the open one (r12 645→644)", () => {
+    const ABOVE_PAGES = 306;
+    const OPEN_RATIO = 1.8;
+    // 645 open, fully decoded; 644 joined above at 645's typical page; its
+    // last page (a short "to be continued" slice) decoded at the splice.
+    const short = { width: WIDTH, height: WIDTH * 1.0 };
+    const runCross = () => {
+      const stable = true;
+      const sizes: Sizes = new Map();
+      decodedAll(OPEN.id, OPEN_PAGES, sizes);
+      const kept = { estimates: new Map() as MobileReaderScrollRowEstimates, typical: null as number | null };
+      const options = { seed: true, stable, kept };
+      const two: MobileReaderStrip<Chapter, Page> = {
+        segments: [
+          { chapter: PREVIOUS, pages: pagesOf(ABOVE_PAGES) },
+          { chapter: OPEN, pages: pagesOf(OPEN_PAGES) },
+        ],
+        currentIndex: 1,
+        tail: null,
+      };
+      readerStripList({ segments: [two.segments[1]!], currentIndex: 0, tail: null }, sizes, options);
+      readerStripList(two, sizes, options); // joined: every 644 row at 1:1.8
+      sizes.set(`${PREVIOUS.id}:${ABOVE_PAGES - 1}`, short);
+      readerStripList(two, sizes, options);
+      // Pulling up into it: p305 decodes before the crossing.
+      sizes.set(`${PREVIOUS.id}:${ABOVE_PAGES - 2}`, { width: WIDTH, height: WIDTH * OPEN_RATIO });
+      const joined = readerStripList(two, sizes, options);
+      // Pulled up to 644's last pages: the centre crosses backward.
+      const lastRow = joined.starts[0]! + ABOVE_PAGES - 1;
+      // The reading line (screen centre) 50pt into 644's p305.
+      const offset = joined.layout.starts[lastRow - 1]! + 50 - VIEWPORT / 2;
+      const centre = measure(joined, offset).centre!;
+      expect(mobileReaderStripCrossing(joined.rows, joined.strip, centre)?.direction).toBe("backward");
+      // 644 becomes the open chapter (its own layout now), then the page
+      // above the screen decodes (a normal slice), then one more.
+      const crossed = readerStripList(rebaseMobileReaderStrip(two, 0), sizes, options);
+      sizes.set(`${PREVIOUS.id}:${ABOVE_PAGES - 3}`, short);
+      const decoded1 = readerStripList(crossed.strip, sizes, options);
+      sizes.set(`${PREVIOUS.id}:${ABOVE_PAGES - 4}`, { width: WIDTH, height: WIDTH * OPEN_RATIO });
+      const decoded2 = readerStripList(crossed.strip, sizes, options);
+      const anchorRow = lastRow - 1;
+      return { joined, crossed, decoded1, decoded2, anchorRow, offset };
+    };
+
+    // The r11 rule, once 644 is the open chapter: its rows stand in at the
+    // median of its known pages. Known {short p306, p305} → 1:1.4: all 304
+    // unknown rows step down at once; one more normal page → 1:1.8: back up
+    // (the log's -30662 / +30662 above the screen, mid-drag).
+    const known = new Map<string, { width: number; height: number }>([
+      [`${PREVIOUS.id}:${ABOVE_PAGES - 1}`, short],
+      [`${PREVIOUS.id}:${ABOVE_PAGES - 2}`, { width: WIDTH, height: WIDTH * OPEN_RATIO }],
+    ]);
+    const joinedRows = sizedLayout(PREVIOUS.id, ABOVE_PAGES, new Map(), OPEN_RATIO); // seeded at the splice
+    const atCross = sizedLayout(PREVIOUS.id, ABOVE_PAGES, known, null);
+    known.set(`${PREVIOUS.id}:${ABOVE_PAGES - 4}`, { width: WIDTH, height: WIDTH * OPEN_RATIO });
+    const after = sizedLayout(PREVIOUS.id, ABOVE_PAGES, known, null);
+    const line = ABOVE_PAGES - 2;
+    const down = atCross.starts[line]! - joinedRows.starts[line]!;
+    const up = after.starts[line]! - atCross.starts[line]!;
+    expect(down).toBeLessThan(-VIEWPORT * 10);
+    expect(up).toBeGreaterThan(VIEWPORT * 10);
+    // The native list followed the first step only: read ~37 pages too far
+    // up, as on device (644 p269/306).
+    const lineOffset = joinedRows.starts[line]! + 50;
+    const stuck = mobileReaderScrollAnchorForOffset(after, lineOffset + down)!;
+    expect(line - stuck.pageIndex).toBeGreaterThan(30);
+
+    // Stable estimates: the crossing and each decode move only their own row.
+    const fixed = runCross();
+    expect(fixed.crossed.layout.starts[fixed.anchorRow]).toBeCloseTo(fixed.joined.layout.starts[fixed.anchorRow]!, 6);
+    const step1 = fixed.decoded1.layout.starts[fixed.anchorRow]! - fixed.crossed.layout.starts[fixed.anchorRow]!;
+    const step2 = fixed.decoded2.layout.starts[fixed.anchorRow]! - fixed.decoded1.layout.starts[fixed.anchorRow]!;
+    // p303 (short) is above the line: its own size, once — never 303 rows.
+    expect(step1).toBeCloseTo(WIDTH * (1.0 - OPEN_RATIO), 6);
+    expect(Math.abs(step1)).toBeLessThan(VIEWPORT / 2);
+    expect(step2).toBeCloseTo(0, 6); // decoded at its estimate
+    for (let row = 0; row < fixed.anchorRow - 3; row += 1) {
+      expect(fixed.decoded2.layout.heights[row]).toBe(fixed.joined.layout.heights[row]);
+    }
+    // MVCP / the settle step by that one row: the same row at the line.
+    const seen = measure(fixed.decoded2, fixed.offset + step1);
+    expect(seen.centre).toBe(measure(fixed.joined, fixed.offset).centre);
+    expect(mobileReaderStripCrossing(fixed.decoded2.rows, fixed.decoded2.strip, seen.centre!)).toBeNull();
+  });
+
+  test("resume deep into a chapter with no page sizes: rows above the reading line keep their estimate when pages decode (646 p187)", () => {
+    const COUNT = 187;
+    const REAL = { width: WIDTH, height: WIDTH * 0.92 };
+    const target = { pageIndex: 175, fraction: 0.64 };
+    const resume = (stable: boolean) => {
+      const sizes: Sizes = new Map();
+      const estimates: MobileReaderScrollRowEstimates = new Map();
+      const layoutNow = () => sizedLayout(OPEN.id, COUNT, sizes, null, stable ? estimates : null);
+      const mounted = layoutNow(); // every row at 1:1.45
+      const placed = mobileReaderScrollOffsetForAnchor(mounted, target.pageIndex, target.fraction);
+      // The pages around the reading line decode (the screen, a little behind and ahead).
+      for (const index of [174, 175, 176, 177, 178]) sizes.set(`${OPEN.id}:${index}`, REAL);
+      const decoded = layoutNow();
+      return { mounted, decoded, placed };
+    };
+    const bug = resume(false);
+    // The median rule moves all 175 rows above at once (the log's -84640,
+    // rowsChanged=175): 174 by the median, p175 by its own size.
+    const shift = bug.decoded.starts[target.pageIndex]! - bug.mounted.starts[target.pageIndex]!;
+    expect(shift).toBeCloseTo(175 * WIDTH * (0.92 - MOBILE_READER_SCROLL_DEFAULT_PAGE_RATIO), 6);
+    expect(Math.abs(mobileReaderScrollAnchorForOffset(bug.decoded, bug.placed)!.pageIndex - target.pageIndex)).toBeGreaterThan(5);
+
+    const fixed = resume(true);
+    // Only the decoded row above the line (p175) moved, by its own size.
+    const moved = fixed.decoded.starts[target.pageIndex]! - fixed.mounted.starts[target.pageIndex]!;
+    expect(moved).toBeCloseTo(WIDTH * (0.92 - MOBILE_READER_SCROLL_DEFAULT_PAGE_RATIO), 6);
+    expect(Math.abs(moved)).toBeLessThan(VIEWPORT / 2);
+    for (let row = 0; row < 174; row += 1) expect(fixed.decoded.heights[row]).toBe(fixed.mounted.heights[row]);
+    // The native offset following that one row (or the settle putting it
+    // there) keeps the reader on the saved page.
+    // (p176 itself took its own size too: the line is at most a row on.)
+    const anchor = mobileReaderScrollAnchorForOffset(fixed.decoded, fixed.placed + moved)!;
+    expect(anchor.pageIndex).toBeGreaterThanOrEqual(target.pageIndex);
+    expect(anchor.pageIndex).toBeLessThanOrEqual(target.pageIndex + 1);
+  });
+
+  test("a row's estimate is fixed for its lifetime and gives way only to its own size", () => {
+    const estimates: MobileReaderScrollRowEstimates = new Map();
+    const sizes = new Map<number, { width: number; height: number }>();
+    const key = (index: number) => `k${index}`;
+    const first = mobileReaderScrollStablePageRatios(4, (index) => sizes.get(index), key, estimates, 1.8);
+    expect(first).toEqual([1.8, 1.8, 1.8, 1.8]);
+    sizes.set(0, { width: 100, height: 50 });
+    // The median (0.5) never reaches the others; a new fallback neither.
+    expect(mobileReaderScrollStablePageRatios(4, (index) => sizes.get(index), key, estimates, 3)).toEqual([0.5, 1.8, 1.8, 1.8]);
+    // A row first seen now takes the estimate of now.
+    expect(mobileReaderScrollStablePageRatios(5, (index) => sizes.get(index), key, estimates, 3)).toEqual([0.5, 1.8, 1.8, 1.8, 0.5]);
+    expect(mobileReaderScrollStablePageRatios(5, () => null, () => null, estimates, 3)).toEqual([3, 3, 3, 3, 3]);
   });
 
   test("forward crossing then head prune: the next chapter seeded at the open one's ratio, the prune keeps the screen", () => {
@@ -510,8 +676,8 @@ describe("seamless scroll: rows above never rescale when a page of their chapter
     const sizes: Sizes = new Map();
     decodedAll(PREVIOUS.id, PREVIOUS_PAGES, sizes);
     decodedAll(OPEN.id, OPEN_PAGES, sizes);
-    const kept = { heights: null as MobileReaderStripRowHeights | null };
-    const options = { seed: true, freeze: true, kept };
+    const kept = { estimates: new Map() as MobileReaderScrollRowEstimates };
+    const options = { seed: true, stable: true, kept };
     const three = appendMobileReaderStripSegment(
       { segments: [{ chapter: PREVIOUS, pages: pagesOf(PREVIOUS_PAGES) }, { chapter: OPEN, pages: pagesOf(OPEN_PAGES) }], currentIndex: 1, tail: null },
       { chapter: NEXT, pages: pagesOf(NEXT_PAGES) },
@@ -576,9 +742,12 @@ describe("seamless scroll: settle gating and prepend mode wiring", () => {
   test("neighbours are seeded from the open chapter and rows above are frozen", () => {
     const layout = block(reader, "const readerStripLayout = useMemo(() => {", "const readerStripBridge = useMemo");
     expect(layout).toContain("mobileReaderScrollKnownMedianRatio(readerScrollLayout, readerImageWidth)");
-    expect(layout).toContain("mobileReaderScrollPageRatios(count, sizeAt, openRatio)");
-    expect(layout).toContain("freezeMobileReaderStripRowsAbove(");
-    expect(layout).toContain("kept && kept.width === readerImageWidth ? kept.heights : null");
+    expect(layout).toContain("mobileReaderScrollStablePageRatios(");
+    expect(layout).toContain("readerRowEstimatesRef.current,\n        openRatio,");
+    const open = block(reader, "const readerScrollLayout = useMemo(() => {", "const scrollingPageEstimatedHeight");
+    expect(open).toContain("mobileReaderScrollStablePageRatios(");
+    expect(open).toContain("readerRowEstimatesRef.current,");
+    expect(reader).not.toContain("freezeMobileReaderStripRowsAbove");
   });
 
   test("no crossing and no head prune while the rows settle", () => {
@@ -592,7 +761,13 @@ describe("seamless scroll: settle gating and prepend mode wiring", () => {
     const prune = block(gallery, "const checkRowsSettle = (timedOut: boolean) => {", "const armRowsSettle");
     expect(prune).toContain("[reader-strip-diag] settle kind=");
     expect(prune).toContain("listRef.current?.scrollToOffset({ offset: result.fixTo, animated: false });");
-    expect(prune).toContain("onRowsSettledRef.current?.();");
+    expect(prune).toContain("onRowsSettledRef.current?.(result.fixTo != null);");
+    // A held seek owns the offset; the centre is reported again after a fix.
+    expect(prune).toContain("const result = seekHeld ? { ...judged, fixTo: null } : judged;");
+    expect(prune).toContain("lastCentrePageRef.current = null;");
+    // No page report (nor crossing) from rows not yet checked.
+    const report = block(reader, "const onGalleryScrollingVisiblePageChange = useCallback(", "const onGalleryScrollingPageLayout");
+    expect(report).toContain("if (strip && readerGalleryScrollRef.current?.rowsSettling() === true) return;");
     const shift = block(gallery, "const scrollHeadShiftRef = useRef", "const scrollIndexViewOffset");
     expect(shift).toContain('kind: "head-shift",');
     expect(shift).toContain('kind: "above-resize",');
