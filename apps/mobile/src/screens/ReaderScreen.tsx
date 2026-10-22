@@ -2,7 +2,10 @@ import { runMobileJapaneseLearningSpreadOcr } from "@/lib/mobileJapaneseLearning
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import { ExploreChapterFinishedToast } from "@/components/explore/ExploreChapterFinishedToast";
 import { markMobileChapterFinished } from "@/components/explore/mobileChapterFinishedMoment";
-import { resolveMobileReaderRestorePosition } from "@/lib/mobileReaderRestore";
+import {
+  resolveMobileReaderRestorePosition,
+  resolveMobileReaderRestoreSpot,
+} from "@/lib/mobileReaderRestore";
 import { shouldDismissMobileReaderSurfacesOnFocusChange } from "@/lib/mobileReaderFocus";
 import { mobileReaderOcrPageReadiness } from "@/lib/mobileReaderOcrReadiness";
 import {
@@ -1379,6 +1382,16 @@ export function ReaderScreen() {
   const readerScrollFlingLandingRef = useRef<MobileReaderPageRange | null>(null);
   const [readerLivePageStore] = useState(createMobileReaderLivePageStore);
   const readerRelayoutPageAnchorRef = useRef<number | null>(null);
+  // The spot this screen holds in the chapter (display page, and in scroll
+  // reading how far into it the reading line sits): the opening target until
+  // it lands, then where the reader last rested. A page-list refresh
+  // re-places the list here.
+  const readerHeldSpotRef = useRef<{
+    chapterId: string;
+    mode: string;
+    pageIndex: number;
+    fraction: number;
+  } | null>(null);
   // How far into the anchored page the reading line sat (scroll layout).
   const readerRelayoutPageFractionRef = useRef(0);
   const readerRelayoutSeekFractionRef = useRef<{ key: string; fraction: number } | null>(null);
@@ -1701,6 +1714,8 @@ export function ReaderScreen() {
   const [readerLocalResume, setReaderLocalResume] = useState<{
     key: string;
     position: MobileReaderResumePosition | null;
+    /** The synced record read with it (the opening choice compares them). */
+    progress: LocalChapterProgress | null;
   } | null>(null);
   const [sourceMangaTitle, setSourceMangaTitle] = useState<string | null>(null);
   // The source's reading format for this manga (Aidoku `viewer`), as last
@@ -2142,7 +2157,7 @@ export function ReaderScreen() {
         // change) must not move the opening position under the reader.
         current?.key === localResumeKey
           ? current
-          : { key: localResumeKey, position: localResume },
+          : { key: localResumeKey, position: localResume, progress: chapterProgress },
       );
       setState({ entry, sourceLink, chapterProgress, mangaProgress });
     } finally {
@@ -3281,33 +3296,61 @@ export function ReaderScreen() {
           readerLocalResume?.key === readerResumeKey
             ? readerLocalResume.position
             : null,
-        progress: state.chapterProgress,
+        // The synced record as it was when the chapter opened: this
+        // reader's own progress writes (a newer `lastReadAt` every page
+        // turn) must not turn its opening choice into the synced page.
+        progress:
+          readerLocalResume?.key === readerResumeKey
+            ? readerLocalResume.progress
+            : state.chapterProgress,
         pageCount,
       }),
     [pageCount, readerLocalResume, readerResumeKey, state.chapterProgress],
   );
-  const readerRestorePageIndex = useMemo(() => {
-    if (pageCount <= 0) return 0;
-    const savedIndex = readerResumeChoice
-      ? readerDisplayIndexForSourceIndex(
-          readerResumeChoice.sourceIndex,
-          pageCount,
-          mode,
-        )
-      : 0;
-    return clampReaderPageIndex(routePageDisplayIndex ?? savedIndex, pageCount);
-  }, [mode, pageCount, readerResumeChoice, routePageDisplayIndex]);
+  // A page-list refresh (a new `fetchedAt`: the cached list first, then the
+  // network's) re-places a chapter this screen already placed: it keeps the
+  // spot the reader holds, never the route page — which the reader rewrites
+  // to its page counter (the page at the screen's centre), whose top is not
+  // where the reading line was.
+  const readerRefetchHeldSpot =
+    restoredReaderKey !== "" &&
+    !restoredReaderKey.startsWith(`${readyFetchedAt}:${chapterId}:`) &&
+    readerHeldSpotRef.current?.chapterId === chapterId &&
+    readerHeldSpotRef.current.mode === mode
+      ? readerHeldSpotRef.current
+      : null;
   // Scroll reading resumes at the same spot on the page, not its top.
   // (A route page elsewhere — an explicit "open at page" — starts at its top;
   // the route echo of the restored page itself keeps the spot.)
-  const readerRestorePageFraction =
-    !galleryPagedMode &&
-    readerResumeChoice &&
-    (routePageDisplayIndex == null ||
-      routePageDisplayIndex ===
-        readerDisplayIndexForSourceIndex(readerResumeChoice.sourceIndex, pageCount, mode))
-      ? readerResumeChoice.fraction
-      : 0;
+  const readerRestoreSpot = useMemo(
+    () =>
+      resolveMobileReaderRestoreSpot({
+        pageCount,
+        scrollReading: !galleryPagedMode,
+        heldSpot: readerRefetchHeldSpot,
+        routePageIndex: routePageDisplayIndex,
+        saved: readerResumeChoice
+          ? {
+              pageIndex: readerDisplayIndexForSourceIndex(
+                readerResumeChoice.sourceIndex,
+                pageCount,
+                mode,
+              ),
+              fraction: readerResumeChoice.fraction,
+            }
+          : null,
+      }),
+    [
+      galleryPagedMode,
+      mode,
+      pageCount,
+      readerRefetchHeldSpot,
+      readerResumeChoice,
+      routePageDisplayIndex,
+    ],
+  );
+  const readerRestorePageIndex = readerRestoreSpot.pageIndex;
+  const readerRestorePageFraction = readerRestoreSpot.fraction;
   const layoutRestorePageIndex = restoredReaderKey.startsWith(`${readyFetchedAt}:${chapterId}:`)
     ? clampedPageIndex : readerRestorePageIndex;
   const readerRestoreFrameIndex = useMemo(
@@ -6992,6 +7035,7 @@ export function ReaderScreen() {
       // its very top, title area below the chrome: no seek at all.
       setPageArrival("initial");
       setCurrentPageIndex(0);
+      readerHeldSpotRef.current = { chapterId, mode, pageIndex: 0, fraction: 0 };
       setRestoredReaderKey(restoreReaderKey);
       syncRoutePage(0);
       return;
@@ -7007,6 +7051,12 @@ export function ReaderScreen() {
     // counts as having read forward onto that page.
     setPageArrival("initial");
     setCurrentPageIndex(nextPageIndex);
+    readerHeldSpotRef.current = {
+      chapterId,
+      mode,
+      pageIndex: nextPageIndex,
+      fraction: galleryPagedMode ? 0 : seekFraction,
+    };
     const timeout = setTimeout(() => {
       scrollToPageIndex(nextPageIndex, false, seekFraction);
       setRestoredReaderKey(restoreReaderKey);
@@ -7021,6 +7071,7 @@ export function ReaderScreen() {
     galleryPagedMode,
     isTwoPageMode,
     loading,
+    mode,
     pageCount,
     pagesState.status,
     readyFetchedAt,
@@ -7331,6 +7382,12 @@ export function ReaderScreen() {
         fraction = anchor.fraction;
       }
     }
+    readerHeldSpotRef.current = {
+      chapterId,
+      mode,
+      pageIndex: clampReaderPageIndex(displayIndex, pageCount),
+      fraction,
+    };
     saveMobileReaderResumePosition(readerResumeKey, {
       sourceIndex: readerSourceIndexForDisplayIndex(
         clampReaderPageIndex(displayIndex, pageCount),
@@ -7348,6 +7405,7 @@ export function ReaderScreen() {
       ),
     });
   }, [
+    chapterId,
     clampedPageIndex,
     galleryPagedMode,
     mode,

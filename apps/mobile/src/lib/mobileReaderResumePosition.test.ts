@@ -140,6 +140,25 @@ describe("resume position serialization", () => {
 describe("resume position store", () => {
   afterEach(() => resetMobileReaderResumePositionsForTests());
 
+  test("a progress write 3 s after the local save, from this device, keeps the local spot", async () => {
+    const t = 1_000_000;
+    saveMobileReaderResumePosition("k", {
+      sourceIndex: 11,
+      fraction: 0.62,
+      total: 23,
+      savedAt: t,
+      progressAt: t - 60_000,
+    });
+    // The reader's silent progress write (sync clock), then its note.
+    noteMobileReaderResumeProgressWrite("k", t + 3_000);
+    const choice = chooseMobileReaderResumePosition({
+      local: await loadMobileReaderResumePosition("k"),
+      progress: { progress: 14, total: 23, lastReadAt: t + 3_000 },
+      pageCount: 23,
+    });
+    expect(choice).toEqual({ sourceIndex: 11, fraction: 0.62, origin: "local" });
+  });
+
   test("saves, notes own progress writes, and clears", async () => {
     expect(await loadMobileReaderResumePosition("k")).toBeNull();
     saveMobileReaderResumePosition("k", {
