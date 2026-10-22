@@ -339,7 +339,7 @@ function ReaderBookThumbnailList({
     ({ item: index }: { item: number }) => (
       <ReaderBookThumbnail
         index={index}
-        horizontal={horizontal}
+        inRow={horizontal}
         rowSize={horizontal ? layout.list.height : layout.list.width}
         width={horizontal ? (geometry.lengths[index] ?? 0) : size}
         height={horizontal ? size : (geometry.lengths[index] ?? 0)}
@@ -426,7 +426,7 @@ type ThumbnailPreview = { key: string; uri: string | null; failed: boolean };
 
 const ReaderBookThumbnail = memo(function ReaderBookThumbnail({
   index,
-  horizontal,
+  inRow,
   rowSize,
   width,
   height,
@@ -442,7 +442,7 @@ const ReaderBookThumbnail = memo(function ReaderBookThumbnail({
 }: {
   index: number;
   /** A cell of the laptop posture's row (the gap before it on its left) rather than the column. */
-  horizontal: boolean;
+  inRow: boolean;
   /** The cell's size across the list: the column's width, or the row's height. */
   rowSize: number;
   width: number;
@@ -494,8 +494,8 @@ const ReaderBookThumbnail = memo(function ReaderBookThumbnail({
   );
   // Across the list the thumbnail is centred in its cell (16pt either side);
   // along it the gap comes first.
-  const left = horizontal ? READER_BOOK_THUMBNAIL_GAP : Math.max(0, (rowSize - width) / 2);
-  const top = horizontal ? Math.max(0, (rowSize - height) / 2) : READER_BOOK_THUMBNAIL_GAP;
+  const left = inRow ? READER_BOOK_THUMBNAIL_GAP : Math.max(0, (rowSize - width) / 2);
+  const top = inRow ? Math.max(0, (rowSize - height) / 2) : READER_BOOK_THUMBNAIL_GAP;
   const uri = revealed && visible ? (shown?.uri ?? null) : null;
   // The image fades in over the placeholder once it has decoded; a new image
   // (a recycled row, a retry) starts from the placeholder again.
@@ -540,7 +540,7 @@ const ReaderBookThumbnail = memo(function ReaderBookThumbnail({
       accessibilityState={{ selected: current }}
       onPress={onPress}
       style={
-        horizontal
+        inRow
           ? { width: width + READER_BOOK_THUMBNAIL_GAP, height: rowSize }
           : { width: rowSize, height: height + READER_BOOK_THUMBNAIL_GAP }
       }
