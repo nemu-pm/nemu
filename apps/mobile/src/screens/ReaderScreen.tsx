@@ -361,6 +361,11 @@ import {
   type ReaderContinuousScrollMetrics,
 } from "@/lib/mobileReaderProgress";
 import {
+  buildMobileReaderProgressRecords,
+  shouldApplyMobileReaderProgressToScreen,
+  type MobileReaderProgressTarget,
+} from "@/lib/mobileReaderProgressTarget";
+import {
   mobileReaderProgressPersistenceKey,
   normalizeMobileReaderIntraPageState,
   persistMobileReaderCompletionBeforeNavigation,
@@ -679,6 +684,8 @@ type ReaderPagesState =
     };
 
 type MobileReaderPersistProgressOptions = {
+  /** The chapter written; defaults to the open one. */
+  target?: MobileReaderProgressTarget;
   silent?: boolean;
   throwOnError?: boolean;
   updateState?: boolean;
@@ -1294,6 +1301,9 @@ export function ReaderScreen() {
   const sourceId = normalizeMobileSourceRouteParam(params.sourceId);
   const mangaId = normalizeMobileSourceRouteParam(params.mangaId);
   const chapterId = normalizeMobileSourceRouteParam(params.chapterId);
+  /** The open chapter, for async work that must not write into another one. */
+  const currentChapterIdRef = useRef(chapterId);
+  currentChapterIdRef.current = chapterId;
   const routePage = firstParam(params.page);
   const routeMangaTitle = normalizeMobileReaderRouteLabel(
     params.mangaTitle,
@@ -1370,6 +1380,8 @@ export function ReaderScreen() {
   const pendingSilentProgressRef = useRef<{
     timeout: ReturnType<typeof setTimeout>;
     displayIndex: number;
+    /** The chapter the position belongs to. */
+    target: MobileReaderProgressTarget;
   } | null>(null);
   const progressPersistenceClockRef = useRef(0);
   const readerProgrammaticScrollRef =
@@ -4666,7 +4678,10 @@ export function ReaderScreen() {
     [nextChapterInReadingOrder, strings],
   );
 
-  const persistEndOfChapterCompletion = useCallback(async () => {
+  const persistEndOfChapterCompletion = useCallback(async (
+    /** The chapter completed; defaults to the open one. */
+    target?: MobileReaderProgressTarget,
+  ) => {
     setEndOfChapterProgressSaving(true);
     setEndOfChapterProgressError(null);
     try {
@@ -4675,6 +4690,7 @@ export function ReaderScreen() {
           persistProgressRef.current(true, visibleProgressPageIndex, {
             silent: true,
             throwOnError: true,
+            target,
           }),
         navigate: () => setEndOfChapterProgressSaved(true),
         reportError: (error) => {
@@ -7327,6 +7343,39 @@ export function ReaderScreen() {
     syncRoutePage,
   ]);
 
+  // The open chapter as a progress write target. Writes queued for it (the
+  // debounce, a completion) carry this snapshot, so they land on this chapter
+  // even if another one is open by the time they run.
+  const readerProgressTarget = useMemo<MobileReaderProgressTarget>(
+    () => ({
+      chapterId,
+      chapter: {
+        chapterNumber: chapter.chapterNumber,
+        volumeNumber: chapter.volumeNumber,
+        title: chapter.title,
+      },
+      pageCount,
+      savedProgress: state.chapterProgress
+        ? {
+            completed: state.chapterProgress.completed,
+            intraPageProgress: state.chapterProgress.intraPageProgress,
+            intraPageContentIdentity: state.chapterProgress.intraPageContentIdentity,
+            updatedAt: state.chapterProgress.updatedAt,
+          }
+        : null,
+    }),
+    [
+      chapter.chapterNumber,
+      chapter.title,
+      chapter.volumeNumber,
+      chapterId,
+      pageCount,
+      state.chapterProgress,
+    ],
+  );
+  const readerProgressTargetRef = useRef(readerProgressTarget);
+  readerProgressTargetRef.current = readerProgressTarget;
+
   const persistProgress = useCallback(
     async (
       complete: boolean,
@@ -7341,82 +7390,43 @@ export function ReaderScreen() {
       await priorPersistence.catch(() => undefined);
       try {
         if (!options?.silent) setSaving(true);
+        // The chapter this write is for: named by the caller (a chapter the
+        // reader has just left), else the open one. Every field below comes
+        // from the target, never from whichever chapter is on screen.
+        const target: MobileReaderProgressTarget =
+          options?.target ?? readerProgressTarget;
         const updatedAt = nextSyncTimestamp(
-          state.chapterProgress?.updatedAt,
+          target.savedProgress?.updatedAt,
           state.mangaProgress?.updatedAt,
           progressPersistenceClockRef.current,
         );
         progressPersistenceClockRef.current = updatedAt;
-        // Keep the user-facing read clock monotonic with the sync clock even if
-        // the device wall clock moves backwards while the reader is open.
-        const lastReadAt = updatedAt;
-        const nextSourceIndex = complete
-          ? Math.max(0, pageCount - 1)
-          : readerSourceIndexForDisplayIndex(nextDisplayIndex, pageCount, mode);
-        const nextTotal = Math.max(1, pageCount);
-        // Never infer completion from the page position: opening a chapter at
-        // its last page (backward navigation, or resuming saved progress) would
-        // otherwise mark it read and sync that corruption. Completion is either
-        // explicit or already recorded.
-        const completed =
-          complete || (state.chapterProgress?.completed ?? false);
-        const intraPageState =
-          normalizeMobileReaderIntraPageState({
-            intraPageProgress: options?.intraPageProgress,
-            intraPageContentIdentity: options?.intraPageContentIdentity,
-          }) ??
-          normalizeMobileReaderIntraPageState({
-            intraPageProgress: state.chapterProgress?.intraPageProgress,
-            intraPageContentIdentity:
-              state.chapterProgress?.intraPageContentIdentity,
-          });
         const progressSourceRef = state.sourceLink ?? routeSourceRef;
-        const chapterProgress: LocalChapterProgress = {
-          id: makeChapterProgressId(
-            progressSourceRef.registryId,
-            progressSourceRef.sourceId,
-            progressSourceRef.sourceMangaId,
-            chapterId,
-          ),
-          registryId: progressSourceRef.registryId,
-          sourceId: progressSourceRef.sourceId,
-          sourceMangaId: progressSourceRef.sourceMangaId,
-          sourceChapterId: chapterId,
+        const { chapterProgress, mangaProgress } = buildMobileReaderProgressRecords({
+          target,
+          sourceRef: progressSourceRef,
           libraryItemId: state.entry?.item.libraryItemId,
-          progress: nextSourceIndex,
-          total: nextTotal,
-          completed,
-          lastReadAt,
-          chapterNumber: chapter.chapterNumber,
-          volumeNumber: chapter.volumeNumber,
-          chapterTitle: chapter.title,
-          ...(intraPageState ?? {}),
+          complete,
+          displayIndex: nextDisplayIndex,
+          mode,
           updatedAt,
-        };
-        const mangaProgress: LocalMangaProgress = {
-          id: makeMangaProgressId(
-            progressSourceRef.registryId,
-            progressSourceRef.sourceId,
-            progressSourceRef.sourceMangaId,
-          ),
-          registryId: progressSourceRef.registryId,
-          sourceId: progressSourceRef.sourceId,
-          sourceMangaId: progressSourceRef.sourceMangaId,
-          libraryItemId: state.entry?.item.libraryItemId,
-          lastReadAt,
-          lastReadSourceChapterId: chapterId,
-          lastReadChapterNumber: chapter.chapterNumber,
-          lastReadVolumeNumber: chapter.volumeNumber,
-          lastReadChapterTitle: chapter.title,
-          updatedAt,
-        };
+          intraPageProgress: options?.intraPageProgress,
+          intraPageContentIdentity: options?.intraPageContentIdentity,
+        });
+        const lastReadAt = chapterProgress.lastReadAt;
 
         try {
           await store.saveChapterProgress(chapterProgress);
           // This device's own write: not "read elsewhere since".
           noteMobileReaderResumeProgressWrite(chapterProgress.id, lastReadAt);
           await store.saveMangaProgress(mangaProgress);
-          if (options?.updateState !== false) {
+          if (
+            shouldApplyMobileReaderProgressToScreen(
+              target.chapterId,
+              currentChapterIdRef.current,
+              options?.updateState,
+            )
+          ) {
             // Read back the one row that was just written; scanning
             // `getMangaProgress()` decodes every stored manga on every turn.
             const [savedChapterProgress, savedMangaProgress] =
@@ -7429,11 +7439,16 @@ export function ReaderScreen() {
                 ),
                 store.getMangaProgressById(mangaProgress.id),
               ]);
-            setState((current) => ({
-              ...current,
-              chapterProgress: savedChapterProgress ?? chapterProgress,
-              mangaProgress: savedMangaProgress ?? mangaProgress,
-            }));
+            setState((current) =>
+              // The open chapter may have changed during the read-back.
+              currentChapterIdRef.current === target.chapterId
+                ? {
+                    ...current,
+                    chapterProgress: savedChapterProgress ?? chapterProgress,
+                    mangaProgress: savedMangaProgress ?? mangaProgress,
+                  }
+                : current,
+            );
           }
           emitMobileDataChanged("progress");
           if (complete && !options?.silent) {
@@ -7450,18 +7465,10 @@ export function ReaderScreen() {
       }
     },
     [
-      chapter.chapterNumber,
-      chapter.title,
-      chapter.volumeNumber,
-      chapterId,
       clampedPageIndex,
       mode,
-      pageCount,
+      readerProgressTarget,
       routeSourceRef,
-      state.chapterProgress?.completed,
-      state.chapterProgress?.intraPageContentIdentity,
-      state.chapterProgress?.intraPageProgress,
-      state.chapterProgress?.updatedAt,
       state.entry?.item.libraryItemId,
       state.mangaProgress?.updatedAt,
       state.sourceLink,
@@ -7540,6 +7547,9 @@ export function ReaderScreen() {
 
   useEffect(() => {
     if (!silentProgressPersistenceKey) return;
+    // The chapter this position belongs to, fixed now: the write must not
+    // follow the reader into another chapter before it runs.
+    const target = readerProgressTargetRef.current;
     const timeout = setTimeout(() => {
       pendingSilentProgressRef.current = null;
       // persistProgress captures the saved timestamps that this write advances.
@@ -7547,11 +7557,15 @@ export function ReaderScreen() {
       // timestamp-only state update from re-arming this debounce forever.
       void persistProgressRef.current(false, visibleProgressPageIndex, {
         silent: true,
+        target: readerProgressTargetRef.current.chapterId === target.chapterId
+          ? readerProgressTargetRef.current
+          : target,
       });
     }, 500);
     pendingSilentProgressRef.current = {
       timeout,
       displayIndex: visibleProgressPageIndex,
+      target,
     };
     return () => {
       clearTimeout(timeout);
@@ -7575,6 +7589,10 @@ export function ReaderScreen() {
         void persistProgressRef.current(false, pending.displayIndex, {
           silent: true,
           updateState: options?.updateState,
+          target:
+            readerProgressTargetRef.current.chapterId === pending.target.chapterId
+              ? readerProgressTargetRef.current
+              : pending.target,
         });
       }
       flushPendingIntraPageProgress(false);
