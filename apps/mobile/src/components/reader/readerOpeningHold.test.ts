@@ -11,7 +11,9 @@ import {
   resolveReaderOpeningHoldDelay,
   resolveReaderProcessedSourceOpening,
   shouldHoldReaderOpeningForImages,
+  shouldRetakeReaderFirstScreen,
   shouldRevealReaderCover,
+  READER_FIRST_SCREEN_MAX_RETAKES,
   READER_OPENING_IMAGE_HOLD_MAX_MS,
   READER_PROCESSED_SOURCE_OPENING_KEY,
 } from "./readerOpeningHold";
@@ -126,6 +128,21 @@ describe("readerOpeningHold", () => {
     ).toEqual([]);
   });
 
+  test("a first screen that lost the current page (taken before the resume seek) is taken again, a few times at most", () => {
+    // r16 ToG: measured at page 0, the reader opened at p19.
+    expect(shouldRetakeReaderFirstScreen({ currentPageId: "p19", firstScreenPageIds: ["p0"], retakes: 0 })).toBe(true);
+    expect(shouldRetakeReaderFirstScreen({ currentPageId: "p19", firstScreenPageIds: ["p18", "p19"], retakes: 0 })).toBe(false);
+    expect(
+      shouldRetakeReaderFirstScreen({
+        currentPageId: "p19",
+        firstScreenPageIds: ["p0"],
+        retakes: READER_FIRST_SCREEN_MAX_RETAKES,
+      }),
+    ).toBe(false);
+    // Paged reading (no current page id here) never retakes.
+    expect(shouldRetakeReaderFirstScreen({ currentPageId: null, firstScreenPageIds: ["p0"], retakes: 0 })).toBe(false);
+  });
+
   test("the hold re-arms a pending fade, never one running or about to start", () => {
     expect(canHoldReaderOpening({ fadeStartsAt: null, now: 1000 })).toBe(true);
     expect(canHoldReaderOpening({ fadeStartsAt: 1400, now: 1000 })).toBe(true);
@@ -224,6 +241,8 @@ describe("readerOpeningHold wiring", () => {
     // slow one says what it waits for.
     expect(reader).toContain("const indexes = resolveReaderFirstScreenIndexes({");
     expect(reader).toContain('console.info("[reader-open] first-screen-images-pending", {');
+    expect(reader).toContain("shouldRetakeReaderFirstScreen({");
+    expect(reader).toContain('console.info("[reader-open] first-screen retake", {');
   });
 
   test("the route holds on the UI thread, logs fade-end since the tap, and takes the tap from the handoff", () => {

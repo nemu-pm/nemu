@@ -255,3 +255,21 @@ export function resolveReaderFirstScreenIndexes(input: {
   }
   return indexes;
 }
+
+/** A first screen is taken again at most this many times per open. */
+export const READER_FIRST_SCREEN_MAX_RETAKES = 3;
+
+/**
+ * The first screen, not yet painted, no longer holds the page now current
+ * (scroll reading): it was taken before the opening seek moved the reader
+ * (r16 ToG: page 0 while the reader opened at p19), so take it again.
+ */
+export function shouldRetakeReaderFirstScreen(input: {
+  currentPageId: string | null;
+  firstScreenPageIds: readonly string[];
+  retakes: number;
+}): boolean {
+  if (input.currentPageId == null) return false;
+  if (input.retakes >= READER_FIRST_SCREEN_MAX_RETAKES) return false;
+  return !input.firstScreenPageIds.includes(input.currentPageId);
+}

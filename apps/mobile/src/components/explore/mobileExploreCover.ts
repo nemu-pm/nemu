@@ -8,6 +8,7 @@ import {
 import { isMobileCoverSizeVariantOf } from "@/lib/mobileCoverPreference";
 import { primeMobileExploreDetailHandoff } from "@/lib/mobileExploreDetailHandoff";
 import {
+  canonicalMobileReaderZoomId,
   mobileReaderZoomIdForDetail,
   noteMobileReaderZoomSourceCover,
   primeMobileReaderZoomCover,
@@ -108,6 +109,7 @@ export function withMobileExploreZoom<T>(
   cover?: MobileExploreCoverSource | null,
 ): T {
   if (!zoomId || !zoomTransitionAvailable || typeof href !== "string") return href;
+  zoomId = canonicalMobileReaderZoomId(zoomId);
   const landing = primeMobileReaderZoomCover(zoomId, cover);
   console.info("[reader-zoom] primed", {
     zoomId,

@@ -33,6 +33,7 @@ import {
   getMobileReaderZoomCoverFrame,
   peekMobileReaderZoomCover,
   peekMobileReaderZoomTapAt,
+  canonicalMobileReaderZoomId,
 } from "@/lib/mobileReaderZoomHandoff";
 import { MOBILE_READER_SCROLL_PLACEHOLDER_COLOR } from "@/lib/mobileReaderScrollPresentation";
 import { ReaderScreen } from "@/screens/ReaderScreen";
@@ -57,8 +58,10 @@ const COVER_SCROLL_HOLD_MAX_MS = 600;
 type CoverRevealReason = ReaderCoverRevealReason;
 
 export default function ReaderRoute() {
-  const { zoom } = useLocalSearchParams<{ zoom?: string }>();
-  const coverReveal = useReaderCoverReveal(zoom ?? null);
+  const { zoom: zoomParam } = useLocalSearchParams<{ zoom?: string }>();
+  // One spelling of the zoom id on both ends (see canonicalMobileReaderZoomId).
+  const zoom = canonicalMobileReaderZoomId(zoomParam ?? null);
+  const coverReveal = useReaderCoverReveal(zoom);
   // A reader boots the Aidoku sandbox itself: no pre-warm after this.
   useEffect(() => noteMobileReaderOpened(), []);
   // Design-explore: the reader grows out of the cover that opened it. No

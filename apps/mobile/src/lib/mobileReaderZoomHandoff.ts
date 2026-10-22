@@ -27,9 +27,34 @@ const taps = new Map<string, number>();
 const knownCovers = new Map<string, MobileReaderZoomCover>();
 const KNOWN_COVERS_MAX = 64;
 
+/**
+ * One spelling per zoom id. The router hands the reader route its `zoom`
+ * param decoded, while a title page opened from a Library tile builds its id
+ * from a still URL-encoded item id (`…:%2Fepisode%2F…`): r16 primed and looked
+ * up two spellings of one zoom (Jump+ ids carry `/`; ToG's `multi.webtoon:95`
+ * does not), so the reader found no cover and no tap. Every key here, the
+ * hero's zoom source and the route's zoom target take the decoded spelling.
+ */
+export function canonicalMobileReaderZoomId(zoomId: string): string;
+export function canonicalMobileReaderZoomId(zoomId: string | null | undefined): string | null;
+export function canonicalMobileReaderZoomId(zoomId: string | null | undefined): string | null {
+  if (!zoomId) return null;
+  let value = zoomId;
+  for (let round = 0; round < 3 && /%[0-9a-fA-F]{2}/.test(value); round += 1) {
+    try {
+      const next = decodeURIComponent(value);
+      if (next === value) break;
+      value = next;
+    } catch {
+      break;
+    }
+  }
+  return value;
+}
+
 /** The reader zoom id of a library title's page (its hero cover). */
 export function mobileReaderZoomIdForDetail(libraryItemId: string): string {
-  return `detail:${libraryItemId}`;
+  return canonicalMobileReaderZoomId(`detail:${libraryItemId}`);
 }
 
 /** Remembers the cover the zoom source `zoomId` paints (latest wins). */
@@ -37,6 +62,7 @@ export function noteMobileReaderZoomSourceCover(
   zoomId: string | null | undefined,
   cover: MobileReaderZoomCover | null | undefined,
 ): void {
+  zoomId = canonicalMobileReaderZoomId(zoomId);
   if (!zoomId || !cover?.uri) return;
   knownCovers.delete(zoomId);
   knownCovers.set(zoomId, cover);
@@ -50,7 +76,8 @@ export function noteMobileReaderZoomSourceCover(
 export function recallMobileReaderZoomSourceCover(
   zoomId: string | null | undefined,
 ): MobileReaderZoomCover | null {
-  return (zoomId && knownCovers.get(zoomId)) || null;
+  const key = canonicalMobileReaderZoomId(zoomId);
+  return (key && knownCovers.get(key)) || null;
 }
 
 /**
@@ -62,6 +89,7 @@ export function primeMobileReaderZoomCover(
   cover: MobileReaderZoomCover | null | undefined,
   now: number = Date.now(),
 ): MobileReaderZoomCover | null {
+  zoomId = canonicalMobileReaderZoomId(zoomId);
   const landing = cover?.uri ? cover : recallMobileReaderZoomSourceCover(zoomId);
   pending = landing ? { zoomId, cover: landing, at: now } : null;
   taps.set(zoomId, now);
@@ -82,6 +110,7 @@ export function peekMobileReaderZoomTapAt(
   zoomId: string | null | undefined,
   now: number = Date.now(),
 ): number | null {
+  zoomId = canonicalMobileReaderZoomId(zoomId);
   if (!zoomId) return null;
   const at = taps.get(zoomId);
   if (at == null) return null;
@@ -99,6 +128,7 @@ export function peekMobileReaderZoomCover(
   zoomId: string | null | undefined,
   now: number = Date.now(),
 ): MobileReaderZoomCover | null {
+  zoomId = canonicalMobileReaderZoomId(zoomId);
   if (!zoomId) return null;
   if (pending) {
     const age = now - pending.at;

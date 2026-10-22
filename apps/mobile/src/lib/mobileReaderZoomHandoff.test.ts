@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  canonicalMobileReaderZoomId,
   getMobileReaderZoomCoverFrame,
   peekMobileReaderZoomCover,
   peekMobileReaderZoomTapAt,
@@ -46,6 +47,39 @@ describe("mobileReaderZoomHandoff", () => {
     expect(peekMobileReaderZoomTapAt(zoomId, 5300)).toBe(5000);
     noteMobileReaderZoomSourceCover(zoomId, null);
     expect(recallMobileReaderZoomSourceCover(zoomId)).toEqual(tile);
+  });
+
+  test("an id with a `/` is one zoom whether it is spelled encoded or decoded (r16 SPY Library tile)", () => {
+    const encoded = "detail:source:aidoku-community:ja.shonenjumpplus:%2Fepisode%2F10834108156648240735";
+    const decoded = "detail:source:aidoku-community:ja.shonenjumpplus:/episode/10834108156648240735";
+    expect(canonicalMobileReaderZoomId(encoded)).toBe(decoded);
+    expect(canonicalMobileReaderZoomId(decoded)).toBe(decoded);
+    // Twice encoded (the href encodes the id again) and a stray `%` survive.
+    expect(canonicalMobileReaderZoomId(encodeURIComponent(encoded))).toBe(decoded);
+    expect(canonicalMobileReaderZoomId("detail:100%")).toBe("detail:100%");
+    expect(canonicalMobileReaderZoomId(null)).toBeNull();
+    // The title page (encoded item id) primes; the route (decoded param) reads.
+    const cover = { uri: "https://example.test/spy.jpg" };
+    const zoomId = mobileReaderZoomIdForDetail("source:aidoku-community:ja.shonenjumpplus:%2Fepisode%2F108");
+    expect(zoomId).toBe("detail:source:aidoku-community:ja.shonenjumpplus:/episode/108");
+    primeMobileReaderZoomCover("detail:source:aidoku-community:ja.shonenjumpplus:%2Fepisode%2F108", cover, 5000);
+    expect(peekMobileReaderZoomCover(zoomId, 5100)).toEqual(cover);
+    expect(peekMobileReaderZoomTapAt(zoomId, 5100)).toBe(5000);
+    // The tile noted the decoded spelling; the encoded one recalls it.
+    const tile = { uri: "https://example.test/tile.jpg" };
+    noteMobileReaderZoomSourceCover("detail:x:%2Fa%2Fb", tile);
+    expect(recallMobileReaderZoomSourceCover("detail:x:/a/b")).toEqual(tile);
+    expect(peekMobileReaderZoomCover("detail:x:/a/b", 99_999)).toEqual(tile);
+  });
+
+  test("the route and the zoom href use the one spelling", () => {
+    const route = readFileSync(
+      path.join(import.meta.dir, "../../app/sources/[registryId]/[sourceId]/[mangaId]/[chapterId].tsx"),
+      "utf8",
+    );
+    expect(route).toContain("const zoom = canonicalMobileReaderZoomId(zoomParam ?? null);");
+    const explore = readFileSync(path.join(import.meta.dir, "../components/explore/mobileExploreCover.ts"), "utf8");
+    expect(explore).toContain("zoomId = canonicalMobileReaderZoomId(zoomId);");
   });
 
   test("taps are kept per zoom: a later prime for another zoom does not take an earlier one's", () => {

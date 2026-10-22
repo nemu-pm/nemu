@@ -169,6 +169,7 @@ import {
   readerPagesNeedProcessing,
   resolveReaderFirstScreenImages,
   resolveReaderFirstScreenIndexes,
+  shouldRetakeReaderFirstScreen,
   resolveReaderImageProcessor,
   READER_FIRST_SCREEN_PENDING_LOG_MS,
   shouldHoldReaderOpeningForImages,
@@ -4226,6 +4227,9 @@ export function ReaderScreen() {
     return () => cancelAnimationFrame(frame);
   }, [readerFirstScreenPageIds, readerFirstScreenPlaced]);
   const readerFirstScreenLoggedRef = useRef(false);
+  const readerFirstScreenRetakesRef = useRef(0);
+  const readerFirstScreenCurrentIndexRef = useRef(clampedPageIndex);
+  readerFirstScreenCurrentIndexRef.current = clampedPageIndex;
   /** Each first-screen page's state now (for the ready check and its diagnostic). */
   const readerFirstScreenStatesRef = useRef<() => ReturnType<typeof resolveReaderFirstScreenImages> & {
     detail: { index: number; pending: boolean; painted: boolean; failed: boolean }[];
@@ -4263,7 +4267,27 @@ export function ReaderScreen() {
       if (pagesState.status === "ready" && pageCount > 0) setReaderFirstScreenPageIds(null);
       return;
     }
-    if (!images.ready) return;
+    if (!images.ready) {
+      // Measured before the opening seek moved the reader (r16 ToG: page 0
+      // while the reader opened at p19): the page now current is not in the
+      // set, so the set is taken again.
+      const currentPageId = galleryPagedMode ? null : (pages[clampedPageIndex]?.id ?? null);
+      if (
+        shouldRetakeReaderFirstScreen({
+          currentPageId,
+          firstScreenPageIds: readerFirstScreenPageIds,
+          retakes: readerFirstScreenRetakesRef.current,
+        })
+      ) {
+        readerFirstScreenRetakesRef.current += 1;
+        console.info("[reader-open] first-screen retake", {
+          current: clampedPageIndex,
+          was: images.detail.map((page) => page.index),
+        });
+        setReaderFirstScreenPageIds(null);
+      }
+      return;
+    }
     readerFirstScreenLoggedRef.current = true;
     console.info("[reader-open] first-screen-images-ready", {
       ...readerOpeningSince(readerZoomEntry.openingTimes(), Date.now()),
@@ -4275,6 +4299,7 @@ export function ReaderScreen() {
     });
     readerZoomEntry.onFirstScreenImagesReady();
   }, [
+    clampedPageIndex,
     galleryPagedMode,
     pageCount,
     pages,
@@ -4292,6 +4317,7 @@ export function ReaderScreen() {
       if (readerFirstScreenLoggedRef.current) return;
       console.info("[reader-open] first-screen-images-pending", {
         afterMs: READER_FIRST_SCREEN_PENDING_LOG_MS,
+        current: readerFirstScreenCurrentIndexRef.current,
         pages: readerFirstScreenStatesRef.current()?.detail ?? null,
       });
     }, READER_FIRST_SCREEN_PENDING_LOG_MS);
