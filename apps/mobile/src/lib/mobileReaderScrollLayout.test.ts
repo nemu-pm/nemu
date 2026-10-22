@@ -6,7 +6,9 @@ import {
   isMobileReaderScrollSeekLanded,
   isMobileReaderScrollSeekSettled,
   mobileReaderScrollAnchorForOffset,
+  mobileReaderScrollCentreAnchor,
   mobileReaderScrollCentrePageIndex,
+  mobileReaderScrollOffsetForCentreAnchor,
   mobileReaderScrollIndexViewOffset,
   mobileReaderScrollItemLayout,
   mobileReaderScrollOffsetForAnchor,
@@ -201,5 +203,34 @@ describe("mobileReaderScrollCentrePageIndex", () => {
   test("an unmeasured screen has no centre page", () => {
     const layout = buildMobileReaderScrollLayout([1000], null);
     expect(mobileReaderScrollCentrePageIndex(layout, 0, 0, 0)).toBeNull();
+  });
+});
+
+describe("scroll fold re-anchoring keeps the page at the viewport centre", () => {
+  // Three 1000pt pages, 8pt gaps, an 80pt top padding.
+  const layout = buildMobileReaderScrollLayout([1000, 1000, 1000], [0, 8, 8]);
+
+  test("the centre anchor is the page under the centre and the position on it", () => {
+    // Flat 951pt viewport at offset 1200: the centre is at 1200 − 80 + 475.5.
+    const centre = mobileReaderScrollCentreAnchor(layout, 1200, 951, 80)!;
+    expect(centre.pageIndex).toBe(1);
+    expect(centre.fraction).toBeCloseTo((1200 - 80 + 475.5 - 1008) / 1000, 10);
+    expect(mobileReaderScrollCentreAnchor(layout, 1200, 0, 80)).toBeNull();
+  });
+
+  test("flat → laptop top half → flat keeps the same spot at the centre (not the progress, not the top line)", () => {
+    const flat = mobileReaderScrollCentreAnchor(layout, 1200, 951, 80)!;
+    const folded = mobileReaderScrollOffsetForCentreAnchor(layout, flat, 455.5, 80);
+    // The same content point sits at the centre of the half.
+    expect(folded - 80 + 455.5 / 2).toBeCloseTo(1200 - 80 + 951 / 2, 6);
+    const back = mobileReaderScrollCentreAnchor(layout, folded, 455.5, 80)!;
+    expect(back.pageIndex).toBe(flat.pageIndex);
+    expect(back.fraction).toBeCloseTo(flat.fraction, 10);
+    expect(mobileReaderScrollOffsetForCentreAnchor(layout, back, 951, 80)).toBeCloseTo(1200, 6);
+  });
+
+  test("near the top the offset clamps at 0", () => {
+    const top = mobileReaderScrollCentreAnchor(layout, 0, 455.5, 80)!;
+    expect(mobileReaderScrollOffsetForCentreAnchor(layout, top, 951, 80)).toBe(0);
   });
 });

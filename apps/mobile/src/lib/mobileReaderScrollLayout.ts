@@ -191,6 +191,39 @@ export function mobileReaderScrollAnchorForOffset(
 }
 
 /**
+ * The page (and how far into it) under the vertical centre of the viewport:
+ * what a fold or unfold keeps in place (the flat display ⇄ the laptop
+ * posture's top half), rather than the chapter's progress or the top line.
+ */
+export function mobileReaderScrollCentreAnchor(
+  layout: MobileReaderScrollLayout,
+  contentOffset: number,
+  viewportHeight: number,
+  topPadding: number,
+): MobileReaderScrollPageAnchor | null {
+  if (!Number.isFinite(contentOffset) || !(viewportHeight > 0)) return null;
+  const padding = Number.isFinite(topPadding) ? Math.max(0, topPadding) : 0;
+  return mobileReaderScrollAnchorForOffset(layout, contentOffset - padding + viewportHeight / 2);
+}
+
+/**
+ * The scroll offset that puts `centre` (a `mobileReaderScrollCentreAnchor`,
+ * page + position on it) at the vertical centre of a viewport this tall, in
+ * this layout; clamped at the top of the content (the list clamps the end).
+ */
+export function mobileReaderScrollOffsetForCentreAnchor(
+  layout: MobileReaderScrollLayout,
+  centre: MobileReaderScrollPageAnchor,
+  viewportHeight: number,
+  topPadding: number,
+): number {
+  const padding = Number.isFinite(topPadding) ? Math.max(0, topPadding) : 0;
+  const viewport = Number.isFinite(viewportHeight) ? Math.max(0, viewportHeight) : 0;
+  const y = mobileReaderScrollOffsetForAnchor(layout, centre.pageIndex, centre.fraction);
+  return Math.max(0, y + padding - viewport / 2);
+}
+
+/**
  * The page under the vertical centre of the screen — the page the reader is
  * on while the strip moves (the toolbar counter, the render window). A gap
  * at the centre counts as the page above it.

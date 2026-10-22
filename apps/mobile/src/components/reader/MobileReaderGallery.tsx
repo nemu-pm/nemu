@@ -127,7 +127,9 @@ import {
   isMobileReaderScrollSeekLanded,
   isMobileReaderScrollSeekSettled,
   mobileReaderScrollAnchorForOffset,
+  mobileReaderScrollCentreAnchor,
   mobileReaderScrollCentrePageIndex,
+  mobileReaderScrollOffsetForCentreAnchor,
   mobileReaderScrollIndexViewOffset,
   mobileReaderScrollItemLayout,
   mobileReaderScrollOffsetForAnchor,
@@ -718,6 +720,9 @@ export function MobileReaderGallery({
   chromeTopPaddingRef.current = chromeTopPadding;
   const pendingPageSeekRef = useRef<MobileReaderPageSeek | null>(null);
   const scrollAnchorRef = useRef<MobileReaderScrollPageAnchor | null>(null);
+  // The page (and the spot on it) under the viewport's centre at the last
+  // scroll event: a stage relayout (fold ⇄ unfold) keeps it at the centre.
+  const scrollCentreAnchorRef = useRef<MobileReaderScrollPageAnchor | null>(null);
   const onScrollingSeekLandedRef = useRef(onScrollingSeekLanded);
   const touchStartRef = useRef<{
     x: number;
@@ -1300,6 +1305,7 @@ export function MobileReaderGallery({
     scrollAnchorRef.current = layout
       ? mobileReaderScrollAnchorForOffset(layout, initialOffset)
       : null;
+    scrollCentreAnchorRef.current = null;
     // The first layout of a fresh list may clamp the opening offset: hold it.
     pendingPageSeekRef.current =
       layout && scrollAnchorRef.current && initialOffset > 0
@@ -1349,15 +1355,28 @@ export function MobileReaderGallery({
       return;
     }
     const metrics = latestScrollMetricsRef.current;
-    // A page list keeps the page being read (and the spot on it) at the
-    // reading line: the new layout already has the new heights.
+    // A page list keeps the page under the viewport's centre (and the spot
+    // on it) at the centre — flat ⇄ half folded keeps what the reader was
+    // looking at, not the chapter's progress or the top line. While an
+    // opening restore is still on its way the reading-line spot is kept, as
+    // before. The new layout already has the new heights.
     const anchor = scrollAnchorRef.current;
     if (scrollPageLayout && anchor) {
       pendingContentSizeScrollProgressRef.current = null;
       pendingLogicalScrollProgressRef.current = null;
+      const heldSeek = pendingPageSeekRef.current;
+      const centre = heldSeek && !heldSeek.landed ? null : scrollCentreAnchorRef.current;
+      const target = centre
+        ? mobileReaderScrollAnchorForOffset(
+            scrollPageLayout,
+            mobileReaderScrollOffsetForCentreAnchor(scrollPageLayout, centre, windowHeight, chromeTopPadding),
+          )
+        : null;
+      const seekAnchor = target ?? anchor;
+      scrollAnchorRef.current = seekAnchor;
       // Placed by the content-size event this relayout causes: by then the
       // native list (and maintainVisibleContentPosition) has the new frames.
-      pendingPageSeekRef.current = holdMobileReaderPageSeek(anchor, true);
+      pendingPageSeekRef.current = holdMobileReaderPageSeek(seekAnchor, true);
       return;
     }
     if (!(metrics.contentLength > 0)) return;
@@ -1758,6 +1777,12 @@ export function MobileReaderGallery({
         scrollAnchorRef.current = mobileReaderScrollAnchorForOffset(
           layout,
           contentOffset.y,
+        );
+        scrollCentreAnchorRef.current = mobileReaderScrollCentreAnchor(
+          layout,
+          contentOffset.y,
+          layoutMeasurement.height,
+          chromeTopPaddingRef.current,
         );
         checkPageSeekLanded(contentOffset.y);
         const centrePage = mobileReaderScrollCentrePageIndex(
