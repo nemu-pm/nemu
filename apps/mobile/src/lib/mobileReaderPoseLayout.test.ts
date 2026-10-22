@@ -27,6 +27,8 @@ import {
   READER_SCRUBBER_MIN_WIDTH,
   mobileReaderActionsRow,
   mobileReaderBottomRowLayout,
+  mobileReaderLaptopCreaseClearance,
+  READER_LAPTOP_CREASE_CLEARANCE,
   type MobileReaderPoseLayout,
   type MobileReaderPoseLayoutInput,
 } from "./mobileReaderPoseLayout";
@@ -484,7 +486,8 @@ describe("reader pose: book, scroll reading (side pane)", () => {
     expect(side.header.x + side.header.width).toBeLessThanOrEqual(817);
     expect(side.list.x).toBe(495.5);
     expect(side.list.width).toBe(455.5);
-    expect(side.thumbnailWidth).toBe(455.5 - 32);
+    expect(side.orientation).toBe("vertical");
+    expect(side.thumbnailSize).toBe(455.5 - 32);
     expect(side.list.y).toBeGreaterThanOrEqual(side.header.y + side.header.height);
     expect(side.list.y + side.list.height).toBe(669 - 34);
     expect(side.pageUp.width).toBe(64);
@@ -505,6 +508,110 @@ describe("reader pose: book, scroll reading (side pane)", () => {
     expect(pose(book, { scrollSidePane: true }).sidePane).toBeUndefined();
     expect(pose(book, { paged: false }).sidePane).toBeUndefined();
     expect(pose(innerLandscapeNoBar(), { paged: false, scrollSidePane: true }).sidePane).toBeUndefined();
+  });
+});
+
+describe("reader pose: laptop (notebook), scroll reading (side pane)", () => {
+  // The Duo inner display half folded in portrait (measured): fold 455.5–495.5,
+  // status island 134×82 top-right while the status bar shows.
+  const laptop: MobileWindowLayout = {
+    width: 669, height: 951, supported: true,
+    divisions: [hinge(0, 455.5, 669, 40)],
+    occlusions: [{ id: "status", x: 535, y: 0, width: 134, height: 82, active: true }],
+    verticalBarEdge: null, layoutDirection: "ltr",
+    safeAreaInsets: { top: 82, left: 0, bottom: 34, right: 0 },
+  };
+  const crease = 455.5 + 20;
+  const scroll = (layout: MobileWindowLayout = laptop, overrides: Partial<MobileReaderPoseLayoutInput> = {}) =>
+    pose(layout, { paged: false, scrollSidePane: true, ...overrides });
+
+  test("the strip keeps the top half, no artwork within 20pt of the crease", () => {
+    const result = scroll();
+    expect(result.posture).toBe("notebook");
+    expect(result.constrained).toBe(true);
+    expect(result.stage).toEqual({ x: 0, y: 0, width: 669, height: 455.5 });
+    expect(result.stage.y + result.stage.height).toBeLessThanOrEqual(crease - READER_LAPTOP_CREASE_CLEARANCE);
+    expect(result.chrome.kind).toBe("capsules");
+    expect(result.chromePinned).toBe(false);
+  });
+
+  test("a fold region narrower than ±20pt still keeps the strip and the pane 20pt off the crease", () => {
+    const narrow = scroll({ ...laptop, divisions: [hinge(0, 470, 669, 10)] });
+    expect(narrow.stage.y + narrow.stage.height).toBe(475 - 20);
+    expect(narrow.sidePane!.frame.y).toBe(475 + 20);
+    expect(mobileReaderLaptopCreaseClearance(
+      { x: 0, y: 0, width: 669, height: 470 },
+      { x: 0, y: 480, width: 669, height: 471 },
+      null,
+    )).toEqual({ crease: 475, stripBottom: 455, paneTop: 495 });
+  });
+
+  test("the toolbar stays in the top half: title centred on its width with the full label, actions top right", () => {
+    for (const actionCount of [3, 5]) {
+      const chrome = capsules(scroll(laptop, { actionCount }));
+      expect(chrome.actionsRow).toBe("top");
+      expect(chrome.title).not.toBeNull();
+      expect(Math.abs(chrome.title!.x + chrome.title!.width / 2 - 669 / 2)).toBeLessThanOrEqual(1);
+      expect(chrome.title!.width).toBeGreaterThanOrEqual(READER_CAPSULE_TITLE_FULL_MIN_WIDTH);
+      // Actions at the trailing end of the title's row, clear of the island.
+      expect(chrome.actions.y).toBe(chrome.title!.y);
+      expect(chrome.actions.x + chrome.actions.width).toBeLessThanOrEqual(669 - 20 + 0.01);
+      expect(chrome.actions.x).toBeGreaterThan(chrome.title!.x + chrome.title!.width);
+      expect(overlapsBox(chrome.actions, { x: 535, y: 0, width: 134, height: 82 })).toBe(false);
+      expect(overlapsBox(chrome.title!, { x: 535, y: 0, width: 134, height: 82 })).toBe(false);
+      // Every piece above the crease's clearance.
+      for (const piece of [chrome.back, chrome.title!, chrome.actions, chrome.scrubber]) {
+        expect(piece.y + piece.height).toBeLessThanOrEqual(crease - READER_LAPTOP_CREASE_CLEARANCE);
+      }
+      expect(chrome.scrubber.y).toBeGreaterThan(455.5 / 2);
+      expect(Math.abs(chrome.scrubber.x + chrome.scrubber.width / 2 - 669 / 2)).toBeLessThanOrEqual(1);
+    }
+  });
+
+  test("without an island the title shares the top row, still centred", () => {
+    const chrome = capsules(scroll(innerPortrait([hinge(0, 455.5, 669, 40)])));
+    expect(Math.abs(chrome.title!.x + chrome.title!.width / 2 - 669 / 2)).toBeLessThanOrEqual(1);
+    expect(chrome.title!.y).toBe(chrome.back.y);
+  });
+
+  test("bottom half: a thumbnail row the half's height less 16pt above and below; page controls side by side", () => {
+    const side = scroll().sidePane!;
+    expect(side.orientation).toBe("horizontal");
+    expect(side.frame).toEqual({ x: 0, y: 495.5, width: 669, height: 455.5 });
+    expect(side.frame.y).toBeGreaterThanOrEqual(crease + READER_LAPTOP_CREASE_CLEARANCE);
+    expect(side.list).toEqual(side.frame);
+    expect(side.thumbnailSize).toBe(455.5 - 32);
+    expect(side.header.height).toBe(0);
+    expect(side.pageUp.width).toBe(64);
+    expect(side.pageUp.y).toBe(side.pageDown.y);
+    expect(side.pageDown.x - (side.pageUp.x + 64)).toBe(24);
+    expect((side.pageUp.x + side.pageDown.x + 64) / 2).toBeCloseTo(669 / 2, 5);
+    expect(side.pageUp.y + 32).toBeCloseTo(495.5 + 455.5 / 2, 5);
+  });
+
+  test("measured Duo fixtures (half folded, portrait and upside down): strip and pane 20pt off the crease", () => {
+    for (const m of fixture.measurements.filter((entry) => entry.pose === "partially-folded" && entry.bounds.height > entry.bounds.width)) {
+      const layout = duoLayout(m);
+      const fold = activeFold(layout)!;
+      const centre = fold.y + fold.height / 2;
+      const result = scroll(layout);
+      expect(result.posture).toBe("notebook");
+      expect(result.stage.y + result.stage.height).toBeLessThanOrEqual(centre - 20);
+      expect(result.sidePane!.frame.y).toBeGreaterThanOrEqual(centre + 20);
+      const chrome = capsules(result);
+      expect(Math.abs(chrome.title!.x + chrome.title!.width / 2 - m.bounds.width / 2)).toBeLessThanOrEqual(1);
+      for (const piece of [chrome.back, chrome.title!, chrome.actions, chrome.scrubber]) {
+        for (const region of activeOcclusions(layout)) expect(overlapsBox(piece, region)).toBe(false);
+        expect(overlapsBox(piece, fold)).toBe(false);
+      }
+    }
+  });
+
+  test("paged reading, a paged chapter as a strip and the flat display keep their layouts", () => {
+    expect(pose(laptop).chrome.kind).toBe("console");
+    expect(pose(laptop, { paged: false }).sidePane).toBeUndefined();
+    expect(scroll(mobileReaderLayoutWithoutFold(laptop)).sidePane).toBeUndefined();
+    expect(scroll(mobileReaderLayoutWithoutFold(laptop)).posture).toBe("flat");
   });
 });
 

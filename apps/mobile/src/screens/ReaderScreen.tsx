@@ -30,6 +30,7 @@ import {
   mobileReaderPoseLayout,
   mobileReaderSideInsetLatchKey,
   mobileReaderStableTopInset,
+  mobileReaderSafePadding,
   MOBILE_READER_HINGE_HINT_TIMEOUT_MS,
   type MobileReaderSideInsetLatch,
   mobileReaderVerticalBarPolicy,
@@ -2844,9 +2845,12 @@ export function ReaderScreen() {
   const readerNotebookPanelClosed = readerNotebookSheetClosedState && readerNotebookFold;
   // The panel toggle lives in the trailing action group wherever it is drawn (paged reading only: scroll has no sheet).
   const readerNotebookPanelToggle = readerNotebookFold && galleryPagedMode;
-  // Scroll / long strip has no sheet either: the strip reads exactly as on
-  // the open display, the fold no pane boundary.
-  const readerFoldIgnored = readerNotebookPanelClosed || (readerNotebookFold && !galleryPagedMode);
+  // A paged chapter shown as a long strip has no sheet either: it reads
+  // exactly as on the open display, the fold no pane boundary. Scroll
+  // reading keeps the fold: the strip takes the top half and the bottom half
+  // shows the Laptop Mode content (`scrollSidePane`).
+  const readerFoldIgnored =
+    readerNotebookPanelClosed || (readerNotebookFold && !galleryPagedMode && pagedMode);
   const readerWindowLayout = useMemo(
     () => (readerFoldIgnored ? mobileReaderLayoutWithoutFold(readerFoldedWindowLayout) : readerFoldedWindowLayout),
     [readerFoldedWindowLayout, readerFoldIgnored],
@@ -2920,8 +2924,8 @@ export function ReaderScreen() {
         // Laptop pose: the actions stay on top with the panel closed too.
         notebookFold: readerNotebookFold,
         sheetSide,
-        // Book posture, scroll reading: the strip keeps its half and the
-        // other half shows the Laptop Mode content.
+        // Book and laptop postures, scroll reading: the strip keeps its half
+        // and the other half shows the Laptop Mode content.
         scrollSidePane: !pagedMode,
       }),
     [
@@ -3430,9 +3434,12 @@ export function ReaderScreen() {
   const readerSourceViewerKey = makeMobileSourceDetailCacheKey(registryId, sourceId, mangaId);
   // Book posture, scroll reading: the strip fills its half less 8pt either
   // side for ordinary manga, edge to edge for a webtoon strip.
+  // (The laptop posture's top half is as wide as the open display: the strip
+  // keeps the flat width there.)
+  const readerBookScrollStripPane = readerPose.sidePane?.orientation === "vertical";
   const readerBookScrollStripChapter = useMemo(
     () =>
-      readerPose.sidePane && !galleryPagedMode
+      readerBookScrollStripPane && !galleryPagedMode
         ? isMobileReaderScrollStripChapter(
             displayedPages.length,
             readerPageSizeAt,
@@ -3445,13 +3452,13 @@ export function ReaderScreen() {
       displayedPages.length,
       galleryPagedMode,
       readerPageSizeAt,
-      readerPose.sidePane,
+      readerBookScrollStripPane,
       readerSourceViewer,
       readerSourceViewerKey,
     ],
   );
   const readerBookScrollStrip =
-    readerPose.sidePane && !galleryPagedMode
+    readerBookScrollStripPane && !galleryPagedMode
       ? mobileReaderBookScrollStrip({
           paneWidth: readerStage.width,
           stripChapter: readerBookScrollStripChapter,
@@ -4140,7 +4147,11 @@ export function ReaderScreen() {
     };
     publishReaderVisibleSegments();
   }, [publishReaderVisibleSegments, readerSegmentTopInset, segmentedImageFrames]);
-  const readerScrollBottomInset = insets.bottom + readerCompactControlsHeight;
+  // The home-indicator inset only where the strip reaches the window's
+  // bottom edge (not above the laptop posture's crease).
+  const readerScrollBottomInset =
+    mobileReaderSafePadding(readerStage, readerPose.bounds, { ...readerPose.safeInsets, bottom: insets.bottom }).bottom
+    + readerCompactControlsHeight;
   const readerBottomPadding = showReaderBottomChrome
     ? insets.bottom + readerCompactControlsHeight
     : Math.max(insets.bottom + 18, 24);
@@ -5364,10 +5375,11 @@ export function ReaderScreen() {
     [showEndOfChapterPrompt],
   );
 
-  // Book posture page controls: one screen (the viewport less the safe
-  // areas, 12% kept on screen), animated by the list itself.
-  const readerSafeInsetTop = readerPose.safeInsets.top;
-  const readerSafeInsetBottom = readerPose.safeInsets.bottom;
+  // Book / laptop posture page controls: one screen (the viewport less the
+  // safe areas it reaches, 12% kept on screen), animated by the list itself.
+  const readerStageSafePadding = mobileReaderSafePadding(readerStage, readerPose.bounds, readerPose.safeInsets);
+  const readerSafeInsetTop = readerStageSafePadding.top;
+  const readerSafeInsetBottom = readerStageSafePadding.bottom;
   const stepReaderScrollScreen = useCallback(
     (direction: "previous" | "next") => {
       const metrics = readerScrollMetricsRef.current;

@@ -184,7 +184,7 @@ function ReaderBookThumbnailList({
 }: ReaderBookSidePaneProps) {
   const live = useSyncExternalStore(liveStore.subscribe, liveStore.get, liveStore.get);
   const currentIndex = mobileReaderLivePageIndex(live, committedIndex);
-  const width = layout.thumbnailWidth;
+  const width = layout.thumbnailSize;
   const viewportHeight = layout.list.height;
   const ratios = useMemo(
     () => Array.from({ length: Math.max(0, pageCount) }, (_, index) => thumbnailRatios[index] ?? Number.NaN),
