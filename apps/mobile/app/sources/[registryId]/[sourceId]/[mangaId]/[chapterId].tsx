@@ -22,6 +22,7 @@ import { useReadingMode } from "@/data/mobileHooks";
 import { MobileCachedImage } from "@/design-system";
 import { getMobileReaderZoomCoverFrame, peekMobileReaderZoomCover } from "@/lib/mobileReaderZoomHandoff";
 import { ReaderScreen } from "@/screens/ReaderScreen";
+import { noteMobileReaderOpened } from "@/lib/mobileAidokuPrewarm";
 import { ZoomTarget } from "../../../../../modules/nemu-window-layout";
 
 /** The landing cover fades into the reader (the opening fade-in). */
@@ -44,6 +45,8 @@ type CoverRevealReason = "reader-ready" | "scroll-cap" | "hold-max";
 export default function ReaderRoute() {
   const { zoom } = useLocalSearchParams<{ zoom?: string }>();
   const coverReveal = useReaderCoverReveal();
+  // A reader boots the Aidoku sandbox itself: no pre-warm after this.
+  useEffect(() => noteMobileReaderOpened(), []);
   // Design-explore: the reader grows out of the cover that opened it. No
   // swipe-to-dismiss: page turns own the reader's gestures.
   return (

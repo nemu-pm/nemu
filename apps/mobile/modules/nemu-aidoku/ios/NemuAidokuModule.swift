@@ -1559,6 +1559,15 @@ public class NemuAidokuModule: Module {
       return self.iosSandboxManager.cancelOperation(token: cancelToken)
     }
 
+    // Boots the isolated runtime ahead of the first source call (see
+    // `NemuAidokuIOSandboxManager.prewarm`). JS calls it only when the app is
+    // idle on the Library, behind NEMU_AIDOKU_PREWARM_ENABLED.
+    AsyncFunction("prewarmAidokuSandbox") { (promise: Promise) in
+      self.iosSandboxManager.prewarm { result in
+        Self.settleSandboxPromise(result, promise: promise)
+      }
+    }
+
     AsyncFunction("executeAidokuSandboxOperation") {
         (sessionId: String, operationJson: String, promise: Promise) in
       self.iosSandboxManager.executeOperation(

@@ -128,6 +128,11 @@ import { MOBILE_MOTION } from "@/lib/mobileMotion";
 import { useMobilePoseResnapFade } from "@/lib/useMobilePoseResnapFade";
 import { useMobilePoseRenderProbe } from "@/lib/MobilePoseTransitionContext";
 import { useMobileGridScrollAnchor } from "@/lib/useMobileGridScrollAnchor";
+import { noteMobileLibraryFocused } from "@/lib/mobileAidokuPrewarm";
+import {
+  useMobileAidokuPrewarmScrollFeed,
+  useMobileAidokuSandboxPrewarm,
+} from "@/lib/useMobileAidokuSandboxPrewarm";
 import { getMobileInstalledSourceSettingsKeys } from "@/lib/mobileInstalledSourceKeys";import {
   canCreateMobileCollection,
   canRenameMobileCollection,
@@ -1020,6 +1025,10 @@ export function LibraryScreen({
     itemCount: visibleEntries.length,
     viewabilityUnit: "row",
   });
+  // Off by default (NEMU_AIDOKU_PREWARM_ENABLED): boots the iOS Aidoku sandbox
+  // once the Library has sat idle, so a reader's first source call does not.
+  useMobileAidokuSandboxPrewarm();
+  const libraryGridOnScroll = useMobileAidokuPrewarmScrollFeed(gridScrollAnchor.onScroll);
   const title = selectedCollection?.name ?? strings.nav.library;
   const loading =
     libraryLoading ||
@@ -1347,9 +1356,11 @@ export function LibraryScreen({
   useFocusEffect(
     useCallback(() => {
       libraryFocusedRef.current = true;
+      noteMobileLibraryFocused(true);
       return () => {
         libraryRefreshAbortRef.current.aborted = true;
         libraryFocusedRef.current = false;
+        noteMobileLibraryFocused(false);
       };
     }, []),
   );
@@ -2483,7 +2494,7 @@ export function LibraryScreen({
       onViewableItemsChanged={gridScrollAnchor.onViewableItemsChanged}
       viewabilityConfig={gridScrollAnchor.viewabilityConfig}
       onScrollToIndexFailed={gridScrollAnchor.onScrollToIndexFailed}
-      onScroll={gridScrollAnchor.onScroll}
+      onScroll={libraryGridOnScroll}
       // The handler only tracks the adjusted top inset for the anchor
       // restore, so it does not need a frame-rate feed.
       scrollEventThrottle={100}

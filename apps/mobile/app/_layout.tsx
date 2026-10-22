@@ -54,6 +54,7 @@ import {
 } from "@/lib/mobileSplashScreen";
 import { isMobileLibraryRoute } from "@/lib/mobileRootTabs";
 import { hideMobileLaunchScreenWithReveal } from "@/lib/mobileLaunchReveal";
+import { mobileAidokuPrewarmRootTouchProps } from "@/lib/useMobileAidokuSandboxPrewarm";
 import {
   MOBILE_PERFORMANCE_MARKS,
   markMobilePerformance,
@@ -212,6 +213,8 @@ function RootStack({
         }
         onLayout={hideSplashAfterLayout}
         pointerEvents={underlyingContentState.pointerEvents}
+        // The Aidoku pre-warm's idle check (nothing while it is off).
+        {...mobileAidokuPrewarmRootTouchProps}
         style={[styles.root, { backgroundColor: tokens.background }]}
       >
         <MobileScrollEdgeEffectHost>
