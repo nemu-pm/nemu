@@ -464,6 +464,20 @@ describe("native cache file name index", () => {
     expect(await cache.getUri("cover")).toBeNull();
   });
 
+  test("replaces a plain entry without scanning the directory for segment files", async () => {
+    directories.add("/cache/images");
+    writePlainFile("cover.jpg", 1_000);
+    const cache = new FileSystemBinaryCache("images", plainPolicy);
+    await cache.setBytes("page-1", new Uint8Array([1, 2, 3]), "image/png");
+
+    directoryListCalls = 0;
+    await cache.setBytes("page-2", new Uint8Array([1, 2, 3]), "image/png");
+    await cache.setBytes("page-1", new Uint8Array([4, 5, 6]), "image/png");
+
+    expect(directoryListCalls).toBe(0);
+    expect(await cache.getBytes("page-1")).toEqual(new Uint8Array([4, 5, 6]));
+  });
+
   test("re-indexes a name whose file disappeared underneath it", async () => {
     const cache = new FileSystemBinaryCache("images", plainPolicy);
     await cache.setBytes("cover", new Uint8Array([1, 2, 3]), "image/png");

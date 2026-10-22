@@ -9,6 +9,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
   type RefObject,
 } from "react";
@@ -105,9 +106,17 @@ import {
   useSkeletonPulse,
 } from "@/lib/useSkeletonPulse";
 import {
-  isMobileReaderPageInRange,
+  createMobileReaderRenderRangeStore,
+  MOBILE_READER_SCROLL_KEEP_AHEAD_VIEWPORTS,
+  MOBILE_READER_SCROLL_KEEP_BEHIND_VIEWPORTS,
+  MOBILE_READER_SCROLL_KEEP_MAX_BEHIND,
+  MOBILE_READER_SCROLL_MOUNT_BEHIND_VIEWPORTS,
+  MOBILE_READER_SCROLL_MOUNT_MIN_PAGES,
+  nextMobileReaderMountedRange,
   nextMobileReaderScrollDirection,
   resolveMobileReaderScrollPageRange,
+  type MobileReaderPageRange,
+  type MobileReaderRenderRangeStore,
   type MobileReaderScrollDirection,
 } from "@/lib/mobileReaderPageWindow";
 import {
@@ -411,7 +420,8 @@ function holdMobileReaderPageSeek(
 type MobileReaderScrollPageCellProps = {
   page: MobileReaderPage;
   index: number;
-  inRenderWindow: boolean;
+  /** The list's mounted range; the cell follows its own membership. */
+  renderRangeStore: MobileReaderRenderRangeStore;
   gapBefore: number;
   /** Exact picture height from the scroll layout (none: the content sizes it). */
   height: number | undefined;
@@ -433,7 +443,7 @@ const MobileReaderScrollPageCell = memo(
   function MobileReaderScrollPageCell({
     page,
     index,
-    inRenderWindow,
+    renderRangeStore,
     gapBefore,
     height,
     renderImage,
@@ -441,6 +451,10 @@ const MobileReaderScrollPageCell = memo(
     fallbackPage,
     strings,
   }: MobileReaderScrollPageCellProps) {
+    const inRenderWindow = useSyncExternalStore(
+      renderRangeStore.subscribe,
+      () => renderRangeStore.includes(index),
+    );
     return (
       <View
         onLayout={
@@ -472,7 +486,7 @@ const MobileReaderScrollPageCell = memo(
   (previous, next) =>
     previous.page === next.page &&
     previous.index === next.index &&
-    previous.inRenderWindow === next.inRenderWindow &&
+    previous.renderRangeStore === next.renderRangeStore &&
     previous.gapBefore === next.gapBefore &&
     previous.height === next.height &&
     previous.renderKey === next.renderKey &&
@@ -774,11 +788,11 @@ export function MobileReaderGallery({
       };
     });
   }
-  const scrollRenderRange = useMemo(() => {
+  const scrollRenderRanges = useMemo(() => {
     if (pagedMode) return null;
     const { anchor, direction, viewportTop } = scrollRenderWindow;
     const viewportLength = latestScrollMetricsRef.current.viewportLength;
-    return resolveMobileReaderScrollPageRange({
+    const geometry = {
       pageCount: displayedPages.length,
       anchorIndex: anchor,
       direction,
@@ -793,7 +807,25 @@ export function MobileReaderGallery({
       viewportHeight: viewportLength > 0 ? viewportLength : windowHeight,
       layout: scrollPageLayout,
       estimatedPageHeight: readerImageWidth * MOBILE_READER_SCROLL_DEFAULT_PAGE_RATIO,
-    });
+    };
+    return {
+      // Pages mount inside this range...
+      enter: resolveMobileReaderScrollPageRange({
+        ...geometry,
+        behindViewports: MOBILE_READER_SCROLL_MOUNT_BEHIND_VIEWPORTS,
+        minAhead: MOBILE_READER_SCROLL_MOUNT_MIN_PAGES,
+        minBehind: MOBILE_READER_SCROLL_MOUNT_MIN_PAGES,
+      }),
+      // ...and unmount only once they leave this one.
+      keep: resolveMobileReaderScrollPageRange({
+        ...geometry,
+        aheadViewports: MOBILE_READER_SCROLL_KEEP_AHEAD_VIEWPORTS,
+        behindViewports: MOBILE_READER_SCROLL_KEEP_BEHIND_VIEWPORTS,
+        minAhead: MOBILE_READER_SCROLL_MOUNT_MIN_PAGES,
+        minBehind: MOBILE_READER_SCROLL_MOUNT_MIN_PAGES,
+        maxBehind: MOBILE_READER_SCROLL_KEEP_MAX_BEHIND,
+      }),
+    };
   }, [
     chromeTopPadding,
     displayedPages.length,
@@ -803,6 +835,33 @@ export function MobileReaderGallery({
     scrollRenderWindow,
     windowHeight,
   ]);
+  const scrollMountedRangeRef = useRef<MobileReaderPageRange | null>(null);
+  const scrollMountedRange = useMemo(() => {
+    const next = scrollRenderRanges
+      ? nextMobileReaderMountedRange(
+          scrollMountedRangeRef.current,
+          scrollRenderRanges.enter,
+          scrollRenderRanges.keep,
+        )
+      : null;
+    scrollMountedRangeRef.current = next;
+    return next;
+  }, [scrollRenderRanges]);
+  // The pages around where an iOS fling will rest mount as soon as the
+  // fling starts, so they decode while the list travels.
+  const scrollFlingLandingRef = useRef<MobileReaderPageRange | null>(null);
+  const [renderRangeStore] = useState(createMobileReaderRenderRangeStore);
+  // Recorded while rendering (cells rendered below read it), announced to
+  // the cells that did not re-render once the commit lands.
+  renderRangeStore.set(scrollMountedRange, scrollFlingLandingRef.current);
+  useLayoutEffect(() => {
+    renderRangeStore.notify();
+  });
+  const setScrollFlingLanding = (landing: MobileReaderPageRange | null) => {
+    scrollFlingLandingRef.current = landing;
+    renderRangeStore.set(scrollMountedRangeRef.current, landing);
+    renderRangeStore.notify();
+  };
   // The page the reader is on while the list moves: the render window
   // follows it and the reader's live page (toolbar counter, progress bar)
   // shows it.
@@ -1607,6 +1666,7 @@ export function MobileReaderGallery({
   const handleScrollBeginDrag = (
     event: NativeSyntheticEvent<NativeScrollEvent>,
   ) => {
+    if (scrollFlingLandingRef.current) setScrollFlingLanding(null);
     clearDragSettleTimer();
     if (scrollToIndexRetryTimerRef.current) {
       clearTimeout(scrollToIndexRetryTimerRef.current);
@@ -1740,6 +1800,7 @@ export function MobileReaderGallery({
     event: NativeSyntheticEvent<NativeScrollEvent>,
   ) => {
     clearDragSettleTimer();
+    if (scrollFlingLandingRef.current) setScrollFlingLanding(null);
     publishLogicalScrollAccessibility();
     onMomentumScrollEnd(event);
   };
@@ -1766,10 +1827,39 @@ export function MobileReaderGallery({
           height > 0 &&
           Math.abs(flingTarget.y - event.nativeEvent.contentOffset.y) > height
         ) {
-          onScrollingFlingTarget({
-            top: flingTarget.y - Math.max(0, chromeTopPadding),
-            height,
-          });
+          const top = flingTarget.y - Math.max(0, chromeTopPadding);
+          const layout = scrollPageLayoutRef.current;
+          const restingPage = layout
+            ? mobileReaderScrollCentrePageIndex(
+                layout,
+                flingTarget.y,
+                height,
+                chromeTopPaddingRef.current,
+              )
+            : null;
+          if (restingPage != null) {
+            // The resting screen and a little past it.
+            setScrollFlingLanding(
+              resolveMobileReaderScrollPageRange({
+                pageCount: displayedPages.length,
+                anchorIndex: restingPage,
+                direction:
+                  flingTarget.y >= event.nativeEvent.contentOffset.y
+                    ? "forward"
+                    : "backward",
+                viewportTop: top,
+                viewportHeight: height,
+                layout,
+                estimatedPageHeight:
+                  readerImageWidth * MOBILE_READER_SCROLL_DEFAULT_PAGE_RATIO,
+                aheadViewports: 0.5,
+                behindViewports: 0,
+                minAhead: 1,
+                minBehind: 0,
+              }),
+            );
+          }
+          onScrollingFlingTarget({ top, height });
         }
       }
       clearDragSettleTimer();
@@ -1988,7 +2078,7 @@ export function MobileReaderGallery({
           <MobileReaderScrollPageCell
             page={page}
             index={index}
-            inRenderWindow={isMobileReaderPageInRange(index, scrollRenderRange)}
+            renderRangeStore={renderRangeStore}
             gapBefore={
               scrollPageLayout?.gaps[index] ??
               scrollPageGaps?.[index] ??
@@ -2067,8 +2157,7 @@ export function MobileReaderGallery({
       scrollPageLayout,
       scrollPageRenderEpoch,
       scrollPageRenderKeys,
-      scrollRenderWindow.anchor,
-      scrollRenderWindow.direction,
+      renderRangeStore,
       sourcePageForDisplayIndex,
       strings,
       windowHeight,
@@ -2252,10 +2341,10 @@ export function MobileReaderGallery({
       scrollsToTop={!pagedMode}
       initialNumToRender={segmentedMode ? 2 : pagedMode ? 3 : 5}
       maxToRenderPerBatch={segmentedMode ? 2 : 5}
-      // Scroll mode keeps five screens of cells either side so the render
-      // window (six pages ahead) is always inside the list's own window;
-      // cells outside the render window are cheap sized placeholders.
-      windowSize={segmentedMode ? 3 : pagedMode ? 7 : 11}
+      // Scroll mode keeps six screens of cells either side so the pages kept
+      // mounted (up to six screens ahead) are always inside the list's own
+      // window; cells outside it are cheap sized placeholders.
+      windowSize={segmentedMode ? 3 : pagedMode ? 7 : 13}
       viewabilityConfig={READER_VIEWABILITY_CONFIG}
       // Not on the paged list: Android's clipped-subview pass drops cells
       // when a remounted list (spread ⇄ single after a fold) gets its offset

@@ -305,8 +305,32 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
     );
   }
 
+  /**
+   * Whether `encodedKey` may still own segment files. A clean index knows
+   * every valid group (its latest manifest), and the sweep that built it
+   * removed orphaned members and stages; older generations kept for a
+   * consumer and in-flight publishes are tracked by name. Anything else is a
+   * plain cached file, so replacing it needs no directory scan.
+   */
+  private mayHaveSegmentArtifacts(encodedKey: string): boolean {
+    if (!this.indexed || this.latestSegmentManifests.has(encodedKey)) return true;
+    const prefix = `${encodedKey}.`;
+    const named = (names: Iterable<string>) => {
+      for (const name of names) if (name.startsWith(prefix)) return true;
+      return false;
+    };
+    return (
+      named(this.activeSegmentPublishFiles) ||
+      named(this.retiredSegmentManifests.keys()) ||
+      named(this.segmentedManifestConsumers.keys())
+    );
+  }
+
   private removeSegmentArtifacts(encodedKey: string): boolean {
     if (!this.cacheDir.exists) return false;
+    // Every page download used to list and pattern-match the whole cache
+    // directory here, synchronously on the JS thread.
+    if (!this.mayHaveSegmentArtifacts(encodedKey)) return false;
     let removed = false;
     for (const file of this.cacheFiles()) {
       const manifestMatch = SEGMENT_MANIFEST_PATTERN.exec(file.name);

@@ -40,6 +40,18 @@ export const MOBILE_READER_SCROLL_RENDER_MAX_AHEAD = 24;
 export const MOBILE_READER_SCROLL_RENDER_MIN_BEHIND = 2;
 export const MOBILE_READER_SCROLL_RENDER_MAX_BEHIND = 8;
 
+/**
+ * Mounting is hysteretic: a page mounts inside the render range above (with
+ * two screens the other way, so turning round still has a lead) and stays
+ * mounted until it leaves this wider one. Scrolling back a little therefore
+ * finds its pages still decoded, instead of each one decoding again.
+ */
+export const MOBILE_READER_SCROLL_MOUNT_BEHIND_VIEWPORTS = 2;
+export const MOBILE_READER_SCROLL_MOUNT_MIN_PAGES = 3;
+export const MOBILE_READER_SCROLL_KEEP_AHEAD_VIEWPORTS = 6;
+export const MOBILE_READER_SCROLL_KEEP_BEHIND_VIEWPORTS = 4;
+export const MOBILE_READER_SCROLL_KEEP_MAX_BEHIND = 16;
+
 export type MobileReaderScrollDirection = "forward" | "backward";
 
 /** Forward is down the strip (increasing display index). */
@@ -226,6 +238,79 @@ export function orderMobileReaderScrollProcessing({
     }
   }
   return order;
+}
+
+/**
+ * The mounted pages after the reader moved: everything still mounted that is
+ * inside `keep`, plus all of `enter` (`enter` lies inside `keep`). A jump
+ * that leaves nothing of the previous range in `keep` starts over at `enter`.
+ */
+export function nextMobileReaderMountedRange(
+  previous: MobileReaderPageRange | null,
+  enter: MobileReaderPageRange | null,
+  keep: MobileReaderPageRange | null,
+): MobileReaderPageRange | null {
+  if (!enter) return null;
+  if (!previous || !keep) return enter;
+  const keptFirst = Math.max(previous.first, keep.first);
+  const keptLast = Math.min(previous.last, keep.last);
+  if (keptFirst > keptLast) return enter;
+  return {
+    first: Math.max(keep.first, Math.min(keptFirst, enter.first)),
+    last: Math.min(keep.last, Math.max(keptLast, enter.last)),
+  };
+}
+
+export type MobileReaderRenderRangeStore = {
+  /** Whether `index` is mounted now: in the range or in the fling's landing. */
+  includes(index: number): boolean;
+  /**
+   * Records the range without telling anyone (safe while rendering: cells
+   * rendered after it read the new value); `notify` then tells the cells
+   * that were not re-rendered.
+   */
+  set(range: MobileReaderPageRange | null, landing: MobileReaderPageRange | null): void;
+  notify(): void;
+  subscribe(listener: () => void): () => void;
+};
+
+/**
+ * Holds the scroll list's mounted range outside React state, so each page
+ * cell can subscribe to its own membership: a page crossing re-renders only
+ * the cells that mount or unmount, not every cell in the list.
+ */
+export function createMobileReaderRenderRangeStore(): MobileReaderRenderRangeStore {
+  let range: MobileReaderPageRange | null = null;
+  let landing: MobileReaderPageRange | null = null;
+  let dirty = false;
+  const listeners = new Set<() => void>();
+  const same = (a: MobileReaderPageRange | null, b: MobileReaderPageRange | null) =>
+    a === b || (a != null && b != null && a.first === b.first && a.last === b.last);
+  return {
+    includes(index) {
+      return (
+        isMobileReaderPageInRange(index, range) ||
+        (landing != null && index >= landing.first && index <= landing.last)
+      );
+    },
+    set(nextRange, nextLanding) {
+      if (same(range, nextRange) && same(landing, nextLanding)) return;
+      range = nextRange;
+      landing = nextLanding;
+      dirty = true;
+    },
+    notify() {
+      if (!dirty) return;
+      dirty = false;
+      for (const listener of [...listeners]) listener();
+    },
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
 }
 
 export function isMobileReaderPageInRange(

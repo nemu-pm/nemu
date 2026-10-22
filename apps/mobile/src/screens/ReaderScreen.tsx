@@ -2354,9 +2354,19 @@ export function ReaderScreen() {
     },
     [displayedPages],
   );
+  // Kept while the page ids are unchanged: processing a page replaces the
+  // page list, but must not hand every scroll cell a new render epoch.
+  const readerDisplayIndexByPageIdRef = useRef<{
+    signature: string;
+    map: Map<string, number>;
+  } | null>(null);
   const readerDisplayIndexByPageId = useMemo(() => {
+    const signature = displayedPages.map((page) => page.id).join("\u0000");
+    const previous = readerDisplayIndexByPageIdRef.current;
+    if (previous?.signature === signature) return previous.map;
     const map = new Map<string, number>();
     displayedPages.forEach((page, index) => map.set(page.id, index));
+    readerDisplayIndexByPageIdRef.current = { signature, map };
     return map;
   }, [displayedPages]);
   const currentDisplayedPage = displayedPages[clampedPageIndex] ?? null;

@@ -36,8 +36,8 @@ type MobileReaderPageFrameProps = {
   loading: boolean;
   /**
    * Scroll reading: a loading page is only its background plate (the label
-   * stays for VoiceOver); failures still show their status and Retry. Cached
-   * pages appear unfaded, network ones fade in briefly.
+   * stays for VoiceOver); failures still show their status and Retry. Pages
+   * appear unfaded, over the plate.
    */
   quietLoading?: boolean;
   offline?: boolean;
@@ -90,7 +90,10 @@ export function MobileReaderPageFrame({
           // A decoded page covers its frame anyway, and a transparent frame
           // lets the previous list show through while a remounted one
           // decodes (spread ⇄ single, rotation) instead of a black box.
-          backgroundColor: loading || error ? backgroundColor : "transparent",
+          // Scroll reading always keeps its plate: a page that remounts
+          // paints over it the moment it decodes, without a fade.
+          backgroundColor:
+            loading || error || quietLoading ? backgroundColor : "transparent",
         },
       ]}
     >
@@ -100,6 +103,9 @@ export function MobileReaderPageFrame({
         cacheKey={cacheKey}
         fadeDurationMs={quietLoading ? MOBILE_READER_SCROLL_IMAGE_FADE_MS : undefined}
         fadeFromCache={!quietLoading}
+        // Scroll reading paints a page as soon as native decodes it, with no
+        // wait on a JS load callback to start a fade.
+        fadeIn={!quietLoading}
         fallback={null}
         uriOwnership={imageUriOwnership}
         source={{ uri: imageUri, headers }}

@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
+  createMobileReaderRenderRangeStore,
+  nextMobileReaderMountedRange,
   orderMobileReaderScrollProcessing,
   MOBILE_READER_PAGE_RENDER_WINDOW,
   getMobileReaderPageRenderPolicy,
@@ -283,5 +285,52 @@ describe("orderMobileReaderScrollProcessing", () => {
         direction: "forward",
       }),
     ).toEqual([]);
+  });
+});
+
+describe("scroll mount hysteresis", () => {
+  test("pages stay mounted until they leave the keep range", () => {
+    const keep = { first: 0, last: 30 };
+    expect(nextMobileReaderMountedRange(null, { first: 8, last: 14 }, keep)).toEqual({ first: 8, last: 14 });
+    // Moving down: the pages above stay mounted inside the keep range.
+    expect(
+      nextMobileReaderMountedRange({ first: 8, last: 14 }, { first: 10, last: 16 }, { first: 6, last: 30 }),
+    ).toEqual({ first: 8, last: 16 });
+    // ...and are dropped once they leave it.
+    expect(
+      nextMobileReaderMountedRange({ first: 8, last: 16 }, { first: 14, last: 20 }, { first: 11, last: 34 }),
+    ).toEqual({ first: 11, last: 20 });
+    // A jump starts over.
+    expect(
+      nextMobileReaderMountedRange({ first: 8, last: 16 }, { first: 80, last: 86 }, { first: 76, last: 99 }),
+    ).toEqual({ first: 80, last: 86 });
+    expect(nextMobileReaderMountedRange({ first: 1, last: 2 }, null, keep)).toBeNull();
+  });
+
+  test("the render range store notifies only on change and includes the fling landing", () => {
+    const store = createMobileReaderRenderRangeStore();
+    let calls = 0;
+    const unsubscribe = store.subscribe(() => {
+      calls += 1;
+    });
+    // No range yet: everything mounts.
+    expect(store.includes(50)).toBe(true);
+    store.set({ first: 2, last: 6 }, null);
+    // Read at once, announced on notify.
+    expect(store.includes(7)).toBe(false);
+    expect(calls).toBe(0);
+    store.notify();
+    store.set({ first: 2, last: 6 }, null);
+    store.notify();
+    expect(calls).toBe(1);
+    store.set({ first: 2, last: 6 }, { first: 20, last: 22 });
+    store.notify();
+    expect(calls).toBe(2);
+    expect(store.includes(21)).toBe(true);
+    expect(store.includes(12)).toBe(false);
+    unsubscribe();
+    store.set(null, null);
+    store.notify();
+    expect(calls).toBe(2);
   });
 });
