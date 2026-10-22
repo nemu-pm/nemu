@@ -84,18 +84,18 @@ describe("getMobileReaderPageRenderPolicy", () => {
 });
 
 describe("scroll render window", () => {
-  test("reaches six pages ahead and two behind when scrolling down", () => {
+  test("reaches six pages ahead and four behind when scrolling down", () => {
     expect(isMobileReaderPageInScrollRenderWindow(16, 10, "forward")).toBe(true);
     expect(isMobileReaderPageInScrollRenderWindow(17, 10, "forward")).toBe(false);
-    expect(isMobileReaderPageInScrollRenderWindow(8, 10, "forward")).toBe(true);
-    expect(isMobileReaderPageInScrollRenderWindow(7, 10, "forward")).toBe(false);
+    expect(isMobileReaderPageInScrollRenderWindow(6, 10, "forward")).toBe(true);
+    expect(isMobileReaderPageInScrollRenderWindow(5, 10, "forward")).toBe(false);
   });
 
   test("flips with the scroll direction", () => {
     expect(isMobileReaderPageInScrollRenderWindow(4, 10, "backward")).toBe(true);
     expect(isMobileReaderPageInScrollRenderWindow(3, 10, "backward")).toBe(false);
-    expect(isMobileReaderPageInScrollRenderWindow(12, 10, "backward")).toBe(true);
-    expect(isMobileReaderPageInScrollRenderWindow(13, 10, "backward")).toBe(false);
+    expect(isMobileReaderPageInScrollRenderWindow(14, 10, "backward")).toBe(true);
+    expect(isMobileReaderPageInScrollRenderWindow(15, 10, "backward")).toBe(false);
   });
 
   test("keeps pages with unknown position mounted", () => {

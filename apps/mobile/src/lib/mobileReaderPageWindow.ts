@@ -26,11 +26,13 @@ export function isMobileReaderPageNearViewport(
 /**
  * Scroll (continuous vertical) reading: a fling runs ahead of the page the
  * reader settles on, so the window is directional — six pages ahead in the
- * scroll direction, two behind — and follows the live visible page rather
- * than the committed one. Nine decoded pages at most, against seven paged.
+ * scroll direction, four behind (a back-fling to pages seen seconds ago
+ * shows their art, not placeholders) — and follows the live visible page
+ * rather than the committed one. Eleven decoded pages at most, against seven
+ * paged.
  */
 export const MOBILE_READER_SCROLL_RENDER_AHEAD = 6;
-export const MOBILE_READER_SCROLL_RENDER_BEHIND = 2;
+export const MOBILE_READER_SCROLL_RENDER_BEHIND = 4;
 
 export type MobileReaderScrollDirection = "forward" | "backward";
 
