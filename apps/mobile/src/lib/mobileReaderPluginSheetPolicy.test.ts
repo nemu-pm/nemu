@@ -61,7 +61,7 @@ describe("reader plugin settings sheet policy", () => {
     expect(native).toContain('} from "./ReaderPluginSettingsSheet.ios";');
     expect(native).toContain("<ReaderPluginListPage\n              chrome=\"stack\"");
     expect(native).toContain("<ReaderPluginDetailPage\n                chrome=\"stack\"");
-    expect(native).toContain("<RNHostView key={`width:${Math.round(pushedPageWidth * 2) / 2}`} matchContents={PUSHED_PAGE_MATCH_CONTENTS}>");
+    expect(native).toContain("<RNHostView matchContents={PUSHED_PAGE_MATCH_CONTENTS}>");
     for (const swiftOnly of ["buildMobileReaderPluginNativeSections", "<MobileReaderPluginSettingsCard"]) {
       expect(native).not.toContain(swiftOnly);
     }
@@ -406,7 +406,11 @@ describe("reader plugin settings sheet policy", () => {
     );
     // The hosted page takes the page's width (never a width JS learned) and
     // its own height, so its groups' edges are the Form's.
-    expect(pushed).toContain("<RNHostView key={`width:${Math.round(pushedPageWidth * 2) / 2}`} matchContents={PUSHED_PAGE_MATCH_CONTENTS}>");
+    // A new width re-lays the rows out (keyed inside the host), never the
+    // host itself: a re-keyed host lost its hosted view (blank page).
+    expect(pushed).toContain("<RNHostView matchContents={PUSHED_PAGE_MATCH_CONTENTS}>");
+    expect(pushed).toContain("<NemuGlassSheetThemeScope key={pushedPageWidthKey(pushedPageWidth)} look={PUSHED_PAGE_LOOK}>");
+    expect(pushed).not.toMatch(/<RNHostView[^>]*\bkey=/);
     expect(native).toContain("const PUSHED_PAGE_MATCH_CONTENTS = { vertical: true } as const;");
     expect(native).not.toContain("onGeometryChange");
     // The groups sit on the Form's own margins as the presented Form drew
