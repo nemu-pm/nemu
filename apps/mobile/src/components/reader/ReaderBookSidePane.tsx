@@ -26,6 +26,7 @@ import {
   READER_BOOK_THUMBNAIL_FOLLOW_RESUME_MS,
   READER_BOOK_THUMBNAIL_GAP,
   READER_BOOK_THUMBNAIL_RADIUS,
+  READER_BOOK_THUMBNAIL_ROW_EDGE,
 } from "@/lib/mobileReaderBookSidePane";
 import {
   mobileReaderLivePageIndex,
@@ -45,7 +46,12 @@ import type { WindowLayoutRect } from "@/lib/mobileWindowLayout";
 import { ReaderScreenStepGlyph } from "./ReaderScreenStepGlyph";
 
 export type ReaderBookSidePaneProps = {
-  /** Reader-local geometry (`MobileReaderPoseLayout.sidePane`). */
+  /**
+   * Reader-local geometry (`MobileReaderPoseLayout.sidePane`). Its
+   * `orientation` lays the pane out: `vertical` beside the strip in the book
+   * posture (a column, controls stacked), `horizontal` under the crease in the
+   * laptop posture (a row, controls side by side).
+   */
   layout: MobileReaderBookSidePane;
   /** The Laptop Mode setting: thumbnails (`filmstrip`) or page controls (`trackpad`). */
   content: MobileReaderNotebookPanePreference;
@@ -96,8 +102,9 @@ function localRect(rect: WindowLayoutRect, origin: WindowLayoutRect) {
 }
 
 /**
- * Book posture, scroll reading: the half beside the strip. Reader black;
- * any empty spot toggles the toolbar like a tap on the strip does.
+ * Book / laptop posture, scroll reading: the half beside (or below) the strip.
+ * Reader black; any empty spot toggles the toolbar like a tap on the strip
+ * does. One component for both postures: `layout.orientation` decides.
  */
 export function ReaderBookSidePane(props: ReaderBookSidePaneProps) {
   const { layout, content, backgroundColor, strings, onToggleControls } = props;
@@ -111,7 +118,7 @@ export function ReaderBookSidePane(props: ReaderBookSidePaneProps) {
       />
       {content === "filmstrip" ? (
         <>
-          {props.chapterTitle ? (
+          {props.chapterTitle && layout.header.height > 0 ? (
             <NemuText
               accessibilityRole="header"
               numberOfLines={1}
@@ -184,13 +191,17 @@ function ReaderBookThumbnailList({
 }: ReaderBookSidePaneProps) {
   const live = useSyncExternalStore(liveStore.subscribe, liveStore.get, liveStore.get);
   const currentIndex = mobileReaderLivePageIndex(live, committedIndex);
-  const width = layout.thumbnailSize;
-  const viewportHeight = layout.list.height;
+  const horizontal = layout.orientation === "horizontal";
+  const size = layout.thumbnailSize;
+  const viewportLength = horizontal ? layout.list.width : layout.list.height;
   const ratios = useMemo(
     () => Array.from({ length: Math.max(0, pageCount) }, (_, index) => thumbnailRatios[index] ?? Number.NaN),
     [pageCount, thumbnailRatios],
   );
-  const geometry = useMemo(() => mobileReaderBookThumbnailLayout(ratios, width), [ratios, width]);
+  const geometry = useMemo(
+    () => mobileReaderBookThumbnailLayout(ratios, size, layout.orientation),
+    [layout.orientation, ratios, size],
+  );
   const data = useMemo(() => Array.from({ length: Math.max(0, pageCount) }, (_, index) => index), [pageCount]);
 
   // The resolver changes whenever the page list does (a page finishing its
@@ -230,16 +241,16 @@ function ReaderBookThumbnailList({
   }, [clearResume]);
   useEffect(() => clearResume, [clearResume]);
   useEffect(() => {
-    if (pausedRef.current || !(viewportHeight > 0) || geometry.heights.length === 0) return;
-    const offset = mobileReaderBookThumbnailFollowOffset(geometry, currentIndex, viewportHeight);
+    if (pausedRef.current || !(viewportLength > 0) || geometry.lengths.length === 0) return;
+    const offset = mobileReaderBookThumbnailFollowOffset(geometry, currentIndex, viewportLength);
     listRef.current?.scrollToOffset({ offset, animated: placedRef.current });
     placedRef.current = true;
-  }, [currentIndex, geometry, resumed, viewportHeight]);
+  }, [currentIndex, geometry, resumed, viewportLength]);
 
   const getItemLayout = useCallback(
     (_: ArrayLike<number> | null | undefined, index: number) => ({
       index,
-      length: (geometry.heights[index] ?? 0) + READER_BOOK_THUMBNAIL_GAP,
+      length: (geometry.lengths[index] ?? 0) + READER_BOOK_THUMBNAIL_GAP,
       offset: (geometry.offsets[index] ?? 0) - READER_BOOK_THUMBNAIL_GAP,
     }),
     [geometry],
@@ -248,9 +259,10 @@ function ReaderBookThumbnailList({
     ({ item: index }: { item: number }) => (
       <ReaderBookThumbnail
         index={index}
-        rowWidth={layout.list.width}
-        width={width}
-        height={geometry.heights[index] ?? 0}
+        horizontal={horizontal}
+        rowSize={horizontal ? layout.list.height : layout.list.width}
+        width={horizontal ? (geometry.lengths[index] ?? 0) : size}
+        height={horizontal ? size : (geometry.lengths[index] ?? 0)}
         cropped={geometry.cropped[index] ?? false}
         current={index === currentIndex}
         revealed={!spoilerSafe || mobileReaderPageRevealed(index, revealed)}
@@ -265,16 +277,18 @@ function ReaderBookThumbnailList({
     [
       currentIndex,
       geometry,
+      horizontal,
+      layout.list.height,
       layout.list.width,
       onSelectPage,
       onToggleControls,
       resolve,
       revealed,
+      size,
       spoilerSafe,
       strings,
       thumbnailKeys,
       visible,
-      width,
     ],
   );
 
@@ -303,8 +317,10 @@ function ReaderBookThumbnailList({
         onMomentumScrollEnd={() => {
           if (pausedRef.current) scheduleResume();
         }}
-        contentContainerStyle={styles.listContent}
+        horizontal={horizontal}
+        contentContainerStyle={horizontal ? styles.rowContent : styles.listContent}
         showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
         scrollsToTop={false}
         initialNumToRender={3}
         maxToRenderPerBatch={3}
@@ -319,7 +335,8 @@ type ThumbnailPreview = { key: string; uri: string | null; failed: boolean };
 
 const ReaderBookThumbnail = memo(function ReaderBookThumbnail({
   index,
-  rowWidth,
+  horizontal,
+  rowSize,
   width,
   height,
   cropped,
@@ -333,7 +350,10 @@ const ReaderBookThumbnail = memo(function ReaderBookThumbnail({
   onToggleControls,
 }: {
   index: number;
-  rowWidth: number;
+  /** A cell of the laptop posture's row (the gap before it on its left) rather than the column. */
+  horizontal: boolean;
+  /** The cell's size across the list: the column's width, or the row's height. */
+  rowSize: number;
   width: number;
   height: number;
   cropped: boolean;
@@ -375,7 +395,10 @@ const ReaderBookThumbnail = memo(function ReaderBookThumbnail({
     failed ? strings.duo.filmstripPreviewFailed : revealed ? strings.reader.pageTitle : strings.duo.filmstripUnreadPage,
     { page },
   );
-  const left = Math.max(0, (rowWidth - width) / 2);
+  // Across the list the thumbnail is centred in its cell (16pt either side);
+  // along it the gap comes first.
+  const left = horizontal ? READER_BOOK_THUMBNAIL_GAP : Math.max(0, (rowSize - width) / 2);
+  const top = horizontal ? Math.max(0, (rowSize - height) / 2) : READER_BOOK_THUMBNAIL_GAP;
   const uri = revealed && visible ? (shown?.uri ?? null) : null;
   // The image fades in over the placeholder once it has decoded; a new image
   // (a recycled row, a retry) starts from the placeholder again.
@@ -399,13 +422,13 @@ const ReaderBookThumbnail = memo(function ReaderBookThumbnail({
     () => fade.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
     [fade],
   );
-  // One row per page across the whole list width: the thumbnail selects its
-  // page, the margins and the gap above it toggle the toolbar.
+  // One cell per page across the whole list: the thumbnail selects its page,
+  // the margins and the gap before it toggle the toolbar.
   const onPress = (event: GestureResponderEvent) => {
     const { locationX, locationY } = event.nativeEvent;
     const onThumb =
       locationX >= left && locationX <= left + width
-      && locationY >= READER_BOOK_THUMBNAIL_GAP && locationY <= READER_BOOK_THUMBNAIL_GAP + height;
+      && locationY >= top && locationY <= top + height;
     if (!onThumb) {
       onToggleControls();
       return;
@@ -419,9 +442,13 @@ const ReaderBookThumbnail = memo(function ReaderBookThumbnail({
       accessibilityLabel={label}
       accessibilityState={{ selected: current }}
       onPress={onPress}
-      style={{ width: rowWidth, height: height + READER_BOOK_THUMBNAIL_GAP, paddingTop: READER_BOOK_THUMBNAIL_GAP }}
+      style={
+        horizontal
+          ? { width: width + READER_BOOK_THUMBNAIL_GAP, height: rowSize }
+          : { width: rowSize, height: height + READER_BOOK_THUMBNAIL_GAP }
+      }
     >
-      <View style={[styles.thumb, { marginLeft: left, width, height }]}>
+      <View style={[styles.thumb, { marginLeft: left, marginTop: top, width, height }]}>
         {failed || !revealed ? (
           <Ionicons name={failed ? "reload-outline" : "eye-off-outline"} size={22} color={QUIET} />
         ) : (
@@ -462,6 +489,11 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingBottom: READER_BOOK_THUMBNAIL_GAP,
+  },
+  // The row's ends: 16pt to the first and from the last thumbnail.
+  rowContent: {
+    paddingLeft: READER_BOOK_THUMBNAIL_ROW_EDGE,
+    paddingRight: READER_BOOK_THUMBNAIL_ROW_EDGE + READER_BOOK_THUMBNAIL_GAP,
   },
   thumb: {
     borderRadius: READER_BOOK_THUMBNAIL_RADIUS,

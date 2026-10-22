@@ -5400,7 +5400,8 @@ export function ReaderScreen() {
     [readerSafeInsetBottom, readerSafeInsetTop, showEndOfChapterPrompt],
   );
 
-  // Book posture side pane (Laptop Mode: thumbnails). A thumbnail shows the
+  // Book / laptop posture side pane (Laptop Mode: thumbnails, a column beside
+  // the strip or a row under the crease). A thumbnail shows the
   // page's own image: a processed (descrambled) page only once its file is
   // there — never the source's scrambled original while processing waits.
   const readerBookSidePane = !galleryPagedMode ? (readerPose.sidePane ?? null) : null;

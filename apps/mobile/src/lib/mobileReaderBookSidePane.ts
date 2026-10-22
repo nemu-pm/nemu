@@ -2,9 +2,11 @@
  * Book posture (iPhone Duo half folded, vertical crease), scroll reading: the
  * half beside the strip follows the Laptop Mode setting.
  *
- * - Thumbnails (`filmstrip`): one column of the chapter's pages, the current
- *   page outlined and kept in view.
- * - Page Controls (`trackpad`): two buttons that move the strip one screen.
+ * - Thumbnails (`filmstrip`): one column of the chapter's pages (one row in
+ *   the laptop posture's bottom half), the current page outlined and kept in
+ *   view.
+ * - Page Controls (`trackpad`): two buttons that move the strip one screen
+ *   (stacked, or side by side in the laptop posture).
  *
  * Pure geometry only; `ReaderBookSidePane.tsx` draws it and the pose layout
  * (`mobileReaderBookSidePaneLayout`) places it.
@@ -53,14 +55,24 @@ export function mobileReaderBookThumbnailRatios(
   });
 }
 
+export type MobileReaderBookThumbnailOrientation = "vertical" | "horizontal";
+
+/**
+ * The laptop posture's row starts and ends 16pt in from the half's edges, like
+ * the column's thumbnails sit 16pt in from its sides: the list content keeps
+ * this much before the first gap and after the last.
+ */
+export const READER_BOOK_THUMBNAIL_ROW_EDGE = 16 - READER_BOOK_THUMBNAIL_GAP;
+
 export type MobileReaderBookThumbnailLayout = {
-  /** Thumbnail heights, in page order. */
-  heights: number[];
-  /** Offset of each thumbnail's top inside the list content (gap above included). */
+  orientation: MobileReaderBookThumbnailOrientation;
+  /** Thumbnail extents along the list (heights in a column, widths in a row), in page order. */
+  lengths: number[];
+  /** Offset of each thumbnail's leading edge inside the list content (gap before it included). */
   offsets: number[];
   /** Thumbnails cropped to the tallest box (shown "cover" rather than "contain"). */
   cropped: boolean[];
-  contentHeight: number;
+  contentLength: number;
 };
 
 function clampRatio(ratio: number): { ratio: number; cropped: boolean } {
@@ -70,48 +82,51 @@ function clampRatio(ratio: number): { ratio: number; cropped: boolean } {
 }
 
 /**
- * The column's geometry from each page's height / width ratio
- * (`mobileReaderScrollPageRatios`: the decoded or reported size, else the
- * chapter's typical page), every thumbnail `width` wide.
+ * The list's geometry from each page's height / width ratio
+ * (`mobileReaderBookThumbnailRatios`). `size` is the thumbnails' size across
+ * the list: every thumbnail `size` wide in a column (the book posture), `size`
+ * tall in a row (the laptop posture).
  */
 export function mobileReaderBookThumbnailLayout(
   ratios: readonly number[],
-  width: number,
+  size: number,
+  orientation: MobileReaderBookThumbnailOrientation = "vertical",
 ): MobileReaderBookThumbnailLayout {
-  const safeWidth = Number.isFinite(width) ? Math.max(0, width) : 0;
-  const heights: number[] = [];
+  const safeSize = Number.isFinite(size) ? Math.max(0, size) : 0;
+  const edge = orientation === "horizontal" ? READER_BOOK_THUMBNAIL_ROW_EDGE : 0;
+  const lengths: number[] = [];
   const offsets: number[] = [];
   const cropped: boolean[] = [];
-  let y = 0;
+  let y = edge;
   for (const raw of ratios) {
     const { ratio, cropped: crop } = clampRatio(raw);
-    const height = Math.round(safeWidth * ratio);
+    const length = Math.round(orientation === "horizontal" ? safeSize / ratio : safeSize * ratio);
     y += READER_BOOK_THUMBNAIL_GAP;
     offsets.push(y);
-    heights.push(height);
+    lengths.push(length);
     cropped.push(crop);
-    y += height;
+    y += length;
   }
-  return { heights, offsets, cropped, contentHeight: y + READER_BOOK_THUMBNAIL_GAP };
+  return { orientation, lengths, offsets, cropped, contentLength: y + READER_BOOK_THUMBNAIL_GAP + edge };
 }
 
 /**
  * List offset that keeps page `index` in view: centred in the viewport when
- * it fits, its top at the top otherwise, clamped to the list's range.
+ * it fits, its leading edge at the start otherwise, clamped to the list's range.
  */
 export function mobileReaderBookThumbnailFollowOffset(
   layout: MobileReaderBookThumbnailLayout,
   index: number,
-  viewportHeight: number,
+  viewportLength: number,
 ): number {
-  const count = layout.heights.length;
-  if (count === 0 || !(viewportHeight > 0) || !Number.isFinite(index)) return 0;
+  const count = layout.lengths.length;
+  if (count === 0 || !(viewportLength > 0) || !Number.isFinite(index)) return 0;
   const clamped = Math.max(0, Math.min(count - 1, Math.floor(index)));
-  const top = layout.offsets[clamped]!;
-  const height = layout.heights[clamped]!;
-  const wanted = height + READER_BOOK_THUMBNAIL_GAP * 2 <= viewportHeight
-    ? top + height / 2 - viewportHeight / 2
-    : top - READER_BOOK_THUMBNAIL_GAP;
-  const max = Math.max(0, layout.contentHeight - viewportHeight);
+  const start = layout.offsets[clamped]!;
+  const length = layout.lengths[clamped]!;
+  const wanted = length + READER_BOOK_THUMBNAIL_GAP * 2 <= viewportLength
+    ? start + length / 2 - viewportLength / 2
+    : start - READER_BOOK_THUMBNAIL_GAP;
+  const max = Math.max(0, layout.contentLength - viewportLength);
   return Math.max(0, Math.min(max, Math.round(wanted)));
 }

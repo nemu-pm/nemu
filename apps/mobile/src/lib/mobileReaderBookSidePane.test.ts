@@ -5,6 +5,8 @@ import {
   mobileReaderBookThumbnailRatios,
   READER_BOOK_THUMBNAIL_GAP,
   READER_BOOK_THUMBNAIL_MAX_RATIO,
+  READER_BOOK_THUMBNAIL_MIN_RATIO,
+  READER_BOOK_THUMBNAIL_ROW_EDGE,
   READER_BOOK_THUMBNAIL_UNKNOWN_RATIO,
 } from "./mobileReaderBookSidePane";
 import {
@@ -36,12 +38,12 @@ describe("book posture strip width", () => {
 describe("book posture thumbnails", () => {
   test("one column, the given width, 8pt apart; tall slices are capped and cropped", () => {
     const layout = mobileReaderBookThumbnailLayout([1.4, 1.4, 4], 100);
-    expect(layout.heights).toEqual([140, 140, 100 * READER_BOOK_THUMBNAIL_MAX_RATIO]);
+    expect(layout.lengths).toEqual([140, 140, 100 * READER_BOOK_THUMBNAIL_MAX_RATIO]);
     expect(layout.offsets).toEqual([8, 8 + 140 + 8, 8 + 140 + 8 + 140 + 8]);
     expect(layout.cropped).toEqual([false, false, true]);
-    expect(layout.contentHeight).toBe(8 + 140 + 8 + 140 + 8 + 150 + 8);
+    expect(layout.contentLength).toBe(8 + 140 + 8 + 140 + 8 + 150 + 8);
     // An unknown ratio falls back to a manga page, width / height 0.7.
-    expect(mobileReaderBookThumbnailLayout([Number.NaN], 100).heights).toEqual([143]);
+    expect(mobileReaderBookThumbnailLayout([Number.NaN], 100).lengths).toEqual([143]);
   });
 
   test("the followed page is centred, clamped to the list's range", () => {
@@ -49,11 +51,49 @@ describe("book posture thumbnails", () => {
     // Item 4 spans 4·108+8 … +100: centred in a 300pt viewport.
     expect(mobileReaderBookThumbnailFollowOffset(layout, 4, 300)).toBe(440 - 150 + 50);
     expect(mobileReaderBookThumbnailFollowOffset(layout, 0, 300)).toBe(0);
-    expect(mobileReaderBookThumbnailFollowOffset(layout, 9, 300)).toBe(layout.contentHeight - 300);
-    expect(mobileReaderBookThumbnailFollowOffset(layout, 99, 300)).toBe(layout.contentHeight - 300);
+    expect(mobileReaderBookThumbnailFollowOffset(layout, 9, 300)).toBe(layout.contentLength - 300);
+    expect(mobileReaderBookThumbnailFollowOffset(layout, 99, 300)).toBe(layout.contentLength - 300);
     // Taller than the viewport: its top (and the gap above it) at the top.
     expect(mobileReaderBookThumbnailFollowOffset(layout, 4, 80)).toBe(440 - READER_BOOK_THUMBNAIL_GAP);
     expect(mobileReaderBookThumbnailFollowOffset(mobileReaderBookThumbnailLayout([], 100), 0, 300)).toBe(0);
+  });
+});
+
+describe("laptop posture thumbnail row", () => {
+  // Duo half folded, portrait: the bottom half is 455.5pt tall.
+  const height = 455.5 - 32;
+
+  test("one row, every thumbnail the half's height less 16pt above and below, 8pt apart, 16pt from the ends", () => {
+    const layout = mobileReaderBookThumbnailLayout([1.5, 1.5, 0.75], height, "horizontal");
+    expect(layout.orientation).toBe("horizontal");
+    expect(READER_BOOK_THUMBNAIL_ROW_EDGE + READER_BOOK_THUMBNAIL_GAP).toBe(16);
+    expect(layout.lengths).toEqual([Math.round(height / 1.5), Math.round(height / 1.5), Math.round(height / 0.75)]);
+    expect(layout.offsets[0]).toBe(16);
+    expect(layout.offsets[1]).toBe(16 + layout.lengths[0]! + 8);
+    expect(layout.contentLength).toBe(16 + layout.lengths.reduce((a, b) => a + b, 0) + 2 * 8 + 16);
+    expect(layout.cropped).toEqual([false, false, false]);
+  });
+
+  test("a tall webtoon slice is cropped to the tallest box; a very wide one is capped too", () => {
+    const layout = mobileReaderBookThumbnailLayout([6, 0.05], 300, "horizontal");
+    expect(layout.lengths).toEqual([Math.round(300 / READER_BOOK_THUMBNAIL_MAX_RATIO), Math.round(300 / READER_BOOK_THUMBNAIL_MIN_RATIO)]);
+    expect(layout.cropped).toEqual([true, false]);
+    // Unknown size: a printed manga page, 0.7 wide to 1 tall.
+    expect(mobileReaderBookThumbnailLayout([Number.NaN], 300, "horizontal").lengths).toEqual([210]);
+  });
+
+  test("the followed page is centred across the row's width, clamped to its ends", () => {
+    const layout = mobileReaderBookThumbnailLayout(Array(10).fill(1.5), 300, "horizontal");
+    // Each thumbnail 200 wide, 208 per cell; item 4 starts at 8 + 4·208 + 8.
+    const start = 8 + 4 * 208 + 8;
+    expect(mobileReaderBookThumbnailFollowOffset(layout, 4, 669)).toBe(Math.round(start + 100 - 669 / 2));
+    expect(mobileReaderBookThumbnailFollowOffset(layout, 0, 669)).toBe(0);
+    expect(mobileReaderBookThumbnailFollowOffset(layout, 9, 669)).toBe(layout.contentLength - 669);
+  });
+
+  test("the column is unchanged by default (no edge padding)", () => {
+    expect(mobileReaderBookThumbnailLayout([1], 100)).toEqual(mobileReaderBookThumbnailLayout([1], 100, "vertical"));
+    expect(mobileReaderBookThumbnailLayout([1], 100).offsets).toEqual([8]);
   });
 });
 
