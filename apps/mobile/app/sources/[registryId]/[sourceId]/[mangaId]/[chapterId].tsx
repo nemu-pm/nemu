@@ -11,8 +11,8 @@ import { getMobileReaderZoomCoverFrame, peekMobileReaderZoomCover } from "@/lib/
 import { ReaderScreen } from "@/screens/ReaderScreen";
 import { ZoomTarget } from "../../../../../modules/nemu-window-layout";
 
-/** The landing cover fades into the first page. */
-const COVER_REVEAL_MS = 240;
+/** The landing cover fades into the reader (the opening fade-in). */
+const COVER_REVEAL_MS = 250;
 /**
  * A page that is slow to load is not waited for any longer than this. The
  * reader's chrome draws over the cover, so it is usable meanwhile.
@@ -34,8 +34,9 @@ export default function ReaderRoute() {
  * The reader is far too heavy to mount in the commit a zoom pushes, so the
  * zoom lands on the tapped cover, laid out where the first page will be, and
  * the reader mounts underneath once it has landed; the cover fades into the
- * first page when it has drawn. Outside a zoom this is the reader and nothing
- * else.
+ * reader once it is ready to show (scroll reading: placed at the reading
+ * position; paged: the page on screen drawn — see `readerZoomPageShown`).
+ * Outside a zoom this is the reader and nothing else.
  */
 function ReaderAfterZoom({ zoomId }: { zoomId: string | null }) {
   const landed = useMobileExploreZoomLanded();

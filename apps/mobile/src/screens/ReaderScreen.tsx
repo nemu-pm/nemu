@@ -2302,17 +2302,6 @@ export function ReaderScreen() {
   const currentDisplayedPageIdentity = currentDisplayedPage
     ? readerPageIdentityFor(currentDisplayedPage)
     : "";
-  // The cover a zoom landed on fades into the page on screen once it has
-  // decoded, or at once into a chapter or page that failed (its own state).
-  const readerZoomPageShown =
-    pagesState.status === "error" ||
-    pagesState.status === "blocked" ||
-    (currentDisplayedPageIdentity !== "" &&
-      (readerImageSizes.has(currentDisplayedPageIdentity) ||
-        readerImageErrors.has(currentDisplayedPageIdentity)));
-  useEffect(() => {
-    if (readerZoomPageShown) readerZoomEntry.onFirstPage();
-  }, [readerZoomEntry, readerZoomPageShown]);
   const savedIntraPageState = normalizeMobileReaderIntraPageState({
     intraPageProgress: state.chapterProgress?.intraPageProgress,
     intraPageContentIdentity: state.chapterProgress?.intraPageContentIdentity,
@@ -3401,6 +3390,30 @@ export function ReaderScreen() {
   });
   const readerRestoreComplete =
     Boolean(restoreReaderKey) && restoredReaderKey === restoreReaderKey;
+  // The cover a zoom landed on fades into the reader (at once into a chapter
+  // that failed: its own state). Scroll reading opens straight into the
+  // reading position: as soon as the opening seek has placed the list —
+  // never waiting for the page's image to decode (pages still loading show
+  // their dark plate) nor for the seek held until the pages' real heights
+  // are known, which re-places the list in place. Paged reading still waits
+  // for the page on screen to decode (or fail): a page there has no plate,
+  // so revealing early would show an empty stage.
+  const readerZoomPageShown =
+    pagesState.status === "error" ||
+    pagesState.status === "blocked" ||
+    (!galleryPagedMode &&
+      pagesState.status === "ready" &&
+      pageCount > 0 &&
+      readerRestoreComplete) ||
+    (currentDisplayedPageIdentity !== "" &&
+      (readerImageSizes.has(currentDisplayedPageIdentity) ||
+        readerImageErrors.has(currentDisplayedPageIdentity)));
+  useEffect(() => {
+    if (!readerZoomPageShown) return;
+    // One frame on: the seek's non-animated scroll has been applied natively.
+    const frame = requestAnimationFrame(() => readerZoomEntry.onFirstPage());
+    return () => cancelAnimationFrame(frame);
+  }, [readerZoomEntry, readerZoomPageShown]);
   // Notebook filmstrip / scrub previews are spoiler-safe: only pages read
   // before this chapter opened (saved position, a completed chapter), pages
   // actually shown in this session and the current page show their image.
