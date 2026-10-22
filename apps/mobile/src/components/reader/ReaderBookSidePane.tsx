@@ -3,6 +3,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -34,6 +35,8 @@ import {
   READER_BOOK_THUMBNAIL_REST_WINDOW_MS,
   READER_BOOK_THUMBNAIL_ROW_EDGE,
   READER_BOOK_THUMBNAIL_SNAP_MS,
+  READER_BOOK_THUMBNAIL_STALE,
+  type MobileReaderBookThumbnailResolve,
   type MobileReaderBookThumbnailScrollSample,
 } from "@/lib/mobileReaderBookSidePane";
 import {
@@ -77,8 +80,12 @@ export type ReaderBookSidePaneProps = {
    * to show yet (source processing pending) — no request is made then.
    */
   thumbnailKeys: readonly (string | null)[];
-  /** Resolves a visible thumbnail through the reader's page cache (prefetch priority). */
-  thumbnailUri: (index: number, signal: AbortSignal) => Promise<string | null>;
+  /**
+   * Resolves a visible thumbnail through the reader's page cache (prefetch
+   * priority), for the image `key` names; `READER_BOOK_THUMBNAIL_STALE` when
+   * the page no longer has that image.
+   */
+  thumbnailUri: MobileReaderBookThumbnailResolve;
   revealed: MobileReaderNotebookReveal;
   spoilerSafe: boolean;
   /** The page under the strip's centre while it moves; `committedIndex` otherwise. */
@@ -213,13 +220,16 @@ function ReaderBookThumbnailList({
   const data = useMemo(() => Array.from({ length: Math.max(0, pageCount) }, (_, index) => index), [pageCount]);
 
   // The resolver changes whenever the page list does (a page finishing its
-  // processing); thumbnails only re-request when their own key changes.
+  // processing); thumbnails only re-request when their own key changes. The
+  // ref is current before any cell's effect runs (layout effects run first):
+  // updated in an effect, a cell whose key had just turned ready called the
+  // previous resolver, which still saw the page pending with its raw image.
   const thumbnailUriRef = useRef(thumbnailUri);
-  useEffect(() => {
+  useLayoutEffect(() => {
     thumbnailUriRef.current = thumbnailUri;
   }, [thumbnailUri]);
-  const resolve = useCallback(
-    (index: number, signal: AbortSignal) => thumbnailUriRef.current(index, signal),
+  const resolve = useCallback<MobileReaderBookThumbnailResolve>(
+    (index, key, signal) => thumbnailUriRef.current(index, key, signal),
     [],
   );
 
@@ -442,7 +452,7 @@ const ReaderBookThumbnail = memo(function ReaderBookThumbnail({
   revealed: boolean;
   visible: boolean;
   imageKey: string | null;
-  resolve: (index: number, signal: AbortSignal) => Promise<string | null>;
+  resolve: MobileReaderBookThumbnailResolve;
   strings: MobileStrings;
   onSelectPage: (index: number) => void;
   onToggleControls: () => void;
@@ -456,11 +466,14 @@ const ReaderBookThumbnail = memo(function ReaderBookThumbnail({
     // Never resolve a hidden spoiler, an offscreen cell or a page whose
     // processed file is not there yet: nothing heavier than the visible
     // thumbnails is ever asked for.
-    if (!revealed || !visible || requestKey === null) return;
+    if (!revealed || !visible || imageKey === null || requestKey === null) return;
     if (preview?.key === requestKey && (preview.uri || preview.failed)) return;
     const controller = new AbortController();
-    void resolve(index, controller.signal).then(
+    void resolve(index, imageKey, controller.signal).then(
       (uri) => {
+        // Answered for another image (the page changed under the request):
+        // still the placeholder, never a failure; the new key asks again.
+        if (uri === READER_BOOK_THUMBNAIL_STALE) return;
         // Nothing yet (a load cancelled or still shared elsewhere) is not a
         // failure: the cell keeps its numbered placeholder — never a retry
         // glyph while loading — and asks again the next time it shows.
@@ -473,7 +486,7 @@ const ReaderBookThumbnail = memo(function ReaderBookThumbnail({
     return () => controller.abort();
     // `preview` is read only to skip a finished request.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [index, requestKey, resolve, revealed, visible]);
+  }, [imageKey, index, requestKey, resolve, revealed, visible]);
   const failed = revealed && shown?.failed === true;
   const label = formatMobileString(
     failed ? strings.duo.filmstripPreviewFailed : revealed ? strings.reader.pageTitle : strings.duo.filmstripUnreadPage,

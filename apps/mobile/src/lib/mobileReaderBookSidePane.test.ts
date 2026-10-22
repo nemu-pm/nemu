@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
   mobileReaderBookThumbnailAtRest,
+  mobileReaderBookThumbnailKey,
+  READER_BOOK_THUMBNAIL_STALE,
   mobileReaderBookThumbnailResumeDelay,
   mobileReaderBookThumbnailSnapOffset,
   READER_BOOK_THUMBNAIL_FOLLOW_RESUME_MS,
@@ -208,5 +210,44 @@ describe("book posture wiring (ReaderScreen)", () => {
     expect(readerScreen).toContain(
       'sheetHostFrame={readerPose.posture === "book" ? (readerPose.sidePane?.frame ?? null) : null}',
     );
+  });
+});
+
+describe("book pane thumbnails never show a page's raw original while it is pending", () => {
+  const readerScreen = readFileSync(path.join(import.meta.dir, "../screens/ReaderScreen.tsx"), "utf8");
+
+  test("a pending page has no thumbnail key; a processed one is keyed by id and image", () => {
+    const raw = "https://cdn-ak-img.shonenjumpplus.com/p14.jpg";
+    expect(mobileReaderBookThumbnailKey({ id: "p14", imageUri: raw, imageProcessing: "pending" })).toBeNull();
+    expect(mobileReaderBookThumbnailKey({ id: "p14" })).toBeNull();
+    expect(mobileReaderBookThumbnailKey(undefined)).toBeNull();
+    expect(mobileReaderBookThumbnailKey({ id: "p14", imageUri: "file:///p14.webp", imageProcessing: "ready" }))
+      .toBe("p14\u0001file:///p14.webp");
+    // "fallback" is unchanged here (processing failed; handled separately).
+    expect(mobileReaderBookThumbnailKey({ id: "p14", imageUri: raw, imageProcessing: "fallback" }))
+      .toBe(`p14\u0001${raw}`);
+  });
+
+  test("the resolver refuses pending pages and remembers per page image, not per page id", () => {
+    expect(readerScreen).toContain('if (!page?.imageUri || page.imageProcessing === "pending") return null;');
+    expect(readerScreen).toContain("const memoKey = `${page.id}\\u0001${page.imageUri}`;");
+    expect(readerScreen).not.toContain("resolvedByPageId.get(page.id)");
+    expect(readerScreen).not.toContain("resolvedByPageId.set(page.id,");
+  });
+
+  test("the pane asks for the cell's own key; another image answers stale", () => {
+    expect(readerScreen).toContain("thumbnailUri={readerBookThumbnailUri}");
+    expect(readerScreen).toMatch(
+      /mobileReaderBookThumbnailKey\(displayedPages\[index\]\) === key\s*\? readerNotebookThumbnailUri\(index, signal\)\s*: Promise\.resolve\(READER_BOOK_THUMBNAIL_STALE\)/,
+    );
+    expect(readerScreen).toContain("displayedPages.map(mobileReaderBookThumbnailKey)");
+  });
+
+  test("the cell never calls a stale resolver and keeps its placeholder on a stale answer", () => {
+    // Updated before the cells' effects run (a layout effect), not in an effect.
+    expect(sidePaneSource).toMatch(/useLayoutEffect\(\(\) => \{\s*thumbnailUriRef\.current = thumbnailUri;/);
+    expect(sidePaneSource).toContain("resolve(index, imageKey, controller.signal)");
+    expect(sidePaneSource).toContain("if (uri === READER_BOOK_THUMBNAIL_STALE) return;");
+    expect(READER_BOOK_THUMBNAIL_STALE).toBe("stale");
   });
 });

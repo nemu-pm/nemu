@@ -186,3 +186,30 @@ export function mobileReaderBookThumbnailFollowOffset(
   const max = Math.max(0, layout.contentLength - viewportLength);
   return Math.max(0, Math.min(max, Math.round(wanted)));
 }
+
+/**
+ * The image a book-pane thumbnail shows: the page id and its current image
+ * URI, or null while there is nothing it may show — no image yet, or a page
+ * still waiting for its source processing (its `imageUri` is then the
+ * source's original, which a scrambling source such as Jump+ serves
+ * scrambled).
+ */
+export function mobileReaderBookThumbnailKey(
+  page: { id: string; imageUri?: string; imageProcessing?: string } | null | undefined,
+): string | null {
+  if (!page?.imageUri || page.imageProcessing === "pending") return null;
+  return `${page.id}\u0001${page.imageUri}`;
+}
+
+/**
+ * A thumbnail resolve answered for another image than the cell asked for
+ * (the page changed since): the cell keeps its placeholder and asks again
+ * with its new key — neither an image nor a failure.
+ */
+export const READER_BOOK_THUMBNAIL_STALE = "stale" as const;
+export type MobileReaderBookThumbnailResolve = (
+  index: number,
+  /** `mobileReaderBookThumbnailKey` of the page the cell shows. */
+  key: string,
+  signal: AbortSignal,
+) => Promise<string | null | typeof READER_BOOK_THUMBNAIL_STALE>;

@@ -211,7 +211,12 @@ import {
   mobileReaderStripBridgeLocalIndex,
   type MobileReaderStripBridge,
 } from "@/lib/mobileReaderStripBridge";
-import { mobileReaderBookThumbnailRatios } from "@/lib/mobileReaderBookSidePane";
+import {
+  mobileReaderBookThumbnailKey,
+  mobileReaderBookThumbnailRatios,
+  READER_BOOK_THUMBNAIL_STALE,
+  type MobileReaderBookThumbnailResolve,
+} from "@/lib/mobileReaderBookSidePane";
 import { LinearGradient } from "expo-linear-gradient";
 import {
   MobileReaderGallery,
@@ -2528,7 +2533,9 @@ export function ReaderScreen() {
   }, [pages]);
   // Resolving a cached page URI hashes it with a pure-JS SHA-256. The
   // notebook filmstrip asks for the same handful of pages again and again, so
-  // a resolved URI is remembered per page id and thrown away with the page list.
+  // a resolved URI is remembered per page image (id + URI: a write that lands
+  // after the page changed can never answer for its new image) and thrown
+  // away with the page list.
   const readerScrubPreviewUriByPageIdRef = useRef(new Map<string, string>());
   useEffect(() => {
     readerScrubPreviewUriByPageIdRef.current = new Map();
@@ -2538,15 +2545,18 @@ export function ReaderScreen() {
   const readerNotebookThumbnailUri = useCallback(
     async (index: number, signal: AbortSignal): Promise<string | null> => {
       const page = displayedPages[index];
-      if (!page?.imageUri) return null;
+      // A page waiting for its processing holds the source's original (raw,
+      // scrambled for Jump+): never a thumbnail.
+      if (!page?.imageUri || page.imageProcessing === "pending") return null;
       if (page.imageUriOwnership === "app") return page.imageUri;
       const resolvedByPageId = readerScrubPreviewUriByPageIdRef.current;
-      const remembered = resolvedByPageId.get(page.id);
+      const memoKey = `${page.id}\u0001${page.imageUri}`;
+      const remembered = resolvedByPageId.get(memoKey);
       if (remembered !== undefined) return remembered;
       const source = { uri: page.imageUri, headers: page.headers, cacheKind: "page" as const };
       const resolved = getCachedMobileImageUriSync(source)
         ?? await resolveCachedMobileImageUri(source, undefined, undefined, { priority: "prefetch", signal });
-      if (resolved && !signal.aborted) resolvedByPageId.set(page.id, resolved);
+      if (resolved && !signal.aborted) resolvedByPageId.set(memoKey, resolved);
       return resolved ?? null;
     },
     [displayedPages],
@@ -5433,13 +5443,18 @@ export function ReaderScreen() {
   const readerBookThumbnailKeys = useMemo(
     () =>
       readerBookThumbnails
-        ? displayedPages.map((page) =>
-            !page.imageUri || page.imageProcessing === "pending"
-              ? null
-              : `${page.id}\u0001${page.imageUri}`,
-          )
+        ? displayedPages.map(mobileReaderBookThumbnailKey)
         : EMPTY_READER_BOOK_THUMBNAIL_KEYS,
     [displayedPages, readerBookThumbnails],
+  );
+  // The pane asks for the image its cell shows: a page that has changed since
+  // (or is pending again) answers "stale", and the cell keeps its placeholder.
+  const readerBookThumbnailUri = useCallback<MobileReaderBookThumbnailResolve>(
+    (index, key, signal) =>
+      mobileReaderBookThumbnailKey(displayedPages[index]) === key
+        ? readerNotebookThumbnailUri(index, signal)
+        : Promise.resolve(READER_BOOK_THUMBNAIL_STALE),
+    [displayedPages, readerNotebookThumbnailUri],
   );
   const readerBookThumbnailRatios = useMemo(
     () =>
@@ -11319,7 +11334,7 @@ export function ReaderScreen() {
           pageCount={pageCount}
           thumbnailRatios={readerBookThumbnailRatios}
           thumbnailKeys={readerBookThumbnailKeys}
-          thumbnailUri={readerNotebookThumbnailUri}
+          thumbnailUri={readerBookThumbnailUri}
           revealed={readerNotebookRevealed}
           spoilerSafe={!readerThumbnailSpoilerSafeReady || readerThumbnailSpoilerSafe}
           liveStore={readerLivePageStore}
