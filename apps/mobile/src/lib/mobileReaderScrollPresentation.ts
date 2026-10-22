@@ -152,3 +152,25 @@ export function mobileReaderScrollPageGaps(
 export function mobileReaderScrollSideMargin(scrollWidthPct: number): number {
   return scrollWidthPct >= 100 ? 0 : MOBILE_READER_SCROLL_SIDE_MARGIN;
 }
+
+/** Book posture: side margin of an ordinary manga strip in its half. */
+export const MOBILE_READER_BOOK_SCROLL_SIDE_MARGIN = 8;
+
+/**
+ * Book posture, scroll reading: the strip fills its half, less 8pt either
+ * side for ordinary manga and nothing for a webtoon strip
+ * (`isMobileReaderScrollStripChapter`). A page width below 100% narrows the
+ * pages inside that, centred; the margin stays.
+ */
+export function mobileReaderBookScrollStrip(input: {
+  paneWidth: number;
+  stripChapter: boolean;
+  /** `readerScrollWidthScale` (1 at 100%). */
+  widthScale: number;
+}): { sideMargin: number; imageWidth: number } {
+  const sideMargin = input.stripChapter ? 0 : MOBILE_READER_BOOK_SCROLL_SIDE_MARGIN;
+  const pane = Number.isFinite(input.paneWidth) ? Math.max(0, input.paneWidth) : 0;
+  const scale =
+    Number.isFinite(input.widthScale) && input.widthScale > 0 ? Math.min(1, input.widthScale) : 1;
+  return { sideMargin, imageWidth: Math.max(1, (pane - sideMargin * 2) * scale) };
+}

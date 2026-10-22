@@ -25,6 +25,7 @@ import {
  * | flat with the system vertical bar (Duo outer display, a Split View half) | full bleed on the outer display; beside the bar in Split View | Back + actions in the system bar; our title capsule top-leading + the scrubber centred on the window |
  * | flat, regular width, no vertical bar (tablets, unfolded Android, Duo inner display full-screen) | full bleed | capsule row on the status-bar row + scrubber centred on the display |
  * | book (vertical fold)                  | one page per pane / reading-start pane | capsules snapped per pane: Back + title leading, actions trailing (or Back + actions in the system bar), scrubber in the reading-start pane |
+ * | book, scroll reading                  | the strip in the reading-start pane | the flat capsule rows inside that pane; the other pane is the side pane (Laptop Mode: thumbnails / page controls) |
  * | notebook (horizontal fold), paged     | top pane                      | capsule row over the top pane + the bottom pane (trackpad / filmstrip) |
  * | notebook, scroll / long strip         | flat: the strip flows through the fold, as on the open display | as flat |
  *
@@ -219,6 +220,36 @@ export type MobileReaderPoseLayoutInput = {
    * moves to the other half for as long as it is open, one page fitted there.
    */
   sheetSide?: Side | null;
+  /**
+   * Scroll reading (the reading mode, not a paged chapter shown as a strip):
+   * in the book posture the strip keeps its half with a flat toolbar there,
+   * and the other half shows the Laptop Mode content (`sidePane`).
+   */
+  scrollSidePane?: boolean;
+};
+
+/** Book posture, scroll reading: the half beside the strip. */
+export const READER_BOOK_SIDE_PANE_INSET = 16;
+/** Gap between the chapter title line and the thumbnail list. */
+export const READER_BOOK_SIDE_PANE_HEADER_GAP = 8;
+/** The chapter title line (15pt semibold). */
+export const READER_BOOK_SIDE_PANE_HEADER_HEIGHT = 20;
+/** Page controls: two circles, this size, this far apart, centred in the half. */
+export const READER_BOOK_PAGE_CONTROL_SIZE = 64;
+export const READER_BOOK_PAGE_CONTROL_GAP = 24;
+
+export type MobileReaderBookSidePane = {
+  /** The whole half (reader-local): reader black, and every empty spot toggles the toolbar. */
+  frame: Rect;
+  /** Chapter title line, 16pt in from the half's edges and clear of the status island. */
+  header: Rect;
+  /** Thumbnail list viewport (reader-local); its items are inset 16pt either side. */
+  list: Rect;
+  /** Thumbnail width: the list less 16pt either side. */
+  thumbnailWidth: number;
+  /** Page controls (Laptop Mode "Page Controls"): one screen up, one screen down. */
+  pageUp: Rect;
+  pageDown: Rect;
 };
 
 /**
@@ -258,6 +289,8 @@ export type MobileReaderPoseLayout = {
   popover: { frame: Rect; bottomGap: number };
   /** Stage-local rectangles owned by chrome: taps there never turn pages. */
   tapExclusions: Rect[];
+  /** Book posture, scroll reading: the other half (`scrollSidePane`); absent otherwise. */
+  sidePane?: MobileReaderBookSidePane;
   /**
    * Side insets a full-bleed (unconstrained) page must keep clear: the safe
    * area minus what only the status bar island explains, so showing or
@@ -1001,6 +1034,10 @@ export function mobileReaderPoseLayout(input: MobileReaderPoseLayoutInput): Mobi
     };
   }
 
+  if (adaptive.posture === "book" && adaptive.panels.length === 2 && !input.paged && input.scrollSidePane) {
+    return mobileReaderBookScrollPose(input, adaptive.panels, { bounds, insets, occlusions, leadingSide });
+  }
+
   if (adaptive.posture === "book" && adaptive.panels.length === 2) {
     const panes = adaptive.panels;
     // Pages are immersive and full-bleed per pane, exactly like phones: the
@@ -1159,6 +1196,115 @@ export function mobileReaderPoseLayout(input: MobileReaderPoseLayoutInput): Mobi
     popover: mobileReaderPopoverPlacement(chrome),
     tapExclusions: capsuleExclusions(chrome, stage),
     pageSideInsets: constrained || fullBleedBehindRail ? NO_SIDE_INSETS : mobileReaderPageSideInsets(bounds, insets, occlusions),
+  };
+}
+
+/**
+ * Book posture, scroll reading. The strip keeps one half (the reading-start
+ * half: left unless a sheet covers it), never crossing the fold, with the
+ * toolbar laid out there as on a flat window (title capsule on top, the
+ * scrubber and actions on the bottom row). The other half is the side pane:
+ * the Laptop Mode content (thumbnails or page controls) on reader black.
+ */
+function mobileReaderBookScrollPose(
+  input: MobileReaderPoseLayoutInput,
+  panes: Rect[],
+  context: { bounds: Rect; insets: Insets; occlusions: Rect[]; leadingSide: Side },
+): MobileReaderPoseLayout {
+  const { bounds, insets, occlusions, leadingSide } = context;
+  const sheetIndex = input.sheetSide === "left" ? 0 : input.sheetSide === "right" ? 1 : null;
+  const stripIndex = sheetIndex !== null ? 1 - sheetIndex : input.rtl ? 1 : 0;
+  const pane = panes[stripIndex];
+  // Same immersive rule as the paged book: the strip is full-bleed in its
+  // half; only a kept system bar column trims it.
+  const stage = input.sideBar ? horizontalSafe(pane, bounds, insets) : pane;
+  const actionCount = input.actionCount ?? 3;
+  const chrome = capsuleChrome({
+    frame: stage,
+    bounds,
+    insets,
+    occlusions,
+    leading: stage,
+    trailing: stage,
+    scrubberRegion: stage,
+    leadingSide,
+    actionCount,
+    titleCenterX: stage.x + stage.width / 2,
+    actionsRow: input.sideBar
+      ? "top"
+      : mobileReaderActionsRow(stage, mobileReaderSafePadding(stage, bounds, insets), actionCount),
+    titleOnly: input.sideBar === true,
+  });
+  const sidePane = mobileReaderBookSidePaneLayout(panes[1 - stripIndex], bounds, insets, occlusions);
+  return {
+    posture: "book",
+    bounds,
+    safeInsets: insets,
+    stage,
+    constrained: true,
+    twoPageAvailable: false,
+    spread: false,
+    foldGap: null,
+    chrome,
+    chromePinned: false,
+    modalFrame: stage,
+    popover: mobileReaderPopoverPlacement(chrome),
+    tapExclusions: capsuleExclusions(chrome, stage),
+    pageSideInsets: NO_SIDE_INSETS,
+    sidePane,
+  };
+}
+
+/** The side pane's pieces inside its half (reader-local). */
+export function mobileReaderBookSidePaneLayout(
+  frame: Rect,
+  bounds: Rect,
+  insets: Insets,
+  occlusions: Rect[],
+): MobileReaderBookSidePane {
+  const pad = mobileReaderSafePadding(frame, bounds, insets);
+  // Side insets the status island alone explains are not real edges.
+  const side = mobileReaderPageSideInsets(bounds, insets, occlusions);
+  const left = frame.x <= bounds.x + EPSILON ? side.left : 0;
+  const right = frame.x + frame.width >= bounds.x + bounds.width - EPSILON ? side.right : 0;
+  const inset = READER_BOOK_SIDE_PANE_INSET;
+  const headerHeight = READER_BOOK_SIDE_PANE_HEADER_HEIGHT;
+  let header: Rect = {
+    x: frame.x + left + inset,
+    y: frame.y + inset,
+    width: Math.max(0, frame.width - left - right - inset * 2),
+    height: headerHeight,
+  };
+  // The status island (top trailing corner) keeps the title line clear of it:
+  // the line ends before it, or moves below it when too little would be left.
+  for (const rect of occlusions) {
+    if (!intersects(header, rect)) continue;
+    const trailingHalf = rect.x + rect.width / 2 >= header.x + header.width / 2;
+    const end = trailingHalf ? rect.x - READER_CAPSULE_GAP : header.x + header.width;
+    const start = trailingHalf ? header.x : rect.x + rect.width + READER_CAPSULE_GAP;
+    if (end - start >= READER_CAPSULE_TITLE_MIN_WIDTH) {
+      header = { ...header, x: start, width: end - start };
+    } else {
+      header = { ...header, y: rect.y + rect.height + READER_CAPSULE_GAP };
+    }
+  }
+  const listTop = header.y + header.height + READER_BOOK_SIDE_PANE_HEADER_GAP;
+  const list: Rect = {
+    x: frame.x + left,
+    y: listTop,
+    width: Math.max(0, frame.width - left - right),
+    height: Math.max(0, frame.y + frame.height - pad.bottom - listTop),
+  };
+  const size = READER_BOOK_PAGE_CONTROL_SIZE;
+  const centreX = frame.x + left + (frame.width - left - right) / 2;
+  const centreY = frame.y + frame.height / 2;
+  return {
+    frame,
+    header,
+    list,
+    thumbnailWidth: Math.max(0, list.width - inset * 2),
+    pageUp: { x: centreX - size / 2, y: centreY - READER_BOOK_PAGE_CONTROL_GAP / 2 - size, width: size, height: size },
+    pageDown: { x: centreX - size / 2, y: centreY + READER_BOOK_PAGE_CONTROL_GAP / 2, width: size, height: size },
   };
 }
 

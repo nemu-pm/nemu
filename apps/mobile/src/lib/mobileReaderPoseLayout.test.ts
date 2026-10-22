@@ -442,6 +442,71 @@ describe("reader pose: book", () => {
   });
 });
 
+describe("reader pose: book, scroll reading (side pane)", () => {
+  const book = innerLandscapeNoBar([hinge(455.5, 0, 40, 669)]);
+  const fold = { x: 455.5, y: 0, width: 40, height: 669 };
+  const scroll = (overrides: Partial<MobileReaderPoseLayoutInput> = {}) =>
+    pose(book, { paged: false, scrollSidePane: true, ...overrides });
+
+  test("the strip keeps the left half, clear of the fold; the right half is the side pane", () => {
+    const result = scroll();
+    expect(result.posture).toBe("book");
+    expect(result.stage).toEqual({ x: 0, y: 0, width: 455.5, height: 669 });
+    expect(overlapsBox(result.stage, fold)).toBe(false);
+    expect(result.spread).toBe(false);
+    expect(result.foldGap).toBeNull();
+    expect(result.sidePane?.frame).toEqual({ x: 495.5, y: 0, width: 455.5, height: 669 });
+  });
+
+  test("the toolbar is the flat one, inside the strip's half: title on top, scrubber + actions on the bottom row", () => {
+    const chrome = capsules(scroll());
+    expect(chrome.actionsRow).toBe("bottom");
+    for (const piece of [chrome.back, chrome.title!, chrome.more!, chrome.actions, chrome.scrubber]) {
+      expect(piece.x).toBeGreaterThanOrEqual(0);
+      expect(piece.x + piece.width).toBeLessThanOrEqual(455.5);
+    }
+    // Horizontal rows: Back, title and ⋯ share the top row; scrubber and actions the bottom one.
+    expect(chrome.title!.y).toBe(chrome.back.y);
+    expect(chrome.more!.y).toBe(chrome.back.y);
+    expect(chrome.scrubber.y).toBeGreaterThan(669 / 2);
+    expect(chrome.actions.y + chrome.actions.height / 2).toBeCloseTo(chrome.scrubber.y + chrome.scrubber.height / 2, 5);
+    expect(chrome.scrubber.width).toBeGreaterThanOrEqual(200);
+    // Centred on the half, not the window.
+    expect(Math.abs(chrome.title!.x + chrome.title!.width / 2 - 455.5 / 2)).toBeLessThanOrEqual(1);
+  });
+
+  test("side pane: title 16pt in, clear of the status island; thumbnails the half less 16pt either side; controls centred", () => {
+    const side = scroll().sidePane!;
+    expect(side.header.x).toBe(495.5 + 16);
+    expect(side.header.y).toBe(16);
+    // The island at (817, 0) ends the title line before it.
+    expect(side.header.x + side.header.width).toBeLessThanOrEqual(817);
+    expect(side.list.x).toBe(495.5);
+    expect(side.list.width).toBe(455.5);
+    expect(side.thumbnailWidth).toBe(455.5 - 32);
+    expect(side.list.y).toBeGreaterThanOrEqual(side.header.y + side.header.height);
+    expect(side.list.y + side.list.height).toBe(669 - 34);
+    expect(side.pageUp.width).toBe(64);
+    expect(side.pageDown.height).toBe(64);
+    expect(side.pageUp.x + 32).toBeCloseTo(495.5 + 455.5 / 2, 5);
+    expect(side.pageUp.y + 64).toBeLessThan(side.pageDown.y);
+    expect((side.pageUp.y + side.pageDown.y + 64) / 2).toBeCloseTo(669 / 2, 5);
+  });
+
+  test("a sheet over the left half moves the strip right; the side pane takes the covered half", () => {
+    const result = scroll({ sheetSide: "left" });
+    expect(result.stage.x).toBe(495.5);
+    expect(result.sidePane?.frame.x).toBe(0);
+  });
+
+  test("paged reading and the flag-less strip keep their book layout", () => {
+    expect(pose(book).sidePane).toBeUndefined();
+    expect(pose(book, { scrollSidePane: true }).sidePane).toBeUndefined();
+    expect(pose(book, { paged: false }).sidePane).toBeUndefined();
+    expect(pose(innerLandscapeNoBar(), { paged: false, scrollSidePane: true }).sidePane).toBeUndefined();
+  });
+});
+
 function overlapsBox(a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }) {
   return a.x < b.x + b.width - 0.01 && b.x < a.x + a.width - 0.01 && a.y < b.y + b.height - 0.01 && b.y < a.y + a.height - 0.01;
 }
