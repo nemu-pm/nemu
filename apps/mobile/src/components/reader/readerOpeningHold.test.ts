@@ -259,4 +259,13 @@ describe("readerOpeningHold wiring", () => {
     expect(route).toContain("{zoomId ? (");
     expect(route).toContain("styles.coverPlate");
   });
+
+  test("the hold's cap stops the scroll cap first (a withDelay runs the animation it replaced until its delay ends)", () => {
+    const start = route.indexOf("const armHoldCap = useCallback(");
+    expect(start).toBeGreaterThan(0);
+    const block = route.slice(start, route.indexOf("}, [onFadeEnd, opacity]);", start));
+    const cancel = block.indexOf("cancelAnimation(opacity);");
+    expect(cancel).toBeGreaterThan(0);
+    expect(cancel).toBeLessThan(block.indexOf("opacity.value = withDelay("));
+  });
 });

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StyleSheet, useWindowDimensions, View } from "react-native";
 import Animated, {
+  cancelAnimation,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
@@ -187,6 +188,15 @@ function useReaderCoverReveal(zoomId: string | null): ReaderCoverReveal {
       sinceLandedMs: Math.round(now - landedAt),
       mode: modeRef.current.mode,
     });
+    // The scroll cap's withDelay must stop here: a withDelay keeps running
+    // the animation it replaced until its own delay ends (Reanimated's
+    // delay(): `else if (previousAnimation) previousAnimation.onFrame(…)`),
+    // so the scroll cap's fade went on under the hold (r16: the held cover
+    // gone at landed+0.7–1.06 s, the 860 ms UI stall making it a one-frame
+    // cut; the first-screen fade then ended 37–76 ms after it started, on a
+    // cover already at 0). Cancelled, the cover stays where it is until the
+    // hold's own fade.
+    cancelAnimation(opacity);
     opacity.value = withDelay(
       delay,
       withTiming(0, { duration: COVER_REVEAL_MS }, (finished?: boolean) => {
