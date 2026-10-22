@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   mobileReaderStableTopInset,
+  mobileReaderScrollStableTopInset,
   mobileReaderNextTopInsetLatch,
   mobileReaderTopInsetLatchKey,
   mobileReaderFrameInsets,
@@ -1830,6 +1831,57 @@ describe("reader scroll: stable top inset", () => {
   test("a status bar spanning the top (wider than most of the window) keeps the inset", () => {
     const wide = { ...shown, occlusions: [{ ...island, x: 0, width: 951 }] };
     expect(mobileReaderStableTopInset(wide, { top: 82 })).toBe(82);
+  });
+
+  describe("from one native sample", () => {
+    const window = { width: 951, height: 669 };
+
+    test("before the reader's report, the app observer's sample: 80pt at mount, not 82 + 80 (SPY p1 band)", () => {
+      // The live inset is 82 (chrome and status bar shown at open).
+      expect(mobileReaderScrollStableTopInset({ reader: null, app: shown, window, insets: { top: 82 } }) + 80).toBe(80);
+      // The reader's own report then agrees: no flip, nothing for the list to anchor.
+      expect(mobileReaderScrollStableTopInset({ reader: shown, app: shown, window, insets: { top: 82 } })).toBe(0);
+      // Chrome hidden: the island and the inset leave together.
+      expect(mobileReaderScrollStableTopInset({ reader: hidden, app: shown, window, insets: { top: 0 } })).toBe(0);
+    });
+
+    test("the reader's report pairs its island with its own inset, not the live one", () => {
+      // The live inset lags the report (or leads it): the old mix gave 82.
+      expect(mobileReaderScrollStableTopInset({ reader: hidden, app: null, window, insets: { top: 82 } })).toBe(0);
+      expect(mobileReaderScrollStableTopInset({ reader: shown, app: null, window, insets: { top: 0 } })).toBe(0);
+    });
+
+    test("an app sample of another window is not used", () => {
+      const other = { ...shown, width: 669, height: 951 };
+      expect(mobileReaderScrollStableTopInset({ reader: null, app: other, window, insets: { top: 82 } })).toBe(82);
+    });
+
+    test("Pro Max (Dynamic Island): the same inset before and after the report, chrome shown or hidden", () => {
+      const phone = { width: 440, height: 956 };
+      const proMax: MobileWindowLayout = {
+        ...phone, supported: false, divisions: [], occlusions: [],
+        safeAreaInsets: { top: 62, left: 0, bottom: 34, right: 0 },
+      };
+      expect(mobileReaderScrollStableTopInset({ reader: null, app: null, window: phone, insets: { top: 62 } })).toBe(62);
+      expect(mobileReaderScrollStableTopInset({ reader: null, app: proMax, window: phone, insets: { top: 62 } })).toBe(62);
+      expect(mobileReaderScrollStableTopInset({ reader: proMax, app: proMax, window: phone, insets: { top: 62 } })).toBe(62);
+    });
+
+    test("Duo outer display: 0 throughout", () => {
+      const outer = { width: 375, height: 667 };
+      const layout: MobileWindowLayout = {
+        ...outer, supported: true, divisions: [], occlusions: [],
+        safeAreaInsets: { top: 0, left: 0, bottom: 0, right: 0 },
+      };
+      expect(mobileReaderScrollStableTopInset({ reader: null, app: layout, window: outer, insets: { top: 0 } })).toBe(0);
+      expect(mobileReaderScrollStableTopInset({ reader: layout, app: layout, window: outer, insets: { top: 0 } })).toBe(0);
+    });
+
+    test("no native sample, or one without insets (bounds-only hosts): the live inset, as before", () => {
+      expect(mobileReaderScrollStableTopInset({ reader: null, app: null, window, insets: { top: 24 } })).toBe(24);
+      const boundsOnly: MobileWindowLayout = { ...window, supported: false, divisions: [], occlusions: [] };
+      expect(mobileReaderScrollStableTopInset({ reader: boundsOnly, app: boundsOnly, window, insets: { top: 24 } })).toBe(24);
+    });
   });
 });
 

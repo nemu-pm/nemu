@@ -449,6 +449,32 @@ export function mobileReaderStableTopInset(
 }
 
 /**
+ * `mobileReaderStableTopInset` from one native sample, so the island and the
+ * inset never disagree: the reader's own window layout report, or — before
+ * that report (the reader's observer publishes after mount) — the app-wide
+ * observer's, when it describes the same window. Mixing a layout without its
+ * island with the live 82pt inset padded the Duo's list 162pt at mount, then
+ * 80pt once the reader reported. The live inset only when no native sample
+ * reports insets (bounds-only hosts), as before.
+ */
+export function mobileReaderScrollStableTopInset(input: {
+  /** The reader's own report (folded/anticipated), null before its first one. */
+  reader: Pick<MobileWindowLayout, "width" | "height" | "occlusions" | "safeAreaInsets"> | null;
+  /** The app-wide observer's report, null before its first one. */
+  app: Pick<MobileWindowLayout, "width" | "height" | "occlusions" | "safeAreaInsets"> | null;
+  window: { width: number; height: number };
+  insets: Pick<Insets, "top">;
+}): number {
+  const { app, window } = input;
+  const sample = input.reader
+    ?? (app && Math.abs(app.width - window.width) <= 1 && Math.abs(app.height - window.height) <= 1 ? app : null);
+  if (!sample) {
+    return mobileReaderStableTopInset({ width: window.width, height: window.height, occlusions: [] }, input.insets);
+  }
+  return mobileReaderStableTopInset(sample, { top: sample.safeAreaInsets?.top ?? input.insets.top });
+}
+
+/**
  * Icon buttons in the actions capsule: Japanese Learning contributes two
  * (detect text, nemu chat), every other enabled plugin one, plus the bilingual
  * toggle when shown and settings.

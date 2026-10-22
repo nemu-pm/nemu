@@ -32,7 +32,7 @@ import {
   mobileReaderNextTopInsetLatch,
   mobileReaderTopInsetLatchKey,
   type MobileReaderTopInsetLatch,
-  mobileReaderStableTopInset,
+  mobileReaderScrollStableTopInset,
   mobileReaderSafePadding,
   MOBILE_READER_HINGE_HINT_TIMEOUT_MS,
   type MobileReaderSideInsetLatch,
@@ -139,6 +139,7 @@ import {
   useMobilePoseVeilAppearance,
   type MobilePoseVeilAppearance,
 } from "@/lib/MobilePoseTransitionContext";
+import { useMobileObservedWindowLayout } from "@/lib/MobileWindowLayoutContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import { MobileNemuAgentSheet } from "@/components/MobileNemuAgentSheet";
@@ -1397,6 +1398,7 @@ export function ReaderScreen() {
   useMobilePoseVeilAppearance(readerIsFocused ? READER_POSE_VEIL : null);
   const [readerStageWindowOrigin, setReaderStageWindowOrigin] = useState({ x: 0, y: 0 });
   const [reservedLayout, setReservedLayout] = useState<MobileWindowLayout | null>(null);
+  const appObservedWindowLayout = useMobileObservedWindowLayout();
   const store = useMobileDataStore();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
@@ -4196,8 +4198,15 @@ export function ReaderScreen() {
   // Not the live inset: the Duo's status island comes and goes with the
   // status bar (chrome shown / hidden), and a list padding that followed it
   // was shifted 82pt by the native scroll anchoring on every auto-hide.
+  // Island and inset from one native sample (the app-wide observer's until
+  // the reader's own reports): never the live 82 at mount, then 0.
   const readerScrollTopInset =
-    mobileReaderStableTopInset(readerFoldedWindowLayout, insets) + 80;
+    mobileReaderScrollStableTopInset({
+      reader: reservedLayout ? readerFoldedWindowLayout : null,
+      app: appObservedWindowLayout,
+      window,
+      insets,
+    }) + 80;
   // The segmented list's leading padding (see the gallery's chromeTopPadding).
   const readerSegmentTopInset =
     readerPose.chrome.kind === "console" ? 0 : readerScrollTopInset;

@@ -730,6 +730,10 @@ export function MobileReaderGallery({
   const chromeTopPaddingRef = useRef(chromeTopPadding);
   chromeTopPaddingRef.current = chromeTopPadding;
   const pendingPageSeekRef = useRef<MobileReaderPageSeek | null>(null);
+  // The held seek is placed by the next content-size event even when the
+  // recorded offset already matches: a top padding change moved the native
+  // offset (maintainVisibleContentPosition) before onScroll reports it.
+  const forcePageSeekRef = useRef(false);
   const scrollAnchorRef = useRef<MobileReaderScrollPageAnchor | null>(null);
   // The page (and the spot on it) under the viewport's centre at the last
   // scroll event: a stage relayout (fold ⇄ unfold) keeps it at the centre.
@@ -994,6 +998,8 @@ export function MobileReaderGallery({
     const seek = pendingPageSeekRef.current;
     const layout = scrollPageLayoutRef.current;
     if (!seek || !layout) return;
+    const forced = forcePageSeekRef.current;
+    forcePageSeekRef.current = false;
     const now = Date.now();
     if (
       now > seek.until &&
@@ -1013,7 +1019,7 @@ export function MobileReaderGallery({
       seek.pageIndex,
       seek.fraction,
     );
-    if (Math.abs(latestScrollMetricsRef.current.contentOffset - offset) > 1) {
+    if (forced || Math.abs(latestScrollMetricsRef.current.contentOffset - offset) > 1) {
       listRef.current?.scrollToOffset({ offset, animated: false });
     } else {
       checkPageSeekLanded(offset);
@@ -1317,6 +1323,7 @@ export function MobileReaderGallery({
       viewportLength: 0,
     });
     dragStartOffsetRef.current = null;
+    forcePageSeekRef.current = false;
     const initialOffset = pagedMode ? initialContentOffset.x : initialContentOffset.y;
     const layout = scrollPageLayoutRef.current;
     scrollAnchorRef.current = layout
@@ -1417,7 +1424,9 @@ export function MobileReaderGallery({
   // came or went) is compensated by maintainVisibleContentPosition, which
   // moves the offset by the difference and strands the page that far from
   // the reading line. Re-place the page being read (and the spot on it)
-  // through a held seek; the content-size event of the new padding applies it.
+  // through a held seek; the content-size event of the new padding applies it,
+  // unconditionally: at the chapter's top (offset 0) the recorded offset is
+  // still the target when that event comes, the native shift not reported yet.
   const chromeTopPaddingTrackRef = useRef<{ mountKey: string; padding: number } | null>(null);
   useLayoutEffect(() => {
     const previous = chromeTopPaddingTrackRef.current;
@@ -1430,10 +1439,13 @@ export function MobileReaderGallery({
     ) {
       return;
     }
-    const anchor = scrollAnchorRef.current;
-    // A seek still held (the opening restore) is re-placed by the same event.
-    if (!scrollPageLayoutRef.current || !anchor || pendingPageSeekRef.current) return;
-    pendingPageSeekRef.current = holdMobileReaderPageSeek(anchor, true);
+    // A seek still held (the opening restore) is re-placed by the same event,
+    // its hold renewed and its landing still reported.
+    const held = pendingPageSeekRef.current;
+    const anchor = held ?? scrollAnchorRef.current;
+    if (!scrollPageLayoutRef.current || !anchor) return;
+    pendingPageSeekRef.current = holdMobileReaderPageSeek(anchor, held ? held.landed : true);
+    forcePageSeekRef.current = true;
   }, [chromeTopPadding, pagedMode, scrollMountKey]);
   const readerStatePadding = {
     paddingTop: stateTopPadding,
@@ -1795,6 +1807,7 @@ export function MobileReaderGallery({
     }
     pendingScrollToIndexRef.current = null;
     pendingPageSeekRef.current = null;
+    forcePageSeekRef.current = false;
     pendingLogicalScrollProgressRef.current = null;
     pendingContentSizeScrollProgressRef.current = null;
     onUserScrollBegin?.();
