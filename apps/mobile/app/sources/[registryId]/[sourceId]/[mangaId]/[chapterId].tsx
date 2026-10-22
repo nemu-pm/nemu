@@ -20,7 +20,20 @@ import {
 } from "@/components/reader/readerOpeningGate";
 import { useReadingMode } from "@/data/mobileHooks";
 import { MobileCachedImage } from "@/design-system";
-import { getMobileReaderZoomCoverFrame, peekMobileReaderZoomCover } from "@/lib/mobileReaderZoomHandoff";
+import {
+  canHoldReaderOpening,
+  readerOpeningSince,
+  resolveReaderOpeningHoldDelay,
+  shouldRevealReaderCover,
+  READER_OPENING_IMAGE_HOLD_MAX_MS,
+  type ReaderCoverRevealReason,
+  type ReaderOpeningTimes,
+} from "@/components/reader/readerOpeningHold";
+import {
+  getMobileReaderZoomCoverFrame,
+  peekMobileReaderZoomCover,
+  peekMobileReaderZoomTapAt,
+} from "@/lib/mobileReaderZoomHandoff";
 import { ReaderScreen } from "@/screens/ReaderScreen";
 import { noteMobileReaderOpened } from "@/lib/mobileAidokuPrewarm";
 import { ZoomTarget } from "../../../../../modules/nemu-window-layout";
@@ -40,11 +53,11 @@ const COVER_HOLD_MAX_MS = 5000;
  */
 const COVER_SCROLL_HOLD_MAX_MS = 600;
 
-type CoverRevealReason = "reader-ready" | "scroll-cap" | "hold-max";
+type CoverRevealReason = ReaderCoverRevealReason;
 
 export default function ReaderRoute() {
   const { zoom } = useLocalSearchParams<{ zoom?: string }>();
-  const coverReveal = useReaderCoverReveal();
+  const coverReveal = useReaderCoverReveal(zoom ?? null);
   // A reader boots the Aidoku sandbox itself: no pre-warm after this.
   useEffect(() => noteMobileReaderOpened(), []);
   // Design-explore: the reader grows out of the cover that opened it. No
@@ -67,6 +80,10 @@ type ReaderCoverReveal = {
    * its cache-painted chapter's live source refresh until then.
    */
   openingGate: ReaderOpeningGate;
+  /** `hold`: the cover waits for the first screen's images (see `readerOpeningHold`). */
+  holdForFirstScreenImages: () => void;
+  onFirstScreenImagesReady: () => void;
+  openingTimes: () => ReaderOpeningTimes;
 };
 
 /**
@@ -77,8 +94,13 @@ type ReaderCoverReveal = {
  * render); "reader ready" earlier replaces it with the fade at once. Paged
  * reading waits for its page (JS), with the 5 s backstop.
  */
-function useReaderCoverReveal(): ReaderCoverReveal {
+function useReaderCoverReveal(zoomId: string | null): ReaderCoverReveal {
   const opacity = useSharedValue(1);
+  // The Continue / tile tap that started this zoom: the opening's clock.
+  const [tapAt] = useState(() => peekMobileReaderZoomTapAt(zoomId));
+  const fadeEndAtRef = useRef<number | null>(null);
+  /** `hold` taken: "reader ready" no longer reveals, the hold's cap does. */
+  const holdingRef = useRef(false);
   const { mode, modeLoaded } = useReadingMode();
   const scrollReading = modeLoaded && mode === "scrolling";
   const modeRef = useRef({ mode, scrollReading });
@@ -102,10 +124,11 @@ function useReaderCoverReveal(): ReaderCoverReveal {
   /** The fade's UI-thread completion, sent to JS: the opening window closes. */
   const onFadeEnd = useCallback(
     (reason: CoverRevealReason, landedAt: number) => {
-      logFadeEnd(reason, landedAt);
+      fadeEndAtRef.current = Date.now();
+      logFadeEnd(reason, landedAt, tapAt, holdingRef.current);
       openingGate.settle("fade-end");
     },
-    [openingGate],
+    [openingGate, tapAt],
   );
 
   const logFadeStart = useCallback((reason: CoverRevealReason, sinceLandedMs: number | null) => {
@@ -118,6 +141,7 @@ function useReaderCoverReveal(): ReaderCoverReveal {
 
   const armScrollCap = useCallback(() => {
     const landedAt = landedAtRef.current;
+    if (holdingRef.current) return;
     if (capArmedRef.current || landedAt == null || fadeStartsAtRef.current != null) return;
     capArmedRef.current = true;
     const delay = Math.max(0, COVER_SCROLL_HOLD_MAX_MS - (Date.now() - landedAt));
@@ -139,13 +163,68 @@ function useReaderCoverReveal(): ReaderCoverReveal {
     );
   }, [onFadeEnd, opacity]);
 
+  /**
+   * `hold`: the cover's fade, armed on the UI thread, starts
+   * `READER_OPENING_IMAGE_HOLD_MAX_MS` after the landing at the latest
+   * (replacing a scroll cap not yet started); the first screen's images
+   * reveal it sooner.
+   */
+  const armHoldCap = useCallback(() => {
+    const landedAt = landedAtRef.current;
+    if (landedAt == null) return;
+    const now = Date.now();
+    const delay = resolveReaderOpeningHoldDelay({ landedAt, now });
+    capArmedRef.current = true;
+    fadeStartsAtRef.current = now + delay;
+    console.info("[reader-zoom] fade-start", {
+      reason: "hold-cap",
+      armed: true,
+      delayMs: Math.round(delay),
+      sinceLandedMs: Math.round(now - landedAt),
+      mode: modeRef.current.mode,
+    });
+    opacity.value = withDelay(
+      delay,
+      withTiming(0, { duration: COVER_REVEAL_MS }, (finished?: boolean) => {
+        "worklet";
+        if (finished) runOnJS(onFadeEnd)("hold-cap", landedAt);
+      }),
+    );
+  }, [onFadeEnd, opacity]);
+
   const onLanded = useCallback(() => {
     if (landedAtRef.current != null) return;
     landedAtRef.current = Date.now();
-    console.info("[reader-zoom] landed", { mode: modeRef.current.mode, atWall: landedAtRef.current });
+    console.info("[reader-zoom] landed", {
+      mode: modeRef.current.mode,
+      atWall: landedAtRef.current,
+      sinceTapMs: tapAt == null ? null : Math.round(landedAtRef.current - tapAt),
+    });
     openingGate.armBackstop();
-    if (modeRef.current.scrollReading) armScrollCap();
-  }, [armScrollCap, openingGate]);
+    if (holdingRef.current) armHoldCap();
+    else if (modeRef.current.scrollReading) armScrollCap();
+  }, [armHoldCap, armScrollCap, openingGate, tapAt]);
+
+  const holdForFirstScreenImages = useCallback(() => {
+    if (holdingRef.current || openingGate.isSettled()) return;
+    const now = Date.now();
+    const landedAt = landedAtRef.current;
+    if (!canHoldReaderOpening({ fadeStartsAt: fadeStartsAtRef.current, now })) {
+      console.info("[reader-zoom] hold-for-images skipped", {
+        why: "fade-started",
+        sinceLandedMs: landedAt == null ? null : Math.round(now - landedAt),
+      });
+      return;
+    }
+    holdingRef.current = true;
+    console.info("[reader-zoom] hold-for-images", {
+      capMs: READER_OPENING_IMAGE_HOLD_MAX_MS,
+      sinceLandedMs: landedAt == null ? null : Math.round(now - landedAt),
+      sinceTapMs: tapAt == null ? null : Math.round(now - tapAt),
+    });
+    // Not landed yet: the landing arms it.
+    if (landedAt != null) armHoldCap();
+  }, [armHoldCap, openingGate, tapAt]);
 
   // The stored mode can arrive after the landing: arm with the time left.
   useEffect(() => {
@@ -157,12 +236,18 @@ function useReaderCoverReveal(): ReaderCoverReveal {
       const landedAt = landedAtRef.current;
       const now = Date.now();
       const sinceLandedMs = landedAt == null ? null : Math.round(now - landedAt);
-      const startsAt = fadeStartsAtRef.current;
-      if (startsAt != null && startsAt <= now) {
-        // The UI-thread cap's fade is already running: leave it be.
+      // A running fade is left be; a delayed UI-thread cap is replaced by the
+      // reader being ready (holding: by its first screen's images).
+      if (
+        !shouldRevealReaderCover({
+          reason,
+          holding: holdingRef.current,
+          fadeStartsAt: fadeStartsAtRef.current,
+          now,
+        })
+      ) {
         return;
       }
-      if (startsAt != null && reason !== "reader-ready") return;
       fadeStartsAtRef.current = now;
       logFadeStart(reason, sinceLandedMs);
       const fadeLandedAt = landedAt ?? now;
@@ -174,16 +259,42 @@ function useReaderCoverReveal(): ReaderCoverReveal {
     [logFadeStart, onFadeEnd, opacity],
   );
 
+  const onFirstScreenImagesReady = useCallback(() => {
+    if (holdingRef.current) reveal("first-screen-images");
+  }, [reveal]);
+  const openingTimes = useCallback(
+    (): ReaderOpeningTimes => ({
+      tapAt,
+      landedAt: landedAtRef.current,
+      fadeEndAt: fadeEndAtRef.current,
+    }),
+    [tapAt],
+  );
+
   return useMemo(
-    () => ({ opacity, onLanded, reveal, openingGate }),
-    [onLanded, opacity, reveal, openingGate],
+    () => ({
+      opacity,
+      onLanded,
+      reveal,
+      openingGate,
+      holdForFirstScreenImages,
+      onFirstScreenImagesReady,
+      openingTimes,
+    }),
+    [holdForFirstScreenImages, onFirstScreenImagesReady, onLanded, opacity, openingGate, openingTimes, reveal],
   );
 }
 
 /** Logged when the cover's fade ends (it started `COVER_REVEAL_MS` before). */
-function logFadeEnd(reason: CoverRevealReason, landedAt: number) {
+function logFadeEnd(reason: CoverRevealReason, landedAt: number, tapAt: number | null, held: boolean) {
   // JS clock: late by however long the JS thread was busy.
-  console.info("[reader-zoom] fade-end", { reason, sinceLandedMs: Math.round(Date.now() - landedAt) });
+  const { sinceTapMs } = readerOpeningSince({ tapAt, landedAt: null, fadeEndAt: null }, Date.now());
+  console.info("[reader-zoom] fade-end", {
+    reason,
+    sinceLandedMs: Math.round(Date.now() - landedAt),
+    sinceTapMs,
+    held,
+  });
 }
 
 /**
@@ -214,7 +325,15 @@ function ReaderAfterZoom({
   const window = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const frame = getMobileReaderZoomCoverFrame({ width: window.width, height: window.height, insets });
-  const { opacity, onLanded, reveal, openingGate } = coverReveal;
+  const {
+    opacity,
+    onLanded,
+    reveal,
+    openingGate,
+    holdForFirstScreenImages,
+    onFirstScreenImagesReady,
+    openingTimes,
+  } = coverReveal;
   const [pageShown, setPageShown] = useState(false);
   // A route that never staged a zoom (landed from the start) has no landing
   // event: count the first landed render as the landing.
@@ -234,8 +353,8 @@ function ReaderAfterZoom({
     return () => clearTimeout(timer);
   }, [landed, pageShown, reveal]);
   const entry = useMemo<ReaderZoomEntry>(
-    () => ({ onFirstPage, openingGate }),
-    [onFirstPage, openingGate],
+    () => ({ onFirstPage, openingGate, holdForFirstScreenImages, onFirstScreenImagesReady, openingTimes }),
+    [holdForFirstScreenImages, onFirstPage, onFirstScreenImagesReady, openingGate, openingTimes],
   );
   const coverStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
 

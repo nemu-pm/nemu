@@ -14,13 +14,31 @@ export type MobileReaderZoomCover = {
 const MOBILE_READER_ZOOM_HANDOFF_TTL_MS = 3000;
 
 let pending: { zoomId: string; cover: MobileReaderZoomCover; at: number } | null = null;
+/** The tap that started the zoom, with or without a cover (the opening's clock). */
+let pendingTap: { zoomId: string; at: number } | null = null;
 
+/** Called at the tap (Continue, a tile), synchronously in its handler. */
 export function primeMobileReaderZoomCover(
   zoomId: string,
   cover: MobileReaderZoomCover | null | undefined,
   now: number = Date.now(),
 ): void {
   pending = cover?.uri ? { zoomId, cover, at: now } : null;
+  pendingTap = { zoomId, at: now };
+}
+
+/**
+ * When the tap that started the `zoomId` zoom happened (wall clock), within
+ * the handoff's few seconds; null otherwise. Not consumed.
+ */
+export function peekMobileReaderZoomTapAt(
+  zoomId: string | null | undefined,
+  now: number = Date.now(),
+): number | null {
+  if (!pendingTap || !zoomId || pendingTap.zoomId !== zoomId) return null;
+  const age = now - pendingTap.at;
+  if (age < 0 || age > MOBILE_READER_ZOOM_HANDOFF_TTL_MS) return null;
+  return pendingTap.at;
 }
 
 /**

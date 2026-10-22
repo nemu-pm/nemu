@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   getMobileReaderZoomCoverFrame,
   peekMobileReaderZoomCover,
+  peekMobileReaderZoomTapAt,
   primeMobileReaderZoomCover,
   resolveMobileReaderZoomHandoffCover,
 } from "./mobileReaderZoomHandoff";
@@ -23,6 +24,17 @@ describe("mobileReaderZoomHandoff", () => {
     primeMobileReaderZoomCover("detail:a", { uri: "https://example.test/c.jpg" }, 1000);
     primeMobileReaderZoomCover("detail:a", null, 1005);
     expect(peekMobileReaderZoomCover("detail:a", 1010)).toBeNull();
+  });
+
+  test("the tap that started a zoom is kept for it, with or without a cover, and expires", () => {
+    primeMobileReaderZoomCover("detail:t", null, 2000);
+    expect(peekMobileReaderZoomTapAt("detail:t", 2400)).toBe(2000);
+    expect(peekMobileReaderZoomTapAt("detail:u", 2400)).toBeNull();
+    expect(peekMobileReaderZoomTapAt(null, 2400)).toBeNull();
+    expect(peekMobileReaderZoomTapAt("detail:t", 2000 + 3000 + 1)).toBeNull();
+    primeMobileReaderZoomCover("continue:t", { uri: "https://example.test/c.jpg" }, 2100);
+    expect(peekMobileReaderZoomTapAt("continue:t", 2200)).toBe(2100);
+    expect(peekMobileReaderZoomTapAt("detail:t", 2200)).toBeNull();
   });
 
   test("the landing cover is a 2:3 cover fitted and centred in the reading area", () => {

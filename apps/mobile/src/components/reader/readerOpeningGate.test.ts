@@ -142,7 +142,9 @@ describe("reader opening gate wiring", () => {
     expect(route).toContain("openingGate.armBackstop();");
     // No cover fades in: closed from the first render.
     expect(route).toContain('if (!zoomCover || !zoomId) coverReveal.openingGate.settle("no-fade");');
-    expect(route).toContain("() => ({ onFirstPage, openingGate })");
+    expect(route).toContain(
+      "() => ({ onFirstPage, openingGate, holdForFirstScreenImages, onFirstScreenImagesReady, openingTimes })",
+    );
     // Outside a zoom the reader gets a settled gate.
     expect(entry).toContain('settledOpeningGate.settle("no-fade");');
   });
@@ -158,7 +160,10 @@ describe("reader opening gate wiring", () => {
     expect(take).toBeGreaterThan(paint);
     expect(wait).toBeGreaterThan(take);
     expect(refresh).toBeGreaterThan(wait);
-    expect(effect).toContain("paintedFromCache: restoredPersistedPageList,");
+    // QA `hold` (readerOpeningHold) asks at once instead.
+    expect(effect).toContain(
+      "paintedFromCache: restoredPersistedPageList && !readerOpeningHeldRef.current,",
+    );
     expect(effect).toContain('what: "page-list",');
     // A superseded run does not ask the source after waiting.
     expect(effect.slice(wait, refresh)).toContain(
@@ -172,7 +177,7 @@ describe("reader opening gate wiring", () => {
     expect(prefetchApply).toBeGreaterThan(prefetchWait);
     expect(prefetchApply).toBeLessThan(refresh);
     expect(effect.slice(take, prefetchApply)).toContain(
-      "paintedFromCache: restoredPersistedPageList,",
+      "paintedFromCache: restoredPersistedPageList && !readerOpeningHeldRef.current,",
     );
   });
 

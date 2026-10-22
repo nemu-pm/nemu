@@ -164,6 +164,13 @@ import { ReaderNotebookPanelGlyph } from "@/components/reader/ReaderNotebookPane
 import { ReaderDarkThemeScope } from "@/components/reader/ReaderDarkThemeScope";
 import { useReaderZoomEntry } from "@/components/reader/readerZoomEntry";
 import { waitForReaderOpeningWindow } from "@/components/reader/readerOpeningGate";
+import {
+  readerOpeningSince,
+  readerPagesNeedProcessing,
+  resolveReaderFirstScreenImages,
+  shouldHoldReaderOpeningForImages,
+} from "@/components/reader/readerOpeningHold";
+import { getMobileReaderProcessedSourceOpening } from "@/lib/mobileReaderProcessedSourceOpening";
 import { ReaderMoreMenu } from "@/components/reader/ReaderMoreMenu";
 import { useReaderScrubPreviewThumbnails } from "@/components/reader/useReaderScrubPreviewThumbnails";
 import { ReaderPluginSettingsSheet } from "@/components/reader/ReaderPluginSettingsSheet";
@@ -1406,6 +1413,41 @@ export function ReaderScreen() {
   readerOpeningGateRef.current = readerZoomEntry.openingGate;
   /** The open chapter was painted from the persisted page list. */
   const readerOpenPaintedFromCacheRef = useRef(false);
+  const readerZoomEntryRef = useRef(readerZoomEntry);
+  readerZoomEntryRef.current = readerZoomEntry;
+  /**
+   * QA `hold` (see `readerOpeningHold`): this open's pages wait for the
+   * source's processor, so its source calls run at once and the cover waits
+   * for the first screen's images instead of fading into plates.
+   */
+  const readerOpeningHeldRef = useRef(false);
+  /** The opening's processed-source choice, logged once per open. */
+  const readerOpeningProcessedLoggedRef = useRef(false);
+  const holdReaderOpeningIfProcessed = useCallback(
+    (openingPages: readonly MobileReaderPage[], from: "cache" | "source") => {
+      if (readerOpeningHeldRef.current) return;
+      const gate = readerOpeningGateRef.current;
+      const pagesNeedProcessing = readerPagesNeedProcessing(openingPages);
+      if (!pagesNeedProcessing || gate.isSettled()) return;
+      const opening = getMobileReaderProcessedSourceOpening();
+      if (!readerOpeningProcessedLoggedRef.current) {
+        readerOpeningProcessedLoggedRef.current = true;
+        console.info("[reader-open] processed-source opening", { opening, from });
+      }
+      if (
+        !shouldHoldReaderOpeningForImages({
+          opening,
+          pagesNeedProcessing,
+          openingSettled: gate.isSettled(),
+        })
+      ) {
+        return;
+      }
+      readerOpeningHeldRef.current = true;
+      readerZoomEntryRef.current.holdForFirstScreenImages();
+    },
+    [],
+  );
   // Reduce Motion keeps the chrome's cross-fade but drops its 8px slide.
   const readerChromeAnimations = readerChromeAnimationsForMotion(reduceMotion);
   const insets = useSafeAreaInsets();
@@ -4106,6 +4148,87 @@ export function ReaderScreen() {
     const frame = requestAnimationFrame(() => readerZoomEntry.onFirstPage());
     return () => cancelAnimationFrame(frame);
   }, [readerZoomEntry, readerZoomPageShown]);
+  // The first screen (every source): the pages in the first viewport, taken
+  // once the opening has placed the reader, then `first-screen-images-ready`
+  // once each has painted its real image (or failed) — how long plates show.
+  // QA `hold` reveals the cover on it.
+  const [readerFirstScreenPageIds, setReaderFirstScreenPageIds] = useState<
+    readonly string[] | null
+  >(null);
+  const readerFirstScreenPlaced =
+    pagesState.status === "ready" &&
+    pageCount > 0 &&
+    (galleryPagedMode || readerRestoreComplete);
+  const readerFirstScreenPageIdsNowRef = useRef<() => string[]>(() => []);
+  readerFirstScreenPageIdsNowRef.current = () => {
+    if (galleryPagedMode) return readerVisiblePages.map((page) => page.id);
+    const viewport = readerScrollRef.current?.scrollViewport() ?? null;
+    const visible = resolveMobileReaderScrollPageRange({
+      pageCount: pages.length,
+      anchorIndex: clampReaderPageIndex(scrollingVisiblePageIndexRef.current, pageCount),
+      direction: readerScrollDirectionRef.current,
+      viewportTop: viewport?.top ?? null,
+      viewportHeight: viewport?.height ?? 0,
+      layout: readerScrollLayout,
+      estimatedPageHeight: scrollingPageEstimatedHeight,
+      aheadViewports: 0,
+      behindViewports: 0,
+      minAhead: 0,
+      minBehind: 0,
+    });
+    return visible ? pages.slice(visible.first, visible.last + 1).map((page) => page.id) : [];
+  };
+  useEffect(() => {
+    if (readerFirstScreenPageIds != null || !readerFirstScreenPlaced) return;
+    // One frame on, as the cover's "first page": the seek has been applied.
+    const frame = requestAnimationFrame(() =>
+      setReaderFirstScreenPageIds(readerFirstScreenPageIdsNowRef.current()),
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [readerFirstScreenPageIds, readerFirstScreenPlaced]);
+  const readerFirstScreenLoggedRef = useRef(false);
+  useEffect(() => {
+    if (readerFirstScreenLoggedRef.current || readerFirstScreenPageIds == null) return;
+    const pageById = new Map(pages.map((page) => [page.id, page]));
+    const firstScreen = readerFirstScreenPageIds.map((id) => pageById.get(id));
+    if (firstScreen.length === 0 || firstScreen.some((page) => !page)) {
+      // A page list with other pages replaced the one measured: take again.
+      if (pagesState.status === "ready" && pageCount > 0) setReaderFirstScreenPageIds(null);
+      return;
+    }
+    const images = resolveReaderFirstScreenImages(
+      (firstScreen as MobileReaderPage[]).map((page) => {
+        const identity = readerPageIdentityFor(page);
+        return {
+          hasImage: Boolean(page.imageUri),
+          processingPending: page.imageProcessing === "pending",
+          failed: page.imageProcessing === "failed" || readerImageErrors.has(identity),
+          painted: readerImageSizes.has(identity),
+        };
+      }),
+    );
+    if (!images.ready) return;
+    readerFirstScreenLoggedRef.current = true;
+    console.info("[reader-open] first-screen-images-ready", {
+      ...readerOpeningSince(readerZoomEntry.openingTimes(), Date.now()),
+      pages: images.pages,
+      painted: images.painted,
+      failed: images.failed,
+      held: readerOpeningHeldRef.current,
+      mode: galleryPagedMode ? "paged" : "scroll",
+    });
+    readerZoomEntry.onFirstScreenImagesReady();
+  }, [
+    galleryPagedMode,
+    pageCount,
+    pages,
+    pagesState.status,
+    readerFirstScreenPageIds,
+    readerImageErrors,
+    readerImageSizes,
+    readerPageIdentityFor,
+    readerZoomEntry,
+  ]);
   // Notebook filmstrip / scrub previews are spoiler-safe: only pages read
   // before this chapter opened (saved position, a completed chapter), pages
   // actually shown in this session and the current page show their image.
@@ -7366,6 +7489,8 @@ export function ReaderScreen() {
         if (persisted && readerPagesRequestRunRef.current === requestRun) {
           restoredPersistedPageList = true;
           readerOpenPaintedFromCacheRef.current = true;
+          // Before the paint: `hold` must reach the cover ahead of its cap.
+          holdReaderOpeningIfProcessed(persisted.pages, "cache");
           readerPagesLoadedKeyRef.current = pagesRequestKey;
           setPagesState({
             status: "ready",
@@ -7396,9 +7521,10 @@ export function ReaderScreen() {
           // The title / source page starts this prefetch at the tap, so it
           // lands in the opening window: applying it re-renders the reader
           // and starts page processing under the cover's fade. A chapter the
-          // cache already painted takes it once the fade has ended.
+          // cache already painted takes it once the fade has ended (QA
+          // `hold`: at once, the cover waiting for its images instead).
           await waitForReaderOpeningWindow(readerOpeningGateRef.current, {
-            paintedFromCache: restoredPersistedPageList,
+            paintedFromCache: restoredPersistedPageList && !readerOpeningHeldRef.current,
             what: "prefetched-page-list",
           });
           refreshed = await prefetched;
@@ -7408,7 +7534,7 @@ export function ReaderScreen() {
           // once the cover has faded in (the opening window), so a cold
           // sandbox boot cannot hold the fade. Without a cache it asks at once.
           await waitForReaderOpeningWindow(readerOpeningGateRef.current, {
-            paintedFromCache: restoredPersistedPageList,
+            paintedFromCache: restoredPersistedPageList && !readerOpeningHeldRef.current,
             what: "page-list",
           });
           if (readerPagesRequestRunRef.current !== requestRun) return;
@@ -7425,6 +7551,7 @@ export function ReaderScreen() {
               // the final result a moment later with the same `fetchedAt`.
               onPagesReady: (firstPaint) => {
                 if (readerPagesRequestRunRef.current !== requestRun) return;
+                holdReaderOpeningIfProcessed(firstPaint.pages, "source");
                 setPagesState({
                   status: "ready",
                   pages: firstPaint.pages,
@@ -7505,6 +7632,7 @@ export function ReaderScreen() {
             fetchedAt: refreshed.fetchedAt,
           }).catch(() => undefined);
         }
+        holdReaderOpeningIfProcessed(refreshed.pages, "source");
         setPagesState((previous) => ({
           status: "ready",
           pages: refreshed.pages,
@@ -7580,6 +7708,7 @@ export function ReaderScreen() {
     sourceChapterForRequest,
     sourceId,
     getReaderSourceSettings,
+    holdReaderOpeningIfProcessed,
     saveReaderSourcePackageHydration,
   ]);
 

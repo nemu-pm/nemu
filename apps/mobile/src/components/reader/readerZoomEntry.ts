@@ -3,6 +3,7 @@ import {
   createReaderOpeningGate,
   type ReaderOpeningGate,
 } from "./readerOpeningGate";
+import { NO_READER_OPENING_TIMES, type ReaderOpeningTimes } from "./readerOpeningHold";
 
 /**
  * Provided by the reader route while a cover zoom opened it: the reader tells
@@ -14,6 +15,16 @@ import {
 export type ReaderZoomEntry = {
   onFirstPage: () => void;
   openingGate: ReaderOpeningGate;
+  /**
+   * `hold` (see `readerOpeningHold`): the cover stays until
+   * `onFirstScreenImagesReady` (or the hold's cap), whatever "first page"
+   * says. Ignored once the fade runs.
+   */
+  holdForFirstScreenImages: () => void;
+  /** Every page in the first viewport has painted its image (or failed). */
+  onFirstScreenImagesReady: () => void;
+  /** Tap / landing / fade-end, for the opening's log lines. */
+  openingTimes: () => ReaderOpeningTimes;
 };
 
 const noop = () => undefined;
@@ -24,6 +35,9 @@ settledOpeningGate.settle("no-fade");
 export const ReaderZoomEntryContext = createContext<ReaderZoomEntry>({
   onFirstPage: noop,
   openingGate: settledOpeningGate,
+  holdForFirstScreenImages: noop,
+  onFirstScreenImagesReady: noop,
+  openingTimes: () => NO_READER_OPENING_TIMES,
 });
 
 export function useReaderZoomEntry(): ReaderZoomEntry {
