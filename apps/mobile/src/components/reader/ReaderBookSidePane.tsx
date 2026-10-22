@@ -16,7 +16,7 @@ import {
   View,
   type GestureResponderEvent,
 } from "react-native";
-import { NemuText, nemuFontWeight } from "@/design-system";
+import { NemuText, nemuFontWeight, radius } from "@/design-system";
 import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
 import {
   mobileReaderBookThumbnailFollowOffset,
@@ -483,7 +483,7 @@ const styles = StyleSheet.create({
     borderColor: READER_BOOK_THUMBNAIL_CURRENT_COLOR,
   },
   stepButton: {
-    borderRadius: 999,
+    borderRadius: radius.pill,
     backgroundColor: CONTROL_FILL,
     alignItems: "center",
     justifyContent: "center",

@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
+import { nemuFontWeight } from "@/design-system";
 import { formatChapterTitle } from "@/lib/formatChapter";
 import type { MobileStrings } from "@/lib/mobileI18n";
 import {
@@ -105,7 +106,7 @@ const styles = StyleSheet.create({
   title: {
     color: "rgba(255,255,255,0.85)",
     fontSize: 17,
-    fontWeight: "600",
+    fontWeight: nemuFontWeight.semibold,
     textAlign: "center",
   },
   subtitle: {
