@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
+  mobileReaderBookSheetPlacement,
   mobileReaderBookThumbnailAtRest,
   mobileReaderBookThumbnailKey,
   mobileReaderBookThumbnailMovedVisibly,
@@ -223,10 +224,58 @@ describe("book posture wiring (ReaderScreen)", () => {
     expect(readerScreen).toContain("mobileReaderNextTopInsetLatch(");
   });
 
-  test("the reader settings sheet presents from the side pane", () => {
-    expect(readerScreen).toContain(
-      'sheetHostFrame={readerPose.posture === "book" ? (readerPose.sidePane?.frame ?? null) : null}',
-    );
+  test("the reader's sheets are placed over the side pane (where the sheet is presented from never decided it)", () => {
+    expect(readerScreen).not.toContain("sheetHostFrame");
+    expect(readerScreen).toContain("<MobileSheetPlacementProvider value={readerSheetPlacement}>");
+    // Settings, Plugins and every Japanese Learning sheet (Detect text too) are inside it.
+    const open = readerScreen.indexOf("<MobileSheetPlacementProvider value={readerSheetPlacement}>");
+    const close = readerScreen.indexOf("</MobileSheetPlacementProvider>");
+    const placed = readerScreen.slice(open, close);
+    for (const sheet of ["<ReaderSettingsNativePopover", "<ReaderPluginSettingsSheet", "{japaneseLearningSurfaces}", "<JapaneseLearningPluginLauncherSheet"]) {
+      expect(placed).toContain(sheet);
+    }
+  });
+
+  test("each sheet carries the placement in its native chain from the first frame", () => {
+    const read = (file: string) => readFileSync(path.join(import.meta.dir, file), "utf8");
+    expect(read("../components/reader/ReaderSettingsNativePopover.ios.tsx")).toContain("presentationPlacement(sheetPlacement),");
+    expect(read("../components/reader/ReaderPluginSettingsSheet.ios.tsx")).toContain("presentationPlacement(sheetPlacement),");
+    const scaffold = read("../design-system/components/MobileNativeSheetScaffold.tsx");
+    expect(scaffold).toContain("[presentationPlacement(sheetPlacement)]");
+    expect(scaffold).toContain("presentationModifiers={sheetPresentationModifiers}");
+    const swift = read("../../modules/nemu-window-layout/ios/NemuWindowLayoutModule.swift");
+    expect(swift).toContain('static let type = "nemuPresentationPlacement"');
+    expect(swift).toContain("content.presentationPlacement(resolved)");
+    expect(swift).toContain("ViewModifierRegistry.register(NemuPresentationPlacementModifier.type)");
+    // The patched community BottomSheet passes the caller's modifiers on (source and build).
+    const patch = read("../../../../patches/@expo%2Fui@58.0.21.patch");
+    expect(patch).toContain("+      ...(presentationModifiers ?? []),");
+    expect(patch).toContain("+            ...presentationModifiers ?? []");
+  });
+});
+
+describe("book posture sheet placement", () => {
+  const bounds = { x: 0, y: 0, width: 951, height: 669 };
+  const right = { orientation: "vertical" as const, frame: { x: 495.5, y: 0, width: 455.5, height: 669 } };
+  const left = { orientation: "vertical" as const, frame: { x: 0, y: 0, width: 455.5, height: 669 } };
+
+  test("scroll reading: over the side pane's half (trailing in LTR, the pane on the right)", () => {
+    expect(mobileReaderBookSheetPlacement({ posture: "book", sidePane: right, bounds, layoutDirection: "ltr" })).toBe("trailing");
+    expect(mobileReaderBookSheetPlacement({ posture: "book", sidePane: right, bounds, layoutDirection: undefined })).toBe("trailing");
+    // RTL: the strip takes the right half, the pane the left one — still trailing.
+    expect(mobileReaderBookSheetPlacement({ posture: "book", sidePane: left, bounds, layoutDirection: "rtl" })).toBe("trailing");
+    expect(mobileReaderBookSheetPlacement({ posture: "book", sidePane: left, bounds, layoutDirection: "ltr" })).toBe("leading");
+  });
+
+  test("paged book reading, the laptop posture and the flat display keep the automatic placement", () => {
+    expect(mobileReaderBookSheetPlacement({ posture: "book", sidePane: null, bounds, layoutDirection: "ltr" })).toBe("automatic");
+    expect(mobileReaderBookSheetPlacement({
+      posture: "notebook",
+      sidePane: { orientation: "horizontal", frame: { x: 0, y: 515.5, width: 669, height: 435.5 } },
+      bounds: { x: 0, y: 0, width: 669, height: 951 },
+      layoutDirection: "ltr",
+    })).toBe("automatic");
+    expect(mobileReaderBookSheetPlacement({ posture: "flat", sidePane: undefined, bounds, layoutDirection: "ltr" })).toBe("automatic");
   });
 });
 

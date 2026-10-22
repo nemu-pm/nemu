@@ -54,6 +54,11 @@ export {
   useMobileNativeSheetTheme,
 } from "./components/MobileNativeSheetScaffold";
 export { MobileSheetMaxHeightProvider } from "./components/mobileSheetMaxHeight";
+export {
+  MobileSheetPlacementProvider,
+  useMobileSheetPlacement,
+  type MobileSheetPlacement,
+} from "./components/mobileSheetPlacement";
 export { NemuGlassSheetThemeScope } from "./components/NemuGlassSheetThemeScope";
 export {
   MobileSheetHeader,

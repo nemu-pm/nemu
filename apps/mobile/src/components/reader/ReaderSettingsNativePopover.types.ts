@@ -43,13 +43,6 @@ export type ReaderSettingsNativePopoverProps = {
   maxSheetHeight?: number | null;
   /** iOS book posture: the sheet sits beside the page, which stays undimmed and interactive. */
   pageInteractive?: boolean;
-  /**
-   * Book posture, scroll reading: the side pane's frame (reader-root
-   * coordinates). The sheet is presented from there, over the pane, so the
-   * strip in the other half is never covered or moved. Null: the window's
-   * top-leading corner, as before.
-   */
-  sheetHostFrame?: WindowLayoutRect | null;
   mode: ReadingMode;
   activeScrollWidthPct: number;
   isTwoPageMode: boolean;

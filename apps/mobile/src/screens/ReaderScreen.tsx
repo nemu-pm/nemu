@@ -216,6 +216,7 @@ import {
   type MobileReaderStripBridge,
 } from "@/lib/mobileReaderStripBridge";
 import {
+  mobileReaderBookSheetPlacement,
   mobileReaderBookThumbnailKey,
   mobileReaderBookThumbnailRatios,
   READER_BOOK_THUMBNAIL_STALE,
@@ -278,6 +279,7 @@ import { JapaneseLearningTranscriptSheet } from "@/components/reader/japaneseLea
 import {
   MobileCachedImage,
   MobileSheetMaxHeightProvider,
+  MobileSheetPlacementProvider,
   NemuPressable,
   NemuRingSpinner,
   nemuFontWeight,
@@ -5545,6 +5547,14 @@ export function ReaderScreen() {
   // page's own image: a processed (descrambled) page only once its file is
   // there — never the source's scrambled original while processing waits.
   const readerBookSidePane = !galleryPagedMode ? (readerPose.sidePane ?? null) : null;
+  // The reader's system sheets (settings, plugins, Japanese Learning) go over
+  // the book posture's side pane, never the strip's half.
+  const readerSheetPlacement = mobileReaderBookSheetPlacement({
+    posture: readerPose.posture,
+    sidePane: readerBookSidePane,
+    bounds: readerPose.bounds,
+    layoutDirection: readerWindowLayout.layoutDirection,
+  });
   const readerBookThumbnails = readerBookSidePane !== null && readerNotebookPanePreference === "filmstrip";
   const readerBookThumbnailKeys = useMemo(
     () =>
@@ -11569,6 +11579,7 @@ export function ReaderScreen() {
         floatingControlsArea={readerFabArea}
       />
 
+      <MobileSheetPlacementProvider value={readerSheetPlacement}>
       {japaneseLearningPresentationPlugin ? (
         // Half folded like a laptop, these sheets belong to the bottom pane
         // like the reader's own: never past the hinge.
@@ -11685,7 +11696,6 @@ export function ReaderScreen() {
           regularWidth={mobileAdaptiveLayout(readerWindowLayout).regularWidth}
           maxSheetHeight={readerNotebookSheetCap}
           pageInteractive={readerBookPosture}
-          sheetHostFrame={readerPose.posture === "book" ? (readerPose.sidePane?.frame ?? null) : null}
           availableHeight={
             readerSettingsAnchorRect
               ? readerSettingsPopoverAvailableHeight({
@@ -11866,6 +11876,7 @@ export function ReaderScreen() {
         />
         </ReaderDarkThemeScope>
       )}
+      </MobileSheetPlacementProvider>
 
       {readerChromeMounted ? renderReaderChrome() : null}
       {/* Web drawer overlay + text popout: over a compact sentence / chat

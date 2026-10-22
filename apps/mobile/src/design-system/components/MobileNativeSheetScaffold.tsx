@@ -65,6 +65,8 @@ import { NemuGlassSheetThemeScope, useNemuGlassSheetTheme } from "./NemuGlassShe
 import { NemuNativeSheetHeaderAction } from "./NemuNativeSheetHeaderAction";
 import { MobileSheetHeader } from "./MobileSheetHeader";
 import { useMobileSheetMaxHeight } from "./mobileSheetMaxHeight";
+import { useMobileSheetPlacement } from "./mobileSheetPlacement";
+import { presentationPlacement } from "../../../modules/nemu-window-layout/src/presentationColorScheme";
 
 type MobileNativeSheetScaffoldProps = {
   visible: boolean;
@@ -278,6 +280,14 @@ export function MobileNativeSheetScaffold({
   const androidContentMaxHeight =
     androidFrameKind?.kind === "content" ? androidFrameKind.maxHeight : undefined;
   const contextMaxHeight = useMobileSheetMaxHeight();
+  // iOS: the sheet's placement in the window (an iPhone Duo book posture's
+  // side pane half), in the native chain from the first frame. Stable per
+  // value: a new array rebuilds the sheet's modifiers.
+  const sheetPlacement = useMobileSheetPlacement();
+  const sheetPresentationModifiers = useMemo(
+    () => (Platform.OS === "ios" ? [presentationPlacement(sheetPlacement)] : undefined),
+    [sheetPlacement],
+  );
   const maxHeight = mobileNativeSheetMaxHeight(maxHeightProp === undefined ? contextMaxHeight : maxHeightProp);
   const normalizedSnapPoints = isAndroid
     ? undefined
@@ -803,6 +813,7 @@ export function MobileNativeSheetScaffold({
       contentIgnoresSafeAreaEdges={ignoredEdges}
       backgroundInteraction={backgroundInteraction}
       formSheetWidth={iosFormSheet ? MOBILE_NATIVE_SHEET_IOS_FORM_WIDTH : 0}
+      presentationModifiers={sheetPresentationModifiers}
       {...(drawContentHandle ? { handleComponent: null } : null)}
     >
       {isAndroid ? (

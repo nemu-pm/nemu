@@ -59,6 +59,7 @@ import {
   reportSheetContentHeight,
   zeroTopScrollContentMargin,
   presentationColorScheme,
+  presentationPlacement,
   formRowIcon,
   formRowMenuTitle,
   isAccessibilityFontScale,
@@ -66,7 +67,7 @@ import {
   reportPageWidth,
   type FormGroupInset,
 } from "../../../modules/nemu-window-layout/src/presentationColorScheme";
-import { NemuGlassSheetThemeScope, useNemuTheme } from "@/design-system";
+import { NemuGlassSheetThemeScope, useMobileSheetPlacement, useNemuTheme } from "@/design-system";
 import { supportsNemuLiquidGlass } from "@/lib/nemuLiquidGlass";
 import { hapticSelection } from "@/lib/haptics";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
@@ -196,9 +197,9 @@ export function ReaderSettingsNativePopover({
   regularWidth,
   maxSheetHeight = null,
   pageInteractive = false,
-  sheetHostFrame = null,
 }: ReaderSettingsNativePopoverProps) {
   const { scheme, tokens } = useNemuTheme();
+  const sheetPlacement = useMobileSheetPlacement();
   const windowSize = useWindowDimensions();
   // The pages pushed on the settings' NavigationStack (controlled, so the
   // plugin rows can push too): `plugins`, then `plugin:<id>`. Each
@@ -755,14 +756,9 @@ export function ReaderSettingsNativePopover({
     // scrolls in the same height).
     const sheetEstimate = readerSettingsNativeSheetEstimatedHeight(settingsRows);
     const sheetCap = readerSettingsSheetDetentCap({ estimatedHeight: sheetEstimate, maxHeight: maxSheetHeight });
-    // Presented from the side pane in the book posture's scroll reading: the
-    // sheet takes the pane's half, never the strip's.
-    const sheetHostStyle = sheetHostFrame
-      ? [styles.sheetHost, { left: sheetHostFrame.x + sheetHostFrame.width / 2, top: sheetHostFrame.y + sheetHostFrame.height / 2 }]
-      : styles.sheetHost;
     return (
       <>
-      <View pointerEvents="none" style={sheetHostStyle}>
+      <View pointerEvents="none" style={styles.sheetHost}>
         {/* Design-explore: no seed (it tints the bar's close X too); the Form carries the accent. */}
         <SwiftHost colorScheme={scheme} seedColor={mobileDesignExploreFlag ? undefined : tokens.primary} style={StyleSheet.absoluteFill}>
           {measuringCopy}
@@ -789,6 +785,10 @@ export function ReaderSettingsNativePopover({
                   expandable: sheetCap === 0 && maxSheetHeight == null,
                 }),
                 presentationDragIndicator("visible"),
+                // Book posture (Duo, scroll reading): over the side pane's
+                // half, never the strip's (an automatic sheet takes the
+                // leading half wherever it is presented from).
+                presentationPlacement(sheetPlacement),
                 ...(pageInteractive ? [presentationBackgroundInteraction("enabled")] : []),
                 // A plugin toggle or reset in flight keeps the sheet up, so
                 // its outcome (and any error) lands here, not behind the reader.

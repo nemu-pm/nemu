@@ -224,3 +224,27 @@ export type MobileReaderBookThumbnailResolve = (
   key: string,
   signal: AbortSignal,
 ) => Promise<string | null | typeof READER_BOOK_THUMBNAIL_STALE>;
+
+type MobileReaderSheetRect = { x: number; y: number; width: number; height: number };
+
+/**
+ * Where the reader's system sheets go (`presentationPlacement`) — book
+ * posture, scroll reading: over the side pane's half, never the strip's. An
+ * `automatic` sheet takes the leading half on the Duo (measured; see
+ * `mobileReaderBookSheetSide`), which is the strip's in a left-to-right
+ * layout. Every other pose (paged book reading, whose page makes way for an
+ * automatic sheet; the laptop posture, whose sheets already take the bottom
+ * half): `automatic`.
+ */
+export function mobileReaderBookSheetPlacement(input: {
+  posture: string;
+  sidePane: { orientation: "vertical" | "horizontal"; frame: MobileReaderSheetRect } | null | undefined;
+  bounds: MobileReaderSheetRect;
+  layoutDirection: "ltr" | "rtl" | undefined;
+}): "automatic" | "leading" | "trailing" {
+  const pane = input.sidePane;
+  if (input.posture !== "book" || !pane || pane.orientation !== "vertical") return "automatic";
+  const paneOnRight = pane.frame.x + pane.frame.width / 2 > input.bounds.x + input.bounds.width / 2;
+  const leadingOnRight = input.layoutDirection === "rtl";
+  return paneOnRight === leadingOnRight ? "leading" : "trailing";
+}

@@ -17,6 +17,9 @@ public final class NemuWindowLayoutModule: Module {
       ViewModifierRegistry.register(NemuInlineToolbarTitleModifier.type) { _, _, _ in
         NemuInlineToolbarTitleModifier()
       }
+      ViewModifierRegistry.register(NemuPresentationPlacementModifier.type) { params, _, _ in
+        NemuPresentationPlacementModifier(params: params)
+      }
       ViewModifierRegistry.register(NemuZeroTopScrollContentMarginModifier.type) { _, _, _ in
         NemuZeroTopScrollContentMarginModifier()
       }
@@ -63,6 +66,7 @@ public final class NemuWindowLayoutModule: Module {
     OnDestroy {
       ViewModifierRegistry.unregister(NemuPresentationColorSchemeModifier.type)
       ViewModifierRegistry.unregister(NemuInlineToolbarTitleModifier.type)
+      ViewModifierRegistry.unregister(NemuPresentationPlacementModifier.type)
       ViewModifierRegistry.unregister(NemuZeroTopScrollContentMarginModifier.type)
       ViewModifierRegistry.unregister(NemuFitSheetDetentModifier.type)
       ViewModifierRegistry.unregister(NemuReportSheetContentHeightModifier.type)
@@ -552,6 +556,41 @@ struct NemuFormRowMenuPickerLayout: Layout {
 
 /// `toolbarTitleDisplayMode(.inline)`: a sheet's root in a NavigationStack
 /// otherwise reserves an (empty) large-title row between its bar and the Form.
+/// SwiftUI `presentationPlacement` (iOS 27.0) on a sheet's content root:
+/// where in the presenting view the system places the sheet. On an iPhone
+/// Duo half folded like a book an `automatic` sheet takes the leading half;
+/// `trailing` puts it over the trailing half (the reader's side pane), and
+/// the system presents its bars vertically there. Earlier systems: no-op.
+/// Always in the chain (`automatic` when nothing is asked): a modifier
+/// joining mid-presentation rehosts the content.
+struct NemuPresentationPlacementModifier: ViewModifier {
+  static let type = "nemuPresentationPlacement"
+  let placement: String
+
+  init(params: [String: Any]) {
+    placement = params["placement"] as? String ?? "automatic"
+  }
+
+  @ViewBuilder
+  func body(content: Content) -> some View {
+    if #available(iOS 27.0, *) {
+      content.presentationPlacement(resolved)
+    } else {
+      content
+    }
+  }
+
+  @available(iOS 27.0, *)
+  private var resolved: PresentationPlacement {
+    switch placement {
+    case "leading": return .leading
+    case "trailing": return .trailing
+    case "center": return .center
+    default: return .automatic
+    }
+  }
+}
+
 struct NemuInlineToolbarTitleModifier: ViewModifier {
   static let type = "nemuInlineToolbarTitle"
 

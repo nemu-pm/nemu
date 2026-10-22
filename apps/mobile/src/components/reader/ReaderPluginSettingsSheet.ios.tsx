@@ -39,6 +39,7 @@ import {
   NemuGlassSheetThemeScope,
   NemuInlineEmptyState,
   NemuNativeSheetHeaderAction,
+  useMobileSheetPlacement,
   useNemuTheme,
 } from "@/design-system";
 import {
@@ -62,6 +63,7 @@ import { READER_SETTINGS_FORM_INSET } from "@/lib/readerSettingsNativePopoverLay
 import {
   fitSheetDetentToContent,
   presentationColorScheme,
+  presentationPlacement,
 } from "../../../modules/nemu-window-layout/src/presentationColorScheme";
 import { ReaderPluginEnableRow, ReaderPluginListItem } from "./ReaderPluginSettingsRows";
 import type { ReaderPluginSettingsSheetProps } from "./ReaderPluginSettingsSheet.types";
@@ -148,6 +150,7 @@ export function ReaderPluginSettingsSheet({
   onChangePluginValue,
 }: ReaderPluginSettingsSheetProps) {
   const { scheme, tokens } = useNemuTheme();
+  const sheetPlacement = useMobileSheetPlacement();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const guess = guessHostMetrics(windowWidth, windowHeight);
   const [, setLearnedRevision] = useState(0);
@@ -265,6 +268,8 @@ export function ReaderPluginSettingsSheet({
                   height: fittedSheetDetentWithin(sheet.detent, maxSheetHeight),
                 }),
                 presentationDragIndicator("visible"),
+                // Book posture (Duo): over the side pane's half, not the strip's.
+                presentationPlacement(sheetPlacement),
                 ...(pageInteractive ? [presentationBackgroundInteraction("enabled")] : []),
                 // A toggle or reset in flight keeps the sheet up, so its
                 // outcome (and any error) lands here, not behind the reader.

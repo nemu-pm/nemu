@@ -14,6 +14,21 @@ export function presentationColorScheme(scheme: "light" | "dark") {
   return createModifier("nemuPresentationColorScheme", { colorScheme: scheme });
 }
 
+/** Where a sheet sits in the presenting view (SwiftUI `PresentationPlacement`). */
+export type PresentationPlacementValue = "automatic" | "leading" | "trailing" | "center";
+
+/**
+ * `@expo/ui` modifier: SwiftUI `presentationPlacement` (iOS 27.0) on a
+ * sheet's content root. On an iPhone Duo half folded like a book, an
+ * `automatic` sheet takes the leading half; `trailing` the trailing one.
+ * Keep it in the chain from the first frame (pass `automatic` rather than
+ * dropping it). A binary built before the modifier existed, or an earlier
+ * system, ignores it.
+ */
+export function presentationPlacement(placement: PresentationPlacementValue) {
+  return createModifier("nemuPresentationPlacement", { placement });
+}
+
 /**
  * `@expo/ui` modifier: `toolbarTitleDisplayMode(.inline)` for a sheet's root
  * view inside a NavigationStack, so no empty large-title row sits between the
