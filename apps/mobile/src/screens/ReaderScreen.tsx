@@ -571,6 +571,11 @@ import {
   saveMobileReaderPageListCache,
 } from "@/sources/mobileReaderPageListCache";
 import { refreshMobileSourceMetadata } from "@/sources/mobileSourceDetails";
+import {
+  loadMobileReaderPageSizes,
+  makeMobileReaderPageSizeChapterKey,
+  saveMobileReaderPageSize,
+} from "@/sources/mobileReaderPageSizeCache";
 import { resolveMobileReaderPageListFetchedAt } from "@/lib/mobileReaderPageListFetchedAt";
 import {
   loadMobileSourceMangaViewer,
@@ -2071,6 +2076,19 @@ export function ReaderScreen() {
       ]),
     [chapterId, mangaId, routeRef.registryId, routeRef.sourceId],
   );
+  // Natural page sizes persist per chapter (see mobileReaderPageSizeCache):
+  // the pages effect restores them before the chapter paints. Refs, so that
+  // effect keeps its request-only dependencies.
+  const readerPageSizeChapterKey = makeMobileReaderPageSizeChapterKey({
+    registryId: routeRef.registryId,
+    sourceId: routeRef.sourceId,
+    mangaId,
+    chapterId,
+  });
+  const readerPageSizeChapterKeyRef = useRef(readerPageSizeChapterKey);
+  readerPageSizeChapterKeyRef.current = readerPageSizeChapterKey;
+  const readerStablePageSizeKeyForRef = useRef(readerStablePageSizeKeyFor);
+  readerStablePageSizeKeyForRef.current = readerStablePageSizeKeyFor;
   const readerSegmentedCacheKeyFor = useCallback(
     (page: MobileReaderPage) =>
       getMobileReaderSegmentedCacheDiscriminator({
@@ -6540,7 +6558,20 @@ export function ReaderScreen() {
           return;
         }
 
-        const persisted = await loadMobileReaderPageListCache(pageListCacheKey);
+        const pageSizeChapterKey = readerPageSizeChapterKeyRef.current;
+        const stablePageSizeKeyFor = readerStablePageSizeKeyForRef.current;
+        const [persisted, persistedPageSizes] = await Promise.all([
+          loadMobileReaderPageListCache(pageListCacheKey),
+          loadMobileReaderPageSizes(pageSizeChapterKey),
+        ]);
+        // A cold start knows the pages' real heights before any decodes, so
+        // the opening seek lands on the saved spot instead of an estimate.
+        for (const [pageId, size] of persistedPageSizes) {
+          const stableKey = stablePageSizeKeyFor({ id: pageId } as MobileReaderPage);
+          if (!recallMobileReaderPageNaturalSize(stableKey)) {
+            rememberMobileReaderPageNaturalSize(stableKey, size);
+          }
+        }
         // The source's answer, when it is the very list already painted from
         // the cache, keeps the cache's `fetchedAt`: no second remount.
         const fetchedAtFor = (fetched: {
@@ -8199,6 +8230,7 @@ export function ReaderScreen() {
               { width, height },
               readerStablePageSizeKeyFor(page),
             );
+            saveMobileReaderPageSize(readerPageSizeChapterKey, page.id, { width, height });
             measureReaderFirstContent(page);
           }}
           onImageError={(error) => {
@@ -8230,6 +8262,10 @@ export function ReaderScreen() {
               { width: asset.width, height: asset.height },
               readerStablePageSizeKeyFor(page),
             );
+            saveMobileReaderPageSize(readerPageSizeChapterKey, page.id, {
+              width: asset.width,
+              height: asset.height,
+            });
           }}
           onRetry={() => {
             retryReaderImage(pageIdentity);
@@ -8323,6 +8359,7 @@ export function ReaderScreen() {
       selectJapaneseLearningDetection,
       setReaderImageLoadError,
       setReaderImageNaturalSize,
+      readerPageSizeChapterKey,
       readerStablePageSizeKeyFor,
       strings,
     ],
