@@ -1,9 +1,10 @@
 /**
  * Scroll reading keeps the page on screen out of React state while the
  * reader scrolls: committing it per page crossing re-rendered the whole
- * reader (and every mounted page) a dozen times per fling. The live page
- * lives in this tiny store, which only the progress bar subscribes to; the
- * reader state takes the page once the scroll settles.
+ * reader (and every mounted page) a dozen times per fling. The live page —
+ * the page under the screen's vertical centre — lives in this tiny store,
+ * which only the progress bar and the toolbar's page counter subscribe to;
+ * the reader state takes the page once the scroll settles.
  */
 export type MobileReaderLivePage = {
   /** The page the list shows right now. */

@@ -181,6 +181,7 @@ import {
   type MobileReaderScrollViewport,
 } from "@/components/reader/MobileReaderGallery";
 import { MobileReaderPageFrame } from "@/components/reader/MobileReaderPageFrame";
+import { MobileReaderLivePageView } from "@/components/reader/MobileReaderLivePageView";
 import { readerCentreTapBand, readerChromeDismissSweep } from "@/components/reader/readerTapZones";
 import {
   ReaderPairingShiftToast,
@@ -3625,6 +3626,23 @@ export function ReaderScreen() {
       readerRoutePageForDisplayIndex(index, pageCount, mode),
     ),
   });
+  // Scroll reading: the counter follows the page under the screen's centre
+  // while the strip moves (the live page store; only the label repaints),
+  // unless a scrub is previewing another page.
+  const readerChromeLivePageStore =
+    !galleryPagedMode &&
+    !isTwoPageMode &&
+    readerChromePageIndex === clampedPageIndex
+      ? readerLivePageStore
+      : undefined;
+  const readerPageCountLabelAt = (displayIndex: number): string | null =>
+    displayIndex === clampedPageIndex || pageCount <= 0
+      ? readerTopPageCountLabel
+      : readerChromePageCountLabel({
+          pagesStatus: pagesState.status,
+          pageNumber: readerRoutePageForDisplayIndex(displayIndex, pageCount, mode),
+          pageCount,
+        });
   const readerInteractionSurfaceOpen =
     readerDisplaySettingsOpen ||
     readerPluginSettingsOpen ||
@@ -4281,9 +4299,10 @@ export function ReaderScreen() {
         clearReaderProgrammaticScroll();
       }
       if (readerUserScrollingRef.current && programmaticTarget == null) {
-        // Mid-scroll: the progress bar and the prefetch follow the page; the
-        // reader state (toolbar label, history, learning tools) takes it
-        // when the scroll settles. A scroll that never reports its settle
+        // Mid-scroll: the progress bar, the toolbar's page counter and the
+        // prefetch follow the page (the one under the screen's centre); the
+        // reader state (history, learning tools) takes it when the scroll
+        // settles. A scroll that never reports its settle
         // still lands after a pause.
         readerLivePageStore.set({
           index: nextPageIndex,
@@ -8794,13 +8813,15 @@ export function ReaderScreen() {
       </NemuPressable>
     );
     // Capsule chrome: one centred two-line label, like Safari's URL capsule.
-    const capsuleLabels = readerCapsuleTitleLabels({
-      mangaTitle,
-      chapterTitle,
-      pageCountLabel: readerTopPageCountLabel,
-      pagesPending: readerChromePagesPending,
-      fetchingPagesLabel: strings.reader.fetchingPages,
-    });
+    const capsuleLabelsAt = (displayIndex: number) =>
+      readerCapsuleTitleLabels({
+        mangaTitle,
+        chapterTitle,
+        pageCountLabel: readerPageCountLabelAt(displayIndex),
+        pagesPending: readerChromePagesPending,
+        fetchingPagesLabel: strings.reader.fetchingPages,
+      });
+    const capsuleLabels = capsuleLabelsAt(clampedPageIndex);
     // A narrow title capsule (a crowded row) keeps only the position, which
     // is what a glance at the chrome is for.
     const compactCapsuleTitle =
@@ -8811,14 +8832,24 @@ export function ReaderScreen() {
       !readerChromePagesPending;
     const capsuleTitleBlock = compactCapsuleTitle ? (
       <View style={styles.readerCapsuleTitleBlock}>
-        <Text
-          accessibilityLabel={[mangaTitle, chapterTitle, readerTopPageCountLabel].filter(Boolean).join(", ")}
-          numberOfLines={1}
-          maxFontSizeMultiplier={READER_CAPSULE_TITLE_MAX_FONT_SCALE}
-          style={[styles.readerCapsuleTitle, { color: READER_CAPSULE_COLORS.primaryText, fontVariant: ["tabular-nums"] }]}
+        <MobileReaderLivePageView
+          liveStore={readerChromeLivePageStore}
+          committedIndex={clampedPageIndex}
         >
-          {readerTopPageCountLabel}
-        </Text>
+          {(displayIndex) => {
+            const pageCountLabel = readerPageCountLabelAt(displayIndex);
+            return (
+              <Text
+                accessibilityLabel={[mangaTitle, chapterTitle, pageCountLabel].filter(Boolean).join(", ")}
+                numberOfLines={1}
+                maxFontSizeMultiplier={READER_CAPSULE_TITLE_MAX_FONT_SCALE}
+                style={[styles.readerCapsuleTitle, { color: READER_CAPSULE_COLORS.primaryText, fontVariant: ["tabular-nums"] }]}
+              >
+                {pageCountLabel}
+              </Text>
+            );
+          }}
+        </MobileReaderLivePageView>
       </View>
     ) : (
       <View style={styles.readerCapsuleTitleBlock}>
@@ -8838,15 +8869,22 @@ export function ReaderScreen() {
               trackColor={READER_CAPSULE_COLORS.border}
             />
           ) : null}
-          <Text
-            numberOfLines={1}
-            maxFontSizeMultiplier={READER_CAPSULE_TITLE_MAX_FONT_SCALE}
-            // Both lines in the primary colour, as a system photo viewer's
-            // title: size and weight carry the hierarchy.
-            style={[styles.readerCapsuleSubtitle, { color: READER_CAPSULE_COLORS.primaryText }]}
+          <MobileReaderLivePageView
+            liveStore={readerChromeLivePageStore}
+            committedIndex={clampedPageIndex}
           >
-            {capsuleLabels.subtitle}
-          </Text>
+            {(displayIndex) => (
+              <Text
+                numberOfLines={1}
+                maxFontSizeMultiplier={READER_CAPSULE_TITLE_MAX_FONT_SCALE}
+                // Both lines in the primary colour, as a system photo viewer's
+                // title: size and weight carry the hierarchy.
+                style={[styles.readerCapsuleSubtitle, { color: READER_CAPSULE_COLORS.primaryText }]}
+              >
+                {capsuleLabelsAt(displayIndex).subtitle}
+              </Text>
+            )}
+          </MobileReaderLivePageView>
         </View>
       </View>
     );

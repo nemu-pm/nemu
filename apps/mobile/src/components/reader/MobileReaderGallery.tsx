@@ -118,6 +118,7 @@ import {
   isMobileReaderScrollSeekLanded,
   isMobileReaderScrollSeekSettled,
   mobileReaderScrollAnchorForOffset,
+  mobileReaderScrollCentrePageIndex,
   mobileReaderScrollIndexViewOffset,
   mobileReaderScrollItemLayout,
   mobileReaderScrollOffsetForAnchor,
@@ -802,12 +803,41 @@ export function MobileReaderGallery({
     scrollRenderWindow,
     windowHeight,
   ]);
+  // The page the reader is on while the list moves: the render window
+  // follows it and the reader's live page (toolbar counter, progress bar)
+  // shows it.
+  const lastCentrePageRef = useRef<number | null>(null);
+  useEffect(() => {
+    lastCentrePageRef.current = null;
+  }, [scrollMountKey]);
+  const reportScrollingVisiblePage = useCallback((nextPageIndex: number) => {
+    setScrollRenderWindow((current) =>
+      current.anchor === nextPageIndex
+        ? current
+        : {
+            anchor: nextPageIndex,
+            direction: nextMobileReaderScrollDirection(
+              current.anchor,
+              nextPageIndex,
+              current.direction,
+            ),
+            committedIndex: current.committedIndex,
+            viewportTop: currentScrollViewportTop(),
+          },
+    );
+    onScrollingVisiblePageChangeRef.current?.(nextPageIndex);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reads refs only.
+  }, []);
   const onViewableItemsChanged = useCallback(
     ({
       viewableItems,
     }: {
       viewableItems: ListViewToken[];
     }) => {
+      // With a page layout the scroll handler reports the page under the
+      // screen's centre on every frame; the viewable items' middle one can
+      // be another page (a tall page half off screen is not "viewable").
+      if (scrollPageLayoutRef.current) return;
       const nextPageIndex = readerDisplayIndexForViewableItems(
         viewableItems.flatMap((token) => {
           if (!token.isViewable) return [];
@@ -817,25 +847,9 @@ export function MobileReaderGallery({
         }),
         displayedPageCountRef.current,
       );
-      if (nextPageIndex != null) {
-        setScrollRenderWindow((current) =>
-          current.anchor === nextPageIndex
-            ? current
-            : {
-                anchor: nextPageIndex,
-                direction: nextMobileReaderScrollDirection(
-                  current.anchor,
-                  nextPageIndex,
-                  current.direction,
-                ),
-                committedIndex: current.committedIndex,
-                viewportTop: currentScrollViewportTop(),
-              },
-        );
-        onScrollingVisiblePageChangeRef.current?.(nextPageIndex);
-      }
+      if (nextPageIndex != null) reportScrollingVisiblePage(nextPageIndex);
     },
-    [],
+    [reportScrollingVisiblePage],
   );
   const onUserScrollSettleRef = useRef(onUserScrollSettle);
   const dragSettleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -1629,6 +1643,18 @@ export function MobileReaderGallery({
           contentOffset.y,
         );
         checkPageSeekLanded(contentOffset.y);
+        const centrePage = mobileReaderScrollCentrePageIndex(
+          layout,
+          contentOffset.y,
+          layoutMeasurement.height,
+          chromeTopPaddingRef.current,
+        );
+        // Reported on change only, as the viewable items were: a seek's
+        // small re-placement must not re-commit a page.
+        if (centrePage != null && centrePage !== lastCentrePageRef.current) {
+          lastCentrePageRef.current = centrePage;
+          reportScrollingVisiblePage(centrePage);
+        }
       }
       if (logicalLongStripMode && isMobileReaderLogicalEndReached(metrics)) {
         onSegmentedLogicalEndReached?.();

@@ -6,6 +6,7 @@ import {
   isMobileReaderScrollSeekLanded,
   isMobileReaderScrollSeekSettled,
   mobileReaderScrollAnchorForOffset,
+  mobileReaderScrollCentrePageIndex,
   mobileReaderScrollIndexViewOffset,
   mobileReaderScrollItemLayout,
   mobileReaderScrollOffsetForAnchor,
@@ -180,5 +181,25 @@ describe("page natural size memory", () => {
     expect(recallMobileReaderPageNaturalSize("page-a")).toEqual({ width: 800, height: 1200 });
     expect(recallMobileReaderPageNaturalSize("page-b")).toBeUndefined();
     expect(recallMobileReaderPageNaturalSize("")).toBeUndefined();
+  });
+});
+
+describe("mobileReaderScrollCentrePageIndex", () => {
+  test("is the page under the middle of the screen, not at the reading line", () => {
+    // Pages 1000 tall with 8pt gaps; 100pt chrome padding; 900pt screen.
+    const layout = buildMobileReaderScrollLayout([1000, 1000, 1000, 1000], null, 8);
+    // Offset 0: screen top at -100, centre at 350 → page 0.
+    expect(mobileReaderScrollCentrePageIndex(layout, 0, 900, 100)).toBe(0);
+    // Reading line at page 0's 80% (800): centre at 1150 → page 1.
+    expect(mobileReaderScrollCentrePageIndex(layout, 800, 900, 100)).toBe(1);
+    expect(mobileReaderScrollAnchorForOffset(layout, 800)?.pageIndex).toBe(0);
+    // Centre inside the gap above page 2 (2008..2016) counts as page 1.
+    expect(mobileReaderScrollCentrePageIndex(layout, 2012 - 350, 900, 100)).toBe(1);
+    expect(mobileReaderScrollCentrePageIndex(layout, 1e6, 900, 100)).toBe(3);
+  });
+
+  test("an unmeasured screen has no centre page", () => {
+    const layout = buildMobileReaderScrollLayout([1000], null);
+    expect(mobileReaderScrollCentrePageIndex(layout, 0, 0, 0)).toBeNull();
   });
 });

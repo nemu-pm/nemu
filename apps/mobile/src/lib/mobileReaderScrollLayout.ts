@@ -191,6 +191,25 @@ export function mobileReaderScrollAnchorForOffset(
 }
 
 /**
+ * The page under the vertical centre of the screen — the page the reader is
+ * on while the strip moves (the toolbar counter, the render window). A gap
+ * at the centre counts as the page above it.
+ */
+export function mobileReaderScrollCentrePageIndex(
+  layout: MobileReaderScrollLayout,
+  contentOffset: number,
+  viewportHeight: number,
+  topPadding: number,
+): number | null {
+  if (!Number.isFinite(contentOffset) || !(viewportHeight > 0)) return null;
+  const padding = Number.isFinite(topPadding) ? Math.max(0, topPadding) : 0;
+  return (
+    mobileReaderScrollAnchorForOffset(layout, contentOffset - padding + viewportHeight / 2)
+      ?.pageIndex ?? null
+  );
+}
+
+/**
  * A non-animated seek has landed once the list rests at its target (or at the
  * end of the content when the target lies past the last scrollable offset).
  */
