@@ -53,10 +53,12 @@ export function getMobileChapterProgressAccessory(
       })
     : null;
   if (progress?.completed) {
-    const reread = opening?.origin === "local" ? pageAccessory(opening.sourceIndex, opening.total) : null;
+    const reread = opening?.origin === "local" ? pageAccessory(opening.shownSourceIndex, opening.total) : null;
     return reread ?? { status: "completed" };
   }
-  if (opening) return pageAccessory(opening.sourceIndex, opening.total) ?? { status: "unread" };
+  // The page named (and the bar) is the reader counter's page saved with the
+  // spot; the restore itself still seeks to the anchor (`sourceIndex`).
+  if (opening) return pageAccessory(opening.shownSourceIndex, opening.total) ?? { status: "unread" };
   if (!progress) return { status: "unread" };
   return pageAccessory(progress.progress, progress.total) ?? { status: "unread" };
 }

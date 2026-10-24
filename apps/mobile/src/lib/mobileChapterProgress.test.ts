@@ -174,6 +174,38 @@ describe("chapter row page: where the reader opens", () => {
     ).toEqual({ status: "progress", page: 21, total: 149, ratio: 21 / 149 });
   });
 
+  test("the counter's page saved with the spot: the row and bar name it (restore keeps the anchor)", () => {
+    // Anchor p40 (index 39), the counter showed p41 (index 40).
+    const spot = local({ sourceIndex: 39, fraction: 0.62, counterSourceIndex: 40 });
+    expect(getMobileChapterProgressAccessory(synced(), { local: spot })).toEqual({
+      status: "progress",
+      page: 41,
+      total: 149,
+      ratio: 41 / 149,
+    });
+    expect(
+      formatMobileChapterProgressStatus(
+        getMobileChapterProgressAccessory(synced(), { local: spot }),
+        getMobileStrings("en"),
+      ),
+    ).toBe("Page 41 of 149");
+    // Saved before the counter page was recorded: the anchor page.
+    expect(getMobileChapterProgressAccessory(synced(), { local: local({ sourceIndex: 39 }) })).toEqual({
+      status: "progress",
+      page: 40,
+      total: 149,
+      ratio: 40 / 149,
+    });
+  });
+
+  test("a re-read spot names the counter's page", () => {
+    expect(
+      getMobileChapterProgressAccessory(synced({ completed: true, progress: 148 }), {
+        local: local({ sourceIndex: 19, reread: true, counterSourceIndex: 20 }),
+      }),
+    ).toEqual({ status: "progress", page: 21, total: 149, ratio: 21 / 149 });
+  });
+
   test("completed without a re-read spot: completed (the reader opens at page 1)", () => {
     const completed = synced({ completed: true, progress: 148 });
     expect(getMobileChapterProgressAccessory(completed)).toEqual({ status: "completed" });

@@ -32,6 +32,16 @@ export type MobileReaderResumePosition = {
    * entry without the flag — reopens it at the top of page 1.
    */
   reread?: boolean;
+  /**
+   * The page the reader's counter showed when saved (source order), the page
+   * under the screen's centre in scroll reading (the current page when
+   * paged). Display only: the chapter rows and Continue card name it, the
+   * restore still seeks to `sourceIndex` + `fraction` (the anchor: the top
+   * page and the spot on it, which can be the page above the counter's when a
+   * page boundary sits near mid-screen). Absent on spots saved before it was
+   * recorded: those show `sourceIndex`.
+   */
+  counterSourceIndex?: number;
 };
 
 /** The synced progress fields the choice reads. */
@@ -78,6 +88,11 @@ function normalizePosition(value: unknown): MobileReaderResumePosition | null {
     savedAt: record.savedAt,
     progressAt: finiteNumber(record.progressAt) ? record.progressAt : 0,
     ...(record.reread === true ? { reread: true } : {}),
+    ...(finiteNumber(record.counterSourceIndex) &&
+    record.counterSourceIndex >= 0 &&
+    record.counterSourceIndex < record.total
+      ? { counterSourceIndex: Math.trunc(record.counterSourceIndex) }
+      : {}),
   };
 }
 
@@ -134,8 +149,14 @@ export function chooseMobileReaderResumePosition({
 
 /** What a chapter's page row (title page list, Continue card) shows. */
 export type MobileChapterOpeningPage = {
-  /** Page in source order the reader opens at. */
+  /** Page in source order the reader opens at (the restore's anchor page). */
   sourceIndex: number;
+  /**
+   * The page the row names: the reader counter's page saved with this
+   * device's spot (`counterSourceIndex`, else the anchor page for spots saved
+   * before it); the synced high-water page otherwise.
+   */
+  shownSourceIndex: number;
   /** The chapter's page count the page is out of. */
   total: number;
   origin: MobileReaderResumeChoice["origin"];
@@ -163,7 +184,16 @@ export function resolveMobileChapterOpeningPage({
       : local?.total ?? 0;
   const choice = chooseMobileReaderResumePosition({ local, progress, pageCount });
   if (!choice) return null;
-  return { sourceIndex: choice.sourceIndex, total: pageCount, origin: choice.origin };
+  const shownSourceIndex =
+    choice.origin === "local" && local && local.counterSourceIndex !== undefined
+      ? local.counterSourceIndex
+      : choice.sourceIndex;
+  return {
+    sourceIndex: choice.sourceIndex,
+    shownSourceIndex,
+    total: pageCount,
+    origin: choice.origin,
+  };
 }
 
 /**
@@ -340,7 +370,8 @@ export function saveMobileReaderResumePosition(
       Math.abs(existing.fraction - next.fraction) < 0.001 &&
       existing.total === next.total &&
       existing.progressAt === next.progressAt &&
-      (existing.reread ?? false) === (next.reread ?? false)
+      (existing.reread ?? false) === (next.reread ?? false) &&
+      existing.counterSourceIndex === next.counterSourceIndex
     ) {
       return false;
     }

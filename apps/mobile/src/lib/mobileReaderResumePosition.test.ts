@@ -456,6 +456,7 @@ describe("resolveMobileChapterOpeningPage (rows, cards and resume agree)", () =>
   test("no synced record: out of the local spot's own page count", () => {
     expect(resolveMobileChapterOpeningPage({ local: local(), progress: null })).toEqual({
       sourceIndex: 3,
+      shownSourceIndex: 3,
       total: 20,
       origin: "local",
     });
@@ -483,5 +484,108 @@ describe("resume position store subscription", () => {
     saveMobileReaderResumePosition("k", { sourceIndex: 3, fraction: 0, total: 9, savedAt: 2 });
     expect(calls).toBe(before + 1);
     expect(peekMobileReaderResumePosition("k")?.sourceIndex).toBe(3);
+  });
+});
+
+describe("the page a row names is the reader counter's (the restore keeps the anchor)", () => {
+  afterEach(() => resetMobileReaderResumePositionsForTests());
+  const synced = { progress: 109, total: 149, lastReadAt: 9_000 };
+
+  test("anchor p40, counter p41: the row names p41, the restore seeks to p40", () => {
+    // ToG Ch.632 on the Duo: the p40/p41 boundary near mid-screen.
+    const spot = local({ sourceIndex: 39, fraction: 0.62, total: 149, counterSourceIndex: 40 });
+    expect(resolveMobileChapterOpeningPage({ local: spot, progress: synced })).toEqual({
+      sourceIndex: 39,
+      shownSourceIndex: 40,
+      total: 149,
+      origin: "local",
+    });
+    expect(chooseMobileReaderResumePosition({ local: spot, progress: synced, pageCount: 149 })).toEqual({
+      sourceIndex: 39,
+      fraction: 0.62,
+      origin: "local",
+    });
+  });
+
+  test("a spot saved before the counter page was recorded: the anchor page", () => {
+    const legacy = parseMobileReaderResumePositions(
+      JSON.stringify({
+        version: 1,
+        entries: [["k", { sourceIndex: 39, fraction: 0.62, total: 149, savedAt: 10_000 }]],
+      }),
+    ).get("k")!;
+    expect(legacy.counterSourceIndex).toBeUndefined();
+    expect(resolveMobileChapterOpeningPage({ local: legacy, progress: synced })?.shownSourceIndex).toBe(39);
+  });
+
+  test("a re-read spot names its counter page; the completed rules read the anchor", () => {
+    const completed = { ...synced, progress: 148, completed: true };
+    expect(
+      resolveMobileChapterOpeningPage({
+        local: local({ sourceIndex: 19, total: 149, reread: true, counterSourceIndex: 20 }),
+        progress: completed,
+      }),
+    ).toEqual({ sourceIndex: 19, shownSourceIndex: 20, total: 149, origin: "local" });
+    // Not a re-read spot, or one on the last page: page 1, whatever the counter.
+    expect(
+      resolveMobileChapterOpeningPage({
+        local: local({ sourceIndex: 19, total: 149, counterSourceIndex: 20 }),
+        progress: completed,
+      }),
+    ).toBeNull();
+    expect(
+      resolveMobileChapterOpeningPage({
+        local: local({ sourceIndex: 148, total: 149, reread: true, counterSourceIndex: 148 }),
+        progress: completed,
+      }),
+    ).toBeNull();
+  });
+
+  test("the synced high-water page is not overridden by a stale local counter page", () => {
+    const spot = local({ sourceIndex: 39, total: 149, savedAt: 1_000, counterSourceIndex: 40 });
+    expect(
+      resolveMobileChapterOpeningPage({ local: spot, progress: { ...synced, lastReadAt: 60_000 } }),
+    ).toEqual({ sourceIndex: 109, shownSourceIndex: 109, total: 149, origin: "progress" });
+  });
+
+  test("the store keeps the counter page, round-trips it and saves when only it changes", async () => {
+    await loadMobileReaderResumePosition("k");
+    saveMobileReaderResumePosition("k", { sourceIndex: 39, fraction: 0.6, total: 149, savedAt: 1, counterSourceIndex: 39 });
+    saveMobileReaderResumePosition("k", { sourceIndex: 39, fraction: 0.6, total: 149, savedAt: 2, counterSourceIndex: 40 });
+    const saved = peekMobileReaderResumePosition("k");
+    expect(saved?.counterSourceIndex).toBe(40);
+    expect(saved?.sourceIndex).toBe(39);
+    const back = parseMobileReaderResumePositions(serializeMobileReaderResumePositions(new Map([["k", saved!]])));
+    expect(back.get("k")?.counterSourceIndex).toBe(40);
+    // Out of range: dropped (the anchor page is shown).
+    expect(
+      parseMobileReaderResumePositions(
+        JSON.stringify({ entries: [["k", { sourceIndex: 1, total: 5, savedAt: 1, counterSourceIndex: 9 }]] }),
+      ).get("k")?.counterSourceIndex,
+    ).toBeUndefined();
+  });
+});
+
+describe("ReaderScreen wiring: the save records the counter's page", () => {
+  const screen = readFileSync(path.join(import.meta.dir, "..", "screens/ReaderScreen.tsx"), "utf8");
+  const save = screen.slice(screen.indexOf("const saveReaderLocalResume = useCallback("));
+  const body = save.slice(0, save.indexOf("useEffect(() => {"));
+
+  test("the counter page is the live (centre) page over the committed one, as the counter renders it", () => {
+    expect(body).toContain(
+      "mobileReaderLivePageIndex(readerLivePageStore.get(), clampedPageIndex)",
+    );
+    expect(body).toMatch(/!galleryPagedMode && !isTwoPageMode\s*\?\s*mobileReaderLivePageIndex/);
+    // The counter renders the same store over the same committed page.
+    expect(screen).toMatch(/liveStore=\{readerChromeLivePageStore\}\s*committedIndex=\{clampedPageIndex\}/);
+  });
+
+  test("the save passes it beside the unchanged anchor", () => {
+    expect(body).toMatch(
+      /saveMobileReaderResumePosition\(readerResumeKey, \{\s*sourceIndex: readerSourceIndexForDisplayIndex\(\s*clampReaderPageIndex\(displayIndex, pageCount\)/,
+    );
+    expect(body).toMatch(
+      /counterSourceIndex: readerSourceIndexForDisplayIndex\(\s*clampReaderPageIndex\(counterDisplayIndex, pageCount\)/,
+    );
   });
 });

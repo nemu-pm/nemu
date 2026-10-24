@@ -477,7 +477,7 @@ import {
   planMobileReaderScrollPrefetch,
   shouldPrefetchMobileReaderNextChapter,
 } from "@/lib/mobileReaderPagePrefetch";
-import { createMobileReaderLivePageStore } from "@/lib/mobileReaderLivePage";
+import { createMobileReaderLivePageStore, mobileReaderLivePageIndex } from "@/lib/mobileReaderLivePage";
 import {
   MOBILE_READER_SCROLL_PAGE_SPACING,
   MOBILE_READER_SCROLL_PLACEHOLDER_COLOR,
@@ -8629,6 +8629,14 @@ export function ReaderScreen() {
       pageIndex: clampReaderPageIndex(displayIndex, pageCount),
       fraction,
     };
+    // The page the toolbar counter shows (what MobileReaderLivePageView
+    // renders): in scroll reading the page under the screen's centre (the
+    // live page store over the committed page), paged the current page. The
+    // rows and Continue card name it; the restore seeks to the anchor above.
+    const counterDisplayIndex =
+      !galleryPagedMode && !isTwoPageMode
+        ? mobileReaderLivePageIndex(readerLivePageStore.get(), clampedPageIndex)
+        : clampedPageIndex;
     saveMobileReaderResumePosition(readerResumeKey, {
       sourceIndex: readerSourceIndexForDisplayIndex(
         clampReaderPageIndex(displayIndex, pageCount),
@@ -8636,6 +8644,11 @@ export function ReaderScreen() {
         mode,
       ),
       fraction,
+      counterSourceIndex: readerSourceIndexForDisplayIndex(
+        clampReaderPageIndex(counterDisplayIndex, pageCount),
+        pageCount,
+        mode,
+      ),
       total: pageCount,
       savedAt: Date.now(),
       // Saved while reading here: at least as new as the synced record this
@@ -8653,9 +8666,11 @@ export function ReaderScreen() {
     chapterId,
     clampedPageIndex,
     galleryPagedMode,
+    isTwoPageMode,
     mode,
     pageCount,
     pagesState.status,
+    readerLivePageStore,
     readerProgressRestoreComplete,
     readerResumeKey,
     readerOpenedCompleted,
