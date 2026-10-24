@@ -84,6 +84,7 @@ import {
   spacing,
   useMobilePageBleedStyles,
   useMobilePageGutters,
+  useMobileRailRowContentInsets,
   useNemuTheme,
   usesNemuNativeHeader,
   type MangaCardModel,
@@ -306,16 +307,17 @@ function SourceFilterBar({
   const { tokens: themeTokens } = useNemuTheme();
   const pageGutters = useMobilePageGutters();
   const pageBleed = useMobilePageBleedStyles(SOURCE_FILTER_BLEED_OVERSCAN);
-  const bleed = useMemo(
-    () =>
-      containLeading
-        ? {
-            frame: { ...pageBleed.frame, marginLeft: 0 },
-            content: { ...pageBleed.content, paddingLeft: 0 },
-          }
-        : pageBleed,
-    [containLeading, pageBleed],
-  );
+  // Beside the Duo's rail (either side) the row's resting end keeps 16pt
+  // from the rail's content edge, from the real inset. Scrolling is unchanged.
+  const railInsets = useMobileRailRowContentInsets();
+  const bleed = useMemo(() => {
+    const rail = containLeading && railInsets && "paddingLeft" in railInsets ? null : railInsets;
+    const content = { ...pageBleed.content, ...(containLeading ? { paddingLeft: 0 } : null), ...rail };
+    return {
+      frame: containLeading ? { ...pageBleed.frame, marginLeft: 0 } : pageBleed.frame,
+      content,
+    };
+  }, [containLeading, pageBleed, railInsets]);
   // The fades cover the edge gutter too, so in landscape a scrolled chip has
   // faded out before it slides under the Dynamic Island. Portrait keeps 24pt.
   // On the side of a vertical system bar column the row no longer bleeds, so

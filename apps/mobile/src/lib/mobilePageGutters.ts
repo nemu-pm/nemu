@@ -69,3 +69,39 @@ export function getMobilePageBleedStyles(
     },
   };
 }
+
+/** A horizontal row's resting clearance from the system bar column (iPhone Duo rail). */
+export const MOBILE_RAIL_ROW_CLEARANCE = spacing.pageX;
+
+/**
+ * Content insets for a horizontally scrolling row beside the system's
+ * vertical bar column (the iPhone Duo rail): the row's frame stops at the
+ * page gutter on that side (`getMobilePageBleedStyles`), and its content
+ * inset there is whatever keeps the last chip (rail on the right) or the
+ * first chip (rail on the left) `clearance` before the rail's content edge —
+ * the edge the window's safe-area inset reports, measured from the real
+ * inset, not a constant. Null when there is no rail; the side away from the
+ * rail is not touched.
+ */
+export function getMobileRailRowContentInsets({
+  gutters,
+  safeAreaInsets,
+  verticalBarSide,
+  clearance = MOBILE_RAIL_ROW_CLEARANCE,
+}: {
+  /** The page gutters the row's frame sits in (`getMobilePageGutters`). */
+  gutters: Pick<MobilePageGutters, "left" | "right">;
+  /** The window's safe-area insets (they include the rail column). */
+  safeAreaInsets: { left?: number; right?: number } | null | undefined;
+  verticalBarSide: "left" | "right" | null;
+  clearance?: number;
+}): { paddingLeft: number } | { paddingRight: number } | null {
+  if (verticalBarSide === null) return null;
+  const gutter = finiteInset(verticalBarSide === "left" ? gutters.left : gutters.right);
+  // No inset reported: the gutter is the rail's edge.
+  const reported = verticalBarSide === "left" ? safeAreaInsets?.left : safeAreaInsets?.right;
+  const railInset = typeof reported === "number" && Number.isFinite(reported) ? Math.max(0, reported) : gutter;
+  // The frame already stops `gutter - railInset` short of the rail's content edge.
+  const inset = Math.max(0, finiteInset(clearance) - Math.max(0, gutter - railInset));
+  return verticalBarSide === "left" ? { paddingLeft: inset } : { paddingRight: inset };
+}

@@ -4,6 +4,7 @@ import { useMobileAdaptiveLayout, useMobileWindowLayout } from "@/lib/MobileWind
 import {
   getMobilePageBleedStyles,
   getMobilePageGutters,
+  getMobileRailRowContentInsets,
   type MobilePageBleedStyles,
   type MobilePageGutters,
 } from "@/lib/mobilePageGutters";
@@ -35,5 +36,23 @@ export function useMobilePageBleedStyles(overscan = 0): MobilePageBleedStyles {
   return useMemo(
     () => getMobilePageBleedStyles({ left, right }, overscan, verticalBarSide),
     [left, overscan, right, verticalBarSide],
+  );
+}
+
+/**
+ * The rail-side content inset for a horizontal row beside the system bar
+ * column (`getMobileRailRowContentInsets`), from the same safe-area snapshot
+ * as the gutters; null when there is no rail.
+ */
+export function useMobileRailRowContentInsets(): ReturnType<typeof getMobileRailRowContentInsets> {
+  const insets = useSafeAreaInsets();
+  const { safeAreaInsets: windowInsets } = useMobileWindowLayout();
+  const { verticalBarSide } = useMobileAdaptiveLayout();
+  const gutters = useMobilePageGutters();
+  const left = windowInsets?.left ?? insets.left;
+  const right = windowInsets?.right ?? insets.right;
+  return useMemo(
+    () => getMobileRailRowContentInsets({ gutters, safeAreaInsets: { left, right }, verticalBarSide }),
+    [gutters, left, right, verticalBarSide],
   );
 }
