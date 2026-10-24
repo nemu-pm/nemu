@@ -241,8 +241,11 @@ describe("readerOpeningHold wiring", () => {
     // slow one says what it waits for.
     expect(reader).toContain("const indexes = resolveReaderFirstScreenIndexes({");
     expect(reader).toContain('console.info("[reader-open] first-screen-images-pending", {');
+    expect(reader).toContain("if (!__DEV__ || readerFirstScreenPageIds == null) return;");
     expect(reader).toContain("shouldRetakeReaderFirstScreen({");
     expect(reader).toContain('console.info("[reader-open] first-screen retake", {');
+    // Diagnostic lines only: dev builds; the reveal itself is not gated.
+    expect(reader.slice(start - 40, start)).toContain("if (__DEV__) {");
   });
 
   test("the route holds on the UI thread, logs fade-end since the tap, and takes the tap from the handoff", () => {

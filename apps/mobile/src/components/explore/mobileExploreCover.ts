@@ -111,10 +111,12 @@ export function withMobileExploreZoom<T>(
   if (!zoomId || !zoomTransitionAvailable || typeof href !== "string") return href;
   zoomId = canonicalMobileReaderZoomId(zoomId);
   const landing = primeMobileReaderZoomCover(zoomId, cover);
-  console.info("[reader-zoom] primed", {
-    zoomId,
-    cover: cover?.uri ? "own" : landing ? "known" : "none",
-  });
+  if (typeof __DEV__ !== "undefined" && __DEV__) {
+    console.info("[reader-zoom] primed", {
+      zoomId,
+      cover: cover?.uri ? "own" : landing ? "known" : "none",
+    });
+  }
   return `${href}${href.includes("?") ? "&" : "?"}zoom=${encodeURIComponent(zoomId)}` as T;
 }
 

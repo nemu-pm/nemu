@@ -123,8 +123,6 @@ describe("Aidoku sandbox pre-warm wiring", () => {
     expect(prewarm).toContain("_ = try self.ensureRuntime()");
     // Registers no session.
     expect(prewarm).not.toContain("ensureSessionRegistered");
-    expect(prewarm).toContain('"[aidoku-warm] prewarm start at=%.0f"');
-    expect(prewarm).toContain('"[aidoku-warm] prewarm end at=%.0f ms=%.0f ok=%ld %@"');
     expect(manager).toContain("CFRunLoopPerformBlock(mainLoop, CFRunLoopMode.defaultMode.rawValue) {");
     expect(moduleTypes).toContain("prewarmAidokuSandbox?(): Promise<string>;");
   });
@@ -132,7 +130,7 @@ describe("Aidoku sandbox pre-warm wiring", () => {
   test("JS asks only when the flag is on, on iOS, and swallows a failure", () => {
     expect(hook).toContain('const prewarmActive = NEMU_AIDOKU_PREWARM_ENABLED && Platform.OS === "ios";');
     expect(hook).toContain("if (!prewarmActive) return undefined;");
-    expect(hook).toContain('console.info("[aidoku-warm] prewarm skipped", {');
+    expect(hook).toContain("void prewarm.call(NemuAidokuModule).then(\n          () => undefined,\n          () => undefined,\n        );");
     expect(hook).toContain("  : {};");
   });
 

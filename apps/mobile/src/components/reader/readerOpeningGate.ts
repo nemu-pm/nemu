@@ -122,7 +122,12 @@ export async function waitForReaderOpeningWindow(
     return false;
   }
   const now = input.now ?? Date.now;
-  const log = input.log ?? ((message, data) => console.info(message, data));
+  // Diagnostic lines: dev builds only, unless the caller takes them.
+  const log =
+    input.log ??
+    ((message, data) => {
+      if (typeof __DEV__ !== "undefined" && __DEV__) console.info(message, data);
+    });
   const startedAt = now();
   log("[reader-open] live refresh deferred", { what: input.what });
   const reason = await gate.whenSettled();

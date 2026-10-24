@@ -118,10 +118,12 @@ function useReaderCoverReveal(zoomId: string | null): ReaderCoverReveal {
     createReaderOpeningGate({
       onSettled: (reason: ReaderOpeningSettleReason) => {
         const landedAt = landedAtRef.current;
-        console.info("[reader-zoom] opening-settled", {
-          reason,
-          sinceLandedMs: landedAt == null ? null : Math.round(Date.now() - landedAt),
-        });
+        if (__DEV__) {
+          console.info("[reader-zoom] opening-settled", {
+            reason,
+            sinceLandedMs: landedAt == null ? null : Math.round(Date.now() - landedAt),
+          });
+        }
       },
     }),
   );
@@ -137,11 +139,13 @@ function useReaderCoverReveal(zoomId: string | null): ReaderCoverReveal {
   );
 
   const logFadeStart = useCallback((reason: CoverRevealReason, sinceLandedMs: number | null) => {
-    console.info("[reader-zoom] fade-start", {
-      reason,
-      sinceLandedMs,
-      mode: modeRef.current.mode,
-    });
+    if (__DEV__) {
+      console.info("[reader-zoom] fade-start", {
+        reason,
+        sinceLandedMs,
+        mode: modeRef.current.mode,
+      });
+    }
   }, []);
 
   const armScrollCap = useCallback(() => {
@@ -152,13 +156,15 @@ function useReaderCoverReveal(zoomId: string | null): ReaderCoverReveal {
     const delay = Math.max(0, COVER_SCROLL_HOLD_MAX_MS - (Date.now() - landedAt));
     fadeStartsAtRef.current = Date.now() + delay;
     // The fade itself starts on the UI clock; this logs when it was armed.
-    console.info("[reader-zoom] fade-start", {
-      reason: "scroll-cap",
-      armed: true,
-      delayMs: Math.round(delay),
-      sinceLandedMs: Math.round(Date.now() - landedAt),
-      mode: modeRef.current.mode,
-    });
+    if (__DEV__) {
+      console.info("[reader-zoom] fade-start", {
+        reason: "scroll-cap",
+        armed: true,
+        delayMs: Math.round(delay),
+        sinceLandedMs: Math.round(Date.now() - landedAt),
+        mode: modeRef.current.mode,
+      });
+    }
     opacity.value = withDelay(
       delay,
       withTiming(0, { duration: COVER_REVEAL_MS }, (finished?: boolean) => {
@@ -181,13 +187,15 @@ function useReaderCoverReveal(zoomId: string | null): ReaderCoverReveal {
     const delay = resolveReaderOpeningHoldDelay({ landedAt, now });
     capArmedRef.current = true;
     fadeStartsAtRef.current = now + delay;
-    console.info("[reader-zoom] fade-start", {
-      reason: "hold-cap",
-      armed: true,
-      delayMs: Math.round(delay),
-      sinceLandedMs: Math.round(now - landedAt),
-      mode: modeRef.current.mode,
-    });
+    if (__DEV__) {
+      console.info("[reader-zoom] fade-start", {
+        reason: "hold-cap",
+        armed: true,
+        delayMs: Math.round(delay),
+        sinceLandedMs: Math.round(now - landedAt),
+        mode: modeRef.current.mode,
+      });
+    }
     // The scroll cap's withDelay must stop here: a withDelay keeps running
     // the animation it replaced until its own delay ends (Reanimated's
     // delay(): `else if (previousAnimation) previousAnimation.onFrame(…)`),
@@ -209,11 +217,13 @@ function useReaderCoverReveal(zoomId: string | null): ReaderCoverReveal {
   const onLanded = useCallback(() => {
     if (landedAtRef.current != null) return;
     landedAtRef.current = Date.now();
-    console.info("[reader-zoom] landed", {
-      mode: modeRef.current.mode,
-      atWall: landedAtRef.current,
-      sinceTapMs: tapAt == null ? null : Math.round(landedAtRef.current - tapAt),
-    });
+    if (__DEV__) {
+      console.info("[reader-zoom] landed", {
+        mode: modeRef.current.mode,
+        atWall: landedAtRef.current,
+        sinceTapMs: tapAt == null ? null : Math.round(landedAtRef.current - tapAt),
+      });
+    }
     openingGate.armBackstop();
     if (holdingRef.current) armHoldCap();
     else if (modeRef.current.scrollReading) armScrollCap();
@@ -224,18 +234,22 @@ function useReaderCoverReveal(zoomId: string | null): ReaderCoverReveal {
     const now = Date.now();
     const landedAt = landedAtRef.current;
     if (!canHoldReaderOpening({ fadeStartsAt: fadeStartsAtRef.current, now })) {
-      console.info("[reader-zoom] hold-for-images skipped", {
-        why: "fade-started",
-        sinceLandedMs: landedAt == null ? null : Math.round(now - landedAt),
-      });
+      if (__DEV__) {
+        console.info("[reader-zoom] hold-for-images skipped", {
+          why: "fade-started",
+          sinceLandedMs: landedAt == null ? null : Math.round(now - landedAt),
+        });
+      }
       return;
     }
     holdingRef.current = true;
-    console.info("[reader-zoom] hold-for-images", {
-      capMs: READER_OPENING_IMAGE_HOLD_MAX_MS,
-      sinceLandedMs: landedAt == null ? null : Math.round(now - landedAt),
-      sinceTapMs: tapAt == null ? null : Math.round(now - tapAt),
-    });
+    if (__DEV__) {
+      console.info("[reader-zoom] hold-for-images", {
+        capMs: READER_OPENING_IMAGE_HOLD_MAX_MS,
+        sinceLandedMs: landedAt == null ? null : Math.round(now - landedAt),
+        sinceTapMs: tapAt == null ? null : Math.round(now - tapAt),
+      });
+    }
     // Not landed yet: the landing arms it.
     if (landedAt != null) armHoldCap();
   }, [armHoldCap, openingGate, tapAt]);
@@ -303,12 +317,14 @@ function useReaderCoverReveal(zoomId: string | null): ReaderCoverReveal {
 function logFadeEnd(reason: CoverRevealReason, landedAt: number, tapAt: number | null, held: boolean) {
   // JS clock: late by however long the JS thread was busy.
   const { sinceTapMs } = readerOpeningSince({ tapAt, landedAt: null, fadeEndAt: null }, Date.now());
-  console.info("[reader-zoom] fade-end", {
-    reason,
-    sinceLandedMs: Math.round(Date.now() - landedAt),
-    sinceTapMs,
-    held,
-  });
+  if (__DEV__) {
+    console.info("[reader-zoom] fade-end", {
+      reason,
+      sinceLandedMs: Math.round(Date.now() - landedAt),
+      sinceTapMs,
+      held,
+    });
+  }
 }
 
 /**
@@ -330,11 +346,13 @@ function ReaderAfterZoom({
   const landed = useMobileExploreZoomLanded();
   const [cover] = useState(() => {
     const zoomCover = peekMobileReaderZoomCover(zoomId);
-    console.info("[reader-zoom] route", {
-      zoomId,
-      cover: Boolean(zoomCover),
-      tap: coverReveal.openingTimes().tapAt != null,
-    });
+    if (__DEV__) {
+      console.info("[reader-zoom] route", {
+        zoomId,
+        cover: Boolean(zoomCover),
+        tap: coverReveal.openingTimes().tapAt != null,
+      });
+    }
     // No zoom, nothing fades in: the opening window is closed from the
     // start. Settled here, in the first render, because the reader's effects
     // run before this route's. A zoom always lands on something that fades:
@@ -406,11 +424,13 @@ function ReaderAfterZoom({
                 onLoad={(event) => {
                   const { width, height } = event.nativeEvent.source;
                   const landedAt = openingTimes().landedAt;
-                  console.info("[reader-zoom] cover-loaded", {
-                    width,
-                    height,
-                    sinceLandedMs: landedAt == null ? null : Math.round(Date.now() - landedAt),
-                  });
+                  if (__DEV__) {
+                    console.info("[reader-zoom] cover-loaded", {
+                      width,
+                      height,
+                      sinceLandedMs: landedAt == null ? null : Math.round(Date.now() - landedAt),
+                    });
+                  }
                 }}
                 resizeMode="cover"
                 style={StyleSheet.absoluteFill}

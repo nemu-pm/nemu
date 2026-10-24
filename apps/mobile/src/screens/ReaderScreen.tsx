@@ -1448,7 +1448,7 @@ export function ReaderScreen() {
         pagesNeedProcessing,
         openingSettled,
       });
-      if (!readerOpeningProcessedLoggedRef.current) {
+      if (__DEV__ && !readerOpeningProcessedLoggedRef.current) {
         readerOpeningProcessedLoggedRef.current = true;
         console.info("[reader-open] processed-source opening", {
           opening,
@@ -4208,14 +4208,16 @@ export function ReaderScreen() {
       pageHeight: (index) =>
         readerScrollLayout?.heights[index] ?? scrollingPageEstimatedHeight,
     });
-    console.info("[reader-open] first-screen", {
-      indexes,
-      current: clampedPageIndex,
-      viewport: viewport
-        ? { top: Math.round(viewport.top), height: Math.round(viewport.height) }
-        : null,
-      fromViewport: visible != null && indexes[0] === visible.first,
-    });
+    if (__DEV__) {
+      console.info("[reader-open] first-screen", {
+        indexes,
+        current: clampedPageIndex,
+        viewport: viewport
+          ? { top: Math.round(viewport.top), height: Math.round(viewport.height) }
+          : null,
+        fromViewport: visible != null && indexes[0] === visible.first,
+      });
+    }
     return indexes.map((index) => pages[index]!.id);
   };
   useEffect(() => {
@@ -4280,23 +4282,27 @@ export function ReaderScreen() {
         })
       ) {
         readerFirstScreenRetakesRef.current += 1;
-        console.info("[reader-open] first-screen retake", {
-          current: clampedPageIndex,
-          was: images.detail.map((page) => page.index),
-        });
+        if (__DEV__) {
+          console.info("[reader-open] first-screen retake", {
+            current: clampedPageIndex,
+            was: images.detail.map((page) => page.index),
+          });
+        }
         setReaderFirstScreenPageIds(null);
       }
       return;
     }
     readerFirstScreenLoggedRef.current = true;
-    console.info("[reader-open] first-screen-images-ready", {
-      ...readerOpeningSince(readerZoomEntry.openingTimes(), Date.now()),
-      pages: images.pages,
-      painted: images.painted,
-      failed: images.failed,
-      held: readerOpeningHeldRef.current,
-      mode: galleryPagedMode ? "paged" : "scroll",
-    });
+    if (__DEV__) {
+      console.info("[reader-open] first-screen-images-ready", {
+        ...readerOpeningSince(readerZoomEntry.openingTimes(), Date.now()),
+        pages: images.pages,
+        painted: images.painted,
+        failed: images.failed,
+        held: readerOpeningHeldRef.current,
+        mode: galleryPagedMode ? "paged" : "scroll",
+      });
+    }
     readerZoomEntry.onFirstScreenImagesReady();
   }, [
     clampedPageIndex,
@@ -4310,9 +4316,9 @@ export function ReaderScreen() {
     readerPageIdentityFor,
     readerZoomEntry,
   ]);
-  // Diagnostic: what the first screen still waits for, if it is slow.
+  // Diagnostic (dev builds only): what the first screen still waits for, if it is slow.
   useEffect(() => {
-    if (readerFirstScreenPageIds == null) return;
+    if (!__DEV__ || readerFirstScreenPageIds == null) return;
     const timer = setTimeout(() => {
       if (readerFirstScreenLoggedRef.current) return;
       console.info("[reader-open] first-screen-images-pending", {
@@ -9690,16 +9696,6 @@ export function ReaderScreen() {
     }
     const arriving = readerChapterStrip.rebase(crossing.segmentIndex, leaving);
     if (!arriving) return false;
-    // TEMP DIAG (tog jump)
-    console.info(
-      `[reader-strip-diag] cross dir=${crossing.direction} from=${chapterId.slice(-12)} to=${arriving.chapter.id.slice(-12)} local=p${
-        crossing.localIndex + 1
-      }/${arriving.pages.length} recorded=${Math.round(
-        readerGalleryScrollRef.current?.contentOffset?.() ?? -1,
-      )} centre=row${readerGalleryScrollRef.current?.centrePageIndex() ?? "-"} offsetBase=${Math.round(
-        readerStripBridgeRef.current.offsetBase,
-      )} landing=${readerScrollLandingRef.current ? "yes" : "no"}`,
-    );
     const arrivingId = arriving.chapter.id;
     const arrivingCount = arriving.pages.length;
     const localIndex = clampReaderPageIndex(crossing.localIndex, arrivingCount);
@@ -9883,12 +9879,6 @@ export function ReaderScreen() {
     frame = requestAnimationFrame(() => {
       frame = requestAnimationFrame(() => {
         readerStripBridgeMovingRef.current = false;
-        // TEMP DIAG (tog jump)
-        console.info(
-          `[reader-strip-diag] fixup recorded=${Math.round(
-            readerGalleryScrollRef.current?.contentOffset?.() ?? -1,
-          )} expected=${Math.round(expectedOffset)} row${expected}@${fraction.toFixed(2)} userScrolling=${readerUserScrollingRef.current}`,
-        );
         if (readerUserScrollingRef.current) return;
         const gallery = readerGalleryScrollRef.current;
         const viewport = gallery?.scrollViewport() ?? null;

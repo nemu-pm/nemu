@@ -1081,13 +1081,6 @@ export function MobileReaderGallery({
       seek.fraction,
     );
     if (forced || Math.abs(latestScrollMetricsRef.current.contentOffset - offset) > 1) {
-      if (Date.now() < stripDiagRef.current.until) {
-        console.info(
-          `[reader-strip-diag] seek-place row${seek.pageIndex}@${seek.fraction.toFixed(2)} recorded=${Math.round(
-            latestScrollMetricsRef.current.contentOffset,
-          )} to=${Math.round(offset)} forced=${forced}`,
-        );
-      }
       listRef.current?.scrollToOffset({ offset, animated: false });
     } else {
       checkPageSeekLanded(offset);
@@ -1115,9 +1108,6 @@ export function MobileReaderGallery({
     layout: MobileReaderScrollLayout | null;
   } | null>(null);
   const scrollHeadShiftRef = useRef<MobileReaderScrollHeadShift | null>(null);
-  // TEMP DIAG (tog jump): one-line [reader-strip-diag] events for 20s after
-  // a head shift (or any rescale of the rows above the reading line).
-  const stripDiagRef = useRef({ until: 0, lastAt: 0, lastRaw: Number.NaN, lastContent: Number.NaN });
   // The native offset as the list last reported it (never re-measured).
   const latestRawOffsetRef = useRef(0);
   // Rows inserted / removed above, or rows above the reading line resized:
@@ -1133,7 +1123,6 @@ export function MobileReaderGallery({
     timer: ReturnType<typeof setTimeout> | null;
     frame: number | null;
   } | null>(null);
-  const settlePostRef = useRef<{ expected: number; until: number } | null>(null);
   // The settle found no report at all since the rows changed (v14: a sheet
   // over the reader while the device turns): the list is placed on its
   // target and the rows stay settling until it reports again (see
@@ -1214,7 +1203,6 @@ export function MobileReaderGallery({
     unreported.timer = null;
     if (Date.now() - unreported.since > MOBILE_READER_STRIP_UNREPORTED_MAX_MS) {
       clearRowsUnreported();
-      console.info(`[reader-strip-diag] settle-unreported gave up tries=${unreported.tries}`);
       onRowsSettledRef.current?.(true);
       return;
     }
@@ -1251,11 +1239,6 @@ export function MobileReaderGallery({
       nativeOffset,
       userScrolling: galleryUserScrolling(),
     });
-    console.info(
-      `[reader-strip-diag] settle-reported raw=${Math.round(nativeOffset)} target=${Math.round(target)} waitedMs=${
-        Date.now() - unreported.since
-      } tries=${unreported.tries} fixes=${unreported.fixes} fix=${fixTo != null ? Math.round(fixTo) : "none"}`,
-    );
     if (fixTo != null && unreported.fixes < 4) {
       unreported.fixes += 1;
       enterRowsUnreported(fixTo);
@@ -1290,29 +1273,10 @@ export function MobileReaderGallery({
       // Not one event since the rows changed: `native` is the old offset,
       // not where the list is. Placed on its target; still settling.
       const target = rowsPlacementTarget(judged.expected);
-      console.info(
-        `[reader-strip-diag] settle kind=${settle.kind} rows=${settle.rows} before=${Math.round(settle.before)} jsDelta=${Math.round(
-          settle.jsDelta,
-        )} expected=${Math.round(judged.expected)} events=0/0 content=${pending.contentSeen} timedOut=${timedOut} seek=${seekHeld} unreported place=${Math.round(
-          target,
-        )}`,
-      );
-      settlePostRef.current = null;
       enterRowsUnreported(target);
       return;
     }
     const result = seekHeld ? { ...judged, fixTo: null } : judged;
-    console.info(
-      `[reader-strip-diag] settle kind=${settle.kind} rows=${settle.rows} before=${Math.round(settle.before)} after=${Math.round(
-        native,
-      )} moved=${Math.round(result.moved)} jsDelta=${Math.round(settle.jsDelta)} rowsHeight=${Math.round(
-        settle.rowsHeight,
-      )} expected=${Math.round(result.expected)} ok=${result.ok} events=${pending.events}/${pending.eventsAfterContent} content=${pending.contentSeen} timedOut=${timedOut} scrolling=${scrolling} seek=${seekHeld} fix=${
-        result.fixTo != null ? Math.round(result.fixTo) : "none"
-      }`,
-    );
-    settlePostRef.current =
-      result.fixTo != null ? { expected: result.fixTo, until: Date.now() + 1_500 } : null;
     if (result.fixTo != null) {
       // An absolute offset in the new rows' terms: no event is stale now.
       scrollHeadShiftRef.current = null;
@@ -1375,13 +1339,6 @@ export function MobileReaderGallery({
       !previous.layout ||
       !scrollPageLayout
     ) {
-      if (!pagedMode && previous?.mountKey !== scrollMountKey) {
-        console.info(
-          `[reader-strip-diag] mount key=${scrollMountKey.slice(-40)} rows=${keys.length} js=${
-            scrollPageLayout ? Math.round(scrollPageLayout.length) : "none"
-          } initialY=${Math.round(initialContentOffset.y)}`,
-        );
-      }
       return;
     }
     const rows = mobileReaderStripHeadRowShift(previous.keys, keys);
@@ -1393,7 +1350,6 @@ export function MobileReaderGallery({
         const before = previous.layout.starts[anchorRow];
         const after = scrollPageLayout.starts[anchorRow];
         if (before != null && after != null && Math.abs(after - before) > 1) {
-          let changed = 0;
           let rowsHeight = 0;
           for (let row = 0; row < anchorRow; row += 1) {
             const grown =
@@ -1401,21 +1357,10 @@ export function MobileReaderGallery({
               (scrollPageLayout.gaps[row] ?? 0) -
               (previous.layout.heights[row] ?? 0) -
               (previous.layout.gaps[row] ?? 0);
-            if (Math.abs(grown) > 0.5) {
-              changed += 1;
-              rowsHeight += grown;
-            }
+            if (Math.abs(grown) > 0.5) rowsHeight += grown;
           }
           const delta = after - before;
           const scrolling = galleryUserScrolling();
-          stripDiagRef.current.until = Date.now() + 20_000;
-          console.info(
-            `[reader-strip-diag] above-resize anchor=row${anchorRow} start=${Math.round(before)}->${Math.round(after)} delta=${Math.round(
-              delta,
-            )} rowsChanged=${changed} rowsHeight=${Math.round(rowsHeight)} before=${Math.round(latestRawOffsetRef.current)} recorded=${Math.round(
-              latestScrollMetricsRef.current.contentOffset,
-            )} jsTotal=${Math.round(previous.layout.length)}->${Math.round(scrollPageLayout.length)} scrolling=${scrolling}`,
-          );
           armRowsSettle({
             kind: "above-resize",
             before: latestRawOffsetRef.current,
@@ -1440,7 +1385,6 @@ export function MobileReaderGallery({
       }
     }
     if (rows == null || rows === 0) return;
-    stripDiagRef.current.until = Date.now() + 20_000;
     scrollAnchorRef.current = shiftMobileReaderScrollAnchorRows(scrollAnchorRef.current, rows);
     scrollCentreAnchorRef.current = shiftMobileReaderScrollAnchorRows(scrollCentreAnchorRef.current, rows);
     restingSpotRef.current = shiftMobileReaderScrollAnchorRows(restingSpotRef.current, rows);
@@ -1494,24 +1438,15 @@ export function MobileReaderGallery({
         rows,
       });
     }
-    console.info(
-      `[reader-strip-diag] head-shift rows=${rows} before=${Math.round(latestRawOffsetRef.current)} insertedHeight=${Math.round(
-        insertedHeight,
-      )} recorded=${Math.round(latestScrollMetricsRef.current.contentOffset)} expected=${Math.round(
-        latestScrollMetricsRef.current.contentOffset + offset,
-      )} jsInserted=${Math.round(offset)} nativeContent=${Math.round(latestScrollMetricsRef.current.contentLength)} jsTotal=${Math.round(
-        previous.layout.length,
-      )}->${Math.round(scrollPageLayout.length)} knownAbove=${
-        scrollPageLayout.known ? scrollPageLayout.known.slice(0, Math.max(0, rows)).filter(Boolean).length : "all"
-      }/${rows}`,
-    );
-    console.info(
-      `[reader-strip] head shift rows=${rows} offset=${Math.round(offset)} anchor=${
-        scrollAnchorRef.current
-          ? `row${scrollAnchorRef.current.pageIndex}@${scrollAnchorRef.current.fraction.toFixed(2)}`
-          : "none"
-      } seek=${pendingPageSeekRef.current ? `row${pendingPageSeekRef.current.pageIndex}` : "none"}`,
-    );
+    if (__DEV__) {
+      console.info(
+        `[reader-strip] head shift rows=${rows} offset=${Math.round(offset)} anchor=${
+          scrollAnchorRef.current
+            ? `row${scrollAnchorRef.current.pageIndex}@${scrollAnchorRef.current.fraction.toFixed(2)}`
+            : "none"
+        } seek=${pendingPageSeekRef.current ? `row${pendingPageSeekRef.current.pageIndex}` : "none"}`,
+      );
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the rows changing is the trigger.
   }, [displayedPages, scrollPageLayout]);
   const scrollIndexViewOffset = useCallback(
@@ -1571,13 +1506,6 @@ export function MobileReaderGallery({
                   false,
                 );
             restingSpotRef.current = animated ? null : { pageIndex: targetIndex, fraction: seekFraction };
-            if (Date.now() < stripDiagRef.current.until) {
-              console.info(
-                `[reader-strip-diag] scrollTo row${targetIndex}@${seekFraction.toFixed(2)} recorded=${Math.round(
-                  latestScrollMetricsRef.current.contentOffset,
-                )} to=${Math.round(offset)} animated=${animated}`,
-              );
-            }
             listRef.current?.scrollToOffset({ offset, animated });
             // Already there: no scroll event will report the landing.
             if (!animated) {
@@ -1903,13 +1831,6 @@ export function MobileReaderGallery({
         centreTarget: target,
         anchor,
       });
-      if (Date.now() < stripDiagRef.current.until || restingSpot) {
-        console.info(
-          `[reader-strip-diag] relayout extent=${Math.round(previous.extent)}->${Math.round(next.extent)} keep=${
-            restingSpot ? "spot" : target ? "centre" : "anchor"
-          } row${seekAnchor.pageIndex}@${seekAnchor.fraction.toFixed(2)}`,
-        );
-      }
       scrollAnchorRef.current = seekAnchor;
       // Placed by the content-size event this relayout causes: by then the
       // native list (and maintainVisibleContentPosition) has the new frames.
@@ -2346,18 +2267,6 @@ export function MobileReaderGallery({
       const rawOffset = event.nativeEvent.contentOffset.y;
       latestRawOffsetRef.current = rawOffset;
       noteRowsSettleReport("event");
-      const post = settlePostRef.current;
-      if (post) {
-        if (Date.now() > post.until) settlePostRef.current = null;
-        else if (Math.abs(rawOffset - post.expected) > 1 && !galleryUserScrolling()) {
-          settlePostRef.current = null;
-          console.info(
-            `[reader-strip-diag] settle-post raw=${Math.round(rawOffset)} expected=${Math.round(post.expected)} off=${Math.round(
-              rawOffset - post.expected,
-            )}`,
-          );
-        }
-      }
       if (scrollPullHeader != null) {
         const pulled = nextMobileReaderStripPull(pullStateRef.current, {
           offset: rawOffset,
@@ -2369,33 +2278,6 @@ export function MobileReaderGallery({
           pullHeaderOpacity.value = mobileReaderStripPullHeaderOpacity(pulled.state.pull);
         }
         if (pulled.haptic) void hapticSelection();
-      }
-      {
-        // TEMP DIAG: native vs resolved offset, native vs JS content length.
-        const diag = stripDiagRef.current;
-        const now = Date.now();
-        const raw = event.nativeEvent.contentOffset.y;
-        if (
-          now < diag.until &&
-          (resolved.offset !== raw ||
-            contentSize.height !== diag.lastContent ||
-            (Math.abs(raw - diag.lastRaw) > 150 && now - diag.lastAt > 60))
-        ) {
-          diag.lastAt = now;
-          diag.lastRaw = raw;
-          diag.lastContent = contentSize.height;
-          const diagLayout = scrollPageLayoutRef.current;
-          const centre = diagLayout
-            ? mobileReaderScrollCentrePageIndex(diagLayout, resolved.offset, layoutMeasurement.height, chromeTopPaddingRef.current)
-            : null;
-          console.info(
-            `[reader-strip-diag] scroll raw=${Math.round(raw)} used=${Math.round(resolved.offset)} nativeContent=${Math.round(
-              contentSize.height,
-            )} jsContent=${diagLayout ? Math.round(diagLayout.length + chromeTopPaddingRef.current + bottomPadding) : "none"} centre=row${centre ?? "-"} stale=${
-              resolved.offset !== raw
-            }`,
-          );
-        }
       }
       const metrics = {
         contentOffset: contentOffset.y,
@@ -2460,17 +2342,6 @@ export function MobileReaderGallery({
     recordContinuousScrollMetrics(measuredMetrics, false);
     publishLogicalScrollAccessibility();
     noteRowsSettleReport("content");
-    if (Date.now() < stripDiagRef.current.until) {
-      // TEMP DIAG
-      const diagLayout = scrollPageLayoutRef.current;
-      console.info(
-        `[reader-strip-diag] content-size native=${Math.round(height)} js=${
-          diagLayout ? Math.round(diagLayout.length + chromeTopPaddingRef.current + bottomPadding) : "none"
-        } recorded=${Math.round(latestScrollMetricsRef.current.contentOffset)} seek=${
-          pendingPageSeekRef.current ? `row${pendingPageSeekRef.current.pageIndex}` : "none"
-        }`,
-      );
-    }
     if (scrollPageLayoutRef.current && pendingPageSeekRef.current) {
       // A held page seek owns the offset; progress re-placement would fight it.
       pendingContentSizeScrollProgressRef.current = null;
@@ -2545,11 +2416,13 @@ export function MobileReaderGallery({
       const released = mobileReaderStripPullReleases(pullStateRef.current) && scrollPullActiveRef.current;
       pullStateRef.current = { pull: pullStateRef.current.pull, armed: false };
       if (released) {
-        console.info(
-          `[reader-strip] pull release pull=${Math.round(pullStateRef.current.pull)} offset=${Math.round(
-            event.nativeEvent.contentOffset.y,
-          )}`,
-        );
+        if (__DEV__) {
+          console.info(
+            `[reader-strip] pull release pull=${Math.round(pullStateRef.current.pull)} offset=${Math.round(
+              event.nativeEvent.contentOffset.y,
+            )}`,
+          );
+        }
         onRequestRetreatPastStartRef.current?.();
       }
     }

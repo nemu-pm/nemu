@@ -759,7 +759,6 @@ describe("seamless scroll: settle gating and prepend mode wiring", () => {
     expect(reader).toContain("onRowsSettled={onGalleryRowsSettled}");
     expect(strip).toMatch(/pruneWaitingRef\.current = true;\s*return;/);
     const prune = block(gallery, "const checkRowsSettle = (timedOut: boolean) => {", "const armRowsSettle");
-    expect(prune).toContain("[reader-strip-diag] settle kind=");
     expect(prune).toContain("listRef.current?.scrollToOffset({ offset: result.fixTo, animated: false });");
     expect(prune).toContain("onRowsSettledRef.current?.(result.fixTo != null);");
     // A held seek owns the offset; the centre is reported again after a fix.
@@ -771,8 +770,6 @@ describe("seamless scroll: settle gating and prepend mode wiring", () => {
     const shift = block(gallery, "const scrollHeadShiftRef = useRef", "const scrollIndexViewOffset");
     expect(shift).toContain('kind: "head-shift",');
     expect(shift).toContain('kind: "above-resize",');
-    expect(shift).toContain("[reader-strip-diag] head-shift rows=");
-    expect(shift).toContain("[reader-strip-diag] above-resize");
     const content = block(gallery, "const handleGalleryContentSizeChange", "const handleGalleryLayout");
     expect(content).toContain('noteRowsSettleReport("content");');
     const scroll = block(gallery, "const handleGalleryScroll = (", "const handleGalleryContentSizeChange");

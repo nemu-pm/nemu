@@ -351,10 +351,6 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
   private var webViewReady = false
   private var webViewGeneration = 0
   private var bootWaiters: [(Result<Int, Error>) -> Void] = []
-  // [aidoku-warm] diagnostics: wall-clock ms when the runtime HTML load began
-  // and how long the synchronous loadHTMLString call held main. Main-only.
-  private var htmlLoadStartedAtMs: Double?
-  private var htmlLoadCallMs: Double = 0
 
   init(
     httpRequest: @escaping HttpRequestHandler,
@@ -627,29 +623,13 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
     completion: @escaping (Result<String, Error>) -> Void
   ) {
     submit(completion: completion) {
-      let startMs = Self.warmDiagNowMs()
       if self.currentReadyGeneration() != nil {
-        NSLog("[aidoku-warm] prewarm start at=%.0f already-warm", startMs)
-        NSLog("[aidoku-warm] prewarm end at=%.0f ms=0 ok=1 already-warm", startMs)
         return "{\"status\":\"already-warm\"}"
       }
-      NSLog("[aidoku-warm] prewarm start at=%.0f", startMs)
-      var outcome = "failed"
-      defer {
-        NSLog(
-          "[aidoku-warm] prewarm end at=%.0f ms=%.0f ok=%ld %@",
-          startMs,
-          Self.warmDiagNowMs() - startMs,
-          outcome == "warm" ? 1 : 0,
-          outcome
-        )
-      }
       guard Self.waitForMainRunLoopDefaultMode(timeoutSeconds: mainIdleTimeoutSeconds) else {
-        outcome = "main-busy"
         throw Self.error("The main thread stayed busy; the Aidoku runtime was not pre-warmed.")
       }
       _ = try self.ensureRuntime()
-      outcome = "warm"
       return "{\"status\":\"warm\"}"
     }
   }
@@ -1075,31 +1055,11 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
 
     let semaphore = DispatchSemaphore(value: 0)
     let result = NemuAidokuIOSandboxValueBox<Result<String, Error>>()
-    // [aidoku-warm]: registerSession is the one invoke that carries a whole
-    // source package; time it end to end and its synchronous main-thread part.
-    let warmDiag = method == "registerSession"
-    let warmDiagStartMs = warmDiag ? Self.warmDiagNowMs() : 0
-    let warmDiagMainCallMs = NemuAidokuIOSandboxValueBox<Double>()
-    defer {
-      if warmDiag {
-        NSLog(
-          "[aidoku-warm] register-session at=%.0f ms=%.0f mainCallMs=%.0f commandBytes=%ld",
-          warmDiagStartMs,
-          Self.warmDiagNowMs() - warmDiagStartMs,
-          warmDiagMainCallMs.get() ?? -1,
-          command.utf8.count
-        )
-      }
-    }
     DispatchQueue.main.async { [weak self] in
       guard let self, let webView = self.webView, self.webViewReady else {
         result.set(.failure(Self.error("The isolated Aidoku WebContent process is unavailable.")))
         semaphore.signal()
         return
-      }
-      let mainCallStartMs = warmDiag ? Self.warmDiagNowMs() : 0
-      defer {
-        if warmDiag { warmDiagMainCallMs.set(Self.warmDiagNowMs() - mainCallStartMs) }
       }
       webView.callAsyncJavaScript(
         "return await globalThis.NemuAidokuIOSHost.invoke(commandJson, timeoutMs);",
@@ -1184,20 +1144,10 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
       configuration.websiteDataStore = .nonPersistent()
       configuration.defaultWebpagePreferences.allowsContentJavaScript = true
       configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
-      let createStartMs = Self.warmDiagNowMs()
       let nextWebView = WKWebView(frame: .zero, configuration: configuration)
-      NSLog(
-        "[aidoku-warm] webview-create at=%.0f ms=%.0f main=%ld",
-        createStartMs,
-        Self.warmDiagNowMs() - createStartMs,
-        Thread.isMainThread ? 1 : 0
-      )
       nextWebView.navigationDelegate = self
       self.webView = nextWebView
-      let loadStartMs = Self.warmDiagNowMs()
-      self.htmlLoadStartedAtMs = loadStartMs
       nextWebView.loadHTMLString(html, baseURL: nil)
-      self.htmlLoadCallMs = Self.warmDiagNowMs() - loadStartMs
     }
 
     if semaphore.wait(timeout: .now() + nemuIOSAidokuBootTimeoutSeconds) == .timedOut {
@@ -1243,15 +1193,6 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
 
   func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
     guard webView === self.webView else { return }
-    if let loadStartMs = htmlLoadStartedAtMs {
-      NSLog(
-        "[aidoku-warm] html-ready at=%.0f ms=%.0f callMs=%.0f",
-        loadStartMs,
-        Self.warmDiagNowMs() - loadStartMs,
-        htmlLoadCallMs
-      )
-      htmlLoadStartedAtMs = nil
-    }
     webViewReady = true
     webViewGeneration += 1
     let waiters = bootWaiters
@@ -1300,14 +1241,6 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
 
   private func failBoot(_ webView: WKWebView, error: Error) {
     guard webView === self.webView else { return }
-    if let loadStartMs = htmlLoadStartedAtMs {
-      NSLog(
-        "[aidoku-warm] html-failed at=%.0f ms=%.0f",
-        loadStartMs,
-        Self.warmDiagNowMs() - loadStartMs
-      )
-      htmlLoadStartedAtMs = nil
-    }
     let waiters = bootWaiters
     bootWaiters.removeAll()
     webViewReady = false
@@ -1379,12 +1312,6 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
     let duration = UInt64(max(0, seconds) * 1_000_000_000)
     let addition = now.addingReportingOverflow(duration)
     return addition.overflow ? UInt64.max : addition.partialValue
-  }
-
-  /// Wall-clock milliseconds for the `[aidoku-warm]` log lines, comparable
-  /// with the JS-side `Date.now()` stamps of `[reader-hitch]`.
-  static func warmDiagNowMs() -> Double {
-    Date().timeIntervalSince1970 * 1_000
   }
 
   private static func requireStatus(_ json: String, expected: String) throws {

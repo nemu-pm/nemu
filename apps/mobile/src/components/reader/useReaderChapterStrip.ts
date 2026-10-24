@@ -126,8 +126,9 @@ export function useReaderChapterStrip(input: {
   canSplicePreviousRef.current = canSplicePrevious;
   const describePositionRef = useRef(describePosition);
   describePositionRef.current = describePosition;
-  /** One line per prepend event, for QA on device (low volume). */
+  /** One line per prepend event, for QA on device (low volume; dev builds only). */
   const logPrepend = useCallback((event: string, segment: ReaderStripSegmentData) => {
+    if (!__DEV__) return;
     console.info(
       `[reader-strip] prepend ${event} chapter=${segment.chapter.id} rows=${segment.pages.length + 1} anchor=${
         describePositionRef.current?.() ?? "?"

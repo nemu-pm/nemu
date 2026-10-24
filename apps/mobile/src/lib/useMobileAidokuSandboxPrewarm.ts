@@ -74,25 +74,11 @@ export function useMobileAidokuSandboxPrewarm() {
       const prewarm = NemuAidokuModule.prewarmAidokuSandbox;
       if (typeof prewarm !== "function") return;
       markMobileAidokuPrewarmStarted();
-      const requestedAt = Date.now();
-      console.info("[aidoku-warm] prewarm requested", {
-        sinceFirstPaintMs:
-          firstPaintAtRef.current == null ? null : requestedAt - firstPaintAtRef.current,
-      });
       try {
+        // A failure (or a skip: main busy) does nothing.
         void prewarm.call(NemuAidokuModule).then(
-          (status: string) => {
-            console.info("[aidoku-warm] prewarm resolved", {
-              status,
-              ms: Date.now() - requestedAt,
-            });
-          },
-          (error: unknown) => {
-            console.info("[aidoku-warm] prewarm skipped", {
-              detail: error instanceof Error ? error.message : String(error),
-              ms: Date.now() - requestedAt,
-            });
-          },
+          () => undefined,
+          () => undefined,
         );
       } catch {
         // An older native build: nothing to warm.
