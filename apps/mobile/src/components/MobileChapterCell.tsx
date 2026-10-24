@@ -21,6 +21,7 @@ import {
   getMobileChapterProgressAccessory,
 } from "@/lib/mobileChapterProgress";
 import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
+import { useMobileReaderResumePosition } from "@/lib/useMobileReaderResumePosition";
 import {
   DEFAULT_APP_LANGUAGE,
   formatMobileLanguageDisplayName,
@@ -58,9 +59,12 @@ export const MobileChapterCell = memo(function MobileChapterCell({
   const chapterPresentation = getMobileChapterPresentation(chapter, progress);
   const chapterVisualState = getMobileChapterVisualState(chapterPresentation);
   const cellPalette = getMobileChapterRowPalette(chapterVisualState, tokens);
+  // The page the reader opens at (this device's own spot when it holds one).
+  const localResume = useMobileReaderResumePosition(progress?.id);
   const progressLabel = formatMobileChapterProgressStatus(
     getMobileChapterProgressAccessory(progress, {
       locked: chapterPresentation.isLocked,
+      local: localResume,
     }),
     strings,
   );
@@ -132,6 +136,7 @@ export const MobileChapterCell = memo(function MobileChapterCell({
       <MobileChapterProgressAccessory
         progress={progress}
         locked={chapterPresentation.isLocked}
+        local={localResume}
         showChevron={false}
       />
     </NemuPressable>

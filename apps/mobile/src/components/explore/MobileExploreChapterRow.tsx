@@ -12,6 +12,7 @@ import { resolveMobileShareUrl } from "@/lib/mobileChapterReadMarks";
 import { formatMobileChapterProgressStatus, getMobileChapterProgressAccessory } from "@/lib/mobileChapterProgress";
 import { getMobileExploreChapterRowSubtitle, type MobileChapterVolumeHeader } from "@/lib/mobileExploreChapterList";
 import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
+import { useMobileReaderResumePosition } from "@/lib/useMobileReaderResumePosition";
 import { ContextMenuView, type ContextMenuItem } from "../../../modules/nemu-window-layout";
 
 const GLYPH = 18;
@@ -88,7 +89,10 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
   const accent = selectedInk ?? chapterPalette?.ink ?? tokens.primary;
   const selection = chapterPalette?.primary ?? tokens.primarySoft;
   const presentation = getMobileChapterPresentation(chapter, progress);
-  const accessory = getMobileChapterProgressAccessory(progress, { locked: presentation.isLocked });
+  // "Page X of Y" and the ring: the page the reader opens at (this device's
+  // own spot when it holds one, else the synced high-water page).
+  const localResume = useMobileReaderResumePosition(progress?.id);
+  const accessory = getMobileChapterProgressAccessory(progress, { locked: presentation.isLocked, local: localResume });
   const ratio = accessory.status === "progress" ? accessory.ratio : null;
   const shown = dropVolume ? { ...chapter, volumeNumber: undefined } : chapter;
   const title = formatChapterTitle(shown, strings);

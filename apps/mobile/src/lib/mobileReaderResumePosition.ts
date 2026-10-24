@@ -132,6 +132,40 @@ export function chooseMobileReaderResumePosition({
   };
 }
 
+/** What a chapter's page row (title page list, Continue card) shows. */
+export type MobileChapterOpeningPage = {
+  /** Page in source order the reader opens at. */
+  sourceIndex: number;
+  /** The chapter's page count the page is out of. */
+  total: number;
+  origin: MobileReaderResumeChoice["origin"];
+};
+
+/**
+ * The page the reader will open a chapter at, for the rows and cards that
+ * show "Page X of Y" outside the reader: the very choice the reader's resume
+ * makes (`chooseMobileReaderResumePosition`), from this device's local spot
+ * and the synced record, judged against the page count the synced record
+ * holds (the reader's own count when it last saved; the local spot's when
+ * there is no synced record). `null`: the reader starts at the beginning —
+ * an unread chapter, or a completed one without a re-read spot.
+ */
+export function resolveMobileChapterOpeningPage({
+  local,
+  progress,
+}: {
+  local: MobileReaderResumePosition | null | undefined;
+  progress: MobileReaderResumeSyncedProgress | null | undefined;
+}): MobileChapterOpeningPage | null {
+  const pageCount =
+    progress && finiteNumber(progress.total) && progress.total > 0
+      ? Math.trunc(progress.total)
+      : local?.total ?? 0;
+  const choice = chooseMobileReaderResumePosition({ local, progress, pageCount });
+  if (!choice) return null;
+  return { sourceIndex: choice.sourceIndex, total: pageCount, origin: choice.origin };
+}
+
 /**
  * Scroll reading: the chapter's last page is on screen — the screen's bottom
  * is at or past that page's top. On a chapter of short slices (Tower of God)
@@ -198,6 +232,11 @@ let loading: Promise<Map<string, MobileReaderResumePosition>> | null = null;
 let writeTimer: ReturnType<typeof setTimeout> | null = null;
 let flushRequested = false;
 const WRITE_DELAY_MS = 400;
+const listeners = new Set<() => void>();
+
+function notifyListeners(): void {
+  for (const listener of [...listeners]) listener();
+}
 
 function loadPositions(): Promise<Map<string, MobileReaderResumePosition>> {
   if (positions) return Promise.resolve(positions);
@@ -207,6 +246,7 @@ function loadPositions(): Promise<Map<string, MobileReaderResumePosition>> {
     .then((loaded) => {
       // Writes made while the file was read win over what it held.
       positions = new Map([...loaded, ...(positions ?? [])]);
+      notifyListeners();
       return positions;
     });
   return loading;
@@ -237,12 +277,41 @@ function update(
   // Applied at once when the store is loaded, so a flush right after a save
   // (leaving the reader) writes it.
   if (positions) {
-    if (apply(positions)) scheduleWrite();
+    if (apply(positions)) {
+      scheduleWrite();
+      notifyListeners();
+    }
     return;
   }
   void loadPositions().then((map) => {
-    if (apply(map)) scheduleWrite();
+    if (apply(map)) {
+      scheduleWrite();
+      notifyListeners();
+    }
   });
+}
+
+/**
+ * Screens outside the reader (the chapter rows, Continue cards): called on
+ * every change of the store (and once it has loaded). Starts the load.
+ */
+export function subscribeMobileReaderResumePositions(listener: () => void): () => void {
+  listeners.add(listener);
+  void loadPositions();
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+/**
+ * The spot held for a chapter right now, without waiting (`null` before the
+ * store has loaded). An entry keeps its identity until it changes.
+ */
+export function peekMobileReaderResumePosition(
+  key: string | null | undefined,
+): MobileReaderResumePosition | null {
+  if (!key || !positions) return null;
+  return positions.get(key) ?? null;
 }
 
 /** Key of a chapter: the synced chapter-progress id it sits beside. */

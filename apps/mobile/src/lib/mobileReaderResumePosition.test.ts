@@ -11,9 +11,12 @@ import {
   mobileReaderResumeReread,
   noteMobileReaderResumeProgressWrite,
   parseMobileReaderResumePositions,
+  peekMobileReaderResumePosition,
   resetMobileReaderResumePositionsForTests,
+  resolveMobileChapterOpeningPage,
   saveMobileReaderResumePosition,
   serializeMobileReaderResumePositions,
+  subscribeMobileReaderResumePositions,
   type MobileReaderResumePosition,
 } from "./mobileReaderResumePosition";
 import { buildMobileReaderScrollLayout, mobileReaderScrollAnchorForOffset } from "./mobileReaderScrollLayout";
@@ -408,5 +411,77 @@ describe("re-reading a completed chapter of short slices to its end (ToG)", () =
     ).toBeNull();
     // A first read is never a re-read.
     expect(mobileReaderResumeReread(false, false)).toBe(false);
+  });
+});
+
+describe("resolveMobileChapterOpeningPage (rows, cards and resume agree)", () => {
+  const progress = { progress: 109, total: 149, lastReadAt: 9_000 };
+  const cases: Array<{
+    name: string;
+    local: MobileReaderResumePosition | null;
+    progress: { progress: number; total: number; lastReadAt: number; completed?: boolean };
+    expected: { sourceIndex: number; origin: "local" | "progress" } | null;
+  }> = [
+    {
+      name: "local spot present",
+      local: local({ sourceIndex: 40, total: 149 }),
+      progress,
+      expected: { sourceIndex: 40, origin: "local" },
+    },
+    { name: "local absent: high-water", local: null, progress, expected: { sourceIndex: 109, origin: "progress" } },
+    {
+      name: "completed with a re-read spot",
+      local: local({ sourceIndex: 20, total: 149, reread: true }),
+      progress: { ...progress, progress: 148, completed: true },
+      expected: { sourceIndex: 20, origin: "local" },
+    },
+    {
+      name: "completed without a re-read spot",
+      local: local({ sourceIndex: 20, total: 149 }),
+      progress: { ...progress, progress: 148, completed: true },
+      expected: null,
+    },
+  ];
+  for (const { name, local: spot, progress: synced, expected } of cases) {
+    test(name, () => {
+      const opening = resolveMobileChapterOpeningPage({ local: spot, progress: synced });
+      expect(opening ? { sourceIndex: opening.sourceIndex, origin: opening.origin } : null).toEqual(expected);
+      if (opening) expect(opening.total).toBe(149);
+      // The reader's resume, given the same records and the page count.
+      const resume = chooseMobileReaderResumePosition({ local: spot, progress: synced, pageCount: 149 });
+      expect(resume ? { sourceIndex: resume.sourceIndex, origin: resume.origin } : null).toEqual(expected);
+    });
+  }
+
+  test("no synced record: out of the local spot's own page count", () => {
+    expect(resolveMobileChapterOpeningPage({ local: local(), progress: null })).toEqual({
+      sourceIndex: 3,
+      total: 20,
+      origin: "local",
+    });
+  });
+});
+
+describe("resume position store subscription", () => {
+  afterEach(() => resetMobileReaderResumePositionsForTests());
+
+  test("peek follows saves and tells subscribers", async () => {
+    let calls = 0;
+    const unsubscribe = subscribeMobileReaderResumePositions(() => {
+      calls += 1;
+    });
+    await loadMobileReaderResumePosition("k");
+    expect(peekMobileReaderResumePosition("k")).toBeNull();
+    const before = calls;
+    saveMobileReaderResumePosition("k", { sourceIndex: 2, fraction: 0, total: 9, savedAt: 1 });
+    expect(calls).toBe(before + 1);
+    const first = peekMobileReaderResumePosition("k");
+    expect(first?.sourceIndex).toBe(2);
+    // Unchanged entries keep their identity (a stable snapshot).
+    expect(peekMobileReaderResumePosition("k")).toBe(first);
+    unsubscribe();
+    saveMobileReaderResumePosition("k", { sourceIndex: 3, fraction: 0, total: 9, savedAt: 2 });
+    expect(calls).toBe(before + 1);
+    expect(peekMobileReaderResumePosition("k")?.sourceIndex).toBe(3);
   });
 });
