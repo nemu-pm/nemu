@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { mobileAdaptiveLayout, mobileFoldSplitForContainer } from "./mobileAdaptiveLayout";
+import fixture from "../../../../tests/fixtures/iphone-duo/safearea-measurements.json";
+import { MOBILE_SEARCH_SPLIT_OPTIONS } from "./mobileSearchLayout";
+import type { MobileWindowLayout } from "./mobileWindowLayout";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import {
+  getMobileFoldSplitColumns,
+  getMobileListColumnStyles,
   getMobileSplitPaneLayout as split,
   getMobileSplitPanePadding,
   MOBILE_DETAIL_SPLIT_OPTIONS as detail,
@@ -203,5 +210,129 @@ describe("split pane layout", () => {
       leading: { paddingLeft: 16, paddingRight: 16 },
       trailing: { paddingLeft: 16, paddingRight: 59 },
     });
+  });
+});
+
+/** A measured iPhone Duo inner window (safearea.info, Xcode 27.1): 951×669, the rail's 84pt inset on the right. */
+function duoInner(pose: "partially-folded" | "open", orientation: "landscape-left" | "landscape-right"): MobileWindowLayout {
+  const m = fixture.measurements.find((x) => x.screen === "iphone-duo-inner" && x.pose === pose && x.orientation === orientation)!;
+  const regions = m.regions.map((r, index) => ({ id: `${r.kind}-${index}`, active: r.active, ...r.frame }));
+  return {
+    width: m.bounds.width,
+    height: m.bounds.height,
+    supported: true,
+    divisions: regions.filter((_, i) => m.regions[i].kind === "division"),
+    occlusions: regions.filter((_, i) => m.regions[i].kind === "occlusion"),
+    safeAreaInsets: m.insets,
+  };
+}
+
+describe("fold split columns (Duo F7: a source home's ranking column)", () => {
+  // The home list's content box: inside the 20pt page gutter and the rail's 84pt inset (x20–867).
+  const box = { x: 20, y: 0, width: 951 - 20 - 84, height: 669 };
+  const columnsFor = (layout: MobileWindowLayout) => {
+    const adaptive = mobileAdaptiveLayout(layout);
+    const foldSplit = mobileFoldSplitForContainer(adaptive, box);
+    return getMobileFoldSplitColumns({
+      contentWidth: box.width,
+      fold: foldSplit?.axis === "horizontal" ? foldSplit.gutter : null,
+      options: MOBILE_SEARCH_SPLIT_OPTIONS,
+      innerGutter: 16,
+    });
+  };
+
+  for (const orientation of ["landscape-left", "landscape-right"] as const) {
+    test(`book (${orientation === "landscape-left" ? "book" : "book-flipped"}): the right column starts at x511.5, clear of the fold, like Search's results`, () => {
+      const columns = columnsFor(duoInner("partially-folded", orientation))!;
+      expect(columns).not.toBeNull();
+      // Window coordinates. Before: the second column started at x452, its rank numerals at ~x476 (the fold centre).
+      expect(box.x + columns.trailing.x).toBe(511.5);
+      expect(box.x + columns.trailing.x + columns.trailing.width).toBe(867);
+      expect(box.x + columns.leading.x).toBe(20);
+      expect(box.x + columns.leading.x + columns.leading.width).toBe(439.5);
+      // Nothing within 16pt of the fold region (455.5–495.5).
+      expect(box.x + columns.leading.x + columns.leading.width).toBeLessThanOrEqual(455.5 - 16);
+      expect(box.x + columns.trailing.x).toBeGreaterThanOrEqual(495.5 + 16);
+    });
+  }
+
+  test("matches Search's own fold split on the same window: sidebar ends and results start at the same x", () => {
+    const adaptive = mobileAdaptiveLayout(duoInner("partially-folded", "landscape-left"));
+    const window = { x: 0, y: 0, width: 951, height: 669 };
+    const search = split({
+      containerWidth: 951,
+      regularWidth: true,
+      posture: adaptive.posture,
+      foldSplit: mobileFoldSplitForContainer(adaptive, window),
+      options: MOBILE_SEARCH_SPLIT_OPTIONS,
+    });
+    if (search.mode !== "split") throw new Error("Search does not split");
+    const padding = getMobileSplitPanePadding({ pageGutters: { left: 20, right: 84 }, innerGutter: 16 });
+    const columns = columnsFor(duoInner("partially-folded", "landscape-left"))!;
+    expect(box.x + columns.trailing.x).toBe(search.trailing.x + padding.trailing.paddingLeft);
+    expect(box.x + columns.leading.x + columns.leading.width).toBe(search.leading.width - padding.leading.paddingRight);
+  });
+
+  test("flat (open): no fold split — the columns stay as they are, as Search reserves nothing for an inactive fold", () => {
+    expect(columnsFor(duoInner("open", "landscape-left"))).toBeNull();
+    expect(columnsFor(duoInner("open", "landscape-right"))).toBeNull();
+    expect(getMobileFoldSplitColumns({ contentWidth: 847, fold: null, options: MOBILE_SEARCH_SPLIT_OPTIONS, innerGutter: 16 })).toBeNull();
+  });
+
+  test("a fold that leaves a half too small for a pane keeps the flat columns", () => {
+    expect(getMobileFoldSplitColumns({ contentWidth: 847, fold: { start: 200, end: 240 }, options: MOBILE_SEARCH_SPLIT_OPTIONS, innerGutter: 16 })).toBeNull();
+  });
+});
+
+describe("home list columns across a fold/unfold on the page (Duo F7, r19)", () => {
+  const box = { x: 20, y: 0, width: 951 - 20 - 84, height: 669 };
+  // What useMobileFoldAwareGrid hands HomeListColumns for a pose: the active
+  // fold in content-box coordinates (null unless the device is folded).
+  const stylesFor = (layout: MobileWindowLayout) => {
+    const adaptive = mobileAdaptiveLayout(layout);
+    const foldSplit = mobileFoldSplitForContainer(adaptive, box);
+    return getMobileListColumnStyles({
+      contentWidth: box.width,
+      fold: foldSplit?.axis === "horizontal" ? foldSplit.gutter : null,
+      columns: 2,
+      gap: 16,
+      options: MOBILE_SEARCH_SPLIT_OPTIONS,
+      innerGutter: 16,
+    });
+  };
+
+  test("flat → book → flat: the second flat layout is the first one, even columns, not the book split", () => {
+    const fresh = stylesFor(duoInner("open", "landscape-left"));
+    const book = stylesFor(duoInner("partially-folded", "landscape-left"));
+    const unfolded = stylesFor(duoInner("open", "landscape-left"));
+    expect(fresh.mode).toBe("flat");
+    expect(book.mode).toBe("fold");
+    expect(book.columns.map((c) => c.width)).toEqual([419.5, 355.5]);
+    expect(unfolded).toEqual(fresh);
+    // Even: both columns grow from a zero basis, a 16pt gap between them.
+    for (const column of unfolded.columns) {
+      expect(column).toMatchObject({ width: "auto", flexBasis: 0, flexGrow: 1, flexShrink: 1 });
+    }
+    expect(unfolded.columns.map((c) => c.marginLeft)).toEqual([0, 16]);
+  });
+
+  test("each mode sets every key the other one set, so no book width survives an unfold", () => {
+    const book = stylesFor(duoInner("partially-folded", "landscape-right"));
+    const flat = stylesFor(duoInner("open", "landscape-right"));
+    for (const [a, b] of book.columns.map((column, i) => [column, flat.columns[i]] as const)) {
+      expect(Object.keys(b).sort()).toEqual(Object.keys(a).sort());
+      for (const key of Object.keys(a)) expect((b as Record<string, unknown>)[key]).toBeDefined();
+    }
+    // The r19 regression: the book widths kept as the basis plus half the free space each.
+    const [leading, trailing] = book.columns.map((c) => c.flexBasis);
+    const free = box.width - 16 - leading - trailing;
+    expect(leading + free / 2).not.toBeCloseTo((box.width - 16) / 2, 0);
+  });
+
+  test("HomeListColumns renders those styles and keys the row by mode", () => {
+    const source = readFileSync(path.join(import.meta.dir, "../components/SourceHomeView.tsx"), "utf8");
+    expect(source).toContain("getMobileListColumnStyles({");
+    expect(source).toContain("<View key={layout.mode} style={styles.exploreListColumns}>");
+    expect(source).not.toContain("exploreListColumnCell");
   });
 });

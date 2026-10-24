@@ -182,3 +182,114 @@ export function getMobileSplitPanePadding({
     trailing: { paddingLeft: innerGutter, paddingRight: pageGutters.right },
   };
 }
+
+/**
+ * Two columns inside a content box that the active book fold crosses, laid
+ * out by the same fold split as a two-level screen (`getMobileSplitPaneLayout`,
+ * Search's sidebar | results): each column is its fold half, `innerGutter`
+ * in from the fold region's edges, so nothing rests on the fold or beside it.
+ * `fold` is the active fold in the content box's coordinates. Null when there
+ * is none or it leaves no usable half: the caller keeps its flat columns
+ * (an inactive fold reserves nothing, as in Search when the device is flat).
+ */
+export function getMobileFoldSplitColumns({
+  contentWidth,
+  fold,
+  options,
+  innerGutter,
+}: {
+  contentWidth: number;
+  fold: { start: number; end: number } | null | undefined;
+  options: MobileSplitPaneOptions;
+  innerGutter: number;
+}): { leading: MobileSplitPaneRect; trailing: MobileSplitPaneRect } | null {
+  if (!fold || !Number.isFinite(fold.start) || !Number.isFinite(fold.end) || fold.end < fold.start) return null;
+  const layout = getMobileSplitPaneLayout({
+    containerWidth: contentWidth,
+    regularWidth: true,
+    posture: "book",
+    foldSplit: {
+      axis: "horizontal",
+      first: { x: 0, y: 0, width: fold.start, height: 0 },
+      second: { x: fold.end, y: 0, width: contentWidth - fold.end, height: 0 },
+      gutter: { start: fold.start, end: fold.end },
+    },
+    options,
+  });
+  if (layout.mode !== "split" || layout.alignment !== "fold") return null;
+  // The content box already sits inside the page gutters: only the inner
+  // (fold-side) gutter applies.
+  const padding = getMobileSplitPanePadding({ pageGutters: { left: 0, right: 0 }, innerGutter });
+  const pane = (rect: MobileSplitPaneRect, pad: { paddingLeft: number; paddingRight: number }) => ({
+    x: rect.x + pad.paddingLeft,
+    width: Math.max(0, rect.width - pad.paddingLeft - pad.paddingRight),
+  });
+  return { leading: pane(layout.leading, padding.leading), trailing: pane(layout.trailing, padding.trailing) };
+}
+
+/** One column's box in a row of list columns; every key is always set. */
+export type MobileListColumnStyle = {
+  width: number | "auto";
+  flexBasis: number;
+  flexGrow: number;
+  flexShrink: number;
+  minWidth: number;
+  marginLeft: number;
+};
+
+/**
+ * The columns of a home list row, fold split (`getMobileFoldSplitColumns`,
+ * book) or even (flat), as complete styles: each column sets the same keys in
+ * both modes, so folding or unfolding on the page overwrites every value the
+ * other mode set. Dropping a key instead (the fold's fixed width when the flat
+ * column only says `flex: 1`) left the book widths on the native views after
+ * an unfold (r19: X20–467 / X484–866, the book's 419 / 354 plus half the free
+ * space each, instead of 414 / 414). `mode` doubles as the row's identity, so
+ * a posture change also lays the columns out from fresh views.
+ */
+export function getMobileListColumnStyles({
+  contentWidth,
+  fold,
+  columns,
+  gap,
+  options,
+  innerGutter,
+}: {
+  contentWidth: number | undefined;
+  fold: { start: number; end: number } | null | undefined;
+  columns: number;
+  gap: number;
+  options: MobileSplitPaneOptions;
+  innerGutter: number;
+}): { mode: "fold" | "flat"; columns: MobileListColumnStyle[] } {
+  const foldColumns = columns >= 2 && fold && contentWidth
+    ? getMobileFoldSplitColumns({ contentWidth, fold, options, innerGutter })
+    : null;
+  if (foldColumns) {
+    const { leading, trailing } = foldColumns;
+    const fixed = (width: number, marginLeft: number): MobileListColumnStyle => ({
+      width,
+      flexBasis: width,
+      flexGrow: 0,
+      flexShrink: 0,
+      minWidth: 0,
+      marginLeft,
+    });
+    return {
+      mode: "fold",
+      columns: [fixed(leading.width, leading.x), fixed(trailing.width, trailing.x - leading.x - leading.width)],
+    };
+  }
+  const count = Math.max(1, columns);
+  return {
+    mode: "flat",
+    columns: Array.from({ length: count }, (_, column) => ({
+      width: "auto",
+      flexBasis: 0,
+      flexGrow: 1,
+      flexShrink: 1,
+      minWidth: 0,
+      marginLeft: column === 0 ? 0 : gap,
+    })),
+  };
+}

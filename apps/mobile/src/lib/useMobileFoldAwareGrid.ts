@@ -40,6 +40,8 @@ export type MobileFoldAwareGrid = MobileFoldAwareGridLayout & {
   ref: ReturnType<typeof useMobileContainerFold<ViewInstance>>["ref"];
   /** The fold in content-box coordinates while it crosses the grid. */
   fold: MobileFoldInterval | null;
+  /** The content box's width the layout was computed for. */
+  contentWidth: number;
 };
 
 /**
@@ -79,6 +81,7 @@ export function useMobileFoldAwareGrid({
     const fold = foldStart !== null && foldEnd !== null ? { start: foldStart, end: foldEnd } : null;
     return {
       fold,
+      contentWidth,
       ...mobileFoldAwareGridLayout({
         contentWidth,
         minItemWidth,

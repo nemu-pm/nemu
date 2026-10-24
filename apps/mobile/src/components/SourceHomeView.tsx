@@ -57,6 +57,7 @@ import {
   createNemuShadowStyle,
   nemuColorWithAlpha,
   radius,
+  spacing,
   type NemuTokens,
   nemuFontWeight,
   nemuMaxFontSizeMultiplier,
@@ -91,6 +92,8 @@ import {
   type MobileFoldAwareGridLayout,
 } from "@/lib/mobileFoldAwareGrid";
 import { useMobileFoldAwareGrid } from "@/lib/useMobileFoldAwareGrid";
+import { getMobileListColumnStyles } from "@/lib/mobileSplitPaneLayout";
+import { MOBILE_SEARCH_SPLIT_OPTIONS } from "@/lib/mobileSearchLayout";
 import { MobilePoseLayoutView } from "@/components/MobilePoseLayoutView";
 import { useMobilePoseResnapFade } from "@/lib/useMobilePoseResnapFade";
 import { useMobileContainerFold } from "@/lib/useMobileContainerFold";
@@ -184,6 +187,15 @@ function useFeaturedCarouselLayout() {
   );
   return { ...pager, onLayout: container.onLayout, ref: container.ref };
 }
+
+/**
+ * A home list's grid: its columns, and (design-explore) the active fold and
+ * the content width it was measured in, for the fold split.
+ */
+type HomeListGrid = Pick<MobileFoldAwareGridLayout, "columns" | "itemWidth" | "columnMargins"> & {
+  fold?: { start: number; end: number } | null;
+  contentWidth?: number;
+};
 
 /** Rows of a vertical home list: one column on phones, pane-aligned columns on wide windows. */
 const HOME_LIST_MIN_COLUMN_WIDTH = 320;
@@ -1459,7 +1471,7 @@ function HomeListSkeletonRows({
 }: {
   count: number;
   /** The section's list grid, so placeholder rows take the loaded columns. */
-  grid: Pick<MobileFoldAwareGridLayout, "columns" | "itemWidth" | "columnMargins">;
+  grid: HomeListGrid;
   ranking?: boolean;
   showInlinePills?: boolean;
 }) {
@@ -1536,7 +1548,7 @@ function HomeListColumns({
   grid,
   children,
 }: {
-  grid: Pick<MobileFoldAwareGridLayout, "columns" | "itemWidth" | "columnMargins">;
+  grid: HomeListGrid;
   children: ReactNode;
 }) {
   const items = Children.toArray(children);
@@ -1544,20 +1556,38 @@ function HomeListColumns({
   // a regular one splits the rows into two or three groups side by side (down each column).
   if (mobileDesignExploreFlag) {
     const columns = Math.min(MAX_EXPLORE_LIST_COLUMNS, Math.max(1, grid.columns));
-    if (columns <= 1) {
+    // Book posture: Search's fold split — one group per fold half, 16pt in
+    // from the fold region's edges, so no rank or row sits on the fold.
+    // Flat (the fold inactive) keeps the even columns, as Search reserves
+    // nothing for an inactive fold. Both come as complete column styles, and
+    // the row is keyed by which one it is: a fold or unfold on the page
+    // recomputes and re-lays the columns, never keeping the other pose's widths.
+    const foldLayout = getMobileListColumnStyles({
+      contentWidth: grid.contentWidth,
+      fold: grid.fold,
+      columns,
+      gap: HOME_LIST_COLUMN_GAP,
+      options: MOBILE_SEARCH_SPLIT_OPTIONS,
+      innerGutter: spacing.pageX,
+    });
+    const layout = foldLayout.mode === "fold" && items.length <= 1
+      ? getMobileListColumnStyles({ contentWidth: grid.contentWidth, fold: null, columns, gap: HOME_LIST_COLUMN_GAP, options: MOBILE_SEARCH_SPLIT_OPTIONS, innerGutter: spacing.pageX })
+      : foldLayout;
+    if (layout.mode === "flat" && columns <= 1) {
       return (
         <ExploreHomeGroup>
           <View style={styles.exploreListInner}>{items}</View>
         </ExploreHomeGroup>
       );
     }
-    const perColumn = Math.ceil(items.length / columns);
+    const perColumn = Math.ceil(items.length / layout.columns.length);
     return (
-      <View style={styles.exploreListColumns}>
-        {Array.from({ length: columns }, (_, column) => items.slice(column * perColumn, (column + 1) * perColumn))
-          .filter((rows) => rows.length > 0)
-          .map((rows, column) => (
-            <View key={column} style={styles.exploreListColumnCell}>
+      <View key={layout.mode} style={styles.exploreListColumns}>
+        {layout.columns
+          .map((style, column) => ({ style, rows: items.slice(column * perColumn, (column + 1) * perColumn) }))
+          .filter(({ rows }) => rows.length > 0)
+          .map(({ style, rows }, column) => (
+            <View key={column} style={style}>
               <ExploreHomeGroup>
                 <View style={styles.exploreListInner}>{rows}</View>
               </ExploreHomeGroup>
@@ -2812,8 +2842,8 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
-  exploreListColumns: { flexDirection: "row", alignItems: "flex-start", gap: HOME_LIST_COLUMN_GAP },
-  exploreListColumnCell: { flex: 1, minWidth: 0 },
+  // No `gap`: each column's style carries its own leading margin (getMobileListColumnStyles).
+  exploreListColumns: { flexDirection: "row", alignItems: "flex-start" },
   exploreListInner: { marginTop: -StyleSheet.hairlineWidth },
   exploreListRow: { paddingHorizontal: 12 },
   // Concentric with the group's corner (group radius less the row's inset).
