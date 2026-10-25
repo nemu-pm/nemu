@@ -165,8 +165,8 @@ describe("reader opening gate wiring", () => {
     expect(route).toContain('if (!zoomId) coverReveal.openingGate.settle("no-fade");');
     // The stand-in's cross-fade (a reopen) reports its end too.
     expect(route).toContain('if (finished) runOnJS(onFadeEnd)("stand-in", landsAt);');
-    expect(route).toContain(
-      "() => ({ onFirstPage, openingGate, holdForFirstScreenImages, onFirstScreenImagesReady, openingTimes })",
+    expect(route).toMatch(
+      /\(\) => \(\{\s*onFirstPage,\s*openingGate,\s*holdForFirstScreenImages,\s*onFirstScreenImagesReady,\s*openingTimes,\s*onOpeningPages,\s*\}\)/,
     );
     // Outside a zoom the reader gets a settled gate.
     expect(entry).toContain('settledOpeningGate.settle("no-fade");');

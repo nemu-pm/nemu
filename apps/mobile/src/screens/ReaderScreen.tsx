@@ -4671,6 +4671,14 @@ export function ReaderScreen() {
     window.height,
     window.width,
   ]);
+  // The pages this opening lands on (the stand-in leaves without a fade
+  // only when they are the ones it showed).
+  const readerOpeningPageIds = readerRestoreComplete && galleryPagedMode
+    ? readerVisiblePages.map((page) => page.id).join("\u0001")
+    : "";
+  useEffect(() => {
+    if (readerOpeningPageIds) readerZoomEntryRef.current.onOpeningPages(readerOpeningPageIds.split("\u0001"));
+  }, [readerOpeningPageIds]);
   const readerZoomPageShown =
     pagesState.status === "error" ||
     pagesState.status === "blocked" ||

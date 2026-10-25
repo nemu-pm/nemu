@@ -75,7 +75,7 @@ describe("reader opening stand-in", () => {
     expect(reader).toBeGreaterThan(0);
     expect(standIn).toBeGreaterThan(reader);
     expect(cover).toBeGreaterThan(standIn);
-    expect(route).toContain("opacity: 1 - opacity.value");
+    expect(route).toContain("opacity: (1 - opacity.value) * standInOut.value");
     expect(route).toContain("onStarted={coverReveal.onZoomStarted}");
   });
 });

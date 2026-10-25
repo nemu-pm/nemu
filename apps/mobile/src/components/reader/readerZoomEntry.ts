@@ -25,6 +25,11 @@ export type ReaderZoomEntry = {
   onFirstScreenImagesReady: () => void;
   /** Tap / landing / fade-end, for the opening's log lines. */
   openingTimes: () => ReaderOpeningTimes;
+  /**
+   * The pages the reader is placed on (paged reading): the route's opening
+   * stand-in leaves without a fade only over these very pages.
+   */
+  onOpeningPages: (pageIds: readonly string[]) => void;
 };
 
 const noop = () => undefined;
@@ -38,6 +43,7 @@ export const ReaderZoomEntryContext = createContext<ReaderZoomEntry>({
   holdForFirstScreenImages: noop,
   onFirstScreenImagesReady: noop,
   openingTimes: () => NO_READER_OPENING_TIMES,
+  onOpeningPages: noop,
 });
 
 export function useReaderZoomEntry(): ReaderZoomEntry {

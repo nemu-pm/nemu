@@ -45,6 +45,7 @@ import { noteMobileReaderOpened } from "@/lib/mobileAidokuPrewarm";
 import { ZoomTarget, type ZoomStartedEvent } from "../../../../../modules/nemu-window-layout";
 import {
   mobileReaderStandInKey,
+  mobileReaderStandInMatches,
   peekMobileReaderStandIn,
   resolveMobileReaderStandInFade,
   type MobileReaderStandIn,
@@ -67,6 +68,17 @@ const COVER_HOLD_MAX_MS = READER_OPENING_PAGED_HOLD_MAX_MS;
  * and keeps waiting for its page (up to `COVER_HOLD_MAX_MS`).
  */
 const COVER_SCROLL_HOLD_MAX_MS = 600;
+/**
+ * Over the very pages the reader drew under it, the stand-in stays this long
+ * after they drew, past the opening's first seconds: the reader's own
+ * drawing of a page is not pixel-identical to the stand-in's (the curl's
+ * leaves resample it a hair sharper), and the swap must not show as the page
+ * changing just after the landing. It leaves sooner, at once, on the first
+ * touch, when the reader shows other pages, or when the window changes.
+ */
+const STAND_IN_HANDOFF_MS = 3200;
+/** A stand-in over other pages than the reader's (it moved meanwhile) fades out. */
+const STAND_IN_MISMATCH_FADE_MS = 250;
 
 type CoverRevealReason = ReaderCoverRevealReason;
 
@@ -496,8 +508,10 @@ function ReaderAfterZoom({
   } = coverReveal;
   const [pageShown, setPageShown] = useState(false);
   // The stand-in (a reopen): over the reader, under the cover, shown as the
-  // cover fades. It leaves once the reader has drawn its page underneath.
+  // cover fades. It leaves once the reader has drawn its page underneath:
+  // at once over the same pages, with a short fade over others.
   const [standInMounted, setStandInMounted] = useState(standIn != null);
+  const standInOut = useSharedValue(1);
   const standInLoadedRef = useRef(new Set<string>());
   const onStandInPageLoad = useCallback(
     (pageId: string) => {
@@ -507,10 +521,33 @@ function ReaderAfterZoom({
     },
     [onStandInReady, standIn],
   );
+  const openingPageIdsRef = useRef<readonly string[] | null>(null);
   const dismissStandIn = useCallback(() => setStandInMounted(false), []);
+  const onOpeningPages = useCallback(
+    (pageIds: readonly string[]) => {
+      if (!openingPageIdsRef.current) {
+        openingPageIdsRef.current = pageIds;
+        return;
+      }
+      // The reader moved on (a turn, a re-placement): the stand-in shows a
+      // page it no longer does.
+      if (standIn && !mobileReaderStandInMatches(standIn, pageIds)) dismissStandIn();
+    },
+    [dismissStandIn, standIn],
+  );
   useEffect(() => {
-    if (pageShown && standInMounted) dismissStandIn();
-  }, [dismissStandIn, pageShown, standInMounted]);
+    if (!pageShown || !standIn || !standInMounted) return;
+    const ids = openingPageIdsRef.current;
+    const same = ids != null && mobileReaderStandInMatches(standIn, ids);
+    if (!same) {
+      standInOut.value = withTiming(0, { duration: STAND_IN_MISMATCH_FADE_MS });
+    }
+    const timer = setTimeout(
+      () => setStandInMounted(false),
+      same ? STAND_IN_HANDOFF_MS : STAND_IN_HANDOFF_MS + STAND_IN_MISMATCH_FADE_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [pageShown, standIn, standInMounted, standInOut]);
   // The window changed (rotation, a fold): the reader re-lays its pages.
   const windowMatchesStandIn =
     standIn != null
@@ -546,12 +583,19 @@ function ReaderAfterZoom({
     return () => clearTimeout(timer);
   }, [landed, openingTimes, pageShown, reveal]);
   const entry = useMemo<ReaderZoomEntry>(
-    () => ({ onFirstPage, openingGate, holdForFirstScreenImages, onFirstScreenImagesReady, openingTimes }),
-    [holdForFirstScreenImages, onFirstPage, onFirstScreenImagesReady, openingGate, openingTimes],
+    () => ({
+      onFirstPage,
+      openingGate,
+      holdForFirstScreenImages,
+      onFirstScreenImagesReady,
+      openingTimes,
+      onOpeningPages,
+    }),
+    [holdForFirstScreenImages, onFirstPage, onFirstScreenImagesReady, onOpeningPages, openingGate, openingTimes],
   );
   const coverStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
   // The cross-fade's other half: the stand-in shows as the cover goes.
-  const standInStyle = useAnimatedStyle(() => ({ opacity: 1 - opacity.value }));
+  const standInStyle = useAnimatedStyle(() => ({ opacity: (1 - opacity.value) * standInOut.value }));
   // The reader's page background (the setting; White until it has loaded,
   // as the reader itself): the cover fades onto it. "Match Page" has no page
   // yet here, so it is black, as the reader is until it reads the border.
@@ -559,7 +603,13 @@ function ReaderAfterZoom({
   const backdropColor = mobileReaderPageBackgroundColor(pageBackground);
 
   return (
-    <View style={[styles.backdrop, { backgroundColor: backdropColor }]}>
+    <View
+      style={[styles.backdrop, { backgroundColor: backdropColor }]}
+      // The first touch on the reader (a turn, a zoom, the chrome) takes the
+      // stand-in away before anything it covers moves. Not a responder: the
+      // reader's gestures are untouched.
+      onTouchStart={standInMounted ? dismissStandIn : undefined}
+    >
       {landed ? (
         <ReaderZoomEntryContext.Provider value={entry}>
           <ReaderScreen />
