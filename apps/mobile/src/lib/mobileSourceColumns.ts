@@ -1,13 +1,15 @@
 import { mobileFoldIntervalWithGutter, type MobileFoldInterval } from "./mobileFoldAwareGrid";
 
 /**
- * Sources tab (design-explore) on wide and folding windows: language groups
- * flow into one column per pane across a vertical fold (the Duo inner display
- * in landscape, book or fully open alike, so folding moves nothing), each
- * group whole in one column, never across the hinge. A window with a fold
- * region but no vertical fold (the inner display in portrait) keeps one
- * column capped at a readable width, centred. Everything else is one
- * full-width column, as before.
+ * Sources tab (design-explore) on wide and folding windows: across the Duo's
+ * vertical hinge (the inner display in landscape) language groups flow into
+ * two columns, each group whole in one column. Half open each column is
+ * aligned to its pane (content edge to the fold); fully open they are the
+ * content's two halves with the ordinary 12pt gap — the hinge reserves
+ * nothing flat. The same two columns hold the same groups in both postures,
+ * so folding only slides them. A window with a fold region but no vertical
+ * fold (the inner display in portrait) keeps one column capped at a readable
+ * width, centred. Everything else is one full-width column, as before.
  */
 
 /** Readable width of the single column on the Duo inner display in portrait. */
@@ -16,6 +18,8 @@ export const MOBILE_SOURCE_COLUMN_MAX_WIDTH = 560;
 export const MOBILE_SOURCE_COLUMN_MIN_WIDTH = 280;
 /** Vertical gap between groups in a column (`availableList` gap). */
 export const MOBILE_SOURCE_GROUP_GAP = 18;
+/** Gap between the two columns fully open. */
+export const MOBILE_SOURCE_COLUMN_GAP = 12;
 
 export type MobileSourceColumn = {
   /** Container-local leading edge. */
@@ -28,21 +32,29 @@ export type MobileSourceColumn = {
 export function getMobileSourceColumns({
   contentWidth,
   fold,
+  band,
   foldRegion,
+  gap = MOBILE_SOURCE_COLUMN_GAP,
   maxSingleWidth = MOBILE_SOURCE_COLUMN_MAX_WIDTH,
   minColumnWidth = MOBILE_SOURCE_COLUMN_MIN_WIDTH,
 }: {
   /** The list container's width (inside the page gutters). */
   contentWidth: number;
-  /** The vertical fold band across the container, container-local. */
+  /** The active vertical fold across the container (half open), container-local. */
   fold: MobileFoldInterval | null | undefined;
+  /**
+   * The vertical fold band across the container, folded or fully open
+   * (`useMobileRestingVerticalFold`): the window splits into panes at all.
+   */
+  band: MobileFoldInterval | null | undefined;
   /** The window has a fold region at all (caps the single column). */
   foldRegion: boolean;
+  gap?: number;
   maxSingleWidth?: number;
   minColumnWidth?: number;
 }): MobileSourceColumn[] {
   const width = Math.max(0, contentWidth);
-  const gutter = mobileFoldIntervalWithGutter(fold);
+  const gutter = band ? mobileFoldIntervalWithGutter(fold) : null;
   if (gutter) {
     const leading = Math.floor(gutter.start);
     const trailingStart = Math.ceil(gutter.end);
@@ -51,6 +63,15 @@ export function getMobileSourceColumns({
       return [
         { x: 0, width: leading, marginLeft: 0 },
         { x: trailingStart, width: trailing, marginLeft: trailingStart - leading },
+      ];
+    }
+  }
+  if (band && Number.isFinite(band.start) && Number.isFinite(band.end)) {
+    const half = (width - gap) / 2;
+    if (half >= minColumnWidth) {
+      return [
+        { x: 0, width: half, marginLeft: 0 },
+        { x: half + gap, width: half, marginLeft: gap },
       ];
     }
   }

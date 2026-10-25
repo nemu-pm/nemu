@@ -32,15 +32,17 @@ function duoInner(pose: string, orientation: string): MobileWindowLayout {
 const LIST = { x: 16, width: 835 };
 
 function columnsFor(pose: string, orientation: string) {
-  const fold = mobileVerticalFoldGutterForContainer(
+  const band = mobileVerticalFoldGutterForContainer(
     mobileVerticalFoldBand(duoInner(pose, orientation), mobileRestingFoldMinGutter("ios")),
     LIST,
   );
-  return { fold, columns: getMobileSourceColumns({ contentWidth: LIST.width, fold, foldRegion: true }) };
+  // Half open the band is the active fold (the iOS division plus margins).
+  const fold = pose === "partially-folded" ? band : null;
+  return { fold: band, columns: getMobileSourceColumns({ contentWidth: LIST.width, fold, band, foldRegion: true }) };
 }
 
 describe("Sources columns on the Duo inner display", () => {
-  test("landscape: one column a pane, ending and starting at the fold band", () => {
+  test("half open: one column a pane, ending and starting at the fold", () => {
     const { fold, columns } = columnsFor("partially-folded", "landscape-left");
     expect(fold).not.toBeNull();
     expect(columns).toHaveLength(2);
@@ -52,8 +54,16 @@ describe("Sources columns on the Duo inner display", () => {
   });
 
   for (const orientation of ["landscape-left", "landscape-right"]) {
-    test(`fully open ⇄ book (${orientation}): the same columns, nothing moves`, () => {
-      expect(columnsFor("open", orientation)).toEqual(columnsFor("partially-folded", orientation));
+    test(`fully open (${orientation}): the content's two halves, the ordinary 12pt gap, no hinge gap`, () => {
+      const { columns } = columnsFor("open", orientation);
+      expect(columns).toHaveLength(2);
+      expect(columns[0]).toEqual({ x: 0, width: (LIST.width - 12) / 2, marginLeft: 0 });
+      expect(columns[1].marginLeft).toBe(12);
+      expect(columns[1].x + columns[1].width).toBe(LIST.width);
+    });
+
+    test(`fully open ⇄ book (${orientation}): the same two columns, only sliding`, () => {
+      expect(columnsFor("open", orientation).columns).toHaveLength(columnsFor("partially-folded", orientation).columns.length);
     });
   }
 
@@ -61,19 +71,19 @@ describe("Sources columns on the Duo inner display", () => {
     const { fold, columns } = (() => {
       const band = mobileVerticalFoldBand(duoInner("open", "portrait"), mobileRestingFoldMinGutter("ios"));
       const gutter = mobileVerticalFoldGutterForContainer(band, { x: 20, width: 629 });
-      return { fold: gutter, columns: getMobileSourceColumns({ contentWidth: 629, fold: gutter, foldRegion: true }) };
+      return { fold: gutter, columns: getMobileSourceColumns({ contentWidth: 629, fold: gutter, band: gutter, foldRegion: true }) };
     })();
     expect(fold).toBeNull();
     expect(columns).toEqual([{ x: 34.5, width: 560, marginLeft: 34.5 }]);
   });
 
   test("phones and tablets (no fold region): the full width, as before", () => {
-    expect(getMobileSourceColumns({ contentWidth: 370, fold: null, foldRegion: false })).toEqual([{ x: 0, width: 370, marginLeft: 0 }]);
-    expect(getMobileSourceColumns({ contentWidth: 980, fold: null, foldRegion: false })).toEqual([{ x: 0, width: 980, marginLeft: 0 }]);
+    expect(getMobileSourceColumns({ contentWidth: 370, fold: null, band: null, foldRegion: false })).toEqual([{ x: 0, width: 370, marginLeft: 0 }]);
+    expect(getMobileSourceColumns({ contentWidth: 980, fold: null, band: null, foldRegion: false })).toEqual([{ x: 0, width: 980, marginLeft: 0 }]);
   });
 
   test("panes too narrow for a list stay one column", () => {
-    expect(getMobileSourceColumns({ contentWidth: 500, fold: { start: 240, end: 260 }, foldRegion: true })).toHaveLength(1);
+    expect(getMobileSourceColumns({ contentWidth: 500, fold: { start: 240, end: 260 }, band: { start: 240, end: 260 }, foldRegion: true })).toHaveLength(1);
   });
 });
 
