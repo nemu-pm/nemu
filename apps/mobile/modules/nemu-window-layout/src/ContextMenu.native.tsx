@@ -2,7 +2,12 @@ import { useState, type ComponentType, type ReactNode } from "react";
 import { requireNativeViewManager, requireOptionalNativeModule } from "expo-modules-core";
 import { Platform, View, type ViewProps } from "react-native";
 import type { ContextMenuItem } from "./types";
-import { createNativeContextMenuPressGate, NativeContextMenuLongPressContext } from "./ContextMenuLongPress";
+import {
+  createNativeContextMenuPressGate,
+  nativeContextMenuEventActive,
+  nativeContextMenuEventTime,
+  NativeContextMenuLongPressContext,
+} from "./ContextMenuLongPress";
 
 type ContextMenuViewProps = {
   items: ContextMenuItem[];
@@ -20,12 +25,16 @@ const nativeModule = Platform.OS === "ios"
 /** True when this binary has the context menu view (older binaries get a plain view). */
 export const contextMenuViewAvailable = nativeModule?.contextMenuViewAvailable === true;
 
+type MenuEvent = { nativeEvent?: { uptime?: number; active?: string } };
+
 type NativeProps = Omit<ContextMenuViewProps, "onMenuAction"> & {
   onMenuAction?: (event: { nativeEvent: { id: string } }) => void;
-  onMenuWillDisplay?: () => void;
-  onMenuWillEnd?: () => void;
+  /** `uptime`: when UIKit called the delegate, on the touch clock (ms). */
+  onMenuWillDisplay?: (event: MenuEvent) => void;
+  /** `active` (TEST-ONLY trace): the gesture recognizers running then. */
+  onMenuWillEnd?: (event: MenuEvent) => void;
   /** The interaction asked for the menu: a release may wait for the verdict. */
-  onMenuConfigure?: () => void;
+  onMenuConfigure?: (event: MenuEvent) => void;
   /** TEST-ONLY trace event (remove before release). */
   onMenuPreviewTap?: () => void;
 };
@@ -50,9 +59,9 @@ export function ContextMenuView({ items, menuTitle, previewCornerRadius, onMenuA
       menuTitle={menuTitle}
       previewCornerRadius={previewCornerRadius}
       onMenuAction={onMenuAction ? (event) => onMenuAction(event.nativeEvent.id) : undefined}
-      onMenuWillDisplay={gate.menuWillDisplay}
-      onMenuWillEnd={gate.menuWillEnd}
-      onMenuConfigure={gate.menuConfigure}
+      onMenuWillDisplay={(event) => gate.menuWillDisplay(nativeContextMenuEventTime(event))}
+      onMenuWillEnd={(event) => gate.menuWillEnd(nativeContextMenuEventTime(event), nativeContextMenuEventActive(event))}
+      onMenuConfigure={(event) => gate.menuConfigure(nativeContextMenuEventTime(event))}
       onMenuPreviewTap={gate.menuPreviewTap}
       style={style}
     >

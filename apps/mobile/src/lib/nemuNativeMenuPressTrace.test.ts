@@ -36,7 +36,11 @@ describe("long-press trace (test only)", () => {
     expect(gate.resolvePress({ native: 1640, wall: Date.now() }, () => {})).toBe("suppress");
     gate.menuWillEnd();
     gate.menuPreviewTap();
+    // A lift cancelled under the finger names what was running, on the touch clock.
+    gate.pressIn({ native: 5000, wall: Date.now() });
+    gate.menuWillEnd(5230, "UIScrollViewPanGestureRecognizer@RCTEnhancedScrollView");
     const text = formatNativeMenuPressTrace();
+    expect(text).toContain("[touch +230ms] menu willEnd (active: UIScrollViewPanGestureRecognizer@RCTEnhancedScrollView)");
     for (const step of ["pressIn", "menu configure", "menu willDisplay", "onPress -> suppress", "menu willEnd", "menu preview tapped"]) {
       expect(text).toContain(step);
     }

@@ -11,6 +11,9 @@ import {
   NATIVE_MENU_PRESS_UNCONFIGURED_WAIT_MS,
   NATIVE_MENU_PRESS_VERDICT_CAP_MS,
   createNativeContextMenuPressGate,
+  nativeContextMenuEventActive,
+  nativeContextMenuEventTime,
+  nativeMenuLiftCancelledWhileHeld,
   type NativeContextMenuPressScheduler,
   nativeContextMenuPressTime,
 } from "../../modules/nemu-window-layout/src/ContextMenuLongPress";
@@ -39,8 +42,8 @@ describe("long press inside a native context menu", () => {
     const menu = read("modules/nemu-window-layout/src/ContextMenu.native.tsx");
     expect(menu).toContain("items.length > 0 ? (");
     expect(menu).toContain("<NativeContextMenuLongPressContext.Provider value={gate}>");
-    expect(menu).toContain("onMenuWillDisplay={gate.menuWillDisplay}");
-    expect(menu).toContain("onMenuWillEnd={gate.menuWillEnd}");
+    expect(menu).toContain("gate.menuWillDisplay(nativeContextMenuEventTime(event))");
+    expect(menu).toContain("gate.menuWillEnd(nativeContextMenuEventTime(event), nativeContextMenuEventActive(event))");
     // The plain-view fallback (Android, older binaries) never claims it.
     expect(read("modules/nemu-window-layout/src/ContextMenu.tsx")).not.toContain(
       "NativeContextMenuLongPressContext",
@@ -147,7 +150,7 @@ describe("native context menu press gate", () => {
     expect(presses()).toBe(1);
   });
 
-  test("a willEnd without a display that reached JS before the release presses at once", () => {
+  test("a willEnd without a display that reached JS before the release presses at once (unstamped: older binary)", () => {
     const { gate, press, presses } = harness();
     gate.pressIn(at(1000));
     gate.menuConfigure();
@@ -258,11 +261,124 @@ describe("native context menu press gate", () => {
     const swift = read("modules/nemu-window-layout/ios/NemuWindowLayoutModule.swift");
     expect(swift).toMatch(/Events\("onMenuAction", "onMenuWillDisplay", "onMenuWillEnd"/);
     expect(swift).toContain("willDisplayMenuFor configuration: UIContextMenuConfiguration");
-    expect(swift).toContain("onMenuWillDisplay([:])");
-    expect(swift).toContain("onMenuWillEnd([:])");
-    expect(swift).toContain("onMenuConfigure([:])");
+    // Each stamped on the touch clock (UITouch.timestamp's base).
+    expect(swift).toContain("ProcessInfo.processInfo.systemUptime * 1000");
+    expect(swift).toContain('onMenuWillDisplay(["uptime": Self.uptimeMs()])');
+    expect(swift).toContain('onMenuWillEnd(["uptime": Self.uptimeMs(), "active": active])');
+    expect(swift).toContain('onMenuConfigure(["uptime": Self.uptimeMs()])');
     expect(read("modules/nemu-window-layout/src/ContextMenu.native.tsx")).toContain(
-      "onMenuConfigure={gate.menuConfigure}",
+      "gate.menuConfigure(nativeContextMenuEventTime(event))",
     );
+  });
+});
+
+describe("a lift UIKit cancelled under the finger (build 9 r2, item 4)", () => {
+  const at = (native: number) => ({ native, wall: 0 });
+  function harness() {
+    let timers: { run: () => void; handle: number }[] = [];
+    let nextHandle = 1;
+    const scheduler: NativeContextMenuPressScheduler = {
+      set: (run) => {
+        const handle = nextHandle++;
+        timers.push({ run, handle });
+        return handle;
+      },
+      clear: (handle) => {
+        timers = timers.filter((timer) => timer.handle !== handle);
+      },
+    };
+    let presses = 0;
+    return {
+      gate: createNativeContextMenuPressGate(scheduler),
+      press: () => {
+        presses += 1;
+      },
+      presses: () => presses,
+      flush: () => {
+        const due = timers;
+        timers = [];
+        for (const timer of due) timer.run();
+      },
+    };
+  }
+
+  test("the clocks: only a lift that ended before the release (touch clock) counts as cancelled while held", () => {
+    expect(nativeMenuLiftCancelledWhileHeld(1300, at(1420))).toBe(true);
+    expect(nativeMenuLiftCancelledWhileHeld(1420, at(1420))).toBe(false); // the release ended it
+    expect(nativeMenuLiftCancelledWhileHeld(1425, at(1420))).toBe(false);
+    expect(nativeMenuLiftCancelledWhileHeld(undefined, at(1420))).toBe(false); // older binary
+    expect(nativeMenuLiftCancelledWhileHeld(1300, { wall: 5 })).toBe(false);
+    expect(nativeMenuLiftCancelledWhileHeld(1300, undefined)).toBe(false);
+    expect(nativeContextMenuEventTime({ nativeEvent: { uptime: 12.5 } })).toBe(12.5);
+    expect(nativeContextMenuEventTime({ nativeEvent: {} })).toBeUndefined();
+    expect(nativeContextMenuEventTime(undefined)).toBeUndefined();
+    expect(nativeContextMenuEventActive({ nativeEvent: { active: "UIScrollViewPanGestureRecognizer@RCTEnhancedScrollView" } }))
+      .toBe("UIScrollViewPanGestureRecognizer@RCTEnhancedScrollView");
+    expect(nativeContextMenuEventActive({ nativeEvent: { active: "" } })).toBeUndefined();
+  });
+
+  test("420 ms with 13 pt drift: the lift is cancelled at ~300 ms, the release at 420 neither opens nor shows a menu", () => {
+    const { gate, press, presses } = harness();
+    gate.pressIn(at(1000));
+    gate.menuConfigure(1160);
+    gate.menuWillEnd(1300); // the drift (or a scroll view's pan) cancelled the lift
+    expect(gate.resolvePress(at(1420), press)).toBe("suppress");
+    expect(presses()).toBe(0);
+  });
+
+  test("the same when the release reaches JS before the cancel: the deferred press is dropped", () => {
+    const { gate, press, presses, flush } = harness();
+    gate.pressIn(at(1000));
+    gate.menuConfigure(1160);
+    expect(gate.resolvePress(at(1420), press)).toBe("defer");
+    gate.menuWillEnd(1300);
+    flush();
+    expect(presses()).toBe(0);
+  });
+
+  test("a quick drag whose lift was cancelled before it lifted is not a tap either (no delay: dropped at once)", () => {
+    const { gate, press, presses } = harness();
+    gate.pressIn(at(1000));
+    gate.menuConfigure(1150);
+    gate.menuWillEnd(1190);
+    expect(gate.resolvePress(at(1230), press)).toBe("suppress");
+    expect(presses()).toBe(0);
+  });
+
+  test("a scroll that starts on a book: the pan cancels the lift and takes the touch — no menu, no press, the next tap is clean", () => {
+    const { gate, press, presses } = harness();
+    gate.pressIn(at(1000));
+    gate.menuConfigure(1160);
+    gate.menuWillEnd(1210, "UIScrollViewPanGestureRecognizer@RCTEnhancedScrollView");
+    // The scroll view takes the responder: Pressability never calls onPress.
+    gate.pressIn(at(3000));
+    expect(gate.resolvePress(at(3090), press)).toBe("fire");
+    expect(presses()).toBe(1);
+  });
+
+  test("quick taps are untouched: a lift the release itself ended still taps, at once below 250 ms", () => {
+    const { gate, press, presses } = harness();
+    gate.pressIn(at(1000));
+    expect(gate.resolvePress(at(1080), press)).toBe("fire");
+    gate.pressIn(at(2000));
+    gate.menuConfigure(2160);
+    expect(gate.resolvePress(at(2240), press)).toBe("fire");
+    gate.menuWillEnd(2242);
+    expect(presses()).toBe(2);
+  });
+
+  test("a 250-500 ms tap whose lift the release ended still presses on the verdict", () => {
+    const { gate, press, presses } = harness();
+    gate.pressIn(at(1000));
+    gate.menuConfigure(1160);
+    expect(gate.resolvePress(at(1300), press)).toBe("defer");
+    gate.menuWillEnd(1302);
+    expect(presses()).toBe(1);
+    // Stamped after the release but delivered first: also a tap.
+    gate.pressIn(at(2000));
+    gate.menuConfigure(2160);
+    gate.menuWillEnd(2305);
+    expect(gate.resolvePress(at(2300), press)).toBe("fire");
+    expect(presses()).toBe(2);
   });
 });

@@ -305,7 +305,11 @@ final class NemuContextMenuView: ExpoView, UIContextMenuInteractionDelegate {
   /// The menu is presenting / going away. React Native's touch handler is not
   /// cancelled by this interaction (it lives inside the RN root), so the
   /// release after the hold still reaches the pressable underneath; these let
-  /// it drop that release (`ContextMenuLongPress.ts`).
+  /// it drop that release (`ContextMenuLongPress.ts`). Every menu event carries
+  /// `uptime`: when UIKit called us, in ms on the touch clock (`systemUptime`,
+  /// the base of `UITouch.timestamp` and so of RN's `nativeEvent.timestamp`),
+  /// so JS can tell a lift UIKit cancelled under a resting finger (moved, or a
+  /// scroll view's pan began) from one the release ended.
   let onMenuWillDisplay = EventDispatcher()
   let onMenuWillEnd = EventDispatcher()
   /// The interaction asked for the menu (~150 ms into a hold): a lift may
@@ -319,6 +323,25 @@ final class NemuContextMenuView: ExpoView, UIContextMenuInteractionDelegate {
   var menuTitle = ""
   var previewCornerRadius: CGFloat = 16
   private var pendingAction: String?
+  private var displayed = false
+
+  static func uptimeMs() -> Double { ProcessInfo.processInfo.systemUptime * 1000 }
+
+  /// TEST-ONLY trace (remove before release): the gesture recognizers that
+  /// are running (began / changed) on this view and its ancestors up to the
+  /// window, as `Recognizer@View`; names what cancelled a lift.
+  private func activeGestureRecognizers() -> String {
+    var names: [String] = []
+    var view: UIView? = self
+    while let current = view {
+      for recognizer in current.gestureRecognizers ?? []
+      where recognizer.state == .began || recognizer.state == .changed {
+        names.append("\(type(of: recognizer))@\(type(of: current))")
+      }
+      view = current.superview
+    }
+    return names.joined(separator: ",")
+  }
 
   required init(appContext: AppContext? = nil) {
     super.init(appContext: appContext)
@@ -330,7 +353,8 @@ final class NemuContextMenuView: ExpoView, UIContextMenuInteractionDelegate {
     configurationForMenuAtLocation location: CGPoint
   ) -> UIContextMenuConfiguration? {
     guard !items.isEmpty else { return nil }
-    onMenuConfigure([:])
+    displayed = false
+    onMenuConfigure(["uptime": Self.uptimeMs()])
     let items = self.items
     let title = menuTitle
     return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
@@ -379,12 +403,16 @@ final class NemuContextMenuView: ExpoView, UIContextMenuInteractionDelegate {
 
   func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
     willDisplayMenuFor configuration: UIContextMenuConfiguration, animator: UIContextMenuInteractionAnimating?) {
-    onMenuWillDisplay([:])
+    displayed = true
+    onMenuWillDisplay(["uptime": Self.uptimeMs()])
   }
 
   func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
     willEndFor configuration: UIContextMenuConfiguration, animator: UIContextMenuInteractionAnimating?) {
-    onMenuWillEnd([:])
+    // A lift that never displayed: name what was running (TEST-ONLY trace).
+    let active = displayed ? "" : activeGestureRecognizers()
+    displayed = false
+    onMenuWillEnd(["uptime": Self.uptimeMs(), "active": active])
     let finish = { [weak self] in
       guard let self, let id = self.pendingAction else { return }
       self.pendingAction = nil
