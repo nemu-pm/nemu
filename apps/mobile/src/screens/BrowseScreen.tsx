@@ -22,8 +22,18 @@ import {
   useWindowDimensions,
   type SectionListData,
   type SectionListRenderItemInfo,
+  type ScrollViewInstance,
   type ViewInstance,
 } from "react-native";
+import { useMobilePoseTransition } from "@/lib/MobilePoseTransitionContext";
+import { useMobileRestingVerticalFold } from "@/lib/useMobileRestingVerticalFold";
+import { useMobileScrollGroupAnchor } from "@/lib/useMobileScrollGroupAnchor";
+import {
+  estimateMobileSourceGroupHeight,
+  getMobileSourceColumns,
+  MOBILE_SOURCE_GROUP_GAP,
+  partitionMobileSourceGroups,
+} from "@/lib/mobileSourceColumns";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { selfHostedKindName } from "@/lib/selfHosted/messages";
 import { SELF_HOSTED_REGISTRY_ID, SELF_HOSTED_SETUP_KINDS, type SelfHostedKind } from "@/lib/selfHosted/policy";
@@ -957,6 +967,49 @@ export function BrowseScreen() {
       ...omitMobileBrowseSourcesFromGroups(groupedInstalledSources, picked.map(({ source }) => source)),
     ];
   }, [groupedInstalledSources, installedSources, libraryEntries.data, strings]);
+  // Design-explore: one column of groups per pane across the Duo's vertical
+  // hinge — book or fully open alike, so folding moves nothing — each group
+  // whole in one column, the next one in the shorter column (estimated from
+  // its rows, so a group never changes column because it was measured). The
+  // inner display in portrait keeps one 560pt column, centred.
+  const sourceListWidth = sourceGridContainer.width ?? windowWidth - pageGutters.left - pageGutters.right;
+  // Until the list is measured in the window it starts at the page gutter.
+  const sourceListFrame = useMemo(
+    () => sourceGridContainer.rect ?? { x: pageGutters.left, width: sourceListWidth },
+    [pageGutters.left, sourceGridContainer.rect, sourceListWidth],
+  );
+  const sourceListFold = useMobileRestingVerticalFold(mobileDesignExploreFlag ? sourceListFrame : null);
+  const sourceColumns = useMemo(
+    () =>
+      getMobileSourceColumns({
+        contentWidth: sourceListWidth,
+        fold: sourceListFold,
+        foldRegion: sourceGridContainer.adaptive.hasFoldRegion,
+      }),
+    [sourceGridContainer.adaptive.hasFoldRegion, sourceListFold, sourceListWidth],
+  );
+  const sourceGroupColumns = useMemo(
+    () =>
+      partitionMobileSourceGroups(
+        exploreSourceSections.map((section) =>
+          estimateMobileSourceGroupHeight({
+            rows: section.sources.length,
+            unsupportedRows: section.sources.filter((source) => source.unsupported).length,
+          }),
+        ),
+        sourceColumns.length,
+      ),
+    [exploreSourceSections, sourceColumns.length],
+  );
+  const sourceListSplit = mobileDesignExploreFlag && sourceColumns.length > 1;
+  // The first visible group keeps its distance from the top when the
+  // arrangement changes (rotation: one column ⇄ one a pane).
+  const browseScrollRef = useRef<ScrollViewInstance | null>(null);
+  const sourceGroupAnchor = useMobileScrollGroupAnchor({
+    scrollRef: browseScrollRef as unknown as Parameters<typeof useMobileScrollGroupAnchor>[0]["scrollRef"],
+    layoutKey: `${windowWidth}|${sourceColumns.map((column) => `${column.x}:${column.width}`).join(",")}`,
+  });
+  const sourcePose = useMobilePoseTransition();
 
   // Long-press quick actions for an installed source. Kept next to the card
   // that opens them; a short press still routes into the source.
@@ -1703,6 +1756,147 @@ export function BrowseScreen() {
     }]),
   ];
 
+  // Messages at the top of the page. Across the hinge they open the
+  // leading column instead of running across both panes.
+  const sourceTopCards = actionError || (showSourceUpdateNotice && sourceUpdateNotice && sourceUpdateMessage) ? (
+    <>
+      {actionError ? (
+        <MobileInlineErrorBanner
+          title={actionError.title}
+          detail={actionError.detail}
+          dismissLabel={strings.common.clear}
+          onDismiss={() => setActionError(null)}
+        />
+      ) : null}
+      {showSourceUpdateNotice &&
+      sourceUpdateNotice &&
+      sourceUpdateMessage ? (
+        <MobileInlineErrorBanner
+          title={strings.settings.sourcesUpdatedTitle}
+          detail={sourceUpdateMessage}
+          dismissLabel={strings.common.clear}
+          iconName="checkmark-circle-outline"
+          tone="success"
+          onDismiss={() =>
+            setDismissedSourceUpdateNoticeId(sourceUpdateNotice.id)
+          }
+        />
+      ) : null}
+    </>
+  ) : null;
+
+  // One language group: its header and its inset list (design-explore) or
+  // card grid. Across the hinge a group stays whole in its pane's column.
+  const renderSourceSection = (section: (typeof exploreSourceSections)[number]) => {
+    const label =
+      section.label === EXPLORE_LIBRARY_SECTION
+        ? strings.designExplore.browseInLibrary
+        : formatSourceLanguageLabel(section.label, strings, appLanguage);
+    const group = (
+      <View
+        key={section.label}
+        ref={mobileDesignExploreFlag ? sourceGroupAnchor.groupRef(section.label) : undefined}
+        collapsable={false}
+        style={[styles.sourceLanguageSection, mobileDesignExploreFlag ? styles.exploreSourceSection : null]}
+      >
+        <Text
+          style={[
+            styles.sourceLanguageHeader,
+            { color: tokens.mutedForeground },
+          ]}
+        >
+          {label}
+        </Text>
+        {mobileDesignExploreFlag ? (
+          // Design-explore: one inset group per language, short rows.
+          <View
+            style={[
+              styles.exploreSourceGroup,
+              { backgroundColor: tokens.card, borderColor: tokens.cardBorder },
+            ]}
+          >
+            {section.sources.map((source, index) => (
+              // A real view per row (never flattened into the group), so
+              // a row moved between sections keeps its own subtree.
+              <View key={source.id} collapsable={false}>
+                {index > 0 ? (
+                  <View style={[styles.exploreSourceSeparator, { backgroundColor: tokens.border }]} />
+                ) : null}
+                {source.unsupported ? (
+                  <UnsupportedSourceRow
+                    source={source}
+                    strings={strings}
+                    onPress={() => openUnsupportedSourceSettings(source.id)}
+                  />
+                ) : (
+                  <MobileQuickActionMenu
+                    actions={sourceContextActions(source.id)}
+                    // The group draws the row's fill, so the lifted preview
+                    // was clear: the row carries the group's colour itself
+                    // (no change at rest) and lifts with the group's corners.
+                    style={{ backgroundColor: tokens.card }}
+                    cornerRadius={MOBILE_EXPLORE_RADIUS.group}
+                  >
+                  <SourceCard
+                    compact
+                    item={
+                      source.registryId === mainRegistry && !source.exploreKeepSubtitle
+                        ? { ...source, subtitle: undefined }
+                        : source
+                    }
+                    onLongPress={mobileNativeQuickMenuAvailable ? undefined : () => {
+                      void hapticSelection();
+                      quickActionDismissRef.current = null;
+                      setQuickActionSourceId(source.id);
+                      setQuickActionVisible(true);
+                    }}
+                  />
+                  </MobileQuickActionMenu>
+                )}
+              </View>
+            ))}
+          </View>
+        ) : (
+        <View style={styles.sourceGrid}>
+          {chunkMobileGridRows(section.sources, sourceGrid.columns).map((row, rowIndex) => (
+            <MobilePoseLayoutView key={rowIndex} style={styles.sourceGridRow}>
+              {row.map((source, column) => (
+                // Folding glides each card to its pane (pose settle spring).
+                <MobilePoseLayoutView key={source.id} style={mobileFoldAwareGridCellStyle(sourceGrid, column)}>
+                  {source.unsupported ? (
+                    <UnsupportedSourceRow
+                      source={source}
+                      strings={strings}
+                      onPress={() => openUnsupportedSourceSettings(source.id)}
+                    />
+                  ) : (
+                    <MobileQuickActionMenu actions={sourceContextActions(source.id)}>
+                      <SourceCard
+                        item={source}
+                        onLongPress={mobileNativeQuickMenuAvailable ? undefined : () => {
+                          void hapticSelection();
+                          quickActionDismissRef.current = null;
+                          setQuickActionSourceId(source.id);
+                          setQuickActionVisible(true);
+                        }}
+                      />
+                    </MobileQuickActionMenu>
+                  )}
+                </MobilePoseLayoutView>
+              ))}
+            </MobilePoseLayoutView>
+          ))}
+        </View>
+        )}
+      </View>
+    );
+    // Design-explore: a group glides to its new place in its column (pose
+    // settle spring) when the columns move.
+    return mobileDesignExploreFlag ? (
+      <MobilePoseLayoutView key={section.label}>{group}</MobilePoseLayoutView>
+    ) : group;
+  };
+
   return (
     <>
       {usesNativeHeader ? (
@@ -1717,6 +1911,8 @@ export function BrowseScreen() {
       ) : null}
       <PageScaffold
         nativeHeader={usesNativeHeader}
+        scrollRef={browseScrollRef}
+        onScroll={mobileDesignExploreFlag ? sourceGroupAnchor.onScroll : undefined}
         // No sources: the empty state fills the viewport and only rubber-bands.
         fillViewport={showNoSourcesEmpty}
         onRefresh={() => {
@@ -1763,28 +1959,7 @@ export function BrowseScreen() {
           />
         ) : (
           <View style={[styles.sections, showNoSourcesEmpty ? styles.fillGrow : null]}>
-            {actionError ? (
-              <MobileInlineErrorBanner
-                title={actionError.title}
-                detail={actionError.detail}
-                dismissLabel={strings.common.clear}
-                onDismiss={() => setActionError(null)}
-              />
-            ) : null}
-            {showSourceUpdateNotice &&
-            sourceUpdateNotice &&
-            sourceUpdateMessage ? (
-              <MobileInlineErrorBanner
-                title={strings.settings.sourcesUpdatedTitle}
-                detail={sourceUpdateMessage}
-                dismissLabel={strings.common.clear}
-                iconName="checkmark-circle-outline"
-                tone="success"
-                onDismiss={() =>
-                  setDismissedSourceUpdateNoticeId(sourceUpdateNotice.id)
-                }
-              />
-            ) : null}
+            {sourceListSplit ? null : sourceTopCards}
 
             <View style={showNoSourcesEmpty ? styles.fillGrow : undefined}>
               {!usesNativeHeader && installedSources.length > 0 ? (
@@ -1802,110 +1977,30 @@ export function BrowseScreen() {
                 <View
                   ref={sourceGridContainer.ref}
                   onLayout={sourceGridContainer.onLayout}
-                  style={styles.availableList}
+                  style={mobileDesignExploreFlag ? styles.sourceColumnsRow : styles.availableList}
                 >
-                  {exploreSourceSections.map((section) => {
-                    const label =
-                      section.label === EXPLORE_LIBRARY_SECTION
-                        ? strings.designExplore.browseInLibrary
-                        : formatSourceLanguageLabel(section.label, strings, appLanguage);
-                    return (
-                      <View
-                        key={section.label}
-                        style={[styles.sourceLanguageSection, mobileDesignExploreFlag ? styles.exploreSourceSection : null]}
+                  {mobileDesignExploreFlag ? (
+                    // Stable column keys (as Settings' split panes): a column
+                    // keeps its groups mounted while the window turns, its
+                    // frame on the pose layout transition; the trailing one
+                    // fades in when the panes appear (pose entering/exiting,
+                    // only inside a pose change, so a first mount just shows).
+                    sourceColumns.map((column, columnIndex) => (
+                      <MobilePoseLayoutView
+                        key={`col-${columnIndex}`}
+                        entering={sourcePose.entering}
+                        exiting={sourcePose.exiting}
+                        style={[styles.sourceColumn, { width: column.width, marginLeft: column.marginLeft }]}
                       >
-                        <Text
-                          style={[
-                            styles.sourceLanguageHeader,
-                            { color: tokens.mutedForeground },
-                          ]}
-                        >
-                          {label}
-                        </Text>
-                        {mobileDesignExploreFlag ? (
-                          // Design-explore: one inset group per language, short rows.
-                          <View
-                            style={[
-                              styles.exploreSourceGroup,
-                              { backgroundColor: tokens.card, borderColor: tokens.cardBorder },
-                            ]}
-                          >
-                            {section.sources.map((source, index) => (
-                              // A real view per row (never flattened into the group), so
-                              // a row moved between sections keeps its own subtree.
-                              <View key={source.id} collapsable={false}>
-                                {index > 0 ? (
-                                  <View style={[styles.exploreSourceSeparator, { backgroundColor: tokens.border }]} />
-                                ) : null}
-                                {source.unsupported ? (
-                                  <UnsupportedSourceRow
-                                    source={source}
-                                    strings={strings}
-                                    onPress={() => openUnsupportedSourceSettings(source.id)}
-                                  />
-                                ) : (
-                                  <MobileQuickActionMenu
-                                    actions={sourceContextActions(source.id)}
-                                    // The group draws the row's fill, so the lifted preview
-                                    // was clear: the row carries the group's colour itself
-                                    // (no change at rest) and lifts with the group's corners.
-                                    style={{ backgroundColor: tokens.card }}
-                                    cornerRadius={MOBILE_EXPLORE_RADIUS.group}
-                                  >
-                                  <SourceCard
-                                    compact
-                                    item={
-                                      source.registryId === mainRegistry && !source.exploreKeepSubtitle
-                                        ? { ...source, subtitle: undefined }
-                                        : source
-                                    }
-                                    onLongPress={mobileNativeQuickMenuAvailable ? undefined : () => {
-                                      void hapticSelection();
-                                      quickActionDismissRef.current = null;
-                                      setQuickActionSourceId(source.id);
-                                      setQuickActionVisible(true);
-                                    }}
-                                  />
-                                  </MobileQuickActionMenu>
-                                )}
-                              </View>
-                            ))}
-                          </View>
-                        ) : (
-                        <View style={styles.sourceGrid}>
-                          {chunkMobileGridRows(section.sources, sourceGrid.columns).map((row, rowIndex) => (
-                            <MobilePoseLayoutView key={rowIndex} style={styles.sourceGridRow}>
-                              {row.map((source, column) => (
-                                // Folding glides each card to its pane (pose settle spring).
-                                <MobilePoseLayoutView key={source.id} style={mobileFoldAwareGridCellStyle(sourceGrid, column)}>
-                                  {source.unsupported ? (
-                                    <UnsupportedSourceRow
-                                      source={source}
-                                      strings={strings}
-                                      onPress={() => openUnsupportedSourceSettings(source.id)}
-                                    />
-                                  ) : (
-                                    <MobileQuickActionMenu actions={sourceContextActions(source.id)}>
-                                      <SourceCard
-                                        item={source}
-                                        onLongPress={mobileNativeQuickMenuAvailable ? undefined : () => {
-                                          void hapticSelection();
-                                          quickActionDismissRef.current = null;
-                                          setQuickActionSourceId(source.id);
-                                          setQuickActionVisible(true);
-                                        }}
-                                      />
-                                    </MobileQuickActionMenu>
-                                  )}
-                                </MobilePoseLayoutView>
-                              ))}
-                            </MobilePoseLayoutView>
-                          ))}
-                        </View>
+                        {columnIndex === 0 && sourceListSplit ? sourceTopCards : null}
+                        {exploreSourceSections.map((section, sectionIndex) =>
+                          (sourceGroupColumns[sectionIndex] ?? 0) === columnIndex ? renderSourceSection(section) : null,
                         )}
-                      </View>
-                    );
-                  })}
+                      </MobilePoseLayoutView>
+                    ))
+                  ) : (
+                    exploreSourceSections.map(renderSourceSection)
+                  )}
                 </View>
               ) : (
                 <MobilePaneAlignedView fill>
@@ -2337,6 +2432,14 @@ const styles = StyleSheet.create({
   },
   availableList: {
     gap: 18,
+  },
+  // Design-explore: the group columns side by side (one, or one a pane).
+  sourceColumnsRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+  sourceColumn: {
+    gap: MOBILE_SOURCE_GROUP_GAP,
   },
   availableListScroller: {
     flex: 1,

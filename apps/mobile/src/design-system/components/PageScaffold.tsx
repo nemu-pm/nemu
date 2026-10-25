@@ -94,6 +94,9 @@ type PageScaffoldProps = {
    * centres in it and only rubber-bands, never rests part-way scrolled.
    */
   fillViewport?: boolean;
+  /** The page's scroll events (JS), e.g. for a scroll anchor across a re-layout. */
+  onScroll?: ScrollViewProps["onScroll"];
+  scrollEventThrottle?: number;
 };
 
 type PageListScaffoldProps<ItemT> = Omit<
@@ -443,6 +446,8 @@ export function PageScaffold({
   barContentVisible,
   scrollRef,
   fillViewport = false,
+  onScroll,
+  scrollEventThrottle,
 }: PageScaffoldProps) {
   const contentInsetAdjustmentBehavior = resolveMobilePageContentInsetAdjustment({
     platform: Platform.OS,
@@ -512,6 +517,8 @@ export function PageScaffold({
         keyboardShouldPersistTaps="handled"
         refreshControl={refreshControl}
         showsVerticalScrollIndicator={false}
+        onScroll={onScroll}
+        scrollEventThrottle={onScroll ? (scrollEventThrottle ?? 32) : undefined}
       >
         <Fragment key={fontScaleLayoutKey}>{children}</Fragment>
       </ScrollView>
