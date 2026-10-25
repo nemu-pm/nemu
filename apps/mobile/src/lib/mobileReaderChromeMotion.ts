@@ -70,3 +70,38 @@ export function readerChromeHasScrubber({
 }): boolean {
   return (pagesStatus === "ready" && pageCount > 0) || pagesStatus === "loading";
 }
+
+/**
+ * The reader mounts this long before its zoom's nominal landing (native zoom
+ * start + duration), so its heavy JS render runs during the zoom's tail and
+ * its commit — the main-thread mount, where the chrome's fade starts — lands
+ * at the visible landing. Mounted at the landing event instead (nominal +
+ * 0.1 s native margin), the render then put the fade's start 0.08–0.15 s
+ * later still: N+0.20–0.27 s, done N+0.32–0.39 s (build 9 round 2).
+ */
+export const READER_OPENING_MOUNT_LEAD_MS = 120;
+/** The opening's chrome fade is done by the visible landing + this (acceptance: nothing moves after +250 ms). */
+export const READER_OPENING_CHROME_DONE_BY_MS = 230;
+/** A late opening fade is shortened to catch up, never below this. */
+export const READER_OPENING_CHROME_MIN_MS = 120;
+
+/** Delay from `nowMs` until the reader mounts: `READER_OPENING_MOUNT_LEAD_MS` before the landing, at once when past it. */
+export function resolveReaderOpeningMountDelay(input: { landsAtMs: number; nowMs: number; leadMs?: number }): number {
+  const lead = input.leadMs ?? READER_OPENING_MOUNT_LEAD_MS;
+  const delay = input.landsAtMs - lead - input.nowMs;
+  return Number.isFinite(delay) ? Math.max(0, delay) : 0;
+}
+
+/**
+ * Duration of the chrome's opening fade, decided as the reader mounts with
+ * its chrome shown: the usual `durationMs` when it ends by the landing +
+ * `READER_OPENING_CHROME_DONE_BY_MS`; a reader that mounts late shortens it
+ * (down to `READER_OPENING_CHROME_MIN_MS`) so it still ends there. No landing
+ * known (no zoom), or `durationMs` 0: unchanged.
+ */
+export function resolveReaderOpeningChromeMs(input: { landsAtMs: number | null; nowMs: number; durationMs: number }): number {
+  const { landsAtMs, nowMs, durationMs } = input;
+  if (landsAtMs == null || !Number.isFinite(landsAtMs) || !(durationMs > 0)) return durationMs;
+  const left = landsAtMs + READER_OPENING_CHROME_DONE_BY_MS - nowMs;
+  return Math.round(Math.min(durationMs, Math.max(Math.min(durationMs, READER_OPENING_CHROME_MIN_MS), left)));
+}

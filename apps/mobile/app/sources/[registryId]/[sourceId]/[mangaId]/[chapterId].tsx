@@ -12,7 +12,8 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { MobileExploreZoomRoute } from "@/components/explore/MobileExploreZoomRoute";
-import { useMobileExploreZoomLanded } from "@/components/explore/mobileExploreZoomLanded";
+import { useMobileExploreZoomLanded, useMobileExploreZoomLandsAt } from "@/components/explore/mobileExploreZoomLanded";
+import { resolveReaderOpeningMountDelay } from "@/lib/mobileReaderChromeMotion";
 import { ReaderZoomEntryContext, type ReaderZoomEntry } from "@/components/reader/readerZoomEntry";
 import {
   createReaderOpeningGate,
@@ -499,7 +500,8 @@ function logFadeEnd(reason: CoverRevealReason, landedAt: number, tapAt: number |
 /**
  * The reader is far too heavy to mount in the commit a zoom pushes, so the
  * zoom lands on the tapped cover, laid out where the first page will be, and
- * the reader mounts underneath once it has landed; the cover fades into the
+ * the reader mounts underneath as it lands (its render started just before
+ * the visible landing, so its commit lands with it); the cover fades into the
  * reader once it is ready to show (scroll reading: placed at the reading
  * position, or `COVER_SCROLL_HOLD_MAX_MS` after landing at the latest — on
  * the UI thread; paged: the page on screen drawn — see `readerZoomPageShown`).
@@ -515,6 +517,22 @@ function ReaderAfterZoom({
   standIn: MobileReaderStandIn | null;
 }) {
   const landed = useMobileExploreZoomLanded();
+  // The reader mounts a moment before the zoom's visible landing
+  // (READER_OPENING_MOUNT_LEAD_MS): its heavy render runs during the zoom's
+  // tail and its commit, which starts the chrome's fade, lands with the zoom.
+  // Everything timed "from the landing" (the cover's caps, the timing
+  // record) still counts from the landing itself.
+  const landsAt = useMobileExploreZoomLandsAt();
+  const [mountDue, setMountDue] = useState(false);
+  useEffect(() => {
+    if (landed || mountDue || landsAt == null) return;
+    const timer = setTimeout(
+      () => setMountDue(true),
+      resolveReaderOpeningMountDelay({ landsAtMs: landsAt, nowMs: Date.now() }),
+    );
+    return () => clearTimeout(timer);
+  }, [landed, landsAt, mountDue]);
+  const readerMounted = landed || mountDue;
   const [cover] = useState(() => {
     const zoomCover = peekMobileReaderZoomCover(zoomId);
     if (__DEV__) {
@@ -648,7 +666,7 @@ function ReaderAfterZoom({
       // reader's gestures are untouched.
       onTouchStart={standInMounted ? dismissStandIn : undefined}
     >
-      {landed ? (
+      {readerMounted ? (
         <ReaderZoomEntryContext.Provider value={entry}>
           <ReaderScreen />
         </ReaderZoomEntryContext.Provider>

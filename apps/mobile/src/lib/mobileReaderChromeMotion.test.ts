@@ -8,6 +8,11 @@ import {
   readerChromeHasScrubber,
   readerChromeMaterialTiming,
   readerChromeMotionVariant,
+  READER_OPENING_CHROME_DONE_BY_MS,
+  READER_OPENING_CHROME_MIN_MS,
+  READER_OPENING_MOUNT_LEAD_MS,
+  resolveReaderOpeningChromeMs,
+  resolveReaderOpeningMountDelay,
 } from "./mobileReaderChromeMotion";
 
 /** Progress of a cubic-bezier(x1, y1, x2, y2) timing function at time t. */
@@ -84,5 +89,36 @@ describe("reader chrome scrubber", () => {
     expect(readerChromeHasScrubber({ pagesStatus: "ready", pageCount: 0 })).toBe(false);
     expect(readerChromeHasScrubber({ pagesStatus: "error", pageCount: 0 })).toBe(false);
     expect(readerChromeHasScrubber({ pagesStatus: "idle", pageCount: 12 })).toBe(false);
+  });
+});
+
+describe("reader opening: the chrome's fade is done by the visible landing + 0.25 s (build 9 round 2)", () => {
+  const landsAt = 10_000;
+  test("the reader mounts READER_OPENING_MOUNT_LEAD_MS before the nominal landing, at once past it", () => {
+    expect(READER_OPENING_MOUNT_LEAD_MS).toBe(120);
+    expect(resolveReaderOpeningMountDelay({ landsAtMs: landsAt, nowMs: landsAt - 350 })).toBe(230);
+    expect(resolveReaderOpeningMountDelay({ landsAtMs: landsAt, nowMs: landsAt - 50 })).toBe(0);
+    expect(resolveReaderOpeningMountDelay({ landsAtMs: landsAt, nowMs: landsAt + 100 })).toBe(0);
+    expect(resolveReaderOpeningMountDelay({ landsAtMs: Number.NaN, nowMs: 0 })).toBe(0);
+  });
+
+  test("a reader that mounts by the landing fades in the usual 200 ms, done by +230", () => {
+    for (const mountedAt of [landsAt - 120, landsAt - 20, landsAt, landsAt + 30]) {
+      const ms = resolveReaderOpeningChromeMs({ landsAtMs: landsAt, nowMs: mountedAt, durationMs: READER_CHROME_MATERIAL_MS });
+      expect(ms).toBe(READER_CHROME_MATERIAL_MS);
+      expect(mountedAt + ms).toBeLessThanOrEqual(landsAt + READER_OPENING_CHROME_DONE_BY_MS);
+    }
+  });
+
+  test("a late reader shortens the fade to end by +230 (never below the minimum)", () => {
+    // Round 2's fade starts: N+0.20–0.27 s with the mount at the landing event.
+    expect(resolveReaderOpeningChromeMs({ landsAtMs: landsAt, nowMs: landsAt + 80, durationMs: 200 })).toBe(150);
+    expect(resolveReaderOpeningChromeMs({ landsAtMs: landsAt, nowMs: landsAt + 100, durationMs: 200 })).toBe(130);
+    expect(resolveReaderOpeningChromeMs({ landsAtMs: landsAt, nowMs: landsAt + 200, durationMs: 200 })).toBe(READER_OPENING_CHROME_MIN_MS);
+  });
+
+  test("no zoom (no landing known) or no animation: unchanged", () => {
+    expect(resolveReaderOpeningChromeMs({ landsAtMs: null, nowMs: 5, durationMs: 200 })).toBe(200);
+    expect(resolveReaderOpeningChromeMs({ landsAtMs: landsAt, nowMs: landsAt + 500, durationMs: 0 })).toBe(0);
   });
 });

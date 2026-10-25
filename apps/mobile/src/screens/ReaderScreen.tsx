@@ -15,6 +15,7 @@ import {
   VerticalBarBehavior,
   WindowLayoutObserver,
 } from "../../modules/nemu-window-layout";
+import { useMobileExploreZoomLandsAt } from "@/components/explore/mobileExploreZoomLanded";
 import { MOBILE_READER_QA_CHROME, MOBILE_READER_QA_NOTEBOOK, MOBILE_READER_QA_PANEL, MOBILE_READER_QA_PLUGIN } from "@/lib/mobileReaderQa";
 import { mobileWindowAbsoluteBand, type MobileWindowLayout, type WindowLayoutRect } from "@/lib/mobileWindowLayout";
 import {
@@ -598,6 +599,7 @@ import {
   READER_CHROME_MATERIAL_CURVE,
   readerChromeHasScrubber,
   readerChromeMaterialTiming,
+  resolveReaderOpeningChromeMs,
 } from "@/lib/mobileReaderChromeMotion";
 import {
   chapterFromState,
@@ -11718,7 +11720,23 @@ export function ReaderScreen() {
   // instead of being cut off by the sheet's edge, and back in after.
   const readerChromeUnderSheet = readerSideBar && useNativeReaderSettings && readerDisplaySettingsOpen;
   const readerChromePresent = showReaderChrome && !endOfChapterPromptVisible && !readerChromeUnderSheet;
-  const { durationMs: readerChromeMaterialMs, slide: readerChromeSlide } = readerChromeMaterialTiming(reduceMotion);
+  const { durationMs: readerChromeBaseMs, slide: readerChromeSlide } = readerChromeMaterialTiming(reduceMotion);
+  // The opening's fade (the chrome shown as the reader mounts) is done by the
+  // zoom's visible landing + 230 ms: the reader mounts just before the landing
+  // (READER_OPENING_MOUNT_LEAD_MS), so this is the usual 200 ms; a reader that
+  // still mounts late shortens it to catch up (resolveReaderOpeningChromeMs).
+  const readerZoomLandsAt = useMobileExploreZoomLandsAt();
+  const [readerChromeOpeningMs, setReaderChromeOpeningMs] = useState<number | null>(() =>
+    readerChromePresent
+      ? resolveReaderOpeningChromeMs({ landsAtMs: readerZoomLandsAt, nowMs: Date.now(), durationMs: readerChromeBaseMs })
+      : null,
+  );
+  useEffect(() => {
+    if (readerChromeOpeningMs == null) return;
+    const timer = setTimeout(() => setReaderChromeOpeningMs(null), readerChromeOpeningMs + 40);
+    return () => clearTimeout(timer);
+  }, [readerChromeOpeningMs]);
+  const readerChromeMaterialMs = readerChromeOpeningMs ?? readerChromeBaseMs;
   const [readerChromeLingering, setReaderChromeLingering] = useState(false);
   const [readerChromeWasPresent, setReaderChromeWasPresent] = useState(readerChromePresent);
   if (readerChromeWasPresent !== readerChromePresent) {

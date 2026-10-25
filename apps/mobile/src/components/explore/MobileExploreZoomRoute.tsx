@@ -7,7 +7,7 @@ import {
   zoomSettledEventAvailable,
   zoomTransitionAvailable,
 } from "../../../modules/nemu-window-layout";
-import { MobileExploreZoomLandedContext } from "./mobileExploreZoomLanded";
+import { MobileExploreZoomLandedContext, MobileExploreZoomLandsAtContext } from "./mobileExploreZoomLanded";
 
 /**
  * How long a screen waits for its zoom to land before it finishes itself
@@ -63,9 +63,26 @@ export function MobileExploreZoomRoute({
     const timer = setTimeout(settle, SETTLE_FALLBACK_MS);
     return () => clearTimeout(timer);
   }, [landed, settle]);
+  // The zoom's nominal landing (its native start + duration) is the visible
+  // one; the native landing event comes 0.1 s past it (its settle margin)
+  // and reaches JS later still. Landed at the nominal end, whichever is first.
+  const [landsAt, setLandsAt] = useState<number | null>(null);
+  const onStartedRef = useRef(onStarted);
+  onStartedRef.current = onStarted;
+  const onZoomStarted = useCallback((event: ZoomStartedEvent) => {
+    const at = event.startedAtMs + event.durationMs;
+    if (Number.isFinite(at)) setLandsAt((previous) => previous ?? at);
+    onStartedRef.current?.(event);
+  }, []);
+  useEffect(() => {
+    if (landed || landsAt == null) return;
+    const timer = setTimeout(settle, Math.max(0, landsAt - Date.now()));
+    return () => clearTimeout(timer);
+  }, [landed, landsAt, settle]);
 
   return (
     <MobileExploreZoomLandedContext.Provider value={landed}>
+      <MobileExploreZoomLandsAtContext.Provider value={landsAt}>
       {children}
       {zooms && zoomId ? (
         <ZoomTarget
@@ -73,10 +90,11 @@ export function MobileExploreZoomRoute({
           align={false}
           interactiveDismiss={interactiveDismiss}
           onZoomSettled={settle}
-          onZoomStarted={onStarted}
+          onZoomStarted={onZoomStarted}
           style={styles.target}
         />
       ) : null}
+      </MobileExploreZoomLandsAtContext.Provider>
     </MobileExploreZoomLandedContext.Provider>
   );
 }
