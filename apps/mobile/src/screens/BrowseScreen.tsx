@@ -103,7 +103,7 @@ import {
 import { mobileGridPrefersEvenColumns } from "@/lib/mobileAdaptiveLayout";
 import { getMobileSourceGridLayout } from "@/lib/mobilePageLayout";
 import { chunkMobileGridRows, mobileFoldAwareGridCellStyle } from "@/lib/mobileFoldAwareGrid";
-import { MobilePoseLayoutView } from "@/components/MobilePoseLayoutView";
+import { MobilePoseLayoutView, MobilePoseWidthSpringView } from "@/components/MobilePoseLayoutView";
 import { MobilePaneAlignedView } from "@/lib/MobilePaneAlignedView";
 import { useMobileContainerFold } from "@/lib/useMobileContainerFold";
 import {
@@ -1988,17 +1988,25 @@ export function BrowseScreen() {
                     // frame on the pose layout transition; the trailing one
                     // fades in when the panes appear (pose entering/exiting,
                     // only inside a pose change, so a first mount just shows).
+                    // The frame transition only moves the column's own frame:
+                    // its groups were laid out at the new width at once, so
+                    // unfolding snapped each row's trailing edge and chevron
+                    // ~17pt in one frame while the column glided (build 9 r2
+                    // E). The content now follows the width on the same
+                    // spring, laid out at each in-between width.
                     sourceColumns.map((column, columnIndex) => (
                       <MobilePoseLayoutView
                         key={`col-${columnIndex}`}
                         entering={sourcePose.entering}
                         exiting={sourcePose.exiting}
-                        style={[styles.sourceColumn, { width: column.width, marginLeft: column.marginLeft }]}
+                        style={{ width: column.width, marginLeft: column.marginLeft }}
                       >
-                        {columnIndex === 0 && sourceListSplit ? sourceTopCards : null}
-                        {exploreSourceSections.map((section, sectionIndex) =>
-                          (sourceGroupColumns[sectionIndex] ?? 0) === columnIndex ? renderSourceSection(section) : null,
-                        )}
+                        <MobilePoseWidthSpringView width={column.width} style={styles.sourceColumn}>
+                          {columnIndex === 0 && sourceListSplit ? sourceTopCards : null}
+                          {exploreSourceSections.map((section, sectionIndex) =>
+                            (sourceGroupColumns[sectionIndex] ?? 0) === columnIndex ? renderSourceSection(section) : null,
+                          )}
+                        </MobilePoseWidthSpringView>
                       </MobilePoseLayoutView>
                     ))
                   ) : (

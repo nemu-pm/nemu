@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { getMobileShelfPlankSegments, getMobileShelfRow } from "./mobileLibraryShelf";
+import { MOBILE_MOTION, shouldMobilePoseSizeSpring } from "./mobileMotion";
 
 // Build 9 (Duo sim): unfolding the Library dropped the page 38 pt in one frame
 // and merged the shelf rails at once; the source home's cards resized in one
@@ -56,5 +57,44 @@ describe("unfolding glides like folding (build 9 E)", () => {
     // The same leading start: segment 0 only grows across the hinge.
     expect(flat[0].x).toBe(half[0].x);
     expect(flat[0].width).toBeGreaterThan(half[0].width);
+  });
+
+  test("the Sources tab's rows follow their column's width: re-laid out on the spring, not snapped (build 9 r2 5c)", () => {
+    const browse = read("../screens/BrowseScreen.tsx");
+    expect(browse).toContain('<MobilePoseWidthSpringView width={column.width} style={styles.sourceColumn}>');
+    // The column frame keeps its own transition (position, fading panes).
+    expect(browse).toContain("style={{ width: column.width, marginLeft: column.marginLeft }}");
+    const view = read("../components/MobilePoseLayoutView.tsx");
+    expect(view).toContain("useMobilePoseWidthSpring(width)");
+    const spring = read("./useMobilePoseSizeSpring.ts");
+    expect(spring).toContain("useAnimatedStyle(() => ({ width: animated.value }))");
+    // Retargeting continues from what is on screen (no reset to the old width).
+    expect(spring).toContain("animated.value = withSpring(width, { ...MOBILE_MOTION.settleSpring });");
+  });
+
+  test("a size glides only inside a pose change, between measured sizes, without Reduce Motion", () => {
+    expect(shouldMobilePoseSizeSpring(454, 437, true, false)).toBe(true);
+    expect(shouldMobilePoseSizeSpring(437, 454, true, false)).toBe(true); // folding too
+    expect(shouldMobilePoseSizeSpring(454, 437, false, false)).toBe(false);
+    expect(shouldMobilePoseSizeSpring(454, 437, true, true)).toBe(false);
+    expect(shouldMobilePoseSizeSpring(0, 437, true, false)).toBe(false); // first measurement
+    expect(shouldMobilePoseSizeSpring(437.2, 437, true, false)).toBe(false);
+  });
+
+  test("on the settle spring a 17 pt width change moves at most 11 pt between two 30 fps frames", () => {
+    const { stiffness, damping, mass } = MOBILE_MOTION.settleSpring;
+    let x = 17;
+    let v = 0;
+    const dt = 1 / 1000;
+    const positions: number[] = [];
+    for (let ms = 0; ms <= 1000; ms += 1) {
+      if (ms % 35 === 0) positions.push(x);
+      const a = (-stiffness * x - damping * v) / mass;
+      v += a * dt;
+      x += v * dt;
+    }
+    const steps = positions.slice(1).map((p, i) => Math.abs(p - positions[i]));
+    expect(Math.max(...steps)).toBeLessThanOrEqual(11);
+    expect(Math.abs(positions[positions.length - 1])).toBeLessThan(0.5);
   });
 });

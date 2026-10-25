@@ -2,7 +2,7 @@ import type { ComponentProps, ReactNode } from "react";
 import { StyleSheet } from "react-native";
 import Animated from "react-native-reanimated";
 import { useMobilePoseLayout } from "@/lib/MobilePoseTransitionContext";
-import { useMobilePoseSizeSpring } from "@/lib/useMobilePoseSizeSpring";
+import { useMobilePoseSizeSpring, useMobilePoseWidthSpring } from "@/lib/useMobilePoseSizeSpring";
 
 type MobilePoseLayoutViewProps = ComponentProps<typeof Animated.View> & {
   /**
@@ -34,6 +34,25 @@ export function MobilePoseLayoutView({ contentSize, children, ...props }: Mobile
       {contentSize === undefined ? children : <MobilePoseSizeSpringView size={contentSize}>{children}</MobilePoseSizeSpringView>}
     </Animated.View>
   );
+}
+
+/**
+ * Content laid out at `width` that glides to a new width through a pose
+ * change, re-laid out at each in-between width (useMobilePoseWidthSpring):
+ * for rows whose height does not follow their width — a scale would stretch
+ * their text — so their trailing edge and chevron slide with the frame.
+ */
+export function MobilePoseWidthSpringView({
+  width,
+  style,
+  children,
+}: {
+  width: number;
+  style?: ComponentProps<typeof Animated.View>["style"];
+  children: ReactNode;
+}) {
+  const animatedWidth = useMobilePoseWidthSpring(width);
+  return <Animated.View style={[style, animatedWidth]}>{children}</Animated.View>;
 }
 
 /**

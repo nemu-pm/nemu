@@ -326,3 +326,18 @@ export function mobilePoseVeilRevealAt({
 }): number {
   return Math.min(settledAt + holdMs, sessionStart + maxHoldMs);
 }
+
+/**
+ * Whether a size change from `from` to `to` glides on the pose spring: a real
+ * change (≥ 0.5 pt) between two measured sizes, inside a pose change, without
+ * Reduce Motion. Anything else applies at once.
+ */
+export function shouldMobilePoseSizeSpring(
+  from: number,
+  to: number,
+  poseWindowOpen: boolean,
+  reduceMotion: boolean,
+): boolean {
+  if (!(from > 0) || !(to > 0) || Math.abs(from - to) < 0.5) return false;
+  return poseWindowOpen && !reduceMotion;
+}
