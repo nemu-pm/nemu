@@ -34,8 +34,12 @@ import {
   mobileReaderTopInsetLatchKey,
   type MobileReaderTopInsetLatch,
   mobileReaderLatchedWindowLayout,
+  mobileReaderLayoutInsetLatchBase,
   mobileReaderLayoutInsetLatchKey,
   mobileReaderNextLayoutInsetLatch,
+  peekMobileReaderWindowLayout,
+  rememberMobileReaderLayoutInsetLatch,
+  rememberMobileReaderWindowLayout,
   type MobileReaderLayoutInsetLatch,
   mobileReaderScrollStableTopInset,
   mobileReaderSafePadding,
@@ -1572,8 +1576,17 @@ export function ReaderScreen() {
   }, []));
   useMobilePoseVeilAppearance(readerIsFocused ? READER_POSE_VEIL : null);
   const [readerStageWindowOrigin, setReaderStageWindowOrigin] = useState({ x: 0, y: 0 });
-  const [reservedLayout, setReservedLayout] = useState<MobileWindowLayout | null>(null);
   const appObservedWindowLayout = useMobileObservedWindowLayout();
+  // Until this reader's observer reports (a moment after it mounts, at the
+  // zoom's landing): the last reader layout of this same window, so the first
+  // frame is laid out as the settled one (peekMobileReaderWindowLayout).
+  const [reservedLayout, setReservedLayout] = useState<MobileWindowLayout | null>(() =>
+    peekMobileReaderWindowLayout(window, appObservedWindowLayout),
+  );
+  const onReaderWindowLayoutChange = useCallback((layout: MobileWindowLayout) => {
+    rememberMobileReaderWindowLayout(layout);
+    setReservedLayout(layout);
+  }, []);
   const store = useMobileDataStore();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
@@ -3046,13 +3059,20 @@ export function ReaderScreen() {
   // Live `insets` only place the chrome that fades with the status bar.
   const [readerLayoutInsetLatch, setReaderLayoutInsetLatch] =
     useState<MobileReaderLayoutInsetLatch | null>(null);
+  // Started from this configuration's latch seen earlier this session (a
+  // reopen): the island is known from the first frame, so the shown chrome
+  // never moves once the status bar appears with it.
+  const readerLayoutInsetKey = mobileReaderLayoutInsetLatchKey(readerSampledWindowLayout);
   const readerLayoutInsets = mobileReaderNextLayoutInsetLatch(
-    readerLayoutInsetLatch,
-    mobileReaderLayoutInsetLatchKey(readerSampledWindowLayout),
+    mobileReaderLayoutInsetLatchBase(readerLayoutInsetLatch, readerLayoutInsetKey),
+    readerLayoutInsetKey,
     readerSampledWindowLayout.safeAreaInsets ?? insets,
     readerSampledWindowLayout.occlusions,
   );
   if (readerLayoutInsets !== readerLayoutInsetLatch) setReaderLayoutInsetLatch(readerLayoutInsets);
+  useEffect(() => {
+    rememberMobileReaderLayoutInsetLatch(readerLayoutInsets);
+  }, [readerLayoutInsets]);
   const readerFoldedWindowLayout = useMemo(
     () => mobileReaderLatchedWindowLayout(readerSampledWindowLayout, readerLayoutInsets),
     [readerLayoutInsets, readerSampledWindowLayout],
@@ -12834,7 +12854,7 @@ export function ReaderScreen() {
   return (
     <View style={[styles.root, { backgroundColor: readerBackgroundColor }]}>
       <Stack.Screen options={readerScreenOptions} />
-      <WindowLayoutObserver style={StyleSheet.absoluteFill} enabled={readerIsFocused} onLayoutChange={setReservedLayout} />
+      <WindowLayoutObserver style={StyleSheet.absoluteFill} enabled={readerIsFocused} onLayoutChange={onReaderWindowLayoutChange} />
       <OuterCoverAnchor active={readerOuterCover.running} />
       {/* Wherever the reader keeps the system vertical bar (the Duo outer
           display, a Split View half) Back and the actions are real toolbar

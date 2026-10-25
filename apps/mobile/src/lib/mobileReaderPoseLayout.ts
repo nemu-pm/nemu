@@ -1044,6 +1044,81 @@ export function mobileReaderNextLayoutInsetLatch(
   return { key, insets: merged, occlusions: added.length > 0 ? [...current.occlusions, ...added] : current.occlusions };
 }
 
+/**
+ * The latch of each window configuration, for this session: a reader that
+ * opens (a reopen, the next chapter) starts from what an earlier one saw in
+ * the same configuration — the status bar's inset and its island, seen while
+ * the chrome (and so the status bar) was shown — instead of learning them a
+ * moment after it landed, which moved the shown chrome (the top row dropped
+ * under the island's band, then rose into it with ⋯ gliding left of the
+ * clock, 0.45–0.55 s after the landing; build 9).
+ */
+const MOBILE_READER_LAYOUT_INSET_MEMORY_LIMIT = 8;
+const rememberedLayoutInsetLatches = new Map<string, MobileReaderLayoutInsetLatch>();
+
+/** Where a latch for `key` starts: the current one when it is that configuration's, else the remembered one. */
+export function mobileReaderLayoutInsetLatchBase(
+  current: MobileReaderLayoutInsetLatch | null,
+  key: string,
+): MobileReaderLayoutInsetLatch | null {
+  if (current?.key === key) return current;
+  return rememberedLayoutInsetLatches.get(key) ?? current;
+}
+
+export function rememberMobileReaderLayoutInsetLatch(latch: MobileReaderLayoutInsetLatch): void {
+  rememberedLayoutInsetLatches.delete(latch.key);
+  rememberedLayoutInsetLatches.set(latch.key, latch);
+  while (rememberedLayoutInsetLatches.size > MOBILE_READER_LAYOUT_INSET_MEMORY_LIMIT) {
+    const oldest = rememberedLayoutInsetLatches.keys().next().value;
+    if (oldest === undefined) break;
+    rememberedLayoutInsetLatches.delete(oldest);
+  }
+}
+
+/**
+ * The reader window's last observed layout, this session. A reader mounts at
+ * its zoom's landing and its own observer reports a moment later: until then
+ * it laid out a bare window (no vertical-bar edge, no divisions, no
+ * occlusions), a configuration of its own, so the latch above started over
+ * and the shown chrome moved when the report came in. A reader opening in
+ * the same window (same size, same division and hinge state as the app's
+ * live observer reports) starts from the last layout instead.
+ */
+let rememberedReaderWindowLayout: MobileWindowLayout | null = null;
+
+export function rememberMobileReaderWindowLayout(layout: MobileWindowLayout | null): void {
+  if (layout) rememberedReaderWindowLayout = layout;
+}
+
+function divisionSignature(layout: Pick<MobileWindowLayout, "divisions">): string {
+  return layout.divisions
+    .map((region) => `${Math.round(finite(region.x) + finite(region.width) / 2)},${Math.round(finite(region.y) + finite(region.height) / 2)},${region.active ? 1 : 0}`)
+    .sort()
+    .join(";");
+}
+
+/** The remembered reader layout when it is this window's (see above), else null. */
+export function peekMobileReaderWindowLayout(
+  window: { width: number; height: number },
+  app: MobileWindowLayout | null | undefined,
+): MobileWindowLayout | null {
+  const layout = rememberedReaderWindowLayout;
+  if (!layout) return null;
+  if (Math.abs(layout.width - window.width) > 0.5 || Math.abs(layout.height - window.height) > 0.5) return null;
+  if (app) {
+    if (Math.abs(app.width - layout.width) > 0.5 || Math.abs(app.height - layout.height) > 0.5) return null;
+    if (divisionSignature(app) !== divisionSignature(layout)) return null;
+    if ((app.hinge ?? null) !== (layout.hinge ?? null)) return null;
+  }
+  return layout;
+}
+
+/** Exposed for tests. */
+export function resetMobileReaderLayoutInsetLatchMemoryForTesting(): void {
+  rememberedLayoutInsetLatches.clear();
+  rememberedReaderWindowLayout = null;
+}
+
 /** `layout` with the latched safe area and every latched occlusion (active). */
 export function mobileReaderLatchedWindowLayout(
   layout: MobileWindowLayout,

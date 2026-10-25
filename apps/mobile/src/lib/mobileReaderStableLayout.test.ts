@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
   mobileReaderLatchedWindowLayout,
+  mobileReaderLayoutInsetLatchBase,
   mobileReaderLayoutInsetLatchKey,
+  peekMobileReaderWindowLayout,
+  rememberMobileReaderLayoutInsetLatch,
+  rememberMobileReaderWindowLayout,
+  resetMobileReaderLayoutInsetLatchMemoryForTesting,
   mobileReaderNextLayoutInsetLatch,
   mobileReaderPoseLayout,
   mobileReaderScrollStableTopInset,
@@ -198,5 +203,59 @@ describe("layout inset latch", () => {
     });
     const [, moved] = latchThrough([outer(0, 84), outer(84, 0)]);
     expect(moved!.latch.insets).toEqual({ top: 24, left: 84, bottom: 20, right: 0 });
+  });
+});
+
+describe("a reopen lays the chrome out settled from its first frame (build 9: ⋯ glided 48pt left after the landing)", () => {
+  /** One reader session as ReaderScreen runs it: the first frame, then every observer report. */
+  function session(window: { width: number; height: number }, app: MobileWindowLayout | null, reports: MobileWindowLayout[]) {
+    const bare: MobileWindowLayout = { width: window.width, height: window.height, supported: false, divisions: [], occlusions: [] };
+    let reserved = peekMobileReaderWindowLayout(window, app);
+    let latch: MobileReaderLayoutInsetLatch | null = null;
+    const frames: MobileReaderPoseLayout[] = [];
+    const frame = () => {
+      const sample = reserved ?? bare;
+      const key = mobileReaderLayoutInsetLatchKey(sample);
+      latch = mobileReaderNextLayoutInsetLatch(mobileReaderLayoutInsetLatchBase(latch, key), key, sample.safeAreaInsets ?? zero, sample.occlusions);
+      rememberMobileReaderLayoutInsetLatch(latch);
+      frames.push(poseFor(sample, latch, {}));
+    };
+    frame();
+    for (const report of reports) {
+      rememberMobileReaderWindowLayout(report);
+      reserved = report;
+      frame();
+    }
+    return frames;
+  }
+  const window = { width: 951, height: 669 };
+  const topRow = (pose: MobileReaderPoseLayout) => {
+    const chrome = pose.chrome;
+    if (chrome.kind !== "capsules") throw new Error(chrome.kind);
+    return { back: chrome.back, title: chrome.title, actions: chrome.actions, more: chrome.more };
+  };
+
+  test("first open: the bare first frame moves once the observer reports (what build 9 showed)", () => {
+    resetMobileReaderLayoutInsetLatchMemoryForTesting();
+    const frames = session(window, duoShown(), [duoHidden(), duoShown()]);
+    expect(topRow(frames[0]!)).not.toEqual(topRow(frames[frames.length - 1]!));
+  });
+
+  test("reopen: every frame from the first has the settled top row", () => {
+    resetMobileReaderLayoutInsetLatchMemoryForTesting();
+    session(window, duoShown(), [duoHidden(), duoShown(), duoHidden()]);
+    // The status bar hidden on the first report (the island and its inset come later).
+    const frames = session(window, duoShown(), [duoHidden(), duoShown()]);
+    const settled = topRow(frames[frames.length - 1]!);
+    for (const pose of frames) expect(topRow(pose)).toEqual(settled);
+  });
+
+  test("another window (a fold, the other display) never reuses the remembered layout", () => {
+    resetMobileReaderLayoutInsetLatchMemoryForTesting();
+    rememberMobileReaderWindowLayout(duoShown());
+    expect(peekMobileReaderWindowLayout(window, duoShown())).not.toBeNull();
+    expect(peekMobileReaderWindowLayout({ width: 466, height: 678 }, null)).toBeNull();
+    expect(peekMobileReaderWindowLayout(window, duoShown([activeFold]))).toBeNull();
+    expect(peekMobileReaderWindowLayout(window, { ...duoShown(), hinge: "partiallyOpen" })).toBeNull();
   });
 });
