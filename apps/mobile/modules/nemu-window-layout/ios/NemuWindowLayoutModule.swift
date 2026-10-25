@@ -90,6 +90,10 @@ public final class NemuWindowLayoutModule: Module {
     // keep them mounted under a top bar; with `NemuBarAxisVisibilityView`.
     Constant("barAxisViewsVersion") { 2 }
     Constant("glassViewHostsChildren") { true }
+    // The glass view takes `materializeOffsetY` / `materializeNotBeforeMs`:
+    // its slide runs in the same Core Animation as its material, optionally
+    // starting at a wall-clock time.
+    Constant("glassMaterializeMotionAvailable") { true }
     Constant("pageCurlViewAvailable") { true }
     Constant("pageCurlTurnAvailable") { true }
     // The reader's Orientation Lock where the system only takes a preference
@@ -228,6 +232,12 @@ public final class NemuWindowLayoutModule: Module {
       }
       Prop("materializeDurationMs") { (view: NemuGlassView, ms: Double) in
         view.materializeDuration = max(0, ms) / 1000
+      }
+      Prop("materializeOffsetY") { (view: NemuGlassView, offset: Double) in
+        view.materializeOffsetY = offset.isFinite ? CGFloat(offset) : 0
+      }
+      Prop("materializeNotBeforeMs") { (view: NemuGlassView, ms: Double) in
+        view.materializeNotBeforeMs = ms.isFinite ? ms : 0
       }
     }
     // Cover zoom transition (iOS 18+ `preferredTransition = .zoom`): a source
@@ -2389,12 +2399,26 @@ final class NemuGlassView: ExpoView {
   /// First install animates from no effect (materializes) instead of popping in.
   var animateAppearance = false
   var materializeDuration: TimeInterval = 0
+  /// Where the piece sits while dematerialized, relative to its frame (pt,
+  /// vertical): it comes in from there as it materializes and goes back as it
+  /// dematerializes, in the same `UIView.animate` as the effect and content
+  /// alpha — one Core Animation, run by the render server, so a busy main
+  /// thread can neither skip the slide (a Reanimated slide on the main thread
+  /// jumped 6pt in one frame at the end of the reader's opening fade, build 9
+  /// round 3) nor run it apart from the material.
+  var materializeOffsetY: CGFloat = 0
+  /// Wall clock (ms since 1970) before which a materialize does not start
+  /// (0: at once): the reader's opening chrome waits for its zoom's visible
+  /// landing however early it mounted. The wait is the animation's own delay
+  /// (Core Animation), not a main-thread timer.
+  var materializeNotBeforeMs: Double = 0
 
   required init(appContext: AppContext? = nil) {
     super.init(appContext: appContext)
     backgroundColor = .clear
-    effectView.frame = bounds
-    effectView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    // Placed by bounds + center (never `frame`): it carries the
+    // materialize slide's transform.
+    layoutEffectView()
     addSubview(effectView)
     applyShape()
     if #available(iOS 17.0, *) {
@@ -2443,7 +2467,7 @@ final class NemuGlassView: ExpoView {
 
   override func layoutSubviews() {
     super.layoutSubviews()
-    effectView.frame = bounds
+    layoutEffectView()
     if #unavailable(iOS 26.0) { applyShape() }
     guard !effectInstalled else { return }
     if isEffectRenderable {
@@ -2480,14 +2504,26 @@ final class NemuGlassView: ExpoView {
     if !materialized {
       effectView.effect = nil
       effectView.contentView.alpha = 0
+      effectView.transform = dematerializedTransform
     } else if animateAppearance && materializeDuration > 0 {
       effectView.effect = nil
       effectView.contentView.alpha = 0
+      effectView.transform = dematerializedTransform
       animateMaterial(to: true, duration: materializeDuration)
     } else {
       effectView.contentView.alpha = 1
+      effectView.transform = .identity
       applyEffect()
     }
+  }
+
+  private var dematerializedTransform: CGAffineTransform {
+    materializeOffsetY == 0 ? .identity : CGAffineTransform(translationX: 0, y: materializeOffsetY)
+  }
+
+  private func layoutEffectView() {
+    effectView.bounds = CGRect(origin: .zero, size: bounds.size)
+    effectView.center = CGPoint(x: bounds.midX, y: bounds.midY)
   }
 
   private func animateMaterial(to visible: Bool, duration: TimeInterval) {
@@ -2498,12 +2534,18 @@ final class NemuGlassView: ExpoView {
         effectView.effect = nil
       }
       effectView.contentView.alpha = visible ? 1 : 0
+      effectView.transform = visible ? .identity : dematerializedTransform
     }
     if duration <= 0 {
       changes()
       return
     }
-    UIView.animate(withDuration: duration, delay: 0, options: [.beginFromCurrentState, .curveEaseOut, .allowUserInteraction], animations: changes)
+    // A materialize waits for `materializeNotBeforeMs` (the reader's zoom
+    // landing) as the animation's delay; a dematerialize never waits.
+    let delay = visible && materializeNotBeforeMs > 0
+      ? max(0, (materializeNotBeforeMs - Date().timeIntervalSince1970 * 1000) / 1000)
+      : 0
+    UIView.animate(withDuration: duration, delay: delay, options: [.beginFromCurrentState, .curveEaseOut, .allowUserInteraction], animations: changes)
   }
 
   private func waitForVisibility() {

@@ -3,6 +3,7 @@ import { StyleSheet, type StyleProp, type ViewStyle } from "react-native";
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
+  withDelay,
   withTiming,
   type LayoutAnimationFunction,
 } from "react-native-reanimated";
@@ -21,6 +22,8 @@ type NativeGlassHostProps = {
   materialized: boolean;
   animateAppearance: boolean;
   materializeDurationMs: number;
+  materializeOffsetY: number;
+  materializeNotBeforeMs: number;
   layout?: LayoutAnimationFunction;
 };
 
@@ -88,6 +91,14 @@ export type ReaderCapsuleProps = {
   animateAppearance?: boolean;
   /** (De)materialize duration in ms; 0 = instant. */
   materializeDurationMs?: number;
+  /**
+   * Native glass only (`glassMaterializeMotionAvailable`): where the piece
+   * sits dematerialized (pt, + = below); it slides in with its material in
+   * one native animation. The painted fallback ignores it (its row slides).
+   */
+  materializeOffsetY?: number;
+  /** Native glass only: wall clock (ms) before which a materialize does not start. */
+  materializeNotBeforeMs?: number;
 };
 
 /**
@@ -110,13 +121,17 @@ export function ReaderCapsule({
   materialized = true,
   animateAppearance = false,
   materializeDurationMs = 0,
+  materializeOffsetY = 0,
+  materializeNotBeforeMs = 0,
 }: ReaderCapsuleProps) {
   // Painted fallback (Android, older iOS): no glass to drop, so the piece
   // simply fades with the same timing.
   const paintedOpacity = useSharedValue(animateAppearance && materializeDurationMs > 0 ? 0 : materialized ? 1 : 0);
   useEffect(() => {
-    paintedOpacity.value = withTiming(materialized ? 1 : 0, { duration: materializeDurationMs });
-  }, [materialized, materializeDurationMs, paintedOpacity]);
+    const timing = withTiming(materialized ? 1 : 0, { duration: materializeDurationMs });
+    const wait = materialized && materializeNotBeforeMs > 0 ? Math.max(0, materializeNotBeforeMs - Date.now()) : 0;
+    paintedOpacity.value = wait > 0 ? withDelay(wait, timing) : timing;
+  }, [materialized, materializeDurationMs, materializeNotBeforeMs, paintedOpacity]);
   const paintedStyle = useAnimatedStyle(() => ({ opacity: paintedOpacity.value }));
   const flat = StyleSheet.flatten(style) ?? {};
   const height = typeof flat.height === "number" ? flat.height : null;
@@ -152,6 +167,8 @@ export function ReaderCapsule({
         materialized={materialized}
         animateAppearance={animateAppearance}
         materializeDurationMs={materializeDurationMs}
+        materializeOffsetY={materializeOffsetY}
+        materializeNotBeforeMs={materializeNotBeforeMs}
         pointerEvents={pointerEvents}
         style={style}
       >
@@ -169,6 +186,8 @@ export function ReaderCapsule({
       materialized={materialized}
       animateAppearance={animateAppearance}
       materializeDurationMs={materializeDurationMs}
+      materializeOffsetY={materializeOffsetY}
+      materializeNotBeforeMs={materializeNotBeforeMs}
       pointerEvents={pointerEvents}
       style={style}
     >

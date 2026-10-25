@@ -18,7 +18,7 @@ export {
   startLaunchReveal,
   type LaunchRevealMode,
 } from "./src/LaunchReveal";
-export { GlassContainer, GlassView, glassViewAvailable, NativeGlassViewHost } from "./src/GlassView";
+export { GlassContainer, GlassView, glassMaterializeMotionAvailable, glassViewAvailable, NativeGlassViewHost } from "./src/GlassView";
 export { ContextMenuView } from "./src/ContextMenu";
 export {
   NativeContextMenuLongPressContext,

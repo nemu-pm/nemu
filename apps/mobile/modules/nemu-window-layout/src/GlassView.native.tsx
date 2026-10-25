@@ -3,7 +3,7 @@ import { requireNativeViewManager, requireOptionalNativeModule } from "expo-modu
 import { Platform, View } from "react-native";
 import type { GlassContainerProps, GlassViewProps } from "./types";
 
-type NativeGlassProps = Omit<GlassViewProps, "cornerRadius" | "clear" | "concentricMinimum" | "interactive" | "materialized" | "animateAppearance" | "materializeDurationMs"> & {
+type NativeGlassProps = Omit<GlassViewProps, "cornerRadius" | "clear" | "concentricMinimum" | "interactive" | "materialized" | "animateAppearance" | "materializeDurationMs" | "materializeOffsetY" | "materializeNotBeforeMs"> & {
   cornerRadius: number;
   clear: boolean;
   concentricMinimum: number;
@@ -11,11 +11,13 @@ type NativeGlassProps = Omit<GlassViewProps, "cornerRadius" | "clear" | "concent
   materialized: boolean;
   animateAppearance: boolean;
   materializeDurationMs: number;
+  materializeOffsetY: number;
+  materializeNotBeforeMs: number;
 };
 type NativeContainerProps = Omit<GlassContainerProps, "spacing"> & { spacing: number };
 
 const nativeModule = Platform.OS === "ios"
-  ? requireOptionalNativeModule<{ glassViewHostsChildren?: boolean }>("NemuWindowLayout")
+  ? requireOptionalNativeModule<{ glassViewHostsChildren?: boolean; glassMaterializeMotionAvailable?: boolean }>("NemuWindowLayout")
   : null;
 // Only binaries whose glass view hosts React Native children (in the effect
 // view's contentView) use it; anything older paints the fallback.
@@ -39,6 +41,13 @@ export const NativeGlassViewHost = NativeGlassView;
 export const glassViewAvailable = NativeGlassView !== null;
 
 /**
+ * The native glass slides itself as it (de)materializes (`materializeOffsetY`)
+ * and can wait for a wall-clock start (`materializeNotBeforeMs`). Older
+ * binaries ignore both: callers keep their own slide there.
+ */
+export const glassMaterializeMotionAvailable = glassViewAvailable && nativeModule?.glassMaterializeMotionAvailable === true;
+
+/**
  * UIKit Liquid Glass (`UIGlassEffect`) hosting its children, like SwiftUI's
  * `.glassEffect(.regular.interactive(), in: .capsule)`. `cornerRadius` 0 =
  * capsule. Where unavailable it is a plain View — callers paint a fallback.
@@ -56,6 +65,8 @@ export function GlassView({
   materialized = true,
   animateAppearance = false,
   materializeDurationMs = 0,
+  materializeOffsetY = 0,
+  materializeNotBeforeMs = 0,
 }: GlassViewProps) {
   if (!NativeGlassView) return <View style={style} pointerEvents={pointerEvents}>{children}</View>;
   return (
@@ -71,6 +82,8 @@ export function GlassView({
       materialized={materialized}
       animateAppearance={animateAppearance}
       materializeDurationMs={materializeDurationMs}
+      materializeOffsetY={materializeOffsetY}
+      materializeNotBeforeMs={materializeNotBeforeMs}
     >
       {children}
     </NativeGlassView>

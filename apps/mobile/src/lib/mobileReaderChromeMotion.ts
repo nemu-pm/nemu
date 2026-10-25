@@ -79,7 +79,16 @@ export function readerChromeHasScrubber({
  * 0.1 s native margin), the render then put the fade's start 0.08–0.15 s
  * later still: N+0.20–0.27 s, done N+0.32–0.39 s (build 9 round 2).
  */
-export const READER_OPENING_MOUNT_LEAD_MS = 120;
+export const READER_OPENING_MOUNT_LEAD_MS = 160;
+/**
+ * The first reader of an app session mounts this long before the landing —
+ * at once when the zoom's start reaches JS (the zoom lasts ~350 ms): its first
+ * render on a cold JS thread took 0.3–0.45 s, so mounted 120 ms ahead its
+ * chrome first showed at V+0.33–0.44 s (build 9 round 3). The chrome no
+ * longer shows before the landing however early it mounts (its glass waits
+ * for the landing natively), so mounting early only moves the render.
+ */
+export const READER_OPENING_COLD_MOUNT_LEAD_MS = 400;
 /** The opening's chrome fade is done by the visible landing + this (acceptance: nothing moves after +250 ms). */
 export const READER_OPENING_CHROME_DONE_BY_MS = 230;
 /** A late opening fade is shortened to catch up, never below this. */

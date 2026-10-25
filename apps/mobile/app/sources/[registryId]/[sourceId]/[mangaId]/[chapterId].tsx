@@ -13,7 +13,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { MobileExploreZoomRoute } from "@/components/explore/MobileExploreZoomRoute";
 import { useMobileExploreZoomLanded, useMobileExploreZoomLandsAt } from "@/components/explore/mobileExploreZoomLanded";
-import { resolveReaderOpeningMountDelay } from "@/lib/mobileReaderChromeMotion";
+import {
+  READER_OPENING_COLD_MOUNT_LEAD_MS,
+  READER_OPENING_MOUNT_LEAD_MS,
+  resolveReaderOpeningMountDelay,
+} from "@/lib/mobileReaderChromeMotion";
 import { ReaderZoomEntryContext, type ReaderZoomEntry } from "@/components/reader/readerZoomEntry";
 import {
   createReaderOpeningGate,
@@ -82,6 +86,8 @@ const COVER_SCROLL_HOLD_MAX_MS = 600;
 const STAND_IN_HANDOFF_MS = 3200;
 /** A stand-in over other pages than the reader's (it moved meanwhile) fades out. */
 const STAND_IN_MISMATCH_FADE_MS = 250;
+/** A reader has mounted in this app session (its JS is warm): the next one mounts with the shorter lead. */
+let readerMountedThisSession = false;
 
 type CoverRevealReason = ReaderCoverRevealReason;
 
@@ -523,16 +529,24 @@ function ReaderAfterZoom({
   // Everything timed "from the landing" (the cover's caps, the timing
   // record) still counts from the landing itself.
   const landsAt = useMobileExploreZoomLandsAt();
+  // The first reader of a session renders on a cold JS thread: it mounts as
+  // soon as the zoom's start is known (READER_OPENING_COLD_MOUNT_LEAD_MS).
+  const [mountLeadMs] = useState(() =>
+    readerMountedThisSession ? READER_OPENING_MOUNT_LEAD_MS : READER_OPENING_COLD_MOUNT_LEAD_MS,
+  );
   const [mountDue, setMountDue] = useState(false);
   useEffect(() => {
     if (landed || mountDue || landsAt == null) return;
     const timer = setTimeout(
       () => setMountDue(true),
-      resolveReaderOpeningMountDelay({ landsAtMs: landsAt, nowMs: Date.now() }),
+      resolveReaderOpeningMountDelay({ landsAtMs: landsAt, nowMs: Date.now(), leadMs: mountLeadMs }),
     );
     return () => clearTimeout(timer);
-  }, [landed, landsAt, mountDue]);
+  }, [landed, landsAt, mountDue, mountLeadMs]);
   const readerMounted = landed || mountDue;
+  useEffect(() => {
+    if (readerMounted) readerMountedThisSession = true;
+  }, [readerMounted]);
   const [cover] = useState(() => {
     const zoomCover = peekMobileReaderZoomCover(zoomId);
     if (__DEV__) {

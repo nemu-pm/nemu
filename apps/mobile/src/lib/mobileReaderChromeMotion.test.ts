@@ -10,6 +10,7 @@ import {
   readerChromeMotionVariant,
   READER_OPENING_CHROME_DONE_BY_MS,
   READER_OPENING_CHROME_MIN_MS,
+  READER_OPENING_COLD_MOUNT_LEAD_MS,
   READER_OPENING_MOUNT_LEAD_MS,
   resolveReaderOpeningChromeMs,
   resolveReaderOpeningMountDelay,
@@ -95,11 +96,20 @@ describe("reader chrome scrubber", () => {
 describe("reader opening: the chrome's fade is done by the visible landing + 0.25 s (build 9 round 2)", () => {
   const landsAt = 10_000;
   test("the reader mounts READER_OPENING_MOUNT_LEAD_MS before the nominal landing, at once past it", () => {
-    expect(READER_OPENING_MOUNT_LEAD_MS).toBe(120);
-    expect(resolveReaderOpeningMountDelay({ landsAtMs: landsAt, nowMs: landsAt - 350 })).toBe(230);
+    expect(READER_OPENING_MOUNT_LEAD_MS).toBe(160);
+    expect(resolveReaderOpeningMountDelay({ landsAtMs: landsAt, nowMs: landsAt - 350 })).toBe(190);
     expect(resolveReaderOpeningMountDelay({ landsAtMs: landsAt, nowMs: landsAt - 50 })).toBe(0);
     expect(resolveReaderOpeningMountDelay({ landsAtMs: landsAt, nowMs: landsAt + 100 })).toBe(0);
     expect(resolveReaderOpeningMountDelay({ landsAtMs: Number.NaN, nowMs: 0 })).toBe(0);
+  });
+
+  test("the first reader of a session mounts as soon as the zoom's start is known (a ~350 ms zoom)", () => {
+    // The start event reaches JS some time after the zoom started: at once either way.
+    for (const sinceStart of [0, 40, 120]) {
+      expect(resolveReaderOpeningMountDelay({
+        landsAtMs: landsAt, nowMs: landsAt - 350 + sinceStart, leadMs: READER_OPENING_COLD_MOUNT_LEAD_MS,
+      })).toBe(0);
+    }
   });
 
   test("a reader that mounts by the landing fades in the usual 200 ms, done by +230", () => {
@@ -120,5 +130,37 @@ describe("reader opening: the chrome's fade is done by the visible landing + 0.2
   test("no zoom (no landing known) or no animation: unchanged", () => {
     expect(resolveReaderOpeningChromeMs({ landsAtMs: null, nowMs: 5, durationMs: 200 })).toBe(200);
     expect(resolveReaderOpeningChromeMs({ landsAtMs: landsAt, nowMs: landsAt + 500, durationMs: 0 })).toBe(0);
+  });
+});
+
+describe("reader chrome: the 6pt slide is the glass's own native animation (build 9 round 3)", () => {
+  const swift = readFileSync(
+    path.join(import.meta.dir, "../../modules/nemu-window-layout/ios/NemuWindowLayoutModule.swift"),
+    "utf8",
+  );
+  const animateMaterial = swift.slice(swift.indexOf("private func animateMaterial"));
+  const body = animateMaterial.slice(0, animateMaterial.indexOf("\n  }\n"));
+
+  test("the slide is set in the same UIView.animate block as the material and content alpha", () => {
+    const changes = body.slice(body.indexOf("let changes"), body.indexOf("if duration <= 0"));
+    expect(changes).toContain("effectView.effect = nil");
+    expect(changes).toContain("effectView.contentView.alpha");
+    expect(changes).toContain("effectView.transform = visible ? .identity : dematerializedTransform");
+    // The wait for the landing is that animation's own delay, never a main-thread timer.
+    expect(body).toMatch(/UIView\.animate\(withDuration: duration, delay: delay,/);
+    expect(body).not.toMatch(/asyncAfter|Timer\(/);
+  });
+
+  test("the effect view is placed by bounds and center (it carries the transform), never by frame", () => {
+    expect(swift).not.toContain("effectView.frame = bounds");
+    expect(swift).toContain('Constant("glassMaterializeMotionAvailable") { true }');
+  });
+
+  test("the reader's rows slide in JS only where the glass cannot", () => {
+    const reader = readFileSync(path.join(import.meta.dir, "../screens/ReaderScreen.tsx"), "utf8");
+    expect(reader).toContain("const readerChromeRowSlide = glassMaterializeMotionAvailable ? 0 : readerChromeSlide;");
+    expect(reader).toContain("materializeOffsetY: -readerChromeGlassSlide");
+    expect(reader).toContain("const glassBottom = { ...glass, materializeOffsetY: readerChromeGlassSlide };");
+    expect(reader).toContain("materializeNotBeforeMs: readerChromeNotBeforeMs");
   });
 });

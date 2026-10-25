@@ -118,6 +118,14 @@ export type GlassViewProps = {
   animateAppearance?: boolean;
   /** Duration of the (de)materialize animation, ms (0 = instant). */
   materializeDurationMs?: number;
+  /**
+   * Where the piece sits while dematerialized (pt, vertical; + = below): it
+   * slides from there as it materializes, in the same native animation as
+   * the material (`glassMaterializeMotionAvailable`).
+   */
+  materializeOffsetY?: number;
+  /** Wall clock (ms since 1970) before which a materialize does not start; 0 = at once. */
+  materializeNotBeforeMs?: number;
 };
 
 export type GlassContainerProps = {
