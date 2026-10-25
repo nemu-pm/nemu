@@ -10,7 +10,7 @@ import Animated, {
   type SharedValue,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useLocalSearchParams } from "expo-router";
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { MobileExploreZoomRoute } from "@/components/explore/MobileExploreZoomRoute";
 import { useMobileExploreZoomLanded } from "@/components/explore/mobileExploreZoomLanded";
 import { ReaderZoomEntryContext, type ReaderZoomEntry } from "@/components/reader/readerZoomEntry";
@@ -42,7 +42,9 @@ import { mobileReaderPageBackgroundColor } from "@/lib/mobileReaderPageBackgroun
 import { useReaderPagePrefs } from "@/components/reader/useReaderPagePrefs";
 import { ReaderScreen } from "@/screens/ReaderScreen";
 import { noteMobileReaderOpened } from "@/lib/mobileAidokuPrewarm";
-import { ZoomTarget, type ZoomStartedEvent } from "../../../../../modules/nemu-window-layout";
+import { VerticalBarBehavior, ZoomTarget, type ZoomStartedEvent } from "../../../../../modules/nemu-window-layout";
+import { useMobileObservedWindowLayout } from "@/lib/MobileWindowLayoutContext";
+import { mobileReaderVerticalBarPolicy } from "@/lib/mobileReaderPoseLayout";
 import {
   mobileReaderStandInKey,
   mobileReaderStandInMatches,
@@ -106,6 +108,18 @@ export default function ReaderRoute() {
   const coverReveal = useReaderCoverReveal(zoom, standIn != null);
   // A reader boots the Aidoku sandbox itself: no pre-warm after this.
   useEffect(() => noteMobileReaderOpened(), []);
+  // The reader's vertical-bar opt-out and dark bar appearance, held by the
+  // route from the push for the screen's lifetime. Mounted inside the reader
+  // (which mounts at the landing) they switched the Duo's status bar from the
+  // bar column's island to the horizontal one ~0.6 s after a reopen landed:
+  // a blink, and the chrome stepping aside. From the push the switch happens
+  // with the zoom, and the reader's mount changes nothing.
+  const readerVerticalBar = mobileReaderVerticalBarPolicy(useMobileObservedWindowLayout() ?? {});
+  const [routeFocused, setRouteFocused] = useState(false);
+  useFocusEffect(useCallback(() => {
+    setRouteFocused(true);
+    return () => setRouteFocused(false);
+  }, []));
   // Design-explore: the reader grows out of the cover that opened it. No
   // swipe-to-dismiss: page turns own the reader's gestures.
   return (
@@ -115,6 +129,17 @@ export default function ReaderRoute() {
       onLanded={coverReveal.onLanded}
       onStarted={coverReveal.onZoomStarted}
     >
+      {/* Mounted on every display, so the forced dark screen appearance never
+          drops out when the Duo folds or unfolds. The inner display
+          full-screen opts out of the vertical bar (`mobileReaderVerticalBarPolicy`).
+          While the reader is the focused screen the dark appearance also
+          covers its navigation containers, which host the system bars: a
+          screen-level override never reaches them, so they rendered light. */}
+      <VerticalBarBehavior
+        disabled={readerVerticalBar.optOut}
+        appearance="dark"
+        appearanceCoversBars={routeFocused}
+      />
       <ReaderAfterZoom zoomId={zoom ?? null} coverReveal={coverReveal} standIn={standIn} />
     </MobileExploreZoomRoute>
   );

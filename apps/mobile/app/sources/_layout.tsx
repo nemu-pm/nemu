@@ -5,8 +5,12 @@ import {
   createNemuNavigationTheme,
   useNemuTheme,
 } from "@/design-system";
-import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
-import { mobileReaderPageBackgroundColor } from "@/lib/mobileReaderPageBackground";
+import { useMobileAdaptiveLayout, useMobileObservedWindowLayout } from "@/lib/MobileWindowLayoutContext";
+import {
+  mobileReaderPageBackgroundColor,
+  mobileReaderPageBackgroundIsLight,
+} from "@/lib/mobileReaderPageBackground";
+import { mobileReaderVerticalBarPolicy } from "@/lib/mobileReaderPoseLayout";
 import { useReaderPagePrefs } from "@/components/reader/useReaderPagePrefs";
 import {
   MOBILE_READER_ROUTE_NAME,
@@ -18,6 +22,10 @@ import {
 export default function SourcesLayout() {
   const { scheme, tokens } = useNemuTheme();
   const { verticalBarSide } = useMobileAdaptiveLayout();
+  // The reader opts out of the vertical bar on the inner display full-screen
+  // (its route holds the opt-out from the push): no header there, as the
+  // reader itself sets, so its first options change nothing.
+  const readerVerticalBarOptOut = mobileReaderVerticalBarPolicy(useMobileObservedWindowLayout() ?? {}).optOut;
   // The reader's page background from its very first frame (a chapter
   // switch animates the next reader in as a rounded card: never black
   // corners over a white reader).
@@ -59,11 +67,16 @@ export default function SourcesLayout() {
             ...MOBILE_READER_STACK_GESTURE_OPTIONS,
             // Match the reader before its component mounts, including Duo's
             // persistent rail. UIKit can then transition the bar with the page.
-            headerShown: Boolean(verticalBarSide),
+            headerShown: Boolean(verticalBarSide) && !readerVerticalBarOptOut,
             // The status bar shows / hides with the reader's controls: always
             // a fade, never a slide (the reader sets the same, see
             // mobileReaderScreenOptions; this covers its first frames).
             statusBarAnimation: "fade",
+            // The values the reader opens with (controls shown; glyphs for
+            // the page background, see mobileReaderScreenOptions), so its
+            // first options re-apply the status bar unchanged.
+            statusBarHidden: false,
+            statusBarStyle: mobileReaderPageBackgroundIsLight(readerBackgroundColor) ? "dark" : "light",
             headerBackVisible: false,
             title: "",
             contentStyle: { backgroundColor: readerBackgroundColor },

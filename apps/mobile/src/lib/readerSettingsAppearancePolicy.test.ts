@@ -37,12 +37,27 @@ describe("reader settings appearance policy", () => {
   });
 
   test("the forced dark screen appearance stays mounted on every display and covers the bars while focused", () => {
-    const source = mobileSource("screens/ReaderScreen.tsx");
+    // Held by the route from the push (not the reader, which mounts at the
+    // zoom's landing: the status bar switched under a landed reopen).
+    const route = mobileSource("../app/sources/[registryId]/[sourceId]/[mangaId]/[chapterId].tsx");
+    const reader = mobileSource("screens/ReaderScreen.tsx");
 
-    expect(source).toMatch(
-      /<VerticalBarBehavior\s+disabled=\{readerVerticalBar\.optOut\}\s+appearance="dark"\s+appearanceCoversBars=\{readerIsFocused\}\s*\/>/,
+    expect(route).toMatch(
+      /<VerticalBarBehavior\s+disabled=\{readerVerticalBar\.optOut\}\s+appearance="dark"\s+appearanceCoversBars=\{routeFocused\}\s*\/>/,
     );
-    expect(source).not.toContain('<VerticalBarBehavior disabled appearance="dark" />');
+    expect(route).not.toContain('<VerticalBarBehavior disabled appearance="dark" />');
+    expect(route.indexOf("<VerticalBarBehavior")).toBeLessThan(route.indexOf("<ReaderAfterZoom"));
+    expect(reader).not.toContain("<VerticalBarBehavior");
+  });
+
+  test("the reader route's static options are the reader's first ones (its mount re-applies nothing new)", () => {
+    const layout = mobileSource("../app/sources/_layout.tsx");
+    const reader = mobileSource("screens/ReaderScreen.tsx");
+
+    expect(layout).toContain("headerShown: Boolean(verticalBarSide) && !readerVerticalBarOptOut,");
+    expect(layout).toContain("statusBarHidden: false,");
+    expect(layout).toContain('statusBarStyle: mobileReaderPageBackgroundIsLight(readerBackgroundColor) ? "dark" : "light",');
+    expect(reader).toContain("mobileReaderVerticalBarPolicy(reservedLayout ?? appObservedWindowLayout ?? {})");
   });
 });
 

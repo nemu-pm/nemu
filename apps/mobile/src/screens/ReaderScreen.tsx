@@ -2936,7 +2936,10 @@ export function ReaderScreen() {
   // system bar along its edge; the inner display full-screen opts out in
   // every posture and uses the capsule row, like the Android foldable reader
   // (owner decision, overriding the HIG's inner-landscape side bar).
-  const readerVerticalBar = mobileReaderVerticalBarPolicy(reservedLayout ?? {});
+  // Until the reader's own observer reports, the app's (the same window):
+  // the bar decision is the one the route made at the push, so the reader's
+  // first options never flip the header (see the reader route's static options).
+  const readerVerticalBar = mobileReaderVerticalBarPolicy(reservedLayout ?? appObservedWindowLayout ?? {});
   const readerSideBar = readerVerticalBar.sideBar;
   // With the bar kept, pages sit beside its column. The column's inset can
   // come and go with the status bar (chrome shown/hidden): keep the widest
@@ -12848,17 +12851,6 @@ export function ReaderScreen() {
           </Stack.Toolbar>
         </>
       ) : null}
-      {/* Mounted on every display, so the forced dark screen appearance never
-          drops out when the Duo folds or unfolds. The inner display
-          full-screen opts out of the vertical bar (`mobileReaderVerticalBarPolicy`).
-          While the reader is the focused screen the dark appearance also
-          covers its navigation containers, which host the system bars: a
-          screen-level override never reaches them, so they rendered light. */}
-      <VerticalBarBehavior
-        disabled={readerVerticalBar.optOut}
-        appearance="dark"
-        appearanceCoversBars={readerIsFocused}
-      />
       <Animated.View
         // Never remounted for a size change: the frame snaps, a FLIP glides
         // the page from where it was (fold, dock, rail), and the list keeps
