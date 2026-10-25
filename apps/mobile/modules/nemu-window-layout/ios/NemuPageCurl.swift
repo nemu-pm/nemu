@@ -23,8 +23,15 @@ import UIKit
  * the settled page.
  *
  * Every leaf is double-sided. A spread's leaf carries the next spread's facing
- * page; a single page's leaf carries a render of the page the turn lands on
- * (`NemuPageCurlLeaves`), so it turns opaque with a real page on its back.
+ * page. A single page turns about its binding edge (`min` left-to-right,
+ * `max` right-to-left; never the middle) and its leaf's back is the page that
+ * was on screen, mirrored, under an 85% paper wash — paper seen from behind,
+ * never the page the turn lands on (`NemuPageCurlLeaves`).
+ *
+ * The curl frame is frozen while a leaf turns: a new `curlFrame` (the next
+ * page's box, a fold, a rotation, a late image size) waits for the turn to
+ * end, and the page on screen is then set again, not animated, at the new
+ * frame, so the controllers never keep the old size.
  */
 final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageViewControllerDelegate, UIGestureRecognizerDelegate {
   let onSettle = EventDispatcher()
@@ -64,6 +71,8 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
   private var currentSlot = 0
   private var positioned = false
   private var transitioning = false
+  /** The page controller's frame changed since the current page was set. */
+  private var reseatPending = false
   private let edgePan = UIPanGestureRecognizer()
   private var edgePanStartSlot = 0
 
@@ -129,9 +138,31 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
     super.layoutSubviews()
     guard let pageController else { return }
     let frame = curlFrame.width > 0 && curlFrame.height > 0 ? curlFrame : bounds
-    if pageController.view.frame != frame { pageController.view.frame = frame }
     reconcileChildren()
+    // A turn that arrives with its target's frame (the same commit) starts
+    // first, at the frame of the page on screen.
+    if positioned && appliedToken != navigationToken { applyNavigation() }
+    // Never resized mid-turn: the turning leaf, its back and the page under
+    // it keep the size the turn started with. `didFinishAnimating` (and a
+    // requested turn's completion) lay out again and apply it.
+    if !transitioning && pageController.view.frame != frame {
+      pageController.view.frame = frame
+      if positioned { reseatPending = true }
+    }
+    reseatAfterFrameChange()
     applyNavigation()
+  }
+
+  /**
+   * After the frame changed (the next page's box, a fold, a rotation, a late
+   * image size): the page on screen again, not animated, so UIKit lays its
+   * controllers out at the new size.
+   */
+  private func reseatAfterFrameChange() {
+    guard reseatPending, !transitioning, positioned, let pageController else { return }
+    reseatPending = false
+    guard let vcs = controllers(at: currentSlot) else { return }
+    pageController.setViewControllers(vcs, direction: .forward, animated: false)
   }
 
   /** Every mounted child goes into its slot's controller (created on demand). */
@@ -167,8 +198,11 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
     return isMid ? clamped - clamped % 2 : clamped
   }
 
-  private func controllers(at slot: Int, animated: Bool = false) -> [UIViewController]? {
-    guard let leaves = NemuPageCurlLeaves.shown(slot: slot, slotCount: slotCount, mid: isMid, animated: animated) else { return nil }
+  /** `from`: the slot on screen as the turn starts (whose page the back shows). */
+  private func controllers(at slot: Int, animated: Bool = false, from: Int? = nil) -> [UIViewController]? {
+    guard let leaves = NemuPageCurlLeaves.shown(
+      slot: slot, slotCount: slotCount, mid: isMid, animated: animated, from: from ?? currentSlot
+    ) else { return nil }
     let shown = leaves.compactMap(controller(for:))
     return shown.count == leaves.count ? shown : nil
   }
@@ -176,24 +210,34 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
   private func controller(for leaf: NemuPageCurlLeaf) -> UIViewController? {
     switch leaf {
     case .front(let slot): return controller(for: slot)
-    case .back(let target): return backController(landingOn: target)
+    case .back(let target, let source): return backController(target: target, showing: source)
     }
   }
 
   /**
-   * The back of a single page's turning leaf: a render of the page it lands
-   * on, laid out as that page's own leaf (taken as the turn starts, from the
-   * mounted child; a page still loading shows as it is).
+   * The back of a single page's turning leaf: the page on screen as the turn
+   * starts (`source`), mirrored, under the paper wash. Never the page the
+   * turn lands on. Rendered at the page controller's (frozen) size and shown
+   * unscaled.
    */
-  private func backController(landingOn target: Int) -> UIViewController? {
-    guard let front = controller(for: target) else { return nil }
-    let back = NemuPageCurlBackController(target: target, background: pageBackground)
-    let size = pageController?.view.bounds.size ?? .zero
-    back.show(Self.render(front.view, size: size))
+  private func backController(target: Int, showing source: Int) -> UIViewController? {
+    guard let page = controller(for: source) else { return nil }
+    let back = NemuPageCurlBackController(target: target, source: source, background: pageBackground)
+    let shownSize = page.isViewLoaded ? page.view.bounds.size : .zero
+    let size = shownSize.width > 0 && shownSize.height > 0 ? shownSize : (pageController?.view.bounds.size ?? .zero)
+    back.show(Self.renderBack(page.view, size: size, paper: NemuPageCurlPaper.wash(over: pageBackground)))
     return back
   }
 
-  private static func render(_ view: UIView, size: CGSize) -> UIImage? {
+  /**
+   * UIKit draws a double-sided leaf's back controller as it is (readable, as
+   * a book's verso), so the mirror is drawn here, once. Were the back ever
+   * drawn mirrored by UIKit itself (it does that only for single-sided
+   * leaves), this would read double-mirrored: flip `mirrorsBack`.
+   */
+  static let mirrorsBack = true
+
+  private static func renderBack(_ view: UIView, size: CGSize, paper: UIColor) -> UIImage? {
     guard size.width > 0, size.height > 0 else { return nil }
     // An off-screen page's root view has no frame until the curl shows it.
     if view.superview == nil && view.bounds.size != size {
@@ -203,7 +247,16 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
     let format = UIGraphicsImageRendererFormat.preferred()
     format.opaque = true
     return UIGraphicsImageRenderer(size: size, format: format).image { context in
-      view.layer.render(in: context.cgContext)
+      let cg = context.cgContext
+      cg.saveGState()
+      if mirrorsBack {
+        cg.translateBy(x: size.width, y: 0)
+        cg.scaleBy(x: -1, y: 1)
+      }
+      view.layer.render(in: cg)
+      cg.restoreGState()
+      paper.setFill()
+      cg.fill(CGRect(origin: .zero, size: size))
     }
   }
 
@@ -232,7 +285,7 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
     appliedToken = navigationToken
     let frames = (target - currentSlot) / step
     let animated = navigationAnimated && abs(frames) == 1 && window != nil
-    guard target != currentSlot, let vcs = controllers(at: target, animated: animated) else {
+    guard target != currentSlot, let vcs = controllers(at: target, animated: animated, from: currentSlot) else {
       onTurnEnd([:])
       return
     }
@@ -276,7 +329,8 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
       navigationOrientation: .horizontal,
       options: [.spineLocation: NSNumber(value: location.rawValue)]
     )
-    // Required for spreads; a single page's leaf back is the page it lands on.
+    // Required for spreads; a single page's leaf back is its own page seen
+    // through the paper (NemuPageCurlBackController).
     controller.isDoubleSided = true
     controller.delegate = self
     controller.view.backgroundColor = .clear
@@ -320,7 +374,7 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
 
   private static func leaf(of controller: UIViewController) -> NemuPageCurlLeaf? {
     if let page = controller as? NemuPageCurlPageController { return .front(page.slot) }
-    if let back = controller as? NemuPageCurlBackController { return .back(back.target) }
+    if let back = controller as? NemuPageCurlBackController { return .back(back.target, source: back.source) }
     return nil
   }
 
@@ -399,14 +453,20 @@ final class NemuPageCurlPageController: UIViewController {
   }
 }
 
-/** The back of a single page's turning leaf: a still of the page it lands on. */
+/**
+ * The back of a single page's turning leaf: a still of the page that was on
+ * screen, mirrored, under the paper wash (`NemuPageCurlPaper`).
+ */
 final class NemuPageCurlBackController: UIViewController {
   let target: Int
+  /** The slot whose page the back shows (on screen as the turn started). */
+  let source: Int
   private let background: UIColor
   private let imageView = UIImageView()
 
-  init(target: Int, background: UIColor) {
+  init(target: Int, source: Int, background: UIColor) {
     self.target = target
+    self.source = source
     self.background = background
     super.init(nibName: nil, bundle: nil)
   }
@@ -420,7 +480,8 @@ final class NemuPageCurlBackController: UIViewController {
     view.clipsToBounds = true
     imageView.frame = view.bounds
     imageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-    imageView.contentMode = .scaleToFill
+    // Rendered at the leaf's own size: shown as is, never stretched.
+    imageView.contentMode = .center
     view.addSubview(imageView)
     self.view = view
   }
@@ -428,5 +489,27 @@ final class NemuPageCurlBackController: UIViewController {
   func show(_ image: UIImage?) {
     loadViewIfNeeded()
     imageView.image = image
+  }
+}
+
+/** The wash over a single page's mirrored back: paper seen from behind. */
+enum NemuPageCurlPaper {
+  static let opacity: CGFloat = 0.85
+  /** Light reader background: white paper; dark: #090a0d. */
+  static func wash(over background: UIColor) -> UIColor {
+    isLight(background)
+      ? UIColor.white.withAlphaComponent(opacity)
+      : UIColor(red: 9 / 255, green: 10 / 255, blue: 13 / 255, alpha: opacity)
+  }
+
+  /** WCAG relative luminance over 0.179, as `mobileReaderPageBackgroundIsLight`. */
+  static func isLight(_ color: UIColor) -> Bool {
+    var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+    guard color.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else { return false }
+    func linear(_ channel: CGFloat) -> CGFloat {
+      let c = max(0, min(1, channel))
+      return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+    }
+    return 0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue) > 0.179
   }
 }
