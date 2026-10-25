@@ -139,7 +139,7 @@ import {
   type MobileReaderNotebookPaneOverride,
 } from "@/lib/mobileReaderNotebookPane";
 import { mobileReaderLearningPageResetKey } from "@/lib/mobileReaderLearningSession";
-import { buildMobileReaderMoreMenu, type MobileReaderMoreMenuActionId } from "@/lib/mobileReaderMoreMenu";
+import { buildMobileReaderMoreMenu, mobileReaderChapterNeighbourLabel, type MobileReaderMoreMenuActionId } from "@/lib/mobileReaderMoreMenu";
 import {
   useMobilePoseVeilAppearance,
   type MobilePoseVeilAppearance,
@@ -174,6 +174,7 @@ import {
   readerPagesNeedProcessing,
   resolveReaderFirstScreenImages,
   resolveReaderFirstScreenIndexes,
+  resolveReaderOpeningPagedTarget,
   shouldRetakeReaderFirstScreen,
   resolveReaderImageProcessor,
   READER_FIRST_SCREEN_PENDING_LOG_MS,
@@ -343,7 +344,8 @@ import {
   type LocalChapterProgress,
   type LocalMangaProgress,
 } from "@/data/schema";
-import { formatChapterLabel, formatChapterShortLabel, formatChapterTitle } from "@/lib/formatChapter";
+import { formatChapterRowLabel, formatChapterRowTitle, formatChapterShortLabel, formatChapterTitle } from "@/lib/formatChapter";
+import { getMobileChapterVolumeHeaders } from "@/lib/mobileExploreChapterList";
 import { getMobileReaderHardwareBackAction } from "@/lib/mobileReaderBackBehavior";
 import {
   hapticConfirm,
@@ -582,7 +584,6 @@ import {
 import {
   chapterFromState,
   firstParam,
-  formatChapterAccessibilityLabel,
   formatReaderLoadedPages,
   formatReaderStageAccessibilityLabel,
   mergeMobileReaderChapterFallback,
@@ -2702,8 +2703,19 @@ export function ReaderScreen() {
     : 0;
   // No "Untitled" in the chrome while the chapter is known only by its id:
   // the capsule shows the manga title over the page count until it loads.
+  // The title's chapter list puts volumes in headers (and its rows leave
+  // them out) for a list like this one.
+  const readerChapterListDropsVolume = useMemo(
+    () =>
+      mobileDesignExploreFlag &&
+      pagesState.status === "ready" &&
+      getMobileChapterVolumeHeaders(pagesState.chapters).size > 0,
+    [pagesState],
+  );
+  // The chapter as its row in the title's chapter list says it (the same
+  // call and arguments: the volume left to the list's volume header).
   const chapterTitle =
-    formatChapterLabel(chapter, strings) ??
+    formatChapterRowLabel(chapter, strings, { dropVolume: readerChapterListDropsVolume }) ??
     (mangaTitle ? "" : formatChapterTitle(chapter, strings));
   const sourcePageForDisplayIndex = useCallback(
     (displayIndex: number) =>
@@ -2871,6 +2883,8 @@ export function ReaderScreen() {
   );
   const leftChapter = chapterNavigation.leftChapter;
   const rightChapter = chapterNavigation.rightChapter;
+  /** The chapter list is in: a missing neighbour is really absent (else the controls stay neutral). */
+  const readerChaptersKnown = readerChapters.length > 0;
   const pagedMode = mode !== "scrolling";
   const currentSinglePageNaturalSize =
     pageCount === 1 && displayedPages[0]
@@ -4504,7 +4518,22 @@ export function ReaderScreen() {
   // their dark plate) nor for the seek held until the pages' real heights
   // are known, which re-places the list in place. Paged reading still waits
   // for the page on screen to decode (or fail): a page there has no plate,
-  // so revealing early would show an empty stage.
+  // so revealing early would show an empty stage. The page is the opening's
+  // target (`resolveReaderOpeningPagedTarget`): before the restore the
+  // counter's page 1 is not where the pager stands.
+  const readerOpeningPagedTargetIndex = resolveReaderOpeningPagedTarget({
+    restoreComplete: readerRestoreComplete,
+    restorePageIndex: readerRestorePageIndex,
+    currentPageIndex: clampedPageIndex,
+    pageCount,
+  });
+  const readerOpeningPagedTargetPage =
+    pagesState.status === "ready" && readerOpeningPagedTargetIndex != null
+      ? (displayedPages[readerOpeningPagedTargetIndex] ?? null)
+      : null;
+  const readerOpeningPagedTargetIdentity = readerOpeningPagedTargetPage
+    ? readerPageIdentityFor(readerOpeningPagedTargetPage)
+    : "";
   const readerZoomPageShown =
     pagesState.status === "error" ||
     pagesState.status === "blocked" ||
@@ -4512,9 +4541,26 @@ export function ReaderScreen() {
       pagesState.status === "ready" &&
       pageCount > 0 &&
       readerRestoreComplete) ||
-    (currentDisplayedPageIdentity !== "" &&
-      (readerImageSizes.has(currentDisplayedPageIdentity) ||
-        readerImageErrors.has(currentDisplayedPageIdentity)));
+    (galleryPagedMode &&
+      readerOpeningPagedTargetPage != null &&
+      // A text page (or one without an image) has nothing to decode.
+      (!readerOpeningPagedTargetPage.imageUri ||
+        readerImageSizes.has(readerOpeningPagedTargetIdentity) ||
+        readerImageErrors.has(readerOpeningPagedTargetIdentity)));
+  // Diagnostic (dev builds only): what the paged opening waited for.
+  const readerZoomPageShownLoggedRef = useRef(false);
+  useEffect(() => {
+    if (!__DEV__ || !readerZoomPageShown || readerZoomPageShownLoggedRef.current) return;
+    readerZoomPageShownLoggedRef.current = true;
+    console.info("[reader-open] page-shown", {
+      ...readerOpeningSince(readerZoomEntry.openingTimes(), Date.now()),
+      mode: galleryPagedMode ? "paged" : "scroll",
+      target: readerOpeningPagedTargetIndex,
+      current: clampedPageIndex,
+      restoreComplete: readerRestoreComplete,
+      frameBase: readerPagedFrameBase,
+    });
+  });
   useEffect(() => {
     if (!readerZoomPageShown) return;
     // One frame on: the seek's non-animated scroll has been applied natively.
@@ -9722,7 +9768,9 @@ export function ReaderScreen() {
       // live visible page) decides which pages decode; the paged gallery
       // keeps the symmetric window around the committed page.
       const renderPolicy = getMobileReaderPageRenderPolicy({
-        currentPageIndex: clampedPageIndex,
+        // Paged, before the opening restore: around the restore target, where
+        // the pager stands (the counter still says page 1).
+        currentPageIndex: galleryPagedMode ? (readerOpeningPagedTargetIndex ?? clampedPageIndex) : clampedPageIndex,
         displayIndex: neighbour ? undefined : readerDisplayIndexByPageId.get(page.id),
         hasImageUri: Boolean(page.imageUri),
         processingPending: page.imageProcessing === "pending",
@@ -9963,6 +10011,7 @@ export function ReaderScreen() {
       activeJapaneseLearningTranscriptOrder,
       chapter?.id,
       clampedPageIndex,
+      readerOpeningPagedTargetIndex,
       clearReaderImageError,
       currentDisplayedPageKey,
       dualReadEnabled,
@@ -10236,7 +10285,11 @@ export function ReaderScreen() {
     });
     if (galleryPagedMode) {
       // Paged reading has no divider: a capsule names the chapter turned into.
-      setReaderChapterCrossingCapsule({ id: Date.now(), title: formatChapterTitle(arriving.chapter, strings) });
+      setReaderChapterCrossingCapsule({
+        id: Date.now(),
+        // As the chapter's row in the chapter list says it.
+        title: formatChapterRowTitle(arriving.chapter, strings, { dropVolume: readerChapterListDropsVolume }),
+      });
       logReaderEndOfChapter(
         `paged crossing ${crossing.direction} ${chapterId} -> ${arrivingId} p${localIndex + 1}/${arrivingCount}`,
       );
@@ -11539,17 +11592,12 @@ export function ReaderScreen() {
     const previousChapterButton = (
       <NemuPressable
         accessibilityRole="button"
-        accessibilityLabel={
-          leftChapter
-            ? formatChapterAccessibilityLabel(
-                mode === "rtl" ? "next" : "previous",
-                leftChapter,
-                strings,
-              )
-            : mode === "rtl"
-              ? strings.reader.noNextChapter
-              : strings.reader.noPreviousChapter
-        }
+        accessibilityLabel={mobileReaderChapterNeighbourLabel(
+          mode === "rtl" ? "next" : "previous",
+          leftChapter,
+          readerChaptersKnown,
+          strings,
+        )}
         accessibilityState={{ disabled: !leftChapter }}
         disabled={!leftChapter}
         onPress={() => {
@@ -11658,17 +11706,12 @@ export function ReaderScreen() {
     const nextChapterButton = (
       <NemuPressable
         accessibilityRole="button"
-        accessibilityLabel={
-          rightChapter
-            ? formatChapterAccessibilityLabel(
-                mode === "rtl" ? "previous" : "next",
-                rightChapter,
-                strings,
-              )
-            : mode === "rtl"
-              ? strings.reader.noPreviousChapter
-              : strings.reader.noNextChapter
-        }
+        accessibilityLabel={mobileReaderChapterNeighbourLabel(
+          mode === "rtl" ? "previous" : "next",
+          rightChapter,
+          readerChaptersKnown,
+          strings,
+        )}
         accessibilityState={{ disabled: !rightChapter }}
         disabled={!rightChapter}
         onPress={() => {
@@ -12147,6 +12190,7 @@ export function ReaderScreen() {
               strings,
               previousChapter: previousChapterInReadingOrder,
               nextChapter: nextChapterInReadingOrder,
+              chaptersKnown: readerChaptersKnown,
               pagesStatus: pagesState.status,
               pageCount,
               completed,

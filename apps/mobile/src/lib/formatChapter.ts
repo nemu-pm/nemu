@@ -111,6 +111,30 @@ export function formatChapterLabel(
   return hasChapterLabel(chapter) ? formatChapterTitle(chapter, strings) : null;
 }
 
+/**
+ * A chapter's title in the chapter list's row: {@link formatChapterTitle},
+ * without the volume when the list shows it in a header (`dropVolume`).
+ * The reader's chapter capsule says the chapter with this very call, so the
+ * two never differ ("Chapter 35", the source's title only for a chapter
+ * without a number).
+ */
+export function formatChapterRowTitle(
+  chapter: ChapterSummary,
+  strings: MobileStrings,
+  options: { dropVolume: boolean },
+): string {
+  return formatChapterTitle(options.dropVolume ? { ...chapter, volumeNumber: undefined } : chapter, strings);
+}
+
+/** {@link formatChapterRowTitle}, or null when the chapter carries no label. */
+export function formatChapterRowLabel(
+  chapter: ChapterSummary,
+  strings: MobileStrings,
+  options: { dropVolume: boolean },
+): string | null {
+  return hasChapterLabel(chapter) ? formatChapterRowTitle(chapter, strings, options) : null;
+}
+
 /** {@link formatChapterShort}, or null when there is nothing to show. */
 export function formatChapterShortLabel(
   chapter: ChapterSummary,

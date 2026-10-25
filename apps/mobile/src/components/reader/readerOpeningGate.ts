@@ -20,7 +20,8 @@ export type ReaderOpeningSettleReason =
 
 /**
  * Settles a lost fade completion. Past every fade the route can run (the
- * paged hold's 5 s cap plus its 250 ms fade), so it never cuts a real one.
+ * paged hold's 2.5 s cap plus its 250 ms fade, a late JS thread's slack),
+ * so it never cuts a real one.
  */
 export const READER_OPENING_SETTLE_BACKSTOP_MS = 6000;
 

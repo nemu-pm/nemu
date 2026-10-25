@@ -6,7 +6,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import Svg, { Circle, Path, Rect } from "react-native-svg";
 import type { ChapterSummary, LocalChapterProgress } from "@/data/schema";
 import { nemuColorWithAlpha, nemuFontWeight, NemuPressable, NemuText, useNemuTheme } from "@/design-system";
-import { formatChapterTitle } from "@/lib/formatChapter";
+import { formatChapterRowTitle } from "@/lib/formatChapter";
 import { getMobileChapterPresentation } from "@/lib/mobileChapterPresentation";
 import { resolveMobileShareUrl } from "@/lib/mobileChapterReadMarks";
 import { formatMobileChapterProgressStatus, getMobileChapterProgressAccessory } from "@/lib/mobileChapterProgress";
@@ -94,8 +94,7 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
   const localResume = useMobileReaderResumePosition(progress?.id);
   const accessory = getMobileChapterProgressAccessory(progress, { locked: presentation.isLocked, local: localResume });
   const ratio = accessory.status === "progress" ? accessory.ratio : null;
-  const shown = dropVolume ? { ...chapter, volumeNumber: undefined } : chapter;
-  const title = formatChapterTitle(shown, strings);
+  const title = formatChapterRowTitle(chapter, strings, { dropVolume });
   // The source's title only when it adds something (not "第132话 (10p)" under
   // "Chapter 132"), and the group only when it is not the list's own.
   const subtitle = getMobileExploreChapterRowSubtitle(chapter, commonGroup);

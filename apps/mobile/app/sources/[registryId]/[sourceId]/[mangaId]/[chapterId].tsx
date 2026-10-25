@@ -27,6 +27,7 @@ import {
   resolveReaderOpeningHoldDelay,
   shouldRevealReaderCover,
   READER_OPENING_IMAGE_HOLD_MAX_MS,
+  READER_OPENING_PAGED_HOLD_MAX_MS,
   type ReaderCoverRevealReason,
   type ReaderOpeningTimes,
 } from "@/components/reader/readerOpeningHold";
@@ -46,10 +47,11 @@ import { ZoomTarget } from "../../../../../modules/nemu-window-layout";
 /** The landing cover fades into the reader (the opening fade-in). */
 const COVER_REVEAL_MS = 250;
 /**
- * A page that is slow to load is not waited for any longer than this. The
- * reader's chrome draws over the cover, so it is usable meanwhile.
+ * A page that is slow to load is not waited for any longer than this: the
+ * cover then fades onto the reader background, where the page shows its
+ * spinner until it decodes (`READER_OPENING_PAGED_HOLD_MAX_MS`, 2.5 s).
  */
-const COVER_HOLD_MAX_MS = 5000;
+const COVER_HOLD_MAX_MS = READER_OPENING_PAGED_HOLD_MAX_MS;
 /**
  * Scroll reading reveals no later than this after the zoom lands, ready or
  * not: its pages still loading show the reader background and a spinner, which reads as the
@@ -99,7 +101,7 @@ type ReaderCoverReveal = {
  * starve the fade. Scroll reading arms `withDelay(cap, withTiming(0))` the
  * moment the zoom lands (from the landing event, before the reader's heavy
  * render); "reader ready" earlier replaces it with the fade at once. Paged
- * reading waits for its page (JS), with the 5 s backstop.
+ * reading waits for its page (JS), with the 2.5 s cap.
  */
 function useReaderCoverReveal(zoomId: string | null): ReaderCoverReveal {
   const opacity = useSharedValue(1);
@@ -110,8 +112,9 @@ function useReaderCoverReveal(zoomId: string | null): ReaderCoverReveal {
   const holdingRef = useRef(false);
   const { mode, modeLoaded } = useReadingMode();
   const scrollReading = modeLoaded && mode === "scrolling";
-  const modeRef = useRef({ mode, scrollReading });
-  modeRef.current = { mode, scrollReading };
+  const pagedReading = modeLoaded && mode !== "scrolling";
+  const modeRef = useRef({ mode, scrollReading, pagedReading });
+  modeRef.current = { mode, scrollReading, pagedReading };
   const landedAtRef = useRef<number | null>(null);
   /** When the (possibly delayed) fade begins, by the JS clock; null: none armed. */
   const fadeStartsAtRef = useRef<number | null>(null);
@@ -150,17 +153,24 @@ function useReaderCoverReveal(zoomId: string | null): ReaderCoverReveal {
     }
   }, []);
 
-  const armScrollCap = useCallback(() => {
+  /**
+   * The cover's cap, armed on the UI thread from the landing: scroll reading
+   * reveals at `COVER_SCROLL_HOLD_MAX_MS` whatever happens, paged reading at
+   * `COVER_HOLD_MAX_MS` (2.5 s; a busy JS thread cannot stretch it). The
+   * reader's page decoding replaces it with the fade at once.
+   */
+  const armCap = useCallback((reason: "scroll-cap" | "hold-max") => {
     const landedAt = landedAtRef.current;
     if (holdingRef.current) return;
     if (capArmedRef.current || landedAt == null || fadeStartsAtRef.current != null) return;
     capArmedRef.current = true;
-    const delay = Math.max(0, COVER_SCROLL_HOLD_MAX_MS - (Date.now() - landedAt));
+    const capMs = reason === "scroll-cap" ? COVER_SCROLL_HOLD_MAX_MS : COVER_HOLD_MAX_MS;
+    const delay = Math.max(0, capMs - (Date.now() - landedAt));
     fadeStartsAtRef.current = Date.now() + delay;
     // The fade itself starts on the UI clock; this logs when it was armed.
     if (__DEV__) {
       console.info("[reader-zoom] fade-start", {
-        reason: "scroll-cap",
+        reason,
         armed: true,
         delayMs: Math.round(delay),
         sinceLandedMs: Math.round(Date.now() - landedAt),
@@ -171,7 +181,7 @@ function useReaderCoverReveal(zoomId: string | null): ReaderCoverReveal {
       delay,
       withTiming(0, { duration: COVER_REVEAL_MS }, (finished?: boolean) => {
         "worklet";
-        if (finished) runOnJS(onFadeEnd)("scroll-cap", landedAt);
+        if (finished) runOnJS(onFadeEnd)(reason, landedAt);
       }),
     );
   }, [onFadeEnd, opacity]);
@@ -228,8 +238,9 @@ function useReaderCoverReveal(zoomId: string | null): ReaderCoverReveal {
     }
     openingGate.armBackstop();
     if (holdingRef.current) armHoldCap();
-    else if (modeRef.current.scrollReading) armScrollCap();
-  }, [armHoldCap, armScrollCap, openingGate, tapAt]);
+    else if (modeRef.current.scrollReading) armCap("scroll-cap");
+    else if (modeRef.current.pagedReading) armCap("hold-max");
+  }, [armCap, armHoldCap, openingGate, tapAt]);
 
   const holdForFirstScreenImages = useCallback(() => {
     if (holdingRef.current || openingGate.isSettled()) return;
@@ -258,8 +269,9 @@ function useReaderCoverReveal(zoomId: string | null): ReaderCoverReveal {
 
   // The stored mode can arrive after the landing: arm with the time left.
   useEffect(() => {
-    if (scrollReading) armScrollCap();
-  }, [armScrollCap, scrollReading]);
+    if (scrollReading) armCap("scroll-cap");
+    else if (pagedReading) armCap("hold-max");
+  }, [armCap, pagedReading, scrollReading]);
 
   const reveal = useCallback(
     (reason: CoverRevealReason) => {

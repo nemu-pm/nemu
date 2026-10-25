@@ -136,8 +136,8 @@ describe("reader opening gate wiring", () => {
 
   test("the route closes the window on either fade path's end and arms the backstop at landing", () => {
     expect(route).toContain('openingGate.settle("fade-end")');
-    // Both the UI-thread scroll cap and the reveal fade report their end.
-    expect(route).toContain('if (finished) runOnJS(onFadeEnd)("scroll-cap", landedAt);');
+    // Both the UI-thread caps (scroll, paged) and the reveal fade report their end.
+    expect(route).toContain("if (finished) runOnJS(onFadeEnd)(reason, landedAt);");
     expect(route).toContain("if (finished) runOnJS(onFadeEnd)(reason, fadeLandedAt);");
     expect(route).toContain("openingGate.armBackstop();");
     // No zoom, nothing fades in: closed from the first render.

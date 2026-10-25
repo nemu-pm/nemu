@@ -52,6 +52,8 @@ export type MobileReaderMoreMenuInput = {
   /** Previous / next chapter in reading order (not screen side). */
   previousChapter: ChapterSummary | null;
   nextChapter: ChapterSummary | null;
+  /** The chapter list is in: a missing neighbour is really absent (default true). */
+  chaptersKnown?: boolean;
   pagesStatus: "idle" | "loading" | "ready" | "error" | "blocked";
   pageCount: number;
   completed: boolean;
@@ -60,9 +62,28 @@ export type MobileReaderMoreMenuInput = {
   showPlugins: boolean;
 };
 
+/**
+ * What a previous / next chapter control says. Until the chapter list is in
+ * (`chaptersKnown` false: the pages are still loading, or the list is
+ * fetched after them) it is neutral — "Previous chapter" — never "No
+ * previous chapter", which is only true once the list says so.
+ */
+export function mobileReaderChapterNeighbourLabel(
+  direction: "previous" | "next",
+  chapter: ChapterSummary | null,
+  chaptersKnown: boolean,
+  strings: MobileStrings,
+): string {
+  const previous = direction === "previous";
+  if (chapter) return formatChapterAccessibilityLabel(direction, chapter, strings);
+  if (!chaptersKnown) return previous ? strings.reader.previousChapter : strings.reader.nextChapter;
+  return previous ? strings.reader.noPreviousChapter : strings.reader.noNextChapter;
+}
+
 function chapterItem(
   direction: "previous" | "next",
   chapter: ChapterSummary | null,
+  chaptersKnown: boolean,
   strings: MobileStrings,
 ): MobileReaderMoreMenuItem {
   const previous = direction === "previous";
@@ -75,11 +96,7 @@ function chapterItem(
     systemImage: previous ? "backward.end" : "forward.end",
     icon: previous ? "skipPrevious" : "skipNext",
     disabled: !chapter,
-    accessibilityLabel: chapter
-      ? formatChapterAccessibilityLabel(direction, chapter, strings)
-      : previous
-        ? strings.reader.noPreviousChapter
-        : strings.reader.noNextChapter,
+    accessibilityLabel: mobileReaderChapterNeighbourLabel(direction, chapter, chaptersKnown, strings),
   };
 }
 
@@ -115,8 +132,8 @@ export function buildMobileReaderMoreMenu(input: MobileReaderMoreMenuInput): Mob
     {
       id: "chapters",
       items: [
-        chapterItem("previous", input.previousChapter, strings),
-        chapterItem("next", input.nextChapter, strings),
+        chapterItem("previous", input.previousChapter, input.chaptersKnown ?? true, strings),
+        chapterItem("next", input.nextChapter, input.chaptersKnown ?? true, strings),
       ],
     },
     {

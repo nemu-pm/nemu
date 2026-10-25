@@ -33,6 +33,33 @@ export const READER_PROCESSED_SOURCE_OPENING_KEY = "NEMU_READER_PROCESSED_SOURCE
 export const READER_OPENING_IMAGE_HOLD_MAX_MS = 2500;
 
 /**
+ * Paged reading: the landing cover waits for the opening page's image (it
+ * has no plate to show instead), this long after the landing at the latest;
+ * then it fades onto the reader background and the page's own spinner.
+ */
+export const READER_OPENING_PAGED_HOLD_MAX_MS = 2500;
+
+/**
+ * The page whose decoded image opens a paged reader: the restore target
+ * (the saved page, or page 1) until the opening restore has placed the
+ * pager, then the page the reader is on. The page counter starts at page 1
+ * before the restore; the pager is already at the restore target (its
+ * initial frame), so page 1 was never mounted there and the cover waited out
+ * its cap whenever the target was another page.
+ */
+export function resolveReaderOpeningPagedTarget(input: {
+  restoreComplete: boolean;
+  restorePageIndex: number;
+  currentPageIndex: number;
+  pageCount: number;
+}): number | null {
+  const count = Math.max(0, Math.floor(input.pageCount));
+  if (count === 0) return null;
+  const index = input.restoreComplete ? input.currentPageIndex : input.restorePageIndex;
+  return Math.max(0, Math.min(count - 1, Math.round(index) || 0));
+}
+
+/**
  * `hold` re-arms the cover's pending fade; a fade due sooner than this is
  * left to run (re-arming it as it starts would jump its opacity).
  */
