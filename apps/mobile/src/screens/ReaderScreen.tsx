@@ -17,6 +17,15 @@ import {
   WindowLayoutObserver,
 } from "../../modules/nemu-window-layout";
 import { useMobileExploreZoomLandsAt } from "@/components/explore/mobileExploreZoomLanded";
+import { ReaderTitleCapsule } from "@/components/reader/ReaderTitleCapsule";
+import {
+  mobileReaderTitleContentKey,
+  mobileReaderTitleLabelsFinal,
+  peekMobileReaderTitleLabels,
+  rememberMobileReaderTitleLabels,
+  resolveMobileReaderTitleLabels,
+  type MobileReaderTitleLabels,
+} from "@/lib/mobileReaderTitleMemory";
 import { MOBILE_READER_QA_CHROME, MOBILE_READER_QA_NOTEBOOK, MOBILE_READER_QA_PANEL, MOBILE_READER_QA_PLUGIN } from "@/lib/mobileReaderQa";
 import { mobileWindowAbsoluteBand, type MobileWindowLayout, type WindowLayoutRect } from "@/lib/mobileWindowLayout";
 import {
@@ -11868,6 +11877,26 @@ export function ReaderScreen() {
   // Shown = present and, during the opening, released from its hold: until
   // then the glass stays dematerialized and the scrim at 0.
   const readerChromeShown = readerChromePresent && !readerOpeningChromeHeld;
+  // The title capsule resizes and cross-fades only on screen; held, waiting
+  // for the landing or hidden, a new width is set at once.
+  const readerTitleCapsuleVisible = readerChromeShown && !readerOpeningChromeTransparent;
+  // The title's labels: this chapter's remembered ones until its own are
+  // final (pages in, spot restored), then its own, remembered for a reopen.
+  const readerTitleLabelsFinal = mobileReaderTitleLabelsFinal({
+    pagesStatus: pagesState.status,
+    pageCount,
+    restoreComplete: readerProgressRestoreComplete && !readerOpeningCounterHidden,
+  });
+  const [readerTitleSeed] = useState(() => ({
+    key: readerChromeChapterKey,
+    labels: peekMobileReaderTitleLabels(readerChromeChapterKey),
+  }));
+  const readerTitleSeedLabels = readerTitleSeed.key === readerChromeChapterKey ? readerTitleSeed.labels : null;
+  const readerTitleSettledRef = useRef<MobileReaderTitleLabels | null>(null);
+  useEffect(() => {
+    const settled = readerTitleSettledRef.current;
+    if (settled) rememberMobileReaderTitleLabels(readerChromeChapterKey, settled);
+  });
   // The opening's materialize starts at the zoom's visible landing, not when
   // this render commits: the glass waits for it in its own Core Animation
   // (materializeNotBeforeMs), the scrim with a UI-thread delay.
@@ -12000,7 +12029,48 @@ export function ReaderScreen() {
       mobileReaderTitleCapsuleWidthRange(chrome.title.width, boundsWidth).maxWidth < READER_CAPSULE_TITLE_FULL_MIN_WIDTH &&
       readerTopPageCountLabel !== null &&
       !readerChromePagesPending;
-    const capsuleTitleBlock = compactCapsuleTitle ? (
+    // A reopen shows the labels this chapter's capsule settled on last time
+    // until its own are final (the same spot is restored, so they match):
+    // never "Fetching pages" then a swap (mobileReaderTitleMemory).
+    const liveTitleLabels: MobileReaderTitleLabels = {
+      title: capsuleLabels.title,
+      subtitle: capsuleLabels.subtitle,
+      compact: compactCapsuleTitle,
+      pageCountLabel: readerTopPageCountLabel,
+    };
+    const { labels: titleLabels, seeded: titleSeeded } = resolveMobileReaderTitleLabels({
+      live: liveTitleLabels,
+      final: readerTitleLabelsFinal,
+      remembered: readerTitleSeedLabels,
+    });
+    readerTitleSettledRef.current = readerTitleLabelsFinal && chrome.kind === "capsules" ? liveTitleLabels : null;
+    const titleContentKey = mobileReaderTitleContentKey(titleLabels);
+    const capsuleTitleBlock = titleSeeded ? (
+      <View style={styles.readerCapsuleTitleBlock}>
+        <Text
+          numberOfLines={1}
+          maxFontSizeMultiplier={READER_CAPSULE_TITLE_MAX_FONT_SCALE}
+          style={[
+            styles.readerCapsuleTitle,
+            { color: READER_CAPSULE_COLORS.primaryText },
+            titleLabels.compact ? { fontVariant: ["tabular-nums"] } : null,
+          ]}
+        >
+          {titleLabels.compact ? titleLabels.pageCountLabel : titleLabels.title}
+        </Text>
+        {titleLabels.compact ? null : (
+          <View style={styles.readerCapsuleSubtitleRow}>
+            <Text
+              numberOfLines={1}
+              maxFontSizeMultiplier={READER_CAPSULE_TITLE_MAX_FONT_SCALE}
+              style={[styles.readerCapsuleSubtitle, { color: READER_CAPSULE_COLORS.primaryText }]}
+            >
+              {titleLabels.subtitle}
+            </Text>
+          </View>
+        )}
+      </View>
+    ) : compactCapsuleTitle ? (
       <View style={styles.readerCapsuleTitleBlock}>
         <MobileReaderLivePageView
           liveStore={readerChromeLivePageStore}
@@ -12547,12 +12617,16 @@ export function ReaderScreen() {
                 </ReaderCapsule>
                 {titleRect ? (
                   <View pointerEvents="box-none" style={[mobileReaderAbsoluteRect(titleRect), styles.readerTitleSlot]}>
-                    <ReaderCapsule
+                    <ReaderTitleCapsule
                       pointerEvents="auto"
-                      style={[styles.readerTitleCapsule, mobileReaderTitleCapsuleWidthRange(titleRect.width, boundsWidth)]}
+                      style={styles.readerTitleCapsule}
+                      {...mobileReaderTitleCapsuleWidthRange(titleRect.width, boundsWidth)}
+                      contentKey={titleContentKey}
+                      visible={readerTitleCapsuleVisible}
+                      reduceMotion={reduceMotion === true}
                     >
                       {capsuleTitleBlock}
-                    </ReaderCapsule>
+                    </ReaderTitleCapsule>
                   </View>
                 ) : null}
                 <View
@@ -12750,13 +12824,17 @@ export function ReaderScreen() {
                 pointerEvents="box-none"
                 style={[mobileReaderAbsoluteRect(titleRect), styles.readerTitleSlot]}
               >
-                <ReaderCapsule
+                <ReaderTitleCapsule
                   {...glass}
                   pointerEvents="auto"
-                  style={[styles.readerTitleCapsule, mobileReaderTitleCapsuleWidthRange(titleRect.width, boundsWidth)]}
+                  style={styles.readerTitleCapsule}
+                  {...mobileReaderTitleCapsuleWidthRange(titleRect.width, boundsWidth)}
+                  contentKey={titleContentKey}
+                  visible={readerTitleCapsuleVisible}
+                  reduceMotion={reduceMotion === true}
                 >
                   {capsuleTitleBlock}
-                </ReaderCapsule>
+                </ReaderTitleCapsule>
               </Animated.View>
             ) : null}
             {moreCapsule}
