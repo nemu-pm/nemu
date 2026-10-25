@@ -329,10 +329,12 @@ describe("home list columns across a fold/unfold on the page (Duo F7, r19)", () 
     expect(leading + free / 2).not.toBeCloseTo((box.width - 16) / 2, 0);
   });
 
-  test("HomeListColumns renders those styles and keys the row by mode", () => {
+  test("HomeListColumns renders those complete styles on stable keyed pose views (a fold glides, never remounts)", () => {
     const source = readFileSync(path.join(import.meta.dir, "../components/SourceHomeView.tsx"), "utf8");
     expect(source).toContain("getMobileListColumnStyles({");
-    expect(source).toContain("<View key={layout.mode} style={styles.exploreListColumns}>");
+    expect(source).toContain("<View style={styles.exploreListColumns}>");
+    expect(source).not.toContain("<View key={layout.mode} style={styles.exploreListColumns}>");
+    expect(source).toContain("<MobilePoseLayoutView key={column} style={style}>");
     expect(source).not.toContain("exploreListColumnCell");
   });
 });
