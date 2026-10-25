@@ -6,10 +6,12 @@ import {
   resolveNemuPressableLongPress,
 } from "./nemuPressable";
 import {
+  NATIVE_MENU_CONFIGURED_TAP_MAX_MS,
   NATIVE_MENU_LONG_PRESS_MS,
   NATIVE_MENU_PRESS_DEFER_FROM_MS,
   NATIVE_MENU_PRESS_UNCONFIGURED_WAIT_MS,
   NATIVE_MENU_PRESS_VERDICT_CAP_MS,
+  NATIVE_MENU_UNSTAMPED_CANCEL_BEFORE_RELEASE_MS,
   createNativeContextMenuPressGate,
   nativeContextMenuEventActive,
   nativeContextMenuEventTime,
@@ -127,12 +129,12 @@ describe("native context menu press gate", () => {
     expect(presses()).toBe(0);
   });
 
-  test("build 9, 420 ms: the menu shows well after the release — the press waits for it and is dropped", () => {
+  test("build 9, 420 ms: the menu shows well after the release — the release is dropped at once, the menu still shows", () => {
     const { gate, advance, press, presses } = harness();
     gate.pressIn(at(1000));
     gate.menuConfigure(); // ~160 ms
-    expect(gate.resolvePress(at(1420), press)).toBe("defer");
-    advance(300); // well past the old fixed 150 ms wait
+    expect(gate.resolvePress(at(1420), press)).toBe("suppress");
+    advance(300);
     expect(presses()).toBe(0);
     gate.menuWillDisplay();
     gate.menuWillEnd();
@@ -140,23 +142,78 @@ describe("native context menu press gate", () => {
     expect(presses()).toBe(0);
   });
 
-  test("build 9 trace #32/#33: the lift cancelled (willEnd, no display) presses then, not after a timer", () => {
-    const { gate, press, presses } = harness();
+  test("build 9 r3 bgfgB3 #29: a 425 ms still press whose lift ended with the release (no display) never opens", () => {
+    // configure +166, onPress -> defer at +414 [touch +425], willEnd +414 unstamped:
+    // the old gate fired the deferred press ("lift ended by the release").
+    const { gate, advance, press, presses } = harness();
     gate.pressIn(at(1000));
     gate.menuConfigure();
-    expect(gate.resolvePress(at(1424), press)).toBe("defer");
-    expect(presses()).toBe(0);
+    expect(gate.resolvePress(at(1425), press)).toBe("suppress");
     gate.menuWillEnd();
-    expect(presses()).toBe(1);
+    advance(NATIVE_MENU_PRESS_VERDICT_CAP_MS);
+    expect(presses()).toBe(0);
+    // The other order (willEnd first, then the release): also dropped.
+    gate.pressIn(at(3000));
+    gate.menuConfigure();
+    gate.menuWillEnd();
+    expect(gate.resolvePress(at(3425), press)).toBe("suppress");
+    advance(NATIVE_MENU_PRESS_VERDICT_CAP_MS);
+    expect(presses()).toBe(0);
   });
 
-  test("a willEnd without a display that reached JS before the release presses at once (unstamped: older binary)", () => {
-    const { gate, press, presses } = harness();
+  test("past the configured-tap limit every order drops the release; at or below it a release-ended lift still taps", () => {
+    const { gate, advance, press, presses } = harness();
     gate.pressIn(at(1000));
     gate.menuConfigure();
+    expect(gate.resolvePress(at(1000 + NATIVE_MENU_CONFIGURED_TAP_MAX_MS + 1), press)).toBe("suppress");
+    gate.pressIn(at(2000));
+    gate.menuConfigure();
+    expect(gate.resolvePress(at(2000 + NATIVE_MENU_CONFIGURED_TAP_MAX_MS), press)).toBe("defer");
     gate.menuWillEnd();
-    expect(gate.resolvePress(at(1400), press)).toBe("fire");
     expect(presses()).toBe(1);
+    // A configure that reaches JS only after a long release: dropped then.
+    gate.pressIn(at(4000));
+    expect(gate.resolvePress(at(4400), press)).toBe("defer");
+    gate.menuConfigure();
+    gate.menuWillEnd();
+    advance(NATIVE_MENU_PRESS_VERDICT_CAP_MS);
+    expect(presses()).toBe(1);
+    // A long hold UIKit never configured (no lift began): the short wait, then the press.
+    gate.pressIn(at(6000));
+    expect(gate.resolvePress(at(6400), press)).toBe("defer");
+    advance(NATIVE_MENU_PRESS_UNCONFIGURED_WAIT_MS);
+    expect(presses()).toBe(2);
+  });
+
+  test("unstamped (build 9 r3 binary): a willEnd that reached JS well before the release was a cancel under the finger", () => {
+    let clock = 10_000;
+    const gate = createNativeContextMenuPressGate(undefined, () => clock);
+    let presses = 0;
+    const press = () => {
+      presses += 1;
+    };
+    // 300 ms with drift: cancelled at ~200 ms, released at 300.
+    gate.pressIn({ native: 1000, wall: clock });
+    gate.menuConfigure();
+    clock += 200;
+    gate.menuWillEnd();
+    clock += 100;
+    expect(gate.resolvePress({ native: 1300, wall: clock }, press)).toBe("suppress");
+    // A 300 ms tap: the release ended the lift, both reach JS together.
+    gate.pressIn({ native: 2000, wall: clock });
+    gate.menuConfigure();
+    clock += 300;
+    gate.menuWillEnd();
+    clock += NATIVE_MENU_UNSTAMPED_CANCEL_BEFORE_RELEASE_MS - 1;
+    expect(gate.resolvePress({ native: 2300, wall: clock }, press)).toBe("fire");
+    // Quick taps (r3: fire 0-1 ms after willEnd) are untouched.
+    gate.pressIn({ native: 3000, wall: clock });
+    gate.menuConfigure();
+    clock += 200;
+    gate.menuWillEnd();
+    clock += 1;
+    expect(gate.resolvePress({ native: 3200, wall: clock }, press)).toBe("fire");
+    expect(presses).toBe(2);
   });
 
   test("no verdict at all: the press runs at the cap (never lost), once", () => {
@@ -314,7 +371,8 @@ describe("a lift UIKit cancelled under the finger (build 9 r2, item 4)", () => {
     expect(nativeContextMenuEventTime(undefined)).toBeUndefined();
     expect(nativeContextMenuEventActive({ nativeEvent: { active: "UIScrollViewPanGestureRecognizer@RCTEnhancedScrollView" } }))
       .toBe("UIScrollViewPanGestureRecognizer@RCTEnhancedScrollView");
-    expect(nativeContextMenuEventActive({ nativeEvent: { active: "" } })).toBeUndefined();
+    expect(nativeContextMenuEventActive({ nativeEvent: { active: "" } })).toBe("");
+    expect(nativeContextMenuEventActive({ nativeEvent: {} })).toBeUndefined();
   });
 
   test("420 ms with 13 pt drift: the lift is cancelled at ~300 ms, the release at 420 neither opens nor shows a menu", () => {
@@ -330,7 +388,8 @@ describe("a lift UIKit cancelled under the finger (build 9 r2, item 4)", () => {
     const { gate, press, presses, flush } = harness();
     gate.pressIn(at(1000));
     gate.menuConfigure(1160);
-    expect(gate.resolvePress(at(1420), press)).toBe("defer");
+    // 320 ms (a 420 ms hold is dropped at once since r3, before any verdict).
+    expect(gate.resolvePress(at(1320), press)).toBe("defer");
     gate.menuWillEnd(1300);
     flush();
     expect(presses()).toBe(0);

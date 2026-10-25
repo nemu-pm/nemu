@@ -47,6 +47,26 @@ describe("long-press trace (test only)", () => {
     expect(text).toContain("[touch +640ms] onPress -> suppress");
   });
 
+  test("build 9 r3: a willEnd without a display always says what was running, and unstamped events say so", () => {
+    setNativeMenuPressTraceEnabled(true);
+    const gate = createNativeContextMenuPressGate();
+    gate.pressIn({ native: 1000, wall: Date.now() });
+    gate.menuConfigure(1160);
+    gate.menuWillEnd(1300, "");
+    gate.pressIn({ native: 2000, wall: Date.now() });
+    gate.menuConfigure(); // r3's binary: no uptime, no list
+    gate.menuWillEnd();
+    gate.pressIn({ native: 3000, wall: Date.now() });
+    gate.menuWillDisplay(3450);
+    gate.menuWillEnd(3900, "");
+    const text = formatNativeMenuPressTrace();
+    expect(text).toContain("[touch +300ms] menu willEnd (active: none)");
+    expect(text).toContain("menu configure (no uptime)");
+    expect(text).toContain("menu willEnd (active: not sent) (no uptime)");
+    // After a display the list is not asked for.
+    expect(text.endsWith("[touch +900ms] menu willEnd")).toBe(true);
+  });
+
   test("keeps only the last eight sequences; switching off clears", () => {
     setNativeMenuPressTraceEnabled(true);
     const gate = createNativeContextMenuPressGate();

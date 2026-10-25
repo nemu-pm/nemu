@@ -21,12 +21,27 @@ import { traceNativeMenuEvent, traceNativeMenuPressIn } from "./ContextMenuPress
  * the outcome: a lift UIKit cancelled while the finger was still down
  * (`willEnd` without a display, stamped before the release on the touch
  * clock) makes the release neither a menu nor a tap.
+ *
+ * And a long hold is never a tap, whatever order the events reach JS in:
+ * UIKit presents the menu at the release once the hold passed its own commit
+ * point (~420-430 ms on the Duo, build 9 r3: willDisplay lands with the
+ * release), and a release just short of it ends the lift without a display —
+ * the same willEnd a tap gets (r3 bgfgB3 #29: 425 ms, configure at 166,
+ * willEnd with the release, the book opened). So a hold whose interaction
+ * began (`configure`) and that lasted past `NATIVE_MENU_CONFIGURED_TAP_MAX_MS`
+ * is dropped at the release, and one past `NATIVE_MENU_LONG_PRESS_MS` always.
  */
 
 /** A hold this long in a menu-owned pressable is never a tap (UIKit's own menu threshold). */
 export const NATIVE_MENU_LONG_PRESS_MS = 500;
 /** Shorter holds press at once: the system menu cannot be up yet. */
 export const NATIVE_MENU_PRESS_DEFER_FROM_MS = 250;
+/**
+ * A hold this long whose interaction had begun (`configure`) is never a tap:
+ * past it UIKit's lift is well under way and a release lands at or near its
+ * menu commit point, whether or not the menu then displays.
+ */
+export const NATIVE_MENU_CONFIGURED_TAP_MAX_MS = 350;
 /**
  * A longer hold whose interaction had begun (`configure`) waits for the
  * menu's verdict — `willDisplay` (drop) or `willEnd` without a display (the
@@ -100,6 +115,14 @@ export function nativeMenuLiftCancelledWhileHeld(
   return release.native - endedAt > NATIVE_MENU_LIFT_CANCELLED_BEFORE_RELEASE_MS;
 }
 
+/**
+ * Without the touch-clock stamp (a binary whose menu events carry none, as
+ * build 9 r3's did): a willEnd that reached JS this long before the release
+ * ended under a resting finger. A lift the release ended reaches JS with the
+ * release (0-1 ms apart, r3 quick taps); a cancelled one, 300+ ms earlier.
+ */
+export const NATIVE_MENU_UNSTAMPED_CANCEL_BEFORE_RELEASE_MS = 50;
+
 function heldFor(from: NativeContextMenuPressTime, to: NativeContextMenuPressTime): number {
   if (typeof from.native === "number" && typeof to.native === "number") return to.native - from.native;
   return to.wall - from.wall;
@@ -107,6 +130,7 @@ function heldFor(from: NativeContextMenuPressTime, to: NativeContextMenuPressTim
 
 export function createNativeContextMenuPressGate(
   scheduler: NativeContextMenuPressScheduler = defaultScheduler,
+  now: () => number = Date.now,
 ): NativeContextMenuPressGate {
   const id = nextGateId++;
   let pressInAt: NativeContextMenuPressTime | null = null;
@@ -118,7 +142,11 @@ export function createNativeContextMenuPressGate(
   let endedWithoutMenu = false;
   // Touch-clock time of that end, when the native view stamped it.
   let endedWithoutMenuAt: NativeContextMenuEventTime;
-  let pending: { press: () => void; timer: unknown; release: NativeContextMenuPressTime } | null = null;
+  // JS clock when that unstamped end reached JS.
+  let endedWithoutMenuWall: number | undefined;
+  // How long the hold being resolved lasted (touch clock when known).
+  let releasedHeld = 0;
+  let pending: { press: () => void; timer: unknown; release: NativeContextMenuPressTime; held: number } | null = null;
 
   const settle = (verdict: "fire" | "suppress", why: string) => {
     const waiting = pending;
@@ -128,7 +156,17 @@ export function createNativeContextMenuPressGate(
     traceNativeMenuEvent(id, `deferred onPress -> ${verdict} (${why})`);
     if (verdict === "fire") waiting.press();
   };
-  const settleUnlessMenu = (why: string) => settle(suppressed || menuVisible ? "suppress" : "fire", why);
+  // A deferred release whose hold turned out long (its configure reached JS
+  // after the release) is dropped whatever ends the wait.
+  const pendingIsLongHold = () => !!pending && configured && pending.held > NATIVE_MENU_CONFIGURED_TAP_MAX_MS;
+  const settleUnlessMenu = (why: string) => {
+    if (!suppressed && !menuVisible && pendingIsLongHold()) {
+      suppressed = true;
+      settle("suppress", `${why}; held past ${NATIVE_MENU_CONFIGURED_TAP_MAX_MS} ms with the lift begun`);
+      return;
+    }
+    settle(suppressed || menuVisible ? "suppress" : "fire", why);
+  };
 
   return {
     pressIn(time) {
@@ -139,6 +177,7 @@ export function createNativeContextMenuPressGate(
       configured = false;
       endedWithoutMenu = false;
       endedWithoutMenuAt = undefined;
+      endedWithoutMenuWall = undefined;
       traceNativeMenuPressIn(id, time.native);
     },
     longPress() {
@@ -147,7 +186,11 @@ export function createNativeContextMenuPressGate(
     },
     menuConfigure(at) {
       configured = true;
-      traceNativeMenuEvent(id, "menu configure", at);
+      traceNativeMenuEvent(id, stampNote("menu configure", at), at);
+      if (pendingIsLongHold()) {
+        settleUnlessMenu("late configure");
+        return;
+      }
       // A short wait for a late configure now waits for the real verdict.
       if (pending) {
         scheduler.clear(pending.timer);
@@ -157,7 +200,7 @@ export function createNativeContextMenuPressGate(
     menuWillDisplay(at) {
       menuVisible = true;
       suppressed = true;
-      traceNativeMenuEvent(id, "menu willDisplay", at);
+      traceNativeMenuEvent(id, stampNote("menu willDisplay", at), at);
       settle("suppress", "menu shown");
     },
     menuWillEnd(at, active) {
@@ -166,8 +209,12 @@ export function createNativeContextMenuPressGate(
       if (!shown && !suppressed) {
         endedWithoutMenu = true;
         endedWithoutMenuAt = at;
+        endedWithoutMenuWall = typeof at === "number" ? undefined : now();
       }
-      traceNativeMenuEvent(id, active ? `menu willEnd (active: ${active})` : "menu willEnd", at);
+      // TEST-ONLY trace: what was running when a lift ended without a display
+      // ("none": nothing began; "not sent": this binary has no such report).
+      const running = shown ? "" : ` (active: ${active === undefined ? "not sent" : active || "none"})`;
+      traceNativeMenuEvent(id, stampNote(`menu willEnd${running}`, at), at);
       if (!shown && pending && nativeMenuLiftCancelledWhileHeld(at, pending.release)) {
         // The release reached JS first, but UIKit had cancelled the lift
         // under the finger before it left: a moved or claimed hold, not a tap.
@@ -187,6 +234,7 @@ export function createNativeContextMenuPressGate(
         pending = {
           press,
           release: time,
+          held: releasedHeld,
           timer: scheduler.set(() => settleUnlessMenu(configured ? "verdict cap" : "no configure"), wait),
         };
       }
@@ -200,10 +248,11 @@ export function createNativeContextMenuPressGate(
   function decide(time: NativeContextMenuPressTime): NativeContextMenuPressDecision {
     const startedAt = pressInAt;
     pressInAt = null;
+    releasedHeld = startedAt ? heldFor(startedAt, time) : 0;
     if (suppressed || menuVisible) return "suppress";
     // No touch sequence (accessibility activation): a plain press.
     if (!startedAt) return "fire";
-    const held = heldFor(startedAt, time);
+    const held = releasedHeld;
     if (held >= NATIVE_MENU_LONG_PRESS_MS) {
       suppressed = true;
       return "suppress";
@@ -212,15 +261,31 @@ export function createNativeContextMenuPressGate(
     // past the interaction's allowance, or a scroll view's pan began): the
     // touch was neither the menu's long press nor a tap — as a native list
     // never selects a cell its scroll or a cancelled lift took over.
-    if (endedWithoutMenu && nativeMenuLiftCancelledWhileHeld(endedWithoutMenuAt, time)) {
+    if (
+      endedWithoutMenu &&
+      (nativeMenuLiftCancelledWhileHeld(endedWithoutMenuAt, time) ||
+        (endedWithoutMenuWall !== undefined &&
+          time.wall - endedWithoutMenuWall >= NATIVE_MENU_UNSTAMPED_CANCEL_BEFORE_RELEASE_MS))
+    ) {
       suppressed = true;
       return "suppress";
     }
     if (held < NATIVE_MENU_PRESS_DEFER_FROM_MS) return "fire";
+    // The lift had begun and the hold reached its commit point's
+    // neighbourhood: a willEnd without a display now is no proof of a tap.
+    if (configured && held > NATIVE_MENU_CONFIGURED_TAP_MAX_MS) {
+      suppressed = true;
+      return "suppress";
+    }
     // The lift already ended (willEnd reached JS first, not stamped before
     // the release — the release itself ended it): no menu is coming.
     return endedWithoutMenu ? "fire" : "defer";
   }
+}
+
+/** TEST-ONLY trace: marks a menu event the native view sent without its touch-clock stamp. */
+function stampNote(what: string, at: NativeContextMenuEventTime): string {
+  return typeof at === "number" ? what : `${what} (no uptime)`;
 }
 
 /** `uptime` (ms, touch clock) of a native menu event; undefined from an older binary. */
@@ -229,10 +294,10 @@ export function nativeContextMenuEventTime(event: unknown): NativeContextMenuEve
   return typeof uptime === "number" && Number.isFinite(uptime) ? uptime : undefined;
 }
 
-/** TEST-ONLY trace: the recognizers running when the menu ended (empty from an older binary). */
+/** TEST-ONLY trace: the recognizers running when the menu ended ("" none; undefined from a binary that sends no list). */
 export function nativeContextMenuEventActive(event: unknown): string | undefined {
   const active = (event as { nativeEvent?: { active?: unknown } } | null | undefined)?.nativeEvent?.active;
-  return typeof active === "string" && active.length > 0 ? active : undefined;
+  return typeof active === "string" ? active : undefined;
 }
 
 export function nativeContextMenuPressTime(event: unknown): NativeContextMenuPressTime {
