@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   canNavigateMobileRootTab,
   exactMobileRootTabHrefForPathname,
+  isMobileBottomTabBarRoute,
   isMobileLibraryRoute,
   getMobileRootTabPressAction,
   isMobileReaderRoute,
@@ -142,5 +143,21 @@ describe("isMobileLibraryRoute", () => {
     expect(isMobileLibraryRoute("/library/collection/abc")).toBe(true);
     expect(isMobileLibraryRoute("/browse")).toBe(false);
     expect(isMobileLibraryRoute("/sources/reg/src/manga")).toBe(false);
+  });
+});
+
+describe("isMobileBottomTabBarRoute", () => {
+  test("iOS: the native tab bar shows inside (tabs), not on root-stack source pages", () => {
+    expect(isMobileBottomTabBarRoute("/", "ios")).toBe(true);
+    expect(isMobileBottomTabBarRoute("/library/collection/abc", "ios")).toBe(true);
+    expect(isMobileBottomTabBarRoute("/browse/registry/source", "ios")).toBe(true);
+    expect(isMobileBottomTabBarRoute("/settings/sources", "ios")).toBe(true);
+    expect(isMobileBottomTabBarRoute("/sources/r/s/m", "ios")).toBe(false);
+    expect(isMobileBottomTabBarRoute("/sources/r/s/m/c", "ios")).toBe(false);
+  });
+
+  test("Android: follows the floating bar (hidden only in the reader)", () => {
+    expect(isMobileBottomTabBarRoute("/sources/r/s/m", "android")).toBe(true);
+    expect(isMobileBottomTabBarRoute("/sources/r/s/m/c", "android")).toBe(false);
   });
 });

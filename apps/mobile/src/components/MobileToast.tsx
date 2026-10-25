@@ -7,6 +7,8 @@ import {
   type ReactNode,
 } from "react";
 import {
+  AccessibilityInfo,
+  Platform,
   StyleSheet,
   View,
   type StyleProp,
@@ -18,6 +20,7 @@ import Animated, {
   useReducedMotion,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { usePathname } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useMobileLanguageSettings } from "@/data/mobileHooks";
 import {
@@ -34,6 +37,12 @@ import {
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { getMobileFloatingTabBarOverlayExtent } from "@/lib/mobileFloatingTabBarClearance";
 import { getMobileStrings } from "@/lib/mobileI18n";
+import { useMobileBottomTabBarInset } from "@/lib/mobileBottomTabBarInset";
+import { isMobileBottomTabBarRoute } from "@/lib/mobileRootTabs";
+import {
+  MOBILE_IOS_TAB_BAR_FALLBACK_HEIGHT,
+  resolveMobileToastPlacement,
+} from "@/lib/mobileToastPlacement";
 import {
   MobileToastContext,
   type MobileToastController,
@@ -263,12 +272,41 @@ function MobileToastHost({
   const { reduceMotion } = useNemuTheme();
   const insets = useSafeAreaInsets();
   const gutters = useMobilePageGutters();
-  const { verticalBarSide } = useMobileAdaptiveLayout();
+  const adaptive = useMobileAdaptiveLayout();
+  const pathname = usePathname();
+  const measuredTabBarInset = useMobileBottomTabBarInset();
   const reducedMotion = useReducedMotion();
   const motionDisabled = reduceMotion || reducedMotion === true;
-  const bottom = verticalBarSide
-    ? insets.bottom + 16
-    : getMobileFloatingTabBarOverlayExtent(insets.bottom) + 12;
+  const windowInsets = adaptive.safeAreaInsets;
+  const safeArea = {
+    left: windowInsets?.left ?? insets.left,
+    right: windowInsets?.right ?? insets.right,
+    bottom: windowInsets?.bottom ?? insets.bottom,
+  };
+  const placement = resolveMobileToastPlacement({
+    windowWidth: adaptive.width,
+    posture: adaptive.posture,
+    panels: adaptive.panels,
+    verticalBarSide: adaptive.verticalBarSide,
+    safeArea,
+    gutters,
+    bottomTabBarVisible: isMobileBottomTabBarRoute(pathname, Platform.OS),
+    // Android's floating bar is drawn in JS (no native measurement).
+    bottomTabBarInset: Platform.OS === "ios" ? measuredTabBarInset : null,
+    fallbackBottomTabBarInset:
+      Platform.OS === "ios"
+        ? safeArea.bottom + MOBILE_IOS_TAB_BAR_FALLBACK_HEIGHT
+        : getMobileFloatingTabBarOverlayExtent(insets.bottom),
+  });
+
+  const announcement = toast
+    ? [toast.options.title, toast.options.detail].filter(Boolean).join(". ")
+    : null;
+  useEffect(() => {
+    // iOS ignores live regions (Android's surface already has one): announce
+    // the toast explicitly so VoiceOver reads the title.
+    if (announcement && Platform.OS === "ios") AccessibilityInfo.announceForAccessibility(announcement);
+  }, [toast, announcement]);
 
   if (!toast) return null;
 
@@ -286,7 +324,10 @@ function MobileToastHost({
           : FadeInDown.springify().damping(22).stiffness(340)
       }
       exiting={motionDisabled ? undefined : FadeOutDown.duration(120)}
-      style={[styles.host, { bottom, left: gutters.left, right: gutters.right }]}
+      style={[
+        styles.host,
+        { bottom: placement.bottom, left: placement.left, width: placement.width },
+      ]}
     >
       <MobileToastSurface
         action={
@@ -368,8 +409,6 @@ export function MobileToastProvider({ children }: { children: ReactNode }) {
 const styles = StyleSheet.create({
   host: {
     position: "absolute",
-    left: 16,
-    right: 16,
   },
   pill: {
     borderRadius: radius.tab,

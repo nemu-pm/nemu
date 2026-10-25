@@ -83,6 +83,10 @@ import {
   emitMobileSettingsDataChanged,
 } from "@/data/mobileDataEvents";
 import { useMobileToast } from "@/components/MobileToastContext";
+import {
+  isMobileRefreshSourcesCancellation,
+  showMobileRefreshSourcesErrorToast,
+} from "@/lib/mobileRefreshSourcesFeedback";
 import { SOURCE_DIRECTORY_ERROR_KEYS } from "@/lib/mobileSourceDirectoryErrors";
 import {
   MobileSourceDirectoryPrompt,
@@ -2678,6 +2682,7 @@ function SettingsScreenContent({
     );
   };
 
+  const refreshSourcesRef = useRef<() => Promise<void>>(async () => {});
   const refreshSources = async () => {
     if (!canStartMobileSettingsAction(getGuardedSettingsActionState())) return;
 
@@ -2689,15 +2694,25 @@ function SettingsScreenContent({
       await sources.reload();
       await hapticConfirm();
     } catch (error) {
-      // Superseded or aborted (a foreground/connectivity reload took over,
-      // the screen unmounted): that reload reports its own outcome.
       if (isMobileReloadCancellation(error)) return;
-      await reportSettingsError(error);
+      // A superseded/aborted refresh is not a failure; the run that replaced
+      // it reports itself.
+      if (isMobileRefreshSourcesCancellation(error)) return;
+      if (__DEV__) console.warn("[settings] refresh sources failed:", error);
+      await hapticError();
+      // The page still shows its content: a toast, not the operation banner.
+      showMobileRefreshSourcesErrorToast({
+        toast,
+        strings,
+        error,
+        onRetry: () => void refreshSourcesRef.current(),
+      });
     } finally {
       refreshGuardRef.current = false;
       setRefreshingSources(false);
     }
   };
+  refreshSourcesRef.current = refreshSources;
 
   const retryReaderPlugins = () => {
     if (!canRetryReaderPluginsError) return;

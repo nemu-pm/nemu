@@ -1,5 +1,6 @@
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { Stack } from "expo-router";
+import { MobileTabBarInsetReporter } from "@/components/MobileTabBarInsetReporter";
 import { createNemuNativeStackScreenOptions, useNemuTheme } from "@/design-system";
 import { createMobileTabStackAnchorListeners } from "@/lib/mobileTabStackAnchor";
 
@@ -18,10 +19,14 @@ export default function LibraryLayout() {
   const { verticalBarSide } = useMobileAdaptiveLayout();
 
   return (
-    <Stack
-      screenListeners={anchorListeners}
-      screenOptions={createNemuNativeStackScreenOptions(tokens, verticalBarSide)}
-    >
-    </Stack>
+    <>
+      {/* Measures the native tab bar for app-wide overlays (toast). */}
+      <MobileTabBarInsetReporter />
+      <Stack
+        screenListeners={anchorListeners}
+        screenOptions={createNemuNativeStackScreenOptions(tokens, verticalBarSide)}
+      >
+      </Stack>
+    </>
   );
 }

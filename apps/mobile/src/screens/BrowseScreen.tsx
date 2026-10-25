@@ -40,6 +40,10 @@ import {
 } from "@/components/QuickActionSheet";
 import { useMobileToast } from "@/components/MobileToastContext";
 import {
+  isMobileRefreshSourcesCancellation,
+  showMobileRefreshSourcesErrorToast,
+} from "@/lib/mobileRefreshSourcesFeedback";
+import {
   createNemuNativeScreenOptions,
   GlassSurface,
   MobileCachedImage,
@@ -1441,6 +1445,7 @@ export function BrowseScreen() {
     setConfirmationVisible(false);
   };
 
+  const refreshSourcesRef = useRef<() => Promise<void>>(async () => {});
   const refreshSources = async () => {
     if (refreshGuardRef.current || activeInstallKey !== null) return;
 
@@ -1451,16 +1456,25 @@ export function BrowseScreen() {
       await Promise.all([installed.reload(), available.reload()]);
       await hapticConfirm();
     } catch (error) {
-      // Superseded or aborted (a foreground/connectivity reload took over,
-      // the screen unmounted): that reload reports its own outcome.
       if (isMobileSourceInstallCancellation(error)) return;
+      // A superseded/aborted refresh is not a failure; the run that replaced
+      // it reports itself.
+      if (isMobileRefreshSourcesCancellation(error)) return;
+      if (__DEV__) console.warn("[browse] refresh sources failed:", error);
       await hapticError();
-      setActionError(sourceActionErrorPresentation(error, strings));
+      // The page still shows its sources: a toast, not the inline banner.
+      showMobileRefreshSourcesErrorToast({
+        toast,
+        strings,
+        error,
+        onRetry: () => void refreshSourcesRef.current(),
+      });
     } finally {
       refreshGuardRef.current = false;
       setRefreshingSources(false);
     }
   };
+  refreshSourcesRef.current = refreshSources;
 
   const toggleLanguage = (language: string) => {
     setSelectedLanguages((current) => {
