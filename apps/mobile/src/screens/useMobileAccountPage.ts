@@ -12,6 +12,7 @@ import {
 } from "@/lib/mobileAccountDeletion";
 import {
   createMobileAccountLeave,
+  getMobileSettingsStackWithoutAccountPages,
   leaveMobileAccountPages,
   shouldLeaveMobileAccountPages,
 } from "@/lib/mobileAccountSignedOut";
@@ -27,23 +28,39 @@ import { api } from "../../../../convex/_generated/api";
  */
 const KEEP_DEVICE_DATA_AFTER_ACCOUNT_DELETION = true;
 
-export function useMobileAccountPage() {
+export function useMobileAccountPage({
+  onLeft,
+}: {
+  /**
+   * After the page left (signed out, deleted): the split clears its Account
+   * selection, so its detail column shows the default section again.
+   */
+  onLeft?: () => void;
+} = {}) {
   // The Settings stack's navigation (this page is a route in it).
   const navigation = useNavigation() as unknown as Parameters<typeof leaveMobileAccountPages>[0];
   const router = useRouter();
   const toast = useMobileToast();
   const language = useMobileLanguageSettings();
   const strings = getMobileStrings(language.appLanguage);
-  const latest = useRef({ navigation, router, toast, strings });
-  latest.current = { navigation, router, toast, strings };
+  const latest = useRef({ navigation, router, toast, strings, onLeft });
+  latest.current = { navigation, router, toast, strings, onLeft };
   // Once per page: a sign-out or deletion here lands on the Settings root
   // (its Cloud sync card is the signed-out state; this page has none), with
   // the account page off the stack so Back cannot return to it.
   const [leaveAccount] = useState(() =>
     createMobileAccountLeave({
-      dismissToSettings: () => latest.current.router.dismissTo("/settings"),
+      dismissToSettings: () => {
+        // Only while an account route is in the stack: the split's Account
+        // selection on the Settings root is no route to dismiss.
+        if (getMobileSettingsStackWithoutAccountPages(latest.current.navigation.getState())) {
+          latest.current.router.dismissTo("/settings");
+        }
+        latest.current.onLeft?.();
+      },
       resetStack: () => {
         leaveMobileAccountPages(latest.current.navigation);
+        latest.current.onLeft?.();
       },
       showSignedOutToast: () =>
         latest.current.toast.show({

@@ -62,6 +62,7 @@ import { nextSyncTimestamp } from "@nemu/core";
 import { MobileAboutSheet } from "@/components/MobileAboutSheet";
 import { MobileAgentStatusCard } from "@/components/MobileAgentStatusCard";
 import { MobileCloudSyncCard } from "@/components/MobileCloudSyncCard";
+import { AccountScreen } from "./AccountScreen";
 import { ExploreSettingsActionGroup } from "@/components/explore/ExploreSettingsActionGroup";
 import { MobileConfirmationSheet } from "@/components/MobileConfirmationSheet";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
@@ -758,12 +759,17 @@ function useScreenReaderEnabled(): boolean {
   return enabled;
 }
 
-export type SettingsSectionId = "reader" | "sources" | "directories" | "appearance" | "data" | "experimental";
+/**
+ * `account`: the Account page (its own `settings/account` route), opened
+ * from the Cloud sync card; a detail-column section in the split.
+ */
+export type SettingsSectionId = "reader" | "sources" | "directories" | "appearance" | "data" | "experimental" | "account";
 
 function settingsSectionHref(
   section: SettingsSectionId,
   params: Record<string, string> = {},
 ): Href {
+  if (section === "account") return { pathname: "/(tabs)/settings/account", params };
   return {
     pathname: "/(tabs)/settings/[section]",
     params: { ...params, section },
@@ -1831,6 +1837,8 @@ function settingsSectionTitle(strings: MobileStrings, section: SettingsSectionId
       return strings.settings.dataManagement;
     case "experimental":
       return strings.settings.experimentalDesign;
+    case "account":
+      return strings.account.title;
     default:
       return strings.nav.settings;
   }
@@ -3428,7 +3436,10 @@ function SettingsScreenContent({
 
               {activeSection === null ? (
                 <>
-                  <MobileCloudSyncCard />
+                  <MobileCloudSyncCard
+                    accountSelected={inSplit ? selectedSection === "account" : null}
+                    onOpenAccount={() => openSection("account")}
+                  />
                   {mobileDesignExploreFlag ? (
                     <>
                       <ExploreSettingsGroup
@@ -4455,6 +4466,14 @@ export function SettingsScreen({
       }
     : null;
 
+  const detailShown = split ? detailSection : (selected ?? section);
+  // Signed out or deleted from the Account page: the split's detail column
+  // goes back to the default section and the account row is deselected (the
+  // page itself dismisses an `account` route).
+  const leaveAccountSelection = useCallback(() => {
+    setSelected((current) => (current === "account" ? null : current));
+  }, []);
+
   const pose = useMobilePoseTransition();
   const poseLayout = useMobilePoseLayout();
   const listPane = split || primaryPane === "list" ? (
@@ -4497,14 +4516,23 @@ export function SettingsScreen({
       exiting={pose.exiting}
       style={split ? [styles.pane, { width: split.trailing.width }] : styles.fill}
     >
-      <SettingsScreenContent
-        section={split ? detailSection : (selected ?? section)}
-        presentation={split ? "detail-pane" : "page"}
-        onSelectSection={setSelected}
-        paneContentStyle={padding.trailing}
-        columnTitled={columnTitles !== null}
-        paneBack={columnBackPlacement === "pane" ? columnBack : null}
-      />
+      {detailShown === "account" ? (
+        // The Account Form (its own page, SwiftUI on iOS): the detail
+        // column's section in the split, the pushed page in one column.
+        <AccountScreen
+          presentation={split ? "detail-pane" : "page"}
+          onLeft={leaveAccountSelection}
+        />
+      ) : (
+        <SettingsScreenContent
+          section={detailShown}
+          presentation={split ? "detail-pane" : "page"}
+          onSelectSection={setSelected}
+          paneContentStyle={padding.trailing}
+          columnTitled={columnTitles !== null}
+          paneBack={columnBackPlacement === "pane" ? columnBack : null}
+        />
+      )}
     </Animated.View>
   ) : null;
 

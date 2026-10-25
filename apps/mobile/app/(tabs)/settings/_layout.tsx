@@ -5,6 +5,7 @@ import { createNemuNativeStackScreenOptions, useNemuTheme } from "@/design-syste
 import { createMobileTabStackAnchorListeners } from "@/lib/mobileTabStackAnchor";
 import {
   isMobileSettingsRestoredPush,
+  MOBILE_SETTINGS_ACCOUNT_ROUTE,
   MOBILE_SETTINGS_SECTION_ROUTE,
 } from "@/lib/mobileSettingsSplit";
 
@@ -36,6 +37,14 @@ export default function SettingsLayout() {
             place, and its pop and edge swipe are the system's again. */}
         <Stack.Screen
           name={MOBILE_SETTINGS_SECTION_ROUTE}
+          options={({ route }: { route: { params?: object } }) =>
+            isMobileSettingsRestoredPush(route.params)
+              ? { animation: "none" as const, animationTypeForReplace: "push" as const }
+              : {}}
+        />
+        {/* Account, kept through a collapse the same way. */}
+        <Stack.Screen
+          name={MOBILE_SETTINGS_ACCOUNT_ROUTE}
           options={({ route }: { route: { params?: object } }) =>
             isMobileSettingsRestoredPush(route.params)
               ? { animation: "none" as const, animationTypeForReplace: "push" as const }

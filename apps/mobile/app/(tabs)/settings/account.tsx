@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { router } from "expo-router";
-import { AccountScreen } from "@/screens/AccountScreen";
+import { SettingsScreen } from "@/screens/SettingsScreen";
 import { mobileSyncConfig } from "@/sync/mobileSyncConfig";
 
 /**
@@ -16,7 +16,12 @@ function ReturnToSettings() {
   return null;
 }
 
+/**
+ * The Account page goes through `SettingsScreen` like the sections: a pushed
+ * page in one column, the split's detail column (Account selected) when the
+ * window widens, and kept open across a fold either way.
+ */
 export default function SettingsAccountRoute() {
   if (!mobileSyncConfig.configured) return <ReturnToSettings />;
-  return <AccountScreen />;
+  return <SettingsScreen section="account" />;
 }

@@ -201,3 +201,47 @@ describe("settings split column back mounts", () => {
     }
   });
 });
+
+describe("settings split: the Account page is a detail-column section", () => {
+  const accountStack = (above: { key?: string; name: string; params?: object }[]): MobileSettingsStackState => ({
+    key: "stack-1",
+    type: "stack",
+    routeNames: ["index", "[section]", "account", "server"],
+    index: above.length,
+    routes: [{ key: "index-1", name: "index", params: {} }, ...above],
+  });
+
+  test("the account route reads as the account section", () => {
+    const state = accountStack([{ key: "account-1", name: "account", params: {} }]);
+    expect(getMobileSettingsStackSections(state)).toEqual(["account"]);
+    expect(isMobileSettingsStackTop(state, "account")).toBe(true);
+    // A deep link / a push kept from one column selects Account in the split.
+    expect(resolve({ selected: null, routeSection: "account", focus: undefined })).toBe("account");
+    expect(getMobileSettingsSplitHighlightedRow("account")).toBe("account");
+    expect(getMobileSettingsPrimaryPane("account")).toBe("detail");
+  });
+
+  test("split → one column pushes the account route (unanimated), not a [section] route", () => {
+    const collapse = plan({ routeSections: [], shown: "account" });
+    expect(collapse).toEqual({ keep: 0, push: ["account"] });
+    const next = applyMobileSettingsCollapsePlan(accountStack([]), collapse!);
+    expect(next.routes).toEqual([
+      { key: "index-1", name: "index", params: {} },
+      { name: "account", params: { restored: "1" } },
+    ]);
+    expect(isMobileSettingsRestoredPush(next.routes[1]?.params)).toBe(true);
+    // Already on the account route: nothing to do.
+    expect(plan({ routeSections: ["account"], shown: "account" })).toBeNull();
+    // Another section picked in the split over an account route replaces it.
+    expect(plan({ routeSections: ["account"], shown: "reader" })).toEqual({ keep: 0, push: ["reader"] });
+  });
+
+  test("once in place the restored account route loses its param, keeping its key", () => {
+    const restored = accountStack([{ key: "account-1", name: "account", params: { restored: "1" } }]);
+    const done = completeMobileSettingsRestoredStack(restored, "account");
+    expect(done?.routes).toEqual([
+      { key: "index-1", name: "index", params: {} },
+      { key: "account-1", name: "account", params: {} },
+    ]);
+  });
+});

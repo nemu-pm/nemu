@@ -1,4 +1,17 @@
-export type MobileSettingsSplitSectionId = "reader" | "sources" | "directories" | "appearance" | "data" | "experimental";
+/**
+ * `account` is the Account page (`settings/account`, opened from the Cloud
+ * sync card's account row, not a row of the section list): in the split it
+ * shows in the detail column like the others, and a collapse keeps it as the
+ * pushed `account` route.
+ */
+export type MobileSettingsSplitSectionId =
+  | "reader"
+  | "sources"
+  | "directories"
+  | "appearance"
+  | "data"
+  | "experimental"
+  | "account";
 
 /** Order of the section list; the first one is selected by default (iOS Settings). */
 export const MOBILE_SETTINGS_SPLIT_SECTIONS: readonly MobileSettingsSplitSectionId[] = [
@@ -58,6 +71,8 @@ export function getMobileSettingsPrimaryPane(
 
 /** The `settings/[section]` route's name in the Settings stack. */
 export const MOBILE_SETTINGS_SECTION_ROUTE = "[section]";
+/** The `settings/account` route's name: the Account page's own route. */
+export const MOBILE_SETTINGS_ACCOUNT_ROUTE = "account";
 /** The Settings stack's root route (its anchor). */
 export const MOBILE_SETTINGS_ROOT_ROUTE = "index";
 /**
@@ -124,12 +139,23 @@ export type MobileSettingsStackState = {
 };
 
 function routeSection(route: MobileSettingsStackRoute | undefined): MobileSettingsSplitSectionId | null {
+  if (route?.name === MOBILE_SETTINGS_ACCOUNT_ROUTE) return "account";
   if (route?.name !== MOBILE_SETTINGS_SECTION_ROUTE) return null;
   const section = (route.params as { section?: unknown } | undefined)?.section;
   return section === "reader" || section === "sources" || section === "directories" ||
     section === "appearance" || section === "data" || section === "experimental"
     ? section
     : null;
+}
+
+/** The route that shows a section as a page (Account has its own). */
+function sectionRoute(
+  section: MobileSettingsSplitSectionId,
+  params: Record<string, string> = {},
+): MobileSettingsStackRoute {
+  return section === "account"
+    ? { name: MOBILE_SETTINGS_ACCOUNT_ROUTE, params }
+    : { name: MOBILE_SETTINGS_SECTION_ROUTE, params: { section, ...params } };
 }
 
 /** Sections of the stack's routes above its root, bottom to top. */
@@ -182,9 +208,7 @@ export function applyMobileSettingsCollapsePlan<State extends MobileSettingsStac
   const routes = [
     root,
     ...above.slice(0, plan.keep),
-    ...(top
-      ? [{ name: MOBILE_SETTINGS_SECTION_ROUTE, params: { section: top, [MOBILE_SETTINGS_RESTORED_PARAM]: "1" } }]
-      : []),
+    ...(top ? [sectionRoute(top, { [MOBILE_SETTINGS_RESTORED_PARAM]: "1" })] : []),
   ];
   return { ...state, index: routes.length - 1, routes, stale: false };
 }
@@ -214,7 +238,7 @@ export function completeMobileSettingsRestoredStack<State extends MobileSettings
   const routes = [
     root,
     ...below.slice(0, keep),
-    ...chainBelow.slice(keep).map((page) => ({ name: MOBILE_SETTINGS_SECTION_ROUTE, params: { section: page } })),
+    ...chainBelow.slice(keep).map((page) => sectionRoute(page)),
     { ...top, params },
   ];
   return { ...state, index: routes.length - 1, routes, stale: false };

@@ -1,4 +1,4 @@
-import { View } from "react-native";
+import { useWindowDimensions, View } from "react-native";
 import { Stack } from "expo-router";
 import {
   Alert as SwiftAlert,
@@ -12,9 +12,18 @@ import {
   Spacer as SwiftSpacer,
   Text as SwiftText,
 } from "@expo/ui/swift-ui";
-import { foregroundStyle, lineLimit, tint } from "@expo/ui/swift-ui/modifiers";
+import {
+  foregroundStyle,
+  lineLimit,
+  listSectionMargins,
+  tint,
+} from "@expo/ui/swift-ui/modifiers";
 import { useState } from "react";
 import { nemuSoftScrollEdge, useNemuTheme } from "@/design-system";
+import {
+  resolveMobileAccountFormSideMargin,
+  type MobileAccountScreenProps,
+} from "@/lib/mobileAccountLayout";
 import { useMobileAccountPage } from "./useMobileAccountPage";
 
 /**
@@ -22,9 +31,13 @@ import { useMobileAccountPage } from "./useMobileAccountPage";
  * sections: the account, Sign Out (app tint, door-and-arrow symbol: not
  * destructive), and Delete Account (system red, trash), always last.
  */
-export function AccountScreen() {
+export function AccountScreen({ presentation = "page", onLeft }: MobileAccountScreenProps = {}) {
   const { scheme, tokens } = useNemuTheme();
-  const page = useMobileAccountPage();
+  const page = useMobileAccountPage({ onLeft });
+  const { width } = useWindowDimensions();
+  // In the split's detail column the Form fills the column; a wide single
+  // column caps its sections at the readable width, centred.
+  const sideMargin = resolveMobileAccountFormSideMargin({ presentation, width });
   const { strings } = page;
   const [confirming, setConfirming] = useState(false);
 
@@ -47,9 +60,27 @@ export function AccountScreen() {
 
   return (
     <View style={{ flex: 1 }}>
-      <Stack.Screen options={{ title: strings.account.title }} />
+      {presentation === "page" ? (
+        // Always set: on a route the split showed (then collapsed) the list
+        // pane had hidden Back and the edge swipe (`setOptions` merges).
+        <Stack.Screen
+          options={{
+            title: strings.account.title,
+            headerBackVisible: true,
+            gestureEnabled: true,
+            headerTitle: undefined,
+          }}
+        />
+      ) : null}
       <SwiftHost colorScheme={scheme} style={{ flex: 1 }}>
-        <SwiftForm modifiers={[nemuSoftScrollEdge()]}>
+        <SwiftForm
+          modifiers={[
+            nemuSoftScrollEdge(),
+            ...(sideMargin !== null
+              ? [listSectionMargins({ edges: "horizontal", length: sideMargin })]
+              : []),
+          ]}
+        >
           <SwiftSection>
             <SwiftLabeledContent label={strings.account.name}>
               <SwiftText modifiers={[lineLimit(1)]}>{page.displayName}</SwiftText>

@@ -88,13 +88,28 @@ type CloudSyncError = {
   accountId?: string | null;
 };
 
+type MobileCloudSyncAccountRowProps = {
+  /**
+   * Split view (null / absent outside it): whether the Account page shows in
+   * the detail column. The account row is then a selection like the section
+   * list's rows — highlighted when selected, never a chevron.
+   */
+  accountSelected?: boolean | null;
+  /** Opens the Account page (a push, or the split's detail column). */
+  onOpenAccount?: () => void;
+};
+
 function MobileCloudSyncConfiguredCard({
   strings,
-}: {
+  accountSelected: accountSelection = null,
+  onOpenAccount,
+}: MobileCloudSyncAccountRowProps & {
   strings: MobileStrings;
 }) {
   const { tokens } = useNemuTheme();
   const router = useRouter();
+  const accountInSplit = accountSelection !== null;
+  const accountSelected = accountSelection === true;
   // The erase confirmation's acknowledgement row, built here outside the sheet.
   const sheetTokens = useMobileNativeSheetTheme().tokens;
   const store = useMobileDataStore();
@@ -514,8 +529,15 @@ function MobileCloudSyncConfiguredCard({
             <NemuPressable
               accessibilityLabel={strings.account.openAccount}
               accessibilityRole="button"
-              onPress={() => router.push("/settings/account")}
-              style={[styles.accountRow, { borderColor: tokens.border }]}
+              accessibilityState={accountInSplit ? { selected: accountSelected } : undefined}
+              onPress={onOpenAccount ?? (() => router.push("/settings/account"))}
+              style={[
+                styles.accountRow,
+                { borderColor: tokens.border },
+                accountSelected
+                  ? [styles.accountRowSelected, { backgroundColor: tokens.primary }]
+                  : null,
+              ]}
             >
               <View style={styles.accountIdentity}>
                 {accountProvider ? (
@@ -526,7 +548,7 @@ function MobileCloudSyncConfiguredCard({
                     <Ionicons
                       name={accountProvider.icon}
                       size={18}
-                      color={tokens.foreground}
+                      color={accountSelected ? tokens.primaryForeground : tokens.foreground}
                     />
                   </View>
                 ) : null}
@@ -534,7 +556,10 @@ function MobileCloudSyncConfiguredCard({
                   <Text
                     maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
                     numberOfLines={1}
-                    style={[styles.accountName, { color: tokens.foreground }]}
+                    style={[
+                      styles.accountName,
+                      { color: accountSelected ? tokens.primaryForeground : tokens.foreground },
+                    ]}
                   >
                     {displayName}
                   </Text>
@@ -542,18 +567,27 @@ function MobileCloudSyncConfiguredCard({
                     <Text
                       maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
                       numberOfLines={1}
-                      style={[styles.detail, { color: tokens.mutedForeground }]}
+                      style={[
+                        styles.detail,
+                        {
+                          color: accountSelected
+                            ? nemuColorWithAlpha(tokens.primaryForeground, 0.82)
+                            : tokens.mutedForeground,
+                        },
+                      ]}
                     >
                       {user.email}
                     </Text>
                   ) : null}
                 </View>
               </View>
-              <Ionicons
-                name="chevron-forward-outline"
-                size={17}
-                color={tokens.mutedForeground}
-              />
+              {accountInSplit ? null : (
+                <Ionicons
+                  name="chevron-forward-outline"
+                  size={17}
+                  color={tokens.mutedForeground}
+                />
+              )}
             </NemuPressable>
           ) : (
             <View style={styles.signInBlock}>
@@ -749,14 +783,14 @@ function MobileCloudSyncConfiguredCard({
   );
 }
 
-export function MobileCloudSyncCard() {
+export function MobileCloudSyncCard(props: MobileCloudSyncAccountRowProps = {}) {
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
 
   // A build without sync shows no card at all; the settings list closes up.
   if (!mobileSyncConfig.configured) return null;
 
-  return <MobileCloudSyncConfiguredCard strings={strings} />;
+  return <MobileCloudSyncConfiguredCard {...props} strings={strings} />;
 }
 
 const styles = StyleSheet.create({
@@ -819,6 +853,16 @@ const styles = StyleSheet.create({
     gap: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
     paddingTop: 12,
+  },
+  // Highlighted like a selected section row; the negative margins keep the
+  // row's content where it sits unselected.
+  accountRowSelected: {
+    marginHorizontal: -8,
+    paddingHorizontal: 8,
+    marginBottom: -8,
+    paddingBottom: 8,
+    borderTopColor: "transparent",
+    borderRadius: radius.md,
   },
   accountIdentity: {
     flex: 1,

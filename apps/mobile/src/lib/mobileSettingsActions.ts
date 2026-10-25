@@ -24,7 +24,8 @@ export type MobileSettingsSkeletonSection =
   | "directories"
   | "appearance"
   | "data"
-  | "experimental";
+  | "experimental"
+  | "account";
 
 export type MobileSettingsMutationResultAction =
   | "close-confirmation"

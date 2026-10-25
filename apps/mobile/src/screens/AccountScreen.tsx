@@ -1,12 +1,13 @@
 import { Alert, ScrollView, StyleSheet, View } from "react-native";
 import { Stack } from "expo-router";
 import { NemuButton, NemuText, useNemuTheme } from "@/design-system";
+import type { MobileAccountScreenProps } from "@/lib/mobileAccountLayout";
 import { useMobileAccountPage } from "./useMobileAccountPage";
 
 /** Android / web: a plain list with the same three groups. */
-export function AccountScreen() {
+export function AccountScreen({ presentation = "page", onLeft }: MobileAccountScreenProps = {}) {
   const { tokens } = useNemuTheme();
-  const page = useMobileAccountPage();
+  const page = useMobileAccountPage({ onLeft });
   const { strings } = page;
   const rows: Array<[string, string]> = [
     [strings.account.name, page.displayName],
@@ -15,7 +16,16 @@ export function AccountScreen() {
   ];
   return (
     <View style={{ flex: 1, backgroundColor: tokens.background }}>
-      <Stack.Screen options={{ title: strings.account.title }} />
+      {presentation === "page" ? (
+        <Stack.Screen
+          options={{
+            title: strings.account.title,
+            headerBackVisible: true,
+            gestureEnabled: true,
+            headerTitle: undefined,
+          }}
+        />
+      ) : null}
       <ScrollView contentContainerStyle={styles.content}>
         <View style={[styles.group, { backgroundColor: tokens.card, borderColor: tokens.border }]}>
           {rows.map(([label, value]) => (
