@@ -24,6 +24,7 @@ type NativeGlassHostProps = {
   materializeDurationMs: number;
   materializeOffsetY: number;
   materializeNotBeforeMs: number;
+  childrenAboveMaterial: boolean;
   layout?: LayoutAnimationFunction;
 };
 
@@ -99,6 +100,12 @@ export type ReaderCapsuleProps = {
   materializeOffsetY?: number;
   /** Native glass only: wall clock (ms) before which a materialize does not start. */
   materializeNotBeforeMs?: number;
+  /**
+   * Children drawn above the material, unclipped by its shape (native glass:
+   * `glassChildrenAboveMaterialAvailable`; the painted fallback stops
+   * clipping): content may overflow while the piece resizes behind it.
+   */
+  childrenAboveMaterial?: boolean;
 };
 
 /**
@@ -123,6 +130,7 @@ export function ReaderCapsule({
   materializeDurationMs = 0,
   materializeOffsetY = 0,
   materializeNotBeforeMs = 0,
+  childrenAboveMaterial = false,
 }: ReaderCapsuleProps) {
   // Painted fallback (Android, older iOS): no glass to drop, so the piece
   // simply fades with the same timing.
@@ -145,6 +153,7 @@ export function ReaderCapsule({
           styles.painted,
           { borderRadius: radius, backgroundColor: READER_CAPSULE_COLORS.panel, borderColor: READER_CAPSULE_COLORS.border },
           style,
+          childrenAboveMaterial ? styles.unclipped : null,
           paintedStyle,
         ]}
       >
@@ -169,6 +178,7 @@ export function ReaderCapsule({
         materializeDurationMs={materializeDurationMs}
         materializeOffsetY={materializeOffsetY}
         materializeNotBeforeMs={materializeNotBeforeMs}
+        childrenAboveMaterial={childrenAboveMaterial}
         pointerEvents={pointerEvents}
         style={style}
       >
@@ -188,6 +198,7 @@ export function ReaderCapsule({
       materializeDurationMs={materializeDurationMs}
       materializeOffsetY={materializeOffsetY}
       materializeNotBeforeMs={materializeNotBeforeMs}
+      childrenAboveMaterial={childrenAboveMaterial}
       pointerEvents={pointerEvents}
       style={style}
     >
@@ -200,5 +211,8 @@ const styles = StyleSheet.create({
   painted: {
     overflow: "hidden",
     borderWidth: StyleSheet.hairlineWidth,
+  },
+  unclipped: {
+    overflow: "visible",
   },
 });

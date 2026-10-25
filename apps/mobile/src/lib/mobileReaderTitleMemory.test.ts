@@ -5,7 +5,8 @@ import {
   MOBILE_READER_TITLE_RESIZE_MS,
   mobileReaderTitleContentKey,
   mobileReaderTitleLabelsFinal,
-  mobileReaderTitleWidthChange,
+  mobileReaderTitleTransition,
+  mobileReaderTitleWidthAt,
   peekMobileReaderTitleLabels,
   rememberMobileReaderTitleLabels,
   resetMobileReaderTitleMemoryForTesting,
@@ -65,13 +66,29 @@ describe("reader title capsule: a text change resizes around the centre, never i
     expect(mobileReaderTitleContentKey(next)).toBe(mobileReaderTitleContentKey(settled));
   });
 
-  test("a shown capsule animates a new width; first, hidden, held or Reduce Motion set it at once", () => {
-    expect(mobileReaderTitleWidthChange({ previous: 180, next: 150, visible: true, reduceMotion: false })).toBe("animate");
-    expect(mobileReaderTitleWidthChange({ previous: null, next: 150, visible: true, reduceMotion: false })).toBe("set");
-    expect(mobileReaderTitleWidthChange({ previous: 180, next: 150, visible: false, reduceMotion: false })).toBe("set");
-    expect(mobileReaderTitleWidthChange({ previous: 180, next: 150, visible: true, reduceMotion: true })).toBe("set");
-    expect(mobileReaderTitleWidthChange({ previous: 180, next: 180.2, visible: true, reduceMotion: false })).toBe("none");
+  test("one transition drives width and cross-fade; first, hidden or held set at once", () => {
+    const t = (currentWidth: number | null, nextWidth: number, contentChanged: boolean, visible = true, reduceMotion = false) =>
+      mobileReaderTitleTransition({ currentWidth, nextWidth, contentChanged, visible, reduceMotion });
+    // Cold: "Fetching pages" → "1 / 10" while shown: width and fade together.
+    expect(t(180, 150, true)).toEqual({ kind: "animate", fromWidth: 180, toWidth: 150, crossFade: true });
+    // The same width, new text: still a cross-fade (no width step to take).
+    expect(t(150, 150, true)).toEqual({ kind: "animate", fromWidth: 150, toWidth: 150, crossFade: true });
+    // 9 / 10 → 10 / 10: a resize only (tabular digits: only a new digit count resizes).
+    expect(t(150, 157, false)).toEqual({ kind: "animate", fromWidth: 150, toWidth: 157, crossFade: false });
+    expect(t(150, 150.2, false)).toEqual({ kind: "none" });
+    expect(t(null, 150, true)).toEqual({ kind: "set", width: 150 });
+    expect(t(180, 150, true, false)).toEqual({ kind: "set", width: 150 });
+    // Reduce Motion: the width at once, the cross-fade kept.
+    expect(t(180, 150, false, true, true)).toEqual({ kind: "set", width: 150 });
+    expect(t(180, 150, true, true, true)).toEqual({ kind: "animate", fromWidth: 150, toWidth: 150, crossFade: true });
     expect(MOBILE_READER_TITLE_RESIZE_MS).toBe(200);
+  });
+
+  test("the width follows the same eased progress as the fade (no jump frame)", () => {
+    expect(mobileReaderTitleWidthAt(180, 150, 0)).toBe(180);
+    expect(mobileReaderTitleWidthAt(180, 150, 0.5)).toBe(165);
+    expect(mobileReaderTitleWidthAt(180, 150, 1)).toBe(150);
+    expect(mobileReaderTitleWidthAt(180, 150, 1.2)).toBe(150);
   });
 
   test("the width is the content's natural width within the slot's range", () => {
@@ -81,14 +98,22 @@ describe("reader title capsule: a text change resizes around the centre, never i
     expect(resolveMobileReaderTitleCapsuleWidth({ natural: 0, minWidth: 120, maxWidth: 300 })).toBeNull();
   });
 
-  test("the capsule's width is animated on the UI thread and its content cross-fades", () => {
+  test("the capsule's width and its texts' opacities read one progress; the text sits above the glass, unclipped", () => {
     const source = readFileSync(path.join(import.meta.dir, "../components/reader/ReaderTitleCapsule.tsx"), "utf8");
-    expect(source).toContain("withTiming(next, { duration: MOBILE_READER_TITLE_RESIZE_MS, easing: TITLE_EASING })");
-    expect(source).toContain("Easing.bezier(...READER_CHROME_MATERIAL_CURVE)");
-    expect(source).toContain("entering={crossFade && content.id > 0 ? TITLE_FADE_IN : undefined}");
-    expect(source).toContain("exiting={crossFade ? TITLE_FADE_OUT : undefined}");
+    expect(source).toContain("progress.value = withTiming(1, { duration: MOBILE_READER_TITLE_RESIZE_MS, easing: TITLE_EASING });");
+    expect(source).toContain("width: mobileReaderTitleWidthAt(fromWidth.value, toWidth.value, progress.value)");
+    expect(source).toContain("if (fadingId.value === id) return { opacity: progress.value };");
+    expect(source).toContain("if (fadingId.value === id) return { opacity: 1 - progress.value };");
+    expect(source).toContain("childrenAboveMaterial={TITLE_TEXT_ABOVE_MATERIAL}");
+    const swift = readFileSync(path.join(import.meta.dir, "../../modules/nemu-window-layout/ios/NemuWindowLayoutModule.swift"), "utf8");
+    expect(swift).toContain("childHost.insertSubview(childComponentView, at: index)");
+    expect(swift).toContain("overlayView.alpha = visible ? 1 : 0");
+    expect(swift).toContain("overlayView.transform = visible ? .identity : dematerializedTransform");
+    expect(swift).toContain('Constant("glassChildrenAboveMaterialAvailable") { true }');
     const reader = readFileSync(path.join(import.meta.dir, "../screens/ReaderScreen.tsx"), "utf8");
     expect(reader.match(/<ReaderTitleCapsule\b/g)?.length).toBe(2);
     expect(reader).toContain("const readerTitleCapsuleVisible = readerChromeShown && !readerOpeningChromeTransparent;");
+    // Page numbers keep their width digit for digit.
+    expect(reader).toMatch(/readerCapsuleSubtitle: \{[^}]*fontVariant: \["tabular-nums"\]/);
   });
 });

@@ -94,19 +94,45 @@ export function resolveMobileReaderTitleCapsuleWidth(input: { natural: number; m
 }
 
 /**
- * How a new width is applied: the first one, a hidden or still transparent
- * chrome (the opening's hold) and Reduce Motion set it at once; a shown
- * capsule resizes around its centre over MOBILE_READER_TITLE_RESIZE_MS.
+ * How a new measurement is applied. One transition drives both the width
+ * and the cross-fade (`progress` 0 → 1 over MOBILE_READER_TITLE_RESIZE_MS
+ * on UIKit's ease-out): the new text is fully visible exactly when the width
+ * arrives. The first measurement, a hidden or still transparent chrome (the
+ * opening's hold) set at once; Reduce Motion sets the width at once and
+ * keeps the cross-fade. A width that does not change and a content that did
+ * not change: nothing.
  */
-export function mobileReaderTitleWidthChange(input: {
-  previous: number | null;
-  next: number;
+export type MobileReaderTitleTransition =
+  | { kind: "none" }
+  | { kind: "set"; width: number }
+  | { kind: "animate"; fromWidth: number; toWidth: number; crossFade: boolean };
+
+export function mobileReaderTitleTransition(input: {
+  /** The width shown now (mid-transition: where it is), null before the first measurement. */
+  currentWidth: number | null;
+  nextWidth: number;
+  contentChanged: boolean;
   visible: boolean;
   reduceMotion: boolean;
-}): "none" | "set" | "animate" {
-  if (input.previous !== null && Math.abs(input.previous - input.next) < 0.5) return "none";
-  if (input.previous === null || !input.visible || input.reduceMotion) return "set";
-  return "animate";
+}): MobileReaderTitleTransition {
+  const { currentWidth, nextWidth, contentChanged, visible, reduceMotion } = input;
+  const widthChanged = currentWidth === null || Math.abs(currentWidth - nextWidth) >= 0.5;
+  if (!widthChanged && !contentChanged) return { kind: "none" };
+  if (currentWidth === null || !visible) return { kind: "set", width: nextWidth };
+  if (reduceMotion && !contentChanged) return { kind: "set", width: nextWidth };
+  return {
+    kind: "animate",
+    fromWidth: reduceMotion ? nextWidth : currentWidth,
+    toWidth: nextWidth,
+    crossFade: contentChanged,
+  };
+}
+
+/** The width at `progress` (0–1, already eased) of a transition. */
+export function mobileReaderTitleWidthAt(fromWidth: number, toWidth: number, progress: number): number {
+  "worklet";
+  const t = Math.min(1, Math.max(0, progress));
+  return fromWidth + (toWidth - fromWidth) * t;
 }
 
 /** Exposed for tests. */

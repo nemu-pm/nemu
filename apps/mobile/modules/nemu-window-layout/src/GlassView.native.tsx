@@ -3,7 +3,7 @@ import { requireNativeViewManager, requireOptionalNativeModule } from "expo-modu
 import { Platform, View } from "react-native";
 import type { GlassContainerProps, GlassViewProps } from "./types";
 
-type NativeGlassProps = Omit<GlassViewProps, "cornerRadius" | "clear" | "concentricMinimum" | "interactive" | "materialized" | "animateAppearance" | "materializeDurationMs" | "materializeOffsetY" | "materializeNotBeforeMs"> & {
+type NativeGlassProps = Omit<GlassViewProps, "cornerRadius" | "clear" | "concentricMinimum" | "interactive" | "materialized" | "animateAppearance" | "materializeDurationMs" | "materializeOffsetY" | "materializeNotBeforeMs" | "childrenAboveMaterial"> & {
   cornerRadius: number;
   clear: boolean;
   concentricMinimum: number;
@@ -13,11 +13,12 @@ type NativeGlassProps = Omit<GlassViewProps, "cornerRadius" | "clear" | "concent
   materializeDurationMs: number;
   materializeOffsetY: number;
   materializeNotBeforeMs: number;
+  childrenAboveMaterial: boolean;
 };
 type NativeContainerProps = Omit<GlassContainerProps, "spacing"> & { spacing: number };
 
 const nativeModule = Platform.OS === "ios"
-  ? requireOptionalNativeModule<{ glassViewHostsChildren?: boolean; glassMaterializeMotionAvailable?: boolean }>("NemuWindowLayout")
+  ? requireOptionalNativeModule<{ glassViewHostsChildren?: boolean; glassMaterializeMotionAvailable?: boolean; glassChildrenAboveMaterialAvailable?: boolean }>("NemuWindowLayout")
   : null;
 // Only binaries whose glass view hosts React Native children (in the effect
 // view's contentView) use it; anything older paints the fallback.
@@ -47,6 +48,10 @@ export const glassViewAvailable = NativeGlassView !== null;
  */
 export const glassMaterializeMotionAvailable = glassViewAvailable && nativeModule?.glassMaterializeMotionAvailable === true;
 
+/** The native glass can host its children above its material, unclipped (`childrenAboveMaterial`). */
+export const glassChildrenAboveMaterialAvailable =
+  glassViewAvailable && nativeModule?.glassChildrenAboveMaterialAvailable === true;
+
 /**
  * UIKit Liquid Glass (`UIGlassEffect`) hosting its children, like SwiftUI's
  * `.glassEffect(.regular.interactive(), in: .capsule)`. `cornerRadius` 0 =
@@ -67,6 +72,7 @@ export function GlassView({
   materializeDurationMs = 0,
   materializeOffsetY = 0,
   materializeNotBeforeMs = 0,
+  childrenAboveMaterial = false,
 }: GlassViewProps) {
   if (!NativeGlassView) return <View style={style} pointerEvents={pointerEvents}>{children}</View>;
   return (
@@ -84,6 +90,7 @@ export function GlassView({
       materializeDurationMs={materializeDurationMs}
       materializeOffsetY={materializeOffsetY}
       materializeNotBeforeMs={materializeNotBeforeMs}
+      childrenAboveMaterial={childrenAboveMaterial}
     >
       {children}
     </NativeGlassView>

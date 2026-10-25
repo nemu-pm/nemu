@@ -126,6 +126,13 @@ export type GlassViewProps = {
   materializeOffsetY?: number;
   /** Wall clock (ms since 1970) before which a materialize does not start; 0 = at once. */
   materializeNotBeforeMs?: number;
+  /**
+   * Children in an unclipped layer above the material instead of inside it
+   * (`glassChildrenAboveMaterialAvailable`): content may overflow the glass's
+   * shape (text kept at its final width while the glass resizes behind it).
+   * It fades and slides with the material.
+   */
+  childrenAboveMaterial?: boolean;
 };
 
 export type GlassContainerProps = {

@@ -4,6 +4,7 @@ import type { GlassContainerProps, GlassViewProps } from "./types";
 /** Web / fallback: no native glass; callers paint their own surface. */
 export const glassViewAvailable = false;
 export const glassMaterializeMotionAvailable = false;
+export const glassChildrenAboveMaterialAvailable = false;
 
 /** No native host here (see GlassView.native.tsx). */
 export const NativeGlassViewHost = null;

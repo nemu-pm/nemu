@@ -94,6 +94,9 @@ public final class NemuWindowLayoutModule: Module {
     // its slide runs in the same Core Animation as its material, optionally
     // starting at a wall-clock time.
     Constant("glassMaterializeMotionAvailable") { true }
+    // The glass view takes `childrenAboveMaterial`: its children sit in an
+    // unclipped layer above the material instead of in its contentView.
+    Constant("glassChildrenAboveMaterialAvailable") { true }
     Constant("pageCurlViewAvailable") { true }
     Constant("pageCurlTurnAvailable") { true }
     // The reader's Orientation Lock where the system only takes a preference
@@ -238,6 +241,9 @@ public final class NemuWindowLayoutModule: Module {
       }
       Prop("materializeNotBeforeMs") { (view: NemuGlassView, ms: Double) in
         view.materializeNotBeforeMs = ms.isFinite ? ms : 0
+      }
+      Prop("childrenAboveMaterial") { (view: NemuGlassView, above: Bool) in
+        view.childrenAboveMaterial = above
       }
     }
     // Cover zoom transition (iOS 18+ `preferredTransition = .zoom`): a source
@@ -2357,6 +2363,15 @@ enum NemuLaunchReveal {
 /// iOS 16.4–25 falls back to a system material with the same shape.
 private let glassLog = Logger(subsystem: "pm.nemu.window-layout", category: "glass")
 
+/// The glass's unclipped children layer: touches between its children fall
+/// through to the material (its interactive press response), never to it.
+private final class NemuGlassOverlayView: UIView {
+  override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+    let hit = super.hitTest(point, with: event)
+    return hit === self ? nil : hit
+  }
+}
+
 final class NemuGlassView: ExpoView {
   private let effectView = UIVisualEffectView()
   var glassTint: UIColor? { didSet { if effectInstalled && materialized { applyEffect() } } }
@@ -2412,6 +2427,27 @@ final class NemuGlassView: ExpoView {
   /// landing however early it mounted. The wait is the animation's own delay
   /// (Core Animation), not a main-thread timer.
   var materializeNotBeforeMs: Double = 0
+  /// The children sit in `overlayView`, an unclipped layer above the
+  /// material, instead of the effect's `contentView` (which the glass clips
+  /// to its shape): the reader's title keeps its text at its final width,
+  /// centred and fully drawn, while only the material widens behind it
+  /// (designer, build 9 round 3). The overlay fades and slides with the
+  /// material in the same animation as the content view would.
+  var childrenAboveMaterial = false {
+    didSet {
+      guard childrenAboveMaterial != oldValue else { return }
+      let from = oldValue ? overlayView : effectView.contentView
+      let to = childrenAboveMaterial ? overlayView : effectView.contentView
+      for child in from.subviews { to.addSubview(child) }
+    }
+  }
+  private let overlayView: UIView = {
+    let view = NemuGlassOverlayView()
+    view.backgroundColor = .clear
+    view.clipsToBounds = false
+    return view
+  }()
+  private var childHost: UIView { childrenAboveMaterial ? overlayView : effectView.contentView }
 
   required init(appContext: AppContext? = nil) {
     super.init(appContext: appContext)
@@ -2420,6 +2456,7 @@ final class NemuGlassView: ExpoView {
     // materialize slide's transform.
     layoutEffectView()
     addSubview(effectView)
+    addSubview(overlayView)
     applyShape()
     if #available(iOS 17.0, *) {
       appearanceRegistration = registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: NemuGlassView, previous: UITraitCollection) in
@@ -2447,7 +2484,7 @@ final class NemuGlassView: ExpoView {
   private var appearanceRegistration: Any?
 
   override func mountChildComponentView(_ childComponentView: UIView, index: Int) {
-    effectView.contentView.insertSubview(childComponentView, at: index)
+    childHost.insertSubview(childComponentView, at: index)
   }
 
   override func unmountChildComponentView(_ childComponentView: UIView, index: Int) {
@@ -2504,15 +2541,21 @@ final class NemuGlassView: ExpoView {
     if !materialized {
       effectView.effect = nil
       effectView.contentView.alpha = 0
+      overlayView.alpha = 0
       effectView.transform = dematerializedTransform
+      overlayView.transform = dematerializedTransform
     } else if animateAppearance && materializeDuration > 0 {
       effectView.effect = nil
       effectView.contentView.alpha = 0
+      overlayView.alpha = 0
       effectView.transform = dematerializedTransform
+      overlayView.transform = dematerializedTransform
       animateMaterial(to: true, duration: materializeDuration)
     } else {
       effectView.contentView.alpha = 1
+      overlayView.alpha = 1
       effectView.transform = .identity
+      overlayView.transform = .identity
       applyEffect()
     }
   }
@@ -2524,6 +2567,8 @@ final class NemuGlassView: ExpoView {
   private func layoutEffectView() {
     effectView.bounds = CGRect(origin: .zero, size: bounds.size)
     effectView.center = CGPoint(x: bounds.midX, y: bounds.midY)
+    overlayView.bounds = CGRect(origin: .zero, size: bounds.size)
+    overlayView.center = CGPoint(x: bounds.midX, y: bounds.midY)
   }
 
   private func animateMaterial(to visible: Bool, duration: TimeInterval) {
@@ -2534,7 +2579,9 @@ final class NemuGlassView: ExpoView {
         effectView.effect = nil
       }
       effectView.contentView.alpha = visible ? 1 : 0
+      overlayView.alpha = visible ? 1 : 0
       effectView.transform = visible ? .identity : dematerializedTransform
+      overlayView.transform = visible ? .identity : dematerializedTransform
     }
     if duration <= 0 {
       changes()
