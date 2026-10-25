@@ -1451,6 +1451,9 @@ export function BrowseScreen() {
       await Promise.all([installed.reload(), available.reload()]);
       await hapticConfirm();
     } catch (error) {
+      // Superseded or aborted (a foreground/connectivity reload took over,
+      // the screen unmounted): that reload reports its own outcome.
+      if (isMobileSourceInstallCancellation(error)) return;
       await hapticError();
       setActionError(sourceActionErrorPresentation(error, strings));
     } finally {

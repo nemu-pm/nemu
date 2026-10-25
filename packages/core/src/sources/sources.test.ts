@@ -109,6 +109,20 @@ describe("extractCfUrlFromMessage", () => {
 });
 
 describe("isNetworkSourceError", () => {
+  test("never classifies a cancellation as a network failure", () => {
+    const aborted = new Error("The registry catalog fetch was aborted.");
+    expect(isNetworkSourceError(aborted)).toBe(false);
+    aborted.name = "AbortError";
+    expect(isNetworkSourceError(aborted)).toBe(false);
+    const named = new Error("fetch failed");
+    named.name = "AbortError";
+    expect(isNetworkSourceError(named)).toBe(false);
+    expect(isNetworkSourceError(new Error("The request was aborted"))).toBe(
+      false,
+    );
+    expect(isNetworkSourceError(new Error("fetch failed"))).toBe(true);
+  });
+
   test("detects network failure messages", () => {
     expect(isNetworkSourceError(new Error("fetch failed"))).toBe(true);
     expect(isNetworkSourceError(new Error("Network request failed"))).toBe(

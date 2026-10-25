@@ -1,4 +1,5 @@
 import { MobileQuickActionMenu, mobileNativeQuickMenuAvailable } from "@/components/MobileQuickActionMenu";
+import { isMobileReloadCancellation } from "@/data/mobileReloadHandover";
 import { FlatList, type ViewInstance } from "react-native";
 import {
   useCallback,
@@ -2688,6 +2689,9 @@ function SettingsScreenContent({
       await sources.reload();
       await hapticConfirm();
     } catch (error) {
+      // Superseded or aborted (a foreground/connectivity reload took over,
+      // the screen unmounted): that reload reports its own outcome.
+      if (isMobileReloadCancellation(error)) return;
       await reportSettingsError(error);
     } finally {
       refreshGuardRef.current = false;

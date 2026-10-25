@@ -17,6 +17,10 @@ import {
   type MobileAidokuOutputKind,
 } from "./mobileAidokuOutputSafety";
 import { DEFAULT_MOBILE_SOURCE_OPERATION_TIMEOUT_MS } from "./mobileSourceOperationTimeout";
+import { runMobileHttpRequestWithRetry } from "./mobileNativeHttpRetry";
+// Loading the native HTTP module installs the AppState foreground gate the
+// background retry relies on.
+import "./mobileNativeHttp";
 import {
   createMobileSourcePriorityTicket,
   dispatchMobileSourceRuntimeCall,
@@ -224,28 +228,41 @@ function wrapSandboxSource({
       const preemptible = PREEMPTIBLE_OPERATION_KINDS.has(operationKind);
       let startedAt = 0;
       try {
-        const response = await dispatchSandboxCall(
-          (cancelToken) =>
-            NemuAidokuModule.executeAidokuSandboxOperation(
-              sessionId,
-              stringifyMobileAidokuSandboxValue(
-                cancelToken ? { ...operation, cancelToken } : operation,
-                "Aidoku operation",
+        const dispatch = () => {
+          if (disposed) {
+            throw new Error("The source session has already been disposed.");
+          }
+          return dispatchSandboxCall(
+            (cancelToken) =>
+              NemuAidokuModule.executeAidokuSandboxOperation(
+                sessionId,
+                stringifyMobileAidokuSandboxValue(
+                  cancelToken ? { ...operation, cancelToken } : operation,
+                  "Aidoku operation",
+                ),
               ),
-            ),
-          ticket,
-          DEFAULT_MOBILE_SOURCE_OPERATION_TIMEOUT_MS,
-          (waitMs, attempt) => {
-            startedAt = markMobilePerformance("mobile.aidoku.operation.start", {
-              operation: operationKind,
-              source: sourceKey,
-              priority: ticket.priority,
-              waitMs,
-              ...(attempt > 0 ? { attempt } : {}),
-            });
-          },
-          preemptible,
-        );
+            ticket,
+            DEFAULT_MOBILE_SOURCE_OPERATION_TIMEOUT_MS,
+            (waitMs, attempt) => {
+              startedAt = markMobilePerformance("mobile.aidoku.operation.start", {
+                operation: operationKind,
+                source: sourceKey,
+                priority: ticket.priority,
+                waitMs,
+                ...(attempt > 0 ? { attempt } : {}),
+              });
+            },
+            preemptible,
+          );
+        };
+        // Read-only operations interrupted by backgrounding (the source's
+        // requests failed or its deadline ran out while iOS suspended the
+        // app) run once more when the app is active again. No transient
+        // retries otherwise: one operation can issue many requests, and a
+        // source that failed in the foreground is reported as it failed.
+        const response = preemptible
+          ? await runMobileHttpRequestWithRetry(dispatch, { attempts: 1 })
+          : await dispatch();
         const output = sanitizeMobileAidokuOutput(
           outputKind,
           parseMobileAidokuSandboxResponse<T>(response),

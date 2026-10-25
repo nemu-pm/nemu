@@ -5,6 +5,7 @@ import {
   getNetworkStateAsync,
 } from "expo-network";
 import { AppState, Platform } from "react-native";
+import { followMobileSupersedingReload } from "./mobileReloadHandover";
 import {
   classifyMobileNetworkState,
   shouldRetryAfterMobileConnectivityChange,
@@ -1824,7 +1825,7 @@ export function useAvailableSources(
     dataRef.current = data;
   }, [data]);
 
-  const runReload = useCallback(
+  const runReloadOnce = useCallback(
     async (ttlMs: number) => {
       reloadAbortRef.current?.abort();
       const controller = new AbortController();
@@ -1925,6 +1926,21 @@ export function useAvailableSources(
       }
     },
     [store],
+  );
+
+  // A newer reload aborts the one in flight (the foreground stale check, a
+  // connectivity change, a second pull). The superseded caller (typically the
+  // user's own refresh) must not see that cancellation as a failure: its
+  // promise is handed over to the superseding reload and settles with that
+  // run's result instead.
+  const latestReloadRef = useRef<Promise<void> | null>(null);
+  const runReload = useCallback(
+    (ttlMs: number) => {
+      const started = runReloadOnce(ttlMs);
+      latestReloadRef.current = started;
+      return followMobileSupersedingReload(started, () => latestReloadRef.current);
+    },
+    [runReloadOnce],
   );
 
   // The public reload is always an explicit user action (pull-to-refresh, an
@@ -2095,13 +2111,31 @@ export function useSourceInstaller(): {
       installAbortRef.current?.abort();
       const controller = new AbortController();
       installAbortRef.current = controller;
-      const timeout = setTimeout(() => {
-        controller.abort(
-          new MobileSourceOperationTimeoutError(
-            "Source installation timed out.",
-          ),
-        );
-      }, MOBILE_SOURCE_INSTALL_TIMEOUT_MS);
+      const armTimeout = () =>
+        setTimeout(() => {
+          controller.abort(
+            new MobileSourceOperationTimeoutError(
+              "Source installation timed out.",
+            ),
+          );
+        }, MOBILE_SOURCE_INSTALL_TIMEOUT_MS);
+      let timeout = armTimeout();
+      // Time spent suspended in the background is not a stalled transfer:
+      // the deadline starts over when the app is back (the interrupted
+      // download is retried once then, `runMobileHttpRequestWithRetry`).
+      let wentToBackground = false;
+      const appStateSubscription = AppState.addEventListener(
+        "change",
+        (next) => {
+          if (next === "background") wentToBackground = true;
+          if (next !== "active" || !wentToBackground || controller.signal.aborted) {
+            return;
+          }
+          wentToBackground = false;
+          clearTimeout(timeout);
+          timeout = armTimeout();
+        },
+      );
       setInstallingKey(key);
       try {
         await runAfterMobileInteractions(() =>
@@ -2115,6 +2149,7 @@ export function useSourceInstaller(): {
         });
       } finally {
         clearTimeout(timeout);
+        appStateSubscription.remove();
         if (installAbortRef.current === controller) {
           installAbortRef.current = null;
         }

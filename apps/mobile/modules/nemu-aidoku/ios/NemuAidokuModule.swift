@@ -778,8 +778,40 @@ private final class NemuSyncHttpCoordinator {
   private var scopedContexts: [String: NemuHttpSessionContext] = [:]
   private var scopedContextOrder: [String] = []
 
+  /// The loopback proxy port generation every context was built for (each
+  /// configuration pins the proxy port; see `rebuildContextsIfProxyMoved`).
+  private var proxyGeneration: Int
+  /// Session cookies of scoped contexts dropped by a proxy port change, moved
+  /// into the scope's next context.
+  private var carriedCookies: [String: [HTTPCookie]] = [:]
+
   private init() {
+    proxyGeneration = NemuNativeHttpLoopbackProxy.shared.portGeneration
     statelessContext = Self.makeStatelessContext()
+  }
+
+  /// Waits (bounded) for the loopback proxy listener, which is restarted
+  /// after iOS reclaims it in the background, and rebuilds the contexts if it
+  /// came back on a different port. Every request path gets its session here.
+  private func ensureProxyReady() {
+    let generation = NemuNativeHttpLoopbackProxy.shared.waitUntilReady(timeout: 3)
+    lock.lock()
+    guard generation != proxyGeneration else {
+      lock.unlock()
+      return
+    }
+    proxyGeneration = generation
+    let previousStateless = statelessContext
+    statelessContext = Self.makeStatelessContext()
+    let previousScoped = scopedContexts
+    for (scope, context) in previousScoped {
+      carriedCookies[scope] = context.cookieStorage.cookies ?? []
+    }
+    scopedContexts.removeAll()
+    scopedContextOrder.removeAll()
+    lock.unlock()
+    previousStateless.close()
+    for context in previousScoped.values { context.close() }
   }
 
   private static func makeStatelessContext() -> NemuHttpSessionContext {
@@ -814,6 +846,7 @@ private final class NemuSyncHttpCoordinator {
   }
 
   func sessionContext(cookieScope: String?, url _: URL) -> NemuHttpSessionContext {
+    ensureProxyReady()
     let normalizedScope = cookieScope?.trimmingCharacters(in: .whitespacesAndNewlines)
     guard let normalizedScope, !normalizedScope.isEmpty else {
       lock.lock()
@@ -847,6 +880,9 @@ private final class NemuSyncHttpCoordinator {
         isolated: true,
         scope: normalizedScope
       )
+      if let cookies = carriedCookies.removeValue(forKey: normalizedScope) {
+        for cookie in cookies { created.cookieStorage.setCookie(cookie) }
+      }
       scopedContexts[normalizedScope] = created
       scopedContextOrder.append(normalizedScope)
       context = created
