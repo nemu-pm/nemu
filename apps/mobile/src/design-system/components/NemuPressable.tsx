@@ -27,7 +27,6 @@ import {
 import { createNemuButtonDepthStyle } from "@/design/nemuButtonDepthStyle";
 import { useNemuTheme } from "@/design/useNemuTheme";
 import {
-  NATIVE_MENU_PRESS_DEFER_MS,
   nativeContextMenuPressTime,
   useNativeContextMenuPressGate,
 } from "../../../modules/nemu-window-layout/src/ContextMenuLongPress";
@@ -342,17 +341,11 @@ export function NemuPressable({
           onPress?.(event);
           runHapticFeedback();
         };
-        const decision = nativeMenuGate
-          ? nativeMenuGate.resolvePress(nativeContextMenuPressTime(event))
-          : "fire";
-        if (decision === "fire") press();
-        else if (decision === "defer") {
-          // A hold long enough that the menu may be presenting: its
-          // `willDisplay` can reach JS after this release, so wait for it.
-          setTimeout(() => {
-            if (nativeMenuGate?.resolveDeferredPress() === "fire") press();
-          }, NATIVE_MENU_PRESS_DEFER_MS);
-        }
+        // Inside a native menu the gate runs `press` now, never (the hold
+        // became the menu's long press), or once the menu reports that a
+        // hold in the 250-500 ms window did not present it.
+        if (nativeMenuGate) nativeMenuGate.resolvePress(nativeContextMenuPressTime(event), press);
+        else press();
       }}
       onLongPress={withNativeMenuLongPress(
         nativeMenuGate,

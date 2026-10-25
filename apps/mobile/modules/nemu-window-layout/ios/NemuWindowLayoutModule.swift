@@ -308,9 +308,12 @@ final class NemuContextMenuView: ExpoView, UIContextMenuInteractionDelegate {
   /// it drop that release (`ContextMenuLongPress.ts`).
   let onMenuWillDisplay = EventDispatcher()
   let onMenuWillEnd = EventDispatcher()
-  /// TEST-ONLY (remove before release): feed the JS long-press trace, which
-  /// ignores them unless its Settings switch is on.
+  /// The interaction asked for the menu (~150 ms into a hold): a lift may
+  /// follow, so a release from here waits for willDisplay or willEnd (which
+  /// UIKit also sends, without a display, when the lift is cancelled).
   let onMenuConfigure = EventDispatcher()
+  /// TEST-ONLY (remove before release): feeds the JS long-press trace, which
+  /// ignores it unless its Settings switch is on.
   let onMenuPreviewTap = EventDispatcher()
   var items: [NemuContextMenuItem] = []
   var menuTitle = ""

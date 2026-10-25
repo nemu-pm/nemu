@@ -24,8 +24,9 @@ type NativeProps = Omit<ContextMenuViewProps, "onMenuAction"> & {
   onMenuAction?: (event: { nativeEvent: { id: string } }) => void;
   onMenuWillDisplay?: () => void;
   onMenuWillEnd?: () => void;
-  /** TEST-ONLY trace events (remove before release). */
+  /** The interaction asked for the menu: a release may wait for the verdict. */
   onMenuConfigure?: () => void;
+  /** TEST-ONLY trace event (remove before release). */
   onMenuPreviewTap?: () => void;
 };
 

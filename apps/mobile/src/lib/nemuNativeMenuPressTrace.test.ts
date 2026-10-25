@@ -33,7 +33,7 @@ describe("long-press trace (test only)", () => {
     gate.pressIn({ native: 1000, wall: Date.now() });
     gate.menuConfigure();
     gate.menuWillDisplay();
-    expect(gate.resolvePress({ native: 1640, wall: Date.now() })).toBe("suppress");
+    expect(gate.resolvePress({ native: 1640, wall: Date.now() }, () => {})).toBe("suppress");
     gate.menuWillEnd();
     gate.menuPreviewTap();
     const text = formatNativeMenuPressTrace();
