@@ -72,6 +72,19 @@ describe("unfolding glides like folding (build 9 E)", () => {
     expect(spring).toContain("animated.value = withSpring(width, { ...MOBILE_MOTION.settleSpring });");
   });
 
+  test("the pose window's UI flag is up before the commit that opens it (build 9 r3 4c: a 24 pt one-frame snap, 1 in 4)", () => {
+    const animations = read("./mobilePoseLayoutAnimations.ts");
+    // A synchronizable written while rendering, not a shared value queued on
+    // the UI runtime in a microtask after React's commit.
+    expect(animations).toContain("const poseMotionActive = createSynchronizable(false, { fixedType: true });");
+    expect(animations).toContain("poseMotionActive.setBlocking(true);");
+    expect(animations).toContain("poseMotionActive.setBlocking(false);");
+    expect(animations).not.toContain("runOnUI(");
+    expect(animations).not.toContain("poseMotionActive.value");
+    // Every pose layout animation reads it at its start.
+    expect(animations.match(/poseMotionActive\.getBlocking\(\)/g)?.length).toBeGreaterThanOrEqual(3);
+  });
+
   test("a size glides only inside a pose change, between measured sizes, without Reduce Motion", () => {
     expect(shouldMobilePoseSizeSpring(454, 437, true, false)).toBe(true);
     expect(shouldMobilePoseSizeSpring(437, 454, true, false)).toBe(true); // folding too

@@ -1,7 +1,7 @@
+import { createSynchronizable } from "react-native-worklets";
 import {
   Easing,
   makeMutable,
-  runOnUI,
   withSpring,
   withTiming,
   type EntryExitAnimationFunction,
@@ -19,28 +19,33 @@ import { MOBILE_MOTION } from "@/lib/mobileMotion";
  * new frames are mounted). Outside that window frames change exactly as they
  * did before — a data change (an item removed, a filter applied) or the first
  * container measurement of a freshly pushed screen never glides.
+ *
+ * The flag is a synchronizable (a value both runtimes read and write under a
+ * lock), not a shared value: a shared value written from JS reaches the UI
+ * runtime in a microtask after the render — after React's commit, whose
+ * mount is already queued on the main thread ahead of it — so frames changed
+ * in the very commit that opened the window read the flag still down and
+ * snapped (build 9 r3 4c: the source home's list footer jumped 24 pt in one
+ * frame, 1 cycle in 4, while the covers' JS-side spring ran). Set
+ * synchronously while rendering, it is up before that commit exists.
  */
 
 /** Long enough for the async container re-measure (`useMobileContainerFold` settles at 450 ms). */
 export const MOBILE_POSE_MOTION_WINDOW_MS = 800;
 
-const poseMotionActive = makeMutable(false);
+const poseMotionActive = createSynchronizable(false, { fixedType: true });
 const poseReduceMotion = makeMutable(false);
 let closeTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** Let pose layout transitions run for the next `MOBILE_POSE_MOTION_WINDOW_MS`. */
 export function openMobilePoseMotionWindow() {
-  // The provider calls this while rendering the change, and Reanimated warns
-  // about a JS-side shared-value write during render. Queueing the write on
-  // the UI runtime keeps it ahead of the commit that mounts the new frames.
-  runOnUI(() => {
-    "worklet";
-    poseMotionActive.value = true;
-  })();
+  // The provider calls this while rendering the change: written now (not
+  // queued), so the commit that mounts the new frames already sees it.
+  poseMotionActive.setBlocking(true);
   if (closeTimer) clearTimeout(closeTimer);
   closeTimer = setTimeout(() => {
     closeTimer = null;
-    poseMotionActive.value = false;
+    poseMotionActive.setBlocking(false);
   }, MOBILE_POSE_MOTION_WINDOW_MS);
 }
 
@@ -74,7 +79,7 @@ const INSTANT = { duration: 0 };
  */
 export const mobilePoseLayoutTransition: LayoutAnimationFunction = (values) => {
   "worklet";
-  const animate = poseMotionActive.value && !poseReduceMotion.value;
+  const animate = poseMotionActive.getBlocking() && !poseReduceMotion.value;
   if (!animate) {
     return {
       initialValues: {
@@ -117,7 +122,7 @@ const EASE_OUT = Easing.out(Easing.cubic);
  */
 export const mobilePoseEntering: EntryExitAnimationFunction = () => {
   "worklet";
-  if (!poseMotionActive.value) {
+  if (!poseMotionActive.getBlocking()) {
     return { initialValues: { opacity: 1 }, animations: { opacity: withTiming(1, INSTANT) } };
   }
   const duration = poseReduceMotion.value ? MOBILE_MOTION.reduceMotionFadeMs : MOBILE_MOTION.fadeInMs;
@@ -134,7 +139,7 @@ export const mobilePoseEntering: EntryExitAnimationFunction = () => {
  */
 export const mobilePoseExiting: EntryExitAnimationFunction = () => {
   "worklet";
-  const duration = !poseMotionActive.value
+  const duration = !poseMotionActive.getBlocking()
     ? 0
     : poseReduceMotion.value
       ? MOBILE_MOTION.reduceMotionFadeMs
