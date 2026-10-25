@@ -2762,23 +2762,32 @@ private final class NemuSheetProgressDisplayLinkProxy: NSObject {
 
 // MARK: - Cover zoom transition
 
-/// Weak registry of zoom sources by id (one live source per id).
+/// One line per zoomed open (Release included): `log stream --predicate
+/// 'subsystem == "pm.nemu" AND category == "reader-zoom"'`.
+private let readerZoomLog = Logger(subsystem: "pm.nemu", category: "reader-zoom")
+
+/// Weak registry of zoom sources by id (one live source per id). Every id is
+/// keyed by its one spelling (`NemuZoomId.canonical`, as JS `canonicalZoomId`).
 @MainActor
 enum NemuZoomRegistry {
   private static let sources = NSMapTable<NSString, UIView>.strongToWeakObjects()
 
+  private static func key(_ id: String) -> NSString {
+    NemuZoomId.canonical(id) as NSString
+  }
+
   static func register(_ view: UIView, id: String) {
     guard !id.isEmpty else { return }
-    sources.setObject(view, forKey: id as NSString)
+    sources.setObject(view, forKey: key(id))
   }
 
   static func unregister(_ view: UIView, id: String) {
-    guard !id.isEmpty, sources.object(forKey: id as NSString) === view else { return }
-    sources.removeObject(forKey: id as NSString)
+    guard !id.isEmpty, sources.object(forKey: key(id)) === view else { return }
+    sources.removeObject(forKey: key(id))
   }
 
   static func source(_ id: String) -> UIView? {
-    sources.object(forKey: id as NSString)
+    sources.object(forKey: key(id))
   }
 
   /// Where a zoom lands in the pushed screen (the hero cover), by id.
@@ -2786,16 +2795,16 @@ enum NemuZoomRegistry {
 
   static func registerAlignment(_ view: UIView, id: String) {
     guard !id.isEmpty else { return }
-    alignments.setObject(view, forKey: id as NSString)
+    alignments.setObject(view, forKey: key(id))
   }
 
   static func unregisterAlignment(_ view: UIView, id: String) {
-    guard !id.isEmpty, alignments.object(forKey: id as NSString) === view else { return }
-    alignments.removeObject(forKey: id as NSString)
+    guard !id.isEmpty, alignments.object(forKey: key(id)) === view else { return }
+    alignments.removeObject(forKey: key(id))
   }
 
   static func alignment(_ id: String) -> UIView? {
-    alignments.object(forKey: id as NSString)
+    alignments.object(forKey: key(id))
   }
 
   /// The zoom each screen was last given (id and options), so it is set once.
@@ -2949,6 +2958,13 @@ final class NemuZoomTargetView: ExpoView {
     // re-render) would replace the one UIKit may already be running.
     guard NemuZoomRegistry.configuration(of: controller) != key else { return }
     NemuZoomRegistry.setConfiguration(key, of: controller)
+    // One line per open: the id asked for, whether its source is registered,
+    // and whether the push is already under way (a transition set then only
+    // reaches the pop). Public: visible in Release / TestFlight.
+    let sourceView = NemuZoomRegistry.source(id)
+    readerZoomLog.notice(
+      "open id=\(NemuZoomId.canonical(id), privacy: .public) found=\(sourceView != nil, privacy: .public) onWindow=\(sourceView?.window != nil, privacy: .public) transitionCoordinator=\(controller.transitionCoordinator != nil, privacy: .public) reduceMotion=\(UIAccessibility.isReduceMotionEnabled, privacy: .public)"
+    )
     let options = UIViewController.Transition.ZoomOptions()
     options.alignmentRectProvider = { context in
       MainActor.assumeIsolated {

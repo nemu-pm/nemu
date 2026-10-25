@@ -1,0 +1,15 @@
+[
+  { "raw": "continue:source:aidoku-community:ja.shonenjumpplus:%2Fepisode%2F10834108156648240735", "canonical": "continue:source:aidoku-community:ja.shonenjumpplus:/episode/10834108156648240735" },
+  { "raw": "continue:source:aidoku-community:ja.shonenjumpplus:/episode/10834108156648240735", "canonical": "continue:source:aidoku-community:ja.shonenjumpplus:/episode/10834108156648240735" },
+  { "raw": "detail:source:aidoku-community:ja.shonenjumpplus:%252Fepisode%252F108", "canonical": "detail:source:aidoku-community:ja.shonenjumpplus:/episode/108" },
+  { "raw": "shelf:multi.webtoon:95", "canonical": "shelf:multi.webtoon:95" },
+  { "raw": "grid:a%3Ab%20c", "canonical": "grid:a:b c" },
+  { "raw": "search:%E3%83%AF%E3%83%B3%E3%83%94%E3%83%BC%E3%82%B9", "canonical": "search:ワンピース" },
+  { "raw": "detail:100%", "canonical": "detail:100%" },
+  { "raw": "detail:100%25", "canonical": "detail:100%" },
+  { "raw": "detail:%E0%A4%A", "canonical": "detail:%E0%A4%A" },
+  { "raw": "detail:%C3%28", "canonical": "detail:%C3%28" },
+  { "raw": "x:%25252525", "canonical": "x:%" },
+  { "raw": "detail:a%2Fb%", "canonical": "detail:a%2Fb%" },
+  { "raw": "", "canonical": "" }
+]

@@ -31,6 +31,7 @@ export {
   zoomSettledEventAvailable,
   zoomTransitionAvailable,
 } from "./src/ZoomTransition";
+export { canonicalZoomId } from "./src/zoomId";
 export type {
   ContextMenuItem,
   GlassContainerProps,

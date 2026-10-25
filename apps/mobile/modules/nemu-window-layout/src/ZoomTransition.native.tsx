@@ -1,6 +1,7 @@
 import type { ComponentType, ReactNode } from "react";
 import { requireNativeViewManager, requireOptionalNativeModule } from "expo-modules-core";
 import { Platform, View, type ViewProps } from "react-native";
+import { canonicalZoomId } from "./zoomId";
 
 type ZoomSourceProps = { zoomId: string; style?: ViewProps["style"]; children?: ReactNode };
 type ZoomTargetProps = {
@@ -47,11 +48,14 @@ const NativeMarker: ComponentType<MarkerProps> | null = contentScrollMarkerAvail
   ? requireNativeViewManager<MarkerProps>("NemuWindowLayout", "NemuContentScrollMarkerView")
   : null;
 
-/** The view a cover zoom grows out of. Sized by `style` like any View. */
+/**
+ * The view a cover zoom grows out of. Sized by `style` like any View. Its id
+ * takes the one spelling (`canonicalZoomId`) the target asks for.
+ */
 export function ZoomSource({ zoomId, style, children }: ZoomSourceProps) {
   if (!NativeZoomSource) return <View style={style}>{children}</View>;
   return (
-    <NativeZoomSource zoomId={zoomId} style={style}>
+    <NativeZoomSource zoomId={canonicalZoomId(zoomId)} style={style}>
       {children}
     </NativeZoomSource>
   );
@@ -62,7 +66,7 @@ export function ZoomTarget({ zoomId, align = true, interactiveDismiss = true, on
   if (!NativeZoomTarget) return <View style={style}>{children}</View>;
   return (
     <NativeZoomTarget
-      zoomId={zoomId}
+      zoomId={canonicalZoomId(zoomId)}
       align={align}
       interactiveDismiss={interactiveDismiss}
       onZoomSettled={onZoomSettled}

@@ -1,3 +1,6 @@
+// The pure file, not the module index (no native views in plain lib code).
+import { canonicalZoomId } from "../../modules/nemu-window-layout/src/zoomId";
+
 /**
  * The cover a reader zoom grows out of, handed from the tapped cover to the
  * reader route. The reader mounts only after the zoom has landed, so without
@@ -38,18 +41,9 @@ const KNOWN_COVERS_MAX = 64;
 export function canonicalMobileReaderZoomId(zoomId: string): string;
 export function canonicalMobileReaderZoomId(zoomId: string | null | undefined): string | null;
 export function canonicalMobileReaderZoomId(zoomId: string | null | undefined): string | null {
-  if (!zoomId) return null;
-  let value = zoomId;
-  for (let round = 0; round < 3 && /%[0-9a-fA-F]{2}/.test(value); round += 1) {
-    try {
-      const next = decodeURIComponent(value);
-      if (next === value) break;
-      value = next;
-    } catch {
-      break;
-    }
-  }
-  return value;
+  // The one helper both sides share: `ZoomSource`, `ZoomTarget` and the
+  // native registry (NemuZoomId.swift) take the same spelling.
+  return canonicalZoomId(zoomId);
 }
 
 /** The reader zoom id of a library title's page (its hero cover). */
