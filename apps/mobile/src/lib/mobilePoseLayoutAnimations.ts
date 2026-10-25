@@ -7,7 +7,7 @@ import {
   type EntryExitAnimationFunction,
   type LayoutAnimationFunction,
 } from "react-native-reanimated";
-import { MOBILE_MOTION } from "@/lib/mobileMotion";
+import { getMobilePoseFlipStart, MOBILE_MOTION } from "@/lib/mobileMotion";
 
 /**
  * Shared Reanimated layout animations for pose changes. They run on the UI
@@ -111,6 +111,63 @@ export const mobilePoseLayoutTransition: LayoutAnimationFunction = (values) => {
     },
   };
 };
+
+/**
+ * A layout transition that leaves the frame to React (it takes its new frame
+ * at once) and springs a FLIP transform instead: the view starts drawn where
+ * and at the size it was, about `origin`, and settles to identity on the pose
+ * spring. The transform starts in the same mount as the new frame — a FLIP
+ * written from JS after the commit (a shared value in a layout effect) raced
+ * that mount and drew the scale on the old frame for a frame (build 9 r3 4b:
+ * the Continue Reading card shrank, then regrew). Only for content whose
+ * height follows its width (covers, cards): text rows would stretch.
+ * Outside a pose change, or under Reduce Motion, it is identity at once.
+ */
+type MobilePoseLayoutValues = {
+  currentOriginX: number;
+  currentOriginY: number;
+  currentWidth: number;
+  currentHeight: number;
+  targetOriginX: number;
+  targetOriginY: number;
+  targetWidth: number;
+  targetHeight: number;
+};
+
+function makeMobilePoseFlipTransition(origin: "leading" | "centre"): LayoutAnimationFunction {
+  return (values: MobilePoseLayoutValues) => {
+    "worklet";
+    const start = getMobilePoseFlipStart(
+      { x: values.currentOriginX, y: values.currentOriginY, width: values.currentWidth, height: values.currentHeight },
+      { x: values.targetOriginX, y: values.targetOriginY, width: values.targetWidth, height: values.targetHeight },
+      origin,
+      poseMotionActive.getBlocking(),
+      poseReduceMotion.value,
+    );
+    const glide = start.scale !== 1 || start.translateX !== 0 || start.translateY !== 0;
+    return {
+      initialValues: {
+        transform: [{ translateX: start.translateX }, { translateY: start.translateY }, { scale: start.scale }],
+      },
+      animations: {
+        transform: glide
+          ? [
+              { translateX: withSpring(0, SPRING) },
+              { translateY: withSpring(0, SPRING) },
+              { scale: withSpring(1, SPRING) },
+            ]
+          : [
+              { translateX: withTiming(0, INSTANT) },
+              { translateY: withTiming(0, INSTANT) },
+              { scale: withTiming(1, INSTANT) },
+            ],
+      },
+    };
+  };
+}
+
+/** Cover-sized content (MobilePoseSizeSpringView): scales from its top-left corner (transformOrigin "left top"). */
+export const mobilePoseSizeFlipTransition = makeMobilePoseFlipTransition("leading");
 
 const EASE_OUT = Easing.out(Easing.cubic);
 

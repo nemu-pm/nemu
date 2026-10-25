@@ -2,7 +2,8 @@ import type { ComponentProps, ReactNode } from "react";
 import { StyleSheet } from "react-native";
 import Animated from "react-native-reanimated";
 import { useMobilePoseLayout } from "@/lib/MobilePoseTransitionContext";
-import { useMobilePoseSizeSpring, useMobilePoseWidthSpring } from "@/lib/useMobilePoseSizeSpring";
+import { mobilePoseSizeFlipTransition } from "@/lib/mobilePoseLayoutAnimations";
+import { useMobilePoseWidthSpring } from "@/lib/useMobilePoseSizeSpring";
 
 type MobilePoseLayoutViewProps = ComponentProps<typeof Animated.View> & {
   /**
@@ -10,7 +11,7 @@ type MobilePoseLayoutViewProps = ComponentProps<typeof Animated.View> & {
    * transition only moves the view's own frame — its children are laid out
    * at the new size in one step — so with this set the content also starts
    * at its old size and grows or shrinks back to 1 from its top-left corner
-   * on the same spring (useMobilePoseSizeSpring), in place with the frame.
+   * on the same spring (MobilePoseSizeSpringView), in place with the frame.
    */
   contentSize?: number;
 };
@@ -59,10 +60,23 @@ export function MobilePoseWidthSpringView({
  * Content whose rendered size is `size` (a prop: it re-lays out at the new
  * size in one step): through a pose change it starts scaled to its old size
  * and springs to 1 from its top-left corner (the pose settle spring).
+ *
+ * The scale is this view's own layout transition (old / new measured width,
+ * mobilePoseSizeFlipTransition), so it lands in the same mount as the new
+ * size. The JS-side spring it replaces (useMobilePoseSizeSpring: a shared
+ * value written in a layout effect after the commit) raced that mount — the
+ * scale could land on the old size for a frame (a cover shrinking before it
+ * grows) — and ran one animated style per cover, each frame a shadow-tree
+ * commit, through the unfold. `size` keys nothing: the view is as wide as
+ * its cell, which is `size` wide.
  */
-export function MobilePoseSizeSpringView({ size, children }: { size: number; children: ReactNode }) {
-  const scale = useMobilePoseSizeSpring(size);
-  return <Animated.View style={[styles.leadingOrigin, scale]}>{children}</Animated.View>;
+export function MobilePoseSizeSpringView({ size: _size, children }: { size: number; children: ReactNode }) {
+  const layout = useMobilePoseLayout();
+  return (
+    <Animated.View layout={layout ? mobilePoseSizeFlipTransition : undefined} style={styles.leadingOrigin}>
+      {children}
+    </Animated.View>
+  );
 }
 
 /**

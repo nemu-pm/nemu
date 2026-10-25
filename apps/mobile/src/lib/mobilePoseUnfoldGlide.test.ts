@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { getMobileShelfPlankSegments, getMobileShelfRow } from "./mobileLibraryShelf";
-import { MOBILE_MOTION, shouldMobilePoseSizeSpring } from "./mobileMotion";
+import { getMobilePoseFlipStart, MOBILE_MOTION, shouldMobilePoseSizeSpring } from "./mobileMotion";
 
 // Build 9 (Duo sim): unfolding the Library dropped the page 38 pt in one frame
 // and merged the shelf rails at once; the source home's cards resized in one
@@ -40,10 +40,37 @@ describe("unfolding glides like folding (build 9 E)", () => {
     expect(browse).toContain("CellRendererComponent={MobilePoseListCell}");
   });
 
-  test("the size-spring view scales from the leading corner on the shared pose size spring", () => {
+  test("the size-spring view scales from the leading corner in its own layout transition (same mount as the new size)", () => {
     const view = read("../components/MobilePoseLayoutView.tsx");
-    expect(view).toContain("useMobilePoseSizeSpring(size)");
+    expect(view).toContain("layout={layout ? mobilePoseSizeFlipTransition : undefined} style={styles.leadingOrigin}");
     expect(view).toContain('transformOrigin: "left top"');
+    // No JS-written scale racing the mount (build 9 r3 4b).
+    expect(view).not.toContain("useMobilePoseSizeSpring(");
+    const animations = read("./mobilePoseLayoutAnimations.ts");
+    expect(animations).toContain('export const mobilePoseSizeFlipTransition = makeMobilePoseFlipTransition("leading");');
+    // The frame is left to React (no originX/width in the FLIP): only the transform springs.
+    const flip = animations.slice(animations.indexOf("function makeMobilePoseFlipTransition"), animations.indexOf("export const mobilePoseSizeFlipTransition"));
+    expect(flip).not.toMatch(/originX:|originY:|width: with|height: with/);
+    expect(flip).toContain("{ scale: withSpring(1, SPRING) }");
+  });
+
+  test("a FLIP start draws the view where and at the size it was; identity outside a pose change", () => {
+    const half = { x: 10, y: 20, width: 173, height: 115 };
+    const flat = { x: 30, y: 20, width: 197, height: 131 };
+    const leading = getMobilePoseFlipStart(half, flat, "leading", true, false);
+    expect(leading.scale).toBeCloseTo(173 / 197, 6);
+    expect(leading.translateX).toBe(-20);
+    expect(leading.translateY).toBe(0);
+    // About the centre: the old centre, at the old size.
+    const centre = getMobilePoseFlipStart(half, flat, "centre", true, false);
+    expect(flat.x + flat.width / 2 + centre.translateX).toBe(half.x + half.width / 2);
+    expect(flat.y + flat.height / 2 + centre.translateY).toBe(half.y + half.height / 2);
+    expect(flat.width * centre.scale).toBeCloseTo(half.width, 6);
+    const identity = { translateX: 0, translateY: 0, scale: 1 };
+    expect(getMobilePoseFlipStart(half, flat, "centre", false, false)).toEqual(identity);
+    expect(getMobilePoseFlipStart(half, flat, "centre", true, true)).toEqual(identity);
+    expect(getMobilePoseFlipStart({ ...flat, x: 0 }, flat, "centre", true, false)).toEqual(identity); // moved only
+    expect(getMobilePoseFlipStart({ ...half, width: 0 }, flat, "leading", true, false)).toEqual(identity);
   });
 
   test("merging the rails on unfold keeps the leading plank (index 0) and drops the trailing one", () => {

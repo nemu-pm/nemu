@@ -338,6 +338,44 @@ export function shouldMobilePoseSizeSpring(
   poseWindowOpen: boolean,
   reduceMotion: boolean,
 ): boolean {
+  "worklet";
   if (!(from > 0) || !(to > 0) || Math.abs(from - to) < 0.5) return false;
   return poseWindowOpen && !reduceMotion;
+}
+
+/** A view's frame in its parent, as a layout transition reports it. */
+export type MobilePoseFrame = { x: number; y: number; width: number; height: number };
+
+/** A FLIP start: drawn this far from and this much smaller or larger than its new frame. */
+export type MobilePoseFlipStart = { translateX: number; translateY: number; scale: number };
+
+/**
+ * Where a view re-laid out at a new size in one commit starts so it is drawn
+ * where it was, at its old size (uniform scale old/new width): about its
+ * top-left corner (`leading`, transformOrigin "left top") or its centre
+ * (`centre`, the default origin). Run inside the view's own layout transition
+ * — the transform lands in the same mount as the new frame, so no frame ever
+ * shows the new size unscaled or the scale on the old size. Identity unless
+ * the width really changed inside a pose change without Reduce Motion.
+ */
+export function getMobilePoseFlipStart(
+  current: MobilePoseFrame,
+  target: MobilePoseFrame,
+  origin: "leading" | "centre",
+  poseWindowOpen: boolean,
+  reduceMotion: boolean,
+): MobilePoseFlipStart {
+  "worklet";
+  if (!shouldMobilePoseSizeSpring(current.width, target.width, poseWindowOpen, reduceMotion)) {
+    return { translateX: 0, translateY: 0, scale: 1 };
+  }
+  const scale = current.width / target.width;
+  if (origin === "leading") {
+    return { translateX: current.x - target.x, translateY: current.y - target.y, scale };
+  }
+  return {
+    translateX: current.x + current.width / 2 - (target.x + target.width / 2),
+    translateY: current.y + current.height / 2 - (target.y + target.height / 2),
+    scale,
+  };
 }
