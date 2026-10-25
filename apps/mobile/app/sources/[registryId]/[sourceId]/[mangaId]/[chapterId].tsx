@@ -24,7 +24,7 @@ import { MobileCachedImage } from "@/design-system";
 import {
   canHoldReaderOpening,
   readerOpeningSince,
-  resolveReaderOpeningHoldDelay,
+  resolveReaderCoverCapDelay,
   shouldRevealReaderCover,
   READER_OPENING_IMAGE_HOLD_MAX_MS,
   READER_OPENING_PAGED_HOLD_MAX_MS,
@@ -50,6 +50,8 @@ const COVER_REVEAL_MS = 250;
  * A page that is slow to load is not waited for any longer than this: the
  * cover then fades onto the reader background, where the page shows its
  * spinner until it decodes (`READER_OPENING_PAGED_HOLD_MAX_MS`, 2.5 s).
+ * Counted from the TAP (`resolveReaderCoverCapDelay`): the cover is gone by
+ * then. Counted from the landing, the zoom's ~0.5 s made it a steady 3.00 s.
  */
 const COVER_HOLD_MAX_MS = READER_OPENING_PAGED_HOLD_MAX_MS;
 /**
@@ -164,8 +166,16 @@ function useReaderCoverReveal(zoomId: string | null): ReaderCoverReveal {
     if (holdingRef.current) return;
     if (capArmedRef.current || landedAt == null || fadeStartsAtRef.current != null) return;
     capArmedRef.current = true;
-    const capMs = reason === "scroll-cap" ? COVER_SCROLL_HOLD_MAX_MS : COVER_HOLD_MAX_MS;
-    const delay = Math.max(0, capMs - (Date.now() - landedAt));
+    const delay =
+      reason === "scroll-cap"
+        ? Math.max(0, COVER_SCROLL_HOLD_MAX_MS - (Date.now() - landedAt))
+        : resolveReaderCoverCapDelay({
+            tapAt,
+            landedAt,
+            now: Date.now(),
+            capMs: COVER_HOLD_MAX_MS,
+            fadeMs: COVER_REVEAL_MS,
+          });
     fadeStartsAtRef.current = Date.now() + delay;
     // The fade itself starts on the UI clock; this logs when it was armed.
     if (__DEV__) {
@@ -184,7 +194,7 @@ function useReaderCoverReveal(zoomId: string | null): ReaderCoverReveal {
         if (finished) runOnJS(onFadeEnd)(reason, landedAt);
       }),
     );
-  }, [onFadeEnd, opacity]);
+  }, [onFadeEnd, opacity, tapAt]);
 
   /**
    * `hold`: the cover's fade, armed on the UI thread, starts
@@ -196,7 +206,13 @@ function useReaderCoverReveal(zoomId: string | null): ReaderCoverReveal {
     const landedAt = landedAtRef.current;
     if (landedAt == null) return;
     const now = Date.now();
-    const delay = resolveReaderOpeningHoldDelay({ landedAt, now });
+    const delay = resolveReaderCoverCapDelay({
+      tapAt,
+      landedAt,
+      now,
+      capMs: READER_OPENING_IMAGE_HOLD_MAX_MS,
+      fadeMs: COVER_REVEAL_MS,
+    });
     capArmedRef.current = true;
     fadeStartsAtRef.current = now + delay;
     if (__DEV__) {
@@ -224,7 +240,7 @@ function useReaderCoverReveal(zoomId: string | null): ReaderCoverReveal {
         if (finished) runOnJS(onFadeEnd)("hold-cap", landedAt);
       }),
     );
-  }, [onFadeEnd, opacity]);
+  }, [onFadeEnd, opacity, tapAt]);
 
   const onLanded = useCallback(() => {
     if (landedAtRef.current != null) return;
@@ -398,12 +414,21 @@ function ReaderAfterZoom({
   }, [reveal]);
   useEffect(() => {
     if (!landed || pageShown) return;
+    // The same deadline as the UI-thread cap (from the tap): a JS backstop.
+    const now = Date.now();
+    const times = openingTimes();
     const timer = setTimeout(() => {
       reveal("hold-max");
       setPageShown(true);
-    }, COVER_HOLD_MAX_MS);
+    }, resolveReaderCoverCapDelay({
+      tapAt: times.tapAt,
+      landedAt: times.landedAt ?? now,
+      now,
+      capMs: COVER_HOLD_MAX_MS,
+      fadeMs: COVER_REVEAL_MS,
+    }));
     return () => clearTimeout(timer);
-  }, [landed, pageShown, reveal]);
+  }, [landed, openingTimes, pageShown, reveal]);
   const entry = useMemo<ReaderZoomEntry>(
     () => ({ onFirstPage, openingGate, holdForFirstScreenImages, onFirstScreenImagesReady, openingTimes }),
     [holdForFirstScreenImages, onFirstPage, onFirstScreenImagesReady, openingGate, openingTimes],

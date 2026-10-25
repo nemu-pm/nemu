@@ -40,6 +40,26 @@ export const READER_OPENING_IMAGE_HOLD_MAX_MS = 2500;
 export const READER_OPENING_PAGED_HOLD_MAX_MS = 2500;
 
 /**
+ * The delay before the cover's capped fade starts, so that the cover is gone
+ * (its fade ended) `capMs` after the TAP that opened the reader. Counted from
+ * the landing it was ~0.5 s late every time (the system zoom lands ~0.5 s
+ * after the tap: a steady 3.00 s hold). Without a known tap, from the landing.
+ */
+export function resolveReaderCoverCapDelay(input: {
+  tapAt: number | null;
+  landedAt: number;
+  now: number;
+  capMs: number;
+  fadeMs: number;
+}): number {
+  const deadline =
+    input.tapAt != null && Number.isFinite(input.tapAt) && input.tapAt <= input.landedAt
+      ? input.tapAt + input.capMs - input.fadeMs
+      : input.landedAt + input.capMs - input.fadeMs;
+  return Math.max(0, deadline - input.now);
+}
+
+/**
  * The page whose decoded image opens a paged reader: the restore target
  * (the saved page, or page 1) until the opening restore has placed the
  * pager, then the page the reader is on. The page counter starts at page 1

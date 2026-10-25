@@ -4534,6 +4534,26 @@ export function ReaderScreen() {
   const readerOpeningPagedTargetIdentity = readerOpeningPagedTargetPage
     ? readerPageIdentityFor(readerOpeningPagedTargetPage)
     : "";
+  // The target page's own load event releases the cover in the same JS task
+  // (see renderReaderImage's onImageLoad): no wait for the size state, a
+  // re-render, this effect and a frame, any of which a busy opening JS thread
+  // stretched past the cap.
+  const readerOpeningPagedTargetIdRef = useRef<string | null>(null);
+  readerOpeningPagedTargetIdRef.current =
+    galleryPagedMode && readerOpeningPagedTargetPage ? readerOpeningPagedTargetPage.id : null;
+  const readerOpeningReleasedRef = useRef(false);
+  const releaseReaderOpeningOnDecode = useCallback((pageId: string) => {
+    if (readerOpeningReleasedRef.current) return;
+    if (readerOpeningPagedTargetIdRef.current !== pageId) return;
+    readerOpeningReleasedRef.current = true;
+    if (__DEV__) {
+      console.info("[reader-open] target-decoded", {
+        ...readerOpeningSince(readerZoomEntryRef.current.openingTimes(), Date.now()),
+        pageId,
+      });
+    }
+    readerZoomEntryRef.current.onFirstPage();
+  }, []);
   const readerZoomPageShown =
     pagesState.status === "error" ||
     pagesState.status === "blocked" ||
@@ -9911,6 +9931,7 @@ export function ReaderScreen() {
               stablePageSizeKey,
             );
             saveMobileReaderPageSize(pageSizeChapterKey, page.id, { width, height });
+            if (!neighbour) releaseReaderOpeningOnDecode(page.id);
             if (!neighbour) measureReaderFirstContent(page);
           }}
           onImageError={(error) => {
@@ -10037,6 +10058,7 @@ export function ReaderScreen() {
       readerSegmentedCacheKeyFor,
       readerZoomTapBand,
       readerTwoFingerDoubleTap,
+      releaseReaderOpeningOnDecode,
       retryReaderImage,
       retryReaderPageProcessing,
       selectJapaneseLearningDetection,

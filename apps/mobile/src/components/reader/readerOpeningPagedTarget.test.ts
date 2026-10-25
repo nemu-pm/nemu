@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
   READER_OPENING_PAGED_HOLD_MAX_MS,
+  resolveReaderCoverCapDelay,
   resolveReaderOpeningPagedTarget,
 } from "./readerOpeningHold";
 
@@ -43,11 +44,37 @@ describe("paged opening: the cover gives way to the page the pager opens on", ()
     );
   });
 
-  test("hard cap 2.5 s, armed on the UI thread from the landing (paged and scroll)", () => {
+  test("hard cap 2.5 s, armed on the UI thread at the landing (paged and scroll)", () => {
     expect(READER_OPENING_PAGED_HOLD_MAX_MS).toBe(2500);
     expect(route).toContain("const COVER_HOLD_MAX_MS = READER_OPENING_PAGED_HOLD_MAX_MS;");
     expect(route).toContain('else if (modeRef.current.pagedReading) armCap("hold-max");');
     expect(route).toContain('else if (pagedReading) armCap("hold-max");');
     expect(route).toContain("const COVER_REVEAL_MS = 250;");
+  });
+
+  test("the cap is counted from the tap: the cover is gone 2.5 s after it, not 2.5 s after the landing", () => {
+    // Tap at 0, the zoom lands at 500: the fade starts at 2250 and ends at 2500.
+    expect(resolveReaderCoverCapDelay({ tapAt: 0, landedAt: 500, now: 500, capMs: 2500, fadeMs: 250 })).toBe(1750);
+    // Armed late (the mode arrived at 1800): only the time left.
+    expect(resolveReaderCoverCapDelay({ tapAt: 0, landedAt: 500, now: 1800, capMs: 2500, fadeMs: 250 })).toBe(450);
+    // Already past the deadline: fade at once.
+    expect(resolveReaderCoverCapDelay({ tapAt: 0, landedAt: 2600, now: 2600, capMs: 2500, fadeMs: 250 })).toBe(0);
+    // No tap known (or a tap clock after the landing): from the landing.
+    expect(resolveReaderCoverCapDelay({ tapAt: null, landedAt: 500, now: 500, capMs: 2500, fadeMs: 250 })).toBe(2250);
+    expect(resolveReaderCoverCapDelay({ tapAt: 900, landedAt: 500, now: 500, capMs: 2500, fadeMs: 250 })).toBe(2250);
+  });
+
+  test("the route's UI-thread cap, hold cap and JS backstop all use the tap deadline", () => {
+    expect(route.match(/resolveReaderCoverCapDelay\(\{/g)?.length).toBe(3);
+    expect(route).not.toContain("COVER_HOLD_MAX_MS - (Date.now() - landedAt)");
+    expect(route).not.toContain("}, COVER_HOLD_MAX_MS);");
+  });
+
+  test("the target page's own load event releases the cover synchronously", () => {
+    expect(reader).toContain("if (!neighbour) releaseReaderOpeningOnDecode(page.id);");
+    const start = reader.indexOf("const releaseReaderOpeningOnDecode = useCallback(");
+    const block = reader.slice(start, reader.indexOf("}, []);", start));
+    expect(block).toContain("if (readerOpeningPagedTargetIdRef.current !== pageId) return;");
+    expect(block).toContain("readerZoomEntryRef.current.onFirstPage();");
   });
 });
