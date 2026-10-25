@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import {
   clampMobileReaderPan,
   mobileReaderFitFrame,
@@ -263,5 +265,23 @@ describe("remembered fit modes", () => {
     expect(normalizeReaderFitModes({ narrow: "width", wide: "stretch", phone: "fill", large: "page" })).toEqual({ narrow: "width" });
     expect(normalizeReaderFitModes(null)).toEqual({});
     expect(normalizeReaderFitModes("fill")).toEqual({});
+  });
+});
+
+describe("seamless paged neighbour fit (ReaderScreen)", () => {
+  const readerScreen = readFileSync(path.join(import.meta.dir, "../screens/ReaderScreen.tsx"), "utf8");
+  test("a neighbour chapter's page is fitted by its own size, as its frame is", () => {
+    // Under the open chapter's identity the size went unfound: a wide page
+    // joined height-fitted but centred, then jumped to its reading-start
+    // edge once crossed into.
+    expect(readerScreen).toContain(
+      "readerPageFitModeFor(page, readerStripPageSize(neighbour.chapterId, page))",
+    );
+  });
+  test("a wide single page rests at its reading-start edge, fitted to the height", () => {
+    const portrait = { width: 400, height: 700 };
+    expect(
+      mobileReaderPageFitMode({ mode: "page", single: true, viewport: portrait, naturalSize: { width: 2400, height: 1200 } }),
+    ).toBe("height");
   });
 });

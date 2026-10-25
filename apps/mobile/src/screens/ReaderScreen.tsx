@@ -10039,7 +10039,13 @@ export function ReaderScreen() {
       // Long-strip presentations zoom the whole list (ZoomableReaderStrip);
       // per-page pinch/double-tap zoom only applies to paged galleries.
       if (!galleryPagedMode) return pageFrame;
-      const pageFitMode = readerPageFitModeFor(page);
+      // A neighbour's page is fitted (and rests, and pans) by its own size, as
+      // its frame is (getReaderImageFrameSize): looked up under the open
+      // chapter's identity it went unfound, so a wide page joined height-fitted
+      // but centred, and jumped to its reading-start edge once crossed into.
+      const pageFitMode = neighbour
+        ? readerPageFitModeFor(page, readerStripPageSize(neighbour.chapterId, page))
+        : readerPageFitModeFor(page);
       return (
         <ZoomableReaderImageFrame
           // Remounting on retry is what re-issues the image request.
@@ -10098,6 +10104,7 @@ export function ReaderScreen() {
       readerStablePageSizeKeyFor,
       readerPageIdentityForChapter,
       readerStablePageSizeKeyForChapter,
+      readerStripPageSize,
       routeRef.registryId,
       routeRef.sourceId,
       mangaId,
