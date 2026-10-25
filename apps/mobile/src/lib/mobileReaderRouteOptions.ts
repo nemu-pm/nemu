@@ -71,7 +71,47 @@ export function resetMobileReaderHostGestureLocksForTesting(): void {
   readerHostGestureLocks = 0;
 }
 
+export type MobileStackContentStyleOptions = { contentStyle: { backgroundColor: string } };
+type SetStackContentStyleOptions = (options: MobileStackContentStyleOptions) => void;
+
+let readerHostBackgroundHolders: { color: string }[] = [];
+
+/**
+ * The host screen (the root stack's screen holding the sources flow) paints
+ * the reader's page background while a reader is mounted: a chapter switch
+ * (`router.replace`) animates the next reader in as a rounded card, and what
+ * shows at its corners is this screen's background (the app's, black in the
+ * dark theme: 0–10 corner pixels for ~0.25 s over a white reader). Counted
+ * like the gesture lock: the next reader mounts before the previous one
+ * unmounts, and the latest holder's colour wins. The last one out restores
+ * `restoreColor`.
+ */
+export function acquireMobileReaderHostBackground(
+  setOptions: SetStackContentStyleOptions | undefined,
+  color: string,
+  restoreColor: string,
+): () => void {
+  const holder = { color };
+  readerHostBackgroundHolders = [...readerHostBackgroundHolders, holder];
+  setOptions?.({ contentStyle: { backgroundColor: color } });
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    readerHostBackgroundHolders = readerHostBackgroundHolders.filter((entry) => entry !== holder);
+    const latest = readerHostBackgroundHolders[readerHostBackgroundHolders.length - 1];
+    setOptions?.({ contentStyle: { backgroundColor: latest ? latest.color : restoreColor } });
+  };
+}
+
+/** Exposed for tests. */
+export function resetMobileReaderHostBackgroundForTesting(): void {
+  readerHostBackgroundHolders = [];
+}
+
 export type MobileReaderScreenOptions = {
+  /** The reader's page background behind its content (never the stack's black). */
+  contentStyle?: { backgroundColor: string };
   statusBarAnimation: "fade";
   statusBarHidden: boolean;
   statusBarStyle: "light" | "dark";
@@ -89,8 +129,11 @@ export type MobileReaderScreenOptions = {
 export function mobileReaderScreenOptions({
   showControls,
   lightPage = false,
+  backgroundColor,
 }: {
   showControls: boolean;
+  /** The page background: what shows at the screen's corners in a chapter switch. */
+  backgroundColor?: string;
   /** The page background is light (白色, or a light border under 跟随页面). */
   lightPage?: boolean;
 }): MobileReaderScreenOptions {
@@ -98,6 +141,7 @@ export function mobileReaderScreenOptions({
   // background and its dark top scrim, dark over a light one and its light
   // scrim.
   return {
+    ...(backgroundColor ? { contentStyle: { backgroundColor } } : {}),
     statusBarAnimation: "fade",
     statusBarHidden: !showControls,
     statusBarStyle: lightPage ? "dark" : "light",

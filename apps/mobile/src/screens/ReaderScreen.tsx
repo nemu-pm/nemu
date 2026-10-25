@@ -571,6 +571,7 @@ import {
   readerChromePageCountLabel,
 } from "@/lib/mobileReaderHeader";
 import {
+  acquireMobileReaderHostBackground,
   acquireMobileReaderHostGestureLock,
   mobileReaderScreenOptions,
 } from "@/lib/mobileReaderRouteOptions";
@@ -1457,7 +1458,8 @@ export function ReaderScreen() {
     }),
     [chapterId, routeChapterId, params.chapterLocked, params.chapterNumber, params.chapterTitle, params.volumeNumber],
   );
-  const { reduceMotion, scheme } = useNemuTheme();
+  const { reduceMotion, scheme, tokens: readerAppTokens } = useNemuTheme();
+  const readerAppBackgroundColor = readerAppTokens.background;
   const readerZoomEntry = useReaderZoomEntry();
   // The opening window (zoom landing → cover fade end): a chapter the page-list
   // cache already painted asks the source only once it has closed, so a cold
@@ -4898,7 +4900,7 @@ export function ReaderScreen() {
     () =>
       readerSideBar
         ? {
-            ...mobileReaderScreenOptions({ showControls, lightPage: readerPageIsLight }),
+            ...mobileReaderScreenOptions({ showControls, lightPage: readerPageIsLight, backgroundColor: readerBackgroundColor }),
             // A transparent native header that only carries Back and the
             // toolbar items (the system presents them in the vertical bar);
             // it stays mounted — its items hide with the chrome — so the
@@ -4910,9 +4912,19 @@ export function ReaderScreen() {
             headerTintColor: READER_CAPSULE_COLORS.primaryText,
             title: "",
           }
-        : { ...mobileReaderScreenOptions({ showControls, lightPage: readerPageIsLight }), headerShown: false },
-    [readerPageIsLight, readerSideBar, showControls],
+        : { ...mobileReaderScreenOptions({ showControls, lightPage: readerPageIsLight, backgroundColor: readerBackgroundColor }), headerShown: false },
+    [readerBackgroundColor, readerPageIsLight, readerSideBar, showControls],
   );
+  // The host screen behind the flow paints the page background too (see
+  // acquireMobileReaderHostBackground): a chapter switch's card corners.
+  useEffect(() => {
+    const parent = navigation.getParent();
+    return acquireMobileReaderHostBackground(
+      parent ? (options) => parent.setOptions(options) : undefined,
+      readerBackgroundColor,
+      readerAppBackgroundColor,
+    );
+  }, [navigation, readerAppBackgroundColor, readerBackgroundColor]);
   // Paged: constant, from the latched safe area. The capsules float over the
   // page and own their own rects (tap exclusions) while shown, so the bands
   // never follow the chrome or the status bar.

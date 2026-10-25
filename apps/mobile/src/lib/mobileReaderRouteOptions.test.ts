@@ -1,10 +1,14 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import {
   MOBILE_READER_ROUTE_NAME,
   MOBILE_READER_STACK_GESTURE_OPTIONS,
   MOBILE_STACK_FULL_SCREEN_GESTURE_OPTIONS,
+  acquireMobileReaderHostBackground,
   acquireMobileReaderHostGestureLock,
   mobileReaderScreenOptions,
+  resetMobileReaderHostBackgroundForTesting,
   resetMobileReaderHostGestureLocksForTesting,
 } from "./mobileReaderRouteOptions";
 
@@ -82,5 +86,30 @@ describe("mobile reader route options", () => {
         "statusBarStyle",
       ]);
     }
+  });
+
+  test("the reader screen paints its page background behind its content (a chapter switch's card corners)", () => {
+    expect(mobileReaderScreenOptions({ showControls: true, backgroundColor: "#ffffff" }).contentStyle).toEqual({
+      backgroundColor: "#ffffff",
+    });
+    const appDir = path.join(import.meta.dir, "../..");
+    const layout = readFileSync(path.join(appDir, "app/sources/_layout.tsx"), "utf8");
+    expect(layout).not.toContain('contentStyle: { backgroundColor: "#000000" }');
+    expect(layout).toContain("contentStyle: { backgroundColor: readerBackgroundColor }");
+  });
+
+  test("the host screen takes the page background while a reader is mounted; the latest wins, the last restores", () => {
+    resetMobileReaderHostBackgroundForTesting();
+    const calls: string[] = [];
+    const set = (options: { contentStyle: { backgroundColor: string } }) => calls.push(options.contentStyle.backgroundColor);
+    const first = acquireMobileReaderHostBackground(set, "#ffffff", "#000000");
+    // router.replace: the next chapter's reader mounts before this one unmounts.
+    const second = acquireMobileReaderHostBackground(set, "#fefefe", "#000000");
+    first();
+    expect(calls).toEqual(["#ffffff", "#fefefe", "#fefefe"]);
+    second();
+    expect(calls[calls.length - 1]).toBe("#000000");
+    second();
+    expect(calls.length).toBe(4);
   });
 });

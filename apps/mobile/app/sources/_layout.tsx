@@ -1,6 +1,8 @@
 import { Stack } from "expo-router";
 import { createNemuNativeStackScreenOptions, useNemuTheme } from "@/design-system";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
+import { mobileReaderPageBackgroundColor } from "@/lib/mobileReaderPageBackground";
+import { useReaderPagePrefs } from "@/components/reader/useReaderPagePrefs";
 import {
   MOBILE_READER_ROUTE_NAME,
   MOBILE_READER_STACK_GESTURE_OPTIONS,
@@ -10,6 +12,11 @@ import {
 export default function SourcesLayout() {
   const { tokens } = useNemuTheme();
   const { verticalBarSide } = useMobileAdaptiveLayout();
+  // The reader's page background from its very first frame (a chapter
+  // switch animates the next reader in as a rounded card: never black
+  // corners over a white reader).
+  const { pageBackground } = useReaderPagePrefs();
+  const readerBackgroundColor = mobileReaderPageBackgroundColor(pageBackground);
   return (
     <Stack
       screenOptions={{
@@ -35,7 +42,7 @@ export default function SourcesLayout() {
           statusBarAnimation: "fade",
           headerBackVisible: false,
           title: "",
-          contentStyle: { backgroundColor: "#000000" },
+          contentStyle: { backgroundColor: readerBackgroundColor },
         }}
       />
     </Stack>
