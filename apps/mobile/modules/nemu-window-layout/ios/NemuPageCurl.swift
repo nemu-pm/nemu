@@ -146,8 +146,11 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
     // it keep the size the turn started with. `didFinishAnimating` (and a
     // requested turn's completion) lay out again and apply it.
     if !transitioning && pageController.view.frame != frame {
+      // Only a new size re-sets the page on screen: a move (or a sub-point
+      // rounding) keeps the controllers and the pages' drawn content as is.
+      let resized = NemuPageCurlLeaves.needsReseat(from: pageController.view.frame.size, to: frame.size)
       pageController.view.frame = frame
-      if positioned { reseatPending = true }
+      if positioned && resized { reseatPending = true }
     }
     reseatAfterFrameChange()
     applyNavigation()
@@ -324,7 +327,7 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
       old.removeFromParent()
     }
     let location: UIPageViewController.SpineLocation = spine == "mid" ? .mid : spine == "max" ? .max : .min
-    let controller = UIPageViewController(
+    let controller = NemuPageCurlController(
       transitionStyle: .pageCurl,
       navigationOrientation: .horizontal,
       options: [.spineLocation: NSNumber(value: location.rawValue)]
@@ -420,6 +423,23 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
     default:
       break
     }
+  }
+}
+
+/**
+ * The curl's `UIPageViewController`. Its frame is the reader's `curlFrame`,
+ * set by `NemuPageCurlView.layoutSubviews`, never the window's: a fold
+ * (flat ⇄ book) or another window transition must not reach UIKit's own
+ * size-transition handling. That re-laid a spread's pages through a
+ * rasterized still for the system transition's length — the left (verso)
+ * page of a `.mid` spread showed heavily blurred for ~0.4–0.6 s on every
+ * fold, though nothing about the curl's frame had changed. A real frame
+ * change is handled by the view (a non-animated re-set at the new size).
+ */
+final class NemuPageCurlController: UIPageViewController {
+  override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+    // Deliberately not forwarded (see above). The page controllers hold
+    // plain hosted views and have nothing to do for a window transition.
   }
 }
 

@@ -80,3 +80,14 @@ enum NemuPageCurlLeaves {
     slot >= 0 && slot < slotCount
   }
 }
+
+extension NemuPageCurlLeaves {
+  /**
+   * Whether the curl frame's change needs the page on screen set again (so
+   * UIKit lays its controllers out at the new size): only a new size, by half
+   * a point or more. A move keeps the pages as drawn.
+   */
+  static func needsReseat(from old: CGSize, to new: CGSize) -> Bool {
+    abs(old.width - new.width) >= 0.5 || abs(old.height - new.height) >= 0.5
+  }
+}

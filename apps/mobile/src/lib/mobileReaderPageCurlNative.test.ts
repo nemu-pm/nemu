@@ -49,4 +49,18 @@ describe("native single-page curl", () => {
     expect(leaves).not.toContain("import UIKit");
     expect(leaves).not.toContain("UIColor");
   });
+
+  test("a fold never reaches UIKit's size transition, and only a new size re-sets the spread", () => {
+    // The left (verso) page of a mid-spine spread was re-laid through a
+    // rasterized still for the system transition (heavily blurred ~0.5 s).
+    expect(curl).toContain("final class NemuPageCurlController: UIPageViewController {");
+    expect(curl).toMatch(
+      /override func viewWillTransition\(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator\) \{\s*\/\/[^\n]*\n\s*\/\/[^\n]*\n\s*\}/,
+    );
+    expect(curl).toContain("let controller = NemuPageCurlController(");
+    expect(curl).not.toContain("let controller = UIPageViewController(");
+    expect(curl).toContain("if positioned && resized { reseatPending = true }");
+    expect(leaves).toContain("static func needsReseat(from old: CGSize, to new: CGSize) -> Bool");
+    expect(leaves).toContain("abs(old.width - new.width) >= 0.5 || abs(old.height - new.height) >= 0.5");
+  });
 });

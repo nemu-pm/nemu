@@ -13,6 +13,7 @@ enum NemuPageCurlLeavesTests {
     endsHaveNoLeafToLift()
     shownControllersMatchUIKit()
     spreadsKeepTheirSequence()
+    onlyANewSizeReseatsThePage()
     print("NemuPageCurlLeavesTests passed")
   }
 
@@ -87,5 +88,14 @@ enum NemuPageCurlLeavesTests {
     precondition(NemuPageCurlLeaves.before(.front(4), slotCount: 8, backs: false) == .front(3))
     precondition(NemuPageCurlLeaves.after(.front(7), slotCount: 8, backs: false) == nil)
     precondition(NemuPageCurlLeaves.before(.front(0), slotCount: 8, backs: false) == nil)
+  }
+
+  /** A fold moves (or rounds) the curl frame: no re-set; a real resize: re-set. */
+  static func onlyANewSizeReseatsThePage() {
+    let spread = CGSize(width: 951, height: 700)
+    precondition(!NemuPageCurlLeaves.needsReseat(from: spread, to: spread))
+    precondition(!NemuPageCurlLeaves.needsReseat(from: spread, to: CGSize(width: 951.3, height: 700)))
+    precondition(NemuPageCurlLeaves.needsReseat(from: spread, to: CGSize(width: 911, height: 700)))
+    precondition(NemuPageCurlLeaves.needsReseat(from: spread, to: CGSize(width: 951, height: 650)))
   }
 }
