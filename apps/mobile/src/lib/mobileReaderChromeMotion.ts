@@ -94,6 +94,58 @@ export const READER_OPENING_CHROME_DONE_BY_MS = 230;
 /** A late opening fade is shortened to catch up, never below this. */
 export const READER_OPENING_CHROME_MIN_MS = 120;
 
+/**
+ * The opening's chrome is held fully transparent until its layout has
+ * settled, and its fade starts no earlier than the zoom's visible landing.
+ * Once the fade has started the chrome's pieces never move: a geometry
+ * correction may only jump into place while the chrome is still transparent,
+ * so a correction that arrives late postpones the fade instead of moving a
+ * visible piece (cold outer display: the reader's own layout report and the
+ * system vertical bar's column arrive after the first render; build 9 round
+ * 3 showed the title gliding ~29 pt from V+0.52 s).
+ *
+ * Settled: the reader's own layout is known (its observer reported, or a
+ * reopen seeded it from the same window), the inputs that place the chrome
+ * have loaded, and the chrome's geometry has not changed for
+ * `READER_OPENING_CHROME_QUIET_MS`. Past the landing +
+ * `READER_OPENING_CHROME_SETTLE_CAP_MS` the fade starts regardless.
+ */
+export const READER_OPENING_CHROME_QUIET_MS = 50;
+export const READER_OPENING_CHROME_SETTLE_CAP_MS = 600;
+
+export type ReaderOpeningChromeRelease =
+  | { release: true }
+  /** Not yet: check again in `recheckInMs` (null: only when an input changes). */
+  | { release: false; recheckInMs: number | null };
+
+/**
+ * Whether the opening's fade may be released now. Released before the
+ * landing, the fade still waits for it (the glass's own delay); released
+ * after it, the fade starts at once. No landing known (no zoom): at once.
+ */
+export function resolveReaderOpeningChromeRelease(input: {
+  landsAtMs: number | null;
+  nowMs: number;
+  layoutReady: boolean;
+  /** When the chrome's settle key last changed (its first render counts). */
+  lastChangeMs: number;
+}): ReaderOpeningChromeRelease {
+  const { landsAtMs, nowMs, layoutReady, lastChangeMs } = input;
+  if (landsAtMs == null || !Number.isFinite(landsAtMs)) return { release: true };
+  const capAt = landsAtMs + READER_OPENING_CHROME_SETTLE_CAP_MS;
+  if (nowMs >= capAt) return { release: true };
+  if (!layoutReady) return { release: false, recheckInMs: capAt - nowMs };
+  const quietAt = (Number.isFinite(lastChangeMs) ? lastChangeMs : nowMs) + READER_OPENING_CHROME_QUIET_MS;
+  if (nowMs >= quietAt) return { release: true };
+  return { release: false, recheckInMs: Math.min(quietAt, capAt) - nowMs };
+}
+
+/** When a released opening fade becomes visible: at the landing, or at once when released after it. */
+export function readerOpeningChromeFadeStartsAt(input: { landsAtMs: number | null; releasedAtMs: number }): number {
+  const { landsAtMs, releasedAtMs } = input;
+  return landsAtMs != null && Number.isFinite(landsAtMs) ? Math.max(landsAtMs, releasedAtMs) : releasedAtMs;
+}
+
 /** Delay from `nowMs` until the reader mounts: `READER_OPENING_MOUNT_LEAD_MS` before the landing, at once when past it. */
 export function resolveReaderOpeningMountDelay(input: { landsAtMs: number; nowMs: number; leadMs?: number }): number {
   const lead = input.leadMs ?? READER_OPENING_MOUNT_LEAD_MS;

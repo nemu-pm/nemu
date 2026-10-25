@@ -601,8 +601,9 @@ import {
   READER_CHROME_MATERIAL_CURVE,
   readerChromeHasScrubber,
   readerChromeMaterialTiming,
+  readerOpeningChromeFadeStartsAt,
   resolveReaderOpeningChromeMs,
-  READER_OPENING_CHROME_DONE_BY_MS,
+  resolveReaderOpeningChromeRelease,
 } from "@/lib/mobileReaderChromeMotion";
 import {
   chapterFromState,
@@ -1593,9 +1594,17 @@ export function ReaderScreen() {
     peekMobileReaderWindowLayout(window, appObservedWindowLayout)
       ?? mobileReaderDerivedWindowLayout(window, appObservedWindowLayout),
   );
+  // The reader's own layout is known: seeded from this window's last reader
+  // report (a reopen), or once this reader's observer has reported. Until
+  // then (a cold first open) the layout is derived from the app's, and the
+  // opening's chrome is held transparent (see readerOpeningChromePhase).
+  const [readerOwnLayoutKnown, setReaderOwnLayoutKnown] = useState(
+    () => peekMobileReaderWindowLayout(window, appObservedWindowLayout) != null,
+  );
   const onReaderWindowLayoutChange = useCallback((layout: MobileWindowLayout) => {
     rememberMobileReaderWindowLayout(layout);
     setReservedLayout(layout);
+    setReaderOwnLayoutKnown(true);
   }, []);
   const store = useMobileDataStore();
   const { appLanguage } = useMobileLanguageSettings();
@@ -11503,26 +11512,93 @@ export function ReaderScreen() {
   const readerPageGlide =
     readerStageMotion?.kind === "glide" && readerStageMotion.flip === "translate";
 
-  // The opening's chrome window: from the mount until the zoom's visible
-  // landing + READER_OPENING_CHROME_DONE_BY_MS. The chrome is not shown
-  // before the landing (its glass waits for it natively), so a layout the
-  // reader's own observer corrects meanwhile (cold: the window computed from
-  // the app's, then the reader's report) moves it at once, unseen, instead of
-  // gliding it into the fade (the outer display's title glid ~29pt down
-  // V+0.52–0.87 s, build 9 round 3).
+  // The opening's chrome (build 9 round 3 designer boundary): a geometry
+  // correction may jump into place only while the chrome is still fully
+  // transparent; once its fade has started, the title, capsules and ⋯ never
+  // move. So the fade is held (the chrome transparent) until the layout that
+  // places it has settled — the reader's own window layout known (cold: the
+  // derived one is corrected by the reader's first report), the system
+  // vertical bar's column in it (outer display), the plugins (the action
+  // count) and display preferences (camera avoidance) loaded, and the
+  // chrome's geometry and title unchanged for READER_OPENING_CHROME_QUIET_MS
+  // (resolveReaderOpeningChromeRelease) — capped at the landing +
+  // READER_OPENING_CHROME_SETTLE_CAP_MS. Released before the landing, the
+  // fade still starts at it (the glass's own delay); released after, at once.
+  // Phases: "held" (transparent, not released) → "waiting" (released, before
+  // the landing: still transparent) → "fading" → null (an ordinary chrome).
   const readerZoomLandsAt = useMobileExploreZoomLandsAt();
-  const [readerOpeningChromeUntil, setReaderOpeningChromeUntil] = useState<number | null>(() =>
-    readerZoomLandsAt != null ? readerZoomLandsAt + READER_OPENING_CHROME_DONE_BY_MS : null,
-  );
+  const [readerOpeningChromePhase, setReaderOpeningChromePhase] = useState<
+    { phase: "held" } | { phase: "waiting" | "fading"; fadeStartsAt: number } | null
+  >(() => (readerZoomLandsAt != null ? { phase: "held" } : null));
+  const readerOpeningChromeHeld = readerOpeningChromePhase?.phase === "held";
+  // Pieces may jump (never glide) only while nothing of the chrome shows.
+  const readerOpeningChromeTransparent =
+    readerOpeningChromePhase != null && readerOpeningChromePhase.phase !== "fading";
+  const readerOpeningSideBarColumnKnown =
+    !readerSideBar ||
+    (readerSideBarInsets != null && Math.abs(readerSideBarInsets.left - readerSideBarInsets.right) >= 20);
+  const readerOpeningLayoutReady =
+    readerOwnLayoutKnown &&
+    readerOpeningSideBarColumnKnown &&
+    !readerPlugins.loading &&
+    readerThumbnailSpoilerSafeReady;
+  // What a late correction would move: the pieces' frames and the title's text.
+  const readerOpeningSettleKey = [
+    readerPose.chrome.kind,
+    readerPose.chrome.kind === "capsules"
+      ? mobileReaderChromeGeometryKey([
+          readerPose.chrome.back,
+          readerPose.chrome.title,
+          readerPose.chrome.more,
+          readerPose.chrome.actions,
+          readerPose.chrome.scrubber,
+        ])
+      : "",
+    mangaTitle ?? "",
+    chapterTitle ?? "",
+  ].join("\n");
+  const [readerOpeningSettle, setReaderOpeningSettle] = useState(() => ({
+    key: readerOpeningSettleKey,
+    changedAt: Date.now(),
+  }));
+  if (readerOpeningChromeHeld && readerOpeningSettle.key !== readerOpeningSettleKey) {
+    setReaderOpeningSettle({ key: readerOpeningSettleKey, changedAt: Date.now() });
+  }
+  const readerOpeningSettleChangedAt = readerOpeningSettle.changedAt;
   useEffect(() => {
-    if (readerOpeningChromeUntil == null) return;
+    if (!readerOpeningChromeHeld) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const check = () => {
+      const now = Date.now();
+      const decision = resolveReaderOpeningChromeRelease({
+        landsAtMs: readerZoomLandsAt,
+        nowMs: now,
+        layoutReady: readerOpeningLayoutReady,
+        lastChangeMs: readerOpeningSettleChangedAt,
+      });
+      if (decision.release) {
+        const fadeStartsAt = readerOpeningChromeFadeStartsAt({ landsAtMs: readerZoomLandsAt, releasedAtMs: now });
+        setReaderOpeningChromePhase({ phase: fadeStartsAt > now ? "waiting" : "fading", fadeStartsAt });
+        return;
+      }
+      if (decision.recheckInMs != null) timer = setTimeout(check, Math.max(0, decision.recheckInMs));
+    };
+    check();
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the landing is read once, with the opening
+  }, [readerOpeningChromeHeld, readerOpeningLayoutReady, readerOpeningSettleChangedAt]);
+  const readerOpeningFadeStartsAt =
+    readerOpeningChromePhase && readerOpeningChromePhase.phase !== "held" ? readerOpeningChromePhase.fadeStartsAt : null;
+  useEffect(() => {
+    if (readerOpeningChromePhase?.phase !== "waiting") return;
     const timer = setTimeout(
-      () => setReaderOpeningChromeUntil(null),
-      Math.max(0, readerOpeningChromeUntil - Date.now()),
+      () => setReaderOpeningChromePhase((current) => (current?.phase === "waiting" ? { ...current, phase: "fading" } : current)),
+      Math.max(0, readerOpeningChromePhase.fadeStartsAt - Date.now()),
     );
     return () => clearTimeout(timer);
-  }, [readerOpeningChromeUntil]);
-  const readerOpeningChrome = readerOpeningChromeUntil != null;
+  }, [readerOpeningChromePhase]);
   const readerChromeArrangement: MobileReaderChromeArrangement = {
     kind: readerPose.chrome.kind,
     geometry:
@@ -11587,7 +11663,7 @@ export function ReaderScreen() {
     readerChromeGlideTrack.kind !== readerChromeArrangement.kind
   ) {
     const glide =
-      !readerOpeningChrome &&
+      !readerOpeningChromeTransparent &&
       readerChromeGlideTrack.geometry !== null &&
       readerChromeGeometry !== null &&
       mobileReaderChromeGlide({
@@ -11746,27 +11822,57 @@ export function ReaderScreen() {
   const readerChromePresent = showReaderChrome && !endOfChapterPromptVisible && !readerChromeUnderSheet;
   const { durationMs: readerChromeBaseMs, slide: readerChromeSlide } = readerChromeMaterialTiming(reduceMotion);
   // The opening's fade (the chrome shown as the reader mounts) is done by the
-  // zoom's visible landing + 230 ms: the reader mounts just before the landing
-  // (READER_OPENING_MOUNT_LEAD_MS), so this is the usual 200 ms; a reader that
-  // still mounts late shortens it to catch up (resolveReaderOpeningChromeMs).
+  // zoom's visible landing + 230 ms when it starts at the landing: the usual
+  // 200 ms. A fade the layout held past the landing is shortened to catch up
+  // (resolveReaderOpeningChromeMs, never below READER_OPENING_CHROME_MIN_MS),
+  // decided when it is released.
   const [readerChromeOpeningMs, setReaderChromeOpeningMs] = useState<number | null>(() =>
-    readerChromePresent
-      ? resolveReaderOpeningChromeMs({ landsAtMs: readerZoomLandsAt, nowMs: Date.now(), durationMs: readerChromeBaseMs })
-      : null,
+    readerChromePresent ? readerChromeBaseMs : null,
   );
+  const [readerChromeOpeningTimedFor, setReaderChromeOpeningTimedFor] = useState<number | null>(null);
+  if (
+    readerChromeOpeningMs != null &&
+    readerOpeningFadeStartsAt != null &&
+    readerChromeOpeningTimedFor !== readerOpeningFadeStartsAt
+  ) {
+    setReaderChromeOpeningTimedFor(readerOpeningFadeStartsAt);
+    setReaderChromeOpeningMs(
+      resolveReaderOpeningChromeMs({ landsAtMs: readerZoomLandsAt, nowMs: readerOpeningFadeStartsAt, durationMs: readerChromeBaseMs }),
+    );
+  }
+  // No zoom (no landing known): an ordinary fade, at once.
+  if (readerChromeOpeningMs != null && readerOpeningChromePhase == null && readerChromeOpeningTimedFor == null) {
+    setReaderChromeOpeningTimedFor(Date.now());
+  }
   useEffect(() => {
-    if (readerChromeOpeningMs == null) return;
-    // Counted from the landing the fade waits for (a reader mounted before it).
-    const startsIn = readerZoomLandsAt != null ? Math.max(0, readerZoomLandsAt - Date.now()) : 0;
-    const timer = setTimeout(() => setReaderChromeOpeningMs(null), startsIn + readerChromeOpeningMs + 40);
+    if (readerChromeOpeningMs == null || readerChromeOpeningTimedFor == null) return;
+    // Counted from the fade's start (the landing, or the layout's release).
+    const startsIn = Math.max(0, readerChromeOpeningTimedFor - Date.now());
+    const timer = setTimeout(() => {
+      setReaderChromeOpeningMs(null);
+      setReaderOpeningChromePhase(null);
+    }, startsIn + readerChromeOpeningMs + 40);
     return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the landing is read once, with the opening
-  }, [readerChromeOpeningMs]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- timed once per release
+  }, [readerChromeOpeningTimedFor]);
+  // A chrome that was not shown at the mount has no opening fade: the
+  // opening's phase ends once released.
+  useEffect(() => {
+    if (readerChromeOpeningMs != null || readerOpeningFadeStartsAt == null) return;
+    const timer = setTimeout(
+      () => setReaderOpeningChromePhase(null),
+      Math.max(0, readerOpeningFadeStartsAt - Date.now()) + readerChromeBaseMs + 40,
+    );
+    return () => clearTimeout(timer);
+  }, [readerChromeBaseMs, readerChromeOpeningMs, readerOpeningFadeStartsAt]);
+  // Shown = present and, during the opening, released from its hold: until
+  // then the glass stays dematerialized and the scrim at 0.
+  const readerChromeShown = readerChromePresent && !readerOpeningChromeHeld;
   // The opening's materialize starts at the zoom's visible landing, not when
   // this render commits: the glass waits for it in its own Core Animation
   // (materializeNotBeforeMs), the scrim with a UI-thread delay.
   const readerChromeNotBeforeMs =
-    readerOpeningChrome && readerChromeOpeningMs != null && readerZoomLandsAt != null ? readerZoomLandsAt : 0;
+    readerOpeningChromePhase != null && readerChromeOpeningMs != null && readerZoomLandsAt != null ? readerZoomLandsAt : 0;
   // Native glass slides itself with its material (one Core Animation the
   // main thread cannot skip); the rows only slide where it cannot.
   const readerChromeRowSlide = glassMaterializeMotionAvailable ? 0 : readerChromeSlide;
@@ -11789,13 +11895,13 @@ export function ReaderScreen() {
   // ease-out, see READER_CHROME_MATERIAL_CURVE); a remount starts from hidden.
   const readerChromeFade = useSharedValue(0);
   useLayoutEffect(() => {
-    const timing = withTiming(readerChromePresent ? 1 : 0, {
+    const timing = withTiming(readerChromeShown ? 1 : 0, {
       duration: readerChromeMaterialMs,
       easing: Easing.bezier(...READER_CHROME_MATERIAL_CURVE),
     });
-    const wait = readerChromePresent && readerChromeNotBeforeMs > 0 ? Math.max(0, readerChromeNotBeforeMs - Date.now()) : 0;
+    const wait = readerChromeShown && readerChromeNotBeforeMs > 0 ? Math.max(0, readerChromeNotBeforeMs - Date.now()) : 0;
     readerChromeFade.value = wait > 0 ? withDelay(wait, timing) : timing;
-  }, [readerChromeFade, readerChromeMaterialMs, readerChromeNotBeforeMs, readerChromePresent]);
+  }, [readerChromeFade, readerChromeMaterialMs, readerChromeNotBeforeMs, readerChromeShown]);
   const readerChromeFadeStyle = useAnimatedStyle(() => ({ opacity: readerChromeFade.value }));
   const readerChromeTopSlideStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: (1 - readerChromeFade.value) * -readerChromeRowSlide }],
@@ -12497,7 +12603,7 @@ export function ReaderScreen() {
       // clock. Glass is never alpha-faded, so it can't lag behind its content.
       // The top row comes in from above, the bottom row from below.
       const glass = {
-        materialized: readerChromePresent,
+        materialized: readerChromeShown,
         animateAppearance: true,
         materializeDurationMs: readerChromeMaterialMs,
         materializeNotBeforeMs: readerChromeNotBeforeMs,
@@ -12527,7 +12633,7 @@ export function ReaderScreen() {
       // With the system vertical bar kept, it carries Back and the actions:
       // only the title capsule and the scrubber are ours.
       const actionsInBottomRow = chrome.actionsRow === "bottom" && !readerSideBar;
-      const piecesPointerEvents = readerChromePresent ? "box-none" : "none";
+      const piecesPointerEvents = readerChromeShown ? "box-none" : "none";
       // With the actions down there, a ⋯ circle mirrors Back at the top row's
       // trailing end; its system menu gathers actions the reader already has
       // (the scrubber's chapter buttons, the error retry, the settings sheet's

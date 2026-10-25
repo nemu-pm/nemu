@@ -10,6 +10,10 @@ import {
   readerChromeMotionVariant,
   READER_OPENING_CHROME_DONE_BY_MS,
   READER_OPENING_CHROME_MIN_MS,
+  READER_OPENING_CHROME_QUIET_MS,
+  READER_OPENING_CHROME_SETTLE_CAP_MS,
+  readerOpeningChromeFadeStartsAt,
+  resolveReaderOpeningChromeRelease,
   READER_OPENING_COLD_MOUNT_LEAD_MS,
   READER_OPENING_MOUNT_LEAD_MS,
   resolveReaderOpeningChromeMs,
@@ -162,5 +166,51 @@ describe("reader chrome: the 6pt slide is the glass's own native animation (buil
     expect(reader).toContain("materializeOffsetY: -readerChromeGlassSlide");
     expect(reader).toContain("const glassBottom = { ...glass, materializeOffsetY: readerChromeGlassSlide };");
     expect(reader).toContain("materializeNotBeforeMs: readerChromeNotBeforeMs");
+  });
+});
+
+describe("reader opening: the chrome is held transparent until its layout settles (designer boundary, build 9 round 3)", () => {
+  const landsAt = 10_000;
+  const release = (nowMs: number, layoutReady: boolean, lastChangeMs: number) =>
+    resolveReaderOpeningChromeRelease({ landsAtMs: landsAt, nowMs, layoutReady, lastChangeMs });
+
+  test("a layout settled before the landing is released early; its fade still starts at the landing", () => {
+    expect(release(landsAt - 200, true, landsAt - 300)).toEqual({ release: true });
+    expect(readerOpeningChromeFadeStartsAt({ landsAtMs: landsAt, releasedAtMs: landsAt - 200 })).toBe(landsAt);
+  });
+
+  test("a correction holds the fade for the quiet window after it, even past the landing", () => {
+    const changedAt = landsAt + 20;
+    expect(release(changedAt + 10, true, changedAt)).toEqual({ release: false, recheckInMs: READER_OPENING_CHROME_QUIET_MS - 10 });
+    expect(release(changedAt + READER_OPENING_CHROME_QUIET_MS, true, changedAt)).toEqual({ release: true });
+    // Released after the landing: the fade starts at once (never before the correction).
+    expect(readerOpeningChromeFadeStartsAt({ landsAtMs: landsAt, releasedAtMs: changedAt + READER_OPENING_CHROME_QUIET_MS }))
+      .toBe(changedAt + READER_OPENING_CHROME_QUIET_MS);
+  });
+
+  test("an unknown layout (cold: no report yet, no bar column) holds the fade until the cap", () => {
+    expect(release(landsAt + 100, false, 0)).toEqual({ release: false, recheckInMs: READER_OPENING_CHROME_SETTLE_CAP_MS - 100 });
+    expect(release(landsAt + READER_OPENING_CHROME_SETTLE_CAP_MS, false, 0)).toEqual({ release: true });
+    // Corrections that never stop do not hold it past the cap either.
+    const late = landsAt + READER_OPENING_CHROME_SETTLE_CAP_MS - 20;
+    expect(release(late, true, late)).toEqual({ release: false, recheckInMs: 20 });
+    expect(release(landsAt + READER_OPENING_CHROME_SETTLE_CAP_MS, true, late)).toEqual({ release: true });
+  });
+
+  test("no zoom (no landing known): released at once", () => {
+    expect(resolveReaderOpeningChromeRelease({ landsAtMs: null, nowMs: 5, layoutReady: false, lastChangeMs: 5 })).toEqual({ release: true });
+    expect(readerOpeningChromeFadeStartsAt({ landsAtMs: null, releasedAtMs: 5 })).toBe(5);
+  });
+
+  test("the reader jumps pieces only while the chrome is transparent, and keeps it dematerialized while held", () => {
+    const reader = readFileSync(path.join(import.meta.dir, "../screens/ReaderScreen.tsx"), "utf8");
+    expect(reader).toContain('readerOpeningChromePhase != null && readerOpeningChromePhase.phase !== "fading"');
+    expect(reader).toMatch(/const glide =\n\s+!readerOpeningChromeTransparent &&/);
+    expect(reader).toContain("const readerChromeShown = readerChromePresent && !readerOpeningChromeHeld;");
+    expect(reader).toContain("materialized: readerChromeShown,");
+    expect(reader).toContain("withTiming(readerChromeShown ? 1 : 0");
+    // The old rule (jump until the landing + 230 ms, into the visible fade) is gone.
+    expect(reader).not.toContain("readerOpeningChromeUntil");
+    expect(reader).toContain("setReaderOwnLayoutKnown(true);");
   });
 });
