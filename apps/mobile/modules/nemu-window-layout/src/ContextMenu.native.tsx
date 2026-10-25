@@ -2,6 +2,7 @@ import type { ComponentType, ReactNode } from "react";
 import { requireNativeViewManager, requireOptionalNativeModule } from "expo-modules-core";
 import { Platform, View, type ViewProps } from "react-native";
 import type { ContextMenuItem } from "./types";
+import { NativeContextMenuLongPressContext } from "./ContextMenuLongPress";
 
 type ContextMenuViewProps = {
   items: ContextMenuItem[];
@@ -42,7 +43,15 @@ export function ContextMenuView({ items, menuTitle, previewCornerRadius, onMenuA
       onMenuAction={onMenuAction ? (event) => onMenuAction(event.nativeEvent.id) : undefined}
       style={style}
     >
-      {children}
+      {items.length > 0 ? (
+        // The menu owns the long press: pressables inside must not also
+        // treat the release after the hold as a tap.
+        <NativeContextMenuLongPressContext.Provider value>
+          {children}
+        </NativeContextMenuLongPressContext.Provider>
+      ) : (
+        children
+      )}
     </NativeContextMenu>
   );
 }

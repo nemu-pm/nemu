@@ -21,6 +21,10 @@ export {
 export { GlassContainer, GlassView, glassViewAvailable, NativeGlassViewHost } from "./src/GlassView";
 export { ContextMenuView } from "./src/ContextMenu";
 export {
+  NativeContextMenuLongPressContext,
+  useNativeContextMenuOwnsLongPress,
+} from "./src/ContextMenuLongPress";
+export {
   ContentScrollMarker,
   ZoomSource,
   ZoomTarget,

@@ -26,6 +26,7 @@ import {
 } from "@/design/nemuButtonDepth";
 import { createNemuButtonDepthStyle } from "@/design/nemuButtonDepthStyle";
 import { useNemuTheme } from "@/design/useNemuTheme";
+import { useNativeContextMenuOwnsLongPress } from "../../../modules/nemu-window-layout/src/ContextMenuLongPress";
 import {
   hapticConfirm,
   hapticError,
@@ -37,6 +38,7 @@ import {
   canRunNemuPressableHaptic,
   resolveNemuPressableAccessibility,
   resolveNemuPressableAnimationEnabled,
+  resolveNemuPressableLongPress,
   resolveNemuPressablePressedScale,
   resolveNemuRowHighlightRadii,
   shouldResetNemuPressableInteraction,
@@ -91,6 +93,7 @@ export function NemuPressable({
   ...props
 }: NemuPressableProps) {
   const { reduceMotion, scheme, sheetGlass, tokens } = useNemuTheme();
+  const nativeMenuOwnsLongPress = useNativeContextMenuOwnsLongPress();
   const rowHighlight = useOptionalNemuRowHighlight(pressHighlight);
   const [scale] = useState(() => new Animated.Value(1));
   // Only depth surfaces drive the press-progress node. A plain pressable —
@@ -330,15 +333,16 @@ export function NemuPressable({
         onPress?.(event);
         runHapticFeedback();
       }}
-      onLongPress={
-        onLongPress
+      onLongPress={resolveNemuPressableLongPress({
+        onLongPress: onLongPress
           ? (event: GestureResponderEvent) => {
               if (resolvedDisabled) return;
               onLongPress(event);
               runHapticFeedback();
             }
-          : undefined
-      }
+          : undefined,
+        nativeMenuOwnsLongPress,
+      })}
     >
       <Animated.View
         style={[

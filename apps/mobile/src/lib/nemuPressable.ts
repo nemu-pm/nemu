@@ -247,3 +247,24 @@ export function createNemuRowHighlightController(
     dispose: clear,
   };
 }
+
+/** A long press that does nothing but claim the gesture (see below). */
+export const NEMU_PRESSABLE_NOOP_LONG_PRESS = (): void => {};
+
+/**
+ * The `onLongPress` handed to `Pressable`. Inside a native context menu that
+ * owns the long press, a pressable with no handler of its own gets a no-op
+ * one: Pressability only cancels the press on release after a long hold when
+ * `onLongPress` is set, so without it lifting the finger after the system
+ * menu opened also ran `onPress`. A short tap still presses.
+ */
+export function resolveNemuPressableLongPress<T>({
+  onLongPress,
+  nativeMenuOwnsLongPress,
+}: {
+  onLongPress: ((event: T) => void) | undefined;
+  nativeMenuOwnsLongPress: boolean;
+}): ((event: T) => void) | undefined {
+  if (onLongPress) return onLongPress;
+  return nativeMenuOwnsLongPress ? NEMU_PRESSABLE_NOOP_LONG_PRESS : undefined;
+}
