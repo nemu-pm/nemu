@@ -1244,7 +1244,7 @@ export const mobileStringsEn: MobileStrings = {
     deleteAccount: "Delete Account",
     deleteFooter:
       "Deleting permanently removes your cloud library, reading progress and settings.",
-    deleteAlertTitle: "Delete account?",
+    deleteAlertTitle: "Delete Account?",
     deleteAlertMessage:
       "This permanently deletes your account and, in the cloud, your library, reading progress, settings, uploaded covers and sign-in sessions. Data on this device is kept. This can't be undone.",
     deleteConfirm: "Delete Account",
