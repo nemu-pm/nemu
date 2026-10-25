@@ -4,6 +4,7 @@ import RNCMaskedView from "@react-native-masked-view/masked-view";
 import { useNemuTheme } from "@/design-system";
 import { MOBILE_EXPLORE_RADIUS as R } from "@/lib/mobileExploreRadius";
 import { ExploreGradient } from "./ExploreGradient";
+import { EXPLORE_ROW_FADE_ABOVE, EXPLORE_ROW_FADE_BELOW } from "./ExploreRowFade";
 
 // Its types are built against another copy of React's types.
 const MaskedView = RNCMaskedView as unknown as ComponentType<{
@@ -20,12 +21,24 @@ export const EXPLORE_RAIL_FADE = 22;
  * A horizontal rail whose ends dissolve instead of being cut: opaque across the
  * middle, fading to nothing over the last `EXPLORE_RAIL_FADE` at both edges. The
  * rail inside already bleeds to the screen edges; the mask only softens them.
+ *
+ * Vertically the mask reaches well past the rail (ExploreRowFade's overscan),
+ * so the cards' shadows and glow fade out inside it instead of ending in a
+ * straight line at the rail's top and bottom; the scroller inside sets
+ * `overflow: "visible"` (`EXPLORE_RAIL_FADE_SCROLLER`) for the same reason.
  */
 export function ExploreRailFade({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
+  const frame = StyleSheet.flatten(style) ?? {};
+  const marginTop = typeof frame.marginTop === "number" ? frame.marginTop : 0;
+  const marginBottom = typeof frame.marginBottom === "number" ? frame.marginBottom : 0;
   return (
     <MaskedView
       pointerEvents="box-none"
-      style={style as object}
+      style={{
+        ...frame,
+        marginTop: marginTop - EXPLORE_ROW_FADE_ABOVE,
+        marginBottom: marginBottom - EXPLORE_ROW_FADE_BELOW,
+      }}
       maskElement={
         <View style={styles.mask}>
           <ExploreGradient direction="right" colors={["rgba(0,0,0,0)", "#000000"]} style={{ width: EXPLORE_RAIL_FADE }} />
@@ -34,10 +47,15 @@ export function ExploreRailFade({ children, style }: { children: ReactNode; styl
         </View>
       }
     >
-      {children}
+      <View pointerEvents="box-none" style={styles.overscan}>
+        {children}
+      </View>
     </MaskedView>
   );
 }
+
+/** The rail's scroller inside `ExploreRailFade`: its shadows aren't clipped at its bounds. */
+export const EXPLORE_RAIL_FADE_SCROLLER = { overflow: "visible" } as const;
 
 /** Rows read as one inset group (a settings group's shape). */
 export function ExploreHomeGroup({ children }: { children: ReactNode }) {
@@ -57,6 +75,7 @@ export function ExploreHomeGroup({ children }: { children: ReactNode }) {
 const styles = StyleSheet.create({
   mask: { flex: 1, flexDirection: "row", backgroundColor: "transparent" },
   solid: { flex: 1, backgroundColor: "#000000" },
+  overscan: { paddingTop: EXPLORE_ROW_FADE_ABOVE, paddingBottom: EXPLORE_ROW_FADE_BELOW },
   group: {
     width: "100%",
     borderRadius: R.group,

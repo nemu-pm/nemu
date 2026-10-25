@@ -61,7 +61,7 @@ import RNCMaskedView from "@react-native-masked-view/masked-view";
 import { MobileCoverMeshBackground } from "./MobileCoverMeshBackground";
 import { ExploreCoverFallback } from "./ExploreCoverFallback";
 import { ExploreDissolveTarget } from "./ExploreDissolveTarget";
-import { ExploreRailFade } from "./ExploreSourceHome";
+import { EXPLORE_RAIL_FADE_SCROLLER, ExploreRailFade } from "./ExploreSourceHome";
 import { MobileExploreCoverPlaceholder } from "./MobileExploreCoverPlaceholder";
 import { MobileExploreConfetti } from "./MobileExploreConfetti";
 import { useSkeletonPulse } from "@/lib/useSkeletonPulse";
@@ -669,6 +669,7 @@ export function MobileMangaDetailBooksHero({
             horizontal
             scrollsToTop={false}
             showsHorizontalScrollIndicator={false}
+            style={EXPLORE_RAIL_FADE_SCROLLER}
             onLayout={onTagsLayout}
             contentContainerStyle={[columnBleed.content, styles.tags]}
           >
@@ -689,7 +690,7 @@ export function MobileMangaDetailBooksHero({
             // Not a status-bar target: iOS scrolls to the top only when exactly one scroll view on screen asks to.
             scrollsToTop={false}
             showsHorizontalScrollIndicator={false}
-            style={pushStyle("tags")}
+            style={[EXPLORE_RAIL_FADE_SCROLLER, pushStyle("tags")]}
             onLayout={onTagsLayout}
             contentContainerStyle={[bleed.content, styles.tags, wide ? styles.tagsCentred : null]}
           >

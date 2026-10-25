@@ -1,7 +1,11 @@
 import type { ScrollViewInstance, ViewInstance } from "react-native";
 import { ExploreCoverImage } from "@/components/explore/ExploreCoverImage";
 import { ExploreGradient } from "@/components/explore/ExploreGradient";
-import { ExploreHomeGroup, ExploreRailFade } from "@/components/explore/ExploreSourceHome";
+import {
+  EXPLORE_RAIL_FADE_SCROLLER,
+  ExploreHomeGroup,
+  ExploreRailFade,
+} from "@/components/explore/ExploreSourceHome";
 import { MOBILE_EXPLORE_RADIUS as R, concentricMobileExploreRadius } from "@/lib/mobileExploreRadius";
 import { ExploreShimmerSweep } from "@/components/explore/ExploreShimmerSweep";
 import { useExploreShimmerBackdrop } from "@/components/explore/useExploreShimmerBackdrop";
@@ -789,7 +793,7 @@ const HorizontalLinkSection = memo(function HorizontalLinkSection({
           );
         }}
         showsHorizontalScrollIndicator={false}
-        style={mobileDesignExploreFlag ? undefined : bleed.frame}
+        style={mobileDesignExploreFlag ? EXPLORE_RAIL_FADE_SCROLLER : bleed.frame}
         contentContainerStyle={[styles.horizontalContent, bleed.content]}
         windowSize={5}
       />
@@ -2182,7 +2186,7 @@ const BannerSection = memo(function BannerSection({
           );
         }}
         showsHorizontalScrollIndicator={false}
-        style={mobileDesignExploreFlag ? undefined : bleed.frame}
+        style={mobileDesignExploreFlag ? EXPLORE_RAIL_FADE_SCROLLER : bleed.frame}
         contentContainerStyle={[styles.bannerContent, bleed.content]}
         windowSize={5}
       />
@@ -2796,7 +2800,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: "100%",
   },
-  exploreFeaturedPager: { flexGrow: 0 },
+  exploreFeaturedPager: { flexGrow: 0, ...EXPLORE_RAIL_FADE_SCROLLER },
   exploreFeaturedCard: {
     flexDirection: "row",
     gap: 14,
