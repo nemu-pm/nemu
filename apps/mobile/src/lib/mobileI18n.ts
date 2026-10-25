@@ -685,6 +685,8 @@ export type MobileStrings = {
     pageLayoutFootnoteSingle: string;
     pageLayoutFootnoteDouble: string;
     pageLayoutFootnoteAuto: string;
+    /** Under Two Pages while no spread shows (the screen is portrait). */
+    pageLayoutFootnoteDoubleShowingSingle: string;
     /** Group header for the outer display's settings. */
     outerDisplayMode: string;
     avoidCamera: string;

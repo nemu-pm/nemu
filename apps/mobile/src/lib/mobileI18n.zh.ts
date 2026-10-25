@@ -768,6 +768,7 @@ export const mobileStringsZh: MobileStrings = {
     pageLayoutFootnoteSingle: "始终一次显示一页。",
     pageLayoutFootnoteDouble: "只要屏幕宽度大于高度就并排显示两页，页面可能会变小。",
     pageLayoutFootnoteAuto: "只在空间足够、两页都能保持接近原大小时并排显示。",
+    pageLayoutFootnoteDoubleShowingSingle: "当前屏幕高度大于宽度，暂时单页显示。",
     outerDisplayMode: "外屏",
     avoidCamera: "避开摄像头区域",
     avoidCameraFootnote: "开启后，页面将避开外屏的摄像头区域显示。",

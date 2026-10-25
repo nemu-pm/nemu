@@ -190,6 +190,7 @@ export function ReaderDisplaySettingsPopover({
   visible,
   mode,
   activeScrollWidthPct,
+  isTwoPageMode,
   twoPageSupported,
   spreadMode,
   onSetSpreadMode,
@@ -380,7 +381,7 @@ export function ReaderDisplaySettingsPopover({
               <ReaderSettingRow
                 icon="book-outline"
                 title={strings.reader.pageLayout}
-                description={readerSpreadModeFootnote(spreadMode, strings)}
+                description={readerSpreadModeFootnote(spreadMode, strings, isTwoPageMode)}
                 below={
                   <View style={styles.settingControlBlock}>
                     <ReaderSegmentedChipRow<ReaderSpreadMode>

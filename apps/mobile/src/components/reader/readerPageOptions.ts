@@ -20,13 +20,23 @@ export function readerSpreadModeLabel(mode: ReaderSpreadMode, strings: MobileStr
   }
 }
 
-/** The note under the page layout choice: what the chosen option does. */
-export function readerSpreadModeFootnote(mode: ReaderSpreadMode, strings: MobileStrings): string {
+/**
+ * The note under the page layout choice: what the chosen option does. Two
+ * Pages while no spread shows (`spreadShowing` false) says why one page is
+ * showing instead; Automatic never does (one page is its own call).
+ */
+export function readerSpreadModeFootnote(
+  mode: ReaderSpreadMode,
+  strings: MobileStrings,
+  spreadShowing = true,
+): string {
   switch (mode) {
     case "single":
       return strings.reader.pageLayoutFootnoteSingle;
     case "double":
-      return strings.reader.pageLayoutFootnoteDouble;
+      return spreadShowing
+        ? strings.reader.pageLayoutFootnoteDouble
+        : strings.reader.pageLayoutFootnoteDoubleShowingSingle;
     default:
       return strings.reader.pageLayoutFootnoteAuto;
   }

@@ -814,6 +814,7 @@ export const mobileStringsJa: MobileStrings = {
     pageLayoutFootnoteSingle: "常に1ページずつ表示します。",
     pageLayoutFootnoteDouble: "画面が縦より横に広いときは、ページが小さくなっても2ページを並べて表示します。",
     pageLayoutFootnoteAuto: "両ページをほぼ元の大きさで表示できる広さがあるときだけ、2ページを並べて表示します。",
+    pageLayoutFootnoteDoubleShowingSingle: "画面が横より縦に長いため、いまは1ページずつ表示しています。",
     outerDisplayMode: "外側ディスプレイ",
     avoidCamera: "カメラ領域を避ける",
     avoidCameraFootnote: "オンにすると、外側ディスプレイのカメラ領域を避けてページを表示します。",

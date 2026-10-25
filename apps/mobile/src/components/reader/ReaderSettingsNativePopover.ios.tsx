@@ -421,7 +421,7 @@ export function ReaderSettingsNativePopover({
           </SwiftSection>
         ) : null}
         {twoPageSupported ? (
-          <SwiftSection footer={<SwiftText>{readerSpreadModeFootnote(spreadMode, strings)}</SwiftText>}>
+          <SwiftSection footer={<SwiftText>{readerSpreadModeFootnote(spreadMode, strings, isTwoPageMode)}</SwiftText>}>
             <SwiftPicker
               {...menuRowLabel(strings.reader.pageLayout, "rectangle.split.2x1")}
               modifiers={[formRowIcon("rectangle.split.2x1", { menu: true }), pickerStyle("menu"), ...busyModifiers]}
