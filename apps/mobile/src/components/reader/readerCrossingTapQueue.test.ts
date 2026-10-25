@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import {
   createReaderCrossingTapQueue,
   READER_CROSSING_TAP_HOLD_MAX_MS,
@@ -71,5 +73,14 @@ describe("reader crossing tap queue", () => {
     expect(queue.pending).toBe(READER_CROSSING_TAP_QUEUE_MAX);
     expect(queue.next("ch18", 10 + READER_CROSSING_TAP_STALE_MS + 1)).toBeNull();
     expect(queue.pending).toBe(0);
+  });
+
+  test("gallery wiring: a turn after a crossing's splice drops the pending re-placement (it snapped the turn back)", () => {
+    const gallery = readFileSync(path.join(import.meta.dir, "MobileReaderGallery.tsx"), "utf8");
+    const clear = gallery.indexOf("if (pagedMode) pendingPagedRelayoutOffsetRef.current = null;");
+    expect(clear).toBeGreaterThan(0);
+    const scroll = gallery.indexOf("offset: pagedMode ? x : y,", clear);
+    expect(scroll).toBeGreaterThan(clear);
+    expect(scroll - clear).toBeLessThan(200);
   });
 });

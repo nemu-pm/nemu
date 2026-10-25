@@ -1569,6 +1569,10 @@ export function MobileReaderGallery({
           });
           return;
         }
+        // A turn asked for after a relayout re-placed the pager supersedes
+        // that re-placement: re-applying it once the new content size lands
+        // snapped the turn back (a tap right after a chapter crossing).
+        if (pagedMode) pendingPagedRelayoutOffsetRef.current = null;
         listRef.current?.scrollToOffset({
           offset: pagedMode ? x : y,
           animated,
