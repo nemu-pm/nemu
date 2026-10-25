@@ -3,6 +3,7 @@ import {
   mobileReaderLatchedWindowLayout,
   mobileReaderLayoutInsetLatchBase,
   mobileReaderLayoutInsetLatchKey,
+  mobileReaderDerivedWindowLayout,
   peekMobileReaderWindowLayout,
   rememberMobileReaderLayoutInsetLatch,
   rememberMobileReaderWindowLayout,
@@ -210,7 +211,7 @@ describe("a reopen lays the chrome out settled from its first frame (build 9: â‹
   /** One reader session as ReaderScreen runs it: the first frame, then every observer report. */
   function session(window: { width: number; height: number }, app: MobileWindowLayout | null, reports: MobileWindowLayout[]) {
     const bare: MobileWindowLayout = { width: window.width, height: window.height, supported: false, divisions: [], occlusions: [] };
-    let reserved = peekMobileReaderWindowLayout(window, app);
+    let reserved = peekMobileReaderWindowLayout(window, app) ?? mobileReaderDerivedWindowLayout(window, app);
     let latch: MobileReaderLayoutInsetLatch | null = null;
     const frames: MobileReaderPoseLayout[] = [];
     const frame = () => {
@@ -235,10 +236,66 @@ describe("a reopen lays the chrome out settled from its first frame (build 9: â‹
     return { back: chrome.back, title: chrome.title, actions: chrome.actions, more: chrome.more };
   };
 
-  test("first open: the bare first frame moves once the observer reports (what build 9 showed)", () => {
+  test("first open without the app's layout: the bare first frame moves once the observer reports (what build 9 showed)", () => {
     resetMobileReaderLayoutInsetLatchMemoryForTesting();
-    const frames = session(window, duoShown(), [duoHidden(), duoShown()]);
+    const frames = session(window, null, [duoHidden(), duoShown()]);
     expect(topRow(frames[0]!)).not.toEqual(topRow(frames[frames.length - 1]!));
+  });
+
+  // The app's root on the inner display keeps the vertical bar: its tab bar
+  // column is a trailing inset and the column's status island hangs from the
+  // top corner; the reader opts out (horizontal status bar, no column).
+  const appWithColumn = (divisions: WindowReservedRegion[] = [inactiveFold]): MobileWindowLayout => ({
+    width: 951, height: 669, supported: true, divisions,
+    occlusions: [{ id: "status", x: 867, y: 0, width: 84, height: 120, active: true }],
+    verticalBarEdge: "trailing", layoutDirection: "ltr", hinge: "fullyOpen",
+    safeAreaInsets: { top: 0, left: 0, bottom: 34, right: 84 },
+  });
+
+  test("cold open (no remembered layout): the reader's layout is computed from the window and its own bar rules, not the app's column", () => {
+    resetMobileReaderLayoutInsetLatchMemoryForTesting();
+    const derived = mobileReaderDerivedWindowLayout(window, appWithColumn())!;
+    expect(derived.verticalBarEdge).toBeNull();
+    expect(derived.safeAreaInsets).toEqual({ top: 82, left: 0, bottom: 34, right: 0 });
+    expect(derived.occlusions).toEqual([island]);
+    expect(derived.divisions).toEqual([inactiveFold]);
+    expect(derived.hinge).toBe("fullyOpen");
+    // Same latch configuration as the reader's own reports: merged, never restarted.
+    expect(mobileReaderLayoutInsetLatchKey(derived)).toBe(mobileReaderLayoutInsetLatchKey(duoShown()));
+  });
+
+  for (const reports of [[duoHidden(), duoShown()], [duoShown()], [duoHidden(), duoShown(), duoHidden()]]) {
+    test(`cold open: every frame from the first has the settled top row (${reports.length} reports)`, () => {
+      resetMobileReaderLayoutInsetLatchMemoryForTesting();
+      const frames = session(window, appWithColumn(), reports);
+      const settled = topRow(frames[frames.length - 1]!);
+      for (const pose of frames) {
+        expect(topRow(pose)).toEqual(settled);
+        expect(pose.stage).toEqual(frames[frames.length - 1]!.stage);
+      }
+      // Against the settled reopen (a remembered layout): the same row.
+      const reopen = session(window, duoShown(), [duoHidden(), duoShown()]);
+      expect(topRow(reopen[0]!)).toEqual(settled);
+    });
+  }
+
+  test("cold open where the reader keeps the bar (outer display) or the app has no column: the app's layout as is", () => {
+    const outerApp: MobileWindowLayout = {
+      width: 400, height: 900, supported: true, divisions: [], occlusions: [], hinge: "closed",
+      verticalBarEdge: "trailing", layoutDirection: "ltr", safeAreaInsets: { top: 24, left: 0, bottom: 20, right: 84 },
+    };
+    expect(mobileReaderDerivedWindowLayout({ width: 400, height: 900 }, outerApp)).toBe(outerApp);
+    const portrait = duoShown();
+    expect(mobileReaderDerivedWindowLayout(window, portrait)).toBe(portrait);
+    // Another window than the app's: nothing computed.
+    expect(mobileReaderDerivedWindowLayout({ width: 466, height: 678 }, appWithColumn())).toBeNull();
+    expect(mobileReaderDerivedWindowLayout(window, null)).toBeNull();
+  });
+
+  test("cold open RTL: the opt-out island sits in the trailing corner (the left one)", () => {
+    const derived = mobileReaderDerivedWindowLayout(window, { ...appWithColumn(), layoutDirection: "rtl", safeAreaInsets: { top: 0, left: 84, bottom: 34, right: 0 } })!;
+    expect(derived.occlusions[0]).toMatchObject({ x: 0, y: 0, width: 134, height: 82 });
+    expect(derived.safeAreaInsets).toEqual({ top: 82, left: 0, bottom: 34, right: 0 });
   });
 
   test("reopen: every frame from the first has the settled top row", () => {

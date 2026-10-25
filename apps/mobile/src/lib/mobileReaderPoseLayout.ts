@@ -1113,6 +1113,64 @@ export function peekMobileReaderWindowLayout(
   return layout;
 }
 
+/**
+ * The horizontal status bar's island on a display whose reader opts out of
+ * the vertical bar while the app keeps it (the iPhone Duo inner display in
+ * landscape): measured with the reader's bar disabled (observer log
+ * 2026-09-28) as a 134×82 occlusion in the trailing top corner, its bottom
+ * the 82pt top inset, no side inset, no vertical-bar edge.
+ */
+export const MOBILE_READER_OPT_OUT_STATUS_ISLAND = { width: 134, height: 82 } as const;
+
+/**
+ * The reader window's layout computed from the app's (same window, before
+ * the reader's own observer reports), for a reader with no remembered layout
+ * (the first open after a cold launch). The window's geometry — size, fold
+ * divisions and hinge, whether it fills its screen, direction, margins — is
+ * the app's. The insets follow the reader's own bar rules
+ * (`mobileReaderVerticalBarPolicy`), not the app's tab safe area:
+ * - the bar kept (`sideBar`: the outer display, a Split View half) or no bar
+ *   at all: the reader's screen has the same system bars as the app's root,
+ *   so its insets and occlusions are the app's;
+ * - opted out (the inner display full-screen) while the app has a bar column:
+ *   no column (both side insets 0, no vertical-bar edge, the trait resolves
+ *   to unspecified once disabled) and the status bar is the horizontal one —
+ *   the app's own top island when it reports one (its status bar already
+ *   horizontal), else the opt-out island above in the trailing top corner,
+ *   whose height is the top inset. Top-hanging occlusions of the column's
+ *   status bar are dropped; other occlusions (cameras) are kept.
+ * Null when the app's layout is not this window's (size) or not reported.
+ */
+export function mobileReaderDerivedWindowLayout(
+  window: { width: number; height: number },
+  app: MobileWindowLayout | null | undefined,
+): MobileWindowLayout | null {
+  if (!app) return null;
+  if (Math.abs(app.width - window.width) > 0.5 || Math.abs(app.height - window.height) > 0.5) return null;
+  const policy = mobileReaderVerticalBarPolicy(app);
+  const appHasColumn = app.verticalBarEdge === "leading" || app.verticalBarEdge === "trailing";
+  if (!policy.optOut || !appHasColumn) return app;
+  const insets = sanitizeInsets(app.safeAreaInsets);
+  const bounds: Rect = { x: 0, y: 0, width: app.width, height: app.height };
+  const active = app.occlusions.filter((rect) => rect.active && rect.width > 0 && rect.height > 0);
+  const appIsland = statusIsland(bounds, insets, active);
+  const kept = app.occlusions.filter((rect) => rect === appIsland || !(rect.y <= EPSILON && rect.height > 0 && rect.width > 0));
+  let top = insets.top;
+  let occlusions = kept;
+  if (!appIsland) {
+    const { width, height } = MOBILE_READER_OPT_OUT_STATUS_ISLAND;
+    const x = app.layoutDirection === "rtl" ? 0 : Math.max(0, app.width - width);
+    top = height;
+    occlusions = [{ id: "status", x, y: 0, width: Math.min(width, app.width), height, active: true }, ...kept];
+  }
+  return {
+    ...app,
+    verticalBarEdge: null,
+    occlusions,
+    safeAreaInsets: { top, left: 0, bottom: insets.bottom, right: 0 },
+  };
+}
+
 /** Exposed for tests. */
 export function resetMobileReaderLayoutInsetLatchMemoryForTesting(): void {
   rememberedLayoutInsetLatches.clear();

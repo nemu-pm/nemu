@@ -37,6 +37,7 @@ import {
   mobileReaderLayoutInsetLatchBase,
   mobileReaderLayoutInsetLatchKey,
   mobileReaderNextLayoutInsetLatch,
+  mobileReaderDerivedWindowLayout,
   peekMobileReaderWindowLayout,
   rememberMobileReaderLayoutInsetLatch,
   rememberMobileReaderWindowLayout,
@@ -1579,9 +1580,13 @@ export function ReaderScreen() {
   const appObservedWindowLayout = useMobileObservedWindowLayout();
   // Until this reader's observer reports (a moment after it mounts, at the
   // zoom's landing): the last reader layout of this same window, so the first
-  // frame is laid out as the settled one (peekMobileReaderWindowLayout).
+  // frame is laid out as the settled one (peekMobileReaderWindowLayout); with
+  // none (the first open after a cold launch), the reader's layout computed
+  // from the app's window and the reader's own bar rules
+  // (mobileReaderDerivedWindowLayout: no tab bar column where it opts out).
   const [reservedLayout, setReservedLayout] = useState<MobileWindowLayout | null>(() =>
-    peekMobileReaderWindowLayout(window, appObservedWindowLayout),
+    peekMobileReaderWindowLayout(window, appObservedWindowLayout)
+      ?? mobileReaderDerivedWindowLayout(window, appObservedWindowLayout),
   );
   const onReaderWindowLayoutChange = useCallback((layout: MobileWindowLayout) => {
     rememberMobileReaderWindowLayout(layout);
