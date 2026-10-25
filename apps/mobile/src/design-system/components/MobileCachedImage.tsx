@@ -40,6 +40,7 @@ import {
   subscribeMobileSourceImageRepairs,
 } from "@/lib/mobileSourceImageRepair";
 import { shouldRetryCachedMobileImageError } from "@/lib/mobileImageCacheCoordinator";
+import { retainMobileDecodedReaderImage } from "@/lib/mobileRetainedDecodedImage";
 import {
   getMobileImageUriPolicy,
   type MobileImageUriOwnership,
@@ -81,6 +82,13 @@ type MobileCachedImageProps = Omit<ImageProps, "source" | "onError"> & {
    * views that always show one title (never a recycled cell).
    */
   holdPreviousWhileLoading?: boolean;
+  /**
+   * A paged reader page or the reopen's stand-in: its decoded bitmap is kept
+   * in native's small bounded store (iOS; retainMobileDecodedReaderImage).
+   * Off for every other image (React Native never keeps a file:// decode).
+   * "current" (the page on screen) registers it again as the most recent.
+   */
+  retainDecoded?: boolean | "current";
 };
 
 function boundedLocalImageSourceKey(
@@ -147,6 +155,7 @@ export function MobileCachedImage({
   fadeDurationMs = 240,
   fadeFromCache = true,
   holdPreviousWhileLoading = false,
+  retainDecoded = false,
   ...props
 }: MobileCachedImageProps) {
   const { reduceMotion } = useNemuTheme();
@@ -406,6 +415,13 @@ export function MobileCachedImage({
             : undefined,
     [cachedUri, failed, requiresLocalFile, source, uriPolicy.allowed],
   );
+  // Registered in the commit that mounts the image, before its native decode
+  // completes (the store keeps a decode only for a registered URL).
+  const retainedUri = retainDecoded ? imageSource?.uri ?? null : null;
+  const retainCurrent = retainDecoded === "current";
+  useLayoutEffect(() => {
+    if (retainedUri) retainMobileDecodedReaderImage(retainedUri);
+  }, [retainCurrent, retainedUri]);
   // A failed image has nothing to paint; one still resolving holds to the cap.
   useEffect(() => {
     if (failed) releaseLaunchRef.current?.();

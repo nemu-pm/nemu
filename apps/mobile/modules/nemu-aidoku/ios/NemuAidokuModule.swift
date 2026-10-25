@@ -1515,6 +1515,17 @@ public class NemuAidokuModule: Module {
       NemuNativeLocalNetworkAllowance.clearAllGrants()
     }
 
+    // Registers a decoded reader page (a file:// URL) for the small bounded
+    // store in NemuReaderImageCacheLimits.m (16 URLs, 8 bitmaps / 48 MiB,
+    // emptied on a memory warning). Other file:// images are never kept.
+    Function("retainReaderDecodedImage") { (uri: String) in
+      NotificationCenter.default.post(
+        name: Notification.Name("NemuReaderRetainDecodedImage"),
+        object: nil,
+        userInfo: ["url": uri]
+      )
+    }
+
     AsyncFunction("resetMobileSourceProfileAuthState") { (promise: Promise) in
       // All source sessions use isolated jars. Clear them directly so neither
       // scoped nor stateless authentication can cross a profile transition.

@@ -100,7 +100,7 @@ describe("reader opening stand-in", () => {
     expect(holdCap).toContain("if (standInFadeArmedRef.current) return;");
   });
 
-  test("native: decoded file:// pages are kept (the stand-in reuses the reader's decode)", () => {
+  test("native: only registered reader pages are kept decoded, in a bounded store (the stand-in reuses the reader's decode)", () => {
     const native = readFileSync(
       path.join(import.meta.dir, "../../modules/nemu-aidoku/ios/NemuReaderImageCacheLimits.m"),
       "utf8",
@@ -110,5 +110,27 @@ describe("reader opening stand-in", () => {
     // RCTImageCache's own key format (RCTCacheKeyForImage).
     expect(native).toContain('@"%@|%g|%g|%g|%lld"');
     expect(native).toContain("RCTSetImageCacheLimits(");
+    // Bounded and opt-in: only URLs JS registered, never RCTImageCache itself.
+    expect(native).toContain("NemuReaderRetainedURLLimit = 16;");
+    expect(native).toContain("NemuReaderRetainedImageCountLimit = 8;");
+    expect(native).toContain("NemuReaderRetainedImageCostLimit = 48 * 1024 * 1024;");
+    expect(native).toContain("if (![_urls containsObject:url]) {");
+    expect(native).toContain("UIApplicationDidReceiveMemoryWarningNotification");
+    expect(native).not.toContain("addImageToCache:image forKey:");
+    const swift = readFileSync(
+      path.join(import.meta.dir, "../../modules/nemu-aidoku/ios/NemuAidokuModule.swift"),
+      "utf8",
+    );
+    expect(swift).toContain('Function("retainReaderDecodedImage")');
+    expect(swift).toContain('Notification.Name("NemuReaderRetainDecodedImage")');
+    expect(native).toContain('@"NemuReaderRetainDecodedImage"');
+    // Who registers: the stand-in, and paged reading's pages (never scroll strips).
+    const route = readFileSync(
+      path.join(import.meta.dir, "../../app/sources/[registryId]/[sourceId]/[mangaId]/[chapterId].tsx"),
+      "utf8",
+    );
+    expect(route).toContain("retainDecoded\n                onLoad={() => onStandInPageLoad(page.id)}");
+    const frame = readFileSync(path.join(import.meta.dir, "../components/reader/MobileReaderPageFrame.tsx"), "utf8");
+    expect(frame).toContain("retainDecoded={quietLoading ? false : retainDecoded}");
   });
 });

@@ -46,6 +46,12 @@ declare class NemuAidokuModule extends NativeModule<NemuAidokuEventsMap> {
    */
   setLocalNetworkAllowance?(sourceKey: string, urls: string[]): string[];
   clearAllLocalNetworkAllowances?(): void;
+  /**
+   * iOS: keeps this decoded reader page (a file:// URL) in a small bounded
+   * store (NemuReaderImageCacheLimits.m). Optional: other platforms and older
+   * native builds keep nothing.
+   */
+  retainReaderDecodedImage?(uri: string): void;
   resetMobileSourceProfileAuthState(): Promise<void>;
   /**
    * Clears the cookies of exactly one source, for a `clear_cookies_on_log_out`

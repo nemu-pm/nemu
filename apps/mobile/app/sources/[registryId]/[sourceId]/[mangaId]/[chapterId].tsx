@@ -672,6 +672,9 @@ function ReaderAfterZoom({
                 source={{ uri: page.uri, headers: page.headers }}
                 fadeIn={false}
                 fallback={null}
+                // Finds the reader's own decode of this page (native's bounded
+                // store), registered again as the most recent.
+                retainDecoded
                 onLoad={() => onStandInPageLoad(page.id)}
                 resizeMode="contain"
                 style={StyleSheet.absoluteFill}

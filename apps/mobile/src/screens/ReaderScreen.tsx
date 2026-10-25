@@ -10082,6 +10082,15 @@ export function ReaderScreen() {
           }
           loading={imageLoading}
           quietLoading={scrollPresentation}
+          // A paged page near the current one: kept decoded (bounded, native)
+          // for a reopen's stand-in; the page on screen as the most recent.
+          retainDecoded={
+            scrollPresentation
+              ? false
+              : !neighbour && readerDisplayIndexByPageId.get(page.id) === clampedPageIndex
+                ? "current"
+                : true
+          }
           offline={readerConnectivity.offline}
           error={imageError}
           strings={strings}

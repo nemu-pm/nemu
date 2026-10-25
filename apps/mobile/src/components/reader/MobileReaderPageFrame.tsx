@@ -38,6 +38,12 @@ type MobileReaderPageFrameProps = {
    * appear with the scroll fade (no wait on a JS load callback).
    */
   quietLoading?: boolean;
+  /**
+   * Paged reading's mounted pages (the current one and its neighbours): the
+   * decode is kept in native's small bounded store for a reopen's stand-in
+   * (MobileCachedImage `retainDecoded`). Never scroll reading's strips.
+   */
+  retainDecoded?: boolean | "current";
   offline?: boolean;
   strings: MobileStrings;
   onImageError: (error: string) => void;
@@ -72,6 +78,7 @@ export function MobileReaderPageFrame({
   cacheKey,
   loading,
   quietLoading = false,
+  retainDecoded = false,
   offline = false,
   strings,
   onImageError,
@@ -134,6 +141,7 @@ export function MobileReaderPageFrame({
         onError={onImageError}
         onSegmentedImage={onSegmentedImage}
         resizeMode={imageResizeMode}
+        retainDecoded={quietLoading ? false : retainDecoded}
         style={styles.readerImage}
       />}
       {waiting && !withholdImage ? <MobileReaderPageSpinner color={statusColor} /> : null}
