@@ -73,7 +73,7 @@ describe("empty library keeps collection management reachable", () => {
   });
 
   test("the shelf header and layout switch only show with books", () => {
-    expect(mainLibraryReturn()).toMatch(/\{visibleEntryCount \? \(\s*<MobileLaunchRevealGroup group="titlesHeader">\s*<MobileLibraryLayoutHeader/);
+    expect(mainLibraryReturn()).toMatch(/\{visibleEntryCount \? \(\s*<MobilePoseLayoutView>\s*<MobileLaunchRevealGroup group="titlesHeader">\s*<MobileLibraryLayoutHeader/);
   });
 });
 

@@ -120,7 +120,7 @@ import {
   resolveMobileLibraryRouteCollectionState,
 } from "@/lib/mobileLibraryDeletedCollection";
 import { useMobileFoldAwareGrid } from "@/lib/useMobileFoldAwareGrid";
-import { MobilePoseLayoutView } from "@/components/MobilePoseLayoutView";
+import { MobilePoseLayoutView, MobilePoseListCell } from "@/components/MobilePoseLayoutView";
 import { MobileLibraryLayoutHeader } from "@/components/explore/MobileLibraryLayoutHeader";
 import { MobileExploreCoverPlaceholder } from "@/components/explore/MobileExploreCoverPlaceholder";
 import { MobileExploreDustHost } from "@/components/explore/MobileExploreDustHost";
@@ -2162,6 +2162,7 @@ export function LibraryScreen({
             index,
           ),
         ]}
+        contentSize={gridItemWidth}
       >
         {designExplore ? (
           // The grid cell turns to dust too when its title is removed.
@@ -2527,6 +2528,11 @@ export function LibraryScreen({
       data={showSkeleton ? [] : libraryRows}
       keyExtractor={collectionRowKey}
       renderItem={renderLibraryRow}
+      // Every row glides to its new y when the sections above it change
+      // height on a fold or an unfold (pose settle spring): unfolding grows
+      // the covers and the Continue Reading card, and the rows dropped 38 pt
+      // in one frame under the unanimated header.
+      CellRendererComponent={MobilePoseListCell}
       extraData={libraryGridExtraData}
       nativeHeader={usesNativeHeader}
       onLayout={grid.onLayout}
@@ -2657,6 +2663,7 @@ export function LibraryScreen({
                 {/* Lets the tab bar minimise on scroll (UIKit content scroll view). */}
                 <ContentScrollMarker generation={gridColumns} />
                 {!selectedCollection ? (
+                  <MobilePoseLayoutView>
                   <MobileLaunchRevealGroup group="collections">
                   <MobileCollectionFolders
                     collections={collections.data}
@@ -2667,8 +2674,10 @@ export function LibraryScreen({
                     onSelect={openCollectionScreen}
                   />
                   </MobileLaunchRevealGroup>
+                  </MobilePoseLayoutView>
                 ) : null}
                 {visibleEntryCount ? (
+                  <MobilePoseLayoutView>
                   <MobileLaunchRevealGroup group="titlesHeader">
                   <MobileLibraryLayoutHeader
                     title={
@@ -2678,6 +2687,7 @@ export function LibraryScreen({
                     }
                   />
                   </MobileLaunchRevealGroup>
+                  </MobilePoseLayoutView>
                 ) : null}
               </LibraryLayoutRow>
             ) : null}

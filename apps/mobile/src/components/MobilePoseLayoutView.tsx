@@ -1,6 +1,19 @@
-import type { ComponentProps } from "react";
+import type { ComponentProps, ReactNode } from "react";
+import { StyleSheet } from "react-native";
 import Animated from "react-native-reanimated";
 import { useMobilePoseLayout } from "@/lib/MobilePoseTransitionContext";
+import { useMobilePoseSizeSpring } from "@/lib/useMobilePoseSizeSpring";
+
+type MobilePoseLayoutViewProps = ComponentProps<typeof Animated.View> & {
+  /**
+   * The width the content is laid out at (a grid cell's width). A layout
+   * transition only moves the view's own frame — its children are laid out
+   * at the new size in one step — so with this set the content also starts
+   * at its old size and grows or shrinks back to 1 from its top-left corner
+   * on the same spring (useMobilePoseSizeSpring), in place with the frame.
+   */
+  contentSize?: number;
+};
 
 /**
  * A View whose frame changes glide with the shared pose settle spring (UI
@@ -14,8 +27,23 @@ import { useMobilePoseLayout } from "@/lib/MobilePoseTransitionContext";
  * across a remount means nothing anyway (the pose veil covers it), so the
  * transition is only attached to constant-size pose changes.
  */
-export function MobilePoseLayoutView(props: ComponentProps<typeof Animated.View>) {
-  return <Animated.View layout={useMobilePoseLayout()} {...props} />;
+export function MobilePoseLayoutView({ contentSize, children, ...props }: MobilePoseLayoutViewProps) {
+  const layout = useMobilePoseLayout();
+  return (
+    <Animated.View layout={layout} {...props}>
+      {contentSize === undefined ? children : <MobilePoseSizeSpringView size={contentSize}>{children}</MobilePoseSizeSpringView>}
+    </Animated.View>
+  );
+}
+
+/**
+ * Content whose rendered size is `size` (a prop: it re-lays out at the new
+ * size in one step): through a pose change it starts scaled to its old size
+ * and springs to 1 from its top-left corner (the pose settle spring).
+ */
+export function MobilePoseSizeSpringView({ size, children }: { size: number; children: ReactNode }) {
+  const scale = useMobilePoseSizeSpring(size);
+  return <Animated.View style={[styles.leadingOrigin, scale]}>{children}</Animated.View>;
 }
 
 /**
@@ -32,3 +60,12 @@ export function MobilePoseListCell({
 }: ComponentProps<typeof Animated.View> & { cellKey?: string; index?: number; item?: unknown }) {
   return <MobilePoseLayoutView {...props} />;
 }
+
+const styles = StyleSheet.create({
+  // Grows with its cell like the content it wraps (cards that stretch to the row).
+  leadingOrigin: {
+    flexGrow: 1,
+    minWidth: 0,
+    transformOrigin: "left top",
+  },
+});

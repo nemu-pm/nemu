@@ -3195,9 +3195,11 @@ export function SourceBrowseScreen() {
       if (!sourceDisplay) {
         return <View style={gridItemStyleAt(index)} />;
       }
-      // Folding at the same column count glides each cover to its new column.
+      // Folding at the same column count glides each cover to its new column,
+      // and the card springs from its old size to the new one with it (the
+      // frame's transition alone left the card at its new size in one frame).
       return (
-        <MobilePoseLayoutView key={item.id} style={gridItemStyleAt(index)}>
+        <MobilePoseLayoutView key={item.id} style={gridItemStyleAt(index)} contentSize={gridItemWidth}>
           <ListingMangaCard
             item={item}
             onPress={() => handleListingMangaPress(sourceDisplay, item)}
@@ -3215,6 +3217,7 @@ export function SourceBrowseScreen() {
     },
     [
       gridItemStyleAt,
+      gridItemWidth,
       listingGridSourceDisplay,
       installedSource,
       strings,
