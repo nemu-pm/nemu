@@ -1,8 +1,9 @@
-import type { ReactNode } from "react";
+import { useCallback, useContext, type ReactNode } from "react";
 import {
   StyleSheet,
   View,
   type ImageProps,
+  type ViewInstance,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
@@ -10,6 +11,7 @@ import {
   NemuText,
   nemuFontWeight,
 } from "@/design-system";
+import { MobileReaderCurlLeafOffsetContext } from "./mobileReaderCurlLeafOffset";
 import type { MobileStrings } from "@/lib/mobileI18n";
 import type { MobileImageSize } from "@/lib/mobileJapaneseLearningOverlay";
 import type { MobileImageUriOwnership } from "@/lib/mobileImageUriPolicy";
@@ -49,6 +51,12 @@ type MobileReaderPageFrameProps = {
    * scrambled original): only the frame and its status, never a request.
    */
   withholdImage?: boolean;
+  /**
+   * The frame's view (where the page sits, for the opening stand-in), with
+   * the curl leaf's offset to add to what it measures (see
+   * MobileReaderCurlLeafOffsetContext; none outside the curl).
+   */
+  frameRef?: (view: ViewInstance | null, leafOffset: { x: number; y: number } | null) => void;
 };
 
 export function MobileReaderPageFrame({
@@ -72,7 +80,13 @@ export function MobileReaderPageFrame({
   onRetry,
   onSegmentedImage,
   withholdImage = false,
+  frameRef,
 }: MobileReaderPageFrameProps) {
+  const leafOffset = useContext(MobileReaderCurlLeafOffsetContext);
+  const attachFrame = useCallback(
+    (view: ViewInstance | null) => frameRef?.(view, leafOffset),
+    [frameRef, leafOffset],
+  );
   const canRetry = Boolean(error) && Boolean(onRetry);
   // A page without its image: the reader background, a small native spinner
   // (after a short wait; in scroll reading only while on screen), and on a
@@ -82,6 +96,7 @@ export function MobileReaderPageFrame({
 
   return (
     <View
+      ref={frameRef ? attachFrame : undefined}
       accessibilityLabel={waiting ? strings.reader.pageImageLoading : undefined}
       style={[
         styles.readerImageFrame,

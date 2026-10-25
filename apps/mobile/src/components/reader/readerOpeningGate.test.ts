@@ -163,6 +163,8 @@ describe("reader opening gate wiring", () => {
     expect(route).toContain("openingGate.armBackstop();");
     // No zoom, nothing fades in: closed from the first render.
     expect(route).toContain('if (!zoomId) coverReveal.openingGate.settle("no-fade");');
+    // The stand-in's cross-fade (a reopen) reports its end too.
+    expect(route).toContain('if (finished) runOnJS(onFadeEnd)("stand-in", landsAt);');
     expect(route).toContain(
       "() => ({ onFirstPage, openingGate, holdForFirstScreenImages, onFirstScreenImagesReady, openingTimes })",
     );

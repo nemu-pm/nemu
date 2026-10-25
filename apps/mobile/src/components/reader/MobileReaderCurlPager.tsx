@@ -26,6 +26,7 @@ import {
 import { mobileReaderSplitWideHalfRects } from "@/lib/mobileReaderSpreads";
 import type { MobileReaderPage } from "@/sources/mobileSourcePages";
 import { MobileReaderSplitWideHalf } from "./MobileReaderSplitWideHalf";
+import { MobileReaderCurlLeafOffsetContext } from "./mobileReaderCurlLeafOffset";
 
 export type MobileReaderCurlPagerHandle = {
   /** Visual frame (the slide pager's scroll index); one frame away curls, further jumps. */
@@ -181,6 +182,15 @@ export function MobileReaderCurlPager({
     },
   }), [onTurningChange, overlaysOnPages, settledFrame, spreadMode]);
 
+  // Each leaf's page controller view: the curl's frame (single pages), or its
+  // left / right half about a middle spine (spreads: even slots left, odd right).
+  const leafOffsets = useMemo(
+    () => [
+      { x: layout.frame.x, y: layout.frame.y },
+      { x: layout.frame.x + layout.frame.width / 2, y: layout.frame.y },
+    ] as const,
+    [layout.frame.height, layout.frame.width, layout.frame.x, layout.frame.y],
+  );
   const window = mobileReaderCurlSlotWindow({ frame: settledFrame, frameCount: frames.length, spreadMode });
   const mounted = slots.slice(window.start, window.end + 1).map((slot, offset) => ({ slot, index: window.start + offset }));
   const slotsKey = mounted.map(({ slot, index }) => `${index}:${slotKey(slot, displayedPages)}`).join("|");
@@ -220,19 +230,21 @@ export function MobileReaderCurlPager({
           collapsable={false}
           style={[styles.leaf, { width: layout.leaf.width, height: layout.leaf.height, backgroundColor }]}
         >
-          {renderSlot({
-            slot,
-            index,
-            layout,
-            spreadMode,
-            panes: Boolean(spreadSlots && spreadSlots.length === 2),
-            fitClip,
-            pageGlide,
-            displayedPages,
-            pageFrameSize,
-            renderImage,
-            renderTextPage,
-          })}
+          <MobileReaderCurlLeafOffsetContext.Provider value={leafOffsets[spreadMode && index % 2 === 1 ? 1 : 0]}>
+            {renderSlot({
+              slot,
+              index,
+              layout,
+              spreadMode,
+              panes: Boolean(spreadSlots && spreadSlots.length === 2),
+              fitClip,
+              pageGlide,
+              displayedPages,
+              pageFrameSize,
+              renderImage,
+              renderTextPage,
+            })}
+          </MobileReaderCurlLeafOffsetContext.Provider>
         </View>
       ))}
     </NativePageCurlView>

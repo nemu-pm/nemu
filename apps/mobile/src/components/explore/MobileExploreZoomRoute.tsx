@@ -3,6 +3,7 @@ import { StyleSheet } from "react-native";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import {
   ZoomTarget,
+  type ZoomStartedEvent,
   zoomSettledEventAvailable,
   zoomTransitionAvailable,
 } from "../../../modules/nemu-window-layout";
@@ -25,6 +26,7 @@ export function MobileExploreZoomRoute({
   zoomId,
   interactiveDismiss = true,
   onLanded,
+  onStarted,
   children,
 }: {
   zoomId?: string | null;
@@ -34,6 +36,11 @@ export function MobileExploreZoomRoute({
    * be a heavy one. Start UI-thread work here.
    */
   onLanded?: () => void;
+  /**
+   * The zoom started (its nominal duration and wall-clock start): the screen
+   * can time work against the landing, which follows `durationMs` later.
+   */
+  onStarted?: (event: ZoomStartedEvent) => void;
   /** Swipe-to-dismiss back into the source (off for the reader: page turns own its gestures). */
   interactiveDismiss?: boolean;
   children: ReactNode;
@@ -66,6 +73,7 @@ export function MobileExploreZoomRoute({
           align={false}
           interactiveDismiss={interactiveDismiss}
           onZoomSettled={settle}
+          onZoomStarted={onStarted}
           style={styles.target}
         />
       ) : null}

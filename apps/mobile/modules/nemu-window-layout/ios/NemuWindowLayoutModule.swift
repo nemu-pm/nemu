@@ -232,6 +232,8 @@ public final class NemuWindowLayoutModule: Module {
     Constant("zoomTransitionAvailable") { true }
     // The target reports when the zoom has landed (`onZoomSettled`).
     Constant("zoomSettledEventAvailable") { true }
+    // ... and when it starts, with its duration (`onZoomStarted`).
+    Constant("zoomStartedEventAvailable") { true }
     View(NemuZoomSourceView.self) {
       Prop("zoomId") { (view: NemuZoomSourceView, id: String) in
         view.zoomId = id
@@ -244,7 +246,7 @@ public final class NemuWindowLayoutModule: Module {
       Prop("align") { (view: NemuZoomTargetView, align: Bool) in
         view.alignsToSelf = align
       }
-      Events("onZoomSettled")
+      Events("onZoomSettled", "onZoomStarted")
       Prop("interactiveDismiss") { (view: NemuZoomTargetView, enabled: Bool) in
         view.interactiveDismiss = enabled
       }
@@ -2846,6 +2848,11 @@ final class NemuZoomSourceView: ExpoView {
 /// replaces the transition of a screen that is already animating in.
 final class NemuZoomTargetView: ExpoView {
   let onZoomSettled = EventDispatcher()
+  /// The zoom into this screen started: its nominal duration and the wall
+  /// clock (ms since 1970) it started at, so the screen can time work
+  /// against the landing (a cover cross-fading into its page) on its own
+  /// clock however late the event reaches it.
+  let onZoomStarted = EventDispatcher()
   var zoomId = "" {
     didSet {
       guard zoomId != oldValue else { return }
@@ -2903,7 +2910,12 @@ final class NemuZoomTargetView: ExpoView {
       return
     }
     let delay = coordinator.transitionDuration + NemuZoomTargetView.settleMargin
+    let duration = coordinator.transitionDuration
     let queued = coordinator.animate(alongsideTransition: { [weak self] _ in
+      self?.onZoomStarted([
+        "durationMs": duration * 1000,
+        "startedAtMs": Date().timeIntervalSince1970 * 1000,
+      ])
       DispatchQueue.main.asyncAfter(deadline: .now() + delay) { self?.sendSettled() }
     }, completion: { [weak self] _ in
       self?.sendSettled()

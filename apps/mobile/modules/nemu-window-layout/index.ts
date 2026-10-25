@@ -29,7 +29,9 @@ export {
   ZoomSource,
   ZoomTarget,
   zoomSettledEventAvailable,
+  zoomStartedEventAvailable,
   zoomTransitionAvailable,
+  type ZoomStartedEvent,
 } from "./src/ZoomTransition";
 export { canonicalZoomId } from "./src/zoomId";
 export type {

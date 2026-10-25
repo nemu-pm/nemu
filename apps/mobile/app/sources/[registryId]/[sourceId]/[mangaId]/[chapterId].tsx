@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { StyleSheet, useWindowDimensions, View } from "react-native";
+import { Dimensions, StyleSheet, useWindowDimensions, View } from "react-native";
 import Animated, {
   cancelAnimation,
   runOnJS,
@@ -42,7 +42,13 @@ import { mobileReaderPageBackgroundColor } from "@/lib/mobileReaderPageBackgroun
 import { useReaderPagePrefs } from "@/components/reader/useReaderPagePrefs";
 import { ReaderScreen } from "@/screens/ReaderScreen";
 import { noteMobileReaderOpened } from "@/lib/mobileAidokuPrewarm";
-import { ZoomTarget } from "../../../../../modules/nemu-window-layout";
+import { ZoomTarget, type ZoomStartedEvent } from "../../../../../modules/nemu-window-layout";
+import {
+  mobileReaderStandInKey,
+  peekMobileReaderStandIn,
+  resolveMobileReaderStandInFade,
+  type MobileReaderStandIn,
+} from "@/lib/mobileReaderOpeningStandIn";
 
 /** The landing cover fades into the reader (the opening fade-in). */
 const COVER_REVEAL_MS = 250;
@@ -65,17 +71,39 @@ const COVER_SCROLL_HOLD_MAX_MS = 600;
 type CoverRevealReason = ReaderCoverRevealReason;
 
 export default function ReaderRoute() {
-  const { zoom: zoomParam } = useLocalSearchParams<{ zoom?: string }>();
+  const {
+    zoom: zoomParam,
+    registryId,
+    sourceId,
+    mangaId,
+    chapterId,
+  } = useLocalSearchParams<{ zoom?: string; registryId?: string; sourceId?: string; mangaId?: string; chapterId?: string }>();
   // One spelling of the zoom id on both ends (see canonicalMobileReaderZoomId).
   const zoom = canonicalMobileReaderZoomId(zoomParam ?? null);
-  const coverReveal = useReaderCoverReveal(zoom);
+  // A chapter shown at rest this session (same window): the cover
+  // cross-fades into that very page during the zoom (see
+  // mobileReaderOpeningStandIn). Decided once, at the push.
+  const [standIn] = useState<MobileReaderStandIn | null>(() => {
+    if (!zoom || !registryId || !sourceId || !mangaId || !chapterId) return null;
+    const { width, height } = Dimensions.get("window");
+    return peekMobileReaderStandIn(
+      mobileReaderStandInKey({ registryId, sourceId, mangaId, chapterId }),
+      { width, height },
+    );
+  });
+  const coverReveal = useReaderCoverReveal(zoom, standIn != null);
   // A reader boots the Aidoku sandbox itself: no pre-warm after this.
   useEffect(() => noteMobileReaderOpened(), []);
   // Design-explore: the reader grows out of the cover that opened it. No
   // swipe-to-dismiss: page turns own the reader's gestures.
   return (
-    <MobileExploreZoomRoute zoomId={zoom} interactiveDismiss={false} onLanded={coverReveal.onLanded}>
-      <ReaderAfterZoom zoomId={zoom ?? null} coverReveal={coverReveal} />
+    <MobileExploreZoomRoute
+      zoomId={zoom}
+      interactiveDismiss={false}
+      onLanded={coverReveal.onLanded}
+      onStarted={coverReveal.onZoomStarted}
+    >
+      <ReaderAfterZoom zoomId={zoom ?? null} coverReveal={coverReveal} standIn={standIn} />
     </MobileExploreZoomRoute>
   );
 }
@@ -84,6 +112,10 @@ type ReaderCoverReveal = {
   opacity: SharedValue<number>;
   /** The zoom landed (idempotent): scroll reading arms its UI-thread cap. */
   onLanded: () => void;
+  /** The zoom started: the stand-in's cross-fade is timed against its landing. */
+  onZoomStarted: (event: ZoomStartedEvent) => void;
+  /** Every page of the stand-in has decoded. */
+  onStandInReady: () => void;
   /** Fade now, unless a fade already started. */
   reveal: (reason: CoverRevealReason) => void;
   /**
@@ -105,7 +137,7 @@ type ReaderCoverReveal = {
  * render); "reader ready" earlier replaces it with the fade at once. Paged
  * reading waits for its page (JS), with the 2.5 s cap.
  */
-function useReaderCoverReveal(zoomId: string | null): ReaderCoverReveal {
+function useReaderCoverReveal(zoomId: string | null, hasStandIn: boolean): ReaderCoverReveal {
   const opacity = useSharedValue(1);
   // The Continue / tile tap that started this zoom: the opening's clock.
   const [tapAt] = useState(() => peekMobileReaderZoomTapAt(zoomId));
@@ -242,6 +274,51 @@ function useReaderCoverReveal(zoomId: string | null): ReaderCoverReveal {
     );
   }, [onFadeEnd, opacity, tapAt]);
 
+  // The stand-in's cross-fade (a reopen, Colo): the cover fades into the
+  // page during the zoom's last COVER-cross-fade ms, ending at the landing,
+  // so the page is fully shown when the zoom lands; a stand-in that decodes
+  // later in the zoom fades from that moment. Not ready by the landing: the
+  // reader's own opening (held until its page draws) as before.
+  const zoomStartRef = useRef<ZoomStartedEvent | null>(null);
+  const standInReadyAtRef = useRef<number | null>(null);
+  const scheduleStandInFade = useCallback(() => {
+    const start = zoomStartRef.current;
+    const readyAt = standInReadyAtRef.current;
+    if (!hasStandIn || !start || readyAt == null) return;
+    if (fadeStartsAtRef.current != null || landedAtRef.current != null) return;
+    const now = Date.now();
+    const plan = resolveMobileReaderStandInFade({
+      startedAtMs: start.startedAtMs,
+      durationMs: start.durationMs,
+      readyAtMs: readyAt,
+      nowMs: now,
+    });
+    if (!plan) return;
+    const landsAt = start.startedAtMs + start.durationMs;
+    fadeStartsAtRef.current = now + plan.delayMs;
+    capArmedRef.current = true;
+    opacity.value = withDelay(
+      plan.delayMs,
+      withTiming(0, { duration: plan.durationMs }, (finished?: boolean) => {
+        "worklet";
+        if (finished) runOnJS(onFadeEnd)("stand-in", landsAt);
+      }),
+    );
+  }, [hasStandIn, onFadeEnd, opacity]);
+  const onZoomStarted = useCallback(
+    (event: ZoomStartedEvent) => {
+      if (zoomStartRef.current) return;
+      zoomStartRef.current = event;
+      scheduleStandInFade();
+    },
+    [scheduleStandInFade],
+  );
+  const onStandInReady = useCallback(() => {
+    if (standInReadyAtRef.current != null) return;
+    standInReadyAtRef.current = Date.now();
+    scheduleStandInFade();
+  }, [scheduleStandInFade]);
+
   const onLanded = useCallback(() => {
     if (landedAtRef.current != null) return;
     landedAtRef.current = Date.now();
@@ -333,13 +410,25 @@ function useReaderCoverReveal(zoomId: string | null): ReaderCoverReveal {
     () => ({
       opacity,
       onLanded,
+      onZoomStarted,
+      onStandInReady,
       reveal,
       openingGate,
       holdForFirstScreenImages,
       onFirstScreenImagesReady,
       openingTimes,
     }),
-    [holdForFirstScreenImages, onFirstScreenImagesReady, onLanded, opacity, openingGate, openingTimes, reveal],
+    [
+      holdForFirstScreenImages,
+      onFirstScreenImagesReady,
+      onLanded,
+      onStandInReady,
+      onZoomStarted,
+      opacity,
+      openingGate,
+      openingTimes,
+      reveal,
+    ],
   );
 }
 
@@ -369,9 +458,11 @@ function logFadeEnd(reason: CoverRevealReason, landedAt: number, tapAt: number |
 function ReaderAfterZoom({
   zoomId,
   coverReveal,
+  standIn,
 }: {
   zoomId: string | null;
   coverReveal: ReaderCoverReveal;
+  standIn: MobileReaderStandIn | null;
 }) {
   const landed = useMobileExploreZoomLanded();
   const [cover] = useState(() => {
@@ -401,8 +492,33 @@ function ReaderAfterZoom({
     holdForFirstScreenImages,
     onFirstScreenImagesReady,
     openingTimes,
+    onStandInReady,
   } = coverReveal;
   const [pageShown, setPageShown] = useState(false);
+  // The stand-in (a reopen): over the reader, under the cover, shown as the
+  // cover fades. It leaves once the reader has drawn its page underneath.
+  const [standInMounted, setStandInMounted] = useState(standIn != null);
+  const standInLoadedRef = useRef(new Set<string>());
+  const onStandInPageLoad = useCallback(
+    (pageId: string) => {
+      if (!standIn) return;
+      standInLoadedRef.current.add(pageId);
+      if (standIn.pages.every((page) => standInLoadedRef.current.has(page.id))) onStandInReady();
+    },
+    [onStandInReady, standIn],
+  );
+  const dismissStandIn = useCallback(() => setStandInMounted(false), []);
+  useEffect(() => {
+    if (pageShown && standInMounted) dismissStandIn();
+  }, [dismissStandIn, pageShown, standInMounted]);
+  // The window changed (rotation, a fold): the reader re-lays its pages.
+  const windowMatchesStandIn =
+    standIn != null
+    && Math.abs(standIn.window.width - window.width) <= 0.5
+    && Math.abs(standIn.window.height - window.height) <= 0.5;
+  useEffect(() => {
+    if (standIn && !windowMatchesStandIn) dismissStandIn();
+  }, [dismissStandIn, standIn, windowMatchesStandIn]);
   // A route that never staged a zoom (landed from the start) has no landing
   // event: count the first landed render as the landing.
   useEffect(() => {
@@ -434,6 +550,8 @@ function ReaderAfterZoom({
     [holdForFirstScreenImages, onFirstPage, onFirstScreenImagesReady, openingGate, openingTimes],
   );
   const coverStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
+  // The cross-fade's other half: the stand-in shows as the cover goes.
+  const standInStyle = useAnimatedStyle(() => ({ opacity: 1 - opacity.value }));
   // The reader's page background (the setting; White until it has loaded,
   // as the reader itself): the cover fades onto it. "Match Page" has no page
   // yet here, so it is black, as the reader is until it reads the border.
@@ -446,6 +564,33 @@ function ReaderAfterZoom({
         <ReaderZoomEntryContext.Provider value={entry}>
           <ReaderScreen />
         </ReaderZoomEntryContext.Provider>
+      ) : null}
+      {standIn && standInMounted ? (
+        <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, standInStyle]}>
+          {standIn.pages.map((page) => (
+            <View
+              key={page.id}
+              style={{
+                position: "absolute",
+                left: page.rect.x,
+                top: page.rect.y,
+                width: page.rect.width,
+                height: page.rect.height,
+              }}
+            >
+              <MobileCachedImage
+                cacheKind="page"
+                uriOwnership={page.uriOwnership ?? "source"}
+                source={{ uri: page.uri, headers: page.headers }}
+                fadeIn={false}
+                fallback={null}
+                onLoad={() => onStandInPageLoad(page.id)}
+                resizeMode="contain"
+                style={StyleSheet.absoluteFill}
+              />
+            </View>
+          ))}
+        </Animated.View>
       ) : null}
       {zoomId ? (
         <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, coverStyle]}>

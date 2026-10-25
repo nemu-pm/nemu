@@ -175,6 +175,11 @@ import {
   withMobileReaderResolvedPages,
 } from "@/lib/mobileReaderResolvedPages";
 import {
+  mobileReaderStandInKey,
+  rememberMobileReaderStandIn,
+  type MobileReaderStandInPage,
+} from "@/lib/mobileReaderOpeningStandIn";
+import {
   readerOpeningSince,
   readerPagesNeedProcessing,
   resolveReaderFirstScreenImages,
@@ -3579,6 +3584,31 @@ export function ReaderScreen() {
       .filter((page): page is MobileReaderPage => Boolean(page)),
     [isTwoPageMode, readerSpreads, currentSpreadIndex, clampedPageIndex, displayedPages],
   );
+  // Each open-chapter page's frame view: where it sits, for the opening
+  // stand-in (see mobileReaderOpeningStandIn). Stable callbacks per page.
+  const readerPageFrameViewsRef = useRef(
+    new Map<string, { view: ViewInstance; leafOffset: { x: number; y: number } | null }>(),
+  );
+  const readerPageFrameRefCallbacksRef = useRef(
+    new Map<string, (view: ViewInstance | null, leafOffset: { x: number; y: number } | null) => void>(),
+  );
+  const readerPageFrameRefFor = useCallback((pageId: string) => {
+    const known = readerPageFrameRefCallbacksRef.current.get(pageId);
+    if (known) return known;
+    let attached: ViewInstance | null = null;
+    const callback = (view: ViewInstance | null, leafOffset: { x: number; y: number } | null) => {
+      const views = readerPageFrameViewsRef.current;
+      if (view) {
+        attached = view;
+        views.set(pageId, { view, leafOffset });
+      } else if (attached && views.get(pageId)?.view === attached) {
+        views.delete(pageId);
+        attached = null;
+      }
+    };
+    readerPageFrameRefCallbacksRef.current.set(pageId, callback);
+    return callback;
+  }, []);
   // What the page-scoped learning tools read. A segmented strip is read as
   // the tiles on screen, each its own bounded image, so OCR boxes are in the
   // pixel space of the tile they are drawn on.
@@ -4576,6 +4606,71 @@ export function ReaderScreen() {
       pagesState.pages,
     );
   }, [mangaId, pagesState, processPageImages, registryId, sourceId]);
+  // What the reader shows at rest, where (the opening stand-in of a reopen
+  // this session): paged reading, placed, not turning, every page on screen
+  // decoded. Measured a moment after it settles (past a turn's last frames).
+  const readerStandInChapterId = pagesState.status === "ready" ? pagesState.chapter.id : null;
+  const readerStandInPagesDecoded =
+    readerVisiblePages.length > 0 &&
+    readerVisiblePages.every((page) => readerImageSizes.has(readerPageIdentityFor(page)));
+  useEffect(() => {
+    if (!galleryPagedMode || !readerRestoreComplete || readerPagedTurning) return;
+    if (!readerStandInChapterId || !readerStandInPagesDecoded) return;
+    const shown = readerVisiblePages;
+    const key = mobileReaderStandInKey({ registryId, sourceId, mangaId, chapterId: readerStandInChapterId });
+    const measuredWindow = { width: window.width, height: window.height };
+    let active = true;
+    const timer = setTimeout(() => {
+      const measured: MobileReaderStandInPage[] = [];
+      let pending = shown.length;
+      const done = () => {
+        pending -= 1;
+        if (pending > 0 || !active) return;
+        // Every page on screen, or nothing (a partial spread is not what reopens).
+        rememberMobileReaderStandIn(key, {
+          pages: measured.length === shown.length ? measured : [],
+          window: measuredWindow,
+        });
+      };
+      for (const page of shown) {
+        const frame = readerPageFrameViewsRef.current.get(page.id);
+        const view = frame?.view;
+        const leafOffset = frame?.leafOffset ?? null;
+        if (!view || !page.imageUri || page.imageProcessing === "pending" || page.imageProcessing === "failed") {
+          done();
+          continue;
+        }
+        const uri = page.imageUri;
+        view.measureInWindow((x, y, width, height) => {
+          measured.push({
+            id: page.id,
+            uri,
+            headers: page.headers,
+            uriOwnership: page.imageUriOwnership ?? "source",
+            // In the curl, React's layout lacks the leaf's native place.
+            rect: { x: x + (leafOffset?.x ?? 0), y: y + (leafOffset?.y ?? 0), width, height },
+          });
+          done();
+        });
+      }
+    }, 400);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [
+    galleryPagedMode,
+    mangaId,
+    readerPagedTurning,
+    readerRestoreComplete,
+    readerStandInChapterId,
+    readerStandInPagesDecoded,
+    readerVisiblePages,
+    registryId,
+    sourceId,
+    window.height,
+    window.width,
+  ]);
   const readerZoomPageShown =
     pagesState.status === "error" ||
     pagesState.status === "blocked" ||
@@ -9958,6 +10053,7 @@ export function ReaderScreen() {
       const segmentedCacheKey = readerSegmentedCacheKeyFor(page);
       const pageFrame = (
         <MobileReaderPageFrame
+          frameRef={neighbour ? undefined : readerPageFrameRefFor(page.id)}
           allowLongStripSegments={pageCount === 1}
           backgroundColor={readerBackgroundColor}
           cacheKey={pageCount === 1 ? segmentedCacheKey : undefined}

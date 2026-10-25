@@ -170,7 +170,9 @@ export type ReaderCoverRevealReason =
   | "first-screen-images"
   | "scroll-cap"
   | "hold-cap"
-  | "hold-max";
+  | "hold-max"
+  /** A reopen: the cover cross-fades into the page's stand-in during the zoom. */
+  | "stand-in";
 
 /**
  * Whether a reveal request starts the cover's fade now. A running fade is

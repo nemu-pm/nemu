@@ -15,15 +15,24 @@ type ZoomTargetProps = {
    * Fires once; at once when the screen appears without a transition.
    */
   onZoomSettled?: () => void;
+  /**
+   * The zoom into this screen started (route-level targets): its nominal
+   * duration and the wall-clock ms it started at. Never fires without an
+   * animated transition.
+   */
+  onZoomStarted?: (event: ZoomStartedEvent) => void;
   style?: ViewProps["style"];
   children?: ReactNode;
 };
+export type ZoomStartedEvent = { durationMs: number; startedAtMs: number };
+type NativeZoomStartedEvent = { nativeEvent: ZoomStartedEvent };
 type MarkerProps = { generation?: number; style?: ViewProps["style"] };
 
 const nativeModule = Platform.OS === "ios"
   ? requireOptionalNativeModule<{
       zoomTransitionAvailable?: boolean;
       zoomSettledEventAvailable?: boolean;
+      zoomStartedEventAvailable?: boolean;
       contentScrollMarkerAvailable?: boolean;
     }>("NemuWindowLayout")
   : null;
@@ -32,14 +41,18 @@ const nativeModule = Platform.OS === "ios"
 export const zoomTransitionAvailable = nativeModule?.zoomTransitionAvailable === true;
 /** True when the target reports `onZoomSettled` (older binaries never do). */
 export const zoomSettledEventAvailable = nativeModule?.zoomSettledEventAvailable === true;
+/** True when the target reports `onZoomStarted` (older binaries never do). */
+export const zoomStartedEventAvailable = nativeModule?.zoomStartedEventAvailable === true;
 const contentScrollMarkerAvailable = nativeModule?.contentScrollMarkerAvailable === true;
 
 const NativeZoomSource: ComponentType<ZoomSourceProps> | null = zoomTransitionAvailable
   ? requireNativeViewManager<ZoomSourceProps>("NemuWindowLayout", "NemuZoomSourceView")
   : null;
 const NativeZoomTarget: ComponentType<
-  Required<Omit<ZoomTargetProps, "children" | "style" | "onZoomSettled">> &
-    Pick<ZoomTargetProps, "children" | "style" | "onZoomSettled">
+  Required<Omit<ZoomTargetProps, "children" | "style" | "onZoomSettled" | "onZoomStarted">> &
+    Pick<ZoomTargetProps, "children" | "style" | "onZoomSettled"> & {
+      onZoomStarted?: (event: NativeZoomStartedEvent) => void;
+    }
 > | null =
   zoomTransitionAvailable
     ? requireNativeViewManager("NemuWindowLayout", "NemuZoomTargetView")
@@ -62,7 +75,15 @@ export function ZoomSource({ zoomId, style, children }: ZoomSourceProps) {
 }
 
 /** Gives the pushed screen a zoom transition from the source with `zoomId`. */
-export function ZoomTarget({ zoomId, align = true, interactiveDismiss = true, onZoomSettled, style, children }: ZoomTargetProps) {
+export function ZoomTarget({
+  zoomId,
+  align = true,
+  interactiveDismiss = true,
+  onZoomSettled,
+  onZoomStarted,
+  style,
+  children,
+}: ZoomTargetProps) {
   if (!NativeZoomTarget) return <View style={style}>{children}</View>;
   return (
     <NativeZoomTarget
@@ -70,6 +91,7 @@ export function ZoomTarget({ zoomId, align = true, interactiveDismiss = true, on
       align={align}
       interactiveDismiss={interactiveDismiss}
       onZoomSettled={onZoomSettled}
+      onZoomStarted={onZoomStarted ? (event) => onZoomStarted(event.nativeEvent) : undefined}
       style={style}
     >
       {children}
