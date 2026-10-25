@@ -117,6 +117,17 @@ export function isAccessibilityFontScale(fontScale: number) {
   return fontScale >= 1.5;
 }
 
+/**
+ * `@expo/ui` modifier: SwiftUI `scrollEdgeEffectHidden(true, for: .vertical)`
+ * on a Form — no system top / bottom scroll edge (beside the Duo's vertical
+ * bar, where the page draws the app's band). Put it after the Form's
+ * `scrollEdgeEffectStyle`. A binary built before the modifier existed
+ * ignores it (the soft system edge stays).
+ */
+export function scrollEdgeEffectHidden() {
+  return createModifier("nemuScrollEdgeEffectHidden");
+}
+
 /** Remove the grouped Form's extra top scroll-content margin below its toolbar. */
 export function zeroTopScrollContentMargin() {
   return createModifier("nemuZeroTopScrollContentMargin");

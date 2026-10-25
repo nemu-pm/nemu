@@ -23,6 +23,9 @@ public final class NemuWindowLayoutModule: Module {
       ViewModifierRegistry.register(NemuZeroTopScrollContentMarginModifier.type) { _, _, _ in
         NemuZeroTopScrollContentMarginModifier()
       }
+      ViewModifierRegistry.register(NemuScrollEdgeEffectHiddenModifier.type) { _, _, _ in
+        NemuScrollEdgeEffectHiddenModifier()
+      }
       // A sheet as tall as its page, measured before it presents: see
       // `NemuFitSheetDetentModifier`, `NemuReportSheetContentHeightModifier`
       // and `NemuMeasureSheetPageModifier`.
@@ -68,6 +71,7 @@ public final class NemuWindowLayoutModule: Module {
       ViewModifierRegistry.unregister(NemuInlineToolbarTitleModifier.type)
       ViewModifierRegistry.unregister(NemuPresentationPlacementModifier.type)
       ViewModifierRegistry.unregister(NemuZeroTopScrollContentMarginModifier.type)
+      ViewModifierRegistry.unregister(NemuScrollEdgeEffectHiddenModifier.type)
       ViewModifierRegistry.unregister(NemuFitSheetDetentModifier.type)
       ViewModifierRegistry.unregister(NemuReportSheetContentHeightModifier.type)
       ViewModifierRegistry.unregister(NemuMeasureSheetPageModifier.type)
@@ -625,6 +629,23 @@ struct NemuZeroTopScrollContentMarginModifier: ViewModifier {
   func body(content: Content) -> some View {
     if #available(iOS 17.0, *) {
       content.contentMargins(.top, 0, for: .scrollContent)
+    } else {
+      content
+    }
+  }
+}
+
+/// `scrollEdgeEffectHidden(true, for: .vertical)` (iOS 26): a Form beside the
+/// Duo's vertical bar draws no system top / bottom edge, as the stack screens'
+/// own `scrollEdgeEffects` are `hidden` there (`nativeHeaderChrome.ts`); the
+/// page lays the app's band over it instead (`NemuScrollEdgeSurface`). Earlier
+/// systems have no scroll edge effect to hide.
+struct NemuScrollEdgeEffectHiddenModifier: ViewModifier {
+  static let type = "nemuScrollEdgeEffectHidden"
+
+  func body(content: Content) -> some View {
+    if #available(iOS 26.0, *) {
+      content.scrollEdgeEffectHidden(true, for: .vertical)
     } else {
       content
     }

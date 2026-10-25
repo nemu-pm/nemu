@@ -89,8 +89,11 @@ export function NemuScrollEdgeSurface({
   ...options
 }: NemuScrollEdgeOptions & {
   children: ReactNode;
-  /** The scroll view's offset: the top band shows only once content is under it. */
-  tracking: NemuScrollEdgeTracking;
+  /**
+   * The scroll view's offset: the top band shows only once content is under
+   * it (a SwiftUI Form feeds it from its scroll geometry).
+   */
+  tracking: Pick<NemuScrollEdgeTracking, "scrolledPastRest">;
 }) {
   const bands = useNemuScrollEdge(options);
   if (Platform.OS !== "ios") return <>{children}</>;

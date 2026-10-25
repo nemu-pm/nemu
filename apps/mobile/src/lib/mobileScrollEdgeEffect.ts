@@ -273,3 +273,46 @@ export const MOBILE_SHEET_SCROLL_EDGE = {
   fadeMs: 160,
   maskStops: easedMaskStops(0, "top"),
 } as const;
+
+/**
+ * A SwiftUI Form page's top and bottom edges (the Account page): under
+ * horizontal bars the system's soft edge (`nemuSoftScrollEdge()`); beside
+ * the Duo's vertical bar, where the stack screens' native top / bottom
+ * effects are `hidden` (`resolveNemuNativeScrollEdgeEffects`), the Form hides
+ * its own too and the page draws the same band as the React Native Settings
+ * pages (`NemuScrollEdgeSurface`): one edge each, the same everywhere.
+ */
+export function resolveMobileFormScrollEdge({
+  platform,
+  verticalBarSide,
+}: {
+  platform: string;
+  verticalBarSide: "left" | "right" | null;
+}): "system" | "app-band" {
+  return platform === "ios" && verticalBarSide ? "app-band" : "system";
+}
+
+/**
+ * The Form's resting offset for the top band's reveal, from its scroll
+ * geometry (SwiftUI reports the raw offset, the bar's inset included): the
+ * first offset reported, taken again when the Form's size changes (rotation,
+ * fold) while it was at rest (the bar's inset moved). Null `rest`: nothing
+ * reported yet.
+ */
+export function nextMobileFormScrollRest({
+  rest,
+  offset,
+  sizeChanged,
+  wasAtRest,
+}: {
+  rest: number | null;
+  offset: number;
+  sizeChanged: boolean;
+  /** The last reported offset was the rest (not scrolled into the band). */
+  wasAtRest: boolean;
+}): number {
+  "worklet";
+  if (rest === null || !Number.isFinite(rest)) return offset;
+  if (sizeChanged && wasAtRest) return offset;
+  return rest;
+}
