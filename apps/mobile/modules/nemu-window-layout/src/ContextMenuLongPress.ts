@@ -1,4 +1,6 @@
 import { createContext, useContext } from "react";
+// TEST-ONLY trace (remove before release): no-ops unless switched on in Settings.
+import { traceNativeMenuEvent, traceNativeMenuPressIn } from "./ContextMenuPressTrace";
 
 /**
  * Inside a native context menu (`ContextMenuView` on iOS with items) the
@@ -38,7 +40,13 @@ export type NativeContextMenuPressGate = {
   resolvePress(time: NativeContextMenuPressTime): NativeContextMenuPressDecision;
   /** After `NATIVE_MENU_PRESS_DEFER_MS` for a deferred press. */
   resolveDeferredPress(): "fire" | "suppress";
+  /** TEST-ONLY trace: the interaction asked for its menu (the hold began lifting). */
+  menuConfigure(): void;
+  /** TEST-ONLY trace: the lifted preview was tapped (the menu just dismisses). */
+  menuPreviewTap(): void;
 };
+
+let nextGateId = 1;
 
 function heldFor(from: NativeContextMenuPressTime, to: NativeContextMenuPressTime): number {
   if (typeof from.native === "number" && typeof to.native === "number") return to.native - from.native;
@@ -46,6 +54,7 @@ function heldFor(from: NativeContextMenuPressTime, to: NativeContextMenuPressTim
 }
 
 export function createNativeContextMenuPressGate(): NativeContextMenuPressGate {
+  const id = nextGateId++;
   let pressInAt: NativeContextMenuPressTime | null = null;
   // Once a sequence turned into a long press it stays one until the next pressIn.
   let suppressed = false;
@@ -54,34 +63,52 @@ export function createNativeContextMenuPressGate(): NativeContextMenuPressGate {
     pressIn(time) {
       pressInAt = time;
       suppressed = menuVisible;
+      traceNativeMenuPressIn(id, time.native);
     },
     longPress() {
       suppressed = true;
+      traceNativeMenuEvent(id, "RN long-press timer");
     },
     menuWillDisplay() {
       menuVisible = true;
       suppressed = true;
+      traceNativeMenuEvent(id, "menu willDisplay");
     },
     menuWillEnd() {
       menuVisible = false;
+      traceNativeMenuEvent(id, "menu willEnd");
     },
     resolvePress(time) {
-      const startedAt = pressInAt;
-      pressInAt = null;
-      if (suppressed || menuVisible) return "suppress";
-      // No touch sequence (accessibility activation): a plain press.
-      if (!startedAt) return "fire";
-      const held = heldFor(startedAt, time);
-      if (held >= NATIVE_MENU_LONG_PRESS_MS) {
-        suppressed = true;
-        return "suppress";
-      }
-      return held >= NATIVE_MENU_PRESS_DEFER_FROM_MS ? "defer" : "fire";
+      const decision = decide(time);
+      traceNativeMenuEvent(id, `onPress -> ${decision}`, time.native);
+      return decision;
     },
     resolveDeferredPress() {
-      return suppressed || menuVisible ? "suppress" : "fire";
+      const decision = suppressed || menuVisible ? "suppress" : "fire";
+      traceNativeMenuEvent(id, `deferred onPress -> ${decision}`);
+      return decision;
+    },
+    menuConfigure() {
+      traceNativeMenuEvent(id, "menu configure");
+    },
+    menuPreviewTap() {
+      traceNativeMenuEvent(id, "menu preview tapped");
     },
   };
+
+  function decide(time: NativeContextMenuPressTime): NativeContextMenuPressDecision {
+    const startedAt = pressInAt;
+    pressInAt = null;
+    if (suppressed || menuVisible) return "suppress";
+    // No touch sequence (accessibility activation): a plain press.
+    if (!startedAt) return "fire";
+    const held = heldFor(startedAt, time);
+    if (held >= NATIVE_MENU_LONG_PRESS_MS) {
+      suppressed = true;
+      return "suppress";
+    }
+    return held >= NATIVE_MENU_PRESS_DEFER_FROM_MS ? "defer" : "fire";
+  }
 }
 
 export function nativeContextMenuPressTime(event: unknown): NativeContextMenuPressTime {

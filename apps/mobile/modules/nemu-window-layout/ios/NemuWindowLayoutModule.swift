@@ -274,7 +274,7 @@ public final class NemuWindowLayoutModule: Module {
     // menu opens), see `NemuContextMenuView`.
     Constant("contextMenuViewAvailable") { true }
     View(NemuContextMenuView.self) {
-      Events("onMenuAction", "onMenuWillDisplay", "onMenuWillEnd")
+      Events("onMenuAction", "onMenuWillDisplay", "onMenuWillEnd", "onMenuConfigure", "onMenuPreviewTap")
       Prop("items") { (view: NemuContextMenuView, items: [NemuContextMenuItem]) in
         view.items = items
       }
@@ -308,6 +308,10 @@ final class NemuContextMenuView: ExpoView, UIContextMenuInteractionDelegate {
   /// it drop that release (`ContextMenuLongPress.ts`).
   let onMenuWillDisplay = EventDispatcher()
   let onMenuWillEnd = EventDispatcher()
+  /// TEST-ONLY (remove before release): feed the JS long-press trace, which
+  /// ignores them unless its Settings switch is on.
+  let onMenuConfigure = EventDispatcher()
+  let onMenuPreviewTap = EventDispatcher()
   var items: [NemuContextMenuItem] = []
   var menuTitle = ""
   var previewCornerRadius: CGFloat = 16
@@ -323,6 +327,7 @@ final class NemuContextMenuView: ExpoView, UIContextMenuInteractionDelegate {
     configurationForMenuAtLocation location: CGPoint
   ) -> UIContextMenuConfiguration? {
     guard !items.isEmpty else { return nil }
+    onMenuConfigure([:])
     let items = self.items
     let title = menuTitle
     return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
@@ -359,6 +364,15 @@ final class NemuContextMenuView: ExpoView, UIContextMenuInteractionDelegate {
 
   func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
     previewForDismissingMenuWithConfiguration configuration: UIContextMenuConfiguration) -> UITargetedPreview? { menuPreview() }
+
+  /// TEST-ONLY trace (remove before release). Tapping the lifted preview
+  /// only dismisses the menu — never opens the item — as without this method.
+  func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+    willPerformPreviewActionForMenuWith configuration: UIContextMenuConfiguration,
+    animator: UIContextMenuInteractionCommitAnimating) {
+    animator.preferredCommitStyle = .dismiss
+    onMenuPreviewTap([:])
+  }
 
   func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
     willDisplayMenuFor configuration: UIContextMenuConfiguration, animator: UIContextMenuInteractionAnimating?) {

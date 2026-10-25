@@ -154,7 +154,7 @@ describe("native context menu press gate", () => {
 
   test("the native view reports the menu presenting and ending", () => {
     const swift = read("modules/nemu-window-layout/ios/NemuWindowLayoutModule.swift");
-    expect(swift).toContain('Events("onMenuAction", "onMenuWillDisplay", "onMenuWillEnd")');
+    expect(swift).toMatch(/Events\("onMenuAction", "onMenuWillDisplay", "onMenuWillEnd"/);
     expect(swift).toContain("willDisplayMenuFor configuration: UIContextMenuConfiguration");
     expect(swift).toContain("onMenuWillDisplay([:])");
     expect(swift).toContain("onMenuWillEnd([:])");

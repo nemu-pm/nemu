@@ -24,6 +24,9 @@ type NativeProps = Omit<ContextMenuViewProps, "onMenuAction"> & {
   onMenuAction?: (event: { nativeEvent: { id: string } }) => void;
   onMenuWillDisplay?: () => void;
   onMenuWillEnd?: () => void;
+  /** TEST-ONLY trace events (remove before release). */
+  onMenuConfigure?: () => void;
+  onMenuPreviewTap?: () => void;
 };
 
 const NativeContextMenu: ComponentType<NativeProps> | null = contextMenuViewAvailable
@@ -48,6 +51,8 @@ export function ContextMenuView({ items, menuTitle, previewCornerRadius, onMenuA
       onMenuAction={onMenuAction ? (event) => onMenuAction(event.nativeEvent.id) : undefined}
       onMenuWillDisplay={gate.menuWillDisplay}
       onMenuWillEnd={gate.menuWillEnd}
+      onMenuConfigure={gate.menuConfigure}
+      onMenuPreviewTap={gate.menuPreviewTap}
       style={style}
     >
       {items.length > 0 ? (
