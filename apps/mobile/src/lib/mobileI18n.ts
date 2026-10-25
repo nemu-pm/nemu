@@ -1090,6 +1090,8 @@ export type MobileStrings = {
     deleteReauth: string;
     deleteUnavailable: string;
     deleteCleanupFailed: string;
+    /** Toast after a sign-out from the Account page. */
+    signedOut: string;
     openAccount: string;
   };
   aiConsent: {

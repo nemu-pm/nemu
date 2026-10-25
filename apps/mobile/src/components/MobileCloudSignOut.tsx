@@ -253,10 +253,16 @@ export function useMobileCloudSignOut({
   user,
   strings,
   busyProvider = null,
+  onSignedOut,
 }: {
   user: { id?: string } | null | undefined;
   strings: MobileStrings;
   busyProvider?: MobileOAuthProvider | null;
+  /**
+   * After a sign-out confirmed in the sheet succeeded (not one `signOut`
+   * callers run themselves), while `signingOut` is still set.
+   */
+  onSignedOut?: () => void;
 }) {
   const store = useMobileDataStore();
   const [signingOut, setSigningOut] = useState(false);
@@ -268,7 +274,10 @@ export function useMobileCloudSignOut({
   const busyProviderRef = useRef<MobileOAuthProvider | null>(busyProvider);
   busyProviderRef.current = busyProvider;
 
-  const signOut = async (keepData: boolean): Promise<boolean> => {
+  const signOut = async (
+    keepData: boolean,
+    onSucceeded?: () => void,
+  ): Promise<boolean> => {
     const errorAccountId = user?.id ?? null;
     if (
       !canStartMobileCloudSignOut(
@@ -317,6 +326,7 @@ export function useMobileCloudSignOut({
         setSignOutSheetOpen(false);
       }
       await hapticConfirm();
+      onSucceeded?.();
       return true;
     } catch (nextError) {
       if (
@@ -370,7 +380,7 @@ export function useMobileCloudSignOut({
         setSignOutSheetAccountId(null);
       }}
       onConfirm={() => {
-        void signOut(keepDataOnSignOut);
+        void signOut(keepDataOnSignOut, onSignedOut);
       }}
       onErrorDismiss={() => setError(null)}
       onKeepDataChange={setKeepDataOnSignOut}
@@ -379,7 +389,12 @@ export function useMobileCloudSignOut({
     />
   );
 
-  return { signingOut, requestSignOut: confirmSignOut, signOut, sheet };
+  return {
+    signingOut,
+    requestSignOut: confirmSignOut,
+    signOut: (keepData: boolean) => signOut(keepData),
+    sheet,
+  };
 }
 
 const styles = StyleSheet.create({

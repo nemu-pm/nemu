@@ -1258,6 +1258,7 @@ export const mobileStringsEn: MobileStrings = {
     deleteUnavailable: "Apple couldn't be reached. Try again in a moment.",
     deleteCleanupFailed:
       "Your account was deleted, but data on this device couldn't be cleared.",
+    signedOut: "Signed out",
     openAccount: "Account",
   },
   aiConsent: {

@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useRouter } from "expo-router";
+import { useEffect, useRef, useState } from "react";
+import { useNavigation, useRouter } from "expo-router";
 import { useQuery } from "convex/react";
 import { useMobileToast } from "@/components/MobileToastContext";
 import { useMobileCloudSignOut } from "@/components/MobileCloudSignOut";
@@ -10,6 +10,11 @@ import {
   mobileAccountDeletionFailureMessage,
   runMobileAccountDeletion,
 } from "@/lib/mobileAccountDeletion";
+import {
+  createMobileAccountLeave,
+  leaveMobileAccountPages,
+  shouldLeaveMobileAccountPages,
+} from "@/lib/mobileAccountSignedOut";
 import { mobileAuthClient } from "@/sync/mobileAuthClient";
 import { normalizeMobileOAuthProvider } from "@/sync/mobileOAuthProvider";
 import { mobileConvexRef } from "@/sync/mobileSyncRuntime";
@@ -23,17 +28,55 @@ import { api } from "../../../../convex/_generated/api";
 const KEEP_DEVICE_DATA_AFTER_ACCOUNT_DELETION = true;
 
 export function useMobileAccountPage() {
+  // The Settings stack's navigation (this page is a route in it).
+  const navigation = useNavigation() as unknown as Parameters<typeof leaveMobileAccountPages>[0];
   const router = useRouter();
   const toast = useMobileToast();
   const language = useMobileLanguageSettings();
   const strings = getMobileStrings(language.appLanguage);
-  const { data: session } = mobileAuthClient.useSession();
+  const latest = useRef({ navigation, router, toast, strings });
+  latest.current = { navigation, router, toast, strings };
+  // Once per page: a sign-out or deletion here lands on the Settings root
+  // (its Cloud sync card is the signed-out state; this page has none), with
+  // the account page off the stack so Back cannot return to it.
+  const [leaveAccount] = useState(() =>
+    createMobileAccountLeave({
+      dismissToSettings: () => latest.current.router.dismissTo("/settings"),
+      resetStack: () => {
+        leaveMobileAccountPages(latest.current.navigation);
+      },
+      showSignedOutToast: () =>
+        latest.current.toast.show({
+          id: "account-signed-out",
+          tone: "success",
+          title: latest.current.strings.account.signedOut,
+        }),
+    }),
+  );
+  const { data: session, isPending: sessionPending } = mobileAuthClient.useSession();
   const user = session?.user;
   const rawProvider = useQuery(api.auth.getOAuthProvider, user ? {} : "skip");
   const provider = normalizeMobileOAuthProvider(rawProvider);
   const providerLabel = provider === "apple" ? "Apple" : provider === "google" ? "Google" : "—";
-  const cloudSignOut = useMobileCloudSignOut({ user, strings });
+  const cloudSignOut = useMobileCloudSignOut({
+    user,
+    strings,
+    onSignedOut: () => leaveAccount("signedOut"),
+  });
   const [deleting, setDeleting] = useState(false);
+
+  // Signed out without this page's sign-out / deletion leaving first — a
+  // session expiry, a remote sign-out, or a sign-out whose local cleanup
+  // failed (the session settles to null): the account pages still go, from
+  // the Settings stack only (no tab switch, no toast).
+  const leave = shouldLeaveMobileAccountPages({
+    signedIn: Boolean(user),
+    sessionPending,
+    busy: deleting || cloudSignOut.signingOut,
+  });
+  useEffect(() => {
+    if (leave) leaveAccount("sessionEnded");
+  }, [leave, leaveAccount]);
 
   const deleteAccount = async () => {
     if (deleting || !user) return;
@@ -50,7 +93,9 @@ export function useMobileAccountPage() {
       });
       if (outcome.status === "deleted") {
         await hapticConfirm();
-        router.back();
+        // Also when the local sign-out failed (the session may linger): the
+        // account is gone, so are its pages.
+        leaveAccount("deleted");
         toast.show({
           id: "account-delete",
           tone: outcome.localCleanup === "ok" ? "success" : "warning",

@@ -1267,6 +1267,7 @@ export const mobileStringsJa: MobileStrings = {
       "Appleでのサインインを再確認する必要があります。サインアウトして、もう一度サインインしてからお試しください。",
     deleteUnavailable: "Appleに接続できませんでした。しばらくしてからお試しください。",
     deleteCleanupFailed: "アカウントは削除されましたが、この端末のデータを消去できませんでした。",
+    signedOut: "サインアウトしました",
     openAccount: "アカウント",
   },
   aiConsent: {
