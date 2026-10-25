@@ -139,7 +139,7 @@ describe("Aidoku sandbox pre-warm wiring", () => {
     expect(library).toContain("noteMobileLibraryFocused(true);");
     expect(library).toContain("noteMobileLibraryFocused(false);");
     expect(library).toContain(
-      "const libraryGridOnScroll = useMobileAidokuPrewarmScrollFeed(gridScrollAnchor.onScroll);",
+      "const libraryGridOnScroll = useMobileAidokuPrewarmScrollFeed(libraryListOnScroll);",
     );
     expect(library).toContain("onScroll={libraryGridOnScroll}");
     expect(rootLayout).toContain("{...mobileAidokuPrewarmRootTouchProps}");
