@@ -99,11 +99,18 @@ export function mobileReaderStandInMatches(standIn: MobileReaderStandIn, pageIds
 }
 
 /**
- * When the cover's cross-fade into the stand-in runs: its last
- * `fadeMs` before the zoom lands (start + duration), or from the moment the
- * stand-in is ready when that is later (it then ends after the landing).
- * Null when the stand-in is ready only after the landing: the reader's own
- * opening (the cover held until its page draws) takes over.
+ * How far past the landing the cross-fade may run when the stand-in (or the
+ * zoom's start event) reaches JS late: the page is fully shown by then.
+ */
+export const MOBILE_READER_STAND_IN_LATE_MS = 50;
+
+/**
+ * When the cover's cross-fade into the stand-in runs: its last `fadeMs`
+ * before the zoom lands (start + duration). Known late (the stand-in decoded,
+ * or the zoom's start event reached JS, after that window opened), it starts
+ * now and only what is left of the window runs: it ends by the landing + 
+ * `MOBILE_READER_STAND_IN_LATE_MS` at the latest, never a full fade after the
+ * landing. Past that, the stand-in replaces the cover at once.
  */
 export function resolveMobileReaderStandInFade(input: {
   startedAtMs: number;
@@ -111,12 +118,15 @@ export function resolveMobileReaderStandInFade(input: {
   readyAtMs: number;
   nowMs: number;
   fadeMs?: number;
-}): { delayMs: number; durationMs: number } | null {
+}): { delayMs: number; durationMs: number } {
   const fadeMs = input.fadeMs ?? MOBILE_READER_STAND_IN_FADE_MS;
   const landsAt = input.startedAtMs + input.durationMs;
-  if (input.readyAtMs > landsAt) return null;
-  const startsAt = Math.max(input.readyAtMs, landsAt - fadeMs);
-  return { delayMs: Math.max(0, Math.round(startsAt - input.nowMs)), durationMs: fadeMs };
+  const startsAt = Math.max(input.readyAtMs, input.nowMs, landsAt - fadeMs);
+  const endsAt = Math.min(startsAt + fadeMs, landsAt + MOBILE_READER_STAND_IN_LATE_MS);
+  return {
+    delayMs: Math.max(0, Math.round(startsAt - input.nowMs)),
+    durationMs: Math.max(0, Math.round(endsAt - startsAt)),
+  };
 }
 
 /** Exposed for tests. */

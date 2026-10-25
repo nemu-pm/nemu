@@ -56,12 +56,30 @@ describe("reader opening stand-in", () => {
     expect(MOBILE_READER_STAND_IN_FADE_MS).toBe(300);
   });
 
-  test("ready mid-zoom: a 300 ms fade from that moment; ready after the landing: none", () => {
+  test("ready mid-zoom: the fade from that moment, ending by the landing + 50 ms", () => {
+    // Lands at 1550: ready at 1400 → 1400..1600 (not 1400..1700).
     expect(resolveMobileReaderStandInFade({ startedAtMs: 1000, durationMs: 550, readyAtMs: 1400, nowMs: 1400 })).toEqual({
+      delayMs: 0,
+      durationMs: 200,
+    });
+    // Ready in time, but the zoom's start reached JS late (now 1300): what is left of the window.
+    expect(resolveMobileReaderStandInFade({ startedAtMs: 1000, durationMs: 550, readyAtMs: 1100, nowMs: 1300 })).toEqual({
       delayMs: 0,
       durationMs: 300,
     });
-    expect(resolveMobileReaderStandInFade({ startedAtMs: 1000, durationMs: 550, readyAtMs: 1600, nowMs: 1600 })).toBeNull();
+    expect(resolveMobileReaderStandInFade({ startedAtMs: 1000, durationMs: 550, readyAtMs: 1100, nowMs: 1450 })).toEqual({
+      delayMs: 0,
+      durationMs: 150,
+    });
+    // Build 9 #3: zoom 126 + 350 → lands 476; known at ~580 → a cut, not 580..880.
+    expect(resolveMobileReaderStandInFade({ startedAtMs: 126, durationMs: 350, readyAtMs: 580, nowMs: 580 })).toEqual({
+      delayMs: 0,
+      durationMs: 0,
+    });
+    for (const nowMs of [1000, 1200, 1300, 1400, 1500, 1550, 1580, 1700]) {
+      const plan = resolveMobileReaderStandInFade({ startedAtMs: 1000, durationMs: 550, readyAtMs: 1000, nowMs });
+      expect(nowMs + plan.delayMs + plan.durationMs).toBeLessThanOrEqual(Math.max(1600, nowMs));
+    }
   });
 
   test("route wiring: the stand-in sits over the reader and under the cover, cross-fading with it", () => {
@@ -77,5 +95,20 @@ describe("reader opening stand-in", () => {
     expect(cover).toBeGreaterThan(standIn);
     expect(route).toContain("opacity: (1 - opacity.value) * standInOut.value");
     expect(route).toContain("onStarted={coverReveal.onZoomStarted}");
+    // The hold's cap never cancels the armed cross-fade for a later one.
+    const holdCap = route.slice(route.indexOf("const armHoldCap = useCallback"), route.indexOf("cancelAnimation(opacity);", route.indexOf("const armHoldCap = useCallback")));
+    expect(holdCap).toContain("if (standInFadeArmedRef.current) return;");
+  });
+
+  test("native: decoded file:// pages are kept (the stand-in reuses the reader's decode)", () => {
+    const native = readFileSync(
+      path.join(import.meta.dir, "../../modules/nemu-aidoku/ios/NemuReaderImageCacheLimits.m"),
+      "utf8",
+    );
+    expect(native).toContain("@selector(addImageToCache:URL:size:scale:resizeMode:response:)");
+    expect(native).toContain("[url hasPrefix:@\"file://\"]");
+    // RCTImageCache's own key format (RCTCacheKeyForImage).
+    expect(native).toContain('@"%@|%g|%g|%g|%lld"');
+    expect(native).toContain("RCTSetImageCacheLimits(");
   });
 });

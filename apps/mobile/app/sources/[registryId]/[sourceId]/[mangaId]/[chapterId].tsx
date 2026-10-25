@@ -190,6 +190,8 @@ function useReaderCoverReveal(zoomId: string | null, hasStandIn: boolean): Reade
   /** When the (possibly delayed) fade begins, by the JS clock; null: none armed. */
   const fadeStartsAtRef = useRef<number | null>(null);
   const capArmedRef = useRef(false);
+  /** The reopen's cross-fade into the stand-in is armed: nothing later delays it. */
+  const standInFadeArmedRef = useRef(false);
   const [openingGate] = useState(() =>
     createReaderOpeningGate({
       onSettled: (reason: ReaderOpeningSettleReason) => {
@@ -274,6 +276,9 @@ function useReaderCoverReveal(zoomId: string | null, hasStandIn: boolean): Reade
   const armHoldCap = useCallback(() => {
     const landedAt = landedAtRef.current;
     if (landedAt == null) return;
+    // The stand-in already shows the page by the landing: the hold's cap
+    // must not cancel that fade for a later one.
+    if (standInFadeArmedRef.current) return;
     const now = Date.now();
     const delay = resolveReaderCoverCapDelay({
       tapAt,
@@ -312,28 +317,34 @@ function useReaderCoverReveal(zoomId: string | null, hasStandIn: boolean): Reade
   }, [onFadeEnd, opacity, tapAt]);
 
   // The stand-in's cross-fade (a reopen, Colo): the cover fades into the
-  // page during the zoom's last COVER-cross-fade ms, ending at the landing,
-  // so the page is fully shown when the zoom lands; a stand-in that decodes
-  // later in the zoom fades from that moment. Not ready by the landing: the
-  // reader's own opening (held until its page draws) as before.
+  // page during the zoom's last 300 ms, ending at the landing, so the page is
+  // fully shown when the zoom lands. Known late in JS (the stand-in decoded,
+  // or the zoom's start event arrived, after that window opened), only what
+  // is left of it runs: shown by the landing + 50 ms at the latest, and past
+  // that the stand-in replaces the cover at once (resolveMobileReaderStandInFade).
   const zoomStartRef = useRef<ZoomStartedEvent | null>(null);
   const standInReadyAtRef = useRef<number | null>(null);
   const scheduleStandInFade = useCallback(() => {
     const start = zoomStartRef.current;
     const readyAt = standInReadyAtRef.current;
     if (!hasStandIn || !start || readyAt == null) return;
-    if (fadeStartsAtRef.current != null || landedAtRef.current != null) return;
     const now = Date.now();
+    // A fade already running (the reader's own, or this one) is left be. A
+    // cap armed at the landing but not started yet is replaced: a stand-in
+    // known late (after the landing) still shows the page at once.
+    if (standInFadeArmedRef.current) return;
+    if (fadeStartsAtRef.current != null && fadeStartsAtRef.current <= now) return;
     const plan = resolveMobileReaderStandInFade({
       startedAtMs: start.startedAtMs,
       durationMs: start.durationMs,
       readyAtMs: readyAt,
       nowMs: now,
     });
-    if (!plan) return;
     const landsAt = start.startedAtMs + start.durationMs;
+    standInFadeArmedRef.current = true;
     fadeStartsAtRef.current = now + plan.delayMs;
     capArmedRef.current = true;
+    cancelAnimation(opacity);
     opacity.value = withDelay(
       plan.delayMs,
       withTiming(0, { duration: plan.durationMs }, (finished?: boolean) => {
@@ -353,8 +364,10 @@ function useReaderCoverReveal(zoomId: string | null, hasStandIn: boolean): Reade
   const onStandInReady = useCallback(() => {
     if (standInReadyAtRef.current != null) return;
     standInReadyAtRef.current = Date.now();
+    // TEST-ONLY — remove before release ("Opening Timing (Test)").
+    noteMobileReaderOpeningTiming(timingId, { standInReadyAt: standInReadyAtRef.current });
     scheduleStandInFade();
-  }, [scheduleStandInFade]);
+  }, [scheduleStandInFade, timingId]);
 
   const onLanded = useCallback(() => {
     if (landedAtRef.current != null) return;
