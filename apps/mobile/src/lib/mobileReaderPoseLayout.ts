@@ -1118,16 +1118,25 @@ export function mobileReaderHingeHintKey(layout: MobileWindowLayout): string | n
  * - once the region turns active, its own frame is used;
  * - `hintExpired` (the region did not turn active within
  *   `MOBILE_READER_HINGE_HINT_TIMEOUT_MS`) returns the region's answer — flat.
+ *
+ * `keepsSpread`: the reader shows a two-page spread across the window. A fold
+ * on the window's centre line lays that spread out exactly as flat
+ * (`mobileReaderSpreadHalves`), so anticipating it changes no page: the hint
+ * (and its expiry) would be layout passes with nothing to lay out, and only
+ * the chrome follows the fold, once the region reports it.
  */
 export function mobileReaderAnticipatedWindowLayout(
   layout: MobileWindowLayout,
-  { hintExpired = false }: { hintExpired?: boolean } = {},
+  { hintExpired = false, keepsSpread = false }: { hintExpired?: boolean; keepsSpread?: boolean } = {},
 ): MobileWindowLayout {
   if (hintExpired) return layout;
   const division = pendingHingeDivision(layout);
   if (!division) return layout;
   const half = MOBILE_READER_ANTICIPATED_FOLD_WIDTH / 2;
   const vertical = Math.abs(division.y) <= EPSILON;
+  if (keepsSpread && vertical && Math.abs(division.x + division.width / 2 - finite(layout.width) / 2) <= 1) {
+    return layout;
+  }
   const anticipated = vertical
     ? { ...division, active: true, x: division.x + division.width / 2 - half, width: MOBILE_READER_ANTICIPATED_FOLD_WIDTH }
     : { ...division, active: true, y: division.y + division.height / 2 - half, height: MOBILE_READER_ANTICIPATED_FOLD_WIDTH };
@@ -1135,6 +1144,21 @@ export function mobileReaderAnticipatedWindowLayout(
     ...layout,
     divisions: layout.divisions.map((region) => (region === division ? anticipated : region)),
   };
+}
+
+/**
+ * A spread's two slots split at the stage's centre line (stage-local): the
+ * halves a flat spread lays its pages in, and the slots of a spread across a
+ * centred fold, so both postures place the pages identically.
+ */
+export function mobileReaderSpreadHalves(stage: Pick<Rect, "width" | "height">): Rect[] {
+  const width = finite(stage.width);
+  const height = finite(stage.height);
+  const centre = width / 2;
+  return [
+    { x: 0, y: 0, width: centre, height },
+    { x: centre, y: 0, width: width - centre, height },
+  ];
 }
 
 /** Stage-local tap exclusions for the capsules that float over the page. */
@@ -1258,9 +1282,22 @@ export function mobileReaderPoseLayout(input: MobileReaderPoseLayoutInput): Mobi
     const twoPageAvailable = usablePair && multiPage;
     const spread = wantsSpread(input, bounds) && twoPageAvailable && sheetIndex === null;
     const stage = spread ? bounds : pagePanes[startIndex];
-    const spreadSlots = spread ? pagePanes.map((pane) => toLocal(pane, stage)) : undefined;
-    const foldGap = spreadSlots
-      ? { start: spreadSlots[0].x + spreadSlots[0].width, end: spreadSlots[1].x }
+    // A fold on the window's centre line (the iPhone Duo's open display): the
+    // spread keeps the flat spread's geometry, its halves split at the centre
+    // line, so fully open ⇄ half folded never moves a page (the spine stays
+    // put). The fold's interaction margins are kept for taps only
+    // (`foldGap`). An off-centre fold, a bar column, and a single page keep
+    // the panes.
+    const centreLine = bounds.width / 2;
+    const foldCentre = (pagePanes[0].x + pagePanes[0].width + pagePanes[1].x) / 2;
+    const centredSpread = spread && !input.sideBar && Math.abs(foldCentre - centreLine) <= 1;
+    const spreadSlots = spread
+      ? centredSpread
+        ? mobileReaderSpreadHalves(bounds)
+        : pagePanes.map((pane) => toLocal(pane, stage))
+      : undefined;
+    const foldGap = spread
+      ? { start: pagePanes[0].x + pagePanes[0].width - stage.x, end: pagePanes[1].x - stage.x }
       : null;
     // Capsules snap per pane, nothing on the fold (HIG: a pane's controls sit
     // atop that pane): Back + title in the leading pane, actions in the
@@ -1291,7 +1328,8 @@ export function mobileReaderPoseLayout(input: MobileReaderPoseLayoutInput): Mobi
       bounds,
       safeInsets: insets,
       stage,
-      constrained: true,
+      // The centred spread fills the window like a flat one: the same flag.
+      constrained: !centredSpread,
       spreadSlots,
       twoPageAvailable,
       spread,

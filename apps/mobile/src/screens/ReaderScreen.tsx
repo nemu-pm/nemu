@@ -29,6 +29,7 @@ import {
   mobileReaderNextSideInsetLatch,
   mobileReaderPoseLayout,
   mobileReaderSideInsetLatchKey,
+  mobileReaderSpreadHalves,
   mobileReaderNextTopInsetLatch,
   mobileReaderTopInsetLatchKey,
   type MobileReaderTopInsetLatch,
@@ -371,7 +372,7 @@ import {
   type ReaderFitMode,
 } from "@/lib/mobileReaderFit";
 import { classifyReaderWindowShape } from "@/lib/mobileReaderWindowShape";
-import type { ReaderSpreadMode } from "@/lib/mobileReaderSpreadMode";
+import { resolveReaderSpreadWanted, type ReaderSpreadMode } from "@/lib/mobileReaderSpreadMode";
 import {
   findMobileReaderSpreadIndex,
   firstPageIndexForMobileReaderSpread,
@@ -2897,6 +2898,14 @@ export function ReaderScreen() {
   const readerHingeHintExpired = readerHingeHintKey !== null && expiredReaderHingeHint === readerHingeHintKey;
   const readerSideBarInsetLeft = readerSideBarInsets?.left ?? null;
   const readerSideBarInsetRight = readerSideBarInsets?.right ?? null;
+  // A two-page spread across the whole window (paged, wide window, no bar
+  // column): a centred fold keeps its pages in place (the pose's halves).
+  const readerKeepsWindowSpread = Boolean(reservedLayout)
+    && galleryPagedMode
+    && pageCount > 1
+    && !readerSideBar
+    && (reservedLayout?.width ?? 0) > (reservedLayout?.height ?? 0)
+    && resolveReaderSpreadWanted(readerSpreadMode, reservedLayout ?? { width: 0, height: 0 });
   const readerSampledWindowLayout = useMemo<MobileWindowLayout>(() => {
     if (!reservedLayout) {
       return {
@@ -2906,8 +2915,11 @@ export function ReaderScreen() {
     }
     // The hinge reports before the fold region turns active: lay the fold
     // out as soon as the hinge says it is partially open (until it expires).
+    // A paged spread across a centred fold keeps every page where it is, so
+    // it is not anticipated (no layout pass with nothing to lay out).
     const anticipated = mobileReaderAnticipatedWindowLayout(reservedLayout, {
       hintExpired: readerHingeHintExpired,
+      keepsSpread: readerKeepsWindowSpread,
     });
     if (readerSideBarInsetLeft === null || readerSideBarInsetRight === null || !anticipated.safeAreaInsets) {
       return anticipated;
@@ -2916,7 +2928,7 @@ export function ReaderScreen() {
       ...anticipated,
       safeAreaInsets: { ...anticipated.safeAreaInsets, left: readerSideBarInsetLeft, right: readerSideBarInsetRight },
     };
-  }, [readerHingeHintExpired, readerSideBarInsetLeft, readerSideBarInsetRight, reservedLayout, window.height, window.width]);
+  }, [readerHingeHintExpired, readerKeepsWindowSpread, readerSideBarInsetLeft, readerSideBarInsetRight, reservedLayout, window.height, window.width]);
   // The reading area's safe area never follows the status bar (it shows and
   // hides with the controls): latched per window configuration, the widest
   // inset and the status island seen (`mobileReaderNextLayoutInsetLatch`).
@@ -3001,6 +3013,9 @@ export function ReaderScreen() {
     readerFoldedWindowLayout.safeAreaInsets?.top ?? insets.top,
   );
   if (readerBookPaneTop !== readerBookPaneTopLatch) setReaderBookPaneTopLatch(readerBookPaneTop);
+  // (A render-phase update: React re-runs this render before committing, and
+  // this render already reads the new value, so it never adds a visible pass.
+  // Its inset is the latched safe area, so it only changes with the posture.)
   const readerBookPaneTopInset = readerBookPaneTop?.top ?? null;
   const readerNotebookFold = readerFoldedAdaptive.posture === "notebook";
   // Half folded like a laptop, reader sheets belong to the bottom pane: never
@@ -10287,10 +10302,14 @@ export function ReaderScreen() {
     presentation: readerScrollMountKey,
     spread: isTwoPageMode,
     // Slots and page-frame limits: flat ⇄ book with a spread keeps the stage
-    // (the window) but moves the halves into the panes.
+    // (the window) but moves the halves into the panes. Compared as geometry:
+    // a flat spread's implicit halves and a centred fold's halves are the
+    // same slots, so that posture change re-arms no stage motion.
     pages: galleryPagedMode
       ? JSON.stringify([
-          readerSpreadSlots ?? null,
+          (readerSpreadSlots
+            ?? (isTwoPageMode && !readerStageConstrained ? mobileReaderSpreadHalves(readerStage) : null)
+          )?.map((slot) => [slot.x, slot.y, slot.width, slot.height].map((value) => Math.round(value * 2) / 2)) ?? null,
           Math.round(readerImageWidth * 2) / 2,
           Math.round(readerMaxPagedImageHeight * 2) / 2,
         ])

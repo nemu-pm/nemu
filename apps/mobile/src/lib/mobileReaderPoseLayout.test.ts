@@ -374,10 +374,13 @@ describe("reader pose: book", () => {
     expect(result.posture).toBe("book");
     expect(result.spread).toBe(true);
     expect(result.stage).toEqual({ x: 0, y: 0, width: 951, height: 669 });
+    // A centred fold: the flat spread's halves, split at the centre line
+    // (pages never move when the display folds); the fold is for taps only.
     expect(result.spreadSlots).toEqual([
-      { x: 0, y: 0, width: 455.5, height: 669 },
-      { x: 495.5, y: 0, width: 455.5, height: 669 },
+      { x: 0, y: 0, width: 475.5, height: 669 },
+      { x: 475.5, y: 0, width: 475.5, height: 669 },
     ]);
+    expect(result.constrained).toBe(false);
     expect(result.foldGap).toEqual({ start: 455.5, end: 495.5 });
     expect(mobileReaderTapExcluded({ x: 475, y: 300 }, result.tapExclusions, result.foldGap)).toBe(true);
     const chrome = capsules(result);
@@ -799,7 +802,12 @@ describe("reader pose on measured iPhone Duo geometry", () => {
             // is the exception: it flows through the fold as on the open
             // display (continuous content does not displace).
             const notebookStrip = label === "long strip" && fold !== null && fold.width > fold.height;
-            if (fold && !notebookStrip) expect(overlaps(page, fold)).toBe(false);
+            // A spread across a centred book fold keeps the flat halves (its
+            // pages meet at the spine, on the fold's centre line).
+            const centredSpread = result.posture === "book" && result.spread && !result.constrained;
+            if (fold && centredSpread) {
+              expect(page.x === 0 || Math.abs(page.x - (fold.x + fold.width / 2)) <= 1).toBe(true);
+            } else if (fold && !notebookStrip) expect(overlaps(page, fold)).toBe(false);
             expect(page.x).toBeGreaterThanOrEqual(0);
             expect(page.x + page.width).toBeLessThanOrEqual(m.bounds.width + 0.01);
           }
@@ -939,11 +947,11 @@ describe("reader pose on measured iPhone Duo geometry", () => {
     }
   });
 
-  test("book: measured 40pt fold at 455.5–495.5 separates the two page slots", () => {
+  test("book: measured 40pt fold at 455.5–495.5 is the spread's tap gap; its slots split at the centre line", () => {
     const result = pose(duoLayout(find("iphone-duo-inner", "partially-folded", "landscape-left")), { twoPage: true });
     expect(result.posture).toBe("book");
     expect(result.foldGap).toEqual({ start: 455.5, end: 495.5 });
-    expect(result.spreadSlots?.[1]).toEqual({ x: 495.5, y: 0, width: 951 - 495.5, height: 669 });
+    expect(result.spreadSlots?.[1]).toEqual({ x: 475.5, y: 0, width: 951 - 475.5, height: 669 });
   });
 
   test("notebook: the sheet starts at the fold band's lower edge and floats within the console, upright and upside-down", () => {
@@ -991,8 +999,8 @@ describe("reader pose on measured iPhone Duo geometry", () => {
       // RTL single page lives in the right (reading-start) pane.
       const rtl = pose(layout, { rtl: true });
       expect(rtl.stage).toEqual(expected);
-      // Spread: the right slot too.
-      expect(pose(layout, { twoPage: true }).spreadSlots?.[1]).toEqual(expected);
+      // Spread: the right half, split at the centre line (the fold is centred).
+      expect(pose(layout, { twoPage: true }).spreadSlots?.[1]).toEqual({ x: 475.5, y: 0, width: 951 - 475.5, height: 669 });
       // The top row in that pane sits left of the status occlusion, not below it.
       const chrome = rtl.chrome;
       if (chrome.kind === "capsules") {
