@@ -181,6 +181,7 @@ import {
   shouldHoldReaderOpeningForImages,
   type ReaderImageProcessorReason,
 } from "@/components/reader/readerOpeningHold";
+import { createReaderCrossingTapQueue } from "@/components/reader/readerCrossingTapQueue";
 import { getMobileReaderProcessedSourceOpening } from "@/lib/mobileReaderProcessedSourceOpening";
 import { ReaderMoreMenu } from "@/components/reader/ReaderMoreMenu";
 import { useReaderScrubPreviewThumbnails } from "@/components/reader/useReaderScrubPreviewThumbnails";
@@ -6125,10 +6126,24 @@ export function ReaderScreen() {
   // Seamless paged reading: a turn past the open chapter's edge (or off a
   // placeholder). Set further down, with the crossing; true when handled.
   const readerPagedStepRef = useRef<(direction: "previous" | "next") => boolean>(() => false);
+  // Tap turns that land while a tap-started crossing is still in flight: the
+  // reader still reads the chapter left, so a step would re-target the frame
+  // the crossing is heading to (a dropped tap). Held, replayed once landed.
+  const [readerCrossingTaps] = useState(createReaderCrossingTapQueue);
+  const readerCrossingTapReplayingRef = useRef(false);
+  const readerCrossingTapRenderRef = useRef(0);
+  const readerCrossingTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const readerCrossingTapReplayedRef = useRef<{ render: number; at: number } | null>(null);
+  const stepReaderPageRef = useRef<(direction: "previous" | "next") => void>(() => undefined);
+  const drainReaderCrossingTapsRef = useRef<() => void>(() => undefined);
   const stepReaderPage = useCallback(
     (direction: "previous" | "next") => {
       if (pageCount <= 0) return;
       noteReaderStripGate({ kind: "user-gesture" });
+      if (!readerCrossingTapReplayingRef.current && readerCrossingTaps.hold(direction, chapterId, Date.now())) {
+        drainReaderCrossingTapsRef.current();
+        return;
+      }
       // Resting on a placeholder: the turn is the strip's.
       if (readerPagedEdgeRef.current && readerPagedStepRef.current(direction)) return;
       const targetPageIndex = isTwoPageMode
@@ -6169,6 +6184,7 @@ export function ReaderScreen() {
       goToPage(targetPageIndex, arrival);
     },
     [
+      chapterId,
       clampedPageIndex,
       currentDisplayedPageKey,
       goToPage,
@@ -6179,9 +6195,11 @@ export function ReaderScreen() {
       readerPageFlip,
       readerSpreads,
       showEndOfChapterPrompt,
+      readerCrossingTaps,
       showPreviousChapterFromEnd,
     ],
   );
+  stepReaderPageRef.current = stepReaderPage;
 
   const goToReaderScrubIndex = useCallback(
     (scrubIndex: number) => {
@@ -10389,6 +10407,7 @@ export function ReaderScreen() {
     ) {
       // Not now (a restore owns the pager): back to the open chapter's page.
       logReaderEndOfChapter(`paged crossing refused chapter=${crossing.chapterId}`);
+      readerCrossingTaps.cancelCrossing();
       scrollToPageIndex(clampedPageIndex, true);
     }
   };
@@ -10423,12 +10442,55 @@ export function ReaderScreen() {
       if (direction === "previous") requestReaderStripPrevious();
     } else {
       readerChapterStrip.prioritise(located.chapterId, located.localPages);
+      // Taps until it lands are held for it, not turned from this chapter.
+      readerCrossingTaps.beginCrossing(chapterId, Date.now());
     }
     // The settle that follows is the crossing (no second haptic).
     armReaderProgrammaticScroll({ kind: "frame", frameIndex: target - base });
     scrollToReaderPagedFrame(target, true);
     return true;
   };
+  // Held tap turns replay one per render, as the chapter they landed for.
+  // A replayed turn only takes effect in the next render: the one after it
+  // waits for that render (else it would step from the same page again).
+  readerCrossingTapRenderRef.current += 1;
+  const scheduleDrain = () => {
+    if (readerCrossingTapTimerRef.current) return;
+    readerCrossingTapTimerRef.current = setTimeout(() => {
+      readerCrossingTapTimerRef.current = null;
+      drainReaderCrossingTapsRef.current();
+    }, 120);
+  };
+  drainReaderCrossingTapsRef.current = () => {
+    if (readerCrossingTaps.pending <= 0) return;
+    const now = Date.now();
+    const replayed = readerCrossingTapReplayedRef.current;
+    const waitingForRender =
+      replayed != null && replayed.render === readerCrossingTapRenderRef.current && now - replayed.at < 250;
+    const direction = waitingForRender ? null : readerCrossingTaps.next(chapterId, now);
+    if (!direction) {
+      // Still in flight (the hold has a cap) or not re-rendered yet.
+      scheduleDrain();
+      return;
+    }
+    readerCrossingTapReplayedRef.current = { render: readerCrossingTapRenderRef.current, at: now };
+    readerCrossingTapReplayingRef.current = true;
+    try {
+      stepReaderPageRef.current(direction);
+    } finally {
+      readerCrossingTapReplayingRef.current = false;
+    }
+    if (readerCrossingTaps.pending > 0) scheduleDrain();
+  };
+  useEffect(() => {
+    if (readerCrossingTaps.pending > 0) drainReaderCrossingTapsRef.current();
+  });
+  useEffect(
+    () => () => {
+      if (readerCrossingTapTimerRef.current) clearTimeout(readerCrossingTapTimerRef.current);
+    },
+    [],
+  );
   // Seamless paged reading, at rest again (no swipe, no leaf turning): a
   // previous chapter fetched meanwhile joins in front now, and a head prune
   // that waited for the frames to settle runs.
