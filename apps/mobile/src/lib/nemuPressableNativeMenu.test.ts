@@ -6,11 +6,11 @@ import {
   resolveNemuPressableLongPress,
 } from "./nemuPressable";
 import {
-  NATIVE_MENU_CONFIGURED_TAP_MAX_MS,
   NATIVE_MENU_LONG_PRESS_MS,
   NATIVE_MENU_PRESS_DEFER_FROM_MS,
   NATIVE_MENU_PRESS_UNCONFIGURED_WAIT_MS,
   NATIVE_MENU_PRESS_VERDICT_CAP_MS,
+  NATIVE_MENU_TAP_MAX_MS,
   NATIVE_MENU_TAP_SLOP_PT,
   NATIVE_MENU_UNSTAMPED_CANCEL_BEFORE_RELEASE_MS,
   createNativeContextMenuPressGate,
@@ -162,28 +162,55 @@ describe("native context menu press gate", () => {
     expect(presses()).toBe(0);
   });
 
-  test("past the configured-tap limit every order drops the release; at or below it a release-ended lift still taps", () => {
+  test("from the tap limit on every order drops the release; below it a release-ended lift still taps", () => {
     const { gate, advance, press, presses } = harness();
     gate.pressIn(at(1000));
     gate.menuConfigure();
-    expect(gate.resolvePress(at(1000 + NATIVE_MENU_CONFIGURED_TAP_MAX_MS + 1), press)).toBe("suppress");
+    expect(gate.resolvePress(at(1000 + NATIVE_MENU_TAP_MAX_MS), press)).toBe("suppress");
     gate.pressIn(at(2000));
     gate.menuConfigure();
-    expect(gate.resolvePress(at(2000 + NATIVE_MENU_CONFIGURED_TAP_MAX_MS), press)).toBe("defer");
+    expect(gate.resolvePress(at(2000 + NATIVE_MENU_TAP_MAX_MS - 1), press)).toBe("defer");
     gate.menuWillEnd();
     expect(presses()).toBe(1);
-    // A configure that reaches JS only after a long release: dropped then.
+    // A configure that reaches JS only after a long release: dropped at the release.
     gate.pressIn(at(4000));
-    expect(gate.resolvePress(at(4400), press)).toBe("defer");
+    expect(gate.resolvePress(at(4400), press)).toBe("suppress");
     gate.menuConfigure();
     gate.menuWillEnd();
     advance(NATIVE_MENU_PRESS_VERDICT_CAP_MS);
     expect(presses()).toBe(1);
-    // A long hold UIKit never configured (no lift began): the short wait, then the press.
+    // A long hold UIKit never configured: dropped too (no "short wait, then press").
     gate.pressIn(at(6000));
-    expect(gate.resolvePress(at(6400), press)).toBe("defer");
-    advance(NATIVE_MENU_PRESS_UNCONFIGURED_WAIT_MS);
-    expect(presses()).toBe(2);
+    expect(gate.resolvePress(at(6400), press)).toBe("suppress");
+    advance(NATIVE_MENU_PRESS_VERDICT_CAP_MS);
+    expect(presses()).toBe(1);
+  });
+
+  test("build 9 r4: a hold of 350 ms or more never opens — no configure, any event order, either clock", () => {
+    const { gate, advance, press, presses } = harness();
+    for (const held of [350, 370, 404, 499]) {
+      // No menu event at all (a 12-14 pt drag in the first 150 ms kept UIKit from configuring).
+      gate.pressIn(at(10_000 + held * 10));
+      expect(gate.resolvePress(at(10_000 + held * 10 + held), press)).toBe("suppress");
+      // willEnd before the release, no configure.
+      gate.pressIn(at(20_000 + held * 10));
+      gate.menuWillEnd();
+      expect(gate.resolvePress(at(20_000 + held * 10 + held), press)).toBe("suppress");
+      // Events only after the release.
+      gate.pressIn(at(30_000 + held * 10));
+      expect(gate.resolvePress(at(30_000 + held * 10 + held), press)).toBe("suppress");
+      gate.menuConfigure();
+      gate.menuWillEnd();
+      // JS clock fallback (no touch timestamps).
+      gate.pressIn({ wall: 40_000 + held * 10 });
+      expect(gate.resolvePress({ wall: 40_000 + held * 10 + held }, press)).toBe("suppress");
+    }
+    advance(NATIVE_MENU_PRESS_VERDICT_CAP_MS);
+    expect(presses()).toBe(0);
+    // Quick still taps still press at once at the release.
+    gate.pressIn(at(90_000));
+    expect(gate.resolvePress(at(90_120), press)).toBe("fire");
+    expect(presses()).toBe(1);
   });
 
   test("unstamped (build 9 r3 binary): a willEnd that reached JS well before the release was a cancel under the finger", () => {
@@ -241,7 +268,7 @@ describe("native context menu press gate", () => {
   test("a configure that reaches JS after the release switches to waiting for the verdict", () => {
     const { gate, advance, press, presses } = harness();
     gate.pressIn(at(1000));
-    expect(gate.resolvePress(at(1450), press)).toBe("defer");
+    expect(gate.resolvePress(at(1340), press)).toBe("defer");
     gate.menuConfigure();
     advance(NATIVE_MENU_PRESS_UNCONFIGURED_WAIT_MS + 200);
     expect(presses()).toBe(0);

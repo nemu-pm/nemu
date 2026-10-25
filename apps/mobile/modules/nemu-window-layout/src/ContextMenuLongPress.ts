@@ -43,6 +43,14 @@ export const NATIVE_MENU_PRESS_DEFER_FROM_MS = 250;
  */
 export const NATIVE_MENU_CONFIGURED_TAP_MAX_MS = 350;
 /**
+ * Product rule (build 9 r4): a press held this long (touch clock, else the
+ * JS clock) never opens at its release — with or without `configure` or any
+ * menu event, in any order. A drag of 12-14 pt in the first ~150 ms keeps
+ * UIKit from configuring the menu at all, and the "no configure: a tap after
+ * a short wait" path then opened 370-404 ms holds (r4: 15/24).
+ */
+export const NATIVE_MENU_TAP_MAX_MS = 350;
+/**
  * A longer hold whose interaction had begun (`configure`) waits for the
  * menu's verdict — `willDisplay` (drop) or `willEnd` without a display (the
  * lift was cancelled: press) — at most this long after the release.
@@ -287,8 +295,9 @@ export function createNativeContextMenuPressGate(
       traceNativeMenuEvent(id, `moved ${Math.round(maxMoved)} pt (> ${NATIVE_MENU_TAP_SLOP_PT})`);
       return "suppress";
     }
-    if (held >= NATIVE_MENU_LONG_PRESS_MS) {
+    if (held >= NATIVE_MENU_TAP_MAX_MS) {
       suppressed = true;
+      traceNativeMenuEvent(id, `held ${Math.round(held)} ms (>= ${NATIVE_MENU_TAP_MAX_MS})`);
       return "suppress";
     }
     // UIKit cancelled the lift while the finger was still down (it drifted
@@ -305,12 +314,6 @@ export function createNativeContextMenuPressGate(
       return "suppress";
     }
     if (held < NATIVE_MENU_PRESS_DEFER_FROM_MS) return "fire";
-    // The lift had begun and the hold reached its commit point's
-    // neighbourhood: a willEnd without a display now is no proof of a tap.
-    if (configured && held > NATIVE_MENU_CONFIGURED_TAP_MAX_MS) {
-      suppressed = true;
-      return "suppress";
-    }
     // The lift already ended (willEnd reached JS first, not stamped before
     // the release — the release itself ended it): no menu is coming.
     return endedWithoutMenu ? "fire" : "defer";
