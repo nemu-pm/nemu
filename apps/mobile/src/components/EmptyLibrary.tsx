@@ -22,10 +22,15 @@ import {
   NemuButton,
   NemuPressable,
 } from "@/design-system";
-import { getMobileFloatingTabBarOverlayExtent } from "@/lib/mobileFloatingTabBarClearance";
+import { usePathname } from "expo-router";
+import { getMobilePageContentBottomPadding } from "@/lib/mobileFloatingTabBarClearance";
+import { useMobileBottomTabBarInset } from "@/lib/mobileBottomTabBarInset";
+import { isMobileBottomTabBarRoute } from "@/lib/mobileRootTabs";
 import { getMobileStrings } from "@/lib/mobileI18n";
 import {
   getMobileEmptyLibraryAdaptiveLayout,
+  getMobileEmptyLibraryBoxHeight,
+  getMobileEmptyLibraryIosBottomChrome,
   getMobileEmptyLibrarySecondaryActionPlacement,
   NEMU_WEB_EMPTY_LIBRARY_VISUAL,
 } from "@/lib/mobileEmptyLibraryLayout";
@@ -58,6 +63,12 @@ type EmptyLibraryProps = {
   diagnosticDetailsLabel?: string;
   /** Height to center in instead of the window-derived one (a folded pane). */
   minHeight?: number;
+  /**
+   * Fill the host instead of sizing from the window: `flex: 1` inside a
+   * viewport-filling list (`PageListScaffold fillViewport`), laid out for the
+   * height it actually gets.
+   */
+  fill?: boolean;
   /** A quieter second way forward under the main action. */
   secondaryActionLabel?: string;
   onSecondaryActionPress?: () => void;
@@ -74,6 +85,7 @@ export function EmptyLibrary({
   diagnostic,
   diagnosticDetailsLabel,
   minHeight,
+  fill = false,
   secondaryActionLabel,
   onSecondaryActionPress,
 }: EmptyLibraryProps) {
@@ -108,9 +120,29 @@ export function EmptyLibrary({
   // system draws them horizontally (Duo's outer display and inner landscape
   // move them to the trailing edge — subtracting a bottom bar there made the
   // art needlessly small), minus the asymmetric side safe areas.
+  // The page's own content padding (pageTop above, the bottom margin below)
+  // counts too, and the bottom bar is UIKit's real tab bar inset on iOS (not
+  // the Android floating bar's extent), so the box never overflows its page.
+  const pathname = usePathname();
+  const measuredTabBarInset = useMobileBottomTabBarInset();
+  const bottomTabBar = !barsOnSide && isMobileBottomTabBarRoute(pathname, Platform.OS);
   const topChrome = (usesNemuNativeHeader ? insets.top + 44 : insets.top) + spacing.pageTop;
-  const bottomChrome = barsOnSide ? insets.bottom : getMobileFloatingTabBarOverlayExtent(insets.bottom);
-  const boxHeight = minHeight ?? Math.max(1, height - topChrome - bottomChrome);
+  const bottomChrome = Platform.OS === "ios"
+    ? getMobileEmptyLibraryIosBottomChrome({
+        safeAreaBottom: insets.bottom,
+        bottomTabBar,
+        measuredTabBarInset,
+      })
+    : getMobilePageContentBottomPadding({
+        safeAreaBottom: insets.bottom,
+        systemAdjustsBottomInset: false,
+        floatingTabBar: bottomTabBar,
+        tabBottom: spacing.tabBottom,
+      });
+  const [filledHeight, setFilledHeight] = useState<number | null>(null);
+  const boxHeight = minHeight ?? (fill && filledHeight !== null
+    ? filledHeight
+    : getMobileEmptyLibraryBoxHeight({ windowHeight: height, topChrome, bottomChrome }));
   const bleedWidth = Math.max(1, width - insets.left - insets.right);
   const layout = getMobileEmptyLibraryAdaptiveLayout({
     width: containerWidth ?? bleedWidth,
@@ -130,11 +162,17 @@ export function EmptyLibrary({
   const onRootLayout = useCallback(
     (event: LayoutChangeEvent) => {
       onContainerLayout(event);
+      if (fill) {
+        const measured = event.nativeEvent.layout.height;
+        setFilledHeight((previous) =>
+          previous !== null && Math.abs(previous - measured) < 0.5 ? previous : measured,
+        );
+      }
       containerRef.current?.measureInWindow((_x, y) => {
         setRootTop((previous) => (previous !== null && Math.abs(previous - y) < 0.5 ? previous : y));
       });
     },
-    [containerRef, onContainerLayout],
+    [containerRef, fill, onContainerLayout],
   );
   const onDetailsLayout = useCallback((event: LayoutChangeEvent) => {
     const { y, height: detailsHeight } = event.nativeEvent.layout;
@@ -306,7 +344,7 @@ export function EmptyLibrary({
         style={[
           layout.arrangement === "stack" ? styles.root : styles.splitRoot,
           layout.arrangement === "row" && styles.row,
-          { minHeight: boxHeight },
+          fill ? styles.fill : { minHeight: boxHeight },
         ]}
       >
         <MobilePoseLayoutView key="art" style={artSlotStyle} onLayout={onArtSlotLayout}>
@@ -344,6 +382,9 @@ const styles = StyleSheet.create({
   },
   splitRoot: {
     alignSelf: "stretch",
+  },
+  fill: {
+    flex: 1,
   },
   stackDetails: {
     // Same box the details had as a direct child of the centered root.

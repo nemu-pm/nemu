@@ -91,3 +91,39 @@ export function getMobileSourceGridLayout(
     fold,
   });
 }
+
+/**
+ * The part of a page scroll view the content can occupy without becoming
+ * scrollable: its frame minus the insets UIKit adds when it adjusts content
+ * insets (the see-through bar above, the tab bar / home indicator below).
+ * A content container with `flexGrow: 1` fills the whole frame, so under
+ * automatic insets it would be taller than this by both bars and the page
+ * could be dragged and left resting part-way; capping it here keeps an empty
+ * page exactly as tall as its viewport, so it only rubber-bands.
+ *
+ * `observedInsets` is the scroll view's own safe area (a native observer
+ * sharing its frame) and wins; otherwise the measured header and bottom bar
+ * stand in. Pages without inset adjustment pad for their bars themselves, so
+ * the frame is the viewport. Null until the frame is measured.
+ */
+export function resolveMobilePageViewportHeight({
+  frameHeight,
+  systemAdjustsInsets,
+  observedInsets,
+  fallbackTopInset,
+  fallbackBottomInset,
+}: {
+  frameHeight: number | null;
+  systemAdjustsInsets: boolean;
+  observedInsets: { top: number; bottom: number } | null;
+  fallbackTopInset: number;
+  fallbackBottomInset: number;
+}): number | null {
+  if (frameHeight === null || !Number.isFinite(frameHeight) || frameHeight <= 0) return null;
+  if (!systemAdjustsInsets) return Math.floor(frameHeight);
+  const top = observedInsets ? observedInsets.top : fallbackTopInset;
+  const bottom = observedInsets ? observedInsets.bottom : fallbackBottomInset;
+  const safeTop = Number.isFinite(top) ? Math.max(0, top) : 0;
+  const safeBottom = Number.isFinite(bottom) ? Math.max(0, bottom) : 0;
+  return Math.max(1, Math.floor(frameHeight - safeTop - safeBottom));
+}

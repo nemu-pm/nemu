@@ -1,3 +1,6 @@
+import { MOBILE_PAGE_CONTENT_BOTTOM_MARGIN } from "./mobileFloatingTabBarClearance";
+import { MOBILE_IOS_TAB_BAR_FALLBACK_HEIGHT } from "./mobileToastPlacement";
+
 export const NEMU_WEB_EMPTY_LIBRARY_VISUAL = {
   actionMarginTop: 24,
   copyGap: 8,
@@ -188,4 +191,45 @@ export function getMobileEmptyLibrarySecondaryActionPlacement({
 /** Web never lets the portrait exceed its `sm:max-w-md md:max-w-lg` caps. */
 function portraitWidthCap(contentWidth: number) {
   return portraitWidthForBreakpoint(contentWidth);
+}
+
+/**
+ * iOS: what sits below the hero inside a page — the real tab bar inset
+ * (measured, else safe area + 49) or just the home indicator when there is no
+ * bottom bar (vertical bars, pushed screens without tabs), plus the page's
+ * own bottom content margin.
+ */
+export function getMobileEmptyLibraryIosBottomChrome({
+  safeAreaBottom,
+  bottomTabBar,
+  measuredTabBarInset,
+}: {
+  safeAreaBottom: number;
+  bottomTabBar: boolean;
+  measuredTabBarInset: number | null;
+}): number {
+  const safe = Number.isFinite(safeAreaBottom) ? Math.max(0, safeAreaBottom) : 0;
+  const bar = bottomTabBar
+    ? measuredTabBarInset !== null && measuredTabBarInset > 0
+      ? Math.max(measuredTabBarInset, safe)
+      : safe + MOBILE_IOS_TAB_BAR_FALLBACK_HEIGHT
+    : safe;
+  return bar + MOBILE_PAGE_CONTENT_BOTTOM_MARGIN;
+}
+
+/**
+ * The hero's window-derived box: the window minus the chrome above (bar +
+ * page top padding) and below (bar + page bottom margin), less 1pt so
+ * rounding can never make the page scrollable.
+ */
+export function getMobileEmptyLibraryBoxHeight({
+  windowHeight,
+  topChrome,
+  bottomChrome,
+}: {
+  windowHeight: number;
+  topChrome: number;
+  bottomChrome: number;
+}): number {
+  return Math.max(1, Math.floor(windowHeight - topChrome - bottomChrome) - 1);
 }

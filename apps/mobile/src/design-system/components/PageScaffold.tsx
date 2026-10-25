@@ -47,8 +47,13 @@ import { getMobileFontScaleLayoutKey } from "@/lib/mobileDynamicTypeLayout";
 import {
   getMobilePageTopPadding,
   resolveMobilePageContentInsetAdjustment,
+  resolveMobilePageViewportHeight,
 } from "@/lib/mobilePageLayout";
-import { shouldShowMobileFloatingTabBar } from "@/lib/mobileRootTabs";
+import { isMobileBottomTabBarRoute, shouldShowMobileFloatingTabBar } from "@/lib/mobileRootTabs";
+import { useMobileBottomTabBarInset } from "@/lib/mobileBottomTabBarInset";
+import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
+import { MOBILE_IOS_TAB_BAR_FALLBACK_HEIGHT } from "@/lib/mobileToastPlacement";
+import { WindowLayoutObserver, type MobileWindowLayout } from "../../../modules/nemu-window-layout";
 import { NemuScrollEdgeSurface, useNemuScrollEdgeTracking } from "./NemuScrollEdgeSurface";
 
 /**
@@ -84,6 +89,11 @@ type PageScaffoldProps = {
    */
   barContentVisible?: boolean;
   scrollRef?: Ref<ScrollViewInstance>;
+  /**
+   * The content fills exactly the visible viewport (an empty page): it
+   * centres in it and only rubber-bands, never rests part-way scrolled.
+   */
+  fillViewport?: boolean;
 };
 
 type PageListScaffoldProps<ItemT> = Omit<
@@ -124,6 +134,12 @@ type PageListScaffoldProps<ItemT> = Omit<
    */
   scrollEdgePane?: { topPadding: number };
   listRef?: Ref<FlatList<ItemT>>;
+  /**
+   * The content (an empty list's `ListEmptyComponent` at `flex: 1`) fills
+   * exactly the visible viewport: it centres in it and only rubber-bands,
+   * never rests part-way scrolled.
+   */
+  fillViewport?: boolean;
 };
 
 type ScrollableWebNode = {
@@ -350,6 +366,70 @@ function usePageRefreshControl({
 }
 
 
+/**
+ * Content-container style that makes a page's content exactly as tall as its
+ * visible viewport (`resolveMobilePageViewportHeight`): `flexGrow: 1` so the
+ * content can centre in the room, capped at the frame minus UIKit's adjusted
+ * insets so it never becomes scrollable. iOS measures the scroll view's own
+ * safe area with an observer sharing its frame.
+ */
+function usePageViewportFill({
+  enabled,
+  contentInsetAdjustmentBehavior,
+}: {
+  enabled: boolean;
+  contentInsetAdjustmentBehavior: NonNullable<ScrollViewProps["contentInsetAdjustmentBehavior"]>;
+}) {
+  const insets = useSafeAreaInsets();
+  const pathname = usePathname();
+  const headerHeight = useContext(HeaderHeightContext);
+  const { verticalBarSide } = useMobileAdaptiveLayout();
+  const measuredTabBarInset = useMobileBottomTabBarInset();
+  const [frameHeight, setFrameHeight] = useState<number | null>(null);
+  const [observed, setObserved] = useState<{ top: number; bottom: number; height: number } | null>(null);
+  const systemAdjustsInsets =
+    Platform.OS === "ios" && contentInsetAdjustmentBehavior !== "never";
+  const onFrameLayout = useCallback((event: LayoutChangeEvent) => {
+    const next = event.nativeEvent.layout.height;
+    setFrameHeight((previous) => (previous !== null && Math.abs(previous - next) < 0.5 ? previous : next));
+  }, []);
+  const onObserverLayout = useCallback((layout: MobileWindowLayout) => {
+    const safe = layout.safeAreaInsets;
+    if (!safe) return;
+    setObserved((previous) =>
+      previous &&
+      Math.abs(previous.top - safe.top) < 0.5 &&
+      Math.abs(previous.bottom - safe.bottom) < 0.5 &&
+      Math.abs(previous.height - layout.height) < 0.5
+        ? previous
+        : { top: safe.top, bottom: safe.bottom, height: layout.height },
+    );
+  }, []);
+  const bottomBar =
+    isMobileBottomTabBarRoute(pathname, Platform.OS) && verticalBarSide === null;
+  const viewportHeight = resolveMobilePageViewportHeight({
+    frameHeight: observed?.height ?? frameHeight,
+    systemAdjustsInsets,
+    observedInsets: observed,
+    fallbackTopInset: typeof headerHeight === "number" && headerHeight > 0 ? headerHeight : insets.top,
+    fallbackBottomInset: bottomBar
+      ? (measuredTabBarInset ?? insets.bottom + MOBILE_IOS_TAB_BAR_FALLBACK_HEIGHT)
+      : insets.bottom,
+  });
+  const style = useMemo<StyleProp<ViewStyle>>(
+    () =>
+      enabled
+        ? { flexGrow: 1, ...(viewportHeight !== null ? { maxHeight: viewportHeight } : null) }
+        : null,
+    [enabled, viewportHeight],
+  );
+  const observer =
+    enabled && systemAdjustsInsets ? (
+      <WindowLayoutObserver style={StyleSheet.absoluteFill} onLayoutChange={onObserverLayout} />
+    ) : null;
+  return { style, observer, onFrameLayout };
+}
+
 export function PageScaffold({
   children,
   onRefresh,
@@ -362,6 +442,7 @@ export function PageScaffold({
   headerSearchBar,
   barContentVisible,
   scrollRef,
+  fillViewport = false,
 }: PageScaffoldProps) {
   const contentInsetAdjustmentBehavior = resolveMobilePageContentInsetAdjustment({
     platform: Platform.OS,
@@ -399,6 +480,10 @@ export function PageScaffold({
     refreshLabel,
     refreshing,
   });
+  const viewportFill = usePageViewportFill({
+    enabled: fillViewport,
+    contentInsetAdjustmentBehavior,
+  });
 
   useEffect(() => {
     if (!rootTabHref) return undefined;
@@ -414,12 +499,15 @@ export function PageScaffold({
       headerBarHeight={headerBarHeight}
       tracking={edgeTracking}
     >
+      {viewportFill.observer}
       <ScrollView
         ref={setScrollRef}
         style={[styles.root, { backgroundColor: tokens.background }]}
+        alwaysBounceVertical={fillViewport ? true : undefined}
         automaticallyAdjustContentInsets={contentInsetAdjustmentBehavior !== "never"}
         automaticallyAdjustsScrollIndicatorInsets={contentInsetAdjustmentBehavior !== "never"}
-        contentContainerStyle={contentStyle}
+        contentContainerStyle={fillViewport ? [contentStyle, viewportFill.style] : contentStyle}
+        onLayout={fillViewport ? viewportFill.onFrameLayout : undefined}
         contentInsetAdjustmentBehavior={contentInsetAdjustmentBehavior}
         keyboardShouldPersistTaps="handled"
         refreshControl={refreshControl}
@@ -444,6 +532,7 @@ export function PageListScaffold<ItemT>({
   barContentVisible,
   scrollEdgePane,
   listRef,
+  fillViewport = false,
   ...flatListProps
 }: PageListScaffoldProps<ItemT>) {
   const contentInsetAdjustmentBehavior = resolveMobilePageContentInsetAdjustment({
@@ -482,6 +571,18 @@ export function PageListScaffold<ItemT>({
     refreshLabel,
     refreshing,
   });
+  const viewportFill = usePageViewportFill({
+    enabled: fillViewport,
+    contentInsetAdjustmentBehavior,
+  });
+  const { onLayout: callerOnLayout } = flatListProps;
+  const onListLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      viewportFill.onFrameLayout(event);
+      callerOnLayout?.(event);
+    },
+    [callerOnLayout, viewportFill.onFrameLayout],
+  );
   // A text-size change remounts the list's rows and header/footer (their
   // text measures at the new size), never the list itself. A new scroll view
   // is not the one the native header tracks: UIKit then neither keeps it at
@@ -511,17 +612,20 @@ export function PageListScaffold<ItemT>({
       pane={scrollEdgePane}
       tracking={edgeTracking}
     >
+      {viewportFill.observer}
       <FlatList
         ref={setListRef}
         style={[styles.root, { backgroundColor: tokens.background }]}
         automaticallyAdjustContentInsets={contentInsetAdjustmentBehavior !== "never"}
         automaticallyAdjustsScrollIndicatorInsets={contentInsetAdjustmentBehavior !== "never"}
-        contentContainerStyle={[contentStyle, contentContainerStyle]}
+        contentContainerStyle={[contentStyle, viewportFill.style, contentContainerStyle]}
         contentInsetAdjustmentBehavior={contentInsetAdjustmentBehavior}
         keyboardShouldPersistTaps="handled"
         refreshControl={refreshControl}
         showsVerticalScrollIndicator={false}
         {...flatListProps}
+        alwaysBounceVertical={fillViewport ? true : flatListProps.alwaysBounceVertical}
+        onLayout={onListLayout}
         keyExtractor={keyExtractor}
         ListHeaderComponent={fontScaleKeyedListSlot(flatListProps.ListHeaderComponent, fontScaleLayoutKey)}
         ListEmptyComponent={fontScaleKeyedListSlot(flatListProps.ListEmptyComponent, fontScaleLayoutKey)}

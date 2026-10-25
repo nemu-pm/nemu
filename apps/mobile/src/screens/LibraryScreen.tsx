@@ -2408,61 +2408,6 @@ export function LibraryScreen({
     );
   }
 
-  if (showEmptyOnboarding) {
-    return (
-      <>
-      {usesNativeHeader ? (
-        <>
-          <Stack.Screen options={titleMenuHeaderOptions(strings.nav.library)} />
-          <Stack.Toolbar placement="right">
-            {Platform.OS === "ios" ? renderExploreDetailBarMenu(libraryAddMenuActions, strings.library.createCollection, "plus") : null}
-            {renderNemuNativeToolbarButtons(libraryHeaderActions)}
-          </Stack.Toolbar>
-          {titleMenuAnchor}
-        </>
-      ) : null}
-      <PageScaffold nativeHeader={usesNativeHeader}>
-        {usesNativeHeader ? null : (
-          <PageHeader
-            title={strings.nav.library}
-            actions={[
-              {
-                icon: "add-outline",
-                label: strings.library.createCollection,
-                hint: strings.library.createCollectionHint,
-                disabled: collectionActionBusy,
-                loading: savingCollection,
-                onPress: toggleCreateCollection,
-              },
-            ]}
-          />
-        )}
-        {/* The nemu hero lays itself out per pane (EmptyLibrary). */}
-        {designExplore && hasInstalledSources ? (
-          // Design-explore: the first screen a new reader sees points at
-          // Browse, where series are found.
-          <EmptyLibrary
-            title={strings.library.empty}
-            description={strings.library.emptyDescription}
-            actionLabel={strings.designExplore.libraryEmptyBrowse}
-            actionIcon="compass-outline"
-            onActionPress={() => router.navigate("/browse")}
-          />
-        ) : (
-          <EmptyLibrary
-            title={emptyState.title}
-            description={emptyState.description}
-            actionLabel={emptyState.actionLabel}
-            actionIcon={emptyState.actionRoute === "/browse" ? "add-outline" : undefined}
-            onActionPress={() => router.navigate(emptyState.actionRoute)}
-          />
-        )}
-      </PageScaffold>
-      {librarySheets}
-      </>
-    );
-  }
-
   return (
     <MobileQuickActionProvider value={getContextActions}>
     {designExplore ? <MobileExploreDustHost /> : null}
@@ -2483,6 +2428,9 @@ export function LibraryScreen({
     <PageListScaffold
       // Keep one list (including its rich header) through column changes.
       listRef={gridScrollRef}
+      // An empty Library is this same list with the hero as its empty
+      // component: exactly as tall as the viewport, so it only rubber-bands.
+      fillViewport={showEmptyOnboarding}
       data={showSkeleton ? [] : libraryRows}
       keyExtractor={collectionRowKey}
       renderItem={renderLibraryRow}
@@ -2660,6 +2608,32 @@ export function LibraryScreen({
             />
           </GlassSurface>
           </MobilePaneAlignedView>
+        ) : showEmptyOnboarding ? (
+          // The nemu hero lays itself out per pane (EmptyLibrary), centred in
+          // the room the list leaves below its header.
+          <View style={styles.emptyHero}>
+            {designExplore && hasInstalledSources ? (
+              // Design-explore: the first screen a new reader sees points at
+              // Browse, where series are found.
+              <EmptyLibrary
+                fill
+                title={strings.library.empty}
+                description={strings.library.emptyDescription}
+                actionLabel={strings.designExplore.libraryEmptyBrowse}
+                actionIcon="compass-outline"
+                onActionPress={() => router.navigate("/browse")}
+              />
+            ) : (
+              <EmptyLibrary
+                fill
+                title={emptyState.title}
+                description={emptyState.description}
+                actionLabel={emptyState.actionLabel}
+                actionIcon={emptyState.actionRoute === "/browse" ? "add-outline" : undefined}
+                onActionPress={() => router.navigate(emptyState.actionRoute)}
+              />
+            )}
+          </View>
         ) : null
       }
     />
@@ -2671,6 +2645,9 @@ export function LibraryScreen({
 const styles = StyleSheet.create({
   stack: {
     gap: 16,
+  },
+  emptyHero: {
+    flex: 1,
   },
   titleMenuSheet: {
     gap: 8,

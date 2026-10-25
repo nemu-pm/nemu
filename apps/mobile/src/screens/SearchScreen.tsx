@@ -1701,11 +1701,12 @@ export function SearchScreen() {
         {usesNativeHeader ? (
           <Stack.Screen options={{ title: strings.nav.search }} />
         ) : null}
-        <PageScaffold nativeHeader={usesNativeHeader}>
+        <PageScaffold nativeHeader={usesNativeHeader} fillViewport>
           {usesNativeHeader ? null : <PageHeader title={strings.nav.search} />}
-          <MobilePaneAlignedView>
+          <MobilePaneAlignedView fill>
             {({ minHeight }) => (
               <MobilePageEmpty
+                fill
                 minHeight={minHeight}
                 icon="search-outline"
                 title={strings.search.noSourcesInstalled}

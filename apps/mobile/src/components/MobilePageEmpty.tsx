@@ -35,6 +35,12 @@ type MobilePageEmptyProps = {
   diagnosticDetailsLabel?: string;
   /** Height to center in instead of the default (a folded pane). */
   minHeight?: number;
+  /**
+   * Grow into the host's remaining room instead of the fixed 500pt minimum
+   * (inside a viewport-filling page, `PageScaffold fillViewport`), so the
+   * page is never taller than its viewport.
+   */
+  fill?: boolean;
 };
 
 export function MobilePageEmpty({
@@ -50,6 +56,7 @@ export function MobilePageEmpty({
   diagnostic,
   diagnosticDetailsLabel,
   minHeight,
+  fill = false,
 }: MobilePageEmptyProps) {
   const { tokens } = useNemuTheme();
   const { appLanguage } = useMobileLanguageSettings();
@@ -67,6 +74,7 @@ export function MobilePageEmpty({
         styles.root,
         variant === "inline" ? styles.inlineRoot : null,
         compactHeight ? styles.compactRoot : null,
+        fill ? styles.fillRoot : null,
         minHeight !== undefined ? { minHeight } : null,
       ]}
     >
@@ -172,6 +180,11 @@ const styles = StyleSheet.create({
   },
   inlineRoot: {
     minHeight: 340,
+  },
+  fillRoot: {
+    flexGrow: 1,
+    flexShrink: 1,
+    minHeight: 0,
   },
   compactRoot: {
     minHeight: 0,

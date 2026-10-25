@@ -1177,6 +1177,7 @@ export function BrowseScreen() {
     availableCount: available.data.length,
     hasError: Boolean(error),
   });
+  const showNoSourcesEmpty = !error && !showSkeleton && installedSources.length === 0;
   const activeInstallKey = pendingInstallKey ?? installer.installingKey;
   const refreshDisabled = refreshingSources || activeInstallKey !== null;
   const catalogCacheAge = formatMobileCatalogCacheAge(
@@ -1716,6 +1717,8 @@ export function BrowseScreen() {
       ) : null}
       <PageScaffold
         nativeHeader={usesNativeHeader}
+        // No sources: the empty state fills the viewport and only rubber-bands.
+        fillViewport={showNoSourcesEmpty}
         onRefresh={() => {
           void refreshSources();
         }}
@@ -1759,7 +1762,7 @@ export function BrowseScreen() {
             accessibilityLabel={strings.welcome.loadingSources}
           />
         ) : (
-          <View style={styles.sections}>
+          <View style={[styles.sections, showNoSourcesEmpty ? styles.fillGrow : null]}>
             {actionError ? (
               <MobileInlineErrorBanner
                 title={actionError.title}
@@ -1783,7 +1786,7 @@ export function BrowseScreen() {
               />
             ) : null}
 
-            <View>
+            <View style={showNoSourcesEmpty ? styles.fillGrow : undefined}>
               {!usesNativeHeader && installedSources.length > 0 ? (
                 <View style={styles.sourceHeader}>
                   <NemuButton
@@ -1905,9 +1908,10 @@ export function BrowseScreen() {
                   })}
                 </View>
               ) : (
-                <MobilePaneAlignedView>
+                <MobilePaneAlignedView fill>
                   {({ minHeight }) => (
                     <MobilePageEmpty
+                      fill
                       minHeight={minHeight}
                       icon="globe-outline"
                       title={strings.browse.noSources}
@@ -2268,6 +2272,9 @@ const styles = StyleSheet.create({
   },
   sections: {
     gap: 26,
+  },
+  fillGrow: {
+    flexGrow: 1,
   },
   serverPicker: { gap: 12, paddingTop: 12, paddingBottom: 24 },
   // A source row's card and columns (`availableShell`, `availableRow`), so

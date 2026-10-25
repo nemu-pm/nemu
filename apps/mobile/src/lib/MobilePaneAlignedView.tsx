@@ -9,6 +9,8 @@ import {
 import { useMobileContainerFold } from "@/lib/useMobileContainerFold";
 import { MobilePoseLayoutView } from "@/components/MobilePoseLayoutView";
 
+const FILL_STYLE = { flexGrow: 1 } as const;
+
 /**
  * Hosts a page-level placeholder (empty, loading or error state): centered
  * with a readable max width on wide windows, inside one pane when the device
@@ -25,8 +27,11 @@ import { MobilePoseLayoutView } from "@/components/MobilePoseLayoutView";
  */
 export function MobilePaneAlignedView({
   children,
+  fill = false,
 }: {
   children: ReactNode | ((pane: { minHeight: number | undefined }) => ReactNode);
+  /** Grow into the page's remaining height (a viewport-filling empty page). */
+  fill?: boolean;
 }) {
   const insets = useSafeAreaInsets();
   const { ref, onLayout, rect, adaptive } = useMobileContainerFold<ViewInstance>();
@@ -61,18 +66,19 @@ export function MobilePaneAlignedView({
         )
       : 0;
   return (
-    <View ref={ref} onLayout={onLayout} collapsable={false}>
+    <View ref={ref} onLayout={onLayout} collapsable={false} style={fill ? FILL_STYLE : undefined}>
       <MobilePoseLayoutView
         onLayout={onContentLayout}
-        style={
+        style={[
           region
             ? {
                 width: region.contentWidth,
                 marginLeft: region.x + (region.width - region.contentWidth) / 2,
                 marginTop: region.y + nudge,
               }
-            : { alignSelf: "center", width: "100%", maxWidth: MOBILE_PANE_CONTENT_MAX_WIDTH }
-        }
+            : { alignSelf: "center", width: "100%", maxWidth: MOBILE_PANE_CONTENT_MAX_WIDTH },
+          fill ? FILL_STYLE : null,
+        ]}
       >
         {typeof children === "function" ? children({ minHeight }) : children}
       </MobilePoseLayoutView>
