@@ -17,3 +17,18 @@ import { useMobilePoseLayout } from "@/lib/MobilePoseTransitionContext";
 export function MobilePoseLayoutView(props: ComponentProps<typeof Animated.View>) {
   return <Animated.View layout={useMobilePoseLayout()} {...props} />;
 }
+
+/**
+ * `CellRendererComponent` for a FlatList whose rows (and footer cell) must
+ * glide when the cells above them change size on a fold or unfold: each
+ * cell's frame takes the pose layout transition, like Reanimated's
+ * `itemLayoutAnimation`. Outside a pose change frames change as before.
+ */
+export function MobilePoseListCell({
+  cellKey: _cellKey,
+  index: _index,
+  item: _item,
+  ...props
+}: ComponentProps<typeof Animated.View> & { cellKey?: string; index?: number; item?: unknown }) {
+  return <MobilePoseLayoutView {...props} />;
+}

@@ -7,7 +7,7 @@ import { MobilePaneAlignedView } from "@/lib/MobilePaneAlignedView";
 import { useMobileFoldAwareGrid } from "@/lib/useMobileFoldAwareGrid";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import { useMobileSourceQuickSettings } from "@/components/useMobileSourceQuickSettings";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { isValidElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Platform,
   ScrollView,
@@ -219,7 +219,7 @@ import {
 } from "@/sources/mobileSourceRuntime";
 import { getActiveMobileSourceProfileScope } from "@/sources/mobileSourceProfileScope";
 import { fetchMobileSourceListing } from "@/sources/mobileSourceListings";
-import { MobilePoseLayoutView } from "@/components/MobilePoseLayoutView";
+import { MobilePoseLayoutView, MobilePoseListCell } from "@/components/MobilePoseLayoutView";
 import { useMobileGridScrollAnchor } from "@/lib/useMobileGridScrollAnchor";
 import { resolveNemuHeaderSearchBarColors } from "@/lib/nemuSearchFieldAppearance";
 import {
@@ -266,6 +266,9 @@ const SOURCE_OPERATION_TIMEOUT_MS = DEFAULT_MOBILE_SOURCE_OPERATION_TIMEOUT_MS;
 // The tab-strip edge fades ride the scroll offset on the UI thread; the
 // gradients themselves never re-render.
 const AnimatedLinearGradient = Animated.createAnimatedComponent(LinearGradient);
+
+/** The listing grid's footer cell (`listingGridData`): identity, never shown as a row. */
+const LISTING_FOOTER_ROW: MobileLiveSearchManga[] = [];
 
 function withSourceOperationTimeout<T>(
   operation: Promise<T>,
@@ -3225,12 +3228,72 @@ export function SourceBrowseScreen() {
     [listingGridItems, gridColumns],
   );
   const renderListingGridRow = useCallback(
-    ({ item: row, index }: ListRenderItemInfo<MobileLiveSearchManga[]>) => (
-      <View style={[styles.gridRow, { flexDirection: "row" }]}>
-        {row.map((item, column) => renderListingGridItem({ item, index: index * gridColumns + column }))}
-      </View>
-    ),
+    ({ item: row, index }: ListRenderItemInfo<MobileLiveSearchManga[]>) =>
+      row === LISTING_FOOTER_ROW ? (
+        listingFooterRef.current
+      ) : (
+        <View style={[styles.gridRow, { flexDirection: "row" }]}>
+          {row.map((item, column) => renderListingGridItem({ item, index: index * gridColumns + column }))}
+        </View>
+      ),
     [gridColumns, renderListingGridItem],
+  );
+  const listingGridRowKey = useCallback(
+    (row: MobileLiveSearchManga[]) =>
+      row === LISTING_FOOTER_ROW ? "$listing-footer" : `${listingGridSourceDisplay?.id ?? ""}:${row[0].id}`,
+    [listingGridSourceDisplay?.id],
+  );
+
+  // The list footer is the list's last cell (not ListFooterComponent, whose
+  // wrapper cannot glide): a fold that resizes the cells above slides it on
+  // the pose spring with the rows instead of dropping it in one frame.
+  const listingFooter =
+      source && sourceSearchActive ? (
+        <MobileListFooter
+          onRetry={() =>
+            void loadSourceSearch(sourceSearchLastPageRef.current + 1)
+          }
+          pageNumber={sourceSearchLastPageRef.current + 1}
+          state={resolveMobileListFooterState({
+            hasMore:
+              sourceSearchState.status === "ready"
+                ? sourceSearchState.result.hasMore
+                : undefined,
+            itemCount: sourceSearchState.items.length,
+            loadingNextPage: sourceSearchLoadMoreBusy,
+            nextPageFailed: sourceSearchState.status === "error",
+          })}
+          strings={strings}
+          totalCount={sourceSearchState.items.length}
+        />
+      ) : !sourceSearchActive &&
+        showExecutableSourceSections &&
+        selectedListing ? (
+        <MobileListFooter
+          onRetry={() => void loadListing(listingLastPageRef.current + 1)}
+          pageNumber={listingLastPageRef.current + 1}
+          state={resolveMobileListFooterState({
+            hasMore:
+              listingState.status === "ready"
+                ? listingState.result.hasMore
+                : undefined,
+            itemCount: listingState.items.length,
+            loadingNextPage: listingLoadMoreBusy,
+            nextPageFailed: listingState.status === "error",
+          })}
+          strings={strings}
+          totalCount={listingState.items.length}
+        />
+      ) : null;
+  const listingFooterRef = useRef(listingFooter);
+  listingFooterRef.current = listingFooter;
+  const listingFooterKey = isValidElement(listingFooter)
+    ? `${String((listingFooter.props as { state?: unknown }).state)}:${String((listingFooter.props as { pageNumber?: unknown }).pageNumber)}:${String((listingFooter.props as { totalCount?: unknown }).totalCount)}`
+    : "";
+  const hasListingFooter = listingFooter !== null && listingGridRows.length > 0;
+  const listingGridData = useMemo(
+    () => (hasListingFooter ? [...listingGridRows, LISTING_FOOTER_ROW] : listingGridRows),
+    [hasListingFooter, listingGridRows],
   );
 
   // The ~190-line grid header rebuilt its whole subtree on every render of
@@ -3715,8 +3778,13 @@ export function SourceBrowseScreen() {
             void loadListing(listingState.result.page + 1);
           }}
           onEndReachedThreshold={0.6}
-          data={listingGridRows}
-          keyExtractor={(row) => `${listingGridSourceDisplay?.id ?? ""}:${row[0].id}`}
+          data={listingGridData}
+          extraData={listingFooterKey}
+          keyExtractor={listingGridRowKey}
+          // Every row and the footer glide to their new y when the grid's
+          // cells change size on a fold or unfold (pose settle spring), so a
+          // taller row does not drop the footer in one frame.
+          CellRendererComponent={MobilePoseListCell}
           renderItem={renderListingGridRow}
           initialNumToRender={12}
           maxToRenderPerBatch={12}
@@ -3726,45 +3794,6 @@ export function SourceBrowseScreen() {
             listingGridAttached ? styles.listingGridListHeader : undefined
           }
           ListHeaderComponent={listingGridHeader}
-          ListFooterComponent={
-            source && sourceSearchActive ? (
-              <MobileListFooter
-                onRetry={() =>
-                  void loadSourceSearch(sourceSearchLastPageRef.current + 1)
-                }
-                pageNumber={sourceSearchLastPageRef.current + 1}
-                state={resolveMobileListFooterState({
-                  hasMore:
-                    sourceSearchState.status === "ready"
-                      ? sourceSearchState.result.hasMore
-                      : undefined,
-                  itemCount: sourceSearchState.items.length,
-                  loadingNextPage: sourceSearchLoadMoreBusy,
-                  nextPageFailed: sourceSearchState.status === "error",
-                })}
-                strings={strings}
-                totalCount={sourceSearchState.items.length}
-              />
-            ) : !sourceSearchActive &&
-              showExecutableSourceSections &&
-              selectedListing ? (
-              <MobileListFooter
-                onRetry={() => void loadListing(listingLastPageRef.current + 1)}
-                pageNumber={listingLastPageRef.current + 1}
-                state={resolveMobileListFooterState({
-                  hasMore:
-                    listingState.status === "ready"
-                      ? listingState.result.hasMore
-                      : undefined,
-                  itemCount: listingState.items.length,
-                  loadingNextPage: listingLoadMoreBusy,
-                  nextPageFailed: listingState.status === "error",
-                })}
-                strings={strings}
-                totalCount={listingState.items.length}
-              />
-            ) : null
-          }
           ListEmptyComponent={
             sourceRuntimeUnavailable ? null : source && sourceSearchActive ? (
               sourceSearchState.status === "blocked" ? (

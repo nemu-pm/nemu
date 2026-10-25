@@ -1593,9 +1593,10 @@ function HomeListColumns({
     // Book posture: Search's fold split — one group per fold half, 16pt in
     // from the fold region's edges, so no rank or row sits on the fold.
     // Flat (the fold inactive) keeps the even columns, as Search reserves
-    // nothing for an inactive fold. Both come as complete column styles, and
-    // the row is keyed by which one it is: a fold or unfold on the page
-    // recomputes and re-lays the columns, never keeping the other pose's widths.
+    // nothing for an inactive fold. Both come as complete column styles; the
+    // columns keep their keys through a fold or unfold, so they (and the rows
+    // in them) glide to the other pose's frames on the pose spring — the same
+    // motion folding and unfolding — instead of remounting.
     const foldLayout = getMobileListColumnStyles({
       contentWidth: grid.contentWidth,
       fold: grid.fold,
@@ -1616,16 +1617,16 @@ function HomeListColumns({
     }
     const perColumn = Math.ceil(items.length / layout.columns.length);
     return (
-      <View key={layout.mode} style={styles.exploreListColumns}>
+      <View style={styles.exploreListColumns}>
         {layout.columns
           .map((style, column) => ({ style, rows: items.slice(column * perColumn, (column + 1) * perColumn) }))
           .filter(({ rows }) => rows.length > 0)
           .map(({ style, rows }, column) => (
-            <View key={column} style={style}>
+            <MobilePoseLayoutView key={column} style={style}>
               <ExploreHomeGroup>
                 <View style={styles.exploreListInner}>{rows}</View>
               </ExploreHomeGroup>
-            </View>
+            </MobilePoseLayoutView>
           ))}
       </View>
     );
