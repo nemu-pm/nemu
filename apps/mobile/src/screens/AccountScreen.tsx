@@ -32,6 +32,7 @@ export function AccountScreen() {
           onPress={page.requestSignOut}
           variant="secondary"
         />
+        <NemuText style={{ color: tokens.mutedForeground }}>{strings.account.signOutFooter}</NemuText>
         <NemuButton
           label={strings.account.deleteAccount}
           loading={page.deleting}

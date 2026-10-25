@@ -1090,6 +1090,8 @@ export type MobileStrings = {
     deleteReauth: string;
     deleteUnavailable: string;
     deleteCleanupFailed: string;
+    /** Footer under the Account page's Sign Out row. */
+    signOutFooter: string;
     /** Toast after a sign-out from the Account page. */
     signedOut: string;
     openAccount: string;

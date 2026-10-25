@@ -953,12 +953,10 @@ export const mobileStringsEn: MobileStrings = {
       "This permanently deletes the synced library, collections, reading progress, and installed-source list from every device using this account. Local-only registries and source preferences remain.",
     cloudSyncEraseFailed: "Synced data could not be erased.",
     cloudSyncEraseTitle: "Erase synced data everywhere?",
-    cloudSyncKeepData: "Keep Data",
-    cloudSyncKeepDataDescription:
-      "Keep your local library and reading progress on this device.",
-    cloudSyncRemoveData: "Remove Data",
-    cloudSyncRemoveDataDescription:
-      "Remove account library data from this device after signing out.",
+    cloudSyncKeepData: "Keep data on this device",
+    cloudSyncKeepDataDescription: "You can sign back in anytime to sync again.",
+    cloudSyncRemoveData: "Remove data from this device",
+    cloudSyncRemoveDataDescription: "Your cloud data will stay safe.",
     cloudSyncRecovery: "Recovery Options",
     cloudSyncRetry: "Retry Sync",
     cloudSyncRetryFailed: "Cloud sync retry failed.",
@@ -991,7 +989,7 @@ export const mobileStringsEn: MobileStrings = {
     cloudSyncSignOut: "Sign Out",
     cloudSyncSignOutFailed: "Sign out failed.",
     cloudSyncSignOutLabel: "Sign out of cloud sync",
-    cloudSyncSignOutMessage: "Choose what should stay on this device.",
+    cloudSyncSignOutMessage: "Choose what happens to your data on this device.",
     cloudSyncSignOutTitle: "Sign Out",
     localDataCleanupTitle: "Finish removing device data",
     localDataCleanupDescription:
@@ -1243,13 +1241,13 @@ export const mobileStringsEn: MobileStrings = {
     name: "Name",
     email: "Email",
     signInMethod: "Sign-in method",
-    deleteAccount: "Delete account",
+    deleteAccount: "Delete Account",
     deleteFooter:
       "Deleting permanently removes your cloud library, reading progress and settings.",
     deleteAlertTitle: "Delete account?",
     deleteAlertMessage:
       "This permanently deletes your account and, in the cloud, your library, reading progress, settings, uploaded covers and sign-in sessions. Data on this device is kept. This can't be undone.",
-    deleteConfirm: "Delete",
+    deleteConfirm: "Delete Account",
     deleting: "Deleting…",
     deleted: "Account deleted",
     deleteFailed: "Couldn't delete the account. Try again.",
@@ -1258,6 +1256,7 @@ export const mobileStringsEn: MobileStrings = {
     deleteUnavailable: "Apple couldn't be reached. Try again in a moment.",
     deleteCleanupFailed:
       "Your account was deleted, but data on this device couldn't be cleared.",
+    signOutFooter: "Your account and cloud data are kept. Sign back in anytime.",
     signedOut: "Signed out",
     openAccount: "Account",
   },

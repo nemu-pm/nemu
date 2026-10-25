@@ -12,14 +12,18 @@ import {
   Spacer as SwiftSpacer,
   Text as SwiftText,
 } from "@expo/ui/swift-ui";
-import { foregroundStyle, lineLimit } from "@expo/ui/swift-ui/modifiers";
+import { foregroundStyle, lineLimit, tint } from "@expo/ui/swift-ui/modifiers";
 import { useState } from "react";
 import { nemuSoftScrollEdge, useNemuTheme } from "@/design-system";
 import { useMobileAccountPage } from "./useMobileAccountPage";
 
-/** Account: a native grouped list, pushed from Settings > Cloud sync. */
+/**
+ * Account: a native grouped list, pushed from Settings > Cloud sync. Three
+ * sections: the account, Sign Out (app tint, door-and-arrow symbol: not
+ * destructive), and Delete Account (system red, trash), always last.
+ */
 export function AccountScreen() {
-  const { scheme } = useNemuTheme();
+  const { scheme, tokens } = useNemuTheme();
   const page = useMobileAccountPage();
   const { strings } = page;
   const [confirming, setConfirming] = useState(false);
@@ -35,6 +39,7 @@ export function AccountScreen() {
   ) : (
     <SwiftButton
       label={strings.account.deleteAccount}
+      systemImage="trash"
       role="destructive"
       onPress={() => setConfirming(true)}
     />
@@ -56,11 +61,14 @@ export function AccountScreen() {
               <SwiftText>{page.providerLabel}</SwiftText>
             </SwiftLabeledContent>
           </SwiftSection>
-          <SwiftSection>
+          <SwiftSection
+            footer={<SwiftText>{strings.account.signOutFooter}</SwiftText>}
+          >
             <SwiftButton
               label={strings.settings.cloudSyncSignOut}
+              systemImage="rectangle.portrait.and.arrow.right"
               onPress={page.requestSignOut}
-              modifiers={[foregroundStyle({ type: "hierarchical", style: "primary" })]}
+              modifiers={[tint(tokens.primary), foregroundStyle(tokens.primary)]}
             />
           </SwiftSection>
           <SwiftSection

@@ -524,10 +524,10 @@ describe("mobile i18n helpers", () => {
       ),
     ).toBe("Apple で続ける");
     expect(getMobileStrings("en").settings.cloudSyncKeepDataDescription).toBe(
-      "Keep your local library and reading progress on this device.",
+      "You can sign back in anytime to sync again.",
     );
     expect(getMobileStrings("zh").settings.cloudSyncRemoveDataDescription).toBe(
-      "登出后从此设备移除账号书库数据。",
+      "您的云端数据将保持安全。",
     );
     expect(
       formatMobileString(getMobileStrings("en").settings.sourceUpdated, {

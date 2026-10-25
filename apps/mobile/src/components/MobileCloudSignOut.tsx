@@ -93,7 +93,8 @@ function SignOutChoiceSheet({
       subtitle={strings.settings.cloudSyncSignOutMessage}
       headerLeading={
         <View style={styles.sheetIconFrame}>
-          <Ionicons name="log-out-outline" size={22} color={tokens.danger} />
+          {/* Signing out keeps the cloud data: no red anywhere in this flow. */}
+          <Ionicons name="log-out-outline" size={22} color={tokens.primary} />
         </View>
       }
       dismissLabel={strings.common.cancel}
@@ -117,8 +118,8 @@ function SignOutChoiceSheet({
         <SignOutOption
           active={!keepData}
           description={strings.settings.cloudSyncRemoveDataDescription}
-          destructive
           disabled={loading}
+          mutedIcon
           iconName="trash-outline"
           label={strings.settings.cloudSyncRemoveData}
           onPress={() => selectChoice(false)}
@@ -152,8 +153,8 @@ function SignOutChoiceSheet({
           label={strings.settings.cloudSyncSignOut}
           loading={loading}
           onPress={onConfirm}
-          style={styles.sheetDestructiveButton}
-          variant="destructive"
+          style={styles.sheetConfirmButton}
+          variant="default"
         />
       </View>
     </MobileNativeSheetScaffold>
@@ -163,22 +164,26 @@ function SignOutChoiceSheet({
 function SignOutOption({
   active,
   description,
-  destructive = false,
   disabled,
   iconName,
   label,
+  mutedIcon = false,
   onPress,
 }: {
   active: boolean;
   description: string;
-  destructive?: boolean;
   disabled: boolean;
   iconName: keyof typeof Ionicons.glyphMap;
   label: string;
+  /**
+   * The icon stays muted when selected ("Remove data": a local cleanup, the
+   * cloud data stays — never red).
+   */
+  mutedIcon?: boolean;
   onPress: () => void;
 }) {
   const { tokens } = useNemuTheme();
-  const activeColor = destructive ? tokens.danger : tokens.primary;
+  const activeColor = tokens.primary;
   const canSelect = canSelectMobileCloudSignOutChoice({
     active,
     loading: disabled,
@@ -213,7 +218,7 @@ function SignOutOption({
         <Ionicons
           name={iconName}
           size={Platform.OS === "android" ? nemuSheetMetrics.rowIconSize : 19}
-          color={active ? activeColor : tokens.mutedForeground}
+          color={active && !mutedIcon ? activeColor : tokens.mutedForeground}
         />
       </View>
       <View style={styles.optionCopy}>
@@ -425,5 +430,5 @@ const styles = StyleSheet.create({
   },
   sheetActions: { flexDirection: "row", gap: 10 },
   sheetButton: { flex: 1 },
-  sheetDestructiveButton: { minWidth: 132 },
+  sheetConfirmButton: { minWidth: 132 },
 });

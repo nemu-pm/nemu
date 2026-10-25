@@ -959,12 +959,10 @@ export const mobileStringsJa: MobileStrings = {
       "このアカウントを使用するすべてのデバイスから、同期済みライブラリ、コレクション、読書進捗、インストール済みソース一覧を完全に削除します。ローカルのみのソースディレクトリとソース設定は保持されます。",
     cloudSyncEraseFailed: "同期データを削除できませんでした。",
     cloudSyncEraseTitle: "すべてのデバイスから同期データを削除しますか？",
-    cloudSyncKeepData: "データを保持",
-    cloudSyncKeepDataDescription:
-      "このデバイスにローカルライブラリと読書進捗を保持します。",
-    cloudSyncRemoveData: "データを削除",
-    cloudSyncRemoveDataDescription:
-      "サインアウト後、このデバイスからアカウントのライブラリデータを削除します。",
+    cloudSyncKeepData: "このデバイスにデータを保持",
+    cloudSyncKeepDataDescription: "いつでも再度サインインして同期できます。",
+    cloudSyncRemoveData: "このデバイスからデータを削除",
+    cloudSyncRemoveDataDescription: "クラウドデータは安全に保持されます。",
     cloudSyncRecovery: "復旧オプション",
     cloudSyncRetry: "同期を再試行",
     cloudSyncRetryFailed: "クラウド同期の再試行に失敗しました。",
@@ -997,7 +995,7 @@ export const mobileStringsJa: MobileStrings = {
     cloudSyncSignOut: "サインアウト",
     cloudSyncSignOutFailed: "サインアウトに失敗しました。",
     cloudSyncSignOutLabel: "クラウド同期からサインアウト",
-    cloudSyncSignOutMessage: "このデバイスに残す内容を選択してください。",
+    cloudSyncSignOutMessage: "このデバイスのデータをどうするか選択してください。",
     cloudSyncSignOutTitle: "サインアウト",
     localDataCleanupTitle: "端末データの削除を完了",
     localDataCleanupDescription:
@@ -1259,7 +1257,7 @@ export const mobileStringsJa: MobileStrings = {
     deleteAlertTitle: "アカウントを削除しますか？",
     deleteAlertMessage:
       "アカウントと、クラウド上のライブラリ、読書の進捗、設定、アップロードしたカバー、サインインのセッションが完全に削除されます。この端末のデータは残ります。この操作は取り消せません。",
-    deleteConfirm: "削除",
+    deleteConfirm: "アカウントを削除",
     deleting: "削除中…",
     deleted: "アカウントを削除しました",
     deleteFailed: "アカウントを削除できませんでした。もう一度お試しください。",
@@ -1267,6 +1265,7 @@ export const mobileStringsJa: MobileStrings = {
       "Appleでのサインインを再確認する必要があります。サインアウトして、もう一度サインインしてからお試しください。",
     deleteUnavailable: "Appleに接続できませんでした。しばらくしてからお試しください。",
     deleteCleanupFailed: "アカウントは削除されましたが、この端末のデータを消去できませんでした。",
+    signOutFooter: "アカウントとクラウドのデータは残ります。いつでもサインインし直せます。",
     signedOut: "サインアウトしました",
     openAccount: "アカウント",
   },
