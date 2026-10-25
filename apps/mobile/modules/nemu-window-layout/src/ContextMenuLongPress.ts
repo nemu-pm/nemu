@@ -1,15 +1,104 @@
 import { createContext, useContext } from "react";
 
 /**
- * True inside a native context menu (`ContextMenuView` on iOS with items):
- * the system's `UIContextMenuInteraction` owns the long press there. React
- * Native's Pressability only cancels the press on release after a long hold
- * when the pressable has an `onLongPress`, so pressables inside give
- * themselves a no-op one (`NemuPressable`); otherwise lifting the finger
- * after the menu opened also ran `onPress` (opening the title underneath).
+ * Inside a native context menu (`ContextMenuView` on iOS with items) the
+ * system's `UIContextMenuInteraction` owns the long press. React Native's
+ * touch handler is never cancelled by it (a recognizer inside the RN root
+ * cannot prevent `RCTSurfaceTouchHandler`), so the release after the hold
+ * reaches Pressability as an ordinary release. Pressability only drops that
+ * release when its own JS long-press timer (500 ms, cancelled by any 10 pt
+ * drift) won the race against the release — not a given on a device: the
+ * menu can be up before the timer, a drifting finger cancels the timer, and
+ * a busy JS thread runs the timer after the release. The gate decides from
+ * the menu's own signals and the touch's own timestamps instead.
  */
-export const NativeContextMenuLongPressContext = createContext(false);
+
+/** A hold this long in a menu-owned pressable is never a tap (UIKit's own menu threshold). */
+export const NATIVE_MENU_LONG_PRESS_MS = 500;
+/** Shorter holds press at once: the system menu cannot be up yet. */
+export const NATIVE_MENU_PRESS_DEFER_FROM_MS = 250;
+/** Longer holds wait this long for a late `willDisplay` before pressing. */
+export const NATIVE_MENU_PRESS_DEFER_MS = 150;
+
+export type NativeContextMenuPressDecision = "fire" | "suppress" | "defer";
+
+/** The touch clock (`nativeEvent.timestamp`) when present, else the JS clock. */
+export type NativeContextMenuPressTime = { native?: number; wall: number };
+
+export type NativeContextMenuPressGate = {
+  /** A new touch sequence: clears the previous sequence's suppression. */
+  pressIn(time: NativeContextMenuPressTime): void;
+  /** Pressability's long-press timer fired for this sequence. */
+  longPress(): void;
+  /** The system menu is presenting (`willDisplayMenuFor`). */
+  menuWillDisplay(): void;
+  /** The system menu is going away (`willEndFor`). */
+  menuWillEnd(): void;
+  /** At release: press, drop, or wait for a late menu signal. */
+  resolvePress(time: NativeContextMenuPressTime): NativeContextMenuPressDecision;
+  /** After `NATIVE_MENU_PRESS_DEFER_MS` for a deferred press. */
+  resolveDeferredPress(): "fire" | "suppress";
+};
+
+function heldFor(from: NativeContextMenuPressTime, to: NativeContextMenuPressTime): number {
+  if (typeof from.native === "number" && typeof to.native === "number") return to.native - from.native;
+  return to.wall - from.wall;
+}
+
+export function createNativeContextMenuPressGate(): NativeContextMenuPressGate {
+  let pressInAt: NativeContextMenuPressTime | null = null;
+  // Once a sequence turned into a long press it stays one until the next pressIn.
+  let suppressed = false;
+  let menuVisible = false;
+  return {
+    pressIn(time) {
+      pressInAt = time;
+      suppressed = menuVisible;
+    },
+    longPress() {
+      suppressed = true;
+    },
+    menuWillDisplay() {
+      menuVisible = true;
+      suppressed = true;
+    },
+    menuWillEnd() {
+      menuVisible = false;
+    },
+    resolvePress(time) {
+      const startedAt = pressInAt;
+      pressInAt = null;
+      if (suppressed || menuVisible) return "suppress";
+      // No touch sequence (accessibility activation): a plain press.
+      if (!startedAt) return "fire";
+      const held = heldFor(startedAt, time);
+      if (held >= NATIVE_MENU_LONG_PRESS_MS) {
+        suppressed = true;
+        return "suppress";
+      }
+      return held >= NATIVE_MENU_PRESS_DEFER_FROM_MS ? "defer" : "fire";
+    },
+    resolveDeferredPress() {
+      return suppressed || menuVisible ? "suppress" : "fire";
+    },
+  };
+}
+
+export function nativeContextMenuPressTime(event: unknown): NativeContextMenuPressTime {
+  const timestamp = (event as { nativeEvent?: { timestamp?: unknown } } | null | undefined)?.nativeEvent?.timestamp;
+  return {
+    native: typeof timestamp === "number" && Number.isFinite(timestamp) ? timestamp : undefined,
+    wall: Date.now(),
+  };
+}
+
+/** The gate of the enclosing native context menu; null outside one. */
+export const NativeContextMenuLongPressContext = createContext<NativeContextMenuPressGate | null>(null);
+
+export function useNativeContextMenuPressGate(): NativeContextMenuPressGate | null {
+  return useContext(NativeContextMenuLongPressContext);
+}
 
 export function useNativeContextMenuOwnsLongPress(): boolean {
-  return useContext(NativeContextMenuLongPressContext);
+  return useContext(NativeContextMenuLongPressContext) !== null;
 }

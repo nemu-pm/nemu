@@ -270,7 +270,7 @@ public final class NemuWindowLayoutModule: Module {
     // menu opens), see `NemuContextMenuView`.
     Constant("contextMenuViewAvailable") { true }
     View(NemuContextMenuView.self) {
-      Events("onMenuAction")
+      Events("onMenuAction", "onMenuWillDisplay", "onMenuWillEnd")
       Prop("items") { (view: NemuContextMenuView, items: [NemuContextMenuItem]) in
         view.items = items
       }
@@ -298,6 +298,12 @@ struct NemuContextMenuItem: Record {
 /// Native content as usual. No items: no menu.
 final class NemuContextMenuView: ExpoView, UIContextMenuInteractionDelegate {
   let onMenuAction = EventDispatcher()
+  /// The menu is presenting / going away. React Native's touch handler is not
+  /// cancelled by this interaction (it lives inside the RN root), so the
+  /// release after the hold still reaches the pressable underneath; these let
+  /// it drop that release (`ContextMenuLongPress.ts`).
+  let onMenuWillDisplay = EventDispatcher()
+  let onMenuWillEnd = EventDispatcher()
   var items: [NemuContextMenuItem] = []
   var menuTitle = ""
   var previewCornerRadius: CGFloat = 16
@@ -351,7 +357,13 @@ final class NemuContextMenuView: ExpoView, UIContextMenuInteractionDelegate {
     previewForDismissingMenuWithConfiguration configuration: UIContextMenuConfiguration) -> UITargetedPreview? { menuPreview() }
 
   func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+    willDisplayMenuFor configuration: UIContextMenuConfiguration, animator: UIContextMenuInteractionAnimating?) {
+    onMenuWillDisplay([:])
+  }
+
+  func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
     willEndFor configuration: UIContextMenuConfiguration, animator: UIContextMenuInteractionAnimating?) {
+    onMenuWillEnd([:])
     let finish = { [weak self] in
       guard let self, let id = self.pendingAction else { return }
       self.pendingAction = nil

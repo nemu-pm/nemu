@@ -1,8 +1,8 @@
-import type { ComponentType, ReactNode } from "react";
+import { useState, type ComponentType, type ReactNode } from "react";
 import { requireNativeViewManager, requireOptionalNativeModule } from "expo-modules-core";
 import { Platform, View, type ViewProps } from "react-native";
 import type { ContextMenuItem } from "./types";
-import { NativeContextMenuLongPressContext } from "./ContextMenuLongPress";
+import { createNativeContextMenuPressGate, NativeContextMenuLongPressContext } from "./ContextMenuLongPress";
 
 type ContextMenuViewProps = {
   items: ContextMenuItem[];
@@ -22,6 +22,8 @@ export const contextMenuViewAvailable = nativeModule?.contextMenuViewAvailable =
 
 type NativeProps = Omit<ContextMenuViewProps, "onMenuAction"> & {
   onMenuAction?: (event: { nativeEvent: { id: string } }) => void;
+  onMenuWillDisplay?: () => void;
+  onMenuWillEnd?: () => void;
 };
 
 const NativeContextMenu: ComponentType<NativeProps> | null = contextMenuViewAvailable
@@ -34,6 +36,9 @@ const NativeContextMenu: ComponentType<NativeProps> | null = contextMenuViewAvai
  * Without the native view (Android, an older binary) it is a plain view.
  */
 export function ContextMenuView({ items, menuTitle, previewCornerRadius, onMenuAction, style, children }: ContextMenuViewProps) {
+  // One gate per menu: the pressables inside drop the release of a touch
+  // that became the menu's long press (see `ContextMenuLongPress`).
+  const [gate] = useState(createNativeContextMenuPressGate);
   if (!NativeContextMenu) return <View style={style}>{children}</View>;
   return (
     <NativeContextMenu
@@ -41,12 +46,14 @@ export function ContextMenuView({ items, menuTitle, previewCornerRadius, onMenuA
       menuTitle={menuTitle}
       previewCornerRadius={previewCornerRadius}
       onMenuAction={onMenuAction ? (event) => onMenuAction(event.nativeEvent.id) : undefined}
+      onMenuWillDisplay={gate.menuWillDisplay}
+      onMenuWillEnd={gate.menuWillEnd}
       style={style}
     >
       {items.length > 0 ? (
         // The menu owns the long press: pressables inside must not also
         // treat the release after the hold as a tap.
-        <NativeContextMenuLongPressContext.Provider value>
+        <NativeContextMenuLongPressContext.Provider value={gate}>
           {children}
         </NativeContextMenuLongPressContext.Provider>
       ) : (
