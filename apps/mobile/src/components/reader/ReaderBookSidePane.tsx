@@ -53,7 +53,9 @@ import {
   mobileReaderAbsoluteRect,
   type MobileReaderBookSidePane,
 } from "@/lib/mobileReaderPoseLayout";
-import { MOBILE_READER_SCROLL_PLACEHOLDER_COLOR } from "@/lib/mobileReaderScrollPresentation";
+import { mobileReaderPageBackgroundIsLight } from "@/lib/mobileReaderPageBackground";
+import { mobileReaderPageStatusColor } from "@/lib/mobileReaderPageLoading";
+import { MobileReaderPageSpinner } from "./MobileReaderPageSpinner";
 import type { WindowLayoutRect } from "@/lib/mobileWindowLayout";
 import { ReaderScreenStepGlyph } from "./ReaderScreenStepGlyph";
 
@@ -67,7 +69,7 @@ export type ReaderBookSidePaneProps = {
   layout: MobileReaderBookSidePane;
   /** The Laptop Mode setting: thumbnails (`filmstrip`) or page controls (`trackpad`). */
   content: MobileReaderNotebookPanePreference;
-  /** The reader's black. */
+  /** The reader background (the Page Background setting). */
   backgroundColor: string;
   strings: MobileStrings;
   /** `formatChapterTitle` of the chapter the thumbnails show. */
@@ -97,14 +99,28 @@ export type ReaderBookSidePaneProps = {
   onToggleControls: () => void;
 };
 
-const TITLE_COLOR = "rgba(255,255,255,0.85)";
-const QUIET = "rgba(235,235,245,0.30)";
-/** A thumbnail not ready yet shows its page number in this. */
-const PLACEHOLDER_NUMBER_COLOR = "rgba(255,255,255,0.45)";
+/** The pane's colours over a dark reader background… */
+const PANE_COLORS_DARK = {
+  title: "rgba(255,255,255,0.85)",
+  quiet: "rgba(235,235,245,0.30)",
+  /** A thumbnail not ready yet shows its page number in this. */
+  number: "rgba(255,255,255,0.45)",
+  controlFill: "rgba(255,255,255,0.12)",
+  controlGlyph: "rgba(255,255,255,0.85)",
+};
+/** …and over a light one (White, a light page border). */
+const PANE_COLORS_LIGHT: typeof PANE_COLORS_DARK = {
+  title: "rgba(0,0,0,0.85)",
+  quiet: "rgba(60,60,67,0.30)",
+  number: "rgba(60,60,67,0.6)",
+  controlFill: "rgba(0,0,0,0.06)",
+  controlGlyph: "rgba(0,0,0,0.85)",
+};
+function paneColors(backgroundColor: string): typeof PANE_COLORS_DARK {
+  return mobileReaderPageBackgroundIsLight(backgroundColor) ? PANE_COLORS_LIGHT : PANE_COLORS_DARK;
+}
 /** A thumbnail's image fades in over its placeholder. */
 const THUMBNAIL_FADE_MS = 150;
-const CONTROL_FILL = "rgba(255,255,255,0.12)";
-const CONTROL_GLYPH = "rgba(255,255,255,0.85)";
 const THUMB_VIEWABILITY = { itemVisiblePercentThreshold: 1 };
 
 function localRect(rect: WindowLayoutRect, origin: WindowLayoutRect) {
@@ -125,6 +141,7 @@ function localRect(rect: WindowLayoutRect, origin: WindowLayoutRect) {
 export function ReaderBookSidePane(props: ReaderBookSidePaneProps) {
   const { layout, content, backgroundColor, strings, onToggleControls } = props;
   const frame = layout.frame;
+  const colors = paneColors(backgroundColor);
   return (
     <View style={[mobileReaderAbsoluteRect(frame), { backgroundColor }]}>
       <Pressable
@@ -139,7 +156,7 @@ export function ReaderBookSidePane(props: ReaderBookSidePaneProps) {
               accessibilityRole="header"
               numberOfLines={1}
               pointerEvents="none"
-              style={[localRect(layout.header, frame), styles.title]}
+              style={[localRect(layout.header, frame), styles.title, { color: colors.title }]}
             >
               {props.chapterTitle}
             </NemuText>
@@ -152,12 +169,14 @@ export function ReaderBookSidePane(props: ReaderBookSidePaneProps) {
             rect={localRect(layout.pageUp, frame)}
             direction="up"
             label={strings.duo.bookScrollUp}
+            colors={colors}
             onPress={() => props.onStep("previous")}
           />
           <ReaderBookStepButton
             rect={localRect(layout.pageDown, frame)}
             direction="down"
             label={strings.duo.bookScrollDown}
+            colors={colors}
             onPress={() => props.onStep("next")}
           />
         </>
@@ -170,11 +189,13 @@ function ReaderBookStepButton({
   rect,
   direction,
   label,
+  colors,
   onPress,
 }: {
   rect: ReturnType<typeof localRect>;
   direction: "up" | "down";
   label: string;
+  colors: typeof PANE_COLORS_DARK;
   onPress: () => void;
 }) {
   return (
@@ -182,9 +203,14 @@ function ReaderBookStepButton({
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
-      style={({ pressed }) => [rect, styles.stepButton, pressed ? styles.stepButtonPressed : null]}
+      style={({ pressed }) => [
+        rect,
+        styles.stepButton,
+        { backgroundColor: colors.controlFill },
+        pressed ? styles.stepButtonPressed : null,
+      ]}
     >
-      <ReaderScreenStepGlyph direction={direction} color={CONTROL_GLYPH} />
+      <ReaderScreenStepGlyph direction={direction} color={colors.controlGlyph} />
     </Pressable>
   );
 }
@@ -192,6 +218,7 @@ function ReaderBookStepButton({
 // --- Thumbnails -------------------------------------------------------------------
 
 function ReaderBookThumbnailList({
+  backgroundColor,
   layout,
   strings,
   pageCount,
@@ -363,6 +390,7 @@ function ReaderBookThumbnailList({
         revealed={!spoilerSafe || mobileReaderPageRevealed(index, revealed)}
         visible={visible.has(index)}
         imageKey={thumbnailKeys[index] ?? null}
+        backgroundColor={backgroundColor}
         resolve={resolve}
         strings={strings}
         onSelectPage={onSelectPage}
@@ -370,6 +398,7 @@ function ReaderBookThumbnailList({
       />
     ),
     [
+      backgroundColor,
       currentIndex,
       geometry,
       horizontal,
@@ -456,6 +485,7 @@ const ReaderBookThumbnail = memo(function ReaderBookThumbnail({
   revealed,
   visible,
   imageKey,
+  backgroundColor,
   resolve,
   strings,
   onSelectPage,
@@ -473,6 +503,8 @@ const ReaderBookThumbnail = memo(function ReaderBookThumbnail({
   revealed: boolean;
   visible: boolean;
   imageKey: string | null;
+  /** The reader background: the placeholder's fill. */
+  backgroundColor: string;
   resolve: MobileReaderBookThumbnailResolve;
   strings: MobileStrings;
   onSelectPage: (index: number) => void;
@@ -518,6 +550,7 @@ const ReaderBookThumbnail = memo(function ReaderBookThumbnail({
   const left = inRow ? READER_BOOK_THUMBNAIL_GAP : Math.max(0, (rowSize - width) / 2);
   const top = inRow ? Math.max(0, (rowSize - height) / 2) : READER_BOOK_THUMBNAIL_GAP;
   const uri = revealed && visible ? (shown?.uri ?? null) : null;
+  const colors = paneColors(backgroundColor);
   // The image fades in over the placeholder once it has decoded; a new image
   // (a recycled row, a retry) starts from the placeholder again.
   const fade = useRef(new Animated.Value(0)).current;
@@ -566,20 +599,28 @@ const ReaderBookThumbnail = memo(function ReaderBookThumbnail({
           : { width: rowSize, height: height + READER_BOOK_THUMBNAIL_GAP }
       }
     >
-      <View style={[styles.thumb, { marginLeft: left, marginTop: top, width, height }]}>
+      <View style={[styles.thumb, { marginLeft: left, marginTop: top, width, height, backgroundColor }]}>
         {failed || !revealed ? (
-          <Ionicons name={failed ? "reload-outline" : "eye-off-outline"} size={22} color={QUIET} />
+          <Ionicons name={failed ? "reload-outline" : "eye-off-outline"} size={22} color={colors.quiet} />
         ) : (
-          // Not ready yet (still processing, offscreen or loading): the page
-          // number on the reader's page-placeholder grey, in the page's own
-          // shape, so nothing moves when the image arrives.
-          <Animated.Text
-            allowFontScaling={false}
-            numberOfLines={1}
-            style={[styles.placeholderNumber, { opacity: placeholderOpacity }]}
-          >
-            {page}
-          </Animated.Text>
+          // Not ready yet (still processing, offscreen or loading): the
+          // reader background in the page's own shape (nothing moves when the
+          // image arrives), the pages' spinner while it is on screen, and the
+          // page number under it.
+          <Animated.View style={[styles.placeholder, { opacity: placeholderOpacity }]}>
+            <View style={styles.placeholderSpinner}>
+              {visible && (uri === null || loadedUri !== uri) ? (
+                <MobileReaderPageSpinner color={mobileReaderPageStatusColor(backgroundColor)} />
+              ) : null}
+            </View>
+            <Animated.Text
+              allowFontScaling={false}
+              numberOfLines={1}
+              style={[styles.placeholderNumber, { color: colors.number }]}
+            >
+              {page}
+            </Animated.Text>
+          </Animated.View>
         )}
         {uri && !failed ? (
           <Animated.Image
@@ -603,7 +644,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 20,
     fontWeight: nemuFontWeight.semibold,
-    color: TITLE_COLOR,
   },
   listContent: {
     paddingBottom: READER_BOOK_THUMBNAIL_GAP,
@@ -616,15 +656,22 @@ const styles = StyleSheet.create({
   thumb: {
     borderRadius: READER_BOOK_THUMBNAIL_RADIUS,
     overflow: "hidden",
-    backgroundColor: MOBILE_READER_SCROLL_PLACEHOLDER_COLOR,
     alignItems: "center",
     justifyContent: "center",
+  },
+  placeholder: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  placeholderSpinner: {
+    width: 20,
+    height: 20,
   },
   placeholderNumber: {
     fontSize: 13,
     lineHeight: 16,
     fontVariant: ["tabular-nums"],
-    color: PLACEHOLDER_NUMBER_COLOR,
   },
   thumbCurrent: {
     ...StyleSheet.absoluteFill,
@@ -634,7 +681,6 @@ const styles = StyleSheet.create({
   },
   stepButton: {
     borderRadius: radius.pill,
-    backgroundColor: CONTROL_FILL,
     alignItems: "center",
     justifyContent: "center",
   },

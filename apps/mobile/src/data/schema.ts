@@ -203,7 +203,10 @@ export type UserSettings = {
    * latest choice, which a chapter without its own takes, and each chapter's.
    */
   readerPairingShifts?: Record<string, { chapters?: Record<string, boolean>; learned?: boolean; shift?: boolean }>;
-  /** Around the page: black (default), white, or the page's own border colour. */
+  /**
+   * Around the page: white, black, or the page's own border colour. Absent
+   * (never chosen) reads as white; a stored value is never rewritten.
+   */
   readerPageBackground?: "black" | "white" | "page";
   /** 翻页: curl (default) or slide. */
   readerPageTurn?: "curl" | "slide";

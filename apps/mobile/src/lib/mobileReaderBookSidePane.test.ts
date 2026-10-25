@@ -210,9 +210,18 @@ describe("book pane thumbnail cells", () => {
     expect(sidePaneSource).not.toContain("failed: !uri");
   });
 
-  test("the chapter title is white at 85%, never tied to the toolbar", () => {
-    expect(sidePaneSource).toContain('const TITLE_COLOR = "rgba(255,255,255,0.85)";');
-    expect(sidePaneSource).toMatch(/title: \{[^}]*color: TITLE_COLOR,/);
+  test("the chapter title is 85% white (black on a light page background), never tied to the toolbar", () => {
+    expect(sidePaneSource).toContain('title: "rgba(255,255,255,0.85)",');
+    expect(sidePaneSource).toContain('title: "rgba(0,0,0,0.85)",');
+    expect(sidePaneSource).toContain("styles.title, { color: colors.title }");
+  });
+
+  test("a thumbnail not ready yet: the reader background, the pages' spinner while on screen, its number", () => {
+    expect(sidePaneSource).not.toContain("MOBILE_READER_SCROLL_PLACEHOLDER_COLOR");
+    expect(sidePaneSource).toContain("width, height, backgroundColor }]");
+    expect(sidePaneSource).toContain("{visible && (uri === null || loadedUri !== uri) ? (");
+    expect(sidePaneSource).toContain("<MobileReaderPageSpinner color={mobileReaderPageStatusColor(backgroundColor)} />");
+    expect(sidePaneSource).toContain("{page}");
   });
 });
 

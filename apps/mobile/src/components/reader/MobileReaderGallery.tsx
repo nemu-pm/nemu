@@ -103,10 +103,7 @@ import {
   isMobileReaderLogicalEndReached,
   type MobileReaderSegmentFrame,
 } from "@/lib/mobileReaderSegmentedImage";
-import {
-  useSkeletonDisplayDelay,
-  useSkeletonPulse,
-} from "@/lib/useSkeletonPulse";
+import { useSkeletonDisplayDelay } from "@/lib/useSkeletonPulse";
 import {
   createMobileReaderRenderRangeStore,
   MOBILE_READER_SCROLL_KEEP_AHEAD_VIEWPORTS,
@@ -164,6 +161,14 @@ import {
   nextMobileReaderStripPull,
   type MobileReaderStripPullState,
 } from "@/lib/mobileReaderStripPull";
+import { createMobileReaderScrollViewportStore, type MobileReaderScrollCellRef } from "@/lib/mobileReaderPageLoading";
+import {
+  MobileReaderPageSpinner,
+  MobileReaderScrollCellContext,
+  MobileReaderScrollViewportContext,
+} from "./MobileReaderPageSpinner";
+import { mobileReaderPageStatusColor } from "@/lib/mobileReaderPageLoading";
+import { mobileReaderPageBackgroundIsLight } from "@/lib/mobileReaderPageBackground";
 
 type MobileReaderGalleryState = {
   status: string;
@@ -497,6 +502,22 @@ function holdMobileReaderPageSeek(
   };
 }
 
+const READER_STATE_COLORS_ON_LIGHT = {
+  primaryText: "#000000",
+  secondaryText: "rgba(60,60,67,0.6)",
+};
+
+// One stable cell reference per segment tile (the spinner's context value).
+const segmentCellRefs = new Map<number, MobileReaderScrollCellRef>();
+function segmentCellRef(index: number): MobileReaderScrollCellRef {
+  let ref = segmentCellRefs.get(index);
+  if (!ref) {
+    ref = { kind: "segment", index };
+    segmentCellRefs.set(index, ref);
+  }
+  return ref;
+}
+
 type MobileReaderScrollPageCellProps = {
   page: MobileReaderPage;
   index: number;
@@ -538,7 +559,10 @@ const MobileReaderScrollPageCell = memo(
       () => renderRangeStore.includes(index),
     );
     const row = renderScrollRow?.(page, { inRenderWindow });
+    // A waiting page's spinner finds its place on screen through its cell.
+    const cell = useMemo<MobileReaderScrollCellRef>(() => ({ kind: "page", index }), [index]);
     return (
+      <MobileReaderScrollCellContext.Provider value={cell}>
       <View
         onLayout={
           onScrollingPageLayout
@@ -566,6 +590,7 @@ const MobileReaderScrollPageCell = memo(
           <TextPage text={page.text} fallbackPage={fallbackPage} strings={strings} />
         )}
       </View>
+      </MobileReaderScrollCellContext.Provider>
     );
   },
   (previous, next) =>
@@ -720,13 +745,12 @@ export function MobileReaderGallery({
     };
   }, [geometryKey, measureStageOrigin]);
   const isReaderLoading = loading || pagesState.status === "loading";
-  // The gallery lives for the whole chapter; the placeholder only for the
-  // first moments of it, so the infinite pulse stops with the load.
-  const readerSkeletonOpacity = useSkeletonPulse(
-    reduceMotion === true,
-    isReaderLoading,
-  );
   const readerSkeletonVisible = useSkeletonDisplayDelay(150);
+  // The chapter's state (error, locked, empty) sits on the reader
+  // background: dark text when that is light (White, a light page border).
+  const readerStateColors = mobileReaderPageBackgroundIsLight(backgroundColor)
+    ? READER_STATE_COLORS_ON_LIGHT
+    : READER_CAPSULE_COLORS;
   const segmentedMode = Boolean(segmentedImageFrames?.length);
   const logicalLongStripMode = longStripPresentationMode || segmentedMode;
   const resolvedContinuousContentIdentity =
@@ -959,6 +983,20 @@ export function MobileReaderGallery({
   // fling starts, so they decode while the list travels.
   const scrollFlingLandingRef = useRef<MobileReaderPageRange | null>(null);
   const [renderRangeStore] = useState(createMobileReaderRenderRangeStore);
+  // Scroll reading: the viewport, for the spinners of waiting pages (only
+  // pages on screen show one, centred in their part on screen).
+  const [scrollViewportStore] = useState(() =>
+    createMobileReaderScrollViewportStore(initialContentOffset.y),
+  );
+  scrollViewportStore.setGeometry({
+    layout: scrollPageLayout,
+    segments: segmentedMode ? (segmentedImageFrames ?? null) : null,
+    topPadding: chromeTopPadding,
+    fallbackViewportHeight: windowHeight,
+  });
+  useLayoutEffect(() => {
+    scrollViewportStore.notify();
+  });
   // Recorded while rendering (cells rendered below read it), announced to
   // the cells that did not re-render once the commit lands.
   renderRangeStore.set(scrollMountedRange, scrollFlingLandingRef.current);
@@ -2288,6 +2326,8 @@ export function MobileReaderGallery({
         viewportLength: layoutMeasurement.height,
       };
       recordContinuousScrollMetrics(metrics, logicalLongStripMode);
+      scrollViewportStore.setScroll(contentOffset.y, layoutMeasurement.height);
+      scrollViewportStore.notify();
       const layout = scrollPageLayoutRef.current;
       if (layout) {
         scrollAnchorRef.current = mobileReaderScrollAnchorForOffset(
@@ -2685,7 +2725,9 @@ export function MobileReaderGallery({
               },
             ]}
           >
-            {renderImageSegment?.(item.frame)}
+            <MobileReaderScrollCellContext.Provider value={segmentCellRef(item.frame.index)}>
+              {renderImageSegment?.(item.frame)}
+            </MobileReaderScrollCellContext.Provider>
           </View>
         );
       }
@@ -2944,6 +2986,7 @@ export function MobileReaderGallery({
       exiting={mobileReaderStageCrossFadeExiting}
       style={styles.readerScroll}
     >
+    <MobileReaderScrollViewportContext.Provider value={pagedMode ? null : scrollViewportStore}>
     <FlatList
       ref={listRef}
       data={galleryItems}
@@ -3010,6 +3053,7 @@ export function MobileReaderGallery({
       }
       style={styles.readerScroll}
     />
+    </MobileReaderScrollViewportContext.Provider>
     </Animated.View>
     </LayoutAnimationConfig>
   );
@@ -3118,13 +3162,12 @@ export function MobileReaderGallery({
                       width: Math.min(readerImageWidth, readerPageWidth - 24),
                       maxHeight: Math.max(240, windowHeight - 190),
                     },
-                {
-                  backgroundColor: "rgba(255,255,255,0.10)",
-                  borderColor: "rgba(255,255,255,0.13)",
-                  opacity: readerSkeletonOpacity,
-                },
               ]}
-            />
+            >
+              {/* The first page's shape on the reader background, with the
+                  pages' own spinner (the skeleton already waited 150ms). */}
+              <MobileReaderPageSpinner color={mobileReaderPageStatusColor(backgroundColor)} delayMs={0} />
+            </Animated.View>
           ) : null}
         </View>
       ) : pages.length ? (
@@ -3169,28 +3212,28 @@ export function MobileReaderGallery({
                       : "document-outline"
               }
               size={30}
-              color={READER_CAPSULE_COLORS.secondaryText}
+              color={readerStateColors.secondaryText}
             />
             <Text
               accessibilityRole="header"
               numberOfLines={2}
-              style={[styles.readerTitle, { color: READER_CAPSULE_COLORS.primaryText }]}
+              style={[styles.readerTitle, { color: readerStateColors.primaryText }]}
             >
               {pagesState.title ?? formatChapterTitle(chapter, strings)}
             </Text>
             {title ? (
               <Text
                 numberOfLines={2}
-                style={[styles.readerSubtitle, { color: READER_CAPSULE_COLORS.secondaryText }]}
+                style={[styles.readerSubtitle, { color: readerStateColors.secondaryText }]}
               >
                 {title}
               </Text>
             ) : null}
-            <Text style={[styles.readerText, { color: READER_CAPSULE_COLORS.secondaryText }]}>
+            <Text style={[styles.readerText, { color: readerStateColors.secondaryText }]}>
               {pagesState.detail}
             </Text>
             {pagesState.status === "blocked" ? (
-              <Text style={[styles.readerText, { color: READER_CAPSULE_COLORS.secondaryText }]}>
+              <Text style={[styles.readerText, { color: readerStateColors.secondaryText }]}>
                 {strings.reader.sourceBlockedHint}
               </Text>
             ) : null}
@@ -3232,7 +3275,7 @@ export function MobileReaderGallery({
               ) : null}
             </View>
             {!pagesState.locked ? (
-              <Text style={[styles.progressPillText, { color: READER_CAPSULE_COLORS.secondaryText }]}>
+              <Text style={[styles.progressPillText, { color: readerStateColors.secondaryText }]}>
                 {pagesState.status === "blocked" ||
                 pagesState.status === "error"
                   ? strings.reader.pageLoadingUnavailable
@@ -3314,13 +3357,8 @@ const styles = StyleSheet.create({
   readerLoadingSkeleton: {
     aspectRatio: 1 / 1.45,
     minWidth: 220,
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
   },
-  readerLoadingStrip: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
+  readerLoadingStrip: {},
   readerScroll: {
     flex: 1,
     alignSelf: "stretch",

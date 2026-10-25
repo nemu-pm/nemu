@@ -500,27 +500,26 @@ export function ReaderSettingsNativePopover({
             </SwiftPicker>
           </SwiftSection>
         ) : null}
-        {twoPageSupported ? (
-          <SwiftSection>
-            <SwiftPicker
-              {...menuRowLabel(strings.reader.pageBackground, "square.fill.on.square")}
-              modifiers={[formRowIcon("square.fill.on.square", { menu: true }), pickerStyle("menu"), ...busyModifiers]}
-              selection={pageBackground}
-              onSelectionChange={(selection) => {
-                if (busy || selection === pageBackground) return;
-                if (!(MOBILE_READER_PAGE_BACKGROUNDS as readonly string[]).includes(String(selection))) return;
-                void hapticSelection();
-                onSetPageBackground(selection as MobileReaderPageBackground);
-              }}
-            >
-              {MOBILE_READER_PAGE_BACKGROUNDS.map((option) => (
-                <SwiftText key={option} modifiers={[tag(option)]}>
-                  {readerPageBackgroundLabel(option, strings)}
-                </SwiftText>
-              ))}
-            </SwiftPicker>
-          </SwiftSection>
-        ) : null}
+        {/* Every presentation (paged and scroll) paints the page background. */}
+        <SwiftSection>
+          <SwiftPicker
+            {...menuRowLabel(strings.reader.pageBackground, "square.fill.on.square")}
+            modifiers={[formRowIcon("square.fill.on.square", { menu: true }), pickerStyle("menu"), ...busyModifiers]}
+            selection={pageBackground}
+            onSelectionChange={(selection) => {
+              if (busy || selection === pageBackground) return;
+              if (!(MOBILE_READER_PAGE_BACKGROUNDS as readonly string[]).includes(String(selection))) return;
+              void hapticSelection();
+              onSetPageBackground(selection as MobileReaderPageBackground);
+            }}
+          >
+            {MOBILE_READER_PAGE_BACKGROUNDS.map((option) => (
+              <SwiftText key={option} modifiers={[tag(option)]}>
+                {readerPageBackgroundLabel(option, strings)}
+              </SwiftText>
+            ))}
+          </SwiftPicker>
+        </SwiftSection>
         {(showCameraMode && onSetAvoidCamera) || (showOuterCover && onSetOuterCover) ? (
           <SwiftSection
             title={strings.reader.outerDisplayMode}

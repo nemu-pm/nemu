@@ -141,7 +141,9 @@ public final class NemuWindowLayoutModule: Module {
         view.curlFrame = CGRect(x: frame["x"] ?? 0, y: frame["y"] ?? 0, width: frame["width"] ?? 0, height: frame["height"] ?? 0)
       }
       Prop("turningEnabled") { (view: NemuPageCurlView, enabled: Bool) in view.turningEnabled = enabled }
-      Prop("pageBackground") { (view: NemuPageCurlView, color: UIColor?) in view.pageBackground = color ?? .black }
+      // JS always sends the reader's page background; an unparsable one is
+      // the reader's default (White), never a black that was never chosen.
+      Prop("pageBackground") { (view: NemuPageCurlView, color: UIColor?) in view.pageBackground = color ?? .white }
       Prop("navigationIndex") { (view: NemuPageCurlView, index: Int) in view.navigationIndex = index; view.setNeedsLayout() }
       // A tap turn starts here at once, ahead of the React commit that brings
       // the same navigation as props (which then changes nothing).

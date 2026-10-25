@@ -31,11 +31,12 @@ describe("native reader settings presentation", () => {
       showPlugins: false,
       showMarkComplete: false,
     });
-    // Page layout (row, footer), pairing (pairing, shift, footer), page fit
-    // (row, footer) and page background (row), four more sections; Laptop
-    // Mode (header, choice, footer, a section); plugins and mark complete rows.
+    // Page layout (row, footer), pairing (pairing, shift, footer) and page
+    // fit (row, footer), three more sections (page background shows in
+    // both); Laptop Mode (header, choice, footer, a section); plugins and
+    // mark complete rows.
     expect(readerSettingsNativeContentHeight(full) - minimal)
-      .toBe(52 + 36 + 52 * 2 + 36 + 52 + 36 + 52 + 20 * 4 + (28 + 52 + 36 + 20) + 52 * 2);
+      .toBe(52 + 36 + 52 * 2 + 36 + 52 + 36 + 20 * 3 + (28 + 52 + 36 + 20) + 52 * 2);
     // No Orientation Lock row on an iPhone or the Duo outer display.
     expect(readerSettingsNativeContentHeight({ ...full, showOrientationLock: false }))
       .toBe(readerSettingsNativeContentHeight(full) - 52);

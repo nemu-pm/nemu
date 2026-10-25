@@ -41,7 +41,10 @@ describe("useSkeletonPulse", () => {
       path.join(import.meta.dir, "../components/reader/MobileReaderGallery.tsx"),
       "utf8",
     );
-    expect(gallery).toContain("reduceMotion === true,\n    isReaderLoading,");
+    // The reader's opening placeholder is the reader background with the
+    // pages' spinner: no pulse to gate.
+    expect(gallery).not.toContain("useSkeletonPulse(");
+    expect(gallery).toContain("useSkeletonDisplayDelay(150)");
     const storage = readFileSync(
       path.join(import.meta.dir, "../components/MobileStorageBreakdown.tsx"),
       "utf8",

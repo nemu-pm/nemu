@@ -57,8 +57,7 @@ export function readerSettingsNativeContentHeight(rows: ReaderSettingsNativeRows
     sections += 1;
   }
   // 2. Page layout, with its footer; 3. while a spread shows, pairing and
-  //    Shift by One Page, with their footer; 4. page fit, with its footer;
-  //    5. page background.
+  //    Shift by One Page, with their footer; 4. page fit, with its footer.
   if (rows.twoPageSupported) {
     height += row + footer;
     if (rows.showPagePairingControls) {
@@ -66,9 +65,11 @@ export function readerSettingsNativeContentHeight(rows: ReaderSettingsNativeRows
       sections += 1;
     }
     height += row + footer;
-    height += row;
-    sections += 3;
+    sections += 2;
   }
+  // 5. Page background: every presentation (paged and scroll) shows it.
+  height += row;
+  sections += 1;
   // 4. Outer display under a header, with its footer: the camera switch
   //    (on the outer display) and Show Cover on Outer Display (iPhone Duo),
   //    whose footnote wraps to about three lines; refused camera access adds

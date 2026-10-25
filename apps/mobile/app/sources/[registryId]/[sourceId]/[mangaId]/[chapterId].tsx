@@ -37,6 +37,8 @@ import {
   canonicalMobileReaderZoomId,
 } from "@/lib/mobileReaderZoomHandoff";
 import { MOBILE_READER_SCROLL_PLACEHOLDER_COLOR } from "@/lib/mobileReaderScrollPresentation";
+import { mobileReaderPageBackgroundColor } from "@/lib/mobileReaderPageBackground";
+import { useReaderPagePrefs } from "@/components/reader/useReaderPagePrefs";
 import { ReaderScreen } from "@/screens/ReaderScreen";
 import { noteMobileReaderOpened } from "@/lib/mobileAidokuPrewarm";
 import { ZoomTarget } from "../../../../../modules/nemu-window-layout";
@@ -50,7 +52,7 @@ const COVER_REVEAL_MS = 250;
 const COVER_HOLD_MAX_MS = 5000;
 /**
  * Scroll reading reveals no later than this after the zoom lands, ready or
- * not: its pages still loading show their dark plate, which reads as the
+ * not: its pages still loading show the reader background and a spinner, which reads as the
  * reader opening rather than the cover hanging. Paged reading has no plate
  * and keeps waiting for its page (up to `COVER_HOLD_MAX_MS`).
  */
@@ -395,9 +397,14 @@ function ReaderAfterZoom({
     [holdForFirstScreenImages, onFirstPage, onFirstScreenImagesReady, openingGate, openingTimes],
   );
   const coverStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
+  // The reader's page background (the setting; White until it has loaded,
+  // as the reader itself): the cover fades onto it. "Match Page" has no page
+  // yet here, so it is black, as the reader is until it reads the border.
+  const { pageBackground } = useReaderPagePrefs();
+  const backdropColor = mobileReaderPageBackgroundColor(pageBackground);
 
   return (
-    <View style={styles.backdrop}>
+    <View style={[styles.backdrop, { backgroundColor: backdropColor }]}>
       {landed ? (
         <ReaderZoomEntryContext.Provider value={entry}>
           <ReaderScreen />
@@ -447,10 +454,9 @@ function ReaderAfterZoom({
 }
 
 const styles = StyleSheet.create({
-  // The reader's page background.
+  // Painted with the reader's page background (see ReaderAfterZoom).
   backdrop: {
     flex: 1,
-    backgroundColor: "#000000",
   },
   // A cover that is not there (yet): the reader's page plate.
   coverPlate: {

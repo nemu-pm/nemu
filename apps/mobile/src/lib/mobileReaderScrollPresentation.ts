@@ -9,9 +9,9 @@ import {
  */
 
 /**
- * What a page shows until its image decodes — a quiet dark plate (no
- * spinner, no text), so a fling past unloaded pages never reads as a run of
- * black screens or status cards.
+ * The opening zoom's cover-shaped plate while no cover image is known. Pages
+ * still loading show the reader background instead (see
+ * `mobileReaderPageLoading`).
  */
 export const MOBILE_READER_SCROLL_PLACEHOLDER_COLOR = "#1C1C1E";
 /** The first display of a page that waited on the network fades this long. */

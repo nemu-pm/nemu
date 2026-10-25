@@ -6,8 +6,14 @@ import {
 } from "./mobileReaderPageBackground";
 
 describe("page background", () => {
-  test("black by default; white; the page's border colour once measured", () => {
-    expect(normalizeMobileReaderPageBackground(undefined)).toBe("black");
+  test("white by default (never chosen, or unknown); a stored choice stays; the page's border colour once measured", () => {
+    expect(normalizeMobileReaderPageBackground(undefined)).toBe("white");
+    expect(normalizeMobileReaderPageBackground(null)).toBe("white");
+    expect(normalizeMobileReaderPageBackground("sepia")).toBe("white");
+    expect(normalizeMobileReaderPageBackground(3)).toBe("white");
+    // An explicit Black is kept: no migration rewrites it.
+    expect(normalizeMobileReaderPageBackground("black")).toBe("black");
+    expect(normalizeMobileReaderPageBackground("white")).toBe("white");
     expect(normalizeMobileReaderPageBackground("page")).toBe("page");
     expect(mobileReaderPageBackgroundColor("black", "#eeeeee")).toBe("#000000");
     expect(mobileReaderPageBackgroundColor("white")).toBe("#ffffff");

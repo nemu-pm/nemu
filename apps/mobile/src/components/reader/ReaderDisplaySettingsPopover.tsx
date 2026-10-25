@@ -454,29 +454,31 @@ export function ReaderDisplaySettingsPopover({
                   </View>
                 }
               />
-              <ReaderSettingRow
-                icon="contrast-outline"
-                title={strings.reader.pageBackground}
-                below={
-                  <View style={styles.settingControlBlock}>
-                    <ReaderSegmentedChipRow<MobileReaderPageBackground>
-                      accessibilityLabel={strings.reader.pageBackground}
-                      disabled={busy}
-                      onChange={(next) => {
-                        if (next === pageBackground) return;
-                        onSetPageBackground(next);
-                      }}
-                      options={MOBILE_READER_PAGE_BACKGROUNDS.map((option) => ({
-                        value: option,
-                        label: readerPageBackgroundLabel(option, strings),
-                      }))}
-                      value={pageBackground}
-                    />
-                  </View>
-                }
-              />
             </>
           ) : null}
+
+          {/* Every presentation (paged and scroll) paints the page background. */}
+          <ReaderSettingRow
+            icon="contrast-outline"
+            title={strings.reader.pageBackground}
+            below={
+              <View style={styles.settingControlBlock}>
+                <ReaderSegmentedChipRow<MobileReaderPageBackground>
+                  accessibilityLabel={strings.reader.pageBackground}
+                  disabled={busy}
+                  onChange={(next) => {
+                    if (next === pageBackground) return;
+                    onSetPageBackground(next);
+                  }}
+                  options={MOBILE_READER_PAGE_BACKGROUNDS.map((option) => ({
+                    value: option,
+                    label: readerPageBackgroundLabel(option, strings),
+                  }))}
+                  value={pageBackground}
+                />
+              </View>
+            }
+          />
 
           {showCameraMode && onSetAvoidCamera ? (
             <ReaderSettingRow

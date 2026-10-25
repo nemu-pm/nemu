@@ -1,11 +1,16 @@
 /**
- * What shows around the page: black (the default), white, or the colour of
- * the page's own border, so a page with white margins reads as one sheet.
+ * What shows around the page (and under a page still loading), in every
+ * presentation: white (the default), black, or the colour of the page's own
+ * border, so a page with white margins reads as one sheet.
  */
 export type MobileReaderPageBackground = "black" | "white" | "page";
 
 export const MOBILE_READER_PAGE_BACKGROUNDS: readonly MobileReaderPageBackground[] = ["black", "white", "page"];
-export const DEFAULT_MOBILE_READER_PAGE_BACKGROUND: MobileReaderPageBackground = "black";
+/**
+ * For a reader who never chose (nothing stored) or a stored value this build
+ * does not know. A stored choice, "black" included, is never rewritten.
+ */
+export const DEFAULT_MOBILE_READER_PAGE_BACKGROUND: MobileReaderPageBackground = "white";
 
 export function normalizeMobileReaderPageBackground(value: unknown): MobileReaderPageBackground {
   return typeof value === "string" && (MOBILE_READER_PAGE_BACKGROUNDS as readonly string[]).includes(value)

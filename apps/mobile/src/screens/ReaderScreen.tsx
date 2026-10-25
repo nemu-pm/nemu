@@ -246,6 +246,7 @@ import {
   type MobileReaderScrollViewport,
 } from "@/components/reader/MobileReaderGallery";
 import { MobileReaderPageFrame } from "@/components/reader/MobileReaderPageFrame";
+import { MobileReaderPageSpinner } from "@/components/reader/MobileReaderPageSpinner";
 import { MobileReaderLivePageView } from "@/components/reader/MobileReaderLivePageView";
 import { readerCentreTapBand, readerChromeDismissSweep } from "@/components/reader/readerTapZones";
 import {
@@ -397,6 +398,7 @@ import {
   mobileReaderPageBackgroundColor,
   mobileReaderPageBackgroundIsLight,
 } from "@/lib/mobileReaderPageBackground";
+import { mobileReaderPageStatusColor } from "@/lib/mobileReaderPageLoading";
 import {
   clampReaderPageIndex,
   getReaderContinuousScrollMetrics,
@@ -482,7 +484,6 @@ import {
 import { createMobileReaderLivePageStore, mobileReaderLivePageIndex } from "@/lib/mobileReaderLivePage";
 import {
   MOBILE_READER_SCROLL_PAGE_SPACING,
-  MOBILE_READER_SCROLL_PLACEHOLDER_COLOR,
   MOBILE_READER_SCROLL_SIDE_MARGIN,
   mobileReaderScrollPageGaps,
   mobileReaderBookScrollStrip,
@@ -3270,7 +3271,8 @@ export function ReaderScreen() {
   );
   const readerPageFeatures = useMobileReaderPageFeatures({
     // Spreads pair from the measurements; "Match Page" reads the border colour.
-    enabled: galleryPagedMode && (twoPageSupported || readerPageBackground === "page"),
+    // Scroll reading reads it too: the setting applies there as well.
+    enabled: (galleryPagedMode && twoPageSupported) || readerPageBackground === "page",
     chapterKey: JSON.stringify([registryId, sourceId, mangaId, chapterId]),
     pageIds: readerPageAnalysisIds,
     currentPageIndex: clampedPageIndex,
@@ -4472,8 +4474,9 @@ export function ReaderScreen() {
     [publishReaderVisibleSegments],
   );
   // Around the page: black, white, or the first-read visible page's border.
+  // Every presentation (paged, scroll, webtoon) uses the setting.
   const readerBackgroundColor = mobileReaderPageBackgroundColor(
-    galleryPagedMode ? readerPageBackground : "black",
+    readerPageBackground,
     readerVisiblePages[0] ? readerPageFeatures.get(readerVisiblePages[0].id)?.edgeColor : null,
   );
   // A light page background turns the status glyphs dark, over a light scrim.
@@ -9316,42 +9319,45 @@ export function ReaderScreen() {
             chapterId: neighbour.chapterId,
           })
         : readerPageSizeChapterKey;
-      // The gallery mounts every page in a plain ScrollView; apply the far-page
-      // placeholder before the pending spinner so long chapters do not mount an
-      // ActivityIndicator for every page awaiting lazy source processing.
+      // The gallery mounts every page in a plain ScrollView; the far-page
+      // placeholder comes before the pending one. In scroll reading both are
+      // the reader background with a spinner that mounts only while the page
+      // is on screen (MobileReaderPageSpinner follows its cell), so a long
+      // chapter never holds an ActivityIndicator per waiting page.
       if (renderPolicy === "far-placeholder") {
-        return (
-          <View
-            style={{
-              width: readerImageFrameSize.width,
-              height: readerImageFrameSize.height,
-              backgroundColor: scrollPresentation
-                ? MOBILE_READER_SCROLL_PLACEHOLDER_COLOR
-                : undefined,
-            }}
-          />
-        );
-      }
-      if (renderPolicy === "processing-placeholder") {
         return (
           <View
             accessibilityLabel={
               scrollPresentation ? strings.reader.pageImageLoading : undefined
             }
+            style={{
+              width: readerImageFrameSize.width,
+              height: readerImageFrameSize.height,
+              backgroundColor: scrollPresentation
+                ? readerBackgroundColor
+                : undefined,
+            }}
+          >
+            {scrollPresentation ? (
+              <MobileReaderPageSpinner color={mobileReaderPageStatusColor(readerBackgroundColor)} />
+            ) : null}
+          </View>
+        );
+      }
+      if (renderPolicy === "processing-placeholder") {
+        return (
+          <View
+            accessibilityLabel={strings.reader.pageImageLoading}
             style={[
               styles.readerImageProcessingPlaceholder,
               {
                 width: readerImageFrameSize.width,
                 height: readerImageFrameSize.height,
-                backgroundColor: scrollPresentation
-                  ? MOBILE_READER_SCROLL_PLACEHOLDER_COLOR
-                  : readerBackgroundColor,
+                backgroundColor: readerBackgroundColor,
               },
             ]}
           >
-            {scrollPresentation ? null : (
-              <ActivityIndicator color="#f8fafc" size="small" />
-            )}
+            <MobileReaderPageSpinner color={mobileReaderPageStatusColor(readerBackgroundColor)} />
           </View>
         );
       }
@@ -9362,11 +9368,7 @@ export function ReaderScreen() {
         return (
           <MobileReaderPageFrame
             withholdImage
-            backgroundColor={
-              scrollPresentation
-                ? MOBILE_READER_SCROLL_PLACEHOLDER_COLOR
-                : readerBackgroundColor
-            }
+            backgroundColor={readerBackgroundColor}
             frameSize={readerImageFrameSize}
             imageUri={imageUri}
             imageUriOwnership={page.imageUriOwnership ?? "source"}
@@ -9399,11 +9401,7 @@ export function ReaderScreen() {
       const pageFrame = (
         <MobileReaderPageFrame
           allowLongStripSegments={pageCount === 1}
-          backgroundColor={
-            scrollPresentation
-              ? MOBILE_READER_SCROLL_PLACEHOLDER_COLOR
-              : readerBackgroundColor
-          }
+          backgroundColor={readerBackgroundColor}
           cacheKey={pageCount === 1 ? segmentedCacheKey : undefined}
           frameSize={readerImageFrameSize}
           headers={page.headers}
@@ -9963,9 +9961,10 @@ export function ReaderScreen() {
           status="ready"
           sourceName={readerStripSourceName}
           strings={strings}
+          lightBackground={readerPageIsLight}
         />
       ) : null,
-    [readerSeamlessEnabled, readerStripPullChapter, readerStripSourceName, strings],
+    [readerPageIsLight, readerSeamlessEnabled, readerStripPullChapter, readerStripSourceName, strings],
   );
   const readerStripPullEnabled =
     readerStripPullChapter != null && readerStrip != null && readerStrip.currentIndex === 0;
@@ -10002,6 +10001,7 @@ export function ReaderScreen() {
           status={row.status}
           sourceName={readerStripSourceName}
           strings={strings}
+          lightBackground={readerPageIsLight}
           onRetry={
             row.status === "failed"
               ? retryReaderStripNext
@@ -10012,7 +10012,7 @@ export function ReaderScreen() {
         />
       );
     },
-    [goToChapter, retryReaderStripNext, readerStripRowByKey, readerStripSourceName, strings],
+    [goToChapter, readerPageIsLight, retryReaderStripNext, readerStripRowByKey, readerStripSourceName, strings],
   );
   // Render identity per list row (see readerScrollPageRenderKeys).
   const readerStripRenderKeys = useMemo(() => {
@@ -12450,6 +12450,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   readerImageProcessingPlaceholder: {
+    position: "relative",
     alignItems: "center",
     justifyContent: "center",
   },

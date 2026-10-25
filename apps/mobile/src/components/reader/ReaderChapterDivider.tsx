@@ -26,12 +26,14 @@ export type ReaderChapterDividerProps = {
   strings: MobileStrings;
   /** A failed / locked chapter below: try it again (or open it the old way). */
   onRetry?: () => void;
+  /** The reader background is light (White, or a light page border): dark text. */
+  lightBackground?: boolean;
 };
 
 /**
  * Seamless scroll: the band between two chapters. Two centred lines (the
  * chapter below, then the source), 64pt tall with 24pt above and below, on
- * the reader's background (black in scroll mode). The caught-up variant ends the last chapter.
+ * the reader's background (the Page Background setting). The caught-up variant ends the last chapter.
  */
 export const ReaderChapterDivider = memo(function ReaderChapterDivider({
   variant,
@@ -40,6 +42,7 @@ export const ReaderChapterDivider = memo(function ReaderChapterDivider({
   sourceName,
   strings,
   onRetry,
+  lightBackground = false,
 }: ReaderChapterDividerProps) {
   const title =
     variant === "end" || !chapter
@@ -69,11 +72,15 @@ export const ReaderChapterDivider = memo(function ReaderChapterDivider({
           .join(", ");
   const content = (
     <View style={styles.box}>
-      <Text numberOfLines={1} style={styles.title}>
+      <Text numberOfLines={1} style={[styles.title, lightBackground ? styles.titleOnLight : null]}>
         {title}
       </Text>
       {secondLine ? (
-        <Text numberOfLines={1} style={[styles.subtitle, actionable ? styles.subtitleAction : null]}>
+        <Text numberOfLines={1} style={[
+            styles.subtitle,
+            lightBackground ? styles.subtitleOnLight : null,
+            actionable ? styles.subtitleAction : null,
+          ]}>
           {secondLine}
         </Text>
       ) : null}
@@ -123,6 +130,12 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.55)",
     fontSize: 13,
     textAlign: "center",
+  },
+  titleOnLight: {
+    color: "rgba(0,0,0,0.85)",
+  },
+  subtitleOnLight: {
+    color: "rgba(60,60,67,0.6)",
   },
   // Failed / locked: the second line is the tap target (retry / locked), in
   // the app's primary colour at full opacity so it reads as tappable.

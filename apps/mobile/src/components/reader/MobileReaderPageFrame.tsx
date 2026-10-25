@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import {
-  ActivityIndicator,
   StyleSheet,
   View,
   type ImageProps,
@@ -16,11 +15,9 @@ import type { MobileImageSize } from "@/lib/mobileJapaneseLearningOverlay";
 import type { MobileImageUriOwnership } from "@/lib/mobileImageUriPolicy";
 import type { MobileCachedSegmentedImageAsset } from "@/lib/mobileImageCache";
 import { ReaderCapsuleButton } from "@/components/reader/ReaderCapsuleButton";
+import { MobileReaderPageSpinner } from "@/components/reader/MobileReaderPageSpinner";
+import { mobileReaderPageStatusColor } from "@/lib/mobileReaderPageLoading";
 import { MOBILE_READER_SCROLL_IMAGE_FADE_MS } from "@/lib/mobileReaderScrollPresentation";
-
-const READER_IMAGE_STATUS_BACKGROUND = "rgba(0,0,0,0.58)";
-const READER_IMAGE_STATUS_TEXT = "rgba(255,255,255,0.86)";
-const READER_IMAGE_STATUS_ICON = "rgba(255,255,255,0.72)";
 
 type MobileReaderPageFrameProps = {
   backgroundColor: string;
@@ -35,9 +32,8 @@ type MobileReaderPageFrameProps = {
   cacheKey?: string;
   loading: boolean;
   /**
-   * Scroll reading: a loading page is only its background plate (the label
-   * stays for VoiceOver); failures still show their status and Retry. Pages
-   * appear unfaded, over the plate.
+   * Scroll reading: the background stays painted under the page, and pages
+   * appear with the scroll fade (no wait on a JS load callback).
    */
   quietLoading?: boolean;
   offline?: boolean;
@@ -78,15 +74,15 @@ export function MobileReaderPageFrame({
   withholdImage = false,
 }: MobileReaderPageFrameProps) {
   const canRetry = Boolean(error) && Boolean(onRetry);
-  const showStatus = Boolean(error) || (loading && !quietLoading);
+  // A page without its image: the reader background, a small native spinner
+  // (after a short wait; in scroll reading only while on screen), and on a
+  // failure its icon and text in the same quiet colour — never a dark card.
+  const statusColor = mobileReaderPageStatusColor(backgroundColor);
+  const waiting = loading && !error;
 
   return (
     <View
-      accessibilityLabel={
-        quietLoading && loading && !error
-          ? strings.reader.pageImageLoading
-          : undefined
-      }
+      accessibilityLabel={waiting ? strings.reader.pageImageLoading : undefined}
       style={[
         styles.readerImageFrame,
         {
@@ -96,8 +92,8 @@ export function MobileReaderPageFrame({
           // A decoded page covers its frame anyway, and a transparent frame
           // lets the previous list show through while a remounted one
           // decodes (spread ⇄ single, rotation) instead of a black box.
-          // Scroll reading always keeps its plate: a page that remounts
-          // paints over it the moment it decodes, without a fade.
+          // Scroll reading always keeps its background: a page that remounts
+          // paints over it the moment it decodes.
           backgroundColor:
             loading || error || quietLoading ? backgroundColor : "transparent",
         },
@@ -125,39 +121,29 @@ export function MobileReaderPageFrame({
         resizeMode={imageResizeMode}
         style={styles.readerImage}
       />}
-      {showStatus ? (
+      {waiting && !withholdImage ? <MobileReaderPageSpinner color={statusColor} /> : null}
+      {error ? (
         <View
-          // A failed page must be recoverable: the overlay only stays inert
+          // A failed page must be recoverable: the status only stays inert
           // while there is nothing to tap.
           pointerEvents={canRetry ? "auto" : "none"}
-          style={[
-            styles.readerImageStatusOverlay,
-            {
-              backgroundColor: READER_IMAGE_STATUS_BACKGROUND,
-            },
-          ]}
+          style={styles.readerImageStatusOverlay}
         >
-          {error ? (
-            <Ionicons
-              name={offline ? "cloud-offline-outline" : "alert-circle-outline"}
-              size={22}
-              color={READER_IMAGE_STATUS_ICON}
-            />
-          ) : (
-            <ActivityIndicator color={READER_IMAGE_STATUS_TEXT} size="small" />
-          )}
+          <Ionicons
+            name={offline ? "cloud-offline-outline" : "alert-circle-outline"}
+            size={22}
+            color={statusColor}
+          />
           <NemuText
             numberOfLines={2}
             style={[
               styles.readerImageStatusText,
-              { color: READER_IMAGE_STATUS_TEXT },
+              { color: statusColor },
             ]}
           >
-            {error
-              ? offline
-                ? strings.feedback.readerWaitingForNetwork
-                : strings.reader.pageImageFailed
-              : strings.reader.pageImageLoading}
+            {offline
+              ? strings.feedback.readerWaitingForNetwork
+              : strings.reader.pageImageFailed}
           </NemuText>
           {canRetry && onRetry ? (
             // The chrome's capsule language: dark glass, icon + label, 44pt.
