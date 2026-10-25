@@ -1,5 +1,3 @@
-import { MOBILE_READER_REDUCE_MOTION_FADE_MS } from "./mobileReaderStageMotion";
-
 /**
  * Which enter/exit treatment the reader chrome should use. Kept apart from
  * `mobileReaderChromeAnimations` so the policy can be unit-tested without
@@ -8,7 +6,7 @@ import { MOBILE_READER_REDUCE_MOTION_FADE_MS } from "./mobileReaderStageMotion";
 export type ReaderChromeMotionVariant = "slide" | "fade";
 
 /**
- * Reduce Motion drops the 8px translate and leaves a plain cross-fade. The
+ * Reduce Motion drops the 6pt translate and leaves a plain cross-fade. The
  * unknown (`null`) read is treated as "reduce", matching the theme provider's
  * motion-safe default, so chrome never slides before the setting resolves.
  */
@@ -26,9 +24,13 @@ export function readerChromeMotionVariant(
  * one motion if both use the same duration and curve, so these are the one
  * source for both.
  */
-export const READER_CHROME_MATERIAL_MS = 300;
-/** Rows slide this far toward their edge as they appear (none under Reduce Motion). */
-export const READER_CHROME_MATERIAL_SLIDE = 8;
+export const READER_CHROME_MATERIAL_MS = 200;
+/**
+ * The top and bottom rows move this far toward their screen edge as they
+ * hide, and come in from there as they show (none under Reduce Motion). Only
+ * opacity and this translate animate: no scale, no size change.
+ */
+export const READER_CHROME_MATERIAL_SLIDE = 6;
 /**
  * UIKit's `.curveEaseOut` timing function, cubic-bezier(0, 0, 0.58, 1) (Core
  * Animation's `easeOut`). The glass animates on it natively, so Reanimated
@@ -43,12 +45,12 @@ export type ReaderChromeMaterialTiming = {
   slide: number;
 };
 
-/** Duration and slide distance of the capsule chrome's show / hide (Reduce Motion: the reader's short cross-fade, no slide). */
+/** Duration and slide distance of the capsule chrome's show / hide (Reduce Motion: the same fade, no movement). */
 export function readerChromeMaterialTiming(
   reduceMotion: boolean | null,
 ): ReaderChromeMaterialTiming {
   return reduceMotion === true
-    ? { durationMs: MOBILE_READER_REDUCE_MOTION_FADE_MS, slide: 0 }
+    ? { durationMs: READER_CHROME_MATERIAL_MS, slide: 0 }
     : { durationMs: READER_CHROME_MATERIAL_MS, slide: READER_CHROME_MATERIAL_SLIDE };
 }
 

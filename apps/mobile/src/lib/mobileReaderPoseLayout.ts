@@ -980,6 +980,86 @@ export function mobileReaderNextTopInsetLatch(
 }
 
 /**
+ * The reading area's safe area, latched for one window configuration, so it
+ * never changes with the status bar. Showing / hiding the controls shows /
+ * hides the status bar, and iOS reports a different safe area for each state
+ * (the iPhone Duo's status island is an 82pt top inset, a trailing column and
+ * a 134×82 occlusion only while it shows; an iPhone without a notch loses its
+ * 20pt top). The insets and occlusions can also arrive in separate samples.
+ * The pose, the page side insets and the scroll list's stable top all read
+ * this latch: per edge the widest inset seen (the status bar shown), plus
+ * every occlusion seen in the same configuration (the island that explains
+ * it). Live insets only place the chrome that fades with the status bar.
+ *
+ * Like the side-bar latch it never outlives its configuration: a new window
+ * size, vertical-bar edge or fold line (`mobileReaderLayoutInsetLatchKey`)
+ * starts over, as does a bar column moving to the other side.
+ */
+export type MobileReaderLayoutInsetLatch = {
+  key: string;
+  insets: Insets;
+  occlusions: MobileWindowLayout["occlusions"];
+};
+
+/**
+ * Configuration key of the layout inset latch: the window size, the vertical
+ * bar edge, and where its divisions are (their centre lines, not their
+ * active flag or width, so the same display flat or half folded is one
+ * configuration: its safe area does not change with the posture).
+ */
+export function mobileReaderLayoutInsetLatchKey(
+  layout: Pick<MobileWindowLayout, "width" | "height" | "divisions" | "verticalBarEdge">,
+): string {
+  const divisions = layout.divisions
+    .map((region) => `${Math.round(finite(region.x) + finite(region.width) / 2)},${Math.round(finite(region.y) + finite(region.height) / 2)}`)
+    .sort()
+    .join(";");
+  return `${Math.round(finite(layout.width))}x${Math.round(finite(layout.height))}:${layout.verticalBarEdge ?? ""}:${divisions}`;
+}
+
+export function mobileReaderNextLayoutInsetLatch(
+  previous: MobileReaderLayoutInsetLatch | null,
+  key: string,
+  insets: Partial<Insets> | null | undefined,
+  occlusions: MobileWindowLayout["occlusions"],
+): MobileReaderLayoutInsetLatch {
+  const seen = sanitizeInsets(insets);
+  const seenOcclusions = occlusions.filter((rect) => rect.active && rect.width > 0 && rect.height > 0);
+  const current = previous?.key === key ? previous : null;
+  if (!current) return { key, insets: seen, occlusions: seenOcclusions };
+  // A bar column that moved to the other side is a new configuration.
+  const latchedSide = insetColumnSide(current.insets);
+  const seenSide = insetColumnSide(seen);
+  if (latchedSide && seenSide && latchedSide !== seenSide) return { key, insets: seen, occlusions: seenOcclusions };
+  const merged: Insets = {
+    top: Math.max(current.insets.top, seen.top),
+    left: Math.max(current.insets.left, seen.left),
+    bottom: Math.max(current.insets.bottom, seen.bottom),
+    right: Math.max(current.insets.right, seen.right),
+  };
+  const added = seenOcclusions.filter((rect) => !current.occlusions.some((known) => sameRect(known, rect)));
+  const grew = merged.top !== current.insets.top || merged.left !== current.insets.left
+    || merged.bottom !== current.insets.bottom || merged.right !== current.insets.right;
+  if (!grew && added.length === 0) return current;
+  return { key, insets: merged, occlusions: added.length > 0 ? [...current.occlusions, ...added] : current.occlusions };
+}
+
+/** `layout` with the latched safe area and every latched occlusion (active). */
+export function mobileReaderLatchedWindowLayout(
+  layout: MobileWindowLayout,
+  latch: MobileReaderLayoutInsetLatch | null,
+): MobileWindowLayout {
+  if (!latch) return layout;
+  const live = layout.occlusions.filter((rect) => rect.active);
+  const missing = latch.occlusions.filter((rect) => !live.some((known) => sameRect(known, rect)));
+  return {
+    ...layout,
+    safeAreaInsets: latch.insets,
+    occlusions: missing.length > 0 ? [...layout.occlusions, ...missing] : layout.occlusions,
+  };
+}
+
+/**
  * How long a "partially open" hinge may lead the fold region before the
  * reader stops anticipating it and falls back to the flat layout. The region
  * normally follows within a layout pass or two; if it has not turned active

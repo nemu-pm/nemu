@@ -9,7 +9,6 @@ import {
   readerChromeMaterialTiming,
   readerChromeMotionVariant,
 } from "./mobileReaderChromeMotion";
-import { MOBILE_READER_REDUCE_MOTION_FADE_MS } from "./mobileReaderStageMotion";
 
 /** Progress of a cubic-bezier(x1, y1, x2, y2) timing function at time t. */
 function cubicBezierProgress([x1, y1, x2, y2]: readonly number[], t: number): number {
@@ -59,15 +58,15 @@ describe("reader chrome material timing", () => {
     expect(cubicBezierProgress(READER_CHROME_MATERIAL_CURVE, 1)).toBeCloseTo(1, 6);
   });
 
-  test("slides 8pt over 300ms; Reduce Motion cross-fades at the reader's short fade", () => {
+  test("fades over 200ms and moves 6pt toward the edge; Reduce Motion fades only, no movement", () => {
     expect(readerChromeMaterialTiming(false)).toEqual({
       durationMs: READER_CHROME_MATERIAL_MS,
       slide: READER_CHROME_MATERIAL_SLIDE,
     });
-    expect(READER_CHROME_MATERIAL_MS).toBe(300);
-    expect(READER_CHROME_MATERIAL_SLIDE).toBe(8);
+    expect(READER_CHROME_MATERIAL_MS).toBe(200);
+    expect(READER_CHROME_MATERIAL_SLIDE).toBe(6);
     expect(readerChromeMaterialTiming(true)).toEqual({
-      durationMs: MOBILE_READER_REDUCE_MOTION_FADE_MS,
+      durationMs: READER_CHROME_MATERIAL_MS,
       slide: 0,
     });
     // Unresolved setting: the full material motion (the glass animates either way).

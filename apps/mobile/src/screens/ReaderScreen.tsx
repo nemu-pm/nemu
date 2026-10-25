@@ -32,6 +32,10 @@ import {
   mobileReaderNextTopInsetLatch,
   mobileReaderTopInsetLatchKey,
   type MobileReaderTopInsetLatch,
+  mobileReaderLatchedWindowLayout,
+  mobileReaderLayoutInsetLatchKey,
+  mobileReaderNextLayoutInsetLatch,
+  type MobileReaderLayoutInsetLatch,
   mobileReaderScrollStableTopInset,
   mobileReaderSafePadding,
   MOBILE_READER_HINGE_HINT_TIMEOUT_MS,
@@ -2893,7 +2897,7 @@ export function ReaderScreen() {
   const readerHingeHintExpired = readerHingeHintKey !== null && expiredReaderHingeHint === readerHingeHintKey;
   const readerSideBarInsetLeft = readerSideBarInsets?.left ?? null;
   const readerSideBarInsetRight = readerSideBarInsets?.right ?? null;
-  const readerFoldedWindowLayout = useMemo<MobileWindowLayout>(() => {
+  const readerSampledWindowLayout = useMemo<MobileWindowLayout>(() => {
     if (!reservedLayout) {
       return {
         width: window.width, height: window.height, supported: false,
@@ -2913,6 +2917,24 @@ export function ReaderScreen() {
       safeAreaInsets: { ...anticipated.safeAreaInsets, left: readerSideBarInsetLeft, right: readerSideBarInsetRight },
     };
   }, [readerHingeHintExpired, readerSideBarInsetLeft, readerSideBarInsetRight, reservedLayout, window.height, window.width]);
+  // The reading area's safe area never follows the status bar (it shows and
+  // hides with the controls): latched per window configuration, the widest
+  // inset and the status island seen (`mobileReaderNextLayoutInsetLatch`).
+  // Live `insets` only place the chrome that fades with the status bar.
+  const [readerLayoutInsetLatch, setReaderLayoutInsetLatch] =
+    useState<MobileReaderLayoutInsetLatch | null>(null);
+  const readerLayoutInsets = mobileReaderNextLayoutInsetLatch(
+    readerLayoutInsetLatch,
+    mobileReaderLayoutInsetLatchKey(readerSampledWindowLayout),
+    readerSampledWindowLayout.safeAreaInsets ?? insets,
+    readerSampledWindowLayout.occlusions,
+  );
+  if (readerLayoutInsets !== readerLayoutInsetLatch) setReaderLayoutInsetLatch(readerLayoutInsets);
+  const readerFoldedWindowLayout = useMemo(
+    () => mobileReaderLatchedWindowLayout(readerSampledWindowLayout, readerLayoutInsets),
+    [readerLayoutInsets, readerSampledWindowLayout],
+  );
+  const readerLayoutSafeInsets = readerLayoutInsets.insets;
   const selectedSourceLanguages =
     selectedInstalledSource?.packageMetadata?.languages ??
     selectedInstalledSource?.languages ??
@@ -3061,7 +3083,7 @@ export function ReaderScreen() {
         layout: readerWindowLayout,
         pageAspectRatio: readerPageAspectRatio,
         avoidCamera: readerAvoidCamera,
-        fallbackInsets: insets,
+        fallbackInsets: readerLayoutSafeInsets,
         paged: galleryPagedMode,
         pageCount,
         twoPage: spreadMode === "double",
@@ -3087,7 +3109,7 @@ export function ReaderScreen() {
       readerAvoidCamera,
       readerSideBar,
       galleryPagedMode,
-      insets,
+      readerLayoutSafeInsets,
       mode,
       pageCount,
       readerNotebookPane,
@@ -4514,9 +4536,10 @@ export function ReaderScreen() {
         : { ...mobileReaderScreenOptions({ showControls, lightPage: readerPageIsLight }), headerShown: false },
     [readerPageIsLight, readerSideBar, showControls],
   );
-  const readerChromeTopPadding = showReaderChrome
-    ? insets.top + 80
-    : Math.max(insets.top + 8, 12);
+  // Paged: constant, from the latched safe area. The capsules float over the
+  // page and own their own rects (tap exclusions) while shown, so the bands
+  // never follow the chrome or the status bar.
+  const readerChromeTopPadding = Math.max(readerLayoutSafeInsets.top + 8, 12);
   const readerCompactControlsHeight = 82;
   // Not the live inset: the Duo's status island comes and goes with the
   // status bar (chrome shown / hidden), and a list padding that followed it
@@ -4528,7 +4551,7 @@ export function ReaderScreen() {
       reader: reservedLayout ? readerFoldedWindowLayout : null,
       app: appObservedWindowLayout,
       window,
-      insets,
+      insets: readerLayoutSafeInsets,
     }) + 80;
   // The segmented list's leading padding (see the gallery's chromeTopPadding).
   const readerSegmentTopInset =
@@ -4545,10 +4568,8 @@ export function ReaderScreen() {
   const readerScrollBottomInset =
     mobileReaderSafePadding(readerStage, readerPose.bounds, { ...readerPose.safeInsets, bottom: insets.bottom }).bottom
     + readerCompactControlsHeight;
-  const readerBottomPadding = showReaderBottomChrome
-    ? insets.bottom + readerCompactControlsHeight
-    : Math.max(insets.bottom + 18, 24);
-  const readerStateTopPadding = Math.max(insets.top + 82, 118);
+  const readerBottomPadding = Math.max(readerLayoutSafeInsets.bottom + 18, 24);
+  const readerStateTopPadding = Math.max(readerLayoutSafeInsets.top + 82, 118);
 
   const readerChromeColorsForTheme = useMemo(
     () =>
@@ -11284,7 +11305,7 @@ export function ReaderScreen() {
       const actionsOnRight = actions.x + actions.width / 2 >= boundsWidth / 2;
       // Show / hide: every glass piece materializes and dematerializes its
       // effect together with its icons and text (one UIKit animation), while
-      // the rows slide 8pt and the non-glass bits (scrim) fade on the same
+      // the rows slide 6pt and the non-glass bits (scrim) fade on the same
       // clock. Glass is never alpha-faded, so it can't lag behind its content.
       const glass = {
         materialized: readerChromePresent,
@@ -11956,7 +11977,7 @@ export function ReaderScreen() {
             ? showControls && readerPose.chrome.state !== "filmstrip"
             : showReaderChrome || readerChromeLingering)
             ? readerChromeLingering && readerPose.chrome.kind === "capsules"
-              // Reserve the 8pt dismiss path as well as the pose rect:
+              // Reserve the 6pt dismiss path as well as the pose rect:
               // hit-testing reads the stage coordinates, not its native slide.
               ? readerTapExclusions.map((rect) =>
                   readerChromeDismissSweep(rect, { slide: readerChromeSlide, stageHeight: readerStageHeight }))

@@ -29,6 +29,10 @@ export default function SourcesLayout() {
           // Match the reader before its component mounts, including Duo's
           // persistent rail. UIKit can then transition the bar with the page.
           headerShown: Boolean(verticalBarSide),
+          // The status bar shows / hides with the reader's controls: always
+          // a fade, never a slide (the reader sets the same, see
+          // mobileReaderScreenOptions; this covers its first frames).
+          statusBarAnimation: "fade",
           headerBackVisible: false,
           title: "",
           contentStyle: { backgroundColor: "#000000" },
