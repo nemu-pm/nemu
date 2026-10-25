@@ -9,6 +9,7 @@ import {
   mobileReaderPanBound,
   mobileReaderPanStepTarget,
   mobileReaderPanClaim,
+  mobileReaderPanFlingTurn,
   normalizeReaderFitMode,
   normalizeReaderFitModes,
   readerFitModeForShape,
@@ -283,5 +284,29 @@ describe("seamless paged neighbour fit (ReaderScreen)", () => {
     expect(
       mobileReaderPageFitMode({ mode: "page", single: true, viewport: portrait, naturalSize: { width: 2400, height: 1200 } }),
     ).toBe("height");
+  });
+});
+
+describe("a swipe on a page fitted larger than its window (outer display, wide page fitted by height)", () => {
+  test("a fast sideways swipe turns the page; a slow drag only pans", () => {
+    expect(mobileReaderPanFlingTurn({ velocityX: -900, velocityY: 50, translationX: -60, rtl: false })).toBe("next");
+    expect(mobileReaderPanFlingTurn({ velocityX: 900, velocityY: 50, translationX: 60, rtl: false })).toBe("previous");
+    expect(mobileReaderPanFlingTurn({ velocityX: -900, velocityY: 50, translationX: -60, rtl: true })).toBe("previous");
+    expect(mobileReaderPanFlingTurn({ velocityX: 900, velocityY: 50, translationX: 60, rtl: true })).toBe("next");
+    // Slow: a pan.
+    expect(mobileReaderPanFlingTurn({ velocityX: -200, velocityY: 0, translationX: -150, rtl: false })).toBeNull();
+    // Mostly vertical, too short, or flicked back against the drag: no turn.
+    expect(mobileReaderPanFlingTurn({ velocityX: -900, velocityY: 1200, translationX: -60, rtl: false })).toBeNull();
+    expect(mobileReaderPanFlingTurn({ velocityX: -900, velocityY: 0, translationX: -6, rtl: false })).toBeNull();
+    expect(mobileReaderPanFlingTurn({ velocityX: 900, velocityY: 0, translationX: -80, rtl: false })).toBeNull();
+  });
+
+  test("wiring: the page's pan hands a swipe to the turn, bypassing the pan step; the fit rule is untouched", () => {
+    const reader = readFileSync(path.join(import.meta.dir, "../screens/ReaderScreen.tsx"), "utf8");
+    expect(reader).toContain("if (turn) runOnJS(publishSwipeTurn)(turn);");
+    expect(reader).toContain("if (scale.value > 1 || !panAtRest || panMultiTouch.value) return;");
+    expect(reader).toContain('onSwipeTurn={pageFitMode === "page" ? undefined : turnReaderPageBySwipe}');
+    expect(reader).toContain("stepReaderPageRef.current(direction, { pan: false });");
+    expect(reader).toContain("options?.pan !== false &&");
   });
 });

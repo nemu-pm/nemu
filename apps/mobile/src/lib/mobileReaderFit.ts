@@ -238,6 +238,43 @@ export function clampMobileReaderPan(value: number, frameSize: number, viewportS
 
 export type ReaderPanClaim = "claim" | "yield" | "wait";
 
+/** A swipe at least this fast (pt/s, sideways) turns the page, whatever is left to pan. */
+export const READER_PAN_FLING_TURN_VELOCITY = 500;
+/** …and at least this long, so a jittery tap never turns. */
+export const READER_PAN_FLING_TURN_MIN_DISTANCE = 16;
+
+/**
+ * A page fitted larger than its window (a wide page fitted by height in a
+ * portrait window) claims a one-finger drag to pan it. A drag that ends as a
+ * sideways swipe (fast, mostly horizontal) still turns the page, as on any
+ * other page; a slow drag only pans. `null`: no turn. Left-to-right: a swipe
+ * to the left is `next`; right-to-left books the other way round.
+ */
+export function mobileReaderPanFlingTurn({
+  velocityX,
+  velocityY,
+  translationX,
+  rtl,
+  minVelocity = READER_PAN_FLING_TURN_VELOCITY,
+  minDistance = READER_PAN_FLING_TURN_MIN_DISTANCE,
+}: {
+  velocityX: number;
+  velocityY: number;
+  translationX: number;
+  rtl: boolean;
+  minVelocity?: number;
+  minDistance?: number;
+}): "previous" | "next" | null {
+  "worklet";
+  if (!(Math.abs(velocityX) >= minVelocity)) return null;
+  if (Math.abs(velocityX) <= Math.abs(velocityY)) return null;
+  if (!(Math.abs(translationX) >= minDistance)) return null;
+  // The swipe and the drag point the same way (no flick back against it).
+  if (Math.sign(velocityX) !== Math.sign(translationX)) return null;
+  const leftward = velocityX < 0;
+  return leftward !== rtl ? "next" : "previous";
+}
+
 /**
  * Whether a one-finger drag on a page that is not zoomed but overflows its
  * window belongs to the page (pan) or to the gallery (turn the page). The drag

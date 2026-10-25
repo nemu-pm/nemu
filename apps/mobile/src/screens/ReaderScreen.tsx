@@ -404,6 +404,7 @@ import {
   mobileReaderPageFitMode,
   mobileReaderPanBound,
   mobileReaderPanClaim,
+  mobileReaderPanFlingTurn,
   mobileReaderPanStepTarget,
   READER_PAN_RESET_AFTER_TURN_MS,
   readerFitModeForShape,
@@ -1033,6 +1034,7 @@ function ZoomableReaderImageFrame({
   children,
   frameSize,
   onZoomActiveChange,
+  onSwipeTurn,
   pageId,
   panControls,
   rtl = false,
@@ -1050,6 +1052,12 @@ function ZoomableReaderImageFrame({
   frameSize: MobileImageSize;
   /** Reports whether this page is currently zoomed in past its fit scale. */
   onZoomActiveChange?: (pageId: string, active: boolean) => void;
+  /**
+   * A page fitted larger than its window (not zoomed) that claimed a drag to
+   * pan: a drag ending as a sideways swipe turns the page instead
+   * (mobileReaderPanFlingTurn), whatever is left to pan.
+   */
+  onSwipeTurn?: (direction: "previous" | "next") => void;
   pageId: string;
   /**
    * Where a page that overflows its window sideways registers its pan for
@@ -1083,6 +1091,8 @@ function ZoomableReaderImageFrame({
   const savedTranslateY = useSharedValue(0);
   const touchStartX = useSharedValue(0);
   const touchStartY = useSharedValue(0);
+  /** The drag had a second finger at some point (a pinch's pan, never a swipe). */
+  const panMultiTouch = useSharedValue(false);
   const onZoomActiveChangeRef = useRef(onZoomActiveChange);
 
   useLayoutEffect(() => {
@@ -1095,6 +1105,13 @@ function ZoomableReaderImageFrame({
     },
     [pageId],
   );
+  const onSwipeTurnRef = useRef(onSwipeTurn);
+  useLayoutEffect(() => {
+    onSwipeTurnRef.current = onSwipeTurn;
+  }, [onSwipeTurn]);
+  const publishSwipeTurn = useCallback((direction: "previous" | "next") => {
+    onSwipeTurnRef.current?.(direction);
+  }, []);
 
   const frameWidth = frameSize.width;
   const frameHeight = frameSize.height;
@@ -1273,6 +1290,8 @@ function ZoomableReaderImageFrame({
         "worklet";
         const touch = event.allTouches[0];
         if (!touch) return;
+        // The first finger down starts a new drag; a second one marks it.
+        panMultiTouch.value = event.numberOfTouches >= 2;
         touchStartX.value = touch.absoluteX;
         touchStartY.value = touch.absoluteY;
       })
@@ -1280,6 +1299,7 @@ function ZoomableReaderImageFrame({
         "worklet";
         // Two fingers always pan (this is the pinch companion that already
         // worked); one finger only pans once the page is actually zoomed.
+        if (event.numberOfTouches >= 2) panMultiTouch.value = true;
         if (event.numberOfTouches >= 2 || scale.value > 1) {
           stateManager.activate();
           return;
@@ -1316,9 +1336,20 @@ function ZoomableReaderImageFrame({
           scale.value,
         );
       })
-      .onEnd(() => {
+      .onEnd((event) => {
         savedTranslateX.value = translateX.value;
         savedTranslateY.value = translateY.value;
+        // Fitted larger than the window, not zoomed: a swipe still turns the
+        // page (the outer display's wide page fitted by height used to take
+        // every swipe as a pan). A zoomed page pans by hand, as before.
+        if (scale.value > 1 || !panAtRest || panMultiTouch.value) return;
+        const turn = mobileReaderPanFlingTurn({
+          velocityX: event.velocityX,
+          velocityY: event.velocityY,
+          translationX: event.translationX,
+          rtl,
+        });
+        if (turn) runOnJS(publishSwipeTurn)(turn);
       });
 
     const doubleTapGesture = Gesture.Tap()
@@ -1374,9 +1405,12 @@ function ZoomableReaderImageFrame({
     frameHeight,
     frameWidth,
     panAtRest,
+    panMultiTouch,
+    publishSwipeTurn,
     publishZoomActive,
     restX,
     restY,
+    rtl,
     savedScale,
     savedTranslateX,
     savedTranslateY,
@@ -6259,10 +6293,16 @@ export function ReaderScreen() {
   const readerCrossingTapRenderRef = useRef(0);
   const readerCrossingTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const readerCrossingTapReplayedRef = useRef<{ render: number; at: number } | null>(null);
-  const stepReaderPageRef = useRef<(direction: "previous" | "next") => void>(() => undefined);
+  const stepReaderPageRef = useRef<(direction: "previous" | "next", options?: { pan?: boolean }) => void>(
+    () => undefined,
+  );
+  // A swipe on a page fitted larger than its window: a turn, never a pan step.
+  const turnReaderPageBySwipe = useCallback((direction: "previous" | "next") => {
+    stepReaderPageRef.current(direction, { pan: false });
+  }, []);
   const drainReaderCrossingTapsRef = useRef<() => void>(() => undefined);
   const stepReaderPage = useCallback(
-    (direction: "previous" | "next") => {
+    (direction: "previous" | "next", options?: { pan?: boolean }) => {
       if (pageCount <= 0) return;
       noteReaderStripGate({ kind: "user-gesture" });
       if (!readerCrossingTapReplayingRef.current && readerCrossingTaps.hold(direction, chapterId, Date.now())) {
@@ -6291,7 +6331,11 @@ export function ReaderScreen() {
         goToPage(pendingFlip.target, pendingFlip.arrival);
         return;
       }
-      if (!isTwoPageMode && readerPagePanControlsRef.current.get(currentDisplayedPageKey)?.step(direction)) {
+      if (
+        options?.pan !== false &&
+        !isTwoPageMode &&
+        readerPagePanControlsRef.current.get(currentDisplayedPageKey)?.step(direction)
+      ) {
         return;
       }
       if (targetPageIndex == null) {
@@ -10197,6 +10241,7 @@ export function ReaderScreen() {
           frameSize={readerImageFrameSize}
           viewport={pageFitMode === "page" ? undefined : readerFitViewport}
           panControls={pageFitMode === readerFitMode ? undefined : readerPagePanControlsRef.current}
+          onSwipeTurn={pageFitMode === "page" ? undefined : turnReaderPageBySwipe}
           rtl={mode === "rtl"}
           onZoomActiveChange={handleReaderPageZoomActiveChange}
           pageId={page.id}
@@ -10209,6 +10254,7 @@ export function ReaderScreen() {
     },
     [
       readerBackgroundColor,
+      turnReaderPageBySwipe,
       activeJapaneseLearningTranscriptOrder,
       chapter?.id,
       clampedPageIndex,
