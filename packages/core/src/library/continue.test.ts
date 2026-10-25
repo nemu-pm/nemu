@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   findFirstChapterToRead,
+  findNextUnreadChapter,
   inferChapterListOrder,
   resolveContinueChapter,
   type ContinueChapterCandidate,
@@ -131,5 +132,81 @@ describe("resolveContinueChapter", () => {
       chapter: null,
       isContinuation: false,
     });
+  });
+});
+
+describe("resolveContinueChapter with completion", () => {
+  // Pepper&Carrot-like list, newest first: Ch.38 was finished in the reader.
+  const chapters = [ch("c40", 40), ch("c39", 39), ch("c38", 38), ch("c37", 37), ch("c35", 35)];
+  const completedOf = (...ids: string[]) => (chapter: ContinueChapterCandidate) =>
+    ids.includes(chapter.id);
+
+  test("a finished last-read chapter moves Continue to the next unread chapter", () => {
+    expect(
+      resolveContinueChapter(chapters, { lastReadSourceChapterId: "c38" }, {
+        isCompleted: completedOf("c38", "c35"),
+      }),
+    ).toEqual({ chapter: chapters[1], isContinuation: true });
+  });
+
+  test("chapters already finished after it are skipped", () => {
+    expect(
+      resolveContinueChapter(chapters, { lastReadSourceChapterId: "c38" }, {
+        isCompleted: completedOf("c38", "c39"),
+      }).chapter?.id,
+    ).toBe("c40");
+  });
+
+  test("an unfinished last-read chapter is resumed as before", () => {
+    expect(
+      resolveContinueChapter(chapters, { lastReadSourceChapterId: "c38" }, {
+        isCompleted: completedOf("c37"),
+      }),
+    ).toEqual({ chapter: chapters[2], isContinuation: true });
+  });
+
+  test("finished the latest chapter: caught up on it", () => {
+    expect(
+      resolveContinueChapter(chapters, { lastReadSourceChapterId: "c40" }, {
+        isCompleted: completedOf("c40"),
+      }),
+    ).toEqual({ chapter: chapters[0], isContinuation: true, caughtUp: true });
+  });
+
+  test("an earlier unread chapter does not count as next", () => {
+    expect(
+      resolveContinueChapter(chapters, { lastReadSourceChapterId: "c40" }, {
+        isCompleted: completedOf("c40", "c38"),
+      }).caughtUp,
+    ).toBe(true);
+  });
+
+  test("works for oldest-first lists, and skips locked chapters and same-number uploads", () => {
+    const ascending = [
+      ch("a1", 1),
+      ch("a2", 2),
+      ch("a2-alt", 2),
+      ch("a3", 3, { locked: true }),
+      ch("a4", 4),
+    ];
+    expect(
+      findNextUnreadChapter(ascending, ascending[1]!, (chapter) => chapter.id === "a2"),
+    ).toBe(ascending[4]);
+  });
+
+  test("numbering that restarts per volume goes by volume first", () => {
+    const volumes = [
+      ch("v2c1", 1, { volumeNumber: 2 }),
+      ch("v1c2", 2, { volumeNumber: 1 }),
+      ch("v1c1", 1, { volumeNumber: 1 }),
+    ];
+    expect(
+      findNextUnreadChapter(volumes, volumes[1]!, (chapter) => chapter.id === "v1c2"),
+    ).toBe(volumes[0]);
+  });
+
+  test("unnumbered chapters go by list order", () => {
+    const unnumbered = [ch("u3"), ch("u2"), ch("u1")];
+    expect(findNextUnreadChapter(unnumbered, unnumbered[2]!, () => false)).toBe(unnumbered[1]);
   });
 });

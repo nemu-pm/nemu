@@ -1017,6 +1017,7 @@ export function SourceMangaScreen() {
   const continueTarget = getMobileSourceMangaContinueTarget(
     chapters,
     localState.mangaProgress,
+    localState.chapterProgress,
   );
   const continueChapter = continueTarget.chapter;
   const isContinuation = continueTarget.isContinuation;
@@ -1057,6 +1058,7 @@ export function SourceMangaScreen() {
         // Design-explore: a placeholder volume of 0 is never shown.
         chapter: mobileDesignExploreFlag ? withoutMobileZeroVolume(continueChapter) : continueChapter,
         isContinuation,
+        caughtUp: continueTarget.caughtUp,
         strings,
         labels: strings.sourceManga,
       })
@@ -2172,7 +2174,7 @@ export function SourceMangaScreen() {
                 showReaderAction
                   ? {
                       label: continueActionLabel,
-                      compactLabel: isContinuation ? strings.sourceManga.continueReading : undefined,
+                      compactLabel: isContinuation && !continueTarget.caughtUp ? strings.sourceManga.continueReading : undefined,
                       accessibilityLabel: continueActionLabel,
                       accessibilityHint: strings.sourceManga.readActionHint,
                       available: continueActionAvailable,

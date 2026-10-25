@@ -1989,6 +1989,9 @@ export function MangaDetailScreen() {
       (continueSourceChapterState?.status === "ready" ||
         Boolean(continueSourceChapterState?.full)),
     progress: continueProgress,
+    chapterProgress: continueSource
+      ? state.chapterProgressBySourceId[continueSource.id]
+      : undefined,
   });
   const continueChapter = continueAction.chapter;
   const isContinuation = continueAction.isContinuation;
@@ -2503,6 +2506,7 @@ export function MangaDetailScreen() {
         // Design-explore: a placeholder volume of 0 is never shown.
         chapter: booksHero ? withoutMobileZeroVolume(continueChapter) : continueChapter,
         isContinuation,
+        caughtUp: continueAction.caughtUp,
         strings,
         labels: strings.mangaDetail,
       })
@@ -2997,7 +3001,7 @@ export function MangaDetailScreen() {
                   }
                   primaryAction={{
                     label: continueActionLabel,
-                    compactLabel: isContinuation ? strings.mangaDetail.continueReading : undefined,
+                    compactLabel: isContinuation && !continueAction.caughtUp ? strings.mangaDetail.continueReading : undefined,
                     accessibilityLabel: continueActionLabel,
                     accessibilityHint: continueChapter
                       ? strings.mangaDetail.readActionHint

@@ -126,11 +126,14 @@ export function formatChapterShortLabel(
 export function formatContinueActionLabel({
   chapter,
   isContinuation,
+  caughtUp = false,
   strings,
   labels,
 }: {
   chapter: ChapterSummary;
   isContinuation: boolean;
+  /** Finished the latest chapter: the library's "Caught up" term. */
+  caughtUp?: boolean;
   strings: MobileStrings;
   labels: {
     continueChapter: string;
@@ -139,6 +142,7 @@ export function formatContinueActionLabel({
   };
 }): string {
   if (!isContinuation) return labels.startReading;
+  if (caughtUp) return strings.library.progressCaughtUp;
   const label = formatChapterLabel(chapter, strings);
   return label
     ? formatMobileString(labels.continueChapter, { chapter: label })

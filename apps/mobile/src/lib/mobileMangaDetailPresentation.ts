@@ -6,7 +6,11 @@ import {
 } from "@/data/schema";
 import { formatChapterShort, formatChapterTitle } from "./formatChapter";
 import { formatMobileString, type MobileStrings } from "./mobileI18n";
-import { getMobileSourceMangaContinueTarget } from "./mobileSourceMangaContinue";
+import {
+  getMobileSourceMangaContinueTarget,
+  resolveMobileContinueTarget,
+  type MobileSourceChapterCompletion,
+} from "./mobileSourceMangaContinue";
 
 /**
  * Widest the detail card's primary "Start reading / Continue" button grows.
@@ -25,6 +29,8 @@ export type MobileMangaDetailSourceTabBadge = {
 export type MobileMangaDetailContinueAction = {
   chapter: ChapterSummary | null;
   isContinuation: boolean;
+  /** Finished the latest chapter: "Caught up", reopening it from page 1. */
+  caughtUp?: boolean;
 };
 
 export type MobileMangaDetailLiveStatus =
@@ -108,16 +114,6 @@ export function getMobileMangaDetailSourceTabBadge({
   };
 }
 
-function progressChapter(progress: LocalMangaProgress | null | undefined): ChapterSummary | null {
-  if (!progress?.lastReadSourceChapterId) return null;
-  return {
-    id: progress.lastReadSourceChapterId,
-    title: progress.lastReadChapterTitle,
-    chapterNumber: progress.lastReadChapterNumber,
-    volumeNumber: progress.lastReadVolumeNumber,
-  };
-}
-
 export function getMobileMangaDetailContinueAction({
   continueSource,
   selectedSource,
@@ -126,6 +122,7 @@ export function getMobileMangaDetailContinueAction({
   continueChapters,
   continueChaptersLoaded = false,
   progress,
+  chapterProgress,
 }: {
   continueSource: LocalSourceLink | null | undefined;
   selectedSource: LocalSourceLink | null | undefined;
@@ -134,28 +131,36 @@ export function getMobileMangaDetailContinueAction({
   continueChapters?: ChapterSummary[] | null;
   continueChaptersLoaded?: boolean;
   progress: LocalMangaProgress | null | undefined;
+  /**
+   * The continue source's chapter progress: a finished last-read chapter
+   * moves Continue to the next unread chapter (or "Caught up").
+   */
+  chapterProgress?: MobileSourceChapterCompletion | null;
 }): MobileMangaDetailContinueAction {
   if (!continueSource) {
     return { chapter: null, isContinuation: false };
   }
 
   if (continueSource.id === selectedSource?.id) {
-    const target = getMobileSourceMangaContinueTarget(selectedChapters, progress);
+    const target = getMobileSourceMangaContinueTarget(selectedChapters, progress, chapterProgress);
     return {
+      ...target,
       chapter:
         target.chapter ??
         (selectedChaptersLoaded ? null : continueSource.latestChapter ?? null),
-      isContinuation: target.isContinuation,
     };
   }
 
   if (continueChaptersLoaded) {
-    return getMobileSourceMangaContinueTarget(continueChapters ?? [], progress);
+    return getMobileSourceMangaContinueTarget(continueChapters ?? [], progress, chapterProgress);
   }
 
-  const chapter = progressChapter(progress);
-  return {
-    chapter: chapter ?? continueSource.latestChapter ?? null,
-    isContinuation: Boolean(chapter),
-  };
+  // No list yet: the progress' own chapter (caught up when it is the
+  // finished latest chapter), else the latest chapter.
+  return resolveMobileContinueTarget({
+    chapters: null,
+    progress,
+    chapterProgress,
+    latestChapter: continueSource.latestChapter ?? null,
+  });
 }

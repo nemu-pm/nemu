@@ -11,6 +11,7 @@ import {
   getMobileMangaDetailSourceTabBadge,
 } from "./mobileMangaDetailPresentation";
 import { getMobileStrings } from "./mobileI18n";
+import { formatContinueActionLabel } from "./formatChapter";
 
 const en = getMobileStrings("en");
 const zh = getMobileStrings("zh");
@@ -310,5 +311,68 @@ describe("mobile manga detail presentation", () => {
       chapter: liveChapters[1],
       isContinuation: true,
     });
+  });
+});
+
+describe("detail Continue on a finished chapter", () => {
+  const source = sourceLink({ latestChapter: { id: "c3", chapterNumber: 3 } });
+  const done = (...ids: string[]) =>
+    Object.fromEntries(ids.map((id) => [id, { completed: true }]));
+
+  test("a finished last-read chapter continues at the next unread chapter", () => {
+    const action = getMobileMangaDetailContinueAction({
+      continueSource: source,
+      selectedSource: source,
+      selectedChapters: liveChapters,
+      selectedChaptersLoaded: true,
+      progress: progress("c2"),
+      chapterProgress: done("c2"),
+    });
+    expect(action).toEqual({ chapter: liveChapters[0], isContinuation: true });
+    expect(
+      formatContinueActionLabel({
+        chapter: action.chapter!,
+        isContinuation: action.isContinuation,
+        caughtUp: action.caughtUp,
+        strings: en,
+        labels: en.mangaDetail,
+      }),
+    ).toContain("3");
+  });
+
+  test("finished the latest chapter: Caught up, opening that chapter", () => {
+    const action = getMobileMangaDetailContinueAction({
+      continueSource: source,
+      selectedSource: source,
+      selectedChapters: liveChapters,
+      selectedChaptersLoaded: true,
+      progress: progress("c3"),
+      chapterProgress: done("c3"),
+    });
+    expect(action).toEqual({ chapter: liveChapters[0], isContinuation: true, caughtUp: true });
+    for (const strings of [en, zh, getMobileStrings("ja")]) {
+      expect(
+        formatContinueActionLabel({
+          chapter: action.chapter!,
+          isContinuation: true,
+          caughtUp: true,
+          strings,
+          labels: strings.mangaDetail,
+        }),
+      ).toBe(strings.library.progressCaughtUp);
+    }
+  });
+
+  test("before the list loads, a finished latest chapter is already caught up", () => {
+    const other = sourceLink({ id: "aidoku-community:en.other:blue-lock", sourceId: "en.other" });
+    expect(
+      getMobileMangaDetailContinueAction({
+        continueSource: source,
+        selectedSource: other,
+        selectedChapters: [],
+        progress: progress("c3"),
+        chapterProgress: done("c3"),
+      }).caughtUp,
+    ).toBe(true);
   });
 });
