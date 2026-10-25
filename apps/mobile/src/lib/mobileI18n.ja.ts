@@ -1283,6 +1283,7 @@ export const mobileStringsJa: MobileStrings = {
     removedFromLibrary: "ライブラリから削除しました",
     removedFromLibraryHint: "取り消しで復元できます",
     markedAllRead: "すべて既読にしました",
+    collectionDeleted: "コレクション「{{name}}」を削除しました",
     refreshSourcesFailedNetwork: "ソースを更新できませんでした。接続を確認してからもう一度お試しください。",
     refreshSourcesFailed: "ソースを更新できませんでした。しばらくしてからもう一度お試しください。",
     quickMenuMarkAllRead: "すべて既読にする",

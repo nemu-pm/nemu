@@ -1197,6 +1197,7 @@ export const mobileStringsZh: MobileStrings = {
     removedFromLibrary: "已从书库移除",
     removedFromLibraryHint: "点撤销即可恢复",
     markedAllRead: "已全部标为已读",
+    collectionDeleted: "已删除收藏夹「{{name}}」",
     refreshSourcesFailedNetwork: "无法刷新来源，请检查网络连接后重试。",
     refreshSourcesFailed: "无法刷新来源，请稍后重试。",
     quickMenuMarkAllRead: "全部标为已读",

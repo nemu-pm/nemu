@@ -111,6 +111,12 @@ import {
 import { MOBILE_MANGA_GRID_GAP, mobileLibraryGridMinItemWidth } from "@/lib/mobileAdaptiveGrid";
 import { chunkMobileGridRows, mobileFoldAwareGridCellStyle } from "@/lib/mobileFoldAwareGrid";
 import { MobilePaneAlignedView } from "@/lib/MobilePaneAlignedView";
+import {
+  buildMobileCollectionDeletedToast,
+  isMobileLibraryOpenCollectionDeleted,
+  leaveMobileLibraryDeletedCollection,
+  resolveMobileLibraryRouteCollectionState,
+} from "@/lib/mobileLibraryDeletedCollection";
 import { useMobileFoldAwareGrid } from "@/lib/useMobileFoldAwareGrid";
 import { MobilePoseLayoutView } from "@/components/MobilePoseLayoutView";
 import { MobileLibraryLayoutHeader } from "@/components/explore/MobileLibraryLayoutHeader";
@@ -892,6 +898,11 @@ export function LibraryScreen({
   const savingCollectionMembershipRef = useRef(false);
   const [removingCollection, setRemovingCollection] = useState(false);
   const removingCollectionRef = useRef(false);
+  // The pushed collection screen's own collection was just deleted: it waits
+  // for the sheet to finish dismissing, then steps back (see
+  // mobileLibraryDeletedCollection.ts).
+  const [leavingDeletedCollection, setLeavingDeletedCollection] =
+    useState<LocalCollection | null>(null);
   const [refreshingLibrary, setRefreshingLibrary] = useState(false);
   const [retryingData, setRetryingData] = useState(false);
   const [operationError, setOperationError] = useState<string | null>(null);
@@ -1060,8 +1071,14 @@ export function LibraryScreen({
     hasLibraryData: hasAnyLibraryData,
     hasError,
   });
-  const routeCollectionMissing =
-    isCollectionRoute && !loading && collectionSelection.missing;
+  const routeCollectionState = resolveMobileLibraryRouteCollectionState({
+    isCollectionRoute,
+    loading,
+    missing: collectionSelection.missing,
+    leavingDeletedCollectionId: leavingDeletedCollection?.collectionId ?? null,
+    routeCollectionId,
+  });
+  const routeCollectionMissing = routeCollectionState === "missing";
   const showEmptyOnboarding = shouldShowMobileLibraryEmptyOnboarding({
     loading,
     hasLibraryData: hasAnyLibraryData,
@@ -1624,6 +1641,30 @@ export function LibraryScreen({
     setOperationError(null);
     try {
       await collections.removeCollection(collection.collectionId);
+      if (
+        isMobileLibraryOpenCollectionDeleted({
+          isCollectionRoute,
+          routeCollectionId,
+          deletedCollectionId: collection.collectionId,
+        })
+      ) {
+        // This screen shows the deleted collection: once the sheet is gone,
+        // step back to whatever pushed it and confirm there. The sheets stay
+        // mounted meanwhile (`leaving-deleted`), so their dismissal fires.
+        setLeavingDeletedCollection(collection);
+        const leave = () => {
+          leaveMobileLibraryDeletedCollection(router);
+          toast.show(buildMobileCollectionDeletedToast(strings, collection.name));
+        };
+        if (!queueAfterSheetDismiss(source, leave)) leave();
+        setShowManagePanel(false);
+        setShowCollectionsManagerSheet(false);
+        setShowAddBooksSheet(false);
+        setRenameTarget(null);
+        setRemoveTarget(null);
+        await hapticConfirm();
+        return;
+      }
       if (source === "collections-manager") {
         if (effectiveCollectionId === collection.collectionId) setSelectedCollectionId(null);
         await hapticConfirm();
@@ -2378,6 +2419,28 @@ export function LibraryScreen({
           }}
         />
       </PageScaffold>
+      </>
+    );
+  }
+
+  if (routeCollectionState === "leaving-deleted") {
+    // Blank while the sheet dismisses and the stack steps back; never the
+    // not-found state for a collection the user just deleted here.
+    return (
+      <>
+      {usesNativeHeader ? (
+        <Stack.Screen options={nativeHeaderOptions(leavingDeletedCollection?.name ?? "")} />
+      ) : null}
+      <PageScaffold nativeHeader={usesNativeHeader}>
+        {usesNativeHeader ? null : (
+          <PageHeader
+            title={leavingDeletedCollection?.name ?? ""}
+            leadingIcon="chevron-back-outline"
+            onLeadingPress={() => router.back()}
+          />
+        )}
+      </PageScaffold>
+      {librarySheets}
       </>
     );
   }

@@ -1104,6 +1104,7 @@ export type MobileStrings = {
     removedFromLibrary: string;
     removedFromLibraryHint: string;
     markedAllRead: string;
+    collectionDeleted: string;
     refreshSourcesFailedNetwork: string;
     refreshSourcesFailed: string;
     quickMenuMarkAllRead: string;

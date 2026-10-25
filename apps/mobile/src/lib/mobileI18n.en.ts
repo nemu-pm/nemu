@@ -1274,6 +1274,7 @@ export const mobileStringsEn: MobileStrings = {
     removedFromLibrary: "Removed from library",
     removedFromLibraryHint: "Tap undo to restore it",
     markedAllRead: "Marked all as read",
+    collectionDeleted: "Deleted \"{{name}}\"",
     refreshSourcesFailedNetwork: "Couldn't refresh sources. Check your connection and try again.",
     refreshSourcesFailed: "Couldn't refresh sources. Try again in a moment.",
     quickMenuMarkAllRead: "Mark all as read",
