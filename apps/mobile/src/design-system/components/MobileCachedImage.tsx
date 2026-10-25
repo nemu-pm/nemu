@@ -18,6 +18,7 @@ import {
 } from "react-native";
 import { useNemuTheme } from "@/design/useNemuTheme";
 import { resolveMobileHeldImage } from "./mobileCachedImageHold";
+import { getMobileCachedImageViewKey } from "./mobileCachedImageViewKey";
 import {
   getCachedMobileImageAssetByStorageKeySync,
   getMobileImageCacheSourceKey,
@@ -610,9 +611,11 @@ export function MobileCachedImage({
         // cell — on top of ours; the shell above owns the one fade.
         fadeDuration={0}
         {...props}
-        // Only a repair changes this key: the native loader will not retry a
-        // URI it already failed on unless the view element is replaced.
-        key={localRepairGeneration}
+        // A repair changes this key (the native loader will not retry a URI
+        // it already failed on unless the view element is replaced), and so
+        // does a different URI: each image gets a native view of its own
+        // (getMobileCachedImageViewKey).
+        key={getMobileCachedImageViewKey(imageSource, localRepairGeneration)}
         onError={handleImageError}
         onLoad={handleImageLoad}
         source={imageSource}

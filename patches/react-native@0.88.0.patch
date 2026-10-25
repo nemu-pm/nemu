@@ -1,0 +1,123 @@
+diff --git a/React/Fabric/Mounting/ComponentViews/Image/RCTImageComponentView.mm b/React/Fabric/Mounting/ComponentViews/Image/RCTImageComponentView.mm
+index eeee2ed..d63471b 100644
+--- a/React/Fabric/Mounting/ComponentViews/Image/RCTImageComponentView.mm
++++ b/React/Fabric/Mounting/ComponentViews/Image/RCTImageComponentView.mm
+@@ -111,14 +111,28 @@ using namespace facebook::react;
+ 
+ - (void)_setStateAndResubscribeImageResponseObserver:(const ImageShadowNode::ConcreteState::Shared &)state
+ {
++  const ImageResponseObserverCoordinator *previousCoordinator = nullptr;
+   if (_state) {
+     const auto &imageRequest = _state->getData().getImageRequest();
+     auto &observerCoordinator = imageRequest.getObserverCoordinator();
++    previousCoordinator = &observerCoordinator;
+     observerCoordinator.removeObserver(_imageResponseObserverProxy);
+   }
+ 
+   _state = state;
+ 
++  const ImageResponseObserverCoordinator *nextCoordinator =
++      _state ? &_state->getData().getImageRequest().getObserverCoordinator() : nullptr;
++  if (nextCoordinator != previousCoordinator) {
++    // nemu: a response the previous request already sent towards the main queue
++    // still arrives here after `removeObserver` (the proxy dispatches it
++    // asynchronously). A recycled view now painting another image would take
++    // that image as its own: two images remounted together swap (the recycle
++    // pool is LIFO), and whichever response lands last stays. A fresh proxy per
++    // request lets the `didReceive…` callbacks drop anything not addressed to it.
++    _imageResponseObserverProxy = std::make_shared<RCTImageResponseObserverProxy>(self);
++  }
++
+   if (_state) {
+     auto &observerCoordinator = _state->getData().getImageRequest().getObserverCoordinator();
+     observerCoordinator.addObserver(_imageResponseObserverProxy);
+@@ -136,6 +150,10 @@ using namespace facebook::react;
+ 
+ - (void)didReceiveImage:(UIImage *)image metadata:(id)metadata fromObserver:(const void *)observer
+ {
++  if (observer != _imageResponseObserverProxy.get()) {
++    // nemu: a late response for a request this view no longer shows.
++    return;
++  }
+   if (!_eventEmitter || !_state) {
+     // Notifications are delivered asynchronously and might arrive after the view is already recycled.
+     // In the future, we should incorporate an `EventEmitter` into a separate object owned by `ImageRequest` or `State`.
+@@ -183,7 +201,7 @@ using namespace facebook::react;
+                      total:(int64_t)total
+               fromObserver:(const void *)observer
+ {
+-  if (!_eventEmitter) {
++  if (observer != _imageResponseObserverProxy.get() || !_eventEmitter) {
+     return;
+   }
+ 
+@@ -192,6 +210,10 @@ using namespace facebook::react;
+ 
+ - (void)didReceiveFailure:(NSError *)error fromObserver:(const void *)observer
+ {
++  if (observer != _imageResponseObserverProxy.get()) {
++    // nemu: a late failure for a request this view no longer shows.
++    return;
++  }
+   _imageView.image = nil;
+ 
+   if (!_eventEmitter) {
+diff --git a/React/Fabric/RCTImageResponseObserverProxy.h b/React/Fabric/RCTImageResponseObserverProxy.h
+index f131431..beef1cb 100644
+--- a/React/Fabric/RCTImageResponseObserverProxy.h
++++ b/React/Fabric/RCTImageResponseObserverProxy.h
+@@ -11,11 +11,18 @@
+ 
+ #include <react/renderer/imagemanager/ImageResponseObserver.h>
+ 
++#include <memory>
++
+ NS_ASSUME_NONNULL_BEGIN
+ 
+ namespace facebook::react {
+ 
+-class RCTImageResponseObserverProxy final : public ImageResponseObserver {
++// nemu: a response is delivered to the main queue asynchronously, and the block
++// keeps this proxy alive until it runs (`weak_from_this`), so the address a
++// delegate receives as `fromObserver` names exactly one proxy: a component view
++// that replaced its proxy can tell a late response for its previous request.
++class RCTImageResponseObserverProxy final : public ImageResponseObserver,
++                                            public std::enable_shared_from_this<RCTImageResponseObserverProxy> {
+  public:
+   RCTImageResponseObserverProxy(id<RCTImageResponseDelegate> delegate = nil);
+ 
+diff --git a/React/Fabric/RCTImageResponseObserverProxy.mm b/React/Fabric/RCTImageResponseObserverProxy.mm
+index 3b3b5f2..f9ab0f1 100644
+--- a/React/Fabric/RCTImageResponseObserverProxy.mm
++++ b/React/Fabric/RCTImageResponseObserverProxy.mm
+@@ -25,7 +25,9 @@ void RCTImageResponseObserverProxy::didReceiveImage(const ImageResponse &imageRe
+   id metadata = unwrapManagedObject(imageResponse.getMetadata());
+   id<RCTImageResponseDelegate> delegate = delegate_;
+   auto this_ = this;
++  auto retainedThis = weak_from_this().lock();
+   RCTExecuteOnMainQueue(^{
++    (void)retainedThis;
+     [delegate didReceiveImage:image metadata:metadata fromObserver:this_];
+   });
+ }
+@@ -33,8 +35,10 @@ void RCTImageResponseObserverProxy::didReceiveImage(const ImageResponse &imageRe
+ void RCTImageResponseObserverProxy::didReceiveProgress(float progress, int64_t loaded, int64_t total) const
+ {
+   auto this_ = this;
++  auto retainedThis = weak_from_this().lock();
+   id<RCTImageResponseDelegate> delegate = delegate_;
+   RCTExecuteOnMainQueue(^{
++    (void)retainedThis;
+     [delegate didReceiveProgress:progress loaded:loaded total:total fromObserver:this_];
+   });
+ }
+@@ -44,7 +48,9 @@ void RCTImageResponseObserverProxy::didReceiveFailure(const ImageLoadError &erro
+   auto this_ = this;
+   NSError *error = (NSError *)unwrapManagedObject(errorResponse.getError());
+   id<RCTImageResponseDelegate> delegate = delegate_;
++  auto retainedThis = weak_from_this().lock();
+   RCTExecuteOnMainQueue(^{
++    (void)retainedThis;
+     [delegate didReceiveFailure:error fromObserver:this_];
+   });
+ }

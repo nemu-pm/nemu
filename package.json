@@ -181,6 +181,7 @@
     "metro@0.87.1": "patches/metro@0.87.1.patch",
     "@expo/ui@58.0.24": "patches/@expo%2Fui@58.0.24.patch",
     "react-native-screens@4.30.0": "patches/react-native-screens@4.30.0.patch",
-    "react-native-reanimated@4.7.1": "patches/react-native-reanimated@4.7.1.patch"
+    "react-native-reanimated@4.7.1": "patches/react-native-reanimated@4.7.1.patch",
+    "react-native@0.88.0": "patches/react-native@0.88.0.patch"
   }
 }

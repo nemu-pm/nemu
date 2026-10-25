@@ -1811,7 +1811,9 @@ export function BrowseScreen() {
                             ]}
                           >
                             {section.sources.map((source, index) => (
-                              <View key={source.id}>
+                              // A real view per row (never flattened into the group), so
+                              // a row moved between sections keeps its own subtree.
+                              <View key={source.id} collapsable={false}>
                                 {index > 0 ? (
                                   <View style={[styles.exploreSourceSeparator, { backgroundColor: tokens.border }]} />
                                 ) : null}
