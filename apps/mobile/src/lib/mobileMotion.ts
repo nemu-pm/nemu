@@ -32,6 +32,11 @@ export const MOBILE_MOTION = {
   blurOutMs: 260,
   /** Reduce Motion: no movement, no blur — one short cross-fade. */
   reduceMotionFadeMs: 150,
+  /**
+   * A page's own cover (a surface that truly cannot slide asks for one): the
+   * page background fading in this long, never a one-frame snap.
+   */
+  pageCoverFadeInMs: 150,
   /** Veil stays at its peak this long after the last change settles (measurements, list remounts). */
   veilHoldMs: 120,
   /** A veil session never lasts longer than this, however many changes keep arriving. */
@@ -145,6 +150,25 @@ export function classifyMobilePoseChange(
     && Math.abs(next.width - next.height) >= 1;
   const jumped = relativeChange(previous.width, next.width) >= MOBILE_POSE_RESIZE_JUMP
     || relativeChange(previous.height, next.height) >= MOBILE_POSE_RESIZE_JUMP;
+  // Closing or opening the device: the hinge reports a few frames before the
+  // window moves to the other display. Book ⇄ flat (both open) is not this.
+  const wasOpen = hingeIsOpen(previous.hinge);
+  const isOpen = hingeIsOpen(next.hinge);
+  // Folding or unfolding the open display (book ⇄ flat) on the same display
+  // and the same side of the bars is a layout change whatever small size or
+  // size-class wobble comes with it: the page glides on the settle spring,
+  // the same motion both ways, never veiled.
+  const foldStateChange = wasOpen === true
+    && isOpen === true
+    && (previous.posture !== next.posture || !sameRect(previous.fold, next.fold));
+  if (
+    foldStateChange
+    && !rotated
+    && !jumped
+    && !(previous.verticalBarSide && next.verticalBarSide && previous.verticalBarSide !== next.verticalBarSide)
+  ) {
+    return { kind: "layout", anticipated: false };
+  }
   if (rotated || jumped || previous.widthClass !== next.widthClass) {
     return { kind: "resize", anticipated: false };
   }
@@ -156,10 +180,7 @@ export function classifyMobilePoseChange(
     return { kind: "resize", anticipated: false };
   }
 
-  // Closing or opening the device: the hinge reports a few frames before the
-  // window moves to the other display. Book ⇄ flat (both open) is not this.
-  const wasOpen = hingeIsOpen(previous.hinge);
-  const isOpen = hingeIsOpen(next.hinge);
+
   if (wasOpen !== null && isOpen !== null && wasOpen !== isOpen) {
     return { kind: "resize", anticipated: true };
   }
@@ -207,7 +228,19 @@ export function mobilePoseVeilPlan({
   blurAvailable,
   systemTransitionMs = null,
   nativeWindowResize = false,
+  page = false,
 }: {
+  /**
+   * A page is on screen (Library, Sources, a source's home, Settings,
+   * Search — anything but the reader, which restyles the veil for itself):
+   * a layout change (fold ⇄ unfold) is never covered, Reduce Motion
+   * included — the layouts glide on the settle spring, or simply take their
+   * new frames. A surface that truly cannot slide gets a plain page-colour
+   * cover over the whole window (no blur, so no dark edges), fading in over
+   * 150 ms, only when it asks (`requestVeil`, i.e. its layout really
+   * changed).
+   */
+  page?: boolean;
   reason: MobilePoseVeilReason;
   anticipated?: boolean;
   reduceMotion: boolean;
@@ -221,6 +254,16 @@ export function mobilePoseVeilPlan({
   /** UIKit owns the resize; persistent content does not need a covering veil. */
   nativeWindowResize?: boolean;
 }): MobilePoseVeilPlan | null {
+  if (page && reason === "layout") return null;
+  if (page && reason === "remount") {
+    return {
+      blurIntensity: 0,
+      tintOpacity: 1,
+      fadeInMs: MOBILE_MOTION.pageCoverFadeInMs,
+      holdMs: MOBILE_MOTION.veilHoldMs,
+      fadeOutMs: reduceMotion ? MOBILE_MOTION.reduceMotionFadeMs : MOBILE_MOTION.blurOutMs,
+    };
+  }
   if (reduceMotion) {
     return {
       blurIntensity: 0,

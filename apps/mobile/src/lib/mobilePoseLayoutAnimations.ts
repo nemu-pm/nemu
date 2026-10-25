@@ -54,7 +54,7 @@ export function isMobilePoseReduceMotion(): boolean {
   return poseReduceMotion.value;
 }
 
-/** Reduce Motion: frames jump; the pose veil's 150 ms wash softens the change instead. */
+/** Reduce Motion: frames take their new place at once (the reader's veil softens its own changes). */
 export function setMobilePoseReduceMotion(reduceMotion: boolean) {
   if (poseReduceMotion.value !== reduceMotion) poseReduceMotion.value = reduceMotion;
 }

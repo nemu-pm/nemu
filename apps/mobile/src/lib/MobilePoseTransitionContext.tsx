@@ -50,8 +50,10 @@ export type MobilePoseTransition = {
   spring: typeof MOBILE_MOTION.settleSpring;
   /**
    * Cover a surface's own discontinuity with the root veil — e.g. a grid that
-   * must remount for a new column count while the window keeps its size. Call
-   * it from a layout effect so the veil lands in the same frame.
+   * must remount for a new column count while the window keeps its size —
+   * only when its computed layout really changed. On a page it is the whole
+   * window in the page background, fading in over 150 ms (no blur). Call it
+   * from a layout effect so the veil starts in the same frame.
    */
   requestVeil: (reason?: Exclude<MobilePoseVeilReason, "layout">) => void;
   /**
@@ -147,6 +149,22 @@ export function MobilePoseTransitionProvider({ children }: { children: ReactNode
     nextSession: 1,
   }));
 
+  const [appearances, setAppearances] = useState<ReadonlyArray<{ owner: object; appearance: MobilePoseVeilAppearance }>>([]);
+  const setVeilAppearance = useCallback((owner: object, appearance: MobilePoseVeilAppearance | null) => {
+    setAppearances((previous) => {
+      const rest = previous.filter((entry) => entry.owner !== owner);
+      if (!appearance) return rest.length === previous.length ? previous : rest;
+      return [...rest, { owner, appearance }];
+    });
+  }, []);
+  const veilAppearance = appearances[appearances.length - 1]?.appearance ?? null;
+  // No restyled veil registered: a page (not the reader) is on screen.
+  const page = veilAppearance === null;
+  const pageRef = useRef(page);
+  useLayoutEffect(() => {
+    pageRef.current = page;
+  });
+
   let current = tracked;
   if (tracked.signature !== signature) {
     const change = classifyMobilePoseChange(tracked.signature, signature);
@@ -167,6 +185,7 @@ export function MobilePoseTransitionProvider({ children }: { children: ReactNode
           reduceMotion,
           blurAvailable: BLUR_AVAILABLE,
           systemTransitionMs: mobileDesignExploreFlag ? getMobileSystemTransitionMs() : null,
+          page,
         }),
       );
     }
@@ -183,18 +202,10 @@ export function MobilePoseTransitionProvider({ children }: { children: ReactNode
       reason,
       reduceMotion: reduceMotionRef.current,
       blurAvailable: BLUR_AVAILABLE,
+      page: pageRef.current,
     });
     setTracked((previous) => withVeil(previous, plan));
   }, []);
-  const [appearances, setAppearances] = useState<ReadonlyArray<{ owner: object; appearance: MobilePoseVeilAppearance }>>([]);
-  const setVeilAppearance = useCallback((owner: object, appearance: MobilePoseVeilAppearance | null) => {
-    setAppearances((previous) => {
-      const rest = previous.filter((entry) => entry.owner !== owner);
-      if (!appearance) return rest.length === previous.length ? previous : rest;
-      return [...rest, { owner, appearance }];
-    });
-  }, []);
-  const veilAppearance = appearances[appearances.length - 1]?.appearance ?? null;
   const handleVeilDone = useCallback((session: number) => {
     setTracked((previous) =>
       previous.veil?.session === session ? { ...previous, veil: null } : previous,

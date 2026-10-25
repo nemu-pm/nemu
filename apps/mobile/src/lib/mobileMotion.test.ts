@@ -197,6 +197,43 @@ describe("mobilePoseVeilPlan", () => {
   });
 });
 
+describe("Duo fold ⇄ unfold on a page: no veil, the same glide both ways", () => {
+  test("book ⇄ flat is a layout change both ways, even with a size or size-class wobble", () => {
+    const wobble = { ...INNER_LANDSCAPE_BOOK, width: 951 - 2 };
+    expect(classifyMobilePoseChange(sig(INNER_LANDSCAPE_FLAT), sig(wobble)).kind).toBe("layout");
+    expect(classifyMobilePoseChange(sig(wobble), sig(INNER_LANDSCAPE_FLAT)).kind).toBe("layout");
+    const narrow = { ...INNER_LANDSCAPE_FLAT, width: 590, height: 669 };
+    const narrowBook = { ...INNER_LANDSCAPE_BOOK, width: 610, height: 669 };
+    expect(sig(narrow).widthClass).not.toBe(sig(narrowBook).widthClass);
+    expect(classifyMobilePoseChange(sig(narrow), sig(narrowBook)).kind).toBe("layout");
+  });
+
+  test("closing the device or switching displays is still a resize", () => {
+    expect(classifyMobilePoseChange(sig(INNER_LANDSCAPE_FLAT), sig(OUTER_PORTRAIT)).kind).toBe("resize");
+    expect(classifyMobilePoseChange(sig(INNER_PORTRAIT), sig(INNER_LANDSCAPE_BOOK)).kind).toBe("resize");
+  });
+
+  test("a page is never veiled for a layout change, Reduce Motion included", () => {
+    for (const reduceMotion of [false, true]) {
+      expect(mobilePoseVeilPlan({ reason: "layout", reduceMotion, blurAvailable: true, page: true })).toBeNull();
+    }
+  });
+
+  test("a page's own cover: opaque page colour, no blur, a 150 ms fade-in", () => {
+    for (const reduceMotion of [false, true]) {
+      const plan = mobilePoseVeilPlan({ reason: "remount", reduceMotion, blurAvailable: true, page: true })!;
+      expect(plan.blurIntensity).toBe(0);
+      expect(plan.tintOpacity).toBe(1);
+      expect(plan.fadeInMs).toBe(150);
+    }
+  });
+
+  test("the reader keeps its own handling", () => {
+    expect(mobilePoseVeilPlan({ reason: "layout", reduceMotion: true, blurAvailable: true })).not.toBeNull();
+    expect(mobilePoseVeilPlan({ reason: "remount", reduceMotion: false, blurAvailable: true })?.blurIntensity).toBeGreaterThan(0);
+  });
+});
+
 describe("mobilePoseVeilRevealAt", () => {
   test("reveals a hold after the change settles", () => {
     expect(mobilePoseVeilRevealAt({ sessionStart: 1000, settledAt: 1050, holdMs: 120 })).toBe(1170);
