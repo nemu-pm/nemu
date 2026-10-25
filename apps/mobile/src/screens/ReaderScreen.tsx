@@ -194,6 +194,8 @@ import {
 import { useMobileDeviceFormFactor } from "@/lib/mobileOrientationStore";
 import { mobileAdaptiveLayout } from "@/lib/mobileAdaptiveLayout";
 import { ReaderDisplaySettingsPopover } from "@/components/reader/ReaderDisplaySettingsPopover";
+import { useReaderOuterCover } from "@/components/reader/useReaderOuterCover";
+import { OuterCoverAnchor } from "../../modules/nemu-outer-cover";
 import { ReaderNotebookPane } from "@/components/reader/ReaderNotebookPane";
 import { ReaderBookSidePane } from "@/components/reader/ReaderBookSidePane";
 import { ReaderChapterDivider } from "@/components/reader/ReaderChapterDivider";
@@ -1506,6 +1508,8 @@ export function ReaderScreen() {
     setSpreadMode: setReaderSpreadMode,
     avoidCamera: readerAvoidCamera,
     setAvoidCamera: setReaderAvoidCamera,
+    outerCover: readerOuterCoverSetting,
+    setOuterCover: setReaderOuterCoverSetting,
     fitModes: readerFitModes,
     setFitMode: setReaderFitMode,
   } = useReaderDisplayPrefs();
@@ -2502,6 +2506,21 @@ export function ReaderScreen() {
   );
   const pages = pagesState.pages;
   const pageCount = pages.length;
+  // iPhone Duo: the book's cover on the outer display while reading inside.
+  const readerOuterCover = useReaderOuterCover({
+    enabled: readerOuterCoverSetting,
+    setEnabled: setReaderOuterCoverSetting,
+    entry: state.entry,
+    installedSources: installedReaderSources.data,
+    routeSource: selectedInstalledSource,
+    registryId,
+    sourceId,
+    mangaId,
+    title: mangaTitle,
+    readerFocused: readerIsFocused,
+    layout: appObservedWindowLayout,
+    strings,
+  });
 
   useEffect(() => {
     scrollingPageMetricsRef.current = [];
@@ -11686,6 +11705,7 @@ export function ReaderScreen() {
     <View style={[styles.root, { backgroundColor: readerBackgroundColor }]}>
       <Stack.Screen options={readerScreenOptions} />
       <WindowLayoutObserver style={StyleSheet.absoluteFill} enabled={readerIsFocused} onLayoutChange={setReservedLayout} />
+      <OuterCoverAnchor active={readerOuterCover.running} />
       {/* Wherever the reader keeps the system vertical bar (the Duo outer
           display, a Split View half) Back and the actions are real toolbar
           items in it: Back alone on top of the vertical axis, then the
@@ -12161,6 +12181,11 @@ export function ReaderScreen() {
           showCameraMode={outerReaderCanvas}
           avoidCamera={readerAvoidCamera}
           onSetAvoidCamera={setReaderAvoidCameraFromSettings}
+          showOuterCover={readerOuterCover.toggleVisible}
+          outerCover={readerOuterCover.toggleOn}
+          outerCoverCameraDenied={readerOuterCover.cameraDenied}
+          onSetOuterCover={readerOuterCover.onToggle}
+          onOpenOuterCoverSettings={readerOuterCover.onOpenSettings}
           fitMode={readerFitSetting}
           windowShape={readerWindowShape}
           onSetFitMode={setReaderFitModeFromSettings}

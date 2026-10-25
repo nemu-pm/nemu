@@ -81,6 +81,9 @@ describe("iOS privacy manifest (app.json expo.ios.privacyManifests)", () => {
 
 describe("iOS Info.plist hygiene", () => {
   const USAGE_KEYS = [
+    // Show Cover on Outer Display (iPhone Duo): a capture session with no
+    // output that records, saves or processes frames, only while it is on.
+    "NSCameraUsageDescription",
     // LANraragi and other self-hosted sources on the user's own network.
     "NSLocalNetworkUsageDescription",
     "NSMicrophoneUsageDescription",
@@ -92,7 +95,7 @@ describe("iOS Info.plist hygiene", () => {
     expect(ios.infoPlist.ITSAppUsesNonExemptEncryption).toBe(false);
   });
 
-  test("has usage strings only for local network, photos, microphone and speech, localized", () => {
+  test("has usage strings only for camera, local network, photos, microphone and speech, localized", () => {
     const keys = Object.keys(ios.infoPlist)
       .filter((key) => key.endsWith("UsageDescription"))
       .sort();
@@ -105,10 +108,10 @@ describe("iOS Info.plist hygiene", () => {
     }
   });
 
-  test("requests no camera, location, contacts, tracking or Face ID access", () => {
+  test("requests no location, contacts, tracking or Face ID access", () => {
     for (const key of Object.keys(ios.infoPlist)) {
       expect(key).not.toMatch(
-        /Camera|Location|Contacts|Calendars|Tracking|FaceID|Bluetooth|Motion|Health/,
+        /Location|Contacts|Calendars|Tracking|FaceID|Bluetooth|Motion|Health/,
       );
     }
   });

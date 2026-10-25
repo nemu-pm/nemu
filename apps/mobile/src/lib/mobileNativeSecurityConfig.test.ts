@@ -132,6 +132,14 @@ describe("mobile native security configuration", () => {
     expect(config.expo.ios?.infoPlist?.NSMicrophoneUsageDescription).toBe(
       speech?.microphonePermission,
     );
+    // Show Cover on Outer Display (iOS only): expo-image-picker passing
+    // `cameraPermission: false` would delete the iOS key; Android keeps the
+    // camera blocked.
+    expect(typeof pluginOptions("expo-image-picker")?.cameraPermission).toBe("string");
+    expect(config.expo.ios?.infoPlist?.NSCameraUsageDescription).toBe(
+      pluginOptions("expo-image-picker")?.cameraPermission,
+    );
+    expect(config.expo.android?.blockedPermissions ?? []).toContain("android.permission.CAMERA");
     expect(config.expo.ios?.infoPlist?.NSSpeechRecognitionUsageDescription).toBe(
       speech?.speechRecognitionPermission,
     );

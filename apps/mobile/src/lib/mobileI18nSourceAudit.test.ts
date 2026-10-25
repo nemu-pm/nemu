@@ -312,6 +312,7 @@ describe("mobile i18n source audit", () => {
     ]);
 
     const permissionKeys = [
+      "NSCameraUsageDescription",
       "NSPhotoLibraryUsageDescription",
       "NSMicrophoneUsageDescription",
       "NSSpeechRecognitionUsageDescription",
