@@ -22,6 +22,8 @@ import {
   useWindowDimensions,
   View,
   type ListRenderItemInfo,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   type StyleProp,
   type ViewStyle,
 } from "react-native";
@@ -139,6 +141,7 @@ import {
   useMobileAidokuPrewarmScrollFeed,
   useMobileAidokuSandboxPrewarm,
 } from "@/lib/useMobileAidokuSandboxPrewarm";
+import { useMobilePoseScrollHold } from "@/lib/useMobilePoseScrollHold";
 import { getMobileInstalledSourceSettingsKeys } from "@/lib/mobileInstalledSourceKeys";import {
   canCreateMobileCollection,
   canRenameMobileCollection,
@@ -1039,7 +1042,34 @@ export function LibraryScreen({
   // Off by default (NEMU_AIDOKU_PREWARM_ENABLED): boots the iOS Aidoku sandbox
   // once the Library has sat idle, so a reader's first source call does not.
   useMobileAidokuSandboxPrewarm();
-  const libraryGridOnScroll = useMobileAidokuPrewarmScrollFeed(gridScrollAnchor.onScroll);
+  // A fold shrinks the covers: a list barely taller than the viewport would
+  // clamp back to the top (and stay there after unfolding). The hold keeps
+  // the offset reachable through the change (useMobilePoseScrollHold).
+  const poseScrollHold = useMobilePoseScrollHold();
+  const gridAnchorOnScroll = gridScrollAnchor.onScroll;
+  const poseScrollHoldOnScroll = poseScrollHold.onScroll;
+  const libraryListOnScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      gridAnchorOnScroll(event);
+      poseScrollHoldOnScroll(event);
+    },
+    [gridAnchorOnScroll, poseScrollHoldOnScroll],
+  );
+  const libraryGridOnScroll = useMobileAidokuPrewarmScrollFeed(libraryListOnScroll);
+  const gridAnchorOnContentSizeChange = gridScrollAnchor.onContentSizeChange;
+  const poseScrollHoldOnContentSizeChange = poseScrollHold.onContentSizeChange;
+  const libraryOnContentSizeChange = useCallback(
+    (width: number, height: number) => {
+      poseScrollHoldOnContentSizeChange(width, height);
+      gridAnchorOnContentSizeChange();
+    },
+    [gridAnchorOnContentSizeChange, poseScrollHoldOnContentSizeChange],
+  );
+  const poseScrollHoldPadding = poseScrollHold.paddingBottom;
+  const libraryContentContainerStyle = useMemo(
+    () => (poseScrollHoldPadding > 0 ? { paddingBottom: poseScrollHoldPadding } : undefined),
+    [poseScrollHoldPadding],
+  );
   const title = selectedCollection?.name ?? strings.nav.library;
   const loading =
     libraryLoading ||
@@ -2509,7 +2539,8 @@ export function LibraryScreen({
       // The handler only tracks the adjusted top inset for the anchor
       // restore, so it does not need a frame-rate feed.
       scrollEventThrottle={100}
-      onContentSizeChange={gridScrollAnchor.onContentSizeChange}
+      onContentSizeChange={libraryOnContentSizeChange}
+      contentContainerStyle={libraryContentContainerStyle}
       onRefresh={() => {
         void refreshLatestChapters({ force: true, interactive: true });
       }}
