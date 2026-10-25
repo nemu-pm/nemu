@@ -5,6 +5,7 @@ import {
   SOURCE_DIRECTORY_MAX_COUNT,
   SOURCE_DIRECTORY_MAX_NAME_LENGTH,
   defaultSourceDirectoryName,
+  refreshedSourceDirectoryName,
   sourceDirectoryCandidateUrls,
   sourceDirectoryIdForUrl,
   type SourceDirectory,
@@ -64,6 +65,7 @@ export function sourceDirectoryFromRegistry(
     builtIn: registry.builtIn === true,
     enabled: registry.disabled !== true,
     addedAt: registry.addedAt ?? 0,
+    ...(registry.customName ? { customName: true } : {}),
   };
 }
 
@@ -78,6 +80,7 @@ export function registryFromSourceDirectory(
     ...(directory.builtIn ? { builtIn: true } : {}),
     ...(directory.enabled ? {} : { disabled: true }),
     addedAt: directory.addedAt,
+    ...(directory.customName ? { customName: true } : {}),
   };
 }
 
@@ -327,6 +330,7 @@ export async function addMobileSourceDirectory(
     // The list may have changed since the confirmation was shown.
     await assertDirectoryCanBeAdded(store, [preview.id], options);
   }
+  const typedName = input.name?.trim();
   const directory: SourceDirectory = {
     id: preview.id,
     name: preview.name,
@@ -334,6 +338,7 @@ export async function addMobileSourceDirectory(
     builtIn: false,
     enabled: true,
     addedAt: (options.now ?? Date.now)(),
+    ...(typedName ? { customName: true } : {}),
   };
   await store.saveRegistry(registryFromSourceDirectory(directory));
   return directory;
@@ -359,6 +364,53 @@ export async function updateMobileSourceDirectoryUrl(
   const current = await store.getRegistry(id);
   if (!current || current.type !== "url") return;
   await store.saveRegistry({ ...current, url: preview.indexUrl });
+}
+
+/**
+ * After a catalog refresh: directories still carrying a generated name (the
+ * old `host/path` form, or the fallback for their URL) take the name their
+ * index publishes, else the current fallback rule (`OWNER/REPO`, a known
+ * directory's name). Built-in rows (localized in Settings) and user-typed
+ * names are never touched. Returns the rows to save.
+ */
+export function planSourceDirectoryNameRefresh(
+  registries: readonly SourceRegistry[],
+  indexNames: ReadonlyMap<string, string | undefined>,
+): UrlRegistry[] {
+  const save: UrlRegistry[] = [];
+  for (const registry of registries) {
+    if (!isUrlRegistry(registry) || registry.builtIn || !registry.url) continue;
+    if (!indexNames.has(registry.id)) continue;
+    const next = refreshedSourceDirectoryName({
+      storedName: registry.name,
+      indexUrl: registry.url,
+      indexName: indexNames.get(registry.id),
+      customName: registry.customName === true,
+    });
+    if (next) save.push({ ...registry, name: next });
+  }
+  return save;
+}
+
+/** Applies `planSourceDirectoryNameRefresh`; returns the renamed ids. */
+export async function refreshMobileSourceDirectoryNames(
+  store: MobileDataStore,
+  results: readonly { registryId: string; ok: boolean; indexName?: string }[],
+): Promise<string[]> {
+  const indexNames = new Map<string, string | undefined>();
+  for (const result of results) {
+    if (result.ok) indexNames.set(result.registryId, result.indexName);
+  }
+  if (indexNames.size === 0) return [];
+  const save = planSourceDirectoryNameRefresh(await store.getRegistries(), indexNames);
+  for (const registry of save) {
+    // Re-read: the row may have been removed or renamed while fetching.
+    const current = await store.getRegistry(registry.id);
+    if (!current || current.type !== "url" || current.name === registry.name) continue;
+    const [fresh] = planSourceDirectoryNameRefresh([current], indexNames);
+    if (fresh) await store.saveRegistry(fresh);
+  }
+  return save.map((registry) => registry.id);
 }
 
 export async function setMobileSourceDirectoryEnabled(

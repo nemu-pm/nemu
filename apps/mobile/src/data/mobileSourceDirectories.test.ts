@@ -8,7 +8,9 @@ import {
   enabledSourceDirectories,
   isMobileSourceAutoUpdateEnabled,
   loadMobileSourceDirectories,
+  planSourceDirectoryNameRefresh,
   planSourceDirectorySeed,
+  refreshMobileSourceDirectoryNames,
   removeMobileSourceDirectory,
   setMobileSourceDirectoryEnabled,
   updateMobileSourceDirectoryUrl,
@@ -360,5 +362,73 @@ describe("directory addresses and links", () => {
     await expect(previewMobileSourceDirectory(store, { url: "https://example.com/i.json" }, { fetchIndex: boom })).rejects.toMatchObject({ code: "unreachable" });
     await expect(previewMobileSourceDirectory(store, { url: "ftp://x" }, { fetchIndex: empty })).rejects.toMatchObject({ code: "not-https" });
     await expect(previewMobileSourceDirectory(store, { url: "garbage" }, { fetchIndex: empty })).rejects.toMatchObject({ code: "invalid" });
+  });
+});
+
+describe("source directory names follow the catalog", () => {
+  const rawRow: SourceRegistry = {
+    id: "dir-raw",
+    name: "raw.githubusercontent.com/owner/repo/main/public",
+    type: "url",
+    url: "https://raw.githubusercontent.com/owner/repo/main/public/index.min.json",
+    addedAt: 1,
+  };
+
+  test("an old host/path auto-name takes the index name, else OWNER/REPO", async () => {
+    const { store, registries } = fakeStore({
+      seeded: true,
+      registries: [
+        rawRow,
+        { ...zhRow, name: "raw.githubusercontent.com/suiyuran/aidoku-zh-sources/main/public" },
+      ],
+    });
+    const renamed = await refreshMobileSourceDirectoryNames(store, [
+      { registryId: "dir-raw", ok: true },
+      { registryId: "aidoku-zh", ok: true },
+    ]);
+    expect(renamed.sort()).toEqual(["aidoku-zh", "dir-raw"]);
+    expect(registries.get("dir-raw")?.name).toBe("owner/repo");
+    expect(registries.get("aidoku-zh")?.name).toBe("Aidoku ZH");
+
+    await refreshMobileSourceDirectoryNames(store, [
+      { registryId: "dir-raw", ok: true, indexName: "Owner Sources" },
+    ]);
+    expect(registries.get("dir-raw")?.name).toBe("Owner Sources");
+  });
+
+  test("failed fetches, typed names, real names and built-ins are left alone", () => {
+    const plan = planSourceDirectoryNameRefresh(
+      [
+        rawRow,
+        { ...rawRow, id: "dir-typed", customName: true },
+        { ...rawRow, id: "dir-named", name: "My sources" },
+        {
+          id: "nemu-recommended",
+          name: "nemu-pm.github.io/source-registry",
+          type: "url",
+          url: "https://nemu-pm.github.io/source-registry/index.min.json",
+          builtIn: true,
+        },
+      ],
+      new Map([
+        ["dir-typed", "Index"],
+        ["dir-named", "Index"],
+        ["nemu-recommended", "Index"],
+      ]),
+    );
+    expect(plan).toEqual([]);
+  });
+
+  test("a typed name on add is remembered as custom", async () => {
+    const { store, registries } = fakeStore({ seeded: true });
+    await addMobileSourceDirectory(
+      store,
+      { url: "https://example.github.io/repo/", name: "Mine" },
+      {
+        fetchIndex: async () => ({ sources: [{ id: "s", name: "S", version: 1 } as never] }),
+      },
+    );
+    const row = [...registries.values()].find((entry) => entry.name === "Mine");
+    expect(row).toMatchObject({ customName: true });
   });
 });

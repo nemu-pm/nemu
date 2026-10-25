@@ -5,6 +5,8 @@ import {
   NEMU_RECOMMENDED_REGISTRY,
   NEMU_RECOMMENDED_REGISTRY_ID,
   defaultSourceDirectoryName,
+  legacySourceDirectoryHostPathName,
+  refreshedSourceDirectoryName,
   normalizeSourceDirectoryUrl,
   sourceDirectoryCandidateUrls,
   sourceDirectoryIdForUrl,
@@ -98,13 +100,121 @@ describe("sourceDirectoryIdForUrl", () => {
 });
 
 describe("defaultSourceDirectoryName", () => {
-  test("uses host and folder", () => {
+  test("known directories keep their names", () => {
+    expect(
+      defaultSourceDirectoryName(
+        "https://raw.githubusercontent.com/suiyuran/aidoku-zh-sources/main/public/index.min.json",
+      ),
+    ).toBe("Aidoku ZH");
+    expect(
+      defaultSourceDirectoryName("https://aidoku-community.github.io/sources/index.min.json"),
+    ).toBe("Aidoku Community");
+    expect(defaultSourceDirectoryName(NEMU_RECOMMENDED_REGISTRY.indexUrl)).toBe(
+      NEMU_RECOMMENDED_REGISTRY.name,
+    );
+  });
+
+  test("GitHub raw and jsDelivr URLs name the repository", () => {
+    expect(
+      defaultSourceDirectoryName(
+        "https://raw.githubusercontent.com/suiyuran/aidoku-zh-sources/dev/public/index.min.json",
+      ),
+    ).toBe("suiyuran/aidoku-zh-sources");
+    expect(
+      defaultSourceDirectoryName(
+        "https://cdn.jsdelivr.net/gh/suiyuran/aidoku-zh-sources@main/public/index.min.json",
+      ),
+    ).toBe("suiyuran/aidoku-zh-sources");
+    expect(
+      defaultSourceDirectoryName("https://cdn.jsdelivr.net/gh/owner/repo/index.min.json"),
+    ).toBe("owner/repo");
+  });
+
+  test("GitHub Pages sites name the owner and repository", () => {
     expect(
       defaultSourceDirectoryName("https://a.github.io/repo/index.min.json"),
-    ).toBe("a.github.io/repo");
-    expect(defaultSourceDirectoryName("https://a.github.io/index.min.json")).toBe(
-      "a.github.io",
+    ).toBe("a/repo");
+    expect(defaultSourceDirectoryName("https://a.github.io/index.min.json")).toBe("a");
+    expect(defaultSourceDirectoryName("https://a.github.io/")).toBe("a");
+  });
+
+  test("any other host keeps host and folder", () => {
+    expect(defaultSourceDirectoryName("https://example.com/lists/mine/index.min.json")).toBe(
+      "example.com/lists/mine",
     );
+    expect(defaultSourceDirectoryName("https://cdn.jsdelivr.net/npm/pkg/index.json")).toBe(
+      "cdn.jsdelivr.net/npm/pkg",
+    );
+  });
+
+  test("the legacy host/path form is still available for migration", () => {
+    expect(legacySourceDirectoryHostPathName("https://a.github.io/repo/index.min.json")).toBe(
+      "a.github.io/repo",
+    );
+    expect(
+      legacySourceDirectoryHostPathName(
+        "https://raw.githubusercontent.com/suiyuran/aidoku-zh-sources/main/public/index.min.json",
+      ),
+    ).toBe("raw.githubusercontent.com/suiyuran/aidoku-zh-sources/main/public");
+  });
+});
+
+describe("refreshedSourceDirectoryName", () => {
+  const zhUrl =
+    "https://raw.githubusercontent.com/suiyuran/aidoku-zh-sources/main/public/index.min.json";
+  const repoUrl = "https://raw.githubusercontent.com/owner/repo/main/index.min.json";
+
+  test("replaces an old host/path auto-name with the index's own name", () => {
+    expect(
+      refreshedSourceDirectoryName({
+        storedName: "raw.githubusercontent.com/owner/repo/main",
+        indexUrl: repoUrl,
+        indexName: "Owner's Sources",
+      }),
+    ).toBe("Owner's Sources");
+  });
+
+  test("replaces an old host/path auto-name with the better fallback when the index has none", () => {
+    expect(
+      refreshedSourceDirectoryName({
+        storedName: "raw.githubusercontent.com/suiyuran/aidoku-zh-sources/main/public",
+        indexUrl: zhUrl,
+      }),
+    ).toBe("Aidoku ZH");
+    expect(
+      refreshedSourceDirectoryName({
+        storedName: "raw.githubusercontent.com/owner/repo/main",
+        indexUrl: repoUrl,
+        indexName: "   ",
+      }),
+    ).toBe("owner/repo");
+  });
+
+  test("a current fallback name takes the index's name once it publishes one", () => {
+    expect(
+      refreshedSourceDirectoryName({ storedName: "owner/repo", indexUrl: repoUrl, indexName: "Repo" }),
+    ).toBe("Repo");
+  });
+
+  test("keeps names that are already right", () => {
+    expect(refreshedSourceDirectoryName({ storedName: "owner/repo", indexUrl: repoUrl })).toBeNull();
+    expect(
+      refreshedSourceDirectoryName({ storedName: "Repo", indexUrl: repoUrl, indexName: "Repo" }),
+    ).toBeNull();
+  });
+
+  test("never overwrites a name that was not generated, or a user-typed one", () => {
+    expect(
+      refreshedSourceDirectoryName({ storedName: "My list", indexUrl: repoUrl, indexName: "Repo" }),
+    ).toBeNull();
+    expect(
+      refreshedSourceDirectoryName({
+        storedName: "raw.githubusercontent.com/owner/repo/main",
+        indexUrl: repoUrl,
+        indexName: "Repo",
+        customName: true,
+      }),
+    ).toBeNull();
   });
 });
 

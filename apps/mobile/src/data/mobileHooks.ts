@@ -51,6 +51,7 @@ import {
   enabledSourceDirectories,
   isMobileSourceAutoUpdateEnabled,
   loadMobileSourceDirectories,
+  refreshMobileSourceDirectoryNames,
 } from "./mobileSourceDirectories";
 import {
   loadCachedRegistryIndex,
@@ -1696,6 +1697,15 @@ async function loadMobileRegistryCatalog(
   }
   assertMobileSourceInstallActive(signal, isAccountMutationBlocked);
   void saveCachedRegistryIndex(sources);
+  // Directories still named after their URL take their index's own name (or
+  // the readable OWNER/REPO fallback). Best effort: never fails the catalog.
+  try {
+    await refreshMobileSourceDirectoryNames(store, report);
+  } catch (error) {
+    if (typeof __DEV__ !== "undefined" && __DEV__) {
+      console.warn("[sources] directory name refresh failed:", error);
+    }
+  }
   // The recommended directory is the welcome list and the first thing a new
   // user sees; a failed fetch of it must not leave that empty.
   const recommendedLoaded = report.some(

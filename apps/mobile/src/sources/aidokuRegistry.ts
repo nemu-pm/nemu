@@ -370,6 +370,8 @@ export type AidokuRegistryFetchResult = {
   ok: boolean;
   sourceCount: number;
   error?: string;
+  /** The display name the index publishes for itself, when it has one. */
+  indexName?: string;
 };
 
 export async function fetchAllAidokuRegistrySources(
@@ -383,7 +385,7 @@ export async function fetchAllAidokuRegistrySources(
   throwIfMobileNativeHttpAborted(options.signal);
   const results = await Promise.allSettled(
     registries.map((registry) =>
-      fetchAidokuRegistrySources(registry, options),
+      fetchAidokuRegistryIndex(registry, options),
     ),
   );
   throwIfMobileNativeHttpAborted(options.signal);
@@ -394,11 +396,12 @@ export async function fetchAllAidokuRegistrySources(
   results.forEach((result, index) => {
     const registryId = registries[index]!.id;
     if (result.status === "fulfilled") {
-      sources.push(...result.value);
+      sources.push(...result.value.sources);
       report.push({
         registryId,
         ok: true,
-        sourceCount: result.value.length,
+        sourceCount: result.value.sources.length,
+        ...(result.value.name ? { indexName: result.value.name } : {}),
       });
     } else {
       const message =

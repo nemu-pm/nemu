@@ -54,6 +54,8 @@ export type SourceDirectory = AidokuRegistryDefinition & {
   /** Disabled directories are skipped by catalog loads and source updates. */
   enabled: boolean;
   addedAt: number;
+  /** The user typed this name: catalog refreshes never replace it. */
+  customName?: boolean;
 };
 
 export const SOURCE_DIRECTORY_MAX_URL_LENGTH = 2_048;
@@ -171,8 +173,12 @@ export function sourceDirectoryIdForUrl(indexUrl: string): string {
   return `dir-${hex(sha256Bytes(new TextEncoder().encode(indexUrl))).slice(0, 12)}`;
 }
 
-/** A readable fallback name: `host/path` of the index URL. */
-export function defaultSourceDirectoryName(indexUrl: string): string {
+/**
+ * The pre-2026 fallback name, `host/path` of the index URL (trailing
+ * `index(.min).json` and slashes dropped). Kept to recognise names that were
+ * generated this way, so a catalog refresh can replace them.
+ */
+export function legacySourceDirectoryHostPathName(indexUrl: string): string {
   try {
     const url = new URL(indexUrl);
     const path = url.pathname
@@ -182,4 +188,76 @@ export function defaultSourceDirectoryName(indexUrl: string): string {
   } catch {
     return indexUrl.slice(0, SOURCE_DIRECTORY_MAX_NAME_LENGTH);
   }
+}
+
+function safeDecode(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
+/**
+ * A readable fallback name for a directory whose index publishes none:
+ * - a known directory (recommended / legacy built-ins): its name;
+ * - `raw.githubusercontent.com/OWNER/REPO/…` and
+ *   `cdn.jsdelivr.net/gh/OWNER/REPO@ref/…`: `OWNER/REPO`;
+ * - `OWNER.github.io/REPO/…`: `OWNER/REPO` (`OWNER` for a root site);
+ * - anything else: `host/path` of the index URL.
+ */
+export function defaultSourceDirectoryName(indexUrl: string): string {
+  const known = [NEMU_RECOMMENDED_REGISTRY, ...LEGACY_DEFAULT_SOURCE_DIRECTORIES].find(
+    (entry) => entry.indexUrl === indexUrl,
+  );
+  if (known) return known.name;
+  let url: URL;
+  try {
+    url = new URL(indexUrl);
+  } catch {
+    return indexUrl.slice(0, SOURCE_DIRECTORY_MAX_NAME_LENGTH);
+  }
+  const host = url.hostname.toLowerCase();
+  const parts = url.pathname.split("/").filter(Boolean).map(safeDecode);
+  let repo: string | undefined;
+  if (host === "raw.githubusercontent.com" && parts.length >= 2) {
+    repo = `${parts[0]}/${parts[1]}`;
+  } else if (host === "cdn.jsdelivr.net" && parts[0] === "gh" && parts.length >= 3) {
+    const name = parts[2]!.split("@")[0];
+    if (name) repo = `${parts[1]}/${name}`;
+  } else if (host.endsWith(".github.io") && host.length > ".github.io".length) {
+    const owner = host.slice(0, -".github.io".length);
+    const first = parts[0];
+    repo = first && !/\.json$/i.test(first) ? `${owner}/${first}` : owner;
+  }
+  if (repo) return repo.slice(0, SOURCE_DIRECTORY_MAX_NAME_LENGTH);
+  return legacySourceDirectoryHostPathName(indexUrl);
+}
+
+/**
+ * The name a stored directory should take after its index was fetched, or
+ * null to keep it. Only generated names are replaced — the old `host/path`
+ * form or the current fallback for the URL — by the index's own name, else by
+ * the current fallback rule. A name the user typed is never touched.
+ */
+export function refreshedSourceDirectoryName({
+  storedName,
+  indexUrl,
+  indexName,
+  customName = false,
+}: {
+  storedName: string;
+  indexUrl: string;
+  indexName?: string | null;
+  /** The user typed this name (never overwritten). */
+  customName?: boolean;
+}): string | null {
+  if (customName) return null;
+  const fallback = defaultSourceDirectoryName(indexUrl);
+  const generated =
+    storedName === legacySourceDirectoryHostPathName(indexUrl) || storedName === fallback;
+  if (!generated) return null;
+  const published = indexName?.trim().slice(0, SOURCE_DIRECTORY_MAX_NAME_LENGTH);
+  const next = published || fallback;
+  return next && next !== storedName ? next : null;
 }

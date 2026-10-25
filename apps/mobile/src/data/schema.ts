@@ -337,6 +337,8 @@ export type SourceRegistry =
       /** Skipped by catalog loads and source updates; absent means enabled. */
       disabled?: boolean;
       addedAt?: number;
+      /** The user typed `name`: catalog refreshes never replace it. */
+      customName?: boolean;
       /**
        * Sync clock of the last change. Set only by the sync layer: a row that
        * arrives with one came from the cloud and is not pushed back.
