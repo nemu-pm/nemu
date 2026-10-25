@@ -43,6 +43,27 @@ describe("reader opening gate", () => {
     expect(shouldDeferReaderLiveRefresh({ paintedFromCache: false, openingSettled: true })).toBe(false);
   });
 
+  test("never defers a cached list whose pages still wait for the source (the cover waits for them)", async () => {
+    expect(
+      shouldDeferReaderLiveRefresh({ paintedFromCache: true, pagesNeedSource: true, openingSettled: false }),
+    ).toBe(false);
+    expect(
+      shouldDeferReaderLiveRefresh({ paintedFromCache: true, pagesNeedSource: false, openingSettled: false }),
+    ).toBe(true);
+    const gate = createReaderOpeningGate();
+    expect(
+      await waitForReaderOpeningWindow(gate, {
+        paintedFromCache: true,
+        pagesNeedSource: true,
+        what: "page-list",
+        log: () => undefined,
+      }),
+    ).toBe(false);
+    expect(gate.isSettled()).toBe(false);
+    const reader = readFileSync(path.join(import.meta.dir, "../../screens/ReaderScreen.tsx"), "utf8");
+    expect(reader.match(/pagesNeedSource: Boolean\(persisted && readerPagesNeedProcessing\(restoredPages\)\)/g)?.length).toBe(2);
+  });
+
   test("releases its waiters on the fade's end, once, with the first reason", async () => {
     const reasons: string[] = [];
     const gate = createReaderOpeningGate({ onSettled: (reason) => reasons.push(reason) });

@@ -170,6 +170,11 @@ import { ReaderDarkThemeScope } from "@/components/reader/ReaderDarkThemeScope";
 import { useReaderZoomEntry } from "@/components/reader/readerZoomEntry";
 import { waitForReaderOpeningWindow } from "@/components/reader/readerOpeningGate";
 import {
+  keepMobileReaderResolvedPages,
+  rememberMobileReaderResolvedPages,
+  withMobileReaderResolvedPages,
+} from "@/lib/mobileReaderResolvedPages";
+import {
   readerOpeningSince,
   readerPagesNeedProcessing,
   resolveReaderFirstScreenImages,
@@ -2607,7 +2612,7 @@ export function ReaderScreen() {
         ) {
           return current;
         }
-        return { ...current, pages: result.pages };
+        return { ...current, pages: keepMobileReaderResolvedPages(current.pages, result.pages) };
       });
     };
     void pageProcessor
@@ -2650,7 +2655,7 @@ export function ReaderScreen() {
         ) {
           return current;
         }
-        return { ...current, pages: nextPages };
+        return { ...current, pages: keepMobileReaderResolvedPages(current.pages, nextPages) };
       });
     };
     const onUpdate = (result: MobileReaderPageWindowResult) => {
@@ -4557,6 +4562,20 @@ export function ReaderScreen() {
     }
     readerZoomEntryRef.current.onFirstPage();
   }, []);
+  // What this chapter resolved, for a reopen this session.
+  useEffect(() => {
+    if (pagesState.status !== "ready") return;
+    rememberMobileReaderResolvedPages(
+      makeMobileReaderPagesPrefetchKey({
+        registryId,
+        sourceId,
+        mangaId,
+        chapterId: pagesState.chapter.id,
+        processPageImages,
+      }),
+      pagesState.pages,
+    );
+  }, [mangaId, pagesState, processPageImages, registryId, sourceId]);
   const readerZoomPageShown =
     pagesState.status === "error" ||
     pagesState.status === "blocked" ||
@@ -8083,12 +8102,15 @@ export function ReaderScreen() {
             shown: restoredPersistedPageList ? persisted : null,
             fetched,
           });
+        // A chapter reopened this session: the pages resolved last time paint
+        // at once instead of plates waiting for the source's page list.
+        const restoredPages = persisted ? withMobileReaderResolvedPages(pageListCacheKey, persisted.pages) : [];
         if (persisted && readerPagesRequestRunRef.current === requestRun) {
           restoredPersistedPageList = true;
           readerOpenPaintedFromCacheRef.current = true;
           // Before the paint: `hold` must reach the cover ahead of its cap.
           holdReaderOpeningIfProcessed(
-            persisted.pages,
+            restoredPages,
             "cache",
             resolveReaderImageProcessor({
               listed: persisted.imageProcessor,
@@ -8098,7 +8120,7 @@ export function ReaderScreen() {
           readerPagesLoadedKeyRef.current = pagesRequestKey;
           setPagesState({
             status: "ready",
-            pages: persisted.pages,
+            pages: restoredPages,
             chapters: persisted.chapters,
             detail: formatReaderLoadedPages(
               persisted.pages.length,
@@ -8129,6 +8151,7 @@ export function ReaderScreen() {
           // `hold`: at once, the cover waiting for its images instead).
           await waitForReaderOpeningWindow(readerOpeningGateRef.current, {
             paintedFromCache: restoredPersistedPageList && !readerOpeningHeldRef.current,
+            pagesNeedSource: Boolean(persisted && readerPagesNeedProcessing(restoredPages)),
             what: "prefetched-page-list",
           });
           refreshed = await prefetched;
@@ -8139,6 +8162,7 @@ export function ReaderScreen() {
           // sandbox boot cannot hold the fade. Without a cache it asks at once.
           await waitForReaderOpeningWindow(readerOpeningGateRef.current, {
             paintedFromCache: restoredPersistedPageList && !readerOpeningHeldRef.current,
+            pagesNeedSource: Boolean(persisted && readerPagesNeedProcessing(restoredPages)),
             what: "page-list",
           });
           if (readerPagesRequestRunRef.current !== requestRun) return;
@@ -8248,7 +8272,11 @@ export function ReaderScreen() {
         });
         setPagesState((previous) => ({
           status: "ready",
-          pages: refreshed.pages,
+          // The pages already showing stay (the live list resolves them again).
+          pages:
+            previous.status === "ready"
+              ? keepMobileReaderResolvedPages(previous.pages, refreshed.pages)
+              : refreshed.pages,
           pageProcessor: refreshed.pageProcessor,
           chapters:
             resolveMobileReaderChapterIndex({

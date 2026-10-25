@@ -90,13 +90,17 @@ export function createReaderOpeningGate(options?: {
  * Whether a source call that only refreshes the open chapter must wait for
  * the opening window: only when the persisted page list already painted the
  * chapter (without a cache the reader has nothing to show until the source
- * answers, so it asks at once, as before).
+ * answers, so it asks at once, as before). A cached list whose pages still
+ * wait for the source (`imageProcessing: "pending"`: plates until its page
+ * processor resolves them) painted nothing either: deferring its refresh
+ * left the cover up to its cap while the cover waited for that very page.
  */
 export function shouldDeferReaderLiveRefresh(input: {
   paintedFromCache: boolean;
   openingSettled: boolean;
+  pagesNeedSource?: boolean;
 }): boolean {
-  return input.paintedFromCache && !input.openingSettled;
+  return input.paintedFromCache && !input.pagesNeedSource && !input.openingSettled;
 }
 
 /**
@@ -109,6 +113,8 @@ export async function waitForReaderOpeningWindow(
   gate: ReaderOpeningGate,
   input: {
     paintedFromCache: boolean;
+    /** The cached pages still need the source to show (see shouldDeferReaderLiveRefresh). */
+    pagesNeedSource?: boolean;
     what: "page-list" | "prefetched-page-list" | "strip-neighbour";
     now?: () => number;
     log?: (message: string, data: Record<string, unknown>) => void;
@@ -117,6 +123,7 @@ export async function waitForReaderOpeningWindow(
   if (
     !shouldDeferReaderLiveRefresh({
       paintedFromCache: input.paintedFromCache,
+      pagesNeedSource: input.pagesNeedSource,
       openingSettled: gate.isSettled(),
     })
   ) {

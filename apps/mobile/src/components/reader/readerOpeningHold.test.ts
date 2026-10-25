@@ -214,7 +214,7 @@ describe("readerOpeningHold wiring", () => {
   test("the cache paint decides the hold before painting; held, the source calls are not deferred", () => {
     const effectStart = reader.indexOf("const [persisted, persistedPageSizes, sourceImageProcessor] = await Promise.all([");
     const effect = reader.slice(effectStart, reader.indexOf("} catch (nextError) {", effectStart));
-    const hold = effect.indexOf("holdReaderOpeningIfProcessed(\n            persisted.pages,\n            \"cache\",");
+    const hold = effect.indexOf("holdReaderOpeningIfProcessed(\n            restoredPages,\n            \"cache\",");
     const paint = effect.indexOf("setPagesState({", hold);
     // The page list's own record of a processor, else the source's.
     expect(effect).toContain("listed: persisted.imageProcessor,");
