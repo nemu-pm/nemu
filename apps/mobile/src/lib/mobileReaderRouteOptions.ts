@@ -148,3 +148,32 @@ export function mobileReaderScreenOptions({
     autoHideHomeIndicator: !showControls,
   };
 }
+
+/**
+ * Whether expo-router's route segments are the reader's
+ * (`app/sources/[registryId]/[sourceId]/[mangaId]/[chapterId]`).
+ */
+export function isMobileReaderRouteSegments(segments: readonly string[]): boolean {
+  const readerSegments = MOBILE_READER_ROUTE_NAME.split("/");
+  const start = segments.length - readerSegments.length;
+  return (
+    start >= 1 &&
+    segments[start - 1] === "sources" &&
+    readerSegments.every((segment, index) => segments[start + index] === segment)
+  );
+}
+
+/**
+ * What the sources stack paints behind its screens. A chapter switch
+ * (`router.replace`) animates the next reader in as a rounded card over the
+ * stack's own container (not the host screen below it), so while the reader
+ * is on top the container is the reader's page background: never black
+ * corners over a white reader. Elsewhere it stays the app's background.
+ */
+export function mobileSourcesStackContainerBackground(input: {
+  segments: readonly string[];
+  readerBackgroundColor: string;
+  appBackgroundColor: string;
+}): string {
+  return isMobileReaderRouteSegments(input.segments) ? input.readerBackgroundColor : input.appBackgroundColor;
+}

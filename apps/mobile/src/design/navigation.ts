@@ -49,6 +49,28 @@ export function createNemuNativeStackScreenOptions(tokens: NemuTokens, verticalB
   };
 }
 
+/**
+ * The navigation theme every stack reads. Its `background` is also what a
+ * native stack paints its own container with (behind the screens, visible at
+ * a transitioning card's rounded corners); `background` overrides it there.
+ */
+export function createNemuNavigationTheme<
+  Theme extends { colors: Record<string, string> },
+>(baseTheme: Theme, tokens: NemuTokens, background: string = tokens.background): Theme {
+  return {
+    ...baseTheme,
+    colors: {
+      ...baseTheme.colors,
+      primary: tokens.primary,
+      background,
+      card: tokens.background,
+      text: tokens.foreground,
+      border: tokens.border,
+      notification: tokens.danger,
+    },
+  };
+}
+
 export function createNemuNativeScreenOptions(
   tokens: NemuTokens,
   title: string,

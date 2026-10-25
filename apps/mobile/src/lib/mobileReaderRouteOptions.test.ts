@@ -7,6 +7,8 @@ import {
   MOBILE_STACK_FULL_SCREEN_GESTURE_OPTIONS,
   acquireMobileReaderHostBackground,
   acquireMobileReaderHostGestureLock,
+  isMobileReaderRouteSegments,
+  mobileSourcesStackContainerBackground,
   mobileReaderScreenOptions,
   resetMobileReaderHostBackgroundForTesting,
   resetMobileReaderHostGestureLocksForTesting,
@@ -111,5 +113,43 @@ describe("mobile reader route options", () => {
     expect(calls[calls.length - 1]).toBe("#000000");
     second();
     expect(calls.length).toBe(4);
+  });
+});
+
+describe("sources stack container background", () => {
+  const readerSegments = ["sources", "[registryId]", "[sourceId]", "[mangaId]", "[chapterId]"];
+
+  test("recognises the reader route from expo-router's segments", () => {
+    expect(isMobileReaderRouteSegments(readerSegments)).toBe(true);
+    expect(isMobileReaderRouteSegments(["sources", "[registryId]", "[sourceId]", "[mangaId]"])).toBe(false);
+    expect(isMobileReaderRouteSegments(["(tabs)", "library"])).toBe(false);
+    expect(isMobileReaderRouteSegments(["[registryId]", "[sourceId]", "[mangaId]", "[chapterId]"])).toBe(false);
+    expect(isMobileReaderRouteSegments([])).toBe(false);
+  });
+
+  test("is the reader's page background while the reader is on top (a chapter switch's card corners)", () => {
+    expect(
+      mobileSourcesStackContainerBackground({
+        segments: readerSegments,
+        readerBackgroundColor: "#ffffff",
+        appBackgroundColor: "#090a0d",
+      }),
+    ).toBe("#ffffff");
+  });
+
+  test("stays the app's background on manga detail", () => {
+    expect(
+      mobileSourcesStackContainerBackground({
+        segments: ["sources", "[registryId]", "[sourceId]", "[mangaId]"],
+        readerBackgroundColor: "#ffffff",
+        appBackgroundColor: "#090a0d",
+      }),
+    ).toBe("#090a0d");
+  });
+
+  test("the sources stack takes it through its navigation theme", () => {
+    const layout = readFileSync(path.join(import.meta.dir, "../../app/sources/_layout.tsx"), "utf8");
+    expect(layout).toContain("mobileSourcesStackContainerBackground(");
+    expect(layout).toContain("<ThemeProvider value={navigationTheme}>");
   });
 });

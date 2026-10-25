@@ -35,6 +35,7 @@ export {
   createNemuSoftEdgeScreenOptions,
   NEMU_SOFT_SCROLL_EDGE_EFFECTS,
   createNemuNativeStackScreenOptions,
+  createNemuNavigationTheme,
   renderNemuNativeToolbarButtons,
   usesNemuNativeHeader,
   type NemuNativeHeaderAction,

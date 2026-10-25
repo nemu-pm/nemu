@@ -26,7 +26,7 @@ import { MobileAiConsentHost } from "@/components/MobileAiConsentHost";
 import { MobileWelcomeWizard } from "@/components/MobileWelcomeWizard";
 import { MobileDataProvider } from "@/data/mobileData";
 import { MobileLanguageProvider } from "@/data/mobileLanguageContext";
-import { NemuThemeProvider, useNemuTheme } from "@/design-system";
+import { NemuThemeProvider, createNemuNavigationTheme, useNemuTheme } from "@/design-system";
 import { MOBILE_STACK_FULL_SCREEN_GESTURE_OPTIONS } from "@/lib/mobileReaderRouteOptions";
 import { shouldShowMobileFloatingTabBar } from "@/lib/mobileRootTabs";
 import {
@@ -97,21 +97,10 @@ function RootStack({
   useLayoutEffect(() => {
     revealContextRef.current = { pathname, background: tokens.background, reduceMotion: reduceMotion === true };
   });
-  const navigationTheme = useMemo(() => {
-    const baseTheme = scheme === "dark" ? DarkTheme : DefaultTheme;
-    return {
-      ...baseTheme,
-      colors: {
-        ...baseTheme.colors,
-        primary: tokens.primary,
-        background: tokens.background,
-        card: tokens.background,
-        text: tokens.foreground,
-        border: tokens.border,
-        notification: tokens.danger,
-      },
-    };
-  }, [scheme, tokens]);
+  const navigationTheme = useMemo(
+    () => createNemuNavigationTheme(scheme === "dark" ? DarkTheme : DefaultTheme, tokens),
+    [scheme, tokens],
+  );
   const underlyingContentState = getMobileWelcomeUnderlyingContentState(
     welcomeBlocksAccessibility,
   );
