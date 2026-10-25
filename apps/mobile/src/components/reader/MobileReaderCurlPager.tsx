@@ -14,6 +14,7 @@ import {
   mobileReaderCurlEdgeIntent,
   mobileReaderCurlFrameForSlot,
   mobileReaderCurlLayout,
+  mobileReaderCurlReanchorFrame,
   mobileReaderCurlSlotForFrame,
   mobileReaderCurlSlotWindow,
   mobileReaderCurlSpine,
@@ -38,6 +39,7 @@ export type MobileReaderCurlPagerHandle = {
  * stay the gallery's and the reader's.
  */
 export function MobileReaderCurlPager({
+  anchorFrame,
   backgroundColor,
   displayedPages,
   fitClip,
@@ -60,6 +62,12 @@ export function MobileReaderCurlPager({
   stage,
   turningEnabled,
 }: {
+  /**
+   * The visual frame the reader is on: where the pager goes when the frames
+   * change around it and its own frame's pages are gone (seamless paged
+   * reading). Read only then; turns are the pager's own.
+   */
+  anchorFrame?: number;
   backgroundColor: string;
   displayedPages: MobileReaderPage[];
   fitClip: boolean;
@@ -107,6 +115,34 @@ export function MobileReaderCurlPager({
   // The latest navigation asked for (ahead of its commit), so a tap turn can
   // hand native the very token the props will carry.
   const navigationRef = useRef(navigation);
+  // Seamless paged reading: frames joined or left around the settled one (a
+  // chapter before it, a placeholder replaced by its chapter). `initialFrame`
+  // is read once, so the pager follows its own frame: the frame showing the
+  // same pages, at its new index, without a turn. The reader only splices
+  // frames while no leaf is turning.
+  const [trackedFrames, setTrackedFrames] = useState({ frames, displayedPages });
+  if (trackedFrames.frames !== frames || trackedFrames.displayedPages !== displayedPages) {
+    // The frame showing the same pages; when they are gone (a placeholder
+    // replaced by its chapter, or removed), the frame the reader asks for.
+    const moved =
+      mobileReaderCurlReanchorFrame({
+        before: trackedFrames.frames,
+        beforePages: trackedFrames.displayedPages,
+        after: frames,
+        afterPages: displayedPages,
+        frame: settledFrame,
+      }) ??
+      (anchorFrame != null && trackedFrames.frames.length !== frames.length
+        ? Math.max(0, Math.min(frames.length - 1, anchorFrame))
+        : null);
+    setTrackedFrames({ frames, displayedPages });
+    if (moved != null && moved !== settledFrame) {
+      const next = nextMobileReaderCurlNavigation(navigationRef.current, mobileReaderCurlSlotForFrame(moved, spreadMode), false);
+      navigationRef.current = next;
+      setNavigation(next);
+      setSettledFrame(moved);
+    }
+  }
   const nativeRef = useRef<PageCurlViewHandle>(null);
   // Single pages curl as the page itself: the leaf is the settled page's box.
   const settledPage = !spreadMode ? displayedPages[frames[settledFrame]?.[0] ?? -1] : undefined;

@@ -275,3 +275,23 @@ export function nextMobileReaderCurlNavigation(
 ): MobileReaderCurlNavigation {
   return { slot, token: current.token + 1, animated };
 }
+
+/**
+ * The index, in `after`, of the frame showing the pages `before[frame]`
+ * showed (by page id), or null when it is gone.
+ */
+export function mobileReaderCurlReanchorFrame(input: {
+  before: readonly (readonly number[])[];
+  beforePages: readonly { id: string }[];
+  after: readonly (readonly number[])[];
+  afterPages: readonly { id: string }[];
+  frame: number;
+}): number | null {
+  const frameKey = (frame: readonly number[] | undefined, pages: readonly { id: string }[]) =>
+    frame ? frame.map((index) => pages[index]?.id ?? `#${index}`).join("|") : null;
+  const key = frameKey(input.before[input.frame], input.beforePages);
+  if (key == null) return null;
+  if (frameKey(input.after[input.frame], input.afterPages) === key) return input.frame;
+  const found = input.after.findIndex((frame) => frameKey(frame, input.afterPages) === key);
+  return found >= 0 ? found : null;
+}

@@ -391,25 +391,90 @@ export function sameMobileReaderSpreads(a: readonly number[][], b: readonly numb
 }
 
 /**
+ * `computed` with the `locked` spreads kept exactly as they are: a computed
+ * spread that shares a page with a locked one gives that page up (its other
+ * page stands alone), so a locked pairing is never split or re-paired. The
+ * result is in page order and covers every page of `computed` once.
+ */
+export function lockMobileReaderSpreads(
+  computed: readonly number[][],
+  locked: readonly (readonly number[])[],
+): number[][] {
+  const valid = locked.filter((spread) => spread.length > 0);
+  if (valid.length === 0) return computed.map((spread) => [...spread]);
+  const lockedPages = new Map<number, readonly number[]>();
+  for (const spread of valid) {
+    for (const page of spread) lockedPages.set(page, spread);
+  }
+  const out: number[][] = [];
+  const placed = new Set<readonly number[]>();
+  for (const spread of computed) {
+    let free: number[] = [];
+    for (const page of spread) {
+      const lock = lockedPages.get(page);
+      if (!lock) {
+        free.push(page);
+        continue;
+      }
+      if (free.length > 0) {
+        out.push(free);
+        free = [];
+      }
+      if (!placed.has(lock)) {
+        placed.add(lock);
+        out.push([...lock]);
+      }
+    }
+    if (free.length > 0) out.push(free);
+  }
+  return out;
+}
+
+/**
  * The table to show after an update. A new chapter or a pairing the user
- * changed starts over (`reset`); otherwise what the reader has seen is kept:
- * every spread before the current one, and the current one too once all of
- * its pages have decoded (`settled`). A page still loading may yet turn out
- * wide, so the spread it sits in can still give way.
+ * changed starts over (`reset`). Otherwise a pairing that has been on screen
+ * is never re-paired by a later image load:
+ * - every spread up to and including the current one stays as it was (the
+ *   current one whatever its pages' state: a page found wide later applies
+ *   its new pairing from the next turn, never under the reader);
+ * - `provisional` (the opening pages are still being measured): the table
+ *   may re-pair around the reader, but the spread on screen (`locked`, the
+ *   previous table's current spread unless given) is kept as shown;
+ * - `locked`: further spreads that were shown (e.g. a backward landing in a
+ *   chapter crossed into) and must stay as they are.
+ * Sizes that arrive later only adjust the pages not reached yet.
  */
 export function nextMobileReaderSpreadTable(input: {
   previous: readonly number[][] | null;
   computed: number[][];
   reset: boolean;
   currentPageIndex: number;
-  settled: (pageIndex: number) => boolean;
+  /** Re-pair everything but the spreads on screen (`locked`). */
+  provisional?: boolean;
+  /** The previous table is on screen: its current spread is locked. Default true. */
+  displayed?: boolean;
+  locked?: readonly (readonly number[])[];
 }): number[][] {
   const { previous, computed } = input;
-  if (input.reset || !previous || previous.length === 0) return computed;
+  const extra = input.locked ?? [];
+  if (input.reset || !previous || previous.length === 0) {
+    return extra.length > 0 ? keepTable(computed, lockMobileReaderSpreads(computed, extra)) : computed;
+  }
   if (sameMobileReaderSpreads(previous, computed)) return previous as number[][];
   const found = previous.findIndex((spread) => spread.includes(input.currentPageIndex));
   const current = found >= 0 ? found : previous.length - 1;
-  const through = previous[current]?.every(input.settled) ? current : current - 1;
-  const merged = freezeMobileReaderSpreadsThrough(previous, computed, through);
-  return sameMobileReaderSpreads(previous, merged) ? (previous as number[][]) : merged;
+  const displayed = input.displayed !== false;
+  if (input.provisional) {
+    const onScreen = displayed && previous[current] ? [previous[current]!] : [];
+    const merged = lockMobileReaderSpreads(computed, [...onScreen, ...extra]);
+    return keepTable(previous, keepTable(computed, merged));
+  }
+  const frozen = freezeMobileReaderSpreadsThrough(previous, computed, displayed ? current : current - 1);
+  const merged = extra.length > 0 ? lockMobileReaderSpreads(frozen, extra) : frozen;
+  return keepTable(previous, merged);
+}
+
+/** `candidate`, or `table` itself when they pair the same (identity kept). */
+function keepTable(table: readonly number[][], candidate: number[][]): number[][] {
+  return sameMobileReaderSpreads(table, candidate) ? (table as number[][]) : candidate;
 }

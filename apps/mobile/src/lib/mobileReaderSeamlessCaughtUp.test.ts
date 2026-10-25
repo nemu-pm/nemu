@@ -23,10 +23,14 @@ describe("seamless scroll: past the last available chapter", () => {
     expect(caughtUp()).toMatch(
       /!readerStrip \|\|\s*readerStrip\.currentIndex !== readerStrip\.segments\.length - 1 \|\|\s*readerStrip\.tail\?\.kind !== "end"\s*\) \{\s*return false;/,
     );
-    // The strip only exists in seamless scroll mode.
+    // The strip exists in seamless scroll mode and in seamless paged reading
+    // (where the caught-up card, not a divider, marks the true end).
     expect(reader).toMatch(
-      /const readerSeamlessEnabled =\s*readerSeamlessScroll &&\s*mode === "scrolling" &&\s*!galleryPagedMode/,
+      /const readerSeamlessScrollEnabled =\s*readerSeamlessScroll &&\s*mode === "scrolling" &&\s*!galleryPagedMode/,
     );
+    expect(reader).toMatch(/const readerSeamlessPagedEnabled =\s*readerSeamlessPaged &&\s*galleryPagedMode/);
+    expect(reader).toContain("const readerSeamlessEnabled = readerSeamlessScrollEnabled || readerSeamlessPagedEnabled;");
+    expect(caughtUp()).toMatch(/galleryPagedMode \|\|\s*!readerStrip \|\|/);
   });
 
   test("the chapter is marked complete as the card would (once per chapter, silently, retried if it fails), no card", () => {
@@ -50,8 +54,12 @@ describe("seamless scroll: past the last available chapter", () => {
       /if \(tail\?\.kind === "next" && \(tail\.status === "idle" \|\| tail\.status === "loading"\)\) return;/,
     );
     expect(handler).toMatch(
-      /if \(completeReaderStripCaughtUp\(\)\) return;\s*showEndOfChapterPrompt\(\);/,
+      /if \(completeReaderStripCaughtUp\(\)\) return;\s*showEndOfChapterPrompt\("drag-past-end"\);/,
     );
+    // Paged: the card only at the true end (or a failed / locked next
+    // chapter), never while the next chapter's placeholder is there.
+    expect(handler).toMatch(/kind === "placeholder"\) \{[\s\S]*?return;/);
+    expect(handler).toContain('tail?.kind === "end" ? "paged-caught-up"');
   });
 
   test("the accessibility next action and the book / laptop page buttons follow the same rule", () => {

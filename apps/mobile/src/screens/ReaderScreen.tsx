@@ -205,6 +205,23 @@ import { ReaderNotebookPane } from "@/components/reader/ReaderNotebookPane";
 import { ReaderBookSidePane } from "@/components/reader/ReaderBookSidePane";
 import { ReaderChapterDivider } from "@/components/reader/ReaderChapterDivider";
 import {
+  ReaderChapterCrossingCapsule,
+  type ReaderChapterCrossingCapsuleState,
+} from "@/components/reader/ReaderChapterCrossingCapsule";
+import {
+  buildMobileReaderPagedStrip,
+  isMobileReaderPagedStripPlaceholderKey,
+  mobileReaderPagedStripCrossing,
+  mobileReaderPagedStripFrameBase,
+  mobileReaderPagedStripLocate,
+  mobileReaderPagedStripLocatePage,
+  mobileReaderPagedStripPlaceholderKey,
+  sameMobileReaderPagedStripFrames,
+  shouldWarmMobileReaderPagedStripPrevious,
+  type MobileReaderPagedStrip,
+  type MobileReaderPagedStripSegment,
+} from "@/lib/mobileReaderPagedStrip";
+import {
   readerStripSessionKey,
   useReaderChapterStrip,
   type ReaderChapterStrip,
@@ -216,10 +233,12 @@ import {
   MOBILE_READER_STRIP_PREPEND_MODE,
   mobileReaderStripCrossing,
   mobileReaderStripHeadRemoval,
+  mobileReaderStripPageKey,
   mobileReaderStripRows,
   mobileReaderStripSegmentOffset,
   mobileReaderStripSegmentStarts,
   MOBILE_READER_STRIP_PREPEND_LEAD_PAGES,
+  readerSeamlessPaged,
   readerSeamlessScroll,
   shouldAppendMobileReaderStripSegment,
   shouldPrependMobileReaderStripSegment,
@@ -440,6 +459,7 @@ import {
 } from "@/lib/mobileReaderProgressPersistence";
 import {
   getMobileReaderPageRenderPolicy,
+  MOBILE_READER_PAGE_RENDER_WINDOW,
   nextMobileReaderScrollDirection,
   orderMobileReaderScrollProcessing,
   resolveMobileReaderScrollPageRange,
@@ -1358,6 +1378,17 @@ function ZoomableReaderImageFrame({
       </GestureDetector>
     </View>
   );
+}
+
+/**
+ * One line per end-of-chapter decision (why the prompt shows, or why a turn
+ * past a chapter's edge did something else), for QA on device. No native
+ * os_log bridge is callable from JS, so dev builds only, like the strip's
+ * prepend log.
+ */
+function logReaderEndOfChapter(message: string): void {
+  if (!__DEV__) return;
+  console.info(`[reader-end] ${message}`);
 }
 
 export function ReaderScreen() {
@@ -3442,28 +3473,57 @@ export function ReaderScreen() {
   );
   const readerSpreadTableRef = useRef<{ key: string; spreads: number[][]; generation: number } | null>(null);
   const readerSpreadTableKey = `${chapterId}:${pagesState.status === "ready" ? pagesState.fetchedAt : 0}:${pageCount}:${readerPairingChoiceKey}`;
-  // Until the reader turns a page the whole table may still re-pair (the
-  // opening pages are measured within moments); the gallery re-anchors on
-  // the page the reader is on (`readerSpreadGeneration`). After that only
-  // the pages ahead re-pair.
+  /**
+   * Seamless paged reading: every chapter's spread table as last shown, by
+   * chapter id (the open one's and its neighbours'), keyed like
+   * `readerSpreadTableKey`, with the spreads that have been on screen
+   * (locked: never re-paired). A chapter crossed into starts from the table
+   * it was shown with, so its landing spread is the one that was drawn.
+   */
+  const readerSegmentSpreadTablesRef = useRef(
+    new Map<string, { key: string; spreads: number[][]; locked: number[][] }>(),
+  );
+  /** The pager is showing the open chapter's table (its opening restore placed it). */
+  const readerSpreadsOnScreenRef = useRef(false);
+  // Until the reader turns a page the table may still re-pair around the
+  // spread on screen (the opening pages are measured within moments); the
+  // gallery re-anchors on the page the reader is on (`readerSpreadGeneration`).
+  // The spread on screen itself is locked: a pairing once shown is never
+  // re-paired by a later image load (a page found wide pairs anew from the
+  // next turn). After that only the pages ahead re-pair.
   const readerSpreadsProvisional = pageArrival === "initial";
   const { spreads: readerSpreads, generation: readerSpreadGeneration } = useMemo(() => {
     const previous = readerSpreadTableRef.current;
     const sameKey = previous?.key === readerSpreadTableKey;
+    const stored = readerSegmentSpreadTablesRef.current.get(chapterId);
+    const seeded = !sameKey && stored?.key === readerSpreadTableKey ? stored : null;
+    const base = sameKey ? previous.spreads : (seeded?.spreads ?? null);
+    const locked = stored?.key === readerSpreadTableKey ? stored.locked : [];
     const spreads = isTwoPageMode
       ? nextMobileReaderSpreadTable({
-          previous: previous?.spreads ?? null,
+          previous: base,
           computed: readerComputedSpreads,
-          reset: !sameKey || readerSpreadsProvisional,
+          reset: base == null,
           currentPageIndex: clampedPageIndex,
-          settled: (index) => !displayedPages[index]?.imageUri || readerPageSizeAt(index) !== null,
+          provisional: readerSpreadsProvisional,
+          displayed: seeded != null || readerSpreadsOnScreenRef.current,
+          locked,
         })
       : [];
     const spreadOf = (table: readonly number[][]) => table.findIndex((spread) => spread.includes(clampedPageIndex));
-    const moved = sameKey && previous !== null && spreads !== previous.spreads
-      && spreadOf(spreads) !== spreadOf(previous.spreads);
+    const moved = base !== null && spreads !== base && spreadOf(spreads) !== spreadOf(base);
     const generation = (previous?.generation ?? 0) + (moved ? 1 : 0);
     readerSpreadTableRef.current = isTwoPageMode ? { key: readerSpreadTableKey, spreads, generation } : null;
+    if (isTwoPageMode && pagesState.status === "ready") {
+      // The spread the reader is on is shown: it joins the locked ones.
+      const onScreen = readerSpreadsOnScreenRef.current || seeded != null
+        ? spreads[Math.max(0, spreadOf(spreads))]
+        : undefined;
+      const nextLocked = onScreen && !locked.some((spread) => spread.length === onScreen.length && spread.every((page, at) => page === onScreen[at]))
+        ? [...locked.filter((spread) => !spread.some((page) => onScreen.includes(page))), onScreen]
+        : locked;
+      readerSegmentSpreadTablesRef.current.set(chapterId, { key: readerSpreadTableKey, spreads, locked: nextLocked });
+    }
     return { spreads, generation };
     // The current page only matters at the moment the table changes: a page
     // turn alone must not rebuild it.
@@ -3511,19 +3571,8 @@ export function ReaderScreen() {
         : null,
     [currentDisplayedPage, currentSegmentedImage],
   );
-  // Any page on screen still without an image: tap zones must not turn past it.
-  const readerVisiblePageLoading = readerVisiblePages.some((page) => {
-    if (page.imageProcessing === "pending") return true;
-    // Processing failed: a load failure, nothing to wait for.
-    if (page.imageProcessing === "failed") return false;
-    // A page without an image (text-only) has nothing to wait for.
-    if (!page.imageUri) return false;
-    const pageIdentity = readerPageIdentityFor(page);
-    return isMobileReaderImageLoading({
-      error: readerImageErrors.get(pageIdentity),
-      hasNaturalSize: readerImageSizes.has(pageIdentity),
-    });
-  });
+  // A page on screen still loading no longer holds the tap zones: a tap
+  // turns onto it like a swipe (its placeholder shows; it loads first).
   const japaneseLearningVisiblePageKey = JSON.stringify(
     japaneseLearningVisiblePages.map((page) => readerPageIdentityFor(page)),
   );
@@ -3792,13 +3841,23 @@ export function ReaderScreen() {
   // and crossing a divider makes the chapter below (or above) the open one
   // without a remount. Paged, two-page, long-strip and segmented chapters
   // keep their own presentation (and the chapter turn as before).
-  const readerSeamlessEnabled =
+  const readerSeamlessScrollEnabled =
     readerSeamlessScroll &&
     mode === "scrolling" &&
     !galleryPagedMode &&
     readerScrollLayout != null &&
     pagesState.status === "ready" &&
     pageCount > 1;
+  // Paged reading (slide and curl, single pages and spreads, LTR and RTL):
+  // the pager joins the chapters around the open one back to back (see
+  // mobileReaderPagedStrip). Not for a bilingual pair (its own stage).
+  const readerSeamlessPagedEnabled =
+    readerSeamlessPaged &&
+    galleryPagedMode &&
+    !bilingualOverrides &&
+    pagesState.status === "ready" &&
+    pageCount > 1;
+  const readerSeamlessEnabled = readerSeamlessScrollEnabled || readerSeamlessPagedEnabled;
   /** The crossing this chapter was opened by, while its pages are the ones shown. */
   const readerSeamlessArrived =
     readerSeamlessChapter != null &&
@@ -3892,9 +3951,11 @@ export function ReaderScreen() {
     readerChapterStrip.strip.segments[readerChapterStrip.strip.currentIndex]?.chapter.id === chapterId
       ? readerChapterStrip.strip
       : null;
+  // The scroll list's rows (pages and dividers); paged reading has frames
+  // instead (readerPagedStrip below).
   const readerStripRows = useMemo<MobileReaderStripRow<ChapterSummary, MobileReaderPage>[] | null>(
-    () => (readerStrip ? mobileReaderStripRows(readerStrip) : null),
-    [readerStrip],
+    () => (readerStrip && !galleryPagedMode ? mobileReaderStripRows(readerStrip) : null),
+    [galleryPagedMode, readerStrip],
   );
   const readerStripStarts = useMemo(
     () =>
@@ -4021,6 +4082,211 @@ export function ReaderScreen() {
     readerStripRows?.forEach((row, index) => map.set(row.key, { row, index }));
     return map;
   }, [readerStripRows]);
+
+  // ---- Seamless paged reading (readerSeamlessPaged) ------------------------
+  // The pager's frames are the chapters of the strip back to back (each
+  // chapter's own spreads: no spread pairs two chapters), with one
+  // placeholder frame for a neighbour still loading. The reader state stays
+  // the open chapter's (local pages and spreads); only what is said to the
+  // gallery is in joined frames (`frameBase`).
+  /** A leaf is turning (curl): overlays wait, frames are not spliced. */
+  const [readerPageTurning, setReaderPageTurning] = useState(false);
+  /** A swipe is in progress (slide pager): frames are not spliced under it. */
+  const [readerPagedDragging, setReaderPagedDragging] = useState(false);
+  /**
+   * The reader turned onto a placeholder (a neighbour still loading): the
+   * pager rests there until the chapter replaces it (then the reader crosses
+   * into it) or fails (then back to the open chapter's edge).
+   */
+  const [readerPagedEdge, setReaderPagedEdge] = useState<{
+    chapterId: string;
+    side: "head" | "tail";
+  } | null>(null);
+  const readerPagedEdgeRef = useRef(readerPagedEdge);
+  readerPagedEdgeRef.current = readerPagedEdge;
+  const readerPagedDragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The finger lifted: at rest now, or once the glide's momentum ends (a
+  // fallback in case none is reported).
+  const endReaderPagedDrag = useCallback((decelerating: boolean) => {
+    if (readerPagedDragTimerRef.current) clearTimeout(readerPagedDragTimerRef.current);
+    readerPagedDragTimerRef.current = null;
+    if (!decelerating) {
+      setReaderPagedDragging(false);
+      return;
+    }
+    readerPagedDragTimerRef.current = setTimeout(() => {
+      readerPagedDragTimerRef.current = null;
+      setReaderPagedDragging(false);
+    }, 1200);
+  }, []);
+  useEffect(
+    () => () => {
+      if (readerPagedDragTimerRef.current) clearTimeout(readerPagedDragTimerRef.current);
+    },
+    [],
+  );
+  const readerStripEdges = readerChapterStrip.edges;
+  // The strip's chapters with their fetch stamps (same order as its segments).
+  const readerChapterStripSegments = readerChapterStrip.segments;
+  const readerPagedOnFirstFrame = isTwoPageMode
+    ? (readerSpreads[0]?.includes(clampedPageIndex) ?? clampedPageIndex === 0)
+    : clampedPageIndex === 0;
+  const readerPagedOnLastFrame = isTwoPageMode
+    ? (readerSpreads[readerSpreads.length - 1]?.includes(clampedPageIndex) ?? false)
+    : clampedPageIndex >= pageCount - 1;
+  /**
+   * A neighbour's spread table, kept like the open chapter's: re-paired as its
+   * sizes arrive, except the spreads that have been on screen. Its edge
+   * facing the open chapter is locked as soon as it can be seen (the reader
+   * is on the open chapter's edge frame, so a drag shows it), so the spread
+   * a backward (or forward) crossing lands on is the one that was drawn.
+   */
+  const readerNeighbourSpreads = useCallback(
+    (segment: ReaderStripSegmentData, side: "previous" | "next", adjacent: boolean): number[][] => {
+      const id = segment.chapter.id;
+      const count = segment.pages.length;
+      const applied = mobileReaderPairingShiftFor(readerPairingShifts[readerPairingShiftKey], id);
+      const choice = `${readerSpreadPairing}:${applied.shift ? "shift" : applied.fallbackShift ? "learned" : "base"}`;
+      const key = `${id}:${segment.fetchedAt}:${count}:${choice}`;
+      const computed = buildMobileReaderPairedSpreads({
+        pageCount: count,
+        sizeAt: (index) => {
+          const page = segment.pages[index];
+          return page ? readerStripPageSize(id, page) : null;
+        },
+        pairing: readerSpreadPairing,
+        shift: applied.shift,
+        fallbackShift: applied.fallbackShift,
+      });
+      const tables = readerSegmentSpreadTablesRef.current;
+      const stored = tables.get(id);
+      const same = stored?.key === key;
+      const edgePage = side === "previous" ? count - 1 : 0;
+      const spreads = nextMobileReaderSpreadTable({
+        previous: same ? stored.spreads : null,
+        computed,
+        reset: !same,
+        currentPageIndex: edgePage,
+        provisional: true,
+        displayed: adjacent,
+        locked: same ? stored.locked : [],
+      });
+      let locked = same ? stored.locked : [];
+      const edge = adjacent ? spreads.find((spread) => spread.includes(edgePage)) : undefined;
+      if (edge && !locked.some((spread) => spread.length === edge.length && spread.every((page, at) => page === edge[at]))) {
+        locked = [...locked.filter((spread) => !spread.some((page) => edge.includes(page))), edge];
+      }
+      tables.set(id, { key, spreads, locked });
+      return spreads;
+    },
+    [readerPairingShiftKey, readerPairingShifts, readerSpreadPairing, readerStripPageSize],
+  );
+  const readerPagedStripCandidate = useMemo<MobileReaderPagedStrip | null>(() => {
+    if (!readerStrip || !readerSeamlessPagedEnabled) return null;
+    const segments: MobileReaderPagedStripSegment[] = [];
+    const first = readerStrip.segments[0];
+    const headChapter = first
+      ? getMobileReaderChapterNavigation([...readerChapters], first.chapter.id, "scrolling").previousChapter
+      : null;
+    const headEdge = readerStripEdges.previous;
+    // The chapter before the list: a placeholder until it joins (fetched in
+    // the open chapter's first pages, or when the reader turns onto it),
+    // gone once it failed or is locked (a turn back then opens it the old
+    // way).
+    if (
+      headChapter &&
+      !headChapter.locked &&
+      !(headEdge?.chapterId === headChapter.id && headEdge.status !== "loading")
+    ) {
+      segments.push({ chapterId: headChapter.id, kind: "placeholder", pageCount: 1 });
+    }
+    let currentIndex = 0;
+    readerStrip.segments.forEach((segment, index) => {
+      if (index === readerStrip.currentIndex) {
+        currentIndex = segments.length;
+        segments.push({
+          chapterId,
+          kind: "chapter",
+          pageCount,
+          spreads: isTwoPageMode ? readerSpreads : null,
+        });
+        return;
+      }
+      const side = index < readerStrip.currentIndex ? "previous" : "next";
+      const adjacent =
+        (side === "previous" && index === readerStrip.currentIndex - 1 && readerPagedOnFirstFrame) ||
+        (side === "next" && index === readerStrip.currentIndex + 1 && readerPagedOnLastFrame);
+      segments.push({
+        chapterId: segment.chapter.id,
+        kind: "chapter",
+        pageCount: segment.pages.length,
+        spreads: isTwoPageMode
+          ? readerNeighbourSpreads(
+              readerChapterStripSegments[index] ?? { ...segment, fetchedAt: 0 },
+              side,
+              adjacent,
+            )
+          : null,
+      });
+    });
+    // The chapter after the list: a placeholder while it is (to be) fetched.
+    // None at the true end (the caught-up card shows past the last page) or
+    // when it failed or is locked (the end-of-chapter prompt says so).
+    const tail = readerStrip.tail;
+    if (tail?.kind === "next" && (tail.status === "idle" || tail.status === "loading")) {
+      segments.push({ chapterId: tail.chapter.id, kind: "placeholder", pageCount: 1 });
+    }
+    return buildMobileReaderPagedStrip({ segments, currentIndex, twoPage: isTwoPageMode });
+  }, [
+    chapterId,
+    isTwoPageMode,
+    pageCount,
+    readerChapters,
+    readerNeighbourSpreads,
+    readerPagedOnFirstFrame,
+    readerChapterStripSegments,
+    readerPagedOnLastFrame,
+    readerSeamlessPagedEnabled,
+    readerSpreads,
+    readerStrip,
+    readerStripEdges.previous,
+  ]);
+  // Frames are spliced only at rest: never under a swipe or a turning leaf
+  // (a slot count changing mid-turn drops or flickers the turn). Until then
+  // the frames as they were stay, the open chapter's own updates included
+  // only when they leave the frames as they are.
+  const readerPagedTurning = readerPageTurning || readerPagedDragging;
+  const readerPagedTurningRef = useRef(readerPagedTurning);
+  readerPagedTurningRef.current = readerPagedTurning;
+  const readerPagedStripShownRef = useRef<MobileReaderPagedStrip | null>(null);
+  const readerPagedStrip = useMemo(() => {
+    const shown = readerPagedStripShownRef.current;
+    if (
+      !readerPagedTurning ||
+      !shown ||
+      !readerPagedStripCandidate ||
+      sameMobileReaderPagedStripFrames(shown, readerPagedStripCandidate)
+    ) {
+      return readerPagedStripCandidate;
+    }
+    const open = shown.segments.findIndex((segment) => segment.chapterId === chapterId && segment.kind === "chapter");
+    if (open < 0) return readerPagedStripCandidate;
+    return open === shown.currentIndex ? shown : { ...shown, currentIndex: open };
+  }, [chapterId, readerPagedStripCandidate, readerPagedTurning]);
+  readerPagedStripShownRef.current = readerPagedStrip;
+  const readerPagedStripRef = useRef(readerPagedStrip);
+  readerPagedStripRef.current = readerPagedStrip;
+  const readerPagedFrameBase = readerPagedStrip ? mobileReaderPagedStripFrameBase(readerPagedStrip) : 0;
+  /** The frame the reader rests on, when it is a placeholder or a chapter that just replaced one. */
+  const readerPagedEdgeFrame = useMemo(() => {
+    if (!readerPagedEdge || !readerPagedStrip) return null;
+    const at = readerPagedStrip.segments.findIndex((segment) => segment.chapterId === readerPagedEdge.chapterId);
+    if (at < 0) return null;
+    const start = readerPagedStrip.frameStarts[at]!;
+    const end = readerPagedStrip.frameStarts[at + 1]!;
+    if (end <= start) return null;
+    return readerPagedEdge.side === "head" ? end - 1 : start;
+  }, [readerPagedEdge, readerPagedStrip]);
   const routePageDisplayIndex = useMemo(
     () => readerDisplayIndexForRoutePage(routePage, pageCount, mode),
     [mode, pageCount, routePage],
@@ -4122,12 +4388,14 @@ export function ReaderScreen() {
   const readerRestoreFrameCount = isTwoPageMode
     ? readerSpreads.length
     : pageCount;
+  // Seamless paged reading: the pager's frames are the joined chapters'.
+  const readerGalleryFrameCount = readerPagedStrip ? readerPagedStrip.frameCount : readerRestoreFrameCount;
   const readerInitialContentOffset = useMemo(
     () => ({
       x: galleryPagedMode
         ? readerScrollOffsetForLogicalFrame(
-            readerRestoreFrameIndex,
-            readerRestoreFrameCount,
+            readerRestoreFrameIndex + readerPagedFrameBase,
+            readerGalleryFrameCount,
             readerPageWidth,
             mode,
           )
@@ -4139,8 +4407,9 @@ export function ReaderScreen() {
     [
       galleryPagedMode,
       mode,
+      readerGalleryFrameCount,
       readerPageWidth,
-      readerRestoreFrameCount,
+      readerPagedFrameBase,
       readerRestoreFrameIndex,
       readerRestorePageFraction,
       readerRestorePageIndex,
@@ -4201,6 +4470,7 @@ export function ReaderScreen() {
     (restoredReaderKey === restoreReaderKey || readerSeamlessArrivalPending);
   const readerRestoreCompleteRef = useRef(readerRestoreComplete);
   readerRestoreCompleteRef.current = readerRestoreComplete;
+  readerSpreadsOnScreenRef.current = readerRestoreComplete;
   // The cover a zoom landed on fades into the reader (at once into a chapter
   // that failed: its own state). Scroll reading opens straight into the
   // reading position: as soon as the opening seek has placed the list —
@@ -5121,9 +5391,12 @@ export function ReaderScreen() {
       const targetFrameIndex = isTwoPageMode
         ? findMobileReaderSpreadIndex(readerSpreads, nextPageIndex)
         : nextPageIndex;
-      const frameCount = isTwoPageMode ? readerSpreads.length : pageCount;
+      // Seamless paged reading: the open chapter's frames sit after the
+      // chapter (or placeholder) before it.
+      const paged = readerPagedStripRef.current;
+      const frameCount = paged ? paged.frameCount : isTwoPageMode ? readerSpreads.length : pageCount;
       const xOffset = readerScrollOffsetForLogicalFrame(
-        targetFrameIndex,
+        targetFrameIndex + (paged ? mobileReaderPagedStripFrameBase(paged) : 0),
         frameCount,
         readerPageWidth,
         mode,
@@ -5475,6 +5748,12 @@ export function ReaderScreen() {
     // A drag during the opening restore cancels it: where the reader takes
     // the list is the real position.
     finishReaderScrollLanding("user");
+    if (galleryPagedMode) {
+      // Seamless paged reading: no frames spliced under the finger.
+      if (readerPagedDragTimerRef.current) clearTimeout(readerPagedDragTimerRef.current);
+      readerPagedDragTimerRef.current = null;
+      setReaderPagedDragging(true);
+    }
     if (!galleryPagedMode) {
       readerUserScrollingRef.current = true;
       readerStripUserScrolledRef.current = true;
@@ -5605,7 +5884,7 @@ export function ReaderScreen() {
     }
   }, [strings, visibleProgressPageIndex]);
 
-  const showEndOfChapterPrompt = useCallback(() => {
+  const showEndOfChapterPrompt = useCallback((reason = "past-last-page") => {
     if (
       readerDisplaySettingsOpen ||
       readerPluginSettingsOpen ||
@@ -5614,8 +5893,15 @@ export function ReaderScreen() {
       japaneseLearningChatDrawerVisible ||
       japaneseLearningTranscriptVisible
     ) {
+      logReaderEndOfChapter(`skipped (a sheet is open) reason=${reason} chapter=${chapterId}`);
       return;
     }
+    // What brought the reader here (no native os_log bridge for JS: a dev log).
+    logReaderEndOfChapter(
+      `show reason=${reason} chapter=${chapterId} next=${nextChapterInReadingOrder?.id ?? "none"} mode=${mode}${
+        galleryPagedMode ? (isTwoPageMode ? " paged:spreads" : " paged:single") : ""
+      }`,
+    );
     // Design-explore: reading past the last page always goes straight on to
     // the next chapter (the setting's blocking card is gone), and a capsule
     // marks the chapter just finished on the way in. The setting keeps its
@@ -5645,7 +5931,11 @@ export function ReaderScreen() {
   }, [
     chapter,
     chapterCompleteCelebration,
+    chapterId,
+    galleryPagedMode,
     goToChapter,
+    isTwoPageMode,
+    mode,
     strings,
     japaneseLearningChatDrawerVisible,
     japaneseLearningLauncherVisible,
@@ -5725,9 +6015,14 @@ export function ReaderScreen() {
     (targetPageIndex: number, direction: "previous" | "next", arrival: MobileReaderPageArrival) => boolean
   >(() => false);
 
+  // Seamless paged reading: a turn past the open chapter's edge (or off a
+  // placeholder). Set further down, with the crossing; true when handled.
+  const readerPagedStepRef = useRef<(direction: "previous" | "next") => boolean>(() => false);
   const stepReaderPage = useCallback(
     (direction: "previous" | "next") => {
       if (pageCount <= 0) return;
+      // Resting on a placeholder: the turn is the strip's.
+      if (readerPagedEdgeRef.current && readerPagedStepRef.current(direction)) return;
       const targetPageIndex = isTwoPageMode
         ? pageIndexForMobileReaderSpreadStep(
             readerSpreads,
@@ -5752,9 +6047,12 @@ export function ReaderScreen() {
         return;
       }
       if (targetPageIndex == null) {
+        // Seamless paged reading: the chapter (or placeholder) next to this
+        // one is the next frame — a plain turn, never a dead tap.
+        if (readerPagedStepRef.current(direction)) return;
         // Neither edge is a dead wall: the last page offers the next chapter
         // and the first page steps back into the previous one.
-        if (direction === "next") showEndOfChapterPrompt();
+        if (direction === "next") showEndOfChapterPrompt("step-past-last-page");
         else showPreviousChapterFromEnd();
         return;
       }
@@ -5822,6 +6120,8 @@ export function ReaderScreen() {
   const readerStripCaughtUpCompletedRef = useRef<string | null>(null);
   const completeReaderStripCaughtUp = useCallback((): boolean => {
     if (
+      // Paged reading has no divider: the caught-up card says it.
+      galleryPagedMode ||
       !readerStrip ||
       readerStrip.currentIndex !== readerStrip.segments.length - 1 ||
       readerStrip.tail?.kind !== "end"
@@ -5840,7 +6140,7 @@ export function ReaderScreen() {
       }
     });
     return true;
-  }, [chapterCompleteCelebration, chapterId, readerStrip, visibleProgressPageIndex]);
+  }, [chapterCompleteCelebration, chapterId, galleryPagedMode, readerStrip, visibleProgressPageIndex]);
 
   const stepContinuousReaderAccessibility = useCallback(
     (direction: "previous" | "next") => {
@@ -8041,6 +8341,25 @@ export function ReaderScreen() {
     registryId,
     sourceId,
   ]);
+  // Seamless paged reading, in the open chapter's first two pages: the
+  // previous chapter's last pages (its page list joins the strip from p1-p3),
+  // so a turn back from p1 lands on a drawn page.
+  const readerPreviousChapterSegment =
+    readerStrip && readerStrip.currentIndex > 0 && galleryPagedMode
+      ? readerStrip.segments[readerStrip.currentIndex - 1] ?? null
+      : null;
+  const readerWarmPreviousChapter =
+    readerPreviousChapterSegment != null && shouldWarmMobileReaderPagedStripPrevious(clampedPageIndex);
+  const readerPreviousChapterPrefetchImages = useMemo(
+    () =>
+      readerWarmPreviousChapter && readerPreviousChapterSegment
+        ? planMobileReaderNextChapterPrefetch(
+            [...readerPreviousChapterSegment.pages].reverse(),
+            isTwoPageMode ? 4 : 3,
+          )
+        : [],
+    [isTwoPageMode, readerPreviousChapterSegment, readerWarmPreviousChapter],
+  );
   const readerNextChapterPrefetchImages = useMemo(
     () =>
       nearChapterEnd &&
@@ -8219,6 +8538,7 @@ export function ReaderScreen() {
           // A spread turn back needs the whole previous spread warm.
           behind: mobileReaderPrefetchPagesBehind(isTwoPageMode, MOBILE_READER_PREFETCH_PAGES_BEHIND),
         }),
+        ...readerPreviousChapterPrefetchImages,
         ...nextChapterPages,
       ]);
     }, 250);
@@ -8234,6 +8554,7 @@ export function ReaderScreen() {
     readerImageSizes,
     readerNextChapterPrefetchImages,
     readerPageIdentityFor,
+    readerPreviousChapterPrefetchImages,
   ]);
 
   useEffect(() => {
@@ -8875,17 +9196,31 @@ export function ReaderScreen() {
   ) => {
     const programmaticTarget = readerProgrammaticScrollRef.current;
     if (galleryPagedMode) {
-      const frameCount = isTwoPageMode ? readerSpreads.length : pageCount;
+      // Seamless paged reading: the pager's frames are the joined chapters'.
+      const paged = readerPagedStripRef.current;
+      endReaderPagedDrag(false);
+      const frameCount = paged ? paged.frameCount : isTwoPageMode ? readerSpreads.length : pageCount;
       const visualFrameIndex = readerDisplayIndexFromOffset(
         event.nativeEvent.contentOffset.x,
         readerPageWidth,
         frameCount,
       );
-      const nextFrameIndex = readerLogicalFrameIndexForVisualFrame(
+      const settledFrameIndex = readerLogicalFrameIndexForVisualFrame(
         visualFrameIndex,
         frameCount,
         mode,
       );
+      if (paged) {
+        // Settled in the chapter before or after (or on a placeholder):
+        // a crossing, not a page of the open chapter.
+        const crossing = mobileReaderPagedStripCrossing(paged, settledFrameIndex);
+        if (crossing) {
+          landOnReaderPagedFrameRef.current(crossing, programmaticTarget == null);
+          return;
+        }
+        if (readerPagedEdge) setReaderPagedEdge(null);
+      }
+      const nextFrameIndex = settledFrameIndex - (paged ? mobileReaderPagedStripFrameBase(paged) : 0);
       // A spread that still shows the page the reader was on keeps it (a
       // rotation or unfold into spreads and back lands on the same page).
       const nextPageIndex = isTwoPageMode
@@ -8961,13 +9296,13 @@ export function ReaderScreen() {
     [readerMaxPagedImageHeight, readerSafeContentWidth],
   );
   const readerPageFitModeFor = useCallback(
-    (page: MobileReaderPage): ReaderFitMode =>
+    (page: MobileReaderPage, naturalSize?: MobileReaderPageSize | null): ReaderFitMode =>
       galleryPagedMode
         ? mobileReaderPageFitMode({
             mode: readerFitMode,
             single: !isTwoPageMode && !bilingualOverrides,
             viewport: readerFitViewport,
-            naturalSize: readerImageSizes.get(readerPageIdentityFor(page)),
+            naturalSize: naturalSize !== undefined ? (naturalSize ?? undefined) : readerImageSizes.get(readerPageIdentityFor(page)),
           })
         : readerFitMode,
     [bilingualOverrides, galleryPagedMode, isTwoPageMode, readerFitMode, readerFitViewport, readerImageSizes, readerPageIdentityFor],
@@ -8977,13 +9312,28 @@ export function ReaderScreen() {
     readerFitMode !== "page" ||
     (galleryPagedMode && !isTwoPageMode && !bilingualOverrides && readerFitViewport.height > readerFitViewport.width);
   const getReaderImageFrameSize = useCallback(
-    (page: MobileReaderPage): MobileImageSize => {
-      const pageFitMode = readerPageFitModeFor(page);
+    (
+      page: MobileReaderPage,
+      /**
+       * Seamless paged reading: a page of the chapter before or after the
+       * open one, fitted like that chapter's own (its sizes and spreads).
+       */
+      neighbour?: {
+        index: number;
+        spreads: readonly (readonly number[])[];
+        sizeAt: (index: number) => MobileReaderPageSize | null;
+      },
+    ): MobileImageSize => {
+      const sizeAt = neighbour?.sizeAt ?? readerPageSizeAt;
+      const naturalSize = neighbour
+        ? (neighbour.sizeAt(neighbour.index) ?? undefined)
+        : readerImageSizes.get(readerPageIdentityFor(page));
+      const pageFitMode = readerPageFitModeFor(page, neighbour ? (naturalSize ?? null) : undefined);
       if (galleryPagedMode && pageFitMode !== "page") {
         const fitted = mobileReaderFitFrame({
           mode: pageFitMode,
           viewport: readerFitViewport,
-          ratio: readerFitRatio(readerImageSizes.get(readerPageIdentityFor(page))),
+          ratio: readerFitRatio(naturalSize),
         });
         return { width: fitted.width, height: fitted.height };
       }
@@ -8991,32 +9341,33 @@ export function ReaderScreen() {
         // Facing pages are fitted as one sheet in their slots (the stage
         // halves, or the panes beside a fold); a page alone (a cover, a wide
         // page) gets the whole stage, or its reading-start pane.
-        const index = readerDisplayIndexByPageId.get(page.id) ?? -1;
-        const spread = readerSpreads[findMobileReaderSpreadIndex(readerSpreads, index)] ?? [index];
+        const index = neighbour ? neighbour.index : (readerDisplayIndexByPageId.get(page.id) ?? -1);
+        const spreads = neighbour?.spreads ?? readerSpreads;
+        const spread = spreads[findMobileReaderSpreadIndex(spreads as number[][], index)] ?? [index];
         const half = { width: Math.max(1, readerSafeContentWidth / 2), height: readerMaxPagedImageHeight };
         if (spread.length === 2 && spread.includes(index)) {
-          const visual = visualPageIndexesForMobileReaderSpread(spread, mode);
+          const visual = visualPageIndexesForMobileReaderSpread([...spread], mode);
           const slots: [{ width: number; height: number }, { width: number; height: number }] =
             readerSpreadSlots && readerSpreadSlots.length === 2
               ? [readerSpreadSlots[0]!, readerSpreadSlots[1]!]
               : [half, half];
           const frames = getMobileReaderSpreadSheetFrames({
             slots,
-            sizes: [readerPageSizeAt(visual[0]!), readerPageSizeAt(visual[1]!)],
+            sizes: [sizeAt(visual[0]!), sizeAt(visual[1]!)],
           });
           return frames[visual.indexOf(index)] ?? frames[0];
         }
         // Book posture: a wide page reads as a printed spread, split at its
         // centre across the two panes.
-        if (readerSpreadSlots && readerSpreadSlots.length === 2 && isMobileReaderWidePage(readerPageSizeAt(index))) {
+        if (readerSpreadSlots && readerSpreadSlots.length === 2 && isMobileReaderWidePage(sizeAt(index))) {
           return getMobileReaderSplitWidePageFrame({
             slots: [readerSpreadSlots[0]!, readerSpreadSlots[1]!],
-            size: readerPageSizeAt(index),
+            size: sizeAt(index),
           });
         }
         // The curl lays a lone page on one leaf beside the spine; a wide page
         // lies across both.
-        const loneOnLeaf = readerPageCurlActive && !isMobileReaderWidePage(readerPageSizeAt(index));
+        const loneOnLeaf = readerPageCurlActive && !isMobileReaderWidePage(sizeAt(index));
         const lone = readerSpreadSlots && readerSpreadSlots.length === 2
           ? readerSpreadSlots[mode === "rtl" ? 1 : 0]!
           : loneOnLeaf
@@ -9025,13 +9376,13 @@ export function ReaderScreen() {
         return getMobileReaderSpreadImageFrameSize({
           availableWidth: lone.width,
           availableHeight: Math.min(lone.height, readerMaxPagedImageHeight),
-          naturalSize: readerPageSizeAt(index) ?? readerImageSizes.get(readerPageIdentityFor(page)),
+          naturalSize: sizeAt(index) ?? naturalSize,
         });
       }
       // Scroll reading: the frame is the page's cell in the scroll layout,
       // placeholder or loaded, so cells never change size under the reader
       // except when a page's real size replaces its estimate.
-      const scrollLayoutHeight = readerScrollLayout
+      const scrollLayoutHeight = readerScrollLayout && !neighbour
         ? readerScrollLayout.heights[readerDisplayIndexByPageId.get(page.id) ?? -1]
         : undefined;
       if (scrollLayoutHeight != null && scrollLayoutHeight > 0) {
@@ -9039,7 +9390,7 @@ export function ReaderScreen() {
       }
       return getMobileReaderImageFrameSize({
         imageWidth: readerImageWidth,
-        naturalSize: readerImageSizes.get(readerPageIdentityFor(page)),
+        naturalSize,
         clampHeightToPagedViewport: galleryPagedMode,
         maximumPagedHeight: readerMaxPagedImageHeight,
       });
@@ -9077,7 +9428,6 @@ export function ReaderScreen() {
   );
   // The curl turns the page views themselves: the bubbles leave as a leaf
   // lifts and mount again on the settled page.
-  const [readerPageTurning, setReaderPageTurning] = useState(false);
   // A wide page the reader has left goes back to its reading-start edge, but
   // only once it is off screen: a tap turn changes the page at once, and a
   // reset then snapped the page that was still sliding (or curling) away
@@ -9333,7 +9683,9 @@ export function ReaderScreen() {
         hasImageUri: Boolean(page.imageUri),
         processingPending: page.imageProcessing === "pending",
         processingFailed: page.imageProcessing === "failed",
-        inRenderWindow: galleryPagedMode
+        // A neighbour's page in the pager: the caller's window (frames
+        // around the reader's, in the joined list).
+        inRenderWindow: galleryPagedMode && !neighbour
           ? undefined
           : placement?.inRenderWindow,
       });
@@ -9693,14 +10045,25 @@ export function ReaderScreen() {
     readerStripUserScrolledRef.current = false;
   }, [readerScrollMountKey]);
   readerStripCanPrependRef.current = () =>
-    readerStripUserScrolledRef.current &&
-    readerRestoreCompleteRef.current &&
-    readerScrollLandingRef.current == null &&
-    readerProgrammaticScrollRef.current == null;
+    galleryPagedMode
+      ? // Paged reading: once the opening restore has placed the pager (the
+        // previous chapter warms in the first pages, before any turn).
+        readerRestoreCompleteRef.current
+      : readerStripUserScrolledRef.current &&
+        readerRestoreCompleteRef.current &&
+        readerScrollLandingRef.current == null &&
+        readerProgrammaticScrollRef.current == null;
   // The fetched previous chapter joins only at rest, with the gate still
   // open and the reading line still in the open chapter's first pages.
+  // Paged reading: no swipe or leaf turning (frames are spliced in front of
+  // the reader's), on the open chapter's first pages or on the placeholder.
   readerStripCanSplicePreviousRef.current = () =>
-    shouldSpliceMobileReaderStripPrevious({
+    galleryPagedMode
+      ? !readerPagedTurningRef.current &&
+        readerRestoreCompleteRef.current &&
+        (readerPagedEdgeRef.current?.side === "head" ||
+          shouldPrependMobileReaderStripSegment(clampedPageIndex, true))
+      : shouldSpliceMobileReaderStripPrevious({
       atRest: !readerUserScrollingRef.current,
       canPrepend: readerStripCanPrependRef.current(),
       localIndex:
@@ -9717,6 +10080,9 @@ export function ReaderScreen() {
   const readerStripRowsSettling = () =>
     readerStripBridgeMovingRef.current || readerGalleryScrollRef.current?.rowsSettling() === true;
   readerStripHeadOffscreenRef.current = (_strip, count) => {
+    // Paged reading: the chapters dropped are behind the open one, off
+    // screen whenever no swipe or leaf turn shows the frame beside it.
+    if (galleryPagedMode) return count > 0 && !readerPagedTurningRef.current;
     if (!readerStripLayout || !readerStripStarts) return false;
     if (readerStripRowsSettling()) return false;
     const viewport = readerGalleryScrollRef.current?.scrollViewport() ?? null;
@@ -9741,8 +10107,8 @@ export function ReaderScreen() {
     // The opening restore (or a seek) owns the list until it lands.
     if (!readerRestoreCompleteRef.current || readerScrollLandingRef.current) return false;
     // Rows were just inserted, removed or resized above: a report may still
-    // be in the old rows' terms.
-    if (readerStripRowsSettling()) return false;
+    // be in the old rows' terms. (Paged reading settles on whole frames.)
+    if (!galleryPagedMode && readerStripRowsSettling()) return false;
     const leavingTarget = readerProgressTargetRef.current;
     if (leavingTarget.chapterId !== chapterId) return false;
     const leaving: ReaderStripSegmentData = {
@@ -9823,10 +10189,160 @@ export function ReaderScreen() {
         arriving.chapter.volumeNumber != null ? String(arriving.chapter.volumeNumber) : undefined,
       chapterLocked: arriving.chapter.locked === true ? "true" : undefined,
     });
+    if (galleryPagedMode) {
+      // Paged reading has no divider: a capsule names the chapter turned into.
+      setReaderChapterCrossingCapsule({ id: Date.now(), title: formatChapterTitle(arriving.chapter, strings) });
+      logReaderEndOfChapter(
+        `paged crossing ${crossing.direction} ${chapterId} -> ${arrivingId} p${localIndex + 1}/${arrivingCount}`,
+      );
+    }
     return true;
   };
   const crossIntoReaderStripSegmentRef = useRef(crossIntoReaderStripSegment);
   crossIntoReaderStripSegmentRef.current = crossIntoReaderStripSegment;
+
+  // ---- Seamless paged reading: landing on another chapter's frame ---------
+  const [readerChapterCrossingCapsule, setReaderChapterCrossingCapsule] =
+    useState<ReaderChapterCrossingCapsuleState | null>(null);
+  const dismissReaderChapterCrossingCapsule = useCallback(
+    (id: number) => setReaderChapterCrossingCapsule((current) => (current?.id === id ? null : current)),
+    [],
+  );
+  /** Moves the pager to a joined frame (any chapter's, or a placeholder). */
+  const scrollToReaderPagedFrame = (frame: number, animated: boolean) => {
+    const paged = readerPagedStripRef.current;
+    if (!paged) return;
+    readerScrollRef.current?.scrollTo({
+      x: readerScrollOffsetForLogicalFrame(frame, paged.frameCount, readerPageWidth, mode),
+      y: 0,
+      animated,
+    });
+  };
+  /**
+   * The chapter's page (or spread) the reader lands on from the frame it
+   * settled on: a backward crossing stands on the spread's last page, a
+   * forward one on its first.
+   */
+  const readerPagedLandingPage = (
+    localPages: readonly number[],
+    direction: "forward" | "backward",
+  ): number => (direction === "backward" ? localPages[localPages.length - 1] : localPages[0]) ?? 0;
+  /**
+   * The pager settled outside the open chapter (a swipe, a tap turn, a curl):
+   * into the chapter before or after it (it becomes the open one, in place),
+   * or onto a placeholder (it rests there; the chapter is fetched first and
+   * replaces it).
+   */
+  const landOnReaderPagedFrame = (
+    crossing: NonNullable<ReturnType<typeof mobileReaderPagedStripCrossing>>,
+    userTurn: boolean,
+  ) => {
+    if (userTurn) notifyReaderPageTurn(crossing.direction);
+    clearReaderProgrammaticScroll();
+    if (crossing.placeholder) {
+      setReaderPagedEdge({ chapterId: crossing.chapterId, side: crossing.direction === "backward" ? "head" : "tail" });
+      // The chapter goes first: fetched now if it was not on its way.
+      if (crossing.direction === "backward") requestReaderStripPrevious();
+      logReaderEndOfChapter(`paged placeholder ${crossing.direction} chapter=${crossing.chapterId} (loading)`);
+      return;
+    }
+    setReaderPagedEdge(null);
+    const segmentIndex = readerStrip?.segments.findIndex((segment) => segment.chapter.id === crossing.chapterId) ?? -1;
+    const localIndex = readerPagedLandingPage(crossing.localPages, crossing.direction);
+    // Its pages not ready yet go first in its processing queue.
+    readerChapterStrip.prioritise(crossing.chapterId, crossing.localPages);
+    if (
+      segmentIndex < 0 ||
+      !crossIntoReaderStripSegment({ segmentIndex, localIndex, direction: crossing.direction })
+    ) {
+      // Not now (a restore owns the pager): back to the open chapter's page.
+      logReaderEndOfChapter(`paged crossing refused chapter=${crossing.chapterId}`);
+      scrollToPageIndex(clampedPageIndex, true);
+    }
+  };
+  const landOnReaderPagedFrameRef = useRef(landOnReaderPagedFrame);
+  landOnReaderPagedFrameRef.current = landOnReaderPagedFrame;
+  // A turn past the open chapter's edge: the next frame is the chapter (or
+  // placeholder) beside it, so the turn always happens. Off a placeholder:
+  // back to the open chapter, or (further out) nothing more to turn to yet.
+  readerPagedStepRef.current = (direction) => {
+    const paged = readerPagedStripRef.current;
+    if (!paged || !galleryPagedMode) return false;
+    if (readerPagedEdge) {
+      const backToOpen = (readerPagedEdge.side === "tail") === (direction === "previous");
+      if (backToOpen) {
+        setReaderPagedEdge(null);
+        notifyReaderPageTurn(direction === "next" ? "forward" : "backward");
+        scrollToPageIndex(clampedPageIndex, true);
+      } else {
+        if (readerPagedEdge.side === "head") requestReaderStripPrevious();
+        logReaderEndOfChapter(`paged turn past placeholder chapter=${readerPagedEdge.chapterId} (still loading)`);
+      }
+      return true;
+    }
+    const base = mobileReaderPagedStripFrameBase(paged);
+    const localFrame = isTwoPageMode ? currentSpreadIndex : clampedPageIndex;
+    const target = base + localFrame + (direction === "next" ? 1 : -1);
+    if (target < 0 || target >= paged.frameCount) return false;
+    const located = mobileReaderPagedStripLocate(paged, target);
+    if (!located || located.segmentIndex === paged.currentIndex) return false;
+    notifyReaderPageTurn(direction === "next" ? "forward" : "backward");
+    if (located.placeholder) {
+      if (direction === "previous") requestReaderStripPrevious();
+    } else {
+      readerChapterStrip.prioritise(located.chapterId, located.localPages);
+    }
+    // The settle that follows is the crossing (no second haptic).
+    armReaderProgrammaticScroll({ kind: "frame", frameIndex: target - base });
+    scrollToReaderPagedFrame(target, true);
+    return true;
+  };
+  // Seamless paged reading, at rest again (no swipe, no leaf turning): a
+  // previous chapter fetched meanwhile joins in front now, and a head prune
+  // that waited for the frames to settle runs.
+  const readerPagedStripActive = readerPagedStrip != null;
+  useEffect(() => {
+    if (!readerPagedStripActive || readerPagedTurning) return;
+    flushReaderStripPrevious();
+    recheckReaderStripPrune();
+  }, [flushReaderStripPrevious, readerPagedStripActive, readerPagedTurning, recheckReaderStripPrune]);
+  // The opening restore placed the pager (or a crossing re-based it): the
+  // previous chapter may be fetched now if the reader is in its first pages.
+  useEffect(() => {
+    if (!galleryPagedMode || !readerSeamlessPagedEnabled || !readerRestoreComplete) return;
+    recheckReaderStripPrevious();
+  }, [chapterId, galleryPagedMode, readerRestoreComplete, readerSeamlessPagedEnabled, recheckReaderStripPrevious]);
+  // Resting on a placeholder: its chapter arrived (cross into it, on its
+  // edge next to the chapter the reader came from — the pager is already
+  // there), or failed / is locked (back to the open chapter's edge, with the
+  // end-of-chapter prompt or the old way into the previous chapter).
+  useEffect(() => {
+    if (!readerPagedEdge || !readerPagedStrip || readerPagedTurning) return;
+    const at = readerPagedStrip.segments.findIndex((segment) => segment.chapterId === readerPagedEdge.chapterId);
+    const segment = at >= 0 ? readerPagedStrip.segments[at] : undefined;
+    if (segment?.kind === "placeholder") return;
+    if (segment && readerPagedEdgeFrame != null) {
+      const located = mobileReaderPagedStripLocate(readerPagedStrip, readerPagedEdgeFrame);
+      const direction = readerPagedEdge.side === "head" ? "backward" : "forward";
+      const segmentIndex = readerStrip?.segments.findIndex((entry) => entry.chapter.id === readerPagedEdge.chapterId) ?? -1;
+      if (
+        located &&
+        segmentIndex >= 0 &&
+        crossIntoReaderStripSegmentRef.current({
+          segmentIndex,
+          localIndex: readerPagedLandingPage(located.localPages, direction),
+          direction,
+        })
+      ) {
+        setReaderPagedEdge(null);
+      }
+      return;
+    }
+    setReaderPagedEdge(null);
+    if (readerPagedEdge.side === "tail") showEndOfChapterPrompt("next-chapter-unavailable");
+    else showPreviousChapterFromEnd();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the strip changing under the placeholder is the trigger.
+  }, [readerPagedEdge, readerPagedEdgeFrame, readerPagedStrip, readerPagedTurning]);
   // The gallery speaks in list rows; the reader in the open chapter's pages.
   const onGalleryScrollingVisiblePageChange = useCallback(
     (globalIndex: number) => {
@@ -9892,17 +10408,43 @@ export function ReaderScreen() {
   // no card (see `completeReaderStripCaughtUp`).
   const onGalleryRequestAdvancePastEnd = useCallback(() => {
     const strip = readerStripRef.current.strip;
+    const paged = readerPagedStripRef.current;
+    if (paged) {
+      // Paged reading: past the joined frames' end. A placeholder there is
+      // the next chapter on its way (the reader turns onto it, not past it);
+      // otherwise this is the true end (the caught-up card) or the next
+      // chapter failed or is locked (the prompt says so).
+      if (paged.segments[paged.segments.length - 1]?.kind === "placeholder") {
+        logReaderEndOfChapter("paged drag past the end: next chapter still loading");
+        return;
+      }
+      // A chapter after the open one in the pager: not past the end yet.
+      if (paged.currentIndex !== paged.segments.length - 1) return;
+      const tail = strip?.tail;
+      showEndOfChapterPrompt(
+        tail?.kind === "end" ? "paged-caught-up" : tail?.kind === "next" ? `paged-next-${tail.status}` : "paged-past-end",
+      );
+      return;
+    }
     if (strip) {
       if (strip.currentIndex !== strip.segments.length - 1) return;
       const tail = strip.tail;
       if (tail?.kind === "next" && (tail.status === "idle" || tail.status === "loading")) return;
     }
     if (completeReaderStripCaughtUp()) return;
-    showEndOfChapterPrompt();
+    showEndOfChapterPrompt("drag-past-end");
   }, [completeReaderStripCaughtUp, showEndOfChapterPrompt]);
   const onGalleryRequestRetreatPastStart = useCallback(() => {
     const strip = readerStripRef.current.strip;
-    if (strip) {
+    const paged = readerPagedStripRef.current;
+    if (paged && paged.segments[0]?.kind === "placeholder") {
+      // The previous chapter is on its way: it goes first.
+      requestReaderStripPrevious();
+      return;
+    }
+    // A chapter before the open one in the pager: not past the start yet.
+    if (paged && paged.currentIndex !== 0) return;
+    if (strip && !paged) {
       if (strip.currentIndex !== 0) return;
       if (requestReaderStripPrevious()) return;
     }
@@ -10109,6 +10651,159 @@ export function ReaderScreen() {
         ? readerInitialContentOffset
         : { x: readerInitialContentOffset.x, y: readerInitialContentOffset.y + readerStripBridge.offsetBase },
     [galleryPagedMode, readerInitialContentOffset, readerStripBridge.offsetBase],
+  );
+  // ---- Seamless paged reading: the pager's pages --------------------------
+  // The joined frames' pages (ids unique across chapters, the strip key, so a
+  // crossing or a chapter joining keeps every cell), each with the chapter
+  // and the page of it it shows. The open chapter's pages render as before;
+  // a neighbour's as that chapter's own (sizes, spreads, fit).
+  const readerPagedGalleryCacheRef = useRef(
+    new Map<string, { source: MobileReaderPage | null; page: MobileReaderPage }>(),
+  );
+  const readerPagedGallery = useMemo(() => {
+    if (!readerPagedStrip || !readerStrip) return null;
+    type Entry = {
+      chapterId: string;
+      /** The page of its chapter (null: a placeholder). */
+      source: MobileReaderPage | null;
+      localIndex: number;
+      /** The paged strip's segment. */
+      segmentIndex: number;
+    };
+    const previous = readerPagedGalleryCacheRef.current;
+    const cache = new Map<string, { source: MobileReaderPage | null; page: MobileReaderPage }>();
+    const pages: MobileReaderPage[] = [];
+    const byKey = new Map<string, Entry>();
+    const chapterPages = new Map<string, readonly MobileReaderPage[]>();
+    readerStrip.segments.forEach((segment) => chapterPages.set(segment.chapter.id, segment.pages));
+    chapterPages.set(chapterId, displayedPages);
+    const add = (key: string, source: MobileReaderPage | null, entry: Entry) => {
+      const kept = previous.get(key);
+      const page =
+        kept && kept.source === source
+          ? kept.page
+          : source
+            ? ({ ...source, id: key } as MobileReaderPage)
+            : ({ id: key, index: -1 } as MobileReaderPage);
+      cache.set(key, { source, page });
+      byKey.set(key, entry);
+      pages.push(page);
+    };
+    readerPagedStrip.segments.forEach((segment, segmentIndex) => {
+      const count = readerPagedStrip.pageStarts[segmentIndex + 1]! - readerPagedStrip.pageStarts[segmentIndex]!;
+      if (segment.kind === "placeholder") {
+        add(mobileReaderPagedStripPlaceholderKey(segment.chapterId), null, {
+          chapterId: segment.chapterId,
+          source: null,
+          localIndex: 0,
+          segmentIndex,
+        });
+        return;
+      }
+      const sources = chapterPages.get(segment.chapterId) ?? [];
+      for (let localIndex = 0; localIndex < count; localIndex += 1) {
+        const source = sources[localIndex] ?? null;
+        add(
+          source
+            ? mobileReaderStripPageKey(segment.chapterId, source.id)
+            : `${mobileReaderStripPageKey(segment.chapterId, "#")}${localIndex}`,
+          source,
+          { chapterId: segment.chapterId, source, localIndex, segmentIndex },
+        );
+      }
+    });
+    readerPagedGalleryCacheRef.current = cache;
+    return { pages, byKey, entries: pages.map((page) => byKey.get(page.id)!) };
+  }, [chapterId, displayedPages, readerPagedStrip, readerStrip]);
+  /** A neighbour chapter's own spreads (local page indexes), from the joined frames. */
+  const readerPagedSegmentSpreads = useCallback(
+    (segmentIndex: number): number[][] => {
+      if (!readerPagedStrip) return [];
+      const start = readerPagedStrip.frameStarts[segmentIndex] ?? 0;
+      const end = readerPagedStrip.frameStarts[segmentIndex + 1] ?? start;
+      const pageBase = readerPagedStrip.pageStarts[segmentIndex] ?? 0;
+      return readerPagedStrip.spreads.slice(start, end).map((spread) => spread.map((page) => page - pageBase));
+    },
+    [readerPagedStrip],
+  );
+  const readerPagedNeighbourSizeAt = useCallback(
+    (forChapterId: string) => (index: number) => {
+      const page = readerPagedGallery?.entries.find(
+        (entry) => entry.chapterId === forChapterId && entry.localIndex === index,
+      )?.source;
+      return page ? readerStripPageSize(forChapterId, page) : null;
+    },
+    [readerPagedGallery, readerStripPageSize],
+  );
+  /** The joined frame the reader is on (open chapter's frame plus the frames before it). */
+  const readerPagedReaderFrame = readerPagedStrip
+    ? readerPagedFrameBase + (isTwoPageMode ? currentSpreadIndex : clampedPageIndex)
+    : 0;
+  const readerPagedNeighbourFrameSize = useCallback(
+    (entry: { chapterId: string; source: MobileReaderPage | null; localIndex: number; segmentIndex: number }) =>
+      entry.source
+        ? getReaderImageFrameSize(entry.source, {
+            index: entry.localIndex,
+            spreads: isTwoPageMode ? readerPagedSegmentSpreads(entry.segmentIndex) : [],
+            sizeAt: readerPagedNeighbourSizeAt(entry.chapterId),
+          })
+        : getReaderImageFrameSize({ id: "", index: -1 } as MobileReaderPage),
+    [getReaderImageFrameSize, isTwoPageMode, readerPagedNeighbourSizeAt, readerPagedSegmentSpreads],
+  );
+  const renderReaderPagedImage = useCallback(
+    (galleryPage: MobileReaderPage, placement?: MobileReaderImagePlacement) => {
+      const entry = readerPagedGallery?.byKey.get(galleryPage.id);
+      if (!entry?.source || !readerPagedStrip) return null;
+      if (entry.chapterId === chapterId) return renderReaderImage(entry.source, placement);
+      // A neighbour's page decodes when its frame is within the render
+      // window of the reader's (the chapter's edge pages, while the reader is
+      // near the open chapter's edge).
+      const pageBase = readerPagedStrip.pageStarts[entry.segmentIndex] ?? 0;
+      const frame = readerPagedStrip.spreads.findIndex((spread) => spread.includes(pageBase + entry.localIndex));
+      const inRenderWindow = frame >= 0 && Math.abs(frame - readerPagedReaderFrame) <= MOBILE_READER_PAGE_RENDER_WINDOW;
+      return renderReaderImage(entry.source, { inRenderWindow }, {
+        chapterId: entry.chapterId,
+        frameSize: readerPagedNeighbourFrameSize(entry),
+      });
+    },
+    [chapterId, readerPagedGallery, readerPagedNeighbourFrameSize, readerPagedReaderFrame, readerPagedStrip, renderReaderImage],
+  );
+  const readerPagedIsWidePage = useCallback(
+    (joinedIndex: number) => {
+      const entry = readerPagedGallery?.entries[joinedIndex];
+      if (!entry?.source) return false;
+      if (entry.chapterId === chapterId) return readerIsWidePage(entry.localIndex);
+      return isMobileReaderWidePage(readerStripPageSize(entry.chapterId, entry.source));
+    },
+    [chapterId, readerIsWidePage, readerPagedGallery, readerStripPageSize],
+  );
+  const readerPagedPageFrameSize = useCallback(
+    (galleryPage: MobileReaderPage) => {
+      const entry = readerPagedGallery?.byKey.get(galleryPage.id);
+      if (!entry?.source) return getReaderImageFrameSize(galleryPage);
+      if (entry.chapterId === chapterId) return getReaderImageFrameSize(entry.source);
+      return readerPagedNeighbourFrameSize(entry);
+    },
+    [chapterId, getReaderImageFrameSize, readerPagedGallery, readerPagedNeighbourFrameSize],
+  );
+  const readerPagedPageNaturalSize = useCallback(
+    (galleryPage: MobileReaderPage) => {
+      const entry = readerPagedGallery?.byKey.get(galleryPage.id);
+      if (!entry?.source) return null;
+      if (entry.chapterId === chapterId) return readerImageSizes.get(readerPageIdentityFor(entry.source)) ?? null;
+      return readerImageSizes.get(readerPageIdentityForChapter(entry.chapterId, entry.source)) ?? null;
+    },
+    [chapterId, readerImageSizes, readerPageIdentityFor, readerPageIdentityForChapter, readerPagedGallery],
+  );
+  /** A page's number on its placeholder card: its own chapter's. */
+  const readerPagedSourcePageForDisplayIndex = useCallback(
+    (joinedIndex: number) => {
+      const entry = readerPagedGallery?.entries[joinedIndex];
+      if (!entry) return sourcePageForDisplayIndex(joinedIndex);
+      if (entry.chapterId === chapterId) return sourcePageForDisplayIndex(entry.localIndex);
+      return entry.localIndex + 1;
+    },
+    [chapterId, readerPagedGallery, sourcePageForDisplayIndex],
   );
   const renderReaderImageSegment = useCallback(
     (frame: MobileReaderSegmentFrame) => {
@@ -11841,7 +12536,7 @@ export function ReaderScreen() {
         contentIdentityKey={readerStageContentKey}
         pageGlide={readerPageGlide}
         windowKey={`${Math.round(readerPose.bounds.width)}x${Math.round(readerPose.bounds.height)}`}
-        pageNaturalSize={readerPageNaturalSize}
+        pageNaturalSize={readerPagedGallery ? readerPagedPageNaturalSize : readerPageNaturalSize}
         stateInsets={readerStateInsets}
         onStageOriginChange={setReaderStageWindowOrigin}
         accessibilityHidden={endOfChapterPromptVisible}
@@ -11867,7 +12562,7 @@ export function ReaderScreen() {
           readerPose.chrome.kind === "console" ? 0 : galleryPagedMode ? readerChromeTopPadding : readerScrollTopInset
         }
         completed={completed}
-        displayedPages={readerStripGalleryPages ?? displayedPages}
+        displayedPages={readerPagedGallery?.pages ?? readerStripGalleryPages ?? displayedPages}
         initialContentOffset={readerGalleryInitialContentOffset}
         scrollMountKey={readerScrollMountKey}
         isTwoPageMode={isTwoPageMode}
@@ -11888,6 +12583,7 @@ export function ReaderScreen() {
         onContinuousScrollMetricsChange={onReaderContinuousScrollMetricsChange}
         onUserScrollBegin={beginReaderUserScroll}
         onUserScrollSettle={settleReaderUserScroll}
+        onPagedDragEnd={endReaderPagedDrag}
         onScrollingPageLayout={onGalleryScrollingPageLayout}
         onScrollingSeekFailed={onGalleryScrollingSeekFailed}
         onScrollingSeekLanded={onGalleryScrollingSeekLanded}
@@ -11919,10 +12615,13 @@ export function ReaderScreen() {
             ? readerRestoreFrameIndex
             : isTwoPageMode
               ? currentSpreadIndex
-              : clampedPageIndex) + (galleryPagedMode ? 0 : readerStripBridge.indexBase)
+              : clampedPageIndex) + (galleryPagedMode ? readerPagedFrameBase : readerStripBridge.indexBase)
         }
         pagedDisplayCount={
-          isTwoPageMode
+          // Seamless paged reading: the joined chapters' frames.
+          readerPagedStrip
+            ? readerPagedStrip.frameCount
+            : isTwoPageMode
             ? readerSpreads.length
             : galleryPagedMode
               ? pageCount
@@ -11957,7 +12656,6 @@ export function ReaderScreen() {
         }
         tapGesturesEnabled={!readerStageTapOwned}
         stageGesture={readerTwoFingerDoubleTap}
-        visiblePageLoading={readerVisiblePageLoading}
         pagedMode={galleryPagedMode}
         fitClip={readerFitClip}
         pageTurnAccessibilityEnabled={
@@ -11973,7 +12671,7 @@ export function ReaderScreen() {
         readerImageWidth={readerImageWidth}
         readerPageWidth={readerPageWidth}
         readerScrollRef={readerGalleryScrollRef}
-        renderImage={readerStrip ? renderReaderStripImage : renderReaderImage}
+        renderImage={readerPagedGallery ? renderReaderPagedImage : readerStrip ? renderReaderStripImage : renderReaderImage}
         renderScrollRow={readerStrip ? renderReaderStripRow : undefined}
         renderImageSegment={renderReaderImageSegment}
         scrollPageGaps={readerStripLayout?.gaps ?? readerScrollPageGaps}
@@ -11981,8 +12679,8 @@ export function ReaderScreen() {
         scrollPageRenderKeys={readerStripRenderKeys ?? readerScrollPageRenderKeys}
         scrollSideMargin={readerScrollSideMargin}
         segmentedImageFrames={segmentedImageFrames}
-        sourcePageForDisplayIndex={readerGallerySourcePageForDisplayIndex}
-        spreads={readerSpreads}
+        sourcePageForDisplayIndex={readerPagedGallery ? readerPagedSourcePageForDisplayIndex : readerGallerySourcePageForDisplayIndex}
+        spreads={readerPagedStrip && isTwoPageMode ? (readerPagedStrip.spreads as number[][]) : readerSpreads}
         stateTopPadding={readerStateTopPadding}
         strings={strings}
         title={mangaTitle}
@@ -12009,8 +12707,8 @@ export function ReaderScreen() {
         pageCurl={readerPageCurlActive}
         onPageTurningChange={setReaderPageTurning}
         pageOverlaysMounted={japaneseLearningDetections.length > 0}
-        isWidePage={readerIsWidePage}
-        pageFrameSize={getReaderImageFrameSize}
+        isWidePage={readerPagedGallery ? readerPagedIsWidePage : readerIsWidePage}
+        pageFrameSize={readerPagedGallery ? readerPagedPageFrameSize : getReaderImageFrameSize}
       />
       <DuoPageFlipOverlay
         flip={readerPageFlip.flip}
@@ -12415,6 +13113,17 @@ export function ReaderScreen() {
           or unfolding moves the reader between displays; a short toast
           confirms it continued at the same page. Never for rotation, book ⇄
           flat, resizes or non-foldables (`mobileDuoDisplayTransition`). */}
+      {/* Seamless paged reading: the chapter a page turn crossed into. */}
+      <ReaderChapterCrossingCapsule
+        capsule={readerChapterCrossingCapsule}
+        onDone={dismissReaderChapterCrossingCapsule}
+        topOffset={insets.top + 76}
+        insets={
+          readerNoticeFrame
+            ? { left: readerNoticeFrame.left + 12, right: readerNoticeFrame.right + 12 }
+            : undefined
+        }
+      />
       <ReaderPairingShiftToast
         toast={readerPairingShiftToast}
         onDone={dismissReaderPairingShiftToast}

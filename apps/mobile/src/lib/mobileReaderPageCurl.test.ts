@@ -6,6 +6,7 @@ import {
   mobileReaderCurlFrameForSlot,
   mobileReaderCurlLayout,
   mobileReaderCurlLoneSide,
+  mobileReaderCurlReanchorFrame,
   mobileReaderCurlSlotForFrame,
   mobileReaderCurlSlotWindow,
   mobileReaderCurlSpine,
@@ -287,5 +288,39 @@ describe("tap turn start", () => {
     expect(mobileReaderCurlTurnsImmediately({ step: true, overlaysOnPages: true, available: true })).toBe(false);
     expect(mobileReaderCurlTurnsImmediately({ step: false, overlaysOnPages: false, available: true })).toBe(false);
     expect(mobileReaderCurlTurnsImmediately({ step: true, overlaysOnPages: false, available: false })).toBe(false);
+  });
+});
+
+describe("curl pager re-anchor (seamless paged reading)", () => {
+  const ids = (...names: string[]) => names.map((id) => ({ id }));
+  test("a chapter joined before the settled frame moves it by the joined frames, without a turn", () => {
+    const beforePages = ids("b0", "b1", "b2");
+    const afterPages = ids("a0", "a1", "b0", "b1", "b2");
+    expect(mobileReaderCurlReanchorFrame({
+      before: [[0], [1], [2]],
+      beforePages,
+      after: [[0], [1], [2], [3], [4]],
+      afterPages,
+      frame: 1,
+    })).toBe(3);
+  });
+  test("RTL frames are reversed: a chapter joined after (in reading order) lands before visually", () => {
+    // Visual frames: reading order reversed.
+    expect(mobileReaderCurlReanchorFrame({
+      before: [[1], [0]],
+      beforePages: ids("p0", "p1"),
+      after: [[3], [2], [1], [0]],
+      afterPages: ids("p0", "p1", "n0", "n1"),
+      frame: 1,
+    })).toBe(3);
+  });
+  test("spreads match by their pages; a frame that is gone is null; an unchanged one stays", () => {
+    const pages = ids("x", "y", "z");
+    expect(mobileReaderCurlReanchorFrame({
+      before: [[0], [1, 2]], beforePages: pages, after: [[0], [1, 2]], afterPages: pages, frame: 1,
+    })).toBe(1);
+    expect(mobileReaderCurlReanchorFrame({
+      before: [[0], [1, 2]], beforePages: pages, after: [[0], [1], [2]], afterPages: pages, frame: 1,
+    })).toBeNull();
   });
 });

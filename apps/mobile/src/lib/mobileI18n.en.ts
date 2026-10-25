@@ -832,7 +832,7 @@ export const mobileStringsEn: MobileStrings = {
     endOfChapterTitle: "End of chapter",
     endOfChapterNextLabel: "Next: {{chapter}}",
     endOfChapterNextAction: "Read next chapter",
-    endOfChapterCaughtUpTitle: "You're caught up",
+    endOfChapterCaughtUpTitle: "Caught up",
     endOfChapterCaughtUpDetail:
       "This is the last chapter this source has right now.",
     endOfChapterKeepReading: "Stay on this page",

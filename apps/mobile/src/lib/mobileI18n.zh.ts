@@ -791,7 +791,7 @@ export const mobileStringsZh: MobileStrings = {
     endOfChapterTitle: "本章结束",
     endOfChapterNextLabel: "下一章：{{chapter}}",
     endOfChapterNextAction: "阅读下一章",
-    endOfChapterCaughtUpTitle: "已看到最新",
+    endOfChapterCaughtUpTitle: "已读至最新话",
     endOfChapterCaughtUpDetail: "这是该来源目前提供的最后一章。",
     endOfChapterKeepReading: "留在本页",
     endOfChapterDismiss: "关闭章节结束提示",

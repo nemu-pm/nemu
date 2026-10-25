@@ -3,6 +3,7 @@ import {
   buildMobileReaderPairedSpreads,
   describeMobileReaderPairing,
   freezeMobileReaderSpreadsThrough,
+  lockMobileReaderSpreads,
   isMobileReaderStripChapter,
   mobileReaderColourOddPages,
   mobileReaderFirstHeadSegment,
@@ -98,18 +99,70 @@ describe("mobile reader pairing", () => {
       .toEqual([[0], [1, 2], [3], [4]]);
   });
 
-  test("the current spread is kept once its pages decoded, re-pairs while they load", () => {
+  test("the spread on screen is locked: a page found wide later never re-pairs it", () => {
     const previous = [[0], [1, 2], [3, 4]];
     const computed = [[0], [1], [2], [3, 4]];
+    // Page 2 decoded wide while [1, 2] is on screen: kept, whatever its pages' state.
     expect(nextMobileReaderSpreadTable({
-      previous, computed, reset: false, currentPageIndex: 1, settled: () => true,
-    })).toEqual([[0], [1, 2], [3, 4]]);
+      previous, computed, reset: false, currentPageIndex: 1,
+    })).toBe(previous);
+    // The next turn (onto [3, 4]): nothing ahead changed, the shown spreads stay.
     expect(nextMobileReaderSpreadTable({
-      previous, computed, reset: false, currentPageIndex: 1, settled: (page) => page !== 2,
-    })).toEqual([[0], [1], [2], [3, 4]]);
+      previous, computed, reset: false, currentPageIndex: 3,
+    })).toBe(previous);
+    // Sizes that arrive later re-pair only the pages not reached yet.
     expect(nextMobileReaderSpreadTable({
-      previous, computed, reset: true, currentPageIndex: 1, settled: () => true,
+      previous: [[0], [1, 2], [3, 4], [5, 6]],
+      computed: [[0], [1, 2], [3], [4, 5], [6]],
+      reset: false,
+      currentPageIndex: 1,
+    })).toEqual([[0], [1, 2], [3], [4, 5], [6]]);
+    // A new chapter or a pairing the user changed starts over.
+    expect(nextMobileReaderSpreadTable({
+      previous, computed, reset: true, currentPageIndex: 1,
     })).toBe(computed);
+  });
+
+  test("provisional re-pairing (the opening pages measured) keeps the spread on screen", () => {
+    // On screen: [5, 6]. The pages before it learn their sizes and re-pair.
+    const previous = [[0], [1, 2], [3, 4], [5, 6], [7, 8]];
+    const computed = [[0, 1], [2, 3], [4, 5], [6, 7], [8]];
+    const next = nextMobileReaderSpreadTable({
+      previous, computed, reset: false, currentPageIndex: 5, provisional: true,
+    });
+    expect(next).toContainEqual([5, 6]);
+    expect(next).toEqual([[0, 1], [2, 3], [4], [5, 6], [7], [8]]);
+    // Not on screen yet (the opening restore has not placed the pager): no lock.
+    expect(nextMobileReaderSpreadTable({
+      previous, computed, reset: false, currentPageIndex: 5, provisional: true, displayed: false,
+    })).toEqual(computed);
+  });
+
+  test("a backward landing locks the landing spread before it is shown", () => {
+    // Crossed back into a chapter on its last spread [8, 9], paired from the
+    // sizes known then. Its own table (more sizes known) pairs it [9] alone.
+    const landing = [8, 9];
+    const computed = [[0], [1, 2], [3, 4], [5, 6], [7, 8], [9]];
+    expect(nextMobileReaderSpreadTable({
+      previous: null, computed, reset: true, currentPageIndex: 9, locked: [landing],
+    })).toEqual([[0], [1, 2], [3, 4], [5, 6], [7], [8, 9]]);
+    // Re-pairing the pages before it (provisional) never touches it either.
+    const shown = [[0], [1, 2], [3, 4], [5, 6], [7], [8, 9]];
+    expect(nextMobileReaderSpreadTable({
+      previous: shown,
+      computed: [[0, 1], [2, 3], [4, 5], [6, 7], [8], [9]],
+      reset: false,
+      currentPageIndex: 9,
+      provisional: true,
+    })).toEqual([[0, 1], [2, 3], [4, 5], [6, 7], [8, 9]]);
+  });
+
+  test("lockMobileReaderSpreads keeps locked pairings exactly and covers every page once", () => {
+    expect(lockMobileReaderSpreads([[0], [1, 2], [3, 4]], [[2, 3]])).toEqual([[0], [1], [2, 3], [4]]);
+    expect(lockMobileReaderSpreads([[0, 1], [2, 3]], [])).toEqual([[0, 1], [2, 3]]);
+    expect(lockMobileReaderSpreads([[0, 1], [2, 3]], [[1]])).toEqual([[0], [1], [2, 3]]);
+    expect(lockMobileReaderSpreads([[0, 1], [2, 3], [4, 5]], [[1, 2], [4, 5]]))
+      .toEqual([[0], [1, 2], [3], [4, 5]]);
   });
 });
 

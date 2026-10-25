@@ -22,6 +22,15 @@ import {
 export const readerSeamlessScroll = true;
 
 /**
+ * Seamless continuation in paged reading (slide and curl, single pages and
+ * spreads; see mobileReaderPagedStrip): the pager holds the chapters around
+ * the open one back to back, so a turn past either edge of a chapter is a
+ * plain page turn. Only past the last chapter there is does the caught-up
+ * card show. Off: the end-of-chapter prompt and the route replace as before.
+ */
+export const readerSeamlessPaged = true;
+
+/**
  * How the chapter above joins the list.
  * - `auto`: fetched as soon as the reader is in the open chapter's first
  *   pages, spliced at rest.

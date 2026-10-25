@@ -240,7 +240,10 @@ export function useReaderChapterStrip(input: {
 
   // Neighbour page processing: the pages next to the open chapter decode
   // ahead (the next chapter's first pages, the previous chapter's last).
+  // A page the reader turned onto before it was ready goes first
+  // (`prioritise`).
   const processingRef = useRef(new Map<MobileReaderPageProcessor, string>());
+  const [priority, setPriority] = useState<{ chapterId: string; indexes: readonly number[] } | null>(null);
   useEffect(() => {
     if (!live) return;
     const wanted = new Map<MobileReaderPageProcessor, number[]>();
@@ -250,10 +253,12 @@ export function useReaderChapterStrip(input: {
       if (!processor?.processPages) return;
       const count = segment.pages.length;
       const warm = mobileReaderStripWarmIndexes(count);
-      wanted.set(
-        processor,
-        index > state.currentIndex ? warm : warm.map((offset) => count - 1 - offset),
-      );
+      const ordered = index > state.currentIndex ? warm : warm.map((offset) => count - 1 - offset);
+      const first =
+        priority?.chapterId === segment.chapter.id
+          ? priority.indexes.filter((page) => page >= 0 && page < count)
+          : [];
+      wanted.set(processor, [...new Set([...first, ...ordered])]);
     });
     wanted.forEach((indexes, processor) => {
       const signature = indexes.join(",");
@@ -284,7 +289,21 @@ export function useReaderChapterStrip(input: {
     for (const processor of [...processingRef.current.keys()]) {
       if (!wanted.has(processor)) processingRef.current.delete(processor);
     }
-  }, [live, state.currentIndex, state.segments]);
+  }, [live, priority, state.currentIndex, state.segments]);
+
+  /**
+   * The reader turned onto a neighbour's page that is not ready yet (paged
+   * reading): it goes to the front of that chapter's processing queue.
+   */
+  const prioritise = useCallback((chapterId: string, indexes: readonly number[]) => {
+    setPriority((current) =>
+      current?.chapterId === chapterId &&
+      current.indexes.length === indexes.length &&
+      current.indexes.every((page, at) => page === indexes[at])
+        ? current
+        : { chapterId, indexes: [...indexes] },
+    );
+  }, []);
 
   /** Joins a fetched chapter to the list (after the last or before the first). */
   const spliceSegment = useCallback(
@@ -574,9 +593,17 @@ export function useReaderChapterStrip(input: {
     [],
   );
 
+  /** The chapters being fetched (or that failed) on either side of the list. */
+  const edges = useMemo(
+    () => (live ? { previous: state.previous, next: state.next } : { previous: null, next: null }),
+    [live, state.next, state.previous],
+  );
+
   return {
     /** The list's chapters (null: not seamless, a single chapter list as before). */
     strip,
+    edges,
+    prioritise,
     segments: segmentsData,
     rebase,
     requestPrevious,

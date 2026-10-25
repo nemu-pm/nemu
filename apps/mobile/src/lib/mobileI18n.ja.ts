@@ -837,7 +837,7 @@ export const mobileStringsJa: MobileStrings = {
     endOfChapterTitle: "話の終わり",
     endOfChapterNextLabel: "次：{{chapter}}",
     endOfChapterNextAction: "次の話を読む",
-    endOfChapterCaughtUpTitle: "最新まで読みました",
+    endOfChapterCaughtUpTitle: "最新まで読了",
     endOfChapterCaughtUpDetail:
       "現在このソースで公開されている最後の話です。",
     endOfChapterKeepReading: "このページに留まる",

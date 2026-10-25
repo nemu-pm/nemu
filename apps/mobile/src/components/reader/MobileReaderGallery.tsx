@@ -224,6 +224,12 @@ type MobileReaderGalleryProps = {
    * through `onMomentumScrollEnd`).
    */
   onUserScrollSettle?: () => void;
+  /**
+   * Paged mode: the finger lifted off a swipe. `decelerating`: the pager
+   * still glides to its frame (`onMomentumScrollEnd` follows); otherwise it
+   * is already at rest.
+   */
+  onPagedDragEnd?: (decelerating: boolean) => void;
   onRetry?: () => void;
   /** Steps one page in source order. Only wired in paged reading modes. */
   onPageStep?: (direction: "previous" | "next") => void;
@@ -304,8 +310,6 @@ type MobileReaderGalleryProps = {
    * two-finger double tap for 错开一页). Fixed for the gallery's lifetime.
    */
   stageGesture?: GestureType;
-  /** A page on screen is still loading: tap zones don't turn the page yet. */
-  visiblePageLoading?: boolean;
   pagedMode: boolean;
   /**
    * Keeps page-turn screen-reader actions when a paged chapter uses a
@@ -634,6 +638,7 @@ export function MobileReaderGallery({
   onContinuousScrollMetricsChange,
   onUserScrollBegin,
   onUserScrollSettle,
+  onPagedDragEnd,
   onRetry,
   onPageStep,
   scrollScreenTapZones = false,
@@ -657,7 +662,6 @@ export function MobileReaderGallery({
   fitClip = false,
   tapGesturesEnabled = true,
   stageGesture,
-  visiblePageLoading = false,
   pagedMode,
   pageTurnAccessibilityEnabled,
   pages,
@@ -2046,11 +2050,10 @@ export function MobileReaderGallery({
   // working while the chapter is loading or in an error/blocked state; there
   // every band acts like the centre. Only page turns need a ready gallery.
   const readerStageTapEnabled = isReaderStageTapEnabled({ tapGesturesEnabled });
-  // Owner rule: a tap never skips a page that hasn't appeared yet (swipes
-  // still can).
+  // A tap turns like a swipe: onto a page still loading (it shows its
+  // placeholder and goes first in the load queue), never a dead tap.
   const readerPageTurnEnabled =
     !isReaderLoading &&
-    !visiblePageLoading &&
     pagesState.status === "ready" &&
     pages.length > 0 &&
     pagedMode &&
@@ -2451,6 +2454,15 @@ export function MobileReaderGallery({
     event: NativeSyntheticEvent<NativeScrollEvent>,
   ) => {
     publishLogicalScrollAccessibility();
+    if (pagedMode) {
+      // A swipe let go exactly on a frame does not decelerate (no momentum
+      // end follows): the reader is at rest now.
+      const velocity = event.nativeEvent.velocity;
+      const decelerating =
+        velocity == null || Math.abs(velocity.x) > 0.01 || Math.abs(velocity.y) > 0.01 ||
+        (readerPageWidth > 0 && Math.abs(event.nativeEvent.contentOffset.x / readerPageWidth - Math.round(event.nativeEvent.contentOffset.x / readerPageWidth)) > 0.01);
+      onPagedDragEnd?.(decelerating);
+    }
     if (!pagedMode && scrollPullHeader != null) {
       // Pull prepend mode: let go past the threshold fetches the chapter above.
       const released = mobileReaderStripPullReleases(pullStateRef.current) && scrollPullActiveRef.current;
@@ -2597,15 +2609,53 @@ export function MobileReaderGallery({
 
   // FlatList re-renders every cell when `renderItem`/`keyExtractor` change
   // identity, so both stay memoized across the gallery's own re-renders.
+  // Spreads are keyed by their pages' ids, not their indexes: a chapter
+  // joining in front (seamless paged reading) shifts every index, and an
+  // index key would remount every cell (a black frame) for the same pages.
   const galleryKeyExtractor = useCallback(
     (item: MobileReaderGalleryItem) =>
       item.kind === "spread"
-        ? `spread-${item.spread.join("-")}`
+        ? `spread-${item.spread.map((index) => displayedPages[index]?.id ?? `#${index}`).join("-")}`
         : item.kind === "segment"
           ? `segment-${item.frame.segment.uri}`
           : item.page.id,
-    [],
+    [displayedPages],
   );
+  // Seamless paged reading: a chapter joined, left or replaced its
+  // placeholder around the frame on screen. The reader passes the frame's
+  // new index with the new frames (same commit); when the same frame now
+  // sits at another visual slot (LTR: a chapter before it; RTL: one after
+  // it, frames being laid out reversed), the pager is moved there without
+  // animation before the native list draws the new rows, and again once
+  // the new content size lands. The curl pager re-anchors itself.
+  const pagedSpliceRef = useRef<{ key: string | null; visual: number; count: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!pagedMode || segmentedMode) {
+      pagedSpliceRef.current = null;
+      return;
+    }
+    const count = pagedDisplayCount ?? galleryItemCount;
+    const index = pagedDisplayIndex ?? 0;
+    const visual = mode === "rtl" ? Math.max(0, count - 1 - index) : index;
+    const item = galleryItems[visual];
+    const key = item ? galleryKeyExtractor(item) : null;
+    const previous = pagedSpliceRef.current;
+    pagedSpliceRef.current = { key, visual, count };
+    // Moved: the same frame at another slot, or the frames changed count
+    // with the reader's frame elsewhere (a placeholder became its chapter,
+    // or left). A plain turn changes neither the count nor keeps the key.
+    const moved =
+      previous != null &&
+      previous.visual !== visual &&
+      (previous.key === key || previous.count !== count);
+    if (curlActive || !moved || !key || count !== galleryItems.length || readerPageWidth <= 0) {
+      return;
+    }
+    const offset = readerScrollOffsetForLogicalFrame(index, count, readerPageWidth, mode);
+    pendingPagedRelayoutOffsetRef.current = offset;
+    listRef.current?.scrollToOffset({ offset, animated: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the frames changing is the trigger.
+  }, [galleryItems, pagedDisplayIndex, pagedDisplayCount]);
   const renderGalleryItem = useCallback<
     ListRenderItem<MobileReaderGalleryItem>
   >(
@@ -2950,6 +3000,13 @@ export function MobileReaderGallery({
       style={styles.readerScroll}
     >
       <MobileReaderCurlPager
+        anchorFrame={
+          pagedDisplayIndex == null
+            ? undefined
+            : mode === "rtl"
+              ? Math.max(0, curlFrames.length - 1 - pagedDisplayIndex)
+              : pagedDisplayIndex
+        }
         backgroundColor={backgroundColor}
         displayedPages={displayedPages}
         fitClip={fitClip}

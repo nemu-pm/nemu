@@ -278,7 +278,8 @@ describe("seamless scroll: the prepend wiring", () => {
 
   test("no crossing while the bridge moves; the fix-up compares pixels and skips a user scroll", () => {
     const cross = block(reader, "const crossIntoReaderStripSegment = (crossing: {", "const crossIntoReaderStripSegmentRef");
-    expect(cross).toContain("if (readerStripRowsSettling()) return false;");
+    // (Paged reading settles on whole frames: no rows to settle.)
+    expect(cross).toContain("if (!galleryPagedMode && readerStripRowsSettling()) return false;");
     const placement = block(reader, "const readerStripPlacementRef = useRef", "const readerStripSourceName");
     expect(placement).toContain("readerStripBridgeMovingRef.current = true;");
     expect(placement).toContain("if (readerUserScrollingRef.current) return;");
