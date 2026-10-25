@@ -256,6 +256,13 @@ import {
   type MobileReaderStripBridge,
 } from "@/lib/mobileReaderStripBridge";
 import {
+  isMobileReaderStripReanchor,
+  nextMobileReaderStripUserMoved,
+  shouldTakeMobileReaderStripCrossing,
+  type MobileReaderStripAnchor,
+  type MobileReaderStripCrossingGateEvent,
+} from "@/lib/mobileReaderStripCrossingGate";
+import {
   mobileReaderBookSheetPlacement,
   mobileReaderBookThumbnailKey,
   mobileReaderBookThumbnailRatios,
@@ -1631,6 +1638,15 @@ export function ReaderScreen() {
   const readerUserScrollingRef = useRef(false);
   /** Seamless scroll: the reader has scrolled this list itself (a prepend may then land). */
   const readerStripUserScrolledRef = useRef(false);
+  /**
+   * Seamless reading: a drag, swipe or turn by the reader since the open
+   * chapter was opened or last re-anchored (a splice in front of it). A
+   * backward crossing needs it (see mobileReaderStripCrossingGate).
+   */
+  const readerStripUserMovedRef = useRef(false);
+  const noteReaderStripGate = useCallback((event: MobileReaderStripCrossingGateEvent) => {
+    readerStripUserMovedRef.current = nextMobileReaderStripUserMoved(readerStripUserMovedRef.current, event);
+  }, []);
   const readerScrollPublishTimerRef = useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
@@ -4277,6 +4293,16 @@ export function ReaderScreen() {
   const readerPagedStripRef = useRef(readerPagedStrip);
   readerPagedStripRef.current = readerPagedStrip;
   const readerPagedFrameBase = readerPagedStrip ? mobileReaderPagedStripFrameBase(readerPagedStrip) : 0;
+  // Frames spliced in front of (or dropped before) the open chapter: its
+  // frames moved under the reader, so no backward crossing until a turn.
+  const readerPagedAnchorRef = useRef<MobileReaderStripAnchor | null>(null);
+  useLayoutEffect(() => {
+    const next = { chapterId, base: readerPagedFrameBase };
+    if (isMobileReaderStripReanchor(readerPagedAnchorRef.current, next)) {
+      noteReaderStripGate({ kind: "re-anchor" });
+    }
+    readerPagedAnchorRef.current = next;
+  }, [chapterId, noteReaderStripGate, readerPagedFrameBase]);
   /** The frame the reader rests on, when it is a placeholder or a chapter that just replaced one. */
   const readerPagedEdgeFrame = useMemo(() => {
     if (!readerPagedEdge || !readerPagedStrip) return null;
@@ -5744,6 +5770,8 @@ export function ReaderScreen() {
   }, [flushReaderStripPrevious, publishScrollingVisiblePage]);
   const beginReaderUserScroll = useCallback(() => {
     clearReaderProgrammaticScroll();
+    // A drag or swipe: the reader may now cross back into the chapter before.
+    noteReaderStripGate({ kind: "user-gesture" });
     readerScrollFlingLandingRef.current = null;
     // A drag during the opening restore cancels it: where the reader takes
     // the list is the real position.
@@ -5764,6 +5792,7 @@ export function ReaderScreen() {
     clearReaderProgrammaticScroll,
     finishReaderScrollLanding,
     galleryPagedMode,
+    noteReaderStripGate,
     recheckReaderStripPrevious,
   ]);
   /** Seamless scroll: the chapter just opened was scrolled into (mid-scroll). */
@@ -6021,6 +6050,7 @@ export function ReaderScreen() {
   const stepReaderPage = useCallback(
     (direction: "previous" | "next") => {
       if (pageCount <= 0) return;
+      noteReaderStripGate({ kind: "user-gesture" });
       // Resting on a placeholder: the turn is the strip's.
       if (readerPagedEdgeRef.current && readerPagedStepRef.current(direction)) return;
       const targetPageIndex = isTwoPageMode
@@ -6066,6 +6096,7 @@ export function ReaderScreen() {
       goToPage,
       isTwoPageMode,
       mode,
+      noteReaderStripGate,
       pageCount,
       readerPageFlip,
       readerSpreads,
@@ -6144,6 +6175,7 @@ export function ReaderScreen() {
 
   const stepContinuousReaderAccessibility = useCallback(
     (direction: "previous" | "next") => {
+      noteReaderStripGate({ kind: "user-gesture" });
       const metrics = readerScrollMetricsRef.current;
       if (!metrics.scrollable || metrics.maximumOffset <= 0) return;
       const action = readerContinuousAccessibilityAction(metrics, direction);
@@ -6156,7 +6188,7 @@ export function ReaderScreen() {
         true,
       );
     },
-    [completeReaderStripCaughtUp, showEndOfChapterPrompt],
+    [completeReaderStripCaughtUp, noteReaderStripGate, showEndOfChapterPrompt],
   );
 
   // Book / laptop posture page controls: one screen (the viewport less the
@@ -6166,6 +6198,7 @@ export function ReaderScreen() {
   const readerSafeInsetBottom = readerStageSafePadding.bottom;
   const stepReaderScrollScreen = useCallback(
     (direction: "previous" | "next") => {
+      noteReaderStripGate({ kind: "user-gesture" });
       const metrics = readerScrollMetricsRef.current;
       if (!metrics.scrollable || metrics.maximumOffset <= 0) return;
       const action = readerContinuousScreenStep(metrics, direction, {
@@ -6183,7 +6216,7 @@ export function ReaderScreen() {
         true,
       );
     },
-    [completeReaderStripCaughtUp, readerSafeInsetBottom, readerSafeInsetTop, showEndOfChapterPrompt],
+    [completeReaderStripCaughtUp, noteReaderStripGate, readerSafeInsetBottom, readerSafeInsetTop, showEndOfChapterPrompt],
   );
 
   // Book / laptop posture side pane (Laptop Mode: thumbnails, a column beside
@@ -9214,6 +9247,17 @@ export function ReaderScreen() {
         // Settled in the chapter before or after (or on a placeholder):
         // a crossing, not a page of the open chapter.
         const crossing = mobileReaderPagedStripCrossing(paged, settledFrameIndex);
+        if (
+          crossing &&
+          !shouldTakeMobileReaderStripCrossing(crossing.direction, readerStripUserMovedRef.current)
+        ) {
+          // No swipe or turn since the frames were spliced in front: the
+          // settle is the re-base, not the reader going back. Stay put.
+          logReaderEndOfChapter(`paged backward crossing ignored (no gesture since anchor) chapter=${crossing.chapterId}`);
+          clearReaderProgrammaticScroll();
+          scrollToPageIndex(clampedPageIndex, false);
+          return;
+        }
         if (crossing) {
           landOnReaderPagedFrameRef.current(crossing, programmaticTarget == null);
           return;
@@ -10043,7 +10087,8 @@ export function ReaderScreen() {
   readerStripRef.current = { strip: readerStrip, rows: readerStripRows };
   useEffect(() => {
     readerStripUserScrolledRef.current = false;
-  }, [readerScrollMountKey]);
+    noteReaderStripGate({ kind: "open" });
+  }, [noteReaderStripGate, readerScrollMountKey]);
   readerStripCanPrependRef.current = () =>
     galleryPagedMode
       ? // Paged reading: once the opening restore has placed the pager (the
@@ -10355,6 +10400,16 @@ export function ReaderScreen() {
       if (strip && readerGalleryScrollRef.current?.rowsSettling() === true) return;
       if (strip && rows) {
         const crossing = mobileReaderStripCrossing(rows, strip, globalIndex);
+        // Back into the chapter before only by the reader's own scroll: a
+        // splice or re-anchor under a still reader (an open at p1) is read
+        // in the old rows' terms — neither a crossing nor a page.
+        if (
+          crossing &&
+          !shouldTakeMobileReaderStripCrossing(crossing.direction, readerStripUserMovedRef.current)
+        ) {
+          logReaderEndOfChapter(`strip backward crossing ignored (no gesture since anchor) chapter=${crossing.segmentIndex}`);
+          return;
+        }
         if (crossing && crossIntoReaderStripSegmentRef.current(crossing)) return;
         // Not crossed while the rows settle: the report is not the open
         // chapter's page either (never clamped onto its edge).
@@ -10467,6 +10522,9 @@ export function ReaderScreen() {
     ) {
       return;
     }
+    // The open chapter's rows moved under it: no backward crossing until the
+    // reader moves it again.
+    noteReaderStripGate({ kind: "re-anchor" });
     readerStripBridgeMovingRef.current = true;
     let frame = requestAnimationFrame(() => {
       frame = requestAnimationFrame(() => {
