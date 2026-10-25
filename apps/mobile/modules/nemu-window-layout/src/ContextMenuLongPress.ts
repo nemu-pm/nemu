@@ -54,6 +54,15 @@ export const NATIVE_MENU_PRESS_VERDICT_CAP_MS = 1000;
  * short wait only covers that event reaching JS after the release.
  */
 export const NATIVE_MENU_PRESS_UNCONFIGURED_WAIT_MS = 80;
+/**
+ * A touch whose finger moved farther than this from where it landed, at any
+ * point before the release, is a swipe, not a tap (UIKit's own tap
+ * tolerance): its release never opens. Pressability only cancels a press
+ * that leaves the pressable's rect plus its retention offset (20 pt), and
+ * UIKit's menu lift needs ~150 ms to begin, so a quick 12-14 pt swipe
+ * (~120 ms) slipped through both and opened the title (build 9 r4 driftQ).
+ */
+export const NATIVE_MENU_TAP_SLOP_PT = 10;
 
 /**
  * The menu's events carry `uptime`: the main thread's clock in ms when UIKit
@@ -63,8 +72,11 @@ export type NativeContextMenuEventTime = number | undefined;
 
 export type NativeContextMenuPressDecision = "fire" | "suppress" | "defer";
 
-/** The touch clock (`nativeEvent.timestamp`) when present, else the JS clock. */
-export type NativeContextMenuPressTime = { native?: number; wall: number };
+/**
+ * The touch clock (`nativeEvent.timestamp`) when present, else the JS clock;
+ * `x`/`y`: the touch's window position (`pageX`/`pageY`) when reported.
+ */
+export type NativeContextMenuPressTime = { native?: number; wall: number; x?: number; y?: number };
 
 export type NativeContextMenuPressScheduler = {
   set(run: () => void, ms: number): unknown;
@@ -79,6 +91,8 @@ const defaultScheduler: NativeContextMenuPressScheduler = {
 export type NativeContextMenuPressGate = {
   /** A new touch sequence: clears the previous sequence's suppression. */
   pressIn(time: NativeContextMenuPressTime): void;
+  /** The finger moved (`onTouchMove`): tracks the farthest it got from where it landed. */
+  pressMove(point: NativeContextMenuPressTime): void;
   /** Pressability's long-press timer fired for this sequence. */
   longPress(): void;
   /** The interaction asked for its menu (`configurationForMenuAtLocation`): a lift may follow. */
@@ -134,6 +148,15 @@ export function createNativeContextMenuPressGate(
 ): NativeContextMenuPressGate {
   const id = nextGateId++;
   let pressInAt: NativeContextMenuPressTime | null = null;
+  // Farthest the finger got from its landing point this sequence (pt).
+  let maxMoved = 0;
+  const movedFrom = (point: NativeContextMenuPressTime | undefined) => {
+    const start = pressInAt;
+    if (!start || !point) return;
+    if (typeof start.x !== "number" || typeof start.y !== "number") return;
+    if (typeof point.x !== "number" || typeof point.y !== "number") return;
+    maxMoved = Math.max(maxMoved, Math.hypot(point.x - start.x, point.y - start.y));
+  };
   // Once a sequence turned into a long press it stays one until the next pressIn.
   let suppressed = false;
   let menuVisible = false;
@@ -173,12 +196,16 @@ export function createNativeContextMenuPressGate(
       // The previous touch's interaction is over once a new touch lands.
       settleUnlessMenu("next pressIn");
       pressInAt = time;
+      maxMoved = 0;
       suppressed = menuVisible;
       configured = false;
       endedWithoutMenu = false;
       endedWithoutMenuAt = undefined;
       endedWithoutMenuWall = undefined;
       traceNativeMenuPressIn(id, time.native);
+    },
+    pressMove(point) {
+      movedFrom(point);
     },
     longPress() {
       suppressed = true;
@@ -246,6 +273,7 @@ export function createNativeContextMenuPressGate(
   };
 
   function decide(time: NativeContextMenuPressTime): NativeContextMenuPressDecision {
+    movedFrom(time);
     const startedAt = pressInAt;
     pressInAt = null;
     releasedHeld = startedAt ? heldFor(startedAt, time) : 0;
@@ -253,6 +281,12 @@ export function createNativeContextMenuPressGate(
     // No touch sequence (accessibility activation): a plain press.
     if (!startedAt) return "fire";
     const held = releasedHeld;
+    // Moved past the tap tolerance before the release: a swipe, never a tap.
+    if (maxMoved > NATIVE_MENU_TAP_SLOP_PT) {
+      suppressed = true;
+      traceNativeMenuEvent(id, `moved ${Math.round(maxMoved)} pt (> ${NATIVE_MENU_TAP_SLOP_PT})`);
+      return "suppress";
+    }
     if (held >= NATIVE_MENU_LONG_PRESS_MS) {
       suppressed = true;
       return "suppress";
@@ -301,11 +335,17 @@ export function nativeContextMenuEventActive(event: unknown): string | undefined
 }
 
 export function nativeContextMenuPressTime(event: unknown): NativeContextMenuPressTime {
-  const timestamp = (event as { nativeEvent?: { timestamp?: unknown } } | null | undefined)?.nativeEvent?.timestamp;
-  return {
-    native: typeof timestamp === "number" && Number.isFinite(timestamp) ? timestamp : undefined,
-    wall: Date.now(),
-  };
+  const nativeEvent = (event as { nativeEvent?: { timestamp?: unknown; pageX?: unknown; pageY?: unknown } } | null | undefined)
+    ?.nativeEvent;
+  const finite = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : undefined);
+  const time: NativeContextMenuPressTime = { native: finite(nativeEvent?.timestamp), wall: Date.now() };
+  const x = finite(nativeEvent?.pageX);
+  const y = finite(nativeEvent?.pageY);
+  if (x !== undefined && y !== undefined) {
+    time.x = x;
+    time.y = y;
+  }
+  return time;
 }
 
 /** The gate of the enclosing native context menu; null outside one. */

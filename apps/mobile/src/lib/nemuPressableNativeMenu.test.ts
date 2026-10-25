@@ -11,6 +11,7 @@ import {
   NATIVE_MENU_PRESS_DEFER_FROM_MS,
   NATIVE_MENU_PRESS_UNCONFIGURED_WAIT_MS,
   NATIVE_MENU_PRESS_VERDICT_CAP_MS,
+  NATIVE_MENU_TAP_SLOP_PT,
   NATIVE_MENU_UNSTAMPED_CANCEL_BEFORE_RELEASE_MS,
   createNativeContextMenuPressGate,
   nativeContextMenuEventActive,
@@ -439,5 +440,81 @@ describe("a lift UIKit cancelled under the finger (build 9 r2, item 4)", () => {
     gate.menuWillEnd(2305);
     expect(gate.resolvePress(at(2300), press)).toBe("fire");
     expect(presses()).toBe(2);
+  });
+});
+
+describe("a quick swipe on a card is not a tap (build 9 r4 driftQ: 120 ms, 12-14 pt, opened)", () => {
+  const at = (native: number, x: number, y: number) => ({ native, wall: 0, x, y });
+  const run = () => {
+    let presses = 0;
+    const press = () => {
+      presses += 1;
+    };
+    return { gate: createNativeContextMenuPressGate(), press, presses: () => presses };
+  };
+
+  test("moved past 10 pt before the release (moves seen): dropped, in every direction", () => {
+    for (const [dx, dy] of [[12, 0], [-12, 0], [0, 14], [0, -14]]) {
+      const { gate, press, presses } = run();
+      gate.pressIn(at(1000, 100, 200));
+      gate.pressMove(at(1060, 100 + dx / 2, 200 + dy / 2));
+      gate.pressMove(at(1100, 100 + dx, 200 + dy));
+      expect(gate.resolvePress(at(1120, 100 + dx, 200 + dy), press)).toBe("suppress");
+      expect(presses()).toBe(0);
+    }
+  });
+
+  test("the farthest point counts, even when the finger came back before lifting", () => {
+    const { gate, press, presses } = run();
+    gate.pressIn(at(1000, 100, 200));
+    gate.pressMove(at(1050, 113, 200));
+    gate.pressMove(at(1100, 102, 200));
+    expect(gate.resolvePress(at(1120, 101, 200), press)).toBe("suppress");
+    expect(presses()).toBe(0);
+  });
+
+  test("no move events delivered: the release point against the landing point decides", () => {
+    const { gate, press, presses } = run();
+    gate.pressIn(at(1000, 100, 200));
+    expect(gate.resolvePress(at(1120, 100, 213), press)).toBe("suppress");
+    expect(presses()).toBe(0);
+  });
+
+  test("within the tolerance a quick tap still presses at once at the release (80-240 ms)", () => {
+    const { gate, press, presses } = run();
+    for (const [index, held] of [80, 160, 240].entries()) {
+      const t = 1000 * (index + 1);
+      gate.pressIn(at(t, 100, 200));
+      gate.pressMove(at(t + held / 2, 100 + NATIVE_MENU_TAP_SLOP_PT * 0.6, 200 + NATIVE_MENU_TAP_SLOP_PT * 0.6));
+      expect(gate.resolvePress(at(t + held, 100 + NATIVE_MENU_TAP_SLOP_PT, 200), press)).toBe("fire");
+    }
+    expect(presses()).toBe(3);
+  });
+
+  test("a move measured against the previous touch never leaks into the next one", () => {
+    const { gate, press, presses } = run();
+    gate.pressIn(at(1000, 100, 200));
+    gate.pressMove(at(1050, 140, 200));
+    expect(gate.resolvePress(at(1100, 140, 200), press)).toBe("suppress");
+    gate.pressIn(at(3000, 300, 200));
+    expect(gate.resolvePress(at(3100, 301, 200), press)).toBe("fire");
+    expect(presses()).toBe(1);
+  });
+
+  test("without positions (older events) nothing changes", () => {
+    const { gate, press, presses } = run();
+    gate.pressIn({ native: 1000, wall: 0 });
+    gate.pressMove({ native: 1050, wall: 0 });
+    expect(gate.resolvePress({ native: 1120, wall: 0 }, press)).toBe("fire");
+    expect(presses()).toBe(1);
+    expect(nativeContextMenuPressTime({ nativeEvent: { timestamp: 5, pageX: 10, pageY: 20 } })).toMatchObject({ native: 5, x: 10, y: 20 });
+    expect(nativeContextMenuPressTime({ nativeEvent: { timestamp: 5 } }).x).toBeUndefined();
+  });
+
+  test("NemuPressable feeds the gate every move of the touch, only inside a native menu", () => {
+    const pressable = read("src/design-system/components/NemuPressable.tsx");
+    expect(pressable).toContain("nativeMenuGate.pressMove(nativeContextMenuPressTime(event));");
+    expect(pressable).toContain("onTouchMove?.(event);");
+    expect(pressable).toContain(": onTouchMove");
   });
 });

@@ -93,6 +93,7 @@ export function NemuPressable({
   hapticFeedback = "press",
   minimumTouchTarget = false,
   pressHighlight = false,
+  onTouchMove,
   ...props
 }: NemuPressableProps) {
   const { reduceMotion, scheme, sheetGlass, tokens } = useNemuTheme();
@@ -321,6 +322,18 @@ export function NemuPressable({
             }
           : null,
       ]}
+      // Inside a native menu the gate tracks how far the finger moved: past
+      // the tap tolerance the release is a swipe and never presses. Touch
+      // events bubble from the view under the finger; Pressability does not
+      // own them, so this sees every move of the sequence.
+      onTouchMove={
+        nativeMenuGate
+          ? (event: GestureResponderEvent) => {
+              nativeMenuGate.pressMove(nativeContextMenuPressTime(event));
+              onTouchMove?.(event);
+            }
+          : onTouchMove
+      }
       onPressIn={(event: GestureResponderEvent) => {
         if (resolvedDisabled) return;
         animateTo(resolvedPressedScale, true);
