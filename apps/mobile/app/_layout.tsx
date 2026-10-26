@@ -46,10 +46,13 @@ import { useMobileBackgroundSync } from "@/sync/useMobileBackgroundSync";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import { installMobileSystemTransition } from "@/lib/mobileTransitionTiming";
 import {
+  claimMobileSplashHide,
   isMobileLaunchContentReady,
   markMobileLaunchContentReady,
-  MOBILE_SPLASH_CONTENT_TIMEOUT_MS,
+  registerMobileSplashForceHide,
+  releaseMobileSplashHideClaim,
   shouldHideMobileSplashScreen,
+  startMobileSplashSafetyCap,
   subscribeMobileLaunchContentReady,
 } from "@/lib/mobileSplashScreen";
 import { isMobileLibraryRoute } from "@/lib/mobileRootTabs";
@@ -63,6 +66,14 @@ import {
 installMobileSystemTransition(mobileDesignExploreFlag);
 void SplashScreen.preventAutoHideAsync().catch(() => undefined);
 markMobilePerformance(MOBILE_PERFORMANCE_MARKS.bootRootModule);
+// The entry already started the cap (a no-op here unless it did not). When it
+// expires before the root stack has taken over the hide (the providers above
+// it are still loading), the launch screen lifts without the reveal.
+startMobileSplashSafetyCap();
+registerMobileSplashForceHide(() => {
+  markMobilePerformance(MOBILE_PERFORMANCE_MARKS.bootSplashHidden, { forced: true });
+  void SplashScreen.hideAsync().catch(() => undefined);
+});
 markMobilePerformance(MOBILE_PERFORMANCE_MARKS.bootFontsReady, {
   status: Platform.OS === "web" ? "system-fallback" : "native-embedded",
 });
@@ -152,6 +163,8 @@ function RootStack({
     }
 
     splashHiddenRef.current = true;
+    // The safety cap already lifted the launch screen: nothing to reveal.
+    if (!claimMobileSplashHide()) return;
     markMobilePerformance(MOBILE_PERFORMANCE_MARKS.bootSplashHidden);
     const reveal = revealContextRef.current;
     // The reveal hook: the window's start state is set under the launch
@@ -163,6 +176,7 @@ function RootStack({
       hideSplash: () => SplashScreen.hideAsync(),
     }).catch(() => {
       splashHiddenRef.current = false;
+      releaseMobileSplashHideClaim();
     });
   }, []);
   const hideSplashAfterLayout = useCallback(() => {
@@ -176,18 +190,15 @@ function RootStack({
   // (LibraryScreen marks it), so the first visible frame is the final layout
   // with data: no blank page, no skeleton swapped for content. A launch into
   // any other screen (a deep link) has nothing to wait for; a stuck read is
-  // capped. Never waits on the network.
+  // capped from JS start (startMobileSplashSafetyCap). Never waits on the
+  // network.
   useEffect(() => {
     if (!isMobileLibraryRoute(pathname)) markMobileLaunchContentReady();
   }, [pathname]);
   useEffect(() => {
     const unsubscribe = subscribeMobileLaunchContentReady(hideSplashIfReady);
-    const cap = setTimeout(markMobileLaunchContentReady, MOBILE_SPLASH_CONTENT_TIMEOUT_MS);
     hideSplashIfReady();
-    return () => {
-      unsubscribe();
-      clearTimeout(cap);
-    };
+    return unsubscribe;
   }, [hideSplashIfReady]);
 
   return (

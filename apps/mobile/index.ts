@@ -1,3 +1,6 @@
+// The launch screen's safety cap counts from JS start (mobileSplashScreen.ts).
+// Dependency-free, so it runs before anything else is evaluated.
+import "./src/lib/mobileSplashSafetyCapEntry";
 import "./src/polyfills/bigInt";
 // Expo Router 56 uses ES2023 reverse-array searches. The pinned Android JSC
 // does not provide them, so install the missing built-ins before router state
