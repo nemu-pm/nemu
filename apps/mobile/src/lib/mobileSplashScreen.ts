@@ -32,11 +32,11 @@ export const MOBILE_SPLASH_CONTENT_TIMEOUT_MS = 2500;
 
 /**
  * The longest the launch screen waits, once the snapshot is in, for the images
- * already mounted under it (`holdMobileLaunchRevealForImage`): covers decoded
- * from the disk cache take a frame or few, a cover not yet downloaded would
- * take the network, which the launch never waits on.
+ * already mounted under it (`holdMobileLaunchRevealForImage`). Only images
+ * whose bytes are already local hold it (a decode takes a frame or few); a
+ * cover that needs a source request or a download never does.
  */
-export const MOBILE_LAUNCH_IMAGE_HOLD_MS = 600;
+export const MOBILE_LAUNCH_IMAGE_HOLD_MS = 150;
 
 let safetyCapTimer: ReturnType<typeof setTimeout> | null = null;
 let safetyCapExpired = false;

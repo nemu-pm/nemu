@@ -165,25 +165,8 @@ export function MobileCachedImage({
     const uri = resolveMobileLocalArchiveImageUri(rawSource.uri);
     return uri === rawSource.uri ? rawSource : { ...rawSource, uri };
   }, [rawSource]);
-  // Mounted under the launch screen: the reveal waits for this image to
-  // paint, so it shows at once, never fading in after the screen has lifted.
-  const [underLaunch] = useState(() => !isMobileLaunchContentReady());
-  const releaseLaunchRef = useRef<(() => void) | null>(null);
-  useLayoutEffect(() => {
-    if (!underLaunch) return;
-    const release = holdMobileLaunchRevealForImage();
-    releaseLaunchRef.current = release;
-    return () => release?.();
-  }, [underLaunch]);
-  // Reduce Motion turns the 240ms cover fade into an instant reveal.
-  const skipFade = reduceMotion === true || !fadeIn || underLaunch;
   const sourceUri = source.uri;
   const sourceHeaders = source.headers;
-  // Starts hidden unless the fade is skipped; a source already shown this
-  // session is revealed as soon as its key is known (below, same render).
-  const [imageFadeRef] = useState(
-    () => new ReactAnimated.Value(skipFade ? 1 : 0),
-  );
   // A source-processed cover lives at a `file://` URI derived from its cache
   // key, so a repaired cover reappears at the *same* URI: nothing about the
   // rendered source changes. This counter is the view's half of the repair
@@ -251,6 +234,30 @@ export function MobileCachedImage({
   const synchronouslyCachedAsset = useMemo(
     () => getCachedMobileImageAssetByStorageKeySync(cacheStorageKey),
     [cacheStorageKey],
+  );
+  // Mounted under the launch screen with its bytes already local (an app-local
+  // file or a cover whose cache file is known): the reveal waits briefly for
+  // it to paint, so it shows at once. Anything that still needs a download or
+  // a source request never holds the launch screen; it fades in after it.
+  const [underLaunch] = useState(
+    () =>
+      !isMobileLaunchContentReady() &&
+      uriPolicy.allowed &&
+      (uriPolicy.kind !== "source-remote" || synchronouslyCachedAsset != null),
+  );
+  const releaseLaunchRef = useRef<(() => void) | null>(null);
+  useLayoutEffect(() => {
+    if (!underLaunch) return;
+    const release = holdMobileLaunchRevealForImage();
+    releaseLaunchRef.current = release;
+    return () => release?.();
+  }, [underLaunch]);
+  // Reduce Motion turns the 240ms cover fade into an instant reveal.
+  const skipFade = reduceMotion === true || !fadeIn || underLaunch;
+  // Starts hidden unless the fade is skipped; a source already shown this
+  // session is revealed as soon as its key is known (below, same render).
+  const [imageFadeRef] = useState(
+    () => new ReactAnimated.Value(skipFade ? 1 : 0),
   );
   // `fadeFromCache` off: an app-local image or one whose file is already
   // known never waited on the network; a resolve that came back as fast as a
