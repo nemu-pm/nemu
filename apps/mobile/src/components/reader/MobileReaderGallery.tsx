@@ -75,8 +75,13 @@ import {
   type ReaderScrollPageMetric,
 } from "@/lib/mobileReaderProgress";
 import { ZoomableReaderStrip } from "./ZoomableReaderStrip";
-import { MobileReaderCurlPager, type MobileReaderCurlPagerHandle } from "./MobileReaderCurlPager";
+import {
+  MobileReaderCurlPager,
+  MobileReaderFlatSpreadSlot,
+  type MobileReaderCurlPagerHandle,
+} from "./MobileReaderCurlPager";
 import { MobileReaderSplitWideHalf } from "./MobileReaderSplitWideHalf";
+import { mobileReaderFlatSpreadState } from "@/lib/mobileReaderLoneSpreadPage";
 import { pageCurlAvailable } from "../../../modules/nemu-window-layout";
 import { MOBILE_READER_DOUBLE_TAP_MAX_DELAY_MS } from "@/lib/mobileReaderZoom";
 import {
@@ -400,6 +405,12 @@ type MobileReaderGalleryProps = {
   pageFrameSize?: (page: MobileReaderPage) => { width: number; height: number };
   /** Intrinsic size of a page, for the book-spine shading of a fold spread. */
   pageNaturalSize?: (page: MobileReaderPage) => { width: number; height: number } | null;
+  /**
+   * The page's image has loaded (or failed). In a flat spread, a pair whose
+   * second page is not ready yet shows its first page centred; the pair
+   * settles (slide + fade) once it is. Absent: every page counts as ready.
+   */
+  pageImageReady?: (page: MobileReaderPage) => boolean;
   /** Extra horizontal padding that centres the loading / locked / error card beside the rail. */
   stateInsets?: { left: number; right: number } | null;
   stateTopPadding: number;
@@ -694,6 +705,7 @@ export function MobileReaderGallery({
   isWidePage,
   pageFrameSize,
   pageNaturalSize,
+  pageImageReady,
   stateInsets,
   stateTopPadding,
   strings,
@@ -2660,6 +2672,15 @@ export function MobileReaderGallery({
     listRef.current?.scrollToOffset({ offset, animated: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the frames changing is the trigger.
   }, [galleryItems, pagedDisplayIndex, pagedDisplayCount]);
+  // Flat spreads: a page counts as ready once its image loaded or failed (a
+  // text page or a placeholder always is).
+  const isDisplayedPageReady = useCallback(
+    (pageIndex: number) => {
+      const page = displayedPages[pageIndex];
+      return !page?.imageUri || (pageImageReady?.(page) ?? true);
+    },
+    [displayedPages, pageImageReady],
+  );
   const renderGalleryItem = useCallback<
     ListRenderItem<MobileReaderGalleryItem>
   >(
@@ -2707,6 +2728,12 @@ export function MobileReaderGallery({
                 align: "spine",
               })
             : null;
+        // Flat spread (no fold panes): a page alone is centred on the stage
+        // (the row's one slot spans it); a pair's first page is centred until
+        // the second page is ready, then slides to its slot as that one fades in.
+        const flatState = !spreadSlots
+          ? mobileReaderFlatSpreadState({ spread: item.spread, mode, ready: isDisplayedPageReady })
+          : null;
         return (
           <View
             style={[
@@ -2722,37 +2749,48 @@ export function MobileReaderGallery({
               (pageIndex, slotIndex) => {
                 const page = displayedPages[pageIndex];
                 if (!page) return null;
-                return (
-                  <Animated.View
-                    key={page.id}
-                    // The halves slide apart into (or back from) the fold panes.
-                    layout={pageGlide ? mobileReaderSlotLayoutTransition : undefined}
-                    style={[styles.spreadPageSlot, {
+                const slotStyle = [styles.spreadPageSlot, {
                     alignItems: mobileReaderSpreadPageAlignment(slotIndex, item.spread.length),
                   },
                   // While a page glides from its old (larger) box the slot
                   // must not clip it; the zoom clip returns once it settles.
                   pageGlide ? styles.spreadPageSlotGliding : null,
                   spreadSlots ? {
-                    position: "absolute", flex: 0,
+                    position: "absolute" as const, flex: 0,
                     left: spreadSlots[item.spread.length === 1 && mode === "rtl" ? 1 : slotIndex]?.x,
                     top: spreadSlots[item.spread.length === 1 && mode === "rtl" ? 1 : slotIndex]?.y,
                     width: spreadSlots[item.spread.length === 1 && mode === "rtl" ? 1 : slotIndex]?.width,
                     height: spreadSlots[item.spread.length === 1 && mode === "rtl" ? 1 : slotIndex]?.height,
-                  } : undefined]}>
-                    {page.imageUri ? (
-                      <Animated.View layout={pageGlide ? mobileReaderPageFrameLayoutTransition : undefined}>
-                        {renderImage(page)}
-                      </Animated.View>
-                    ) : (
-                      <TextPage
-                        width={readerImageWidth}
-                        text={page.text}
-                        fallbackPage={sourcePageForDisplayIndex(pageIndex)}
-                        strings={strings}
-                      />
-                    )}
+                  } : undefined];
+                const pageContent = page.imageUri ? (
+                  <Animated.View layout={pageGlide ? mobileReaderPageFrameLayoutTransition : undefined}>
+                    {renderImage(page)}
                   </Animated.View>
+                ) : (
+                  <TextPage
+                    width={readerImageWidth}
+                    text={page.text}
+                    fallbackPage={sourcePageForDisplayIndex(pageIndex)}
+                    strings={strings}
+                  />
+                );
+                // One slot type in every posture: flat ⇄ book keeps the slots
+                // mounted, gliding. Only a flat spread's pair ever moves.
+                const slot: 0 | 1 = slotIndex === 0 ? 0 : 1;
+                const pair = flatState && item.spread.length === 2 ? flatState : null;
+                return (
+                  <MobileReaderFlatSpreadSlot
+                    key={page.id}
+                    slot={slot}
+                    centred={pair?.centredSlot === slot}
+                    pending={pair?.pendingSlot === slot}
+                    pageWidth={pair && pageFrameSize ? pageFrameSize(page).width : 0}
+                    // The halves slide apart into (or back from) the fold panes.
+                    layout={pageGlide ? mobileReaderSlotLayoutTransition : undefined}
+                    style={slotStyle}
+                  >
+                    {pageContent}
+                  </MobileReaderFlatSpreadSlot>
                 );
               },
             )}
@@ -2859,6 +2897,7 @@ export function MobileReaderGallery({
       isWidePage,
       pageFrameSize,
       pageNaturalSize,
+      isDisplayedPageReady,
       pageZoomActive,
       fitClip,
       mode,
@@ -3018,6 +3057,7 @@ export function MobileReaderGallery({
         frames={curlFrames}
         initialFrame={galleryInitialScrollIndex ?? 0}
         isWide={isWidePageOrNever}
+        isPageReady={isDisplayedPageReady}
         mode={mode}
         onEdgeIntent={handleCurlEdgeIntent}
         onSettleFrame={handleCurlSettle}

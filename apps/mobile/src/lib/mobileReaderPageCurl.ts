@@ -95,6 +95,12 @@ export function buildMobileReaderCurlSlots(input: {
   mode: ReadingMode;
   /** A lone wide page is laid across the spine, flat or on a fold, turning as one spread. */
   isWide: (pageIndex: number) => boolean;
+  /**
+   * A flat spread (no fold panes): a lone page is centred across the spine
+   * like a wide one (its halves on the two leaves), not laid on one leaf
+   * beside a blank one (`mobileReaderCentresLonePages`).
+   */
+  centreLone?: boolean;
 }): MobileReaderCurlSlot[] {
   const slots: MobileReaderCurlSlot[] = [];
   const { frames, mode } = input;
@@ -110,7 +116,7 @@ export function buildMobileReaderCurlSlots(input: {
       return;
     }
     const pageIndex = spread[0]!;
-    if (input.isWide(pageIndex)) {
+    if (input.centreLone || input.isWide(pageIndex)) {
       slots.push({ kind: "page", frame, pageIndex, part: "left" });
       slots.push({ kind: "page", frame, pageIndex, part: "right" });
       return;

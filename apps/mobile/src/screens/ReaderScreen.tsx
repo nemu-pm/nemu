@@ -440,6 +440,12 @@ import {
   pageIndexForMobileReaderSpreadStep,
   visualPageIndexesForMobileReaderSpread,
 } from "@/lib/mobileReaderSpreads";
+import { MOBILE_READER_SPREAD_LOAD_DELAY_TEST_MS } from "@/lib/mobileReaderLoneSpreadPage";
+// TEST-ONLY "Delay Facing Page (Test)" switch (remove before release).
+import {
+  isMobileReaderSpreadLoadDelayTestEnabled,
+  subscribeMobileReaderSpreadLoadDelayTest,
+} from "@/lib/mobileReaderSpreadLoadDelayTestSetting";
 import {
   buildMobileReaderPairedSpreads,
   mobileReaderColourOddPages,
@@ -3669,6 +3675,34 @@ export function ReaderScreen() {
       .filter((page): page is MobileReaderPage => Boolean(page)),
     [isTwoPageMode, readerSpreads, currentSpreadIndex, clampedPageIndex, displayedPages],
   );
+  // TEST-ONLY (remove before release): "Delay Facing Page (Test)". A spread's
+  // pages count as not loaded until two seconds after it first becomes the
+  // current spread (pages of spreads not yet visited count as not loaded too),
+  // so the flat spread's centred first page and its settle can be watched.
+  const readerSpreadLoadDelayTest = useSyncExternalStore(
+    subscribeMobileReaderSpreadLoadDelayTest,
+    isMobileReaderSpreadLoadDelayTestEnabled,
+  );
+  const [readerSpreadLoadDelayReleased, setReaderSpreadLoadDelayReleased] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const readerCurrentSpreadPageIds = isTwoPageMode ? readerVisiblePages.map((page) => page.id).join("\n") : "";
+  useEffect(() => {
+    setReaderSpreadLoadDelayReleased((current) => (current.size === 0 ? current : new Set()));
+  }, [chapterId, readerSpreadLoadDelayTest]);
+  useEffect(() => {
+    if (!readerSpreadLoadDelayTest || !readerCurrentSpreadPageIds) return undefined;
+    const ids = readerCurrentSpreadPageIds.split("\n");
+    const timer = setTimeout(() => {
+      setReaderSpreadLoadDelayReleased((current) => {
+        if (ids.every((id) => current.has(id))) return current;
+        const next = new Set(current);
+        ids.forEach((id) => next.add(id));
+        return next;
+      });
+    }, MOBILE_READER_SPREAD_LOAD_DELAY_TEST_MS);
+    return () => clearTimeout(timer);
+  }, [readerCurrentSpreadPageIds, readerSpreadLoadDelayTest]);
   // Each open-chapter page's frame view: where it sits, for the opening
   // stand-in (see mobileReaderOpeningStandIn). Stable callbacks per page.
   const readerPageFrameViewsRef = useRef(
@@ -9731,14 +9765,12 @@ export function ReaderScreen() {
             size: sizeAt(index),
           });
         }
-        // The curl lays a lone page on one leaf beside the spine; a wide page
-        // lies across both.
-        const loneOnLeaf = readerPageCurlActive && !isMobileReaderWidePage(sizeAt(index));
+        // A flat spread centres a lone page on the whole stage, the slide
+        // pager and the curl alike (the curl lays it across the spine, its
+        // halves on the two leaves, as a wide page).
         const lone = readerSpreadSlots && readerSpreadSlots.length === 2
           ? readerSpreadSlots[mode === "rtl" ? 1 : 0]!
-          : loneOnLeaf
-            ? half
-            : { width: readerSafeContentWidth, height: readerMaxPagedImageHeight };
+          : { width: readerSafeContentWidth, height: readerMaxPagedImageHeight };
         return getMobileReaderSpreadImageFrameSize({
           availableWidth: lone.width,
           availableHeight: Math.min(lone.height, readerMaxPagedImageHeight),
@@ -9774,7 +9806,6 @@ export function ReaderScreen() {
       readerPageIdentityFor,
       readerPageSizeAt,
       readerSafeContentWidth,
-      readerPageCurlActive,
       readerScrollLayout,
       readerSpreadSlots,
       readerSpreads,
@@ -11713,6 +11744,38 @@ export function ReaderScreen() {
     (page: MobileReaderPage) => readerImageSizes.get(readerPageIdentityFor(page)) ?? null,
     [readerImageSizes, readerPageIdentityFor],
   );
+  // Flat spreads: a page's image has loaded (its natural size is known) or
+  // failed (its retry shows). Until the second page of a pair is, the first
+  // page is shown centred (see mobileReaderLoneSpreadPage).
+  const readerPageImageReadyForChapter = useCallback(
+    (forChapterId: string, page: MobileReaderPage) => {
+      if (!page.imageUri) return true;
+      if (readerSpreadLoadDelayTest && forChapterId === chapterId && !readerSpreadLoadDelayReleased.has(page.id)) {
+        return false;
+      }
+      const identity = readerPageIdentityForChapter(forChapterId, page);
+      return readerImageSizes.has(identity) || readerImageErrors.has(identity);
+    },
+    [
+      chapterId,
+      readerImageErrors,
+      readerImageSizes,
+      readerPageIdentityForChapter,
+      readerSpreadLoadDelayReleased,
+      readerSpreadLoadDelayTest,
+    ],
+  );
+  const readerPageImageReady = useCallback(
+    (page: MobileReaderPage) => readerPageImageReadyForChapter(chapterId, page),
+    [chapterId, readerPageImageReadyForChapter],
+  );
+  const readerPagedPageImageReady = useCallback(
+    (galleryPage: MobileReaderPage) => {
+      const entry = readerPagedGallery?.byKey.get(galleryPage.id);
+      return entry?.source ? readerPageImageReadyForChapter(entry.chapterId, entry.source) : true;
+    },
+    [readerPageImageReadyForChapter, readerPagedGallery],
+  );
   const readerFabArea = useMemo(
     () =>
       mobileDualReaderFabArea({
@@ -13189,6 +13252,7 @@ export function ReaderScreen() {
         pageGlide={readerPageGlide}
         windowKey={`${Math.round(readerPose.bounds.width)}x${Math.round(readerPose.bounds.height)}`}
         pageNaturalSize={readerPagedGallery ? readerPagedPageNaturalSize : readerPageNaturalSize}
+        pageImageReady={readerPagedGallery ? readerPagedPageImageReady : readerPageImageReady}
         stateInsets={readerStateInsets}
         onStageOriginChange={setReaderStageWindowOrigin}
         accessibilityHidden={endOfChapterPromptVisible}
