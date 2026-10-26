@@ -38,6 +38,9 @@ describe("page flip eligibility matrix", () => {
       [{ toSpreadLength: 1 }, "spread-boundary"],
       [{ toSpreadLength: null }, "spread-boundary"],
       [{ hasPanes: false }, "no-panes"],
+      // Flat spread arriving with its facing page not loaded: it shows its
+      // first page centred, so the leaves must not show the facing page.
+      [{ arrivingPairPending: true }, "pair-pending"],
       [{ onScreenPagesReady: false }, "page-missing"],
     ];
     for (const [override, reason] of cases) {

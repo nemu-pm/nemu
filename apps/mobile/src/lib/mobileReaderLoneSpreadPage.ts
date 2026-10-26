@@ -23,8 +23,30 @@ import { visualPageIndexesForMobileReaderSpread } from "@/lib/mobileReaderSpread
  */
 export const MOBILE_READER_LONE_PAGE_SETTLE_MS = 250;
 
-/** TEST-ONLY: how long the "Delay Facing Page (Test)" switch holds a spread's pages as not loaded. */
+/** TEST-ONLY: the latency the "Delay Facing Page (Test)" switch adds to every page image load. */
 export const MOBILE_READER_SPREAD_LOAD_DELAY_TEST_MS = 2000;
+
+/**
+ * Whether a page counts as ready for a flat spread's presentation.
+ * `loadedAt`: when its image really loaded (null: not loaded); `failed`: its
+ * load failed (its retry shows, so it counts as ready); `everReady`: it was
+ * ready before (a page shown is never hidden again). The TEST-ONLY delay
+ * models a slower network faithfully: a page counts as loaded `delayMs` after
+ * it really loaded, so a page prefetched long enough before its spread shows
+ * pairs at once, as a cached page does, and only a page still "loading" when
+ * its spread arrives makes the first page wait centred.
+ */
+export function mobileReaderPageReadyForSpread(input: {
+  loadedAt: number | null;
+  failed: boolean;
+  everReady: boolean;
+  now: number;
+  delayMs: number;
+}): boolean {
+  if (input.everReady || input.failed) return true;
+  if (input.loadedAt == null) return false;
+  return input.now - input.loadedAt >= Math.max(0, input.delayMs);
+}
 
 /** Lone pages centre across the whole stage: a spread laid out flat, not in fold panes. */
 export function mobileReaderCentresLonePages(input: { spreadMode: boolean; panes: boolean }): boolean {

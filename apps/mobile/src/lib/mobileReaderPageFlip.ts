@@ -14,7 +14,14 @@ import type { WindowLayoutRect } from "@/lib/mobileWindowLayout";
  * - the pages on screen (the leaf that lifts and the page under the landing
  *   side) have image URIs — they are what the leaves copy. The incoming page
  *   may still be loading: its leaf lands empty and fades its page in as it
- *   decodes, it never cancels the flip.
+ *   decodes, it never cancels the flip;
+ * - a flat spread arrived at shows as the pair it lands as: while its second
+ *   page (reading order) is not ready, the flat spread presents its first
+ *   page alone, centred (`mobileReaderFlatSpreadState`), so the leaves —
+ *   copies of the pair in its spread slots — would show the facing page and
+ *   then give way to the centred page (page shown → hidden → shown again).
+ *   That turn (and one away from such a spread) slides plainly; the spread
+ *   settles into the pair once ready.
  */
 export type MobileReaderPageFlipSkipReason =
   | "not-paged"
@@ -25,7 +32,8 @@ export type MobileReaderPageFlipSkipReason =
   | "spread-boundary"
   | "same-spread"
   | "no-panes"
-  | "page-missing";
+  | "page-missing"
+  | "pair-pending";
 
 export type MobileReaderPageFlipDecision =
   | { flip: true }
@@ -44,6 +52,11 @@ export function mobileReaderPageFlipDecision(input: {
   hasPanes: boolean;
   /** The pages on screen (lifting leaf + page under the landing side) have URIs. */
   onScreenPagesReady: boolean;
+  /**
+   * Flat spread: the spread turned to (or from) shows its first page alone,
+   * centred, because its second page has not loaded (or the test delay holds it).
+   */
+  arrivingPairPending?: boolean;
 }): MobileReaderPageFlipDecision {
   if (!input.paged) return { flip: false, reason: "not-paged" };
   if (!input.spreadMode) return { flip: false, reason: "not-spread" };
@@ -54,6 +67,7 @@ export function mobileReaderPageFlipDecision(input: {
   if (input.fromSpreadLength !== 2 || input.toSpreadLength !== 2) return { flip: false, reason: "spread-boundary" };
   if (!input.hasPanes) return { flip: false, reason: "no-panes" };
   if (!input.onScreenPagesReady) return { flip: false, reason: "page-missing" };
+  if (input.arrivingPairPending) return { flip: false, reason: "pair-pending" };
   return { flip: true };
 }
 
