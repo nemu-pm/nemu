@@ -54,20 +54,20 @@ describe("Sources columns on the Duo inner display", () => {
   });
 
   for (const orientation of ["landscape-left", "landscape-right"]) {
-    test(`fully open (${orientation}): the content's two halves, the ordinary 12pt gap, no hinge gap`, () => {
-      const { columns } = columnsFor("open", orientation);
-      expect(columns).toHaveLength(2);
-      expect(columns[0]).toEqual({ x: 0, width: (LIST.width - 12) / 2, marginLeft: 0 });
-      expect(columns[1].marginLeft).toBe(12);
-      expect(columns[1].x + columns[1].width).toBe(LIST.width);
+    test(`fully open (${orientation}): one 560pt column centred on the whole screen, nothing at the hinge`, () => {
+      const { fold, columns } = columnsFor("open", orientation);
+      // The hinge band is there, but fully open it splits nothing.
+      expect(fold).not.toBeNull();
+      expect(columns).toEqual([{ x: (LIST.width - 560) / 2, width: 560, marginLeft: (LIST.width - 560) / 2 }]);
     });
 
-    test(`fully open ⇄ book (${orientation}): the same two columns, only sliding`, () => {
-      expect(columnsFor("open", orientation).columns).toHaveLength(columnsFor("partially-folded", orientation).columns.length);
+    test(`fully open ⇄ book (${orientation}): one column ⇄ one a pane (col-0 glides, col-1 fades)`, () => {
+      expect(columnsFor("open", orientation).columns).toHaveLength(1);
+      expect(columnsFor("partially-folded", orientation).columns).toHaveLength(2);
     });
   }
 
-  test("inner portrait: one 560pt column, centred", () => {
+  test("inner portrait (fully open): one 560pt column, centred", () => {
     const { fold, columns } = (() => {
       const band = mobileVerticalFoldBand(duoInner("open", "portrait"), mobileRestingFoldMinGutter("ios"));
       const gutter = mobileVerticalFoldGutterForContainer(band, { x: 20, width: 629 });

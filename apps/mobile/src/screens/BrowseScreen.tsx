@@ -967,13 +967,13 @@ export function BrowseScreen() {
       ...omitMobileBrowseSourcesFromGroups(groupedInstalledSources, picked.map(({ source }) => source)),
     ];
   }, [groupedInstalledSources, installedSources, libraryEntries.data, strings]);
-  // Design-explore: two columns of groups across the Duo's vertical hinge —
-  // half open one a pane, fully open the content's halves with the ordinary
-  // 12pt gap — each group whole in one column, the next one in the shorter
-  // column (estimated from its rows, so a group never changes column because
-  // it was measured). Both postures hold the same groups in the same keyed
-  // columns, so folding slides them on the pose spring, nothing remounts. The
-  // inner display in portrait keeps one 560pt column, centred.
+  // Design-explore: half open (book posture), two columns of groups, one a
+  // pane across the Duo's vertical hinge — each group whole in one column,
+  // the next one in the shorter column (estimated from its rows, so a group
+  // never changes column because it was measured). Fully open (landscape or
+  // portrait) the display is one whole screen: one 560pt column centred on
+  // it. The columns are keyed (col-0 / col-1), so folding glides col-0 to its
+  // new frame on the pose spring and col-1 fades in or out.
   const sourceListWidth = sourceGridContainer.width ?? windowWidth - pageGutters.left - pageGutters.right;
   // Until the list is measured in the window it starts at the page gutter.
   const sourceListFrame = useMemo(
