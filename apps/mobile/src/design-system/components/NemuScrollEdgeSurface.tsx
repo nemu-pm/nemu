@@ -1,4 +1,4 @@
-import { useCallback, useEffect, type ComponentType, type ReactElement, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ComponentType, type ReactElement, type ReactNode } from "react";
 import { Platform, StyleSheet, View } from "react-native";
 import Animated, {
   Easing,
@@ -116,12 +116,24 @@ export function NemuScrollEdgeSurface({
    */
   tracking: Pick<NemuScrollEdgeTracking, "scrolledPastRest" | "systemInsetTop">;
 }) {
-  const bands = useNemuScrollEdge(options);
   const { systemInsetTop } = tracking;
+  // The scroll view's safe-area top: where the native bar really ends (the
+  // band's height) and the inset UIKit adds (the band's rest). Only measured
+  // for a scroll view that adjusts its insets (`systemInsetTop`).
+  const [observedSafeAreaTop, setObservedSafeAreaTop] = useState<number | null>(null);
+  const bands = useNemuScrollEdge({
+    ...options,
+    observedSafeAreaTop: systemInsetTop ? observedSafeAreaTop : null,
+  });
   const onObserverLayout = useCallback(
     (layout: MobileWindowLayout) => {
       const top = layout.safeAreaInsets?.top;
-      if (systemInsetTop && top !== undefined && Number.isFinite(top)) systemInsetTop.set(Math.max(0, top));
+      if (!systemInsetTop || top === undefined || !Number.isFinite(top)) return;
+      const next = Math.max(0, top);
+      systemInsetTop.set(next);
+      setObservedSafeAreaTop((previous) =>
+        previous !== null && Math.abs(previous - next) < 0.5 ? previous : next,
+      );
     },
     [systemInsetTop],
   );
@@ -130,9 +142,10 @@ export function NemuScrollEdgeSurface({
     <View style={styles.surface}>
       {children}
       {/*
-        The scroll view's safe area (same frame), which is the top inset
-        UIKit adds to it: the top band's rest. Only while a top band is drawn
-        (beside the Duo's vertical bar, under a bar the page draws).
+        The scroll view's safe area (same frame): the bar's real bottom and
+        the top inset UIKit adds to the scroll view (the top band's rest).
+        Only while a top band is drawn (beside the Duo's vertical bar, under
+        a bar the page draws).
       */}
       {systemInsetTop && bands.top.height > 0 ? (
         <WindowLayoutObserver style={StyleSheet.absoluteFill} onLayoutChange={onObserverLayout} />

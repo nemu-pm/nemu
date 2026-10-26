@@ -124,6 +124,48 @@ describe("the band covers what is pinned at the top", () => {
     expect(resolveMobileRailTopScrollEdge({ ...rail, verticalBarSide: null, bar: native }).height).toBe(0);
   });
 
+  test("the open Duo beside the vertical bar: the band reaches the bar's measured bottom, not the header estimate", () => {
+    // react-navigation estimates an iPhone header 32 pt when the window is
+    // wider than tall (951×669) and the status bar sits in the vertical bar;
+    // the title row really ends where the content rests (~95 pt).
+    const estimated = resolveMobileScrollEdgeBarExtent({
+      platform: "ios", nativeHeader: true, barContentVisible: true, headerHeight: 32, headerBarHeight: undefined, safeAreaTop: 0,
+    });
+    expect(resolveMobileRailTopScrollEdge({ ...rail, bar: estimated }).height).toBe(40);
+    const bar = resolveMobileScrollEdgeBarExtent({
+      platform: "ios", nativeHeader: true, barContentVisible: true, headerHeight: 32, headerBarHeight: undefined, safeAreaTop: 0,
+      observedSafeAreaTop: 95,
+    });
+    expect(bar).toEqual({ extent: 95, drawn: false });
+    const edge = resolveMobileRailTopScrollEdge({ ...rail, bar });
+    expect(edge.height).toBe(95 + MOBILE_SCROLL_EDGE_BAR_TAIL);
+    // Full blur over the title row (centre ~48 pt).
+    const plateauEnd = edge.maskStops.filter(([colour]) => colour === "rgba(0,0,0,1)").at(-1)![1] * edge.height;
+    expect(plateauEnd).toBeGreaterThanOrEqual(48);
+    // Scrolled 55 pt, "Continue Reading" (resting ~100 pt down) sits at ~45 pt: inside the band, which is fully shown.
+    expect(100 - 55).toBeLessThan(edge.height);
+    expect(mobileScrollEdgeReveal(
+      mobileScrollEdgeScrolledPastRest({ offsetY: 55 - 95, contentInsetTop: 0, systemInsetTop: 95 }),
+    )).toBe(1);
+  });
+
+  test("the measurement never adds a band where none is pinned", () => {
+    const base = { platform: "ios", nativeHeader: true, headerBarHeight: undefined, safeAreaTop: 0, observedSafeAreaTop: 95 };
+    // An empty bar row (a title page before its compact title).
+    expect(resolveMobileScrollEdgeBarExtent({ ...base, barContentVisible: false, headerHeight: 32 }).extent).toBe(0);
+    // No header shown.
+    expect(resolveMobileScrollEdgeBarExtent({ ...base, barContentVisible: true, headerHeight: 0 }).extent).toBe(0);
+    // Not measured yet: the estimate.
+    expect(resolveMobileScrollEdgeBarExtent({ ...base, barContentVisible: true, headerHeight: 32, observedSafeAreaTop: null }).extent).toBe(32);
+  });
+
+  test("the surface feeds its measured safe-area top into the band's height", () => {
+    const surface = readFileSync(path.join(import.meta.dir, "../design-system/components/NemuScrollEdgeSurface.tsx"), "utf8");
+    expect(surface).toMatch(/useNemuScrollEdge\(\{\s*\.\.\.options,\s*observedSafeAreaTop: systemInsetTop \? observedSafeAreaTop : null,/);
+    const hook = readFileSync(path.join(import.meta.dir, "../design/useNemuScrollEdge.ts"), "utf8");
+    expect(hook).toContain("observedSafeAreaTop,\n  });");
+  });
+
   test("Android and the reader never draw it", () => {
     expect(resolveMobileScrollEdgeBarExtent({
       platform: "android", nativeHeader: true, barContentVisible: true, headerHeight: 64, headerBarHeight: undefined, safeAreaTop: 24,

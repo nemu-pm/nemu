@@ -134,6 +134,15 @@ export const MOBILE_NO_SCROLL_EDGE_BAR: MobileScrollEdgeBarExtent = { extent: 0,
  * What a page scroll container has pinned over its top: the native bar's
  * height while its row shows a title / search field (`barContentVisible`),
  * or a bar the page draws itself (`headerBarHeight`, below the safe area).
+ *
+ * The native bar's bottom is the scroll view's measured safe-area top
+ * (`observedSafeAreaTop`) when there is one. `headerHeight` (react-navigation's
+ * `HeaderHeightContext`) is only an estimate for a native header: 44 pt (32 pt
+ * when the window is wider than tall on an iPhone) plus the status bar. Beside
+ * the Duo's vertical bar on the open inner display (951×669, so "landscape")
+ * that came to 32 pt, while the bar's title row really ends about 95 pt down
+ * (where the content rests). The band covered 0–40 pt, empty background, and
+ * "Continue Reading" scrolled sharp under the "Library" title.
  */
 export function resolveMobileScrollEdgeBarExtent({
   platform,
@@ -142,6 +151,7 @@ export function resolveMobileScrollEdgeBarExtent({
   headerHeight,
   headerBarHeight,
   safeAreaTop,
+  observedSafeAreaTop,
 }: {
   platform: string;
   nativeHeader: boolean;
@@ -150,6 +160,11 @@ export function resolveMobileScrollEdgeBarExtent({
   headerHeight: number | undefined;
   headerBarHeight: number | undefined;
   safeAreaTop: number;
+  /**
+   * The scroll view's safe-area top, measured on its frame (with automatic
+   * inset adjustment: where its content rests, below the bar); null = unknown.
+   */
+  observedSafeAreaTop?: number | null;
 }): MobileScrollEdgeBarExtent {
   if (platform !== "ios") return MOBILE_NO_SCROLL_EDGE_BAR;
   const drawn = finiteNonNegative(headerBarHeight ?? 0);
@@ -157,8 +172,12 @@ export function resolveMobileScrollEdgeBarExtent({
     return { extent: Math.round(finiteNonNegative(safeAreaTop) + drawn), drawn: true };
   }
   if (!nativeHeader || !barContentVisible) return MOBILE_NO_SCROLL_EDGE_BAR;
-  const bar = finiteNonNegative(headerHeight ?? 0);
-  return bar > 0 ? { extent: Math.round(Math.max(bar, finiteNonNegative(safeAreaTop))), drawn: false } : MOBILE_NO_SCROLL_EDGE_BAR;
+  const estimated = finiteNonNegative(headerHeight ?? 0);
+  // No header shown: nothing pinned, whatever the safe area holds.
+  if (!(estimated > 0)) return MOBILE_NO_SCROLL_EDGE_BAR;
+  const observed = finiteNonNegative(observedSafeAreaTop ?? 0);
+  const bar = observed > 0 ? observed : estimated;
+  return { extent: Math.round(Math.max(bar, finiteNonNegative(safeAreaTop))), drawn: false };
 }
 
 export type MobileRailTopScrollEdge = {

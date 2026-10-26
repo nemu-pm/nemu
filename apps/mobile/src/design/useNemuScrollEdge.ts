@@ -28,6 +28,11 @@ export type NemuScrollEdgeOptions = {
    * the column's own top padding (below the safe area).
    */
   pane?: { topPadding: number };
+  /**
+   * The page scroll view's safe-area top, measured on its frame
+   * (`NemuScrollEdgeSurface`): the native bar's real bottom. Null until known.
+   */
+  observedSafeAreaTop?: number | null;
 };
 
 export type NemuScrollEdgeBands = {
@@ -62,6 +67,7 @@ export function useNemuScrollEdge({
   barContentVisible = true,
   headerBarHeight,
   pane,
+  observedSafeAreaTop = null,
 }: NemuScrollEdgeOptions): NemuScrollEdgeBands {
   const headerHeight = useContext(HeaderHeightContext);
   const insets = useSafeAreaInsets();
@@ -75,6 +81,7 @@ export function useNemuScrollEdge({
     headerHeight,
     headerBarHeight,
     safeAreaTop: insets.top,
+    observedSafeAreaTop,
   });
   return {
     top: resolveMobileRailTopScrollEdge({
