@@ -66,22 +66,13 @@ export function mobileReaderCurlSpine(spreadMode: boolean, mode: ReadingMode): M
 }
 
 /**
- * Which side a page standing alone in a spread rests on. A book opens on a
- * recto (right in left-to-right books, left in manga): a lone page that
- * starts a run (a cover, the page after a wide page) is a recto; one that
- * closes the chapter or comes just before a wide page is a verso.
+ * Which pane a page standing alone in a fold spread rests on: the one where
+ * reading starts (right in manga, left in left-to-right books), for every
+ * lone page of every chapter (cover, credits, closing page), never varying
+ * with the pages around it. The slide pager's fold slots do the same.
  */
-export function mobileReaderCurlLoneSide(input: {
-  mode: ReadingMode;
-  /** The next spread in reading order; null at the end of the chapter. */
-  nextSpread: number[] | null;
-  isWide: (pageIndex: number) => boolean;
-}): "left" | "right" {
-  const nextIsWide = input.nextSpread?.length === 1 && input.isWide(input.nextSpread[0]!);
-  const recto = input.nextSpread !== null && !nextIsWide;
-  const rectoSide = input.mode === "rtl" ? "left" : "right";
-  const versoSide = input.mode === "rtl" ? "right" : "left";
-  return recto ? rectoSide : versoSide;
+export function mobileReaderCurlLoneSide(mode: ReadingMode): "left" | "right" {
+  return mode === "rtl" ? "right" : "left";
 }
 
 /**
@@ -121,13 +112,7 @@ export function buildMobileReaderCurlSlots(input: {
       slots.push({ kind: "page", frame, pageIndex, part: "right" });
       return;
     }
-    // Reading order runs right to left across RTL visual frames.
-    const nextFrame = mode === "rtl" ? frame - 1 : frame + 1;
-    const side = mobileReaderCurlLoneSide({
-      mode,
-      nextSpread: frames[nextFrame] ? [...frames[nextFrame]!] : null,
-      isWide: input.isWide,
-    });
+    const side = mobileReaderCurlLoneSide(mode);
     const page: MobileReaderCurlSlot = { kind: "page", frame, pageIndex, part: "whole" };
     const blank: MobileReaderCurlSlot = { kind: "blank", frame };
     slots.push(...(side === "left" ? [page, blank] : [blank, page]));

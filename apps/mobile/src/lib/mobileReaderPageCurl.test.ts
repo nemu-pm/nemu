@@ -85,24 +85,24 @@ describe("curl slots", () => {
     expect(rtl.map((slot) => (slot.kind === "page" ? slot.pageIndex : -1))).toEqual([4, 3, 2, 1]);
   });
 
-  test("a cover rests on the recto with a blank verso, so every spread has two leaves", () => {
+  test("a cover rests where reading starts beside a blank leaf, so every spread has two leaves", () => {
     const ltr = buildMobileReaderCurlSlots({
       frames: [[0], [1, 2]],
       spreadMode: true,
       mode: "ltr",
       isWide: never,
     });
-    expect(ltr.map((slot) => slot.kind === "page" ? slot.pageIndex : "blank")).toEqual(["blank", 0, 1, 2]);
+    expect(ltr.map((slot) => slot.kind === "page" ? slot.pageIndex : "blank")).toEqual([0, "blank", 1, 2]);
     const rtl = buildMobileReaderCurlSlots({
       frames: [[1, 2], [0]],
       spreadMode: true,
       mode: "rtl",
       isWide: never,
     });
-    expect(rtl.map((slot) => slot.kind === "page" ? slot.pageIndex : "blank")).toEqual([2, 1, 0, "blank"]);
+    expect(rtl.map((slot) => slot.kind === "page" ? slot.pageIndex : "blank")).toEqual([2, 1, "blank", 0]);
   });
 
-  test("a closing page rests on the verso", () => {
+  test("a closing page rests where reading starts too (left in LTR)", () => {
     const slots = buildMobileReaderCurlSlots({
       frames: [[0, 1], [2]],
       spreadMode: true,
@@ -135,11 +135,25 @@ describe("curl slots", () => {
       .toEqual(["4", "3", "2l", "2r", "1", "0"]);
   });
 
-  test("the page before a wide page is a verso", () => {
-    expect(mobileReaderCurlLoneSide({ mode: "ltr", nextSpread: [5], isWide: (i) => i === 5 })).toBe("left");
-    expect(mobileReaderCurlLoneSide({ mode: "ltr", nextSpread: [5, 6], isWide: never })).toBe("right");
-    expect(mobileReaderCurlLoneSide({ mode: "rtl", nextSpread: [5, 6], isWide: never })).toBe("left");
-    expect(mobileReaderCurlLoneSide({ mode: "rtl", nextSpread: null, isWide: never })).toBe("right");
+  test("a lone page rests where reading starts: right in manga, left in LTR, whatever follows it", () => {
+    expect(mobileReaderCurlLoneSide("rtl")).toBe("right");
+    expect(mobileReaderCurlLoneSide("ltr")).toBe("left");
+    const sides = (frames: number[][], mode: "rtl" | "ltr", isWide: (index: number) => boolean) => {
+      const slots = buildMobileReaderCurlSlots({ frames, spreadMode: true, mode, isWide });
+      // Each frame is two slots: [left leaf, right leaf].
+      return slots.flatMap((slot, at) => (slot.kind === "page" && slot.part === "whole" && slots[at % 2 === 0 ? at + 1 : at - 1]?.kind === "blank"
+        ? [`${slot.pageIndex}:${at % 2 === 0 ? "left" : "right"}`]
+        : []));
+    };
+    // Manga, frames reversed. A cover followed by a pair (Ch.1) and a cover
+    // followed by a wide credits page (Ch.95) land in the same pane.
+    expect(sides([[3, 4], [1, 2], [0]], "rtl", never)).toEqual(["0:right"]);
+    expect(sides([[2, 3], [1], [0]], "rtl", (index) => index === 1)).toEqual(["0:right"]);
+    // A closing page and the page before a wide page too.
+    expect(sides([[4], [3], [1, 2], [0]], "rtl", (index) => index === 3)).toEqual(["4:right", "0:right"]);
+    // Left to right: always the left pane.
+    expect(sides([[0], [1, 2], [3]], "ltr", never)).toEqual(["0:left", "3:left"]);
+    expect(sides([[0], [1], [2, 3]], "ltr", (index) => index === 1)).toEqual(["0:left"]);
   });
 });
 
