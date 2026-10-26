@@ -65,6 +65,10 @@ export type MobileReaderFlatSpreadState = {
 /**
  * How a flat spread presents its pages. `ready(pageIndex)`: the page's image
  * has loaded (or failed, so its retry shows; a text page is always ready).
+ * The pages face each other only once both are ready: a page whose size is
+ * not known yet is never shown paired (it may still prove wide, and the
+ * pairing split). Until then the first page (reading order) shows alone,
+ * centred, and the second waits hidden.
  */
 export function mobileReaderFlatSpreadState(input: {
   spread: readonly number[];
@@ -76,9 +80,30 @@ export function mobileReaderFlatSpreadState(input: {
     return { visual: [...spread], centredSlot: spread.length === 1 ? 0 : null, pendingSlot: null };
   }
   const visual = visualPageIndexesForMobileReaderSpread([...spread], mode);
-  if (input.ready(spread[1]!)) return { visual, centredSlot: null, pendingSlot: null };
+  if (mobileReaderFlatPairShown(spread, input.ready)) return { visual, centredSlot: null, pendingSlot: null };
   const first = visual.indexOf(spread[0]!) === 0 ? 0 : 1;
   return { visual, centredSlot: first, pendingSlot: first === 0 ? 1 : 0 };
+}
+
+/** A flat spread's two pages face each other on screen: both are ready. */
+export function mobileReaderFlatPairShown(spread: readonly number[], ready: (pageIndex: number) => boolean): boolean {
+  return spread.length === 2 && ready(spread[0]!) && ready(spread[1]!);
+}
+
+/**
+ * Whether the spread on screen is fixed as shown (never re-paired by a later
+ * image load). A flat pair not yet shown as a pair (its first page centred,
+ * waiting on a size) is not: should a page prove wide, the pair splits and
+ * the page stays alone, centred, never having been paired on screen. A lone
+ * page, or any spread on fold panes (book posture shows pairs at once), is.
+ */
+export function mobileReaderSpreadSettledOnScreen(input: {
+  spread: readonly number[];
+  centresLonePages: boolean;
+  ready: (pageIndex: number) => boolean;
+}): boolean {
+  if (!input.centresLonePages || input.spread.length !== 2) return true;
+  return mobileReaderFlatPairShown(input.spread, input.ready);
 }
 
 /**

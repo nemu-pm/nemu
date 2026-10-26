@@ -445,6 +445,7 @@ import {
   mobileReaderCentresLonePages,
   mobileReaderFlatSpreadState,
   mobileReaderPageReadyForSpread,
+  mobileReaderSpreadSettledOnScreen,
 } from "@/lib/mobileReaderLoneSpreadPage";
 // TEST-ONLY "Delay Facing Page (Test)" switch (remove before release).
 import {
@@ -3575,116 +3576,12 @@ export function ReaderScreen() {
       }),
     [displayedPages, pageCount, readerPageFeatures],
   );
-  const readerComputedSpreads = useMemo(
-    () =>
-      isTwoPageMode
-        ? buildMobileReaderPairedSpreads({
-            pageCount,
-            sizeAt: readerPageSizeAt,
-            pairing: readerSpreadPairing,
-            oddAt: readerColourOddAt,
-            shift: readerPairingShiftApplied.shift,
-            fallbackShift: readerPairingShiftApplied.fallbackShift,
-            inferParity: (segment, known) =>
-              inferMobileReaderCalibratedParity({
-                segment,
-                known,
-                featuresAt: (index) => {
-                  const page = displayedPages[index];
-                  return page ? readerPageFeatures.get(page.id) : null;
-                },
-                rtl: mode === "rtl",
-              }),
-          })
-        : [],
-    [
-      displayedPages,
-      isTwoPageMode,
-      mode,
-      pageCount,
-      readerColourOddAt,
-      readerPageFeatures,
-      readerPageSizeAt,
-      readerPairingShiftApplied.fallbackShift,
-      readerPairingShiftApplied.shift,
-      readerSpreadPairing,
-    ],
-  );
-  const readerSpreadTableRef = useRef<{ key: string; spreads: number[][]; generation: number } | null>(null);
-  const readerSpreadTableKey = `${chapterId}:${pagesState.status === "ready" ? pagesState.fetchedAt : 0}:${pageCount}:${readerPairingChoiceKey}`;
-  /**
-   * Seamless paged reading: every chapter's spread table as last shown, by
-   * chapter id (the open one's and its neighbours'), keyed like
-   * `readerSpreadTableKey`, with the spreads that have been on screen
-   * (locked: never re-paired). A chapter crossed into starts from the table
-   * it was shown with, so its landing spread is the one that was drawn.
-   */
-  const readerSegmentSpreadTablesRef = useRef(
-    new Map<string, { key: string; spreads: number[][]; locked: number[][] }>(),
-  );
-  /** The pager is showing the open chapter's table (its opening restore placed it). */
-  const readerSpreadsOnScreenRef = useRef(false);
-  // Until the reader turns a page the table may still re-pair around the
-  // spread on screen (the opening pages are measured within moments); the
-  // gallery re-anchors on the page the reader is on (`readerSpreadGeneration`).
-  // The spread on screen itself is locked: a pairing once shown is never
-  // re-paired by a later image load (a page found wide pairs anew from the
-  // next turn). After that only the pages ahead re-pair.
-  const readerSpreadsProvisional = pageArrival === "initial";
-  const { spreads: readerSpreads, generation: readerSpreadGeneration } = useMemo(() => {
-    const previous = readerSpreadTableRef.current;
-    const sameKey = previous?.key === readerSpreadTableKey;
-    const stored = readerSegmentSpreadTablesRef.current.get(chapterId);
-    const seeded = !sameKey && stored?.key === readerSpreadTableKey ? stored : null;
-    const base = sameKey ? previous.spreads : (seeded?.spreads ?? null);
-    const locked = stored?.key === readerSpreadTableKey ? stored.locked : [];
-    const spreads = isTwoPageMode
-      ? nextMobileReaderSpreadTable({
-          previous: base,
-          computed: readerComputedSpreads,
-          reset: base == null,
-          currentPageIndex: clampedPageIndex,
-          provisional: readerSpreadsProvisional,
-          displayed: seeded != null || readerSpreadsOnScreenRef.current,
-          locked,
-        })
-      : [];
-    const spreadOf = (table: readonly number[][]) => table.findIndex((spread) => spread.includes(clampedPageIndex));
-    const moved = base !== null && spreads !== base && spreadOf(spreads) !== spreadOf(base);
-    const generation = (previous?.generation ?? 0) + (moved ? 1 : 0);
-    readerSpreadTableRef.current = isTwoPageMode ? { key: readerSpreadTableKey, spreads, generation } : null;
-    if (isTwoPageMode && pagesState.status === "ready") {
-      // The spread the reader is on is shown: it joins the locked ones.
-      const onScreen = readerSpreadsOnScreenRef.current || seeded != null
-        ? spreads[Math.max(0, spreadOf(spreads))]
-        : undefined;
-      const nextLocked = onScreen && !locked.some((spread) => spread.length === onScreen.length && spread.every((page, at) => page === onScreen[at]))
-        ? [...locked.filter((spread) => !spread.some((page) => onScreen.includes(page))), onScreen]
-        : locked;
-      readerSegmentSpreadTablesRef.current.set(chapterId, { key: readerSpreadTableKey, spreads, locked: nextLocked });
-    }
-    return { spreads, generation };
-    // The current page only matters at the moment the table changes: a page
-    // turn alone must not rebuild it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isTwoPageMode, readerComputedSpreads, readerSpreadTableKey, readerSpreadsProvisional]);
-  const currentSpreadIndex = useMemo(
-    () => findMobileReaderSpreadIndex(readerSpreads, clampedPageIndex),
-    [clampedPageIndex, readerSpreads],
-  );
-  const readerVisiblePages = useMemo(
-    () => (isTwoPageMode
-      ? (readerSpreads[currentSpreadIndex] ?? [clampedPageIndex])
-      : [clampedPageIndex])
-      .map((index) => displayedPages[index])
-      .filter((page): page is MobileReaderPage => Boolean(page)),
-    [isTwoPageMode, readerSpreads, currentSpreadIndex, clampedPageIndex, displayedPages],
-  );
   // Flat spreads: a page's image has loaded (its natural size is known) or
-  // failed (its retry shows). Until the second page of a pair is, the first
-  // page is shown centred (see mobileReaderLoneSpreadPage), and a turn to that
-  // spread never plays the half-page flip (its leaves would show the facing
-  // page before it is ready).
+  // failed (its retry shows). Until both pages of a pair are, the first page
+  // is shown alone, centred (see mobileReaderLoneSpreadPage); such a pair is
+  // not yet fixed as shown, so a page found wide splits it (it stays alone);
+  // and a turn to that spread never plays the half-page flip (its leaves
+  // would show the facing page before it is ready).
   //
   // TEST-ONLY (remove before release): "Delay Facing Page (Test)" adds
   // MOBILE_READER_SPREAD_LOAD_DELAY_TEST_MS to every image load: a page counts
@@ -3754,6 +3651,139 @@ export function ReaderScreen() {
   const readerPageImageReady = useCallback(
     (page: MobileReaderPage) => readerPageImageReadyForChapter(chapterId, page),
     [chapterId, readerPageImageReadyForChapter],
+  );
+  const readerComputedSpreads = useMemo(
+    () =>
+      isTwoPageMode
+        ? buildMobileReaderPairedSpreads({
+            pageCount,
+            sizeAt: readerPageSizeAt,
+            pairing: readerSpreadPairing,
+            oddAt: readerColourOddAt,
+            shift: readerPairingShiftApplied.shift,
+            fallbackShift: readerPairingShiftApplied.fallbackShift,
+            inferParity: (segment, known) =>
+              inferMobileReaderCalibratedParity({
+                segment,
+                known,
+                featuresAt: (index) => {
+                  const page = displayedPages[index];
+                  return page ? readerPageFeatures.get(page.id) : null;
+                },
+                rtl: mode === "rtl",
+              }),
+          })
+        : [],
+    [
+      displayedPages,
+      isTwoPageMode,
+      mode,
+      pageCount,
+      readerColourOddAt,
+      readerPageFeatures,
+      readerPageSizeAt,
+      readerPairingShiftApplied.fallbackShift,
+      readerPairingShiftApplied.shift,
+      readerSpreadPairing,
+    ],
+  );
+  const readerSpreadTableRef = useRef<{ key: string; spreads: number[][]; generation: number } | null>(null);
+  const readerSpreadTableKey = `${chapterId}:${pagesState.status === "ready" ? pagesState.fetchedAt : 0}:${pageCount}:${readerPairingChoiceKey}`;
+  /**
+   * Seamless paged reading: every chapter's spread table as last shown, by
+   * chapter id (the open one's and its neighbours'), keyed like
+   * `readerSpreadTableKey`, with the spreads that have been on screen
+   * (locked: never re-paired). A chapter crossed into starts from the table
+   * it was shown with, so its landing spread is the one that was drawn.
+   */
+  const readerSegmentSpreadTablesRef = useRef(
+    new Map<string, { key: string; spreads: number[][]; locked: number[][] }>(),
+  );
+  /** The pager is showing the open chapter's table (its opening restore placed it). */
+  const readerSpreadsOnScreenRef = useRef(false);
+  // Until the reader turns a page the table may still re-pair around the
+  // spread on screen (the opening pages are measured within moments); the
+  // gallery re-anchors on the page the reader is on (`readerSpreadGeneration`).
+  // The spread on screen itself is locked: a pairing once shown is never
+  // re-paired by a later image load (a page found wide pairs anew from the
+  // next turn). After that only the pages ahead re-pair.
+  const readerSpreadsProvisional = pageArrival === "initial";
+  const readerCentresLonePages = mobileReaderCentresLonePages({
+    spreadMode: isTwoPageMode,
+    panes: Boolean(readerSpreadSlots),
+  });
+  /**
+   * The spread is fixed as shown: a flat pair only once both its pages are
+   * ready (shown facing each other). Until then its pairing may still split.
+   */
+  const readerSpreadSettledFor = useCallback(
+    (forChapterId: string, pagesOfChapter: readonly MobileReaderPage[], spread: readonly number[] | undefined) =>
+      spread != null
+      && mobileReaderSpreadSettledOnScreen({
+        spread,
+        centresLonePages: readerCentresLonePages,
+        ready: (index) => {
+          const page = pagesOfChapter[index];
+          return !page?.imageUri || readerPageImageReadyForChapter(forChapterId, page);
+        },
+      }),
+    [readerCentresLonePages, readerPageImageReadyForChapter],
+  );
+  const { spreads: readerSpreads, generation: readerSpreadGeneration } = useMemo(() => {
+    const previous = readerSpreadTableRef.current;
+    const sameKey = previous?.key === readerSpreadTableKey;
+    const stored = readerSegmentSpreadTablesRef.current.get(chapterId);
+    const seeded = !sameKey && stored?.key === readerSpreadTableKey ? stored : null;
+    const base = sameKey ? previous.spreads : (seeded?.spreads ?? null);
+    // Shown spreads stay as shown, except a flat pair still waiting on a page
+    // (its first page alone, centred): that one may still split.
+    const settled = (spread: readonly number[] | undefined) =>
+      readerSpreadSettledFor(chapterId, displayedPages, spread);
+    const locked = (stored?.key === readerSpreadTableKey ? stored.locked : []).filter(settled);
+    const baseCurrent = base?.find((spread) => spread.includes(clampedPageIndex)) ?? base?.[base.length - 1];
+    const spreads = isTwoPageMode
+      ? nextMobileReaderSpreadTable({
+          previous: base,
+          computed: readerComputedSpreads,
+          reset: base == null,
+          currentPageIndex: clampedPageIndex,
+          provisional: readerSpreadsProvisional,
+          displayed: (seeded != null || readerSpreadsOnScreenRef.current) && settled(baseCurrent),
+          locked,
+        })
+      : [];
+    const spreadOf = (table: readonly number[][]) => table.findIndex((spread) => spread.includes(clampedPageIndex));
+    const moved = base !== null && spreads !== base && spreadOf(spreads) !== spreadOf(base);
+    const generation = (previous?.generation ?? 0) + (moved ? 1 : 0);
+    readerSpreadTableRef.current = isTwoPageMode ? { key: readerSpreadTableKey, spreads, generation } : null;
+    if (isTwoPageMode && pagesState.status === "ready") {
+      // The spread the reader is on is shown: it joins the locked ones.
+      const shown = readerSpreadsOnScreenRef.current || seeded != null
+        ? spreads[Math.max(0, spreadOf(spreads))]
+        : undefined;
+      const onScreen = settled(shown) ? shown : undefined;
+      const nextLocked = onScreen && !locked.some((spread) => spread.length === onScreen.length && spread.every((page, at) => page === onScreen[at]))
+        ? [...locked.filter((spread) => !spread.some((page) => onScreen.includes(page))), onScreen]
+        : locked;
+      readerSegmentSpreadTablesRef.current.set(chapterId, { key: readerSpreadTableKey, spreads, locked: nextLocked });
+    }
+    return { spreads, generation };
+    // The current page only matters at the moment the table changes: a page
+    // turn alone must not rebuild it. Readiness does: a pair once shown
+    // facing joins the locked ones.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isTwoPageMode, readerComputedSpreads, readerSpreadSettledFor, readerSpreadTableKey, readerSpreadsProvisional]);
+  const currentSpreadIndex = useMemo(
+    () => findMobileReaderSpreadIndex(readerSpreads, clampedPageIndex),
+    [clampedPageIndex, readerSpreads],
+  );
+  const readerVisiblePages = useMemo(
+    () => (isTwoPageMode
+      ? (readerSpreads[currentSpreadIndex] ?? [clampedPageIndex])
+      : [clampedPageIndex])
+      .map((index) => displayedPages[index])
+      .filter((page): page is MobileReaderPage => Boolean(page)),
+    [isTwoPageMode, readerSpreads, currentSpreadIndex, clampedPageIndex, displayedPages],
   );
   // Each open-chapter page's frame view: where it sits, for the opening
   // stand-in (see mobileReaderOpeningStandIn). Stable callbacks per page.
@@ -4401,24 +4431,30 @@ export function ReaderScreen() {
       const stored = tables.get(id);
       const same = stored?.key === key;
       const edgePage = side === "previous" ? count - 1 : 0;
+      // A flat pair still waiting on a page shows its first page alone: not
+      // fixed yet (it may split), like the open chapter's.
+      const settled = (spread: readonly number[] | undefined) =>
+        readerSpreadSettledFor(id, segment.pages, spread);
+      const previousEdge = same ? stored.spreads.find((spread) => spread.includes(edgePage)) : undefined;
+      let locked = (same ? stored.locked : []).filter(settled);
       const spreads = nextMobileReaderSpreadTable({
         previous: same ? stored.spreads : null,
         computed,
         reset: !same,
         currentPageIndex: edgePage,
         provisional: true,
-        displayed: adjacent,
-        locked: same ? stored.locked : [],
+        displayed: adjacent && (previousEdge == null || settled(previousEdge)),
+        locked,
       });
-      let locked = same ? stored.locked : [];
-      const edge = adjacent ? spreads.find((spread) => spread.includes(edgePage)) : undefined;
+      const shownEdge = adjacent ? spreads.find((spread) => spread.includes(edgePage)) : undefined;
+      const edge = settled(shownEdge) ? shownEdge : undefined;
       if (edge && !locked.some((spread) => spread.length === edge.length && spread.every((page, at) => page === edge[at]))) {
         locked = [...locked.filter((spread) => !spread.some((page) => edge.includes(page))), edge];
       }
       tables.set(id, { key, spreads, locked });
       return spreads;
     },
-    [readerPairingShiftKey, readerPairingShifts, readerSpreadPairing, readerStripPageSize],
+    [readerPairingShiftKey, readerPairingShifts, readerSpreadPairing, readerSpreadSettledFor, readerStripPageSize],
   );
   const readerPagedStripCandidate = useMemo<MobileReaderPagedStrip | null>(() => {
     if (!readerStrip || !readerSeamlessPagedEnabled) return null;

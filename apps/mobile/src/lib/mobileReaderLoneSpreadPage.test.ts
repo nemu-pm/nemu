@@ -9,8 +9,9 @@ import {
   mobileReaderFlatSpreadState,
   mobileReaderLoneCentreShift,
   mobileReaderLoneCopyShift,
+  mobileReaderSpreadSettledOnScreen,
 } from "./mobileReaderLoneSpreadPage";
-import { buildMobileReaderPairedSpreads } from "./mobileReaderPairing";
+import { buildMobileReaderPairedSpreads, nextMobileReaderSpreadTable } from "./mobileReaderPairing";
 import { buildMobileReaderCurlSlots } from "./mobileReaderPageCurl";
 
 // The iPhone Duo inner display, fully open (flat) in landscape.
@@ -83,10 +84,10 @@ describe("flat spread: a lone page is centred on the whole stage", () => {
     });
   }
 
-  test("the first page waits centred only on the second page, not on itself", () => {
+  test("the pair faces only once both pages are ready: a first page of unknown size waits centred too", () => {
     expect(mobileReaderFlatSpreadState({ spread: [1, 2], mode: "ltr", ready: (index) => index === 2 })).toMatchObject({
-      centredSlot: null,
-      pendingSlot: null,
+      centredSlot: 0,
+      pendingSlot: 1,
     });
     expect(mobileReaderFlatSpreadState({ spread: [1, 2], mode: "ltr", ready: () => false })).toMatchObject({
       visual: [1, 2],
@@ -170,5 +171,46 @@ describe("page readiness for a flat spread (and the TEST-ONLY load delay)", () =
     const spread = [1, 2];
     const shown = mobileReaderFlatSpreadState({ spread, mode: "rtl", ready: () => true });
     expect(shown.pendingSlot).toBeNull();
+  });
+});
+
+describe("a page whose size is unknown is never shown paired (D2)", () => {
+  const wide = { width: 2000, height: 1400 };
+  const normal = { width: 1000, height: 1400 };
+
+  test("a pair shows facing only once both pages are ready; else its first page alone, centred", () => {
+    for (const mode of ["rtl", "ltr"] as ReadingMode[]) {
+      const firstMissing = mobileReaderFlatSpreadState({ spread: [2, 3], mode, ready: (index) => index === 3 });
+      const firstSlot = firstMissing.visual.indexOf(2) as 0 | 1;
+      expect(firstMissing.centredSlot).toBe(firstSlot);
+      expect(firstMissing.pendingSlot).toBe(firstSlot === 0 ? 1 : 0);
+      expect(mobileReaderFlatSpreadState({ spread: [2, 3], mode, ready: () => true }).centredSlot).toBeNull();
+    }
+  });
+
+  test("a flat pair not yet shown facing is not fixed on screen; lone pages and fold panes are", () => {
+    const notReady = (index: number) => index !== 2;
+    expect(mobileReaderSpreadSettledOnScreen({ spread: [2, 3], centresLonePages: true, ready: notReady })).toBe(false);
+    expect(mobileReaderSpreadSettledOnScreen({ spread: [2, 3], centresLonePages: true, ready: () => true })).toBe(true);
+    expect(mobileReaderSpreadSettledOnScreen({ spread: [2], centresLonePages: true, ready: () => false })).toBe(true);
+    expect(mobileReaderSpreadSettledOnScreen({ spread: [2, 3], centresLonePages: false, ready: () => false })).toBe(true);
+  });
+
+  test("Ch.95: a wide credits page found while its pair waits splits off and stays alone; the shown pairing never splits", () => {
+    // Index 1 (the credits page) has no size yet: pairing reads it as an ordinary page.
+    const sizes: Array<{ width: number; height: number } | null> = [normal, null, normal, normal, normal, normal];
+    const build = () => buildMobileReaderPairedSpreads({ pageCount: sizes.length, sizeAt: (index) => sizes[index] ?? null, pairing: "cover-alone" });
+    const before = build();
+    const current = before.find((spread) => spread.includes(1))!;
+    expect(current.length).toBe(2);
+    // Index 1 not ready: its pair shows it alone, centred, and is not fixed.
+    const settled = mobileReaderSpreadSettledOnScreen({ spread: current, centresLonePages: true, ready: (index) => index !== 1 });
+    expect(settled).toBe(false);
+    sizes[1] = wide;
+    const after = nextMobileReaderSpreadTable({ previous: before, computed: build(), reset: false, currentPageIndex: 1, displayed: settled });
+    expect(after.find((spread) => spread.includes(1))).toEqual([1]);
+    // Had the pair been shown facing, it would have stayed (never split under the reader).
+    const kept = nextMobileReaderSpreadTable({ previous: before, computed: build(), reset: false, currentPageIndex: 1, displayed: true });
+    expect(kept.find((spread) => spread.includes(1))).toEqual(current);
   });
 });
