@@ -463,7 +463,9 @@ export function PageScaffold({
     () => exactMobileRootTabHrefForPathname(pathname),
     [pathname],
   );
-  const edgeTracking = useNemuScrollEdgeTracking();
+  const edgeTracking = useNemuScrollEdgeTracking({
+    systemAdjustsInsets: contentInsetAdjustmentBehavior !== "never",
+  });
   const edgeRef = edgeTracking.ref as unknown as (value: ScrollViewInstance | null) => void;
   const setScrollRef = useCallback(
     (value: ScrollViewInstance | null) => {
@@ -556,7 +558,9 @@ export function PageListScaffold<ItemT>({
     () => exactMobileRootTabHrefForPathname(pathname),
     [pathname],
   );
-  const edgeTracking = useNemuScrollEdgeTracking();
+  const edgeTracking = useNemuScrollEdgeTracking({
+    systemAdjustsInsets: contentInsetAdjustmentBehavior !== "never",
+  });
   const edgeRef = edgeTracking.ref as unknown as (value: FlatList<ItemT> | null) => void;
   const setListRef = useCallback(
     (value: FlatList<ItemT> | null) => {

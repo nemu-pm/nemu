@@ -1,10 +1,13 @@
 import { describe, expect, it, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 // eslint-disable-next-line no-restricted-imports -- test needs the runtime token value; importing from @/design-system pulls the component barrel, which loads react-native's Flow-typed index.js and breaks bun's test runner.
 import { spacing } from "@/design/tokens";
 import { MOBILE_FLOATING_TAB_BAR_VISUAL_HEIGHT } from "./mobileFloatingTabBarClearance";
 import {
   MOBILE_SCROLL_EDGE_REVEAL_DISTANCE,
   mobileScrollEdgeReveal,
+  mobileScrollEdgeScrolledPastRest,
   MOBILE_SCROLL_EDGE_BAR_TAIL,
   resolveMobileRailBottomScrollEdge,
   resolveMobileScrollEdgeBarExtent,
@@ -181,5 +184,36 @@ describe("iOS rail bottom scroll edge", () => {
   test("none with horizontal bars (the tab bar's native edge) or in the reader", () => {
     expect(resolveMobileRailBottomScrollEdge({ platform: "ios", verticalBarSide: null, safeAreaBottom: 34, reader: false }).height).toBe(0);
     expect(resolveMobileRailBottomScrollEdge({ platform: "ios", verticalBarSide: "right", safeAreaBottom: 34, reader: true }).height).toBe(0);
+  });
+});
+
+describe("mobileScrollEdgeScrolledPastRest", () => {
+  test("counts the inset UIKit adds, which scroll events never report", () => {
+    // A page under a 74 pt bar that adjusts its insets rests at offset -74.
+    expect(mobileScrollEdgeScrolledPastRest({ offsetY: -74, contentInsetTop: 0, systemInsetTop: 74 })).toBe(0);
+    expect(mobileScrollEdgeReveal(
+      mobileScrollEdgeScrolledPastRest({ offsetY: -74, contentInsetTop: 0, systemInsetTop: 74 }),
+    )).toBe(0);
+    // Scrolled ~59 pt: content sits under the bar's title, so the band is full.
+    const past = mobileScrollEdgeScrolledPastRest({ offsetY: -15, contentInsetTop: 0, systemInsetTop: 74 });
+    expect(past).toBe(59);
+    expect(mobileScrollEdgeReveal(past)).toBe(1);
+    // Without the system inset it read as -15: no band (the overlap bug).
+    expect(mobileScrollEdgeReveal(-15)).toBe(0);
+  });
+
+  test("the scroll view's own inset and a page that does not adjust", () => {
+    expect(mobileScrollEdgeScrolledPastRest({ offsetY: -20, contentInsetTop: 20, systemInsetTop: 0 })).toBe(0);
+    expect(mobileScrollEdgeScrolledPastRest({ offsetY: 8, contentInsetTop: 0, systemInsetTop: 0 })).toBe(8);
+    expect(mobileScrollEdgeScrolledPastRest({ offsetY: 8, contentInsetTop: Number.NaN, systemInsetTop: Number.NaN })).toBe(8);
+  });
+
+  test("the page scaffolds feed the scroll view's safe-area top as the system inset", () => {
+    const read = (file: string) => readFileSync(path.join(import.meta.dir, file), "utf8");
+    const scaffold = read("../design-system/components/PageScaffold.tsx");
+    expect(scaffold.match(/useNemuScrollEdgeTracking\(\{\s*systemAdjustsInsets: contentInsetAdjustmentBehavior !== "never",/g)?.length).toBe(2);
+    const surface = read("../design-system/components/NemuScrollEdgeSurface.tsx");
+    expect(surface).toContain("layout.safeAreaInsets?.top");
+    expect(surface).toContain("mobileScrollEdgeScrolledPastRest(");
   });
 });

@@ -1,4 +1,4 @@
-import { useEffect, type ComponentType, type ReactElement, type ReactNode } from "react";
+import { useCallback, useEffect, type ComponentType, type ReactElement, type ReactNode } from "react";
 import { Platform, StyleSheet, View } from "react-native";
 import Animated, {
   Easing,
@@ -14,12 +14,14 @@ import Animated, {
 import { BlurView } from "expo-blur";
 import RNCMaskedView from "@react-native-masked-view/masked-view";
 import { useNemuTheme } from "@/design/useNemuTheme";
+import { WindowLayoutObserver, type MobileWindowLayout } from "../../../modules/nemu-window-layout";
 import { useNemuScrollEdge, type NemuScrollEdgeOptions } from "@/design/useNemuScrollEdge";
 import { ExploreGradient } from "@/components/explore/ExploreGradient";
 import {
   MOBILE_RAIL_TOP_EDGE_BLUR_INTENSITY,
   MOBILE_SCROLL_EDGE_BAND_DURATION_MS,
   mobileScrollEdgeReveal,
+  mobileScrollEdgeScrolledPastRest,
   type MobileRailTopScrollEdge,
 } from "@/lib/mobileScrollEdgeEffect";
 
@@ -41,18 +43,37 @@ const SCROLL_EVENT_NAMES = ["onScroll", "onScrollEndDrag", "onMomentumScrollEnd"
 export type NemuScrollEdgeTracking = {
   /** Attach to the page's scroll view (call it from its ref callback). */
   ref: AnimatedRef<never>;
-  /** How far the content has scrolled past its resting top (pt), on the UI thread. */
+  /**
+   * The scroll view's offset plus its own `contentInset.top` (on the UI
+   * thread). A form that tracks its own rest sets it to how far it has
+   * scrolled past that rest.
+   */
   scrolledPastRest: SharedValue<number>;
+  /**
+   * The top inset UIKit adds on its own (`adjustedContentInset` less
+   * `contentInset`: the safe area, the bar's height under a transparent bar)
+   * for a scroll view that adjusts its insets; 0 otherwise. Scroll events
+   * carry only `contentInset`, so at rest the offset is minus this, not 0.
+   * Read from the scroll view's frame (`NemuScrollEdgeSurface`).
+   */
+  systemInsetTop?: SharedValue<number>;
 };
 
 /**
  * Follows a page scroll view's offset on the UI thread (no render per frame),
  * so the top band shows only once content sits under it. The resting top is
- * the offset less the bar's inset UIKit adds above the content.
+ * the offset less every inset above the content: the scroll view's own and,
+ * with `systemAdjustsInsets`, the one UIKit adds (`systemInsetTop`).
  */
-export function useNemuScrollEdgeTracking(): NemuScrollEdgeTracking {
+export function useNemuScrollEdgeTracking({
+  systemAdjustsInsets = false,
+}: { systemAdjustsInsets?: boolean } = {}): NemuScrollEdgeTracking {
   const ref = useAnimatedRef<never>();
   const scrolledPastRest = useSharedValue(0);
+  const systemInsetTop = useSharedValue(0);
+  useEffect(() => {
+    if (!systemAdjustsInsets) systemInsetTop.set(0);
+  }, [systemAdjustsInsets, systemInsetTop]);
   const handler = useEvent<ScrollEdgeEvent>(
     (event: ReanimatedEvent<ScrollEdgeEvent>) => {
       "worklet";
@@ -73,7 +94,7 @@ export function useNemuScrollEdgeTracking(): NemuScrollEdgeTracking {
       return () => events.unregisterFromEvents(tag);
     });
   }, [handler, ref]);
-  return { ref, scrolledPastRest };
+  return systemAdjustsInsets ? { ref, scrolledPastRest, systemInsetTop } : { ref, scrolledPastRest };
 }
 
 /**
@@ -93,14 +114,35 @@ export function NemuScrollEdgeSurface({
    * The scroll view's offset: the top band shows only once content is under
    * it (a SwiftUI Form feeds it from its scroll geometry).
    */
-  tracking: Pick<NemuScrollEdgeTracking, "scrolledPastRest">;
+  tracking: Pick<NemuScrollEdgeTracking, "scrolledPastRest" | "systemInsetTop">;
 }) {
   const bands = useNemuScrollEdge(options);
+  const { systemInsetTop } = tracking;
+  const onObserverLayout = useCallback(
+    (layout: MobileWindowLayout) => {
+      const top = layout.safeAreaInsets?.top;
+      if (systemInsetTop && top !== undefined && Number.isFinite(top)) systemInsetTop.set(Math.max(0, top));
+    },
+    [systemInsetTop],
+  );
   if (Platform.OS !== "ios") return <>{children}</>;
   return (
     <View style={styles.surface}>
       {children}
-      <NemuScrollEdgeBand edge={bands.top} placement="top" scrolledPastRest={tracking.scrolledPastRest} />
+      {/*
+        The scroll view's safe area (same frame), which is the top inset
+        UIKit adds to it: the top band's rest. Only while a top band is drawn
+        (beside the Duo's vertical bar, under a bar the page draws).
+      */}
+      {systemInsetTop && bands.top.height > 0 ? (
+        <WindowLayoutObserver style={StyleSheet.absoluteFill} onLayoutChange={onObserverLayout} />
+      ) : null}
+      <NemuScrollEdgeBand
+        edge={bands.top}
+        placement="top"
+        scrolledPastRest={tracking.scrolledPastRest}
+        systemInsetTop={systemInsetTop}
+      />
       <NemuScrollEdgeBand edge={bands.bottom} placement="bottom" />
     </View>
   );
@@ -115,10 +157,12 @@ function NemuScrollEdgeBand({
   edge,
   placement,
   scrolledPastRest,
+  systemInsetTop,
 }: {
   edge: MobileRailTopScrollEdge;
   placement: "top" | "bottom";
   scrolledPastRest?: SharedValue<number>;
+  systemInsetTop?: SharedValue<number>;
 }) {
   const { scheme } = useNemuTheme();
   const height = useSharedValue(edge.height);
@@ -130,7 +174,16 @@ function NemuScrollEdgeBand({
   }, [edge.height, height]);
   const animatedStyle = useAnimatedStyle(() => ({
     height: height.get(),
-    opacity: scrolledPastRest ? mobileScrollEdgeReveal(scrolledPastRest.get()) : 1,
+    opacity: scrolledPastRest
+      ? mobileScrollEdgeReveal(
+          mobileScrollEdgeScrolledPastRest({
+            // Already the offset plus the scroll view's own inset.
+            offsetY: scrolledPastRest.get(),
+            contentInsetTop: 0,
+            systemInsetTop: systemInsetTop ? systemInsetTop.get() : 0,
+          }),
+        )
+      : 1,
   }));
   if (edge.height <= 0) return null;
   return (

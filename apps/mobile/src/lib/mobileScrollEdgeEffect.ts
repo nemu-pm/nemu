@@ -185,6 +185,33 @@ export function mobileScrollEdgeReveal(scrolledPastRest: number): number {
   return Math.min(1, scrolledPastRest / MOBILE_SCROLL_EDGE_REVEAL_DISTANCE);
 }
 
+/**
+ * How far a scroll view's content sits past its resting top, from what a
+ * scroll event reports. React Native's events carry `contentOffset` and the
+ * scroll view's own `contentInset`, never UIKit's adjusted inset (the safe
+ * area and a transparent bar's height on a page that adjusts its insets), so
+ * at rest the offset is minus that system inset, not minus `contentInset`.
+ * Left out, the band stayed hidden until the content had scrolled a whole bar
+ * past rest: the Library scrolled ~60 pt beside the Duo's vertical bar drew
+ * "Continue Reading" over the bar's "Library" title with nothing behind it.
+ */
+export function mobileScrollEdgeScrolledPastRest({
+  offsetY,
+  contentInsetTop,
+  systemInsetTop,
+}: {
+  offsetY: number;
+  /** The scroll view's own `contentInset.top` (what the event reports). */
+  contentInsetTop: number;
+  /** What UIKit adds on top of it (the scroll view's safe-area top); 0 when it does not adjust. */
+  systemInsetTop: number;
+}): number {
+  "worklet";
+  const own = Number.isFinite(contentInsetTop) ? contentInsetTop : 0;
+  const system = Number.isFinite(systemInsetTop) ? Math.max(0, systemInsetTop) : 0;
+  return offsetY + own + system;
+}
+
 const NO_BAND: MobileRailTopScrollEdge = { height: 0, maskStops: [] };
 
 const RAIL_TOP_EDGE_STOP_COUNT = 6;
