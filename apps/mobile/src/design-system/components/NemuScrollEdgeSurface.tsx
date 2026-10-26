@@ -11,10 +11,10 @@ import Animated, {
   type ReanimatedEvent,
   type SharedValue,
 } from "react-native-reanimated";
-import { BlurView } from "expo-blur";
+import { BlurView, type BlurTint } from "expo-blur";
 import RNCMaskedView from "@react-native-masked-view/masked-view";
 import { useNemuTheme } from "@/design/useNemuTheme";
-import { WindowLayoutObserver, type MobileWindowLayout } from "../../../modules/nemu-window-layout";
+import { NativeBlurView, WindowLayoutObserver, type MobileWindowLayout } from "../../../modules/nemu-window-layout";
 import { useNemuScrollEdge, type NemuScrollEdgeOptions } from "@/design/useNemuScrollEdge";
 import { ExploreGradient } from "@/components/explore/ExploreGradient";
 import {
@@ -180,6 +180,18 @@ export function NemuScrollEdgeSurface({
 }
 
 /**
+ * The bands' blur: NemuBlurView on iOS (it re-applies its effect whenever it
+ * is on screen without one; expo-blur's BlurView sets it only from its first
+ * draw and stayed empty on about half of the cold launches for the Library's
+ * band, iPhone Duo r6), expo-blur's BlurView elsewhere or on an older binary.
+ * Same intensity and tint either way.
+ */
+function BandBlur({ intensity, tint }: { intensity: number; tint: BlurTint }) {
+  if (NativeBlurView) return <NativeBlurView intensity={intensity} tint={tint} style={StyleSheet.absoluteFill} />;
+  return <BlurView intensity={intensity} tint={tint} style={StyleSheet.absoluteFill} />;
+}
+
+/**
  * One progressive blur band. Its height follows the page's pinned top with a
  * short ease (a compact title fading in, a bar row going), never a jump; the
  * top band's opacity follows the scroll.
@@ -227,10 +239,9 @@ function NemuScrollEdgeBand({
         style={StyleSheet.absoluteFill}
         maskElement={<ExploreGradient colors={edge.maskStops} style={StyleSheet.absoluteFill} />}
       >
-        <BlurView
+        <BandBlur
           intensity={MOBILE_RAIL_TOP_EDGE_BLUR_INTENSITY}
           tint={scheme === "dark" ? "systemUltraThinMaterialDark" : "systemUltraThinMaterialLight"}
-          style={StyleSheet.absoluteFill}
         />
       </MaskedView>
     </Animated.View>

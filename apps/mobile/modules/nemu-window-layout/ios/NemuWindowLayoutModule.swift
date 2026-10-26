@@ -193,6 +193,13 @@ public final class NemuWindowLayoutModule: Module {
     }
     Constant("nameAlertViewAvailable") { true }
     View(NemuNameAlertView.self)
+    // A partial-intensity blur that re-applies its effect (see NemuBlurView):
+    // the scroll edge bands, where expo-blur's BlurView could stay empty.
+    Constant("blurViewAvailable") { true }
+    View(NemuBlurView.self) {
+      Prop("intensity") { (view: NemuBlurView, intensity: Double) in view.intensity = intensity }
+      Prop("tint") { (view: NemuBlurView, tint: String) in view.style = NemuBlurView.style(named: tint) }
+    }
     Constant("segmentedControlViewAvailable") { true }
     View(NemuSegmentedControlView.self) {
       Events("onSelectionChange")

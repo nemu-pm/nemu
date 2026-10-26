@@ -52,6 +52,8 @@ export { default as SheetProgressObserver } from "./src/SheetProgressObserver";
 
 export { NativeSegmentedControl } from "./src/SegmentedControl";
 
+export { NativeBlurView } from "./src/BlurView";
+
 export { ConcentricView } from "./src/ConcentricView";
 
 export { analyzePageFile, pageAnalysisAvailable, type NativePageAnalysis } from "./src/PageAnalysis";
