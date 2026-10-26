@@ -280,6 +280,14 @@ public final class NemuWindowLayoutModule: Module {
       Prop("generation") { (view: NemuContentScrollMarkerView, _: Double) in
         view.scheduleApply()
       }
+      // False beside a vertical bar: the list is not the top edge's content
+      // scroll view (see `NemuContentScrollMarkerView.topEdge`).
+      Prop("topEdge") { (view: NemuContentScrollMarkerView, topEdge: Bool?) in
+        let next = topEdge ?? true
+        guard next != view.topEdge else { return }
+        view.topEdge = next
+        view.scheduleApply()
+      }
     }
     View(NemuGlassContainerView.self) {
       Prop("spacing") { (view: NemuGlassContainerView, spacing: Double) in
@@ -3167,6 +3175,15 @@ final class NemuZoomTargetView: ExpoView {
 /// shows it and of each parent controller below the tab bar controller.
 /// Re-applied whenever the screen comes back on screen.
 final class NemuContentScrollMarkerView: ExpoView {
+  /// Register the list for the top edge too. Off beside the Duo's vertical
+  /// bar: there the top edge's system effect is hidden and the page draws its
+  /// own band under the bar's title (NemuScrollEdgeSurface), and a registered
+  /// top content scroll view made the bar track the list itself (the title
+  /// hid on scroll and the page's band never showed over the list, unlike on
+  /// every page without a marker). Cleared, not left registered, when it
+  /// turns off (a fold that brings the vertical bar).
+  var topEdge = true
+
   override func didMoveToWindow() {
     super.didMoveToWindow()
     guard window != nil else { return }
@@ -3193,7 +3210,14 @@ final class NemuContentScrollMarkerView: ExpoView {
       responder = current.next
     }
     while let current = controller, !(current is UITabBarController) {
-      current.setContentScrollView(scrollView, for: [.top, .bottom])
+      if topEdge {
+        current.setContentScrollView(scrollView, for: [.top, .bottom])
+      } else {
+        current.setContentScrollView(scrollView, for: .bottom)
+        if current.contentScrollView(for: .top) === scrollView {
+          current.setContentScrollView(nil, for: .top)
+        }
+      }
       controller = current.parent
     }
   }

@@ -2660,8 +2660,12 @@ export function LibraryScreen({
                 settleOnMount={collectionSettleOnMount}
                 style={styles.exploreSections}
               >
-                {/* Lets the tab bar minimise on scroll (UIKit content scroll view). */}
-                <ContentScrollMarker generation={gridColumns} />
+                {/*
+                  The list is UIKit's content scroll view (tab bar). Not for
+                  the top edge beside a vertical bar: there the page's own
+                  band backs the bar's title, as on every other page.
+                */}
+                <ContentScrollMarker generation={gridColumns} topEdge={verticalBarSide === null} />
                 {!selectedCollection ? (
                   <MobilePoseLayoutView>
                   <MobileLaunchRevealGroup group="collections">

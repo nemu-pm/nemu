@@ -259,3 +259,30 @@ describe("mobileScrollEdgeScrolledPastRest", () => {
     expect(surface).toContain("mobileScrollEdgeScrolledPastRest(");
   });
 });
+
+describe("the Library's band beside the vertical bar", () => {
+  const read = (file: string) => readFileSync(path.join(import.meta.dir, file), "utf8");
+
+  test("the Library list is not the top edge's content scroll view beside a vertical bar (as on every page without a marker)", () => {
+    const library = read("../screens/LibraryScreen.tsx");
+    expect(library).toContain("<ContentScrollMarker generation={gridColumns} topEdge={verticalBarSide === null} />");
+    const marker = read("../../modules/nemu-window-layout/src/ZoomTransition.native.tsx");
+    expect(marker).toContain("topEdge={topEdge}");
+    const swift = read("../../modules/nemu-window-layout/ios/NemuWindowLayoutModule.swift");
+    expect(swift).toContain('Prop("topEdge")');
+    // Turned off, an earlier top registration is cleared, not left in place.
+    expect(swift).toContain("current.setContentScrollView(nil, for: .top)");
+    expect(swift).toContain("current.setContentScrollView(scrollView, for: .bottom)");
+  });
+
+  test("where a scroll comes to rest also reaches the band from the JS end events", () => {
+    const scaffold = read("../design-system/components/PageScaffold.tsx");
+    expect(scaffold).toContain("onScrollEndDrag={edgeTracking.onScrollSettled}");
+    expect(scaffold).toContain("onMomentumScrollEnd={edgeTracking.onScrollSettled}");
+    expect(scaffold).toContain("onScrollEndDrag={onListScrollEndDrag}");
+    expect(scaffold).toContain("onMomentumScrollEnd={onListMomentumScrollEnd}");
+    // The caller's own end handlers still run.
+    expect(scaffold).toContain("callerOnScrollEndDrag?.(event);");
+    expect(scaffold).toContain("callerOnMomentumScrollEnd?.(event);");
+  });
+});

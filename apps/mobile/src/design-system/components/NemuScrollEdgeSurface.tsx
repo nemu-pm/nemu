@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ComponentType, type ReactElement, type ReactNode } from "react";
-import { Platform, StyleSheet, View } from "react-native";
+import { Platform, StyleSheet, View, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
 import Animated, {
   Easing,
   useAnimatedRef,
@@ -57,6 +57,13 @@ export type NemuScrollEdgeTracking = {
    * Read from the scroll view's frame (`NemuScrollEdgeSurface`).
    */
   systemInsetTop?: SharedValue<number>;
+  /**
+   * The same offset from the scroll view's JS end events (a drag released, a
+   * fling settled): where the scroll comes to rest is never left to the
+   * UI-thread registration alone. Compose into the scroll view's
+   * `onScrollEndDrag` and `onMomentumScrollEnd`.
+   */
+  onScrollSettled?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
 };
 
 /**
@@ -94,7 +101,18 @@ export function useNemuScrollEdgeTracking({
       return () => events.unregisterFromEvents(tag);
     });
   }, [handler, ref]);
-  return systemAdjustsInsets ? { ref, scrolledPastRest, systemInsetTop } : { ref, scrolledPastRest };
+  const onScrollSettled = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const { contentOffset, contentInset } = event.nativeEvent;
+      if (!contentOffset || !Number.isFinite(contentOffset.y)) return;
+      const own = contentInset && Number.isFinite(contentInset.top) ? contentInset.top : 0;
+      scrolledPastRest.set(contentOffset.y + own);
+    },
+    [scrolledPastRest],
+  );
+  return systemAdjustsInsets
+    ? { ref, scrolledPastRest, systemInsetTop, onScrollSettled }
+    : { ref, scrolledPastRest, onScrollSettled };
 }
 
 /**

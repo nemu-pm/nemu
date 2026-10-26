@@ -26,7 +26,7 @@ export function ZoomTarget({
   return <View style={style}>{children}</View>;
 }
 
-export function ContentScrollMarker(_props: { generation?: number }) {
+export function ContentScrollMarker(_props: { generation?: number; topEdge?: boolean }) {
   void _props;
   return null;
 }

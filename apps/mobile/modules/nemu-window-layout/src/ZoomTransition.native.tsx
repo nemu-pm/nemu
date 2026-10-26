@@ -26,7 +26,7 @@ type ZoomTargetProps = {
 };
 export type ZoomStartedEvent = { durationMs: number; startedAtMs: number };
 type NativeZoomStartedEvent = { nativeEvent: ZoomStartedEvent };
-type MarkerProps = { generation?: number; style?: ViewProps["style"] };
+type MarkerProps = { generation?: number; topEdge?: boolean; style?: ViewProps["style"] };
 
 const nativeModule = Platform.OS === "ios"
   ? requireOptionalNativeModule<{
@@ -100,8 +100,21 @@ export function ZoomTarget({
 }
 
 /** Registers the enclosing list as its screen's content scroll view (tab bar minimise). */
-export function ContentScrollMarker({ generation = 0 }: { generation?: number }) {
+export function ContentScrollMarker({
+  generation = 0,
+  topEdge = true,
+}: {
+  generation?: number;
+  /** Register for the top edge too (false beside a vertical bar). */
+  topEdge?: boolean;
+}) {
   if (!NativeMarker) return null;
   // Out of the flow: it must not take a gap in a stacked header.
-  return <NativeMarker generation={generation} style={{ position: "absolute", width: 0, height: 0 }} />;
+  return (
+    <NativeMarker
+      generation={generation}
+      topEdge={topEdge}
+      style={{ position: "absolute", width: 0, height: 0 }}
+    />
+  );
 }

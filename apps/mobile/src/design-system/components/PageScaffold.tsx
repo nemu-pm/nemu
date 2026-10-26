@@ -28,6 +28,8 @@ import {
   useWindowDimensions,
   type FlatListProps,
   type LayoutChangeEvent,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   type ScrollViewProps,
   type StyleProp,
   type ViewStyle,
@@ -523,6 +525,8 @@ export function PageScaffold({
         showsVerticalScrollIndicator={false}
         onScroll={onScroll}
         scrollEventThrottle={onScroll ? (scrollEventThrottle ?? 32) : undefined}
+        onScrollEndDrag={edgeTracking.onScrollSettled}
+        onMomentumScrollEnd={edgeTracking.onScrollSettled}
       >
         <Fragment key={fontScaleLayoutKey}>{children}</Fragment>
       </ScrollView>
@@ -589,6 +593,25 @@ export function PageListScaffold<ItemT>({
     contentInsetAdjustmentBehavior,
   });
   const { onLayout: callerOnLayout } = flatListProps;
+  const {
+    onScrollEndDrag: callerOnScrollEndDrag,
+    onMomentumScrollEnd: callerOnMomentumScrollEnd,
+  } = flatListProps;
+  const edgeOnScrollSettled = edgeTracking.onScrollSettled;
+  const onListScrollEndDrag = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      edgeOnScrollSettled?.(event);
+      callerOnScrollEndDrag?.(event);
+    },
+    [callerOnScrollEndDrag, edgeOnScrollSettled],
+  );
+  const onListMomentumScrollEnd = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      edgeOnScrollSettled?.(event);
+      callerOnMomentumScrollEnd?.(event);
+    },
+    [callerOnMomentumScrollEnd, edgeOnScrollSettled],
+  );
   const onListLayout = useCallback(
     (event: LayoutChangeEvent) => {
       viewportFill.onFrameLayout(event);
@@ -639,6 +662,8 @@ export function PageListScaffold<ItemT>({
         {...flatListProps}
         alwaysBounceVertical={fillViewport ? true : flatListProps.alwaysBounceVertical}
         onLayout={onListLayout}
+        onScrollEndDrag={onListScrollEndDrag}
+        onMomentumScrollEnd={onListMomentumScrollEnd}
         keyExtractor={keyExtractor}
         ListHeaderComponent={fontScaleKeyedListSlot(flatListProps.ListHeaderComponent, fontScaleLayoutKey)}
         ListEmptyComponent={fontScaleKeyedListSlot(flatListProps.ListEmptyComponent, fontScaleLayoutKey)}
