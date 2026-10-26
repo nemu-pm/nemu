@@ -286,3 +286,14 @@ describe("the Library's band beside the vertical bar", () => {
     expect(scaffold).toContain("callerOnMomentumScrollEnd?.(event);");
   });
 });
+
+describe("the bands' blur re-applies its effect (expo-blur's could stay empty from launch)", () => {
+  test("the page bands and the sheet band blur through NemuBlurView on iOS, expo-blur only as the fallback", () => {
+    for (const file of ["NemuScrollEdgeSurface.tsx", "NemuSheetScrollEdge.tsx"]) {
+      const source = readFileSync(path.join(import.meta.dir, "../design-system/components", file), "utf8");
+      expect(source).toContain("if (NativeBlurView)");
+      expect(source).toContain("MOBILE_RAIL_TOP_EDGE_BLUR_INTENSITY");
+      expect(source).toContain('"systemUltraThinMaterialDark" : "systemUltraThinMaterialLight"');
+    }
+  });
+});

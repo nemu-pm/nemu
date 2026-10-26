@@ -9,10 +9,11 @@ import {
   type ViewStyle,
 } from "react-native";
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
-import { BlurView } from "expo-blur";
+import { BlurView, type BlurTint } from "expo-blur";
 import RNCMaskedView from "@react-native-masked-view/masked-view";
 import { useNemuTheme } from "@/design/useNemuTheme";
 import { ExploreGradient } from "@/components/explore/ExploreGradient";
+import { NativeBlurView } from "../../../modules/nemu-window-layout";
 import {
   MOBILE_RAIL_TOP_EDGE_BLUR_INTENSITY,
   MOBILE_SHEET_SCROLL_EDGE,
@@ -25,6 +26,19 @@ const MaskedView = RNCMaskedView as unknown as ComponentType<{
   pointerEvents?: "none";
   style?: object;
 }>;
+
+/**
+ * The band's blur: NemuBlurView on iOS, as NemuScrollEdgeSurface's bands (it
+ * re-applies its effect whenever it is on screen without one; expo-blur's
+ * BlurView could stay empty from launch), expo-blur's BlurView on an older
+ * binary. Same intensity and tint either way.
+ */
+function SheetBandBlur({ tint }: { tint: BlurTint }) {
+  if (NativeBlurView) {
+    return <NativeBlurView intensity={MOBILE_RAIL_TOP_EDGE_BLUR_INTENSITY} tint={tint} style={StyleSheet.absoluteFill} />;
+  }
+  return <BlurView intensity={MOBILE_RAIL_TOP_EDGE_BLUR_INTENSITY} tint={tint} style={StyleSheet.absoluteFill} />;
+}
 
 export type NemuSheetScrollEdgeProps = {
   onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
@@ -80,11 +94,7 @@ export function NemuSheetScrollEdge({
           style={StyleSheet.absoluteFill}
           maskElement={<ExploreGradient colors={MOBILE_SHEET_SCROLL_EDGE.maskStops} style={StyleSheet.absoluteFill} />}
         >
-          <BlurView
-            intensity={MOBILE_RAIL_TOP_EDGE_BLUR_INTENSITY}
-            tint={scheme === "dark" ? "systemUltraThinMaterialDark" : "systemUltraThinMaterialLight"}
-            style={StyleSheet.absoluteFill}
-          />
+          <SheetBandBlur tint={scheme === "dark" ? "systemUltraThinMaterialDark" : "systemUltraThinMaterialLight"} />
         </MaskedView>
       </Animated.View>
     </View>
