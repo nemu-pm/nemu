@@ -25,22 +25,51 @@
  * apps/mobile/workletsBundleMode.cjs) because it lengthened cold launch; by
  * default `createRealSchedule` takes the JS-thread fallback.
  *
+ * JS-thread fallback (`runAlignmentOnJsThread`): the core runs as a generator
+ * (`computeAlignmentTransformCooperative`) in slices of ~6 ms, yielding to the
+ * host with `setTimeout(0)` between slices so the UI stays responsive. Only one
+ * fallback alignment runs at a time (so two jobs' slices cannot be batched into
+ * one timer flush), each job has an AbortSignal that `cancelPending`/`dispose`
+ * abort, and a wall-clock cap drops the result instead of blocking. The longest
+ * slice of each job is recorded as `dualReader.align.maxSliceMs`.
+ *
  * DEVICE-GATED: the real `react-native-worklets` runtime requires the New
  * Architecture + Bundle Mode + a native build, so it is verified on-device
  * (T7.4). The queue/concurrency/dispose logic is unit-tested here via an
  * injectable scheduler (`createMobileDualReaderAlignThread({ schedule })`).
  */
+import {
+  buildAlignmentOptions,
+  computeAlignmentTransformCooperative,
+} from "@nemu/core/dual-reader";
 import type {
   AlignmentOptions,
   AlignmentResult,
+  CooperativeRunStats,
   LumaImage,
 } from "@nemu/core/dual-reader";
+import { measureMobilePerformance } from "./mobilePerformance";
 import type { RunAlignmentFn } from "./mobileDualReaderRuntime";
 import { ALIGNMENT_MAX_CONCURRENCY } from "./mobileDualReaderRuntime";
 import { createRetryablePromiseCache } from "./retryablePromiseCache";
 
-/** Default per-alignment timeout, matching web's `computeDualReadAlignmentInWorker` timeoutMs. */
-const DEFAULT_ALIGN_TIMEOUT_MS = 2000;
+/**
+ * Overall wall-clock cap per alignment. Was 2 s (web parity), but sliced
+ * JS-thread alignment takes longer in wall time than one blocking run, and a
+ * normal successful alignment alone costs ~2 s of CPU on slow devices, so 2 s
+ * dropped legitimate work. On timeout the result is dropped (never blocks).
+ */
+export const DEFAULT_ALIGN_TIMEOUT_MS = 10_000;
+
+/**
+ * Per-slice budget for the JS-thread fallback (ms of synchronous work before
+ * yielding). Below the core default (8 ms) to leave headroom for GC/JIT pauses
+ * that land inside a slice: measured max slice in bun is ~10 ms at 6 ms
+ * (vs ~14 ms cold at 8 ms); deterministic checkpoint gaps are <0.4 ms.
+ */
+export const JS_THREAD_ALIGN_SLICE_BUDGET_MS = 6;
+
+export const DUAL_READER_ALIGN_MAX_SLICE_LABEL = "dualReader.align.maxSliceMs";
 
 export type AlignThreadJobPayload = {
   primary: LumaImage;
@@ -51,8 +80,14 @@ export type AlignThreadJobPayload = {
   timeoutMs?: number;
 };
 
+export type AlignThreadScheduleContext = {
+  /** Aborted by `cancelPending()` / `dispose()`. Honoured by the JS-thread fallback between slices. */
+  signal: AbortSignal;
+};
+
 export type AlignThreadScheduleFn = (
   payload: AlignThreadJobPayload,
+  context: AlignThreadScheduleContext,
 ) => Promise<AlignmentResult>;
 
 export type AlignThreadHandle = {
@@ -66,6 +101,7 @@ export type AlignThreadHandle = {
 
 type PendingJob = {
   generation: number;
+  controller: AbortController;
   payload: AlignThreadJobPayload;
   resolve: (result: AlignmentResult) => void;
   reject: (err: unknown) => void;
@@ -124,6 +160,89 @@ function dualReaderAlignWorklet(
   });
 }
 
+function nowMs(): number {
+  return globalThis.performance?.now?.() ?? Date.now();
+}
+
+function recordAlignSliceStats(
+  stats: CooperativeRunStats,
+  outcome: "ok" | "aborted" | "timeout" | "error",
+): void {
+  if (stats.slices === 0) return;
+  // durationMs of this entry == the longest single synchronous slice.
+  measureMobilePerformance(
+    DUAL_READER_ALIGN_MAX_SLICE_LABEL,
+    nowMs() - stats.maxSliceMs,
+    {
+      maxSliceMs: Math.round(stats.maxSliceMs * 100) / 100,
+      slices: stats.slices,
+      busyMs: Math.round(stats.busyMs),
+      totalMs: Math.round(stats.totalMs),
+      outcome,
+    },
+  );
+}
+
+/** Serializes JS-thread alignments: one cooperative run at a time. */
+let jsThreadAlignTail: Promise<unknown> = Promise.resolve();
+
+/**
+ * JS-thread fallback: run the shared core cooperatively in ~6 ms slices so
+ * the JS thread is never blocked for long. Honors `signal` between slices and
+ * drops the work after `payload.timeoutMs` of wall-clock time.
+ */
+export function runAlignmentOnJsThread(
+  payload: AlignThreadJobPayload,
+  context: AlignThreadScheduleContext,
+  options?: { sliceBudgetMs?: number; yieldToHost?: () => Promise<void> },
+): Promise<AlignmentResult> {
+  const run = async (): Promise<AlignmentResult> => {
+    let outcome: "ok" | "aborted" | "timeout" | "error" = "ok";
+    const statsRef: { current: CooperativeRunStats | null } = { current: null };
+    try {
+      const { result } = await computeAlignmentTransformCooperative(
+        {
+          primary: payload.primary,
+          secondary: payload.secondary,
+          options: buildAlignmentOptions({
+            fineMax: payload.fineMax,
+            fftMax: payload.fftMax,
+            fftBackend: payload.fftBackend ?? "js",
+          }),
+        },
+        {
+          sliceBudgetMs: options?.sliceBudgetMs ?? JS_THREAD_ALIGN_SLICE_BUDGET_MS,
+          signal: context.signal,
+          timeoutMs: payload.timeoutMs,
+          yieldToHost: options?.yieldToHost,
+          onStats: (s) => {
+            statsRef.current = s;
+          },
+        },
+      );
+      return result;
+    } catch (err) {
+      const name = err instanceof Error ? err.name : "";
+      outcome =
+        name === "AbortError" ? "aborted" : name === "AlignmentTimeoutError" ? "timeout" : "error";
+      if (outcome === "aborted") {
+        throw new Error("Dual-reader alignment cancelled");
+      }
+      throw err;
+    } finally {
+      if (statsRef.current) recordAlignSliceStats(statsRef.current, outcome);
+    }
+  };
+  const job = jsThreadAlignTail.then(() => {
+    if (context.signal.aborted) {
+      return Promise.reject(new Error("Dual-reader alignment cancelled"));
+    }
+    return run();
+  });
+  jsThreadAlignTail = job.catch(() => undefined);
+  return job;
+}
+
 /**
  * Lazily create the real worklet runtime and a schedule function backed by
  * `runOnRuntimeAsync`. Lazy + dynamic import so unit tests (no native runtime)
@@ -139,10 +258,10 @@ async function createRealSchedule(): Promise<AlignThreadScheduleFn> {
     // made a second runtime evaluate the whole bundle during launch and the
     // JS thread waited on it, lengthening the native launch screen. Without
     // it the worklet runtime cannot `require` the shared core, so alignment
-    // runs on the JS thread (deferred by a microtask). Builds that opt back
-    // in with NEMU_WORKLETS_BUNDLE_MODE=1 use the dedicated runtime below.
-    return (payload) =>
-      Promise.resolve().then(() => dualReaderAlignWorklet(payload));
+    // runs on the JS thread, time-sliced (see `runAlignmentOnJsThread`).
+    // Builds that opt back in with NEMU_WORKLETS_BUNDLE_MODE=1 use the
+    // dedicated runtime below.
+    return (payload, context) => runAlignmentOnJsThread(payload, context);
   }
   const worklets = (await import("react-native-worklets")) as {
     createWorkletRuntime: (config: { name: string }) => unknown;
@@ -153,6 +272,8 @@ async function createRealSchedule(): Promise<AlignThreadScheduleFn> {
     ) => Promise<AlignmentResult>;
   };
   const runtime = worklets.createWorkletRuntime({ name: "dual-reader-align" });
+  // Off-thread: the signal cannot cross runtimes; the worklet's deadline-based
+  // abortCheck bounds the work and stale results are discarded by generation.
   return (payload) =>
     worklets.runOnRuntimeAsync(runtime, dualReaderAlignWorklet, payload);
 }
@@ -185,6 +306,7 @@ export function createMobileDualReaderAlignThread(options?: {
 
   let running = 0;
   const queue: PendingJob[] = [];
+  const active = new Set<PendingJob>();
 
   function getSchedule(): Promise<AlignThreadScheduleFn> {
     if (injectedSchedule) return Promise.resolve(injectedSchedule);
@@ -196,11 +318,15 @@ export function createMobileDualReaderAlignThread(options?: {
     while (running < maxConcurrency && queue.length > 0) {
       const job = queue.shift()!;
       running += 1;
+      active.add(job);
       void getSchedule()
-        .then((schedule) => schedule(job.payload))
+        .then((schedule) =>
+          schedule(job.payload, { signal: job.controller.signal }),
+        )
         .then(
           (result) => {
             running -= 1;
+            active.delete(job);
             if (disposed || job.generation !== generation) {
               job.reject(new Error("Dual-reader alignment cancelled"));
             } else {
@@ -210,6 +336,7 @@ export function createMobileDualReaderAlignThread(options?: {
           },
           (err) => {
             running -= 1;
+            active.delete(job);
             job.reject(err);
             pump();
           },
@@ -233,13 +360,24 @@ export function createMobileDualReaderAlignThread(options?: {
       timeoutMs,
     };
     return new Promise<AlignmentResult>((resolve, reject) => {
-      queue.push({ generation, payload, resolve, reject });
+      queue.push({
+        generation,
+        controller: new AbortController(),
+        payload,
+        resolve,
+        reject,
+      });
       pump();
     });
   };
 
+  function abortActive(): void {
+    for (const job of active) job.controller.abort();
+  }
+
   function cancelPending(): void {
     generation += 1;
+    abortActive();
     while (queue.length > 0) {
       const job = queue.shift()!;
       job.reject(new Error("Dual-reader alignment cancelled"));
@@ -250,6 +388,7 @@ export function createMobileDualReaderAlignThread(options?: {
     if (disposed) return;
     disposed = true;
     generation += 1;
+    abortActive();
     while (queue.length > 0) {
       const job = queue.shift()!;
       job.reject(new Error("Dual-reader align thread disposed"));
