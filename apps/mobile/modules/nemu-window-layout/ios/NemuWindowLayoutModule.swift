@@ -1312,18 +1312,31 @@ final class NemuTransitionProbeController: UIViewController {
   }
 }
 
+/// Detaches a zero-size transition probe from the root it was added to.
+@MainActor
+func nemuRemoveTransitionProbe(_ probe: UIViewController?) {
+  guard let probe else { return }
+  probe.willMove(toParent: nil)
+  probe.view.removeFromSuperview()
+  probe.removeFromParent()
+}
+
 final class NemuWindowLayoutView: ExpoView {
   let onRegionsChange = EventDispatcher()
   /// `{ width, height, durationMs, curve }` of a window size change about to animate.
   let onWillTransition = EventDispatcher()
   private var transitionProbe: NemuTransitionProbeController?
 
+  /// Installs the probe under the current window's root, or removes it when
+  /// the view has left its window: a probe left on the root after its view is
+  /// gone (one per reader open) only adds to UIKit's child walks during every
+  /// later size and trait change.
   private func installTransitionProbe() {
-    guard let root = window?.rootViewController else { return }
-    if let probe = transitionProbe, probe.parent === root { return }
-    transitionProbe?.willMove(toParent: nil)
-    transitionProbe?.view.removeFromSuperview()
-    transitionProbe?.removeFromParent()
+    let root = window?.rootViewController
+    if let probe = transitionProbe, let root, probe.parent === root { return }
+    nemuRemoveTransitionProbe(transitionProbe)
+    transitionProbe = nil
+    guard let root else { return }
     let probe = NemuTransitionProbeController()
     probe.onWillTransition = { [weak self] size, duration, curve in
       self?.onWillTransition([
@@ -1340,6 +1353,13 @@ final class NemuWindowLayoutView: ExpoView {
     root.view.addSubview(probe.view)
     probe.didMove(toParent: root)
     transitionProbe = probe
+  }
+
+  deinit {
+    // `didMoveToWindow(nil)` normally removed it already; this covers a view
+    // released while still attached.
+    let probe = transitionProbe
+    MainActor.assumeIsolated { nemuRemoveTransitionProbe(probe) }
   }
   var observationEnabled = true {
     didSet {
@@ -1896,6 +1916,12 @@ final class NemuVerticalBarOnlyLeadingItemsView: ExpoView {
     reconcile()
   }
 
+  deinit {
+    // Normally removed when the view left its window (`reconcile`).
+    let probe = transitionProbe
+    MainActor.assumeIsolated { nemuRemoveTransitionProbe(probe) }
+  }
+
   override func layoutSubviews() {
     super.layoutSubviews()
     reconcile()
@@ -1958,9 +1984,7 @@ final class NemuVerticalBarOnlyLeadingItemsView: ExpoView {
   private func installTransitionProbe() {
     let root = window?.rootViewController
     if let probe = transitionProbe, let root, probe.parent === root { return }
-    transitionProbe?.willMove(toParent: nil)
-    transitionProbe?.view.removeFromSuperview()
-    transitionProbe?.removeFromParent()
+    nemuRemoveTransitionProbe(transitionProbe)
     transitionProbe = nil
     guard let root else { return }
     let probe = NemuLeadingItemsTransitionProbe()
