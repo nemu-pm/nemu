@@ -220,13 +220,80 @@ export async function resolveCachedMobileSourceImageRequest(
   options.onCacheKey?.(key);
 
   return cacheImageRequest(key, async () => {
-    return cache.withSession(
-      normalized,
-      { ...options.executor, executionScope, settings },
-      async (session): Promise<MobileSourceImageRequest | null> => {
-        if (session.status === "blocked") return null;
-        return resolveSessionImageRequest(session.source, url, key, options);
-      },
+    return withStaggeredColdImageSession(
+      cache,
+      sourceKey,
+      executionScope,
+      (sessionReady) =>
+        cache.withSession(
+          normalized,
+          { ...options.executor, executionScope, settings },
+          async (session): Promise<MobileSourceImageRequest | null> => {
+            sessionReady();
+            if (session.status === "blocked") return null;
+            return resolveSessionImageRequest(session.source, url, key, options);
+          },
+        ),
     );
   });
+}
+
+/**
+ * How long one cold session boot holds the next source's turn. A cold Aidoku
+ * session boots its own WebContent process on iOS (0.5-2s, on the main
+ * thread), so a screen of covers from several sources used to boot them all
+ * at once; past this, a boot that is still going no longer holds the queue.
+ */
+export const MOBILE_SOURCE_IMAGE_COLD_SESSION_STAGGER_MS = 2500;
+
+let coldImageSessionTurn: Promise<void> = Promise.resolve();
+const coldImageSessionBoots = new Map<string, Promise<void>>();
+
+/**
+ * Image requests for a source whose session is warm run at once. A source
+ * without one takes a turn: cold boots start one after another (each holds the
+ * next until its session is up, it fails, or the stagger passes), and further
+ * requests for a source whose boot is under way wait for that boot first.
+ */
+async function withStaggeredColdImageSession<T>(
+  cache: MobileSourceSessionCache,
+  sourceKey: string,
+  executionScope: string,
+  run: (sessionReady: () => void) => Promise<T>,
+): Promise<T> {
+  const noop = () => undefined;
+  const warm =
+    typeof cache.peek !== "function" ||
+    (executionScope === getActiveMobileSourceProfileScope() &&
+      cache.peek(sourceKey) !== undefined);
+  if (warm) return run(noop);
+  const bootKey = `${executionScope}\u0000${sourceKey}`;
+  const booting = coldImageSessionBoots.get(bootKey);
+  if (booting) {
+    await booting;
+    return run(noop);
+  }
+  let markBooted: () => void = noop;
+  const booted = new Promise<void>((resolve) => {
+    markBooted = resolve;
+  });
+  coldImageSessionBoots.set(bootKey, booted);
+  void booted.then(() => {
+    if (coldImageSessionBoots.get(bootKey) === booted) {
+      coldImageSessionBoots.delete(bootKey);
+    }
+  });
+  const result = coldImageSessionTurn.then(() => run(markBooted));
+  void result.then(markBooted, markBooted);
+  // The stagger counts from when this boot's turn starts.
+  coldImageSessionTurn = coldImageSessionTurn.then(() => {
+    let staggerTimer: ReturnType<typeof setTimeout> | null = null;
+    const stagger = new Promise<void>((resolve) => {
+      staggerTimer = setTimeout(resolve, MOBILE_SOURCE_IMAGE_COLD_SESSION_STAGGER_MS);
+    });
+    return Promise.race([booted, stagger]).then(() => {
+      if (staggerTimer) clearTimeout(staggerTimer);
+    });
+  });
+  return result;
 }
