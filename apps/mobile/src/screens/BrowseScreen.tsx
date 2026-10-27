@@ -1555,6 +1555,8 @@ export function BrowseScreen() {
     });
   };
 
+  // Bumped on every "+" tap (see `presentRequest`).
+  const [addSourcePresentRequest, setAddSourcePresentRequest] = useState(0);
   // Set at the "+" tap; the sheet body's first layout measures the time to
   // presentation (JS queueing plus mount) against it.
   const addSourceTapStartedAtRef = useRef<number | null>(null);
@@ -1570,6 +1572,9 @@ export function BrowseScreen() {
     addSourceDismissActionRef.current = null;
     setActiveSheet("add-source");
     setActiveSheetVisible(true);
+    // Lets the sheet tell a tap that must re-present it (its native close
+    // still in flight, or a presentation left invisible) from a no-op.
+    setAddSourcePresentRequest((request) => request + 1);
   }, []);
   const handleAddSourceSheetBodyLayout = useCallback(() => {
     const startedAt = addSourceTapStartedAtRef.current;
@@ -2068,6 +2073,7 @@ export function BrowseScreen() {
       {activeSheet === "add-source" ? (
         <MobileNativeSheetScaffold
           visible={activeSheetVisible}
+          presentRequest={addSourcePresentRequest}
           onClose={closeAddSourceSheet}
           onDismiss={handleAddSourceSheetDismissed}
           title={serverPickerOpen ? strings.selfHosted.connectServer : strings.browse.addSources}

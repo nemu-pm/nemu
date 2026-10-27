@@ -68,8 +68,27 @@ import { useMobileSheetMaxHeight } from "./mobileSheetMaxHeight";
 import { useMobileSheetPlacement } from "./mobileSheetPlacement";
 import { presentationPlacement } from "../../../modules/nemu-window-layout/src/presentationColorScheme";
 
+/**
+ * How long a re-presentation waits for the native host to report that the
+ * previous presentation finished dismissing before presenting anyway.
+ */
+const MOBILE_NATIVE_SHEET_REOPEN_DISMISS_TIMEOUT_MS = 600;
+/**
+ * After a re-presentation that did not wait for the native dismissal, a
+ * dismissal reported this soon is the stale one of the previous presentation.
+ */
+const MOBILE_NATIVE_SHEET_STALE_DISMISS_WINDOW_MS = 1500;
+
 type MobileNativeSheetScaffoldProps = {
   visible: boolean;
+  /**
+   * Bump on every tap of the control that opens the sheet. A tap while
+   * `visible` is already true (the native sheet is still closing, or JS
+   * believes it is presented but the tap reached the control behind it)
+   * closes the native sheet and presents it again once it has dismissed
+   * (or after a short timeout), so an opening tap is never ignored.
+   */
+  presentRequest?: number;
   /** Called when the native host has fully finished dismissing. */
   onDismiss?: () => void;
   onClose: () => void;
@@ -202,6 +221,7 @@ export function MobileNativeSheetScaffold({
   contentStyle,
   testID,
   children,
+  presentRequest,
 }: MobileNativeSheetScaffoldProps) {
   // iOS 26+ (`MOBILE_SHEET_GLASS_TRIAL`, tinted by default): the system
   // Liquid Glass sheet background, with the content's cards made translucent
@@ -224,6 +244,16 @@ export function MobileNativeSheetScaffold({
   const visibleRef = useRef(visible);
   const reopenAfterCloseRef = useRef(false);
   const reopenReadyRef = useRef(false);
+  // True from a presentation until the native host reports its dismissal
+  // (`handleClose`). Only that report frees the sheet for a new presentation;
+  // JS visibility never does.
+  const nativePresentedRef = useRef(visible);
+  const reopenTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const staleDismissUntilRef = useRef<number | null>(null);
+  const lastPresentRequestRef = useRef(presentRequest);
+  // Bumped to re-run the visibility effect when a presentation restarts
+  // without `visible` or `sheetPresented` changing.
+  const [presentCycle, setPresentCycle] = useState(0);
   const availableSheetHeight = windowHeight - insets.top - insets.bottom;
   const headerMetrics = resolveMobileSheetHeaderMetrics(Platform.OS);
   const effectiveEnablePanDownToClose = canDismissMobileNativeSheetFromPan({
@@ -538,26 +568,68 @@ export function MobileNativeSheetScaffold({
     if (sheetClosedRef.current) return;
     sheetClosedRef.current = true;
     closeRequestedRef.current = false;
+    nativePresentedRef.current = false;
     setCloseInteractionLocked(true);
     setSheetPresented(false);
     onClose();
     onDismiss?.();
   }, [onClose, onDismiss]);
+  const clearReopenTimeout = useCallback(() => {
+    if (reopenTimeoutRef.current === null) return;
+    clearTimeout(reopenTimeoutRef.current);
+    reopenTimeoutRef.current = null;
+  }, []);
+  // Commits an index=-1 frame, then (from the visibility effect) presents a
+  // new cycle without reporting a close to the caller.
+  const restartPresentation = useCallback(() => {
+    clearReopenTimeout();
+    sheetClosedRef.current = true;
+    closeRequestedRef.current = false;
+    reopenAfterCloseRef.current = false;
+    reopenReadyRef.current = true;
+    setSheetPresented(false);
+    setPresentCycle((cycle) => cycle + 1);
+  }, [clearReopenTimeout]);
+  // A re-presentation waits for the native dismissal, but never forever: a
+  // dismissal that is never reported must not swallow the opening tap.
+  const armReopenTimeout = useCallback(() => {
+    clearReopenTimeout();
+    reopenTimeoutRef.current = setTimeout(() => {
+      reopenTimeoutRef.current = null;
+      if (!reopenAfterCloseRef.current || !visibleRef.current) return;
+      nativePresentedRef.current = false;
+      staleDismissUntilRef.current =
+        Date.now() + MOBILE_NATIVE_SHEET_STALE_DISMISS_WINDOW_MS;
+      restartPresentation();
+    }, MOBILE_NATIVE_SHEET_REOPEN_DISMISS_TIMEOUT_MS);
+  }, [clearReopenTimeout, restartPresentation]);
+  useEffect(() => clearReopenTimeout, [clearReopenTimeout]);
   const handleClose = useCallback(() => {
-    if (sheetClosedRef.current) return;
-    if (reopenAfterCloseRef.current && visibleRef.current) {
-      // A false -> true transition arrived after native dismissal had already
-      // started. Let the completed native close commit an index=-1 frame, then
-      // present the new visibility cycle without reporting a stale close.
-      sheetClosedRef.current = true;
-      closeRequestedRef.current = false;
-      reopenAfterCloseRef.current = false;
-      reopenReadyRef.current = true;
-      setSheetPresented(false);
+    nativePresentedRef.current = false;
+    const staleDismissUntil = staleDismissUntilRef.current;
+    staleDismissUntilRef.current = null;
+    if (
+      staleDismissUntil !== null &&
+      Date.now() < staleDismissUntil &&
+      visibleRef.current &&
+      !closeRequestedRef.current
+    ) {
+      // The late dismissal of the presentation the timeout gave up on: it
+      // may have taken the new one with it, so present again.
+      restartPresentation();
       return;
     }
+    if (sheetClosedRef.current) return;
+    if (reopenAfterCloseRef.current && visibleRef.current) {
+      // A reopen arrived after native dismissal had already started. Let the
+      // completed native close commit an index=-1 frame, then present the
+      // new visibility cycle without reporting a stale close.
+      restartPresentation();
+      return;
+    }
+    clearReopenTimeout();
     finishClose();
-  }, [finishClose]);
+  }, [clearReopenTimeout, finishClose, restartPresentation]);
   const requestSheetClose = useCallback(() => {
     if (sheetClosedRef.current || closeRequestedRef.current) return;
     // Native dismissal animations leave the React subtree mounted. Own the
@@ -581,14 +653,24 @@ export function MobileNativeSheetScaffold({
   useEffect(() => {
     const wasVisible = previousVisibleRef.current;
     previousVisibleRef.current = visible;
+    const presentRequested = presentRequest !== lastPresentRequestRef.current;
+    lastPresentRequestRef.current = presentRequest;
     if (visible) {
       if (!wasVisible) {
-        if (closeRequestedRef.current) {
+        if (closeRequestedRef.current || nativePresentedRef.current) {
+          // The native host has not reported the previous dismissal yet:
+          // present again only once it has (`handleClose`), or after the
+          // timeout.
           reopenAfterCloseRef.current = true;
+          if (!closeRequestedRef.current && !sheetClosedRef.current) {
+            requestSheetClose();
+          }
+          armReopenTimeout();
           return;
         }
         sheetClosedRef.current = false;
         reopenReadyRef.current = false;
+        nativePresentedRef.current = true;
         // Controlled visibility starts a new native presentation session.
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setCloseInteractionLocked(false);
@@ -598,19 +680,38 @@ export function MobileNativeSheetScaffold({
       } else if (reopenReadyRef.current) {
         reopenReadyRef.current = false;
         sheetClosedRef.current = false;
+        nativePresentedRef.current = true;
         setCloseInteractionLocked(false);
-        // Native dismissal has completed, so the canceled close can now start
-        // a fresh presentation without racing the prior platform animation.
+        // Native dismissal has completed (or timed out), so the canceled
+        // close can now start a fresh presentation without racing the prior
+        // platform animation.
         setSheetPresented(true);
+      } else if (presentRequested && !reopenAfterCloseRef.current) {
+        // An opening tap while the sheet is already meant to be up: either
+        // its close is still in flight, or the tap reached the control the
+        // sheet should be covering (a presentation left invisible). Close
+        // it and present again rather than ignore the tap.
+        reopenAfterCloseRef.current = true;
+        if (!closeRequestedRef.current) requestSheetClose();
+        armReopenTimeout();
       }
       return;
     }
 
+    clearReopenTimeout();
     reopenAfterCloseRef.current = false;
     reopenReadyRef.current = false;
     setCloseInteractionLocked(true);
     if (sheetPresented) requestSheetClose();
-  }, [requestSheetClose, sheetPresented, visible]);
+  }, [
+    armReopenTimeout,
+    clearReopenTimeout,
+    presentCycle,
+    presentRequest,
+    requestSheetClose,
+    sheetPresented,
+    visible,
+  ]);
 
   // Keep Android hardware-back handling centralized so it follows the same
   // caller-approved close policy as the visible controls. Guarded sheets consume
