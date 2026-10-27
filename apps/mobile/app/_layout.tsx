@@ -57,7 +57,12 @@ import {
 } from "@/lib/mobileSplashScreen";
 import { isMobileLibraryRoute } from "@/lib/mobileRootTabs";
 import { hideMobileLaunchScreenWithReveal } from "@/lib/mobileLaunchReveal";
-import { markMobileLaunchSourceWorkRevealed } from "@/lib/mobileLaunchSourceWork";
+import {
+  markMobileLaunchSourceWorkRevealed,
+  waitForMobileLaunchSourceWork,
+} from "@/lib/mobileLaunchSourceWork";
+import { scheduleMobileIdleTask } from "@/lib/mobileIdleTask";
+import { endNativeBinaryCacheLaunchIndexDeferral } from "@/data/nativeCache";
 import { mobileAidokuPrewarmRootTouchProps } from "@/lib/useMobileAidokuSandboxPrewarm";
 import {
   MOBILE_PERFORMANCE_MARKS,
@@ -76,6 +81,11 @@ registerMobileSplashForceHide(() => {
   void SplashScreen.hideAsync()
     .catch(() => undefined)
     .then(markMobileLaunchSourceWorkRevealed);
+});
+// The cover cache's first directory index waits until the launch has settled
+// (nativeCache.native.ts), then runs at the next idle period.
+void waitForMobileLaunchSourceWork().then(() => {
+  scheduleMobileIdleTask(endNativeBinaryCacheLaunchIndexDeferral, { timeout: 2000 });
 });
 markMobilePerformance(MOBILE_PERFORMANCE_MARKS.bootFontsReady, {
   status: Platform.OS === "web" ? "system-fallback" : "native-embedded",

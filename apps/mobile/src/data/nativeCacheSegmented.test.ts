@@ -138,7 +138,8 @@ mock.module("@/sources/mobileNativeHttpFile", () => ({
   downloadMobileNativeHttpFile: async () => nextNativeResponse,
 }));
 
-const { FileSystemBinaryCache } = await import("./nativeCache.native");
+const { FileSystemBinaryCache, endNativeBinaryCacheLaunchIndexDeferral } =
+  await import("./nativeCache.native");
 
 function stageResponse(suffix: string) {
   const first = new FakeFile(`/cache/native-${suffix}-0.part`);
@@ -622,5 +623,40 @@ describe("native cache read recency", () => {
     expect(files.has("/cache/images/nemu-access-index.json")).toBe(true);
     expect(stats.entries).toBe(1);
     expect(files.has("/cache/images/cover.jpg")).toBe(true);
+  });
+});
+
+describe("native cache launch index deferral", () => {
+  beforeEach(() => {
+    files.clear();
+    directories.clear();
+    directories.add("/cache");
+    failMoveDestination = null;
+    directoryListCalls = 0;
+    existenceChecks = 0;
+  });
+
+  test("serves launch hits by name, indexes on a miss, and indexes once the launch ends", async () => {
+    directories.add("/cache/images");
+    writePlainFile("cover.jpg", 1_000);
+    const cache = new FileSystemBinaryCache("images", plainPolicy, {
+      deferIndexUntilLaunch: true,
+    });
+
+    expect(await cache.getUri("cover")).toBe("file:///cache/images/cover.jpg");
+    expect(directoryListCalls).toBe(0);
+
+    expect(await cache.getUri("missing")).toBeNull();
+    expect(directoryListCalls).toBeGreaterThan(0);
+
+    const later = new FileSystemBinaryCache("images", plainPolicy, {
+      deferIndexUntilLaunch: true,
+    });
+    directoryListCalls = 0;
+    expect(await later.getUri("cover")).toBe("file:///cache/images/cover.jpg");
+    expect(directoryListCalls).toBe(0);
+    endNativeBinaryCacheLaunchIndexDeferral();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(directoryListCalls).toBeGreaterThan(0);
   });
 });

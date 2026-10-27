@@ -142,6 +142,9 @@ const mobileCoverImageCache = new FileSystemBinaryCache(
   // prior files; Reader pages move into the new independent budget.
   "nemu-image-cache",
   MOBILE_COVER_IMAGE_DISK_CACHE_POLICY,
+  // Covers are never segmented: a launch reads its covers by name and the
+  // directory index waits until the launch screen has lifted.
+  { deferIndexUntilLaunch: true },
 );
 const mobileReaderPageImageCache = new FileSystemBinaryCache(
   "nemu-reader-page-image-cache",
