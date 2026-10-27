@@ -4,7 +4,6 @@ import type { DhashInput } from './hash';
 import {
   computeGradientSteps,
   downsampleToMaxSteps,
-  resizeLuma,
   resizeLumaSteps,
   toLuma,
   type AlignmentPace,
@@ -1419,7 +1418,21 @@ export function buildAlignmentImage(input: DhashInput): LumaImage {
   return toAlignmentImage(input);
 }
 
-export function buildSplitLuma(source: LumaImage, side: 'left' | 'right'): LumaImage {
+const SPLIT_MERGE_CHUNK_PIXELS = 16384;
+const NEVER_YIELD_PACE: AlignmentPace = () => false;
+
+function driveSync<T>(steps: AlignmentSteps<T>, name: string): T {
+  const next = steps.next();
+  if (!next.done) throw new Error(`${name}: step variant yielded unexpectedly.`);
+  return next.value;
+}
+
+/** Step variant of `buildSplitLuma` (bit-identical); checkpoints every ~16K pixels. */
+export function* buildSplitLumaSteps(
+  source: LumaImage,
+  side: 'left' | 'right',
+  pace: AlignmentPace
+): AlignmentSteps<LumaImage> {
   const width = Math.max(1, Math.trunc(source.width));
   const height = Math.max(1, Math.trunc(source.height));
   const leftWidth = Math.floor(width / 2);
@@ -1427,17 +1440,32 @@ export function buildSplitLuma(source: LumaImage, side: 'left' | 'right'): LumaI
   const cropWidth = side === 'left' ? leftWidth : rightWidth;
   const startX = side === 'left' ? 0 : width - cropWidth;
   const out = new Uint8Array(cropWidth * height);
-  for (let y = 0; y < height; y++) {
-    const srcRow = y * width;
-    const dstRow = y * cropWidth;
-    for (let x = 0; x < cropWidth; x++) {
-      out[dstRow + x] = source.data[srcRow + startX + x] ?? 0;
+  const rowsPerChunk = Math.max(1, Math.floor(SPLIT_MERGE_CHUNK_PIXELS / Math.max(1, cropWidth)));
+  for (let y0 = 0; y0 < height; y0 += rowsPerChunk) {
+    const y1 = Math.min(height, y0 + rowsPerChunk);
+    for (let y = y0; y < y1; y++) {
+      const srcRow = y * width;
+      const dstRow = y * cropWidth;
+      for (let x = 0; x < cropWidth; x++) {
+        out[dstRow + x] = source.data[srcRow + startX + x] ?? 0;
+      }
     }
+    if (pace()) yield;
   }
   return { data: out, width: cropWidth, height };
 }
 
-export function buildMergeLuma(left: LumaImage, right: LumaImage, order: 'normal' | 'swap'): LumaImage {
+export function buildSplitLuma(source: LumaImage, side: 'left' | 'right'): LumaImage {
+  return driveSync(buildSplitLumaSteps(source, side, NEVER_YIELD_PACE), 'buildSplitLuma');
+}
+
+/** Step variant of `buildMergeLuma` (bit-identical); resizes and copies in row chunks. */
+export function* buildMergeLumaSteps(
+  left: LumaImage,
+  right: LumaImage,
+  order: 'normal' | 'swap',
+  pace: AlignmentPace
+): AlignmentSteps<LumaImage> {
   const leftImg = order === 'normal' ? left : right;
   const rightImg = order === 'normal' ? right : left;
   const targetHeight = Math.max(leftImg.height, rightImg.height);
@@ -1445,19 +1473,28 @@ export function buildMergeLuma(left: LumaImage, right: LumaImage, order: 'normal
   const rightScale = targetHeight / Math.max(1, rightImg.height);
   const leftWidth = Math.max(1, Math.round(leftImg.width * leftScale));
   const rightWidth = Math.max(1, Math.round(rightImg.width * rightScale));
-  const leftResized = resizeLuma(leftImg.data, leftImg.width, leftImg.height, leftWidth, targetHeight);
-  const rightResized = resizeLuma(rightImg.data, rightImg.width, rightImg.height, rightWidth, targetHeight);
+  const leftResized = yield* resizeLumaSteps(leftImg.data, leftImg.width, leftImg.height, leftWidth, targetHeight, pace);
+  const rightResized = yield* resizeLumaSteps(rightImg.data, rightImg.width, rightImg.height, rightWidth, targetHeight, pace);
 
   const outWidth = leftWidth + rightWidth;
   const out = new Uint8Array(outWidth * targetHeight);
-  for (let y = 0; y < targetHeight; y++) {
-    const row = y * outWidth;
-    const leftRow = y * leftWidth;
-    const rightRow = y * rightWidth;
-    out.set(leftResized.subarray(leftRow, leftRow + leftWidth), row);
-    out.set(rightResized.subarray(rightRow, rightRow + rightWidth), row + leftWidth);
+  const rowsPerChunk = Math.max(1, Math.floor(SPLIT_MERGE_CHUNK_PIXELS / Math.max(1, outWidth)));
+  for (let y0 = 0; y0 < targetHeight; y0 += rowsPerChunk) {
+    const y1 = Math.min(targetHeight, y0 + rowsPerChunk);
+    for (let y = y0; y < y1; y++) {
+      const row = y * outWidth;
+      const leftRow = y * leftWidth;
+      const rightRow = y * rightWidth;
+      out.set(leftResized.subarray(leftRow, leftRow + leftWidth), row);
+      out.set(rightResized.subarray(rightRow, rightRow + rightWidth), row + leftWidth);
+    }
+    if (pace()) yield;
   }
   return { data: out, width: outWidth, height: targetHeight };
+}
+
+export function buildMergeLuma(left: LumaImage, right: LumaImage, order: 'normal' | 'swap'): LumaImage {
+  return driveSync(buildMergeLumaSteps(left, right, order, NEVER_YIELD_PACE), 'buildMergeLuma');
 }
 
 export type AlignmentTransformInput = {

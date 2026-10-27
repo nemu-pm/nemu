@@ -48,7 +48,14 @@ import type {
   CooperativeRunStats,
   LumaImage,
 } from "@nemu/core/dual-reader";
-import { measureMobilePerformance } from "./mobilePerformance";
+import {
+  DUAL_READER_ALIGN_MAX_SLICE_LABEL,
+  DUAL_READER_JS_SLICE_BUDGET_MS,
+  classifySliceError,
+  recordDualReaderSliceStats,
+  type DualReaderSliceOutcome,
+  yieldToDualReaderJsLane,
+} from "./mobileDualReaderJsLane";
 import type { RunAlignmentFn } from "./mobileDualReaderRuntime";
 import { ALIGNMENT_MAX_CONCURRENCY } from "./mobileDualReaderRuntime";
 import { createRetryablePromiseCache } from "./retryablePromiseCache";
@@ -67,9 +74,9 @@ export const DEFAULT_ALIGN_TIMEOUT_MS = 10_000;
  * that land inside a slice: measured max slice in bun is ~10 ms at 6 ms
  * (vs ~14 ms cold at 8 ms); deterministic checkpoint gaps are <0.4 ms.
  */
-export const JS_THREAD_ALIGN_SLICE_BUDGET_MS = 6;
+export const JS_THREAD_ALIGN_SLICE_BUDGET_MS = DUAL_READER_JS_SLICE_BUDGET_MS;
 
-export const DUAL_READER_ALIGN_MAX_SLICE_LABEL = "dualReader.align.maxSliceMs";
+export { DUAL_READER_ALIGN_MAX_SLICE_LABEL };
 
 export type AlignThreadJobPayload = {
   primary: LumaImage;
@@ -160,29 +167,6 @@ function dualReaderAlignWorklet(
   });
 }
 
-function nowMs(): number {
-  return globalThis.performance?.now?.() ?? Date.now();
-}
-
-function recordAlignSliceStats(
-  stats: CooperativeRunStats,
-  outcome: "ok" | "aborted" | "timeout" | "error",
-): void {
-  if (stats.slices === 0) return;
-  // durationMs of this entry == the longest single synchronous slice.
-  measureMobilePerformance(
-    DUAL_READER_ALIGN_MAX_SLICE_LABEL,
-    nowMs() - stats.maxSliceMs,
-    {
-      maxSliceMs: Math.round(stats.maxSliceMs * 100) / 100,
-      slices: stats.slices,
-      busyMs: Math.round(stats.busyMs),
-      totalMs: Math.round(stats.totalMs),
-      outcome,
-    },
-  );
-}
-
 /** Serializes JS-thread alignments: one cooperative run at a time. */
 let jsThreadAlignTail: Promise<unknown> = Promise.resolve();
 
@@ -197,7 +181,7 @@ export function runAlignmentOnJsThread(
   options?: { sliceBudgetMs?: number; yieldToHost?: () => Promise<void> },
 ): Promise<AlignmentResult> {
   const run = async (): Promise<AlignmentResult> => {
-    let outcome: "ok" | "aborted" | "timeout" | "error" = "ok";
+    let outcome: DualReaderSliceOutcome = "ok";
     const statsRef: { current: CooperativeRunStats | null } = { current: null };
     try {
       const { result } = await computeAlignmentTransformCooperative(
@@ -214,7 +198,7 @@ export function runAlignmentOnJsThread(
           sliceBudgetMs: options?.sliceBudgetMs ?? JS_THREAD_ALIGN_SLICE_BUDGET_MS,
           signal: context.signal,
           timeoutMs: payload.timeoutMs,
-          yieldToHost: options?.yieldToHost,
+          yieldToHost: options?.yieldToHost ?? yieldToDualReaderJsLane,
           onStats: (s) => {
             statsRef.current = s;
           },
@@ -222,15 +206,17 @@ export function runAlignmentOnJsThread(
       );
       return result;
     } catch (err) {
-      const name = err instanceof Error ? err.name : "";
-      outcome =
-        name === "AbortError" ? "aborted" : name === "AlignmentTimeoutError" ? "timeout" : "error";
+      outcome = classifySliceError(err);
       if (outcome === "aborted") {
         throw new Error("Dual-reader alignment cancelled");
       }
       throw err;
     } finally {
-      if (statsRef.current) recordAlignSliceStats(statsRef.current, outcome);
+      if (statsRef.current) {
+        recordDualReaderSliceStats(DUAL_READER_ALIGN_MAX_SLICE_LABEL, statsRef.current, outcome, {
+          phase: "align",
+        });
+      }
     }
   };
   const job = jsThreadAlignTail.then(() => {
