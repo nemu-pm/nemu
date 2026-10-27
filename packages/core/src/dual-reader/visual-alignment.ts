@@ -1,7 +1,16 @@
 import FFT from 'fft.js';
 import type { KissFftModule, FftWasmProvider } from './fft';
 import type { DhashInput } from './hash';
-import { computeGradient, downsampleToMax, resizeLuma, toLuma, type LumaImage } from './image';
+import {
+  computeGradientSteps,
+  downsampleToMaxSteps,
+  resizeLuma,
+  resizeLumaSteps,
+  toLuma,
+  type AlignmentPace,
+  type AlignmentSteps,
+  type LumaImage,
+} from './image';
 import { buildAlignmentOptions } from './alignment-options';
 
 export type AlignmentInsets = {
@@ -136,6 +145,13 @@ type FftPrepJs = {
   padH: number;
   primarySpectrum: Float64Array;
   primaryInput: Float64Array;
+  /**
+   * Scratch buffers reused across phase-correlation calls on this prep (each
+   * call fully overwrites them), cutting ~2 MB of garbage per FFT scale at
+   * 256x256 and with it GC pauses that would land inside a cooperative slice.
+   */
+  scratchSpectrum: Float64Array | null;
+  scratchCross: Float64Array | null;
 };
 
 type FftPrepWasm = {
@@ -276,13 +292,7 @@ function buildWindow(size: number): Float64Array {
   return out;
 }
 
-function buildFftInput(
-  grad: Uint8Array,
-  mask: Uint8Array,
-  width: number,
-  height: number,
-  abortCheck?: AbortCheck
-): Float64Array {
+function fftInputMean(grad: Uint8Array, mask: Uint8Array): number {
   let sum = 0;
   let count = 0;
   for (let i = 0; i < grad.length; i++) {
@@ -290,12 +300,21 @@ function buildFftInput(
     sum += grad[i] ?? 0;
     count += 1;
   }
-  const mean = count > 0 ? sum / count : 0;
-  const winX = buildWindow(width);
-  const winY = buildWindow(height);
-  const out = new Float64Array(width * height);
-  for (let y = 0; y < height; y++) {
-    if (abortCheck && (y & 15) === 0) abortCheck();
+  return count > 0 ? sum / count : 0;
+}
+
+function fftInputRows(
+  grad: Uint8Array,
+  mask: Uint8Array,
+  width: number,
+  mean: number,
+  winX: Float64Array,
+  winY: Float64Array,
+  out: Float64Array,
+  y0: number,
+  y1: number
+): void {
+  for (let y = y0; y < y1; y++) {
     const row = y * width;
     const wy = winY[y] ?? 1;
     for (let x = 0; x < width; x++) {
@@ -304,31 +323,21 @@ function buildFftInput(
       out[idx] = ((grad[idx] ?? 0) - mean) * (winX[x] ?? 1) * wy;
     }
   }
-  return out;
 }
 
-function buildFftInputComplexPadded(
+function fftInputComplexPaddedRows(
   grad: Uint8Array,
   mask: Uint8Array,
   width: number,
-  height: number,
   padW: number,
-  padH: number,
-  abortCheck?: AbortCheck
-): Float32Array {
-  let sum = 0;
-  let count = 0;
-  for (let i = 0; i < grad.length; i++) {
-    if (!mask[i]) continue;
-    sum += grad[i] ?? 0;
-    count += 1;
-  }
-  const mean = count > 0 ? sum / count : 0;
-  const winX = buildWindow(width);
-  const winY = buildWindow(height);
-  const out = new Float32Array(padW * padH * 2);
-  for (let y = 0; y < height; y++) {
-    if (abortCheck && (y & 15) === 0) abortCheck();
+  mean: number,
+  winX: Float64Array,
+  winY: Float64Array,
+  out: Float32Array,
+  y0: number,
+  y1: number
+): void {
+  for (let y = y0; y < y1; y++) {
     const row = y * width;
     const dstRow = y * padW;
     const wy = winY[y] ?? 1;
@@ -341,24 +350,66 @@ function buildFftInputComplexPadded(
       out[outIdx + 1] = 0;
     }
   }
+}
+
+/** Rows processed per checkpoint by the FFT-related kernels (as before: every 16 rows/cols). */
+const FFT_CHUNK = 16;
+/** Elements processed per checkpoint by flat loops (cross-power, peak scan, scaling). */
+const FLAT_CHUNK = 2048;
+
+function* buildFftInput(
+  grad: Uint8Array,
+  mask: Uint8Array,
+  width: number,
+  height: number,
+  pace: AlignmentPace
+): AlignmentSteps<Float64Array> {
+  const mean = fftInputMean(grad, mask);
+  if (pace()) yield;
+  const winX = buildWindow(width);
+  const winY = buildWindow(height);
+  const out = new Float64Array(width * height);
+  for (let y = 0; y < height; y += FFT_CHUNK) {
+    if (pace()) yield;
+    fftInputRows(grad, mask, width, mean, winX, winY, out, y, Math.min(height, y + FFT_CHUNK));
+  }
   return out;
 }
 
-function fft2dRealJs(
+function* buildFftInputComplexPadded(
+  grad: Uint8Array,
+  mask: Uint8Array,
+  width: number,
+  height: number,
+  padW: number,
+  padH: number,
+  pace: AlignmentPace
+): AlignmentSteps<Float32Array> {
+  const mean = fftInputMean(grad, mask);
+  if (pace()) yield;
+  const winX = buildWindow(width);
+  const winY = buildWindow(height);
+  const out = new Float32Array(padW * padH * 2);
+  for (let y = 0; y < height; y += FFT_CHUNK) {
+    if (pace()) yield;
+    fftInputComplexPaddedRows(grad, mask, width, padW, mean, winX, winY, out, y, Math.min(height, y + FFT_CHUNK));
+  }
+  return out;
+}
+
+function fftRealRows(
   input: Float64Array,
   width: number,
   height: number,
   fftW: FFT,
-  fftH: FFT,
   padW: number,
-  padH: number,
-  abortCheck?: AbortCheck
-): Float64Array {
-  const spectrum = new Float64Array(padW * padH * 2);
-  const rowIn = new Float64Array(padW);
-  const rowOut = fftW.createComplexArray();
-  for (let y = 0; y < padH; y++) {
-    if (abortCheck && (y & 15) === 0) abortCheck();
+  spectrum: Float64Array,
+  rowIn: Float64Array,
+  rowOut: number[],
+  y0: number,
+  y1: number
+): void {
+  for (let y = y0; y < y1; y++) {
     rowIn.fill(0);
     if (y < height) {
       const srcRow = y * width;
@@ -368,55 +419,45 @@ function fft2dRealJs(
     fftW.completeSpectrum(rowOut);
     spectrum.set(rowOut, y * padW * 2);
   }
-
-  const colIn = fftH.createComplexArray();
-  const colOut = fftH.createComplexArray();
-  for (let x = 0; x < padW; x++) {
-    if (abortCheck && (x & 15) === 0) abortCheck();
-    for (let y = 0; y < padH; y++) {
-      const idx = (y * padW + x) * 2;
-      colIn[2 * y] = spectrum[idx] ?? 0;
-      colIn[2 * y + 1] = spectrum[idx + 1] ?? 0;
-    }
-    fftH.transform(colOut, colIn);
-    for (let y = 0; y < padH; y++) {
-      const idx = (y * padW + x) * 2;
-      spectrum[idx] = colOut[2 * y] ?? 0;
-      spectrum[idx + 1] = colOut[2 * y + 1] ?? 0;
-    }
-  }
-  return spectrum;
 }
 
-function ifft2dInPlaceJs(
+function fftColumns(
   spectrum: Float64Array,
-  fftW: FFT,
   fftH: FFT,
   padW: number,
   padH: number,
-  abortCheck?: AbortCheck
-) {
-  const colIn = fftH.createComplexArray();
-  const colOut = fftH.createComplexArray();
-  for (let x = 0; x < padW; x++) {
-    if (abortCheck && (x & 15) === 0) abortCheck();
+  colIn: number[],
+  colOut: number[],
+  inverse: boolean,
+  x0: number,
+  x1: number
+): void {
+  for (let x = x0; x < x1; x++) {
     for (let y = 0; y < padH; y++) {
       const idx = (y * padW + x) * 2;
       colIn[2 * y] = spectrum[idx] ?? 0;
       colIn[2 * y + 1] = spectrum[idx + 1] ?? 0;
     }
-    fftH.inverseTransform(colOut, colIn);
+    if (inverse) fftH.inverseTransform(colOut, colIn);
+    else fftH.transform(colOut, colIn);
     for (let y = 0; y < padH; y++) {
       const idx = (y * padW + x) * 2;
       spectrum[idx] = colOut[2 * y] ?? 0;
       spectrum[idx + 1] = colOut[2 * y + 1] ?? 0;
     }
   }
+}
 
-  const rowIn = fftW.createComplexArray();
-  const rowOut = fftW.createComplexArray();
-  for (let y = 0; y < padH; y++) {
-    if (abortCheck && (y & 15) === 0) abortCheck();
+function ifftRows(
+  spectrum: Float64Array,
+  fftW: FFT,
+  padW: number,
+  rowIn: number[],
+  rowOut: number[],
+  y0: number,
+  y1: number
+): void {
+  for (let y = y0; y < y1; y++) {
     const offset = y * padW * 2;
     for (let i = 0; i < padW * 2; i++) {
       rowIn[i] = spectrum[offset + i] ?? 0;
@@ -426,39 +467,85 @@ function ifft2dInPlaceJs(
       spectrum[offset + i] = rowOut[i] ?? 0;
     }
   }
+}
 
-  const scale = 1 / (padW * padH);
-  for (let i = 0; i < spectrum.length; i++) {
-    spectrum[i] *= scale;
+function scaleRange(data: Float64Array, scale: number, i0: number, i1: number): void {
+  for (let i = i0; i < i1; i++) {
+    data[i] *= scale;
   }
 }
 
-function phaseCorrelationShiftJs(
-  prep: FftPrepJs,
-  secondaryInput: Float64Array,
+function* fft2dRealJs(
+  input: Float64Array,
   width: number,
   height: number,
-  seedCount: number,
-  seedMinDistance: number,
-  abortCheck?: AbortCheck
-): FftShiftResult {
-  const secondarySpectrum = fft2dRealJs(
-    secondaryInput,
-    width,
-    height,
-    prep.fftW,
-    prep.fftH,
-    prep.padW,
-    prep.padH,
-    abortCheck
-  );
-  const cross = new Float64Array(prep.primarySpectrum.length);
-  for (let i = 0; i < prep.primarySpectrum.length; i += 2) {
-    if (abortCheck && (i & 2047) === 0) abortCheck();
-    const ar = prep.primarySpectrum[i] ?? 0;
-    const ai = prep.primarySpectrum[i + 1] ?? 0;
-    const br = secondarySpectrum[i] ?? 0;
-    const bi = secondarySpectrum[i + 1] ?? 0;
+  fftW: FFT,
+  fftH: FFT,
+  padW: number,
+  padH: number,
+  pace: AlignmentPace,
+  out?: Float64Array
+): AlignmentSteps<Float64Array> {
+  // Every row of `spectrum` is fully written below, so a reused buffer needs no clearing.
+  const spectrum = out && out.length === padW * padH * 2 ? out : new Float64Array(padW * padH * 2);
+  const rowIn = new Float64Array(padW);
+  const rowOut = fftW.createComplexArray();
+  for (let y = 0; y < padH; y += FFT_CHUNK) {
+    if (pace()) yield;
+    fftRealRows(input, width, height, fftW, padW, spectrum, rowIn, rowOut, y, Math.min(padH, y + FFT_CHUNK));
+  }
+
+  const colIn = fftH.createComplexArray();
+  const colOut = fftH.createComplexArray();
+  for (let x = 0; x < padW; x += FFT_CHUNK) {
+    if (pace()) yield;
+    fftColumns(spectrum, fftH, padW, padH, colIn, colOut, false, x, Math.min(padW, x + FFT_CHUNK));
+  }
+  return spectrum;
+}
+
+function* ifft2dInPlaceJs(
+  spectrum: Float64Array,
+  fftW: FFT,
+  fftH: FFT,
+  padW: number,
+  padH: number,
+  pace: AlignmentPace
+): AlignmentSteps<void> {
+  const colIn = fftH.createComplexArray();
+  const colOut = fftH.createComplexArray();
+  for (let x = 0; x < padW; x += FFT_CHUNK) {
+    if (pace()) yield;
+    fftColumns(spectrum, fftH, padW, padH, colIn, colOut, true, x, Math.min(padW, x + FFT_CHUNK));
+  }
+
+  const rowIn = fftW.createComplexArray();
+  const rowOut = fftW.createComplexArray();
+  for (let y = 0; y < padH; y += FFT_CHUNK) {
+    if (pace()) yield;
+    ifftRows(spectrum, fftW, padW, rowIn, rowOut, y, Math.min(padH, y + FFT_CHUNK));
+  }
+
+  const scale = 1 / (padW * padH);
+  for (let i = 0; i < spectrum.length; i += FLAT_CHUNK * 8) {
+    if (pace()) yield;
+    scaleRange(spectrum, scale, i, Math.min(spectrum.length, i + FLAT_CHUNK * 8));
+  }
+}
+
+/** Normalized cross-power spectrum over complex-interleaved indices [i0, i1) (i0 even). */
+function crossPowerRange(
+  a: Float64Array | Float32Array,
+  b: Float64Array | Float32Array,
+  cross: Float64Array | Float32Array,
+  i0: number,
+  i1: number
+): void {
+  for (let i = i0; i < i1; i += 2) {
+    const ar = a[i] ?? 0;
+    const ai = a[i + 1] ?? 0;
+    const br = b[i] ?? 0;
+    const bi = b[i + 1] ?? 0;
     const cr = ar * br + ai * bi;
     const ci = ai * br - ar * bi;
     const mag = Math.hypot(cr, ci);
@@ -470,22 +557,49 @@ function phaseCorrelationShiftJs(
       cross[i + 1] = ci / mag;
     }
   }
+}
 
-  ifft2dInPlaceJs(cross, prep.fftW, prep.fftH, prep.padW, prep.padH, abortCheck);
+function* crossPowerSpectrum<T extends Float64Array | Float32Array>(
+  a: T,
+  b: Float64Array | Float32Array,
+  cross: T,
+  pace: AlignmentPace
+): AlignmentSteps<T> {
+  const chunk = FLAT_CHUNK * 2;
+  for (let i = 0; i < a.length; i += chunk) {
+    if (pace()) yield;
+    crossPowerRange(a, b, cross, i, Math.min(a.length, i + chunk));
+  }
+  return cross;
+}
 
-  const peaks: { x: number; y: number; value: number }[] = [];
-  let maxVal = -Infinity;
-  let maxIdx = 0;
-  let secondVal = -Infinity;
-  let sum = 0;
-  let sumSq = 0;
-  const minDist = Math.max(1, Math.trunc(seedMinDistance));
-  const minDistSq = minDist * minDist;
-  const maxPeaks = Math.max(1, Math.trunc(seedCount));
-  const total = prep.padW * prep.padH;
-  for (let i = 0; i < total; i++) {
-    if (abortCheck && (i & 2047) === 0) abortCheck();
-    const value = cross[i * 2] ?? 0;
+type PeakScanState = {
+  peaks: { x: number; y: number; value: number }[];
+  maxVal: number;
+  maxIdx: number;
+  secondVal: number;
+  sum: number;
+  sumSq: number;
+};
+
+function peakScanRange(
+  state: PeakScanState,
+  corr: Float64Array | Float32Array,
+  padW: number,
+  padH: number,
+  minDistSq: number,
+  maxPeaks: number,
+  i0: number,
+  i1: number
+): void {
+  const peaks = state.peaks;
+  let maxVal = state.maxVal;
+  let maxIdx = state.maxIdx;
+  let secondVal = state.secondVal;
+  let sum = state.sum;
+  let sumSq = state.sumSq;
+  for (let i = i0; i < i1; i++) {
+    const value = corr[i * 2] ?? 0;
     if (!Number.isFinite(value)) continue;
     sum += value;
     sumSq += value * value;
@@ -497,14 +611,14 @@ function phaseCorrelationShiftJs(
       secondVal = value;
     }
     if (value <= 0) continue;
-    const x = i % prep.padW;
-    const y = Math.floor(i / prep.padW);
+    const x = i % padW;
+    const y = Math.floor(i / padW);
     let replaceIdx = -1;
     for (let p = 0; p < peaks.length; p++) {
       const dx = Math.abs(x - peaks[p]!.x);
       const dy = Math.abs(y - peaks[p]!.y);
-      const wrapDx = Math.min(dx, prep.padW - dx);
-      const wrapDy = Math.min(dy, prep.padH - dy);
+      const wrapDx = Math.min(dx, padW - dx);
+      const wrapDy = Math.min(dy, padH - dy);
       if (wrapDx * wrapDx + wrapDy * wrapDy <= minDistSq) {
         replaceIdx = p;
         break;
@@ -532,6 +646,39 @@ function phaseCorrelationShiftJs(
       peaks[weakestIdx] = { x, y, value };
     }
   }
+  state.maxVal = maxVal;
+  state.maxIdx = maxIdx;
+  state.secondVal = secondVal;
+  state.sum = sum;
+  state.sumSq = sumSq;
+}
+
+/** Peak scan + sub-pixel refinement shared by the JS and wasm backends. */
+function* scanCorrelationPeaks(
+  corr: Float64Array | Float32Array,
+  padW: number,
+  padH: number,
+  total: number,
+  seedCount: number,
+  seedMinDistance: number,
+  pace: AlignmentPace
+): AlignmentSteps<FftShiftResult> {
+  const state: PeakScanState = {
+    peaks: [],
+    maxVal: -Infinity,
+    maxIdx: 0,
+    secondVal: -Infinity,
+    sum: 0,
+    sumSq: 0,
+  };
+  const minDist = Math.max(1, Math.trunc(seedMinDistance));
+  const minDistSq = minDist * minDist;
+  const maxPeaks = Math.max(1, Math.trunc(seedCount));
+  for (let i = 0; i < total; i += FLAT_CHUNK) {
+    if (pace()) yield;
+    peakScanRange(state, corr, padW, padH, minDistSq, maxPeaks, i, Math.min(total, i + FLAT_CHUNK));
+  }
+  const { peaks, maxVal, maxIdx, secondVal, sum, sumSq } = state;
   peaks.sort((a, b) => b.value - a.value);
 
   const wrap = (value: number, max: number) => {
@@ -541,9 +688,9 @@ function phaseCorrelationShiftJs(
     return v;
   };
   const sample = (x: number, y: number) => {
-    const xi = wrap(x, prep.padW);
-    const yi = wrap(y, prep.padH);
-    return cross[(yi * prep.padW + xi) * 2] ?? 0;
+    const xi = wrap(x, padW);
+    const yi = wrap(y, padH);
+    return corr[(yi * padW + xi) * 2] ?? 0;
   };
   const refinePeak = (peakX: number, peakY: number) => {
     const center = sample(peakX, peakY);
@@ -565,13 +712,13 @@ function phaseCorrelationShiftJs(
     }
     let dx = peakX + subX;
     let dy = peakY + subY;
-    if (dx > prep.padW / 2) dx -= prep.padW;
-    if (dy > prep.padH / 2) dy -= prep.padH;
+    if (dx > padW / 2) dx -= padW;
+    if (dy > padH / 2) dy -= padH;
     return { dx, dy };
   };
 
   const seeds: FftSeed[] = [];
-  const seedSource = peaks.length > 0 ? peaks : [{ x: maxIdx % prep.padW, y: Math.floor(maxIdx / prep.padW), value: maxVal }];
+  const seedSource = peaks.length > 0 ? peaks : [{ x: maxIdx % padW, y: Math.floor(maxIdx / padW), value: maxVal }];
   for (const peak of seedSource.slice(0, maxPeaks)) {
     const refined = refinePeak(peak.x, peak.y);
     seeds.push({ dx: refined.dx, dy: refined.dy, peak: peak.value });
@@ -591,6 +738,40 @@ function phaseCorrelationShiftJs(
     seeds,
   };
 }
+
+function* phaseCorrelationShiftJs(
+  prep: FftPrepJs,
+  secondaryInput: Float64Array,
+  width: number,
+  height: number,
+  seedCount: number,
+  seedMinDistance: number,
+  pace: AlignmentPace
+): AlignmentSteps<FftShiftResult> {
+  const secondarySpectrum = yield* fft2dRealJs(
+    secondaryInput,
+    width,
+    height,
+    prep.fftW,
+    prep.fftH,
+    prep.padW,
+    prep.padH,
+    pace,
+    prep.scratchSpectrum ?? undefined
+  );
+  prep.scratchSpectrum = secondarySpectrum;
+  // `cross` is fully overwritten by crossPowerSpectrum, then transformed in place.
+  const cross = yield* crossPowerSpectrum(
+    prep.primarySpectrum,
+    secondarySpectrum,
+    prep.scratchCross ?? new Float64Array(prep.primarySpectrum.length),
+    pace
+  );
+  prep.scratchCross = cross;
+  yield* ifft2dInPlaceJs(cross, prep.fftW, prep.fftH, prep.padW, prep.padH, pace);
+  return yield* scanCorrelationPeaks(cross, prep.padW, prep.padH, prep.padW * prep.padH, seedCount, seedMinDistance, pace);
+}
+
 function createWasmFftConfig(
   wasm: KissFftModule,
   dims: [number, number],
@@ -646,155 +827,27 @@ function ifft2dComplexWasm(
   return output;
 }
 
-function phaseCorrelationShiftWasm(
+function* phaseCorrelationShiftWasm(
   prep: FftPrepWasm,
   secondaryInput: Float32Array,
   seedCount: number,
   seedMinDistance: number,
-  abortCheck?: AbortCheck
-): FftShiftResult {
+  pace: AlignmentPace
+): AlignmentSteps<FftShiftResult> {
+  // The wasm FFT itself is one atomic native call (web only; mobile uses JS).
   const secondarySpectrum = fft2dComplexWasm(prep.wasm, secondaryInput, prep.forwardPtr, prep.nfft);
-  const cross = new Float32Array(prep.primarySpectrum.length);
-  for (let i = 0; i < prep.primarySpectrum.length; i += 2) {
-    if (abortCheck && (i & 2047) === 0) abortCheck();
-    const ar = prep.primarySpectrum[i] ?? 0;
-    const ai = prep.primarySpectrum[i + 1] ?? 0;
-    const br = secondarySpectrum[i] ?? 0;
-    const bi = secondarySpectrum[i + 1] ?? 0;
-    const cr = ar * br + ai * bi;
-    const ci = ai * br - ar * bi;
-    const mag = Math.hypot(cr, ci);
-    if (mag < 1e-6) {
-      cross[i] = 0;
-      cross[i + 1] = 0;
-    } else {
-      cross[i] = cr / mag;
-      cross[i + 1] = ci / mag;
-    }
-  }
-
+  const cross = yield* crossPowerSpectrum(
+    prep.primarySpectrum,
+    secondarySpectrum,
+    new Float32Array(prep.primarySpectrum.length),
+    pace
+  );
+  if (pace()) yield;
   const corr = ifft2dComplexWasm(prep.wasm, cross, prep.inversePtr, prep.nfft);
-
-  const peaks: { x: number; y: number; value: number }[] = [];
-  let maxVal = -Infinity;
-  let maxIdx = 0;
-  let secondVal = -Infinity;
-  let sum = 0;
-  let sumSq = 0;
-  const minDist = Math.max(1, Math.trunc(seedMinDistance));
-  const minDistSq = minDist * minDist;
-  const maxPeaks = Math.max(1, Math.trunc(seedCount));
-  const total = prep.nfft;
-  for (let i = 0; i < total; i++) {
-    if (abortCheck && (i & 2047) === 0) abortCheck();
-    const value = corr[i * 2] ?? 0;
-    if (!Number.isFinite(value)) continue;
-    sum += value;
-    sumSq += value * value;
-    if (value > maxVal) {
-      secondVal = maxVal;
-      maxVal = value;
-      maxIdx = i;
-    } else if (value > secondVal) {
-      secondVal = value;
-    }
-    if (value <= 0) continue;
-    const x = i % prep.padW;
-    const y = Math.floor(i / prep.padW);
-    let replaceIdx = -1;
-    for (let p = 0; p < peaks.length; p++) {
-      const dx = Math.abs(x - peaks[p]!.x);
-      const dy = Math.abs(y - peaks[p]!.y);
-      const wrapDx = Math.min(dx, prep.padW - dx);
-      const wrapDy = Math.min(dy, prep.padH - dy);
-      if (wrapDx * wrapDx + wrapDy * wrapDy <= minDistSq) {
-        replaceIdx = p;
-        break;
-      }
-    }
-    if (replaceIdx >= 0) {
-      if (value > peaks[replaceIdx]!.value) {
-        peaks[replaceIdx] = { x, y, value };
-      }
-      continue;
-    }
-    if (peaks.length < maxPeaks) {
-      peaks.push({ x, y, value });
-      continue;
-    }
-    let weakestIdx = 0;
-    let weakestVal = peaks[0]!.value;
-    for (let p = 1; p < peaks.length; p++) {
-      if (peaks[p]!.value < weakestVal) {
-        weakestVal = peaks[p]!.value;
-        weakestIdx = p;
-      }
-    }
-    if (value > weakestVal) {
-      peaks[weakestIdx] = { x, y, value };
-    }
-  }
-  peaks.sort((a, b) => b.value - a.value);
-
-  const wrap = (value: number, max: number) => {
-    let v = value;
-    if (v < 0) v += max;
-    if (v >= max) v -= max;
-    return v;
-  };
-  const sample = (x: number, y: number) => {
-    const xi = wrap(x, prep.padW);
-    const yi = wrap(y, prep.padH);
-    return corr[(yi * prep.padW + xi) * 2] ?? 0;
-  };
-  const refinePeak = (peakX: number, peakY: number) => {
-    const center = sample(peakX, peakY);
-    const left = sample(peakX - 1, peakY);
-    const right = sample(peakX + 1, peakY);
-    const up = sample(peakX, peakY - 1);
-    const down = sample(peakX, peakY + 1);
-    const denomX = left - 2 * center + right;
-    const denomY = up - 2 * center + down;
-    let subX = 0;
-    let subY = 0;
-    if (Math.abs(denomX) > 1e-6) {
-      subX = (left - right) / (2 * denomX);
-      subX = clamp(subX, -0.5, 0.5);
-    }
-    if (Math.abs(denomY) > 1e-6) {
-      subY = (up - down) / (2 * denomY);
-      subY = clamp(subY, -0.5, 0.5);
-    }
-    let dx = peakX + subX;
-    let dy = peakY + subY;
-    if (dx > prep.padW / 2) dx -= prep.padW;
-    if (dy > prep.padH / 2) dy -= prep.padH;
-    return { dx, dy };
-  };
-
-  const seeds: FftSeed[] = [];
-  const seedSource = peaks.length > 0 ? peaks : [{ x: maxIdx % prep.padW, y: Math.floor(maxIdx / prep.padW), value: maxVal }];
-  for (const peak of seedSource.slice(0, maxPeaks)) {
-    const refined = refinePeak(peak.x, peak.y);
-    seeds.push({ dx: refined.dx, dy: refined.dy, peak: peak.value });
-  }
-
-  const peakMain = seeds[0] ?? { dx: 0, dy: 0, peak: maxVal };
-  const mean = sum / Math.max(1, total);
-  const variance = sumSq / Math.max(1, total) - mean * mean;
-  const std = Math.sqrt(Math.max(variance, 1e-12));
-  const psr = std > 0 ? (maxVal - mean) / std : 0;
-  return {
-    dx: peakMain.dx,
-    dy: peakMain.dy,
-    peak: maxVal,
-    peakRatio: secondVal > 0 ? maxVal / secondVal : maxVal,
-    psr,
-    seeds,
-  };
+  return yield* scanCorrelationPeaks(corr, prep.padW, prep.padH, prep.nfft, seedCount, seedMinDistance, pace);
 }
 
-function buildScaledSecondaryForFft(input: {
+function* buildScaledSecondaryForFft(input: {
   grad: Uint8Array;
   mask: Uint8Array;
   width: number;
@@ -803,11 +856,12 @@ function buildScaledSecondaryForFft(input: {
   targetW: number;
   targetH: number;
   anchor: 'topleft' | 'center';
-}): { grad: Uint8Array; mask: Uint8Array; offsetX: number; offsetY: number } {
+  pace: AlignmentPace;
+}): AlignmentSteps<{ grad: Uint8Array; mask: Uint8Array; offsetX: number; offsetY: number }> {
   const scaledW = Math.max(1, Math.round(input.width * input.scale));
   const scaledH = Math.max(1, Math.round(input.height * input.scale));
-  const scaledGrad = resizeLuma(input.grad, input.width, input.height, scaledW, scaledH);
-  const scaledMask = resizeLuma(input.mask, input.width, input.height, scaledW, scaledH);
+  const scaledGrad = yield* resizeLumaSteps(input.grad, input.width, input.height, scaledW, scaledH, input.pace);
+  const scaledMask = yield* resizeLumaSteps(input.mask, input.width, input.height, scaledW, scaledH, input.pace);
   const outGrad = new Uint8Array(input.targetW * input.targetH);
   const outMask = new Uint8Array(input.targetW * input.targetH);
   const offsetX = input.anchor === 'center' ? Math.floor((input.targetW - scaledW) / 2) : 0;
@@ -819,6 +873,7 @@ function buildScaledSecondaryForFft(input: {
   const copyW = Math.max(0, Math.min(scaledW - srcStartX, input.targetW - dstStartX));
   const copyH = Math.max(0, Math.min(scaledH - srcStartY, input.targetH - dstStartY));
   for (let y = 0; y < copyH; y++) {
+    if ((y & 15) === 0 && input.pace()) yield;
     const srcRow = (srcStartY + y) * scaledW;
     const dstRow = (dstStartY + y) * input.targetW;
     for (let x = 0; x < copyW; x++) {
@@ -831,11 +886,17 @@ function buildScaledSecondaryForFft(input: {
   return { grad: outGrad, mask: outMask, offsetX, offsetY };
 }
 
-function buildSamples(mask: Uint8Array, width: number, height: number, stride: number, abortCheck?: AbortCheck): SampleSet {
+function* buildSamples(
+  mask: Uint8Array,
+  width: number,
+  height: number,
+  stride: number,
+  pace: AlignmentPace
+): AlignmentSteps<SampleSet> {
   const xs: number[] = [];
   const ys: number[] = [];
   for (let y = 0; y < height; y += stride) {
-    if (abortCheck && (y & 15) === 0) abortCheck();
+    if ((y & 15) === 0 && pace()) yield;
     const row = y * width;
     for (let x = 0; x < width; x += stride) {
       if (mask[row + x]) {
@@ -847,22 +908,22 @@ function buildSamples(mask: Uint8Array, width: number, height: number, stride: n
   return { xs, ys, count: xs.length };
 }
 
-function buildEdgeSamples(input: {
+function* buildEdgeSamples(input: {
   grad: Uint8Array;
   mask: Uint8Array;
   width: number;
   height: number;
   stride: number;
   maxSamples: number;
-  abortCheck?: AbortCheck;
-}): SampleSet {
+  pace: AlignmentPace;
+}): AlignmentSteps<SampleSet> {
   const { grad, mask, width, height, stride, maxSamples } = input;
-  const abortCheck = input.abortCheck;
-  if (maxSamples <= 0) return buildSamples(mask, width, height, stride, abortCheck);
+  const pace = input.pace;
+  if (maxSamples <= 0) return yield* buildSamples(mask, width, height, stride, pace);
   const hist = new Uint32Array(256);
   let total = 0;
   for (let y = 0; y < height; y += stride) {
-    if (abortCheck && (y & 15) === 0) abortCheck();
+    if ((y & 15) === 0 && pace()) yield;
     const row = y * width;
     for (let x = 0; x < width; x += stride) {
       const idx = row + x;
@@ -871,7 +932,7 @@ function buildEdgeSamples(input: {
       total += 1;
     }
   }
-  if (total <= maxSamples) return buildSamples(mask, width, height, stride);
+  if (total <= maxSamples) return yield* buildSamples(mask, width, height, stride, pace);
 
   let threshold = 255;
   let cumulative = 0;
@@ -886,7 +947,7 @@ function buildEdgeSamples(input: {
   const xs: number[] = [];
   const ys: number[] = [];
   for (let y = 0; y < height; y += stride) {
-    if (abortCheck && (y & 15) === 0) abortCheck();
+    if ((y & 15) === 0 && pace()) yield;
     const row = y * width;
     for (let x = 0; x < width; x += stride) {
       const idx = row + x;
@@ -903,7 +964,7 @@ function buildEdgeSamples(input: {
   const filteredXs: number[] = [];
   const filteredYs: number[] = [];
   for (let i = 0; i < xs.length; i += step) {
-    if (abortCheck && (i & 1023) === 0) abortCheck();
+    if ((i & 1023) === 0 && pace()) yield;
     filteredXs.push(xs[i]!);
     filteredYs.push(ys[i]!);
   }
@@ -930,11 +991,17 @@ function sampleBilinear(data: Uint8Array, width: number, height: number, x: numb
   return v0 + (v1 - v0) * fy;
 }
 
-function estimateContentInsets(luma: Uint8Array, width: number, height: number): AlignmentInsets {
-  const grad = computeGradient(luma, width, height);
+function* estimateContentInsets(
+  luma: Uint8Array,
+  width: number,
+  height: number,
+  pace: AlignmentPace
+): AlignmentSteps<AlignmentInsets> {
+  const grad = yield* computeGradientSteps(luma, width, height, pace);
   const rowScores = new Float32Array(height);
   const colScores = new Float32Array(width);
   for (let y = 0; y < height; y++) {
+    if ((y & 15) === 0 && pace()) yield;
     const row = y * width;
     let sum = 0;
     for (let x = 0; x < width; x++) {
@@ -1014,7 +1081,12 @@ function estimateScalePrior(input: {
   return clamp(scale, input.scaleMin, input.scaleMax);
 }
 
-function buildMask(width: number, height: number, insets: AlignmentInsets): Uint8Array {
+function* buildMask(
+  width: number,
+  height: number,
+  insets: AlignmentInsets,
+  pace: AlignmentPace
+): AlignmentSteps<Uint8Array> {
   const mask = new Uint8Array(width * height);
   const top = clamp(insets.top, 0, height);
   const bottom = clamp(insets.bottom, 0, height);
@@ -1025,6 +1097,7 @@ function buildMask(width: number, height: number, insets: AlignmentInsets): Uint
   const xStart = left;
   const xEnd = Math.max(xStart, width - right);
   for (let y = yStart; y < yEnd; y++) {
+    if ((y & 31) === 0 && pace()) yield;
     const row = y * width;
     for (let x = xStart; x < xEnd; x++) {
       mask[row + x] = 1;
@@ -1080,7 +1153,7 @@ function scoreAlignment(
   return { score: sum / count, coverage: count / Math.max(1, samples.count) };
 }
 
-function refineTranslation(input: {
+function* refineTranslation(input: {
   samples: SampleSet;
   primaryGrad: Uint8Array;
   primaryWidth: number;
@@ -1094,7 +1167,8 @@ function refineTranslation(input: {
   range: number;
   bestScore?: number;
   abortCheck?: AbortCheck;
-}): { dx: number; dy: number; score: number; coverage: number } {
+  pace: AlignmentPace;
+}): AlignmentSteps<{ dx: number; dy: number; score: number; coverage: number }> {
   let best = scoreAlignment(
     input.samples,
     input.primaryGrad,
@@ -1111,6 +1185,7 @@ function refineTranslation(input: {
   );
   let bestDx = input.dx;
   let bestDy = input.dy;
+  if (input.pace()) yield;
   for (let dy = -input.range; dy <= input.range; dy++) {
     for (let dx = -input.range; dx <= input.range; dx++) {
       if (dx === 0 && dy === 0) continue;
@@ -1133,42 +1208,53 @@ function refineTranslation(input: {
         bestDx = input.dx + dx;
         bestDy = input.dy + dy;
       }
+      if (input.pace()) yield;
     }
   }
   return { dx: bestDx, dy: bestDy, score: best.score, coverage: best.coverage };
 }
 
-function prepareFftJs(
+function* prepareFftJs(
   primaryGrad: Uint8Array,
   primaryMask: Uint8Array,
   width: number,
   height: number,
-  abortCheck?: AbortCheck
-): FftPrepJs {
+  pace: AlignmentPace
+): AlignmentSteps<FftPrepJs> {
   const padW = nextPow2(width);
   const padH = nextPow2(height);
   const fftW = new FFT(padW);
   const fftH = new FFT(padH);
-  const primaryInput = buildFftInput(primaryGrad, primaryMask, width, height, abortCheck);
-  const primarySpectrum = fft2dRealJs(primaryInput, width, height, fftW, fftH, padW, padH, abortCheck);
-  return { kind: 'js', fftW, fftH, padW, padH, primarySpectrum, primaryInput };
+  const primaryInput = yield* buildFftInput(primaryGrad, primaryMask, width, height, pace);
+  const primarySpectrum = yield* fft2dRealJs(primaryInput, width, height, fftW, fftH, padW, padH, pace);
+  return {
+    kind: 'js',
+    fftW,
+    fftH,
+    padW,
+    padH,
+    primarySpectrum,
+    primaryInput,
+    scratchSpectrum: null,
+    scratchCross: null,
+  };
 }
 
-function prepareFftWasm(
+function* prepareFftWasm(
   wasm: KissFftModule,
   primaryGrad: Uint8Array,
   primaryMask: Uint8Array,
   width: number,
   height: number,
-  abortCheck?: AbortCheck
-): FftPrepWasm {
+  pace: AlignmentPace
+): AlignmentSteps<FftPrepWasm> {
   const padW = nextPow2(width);
   const padH = nextPow2(height);
   const dims: [number, number] = [padH, padW];
   const nfft = padW * padH;
   const forwardPtr = createWasmFftConfig(wasm, dims, false, false);
   const inversePtr = createWasmFftConfig(wasm, dims, true, false);
-  const primaryInput = buildFftInputComplexPadded(primaryGrad, primaryMask, width, height, padW, padH, abortCheck);
+  const primaryInput = yield* buildFftInputComplexPadded(primaryGrad, primaryMask, width, height, padW, padH, pace);
   const primarySpectrum = fft2dComplexWasm(wasm, primaryInput, forwardPtr, nfft);
   return { kind: 'wasm', padW, padH, dims, nfft, forwardPtr, inversePtr, primarySpectrum, wasm };
 }
@@ -1179,33 +1265,33 @@ function disposeFftPrep(prep: FftPrep) {
   if (prep.inversePtr) prep.wasm._free(prep.inversePtr);
 }
 
-function buildFftInputForPrep(
+function* buildFftInputForPrep(
   prep: FftPrep,
   grad: Uint8Array,
   mask: Uint8Array,
   width: number,
   height: number,
-  abortCheck?: AbortCheck
-): Float64Array | Float32Array {
+  pace: AlignmentPace
+): AlignmentSteps<Float64Array | Float32Array> {
   if (prep.kind === 'wasm') {
-    return buildFftInputComplexPadded(grad, mask, width, height, prep.padW, prep.padH, abortCheck);
+    return yield* buildFftInputComplexPadded(grad, mask, width, height, prep.padW, prep.padH, pace);
   }
-  return buildFftInput(grad, mask, width, height, abortCheck);
+  return yield* buildFftInput(grad, mask, width, height, pace);
 }
 
-function phaseCorrelationShiftForPrep(
+function* phaseCorrelationShiftForPrep(
   prep: FftPrep,
   secondaryInput: Float64Array | Float32Array,
   width: number,
   height: number,
   seedCount: number,
   seedMinDistance: number,
-  abortCheck?: AbortCheck
-): FftShiftResult {
+  pace: AlignmentPace
+): AlignmentSteps<FftShiftResult> {
   if (prep.kind === 'wasm') {
-    return phaseCorrelationShiftWasm(prep, secondaryInput as Float32Array, seedCount, seedMinDistance, abortCheck);
+    return yield* phaseCorrelationShiftWasm(prep, secondaryInput as Float32Array, seedCount, seedMinDistance, pace);
   }
-  return phaseCorrelationShiftJs(prep, secondaryInput as Float64Array, width, height, seedCount, seedMinDistance, abortCheck);
+  return yield* phaseCorrelationShiftJs(prep, secondaryInput as Float64Array, width, height, seedCount, seedMinDistance, pace);
 }
 
 function buildScaleCandidates(min: number, max: number, step: number): number[] {
@@ -1232,7 +1318,7 @@ function resolveFftBackend(
   return { backend: 'js', wasmReady };
 }
 
-function searchAlignmentCandidates(
+function* searchAlignmentCandidates(
   primary: AlignmentImage & { grad: Uint8Array; mask: Uint8Array },
   secondary: AlignmentImage & { grad: Uint8Array; mask: Uint8Array },
   opts: {
@@ -1248,19 +1334,21 @@ function searchAlignmentCandidates(
     dyOffset?: number;
     topK?: number;
     abortCheck?: AbortCheck;
+    pace: AlignmentPace;
   }
-): AlignmentSearchResult[] {
-  const samples = buildSamples(primary.mask, primary.width, primary.height, opts.stride, opts.abortCheck);
+): AlignmentSteps<AlignmentSearchResult[]> {
+  const samples = yield* buildSamples(primary.mask, primary.width, primary.height, opts.stride, opts.pace);
   if (samples.count === 0) return [];
 
   const topK = Math.max(1, Math.trunc(opts.topK ?? 1));
   const results: AlignmentSearchResult[] = [];
   const scales = buildScaleCandidates(opts.scaleMin, opts.scaleMax, opts.scaleStep);
   for (const scale of scales) {
-    if (opts.abortCheck) opts.abortCheck();
+    if (opts.pace()) yield;
     for (let dy = -opts.dyRange; dy <= opts.dyRange; dy += opts.dyStep) {
-      if (opts.abortCheck) opts.abortCheck();
+      if (opts.pace()) yield;
       for (let dx = -opts.dxRange; dx <= opts.dxRange; dx += opts.dxStep) {
+        if (opts.pace()) yield;
         const offsetDx = dx + (opts.dxOffset ?? 0);
         const offsetDy = dy + (opts.dyOffset ?? 0);
         const result = scoreAlignment(
@@ -1372,11 +1460,38 @@ export function buildMergeLuma(left: LumaImage, right: LumaImage, order: 'normal
   return { data: out, width: outWidth, height: targetHeight };
 }
 
-export function computeAlignmentTransform(input: {
+export type AlignmentTransformInput = {
   primary: LumaImage;
   secondary: LumaImage;
   options?: AlignmentOptions;
-}): AlignmentResult {
+};
+
+/**
+ * Synchronous alignment. Drives `computeAlignmentTransformSteps` to completion
+ * in one go (never yields), so it is bit-identical to the cooperative variant.
+ */
+export function computeAlignmentTransform(input: AlignmentTransformInput): AlignmentResult {
+  const steps = computeAlignmentTransformSteps(input);
+  const step = steps.next();
+  if (!step.done) {
+    steps.return(undefined as never);
+    throw new Error('computeAlignmentTransform: unexpected yield without shouldYield');
+  }
+  return step.value;
+}
+
+/**
+ * Step (generator) form of `computeAlignmentTransform`. All heavy loops
+ * (resize, gradients, FFT rows/columns, cross-power spectrum, peak scan,
+ * sample building, translation search) hit a checkpoint that calls
+ * `options.abortCheck` and yields when `shouldYield()` returns true. Without
+ * `shouldYield` it never yields. The math is shared with the synchronous API,
+ * so results are bit-identical regardless of how the work is sliced.
+ */
+export function* computeAlignmentTransformSteps(
+  input: AlignmentTransformInput,
+  shouldYield?: () => boolean
+): AlignmentSteps<AlignmentResult> {
   // FFT phase correlation estimates translation per scale; a tiny local brute-force keeps it deterministic.
   const options = buildAlignmentOptions(input.options);
   const coarseMax = options.coarseMax ?? 96;
@@ -1407,26 +1522,40 @@ export function computeAlignmentTransform(input: {
     typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now();
   const totalStart = now();
   const timings: Partial<AlignmentTimings> | null = profile ? {} : null;
-  const measure = <T,>(key: keyof AlignmentTimings, fn: () => T): T => {
+  // Note: with cooperative slicing, profiled timings include time spent yielded.
+  const measure = function* <T>(key: keyof AlignmentTimings, steps: AlignmentSteps<T>): AlignmentSteps<T> {
+    if (!timings) return yield* steps;
+    const start = now();
+    const result = yield* steps;
+    timings[key] = (timings[key] ?? 0) + (now() - start);
+    return result;
+  };
+  const measureSync = <T,>(key: keyof AlignmentTimings, fn: () => T): T => {
     if (!timings) return fn();
     const start = now();
     const result = fn();
     timings[key] = (timings[key] ?? 0) + (now() - start);
     return result;
   };
-  const checkAbort = () => {
-    if (abortCheck) abortCheck();
-  };
-  checkAbort();
+  const pace: AlignmentPace = shouldYield
+    ? () => {
+        if (abortCheck) abortCheck();
+        return shouldYield();
+      }
+    : () => {
+        if (abortCheck) abortCheck();
+        return false;
+      };
+  if (pace()) yield;
 
-  const { primaryFine, secondaryFine, primaryCoarse, secondaryCoarse } = measure('downsampleMs', () => {
-    const primaryFine = downsampleToMax(input.primary.data, input.primary.width, input.primary.height, fineMax);
-    const secondaryFine = downsampleToMax(input.secondary.data, input.secondary.width, input.secondary.height, fineMax);
-    const primaryCoarse = downsampleToMax(primaryFine.data, primaryFine.width, primaryFine.height, coarseMax);
-    const secondaryCoarse = downsampleToMax(secondaryFine.data, secondaryFine.width, secondaryFine.height, coarseMax);
+  const { primaryFine, secondaryFine, primaryCoarse, secondaryCoarse } = yield* measure('downsampleMs', (function* () {
+    const primaryFine = yield* downsampleToMaxSteps(input.primary.data, input.primary.width, input.primary.height, fineMax, pace);
+    const secondaryFine = yield* downsampleToMaxSteps(input.secondary.data, input.secondary.width, input.secondary.height, fineMax, pace);
+    const primaryCoarse = yield* downsampleToMaxSteps(primaryFine.data, primaryFine.width, primaryFine.height, coarseMax, pace);
+    const secondaryCoarse = yield* downsampleToMaxSteps(secondaryFine.data, secondaryFine.width, secondaryFine.height, coarseMax, pace);
     return { primaryFine, secondaryFine, primaryCoarse, secondaryCoarse };
-  });
-  checkAbort();
+  })());
+  if (pace()) yield;
 
   let fftMax = fftBudget;
   let fftPadW = 0;
@@ -1447,7 +1576,7 @@ export function computeAlignmentTransform(input: {
     fftScale = choice.scale;
   }
 
-  const { primaryScore, secondaryScore, primaryScoreScale, secondaryScoreScale } = measure('downsampleMs', () => {
+  const { primaryScore, secondaryScore, primaryScoreScale, secondaryScoreScale } = yield* measure('downsampleMs', (function* () {
     if (!useCoarseToFineScore || scoreMax >= fineMax) {
       return {
         primaryScore: primaryFine,
@@ -1456,8 +1585,8 @@ export function computeAlignmentTransform(input: {
         secondaryScoreScale: 1,
       };
     }
-    const primaryScore = downsampleToMax(primaryFine.data, primaryFine.width, primaryFine.height, scoreMax);
-    const secondaryScore = downsampleToMax(secondaryFine.data, secondaryFine.width, secondaryFine.height, scoreMax);
+    const primaryScore = yield* downsampleToMaxSteps(primaryFine.data, primaryFine.width, primaryFine.height, scoreMax, pace);
+    const secondaryScore = yield* downsampleToMaxSteps(secondaryFine.data, secondaryFine.width, secondaryFine.height, scoreMax, pace);
     const primaryScoreScale = computeDownsampleScale(
       primaryFine.width,
       primaryFine.height,
@@ -1471,8 +1600,8 @@ export function computeAlignmentTransform(input: {
       secondaryScore.height
     );
     return { primaryScore, secondaryScore, primaryScoreScale, secondaryScoreScale };
-  });
-  checkAbort();
+  })());
+  if (pace()) yield;
 
   const {
     primaryInsetsFine,
@@ -1483,11 +1612,11 @@ export function computeAlignmentTransform(input: {
     secondaryMaskCoarse,
     primaryMaskScore,
     secondaryMaskScore,
-  } = measure('insetsMs', () => {
-    const primaryInsetsFine = estimateContentInsets(primaryFine.data, primaryFine.width, primaryFine.height);
-    const secondaryInsetsFine = estimateContentInsets(secondaryFine.data, secondaryFine.width, secondaryFine.height);
-    const primaryMaskFine = buildMask(primaryFine.width, primaryFine.height, primaryInsetsFine);
-    const secondaryMaskFine = buildMask(secondaryFine.width, secondaryFine.height, secondaryInsetsFine);
+  } = yield* measure('insetsMs', (function* () {
+    const primaryInsetsFine = yield* estimateContentInsets(primaryFine.data, primaryFine.width, primaryFine.height, pace);
+    const secondaryInsetsFine = yield* estimateContentInsets(secondaryFine.data, secondaryFine.width, secondaryFine.height, pace);
+    const primaryMaskFine = yield* buildMask(primaryFine.width, primaryFine.height, primaryInsetsFine, pace);
+    const secondaryMaskFine = yield* buildMask(secondaryFine.width, secondaryFine.height, secondaryInsetsFine, pace);
 
     const scaleX = primaryCoarse.width / Math.max(1, primaryFine.width);
     const scaleY = primaryCoarse.height / Math.max(1, primaryFine.height);
@@ -1507,8 +1636,8 @@ export function computeAlignmentTransform(input: {
       left: Math.round(secondaryInsetsFine.left * scaleSX),
     };
 
-    const primaryMaskCoarse = buildMask(primaryCoarse.width, primaryCoarse.height, primaryInsetsCoarse);
-    const secondaryMaskCoarse = buildMask(secondaryCoarse.width, secondaryCoarse.height, secondaryInsetsCoarse);
+    const primaryMaskCoarse = yield* buildMask(primaryCoarse.width, primaryCoarse.height, primaryInsetsCoarse, pace);
+    const secondaryMaskCoarse = yield* buildMask(secondaryCoarse.width, secondaryCoarse.height, secondaryInsetsCoarse, pace);
 
     const primaryInsetsScore = scaleInsets(
       primaryInsetsFine,
@@ -1524,8 +1653,8 @@ export function computeAlignmentTransform(input: {
       secondaryScore.width,
       secondaryScore.height
     );
-    const primaryMaskScore = buildMask(primaryScore.width, primaryScore.height, primaryInsetsScore);
-    const secondaryMaskScore = buildMask(secondaryScore.width, secondaryScore.height, secondaryInsetsScore);
+    const primaryMaskScore = yield* buildMask(primaryScore.width, primaryScore.height, primaryInsetsScore, pace);
+    const secondaryMaskScore = yield* buildMask(secondaryScore.width, secondaryScore.height, secondaryInsetsScore, pace);
 
     return {
       primaryInsetsFine,
@@ -1537,8 +1666,8 @@ export function computeAlignmentTransform(input: {
       primaryMaskScore,
       secondaryMaskScore,
     };
-  });
-  checkAbort();
+  })());
+  if (pace()) yield;
 
   const scalePrior = useScalePrior
     ? estimateScalePrior({
@@ -1554,27 +1683,27 @@ export function computeAlignmentTransform(input: {
     : null;
 
   const { primaryGradFine, secondaryGradFine, primaryGradCoarse, secondaryGradCoarse, primaryGradScore, secondaryGradScore } =
-    measure('gradientsMs', () => {
-      const primaryGradFine = computeGradient(primaryFine.data, primaryFine.width, primaryFine.height);
-      const secondaryGradFine = computeGradient(secondaryFine.data, secondaryFine.width, secondaryFine.height);
-      const primaryGradCoarse = computeGradient(primaryCoarse.data, primaryCoarse.width, primaryCoarse.height);
-      const secondaryGradCoarse = computeGradient(secondaryCoarse.data, secondaryCoarse.width, secondaryCoarse.height);
+    yield* measure('gradientsMs', (function* () {
+      const primaryGradFine = yield* computeGradientSteps(primaryFine.data, primaryFine.width, primaryFine.height, pace);
+      const secondaryGradFine = yield* computeGradientSteps(secondaryFine.data, secondaryFine.width, secondaryFine.height, pace);
+      const primaryGradCoarse = yield* computeGradientSteps(primaryCoarse.data, primaryCoarse.width, primaryCoarse.height, pace);
+      const secondaryGradCoarse = yield* computeGradientSteps(secondaryCoarse.data, secondaryCoarse.width, secondaryCoarse.height, pace);
       const primaryGradScore =
         primaryScore.width === primaryFine.width && primaryScore.height === primaryFine.height
           ? primaryGradFine
-          : computeGradient(primaryScore.data, primaryScore.width, primaryScore.height);
+          : yield* computeGradientSteps(primaryScore.data, primaryScore.width, primaryScore.height, pace);
       const secondaryGradScore =
         secondaryScore.width === secondaryFine.width && secondaryScore.height === secondaryFine.height
           ? secondaryGradFine
-          : computeGradient(secondaryScore.data, secondaryScore.width, secondaryScore.height);
+          : yield* computeGradientSteps(secondaryScore.data, secondaryScore.width, secondaryScore.height, pace);
       return { primaryGradFine, secondaryGradFine, primaryGradCoarse, secondaryGradCoarse, primaryGradScore, secondaryGradScore };
-    });
-  checkAbort();
+    })());
+  if (pace()) yield;
 
   const { primaryGradFft, secondaryGradFft, primaryFftScale, secondaryFftScale } =
-    measure('fftDownsampleMs', () => {
-      const primaryGradFft = downsampleToMax(primaryGradFine, primaryFine.width, primaryFine.height, fftMax);
-      const secondaryGradFft = downsampleToMax(secondaryGradFine, secondaryFine.width, secondaryFine.height, fftMax);
+    yield* measure('fftDownsampleMs', (function* () {
+      const primaryGradFft = yield* downsampleToMaxSteps(primaryGradFine, primaryFine.width, primaryFine.height, fftMax, pace);
+      const secondaryGradFft = yield* downsampleToMaxSteps(secondaryGradFine, secondaryFine.width, secondaryFine.height, fftMax, pace);
       const primaryFftScale = computeDownsampleScale(
         primaryFine.width,
         primaryFine.height,
@@ -1600,8 +1729,8 @@ export function computeAlignmentTransform(input: {
         primaryFftScale,
         secondaryFftScale,
       };
-    });
-  checkAbort();
+    })());
+  if (pace()) yield;
 
   const {
     coarseSamples,
@@ -1610,10 +1739,10 @@ export function computeAlignmentTransform(input: {
     dxRangeCoarse,
     dyRangeCoarse,
     secondaryMaskFftCoarse,
-  } = measure('coarsePrepMs', () => {
+  } = yield* measure('coarsePrepMs', (function* () {
     const primaryMaskFftCoarse = primaryMaskCoarse;
     const secondaryMaskFftCoarse = secondaryMaskCoarse;
-    const coarseSamples = buildSamples(primaryMaskCoarse, primaryCoarse.width, primaryCoarse.height, 2, abortCheck);
+    const coarseSamples = yield* buildSamples(primaryMaskCoarse, primaryCoarse.width, primaryCoarse.height, 2, pace);
     const coarseStep = 0.04;
     const coarseWindow = scalePrior ? Math.max(scaleWindow * 2, 0.06) : Math.abs(scaleMax - scaleMin);
     const coarseMin = clamp((scalePrior ?? scaleMin) - coarseWindow, scaleMin, scaleMax);
@@ -1623,8 +1752,8 @@ export function computeAlignmentTransform(input: {
     const dyRangeCoarse = Math.round(primaryCoarse.height * 0.2);
     const coarsePrep =
       fftBackend === 'wasm' && wasmModule
-        ? prepareFftWasm(wasmModule, primaryGradCoarse, primaryMaskFftCoarse, primaryCoarse.width, primaryCoarse.height, abortCheck)
-        : prepareFftJs(primaryGradCoarse, primaryMaskFftCoarse, primaryCoarse.width, primaryCoarse.height, abortCheck);
+        ? yield* prepareFftWasm(wasmModule, primaryGradCoarse, primaryMaskFftCoarse, primaryCoarse.width, primaryCoarse.height, pace)
+        : yield* prepareFftJs(primaryGradCoarse, primaryMaskFftCoarse, primaryCoarse.width, primaryCoarse.height, pace);
     return {
       coarseSamples,
       coarseScaleCandidates,
@@ -1633,14 +1762,14 @@ export function computeAlignmentTransform(input: {
       coarsePrep,
       secondaryMaskFftCoarse,
     };
-  });
+  })());
 
-  const coarseCandidates = measure('coarseSearchMs', () => {
+  const coarseCandidates = yield* measure('coarseSearchMs', (function* () {
     const candidates: AlignmentSearchResult[] = [];
     if (coarseSamples.count > 0) {
       for (const scale of coarseScaleCandidates) {
-        checkAbort();
-        const scaledSecondary = buildScaledSecondaryForFft({
+        if (pace()) yield;
+        const scaledSecondary = yield* buildScaledSecondaryForFft({
           grad: secondaryGradCoarse,
           mask: secondaryMaskFftCoarse,
           width: secondaryCoarse.width,
@@ -1649,27 +1778,28 @@ export function computeAlignmentTransform(input: {
           targetW: primaryCoarse.width,
           targetH: primaryCoarse.height,
           anchor: 'center',
+          pace,
         });
-        const secondaryInput = buildFftInputForPrep(
+        const secondaryInput = yield* buildFftInputForPrep(
           coarsePrep,
           scaledSecondary.grad,
           scaledSecondary.mask,
           primaryCoarse.width,
           primaryCoarse.height,
-          abortCheck
+          pace
         );
-        const shift = phaseCorrelationShiftForPrep(
+        const shift = yield* phaseCorrelationShiftForPrep(
           coarsePrep,
           secondaryInput,
           primaryCoarse.width,
           primaryCoarse.height,
           1,
           2,
-          abortCheck
+          pace
         );
         const dx = clamp(shift.dx + scaledSecondary.offsetX, -dxRangeCoarse, dxRangeCoarse);
         const dy = clamp(shift.dy + scaledSecondary.offsetY, -dyRangeCoarse, dyRangeCoarse);
-        const refined = refineTranslation({
+        const refined: { dx: number; dy: number; score: number; coverage: number } = yield* refineTranslation({
           samples: coarseSamples,
           primaryGrad: primaryGradCoarse,
           primaryWidth: primaryCoarse.width,
@@ -1682,6 +1812,7 @@ export function computeAlignmentTransform(input: {
           dy,
           range: 2,
           abortCheck,
+          pace,
         });
         const entry: AlignmentSearchResult = {
           scale,
@@ -1701,7 +1832,7 @@ export function computeAlignmentTransform(input: {
       }
     }
     if (candidates.length === 0) {
-      const fallback = searchAlignmentCandidates(
+      const fallback = yield* searchAlignmentCandidates(
         { ...primaryCoarse, grad: primaryGradCoarse, mask: primaryMaskCoarse },
         { ...secondaryCoarse, grad: secondaryGradCoarse, mask: secondaryMaskCoarse },
         {
@@ -1715,6 +1846,7 @@ export function computeAlignmentTransform(input: {
           stride: 2,
           topK: 3,
           abortCheck,
+          pace,
         }
       );
       candidates.push(...fallback);
@@ -1724,41 +1856,41 @@ export function computeAlignmentTransform(input: {
       return candidates.slice(0, maxCoarseCandidates);
     }
     return candidates;
-  });
+  })());
   disposeFftPrep(coarsePrep);
 
-  const { fineSamples, finePrep, dxRange, dyRange, fineMaskFft, scoreScale, scoreScaleRatio } = measure(
+  const { fineSamples, finePrep, dxRange, dyRange, fineMaskFft, scoreScale, scoreScaleRatio } = yield* measure(
     'finePrepMs',
-    () => {
+    (function* () {
       const dxRange = Math.round(primaryFine.width * 0.2);
       const dyRange = Math.round(primaryFine.height * 0.2);
       const scoreScale = primaryScoreScale;
       const scoreScaleRatio = primaryScoreScale / Math.max(1e-6, secondaryScoreScale);
     const fineSamples =
         useEdgeSampling && edgeSampleMax > 0
-          ? buildEdgeSamples({
+          ? yield* buildEdgeSamples({
               grad: primaryGradScore,
               mask: primaryMaskScore,
               width: primaryScore.width,
               height: primaryScore.height,
               stride: 1,
               maxSamples: edgeSampleMax,
-              abortCheck,
+              pace,
             })
-          : buildSamples(primaryMaskScore, primaryScore.width, primaryScore.height, 1, abortCheck);
-    const primaryMaskFftFine = downsampleToMax(primaryMaskFine, primaryFine.width, primaryFine.height, fftMax);
-    const secondaryMaskFftFine = downsampleToMax(secondaryMaskFine, secondaryFine.width, secondaryFine.height, fftMax);
+          : yield* buildSamples(primaryMaskScore, primaryScore.width, primaryScore.height, 1, pace);
+    const primaryMaskFftFine = yield* downsampleToMaxSteps(primaryMaskFine, primaryFine.width, primaryFine.height, fftMax, pace);
+    const secondaryMaskFftFine = yield* downsampleToMaxSteps(secondaryMaskFine, secondaryFine.width, secondaryFine.height, fftMax, pace);
     const finePrep =
       fftBackend === 'wasm' && wasmModule
-        ? prepareFftWasm(
+        ? yield* prepareFftWasm(
             wasmModule,
             primaryGradFft.data,
             primaryMaskFftFine.data,
             primaryGradFft.width,
             primaryGradFft.height,
-            abortCheck
+            pace
           )
-        : prepareFftJs(primaryGradFft.data, primaryMaskFftFine.data, primaryGradFft.width, primaryGradFft.height, abortCheck);
+        : yield* prepareFftJs(primaryGradFft.data, primaryMaskFftFine.data, primaryGradFft.width, primaryGradFft.height, pace);
       return {
         fineSamples,
         finePrep,
@@ -1768,7 +1900,7 @@ export function computeAlignmentTransform(input: {
         scoreScale,
         scoreScaleRatio,
       };
-    }
+    })()
   );
   let best: AlignmentSearchResult | null = null;
   let second: AlignmentSearchResult | null = null;
@@ -1778,9 +1910,9 @@ export function computeAlignmentTransform(input: {
   let rescoreSamples: SampleSet | null = null;
   let didRescore = false;
 
-  const evaluateFineScale = (scale: number, bestScore?: number): AlignmentSearchResult => {
+  const evaluateFineScale = function* (scale: number, bestScore?: number): AlignmentSteps<AlignmentSearchResult> {
     const scaleFft = scale * (primaryFftScale / Math.max(1e-6, secondaryFftScale));
-    const scaledSecondary = buildScaledSecondaryForFft({
+    const scaledSecondary = yield* buildScaledSecondaryForFft({
       grad: secondaryGradFft.data,
       mask: fineMaskFft,
       width: secondaryGradFft.width,
@@ -1789,27 +1921,28 @@ export function computeAlignmentTransform(input: {
       targetW: primaryGradFft.width,
       targetH: primaryGradFft.height,
       anchor: 'center',
+      pace,
     });
-    const secondaryInput = buildFftInputForPrep(
+    const secondaryInput = yield* buildFftInputForPrep(
       finePrep,
       scaledSecondary.grad,
       scaledSecondary.mask,
       primaryGradFft.width,
       primaryGradFft.height,
-      abortCheck
+      pace
     );
     const fftSeedCount = 5;
     const fftSeedMinDistance = 4;
     const fftMinPeakRatio = 1.2;
     const fftMinPsr = 6;
-    const shift = phaseCorrelationShiftForPrep(
+    const shift = yield* phaseCorrelationShiftForPrep(
       finePrep,
       secondaryInput,
       primaryGradFft.width,
       primaryGradFft.height,
       fftSeedCount,
       fftSeedMinDistance,
-      abortCheck
+      pace
     );
     const useMultiSeed = shift.psr < fftMinPsr || shift.peakRatio < fftMinPeakRatio;
     const seeds = (shift.seeds.length > 0 ? shift.seeds : [{ dx: shift.dx, dy: shift.dy, peak: shift.peak }]).slice(
@@ -1828,7 +1961,7 @@ export function computeAlignmentTransform(input: {
       const dxScore = dx * scoreScale;
       const dyScore = dy * scoreScale;
       const scaleScore = scale * scoreScaleRatio;
-      const refined = refineTranslation({
+      const refined: { dx: number; dy: number; score: number; coverage: number } = yield* refineTranslation({
         samples: fineSamples,
         primaryGrad: primaryGradScore,
         primaryWidth: primaryScore.width,
@@ -1842,6 +1975,7 @@ export function computeAlignmentTransform(input: {
         range,
         bestScore: earlyExit ? bestScore ?? bestLocal?.score : undefined,
         abortCheck,
+        pace,
       });
       const candidate: AlignmentSearchResult = {
         scale,
@@ -1897,10 +2031,10 @@ export function computeAlignmentTransform(input: {
   };
 
   let fineScaleCount = 0;
-  measure('fineSearchMs', () => {
+  yield* measure('fineSearchMs', (function* () {
     const fineCandidates = coarseCandidates;
     for (const candidate of fineCandidates) {
-      checkAbort();
+      if (pace()) yield;
       const fineScaleCenter = clamp(candidate.scale, scaleMin, scaleMax);
       const window = scalePrior ? scaleWindow : Math.min(scaleWindow, 0.05);
       const fineScaleMin = clamp(fineScaleCenter - window, scaleMin, scaleMax);
@@ -1913,8 +2047,8 @@ export function computeAlignmentTransform(input: {
       const fineScales = buildScaleCandidates(fineScaleMin, fineScaleMax, step);
 
       for (const scale of fineScales) {
-        checkAbort();
-        const result = evaluateFineScale(scale, best?.score);
+        if (pace()) yield;
+        const result: AlignmentSearchResult = yield* evaluateFineScale(scale, best?.score);
         fineResults.set(scaleKey(result.scale), result);
         if (!best || result.score < best.score) {
           second = best;
@@ -1942,28 +2076,28 @@ export function computeAlignmentTransform(input: {
         fineScaleCount += 1;
       }
     }
-  });
+  })());
   disposeFftPrep(finePrep);
 
   if (useCoarseToFineScore && scoreMax < fineMax && topCandidates.length > 0) {
     rescoreSamples =
       useEdgeSampling && edgeSampleMax > 0
-        ? buildEdgeSamples({
+        ? yield* buildEdgeSamples({
             grad: primaryGradFine,
             mask: primaryMaskFine,
             width: primaryFine.width,
             height: primaryFine.height,
             stride: 1,
             maxSamples: edgeSampleMax,
-            abortCheck,
+            pace,
           })
-        : buildSamples(primaryMaskFine, primaryFine.width, primaryFine.height, 1, abortCheck);
+        : yield* buildSamples(primaryMaskFine, primaryFine.width, primaryFine.height, 1, pace);
 
     const rescored: AlignmentSearchResult[] = [];
     let rescoreBest = Number.POSITIVE_INFINITY;
     for (const candidate of topCandidates) {
-      checkAbort();
-      const refined = refineTranslation({
+      if (pace()) yield;
+      const refined: { dx: number; dy: number; score: number; coverage: number } = yield* refineTranslation({
         samples: rescoreSamples,
         primaryGrad: primaryGradFine,
         primaryWidth: primaryFine.width,
@@ -1977,6 +2111,7 @@ export function computeAlignmentTransform(input: {
         range: fineRange,
         bestScore: earlyExit ? rescoreBest : undefined,
         abortCheck,
+        pace,
       });
       const entry: AlignmentSearchResult = {
         scale: candidate.scale,
@@ -2008,7 +2143,7 @@ export function computeAlignmentTransform(input: {
     };
   }
   best.secondScore = second?.score ?? best.score;
-  const refinedScale = measure('refineScaleMs', () => refineScaleSubpixel(best!, fineScaleStepBase));
+  const refinedScale = measureSync('refineScaleMs', () => refineScaleSubpixel(best!, fineScaleStepBase));
   const fineResult = refinedScale && refinedScale.score < best.score ? refinedScale : best;
   const identitySamples = didRescore ? rescoreSamples ?? fineSamples : fineSamples;
   const identityScale = didRescore ? 1 : scoreScaleRatio;
@@ -2017,7 +2152,7 @@ export function computeAlignmentTransform(input: {
   const identitySecondaryMask = didRescore ? secondaryMaskFine : secondaryMaskScore;
   const identityPrimary = didRescore ? primaryFine : primaryScore;
   const identitySecondary = didRescore ? secondaryFine : secondaryScore;
-  const identityScore = measure('identityMs', () =>
+  const identityScore = measureSync('identityMs', () =>
     scoreAlignment(
       identitySamples,
       identityPrimaryGrad,
@@ -2034,8 +2169,8 @@ export function computeAlignmentTransform(input: {
     )
   );
 
-  const runBruteFallback = (): AlignmentSearchResult => {
-    const coarseFallback = searchAlignmentCandidates(
+  const runBruteFallback = function* (): AlignmentSteps<AlignmentSearchResult> {
+    const coarseFallback = yield* searchAlignmentCandidates(
       { ...primaryCoarse, grad: primaryGradCoarse, mask: primaryMaskCoarse },
       { ...secondaryCoarse, grad: secondaryGradCoarse, mask: secondaryMaskCoarse },
       {
@@ -2049,27 +2184,28 @@ export function computeAlignmentTransform(input: {
         stride: 2,
         topK: 3,
         abortCheck,
+        pace,
       }
     );
 
     const fallbackSamples =
       useEdgeSampling && edgeSampleMax > 0
-        ? buildEdgeSamples({
+        ? yield* buildEdgeSamples({
             grad: primaryGradFine,
             mask: primaryMaskFine,
             width: primaryFine.width,
             height: primaryFine.height,
             stride: 1,
             maxSamples: edgeSampleMax,
-            abortCheck,
+            pace,
           })
-        : buildSamples(primaryMaskFine, primaryFine.width, primaryFine.height, 1, abortCheck);
+        : yield* buildSamples(primaryMaskFine, primaryFine.width, primaryFine.height, 1, pace);
     const fallbackRange = 10;
 
     let fallbackBest: AlignmentSearchResult | null = null;
     let fallbackSecond: AlignmentSearchResult | null = null;
     for (const candidate of coarseFallback) {
-      checkAbort();
+      if (pace()) yield;
       const fineScaleCenter = clamp(candidate.scale, scaleMin, scaleMax);
       const fineScaleMin = clamp(fineScaleCenter - 0.05, scaleMin, scaleMax);
       const fineScaleMax = clamp(fineScaleCenter + 0.05, scaleMin, scaleMax);
@@ -2080,10 +2216,10 @@ export function computeAlignmentTransform(input: {
       let localBest: AlignmentSearchResult | null = null;
       let localSecond: AlignmentSearchResult | null = null;
       for (const scale of fineScales) {
-        checkAbort();
+        if (pace()) yield;
         const dx = clamp(fineDxCenter, -dxRange, dxRange);
         const dy = clamp(fineDyCenter, -dyRange, dyRange);
-        const refined = refineTranslation({
+        const refined: { dx: number; dy: number; score: number; coverage: number } = yield* refineTranslation({
           samples: fallbackSamples,
           primaryGrad: primaryGradFine,
           primaryWidth: primaryFine.width,
@@ -2097,6 +2233,7 @@ export function computeAlignmentTransform(input: {
           range: fallbackRange,
           bestScore: earlyExit ? localBest?.score : undefined,
           abortCheck,
+          pace,
         });
         const entry: AlignmentSearchResult = {
           scale,
@@ -2139,7 +2276,7 @@ export function computeAlignmentTransform(input: {
 
   let finalResult = fineResult;
   if (!Number.isFinite(finalResult.score) || finalResult.score >= identityScore.score - 1) {
-    finalResult = measure('fallbackMs', () => runBruteFallback());
+    finalResult = yield* measure('fallbackMs', runBruteFallback());
   }
 
   const bestScore = finalResult.score;

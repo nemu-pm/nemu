@@ -31,17 +31,28 @@ export function toLuma(input: DhashInput): Uint8Array {
   return out;
 }
 
-export function resizeLuma(
+/**
+ * Cooperative checkpoint used by the step (generator) variants: performs any
+ * abort check and returns `true` when the caller should yield to the host.
+ */
+export type AlignmentPace = () => boolean;
+
+/** Generator protocol for cooperative work: yields `void` at checkpoints, returns `T`. */
+export type AlignmentSteps<T> = Generator<void, T, void>;
+
+function resizeLumaRows(
   luma: Uint8Array,
   width: number,
   height: number,
   targetW: number,
-  targetH: number
-): Uint8Array {
-  const out = new Uint8Array(targetW * targetH);
+  targetH: number,
+  out: Uint8Array,
+  yStart: number,
+  yEnd: number
+): void {
   const scaleX = width / targetW;
   const scaleY = height / targetH;
-  for (let y = 0; y < targetH; y++) {
+  for (let y = yStart; y < yEnd; y++) {
     const srcY0 = Math.floor(y * scaleY);
     const srcY1 = Math.min(height, Math.max(srcY0 + 1, Math.floor((y + 1) * scaleY)));
     for (let x = 0; x < targetW; x++) {
@@ -58,6 +69,34 @@ export function resizeLuma(
       }
       out[y * targetW + x] = count > 0 ? Math.round(sum / count) : 0;
     }
+  }
+}
+
+export function resizeLuma(
+  luma: Uint8Array,
+  width: number,
+  height: number,
+  targetW: number,
+  targetH: number
+): Uint8Array {
+  const out = new Uint8Array(targetW * targetH);
+  resizeLumaRows(luma, width, height, targetW, targetH, out, 0, targetH);
+  return out;
+}
+
+/** Step variant of `resizeLuma` (bit-identical); checkpoints after every output row. */
+export function* resizeLumaSteps(
+  luma: Uint8Array,
+  width: number,
+  height: number,
+  targetW: number,
+  targetH: number,
+  pace: AlignmentPace
+): AlignmentSteps<Uint8Array> {
+  const out = new Uint8Array(targetW * targetH);
+  for (let y = 0; y < targetH; y++) {
+    resizeLumaRows(luma, width, height, targetW, targetH, out, y, y + 1);
+    if (pace()) yield;
   }
   return out;
 }
@@ -76,14 +115,29 @@ export function downsampleToMax(luma: Uint8Array, width: number, height: number,
   return { data, width: targetW, height: targetH };
 }
 
-export function computeGradient(luma: Uint8Array, width: number, height: number): Uint8Array {
+/** Step variant of `downsampleToMax` (bit-identical). */
+export function* downsampleToMaxSteps(
+  luma: Uint8Array,
+  width: number,
+  height: number,
+  maxSize: number,
+  pace: AlignmentPace
+): AlignmentSteps<LumaImage> {
   const w = Math.max(1, Math.trunc(width));
   const h = Math.max(1, Math.trunc(height));
-  const out = new Uint8Array(w * h);
-  if (w < 3 || h < 3) {
-    return out;
+  const maxDim = Math.max(w, h);
+  if (maxDim <= maxSize) {
+    return { data: luma, width: w, height: h };
   }
-  for (let y = 1; y < h - 1; y++) {
+  const scale = maxSize / maxDim;
+  const targetW = Math.max(1, Math.round(w * scale));
+  const targetH = Math.max(1, Math.round(h * scale));
+  const data = yield* resizeLumaSteps(luma, w, h, targetW, targetH, pace);
+  return { data, width: targetW, height: targetH };
+}
+
+function computeGradientRows(luma: Uint8Array, w: number, out: Uint8Array, yStart: number, yEnd: number): void {
+  for (let y = yStart; y < yEnd; y++) {
     const row = y * w;
     for (let x = 1; x < w - 1; x++) {
       const idx = row + x;
@@ -92,6 +146,36 @@ export function computeGradient(luma: Uint8Array, width: number, height: number)
       const g = dx + dy;
       out[idx] = g > 255 ? 255 : g;
     }
+  }
+}
+
+export function computeGradient(luma: Uint8Array, width: number, height: number): Uint8Array {
+  const w = Math.max(1, Math.trunc(width));
+  const h = Math.max(1, Math.trunc(height));
+  const out = new Uint8Array(w * h);
+  if (w < 3 || h < 3) {
+    return out;
+  }
+  computeGradientRows(luma, w, out, 1, h - 1);
+  return out;
+}
+
+/** Step variant of `computeGradient` (bit-identical); checkpoints every 8 rows. */
+export function* computeGradientSteps(
+  luma: Uint8Array,
+  width: number,
+  height: number,
+  pace: AlignmentPace
+): AlignmentSteps<Uint8Array> {
+  const w = Math.max(1, Math.trunc(width));
+  const h = Math.max(1, Math.trunc(height));
+  const out = new Uint8Array(w * h);
+  if (w < 3 || h < 3) {
+    return out;
+  }
+  for (let y = 1; y < h - 1; y += 8) {
+    computeGradientRows(luma, w, out, y, Math.min(h - 1, y + 8));
+    if (pace()) yield;
   }
   return out;
 }
