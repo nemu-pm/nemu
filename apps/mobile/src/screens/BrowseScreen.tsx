@@ -95,6 +95,7 @@ import {
 } from "@/lib/haptics";
 import { formatMobileCatalogCacheAge } from "@/lib/mobileCatalogCacheAge";
 import { prefetchCachedMobileImages } from "@/lib/mobileImageCache";
+import { scheduleMobileIdleTask } from "@/lib/mobileIdleTask";
 import {
   formatMobileString,
   getMobileStrings,
@@ -1254,11 +1255,20 @@ export function BrowseScreen() {
 
   useEffect(() => {
     if (activeSheet !== "add-source") return;
-    void prefetchCachedMobileImages(
-      filteredAvailable
-        .slice(0, 36)
-        .map((source) => (source.icon ? { uri: source.icon } : null)),
+    // The icon prefetch resolves cache files synchronously on the JS thread.
+    // Run it once the thread is idle, after the sheet's own mount and its
+    // follow-up layout commits, instead of in the same tick as the mount.
+    const task = scheduleMobileIdleTask(
+      () => {
+        void prefetchCachedMobileImages(
+          filteredAvailable
+            .slice(0, 36)
+            .map((source) => (source.icon ? { uri: source.icon } : null)),
+        );
+      },
+      { timeout: 1200 },
     );
+    return () => task.cancel();
   }, [activeSheet, filteredAvailable]);
 
   const sourceUpdateNotice = available.sourceUpdateNotice;
@@ -1545,7 +1555,13 @@ export function BrowseScreen() {
     });
   };
 
-  const openAddSourceSheet = () => {
+  // Set at the "+" tap; the sheet body's first layout measures the time to
+  // presentation (JS queueing plus mount) against it.
+  const addSourceTapStartedAtRef = useRef<number | null>(null);
+  // Stable: the native toolbar's items are rebuilt only when their own
+  // inputs change, not on every Browse render.
+  const openAddSourceSheet = useCallback(() => {
+    addSourceTapStartedAtRef.current = markMobilePerformance("browse.addSource.tap");
     setServerPickerOpen(false);
     // A registry query is useful only for the current sheet visit. Keeping it
     // after installing or dismissing a source makes a later visit look empty
@@ -1554,7 +1570,13 @@ export function BrowseScreen() {
     addSourceDismissActionRef.current = null;
     setActiveSheet("add-source");
     setActiveSheetVisible(true);
-  };
+  }, []);
+  const handleAddSourceSheetBodyLayout = useCallback(() => {
+    const startedAt = addSourceTapStartedAtRef.current;
+    if (startedAt === null) return;
+    addSourceTapStartedAtRef.current = null;
+    measureMobilePerformance("browse.addSource.presented", startedAt);
+  }, []);
   // Settings → Installed Sources' "+" switches to this tab and files a
   // one-shot request for the same sheet the header "+" opens. It is consumed
   // when Browse is focused: right away on a first mount, or through the
@@ -1739,17 +1761,20 @@ export function BrowseScreen() {
   };
 
 
-  const nativeHeaderActions: NemuNativeHeaderAction[] = [
+  const addSourceActionDisabled = activeInstallKey !== null;
+  const addSourcesLabel = strings.browse.addSources;
+  const manageSourcesLabel = strings.browse.manageSources;
+  const nativeHeaderActions = useMemo<NemuNativeHeaderAction[]>(() => [
     {
       icon: "plus",
-      label: strings.browse.addSources,
-      disabled: activeInstallKey !== null,
+      label: addSourcesLabel,
+      disabled: addSourceActionDisabled,
       onPress: openAddSourceSheet,
     },
     // The new design keeps one "+"; sources are managed from Settings.
     ...(mobileDesignExploreFlag ? [] : [{
       icon: "square.stack.3d.up" as const,
-      label: strings.browse.manageSources,
+      label: manageSourcesLabel,
       onPress: () => {
         router.push({
           pathname: "/(tabs)/settings/[section]",
@@ -1757,7 +1782,14 @@ export function BrowseScreen() {
         });
       },
     }]),
-  ];
+  ], [addSourceActionDisabled, addSourcesLabel, manageSourcesLabel, openAddSourceSheet]);
+  // The same elements while the actions are unchanged, so a Browse render
+  // (a sheet state change, a keystroke) does not hand the toolbar items to
+  // native again.
+  const nativeToolbarButtons = useMemo(
+    () => renderNemuNativeToolbarButtons(nativeHeaderActions),
+    [nativeHeaderActions],
+  );
 
   // Messages at the top of the page. Across the hinge they open the
   // leading column instead of running across both panes.
@@ -1908,7 +1940,7 @@ export function BrowseScreen() {
             options={createNemuNativeScreenOptions(tokens, strings.nav.browse, verticalBarSide)}
           />
           <Stack.Toolbar placement="right">
-            {renderNemuNativeToolbarButtons(nativeHeaderActions)}
+            {nativeToolbarButtons}
           </Stack.Toolbar>
         </>
       ) : null}
@@ -2081,7 +2113,7 @@ export function BrowseScreen() {
                 </ScrollView>
               )}
             </NemuSheetScrollEdge>
-          ) : <View style={styles.addSourceSheetBody}>
+          ) : <View style={styles.addSourceSheetBody} onLayout={handleAddSourceSheetBodyLayout}>
             {/*
               Everything above the list lives in one stack so the scroll
               container's top edge sits exactly at the search field's bottom.
@@ -2201,7 +2233,7 @@ export function BrowseScreen() {
                   alwaysBounceVertical={false}
                   automaticallyAdjustContentInsets={false}
                   contentInsetAdjustmentBehavior="never"
-                  initialNumToRender={18}
+                  initialNumToRender={10}
                   maxToRenderPerBatch={18}
                   keyboardDismissMode="interactive"
                   keyboardShouldPersistTaps="handled"
