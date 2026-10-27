@@ -308,7 +308,12 @@ import {
 import { MobileReaderPageFrame } from "@/components/reader/MobileReaderPageFrame";
 import { MobileReaderPageSpinner } from "@/components/reader/MobileReaderPageSpinner";
 import { MobileReaderLivePageView } from "@/components/reader/MobileReaderLivePageView";
-import { readerCentreTapBand, readerChromeDismissSweep } from "@/components/reader/readerTapZones";
+import {
+  readerBookCentreTapBand,
+  readerBookTapLayout,
+  readerCentreTapBand,
+  readerChromeDismissSweep,
+} from "@/components/reader/readerTapZones";
 import {
   ReaderPairingShiftToast,
   type ReaderPairingShiftToastState,
@@ -3402,6 +3407,16 @@ export function ReaderScreen() {
   const readerFoldGap = bilingualOverrides ? null : readerPose.foldGap;
   const readerStageHeight = Math.max(1, readerStage.height);
   const readerPageWidth = readerStageConstrained ? Math.max(1, readerStage.width) : Math.max(280, readerStage.width);
+  // Book posture (vertical hinge) spread: each half is a page, so only each
+  // half's outer strip turns pages and the hinge band takes no taps. Flat,
+  // notebook and the outer display keep the stage-wide bands.
+  const readerBookTaps = useMemo(
+    () =>
+      readerPose.posture === "book"
+        ? readerBookTapLayout({ stageWidth: readerPageWidth, foldGap: readerFoldGap, spreadSlots: readerSpreadSlots })
+        : null,
+    [readerFoldGap, readerPageWidth, readerPose.posture, readerSpreadSlots],
+  );
   // The pose decides whether spreads are possible at all (drives the setting)
   // and whether one is shown right now.
   const twoPageSupported = readerPose.twoPageAvailable;
@@ -9993,9 +10008,12 @@ export function ReaderScreen() {
   const readerZoomTapBand = useMemo(
     () =>
       galleryPagedMode && !readerStageTapOwned
-        ? mobileWindowAbsoluteBand(readerCentreTapBand({ width: readerPageWidth }), readerStageWindowOrigin.x)
+        ? mobileWindowAbsoluteBand(
+            readerBookTaps ? readerBookCentreTapBand(readerBookTaps) : readerCentreTapBand({ width: readerPageWidth }),
+            readerStageWindowOrigin.x,
+          )
         : null,
-    [galleryPagedMode, readerPageWidth, readerStageTapOwned, readerStageWindowOrigin.x],
+    [galleryPagedMode, readerBookTaps, readerPageWidth, readerStageTapOwned, readerStageWindowOrigin.x],
   );
 
   const startReaderPageFlip = useCallback(
@@ -13499,6 +13517,7 @@ export function ReaderScreen() {
         chromeDismissing={readerChromeLingering && !readerChromePresent}
         onRevealChrome={() => setShowControls(true)}
         foldGap={readerFoldGap}
+        bookTapLayout={readerBookTaps}
         pageCurl={readerPageCurlActive}
         onPageTurningChange={setReaderPageTurning}
         pageOverlaysMounted={japaneseLearningDetections.length > 0}

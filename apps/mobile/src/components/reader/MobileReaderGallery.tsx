@@ -96,6 +96,9 @@ import {
   readerTapDispatchForZone,
   readerTapZoneForPosition,
   readerScrollTapZoneForPosition,
+  readerBookTapZoneForPosition,
+  isReaderBookTapDead,
+  type ReaderBookTapLayout,
 } from "./readerTapZones";
 import {
   readerStageMultiTouchOnEnd,
@@ -381,6 +384,12 @@ type MobileReaderGalleryProps = {
   tapExclusions?: readonly WindowLayoutRect[];
   /** Stage-local fold interval: never a tap target. */
   foldGap?: { start: number; end: number } | null;
+  /**
+   * Book posture (vertical hinge) spread: each half's outer strip turns the
+   * page, the rest toggles the chrome, the hinge band does nothing
+   * (`readerBookTapLayout`). Absent: the stage-wide bands.
+   */
+  bookTapLayout?: ReaderBookTapLayout | null;
   geometryKey?: string;
   onStageOriginChange?: (origin: { x: number; y: number }) => void;
   /**
@@ -696,6 +705,7 @@ export function MobileReaderGallery({
   windowKey = "",
   tapExclusions,
   foldGap,
+  bookTapLayout,
   geometryKey,
   onStageOriginChange,
   contentIdentityKey,
@@ -2008,7 +2018,7 @@ export function MobileReaderGallery({
       touchStartRef.current = null;
       return;
     }
-    if (mobileReaderTapExcluded({ x, y }, undefined, foldGap)) {
+    if (mobileReaderTapExcluded({ x, y }, undefined, foldGap) || isReaderBookTapDead(x, bookTapLayout)) {
       touchStartRef.current = null;
       return;
     }
@@ -2242,6 +2252,13 @@ export function MobileReaderGallery({
             y: touch.pageY - stageOriginRef.current.y,
             height: windowHeight,
           })
+        : bookTapLayout
+          ? readerBookTapZoneForPosition({
+              x: touch.pageX - stageOriginRef.current.x,
+              layout: bookTapLayout,
+              mode,
+              pagedMode: readerPageTurnEnabled,
+            })
         : readerPageTurnEnabled
           ? readerTapZoneForPosition({
               x: touch.pageX - stageOriginRef.current.x,
@@ -2250,6 +2267,8 @@ export function MobileReaderGallery({
               pagedMode,
             })
           : "toggle";
+    // Book posture hinge band: no zone at all.
+    if (zone === null) return;
     const now = Date.now();
     const dispatch = readerTapDispatchForZone({
       zone,

@@ -11,6 +11,12 @@ import {
   readerTapZoneForPosition,
   readerScrollTapZoneForPosition,
   READER_SCROLL_TAP_EDGE_ZONE_RATIO,
+  READER_BOOK_TAP_EDGE_MIN_WIDTH,
+  isReaderBookTapDead,
+  readerBookCentreTapBand,
+  readerBookTapLayout,
+  readerBookTapZoneForPosition,
+  readerTapZoneForPhysicalSide,
 } from "./readerTapZones";
 
 const WIDTH = 400;
@@ -498,5 +504,133 @@ describe("scroll reading screen tap zones (§4b)", () => {
     expect(readerScrollTapZoneForPosition({ y: Number.NaN, height: 400 })).toBe("toggle");
     expect(readerScrollTapZoneForPosition({ y: 10, height: 0 })).toBe("toggle");
     expect(readerScrollTapZoneForPosition({ y: 10, height: 400, edgeRatio: 0 })).toBe("toggle");
+  });
+});
+
+describe("book posture tap zones (vertical hinge)", () => {
+  // A Duo-like book spread: two 500pt halves around a 20pt hinge.
+  const duo = readerBookTapLayout({
+    stageWidth: 1020,
+    foldGap: { start: 500, end: 520 },
+    spreadSlots: [
+      { x: 0, width: 510 },
+      { x: 510, width: 510 },
+    ],
+  })!;
+  const book = (x: number, mode: "ltr" | "rtl", layout = duo) =>
+    readerBookTapZoneForPosition({ x, layout, mode, pagedMode: true });
+
+  test("only the outer 30% of each half turns pages", () => {
+    expect(duo.leftStrip).toEqual({ start: 0, end: 150 });
+    expect(duo.rightStrip).toEqual({ start: 870, end: 1020 });
+    expect(book(10, "ltr")).toBe("previous");
+    expect(book(149, "ltr")).toBe("previous");
+    expect(book(151, "ltr")).toBe("toggle");
+    expect(book(869, "ltr")).toBe("toggle");
+    expect(book(871, "ltr")).toBe("next");
+    expect(book(1010, "ltr")).toBe("next");
+  });
+
+  test("RTL turns toward the page lying on each side, like the flat bands", () => {
+    expect(book(10, "rtl")).toBe("next");
+    expect(book(1010, "rtl")).toBe("previous");
+    expect(book(300, "rtl")).toBe("toggle");
+    // Same physical mapping as the stage-wide bands.
+    expect<string>(readerTapZoneForPhysicalSide("left", "rtl")).toBe(zone(1, "rtl"));
+    expect<string>(readerTapZoneForPhysicalSide("right", "rtl")).toBe(zone(399, "rtl"));
+    expect<string>(readerTapZoneForPhysicalSide("left", "ltr")).toBe(zone(1, "ltr"));
+    expect<string>(readerTapZoneForPhysicalSide("right", "ltr")).toBe(zone(399, "ltr"));
+  });
+
+  test("the inner 70% of both halves toggles the chrome", () => {
+    for (const x of [151, 300, 480, 540, 700, 869]) {
+      expect(book(x, "ltr")).toBe("toggle");
+      expect(book(x, "rtl")).toBe("toggle");
+    }
+  });
+
+  test("the hinge plus 12pt either side is a dead band", () => {
+    expect(duo.deadBand).toEqual({ start: 488, end: 532 });
+    for (const x of [488, 495, 500, 510, 520, 525, 532]) {
+      expect(book(x, "ltr")).toBeNull();
+      expect(book(x, "rtl")).toBeNull();
+      expect(isReaderBookTapDead(x, duo)).toBe(true);
+    }
+    expect(book(487.9, "ltr")).toBe("toggle");
+    expect(book(532.1, "ltr")).toBe("toggle");
+    expect(isReaderBookTapDead(487.9, duo)).toBe(false);
+    expect(isReaderBookTapDead(10, null)).toBe(false);
+  });
+
+  test("each half uses its own width (unequal halves)", () => {
+    const layout = readerBookTapLayout({
+      stageWidth: 1000,
+      foldGap: { start: 600, end: 620 },
+      spreadSlots: [
+        { x: 0, width: 600 },
+        { x: 620, width: 380 },
+      ],
+    })!;
+    expect(layout.leftStrip).toEqual({ start: 0, end: 180 });
+    expect(layout.rightStrip.start).toBeCloseTo(1000 - 114);
+    expect(book(179, "ltr", layout)).toBe("previous");
+    expect(book(181, "ltr", layout)).toBe("toggle");
+    expect(book(885, "ltr", layout)).toBe("toggle");
+    expect(book(887, "ltr", layout)).toBe("next");
+  });
+
+  test("the strip is 30% of the tappable width: a side bar column is excluded", () => {
+    // An 84pt bar column on the right: the right slot ends at 936.
+    const layout = readerBookTapLayout({
+      stageWidth: 1020,
+      foldGap: { start: 500, end: 520 },
+      spreadSlots: [
+        { x: 0, width: 500 },
+        { x: 520, width: 416 },
+      ],
+    })!;
+    expect(layout.rightHalf).toEqual({ start: 520, end: 936 });
+    expect(layout.rightStrip.start).toBeCloseTo(936 - 416 * 0.3);
+    expect(layout.rightStrip.end).toBe(936);
+  });
+
+  test("a strip is never narrower than 88pt", () => {
+    const layout = readerBookTapLayout({
+      stageWidth: 520,
+      foldGap: { start: 250, end: 270 },
+      spreadSlots: [
+        { x: 0, width: 250 },
+        { x: 270, width: 250 },
+      ],
+    })!;
+    // 30% of 250 = 75 < 88.
+    expect(READER_BOOK_TAP_EDGE_MIN_WIDTH).toBe(88);
+    expect(layout.leftStrip).toEqual({ start: 0, end: 88 });
+    expect(layout.rightStrip).toEqual({ start: 520 - 88, end: 520 });
+    expect(book(87, "ltr", layout)).toBe("previous");
+    expect(book(89, "ltr", layout)).toBe("toggle");
+    expect(book(433, "ltr", layout)).toBe("next");
+    // A half narrower than the minimum is all strip (the dead band still wins).
+    const narrow = readerBookTapLayout({ stageWidth: 180, foldGap: { start: 80, end: 100 } })!;
+    expect(narrow.leftStrip).toEqual({ start: 0, end: 80 });
+    expect(book(70, "ltr", narrow)).toBeNull();
+    expect(book(60, "ltr", narrow)).toBe("previous");
+  });
+
+  test("taps only toggle while page turns are off; the hinge stays dead", () => {
+    const off = (x: number) => readerBookTapZoneForPosition({ x, layout: duo, mode: "ltr", pagedMode: false });
+    expect(off(10)).toBe("toggle");
+    expect(off(1010)).toBe("toggle");
+    expect(off(510)).toBeNull();
+  });
+
+  test("no fold, no book layout (flat and notebook keep the stage-wide bands)", () => {
+    expect(readerBookTapLayout({ stageWidth: 1020, foldGap: null })).toBeNull();
+    expect(readerBookTapLayout({ stageWidth: 0, foldGap: { start: 500, end: 520 } })).toBeNull();
+    expect(readerBookCentreTapBand(null)).toBeNull();
+  });
+
+  test("the zoom band spans between the two page-turn strips", () => {
+    expect(readerBookCentreTapBand(duo)).toEqual({ start: 150, end: 870 });
   });
 });
