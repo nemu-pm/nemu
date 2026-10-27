@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { AlphaType, ColorType, Skia } from "@shopify/react-native-skia";
 import { File, Paths } from "expo-file-system";
 import { resolveCachedMobileImageUri } from "./mobileImageCache";
+import { waitForMobileLaunchSourceWork } from "./mobileLaunchSourceWork";
 import { pickMobileCoverTint, type MobileCoverRgb } from "./mobileCoverTint";
 import { pickMobileCoverRegionTints } from "./mobileCoverMesh";
 import {
@@ -198,7 +199,13 @@ function loadMobileCoverTint(
   const pending = inflight.get(key);
   if (pending) return pending;
   const uri = source.uri;
-  const next = sampleCoverTint(source)
+  // Sampling decodes the full cover with Skia on the JS thread (and first
+  // loads the Skia JS package). On a cold launch that competed with the
+  // Library's first render under the launch screen, so wait for the launch
+  // gate (open at once after launch). The persisted tint still paints the
+  // first frame; covers without one keep the fallback a moment longer.
+  const next = waitForMobileLaunchSourceWork()
+    .then(() => sampleCoverTint(source))
     .catch(() => null)
     .then((tint) => {
       inflight.delete(key);
