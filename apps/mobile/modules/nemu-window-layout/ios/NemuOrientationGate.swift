@@ -63,6 +63,11 @@ enum NemuOrientationGate {
   /// scene had when it locked (the outer display honours the mask; the inner
   /// one ignores it and keeps the scene lock instead).
   @MainActor static var heldMask: UIInterfaceOrientationMask?
+  /// The scene whose orientation `heldMask` holds (the app scene the reader
+  /// is in). The hold narrows only its windows: a second foreground scene
+  /// (the outer cover's camera-capture accessory) is never narrowed to an
+  /// orientation read from another display, nor re-asked on the release.
+  @MainActor private static weak var heldScene: UIWindowScene?
 
   static func mask(idiom: UIUserInterfaceIdiom, window: UIWindow? = nil) -> UIInterfaceOrientationMask {
     guard idiom == .phone else { return .all }
@@ -77,7 +82,9 @@ enum NemuOrientationGate {
       }
       answered = true
       guard widened else { return .portrait }
-      return heldMask ?? .all
+      guard let heldMask else { return .all }
+      if let scene = window?.windowScene, let heldScene, scene !== heldScene { return .all }
+      return heldMask
     }
   }
 
@@ -100,19 +107,45 @@ enum NemuOrientationGate {
   /// Holds (or releases) a foldable iPhone's current orientation.
   @available(iOS 26.0, *)
   @MainActor static func hold(_ value: Bool) {
-    let next: UIInterfaceOrientationMask? = value && foldable ? currentMask() : nil
-    guard next != heldMask else { return }
+    let scene = value && foldable ? appScene() : nil
+    let next: UIInterfaceOrientationMask? = scene.flatMap { currentMask(of: $0) }
+    // Nothing held and nothing to hold, or the same orientation of the same
+    // scene: no supported-orientations update (each one re-asks UIKit for
+    // the scene's geometry).
+    guard next != heldMask || (next != nil && scene !== heldScene) else { return }
+    let previousScene = heldScene
     heldMask = next
+    heldScene = next == nil ? nil : scene
     orientationGateLog.debug("orientation hold \(next == nil ? "off" : "on", privacy: .public)")
-    updateSupportedOrientations()
+    // Only the scenes the change applies to: the one held before and the one
+    // held now (the mask of every other scene stays `.all`).
+    var scenes: [UIWindowScene] = []
+    for candidate in [previousScene, heldScene] {
+      if let candidate, !scenes.contains(where: { $0 === candidate }) { scenes.append(candidate) }
+    }
+    if scenes.isEmpty {
+      updateSupportedOrientations()
+    } else {
+      for scene in scenes { updateSupportedOrientations(in: scene) }
+    }
+  }
+
+  /// The app's own scene, the one the reader is in: the scene holding the
+  /// key window, else a foreground app-role scene. Never the first active
+  /// scene in `connectedScenes` order, which may be the outer cover's
+  /// camera-capture accessory scene on the other display (its window is
+  /// never key).
+  @MainActor static func appScene() -> UIWindowScene? {
+    let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+    return scenes.first { $0.windows.contains(where: \.isKeyWindow) }
+      ?? scenes.first { $0.session.role == .windowApplication && $0.activationState == .foregroundActive }
+      ?? scenes.first { $0.session.role == .windowApplication }
+      ?? scenes.first
   }
 
   @available(iOS 26.0, *)
-  @MainActor private static func currentMask() -> UIInterfaceOrientationMask? {
-    let scene = UIApplication.shared.connectedScenes
-      .compactMap { $0 as? UIWindowScene }
-      .first { $0.activationState == .foregroundActive } ?? UIApplication.shared.connectedScenes.first as? UIWindowScene
-    switch scene?.effectiveGeometry.interfaceOrientation {
+  @MainActor private static func currentMask(of scene: UIWindowScene) -> UIInterfaceOrientationMask? {
+    switch scene.effectiveGeometry.interfaceOrientation {
     case .portrait: return .portrait
     case .portraitUpsideDown: return .portraitUpsideDown
     case .landscapeLeft: return .landscapeLeft
@@ -123,9 +156,13 @@ enum NemuOrientationGate {
 
   @MainActor private static func updateSupportedOrientations() {
     for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
-      for window in scene.windows {
-        window.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
-      }
+      updateSupportedOrientations(in: scene)
+    }
+  }
+
+  @MainActor private static func updateSupportedOrientations(in scene: UIWindowScene) {
+    for window in scene.windows {
+      window.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
     }
   }
 
@@ -299,6 +336,10 @@ enum NemuInterfaceOrientationLock {
       apply(true)
       NemuOrientationGate.hold(true)
     } else {
+      // Nothing locked and nothing held: no release to defer, and no
+      // orientation request to make while the pop runs.
+      guard locked || NemuOrientationGate.heldMask != nil else { return }
+      // One deferred release, after the transition that caused it (Back).
       NemuTransitionSettle.wait {
         guard !wanted else { return }
         apply(false)
