@@ -1754,8 +1754,8 @@ final class NemuVerticalBarBehaviorView: ExpoView {
       targets = Array(targets[...navigation])
     }
     // Restore what is no longer a target (popped, covered, prop cleared) —
-    // unless someone else changed it since — once the transition that caused
-    // it (the reader's Back) has finished (`NemuTransitionSettle`).
+    // unless someone else changed it since — once that controller's own
+    // transition (the reader's Back) has finished (`scheduleRestore`).
     let restoredStyle = appliedStyle
     styled.removeAll { entry in
       guard let controller = entry.controller.value else { return true }
@@ -1783,19 +1783,84 @@ final class NemuVerticalBarBehaviorView: ExpoView {
     let controller: WeakViewController
     let previous: UIUserInterfaceStyle
     let applied: UIUserInterfaceStyle
+    /// Tells this restore apart from a later one for the same controller, so
+    /// a superseded wait does not flush it.
+    let id: Int
   }
-  /// Restores waiting for the running transition to finish, by controller.
+  /// Restores waiting for the controller's own transition to finish, by controller.
   private static var pendingRestores: [ObjectIdentifier: PendingRestore] = [:]
-  private static var restoreFlushScheduled = false
+  private static var nextRestoreId = 0
+  /// Longest a restore looks for its controller's transition to start (React
+  /// commits the pop before UIKit starts it at the stack's next layout).
+  private static let restoreGrace: CFTimeInterval = 0.25
+  /// Backstop: a restore never waits longer than this.
+  private static let restoreCap: CFTimeInterval = 1.0
 
+  /// Waits only for the restored controller's own transition — never the
+  /// global `NemuTransitionSettle` walk, which any follow-up transition on any
+  /// stack kept restarting until its cap. A controller already out of its
+  /// window (Back popped the whole stack hosting it) is never seen again, so
+  /// it restores on the next turn.
   private static func scheduleRestore(_ controller: UIViewController, previous: UIUserInterfaceStyle, applied: UIUserInterfaceStyle) {
-    pendingRestores[ObjectIdentifier(controller)] = PendingRestore(
-      controller: WeakViewController(controller), previous: previous, applied: applied
+    let key = ObjectIdentifier(controller)
+    nextRestoreId += 1
+    let id = nextRestoreId
+    pendingRestores[key] = PendingRestore(
+      controller: WeakViewController(controller), previous: previous, applied: applied, id: id
     )
-    guard !restoreFlushScheduled else { return }
-    restoreFlushScheduled = true
-    NemuTransitionSettle.wait {
-      NemuVerticalBarBehaviorView.flushRestores()
+    let startedAt = CACurrentMediaTime()
+    DispatchQueue.main.asyncAfter(deadline: .now() + restoreCap) {
+      MainActor.assumeIsolated { flushRestore(key, id: id) }
+    }
+    if controller.viewIfLoaded?.window == nil {
+      DispatchQueue.main.async {
+        MainActor.assumeIsolated { flushRestore(key, id: id) }
+      }
+      return
+    }
+    // The pop is not running yet: look on the next turn.
+    DispatchQueue.main.async {
+      MainActor.assumeIsolated { awaitOwnTransition(key, id: id, startedAt: startedAt) }
+    }
+  }
+
+  /// One grace-loop step for a pending restore: waits once on the transition
+  /// coordinator of its controller (or the nearest one up its parent chain),
+  /// else looks again next frame until `restoreGrace`, then restores.
+  private static func awaitOwnTransition(_ key: ObjectIdentifier, id: Int, startedAt: CFTimeInterval) {
+    guard let pending = pendingRestores[key], pending.id == id else { return }
+    guard let controller = pending.controller.value else {
+      pendingRestores[key] = nil
+      return
+    }
+    if controller.viewIfLoaded?.window == nil {
+      flushRestore(key, id: id)
+      return
+    }
+    var cursor: UIViewController? = controller
+    var coordinator: UIViewControllerTransitionCoordinator?
+    while let current = cursor, coordinator == nil {
+      coordinator = current.transitionCoordinator
+      cursor = current.parent
+    }
+    if let coordinator {
+      let queued = coordinator.animate(alongsideTransition: nil) { _ in
+        MainActor.assumeIsolated { flushRestore(key, id: id) }
+      }
+      // UIKit refused the completion: it will never come.
+      if !queued {
+        DispatchQueue.main.async {
+          MainActor.assumeIsolated { flushRestore(key, id: id) }
+        }
+      }
+      return
+    }
+    if CACurrentMediaTime() - startedAt >= restoreGrace {
+      flushRestore(key, id: id)
+      return
+    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / 60.0) {
+      MainActor.assumeIsolated { awaitOwnTransition(key, id: id, startedAt: startedAt) }
     }
   }
 
@@ -1806,13 +1871,13 @@ final class NemuVerticalBarBehaviorView: ExpoView {
     return pending.previous
   }
 
-  private static func flushRestores() {
-    restoreFlushScheduled = false
-    let restores = pendingRestores
-    pendingRestores = [:]
-    for pending in restores.values {
-      guard let controller = pending.controller.value,
-        controller.overrideUserInterfaceStyle == pending.applied else { continue }
+  /// Applies one restore exactly once: a later call for the same `id` (the
+  /// backstop after a completion, or the reverse) and a restore taken over by
+  /// `takePendingRestore` or superseded by a newer one are no-ops.
+  private static func flushRestore(_ key: ObjectIdentifier, id: Int) {
+    guard let pending = pendingRestores[key], pending.id == id else { return }
+    pendingRestores[key] = nil
+    if let controller = pending.controller.value, controller.overrideUserInterfaceStyle == pending.applied {
       controller.overrideUserInterfaceStyle = pending.previous
     }
   }

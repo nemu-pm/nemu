@@ -310,11 +310,20 @@ enum NemuTransitionSettle {
     if let found = activeCoordinator() {
       orientationGateLog.debug("orientation change waits for a transition")
       pending.waited = true
-      found.coordinator.animate(alongsideTransition: nil) { _ in
+      let queued = found.coordinator.animate(alongsideTransition: nil) { _ in
         // A finished transition can hand over to another (a pop that lands on
         // a screen which presents); look again on the next turn.
         DispatchQueue.main.async {
           MainActor.assumeIsolated { poll(pending, until: CACurrentMediaTime() + 0.05) }
+        }
+      }
+      // UIKit refused the completion (the transition is over or never ran
+      // its animations): it will never come, so look again next frame
+      // instead of waiting for it; the cap still bounds the wait.
+      if !queued {
+        let retryUntil = max(deadline, CACurrentMediaTime() + 0.05)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / 60.0) {
+          MainActor.assumeIsolated { poll(pending, until: retryUntil) }
         }
       }
       return
