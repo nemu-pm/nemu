@@ -3,7 +3,10 @@ const mobilePerformanceEnabled =
   process.env.NODE_ENV === "development";
 
 export const MOBILE_PERFORMANCE_MARKS = {
+  bootBundleStart: "boot.bundle-start",
   bootJsEntry: "boot.js-entry",
+  bootGestureHandlerStart: "boot.gesture-handler-start",
+  bootGestureHandlerReady: "boot.gesture-handler-ready",
   bootRootModule: "boot.root-module",
   bootFontsReady: "boot.fonts-ready",
   bootProfileReady: "boot.profile-ready",

@@ -1,4 +1,5 @@
-import "react-native-gesture-handler";
+// Must stay first: loads react-native-gesture-handler (with timing marks).
+import "@/lib/mobileBootGestureHandler";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   DarkTheme,
