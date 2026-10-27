@@ -7,18 +7,20 @@ import UIKit
 /// iPad rotate, the reader included.
 ///
 /// Info.plist declares every orientation for iPhone and iPad, so a Duo opened
-/// sideways on its outer display launches in landscape. An ordinary iPhone is
-/// narrowed to portrait here from the first time UIKit asks (before the first
-/// frame of the app's own UI; the launch screen is a plain background colour,
-/// so a settle behind it is invisible), and this delegate widens the mask once
-/// the window's hinge reports: `UIHingeInteraction` only reports a hinge on a
-/// device that has one. A hinge does not come and go, so the gate remembers it
-/// (`UserDefaults`): from the second launch on, the Duo is foldable the first
-/// time UIKit asks and a sideways launch never turns through portrait. JS
-/// clears it when the device turns out to be an ordinary iPhone (a Duo's
-/// backup restored elsewhere). The reader's Orientation Lock narrows the Duo's mask
-/// to the orientation it has (`NemuInterfaceOrientationLock`); Expo intersects
-/// every subscriber's mask.
+/// sideways on its outer display launches in landscape. The gate decides
+/// what the device is from what the system says about it, synchronously
+/// (`NemuDeviceInfo`): the first time UIKit asks, the asking window's display
+/// tells a Duo (either display is wider than any ordinary iPhone's) from an
+/// ordinary iPhone, which is narrowed to portrait (before the first frame of
+/// the app's own UI; the launch screen is a plain background colour, so a
+/// settle behind it is invisible). A hinge report (`UIHingeInteraction` only
+/// reports a hinge on a device that has one) and a hinge remembered for this
+/// hardware model also make it foldable. Foldable is one-way: nothing ever
+/// narrows a foldable back to portrait or deletes the memory (product rule,
+/// 2026-10-27; a cold launch whose hinge was late used to forget it and hold
+/// the inner display portrait). The reader's Orientation Lock narrows the
+/// Duo's mask to the orientation it has (`NemuInterfaceOrientationLock`);
+/// Expo intersects every subscriber's mask.
 public final class NemuOrientationGateAppDelegate: ExpoAppDelegateSubscriber {
   public func application(
     _ application: UIApplication,
@@ -35,25 +37,26 @@ public final class NemuOrientationGateAppDelegate: ExpoAppDelegateSubscriber {
     _ application: UIApplication,
     supportedInterfaceOrientationsFor window: UIWindow?
   ) -> UIInterfaceOrientationMask {
-    NemuOrientationGate.mask(idiom: UIDevice.current.userInterfaceIdiom)
+    NemuOrientationGate.mask(idiom: UIDevice.current.userInterfaceIdiom, window: window)
   }
 }
 
 private let orientationGateLog = Logger(subsystem: "pm.nemu.window-layout", category: "orientation")
 
 enum NemuOrientationGate {
-  private static let foldableKey = "pm.nemu.orientation-gate.foldable"
-  /// A hinge has reported on this device (this session, or remembered from
-  /// an earlier one).
-  private(set) static var foldable = UserDefaults.standard.bool(forKey: foldableKey)
-  /// The mask allows landscape: a remembered hinge from the first time UIKit
-  /// asks, a newly reported one `widenDelay` later (see `becameFoldable`).
-  private static var widened = UserDefaults.standard.bool(forKey: foldableKey)
+  /// The device is a foldable iPhone: its display says so, a hinge reported,
+  /// or a hinge was remembered for this hardware model. Never reset.
+  private(set) static var foldable = NemuDeviceInfo.rememberedFoldable
+  /// The mask allows landscape: a foldable known the first time UIKit asks
+  /// at once, one found later `widenDelay` after (see `becameFoldable`).
+  private static var widened = NemuDeviceInfo.rememberedFoldable
+  /// UIKit has asked for the mask at least once.
+  private static var answered = false
   /// A hinge often reports within ~20 ms of the app becoming active, while
   /// the launch is still settling: the scene then takes the wider mask as its
   /// preferences but stays portrait. Reported 110 ms or more after, it turns.
   private static let widenDelay: TimeInterval = 0.25
-  private static var observer: NSObjectProtocol?
+  private static var observers: [NSObjectProtocol] = []
   private static var probes: [ObjectIdentifier: AnyObject] = [:]
 
   /// The reader's Orientation Lock on a foldable iPhone: the orientation the
@@ -61,25 +64,37 @@ enum NemuOrientationGate {
   /// one ignores it and keeps the scene lock instead).
   @MainActor static var heldMask: UIInterfaceOrientationMask?
 
-  static func mask(idiom: UIUserInterfaceIdiom) -> UIInterfaceOrientationMask {
+  static func mask(idiom: UIUserInterfaceIdiom, window: UIWindow? = nil) -> UIInterfaceOrientationMask {
     guard idiom == .phone else { return .all }
-    guard widened else { return .portrait }
-    return MainActor.assumeIsolated { heldMask } ?? .all
+    return MainActor.assumeIsolated { () -> UIInterfaceOrientationMask in
+      if !foldable {
+        let screen = window?.windowScene?.screen
+        if NemuDeviceInfo.screenIsFoldable(screen) == true {
+          // Asked for the first time: answer wide now. Later: widen as a
+          // late hinge does, after the launch settles.
+          becameFoldable(reason: "display wider than an iPhone", widenNow: !answered)
+        }
+      }
+      answered = true
+      guard widened else { return .portrait }
+      return heldMask ?? .all
+    }
   }
 
-  /// JS found no hinge on this device: forget a remembered one (portrait again).
-  @MainActor static func forgetFoldable() {
-    guard foldable else { return }
-    foldable = false
-    widened = false
-    heldMask = nil
-    UserDefaults.standard.removeObject(forKey: foldableKey)
-    orientationGateLog.debug("no hinge: portrait like an iPhone")
-    for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
-      for window in scene.windows {
-        window.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
-      }
+  /// Whether this is a foldable iPhone, from everything known now (main
+  /// thread): the display of `screen` (or of every connected scene), a
+  /// reported or remembered hinge. Learning it here widens the mask.
+  @MainActor static func resolveFoldable(screen: UIScreen? = nil) -> Bool {
+    guard UIDevice.current.userInterfaceIdiom == .phone else { return false }
+    if foldable { return true }
+    let display: Bool?
+    if let screen {
+      display = NemuDeviceInfo.screenIsFoldable(screen)
+    } else {
+      display = NemuDeviceInfo.connectedScreensAreFoldable()
     }
+    if display == true { becameFoldable(reason: "display wider than an iPhone", widenNow: false) }
+    return foldable
   }
 
   /// Holds (or releases) a foldable iPhone's current orientation.
@@ -89,11 +104,7 @@ enum NemuOrientationGate {
     guard next != heldMask else { return }
     heldMask = next
     orientationGateLog.debug("orientation hold \(next == nil ? "off" : "on", privacy: .public)")
-    for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
-      for window in scene.windows {
-        window.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
-      }
-    }
+    updateSupportedOrientations()
   }
 
   @available(iOS 26.0, *)
@@ -110,18 +121,49 @@ enum NemuOrientationGate {
     }
   }
 
+  @MainActor private static func updateSupportedOrientations() {
+    for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
+      for window in scene.windows {
+        window.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+      }
+    }
+  }
+
   static func start() {
-    guard UIDevice.current.userInterfaceIdiom == .phone, observer == nil else { return }
+    guard UIDevice.current.userInterfaceIdiom == .phone, observers.isEmpty, !foldable else { return }
+    // Each time a scene activates (launch, a display switch, back from the
+    // background): read its display and probe its windows for a hinge.
+    observers.append(NotificationCenter.default.addObserver(
+      forName: UIScene.didActivateNotification, object: nil, queue: .main
+    ) { note in
+      MainActor.assumeIsolated {
+        if let scene = note.object as? UIWindowScene { sceneDidActivate(scene) }
+      }
+    })
     #if NEMU_SDK_27_1
     if #available(iOS 27.1, *) {
-      // Scenes connect after launch; probe each window as it becomes key.
-      observer = NotificationCenter.default.addObserver(
+      // Scenes connect after launch; probe each window as it becomes key too.
+      observers.append(NotificationCenter.default.addObserver(
         forName: UIWindow.didBecomeKeyNotification, object: nil, queue: .main
       ) { note in
         MainActor.assumeIsolated {
           if let window = note.object as? UIWindow { probe(window) }
         }
-      }
+      })
+    }
+    #endif
+  }
+
+  @MainActor
+  private static func sceneDidActivate(_ scene: UIWindowScene) {
+    guard !foldable else { return }
+    if NemuDeviceInfo.screenIsFoldable(scene.screen) == true {
+      becameFoldable(reason: "display wider than an iPhone", widenNow: false)
+      return
+    }
+    #if NEMU_SDK_27_1
+    if #available(iOS 27.1, *) {
+      for window in scene.windows { probe(window) }
     }
     #endif
   }
@@ -134,34 +176,37 @@ enum NemuOrientationGate {
     let interaction = UIHingeInteraction { [weak window] interaction, update in
       guard update.hinge != nil, let window else { return }
       window.removeInteraction(interaction)
-      becameFoldable()
+      becameFoldable(reason: "hinge reported", widenNow: false)
     }
     window.addInteraction(interaction)
     probes[ObjectIdentifier(window)] = interaction
   }
+  #endif
 
+  /// The device is foldable: remember it for this hardware model and widen
+  /// the mask, at once (`widenNow`, while answering UIKit's first ask) or
+  /// `widenDelay` later, once the launch has settled.
   @MainActor
-  private static func becameFoldable() {
+  private static func becameFoldable(reason: String, widenNow: Bool) {
     guard !foldable else { return }
     foldable = true
-    UserDefaults.standard.set(true, forKey: foldableKey)
-    orientationGateLog.debug("hinge reported: rotating like a foldable")
+    NemuDeviceInfo.rememberFoldable()
+    orientationGateLog.debug("\(reason, privacy: .public): rotating like a foldable (\(NemuDeviceInfo.modelIdentifier, privacy: .public))")
     probes.removeAll()
-    if let observer { NotificationCenter.default.removeObserver(observer) }
-    observer = nil
+    observers.forEach(NotificationCenter.default.removeObserver)
+    observers = []
+    if widenNow {
+      widened = true
+      return
+    }
     DispatchQueue.main.asyncAfter(deadline: .now() + widenDelay) {
       MainActor.assumeIsolated {
         guard foldable, !widened else { return }
         widened = true
-        for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
-          for window in scene.windows {
-            window.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
-          }
-        }
+        updateSupportedOrientations()
       }
     }
   }
-  #endif
 }
 
 /// Waits out the view controller transitions running in the app's windows

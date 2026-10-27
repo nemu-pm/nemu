@@ -105,10 +105,19 @@ public final class NemuWindowLayoutModule: Module {
       MainActor.assumeIsolated { NemuInterfaceOrientationLock.set(locked) }
     }.runOnQueue(.main)
     Constant("interfaceOrientationLockAvailable") { true }
-    // The orientation gate remembers a hinge; JS clears it on an ordinary iPhone.
-    AsyncFunction("forgetFoldableDevice") {
-      MainActor.assumeIsolated { NemuOrientationGate.forgetFoldable() }
-    }.runOnQueue(.main)
+    // A foldable iPhone (the iPhone Duo), from what the system says about the
+    // device (its display, a reported or remembered hinge; `NemuDeviceInfo`),
+    // never a timeout. Read synchronously by JS at load; the window observer
+    // also reports it (`foldableDevice`) on every snapshot. JS learns it is
+    // foldable and stays so; false only means the display looks like an
+    // ordinary iPhone's (a hinge may still report later).
+    Constant("isFoldableDevice") { () -> Bool in
+      if Thread.isMainThread {
+        return MainActor.assumeIsolated { NemuOrientationGate.resolveFoldable() }
+      }
+      return NemuOrientationGate.foldable
+    }
+    Constant("deviceModelIdentifier") { NemuDeviceInfo.modelIdentifier }
     // Resolves once no view controller transition is running in the app's
     // windows (see `NemuTransitionSettle`): orientation changes wait for it.
     AsyncFunction("afterTransitions") { (promise: Promise) in
@@ -1521,6 +1530,8 @@ final class NemuWindowLayoutView: ExpoView {
     let windowSize = window?.bounds.size ?? scene.coordinateSpace.bounds.size
     let screenSize = scene.screen.bounds.size
     let near = { (a: CGFloat, b: CGFloat) in abs(a - b) < 1 }
+    // The device itself, not this window: see `NemuDeviceInfo`.
+    payload["foldableDevice"] = NemuOrientationGate.resolveFoldable(screen: scene.screen)
     payload["fillsScreen"] = (near(windowSize.width, screenSize.width) && near(windowSize.height, screenSize.height))
       || (near(windowSize.width, screenSize.height) && near(windowSize.height, screenSize.width))
     let insets = safeAreaInsets
