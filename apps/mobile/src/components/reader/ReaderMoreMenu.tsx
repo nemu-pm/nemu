@@ -1,4 +1,4 @@
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { MenuView, type MenuAction } from "@expo/ui/community/menu";
 import CheckCircleIcon from "@expo/material-symbols/check_circle.xml";
 import ExtensionIcon from "@expo/material-symbols/extension.xml";
