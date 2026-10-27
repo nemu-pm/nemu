@@ -4,7 +4,7 @@ import kavitaIcon from "../../assets/server-icons/kavita.png";
 import suwayomiIcon from "../../assets/server-icons/suwayomi.png";
 import { MobileQuickActionMenu, mobileNativeQuickMenuAvailable } from "@/components/MobileQuickActionMenu";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import { MOBILE_EXPLORE_RADIUS } from "@/lib/mobileExploreRadius";
 import { Stack, router, useFocusEffect } from "expo-router";
@@ -816,6 +816,39 @@ function AvailableSectionSeparator({
  * too.
  */
 const ADD_SOURCE_SHEET_SNAP_POINTS: (string | number)[] = ["75%", "100%"];
+
+/** The latest the catalog list waits for the sheet's native layout. */
+const ADD_SOURCE_LIST_MOUNT_FALLBACK_MS = 250;
+
+/**
+ * The Add Sources catalog list (its scroll edge blur, the server entry and
+ * the first rows), mounted once the native sheet has sized the body instead
+ * of in the "+" tap's own commit. That commit then carries only the sheet,
+ * its header and the search field, so the native presentation starts without
+ * waiting for the list's views; the rows follow a frame or two into the
+ * slide-up. The space keeps the list's frame meanwhile (nothing reflows).
+ * Mounted anyway after `ADD_SOURCE_LIST_MOUNT_FALLBACK_MS`.
+ */
+function AddSourceListAfterSheetLayout({ children }: { children: ReactNode }) {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    if (ready) {
+      // TEST-ONLY (Stability Diagnostics).
+      markMobileStabilityDiagnostic("sources list mounted");
+      return;
+    }
+    const timer = setTimeout(() => setReady(true), ADD_SOURCE_LIST_MOUNT_FALLBACK_MS);
+    return () => clearTimeout(timer);
+  }, [ready]);
+  const handleLayout = useCallback((event: LayoutChangeEvent) => {
+    if (event.nativeEvent.layout.height > 0) setReady(true);
+  }, []);
+  return (
+    <View style={styles.availableListScroller} onLayout={ready ? undefined : handleLayout}>
+      {ready ? children : null}
+    </View>
+  );
+}
 
 export function BrowseScreen() {
   const { verticalBarSide } = useMobileAdaptiveLayout();
@@ -2199,6 +2232,7 @@ export function BrowseScreen() {
               ) : null}
             </View>
 
+            <AddSourceListAfterSheetLayout>
             <NemuSheetScrollEdge style={styles.availableListScroller}>
               {(edge) => (
                 <SectionList
@@ -2282,6 +2316,7 @@ export function BrowseScreen() {
                 />
               )}
             </NemuSheetScrollEdge>
+            </AddSourceListAfterSheetLayout>
           </View>}
         </MobileNativeSheetScaffold>
       ) : null}
