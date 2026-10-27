@@ -57,6 +57,7 @@ import {
 } from "@/lib/mobileSplashScreen";
 import { isMobileLibraryRoute } from "@/lib/mobileRootTabs";
 import { hideMobileLaunchScreenWithReveal } from "@/lib/mobileLaunchReveal";
+import { markMobileLaunchSourceWorkRevealed } from "@/lib/mobileLaunchSourceWork";
 import { mobileAidokuPrewarmRootTouchProps } from "@/lib/useMobileAidokuSandboxPrewarm";
 import {
   MOBILE_PERFORMANCE_MARKS,
@@ -72,7 +73,9 @@ markMobilePerformance(MOBILE_PERFORMANCE_MARKS.bootRootModule);
 startMobileSplashSafetyCap();
 registerMobileSplashForceHide(() => {
   markMobilePerformance(MOBILE_PERFORMANCE_MARKS.bootSplashHidden, { forced: true });
-  void SplashScreen.hideAsync().catch(() => undefined);
+  void SplashScreen.hideAsync()
+    .catch(() => undefined)
+    .then(markMobileLaunchSourceWorkRevealed);
 });
 markMobilePerformance(MOBILE_PERFORMANCE_MARKS.bootFontsReady, {
   status: Platform.OS === "web" ? "system-fallback" : "native-embedded",
@@ -174,7 +177,7 @@ function RootStack({
       reduceMotion: reveal.reduceMotion,
       background: reveal.background,
       hideSplash: () => SplashScreen.hideAsync(),
-    }).catch(() => {
+    }).then(markMobileLaunchSourceWorkRevealed, () => {
       splashHiddenRef.current = false;
       releaseMobileSplashHideClaim();
     });

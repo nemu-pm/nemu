@@ -11,6 +11,10 @@ import {
   rememberMobileSourceImageRequestFor,
 } from "@/lib/mobileSourceImageRequestMemoryStore";
 import {
+  isMobileLaunchSourceWorkAllowed,
+  waitForMobileLaunchSourceWork,
+} from "@/lib/mobileLaunchSourceWork";
+import {
   loadMobileSourceSettingsByKeys,
   mergeSourceSettingValues,
   type MobileSourceSettingsReader,
@@ -194,10 +198,21 @@ function useMobileSourceImageRequestState(
     // attempt and published as one pair when it settles: a superseded resolve
     // must not be able to leave its cache key next to the live request.
     const attempt = repair.beginResolve();
-    void resolveCachedMobileSourceImageRequest(source, url, {
-      getSourceSettings,
-      onCacheKey: attempt.observeCacheKey,
-    })
+    const resolve = () =>
+      resolveCachedMobileSourceImageRequest(source, url, {
+        getSourceSettings,
+        onCacheKey: attempt.observeCacheKey,
+      });
+    // Under the launch screen and until the launch has settled, nothing
+    // resolves: a resolve needs a source session (a WKWebView boot on iOS).
+    // The remembered request paints meanwhile; a cover with none shows its
+    // placeholder and fades in once this resolves after the launch.
+    const resolution = isMobileLaunchSourceWorkAllowed()
+      ? resolve()
+      : waitForMobileLaunchSourceWork().then(() =>
+          attempt.active ? resolve() : null,
+        );
+    void resolution
       .catch(() => null)
       .then((request) => {
         if (!attempt.active) return;
