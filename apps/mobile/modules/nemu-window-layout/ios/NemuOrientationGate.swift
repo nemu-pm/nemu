@@ -261,51 +261,95 @@ enum NemuOrientationGate {
 /// only starts a navigation transition at the stack's next layout pass
 /// (`startDeferredTransitionIfNeeded`). So it watches for one for
 /// `grace` seconds; with none (a tab switch) `done` runs after that.
+///
+/// A wait never lasts longer than `cap` seconds: the tab bar, the orientation
+/// lock's release and the reader's style restore all wait here, and a
+/// transition whose completion never comes (an interactive or cancelled one,
+/// a presentation left behind) or a coordinator that stays reachable after it
+/// finished held them for a minute. Only the app's own scenes count (never
+/// the outer cover's accessory scene), and a controller already dismissed
+/// out of its window is skipped.
 @MainActor
 enum NemuTransitionSettle {
   static let grace: CFTimeInterval = 0.25
+  static let cap: CFTimeInterval = 1.0
 
-  static func wait(_ done: @escaping @MainActor () -> Void) {
-    poll(until: CACurrentMediaTime() + grace, waited: false, done)
+  /// One wait: `done` runs exactly once, at the latest `cap` after `wait`.
+  @MainActor
+  private final class Pending {
+    let startedAt = CACurrentMediaTime()
+    let done: @MainActor () -> Void
+    var finished = false
+    var waited = false
+    var polls = 0
+
+    init(_ done: @escaping @MainActor () -> Void) {
+      self.done = done
+    }
   }
 
-  private static func poll(until deadline: CFTimeInterval, waited: Bool, _ done: @escaping @MainActor () -> Void) {
-    if let coordinator = activeCoordinator() {
+  static func wait(_ done: @escaping @MainActor () -> Void) {
+    let pending = Pending(done)
+    // The cap holds even while a transition's completion never comes.
+    DispatchQueue.main.asyncAfter(deadline: .now() + cap) {
+      MainActor.assumeIsolated { finish(pending, capped: true) }
+    }
+    poll(pending, until: pending.startedAt + grace)
+  }
+
+  private static func finish(_ pending: Pending, capped: Bool) {
+    guard !pending.finished else { return }
+    pending.finished = true
+    orientationGateLog.debug("orientation change applies (\(capped ? "capped" : pending.waited ? "transition finished" : "no transition", privacy: .public))")
+    pending.done()
+  }
+
+  private static func poll(_ pending: Pending, until deadline: CFTimeInterval) {
+    guard !pending.finished else { return }
+    pending.polls += 1
+    if let found = activeCoordinator() {
       orientationGateLog.debug("orientation change waits for a transition")
-      coordinator.animate(alongsideTransition: nil) { _ in
+      pending.waited = true
+      found.coordinator.animate(alongsideTransition: nil) { _ in
         // A finished transition can hand over to another (a pop that lands on
         // a screen which presents); look again on the next turn.
         DispatchQueue.main.async {
-          MainActor.assumeIsolated { poll(until: CACurrentMediaTime() + 0.05, waited: true, done) }
+          MainActor.assumeIsolated { poll(pending, until: CACurrentMediaTime() + 0.05) }
         }
       }
       return
     }
     if CACurrentMediaTime() >= deadline {
-      orientationGateLog.debug("orientation change applies (\(waited ? "transition finished" : "no transition", privacy: .public))")
-      done()
+      finish(pending, capped: false)
       return
     }
     DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / 60.0) {
-      MainActor.assumeIsolated { poll(until: deadline, waited: waited, done) }
+      MainActor.assumeIsolated { poll(pending, until: deadline) }
     }
   }
 
-  private static func activeCoordinator() -> UIViewControllerTransitionCoordinator? {
+  private typealias Found = (coordinator: UIViewControllerTransitionCoordinator, controller: UIViewController)
+
+  /// The first running transition in the app's own scenes, with the
+  /// controller it was found on.
+  private static func activeCoordinator() -> Found? {
     for case let scene as UIWindowScene in UIApplication.shared.connectedScenes
-    where scene.activationState != .background {
+    where scene.activationState != .background && scene.session.role == .windowApplication {
       for window in scene.windows where !window.isHidden {
-        if let coordinator = coordinator(in: window.rootViewController) { return coordinator }
+        if let found = coordinator(in: window.rootViewController) { return found }
       }
     }
     return nil
   }
 
-  private static func coordinator(in controller: UIViewController?) -> UIViewControllerTransitionCoordinator? {
+  private static func coordinator(in controller: UIViewController?) -> Found? {
     guard let controller else { return nil }
-    if let coordinator = controller.transitionCoordinator { return coordinator }
+    // Dismissed and already out of its window: whatever it still reports is
+    // not a transition anything on screen waits for.
+    if controller.isBeingDismissed && controller.viewIfLoaded?.window == nil { return nil }
+    if let coordinator = controller.transitionCoordinator { return (coordinator, controller) }
     for child in controller.children {
-      if let coordinator = coordinator(in: child) { return coordinator }
+      if let found = coordinator(in: child) { return found }
     }
     return coordinator(in: controller.presentedViewController)
   }
