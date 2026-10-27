@@ -598,7 +598,7 @@ index da8f363..a50ab78 100644
    }
  }
 diff --git a/ios/RNHostView.swift b/ios/RNHostView.swift
-index f2d5a18..b38ba10 100644
+index f2d5a18..1b261f5 100644
 --- a/ios/RNHostView.swift
 +++ b/ios/RNHostView.swift
 @@ -1,5 +1,6 @@
@@ -785,7 +785,7 @@ index f2d5a18..b38ba10 100644
        content
          .frame(width: observer.size.width, height: observer.size.height)
      } else {
-@@ -290,3 +377,166 @@ private struct ReportSizeToYogaNodeModifier: ViewModifier {
+@@ -290,3 +377,184 @@ private struct ReportSizeToYogaNodeModifier: ViewModifier {
      }
    }
  }
@@ -834,8 +834,26 @@ index f2d5a18..b38ba10 100644
 +@MainActor
 +private final class PresentationScaleTracker: ObservableObject {
 +  @Published private(set) var metrics = PresentationMetrics()
++  private var pendingMetrics: PresentationMetrics?
 +
++  // The probe samples from `layoutSubviews`, which can run inside a SwiftUI view update (the
++  // sheet's hosting controller lays out while SwiftUI updates it). Publishing there is undefined
++  // ("Publishing changes from within view updates"): SwiftUI can drop or revert state changed in
++  // the same pass, such as the sheet's `isPresented = false`, and leave a dismissed sheet
++  // presented. The latest sample is published on the next main-queue turn instead, once per turn
++  // however many samples arrive.
 +  func update(_ nextMetrics: PresentationMetrics) {
++    let isScheduled = pendingMetrics != nil
++    pendingMetrics = nextMetrics
++    guard !isScheduled else { return }
++    DispatchQueue.main.async { [weak self] in
++      self?.publishPendingMetrics()
++    }
++  }
++
++  private func publishPendingMetrics() {
++    guard let nextMetrics = pendingMetrics else { return }
++    pendingMetrics = nil
 +    if !nextMetrics.isClose(to: metrics) {
 +      metrics = nextMetrics
 +    }
