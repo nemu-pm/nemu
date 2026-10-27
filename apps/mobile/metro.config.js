@@ -5,6 +5,7 @@ const {
 const path = require("path");
 const crypto = require("crypto");
 const rootEnv = require("./loadRootEnv.cjs")();
+const { isWorkletsBundleModeEnabled } = require("./workletsBundleMode.cjs");
 // A production bundle (Xcode Release archive, Gradle release, production
 // `expo export`) must not bake the dev backend; fail the bundle step instead.
 require("./preflightRelease.cjs").enforceReleaseEnv(rootEnv);
@@ -30,7 +31,15 @@ const publicEnvFingerprint = crypto
   )
   .digest("hex")
   .slice(0, 16);
-config.cacheVersion = [config.cacheVersion, publicEnvFingerprint]
+const workletsBundleModeEnabled = isWorkletsBundleModeEnabled();
+// Bundle Mode changes how react-native-worklets itself is transformed (its
+// `_WORKLETS_BUNDLE_MODE_ENABLED` flag is rewritten by the Babel plugin), so a
+// cached transform from the other mode must never be reused.
+config.cacheVersion = [
+  config.cacheVersion,
+  publicEnvFingerprint,
+  workletsBundleModeEnabled ? "worklets-bundle-mode" : "worklets-serialized",
+]
   .filter(Boolean)
   .join(":");
 const defaultResolveRequest = config.resolver.resolveRequest;
@@ -84,15 +93,31 @@ config.serializer.getModulesRunBeforeMainModule = (...args) => [
   ...defaultGetModulesRunBeforeMainModule(...args),
 ];
 
-// Bundle Mode supplies stable module ids, the worklet runtime entry point, and
-// inline-require transform options. Metro development intentionally leaves it
-// disabled: HMR retains complete bundle generations in JSC worklet runtimes
-// and can otherwise grow the app until Android kills it for memory pressure.
-// Release/export builds still use Bundle Mode for off-thread dual-reader FFT.
-const workletsBundleModeEnabled = process.env.NODE_ENV !== "development";
+// Worklets Bundle Mode is off by default (see workletsBundleMode.cjs): it made a
+// second runtime evaluate the whole bundle during launch and blocked the JS
+// thread on it. Opt in with NEMU_WORKLETS_BUNDLE_MODE=1 (non-development only).
 if (workletsBundleModeEnabled) {
   getBundleModeMetroConfig(config);
 }
+// Keep inline requires on regardless of Bundle Mode (which used to be what
+// supplied them): module bodies then run on first use instead of all at
+// startup. Expo's own default is `inlineRequires: false`, so this must be
+// explicit. Merge with the existing options so Expo's
+// `experimentalImportSupport: true` (live-binding ESM transform) is preserved
+// exactly as the previous release bundles had it.
+const existingGetTransformOptions = config.transformer.getTransformOptions;
+config.transformer.getTransformOptions = async (...args) => {
+  const options = existingGetTransformOptions
+    ? await existingGetTransformOptions(...args)
+    : {};
+  return {
+    ...options,
+    transform: {
+      ...options?.transform,
+      inlineRequires: true,
+    },
+  };
+};
 const bundleModeResolveRequest = config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, moduleName, platform) => {
   // Bundle Mode emits virtual modules below react-native-worklets/.worklets.
@@ -103,11 +128,17 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
     return { type: "sourceFile", filePath: dualReaderCoreEntry };
   }
   if (moduleName === "cheerio" || moduleName.startsWith("cheerio/")) {
-    return bundleModeResolveRequest(
-      withBrowserCondition(context),
-      moduleName,
-      platform,
-    );
+    return bundleModeResolveRequest
+      ? bundleModeResolveRequest(
+          withBrowserCondition(context),
+          moduleName,
+          platform,
+        )
+      : context.resolveRequest(
+          withBrowserCondition(context),
+          moduleName,
+          platform,
+        );
   }
   if (
     defaultResolveRequest &&

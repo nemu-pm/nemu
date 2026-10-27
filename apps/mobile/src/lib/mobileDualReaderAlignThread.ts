@@ -21,6 +21,10 @@
  *   `timeoutMs`, and the worklet builds its own deadline-based `abortCheck` and
  *   `buildAlignmentOptions` on the background thread.
  *
+ * Bundle Mode is now opt-in (NEMU_WORKLETS_BUNDLE_MODE=1, see
+ * apps/mobile/workletsBundleMode.cjs) because it lengthened cold launch; by
+ * default `createRealSchedule` takes the JS-thread fallback.
+ *
  * DEVICE-GATED: the real `react-native-worklets` runtime requires the New
  * Architecture + Bundle Mode + a native build, so it is verified on-device
  * (T7.4). The queue/concurrency/dispose logic is unit-tested here via an
@@ -131,10 +135,12 @@ async function createRealSchedule(): Promise<AlignThreadScheduleFn> {
       ._WORKLETS_BUNDLE_MODE_ENABLED,
   );
   if (!bundleModeEnabled) {
-    // Metro development deliberately disables Bundle Mode to prevent HMR from
-    // retaining full-bundle worklet runtime generations. Keep alignment
-    // functional for developers, accepting JS-thread execution in debug only;
-    // production continues to use the dedicated runtime below.
+    // Bundle Mode is off by default (apps/mobile/workletsBundleMode.cjs): it
+    // made a second runtime evaluate the whole bundle during launch and the
+    // JS thread waited on it, lengthening the native launch screen. Without
+    // it the worklet runtime cannot `require` the shared core, so alignment
+    // runs on the JS thread (deferred by a microtask). Builds that opt back
+    // in with NEMU_WORKLETS_BUNDLE_MODE=1 use the dedicated runtime below.
     return (payload) =>
       Promise.resolve().then(() => dualReaderAlignWorklet(payload));
   }
