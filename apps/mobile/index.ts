@@ -17,6 +17,10 @@ import "./src/polyfills/crypto";
 // module that reads it at load time and before the first screen.
 import "./src/lib/mobileDesignExploreBoot";
 import "./src/lib/mobilePerformanceEntry";
+// Start the data profile (keychain) reads and the SQLite open + migration now,
+// overlapping the rest of bundle evaluation and the first render, instead of
+// from MobileDataProvider/SQLiteProvider effects after that render.
+import "./src/data/mobileDataBootEntry";
 // A cold OS-launched background task loads this entry bundle without mounting
 // the Expo Router tree. Import the platform module here so TaskManager's
 // module-scope defineTask call runs before the native executor looks it up.

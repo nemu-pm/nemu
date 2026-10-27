@@ -14,9 +14,9 @@ import { MobileDataContext } from "./mobileDataContext";
 import {
   MOBILE_DATABASE_NAME,
   isDeferredNativeDatabaseVacuumPending,
-  migrateNativeDatabase,
   runDeferredNativeDatabaseVacuum,
 } from "./nativeDatabase";
+import { migrateMobileDatabaseOnInit } from "./mobileDataBoot";
 import { flushNativeBinaryCacheAccessIndexes } from "./nativeCache";
 import { NativeUserDataStore } from "./nativeStore";
 import { createMobileSyncDataStore, pushLocalArchiveVolume } from "@/sync/mobileSyncDataStore";
@@ -348,7 +348,7 @@ function MobileSQLiteDataProvider({
     <SQLiteProvider
       key={databaseName}
       databaseName={databaseName}
-      onInit={migrateNativeDatabase}
+      onInit={migrateMobileDatabaseOnInit}
     >
       <MobileDataStoreProvider
         authSettled={authSettled}
