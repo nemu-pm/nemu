@@ -9,7 +9,7 @@ export { setAppAppearance, type AppAppearance } from "./src/AppAppearance";
 export {
   afterViewControllerTransitions,
   interfaceOrientationLockAvailable,
-  forgetFoldableDevice,
+  nativeFoldableDevice,
   setInterfaceOrientationLocked,
 } from "./src/InterfaceOrientationLock";
 export {

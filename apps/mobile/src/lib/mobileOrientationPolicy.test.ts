@@ -25,7 +25,7 @@ const decide = (overrides: Partial<Parameters<typeof mobileDeviceFormFactor>[0]>
   mobileDeviceFormFactor({ platform: "ios", isPad: false, layout: iphone, previous: "unknown", probeElapsed: true, ...overrides });
 
 describe("device form factor", () => {
-  test("an iPhone is a phone only once the observer has had time to report a hinge", () => {
+  test("an older binary (no foldableDevice) calls a phone-sized iPhone a phone only after the hinge timeout", () => {
     expect(decide({ layout: null })).toBe("unknown");
     expect(decide({ probeElapsed: false })).toBe("unknown");
     expect(decide({})).toBe("phone");
@@ -33,10 +33,42 @@ describe("device form factor", () => {
     expect(decide({ layout: { ...iphone, supported: false }, probeElapsed: false })).toBe("phone");
   });
 
+  test("the device info decides, without a timeout", () => {
+    // Native: the display is an ordinary iPhone's.
+    expect(decide({ layout: { ...iphone, foldableDevice: false }, probeElapsed: false })).toBe("phone");
+    // Native: the display is a foldable's, before any hinge report.
+    expect(decide({ layout: { ...duoInner, hinge: undefined, divisions: [], foldableDevice: true }, probeElapsed: false })).toBe("foldable");
+    expect(decide({ layout: null, nativeFoldable: true })).toBe("foldable");
+    expect(decide({ layout: { ...iphone, foldableDevice: undefined }, nativeFoldable: true })).toBe("foldable");
+    // The constant may be read before the display is known: false alone is not "phone".
+    expect(decide({ layout: null, nativeFoldable: false })).toBe("unknown");
+  });
+
+  test("a cold launch on the inner display whose hinge is late is never a phone", () => {
+    const silentInner: MobileWindowLayout = { ...duoInner, hinge: undefined, divisions: [] };
+    expect(decide({ layout: silentInner })).toBe("unknown");
+    expect(decide({ layout: { ...silentInner, width: 951, height: 669 } })).toBe("unknown");
+    // Even a stale "phone" or a native "false" does not hold a window this wide portrait.
+    expect(decide({ layout: silentInner, previous: "phone" })).toBe("unknown");
+    expect(decide({ layout: { ...silentInner, foldableDevice: false } })).toBe("unknown");
+    // The outer display is wider than any iPhone too.
+    expect(decide({ layout: { ...duoOuter, hinge: undefined } })).toBe("unknown");
+    // The hinge reports later: foldable.
+    expect(decide({ layout: { ...silentInner, hinge: "fullyOpen" }, previous: "unknown" })).toBe("foldable");
+    expect(decide({ layout: { ...silentInner, hinge: "fullyOpen" }, previous: "phone" })).toBe("foldable");
+  });
+
+  test("a Pro Max is still a phone", () => {
+    const proMax: MobileWindowLayout = { ...iphone, width: 440, height: 956, foldableDevice: false };
+    expect(decide({ layout: proMax, probeElapsed: false })).toBe("phone");
+    expect(decide({ layout: { ...proMax, width: 956, height: 440 }, probeElapsed: false })).toBe("phone");
+  });
+
   test("the Duo is foldable from either display, and stays so", () => {
     expect(decide({ layout: duoOuter, probeElapsed: false })).toBe("foldable");
     expect(decide({ layout: { ...duoInner, hinge: undefined } })).toBe("foldable");
     expect(decide({ layout: { ...duoOuter, hinge: undefined }, previous: "foldable" })).toBe("foldable");
+    expect(decide({ layout: { ...iphone, foldableDevice: false }, previous: "foldable" })).toBe("foldable");
   });
 
   test("iPad is a tablet; Android keeps its own behaviour", () => {
@@ -86,6 +118,22 @@ describe("orientation lock", () => {
     expect(mobileWindowOnInnerDisplay({ ...duoOuter, width: 678, height: 466, hinge: "partiallyOpen" })).toBe(false);
     // Fully open and flat, the inner display reports no fold.
     expect(mobileWindowOnInnerDisplay({ ...duoInner, divisions: [], hinge: "fullyOpen" })).toBe(true);
+  });
+
+  test("before the hinge reports, the window size tells the displays apart", () => {
+    const silent = { divisions: [], hinge: undefined };
+    // The inner display, either orientation, device known or not.
+    for (const foldableDevice of [true, undefined]) {
+      expect(mobileWindowOnInnerDisplay({ ...duoInner, ...silent, foldableDevice })).toBe(true);
+      expect(mobileWindowOnInnerDisplay({ ...duoInner, ...silent, width: 951, height: 669, foldableDevice })).toBe(true);
+      // The outer display.
+      expect(mobileWindowOnInnerDisplay({ ...duoOuter, ...silent, foldableDevice })).toBe(false);
+    }
+    // A Pro Max is longer than 800pt but no wider than a phone.
+    expect(mobileWindowOnInnerDisplay({ width: 440, height: 956, divisions: [] })).toBe(false);
+    expect(mobileWindowOnInnerDisplay({ width: 440, height: 956, divisions: [], foldableDevice: false })).toBe(false);
+    // Known not foldable (an iPad): never the Duo inner display.
+    expect(mobileWindowOnInnerDisplay({ width: 1024, height: 1366, divisions: [], foldableDevice: false })).toBe(false);
   });
 
   test("the Orientation Lock row shows everywhere but an ordinary iPhone, on both Duo displays", () => {

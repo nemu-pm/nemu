@@ -48,6 +48,9 @@ export function shouldRunMobileOuterCover(input: {
   if (input.appState === "background" || input.appState === "unknown" || input.appState === "extension") return false;
   // Split View / a resizable window is not full-screen reading.
   if (input.layout.fillsScreen === false) return false;
+  // The camera only runs on a reported posture: before the hinge reports,
+  // the window size alone (enough for layout) does not start it.
+  if (!mobileLayoutShowsFold(input.layout)) return false;
   return mobileWindowOnInnerDisplay(input.layout);
 }
 

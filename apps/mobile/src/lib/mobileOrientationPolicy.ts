@@ -13,23 +13,44 @@ import type { MobileWindowLayout } from "@/lib/mobileWindowLayout";
  *   honor your supported interface orientations"), so a lock there is a
  *   request the system may refuse; no layout depends on it.
  *
- * "Foldable" is a capability read from the window observer (a hinge status
- * or a fold region), never a model string. The observer only learns the
- * hinge after `UIHingeInteraction` reports, so an iPhone is only called a
- * phone once the observer has reported for `MOBILE_FOLDABLE_PROBE_MS`
- * without either; a foldable seen once stays foldable for the session.
+ * "Foldable" is decided from what the system says about the device, not a
+ * timeout (product rule, 2026-10-27): the window-layout module reports
+ * `foldableDevice` (native `NemuDeviceInfo`: the display is wider than any
+ * ordinary iPhone's, or a hinge reported or is remembered for this hardware
+ * model) both as a constant read at load and on every observer snapshot. A
+ * hinge or fold region reported at any time also makes the device foldable,
+ * and a foldable stays foldable for the session. A window wider than any
+ * phone is never a phone. Only a binary without `foldableDevice` falls back
+ * to `MOBILE_FOLDABLE_PROBE_MS` of silence, and even then never on a window
+ * wider than a phone.
  *
  * Pure decisions; `MobileOrientationController` applies them.
  */
 
 export type MobileDeviceFormFactor = "phone" | "foldable" | "tablet" | "unknown";
 
-/** How long the window observer may stay silent about a hinge before the device counts as an ordinary phone. */
+/**
+ * Last-resort fallback for binaries that do not report `foldableDevice`: how
+ * long the window observer may stay silent about a hinge before a
+ * phone-sized window counts as an ordinary phone.
+ */
 export const MOBILE_FOLDABLE_PROBE_MS = 600;
 
-export function mobileLayoutShowsFold(layout: Pick<MobileWindowLayout, "hinge" | "divisions"> | null | undefined): boolean {
+/**
+ * Wider than any ordinary iPhone in either orientation (Pro Max: 440pt),
+ * narrower than both iPhone Duo displays (outer 466pt, inner 669pt). Matches
+ * native `NemuDeviceInfo.foldableMinimumShortSide`.
+ */
+export const MOBILE_PHONE_MAX_SHORT_SIDE = 460;
+
+export function mobileLayoutShowsFold(layout: Partial<Pick<MobileWindowLayout, "hinge" | "divisions">> | null | undefined): boolean {
   if (!layout) return false;
   return layout.hinge != null || (layout.divisions?.length ?? 0) > 0;
+}
+
+/** The window is wider (short side) than any ordinary iPhone's display. */
+export function mobileWindowWiderThanPhone(layout: Partial<Pick<MobileWindowLayout, "width" | "height">>): boolean {
+  return Math.min(layout.width ?? 0, layout.height ?? 0) > MOBILE_PHONE_MAX_SHORT_SIDE;
 }
 
 export function mobileDeviceFormFactor(input: {
@@ -38,18 +59,38 @@ export function mobileDeviceFormFactor(input: {
   /** The app window's observer layout; null before its first report. */
   layout: MobileWindowLayout | null;
   previous: MobileDeviceFormFactor;
-  /** The observer has reported for at least `MOBILE_FOLDABLE_PROBE_MS`. */
+  /**
+   * The window-layout module's synchronous `isFoldableDevice` constant;
+   * undefined on binaries without it. Only `true` is trusted on its own: it
+   * may be read before the display is known.
+   */
+  nativeFoldable?: boolean;
+  /** The observer has reported for at least `MOBILE_FOLDABLE_PROBE_MS` (fallback only). */
   probeElapsed: boolean;
 }): MobileDeviceFormFactor {
   // Android keeps its own behaviour: the reader's switch only.
   if (input.platform !== "ios") return "unknown";
   if (input.isPad) return "tablet";
-  if (input.previous === "foldable" || mobileLayoutShowsFold(input.layout)) return "foldable";
+  const layout = input.layout;
+  if (
+    input.previous === "foldable" ||
+    input.nativeFoldable === true ||
+    layout?.foldableDevice === true ||
+    mobileLayoutShowsFold(layout)
+  ) {
+    return "foldable";
+  }
+  if (!layout) return input.previous === "phone" ? "phone" : "unknown";
+  // No ordinary iPhone has a window this wide: never hold it portrait.
+  if (mobileWindowWiderThanPhone(layout)) return "unknown";
   if (input.previous === "phone") return "phone";
-  if (!input.layout) return "unknown";
+  // The native module read the window's display: an ordinary iPhone's.
+  if (layout.foldableDevice === false) return "phone";
   // Before iOS 27.1 there are no region APIs and no foldable iPhone.
-  if (!input.layout.supported) return "phone";
-  return input.probeElapsed ? "phone" : "unknown";
+  if (!layout.supported) return "phone";
+  // A binary that does not report the device: the old hinge timeout.
+  if (layout.foldableDevice === undefined && input.probeElapsed) return "phone";
+  return "unknown";
 }
 
 /** Longer than the iPhone Duo outer display's long side (678pt), shorter than the inner one's (951pt). */
@@ -60,16 +101,23 @@ const MOBILE_OUTER_DISPLAY_MAX_LENGTH = 800;
  * display; fully open, or a reported fold region, the inner one. Partly open
  * with no fold region is either tent (the outer display) or the inner display
  * whose region has not reported (iOS 27.1 reports none while it is flat, and
- * may not yet while it folds): the window's size tells them apart.
+ * may not yet while it folds): the window's size tells them apart. Before the
+ * hinge reports (a cold launch can take longer than expected) the size does
+ * too, unless the device is known not to be foldable; with the device
+ * unknown, also only when the window is wider than any phone (a Pro Max is
+ * longer than 800pt).
  */
 export function mobileWindowOnInnerDisplay(
-  layout: Partial<Pick<MobileWindowLayout, "hinge" | "divisions" | "width" | "height">>,
+  layout: Partial<Pick<MobileWindowLayout, "hinge" | "divisions" | "width" | "height" | "foldableDevice">>,
 ): boolean {
   if (layout.hinge === "closed") return false;
   if (layout.hinge === "fullyOpen" || (layout.divisions?.length ?? 0) > 0) return true;
-  // No hinge (an ordinary phone, or before the hinge reports): not a fold.
-  if (layout.hinge !== "partiallyOpen") return false;
-  return Math.max(layout.width ?? 0, layout.height ?? 0) > MOBILE_OUTER_DISPLAY_MAX_LENGTH;
+  const long = Math.max(layout.width ?? 0, layout.height ?? 0) > MOBILE_OUTER_DISPLAY_MAX_LENGTH;
+  if (layout.hinge === "partiallyOpen") return long;
+  // No hinge reported (yet).
+  if (layout.foldableDevice === false) return false;
+  if (layout.foldableDevice === true) return long;
+  return long && mobileWindowWiderThanPhone(layout);
 }
 
 /**

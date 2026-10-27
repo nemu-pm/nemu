@@ -47,6 +47,13 @@ export type MobileWindowLayout = {
    * older natives) — treat absent as "fills".
    */
   fillsScreen?: boolean;
+  /**
+   * The device is a foldable iPhone (iOS: its display is wider than any
+   * ordinary iPhone's, or a hinge reported or is remembered for this model;
+   * see `NemuDeviceInfo`). A device fact, not this window's; absent on
+   * Android, web and older natives.
+   */
+  foldableDevice?: boolean;
 };
 /** A window size change (rotation, fold, Split View) about to animate, with the system's own timing. */
 export type WindowTransitionTiming = {

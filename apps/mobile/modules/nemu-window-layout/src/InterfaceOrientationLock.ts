@@ -5,7 +5,7 @@ type NativeModule = {
   interfaceOrientationLockAvailable?: boolean;
   setInterfaceOrientationLocked?: (locked: boolean) => Promise<void>;
   afterTransitions?: () => Promise<void>;
-  forgetFoldableDevice?: () => Promise<void>;
+  isFoldableDevice?: boolean;
 };
 
 const nativeModule = Platform.OS === "ios"
@@ -26,13 +26,14 @@ export function setInterfaceOrientationLocked(locked: boolean): void {
 }
 
 /**
- * The device turned out to be an ordinary iPhone: the native orientation gate
- * forgets a hinge it remembered (a foldable's backup restored here) and holds
- * portrait again. No-op elsewhere and on older binaries.
+ * The device is a foldable iPhone (the iPhone Duo), read synchronously from
+ * what the system says about it (its display; a reported or remembered
+ * hinge), never a timeout. `true` is final; `false` means the display looks
+ * like an ordinary iPhone's; `undefined` on Android, web and binaries built
+ * before it.
  */
-export function forgetFoldableDevice(): void {
-  void nativeModule?.forgetFoldableDevice?.()?.catch(() => undefined);
-}
+export const nativeFoldableDevice: boolean | undefined =
+  typeof nativeModule?.isFoldableDevice === "boolean" ? nativeModule.isFoldableDevice : undefined;
 
 /**
  * Resolves once no view controller transition (a push, a pop, a sheet) is

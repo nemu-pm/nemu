@@ -8,7 +8,7 @@ import {
   mobileOrientationLock,
   mobileOrientationLockWaitsForTransition,
 } from "@/lib/mobileOrientationPolicy";
-import { afterViewControllerTransitions, forgetFoldableDevice } from "../../modules/nemu-window-layout";
+import { afterViewControllerTransitions, nativeFoldableDevice } from "../../modules/nemu-window-layout";
 import {
   setMobileDeviceFormFactor,
   useMobileDeviceFormFactor,
@@ -27,6 +27,7 @@ export function MobileOrientationController() {
   const readerPortrait = useMobileReaderPortraitRequest();
   const [probeElapsed, setProbeElapsed] = useState(false);
   const observed = layout !== null;
+  // Last-resort fallback for binaries that do not report `foldableDevice`.
   useEffect(() => {
     if (!observed || probeElapsed) return;
     const timer = setTimeout(() => setProbeElapsed(true), MOBILE_FOLDABLE_PROBE_MS);
@@ -37,16 +38,14 @@ export function MobileOrientationController() {
     isPad: Platform.OS === "ios" && Platform.isPad,
     layout,
     previous: formFactor,
+    nativeFoldable: nativeFoldableDevice,
     probeElapsed,
   });
   useEffect(() => {
     if (next !== formFactor) setMobileDeviceFormFactor(next);
   }, [formFactor, next]);
-  // The native gate remembers a hinge across launches (a sideways Duo launch
-  // never turns through portrait); an ordinary iPhone clears it.
-  useEffect(() => {
-    if (next === "phone") forgetFoldableDevice();
-  }, [next]);
+  // Nothing here ever tells the native gate to forget a foldable: it decides
+  // from the device itself and keeps a foldable foldable (product rule).
 
   const lock = mobileOrientationLock({ formFactor: next, readerWantsPortrait: readerPortrait });
   const applied = useRef<"portrait" | "default">("default");
