@@ -1723,20 +1723,32 @@ final class NemuVerticalBarBehaviorView: ExpoView {
     // override put the reader's items in a horizontal bar, or left the
     // vertical bar light.
     let path = (forcedStyle != .unspecified && window != nil && coversBars) ? currentPath() : []
-    let targets = path.count > 1 ? Array(path.dropFirst()) : path
+    // The containers up to the screen's navigation controller (which hosts
+    // the navigation bar and the vertical bar), never the window's root: a
+    // style change at the root is a trait change for the whole window — the
+    // tab bar controller, every glass view — and its restore landed in the
+    // middle of the reader's Back. Without a navigation controller on the
+    // path, every container up to the root of the presentation as before.
+    var targets = path.count > 1 ? Array(path.dropFirst()) : path
+    if let navigation = targets.firstIndex(where: { $0 is UINavigationController }) {
+      targets = Array(targets[...navigation])
+    }
     // Restore what is no longer a target (popped, covered, prop cleared) —
-    // unless someone else changed it since.
+    // unless someone else changed it since — once the transition that caused
+    // it (the reader's Back) has finished (`NemuTransitionSettle`).
+    let restoredStyle = appliedStyle
     styled.removeAll { entry in
       guard let controller = entry.controller.value else { return true }
       if targets.contains(where: { $0 === controller }) { return false }
-      if controller.overrideUserInterfaceStyle == appliedStyle {
-        controller.overrideUserInterfaceStyle = entry.previous
-      }
+      NemuVerticalBarBehaviorView.scheduleRestore(controller, previous: entry.previous, applied: restoredStyle)
       return true
     }
     for target in targets {
       if !styled.contains(where: { $0.controller.value === target }) {
-        styled.append((WeakViewController(target), target.overrideUserInterfaceStyle))
+        // A restore still waiting for the transition: take over its original
+        // style instead of recording the forced one as the "previous".
+        let previous = NemuVerticalBarBehaviorView.takePendingRestore(target) ?? target.overrideUserInterfaceStyle
+        styled.append((WeakViewController(target), previous))
       }
       if target.overrideUserInterfaceStyle != forcedStyle {
         target.overrideUserInterfaceStyle = forcedStyle
@@ -1746,6 +1758,44 @@ final class NemuVerticalBarBehaviorView: ExpoView {
   }
   /// The style last applied to `styled` (a prop change restores the old one).
   private var appliedStyle: UIUserInterfaceStyle = .unspecified
+
+  private struct PendingRestore {
+    let controller: WeakViewController
+    let previous: UIUserInterfaceStyle
+    let applied: UIUserInterfaceStyle
+  }
+  /// Restores waiting for the running transition to finish, by controller.
+  private static var pendingRestores: [ObjectIdentifier: PendingRestore] = [:]
+  private static var restoreFlushScheduled = false
+
+  private static func scheduleRestore(_ controller: UIViewController, previous: UIUserInterfaceStyle, applied: UIUserInterfaceStyle) {
+    pendingRestores[ObjectIdentifier(controller)] = PendingRestore(
+      controller: WeakViewController(controller), previous: previous, applied: applied
+    )
+    guard !restoreFlushScheduled else { return }
+    restoreFlushScheduled = true
+    NemuTransitionSettle.wait {
+      NemuVerticalBarBehaviorView.flushRestores()
+    }
+  }
+
+  private static func takePendingRestore(_ controller: UIViewController) -> UIUserInterfaceStyle? {
+    let key = ObjectIdentifier(controller)
+    guard let pending = pendingRestores[key], pending.controller.value === controller else { return nil }
+    pendingRestores[key] = nil
+    return pending.previous
+  }
+
+  private static func flushRestores() {
+    restoreFlushScheduled = false
+    let restores = pendingRestores
+    pendingRestores = [:]
+    for pending in restores.values {
+      guard let controller = pending.controller.value,
+        controller.overrideUserInterfaceStyle == pending.applied else { continue }
+      controller.overrideUserInterfaceStyle = pending.previous
+    }
+  }
 
   private func reconcile(reason: String) {
     reconcileAppearance()
@@ -2062,12 +2112,29 @@ enum NemuVerticalBarOverride {
         objc_setAssociatedObject(parent, &forwardKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
       }
     }
-    invalidate(path)
+    // The bar comes back once the transition that released it (the
+    // reader's Back) has finished, with one update from the root (UIKit
+    // reads the preference from there down), not one per controller in the
+    // middle of the pop.
+    let roots = invalidationRoots(path).map(WeakViewController.init)
+    NemuTransitionSettle.wait {
+      for root in roots { root.value?.setNeedsUpdateOfVerticalBarConfiguration() }
+    }
   }
 
   private static func invalidate(_ path: [UIViewController]) {
     for controller in path { controller.setNeedsUpdateOfVerticalBarConfiguration() }
     path.last?.view.window?.rootViewController?.setNeedsUpdateOfVerticalBarConfiguration()
+  }
+
+  /// The root UIKit reads the preference from: the window's root, and the
+  /// root of the path's presentation when that is a different controller.
+  private static func invalidationRoots(_ path: [UIViewController]) -> [UIViewController] {
+    guard let top = path.last else { return [] }
+    var roots: [UIViewController] = []
+    if let windowRoot = top.viewIfLoaded?.window?.rootViewController { roots.append(windowRoot) }
+    if !roots.contains(where: { $0 === top }) { roots.append(top) }
+    return roots
   }
 
   static func isDisabled(_ controller: UIViewController) -> Bool {
