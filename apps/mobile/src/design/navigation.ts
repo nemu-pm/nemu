@@ -55,7 +55,7 @@ export function createNemuNativeStackScreenOptions(tokens: NemuTokens, verticalB
  * a transitioning card's rounded corners); `background` overrides it there.
  */
 export function createNemuNavigationTheme<
-  Theme extends { colors: Record<string, string> },
+  Theme extends { colors: object },
 >(baseTheme: Theme, tokens: NemuTokens, background: string = tokens.background): Theme {
   return {
     ...baseTheme,

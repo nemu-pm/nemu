@@ -154,7 +154,7 @@ describe("settings split collapse keeps the page", () => {
     const pushed = applyMobileSettingsCollapsePlan(stack([]), { keep: 0, push: ["sources", "directories"] });
     const placed = { ...pushed, routes: pushed.routes.map((route, i) => ({ ...route, key: route.key ?? `new-${i}` })) };
     const done = completeMobileSettingsRestoredStack(placed, "directories");
-    expect(done?.routes).toEqual([
+    expect<unknown>(done?.routes).toEqual([
       { key: "index-1", name: "index", params: {} },
       { name: "[section]", params: { section: "sources" } },
       { key: "new-1", name: "[section]", params: { section: "directories" } },

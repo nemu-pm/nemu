@@ -206,6 +206,11 @@ type FontScaleKeyedListSlotProps = {
   style?: StyleProp<ViewStyle>;
 };
 
+type FontScaleKeyedListSlotElementProps = {
+  onLayout?: (event: LayoutChangeEvent) => void;
+  style?: StyleProp<ViewStyle>;
+};
+
 /**
  * Renders a list header/footer/empty slot under a key on the font scale, so a
  * text-size change remounts what it renders. VirtualizedList clones its empty
@@ -214,13 +219,10 @@ type FontScaleKeyedListSlotProps = {
  * have applied them (a fragment is left untouched, as it does).
  */
 function FontScaleKeyedListSlot({ slot, layoutKey, onLayout, style }: FontScaleKeyedListSlotProps) {
-  let element = (isValidElement(slot) ? slot : createElement(slot)) as ReactElement<{
-    onLayout?: (event: LayoutChangeEvent) => void;
-    style?: StyleProp<ViewStyle>;
-  }>;
+  let element = (isValidElement(slot) ? slot : createElement(slot)) as ReactElement<FontScaleKeyedListSlotElementProps>;
   if ((onLayout || style !== undefined) && element.type !== Fragment) {
     const own = element.props;
-    element = cloneElement(element, {
+    element = cloneElement<FontScaleKeyedListSlotElementProps>(element, {
       onLayout: (event: LayoutChangeEvent) => {
         onLayout?.(event);
         own.onLayout?.(event);
