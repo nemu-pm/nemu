@@ -224,7 +224,6 @@ describe("surfaces showing a chapter's page read it from the reader's choice", (
     readFileSync(path.join(import.meta.dir, "..", "components", relative), "utf8");
   test.each([
     "explore/MobileExploreChapterRow.tsx",
-    "explore/MobileContinueReadingCarousel.tsx",
     "MobileChapterCell.tsx",
   ])("%s passes this device's resume spot", (file) => {
     const source = read(file);

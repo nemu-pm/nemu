@@ -257,7 +257,7 @@ describe("book posture wiring (ReaderScreen)", () => {
     expect(swift).toContain("content.presentationPlacement(resolved)");
     expect(swift).toContain("ViewModifierRegistry.register(NemuPresentationPlacementModifier.type)");
     // The patched community BottomSheet passes the caller's modifiers on (source and build).
-    const patch = read("../../../../patches/@expo%2Fui@58.0.21.patch");
+    const patch = read("../../../../patches/@expo%2Fui@58.0.24.patch");
     expect(patch).toContain("+      ...(presentationModifiers ?? []),");
     expect(patch).toContain("+            ...presentationModifiers ?? []");
   });
