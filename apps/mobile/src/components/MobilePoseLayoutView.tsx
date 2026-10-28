@@ -5,7 +5,8 @@ import { useMobilePoseLayout } from "@/lib/MobilePoseTransitionContext";
 import { mobilePoseSizeFlipTransition } from "@/lib/mobilePoseLayoutAnimations";
 import { useMobilePoseWidthSpring } from "@/lib/useMobilePoseSizeSpring";
 
-type MobilePoseLayoutViewProps = ComponentProps<typeof Animated.View> & {
+type MobilePoseLayoutViewProps = Omit<ComponentProps<typeof Animated.View>, "children"> & {
+  children?: ReactNode;
   /**
    * The width the content is laid out at (a grid cell's width). A layout
    * transition only moves the view's own frame — its children are laid out
@@ -90,7 +91,7 @@ export function MobilePoseListCell({
   index: _index,
   item: _item,
   ...props
-}: ComponentProps<typeof Animated.View> & { cellKey?: string; index?: number; item?: unknown }) {
+}: Omit<MobilePoseLayoutViewProps, "contentSize"> & { cellKey?: string; index?: number; item?: unknown }) {
   return <MobilePoseLayoutView {...props} />;
 }
 

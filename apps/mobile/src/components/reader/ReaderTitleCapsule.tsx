@@ -163,9 +163,10 @@ export function ReaderTitleCapsule({
     return () => clearTimeout(timer);
   }, [outgoing]);
 
+  // The capsule passes its style to the animated glass host.
   const widthStyle = useAnimatedStyle(() =>
     toWidth.value > 0 ? { width: mobileReaderTitleWidthAt(fromWidth.value, toWidth.value, progress.value) } : {},
-  );
+  ) as StyleProp<ViewStyle>;
 
   return (
     <>
