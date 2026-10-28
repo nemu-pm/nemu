@@ -7,11 +7,11 @@ type CopyOverrides = {
 
 /**
  * Design-explore copy that replaces the shipping words where the prototype
- * gives them another meaning. "Shelf" is the Library's layout there (Shelf |
- * Grid), so a collection is no longer called a shelf ("Create a shelf and
- * select it for this title"). Japanese already says コレクション. And the
- * installed-sources caption says what the list is for, not how it is built
- * ("Source packages, runtime settings, and local uninstall").
+ * gives them another meaning. A collection is no longer called a shelf
+ * ("Create a shelf and select it for this title"). Japanese already says
+ * コレクション. And the installed-sources caption says what the list is for,
+ * not how it is built ("Source packages, runtime settings, and local
+ * uninstall").
  */
 const MOBILE_DESIGN_EXPLORE_COPY: Partial<Record<AppLanguage, CopyOverrides>> = {
   en: {

@@ -24,28 +24,5 @@ export function getMobileCollectionFolderWidth(contentWidth: number, gap: number
   );
 }
 
-/**
- * How much of the Collections section may show above the tab bar: its heading and at least
- * 40 % of the folders, and never the names under the tab bar.
- */
-const MOBILE_COLLECTION_FOLDER_CUT = 56;
-
-/**
- * A section heading's height over its row: one 28 pt line at the text size
- * (scaled up to `MOBILE_EXPLORE_SECTION_TITLE_MAX_SCALE`, like the heading)
- * and the 12 pt step to the row. Unscaled, the folders rested with their
- * heading under the tab bar at the largest text sizes.
- */
+/** The largest text-size scale of a design-explore section heading. */
 export const MOBILE_EXPLORE_SECTION_TITLE_MAX_SCALE = 1.3;
-
-export function getMobileExploreSectionHeadingHeight(fontScale = 1): number {
-  const scale = Math.max(1, Math.min(MOBILE_EXPLORE_SECTION_TITLE_MAX_SCALE, fontScale));
-  return Math.ceil(28 * scale) + 12;
-}
-
-export function getMobileCollectionFolderPeek(contentWidth: number, fontScale = 1): { min: number; max: number } {
-  const width = getMobileCollectionFolderWidth(contentWidth, MOBILE_COLLECTION_FOLDER_GAP);
-  const heading = getMobileExploreSectionHeadingHeight(fontScale);
-  const art = Math.round(width * MOBILE_COLLECTION_FOLDER_ASPECT);
-  return { min: heading + Math.round(art * 0.4), max: heading + art - MOBILE_COLLECTION_FOLDER_CUT };
-}

@@ -1431,7 +1431,7 @@ export function SearchScreen() {
     [library.data],
   );
   // Design-explore: a saved result opens its page out of the cover, handing
-  // the page the title as the shelf does.
+  // the page the title as the Library grid does.
   const openLibraryResultWithZoom = useCallback(
     (item: MangaCardModel, zoomId: string) => {
       const entry = libraryEntriesById.get(item.id);

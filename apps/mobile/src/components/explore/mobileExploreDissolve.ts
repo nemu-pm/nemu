@@ -5,7 +5,7 @@ import { createChangeListeners } from "@/lib/mobileChangeListeners";
 /**
  * Which views can turn to dust for a library title, and which titles are
  * mid-dissolve (their views hide while the dust stands in for them). Shared by
- * the shelf, the continue-reading cards and the dust host (design-explore).
+ * the Library grid and the dust host (design-explore).
  */
 
 type Target = RefObject<ViewInstance | null>;

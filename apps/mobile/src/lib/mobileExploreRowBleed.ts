@@ -13,13 +13,13 @@ export type MobileExploreRowBleed = MobilePageBleedStyles & {
 export const MOBILE_EXPLORE_BAR_SIDE_GAP = 16;
 
 /**
- * Edge-bleed for the design-explore rows (continue-reading cards, collection
- * folders) from the page's bleed styles. Away from a vertical bar it is the
- * page's own bleed: the row runs to the screen edge and its first item rests
- * on the page gutter. On the bar's side the bar keeps its own clean column:
- * the row's frame reaches it, the items rest `MOBILE_EXPLORE_BAR_SIDE_GAP`
- * short of it, and what scrolls into that gap fades out (`ExploreRowFade`),
- * so a peeking card never crowds the controls in that column.
+ * Edge-bleed for the design-explore rows (collection folders) from the page's
+ * bleed styles. Away from a vertical bar it is the page's own bleed: the row
+ * runs to the screen edge and its first item rests on the page gutter. On the
+ * bar's side the bar keeps its own clean column: the row's frame reaches it,
+ * the items rest `MOBILE_EXPLORE_BAR_SIDE_GAP` short of it, and what scrolls
+ * into that gap fades out (`ExploreRowFade`), so a peeking item never crowds
+ * the controls in that column.
  */
 export function getMobileExploreRowBleed(
   bleed: MobilePageBleedStyles,

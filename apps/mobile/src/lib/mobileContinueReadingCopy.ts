@@ -1,30 +1,6 @@
 import { sourceHasUpdate, type ChapterSummary, type LocalSourceLink } from "@/data/schema";
 import { formatChapterShortLabel } from "./formatChapter";
-import { formatMobileString, type MobileStrings } from "./mobileI18n";
-
-const MINUTE = 60_000;
-const HOUR = 60 * MINUTE;
-const DAY = 24 * HOUR;
-
-/** "3 h ago" for a continue-reading card; `null` for future/invalid times. */
-export function formatMobileLastRead(
-  lastReadAt: number,
-  now: number,
-  strings: MobileStrings,
-): string | null {
-  if (!Number.isFinite(lastReadAt) || lastReadAt <= 0) return null;
-  const elapsed = now - lastReadAt;
-  if (elapsed < -MINUTE) return null;
-  const copy = strings.designExplore;
-  if (elapsed < MINUTE) return copy.lastReadJustNow;
-  if (elapsed < HOUR) {
-    return formatMobileString(copy.lastReadMinutes, { count: Math.floor(elapsed / MINUTE) });
-  }
-  if (elapsed < DAY) {
-    return formatMobileString(copy.lastReadHours, { count: Math.floor(elapsed / HOUR) });
-  }
-  return formatMobileString(copy.lastReadDays, { count: Math.floor(elapsed / DAY) });
-}
+import type { MobileStrings } from "./mobileI18n";
 
 /**
  * Chapters published after the one being read, when both carry numbers
@@ -66,12 +42,7 @@ export function getMobileExploreNewChapters(
 /** The largest new-chapter count spelled out; anything above reads "999+". */
 const MOBILE_NEW_CHAPTER_COUNT_CAP = 999;
 
-/** "12" up to the cap, then "999+", so a badge never grows without bound. */
-export function formatMobileNewChapterCount(count: number): string {
-  return count > MOBILE_NEW_CHAPTER_COUNT_CAP ? `${MOBILE_NEW_CHAPTER_COUNT_CAP}+` : String(count);
-}
-
-/** A shelf cover's corner tag: "+12", or "999+" past the cap. */
+/** A cover's new-chapters corner tag: "+12", or "999+" past the cap. */
 export function formatMobileNewChapterTag(count: number): string {
   return count > MOBILE_NEW_CHAPTER_COUNT_CAP ? `${MOBILE_NEW_CHAPTER_COUNT_CAP}+` : `+${count}`;
 }
@@ -103,15 +74,4 @@ export function formatMobileExploreChapterNumber(
 /** The chapter with a placeholder volume of 0 dropped. */
 export function withoutMobileZeroVolume<T extends ChapterSummary>(chapter: T): T {
   return chapter.volumeNumber === 0 ? { ...chapter, volumeNumber: undefined } : chapter;
-}
-
-/**
- * The card's source eyebrow says nothing when the source is named after the
- * title itself (a single-title source): the title right under it repeats it.
- * Case, width and spacing aside, the two must read the same.
- */
-export function isMobileSourceNameRedundantWithTitle(sourceName: string, title: string): boolean {
-  const normalize = (value: string) => value.normalize("NFKC").replace(/\s+/g, "").toLocaleLowerCase();
-  const name = normalize(sourceName);
-  return name.length > 0 && name === normalize(title);
 }

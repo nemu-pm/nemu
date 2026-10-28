@@ -51,9 +51,6 @@ export const MOBILE_CONTINUE_TALL_CARD = {
   narrowMinWindowHeight: 620,
 } as const;
 
-/** Cover share of a one-card-per-position wide card (the multi-column card keeps 0.36). */
-export const SINGLE_COVER_SHARE = 0.42;
-
 export type MobileContinueCardVariant = "wide" | "tall";
 
 /**
@@ -72,7 +69,7 @@ export function getMobileContinueCardVariant(
 /** How much of each neighbour shows beside a centred card. */
 const SIDE_PEEK = 20;
 
-/** A one-card-per-position wide card stays this narrow: taller than a flat banner, with the cover bigger (`SINGLE_COVER_SHARE`). */
+/** A one-card-per-position wide card stays this narrow: taller than a flat banner, with the cover bigger. */
 const SINGLE_CARD_MAX_WIDTH = 420;
 
 /** A single card never gets narrower than this (unless the window is). */
@@ -214,46 +211,5 @@ export function getMobileContinueCardGeometry({
     // interval (the scroll view clamps the snap to its end).
     paddingRight: right,
     columns,
-  };
-}
-
-/**
- * Where the row rests with `index` leading (the snap point), clamped to the
- * row's end: a whole-cards row ends on the trailing gutter, short of a full
- * interval.
- */
-export function getMobileContinueCardRestOffset(
-  geometry: MobileContinueCardGeometry,
-  { index, count, frameWidth }: { index: number; count: number; frameWidth: number },
-): number {
-  if (count <= 0 || geometry.cardWidth <= 0) return 0;
-  const content = geometry.paddingLeft + (count - 1) * geometry.interval + geometry.cardWidth + geometry.paddingRight;
-  return Math.max(0, Math.min(index * geometry.interval, content - frameWidth));
-}
-
-/** Where the row sat for a FLIP: its geometry and its scroll offset. */
-export type MobileContinueCardRowPlacement = Pick<MobileContinueCardGeometry, "paddingLeft" | "interval" | "cardWidth"> & {
-  scroll: number;
-};
-
-/**
- * A pose change re-lays the row in one commit (new card width, interval and
- * padding, the offset re-snapped to the active card). Each card starts where
- * it was on screen, at its old width, and glides to its new place:
- * `progress` runs 1 → 0, the transform is about the card's centre.
- */
-export function getMobileContinueCardFlip(
-  from: MobileContinueCardRowPlacement,
-  to: MobileContinueCardRowPlacement,
-  index: number,
-  progress: number,
-): { translateX: number; scale: number } {
-  "worklet";
-  if (!(to.cardWidth > 0) || !(from.cardWidth > 0) || !(progress > 0)) return { translateX: 0, scale: 1 };
-  const centre = (row: MobileContinueCardRowPlacement) =>
-    row.paddingLeft + index * row.interval - row.scroll + row.cardWidth / 2;
-  return {
-    translateX: (centre(from) - centre(to)) * progress,
-    scale: 1 + (from.cardWidth / to.cardWidth - 1) * progress,
   };
 }

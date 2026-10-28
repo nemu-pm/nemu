@@ -588,8 +588,8 @@ export function MangaDetailScreen() {
       store.getMangaProgress(),
       store.getInstalledSources(),
     ]);
-    // Design-explore: a page opened without a source (the shelf, a search
-    // result, a link) starts on the source the title was last read on, so the
+    // Design-explore: a page opened without a source (the Library, a
+    // search result, a link) starts on the source the title was last read on, so the
     // chapter list, its facts ("Source", "Latest") and Continue name one
     // source; the first link stays the choice for a title never read.
     const readSourceId =
@@ -841,7 +841,7 @@ export function MangaDetailScreen() {
   // The library title's own cover (override > stored > best known source
   // cover). The selected tab never changes it.
   // Design-explore: a clearly sharper cover from another linked source (the
-  // one the card and shelf show too; never over a cover the user set).
+  // one the Library grid shows too; never over a cover the user set).
   const preferredCover = useMobileExploreCoverPreference(entry?.item.libraryItemId);
   const cover = entry
     ? ((booksHero && preferredCover && !hasMobileUserCover(entry) ? preferredCover : null) ??

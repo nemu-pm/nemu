@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { router } from "expo-router";
-import type { InstalledSource, LibraryEntry, LocalSourceLink } from "@/data/schema";
+import type { InstalledSource, LibraryEntry } from "@/data/schema";
 import {
   resolveMobileEntryCoverSources,
   resolveMobileEntryDisplayCover,
@@ -8,7 +8,6 @@ import {
 import { isMobileCoverSizeVariantOf } from "@/lib/mobileCoverPreference";
 import { primeMobileExploreDetailHandoff } from "@/lib/mobileExploreDetailHandoff";
 import { primeMobileReaderZoomCover } from "@/lib/mobileReaderZoomHandoff";
-import { mobileInstalledSourceMatchesLink } from "@/lib/mobileInstalledSourceKeys";
 import { useMobileSourceImageRequest } from "@/lib/useMobileSourceImageRequest";
 import { zoomTransitionAvailable } from "../../../modules/nemu-window-layout";
 import { useMobileExploreCoverPreference } from "./mobileExploreCoverPreference";
@@ -68,27 +67,13 @@ export function hasMobileUserCover(entry: LibraryEntry): boolean {
   return Boolean(entry.item.overrides?.metadata?.cover?.trim());
 }
 
-export function mobileExploreSourceName(
-  link: LocalSourceLink,
-  installedSources: InstalledSource[],
-): string {
-  const installed = installedSources.find((source) =>
-    mobileInstalledSourceMatchesLink(source, link),
-  );
-  return (
-    installed?.name ??
-    (link.sourceId.split(".").slice(1).join(".") || link.sourceId)
-  );
-}
-
 /**
  * The detail route for a library title. With `zoomId` (and a binary that has
  * the zoom views) the detail screen zooms out of that source cover.
  */
-function mobileExploreZoomHref(id: string, zoomId?: string | null, sourceId?: string | null) {
-  const params: { id: string; zoom?: string; source?: string } = { id };
+function mobileExploreZoomHref(id: string, zoomId?: string | null) {
+  const params: { id: string; zoom?: string } = { id };
   if (zoomId && zoomTransitionAvailable) params.zoom = zoomId;
-  if (sourceId) params.source = sourceId;
   return { pathname: "/library/[id]" as const, params };
 }
 
@@ -96,18 +81,14 @@ function mobileExploreZoomHref(id: string, zoomId?: string | null, sourceId?: st
  * Opens a library title's page out of the cover with `zoomId`. The page is
  * handed the title and the cover as the cell painted them, so the commit the
  * stack pushes already shows them (see `mobileExploreDetailHandoff`).
- * `sourceId` opens the page on that source's chapters: a Continue Reading
- * card opens it on the source being read, so
- * the page's Up next, Latest and source agree with the card that was tapped.
  */
 export function pushMobileExploreDetail(
   entry: LibraryEntry,
   cover: MobileExploreCoverSource | null,
   zoomId: string,
-  sourceId?: string | null,
 ) {
   if (zoomTransitionAvailable) primeMobileExploreDetailHandoff({ entry, cover });
-  router.push(mobileExploreZoomHref(entry.item.libraryItemId, zoomId, sourceId));
+  router.push(mobileExploreZoomHref(entry.item.libraryItemId, zoomId));
 }
 
 /**

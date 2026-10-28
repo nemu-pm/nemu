@@ -247,28 +247,3 @@ export function getMobileExploreRestingEdge(
   const band = compactHeight ? MOBILE_COMPACT_TAB_BAR_BAND : 0;
   return windowHeight - Math.max(insetBottom, band);
 }
-
-/**
- * The bottom bars float as capsules narrower than a wide window (a phone in
- * landscape: the tab bar spans about 40 % of it; an iPad), so a section the
- * fit drops "under the edge" there is not under anything at its sides: its
- * heading showed in the corner beside the bar. Wider than this, a section
- * that starts under the edge starts under the window's bottom instead.
- */
-const MOBILE_EXPLORE_OPEN_SIDES_WIDTH = 700;
-
-/**
- * Extra gap that moves a section the fit dropped under the edge (`top`, in
- * window coordinates) below the window's bottom when the bars leave the
- * window's sides open. Zero in a narrow window, where the bars span it.
- */
-export function getMobileExploreUnderPush(input: {
-  top: number;
-  edge: number;
-  windowWidth: number;
-  windowHeight: number;
-}): number {
-  if (input.windowWidth <= MOBILE_EXPLORE_OPEN_SIDES_WIDTH) return 0;
-  if (input.top < input.edge - MOBILE_RESTING.tolerance) return 0;
-  return Math.max(0, Math.ceil(input.windowHeight - input.top));
-}

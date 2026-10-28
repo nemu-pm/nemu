@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import {
   fitMobileRestingContent,
   getMobileExploreRestingEdge,
-  getMobileExploreUnderPush,
   MOBILE_RESTING,
   type MobileRestingBlock,
 } from "./mobileExploreRestingFit";
@@ -158,16 +157,5 @@ describe("resting edge", () => {
     expect(getMobileExploreRestingEdge(420, 21, true)).toBe(356);
     // A larger inset still wins.
     expect(getMobileExploreRestingEdge(420, 90, true)).toBe(330);
-  });
-
-  test("a section dropped under the edge of a wide window starts under its bottom", () => {
-    // Air in landscape: edge 356 (compact tab bar), window 420 × 912.
-    expect(getMobileExploreUnderPush({ top: 380, edge: 356, windowWidth: 912, windowHeight: 420 })).toBe(40);
-    // Still peeking: not this rule's business.
-    expect(getMobileExploreUnderPush({ top: 300, edge: 356, windowWidth: 912, windowHeight: 420 })).toBe(0);
-    // A portrait phone: the bars span the window.
-    expect(getMobileExploreUnderPush({ top: 800, edge: 772, windowWidth: 420, windowHeight: 912 })).toBe(0);
-    // Already below the window.
-    expect(getMobileExploreUnderPush({ top: 430, edge: 356, windowWidth: 912, windowHeight: 420 })).toBe(0);
   });
 });

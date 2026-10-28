@@ -38,7 +38,7 @@ export const MangaCard = memo(function MangaCard({
   placeholder,
 }: {
   item: MangaCardModel;
-  /** Drawn when there is no cover or it fails (design-explore: the shelf's cloth book). */
+  /** Drawn when there is no cover or it fails (design-explore: a cloth book). */
   placeholder?: ReactNode;
   onLongPress?: () => void;
   /** Replaces the default push to the title page (design-explore: a cover zoom). */

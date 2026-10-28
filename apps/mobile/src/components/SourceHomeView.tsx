@@ -949,8 +949,7 @@ function ExploreFeaturedCarousel({
   const reportTint = useCallback((index: number, tint: MobileCoverRgb | null) => {
     setTints((current) => (current[index] === tint ? current : { ...current, [index]: tint }));
   }, []);
-  // A tall window one card wide (phone portrait; the library's Continue Reading picks its centred
-  // card on the same window shape) centres the card, both neighbours peeking, at rest and after
+  // A tall window one card wide (phone portrait) centres the card, both neighbours peeking, at rest and after
   // every snap. Short and wide windows keep the first card's leading edge on the page's own
   // (title, tabs, headings, rows) with a peek of the next: several cards where they fit.
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();

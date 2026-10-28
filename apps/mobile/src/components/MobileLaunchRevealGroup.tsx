@@ -11,7 +11,7 @@ import type { MobileLaunchRevealGroup as Group } from "@/lib/mobileLaunchRevealP
  * behind every group is the flat page colour, so this reads as the group
  * fading in without an opacity animation on Liquid Glass ancestors). The veil
  * runs out through the page gutters: rows that bleed to the window's edges (a
- * shelf's plank, a carousel) showed their ends unveiled there.
+ * folders row) showed their ends unveiled there.
  */
 export function MobileLaunchRevealGroup({
   group,

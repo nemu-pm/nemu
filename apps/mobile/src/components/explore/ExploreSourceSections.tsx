@@ -11,9 +11,8 @@ const HOME = "\u0000home";
 
 /**
  * One section as its own Liquid Glass capsule (interactive on iOS 26+, a
- * translucent pill elsewhere). The selected one takes the accent tint, the
- * same selection colour as Shelf | Grid; the others are plain glass. Native
- * capsule metrics: 28pt tall, 13pt label.
+ * translucent pill elsewhere). The selected one takes the accent tint; the
+ * others are plain glass. Native capsule metrics: 28pt tall, 13pt label.
  */
 function GlassTab({
   label,

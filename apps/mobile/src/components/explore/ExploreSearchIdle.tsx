@@ -297,7 +297,7 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     fontWeight: nemuFontWeight.medium,
   },
-  // The shelf's new-chapters tag, hanging off the cover's corner.
+  // The new-chapters tag, hanging off the cover's corner.
   tag: {
     position: "absolute",
     top: -6,

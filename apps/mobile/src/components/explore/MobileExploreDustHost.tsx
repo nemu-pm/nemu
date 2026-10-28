@@ -70,7 +70,7 @@ export function MobileExploreDustHost() {
       for (const target of getExploreDissolveTargets(id)) {
         if (!target.current) continue;
         // Only a target on screen is snapshotted: an off-screen one (the
-        // title's shelf cell far down the Library) has no native view under
+        // title's grid cell far down the Library) has no native view under
         // Fabric's culling, and Skia's snapshot of a missing view is a fatal
         // native error, not a rejection this catch could take.
         if (!(await measure(target.current, windowSizeRef.current))) continue;

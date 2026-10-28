@@ -1155,29 +1155,16 @@ export type MobileStrings = {
   };
   /** Design-explore prototypes. */
   designExplore: {
-    continueReadingTitle: string;
-    resumeHint: string;
-    openDetailsHint: string;
     moreActions: string;
     shelfSectionTitle: string;
-    layoutShelf: string;
-    layoutGrid: string;
-    layoutPickerLabel: string;
     chapterFinished: string;
-    continueAction: string;
-    lastReadJustNow: string;
-    lastReadMinutes: string;
-    lastReadHours: string;
-    lastReadDays: string;
     newChapterCount: string;
-    percentRead: string;
     collectionsTitle: string;
     collectionCount: string;
     collectionCountOne: string;
     openCollectionHint: string;
     addToLibrary: string;
     inLibrary: string;
-    latestChapterLine: string;
     descriptionMore: string;
     /** The full description's sheet: its title, close button and the "more" hint. */
     descriptionSheetTitle: string;
