@@ -350,7 +350,7 @@ describe("mobile i18n helpers", () => {
           title: "Blue Lock",
         },
       ),
-    ).toBe("Blue Lock のコレクションを選択");
+    ).toBe("Blue Lockのコレクションを選択");
     expect(
       formatMobileString(
         getMobileStrings("zh").collectionMembership.saveWithCount,
@@ -400,7 +400,7 @@ describe("mobile i18n helpers", () => {
       formatMobileString(getMobileStrings("ja").library.removeCollectionNamed, {
         name: "Favorites",
       }),
-    ).toBe("Favorites を削除");
+    ).toBe("Favoritesを削除");
     expect(
       formatMobileString(getMobileStrings("en").settings.selectSettingOption, {
         title: "Theme",
@@ -438,7 +438,7 @@ describe("mobile i18n helpers", () => {
           name: "Dual Reader",
         },
       ),
-    ).toBe("Dual Reader の設定を編集");
+    ).toBe("Dual Readerの設定を編集");
     expect(getMobileStrings("ja").browse.adultSourcesSwitch).toBe(
       "センシティブなコンテンツ",
     );
@@ -452,7 +452,7 @@ describe("mobile i18n helpers", () => {
       formatMobileString(getMobileStrings("ja").metadataEditor.applyMatch, {
         provider: "AniList",
       }),
-    ).toBe("AniList のメタデータ一致を適用");
+    ).toBe("AniListのメタデータ一致を適用");
     expect(
       formatMobileString(
         getMobileStrings("en").metadataEditor.applyMatchField,
@@ -491,7 +491,7 @@ describe("mobile i18n helpers", () => {
       formatMobileString(getMobileStrings("zh").mangaDetail.continueChapter, {
         chapter: "第 12 话",
       }),
-    ).toBe("继续第 12 话");
+    ).toBe("继续阅读 第 12 话");
     expect(
       formatMobileString(getMobileStrings("en").mangaDetail.openChapter, {
         chapter: "Chapter 12",
@@ -509,7 +509,7 @@ describe("mobile i18n helpers", () => {
       formatMobileString(getMobileStrings("ja").sourceManga.continueChapter, {
         chapter: "第12話",
       }),
-    ).toBe("第12話 から続ける");
+    ).toBe("第12話から続きを読む");
     expect(
       formatMobileString(getMobileStrings("zh").settings.agentVersion, {
         version: "1.2.3",
@@ -522,7 +522,7 @@ describe("mobile i18n helpers", () => {
           provider: "Apple",
         },
       ),
-    ).toBe("Apple で続ける");
+    ).toBe("Appleで続ける");
     expect(getMobileStrings("en").settings.cloudSyncKeepDataDescription).toBe(
       "You can sign back in anytime to sync again.",
     );
@@ -569,7 +569,7 @@ describe("mobile i18n helpers", () => {
       formatMobileString(getMobileStrings("ja").reader.openPlugin, {
         name: "Dual Read",
       }),
-    ).toBe("Dual Read リーダープラグインを開く");
+    ).toBe("Dual Readリーダープラグインを開く");
     expect(
       formatMobileString(getMobileStrings("zh").reader.chapterAccessibility, {
         direction: getMobileStrings("zh").reader.nextChapter,
@@ -601,7 +601,7 @@ describe("mobile i18n helpers", () => {
       formatMobileString(getMobileStrings("ja").sourceBrowse.openLink, {
         title: "Featured",
       }),
-    ).toBe("Featured を開く");
+    ).toBe("Featuredを開く");
     expect(
       formatMobileString(
         getMobileStrings("en").sourceBrowse.sourceFilterOption,
@@ -660,12 +660,12 @@ describe("mobile i18n helpers", () => {
       formatMobileString(getMobileStrings("ja").library.mangaSourceCountOther, {
         count: 3,
       }),
-    ).toBe("3 件のソース");
+    ).toBe("3ソース");
     expect(
       formatMobileString(getMobileStrings("ja").sourceManager.mergeWithTitle, {
         title: "Blue Lock",
       }),
-    ).toBe("Blue Lock と統合");
+    ).toBe("Blue Lockと統合");
     expect(
       formatMobileString(getMobileStrings("en").reader.pageLoadedOther, {
         count: 8,

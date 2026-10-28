@@ -783,7 +783,7 @@ describe("mobile source link helpers", () => {
   test("formats merge candidate accessibility with source count and likely match", () => {
     const strings = getMobileStrings("ja");
 
-    expect(formatMobileSourceCountText(3, strings)).toBe("3 件のソース");
+    expect(formatMobileSourceCountText(3, strings)).toBe("3ソース");
     expect(
       formatMergeCandidateAccessibilityLabel({
         title: "Blue Lock",
@@ -791,6 +791,6 @@ describe("mobile source link helpers", () => {
         likelyMatch: true,
         strings,
       })
-    ).toBe("Blue Lock と統合, 3 件のソース, 一致候補");
+    ).toBe("Blue Lockと統合, 3ソース, 一致候補");
   });
 });

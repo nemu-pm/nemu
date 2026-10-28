@@ -91,7 +91,7 @@ describe("reader settings sheet presentation", () => {
     expect(copy).toContain("{settingsSections}");
     expect(copy).not.toContain("presentationModifiers");
     // Re-rendered only when the rows' height can change, never by `visible`.
-    expect(copy).toContain("heightKey={JSON.stringify([measurePage, measureFrame, settingsRows, saving,");
+    expect(copy).toMatch(/heightKey=\{JSON\.stringify\(\[\s*measurePage,\s*measureFrame,\s*settingsRows,\s*saving,/);
     expect(source).toContain("(previous, next) => previous.heightKey === next.heightKey");
     expect(source).toMatch(
       /fitSheetDetentToContent\(\{\s*group: READER_SETTINGS_SHEET_GROUP,\s*page: READER_SETTINGS_SHEET_PAGE,/,

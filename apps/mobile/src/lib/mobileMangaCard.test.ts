@@ -25,6 +25,6 @@ describe("mobile manga card accessibility", () => {
         title: "葬送のフリーレン",
         subtitle: " ",
       }),
-    ).toBe("葬送のフリーレン を開く");
+    ).toBe("葬送のフリーレンを開く");
   });
 });
