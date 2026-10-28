@@ -111,18 +111,6 @@ final class NemuBlurView: ExpoView {
     appliedIntensity = nil
   }
 
-  /// TEST-ONLY readout (remove with NemuScrollEdgeDiagnostics): the state
-  /// the band's blur is in.
-  var diagnosticSummary: String {
-    let state: String
-    if let animator {
-      state = "animator \(animator.state == .active ? "active" : animator.state == .stopped ? "stopped" : "inactive") \(String(format: "%.2f", Double(animator.fractionComplete)))"
-    } else {
-      state = "animator none"
-    }
-    return "intensity \(String(format: "%.0f", intensity)) style \(style.rawValue) \(state) inWindow=\(window != nil)"
-  }
-
   /// expo-blur's tint names (the ones the app uses, and their kin).
   static func style(named name: String) -> UIBlurEffect.Style {
     switch name {
