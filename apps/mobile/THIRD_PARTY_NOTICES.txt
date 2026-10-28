@@ -341,7 +341,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 
 ================================================================================
-@expo/cli 58.1.11
+@expo/cli 58.1.16
 https://github.com/expo/expo/tree/main/packages/@expo/cli
 License: MIT
 ================================================================================
@@ -444,7 +444,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@expo/log-box 58.0.12
+@expo/log-box 58.0.13
 https://github.com/expo/expo/tree/main/packages/@expo/log-box
 License: MIT
 ================================================================================
@@ -558,7 +558,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@expo/metro-runtime 58.0.14
+@expo/metro-runtime 58.0.15
 https://github.com/expo/expo/tree/main/packages/@expo/metro-runtime
 License: MIT
 ================================================================================
@@ -585,7 +585,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-@expo/ui 58.0.20
+@expo/ui 58.0.24
 https://docs.expo.dev/versions/latest/sdk/ui/
 License: MIT
 ================================================================================
@@ -1821,7 +1821,7 @@ THIS IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRE
 EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ================================================================================
-expo 58.0.14
+expo 58.0.20
 https://github.com/expo/expo/tree/main/packages/expo
 License: MIT
 ================================================================================
@@ -1848,7 +1848,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-expo-asset 58.0.16
+expo-asset 58.0.18
 https://docs.expo.dev/versions/latest/sdk/asset/
 License: MIT
 ================================================================================
@@ -1875,7 +1875,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-expo-audio 58.0.9
+expo-audio 58.0.10
 https://docs.expo.dev/versions/latest/sdk/audio/
 License: MIT
 ================================================================================
@@ -1929,7 +1929,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-expo-blur 58.0.4
+expo-blur 58.0.5
 https://docs.expo.dev/versions/latest/sdk/blur-view/
 License: MIT
 ================================================================================
@@ -1956,7 +1956,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-expo-clipboard 58.0.3
+expo-clipboard 58.0.4
 https://docs.expo.dev/versions/latest/sdk/clipboard
 License: MIT
 ================================================================================
@@ -1983,7 +1983,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-expo-constants 58.0.12
+expo-constants 58.0.13
 https://docs.expo.dev/versions/latest/sdk/constants/
 License: MIT
 ================================================================================
@@ -2064,7 +2064,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-expo-file-system 58.0.9
+expo-file-system 58.0.12
 https://docs.expo.dev/versions/latest/sdk/filesystem/
 License: MIT
 ================================================================================
@@ -2091,7 +2091,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-expo-font 58.0.8
+expo-font 58.0.10
 https://docs.expo.dev/versions/latest/sdk/font/
 License: MIT
 ================================================================================
@@ -2118,7 +2118,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-expo-glass-effect 58.0.4
+expo-glass-effect 58.0.5
 https://docs.expo.dev/versions/latest/sdk/glass-effect/
 License: MIT
 ================================================================================
@@ -2253,7 +2253,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-expo-linking 58.0.13
+expo-linking 58.0.14
 https://docs.expo.dev/versions/latest/sdk/linking
 License: MIT
 ================================================================================
@@ -2280,7 +2280,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-expo-localization 58.0.4
+expo-localization 58.0.5
 https://docs.expo.dev/versions/latest/sdk/localization/
 License: MIT
 ================================================================================
@@ -2307,7 +2307,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-expo-modules-core 58.0.22
+expo-modules-core 58.0.27
 https://github.com/expo/expo/tree/main/packages/expo-modules-core
 License: MIT
 ================================================================================
@@ -2334,7 +2334,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-expo-modules-jsi 58.0.15
+expo-modules-jsi 58.0.20
 https://github.com/expo/expo/tree/main/packages/expo-modules-jsi
 License: MIT
 ================================================================================
@@ -2361,7 +2361,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-expo-network 58.0.3
+expo-network 58.0.4
 https://docs.expo.dev/versions/latest/sdk/network/
 License: MIT
 ================================================================================
@@ -2388,7 +2388,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-expo-router 58.0.23
+expo-router 58.0.27
 https://docs.expo.dev/routing/introduction/
 License: MIT
 ================================================================================
@@ -2496,7 +2496,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-expo-splash-screen 58.0.10
+expo-splash-screen 58.0.11
 https://docs.expo.dev/versions/latest/sdk/splash-screen/
 License: MIT
 ================================================================================
@@ -2523,8 +2523,35 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-expo-sqlite 58.0.13
+expo-sqlite 58.0.14
 https://docs.expo.dev/versions/latest/sdk/sqlite/
+License: MIT
+================================================================================
+The MIT License (MIT)
+
+Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+================================================================================
+expo-status-bar 58.0.4
+https://docs.expo.dev/versions/latest/sdk/status-bar/
 License: MIT
 ================================================================================
 The MIT License (MIT)
@@ -2604,7 +2631,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-expo-web-browser 58.0.6
+expo-web-browser 58.0.7
 https://docs.expo.dev/versions/latest/sdk/webbrowser/
 License: MIT
 ================================================================================

@@ -1,5 +1,5 @@
 diff --git a/build/community/bottom-sheet/BottomSheet.android.js b/build/community/bottom-sheet/BottomSheet.android.js
-index d39d9de..7aa2b6e 100644
+index cafa206..d5a387e 100644
 --- a/build/community/bottom-sheet/BottomSheet.android.js
 +++ b/build/community/bottom-sheet/BottomSheet.android.js
 @@ -3,6 +3,7 @@ import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState
@@ -33,7 +33,7 @@ index d39d9de..7aa2b6e 100644
      const hasMultipleSnapPoints = snapPointsProp != null && snapPointsProp.length > 1;
      const fitToContents = enableDynamicSizing && (!snapPointsProp || snapPointsProp.length === 0);
      const skipPartially = fitToContents || !hasMultipleSnapPoints;
-@@ -174,6 +188,7 @@ function findNearestSnapPointIndex(snapPoints, position) {
+@@ -176,6 +190,7 @@ function findNearestSnapPointIndex(snapPoints, position) {
                  children: /*#__PURE__*/ _jsx(ModalBottomSheet, {
                      ref: sheetRef,
                      onDismissRequest: handleDismiss,
@@ -41,7 +41,7 @@ index d39d9de..7aa2b6e 100644
                      skipPartiallyExpanded: skipPartially,
                      initialFullyExpanded: hasMultipleSnapPoints && pendingIndexRef.current === maxIndex,
                      showDragHandle: handleComponent !== null,
-@@ -187,7 +202,7 @@ function findNearestSnapPointIndex(snapPoints, position) {
+@@ -189,7 +204,7 @@ function findNearestSnapPointIndex(snapPoints, position) {
                          matchContents: fitToContents,
                          children: /*#__PURE__*/ _jsx(View, {
                              style: fitToContents ? {
@@ -51,7 +51,7 @@ index d39d9de..7aa2b6e 100644
                                  flexGrow: 1,
                                  height: 0
 diff --git a/build/community/bottom-sheet/BottomSheet.ios.js b/build/community/bottom-sheet/BottomSheet.ios.js
-index 5ab7aff..6869405 100644
+index 7aff398..24d76c4 100644
 --- a/build/community/bottom-sheet/BottomSheet.ios.js
 +++ b/build/community/bottom-sheet/BottomSheet.ios.js
 @@ -1,12 +1,13 @@
@@ -117,7 +117,7 @@ index 5ab7aff..6869405 100644
      const [isPresented, setIsPresented] = useState(indexProp >= 0);
      const [currentIndex, setCurrentIndex] = useState(Math.max(indexProp, 0));
      // Ref mirrors currentIndex for use in handleDetentChange without adding it as a useCallback dep
-@@ -177,14 +213,8 @@ function findNearestDetentIndex(detents, position) {
+@@ -182,14 +218,8 @@ function findNearestDetentIndex(detents, position) {
      const modifiers = useMemo(()=>{
          const bg = extractBackgroundColor(backgroundStyle);
          return [
@@ -134,7 +134,7 @@ index 5ab7aff..6869405 100644
              ] : [
                  presentationDetents(detents, {
                      selection: selectedDetent,
-@@ -192,10 +222,29 @@ function findNearestDetentIndex(detents, position) {
+@@ -197,10 +227,29 @@ function findNearestDetentIndex(detents, position) {
                  })
              ],
              presentationDragIndicator(handleComponent === null ? 'hidden' : 'visible'),
@@ -165,7 +165,7 @@ index 5ab7aff..6869405 100644
          ];
      }, [
          fitToContents,
-@@ -204,16 +253,42 @@ function findNearestDetentIndex(detents, position) {
+@@ -209,16 +258,42 @@ function findNearestDetentIndex(detents, position) {
          handleDetentChange,
          handleComponent,
          enablePanDownToClose,
@@ -210,7 +210,7 @@ index 5ab7aff..6869405 100644
                  },
                  pointerEvents: "none",
                  children: /*#__PURE__*/ _jsx(NativeBottomSheet, {
-@@ -221,28 +296,14 @@ function findNearestDetentIndex(detents, position) {
+@@ -226,28 +301,14 @@ function findNearestDetentIndex(detents, position) {
                      onIsPresentedChange: handlePresentedChange,
                      onDismiss: fireCloseCallbacks,
                      fitToContents: fitToContents,
@@ -362,10 +362,10 @@ index cf72b27..5f46a63 100644
       * Style for the handle area.
       *
 diff --git a/build/swift-ui/BottomSheet/index.d.ts b/build/swift-ui/BottomSheet/index.d.ts
-index cc62286..304a9b3 100644
+index c39af1a..592e056 100644
 --- a/build/swift-ui/BottomSheet/index.d.ts
 +++ b/build/swift-ui/BottomSheet/index.d.ts
-@@ -29,6 +29,18 @@ export interface BottomSheetProps extends CommonViewModifierProps {
+@@ -35,6 +35,18 @@ export interface BottomSheetProps extends CommonViewModifierProps {
       * @default false
       */
      fitToContents?: boolean;
@@ -385,7 +385,7 @@ index cc62286..304a9b3 100644
  /**
   * `BottomSheet` presents content from the bottom of the screen.
 diff --git a/build/swift-ui/RNHostView.d.ts b/build/swift-ui/RNHostView.d.ts
-index f56e271..71c9983 100644
+index 8acd7b7..81272c2 100644
 --- a/build/swift-ui/RNHostView.d.ts
 +++ b/build/swift-ui/RNHostView.d.ts
 @@ -13,6 +13,27 @@ export interface RNHostViewProps {
@@ -415,9 +415,9 @@ index f56e271..71c9983 100644
 +    }) => void;
      onLayout?: (event: LayoutChangeEvent) => void;
      /**
-      * The RN View to be hosted.
+      * Measures the children within the space Yoga gives the `Host`. SwiftUI layout between the
 diff --git a/build/swift-ui/modifiers/index.d.ts b/build/swift-ui/modifiers/index.d.ts
-index 0de5cd2..6d6810f 100644
+index 482ba8f..08e4551 100644
 --- a/build/swift-ui/modifiers/index.d.ts
 +++ b/build/swift-ui/modifiers/index.d.ts
 @@ -188,7 +188,10 @@ export declare const onAppear: (handler: () => void) => ModifierConfig;
@@ -442,7 +442,7 @@ index 0de5cd2..6d6810f 100644
  /**
   * Marks a view as refreshable. Adds pull-to-refresh functionality.
 diff --git a/ios/BottomSheetView.swift b/ios/BottomSheetView.swift
-index 29b1a3a..5bf417b 100644
+index b331018..ab170aa 100644
 --- a/ios/BottomSheetView.swift
 +++ b/ios/BottomSheetView.swift
 @@ -6,6 +6,8 @@ import ExpoModulesCore
@@ -589,7 +589,7 @@ index da8f363..a50ab78 100644
    }
  }
 diff --git a/ios/RNHostView.swift b/ios/RNHostView.swift
-index 447fa6c..5649b0f 100644
+index f2d5a18..2af646f 100644
 --- a/ios/RNHostView.swift
 +++ b/ios/RNHostView.swift
 @@ -1,5 +1,6 @@
@@ -599,7 +599,7 @@ index 447fa6c..5649b0f 100644
  import SwiftUI
  import ExpoModulesCore
  
-@@ -19,6 +20,14 @@ internal final class RNHostViewProps: ExpoSwiftUI.ViewProps {
+@@ -23,6 +24,14 @@ internal final class RNHostViewProps: ExpoSwiftUI.ViewProps {
     `measure()` stops its ancestor walk here.
     */
    @Field var layoutRoot: Bool = false
@@ -614,7 +614,7 @@ index 447fa6c..5649b0f 100644
  }
  
  // Touches and `measure()` must agree on a coordinate space. Which space depends on where the
-@@ -51,7 +60,28 @@ struct RNHostView: ExpoSwiftUI.View {
+@@ -73,7 +82,20 @@ struct RNHostView: ExpoSwiftUI.View {
  
    @ViewBuilder
    private var hostedContent: some View {
@@ -632,19 +632,11 @@ index 447fa6c..5649b0f 100644
 +          Children()
 +        }
 +      }
-+      .onAppear {
-+        if props.layoutRoot {
-+          touchHandler.attach(to: childUIView)
-+        }
-+      }
-+      .onDisappear {
-+        touchHandler.detach()
-+      }
 +    } else if matchesContents, let childUIView = firstChildUIView {
        ApplySizeFromYogaNode(
          childUIView: childUIView,
          horizontal: props.matchContentsHorizontal,
-@@ -78,6 +108,23 @@ struct RNHostView: ExpoSwiftUI.View {
+@@ -92,6 +114,15 @@ struct RNHostView: ExpoSwiftUI.View {
        // Render nothing instead of an empty fill frame, which would take up space in the
        // surrounding SwiftUI container - e.g. a spurious empty row in a `Form`'s `Section`.
        EmptyView()
@@ -657,18 +649,10 @@ index 447fa6c..5649b0f 100644
 +            .scaleEffect(1 / scale, anchor: .topLeading)
 +        }
 +      }
-+      .onAppear {
-+        if props.layoutRoot, let view = firstChildUIView {
-+          touchHandler.attach(to: view)
-+        }
-+      }
-+      .onDisappear {
-+        touchHandler.detach()
-+      }
      } else {
        Children()
          .frame(maxWidth: .infinity, maxHeight: .infinity)
-@@ -100,6 +147,15 @@ struct RNHostView: ExpoSwiftUI.View {
+@@ -106,6 +137,15 @@ struct RNHostView: ExpoSwiftUI.View {
    private var firstChildUIView: UIView? {
      props.children?.first?.uiView
    }
@@ -684,7 +668,7 @@ index 447fa6c..5649b0f 100644
  }
  
  // Publishes where SwiftUI placed this view inside its `Host`, so `measure()` reports the position
-@@ -177,12 +233,14 @@ private struct ApplySizeFromYogaNode<Content: SwiftUI.View>: SwiftUI.View {
+@@ -184,12 +224,14 @@ private struct ApplySizeFromYogaNode<Content: SwiftUI.View>: SwiftUI.View {
    let vertical: Bool
    let shadowNodeProxy: ExpoSwiftUI.ShadowNodeProxy
    let content: Content
@@ -699,7 +683,7 @@ index 447fa6c..5649b0f 100644
      @ViewBuilder content: () -> Content
    ) {
      _observer = StateObject(wrappedValue: Observer(view: childUIView))
-@@ -190,10 +248,22 @@ private struct ApplySizeFromYogaNode<Content: SwiftUI.View>: SwiftUI.View {
+@@ -198,6 +240,7 @@ private struct ApplySizeFromYogaNode<Content: SwiftUI.View>: SwiftUI.View {
      self.vertical = vertical
      self.shadowNodeProxy = shadowNodeProxy
      self.content = content()
@@ -707,6 +691,10 @@ index 447fa6c..5649b0f 100644
    }
  
    var body: some SwiftUI.View {
+@@ -209,7 +252,18 @@ private struct ApplySizeFromYogaNode<Content: SwiftUI.View>: SwiftUI.View {
+ 
+   @ViewBuilder
+   private var sizedContent: some SwiftUI.View {
 -    if horizontal && vertical {
 +    if horizontal && vertical, let scale = presentationScale {
 +      // Yoga laid the content out at the size it is shown at; take up the unscaled size the
@@ -723,7 +711,7 @@ index 447fa6c..5649b0f 100644
        content
          .frame(width: observer.size.width, height: observer.size.height)
      } else {
-@@ -268,3 +338,166 @@ private struct ReportSizeToYogaNodeModifier: ViewModifier {
+@@ -290,3 +344,166 @@ private struct ReportSizeToYogaNodeModifier: ViewModifier {
      }
    }
  }
@@ -891,7 +879,7 @@ index 447fa6c..5649b0f 100644
 +  }
 +}
 diff --git a/src/community/bottom-sheet/BottomSheet.android.tsx b/src/community/bottom-sheet/BottomSheet.android.tsx
-index 419edef..12c6d1e 100644
+index 2900e12..aa0e4ec 100644
 --- a/src/community/bottom-sheet/BottomSheet.android.tsx
 +++ b/src/community/bottom-sheet/BottomSheet.android.tsx
 @@ -3,6 +3,7 @@ import { StyleSheet, useWindowDimensions, View } from 'react-native';
@@ -932,7 +920,7 @@ index 419edef..12c6d1e 100644
  
    const hasMultipleSnapPoints = snapPointsProp != null && snapPointsProp.length > 1;
    const fitToContents = enableDynamicSizing && (!snapPointsProp || snapPointsProp.length === 0);
-@@ -190,6 +211,7 @@ export function BottomSheet(props: BottomSheetProps) {
+@@ -191,6 +212,7 @@ export function BottomSheet(props: BottomSheetProps) {
            <ModalBottomSheet
              ref={sheetRef}
              onDismissRequest={handleDismiss}
@@ -940,7 +928,7 @@ index 419edef..12c6d1e 100644
              skipPartiallyExpanded={skipPartially}
              initialFullyExpanded={hasMultipleSnapPoints && pendingIndexRef.current === maxIndex}
              showDragHandle={handleComponent !== null}
-@@ -204,7 +226,7 @@ export function BottomSheet(props: BottomSheetProps) {
+@@ -205,7 +227,7 @@ export function BottomSheet(props: BottomSheetProps) {
                    the sheet width while its height stays content-sized. Otherwise flexGrow:1 + height:0
                    (flex-basis 0) fills RNHostView's measured height without inheriting the scrollable
                    child's content height, which would block scrolling to the end. */}
@@ -950,7 +938,7 @@ index 419edef..12c6d1e 100644
                </View>
              </RNHostView>
 diff --git a/src/community/bottom-sheet/BottomSheet.ios.tsx b/src/community/bottom-sheet/BottomSheet.ios.tsx
-index d0eb811..284b689 100644
+index ee198cf..e21c5e5 100644
 --- a/src/community/bottom-sheet/BottomSheet.ios.tsx
 +++ b/src/community/bottom-sheet/BottomSheet.ios.tsx
 @@ -1,20 +1,26 @@
@@ -1055,7 +1043,7 @@ index d0eb811..284b689 100644
  
    const [isPresented, setIsPresented] = useState(indexProp >= 0);
    const [currentIndex, setCurrentIndex] = useState(Math.max(indexProp, 0));
-@@ -199,9 +267,11 @@ export function BottomSheet(props: BottomSheetProps) {
+@@ -203,9 +271,11 @@ export function BottomSheet(props: BottomSheetProps) {
      const bg = extractBackgroundColor(backgroundStyle);
      return [
        ...(fitToContents
@@ -1070,7 +1058,7 @@ index d0eb811..284b689 100644
          : [
              presentationDetents(detents, {
                selection: selectedDetent,
-@@ -209,8 +279,37 @@ export function BottomSheet(props: BottomSheetProps) {
+@@ -213,8 +283,37 @@ export function BottomSheet(props: BottomSheetProps) {
              }),
            ]),
        presentationDragIndicator(handleComponent === null ? 'hidden' : 'visible'),
@@ -1108,7 +1096,7 @@ index d0eb811..284b689 100644
      ];
    }, [
      fitToContents,
-@@ -220,36 +319,52 @@ export function BottomSheet(props: BottomSheetProps) {
+@@ -224,36 +323,52 @@ export function BottomSheet(props: BottomSheetProps) {
      handleComponent,
      enablePanDownToClose,
      backgroundStyle,
@@ -1276,10 +1264,10 @@ index 51326fb..c108112 100644
     * Style for the handle area.
     *
 diff --git a/src/swift-ui/BottomSheet/index.tsx b/src/swift-ui/BottomSheet/index.tsx
-index c6327bb..e7f711f 100644
+index 3f111f5..c50ae6e 100644
 --- a/src/swift-ui/BottomSheet/index.tsx
 +++ b/src/swift-ui/BottomSheet/index.tsx
-@@ -36,6 +36,18 @@ export interface BottomSheetProps extends CommonViewModifierProps {
+@@ -42,6 +42,18 @@ export interface BottomSheetProps extends CommonViewModifierProps {
     * @default false
     */
    fitToContents?: boolean;
@@ -1299,7 +1287,7 @@ index c6327bb..e7f711f 100644
  
  type NativeBottomSheetProps = Omit<
 diff --git a/src/swift-ui/RNHostView.tsx b/src/swift-ui/RNHostView.tsx
-index 03e802b..e4f6f26 100644
+index aa751cc..25ee469 100644
 --- a/src/swift-ui/RNHostView.tsx
 +++ b/src/swift-ui/RNHostView.tsx
 @@ -18,6 +18,27 @@ export interface RNHostViewProps {
@@ -1329,9 +1317,9 @@ index 03e802b..e4f6f26 100644
 +  }) => void;
    onLayout?: (event: LayoutChangeEvent) => void;
    /**
-    * The RN View to be hosted.
+    * Measures the children within the space Yoga gives the `Host`. SwiftUI layout between the
 diff --git a/src/swift-ui/modifiers/index.ts b/src/swift-ui/modifiers/index.ts
-index d33844f..d8e93a6 100644
+index 90427f2..bab61cd 100644
 --- a/src/swift-ui/modifiers/index.ts
 +++ b/src/swift-ui/modifiers/index.ts
 @@ -275,16 +275,33 @@ export const onDisappear = (handler: () => void) =>

@@ -1,8 +1,8 @@
 diff --git a/apple/Package.swift b/apple/Package.swift
-index cdb2c16..98bb400 100644
+index 8211ef0..4c283db 100644
 --- a/apple/Package.swift
 +++ b/apple/Package.swift
-@@ -24,6 +24,7 @@ let reactNative =
+@@ -27,6 +27,7 @@ let reactNative =
  let headerSearchPaths = [
    publicHeaders,
    "\(publicHeaders)/React-jsi",
@@ -10,7 +10,7 @@ index cdb2c16..98bb400 100644
    "\(publicHeaders)/hermes-engine",
    "\(publicHeaders)/React-runtimescheduler",
    "\(publicHeaders)/React-rendererconsistency",
-@@ -71,7 +72,7 @@ let package = Package(
+@@ -78,7 +79,7 @@ let package = Package(
    products: [
      .library(
        name: "ExpoModulesJSI",
@@ -19,7 +19,7 @@ index cdb2c16..98bb400 100644
        targets: ["ExpoModulesJSI"],
      )
    ],
-@@ -117,14 +118,6 @@ let package = Package(
+@@ -124,14 +125,6 @@ let package = Package(
  
          .unsafeFlags(swiftIncludeFlags),
        ],
@@ -34,7 +34,7 @@ index cdb2c16..98bb400 100644
      ),
  
      // C++ target (internal)
-@@ -180,10 +173,10 @@ func resolvePodsRoot() -> String {
+@@ -187,10 +180,10 @@ func resolvePodsRoot() -> String {
    return "\(repoRoot)/apps/bare-expo/ios/Pods"
  }
  
@@ -107,10 +107,10 @@ index f96e818..5881ab8 100644
      .global()
      .getPropertyAsObject(runtime, "ArrayBuffer");
 diff --git a/apple/Sources/ExpoModulesJSI-Cxx/include/JSIUtils.h b/apple/Sources/ExpoModulesJSI-Cxx/include/JSIUtils.h
-index 967947a..f158356 100644
+index 578924f..8fd8c69 100644
 --- a/apple/Sources/ExpoModulesJSI-Cxx/include/JSIUtils.h
 +++ b/apple/Sources/ExpoModulesJSI-Cxx/include/JSIUtils.h
-@@ -158,10 +158,10 @@ inline bool isHostObject(jsi::IRuntime &runtime, const jsi::Object &object) {
+@@ -216,10 +216,10 @@ inline bool isHostObject(jsi::IRuntime &runtime, const jsi::Object &object) {
    return object.isHostObject<jsi::HostObject>(runtime);
  }
  
@@ -137,11 +137,11 @@ index dbae451..a59fede 100644
  /**
   * Returns the `TypedArrayKind` of the given typed-array object, derived from its
 diff --git a/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift b/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift
-index c4f18d2..2d38e91 100644
+index f6a8b06..2691675 100644
 --- a/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift
 +++ b/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift
 @@ -44,7 +44,7 @@ open class JavaScriptRuntime: Equatable, Identifiable, @unchecked Sendable {
-   internal let handle: JavaScriptRuntimeHandle
+   internal let scheduler: Scheduler
  
    /// Whether this wrapper owns the underlying `jsi::Runtime` and must destroy it on `deinit`. True
 -  /// only for the standalone `init()`, which creates the runtime via `createHermesRuntime()`. The
@@ -149,7 +149,7 @@ index c4f18d2..2d38e91 100644
    /// other initializers adopt a runtime owned elsewhere (e.g. React Native), which must never be
    /// freed here, matching the immortal (no-op) release semantics of the imported reference type.
    private let ownsRuntime: Bool
-@@ -74,10 +74,10 @@ open class JavaScriptRuntime: Equatable, Identifiable, @unchecked Sendable {
+@@ -65,10 +65,10 @@ open class JavaScriptRuntime: Equatable, Identifiable, @unchecked Sendable {
      installLongLivedObjectsTeardown()
    }
  
@@ -163,7 +163,7 @@ index c4f18d2..2d38e91 100644
      self.pointee = expo.iruntime(runtime)
      self.handle = JavaScriptRuntimeHandle(self.pointee)
 diff --git a/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptObject.swift b/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptObject.swift
-index a9ccaf5..9759eed 100644
+index 5205923..23893dd 100644
 --- a/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptObject.swift
 +++ b/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptObject.swift
 @@ -97,7 +97,7 @@ public struct JavaScriptObject: JavaScriptType, Sendable, ~Copyable {
@@ -202,7 +202,7 @@ index 7d76c90..38691d9 100644
  
    /// Checks whether the value is an `ArrayBuffer`.
 diff --git a/apple/scripts/build-xcframework.sh b/apple/scripts/build-xcframework.sh
-index 530a35a..c5a853b 100755
+index e38a4d2..68d0638 100755
 --- a/apple/scripts/build-xcframework.sh
 +++ b/apple/scripts/build-xcframework.sh
 @@ -10,7 +10,7 @@
@@ -222,7 +222,7 @@ index 530a35a..c5a853b 100755
  )
  
  compute_hash() {
-@@ -269,6 +270,8 @@ build_slice() {
+@@ -271,6 +272,8 @@ build_slice() {
  
    local product_path="${BUILD_PRODUCTS_PATH}/${build_dir_name}"
    local framework_src="${product_path}/PackageFrameworks/${PACKAGE_NAME}.framework"
@@ -231,7 +231,7 @@ index 530a35a..c5a853b 100755
    local swiftmodule_src="${product_path}/${PACKAGE_NAME}.swiftmodule"
    # GeneratedModuleMaps follows the same $EFFECTIVE_PLATFORM_NAME convention as
    # build products: no suffix for macOS, "-${platform}" for everything else.
-@@ -279,8 +282,8 @@ build_slice() {
+@@ -281,8 +284,8 @@ build_slice() {
      generated_maps="${DERIVED_DATA_PATH}/Build/Intermediates.noindex/GeneratedModuleMaps-${platform}"
    fi
  
@@ -242,7 +242,7 @@ index 530a35a..c5a853b 100755
      exit 1
    fi
  
-@@ -291,22 +294,47 @@ build_slice() {
+@@ -293,22 +296,47 @@ build_slice() {
    rm -rf "$staging_dir"
    mkdir -p "$staging_dir"
  
@@ -301,7 +301,7 @@ index 530a35a..c5a853b 100755
    fi
  
    # Copy Swift module interfaces and generated headers into the staged framework.
-@@ -388,6 +416,9 @@ build_slice() {
+@@ -390,6 +418,9 @@ build_slice() {
    # and Resources -> Versions/Current/Resources, but not Headers/Modules since
    # the SPM build doesn't emit those at that point.
    if [[ "$platform" == "macosx" || "$platform" == "maccatalyst" ]]; then

@@ -52,7 +52,8 @@ describe("mobile Expo native patch policy", () => {
     expect(bottomSheet).toMatch(
       /<RNHostView matchContents=\{fitToContents\}>[\s\S]*?<View style=\{fitToContents \? \{ width: sheetWidth \}/,
     );
-    expect(bottomSheet).toContain("<Host style={{ position: 'absolute', width }}");
+    // 58.0.24 stretches the host vertically so `removeClippedSubviews` keeps it attached.
+    expect(bottomSheet).toContain("<Host style={{ position: 'absolute', top: 0, bottom: 0, width }}");
     expect(bottomSheet).not.toContain("fitToContents ? { width } :");
     // The published conditional export defaults to build/, while expo-source
     // consumers use src/. Both entry paths must carry the same correction.
@@ -111,7 +112,7 @@ describe("mobile Expo native patch policy", () => {
     }
     // A fresh install reproduces it: the hunks are in the repository patch.
     const patch = readFileSync(
-      path.join(repositoryRoot, "patches/@expo%2Fui@58.0.20.patch"), "utf8");
+      path.join(repositoryRoot, "patches/@expo%2Fui@58.0.24.patch"), "utf8");
     expect(patch).toContain("+      metrics.sheetWidth = sheetView.bounds.width");
     expect(patch).toContain("diff --git a/ios/Modifiers/OnGeometryChangeModifier.swift");
   });
@@ -139,7 +140,7 @@ describe("mobile Expo native patch policy", () => {
       expect(bottomSheet).toMatch(pattern);
     }
     const patch = readFileSync(
-      path.join(repositoryRoot, "patches/@expo%2Fui@58.0.20.patch"), "utf8");
+      path.join(repositoryRoot, "patches/@expo%2Fui@58.0.24.patch"), "utf8");
     expect(patch).toContain("+private struct FormSheetSizing: PresentationSizing {");
   });
   test("keeps every version-exact repository patch attached", () => {
