@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import type { ReadingMode } from "@/data/schema";
 import {
   MOBILE_READER_LONE_PAGE_SETTLE_MS,
-  MOBILE_READER_SPREAD_LOAD_DELAY_TEST_MS,
   mobileReaderPageReadyForSpread,
   mobileReaderCentresLonePages,
   mobileReaderFlatSpreadPageRects,
@@ -147,26 +146,16 @@ describe("flat spread: a lone page is centred on the whole stage", () => {
   });
 });
 
-describe("page readiness for a flat spread (and the TEST-ONLY load delay)", () => {
-  const base = { loadedAt: null, failed: false, everReady: false, now: 10_000, delayMs: 0 };
+describe("page readiness for a flat spread", () => {
+  const base = { loaded: false, failed: false, everReady: false };
 
-  test("without the delay a loaded or failed page is ready; a loading one is not", () => {
-    expect(mobileReaderPageReadyForSpread({ ...base, loadedAt: 9_999 })).toBe(true);
+  test("a loaded or failed page is ready; a loading one is not", () => {
+    expect(mobileReaderPageReadyForSpread({ ...base, loaded: true })).toBe(true);
     expect(mobileReaderPageReadyForSpread({ ...base, failed: true })).toBe(true);
     expect(mobileReaderPageReadyForSpread(base)).toBe(false);
   });
 
-  test("the delay counts from the real load: a page prefetched long enough before its spread pairs at once", () => {
-    const delayMs = MOBILE_READER_SPREAD_LOAD_DELAY_TEST_MS;
-    // Loaded (prefetched or visited) 2 s+ before the spread arrives: the pair shows directly.
-    expect(mobileReaderPageReadyForSpread({ ...base, delayMs, loadedAt: 10_000 - delayMs })).toBe(true);
-    // Loaded just now: still "loading", the first page waits centred.
-    expect(mobileReaderPageReadyForSpread({ ...base, delayMs, loadedAt: 9_500 })).toBe(false);
-    expect(mobileReaderPageReadyForSpread({ ...base, delayMs })).toBe(false);
-  });
-
   test("a page once ready never turns unready again (its facing page is never hidden after showing)", () => {
-    expect(mobileReaderPageReadyForSpread({ ...base, delayMs: 2000, everReady: true })).toBe(true);
     expect(mobileReaderPageReadyForSpread({ ...base, everReady: true })).toBe(true);
     const spread = [1, 2];
     const shown = mobileReaderFlatSpreadState({ spread, mode: "rtl", ready: () => true });

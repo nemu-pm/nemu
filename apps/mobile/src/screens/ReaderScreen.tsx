@@ -446,17 +446,11 @@ import {
   visualPageIndexesForMobileReaderSpread,
 } from "@/lib/mobileReaderSpreads";
 import {
-  MOBILE_READER_SPREAD_LOAD_DELAY_TEST_MS,
   mobileReaderCentresLonePages,
   mobileReaderFlatSpreadState,
   mobileReaderPageReadyForSpread,
   mobileReaderSpreadSettledOnScreen,
 } from "@/lib/mobileReaderLoneSpreadPage";
-// TEST-ONLY "Delay Facing Page (Test)" switch (remove before release).
-import {
-  isMobileReaderSpreadLoadDelayTestEnabled,
-  subscribeMobileReaderSpreadLoadDelayTest,
-} from "@/lib/mobileReaderSpreadLoadDelayTestSetting";
 import {
   buildMobileReaderPairedSpreads,
   mobileReaderColourOddPages,
@@ -3597,39 +3591,6 @@ export function ReaderScreen() {
   // not yet fixed as shown, so a page found wide splits it (it stays alone);
   // and a turn to that spread never plays the half-page flip (its leaves
   // would show the facing page before it is ready).
-  //
-  // TEST-ONLY (remove before release): "Delay Facing Page (Test)" adds
-  // MOBILE_READER_SPREAD_LOAD_DELAY_TEST_MS to every image load: a page counts
-  // as loaded that long after its image really loaded. Pages loaded (or
-  // prefetched) long enough before their spread shows pair at once, exactly
-  // as cached pages do; a page still "loading" when its spread arrives makes
-  // the first page wait centred.
-  const readerSpreadLoadDelayTest = useSyncExternalStore(
-    subscribeMobileReaderSpreadLoadDelayTest,
-    isMobileReaderSpreadLoadDelayTestEnabled,
-  );
-  /** When each page identity's natural size first arrived (the test delay counts from it). */
-  const readerImageLoadedAtRef = useRef(new Map<string, number>());
-  const [readerSpreadLoadDelayTick, setReaderSpreadLoadDelayTick] = useState(0);
-  useEffect(() => {
-    const now = Date.now();
-    const loadedAt = readerImageLoadedAtRef.current;
-    readerImageSizes.forEach((_size, identity) => {
-      if (!loadedAt.has(identity)) loadedAt.set(identity, now);
-    });
-    loadedAt.forEach((_at, identity) => {
-      if (!readerImageSizes.has(identity)) loadedAt.delete(identity);
-    });
-    if (!readerSpreadLoadDelayTest) return undefined;
-    let next = Infinity;
-    loadedAt.forEach((at) => {
-      const due = at + MOBILE_READER_SPREAD_LOAD_DELAY_TEST_MS;
-      if (due > now) next = Math.min(next, due);
-    });
-    if (!Number.isFinite(next)) return undefined;
-    const timer = setTimeout(() => setReaderSpreadLoadDelayTick((tick) => tick + 1), next - now + 1);
-    return () => clearTimeout(timer);
-  }, [readerImageSizes, readerSpreadLoadDelayTest, readerSpreadLoadDelayTick]);
   /**
    * Pages once ready stay ready: a facing page shown is never hidden again
    * (a retry clearing its error, a size map pruned and refilled).
@@ -3640,28 +3601,15 @@ export function ReaderScreen() {
       if (!page.imageUri) return true;
       const identity = readerPageIdentityForChapter(forChapterId, page);
       const everReady = readerPageEverReadyRef.current;
-      const loaded = readerImageSizes.has(identity);
       const ready = mobileReaderPageReadyForSpread({
-        // Without the test delay a loaded page is ready at once. With it, a
-        // size not yet recorded arrived in this very render: still "loading".
-        loadedAt: !loaded ? null : readerSpreadLoadDelayTest ? (readerImageLoadedAtRef.current.get(identity) ?? Date.now()) : 0,
+        loaded: readerImageSizes.has(identity),
         failed: readerImageErrors.has(identity),
         everReady: everReady.has(identity),
-        now: Date.now(),
-        delayMs: readerSpreadLoadDelayTest ? MOBILE_READER_SPREAD_LOAD_DELAY_TEST_MS : 0,
       });
       if (ready) everReady.add(identity);
       return ready;
     },
-    // The tick re-evaluates the test delay as pages come due.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [
-      readerImageErrors,
-      readerImageSizes,
-      readerPageIdentityForChapter,
-      readerSpreadLoadDelayTest,
-      readerSpreadLoadDelayTick,
-    ],
+    [readerImageErrors, readerImageSizes, readerPageIdentityForChapter],
   );
   const readerPageImageReady = useCallback(
     (page: MobileReaderPage) => readerPageImageReadyForChapter(chapterId, page),
