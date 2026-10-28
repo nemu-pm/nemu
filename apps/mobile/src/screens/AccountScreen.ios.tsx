@@ -20,11 +20,12 @@ import {
   useScrollGeometryChange,
 } from "@expo/ui/swift-ui/modifiers";
 import { useCallback, useRef, useState } from "react";
-import { nemuSoftScrollEdge, useNemuTheme } from "@/design-system";
 import {
   NemuScrollEdgeSurface,
+  nemuSoftScrollEdge,
   useNemuScrollEdgeTracking,
-} from "@/design-system/components/NemuScrollEdgeSurface";
+  useNemuTheme,
+} from "@/design-system";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import {
   nextMobileFormScrollRest,

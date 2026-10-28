@@ -7,6 +7,7 @@ import {
   resolveMobileRailBottomScrollEdge,
   resolveMobileRailTopScrollEdge,
 } from "./mobileScrollEdgeEffect";
+// eslint-disable-next-line no-restricted-imports -- test needs the runtime helper; importing from @/design-system pulls the component barrel, which loads react-native's Flow-typed index.js and breaks bun's test runner.
 import { resolveNemuNativeScrollEdgeEffects } from "@/design/nativeHeaderChrome";
 
 const read = (file: string) => readFileSync(path.join(import.meta.dir, "..", "..", file), "utf8");

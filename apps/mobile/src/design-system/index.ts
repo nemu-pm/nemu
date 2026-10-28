@@ -109,6 +109,7 @@ export {
 export { NemuTextFieldClearAction } from "./components/NemuTextFieldClearAction";
 export { PageHeader, type PageHeaderAction } from "./components/PageHeader";
 export { PageListScaffold, PageScaffold } from "./components/PageScaffold";
+export { NemuScrollEdgeSurface, useNemuScrollEdgeTracking } from "./components/NemuScrollEdgeSurface";
 export { NemuSheetScrollEdge } from "./components/NemuSheetScrollEdge";
 export { nemuSoftScrollEdge } from "@/design/nemuScrollEdge";
 export { MangaCard, type MangaCardModel } from "./components/MangaCard";
