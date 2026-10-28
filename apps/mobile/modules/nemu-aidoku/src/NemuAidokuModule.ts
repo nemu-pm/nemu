@@ -85,15 +85,6 @@ declare class NemuAidokuModule extends NativeModule<NemuAidokuEventsMap> {
    * message. Optional so an older native build simply cannot preempt.
    */
   cancelAidokuSandboxOperation?(cancelToken: string): boolean;
-  /**
-   * iOS only: boots the isolated Aidoku runtime (its WKWebView and runtime
-   * page, ~1 s of main-thread work on a cold app) without registering a
-   * session, started only while the main run loop is not tracking a scroll.
-   * Resolves a `{"status": "warm" | "already-warm"}` JSON string; rejects
-   * when main stayed busy or the boot failed. Optional so an older native
-   * build simply cannot pre-warm.
-   */
-  prewarmAidokuSandbox?(): Promise<string>;
   processAidokuSandboxImage(
     sessionId: string,
     operationJson: string,

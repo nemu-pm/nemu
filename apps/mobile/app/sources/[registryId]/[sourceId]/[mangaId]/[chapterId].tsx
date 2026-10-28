@@ -46,7 +46,6 @@ import { MOBILE_READER_SCROLL_PLACEHOLDER_COLOR } from "@/lib/mobileReaderScroll
 import { mobileReaderPageBackgroundColor } from "@/lib/mobileReaderPageBackground";
 import { useReaderPagePrefs } from "@/components/reader/useReaderPagePrefs";
 import { ReaderScreen } from "@/screens/ReaderScreen";
-import { noteMobileReaderOpened } from "@/lib/mobileAidokuPrewarm";
 import { VerticalBarBehavior, ZoomTarget, type ZoomStartedEvent } from "../../../../../modules/nemu-window-layout";
 import { useMobileObservedWindowLayout } from "@/lib/MobileWindowLayoutContext";
 import { mobileReaderVerticalBarPolicy } from "@/lib/mobileReaderPoseLayout";
@@ -113,8 +112,6 @@ export default function ReaderRoute() {
     );
   });
   const coverReveal = useReaderCoverReveal(zoom, standIn != null);
-  // A reader boots the Aidoku sandbox itself: no pre-warm after this.
-  useEffect(() => noteMobileReaderOpened(), []);
   // The reader's vertical-bar opt-out and dark bar appearance, held by the
   // route from the push for the screen's lifetime. Mounted inside the reader
   // (which mounts at the landing) they switched the Duo's status bar from the

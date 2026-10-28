@@ -64,7 +64,6 @@ import {
 } from "@/lib/mobileLaunchSourceWork";
 import { scheduleMobileIdleTask } from "@/lib/mobileIdleTask";
 import { endNativeBinaryCacheLaunchIndexDeferral } from "@/data/nativeCache";
-import { mobileAidokuPrewarmRootTouchProps } from "@/lib/useMobileAidokuSandboxPrewarm";
 import {
   MOBILE_PERFORMANCE_MARKS,
   markMobilePerformance,
@@ -227,8 +226,6 @@ function RootStack({
         }
         onLayout={hideSplashAfterLayout}
         pointerEvents={underlyingContentState.pointerEvents}
-        // The Aidoku pre-warm's idle check (nothing while it is off).
-        {...mobileAidokuPrewarmRootTouchProps}
         style={[styles.root, { backgroundColor: tokens.background }]}
       >
         <MobileScrollEdgeEffectHost>

@@ -610,42 +610,6 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
     }
   }
 
-  /// Boots the isolated runtime (WKWebView + runtime HTML) ahead of the first
-  /// source call, on the executor like every operation, so the main-thread
-  /// boot happens while nobody is watching instead of under the reader's
-  /// opening fade. Registers no session. The boot is only started from the
-  /// main run loop's default mode: while a scroll view tracks or decelerates
-  /// the main loop runs in UITrackingRunLoopMode, so a scrolling user is not
-  /// stalled by it (gives up with an error after `mainIdleTimeoutSeconds`).
-  /// Resolves `{"status":"warm"}` (or `already-warm`).
-  func prewarm(
-    mainIdleTimeoutSeconds: TimeInterval = 5,
-    completion: @escaping (Result<String, Error>) -> Void
-  ) {
-    submit(completion: completion) {
-      if self.currentReadyGeneration() != nil {
-        return "{\"status\":\"already-warm\"}"
-      }
-      guard Self.waitForMainRunLoopDefaultMode(timeoutSeconds: mainIdleTimeoutSeconds) else {
-        throw Self.error("The main thread stayed busy; the Aidoku runtime was not pre-warmed.")
-      }
-      _ = try self.ensureRuntime()
-      return "{\"status\":\"warm\"}"
-    }
-  }
-
-  /// Waits (off main) until the main run loop serves its default mode: not
-  /// while a scroll view tracks a finger or decelerates.
-  private static func waitForMainRunLoopDefaultMode(timeoutSeconds: TimeInterval) -> Bool {
-    let semaphore = DispatchSemaphore(value: 0)
-    let mainLoop = CFRunLoopGetMain()
-    CFRunLoopPerformBlock(mainLoop, CFRunLoopMode.defaultMode.rawValue) {
-      semaphore.signal()
-    }
-    CFRunLoopWakeUp(mainLoop)
-    return semaphore.wait(timeout: .now() + timeoutSeconds) == .success
-  }
-
   func close() {
     closeLock.lock()
     let wasClosed = closed
