@@ -9,30 +9,14 @@ import {
   resolveReaderFirstScreenIndexes,
   resolveReaderImageProcessor,
   resolveReaderOpeningHoldDelay,
-  resolveReaderProcessedSourceOpening,
   shouldHoldReaderOpeningForImages,
   shouldRetakeReaderFirstScreen,
   shouldRevealReaderCover,
   READER_FIRST_SCREEN_MAX_RETAKES,
   READER_OPENING_IMAGE_HOLD_MAX_MS,
-  READER_PROCESSED_SOURCE_OPENING_KEY,
 } from "./readerOpeningHold";
 
 describe("readerOpeningHold", () => {
-  test("the switch: the first valid value wins, hold by default", () => {
-    expect(resolveReaderProcessedSourceOpening()).toBe("hold");
-    expect(resolveReaderProcessedSourceOpening(undefined, undefined)).toBe("hold");
-    expect(resolveReaderProcessedSourceOpening("hold")).toBe("hold");
-    expect(resolveReaderProcessedSourceOpening(" HOLD ")).toBe("hold");
-    // The runtime default beats the build's env.
-    expect(resolveReaderProcessedSourceOpening("defer", "hold")).toBe("defer");
-    expect(resolveReaderProcessedSourceOpening(undefined, "hold")).toBe("hold");
-    expect(resolveReaderProcessedSourceOpening("bogus", 1, "hold")).toBe("hold");
-    expect(resolveReaderProcessedSourceOpening("bogus")).toBe("hold");
-    expect(resolveReaderProcessedSourceOpening(undefined, "defer")).toBe("defer");
-    expect(READER_PROCESSED_SOURCE_OPENING_KEY).toBe("NEMU_READER_PROCESSED_SOURCE_OPENING");
-  });
-
   test("pages need processing while one with an image is still pending", () => {
     expect(readerPagesNeedProcessing([{ imageUri: "https://a/1.jpg", imageProcessing: "pending" }])).toBe(true);
     expect(readerPagesNeedProcessing([{ imageUri: "https://a/1.jpg", imageProcessing: "ready" }])).toBe(false);
@@ -41,9 +25,8 @@ describe("readerOpeningHold", () => {
     expect(readerPagesNeedProcessing([])).toBe(false);
   });
 
-  test("only hold, for a source known to process its images, with pages to process and the cover up, holds", () => {
+  test("only a source known to process its images, with pages to process and the cover up, holds", () => {
     const base = {
-      opening: "hold" as const,
       imageProcessor: true as boolean | null,
       pagesNeedProcessing: true,
       openingSettled: false,
@@ -53,7 +36,6 @@ describe("readerOpeningHold", () => {
     // an unknown one is never slowed.
     expect(shouldHoldReaderOpeningForImages({ ...base, imageProcessor: false })).toBe(false);
     expect(shouldHoldReaderOpeningForImages({ ...base, imageProcessor: null })).toBe(false);
-    expect(shouldHoldReaderOpeningForImages({ ...base, opening: "defer" })).toBe(false);
     expect(shouldHoldReaderOpeningForImages({ ...base, pagesNeedProcessing: false })).toBe(false);
     expect(shouldHoldReaderOpeningForImages({ ...base, openingSettled: true })).toBe(false);
   });
@@ -203,13 +185,7 @@ describe("readerOpeningHold wiring", () => {
     path.join(mobileRoot, "app/sources/[registryId]/[sourceId]/[mangaId]/[chapterId].tsx"),
     "utf8",
   );
-  const flag = readFileSync(path.join(mobileRoot, "src/lib/mobileReaderProcessedSourceOpening.ts"), "utf8");
   const handoff = readFileSync(path.join(mobileRoot, "src/components/explore/mobileExploreCover.ts"), "utf8");
-
-  test("the switch reads the iOS user default (launch argument) over the build's env", () => {
-    expect(flag).toContain("Settings.get(READER_PROCESSED_SOURCE_OPENING_KEY)");
-    expect(flag).toContain("process.env.EXPO_PUBLIC_NEMU_READER_PROCESSED_SOURCE_OPENING");
-  });
 
   test("the cache paint decides the hold before painting; held, the source calls are not deferred", () => {
     const effectStart = reader.indexOf("const [persisted, persistedPageSizes, sourceImageProcessor] = await Promise.all([");

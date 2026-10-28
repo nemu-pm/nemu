@@ -5,29 +5,18 @@
  * has run. Ordinary remote pages (ToG) are "pending" too until their request
  * is resolved, but show at once after: they never hold.
  *
- * - `hold` (default, Colo's call: r15 measured 0.6–1.5 s of plates under
- *   `defer`): the source calls (the tap-time prefetch included) run at once
- *   and the cover stays until the first screen's images have painted, then
- *   fades — at most `READER_OPENING_IMAGE_HOLD_MAX_MS` after the landing
- *   (then it fades onto the plates anyway).
- * - `defer` (override): the cover fades on time (the scroll cap), the source
- *   calls wait for the fade (`readerOpeningGate`); plates show, then the
- *   images.
+ * They hold (r15 measured 0.6–1.5 s of plates when the cover faded on time
+ * and the source calls waited for the fade): the source calls (the tap-time
+ * prefetch included) run at once and the cover stays until the first
+ * screen's images have painted, then fades — at most
+ * `READER_OPENING_IMAGE_HOLD_MAX_MS` after the landing (then it fades onto
+ * the plates anyway).
  *
  * Plus the first-screen measure every open logs (all sources): when every
  * page in the first viewport has painted its real image.
  *
  * Pure (no React Native), so the rules are testable.
  */
-
-export type ReaderProcessedSourceOpening = "defer" | "hold";
-
-/**
- * The switch's name: an iOS user default / launch argument
- * (`-NEMU_READER_PROCESSED_SOURCE_OPENING hold`), read at each open, over the
- * build's `EXPO_PUBLIC_NEMU_READER_PROCESSED_SOURCE_OPENING`.
- */
-export const READER_PROCESSED_SOURCE_OPENING_KEY = "NEMU_READER_PROCESSED_SOURCE_OPENING";
 
 /** `hold`: the cover fades this long after the landing at the latest. */
 export const READER_OPENING_IMAGE_HOLD_MAX_MS = 2500;
@@ -85,18 +74,6 @@ export function resolveReaderOpeningPagedTarget(input: {
  */
 export const READER_OPENING_HOLD_REARM_MARGIN_MS = 50;
 
-/** The first valid value wins (`hold` / `defer`, any case); else `hold`. */
-export function resolveReaderProcessedSourceOpening(
-  ...candidates: unknown[]
-): ReaderProcessedSourceOpening {
-  for (const candidate of candidates) {
-    if (typeof candidate !== "string") continue;
-    const value = candidate.trim().toLowerCase();
-    if (value === "hold" || value === "defer") return value;
-  }
-  return "hold";
-}
-
 export type ReaderImageProcessorReason =
   /** Recorded with the cached page list. */
   | "page-list"
@@ -126,20 +103,18 @@ export function readerPagesNeedProcessing(
 }
 
 /**
- * Whether this open holds its cover for the first screen's images: `hold`, a
+ * Whether this open holds its cover for the first screen's images: a
  * source known to process its images (unknown never holds: an ordinary
  * source must not be slowed), pages still waiting for it, and the cover
  * still up (an open without a fade, or one whose fade has ended, has nothing
  * to hold).
  */
 export function shouldHoldReaderOpeningForImages(input: {
-  opening: ReaderProcessedSourceOpening;
   imageProcessor: boolean | null;
   pagesNeedProcessing: boolean;
   openingSettled: boolean;
 }): boolean {
   return (
-    input.opening === "hold" &&
     input.imageProcessor === true &&
     input.pagesNeedProcessing &&
     !input.openingSettled

@@ -209,7 +209,6 @@ import {
   type ReaderImageProcessorReason,
 } from "@/components/reader/readerOpeningHold";
 import { createReaderCrossingTapQueue } from "@/components/reader/readerCrossingTapQueue";
-import { getMobileReaderProcessedSourceOpening } from "@/lib/mobileReaderProcessedSourceOpening";
 import { ReaderMoreMenu } from "@/components/reader/ReaderMoreMenu";
 import { useReaderScrubPreviewThumbnails } from "@/components/reader/useReaderScrubPreviewThumbnails";
 import { ReaderPluginSettingsSheet } from "@/components/reader/ReaderPluginSettingsSheet";
@@ -1565,10 +1564,8 @@ export function ReaderScreen() {
       const gate = readerOpeningGateRef.current;
       const pagesNeedProcessing = readerPagesNeedProcessing(openingPages);
       if (!pagesNeedProcessing) return;
-      const opening = getMobileReaderProcessedSourceOpening();
       const openingSettled = gate.isSettled();
       const hold = shouldHoldReaderOpeningForImages({
-        opening,
         imageProcessor: processor.imageProcessor,
         pagesNeedProcessing,
         openingSettled,
@@ -1576,7 +1573,6 @@ export function ReaderScreen() {
       if (__DEV__ && !readerOpeningProcessedLoggedRef.current) {
         readerOpeningProcessedLoggedRef.current = true;
         console.info("[reader-open] processed-source opening", {
-          opening,
           from,
           reason: processor.reason,
           imageProcessor: processor.imageProcessor,
