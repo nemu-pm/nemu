@@ -371,10 +371,8 @@ function useReaderCoverReveal(zoomId: string | null, hasStandIn: boolean): Reade
   const onStandInReady = useCallback(() => {
     if (standInReadyAtRef.current != null) return;
     standInReadyAtRef.current = Date.now();
-    // TEST-ONLY — remove before release ("Opening Timing (Test)").
-    noteMobileReaderOpeningTiming(timingId, { standInReadyAt: standInReadyAtRef.current });
     scheduleStandInFade();
-  }, [scheduleStandInFade, timingId]);
+  }, [scheduleStandInFade]);
 
   const onLanded = useCallback(() => {
     if (landedAtRef.current != null) return;

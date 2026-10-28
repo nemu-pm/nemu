@@ -20,6 +20,7 @@ import {
   Text,
   View,
   useWindowDimensions,
+  type LayoutChangeEvent,
   type SectionListData,
   type SectionListRenderItemInfo,
   type ScrollViewInstance,
@@ -832,11 +833,7 @@ const ADD_SOURCE_LIST_MOUNT_FALLBACK_MS = 250;
 function AddSourceListAfterSheetLayout({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   useEffect(() => {
-    if (ready) {
-      // TEST-ONLY (Stability Diagnostics).
-      markMobileStabilityDiagnostic("sources list mounted");
-      return;
-    }
+    if (ready) return;
     const timer = setTimeout(() => setReady(true), ADD_SOURCE_LIST_MOUNT_FALLBACK_MS);
     return () => clearTimeout(timer);
   }, [ready]);
