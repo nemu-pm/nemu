@@ -1259,9 +1259,90 @@ enum NemuVerticalBarOverride {
   }
 
   /// Replace on `cls` itself: add when the method is inherited, else set.
-  private static func replace(_ cls: AnyClass, _ selector: Selector, _ method: Method, _ imp: IMP) {
+  static func replace(_ cls: AnyClass, _ selector: Selector, _ method: Method, _ imp: IMP) {
     if !class_addMethod(cls, selector, imp, method_getTypeEncoding(method)) {
       method_setImplementation(method, imp)
+    }
+  }
+}
+
+/// iOS 27.2 (iPhone Duo inner display, landscape): a tab bar controller that
+/// first appears while its scene already has a vertical bar never moves its
+/// tabs into the bar. Its `UITabBar` stays an empty strip in the bottom bar
+/// group and the vertical bar shows the status column and navigation items
+/// but no tab group, until the bar goes away and comes back (a rotation
+/// through portrait). 27.1 builds the tab group either way. So the first time
+/// a tab bar controller appears with a vertical bar on 27.2+, the bar is
+/// turned off along its path until the controller's traits say it is gone,
+/// then back on: the same change a rotation makes. Turning it back on in the
+/// same or the next run-loop turn is too soon, UIKit never drops the bar.
+@available(iOS 27.1, *)
+@MainActor
+enum NemuTabRailRepair {
+  nonisolated(unsafe) private static var repairedKey: UInt8 = 0
+  private static var installed = false
+  /// Turn the bar back on after this even if the traits never report it gone.
+  private static let releaseCap: TimeInterval = 0.5
+
+  static func install() {
+    guard #available(iOS 27.2, *), !installed else { return }
+    installed = true
+    let cls: AnyClass = UITabBarController.self
+    let selector = #selector(UIViewController.viewDidAppear(_:))
+    guard let method = class_getInstanceMethod(cls, selector) else { return }
+    typealias Original = @convention(c) (UIViewController, Selector, Bool) -> Void
+    let original = unsafeBitCast(method_getImplementation(method), to: Original.self)
+    let block: @convention(block) (UIViewController, Bool) -> Void = { controller, animated in
+      original(controller, selector, animated)
+      MainActor.assumeIsolated {
+        if let tabs = controller as? UITabBarController { repairIfNeeded(tabs) }
+      }
+    }
+    NemuVerticalBarOverride.replace(cls, selector, method, imp_implementationWithBlock(block))
+  }
+
+  static func repairIfNeeded(_ controller: UITabBarController) {
+    guard objc_getAssociatedObject(controller, &repairedKey) == nil,
+      let window = controller.viewIfLoaded?.window,
+      controller.traitCollection.verticalBarEdge != .unspecified else { return }
+    objc_setAssociatedObject(controller, &repairedKey, true, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    // UIKit reads the preference at the end of its walk: past the tab bar
+    // controller, down through the selected tab to its top screen.
+    var leaf: UIViewController = controller
+    while let child = leaf.childForPreferredVerticalBarBehavior, child.parent === leaf { leaf = child }
+    var path: [UIViewController] = [leaf]
+    while let parent = path.last?.parent { path.append(parent) }
+    let toggle = Toggle(controller: controller, path: path)
+    toggle.registration = controller.registerForTraitChanges(UITraitCollection.systemTraitsAffectingVerticalBarEdge) {
+      (tabs: UITabBarController, _: UITraitCollection) in
+      guard tabs.traitCollection.verticalBarEdge == .unspecified else { return }
+      // Back on once UIKit has finished taking the bar away.
+      DispatchQueue.main.async { MainActor.assumeIsolated { toggle.release("bar off") } }
+    }
+    NemuVerticalBarOverride.acquire(path: path)
+    window.layoutIfNeeded()
+    DispatchQueue.main.asyncAfter(deadline: .now() + releaseCap) { MainActor.assumeIsolated { toggle.release("cap") } }
+  }
+
+  @MainActor
+  private final class Toggle {
+    weak var controller: UIViewController?
+    let path: [WeakViewController]
+    var registration: UITraitChangeRegistration?
+    private var released = false
+
+    init(controller: UIViewController, path: [UIViewController]) {
+      self.controller = controller
+      self.path = path.map(WeakViewController.init)
+    }
+
+    func release(_ reason: String) {
+      guard !released else { return }
+      released = true
+      if let registration { controller?.unregisterForTraitChanges(registration) }
+      let path = path.compactMap(\.value)
+      NemuVerticalBarOverride.release(path: path)
+      verticalBarLog.debug("tab bar rail rebuilt (\(reason, privacy: .public)): \(path.map { String(describing: type(of: $0)) }.joined(separator: " → "), privacy: .public)")
     }
   }
 }

@@ -25,6 +25,9 @@ public final class NemuOrientationGateAppDelegate: ExpoAppDelegateSubscriber {
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
   ) -> Bool {
     NemuOrientationGate.start()
+    #if NEMU_SDK_27_1
+    if #available(iOS 27.1, *) { MainActor.assumeIsolated { NemuTabRailRepair.install() } }
+    #endif
     return true
   }
 
