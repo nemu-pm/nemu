@@ -21,6 +21,9 @@ import {
   getNemuPortraitGlowReachTop,
   NEMU_PORTRAIT_GLOW_VISIBLE_REACH,
   getNemuWebLoopStart,
+  getNemuWebLoopValue,
+  nemuCssEaseInOut,
+  NEMU_WEB_PORTRAIT_MOTION,
   getNemuPortraitGlowRasterLayout,
   getNemuPortraitGlowStageWidth,
   getNemuPortraitHaloRenderMode,
@@ -200,10 +203,69 @@ describe("Nemu portrait halo motion", () => {
       path.join(import.meta.dir, "../components/NemuPortraitHalo.tsx"),
       "utf8",
     );
-    expect(component).toContain("function startPingPong(");
-    expect(component).toContain("withRepeat");
-    expect(component).toContain("withSequence");
-    expect(component).toContain("Easing.bezier(0.42, 0, 0.58, 1)");
+    // One shared clock drives every loop; no per-loop restart from rest.
+    expect(component).toContain("useFrameCallback");
+    expect(component).toContain("getNemuWebLoopValue(");
+    expect(component).not.toContain("withRepeat");
+  });
+
+  test("follows the CSS ease-in-out curve", () => {
+    expect(nemuCssEaseInOut(0)).toBe(0);
+    expect(nemuCssEaseInOut(1)).toBe(1);
+    expect(nemuCssEaseInOut(0.5)).toBeCloseTo(0.5, 6);
+    // cubic-bezier(0.42, 0, 0.58, 1) sampled at x = 0.25 / 0.75.
+    expect(nemuCssEaseInOut(0.25)).toBeCloseTo(0.1291, 3);
+    expect(nemuCssEaseInOut(0.75)).toBeCloseTo(0.8709, 3);
+    for (let x = 0.05; x < 1; x += 0.05) {
+      expect(nemuCssEaseInOut(x) + nemuCssEaseInOut(1 - x)).toBeCloseTo(1, 6);
+    }
+  });
+
+  test("puts each portrait loop where the web's CSS timeline has it", () => {
+    const { breathe, float, rotate, sway } = NEMU_WEB_PORTRAIT_MOTION;
+    expect(float).toEqual({ delay: 0, duration: 5_000, translateY: [0, -12] });
+    expect(sway).toEqual({ delay: -2_500, duration: 7_000, translateX: [0, 4] });
+    expect(rotate).toEqual({ delay: -4_000, duration: 9_000, degrees: [-0.5, 0.5] });
+    expect(breathe).toEqual({ delay: -1_200, duration: 4_000, scale: [1, 1.012] });
+    const webEmpty = readFileSync(
+      path.join(import.meta.dir, "../../../../src/components/library-empty.tsx"),
+      "utf8",
+    );
+    for (const marker of [
+      "translateY(-12px)",
+      "translateX(4px)",
+      "scale(1.012)",
+      "rotate(-0.5deg)",
+      "rotate(0.5deg)",
+      "animation-delay: -2.5s",
+      "animation-delay: -1.2s",
+      "animation-delay: -4s",
+    ]) {
+      expect(webEmpty).toContain(marker);
+    }
+
+    // Rest at 0 ms, peak at half a cycle, rest again after a full one.
+    expect(getNemuWebLoopValue(0, float.duration, float.delay)).toBe(0);
+    expect(getNemuWebLoopValue(2_500, float.duration, float.delay)).toBeCloseTo(1, 6);
+    expect(getNemuWebLoopValue(5_000, float.duration, float.delay)).toBeCloseTo(0, 6);
+    // Negative delays start mid-cycle: sway 2.5 s into its 7 s loop.
+    expect(getNemuWebLoopValue(0, sway.duration, sway.delay)).toBeCloseTo(
+      nemuCssEaseInOut(5 / 7),
+      6,
+    );
+    expect(getNemuWebLoopValue(0, rotate.duration, rotate.delay)).toBeCloseTo(
+      nemuCssEaseInOut(8 / 9),
+      6,
+    );
+    // Continuous: no step anywhere along a loop (the old restarts jumped).
+    for (const loop of [float, sway, rotate, breathe]) {
+      let previous = getNemuWebLoopValue(0, loop.duration, loop.delay);
+      for (let ms = 8; ms <= loop.duration * 2; ms += 8) {
+        const value = getNemuWebLoopValue(ms, loop.duration, loop.delay);
+        expect(Math.abs(value - previous)).toBeLessThan(0.02);
+        previous = value;
+      }
+    }
   });
 
   test("matches responsive mask geometry while keeping blur pixels fixed", () => {

@@ -203,6 +203,50 @@ export function getNemuPortraitHaloRenderMode(
     : "animated-raster-layers";
 }
 
+/**
+ * The portrait's four nested CSS loops (web `library-empty.tsx`): each rests
+ * at 0% / 100% and peaks at 50%, `ease-in-out`, with the web's negative
+ * `animation-delay` stagger.
+ */
+export const NEMU_WEB_PORTRAIT_MOTION = {
+  float: { delay: 0, duration: 5_000, translateY: [0, -12] as const },
+  sway: { delay: -2_500, duration: 7_000, translateX: [0, 4] as const },
+  rotate: { delay: -4_000, duration: 9_000, degrees: [-0.5, 0.5] as const },
+  breathe: { delay: -1_200, duration: 4_000, scale: [1, 1.012] as const },
+} as const;
+
+/** CSS `ease-in-out`: cubic-bezier(0.42, 0, 0.58, 1). */
+export function nemuCssEaseInOut(x: number): number {
+  "worklet";
+  if (x <= 0) return 0;
+  if (x >= 1) return 1;
+  // x(t) = ((ax·t + bx)·t + cx)·t is monotonic (x'(t) ≥ 0.87), so Newton
+  // from t = x converges in a few steps; y(t) = 3t² − 2t³.
+  const cx = 1.26;
+  const bx = -0.78;
+  const ax = 0.52;
+  let t = x;
+  for (let i = 0; i < 6; i += 1) {
+    const error = ((ax * t + bx) * t + cx) * t - x;
+    t -= error / ((3 * ax * t + 2 * bx) * t + cx);
+  }
+  return t * t * (3 - 2 * t);
+}
+
+/**
+ * A CSS loop `0%, 100% { rest } 50% { peak }` with `ease-in-out` on both
+ * halves and `animation-delay: delay`, `elapsed` ms after it began: 0 at
+ * rest, 1 at the peak. A negative delay starts mid-cycle, as in CSS.
+ */
+export function getNemuWebLoopValue(elapsed: number, duration: number, delay = 0): number {
+  "worklet";
+  const local = elapsed - delay;
+  if (local <= 0) return 0;
+  const phase = (local % duration) / duration;
+  // The curve is symmetric, so the falling half is the rising one mirrored.
+  return nemuCssEaseInOut(phase < 0.5 ? phase * 2 : (1 - phase) * 2);
+}
+
 export type NemuWebLoopStart = {
   direction: "ascending" | "descending";
   progress: number;
