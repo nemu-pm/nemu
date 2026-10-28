@@ -255,8 +255,8 @@ export function mobileReaderPanFlingTurn({
   velocityY,
   translationX,
   rtl,
-  minVelocity = READER_PAN_FLING_TURN_VELOCITY,
-  minDistance = READER_PAN_FLING_TURN_MIN_DISTANCE,
+  minVelocity,
+  minDistance,
 }: {
   velocityX: number;
   velocityY: number;
@@ -266,9 +266,10 @@ export function mobileReaderPanFlingTurn({
   minDistance?: number;
 }): "previous" | "next" | null {
   "worklet";
-  if (!(Math.abs(velocityX) >= minVelocity)) return null;
+  // Defaults resolved in the body: a parameter default is not captured into the worklet.
+  if (!(Math.abs(velocityX) >= (minVelocity ?? READER_PAN_FLING_TURN_VELOCITY))) return null;
   if (Math.abs(velocityX) <= Math.abs(velocityY)) return null;
-  if (!(Math.abs(translationX) >= minDistance)) return null;
+  if (!(Math.abs(translationX) >= (minDistance ?? READER_PAN_FLING_TURN_MIN_DISTANCE))) return null;
   // The swipe and the drag point the same way (no flick back against it).
   if (Math.sign(velocityX) !== Math.sign(translationX)) return null;
   const leftward = velocityX < 0;
