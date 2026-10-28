@@ -4,7 +4,6 @@ import { Platform, View, type ViewProps } from "react-native";
 import type { ContextMenuItem } from "./types";
 import {
   createNativeContextMenuPressGate,
-  nativeContextMenuEventActive,
   nativeContextMenuEventTime,
   NativeContextMenuLongPressContext,
 } from "./ContextMenuLongPress";
@@ -31,12 +30,9 @@ type NativeProps = Omit<ContextMenuViewProps, "onMenuAction"> & {
   onMenuAction?: (event: { nativeEvent: { id: string } }) => void;
   /** `uptime`: when UIKit called the delegate, on the touch clock (ms). */
   onMenuWillDisplay?: (event: MenuEvent) => void;
-  /** `active` (TEST-ONLY trace): the gesture recognizers running then. */
   onMenuWillEnd?: (event: MenuEvent) => void;
   /** The interaction asked for the menu: a release may wait for the verdict. */
   onMenuConfigure?: (event: MenuEvent) => void;
-  /** TEST-ONLY trace event (remove before release). */
-  onMenuPreviewTap?: () => void;
 };
 
 const NativeContextMenu: ComponentType<NativeProps> | null = contextMenuViewAvailable
@@ -60,9 +56,8 @@ export function ContextMenuView({ items, menuTitle, previewCornerRadius, onMenuA
       previewCornerRadius={previewCornerRadius}
       onMenuAction={onMenuAction ? (event) => onMenuAction(event.nativeEvent.id) : undefined}
       onMenuWillDisplay={(event) => gate.menuWillDisplay(nativeContextMenuEventTime(event))}
-      onMenuWillEnd={(event) => gate.menuWillEnd(nativeContextMenuEventTime(event), nativeContextMenuEventActive(event))}
+      onMenuWillEnd={(event) => gate.menuWillEnd(nativeContextMenuEventTime(event))}
       onMenuConfigure={(event) => gate.menuConfigure(nativeContextMenuEventTime(event))}
-      onMenuPreviewTap={gate.menuPreviewTap}
       style={style}
     >
       {items.length > 0 ? (

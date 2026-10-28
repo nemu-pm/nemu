@@ -4,8 +4,6 @@ import { ContextMenuView } from "../../modules/nemu-window-layout";
 import { contextMenuViewAvailable } from "../../modules/nemu-window-layout/src/ContextMenu";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import type { QuickAction } from "./QuickActionSheet";
-// TEST-ONLY (remove before release): boots the long-press trace switch with the first menu.
-import "@/lib/mobileNativeMenuPressTraceSetting";
 
 // Kept beside the wrapper so callers and the fallback agree on gesture ownership.
 // eslint-disable-next-line react-refresh/only-export-components

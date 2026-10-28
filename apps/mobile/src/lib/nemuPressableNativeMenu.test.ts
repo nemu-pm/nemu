@@ -14,7 +14,6 @@ import {
   NATIVE_MENU_TAP_SLOP_PT,
   NATIVE_MENU_UNSTAMPED_CANCEL_BEFORE_RELEASE_MS,
   createNativeContextMenuPressGate,
-  nativeContextMenuEventActive,
   nativeContextMenuEventTime,
   nativeMenuLiftCancelledWhileHeld,
   type NativeContextMenuPressScheduler,
@@ -46,7 +45,7 @@ describe("long press inside a native context menu", () => {
     expect(menu).toContain("items.length > 0 ? (");
     expect(menu).toContain("<NativeContextMenuLongPressContext.Provider value={gate}>");
     expect(menu).toContain("gate.menuWillDisplay(nativeContextMenuEventTime(event))");
-    expect(menu).toContain("gate.menuWillEnd(nativeContextMenuEventTime(event), nativeContextMenuEventActive(event))");
+    expect(menu).toContain("gate.menuWillEnd(nativeContextMenuEventTime(event))");
     // The plain-view fallback (Android, older binaries) never claims it.
     expect(read("modules/nemu-window-layout/src/ContextMenu.tsx")).not.toContain(
       "NativeContextMenuLongPressContext",
@@ -68,8 +67,6 @@ describe("long press inside a native context menu", () => {
     expect(quick).toContain("<ContextMenuView");
     for (const file of [
       "src/screens/LibraryScreen.tsx",
-      "src/components/explore/MobileLibraryShelfCell.tsx",
-      "src/components/explore/MobileContinueReadingCarousel.tsx",
       "src/screens/BrowseScreen.tsx",
       "src/screens/SearchScreen.tsx",
       "src/screens/SettingsScreen.tsx",
@@ -349,7 +346,7 @@ describe("native context menu press gate", () => {
     // Each stamped on the touch clock (UITouch.timestamp's base).
     expect(swift).toContain("ProcessInfo.processInfo.systemUptime * 1000");
     expect(swift).toContain('onMenuWillDisplay(["uptime": Self.uptimeMs()])');
-    expect(swift).toContain('onMenuWillEnd(["uptime": Self.uptimeMs(), "active": active])');
+    expect(swift).toContain('onMenuWillEnd(["uptime": Self.uptimeMs()])');
     expect(swift).toContain('onMenuConfigure(["uptime": Self.uptimeMs()])');
     expect(read("modules/nemu-window-layout/src/ContextMenu.native.tsx")).toContain(
       "gate.menuConfigure(nativeContextMenuEventTime(event))",
@@ -397,10 +394,6 @@ describe("a lift UIKit cancelled under the finger (build 9 r2, item 4)", () => {
     expect(nativeContextMenuEventTime({ nativeEvent: { uptime: 12.5 } })).toBe(12.5);
     expect(nativeContextMenuEventTime({ nativeEvent: {} })).toBeUndefined();
     expect(nativeContextMenuEventTime(undefined)).toBeUndefined();
-    expect(nativeContextMenuEventActive({ nativeEvent: { active: "UIScrollViewPanGestureRecognizer@RCTEnhancedScrollView" } }))
-      .toBe("UIScrollViewPanGestureRecognizer@RCTEnhancedScrollView");
-    expect(nativeContextMenuEventActive({ nativeEvent: { active: "" } })).toBe("");
-    expect(nativeContextMenuEventActive({ nativeEvent: {} })).toBeUndefined();
   });
 
   test("420 ms with 13 pt drift: the lift is cancelled at ~300 ms, the release at 420 neither opens nor shows a menu", () => {
@@ -436,7 +429,7 @@ describe("a lift UIKit cancelled under the finger (build 9 r2, item 4)", () => {
     const { gate, press, presses } = harness();
     gate.pressIn(at(1000));
     gate.menuConfigure(1160);
-    gate.menuWillEnd(1210, "UIScrollViewPanGestureRecognizer@RCTEnhancedScrollView");
+    gate.menuWillEnd(1210);
     // The scroll view takes the responder: Pressability never calls onPress.
     gate.pressIn(at(3000));
     expect(gate.resolvePress(at(3090), press)).toBe("fire");
