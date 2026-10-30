@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   chunkMobileGridRows,
+  getMobileGridMoveOffset,
   mobileFoldAwareGridCellStyle,
   mobileFoldAwareGridContentWidth,
   mobileFoldAwareGridLayout,
@@ -168,6 +169,21 @@ describe("grid rows", () => {
     expect(chunkMobileGridRows([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]]);
     expect(chunkMobileGridRows([], 3)).toEqual([]);
     expect(chunkMobileGridRows([1], 0)).toEqual([[1]]);
+  });
+
+  test("a cell that changes rows starts where it was (a removal closing the gap)", () => {
+    const grid = { columns: 3, itemWidth: 100, columnMargins: [0, 10, 10] };
+    // Same row: its own layout transition sees both frames.
+    expect(getMobileGridMoveOffset(grid, 2, 1, 200)).toBeNull();
+    // Row 1 column 0 up to row 0 column 2: it was two columns left, one row down.
+    expect(getMobileGridMoveOffset(grid, 3, 2, 200)).toEqual({ x: -220, y: 200 });
+    // An Undo pushes row 0 column 2 down to row 1 column 0.
+    expect(getMobileGridMoveOffset(grid, 2, 3, 200)).toEqual({ x: 220, y: -200 });
+  });
+
+  test("the move follows uneven column margins (the fold gutter in book posture)", () => {
+    const book = { columns: 4, itemWidth: 80, columnMargins: [0, 8, 40, 8] };
+    expect(getMobileGridMoveOffset(book, 4, 3, 150)).toEqual({ x: -(3 * 80 + 8 + 40 + 8), y: 150 });
   });
 });
 

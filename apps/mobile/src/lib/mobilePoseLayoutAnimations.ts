@@ -206,3 +206,81 @@ export const mobilePoseExiting: EntryExitAnimationFunction = () => {
     animations: { opacity: withTiming(0, { duration, easing: EASE_OUT }) },
   };
 };
+
+/**
+ * A grid closing the gap a removed title leaves (or opening one for a title
+ * put back): the cells slide to their new places on the settle spring, like a
+ * collection view's delete. Gated like the pose window, by its own
+ * synchronizable, raised just before the data change, so a sync, a filter or
+ * a fold never slides through it. Reduce Motion: cells take their places at
+ * once.
+ */
+export const MOBILE_GRID_GLIDE_WINDOW_MS = 1200;
+
+const gridGlideActive = createSynchronizable(false, { fixedType: true });
+let gridGlideCloseTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Let the grid glide transitions run for the next `MOBILE_GRID_GLIDE_WINDOW_MS`. */
+export function openMobileGridGlideWindow() {
+  gridGlideActive.setBlocking(true);
+  if (gridGlideCloseTimer) clearTimeout(gridGlideCloseTimer);
+  gridGlideCloseTimer = setTimeout(() => {
+    gridGlideCloseTimer = null;
+    gridGlideActive.setBlocking(false);
+  }, MOBILE_GRID_GLIDE_WINDOW_MS);
+}
+
+/**
+ * A cell that keeps its row: its frame takes the new place at once and a
+ * transform springs it there from the old one (it never re-lays out its
+ * cover). Attached a commit before the change (a layout config registers
+ * after the commit that sets it).
+ */
+export const mobileGridGlideTransition: LayoutAnimationFunction = (values) => {
+  "worklet";
+  const glide = gridGlideActive.getBlocking() && !poseReduceMotion.value;
+  const translateX = glide ? values.currentOriginX - values.targetOriginX : 0;
+  const translateY = glide ? values.currentOriginY - values.targetOriginY : 0;
+  return {
+    initialValues: { transform: [{ translateX }, { translateY }] },
+    animations: {
+      transform: glide
+        ? [{ translateX: withSpring(0, SPRING) }, { translateY: withSpring(0, SPRING) }]
+        : [{ translateX: withTiming(0, INSTANT) }, { translateY: withTiming(0, INSTANT) }],
+    },
+  };
+};
+
+/**
+ * A cell that changed rows mounts in its new row: it starts drawn at its old
+ * place, `offset` from the new one, and springs in. An entering config is
+ * read when the view mounts, so it may be built in the render that moves it.
+ */
+export function makeMobileGridGlideEntering(offset: { x: number; y: number }): EntryExitAnimationFunction {
+  const { x, y } = offset;
+  return () => {
+    "worklet";
+    const glide = gridGlideActive.getBlocking() && !poseReduceMotion.value;
+    return {
+      initialValues: { transform: [{ translateX: glide ? x : 0 }, { translateY: glide ? y : 0 }] },
+      animations: {
+        transform: glide
+          ? [{ translateX: withSpring(0, SPRING) }, { translateY: withSpring(0, SPRING) }]
+          : [{ translateX: withTiming(0, INSTANT) }, { translateY: withTiming(0, INSTANT) }],
+      },
+    };
+  };
+}
+
+/** A title put back (Undo) fades into the slot the others open for it. */
+export const mobileGridGlideAppearing: EntryExitAnimationFunction = () => {
+  "worklet";
+  if (!gridGlideActive.getBlocking()) {
+    return { initialValues: { opacity: 1 }, animations: { opacity: withTiming(1, INSTANT) } };
+  }
+  const duration = poseReduceMotion.value ? MOBILE_MOTION.reduceMotionFadeMs : MOBILE_MOTION.fadeInMs;
+  return {
+    initialValues: { opacity: 0 },
+    animations: { opacity: withTiming(1, { duration, easing: EASE_OUT }) },
+  };
+};

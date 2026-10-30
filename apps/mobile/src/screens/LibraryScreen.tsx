@@ -15,12 +15,12 @@ import { orderMobileTitleQuickActions } from "@/lib/mobileQuickActionOrder";
 import {
   AppState,
   FlatList,
-  LayoutAnimation,
   Platform,
   StyleSheet,
   Text,
   useWindowDimensions,
   View,
+  type LayoutChangeEvent,
   type ListRenderItemInfo,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
@@ -111,7 +111,18 @@ import {
   sanitizeMobileErrorDiagnostic,
 } from "@/lib/mobileSourceErrors";
 import { MOBILE_MANGA_GRID_GAP, mobileLibraryGridMinItemWidth } from "@/lib/mobileAdaptiveGrid";
-import { chunkMobileGridRows, mobileFoldAwareGridCellStyle } from "@/lib/mobileFoldAwareGrid";
+import {
+  chunkMobileGridRows,
+  getMobileGridMoveOffset,
+  mobileFoldAwareGridCellStyle,
+} from "@/lib/mobileFoldAwareGrid";
+import {
+  makeMobileGridGlideEntering,
+  MOBILE_GRID_GLIDE_WINDOW_MS,
+  mobileGridGlideAppearing,
+  mobileGridGlideTransition,
+  openMobileGridGlideWindow,
+} from "@/lib/mobilePoseLayoutAnimations";
 import { MobilePaneAlignedView } from "@/lib/MobilePaneAlignedView";
 import {
   buildMobileCollectionDeletedToast,
@@ -234,6 +245,10 @@ function toMangaCard(
 // primitive or a value the screen keeps referentially stable.
 /** The quick-action sheet's dismissal, before a removed title turns to dust. */
 const EXPLORE_SHEET_DISMISS_MS = 380;
+/** Resolves after the next frame (a commit has reached the screen). */
+function afterNextFrame(): Promise<void> {
+  return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+}
 /**
  * One row of the library list (or its sections above the rows). Rows that
  * mount with a newly shown collection start dipped and settle with it.
@@ -243,6 +258,7 @@ function LibraryLayoutRow({
   settleOnMount,
   revealGroup,
   style,
+  onLayout,
   children,
 }: {
   layoutKey: string;
@@ -251,10 +267,11 @@ function LibraryLayoutRow({
   /** Cover rows take part in the cold-launch reveal as one group. */
   revealGroup?: MobileLaunchRevealGroupName;
   style: StyleProp<ViewStyle>;
+  onLayout?: (event: LayoutChangeEvent) => void;
   children: ReactNode;
 }) {
   const settle = useMobilePoseResnapFade(layoutKey, { settleOnMount });
-  const row = <Animated.View style={[style, settle]}>{children}</Animated.View>;
+  const row = <Animated.View style={[style, settle]} onLayout={onLayout}>{children}</Animated.View>;
   return revealGroup ? <MobileLaunchRevealGroup group={revealGroup}>{row}</MobileLaunchRevealGroup> : row;
 }
 
@@ -346,10 +363,6 @@ function collectionBookCountText(count: number, strings: MobileStrings): string 
 const LIBRARY_TITLE_MENU_ALL = "library:all";
 const LIBRARY_TITLE_MENU_MANAGE = "library:manage";
 const LIBRARY_TITLE_MENU_COLLECTION_PREFIX = "library:collection:";
-
-function libraryRowKey(row: LibraryEntry[]): string {
-  return row.map(libraryEntryKey).join(":");
-}
 
 function libraryEntryKey(entry: LibraryEntry): string {
   return entry.item.libraryItemId;
@@ -1018,6 +1031,38 @@ export function LibraryScreen({
         collections.membership
       ),
     [collections.membership, effectiveCollectionId, sortedLibraryEntries]
+  );
+  // The grid order a removal (or its Undo) starts from: each cell's old index.
+  const visibleEntriesRef = useRef(visibleEntries);
+  useEffect(() => {
+    visibleEntriesRef.current = visibleEntries;
+  }, [visibleEntries]);
+  const [gridGlideFrom, setGridGlideFrom] = useState<ReadonlyMap<string, number> | null>(null);
+  /**
+   * A title leaving or coming back: the others glide to their new places
+   * (mobileGridGlideTransition) instead of the grid snapping. The cells take
+   * the transition first (`gridGlideFrom`, one commit ahead: a layout config
+   * registers after its commit), then `prepare` runs (the dust, or a frame),
+   * the glide window opens and `change` lands.
+   */
+  const glideLibraryGrid = useCallback(
+    async (prepare: () => Promise<unknown>, change: () => Promise<void>) => {
+      const from = new Map(
+        visibleEntriesRef.current.map((entry, index) => [entry.item.libraryItemId, index] as const),
+      );
+      setGridGlideFrom(from);
+      try {
+        await prepare();
+        openMobileGridGlideWindow();
+        await change();
+      } finally {
+        setTimeout(
+          () => setGridGlideFrom((current) => (current === from ? null : current)),
+          MOBILE_GRID_GLIDE_WINDOW_MS,
+        );
+      }
+    },
+    [],
   );
   const gridScrollAnchor = useMobileGridScrollAnchor({
     listRef: gridScrollRef,
@@ -1933,17 +1978,20 @@ export function LibraryScreen({
 
   const handleQuickActionRemove = useCallback(
     async (entry: LibraryEntry) => {
-      if (mobileDesignExploreFlag) {
-        // Design-explore: once the sheet has slid away, the title's cover
-        // turns to dust where it stands, and the list closes the gap
-        // behind the drifting dust. Nothing on screen: removed as before.
-        if (await dissolveExploreTitle(entry.item.libraryItemId, EXPLORE_SHEET_DISMISS_MS)) {
-          LayoutAnimation.configureNext(LayoutAnimation.create(320, "easeInEaseOut", "opacity"));
-        }
-      }
       try {
-        await store.removeLibraryItem(entry.item.libraryItemId);
-        emitMobileLibraryDataChanged({ collectionsChanged: true });
+        await glideLibraryGrid(
+          // Design-explore: once the sheet has slid away, the title's cover
+          // turns to dust where it stands; the covers after it then glide
+          // into the gap behind the drifting dust.
+          () =>
+            mobileDesignExploreFlag
+              ? dissolveExploreTitle(entry.item.libraryItemId, EXPLORE_SHEET_DISMISS_MS)
+              : afterNextFrame(),
+          async () => {
+            await store.removeLibraryItem(entry.item.libraryItemId);
+            emitMobileLibraryDataChanged({ collectionsChanged: true });
+          },
+        );
       } catch {
         toast.show({
           tone: "danger",
@@ -1958,20 +2006,20 @@ export function LibraryScreen({
         action: {
           label: strings.feedback.undo,
           onPress: () => {
-            store
-              .restoreLibraryItem(entry.item.libraryItemId)
-              .then(() => emitMobileLibraryDataChanged({ collectionsChanged: true }))
-              .catch(() =>
-                toast.show({
-                  tone: "danger",
-                  title: strings.mangaDetail.actionFailedDetail,
-                }),
-              );
+            glideLibraryGrid(afterNextFrame, async () => {
+              await store.restoreLibraryItem(entry.item.libraryItemId);
+              emitMobileLibraryDataChanged({ collectionsChanged: true });
+            }).catch(() =>
+              toast.show({
+                tone: "danger",
+                title: strings.mangaDetail.actionFailedDetail,
+              }),
+            );
           },
         },
       });
     },
-    [store, strings, toast],
+    [glideLibraryGrid, store, strings, toast],
   );
 
   const openEntryInSource = useCallback(
@@ -2123,18 +2171,56 @@ export function LibraryScreen({
     return () => clearTimeout(timer);
   }, [enteringCollectionLayoutKey]);
   const collectionSettleOnMount = enteringCollectionLayoutKey === collectionLayoutKey;
+  // Rows are keyed by their place, not by the titles in them: a removal
+  // keeps every row mounted (a content key re-keyed and remounted each row
+  // after the removed title, so the whole rest of the grid snapped and
+  // reloaded its covers). Cells inside a row keep their title's key.
   const collectionRowKey = useCallback(
-    (row: LibraryEntry[]) => `${collectionLayoutKey}|${libraryRowKey(row)}`,
+    (_row: LibraryEntry[], rowIndex: number) => `${collectionLayoutKey}|${rowIndex}`,
     [collectionLayoutKey],
   );
+  // Rows' height and gap (row 0's measured height): how far a cell that
+  // changes rows travels.
+  const [gridRowPitch, setGridRowPitch] = useState(0);
+  const onFirstGridRowLayout = useCallback((event: LayoutChangeEvent) => {
+    const pitch = Math.round(event.nativeEvent.layout.height + MOBILE_MANGA_GRID_GAP);
+    setGridRowPitch((current) => (current === pitch ? current : pitch));
+  }, []);
   const renderLibraryGridItem = useCallback(
-    ({ item: entry, index }: { item: LibraryEntry; index: number }) => (
+    ({ item: entry, index }: { item: LibraryEntry; index: number }) => {
+      // A title leaving or coming back (glideLibraryGrid): a cell that keeps
+      // its row slides on its layout transition; one that changes rows
+      // mounts in the new row and slides in from its old place; a title put
+      // back fades into its slot.
+      const glideFromIndex = gridGlideFrom?.get(entry.item.libraryItemId);
+      const glideOffset =
+        glideFromIndex === undefined || gridRowPitch <= 0
+          ? null
+          : getMobileGridMoveOffset(
+              { columns: gridColumns, itemWidth: gridItemWidth, columnMargins: gridColumnMargins },
+              glideFromIndex,
+              index,
+              gridRowPitch,
+            );
+      const glideProps = gridGlideFrom
+        ? {
+            layout: mobileGridGlideTransition,
+            entering:
+              glideFromIndex === undefined
+                ? mobileGridGlideAppearing
+                : glideOffset
+                  ? makeMobileGridGlideEntering(glideOffset)
+                  : undefined,
+          }
+        : null;
+      return (
       // The fixed width keeps a partly filled last row aligned with the rows
       // above it instead of letting `flex: 1` stretch its cells; the per-column
       // margin carries the fold gutter in book posture. Folding at the same
       // column count glides each cell to its new column (pose settle spring).
       <MobilePoseLayoutView
         key={libraryEntryKey(entry)}
+        {...glideProps}
         style={[
           styles.gridItem,
           mobileFoldAwareGridCellStyle(
@@ -2168,13 +2254,16 @@ export function LibraryScreen({
           />
         )}
       </MobilePoseLayoutView>
-    ),
+      );
+    },
     [
       designExplore,
       entryProgressMaps,
       gridColumnMargins,
       gridColumns,
+      gridGlideFrom,
       gridItemWidth,
+      gridRowPitch,
       handleGridItemLongPress,
       installedSources.data,
       progressIndex,
@@ -2192,11 +2281,12 @@ export function LibraryScreen({
         settleOnMount={collectionSettleOnMount}
         revealGroup="titles"
         style={[styles.libraryRow, styles.gridRow]}
+        onLayout={rowIndex === 0 ? onFirstGridRowLayout : undefined}
       >
         {row.map((entry, column) => renderLibraryGridItem({ item: entry, index: rowIndex * gridColumns + column }))}
       </LibraryLayoutRow>
     ),
-    [gridColumns, renderLibraryGridItem, collectionLayoutKey, collectionSettleOnMount],
+    [gridColumns, renderLibraryGridItem, collectionLayoutKey, collectionSettleOnMount, onFirstGridRowLayout],
   );
   // A literal here is a new object on every render, so the cell bail-out
   // never fired; the memoized value only changes when a cell input does.

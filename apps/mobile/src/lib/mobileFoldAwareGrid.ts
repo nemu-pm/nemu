@@ -190,6 +190,38 @@ export function mobileFoldAwareGridCellStyle(
   return { width: layout.itemWidth, marginLeft: layout.columnMargins[column] ?? 0 };
 }
 
+/** Leading edge of a column inside its row: the cells' margins and widths before it. */
+function mobileGridColumnX(
+  layout: Pick<MobileFoldAwareGridLayout, "itemWidth" | "columnMargins">,
+  column: number,
+): number {
+  let x = column * layout.itemWidth;
+  for (let index = 0; index <= column; index += 1) x += layout.columnMargins[index] ?? 0;
+  return x;
+}
+
+/**
+ * Where a cell that moved from grid index `from` to `to` was, relative to
+ * where it is now, in a grid of explicit rows `rowPitch` apart (row height
+ * and gap). Null when it stays in its row: a cell that keeps its row view
+ * keeps its mount, and its own layout transition sees both frames.
+ */
+export function getMobileGridMoveOffset(
+  layout: Pick<MobileFoldAwareGridLayout, "columns" | "itemWidth" | "columnMargins">,
+  from: number,
+  to: number,
+  rowPitch: number,
+): { x: number; y: number } | null {
+  const columns = Math.max(1, Math.floor(layout.columns));
+  const fromRow = Math.floor(from / columns);
+  const toRow = Math.floor(to / columns);
+  if (from < 0 || fromRow === toRow) return null;
+  return {
+    x: mobileGridColumnX(layout, from % columns) - mobileGridColumnX(layout, to % columns),
+    y: (fromRow - toRow) * rowPitch,
+  };
+}
+
 /** Split items into explicit rows (non-virtualized grids): no flex-wrap rounding surprises. */
 export function chunkMobileGridRows<T>(items: readonly T[], columns: number): T[][] {
   const size = Math.max(1, Math.floor(columns));
