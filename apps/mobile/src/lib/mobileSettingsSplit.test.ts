@@ -4,13 +4,11 @@ import {
   completeMobileSettingsRestoredStack,
   getMobileSettingsPageChain,
   getMobileSettingsPrimaryPane,
-  getMobileSettingsSplitColumnBackMounts as backMounts,
   getMobileSettingsStackSections,
   isMobileSettingsRestoredPush,
   isMobileSettingsStackTop,
   planMobileSettingsSplitCollapse as plan,
   type MobileSettingsStackState,
-  getMobileSettingsSplitColumnBack as columnBack,
   getMobileSettingsSplitColumnTitles as columnTitles,
   getMobileSettingsSplitHighlightedRow,
   resolveMobileSettingsSplitSelection as resolve,
@@ -54,20 +52,6 @@ describe("settings split selection", () => {
     expect(columnTitles({ ...base, split: false })).toBeNull();
     expect(columnTitles({ ...base, isPad: true })).toBeNull();
     expect(columnTitles({ ...base, platform: "android" })).toBeNull();
-  });
-});
-
-describe("settings split column back", () => {
-  test("rides in the vertical bar, drawn under a top bar, atop the pane otherwise", () => {
-    expect(columnBack({ columnTitles: "leading", pushed: true })).toBe("bar");
-    expect(columnBack({ columnTitles: "center", pushed: true })).toBe("column");
-    expect(columnBack({ columnTitles: null, pushed: true })).toBe("pane");
-  });
-
-  test("shows only while Source Directories is pushed", () => {
-    expect(columnBack({ columnTitles: "leading", pushed: false })).toBeNull();
-    expect(columnBack({ columnTitles: "center", pushed: false })).toBeNull();
-    expect(columnBack({ columnTitles: null, pushed: false })).toBeNull();
   });
 });
 
@@ -179,26 +163,6 @@ describe("settings split collapse keeps the page", () => {
     expect(appearance?.routes.map((route) => route.key)).toEqual(["index-1", "a"]);
     // Not the top: nothing to complete.
     expect(completeMobileSettingsRestoredStack(stack(["sources", "directories"]), "sources")).toBeNull();
-  });
-});
-
-describe("settings split column back mounts", () => {
-  test("with native bar-axis views both bar-row backs stay mounted and the bar picks one", () => {
-    for (const placement of ["bar", "column"] as const) {
-      expect(backMounts({ placement, axisViews: true })).toEqual({ barItem: true, titleRow: true, pane: false });
-    }
-  });
-
-  test("without them only the placement's own back is mounted", () => {
-    expect(backMounts({ placement: "bar", axisViews: false })).toEqual({ barItem: true, titleRow: false, pane: false });
-    expect(backMounts({ placement: "column", axisViews: false })).toEqual({ barItem: false, titleRow: true, pane: false });
-  });
-
-  test("the pane back and no page pushed are unchanged", () => {
-    for (const axisViews of [true, false]) {
-      expect(backMounts({ placement: "pane", axisViews })).toEqual({ barItem: false, titleRow: false, pane: true });
-      expect(backMounts({ placement: null, axisViews })).toEqual({ barItem: false, titleRow: false, pane: false });
-    }
   });
 });
 

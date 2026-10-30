@@ -125,7 +125,6 @@ import {
   MobileNativeSheetScaffold,
   NemuButton,
   nemuColorWithAlpha,
-  NemuNativeSheetHeaderAction,
   nemuFontWeight,
   nemuMaxFontSizeMultiplier,
   NemuNativeSwitch,
@@ -142,8 +141,6 @@ import {
   useNemuTheme,
 } from "@/design-system";
 import { MobileSheetSelectionIndicator } from "@/components/MobileSheetSelectionIndicator";
-import { ExploreGlassIconButton } from "@/components/explore/ExploreGlass";
-import { ReaderBackGlyph } from "@/components/reader/ReaderBackGlyph";
 import {
   applyMobileSettingsCollapsePlan,
   completeMobileSettingsRestoredStack,
@@ -154,8 +151,6 @@ import {
   MOBILE_SETTINGS_RESTORED_PARAM,
   planMobileSettingsSplitCollapse,
   type MobileSettingsStackState,
-  getMobileSettingsSplitColumnBack,
-  getMobileSettingsSplitColumnBackMounts,
   getMobileSettingsSplitColumnTitles,
   getMobileSettingsSplitHighlightedRow,
   resolveMobileSettingsSplitSelection,
@@ -168,11 +163,6 @@ import {
 } from "@/lib/mobileSplitPaneLayout";
 import { useMobileSplitPaneLayout } from "@/lib/useMobileSplitPaneLayout";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
-import {
-  BarAxisVisibility,
-  barAxisViewsAvailable,
-  VerticalBarOnlyLeadingItems,
-} from "../../modules/nemu-window-layout";
 import { HeaderHeightContext } from "expo-router/react-navigation";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { LayoutAnimationConfig } from "react-native-reanimated";
@@ -1852,49 +1842,26 @@ function settingsSectionTitle(strings: MobileStrings, section: SettingsSectionId
 function SettingsBarTitleProbe({
   revision,
   onCenter,
-  back = null,
 }: {
   /** Changes when the bar may have moved (a resize, a posture change): measure again. */
   revision: string;
   onCenter: (y: number) => void;
-  /**
-   * The detail column's drawn back button, shown under a top bar only
-   * (beside a vertical bar it is a native bar item instead, and this keeps
-   * just its room). The transparent bar spans the column title row and
-   * cancels touches on anything under it, so the button lives in the bar,
-   * inside this title view.
-   */
-  back?: SettingsColumnBack | null;
 }) {
   const ref = useRef<ViewInstance>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [probeFrame, setProbeFrame] = useState<{ x: number; width: number } | null>(null);
-  const window = useWindowDimensions();
   const measure = useCallback(() => {
     if (timer.current) clearTimeout(timer.current);
     // The bar places its title view after React lays it out (until then it
     // measures at the origin) and may still be moving into place (a tab
     // switch, a rotation): keep measuring until two readings agree.
-    let last: { center: number; x: number; width: number } | null = null;
+    let last: number | null = null;
     const attempt = (left: number) => {
-      ref.current?.measureInWindow((x, y, width, height) => {
+      ref.current?.measureInWindow((x, y, _width, height) => {
         const placed = height > 0 && (x > 0 || y > 0);
         const center = y + height / 2;
-        if (placed) {
-          onCenter(center);
-          setProbeFrame((frame) =>
-            frame?.x === x && frame.width === width ? frame : { x, width },
-          );
-        }
-        if (
-          placed &&
-          last !== null &&
-          Math.abs(center - last.center) < 0.5 &&
-          Math.abs(x - last.x) < 0.5 &&
-          Math.abs(width - last.width) < 0.5
-        )
-          return;
-        last = placed ? { center, x, width } : null;
+        if (placed) onCenter(center);
+        if (placed && last !== null && Math.abs(center - last) < 0.5) return;
+        last = placed ? center : null;
         if (left > 0) timer.current = setTimeout(() => attempt(left - 1), 120);
       });
     };
@@ -1909,80 +1876,18 @@ function SettingsBarTitleProbe({
   useEffect(() => () => {
     if (timer.current) clearTimeout(timer.current);
   }, []);
-  // The bar centres its title view near the window's centre (off it by up
-  // to half a vertical bar): wide enough either side of it to hold the
-  // button (a view takes no touches past its bounds), and 48pt tall. The
-  // size follows the window alone, the same whether or not the button
-  // shows, so nothing moves or is measured again when it comes and goes.
-  const width = back
-    ? 2 * Math.ceil(
-        Math.max(
-          Math.abs(back.x - window.width / 2),
-          Math.abs(back.x + COLUMN_BACK_SIZE - window.width / 2),
-        ) + COLUMN_BACK_CENTER_SLACK,
-      )
-    : 1;
-  // Until the bar has placed this size (after a resize), the button's
-  // offset would come from a stale frame: it goes where a top bar centres
-  // the title view (the window's centre) meanwhile, rather than missing for
-  // the frames between a pose change taking Back out of the vertical bar
-  // and the measurement.
-  const placedFrame =
-    probeFrame && Math.abs(probeFrame.width - width) < 0.5 ? probeFrame : null;
-  const frameX = placedFrame ? placedFrame.x : (window.width - width) / 2;
-  const shown = back?.shown === true;
   return (
     <View
       ref={ref}
       collapsable={false}
-      accessibilityElementsHidden={!shown}
-      importantForAccessibility={shown ? "auto" : "no-hide-descendants"}
-      pointerEvents={shown ? "box-none" : "none"}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      pointerEvents="none"
       onLayout={measure}
-      style={[styles.barTitleProbe, back ? { width, height: COLUMN_BACK_SIZE } : null]}
-    >
-      {back && shown ? (
-        // Mounted beside a vertical bar too (where the bar item is Back),
-        // shown natively only under a top bar, in the frame the bar turns.
-        <BarAxisVisibility axis="horizontal" fallbackShown style={StyleSheet.absoluteFill}>
-          <View style={[styles.columnBack, { top: 0, left: back.x - frameX }]}>
-            <SettingsColumnBackButton label={back.label} onPress={back.onPress} />
-          </View>
-        </BarAxisVisibility>
-      ) : null}
-    </View>
-  );
-}
-
-/**
- * The drawn column back: a system bar button's 48pt Liquid Glass circle
- * (UIKit glass, exact size, as the reader's Back) around the system
- * `chevron.backward`, where a native bar's back button would sit.
- */
-function SettingsColumnBackButton({ label, onPress }: { label: string; onPress: () => void }) {
-  const { tokens } = useNemuTheme();
-  const ink = mobileDesignExploreFlag ? tokens.foreground : tokens.primary;
-  return (
-    <ExploreGlassIconButton
-      icon="chevron-back"
-      iconNode={<ReaderBackGlyph color={ink} />}
-      ink={ink}
-      size={COLUMN_BACK_SIZE}
-      accessibilityLabel={label}
-      onPress={onPress}
+      style={styles.barTitleProbe}
     />
   );
 }
-
-/** The detail column's back button (Source Directories back to Installed Sources). */
-type SettingsColumnBack = {
-  /** Window x of the button's leading edge. */
-  x: number;
-  label: string;
-  onPress: () => void;
-  /** On the page it returns from (Source Directories); the bar keeps its room either way. */
-  shown: boolean;
-};
 
 /** One title per split column, in the native bar's title row (see `getMobileSettingsSplitColumnTitles`). */
 function SettingsSplitColumnTitles({
@@ -2001,8 +1906,6 @@ function SettingsSplitColumnTitles({
     paddingRight: number;
     /** Bar buttons over this column's trailing edge. */
     trailingItems?: number;
-    /** A back button at this column's leading edge (`SettingsColumnBack`). */
-    back?: boolean;
   }[];
 }) {
   const { tokens } = useNemuTheme();
@@ -2010,18 +1913,10 @@ function SettingsSplitColumnTitles({
     <>
       {columns.map((column) => {
         const trailingItems = column.trailingItems ?? 0;
-        const back = column.back === true;
         // Bar buttons leave no room to centre the title over the column: it
         // hugs the column's leading edge instead (as \`MobileExploreBarTitle\`
-        // does beside the bar's buttons) and stops short of them. A back
-        // button pushes a leading title past it and keeps a centred one
-        // centred between equal insets.
+        // does beside the bar's buttons) and stops short of them.
         const leading = alignment === "leading" || trailingItems > 0;
-        const backInset = back ? COLUMN_BACK_RESERVE : 0;
-        const left = leading ? (back ? backInset : column.paddingLeft) : backInset;
-        const right =
-          (leading ? column.paddingRight : backInset) +
-          trailingItems * COLUMN_TITLE_BAR_ITEM_RESERVE;
         return (
         <View
           key={column.key}
@@ -2030,8 +1925,11 @@ function SettingsSplitColumnTitles({
             styles.columnTitle,
             {
               top: centerY - COLUMN_TITLE_LINE_HEIGHT / 2,
-              left: column.x + left,
-              width: column.width - left - right,
+              left: column.x + (leading ? column.paddingLeft : 0),
+              width:
+                column.width -
+                (leading ? column.paddingLeft + column.paddingRight : 0) -
+                trailingItems * COLUMN_TITLE_BAR_ITEM_RESERVE,
             },
           ]}
         >
@@ -2059,18 +1957,6 @@ const NO_SETTINGS_ROWS: never[] = [];
 const COLUMN_TITLE_LINE_HEIGHT = 22;
 /** A bar button and its spacing, kept clear of a column title. */
 const COLUMN_TITLE_BAR_ITEM_RESERVE = 60;
-/**
- * The drawn column back (under a top bar): a system bar button's 48pt glass
- * circle 20pt in from the column's leading edge, as system Settings' detail
- * Back on iPhone Duo (x 270.3–318.3 in the 669pt flat-portrait window). The
- * bar centres it on its title row (y 24–72 there).
- */
-const COLUMN_BACK_SIZE = 48;
-const COLUMN_BACK_INSET = 20;
-/** The back button and a gap, kept clear of a column title. */
-const COLUMN_BACK_RESERVE = COLUMN_BACK_INSET + COLUMN_BACK_SIZE + 8;
-/** How far the bar's title centre may sit from the window's (a vertical bar shifts it ~32pt). */
-const COLUMN_BACK_CENTER_SLACK = 64;
 const renderNoSettingsRow = () => null;
 
 function SettingsScreenContent({
@@ -2082,8 +1968,7 @@ function SettingsScreenContent({
   columnTitled = false,
   onBarTitleCenter,
   barTitleRevision = "",
-  barColumnBack = null,
-  paneBack = null,
+  splitPage = false,
 }: {
   section?: SettingsSectionId | null;
   /**
@@ -2101,10 +1986,11 @@ function SettingsScreenContent({
   onBarTitleCenter?: (y: number) => void;
   /** Changes whenever the bar may have moved (`SettingsBarTitleProbe`). */
   barTitleRevision?: string;
-  /** Split list pane: the detail column's back button, carried by the bar title probe. */
-  barColumnBack?: SettingsColumnBack | null;
-  /** Split detail pane without column titles: a back button atop the pane. */
-  paneBack?: Pick<SettingsColumnBack, "label" | "onPress"> | null;
+  /**
+   * Split list pane: the split shows a page pushed onto the Settings stack
+   * (Source Directories), so the stack's Back and edge swipe pop it.
+   */
+  splitPage?: boolean;
 }) {
   const params = useLocalSearchParams<{
     focus?: string | string[];
@@ -3910,34 +3796,16 @@ function SettingsScreenContent({
                         .catch((error) => reportSettingsError(error))
                         .finally(() => setUpdatingSources(false));
                     }}
-                    onOpenDirectories={() => {
-                      // In the split view Source Directories opens in this
-                      // column (Installed Sources stays selected in the list);
-                      // a push would stack a whole new split over this one.
-                      if (presentation === "detail-pane" && onSelectSection) {
-                        onSelectSection("directories");
-                        return;
-                      }
-                      router.push(settingsSectionHref("directories"));
-                    }}
+                    // A native push in the split too: the pushed route shows
+                    // the split with Installed Sources selected and Source
+                    // Directories beside it, and the stack's Back pops it.
+                    onOpenDirectories={() => router.push(settingsSectionHref("directories"))}
                   />
                 </>
               ) : null}
 
               {activeSection === "directories" ? (
-                <>
-                  {paneBack ? (
-                    <View style={styles.paneBack}>
-                      <NemuNativeSheetHeaderAction
-                        accessibilityLabel={paneBack.label}
-                        androidIcon="chevron-back"
-                        iosSystemImage="chevron.backward"
-                        onPress={paneBack.onPress}
-                      />
-                    </View>
-                  ) : null}
-                  <SourceDirectoriesSection strings={strings} catalog={availableSources} />
-                </>
+                <SourceDirectoriesSection strings={strings} catalog={availableSources} />
               ) : null}
 
               {activeSection === "data" ? (
@@ -4207,12 +4075,12 @@ function SettingsScreenContent({
             // In the split a pushed `settings/[section]` route (a compact
             // push kept through a resize, or a deep link) is the selection,
             // not a page: the detail column's first page has no Back, and
-            // the only Back is the column's own (Source Directories →
-            // Installed Sources). Neither the stack's Back nor its edge swipe
-            // may pop the route out from under the split. Always set, so
-            // leaving the split restores them (`setOptions` merges).
-            headerBackVisible: !inSplit,
-            gestureEnabled: !inSplit,
+            // neither the stack's Back nor its edge swipe may pop the route
+            // out from under the split. Source Directories is the one page:
+            // pushed from Installed Sources, it pops back to it. Always set,
+            // so leaving the split restores them (`setOptions` merges).
+            headerBackVisible: !inSplit || splitPage,
+            gestureEnabled: !inSplit || splitPage,
             // Always set, so leaving the split (a Duo rotated back to
             // portrait) clears the probe: `setOptions` merges, and a probe
             // left over from the split hid the bar's own title.
@@ -4221,7 +4089,6 @@ function SettingsScreenContent({
                   <SettingsBarTitleProbe
                     revision={barTitleRevision}
                     onCenter={onBarTitleCenter}
-                    back={barColumnBack}
                   />
                 )
               : undefined,
@@ -4435,36 +4302,10 @@ export function SettingsScreen({
     headerHeight,
   ].join(":");
 
-  // Source Directories is a page pushed inside the detail column: its back
-  // button returns that column alone to Installed Sources. Beside a vertical
-  // bar it is a native bar item, first in the bar (custom views never go
-  // vertical); under a top bar it is drawn in the bar's title row (which
-  // takes that row's touches); with the one native title, atop the pane.
-  // One placement, from the same `verticalBarSide` as the column titles; with
-  // the native bar-axis views both bar-row backs stay mounted and the bar
-  // swaps them itself, in the frame it turns (a render is frames later).
-  const backToSources = useCallback(() => setSelected("sources"), []);
-  const columnBackPlacement = getMobileSettingsSplitColumnBack({
-    columnTitles,
-    pushed: split !== null && detailSection === "directories",
-  });
-  const columnBackMounts = getMobileSettingsSplitColumnBackMounts({
-    placement: columnBackPlacement,
-    axisViews: barAxisViewsAvailable,
-  });
-  const columnBackLabel = formatMobileString(strings.common.backTo, {
-    title: strings.settings.installedSources,
-  });
-  const columnBack: SettingsColumnBack | null = split
-    ? {
-        // The container spans the window from its origin (the column
-        // titles assume as much), so a column's x is its window x.
-        x: split.trailing.x + COLUMN_BACK_INSET,
-        label: columnBackLabel,
-        onPress: backToSources,
-        shown: columnBackMounts.titleRow || columnBackMounts.pane,
-      }
-    : null;
+  // Source Directories is a page pushed onto the Settings stack from
+  // Installed Sources: while the split shows it, the stack's Back and edge
+  // swipe pop it. Another section picked from its list is a selection again.
+  const splitPage = split !== null && section === "directories" && detailSection === "directories";
 
   const detailShown = split ? detailSection : (selected ?? section);
   // Signed out or deleted from the Account page: the split's detail column
@@ -4504,7 +4345,7 @@ export function SettingsScreen({
         paneContentStyle={padding.leading}
         onBarTitleCenter={columnTitles ? setBarTitleCenterY : undefined}
         barTitleRevision={barTitleRevision}
-        barColumnBack={columnTitles ? columnBack : null}
+        splitPage={splitPage}
       />
     </Animated.View>
   ) : null;
@@ -4530,7 +4371,6 @@ export function SettingsScreen({
           onSelectSection={setSelected}
           paneContentStyle={padding.trailing}
           columnTitled={columnTitles !== null}
-          paneBack={columnBackPlacement === "pane" ? columnBack : null}
         />
       )}
     </Animated.View>
@@ -4538,25 +4378,6 @@ export function SettingsScreen({
 
   return (
     <LayoutAnimationConfig skipEntering skipExiting>
-      {columnBackMounts.barItem ? (
-        <>
-          {/* Left placement: the bar's leading items, so Back is first in the
-              vertical bar, before the detail page's Add Directory. */}
-          <Stack.Toolbar placement="left">
-            {renderNemuNativeToolbarButtons([
-              {
-                icon: "chevron.backward",
-                label: columnBackLabel,
-                onPress: backToSources,
-              },
-            ])}
-          </Stack.Toolbar>
-          {/* Shows the leading item only in a vertical bar, natively: the
-              bar turns before this render hears of it, and the stack
-              rebuilds bar items from options that follow the bar side. */}
-          <VerticalBarOnlyLeadingItems />
-        </>
-      ) : null}
       <View
         ref={containerRef}
         onLayout={onContainerLayout}
@@ -4583,7 +4404,6 @@ export function SettingsScreen({
                 title: settingsSectionTitle(strings, detailSection),
                 ...split.trailing,
                 ...padding.trailing,
-                back: columnBackPlacement === "column",
                 // Installed Sources and Source Directories put their Add
                 // button in the bar.
                 trailingItems:
@@ -4636,12 +4456,6 @@ const styles = StyleSheet.create({
   },
   columnTitle: {
     position: "absolute",
-  },
-  columnBack: {
-    position: "absolute",
-  },
-  paneBack: {
-    alignSelf: "flex-start",
   },
   columnTitleText: {
     fontSize: 17,
