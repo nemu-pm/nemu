@@ -1358,13 +1358,8 @@ export const mobileStringsJa: MobileStrings = {
   },
   designExplore: {
     moreActions: "その他",
-    shelfSectionTitle: "すべての作品",
     chapterFinished: "{{chapter}}読了",
     newChapterCount: "新着{{count}}",
-    collectionsTitle: "コレクション",
-    collectionCount: "{{count}}作品",
-    collectionCountOne: "{{count}}作品",
-    openCollectionHint: "このコレクションを表示します。",
     addToLibrary: "ライブラリに追加",
     inLibrary: "ライブラリに追加済み",
     descriptionMore: "さらに表示",

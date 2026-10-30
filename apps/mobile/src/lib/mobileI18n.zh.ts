@@ -1273,13 +1273,8 @@ export const mobileStringsZh: MobileStrings = {
   },
   designExplore: {
     moreActions: "更多",
-    shelfSectionTitle: "全部作品",
     chapterFinished: "{{chapter}} 读完了",
     newChapterCount: "{{count}} 话更新",
-    collectionsTitle: "收藏夹",
-    collectionCount: "{{count}} 部",
-    collectionCountOne: "{{count}} 部",
-    openCollectionHint: "显示此收藏夹。",
     addToLibrary: "添加到书库",
     inLibrary: "已在书库",
     descriptionMore: "更多",

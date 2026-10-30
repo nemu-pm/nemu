@@ -14,7 +14,7 @@ const SKELETON_ROWS = 3;
 
 /**
  * The Library's cold-start placeholder in the design-explore layout: the
- * titles heading over the grid's covers and their title lines.
+ * grid's covers and their title lines.
  */
 export function ExploreLibrarySkeleton({ accessibilityLabel }: { accessibilityLabel: string }) {
   const { tokens } = useNemuTheme();
@@ -36,7 +36,6 @@ export function ExploreLibrarySkeleton({ accessibilityLabel }: { accessibilityLa
       accessibilityRole="progressbar"
       style={[styles.stack, shimmerBackdrop]}
     >
-      <View style={[styles.heading, block]} />
       <View ref={gridRef} onLayout={onGridLayout} collapsable={false} style={styles.grid}>
         {Array.from({ length: SKELETON_ROWS }, (_, row) => (
           <View key={row} style={styles.row}>
@@ -60,13 +59,6 @@ export function ExploreLibrarySkeleton({ accessibilityLabel }: { accessibilityLa
 const styles = StyleSheet.create({
   stack: {
     gap: 16,
-  },
-  // The 28pt title line of the section header.
-  heading: {
-    width: 110,
-    height: 22,
-    marginVertical: 3,
-    borderRadius: R.hair,
   },
   grid: {
     gap: MOBILE_MANGA_GRID_GAP,

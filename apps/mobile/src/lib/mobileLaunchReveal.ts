@@ -117,8 +117,8 @@ export async function hideMobileLaunchScreenWithReveal({
  * under the launch screen, fading and rising into place in its turn once the
  * reveal runs. Anything mounted later, or on a warm start, is in place.
  * The fade is a page-coloured veil over the group fading out, not the
- * group's own opacity: native Liquid Glass inside (the folders' fronts) never
- * renders under an ancestor's opacity animation.
+ * group's own opacity: native Liquid Glass inside never renders under an
+ * ancestor's opacity animation.
  */
 export function useMobileLaunchRevealGroup(group: MobileLaunchRevealGroup) {
   const [initial] = useState(() => phase);

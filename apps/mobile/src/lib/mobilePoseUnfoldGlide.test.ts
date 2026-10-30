@@ -14,9 +14,6 @@ describe("unfolding glides like folding (build 9 E)", () => {
   test("the Library's rows glide to their new y under the header (pose list cells)", () => {
     const library = read("../screens/LibraryScreen.tsx");
     expect(library).toContain("CellRendererComponent={MobilePoseListCell}");
-    // The sections inside the header glide with the rows.
-    expect(library).toContain("<MobilePoseLayoutView>\n                  <MobileLaunchRevealGroup group=\"collections\">");
-    expect(library).toContain("<MobilePoseLayoutView>\n                  <MobileLaunchRevealGroup group=\"titlesHeader\">");
     // Grid cells spring their content from the old width.
     expect(library).toContain("contentSize={gridItemWidth}");
   });

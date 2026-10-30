@@ -1349,13 +1349,8 @@ export const mobileStringsEn: MobileStrings = {
   },
   designExplore: {
     moreActions: "More",
-    shelfSectionTitle: "All Titles",
     chapterFinished: "{{chapter}} finished",
     newChapterCount: "{{count}} new",
-    collectionsTitle: "Collections",
-    collectionCount: "{{count}} titles",
-    collectionCountOne: "{{count}} title",
-    openCollectionHint: "Shows this collection.",
     addToLibrary: "Add to Library",
     inLibrary: "In Library",
     descriptionMore: "more",

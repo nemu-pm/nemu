@@ -1188,13 +1188,8 @@ export type MobileStrings = {
   /** Design-explore prototypes. */
   designExplore: {
     moreActions: string;
-    shelfSectionTitle: string;
     chapterFinished: string;
     newChapterCount: string;
-    collectionsTitle: string;
-    collectionCount: string;
-    collectionCountOne: string;
-    openCollectionHint: string;
     addToLibrary: string;
     inLibrary: string;
     descriptionMore: string;

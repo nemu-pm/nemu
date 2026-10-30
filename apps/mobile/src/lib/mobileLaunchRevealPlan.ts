@@ -15,7 +15,7 @@ export const MOBILE_LAUNCH_REVEAL = {
 } as const;
 
 /** The Library's content groups, in reveal order. */
-export const MOBILE_LAUNCH_REVEAL_GROUPS = ["collections", "titlesHeader", "titles"] as const;
+export const MOBILE_LAUNCH_REVEAL_GROUPS = ["titles"] as const;
 export type MobileLaunchRevealGroup = (typeof MOBILE_LAUNCH_REVEAL_GROUPS)[number];
 
 export function getMobileLaunchRevealGroupDelay(group: MobileLaunchRevealGroup): number {

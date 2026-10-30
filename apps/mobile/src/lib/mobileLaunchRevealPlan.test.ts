@@ -6,8 +6,8 @@ import {
 } from "./mobileLaunchRevealPlan";
 
 describe("launch reveal plan", () => {
-  test("groups start 40 ms in, 70 ms apart, in page order", () => {
-    expect(MOBILE_LAUNCH_REVEAL_GROUPS.map(getMobileLaunchRevealGroupDelay)).toEqual([40, 110, 180]);
+  test("the cover rows start 40 ms in", () => {
+    expect(MOBILE_LAUNCH_REVEAL_GROUPS.map(getMobileLaunchRevealGroupDelay)).toEqual([40]);
   });
 
   test("the full reveal only for a cold launch into the Library without Reduce Motion", () => {

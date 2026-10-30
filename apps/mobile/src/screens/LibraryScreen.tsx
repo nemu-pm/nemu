@@ -121,13 +121,11 @@ import {
 } from "@/lib/mobileLibraryDeletedCollection";
 import { useMobileFoldAwareGrid } from "@/lib/useMobileFoldAwareGrid";
 import { MobilePoseLayoutView, MobilePoseListCell } from "@/components/MobilePoseLayoutView";
-import { MobileLibraryLayoutHeader } from "@/components/explore/MobileLibraryLayoutHeader";
 import { MobileExploreCoverPlaceholder } from "@/components/explore/MobileExploreCoverPlaceholder";
 import { MobileExploreDustHost } from "@/components/explore/MobileExploreDustHost";
 import { dissolveExploreTitle } from "@/components/explore/mobileExploreDissolve";
 import { ExploreDissolveTarget } from "@/components/explore/ExploreDissolveTarget";
 import { mobileDesignExploreFlag, useMobileDesignExplore } from "@/lib/mobileDesignExplore";
-import { MobileCollectionFolders } from "@/components/explore/MobileCollectionFolders";
 import { useMobileExploreCoverPreference } from "@/components/explore/mobileExploreCoverPreference";
 import { hasMobileUserCover, mobileExploreCoverOwnerUrl, pushMobileExploreDetail } from "@/components/explore/mobileExploreCover";
 import { ContentScrollMarker, ZoomSource } from "../../modules/nemu-window-layout";
@@ -870,12 +868,6 @@ export function LibraryScreen({
     ? routeCollectionId
     : sharedSelectedCollectionId;
   const setSelectedCollectionId = setMobileLibraryCollectionSelection;
-  // A folder opens its collection as a pushed screen, like every other
-  // destination of the stack (Back, title, edge swipe), not in place.
-  const openCollectionScreen = useCallback((nextCollectionId: string | null) => {
-    if (!nextCollectionId) return;
-    router.push({ pathname: "/library/collection/[id]", params: { id: nextCollectionId } });
-  }, []);
   const [showTitleMenuSheet, setShowTitleMenuSheet] = useState(false);
   const [showCreatePanel, setShowCreatePanel] = useState(false);
   const [showManagePanel, setShowManagePanel] = useState(false);
@@ -956,10 +948,10 @@ export function LibraryScreen({
     [],
   );
 
-  // `library/collection/[id]` is a pushed screen of its own (a folder in the
-  // Collections row, a deep link): it shows its collection with the stack's
-  // Back button, title and edge swipe, and leaves the root's selection (the
-  // title menu's) alone. An unknown id keeps the not-found state.
+  // `library/collection/[id]` is a pushed screen of its own (a deep link): it
+  // shows its collection with the stack's Back button, title and edge swipe,
+  // and leaves the root's selection (the title menu's) alone. An unknown id
+  // keeps the not-found state.
 
   // A shown collection deleted elsewhere (another device, the manager sheet)
   // falls back to All once a reload no longer has it.
@@ -2109,10 +2101,9 @@ export function LibraryScreen({
   const handleGridItemLongPress = useCallback((entry: LibraryEntry) => {
     setQuickActionEntry(entry);
   }, []);
-  // Design-explore: the collection folders and a section header above the
-  // grid, with the cover zoom, dust dissolve and cover placeholders.
+  // Design-explore: the grid with the cover zoom, dust dissolve and cover
+  // placeholders.
   const designExplore = useMobileDesignExplore();
-  const visibleEntryCount = visibleEntries.length;
   // Opening or leaving a collection swaps the page in one commit: the
   // sections and rows are keyed by the collection, so the new ones mount in
   // their places already dipped (no frame at full
@@ -2200,12 +2191,12 @@ export function LibraryScreen({
         layoutKey={collectionLayoutKey}
         settleOnMount={collectionSettleOnMount}
         revealGroup="titles"
-        style={[styles.libraryRow, styles.gridRow, rowIndex === 0 && designExplore && styles.firstGridRow]}
+        style={[styles.libraryRow, styles.gridRow]}
       >
         {row.map((entry, column) => renderLibraryGridItem({ item: entry, index: rowIndex * gridColumns + column }))}
       </LibraryLayoutRow>
     ),
-    [designExplore, gridColumns, renderLibraryGridItem, collectionLayoutKey, collectionSettleOnMount],
+    [gridColumns, renderLibraryGridItem, collectionLayoutKey, collectionSettleOnMount],
   );
   // A literal here is a new object on every render, so the cell bail-out
   // never fired; the memoized value only changes when a cell input does.
@@ -2643,46 +2634,10 @@ export function LibraryScreen({
             ) : null}
 
             {designExplore && !showSkeleton ? (
-              <LibraryLayoutRow
-                key={collectionLayoutKey}
-                layoutKey={collectionLayoutKey}
-                settleOnMount={collectionSettleOnMount}
-                style={styles.exploreSections}
-              >
-                {/*
-                  The list is UIKit's content scroll view (tab bar). Not for
-                  the top edge beside a vertical bar: there the page's own
-                  band backs the bar's title, as on every other page.
-                */}
-                <ContentScrollMarker generation={gridColumns} topEdge={verticalBarSide === null} />
-                {!selectedCollection ? (
-                  <MobilePoseLayoutView>
-                  <MobileLaunchRevealGroup group="collections">
-                  <MobileCollectionFolders
-                    collections={collections.data}
-                    membership={collections.membership}
-                    entries={sortedLibraryEntries}
-                    installedSources={installedSources.data}
-                    strings={strings}
-                    onSelect={openCollectionScreen}
-                  />
-                  </MobileLaunchRevealGroup>
-                  </MobilePoseLayoutView>
-                ) : null}
-                {visibleEntryCount ? (
-                  <MobilePoseLayoutView>
-                  <MobileLaunchRevealGroup group="titlesHeader">
-                  <MobileLibraryLayoutHeader
-                    title={
-                      selectedCollection
-                        ? selectedCollection.name
-                        : strings.designExplore.shelfSectionTitle
-                    }
-                  />
-                  </MobileLaunchRevealGroup>
-                  </MobilePoseLayoutView>
-                ) : null}
-              </LibraryLayoutRow>
+              // The list is UIKit's content scroll view (tab bar). Not for
+              // the top edge beside a vertical bar: there the page's own
+              // band backs the bar's title, as on every other page.
+              <ContentScrollMarker generation={gridColumns} topEdge={verticalBarSide === null} />
             ) : null}
           </View>
         </>
@@ -2857,16 +2812,8 @@ const styles = StyleSheet.create({
   libraryRow: {
     flexDirection: "row",
   },
-  // Air between the section header and the first row of covers.
-  firstGridRow: {
-    paddingTop: 16,
-  },
   gridRow: {
     marginBottom: MOBILE_MANGA_GRID_GAP,
-  },
-  // Design-explore sections (folders, the titles header): one step apart.
-  exploreSections: {
-    gap: 28,
   },
   // The Grid cover's zoom source spans the cell; the cover keeps its ratio inside.
   gridZoomSource: {

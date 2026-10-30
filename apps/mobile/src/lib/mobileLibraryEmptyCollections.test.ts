@@ -72,9 +72,6 @@ describe("empty library keeps collection management reachable", () => {
     expect(main).toContain("{titleMenuAnchor}");
   });
 
-  test("the shelf header and layout switch only show with books", () => {
-    expect(mainLibraryReturn()).toMatch(/\{visibleEntryCount \? \(\s*<MobilePoseLayoutView>\s*<MobileLaunchRevealGroup group="titlesHeader">\s*<MobileLibraryLayoutHeader/);
-  });
 });
 
 describe("collection switching stays in place", () => {
@@ -84,11 +81,9 @@ describe("collection switching stays in place", () => {
     expect(main).toContain("{titleMenuAnchor}");
   });
 
-  test("the title menu switches in place; only a Collections folder pushes the collection screen", () => {
+  test("the title menu switches in place; nothing on the page pushes the collection screen", () => {
     const pushes = librarySource.match(/router\.(push|replace)\(\{\s*pathname: "\/library\/collection/g) ?? [];
-    expect(pushes).toHaveLength(1);
-    expect(librarySource).toMatch(/const openCollectionScreen = useCallback\([^]*?router\.push\(\{ pathname: "\/library\/collection\/\[id\]"/);
-    expect(librarySource).toContain("onSelect={openCollectionScreen}");
+    expect(pushes).toHaveLength(0);
     expect(librarySource).not.toContain('router.replace("/library")');
   });
 
