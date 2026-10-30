@@ -74,7 +74,7 @@ import {
   useSkeletonDisplayDelay,
   useSkeletonPulse,
 } from "@/lib/useSkeletonPulse";
-import { getMobileSourceFeaturedCover, getMobileSourceFeaturedGeometry } from "@/lib/mobileSourceFeaturedGeometry";
+import { getMobileSourceFeaturedGeometry, MOBILE_SOURCE_FEATURED_GAP } from "@/lib/mobileSourceFeaturedGeometry";
 import { hapticConfirm, hapticError, hapticSelection } from "@/lib/haptics";
 import { stepMobileCarouselSwitch } from "@/lib/mobileCarouselActiveIndex";
 import { buildMobileCoverTintPalette, type MobileCoverRgb } from "@/lib/mobileCoverTint";
@@ -101,7 +101,6 @@ import { MOBILE_SEARCH_SPLIT_OPTIONS } from "@/lib/mobileSearchLayout";
 import { MobilePoseLayoutView } from "@/components/MobilePoseLayoutView";
 import { useMobilePoseResnapFade } from "@/lib/useMobilePoseResnapFade";
 import { useMobileContainerFold } from "@/lib/useMobileContainerFold";
-import { useMobileRestingVerticalFold } from "@/lib/useMobileRestingVerticalFold";
 import {
   canSelectMobileSourceHomeFeaturedDot,
   getMobileSourceHomeFeaturedCarouselIndex,
@@ -848,7 +847,6 @@ function ExploreFeaturedCard({
   item,
   index,
   width,
-  compact,
   disabled,
   strings,
   onPress,
@@ -857,8 +855,6 @@ function ExploreFeaturedCard({
   item: MobileLiveSearchManga;
   index: number;
   width: number;
-  /** The Duo inner display's pane-sized card: a 112×168 cover. */
-  compact: boolean;
   disabled: boolean;
   strings: MobileStrings;
   onPress: () => void;
@@ -872,7 +868,8 @@ function ExploreFeaturedCard({
   useLayoutEffect(() => {
     onTint(index, tint);
   }, [index, onTint, tint]);
-  const { coverWidth, coverHeight } = getMobileSourceFeaturedCover(width, compact, EXPLORE_FEATURED_PAD);
+  const coverWidth = Math.min(150, Math.round((width - EXPLORE_FEATURED_PAD * 2) * 0.38));
+  const coverHeight = Math.round(coverWidth * 1.5);
   const coverRadius = concentricMobileExploreRadius(R.card, EXPLORE_FEATURED_PAD);
   return (
     <NemuPressable
@@ -973,31 +970,13 @@ function ExploreFeaturedCarousel({
   // every snap. Short and wide windows keep the first card's leading edge on the page's own
   // (title, tabs, headings, rows) with a peek of the next: several cards where they fit.
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
-  // Across the Duo's vertical hinge (book or fully open: the same geometry,
-  // so folding moves no card) one card rests in each pane, centred in it.
-  const frame = useMobileContainerFold<ViewInstance>();
-  const frameFold = useMobileRestingVerticalFold(frame.rect);
-  const {
-    regular,
-    cardWidth,
-    interval,
-    gap: cardGap,
-    compact,
-    foldAligned,
-    paddingLeft: sidePad,
-    paddingRight: sidePadRight,
-  } = getMobileSourceFeaturedGeometry({
+  const { regular, cardWidth, interval, paddingLeft: sidePad, paddingRight: sidePadRight } = getMobileSourceFeaturedGeometry({
     frameWidth: viewport || Math.max(0, windowWidth - gutters.left - gutters.right - bleed.frame.marginLeft - bleed.frame.marginRight),
     gutterLeft: gutters.left,
     gutterRight: gutters.right,
     windowWidth,
     windowHeight,
-    fold: frameFold,
-    foldRegion: frame.adaptive.hasFoldRegion,
-    count: entries.length,
   });
-  // Split one a pane, the rail's last rest shows the last two cards.
-  const restIndex = foldAligned ? Math.min(active, Math.max(0, entries.length - 2)) : active;
   const palettes = useMemo(
     () => entries.map((_, index) => buildMobileCoverTintPalette(tints[index] ?? null, scheme)),
     [entries, scheme, tints],
@@ -1013,7 +992,7 @@ function ExploreFeaturedCarousel({
   const realign = () => {
     if (interval <= 0) return;
     userDriven.current = false;
-    scrollRef.current?.scrollTo({ x: restIndex * interval, animated: false });
+    scrollRef.current?.scrollTo({ x: active * interval, animated: false });
   };
   const aligned = useRef({ interval, sidePad });
   useLayoutEffect(() => {
@@ -1021,8 +1000,8 @@ function ExploreFeaturedCarousel({
     aligned.current = { interval, sidePad };
     if (interval <= 0 || (previous.interval === interval && previous.sidePad === sidePad)) return;
     userDriven.current = false;
-    scrollRef.current?.scrollTo({ x: restIndex * interval, animated: false });
-  }, [restIndex, interval, sidePad]);
+    scrollRef.current?.scrollTo({ x: active * interval, animated: false });
+  }, [active, interval, sidePad]);
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     if (interval <= 0) return;
     const step = stepMobileCarouselSwitch(
@@ -1046,15 +1025,7 @@ function ExploreFeaturedCarousel({
         ))}
       </View>
       <SectionHeader title={title} subtitle={subtitle} strings={strings} onListingPress={() => {}} />
-      <View
-        ref={frame.ref}
-        collapsable={false}
-        onLayout={(event) => {
-          setViewport(event.nativeEvent.layout.width);
-          frame.onLayout(event);
-        }}
-        style={bleed.frame}
-      >
+      <View onLayout={(event) => setViewport(event.nativeEvent.layout.width)} style={bleed.frame}>
         {cardWidth > 0 ? (
           <ExploreRailFade>
             <ScrollView
@@ -1081,13 +1052,12 @@ function ExploreFeaturedCarousel({
               {entries.map((item, index) => (
                 <View
                   key={`${item.id}:${index}`}
-                  style={{ marginRight: index === entries.length - 1 ? 0 : cardGap }}
+                  style={{ marginRight: index === entries.length - 1 ? 0 : MOBILE_SOURCE_FEATURED_GAP }}
                 >
                   <ExploreFeaturedCard
                     item={item}
                     index={index}
                     width={cardWidth}
-                    compact={compact}
                     disabled={importingKey === sourceMangaKey(source, item)}
                     strings={strings}
                     onPress={() => onPressManga(source, item)}
