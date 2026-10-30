@@ -23,6 +23,38 @@ index c435fdd..bd912c2 100644
      self.title = title;
  
      NSDictionary *titleStyle = dict[@"titleStyle"];
+diff --git a/ios/RNSNavigationBar.mm b/ios/RNSNavigationBar.mm
+index 088deb8..c5935c6 100644
+--- a/ios/RNSNavigationBar.mm
++++ b/ios/RNSNavigationBar.mm
+@@ -10,6 +10,27 @@ - (void)layoutSubviews
+   [_layoutDelegate navigationBarDidLayoutSubviews:self];
+ }
+ 
++- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event
++{
++  UIView *hit = [super hitTest:point withEvent:event];
++#if RNS_IPHONE_OS_VERSION_AVAILABLE(27_1)
++  if (@available(iOS 27.1, *)) {
++    // Beside a vertical bar (iPhone Duo) the bar's items live in the vertical bar and this bar is
++    // only a transparent band holding the title over the top of the screen, which lays its content
++    // out from the safe area as if there were no bar. Its empty area (the content view) and the
++    // title take no touches there: they reach the screen below. Bar items keep theirs.
++    if (hit != nil && self.traitCollection.verticalBarEdge != UIVerticalBarEdgeUnspecified) {
++      UIView *titleView = self.topItem.titleView;
++      if (hit == self || hit.superview == self ||
++          (titleView != nil && ([hit isDescendantOfView:titleView] || [titleView isDescendantOfView:hit]))) {
++        return nil;
++      }
++    }
++  }
++#endif
++  return hit;
++}
++
+ @end
+ 
+ #endif // RNS_IPHONE_OS_VERSION_AVAILABLE(26_0) && !TARGET_OS_TV
 diff --git a/ios/RNSScreen.mm b/ios/RNSScreen.mm
 index 049fd22..0a948e5 100644
 --- a/ios/RNSScreen.mm

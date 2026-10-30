@@ -27,6 +27,21 @@ describe("mobile Expo native patch policy", () => {
     expect(lookup).not.toContain("lastObject");
   });
 
+  test("lets touches through the title-only navigation bar beside a vertical bar", () => {
+    // iPhone Duo inner landscape: the bar's items are in the vertical bar, but
+    // the transparent bar still spans the top 58pt, where the detail columns
+    // start (the chapter column's source pill could not be tapped).
+    const source = readFileSync(path.join(repositoryRoot,
+      "node_modules/react-native-screens/ios/RNSNavigationBar.mm"), "utf8");
+    const hitTest = source.slice(source.indexOf("- (UIView *)hitTest:"));
+    expect(hitTest).toContain("self.traitCollection.verticalBarEdge != UIVerticalBarEdgeUnspecified");
+    expect(hitTest).toContain("hit == self || hit.superview == self");
+    expect(hitTest).toContain("[hit isDescendantOfView:titleView] || [titleView isDescendantOfView:hit]");
+    const patch = readFileSync(
+      path.join(repositoryRoot, "patches/react-native-screens@4.30.0.patch"), "utf8");
+    expect(patch).toContain("diff --git a/ios/RNSNavigationBar.mm b/ios/RNSNavigationBar.mm");
+  });
+
   test("does not start a queued layout animation after its parent is destroyed", () => {
     const source = readFileSync(path.join(repositoryRoot,
       "node_modules/react-native-reanimated/Common/cpp/reanimated/LayoutAnimations/LayoutAnimationsProxy.cpp"), "utf8");
