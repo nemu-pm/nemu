@@ -296,4 +296,16 @@ describe("the bands' blur re-applies its effect (expo-blur's could stay empty fr
       expect(source).toContain('"systemUltraThinMaterialDark" : "systemUltraThinMaterialLight"');
     }
   });
+
+  test("a paused animation stripped by a transition counts as no effect (the grey band after the cover zoom)", () => {
+    // Opened by the cover zoom (iPhone Duo 27.2), the band's paused animation
+    // was gone while its animator still read paused at the intensity: the full
+    // material drew a grey slab over the cover's colour until the app next
+    // became active.
+    const blur = readFileSync(path.join(import.meta.dir,
+      "../../modules/nemu-window-layout/ios/NemuBlurView.swift"), "utf8");
+    expect(blur).toContain("&& appliedStyle == style && appliedIntensity == intensity && effectAnimationAttached");
+    expect(blur).toContain("effectView.subviews.contains { !($0.layer.animationKeys() ?? []).isEmpty }");
+    expect(blur).toContain("NemuTransitionSettle.wait { [weak self] in self?.applyIfNeeded() }");
+  });
 });

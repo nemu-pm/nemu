@@ -14,8 +14,9 @@ import UIKit
 /// mounted later blurred.
 ///
 /// Here the effect is (re)applied whenever the view is in a window, has a
-/// size and has no effect: on entering the window, on layout, on a trait
-/// change, on a prop change and when the app becomes active. The animator
+/// size and has no effect, or its paused animation is gone: on entering the
+/// window and again once a transition running then has settled, on layout, on
+/// a trait change, on a prop change and when the app becomes active. The animator
 /// lives only while the view is in a window and is stopped (a paused animator
 /// must never be released while active) when the view leaves it: UIKit always
 /// takes a view out of its window before it goes away, so no deinit is needed.
@@ -67,6 +68,10 @@ final class NemuBlurView: ExpoView {
       }
     }
     applyIfNeeded()
+    // A view that enters its window during a transition (a page opened by the
+    // cover zoom) can have the paused animation stripped when it ends: look
+    // again once it has.
+    NemuTransitionSettle.wait { [weak self] in self?.applyIfNeeded() }
   }
 
   override func layoutSubviews() {
@@ -86,7 +91,7 @@ final class NemuBlurView: ExpoView {
   private func applyIfNeeded(rebuild: Bool = false) {
     guard window != nil, bounds.width > 0, bounds.height > 0 else { return }
     let current = effectView.effect != nil && animator != nil
-      && appliedStyle == style && appliedIntensity == intensity
+      && appliedStyle == style && appliedIntensity == intensity && effectAnimationAttached
     if current && !rebuild { return }
     tearDown()
     let fraction = CGFloat(min(1, max(0.01, intensity / 100)))
@@ -99,6 +104,15 @@ final class NemuBlurView: ExpoView {
     animator = next
     appliedStyle = style
     appliedIntensity = intensity
+  }
+
+  /// The paused animation still holds the effect at `intensity`. UIKit can
+  /// strip it from the effect's layers while the animator still reports
+  /// itself paused (the cover zoom into a detail page, iPhone Duo 27.2): the
+  /// layers then render the effect's end state, the full material, a grey
+  /// band over the cover's colour until the app next became active.
+  private var effectAnimationAttached: Bool {
+    effectView.subviews.contains { !($0.layer.animationKeys() ?? []).isEmpty }
   }
 
   private func tearDown() {
