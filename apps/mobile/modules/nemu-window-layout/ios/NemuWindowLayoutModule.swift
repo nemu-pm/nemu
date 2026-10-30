@@ -132,8 +132,8 @@ public final class NemuWindowLayoutModule: Module {
     Function("launchRevealPending") { () -> Bool in
       NemuLaunchReveal.pending
     }
-    AsyncFunction("prepareLaunchReveal") { (mode: String, background: String?) -> Bool in
-      MainActor.assumeIsolated { NemuLaunchReveal.prepare(mode: mode, background: background) }
+    AsyncFunction("prepareLaunchReveal") { (mode: String, background: String?, promise: Promise) in
+      MainActor.assumeIsolated { NemuLaunchReveal.prepare(mode: mode, background: background) { promise.resolve($0) } }
     }.runOnQueue(.main)
     AsyncFunction("startLaunchReveal") {
       MainActor.assumeIsolated { NemuLaunchReveal.start() }
@@ -2157,7 +2157,7 @@ enum NemuVerticalBarOverride {
     invalidate(path)
   }
 
-  static func release(path: [UIViewController]) {
+  static func release(path: [UIViewController], afterTransitions: Bool = true) {
     guard let leaf = path.first else { return }
     let count = (objc_getAssociatedObject(leaf, &disabledKey) as? NSNumber)?.intValue ?? 0
     objc_setAssociatedObject(leaf, &disabledKey, count > 1 ? NSNumber(value: count - 1) : nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
@@ -2170,11 +2170,12 @@ enum NemuVerticalBarOverride {
     // The bar comes back once the transition that released it (the
     // reader's Back) has finished, with one update from the root (UIKit
     // reads the preference from there down), not one per controller in the
-    // middle of the pop.
+    // middle of the pop. The tab rail repair has no transition to wait for.
     let roots = invalidationRoots(path).map(WeakViewController.init)
-    NemuTransitionSettle.wait {
+    let update = {
       for root in roots { root.value?.setNeedsUpdateOfVerticalBarConfiguration() }
     }
+    if afterTransitions { NemuTransitionSettle.wait(update) } else { update() }
   }
 
   private static func invalidate(_ path: [UIViewController]) {
@@ -2247,18 +2248,32 @@ enum NemuVerticalBarOverride {
 /// tabs into the bar. Its `UITabBar` stays an empty strip in the bottom bar
 /// group and the vertical bar shows the status column and navigation items
 /// but no tab group, until the bar goes away and comes back (a rotation
-/// through portrait). 27.1 builds the tab group either way. So the first time
-/// a tab bar controller appears with a vertical bar on 27.2+, the bar is
+/// through portrait). 27.1 builds the tab group either way. So when a tab
+/// bar controller first appears with a vertical bar on 27.2+, the bar is
 /// turned off along its path until the controller's traits say it is gone,
 /// then back on: the same change a rotation makes. Turning it back on in the
 /// same or the next run-loop turn is too soon, UIKit never drops the bar.
+///
+/// The round trip shows (tabs at the bottom over full-width content, then
+/// the rail), and at a cold launch the tab bar controller first appears just
+/// before the launch screen lifts. So the launch reveal waits for it
+/// (`afterRepairs`), and the bar comes back as soon as it is gone, without
+/// the transition grace the reader's release waits for: the controller's
+/// own appearance is over.
 @available(iOS 27.1, *)
 @MainActor
 enum NemuTabRailRepair {
-  nonisolated(unsafe) private static var repairedKey: UInt8 = 0
+  nonisolated(unsafe) private static var appearedKey: UInt8 = 0
   private static var installed = false
   /// Turn the bar back on after this even if the traits never report it gone.
   private static let releaseCap: TimeInterval = 0.5
+  /// Count the rail as rebuilt after this even if the traits never report the bar back.
+  private static let rebuildCap: TimeInterval = 0.5
+  /// The longest `afterRepairs` holds its caller.
+  private static let waitCap: TimeInterval = 1.2
+  /// Repairs whose rail is not rebuilt yet.
+  private static var running: [Toggle] = []
+  private static var waiters: [Waiter] = []
 
   static func install() {
     guard #available(iOS 27.2, *), !installed else { return }
@@ -2278,10 +2293,13 @@ enum NemuTabRailRepair {
   }
 
   static func repairIfNeeded(_ controller: UITabBarController) {
-    guard objc_getAssociatedObject(controller, &repairedKey) == nil,
-      let window = controller.viewIfLoaded?.window,
+    // Only the first appearance: a controller that first appeared without the
+    // bar got its tab group when the bar came.
+    guard objc_getAssociatedObject(controller, &appearedKey) == nil else { return }
+    objc_setAssociatedObject(controller, &appearedKey, true, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    defer { scheduleWaiters() }
+    guard let window = controller.viewIfLoaded?.window,
       controller.traitCollection.verticalBarEdge != .unspecified else { return }
-    objc_setAssociatedObject(controller, &repairedKey, true, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
     // UIKit reads the preference at the end of its walk: past the tab bar
     // controller, down through the selected tab to its top screen.
     var leaf: UIViewController = controller
@@ -2289,15 +2307,85 @@ enum NemuTabRailRepair {
     var path: [UIViewController] = [leaf]
     while let parent = path.last?.parent { path.append(parent) }
     let toggle = Toggle(controller: controller, path: path)
+    running.append(toggle)
     toggle.registration = controller.registerForTraitChanges(UITraitCollection.systemTraitsAffectingVerticalBarEdge) {
       (tabs: UITabBarController, _: UITraitCollection) in
-      guard tabs.traitCollection.verticalBarEdge == .unspecified else { return }
-      // Back on once UIKit has finished taking the bar away.
-      DispatchQueue.main.async { MainActor.assumeIsolated { toggle.release("bar off") } }
+      if tabs.traitCollection.verticalBarEdge == .unspecified {
+        // Back on once UIKit has finished taking the bar away.
+        DispatchQueue.main.async { MainActor.assumeIsolated { toggle.release("bar off") } }
+      } else if toggle.released {
+        // The bar is back with the tab group in it.
+        toggle.finish()
+      }
     }
-    NemuVerticalBarOverride.acquire(path: path)
-    window.layoutIfNeeded()
+    UIView.performWithoutAnimation {
+      NemuVerticalBarOverride.acquire(path: path)
+      window.layoutIfNeeded()
+    }
     DispatchQueue.main.asyncAfter(deadline: .now() + releaseCap) { MainActor.assumeIsolated { toggle.release("cap") } }
+  }
+
+  /// Runs `done` once no tab bar controller is in a repair or about to start
+  /// one (at once when none is), at the latest after `waitCap`.
+  static func afterRepairs(_ done: @escaping @MainActor () -> Void) {
+    guard pending() else { return done() }
+    let waiter = Waiter(done)
+    waiters.append(waiter)
+    DispatchQueue.main.asyncAfter(deadline: .now() + waitCap) { MainActor.assumeIsolated { waiter.run() } }
+  }
+
+  /// A repair is running, or a tab bar controller on screen under a vertical
+  /// bar has not appeared yet (its repair starts when it does).
+  private static func pending() -> Bool {
+    guard installed else { return false }
+    if !running.isEmpty { return true }
+    for case let scene as UIWindowScene in UIApplication.shared.connectedScenes where scene.activationState != .background {
+      for window in scene.windows where !window.isHidden {
+        var queue = window.rootViewController.map { [$0] } ?? []
+        while let next = queue.popLast() {
+          if let tabs = next as? UITabBarController, objc_getAssociatedObject(tabs, &appearedKey) == nil,
+            tabs.viewIfLoaded?.window === window, tabs.traitCollection.verticalBarEdge != .unspecified {
+            return true
+          }
+          queue.append(contentsOf: next.children)
+        }
+      }
+    }
+    return false
+  }
+
+  private static func finished(_ toggle: Toggle) {
+    running.removeAll { $0 === toggle }
+    scheduleWaiters()
+  }
+
+  /// On the next turn, out of UIKit's appearance and trait callbacks.
+  private static func scheduleWaiters() {
+    guard !waiters.isEmpty else { return }
+    DispatchQueue.main.async {
+      MainActor.assumeIsolated {
+        guard !pending() else { return }
+        let ready = waiters
+        waiters = []
+        for waiter in ready { waiter.run() }
+      }
+    }
+  }
+
+  @MainActor
+  private final class Waiter {
+    private var done: (@MainActor () -> Void)?
+
+    init(_ done: @escaping @MainActor () -> Void) {
+      self.done = done
+    }
+
+    /// Once: by the repairs finishing or by the cap, whichever comes first.
+    func run() {
+      let done = done
+      self.done = nil
+      done?()
+    }
   }
 
   @MainActor
@@ -2305,7 +2393,8 @@ enum NemuTabRailRepair {
     weak var controller: UIViewController?
     let path: [WeakViewController]
     var registration: UITraitChangeRegistration?
-    private var released = false
+    private(set) var released = false
+    private var finished = false
 
     init(controller: UIViewController, path: [UIViewController]) {
       self.controller = controller
@@ -2315,10 +2404,22 @@ enum NemuTabRailRepair {
     func release(_ reason: String) {
       guard !released else { return }
       released = true
-      if let registration { controller?.unregisterForTraitChanges(registration) }
       let path = path.compactMap(\.value)
-      NemuVerticalBarOverride.release(path: path)
       verticalBarLog.debug("tab bar rail rebuilt (\(reason, privacy: .public)): \(path.map { String(describing: type(of: $0)) }.joined(separator: " → "), privacy: .public)")
+      // Laid out at once and unanimated: the bar is usually back before
+      // this returns, not half a second later.
+      UIView.performWithoutAnimation {
+        NemuVerticalBarOverride.release(path: path, afterTransitions: false)
+        controller?.view.window?.layoutIfNeeded()
+      }
+      DispatchQueue.main.asyncAfter(deadline: .now() + rebuildCap) { MainActor.assumeIsolated { self.finish() } }
+    }
+
+    func finish() {
+      guard !finished else { return }
+      finished = true
+      if let registration { controller?.unregisterForTraitChanges(registration) }
+      NemuTabRailRepair.finished(self)
     }
   }
 }
@@ -2416,7 +2517,21 @@ enum NemuLaunchReveal {
     init(_ view: UIView) { self.view = view }
   }
 
-  static func prepare(mode: String, background: String?) -> Bool {
+  /// Sets the start state once the iPhone Duo's tab rail repair (iOS 27.2,
+  /// `NemuTabRailRepair`) is done: the tab bar controller first appears just
+  /// before the launch screen lifts, and the repair's off-and-on round trip
+  /// must stay under it. Without a repair to wait for, at once.
+  static func prepare(mode: String, background: String?, completion: @escaping @MainActor (Bool) -> Void) {
+    #if NEMU_SDK_27_1
+    if #available(iOS 27.1, *) {
+      NemuTabRailRepair.afterRepairs { completion(prepareNow(mode: mode, background: background)) }
+      return
+    }
+    #endif
+    completion(prepareNow(mode: mode, background: background))
+  }
+
+  private static func prepareNow(mode: String, background: String?) -> Bool {
     guard pending, let window = keyWindow(), let controller = window.rootViewController, let view = controller.viewIfLoaded else {
       pending = false
       return false
