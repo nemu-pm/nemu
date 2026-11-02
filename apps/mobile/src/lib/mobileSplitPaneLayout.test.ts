@@ -39,13 +39,11 @@ describe("split pane layout", () => {
   test("settings sidebar follows the system Settings: 320pt, or what leaves the detail 419pt", () => {
     // Measured on the system Settings app (window width → sidebar / detail).
     const measured: [number, number, number][] = [
-      [669, 250, 419], // Duo inner display, portrait
-      [834, 320, 514], // iPad Pro 11-inch, portrait
       [951, 320, 631], // Duo inner display, landscape
       [1210, 320, 890], // iPad Pro 11-inch, landscape
     ];
     for (const [containerWidth, leading, trailing] of measured) {
-      expect(split({ containerWidth, regularWidth: true, posture: "flat", foldSplit: null, options: settings })).toEqual({
+      expect(split({ containerWidth, containerHeight: 669, regularWidth: true, posture: "flat", foldSplit: null, options: settings })).toEqual({
         mode: "split",
         alignment: "flat",
         leading: { x: 0, width: leading },
@@ -53,11 +51,22 @@ describe("split pane layout", () => {
         gutter: 0,
       });
     }
-    // In between, the sidebar gives way before the detail does.
-    expect(split({ containerWidth: 700, regularWidth: true, posture: "flat", foldSplit: null, options: settings })).toMatchObject({
+    // Narrower, the sidebar gives way before the detail does.
+    expect(split({ containerWidth: 700, containerHeight: 500, regularWidth: true, posture: "flat", foldSplit: null, options: settings })).toMatchObject({
       leading: { width: 281 },
       trailing: { width: 419 },
     });
+  });
+
+  test("settings split only where UISplitViewController shows two columns: landscape, not portrait", () => {
+    // A default split view controller on the Duo's inner display (27.2):
+    // 951 x 669 sidebar beside the secondary, 669 x 951 the secondary alone.
+    expect(split({ containerWidth: 951, containerHeight: 669, regularWidth: true, posture: "flat", foldSplit: null, options: settings })).toMatchObject({ mode: "split" });
+    for (const [containerWidth, containerHeight] of [[669, 951], [834, 1194], [1032, 1376]]) {
+      expect(split({ containerWidth, containerHeight, regularWidth: true, posture: "flat", foldSplit: null, options: settings })).toEqual({ mode: "single" });
+    }
+    // Manga detail keeps its own width rule.
+    expect(split({ containerWidth: 1032, containerHeight: 1376, regularWidth: true, posture: "flat", foldSplit: null, options: detail })).toMatchObject({ mode: "split" });
   });
 
   test("settings measure the sidebar between the side safe areas (a bar beside it keeps its rows)", () => {
@@ -162,7 +171,7 @@ describe("split pane layout", () => {
     expect(split({ containerWidth: 951, regularWidth: true, posture: "notebook", foldSplit: null, options: detail })).toEqual({ mode: "single" });
   });
 
-  test("settings keep the flat sidebar in notebook posture, like flat portrait", () => {
+  test("settings keep one column in notebook posture, as in flat portrait", () => {
     const flatPortrait = { width: 669, height: 951, supported: true, divisions: [{ id: "hinge", x: 0, y: 455.5, width: 669, height: 40, active: false }], occlusions: [] };
     const notebook = { ...flatPortrait, divisions: [{ ...flatPortrait.divisions[0], active: true }] };
     const container = { x: 0, y: 0, width: 669, height: 951 };
@@ -172,6 +181,7 @@ describe("split pane layout", () => {
         posture: adaptive.posture,
         layout: split({
           containerWidth: 669,
+          containerHeight: 951,
           regularWidth: adaptive.regularWidth,
           posture: adaptive.posture,
           foldSplit: mobileFoldSplitForContainer(adaptive, container),
@@ -182,10 +192,8 @@ describe("split pane layout", () => {
     const flat = panes(flatPortrait);
     const folded = panes(notebook);
     expect(folded.posture).toBe("notebook");
-    expect(flat.layout).toMatchObject({ alignment: "flat", leading: { width: 250 }, trailing: { x: 250, width: 419 } });
-    expect(folded.layout).toEqual(flat.layout);
-    // Manga detail still keeps one column there.
-    expect(split({ containerWidth: 669, regularWidth: true, posture: "notebook", foldSplit: null, options: detail })).toEqual({ mode: "single" });
+    expect(flat.layout).toEqual({ mode: "single" });
+    expect(folded.layout).toEqual({ mode: "single" });
   });
 
   test("settings content sits 20pt from the boundary: 40pt from the crease in book posture", () => {

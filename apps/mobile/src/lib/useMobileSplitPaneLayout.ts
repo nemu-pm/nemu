@@ -35,6 +35,7 @@ export function useMobileSplitPaneLayout(options: MobileSplitPaneOptions): {
   const { rect } = container;
   const adaptive = container.adaptive;
   const containerWidth = container.width ?? adaptive.width;
+  const containerHeight = rect?.height ?? adaptive.height;
   // Until a trusted window measurement lands (it is asynchronous, and skipped
   // mid-transition), assume the container starts at the window's leading edge
   // — true for these full-screen splits — so a folded device gets the
@@ -56,13 +57,14 @@ export function useMobileSplitPaneLayout(options: MobileSplitPaneOptions): {
     () =>
       getMobileSplitPaneLayout({
         containerWidth,
+        containerHeight,
         regularWidth: adaptive.regularWidth,
         posture: adaptive.posture,
         foldSplit,
         options,
         sideInsets: adaptive.safeAreaInsets,
       }),
-    [adaptive.posture, adaptive.regularWidth, adaptive.safeAreaInsets, containerWidth, foldSplit, options],
+    [adaptive.posture, adaptive.regularWidth, adaptive.safeAreaInsets, containerHeight, containerWidth, foldSplit, options],
   );
 
   return {

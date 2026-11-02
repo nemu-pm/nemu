@@ -16,8 +16,7 @@ import {
  * - fully open windows use a narrower leading pane, like the Notes sidebar;
  *   an inactive fold does not reserve a gutter or force equal-width panes;
  * - notebook (horizontal fold) keeps a single column: side-by-side panes would
- *   each straddle the fold. Settings is the exception (`splitInNotebook`): the
- *   system Settings keeps its sidebar there, as in flat portrait.
+ *   each straddle the fold.
  *
  * `minFlatSplitWidth` gates the flat (unfolded) split. Manga detail only splits
  * flat on expanded widths: HIG arrangement views go side by side when wider
@@ -56,11 +55,13 @@ export type MobileSplitPaneOptions = {
   /** Narrower containers keep one column while flat (the fold split ignores it). */
   minFlatSplitWidth?: number;
   /**
-   * Notebook posture keeps the flat split instead of one column. For panes
-   * that each scroll on their own (a section list beside its section), where
-   * the horizontal fold crosses both like any other row.
+   * The flat split needs a container wider than tall, as UISplitViewController
+   * decides it by default: on regular widths it shows the sidebar beside the
+   * secondary column in landscape and the secondary column alone in portrait
+   * (the Duo's inner display: 951 x 669 two columns, 669 x 951 one; iPad
+   * portrait likewise). The fold split ignores it.
    */
-  splitInNotebook?: boolean;
+  flatSplitNeedsLandscape?: boolean;
   /**
    * The flat rule measures the width between the side safe areas (a vertical
    * bar, the outer display's rail) and the leading inset is added back to the
@@ -80,8 +81,9 @@ export const MOBILE_DETAIL_SPLIT_OPTIONS: MobileSplitPaneOptions = {
 
 /**
  * The system Settings sidebar: 320pt wherever the detail still gets 419pt,
- * narrowing to 250pt below that (the Duo's inner display in portrait, 669pt,
- * splits 250 / 419). Notebook keeps the same two columns as flat portrait.
+ * narrowing to 250pt below that. Two columns only where UISplitViewController
+ * would show them (landscape-shaped regular widths): portrait, the Duo's inner
+ * display included, keeps the one list and pushes each page.
  */
 export const MOBILE_SETTINGS_SPLIT_OPTIONS: MobileSplitPaneOptions = {
   trailingReserve: 419,
@@ -89,7 +91,7 @@ export const MOBILE_SETTINGS_SPLIT_OPTIONS: MobileSplitPaneOptions = {
   maxLeading: 320,
   minTrailing: 320,
   minFoldPane: 280,
-  splitInNotebook: true,
+  flatSplitNeedsLandscape: true,
   measureInsideSideInsets: true,
 };
 
@@ -110,6 +112,7 @@ function flatLeadingWidth(containerWidth: number, options: MobileSplitPaneOption
 
 export function getMobileSplitPaneLayout({
   containerWidth,
+  containerHeight,
   regularWidth,
   posture,
   foldSplit,
@@ -117,6 +120,8 @@ export function getMobileSplitPaneLayout({
   sideInsets,
 }: {
   containerWidth: number;
+  /** For `flatSplitNeedsLandscape`; unknown (omitted) counts as landscape. */
+  containerHeight?: number;
   regularWidth: boolean;
   posture: MobileWindowPosture;
   /** `mobileFoldSplitForContainer` for the measured container, or null. */
@@ -126,7 +131,7 @@ export function getMobileSplitPaneLayout({
   sideInsets?: { left: number; right: number } | null;
 }): MobileSplitPaneLayout {
   if (!regularWidth) return { mode: "single" };
-  if (posture === "notebook" && !options.splitInNotebook) return { mode: "single" };
+  if (posture === "notebook") return { mode: "single" };
   if (!Number.isFinite(containerWidth) || containerWidth <= 0) return { mode: "single" };
 
   if (posture === "book" && foldSplit?.axis === "horizontal") {
@@ -146,6 +151,14 @@ export function getMobileSplitPaneLayout({
   }
 
   if (containerWidth < (options.minFlatSplitWidth ?? 0)) return { mode: "single" };
+  if (
+    options.flatSplitNeedsLandscape &&
+    containerHeight !== undefined &&
+    Number.isFinite(containerHeight) &&
+    containerWidth <= containerHeight
+  ) {
+    return { mode: "single" };
+  }
   const inset = options.measureInsideSideInsets
     ? { left: Math.max(0, sideInsets?.left ?? 0), right: Math.max(0, sideInsets?.right ?? 0) }
     : { left: 0, right: 0 };
