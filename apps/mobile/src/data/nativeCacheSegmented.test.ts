@@ -636,6 +636,21 @@ describe("native cache launch index deferral", () => {
     existenceChecks = 0;
   });
 
+  test("answers a launch hit synchronously by name, without indexing", () => {
+    directories.add("/cache/images");
+    writePlainFile("cover.jpg", 1_000);
+    const cache = new FileSystemBinaryCache("images", plainPolicy, {
+      deferIndexUntilLaunch: true,
+    });
+
+    expect(cache.getLaunchUriSync("cover")).toBe("file:///cache/images/cover.jpg");
+    expect(cache.getLaunchUriSync("missing")).toBeNull();
+    expect(directoryListCalls).toBe(0);
+
+    const indexedUpFront = new FileSystemBinaryCache("images", plainPolicy);
+    expect(indexedUpFront.getLaunchUriSync("cover")).toBeNull();
+  });
+
   test("serves launch hits by name, indexes on a miss, and indexes once the launch ends", async () => {
     directories.add("/cache/images");
     writePlainFile("cover.jpg", 1_000);
@@ -658,5 +673,6 @@ describe("native cache launch index deferral", () => {
     endNativeBinaryCacheLaunchIndexDeferral();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(directoryListCalls).toBeGreaterThan(0);
+    expect(later.getLaunchUriSync("cover")).toBeNull();
   });
 });

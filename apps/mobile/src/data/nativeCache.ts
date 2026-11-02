@@ -58,6 +58,12 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
 
   async flushAccessIndex(): Promise<void> {}
 
+  /** Native twin answers launch-time disk hits synchronously; none here. */
+  getLaunchUriSync(_key: string): string | null {
+    void _key;
+    return null;
+  }
+
   async getUri(key: string): Promise<string | null> {
     const entry = this.entries.get(key);
     return entry ? `memory://${key}` : null;

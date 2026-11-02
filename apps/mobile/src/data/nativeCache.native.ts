@@ -236,6 +236,16 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
     return null;
   }
 
+  /**
+   * `getUri`'s launch-time hit, synchronously: a view mounted under the launch
+   * screen can show a file already on disk in its first render. Null after the
+   * launch, on a miss, or for a cache that indexes up front.
+   */
+  getLaunchUriSync(key: string): string | null {
+    if (!this.deferIndexUntilLaunch || !launchIndexDeferralActive || this.indexed) return null;
+    return this.unindexedLaunchHit(encodeKey(key));
+  }
+
   /** Persist read recency without running an eviction pass. */
   async flushAccessIndex(): Promise<void> {
     if (!this.accessIndexDirty) return;

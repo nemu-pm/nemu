@@ -308,7 +308,16 @@ export function getCachedMobileImageAssetByStorageKeySync(
   storageKey: string,
 ): MobileCachedImageAsset | null {
   if (!storageKey) return null;
-  const locator = coordinatorForStorageKey(storageKey).getResolvedUri(storageKey);
+  const coordinator = coordinatorForStorageKey(storageKey);
+  // A cold launch has resolved nothing yet: a cover already on disk is found
+  // by name, so the covers under the launch screen render their file at once
+  // and hold the reveal until they paint, instead of each fading in after an
+  // async resolve partway through it.
+  const locator =
+    coordinator.getResolvedUri(storageKey) ??
+    (coordinator === mobileCoverImageCacheCoordinator
+      ? mobileCoverImageCache.getLaunchUriSync(storageKey)
+      : null);
   return locator ? readCachedMobileImageAsset(locator) : null;
 }
 
