@@ -70,7 +70,6 @@ import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import { MobileSettingsSkeleton } from "@/components/MobileSettingsSkeleton";
 import {
   MobileReaderPluginSettingsCard,
-  MobileReaderPluginSettingsDescription,
   MobileReaderPluginSettingsHeader,
 } from "@/components/MobileReaderPluginSettingsContent";
 import { ReaderPluginManagementRow } from "@/components/ReaderPluginManagementRow";
@@ -244,9 +243,6 @@ import {
   MobileSourceIcon as SourceIcon,
 } from "@/components/MobileInstalledSourceSettingsSheet";
 import { useMobileSourceSettingsTransientSheets } from "@/components/useMobileSourceSettingsTransientSheets";
-import { MobileNativeStackSheet, mobileNativeStackSheetAvailable } from "@/components/MobileNativeStackSheet";
-import { MOBILE_NATIVE_SHEET_BOTTOM_GUTTER } from "@/lib/mobileNativeSheet";
-import { READER_SETTINGS_FORM_INSET } from "@/lib/readerSettingsNativePopoverLayout";
 import {
   isMobileSourceSettingsConfirmation,
   resolveMobileFirstQueuedSheetHandoff,
@@ -625,53 +621,6 @@ function MobileReaderPluginSettingsSheet({
     onClose,
   });
 
-  const card = (inert: boolean, outlined: boolean) => (
-    <MobileReaderPluginSettingsCard
-      plugin={plugin}
-      strings={strings}
-      disabled={disabled}
-      loading={loading}
-      error={error}
-      retryDisabled={retryDisabled}
-      retrying={retrying}
-      inert={inert}
-      outlined={outlined}
-      onRetry={onRetry}
-      onReset={onReset}
-      onChange={onChange}
-      cardProps={transientSheets.cardProps}
-    />
-  );
-  if (mobileNativeStackSheetAvailable) {
-    // iOS: the plugin's name in the sheet's bar with ✕, the description and
-    // the settings card on the Form inset below it.
-    const page = (inert: boolean) => (
-      <View style={styles.pluginSheetPage}>
-        <MobileReaderPluginSettingsDescription plugin={plugin} />
-        {card(inert, false)}
-      </View>
-    );
-    return (
-      <>
-        <MobileNativeStackSheet
-          {...transientSheets.settingsSheetProps}
-          pages={[
-            {
-              id: `plugin:${plugin.id}`,
-              title: plugin.name,
-              render: () => page(false),
-              measure: () => page(true),
-            },
-          ]}
-          closeAccessibilityLabel={strings.common.done}
-          group="settings-reader-plugin"
-          estimatedHeight={sheetLayout.snapPoint === "82%" ? Math.round(height * 0.82) : (sheetLayout.snapPoint ?? 420)}
-          testID={`ReaderPluginSettingsSheet:${plugin.id}`}
-        />
-        {transientSheets.renderTransientSheet()}
-      </>
-    );
-  }
   return (
     <>
       <MobileNativeSheetScaffold
@@ -688,7 +637,19 @@ function MobileReaderPluginSettingsSheet({
           (header + card) is the reader's Plugins sheet's plugin page.
         */}
         <MobileReaderPluginSettingsHeader plugin={plugin} />
-        {card(false, true)}
+        <MobileReaderPluginSettingsCard
+          plugin={plugin}
+          strings={strings}
+          disabled={disabled}
+          loading={loading}
+          error={error}
+          retryDisabled={retryDisabled}
+          retrying={retrying}
+          onRetry={onRetry}
+          onReset={onReset}
+          onChange={onChange}
+          cardProps={transientSheets.cardProps}
+        />
       </MobileNativeSheetScaffold>
       {transientSheets.renderTransientSheet()}
     </>
@@ -4535,12 +4496,6 @@ export function SettingsScreen({
 }
 
 const styles = StyleSheet.create({
-  pluginSheetPage: {
-    gap: 14,
-    paddingHorizontal: READER_SETTINGS_FORM_INSET,
-    paddingTop: 8,
-    paddingBottom: MOBILE_NATIVE_SHEET_BOTTOM_GUTTER,
-  },
   experimentalPage: {
     gap: 8,
   },

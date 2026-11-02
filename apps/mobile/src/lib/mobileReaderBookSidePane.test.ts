@@ -248,9 +248,7 @@ describe("book posture wiring (ReaderScreen)", () => {
   test("each sheet carries the placement in its native chain from the first frame", () => {
     const read = (file: string) => readFileSync(path.join(import.meta.dir, file), "utf8");
     expect(read("../components/reader/ReaderSettingsNativePopover.ios.tsx")).toContain("presentationPlacement(sheetPlacement),");
-    // The reader Plugins sheet presents through the shared stack sheet.
-    expect(read("../components/reader/ReaderPluginSettingsSheet.ios.tsx")).toContain("<MobileNativeStackSheet");
-    expect(read("../components/MobileNativeStackSheet.ios.tsx")).toContain("presentationPlacement(sheetPlacement),");
+    expect(read("../components/reader/ReaderPluginSettingsSheet.ios.tsx")).toContain("presentationPlacement(sheetPlacement),");
     const scaffold = read("../design-system/components/MobileNativeSheetScaffold.tsx");
     expect(scaffold).toContain("[presentationPlacement(sheetPlacement)]");
     expect(scaffold).toContain("presentationModifiers={sheetPresentationModifiers}");
