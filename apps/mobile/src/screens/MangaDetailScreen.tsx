@@ -45,6 +45,7 @@ import {
   type MobileSourceSelectorItem,
 } from "@/components/MobileSourceSelector";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
+import { mobileExploreDetailRailHasButtons, splitMobileExploreDetailBarActions } from "@/lib/mobileExploreDetailRail";
 import { MobileMangaDetailSplitLayout } from "@/components/MobileMangaDetailSplitLayout";
 import { MobileMangaDetailSurface } from "@/components/MobileMangaDetailSurface";
 import {
@@ -424,7 +425,8 @@ export function MangaDetailScreen() {
   const booksHero = useMobileDesignExplore();
   // Beside a vertical bar (the Duo's rail) the bar draws nothing above the
   // page: no top scroll-edge effect, no bar title.
-  const { verticalBarSide } = useMobileAdaptiveLayout();
+  const adaptiveLayout = useMobileAdaptiveLayout();
+  const { verticalBarSide } = adaptiveLayout;
   const barOnSide = booksHero && verticalBarSide !== null;
   // Books: the bar shows the title only once the hero's title has scrolled
   // under it (the native bar title; no custom fade).
@@ -2648,9 +2650,16 @@ export function MangaDetailScreen() {
       ]
     : [];
   // Design-explore: the three actions collapse into one menu so the bar's
-  // title can sit centred.
+  // title can sit centred. The Duo's inner rail has room for Add to
+  // Collection and Share as their own buttons above it.
   const barMenu = booksHero;
-  const barTrailingItems = barMenu ? Math.min(1, nativeHeaderActions.length) : nativeHeaderActions.length;
+  const barActions = splitMobileExploreDetailBarActions(
+    nativeHeaderActions,
+    barMenu && mobileExploreDetailRailHasButtons(adaptiveLayout),
+  );
+  const barTrailingItems = barMenu
+    ? barActions.buttons.length + Math.min(1, barActions.menu.length)
+    : nativeHeaderActions.length;
   const renderExploreBarTitle = useCallback(
     () => (
       <MobileExploreBarTitle
@@ -2705,7 +2714,8 @@ export function MangaDetailScreen() {
             <Stack.Screen options={nativeHeaderOptions(strings.nav.library)} />
             {barMenu ? (
               <Stack.Toolbar placement="right">
-                {renderExploreDetailBarMenu(nativeHeaderActions, strings.designExplore.moreActions)}
+                {renderNemuNativeToolbarButtons(barActions.buttons)}
+                {renderExploreDetailBarMenu(barActions.menu, strings.designExplore.moreActions)}
               </Stack.Toolbar>
             ) : null}
           </>
@@ -2814,8 +2824,10 @@ export function MangaDetailScreen() {
           />
           {nativeHeaderActions.length && (zoomLanded || barMenu) ? (
             <Stack.Toolbar placement="right">
+              {/* Siblings, not a fragment: the toolbar reads its direct children. */}
+              {barMenu ? renderNemuNativeToolbarButtons(barActions.buttons) : null}
               {barMenu
-                ? renderExploreDetailBarMenu(nativeHeaderActions, strings.designExplore.moreActions)
+                ? renderExploreDetailBarMenu(barActions.menu, strings.designExplore.moreActions)
                 : renderNemuNativeToolbarButtons(nativeHeaderActions)}
             </Stack.Toolbar>
           ) : null}

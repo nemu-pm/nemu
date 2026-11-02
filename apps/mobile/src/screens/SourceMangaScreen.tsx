@@ -26,6 +26,7 @@ import {
 } from "@/lib/mobileChapterReadMarks";
 import { clearMobileReaderResumePositions } from "@/lib/mobileReaderResumePosition";
 import { renderExploreDetailBarMenu } from "@/components/explore/ExploreDetailBarMenu";
+import { mobileExploreDetailRailHasButtons, splitMobileExploreDetailBarActions } from "@/lib/mobileExploreDetailRail";
 import { MobileMetadataEditorSheet } from "@/components/MobileMetadataEditorSheet";
 import { MobileSourceManagerSheet } from "@/components/MobileSourceManagerSheet";
 import { getMobileMetadataEditorSaveResultAction } from "@/lib/mobileMetadataEditorBackBehavior";
@@ -315,7 +316,8 @@ function loadedChapterCountText(count: number, strings: MobileStrings): string {
 }
 
 export function SourceMangaScreen() {
-  const { verticalBarSide } = useMobileAdaptiveLayout();
+  const adaptiveLayout = useMobileAdaptiveLayout();
+  const { verticalBarSide } = adaptiveLayout;
   const params = useLocalSearchParams<{
     registryId: string;
     sourceId: string;
@@ -1783,6 +1785,12 @@ export function SourceMangaScreen() {
       onPress: confirmRemoveFromLibrary,
     },
   ];
+  // Beside the Duo's inner rail, Add to Collection and Share stand as their
+  // own buttons above the ··· menu, as on the library title page.
+  const barActions = splitMobileExploreDetailBarActions(
+    nativeHeaderActions,
+    mobileExploreDetailRailHasButtons(adaptiveLayout),
+  );
 
   const retrySourceMangaDetails = () => {
     if (retryDataGuardRef.current) return;
@@ -1929,13 +1937,13 @@ export function SourceMangaScreen() {
         title={title}
         cover={coverImage.source ?? null}
         // Centred between Back and the ··· menu, as on the library title page.
-        trailingItems={1}
+        trailingItems={barActions.buttons.length + 1}
         centred
         shown={barTitleShown}
         hidden={!heroTitleAway}
       />
     ),
-    [barTitleShown, coverImage.source, heroTitleAway, title],
+    [barActions.buttons.length, barTitleShown, coverImage.source, heroTitleAway, title],
   );
   const nativeHeaderOptions = mobileDesignExploreFlag
     ? { ...createNemuSoftEdgeScreenOptions(tokens, sourceName, verticalBarSide), headerTitle: renderBarTitle }
@@ -1965,7 +1973,8 @@ export function SourceMangaScreen() {
   );
   const nativeMenuToolbar = mobileDesignExploreFlag ? (
     <Stack.Toolbar placement="right">
-      {renderExploreDetailBarMenu(nativeHeaderActions, strings.designExplore.moreActions)}
+      {renderNemuNativeToolbarButtons(barActions.buttons)}
+      {renderExploreDetailBarMenu(barActions.menu, strings.designExplore.moreActions)}
     </Stack.Toolbar>
   ) : null;
 
