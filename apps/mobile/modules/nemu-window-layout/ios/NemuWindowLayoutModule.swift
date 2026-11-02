@@ -2318,11 +2318,21 @@ enum NemuTabRailRepair {
         toggle.finish()
       }
     }
-    UIView.performWithoutAnimation {
-      NemuVerticalBarOverride.acquire(path: path)
-      window.layoutIfNeeded()
+    // Off on the next turn, out of UIKit's appearance pass: turning the bar off
+    // inside `viewDidAppear` re-enters UIKit's walk over the child controllers
+    // while it is still changing them (a first launch presenting the welcome
+    // flow aborted on the mutated enumeration). `running` already holds the
+    // repair, so the launch reveal keeps waiting for it.
+    DispatchQueue.main.async {
+      MainActor.assumeIsolated {
+        guard !toggle.released, window.windowScene != nil else { return }
+        UIView.performWithoutAnimation {
+          NemuVerticalBarOverride.acquire(path: path)
+          window.layoutIfNeeded()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + releaseCap) { MainActor.assumeIsolated { toggle.release("cap") } }
+      }
     }
-    DispatchQueue.main.asyncAfter(deadline: .now() + releaseCap) { MainActor.assumeIsolated { toggle.release("cap") } }
   }
 
   /// Runs `done` once no tab bar controller is in a repair or about to start
