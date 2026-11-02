@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Platform, StyleSheet, View, useWindowDimensions, type LayoutChangeEvent } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -140,6 +140,14 @@ export function MobileNativeStackSheet({
   // the sheet on close never cuts its dismissal short.
   const [closing, setClosing] = useState(false);
   if (closing && !visible) setClosing(false);
+  // For a swipe SwiftUI can call `onDismiss` before the presented-state
+  // change: the dismissal itself then reports the close, once.
+  const visibleRef = useRef(visible);
+  const dismissedRef = useRef(false);
+  useLayoutEffect(() => {
+    visibleRef.current = visible;
+    if (visible) dismissedRef.current = false;
+  }, [visible]);
   const requestClose = () => {
     if (!closeDisabled) setClosing(true);
   };
@@ -222,10 +230,11 @@ export function MobileNativeStackSheet({
           <SwiftBottomSheet
             isPresented={visible && presented && !closing}
             onIsPresentedChange={(isPresented) => {
-              if (!isPresented && visible) setClosing(true);
+              if (!isPresented && visible && !dismissedRef.current) setClosing(true);
             }}
             onDismiss={() => {
-              if (closing) {
+              if ((closing || visibleRef.current) && !dismissedRef.current) {
+                dismissedRef.current = true;
                 setClosing(false);
                 onClose();
               }

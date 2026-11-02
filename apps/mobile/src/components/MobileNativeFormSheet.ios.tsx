@@ -30,6 +30,7 @@ import {
   scrollEdgeEffectStyle,
   tint,
 } from "@expo/ui/swift-ui/modifiers";
+import { useLayoutEffect, useRef } from "react";
 import { Platform, PlatformColor, StyleSheet, View, useWindowDimensions, type ColorValue } from "react-native";
 import { useNemuTheme } from "@/design-system";
 import { MOBILE_GROUPED_FORM_TOP_MARGIN } from "@/lib/mobileLibrarySheetLayout";
@@ -95,6 +96,21 @@ export function MobileNativeFormSheet({
 }: MobileNativeFormSheetProps) {
   const { scheme, tokens } = useNemuTheme();
   const { width: windowWidth } = useWindowDimensions();
+  // A swipe-down reports its close once, from whichever comes first: the
+  // presented-state change or the system's dismissal (for a swipe SwiftUI
+  // can call `onDismiss` before it, and a close reported only from the state
+  // change then reached a caller that had already moved on).
+  const visibleRef = useRef(visible);
+  const closeReportedRef = useRef(false);
+  useLayoutEffect(() => {
+    visibleRef.current = visible;
+    if (visible) closeReportedRef.current = false;
+  }, [visible]);
+  const reportSwipeClose = () => {
+    if (!visibleRef.current || closeReportedRef.current) return;
+    closeReportedRef.current = true;
+    onClose();
+  };
   const grouped = background === "grouped";
   const padForm =
     padSizing === "form"
@@ -140,9 +156,12 @@ export function MobileNativeFormSheet({
         <SwiftBottomSheet
           isPresented={visible}
           onIsPresentedChange={(presented) => {
-            if (!presented && visible) onClose();
+            if (!presented) reportSwipeClose();
           }}
-          onDismiss={onDismiss}
+          onDismiss={() => {
+            reportSwipeClose();
+            onDismiss?.();
+          }}
           formSheetWidth={padFormSize?.width ?? 0}
           formSheetHeight={padFormSize?.height ?? 0}
         >
