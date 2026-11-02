@@ -7,6 +7,7 @@ import {
   type MobileSplitPaneOptions,
 } from "@/lib/mobileSplitPaneLayout";
 import { useMobileContainerFold } from "@/lib/useMobileContainerFold";
+import { useReportMobileToastRegion } from "@/lib/useReportMobileToastRegion";
 
 /**
  * Measures a split container in window coordinates and derives its panes from
@@ -65,6 +66,15 @@ export function useMobileSplitPaneLayout(options: MobileSplitPaneOptions): {
         sideInsets: adaptive.safeAreaInsets,
       }),
     [adaptive.posture, adaptive.regularWidth, adaptive.safeAreaInsets, containerHeight, containerWidth, foldSplit, options],
+  );
+
+  // Toasts belong to the main (trailing) column: never across the sidebar or
+  // the fold between the panes.
+  const containerX = rect?.x ?? 0;
+  useReportMobileToastRegion(
+    layout.mode === "split"
+      ? { x: containerX + layout.trailing.x, width: layout.trailing.width }
+      : null,
   );
 
   return {

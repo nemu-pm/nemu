@@ -12,6 +12,7 @@ import {
   READER_CHROME_GLASS_TINT,
 } from "./readerChromeGlass";
 import type { MobileStrings } from "@/lib/mobileI18n";
+import { MOBILE_TOAST_MAX_WIDTH } from "@/lib/mobileToastPlacement";
 import type { MobileConnectivityState } from "@/lib/useMobileConnectivity";
 
 const SLOW_PAGE_THRESHOLD_MS = 8_000;
@@ -27,7 +28,8 @@ const READER_NOTICE_DARK_DETAIL = "rgba(235,238,245,0.72)";
  * slow source once a page request has hung past 8s. It renders the shared
  * `MobileToastSurface` in its plain (reader-tinted) mode, so the geometry
  * mirrors both the app toast and the chrome panel — left/right 12, radius 22,
- * one glass border — and reads as a second row of the same surface.
+ * one glass border — and reads as a second row of the same surface. Like the
+ * app toast it stops at 420pt, centred, on wide windows.
  */
 export function MobileReaderConnectivityNotice({
   topOffset,
@@ -102,6 +104,7 @@ export function MobileReaderConnectivityNotice({
             ? strings.feedback.readerOfflineTitle
             : strings.feedback.readerSlowSource
         }
+        style={styles.surface}
         titleColor={READER_NOTICE_DARK_TITLE}
         tone="warning"
       />
@@ -114,7 +117,12 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 12,
     right: 12,
+    alignItems: "center",
     zIndex: 30,
     elevation: 30,
+  },
+  surface: {
+    width: "100%",
+    maxWidth: MOBILE_TOAST_MAX_WIDTH,
   },
 });

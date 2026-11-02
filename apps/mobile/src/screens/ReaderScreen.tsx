@@ -319,6 +319,7 @@ import {
 } from "@/components/reader/ReaderPairingShiftToast";
 import { MobileReaderEndOfChapterOverlay } from "@/components/reader/MobileReaderEndOfChapterOverlay";
 import { MobileReaderConnectivityNotice } from "@/components/reader/MobileReaderConnectivityNotice";
+import { useReportMobileToastRegion } from "@/lib/useReportMobileToastRegion";
 import {
   useReaderDisplayEnvironment,
   useReaderDisplayPrefs,
@@ -13012,6 +13013,13 @@ export function ReaderScreen() {
             readerPose.bounds.width - readerNoticeRect.x - readerNoticeRect.width,
         }
       : null;
+  // App toasts (sync, errors) go where the reader's own notices do: over the
+  // page's pane, below the top chrome, never behind the bottom HUD.
+  useReportMobileToastRegion({
+    x: readerNoticeRect.x,
+    width: readerNoticeRect.width,
+    top: insets.top + 76,
+  });
 
   // Web `AuthGateDialog`, mounted on every surface it can stack on (iOS) and
   // presented from the one `promptJapaneseLearningSignIn` chose.

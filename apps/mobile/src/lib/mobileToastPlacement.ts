@@ -1,3 +1,4 @@
+import type { MobileToastRegion } from "@/lib/mobileToastRegion";
 import type { WindowLayoutRect } from "@/lib/mobileWindowLayout";
 
 /** The toast never grows wider than this, however wide its region. */
@@ -6,8 +7,12 @@ export const MOBILE_TOAST_MAX_WIDTH = 420;
 export const MOBILE_TOAST_TAB_BAR_GAP = 12;
 /** Gap above the bottom safe-area edge when no bottom bar is shown. */
 export const MOBILE_TOAST_SAFE_AREA_GAP = 16;
-/** Minimum distance from the fold and from the system rail (book posture). */
+/** Minimum distance from the fold (book posture) and from a split's pane edge. */
 export const MOBILE_TOAST_FOLD_RAIL_GAP = 16;
+/** Gap above the keyboard. */
+export const MOBILE_TOAST_KEYBOARD_GAP = 12;
+/** A screen's region narrower than this is ignored (the window's own rules apply). */
+export const MOBILE_TOAST_MIN_REGION_WIDTH = 240;
 /** UIKit's compact tab bar height above the home indicator (fallback before a measurement). */
 export const MOBILE_IOS_TAB_BAR_FALLBACK_HEIGHT = 49;
 
@@ -15,9 +20,12 @@ export type MobileToastPlacement = {
   /** Window x of the toast's left edge. */
   left: number;
   width: number;
+} & (
   /** Distance from the window's bottom edge. */
-  bottom: number;
-};
+  | { bottom: number; top?: undefined }
+  /** Window y of the toast's top edge (a screen anchored it below its top chrome). */
+  | { top: number; bottom?: undefined }
+);
 
 export type MobileToastPlacementInput = {
   windowWidth: number;
@@ -40,6 +48,10 @@ export type MobileToastPlacementInput = {
   bottomTabBarInset: number | null;
   /** Used when `bottomTabBarInset` is null. */
   fallbackBottomTabBarInset: number;
+  /** The focused screen's main column / anchor (`useMobileToastRegion`). */
+  region?: MobileToastRegion | null;
+  /** Keyboard extent from the window's bottom edge; 0 when hidden. */
+  keyboardHeight?: number;
   layoutDirection?: "ltr" | "rtl";
 };
 
@@ -50,10 +62,16 @@ function finite(value: number, fallback = 0): number {
 /**
  * Where the app-wide toast sits:
  * - bottom: above a bottom tab bar (measured height + 12), else the bottom
- *   safe area + 16 (Duo rail, or a pushed screen without tabs);
- * - book posture: inside the pane next to the rail (the trailing pane when
- *   there is no rail), ≥16pt from the fold and the rail — never across the
- *   fold;
+ *   safe area + 16 (Duo rail, or a pushed screen without tabs); above the
+ *   keyboard (+12) while it is up;
+ * - a screen's region (a split's trailing pane, the reader's page pane): within
+ *   it, ≥16pt from a pane edge inside the window, so never across a sidebar or
+ *   the fold; its `top` anchors the toast there instead of at the bottom;
+ * - a rail is never covered: the region ends at its safe-area edge (the page
+ *   gutters already keep content off it, so the toast centres on the content);
+ * - book posture without a region: inside the pane next to the rail (the
+ *   trailing pane when there is no rail), ≥16pt from the fold — never across
+ *   it;
  * - notebook (laptop) posture: the lower pane, which a bottom-anchored toast
  *   already sits in;
  * - width min(available, 420), centred in its region.
@@ -71,12 +89,28 @@ export function resolveMobileToastPlacement(
 
   let start = gutterLeft;
   let end = windowWidth - gutterRight;
-  // A rail is never covered: keep ≥16pt off it even if the gutters are smaller.
-  if (rail === "left") start = Math.max(start, safeLeft + MOBILE_TOAST_FOLD_RAIL_GAP);
-  if (rail === "right") end = Math.min(end, windowWidth - safeRight - MOBILE_TOAST_FOLD_RAIL_GAP);
+  if (rail === "left") start = Math.max(start, safeLeft);
+  if (rail === "right") end = Math.min(end, windowWidth - safeRight);
+
+  // A screen's region decides first: it already accounts for the fold (a
+  // split's fold-aligned pane, the reader's page pane).
+  const region = input.region;
+  let inRegion = false;
+  if (region && Number.isFinite(region.x) && Number.isFinite(region.width)) {
+    const regionEnd = region.x + region.width;
+    // Pane edges inside the window (a sidebar, the fold) keep a gap; edges at
+    // the window's own edge are already covered by the gutters.
+    const regionStart = Math.max(start, region.x > 0 ? region.x + MOBILE_TOAST_FOLD_RAIL_GAP : region.x);
+    const regionStop = Math.min(end, regionEnd < windowWidth ? regionEnd - MOBILE_TOAST_FOLD_RAIL_GAP : regionEnd);
+    if (regionStop - regionStart >= MOBILE_TOAST_MIN_REGION_WIDTH) {
+      start = regionStart;
+      end = regionStop;
+      inRegion = true;
+    }
+  }
 
   const panels = input.panels;
-  if (input.posture === "book" && panels.length === 2) {
+  if (!inRegion && input.posture === "book" && panels.length === 2) {
     const [first, second] = panels;
     const trailingIsSecond = (input.layoutDirection ?? "ltr") === "ltr";
     const useSecond = rail === "right" ? true : rail === "left" ? false : trailingIsSecond;
@@ -90,7 +124,7 @@ export function resolveMobileToastPlacement(
       start = Math.max(start, pane.x);
       end = Math.min(end, pane.x + pane.width - MOBILE_TOAST_FOLD_RAIL_GAP);
     }
-  } else if (input.posture === "notebook" && panels.length === 2) {
+  } else if (!inRegion && input.posture === "notebook" && panels.length === 2) {
     const lower = panels[1];
     start = Math.max(start, lower.x);
     end = Math.min(end, lower.x + lower.width);
@@ -99,15 +133,20 @@ export function resolveMobileToastPlacement(
   const available = Math.max(0, end - start);
   const width = Math.min(available, MOBILE_TOAST_MAX_WIDTH);
   const left = start + (available - width) / 2;
+  if (region?.top !== undefined && Number.isFinite(region.top)) {
+    return { left, width, top: Math.max(0, region.top) };
+  }
 
   const hasBottomTabBar = input.bottomTabBarVisible && rail === null;
   const measured = input.bottomTabBarInset;
   const tabBarInset = measured !== null && Number.isFinite(measured) && measured > 0
     ? Math.max(measured, safeBottom)
     : Math.max(0, finite(input.fallbackBottomTabBarInset));
-  const bottom = hasBottomTabBar
+  const resting = hasBottomTabBar
     ? tabBarInset + MOBILE_TOAST_TAB_BAR_GAP
     : safeBottom + MOBILE_TOAST_SAFE_AREA_GAP;
+  const keyboard = Math.max(0, finite(input.keyboardHeight ?? 0));
+  const bottom = keyboard > 0 ? Math.max(resting, keyboard + MOBILE_TOAST_KEYBOARD_GAP) : resting;
 
   return { left, width, bottom };
 }
