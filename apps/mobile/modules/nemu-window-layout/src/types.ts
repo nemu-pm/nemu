@@ -54,7 +54,16 @@ export type MobileWindowLayout = {
    * Android, web and older natives.
    */
   foldableDevice?: boolean;
+  /**
+   * UIKit size classes of the observer's window (iOS; `window.traitCollection`).
+   * Absent on Android, web, older natives and while unspecified: layout then
+   * falls back to width/height thresholds (`mobileAdaptiveLayout`).
+   */
+  horizontalSizeClass?: WindowSizeClass;
+  verticalSizeClass?: WindowSizeClass;
 };
+/** A UIKit size class (`UIUserInterfaceSizeClass`, unspecified omitted). */
+export type WindowSizeClass = "compact" | "regular";
 /** A window size change (rotation, fold, Split View) about to animate, with the system's own timing. */
 export type WindowTransitionTiming = {
   width: number;

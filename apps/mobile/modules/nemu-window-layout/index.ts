@@ -45,6 +45,7 @@ export type {
   WindowReservedRegion,
   WindowLayoutRect,
   WindowLayoutObserverProps,
+  WindowSizeClass,
   WindowTransitionTiming,
 } from "./src/types";
 

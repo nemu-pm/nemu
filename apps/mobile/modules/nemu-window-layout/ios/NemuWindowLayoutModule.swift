@@ -1247,7 +1247,7 @@ private let windowLayoutLog = Logger(subsystem: "pm.nemu.window-layout", categor
 /// - bounds / safe area / window: `layoutSubviews`, `safeAreaInsetsDidChange`,
 ///   `didMoveToWindow`;
 /// - traits (size classes, layout direction, `systemTraitsAffectingVerticalBarEdge`):
-///   `registerForTraitChanges`;
+///   `registerForTraitChanges`; the payload carries the window's size classes;
 /// - fold active ↔ inactive at constant bounds: `UIHingeInteraction` (documented
 ///   to call its handler whenever the hinge state changes) plus a hosted SwiftUI
 ///   probe whose `onGeometryChange` reads `GeometryProxy.reservedRegions`, the
@@ -1543,6 +1543,24 @@ final class NemuWindowLayoutView: ExpoView {
     }
     payload["safeAreaInsets"] = ["top": insets.top, "left": insets.left, "bottom": insets.bottom, "right": insets.right]
     payload["layoutDirection"] = effectiveUserInterfaceLayoutDirection == .rightToLeft ? "rtl" : "ltr"
+    // The window's size classes, not this view's: a sheet or popover hosting
+    // the observer overrides its own (an iPad form sheet is compact width),
+    // while layout decisions follow the window, as UISplitViewController's do.
+    // Changes reach this view through the trait registration above.
+    let windowTraits = window?.traitCollection ?? traitCollection
+    let sizeClassName = { (sizeClass: UIUserInterfaceSizeClass) -> String? in
+      switch sizeClass {
+      case .compact: "compact"
+      case .regular: "regular"
+      default: nil
+      }
+    }
+    if let horizontal = sizeClassName(windowTraits.horizontalSizeClass) {
+      payload["horizontalSizeClass"] = horizontal
+    }
+    if let vertical = sizeClassName(windowTraits.verticalSizeClass) {
+      payload["verticalSizeClass"] = vertical
+    }
     let snapshot = payload as NSDictionary
     guard lastSnapshot?.isEqual(snapshot) != true else { return }
     lastSnapshot = snapshot

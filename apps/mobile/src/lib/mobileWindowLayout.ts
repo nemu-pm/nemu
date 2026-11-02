@@ -4,6 +4,7 @@ import type {
   WindowLayoutEdgeInsets,
   WindowLayoutRect,
   WindowReservedRegion,
+  WindowSizeClass,
 } from "../../modules/nemu-window-layout";
 
 export type MobileWindowPanels = {
@@ -123,7 +124,14 @@ export function mobileWindowUnoccludedRect(panel: WindowLayoutRect, occlusions: 
     ?? { ...panel, width: 0, height: 0 };
 }
 
-export type { MobileWindowLayout, WindowHingeStatus, WindowLayoutEdgeInsets, WindowLayoutRect, WindowReservedRegion };
+export type {
+  MobileWindowLayout,
+  WindowHingeStatus,
+  WindowLayoutEdgeInsets,
+  WindowLayoutRect,
+  WindowReservedRegion,
+  WindowSizeClass,
+};
 
 /** Reader geometry is physical; source reading order only chooses the single-page side. */
 export function mobileWindowReaderLayout(
