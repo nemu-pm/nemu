@@ -10,6 +10,7 @@ import {
 } from "@/data/schema";
 import {
   buildMobileEntryProgressMap,
+  buildMobileLibraryCardProgress,
   buildMobileLibraryEntryProgressMaps,
   buildMobileProgressIndex,
   getMobileCollectionBookSubtitle,
@@ -25,6 +26,7 @@ import {
   shouldShowMobileLibraryLoadErrorBanner,
   sortMobileLibraryEntries,
   sortMobileLibraryMergeCandidates,
+  stabilizeMobileLibraryCardProgress,
 } from "./mobileLibraryPresentation";
 import { getMobileStrings } from "./mobileI18n";
 
@@ -723,5 +725,63 @@ describe("mobile library sort parity", () => {
     sortMobileLibraryEntries(input, progressIndex);
 
     expect(input).toEqual(entries);
+  });
+});
+
+describe("mobile library card progress", () => {
+  const latest = { latestChapter: { id: "c5", chapterNumber: 5 } };
+  const entries = [
+    entry("read", 10, [sourceLink("read", latest)]),
+    entry("other", 20, [sourceLink("other", latest)]),
+  ];
+
+  function cards(rows: LocalMangaProgress[]) {
+    const progressIndex = buildMobileProgressIndex(rows);
+    return buildMobileLibraryCardProgress(
+      entries,
+      progressIndex,
+      en,
+      buildMobileLibraryEntryProgressMaps(entries, progressIndex)
+    );
+  }
+
+  test("reads like the card's progress info, with the quick-action source", () => {
+    const progressIndex = buildMobileProgressIndex([progress("read", 100, "c2")]);
+    const built = cards([progress("read", 100, "c2")]);
+    for (const item of entries) {
+      const info = getMobileLibraryProgressInfo(item, progressIndex, en);
+      expect(built.get(item.item.libraryItemId)).toEqual({
+        subtitle: info.subtitle,
+        badge: info.badge,
+        quickActionSource: getMobileEntryQuickActionSource(item, progressIndex),
+      });
+    }
+  });
+
+  test("a page turn that only moves the read time keeps every card and the map", () => {
+    const before = cards([progress("read", 100, "c2"), progress("other", 50, "c1")]);
+    const after = cards([progress("read", 200, "c2"), progress("other", 50, "c1")]);
+    expect(stabilizeMobileLibraryCardProgress(before, after)).toBe(before);
+  });
+
+  test("a new chapter replaces only that title's card", () => {
+    const before = cards([progress("read", 100, "c2"), progress("other", 50, "c1")]);
+    const after = cards([progress("read", 200, "c3"), progress("other", 50, "c1")]);
+    const stable = stabilizeMobileLibraryCardProgress(before, after);
+    expect(stable).not.toBe(before);
+    expect(stable.get("read")).toBe(after.get("read"));
+    expect(stable.get("read")?.subtitle).toBe("Ch.3 / Ch.5");
+    expect(stable.get("other")).toBe(before.get("other"));
+    // Settles: the stabilized map is kept against the same next value.
+    expect(stabilizeMobileLibraryCardProgress(stable, after)).toBe(stable);
+  });
+
+  test("a title leaving or arriving replaces the map", () => {
+    const both = cards([progress("read", 100, "c2")]);
+    const one = new Map([...both].filter(([id]) => id === "read"));
+    const stable = stabilizeMobileLibraryCardProgress(both, one);
+    expect(stable).not.toBe(both);
+    expect([...stable.keys()]).toEqual(["read"]);
+    expect(stable.get("read")).toBe(both.get("read"));
   });
 });

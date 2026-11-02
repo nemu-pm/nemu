@@ -13,7 +13,7 @@ const librarySource = readFileSync(
 );
 
 function mainLibraryReturn(): string {
-  const start = librarySource.lastIndexOf("  return (\n    <MobileQuickActionProvider");
+  const start = librarySource.lastIndexOf("  return (\n    <>\n    {designExplore ? <MobileExploreDustHost");
   expect(start).toBeGreaterThan(-1);
   return librarySource.slice(start, librarySource.indexOf("\nconst styles = StyleSheet.create", start));
 }
@@ -76,7 +76,7 @@ describe("empty library keeps collection management reachable", () => {
 
 describe("collection switching stays in place", () => {
   test("the populated library mounts the title menu on its header", () => {
-    const main = librarySource.slice(librarySource.lastIndexOf("  return (\n    <MobileQuickActionProvider"));
+    const main = mainLibraryReturn();
     expect(main).toContain("titleMenuHeaderOptions(title)");
     expect(main).toContain("{titleMenuAnchor}");
   });

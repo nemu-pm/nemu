@@ -1,5 +1,6 @@
-import { MobileQuickActionMenu, MobileQuickActionProvider, mobileNativeQuickMenuAvailable } from "@/components/MobileQuickActionMenu";
+import { MobileQuickActionMenu, mobileNativeQuickMenuAvailable } from "@/components/MobileQuickActionMenu";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
+import { useStableList, useStableValue } from "@/lib/useStableList";
 import {
   memo,
   useCallback,
@@ -74,7 +75,7 @@ import {
   type InstalledSource,
   type LibraryEntry,
   type LocalCollection,
-  type LocalMangaProgress,
+  type LocalSourceLink,
 } from "@/data/schema";
 import {
   createNemuNativeScreenOptions,
@@ -181,6 +182,7 @@ import {
 } from "@/lib/mobileLibraryRefresh";
 import { resolveMobileSheetHeaderMetrics } from "@/lib/mobileNativeSheet";
 import {
+  buildMobileLibraryCardProgress,
   buildMobileLibraryEntryProgressMaps,
   buildMobileProgressIndex,
   getMobileEntryQuickActionSource,
@@ -191,8 +193,9 @@ import {
   shouldShowMobileLibraryLoadError,
   shouldShowMobileLibraryLoadErrorBanner,
   sortMobileLibraryEntries,
+  stabilizeMobileLibraryCardProgress,
+  type MobileLibraryCardProgress,
   type MobileLibraryEntryProgressMaps,
-  type MobileLibraryProgressIndex,
 } from "@/lib/mobileLibraryPresentation";
 import {
   loadMobileSourceSettingsByKeys,
@@ -218,23 +221,16 @@ type LibraryScreenProps = {
 
 function toMangaCard(
   entry: LibraryEntry,
-  progressIndex: MobileLibraryProgressIndex,
+  cardProgress: MobileLibraryCardProgress | undefined,
   strings: MobileStrings,
   coverRequest: MobileSourceImageRequest | null = null,
-  entryProgress?: Map<string, LocalMangaProgress>,
 ): MangaCardModel {
-  const progressInfo = getMobileLibraryProgressInfo(
-    entry,
-    progressIndex,
-    strings,
-    entryProgress,
-  );
   const cover = resolveMobileEntryDisplayCover(entry);
   return {
     id: entry.item.libraryItemId,
     title: getEntryTitle(entry),
-    subtitle: progressInfo.subtitle,
-    badge: progressInfo.badge,
+    subtitle: cardProgress?.subtitle ?? strings.library.progressUnread,
+    badge: cardProgress?.badge,
     cover: coverRequest?.url ?? cover,
     coverHeaders: coverRequest?.headers,
   };
@@ -277,20 +273,22 @@ function LibraryLayoutRow({
 
 const LibraryGridItem = memo(function LibraryGridItem({
   entry,
-  entryProgress,
-  progressIndex,
+  cardProgress,
   strings,
   installedSources,
+  getActions,
   onLongPress,
   placeholderWidth,
 }: {
   entry: LibraryEntry;
   /** Design-explore: draws the cloth-book placeholder at this width. */
   placeholderWidth?: number;
-  entryProgress?: Map<string, LocalMangaProgress>;
-  progressIndex: MobileLibraryProgressIndex;
+  /** Kept per title while its card reads the same (stabilizeMobileLibraryCardProgress). */
+  cardProgress?: MobileLibraryCardProgress;
   strings: MobileStrings;
   installedSources: InstalledSource[];
+  /** The native long-press menu's actions for a title opening in `source`. */
+  getActions: (entry: LibraryEntry, source: LocalSourceLink | undefined) => QuickAction[];
   onLongPress?: (entry: LibraryEntry) => void;
 }) {
   // Design-explore: the sharper cover another source has; always null with
@@ -310,9 +308,13 @@ const LibraryGridItem = memo(function LibraryGridItem({
   );
   const coverRequest = useMobileSourceImageRequest(installedSource, cover);
   const item = useMemo(
-    () =>
-      toMangaCard(entry, progressIndex, strings, coverRequest, entryProgress),
-    [coverRequest, entry, entryProgress, progressIndex, strings],
+    () => toMangaCard(entry, cardProgress, strings, coverRequest),
+    [cardProgress, coverRequest, entry, strings],
+  );
+  const quickActionSource = cardProgress?.quickActionSource;
+  const actions = useMemo(
+    () => (mobileNativeQuickMenuAvailable ? getActions(entry, quickActionSource) : undefined),
+    [entry, getActions, quickActionSource],
   );
   // Keeps the card's callback identity tied to the row, not to the render.
   const handleLongPress = useCallback(() => {
@@ -335,7 +337,7 @@ const LibraryGridItem = memo(function LibraryGridItem({
   );
 
   return (
-    <MobileQuickActionMenu actionKey={entry.item.libraryItemId}>
+    <MobileQuickActionMenu actions={actions}>
     <MangaCard
       item={item}
       onLongPress={!mobileNativeQuickMenuAvailable && onLongPress ? handleLongPress : undefined}
@@ -1018,10 +1020,22 @@ export function LibraryScreen({
     () => buildMobileLibraryEntryProgressMaps(libraryEntries, progressIndex),
     [libraryEntries, progressIndex]
   );
-  const sortedLibraryEntries = useMemo(
-    () =>
-      sortMobileLibraryEntries(libraryEntries, progressIndex, entryProgressMaps),
-    [entryProgressMaps, libraryEntries, progressIndex]
+  // A page turn moves the open title's read time on: the order (and so the
+  // rows) only changes when a title actually moves.
+  const sortedLibraryEntries = useStableList(
+    useMemo(
+      () =>
+        sortMobileLibraryEntries(libraryEntries, progressIndex, entryProgressMaps),
+      [entryProgressMaps, libraryEntries, progressIndex]
+    )
+  );
+  const cardProgress = useStableValue(
+    useMemo(
+      () =>
+        buildMobileLibraryCardProgress(libraryEntries, progressIndex, strings, entryProgressMaps),
+      [entryProgressMaps, libraryEntries, progressIndex, strings]
+    ),
+    stabilizeMobileLibraryCardProgress
   );
   const visibleEntries = useMemo(
     () =>
@@ -2023,8 +2037,7 @@ export function LibraryScreen({
   );
 
   const openEntryInSource = useCallback(
-    (entry: LibraryEntry) => {
-      const link = getMobileEntryQuickActionSource(entry, progressIndex);
+    (entry: LibraryEntry, link: LocalSourceLink | undefined) => {
       if (!link) return;
       router.push(
         getMobileSourceMangaHref({
@@ -2035,7 +2048,7 @@ export function LibraryScreen({
         }),
       );
     },
-    [progressIndex],
+    [],
   );
 
   const quickActionLink = useMemo(
@@ -2089,8 +2102,7 @@ export function LibraryScreen({
     strings,
   ]);
 
-  const getEntryActions = useCallback((entry: LibraryEntry): QuickAction[] => {
-    const link = getMobileEntryQuickActionSource(entry, progressIndex);
+  const getEntryActions = useCallback((entry: LibraryEntry, link: LocalSourceLink | undefined): QuickAction[] => {
     const actionSource = link ? findInstalledSourceForLink(installedSources.data, link) : null;
     const actions: QuickAction[] = [
       {
@@ -2121,7 +2133,7 @@ export function LibraryScreen({
         icon: "open-outline",
         onPress: () => {
           setQuickActionEntry(null);
-          openEntryInSource(entry);
+          openEntryInSource(entry, link);
         },
       });
     }
@@ -2136,13 +2148,11 @@ export function LibraryScreen({
       },
     });
     return mobileDesignExploreFlag ? orderMobileTitleQuickActions(actions) : actions;
-  }, [progressIndex, installedSources.data, strings, handleQuickActionMarkAllRead, handleQuickActionRemove, openEntryInSource]);
-  const quickActions = useMemo(() => quickActionEntry ? getEntryActions(quickActionEntry) : [], [quickActionEntry, getEntryActions]);
-  const quickMenuEntries = useMemo(() => new Map(libraryEntries.map(entry => [entry.item.libraryItemId, entry])), [libraryEntries]);
-  const getContextActions = useCallback((id: string) => {
-    const entry = quickMenuEntries.get(id);
-    return entry ? getEntryActions(entry) : [];
-  }, [getEntryActions, quickMenuEntries]);
+  }, [installedSources.data, strings, handleQuickActionMarkAllRead, handleQuickActionRemove, openEntryInSource]);
+  const quickActions = useMemo(
+    () => (quickActionEntry ? getEntryActions(quickActionEntry, quickActionLink ?? undefined) : []),
+    [quickActionEntry, quickActionLink, getEntryActions],
+  );
 
   // The card's own NemuPressable already fires the long-press haptic; a
   // second manual pulse here made every long press buzz twice.
@@ -2235,10 +2245,10 @@ export function LibraryScreen({
           <ExploreDissolveTarget id={entry.item.libraryItemId}>
             <LibraryGridItem
               entry={entry}
-              entryProgress={entryProgressMaps.get(entry.item.libraryItemId)}
-              progressIndex={progressIndex}
+              cardProgress={cardProgress.get(entry.item.libraryItemId)}
               strings={strings}
               installedSources={installedSources.data}
+              getActions={getEntryActions}
               onLongPress={handleGridItemLongPress}
               placeholderWidth={gridItemWidth}
             />
@@ -2246,10 +2256,10 @@ export function LibraryScreen({
         ) : (
           <LibraryGridItem
             entry={entry}
-            entryProgress={entryProgressMaps.get(entry.item.libraryItemId)}
-            progressIndex={progressIndex}
+            cardProgress={cardProgress.get(entry.item.libraryItemId)}
             strings={strings}
             installedSources={installedSources.data}
+            getActions={getEntryActions}
             onLongPress={handleGridItemLongPress}
           />
         )}
@@ -2257,8 +2267,9 @@ export function LibraryScreen({
       );
     },
     [
+      cardProgress,
       designExplore,
-      entryProgressMaps,
+      getEntryActions,
       gridColumnMargins,
       gridColumns,
       gridGlideFrom,
@@ -2266,7 +2277,6 @@ export function LibraryScreen({
       gridRowPitch,
       handleGridItemLongPress,
       installedSources.data,
-      progressIndex,
       strings,
     ],
   );
@@ -2292,12 +2302,12 @@ export function LibraryScreen({
   // never fired; the memoized value only changes when a cell input does.
   const libraryGridExtraData = useMemo(
     () => ({
-      entryProgressMaps,
+      cardProgress,
+      getEntryActions,
       installedSources: installedSources.data,
-      progressIndex,
       strings,
     }),
-    [entryProgressMaps, installedSources.data, progressIndex, strings],
+    [cardProgress, getEntryActions, installedSources.data, strings],
   );
 
   // Collection management sheets. Rendered by the empty-library state too, so
@@ -2573,7 +2583,7 @@ export function LibraryScreen({
   }
 
   return (
-    <MobileQuickActionProvider value={getContextActions}>
+    <>
     {designExplore ? <MobileExploreDustHost /> : null}
     {usesNativeHeader ? (
       <>
@@ -2780,7 +2790,7 @@ export function LibraryScreen({
       }
     />
     {librarySheets}
-    </MobileQuickActionProvider>
+    </>
   );
 }
 

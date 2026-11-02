@@ -377,6 +377,67 @@ export function getMobileLibraryProgressInfo(
 }
 
 /**
+ * What a Library cover card shows of its title's reading progress, and the
+ * source its quick actions open (the most recently read linked source, else
+ * the first linked one).
+ */
+export type MobileLibraryCardProgress = {
+  subtitle: string;
+  badge?: string;
+  quickActionSource?: LocalSourceLink;
+};
+
+/** Each title's card progress, keyed by `libraryItemId`. */
+export function buildMobileLibraryCardProgress(
+  entries: LibraryEntry[],
+  progressIndex: MobileLibraryProgressIndex,
+  strings: MobileStrings,
+  entryProgressMaps?: MobileLibraryEntryProgressMaps
+): Map<string, MobileLibraryCardProgress> {
+  const cards = new Map<string, MobileLibraryCardProgress>();
+  for (const entry of entries) {
+    const progress = resolveMobileEntryProgressMap(
+      entry,
+      progressIndex,
+      entryProgressMaps?.get(entry.item.libraryItemId)
+    );
+    const info = getMobileLibraryProgressInfo(entry, progressIndex, strings, progress);
+    cards.set(entry.item.libraryItemId, {
+      subtitle: info.subtitle,
+      badge: info.badge,
+      quickActionSource: getMobileEntryMostRecentSource(entry, progress),
+    });
+  }
+  return cards;
+}
+
+/**
+ * Keeps the current card object for every title whose card reads the same,
+ * and the current map when no card changed. Reading writes the open title's
+ * progress (its read time) on every page turn while the Library stays mounted
+ * under the reader; only a card whose text or source changed re-renders.
+ */
+export function stabilizeMobileLibraryCardProgress(
+  current: ReadonlyMap<string, MobileLibraryCardProgress>,
+  next: ReadonlyMap<string, MobileLibraryCardProgress>
+): ReadonlyMap<string, MobileLibraryCardProgress> {
+  if (current === next) return current;
+  let reusedAll = current.size === next.size;
+  const stable = new Map<string, MobileLibraryCardProgress>();
+  for (const [id, card] of next) {
+    const previous = current.get(id);
+    const same =
+      previous !== undefined &&
+      previous.subtitle === card.subtitle &&
+      previous.badge === card.badge &&
+      previous.quickActionSource === card.quickActionSource;
+    if (!same) reusedAll = false;
+    stable.set(id, same ? previous : card);
+  }
+  return reusedAll ? current : stable;
+}
+
+/**
  * Schwartzian transform: each entry is decorated once with the three sort
  * keys, so a comparison never rebuilds a progress map or re-reads a title.
  * Ordering is identical to the previous per-comparison implementation.
