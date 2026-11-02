@@ -48,6 +48,17 @@ export type MobileSourceInstallResultAction =
   | "close-confirmation"
   | "keep-confirmation-open";
 
+/**
+ * Whether any added directory lists an explicit source (content rating 2), so
+ * the Add Source filter only offers the explicit toggle when it can show
+ * something.
+ */
+export function hasMobileExplicitSources(
+  sources: Array<{ contentRating?: number }>,
+): boolean {
+  return sources.some((source) => (source.contentRating ?? 0) >= 2);
+}
+
 export function filterMobileAvailableSources<T extends MobileBrowseSource>(
   sources: T[],
   options: {

@@ -113,6 +113,7 @@ import {
   buildMobileSourceQuickActions,
   canStartMobileSourceInstall,
   filterMobileAvailableSources,
+  hasMobileExplicitSources,
   getMobileAvailableSourceLanguageOptions,
   getMobileSourceInstallHandoff,
   getMobileSourceInstallResultAction,
@@ -417,7 +418,8 @@ function LanguageFilterSheetSection({
   onSelectAll: () => void;
   onToggleLanguage: (language: string) => void;
   showAdult: boolean;
-  onToggleAdult: () => void;
+  /** Null when no added directory lists an explicit source: no toggle then. */
+  onToggleAdult: (() => void) | null;
 }) {
   const { tokens } = useNemuTheme();
   const visibleLanguages = languages.filter((language) => language !== "all");
@@ -521,6 +523,7 @@ function LanguageFilterSheetSection({
         above its layout box. The settings card uses the same plain surface
         and its switches sit on the row's centre line.
       */}
+      {onToggleAdult ? (
       <View
         style={[
           styles.languageListSection,
@@ -561,6 +564,7 @@ function LanguageFilterSheetSection({
           </View>
         </View>
       </View>
+      ) : null}
     </>
   );
 }
@@ -1204,14 +1208,20 @@ export function BrowseScreen() {
     uninstallingSourceId,
   ]);
 
+  const hasExplicitSources = useMemo(
+    () => hasMobileExplicitSources(available.data),
+    [available.data],
+  );
+  // A toggle left on stays off while no directory lists explicit sources.
+  const adultShown = showAdult && hasExplicitSources;
   const filteredAvailable = useMemo(() => {
     return filterMobileAvailableSources(available.data, {
       appLanguage,
       query,
       selectedLanguages,
-      showAdult,
+      showAdult: adultShown,
     });
-  }, [appLanguage, available.data, query, selectedLanguages, showAdult]);
+  }, [adultShown, appLanguage, available.data, query, selectedLanguages]);
   const groupedAvailable = useMemo(
     () =>
       groupMobileSourcesByLanguage(filteredAvailable, appLanguage, {
@@ -1276,7 +1286,7 @@ export function BrowseScreen() {
     strings,
     appLanguage,
   );
-  const activeFilterCount = selectedLanguages.size + (showAdult ? 1 : 0);
+  const activeFilterCount = selectedLanguages.size + (adultShown ? 1 : 0);
 
   const restoreAddSourceSheet = useCallback(() => {
     setActiveSheet("add-source");
@@ -2194,7 +2204,7 @@ export function BrowseScreen() {
                 value={query}
               />
 
-              {selectedLanguages.size > 0 || showAdult ? (
+              {selectedLanguages.size > 0 || adultShown ? (
                 <View style={styles.activeFilterChips}>
                   {[...selectedLanguages].map((language) => (
                     <ActiveFilterChip
@@ -2208,7 +2218,7 @@ export function BrowseScreen() {
                       onPress={() => toggleLanguage(language)}
                     />
                   ))}
-                  {showAdult ? (
+                  {adultShown ? (
                     <ActiveFilterChip
                       label={strings.browse.adult}
                       removeLabel={strings.common.remove}
@@ -2337,8 +2347,10 @@ export function BrowseScreen() {
             appLanguage={appLanguage}
             onSelectAll={() => setSelectedLanguages(new Set())}
             onToggleLanguage={toggleLanguage}
-            showAdult={showAdult}
-            onToggleAdult={() => setShowAdult((value) => !value)}
+            showAdult={adultShown}
+            onToggleAdult={
+              hasExplicitSources ? () => setShowAdult((value) => !value) : null
+            }
           />
         </MobileNativeSheetScaffold>
       ) : null}

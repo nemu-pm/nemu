@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { InstalledSource } from "@/data/schema";
 import type { MobileRegistrySource } from "@/sources/aidokuRegistry";
 import {
+  hasMobileExplicitSources,
   buildMobileInstalledSourceKeySet,
   buildMobileSourceQuickActions,
   canStartMobileSourceInstall,
@@ -848,5 +849,13 @@ describe("origin labels", () => {
     expect(getMobileRegistryDisplayName("custom-aidoku", "custom-aidoku", strings)).toBe("来源文件");
     expect(getMobileRegistryDisplayName("d-abc", "Other list", strings)).toBe("Other list");
     expect(getMobileRegistryDisplayName("nemu-recommended", "nemu-recommended")).toBe("nemu-recommended");
+  });
+});
+
+describe("explicit source filter", () => {
+  test("is offered only when an added directory lists an explicit source", () => {
+    expect(hasMobileExplicitSources([])).toBe(false);
+    expect(hasMobileExplicitSources([{}, { contentRating: 0 }, { contentRating: 1 }])).toBe(false);
+    expect(hasMobileExplicitSources([{ contentRating: 0 }, { contentRating: 2 }])).toBe(true);
   });
 });
