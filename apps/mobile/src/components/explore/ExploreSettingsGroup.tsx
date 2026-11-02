@@ -37,7 +37,9 @@ const ROW_HEIGHT = 52;
  * glance; the longer descriptions move to the VoiceOver hint.
  *
  * The regular-width split view's section list is the same group, its
- * selected row filled with the accent (as the system Settings sidebar).
+ * selected row filled with the accent (as the system Settings sidebar). Rows
+ * highlight on touch-down like table cells (`pressHighlight`, clipped by the
+ * group), then take the selection.
  */
 export function ExploreSettingsGroup({ rows }: { rows: ExploreSettingsRow[] }) {
   const { tokens } = useNemuTheme();
@@ -68,7 +70,7 @@ export function ExploreSettingsGroup({ rows }: { rows: ExploreSettingsRow[] }) {
               }}
               disabled={row.disabled}
               hapticFeedback={row.selected === undefined ? "press" : "selection"}
-              pressedScale={1}
+              pressHighlight
               onPress={row.onPress}
               style={[styles.row, selected ? { backgroundColor: tokens.primary } : null]}
             >
