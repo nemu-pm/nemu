@@ -1,13 +1,11 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import {
   claimMobileSplashHide,
-  holdMobileLaunchRevealForImage,
   MOBILE_SPLASH_CONTENT_TIMEOUT_MS,
   registerMobileSplashForceHide,
   releaseMobileSplashHideClaim,
   startMobileSplashSafetyCap,
   isMobileLaunchContentReady,
-  MOBILE_LAUNCH_IMAGE_HOLD_MS,
   markMobileLaunchContentReady,
   resetMobileLaunchContentReadyForTests,
   shouldHideMobileSplashScreen,
@@ -47,39 +45,6 @@ describe("launch content readiness", () => {
     markMobileLaunchContentReady();
     expect(called).toBe(false);
   });
-
-  test("the reveal waits for the images mounted under the launch screen", () => {
-    let calls = 0;
-    subscribeMobileLaunchContentReady(() => {
-      calls += 1;
-    });
-    const first = holdMobileLaunchRevealForImage()!;
-    const second = holdMobileLaunchRevealForImage()!;
-    markMobileLaunchContentReady();
-    expect(isMobileLaunchContentReady()).toBe(false);
-    first();
-    first(); // a second release counts once
-    expect(isMobileLaunchContentReady()).toBe(false);
-    second();
-    expect(isMobileLaunchContentReady()).toBe(true);
-    expect(calls).toBe(1);
-    // Mounted after the reveal: nothing to hold.
-    expect(holdMobileLaunchRevealForImage()).toBeNull();
-  });
-
-  test("an image released before the snapshot holds nothing", () => {
-    holdMobileLaunchRevealForImage()!();
-    markMobileLaunchContentReady();
-    expect(isMobileLaunchContentReady()).toBe(true);
-  });
-
-  test("an image that never paints holds the reveal only up to the cap", async () => {
-    holdMobileLaunchRevealForImage();
-    markMobileLaunchContentReady();
-    expect(isMobileLaunchContentReady()).toBe(false);
-    await new Promise((resolve) => setTimeout(resolve, MOBILE_LAUNCH_IMAGE_HOLD_MS + 50));
-    expect(isMobileLaunchContentReady()).toBe(true);
-  });
 });
 
 describe("launch screen safety cap", () => {
@@ -111,7 +76,7 @@ describe("launch screen safety cap", () => {
     expect(forced).toBe(0);
   });
 
-  test("the cap releases the content through image holds and wakes the root", async () => {
+  test("the cap releases the content and wakes the root", async () => {
     let woke = 0;
     subscribeMobileLaunchContentReady(() => {
       woke += 1;
@@ -122,7 +87,6 @@ describe("launch screen safety cap", () => {
     registerMobileSplashForceHide(() => {
       forced += 1;
     });
-    holdMobileLaunchRevealForImage();
     startMobileSplashSafetyCap(Date.now() - MOBILE_SPLASH_CONTENT_TIMEOUT_MS);
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(woke).toBe(1);

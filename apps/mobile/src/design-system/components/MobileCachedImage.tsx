@@ -33,7 +33,7 @@ import {
 } from "@/lib/mobileImageCache";
 import { isMobileAppLocalImageUri } from "@/lib/mobileAppLocalImageUris";
 import { resolveMobileLocalArchiveImageUri } from "@/lib/mobileLocalArchiveImageUri";
-import { holdMobileLaunchRevealForImage, isMobileLaunchContentReady } from "@/lib/mobileSplashScreen";
+import { isMobileLaunchContentReady } from "@/lib/mobileSplashScreen";
 import {
   isRepairableMobileSourceImageUri,
   reportMobileSourceImageLoadFailure,
@@ -236,22 +236,15 @@ export function MobileCachedImage({
     [cacheStorageKey],
   );
   // Mounted under the launch screen with its bytes already local (an app-local
-  // file or a cover whose cache file is known): the reveal waits briefly for
-  // it to paint, so it shows at once. Anything that still needs a download or
-  // a source request never holds the launch screen; it fades in after it.
+  // file or a cover whose cache file is known): it shows the moment it
+  // decodes, without a fade of its own, and comes in with the launch reveal.
+  // Anything that still needs a download or a source request fades in after.
   const [underLaunch] = useState(
     () =>
       !isMobileLaunchContentReady() &&
       uriPolicy.allowed &&
       (uriPolicy.kind !== "source-remote" || synchronouslyCachedAsset != null),
   );
-  const releaseLaunchRef = useRef<(() => void) | null>(null);
-  useLayoutEffect(() => {
-    if (!underLaunch) return;
-    const release = holdMobileLaunchRevealForImage();
-    releaseLaunchRef.current = release;
-    return () => release?.();
-  }, [underLaunch]);
   // Reduce Motion turns the 240ms cover fade into an instant reveal.
   const skipFade = reduceMotion === true || !fadeIn || underLaunch;
   // Starts hidden unless the fade is skipped; a source already shown this
@@ -429,11 +422,6 @@ export function MobileCachedImage({
   useLayoutEffect(() => {
     if (retainedUri) retainMobileDecodedReaderImage(retainedUri);
   }, [retainCurrent, retainedUri]);
-  // A failed image has nothing to paint; one still resolving holds to the cap.
-  useEffect(() => {
-    if (failed) releaseLaunchRef.current?.();
-  }, [failed]);
-
   useEffect(() => {
     onSegmentedImageRef.current?.(
       cachedAsset?.kind === "segmented-image" && allowLongStripSegments
@@ -537,7 +525,6 @@ export function MobileCachedImage({
   const handleImageLoad = useCallback<NonNullable<ImageProps["onLoad"]>>(
     (event) => {
       markSourceShown(sourceKey);
-      releaseLaunchRef.current?.();
       if (holdPreviousWhileLoading && imageSource) {
         setShownImage((current) =>
           current?.sourceKey === sourceKey ? current : { sourceKey, source: imageSource },

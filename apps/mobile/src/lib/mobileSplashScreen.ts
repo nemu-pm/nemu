@@ -30,63 +30,33 @@ export function shouldHideMobileSplashScreen({
  */
 export const MOBILE_SPLASH_CONTENT_TIMEOUT_MS = 2500;
 
-/**
- * The longest the launch screen waits, once the snapshot is in, for the images
- * already mounted under it (`holdMobileLaunchRevealForImage`). Only images
- * whose bytes are already local hold it (a decode takes a frame or few); a
- * cover that needs a source request or a download never does.
- */
-export const MOBILE_LAUNCH_IMAGE_HOLD_MS = 150;
-
 let safetyCapTimer: ReturnType<typeof setTimeout> | null = null;
 let safetyCapExpired = false;
 let splashHideClaimed = false;
 let forceHideSplash: (() => void) | null = null;
 
-let launchContentMarked = false;
 let launchContentReady = false;
-let launchImageHolds = 0;
-let launchImageTimer: ReturnType<typeof setTimeout> | null = null;
 const launchContentListeners = new Set<() => void>();
 
 function releaseLaunchContent(): void {
   if (launchContentReady) return;
-  if (launchImageTimer) clearTimeout(launchImageTimer);
-  launchImageTimer = null;
   launchContentReady = true;
   for (const listener of [...launchContentListeners]) listener();
 }
 
 /**
  * The first screen calls this once its first local snapshot is on screen.
- * The launch screen then also waits for the images mounted under it to
- * paint, so the first revealed frame already has its covers.
+ *
+ * The launch screen does not also wait for the covers under it: a cover's
+ * `onLoad` reaches JS only when the main run loop next goes idle (Fabric
+ * dispatches events then), so it trails the native draw by a beat, and while
+ * UIKit is busy at launch (the Duo's tab rail repair, inner landscape) by
+ * longer than any cap. Covers whose bytes are local are drawn natively as
+ * they decode, without a fade of their own (MobileCachedImage), behind the
+ * Library's reveal veil.
  */
 export function markMobileLaunchContentReady(): void {
-  if (launchContentMarked) return;
-  launchContentMarked = true;
-  if (launchImageHolds === 0) {
-    releaseLaunchContent();
-    return;
-  }
-  launchImageTimer = setTimeout(releaseLaunchContent, MOBILE_LAUNCH_IMAGE_HOLD_MS);
-}
-
-/**
- * An image mounted under the launch screen holds the reveal until it has
- * painted (or failed): call the returned release then. Null once the launch
- * has revealed; an image mounted later loads as usual.
- */
-export function holdMobileLaunchRevealForImage(): (() => void) | null {
-  if (launchContentReady) return null;
-  launchImageHolds += 1;
-  let released = false;
-  return () => {
-    if (released) return;
-    released = true;
-    launchImageHolds -= 1;
-    if (launchContentMarked && launchImageHolds === 0) releaseLaunchContent();
-  };
+  releaseLaunchContent();
 }
 
 function expireSafetyCap(): void {
@@ -158,15 +128,11 @@ export function subscribeMobileLaunchContentReady(listener: () => void): () => v
 
 /** Tests only: a fresh launch. */
 export function resetMobileLaunchContentReadyForTests(): void {
-  if (launchImageTimer) clearTimeout(launchImageTimer);
-  launchImageTimer = null;
   if (safetyCapTimer) clearTimeout(safetyCapTimer);
   safetyCapTimer = null;
   safetyCapExpired = false;
   splashHideClaimed = false;
   forceHideSplash = null;
-  launchContentMarked = false;
-  launchImageHolds = 0;
   launchContentReady = false;
   launchContentListeners.clear();
 }
