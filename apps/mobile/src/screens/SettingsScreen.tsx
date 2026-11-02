@@ -11,10 +11,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import {
-  ExploreSettingsGroup,
-  ExploreSettingsRowWidthProbe,
-} from "@/components/explore/ExploreSettingsGroup";
+import { ExploreSettingsGroup } from "@/components/explore/ExploreSettingsGroup";
 import { ExploreSettingsGlyph } from "@/components/explore/ExploreSettingsGlyph";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import { MOBILE_SETTINGS_GLYPH } from "@/lib/mobileSettingsGlyph";
@@ -162,9 +159,9 @@ import {
   type MobileSettingsSplitTitleAlignment,
 } from "@/lib/mobileSettingsSplit";
 import {
-  getMobileSettingsSplitOptions,
   getMobileSplitPanePadding,
   MOBILE_SETTINGS_SPLIT_INNER_GUTTER,
+  MOBILE_SETTINGS_SPLIT_OPTIONS,
 } from "@/lib/mobileSplitPaneLayout";
 import { useMobileSplitPaneLayout } from "@/lib/useMobileSplitPaneLayout";
 import { MOBILE_STACK_FULL_SCREEN_GESTURE_OPTIONS } from "@/lib/mobileReaderRouteOptions";
@@ -1820,27 +1817,6 @@ function AboutSettingsRow({
 }
 
 type SettingsPresentation = "page" | "list-pane" | "detail-pane";
-
-/** The split sidebar's rows (`ExploreSettingsGroup`), as its width probe lays them out. */
-function settingsSidebarProbeRows(strings: MobileStrings, installedSourceCount: number) {
-  return [
-    { key: "reader", title: strings.reader.title },
-    {
-      key: "sources",
-      title: strings.settings.installedSources,
-      detail: installedSourceCount ? String(installedSourceCount) : undefined,
-    },
-    { key: "appearance", title: strings.settings.appearance },
-    { key: "data", title: strings.settings.dataManagement },
-    ...(isMobileDesignExploreSwitchAvailable(Platform.OS)
-      ? [{ key: "experimental", title: strings.settings.experimentalDesign }]
-      : []),
-    {
-      key: "about",
-      title: `${strings.settings.aboutNemuBeforeBrand}nemu${strings.settings.aboutNemuAfterBrand}`,
-    },
-  ];
-}
 
 function settingsSectionTitle(strings: MobileStrings, section: SettingsSectionId | null): string {
   switch (section) {
@@ -4304,22 +4280,9 @@ export function SettingsScreen({
   const focus = Array.isArray(params.focus) ? params.focus[0] : params.focus;
   const gutters = useMobilePageGutters();
   const [selected, setSelected] = useState<SettingsSectionId | null>(null);
-  const strings = getMobileStrings(useMobileLanguageSettings().appLanguage);
-  const { verticalBarSide, safeAreaInsets } = useMobileAdaptiveLayout();
-  const installedSourceCount = useInstalledSources().data.length;
-  // The sidebar is as wide as its longest row needs to stay on one line (in
-  // the current language and text size), or Settings keeps one column.
-  const [sidebarRowsWidth, setSidebarRowsWidth] = useState<number | null>(null);
-  const splitOptions = useMemo(
-    () =>
-      getMobileSettingsSplitOptions({
-        rowsWidth: mobileDesignExploreFlag ? sidebarRowsWidth : null,
-        leadingPadding: gutters.left + MOBILE_SETTINGS_SPLIT_INNER_GUTTER,
-        leadingInset: safeAreaInsets?.left ?? 0,
-      }),
-    [gutters.left, safeAreaInsets?.left, sidebarRowsWidth],
+  const { containerRef, onContainerLayout, layout } = useMobileSplitPaneLayout(
+    MOBILE_SETTINGS_SPLIT_OPTIONS,
   );
-  const { containerRef, onContainerLayout, layout } = useMobileSplitPaneLayout(splitOptions);
   const split = layout.mode === "split" ? layout : null;
   const detailSection = resolveMobileSettingsSplitSelection({
     selected,
@@ -4333,6 +4296,8 @@ export function SettingsScreen({
     innerGutter: MOBILE_SETTINGS_SPLIT_INNER_GUTTER,
   });
 
+  const strings = getMobileStrings(useMobileLanguageSettings().appLanguage);
+  const { verticalBarSide } = useMobileAdaptiveLayout();
   const columnTitles = getMobileSettingsSplitColumnTitles({
     split: split !== null,
     platform: Platform.OS,
@@ -4497,12 +4462,6 @@ export function SettingsScreen({
           split ? styles.splitRow : null,
         ]}
       >
-        {mobileDesignExploreFlag ? (
-          <ExploreSettingsRowWidthProbe
-            rows={settingsSidebarProbeRows(strings, installedSourceCount)}
-            onWidth={setSidebarRowsWidth}
-          />
-        ) : null}
         {listPane}
         {split && split.gutter > 0 ? (
           // The fold band: nothing is drawn or tappable on it.

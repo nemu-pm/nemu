@@ -100,30 +100,6 @@ export const MOBILE_SETTINGS_SPLIT_OPTIONS: MobileSplitPaneOptions = {
  */
 export const MOBILE_SETTINGS_SPLIT_INNER_GUTTER = 20;
 
-/**
- * The Settings split options once the sidebar's rows are measured
- * (`rowsWidth`: the widest row with its title on one line, null until
- * measured). The sidebar never narrows below that plus its own padding
- * (`leadingPadding`, less the leading safe-area inset the flat rule adds back),
- * so no title wraps; where the detail column would then fall under its
- * minimum the split keeps one column instead.
- */
-export function getMobileSettingsSplitOptions({
-  rowsWidth,
-  leadingPadding,
-  leadingInset,
-}: {
-  rowsWidth: number | null;
-  leadingPadding: number;
-  leadingInset: number;
-}): MobileSplitPaneOptions {
-  const base = MOBILE_SETTINGS_SPLIT_OPTIONS;
-  if (rowsWidth === null || !Number.isFinite(rowsWidth) || rowsWidth <= 0) return base;
-  const needed = Math.ceil(rowsWidth + leadingPadding - Math.max(0, leadingInset));
-  if (needed <= base.minLeading) return base;
-  return { ...base, minLeading: needed, maxLeading: Math.max(base.maxLeading, needed) };
-}
-
 function flatLeadingWidth(containerWidth: number, options: MobileSplitPaneOptions): number {
   const preferred =
     options.trailingReserve !== undefined
