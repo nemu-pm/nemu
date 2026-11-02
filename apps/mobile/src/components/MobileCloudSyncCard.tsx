@@ -21,6 +21,7 @@ import {
   nemuSheetMetrics,
   useNemuTheme,
   useMobileNativeSheetTheme,
+  useNemuRowHighlight,
   NemuButton,
 } from "@/design-system";
 import { MobileSheetSelectionIndicator } from "@/components/MobileSheetSelectionIndicator";
@@ -110,6 +111,7 @@ function MobileCloudSyncConfiguredCard({
   const router = useRouter();
   const accountInSplit = accountSelection !== null;
   const accountSelected = accountSelection === true;
+  const accountHighlight = useNemuRowHighlight();
   // The erase confirmation's acknowledgement row, built here outside the sheet.
   const sheetTokens = useMobileNativeSheetTheme().tokens;
   const store = useMobileDataStore();
@@ -184,6 +186,13 @@ function MobileCloudSyncConfiguredCard({
     syncSnapshotReadError?.accountId === (user?.id ?? null)
       ? syncSnapshotReadError
       : null;
+  const syncPaused =
+    signedIn &&
+    syncSnapshotAccountId === user?.id &&
+    syncSnapshotState?.status === "budget-exceeded";
+  // The account row ends the card unless a banner follows it.
+  const accountRowLast =
+    !convexAuthStalled && !syncPaused && !visibleError && !visibleSyncSnapshotReadError;
 
   useEffect(() => {
     let cancelled = false;
@@ -530,15 +539,33 @@ function MobileCloudSyncConfiguredCard({
               accessibilityLabel={strings.account.openAccount}
               accessibilityRole="button"
               accessibilityState={accountInSplit ? { selected: accountSelected } : undefined}
-              onPress={onOpenAccount ?? (() => router.push("/settings/account"))}
+              hapticFeedback={accountInSplit ? "selection" : "press"}
+              pressedScale={1}
+              onPressIn={accountHighlight.onPressIn}
+              onPressOut={accountHighlight.onPressOut}
+              onPress={() => {
+                accountHighlight.onPress();
+                (onOpenAccount ?? (() => router.push("/settings/account")))();
+              }}
               style={[
                 styles.accountRow,
-                { borderColor: tokens.border },
-                accountSelected
-                  ? [styles.accountRowSelected, { backgroundColor: tokens.primary }]
-                  : null,
+                { borderColor: accountSelected ? "transparent" : tokens.border },
               ]}
             >
+              {/* The row's fill (selection, touch-down highlight) spans the
+                  card like a section row's, to its bottom edge when nothing
+                  follows; the row's own box never changes, so selecting it
+                  moves nothing. */}
+              <View
+                pointerEvents="none"
+                style={[
+                  styles.accountRowFill,
+                  { bottom: accountRowLast ? -ACCOUNT_ROW_CARD_PADDING : -ACCOUNT_ROW_GAP / 2 },
+                  accountSelected ? { backgroundColor: tokens.primary } : null,
+                ]}
+              >
+                {accountHighlight.overlay()}
+              </View>
               <View style={styles.accountIdentity}>
                 {accountProvider ? (
                   <View
@@ -646,9 +673,7 @@ function MobileCloudSyncConfiguredCard({
             </View>
           ) : null}
 
-          {signedIn &&
-          syncSnapshotAccountId === user?.id &&
-          syncSnapshotState?.status === "budget-exceeded" ? (
+          {syncPaused ? (
             <View
               accessibilityLiveRegion="polite"
               style={styles.syncPausedBlock}
@@ -793,6 +818,10 @@ export function MobileCloudSyncCard(props: MobileCloudSyncAccountRowProps = {}) 
   return <MobileCloudSyncConfiguredCard {...props} strings={strings} />;
 }
 
+/** The card's content padding and gap, which the account row's fill reaches across. */
+const ACCOUNT_ROW_CARD_PADDING = 14;
+const ACCOUNT_ROW_GAP = 12;
+
 const styles = StyleSheet.create({
   shell: {
     minHeight: 76,
@@ -801,8 +830,8 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   content: {
-    gap: 12,
-    padding: 14,
+    gap: ACCOUNT_ROW_GAP,
+    padding: ACCOUNT_ROW_CARD_PADDING,
   },
   // Design-explore: the Settings groups' corner.
   exploreShell: MOBILE_EXPLORE_GROUP_SHAPE,
@@ -854,15 +883,11 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     paddingTop: 12,
   },
-  // Highlighted like a selected section row; the negative margins keep the
-  // row's content where it sits unselected.
-  accountRowSelected: {
-    marginHorizontal: -8,
-    paddingHorizontal: 8,
-    marginBottom: -8,
-    paddingBottom: 8,
-    borderTopColor: "transparent",
-    borderRadius: radius.md,
+  accountRowFill: {
+    position: "absolute",
+    top: 0,
+    left: -ACCOUNT_ROW_CARD_PADDING,
+    right: -ACCOUNT_ROW_CARD_PADDING,
   },
   accountIdentity: {
     flex: 1,

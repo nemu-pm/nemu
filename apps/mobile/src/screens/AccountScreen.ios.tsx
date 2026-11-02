@@ -16,6 +16,7 @@ import {
   foregroundStyle,
   lineLimit,
   listSectionMargins,
+  scrollContentBackground,
   tint,
   useScrollGeometryChange,
 } from "@expo/ui/swift-ui/modifiers";
@@ -72,7 +73,9 @@ export function AccountScreen({ presentation = "page", onLeft }: MobileAccountSc
   );
 
   return (
-    <View style={{ flex: 1 }}>
+    // The Settings pages' background, not the grouped Form's own (pure black
+    // in dark mode): the Form draws none of its own below.
+    <View style={{ flex: 1, backgroundColor: tokens.background }}>
       {presentation === "page" ? (
         // Always set: on a route the split showed (then collapsed) the list
         // pane had hidden Back and the edge swipe (`setOptions` merges).
@@ -92,6 +95,7 @@ export function AccountScreen({ presentation = "page", onLeft }: MobileAccountSc
         <SwiftHost colorScheme={scheme} style={{ flex: 1 }}>
           <SwiftForm
             modifiers={[
+              scrollContentBackground("hidden"),
               nemuSoftScrollEdge(),
               ...edge.formModifiers,
               ...(sideMargin !== null
