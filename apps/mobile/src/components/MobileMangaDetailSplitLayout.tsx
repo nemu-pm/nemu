@@ -47,6 +47,10 @@ import { useMobileSplitPaneLayout } from "@/lib/useMobileSplitPaneLayout";
 import { useMobilePoseTransition } from "@/lib/MobilePoseTransitionContext";
 import { useMobilePoseResnapFade } from "@/lib/useMobilePoseResnapFade";
 import { useMobileStaleColumnsGuard } from "@/lib/useMobileStaleColumnsGuard";
+import {
+  MobileMeasuredRowReportProvider,
+  useMobileMeasuredRowLayout,
+} from "@/lib/useMobileMeasuredRowLayout";
 
 type ChapterListProps<ItemT> = Omit<
   ComponentProps<typeof PageListScaffold<ItemT>>,
@@ -67,6 +71,7 @@ export function MobileMangaDetailSplitLayout<ItemT>({
   splitEnabled = true,
   leadingTestID,
   onLeadingScroll,
+  rowLayoutKind,
   ...listProps
 }: ChapterListProps<ItemT> & {
   /** Info stack: hero, banners. Leads the list on compact widths. */
@@ -82,6 +87,13 @@ export function MobileMangaDetailSplitLayout<ItemT>({
    * title's bottom.
    */
   onLeadingScroll?: (offsetFromHeroTop: number) => void;
+  /**
+   * The chapter rows come in a few fixed heights: names a row's height class.
+   * At the standard text size the list then gets an exact, measured
+   * `getItemLayout` (useMobileMeasuredRowLayout), so a jump to a chapter far
+   * down lands at once.
+   */
+  rowLayoutKind?: (item: ItemT) => string;
 }) {
   const { tokens, scheme } = useNemuTheme();
   const { height, fontScale } = useWindowDimensions();
@@ -236,6 +248,12 @@ export function MobileMangaDetailSplitLayout<ItemT>({
     split ? `${split.alignment}:${Math.round(split.trailing.x)}:${Math.round(split.trailing.width)}` : "single",
     { poseChangesOnly: true },
   );
+  const rowLayout = useMobileMeasuredRowLayout({
+    data: listProps.data as readonly ItemT[] | null | undefined,
+    kindOf: rowLayoutKind,
+    layoutKey: `${chapterTableWidth}:${containerWidth}:${trailingPane.wideChapterRows}:${trailingPane.role}`,
+    enabled: fontScale === 1,
+  });
   // A resize shows the columns at their old widths in the new window for a
   // few frames before the layout for it commits: they are hidden meanwhile.
   const { ref: staleGuardRef, style: staleGuardStyle } = useMobileStaleColumnsGuard(columns ? containerWidth : null);
@@ -323,8 +341,11 @@ export function MobileMangaDetailSplitLayout<ItemT>({
         >
           <MobileMangaDetailPaneContext.Provider value={trailingPane}>
             <Animated.View style={[styles.fill, staleGuardStyle]}>
+            <MobileMeasuredRowReportProvider value={rowLayout.report}>
             <PageListScaffold
               {...listProps}
+              getItemLayout={rowLayout.getItemLayout}
+              CellRendererComponent={rowLayout.CellRendererComponent}
               style={columns ? styles.clearList : listProps.style}
               contentInsetAdjustmentBehavior={contentInsetAdjustmentBehavior}
               scrollEdgePane={paneEdge}
@@ -353,6 +374,7 @@ export function MobileMangaDetailSplitLayout<ItemT>({
                 </View>
               }
             />
+            </MobileMeasuredRowReportProvider>
             </Animated.View>
           </MobileMangaDetailPaneContext.Provider>
         </Animated.View>

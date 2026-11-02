@@ -10,7 +10,11 @@ import { formatChapterRowTitle } from "@/lib/formatChapter";
 import { getMobileChapterPresentation } from "@/lib/mobileChapterPresentation";
 import { resolveMobileShareUrl } from "@/lib/mobileChapterReadMarks";
 import { formatMobileChapterProgressStatus, getMobileChapterProgressAccessory } from "@/lib/mobileChapterProgress";
-import { getMobileExploreChapterRowSubtitle, type MobileChapterVolumeHeader } from "@/lib/mobileExploreChapterList";
+import {
+  getMobileExploreChapterRowSubtitle,
+  mobileChapterVolumeHeaderShowsRange,
+  type MobileChapterVolumeHeader,
+} from "@/lib/mobileExploreChapterList";
 import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
 import { useMobileReaderResumePosition } from "@/lib/useMobileReaderResumePosition";
 import { ContextMenuView, type ContextMenuItem } from "../../../modules/nemu-window-layout";
@@ -244,10 +248,9 @@ function VolumeHeader({ header, strings }: { header: MobileChapterVolumeHeader; 
       : header.after
         ? formatMobileString(strings.designExplore.chapterAfterVolume, { volume: header.after })
         : strings.designExplore.chapterNoVolume;
-  const range =
-    header.from !== null && header.to !== null && header.from !== header.to
-      ? formatMobileString(strings.designExplore.chapterRange, { from: header.from, to: header.to })
-      : null;
+  const range = mobileChapterVolumeHeaderShowsRange(header)
+    ? formatMobileString(strings.designExplore.chapterRange, { from: header.from, to: header.to })
+    : null;
   return (
     <View accessibilityRole="header" accessible style={styles.header}>
       <NemuText maxFontSizeMultiplier={TEXT_MAX_SCALE} color={chapterPalette?.ink ?? tokens.foreground} style={styles.headerTitle}>

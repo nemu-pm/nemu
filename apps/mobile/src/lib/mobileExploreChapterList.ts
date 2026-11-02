@@ -29,6 +29,22 @@ export type MobileChapterVolumeHeader = {
   count: number;
 };
 
+/** The header names its run's chapter range ("Ch. 1–9") beside the volume. */
+export function mobileChapterVolumeHeaderShowsRange(
+  header: MobileChapterVolumeHeader,
+): header is MobileChapterVolumeHeader & { from: number; to: number } {
+  return header.from !== null && header.to !== null && header.from !== header.to;
+}
+
+/**
+ * A chapter row's height class (MobileExploreChapterRow): a plain row, or one
+ * under a volume header, with or without the range beside the volume.
+ */
+export function getMobileExploreChapterRowLayoutKind(header: MobileChapterVolumeHeader | null): string {
+  if (!header) return "row";
+  return mobileChapterVolumeHeaderShowsRange(header) ? "volume-range" : "volume";
+}
+
 /** A source counts as numbering volumes when most chapters carry one and there are at least two. */
 const VOLUME_SHARE = 0.6;
 

@@ -57,6 +57,7 @@ import {
   findMobileUpNextIndex,
   getMobileChapterListCommonGroup,
   getMobileChapterVolumeHeaders,
+  getMobileExploreChapterRowLayoutKind,
 } from "@/lib/mobileExploreChapterList";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import {
@@ -1358,6 +1359,10 @@ export function SourceMangaScreen() {
     if (upNextChapterIndex === null) return;
     chapterListRef.current?.scrollToIndex({ index: upNextChapterIndex, viewPosition: 0.3, animated: true });
   }, [upNextChapterIndex]);
+  const chapterRowLayoutKind = useCallback(
+    (row: MobileChapterRow) => getMobileExploreChapterRowLayoutKind(chapterVolumeHeaders?.get(row.chapters[0].id) ?? null),
+    [chapterVolumeHeaders],
+  );
   const onChapterScrollToIndexFailed = useCallback(
     (info: { index: number; averageItemLength: number }) => {
       chapterListRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
@@ -2148,6 +2153,7 @@ export function SourceMangaScreen() {
         renderItem={mobileDesignExploreFlag ? renderExploreChapterRow : renderChapterRow}
         listRef={mobileDesignExploreFlag ? chapterListRef : undefined}
         onScrollToIndexFailed={mobileDesignExploreFlag ? onChapterScrollToIndexFailed : undefined}
+        rowLayoutKind={mobileDesignExploreFlag ? chapterRowLayoutKind : undefined}
         leading={
           <>
             <MobileMangaDetailSurface

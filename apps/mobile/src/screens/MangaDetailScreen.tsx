@@ -155,6 +155,7 @@ import {
   findMobileUpNextIndex,
   getMobileChapterListCommonGroup,
   getMobileChapterVolumeHeaders,
+  getMobileExploreChapterRowLayoutKind,
 } from "@/lib/mobileExploreChapterList";
 import { renderExploreDetailBarMenu } from "@/components/explore/ExploreDetailBarMenu";
 import { hasMobileUserCover, mobileExploreCoverOwnerUrl, withMobileExploreZoom } from "@/components/explore/mobileExploreCover";
@@ -2301,6 +2302,10 @@ export function MangaDetailScreen() {
     if (upNextChapterIndex === null) return;
     chapterListRef.current?.scrollToIndex({ index: upNextChapterIndex, viewPosition: 0.3, animated: true });
   }, [upNextChapterIndex]);
+  const chapterRowLayoutKind = useCallback(
+    (row: MobileChapterRow) => getMobileExploreChapterRowLayoutKind(chapterVolumeHeaders?.get(row.chapters[0].id) ?? null),
+    [chapterVolumeHeaders],
+  );
   // Rows above the target are not measured yet: get close, then land on it.
   const onChapterScrollToIndexFailed = useCallback(
     (info: { index: number; averageItemLength: number }) => {
@@ -2943,6 +2948,7 @@ export function MangaDetailScreen() {
         renderItem={booksHero ? renderExploreChapterRow : renderChapterRow}
         listRef={booksHero ? chapterListRef : undefined}
         onScrollToIndexFailed={booksHero ? onChapterScrollToIndexFailed : undefined}
+        rowLayoutKind={booksHero ? chapterRowLayoutKind : undefined}
         onLeadingScroll={booksHero ? updateBarTitle : undefined}
         splitEnabled={Boolean(entry || seedEntry)}
         leading={

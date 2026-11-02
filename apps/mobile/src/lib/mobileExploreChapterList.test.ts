@@ -6,6 +6,7 @@ import {
   getMobileChapterListCommonGroup,
   getMobileChapterVolumeHeaders,
   getMobileExploreChapterRowSubtitle,
+  getMobileExploreChapterRowLayoutKind,
   getMobileExploreChapterSubtitle,
 } from "./mobileExploreChapterList";
 
@@ -127,5 +128,14 @@ describe("design-explore chapter list", () => {
       "Hanako-san of the Toilet (Pilot, Part 1)",
     );
     expect(getMobileExploreChapterSubtitle({ title: "" })).toBeNull();
+  });
+});
+
+describe("chapter row layout kind", () => {
+  test("a plain row, a volume header, and one with its chapter range", () => {
+    expect(getMobileExploreChapterRowLayoutKind(null)).toBe("row");
+    expect(getMobileExploreChapterRowLayoutKind({ volume: 3, from: 10, to: 10, count: 1 })).toBe("volume");
+    expect(getMobileExploreChapterRowLayoutKind({ volume: null, from: null, to: 12, count: 2 })).toBe("volume");
+    expect(getMobileExploreChapterRowLayoutKind({ volume: 3, from: 10, to: 19, count: 10 })).toBe("volume-range");
   });
 });
