@@ -16,7 +16,8 @@ import { useMobileToast } from "./MobileToastContext";
 
 /**
  * `nemu://addSourceList?url=` / `aidoku://addSourceList?url=`: checks the
- * directory first, then asks in a system alert. Nothing is added silently.
+ * directory first, then asks in a system alert (name, address, and that nemu
+ * does not host or review it). Nothing is added silently.
  */
 export function MobileSourceDirectoryLinkHandler() {
   const store = useMobileDataStore();
@@ -51,7 +52,7 @@ export function MobileSourceDirectoryLinkHandler() {
               strings.addSourceDirectoryLinkTitle,
               formatMobileString(strings.addSourceDirectoryLinkMessage, {
                 name: preview.name,
-                host: preview.host,
+                url: preview.indexUrl,
               }),
               [
                 { text: getMobileStrings(appLanguage).common.cancel, style: "cancel" },

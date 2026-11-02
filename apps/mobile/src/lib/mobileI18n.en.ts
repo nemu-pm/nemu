@@ -1008,7 +1008,7 @@ export const mobileStringsEn: MobileStrings = {
     addSourceDirectory: "Add directory",
     addSourceDirectoryMessage: "Enter the HTTPS address of a source directory (an index.min.json).",
     addSourceDirectoryLinkTitle: "Add source directory?",
-    addSourceDirectoryLinkMessage: "{{name}}\n{{host}}",
+    addSourceDirectoryLinkMessage: "{{name}}\n{{url}}\n\nnemu does not host or review the sources in this directory.",
     sourceDirectoryAdded: "Source directory added",
     sourceDirectoryUrlPlaceholder: "https://example.github.io/sources",
     removeSourceDirectory: "Remove directory",

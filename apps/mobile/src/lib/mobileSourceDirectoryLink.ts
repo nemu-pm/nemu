@@ -51,12 +51,18 @@ export function parseMobileSourceDirectoryLink(
   return url ? { kind: "add-directory", url } : { kind: "ignored" };
 }
 
+/** Aidoku's web redirect to `aidoku://addSourceList?url=`. */
+const AIDOKU_WEB_LINK = /^https:\/\/(?:www\.)?aidoku\.app\/add-source-list\/?\?([^#]*)(?:#.*)?$/i;
+
 /**
  * What the add-directory prompt does with pasted text: a `nemu://` or
- * `aidoku://addSourceList?url=` link yields its inner address, anything else
- * is returned unchanged.
+ * `aidoku://addSourceList?url=` link, or Aidoku's
+ * `https://aidoku.app/add-source-list/?url=` page, yields its inner address;
+ * anything else is returned unchanged.
  */
 export function extractMobileSourceDirectoryUrl(input: string): string {
   const link = parseMobileSourceDirectoryLink(input);
-  return link?.kind === "add-directory" ? link.url : input;
+  if (link?.kind === "add-directory") return link.url;
+  const web = AIDOKU_WEB_LINK.exec(input.trim());
+  return (web && queryUrl(web[1] ?? "")) || input;
 }

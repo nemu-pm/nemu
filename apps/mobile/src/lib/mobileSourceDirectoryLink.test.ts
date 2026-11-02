@@ -63,4 +63,11 @@ describe("extractMobileSourceDirectoryUrl", () => {
     expect(extractMobileSourceDirectoryUrl("aidoku://en.x/y")).toBe("aidoku://en.x/y");
     expect(extractMobileSourceDirectoryUrl("")).toBe("");
   });
+
+  test("unwraps Aidoku's add-source-list web page", () => {
+    expect(extractMobileSourceDirectoryUrl("https://aidoku.app/add-source-list/?url=https://e.com/i.json")).toBe("https://e.com/i.json");
+    expect(extractMobileSourceDirectoryUrl("https://aidoku.app/add-source-list?url=https%3A%2F%2Fe.com%2Fi.json")).toBe("https://e.com/i.json");
+    expect(extractMobileSourceDirectoryUrl("https://aidoku.app/add-source-list/")).toBe("https://aidoku.app/add-source-list/");
+    expect(extractMobileSourceDirectoryUrl("https://aidoku.app.evil.com/add-source-list/?url=https://e.com")).toBe("https://aidoku.app.evil.com/add-source-list/?url=https://e.com");
+  });
 });

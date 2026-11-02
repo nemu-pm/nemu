@@ -1014,7 +1014,7 @@ export const mobileStringsJa: MobileStrings = {
     addSourceDirectory: "ディレクトリを追加",
     addSourceDirectoryMessage: "ソースディレクトリのHTTPSアドレス（index.min.json）を入力してください。",
     addSourceDirectoryLinkTitle: "ソースディレクトリを追加しますか？",
-    addSourceDirectoryLinkMessage: "{{name}}\n{{host}}",
+    addSourceDirectoryLinkMessage: "{{name}}\n{{url}}\n\nnemuはこのディレクトリのソースをホストまたは審査していません。",
     sourceDirectoryAdded: "ソースディレクトリを追加しました",
     sourceDirectoryUrlPlaceholder: "https://example.github.io/sources",
     removeSourceDirectory: "ディレクトリを削除",

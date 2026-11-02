@@ -954,7 +954,7 @@ export const mobileStringsZh: MobileStrings = {
     addSourceDirectory: "添加目录",
     addSourceDirectoryMessage: "输入来源目录的 HTTPS 地址（index.min.json）。",
     addSourceDirectoryLinkTitle: "添加来源目录？",
-    addSourceDirectoryLinkMessage: "{{name}}\n{{host}}",
+    addSourceDirectoryLinkMessage: "{{name}}\n{{url}}\n\nnemu 不托管或审核此目录中的来源。",
     sourceDirectoryAdded: "已添加来源目录",
     sourceDirectoryUrlPlaceholder: "https://example.github.io/sources",
     removeSourceDirectory: "移除目录",
