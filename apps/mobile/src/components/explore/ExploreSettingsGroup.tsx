@@ -1,5 +1,5 @@
 import { MOBILE_EXPLORE_GROUP_SHAPE, MOBILE_SETTINGS_GROUP_INSET } from "@/lib/mobileExploreRadius";
-import { Fragment, type ReactNode } from "react";
+import { Fragment, useRef, type ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { nemuFontWeight, NemuPressable, NemuText, useNemuTheme } from "@/design-system";
@@ -27,12 +27,19 @@ type ExploreSettingsRow = {
 };
 
 const ROW_HEIGHT = 52;
+/**
+ * Room for the text's sub-point rounding: a title laid out in exactly its
+ * measured width can still break onto a second line.
+ */
+const PROBE_SLACK = 2;
+/** The chevron's width (`Ionicons` size 16). */
+const CHEVRON_SIZE = 16;
 
 /**
  * An inset grouped list in the system Settings idiom (design-explore): one
  * rounded group, the original design's outline glyph per row in the accent
- * (bare, no tile), a title (wrapping to a second line in the narrow split
- * sidebar, as the system's does), a chevron, hairline separators inset to the
+ * (bare, no tile), a one-line title (the split sidebar is sized to fit it,
+ * `ExploreSettingsRowWidthProbe`), a chevron, hairline separators inset to the
  * text. Settings are a rare stop, so rows are short and scan at a
  * glance; the longer descriptions move to the VoiceOver hint.
  *
@@ -87,7 +94,7 @@ export function ExploreSettingsGroup({ rows }: { rows: ExploreSettingsRow[] }) {
               ) : null}
               <Ionicons
                 name="chevron-forward"
-                size={16}
+                size={CHEVRON_SIZE}
                 color={ink ?? tokens.mutedForeground}
               />
             </NemuPressable>
@@ -98,7 +105,78 @@ export function ExploreSettingsGroup({ rows }: { rows: ExploreSettingsRow[] }) {
   );
 }
 
+/**
+ * The width a group needs for every row to keep its title on one line: each
+ * row laid out unconstrained, off screen, in the group's own geometry and
+ * type (so it follows the language and Dynamic Type), border included.
+ * Reports once all rows are measured, and again when one changes.
+ */
+export function ExploreSettingsRowWidthProbe({
+  rows,
+  onWidth,
+}: {
+  rows: Pick<ExploreSettingsRow, "key" | "title" | "detail">[];
+  onWidth: (width: number) => void;
+}) {
+  const widths = useRef(new Map<string, number>());
+  const report = (key: string, width: number) => {
+    widths.current.set(key, width);
+    for (const stale of widths.current.keys()) {
+      if (!rows.some((row) => row.key === stale)) widths.current.delete(stale);
+    }
+    if (widths.current.size < rows.length) return;
+    onWidth(Math.ceil(Math.max(...widths.current.values()) + 2 * StyleSheet.hairlineWidth + PROBE_SLACK));
+  };
+  return (
+    <View
+      pointerEvents="none"
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={styles.probe}
+    >
+      {rows.map((row) => (
+        <View
+          key={row.key}
+          style={[styles.row, styles.probeRow]}
+          onLayout={(event) => report(row.key, event.nativeEvent.layout.width)}
+        >
+          <View style={styles.probeGlyph} />
+          <NemuText numberOfLines={1} style={[styles.title, styles.probeTitle]}>
+            {row.title}
+          </NemuText>
+          {row.detail ? (
+            <NemuText numberOfLines={1} style={styles.detail}>
+              {row.detail}
+            </NemuText>
+          ) : null}
+          <View style={styles.probeChevron} />
+        </View>
+      ))}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  probe: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    opacity: 0,
+    alignItems: "flex-start",
+  },
+  probeRow: {
+    alignSelf: "flex-start",
+  },
+  probeGlyph: {
+    width: MOBILE_SETTINGS_GLYPH.box,
+  },
+  probeTitle: {
+    flex: 0,
+    flexShrink: 0,
+  },
+  probeChevron: {
+    width: CHEVRON_SIZE,
+  },
   group: {
     ...MOBILE_EXPLORE_GROUP_SHAPE,
     borderWidth: StyleSheet.hairlineWidth,

@@ -8,6 +8,7 @@ import path from "node:path";
 import {
   getMobileFoldSplitColumns,
   getMobileListColumnStyles,
+  getMobileSettingsSplitOptions,
   getMobileSplitPaneLayout as split,
   getMobileSplitPanePadding,
   MOBILE_DETAIL_SPLIT_OPTIONS as detail,
@@ -58,6 +59,29 @@ describe("split pane layout", () => {
       leading: { width: 281 },
       trailing: { width: 419 },
     });
+  });
+
+  test("settings sidebar widens to keep its measured rows on one line, or Settings keeps one column", () => {
+    const flat = (containerWidth: number, rowsWidth: number | null) =>
+      split({
+        containerWidth,
+        regularWidth: true,
+        posture: "flat",
+        foldSplit: null,
+        options: getMobileSettingsSplitOptions({ rowsWidth, leadingPadding: 40, leadingInset: 0 }),
+      });
+    // Unmeasured, or rows that fit 250pt less padding: the system Settings split.
+    expect(getMobileSettingsSplitOptions({ rowsWidth: null, leadingPadding: 40, leadingInset: 0 })).toBe(settings);
+    expect(flat(669, 200)).toMatchObject({ leading: { width: 250 }, trailing: { width: 419 } });
+    // Inner portrait (669pt) with a 260pt row: the sidebar takes 300pt.
+    expect(flat(669, 260)).toMatchObject({ leading: { width: 300 }, trailing: { x: 300, width: 369 } });
+    // Rows too wide to leave the detail its 320pt: one column.
+    expect(flat(669, 320)).toEqual({ mode: "single" });
+    // Wider windows keep at least the 320pt sidebar; past it, as wide as the rows need.
+    expect(flat(951, 200)).toMatchObject({ leading: { width: 320 } });
+    expect(flat(951, 330)).toMatchObject({ leading: { width: 370 } });
+    // A leading safe area is already in the gutters and is added back by the flat rule.
+    expect(getMobileSettingsSplitOptions({ rowsWidth: 260, leadingPadding: 124, leadingInset: 84 })).toMatchObject({ minLeading: 300 });
   });
 
   test("settings measure the sidebar between the side safe areas (a bar beside it keeps its rows)", () => {
