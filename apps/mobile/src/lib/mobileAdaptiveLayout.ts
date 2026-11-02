@@ -32,8 +32,18 @@ export type MobileAdaptiveLayout = {
   width: number;
   height: number;
   widthClass: MobileWidthClass;
-  /** Width is at least 600 — room for a second level of hierarchy (split view). */
+  /**
+   * Regular horizontal size class: room for a second level of hierarchy
+   * (split view, popovers). iOS: the window's UIKit size class
+   * (`mobileRegularWidth`); elsewhere a width of at least 600.
+   */
   regularWidth: boolean;
+  /**
+   * Compact vertical size class (an iPhone in landscape, the iPhone Duo's
+   * outer display in landscape). iOS: the window's UIKit size class
+   * (`mobileCompactHeight`); elsewhere a height under 500.
+   */
+  compactHeight: boolean;
   posture: MobileWindowPosture;
   /**
    * The window has a division (fold) region at all, active OR inactive — the
@@ -72,6 +82,29 @@ export type MobileAdaptiveLayout = {
 
 export const MOBILE_MEDIUM_WIDTH = 600;
 export const MOBILE_EXPANDED_WIDTH = 840;
+/** Windows shorter than this are compact height (an iPhone in landscape is 402–440 pt). */
+export const MOBILE_COMPACT_HEIGHT = 500;
+
+/**
+ * Regular width as UIKit decides it: the window's horizontal size class
+ * where the platform reports one (iOS). An iPhone in landscape and the
+ * iPhone Duo's outer display in landscape (678 pt) are compact, though wide;
+ * a Plus/Max iPhone in landscape is regular. Without a size class (Android,
+ * web, older natives, before the first report) a width of at least 600.
+ */
+export function mobileRegularWidth(layout: Pick<MobileWindowLayout, "width" | "horizontalSizeClass">): boolean {
+  if (layout.horizontalSizeClass) return layout.horizontalSizeClass === "regular";
+  return layout.width >= MOBILE_MEDIUM_WIDTH;
+}
+
+/**
+ * Compact height as UIKit decides it: the window's vertical size class where
+ * the platform reports one (iOS), else a height under 500.
+ */
+export function mobileCompactHeight(layout: Pick<MobileWindowLayout, "height" | "verticalSizeClass">): boolean {
+  if (layout.verticalSizeClass) return layout.verticalSizeClass === "compact";
+  return layout.height > 0 && layout.height < MOBILE_COMPACT_HEIGHT;
+}
 
 export function mobileWidthClass(width: number): MobileWidthClass {
   if (width >= MOBILE_EXPANDED_WIDTH) return "expanded";
@@ -94,7 +127,8 @@ export function mobileAdaptiveLayout(layout: MobileWindowLayout): MobileAdaptive
     width: layout.width,
     height: layout.height,
     widthClass: mobileWidthClass(layout.width),
-    regularWidth: layout.width >= MOBILE_MEDIUM_WIDTH,
+    regularWidth: mobileRegularWidth(layout),
+    compactHeight: mobileCompactHeight(layout),
     posture: !split ? "flat" : axis === "horizontal" ? "book" : "notebook",
     hasFoldRegion: split || mobileWindowHasFoldRegion(layout),
     fold,

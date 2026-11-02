@@ -2,8 +2,10 @@ import { describe, expect, test } from "bun:test";
 import {
   mobileAdaptiveGridColumns,
   mobileAdaptiveLayout,
+  mobileCompactHeight,
   mobileFoldSplitForContainer,
   mobileGridPrefersEvenColumns,
+  mobileRegularWidth,
   mobileVerticalBarSide,
   mobileWindowHasFoldRegion,
 } from "./mobileAdaptiveLayout";
@@ -115,5 +117,34 @@ describe("mobile adaptive layout", () => {
     // Duo's 40pt region (interaction margins included) is kept as reported.
     const duo = mobileAdaptiveLayout(duoInnerLandscape([hinge(455.5, 0, 40, 669)]));
     expect(mobileFoldSplitForContainer(duo, { x: 0, y: 0, width: 951, height: 669 })?.gutter).toEqual({ start: 455.5, end: 495.5 });
+  });
+
+  test("iOS size classes decide regular width and compact height, whatever the window's size", () => {
+    const window = (width: number, height: number, h: "compact" | "regular", v: "compact" | "regular"): MobileWindowLayout =>
+      ({ width, height, supported: true, divisions: [], occlusions: [], horizontalSizeClass: h, verticalSizeClass: v });
+    // Duo outer display in landscape: 678pt wide but compact width, as UIKit has it.
+    expect(mobileAdaptiveLayout(window(678, 466, "compact", "compact"))).toMatchObject({ regularWidth: false, compactHeight: true });
+    // Duo outer portrait; inner display, both orientations.
+    expect(mobileAdaptiveLayout(window(466, 678, "compact", "regular"))).toMatchObject({ regularWidth: false, compactHeight: false });
+    expect(mobileAdaptiveLayout(window(951, 669, "regular", "regular"))).toMatchObject({ regularWidth: true, compactHeight: false });
+    expect(mobileAdaptiveLayout(window(669, 951, "regular", "regular"))).toMatchObject({ regularWidth: true, compactHeight: false });
+    // A 6.3" iPhone in landscape is compact both ways; a Max is regular width.
+    expect(mobileAdaptiveLayout(window(874, 402, "compact", "compact"))).toMatchObject({ regularWidth: false, compactHeight: true });
+    expect(mobileAdaptiveLayout(window(956, 440, "regular", "compact"))).toMatchObject({ regularWidth: true, compactHeight: true });
+    // iPad in a narrow Split View column.
+    expect(mobileAdaptiveLayout(window(507, 820, "compact", "regular"))).toMatchObject({ regularWidth: false, compactHeight: false });
+  });
+  test("without a size class (Android, web, older natives, before the first report) the thresholds decide", () => {
+    expect(mobileRegularWidth({ width: 600 })).toBe(true);
+    expect(mobileRegularWidth({ width: 599 })).toBe(false);
+    expect(mobileRegularWidth({ width: 678 })).toBe(true);
+    expect(mobileCompactHeight({ height: 499 })).toBe(true);
+    expect(mobileCompactHeight({ height: 500 })).toBe(false);
+    expect(mobileCompactHeight({ height: 0 })).toBe(false);
+    // One reported axis does not decide the other.
+    expect(mobileRegularWidth({ width: 678, verticalSizeClass: "compact" } as Parameters<typeof mobileRegularWidth>[0])).toBe(true);
+    expect(mobileCompactHeight({ height: 466, horizontalSizeClass: "compact" } as Parameters<typeof mobileCompactHeight>[0])).toBe(true);
+    expect(mobileAdaptiveLayout({ width: 678, height: 466, supported: false, divisions: [], occlusions: [] }))
+      .toMatchObject({ regularWidth: true, compactHeight: true });
   });
 });

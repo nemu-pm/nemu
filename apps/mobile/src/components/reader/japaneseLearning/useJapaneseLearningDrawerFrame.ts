@@ -26,6 +26,7 @@ export function useJapaneseLearningDrawerFrame() {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const windowLayout = useMobileWindowLayout();
+  const { verticalBarEdge, posture, regularWidth, compactHeight } = useMobileAdaptiveLayout();
   const horizontalFold = useMemo(
     () => mobileHorizontalFoldBand(windowLayout, mobileRestingFoldMinGutter(Platform.OS)),
     [windowLayout],
@@ -37,6 +38,7 @@ export function useJapaneseLearningDrawerFrame() {
     platform: Platform.OS,
     idiomIsPad: Platform.OS === "ios" && Platform.isPad,
     windowWidth: width,
+    regularWidth,
   });
   const frameMaxHeight = resolveJapaneseLearningDrawerDetent({
     platform: Platform.OS,
@@ -46,13 +48,15 @@ export function useJapaneseLearningDrawerFrame() {
     safeAreaTop: insets.top,
     safeAreaBottom: insets.bottom,
     horizontalFold,
+    regularWidth,
+    compactHeight,
   });
-  const { verticalBarEdge, posture } = useMobileAdaptiveLayout();
   const fullScreen = isJapaneseLearningDrawerFullScreen({
     platform: Platform.OS,
     isPad,
     windowWidth: width,
     windowHeight: height,
+    compactHeight,
   });
   // Stable identity: the native sheet rebuilds its modifiers when it changes.
   const contentIgnoresSafeAreaEdges = useMemo(
@@ -72,6 +76,8 @@ export function useJapaneseLearningDrawerFrame() {
           safeAreaTop: insets.top,
           safeAreaBottom: insets.bottom,
           detent: frameMaxHeight,
+          regularWidth,
+          compactHeight,
         }),
     /** UIKit shows the sheet over the whole window (compact height): the bubble popout is hidden behind it. */
     fullScreen,

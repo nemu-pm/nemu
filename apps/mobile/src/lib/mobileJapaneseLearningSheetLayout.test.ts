@@ -123,6 +123,24 @@ describe("resolveJapaneseLearningDrawerDetent", () => {
     expect(isJapaneseLearningDrawerFullScreen({ ...phone, platform: "android" })).toBe(false);
   });
 
+  test("the window's vertical size class decides full screen where the native reports it", () => {
+    // Duo outer display in landscape: compact height, the sheet covers the window.
+    const outer = { ...IPHONE_17_PRO, windowWidth: 678, windowHeight: 466, safeAreaTop: 0, safeAreaBottom: 21 };
+    expect(isJapaneseLearningDrawerFullScreen({ ...outer, compactHeight: true })).toBe(true);
+    expect(resolveJapaneseLearningDrawerDetent({ ...outer, regularWidth: false, compactHeight: true })).toBe(466 - 21);
+    expect(isJapaneseLearningDrawerFullScreen({ ...outer, compactHeight: false })).toBe(false);
+    expect(isJapaneseLearningDrawerFullScreen({ ...outer, isPad: true, compactHeight: true })).toBe(false);
+    expect(isJapaneseLearningDrawerFullScreen({ ...outer, platform: "android", compactHeight: true })).toBe(false);
+  });
+
+  test("the window's horizontal size class decides whether the floating sheet is scaled", () => {
+    // A regular-width window keeps web's percentage instead of the scaled
+    // height detent, whatever its width.
+    expect(resolveJapaneseLearningDrawerDetent({ ...IPHONE_17_PRO, regularWidth: true, compactHeight: false })).toBe("70%");
+    expect(resolveJapaneseLearningDrawerDetent({ ...IPHONE_17_PRO, regularWidth: false, compactHeight: false }))
+      .toBe(resolveJapaneseLearningDrawerDetent(IPHONE_17_PRO));
+  });
+
   test("never opens a wide drawer shorter than web's", () => {
     // A tall safe-area top pushes the popout down; web's 70% still wins.
     const duo = { ...IPHONE_17_PRO, windowWidth: 951, windowHeight: 669, safeAreaTop: 400, safeAreaBottom: 20 };
@@ -245,5 +263,11 @@ describe("japaneseLearningDrawerIsFormSheet", () => {
 
   test("never off iOS", () => {
     expect(japaneseLearningDrawerIsFormSheet({ platform: "android", idiomIsPad: true, windowWidth: 900 })).toBe(false);
+  });
+
+  test("the window's horizontal size class wins over its width where reported", () => {
+    expect(japaneseLearningDrawerIsFormSheet({ platform: "ios", idiomIsPad: true, windowWidth: 640, regularWidth: false })).toBe(false);
+    expect(japaneseLearningDrawerIsFormSheet({ platform: "ios", idiomIsPad: true, windowWidth: 507, regularWidth: true })).toBe(true);
+    expect(japaneseLearningDrawerIsFormSheet({ platform: "ios", idiomIsPad: false, windowWidth: 951, regularWidth: true })).toBe(false);
   });
 });

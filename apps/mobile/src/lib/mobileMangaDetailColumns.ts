@@ -1,5 +1,4 @@
 import type { MobileContainerFoldSplit, MobileWindowPosture } from "@/lib/mobileAdaptiveLayout";
-import { isMobileCompactHeight } from "@/lib/mobileExploreRestingFit";
 import {
   getMobileSplitPaneLayout,
   type MobileSplitPaneLayout,
@@ -44,15 +43,16 @@ const FOLD_OPTIONS: MobileSplitPaneOptions = {
 /** Whether a window this size lays the detail page out in two columns. */
 export function mobileDetailUsesColumns({
   containerWidth,
-  windowHeight,
+  compactHeight,
   gutters,
 }: {
   containerWidth: number;
-  windowHeight: number;
+  /** The window's compact height (`MobileAdaptiveLayout.compactHeight`). */
+  compactHeight: boolean;
   gutters: { left: number; right: number };
 }): boolean {
   if (!Number.isFinite(containerWidth) || containerWidth <= 0) return false;
-  if (isMobileCompactHeight(windowHeight)) return false;
+  if (compactHeight) return false;
   return containerWidth - gutters.left - gutters.right >= MOBILE_DETAIL_COLUMNS_MIN_CONTENT_WIDTH;
 }
 
@@ -64,20 +64,20 @@ export function mobileDetailUsesColumns({
  */
 export function getMobileDetailColumnsLayout({
   containerWidth,
-  windowHeight,
+  compactHeight,
   gutters,
   posture,
   foldSplit,
 }: {
   containerWidth: number;
-  windowHeight: number;
+  compactHeight: boolean;
   gutters: { left: number; right: number };
   posture: MobileWindowPosture;
   /** `mobileFoldSplitForContainer` for the measured container, or null. */
   foldSplit: MobileContainerFoldSplit | null;
 }): MobileSplitPaneLayout {
   if (posture === "notebook") return { mode: "single" };
-  if (!mobileDetailUsesColumns({ containerWidth, windowHeight, gutters })) return { mode: "single" };
+  if (!mobileDetailUsesColumns({ containerWidth, compactHeight, gutters })) return { mode: "single" };
   if (posture === "book" && foldSplit?.axis === "horizontal") {
     const halves = getMobileSplitPaneLayout({
       containerWidth,

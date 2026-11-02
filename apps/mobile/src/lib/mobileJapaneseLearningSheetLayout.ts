@@ -138,6 +138,8 @@ export function resolveJapaneseLearningDrawerDetent({
   safeAreaTop,
   safeAreaBottom,
   horizontalFold = null,
+  regularWidth,
+  compactHeight,
 }: {
   platform: string;
   isPad: boolean;
@@ -147,16 +149,16 @@ export function resolveJapaneseLearningDrawerDetent({
   safeAreaBottom: number;
   /** A fold across the window's width, in window y (`mobileHorizontalFoldBand`). */
   horizontalFold?: { top: number; bottom: number } | null;
-}): number | `${number}%` {
+} & JapaneseLearningWindowSizeClasses): number | `${number}%` {
   const percentage = `${Math.round(JAPANESE_LEARNING_WEB_DRAWER_FRACTION * 100)}%` as const;
-  if (isJapaneseLearningDrawerFullScreen({ platform, isPad, windowWidth, windowHeight })) {
+  if (isJapaneseLearningDrawerFullScreen({ platform, isPad, windowWidth, windowHeight, compactHeight })) {
     // UIKit ignores detents here and shows the sheet full screen: lay the
     // body out for all of it instead of leaving the bottom empty.
     const largest = windowHeight - safeAreaTop - safeAreaBottom;
     return largest > 0 ? Math.round(largest) : percentage;
   }
   if (horizontalFold && !isPad) {
-    return resolveFoldDrawerDetent({ platform, windowWidth, windowHeight, safeAreaTop, safeAreaBottom, foldBottom: horizontalFold.bottom }) ?? percentage;
+    return resolveFoldDrawerDetent({ platform, windowWidth, windowHeight, safeAreaTop, safeAreaBottom, foldBottom: horizontalFold.bottom, regularWidth }) ?? percentage;
   }
   if (
     platform === "ios" &&
@@ -170,7 +172,7 @@ export function resolveJapaneseLearningDrawerDetent({
     platform !== "ios" ||
     isPad ||
     !(windowWidth > IOS_FLOATING_SHEET_INSET * 2) ||
-    windowWidth >= 600
+    iosRegularWidth(windowWidth, regularWidth)
   ) {
     return percentage;
   }
@@ -204,6 +206,7 @@ function resolveFoldDrawerDetent({
   safeAreaTop,
   safeAreaBottom,
   foldBottom,
+  regularWidth,
 }: {
   platform: string;
   windowWidth: number;
@@ -211,15 +214,16 @@ function resolveFoldDrawerDetent({
   safeAreaTop: number;
   safeAreaBottom: number;
   foldBottom: number;
+  regularWidth?: boolean;
 }): number | null {
   const largest = windowHeight - safeAreaTop - safeAreaBottom;
   if (!(largest > 0) || !(foldBottom > 0 && foldBottom < windowHeight)) return null;
   let detent: number;
   if (platform === "ios") {
     if (!(windowWidth > IOS_FLOATING_SHEET_INSET * 2)) return null;
-    const scale = windowWidth < IOS_REGULAR_WIDTH_MIN
-      ? (windowWidth - IOS_FLOATING_SHEET_INSET * 2) / windowWidth
-      : 1;
+    const scale = iosRegularWidth(windowWidth, regularWidth)
+      ? 1
+      : (windowWidth - IOS_FLOATING_SHEET_INSET * 2) / windowWidth;
     detent = (windowHeight - IOS_FLOATING_SHEET_INSET - foldBottom) / scale - safeAreaBottom;
   } else {
     detent = windowHeight - foldBottom;
@@ -232,10 +236,24 @@ function resolveFoldDrawerDetent({
 const IOS_REGULAR_WIDTH_MIN = 600;
 
 /**
+ * The window's UIKit size classes (`MobileAdaptiveLayout.regularWidth` /
+ * `compactHeight`), which decide how UIKit presents a sheet. Omitted (tests,
+ * no native report yet): derived from the window's width and height.
+ */
+export type JapaneseLearningWindowSizeClasses = {
+  regularWidth?: boolean;
+  compactHeight?: boolean;
+};
+
+function iosRegularWidth(windowWidth: number, regularWidth: boolean | undefined): boolean {
+  return regularWidth ?? windowWidth >= IOS_REGULAR_WIDTH_MIN;
+}
+
+/**
  * UIKit presents a sheet as a centred form sheet (no bottom drawer, nothing
  * above it) only for an iPad-idiom window of regular width. The idiom alone
  * says nothing about the window — an iPad in a narrow Split View column gets
- * the phone's bottom drawer — so the window's width decides, and the idiom
+ * the phone's bottom drawer — so the window's size class decides, and the idiom
  * only separates the iPad from the iPhone Duo's open display, which is also
  * regular-width but presents the bottom drawer (measured, 27.1).
  */
@@ -243,12 +261,14 @@ export function japaneseLearningDrawerIsFormSheet({
   platform,
   idiomIsPad,
   windowWidth,
+  regularWidth,
 }: {
   platform: string;
   idiomIsPad: boolean;
   windowWidth: number;
+  regularWidth?: boolean;
 }): boolean {
-  return platform === "ios" && idiomIsPad && windowWidth >= IOS_REGULAR_WIDTH_MIN;
+  return platform === "ios" && idiomIsPad && iosRegularWidth(windowWidth, regularWidth);
 }
 
 /**
@@ -268,19 +288,17 @@ export function isJapaneseLearningDrawerFullScreen({
   isPad,
   windowWidth,
   windowHeight,
+  compactHeight,
 }: {
   platform: string;
   isPad: boolean;
   windowWidth: number;
   windowHeight: number;
+  compactHeight?: boolean;
 }): boolean {
-  return (
-    platform === "ios" &&
-    !isPad &&
-    windowHeight > 0 &&
-    windowWidth > windowHeight &&
-    windowHeight < IOS_COMPACT_HEIGHT_MAX
-  );
+  if (platform !== "ios" || isPad) return false;
+  if (compactHeight !== undefined) return compactHeight;
+  return windowHeight > 0 && windowWidth > windowHeight && windowHeight < IOS_COMPACT_HEIGHT_MAX;
 }
 
 /** Space between the bubble popout and the top of the sheet under it (the design system's `spacing.md`). */
@@ -331,6 +349,8 @@ export function resolveJapaneseLearningDrawerTop({
   safeAreaTop,
   safeAreaBottom,
   detent,
+  regularWidth,
+  compactHeight,
 }: {
   platform: string;
   isPad: boolean;
@@ -339,12 +359,12 @@ export function resolveJapaneseLearningDrawerTop({
   safeAreaTop: number;
   safeAreaBottom: number;
   detent: number | `${number}%`;
-}): number | null {
+} & JapaneseLearningWindowSizeClasses): number | null {
   if (isPad || !(windowWidth > 0 && windowHeight > 0)) return null;
-  if (isJapaneseLearningDrawerFullScreen({ platform, isPad, windowWidth, windowHeight })) return null;
+  if (isJapaneseLearningDrawerFullScreen({ platform, isPad, windowWidth, windowHeight, compactHeight })) return null;
   if (typeof detent === "number") {
     if (platform !== "ios") return windowHeight - detent;
-    const scale = windowWidth < IOS_REGULAR_WIDTH_MIN && windowWidth > IOS_FLOATING_SHEET_INSET * 2
+    const scale = !iosRegularWidth(windowWidth, regularWidth) && windowWidth > IOS_FLOATING_SHEET_INSET * 2
       ? (windowWidth - IOS_FLOATING_SHEET_INSET * 2) / windowWidth
       : 1;
     return windowHeight - IOS_FLOATING_SHEET_INSET - (detent + safeAreaBottom) * scale;

@@ -227,13 +227,6 @@ export function fitMobileRestingContent({
  */
 const MOBILE_COMPACT_TAB_BAR_BAND = 64;
 
-/** Windows shorter than this are compact height (an iPhone in landscape is 402–440 pt). */
-const MOBILE_COMPACT_HEIGHT = 500;
-
-export function isMobileCompactHeight(windowHeight: number): boolean {
-  return windowHeight > 0 && windowHeight < MOBILE_COMPACT_HEIGHT;
-}
-
 /**
  * Where a tab page's resting content must end: the window less its bottom
  * inset (which carries the tab bar in a regular-height window), and never

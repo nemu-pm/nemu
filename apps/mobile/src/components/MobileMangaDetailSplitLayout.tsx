@@ -17,7 +17,6 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
-import { isMobileCompactHeight } from "@/lib/mobileExploreRestingFit";
 import { useMobileExploreRestingFrame } from "@/components/explore/useMobileExploreResting";
 import Animated, { LayoutAnimationConfig } from "react-native-reanimated";
 import {
@@ -96,7 +95,7 @@ export function MobileMangaDetailSplitLayout<ItemT>({
   // The two panes sit a normal distance under the bar: UIKit's inset already
   // clears it, so the page's own top padding would only widen the gap (most
   // on iPad, where the bar carries the tab strip).
-  const { verticalBarSide, hasFoldRegion, regularWidth: windowRegularWidth } = useMobileAdaptiveLayout();
+  const { verticalBarSide, hasFoldRegion, regularWidth: windowRegularWidth, compactHeight } = useMobileAdaptiveLayout();
   // Bars on the side (the Duo's rail): the bar is not above the page, so the
   // page starts at the top safe area instead of under an empty bar band.
   const barOnSide = Platform.OS === "ios" && mobileDesignExploreFlag && verticalBarSide !== null;
@@ -125,13 +124,13 @@ export function MobileMangaDetailSplitLayout<ItemT>({
       explore && splitEnabled
         ? getMobileDetailColumnsLayout({
             containerWidth,
-            windowHeight: adaptive.height,
+            compactHeight: adaptive.compactHeight,
             gutters,
             posture: adaptive.posture,
             foldSplit,
           })
         : null,
-    [adaptive.height, adaptive.posture, containerWidth, explore, foldSplit, gutters, splitEnabled],
+    [adaptive.compactHeight, adaptive.posture, containerWidth, explore, foldSplit, gutters, splitEnabled],
   );
   const columns = columnsLayout?.mode === "split" ? columnsLayout : null;
   // Narrower, with the explore design on: one wide header over one chapter
@@ -153,7 +152,7 @@ export function MobileMangaDetailSplitLayout<ItemT>({
   // title on two rows (a regular-width, regular-height window with no fold
   // region: bars on top, not at the bottom or the side); a short window or the
   // Duo's inner display draws one row.
-  const doubleBarRow = windowRegularWidth && !hasFoldRegion && !isMobileCompactHeight(height);
+  const doubleBarRow = windowRegularWidth && !hasFoldRegion && !compactHeight;
   const pull =
     ((split && !columns) || ((top || columns) && doubleBarRow)) && Platform.OS === "ios" && mobileDesignExploreFlag && !barOnSide
       ? IPAD_BAR_ROW_PULL

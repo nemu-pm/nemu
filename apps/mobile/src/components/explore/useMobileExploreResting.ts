@@ -2,11 +2,8 @@ import { useCallback, useEffect, useState, type RefObject } from "react";
 import { useIsFocused } from "expo-router";
 import { PixelRatio, useWindowDimensions, type ViewInstance } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import {
-  getMobileExploreRestingEdge,
-  isMobileCompactHeight,
-  keepMobileExploreRestingTop,
-} from "@/lib/mobileExploreRestingFit";
+import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
+import { getMobileExploreRestingEdge, keepMobileExploreRestingTop } from "@/lib/mobileExploreRestingFit";
 
 /**
  * Where a tab page's content starts at rest below the top inset: the
@@ -31,8 +28,9 @@ const RESTING_TOP_REMEASURE_MS = [120, 400, 1000] as const;
 export function useMobileExploreRestingFrame() {
   const insets = useSafeAreaInsets();
   const { width, height, fontScale } = useWindowDimensions();
+  const { compactHeight } = useMobileAdaptiveLayout();
   return {
-    edge: getMobileExploreRestingEdge(height, insets.bottom, isMobileCompactHeight(height)),
+    edge: getMobileExploreRestingEdge(height, insets.bottom, compactHeight),
     topEstimate: insets.top + MOBILE_EXPLORE_REST_TOP_BELOW_INSET,
     // The text size too: headings above a section grow with it, so a top
     // measured at another size (before a rotation and back) is stale.

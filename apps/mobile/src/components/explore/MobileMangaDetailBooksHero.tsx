@@ -50,7 +50,6 @@ import { useMobileExploreRestingFrame, useMobileExploreRestingTop } from "./useM
 import {
   fitMobileRestingContent,
   getMobileRestingSynopsisLines,
-  isMobileCompactHeight,
   MOBILE_RESTING,
   type MobileRestingBlock,
 } from "@/lib/mobileExploreRestingFit";
@@ -259,7 +258,7 @@ export function MobileMangaDetailBooksHero({
   const pulseStyle = useAnimatedStyle(() => ({ opacity: pulse.value }));
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const bleed = useMobilePageBleedStyles();
-  const { verticalBarSide } = useMobileAdaptiveLayout();
+  const { verticalBarSide, compactHeight } = useMobileAdaptiveLayout();
   const gutters = useMobilePageGutters();
   // The wide two-column page: the hero stands in the leading column as the
   // phone's stacked hero (no panel, no wash of its own: the page behind both
@@ -301,7 +300,7 @@ export function MobileMangaDetailBooksHero({
       ? detailPane.columnContentWidth
       : Math.max(0, pane ? windowWidth * 0.4 : windowWidth - gutters.left - gutters.right));
   const contentWidth = Math.max(0, pane ? frameWidth - PANE_PADDING * 2 : frameWidth);
-  const shortPane = pane && isMobileCompactHeight(windowHeight);
+  const shortPane = pane && compactHeight;
   const topCoverWidth = Math.round(Math.min(230, Math.max(150, contentWidth * 0.24)));
   /** The genres wrap in their column rather than run to the window edges. */
   const grid = pane || top || inColumn;

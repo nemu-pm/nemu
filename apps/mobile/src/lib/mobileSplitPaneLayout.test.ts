@@ -69,6 +69,24 @@ describe("split pane layout", () => {
     expect(split({ containerWidth: 1032, containerHeight: 1376, regularWidth: true, posture: "flat", foldSplit: null, options: detail })).toMatchObject({ mode: "split" });
   });
 
+  test("compact width keeps one column however wide the window is, as UISplitViewController does", () => {
+    const window = (width: number, height: number, h: "compact" | "regular"): MobileWindowLayout =>
+      ({ width, height, supported: true, divisions: [], occlusions: [], horizontalSizeClass: h, verticalSizeClass: height < 500 ? "compact" : "regular" });
+    const settingsFor = (layout: MobileWindowLayout) =>
+      split({ containerWidth: layout.width, containerHeight: layout.height, regularWidth: mobileAdaptiveLayout(layout).regularWidth, posture: "flat", foldSplit: null, options: settings, sideInsets: { left: 84, right: 0 } });
+    // Duo outer display in landscape (compact width) and a 6.3" iPhone in landscape: one list.
+    expect(settingsFor(window(678, 466, "compact"))).toEqual({ mode: "single" });
+    expect(settingsFor(window(874, 402, "compact"))).toEqual({ mode: "single" });
+    // Duo inner landscape and a Max iPhone in landscape (regular width): sidebar and detail.
+    expect(settingsFor(window(951, 669, "regular"))).toMatchObject({ mode: "split" });
+    expect(settingsFor(window(956, 440, "regular"))).toMatchObject({ mode: "split" });
+    // Search's wide split likewise drops on a compact-width phone in landscape.
+    const searchFor = (layout: MobileWindowLayout) =>
+      split({ containerWidth: layout.width, regularWidth: mobileAdaptiveLayout(layout).regularWidth, posture: "flat", foldSplit: null, options: MOBILE_SEARCH_SPLIT_OPTIONS });
+    expect(searchFor(window(874, 402, "compact"))).toEqual({ mode: "single" });
+    expect(searchFor(window(1180, 820, "regular"))).toMatchObject({ mode: "split" });
+  });
+
   test("settings measure the sidebar between the side safe areas (a bar beside it keeps its rows)", () => {
     // Duo inner display in landscape, vertical bar on the trailing edge: unchanged.
     expect(split({ containerWidth: 951, regularWidth: true, posture: "flat", foldSplit: null, options: settings, sideInsets: { left: 0, right: 84 } })).toMatchObject({
