@@ -751,7 +751,6 @@ export function ReaderSettingsNativePopover({
           {pushedPage(
             strings.settings.plugins,
             <ReaderPluginListPage
-              chrome="stack"
               stackInset={pushedPageInset}
               plugins={readerPlugins.plugins}
               loading={readerPlugins.loading}
@@ -776,7 +775,6 @@ export function ReaderSettingsNativePopover({
             {pushedPage(
               detailPlugin.name,
               <ReaderPluginDetailPage
-                chrome="stack"
                 stackInset={pushedPageInset}
                 plugin={detailPlugin}
                 busy={readerPlugins.busy}
