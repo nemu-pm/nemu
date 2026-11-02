@@ -2343,7 +2343,11 @@ enum NemuTabRailRepair {
     // repair, so the launch reveal keeps waiting for it.
     DispatchQueue.main.async {
       MainActor.assumeIsolated {
-        guard !toggle.released, window.windowScene != nil else { return }
+        guard !toggle.released else { return }
+        // The window left its scene before this turn: there is no bar to turn
+        // off. Finish the repair (dropping its trait registration) so it does
+        // not hold `afterRepairs` callers to their cap.
+        guard window.windowScene != nil else { return toggle.finish() }
         UIView.performWithoutAnimation {
           NemuVerticalBarOverride.acquire(path: path)
           window.layoutIfNeeded()
