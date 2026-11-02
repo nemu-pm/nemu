@@ -25,6 +25,16 @@ export type MobileChapterProgressAccessory =
 export type MobileChapterProgressTone = "mutedForeground" | "primary" | "success";
 
 /**
+ * The fullest an in-progress pie / ring is drawn. The reader leaves a chapter
+ * on its last page without completing it whenever it did not page forward
+ * onto it (Previous chapter opens at the end, a scrubber jump, a resume), and
+ * the scroll counter can name the last page while the anchor sits above it:
+ * "Page N of N" at N/N drew a solid disc that read as finished. Short of a
+ * completion the glyph keeps an open wedge; the label still names the page.
+ */
+export const MOBILE_CHAPTER_PROGRESS_MAX_RATIO = 0.9;
+
+/**
  * A row's progress: "Page X of Y" (and its bar) name the page the reader
  * will open the chapter at. With this device's `local` resume spot that is
  * the reader's own resume choice (`resolveMobileChapterOpeningPage`); without
@@ -86,7 +96,7 @@ function pageAccessory(
     status: "progress",
     page,
     total,
-    ratio: page / total,
+    ratio: Math.min(page / total, MOBILE_CHAPTER_PROGRESS_MAX_RATIO),
   };
 }
 

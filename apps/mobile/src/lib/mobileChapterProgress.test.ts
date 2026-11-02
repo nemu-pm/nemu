@@ -2,11 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
+  MOBILE_CHAPTER_PROGRESS_MAX_RATIO,
   formatMobileChapterProgressStatus,
   getMobileChapterProgressAccessory,
   getMobileChapterProgressTone,
 } from "./mobileChapterProgress";
 import { getMobileStrings } from "./mobileI18n";
+import { buildMobileReaderProgressRecords } from "./mobileReaderProgressTarget";
 
 describe("mobile chapter progress accessory", () => {
   test("shows completed state before page progress", () => {
@@ -85,7 +87,7 @@ describe("mobile chapter progress accessory", () => {
       status: "progress",
       page: 10,
       total: 10,
-      ratio: 1,
+      ratio: MOBILE_CHAPTER_PROGRESS_MAX_RATIO,
     });
   });
 
@@ -216,6 +218,89 @@ describe("chapter row page: where the reader opens", () => {
     expect(
       getMobileChapterProgressAccessory(completed, { local: local({ sourceIndex: 148, reread: true }) }),
     ).toEqual({ status: "completed" });
+  });
+});
+
+describe("an unfinished chapter on its last page never draws a full pie", () => {
+  // The rows draw `ratio` as a pie that fills clockwise; a full one reads as
+  // read. The reader leaves a chapter on its last page without completing it
+  // whenever it did not page forward onto it, so these rows say "Page N of N"
+  // yet must keep a visible open wedge.
+  const open = (accessory: ReturnType<typeof getMobileChapterProgressAccessory>) => {
+    expect(accessory.status).toBe("progress");
+    if (accessory.status !== "progress") return;
+    expect(accessory.page).toBe(accessory.total);
+    expect(accessory.ratio).toBeLessThanOrEqual(0.9);
+  };
+  const lastPageWrite = (pageCount: number) =>
+    buildMobileReaderProgressRecords({
+      target: {
+        chapterId: "ch-4",
+        chapter: { chapterNumber: 4 },
+        pageCount,
+        savedProgress: null,
+      },
+      sourceRef: { registryId: "r", sourceId: "s", sourceMangaId: "m" },
+      complete: false,
+      displayIndex: pageCount - 1,
+      mode: "rtl",
+      updatedAt: 5_000,
+    }).chapterProgress;
+
+  test("opened at its end (Previous chapter, a scrubber jump, a resume): the synced page", () => {
+    const written = lastPageWrite(20);
+    expect(written).toMatchObject({ progress: 19, total: 20, completed: false });
+    open(getMobileChapterProgressAccessory(written));
+  });
+
+  test("a two-page chapter left on page 2", () => {
+    open(getMobileChapterProgressAccessory(lastPageWrite(2)));
+  });
+
+  test("this device's counter on the last page (scroll reading, the anchor a page above)", () => {
+    open(
+      getMobileChapterProgressAccessory(
+        { completed: false, progress: 47, total: 49, lastReadAt: 9_000 },
+        {
+          local: {
+            sourceIndex: 47,
+            fraction: 0.8,
+            counterSourceIndex: 48,
+            total: 49,
+            savedAt: 10_000,
+            progressAt: 9_000,
+          },
+        },
+      ),
+    );
+  });
+
+  test("a re-read spot whose counter is on the last page", () => {
+    open(
+      getMobileChapterProgressAccessory(
+        { completed: true, progress: 48, total: 49, lastReadAt: 9_000 },
+        {
+          local: {
+            sourceIndex: 47,
+            fraction: 0.8,
+            counterSourceIndex: 48,
+            total: 49,
+            savedAt: 10_000,
+            progressAt: 9_000,
+            reread: true,
+          },
+        },
+      ),
+    );
+  });
+
+  test("short of the end the pie still follows the page", () => {
+    expect(getMobileChapterProgressAccessory({ completed: false, progress: 4, total: 20 })).toEqual({
+      status: "progress",
+      page: 5,
+      total: 20,
+      ratio: 0.25,
+    });
   });
 });
 
