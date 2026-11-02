@@ -14,6 +14,8 @@ export type MobileNativeFormSheetAction = {
    * buttons); `label` becomes its accessibility label.
    */
   systemImage?: string;
+  /** Spoken instead of `label` (a fuller name than the bar's short one). */
+  accessibilityLabel?: string;
 };
 
 export type MobileNativeFormSheetProps = {

@@ -204,12 +204,14 @@ export function NativeDestructiveDialog({
 export function NativeCheckRow({
   title,
   detail,
+  detailLines = 1,
   value,
   systemImage,
   selectedSystemImage,
   selected,
   disabled,
   tintColor,
+  symbolColor,
   textColor,
   detailColor,
   rowBackground,
@@ -218,6 +220,8 @@ export function NativeCheckRow({
 }: {
   title: string;
   detail?: string;
+  /** Lines the secondary text may take (default 1). */
+  detailLines?: number;
   /** Trailing secondary text on the title's line (e.g. a book count). */
   value?: string;
   systemImage?: string;
@@ -225,6 +229,8 @@ export function NativeCheckRow({
   selected: boolean;
   disabled?: boolean;
   tintColor: ColorValue;
+  /** The leading symbol's colour, when it is not `tintColor`. */
+  symbolColor?: ColorValue;
   /**
    * Label colours. A Form button tints its whole label with the accent, and
    * hierarchical styles resolve to that tint, so the row's text needs
@@ -250,7 +256,11 @@ export function NativeCheckRow({
     >
       <SwiftHStack spacing={12}>
         {symbol ? (
-          <SwiftImage systemName={symbol as SFSymbol} color={tintColor} modifiers={[font({ textStyle: "body" })]} />
+          <SwiftImage
+            systemName={symbol as SFSymbol}
+            color={symbolColor ?? tintColor}
+            modifiers={[font({ textStyle: "body" })]}
+          />
         ) : null}
         <SwiftVStack alignment="leading" spacing={2}>
           <SwiftText modifiers={[foregroundStyle(textColor), lineLimit(1)]}>{title}</SwiftText>
@@ -259,7 +269,7 @@ export function NativeCheckRow({
               modifiers={[
                 font({ textStyle: "subheadline" }),
                 foregroundStyle(detailColor),
-                lineLimit(1),
+                lineLimit(detailLines),
               ]}
             >
               {detail}

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   MOBILE_LIBRARY_OPTIONS_SHEET_METRICS as M,
+  getMobileCloudSignOutNativeSheetHeight,
   getMobileLibraryOptionsNativeSheetHeight,
 } from "./mobileLibraryOptionsSheetLayout";
 
@@ -35,5 +36,43 @@ describe("library options sheet without a home indicator", () => {
     const homeButton = getMobileLibraryOptionsNativeSheetHeight({ ...base, bottomInset: 0 });
     expect(homeButton - withIndicator).toBe(24);
     expect(getMobileLibraryOptionsNativeSheetHeight(base)).toBe(withIndicator);
+  });
+});
+
+describe("getMobileCloudSignOutNativeSheetHeight", () => {
+  const base = {
+    question: "Choose what happens to your data on this device.",
+    choiceDetails: ["You can sign back in anytime to sync again.", "Your cloud data will stay safe."],
+    errorDetail: null,
+    maxHeight: 900,
+  };
+
+  test("a narrow sheet (wrapped text) is taller than a wide one", () => {
+    const wide = getMobileCloudSignOutNativeSheetHeight({ ...base, sheetWidth: 650 });
+    const narrow = getMobileCloudSignOutNativeSheetHeight({ ...base, sheetWidth: 400 });
+    expect(narrow).toBeGreaterThan(wide);
+  });
+
+  test("a failure adds its group; Dynamic Type grows the sheet", () => {
+    const plain = getMobileCloudSignOutNativeSheetHeight({ ...base, sheetWidth: 650 });
+    const failed = getMobileCloudSignOutNativeSheetHeight({ ...base, sheetWidth: 650, errorDetail: "The network connection was lost." });
+    const large = getMobileCloudSignOutNativeSheetHeight({ ...base, sheetWidth: 650, fontScale: 1.4 });
+    expect(failed - plain).toBeGreaterThan(2 * M.row);
+    expect(large).toBeGreaterThan(plain);
+  });
+
+  test("a choice's secondary text counts at most two lines; capped by the room it has", () => {
+    const long = getMobileCloudSignOutNativeSheetHeight({
+      ...base,
+      sheetWidth: 400,
+      choiceDetails: ["x ".repeat(200), "y"],
+    });
+    const two = getMobileCloudSignOutNativeSheetHeight({
+      ...base,
+      sheetWidth: 400,
+      choiceDetails: ["x ".repeat(40), "y"],
+    });
+    expect(long).toBe(two);
+    expect(getMobileCloudSignOutNativeSheetHeight({ ...base, sheetWidth: 400, maxHeight: 260 })).toBe(260);
   });
 });

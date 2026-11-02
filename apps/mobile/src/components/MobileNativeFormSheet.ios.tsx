@@ -62,6 +62,7 @@ function ToolbarActionButton({
       onPress={action.onPress}
       modifiers={[
         ...(action.systemImage ? [labelStyle("iconOnly")] : []),
+        ...(action.accessibilityLabel ? [swiftAccessibilityLabel(action.accessibilityLabel)] : []),
         ...(accent ? [tint(accent)] : []),
         ...(action.disabled ? [swiftDisabled(true)] : []),
       ]}

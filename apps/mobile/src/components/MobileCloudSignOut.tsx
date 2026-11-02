@@ -12,6 +12,10 @@ import {
   useMobileNativeSheetTheme,
   NemuButton,
 } from "@/design-system";
+import {
+  MobileCloudSignOutNativeSheet,
+  mobileCloudSignOutNativeSheetAvailable,
+} from "@/components/MobileCloudSignOutNativeSheet";
 import { MobileSheetSelectionIndicator } from "@/components/MobileSheetSelectionIndicator";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import { hapticConfirm, hapticError } from "@/lib/haptics";
@@ -84,6 +88,22 @@ function SignOutChoiceSheet({
       onKeepDataChange(nextKeepData);
     }
   };
+
+  if (mobileCloudSignOutNativeSheetAvailable) {
+    return (
+      <MobileCloudSignOutNativeSheet
+        visible={visible}
+        strings={strings}
+        keepData={keepData}
+        loading={loading}
+        error={error}
+        onSelectChoice={selectChoice}
+        onErrorDismiss={onErrorDismiss}
+        onClose={requestClose}
+        onConfirm={onConfirm}
+      />
+    );
+  }
 
   return (
     <MobileNativeSheetScaffold

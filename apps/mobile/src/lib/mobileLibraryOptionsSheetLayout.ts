@@ -66,3 +66,56 @@ export function getMobileLibraryOptionsNativeSheetHeight({
   const height = top + rows * m.row * scale + gaps + footer + bottom;
   return Math.round(Math.min(height, Math.max(240, maxHeight)));
 }
+
+/** Rough line count of `text` set at `fontSize` in `width` points (CJK one em, Latin about half). */
+function estimateTextLines(text: string, width: number, fontSize: number): number {
+  const ems = Array.from(text).reduce((sum, ch) => sum + (ch.charCodeAt(0) > 0x2e80 ? 1 : 0.52), 0);
+  return Math.max(1, Math.ceil((ems * fontSize) / Math.max(80, width)));
+}
+
+/**
+ * Height of the native Sign Out sheet: the question as the group's header,
+ * the two data choices (title + secondary text, wrapped to at most two
+ * lines), and when signing out failed, a group with the error, its Clear row
+ * and its detail. Text lines are estimated at the sheet's width.
+ */
+export function getMobileCloudSignOutNativeSheetHeight({
+  question,
+  choiceDetails,
+  errorDetail,
+  sheetWidth,
+  fontScale = 1,
+  maxHeight,
+  bottomInset = 34,
+}: {
+  question: string;
+  choiceDetails: readonly string[];
+  /** The failure's detail (its group shows only when there is one). */
+  errorDetail: string | null;
+  sheetWidth: number;
+  fontScale?: number;
+  maxHeight: number;
+  bottomInset?: number;
+}): number {
+  const m = MOBILE_LIBRARY_OPTIONS_SHEET_METRICS;
+  const scale = Math.max(1, fontScale);
+  // Inset-grouped margins, then the row's insets, symbol and checkmark.
+  const headerWidth = sheetWidth - 2 * 20 - 2 * 16;
+  const detailWidth = sheetWidth - 2 * 20 - 2 * 16 - 30 - 30;
+  const header = estimateTextLines(question, headerWidth, 17 * scale) * 22 * scale + 18;
+  const choices = choiceDetails.reduce(
+    (sum, detail) => sum + (24 + 22 * scale + Math.min(2, estimateTextLines(detail, detailWidth, 15 * scale)) * 20 * scale),
+    0,
+  );
+  const errorGroup = errorDetail
+    ? m.sectionGap +
+      2 * m.row * scale +
+      estimateTextLines(errorDetail, headerWidth, 13 * scale) * m.footerLine * scale +
+      m.footerPadding
+    : 0;
+  // The bar, then the group's title in place of the form's top margin.
+  const top = m.chrome + 8;
+  const bottom = Math.max(16, m.minBottomRoom - Math.max(0, bottomInset));
+  const height = top + header + choices + errorGroup + bottom;
+  return Math.round(Math.min(height, Math.max(240, maxHeight)));
+}
