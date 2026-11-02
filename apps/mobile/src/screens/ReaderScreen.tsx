@@ -75,6 +75,7 @@ import {
   useState,
   useSyncExternalStore,
   type ReactNode,
+  type SetStateAction,
 } from "react";
 import {
   createAudioPlayer,
@@ -184,7 +185,8 @@ import {
 import { ReaderBackGlyph } from "@/components/reader/ReaderBackGlyph";
 import { ReaderNotebookPanelGlyph } from "@/components/reader/ReaderNotebookPanelGlyph";
 import { ReaderDarkThemeScope } from "@/components/reader/ReaderDarkThemeScope";
-import { useReaderZoomEntry } from "@/components/reader/readerZoomEntry";
+import { useReaderOpeningHudHeld, useReaderZoomEntry } from "@/components/reader/readerZoomEntry";
+import { useMobileExploreEntryCover } from "@/components/explore/mobileExploreCover";
 import { waitForReaderOpeningWindow } from "@/components/reader/readerOpeningGate";
 import {
   keepMobileReaderResolvedPages,
@@ -1820,9 +1822,25 @@ export function ReaderScreen() {
     japaneseLearningLifecycleRef.current =
       createMobileJapaneseLearningScreenLifecycle();
   }
-  const [showControlsState, setShowControls] = useState(true);
+  const [showControlsState, setShowControlsState] = useState(true);
+  // A first open holds the HUD back until its loading screen has left and
+  // the first page shows (see readerOpeningLoading): it then comes in with
+  // the usual show animation, and the usual rules (auto-hide) start there.
+  // Asked for meanwhile (a tap, an unreadable chapter), the loading screen
+  // leaves at once and the HUD shows: its Back is the reader's only way out.
+  const readerOpeningHudHeld = useReaderOpeningHudHeld();
+  const readerOpeningHudHeldRef = useRef(readerOpeningHudHeld);
+  readerOpeningHudHeldRef.current = readerOpeningHudHeld;
+  const setShowControls = useCallback((next: SetStateAction<boolean>) => {
+    if (readerOpeningHudHeldRef.current && next !== false) {
+      readerZoomEntryRef.current.releaseHud();
+      setShowControlsState(true);
+      return;
+    }
+    setShowControlsState(next);
+  }, []);
   // QA builds (EXPO_PUBLIC_READER_QA_CHROME=1) keep the chrome up for screenshots.
-  const showControls = MOBILE_READER_QA_CHROME || showControlsState;
+  const showControls = MOBILE_READER_QA_CHROME || (showControlsState && !readerOpeningHudHeld);
   const [loading, setLoading] = useState(true);
   /**
    * The chapter whose saved progress `state` holds. A seamless crossing opens
@@ -2656,6 +2674,14 @@ export function ReaderScreen() {
   );
   const pages = pagesState.pages;
   const pageCount = pages.length;
+  // The opening's loading screen without a zoom shows the library's cover.
+  const readerOpeningTitleCover = useMobileExploreEntryCover(
+    readerOpeningHudHeld ? state.entry : null,
+    installedReaderSources.data,
+  );
+  useEffect(() => {
+    if (readerOpeningHudHeld) readerZoomEntry.onTitleCover(readerOpeningTitleCover);
+  }, [readerOpeningHudHeld, readerOpeningTitleCover, readerZoomEntry]);
   // iPhone Duo: the book's cover on the outer display while reading inside.
   const readerOuterCover = useReaderOuterCover({
     enabled: readerOuterCoverSetting,

@@ -157,8 +157,7 @@ describe("reader opening gate wiring", () => {
 
   test("the route closes the window on either fade path's end and arms the backstop at landing", () => {
     expect(route).toContain('openingGate.settle("fade-end")');
-    // Both the UI-thread caps (scroll, paged) and the reveal fade report their end.
-    expect(route).toContain("if (finished) runOnJS(onFadeEnd)(reason, landedAt);");
+    // The reveal fade (immediate, or after the loading screen's minimum) reports its end.
     expect(route).toContain("if (finished) runOnJS(onFadeEnd)(reason, fadeLandedAt);");
     expect(route).toContain("openingGate.armBackstop();");
     // No zoom, nothing fades in: closed from the first render.
@@ -166,7 +165,7 @@ describe("reader opening gate wiring", () => {
     // The stand-in's cross-fade (a reopen) reports its end too.
     expect(route).toContain('if (finished) runOnJS(onFadeEnd)("stand-in", landsAt);');
     expect(route).toMatch(
-      /\(\) => \(\{\s*onFirstPage,\s*openingGate,\s*holdForFirstScreenImages,\s*onFirstScreenImagesReady,\s*openingTimes,\s*onOpeningPages,\s*\}\)/,
+      /\(\) => \(\{\s*onFirstPage,\s*openingGate,\s*holdForFirstScreenImages,\s*onFirstScreenImagesReady,\s*openingTimes,\s*onOpeningPages,\s*releaseHud,\s*onTitleCover,\s*\}\)/,
     );
     // Outside a zoom the reader gets a settled gate.
     expect(entry).toContain('settledOpeningGate.settle("no-fade");');

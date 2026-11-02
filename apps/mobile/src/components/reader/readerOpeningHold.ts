@@ -147,7 +147,9 @@ export type ReaderCoverRevealReason =
   | "hold-cap"
   | "hold-max"
   /** A reopen: the cover cross-fades into the page's stand-in during the zoom. */
-  | "stand-in";
+  | "stand-in"
+  /** The HUD was asked for during the loading screen: it leaves at once. */
+  | "hud";
 
 /**
  * Whether a reveal request starts the cover's fade now. A running fade is

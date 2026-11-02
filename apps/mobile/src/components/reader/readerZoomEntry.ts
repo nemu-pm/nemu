@@ -30,6 +30,13 @@ export type ReaderZoomEntry = {
    * stand-in leaves without a fade only over these very pages.
    */
   onOpeningPages: (pageIds: readonly string[]) => void;
+  /**
+   * The HUD was asked for while the opening holds it (a tap, an unreadable
+   * chapter): the loading screen leaves at once and the HUD shows.
+   */
+  releaseHud: () => void;
+  /** The title's cover, for an opening without a zoom (none of its own to land on). */
+  onTitleCover: (cover: { uri: string; headers?: Record<string, string> } | null) => void;
 };
 
 const noop = () => undefined;
@@ -44,8 +51,21 @@ export const ReaderZoomEntryContext = createContext<ReaderZoomEntry>({
   onFirstScreenImagesReady: noop,
   openingTimes: () => NO_READER_OPENING_TIMES,
   onOpeningPages: noop,
+  releaseHud: noop,
+  onTitleCover: noop,
 });
 
 export function useReaderZoomEntry(): ReaderZoomEntry {
   return useContext(ReaderZoomEntryContext);
+}
+
+/**
+ * True while the reader's first open holds its HUD back: until the opening's
+ * loading screen (see `readerOpeningLoading`) has left and the first page
+ * shows. Apart from the entry so that its change re-renders nothing else.
+ */
+export const ReaderOpeningHudHeldContext = createContext(false);
+
+export function useReaderOpeningHudHeld(): boolean {
+  return useContext(ReaderOpeningHudHeldContext);
 }

@@ -44,11 +44,11 @@ describe("paged opening: the cover gives way to the page the pager opens on", ()
     );
   });
 
-  test("hard cap 2.5 s, armed on the UI thread at the landing (paged and scroll)", () => {
+  test("no cap fades the cover onto an unready reader: the loading screen waits for the page (with a long backstop)", () => {
     expect(READER_OPENING_PAGED_HOLD_MAX_MS).toBe(2500);
-    expect(route).toContain("const COVER_HOLD_MAX_MS = READER_OPENING_PAGED_HOLD_MAX_MS;");
-    expect(route).toContain('else if (modeRef.current.pagedReading) armCap("hold-max");');
-    expect(route).toContain('else if (pagedReading) armCap("hold-max");');
+    expect(route).not.toContain("COVER_HOLD_MAX_MS");
+    expect(route).not.toContain("armCap(");
+    expect(route).toContain("landedAt + READER_OPENING_LOADING_BACKSTOP_MS - Date.now()");
     expect(route).toContain("const COVER_REVEAL_MS = 250;");
   });
 
@@ -64,8 +64,8 @@ describe("paged opening: the cover gives way to the page the pager opens on", ()
     expect(resolveReaderCoverCapDelay({ tapAt: 900, landedAt: 500, now: 500, capMs: 2500, fadeMs: 250 })).toBe(2250);
   });
 
-  test("the route's UI-thread cap, hold cap and JS backstop all use the tap deadline", () => {
-    expect(route.match(/resolveReaderCoverCapDelay\(\{/g)?.length).toBe(3);
+  test("the route's hold cap uses the tap deadline", () => {
+    expect(route.match(/resolveReaderCoverCapDelay\(\{/g)?.length).toBe(1);
     expect(route).not.toContain("COVER_HOLD_MAX_MS - (Date.now() - landedAt)");
     expect(route).not.toContain("}, COVER_HOLD_MAX_MS);");
   });

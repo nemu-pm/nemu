@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Dimensions, StyleSheet, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Dimensions, StyleSheet, useWindowDimensions, View } from "react-native";
 import Animated, {
   cancelAnimation,
   runOnJS,
@@ -18,21 +18,33 @@ import {
   READER_OPENING_MOUNT_LEAD_MS,
   resolveReaderOpeningMountDelay,
 } from "@/lib/mobileReaderChromeMotion";
-import { ReaderZoomEntryContext, type ReaderZoomEntry } from "@/components/reader/readerZoomEntry";
+import {
+  ReaderOpeningHudHeldContext,
+  ReaderZoomEntryContext,
+  type ReaderZoomEntry,
+} from "@/components/reader/readerZoomEntry";
+import {
+  getReaderOpeningLoadingLayout,
+  isReaderChapterSwitchMount,
+  readerOpeningLoadingFades,
+  resolveReaderOpeningLoading,
+  retainReaderRouteMount,
+  READER_OPENING_LOADING_BACKSTOP_MS,
+  READER_OPENING_LOADING_DELAY_MS,
+} from "@/components/reader/readerOpeningLoading";
 import {
   createReaderOpeningGate,
   type ReaderOpeningGate,
   type ReaderOpeningSettleReason,
 } from "@/components/reader/readerOpeningGate";
 import { useReadingMode } from "@/data/mobileHooks";
-import { MobileCachedImage } from "@/design-system";
+import { MobileCachedImage, useNemuTheme } from "@/design-system";
 import {
   canHoldReaderOpening,
   readerOpeningSince,
   resolveReaderCoverCapDelay,
   shouldRevealReaderCover,
   READER_OPENING_IMAGE_HOLD_MAX_MS,
-  READER_OPENING_PAGED_HOLD_MAX_MS,
   type ReaderCoverRevealReason,
   type ReaderOpeningTimes,
 } from "@/components/reader/readerOpeningHold";
@@ -44,6 +56,7 @@ import {
 } from "@/lib/mobileReaderZoomHandoff";
 import { MOBILE_READER_SCROLL_PLACEHOLDER_COLOR } from "@/lib/mobileReaderScrollPresentation";
 import { mobileReaderPageBackgroundColor } from "@/lib/mobileReaderPageBackground";
+import { mobileReaderPageStatusColor } from "@/lib/mobileReaderPageLoading";
 import { useReaderPagePrefs } from "@/components/reader/useReaderPagePrefs";
 import { ReaderScreen } from "@/screens/ReaderScreen";
 import { VerticalBarBehavior, ZoomTarget, type ZoomStartedEvent } from "../../../../../modules/nemu-window-layout";
@@ -57,23 +70,8 @@ import {
   type MobileReaderStandIn,
 } from "@/lib/mobileReaderOpeningStandIn";
 
-/** The landing cover fades into the reader (the opening fade-in). */
+/** The landing cover fades into the reader (the opening fade-in; see `readerOpeningLoadingFades`). */
 const COVER_REVEAL_MS = 250;
-/**
- * A page that is slow to load is not waited for any longer than this: the
- * cover then fades onto the reader background, where the page shows its
- * spinner until it decodes (`READER_OPENING_PAGED_HOLD_MAX_MS`, 2.5 s).
- * Counted from the TAP (`resolveReaderCoverCapDelay`): the cover is gone by
- * then. Counted from the landing, the zoom's ~0.5 s made it a steady 3.00 s.
- */
-const COVER_HOLD_MAX_MS = READER_OPENING_PAGED_HOLD_MAX_MS;
-/**
- * Scroll reading reveals no later than this after the zoom lands, ready or
- * not: its pages still loading show the reader background and a spinner, which reads as the
- * reader opening rather than the cover hanging. Paged reading has no plate
- * and keeps waiting for its page (up to `COVER_HOLD_MAX_MS`).
- */
-const COVER_SCROLL_HOLD_MAX_MS = 600;
 /**
  * Over the very pages the reader drew under it, the stand-in stays this long
  * after they drew, past the opening's first seconds: the reader's own
@@ -111,7 +109,12 @@ export default function ReaderRoute() {
       { width, height },
     );
   });
-  const coverReveal = useReaderCoverReveal(zoom, standIn != null);
+  // Only a first open shows the loading screen and holds the HUD; a chapter
+  // switch (`router.replace`, mounted while this chapter's reader still is)
+  // opens as before. A zoom is always a first open.
+  const [chapterSwitch] = useState(() => !zoom && isReaderChapterSwitchMount());
+  useEffect(() => retainReaderRouteMount(), []);
+  const coverReveal = useReaderCoverReveal(zoom, standIn != null, !chapterSwitch);
   // The reader's vertical-bar opt-out and dark bar appearance, held by the
   // route from the push for the screen's lifetime. Mounted inside the reader
   // (which mounts at the landing) they switched the Duo's status bar from the
@@ -144,14 +147,26 @@ export default function ReaderRoute() {
         appearance="dark"
         appearanceCoversBars={routeFocused}
       />
-      <ReaderAfterZoom zoomId={zoom ?? null} coverReveal={coverReveal} standIn={standIn} />
+      <ReaderAfterZoom
+        zoomId={zoom ?? null}
+        coverReveal={coverReveal}
+        standIn={standIn}
+        loadingScreen={!chapterSwitch}
+      />
     </MobileExploreZoomRoute>
   );
 }
 
 type ReaderCoverReveal = {
+  /** The opening's overlay (the reader background, the cover, the spinner): fades out into the reader. */
   opacity: SharedValue<number>;
-  /** The zoom landed (idempotent): scroll reading arms its UI-thread cap. */
+  /** The loading screen's spinner (and, without a zoom, its cover): fades in once the page is late. */
+  loadingOpacity: SharedValue<number>;
+  /** The overlay's fade has ended (or there is none): the HUD may show. */
+  openingDone: boolean;
+  /** The HUD was asked for during the loading screen: it leaves at once. */
+  releaseHud: () => void;
+  /** The opening started (the zoom landed, or the route mounted; idempotent). */
   onLanded: () => void;
   /** The zoom started: the stand-in's cross-fade is timed against its landing. */
   onZoomStarted: (event: ZoomStartedEvent) => void;
@@ -171,29 +186,39 @@ type ReaderCoverReveal = {
 };
 
 /**
- * The landing cover's fade, driven on the UI thread: a busy JS thread (the
- * reader mounting, a cold start) must not stretch the hold past its cap nor
- * starve the fade. Scroll reading arms `withDelay(cap, withTiming(0))` the
- * moment the zoom lands (from the landing event, before the reader's heavy
- * render); "reader ready" earlier replaces it with the fade at once. Paged
- * reading waits for its page (JS), with the 2.5 s cap.
+ * The opening's overlay, faded on the UI thread: a busy JS thread (the
+ * reader mounting, a cold start) must not starve the fades. The overlay is
+ * the reader background with the title's cover, small and centred (a zoom
+ * lands on it), over the reader as it builds. If the first page is not ready
+ * `READER_OPENING_LOADING_DELAY_MS` after the opening (the zoom's landing, or
+ * the route's mount), a spinner fades in under the cover (with the cover,
+ * without a zoom), armed on the UI thread at the landing; the overlay then
+ * stays at least `READER_OPENING_LOADING_MIN_VISIBLE_MS` before it fades into
+ * the page (`resolveReaderOpeningLoading`). The HUD waits for that fade's end.
  */
-function useReaderCoverReveal(zoomId: string | null, hasStandIn: boolean): ReaderCoverReveal {
+function useReaderCoverReveal(zoomId: string | null, hasStandIn: boolean, loadingScreen: boolean): ReaderCoverReveal {
   const opacity = useSharedValue(1);
+  const loadingOpacity = useSharedValue(0);
+  const { reduceMotion } = useNemuTheme();
+  const fadesRef = useRef(readerOpeningLoadingFades(reduceMotion));
+  fadesRef.current = readerOpeningLoadingFades(reduceMotion);
+  // No loading screen (a chapter switch): nothing holds the HUD.
+  const [openingDone, setOpeningDone] = useState(!loadingScreen);
   // The Continue / tile tap that started this zoom: the opening's clock.
   const [tapAt] = useState(() => peekMobileReaderZoomTapAt(zoomId));
   const fadeEndAtRef = useRef<number | null>(null);
   /** `hold` taken: "reader ready" no longer reveals, the hold's cap does. */
   const holdingRef = useRef(false);
-  const { mode, modeLoaded } = useReadingMode();
-  const scrollReading = modeLoaded && mode === "scrolling";
-  const pagedReading = modeLoaded && mode !== "scrolling";
-  const modeRef = useRef({ mode, scrollReading, pagedReading });
-  modeRef.current = { mode, scrollReading, pagedReading };
+  const { mode } = useReadingMode();
+  const modeRef = useRef({ mode });
+  modeRef.current = { mode };
   const landedAtRef = useRef<number | null>(null);
   /** When the (possibly delayed) fade begins, by the JS clock; null: none armed. */
   const fadeStartsAtRef = useRef<number | null>(null);
-  const capArmedRef = useRef(false);
+  /** When the reader first said it was ready (the loading screen's clock). */
+  const readyAtRef = useRef<number | null>(null);
+  /** The fade out of a ready page is armed: a repeated "ready" changes nothing. */
+  const readyFadeArmedRef = useRef(false);
   /** The reopen's cross-fade into the stand-in is armed: nothing later delays it. */
   const standInFadeArmedRef = useRef(false);
   const [openingGate] = useState(() =>
@@ -216,6 +241,7 @@ function useReaderCoverReveal(zoomId: string | null, hasStandIn: boolean): Reade
       fadeEndAtRef.current = Date.now();
       logFadeEnd(reason, landedAt, tapAt, holdingRef.current);
       openingGate.settle("fade-end");
+      setOpeningDone(true);
     },
     [openingGate, tapAt],
   );
@@ -231,51 +257,25 @@ function useReaderCoverReveal(zoomId: string | null, hasStandIn: boolean): Reade
   }, []);
 
   /**
-   * The cover's cap, armed on the UI thread from the landing: scroll reading
-   * reveals at `COVER_SCROLL_HOLD_MAX_MS` whatever happens, paged reading at
-   * `COVER_HOLD_MAX_MS` (2.5 s; a busy JS thread cannot stretch it). The
-   * reader's page decoding replaces it with the fade at once.
+   * The loading screen's fade-in, armed on the UI thread from the opening:
+   * `READER_OPENING_LOADING_DELAY_MS` after it, unless the page is ready (or
+   * the overlay already fading) by then.
    */
-  const armCap = useCallback((reason: "scroll-cap" | "hold-max") => {
+  const armLoadingFadeIn = useCallback(() => {
     const landedAt = landedAtRef.current;
-    if (holdingRef.current) return;
-    if (capArmedRef.current || landedAt == null || fadeStartsAtRef.current != null) return;
-    capArmedRef.current = true;
-    const delay =
-      reason === "scroll-cap"
-        ? Math.max(0, COVER_SCROLL_HOLD_MAX_MS - (Date.now() - landedAt))
-        : resolveReaderCoverCapDelay({
-            tapAt,
-            landedAt,
-            now: Date.now(),
-            capMs: COVER_HOLD_MAX_MS,
-            fadeMs: COVER_REVEAL_MS,
-          });
-    fadeStartsAtRef.current = Date.now() + delay;
-    // The fade itself starts on the UI clock; this logs when it was armed.
-    if (__DEV__) {
-      console.info("[reader-zoom] fade-start", {
-        reason,
-        armed: true,
-        delayMs: Math.round(delay),
-        sinceLandedMs: Math.round(Date.now() - landedAt),
-        mode: modeRef.current.mode,
-      });
-    }
-    opacity.value = withDelay(
-      delay,
-      withTiming(0, { duration: COVER_REVEAL_MS }, (finished?: boolean) => {
-        "worklet";
-        if (finished) runOnJS(onFadeEnd)(reason, landedAt);
-      }),
+    if (!loadingScreen || landedAt == null || readyAtRef.current != null) return;
+    const now = Date.now();
+    if (fadeStartsAtRef.current != null && fadeStartsAtRef.current <= now) return;
+    loadingOpacity.value = withDelay(
+      Math.max(0, landedAt + READER_OPENING_LOADING_DELAY_MS - now),
+      withTiming(1, { duration: fadesRef.current.inMs }),
     );
-  }, [onFadeEnd, opacity, tapAt]);
+  }, [loadingOpacity, loadingScreen]);
 
   /**
    * `hold`: the cover's fade, armed on the UI thread, starts
-   * `READER_OPENING_IMAGE_HOLD_MAX_MS` after the landing at the latest
-   * (replacing a scroll cap not yet started); the first screen's images
-   * reveal it sooner.
+   * `READER_OPENING_IMAGE_HOLD_MAX_MS` after the landing at the latest; the
+   * first screen's images reveal it sooner.
    */
   const armHoldCap = useCallback(() => {
     const landedAt = landedAtRef.current;
@@ -291,7 +291,6 @@ function useReaderCoverReveal(zoomId: string | null, hasStandIn: boolean): Reade
       capMs: READER_OPENING_IMAGE_HOLD_MAX_MS,
       fadeMs: COVER_REVEAL_MS,
     });
-    capArmedRef.current = true;
     fadeStartsAtRef.current = now + delay;
     if (__DEV__) {
       console.info("[reader-zoom] fade-start", {
@@ -302,14 +301,11 @@ function useReaderCoverReveal(zoomId: string | null, hasStandIn: boolean): Reade
         mode: modeRef.current.mode,
       });
     }
-    // The scroll cap's withDelay must stop here: a withDelay keeps running
-    // the animation it replaced until its own delay ends (Reanimated's
-    // delay(): `else if (previousAnimation) previousAnimation.onFrame(…)`),
-    // so the scroll cap's fade went on under the hold (r16: the held cover
-    // gone at landed+0.7–1.06 s, the 860 ms UI stall making it a one-frame
-    // cut; the first-screen fade then ended 37–76 ms after it started, on a
-    // cover already at 0). Cancelled, the cover stays where it is until the
-    // hold's own fade.
+    // A withDelay keeps running the animation it replaced until its own
+    // delay ends (Reanimated's delay(): `else if (previousAnimation)
+    // previousAnimation.onFrame(…)`), so a fade armed before must stop here
+    // (r16: a cap's fade went on under the hold). Cancelled, the cover stays
+    // where it is until the hold's own fade.
     cancelAnimation(opacity);
     opacity.value = withDelay(
       delay,
@@ -333,9 +329,7 @@ function useReaderCoverReveal(zoomId: string | null, hasStandIn: boolean): Reade
     const readyAt = standInReadyAtRef.current;
     if (!hasStandIn || !start || readyAt == null) return;
     const now = Date.now();
-    // A fade already running (the reader's own, or this one) is left be. A
-    // cap armed at the landing but not started yet is replaced: a stand-in
-    // known late (after the landing) still shows the page at once.
+    // A fade already running (the reader's own, or this one) is left be.
     if (standInFadeArmedRef.current) return;
     if (fadeStartsAtRef.current != null && fadeStartsAtRef.current <= now) return;
     const plan = resolveMobileReaderStandInFade({
@@ -347,7 +341,9 @@ function useReaderCoverReveal(zoomId: string | null, hasStandIn: boolean): Reade
     const landsAt = start.startedAtMs + start.durationMs;
     standInFadeArmedRef.current = true;
     fadeStartsAtRef.current = now + plan.delayMs;
-    capArmedRef.current = true;
+    // The stand-in is the page: no loading screen after it.
+    readyAtRef.current ??= now;
+    cancelAnimation(loadingOpacity);
     cancelAnimation(opacity);
     opacity.value = withDelay(
       plan.delayMs,
@@ -356,7 +352,7 @@ function useReaderCoverReveal(zoomId: string | null, hasStandIn: boolean): Reade
         if (finished) runOnJS(onFadeEnd)("stand-in", landsAt);
       }),
     );
-  }, [hasStandIn, onFadeEnd, opacity]);
+  }, [hasStandIn, loadingOpacity, onFadeEnd, opacity]);
   const onZoomStarted = useCallback(
     (event: ZoomStartedEvent) => {
       if (zoomStartRef.current) return;
@@ -383,9 +379,8 @@ function useReaderCoverReveal(zoomId: string | null, hasStandIn: boolean): Reade
     }
     openingGate.armBackstop();
     if (holdingRef.current) armHoldCap();
-    else if (modeRef.current.scrollReading) armCap("scroll-cap");
-    else if (modeRef.current.pagedReading) armCap("hold-max");
-  }, [armCap, armHoldCap, openingGate, tapAt]);
+    armLoadingFadeIn();
+  }, [armHoldCap, armLoadingFadeIn, openingGate, tapAt]);
 
   const holdForFirstScreenImages = useCallback(() => {
     if (holdingRef.current || openingGate.isSettled()) return;
@@ -412,20 +407,31 @@ function useReaderCoverReveal(zoomId: string | null, hasStandIn: boolean): Reade
     if (landedAt != null) armHoldCap();
   }, [armHoldCap, openingGate, tapAt]);
 
-  // The stored mode can arrive after the landing: arm with the time left.
-  useEffect(() => {
-    if (scrollReading) armCap("scroll-cap");
-    else if (pagedReading) armCap("hold-max");
-  }, [armCap, pagedReading, scrollReading]);
-
   const reveal = useCallback(
     (reason: CoverRevealReason) => {
       const landedAt = landedAtRef.current;
       const now = Date.now();
       const sinceLandedMs = landedAt == null ? null : Math.round(now - landedAt);
-      // A running fade is left be; a delayed UI-thread cap is replaced by the
-      // reader being ready (holding: by its first screen's images).
+      const fadeLandedAt = landedAt ?? now;
+      const fades = fadesRef.current;
+      // The HUD asked for: the overlay leaves now, whatever was armed.
+      if (reason === "hud") {
+        if (fadeStartsAtRef.current != null && fadeStartsAtRef.current <= now) return;
+        readyAtRef.current ??= now;
+        readyFadeArmedRef.current = true;
+        fadeStartsAtRef.current = now;
+        logFadeStart(reason, sinceLandedMs);
+        cancelAnimation(opacity);
+        opacity.value = withTiming(0, { duration: fades.outMs }, (finished?: boolean) => {
+          "worklet";
+          if (finished) runOnJS(onFadeEnd)(reason, fadeLandedAt);
+        });
+        return;
+      }
+      // A running fade is left be; a delayed one (the hold's cap) is replaced
+      // by the reader being ready (holding: by its first screen's images).
       if (
+        readyFadeArmedRef.current ||
         !shouldRevealReaderCover({
           reason,
           holding: holdingRef.current,
@@ -435,17 +441,30 @@ function useReaderCoverReveal(zoomId: string | null, hasStandIn: boolean): Reade
       ) {
         return;
       }
-      fadeStartsAtRef.current = now;
+      readyAtRef.current ??= now;
+      readyFadeArmedRef.current = true;
+      // Ready before the loading screen showed: straight in (a zoom fades its
+      // cover into the page; without one nothing showed, so nothing fades).
+      // Shown: it stays its minimum, then fades.
+      const loading = resolveReaderOpeningLoading({ openedAt: fadeLandedAt, readyAt: readyAtRef.current, now });
+      const skipped = loading.phase === "leave" && loading.skipped;
+      const delay = loading.phase === "shown" ? (loading.leaveInMs ?? 0) : 0;
+      if (skipped) cancelAnimation(loadingOpacity);
+      fadeStartsAtRef.current = now + delay;
       logFadeStart(reason, sinceLandedMs);
-      const fadeLandedAt = landedAt ?? now;
-      opacity.value = withTiming(0, { duration: COVER_REVEAL_MS }, (finished?: boolean) => {
-        "worklet";
-        if (finished) runOnJS(onFadeEnd)(reason, fadeLandedAt);
-      });
+      cancelAnimation(opacity);
+      opacity.value = withDelay(
+        delay,
+        withTiming(0, { duration: skipped && !zoomId ? 0 : fades.outMs }, (finished?: boolean) => {
+          "worklet";
+          if (finished) runOnJS(onFadeEnd)(reason, fadeLandedAt);
+        }),
+      );
     },
-    [logFadeStart, onFadeEnd, opacity],
+    [loadingOpacity, logFadeStart, onFadeEnd, opacity, zoomId],
   );
 
+  const releaseHud = useCallback(() => reveal("hud"), [reveal]);
   const onFirstScreenImagesReady = useCallback(() => {
     if (holdingRef.current) reveal("first-screen-images");
   }, [reveal]);
@@ -461,6 +480,9 @@ function useReaderCoverReveal(zoomId: string | null, hasStandIn: boolean): Reade
   return useMemo(
     () => ({
       opacity,
+      loadingOpacity,
+      openingDone,
+      releaseHud,
       onLanded,
       onZoomStarted,
       onStandInReady,
@@ -472,13 +494,16 @@ function useReaderCoverReveal(zoomId: string | null, hasStandIn: boolean): Reade
     }),
     [
       holdForFirstScreenImages,
+      loadingOpacity,
       onFirstScreenImagesReady,
       onLanded,
       onStandInReady,
       onZoomStarted,
       opacity,
+      openingDone,
       openingGate,
       openingTimes,
+      releaseHud,
       reveal,
     ],
   );
@@ -500,22 +525,26 @@ function logFadeEnd(reason: CoverRevealReason, landedAt: number, tapAt: number |
 
 /**
  * The reader is far too heavy to mount in the commit a zoom pushes, so the
- * zoom lands on the tapped cover, laid out where the first page will be, and
- * the reader mounts underneath as it lands (its render started just before
- * the visible landing, so its commit lands with it); the cover fades into the
- * reader once it is ready to show (scroll reading: placed at the reading
- * position, or `COVER_SCROLL_HOLD_MAX_MS` after landing at the latest — on
- * the UI thread; paged: the page on screen drawn — see `readerZoomPageShown`).
- * Outside a zoom this is the reader and nothing else.
+ * zoom lands on the tapped cover, small and centred (the loading screen's),
+ * and the reader mounts underneath as it lands (its render started just
+ * before the visible landing, so its commit lands with it); the cover fades
+ * into the reader once it is ready to show (scroll reading: placed at the
+ * reading position; paged: the page on screen drawn — see
+ * `readerZoomPageShown`), with a spinner below it when that is late (see
+ * `useReaderCoverReveal`). A first open without a zoom shows the same
+ * loading screen, its cover faded in with the spinner. A chapter switch is
+ * the reader and nothing else.
  */
 function ReaderAfterZoom({
   zoomId,
   coverReveal,
   standIn,
+  loadingScreen,
 }: {
   zoomId: string | null;
   coverReveal: ReaderCoverReveal;
   standIn: MobileReaderStandIn | null;
+  loadingScreen: boolean;
 }) {
   const landed = useMobileExploreZoomLanded();
   // The reader mounts a moment before the zoom's visible landing
@@ -560,9 +589,11 @@ function ReaderAfterZoom({
   });
   const window = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const frame = getMobileReaderZoomCoverFrame({ width: window.width, height: window.height, insets });
   const {
     opacity,
+    loadingOpacity,
+    openingDone,
+    releaseHud,
     onLanded,
     reveal,
     openingGate,
@@ -571,6 +602,27 @@ function ReaderAfterZoom({
     openingTimes,
     onStandInReady,
   } = coverReveal;
+  // Where the cover sits: the loading screen's frame through the opening;
+  // after it (hidden), where the first page is laid out, which is where the
+  // zoom back starts.
+  const loadingLayout = getReaderOpeningLoadingLayout({ width: window.width, height: window.height, insets });
+  const frame = openingDone
+    ? getMobileReaderZoomCoverFrame({ width: window.width, height: window.height, insets })
+    : loadingLayout.cover;
+  // Without a zoom, the reader reports the title's cover (its library entry).
+  const [titleCover, setTitleCover] = useState<{ uri: string; headers?: Record<string, string> } | null>(null);
+  const onTitleCover = useCallback(
+    (next: { uri: string; headers?: Record<string, string> } | null) => {
+      if (zoomId || !loadingScreen) return;
+      setTitleCover((current) =>
+        current?.uri === next?.uri && JSON.stringify(current?.headers) === JSON.stringify(next?.headers)
+          ? current
+          : next,
+      );
+    },
+    [loadingScreen, zoomId],
+  );
+  const shownCover = zoomId ? cover : titleCover;
   const [pageShown, setPageShown] = useState(false);
   // The stand-in (a reopen): over the reader, under the cover, shown as the
   // cover fades. It leaves once the reader has drawn its page underneath:
@@ -632,19 +684,13 @@ function ReaderAfterZoom({
   }, [reveal]);
   useEffect(() => {
     if (!landed || pageShown) return;
-    // The same deadline as the UI-thread cap (from the tap): a JS backstop.
-    const now = Date.now();
-    const times = openingTimes();
+    // A first page that never reports: the loading screen leaves anyway,
+    // onto the reader's own loading state and its HUD.
+    const landedAt = openingTimes().landedAt ?? Date.now();
     const timer = setTimeout(() => {
       reveal("hold-max");
       setPageShown(true);
-    }, resolveReaderCoverCapDelay({
-      tapAt: times.tapAt,
-      landedAt: times.landedAt ?? now,
-      now,
-      capMs: COVER_HOLD_MAX_MS,
-      fadeMs: COVER_REVEAL_MS,
-    }));
+    }, Math.max(0, landedAt + READER_OPENING_LOADING_BACKSTOP_MS - Date.now()));
     return () => clearTimeout(timer);
   }, [landed, openingTimes, pageShown, reveal]);
   const entry = useMemo<ReaderZoomEntry>(
@@ -655,10 +701,22 @@ function ReaderAfterZoom({
       onFirstScreenImagesReady,
       openingTimes,
       onOpeningPages,
+      releaseHud,
+      onTitleCover,
     }),
-    [holdForFirstScreenImages, onFirstPage, onFirstScreenImagesReady, onOpeningPages, openingGate, openingTimes],
+    [
+      holdForFirstScreenImages,
+      onFirstPage,
+      onFirstScreenImagesReady,
+      onOpeningPages,
+      onTitleCover,
+      openingGate,
+      openingTimes,
+      releaseHud,
+    ],
   );
   const coverStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
+  const loadingStyle = useAnimatedStyle(() => ({ opacity: loadingOpacity.value }));
   // The cross-fade's other half: the stand-in shows as the cover goes.
   const standInStyle = useAnimatedStyle(() => ({ opacity: (1 - opacity.value) * standInOut.value }));
   // The reader's page background (the setting; White until it has loaded,
@@ -666,6 +724,35 @@ function ReaderAfterZoom({
   // yet here, so it is black, as the reader is until it reads the border.
   const { pageBackground } = useReaderPagePrefs();
   const backdropColor = mobileReaderPageBackgroundColor(pageBackground);
+  const coverImage = shownCover ? (
+    <MobileCachedImage
+      uriOwnership="source"
+      cacheKind="cover"
+      source={shownCover}
+      // No fade inside the native zoom target.
+      fadeIn={false}
+      fallback={<View style={[StyleSheet.absoluteFill, styles.coverPlate]} />}
+      // Diagnostic: the cover's pixel size (a large one decodes on
+      // the main thread as the reader mounts).
+      onLoad={(event) => {
+        const { width, height } = event.nativeEvent.source;
+        const landedAt = openingTimes().landedAt;
+        if (__DEV__) {
+          console.info("[reader-zoom] cover-loaded", {
+            width,
+            height,
+            sinceLandedMs: landedAt == null ? null : Math.round(Date.now() - landedAt),
+          });
+        }
+      }}
+      resizeMode="cover"
+      style={StyleSheet.absoluteFill}
+    />
+  ) : (
+    // No cover known at all: a plate the shape of one, not black.
+    <View style={[StyleSheet.absoluteFill, styles.coverPlate]} />
+  );
+  const coverRect = { position: "absolute", left: frame.x, top: frame.y, width: frame.width, height: frame.height } as const;
 
   return (
     <View
@@ -677,7 +764,9 @@ function ReaderAfterZoom({
     >
       {readerMounted ? (
         <ReaderZoomEntryContext.Provider value={entry}>
-          <ReaderScreen />
+          <ReaderOpeningHudHeldContext.Provider value={!openingDone}>
+            <ReaderScreen />
+          </ReaderOpeningHudHeldContext.Provider>
         </ReaderZoomEntryContext.Provider>
       ) : null}
       {standIn && standInMounted ? (
@@ -710,43 +799,40 @@ function ReaderAfterZoom({
           ))}
         </Animated.View>
       ) : null}
-      {zoomId ? (
-        <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, coverStyle]}>
-          {/* Where the zoom lands: the cover grows into this frame. Hidden
-              once the page shows, it still names where the zoom back starts. */}
-          <ZoomTarget
-            zoomId={zoomId}
-            style={{ position: "absolute", left: frame.x, top: frame.y, width: frame.width, height: frame.height }}
-          >
-            {cover ? (
-              <MobileCachedImage
-                uriOwnership="source"
-                cacheKind="cover"
-                source={cover}
-                // No fade inside the native zoom target.
-                fadeIn={false}
-                fallback={<View style={[StyleSheet.absoluteFill, styles.coverPlate]} />}
-                // Diagnostic: the cover's pixel size (a large one decodes on
-                // the main thread as the reader mounts).
-                onLoad={(event) => {
-                  const { width, height } = event.nativeEvent.source;
-                  const landedAt = openingTimes().landedAt;
-                  if (__DEV__) {
-                    console.info("[reader-zoom] cover-loaded", {
-                      width,
-                      height,
-                      sinceLandedMs: landedAt == null ? null : Math.round(Date.now() - landedAt),
-                    });
-                  }
-                }}
-                resizeMode="cover"
-                style={StyleSheet.absoluteFill}
-              />
-            ) : (
-              // No cover known at all: a plate the shape of one, not black.
-              <View style={[StyleSheet.absoluteFill, styles.coverPlate]} />
-            )}
-          </ZoomTarget>
+      {loadingScreen ? (
+        // The reader background over the reader as it builds (never a
+        // half-built frame), the cover and, once the page is late, the
+        // spinner; it all fades into the page. Touches go through to the
+        // reader: a tap there asks for the HUD (`releaseHud`).
+        <Animated.View
+          pointerEvents="none"
+          style={[StyleSheet.absoluteFill, { backgroundColor: backdropColor }, coverStyle]}
+        >
+          {zoomId ? (
+            // Where the zoom lands: the cover grows into this frame. Hidden
+            // once the page shows, it still names where the zoom back starts.
+            <ZoomTarget zoomId={zoomId} style={coverRect}>
+              {coverImage}
+            </ZoomTarget>
+          ) : shownCover ? (
+            <Animated.View style={[coverRect, loadingStyle]}>{coverImage}</Animated.View>
+          ) : null}
+          {openingDone ? null : (
+            <Animated.View
+              style={[
+                {
+                  position: "absolute",
+                  left: loadingLayout.spinner.x,
+                  top: loadingLayout.spinner.y,
+                  width: loadingLayout.spinner.width,
+                  height: loadingLayout.spinner.height,
+                },
+                loadingStyle,
+              ]}
+            >
+              <ActivityIndicator color={mobileReaderPageStatusColor(backdropColor)} />
+            </Animated.View>
+          )}
         </Animated.View>
       ) : null}
     </View>

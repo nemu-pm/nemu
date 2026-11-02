@@ -89,7 +89,7 @@ describe("reader opening stand-in", () => {
     );
     const reader = route.indexOf("<ReaderScreen />");
     const standIn = route.indexOf("{standIn && standInMounted ? (");
-    const cover = route.indexOf("<ZoomTarget\n");
+    const cover = route.indexOf("<ZoomTarget zoomId={zoomId} style={coverRect}>");
     expect(reader).toBeGreaterThan(0);
     expect(standIn).toBeGreaterThan(reader);
     expect(cover).toBeGreaterThan(standIn);

@@ -227,7 +227,6 @@ describe("readerOpeningHold wiring", () => {
   test("the route holds on the UI thread, logs fade-end since the tap, and takes the tap from the handoff", () => {
     expect(route).toContain('if (finished) runOnJS(onFadeEnd)("hold-cap", landedAt);');
     expect(route).toContain("if (holdingRef.current) armHoldCap();");
-    expect(route).toContain("if (holdingRef.current) return;");
     expect(route).toContain('if (holdingRef.current) reveal("first-screen-images");');
     expect(route).toContain("useState(() => peekMobileReaderZoomTapAt(zoomId))");
     expect(route).toContain("sinceTapMs,");
