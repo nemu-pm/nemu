@@ -15,8 +15,8 @@ const SECTION_GAP = 36;
 /** One line of section header / footer text (footnote) and its margins. */
 const NOTE_LINE = 18;
 const NOTE_PADDING = 14;
-/** An inset-grouped row at the default text size. */
-export const MOBILE_NATIVE_FORM_ROW = 44;
+/** An iOS 26 inset-grouped row at the default text size (measured: 52pt). */
+export const MOBILE_NATIVE_FORM_ROW = 52;
 /** Inset-grouped margins plus the row's own insets, either side. */
 const TEXT_INSET = 2 * 20 + 2 * 16;
 /** What a `tightTop` sheet saves: the empty title row and the Form's top margin. */
