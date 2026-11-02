@@ -43,6 +43,8 @@ import type { MobileNativeFormSheetAction, MobileNativeFormSheetProps } from "./
 
 /** `background="grouped"`: the grouped-table backdrop, resolved per appearance. */
 const GROUPED_SHEET_BACKGROUND = PlatformColor("systemGroupedBackground");
+/** A destructive bar action: the system red, as its destructive role draws it. */
+const DESTRUCTIVE_TINT = PlatformColor("systemRed");
 
 function ToolbarActionButton({
   action,
@@ -59,12 +61,12 @@ function ToolbarActionButton({
     <SwiftButton
       label={action.label}
       systemImage={action.systemImage as SFSymbol | undefined}
-      role={role}
+      role={action.destructive ? "destructive" : role}
       onPress={action.onPress}
       modifiers={[
         ...(action.systemImage ? [labelStyle("iconOnly")] : []),
         ...(action.accessibilityLabel ? [swiftAccessibilityLabel(action.accessibilityLabel)] : []),
-        ...(accent ? [tint(accent)] : []),
+        ...(action.destructive ? [tint(DESTRUCTIVE_TINT)] : accent ? [tint(accent)] : []),
         ...(action.disabled ? [swiftDisabled(true)] : []),
       ]}
     />

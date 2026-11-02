@@ -16,6 +16,8 @@ export type MobileNativeFormSheetAction = {
   systemImage?: string;
   /** Spoken instead of `label` (a fuller name than the bar's short one). */
   accessibilityLabel?: string;
+  /** A destructive action: the system's destructive role, in the system red. */
+  destructive?: boolean;
 };
 
 export type MobileNativeFormSheetProps = {

@@ -19,11 +19,12 @@ export const mobileCloudSignOutNativeSheetAvailable = true;
 
 const LABEL = PlatformColor("label");
 const SECONDARY_LABEL = PlatformColor("secondaryLabel");
+const DESTRUCTIVE = PlatformColor("systemRed");
 
 /**
  * Sign Out as a native form sheet: Cancel and Sign Out in the bar, the two
- * data choices as checkmark rows under the question. Signing out keeps the
- * cloud data, so nothing here is red: "Remove data" keeps a muted symbol.
+ * data choices as checkmark rows under the question. "Remove data" is a
+ * destructive row in the system red, and with it chosen so is Sign Out.
  */
 export function MobileCloudSignOutNativeSheet({
   visible,
@@ -75,6 +76,8 @@ export function MobileCloudSignOutNativeSheet({
         label: strings.settings.cloudSyncSignOut,
         accessibilityLabel: strings.settings.cloudSyncSignOutLabel,
         busy: loading,
+        // Removing this device's data: the confirm reads destructive too.
+        destructive: !keepData,
         onPress: () => {
           void hapticPress();
           onConfirm();
@@ -102,9 +105,9 @@ export function MobileCloudSignOutNativeSheet({
           systemImage="trash"
           selected={!keepData}
           disabled={loading}
-          tintColor={tokens.primary}
-          symbolColor={SECONDARY_LABEL}
-          textColor={LABEL}
+          // A destructive row: title, symbol and checkmark in the system red.
+          tintColor={DESTRUCTIVE}
+          textColor={DESTRUCTIVE}
           detailColor={SECONDARY_LABEL}
           onPress={() => choice(false)}
         />
