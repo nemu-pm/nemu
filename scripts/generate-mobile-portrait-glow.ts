@@ -140,7 +140,10 @@ async function writePortraitShadowRaster(
     .png({ compressionLevel: 9 })
     .toBuffer();
 
-  await sharp({
+  // sharp composites after every other operation of a pipeline, so the
+  // silhouette is placed in one pipeline and blurred in the next: blurring in
+  // the same one blurred only the empty canvas and shipped a hard silhouette.
+  const placed = await sharp({
     create: {
       background: { alpha: 0, b: 0, g: 0, r: 0 },
       channels: 4,
@@ -155,8 +158,15 @@ async function writePortraitShadowRaster(
         top: padding + NEMU_WEB_PORTRAIT_GLOW.shadow.translateY,
       },
     ])
-    .blur(NEMU_WEB_PORTRAIT_GLOW.shadow.blurRadius)
-    .png({ adaptiveFiltering: true, compressionLevel: 9, effort: 10 })
+    .png()
+    .toBuffer();
+
+  await sharp(placed)
+    // CSS drop-shadow's blur is a radius: the Gaussian's sigma is half of it.
+    .blur(NEMU_WEB_PORTRAIT_GLOW.shadow.blurRadius / 2)
+    // One colour at up to 256 alphas fits a palette exactly, so the palette
+    // PNG is lossless here (no dithering) and a third of the truecolor size.
+    .png({ adaptiveFiltering: true, colours: 256, compressionLevel: 9, dither: 0, effort: 10, palette: true })
     .toFile(resolve(assetsDirectory, filename));
 }
 

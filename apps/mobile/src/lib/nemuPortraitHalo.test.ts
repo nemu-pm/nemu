@@ -347,7 +347,9 @@ describe("Nemu portrait halo motion", () => {
         compressedAssetBytes += statSync(assetPath).size;
       }
     }
-    expect(compressedAssetBytes).toBeLessThan(1_700_000);
+    // The blurred shadows add ~0.6 MB over the hard silhouettes the budget
+    // was first set against (their blur never ran).
+    expect(compressedAssetBytes).toBeLessThan(2_300_000);
     expect(1087 * 1195 * 4).toBeLessThan(5_300_000);
     expect(1087 * 1195 * 4 * 3).toBeLessThan(15_700_000);
     // Keep one logical-pixel raster per mask. Density siblings would either
