@@ -25,6 +25,7 @@ import { isMobileSettingsHeadingRepeat } from "@/lib/mobileSettingsHeading";
 import {
   AccessibilityInfo,
   ActivityIndicator,
+  BackHandler,
   Linking,
   Alert,
   Platform,
@@ -144,6 +145,7 @@ import { MobileSheetSelectionIndicator } from "@/components/MobileSheetSelection
 import {
   applyMobileSettingsCollapsePlan,
   completeMobileSettingsRestoredStack,
+  getMobileSettingsPageChain,
   getMobileSettingsPrimaryPane,
   getMobileSettingsStackSections,
   isMobileSettingsRestoredPush,
@@ -162,6 +164,8 @@ import {
   MOBILE_SETTINGS_SPLIT_OPTIONS,
 } from "@/lib/mobileSplitPaneLayout";
 import { useMobileSplitPaneLayout } from "@/lib/useMobileSplitPaneLayout";
+import { MOBILE_STACK_FULL_SCREEN_GESTURE_OPTIONS } from "@/lib/mobileReaderRouteOptions";
+import { ScreenStack, ScreenStackItem } from "react-native-screens";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { HeaderHeightContext } from "expo-router/react-navigation";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -1303,9 +1307,10 @@ function SourceDirectoryRow({
  * where it lives, a switch), the toolbar + that asks for an HTTPS address in
  * a system prompt, and a footer saying what removing one keeps.
  */
-function SourceDirectoriesSection({ strings, catalog }: {
+function SourceDirectoriesSection({ strings, catalog, barItems }: {
   strings: MobileStrings;
   catalog: ReturnType<typeof useAvailableSources>;
+  barItems: boolean;
 }) {
   const { tokens } = useNemuTheme();
   const { tokens: sheetTokens } = useMobileNativeSheetTheme();
@@ -1361,7 +1366,7 @@ function SourceDirectoriesSection({ strings, catalog }: {
 
   return (
     <View style={styles.experimentalPage}>
-      {mobileSourceDirectoryPromptAvailable ? (
+      {mobileSourceDirectoryPromptAvailable && barItems ? (
         <Stack.Toolbar placement="right">
           {renderNemuNativeToolbarButtons([
             {
@@ -1968,7 +1973,7 @@ function SettingsScreenContent({
   columnTitled = false,
   onBarTitleCenter,
   barTitleRevision = "",
-  splitPage = false,
+  barItems = true,
 }: {
   section?: SettingsSectionId | null;
   /**
@@ -1987,10 +1992,10 @@ function SettingsScreenContent({
   /** Changes whenever the bar may have moved (`SettingsBarTitleProbe`). */
   barTitleRevision?: string;
   /**
-   * Split list pane: the split shows a page pushed onto the Settings stack
-   * (Source Directories), so the stack's Back and edge swipe pop it.
+   * Split detail pane: false while a page pushed over this one in the detail
+   * column (Source Directories over Installed Sources) owns the bar's items.
    */
-  splitPage?: boolean;
+  barItems?: boolean;
 }) {
   const params = useLocalSearchParams<{
     focus?: string | string[];
@@ -3796,16 +3801,27 @@ function SettingsScreenContent({
                         .catch((error) => reportSettingsError(error))
                         .finally(() => setUpdatingSources(false));
                     }}
-                    // A native push in the split too: the pushed route shows
-                    // the split with Installed Sources selected and Source
-                    // Directories beside it, and the stack's Back pops it.
-                    onOpenDirectories={() => router.push(settingsSectionHref("directories"))}
+                    onOpenDirectories={() => {
+                      // In the split Source Directories is pushed in the
+                      // detail column alone (its own stack, `SettingsScreen`);
+                      // a push onto the Settings stack would slide the whole
+                      // split, sidebar included.
+                      if (presentation === "detail-pane" && onSelectSection) {
+                        onSelectSection("directories");
+                        return;
+                      }
+                      router.push(settingsSectionHref("directories"));
+                    }}
                   />
                 </>
               ) : null}
 
               {activeSection === "directories" ? (
-                <SourceDirectoriesSection strings={strings} catalog={availableSources} />
+                <SourceDirectoriesSection
+                  strings={strings}
+                  catalog={availableSources}
+                  barItems={barItems}
+                />
               ) : null}
 
               {activeSection === "data" ? (
@@ -4076,11 +4092,11 @@ function SettingsScreenContent({
             // push kept through a resize, or a deep link) is the selection,
             // not a page: the detail column's first page has no Back, and
             // neither the stack's Back nor its edge swipe may pop the route
-            // out from under the split. Source Directories is the one page:
-            // pushed from Installed Sources, it pops back to it. Always set,
-            // so leaving the split restores them (`setOptions` merges).
-            headerBackVisible: !inSplit || splitPage,
-            gestureEnabled: !inSplit || splitPage,
+            // out from under the split; the detail column's own stack pops
+            // its pages (Source Directories). Always set, so leaving the
+            // split restores them (`setOptions` merges).
+            headerBackVisible: !inSplit,
+            gestureEnabled: !inSplit,
             // Always set, so leaving the split (a Duo rotated back to
             // portrait) clears the probe: `setOptions` merges, and a probe
             // left over from the split hid the bar's own title.
@@ -4095,7 +4111,7 @@ function SettingsScreenContent({
           }}
         />
       )}
-      {activeSection === "sources" ? (
+      {activeSection === "sources" && barItems ? (
         <Stack.Toolbar placement="right">
           {renderNemuNativeToolbarButtons([{
             icon: "plus",
@@ -4302,10 +4318,25 @@ export function SettingsScreen({
     headerHeight,
   ].join(":");
 
-  // Source Directories is a page pushed onto the Settings stack from
-  // Installed Sources: while the split shows it, the stack's Back and edge
-  // swipe pop it. Another section picked from its list is a selection again.
-  const splitPage = split !== null && section === "directories" && detailSection === "directories";
+  // The detail column is a navigation stack of its own, as a split view's
+  // secondary column: its pages are the selection's chain (Source Directories
+  // pushed over Installed Sources), so pushing and popping one slides that
+  // column alone. Its Back is a bar item (the column has no bar of its own:
+  // the Settings bar spans both columns); its edge swipe is the column's.
+  const columnPages = getMobileSettingsPageChain(detailSection);
+  const columnPushed = split !== null && columnPages.length > 1;
+  const columnParent = columnPages[columnPages.length - 2] ?? null;
+  const popColumn = () => {
+    if (columnParent) setSelected(columnParent);
+  };
+  useEffect(() => {
+    if (Platform.OS !== "android" || !columnPushed || !columnParent) return;
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      setSelected(columnParent);
+      return true;
+    });
+    return () => subscription.remove();
+  }, [columnParent, columnPushed]);
 
   const detailShown = split ? detailSection : (selected ?? section);
   // Signed out or deleted from the Account page: the split's detail column
@@ -4314,6 +4345,25 @@ export function SettingsScreen({
   const leaveAccountSelection = useCallback(() => {
     setSelected((current) => (current === "account" ? null : current));
   }, []);
+
+  const renderDetailPage = (page: SettingsSectionId | null, top: boolean) =>
+    page === "account" ? (
+      // The Account Form (its own page, SwiftUI on iOS): the detail
+      // column's section in the split, the pushed page in one column.
+      <AccountScreen
+        presentation={split ? "detail-pane" : "page"}
+        onLeft={leaveAccountSelection}
+      />
+    ) : (
+      <SettingsScreenContent
+        section={page}
+        presentation={split ? "detail-pane" : "page"}
+        onSelectSection={setSelected}
+        paneContentStyle={padding.trailing}
+        columnTitled={columnTitles !== null}
+        barItems={top}
+      />
+    );
 
   const pose = useMobilePoseTransition();
   const poseLayout = useMobilePoseLayout();
@@ -4345,7 +4395,6 @@ export function SettingsScreen({
         paneContentStyle={padding.leading}
         onBarTitleCenter={columnTitles ? setBarTitleCenterY : undefined}
         barTitleRevision={barTitleRevision}
-        splitPage={splitPage}
       />
     </Animated.View>
   ) : null;
@@ -4357,27 +4406,53 @@ export function SettingsScreen({
       exiting={pose.exiting}
       style={split ? [styles.pane, { width: split.trailing.width }] : styles.fill}
     >
-      {detailShown === "account" ? (
-        // The Account Form (its own page, SwiftUI on iOS): the detail
-        // column's section in the split, the pushed page in one column.
-        <AccountScreen
-          presentation={split ? "detail-pane" : "page"}
-          onLeft={leaveAccountSelection}
-        />
+      {split ? (
+        // Keyed by its root: picking another section (also while a page is
+        // pushed) replaces the column's stack outright, with no pop sliding
+        // the new section in; a page pushed over the same root slides.
+        <ScreenStack key={columnPages[0]} style={styles.fill}>
+          {columnPages.map((page, index) => {
+            const top = index === columnPages.length - 1;
+            return (
+              <ScreenStackItem
+                key={page}
+                screenId={`settings-column-${page}`}
+                headerConfig={{ hidden: true }}
+                gestureEnabled={index > 0}
+                fullScreenSwipeEnabled={MOBILE_STACK_FULL_SCREEN_GESTURE_OPTIONS.fullScreenGestureEnabled}
+                // The column's Back, swipe or Android back took it off the
+                // stack: the page under it is the selection again.
+                onDismissed={index > 0 ? popColumn : undefined}
+                style={StyleSheet.absoluteFill}
+                contentStyle={{ backgroundColor: tokens.background }}
+              >
+                {renderDetailPage(page, top)}
+              </ScreenStackItem>
+            );
+          })}
+        </ScreenStack>
       ) : (
-        <SettingsScreenContent
-          section={detailShown}
-          presentation={split ? "detail-pane" : "page"}
-          onSelectSection={setSelected}
-          paneContentStyle={padding.trailing}
-          columnTitled={columnTitles !== null}
-        />
+        renderDetailPage(detailShown, true)
       )}
     </Animated.View>
   ) : null;
 
   return (
     <LayoutAnimationConfig skipEntering skipExiting>
+      {columnPushed ? (
+        // First in the bar's leading items (in a vertical bar too).
+        <Stack.Toolbar placement="left">
+          {renderNemuNativeToolbarButtons([
+            {
+              icon: "chevron.backward",
+              label: formatMobileString(strings.common.backTo, {
+                title: settingsSectionTitle(strings, columnParent),
+              }),
+              onPress: popColumn,
+            },
+          ])}
+        </Stack.Toolbar>
+      ) : null}
       <View
         ref={containerRef}
         onLayout={onContainerLayout}

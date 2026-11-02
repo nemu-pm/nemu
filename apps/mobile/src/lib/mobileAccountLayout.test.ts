@@ -31,7 +31,7 @@ describe("account in the settings split (wiring)", () => {
 
   test("the detail column shows the Account Form and the card row selects it", () => {
     const settings = read("screens/SettingsScreen.tsx");
-    expect(settings).toContain('detailShown === "account"');
+    expect(settings).toContain('page === "account" ? (');
     expect(settings).toContain('presentation={split ? "detail-pane" : "page"}');
     expect(settings).toContain("onLeft={leaveAccountSelection}");
     expect(settings).toContain('accountSelected={inSplit ? selectedSection === "account" : null}');
