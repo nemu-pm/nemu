@@ -180,6 +180,29 @@ export function getMobileSourceBrowseListingTabCount(
   return (hasHomeProvider ? 1 : 0) + listingCount;
 }
 
+/**
+ * Whether the source is search-only, as early as it can be known: the live
+ * runtime answer, else the one persisted from the last run, else "no" for a
+ * package that declares listings (a listing rules search-only out). `null`
+ * while nothing says either way: the page then holds the chrome that differs
+ * between the two modes (the bar's search button and source menu, the header
+ * search field) rather than show one and swap it for the other.
+ */
+export function resolveMobileSourceBrowseOnlySearch({
+  runtimeOnlySearch,
+  persistedOnlySearch,
+  packageListingCount,
+}: {
+  runtimeOnlySearch: boolean | null | undefined;
+  persistedOnlySearch: boolean | null | undefined;
+  packageListingCount: number;
+}): boolean | null {
+  if (typeof runtimeOnlySearch === "boolean") return runtimeOnlySearch;
+  if (typeof persistedOnlySearch === "boolean") return persistedOnlySearch;
+  if (packageListingCount > 0) return false;
+  return null;
+}
+
 export function shouldShowMobileSourceBrowseListingTabBar({
   listingTabCount,
   sourceHomeProviderKnown,

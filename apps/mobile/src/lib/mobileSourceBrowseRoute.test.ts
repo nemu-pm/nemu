@@ -27,7 +27,50 @@ import {
   shouldFetchMobileSourceHome,
   shouldPreserveSourceBrowseSearchItemsOnDeactivate,
   resolveMobileSourceBrowseKeptListing,
+  resolveMobileSourceBrowseOnlySearch,
 } from "./mobileSourceBrowseRoute";
+
+describe("resolveMobileSourceBrowseOnlySearch", () => {
+  test("the live runtime answer wins over a persisted one", () => {
+    expect(
+      resolveMobileSourceBrowseOnlySearch({
+        runtimeOnlySearch: false,
+        persistedOnlySearch: true,
+        packageListingCount: 0,
+      }),
+    ).toBe(false);
+  });
+
+  test("a persisted answer decides the first frame before the runtime", () => {
+    expect(
+      resolveMobileSourceBrowseOnlySearch({
+        runtimeOnlySearch: null,
+        persistedOnlySearch: true,
+        packageListingCount: 0,
+      }),
+    ).toBe(true);
+  });
+
+  test("a package that declares listings is never search-only", () => {
+    expect(
+      resolveMobileSourceBrowseOnlySearch({
+        runtimeOnlySearch: undefined,
+        persistedOnlySearch: undefined,
+        packageListingCount: 2,
+      }),
+    ).toBe(false);
+  });
+
+  test("unknown until the runtime answers for a never-run listing-less source", () => {
+    expect(
+      resolveMobileSourceBrowseOnlySearch({
+        runtimeOnlySearch: null,
+        persistedOnlySearch: undefined,
+        packageListingCount: 0,
+      }),
+    ).toBeNull();
+  });
+});
 
 const listings = [
   { id: "popular" },

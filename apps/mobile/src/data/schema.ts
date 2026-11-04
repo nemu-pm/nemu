@@ -159,6 +159,12 @@ export type SourcePackageMetadata = {
   filters: SourcePackageField[];
   settings: SourcePackageSetting[];
   hasWasm: boolean;
+  /**
+   * The runtime's last answer to "search only?" (no home, no listings), kept
+   * so the browse page opens in its final chrome. Absent until the source has
+   * run once; a package update drops it with the rest of the runtime fields.
+   */
+  onlySearch?: boolean;
 };
 
 export type ReadingMode = "rtl" | "ltr" | "scrolling";

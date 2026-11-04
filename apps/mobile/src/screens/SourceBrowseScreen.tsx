@@ -178,6 +178,7 @@ import {
   hasMobileSourceBrowseRouteQuery,
   makeMobileSourceBrowseSearchRouteQuery,
   isMobileSourceBrowseHomeTabPending,
+  resolveMobileSourceBrowseOnlySearch,
   isMobileSourceBrowseRouteTabRequestPending,
   isMobileSourceBrowseSearchRequestPending,
   normalizeMobileSourceBrowseRouteQuery,
@@ -1723,11 +1724,28 @@ export function SourceBrowseScreen() {
   const sourceHomeSectionStatus = resolveMobileSourceHomeSectionStatus(
     sourceHomeState.status,
   );
-  const sourceOnlySearch =
-    runtimeBrowseMetadata?.onlySearch ??
-    (sourceHomeState.status === "ready"
-      ? sourceHomeState.result.onlySearch
-      : false);
+  // Known from the first frame for a source that has run before (persisted
+  // with its package metadata) or that ships listings; the bar items and the
+  // header search field differ between the modes, so guessing showed one set
+  // and then swapped it for the other as the runtime answered.
+  const sourceOnlySearchResolved = resolveMobileSourceBrowseOnlySearch({
+    runtimeOnlySearch:
+      runtimeBrowseMetadata?.onlySearch ??
+      (sourceHomeState.status === "ready"
+        ? sourceHomeState.result.onlySearch
+        : null),
+    persistedOnlySearch: source?.packageMetadata?.onlySearch,
+    packageListingCount: source?.packageMetadata?.listings.length ?? 0,
+  });
+  // A runtime that failed without answering leaves the browse chrome (its
+  // retry is a browse-page action), never a page held without its bar items.
+  const sourceModeKnown =
+    sourceOnlySearchResolved !== null ||
+    sourceBrowseMetadataState.status === "error" ||
+    sourceBrowseMetadataState.status === "blocked" ||
+    sourceHomeState.status === "error" ||
+    sourceHomeState.status === "blocked";
+  const sourceOnlySearch = sourceOnlySearchResolved ?? false;
   const sourceSearchActive =
     sourceOnlySearch ||
     routeSourceSearchActive ||
@@ -3099,6 +3117,11 @@ export function SourceBrowseScreen() {
     screenTitle,
     verticalBarSide,
   );
+  // The browse-mode bar items (search button, source menu): never shown
+  // before the source is known not to open straight into search.
+  const sourceBrowseChromeShown = !sourceSearchActive && sourceModeKnown;
+  const sourceExploreMenuShown =
+    mobileDesignExploreFlag && sourceBrowseChromeShown;
   const nativeHeaderActions: NemuNativeHeaderAction[] =
     source && sourceSearchActive && showSourceSearchControls
       ? [
@@ -3109,13 +3132,13 @@ export function SourceBrowseScreen() {
             onPress: openSourceFilterPanel,
           },
         ]
-      : !sourceSearchActive
+      : sourceBrowseChromeShown
       ? [
           {
             icon: "magnifyingglass",
             label: strings.sourceBrowse.searchSource,
             hint: strings.sourceBrowse.searchSourceHint,
-            // Present from the first frame; enabled once the source resolves.
+            // Present once the mode is known; enabled once the source resolves.
             disabled: !source,
             onPress: enterSourceSearch,
           },
@@ -3651,10 +3674,10 @@ export function SourceBrowseScreen() {
         onSearch={enterSourceSearch} onCancel={clearSourceSearch}
         onFilters={showSourceSearchControls ? openSourceFilterPanel : undefined}
       /> : null}
-      {!compactHeader && (nativeHeaderActions.length || mobileDesignExploreFlag) ? (
+      {!compactHeader && (nativeHeaderActions.length || sourceExploreMenuShown) ? (
         <Stack.Toolbar placement="right">
           {renderNemuNativeToolbarButtons(nativeHeaderActions)}
-          {mobileDesignExploreFlag && !sourceSearchActive
+          {sourceExploreMenuShown
             ? renderExploreDetailBarMenu(
                 [
                   {
