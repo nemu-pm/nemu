@@ -823,5 +823,24 @@
         ]
       }
     ]
+  },
+  "directoriesPage": {
+    "title": "Source directories",
+    "intro": "nemu reads manga through sources: small packages that each tell nemu how to read one website or server. Sources come from source directories, lists published at a web address in the format Aidoku uses (an index.min.json file). nemu can add any of the directories below.",
+    "howTitle": "Adding a directory",
+    "howTap": "On the iPhone or iPad with nemu, tap Add to nemu. nemu shows the directory's name and address and asks before adding it.",
+    "howCopy": "Or copy the address, then in nemu go to Settings › Source directories › Add directory and paste it.",
+    "desktopHint": "Add to nemu only works on a device with nemu installed. On this computer, copy an address and add it in nemu.",
+    "listTitle": "Directories",
+    "by": "by",
+    "languages": "Languages: {{value}}",
+    "multiLanguage": "Many languages",
+    "add": "Add to nemu",
+    "copy": "Copy address",
+    "copied": "Copied",
+    "builtIn": "Included with nemu",
+    "disclaimerTitle": "Before you add one",
+    "disclaimer": "Directories other than nemu recommended are published by third parties. nemu does not host, review or endorse them or the content their sources reach, and is not affiliated with their publishers. Being listed here is not a recommendation. You are responsible for the directories you add and for complying with the laws and terms that apply to you.",
+    "removal": "To have a directory removed from this page, open an issue at"
   }
 }
