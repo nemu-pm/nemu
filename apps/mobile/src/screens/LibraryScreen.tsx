@@ -121,6 +121,8 @@ import {
   makeMobileGridGlideEntering,
   MOBILE_GRID_GLIDE_WINDOW_MS,
   mobileGridGlideAppearing,
+  mobileGridGlideEmptyEntering,
+  mobileGridGlideEmptyExiting,
   mobileGridGlideTransition,
   openMobileGridGlideWindow,
 } from "@/lib/mobilePoseLayoutAnimations";
@@ -2742,8 +2744,12 @@ export function LibraryScreen({
           </View>
         </>
       }
+      // Removing the last title (glideLibraryGrid): the empty state fades in
+      // behind the dust instead of appearing whole in one frame; an Undo
+      // fades it out. Any other time it appears and leaves at once.
       ListEmptyComponent={
         !showSkeleton && selectedCollection ? (
+          <Animated.View entering={mobileGridGlideEmptyEntering} exiting={mobileGridGlideEmptyExiting}>
           <MobilePaneAlignedView>
           <GlassSurface contentStyle={styles.inlineEmpty}>
             <Ionicons name="albums-outline" size={22} color={tokens.mutedForeground} />
@@ -2760,10 +2766,15 @@ export function LibraryScreen({
             />
           </GlassSurface>
           </MobilePaneAlignedView>
+          </Animated.View>
         ) : showEmptyOnboarding ? (
           // The nemu hero lays itself out per pane (EmptyLibrary), centred in
           // the room the list leaves below its header.
-          <View style={styles.emptyHero}>
+          <Animated.View
+            style={styles.emptyHero}
+            entering={mobileGridGlideEmptyEntering}
+            exiting={mobileGridGlideEmptyExiting}
+          >
             {designExplore && hasInstalledSources ? (
               // Design-explore: the first screen a new reader sees points at
               // Browse, where series are found.
@@ -2785,7 +2796,7 @@ export function LibraryScreen({
                 onActionPress={() => router.navigate(emptyState.actionRoute)}
               />
             )}
-          </View>
+          </Animated.View>
         ) : null
       }
     />

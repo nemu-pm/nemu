@@ -43,4 +43,26 @@ describe("removing a title glides the Library grid", () => {
     expect(animations).toContain("const gridGlideActive = createSynchronizable(false, { fixedType: true });");
     expect(animations.match(/gridGlideActive\.getBlocking\(\) && !poseReduceMotion\.value/g)?.length).toBe(2);
   });
+
+  // Owner, 2026-11-04: after removing the last title the empty view appeared
+  // whole in one frame behind the dust ("删除全部漫画后到空视图的过渡需要自然").
+  test("the empty state the last title leaves fades in, and an Undo fades it out", () => {
+    const empty = library.slice(library.indexOf("ListEmptyComponent={"));
+    expect(empty.match(/entering=\{mobileGridGlideEmptyEntering\}/g)?.length).toBe(2);
+    expect(empty.match(/exiting=\{mobileGridGlideEmptyExiting\}/g)?.length).toBe(2);
+  });
+
+  test("the empty state's motion is gated by the glide window and Reduce Motion", () => {
+    const animations = read("./mobilePoseLayoutAnimations.ts");
+    const entering = animations.slice(animations.indexOf("export const mobileGridGlideEmptyEntering"));
+    const exiting = animations.slice(animations.indexOf("export const mobileGridGlideEmptyExiting"));
+    expect(entering.indexOf("if (!gridGlideActive.getBlocking())")).toBeLessThan(entering.indexOf("withSpring"));
+    expect(entering.indexOf("if (poseReduceMotion.value)")).toBeLessThan(entering.indexOf("withSpring"));
+    expect(exiting).toContain("!gridGlideActive.getBlocking()\n    ? 0");
+    // Reanimated skips animations under the system Reduce Motion by default;
+    // the short fade that stands in for the motion has to opt out.
+    const reduced = entering.slice(entering.indexOf("if (poseReduceMotion.value)"), entering.indexOf("withSpring"));
+    expect(reduced).toContain("reduceMotion: ReduceMotion.Never");
+    expect(exiting.slice(0, exiting.indexOf("};"))).toContain("reduceMotion: ReduceMotion.Never");
+  });
 });

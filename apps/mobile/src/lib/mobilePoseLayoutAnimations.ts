@@ -2,6 +2,7 @@ import { createSynchronizable } from "react-native-worklets";
 import {
   Easing,
   makeMutable,
+  ReduceMotion,
   withSpring,
   withTiming,
   type EntryExitAnimationFunction,
@@ -282,5 +283,58 @@ export const mobileGridGlideAppearing: EntryExitAnimationFunction = () => {
   return {
     initialValues: { opacity: 0 },
     animations: { opacity: withTiming(1, { duration, easing: EASE_OUT }) },
+  };
+};
+
+/** The empty state's fade in after the last title leaves (longer than a cell's: it fills the page). */
+export const MOBILE_GRID_GLIDE_EMPTY_FADE_IN_MS = 360;
+/** Where the empty state's scale starts: it settles forward into place. */
+export const MOBILE_GRID_GLIDE_EMPTY_FROM_SCALE = 0.96;
+
+/**
+ * The empty state the last title leaves behind fades in and settles from a
+ * touch smaller, behind the drifting dust, instead of appearing whole in one
+ * frame. Only inside the glide window: the empty state at launch, after a
+ * sync or on a collection switch appears as before. Reduce Motion: a short
+ * fade, no scale (kept: Reanimated's default would skip it under the system
+ * setting, and the page would swap in one frame).
+ */
+export const mobileGridGlideEmptyEntering: EntryExitAnimationFunction = () => {
+  "worklet";
+  if (!gridGlideActive.getBlocking()) {
+    return { initialValues: { opacity: 1 }, animations: { opacity: withTiming(1, INSTANT) } };
+  }
+  if (poseReduceMotion.value) {
+    return {
+      initialValues: { opacity: 0 },
+      animations: {
+        opacity: withTiming(1, {
+          duration: MOBILE_MOTION.reduceMotionFadeMs,
+          easing: EASE_OUT,
+          reduceMotion: ReduceMotion.Never,
+        }),
+      },
+    };
+  }
+  return {
+    initialValues: { opacity: 0, transform: [{ scale: MOBILE_GRID_GLIDE_EMPTY_FROM_SCALE }] },
+    animations: {
+      opacity: withTiming(1, { duration: MOBILE_GRID_GLIDE_EMPTY_FADE_IN_MS, easing: EASE_OUT }),
+      transform: [{ scale: withSpring(1, SPRING) }],
+    },
+  };
+};
+
+/** Its counterpart for an Undo: the empty state fades out as the title fades back in. */
+export const mobileGridGlideEmptyExiting: EntryExitAnimationFunction = () => {
+  "worklet";
+  const duration = !gridGlideActive.getBlocking()
+    ? 0
+    : poseReduceMotion.value
+      ? MOBILE_MOTION.reduceMotionFadeMs
+      : MOBILE_MOTION.fadeOutMs;
+  return {
+    initialValues: { opacity: 1 },
+    animations: { opacity: withTiming(0, { duration, easing: EASE_OUT, reduceMotion: ReduceMotion.Never }) },
   };
 };
