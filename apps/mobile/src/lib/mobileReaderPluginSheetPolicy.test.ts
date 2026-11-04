@@ -22,9 +22,11 @@ describe("reader plugin settings sheet policy", () => {
     expect(screen).not.toContain("function ReaderPluginSettingsSheet(");
     for (const source of [mobileSource(iosSheetPath), mobileSource(sheetPath)]) {
       expect(source).toContain("}: ReaderPluginSettingsSheetProps) {");
-      // Both platforms draw the same list rows.
-      expect(source).toContain("<ReaderPluginListItem");
     }
+    // iOS lists the plugins as Settings → Reader → Plugins does, in one group.
+    expect(mobileSource(iosSheetPath)).toContain("<ReaderPluginManagementRow");
+    expect(mobileSource(iosSheetPath)).not.toContain("<ReaderPluginListItem");
+    expect(mobileSource(sheetPath)).toContain("<ReaderPluginListItem");
     // One row per plugin: no separate gear button, no uppercase meta line.
     const rows = mobileSource(rowsPath);
     expect(rows).not.toContain("settings-outline");

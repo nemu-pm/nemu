@@ -65,7 +65,7 @@ import {
   presentationColorScheme,
   presentationPlacement,
 } from "../../../modules/nemu-window-layout/src/presentationColorScheme";
-import { ReaderPluginEnableRow, ReaderPluginListItem } from "./ReaderPluginSettingsRows";
+import { ReaderPluginEnableRow } from "./ReaderPluginSettingsRows";
 import type { ReaderPluginSettingsSheetProps } from "./ReaderPluginSettingsSheet.types";
 
 /** iOS 26+: the sheet floats on the system's Liquid Glass. */
@@ -113,7 +113,7 @@ export type ReaderPluginStackInset = { left: number; right: number };
 /**
  * The reader's Plugins sheet on iOS: a system sheet (dark, on iOS 26 Liquid
  * Glass) whose pages are the same React Native components as Settings →
- * Reader → Plugins: the plugin list (`ReaderPluginListItem`), and each
+ * Reader → Plugins: the plugin list (`ReaderPluginManagementRow`, one group), and each
  * plugin's page — its mark and name, description, an on / off row, and the
  * shared settings card (`MobileReaderPluginSettingsCard`: engine picker, the
  * on-device dictionary line, the sign-in-gated assist switch, Reset).
@@ -534,37 +534,25 @@ export function ReaderPluginListPage({
       ) : null}
       {loading && plugins.length === 0 ? (
         <NemuInlineEmptyState icon="hourglass-outline" title={strings.settings.loadingReaderPlugins} />
-      ) : chrome === "stack" ? (
-        // Settings → Reader → Plugins' own rows, in one group. The row opens
-        // a plugin that is off too: its page has the on / off row.
-        plugins.length > 0 ? (
-          <View style={[styles.stackGroup, { backgroundColor: tokens.card }]}>
-            {plugins.map((plugin, index) => (
-              <ReaderPluginManagementRow
-                key={plugin.id}
-                plugin={plugin}
-                strings={strings}
-                disabled={busy}
-                opensWhileOff
-                first={index === 0}
-                onSelect={measuring ? noop : () => onSelectPlugin(plugin.id)}
-                onToggle={measuring ? noop : (enabled) => onTogglePlugin(plugin, enabled)}
-              />
-            ))}
-          </View>
-        ) : null
-      ) : (
-        plugins.map((plugin) => (
-          <ReaderPluginListItem
-            key={plugin.id}
-            plugin={plugin}
-            busy={busy}
-            strings={strings}
-            onOpen={measuring ? noop : () => onSelectPlugin(plugin.id)}
-            onToggle={measuring ? noop : (enabled) => onTogglePlugin(plugin, enabled)}
-          />
-        ))
-      )}
+      ) : plugins.length > 0 ? (
+        // Settings → Reader → Plugins' own rows, in one group (in this sheet
+        // and pushed in the reader settings stack alike). The row opens a
+        // plugin that is off too: its page has the on / off row.
+        <View style={[styles.stackGroup, { backgroundColor: tokens.card }]}>
+          {plugins.map((plugin, index) => (
+            <ReaderPluginManagementRow
+              key={plugin.id}
+              plugin={plugin}
+              strings={strings}
+              disabled={busy}
+              opensWhileOff
+              first={index === 0}
+              onSelect={measuring ? noop : () => onSelectPlugin(plugin.id)}
+              onToggle={measuring ? noop : (enabled) => onTogglePlugin(plugin, enabled)}
+            />
+          ))}
+        </View>
+      ) : null}
     </ReaderPluginSheetPage>
   );
 }
