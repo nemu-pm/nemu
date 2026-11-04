@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Alert } from "react-native";
+import { AccessibilityInfo, Alert } from "react-native";
 import { router } from "expo-router";
 import { useMobileDataStore } from "@/data/mobileDataContext";
 import { emitMobileDataChanged } from "@/data/mobileDataEvents";
@@ -9,15 +9,19 @@ import {
   MobileSourceDirectoryError,
   previewMobileSourceDirectory,
 } from "@/data/mobileSourceDirectories";
+import { hapticConfirm } from "@/lib/haptics";
+import { requestMobileAddSourceSheet } from "@/lib/mobileAddSourceSheetRequest";
 import { formatMobileString, getMobileStrings } from "@/lib/mobileI18n";
+import { navigateToMobileRootTab } from "@/lib/mobileRootTabNavigation";
 import { subscribeMobileSourceDirectoryLinks } from "@/lib/mobileSourceDirectoryLinkInbox";
 import { SOURCE_DIRECTORY_ERROR_KEYS } from "@/lib/mobileSourceDirectoryErrors";
 import { useMobileToast } from "./MobileToastContext";
 
 /**
  * `nemu://addSourceList?url=` / `aidoku://addSourceList?url=`: checks the
- * directory first, then asks in a system alert (name, address, and that nemu
- * does not host or review it). Nothing is added silently.
+ * directory first (a toast says so while it loads), then asks in a system
+ * alert (name, address, and that nemu does not host or review it). Nothing is
+ * added silently. Once added, Browse opens Add Sources on its sources.
  */
 export function MobileSourceDirectoryLinkHandler() {
   const store = useMobileDataStore();
@@ -45,9 +49,19 @@ export function MobileSourceDirectoryLinkHandler() {
                   : "sourceDirectoryErrorUnreachable"
               ],
           });
+        // Fetching the list can take a moment before the alert appears.
+        toast.show({
+          id: "source-directory-link",
+          tone: "info",
+          loading: true,
+          duration: "sticky",
+          title: strings.checkingSourceDirectory,
+        });
         void (async () => {
           try {
-            const preview = await previewMobileSourceDirectory(store, { url });
+            const preview = await previewMobileSourceDirectory(store, { url }).finally(() =>
+              toast.dismiss("source-directory-link"),
+            );
             Alert.alert(
               strings.addSourceDirectoryLinkTitle,
               formatMobileString(strings.addSourceDirectoryLinkMessage, {
@@ -60,13 +74,23 @@ export function MobileSourceDirectoryLinkHandler() {
                   text: getMobileStrings(appLanguage).common.add,
                   onPress: () => {
                     void addMobileSourceDirectory(store, { url }, { preview })
-                      .then(() => {
+                      .then((directory) => {
                         emitMobileDataChanged("registries");
-                        toast.show({ id: "source-directory-added", tone: "success", title: strings.sourceDirectoryAdded });
-                        router.push({
-                          pathname: "/(tabs)/settings/[section]",
-                          params: { section: "directories" },
-                        });
+                        void hapticConfirm();
+                        const count = preview.index.sources.length;
+                        const title = formatMobileString(strings.sourceDirectoryAddedNamed, { name: directory.name });
+                        const detail = formatMobileString(
+                          count === 1 ? strings.sourceDirectorySourceCountOne : strings.sourceDirectorySourceCountOther,
+                          { count },
+                        );
+                        AccessibilityInfo.announceForAccessibility(`${title}. ${detail}`);
+                        toast.show({ id: "source-directory-added", tone: "success", title, detail });
+                        // Straight to what the link was for: Add Sources,
+                        // opened on the new directory's sources.
+                        requestMobileAddSourceSheet({ directoryId: directory.id });
+                        if (!navigateToMobileRootTab("/browse", { popToRoot: true, router })) {
+                          router.navigate("/browse");
+                        }
                       })
                       .catch(fail);
                   },

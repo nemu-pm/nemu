@@ -140,7 +140,11 @@ export const mobileStringsZh: MobileStrings = {
     noSourceResults: "没有来源符合这些筛选条件。",
     otherLanguages: "其他",
     refreshSources: "刷新来源",
-    searchRegistries: "搜索来源目录",
+    searchRegistries: "搜索来源",
+    sourceDirectoryGuideBody:
+      "nemu 仅自带几个演示来源。添加任意兼容 Aidoku 的来源列表即可获得更多。",
+    addSourceDirectory: "添加来源目录",
+    directoryFilterChip: "来自 {{name}}",
     sourcesUnavailable: "来源不可用",
     warningAuthentication:
       "此来源需要登录或身份验证。在当前版本的 nemu 中可能无法正常使用。",
@@ -955,8 +959,24 @@ export const mobileStringsZh: MobileStrings = {
     addSourceDirectoryMessage: "输入来源目录的 HTTPS 地址（index.min.json）。",
     addSourceDirectoryLinkTitle: "添加来源目录？",
     addSourceDirectoryLinkMessage: "{{name}}\n{{url}}\n\nnemu 不托管或审核此目录中的来源。",
-    sourceDirectoryAdded: "已添加来源目录",
     sourceDirectoryUrlPlaceholder: "https://example.github.io/sources",
+    sourceDirectoryAddress: "地址",
+    sourceDirectoryDisclaimer:
+      "nemu 不托管或审核你添加的目录中的来源。",
+    pasteSourceDirectoryAddress: "粘贴地址",
+    checkingSourceDirectory: "正在检查目录…",
+    sourceDirectoryAidokuHeader: "兼容 Aidoku 的目录",
+    sourceDirectoryAidokuFooter:
+      "nemu 读取与 Aidoku 相同的来源列表。粘贴列表的地址，或网站上的 Aidoku 添加来源列表链接即可。",
+    openAidokuSourceListsGuide: "Aidoku 来源列表指南",
+    sourceDirectoryNemuHeader: "直接添加到 nemu",
+    sourceDirectoryNemuFooter:
+      "网站可以提供 nemu:// 链接。轻点后会打开 nemu，确认后即添加该目录。",
+    openNemuSourceDirectoriesPage: "在 nemu.pm 查找目录",
+    sourceDirectoryAddedNamed: "已添加 {{name}}",
+    sourceDirectorySourceCountOne: "{{count}} 个来源",
+    sourceDirectorySourceCountOther: "{{count}} 个来源",
+    showSourceDirectorySources: "查看来源",
     removeSourceDirectory: "移除目录",
     removeSourceDirectoryTitle: "要移除{{name}}吗？",
     removeSourceDirectoryMessage: "已安装的来源和阅读记录会保留，只是不再从此目录接收更新。",

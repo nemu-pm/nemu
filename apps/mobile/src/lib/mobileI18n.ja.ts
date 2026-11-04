@@ -145,7 +145,11 @@ export const mobileStringsJa: MobileStrings = {
     noSourceResults: "この条件に一致するソースはありません。",
     otherLanguages: "その他",
     refreshSources: "ソースを更新",
-    searchRegistries: "ソースディレクトリを検索",
+    searchRegistries: "ソースを検索",
+    sourceDirectoryGuideBody:
+      "nemuに含まれるのはいくつかのデモソースです。Aidoku互換のソースリストを追加すると、ほかのソースも使えます。",
+    addSourceDirectory: "ソースディレクトリを追加",
+    directoryFilterChip: "{{name}}から",
     sourcesUnavailable: "ソースを利用できません",
     warningAuthentication:
       "このソースはログインまたは認証が必要です。現在のバージョンのnemuでは正しく動作しない可能性があります。",
@@ -1015,8 +1019,24 @@ export const mobileStringsJa: MobileStrings = {
     addSourceDirectoryMessage: "ソースディレクトリのHTTPSアドレス（index.min.json）を入力してください。",
     addSourceDirectoryLinkTitle: "ソースディレクトリを追加しますか？",
     addSourceDirectoryLinkMessage: "{{name}}\n{{url}}\n\nnemuはこのディレクトリのソースをホストまたは審査していません。",
-    sourceDirectoryAdded: "ソースディレクトリを追加しました",
     sourceDirectoryUrlPlaceholder: "https://example.github.io/sources",
+    sourceDirectoryAddress: "アドレス",
+    sourceDirectoryDisclaimer:
+      "nemuは追加したディレクトリのソースをホストまたは審査していません。",
+    pasteSourceDirectoryAddress: "アドレスをペースト",
+    checkingSourceDirectory: "ディレクトリを確認中…",
+    sourceDirectoryAidokuHeader: "Aidoku互換のディレクトリ",
+    sourceDirectoryAidokuFooter:
+      "nemuはAidokuと同じソースリストを読み込めます。リストのアドレス、またはWebサイトにあるAidokuのソースリスト追加リンクをペーストしてください。",
+    openAidokuSourceListsGuide: "Aidokuのソースリストガイド",
+    sourceDirectoryNemuHeader: "nemuに直接追加",
+    sourceDirectoryNemuFooter:
+      "Webサイトはnemu://リンクを提供できます。タップするとnemuが開き、確認後にディレクトリを追加します。",
+    openNemuSourceDirectoriesPage: "nemu.pmでディレクトリを探す",
+    sourceDirectoryAddedNamed: "{{name}}を追加しました",
+    sourceDirectorySourceCountOne: "{{count}}件のソース",
+    sourceDirectorySourceCountOther: "{{count}}件のソース",
+    showSourceDirectorySources: "ソースを表示",
     removeSourceDirectory: "ディレクトリを削除",
     removeSourceDirectoryTitle: "{{name}}を削除しますか？",
     removeSourceDirectoryMessage: "インストール済みのソースと読書履歴は残りますが、このディレクトリからの更新は届かなくなります。",

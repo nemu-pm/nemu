@@ -11,10 +11,19 @@ import { createChangeListeners } from "./mobileChangeListeners";
  * clears the request, so a later visit to Browse does not reopen the sheet.
  */
 let pending = false;
+let pendingDirectoryId: string | null = null;
 const listeners = createChangeListeners();
 
-export function requestMobileAddSourceSheet(): void {
+/**
+ * `directoryId`: a directory just added. The sheet opens on that directory's
+ * sources (a removable filter chip names it), so they are what the user sees
+ * first instead of having to find them in the full list.
+ */
+export function requestMobileAddSourceSheet(
+  options: { directoryId?: string } = {},
+): void {
   pending = true;
+  pendingDirectoryId = options.directoryId ?? null;
   listeners.notify();
 }
 
@@ -23,6 +32,13 @@ export function consumeMobileAddSourceSheetRequest(): boolean {
   if (!pending) return false;
   pending = false;
   return true;
+}
+
+/** The directory the consumed request asked to show first; read once. */
+export function consumeMobileAddSourceSheetDirectoryFocus(): string | null {
+  const directoryId = pendingDirectoryId;
+  pendingDirectoryId = null;
+  return directoryId;
 }
 
 export function hasPendingMobileAddSourceSheetRequest(): boolean {

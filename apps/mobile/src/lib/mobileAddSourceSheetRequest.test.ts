@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  consumeMobileAddSourceSheetDirectoryFocus,
   consumeMobileAddSourceSheetRequest,
   hasPendingMobileAddSourceSheetRequest,
   requestMobileAddSourceSheet,
@@ -36,5 +37,19 @@ describe("Add Sources sheet request", () => {
     requestMobileAddSourceSheet();
     expect(calls).toBe(1);
     expect(consumeMobileAddSourceSheetRequest()).toBe(true);
+  });
+
+  test("carries a just-added directory once", () => {
+    requestMobileAddSourceSheet({ directoryId: "dir-1" });
+    expect(consumeMobileAddSourceSheetRequest()).toBe(true);
+    expect(consumeMobileAddSourceSheetDirectoryFocus()).toBe("dir-1");
+    expect(consumeMobileAddSourceSheetDirectoryFocus()).toBeNull();
+  });
+
+  test("a plain request clears an earlier directory focus", () => {
+    requestMobileAddSourceSheet({ directoryId: "dir-1" });
+    requestMobileAddSourceSheet();
+    expect(consumeMobileAddSourceSheetRequest()).toBe(true);
+    expect(consumeMobileAddSourceSheetDirectoryFocus()).toBeNull();
   });
 });

@@ -1304,8 +1304,9 @@ function SourceDirectoryRow({
 
 /**
  * Settings > Source directories: one grouped card of directories (name,
- * where it lives, a switch), the toolbar + that asks for an HTTPS address in
- * a system prompt, and a footer saying what removing one keeps.
+ * where it lives, a switch), the toolbar + that pushes Add Source Directory,
+ * and a footer saying what removing one keeps. Editing a user directory's URL
+ * asks in a one-field prompt.
  */
 function SourceDirectoriesSection({ strings, catalog, barItems }: {
   strings: MobileStrings;
@@ -1373,7 +1374,11 @@ function SourceDirectoriesSection({ strings, catalog, barItems }: {
               icon: "plus",
               label: strings.settings.addSourceDirectory,
               disabled: busy,
-              onPress: () => { setEditingDirectory(null); setPromptOpen(true); },
+              // Adding is its own page (where lists come from, paste, errors
+              // kept on the page); editing a URL stays the one-field prompt.
+              onPress: () => {
+                router.push({ pathname: "/(tabs)/settings/add-directory", params: { from: "settings" } });
+              },
             },
           ])}
         </Stack.Toolbar>
@@ -1453,9 +1458,7 @@ function SourceDirectoriesSection({ strings, catalog, barItems }: {
         onClose={() => setPromptOpen(false)}
         onSubmit={(url) => {
           setPromptOpen(false);
-          void run(() => editingDirectory
-            ? manager.updateDirectoryUrl(editingDirectory.id, url)
-            : manager.addDirectory(url));
+          if (editingDirectory) void run(() => manager.updateDirectoryUrl(editingDirectory.id, url));
         }}
       />
     </View>

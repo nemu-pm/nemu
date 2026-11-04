@@ -9,10 +9,14 @@ import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import { MOBILE_EXPLORE_RADIUS } from "@/lib/mobileExploreRadius";
 import { Stack, router, useFocusEffect } from "expo-router";
 import {
+  consumeMobileAddSourceSheetDirectoryFocus,
   consumeMobileAddSourceSheetRequest,
   subscribeMobileAddSourceSheetRequest,
 } from "@/lib/mobileAddSourceSheetRequest";
+import { hasMobileUserSourceDirectory } from "@/lib/mobileSourceDirectoryGuide";
+import { useMobileSourceDirectories } from "@/data/useMobileSourceDirectories";
 import {
+  ActivityIndicator,
   Linking,
   ScrollView,
   SectionList,
@@ -176,7 +180,8 @@ type AddSourceDismissAction =
   | { type: "open-language" }
   | { type: "open-confirmation"; confirmation: BrowseConfirmation }
   | { type: "start-install"; source: MobileRegistrySource }
-  | { type: "open-server-form"; kind: SelfHostedKind };
+  | { type: "open-server-form"; kind: SelfHostedKind }
+  | { type: "open-add-directory" };
 
 /**
  * Only one native `@expo/ui` bottom sheet can be presented at a time, so the
@@ -328,10 +333,13 @@ function ActiveFilterChip({
   label,
   removeLabel,
   onPress,
+  wrapLabel,
 }: {
   label: string;
   removeLabel: string;
   onPress: () => void;
+  /** A directory's name is shown whole instead of truncated. */
+  wrapLabel?: boolean;
 }) {
   return (
     <MobileChip
@@ -342,6 +350,7 @@ function ActiveFilterChip({
       selected
       trailingIcon="close"
       variant="toggle"
+      wrapLabel={wrapLabel}
     />
   );
 }
@@ -782,6 +791,52 @@ const BuiltInSourceRow = memo(function BuiltInSourceRow({
   );
 });
 
+/**
+ * The end of the Add Sources list: where more sources come from. With only
+ * the built-in demo directory the row says why to add one; once the user has
+ * a directory of their own it is the bare row, so it never nags.
+ */
+function SourceDirectoryGuide({
+  prominent,
+  strings,
+  onPress,
+}: {
+  prominent: boolean;
+  strings: MobileStrings;
+  onPress: () => void;
+}) {
+  // Inside the sheet: the sheet's card colours, as the server entry row uses.
+  const { tokens } = useMobileNativeSheetTheme();
+  const action = strings.browse.addSourceDirectory;
+  return (
+    <NemuPressable
+      accessibilityRole="button"
+      accessibilityLabel={action}
+      accessibilityHint={prominent ? strings.browse.sourceDirectoryGuideBody : undefined}
+      onPress={onPress}
+      pressHighlight
+      style={[
+        styles.directoryGuide,
+        { backgroundColor: tokens.card, borderColor: tokens.border },
+      ]}
+      testID="AddSourceDirectoryGuide"
+    >
+      <Ionicons name="add-circle-outline" size={24} color={tokens.primary} />
+      <View style={styles.directoryGuideText}>
+        <Text numberOfLines={1} style={[styles.directoryGuideLabel, { color: tokens.primary }]}>
+          {action}
+        </Text>
+        {prominent ? (
+          <Text style={[styles.directoryGuideDetail, { color: tokens.mutedForeground }]}>
+            {strings.browse.sourceDirectoryGuideBody}
+          </Text>
+        ) : null}
+      </View>
+      <Ionicons name="chevron-forward" size={16} color={tokens.mutedForeground} style={{ marginRight: -4 }} />
+    </NemuPressable>
+  );
+}
+
 function availableSourceKeyExtractor(source: MobileRegistrySource) {
   return makeSourceKey(source.registryId, source.id);
 }
@@ -857,6 +912,9 @@ export function BrowseScreen() {
   // The Add Sources sheet's own content, built here outside the sheet.
   const sheetTokens = useMobileNativeSheetTheme().tokens;
   const [query, setQuery] = useState("");
+  // A directory just added from Add Source Directory: the sheet reopens on
+  // its sources alone, under a chip naming it that clears the focus.
+  const [directoryFocus, setDirectoryFocus] = useState<string | null>(null);
   const [showAdult, setShowAdult] = useState(false);
   const [activeSheet, setActiveSheet] = useState<BrowseSheet | null>(null);
   const [activeSheetVisible, setActiveSheetVisible] = useState(false);
@@ -884,6 +942,10 @@ export function BrowseScreen() {
     useState<number | null>(null);
   const installed = useInstalledSources();
   const available = useAvailableSources();
+  const sourceDirectories = useMobileSourceDirectories();
+  const focusedDirectory = directoryFocus
+    ? sourceDirectories.directories.find((directory) => directory.id === directoryFocus) ?? null
+    : null;
   const installer = useSourceInstaller();
   const toast = useMobileToast();
   const { appLanguage } = useMobileLanguageSettings();
@@ -1215,13 +1277,16 @@ export function BrowseScreen() {
   // A toggle left on stays off while no directory lists explicit sources.
   const adultShown = showAdult && hasExplicitSources;
   const filteredAvailable = useMemo(() => {
-    return filterMobileAvailableSources(available.data, {
+    const candidates = directoryFocus
+      ? available.data.filter((source) => source.registryId === directoryFocus)
+      : available.data;
+    return filterMobileAvailableSources(candidates, {
       appLanguage,
       query,
       selectedLanguages,
       showAdult: adultShown,
     });
-  }, [adultShown, appLanguage, available.data, query, selectedLanguages]);
+  }, [adultShown, appLanguage, available.data, directoryFocus, query, selectedLanguages]);
   const groupedAvailable = useMemo(
     () =>
       groupMobileSourcesByLanguage(filteredAvailable, appLanguage, {
@@ -1609,6 +1674,7 @@ export function BrowseScreen() {
     // after installing or dismissing a source makes a later visit look empty
     // until the user notices and clears the stale filter.
     setQuery("");
+    setDirectoryFocus(null);
     addSourceDismissActionRef.current = null;
     setActiveSheet("add-source");
     setActiveSheetVisible(true);
@@ -1631,8 +1697,10 @@ export function BrowseScreen() {
   const addSourceRequestHandlerRef = useRef<() => void>(() => undefined);
   addSourceRequestHandlerRef.current = () => {
     if (!consumeMobileAddSourceSheetRequest()) return;
+    const focus = consumeMobileAddSourceSheetDirectoryFocus();
     if (activeInstallKey !== null || activeSheet !== null) return;
     openAddSourceSheet();
+    setDirectoryFocus(focus);
   };
   useFocusEffect(
     useCallback(() => {
@@ -1664,6 +1732,11 @@ export function BrowseScreen() {
       router.push({ pathname: "/(tabs)/browse/server", params: { kind: next.kind } });
       return;
     }
+    if (next?.type === "open-add-directory") {
+      // Closing the page (Back, swipe, or an add) reopens this sheet.
+      router.push({ pathname: "/(tabs)/browse/add-directory", params: { from: "browse" } });
+      return;
+    }
     if (next?.type === "open-confirmation") {
       // Leave the destination unclaimed while the confirmation is visible.
       // Its first Cancel or Confirm tap owns the handoff; a native dismissal
@@ -1680,6 +1753,10 @@ export function BrowseScreen() {
   const openServerForm = (kind: SelfHostedKind) => {
     void hapticSelection();
     requestAddSourceDismissal({ type: "open-server-form", kind });
+  };
+  const openAddDirectory = () => {
+    void hapticSelection();
+    requestAddSourceDismissal({ type: "open-add-directory" });
   };
   const closeLanguageSheet = () => {
     setActiveSheetVisible(false);
@@ -2204,8 +2281,18 @@ export function BrowseScreen() {
                 value={query}
               />
 
-              {selectedLanguages.size > 0 || adultShown ? (
+              {selectedLanguages.size > 0 || adultShown || focusedDirectory ? (
                 <View style={styles.activeFilterChips}>
+                  {focusedDirectory ? (
+                    <ActiveFilterChip
+                      label={formatMobileString(strings.browse.directoryFilterChip, {
+                        name: focusedDirectory.name,
+                      })}
+                      removeLabel={strings.common.remove}
+                      onPress={() => setDirectoryFocus(null)}
+                      wrapLabel
+                    />
+                  ) : null}
                   {[...selectedLanguages].map((language) => (
                     <ActiveFilterChip
                       key={language}
@@ -2244,7 +2331,8 @@ export function BrowseScreen() {
               {(edge) => (
                 <SectionList
                   {...edge}
-                  ListHeaderComponent={builtInKinds.length > 0 ? (
+                  // Focused on a just-added directory: its sources alone.
+                  ListHeaderComponent={builtInKinds.length > 0 && !directoryFocus ? (
                     <NemuPressable
                       accessibilityRole="button"
                       onPress={() => setServerPickerOpen(true)}
@@ -2290,8 +2378,20 @@ export function BrowseScreen() {
                   renderItem={renderAvailableSourceRow}
                   ItemSeparatorComponent={AvailableRowSeparator}
                   SectionSeparatorComponent={AvailableSectionSeparator}
+                  ListFooterComponent={
+                    sourceDirectories.loading || directoryFocus ? undefined : (
+                      <SourceDirectoryGuide
+                        prominent={!hasMobileUserSourceDirectory(sourceDirectories.directories)}
+                        strings={strings}
+                        onPress={openAddDirectory}
+                      />
+                    )
+                  }
                   ListEmptyComponent={
-                    <View
+                    // A just-added directory's sources may still be loading.
+                    directoryFocus && available.loading ? (
+                      <ActivityIndicator style={styles.directoryFocusLoading} color={sheetTokens.primary} />
+                    ) : <View
                       style={[
                         styles.inlineEmpty,
                         {
@@ -2313,8 +2413,7 @@ export function BrowseScreen() {
                       >
                         {strings.browse.noSourceResults}
                       </Text>
-                    </View>
-                  }
+                    </View>}
                   style={styles.availableListScroller}
                   contentContainerStyle={styles.availableListContent}
                   stickySectionHeadersEnabled={false}
@@ -2495,6 +2594,22 @@ const styles = StyleSheet.create({
   serverEntryIconRingRound: { borderRadius: 13.5 },
   serverEntryIcon: { width: 24, height: 24 },
   serverEntryLabel: { flex: 1, fontSize: 15, fontWeight: nemuFontWeight.medium },
+  directoryGuide: {
+    minHeight: 56,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: 18,
+    borderRadius: radius.xl,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: "hidden",
+  },
+  directoryGuideText: { flex: 1, gap: 2 },
+  directoryGuideLabel: { fontSize: 15, fontWeight: nemuFontWeight.medium },
+  directoryGuideDetail: { fontSize: 13, lineHeight: 17 },
+  directoryFocusLoading: { paddingVertical: 24 },
   addSourceSheetBody: {
     flex: 1,
     minHeight: 0,

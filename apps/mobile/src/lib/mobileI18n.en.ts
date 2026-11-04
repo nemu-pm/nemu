@@ -146,7 +146,11 @@ export const mobileStringsEn: MobileStrings = {
     noSourceResults: "No sources match these filters.",
     otherLanguages: "Other",
     refreshSources: "Refresh sources",
-    searchRegistries: "Search source directories",
+    searchRegistries: "Search sources",
+    sourceDirectoryGuideBody:
+      "nemu includes a few demo sources. Add any Aidoku-compatible source list for more.",
+    addSourceDirectory: "Add Source Directory",
+    directoryFilterChip: "From {{name}}",
     sourcesUnavailable: "Sources unavailable",
     warningAuthentication:
       "This source requires login or authentication. It may not work correctly in the current version of nemu.",
@@ -1009,8 +1013,24 @@ export const mobileStringsEn: MobileStrings = {
     addSourceDirectoryMessage: "Enter the HTTPS address of a source directory (an index.min.json).",
     addSourceDirectoryLinkTitle: "Add source directory?",
     addSourceDirectoryLinkMessage: "{{name}}\n{{url}}\n\nnemu does not host or review the sources in this directory.",
-    sourceDirectoryAdded: "Source directory added",
     sourceDirectoryUrlPlaceholder: "https://example.github.io/sources",
+    sourceDirectoryAddress: "Address",
+    sourceDirectoryDisclaimer:
+      "nemu does not host or review the sources in directories you add.",
+    pasteSourceDirectoryAddress: "Paste Address",
+    checkingSourceDirectory: "Checking directory…",
+    sourceDirectoryAidokuHeader: "Aidoku-compatible directories",
+    sourceDirectoryAidokuFooter:
+      "nemu reads the same source lists as Aidoku. Paste a list's address, or an Aidoku add-source-list link from a website.",
+    openAidokuSourceListsGuide: "Aidoku's Guide to Source Lists",
+    sourceDirectoryNemuHeader: "Add to nemu directly",
+    sourceDirectoryNemuFooter:
+      "Websites can offer nemu:// links. Tapping one opens nemu and adds the directory once you confirm it.",
+    openNemuSourceDirectoriesPage: "Find Directories on nemu.pm",
+    sourceDirectoryAddedNamed: "Added {{name}}",
+    sourceDirectorySourceCountOne: "{{count}} source",
+    sourceDirectorySourceCountOther: "{{count}} sources",
+    showSourceDirectorySources: "Show Sources",
     removeSourceDirectory: "Remove directory",
     removeSourceDirectoryTitle: "Remove {{name}}?",
     removeSourceDirectoryMessage: "Installed sources and your reading history stay. They just stop receiving updates from this directory.",
