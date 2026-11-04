@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   getMobilePageViewportKey,
+  isMobilePageViewportFillSettled,
   isMobilePageViewportObservationUsable,
   recallMobilePageViewport,
   rememberMobilePageViewport,
@@ -117,6 +118,27 @@ describe("remembered page viewport (a tab mounted hidden at launch)", () => {
       bottomBar: false,
       verticalBarSide: "right",
     }))).toBeNull();
+  });
+});
+
+describe("viewport fill settled (holds the launch screen)", () => {
+  // Duo outer display at launch: the content first lays out uncapped for the
+  // estimated bars, then the observer reports the rail's insets (82 / 34).
+  const outer = { top: 82, bottom: 34, height: 678 };
+
+  test("not before the page's own observer has reported", () => {
+    expect(isMobilePageViewportFillSettled({ observed: null, viewportHeight: 600, contentHeight: 600 })).toBe(false);
+  });
+
+  test("not while the content still has the height it had before the cap", () => {
+    expect(isMobilePageViewportFillSettled({ observed: outer, viewportHeight: 562, contentHeight: 678 })).toBe(false);
+    expect(isMobilePageViewportFillSettled({ observed: outer, viewportHeight: 562, contentHeight: null })).toBe(false);
+    expect(isMobilePageViewportFillSettled({ observed: outer, viewportHeight: null, contentHeight: 562 })).toBe(false);
+  });
+
+  test("once the content has laid out at the observed viewport", () => {
+    expect(isMobilePageViewportFillSettled({ observed: outer, viewportHeight: 562, contentHeight: 562 })).toBe(true);
+    expect(isMobilePageViewportFillSettled({ observed: outer, viewportHeight: 562, contentHeight: 562.33 })).toBe(true);
   });
 });
 

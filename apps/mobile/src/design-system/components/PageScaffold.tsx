@@ -17,7 +17,7 @@ import {
   type ReactNode,
   type Ref,
 } from "react";
-import { usePathname } from "expo-router";
+import { useIsFocused, usePathname } from "expo-router";
 import { HeaderHeightContext } from "expo-router/react-navigation";
 import {
   FlatList,
@@ -49,6 +49,7 @@ import { getMobileFontScaleLayoutKey } from "@/lib/mobileDynamicTypeLayout";
 import {
   getMobilePageTopPadding,
   getMobilePageViewportKey,
+  isMobilePageViewportFillSettled,
   isMobilePageViewportObservationUsable,
   recallMobilePageViewport,
   rememberMobilePageViewport,
@@ -60,7 +61,8 @@ import { isMobileBottomTabBarRoute, shouldShowMobileFloatingTabBar } from "@/lib
 import { useMobileBottomTabBarInset } from "@/lib/mobileBottomTabBarInset";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { MOBILE_IOS_TAB_BAR_FALLBACK_HEIGHT } from "@/lib/mobileToastPlacement";
-import { WindowLayoutObserver, type MobileWindowLayout } from "../../../modules/nemu-window-layout";
+import { isLaunchRevealPending, WindowLayoutObserver, type MobileWindowLayout } from "../../../modules/nemu-window-layout";
+import { holdMobileLaunchLayout } from "@/lib/mobileSplashScreen";
 import { NemuScrollEdgeSurface, useNemuScrollEdgeTracking } from "./NemuScrollEdgeSurface";
 
 /**
@@ -440,6 +442,24 @@ function usePageViewportFill({
       ? (measuredTabBarInset ?? insets.bottom + MOBILE_IOS_TAB_BAR_FALLBACK_HEIGHT)
       : insets.bottom,
   });
+  const [contentHeight, setContentHeight] = useState<number | null>(null);
+  const onContentSizeChange = useCallback((_width: number, height: number) => {
+    setContentHeight((previous) => (previous !== null && Math.abs(previous - height) < 0.5 ? previous : height));
+  }, []);
+  // The launch page's viewport is decided after its first frame (its
+  // observer reports once the window has laid out its bars); the launch
+  // screen stays up until it has and the content has laid out at it. A tab
+  // mounted hidden is not shown at launch and cannot observe.
+  const focused = useIsFocused();
+  const awaitingViewport =
+    enabled &&
+    systemAdjustsInsets &&
+    focused &&
+    !isMobilePageViewportFillSettled({ observed, viewportHeight, contentHeight });
+  useLayoutEffect(() => {
+    if (!awaitingViewport || !isLaunchRevealPending()) return undefined;
+    return holdMobileLaunchLayout();
+  }, [awaitingViewport]);
   const style = useMemo<StyleProp<ViewStyle>>(
     () =>
       enabled
@@ -451,7 +471,7 @@ function usePageViewportFill({
     enabled && systemAdjustsInsets ? (
       <WindowLayoutObserver style={StyleSheet.absoluteFill} onLayoutChange={onObserverLayout} />
     ) : null;
-  return { style, observer, onFrameLayout };
+  return { style, observer, onFrameLayout, onContentSizeChange };
 }
 
 export function PageScaffold({
@@ -536,6 +556,7 @@ export function PageScaffold({
         automaticallyAdjustsScrollIndicatorInsets={contentInsetAdjustmentBehavior !== "never"}
         contentContainerStyle={fillViewport ? [contentStyle, viewportFill.style] : contentStyle}
         onLayout={fillViewport ? viewportFill.onFrameLayout : undefined}
+        onContentSizeChange={fillViewport ? viewportFill.onContentSizeChange : undefined}
         contentInsetAdjustmentBehavior={contentInsetAdjustmentBehavior}
         keyboardShouldPersistTaps="handled"
         refreshControl={refreshControl}
@@ -609,7 +630,7 @@ export function PageListScaffold<ItemT>({
     enabled: fillViewport,
     contentInsetAdjustmentBehavior,
   });
-  const { onLayout: callerOnLayout } = flatListProps;
+  const { onLayout: callerOnLayout, onContentSizeChange: callerOnContentSizeChange } = flatListProps;
   const {
     onScrollEndDrag: callerOnScrollEndDrag,
     onMomentumScrollEnd: callerOnMomentumScrollEnd,
@@ -635,6 +656,14 @@ export function PageListScaffold<ItemT>({
       callerOnLayout?.(event);
     },
     [callerOnLayout, viewportFill.onFrameLayout],
+  );
+  const viewportFillOnContentSizeChange = viewportFill.onContentSizeChange;
+  const onListContentSizeChange = useCallback(
+    (width: number, height: number) => {
+      if (fillViewport) viewportFillOnContentSizeChange(width, height);
+      callerOnContentSizeChange?.(width, height);
+    },
+    [callerOnContentSizeChange, fillViewport, viewportFillOnContentSizeChange],
   );
   // A text-size change remounts the list's rows and header/footer (their
   // text measures at the new size), never the list itself. A new scroll view
@@ -679,6 +708,7 @@ export function PageListScaffold<ItemT>({
         {...flatListProps}
         alwaysBounceVertical={fillViewport ? true : flatListProps.alwaysBounceVertical}
         onLayout={onListLayout}
+        onContentSizeChange={onListContentSizeChange}
         onScrollEndDrag={onListScrollEndDrag}
         onMomentumScrollEnd={onListMomentumScrollEnd}
         keyExtractor={keyExtractor}

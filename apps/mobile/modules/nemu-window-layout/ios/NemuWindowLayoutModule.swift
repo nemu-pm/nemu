@@ -2531,7 +2531,11 @@ enum NemuAppAppearance {
 /// then animates when JS starts its own content stagger:
 /// - "full": the window scales 0.97 → 1 over 700 ms on (.16, 1, .3, 1) from
 ///   its centre while the tab bar and navigation bars fade in over 280 ms
-///   ease-out;
+///   ease-out. The scale is drawn only (a layer animation over an identity
+///   transform): a scaled root view has a smaller frame in the window, so
+///   UIKit recomputed its safe area (82 → 68pt under the Duo's outer bar) and
+///   the page, its scroll insets and an empty page's viewport moved twice
+///   while the reveal ran;
 /// - "fade": a 200 ms cross-fade of the whole window (Reduce Motion, or a
 ///   launch straight into a screen other than the Library).
 /// Once per process; a missing `start` is recovered after a short cap.
@@ -2543,6 +2547,8 @@ enum NemuLaunchReveal {
   private static var mode = "full"
   private static var started = false
   private static let startCap: TimeInterval = 1.5
+  private static let scaleKey = "nemuLaunchRevealScale"
+  private static let startScale = CATransform3DMakeScale(0.97, 0.97, 1)
 
   final class WeakView {
     weak var view: UIView?
@@ -2575,7 +2581,14 @@ enum NemuLaunchReveal {
     if let color = background.flatMap(color(fromHex:)) { window.backgroundColor = color }
     if mode == "full" {
       bars = barViews(under: controller).map(WeakView.init)
-      view.transform = CGAffineTransform(scaleX: 0.97, y: 0.97)
+      // Held at the start scale until `start` (or the cap) replaces it.
+      let hold = CABasicAnimation(keyPath: "transform")
+      hold.fromValue = NSValue(caTransform3D: startScale)
+      hold.toValue = NSValue(caTransform3D: startScale)
+      hold.duration = startCap + 1
+      hold.fillMode = .forwards
+      hold.isRemovedOnCompletion = false
+      view.layer.add(hold, forKey: scaleKey)
       for bar in bars { bar.view?.alpha = 0 }
     } else {
       view.alpha = 0
@@ -2588,12 +2601,12 @@ enum NemuLaunchReveal {
     guard !started, let view = root else { return }
     started = true
     if mode == "full" {
-      let scale = UIViewPropertyAnimator(
-        duration: 0.7,
-        timingParameters: UICubicTimingParameters(controlPoint1: CGPoint(x: 0.16, y: 1), controlPoint2: CGPoint(x: 0.3, y: 1))
-      )
-      scale.addAnimations { view.transform = .identity }
-      scale.startAnimation()
+      let scale = CABasicAnimation(keyPath: "transform")
+      scale.fromValue = NSValue(caTransform3D: startScale)
+      scale.toValue = NSValue(caTransform3D: CATransform3DIdentity)
+      scale.duration = 0.7
+      scale.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1)
+      view.layer.add(scale, forKey: scaleKey)
       let fade = UIViewPropertyAnimator(duration: 0.28, curve: .easeOut) {
         for bar in bars { bar.view?.alpha = 1 }
       }

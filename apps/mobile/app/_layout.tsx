@@ -49,6 +49,7 @@ import { installMobileSystemTransition } from "@/lib/mobileTransitionTiming";
 import {
   claimMobileSplashHide,
   isMobileLaunchContentReady,
+  isMobileLaunchLayoutSettled,
   markMobileLaunchContentReady,
   registerMobileSplashForceHide,
   releaseMobileSplashHideClaim,
@@ -170,6 +171,7 @@ function RootStack({
         rootLaidOut: rootLayoutMarkedRef.current,
         splashHidden: splashHiddenRef.current,
         contentReady: isMobileLaunchContentReady(),
+        layoutSettled: isMobileLaunchLayoutSettled(),
       })
     ) {
       return;

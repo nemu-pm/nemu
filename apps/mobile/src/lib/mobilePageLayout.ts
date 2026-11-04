@@ -181,6 +181,26 @@ export function rememberMobilePageViewport(key: string, observation: MobilePageV
   rememberedPageViewports.set(key, observation);
 }
 
+/**
+ * Whether a viewport-filling page is in its final layout: its own observer
+ * has reported the bar insets (the remembered or estimated viewport only
+ * stands in until then) and its content has laid out at the resulting
+ * height, so whatever sizes itself from that height (the empty Library's
+ * hero) has measured it too.
+ */
+export function isMobilePageViewportFillSettled({
+  observed,
+  viewportHeight,
+  contentHeight,
+}: {
+  observed: MobilePageViewportObservation | null;
+  viewportHeight: number | null;
+  contentHeight: number | null;
+}): boolean {
+  if (observed === null || viewportHeight === null || contentHeight === null) return false;
+  return Math.abs(contentHeight - viewportHeight) < 1;
+}
+
 /** Tests only. */
 export function resetRememberedMobilePageViewports(): void {
   rememberedPageViewports.clear();

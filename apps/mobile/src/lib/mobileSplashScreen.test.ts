@@ -5,7 +5,9 @@ import {
   registerMobileSplashForceHide,
   releaseMobileSplashHideClaim,
   startMobileSplashSafetyCap,
+  holdMobileLaunchLayout,
   isMobileLaunchContentReady,
+  isMobileLaunchLayoutSettled,
   markMobileLaunchContentReady,
   resetMobileLaunchContentReadyForTests,
   shouldHideMobileSplashScreen,
@@ -14,10 +16,12 @@ import {
 
 describe("mobile splash screen", () => {
   test("hides only once the root has laid out and the first content is ready", () => {
-    expect(shouldHideMobileSplashScreen({ rootLaidOut: false, splashHidden: false, contentReady: true })).toBe(false);
-    expect(shouldHideMobileSplashScreen({ rootLaidOut: true, splashHidden: false, contentReady: false })).toBe(false);
-    expect(shouldHideMobileSplashScreen({ rootLaidOut: true, splashHidden: true, contentReady: true })).toBe(false);
-    expect(shouldHideMobileSplashScreen({ rootLaidOut: true, splashHidden: false, contentReady: true })).toBe(true);
+    const ready = { rootLaidOut: true, splashHidden: false, contentReady: true, layoutSettled: true };
+    expect(shouldHideMobileSplashScreen({ ...ready, rootLaidOut: false })).toBe(false);
+    expect(shouldHideMobileSplashScreen({ ...ready, contentReady: false })).toBe(false);
+    expect(shouldHideMobileSplashScreen({ ...ready, splashHidden: true })).toBe(false);
+    expect(shouldHideMobileSplashScreen({ ...ready, layoutSettled: false })).toBe(false);
+    expect(shouldHideMobileSplashScreen(ready)).toBe(true);
   });
 });
 
@@ -44,6 +48,46 @@ describe("launch content readiness", () => {
     })();
     markMobileLaunchContentReady();
     expect(called).toBe(false);
+  });
+});
+
+describe("launch layout holds", () => {
+  beforeEach(() => resetMobileLaunchContentReadyForTests());
+
+  test("settled only once every hold is released, waking the root then", () => {
+    let woke = 0;
+    subscribeMobileLaunchContentReady(() => {
+      woke += 1;
+    });
+    const releaseWindow = holdMobileLaunchLayout();
+    const releaseViewport = holdMobileLaunchLayout();
+    expect(isMobileLaunchLayoutSettled()).toBe(false);
+    releaseWindow();
+    releaseWindow();
+    expect(isMobileLaunchLayoutSettled()).toBe(false);
+    expect(woke).toBe(0);
+    releaseViewport();
+    expect(isMobileLaunchLayoutSettled()).toBe(true);
+    expect(woke).toBe(1);
+  });
+
+  test("no hold once the launch screen is lifted", () => {
+    expect(claimMobileSplashHide()).toBe(true);
+    holdMobileLaunchLayout();
+    expect(isMobileLaunchLayoutSettled()).toBe(true);
+  });
+
+  test("the safety cap releases a hold that never settled and wakes the root", async () => {
+    let woke = 0;
+    markMobileLaunchContentReady();
+    subscribeMobileLaunchContentReady(() => {
+      woke += 1;
+    });
+    holdMobileLaunchLayout();
+    startMobileSplashSafetyCap(Date.now() - MOBILE_SPLASH_CONTENT_TIMEOUT_MS);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(isMobileLaunchLayoutSettled()).toBe(true);
+    expect(woke).toBe(1);
   });
 });
 
