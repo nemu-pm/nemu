@@ -18,6 +18,7 @@ import {
 } from "react-native";
 import { useNemuTheme } from "@/design/useNemuTheme";
 import { resolveMobileHeldImage } from "./mobileCachedImageHold";
+import { mobileCachedImageShowsAtOnce } from "./mobileCachedImageReveal";
 import { getMobileCachedImageViewKey } from "./mobileCachedImageViewKey";
 import {
   getCachedMobileImageAssetByStorageKeySync,
@@ -612,7 +613,13 @@ export function MobileCachedImage({
       style={[
         styles.fadeShell,
         style,
-        { opacity: shownAtMount && !skipFade ? 1 : imageFadeRef },
+        // Shown before, or (fadeFromCache off) already on disk: painted the
+        // moment it decodes, never from a blank first frame.
+        {
+          opacity: mobileCachedImageShowsAtOnce({ skipFade, shownAtMount, revealedFromCacheAtRender })
+            ? 1
+            : imageFadeRef,
+        },
       ]}
     >
       <Image

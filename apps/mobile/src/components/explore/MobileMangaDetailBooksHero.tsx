@@ -615,10 +615,11 @@ export function MobileMangaDetailBooksHero({
             uriOwnership="source"
             cacheKind="cover"
             source={remoteCover}
-            // No fade: the cover sits inside the native zoom views, where the
-            // native-driven opacity animation can be lost and leave a loaded
-            // cover invisible.
-            fadeIn={false}
+            // A cover that waited on the network fades in over the held cover
+            // (or the empty slot); a cached one shows at once. Inside the
+            // native zoom views a native-driven fade can be cut off part way:
+            // MobileCachedImage lands it at full opacity after its settle time.
+            fadeFromCache={false}
             onError={onCoverError ? () => onCoverError() : undefined}
             onLoad={onCoverLoad ? () => onCoverLoad() : undefined}
             fallback={<ExploreCoverFallback title={title} width={shownCoverWidth} color={palette.actionSoft} />}
