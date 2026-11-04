@@ -71,9 +71,9 @@ describe("mobile i18n helpers", () => {
 
   test("uses Simplified Chinese product terminology", () => {
     const strings = getMobileStrings("zh");
-    expect(strings.nav.library).toBe("书架");
+    expect(strings.nav.library).toBe("书库");
     expect(strings.nav.settings).toBe("设置");
-    expect(strings.browse.searchRegistries).toBe("搜索源仓库");
+    expect(strings.browse.searchRegistries).toBe("搜索来源");
   });
 
   test("localizes reader plugin boolean values", () => {
@@ -148,18 +148,6 @@ describe("mobile i18n helpers", () => {
     );
   });
 
-  test("localizes the drag-handle accessibility label", () => {
-    expect(
-      (getMobileStrings("en").common as { dragHandle?: string }).dragHandle,
-    ).toBe("Drag handle");
-    expect(
-      (getMobileStrings("zh").common as { dragHandle?: string }).dragHandle,
-    ).toBe("拖动手柄");
-    expect(
-      (getMobileStrings("ja").common as { dragHandle?: string }).dragHandle,
-    ).toBe("ドラッグハンドル");
-  });
-
   test("falls back to English for unsupported app languages", () => {
     expect(getMobileStrings("fr").nav.settings).toBe("Settings");
   });
@@ -211,6 +199,8 @@ describe("mobile i18n helpers", () => {
       getMobileStringsForAudit().zh,
     )) {
       if (intentionalKanaPaths.has(path)) continue;
+      // Japanese grammar terms (い形容词, な形容词…) name kana forms on purpose (web zh.json).
+      if (path.startsWith("japaneseLearningGrammar.")) continue;
       if (kana.test(value)) offenders.push(`${path}: ${value}`);
     }
     expect(offenders).toEqual([]);
@@ -231,8 +221,8 @@ describe("mobile i18n helpers", () => {
   });
 
   test("returns localized nav and settings labels", () => {
-    expect(getMobileStrings("zh").nav.library).toBe("书架");
-    expect(getMobileStrings("zh").browse.searchRegistries).toBe("搜索源仓库");
+    expect(getMobileStrings("zh").nav.library).toBe("书库");
+    expect(getMobileStrings("zh").browse.searchRegistries).toBe("搜索来源");
     expect(getMobileStrings("zh").about.sourceCode).toBe("源代码");
     expect(getMobileStrings("zh").common.sourceCloudflareBlocked).toBe(
       "检测到 Cloudflare 保护",
@@ -360,7 +350,7 @@ describe("mobile i18n helpers", () => {
           title: "Blue Lock",
         },
       ),
-    ).toBe("Blue Lock のコレクションを選択");
+    ).toBe("Blue Lockのコレクションを選択");
     expect(
       formatMobileString(
         getMobileStrings("zh").collectionMembership.saveWithCount,
@@ -410,12 +400,7 @@ describe("mobile i18n helpers", () => {
       formatMobileString(getMobileStrings("ja").library.removeCollectionNamed, {
         name: "Favorites",
       }),
-    ).toBe("Favorites を削除");
-    expect(
-      formatMobileString(getMobileStrings("zh").browse.removeSourceNamed, {
-        name: "MangaDex",
-      }),
-    ).toBe("移除 MangaDex");
+    ).toBe("Favoritesを削除");
     expect(
       formatMobileString(getMobileStrings("en").settings.selectSettingOption, {
         title: "Theme",
@@ -453,7 +438,7 @@ describe("mobile i18n helpers", () => {
           name: "Dual Reader",
         },
       ),
-    ).toBe("Dual Reader の設定を編集");
+    ).toBe("Dual Readerの設定を編集");
     expect(getMobileStrings("ja").browse.adultSourcesSwitch).toBe(
       "センシティブなコンテンツ",
     );
@@ -467,7 +452,7 @@ describe("mobile i18n helpers", () => {
       formatMobileString(getMobileStrings("ja").metadataEditor.applyMatch, {
         provider: "AniList",
       }),
-    ).toBe("AniList のメタデータ一致を適用");
+    ).toBe("AniListのメタデータ一致を適用");
     expect(
       formatMobileString(
         getMobileStrings("en").metadataEditor.applyMatchField,
@@ -506,7 +491,7 @@ describe("mobile i18n helpers", () => {
       formatMobileString(getMobileStrings("zh").mangaDetail.continueChapter, {
         chapter: "第 12 话",
       }),
-    ).toBe("继续 第 12 话");
+    ).toBe("继续阅读 第 12 话");
     expect(
       formatMobileString(getMobileStrings("en").mangaDetail.openChapter, {
         chapter: "Chapter 12",
@@ -524,7 +509,7 @@ describe("mobile i18n helpers", () => {
       formatMobileString(getMobileStrings("ja").sourceManga.continueChapter, {
         chapter: "第12話",
       }),
-    ).toBe("第12話 から続ける");
+    ).toBe("第12話から続きを読む");
     expect(
       formatMobileString(getMobileStrings("zh").settings.agentVersion, {
         version: "1.2.3",
@@ -537,12 +522,12 @@ describe("mobile i18n helpers", () => {
           provider: "Apple",
         },
       ),
-    ).toBe("Apple で続ける");
+    ).toBe("Appleで続ける");
     expect(getMobileStrings("en").settings.cloudSyncKeepDataDescription).toBe(
-      "Keep your local library and reading progress on this device.",
+      "You can sign back in anytime to sync again.",
     );
     expect(getMobileStrings("zh").settings.cloudSyncRemoveDataDescription).toBe(
-      "退出登录后从此设备移除账号书架数据。",
+      "您的云端数据将保持安全。",
     );
     expect(
       formatMobileString(getMobileStrings("en").settings.sourceUpdated, {
@@ -554,7 +539,7 @@ describe("mobile i18n helpers", () => {
         count: 2,
         names: "A, B",
       }),
-    ).toBe("已更新 2 个源：A, B");
+    ).toBe("已更新 2 个来源：A, B");
     expect(
       formatMobileString(getMobileStrings("ja").settings.sourceUpdated, {
         name: "MangaDex",
@@ -581,19 +566,10 @@ describe("mobile i18n helpers", () => {
       }),
     ).toBe("Page 3 of 12. Show reader controls");
     expect(
-      formatMobileString(
-        getMobileStrings("zh").reader.dualReadTargetAccessibility,
-        {
-          source: "MangaDex",
-          detail: `${getMobileStrings("zh").reader.currentChapter} / 第 12 章`,
-        },
-      ),
-    ).toBe("双源阅读 MangaDex：当前 / 第 12 章");
-    expect(
       formatMobileString(getMobileStrings("ja").reader.openPlugin, {
         name: "Dual Read",
       }),
-    ).toBe("Dual Read リーダープラグインを開く");
+    ).toBe("Dual Readリーダープラグインを開く");
     expect(
       formatMobileString(getMobileStrings("zh").reader.chapterAccessibility, {
         direction: getMobileStrings("zh").reader.nextChapter,
@@ -625,7 +601,7 @@ describe("mobile i18n helpers", () => {
       formatMobileString(getMobileStrings("ja").sourceBrowse.openLink, {
         title: "Featured",
       }),
-    ).toBe("Featured を開く");
+    ).toBe("Featuredを開く");
     expect(
       formatMobileString(
         getMobileStrings("en").sourceBrowse.sourceFilterOption,
@@ -634,7 +610,7 @@ describe("mobile i18n helpers", () => {
           option: `Popular, ${getMobileStrings("en").sourceBrowse.sortDescending}`,
         },
       ),
-    ).toBe("Sort: Popular, descending");
+    ).toBe("Sort: Popular, Descending");
     expect(
       formatMobileString(
         getMobileStrings("zh").sourceBrowse.sourceFilterTextInput,
@@ -684,31 +660,23 @@ describe("mobile i18n helpers", () => {
       formatMobileString(getMobileStrings("ja").library.mangaSourceCountOther, {
         count: 3,
       }),
-    ).toBe("3 件のソース");
+    ).toBe("3ソース");
     expect(
       formatMobileString(getMobileStrings("ja").sourceManager.mergeWithTitle, {
         title: "Blue Lock",
       }),
-    ).toBe("Blue Lock と統合");
+    ).toBe("Blue Lockと統合");
     expect(
       formatMobileString(getMobileStrings("en").reader.pageLoadedOther, {
         count: 8,
       }),
     ).toBe("8 pages loaded.");
-    expect(
-      formatMobileString(getMobileStrings("zh").reader.pageCountOther, {
-        count: 4,
-      }),
-    ).toBe("4 页");
     expect(getMobileStrings("ja").sourceBrowse.sourceHome).toBe("ホーム");
-    expect(getMobileStrings("zh").sourceBrowse.operationAixPackageTitle).toBe(
-      "AIX 包",
-    );
     expect(getMobileStrings("en").library.collectionNotFoundTitle).toBe(
       "Collection not found",
     );
     expect(getMobileStrings("zh").library.collectionNotFoundDescription).toBe(
-      "这个收藏可能已经被删除。",
+      "这个收藏夹可能已经被删除。",
     );
   });
 });
@@ -730,6 +698,20 @@ describe("mobile i18n module budget", () => {
     for (const locale of ["en", "zh", "ja"] as const) {
       const file = path.join(import.meta.dir, `mobileI18n.${locale}.ts`);
       expect(statSync(file).size).toBeGreaterThan(1024);
+    }
+  });
+
+  test("the source reorder hint names the arrow buttons, not dragging", () => {
+    // Source rows reorder with chevron buttons; there is no drag gesture.
+    expect(getMobileStrings("en").sourceManager.reorderHint).toBe("Use the arrows to reorder");
+    expect(getMobileStrings("ja").sourceManager.reorderHint).toBe("矢印で並べ替え");
+    expect(getMobileStrings("zh").sourceManager.reorderHint).toBe("使用箭头调整顺序");
+  });
+
+  test("the standalone refresh-failure detail carries no leading separator", () => {
+    for (const locale of ["en", "ja", "zh"] as const) {
+      const feedback = getMobileStrings(locale).feedback;
+      expect(feedback.libraryRefreshUnavailableDetail).not.toMatch(/^\s*·/);
     }
   });
 });

@@ -5,7 +5,7 @@ import {
   type StyleProp,
   type ViewStyle,
 } from "react-native";
-import { MobileNativeSheetScaffold } from "./MobileNativeSheetScaffold";
+import { MobileNativeSheetScaffold, type MobileSheetSafeAreaEdge } from "./MobileNativeSheetScaffold";
 
 type MobileSheetScaffoldProps = {
   visible: boolean;
@@ -16,6 +16,7 @@ type MobileSheetScaffoldProps = {
   onHardwareBackPress?: () => boolean;
   backdropOnPress?: () => void;
   backdropDisabled?: boolean;
+  backgroundColor?: string;
   /** Optional chrome title, independent of the caller-provided dismiss action. */
   title?: string;
   subtitle?: string;
@@ -25,8 +26,33 @@ type MobileSheetScaffoldProps = {
   dismissDisabled?: boolean;
   showDismissButton?: boolean;
   frameMaxHeight?: DimensionValue;
+  /**
+   * With a bounded `frameMaxHeight`: the body scrolls inside the detent
+   * (`MobileNativeSheetScaffold`'s `scroll`). Without it a bounded body is a
+   * fixed-height plain View, so only callers that scroll their own list (a
+   * FlatList filling the frame) should leave it off.
+   */
+  scroll?: boolean;
   sheetMinHeight?: DimensionValue;
   contentStyle?: StyleProp<ViewStyle>;
+  /**
+   * Overrides the platform bottom gutter under the content, e.g. 0 for a
+   * body whose own bottom bar (a composer, an action footer) should run to
+   * the sheet's bottom edge.
+   */
+  contentBottomInset?: number;
+  /**
+   * iOS: safe-area edges the content extends into, so it reaches the sheet's
+   * own edges where the safe area is not over it: the iPhone Duo outer
+   * display's system vertical bar column (reserved at a spanning sheet's
+   * trailing edge) and, for a sheet floating clear of the screen's bottom
+   * edge, the home indicator's inset below its content.
+   */
+  contentIgnoresSafeAreaEdges?: MobileSheetSafeAreaEdge | MobileSheetSafeAreaEdge[];
+  /** iOS: the screen behind stays interactive and undimmed (`MobileNativeSheetScaffold`). */
+  backgroundInteraction?: boolean;
+  /** The tallest the sheet may be, e.g. below a fold (`MobileNativeSheetScaffold`'s `maxHeight`). */
+  maxHeight?: number | null;
   children: ReactNode;
 };
 
@@ -47,6 +73,7 @@ export function MobileSheetScaffold({
   onHardwareBackPress,
   backdropOnPress,
   backdropDisabled = false,
+  backgroundColor,
   title,
   subtitle,
   headerLeading,
@@ -55,8 +82,13 @@ export function MobileSheetScaffold({
   dismissDisabled,
   showDismissButton,
   frameMaxHeight,
+  scroll = false,
   sheetMinHeight,
   contentStyle,
+  contentBottomInset,
+  contentIgnoresSafeAreaEdges,
+  backgroundInteraction,
+  maxHeight,
   children,
 }: MobileSheetScaffoldProps) {
   const snapPoints = useMemo(
@@ -70,6 +102,7 @@ export function MobileSheetScaffold({
       onClose={backdropOnPress ?? onRequestClose}
       onDismiss={onDismiss}
       onHardwareBackPress={onHardwareBackPress}
+      backgroundColor={backgroundColor}
       title={title}
       subtitle={subtitle}
       headerLeading={headerLeading}
@@ -78,10 +111,15 @@ export function MobileSheetScaffold({
       dismissDisabled={dismissDisabled}
       showDismissButton={showDismissButton}
       snapPoints={snapPoints}
+      scroll={scroll}
       fillContent={Boolean(snapPoints)}
       // A disabled backdrop also disables pan-down-to-close. Callers that
       // still want a chrome escape provide its localized label above.
       enablePanDownToClose={!backdropDisabled}
+      contentBottomInset={contentBottomInset}
+      contentIgnoresSafeAreaEdges={contentIgnoresSafeAreaEdges}
+      backgroundInteraction={backgroundInteraction}
+      maxHeight={maxHeight}
       contentStyle={[
         contentStyle ?? styles.sheet,
         sheetMinHeight != null ? { minHeight: sheetMinHeight } : null,

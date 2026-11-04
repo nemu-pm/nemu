@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   createMobileTextComparator,
   formatMobileClockTime,
+  formatMobileClockTime12h,
   formatMobileInteger,
   mobileEngineHasIntl,
 } from "./mobileLocaleFormat";
@@ -62,6 +63,25 @@ describe("mobile locale formatting without Intl", () => {
     }
   });
 
+  test("prints chat times 12-hour in every language, like web hour12: true", () => {
+    const locales = { en: "en-US", zh: "zh-CN", ja: "ja-JP" } as const;
+    for (const hour of [0, 9, 11, 12, 13, 23]) {
+      const timestamp = new Date(2026, 0, 2, hour, 5, 9).getTime();
+      for (const language of ["en", "zh", "ja"] as const) {
+        const icu = new Date(timestamp).toLocaleTimeString(locales[language], {
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+        });
+        expect(formatMobileClockTime12h(timestamp, language, ANDROID_JSC)).toBe(sameSpaces(icu));
+        expect(formatMobileClockTime12h(timestamp, language, true)).toBe(icu);
+      }
+    }
+    const oneFive = new Date(2026, 0, 2, 13, 5).getTime();
+    expect(formatMobileClockTime12h(oneFive, "ja", ANDROID_JSC)).toBe("午後1:05");
+    expect(formatMobileClockTime12h(oneFive, "zh", ANDROID_JSC)).toBe("下午1:05");
+  });
+
   test("user-visible text sorts and counts go through the helpers", () => {
     const read = (file: string) =>
       readFileSync(path.join(import.meta.dir, "..", file), "utf8");
@@ -78,7 +98,7 @@ describe("mobile locale formatting without Intl", () => {
     expect(search).toContain("compareMobileText(left.source.name, right.source.name)");
     expect(storage).toContain("formatMobileInteger(count)");
     expect(storage).not.toContain("toLocaleString");
-    expect(chat).toContain("formatMobileClockTime(timestamp, appLanguage)");
+    expect(chat).toContain("formatMobileClockTime12h(timestamp, appLanguage)");
     expect(chat).not.toContain("toLocaleTimeString");
   });
 });

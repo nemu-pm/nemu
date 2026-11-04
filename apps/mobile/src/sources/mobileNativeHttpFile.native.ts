@@ -21,6 +21,7 @@ import {
   isNativeSegmentedImageTileWithinPolicy,
 } from "@/data/nativeSegmentedImageCache";
 import { collectNativeSegmentTemporaryUrisForCleanup } from "./mobileNativeHttpFileCleanup";
+import { runMobileHttpRequestWithRetry } from "./mobileNativeHttpRetry";
 
 export type MobileNativeHttpFileRequest = Omit<
   NemuAidokuHttpFileRequest,
@@ -105,7 +106,23 @@ function removeNativeTemporaryFile(fileUri: string | null): void {
   }
 }
 
+/**
+ * A bounded GET into a native temporary file, with the shared retry policy
+ * (`runMobileHttpRequestWithRetry`): transient transport failures retried
+ * with short backoff, a failure caused by backgrounding retried once the app
+ * is active again. Each attempt cleans up its own partial files.
+ */
 export async function downloadMobileNativeHttpFile(
+  request: MobileNativeHttpFileRequest,
+  signal?: AbortSignal | null,
+): Promise<MobileNativeHttpDownloadResponse> {
+  return runMobileHttpRequestWithRetry(
+    () => downloadMobileNativeHttpFileOnce(request, signal),
+    { signal },
+  );
+}
+
+async function downloadMobileNativeHttpFileOnce(
   request: MobileNativeHttpFileRequest,
   signal?: AbortSignal | null,
 ): Promise<MobileNativeHttpDownloadResponse> {

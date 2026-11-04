@@ -2,6 +2,7 @@ import { v } from "convex/values"
 import { action } from "./_generated/server"
 import { createGateway, generateObject } from "ai"
 import { z } from "zod"
+import { requireAuth } from "./_lib"
 
 function getGateway() {
   const apiKey = process.env.AI_GATEWAY_API_KEY
@@ -36,7 +37,9 @@ export const normalize = action({
   args: {
     text: v.string(),
   },
-  handler: async (_, { text }) => {
+  handler: async (ctx, { text }) => {
+    // Cloud AI is a signed-in feature: callers send the Better Auth JWT.
+    await requireAuth(ctx)
     const gateway = getGateway()
     const clean = (text ?? "").trim()
     if (!clean) return { normalized: "", proper_nouns: [] as string[] }

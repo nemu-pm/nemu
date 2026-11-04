@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   parseMobileAidokuSandboxResponse,
+  parseMobileAidokuSandboxStatusResponse,
   stringifyMobileAidokuSandboxValue,
 } from "./mobileAidokuSandboxProtocol";
 
@@ -223,5 +224,31 @@ describe("mobile Aidoku sandbox protocol", () => {
         stringifyMobileAidokuSandboxValue(operation, "Aidoku operation"),
       ),
     ).toEqual(operation);
+  });
+
+  test("status-only replies share the bounded parser", () => {
+    expect(
+      parseMobileAidokuSandboxStatusResponse('{"status":"updated"}', "updated", "fallback"),
+    ).toBeUndefined();
+    expect(() =>
+      parseMobileAidokuSandboxStatusResponse(
+        '{"status":"error","detail":"settings rejected"}',
+        "updated",
+        "fallback",
+      ),
+    ).toThrow("settings rejected");
+    expect(() =>
+      parseMobileAidokuSandboxStatusResponse('{"status":"complete"}', "updated", "fallback"),
+    ).toThrow("fallback");
+    expect(() =>
+      parseMobileAidokuSandboxStatusResponse("not-json", "updated", "fallback"),
+    ).toThrow("malformed JSON");
+    expect(() =>
+      parseMobileAidokuSandboxStatusResponse(
+        "x".repeat(4 * 1024 * 1024 + 1),
+        "updated",
+        "fallback",
+      ),
+    ).toThrow("invalid response");
   });
 });

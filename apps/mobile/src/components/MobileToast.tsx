@@ -7,6 +7,9 @@ import {
   type ReactNode,
 } from "react";
 import {
+  AccessibilityInfo,
+  Keyboard,
+  Platform,
   StyleSheet,
   View,
   type StyleProp,
@@ -18,6 +21,7 @@ import Animated, {
   useReducedMotion,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { usePathname } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useMobileLanguageSettings } from "@/data/mobileHooks";
 import {
@@ -28,10 +32,19 @@ import {
   nemuFontWeight,
   radius,
   useNemuTheme,
+  useMobilePageGutters,
   nemuToneColor,
 } from "@/design-system";
+import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { getMobileFloatingTabBarOverlayExtent } from "@/lib/mobileFloatingTabBarClearance";
 import { getMobileStrings } from "@/lib/mobileI18n";
+import { useMobileBottomTabBarInset } from "@/lib/mobileBottomTabBarInset";
+import { isMobileBottomTabBarRoute } from "@/lib/mobileRootTabs";
+import {
+  MOBILE_IOS_TAB_BAR_FALLBACK_HEIGHT,
+  resolveMobileToastPlacement,
+} from "@/lib/mobileToastPlacement";
+import { useMobileToastRegion } from "@/lib/mobileToastRegion";
 import {
   MobileToastContext,
   type MobileToastController,
@@ -78,6 +91,13 @@ type MobileToastSurfaceProps = {
   borderColor?: string;
   titleColor?: string;
   detailColor?: string;
+  /**
+   * The pill's exact width (the anchored host). The liquid-glass content is
+   * hosted in its own SwiftUI surface that sizes to its contents until the
+   * shell is measured, so without it a long one-line title lays the row out
+   * wider than the pill and pushes the trailing control past its edge.
+   */
+  width?: number;
   style?: StyleProp<ViewStyle>;
 };
 
@@ -102,6 +122,7 @@ export function MobileToastSurface({
   borderColor,
   titleColor,
   detailColor,
+  width,
   style,
 }: MobileToastSurfaceProps) {
   const { tokens } = useNemuTheme();
@@ -210,6 +231,7 @@ export function MobileToastSurface({
   const layout = [
     styles.pillContent,
     hasTrailingControl ? null : styles.pillContentWithoutTrailing,
+    width === undefined ? null : { width },
   ];
 
   if (plain) {
@@ -246,6 +268,27 @@ export function MobileToastSurface({
   );
 }
 
+/** The open soft keyboard's height (0 when closed). */
+function useToastKeyboardHeight(): number {
+  const [height, setHeight] = useState(() => Math.max(Keyboard.metrics()?.height ?? 0, 0));
+  useEffect(() => {
+    const ios = Platform.OS === "ios";
+    const show = Keyboard.addListener(
+      ios ? "keyboardWillShow" : "keyboardDidShow",
+      (event) => setHeight(Math.max(event.endCoordinates?.height ?? 0, 0)),
+    );
+    const hide = Keyboard.addListener(
+      ios ? "keyboardWillHide" : "keyboardDidHide",
+      () => setHeight(0),
+    );
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+  return height;
+}
+
 type ActiveToast = {
   id: string;
   options: MobileToastOptions;
@@ -260,9 +303,46 @@ function MobileToastHost({
 }) {
   const { reduceMotion } = useNemuTheme();
   const insets = useSafeAreaInsets();
+  const gutters = useMobilePageGutters();
+  const adaptive = useMobileAdaptiveLayout();
+  const pathname = usePathname();
+  const measuredTabBarInset = useMobileBottomTabBarInset();
+  const region = useMobileToastRegion();
+  const keyboardHeight = useToastKeyboardHeight();
   const reducedMotion = useReducedMotion();
   const motionDisabled = reduceMotion || reducedMotion === true;
-  const bottom = getMobileFloatingTabBarOverlayExtent(insets.bottom) + 12;
+  const windowInsets = adaptive.safeAreaInsets;
+  const safeArea = {
+    left: windowInsets?.left ?? insets.left,
+    right: windowInsets?.right ?? insets.right,
+    bottom: windowInsets?.bottom ?? insets.bottom,
+  };
+  const placement = resolveMobileToastPlacement({
+    windowWidth: adaptive.width,
+    posture: adaptive.posture,
+    panels: adaptive.panels,
+    verticalBarSide: adaptive.verticalBarSide,
+    safeArea,
+    gutters,
+    bottomTabBarVisible: isMobileBottomTabBarRoute(pathname, Platform.OS),
+    // Android's floating bar is drawn in JS (no native measurement).
+    bottomTabBarInset: Platform.OS === "ios" ? measuredTabBarInset : null,
+    fallbackBottomTabBarInset:
+      Platform.OS === "ios"
+        ? safeArea.bottom + MOBILE_IOS_TAB_BAR_FALLBACK_HEIGHT
+        : getMobileFloatingTabBarOverlayExtent(insets.bottom),
+    region,
+    keyboardHeight,
+  });
+
+  const announcement = toast
+    ? [toast.options.title, toast.options.detail].filter(Boolean).join(". ")
+    : null;
+  useEffect(() => {
+    // iOS ignores live regions (Android's surface already has one): announce
+    // the toast explicitly so VoiceOver reads the title.
+    if (announcement && Platform.OS === "ios") AccessibilityInfo.announceForAccessibility(announcement);
+  }, [toast, announcement]);
 
   if (!toast) return null;
 
@@ -280,7 +360,12 @@ function MobileToastHost({
           : FadeInDown.springify().damping(22).stiffness(340)
       }
       exiting={motionDisabled ? undefined : FadeOutDown.duration(120)}
-      style={[styles.host, { bottom }]}
+      style={[
+        styles.host,
+        placement.top === undefined
+          ? { bottom: placement.bottom, left: placement.left, width: placement.width }
+          : { top: placement.top, left: placement.left, width: placement.width },
+      ]}
     >
       <MobileToastSurface
         action={
@@ -299,6 +384,7 @@ function MobileToastHost({
         onDismiss={action ? undefined : () => onDismiss(toast.id)}
         title={toast.options.title}
         tone={toast.options.tone ?? "info"}
+        width={placement.width}
       />
     </Animated.View>
   );
@@ -362,8 +448,6 @@ export function MobileToastProvider({ children }: { children: ReactNode }) {
 const styles = StyleSheet.create({
   host: {
     position: "absolute",
-    left: 16,
-    right: 16,
   },
   pill: {
     borderRadius: radius.tab,

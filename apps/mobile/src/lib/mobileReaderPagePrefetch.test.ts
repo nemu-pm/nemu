@@ -5,6 +5,7 @@ import {
   mobileReaderPrefetchImageForPage,
   planMobileReaderNextChapterPrefetch,
   planMobileReaderPagePrefetch,
+  planMobileReaderScrollPrefetch,
   shouldPrefetchMobileReaderNextChapter,
   type MobileReaderPrefetchImage,
 } from "./mobileReaderPagePrefetch";
@@ -52,6 +53,10 @@ describe("reader page prefetch plan", () => {
     expect(
       mobileReaderPrefetchImageForPage(page(1, { imageProcessing: "pending" })),
     ).toBeNull();
+    // Processing failed: the scrambled original is never fetched for display.
+    expect(
+      mobileReaderPrefetchImageForPage(page(1, { imageProcessing: "failed" })),
+    ).toBeNull();
     expect(
       mobileReaderPrefetchImageForPage(
         page(1, {
@@ -97,6 +102,84 @@ describe("reader page prefetch plan", () => {
       "0.jpg",
       "1.jpg",
     ]);
+  });
+});
+
+describe("scroll reader prefetch plan", () => {
+  const long = Array.from({ length: 30 }, (_, index) => page(index));
+
+  test("warms the range down the strip nearest first, then above", () => {
+    expect(
+      uris(
+        planMobileReaderScrollPrefetch({
+          pages: long,
+          currentIndex: 10,
+          range: { first: 8, last: 15 },
+        }),
+      ),
+    ).toEqual([
+      "11.jpg", "12.jpg", "13.jpg", "14.jpg", "15.jpg",
+      "9.jpg", "8.jpg",
+    ]);
+  });
+
+  test("scrolling up warms the pages above first", () => {
+    expect(
+      uris(
+        planMobileReaderScrollPrefetch({
+          pages: long,
+          currentIndex: 10,
+          range: { first: 5, last: 12 },
+          direction: "backward",
+        }),
+      ),
+    ).toEqual([
+      "9.jpg", "8.jpg", "7.jpg", "6.jpg", "5.jpg",
+      "11.jpg", "12.jpg",
+    ]);
+  });
+
+  test("then the screen a fling comes to rest on, without repeats", () => {
+    expect(
+      uris(
+        planMobileReaderScrollPrefetch({
+          pages: long,
+          currentIndex: 10,
+          range: { first: 9, last: 12 },
+          landing: { first: 12, last: 16 },
+        }),
+      ),
+    ).toEqual(["11.jpg", "12.jpg", "9.jpg", "13.jpg", "14.jpg", "15.jpg", "16.jpg"]);
+    expect(
+      uris(
+        planMobileReaderScrollPrefetch({
+          pages: long,
+          currentIndex: 20,
+          range: { first: 19, last: 21 },
+          direction: "backward",
+          landing: { first: 3, last: 5 },
+        }),
+      ),
+    ).toEqual(["19.jpg", "21.jpg", "5.jpg", "4.jpg", "3.jpg"]);
+  });
+
+  test("stays inside the chapter and skips single-page strips", () => {
+    expect(
+      uris(
+        planMobileReaderScrollPrefetch({
+          pages: long,
+          currentIndex: 27,
+          range: { first: 25, last: 35 },
+        }),
+      ),
+    ).toEqual(["28.jpg", "29.jpg", "26.jpg", "25.jpg"]);
+    expect(
+      planMobileReaderScrollPrefetch({
+        pages: [page(0)],
+        currentIndex: 0,
+        range: { first: 0, last: 0 },
+      }),
+    ).toEqual([]);
   });
 });
 

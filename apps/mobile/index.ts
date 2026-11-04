@@ -1,3 +1,6 @@
+// The launch screen's safety cap counts from JS start (mobileSplashScreen.ts).
+// Dependency-free, so it runs before anything else is evaluated.
+import "./src/lib/mobileSplashSafetyCapEntry";
 import "./src/polyfills/bigInt";
 // Expo Router 56 uses ES2023 reverse-array searches. The pinned Android JSC
 // does not provide them, so install the missing built-ins before router state
@@ -10,7 +13,14 @@ import "./src/polyfills/weakRef";
 import "./src/polyfills/base64";
 import "./src/polyfills/textEncoding";
 import "./src/polyfills/crypto";
+// The "New design (preview)" switch is read here, synchronously, before any
+// module that reads it at load time and before the first screen.
+import "./src/lib/mobileDesignExploreBoot";
 import "./src/lib/mobilePerformanceEntry";
+// Start the data profile (keychain) reads and the SQLite open + migration now,
+// overlapping the rest of bundle evaluation and the first render, instead of
+// from MobileDataProvider/SQLiteProvider effects after that render.
+import "./src/data/mobileDataBootEntry";
 // A cold OS-launched background task loads this entry bundle without mounting
 // the Expo Router tree. Import the platform module here so TaskManager's
 // module-scope defineTask call runs before the native executor looks it up.

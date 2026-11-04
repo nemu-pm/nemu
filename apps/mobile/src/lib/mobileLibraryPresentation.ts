@@ -6,7 +6,7 @@ import {
   type LocalMangaProgress,
   type LocalSourceLink,
 } from "@/data/schema";
-import { formatChapterShort } from "./formatChapter";
+import { formatChapterShortLabel } from "./formatChapter";
 import { formatMobileString, type MobileStrings } from "./mobileI18n";
 import { compareMobileText } from "./mobileLocaleFormat";
 
@@ -279,6 +279,20 @@ export function getMobileEntryMostRecentSource(
   return bestSource;
 }
 
+/**
+ * The source a title's quick actions open (Library and Search share it): the
+ * most recently read linked source, else the first linked one.
+ */
+export function getMobileEntryQuickActionSource(
+  entry: LibraryEntry,
+  progressIndex: MobileLibraryProgressIndex
+): LocalSourceLink | undefined {
+  return getMobileEntryMostRecentSource(
+    entry,
+    buildMobileEntryProgressMap(entry, progressIndex)
+  );
+}
+
 export function getMobileEntryAddedAt(entry: LibraryEntry): number {
   return entry.item.createdAt;
 }
@@ -343,13 +357,16 @@ export function getMobileLibraryProgressInfo(
   let subtitle = strings.library.progressUnread;
   if (isCaughtUp) {
     subtitle = strings.library.progressCaughtUp;
-  } else if (lastReadChapter && latestChapter) {
-    subtitle = `${formatChapterShort(lastReadChapter, strings)} / ${formatChapterShort(
-      latestChapter,
-      strings,
-    )}`;
   } else if (lastReadChapter) {
-    subtitle = formatChapterShort(lastReadChapter, strings);
+    // A progress record can carry only the chapter id (no number, no
+    // title): say the title is in progress rather than "Untitled".
+    const lastRead =
+      formatChapterShortLabel(lastReadChapter, strings) ??
+      strings.library.progressInProgress;
+    const latest = latestChapter
+      ? formatChapterShortLabel(latestChapter, strings)
+      : null;
+    subtitle = latest ? `${lastRead} / ${latest}` : lastRead;
   }
 
   return {
@@ -357,6 +374,67 @@ export function getMobileLibraryProgressInfo(
     subtitle,
     lastReadAt: sourceProgress?.lastReadAt,
   };
+}
+
+/**
+ * What a Library cover card shows of its title's reading progress, and the
+ * source its quick actions open (the most recently read linked source, else
+ * the first linked one).
+ */
+export type MobileLibraryCardProgress = {
+  subtitle: string;
+  badge?: string;
+  quickActionSource?: LocalSourceLink;
+};
+
+/** Each title's card progress, keyed by `libraryItemId`. */
+export function buildMobileLibraryCardProgress(
+  entries: LibraryEntry[],
+  progressIndex: MobileLibraryProgressIndex,
+  strings: MobileStrings,
+  entryProgressMaps?: MobileLibraryEntryProgressMaps
+): Map<string, MobileLibraryCardProgress> {
+  const cards = new Map<string, MobileLibraryCardProgress>();
+  for (const entry of entries) {
+    const progress = resolveMobileEntryProgressMap(
+      entry,
+      progressIndex,
+      entryProgressMaps?.get(entry.item.libraryItemId)
+    );
+    const info = getMobileLibraryProgressInfo(entry, progressIndex, strings, progress);
+    cards.set(entry.item.libraryItemId, {
+      subtitle: info.subtitle,
+      badge: info.badge,
+      quickActionSource: getMobileEntryMostRecentSource(entry, progress),
+    });
+  }
+  return cards;
+}
+
+/**
+ * Keeps the current card object for every title whose card reads the same,
+ * and the current map when no card changed. Reading writes the open title's
+ * progress (its read time) on every page turn while the Library stays mounted
+ * under the reader; only a card whose text or source changed re-renders.
+ */
+export function stabilizeMobileLibraryCardProgress(
+  current: ReadonlyMap<string, MobileLibraryCardProgress>,
+  next: ReadonlyMap<string, MobileLibraryCardProgress>
+): ReadonlyMap<string, MobileLibraryCardProgress> {
+  if (current === next) return current;
+  let reusedAll = current.size === next.size;
+  const stable = new Map<string, MobileLibraryCardProgress>();
+  for (const [id, card] of next) {
+    const previous = current.get(id);
+    const same =
+      previous !== undefined &&
+      previous.subtitle === card.subtitle &&
+      previous.badge === card.badge &&
+      previous.quickActionSource === card.quickActionSource;
+    if (!same) reusedAll = false;
+    stable.set(id, same ? previous : card);
+  }
+  return reusedAll ? current : stable;
 }
 
 /**

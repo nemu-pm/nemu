@@ -68,9 +68,15 @@ export function extractCfUrlFromMessage(message: string): string | undefined {
  * separate, mobile-only predicate.
  */
 export function isNetworkSourceError(error: unknown): boolean {
+  // A cancellation is not a network failure, whatever its message says
+  // ("The registry catalog fetch was aborted." mentions "fetch").
+  if (error instanceof Error && error.name === "AbortError") return false;
   const message = (
     error instanceof Error ? error.message : String(error)
   ).toLowerCase();
+  if (/\b(?:fetch|request|operation) (?:was |has been )?aborted\b/.test(message)) {
+    return false;
+  }
   return (
     message.includes("fetch") ||
     message.includes("network request failed") ||

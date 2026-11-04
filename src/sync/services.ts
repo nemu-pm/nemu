@@ -33,6 +33,7 @@ import {
   normalizeSyncClock,
   refreshSyncServerTime,
   supportsChapterProgressIntraPageSync,
+  supportsChapterProgressResetSync,
   toCloudHistorySaveInput,
   toCloudInstalledSource,
   toCloudLibrarySaveInput,
@@ -208,6 +209,7 @@ function mutationContext(
   expectedUserId: string;
   generation: number;
   includeChapterProgressIntraPageState: boolean;
+  includeChapterProgressResetState: boolean;
 } | null {
   const convex = convexRef.current;
   const identity = {
@@ -226,19 +228,24 @@ function mutationContext(
   ) {
     return null;
   }
+  const capabilities =
+    observedSyncCapabilities?.convex === convex &&
+    observedSyncCapabilities.localStore === localStore &&
+    observedSyncCapabilities.profileId === identity.effectiveProfileId &&
+    observedSyncCapabilities.userId === identity.sessionUserId &&
+    observedSyncCapabilities.generation === generation
+      ? observedSyncCapabilities
+      : null;
   return {
     convex,
     expectedUserId: identity.sessionUserId,
     generation,
-    includeChapterProgressIntraPageState:
-      observedSyncCapabilities?.convex === convex &&
-      observedSyncCapabilities.localStore === localStore &&
-      observedSyncCapabilities.profileId === identity.effectiveProfileId &&
-      observedSyncCapabilities.userId === identity.sessionUserId &&
-      observedSyncCapabilities.generation === generation &&
-      supportsChapterProgressIntraPageSync(
-        observedSyncCapabilities.chapterProgressIntraPageVersion,
-      ),
+    includeChapterProgressIntraPageState: supportsChapterProgressIntraPageSync(
+      capabilities?.chapterProgressIntraPageVersion,
+    ),
+    includeChapterProgressResetState: supportsChapterProgressResetSync(
+      capabilities?.chapterProgressIntraPageVersion,
+    ),
   };
 }
 
@@ -773,6 +780,7 @@ function createHistoryOps(localStore: IndexedDBUserDataStore): HistoryStoreOps {
             ...toCloudHistorySaveInput(localProgress, {
               includeIntraPageState:
                 context.includeChapterProgressIntraPageState,
+              includeResetState: context.includeChapterProgressResetState,
             }),
             generation: context.generation,
           }),

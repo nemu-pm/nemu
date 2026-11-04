@@ -1,16 +1,20 @@
 import { Fragment } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, StyleSheet, View } from "react-native";
 import { nemuFontWeight, useNemuTheme } from "@/design-system";
+import { JapaneseLearningText as Text } from "./JapaneseLearningText";
 import type { MobileGrammarToken } from "@/lib/mobileJapaneseLearningGrammar";
 import {
+  mobileJapaneseLearningMultiSelectPalette,
   mobileJapaneseLearningPosLabel,
-  mobileJapaneseLearningPosStyle,
+  mobileJapaneseLearningTokenPalette,
 } from "@/lib/mobileJapaneseLearningPosStyles";
+import { JAPANESE_LEARNING_SERIF_FONT_FAMILY } from "@/lib/mobileJapaneseLearningSurfaceTheme";
 
 interface TokenDisplayProps {
   token: MobileGrammarToken;
   index: number;
   isSelected: boolean;
+  regularWidth?: boolean;
   isMultiSelected: boolean;
   accessibilityLabel: string;
   accessibilityExtendLabel: string;
@@ -20,9 +24,11 @@ interface TokenDisplayProps {
 }
 
 /**
- * Mobile mirror of web `TokenDisplay` (token-display.tsx).
- * Vertical stack: furigana → word → POS kanji label, with POS-category color
- * theming (13 categories, matching web `pos-styles.ts`).
+ * Mobile port of web `TokenDisplay` (token-display.tsx) with the
+ * `.textbook-token` look from `src/index.css`: furigana above, the word on a
+ * POS-tinted wash with a 2pt POS rule underneath, the POS kanji label below.
+ * Selected tokens deepen the wash and switch the rule to the POS border colour;
+ * a multi-selection paints one primary highlight across the range.
  *
  * This View is NOT a responder. The parent SentenceDisplay is the sole
  * responder and hit-tests touches against per-token layouts reported via
@@ -32,6 +38,7 @@ export function JapaneseLearningTokenDisplay({
   token,
   index,
   isSelected,
+  regularWidth = false,
   isMultiSelected,
   accessibilityLabel,
   accessibilityExtendLabel,
@@ -39,14 +46,28 @@ export function JapaneseLearningTokenDisplay({
   onExtendSelection,
   onLayout,
 }: TokenDisplayProps) {
-  const { tokens } = useNemuTheme();
-  const posStyle = mobileJapaneseLearningPosStyle(token);
+  const { tokens, scheme } = useNemuTheme();
+  const paletteScheme = scheme === "dark" ? "dark" : "light";
+  const palette = mobileJapaneseLearningTokenPalette(token, paletteScheme);
+  const multi = mobileJapaneseLearningMultiSelectPalette(paletteScheme);
   const posLabel = mobileJapaneseLearningPosLabel(token);
   const displayWord = token.word.replace(/\n/g, "");
-  const displayReading = token.reading.replace(/\n/g, "");
+  // Ichiran readings can carry a zero-width non-joiner (e.g. "‌へ").
+  const displayReading = token.reading.replace(/\n/g, "").replace(/\u200c/g, "");
   const hasNewline = token.word !== displayWord;
   const showFurigana = displayReading.length > 0 && displayReading !== displayWord;
   const isHighlighted = isSelected || isMultiSelected;
+
+  const chipBackground = isMultiSelected
+    ? multi.background
+    : isSelected
+      ? palette.selectedBackground
+      : palette.background;
+  const chipRule = isMultiSelected
+    ? multi.underline
+    : isSelected
+      ? palette.selectedUnderline
+      : palette.underline;
 
   return (
     <Fragment>
@@ -54,6 +75,7 @@ export function JapaneseLearningTokenDisplay({
         accessible
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel}
+        accessibilityLanguage="ja"
         accessibilityState={{ selected: isHighlighted }}
         accessibilityActions={[
           {
@@ -67,13 +89,7 @@ export function JapaneseLearningTokenDisplay({
           }
         }}
         onPress={onActivate}
-        style={[
-          styles.token,
-          {
-            backgroundColor: isHighlighted ? posStyle.bgStrong : "transparent",
-            borderColor: isHighlighted ? posStyle.border : "transparent",
-          },
-        ]}
+        style={styles.token}
         onLayout={(event) => {
           if (!onLayout) return;
           const { x, y, width, height } = event.nativeEvent.layout;
@@ -86,6 +102,7 @@ export function JapaneseLearningTokenDisplay({
             <Text
               style={[
                 styles.furigana,
+                regularWidth ? styles.furiganaRegular : null,
                 {
                   color: tokens.mutedForeground,
                   opacity: isHighlighted ? 1 : 0.7,
@@ -98,15 +115,24 @@ export function JapaneseLearningTokenDisplay({
           ) : null}
         </View>
 
-        {/* Main word */}
-        <Text
+        {/* Main word — `.textbook-token` */}
+        <View
           style={[
-            styles.word,
-            { color: posStyle.text === tokens.foreground ? tokens.foreground : posStyle.text },
+            styles.wordChip,
+            {
+              backgroundColor: chipBackground,
+              borderBottomColor: chipRule,
+              boxShadow: `inset 0 0.5px 0 rgba(255,255,255,${scheme === "dark" ? 0.08 : 0.65})`,
+            },
+            isSelected && !isMultiSelected
+              ? { boxShadow: scheme === "dark"
+                ? "inset 0 0.5px 0 rgba(255,255,255,0.08), 0 10px 26px rgba(0,0,0,0.35)"
+                : "inset 0 0.5px 0 rgba(255,255,255,0.7), 0 8px 18px rgba(0,0,0,0.08)" }
+              : null,
           ]}
         >
-          {displayWord}
-        </Text>
+          <Text style={[styles.word, regularWidth ? styles.wordRegular : null, { color: palette.text }]}>{displayWord}</Text>
+        </View>
 
         {/* POS label row — fixed height */}
         <View style={styles.posLabelRow}>
@@ -114,7 +140,8 @@ export function JapaneseLearningTokenDisplay({
             <Text
               style={[
                 styles.posLabel,
-                { color: posStyle.text, opacity: isHighlighted ? 1 : 0.5 },
+                regularWidth ? styles.posLabelRegular : null,
+                { color: palette.text, opacity: isHighlighted ? 1 : 0.4 },
               ]}
             >
               {posLabel}
@@ -128,38 +155,50 @@ export function JapaneseLearningTokenDisplay({
 }
 
 const styles = StyleSheet.create({
+  // Web: `inline-flex flex-col items-center mx-[1px]`.
   token: {
     alignItems: "center",
-    borderRadius: 3,
-    borderWidth: StyleSheet.hairlineWidth,
     marginHorizontal: 1,
-    paddingHorizontal: 4,
-    paddingVertical: 2,
   },
+  // Web: `h-[0.9rem]` furigana row, `text-[0.6rem] tracking-wide`
+  // (= JAPANESE_LEARNING_FURIGANA_ROW_HEIGHT; a minimum, so Dynamic Type grows it).
   furiganaRow: {
-    minHeight: 14,
+    minHeight: 14.4,
     justifyContent: "flex-end",
   },
   furigana: {
-    fontSize: 10,
+    fontSize: 9.6,
     fontWeight: nemuFontWeight.regular,
-    lineHeight: 14,
+    lineHeight: 9.6,
+    letterSpacing: 0.25,
   },
+  // Web: `rounded-[3px] px-1 py-0.5` + 2px bottom rule.
+  wordChip: {
+    borderRadius: 3,
+    borderBottomWidth: 2,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+  },
+  // Web: `.ja-textbook text-[1.4rem]`.
   word: {
-    fontSize: 24,
-    fontWeight: nemuFontWeight.semibold,
-    lineHeight: 30,
+    fontFamily: Platform.select(JAPANESE_LEARNING_SERIF_FONT_FAMILY),
+    fontSize: 22.4,
+    lineHeight: 33.6,
   },
+  // Web: `h-[1rem] mt-0.5`, label `text-[0.5rem] font-medium`.
   posLabelRow: {
     minHeight: 16,
     justifyContent: "flex-start",
     marginTop: 2,
   },
   posLabel: {
-    fontSize: 9,
-    fontWeight: nemuFontWeight.semibold,
-    lineHeight: 12,
+    fontSize: 8,
+    fontWeight: nemuFontWeight.medium,
+    lineHeight: 8,
   },
+  wordRegular: { fontSize: 25.6, lineHeight: 38.4 },
+  furiganaRegular: { fontSize: 10.4, lineHeight: 10.4 },
+  posLabelRegular: { fontSize: 8.8, lineHeight: 8.8 },
   lineBreak: {
     width: "100%",
     height: 0,

@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type RefObject,
 } from "react";
 import { StyleSheet, View } from "react-native";
@@ -26,7 +27,13 @@ import {
   shouldRunReaderMenuPageSwitchHaptic,
 } from "@/lib/mobileReaderProgress";
 import { READER_CHROME_PANEL_CONTENT_MIN_HEIGHT } from "@/lib/mobileReaderHeader";
+import { readerScrubberCommitRatio } from "@/lib/mobileReaderScrubberPreview";
 import type { MobileSliderTrackWindowFrame } from "@/lib/mobileSliderTrack";
+import {
+  mobileReaderLivePageIndex,
+  type MobileReaderLivePage,
+  type MobileReaderLivePageStore,
+} from "@/lib/mobileReaderLivePage";
 
 export type MobileReaderScrubberProps = {
   pageIndex: number;
@@ -63,6 +70,41 @@ export type MobileReaderScrubberProps = {
    */
   previewRef?: RefObject<MobileReaderScrubberPreviewHandle | null>;
 };
+
+const NO_LIVE_PAGE_STORE: MobileReaderLivePageStore = {
+  get: () => null,
+  set: () => undefined,
+  subscribe: () => () => undefined,
+};
+
+/**
+ * Scroll reading: the thumb follows the page the list shows while the
+ * reader scrolls (a store only this component subscribes to), so a page
+ * crossing repaints the bar, not the reader. Committed pages win as soon as
+ * the reader state takes one (see `mobileReaderLivePageIndex`).
+ */
+export function MobileReaderLiveScrubber({
+  liveStore,
+  ...props
+}: MobileReaderScrubberProps & { liveStore?: MobileReaderLivePageStore }) {
+  const store = liveStore ?? NO_LIVE_PAGE_STORE;
+  const live: MobileReaderLivePage | null = useSyncExternalStore(
+    store.subscribe,
+    store.get,
+    store.get,
+  );
+  return (
+    <MobileReaderScrubber
+      {...props}
+      pageIndex={mobileReaderLivePageIndex(live, props.pageIndex)}
+      scrubIndex={
+        props.scrubIndex == null
+          ? undefined
+          : mobileReaderLivePageIndex(live, props.scrubIndex)
+      }
+    />
+  );
+}
 
 export function MobileReaderScrubber({
   pageIndex,
@@ -114,6 +156,8 @@ export function MobileReaderScrubber({
     value: number;
   } | null>(null);
   const dragStartProgressRef = useRef<number | null>(null);
+  // The visual ratio the preview bubble last showed during this drag.
+  const lastPreviewRatioRef = useRef<number | null>(null);
   const pendingScrollProgressRef = useRef<number | null>(null);
   const continuousScrollScopeRef = useRef(continuousScroll);
   const onScrollScrubCancelRef = useRef(onScrollScrubCancel);
@@ -359,6 +403,7 @@ export function MobileReaderScrubber({
 
   const onRatioStart = useCallback(
     (ratio: number) => {
+      lastPreviewRatioRef.current = ratio;
       pendingScrollProgressRef.current = null;
       const currentScrollProgress = continuousScroll
         ? onScrollScrubStart?.()
@@ -386,6 +431,7 @@ export function MobileReaderScrubber({
 
   const onRatioPreview = useCallback(
     (ratio: number) => {
+      lastPreviewRatioRef.current = ratio;
       const nextProgress = logicalProgressForVisualRatio(ratio);
       setDragProgressState({
         token: scrubInteractionToken,
@@ -404,7 +450,12 @@ export function MobileReaderScrubber({
   );
 
   const onRatioEnd = useCallback(
-    (ratio: number) => {
+    (releaseRatio: number) => {
+      const lastPreviewRatio = lastPreviewRatioRef.current;
+      lastPreviewRatioRef.current = null;
+      const ratio = continuousScroll
+        ? releaseRatio
+        : readerScrubberCommitRatio({ releaseRatio, lastPreviewRatio });
       const nextProgress = logicalProgressForVisualRatio(ratio);
       dragStartProgressRef.current = null;
       clearPreview();
@@ -443,6 +494,7 @@ export function MobileReaderScrubber({
   );
 
   const onRatioCancel = useCallback(() => {
+    lastPreviewRatioRef.current = null;
     const startProgress = dragStartProgressRef.current;
     dragStartProgressRef.current = null;
     if (continuousScroll && startProgress != null) {

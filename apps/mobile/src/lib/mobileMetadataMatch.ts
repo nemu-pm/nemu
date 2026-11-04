@@ -1,11 +1,12 @@
 import type { AppLanguage, ExternalIds, MangaMetadata } from "@/data/schema";
+import { requireMobileAiConsent } from "./mobileAiConsent";
 import {
   listToMetadataInput,
   type MobileMetadataFormValues,
 } from "@/lib/mobileMetadataOverrides";
 import { mobileConvexRef } from "@/sync/mobileSyncRuntime";
 import { mobileSyncConfig } from "@/sync/mobileSyncConfig";
-import { translateTags } from "../../../../src/lib/metadata/translations";
+import { translateMobileTags } from "./mobileTagTranslations";
 import { api } from "../../../../convex/_generated/api";
 
 const ANILIST_API_URL = "https://graphql.anilist.co";
@@ -397,7 +398,7 @@ export function localizeMobileMetadataMatch(
 
   const localizedTitle = localizedTitleForResult(result, language);
   const localizedTags = result.metadata.tags
-    ? translateTags(result.metadata.tags, language)
+    ? translateMobileTags(result.metadata.tags, language)
     : undefined;
   const localizedAuthors = localizedAuthorsForResult(result, language);
   const metadata: MangaMetadata = {
@@ -435,6 +436,7 @@ export async function findMobileJapaneseTitleFallback(
   if (!trimmedTitle || !client) return null;
 
   try {
+    await requireMobileAiConsent();
     const result = await client.action(api.ai_metadata.findJapaneseTitle, {
       title: trimmedTitle,
       ...(authors?.length ? { authors } : {}),
@@ -494,6 +496,7 @@ export async function findMobileChineseTitleFallback(
   if (!titles) return null;
 
   try {
+    await requireMobileAiConsent();
     const response = await client.action(api.ai_metadata.findChineseTitle, {
       japaneseTitle: titles.japaneseTitle,
       ...(titles.englishTitle ? { englishTitle: titles.englishTitle } : {}),
@@ -538,6 +541,7 @@ export async function findMobileLocalizedDescription(
   if (!titles) return null;
 
   try {
+    await requireMobileAiConsent();
     const action =
       language === "ja"
         ? api.ai_metadata.findJapaneseDescription

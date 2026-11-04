@@ -79,6 +79,8 @@ function errorMessage(error: unknown): string {
 export function stripMobileNativeExceptionNoise(message: string): string {
   return message
     .replace(/\s*\(at [^()\n]*\.(?:swift|kt|java|mm?|cpp|h):\d+\)/g, "")
+    // JSC appends the expression that threw: `(evaluating 'new WebAssembly.Instance(module, importObject)')`.
+    .replace(/\s*\(evaluating '[^\n]*'\)/g, "")
     .replace(/^(?:[a-z][\w]*\.)*[A-Z]\w*Exception:\s*/, "")
     .trim();
 }
@@ -248,13 +250,52 @@ export function isMobileNetworkSourceError(error: unknown): boolean {
   return isNetworkSourceError(error);
 }
 
+/**
+ * Phrases only the host produces when this build cannot run any source: the
+ * engine has no WebAssembly global, or the native bridge or isolated runtime
+ * is missing. A source package's own `WebAssembly.RuntimeError` (a trap or a
+ * Rust panic), `LinkError` or `CompileError` also names WebAssembly, but that
+ * is one source failing, not the runtime, so a bare "webassembly" substring
+ * must never classify an error as runtime-unavailable.
+ */
+const MOBILE_RUNTIME_UNAVAILABLE_PATTERNS: readonly RegExp[] = [
+  /\breact native javascript engine\b/i,
+  /\breact native source bridge\b/i,
+  /\bnemuaidoku native module is not linked\b/i,
+  /\bdoes not include the isolated aidoku runtime\b/i,
+  /\bisolated aidoku runtime is (?:unavailable|only available on)\b/i,
+  /\bisolated aidoku runtime is missing required standards apis\b/i,
+  // The engine's own ReferenceError for the missing global (JSC, Hermes, V8).
+  /\bcan't find variable: webassembly\b/i,
+  /\bproperty '?webassembly'? doesn't exist\b/i,
+  /\bwebassembly is not defined\b/i,
+];
+
+/**
+ * A package that imports a host function this runtime does not provide fails
+ * at instantiation, before it runs. JSC words it
+ * `import function net:get_url must be callable` (a missing function) or
+ * `import net:init must be an object` (a missing module); V8 words it
+ * `Import #3 "net" "get_url": function import requires a callable`.
+ */
+const MOBILE_SOURCE_IMPORT_MISMATCH_PATTERNS: readonly RegExp[] = [
+  /\bimport function [^\s:]+:\S+ must be callable\b/i,
+  /\bimport [^\s:]+:\S+ must be an object\b/i,
+  /\bimport #\d+ "[^"]*" "[^"]*": (?:function|module) import requires\b/i,
+];
+
 export function isMobileRuntimeUnavailableError(error: unknown): boolean {
-  const message = errorMessage(error).toLowerCase();
-  return (
-    message.includes("webassembly") ||
-    message.includes("react native javascript engine") ||
-    message.includes("react native source bridge") ||
-    message.includes("hermes")
+  const message = errorMessage(error);
+  return MOBILE_RUNTIME_UNAVAILABLE_PATTERNS.some((pattern) =>
+    pattern.test(message),
+  );
+}
+
+/** The source package needs a runtime capability this build does not have. */
+export function isMobileSourceIncompatibleError(error: unknown): boolean {
+  const message = errorMessage(error);
+  return MOBILE_SOURCE_IMPORT_MISMATCH_PATTERNS.some((pattern) =>
+    pattern.test(message),
   );
 }
 
@@ -304,6 +345,17 @@ export function getMobileSourceErrorPresentation(
     };
   }
 
+  if (isMobileSourceIncompatibleError(error)) {
+    return {
+      kind: "unsupported",
+      title: strings.common.sourceIncompatible,
+      detail: describeMobileErrorDetail(
+        error,
+        strings.common.sourceIncompatibleDescription,
+      ),
+    };
+  }
+
   if (isMobileRuntimeUnavailableError(error)) {
     return {
       kind: "runtime",
@@ -328,6 +380,22 @@ export function getMobileSourceErrorPresentation(
       strings.common.sourceErrorDescription,
     ),
   };
+}
+
+/**
+ * Localized title and detail for a failure of a known class (an incompatible
+ * package, a disabled source, Cloudflare, the network, an unavailable
+ * runtime), or null for an unclassified source failure, whose surface keeps
+ * its own wording.
+ */
+export function getMobileClassifiedSourceErrorCopy(
+  error: unknown,
+  strings: Pick<MobileStrings, "common">,
+): { title: string; detail: string } | null {
+  const presentation = getMobileSourceErrorPresentation(error, strings);
+  return presentation.kind === "source"
+    ? null
+    : { title: presentation.title, detail: presentation.detail };
 }
 
 /**

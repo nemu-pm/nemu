@@ -56,10 +56,16 @@ export function canOpenMobileSourceMangaReader({
 
 export function shouldRenderMobileSourceMangaReaderAction({
   hasChapter,
+  holdWhileLoading = false,
 }: {
   hasChapter: boolean;
+  /**
+   * The chapters are still loading and the page keeps the button's place
+   * (disabled) so the action row does not reflow when they arrive.
+   */
+  holdWhileLoading?: boolean;
 }): boolean {
-  return hasChapter;
+  return hasChapter || holdWhileLoading;
 }
 
 export function shouldRenderMobileSourceMangaSkeleton({

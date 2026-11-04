@@ -1,0 +1,5 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": { "modules": ["NemuJapaneseLearningModule"] },
+  "android": { "modules": ["pm.nemu.mobile.japaneselearning.NemuJapaneseLearningModule"] }
+}

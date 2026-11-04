@@ -1,10 +1,15 @@
 import type { LocalChapterProgress } from "@/data/schema";
 import { formatMobileString, type MobileStrings } from "./mobileI18n";
+import {
+  resolveMobileChapterOpeningPage,
+  type MobileReaderResumePosition,
+} from "./mobileReaderResumePosition";
 
-type MobileChapterProgressInput = Pick<
+type MobileChapterProgressInput = (Pick<
   LocalChapterProgress,
   "completed" | "progress" | "total"
-> | null | undefined;
+> &
+  Partial<Pick<LocalChapterProgress, "lastReadAt" | "resetAt">>) | null | undefined;
 
 export type MobileChapterProgressAccessory =
   | { status: "locked" }
@@ -19,26 +24,71 @@ export type MobileChapterProgressAccessory =
 
 export type MobileChapterProgressTone = "mutedForeground" | "primary" | "success";
 
+/**
+ * The fullest an in-progress pie / ring is drawn. The reader leaves a chapter
+ * on its last page without completing it whenever it did not page forward
+ * onto it (Previous chapter opens at the end, a scrubber jump, a resume), and
+ * the scroll counter can name the last page while the anchor sits above it:
+ * "Page N of N" at N/N drew a solid disc that read as finished. Short of a
+ * completion the glyph keeps an open wedge; the label still names the page.
+ */
+export const MOBILE_CHAPTER_PROGRESS_MAX_RATIO = 0.9;
+
+/**
+ * A row's progress: "Page X of Y" (and its bar) name the page the reader
+ * will open the chapter at. With this device's `local` resume spot that is
+ * the reader's own resume choice (`resolveMobileChapterOpeningPage`); without
+ * one, the synced high-water page. A completed chapter reads as completed
+ * unless the reader would reopen it at a re-read spot past page 1.
+ */
 export function getMobileChapterProgressAccessory(
   progress: MobileChapterProgressInput,
-  options?: { locked?: boolean }
+  options?: { locked?: boolean; local?: MobileReaderResumePosition | null }
 ): MobileChapterProgressAccessory {
   if (options?.locked && !progress?.completed) return { status: "locked" };
+  const local = options?.local ?? null;
+  if (!progress && !local) return { status: "unread" };
+  const opening = local
+    ? resolveMobileChapterOpeningPage({
+        local,
+        progress: progress
+          ? {
+              progress: progress.progress,
+              total: progress.total,
+              completed: progress.completed,
+              lastReadAt: progress.lastReadAt ?? 0,
+              ...(progress.resetAt !== undefined ? { resetAt: progress.resetAt } : {}),
+            }
+          : null,
+      })
+    : null;
+  if (progress?.completed) {
+    const reread = opening?.origin === "local" ? pageAccessory(opening.shownSourceIndex, opening.total) : null;
+    return reread ?? { status: "completed" };
+  }
+  // The page named (and the bar) is the reader counter's page saved with the
+  // spot; the restore itself still seeks to the anchor (`sourceIndex`).
+  if (opening) return pageAccessory(opening.shownSourceIndex, opening.total) ?? { status: "unread" };
   if (!progress) return { status: "unread" };
-  if (progress.completed) return { status: "completed" };
+  return pageAccessory(progress.progress, progress.total) ?? { status: "unread" };
+}
 
+function pageAccessory(
+  sourceIndex: number,
+  pageCount: number,
+): Extract<MobileChapterProgressAccessory, { status: "progress" }> | null {
   // Reader progress is persisted as a zero-based source page index so it can
   // be restored without conversion. Keep that storage contract internal and
   // expose the one-based page number users expect in chapter rows.
-  const pageIndex = Math.trunc(progress.progress);
-  const total = Math.trunc(progress.total);
+  const pageIndex = Math.trunc(sourceIndex);
+  const total = Math.trunc(pageCount);
   if (
     !Number.isFinite(pageIndex) ||
     !Number.isFinite(total) ||
     pageIndex <= 0 ||
     total <= 0
   ) {
-    return { status: "unread" };
+    return null;
   }
   const page = Math.min(pageIndex + 1, total);
 
@@ -46,7 +96,7 @@ export function getMobileChapterProgressAccessory(
     status: "progress",
     page,
     total,
-    ratio: page / total,
+    ratio: Math.min(page / total, MOBILE_CHAPTER_PROGRESS_MAX_RATIO),
   };
 }
 

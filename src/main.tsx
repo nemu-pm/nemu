@@ -79,9 +79,10 @@ function AuthGateDialog() {
 function WelcomeWizardWrapper() {
   const { shouldShow, markCompleted } = useWelcomeWizard();
   
-  // Skip wizard on utility routes (debug, etc.)
+  // Skip wizard on utility routes (debug, the public privacy policy and
+  // directory list, etc.)
   const pathname = window.location.pathname;
-  const skipRoutes = ["/debug"];
+  const skipRoutes = ["/debug", "/privacy", "/directories"];
   const shouldSkip = skipRoutes.some(r => pathname.startsWith(r));
   
   const handleComplete = () => {

@@ -30,6 +30,8 @@ export interface OcrDetectionWithText extends Detection {
 export interface OcrRequest {
   type: 'ocr'
   requestId: string
+  /** Convex/Better Auth JWT; the OCR gateway rejects calls without it. */
+  token?: string
   image: Blob
 }
 
@@ -75,11 +77,14 @@ async function blobToBase64(blob: Blob): Promise<string> {
   return btoa(binary)
 }
 
-async function runOcr(requestId: string, image: Blob): Promise<OcrDetectionWithText[]> {
+async function runOcr(requestId: string, image: Blob, token?: string): Promise<OcrDetectionWithText[]> {
   const base64 = await blobToBase64(image)
   const res = await fetch(`${OCR_API_BASE}/ocr`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
     body: JSON.stringify({ imageBase64: base64, requestId }),
   })
   if (!res.ok) throw new Error(`OCR /ocr failed: ${res.status} ${res.statusText}`)
@@ -138,7 +143,7 @@ ctx.onmessage = async (e: MessageEvent<WorkerRequest>) => {
       return
     }
     if (msg.type === 'ocr') {
-      const detections = await runOcr(msg.requestId, msg.image)
+      const detections = await runOcr(msg.requestId, msg.image, msg.token)
       ctx.postMessage({ type: 'ocr-done', requestId: msg.requestId, detections } satisfies OcrDoneResponse)
       return
     }

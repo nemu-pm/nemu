@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { authClient } from '@/lib/auth-client'
 import type { TextDetection, TextDetectorSettings, OcrResult, OcrTranscriptLine } from './types'
 import type { GrammarToken } from './ichiran-types'
 import { DEFAULT_SETTINGS } from './types'
@@ -34,6 +35,16 @@ function getConvexHttp(): ConvexHttpClient | null {
 const normalizeCache = new Map<string, NormalizeResult>()
 let didWarnConvexMissing = false
 
+/** Fresh Convex/Better Auth JWT for the OCR gateway (null when signed out). */
+async function getOcrAuthToken(): Promise<string | undefined> {
+  try {
+    const res = await (authClient as unknown as { convex: { token: () => Promise<{ data?: { token?: string } | null }> } }).convex.token()
+    return res.data?.token ?? undefined
+  } catch {
+    return undefined
+  }
+}
+
 async function normalizeText(text: string): Promise<NormalizeResult> {
   const clean = (text ?? '').trim()
   if (!clean) return { normalized: clean, properNouns: [] }
@@ -51,6 +62,9 @@ async function normalizeText(text: string): Promise<NormalizeResult> {
 
   try {
     const fn = api.japanese_learning.normalize
+    // Signed in: call as the user (signed out stays unauthenticated).
+    const token = await getOcrAuthToken()
+    if (token) client.setAuth(token)
     if (import.meta.env.DEV) console.debug('[JapaneseLearning] normalize → convex', { len: clean.length })
     const res = (await client.action(fn, { text: clean })) as {
       normalized?: string
@@ -520,7 +534,8 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
         }
 
         w.addEventListener('message', handler)
-        w.postMessage({ type: 'ocr', requestId, image } satisfies WorkerRequest)
+        const token = await getOcrAuthToken()
+        w.postMessage({ type: 'ocr', requestId, image, token } satisfies WorkerRequest)
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         console.error('[JapaneseLearning] ocr failed:', msg)

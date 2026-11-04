@@ -87,10 +87,15 @@ function ShadcnAndroidSwitch({
           style={[
             styles.shadcnThumb,
             {
+              // Web `Switch` thumb: `bg-background`,
+              // `dark:data-unchecked:bg-foreground`,
+              // `dark:data-checked:bg-primary-foreground`.
               backgroundColor:
-                scheme === "dark" && !value
-                  ? tokens.foreground
-                  : tokens.background,
+                scheme !== "dark"
+                  ? tokens.background
+                  : value
+                    ? tokens.primaryForeground
+                    : tokens.foreground,
             },
             thumbStyle,
           ]}

@@ -1,5 +1,8 @@
 import Foundation
 import Network
+#if canImport(UIKit)
+import UIKit
+#endif
 
 private let nemuNativeProxyHeaderLimit = 64 * 1024
 private let nemuNativeProxySetupTimeoutSeconds = 12.0
@@ -52,10 +55,14 @@ struct NemuNativeHttpProxyRequest {
   let isTunnel: Bool
   let upstreamPreamble: Data
   let trailingData: Data
+  /// The source scope whose per-scope proxy credential authenticated this
+  /// request, or nil for the shared (public-destinations-only) credential.
+  var scope: String? = nil
 
   static func parse(
     _ data: Data,
-    expectedBasicToken: String
+    expectedBasicToken: String,
+    scopeForToken: ((String) -> String?)? = nil
   ) throws -> NemuNativeHttpProxyRequest {
     let separator = Data([13, 10, 13, 10])
     guard let separatorRange = data.range(of: separator) else {
@@ -118,10 +125,17 @@ struct NemuNativeHttpProxyRequest {
     )
     guard
       authorizationParts.count == 2,
-      authorizationParts[0].caseInsensitiveCompare("Basic") == .orderedSame,
-      constantTimeEqual(String(authorizationParts[1]), expectedBasicToken)
+      authorizationParts[0].caseInsensitiveCompare("Basic") == .orderedSame
     else {
       throw NemuNativeHttpProxyRequestError.unauthorized
+    }
+    let presentedToken = String(authorizationParts[1])
+    var requestScope: String? = nil
+    if !constantTimeEqual(presentedToken, expectedBasicToken) {
+      guard let scope = scopeForToken?(presentedToken) else {
+        throw NemuNativeHttpProxyRequestError.unauthorized
+      }
+      requestScope = scope
     }
 
     let trailing = data.subdata(in: separatorRange.upperBound..<data.endIndex)
@@ -132,7 +146,8 @@ struct NemuNativeHttpProxyRequest {
         port: endpoint.port,
         isTunnel: true,
         upstreamPreamble: Data(),
-        trailingData: trailing
+        trailingData: trailing,
+        scope: requestScope
       )
     }
 
@@ -188,7 +203,8 @@ struct NemuNativeHttpProxyRequest {
       port: UInt16(portValue),
       isTunnel: false,
       upstreamPreamble: preamble,
-      trailingData: trailing
+      trailingData: trailing,
+      scope: requestScope
     )
   }
 
@@ -254,6 +270,26 @@ struct NemuNativeHttpProxyRequest {
   }
 }
 
+/// A callback that runs at most once. Only touched on the proxy queue.
+private final class NemuNativeHttpProxyOnce: @unchecked Sendable {
+  private var callback: ((UInt16?) -> Void)?
+  private var claimed = false
+
+  init(_ callback: ((UInt16?) -> Void)?) { self.callback = callback }
+
+  func fire(_ port: UInt16?) {
+    let pending = callback
+    callback = nil
+    pending?(port)
+  }
+
+  func claim() -> Bool {
+    guard !claimed else { return false }
+    claimed = true
+    return true
+  }
+}
+
 private final class NemuNativeHttpProxyReadyLatch: @unchecked Sendable {
   private let lock = NSLock()
   private let semaphore = DispatchSemaphore(value: 0)
@@ -293,7 +329,11 @@ final class NemuNativeHttpLoopbackProxy: @unchecked Sendable {
   let password: String
   private(set) var port: UInt16?
 
-  private let queue = DispatchQueue(label: "pm.nemu.native-http-loopback-proxy")
+  private let queue: DispatchQueue = {
+    let queue = DispatchQueue(label: "pm.nemu.native-http-loopback-proxy")
+    queue.setSpecific(key: NemuNativeHttpLoopbackProxy.queueKey, value: true)
+    return queue
+  }()
   private let resolverQueue = DispatchQueue(
     label: "pm.nemu.native-http-loopback-proxy.resolver",
     qos: .utility,
@@ -302,30 +342,107 @@ final class NemuNativeHttpLoopbackProxy: @unchecked Sendable {
   private var listener: NWListener?
   private var connections: [UUID: NemuNativeHttpProxyConnection] = [:]
 
+  // Listener lifecycle. iOS reclaims the listening socket of a suspended app
+  // (the listener then reports `.failed`/`.cancelled`, or silently stops
+  // accepting), and nothing used to create a new one: every later source
+  // request failed with "Could not connect to the server" until relaunch.
+  // The listener is now restarted on failure and re-validated on every
+  // foreground transition, on the same port when possible (each URLSession
+  // configuration and the peer validation pin it). `stateLock` guards the
+  // fields below, which request threads read through `waitUntilReady`.
+  private let stateLock = NSCondition()
+  private var isReady = false
+  private var isStarting = false
+  private var restartAttempts = 0
+  /// Bumped whenever the listener comes up on a different port, so session
+  /// contexts built for the old port are rebuilt (`NemuSyncHttpCoordinator`).
+  private(set) var portGeneration = 0
+  private static let maxRestartBackoffSeconds = 2.0
+  private var lifecycleObservers: [NSObjectProtocol] = []
+
   private init() {
     password = UUID().uuidString.replacingOccurrences(of: "-", with: "") +
       UUID().uuidString.replacingOccurrences(of: "-", with: "")
     port = nil
     listener = nil
 
+    let latch = NemuNativeHttpProxyReadyLatch()
+    queue.sync {
+      self.startListener(preferredPort: nil) { port in latch.resolve(port) }
+    }
+    _ = latch.wait()
+    observeLifecycle()
+  }
+
+  /// Creates and starts a listener. Runs on `queue`. `onSettled` gets the
+  /// bound port (or nil on failure) once, for the initial synchronous start.
+  private func startListener(
+    preferredPort: UInt16?,
+    onSettled: ((UInt16?) -> Void)? = nil
+  ) {
+    dispatchPrecondition(condition: .onQueue(queue))
     let parameters = NWParameters.tcp
     parameters.requiredLocalEndpoint = .hostPort(
       host: .ipv4(.loopback),
       port: .any
     )
-    guard let created = try? NWListener(using: parameters, on: .any) else { return }
+    parameters.allowLocalEndpointReuse = true
+    let created: NWListener
+    if
+      let preferredPort,
+      let endpointPort = NWEndpoint.Port(rawValue: preferredPort),
+      let samePort = try? NWListener(using: parameters, on: endpointPort)
+    {
+      created = samePort
+    } else if let anyPort = try? NWListener(using: parameters, on: .any) {
+      created = anyPort
+    } else {
+      setReady(false)
+      onSettled?(nil)
+      scheduleRestart()
+      return
+    }
     // A budget, not a cap: see `NemuNativeHttpProxyConnectionBudget`. It is
     // re-derived from the live count on every accept and close below.
     created.newConnectionLimit = NemuNativeHttpProxyConnectionBudget
-      .maxLiveConnections
+      .newConnectionLimit(liveConnections: connections.count)
     listener = created
-    let latch = NemuNativeHttpProxyReadyLatch()
-    created.stateUpdateHandler = { state in
+    stateLock.lock()
+    isStarting = true
+    stateLock.unlock()
+    let settled = NemuNativeHttpProxyOnce(onSettled)
+    created.stateUpdateHandler = { [weak self, weak created] state in
+      guard let self, let created else { return }
+      dispatchPrecondition(condition: .onQueue(self.queue))
+      // A replaced listener's late callbacks must not touch the live one.
+      guard self.listener === created else { return }
       switch state {
       case .ready:
-        latch.resolve(created.port?.rawValue)
+        let boundPort = created.port?.rawValue
+        if let boundPort, boundPort != self.port {
+          self.port = boundPort
+          self.bumpPortGeneration()
+        }
+        self.restartAttempts = 0
+        self.setReady(boundPort != nil)
+        settled.fire(boundPort)
       case .failed, .cancelled:
-        latch.resolve(nil)
+        created.stateUpdateHandler = nil
+        created.newConnectionHandler = nil
+        if case .failed = state { created.cancel() }
+        self.listener = nil
+        self.setReady(false)
+        settled.fire(nil)
+        self.scheduleRestart()
+      case .waiting:
+        // Loopback has no path to wait for; treat it as a failure.
+        created.stateUpdateHandler = nil
+        created.newConnectionHandler = nil
+        created.cancel()
+        self.listener = nil
+        self.setReady(false)
+        settled.fire(nil)
+        self.scheduleRestart()
       default:
         break
       }
@@ -334,20 +451,187 @@ final class NemuNativeHttpLoopbackProxy: @unchecked Sendable {
       self?.accept(connection)
     }
     created.start(queue: queue)
-    port = latch.wait()
-    if port == nil {
-      created.cancel()
-      listener = nil
+  }
+
+  private func setReady(_ ready: Bool) {
+    stateLock.lock()
+    isReady = ready
+    isStarting = false
+    stateLock.broadcast()
+    stateLock.unlock()
+  }
+
+  private func bumpPortGeneration() {
+    stateLock.lock()
+    portGeneration += 1
+    stateLock.unlock()
+  }
+
+  /// Restarts after a short, growing backoff. Runs on `queue`.
+  private func scheduleRestart() {
+    dispatchPrecondition(condition: .onQueue(queue))
+    stateLock.lock()
+    isStarting = true
+    stateLock.unlock()
+    restartAttempts += 1
+    let delay = min(
+      Self.maxRestartBackoffSeconds,
+      0.05 * pow(2.0, Double(min(restartAttempts, 6) - 1))
+    )
+    queue.asyncAfter(deadline: .now() + delay) { [weak self] in
+      guard let self, self.listener == nil else { return }
+      self.startListener(preferredPort: self.port)
     }
   }
+
+  /// Replaces the listener now (foreground re-validation found it dead).
+  private func restartNow() {
+    dispatchPrecondition(condition: .onQueue(queue))
+    if let current = listener {
+      current.stateUpdateHandler = nil
+      current.newConnectionHandler = nil
+      current.cancel()
+      listener = nil
+    }
+    setReady(false)
+    restartAttempts = 0
+    startListener(preferredPort: port)
+  }
+
+  /// Foreground re-validation: a listener that is not `.ready` is replaced;
+  /// a `.ready` one is probed with a loopback connect, because a reclaimed
+  /// socket does not always report a state change.
+  func revalidate() {
+    queue.async { [weak self] in
+      guard let self else { return }
+      guard let current = self.listener, case .ready = current.state, let port = self.port,
+        let endpointPort = NWEndpoint.Port(rawValue: port)
+      else {
+        self.stateLock.lock()
+        let starting = self.isStarting
+        self.stateLock.unlock()
+        // A listener coming up (or a restart already scheduled) is left alone.
+        if !starting { self.restartNow() }
+        return
+      }
+      let probe = NWConnection(
+        host: .ipv4(.loopback),
+        port: endpointPort,
+        using: .tcp
+      )
+      let once = NemuNativeHttpProxyOnce(nil)
+      let finish: (Bool) -> Void = { [weak self, weak current] alive in
+        guard once.claim() else { return }
+        probe.stateUpdateHandler = nil
+        probe.cancel()
+        guard let self, let current, self.listener === current else { return }
+        if !alive { self.restartNow() }
+      }
+      probe.stateUpdateHandler = { state in
+        switch state {
+        case .ready: finish(true)
+        case .failed, .waiting, .cancelled: finish(false)
+        default: break
+        }
+      }
+      probe.start(queue: self.queue)
+      self.queue.asyncAfter(deadline: .now() + 1.5) { finish(false) }
+    }
+  }
+
+  private func observeLifecycle() {
+    #if canImport(UIKit)
+    let center = NotificationCenter.default
+    for name in [
+      UIApplication.willEnterForegroundNotification,
+      UIApplication.didBecomeActiveNotification,
+    ] {
+      lifecycleObservers.append(
+        center.addObserver(forName: name, object: nil, queue: nil) { [weak self] _ in
+          self?.revalidate()
+        }
+      )
+    }
+    #endif
+  }
+
+  /// Blocks the calling (request) thread until the listener is ready, for at
+  /// most `timeout` seconds, so a request issued right after a foreground
+  /// transition connects to the restarted listener instead of failing with
+  /// "Could not connect to the server". Never waits on the proxy queue or the
+  /// main thread. Returns the current port generation.
+  @discardableResult
+  func waitUntilReady(timeout: TimeInterval = 5) -> Int {
+    let canWait = !Thread.isMainThread &&
+      DispatchQueue.getSpecific(key: Self.queueKey) == nil
+    stateLock.lock()
+    defer { stateLock.unlock() }
+    if !isReady && !isStarting {
+      // Dead and nobody restarting it (should not happen): kick a restart.
+      isStarting = true
+      queue.async { [weak self] in
+        guard let self, self.listener == nil else { return }
+        self.restartNow()
+      }
+    }
+    if canWait && !isReady {
+      let deadline = Date().addingTimeInterval(timeout)
+      while !isReady && stateLock.wait(until: deadline) {}
+    }
+    return portGeneration
+  }
+
+  private static let queueKey = DispatchSpecificKey<Bool>()
 
   var basicToken: String {
     Data("\(username):\(password)".utf8).base64EncodedString()
   }
 
+  private let credentialLock = NSLock()
+  private var scopeUsernames: [String: String] = [:]
+  private var scopeByToken: [String: String] = [:]
+
+  /// Per-source proxy credential. A scoped URLSession authenticates as an
+  /// unguessable user bound to its source scope, so the proxy can tell whose
+  /// request it is serving and apply that source's local-network grant (and
+  /// nobody else's). Packages never see the credential: URLSession adds it.
+  func credentials(
+    forScope scope: String?
+  ) -> (username: String, password: String) {
+    guard
+      let scope = scope?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !scope.isEmpty
+    else {
+      return (username, password)
+    }
+    credentialLock.lock()
+    defer { credentialLock.unlock() }
+    if let existing = scopeUsernames[scope] { return (existing, password) }
+    let scopedUsername = "nemu-" + UUID().uuidString
+      .replacingOccurrences(of: "-", with: "")
+      .lowercased()
+    scopeUsernames[scope] = scopedUsername
+    scopeByToken[
+      Data("\(scopedUsername):\(password)".utf8).base64EncodedString()
+    ] = scope
+    return (scopedUsername, password)
+  }
+
+  func basicToken(forScope scope: String?) -> String {
+    let credential = credentials(forScope: scope)
+    return Data("\(credential.username):\(credential.password)".utf8)
+      .base64EncodedString()
+  }
+
+  fileprivate func scope(forToken token: String) -> String? {
+    credentialLock.lock()
+    defer { credentialLock.unlock() }
+    return scopeByToken[token]
+  }
+
   /** Applies an explicit, no-failover proxy. A listener startup failure points
    * at the closed loopback port 1, failing source networking closed. */
-  func harden(_ configuration: URLSessionConfiguration) {
+  func harden(_ configuration: URLSessionConfiguration, scope: String? = nil) {
     let configuredPort = port ?? 1
     if #available(iOS 17.0, tvOS 17.0, macOS 14.0, *) {
       guard let endpointPort = NWEndpoint.Port(rawValue: configuredPort) else {
@@ -361,7 +645,11 @@ final class NemuNativeHttpLoopbackProxy: @unchecked Sendable {
       )
       proxy.allowFailover = false
       proxy.excludedDomains = []
-      proxy.applyCredential(username: username, password: password)
+      let credential = credentials(forScope: scope)
+      proxy.applyCredential(
+        username: credential.username,
+        password: credential.password
+      )
       configuration.proxyConfigurations = [proxy]
       configuration.connectionProxyDictionary = nil
       return
@@ -394,16 +682,19 @@ final class NemuNativeHttpLoopbackProxy: @unchecked Sendable {
   /// as an ordinary response for absolute-form HTTP. Authenticate that one
   /// legacy form preemptively; the loopback proxy strips the hop-by-hop field
   /// before forwarding it. iOS 17+ applies credentials to its CONNECT proxy.
-  func authorizeLegacyPlainHttp(_ request: inout URLRequest) {
+  func authorizeLegacyPlainHttp(_ request: inout URLRequest, scope: String? = nil) {
     guard request.url?.scheme?.lowercased() == "http" else { return }
     if #available(iOS 17.0, tvOS 17.0, macOS 14.0, *) { return }
     request.setValue(
-      "Basic \(basicToken)",
+      "Basic \(basicToken(forScope: scope))",
       forHTTPHeaderField: "Proxy-Authorization"
     )
   }
 
-  func proxyCredential(for challenge: URLAuthenticationChallenge) -> URLCredential? {
+  func proxyCredential(
+    for challenge: URLAuthenticationChallenge,
+    scope: String? = nil
+  ) -> URLCredential? {
     let protectionSpace = challenge.protectionSpace
     guard
       challenge.previousFailureCount == 0,
@@ -414,9 +705,10 @@ final class NemuNativeHttpLoopbackProxy: @unchecked Sendable {
     else {
       return nil
     }
+    let credential = credentials(forScope: scope)
     return URLCredential(
-      user: username,
-      password: password,
+      user: credential.username,
+      password: credential.password,
       persistence: .forSession
     )
   }
@@ -428,7 +720,8 @@ final class NemuNativeHttpLoopbackProxy: @unchecked Sendable {
       client: connection,
       queue: queue,
       resolverQueue: resolverQueue,
-      expectedBasicToken: basicToken
+      expectedBasicToken: basicToken,
+      scopeForToken: { [weak self] token in self?.scope(forToken: token) }
     ) { [weak self] in
       // Every connection callback (state, receive, send, timeout, and the
       // resolver hop) runs on `queue`, the same queue `accept` requires.
@@ -454,6 +747,7 @@ private final class NemuNativeHttpProxyConnection: @unchecked Sendable {
   private let queue: DispatchQueue
   private let resolverQueue: DispatchQueue
   private let expectedBasicToken: String
+  private let scopeForToken: (String) -> String?
   private let didFinish: () -> Void
   private var upstream: NWConnection?
   private var headerBuffer = Data()
@@ -469,12 +763,14 @@ private final class NemuNativeHttpProxyConnection: @unchecked Sendable {
     queue: DispatchQueue,
     resolverQueue: DispatchQueue,
     expectedBasicToken: String,
+    scopeForToken: @escaping (String) -> String?,
     didFinish: @escaping () -> Void
   ) {
     self.client = client
     self.queue = queue
     self.resolverQueue = resolverQueue
     self.expectedBasicToken = expectedBasicToken
+    self.scopeForToken = scopeForToken
     self.didFinish = didFinish
   }
 
@@ -512,7 +808,8 @@ private final class NemuNativeHttpProxyConnection: @unchecked Sendable {
       do {
         self.request = try NemuNativeHttpProxyRequest.parse(
           self.headerBuffer,
-          expectedBasicToken: self.expectedBasicToken
+          expectedBasicToken: self.expectedBasicToken,
+          scopeForToken: self.scopeForToken
         )
         self.resolveDestination()
       } catch NemuNativeHttpProxyRequestError.incomplete {
@@ -538,9 +835,14 @@ private final class NemuNativeHttpProxyConnection: @unchecked Sendable {
     }
     let host = request.host
     let port = request.port
+    // The grant is read when the connection is resolved, so a setting the user
+    // just changed (or cleared) applies to the very next request.
+    let grant = NemuNativeLocalNetworkAllowance.grant(forScope: request.scope)
     resolverQueue.async { [weak self] in
       let addresses = try? NemuNativeHttpAddressPolicy.validatedAddresses(
-        hostname: host
+        hostname: host,
+        port: Int(port),
+        grant: grant
       )
       self?.queue.async { [weak self] in
         guard let self, !self.finished else { return }

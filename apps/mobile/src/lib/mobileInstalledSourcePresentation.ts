@@ -1,5 +1,6 @@
 import type { InstalledSource } from "@/data/schema";
 import { getMobileInstalledSourceRegistryRef } from "./mobileInstalledSourceKeys";
+import { getMobileRegistryDisplayName } from "./mobileBrowseSources";
 
 /** How many entries to list before collapsing the rest into "+N". */
 const MAX_LISTED_LABELS = 2;
@@ -43,11 +44,38 @@ function installedSourceLanguages(source: InstalledSource): string[] {
 
 export function getMobileInstalledSourceSubtitle(
   source: InstalledSource,
+  strings?: Parameters<typeof getMobileRegistryDisplayName>[2],
 ): string {
   const languages = compactMobileLabelList(installedSourceLanguages(source), {
     upper: true,
   });
-  return [languages, getMobileInstalledSourceRegistryRef(source).registryId]
+  return [
+    languages,
+    getMobileRegistryDisplayName(
+      getMobileInstalledSourceRegistryRef(source).registryId,
+      getMobileInstalledSourceRegistryRef(source).registryId,
+      strings,
+    ),
+  ]
     .filter(Boolean)
     .join(" / ");
+}
+
+/**
+ * Design-explore: what a reader wants from an installed source's row — the
+ * language it reads in, by name, and its version — instead of codes and the
+ * registry id ("JA / aidoku-community", "EN, SQ +52 / …" with a separate "v6"
+ * chip). One language: its name ("日本語 · v6"); several: the multi-language
+ * label ("Multi-Language · v14"). `languageName` names a language code.
+ */
+export function getMobileExploreInstalledSourceSubtitle(
+  source: InstalledSource,
+  languageName: (code: string) => string,
+  multiLanguage: string,
+): string {
+  const languages = installedSourceLanguages(source);
+  const language =
+    languages.length === 0 ? null : languages.length === 1 ? languageName(languages[0]!) : multiLanguage;
+  const version = typeof source.version === "number" || typeof source.version === "string" ? `v${source.version}` : null;
+  return [language, version].filter(Boolean).join(" · ");
 }

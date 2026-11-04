@@ -7,6 +7,7 @@ compatibility_flags = [
   "fetch_standard_url",
   "cache_option_enabled",
   "enable_request_signal",
+  "allow_custom_ports",
 ]
 workers_dev = false
 preview_urls = false

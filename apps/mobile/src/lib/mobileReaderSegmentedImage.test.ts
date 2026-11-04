@@ -8,10 +8,8 @@ import {
   getMobileReaderLogicalPageIdentity,
   getMobileReaderLogicalOffsetForProgress,
   getMobileReaderLogicalScrollProgress,
-  getMobileReaderMeasuredScrollMetrics,
   isMobileReaderLogicalEndReached,
   MOBILE_READER_SEGMENTED_CAPABILITIES,
-  mobileReaderSegmentedNextAction,
   shouldCompleteSingleImageReaderPage,
 } from "./mobileReaderSegmentedImage";
 import type { MobileCachedSegmentedImageAsset } from "./mobileImageCache";
@@ -89,14 +87,7 @@ describe("segmented reader geometry", () => {
     ).toBe(true);
   });
 
-  it("moves accessibility Next by a viewport before requesting chapter end", () => {
-    expect(
-      mobileReaderSegmentedNextAction({
-        contentOffset: 0,
-        contentLength: 0,
-        viewportLength: 0,
-      }),
-    ).toEqual({ kind: "scroll", offset: 0 });
+  it("reports the logical end only once the strip is scrolled to its bottom", () => {
     expect(
       isMobileReaderLogicalEndReached({
         contentOffset: 0,
@@ -112,20 +103,6 @@ describe("segmented reader geometry", () => {
       }),
     ).toBe(false);
     expect(
-      mobileReaderSegmentedNextAction({
-        contentOffset: 0,
-        contentLength: 10_000,
-        viewportLength: 1_000,
-      }),
-    ).toEqual({ kind: "scroll", offset: 850 });
-    expect(
-      mobileReaderSegmentedNextAction({
-        contentOffset: 9_000,
-        contentLength: 10_000,
-        viewportLength: 1_000,
-      }),
-    ).toEqual({ kind: "end" });
-    expect(
       isMobileReaderLogicalEndReached({
         contentOffset: 8_999,
         contentLength: 10_000,
@@ -134,27 +111,10 @@ describe("segmented reader geometry", () => {
     ).toBe(true);
   });
 
-  it("seeds fresh content geometry before the first accessibility scroll", () => {
-    const metrics = getMobileReaderMeasuredScrollMetrics({
-      contentOffset: 0,
-      contentLength: 10_100 - 100,
-      viewportLength: 1_000,
-    });
-    expect(metrics).toEqual({
-      contentOffset: 0,
-      contentLength: 10_000,
-      viewportLength: 1_000,
-    });
-    expect(mobileReaderSegmentedNextAction(metrics)).toEqual({
-      kind: "scroll",
-      offset: 850,
-    });
-  });
-
   it("explicitly disables whole-page-only image capabilities", () => {
     expect(MOBILE_READER_SEGMENTED_CAPABILITIES).toEqual({
       wholePageZoom: false,
-      japaneseLearningImageTools: false,
+      japaneseLearningImageTools: true,
       dualReaderOverlay: false,
     });
     expect(
@@ -262,7 +222,7 @@ describe("segmented reader geometry", () => {
     ).toBe(100);
   });
 
-  it("wires identity restore and blocks whole-image OCR across asset resolution", () => {
+  it("wires identity restore and reads a segmented strip tile by tile", () => {
     const screen = readFileSync(
       path.join(import.meta.dir, "../screens/ReaderScreen.tsx"),
       "utf8",
@@ -279,10 +239,14 @@ describe("segmented reader geometry", () => {
     expect(screen).toContain(
       "currentDisplayedPage.imageUri && !currentImageMetadataReady",
     );
+    // A segmented strip is never handed to OCR whole: the tiles on screen
+    // are the targets, and each tile's boxes are drawn in that tile's frame.
+    expect(screen).not.toContain("disabled={Boolean(currentSegmentedImage)}");
+    expect(screen).toContain("getMobileReaderSegmentOcrPages(");
+    expect(screen).toContain("readerVisibleSegmentIndexes,");
     expect(screen).toContain(
-      'japaneseLearningLifecycleRef.current?.abort("ocr")',
+      "(detection) => detection.pageId === tileOcrPageId",
     );
-    expect(screen).toContain("disabled={Boolean(currentSegmentedImage)}");
     expect(screen).toContain("currentWholeImageToolsAvailable");
     expect(screen).toContain("readerImageSizes.has(pageIdentity)");
     const cachedImage = readFileSync(

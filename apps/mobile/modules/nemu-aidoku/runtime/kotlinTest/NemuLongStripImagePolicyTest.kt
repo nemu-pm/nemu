@@ -199,12 +199,13 @@ class NemuLongStripImagePolicyTest {
   }
 
   @Test
-  fun rejectsEveryInputOutsideTheStrictLongStripEnvelope() {
+  fun rejectsEveryInputOutsideTheBoundedTranscodeEnvelope() {
     listOf(
+      // Longer than the 65,535 side cap.
       png(65_536, 512),
-      png(20_000, 2_049),
+      // More than 64 MiPixel of source.
       png(40_000, 2_048),
-      png(12_000, 2_048)
+      png(9_000, 9_000)
     ).forEach { bytes ->
       withTemporaryImage(bytes) { file ->
         assertThrows(IOException::class.java) {
@@ -216,6 +217,123 @@ class NemuLongStripImagePolicyTest {
         }
       }
     }
+  }
+
+  @Test
+  fun plansABoundedDownscaleForOversizedImagesOfAnyShape() {
+    listOf(
+      // A wide strip, a strip that is not tall enough to segment, an
+      // oversized ordinary page, and a square at the pixel cap.
+      NemuImageDimensions(20_000, 2_049),
+      NemuImageDimensions(2_048, 12_000),
+      NemuImageDimensions(4_000, 6_000),
+      NemuImageDimensions(8_192, 8_192)
+    ).forEach { source ->
+      withTemporaryImage(png(source.width.toInt(), source.height.toInt())) { file ->
+        val plan = NemuLongStripImagePolicy.inspectAndPlan(
+          file,
+          outputPolicy,
+          NemuLongStripImagePolicy.MAX_ENCODED_BYTES
+        )
+
+        assertEquals(source, plan.container.displayedDimensions)
+        val output = plan.outputDimensions
+        assertTrue(output.width <= outputPolicy.maxDimension.toLong())
+        assertTrue(output.height <= outputPolicy.maxDimension.toLong())
+        assertTrue(output.width * output.height <= outputPolicy.maxPixels.toLong())
+        // The shape survives the downscale.
+        val sourceRatio = source.width.toDouble() / source.height.toDouble()
+        val outputRatio = output.width.toDouble() / output.height.toDouble()
+        assertTrue(Math.abs(sourceRatio - outputRatio) / sourceRatio < 0.01)
+
+        // Every decoded stripe stays within the stripe pixel budget, and the
+        // stripes cover the whole long side.
+        val longSide = maxOf(source.width, source.height).toInt()
+        val shortSide = minOf(source.width, source.height).toInt()
+        assertEquals(0, plan.ranges.first().start)
+        assertEquals(longSide, plan.ranges.last().endExclusive)
+        plan.ranges.zipWithNext().forEach { (current, next) ->
+          assertEquals(current.endExclusive, next.start)
+        }
+        plan.ranges.forEach { range ->
+          val sampledLong = ceilDivide(range.endExclusive - range.start, plan.decodeSampleSize)
+          val sampledShort = ceilDivide(shortSide, plan.decodeSampleSize)
+          assertTrue(
+            sampledLong.toLong() * sampledShort.toLong() <=
+              NemuLongStripImagePolicy.MAX_DECODED_STRIPE_PIXELS.toLong()
+          )
+        }
+      }
+    }
+  }
+
+  @Test
+  fun onlyPortraitComicStripsKeepTheirSourceWidthAsSegments() {
+    // The observed 1360 x 46,080 Raw FREE chapter strip.
+    assertTrue(NemuLongStripImagePolicy.isSegmentCandidate(NemuImageDimensions(1_360, 46_080)))
+    assertTrue(NemuLongStripImagePolicy.isSegmentCandidate(NemuImageDimensions(2_048, 16_384)))
+    listOf(
+      NemuImageDimensions(46_080, 1_360),
+      NemuImageDimensions(2_049, 40_000),
+      NemuImageDimensions(2_048, 12_000),
+      NemuImageDimensions(4_000, 6_000),
+      NemuImageDimensions(512, 65_536)
+    ).forEach { dimensions ->
+      assertTrue(!NemuLongStripImagePolicy.isSegmentCandidate(dimensions))
+    }
+    // The planner itself refuses what the predicate refuses.
+    assertThrows(IOException::class.java) {
+      NemuLongStripImagePolicy.segmentPlans(
+        NemuStaticImageContainer(
+          NemuStaticImageFormat.PNG,
+          NemuImageDimensions(2_048, 12_000),
+          1
+        ),
+        outputPolicy
+      )
+    }
+    assertEquals(
+      30,
+      NemuLongStripImagePolicy.segmentPlans(
+        NemuStaticImageContainer(
+          NemuStaticImageFormat.JPEG,
+          NemuImageDimensions(1_360, 46_080),
+          1,
+          16
+        ),
+        outputPolicy
+      ).size
+    )
+  }
+
+  @Test
+  fun tileByteSharesFollowPixelsAndLeaveTheRemainderToTheLastTile() {
+    assertEquals(250L, NemuLongStripEncodeBudget.tileShare(1_000L, 25L, 100L))
+    assertEquals(1_000L, NemuLongStripEncodeBudget.tileShare(1_000L, 100L, 100L))
+    assertEquals(0L, NemuLongStripEncodeBudget.tileShare(0L, 1L, 2L))
+    assertEquals(0L, NemuLongStripEncodeBudget.tileShare(1_000L, 0L, 2L))
+    assertEquals(0L, NemuLongStripEncodeBudget.tileShare(1_000L, 3L, 2L))
+
+    // Thirty equal tiles sharing the 20 MiB entry (less its manifest
+    // reserve) never promise more than the budget in total.
+    val budget = 20L * 1_024 * 1_024 - 64L * 1_024
+    val tilePixels = 1_360L * 1_536L
+    var remainingBytes = budget
+    var remainingPixels = tilePixels * 30L
+    repeat(30) {
+      val share = NemuLongStripEncodeBudget.tileShare(remainingBytes, tilePixels, remainingPixels)
+      assertTrue(share in 1L..remainingBytes)
+      remainingBytes -= share
+      remainingPixels -= tilePixels
+    }
+    assertEquals(0L, remainingBytes)
+
+    val qualities = NemuLongStripEncodeBudget.JPEG_QUALITIES
+    assertEquals(92, qualities.first())
+    assertTrue(qualities.toList().zipWithNext().all { (higher, lower) -> higher > lower })
+    assertTrue(qualities.last() >= 50)
+    assertTrue(!NemuLongStripEncodeBudget.isLastRung(0))
+    assertTrue(NemuLongStripEncodeBudget.isLastRung(qualities.size - 1))
   }
 
   @Test

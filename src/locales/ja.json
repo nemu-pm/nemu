@@ -219,7 +219,7 @@
     "noChapters": "話なし",
     "sourceNotInstalled": "ソースがインストールされていません",
     "sourceNotInstalledDescription": "「{{name}}」はこのデバイスにインストールされていません。インストールすると話を読み込めます。",
-    "sourceNotInstalledUnavailable": "「{{name}}」はこのデバイスにインストールされておらず、ソースレジストリにもありません。",
+    "sourceNotInstalledUnavailable": "「{{name}}」はこのデバイスにインストールされておらず、ソースディレクトリにもありません。",
     "installSourceNamed": "{{name}} をインストール",
     "removeFromLibrary": "ライブラリから削除",
     "removeFromLibraryDescription": "「{{name}}」をライブラリから削除してもよろしいですか？",
@@ -288,7 +288,8 @@
     "title": "このアプリについて",
     "tagline": "魔法の漫画リーダー",
     "description": "nemuはクロスプラットフォーム対応のウェブベース漫画リーダーです。さまざまなソースから漫画を発見して読むことができます。",
-    "sourceCode": "ソースコード"
+    "sourceCode": "ソースコード",
+    "privacyPolicy": "プライバシーポリシー"
   },
   "settings": {
     "aboutNemu": "nemuについて",
@@ -390,9 +391,9 @@
   "addSource": {
     "title": "ソースを追加",
     "selectMethod": "漫画ソースの追加方法を選択してください",
-    "fromRegistry": "利用可能なレジストリからソースを選択",
+    "fromRegistry": "利用可能なソースディレクトリからソースを選択",
     "customFile": "カスタム.aixソースファイルをアップロード",
-    "fromRegistryTitle": "レジストリから",
+    "fromRegistryTitle": "ソースディレクトリから",
     "fromRegistryDescription": "利用可能なソースを閲覧",
     "customTitle": "カスタム.aixファイル",
     "customDescription": "自分のソースをアップロード",

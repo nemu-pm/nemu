@@ -23,27 +23,35 @@ import {
   ALIGNMENT_FINE_MAX_DEFAULT,
   buildAlignmentOptions,
   buildAlignmentQueue,
-  buildMergeLuma,
+  buildMergeLumaSteps,
   buildMissingRenderPlan,
   buildSecondaryRenderPlan,
-  buildSplitLuma,
-  computeMultiDhash,
-  downsampleToMax,
+  buildSplitLumaSteps,
+  computeMultiDhashSteps,
+  downsampleToMaxSteps,
   findBestSecondaryMatch,
   getAlignmentPlanSignature,
   shouldApplySiblingSplitPlan,
   shouldMarkMissing,
-  toLuma,
+  toLumaSteps,
 } from "@nemu/core/dual-reader";
 import type {
   AlignmentOptions,
+  AlignmentPace,
   AlignmentResult,
+  AlignmentSteps,
   DualReaderPlatformAdapter,
   LumaImage,
   MultiDhash,
   SecondaryMatch,
   SecondaryRenderPlan,
 } from "@nemu/core/dual-reader";
+import {
+  DUAL_READER_ALIGN_MAX_SLICE_LABEL,
+  DUAL_READER_HASH_MAX_SLICE_LABEL,
+  runDualReaderStepsOnJsLane,
+  type DualReaderCooperativeOptions,
+} from "./mobileDualReaderJsLane";
 
 /**
  * Decode-only seam for `computeHashFromBytes`. The mobile renderer
@@ -183,32 +191,68 @@ export function buildMissingPlan(input: {
 export { shouldApplySiblingSplitPlan, findBestSecondaryMatch };
 
 /**
- * Decode image bytes to a dHash + a downsampled luma sample (for alignment).
- * Mirrors the web worker hash path (`dhash.worker.ts:163-177`): decode →
- * `toLuma` → `downsampleToMax` (sample) → `computeMultiDhash({ split: true })`.
+ * Hash + sample steps for a decoded RGBA image: `toLuma` → `downsampleToMax`
+ * (sample) → `computeMultiDhash({ split: true })`, as one core step generator.
+ * Driven synchronously it equals the original sync pipeline bit for bit.
  */
-export async function computeHashFromBytes(input: {
-  bytes: Uint8Array;
-  adapter: DualReaderDecoder;
-  centerCropRatio?: number;
-  sampleMax?: number;
-}): Promise<{ hash: MultiDhash; sample: LumaImage }> {
-  const rgba = await input.adapter.decodeToRgba(input.bytes);
+export function* computeHashFromRgbaSteps(
+  rgba: { data: Uint8Array | Uint8ClampedArray; width: number; height: number },
+  opts: { centerCropRatio?: number; sampleMax?: number },
+  pace: AlignmentPace,
+): AlignmentSteps<{ hash: MultiDhash; sample: LumaImage }> {
   const lumaInput = {
     data: rgba.data,
     width: rgba.width,
     height: rgba.height,
     channels: 4 as const,
   };
-  const luma = toLuma(lumaInput);
-  const sampleMax = input.sampleMax ?? ALIGNMENT_FINE_MAX_DEFAULT;
-  const sample = downsampleToMax(luma, rgba.width, rgba.height, sampleMax);
-  const hash = computeMultiDhash(lumaInput, {
-    split: true,
-    centerCropRatio: input.centerCropRatio ?? AUTO_ALIGN_CENTER_RATIO,
-    luma,
-  });
+  const luma = yield* toLumaSteps(lumaInput, pace);
+  const sampleMax = opts.sampleMax ?? ALIGNMENT_FINE_MAX_DEFAULT;
+  const sample = yield* downsampleToMaxSteps(luma, rgba.width, rgba.height, sampleMax, pace);
+  const hash = yield* computeMultiDhashSteps(
+    lumaInput,
+    {
+      split: true,
+      centerCropRatio: opts.centerCropRatio ?? AUTO_ALIGN_CENTER_RATIO,
+      luma,
+    },
+    pace,
+  );
   return { hash, sample };
+}
+
+/**
+ * Decode image bytes to a dHash + a downsampled luma sample (for alignment).
+ * Mirrors the web worker hash path (`dhash.worker.ts:163-177`): decode →
+ * `toLuma` → `downsampleToMax` (sample) → `computeMultiDhash({ split: true })`.
+ *
+ * The CPU part runs cooperatively on the shared JS lane in ~6 ms slices
+ * (longest slice recorded as `dualReader.hash.maxSliceMs`); aborting `signal`
+ * stops it between slices with `MobileDualReaderDecodeCancelledError`.
+ */
+export async function computeHashFromBytes(input: {
+  bytes: Uint8Array;
+  adapter: DualReaderDecoder;
+  centerCropRatio?: number;
+  sampleMax?: number;
+  signal?: AbortSignal;
+  cooperative?: DualReaderCooperativeOptions;
+}): Promise<{ hash: MultiDhash; sample: LumaImage }> {
+  const rgba = await input.adapter.decodeToRgba(input.bytes);
+  return runDualReaderStepsOnJsLane(
+    DUAL_READER_HASH_MAX_SLICE_LABEL,
+    (pace) =>
+      computeHashFromRgbaSteps(
+        rgba,
+        { centerCropRatio: input.centerCropRatio, sampleMax: input.sampleMax },
+        pace,
+      ),
+    {
+      ...input.cooperative,
+      signal: input.signal ?? input.cooperative?.signal,
+      metadata: { phase: "hash", width: rgba.width, height: rgba.height },
+    },
+  );
 }
 
 export type RunAlignmentFn = (input: {
@@ -231,16 +275,36 @@ export async function requestAlignmentFromSamples(input: {
   plan: SecondaryRenderPlan;
   options?: Partial<AlignmentOptions>;
   runAlignment: RunAlignmentFn;
+  /** Cancels the cooperative split/merge build (`MobileDualReaderDecodeCancelledError`). */
+  signal?: AbortSignal;
+  cooperative?: DualReaderCooperativeOptions;
 }): Promise<AlignmentResult> {
   const { plan } = input;
   let secondary: LumaImage;
+  const cooperative = {
+    ...input.cooperative,
+    signal: input.signal ?? input.cooperative?.signal,
+  };
   if (plan.kind === "split") {
-    secondary = buildSplitLuma(input.secondarySample, plan.side);
+    const source = input.secondarySample;
+    const side = plan.side;
+    secondary = await runDualReaderStepsOnJsLane(
+      DUAL_READER_ALIGN_MAX_SLICE_LABEL,
+      (pace) => buildSplitLumaSteps(source, side, pace),
+      { ...cooperative, metadata: { phase: "split" } },
+    );
   } else if (plan.kind === "merge") {
-    if (!input.secondarySampleB) {
+    const sampleA = input.secondarySample;
+    const sampleB = input.secondarySampleB;
+    if (!sampleB) {
       throw new Error("merge plan requires secondarySampleB");
     }
-    secondary = buildMergeLuma(input.secondarySample, input.secondarySampleB, plan.order);
+    const order = plan.order;
+    secondary = await runDualReaderStepsOnJsLane(
+      DUAL_READER_ALIGN_MAX_SLICE_LABEL,
+      (pace) => buildMergeLumaSteps(sampleA, sampleB, order, pace),
+      { ...cooperative, metadata: { phase: "merge" } },
+    );
   } else {
     secondary = input.secondarySample;
   }

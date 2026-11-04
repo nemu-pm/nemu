@@ -55,6 +55,23 @@ export function firstPageIndexForMobileReaderSpread(
   return spreads[clamped]?.[0] ?? 0;
 }
 
+/**
+ * The page the reader is on once a spread settles: the page it was already on
+ * when that spread shows it (a single page that became a spread by rotating
+ * or unfolding, so turning back to single pages lands on the same page), else
+ * the spread's first page.
+ */
+export function mobileReaderPageIndexForSettledSpread(
+  spreads: number[][],
+  spreadIndex: number,
+  currentPageIndex: number,
+): number {
+  const clamped = Math.max(0, Math.min(spreads.length - 1, Math.round(spreadIndex)));
+  return spreads[clamped]?.includes(currentPageIndex)
+    ? currentPageIndex
+    : firstPageIndexForMobileReaderSpread(spreads, spreadIndex);
+}
+
 /** Steps one visual spread in source reading order and returns its anchor page. */
 export function pageIndexForMobileReaderSpreadStep(
   spreads: number[][],
@@ -78,4 +95,125 @@ export function visualPageIndexesForMobileReaderSpread(
   // direction-flip like CSS `dir`), so RTL must place the first-read page on
   // the right by returning it last.
   return mode === "rtl" ? [spread[1], spread[0]] : spread;
+}
+
+/**
+ * Facing pages lean on the spine: the left page against its slot's right
+ * edge, the right page against its slot's left edge, spare width outside.
+ * In the book posture each slot is a pane beside the fold, so the pages sit
+ * against the fold without crossing it. A page alone is centred.
+ */
+export function mobileReaderSpreadPageAlignment(
+  visualSlotIndex: number,
+  pageCount: number,
+): "center" | "flex-start" | "flex-end" {
+  if (pageCount !== 2) return "center";
+  return visualSlotIndex === 0 ? "flex-end" : "flex-start";
+}
+
+/** Width / height of a page; the usual manga page shape when unknown. */
+export function mobileReaderPageRatio(size?: { width: number; height: number } | null): number {
+  return size && Number.isFinite(size.width) && Number.isFinite(size.height) && size.width > 0 && size.height > 0
+    ? size.width / size.height
+    : 1 / 1.45;
+}
+
+/**
+ * Two facing pages fitted as one sheet: the same height, each inside its
+ * own slot (the stage halves, or the panes beside a fold), never cropped.
+ * The height is the tallest both pages fit at.
+ */
+export function getMobileReaderSpreadSheetFrames({
+  slots,
+  sizes,
+}: {
+  slots: [{ width: number; height: number }, { width: number; height: number }];
+  sizes: [{ width: number; height: number } | null | undefined, { width: number; height: number } | null | undefined];
+}): [{ width: number; height: number }, { width: number; height: number }] {
+  const ratios = [mobileReaderPageRatio(sizes[0]), mobileReaderPageRatio(sizes[1])] as const;
+  const fit = (slot: { width: number; height: number }, ratio: number) => {
+    const width = Number.isFinite(slot.width) && slot.width > 0 ? slot.width : 1;
+    const height = Number.isFinite(slot.height) && slot.height > 0 ? slot.height : 1;
+    return Math.min(height, width / ratio);
+  };
+  const height = Math.max(1, Math.min(fit(slots[0], ratios[0]), fit(slots[1], ratios[1])));
+  return [
+    { width: height * ratios[0], height },
+    { width: height * ratios[1], height },
+  ];
+}
+
+/** The frame itself fits the page, so Image's contain mode adds no inner gutter. */
+export function getMobileReaderSpreadImageFrameSize({
+  availableWidth,
+  availableHeight,
+  naturalSize,
+}: {
+  availableWidth: number;
+  availableHeight: number;
+  naturalSize?: { width: number; height: number } | null;
+}): { width: number; height: number } {
+  const width = Number.isFinite(availableWidth) && availableWidth > 0 ? availableWidth : 1;
+  const height = Number.isFinite(availableHeight) && availableHeight > 0 ? availableHeight : 1;
+  const ratio = naturalSize && Number.isFinite(naturalSize.width) &&
+    Number.isFinite(naturalSize.height) && naturalSize.width > 0 && naturalSize.height > 0
+    ? naturalSize.height / naturalSize.width : 1.45;
+  const fittedWidth = Math.min(width, height / ratio);
+  return { width: fittedWidth, height: fittedWidth * ratio };
+}
+
+type MobileReaderSlotRect = { x: number; y: number; width: number; height: number };
+
+/**
+ * A wide page in the book posture, laid out like a printed spread: split at
+ * its centre line, its left half in the left pane and its right half in the
+ * right pane, nothing on the fold. The size of the whole page; each half,
+ * half that width, fits its own pane and both share the panes' common height.
+ */
+export function getMobileReaderSplitWidePageFrame({
+  slots,
+  size,
+}: {
+  slots: readonly [MobileReaderSlotRect, MobileReaderSlotRect];
+  size: { width: number; height: number } | null | undefined;
+}): { width: number; height: number } {
+  const ratio = mobileReaderPageRatio(size);
+  const [left, right] = slots;
+  const { height: common } = mobileReaderSplitCommonBand(left, right);
+  const fit = (slot: MobileReaderSlotRect) => {
+    const width = Number.isFinite(slot.width) && slot.width > 0 ? slot.width : 1;
+    return width / (ratio / 2);
+  };
+  const height = Math.max(1, Math.min(common, fit(left), fit(right)));
+  return { width: height * ratio, height };
+}
+
+/**
+ * Where the two halves of a split wide page rest, in the slots' coordinates:
+ * the left half against the left pane's fold edge, the right half against the
+ * right pane's, both centred on the band the panes share (the same height,
+ * as facing pages are).
+ */
+export function mobileReaderSplitWideHalfRects({
+  slots,
+  frame,
+}: {
+  slots: readonly [MobileReaderSlotRect, MobileReaderSlotRect];
+  frame: { width: number; height: number };
+}): [MobileReaderSlotRect, MobileReaderSlotRect] {
+  const [left, right] = slots;
+  const band = mobileReaderSplitCommonBand(left, right);
+  const halfWidth = frame.width / 2;
+  const y = band.y + (band.height - frame.height) / 2;
+  return [
+    { x: left.x + left.width - halfWidth, y, width: halfWidth, height: frame.height },
+    { x: right.x, y, width: halfWidth, height: frame.height },
+  ];
+}
+
+function mobileReaderSplitCommonBand(a: MobileReaderSlotRect, b: MobileReaderSlotRect): { y: number; height: number } {
+  const top = Math.max(a.y, b.y);
+  const bottom = Math.min(a.y + a.height, b.y + b.height);
+  if (!(bottom > top)) return { y: Math.min(a.y, b.y), height: Math.max(1, Math.min(a.height, b.height)) };
+  return { y: top, height: bottom - top };
 }

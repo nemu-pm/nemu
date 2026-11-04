@@ -19,6 +19,17 @@ import { getMobileImageUriPolicy } from "@/lib/mobileImageUriPolicy";
  */
 export const MOBILE_READER_PREFETCH_PAGES_AHEAD = 5;
 export const MOBILE_READER_PREFETCH_PAGES_BEHIND = 1;
+/**
+ * Scroll reading warms by distance (see `resolveMobileReaderScrollPageRange`):
+ * the pages covering three screens past the bottom of the screen in the
+ * scroll direction and one screen the other way — a few more pages than the
+ * render window at minimum, so a short fling still lands on disk — plus,
+ * after a fling, the screen it will come to rest on.
+ */
+export const MOBILE_READER_SCROLL_PREFETCH_MIN_AHEAD = 4;
+export const MOBILE_READER_SCROLL_PREFETCH_MIN_BEHIND = 2;
+/** At most this many pages warmed around a fling's resting place. */
+export const MOBILE_READER_SCROLL_PREFETCH_LANDING_MAX = 12;
 /** Opening pages of the next chapter warmed once the reader nears the end. */
 export const MOBILE_READER_PREFETCH_NEXT_CHAPTER_PAGES = 2;
 /** How close to the last page (in pages) the next chapter starts warming. */
@@ -49,7 +60,8 @@ export function mobileReaderPrefetchImageForPage(
   page: MobileReaderPage,
 ): MobileReaderPrefetchImage | null {
   if (!page.imageUri || page.imageUriOwnership !== "source") return null;
-  if (page.imageProcessing === "pending") return null;
+  // Pending: the URI is replaced. Failed: the original is never shown.
+  if (page.imageProcessing === "pending" || page.imageProcessing === "failed") return null;
   const policy = getMobileImageUriPolicy(page.imageUri, "source");
   if (!policy.allowed || policy.kind !== "source-remote") return null;
   return {
@@ -86,6 +98,56 @@ export function planMobileReaderPagePrefetch({
   }
   const images: MobileReaderPrefetchImage[] = [];
   for (const index of indexes) {
+    const page = pages[index];
+    if (!page) continue;
+    const image = mobileReaderPrefetchImageForPage(page);
+    if (image) images.push(image);
+  }
+  return images;
+}
+
+/**
+ * Scroll reading: the pages of `range` (by distance, around `anchorIndex`)
+ * nearest first in the scroll direction, then the other way; then the pages
+ * of `landing` (where a fling comes to rest) in the scroll direction.
+ */
+export function planMobileReaderScrollPrefetch({
+  pages,
+  currentIndex,
+  range,
+  direction = "forward",
+  landing,
+}: {
+  pages: readonly MobileReaderPage[];
+  currentIndex: number;
+  range: { first: number; last: number };
+  direction?: "forward" | "backward";
+  landing?: { first: number; last: number } | null;
+}): MobileReaderPrefetchImage[] {
+  if (pages.length <= 1 || !Number.isFinite(currentIndex)) return [];
+  const current = Math.max(0, Math.min(pages.length - 1, Math.round(currentIndex)));
+  const indexes: number[] = [];
+  const ahead = direction === "forward" ? 1 : -1;
+  const aheadEnd = direction === "forward" ? range.last : range.first;
+  const behindEnd = direction === "forward" ? range.first : range.last;
+  for (let index = current + ahead; (index - aheadEnd) * ahead <= 0; index += ahead) {
+    indexes.push(index);
+  }
+  for (let index = current - ahead; (index - behindEnd) * ahead >= 0; index -= ahead) {
+    indexes.push(index);
+  }
+  if (landing) {
+    const from = direction === "forward" ? landing.first : landing.last;
+    const to = direction === "forward" ? landing.last : landing.first;
+    for (let index = from; (index - to) * ahead <= 0; index += ahead) {
+      indexes.push(index);
+    }
+  }
+  const images: MobileReaderPrefetchImage[] = [];
+  const seen = new Set<number>();
+  for (const index of indexes) {
+    if (seen.has(index)) continue;
+    seen.add(index);
     const page = pages[index];
     if (!page) continue;
     const image = mobileReaderPrefetchImageForPage(page);

@@ -272,6 +272,10 @@ internal object NemuLongStripImageTranscoder {
     var decoder: BitmapRegionDecoder? = null
     var succeeded = false
     var aggregateBytes = 0L
+    var emittedPixels = 0L
+    // Sticky: a strip whose early tiles needed a lower quality keeps it, so
+    // tiles do not visibly alternate in sharpness.
+    var qualityIndex = 0
     try {
       decoder = createRegionDecoder(source)
       if (
@@ -368,13 +372,35 @@ internal object NemuLongStripImageTranscoder {
             outputDirectory
           )
           stagedFiles += staged
-          try {
-            encodeBounded(bitmapToEncode, plan.container.format, staged, remainingBytes)
-          } catch (error: NemuTranscodedImageOutputLimitException) {
-            throw NemuLongStripSegmentOutputLimitException(
-              "Segmented image exceeds the aggregate encoded byte safety limit.",
-              error
-            )
+          val share = NemuLongStripEncodeBudget.tileShare(
+            remainingBytes,
+            tilePixels,
+            aggregatePixels - emittedPixels
+          )
+          while (true) {
+            val canStepDown = plan.container.format == NemuStaticImageFormat.JPEG &&
+              !NemuLongStripEncodeBudget.isLastRung(qualityIndex)
+            try {
+              // Over its share the encode aborts early and retries one rung
+              // lower; only the last rung may spend everything that remains.
+              encodeBounded(
+                bitmapToEncode,
+                plan.container.format,
+                staged,
+                if (canStepDown) share else remainingBytes,
+                NemuLongStripEncodeBudget.JPEG_QUALITIES[qualityIndex]
+              )
+              break
+            } catch (error: NemuTranscodedImageOutputLimitException) {
+              if (!canStepDown) {
+                throw NemuLongStripSegmentOutputLimitException(
+                  "Segmented image exceeds the aggregate encoded byte safety limit.",
+                  error
+                )
+              }
+              qualityIndex += 1
+              ensureActive(isCancelled, deadlineNanos)
+            }
           }
           outputBitmap?.recycle()
           outputBitmap = null
@@ -394,6 +420,7 @@ internal object NemuLongStripImageTranscoder {
             )
           }
           aggregateBytes += length
+          emittedPixels += tilePixels
           completed += NemuLongStripSegmentResult(
             file = staged,
             byteLength = length,
@@ -489,7 +516,8 @@ internal object NemuLongStripImageTranscoder {
     bitmap: Bitmap,
     format: NemuStaticImageFormat,
     output: File,
-    maximumOutputBytes: Long
+    maximumOutputBytes: Long,
+    jpegQuality: Int = JPEG_QUALITY
   ) {
     val compressionFormat = when (format) {
       NemuStaticImageFormat.JPEG -> Bitmap.CompressFormat.JPEG
@@ -499,7 +527,7 @@ internal object NemuLongStripImageTranscoder {
       val boundedOutput = BoundedOutputStream(fileOutput, maximumOutputBytes)
       val compressed = bitmap.compress(
         compressionFormat,
-        if (compressionFormat == Bitmap.CompressFormat.JPEG) JPEG_QUALITY else 100,
+        if (compressionFormat == Bitmap.CompressFormat.JPEG) jpegQuality else 100,
         boundedOutput
       )
       boundedOutput.flush()

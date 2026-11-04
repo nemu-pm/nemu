@@ -56,5 +56,32 @@ export function mergeMobileSourceListingTabs(
   if (staticListings.some((listing) => listing.id === selectedRuntimeListing.id)) {
     return staticListings;
   }
-  return [selectedRuntimeListing, ...staticListings];
+  // Last, so the package tabs keep their places when it comes and goes.
+  return [...staticListings, selectedRuntimeListing];
+}
+
+/**
+ * Where a scrolling row of capsules scrolls so the selected one shows whole;
+ * null when it is already whole on screen (in the gutter or not), so moving
+ * the selection to a visible capsule never scrolls the row. A cut-off one
+ * lands on the gutter. `start`/`end` are the capsule's edges in the row's
+ * content, `inset` the row's leading padding (the page gutter).
+ */
+export function getMobileTabRevealOffset({
+  start,
+  end,
+  offset,
+  viewport,
+  inset,
+}: {
+  start: number;
+  end: number;
+  offset: number;
+  viewport: number;
+  inset: number;
+}): number | null {
+  if (viewport <= 0) return null;
+  if (start < offset) return Math.max(0, start - inset);
+  if (end > offset + viewport) return end + inset - viewport;
+  return null;
 }

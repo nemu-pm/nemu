@@ -1,0 +1,425 @@
+import CoreGraphics
+import Foundation
+
+/// One text region a detector found, in top-left page pixels.
+struct NemuOcrRegion: Sendable {
+  var box: NemuTextOrder.Box
+  /// "ja" | "eng" | "unknown" (cloud label contract).
+  var label: String
+  var confidence: Double
+  /// Text the detector already read (Vision), used for non-Japanese
+  /// regions that manga-ocr must not re-read.
+  var text: String?
+  /// Detector-specific padded crop, separate from the reported text bounds.
+  var cropBox: NemuTextOrder.Box?
+}
+
+/// A decoded page: the two luma planes the pipeline needs, in the upright
+/// (EXIF-oriented) pixel space every box uses.
+struct NemuOcrPage: Sendable {
+  let width: Int
+  let height: Int
+  let rgba: [UInt8]
+  /// PIL `convert("L")`: manga-ocr crops.
+  let pilGray: NemuGrayImage
+  /// OpenCV `BGR2GRAY`: reading order.
+  let openCVGray: NemuGrayImage
+
+  init?(image: CGImage) {
+    guard let rgba = NemuGrayImage.rgba(of: image) else { return nil }
+    self.rgba = rgba
+    width = image.width
+    height = image.height
+    pilGray = NemuGrayImage.pilGray(rgba: rgba, width: width, height: height)
+    openCVGray = NemuGrayImage.openCVGray(rgba: rgba, width: width, height: height)
+  }
+}
+
+/// The detector slot. Implementations return unordered regions; the
+/// pipeline dedupes, orders (`NemuTextOrder`) and reads them.
+protocol NemuTextDetector: Sendable {
+  /// Reported to JS as `ocr.pipeline.detector` and folded into the engine
+  /// revision (and so into the OCR result cache key).
+  var identifier: String { get }
+  /// Whether `NemuOcrRegion.confidence` is a detection score worth keeping
+  /// (a block's confidence is then min(detection, recognition)); otherwise
+  /// the block reports manga-ocr's recognition confidence alone.
+  var reportsDetectionConfidence: Bool { get }
+  func detect(_ page: NemuOcrPage) throws -> [NemuOcrRegion]
+}
+
+/// Interim detector: regions computed by the caller from Apple Vision's
+/// line observations (`recognizeImage` + the TS bubble layout in
+/// `mobileJapaneseLearningOcrLayout.ts`), so the pipeline ships before a
+/// bundled detector model exists and without any extra licence.
+struct NemuProvidedRegionsDetector: NemuTextDetector {
+  let identifier: String
+  let regions: [NemuOcrRegion]
+  /// Vision's confidence is about its own reading, not the region.
+  var reportsDetectionConfidence: Bool { false }
+
+  func detect(_ page: NemuOcrPage) throws -> [NemuOcrRegion] { regions }
+}
+
+/// Runs detector → dedupe → reading order → manga-ocr, bubble by bubble.
+enum NemuMangaOcrPipeline {
+  /// Recognition post-processing fingerprint (tiling, repetition guard,
+  /// duplicate drop), part of the engine revision and so of the OCR cache key.
+  static let revision = "p2-tile8x6-run12-dup"
+
+  struct Options: Sendable {
+    /// Extra pixels around each detector box before cropping. The cloud
+    /// crops CTD boxes as-is; on the Vision-layout boxes 0 also scored best
+    /// (benchmark `scripts/app-parity/pad_experiment.py`).
+    var cropPadding = 0.0
+    /// Near-duplicate boxes (CTD emits them) would read the same bubble twice.
+    var dedupeIoU = 0.6
+    var maxRegions = 64
+    var maxTokens = NemuMangaOcrRecognizer.maxTokens
+    /// See `NemuMangaOcrRecognizer.maxRepeatRun`; 0 disables the guard.
+    var maxRepeatRun = NemuMangaOcrRecognizer.maxRepeatRun
+    /// Crops at least this long for their width are read in pieces
+    /// (`NemuMangaOcrTiling`); 0 reads every crop whole.
+    var tileMinAspect = NemuMangaOcrTiling.defaultMinAspect
+    var tileTargetAspect = NemuMangaOcrTiling.defaultTargetAspect
+    /// A block whose box lies at least this much inside a larger block's box
+    /// and whose text occurs in that block's text (see
+    /// `dropContainedDuplicates`) is dropped; 0 keeps every block.
+    var duplicateCover = 0.9
+    var duplicateMaxDistance = 0.25
+  }
+
+  /// One crop's recognition, possibly read in several pieces.
+  struct CropOutput: Sendable {
+    var text: String
+    var confidence: Double
+    var tokens: Int
+    var pieces: Int
+    var repetitionStopped: Bool
+    var encodeMs: Double
+    var decodeMs: Double
+  }
+
+  struct Block: Sendable {
+    var order: Int
+    var box: NemuTextOrder.Box
+    var label: String
+    var confidence: Double
+    var text: String
+    /// manga-ocr `post_process` output before the display normalisation.
+    var rawText: String
+    /// "manga-ocr" or "detector" (non-Japanese region kept as detected).
+    var source: String
+    var tokens: Int
+    var milliseconds: Double
+    /// manga-ocr's own confidence (`confidence` is min(detection,
+    /// recognition) with the bundled detector); nil for detector text.
+    var recognitionConfidence: Double? = nil
+
+    var dictionary: [String: Any] {
+      var out: [String: Any] = [
+        "order": order,
+        "x1": box.x1, "y1": box.y1, "x2": box.x2, "y2": box.y2,
+        "label": label,
+        "conf": confidence,
+        "text": text,
+        "rawText": rawText,
+        "source": source,
+        "tokens": tokens,
+        "ms": milliseconds,
+      ]
+      if let recognitionConfidence { out["recConf"] = recognitionConfidence }
+      return out
+    }
+  }
+
+  struct Timings: Sendable {
+    var detectMs = 0.0
+    var orderMs = 0.0
+    var recognizeMs = 0.0
+  }
+
+  static func iou(_ a: NemuTextOrder.Box, _ b: NemuTextOrder.Box) -> Double {
+    let ix = max(0, min(a.x2, b.x2) - max(a.x1, b.x1))
+    let iy = max(0, min(a.y2, b.y2) - max(a.y1, b.y1))
+    let intersection = ix * iy
+    let union = (a.x2 - a.x1) * (a.y2 - a.y1) + (b.x2 - b.x1) * (b.y2 - b.y1) - intersection
+    return union > 0 ? intersection / union : 0
+  }
+
+  /// Clamps boxes to the page and drops empty ones and later near-duplicates
+  /// (IoU above the threshold with an earlier, kept region).
+  static func cleanRegions(
+    _ regions: [NemuOcrRegion], width: Int, height: Int, options: Options
+  ) -> [NemuOcrRegion] {
+    var kept: [NemuOcrRegion] = []
+    for var region in regions {
+      region.box.x1 = max(0, min(Double(width), region.box.x1))
+      region.box.y1 = max(0, min(Double(height), region.box.y1))
+      region.box.x2 = max(0, min(Double(width), region.box.x2))
+      region.box.y2 = max(0, min(Double(height), region.box.y2))
+      guard region.box.x2 - region.box.x1 >= 2, region.box.y2 - region.box.y1 >= 2 else { continue }
+      if kept.contains(where: { iou($0.box, region.box) > options.dedupeIoU }) { continue }
+      kept.append(region)
+      if kept.count >= options.maxRegions { break }
+    }
+    return kept
+  }
+
+  /// Reads `crop` whole, or piece by piece when it is long enough to tile
+  /// (texts joined in reading order; confidence over all pieces' tokens).
+  static func recognize(
+    _ crop: NemuGrayImage, recognizer: NemuMangaOcrRecognizer, options: Options = Options()
+  ) throws -> CropOutput {
+    let pieces = NemuMangaOcrTiling.pieces(
+      crop, minAspect: options.tileMinAspect, targetAspect: options.tileTargetAspect)
+    var out = CropOutput(
+      text: "", confidence: 0, tokens: 0, pieces: pieces.count, repetitionStopped: false,
+      encodeMs: 0, decodeMs: 0)
+    var logProbability = 0.0
+    var steps = 0
+    for piece in pieces {
+      try Task.checkCancellation()
+      let image =
+        pieces.count == 1
+        ? crop : crop.cropped(x1: piece.x1, y1: piece.y1, x2: piece.x2, y2: piece.y2)
+      guard let image else { continue }
+      let output = try recognizer.recognize(
+        image, maxTokens: options.maxTokens, maxRepeatRun: options.maxRepeatRun)
+      out.text += output.text
+      out.tokens += output.tokens
+      out.repetitionStopped = out.repetitionStopped || output.repetitionStopped
+      out.encodeMs += output.encodeMs
+      out.decodeMs += output.decodeMs
+      logProbability += output.logProbability
+      steps += output.steps
+    }
+    out.confidence = steps > 0 ? exp(logProbability / Double(steps)) : 0
+    return out
+  }
+
+  /// Smallest edit distance between `pattern` and any substring of `text`.
+  static func substringDistance(_ pattern: [Unicode.Scalar], _ text: [Unicode.Scalar]) -> Int {
+    var previous = [Int](repeating: 0, count: text.count + 1)
+    var current = previous
+    for (row, a) in pattern.enumerated() {
+      current[0] = row + 1
+      for (column, b) in text.enumerated() {
+        current[column + 1] = min(
+          previous[column + 1] + 1, current[column] + 1, previous[column] + (a == b ? 0 : 1))
+      }
+      swap(&previous, &current)
+    }
+    return previous.min() ?? 0
+  }
+
+  /// The detector sometimes proposes a sub-box inside a bubble it also
+  /// boxed whole (`この先の人生のほうが長いんだ。` inside the full speech),
+  /// so the text is read twice. A block is dropped when at least `cover` of
+  /// its box lies inside a larger block's box and its text occurs in that
+  /// block's text within `maxDistance` × its length edits. Order is kept
+  /// and renumbered. Boxes that merely touch, and nested boxes with
+  /// different text, are kept.
+  static func dropContainedDuplicates(_ blocks: [Block], cover: Double, maxDistance: Double)
+    -> [Block]
+  {
+    guard cover > 0, blocks.count > 1 else { return blocks }
+    func area(_ box: NemuTextOrder.Box) -> Double {
+      max(0, box.x2 - box.x1) * max(0, box.y2 - box.y1)
+    }
+    func intersection(_ a: NemuTextOrder.Box, _ b: NemuTextOrder.Box) -> Double {
+      max(0, min(a.x2, b.x2) - max(a.x1, b.x1)) * max(0, min(a.y2, b.y2) - max(a.y1, b.y1))
+    }
+    let texts = blocks.map { Array($0.text.unicodeScalars) }
+    var dropped = Set<Int>()
+    for (index, small) in blocks.enumerated() {
+      for (other, large) in blocks.enumerated() where other != index && !dropped.contains(other) {
+        let smallArea = area(small.box)
+        let largeArea = area(large.box)
+        if smallArea > largeArea || (smallArea == largeArea && index < other) { continue }
+        guard intersection(small.box, large.box) >= cover * smallArea else { continue }
+        let pattern = texts[index]
+        guard !pattern.isEmpty, pattern.count <= texts[other].count,
+          Double(substringDistance(pattern, texts[other])) <= maxDistance * Double(pattern.count)
+        else { continue }
+        dropped.insert(index)
+        break
+      }
+    }
+    guard !dropped.isEmpty else { return blocks }
+    var kept: [Block] = []
+    for (index, block) in blocks.enumerated() where !dropped.contains(index) {
+      var block = block
+      block.order = kept.count
+      kept.append(block)
+    }
+    return kept
+  }
+
+  /// manga-ocr writes ellipses as full-width dot runs (`…` → `...` → `．．．`);
+  /// the transcript, TTS and the analyzer read `…` better. Everything else
+  /// of `post_process` (full-width ASCII, no spaces) is kept.
+  static func normalizeForDisplay(_ text: String) -> String {
+    var out = ""
+    var dots = 0
+    func flush() {
+      if dots >= 2 {
+        out += String(repeating: "…", count: max(1, Int((Double(dots) / 3).rounded())))
+      } else if dots == 1 {
+        out += "．"
+      }
+      dots = 0
+    }
+    for character in text {
+      if character == "．" {
+        dots += 1
+      } else {
+        flush()
+        out.append(character)
+      }
+    }
+    flush()
+    return out
+  }
+
+  /// The chosen detector has no language class. Suppress Latin watermarks
+  /// after recognition, matching the benchmark; keep mixed Japanese text.
+  static func isLatinNoise(_ text: String) -> Bool {
+    let chars = text.precomposedStringWithCompatibilityMapping.unicodeScalars.filter {
+      !CharacterSet.whitespacesAndNewlines.contains($0)
+    }
+    let letters = chars.filter { (65...90).contains($0.value) || (97...122).contains($0.value) }.count
+    let digits = chars.filter { (48...57).contains($0.value) }.count
+    return letters >= 3 && (letters + digits) * 2 >= chars.count
+  }
+
+  static func run(
+    page: NemuOcrPage,
+    detector: NemuTextDetector,
+    recognizer: NemuMangaOcrRecognizer,
+    options: Options = Options(),
+    onBlock: ((Block, Int) -> Void)? = nil
+  ) throws -> (blocks: [Block], timings: Timings) {
+    var timings = Timings()
+    let detectStarted = DispatchTime.now()
+    let regions = cleanRegions(
+      try detector.detect(page), width: page.width, height: page.height, options: options)
+    timings.detectMs = NemuMangaOcrRecognizer.milliseconds(since: detectStarted)
+    try Task.checkCancellation()
+
+    let orderStarted = DispatchTime.now()
+    let order =
+      regions.count > 1
+      ? NemuTextOrder.order(boxes: regions.map(\.box), gray: page.openCVGray)
+      : Array(regions.indices)
+    timings.orderMs = NemuMangaOcrRecognizer.milliseconds(since: orderStarted)
+
+    var blocks: [Block] = []
+    blocks.reserveCapacity(order.count)
+    for index in order {
+      try Task.checkCancellation()
+      let region = regions[index]
+      let started = DispatchTime.now()
+      var block = Block(
+        order: blocks.count, box: region.box, label: region.label,
+        confidence: region.confidence, text: "", rawText: "", source: "detector", tokens: 0,
+        milliseconds: 0)
+      if region.label == "eng" {
+        guard let text = region.text, !text.isEmpty else { continue }
+        block.text = text
+        block.rawText = text
+      } else {
+        let pad = options.cropPadding
+        let cropBox = region.cropBox ?? region.box
+        guard
+          let crop = page.pilGray.cropped(
+            x1: Int((cropBox.x1 - pad).rounded(.down)),
+            y1: Int((cropBox.y1 - pad).rounded(.down)),
+            x2: Int((cropBox.x2 + pad).rounded(.up)),
+            y2: Int((cropBox.y2 + pad).rounded(.up)))
+        else { continue }
+        let output = try recognize(crop, recognizer: recognizer, options: options)
+        timings.recognizeMs += output.encodeMs + output.decodeMs
+        guard !output.text.isEmpty, !isLatinNoise(output.text) else { continue }
+        block.rawText = output.text
+        block.text = normalizeForDisplay(output.text)
+        block.source = "manga-ocr"
+        block.tokens = output.tokens
+        let recognition = (output.confidence * 1000).rounded() / 1000
+        block.recognitionConfidence = recognition
+        block.confidence =
+          detector.reportsDetectionConfidence ? min(region.confidence, recognition) : recognition
+      }
+      block.milliseconds = NemuMangaOcrRecognizer.milliseconds(since: started)
+      blocks.append(block)
+      onBlock?(block, order.count)
+    }
+    blocks = dropContainedDuplicates(
+      blocks, cover: options.duplicateCover, maxDistance: options.duplicateMaxDistance)
+    return (blocks, timings)
+  }
+}
+
+/// Loads the bundled manga-ocr models once and keeps them while the app
+/// runs; memory warnings drop them (the next page reloads, ~0.3–1 s).
+actor NemuMangaOcrModelStore {
+  static let shared = NemuMangaOcrModelStore()
+  static let bundleName = "NemuMangaOcr"
+
+  private var recognizer: NemuMangaOcrRecognizer?
+  private(set) var lastLoadMs = 0.0
+
+  /// The directory holding the compiled models, when the build bundled them.
+  static var modelsDirectory: URL? {
+    let candidates = [
+      Bundle.main.url(forResource: bundleName, withExtension: "bundle"),
+      Bundle(for: NemuMangaOcrBundleToken.self).url(forResource: bundleName, withExtension: "bundle"),
+    ]
+    for case let url? in candidates where NemuMangaOcrRecognizer.hasModels(in: url) {
+      return url
+    }
+    return nil
+  }
+
+  static var modelsBundled: Bool { modelsDirectory != nil }
+
+  /// The bundled models are ML programs converted for iOS 17 (see the
+  /// manifest's deployment target); iOS 16 cannot load them.
+  static var modelsSupported: Bool {
+    guard modelsBundled else { return false }
+    if #available(iOS 17.0, *) { return true }
+    return false
+  }
+
+  /// Short fingerprint of the bundled models (manifest written by
+  /// `scripts/fetch-ocr-models.ts`), part of the OCR cache key.
+  static var modelRevision: String {
+    guard let directory = modelsDirectory,
+      let data = try? Data(contentsOf: directory.appendingPathComponent("manifest.json")),
+      let manifest = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let revision = manifest["revision"] as? String
+    else { return "manga-ocr-int8" }
+    return revision
+  }
+
+  func load() throws -> NemuMangaOcrRecognizer {
+    if let recognizer { return recognizer }
+    guard let directory = Self.modelsDirectory else {
+      throw NemuMangaOcrRecognizer.Failure(
+        code: "E_OCR_MODELS_MISSING", message: "This build does not bundle the manga OCR models.")
+    }
+    let started = DispatchTime.now()
+    let loaded = try NemuMangaOcrRecognizer(directory: directory)
+    lastLoadMs = NemuMangaOcrRecognizer.milliseconds(since: started)
+    recognizer = loaded
+    return loaded
+  }
+
+  func unload() {
+    recognizer = nil
+    NemuBundledTextDetector.shared?.unload()
+  }
+}
+
+/// Anchors `Bundle(for:)` to this pod's binary.
+final class NemuMangaOcrBundleToken {}

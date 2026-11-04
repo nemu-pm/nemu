@@ -2,10 +2,9 @@ import { describe, expect, test } from "bun:test";
 import type { InstalledSource } from "@/data/schema";
 import type { MobileRegistrySource } from "@/sources/aidokuRegistry";
 import {
+  hasMobileExplicitSources,
   buildMobileInstalledSourceKeySet,
   buildMobileSourceQuickActions,
-  canClearMobileBrowseSourceQuery,
-  canSelectMobileBrowseAllLanguages,
   canStartMobileSourceInstall,
   filterEnabledMobileInstalledSources,
   filterMobileAvailableSources,
@@ -94,17 +93,6 @@ describe("mobile browse source filtering", () => {
         appLanguage: "en",
       }).map((item) => item.id),
     ).toEqual(["three"]);
-  });
-
-  test("enables clearing source search only while the visible query has content", () => {
-    expect(canClearMobileBrowseSourceQuery("")).toBe(false);
-    expect(canClearMobileBrowseSourceQuery(" ")).toBe(true);
-    expect(canClearMobileBrowseSourceQuery("manga")).toBe(true);
-  });
-
-  test("gates the selected all-language chip as a no-op selection", () => {
-    expect(canSelectMobileBrowseAllLanguages({ selected: false })).toBe(true);
-    expect(canSelectMobileBrowseAllLanguages({ selected: true })).toBe(false);
   });
 
   test("keeps adult sources hidden until explicitly shown", () => {
@@ -826,5 +814,48 @@ describe("mobile browse source filtering", () => {
         }),
       ]).has("aidoku-community:en.beta"),
     ).toBe(true);
+  });
+});
+
+describe("source origin label", () => {
+  const base = { registryName: "My dir", registryId: "dir-aaaaaaaaaaaa" };
+  test("recommended sources with a licence show it, everything else the directory name", async () => {
+    const { getMobileSourceOriginLabel, formatMobileContentLicense } = await import("./mobileBrowseSources");
+    expect(
+      getMobileSourceOriginLabel({ ...base, registryId: "nemu-recommended", registryName: "nemu recommended", contentLicense: "CC-BY-4.0" }),
+    ).toBe("CC BY 4.0");
+    expect(getMobileSourceOriginLabel({ ...base, registryId: "nemu-recommended", registryName: "nemu recommended" })).toBe("nemu recommended");
+    expect(getMobileSourceOriginLabel({ ...base, contentLicense: "CC-BY-4.0" })).toBe("My dir");
+    expect(formatMobileContentLicense("CC-BY-SA-4.0")).toBe("CC BY-SA 4.0");
+    expect(formatMobileContentLicense("MIT")).toBe("MIT");
+  });
+});
+
+describe("source language summary", () => {
+  test("lists the first three and counts the rest", async () => {
+    const { formatMobileSourceLanguages } = await import("./mobileBrowseSources");
+    expect(formatMobileSourceLanguages(["en", "ja"])).toBe("EN, JA");
+    expect(formatMobileSourceLanguages(["en", "ja", "zh", "fr", "de"])).toBe("EN, JA, ZH +2");
+    expect(formatMobileSourceLanguages([])).toBeUndefined();
+  });
+});
+
+describe("origin labels", () => {
+  const strings = { settings: { nemuRecommendedDirectoryName: "nemu 推荐", sourceFileOrigin: "来源文件" } };
+  test("the built-in directory and imported files use localised names", async () => {
+    const { getMobileSourceOriginLabel, getMobileRegistryDisplayName } = await import("./mobileBrowseSources");
+    expect(getMobileSourceOriginLabel({ registryId: "nemu-recommended", registryName: "nemu recommended" }, strings)).toBe("nemu 推荐");
+    expect(getMobileSourceOriginLabel({ registryId: "nemu-recommended", registryName: "x", contentLicense: "MIT" }, strings)).toBe("MIT");
+    expect(getMobileRegistryDisplayName("custom-aidoku", "custom-aidoku", strings)).toBe("来源文件");
+    expect(getMobileRegistryDisplayName("d-abc", "Other list", strings)).toBe("Other list");
+    expect(getMobileRegistryDisplayName("nemu-recommended", "nemu-recommended")).toBe("nemu-recommended");
+  });
+});
+
+describe("explicit source filter", () => {
+  test("is offered only when an added directory lists an explicit source", () => {
+    expect(hasMobileExplicitSources([])).toBe(false);
+    expect(hasMobileExplicitSources([{}, { contentRating: 0 }, { contentRating: 1 }])).toBe(false);
+    expect(hasMobileExplicitSources([{ contentRating: 0 }, { contentRating: 2 }])).toBe(true);
   });
 });

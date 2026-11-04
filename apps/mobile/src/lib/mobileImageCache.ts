@@ -121,6 +121,39 @@ export async function invalidateCachedMobileImage(
   void _executionScope;
 }
 
+/** Processed reader pages are stored on native only (see the native twin). */
+export type MobileProcessedReaderPageIdentity = {
+  url: string;
+  variant: string;
+};
+
+export async function getProcessedMobileReaderPageUri(
+  _identity: MobileProcessedReaderPageIdentity,
+  _executionScope?: string,
+): Promise<string | null> {
+  void _identity;
+  void _executionScope;
+  return null;
+}
+
+export async function storeProcessedMobileReaderPage(
+  _identity: MobileProcessedReaderPageIdentity,
+  _bytes: Uint8Array,
+  _mimeType: string,
+  _executionScope?: string,
+): Promise<string | null> {
+  void _identity;
+  void _bytes;
+  void _mimeType;
+  void _executionScope;
+  return null;
+}
+
+export function isProcessedMobileReaderPageStored(_uri: string): boolean {
+  void _uri;
+  return false;
+}
+
 export async function prefetchCachedMobileImages(
   sources: Array<MobileImageCacheSource | null | undefined>,
 ): Promise<void> {

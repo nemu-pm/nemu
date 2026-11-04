@@ -1,5 +1,6 @@
 const path = require("path");
 require("./loadRootEnv.cjs")();
+const { isWorkletsBundleModeEnabled } = require("./workletsBundleMode.cjs");
 
 const expoPresetRoot = path.dirname(
   require.resolve("babel-preset-expo/package.json"),
@@ -34,15 +35,16 @@ function transformBigIntLiteralsForJsc({ types: t }) {
 
 module.exports = function babelConfig(api) {
   const nodeEnv = process.env.NODE_ENV ?? "unknown";
-  api.cache.using(() => nodeEnv);
-  // Worklets Bundle Mode evaluates the complete Metro bundle inside every
-  // worklet runtime. That is appropriate for release, where the dual-reader
-  // alignment worker imports the shared FFT implementation, but Metro HMR
-  // retains each development bundle/runtime generation. On Android/JSC this
-  // grew a normal debug session past 2 GiB and the OS killed the process.
-  // Development uses ordinary serialized worklets; the alignment bridge has a
-  // JS-thread fallback for that environment.
-  const workletsBundleModeEnabled = nodeEnv !== "development";
+  // Worklets Bundle Mode is opt-in (NEMU_WORKLETS_BUNDLE_MODE=1, never in
+  // development); see workletsBundleMode.cjs. It evaluates the complete Metro
+  // bundle inside a second runtime at launch and the JS thread waits for it,
+  // which lengthened the native launch screen. Without it worklets are
+  // serialized as usual (as in development) and the dual-reader alignment
+  // bridge uses its JS-thread fallback.
+  const workletsBundleModeEnabled = isWorkletsBundleModeEnabled();
+  api.cache.using(
+    () => `${nodeEnv}:${workletsBundleModeEnabled ? "bundle" : "serialized"}`,
+  );
   return {
     // RN 0.85 sends Hermes V1's transform profile even when the native runtime
     // is third-party JSC. Force Expo's legacy/native-compatible transform set so

@@ -17,13 +17,35 @@ import {
   runAbortableMobileNativeHttpRequest,
   throwIfMobileNativeHttpAborted,
 } from "./mobileNativeHttpAbort";
-import { runMobileHttpRequestWithRetry } from "./mobileNativeHttpRetry";
+import { AppState } from "react-native";
+import {
+  getMobileHttpForegroundGate,
+  runMobileHttpRequestWithRetry,
+  setMobileHttpForegroundGate,
+} from "./mobileNativeHttpRetry";
+import { createMobileHttpForegroundGate } from "./mobileHttpForegroundGate";
 import {
   assertMobileNativeHttpCapability,
   resolveMobileNativeHttpCapabilityStatus,
 } from "./mobileNativeHttpCapabilities";
 
 const DEFAULT_TIMEOUT_MS = 30000;
+
+/** Installs the AppState-backed foreground gate every native retry uses. */
+export function installMobileHttpForegroundGate(): void {
+  if (getMobileHttpForegroundGate()) return;
+  setMobileHttpForegroundGate(createMobileHttpForegroundGate(AppState));
+}
+installMobileHttpForegroundGate();
+
+/** GET/HEAD without a body: safe to send again after a transport failure. */
+export function isIdempotentMobileHttpRequest(
+  method: string | undefined,
+  body: unknown,
+): boolean {
+  const normalized = (method ?? "GET").toUpperCase();
+  return body == null && (normalized === "GET" || normalized === "HEAD");
+}
 let cachedMobileNativeHttpStatus: MobileNativeHttpStatus | null = null;
 
 export type MobileNativeHttpStatus = NemuAidokuHttpClientStatus;
@@ -43,6 +65,11 @@ export type MobileNativeFetchInit = RequestInit & {
   responseMode?: NemuAidokuHttpResponseMode;
   maxResponseBytes?: number;
   requireHttps?: boolean;
+  /**
+   * Source cookie scope (profile-scoped execution key). Requests carrying it
+   * share that source's cookie jar and receive its scoped local-network grant.
+   */
+  cookieScope?: string;
 };
 
 function normalizeHeaders(
@@ -91,11 +118,30 @@ export function getMobileNativeHttpStatus(): MobileNativeHttpStatus {
   }
 }
 
+/**
+ * One native request. Idempotent requests (GET/HEAD without a body) get the
+ * shared retry policy: transient transport failures with short backoff, and a
+ * failure caused by backgrounding retried once the app is active again.
+ * Anything else is sent exactly once.
+ */
 export async function sendMobileNativeHttpRequest(
   request: NemuAidokuHttpRequest,
   signal?: AbortSignal | null,
 ): Promise<NemuAidokuHttpResponse> {
   assertMobileNativeHttpCapability(getMobileNativeHttpStatus());
+  if (!isIdempotentMobileHttpRequest(request.method, request.body)) {
+    return sendMobileNativeHttpRequestOnce(request, signal);
+  }
+  return runMobileHttpRequestWithRetry(
+    () => sendMobileNativeHttpRequestOnce(request, signal),
+    { signal },
+  );
+}
+
+async function sendMobileNativeHttpRequestOnce(
+  request: NemuAidokuHttpRequest,
+  signal?: AbortSignal | null,
+): Promise<NemuAidokuHttpResponse> {
   const requestId = request.requestId ?? createMobileNativeHttpRequestId();
   const response = await runAbortableMobileNativeHttpRequest({
     requestId,
@@ -150,10 +196,6 @@ export async function mobileNativeFetch(
   const maxResponseBytes =
     init.maxResponseBytes ?? MOBILE_NATIVE_HTTP_DEFAULT_MAX_RESPONSE_BYTES;
   const method = (init.method ?? "GET").toUpperCase();
-  // Idempotent requests only: a transient cold-start failure of the loopback
-  // proxy egress (DNS resolution / pinned-IP connect) is retried with short
-  // backoff; caller aborts and deadline cancellations always win.
-  const idempotent = init.body == null && (method === "GET" || method === "HEAD");
   const request = {
     url: input,
     method,
@@ -163,13 +205,11 @@ export async function mobileNativeFetch(
     responseMode: init.responseMode ?? "auto",
     maxResponseBytes,
     requireHttps: init.requireHttps === true,
+    ...(init.cookieScope ? { cookieScope: init.cookieScope } : {}),
   };
-  const response = idempotent
-    ? await runMobileHttpRequestWithRetry(
-        () => sendMobileNativeHttpRequest(request, init.signal),
-        { signal: init.signal },
-      )
-    : await sendMobileNativeHttpRequest(request, init.signal);
+  // Idempotent requests are retried inside (cold-start egress failures,
+  // backgrounding); caller aborts and deadline cancellations always win.
+  const response = await sendMobileNativeHttpRequest(request, init.signal);
   throwIfMobileNativeHttpAborted(init.signal);
   measureMobilePerformance("native.http.request.complete", requestStartedAt, {
     status: response.status,

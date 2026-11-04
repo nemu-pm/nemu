@@ -1,13 +1,21 @@
-import { withTiming } from "react-native-reanimated";
-import { readerChromeMotionVariant } from "./mobileReaderChromeMotion";
+import { Easing, withTiming } from "react-native-reanimated";
+import {
+  READER_CHROME_MATERIAL_CURVE,
+  READER_CHROME_MATERIAL_MS,
+  READER_CHROME_MATERIAL_SLIDE,
+  readerChromeMotionVariant,
+} from "./mobileReaderChromeMotion";
 
 /**
  * Durations / offsets shared by the reader top/bottom chrome enter/exit
  * worklets. Extracted from ReaderScreen so the animation definitions can be
  * reused and unit-referenced without pulling in the screen's state.
  */
-const READER_CONTROLS_FADE_MS = 300;
-const READER_CONTROLS_SLIDE_PX = 8;
+const READER_CONTROLS_FADE_MS = READER_CHROME_MATERIAL_MS;
+const READER_CONTROLS_SLIDE_PX = READER_CHROME_MATERIAL_SLIDE;
+/** The capsule chrome's curve (UIKit ease-out), so every piece moves on one clock. */
+const READER_CONTROLS_EASING = Easing.bezier(...READER_CHROME_MATERIAL_CURVE);
+const READER_CONTROLS_TIMING = { duration: READER_CONTROLS_FADE_MS, easing: READER_CONTROLS_EASING };
 
 function readerTopBarEntering() {
   "worklet";
@@ -17,9 +25,9 @@ function readerTopBarEntering() {
       transform: [{ translateY: -READER_CONTROLS_SLIDE_PX }],
     },
     animations: {
-      opacity: withTiming(1, { duration: READER_CONTROLS_FADE_MS }),
+      opacity: withTiming(1, READER_CONTROLS_TIMING),
       transform: [
-        { translateY: withTiming(0, { duration: READER_CONTROLS_FADE_MS }) },
+        { translateY: withTiming(0, READER_CONTROLS_TIMING) },
       ],
     },
   };
@@ -30,12 +38,10 @@ function readerTopBarExiting() {
   return {
     initialValues: { opacity: 1, transform: [{ translateY: 0 }] },
     animations: {
-      opacity: withTiming(0, { duration: READER_CONTROLS_FADE_MS }),
+      opacity: withTiming(0, READER_CONTROLS_TIMING),
       transform: [
         {
-          translateY: withTiming(-READER_CONTROLS_SLIDE_PX, {
-            duration: READER_CONTROLS_FADE_MS,
-          }),
+          translateY: withTiming(-READER_CONTROLS_SLIDE_PX, READER_CONTROLS_TIMING),
         },
       ],
     },
@@ -50,9 +56,9 @@ function readerBottomBarEntering() {
       transform: [{ translateY: READER_CONTROLS_SLIDE_PX }],
     },
     animations: {
-      opacity: withTiming(1, { duration: READER_CONTROLS_FADE_MS }),
+      opacity: withTiming(1, READER_CONTROLS_TIMING),
       transform: [
-        { translateY: withTiming(0, { duration: READER_CONTROLS_FADE_MS }) },
+        { translateY: withTiming(0, READER_CONTROLS_TIMING) },
       ],
     },
   };
@@ -63,12 +69,10 @@ function readerBottomBarExiting() {
   return {
     initialValues: { opacity: 1, transform: [{ translateY: 0 }] },
     animations: {
-      opacity: withTiming(0, { duration: READER_CONTROLS_FADE_MS }),
+      opacity: withTiming(0, READER_CONTROLS_TIMING),
       transform: [
         {
-          translateY: withTiming(READER_CONTROLS_SLIDE_PX, {
-            duration: READER_CONTROLS_FADE_MS,
-          }),
+          translateY: withTiming(READER_CONTROLS_SLIDE_PX, READER_CONTROLS_TIMING),
         },
       ],
     },
@@ -81,7 +85,7 @@ function readerChromeFadeEntering() {
   return {
     initialValues: { opacity: 0 },
     animations: {
-      opacity: withTiming(1, { duration: READER_CONTROLS_FADE_MS }),
+      opacity: withTiming(1, READER_CONTROLS_TIMING),
     },
   };
 }
@@ -91,7 +95,7 @@ function readerChromeFadeExiting() {
   return {
     initialValues: { opacity: 1 },
     animations: {
-      opacity: withTiming(0, { duration: READER_CONTROLS_FADE_MS }),
+      opacity: withTiming(0, READER_CONTROLS_TIMING),
     },
   };
 }

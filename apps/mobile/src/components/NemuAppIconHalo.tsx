@@ -1,10 +1,6 @@
-import { useEffect, useState } from "react";
 import {
-  Animated,
-  Easing,
   Image,
   Platform,
-  Pressable,
   StyleSheet,
   View,
   type ImageSourcePropType,
@@ -18,17 +14,10 @@ import Svg, {
   Rect,
 } from "react-native-svg";
 import {
-  NEMU_APP_ICON_PRESS_MOTION,
   getNemuAppIconHaloMetrics,
   getNemuAppIconHaloRenderMode,
-  shouldAnimateNemuAppIconPress,
 } from "@/lib/nemuAppIconHalo";
-import { useNemuTheme } from "@/design-system";
 import appIconGlow from "../../assets/app-icon-glow.png";
-
-const WEB_GLOW_SCALE = 1.25;
-const useNativeAnimationDriver = Platform.OS !== "web";
-const webIconPressEase = Easing.bezier(0.34, 1.56, 0.64, 1);
 
 function scaleAroundCenter(canvasSize: number, scale: number) {
   const center = canvasSize / 2;
@@ -38,6 +27,12 @@ function scaleAroundCenter(canvasSize: number, scale: number) {
 type NemuAppIconHaloProps = {
   accessibilityLabel: string;
   iconSize?: number;
+  /**
+   * Distance (pt) from the icon's top edge up to the nearest edge that clips
+   * the glow (a sheet's top edge). The glow tightens so it fades out inside
+   * it instead of being cut; the icon never changes. Omit when unbounded.
+   */
+  glowRoomTop?: number | null;
   source: ImageSourcePropType;
   style?: StyleProp<ViewStyle>;
   testID?: string;
@@ -46,61 +41,34 @@ type NemuAppIconHaloProps = {
 export function NemuAppIconHalo({
   accessibilityLabel,
   iconSize = 80,
+  glowRoomTop,
   source,
   style,
   testID,
 }: NemuAppIconHaloProps) {
-  const { reduceMotion } = useNemuTheme();
   const {
     canvasSize,
     glowBlurRadius,
+    glowOffsetY,
+    glowScale,
     iconRadius,
+    rasterScale,
     rectOffset,
-  } = getNemuAppIconHaloMetrics(iconSize);
+  } = getNemuAppIconHaloMetrics(iconSize, glowRoomTop);
+  const rasterSize = canvasSize * rasterScale;
   const renderMode = getNemuAppIconHaloRenderMode(Platform.OS);
-  const filterId = `nemu-app-icon-glow-${iconSize}`;
+  const filterId = `nemu-app-icon-glow-${iconSize}-${Math.round(glowBlurRadius * 10)}`;
   const defaultRootSize = {
     width: iconSize + 32,
     height: iconSize + 16,
   };
-  const [pressProgress] = useState(() => new Animated.Value(0));
-
-  useEffect(() => {
-    if (shouldAnimateNemuAppIconPress(reduceMotion)) return;
-    pressProgress.stopAnimation();
-    pressProgress.setValue(0);
-  }, [pressProgress, reduceMotion]);
-
-  const animatePress = (toValue: 0 | 1) => {
-    if (!shouldAnimateNemuAppIconPress(reduceMotion)) {
-      pressProgress.setValue(0);
-      return;
-    }
-    pressProgress.stopAnimation();
-    Animated.timing(pressProgress, {
-      toValue,
-      duration: NEMU_APP_ICON_PRESS_MOTION.duration,
-      easing: webIconPressEase,
-      useNativeDriver: useNativeAnimationDriver,
-    }).start();
-  };
-  const iconScale = pressProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, NEMU_APP_ICON_PRESS_MOTION.scale],
-  });
-  const iconRotation = pressProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: ["0deg", `${NEMU_APP_ICON_PRESS_MOTION.rotateDegrees}deg`],
-  });
-
   return (
-    <Pressable
+    // Decorative artwork with a label: an image to assistive tech, never a
+    // control (no press feedback, no hit target of its own).
+    <View
       accessible
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="image"
-      hitSlop={6}
-      onPressIn={() => animatePress(1)}
-      onPressOut={() => animatePress(0)}
       style={[styles.root, defaultRootSize, style]}
       testID={testID}
     >
@@ -113,11 +81,11 @@ export function NemuAppIconHalo({
           style={[
             styles.ambientGlow,
             {
-              height: canvasSize,
-              width: canvasSize,
+              height: rasterSize,
+              width: rasterSize,
               transform: [
-                { translateX: -canvasSize / 2 },
-                { translateY: -canvasSize / 2 },
+                { translateX: -rasterSize / 2 },
+                { translateY: -rasterSize / 2 + glowOffsetY },
               ],
             },
           ]}
@@ -134,7 +102,7 @@ export function NemuAppIconHalo({
               width: canvasSize,
               transform: [
                 { translateX: -canvasSize / 2 },
-                { translateY: -canvasSize / 2 },
+                { translateY: -canvasSize / 2 + glowOffsetY },
               ],
             },
           ]}
@@ -155,11 +123,11 @@ export function NemuAppIconHalo({
             fill="#6b8cce"
             fillOpacity={0.3}
             filter={`url(#${filterId})`}
-            transform={scaleAroundCenter(canvasSize, WEB_GLOW_SCALE)}
+            transform={scaleAroundCenter(canvasSize, glowScale)}
           />
         </Svg>
       )}
-      <Animated.View
+      <View
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
         style={[
@@ -167,7 +135,6 @@ export function NemuAppIconHalo({
           {
             borderRadius: iconRadius,
             height: iconSize,
-            transform: [{ scale: iconScale }, { rotate: iconRotation }],
             width: iconSize,
           },
         ]}
@@ -181,8 +148,8 @@ export function NemuAppIconHalo({
             style={styles.iconImage}
           />
         </View>
-      </Animated.View>
-    </Pressable>
+      </View>
+    </View>
   );
 }
 
@@ -195,8 +162,8 @@ const styles = StyleSheet.create({
   // The canvas is centered on the icon and only prevents the blur tail from clipping.
   ambientGlow: {
     position: "absolute",
-    top: "50%",
-    left: "50%",
+    top: "50%" as const,
+    left: "50%" as const,
   },
   iconShadow: {
     position: "relative",
@@ -206,12 +173,12 @@ const styles = StyleSheet.create({
       "0px 10px 15px -3px rgba(0,0,0,0.10), 0px 4px 6px -4px rgba(0,0,0,0.10)",
   },
   iconClip: {
-    width: "100%",
-    height: "100%",
+    width: "100%" as const,
+    height: "100%" as const,
     overflow: "hidden",
   },
   iconImage: {
-    width: "100%",
-    height: "100%",
+    width: "100%" as const,
+    height: "100%" as const,
   },
 });

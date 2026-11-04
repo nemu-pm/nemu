@@ -1,0 +1,93 @@
+import Foundation
+
+/**
+ * One side of a leaf in the curl's data source. Slots are the JS row (visual
+ * order, left to right); the page on screen is always a front.
+ */
+enum NemuPageCurlLeaf: Equatable {
+  case front(Int)
+  /**
+   * The back of the turning leaf on the way to `target`: it shows the page
+   * of `source` (on screen as the turn started), mirrored under the paper
+   * wash — never the page the turn lands on.
+   */
+  case back(Int, source: Int)
+}
+
+/**
+ * The curl's page sequence (`UIPageViewController` data source).
+ *
+ * Spreads (`.mid`) turn real two-sided leaves: after a page comes the next
+ * slot. A single page (`.min`/`.max`, the spine on its binding edge) is
+ * double-sided too, so the turning leaf is opaque: its back is the page that
+ * was on screen seen through the paper (mirrored, under an 85% wash), the way
+ * a lifted leaf of thin paper looks from behind. UIKit 27.1 asks a
+ * double-sided single-page curl for the back first, then the front:
+ * `after(front s)` → back, `after(back)` → the next front (`before` mirrors
+ * it), and an animated `setViewControllers` takes `[front, back]` (one
+ * controller otherwise). The back only decorates the turn: fronts follow the
+ * slots one by one, so no page is skipped, repeated or reordered.
+ */
+enum NemuPageCurlLeaves {
+  /** `viewControllerAfter`: toward the slot on the right. */
+  static func after(_ leaf: NemuPageCurlLeaf, slotCount: Int, backs: Bool) -> NemuPageCurlLeaf? {
+    switch leaf {
+    case .front(let slot):
+      return turn(from: slot, to: slot + 1, slotCount: slotCount, backs: backs)
+    case .back(let target, _):
+      return valid(target, slotCount) ? .front(target) : nil
+    }
+  }
+
+  /** `viewControllerBefore`: toward the slot on the left. */
+  static func before(_ leaf: NemuPageCurlLeaf, slotCount: Int, backs: Bool) -> NemuPageCurlLeaf? {
+    switch leaf {
+    case .front(let slot):
+      return turn(from: slot, to: slot - 1, slotCount: slotCount, backs: backs)
+    case .back(let target, _):
+      return valid(target, slotCount) ? .front(target) : nil
+    }
+  }
+
+  /** The page a leaf shows (a back: the page it was turned from). */
+  static func slotShown(by leaf: NemuPageCurlLeaf) -> Int {
+    switch leaf {
+    case .front(let slot): return slot
+    case .back(_, let source): return source
+    }
+  }
+
+  /**
+   * What `setViewControllers` takes to show `slot` (the left slot of a
+   * spread): a spread's two pages; a single page alone, or with the turning
+   * leaf's back (showing `from`, the page on screen) when the change animates.
+   */
+  static func shown(slot: Int, slotCount: Int, mid: Bool, animated: Bool, from: Int? = nil) -> [NemuPageCurlLeaf]? {
+    guard valid(slot, slotCount) else { return nil }
+    if mid {
+      guard valid(slot + 1, slotCount) else { return nil }
+      return [.front(slot), .front(slot + 1)]
+    }
+    return animated ? [.front(slot), .back(slot, source: from ?? slot)] : [.front(slot)]
+  }
+
+  private static func turn(from source: Int, to target: Int, slotCount: Int, backs: Bool) -> NemuPageCurlLeaf? {
+    guard valid(target, slotCount) else { return nil }
+    return backs ? .back(target, source: source) : .front(target)
+  }
+
+  private static func valid(_ slot: Int, _ slotCount: Int) -> Bool {
+    slot >= 0 && slot < slotCount
+  }
+}
+
+extension NemuPageCurlLeaves {
+  /**
+   * Whether the curl frame's change needs the page on screen set again (so
+   * UIKit lays its controllers out at the new size): only a new size, by half
+   * a point or more. A move keeps the pages as drawn.
+   */
+  static func needsReseat(from old: CGSize, to new: CGSize) -> Bool {
+    abs(old.width - new.width) >= 0.5 || abs(old.height - new.height) >= 0.5
+  }
+}

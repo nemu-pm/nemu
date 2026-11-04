@@ -46,9 +46,7 @@ function makeOwnedUint8Array(length: number): Uint8Array<ArrayBuffer> {
 
 function copyToOwnedUint8Array(input: ArrayLike<number>): Uint8Array<ArrayBuffer> {
   const output = makeOwnedUint8Array(input.length);
-  for (let index = 0; index < input.length; index += 1) {
-    output[index] = input[index];
-  }
+  output.set(input);
   return output;
 }
 
@@ -81,29 +79,44 @@ function encodeUtf8(input: string): Uint8Array<ArrayBuffer> {
   return copyToOwnedUint8Array(output);
 }
 
-function toUint8Array(input?: AllowSharedBufferSource): Uint8Array<ArrayBuffer> {
+// A view over the caller's bytes, not a copy: decoding only reads them, and
+// whatever a stream has to keep for the next call is copied by the decoder.
+function toUint8Array(input?: AllowSharedBufferSource): Uint8Array {
   if (!input) {
     return makeOwnedUint8Array(0);
   }
 
   if (input instanceof Uint8Array) {
-    return copyToOwnedUint8Array(input);
+    return input;
   }
 
   if (ArrayBuffer.isView(input)) {
-    return copyToOwnedUint8Array(
-      new Uint8Array(input.buffer, input.byteOffset, input.byteLength),
-    );
+    return new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
   }
 
-  return copyToOwnedUint8Array(new Uint8Array(input));
+  return new Uint8Array(input);
 }
 
-function replacementOrThrow(fatal: boolean): string {
+function replacementOrThrow(fatal: boolean): number {
   if (fatal) {
     throw new TypeError("The encoded data was not valid UTF-8.");
   }
-  return "\ufffd";
+  return 0xfffd;
+}
+
+// JSC runs app JavaScript without a JIT, where building a string one character
+// at a time costs hundreds of nanoseconds per byte. Code units are therefore
+// collected in a scratch buffer and turned into strings a slice at a time;
+// String.fromCharCode takes them as call arguments, so a slice stays well
+// under every engine's argument limit.
+const DECODE_CHUNK = 0x2000;
+// ASCII runs at least this long skip the scratch buffer and are converted
+// straight from the input bytes.
+const ASCII_RUN_MIN = 16;
+const decodeUnits = new Uint16Array(DECODE_CHUNK);
+
+function codeUnitsToString(units: Uint8Array | Uint16Array): string {
+  return String.fromCharCode.apply(null, units as unknown as number[]);
 }
 
 type Utf8DecodeResult = {
@@ -116,13 +129,41 @@ function decodeUtf8(
   fatal: boolean,
   stream: boolean,
 ): Utf8DecodeResult {
+  const length = bytes.length;
+  const units = decodeUnits;
+  let unitCount = 0;
   let output = "";
 
-  for (let index = 0; index < bytes.length; ) {
+  for (let index = 0; index < length; ) {
+    // One step adds at most a short ASCII run or a surrogate pair.
+    if (unitCount > DECODE_CHUNK - ASCII_RUN_MIN) {
+      output += codeUnitsToString(units.subarray(0, unitCount));
+      unitCount = 0;
+    }
+
     const first = bytes[index];
     if (first <= 0x7f) {
-      output += String.fromCharCode(first);
-      index += 1;
+      let runEnd = index + 1;
+      while (runEnd < length && bytes[runEnd] <= 0x7f) runEnd += 1;
+
+      if (runEnd - index < ASCII_RUN_MIN) {
+        while (index < runEnd) {
+          units[unitCount] = bytes[index];
+          unitCount += 1;
+          index += 1;
+        }
+        continue;
+      }
+
+      if (unitCount > 0) {
+        output += codeUnitsToString(units.subarray(0, unitCount));
+        unitCount = 0;
+      }
+      while (index < runEnd) {
+        const sliceEnd = Math.min(index + DECODE_CHUNK, runEnd);
+        output += codeUnitsToString(bytes.subarray(index, sliceEnd));
+        index = sliceEnd;
+      }
       continue;
     }
 
@@ -135,7 +176,8 @@ function decodeUtf8(
     } else if (first >= 0xf0 && first <= 0xf4) {
       needed = 3;
     } else {
-      output += replacementOrThrow(fatal);
+      units[unitCount] = replacementOrThrow(fatal);
+      unitCount += 1;
       index += 1;
       continue;
     }
@@ -152,7 +194,8 @@ function decodeUtf8(
       // surrogates, and values above U+10FFFF. Only consume the lead byte so
       // each following continuation byte is handled as its own invalid input,
       // matching the Encoding Standard's maximal-subpart behavior.
-      output += replacementOrThrow(fatal);
+      units[unitCount] = replacementOrThrow(fatal);
+      unitCount += 1;
       index += 1;
       continue;
     }
@@ -168,22 +211,24 @@ function decodeUtf8(
     }
 
     if (invalidContinuationOffset > 0) {
-      output += replacementOrThrow(fatal);
+      units[unitCount] = replacementOrThrow(fatal);
+      unitCount += 1;
       // Consume the valid prefix, but leave the non-continuation byte for the
       // next iteration (for example F0 9F 28 becomes U+FFFD followed by "(").
       index += invalidContinuationOffset;
       continue;
     }
 
-    if (index + needed >= bytes.length) {
+    if (index + needed >= length) {
       if (stream) {
         return {
           pending: copyToOwnedUint8Array(bytes.subarray(index)),
-          text: output,
+          text: output + codeUnitsToString(units.subarray(0, unitCount)),
         };
       }
-      output += replacementOrThrow(fatal);
-      index = bytes.length;
+      units[unitCount] = replacementOrThrow(fatal);
+      unitCount += 1;
+      index = length;
       continue;
     }
 
@@ -194,18 +239,21 @@ function decodeUtf8(
     }
 
     if (codePoint <= 0xffff) {
-      output += String.fromCharCode(codePoint);
+      units[unitCount] = codePoint;
+      unitCount += 1;
     } else {
       const normalized = codePoint - 0x10000;
-      output += String.fromCharCode(
-        0xd800 + (normalized >> 10),
-        0xdc00 + (normalized & 0x3ff)
-      );
+      units[unitCount] = 0xd800 + (normalized >> 10);
+      units[unitCount + 1] = 0xdc00 + (normalized & 0x3ff);
+      unitCount += 2;
     }
     index += needed + 1;
   }
 
-  return { pending: makeOwnedUint8Array(0), text: output };
+  return {
+    pending: makeOwnedUint8Array(0),
+    text: output + codeUnitsToString(units.subarray(0, unitCount)),
+  };
 }
 
 export class SimpleTextEncoder implements TextEncoder {
@@ -267,12 +315,9 @@ function resetDecoderStream(state: SimpleTextDecoderState): void {
   state.streaming = false;
 }
 
-function concatenateBytes(
-  first: Uint8Array,
-  second: Uint8Array,
-): Uint8Array<ArrayBuffer> {
-  if (!first.length) return copyToOwnedUint8Array(second);
-  if (!second.length) return copyToOwnedUint8Array(first);
+function concatenateBytes(first: Uint8Array, second: Uint8Array): Uint8Array {
+  if (!first.length) return second;
+  if (!second.length) return first;
   const combined = makeOwnedUint8Array(first.length + second.length);
   combined.set(first, 0);
   combined.set(second, first.length);

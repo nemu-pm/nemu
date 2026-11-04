@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { InstalledSource } from "@/data/schema";
 import {
   compactMobileLabelList,
+  getMobileExploreInstalledSourceSubtitle,
   getMobileInstalledSourceSubtitle,
 } from "./mobileInstalledSourcePresentation";
 
@@ -116,5 +117,19 @@ describe("getMobileInstalledSourceSubtitle", () => {
         }),
       ),
     ).toBe("EN, ES +6 / aidoku-community");
+  });
+});
+
+describe("design-explore installed source subtitle", () => {
+  const name = (code: string) => ({ ja: "日本語", zh: "中文" })[code] ?? code.toUpperCase();
+  test("one language by name, several as multi-language, then the version", () => {
+    expect(getMobileExploreInstalledSourceSubtitle(makeSource({ languages: ["ja"], version: 6 }), name, "Multi-Language")).toBe(
+      "日本語 · v6",
+    );
+    expect(
+      getMobileExploreInstalledSourceSubtitle(makeSource({ languages: ["en", "sq", "ja"], version: 14 }), name, "Multi-Language"),
+    ).toBe("Multi-Language · v14");
+    // No registry id, no codes; nothing declared: just the version.
+    expect(getMobileExploreInstalledSourceSubtitle(makeSource({ version: 2 }), name, "Multi-Language")).toBe("v2");
   });
 });

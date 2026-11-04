@@ -1,0 +1,74 @@
+import { useState, type ComponentType, type ReactNode } from "react";
+import { requireNativeViewManager, requireOptionalNativeModule } from "expo-modules-core";
+import { Platform, View, type ViewProps } from "react-native";
+import type { ContextMenuItem } from "./types";
+import {
+  createNativeContextMenuPressGate,
+  nativeContextMenuEventTime,
+  NativeContextMenuLongPressContext,
+} from "./ContextMenuLongPress";
+
+type ContextMenuViewProps = {
+  items: ContextMenuItem[];
+  menuTitle?: string;
+  previewCornerRadius?: number;
+  onMenuAction?: (id: string) => void;
+  style?: ViewProps["style"];
+  children?: ReactNode;
+};
+
+const nativeModule = Platform.OS === "ios"
+  ? requireOptionalNativeModule<{ contextMenuViewAvailable?: boolean }>("NemuWindowLayout")
+  : null;
+
+/** True when this binary has the context menu view (older binaries get a plain view). */
+export const contextMenuViewAvailable = nativeModule?.contextMenuViewAvailable === true;
+
+type MenuEvent = { nativeEvent?: { uptime?: number; active?: string } };
+
+type NativeProps = Omit<ContextMenuViewProps, "onMenuAction"> & {
+  onMenuAction?: (event: { nativeEvent: { id: string } }) => void;
+  /** `uptime`: when UIKit called the delegate, on the touch clock (ms). */
+  onMenuWillDisplay?: (event: MenuEvent) => void;
+  onMenuWillEnd?: (event: MenuEvent) => void;
+  /** The interaction asked for the menu: a release may wait for the verdict. */
+  onMenuConfigure?: (event: MenuEvent) => void;
+};
+
+const NativeContextMenu: ComponentType<NativeProps> | null = contextMenuViewAvailable
+  ? requireNativeViewManager<NativeProps>("NemuWindowLayout", "NemuContextMenuView")
+  : null;
+
+/**
+ * A system context menu on `children` (iOS `UIContextMenuInteraction`): a long
+ * press lifts the view and opens the menu. Taps still reach the children.
+ * Without the native view (Android, an older binary) it is a plain view.
+ */
+export function ContextMenuView({ items, menuTitle, previewCornerRadius, onMenuAction, style, children }: ContextMenuViewProps) {
+  // One gate per menu: the pressables inside drop the release of a touch
+  // that became the menu's long press (see `ContextMenuLongPress`).
+  const [gate] = useState(createNativeContextMenuPressGate);
+  if (!NativeContextMenu) return <View style={style}>{children}</View>;
+  return (
+    <NativeContextMenu
+      items={items}
+      menuTitle={menuTitle}
+      previewCornerRadius={previewCornerRadius}
+      onMenuAction={onMenuAction ? (event) => onMenuAction(event.nativeEvent.id) : undefined}
+      onMenuWillDisplay={(event) => gate.menuWillDisplay(nativeContextMenuEventTime(event))}
+      onMenuWillEnd={(event) => gate.menuWillEnd(nativeContextMenuEventTime(event))}
+      onMenuConfigure={(event) => gate.menuConfigure(nativeContextMenuEventTime(event))}
+      style={style}
+    >
+      {items.length > 0 ? (
+        // The menu owns the long press: pressables inside must not also
+        // treat the release after the hold as a tap.
+        <NativeContextMenuLongPressContext.Provider value={gate}>
+          {children}
+        </NativeContextMenuLongPressContext.Provider>
+      ) : (
+        children
+      )}
+    </NativeContextMenu>
+  );
+}

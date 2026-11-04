@@ -4,6 +4,7 @@ import type { MobileDataStore } from "@/data/storeTypes";
 import {
   areSyncAccountIdentitiesAligned,
   CHAPTER_PROGRESS_INTRA_PAGE_SYNC_VERSION,
+  supportsChapterProgressResetSync,
 } from "@nemu/core";
 
 export const mobileConvexRef: { current: ConvexReactClient | null } = {
@@ -27,12 +28,19 @@ export const mobileChapterProgressIntraPageSyncSupportedRef: {
   current: boolean;
 } = { current: false };
 
+/** The same gate for `resetAt` (Mark as Unread), advertised from version 2. */
+export const mobileChapterProgressResetSyncSupportedRef: {
+  current: boolean;
+} = { current: false };
+
 export function setMobileChapterProgressIntraPageSyncVersion(
   version: unknown,
 ): void {
   mobileChapterProgressIntraPageSyncSupportedRef.current =
     Number.isSafeInteger(version) &&
     (version as number) >= CHAPTER_PROGRESS_INTRA_PAGE_SYNC_VERSION;
+  mobileChapterProgressResetSyncSupportedRef.current =
+    supportsChapterProgressResetSync(version);
 }
 
 let remoteApplyDepth = 0;
@@ -59,6 +67,7 @@ export function isMobileSyncEpochCurrent(epoch: number): boolean {
 export function invalidateMobileSyncEpoch(): number {
   syncEpoch += 1;
   mobileChapterProgressIntraPageSyncSupportedRef.current = false;
+  mobileChapterProgressResetSyncSupportedRef.current = false;
   return syncEpoch;
 }
 

@@ -12,6 +12,7 @@ import {
   getMobileChapterProgressAccessory,
   getMobileChapterProgressTone,
 } from "@/lib/mobileChapterProgress";
+import type { MobileReaderResumePosition } from "@/lib/mobileReaderResumePosition";
 
 const RING_SIZE = 20;
 const RING_CENTER = 10;
@@ -22,16 +23,19 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 type MobileChapterProgressAccessoryProps = {
   progress?: LocalChapterProgress | null;
   locked?: boolean;
+  /** This device's resume spot in the chapter: the page shown is where the reader opens. */
+  local?: MobileReaderResumePosition | null;
   showChevron?: boolean;
 };
 
 export function MobileChapterProgressAccessory({
   progress,
   locked,
+  local,
   showChevron = true,
 }: MobileChapterProgressAccessoryProps) {
   const { tokens } = useNemuTheme();
-  const accessory = getMobileChapterProgressAccessory(progress, { locked });
+  const accessory = getMobileChapterProgressAccessory(progress, { locked, local });
   const tone = tokens[getMobileChapterProgressTone(accessory)];
 
   if (accessory.status === "locked") {

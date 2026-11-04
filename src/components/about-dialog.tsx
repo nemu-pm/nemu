@@ -92,6 +92,14 @@ export function AboutDialog({ open, onOpenChange }: AboutDialogProps) {
             </div>
             <HugeiconsIcon icon={LinkSquare01Icon} className="size-4 text-muted-foreground" />
           </a>
+          <a
+            href="/privacy"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="self-center py-1 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground transition-colors"
+          >
+            {t("about.privacyPolicy")}
+          </a>
         </div>
 
         <ResponsiveDialogFooter>

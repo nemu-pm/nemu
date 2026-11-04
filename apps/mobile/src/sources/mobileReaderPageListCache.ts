@@ -20,6 +20,12 @@ export type PersistedMobileReaderPageList = {
   chapters: ChapterSummary[];
   chapter: ChapterSummary;
   fetchedAt: number;
+  /**
+   * The source processes these pages' images (descrambling): recorded from
+   * the refresh that saved the list. Absent in lists saved before it was
+   * recorded (unknown).
+   */
+  imageProcessor?: boolean;
 };
 
 function cacheKey(key: string): string {
@@ -63,6 +69,7 @@ export function decodeMobileReaderPageListCache(
       chapters?: unknown;
       chapter?: unknown;
       fetchedAt?: unknown;
+      imageProcessor?: unknown;
     };
     if (
       parsed.v !== PAGE_LIST_CACHE_VERSION ||
@@ -86,6 +93,9 @@ export function decodeMobileReaderPageListCache(
       chapters: parsed.chapters,
       chapter: parsed.chapter,
       fetchedAt: parsed.fetchedAt,
+      ...(typeof parsed.imageProcessor === "boolean"
+        ? { imageProcessor: parsed.imageProcessor }
+        : {}),
     };
   } catch {
     return null;
@@ -119,4 +129,27 @@ export async function getMobileReaderPageListCacheStats(): Promise<{
   entries: number;
 }> {
   return pageListCache.getStats();
+}
+
+/**
+ * Whether a source processes its page images (descrambling), remembered per
+ * source from its last page-list refresh: what an opening reads when its
+ * cached page list predates `PersistedMobileReaderPageList.imageProcessor`.
+ */
+function sourceImageProcessorKey(sourceKey: string): string {
+  return cacheKey(`source-image-processor:${sourceKey}`);
+}
+
+export function decodeMobileReaderSourceImageProcessor(bytes: Uint8Array | null): boolean | null {
+  if (!bytes || bytes.byteLength === 0 || bytes.byteLength > 64) return null;
+  const text = new TextDecoder().decode(bytes);
+  return text === "1" ? true : text === "0" ? false : null;
+}
+
+export async function loadMobileReaderSourceImageProcessor(sourceKey: string): Promise<boolean | null> {
+  return decodeMobileReaderSourceImageProcessor(await pageListCache.getBytes(sourceImageProcessorKey(sourceKey)));
+}
+
+export async function saveMobileReaderSourceImageProcessor(sourceKey: string, value: boolean): Promise<void> {
+  await pageListCache.setBytes(sourceImageProcessorKey(sourceKey), new TextEncoder().encode(value ? "1" : "0"), "text/plain");
 }

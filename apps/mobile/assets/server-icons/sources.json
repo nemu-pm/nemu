@@ -1,0 +1,17 @@
+{
+  "komga": {
+    "source": "https://raw.githubusercontent.com/gotson/komga/a9b59dbee73424d7f2e186b24b0905913f816709/komga-webui/public/apple-touch-icon.png",
+    "project": "https://github.com/gotson/komga",
+    "usage": "Project icon identifying a compatible user-configured server. All trademarks belong to their respective owners."
+  },
+  "kavita": {
+    "source": "https://raw.githubusercontent.com/Kareadita/Kavita/9ccce12cbe27938a1d0a3d052489a1dc53c6b0cc/UI/Web/src/assets/icons/apple-touch-icon.png",
+    "project": "https://github.com/Kareadita/Kavita",
+    "usage": "Project icon identifying a compatible user-configured server. All trademarks belong to their respective owners."
+  },
+  "suwayomi": {
+    "source": "https://raw.githubusercontent.com/Suwayomi/Suwayomi-Server/e2ce828abb81f0f5ce1a3fb86194a2746b519c85/server/src/main/resources/icon/faviconlogo-128.png",
+    "project": "https://github.com/Suwayomi/Suwayomi-Server",
+    "usage": "Project icon identifying a compatible user-configured server. All trademarks belong to their respective owners."
+  }
+}

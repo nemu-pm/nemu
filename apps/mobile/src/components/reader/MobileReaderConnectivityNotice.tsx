@@ -12,6 +12,7 @@ import {
   READER_CHROME_GLASS_TINT,
 } from "./readerChromeGlass";
 import type { MobileStrings } from "@/lib/mobileI18n";
+import { MOBILE_TOAST_MAX_WIDTH } from "@/lib/mobileToastPlacement";
 import type { MobileConnectivityState } from "@/lib/useMobileConnectivity";
 
 const SLOW_PAGE_THRESHOLD_MS = 8_000;
@@ -27,20 +28,24 @@ const READER_NOTICE_DARK_DETAIL = "rgba(235,238,245,0.72)";
  * slow source once a page request has hung past 8s. It renders the shared
  * `MobileToastSurface` in its plain (reader-tinted) mode, so the geometry
  * mirrors both the app toast and the chrome panel — left/right 12, radius 22,
- * one glass border — and reads as a second row of the same surface.
+ * one glass border — and reads as a second row of the same surface. Like the
+ * app toast it stops at 420pt, centred, on wide windows.
  */
 export function MobileReaderConnectivityNotice({
   topOffset,
+  horizontalFrame = null,
   pageRequestPending,
   strings,
   connectivity,
 }: {
   topOffset: number;
+  /** Left/right distances from the reader edges (e.g. to keep the notice in a fold pane or clear of the rail). */
+  horizontalFrame?: { left: number; right: number } | null;
   pageRequestPending: boolean;
   strings: MobileStrings;
   connectivity: MobileConnectivityState;
 }) {
-  const { scheme, tokens } = useNemuTheme();
+  const { tokens } = useNemuTheme();
   const reducedMotion = useReducedMotion();
   const [slowLoading, setSlowLoading] = useState(false);
   const pendingSinceRef = useRef<number | null>(null);
@@ -75,29 +80,32 @@ export function MobileReaderConnectivityNotice({
   if (!connectivity.offline && !slowLoading) return null;
 
   const offline = connectivity.offline;
-  const dark = scheme === "dark";
-
   return (
     <Animated.View
       pointerEvents="box-none"
       entering={reducedMotion ? undefined : FadeInDown.damping(18)}
       exiting={reducedMotion ? undefined : FadeOutUp.duration(160)}
-      style={[styles.host, { top: topOffset }]}
+      style={[
+        styles.host,
+        { top: topOffset },
+        horizontalFrame ? { left: horizontalFrame.left + 12, right: horizontalFrame.right + 12 } : null,
+      ]}
     >
       <MobileToastSurface
-        backgroundColor={READER_CHROME_GLASS_TINT[scheme]}
-        borderColor={READER_CHROME_GLASS_BORDER[scheme]}
+        backgroundColor={READER_CHROME_GLASS_TINT.dark}
+        borderColor={READER_CHROME_GLASS_BORDER.dark}
         detail={offline ? strings.feedback.readerOfflineDetail : undefined}
-        detailColor={dark ? READER_NOTICE_DARK_DETAIL : tokens.mutedForeground}
+        detailColor={READER_NOTICE_DARK_DETAIL}
         icon={offline ? "cloud-offline-outline" : "hourglass-outline"}
-        iconColor={offline ? tokens.warning : tokens.mutedForeground}
+        iconColor={offline ? tokens.warning : READER_NOTICE_DARK_DETAIL}
         plain
         title={
           offline
             ? strings.feedback.readerOfflineTitle
             : strings.feedback.readerSlowSource
         }
-        titleColor={dark ? READER_NOTICE_DARK_TITLE : tokens.foreground}
+        style={styles.surface}
+        titleColor={READER_NOTICE_DARK_TITLE}
         tone="warning"
       />
     </Animated.View>
@@ -109,7 +117,12 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 12,
     right: 12,
+    alignItems: "center",
     zIndex: 30,
     elevation: 30,
+  },
+  surface: {
+    width: "100%",
+    maxWidth: MOBILE_TOAST_MAX_WIDTH,
   },
 });

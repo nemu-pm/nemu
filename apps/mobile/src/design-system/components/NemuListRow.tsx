@@ -92,7 +92,8 @@ export function NemuListRow({
       accessibilityLabel={title}
       disabled={disabled}
       onPress={onPress}
-      pressedScale={0.985}
+      pressHighlight
+      style={styles.pressShape}
     >
       {content}
     </NemuPressable>
@@ -100,6 +101,10 @@ export function NemuListRow({
 }
 
 const styles = StyleSheet.create({
+  // The highlight takes the row's rounded shape (the row draws its own border).
+  pressShape: {
+    borderRadius: radius.lg,
+  },
   row: {
     minHeight: 64,
     flexDirection: "row",

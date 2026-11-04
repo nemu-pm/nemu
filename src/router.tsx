@@ -40,6 +40,8 @@ import { SearchPage } from "./pages/search";
 import { SettingsPage } from "./pages/settings";
 import { MangaPage } from "./pages/manga";
 import { ReaderPage } from "./pages/reader";
+import { PrivacyPage } from "./pages/privacy";
+import { DirectoriesPage } from "./pages/directories";
 import { DebugPopoverDrawerPage } from "./pages/debug-popover-drawer";
 import { lazy, Suspense } from "react";
 import { PageTitleProvider } from "@/components/page-title";
@@ -521,6 +523,21 @@ const readerRoute = createRoute({
   component: ReaderPage,
 });
 
+// Public privacy policy (outside shell; linked from App Store Connect)
+const privacyRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/privacy",
+  component: PrivacyPage,
+});
+
+// Public source directory list (outside shell; opened from the mobile app's
+// Add Source Directory page)
+const directoriesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/directories",
+  component: DirectoriesPage,
+});
+
 // Debug popover + drawer test route
 const debugPopoverDrawerRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -542,6 +559,8 @@ const shellChildren = [
 const routeTree = rootRoute.addChildren([
   shellRoute.addChildren(shellChildren),
   readerRoute,
+  privacyRoute,
+  directoriesRoute,
   debugPopoverDrawerRoute,
 ]);
 

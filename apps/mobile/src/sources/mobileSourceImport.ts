@@ -6,6 +6,15 @@ import type {
 import { makeSourceKey } from "./aidokuRegistry";
 import type { SourcePackageCacheResult } from "./sourcePackageCacheTypes";
 import { nextSyncTimestamp } from "@nemu/core";
+import { isReservedSourceId } from "@/lib/selfHosted/policy";
+
+/** An imported package asked for an id only the app's built-in sources may use. */
+export class ReservedSourceIdError extends Error {
+  constructor(readonly sourceId: string) {
+    super(`The source id "${sourceId}" is reserved for built-in sources.`);
+    this.name = "ReservedSourceIdError";
+  }
+}
 
 export const MOBILE_CUSTOM_AIDOKU_REGISTRY_ID = "custom-aidoku";
 
@@ -49,6 +58,9 @@ export function installedSourceFromImportedAixMetadata({
   const sourceId = metadata.sourceId.trim();
   if (!sourceId) {
     throw new Error("Imported AIX package is missing a source id.");
+  }
+  if (isReservedSourceId(sourceId)) {
+    throw new ReservedSourceIdError(sourceId);
   }
 
   return {

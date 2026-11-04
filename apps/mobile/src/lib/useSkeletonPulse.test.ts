@@ -41,7 +41,10 @@ describe("useSkeletonPulse", () => {
       path.join(import.meta.dir, "../components/reader/MobileReaderGallery.tsx"),
       "utf8",
     );
-    expect(gallery).toContain("reduceMotion === true,\n    isReaderLoading,");
+    // The reader's opening placeholder is the reader background with the
+    // pages' spinner: no pulse to gate.
+    expect(gallery).not.toContain("useSkeletonPulse(");
+    expect(gallery).toContain("useSkeletonDisplayDelay(150)");
     const storage = readFileSync(
       path.join(import.meta.dir, "../components/MobileStorageBreakdown.tsx"),
       "utf8",
@@ -85,7 +88,9 @@ describe("skeleton components", () => {
   test("chapter placeholders match MobileChapterCell geometry", () => {
     const source = readComponent("MobileMangaPageSkeleton.tsx");
     expect(source).toContain("minHeight: 52");
-    expect(source).toContain('flexBasis: "48%"');
+    // Two equal columns that fill the row, like MobileChapterGrid.
+    expect(source).toContain("flex: 1,\n    minWidth: 0,");
+    expect(readComponent("MobileChapterGrid.tsx")).toContain("flex: 1,\n    minWidth: 0,");
   });
 
   test("settings rows use the real 68/72pt heights and icon frames", () => {

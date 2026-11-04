@@ -1,4 +1,4 @@
-import { resizeLuma, toLuma } from './image';
+import { resizeLuma, resizeLumaSteps, toLuma, toLumaSteps, type AlignmentPace, type AlignmentSteps } from './image';
 
 /**
  * One unsigned 64-bit dHash value represented without JavaScript BigInt.
@@ -101,10 +101,7 @@ export function dhashDistance(a: Dhash, b: Dhash): number {
   return hammingDistance(a.h, b.h) + hammingDistance(a.v, b.v);
 }
 
-function computeDhashFromLuma(luma: Uint8Array, width: number, height: number): Dhash {
-  const w = Math.max(1, Math.trunc(width));
-  const h = Math.max(1, Math.trunc(height));
-  const hBuf = resizeLuma(luma, w, h, 9, 8);
+function dhashFromGrids(hBuf: Uint8Array, vBuf: Uint8Array): Dhash {
   let hHigh = 0;
   let hLow = 0;
   let bit = 0;
@@ -123,7 +120,6 @@ function computeDhashFromLuma(luma: Uint8Array, width: number, height: number): 
     }
   }
 
-  const vBuf = resizeLuma(luma, w, h, 8, 9);
   let vHigh = 0;
   let vLow = 0;
   bit = 0;
@@ -148,6 +144,27 @@ function computeDhashFromLuma(luma: Uint8Array, width: number, height: number): 
   };
 }
 
+function computeDhashFromLuma(luma: Uint8Array, width: number, height: number): Dhash {
+  const w = Math.max(1, Math.trunc(width));
+  const h = Math.max(1, Math.trunc(height));
+  const hBuf = resizeLuma(luma, w, h, 9, 8);
+  const vBuf = resizeLuma(luma, w, h, 8, 9);
+  return dhashFromGrids(hBuf, vBuf);
+}
+
+function* computeDhashFromLumaSteps(
+  luma: Uint8Array,
+  width: number,
+  height: number,
+  pace: AlignmentPace
+): AlignmentSteps<Dhash> {
+  const w = Math.max(1, Math.trunc(width));
+  const h = Math.max(1, Math.trunc(height));
+  const hBuf = yield* resizeLumaSteps(luma, w, h, 9, 8, pace);
+  const vBuf = yield* resizeLumaSteps(luma, w, h, 8, 9, pace);
+  return dhashFromGrids(hBuf, vBuf);
+}
+
 export function computeDhash(input: DhashInput): Dhash {
   const width = Math.max(1, Math.trunc(input.width));
   const height = Math.max(1, Math.trunc(input.height));
@@ -155,14 +172,23 @@ export function computeDhash(input: DhashInput): Dhash {
   return computeDhashFromLuma(luma, width, height);
 }
 
-function sliceLuma(
+type LumaRect = { left: number; top: number; width: number; height: number };
+
+/** Rows processed between checkpoints by the row-based hash kernels (~16K px). */
+function rowsPerChunk(width: number): number {
+  return Math.max(1, Math.floor(16384 / Math.max(1, width)));
+}
+
+function sliceLumaRows(
   luma: Uint8Array,
   width: number,
   height: number,
-  rect: { left: number; top: number; width: number; height: number }
-): Uint8Array {
-  const out = new Uint8Array(rect.width * rect.height);
-  for (let y = 0; y < rect.height; y++) {
+  rect: LumaRect,
+  out: Uint8Array,
+  y0: number,
+  y1: number
+): void {
+  for (let y = y0; y < y1; y++) {
     const srcY = rect.top + y;
     if (srcY < 0 || srcY >= height) continue;
     const srcRow = srcY * width;
@@ -173,23 +199,37 @@ function sliceLuma(
       out[dstRow + x] = luma[srcRow + srcX] ?? 0;
     }
   }
-  return out;
 }
 
-function findContentRectFromLuma(
+function* sliceLumaSteps(
   luma: Uint8Array,
   width: number,
   height: number,
-  opts?: { threshold?: number; minFillRatio?: number; minAreaRatio?: number; maxInsetRatio?: number }
-): { left: number; top: number; width: number; height: number } | null {
-  const threshold = opts?.threshold ?? 8;
-  let minX = width;
-  let minY = height;
-  let maxX = -1;
-  let maxY = -1;
-  let count = 0;
-  const total = width * height;
-  for (let y = 0; y < height; y++) {
+  rect: LumaRect,
+  pace: AlignmentPace
+): AlignmentSteps<Uint8Array> {
+  const out = new Uint8Array(rect.width * rect.height);
+  const step = rowsPerChunk(rect.width);
+  for (let y = 0; y < rect.height; y += step) {
+    sliceLumaRows(luma, width, height, rect, out, y, Math.min(rect.height, y + step));
+    if (pace()) yield;
+  }
+  return out;
+}
+
+type ContentRectOptions = { threshold?: number; minFillRatio?: number; minAreaRatio?: number; maxInsetRatio?: number };
+type ContentScan = { minX: number; minY: number; maxX: number; maxY: number; count: number };
+
+function scanContentRows(
+  luma: Uint8Array,
+  width: number,
+  threshold: number,
+  scan: ContentScan,
+  y0: number,
+  y1: number
+): void {
+  let { minX, minY, maxX, maxY, count } = scan;
+  for (let y = y0; y < y1; y++) {
     const row = y * width;
     for (let x = 0; x < width; x++) {
       if ((luma[row + x] ?? 0) > threshold) {
@@ -201,6 +241,21 @@ function findContentRectFromLuma(
       }
     }
   }
+  scan.minX = minX;
+  scan.minY = minY;
+  scan.maxX = maxX;
+  scan.maxY = maxY;
+  scan.count = count;
+}
+
+function contentRectFromScan(
+  scan: ContentScan,
+  width: number,
+  height: number,
+  opts?: ContentRectOptions
+): LumaRect | null {
+  const { minX, minY, maxX, maxY, count } = scan;
+  const total = width * height;
   if (count === 0) return null;
   const fillRatio = count / total;
   if (fillRatio < (opts?.minFillRatio ?? 0.08)) return null;
@@ -214,50 +269,75 @@ function findContentRectFromLuma(
   return { left: minX, top: minY, width: boxW, height: boxH };
 }
 
-export function computeMultiDhash(
+function* findContentRectFromLumaSteps(
+  luma: Uint8Array,
+  width: number,
+  height: number,
+  pace: AlignmentPace,
+  opts?: ContentRectOptions
+): AlignmentSteps<LumaRect | null> {
+  const scan: ContentScan = { minX: width, minY: height, maxX: -1, maxY: -1, count: 0 };
+  const threshold = opts?.threshold ?? 8;
+  const step = rowsPerChunk(width);
+  for (let y = 0; y < height; y += step) {
+    scanContentRows(luma, width, threshold, scan, y, Math.min(height, y + step));
+    if (pace()) yield;
+  }
+  return contentRectFromScan(scan, width, height, opts);
+}
+
+export type MultiDhashOptions = { split?: boolean; centerCropRatio?: number; luma?: Uint8Array };
+
+/**
+ * Step (generator) variant of `computeMultiDhash`. Yields at cooperative
+ * checkpoints whenever `pace()` returns true; bit-identical to the sync API,
+ * which simply drives this generator with a pace that never yields.
+ */
+export function* computeMultiDhashSteps(
   input: DhashInput,
-  opts?: { split?: boolean; centerCropRatio?: number; luma?: Uint8Array }
-): MultiDhash {
+  opts: MultiDhashOptions | undefined,
+  pace: AlignmentPace
+): AlignmentSteps<MultiDhash> {
   const width = Math.max(1, Math.trunc(input.width));
   const height = Math.max(1, Math.trunc(input.height));
-  const luma = opts?.luma ?? toLuma({ ...input, width, height });
-  const full = computeDhashFromLuma(luma, width, height);
+  const luma = opts?.luma ?? (yield* toLumaSteps({ ...input, width, height }, pace));
+  const full = yield* computeDhashFromLumaSteps(luma, width, height, pace);
   if (!opts?.split) return { full };
 
-  const trimRect = findContentRectFromLuma(luma, width, height);
+  const trimRect = yield* findContentRectFromLumaSteps(luma, width, height, pace);
   const baseRect = trimRect ?? { left: 0, top: 0, width, height };
   const midX = Math.max(1, Math.floor(baseRect.width / 2));
   const midY = Math.max(1, Math.floor(baseRect.height / 2));
 
-  const leftLuma = sliceLuma(luma, width, height, {
+  const leftLuma = yield* sliceLumaSteps(luma, width, height, {
     left: baseRect.left,
     top: baseRect.top,
     width: midX,
     height: baseRect.height,
-  });
-  const rightLuma = sliceLuma(luma, width, height, {
+  }, pace);
+  const rightLuma = yield* sliceLumaSteps(luma, width, height, {
     left: baseRect.left + midX,
     top: baseRect.top,
     width: baseRect.width - midX,
     height: baseRect.height,
-  });
-  const topLuma = sliceLuma(luma, width, height, {
+  }, pace);
+  const topLuma = yield* sliceLumaSteps(luma, width, height, {
     left: baseRect.left,
     top: baseRect.top,
     width: baseRect.width,
     height: midY,
-  });
-  const bottomLuma = sliceLuma(luma, width, height, {
+  }, pace);
+  const bottomLuma = yield* sliceLumaSteps(luma, width, height, {
     left: baseRect.left,
     top: baseRect.top + midY,
     width: baseRect.width,
     height: baseRect.height - midY,
-  });
+  }, pace);
 
-  const left = computeDhashFromLuma(leftLuma, midX, baseRect.height);
-  const right = computeDhashFromLuma(rightLuma, baseRect.width - midX, baseRect.height);
-  const top = computeDhashFromLuma(topLuma, baseRect.width, midY);
-  const bottom = computeDhashFromLuma(bottomLuma, baseRect.width, baseRect.height - midY);
+  const left = yield* computeDhashFromLumaSteps(leftLuma, midX, baseRect.height, pace);
+  const right = yield* computeDhashFromLumaSteps(rightLuma, baseRect.width - midX, baseRect.height, pace);
+  const top = yield* computeDhashFromLumaSteps(topLuma, baseRect.width, midY, pace);
+  const bottom = yield* computeDhashFromLumaSteps(bottomLuma, baseRect.width, baseRect.height - midY, pace);
   let center: Dhash | undefined;
   if (typeof opts.centerCropRatio === 'number') {
     const ratio = Math.max(0.1, Math.min(1, opts.centerCropRatio));
@@ -265,15 +345,29 @@ export function computeMultiDhash(
     const cropH = Math.max(1, Math.floor(baseRect.height * ratio));
     const cropLeft = Math.max(0, Math.floor(baseRect.left + (baseRect.width - cropW) / 2));
     const cropTop = Math.max(0, Math.floor(baseRect.top + (baseRect.height - cropH) / 2));
-    const centerLuma = sliceLuma(luma, width, height, { left: cropLeft, top: cropTop, width: cropW, height: cropH });
-    center = computeDhashFromLuma(centerLuma, cropW, cropH);
+    const centerLuma = yield* sliceLumaSteps(
+      luma, width, height, { left: cropLeft, top: cropTop, width: cropW, height: cropH }, pace
+    );
+    center = yield* computeDhashFromLumaSteps(centerLuma, cropW, cropH, pace);
   }
 
-  const trimmed = trimRect
-    ? computeDhashFromLuma(sliceLuma(luma, width, height, trimRect), trimRect.width, trimRect.height)
-    : undefined;
+  let trimmed: Dhash | undefined;
+  if (trimRect) {
+    const trimmedLuma = yield* sliceLumaSteps(luma, width, height, trimRect, pace);
+    trimmed = yield* computeDhashFromLumaSteps(trimmedLuma, trimRect.width, trimRect.height, pace);
+  }
 
   return { full, left, right, top, bottom, center, trimmed };
+}
+
+const NEVER_YIELD: AlignmentPace = () => false;
+
+/** Sync API: drives `computeMultiDhashSteps` to completion without yielding. */
+export function computeMultiDhash(input: DhashInput, opts?: MultiDhashOptions): MultiDhash {
+  const steps = computeMultiDhashSteps(input, opts, NEVER_YIELD);
+  const next = steps.next();
+  if (!next.done) throw new Error('computeMultiDhash: step variant yielded unexpectedly.');
+  return next.value;
 }
 
 export function computeCandidateDistance(

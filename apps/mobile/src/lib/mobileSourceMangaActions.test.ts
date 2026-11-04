@@ -138,6 +138,10 @@ describe("mobile source manga actions", () => {
     expect(
       shouldRenderMobileSourceMangaReaderAction({ hasChapter: false }),
     ).toBe(false);
+    // Held (disabled) while the chapters load, so the row keeps its shape.
+    expect(
+      shouldRenderMobileSourceMangaReaderAction({ hasChapter: false, holdWhileLoading: true }),
+    ).toBe(true);
   });
 
   test("matches web by showing a full skeleton until source metadata is available", () => {

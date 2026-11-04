@@ -115,7 +115,7 @@ describe("incidental-churn guards across screens", () => {
   test("cover requests keep the last resolved request while refreshing", () => {
     const hook = mobileSource("lib/useMobileSourceImageRequest.ts");
     expect(hook).toContain(
-      "const settledRequest =\n    state?.identityKey === imageIdentityKey ? state.request : null;",
+      "const settled = Boolean(imageIdentityKey) && state?.identityKey === imageIdentityKey;\n  const live = settled ? state.request : null;",
     );
     expect(hook).not.toContain("state?.key === sourceRequestKey");
   });

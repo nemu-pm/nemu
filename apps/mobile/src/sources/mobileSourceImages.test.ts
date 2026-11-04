@@ -7,7 +7,10 @@ import {
   resolveCachedMobileSourceImageRequest,
   resolveMobileSourceImageRequest,
 } from "./mobileSourceImages";
-import { defaultMobileSourceSessionCache } from "./mobileSourceExecutorCache";
+import {
+  defaultMobileSourceSessionCache,
+  type MobileSourceSessionCache,
+} from "./mobileSourceExecutorCache";
 import type {
   MobileAidokuExecutorBridge,
   MobileAidokuExecutorSource,
@@ -581,5 +584,46 @@ describe("mobile source images", () => {
       url: "https://images.test/cover.jpg",
       headers: { Referer: "https://source.test" },
     });
+  });
+  test("boots cold source sessions for images one after another", async () => {
+    const bootA = Promise.withResolvers<void>();
+    const started: string[] = [];
+    const sessionCache = {
+      peek: () => undefined,
+      async withSession(
+        source: { sourceId?: string; id: string },
+        _options: unknown,
+        fn: (session: unknown) => Promise<unknown>,
+      ) {
+        started.push(source.id);
+        if (source.id.endsWith("en.a")) await bootA.promise;
+        return fn({
+          status: "ready",
+          source: makeExecutorSource({
+            async modifyImageRequest(url) {
+              return { url, headers: { "X-Source": source.id } };
+            },
+          }),
+        });
+      },
+    } as unknown as MobileSourceSessionCache;
+    const sourceA = installedSource({ id: "aidoku-community:en.a", sourceId: "en.a" });
+    const sourceB = installedSource({ id: "aidoku-community:en.b", sourceId: "en.b" });
+    const getSourceSettings = async () => ({});
+    const first = resolveCachedMobileSourceImageRequest(sourceA, "https://images.test/stagger-a.jpg", {
+      sessionCache,
+      getSourceSettings,
+    });
+    const second = resolveCachedMobileSourceImageRequest(sourceB, "https://images.test/stagger-b.jpg", {
+      sessionCache,
+      getSourceSettings,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(started.length).toBe(1);
+    bootA.resolve();
+    const [resultA, resultB] = await Promise.all([first, second]);
+    expect(started.length).toBe(2);
+    expect(resultA?.headers["X-Source"]).toBe(started[0]!);
+    expect(resultB?.headers["X-Source"]).toBe(started[1]!);
   });
 });

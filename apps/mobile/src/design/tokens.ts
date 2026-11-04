@@ -16,6 +16,13 @@ export type NemuTokens = {
   muted: string;
   mutedForeground: string;
   border: string;
+  /**
+   * The 1px outline of a mobile card (Settings groups, Browse source groups,
+   * Data Management cards). App 卡片专用，网页无对应 (mobile card outline
+   * only; no web counterpart): dark `border` stays the web's 0.18 for parity,
+   * which reads too faint on the app's cards, so they take their own value.
+   */
+  cardBorder: string;
   tabGlass: string;
   tabBorder: string;
   sourceGlass: string;
@@ -77,6 +84,8 @@ export const nemuTokens: Record<NemuColorScheme, NemuTokens> = {
     muted: "#e8ebf2",
     mutedForeground: "#5e636f",
     border: "rgba(222,225,234,0.92)",
+    // App 卡片专用，网页无对应 (mobile card outline only; no web counterpart). Light matches `border`.
+    cardBorder: "rgba(222,225,234,0.92)",
     tabGlass: "rgba(248,250,254,0.74)",
     tabBorder: "rgba(76,96,156,0.16)",
     sourceGlass: "rgba(251,252,255,0.66)",
@@ -106,6 +115,8 @@ export const nemuTokens: Record<NemuColorScheme, NemuTokens> = {
     muted: "#191b1d",
     mutedForeground: "#7e8086",
     border: "rgba(68,72,80,0.18)",
+    // App 卡片专用，网页无对应 (mobile card outline only; no web counterpart).
+    cardBorder: "rgba(68,72,80,0.38)",
     tabGlass: "rgba(20,22,26,0.8)",
     tabBorder: "rgba(93,99,114,0.13)",
     sourceGlass: "rgba(255,255,255,0.055)",

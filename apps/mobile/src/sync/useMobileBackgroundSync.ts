@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useConvexAuth } from "convex/react";
 import { useMobileDataStore } from "@/data/mobileDataContext";
+import { waitForMobileLaunchSourceWork } from "@/lib/mobileLaunchSourceWork";
 import {
   registerMobileBackgroundSyncAsync,
   setMobileBackgroundSyncStore,
@@ -30,8 +31,15 @@ export function useMobileBackgroundSync(): void {
       isAuthenticated,
       isLoading,
     });
-    if (action === "register") {
-      void registerMobileBackgroundSyncAsync();
-    }
+    if (action !== "register") return;
+    // Scheduling only (the OS decides when it runs): it waits until the launch
+    // screen has lifted and the JS thread is idle, off the cold-launch path.
+    let cancelled = false;
+    void waitForMobileLaunchSourceWork().then(() => {
+      if (!cancelled) void registerMobileBackgroundSyncAsync();
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [isAuthenticated, isLoading]);
 }

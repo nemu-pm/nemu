@@ -123,4 +123,36 @@ describe("mobile source update helpers", () => {
       ).map((source) => source.id),
     ).toEqual(["en.off"]);
   });
+
+  test("only the directory a source was installed from can update it", () => {
+    const installedSources = [
+      installed("dir-aaaaaaaaaaaa:en.same", 1),
+      installed("nemu-recommended:en.same", 1),
+    ];
+    // Same source id published by two directories: each install follows its own.
+    expect(
+      findMobileSourceUpdates(installedSources, [
+        available("dir-aaaaaaaaaaaa", "en.same", 2),
+      ]).map((source) => source.registryId),
+    ).toEqual(["dir-aaaaaaaaaaaa"]);
+    // A removed or disabled directory is not in the catalog: nothing updates,
+    // and the installed source is left exactly as it was.
+    expect(findMobileSourceUpdates(installedSources, [])).toEqual([]);
+    // A directory listing a source that is not installed never installs it.
+    expect(
+      findMobileSourceUpdates(
+        [],
+        [available("nemu-recommended", "multi.peppercarrot", 5)],
+      ),
+    ).toEqual([]);
+  });
+
+  test("an imported .aix file has no update origin", () => {
+    expect(
+      findMobileSourceUpdates(
+        [installed("custom-aidoku:en.local", 1)],
+        [available("aidoku-community", "en.local", 9)],
+      ),
+    ).toEqual([]);
+  });
 });

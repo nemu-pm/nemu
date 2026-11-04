@@ -1,0 +1,48 @@
+import { createContext, useContext } from "react";
+import type { MobileMangaDetailPaneRole } from "@/lib/mobileMangaDetailPaneLayout";
+
+export type MobileMangaDetailPane = {
+  /**
+   * `leading`: the regular-width info pane; `trailing`: the chapter pane next
+   * to it; `single`: the one-list page (compact, notebook, portrait inner).
+   */
+  role: MobileMangaDetailPaneRole;
+  /** Regular width class (inner display, tablets), split or not. */
+  regularWidth: boolean;
+  /** Full-width chapter table: metadata fits beside the title. */
+  wideChapterRows?: boolean;
+  /**
+   * New design, wide window: the hero stands in a leading column beside the
+   * chapters (`mobileMangaDetailColumns`), the cover's colour behind both.
+   */
+  columns?: boolean;
+  /** Chapter colours on the full-window cover wash; absent on plain pages. */
+  chapterPalette?: ReturnType<typeof import("@/lib/mobileCoverTint").buildMobileCoverTintPalette>;
+  /** The column's content width (its padding taken off), before the hero measures itself. */
+  columnContentWidth?: number;
+  /** Where the column's content starts in the window (estimate, for sizing the cover before it lands). */
+  columnTop?: number;
+};
+
+/** The cover colours the columns' shared wash is painted in (published by the hero). */
+export type MobileMangaDetailWash = {
+  tint: import("@/lib/mobileCoverTint").MobileCoverRgb | null;
+  regions: import("@/lib/mobileCoverTint").MobileCoverRgb[] | null;
+  /** False while loading or zooming in: the plain page colour, no living mesh. */
+  mesh: boolean;
+};
+
+/** Set by the two-column layout; the hero in the leading column publishes its colours here. */
+export const MobileMangaDetailWashContext = createContext<((wash: MobileMangaDetailWash | null) => void) | null>(null);
+
+const SINGLE_COMPACT_PANE: MobileMangaDetailPane = { role: "single", regularWidth: false };
+export const MobileMangaDetailPaneContext = createContext<MobileMangaDetailPane>(SINGLE_COMPACT_PANE);
+
+/** Which pane of the detail layout a hero / chapter header renders in. */
+export function useMobileMangaDetailPane(): MobileMangaDetailPane {
+  return useContext(MobileMangaDetailPaneContext);
+}
+
+/** Prototype "top header" layout: the hero lays out as a wide header and hands its genres to the list's footer. */
+export type MobileMangaDetailTopHeader = { setFooter: (node: import("react").ReactNode) => void };
+export const MobileMangaDetailTopHeaderContext = createContext<MobileMangaDetailTopHeader | null>(null);

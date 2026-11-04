@@ -1,0 +1,619 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import type { ChapterSummary } from "@/data/schema";
+import {
+  appendMobileReaderStripSegment,
+  mobileReaderStripWarmIndexes,
+  prependMobileReaderStripSegment,
+  pruneMobileReaderStrip,
+  rebaseMobileReaderStrip,
+  shouldAppendMobileReaderStripSegment,
+  shouldPrependMobileReaderStripSegment,
+  MOBILE_READER_STRIP_PREPEND_MODE,
+  type MobileReaderStrip,
+  type MobileReaderStripPrependMode,
+  type MobileReaderStripTail,
+} from "@/lib/mobileReaderChapterStrip";
+import { getMobileReaderChapterNavigation } from "@/lib/mobileReaderChapters";
+import type {
+  MobileReaderPage,
+  MobileReaderPageProcessor,
+  MobileReaderPagesRefresh,
+  MobileReaderPageWindowResult,
+} from "@/sources/mobileSourcePages";
+
+/** One chapter held in the seamless scroll list. */
+export type ReaderStripSegmentData = {
+  chapter: ChapterSummary;
+  pages: MobileReaderPage[];
+  pageProcessor?: MobileReaderPageProcessor;
+  fetchedAt: number;
+};
+
+export type ReaderChapterStrip = MobileReaderStrip<ChapterSummary, MobileReaderPage>;
+
+type EdgeState = { chapterId: string; status: "loading" | "failed" | "locked" } | null;
+
+type StripState = {
+  /** The chapter (and fetch) the list opened on; a new one starts a new list. */
+  sessionKey: string;
+  segments: ReaderStripSegmentData[];
+  currentIndex: number;
+  next: EdgeState;
+  previous: EdgeState;
+};
+
+const EMPTY_STATE: StripState = {
+  sessionKey: "",
+  segments: [],
+  currentIndex: 0,
+  next: null,
+  previous: null,
+};
+
+export function readerStripSessionKey(chapterId: string, fetchedAt: number): string {
+  return `${chapterId}:${fetchedAt}`;
+}
+
+/**
+ * Seamless scroll: the chapters held around the open one (at most one on
+ * each side), their fetch, their first images and their page processors.
+ *
+ * The open chapter itself stays the reader's (its `pagesState`); this hook
+ * holds a snapshot of it only to hand it back as a neighbour after a
+ * crossing. Processors of neighbouring chapters are owned here and disposed
+ * when they leave the list; `retainedProcessors` lets the reader skip
+ * disposing the open chapter's processor when it becomes a neighbour.
+ */
+export function useReaderChapterStrip(input: {
+  enabled: boolean;
+  /** The open chapter, live (null until its pages are ready). */
+  current: ReaderStripSegmentData | null;
+  /** The opening chapter + fetch of this list (see readerStripSessionKey). */
+  sessionKey: string;
+  /** Newest-first chapter index (as the reader keeps it). */
+  chapters: readonly ChapterSummary[];
+  /** The open chapter's live page (local index). */
+  currentLocalIndex: number;
+  loadChapter: (chapter: ChapterSummary) => Promise<MobileReaderPagesRefresh | null>;
+  /** Whether dropping the first `count` segments would touch nothing on screen. */
+  isHeadRemovalOffscreen: (strip: ReaderChapterStrip, count: number) => boolean;
+  /** The reader is near the top of its list and not mid-seek: a prepend may land. */
+  canPrepend: () => boolean;
+  /**
+   * A fetched previous chapter may be spliced in now: the list is at rest,
+   * `canPrepend` still passes and the reading line is still in the open
+   * chapter's first pages (see shouldSpliceMobileReaderStripPrevious).
+   * Until then it is held, and spliced by `flushPrevious`.
+   */
+  canSplicePrevious: () => boolean;
+  /** Where the reader is, for the one-line device log of a prepend. */
+  describePosition?: () => string;
+  /**
+   * `auto` (default: MOBILE_READER_STRIP_PREPEND_MODE): the chapter above is
+   * fetched in the open chapter's first pages. `pull`: only `requestPrevious`
+   * (a pull past the top of p1) fetches it.
+   */
+  prependMode?: MobileReaderStripPrependMode;
+}) {
+  const {
+    enabled,
+    current,
+    sessionKey,
+    chapters,
+    currentLocalIndex,
+    loadChapter,
+    isHeadRemovalOffscreen,
+    canPrepend,
+    canSplicePrevious,
+    describePosition,
+    prependMode = MOBILE_READER_STRIP_PREPEND_MODE,
+  } = input;
+  const prependModeRef = useRef(prependMode);
+  prependModeRef.current = prependMode;
+  const [state, setState] = useState<StripState>(EMPTY_STATE);
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  /** Processors of neighbouring chapters (never the open one's). */
+  const retainedProcessorsRef = useRef(new Set<MobileReaderPageProcessor>());
+  const loadChapterRef = useRef(loadChapter);
+  loadChapterRef.current = loadChapter;
+  const isHeadRemovalOffscreenRef = useRef(isHeadRemovalOffscreen);
+  isHeadRemovalOffscreenRef.current = isHeadRemovalOffscreen;
+  const canPrependRef = useRef(canPrepend);
+  canPrependRef.current = canPrepend;
+  const canSplicePreviousRef = useRef(canSplicePrevious);
+  canSplicePreviousRef.current = canSplicePrevious;
+  const describePositionRef = useRef(describePosition);
+  describePositionRef.current = describePosition;
+  /** One line per prepend event, for QA on device (low volume; dev builds only). */
+  const logPrepend = useCallback((event: string, segment: ReaderStripSegmentData) => {
+    if (!__DEV__) return;
+    console.info(
+      `[reader-strip] prepend ${event} chapter=${segment.chapter.id} rows=${segment.pages.length + 1} anchor=${
+        describePositionRef.current?.() ?? "?"
+      }`,
+    );
+  }, []);
+  /** The previous chapter, fetched while a splice was not safe (see canSplicePrevious). */
+  const heldPreviousRef = useRef<{
+    run: number;
+    segment: ReaderStripSegmentData;
+    /** Its deferral was logged (once). */
+    logged?: boolean;
+  } | null>(null);
+  const runRef = useRef(0);
+  const chaptersRef = useRef(chapters);
+  chaptersRef.current = chapters;
+
+  const disposeSegments = useCallback((segments: readonly ReaderStripSegmentData[]) => {
+    for (const segment of segments) {
+      const processor = segment.pageProcessor;
+      if (processor && retainedProcessorsRef.current.delete(processor)) {
+        processor.processPages?.([]);
+        processor.dispose();
+      }
+    }
+  }, []);
+  const discardHeldPrevious = useCallback(() => {
+    const held = heldPreviousRef.current;
+    heldPreviousRef.current = null;
+    held?.segment.pageProcessor?.dispose();
+  }, []);
+
+  // A new list (another chapter opened the normal way, a refetch, the flag
+  // or the mode turned off): neighbours go, their processors with them.
+  const activeSessionKey = enabled && current ? sessionKey : "";
+  const activeSessionKeyRef = useRef(activeSessionKey);
+  activeSessionKeyRef.current = activeSessionKey;
+  useEffect(() => {
+    const previous = stateRef.current;
+    if (previous.sessionKey === activeSessionKey) return;
+    runRef.current += 1;
+    disposeSegments(previous.segments);
+    discardHeldPrevious();
+    setState(
+      activeSessionKey && current
+        ? { ...EMPTY_STATE, sessionKey: activeSessionKey, segments: [current] }
+        : EMPTY_STATE,
+    );
+    // `current` is read for the opening segment only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSessionKey, discardHeldPrevious, disposeSegments]);
+
+  useEffect(
+    () => () => {
+      runRef.current += 1;
+      disposeSegments(stateRef.current.segments);
+      discardHeldPrevious();
+    },
+    [discardHeldPrevious, disposeSegments],
+  );
+
+  const live = state.sessionKey !== "" && state.sessionKey === activeSessionKey;
+
+  // The strip as rendered: the open chapter always from the reader's live
+  // state (its pages are processed in place), neighbours from here.
+  // Until this list's state is set up (the render that opens it), the open
+  // chapter alone: the list's rows never change identity under it.
+  const strip = useMemo<ReaderChapterStrip | null>(() => {
+    if (!activeSessionKey || !current) return null;
+    const currentIndex = live ? state.currentIndex : 0;
+    const segments = live
+      ? state.segments.map((segment, index) => (index === currentIndex ? current : segment))
+      : [current];
+    const last = segments[segments.length - 1]!;
+    const nextOfLast = getMobileReaderChapterNavigation(
+      [...chapters],
+      last.chapter.id,
+      "scrolling",
+    ).nextChapter;
+    let tail: MobileReaderStripTail<ChapterSummary>;
+    if (chapters.length === 0) {
+      tail = null;
+    } else if (!nextOfLast) {
+      tail = { kind: "end" };
+    } else {
+      const edge = state.next?.chapterId === nextOfLast.id ? state.next : null;
+      tail = {
+        kind: "next",
+        chapter: nextOfLast,
+        status: nextOfLast.locked ? "locked" : (edge?.status ?? "idle"),
+      };
+    }
+    return {
+      segments: segments.map((segment) => ({ ...segment, pages: segment.pages })),
+      currentIndex,
+      tail,
+    } as ReaderChapterStrip;
+  }, [activeSessionKey, chapters, current, live, state]);
+
+  const segmentsData = useMemo<ReaderStripSegmentData[]>(
+    () =>
+      !activeSessionKey || !current
+        ? []
+        : live
+          ? state.segments.map((segment, index) => (index === state.currentIndex ? current : segment))
+          : [current],
+    [activeSessionKey, current, live, state.currentIndex, state.segments],
+  );
+
+  // Neighbour page processing: the pages next to the open chapter decode
+  // ahead (the next chapter's first pages, the previous chapter's last).
+  // A page the reader turned onto before it was ready goes first
+  // (`prioritise`).
+  const processingRef = useRef(new Map<MobileReaderPageProcessor, string>());
+  const [priority, setPriority] = useState<{ chapterId: string; indexes: readonly number[] } | null>(null);
+  useEffect(() => {
+    if (!live) return;
+    const wanted = new Map<MobileReaderPageProcessor, number[]>();
+    state.segments.forEach((segment, index) => {
+      if (index === state.currentIndex) return;
+      const processor = segment.pageProcessor;
+      if (!processor?.processPages) return;
+      const count = segment.pages.length;
+      const warm = mobileReaderStripWarmIndexes(count);
+      const ordered = index > state.currentIndex ? warm : warm.map((offset) => count - 1 - offset);
+      const first =
+        priority?.chapterId === segment.chapter.id
+          ? priority.indexes.filter((page) => page >= 0 && page < count)
+          : [];
+      wanted.set(processor, [...new Set([...first, ...ordered])]);
+    });
+    wanted.forEach((indexes, processor) => {
+      const signature = indexes.join(",");
+      if (processingRef.current.get(processor) === signature) return;
+      processingRef.current.set(processor, signature);
+      let frame: number | null = null;
+      let latest: MobileReaderPage[] | null = null;
+      const flush = () => {
+        frame = null;
+        const pages = latest;
+        latest = null;
+        if (!pages) return;
+        setState((previous) => {
+          const at = previous.segments.findIndex((segment) => segment.pageProcessor === processor);
+          if (at < 0 || at === previous.currentIndex) return previous;
+          const segments = [...previous.segments];
+          segments[at] = { ...segments[at]!, pages };
+          return { ...previous, segments };
+        });
+      };
+      processor.processPages?.(indexes, {
+        onUpdate: (result: MobileReaderPageWindowResult) => {
+          latest = result.pages;
+          if (frame == null) frame = requestAnimationFrame(flush);
+        },
+      });
+    });
+    for (const processor of [...processingRef.current.keys()]) {
+      if (!wanted.has(processor)) processingRef.current.delete(processor);
+    }
+  }, [live, priority, state.currentIndex, state.segments]);
+
+  /**
+   * The reader turned onto a neighbour's page that is not ready yet (paged
+   * reading): it goes to the front of that chapter's processing queue.
+   */
+  const prioritise = useCallback((chapterId: string, indexes: readonly number[]) => {
+    setPriority((current) =>
+      current?.chapterId === chapterId &&
+      current.indexes.length === indexes.length &&
+      current.indexes.every((page, at) => page === indexes[at])
+        ? current
+        : { chapterId, indexes: [...indexes] },
+    );
+  }, []);
+
+  /** Joins a fetched chapter to the list (after the last or before the first). */
+  const spliceSegment = useCallback(
+    (chapter: ChapterSummary, segment: ReaderStripSegmentData, side: "next" | "previous") => {
+      if (segment.pageProcessor) retainedProcessorsRef.current.add(segment.pageProcessor);
+      setState((previous) => {
+        if (previous.segments.some((existing) => existing.chapter.id === chapter.id)) {
+          if (segment.pageProcessor && retainedProcessorsRef.current.delete(segment.pageProcessor)) {
+            segment.pageProcessor.dispose();
+          }
+          return { ...previous, [side]: null };
+        }
+        const base: ReaderChapterStrip = {
+          segments: previous.segments,
+          currentIndex: previous.currentIndex,
+          tail: null,
+        };
+        const joined =
+          side === "next"
+            ? appendMobileReaderStripSegment(base, segment, null)
+            : prependMobileReaderStripSegment(base, segment);
+        return {
+          ...previous,
+          segments: joined.segments as ReaderStripSegmentData[],
+          currentIndex: joined.currentIndex,
+          [side]: null,
+        };
+      });
+    },
+    [],
+  );
+
+  /**
+   * Splices a held previous chapter once that is safe (the reader calls this
+   * when a scroll settles; rechecks call it too). A held chapter that is no
+   * longer the one above the list (the reader crossed on) is dropped, so it
+   * is fetched again when wanted. True when it was spliced.
+   */
+  const flushPrevious = useCallback((): boolean => {
+    const held = heldPreviousRef.current;
+    if (!held) return false;
+    const { segments, currentIndex } = stateRef.current;
+    const first = segments[0];
+    const above = first
+      ? getMobileReaderChapterNavigation([...chaptersRef.current], first.chapter.id, "scrolling")
+          .previousChapter
+      : null;
+    if (held.run !== runRef.current || currentIndex !== 0 || above?.id !== held.segment.chapter.id) {
+      logPrepend("dropped", held.segment);
+      discardHeldPrevious();
+      if (held.run === runRef.current) {
+        stateRef.current = { ...stateRef.current, previous: null };
+        setState((previous) =>
+          previous.previous?.chapterId === held.segment.chapter.id ? { ...previous, previous: null } : previous,
+        );
+      }
+      return false;
+    }
+    if (!canSplicePreviousRef.current()) {
+      if (!held.logged) {
+        held.logged = true;
+        logPrepend("deferred", held.segment);
+      }
+      return false;
+    }
+    heldPreviousRef.current = null;
+    logPrepend(held.logged ? "applied (flushed)" : "applied", held.segment);
+    spliceSegment(held.segment.chapter, held.segment, "previous");
+    return true;
+  }, [discardHeldPrevious, logPrepend, spliceSegment]);
+
+  const fetchSegment = useCallback(
+    (chapter: ChapterSummary, side: "next" | "previous") => {
+      const run = runRef.current;
+      setState((previous) => ({ ...previous, [side]: { chapterId: chapter.id, status: "loading" } }));
+      void loadChapterRef
+        .current(chapter)
+        .catch(() => null)
+        .then((result) => {
+          const ready = result?.status === "ready" ? result : null;
+          if (runRef.current !== run) {
+            // The list moved on while this was in flight.
+            ready?.pageProcessor?.dispose();
+            return;
+          }
+          // A one-page chapter (a single long strip) reads in its own
+          // presentation: it is opened the normal way.
+          if (!ready || ready.pages.length <= 1) {
+            ready?.pageProcessor?.dispose();
+            setState((previous) => ({
+              ...previous,
+              [side]: {
+                chapterId: chapter.id,
+                status: chapter.locked || ready?.chapter.locked ? "locked" : "failed",
+              },
+            }));
+            return;
+          }
+          const segment: ReaderStripSegmentData = {
+            chapter: { ...chapter, ...ready.chapter, id: chapter.id },
+            pages: ready.pages,
+            pageProcessor: ready.pageProcessor,
+            fetchedAt: ready.fetchedAt,
+          };
+          if (side === "previous") {
+            // `canPrepend` held when the fetch started, not necessarily now:
+            // rows inserted above a moving list (or once the reader has left
+            // the first pages) put in-flight scroll reports in the wrong rows.
+            discardHeldPrevious();
+            heldPreviousRef.current = { run, segment };
+            flushPrevious();
+            return;
+          }
+          spliceSegment(chapter, segment, side);
+        });
+    },
+    [discardHeldPrevious, flushPrevious, spliceSegment],
+  );
+
+  // Prepend: in the first pages of its first chapter, fetch the previous —
+  // once `canPrepend` allows it. That gate is the reader's (refs), so the
+  // reader calls this again when it opens (a drag begins, a seek lands).
+  const prependInputsRef = useRef({ live, current, currentLocalIndex });
+  prependInputsRef.current = { live, current, currentLocalIndex };
+  const recheckPrevious = useCallback(() => {
+    const { live: isLive, current: open, currentLocalIndex: localIndex } = prependInputsRef.current;
+    if (!isLive || !open || chaptersRef.current.length === 0) return;
+    // Fetched already: it lands once that is safe.
+    if (heldPreviousRef.current) {
+      flushPrevious();
+      return;
+    }
+    // Pull mode: never on its own (see requestPrevious).
+    if (prependModeRef.current === "pull") return;
+    const { currentIndex, previous: edge } = stateRef.current;
+    if (currentIndex !== 0 || edge != null) return;
+    const previous = getMobileReaderChapterNavigation(
+      [...chaptersRef.current],
+      open.chapter.id,
+      "scrolling",
+    ).previousChapter;
+    if (
+      previous &&
+      !previous.locked &&
+      shouldPrependMobileReaderStripSegment(localIndex, true) &&
+      canPrependRef.current()
+    ) {
+      fetchSegment(previous, "previous");
+      // Called from the reader's events too: a second call before the
+      // render must not fetch it again.
+      stateRef.current = {
+        ...stateRef.current,
+        previous: { chapterId: previous.id, status: "loading" },
+      };
+    }
+  }, [fetchSegment, flushPrevious]);
+
+  // Append: in the last pages of the list's last chapter, fetch the next.
+  // Prepend: in the first pages of its first chapter, fetch the previous.
+  useEffect(() => {
+    if (!live || !current || chapters.length === 0) return;
+    const { segments, currentIndex } = state;
+    if (currentIndex === segments.length - 1 && state.next == null) {
+      const next = getMobileReaderChapterNavigation([...chapters], current.chapter.id, "scrolling")
+        .nextChapter;
+      if (
+        next &&
+        !next.locked &&
+        shouldAppendMobileReaderStripSegment(currentLocalIndex, current.pages.length)
+      ) {
+        fetchSegment(next, "next");
+      }
+    }
+    recheckPrevious();
+  }, [chapters, current, currentLocalIndex, fetchSegment, live, recheckPrevious, state]);
+
+  // Keep the open chapter and one on each side; a chapter above is dropped
+  // only once it is off screen (and the list's rows have settled: the
+  // reader asks again with recheckPrune when they have).
+  const [pruneTick, setPruneTick] = useState(0);
+  const pruneWaitingRef = useRef(false);
+  const recheckPrune = useCallback(() => {
+    if (!pruneWaitingRef.current) return;
+    pruneWaitingRef.current = false;
+    setPruneTick((tick) => tick + 1);
+  }, []);
+  useEffect(() => {
+    if (!live) return;
+    const base: ReaderChapterStrip = {
+      segments: state.segments.map((segment) => ({ chapter: segment.chapter, pages: segment.pages })),
+      currentIndex: state.currentIndex,
+      tail: null,
+    };
+    const pruned = pruneMobileReaderStrip(base);
+    if (pruned.removedHead.length === 0 && pruned.removedTail.length === 0) return;
+    const headCount = pruned.removedHead.length;
+    if (headCount > 0 && strip && !isHeadRemovalOffscreenRef.current(strip, headCount)) {
+      pruneWaitingRef.current = true;
+      return;
+    }
+    const removedHead = state.segments.slice(0, headCount);
+    const removedTail = state.segments.slice(state.segments.length - pruned.removedTail.length);
+    disposeSegments([...removedHead, ...removedTail]);
+    setState((previous) =>
+      previous.segments !== state.segments
+        ? previous
+        : {
+            ...previous,
+            segments: previous.segments.slice(headCount, previous.segments.length - pruned.removedTail.length),
+            currentIndex: previous.currentIndex - headCount,
+            next: pruned.removedTail.length > 0 ? null : previous.next,
+          },
+    );
+  }, [currentLocalIndex, disposeSegments, live, pruneTick, state, strip]);
+
+  /**
+   * The reader crossed into segment `segmentIndex`: it becomes the open
+   * chapter. `leaving` is the open chapter's live state, kept as a
+   * neighbour. Returns the arriving chapter's data for the reader to adopt.
+   */
+  const rebase = useCallback(
+    (segmentIndex: number, leaving: ReaderStripSegmentData): ReaderStripSegmentData | null => {
+      const previous = stateRef.current;
+      const arriving = previous.segments[segmentIndex];
+      if (!arriving || segmentIndex === previous.currentIndex) return null;
+      // Ownership moves: the leaving chapter's processor is now a
+      // neighbour's (kept here), the arriving one's the reader's.
+      if (leaving.pageProcessor) retainedProcessorsRef.current.add(leaving.pageProcessor);
+      if (arriving.pageProcessor) {
+        retainedProcessorsRef.current.delete(arriving.pageProcessor);
+        processingRef.current.delete(arriving.pageProcessor);
+      }
+      const segments = [...previous.segments];
+      segments[previous.currentIndex] = leaving;
+      const rebased = rebaseMobileReaderStrip(
+        { segments, currentIndex: previous.currentIndex, tail: null },
+        segmentIndex,
+      );
+      const nextState: StripState = {
+        ...previous,
+        segments,
+        currentIndex: rebased.currentIndex,
+      };
+      stateRef.current = nextState;
+      setState(nextState);
+      return arriving;
+    },
+    [],
+  );
+
+  /**
+   * The reader pulled past the top of the list: join the previous chapter
+   * above (once). False when there is none to join.
+   */
+  const requestPrevious = useCallback((): boolean => {
+    const { segments, currentIndex, previous, sessionKey: key } = stateRef.current;
+    if (!key || key !== activeSessionKeyRef.current || currentIndex !== 0) return false;
+    const first = segments[0];
+    if (!first) return false;
+    const chapter = getMobileReaderChapterNavigation(
+      [...chaptersRef.current],
+      first.chapter.id,
+      "scrolling",
+    ).previousChapter;
+    if (!chapter || chapter.locked) return false;
+    if (previous?.chapterId === chapter.id) {
+      // Joining: wait for it (a fetched one lands once the list rests).
+      // Failed or locked: the old way (open it).
+      if (previous.status === "loading") {
+        flushPrevious();
+        return true;
+      }
+      return false;
+    }
+    fetchSegment(chapter, "previous");
+    return true;
+  }, [fetchSegment, flushPrevious]);
+
+  /** A failed / locked neighbour: try it again. */
+  const retryNext = useCallback(() => {
+    setState((previous) => (previous.next?.status === "failed" ? { ...previous, next: null } : previous));
+  }, []);
+
+  const isRetainedProcessor = useCallback(
+    (processor: MobileReaderPageProcessor | undefined) =>
+      processor != null && retainedProcessorsRef.current.has(processor),
+    [],
+  );
+
+  /** The chapters being fetched (or that failed) on either side of the list. */
+  const edges = useMemo(
+    () => (live ? { previous: state.previous, next: state.next } : { previous: null, next: null }),
+    [live, state.next, state.previous],
+  );
+
+  return {
+    /** The list's chapters (null: not seamless, a single chapter list as before). */
+    strip,
+    edges,
+    prioritise,
+    segments: segmentsData,
+    rebase,
+    requestPrevious,
+    /** Prepend if the reader is now in its first pages and allows it. */
+    recheckPrevious,
+    retryNext,
+    isRetainedProcessor,
+    /** Splice a fetched previous chapter held back until the list rests. */
+    flushPrevious,
+    /** Try the head prune again (it waited for the rows to settle). */
+    recheckPrune,
+  };
+}

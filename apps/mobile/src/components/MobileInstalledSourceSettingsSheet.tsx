@@ -5,17 +5,23 @@ import type { InstalledSource, SourcePackageSetting } from "@/data/schema";
 import {
   MobileCachedImage,
   MobileNativeSheetScaffold,
+  NemuNativeSheetHeaderAction,
   NemuText,
   radius,
   useNemuTheme,
+  useMobileNativeSheetTheme,
 } from "@/design-system";
 import type { MobileStrings } from "@/lib/mobileI18n";
 import { getMobileInstalledSourceName } from "@/lib/mobileInstalledSourcePresentation";
 import { normalizeMobileSourceIconUri } from "@/lib/mobileSourceIconResolution";
+import { MOBILE_NATIVE_SHEET_BOTTOM_GUTTER } from "@/lib/mobileNativeSheet";
 import { getMobileSettingsSheetLayout } from "@/lib/mobileSettingsSheetLayout";
+import { READER_SETTINGS_FORM_INSET } from "@/lib/readerSettingsNativePopoverLayout";
+import { getMobileLocalNetworkServerSettingKeys } from "@/lib/mobileLocalNetworkAllowance";
 import { countVisibleSourceSettings } from "@/lib/mobileSourceSettings";
 import type { MobileSourceLoginSubmission } from "@/lib/mobileSourceSettingActions";
 import type { MobileSourceLoginCapabilities } from "@/sources/mobileSourceSettingsExecutor";
+import { MobileNativeStackSheet, mobileNativeStackSheetAvailable } from "./MobileNativeStackSheet";
 import { MobileSourceSettingsCard } from "./MobileSourceSettingsCard";
 import { useMobileSourceSettingsTransientSheets } from "./useMobileSourceSettingsTransientSheets";
 
@@ -32,7 +38,10 @@ import { useMobileSourceSettingsTransientSheets } from "./useMobileSourceSetting
 export function MobileSourceIcon({
   icon,
   placement = "row",
+  server = false,
 }: {
+  /** A built-in server source: no artwork, so a server glyph stands in. */
+  server?: boolean;
   icon?: string | null;
   placement?: "row" | "title";
 }) {
@@ -41,7 +50,7 @@ export function MobileSourceIcon({
   const inTitle = placement === "title";
   const placeholder = (
     <Ionicons
-      name="globe-outline"
+      name={server ? "server-outline" : "globe-outline"}
       size={inTitle ? 20 : 22}
       color={tokens.mutedForeground}
     />
@@ -135,7 +144,7 @@ export function MobileInstalledSourceSettingsSheet({
   loginCapabilities?: MobileSourceLoginCapabilities | null;
 }) {
   const name = getMobileInstalledSourceName(source);
-  const { tokens } = useNemuTheme();
+  const { tokens } = useMobileNativeSheetTheme();
   const { fontScale, height, width } = useWindowDimensions();
   const embeddedBackHandlerRef = useRef<(() => void) | null>(null);
   const sheetLayout = getMobileSettingsSheetLayout({
@@ -158,6 +167,76 @@ export function MobileInstalledSourceSettingsSheet({
     ...(onLogin ? { onLogin } : null),
   });
 
+  const card = (outlined: boolean) => (
+    <MobileSourceSettingsCard
+      settings={settings}
+      values={values}
+      loading={loading}
+      error={error}
+      title={strings.settings.sourceSettingsDefaultTitle}
+      hideSubtitle
+      navigationResetKey={navigationResetKey}
+      emptyMessage={strings.settings.sourceSettingsEmpty}
+      showEmpty
+      disabled={disabled}
+      retryDisabled={retryDisabled}
+      retrying={retrying}
+      outlined={outlined}
+      onEmbeddedBackHandlerChange={(handler) => {
+        embeddedBackHandlerRef.current = handler;
+      }}
+      onRetry={onRetry}
+      onReset={onReset}
+      onChange={onChange}
+      onAction={onAction}
+      onLogin={onLogin}
+      onLogout={onLogout}
+      loginCapabilities={loginCapabilities}
+      {...transientSheets.cardProps}
+    />
+  );
+  // A self-hosted source may reach the address typed above, and only that
+  // one: say so where the address is entered.
+  const localNetworkHint =
+    getMobileLocalNetworkServerSettingKeys(source.sourceId ?? "").length > 0 ? (
+      <NemuText color={tokens.mutedForeground} style={styles.localNetworkHint} variant="caption">
+        {strings.settings.sourceLocalNetworkHint}
+      </NemuText>
+    ) : null;
+
+  if (mobileNativeStackSheetAvailable) {
+    // iOS: the source's name in the sheet's bar with ✕, the settings on the
+    // Form inset below it.
+    return (
+      <>
+        <MobileNativeStackSheet
+          {...transientSheets.settingsSheetProps}
+          pages={[
+            {
+              id: `source:${source.id}`,
+              title: name,
+              render: () => (
+                <View style={styles.stackPage}>
+                  {card(false)}
+                  {localNetworkHint}
+                </View>
+              ),
+            },
+          ]}
+          closeAccessibilityLabel={strings.feedback.dismiss}
+          group="source-settings"
+          estimatedHeight={
+            sheetLayout.snapPoint === "82%"
+              ? Math.round(height * 0.82)
+              : (sheetLayout.snapPoint ?? Math.min(height, 260 + countVisibleSourceSettings(settings, values) * 64))
+          }
+          testID={`InstalledSourceSettingsSheet:${source.id}`}
+        />
+        {transientSheets.renderTransientSheet()}
+      </>
+    );
+  }
+
   return (
     <>
       <MobileNativeSheetScaffold
@@ -178,6 +257,8 @@ export function MobileInstalledSourceSettingsSheet({
           optically centered, so compose both into one centered row.
         */}
         <View style={styles.header}>
+          {/* Equal side columns keep the title centred; the only control, Close, sits trailing. */}
+          <View style={styles.headerSide} />
           <View style={styles.titleRow}>
             <MobileSourceIcon icon={iconUri} placement="title" />
             <NemuText
@@ -191,32 +272,17 @@ export function MobileInstalledSourceSettingsSheet({
               {name}
             </NemuText>
           </View>
+          <View style={styles.headerSide}>
+            <NemuNativeSheetHeaderAction
+              accessibilityLabel={strings.feedback.dismiss}
+              androidIcon="close-outline"
+              iosSystemImage="xmark"
+              onPress={transientSheets.settingsSheetProps.onClose}
+            />
+          </View>
         </View>
-        <MobileSourceSettingsCard
-          settings={settings}
-          values={values}
-          loading={loading}
-          error={error}
-          title={strings.settings.sourceSettingsDefaultTitle}
-          hideSubtitle
-          navigationResetKey={navigationResetKey}
-          emptyMessage={strings.settings.sourceSettingsEmpty}
-          showEmpty
-          disabled={disabled}
-          retryDisabled={retryDisabled}
-          retrying={retrying}
-          onEmbeddedBackHandlerChange={(handler) => {
-            embeddedBackHandlerRef.current = handler;
-          }}
-          onRetry={onRetry}
-          onReset={onReset}
-          onChange={onChange}
-          onAction={onAction}
-          onLogin={onLogin}
-          onLogout={onLogout}
-          loginCapabilities={loginCapabilities}
-          {...transientSheets.cardProps}
-        />
+        {card(true)}
+        {localNetworkHint}
       </MobileNativeSheetScaffold>
       {transientSheets.renderTransientSheet()}
     </>
@@ -224,11 +290,28 @@ export function MobileInstalledSourceSettingsSheet({
 }
 
 const styles = StyleSheet.create({
+  stackPage: {
+    paddingHorizontal: READER_SETTINGS_FORM_INSET,
+    paddingTop: 8,
+    paddingBottom: MOBILE_NATIVE_SHEET_BOTTOM_GUTTER,
+  },
+  localNetworkHint: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
   header: {
+    flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    paddingHorizontal: 16,
+  },
+  headerSide: {
+    width: 44,
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
   },
   titleRow: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",

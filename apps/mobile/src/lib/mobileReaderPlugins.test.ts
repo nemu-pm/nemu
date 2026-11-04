@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { UserSettings } from "@/data/schema";
 import {
-  canOpenMobileReaderPluginSettingsAction,
   canSelectMobileReaderPluginOption,
   getMobileReaderSettingsSelectedPlugin,
   getMobileReaderPluginStates,
@@ -59,7 +58,7 @@ describe("mobile reader plugin helpers", () => {
     expect(japaneseLearning.settings[0].items?.[0].title).toBe("自动检测文字");
     expect(japaneseLearning.settings[1].items?.[0].titles).toEqual([
       "应用语言",
-      "简明日语",
+      "简单日语（N4-N3）",
     ]);
     expect(dualRead.name).toBe("双源阅读");
     expect(dualRead.settings[0].items?.[0].title).toBe("调试浮层");
@@ -189,37 +188,6 @@ describe("mobile reader plugin helpers", () => {
     expect(
       canSelectMobileReaderPluginOption({
         selected: false,
-        disabled: true,
-      }),
-    ).toBe(false);
-  });
-
-  test("gates the open reader plugin settings action as a no-op selection", () => {
-    expect(
-      canOpenMobileReaderPluginSettingsAction({
-        settingsOpen: false,
-        activePluginId: null,
-        disabled: false,
-      }),
-    ).toBe(true);
-    expect(
-      canOpenMobileReaderPluginSettingsAction({
-        settingsOpen: true,
-        activePluginId: "japanese-learning",
-        disabled: false,
-      }),
-    ).toBe(true);
-    expect(
-      canOpenMobileReaderPluginSettingsAction({
-        settingsOpen: true,
-        activePluginId: null,
-        disabled: false,
-      }),
-    ).toBe(false);
-    expect(
-      canOpenMobileReaderPluginSettingsAction({
-        settingsOpen: false,
-        activePluginId: null,
         disabled: true,
       }),
     ).toBe(false);

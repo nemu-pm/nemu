@@ -229,14 +229,17 @@ export const tts = httpAction(async (ctx, request) => {
     try {
       ttsText = await withRetries(() => addAudioTags(cleanText), 1)
     } catch (err) {
-      console.warn("[tts] Audio tag generation failed; using raw text", err)
+      console.warn(
+        "[tts] Audio tag generation failed; using raw text",
+        err instanceof Error ? err.name : "UnknownError",
+      )
       ttsText = cleanText
     }
   }
 
   ttsText += '\n\n...'
 
-  console.log("[tts] post-tag text", { source: body?.source, text: ttsText })
+  console.log("[tts] request", { source: body?.source, chars: ttsText.length })
 
   const streamUrl = new URL(ELEVENLABS_DIALOGUE_STREAM_URL)
   streamUrl.searchParams.set("output_format", ELEVENLABS_OUTPUT_FORMAT)
@@ -260,7 +263,7 @@ export const tts = httpAction(async (ctx, request) => {
 
   if (!elevenRes.ok) {
     const errorText = await elevenRes.text().catch(() => "")
-    console.error("[tts] ElevenLabs error", elevenRes.status, errorText)
+    console.error("[tts] ElevenLabs error", elevenRes.status, errorText.length)
     return new Response(errorText || "TTS request failed", {
       status: elevenRes.status,
       headers: corsHeaders,

@@ -33,6 +33,13 @@ export type NativeBinaryCacheDownloadOptions = {
  * the in-memory stub. */
 export async function flushNativeBinaryCacheAccessIndexes(): Promise<void> {}
 
+/** Native twin defers its first directory index until the launch settles. */
+export function endNativeBinaryCacheLaunchIndexDeferral(): void {}
+
+export type FileSystemBinaryCacheOptions = {
+  deferIndexUntilLaunch?: boolean;
+};
+
 export class FileSystemBinaryCache implements NativeBinaryCache {
   private readonly entries = new Map<
     string,
@@ -42,12 +49,20 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
   constructor(
     _directoryName = "nemu-cache",
     _policy?: NativeBinaryCachePolicy,
+    _options?: FileSystemBinaryCacheOptions,
   ) {
     void _directoryName;
     void _policy;
+    void _options;
   }
 
   async flushAccessIndex(): Promise<void> {}
+
+  /** Native twin answers launch-time disk hits synchronously; none here. */
+  getLaunchUriSync(_key: string): string | null {
+    void _key;
+    return null;
+  }
 
   async getUri(key: string): Promise<string | null> {
     const entry = this.entries.get(key);

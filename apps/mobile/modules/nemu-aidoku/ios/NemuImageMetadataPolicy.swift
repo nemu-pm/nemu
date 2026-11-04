@@ -16,6 +16,16 @@ private struct NemuImageMetadataPolicyError: LocalizedError {
   var errorDescription: String? { message }
 }
 
+/**
+ * The image is well-formed but larger than the requested decode policy. Only
+ * this failure may be answered by a bounded transcode; malformed, animated or
+ * unsupported containers stay rejected.
+ */
+struct NemuImageDimensionLimitError: LocalizedError {
+  let message: String
+  var errorDescription: String? { message }
+}
+
 /** Metadata-only allocation boundary for untrusted downloaded images. */
 enum NemuImageMetadataPolicy {
   static let hardMaxDimension = 16_384
@@ -30,6 +40,10 @@ enum NemuImageMetadataPolicy {
     "public.jpeg",
     "public.png",
   ]
+
+  static func isAllowedStaticType(_ typeIdentifier: String) -> Bool {
+    allowedTypeIdentifiers.contains(typeIdentifier.lowercased())
+  }
 
   static func requestedPolicy(
     maxDimension: Int?,
@@ -91,17 +105,16 @@ enum NemuImageMetadataPolicy {
     policy: NemuImageDimensionPolicy
   ) throws -> NemuImageDimensions {
     let (pixelCount, overflow) = width.multipliedReportingOverflow(by: height)
+    guard width > 0, height > 0, !overflow, pixelCount > 0 else {
+      throw failure("Image dimensions are invalid.")
+    }
     guard
-      width > 0,
-      height > 0,
       width <= Int64(policy.maxDimension),
       height <= Int64(policy.maxDimension),
-      !overflow,
-      pixelCount > 0,
       pixelCount <= Int64(policy.maxPixels)
     else {
-      throw failure(
-        "Image dimensions exceed the \(policy.maxDimension)px / " +
+      throw NemuImageDimensionLimitError(
+        message: "Image dimensions exceed the \(policy.maxDimension)px / " +
           "\(policy.maxPixels) pixel safety limit."
       )
     }

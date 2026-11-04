@@ -29,6 +29,20 @@ export type ContinueChapterTarget<T> = {
   chapter: T | null;
   /** True when `chapter` resumes existing progress. */
   isContinuation: boolean;
+  /**
+   * The last-read chapter is finished and no unread chapter follows it:
+   * `chapter` is that last-read chapter (reopened from its first page) and
+   * the action reads "Caught up" rather than "Continue".
+   */
+  caughtUp?: boolean;
+};
+
+export type ContinueChapterOptions<T> = {
+  /**
+   * Whether the reader finished `chapter`. With it, a finished last-read
+   * chapter moves Continue on to the next unread chapter in reading order.
+   */
+  isCompleted?: (chapter: T) => boolean;
 };
 
 /** Sources use -1 (or omit the field) for "no number". */
@@ -153,17 +167,89 @@ function findProgressChapter<T extends ContinueChapterCandidate>(
 }
 
 /**
+ * Reading-order comparison of two chapters: by volume when both carry
+ * different volume numbers (numbering that restarts per volume), else by
+ * chapter number (volume number for volume-only sources). Undefined when
+ * either has no number to compare.
+ */
+function compareReadingOrder(
+  a: ContinueChapterCandidate,
+  b: ContinueChapterCandidate,
+): number | undefined {
+  const aVolume = validNumber(a.volumeNumber);
+  const bVolume = validNumber(b.volumeNumber);
+  const aChapter = validNumber(a.chapterNumber);
+  const bChapter = validNumber(b.chapterNumber);
+  if (aChapter !== undefined && bChapter !== undefined) {
+    if (aVolume !== undefined && bVolume !== undefined && aVolume !== bVolume) {
+      return aVolume - bVolume;
+    }
+    return aChapter - bChapter;
+  }
+  if (aChapter === undefined && bChapter === undefined && aVolume !== undefined && bVolume !== undefined) {
+    return aVolume - bVolume;
+  }
+  return undefined;
+}
+
+/**
+ * The first chapter after `current` in reading order that the reader has not
+ * finished and can open (not locked). Numbered chapters go by number (another
+ * upload of the same number is not "after" it); a chapter without a number
+ * goes by its place in the source's list.
+ */
+export function findNextUnreadChapter<T extends ContinueChapterCandidate>(
+  chapters: readonly T[],
+  current: T,
+  isCompleted: (chapter: T) => boolean,
+): T | null {
+  const readable = (chapter: T) =>
+    chapter !== current && chapter.locked !== true && !isCompleted(chapter);
+  const order = inferChapterListOrder(chapters);
+  const oldestFirst = order === "descending" ? [...chapters].reverse() : [...chapters];
+  if (orderingNumber(current) !== undefined) {
+    let best: T | null = null;
+    for (const chapter of oldestFirst) {
+      if (!readable(chapter)) continue;
+      const compared = compareReadingOrder(chapter, current);
+      if (compared === undefined || compared <= 0) continue;
+      // Oldest first, so a tie keeps the copy at the list's oldest end.
+      if (!best || (compareReadingOrder(chapter, best) ?? 0) < 0) best = chapter;
+    }
+    return best;
+  }
+  const currentIndex = oldestFirst.indexOf(current);
+  // No numbers to go by: the next readable chapter in list order.
+  for (let index = currentIndex + 1; index < oldestFirst.length; index += 1) {
+    const chapter = oldestFirst[index]!;
+    if (readable(chapter)) return chapter;
+  }
+  return null;
+}
+
+/**
  * Target of a manga's primary reading action: resume the in-progress chapter
  * when the progress still resolves to one, otherwise start from the first
- * chapter (see {@link findFirstChapterToRead}).
+ * chapter (see {@link findFirstChapterToRead}). A last-read chapter the
+ * reader finished moves on to the next unread chapter; with none after it,
+ * the target stays on it and is `caughtUp` (reopened from page 1).
  */
 export function resolveContinueChapter<T extends ContinueChapterCandidate>(
   chapters: readonly T[],
   progress: ContinueReadingProgress | null | undefined,
+  options: ContinueChapterOptions<T> = {},
 ): ContinueChapterTarget<T> {
   if (progress) {
     const resumed = findProgressChapter(chapters, progress);
-    if (resumed) return { chapter: resumed, isContinuation: true };
+    if (resumed) {
+      const isCompleted = options.isCompleted;
+      if (isCompleted && isCompleted(resumed)) {
+        const next = findNextUnreadChapter(chapters, resumed, isCompleted);
+        if (next) return { chapter: next, isContinuation: true };
+        return { chapter: resumed, isContinuation: true, caughtUp: true };
+      }
+      return { chapter: resumed, isContinuation: true };
+    }
   }
   return { chapter: findFirstChapterToRead(chapters), isContinuation: false };
 }

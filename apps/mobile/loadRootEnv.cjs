@@ -14,7 +14,7 @@
 // the *dev* deployment on developer machines, and falling back to it once
 // shipped a release build that talked to the dev backend, so a fresh install
 // signed in to an empty account. Release builds must get their Convex URL from
-// `.env.production(.local)` or from the environment (EAS env vars, CI).
+// `.env.production(.local)` or from the environment (CI).
 const fs = require("fs");
 const path = require("path");
 const { config } = require("dotenv");

@@ -25,13 +25,21 @@ export type SourceCardModel = {
 export function SourceCard({
   item,
   onLongPress,
+  compact = false,
 }: {
   item: SourceCardModel;
   onLongPress?: () => void;
+  /**
+   * A row inside a grouped list (design-explore): no card of its own, a
+   * smaller icon, a chevron. The group draws the surface and separators.
+   */
+  compact?: boolean;
 }) {
   const { scheme, tokens } = useNemuTheme();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
+  // A built-in server source has no artwork of its own.
+  const fallbackIcon = item.registryId === "self-hosted" ? "server-outline" : "globe-outline";
   const visuals = resolveSourceCardVisuals(scheme);
   const longPressHandledRef = useRef(false);
 
@@ -71,18 +79,23 @@ export function SourceCard({
       onPress={openSource}
       onLongPress={openLongPressAction}
       delayLongPress={320}
-      style={[
-        styles.root,
-        {
-          backgroundColor: visuals.cardBackground,
-          borderColor: visuals.cardBorder,
-        },
-        visuals.cardShadow,
-      ]}
+      style={
+        compact
+          ? styles.compactRoot
+          : [
+              styles.root,
+              {
+                backgroundColor: visuals.cardBackground,
+                borderColor: visuals.cardBorder,
+              },
+              visuals.cardShadow,
+            ]
+      }
     >
       <View
         style={[
           styles.iconFrame,
+          compact ? styles.compactIconFrame : null,
           {
             backgroundColor: visuals.iconBackground,
             borderColor: visuals.iconBorder,
@@ -93,7 +106,7 @@ export function SourceCard({
           <MobileCachedImage
             fallback={
               <Ionicons
-                name="globe-outline"
+                name={fallbackIcon}
                 size={24}
                 color={tokens.mutedForeground}
               />
@@ -104,7 +117,7 @@ export function SourceCard({
           />
         ) : (
           <Ionicons
-            name="globe-outline"
+            name={fallbackIcon}
             size={24}
             color={tokens.mutedForeground}
           />
@@ -128,11 +141,27 @@ export function SourceCard({
           </Text>
         ) : null}
       </View>
+      {compact ? (
+        <Ionicons name="chevron-forward" size={16} color={tokens.mutedForeground} />
+      ) : null}
     </NemuPressable>
   );
 }
 
 const styles = StyleSheet.create({
+  compactRoot: {
+    minHeight: 60,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  compactIconFrame: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+  },
   root: {
     minHeight: 84,
     flexDirection: "row",

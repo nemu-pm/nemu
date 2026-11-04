@@ -164,7 +164,7 @@ describe("getMobileSourceFilterChipValueLabel", () => {
         }),
         zh,
       ),
-    ).toBe("已选 3 项");
+    ).toBe("已选 3 个");
   });
 
   test("carries the sort direction glyph", () => {

@@ -69,12 +69,12 @@ export function ReaderReadingModePicker({
 
 const styles = StyleSheet.create({
   root: {
-    width: "100%",
+    width: "100%" as const,
     height: SEGMENTED_CONTROL_HEIGHT,
     justifyContent: "center",
   },
   host: {
-    width: "100%",
+    width: "100%" as const,
     height: SEGMENTED_CONTROL_HEIGHT,
   },
 });

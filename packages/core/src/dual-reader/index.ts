@@ -1,4 +1,5 @@
 export * from "./alignment-cache";
+export * from "./alignment-cooperative";
 export * from "./alignment-constants";
 export * from "./alignment-options";
 export * from "./alignment-scheduler";

@@ -1,0 +1,31 @@
+[
+ {
+  "lastScanned": "2026-10-13T06:27:27.4915427",
+  "coverImage": null,
+  "folderWatching": false,
+  "includeInDashboard": true,
+  "includeInRecommended": true,
+  "manageCollections": true,
+  "manageReadingLists": true,
+  "includeInSearch": true,
+  "allowScrobbling": false,
+  "folders": [
+   "/manga"
+  ],
+  "collapseSeriesRelationships": false,
+  "libraryFileTypes": [
+   1,
+   2
+  ],
+  "excludePatterns": [],
+  "allowMetadataMatching": false,
+  "enableMetadata": true,
+  "removePrefixForSortName": false,
+  "inheritWebLinksFromFirstChapter": false,
+  "defaultLanguage": "",
+  "metadataProvider": 3,
+  "id": 1,
+  "name": "Manga",
+  "type": 0
+ }
+]

@@ -14,6 +14,19 @@ import {
   MobileSourceMultiSelectSheet,
   MobileSourceStringListSheet,
 } from "./MobileSourceSettingsSubSheets";
+import {
+  MobileSourceMultiSelectNativeSheet,
+  MobileSourceStringListNativeSheet,
+  mobileSourceSettingsNativeSubSheetsAvailable,
+} from "./MobileSourceSettingsNativeSubSheets";
+
+// iOS: the native form sheets; Android keeps the React Native ones.
+const MultiSelectSheet = mobileSourceSettingsNativeSubSheetsAvailable
+  ? MobileSourceMultiSelectNativeSheet
+  : MobileSourceMultiSelectSheet;
+const StringListSheet = mobileSourceSettingsNativeSubSheetsAvailable
+  ? MobileSourceStringListNativeSheet
+  : MobileSourceStringListSheet;
 
 /**
  * A card row that takes over the screen for a round-trip: source login, a
@@ -181,7 +194,7 @@ export function useMobileSourceSettingsTransientSheets({
       case "multi-select": {
         const sheet = transient;
         return (
-          <MobileSourceMultiSelectSheet
+          <MultiSelectSheet
             key={`multi-select:${sheet.setting.key}`}
             disabled={disabled}
             visible={transientPresented}
@@ -217,7 +230,7 @@ export function useMobileSourceSettingsTransientSheets({
       case "string-list": {
         const sheet = transient;
         return (
-          <MobileSourceStringListSheet
+          <StringListSheet
             key={`string-list:${sheet.setting.key}`}
             disabled={disabled}
             visible={transientPresented}

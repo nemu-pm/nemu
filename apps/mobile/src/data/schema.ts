@@ -17,6 +17,8 @@ export type ChapterSummary = {
   lang?: string;
   /** Scanlation group, when the source names one. */
   scanlator?: string;
+  /** The chapter's web page, when the source gives one (share, copy link). */
+  url?: string;
 };
 
 export type ExternalIds = {
@@ -55,6 +57,13 @@ export type InstalledSource = {
   removed?: boolean;
   /** User-disabled install: kept and synced, but never run. */
   disabled?: boolean;
+  /**
+   * Set only on a built-in self-hosted server source (Komga, Kavita,
+   * Suwayomi). The server address syncs with the row; the login never does
+   * (it lives in this device's secure storage), so another device shows the
+   * source as needing a sign-in.
+   */
+  selfHosted?: { kind: "komga" | "kavita" | "suwayomi"; server: string };
 };
 
 export type SourcePackageListing = {
@@ -100,6 +109,14 @@ export type SourcePackageSetting = {
   requires?: string;
   requiresFalse?: string;
   requiresFeature?: string;
+  /**
+   * App-defined (reader plugin) settings only — never read from a source
+   * package: the feature uses nemu's servers, so signed out the row stays
+   * visible but disabled (see `applyMobileReaderPluginSignInState`).
+   */
+  requiresSignIn?: boolean;
+  /** Shown but not editable (set by the app, never by a source package). */
+  disabled?: boolean;
   notification?: string;
   refreshes?: Array<"content" | "listings" | "settings" | "filters">;
   action?: string;
@@ -142,6 +159,12 @@ export type SourcePackageMetadata = {
   filters: SourcePackageField[];
   settings: SourcePackageSetting[];
   hasWasm: boolean;
+  /**
+   * The runtime's last answer to "search only?" (no home, no listings), kept
+   * so the browse page opens in its final chrome. Absent until the source has
+   * run once; a package update drops it with the rest of the runtime fields.
+   */
+  onlySearch?: boolean;
 };
 
 export type ReadingMode = "rtl" | "ltr" | "scrolling";
@@ -163,12 +186,54 @@ export type UserSettings = {
   readingMode?: ReadingMode;
   readerScrollWidthPct?: number;
   readerTwoPageMode?: boolean;
+  /**
+   * Page layout for paged reading: single, double or auto (a spread when the
+   * window is wide enough). Supersedes `readerTwoPageMode`, which stays read
+   * as the fallback for profiles saved before the three-way choice.
+   */
+  readerSpreadMode?: "single" | "double" | "auto";
+  /**
+   * Page fit for paged reading, remembered per window shape (narrow, wide,
+   * large) rather than per title. Absent shapes use "page" (the whole page).
+   */
+  readerFitModes?: Partial<Record<"narrow" | "wide" | "large", "page" | "width" | "height" | "fill">>;
   readerPagePairingMode?: PagePairingMode;
+  /**
+   * Spread pairing: automatic (from the pages' binding margins), the cover
+   * alone or the cover paired. Supersedes `readerPagePairingMode`, read as
+   * the fallback for profiles saved before it.
+   */
+  readerSpreadPairing?: "auto" | "cover-alone" | "cover-paired";
+  /**
+   * "Shift by One Page", per manga (`mobileReaderPairingShiftKey`): the
+   * latest choice, which a chapter without its own takes, and each chapter's.
+   */
+  readerPairingShifts?: Record<string, { chapters?: Record<string, boolean>; learned?: boolean; shift?: boolean }>;
+  /**
+   * Around the page: white, black, or the page's own border colour. Absent
+   * (never chosen) reads as white; a stored value is never rewritten.
+   */
+  readerPageBackground?: "black" | "white" | "page";
+  /** 翻页: curl (default) or slide. */
+  readerPageTurn?: "curl" | "slide";
   readerProcessPageImages?: boolean;
   themePreference?: ThemePreference;
   searchSelectedSourceIds?: string[];
   readerPlugins?: Record<string, ReaderPluginSettings>;
   mobileWelcomeCompleted?: boolean;
+  /**
+   * Set once the source-directory list has been seeded (nemu recommended) and
+   * the legacy Community/ZH directories have been migrated for profiles that
+   * installed from them. Without it a removed migrated directory would be
+   * re-created on every launch.
+   */
+  sourceDirectoriesSeeded?: boolean;
+  /**
+   * Install updates for sources whose directory lists a newer version as soon
+   * as the catalog is refreshed; `undefined` means enabled (the long-standing
+   * behaviour). Refreshing a directory never installs new sources either way.
+   */
+  autoUpdateSources?: boolean;
   /** Master switch for transient haptic feedback; `undefined` means enabled. */
   hapticsFeedbackEnabled?: boolean;
   /** End-of-chapter check animation; `undefined` means disabled. */
@@ -177,6 +242,18 @@ export type UserSettings = {
   readerKeepAwake?: boolean;
   /** Lock the reader to portrait; `undefined` means disabled. */
   readerLockPortrait?: boolean;
+  /**
+   * What the bottom half holds in the notebook posture (Duo half-folded
+   * portrait, Android tabletop); `undefined` means automatic.
+   */
+  /** "automatic" is a value older builds saved; it reads as "filmstrip". */
+  readerNotebookPane?: "automatic" | "trackpad" | "filmstrip";
+  /** Hide unread filmstrip previews; defaults to false. */
+  readerThumbnailSpoilerSafe?: boolean;
+  /** Outer foldable display: keep the physical camera clear (default true). */
+  readerAvoidCamera?: boolean;
+  /** iPhone Duo: show the book's cover on the outer display while reading (default false). */
+  readerOuterCover?: boolean;
   mobileChapterListPreferences?: Record<
     string,
     {
@@ -264,6 +341,18 @@ export type SourceRegistry =
       name: string;
       type: "url";
       url: string;
+      /** Shipped with the app: can be disabled but not removed. */
+      builtIn?: boolean;
+      /** Skipped by catalog loads and source updates; absent means enabled. */
+      disabled?: boolean;
+      addedAt?: number;
+      /** The user typed `name`: catalog refreshes never replace it. */
+      customName?: boolean;
+      /**
+       * Sync clock of the last change. Set only by the sync layer: a row that
+       * arrives with one came from the cloud and is not pushed back.
+       */
+      updatedAt?: number;
     };
 
 export type UserOverrides = {
@@ -317,6 +406,8 @@ export type LocalChapterProgress = {
   intraPageProgress?: number;
   /** Content identity that must match before `intraPageProgress` is restored. */
   intraPageContentIdentity?: string;
+  /** Sync clock of the newest Mark as Unread; reading before it is discarded. */
+  resetAt?: number;
   updatedAt: number;
 };
 

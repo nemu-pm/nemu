@@ -1,0 +1,26 @@
+diff --git a/Common/cpp/reanimated/LayoutAnimations/LayoutAnimationsProxy.cpp b/Common/cpp/reanimated/LayoutAnimations/LayoutAnimationsProxy.cpp
+index c0825bb..044210d 100644
+--- a/Common/cpp/reanimated/LayoutAnimations/LayoutAnimationsProxy.cpp
++++ b/Common/cpp/reanimated/LayoutAnimations/LayoutAnimationsProxy.cpp
+@@ -1140,14 +1140,19 @@ void LayoutAnimationsProxy::startExitingAnimation(
+ void LayoutAnimationsProxy::startLayoutAnimation(
+     const std::shared_ptr<LightNode> &node,
+     const std::shared_ptr<Serializable> &config) const {
++  // An Update can queue this animation before a later Remove/Delete in the
++  // same mounting transaction detaches its parent. Keep the parent alive for
++  // the operation, and do not animate a view whose container is already gone.
++  const auto parent = node->parent.lock();
++  if (!parent) {
++    return;
++  }
+   if (const auto staleTag = staleSynchronousProps_.find(node, LayoutAnimationType::LAYOUT)) {
+     warnAboutStaleSynchronousProps(node->current.tag, *staleTag, LayoutAnimationType::LAYOUT);
+   }
+   resolveLightNodeProps(node);
+   const auto &oldChildShadowView = node->previous;
+   const auto &newChildShadowView = node->current;
+-  const auto &parent = node->parent.lock();
+-  react_native_assert(parent && "Parent node is nullptr");
+   enqueueLayoutAnimation(ManagedLayoutAnimationStart{
+       .tag = oldChildShadowView.tag,
+       .type = LayoutAnimationType::LAYOUT,

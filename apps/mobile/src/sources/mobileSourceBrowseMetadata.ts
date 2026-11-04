@@ -297,6 +297,7 @@ function mergeRuntimePackageMetadata({
   listings,
   filters,
   settings,
+  onlySearch,
 }: {
   source: InstalledSource;
   baseMetadata?: SourcePackageMetadata | null;
@@ -304,6 +305,7 @@ function mergeRuntimePackageMetadata({
   listings: SourcePackageListing[];
   filters: Filter[];
   settings: SourcePackageSetting[];
+  onlySearch: boolean;
 }): SourcePackageMetadata {
   const current = baseMetadata ?? source.packageMetadata;
   const contentRating = current?.contentRating ?? source.contentRating;
@@ -335,6 +337,7 @@ function mergeRuntimePackageMetadata({
         ? current.settings
         : (persisted?.settings ?? []),
     hasWasm: current?.hasWasm ?? source.sourceKind !== "tachiyomi",
+    onlySearch,
   };
 }
 
@@ -400,6 +403,7 @@ export async function fetchMobileSourceBrowseMetadata(
           listings: normalizedListings,
           filters,
           settings: runtimeSettings,
+          onlySearch,
         }),
       };
     },
