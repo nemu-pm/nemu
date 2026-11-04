@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { AccessibilityInfo, Alert } from "react-native";
 import { router } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
 import { useMobileDataStore } from "@/data/mobileDataContext";
 import { emitMobileDataChanged } from "@/data/mobileDataEvents";
 import { useMobileLanguageSettings } from "@/data/mobileHooks";
@@ -22,6 +23,10 @@ import { useMobileToast } from "./MobileToastContext";
  * directory first (a toast says so while it loads), then asks in a system
  * alert (name, address, and that nemu does not host or review it). Nothing is
  * added silently. Once added, Browse opens Add Sources on its sources.
+ *
+ * A link tapped in the in-app browser (nemu.pm's directory page, opened from
+ * Add Source Directory) closes that browser first, so the toast, the alert and
+ * Add Sources are not left underneath it.
  */
 export function MobileSourceDirectoryLinkHandler() {
   const store = useMobileDataStore();
@@ -49,16 +54,18 @@ export function MobileSourceDirectoryLinkHandler() {
                   : "sourceDirectoryErrorUnreachable"
               ],
           });
-        // Fetching the list can take a moment before the alert appears.
-        toast.show({
-          id: "source-directory-link",
-          tone: "info",
-          loading: true,
-          duration: "sticky",
-          title: strings.checkingSourceDirectory,
-        });
         void (async () => {
           try {
+            // Rejects when no in-app browser is open; absent on Android.
+            await WebBrowser.dismissBrowser()?.catch(() => undefined);
+            // Fetching the list can take a moment before the alert appears.
+            toast.show({
+              id: "source-directory-link",
+              tone: "info",
+              loading: true,
+              duration: "sticky",
+              title: strings.checkingSourceDirectory,
+            });
             const preview = await previewMobileSourceDirectory(store, { url }).finally(() =>
               toast.dismiss("source-directory-link"),
             );

@@ -12,13 +12,13 @@ export function AddSourceDirectoryScreen() {
   const { strings } = form;
   const s = strings.settings;
 
-  const actionRow = (label: string, icon: keyof typeof Ionicons.glyphMap, onPress: () => void) => (
+  const actionRow = (label: string, icon: keyof typeof Ionicons.glyphMap, onPress: () => void, divider = true) => (
     <NemuPressable
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
       pressHighlight
-      style={[styles.row, styles.rowDivider, { borderTopColor: tokens.border }]}
+      style={[styles.row, divider && [styles.rowDivider, { borderTopColor: tokens.border }]]}
     >
       <Ionicons name={icon} size={20} color={tokens.primary} />
       <NemuText style={[styles.actionLabel, { color: tokens.primary }]}>{label}</NemuText>
@@ -34,14 +34,18 @@ export function AddSourceDirectoryScreen() {
         ])}
       </Stack.Toolbar>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <NemuText style={[styles.header, { color: tokens.mutedForeground }]}>{s.sourceDirectoryAidokuHeader}</NemuText>
+        <NemuText style={[styles.header, { color: tokens.mutedForeground }]}>{s.sourceDirectoryNemuHeader}</NemuText>
+        <View style={[styles.group, { backgroundColor: tokens.card, borderColor: tokens.border }]}>
+          {actionRow(s.openNemuSourceDirectoriesPage, "compass-outline", form.openNemuDirectoriesPage, false)}
+        </View>
+        <NemuText style={[styles.footer, { color: tokens.mutedForeground }]}>{s.sourceDirectoryNemuFooter}</NemuText>
+        <NemuText style={[styles.header, styles.spaced, { color: tokens.mutedForeground }]}>{s.sourceDirectoryAidokuHeader}</NemuText>
         <View style={[styles.group, { backgroundColor: tokens.card, borderColor: tokens.border }]}>
           <TextInput
             accessibilityLabel={s.sourceDirectoryAddress}
             autoCapitalize="none"
             autoComplete="off"
             autoCorrect={false}
-            autoFocus
             editable={!form.checking}
             importantForAutofill="no"
             keyboardType="url"
@@ -55,7 +59,6 @@ export function AddSourceDirectoryScreen() {
             value={form.address}
           />
           {form.canPaste ? actionRow(s.pasteSourceDirectoryAddress, "clipboard-outline", () => void form.paste()) : null}
-          {actionRow(s.openAidokuSourceListsGuide, "compass-outline", form.openAidokuGuide)}
         </View>
         <NemuText style={[styles.footer, { color: tokens.mutedForeground }]}>
           {`${s.sourceDirectoryAidokuFooter}\n\n${s.sourceDirectoryDisclaimer}`}
@@ -75,13 +78,6 @@ export function AddSourceDirectoryScreen() {
             <NemuText style={[styles.statusText, { color: tokens.danger }]}>{form.error}</NemuText>
           </View>
         ) : null}
-        <NemuText style={[styles.header, styles.spaced, { color: tokens.mutedForeground }]}>{s.sourceDirectoryNemuHeader}</NemuText>
-        {form.nemuDirectoriesPageUrl ? (
-          <View style={[styles.group, { backgroundColor: tokens.card, borderColor: tokens.border }]}>
-            {actionRow(s.openNemuSourceDirectoriesPage, "globe-outline", form.openNemuDirectoriesPage)}
-          </View>
-        ) : null}
-        <NemuText style={[styles.footer, { color: tokens.mutedForeground }]}>{s.sourceDirectoryNemuFooter}</NemuText>
       </ScrollView>
     </View>
   );

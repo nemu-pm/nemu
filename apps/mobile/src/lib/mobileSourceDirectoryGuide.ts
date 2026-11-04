@@ -2,19 +2,12 @@ import type { SourceDirectory } from "@nemu/core/sources";
 import { extractMobileSourceDirectoryUrl } from "./mobileSourceDirectoryLink";
 
 /**
- * Aidoku's own guide to installing sources (source lists are added in its
- * settings). The Add Directory page points here instead of naming any list:
- * nemu never presets or recommends a third-party directory.
+ * nemu.pm's page listing source directories with one-tap
+ * `nemu://addSourceList` links (the web app's /directories route). The app
+ * itself never presets or lists a third-party directory; the Add Directory
+ * page opens this one in the in-app browser instead.
  */
-export const AIDOKU_SOURCE_LISTS_GUIDE_URL =
-  "https://aidoku.app/help/guides/getting-started/#installing-a-source";
-
-/**
- * A nemu.pm page listing directories with one-tap `nemu://addSourceList`
- * links. Null until that page is published; its row on the Add Directory page
- * stays hidden while unset.
- */
-export const NEMU_SOURCE_DIRECTORIES_PAGE_URL: string | null = null;
+export const NEMU_SOURCE_DIRECTORIES_PAGE_URL = "https://nemu.pm/directories";
 
 /** Which stack pushed the Add Directory page, and so where adding returns. */
 export type MobileAddSourceDirectoryOrigin = "browse" | "settings";

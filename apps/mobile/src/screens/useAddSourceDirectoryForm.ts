@@ -17,7 +17,6 @@ import { requestMobileAddSourceSheet } from "@/lib/mobileAddSourceSheetRequest";
 import { formatMobileString, getMobileStrings } from "@/lib/mobileI18n";
 import { SOURCE_DIRECTORY_ERROR_KEYS } from "@/lib/mobileSourceDirectoryErrors";
 import {
-  AIDOKU_SOURCE_LISTS_GUIDE_URL,
   NEMU_SOURCE_DIRECTORIES_PAGE_URL,
   mobileSourceDirectoryAddressFromClipboard,
   parseMobileAddSourceDirectoryOrigin,
@@ -187,10 +186,6 @@ export function useAddSourceDirectoryForm(params: AddSourceDirectoryFormParams) 
     canPaste: clipboardHasText && !checking,
     submit,
     paste,
-    openAidokuGuide: () => openInAppBrowser(AIDOKU_SOURCE_LISTS_GUIDE_URL),
-    nemuDirectoriesPageUrl: NEMU_SOURCE_DIRECTORIES_PAGE_URL,
-    openNemuDirectoriesPage: () => {
-      if (NEMU_SOURCE_DIRECTORIES_PAGE_URL) openInAppBrowser(NEMU_SOURCE_DIRECTORIES_PAGE_URL);
-    },
+    openNemuDirectoriesPage: () => openInAppBrowser(NEMU_SOURCE_DIRECTORIES_PAGE_URL),
   };
 }

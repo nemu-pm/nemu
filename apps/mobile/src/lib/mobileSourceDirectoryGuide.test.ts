@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  AIDOKU_SOURCE_LISTS_GUIDE_URL,
   NEMU_SOURCE_DIRECTORIES_PAGE_URL,
   hasMobileUserSourceDirectory,
   mobileSourceDirectoryAddressFromClipboard,
@@ -50,12 +49,10 @@ describe("mobileSourceDirectoryAddressFromClipboard", () => {
 });
 
 describe("guide links", () => {
-  test("the Aidoku guide is Aidoku's own site, over HTTPS", () => {
-    expect(new URL(AIDOKU_SOURCE_LISTS_GUIDE_URL).origin).toBe("https://aidoku.app");
-  });
-
-  test("the nemu directory page stays hidden until it is published", () => {
-    expect(NEMU_SOURCE_DIRECTORIES_PAGE_URL).toBeNull();
+  test("the directory page is the web app's /directories route on nemu.pm", () => {
+    const url = new URL(NEMU_SOURCE_DIRECTORIES_PAGE_URL);
+    expect(url.origin).toBe("https://nemu.pm");
+    expect(url.pathname).toBe("/directories");
   });
 
   test("origin defaults to Settings", () => {
