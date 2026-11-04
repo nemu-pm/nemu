@@ -1740,13 +1740,10 @@ export function SearchScreen() {
       nativeHeader={usesNativeHeader}
       contentInsetAdjustmentBehavior={usesNativeHeader ? "automatic" : "never"}
       headerSearchBar={usesNativeSearchBar}
-      // The idle and no-source states are a fixed page under the pinned
-      // header search field: scrolling them only strands the collapsing
-      // title and chip row half under it. The in-content field (regular
-      // widths, incl. phone landscape) has nothing pinned, and a short
-      // window must be able to scroll the placeholder out from under the
-      // floating tab bar (the list already pads for it).
-      scrollEnabled={!(usesNativeSearchBar && !error && !showSkeleton && (selectedCount === 0 || !trimmedQuery))}
+      // The idle state scrolls and bounces like any page (it only
+      // rubber-bands while it fits). iOS moves a list to the bars' adjusted
+      // top only if it can scroll: with scrolling off (or no bounce) the
+      // idle page stayed at offset 0, up under the bar and search field.
       ListHeaderComponent={
         <>
           {usesNativeHeader ? null : (
