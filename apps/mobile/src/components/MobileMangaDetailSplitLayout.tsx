@@ -240,12 +240,16 @@ export function MobileMangaDetailSplitLayout<ItemT>({
   const pose = useMobilePoseTransition();
   // One key per pane geometry: a fold / unfold / resize that moves a pane's
   // edges settles that pane's content.
+  // The columns are not settled here: the stale-columns guard below already
+  // hides them until they are laid out for their window, and a dip on top of
+  // it blinked columns that were already right (Duo outer → inner, book →
+  // flat: each passing width dipped them again).
   const leadingSettle = useMobilePoseResnapFade(
-    split ? `${split.alignment}:${Math.round(split.leading.width)}` : "none",
+    columns ? "columns" : split ? `${split.alignment}:${Math.round(split.leading.width)}` : "none",
     { poseChangesOnly: true },
   );
   const trailingSettle = useMobilePoseResnapFade(
-    split ? `${split.alignment}:${Math.round(split.trailing.x)}:${Math.round(split.trailing.width)}` : "single",
+    columns ? "columns" : split ? `${split.alignment}:${Math.round(split.trailing.x)}:${Math.round(split.trailing.width)}` : "single",
     { poseChangesOnly: true },
   );
   const rowLayout = useMobileMeasuredRowLayout({

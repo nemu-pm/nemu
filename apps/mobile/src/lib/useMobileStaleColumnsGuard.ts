@@ -10,7 +10,6 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { MOBILE_MOTION } from "@/lib/mobileMotion";
-import { isMobilePoseMotionWindowOpen } from "@/lib/mobilePoseLayoutAnimations";
 import { subscribeMobileSystemTransition } from "@/lib/mobileTransitionTiming";
 
 /** The columns show again after this long whatever the measurement says (ms). */
@@ -25,9 +24,11 @@ const MAX_HIDDEN_MS = 800;
  * laid out for on every frame (UI thread) and hides them the moment the two
  * differ; they fade back in once the layout for the new size has committed.
  * A resize also reports passing sizes (unfolding the Duo commits the columns
- * for a 907 pt window, then 951 pt): when the columns' width changes during a
- * pose change they start hidden and show only once laid out for the window
- * they are in, so no in-between layout is ever seen. And when the system
+ * for a 907 pt window, then 951 pt): the same frame check hides a passing
+ * layout that does not match the window it is in. Columns whose new width
+ * already matches their window stay shown: hiding every width change during
+ * a pose change blinked columns that were right (Duo outer → inner: drawn,
+ * then gone, then faded back in). And when the system
  * announces a size change (ahead of it, from the native transition report)
  * that these columns were not laid out for, they hide right away: the frame
  * check alone still let a frame or two of squeezed columns through.
@@ -43,7 +44,6 @@ export function useMobileStaleColumnsGuard(expectedWidth: number | null) {
   const opacity = useSharedValue(1);
   const focused = useIsFocused();
   const active = focused && expectedWidth !== null && expectedWidth > 0;
-  const previousRef = useRef<number | null | undefined>(undefined);
   const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const expectedRef = useRef(expectedWidth);
@@ -64,11 +64,6 @@ export function useMobileStaleColumnsGuard(expectedWidth: number | null) {
     };
     hideRef.current = hide;
     expectedRef.current = expectedWidth;
-    const previous = previousRef.current;
-    previousRef.current = expectedWidth;
-    if (previous === undefined || previous === expectedWidth) return;
-    if (expectedWidth === null || !isMobilePoseMotionWindowOpen()) return;
-    hide(0);
   }, [expectedWidth, opacity, stale]);
   useEffect(
     () =>
