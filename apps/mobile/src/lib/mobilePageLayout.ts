@@ -127,3 +127,61 @@ export function resolveMobilePageViewportHeight({
   const safeBottom = Number.isFinite(bottom) ? Math.max(0, bottom) : 0;
   return Math.max(1, Math.floor(frameHeight - safeTop - safeBottom));
 }
+
+/** A page scroll view's frame height and the insets UIKit adjusted it by. */
+export type MobilePageViewportObservation = { top: number; bottom: number; height: number };
+
+/**
+ * Pages that share this key share a viewport: the same window under the same
+ * bars (a root tab's native header over the tab bar, or beside the vertical
+ * bars).
+ */
+export function getMobilePageViewportKey({
+  windowWidth,
+  windowHeight,
+  bottomBar,
+  verticalBarSide,
+}: {
+  windowWidth: number;
+  windowHeight: number;
+  bottomBar: boolean;
+  verticalBarSide: "left" | "right" | null;
+}): string {
+  return `${Math.round(windowWidth)}x${Math.round(windowHeight)}:${bottomBar ? "tabs" : "no-tabs"}:${verticalBarSide ?? "none"}`;
+}
+
+/**
+ * A safe area that is all zero comes from a page not yet laid out in its
+ * window (a tab shown for the first time reports one just before its bars'
+ * insets); it says nothing about the viewport.
+ */
+export function isMobilePageViewportObservationUsable(observation: MobilePageViewportObservation): boolean {
+  return (
+    Number.isFinite(observation.height) &&
+    observation.height > 0 &&
+    (observation.top > 0 || observation.bottom > 0)
+  );
+}
+
+const rememberedPageViewports = new Map<string, MobilePageViewportObservation>();
+
+/**
+ * The last viewport a page observed under this key. A tab mounts hidden at
+ * launch: its header height is the stack's default estimate and its observer
+ * has no window, so it reports only after the tab's first frame is on screen
+ * and an empty page centred in the estimate moved once (Browse / Search, first
+ * visit per launch). Another page with the same key already observed it.
+ */
+export function recallMobilePageViewport(key: string): MobilePageViewportObservation | null {
+  return rememberedPageViewports.get(key) ?? null;
+}
+
+export function rememberMobilePageViewport(key: string, observation: MobilePageViewportObservation): void {
+  if (!isMobilePageViewportObservationUsable(observation)) return;
+  rememberedPageViewports.set(key, observation);
+}
+
+/** Tests only. */
+export function resetRememberedMobilePageViewports(): void {
+  rememberedPageViewports.clear();
+}

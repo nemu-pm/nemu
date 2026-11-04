@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { resolveMobilePageViewportHeight } from "./mobilePageLayout";
+import {
+  getMobilePageViewportKey,
+  isMobilePageViewportObservationUsable,
+  recallMobilePageViewport,
+  rememberMobilePageViewport,
+  resetRememberedMobilePageViewports,
+  resolveMobilePageViewportHeight,
+} from "./mobilePageLayout";
 import {
   getMobileEmptyLibraryBoxHeight,
   getMobileEmptyLibraryIosBottomChrome,
@@ -48,6 +55,68 @@ describe("resolveMobilePageViewportHeight", () => {
       fallbackTopInset: 0,
       fallbackBottomInset: 0,
     })).toBeNull();
+  });
+});
+
+describe("remembered page viewport (a tab mounted hidden at launch)", () => {
+  const phoneTabs = getMobilePageViewportKey({
+    windowWidth: 402,
+    windowHeight: 874,
+    bottomBar: true,
+    verticalBarSide: null,
+  });
+
+  test("a hidden tab's first frame uses the viewport another tab observed", () => {
+    resetRememberedMobilePageViewports();
+    // Library is on screen at launch and its observer reports the real bars.
+    rememberMobilePageViewport(phoneTabs, { top: 116, bottom: 83, height: 874 });
+    // Browse mounted hidden: its stack still has the default header estimate
+    // (100.67) and its own observer has not reported.
+    const recalled = recallMobilePageViewport(phoneTabs);
+    const firstFrame = resolveMobilePageViewportHeight({
+      frameHeight: recalled?.height ?? null,
+      systemAdjustsInsets: true,
+      observedInsets: recalled,
+      fallbackTopInset: 100.67,
+      fallbackBottomInset: 83,
+    });
+    const settled = resolveMobilePageViewportHeight({
+      frameHeight: 874,
+      systemAdjustsInsets: true,
+      observedInsets: { top: 116, bottom: 83 },
+      fallbackTopInset: 0,
+      fallbackBottomInset: 0,
+    });
+    expect(firstFrame).toBe(675);
+    expect(firstFrame).toBe(settled);
+  });
+
+  test("an all-zero safe area (not yet laid out in its window) is ignored", () => {
+    resetRememberedMobilePageViewports();
+    const zero = { top: 0, bottom: 0, height: 874 };
+    expect(isMobilePageViewportObservationUsable(zero)).toBe(false);
+    rememberMobilePageViewport(phoneTabs, zero);
+    expect(recallMobilePageViewport(phoneTabs)).toBeNull();
+    rememberMobilePageViewport(phoneTabs, { top: 116, bottom: 83, height: 874 });
+    rememberMobilePageViewport(phoneTabs, zero);
+    expect(recallMobilePageViewport(phoneTabs)).toEqual({ top: 116, bottom: 83, height: 874 });
+  });
+
+  test("other windows and bar layouts keep their own viewport", () => {
+    resetRememberedMobilePageViewports();
+    rememberMobilePageViewport(phoneTabs, { top: 116, bottom: 83, height: 874 });
+    expect(recallMobilePageViewport(getMobilePageViewportKey({
+      windowWidth: 874,
+      windowHeight: 402,
+      bottomBar: true,
+      verticalBarSide: null,
+    }))).toBeNull();
+    expect(recallMobilePageViewport(getMobilePageViewportKey({
+      windowWidth: 402,
+      windowHeight: 874,
+      bottomBar: false,
+      verticalBarSide: "right",
+    }))).toBeNull();
   });
 });
 

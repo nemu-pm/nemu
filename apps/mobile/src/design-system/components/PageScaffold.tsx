@@ -48,8 +48,13 @@ import { exactMobileRootTabHrefForPathname } from "@/lib/mobileRootTabs";
 import { getMobileFontScaleLayoutKey } from "@/lib/mobileDynamicTypeLayout";
 import {
   getMobilePageTopPadding,
+  getMobilePageViewportKey,
+  isMobilePageViewportObservationUsable,
+  recallMobilePageViewport,
+  rememberMobilePageViewport,
   resolveMobilePageContentInsetAdjustment,
   resolveMobilePageViewportHeight,
+  type MobilePageViewportObservation,
 } from "@/lib/mobilePageLayout";
 import { isMobileBottomTabBarRoute, shouldShowMobileFloatingTabBar } from "@/lib/mobileRootTabs";
 import { useMobileBottomTabBarInset } from "@/lib/mobileBottomTabBarInset";
@@ -390,12 +395,19 @@ function usePageViewportFill({
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
   const headerHeight = useContext(HeaderHeightContext);
-  const { verticalBarSide } = useMobileAdaptiveLayout();
+  const { verticalBarSide, width: windowWidth, height: windowHeight } = useMobileAdaptiveLayout();
   const measuredTabBarInset = useMobileBottomTabBarInset();
   const [frameHeight, setFrameHeight] = useState<number | null>(null);
-  const [observed, setObserved] = useState<{ top: number; bottom: number; height: number } | null>(null);
+  const [observed, setObserved] = useState<MobilePageViewportObservation | null>(null);
   const systemAdjustsInsets =
     Platform.OS === "ios" && contentInsetAdjustmentBehavior !== "never";
+  const bottomBar =
+    isMobileBottomTabBarRoute(pathname, Platform.OS) && verticalBarSide === null;
+  const viewportKey = getMobilePageViewportKey({ windowWidth, windowHeight, bottomBar, verticalBarSide });
+  const viewportKeyRef = useRef(viewportKey);
+  useLayoutEffect(() => {
+    viewportKeyRef.current = viewportKey;
+  }, [viewportKey]);
   const onFrameLayout = useCallback((event: LayoutChangeEvent) => {
     const next = event.nativeEvent.layout.height;
     setFrameHeight((previous) => (previous !== null && Math.abs(previous - next) < 0.5 ? previous : next));
@@ -403,21 +415,26 @@ function usePageViewportFill({
   const onObserverLayout = useCallback((layout: MobileWindowLayout) => {
     const safe = layout.safeAreaInsets;
     if (!safe) return;
+    const next = { top: safe.top, bottom: safe.bottom, height: layout.height };
+    if (!isMobilePageViewportObservationUsable(next)) return;
+    rememberMobilePageViewport(viewportKeyRef.current, next);
     setObserved((previous) =>
       previous &&
-      Math.abs(previous.top - safe.top) < 0.5 &&
-      Math.abs(previous.bottom - safe.bottom) < 0.5 &&
-      Math.abs(previous.height - layout.height) < 0.5
+      Math.abs(previous.top - next.top) < 0.5 &&
+      Math.abs(previous.bottom - next.bottom) < 0.5 &&
+      Math.abs(previous.height - next.height) < 0.5
         ? previous
-        : { top: safe.top, bottom: safe.bottom, height: layout.height },
+        : next,
     );
   }, []);
-  const bottomBar =
-    isMobileBottomTabBarRoute(pathname, Platform.OS) && verticalBarSide === null;
+  // Until this page's own observer reports (it cannot while its tab is
+  // hidden), the viewport another page observed under the same bars stands
+  // in for the header / tab bar estimates.
+  const viewport = observed ?? (systemAdjustsInsets ? recallMobilePageViewport(viewportKey) : null);
   const viewportHeight = resolveMobilePageViewportHeight({
-    frameHeight: observed?.height ?? frameHeight,
+    frameHeight: observed?.height ?? frameHeight ?? viewport?.height ?? null,
     systemAdjustsInsets,
-    observedInsets: observed,
+    observedInsets: viewport,
     fallbackTopInset: typeof headerHeight === "number" && headerHeight > 0 ? headerHeight : insets.top,
     fallbackBottomInset: bottomBar
       ? (measuredTabBarInset ?? insets.bottom + MOBILE_IOS_TAB_BAR_FALLBACK_HEIGHT)
