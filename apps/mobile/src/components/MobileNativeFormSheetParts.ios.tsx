@@ -17,10 +17,12 @@ import {
 } from "@expo/ui/swift-ui";
 import {
   accessibilityAddTraits,
+  autocorrectionDisabled,
   accessibilityLabel as swiftAccessibilityLabel,
   disabled as swiftDisabled,
   font,
   foregroundStyle,
+  keyboardType,
   lineLimit,
   listRowBackground,
   monospacedDigit,
@@ -56,6 +58,7 @@ function LegacyNameAlert({
   confirmLabel,
   cancelLabel,
   requireChange = false,
+  inputKind = "name",
   onConfirm,
   onCancel,
   children,
@@ -69,6 +72,8 @@ function LegacyNameAlert({
   cancelLabel: string;
   /** Rename: the confirm action waits for a different name. */
   requireChange?: boolean;
+  /** `url`: an address (URL keyboard, no capitals or autocorrection). */
+  inputKind?: "name" | "url";
   onConfirm: (name: string) => void;
   onCancel: () => void;
   children: ReactNode;
@@ -125,7 +130,11 @@ function LegacyNameAlert({
             textRef.current = value;
             setText(value);
           }}
-          modifiers={[textInputAutocapitalization("words"), submitLabel("done")]}
+          modifiers={
+            inputKind === "url"
+              ? [textInputAutocapitalization("never"), autocorrectionDisabled(true), keyboardType("url"), submitLabel("done")]
+              : [textInputAutocapitalization("words"), submitLabel("done")]
+          }
         />
         <SwiftButton label={cancelLabel} role="cancel" onPress={cancel} />
         <SwiftButton

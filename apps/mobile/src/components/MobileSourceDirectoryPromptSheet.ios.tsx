@@ -37,6 +37,7 @@ export function MobileSourceDirectoryPrompt({
           message={strings.settings.addSourceDirectoryMessage}
           placeholder={strings.settings.sourceDirectoryUrlPlaceholder}
           initialValue={initialUrl ?? ""}
+          inputKind="url"
           confirmLabel={initialUrl ? strings.common.save : strings.common.add}
           cancelLabel={strings.common.cancel}
           onConfirm={(url) => {

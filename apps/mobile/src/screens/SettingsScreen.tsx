@@ -1458,7 +1458,23 @@ function SourceDirectoriesSection({ strings, catalog, barItems }: {
         onClose={() => setPromptOpen(false)}
         onSubmit={(url) => {
           setPromptOpen(false);
-          if (editingDirectory) void run(() => manager.updateDirectoryUrl(editingDirectory.id, url));
+          if (!editingDirectory) return;
+          void run(async () => {
+            // The new address is checked over the network first (up to the
+            // request timeout on a slow host); say so while it is.
+            toast.show({
+              id: "source-directory-edit",
+              tone: "info",
+              loading: true,
+              duration: "sticky",
+              title: strings.settings.checkingSourceDirectory,
+            });
+            try {
+              await manager.updateDirectoryUrl(editingDirectory.id, url);
+            } finally {
+              toast.dismiss("source-directory-edit");
+            }
+          });
         }}
       />
     </View>

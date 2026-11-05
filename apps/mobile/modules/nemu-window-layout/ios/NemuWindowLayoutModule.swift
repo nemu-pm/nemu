@@ -3602,8 +3602,25 @@ final class NemuNameAlertProps: ExpoSwiftUI.ViewProps {
   @Field var confirmLabel = ""
   @Field var cancelLabel = ""
   @Field var requireChange = false
+  /// `url`: an address (URL keyboard, no capitals or autocorrection).
+  @Field var inputKind = "name"
   var onConfirm = EventDispatcher()
   var onCancel = EventDispatcher()
+}
+
+private struct NemuNameAlertFieldInput: ViewModifier {
+  let kind: String
+  @ViewBuilder func body(content: Content) -> some View {
+    if kind == "url" {
+      content
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled(true)
+        .keyboardType(.URL)
+        .textContentType(.URL)
+    } else {
+      content.textInputAutocapitalization(.words)
+    }
+  }
 }
 
 struct NemuNameAlertView: ExpoSwiftUI.View {
@@ -3626,7 +3643,7 @@ struct NemuNameAlertView: ExpoSwiftUI.View {
     Children()
       .alert(props.title, isPresented: $presented) {
         TextField(props.placeholder, text: $text)
-          .textInputAutocapitalization(.words)
+          .modifier(NemuNameAlertFieldInput(kind: props.inputKind))
           .submitLabel(.done)
         SwiftUI.Button(props.cancelLabel, role: .cancel) {
           settled = true
