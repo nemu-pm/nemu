@@ -1,4 +1,5 @@
 import { StyleSheet, View } from "react-native";
+import Animated from "react-native-reanimated";
 import {
   NemuButton,
   NemuRingSpinner,
@@ -9,6 +10,7 @@ import {
   formatMobileString,
   type MobileStrings,
 } from "@/lib/mobileI18n";
+import { mobileStateEntering, mobileStateExiting } from "@/lib/mobilePoseLayoutAnimations";
 
 export type MobileListFooterState = "loading" | "end" | "error";
 
@@ -42,7 +44,17 @@ type MobileListFooterProps = {
  * - end: muted 「没有更多了 · 共 N 部」 (count segment dropped when unknown)
  * - error: danger 「加载失败」 stacked above a small secondary retry pill
  */
-export function MobileListFooter({
+export function MobileListFooter(props: MobileListFooterProps) {
+  // Loading, the end and a failure dissolve into each other in the footer's place.
+  if (!props.state) return null;
+  return (
+    <Animated.View key={props.state} entering={mobileStateEntering} exiting={mobileStateExiting}>
+      <MobileListFooterContent {...props} />
+    </Animated.View>
+  );
+}
+
+function MobileListFooterContent({
   state,
   pageNumber,
   totalCount,

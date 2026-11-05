@@ -3,6 +3,7 @@ import { ExploreShimmerSweep } from "@/components/explore/ExploreShimmerSweep";
 import { useExploreShimmerBackdrop } from "@/components/explore/useExploreShimmerBackdrop";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import Animated from "react-native-reanimated";
+import { mobileStateEntering, mobileStateExiting } from "@/lib/mobilePoseLayoutAnimations";
 import {
   useSkeletonDisplayDelay,
   useSkeletonPulse,
@@ -38,6 +39,7 @@ export function MobileSourceGridSkeleton({
   if (!skeletonReady) return null;
 
   return (
+    <Animated.View entering={mobileStateEntering} exiting={mobileStateExiting}>
     <Animated.View
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="progressbar"
@@ -73,6 +75,7 @@ export function MobileSourceGridSkeleton({
       ))}
       {/* Design-explore: one shimmer sweep instead of the breathing pulse. */}
       {mobileDesignExploreFlag ? <ExploreShimmerSweep /> : null}
+    </Animated.View>
     </Animated.View>
   );
 }

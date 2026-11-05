@@ -40,6 +40,7 @@ import {
   type ViewStyle,
 } from "react-native";
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+import { mobileStateEntering, mobileStateExiting } from "@/lib/mobilePoseLayoutAnimations";
 import { LinearGradient } from "expo-linear-gradient";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type {
@@ -2392,6 +2393,7 @@ export function SourceHomeSkeletonView({
   if (!skeletonReady) return null;
 
   return (
+    <Animated.View entering={mobileStateEntering} exiting={mobileStateExiting}>
     <Animated.View
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="progressbar"
@@ -2485,6 +2487,7 @@ export function SourceHomeSkeletonView({
       </View>
       {/* Design-explore: one shimmer sweep instead of the breathing pulse. */}
       {mobileDesignExploreFlag ? <ExploreShimmerSweep /> : null}
+    </Animated.View>
     </Animated.View>
   );
 }

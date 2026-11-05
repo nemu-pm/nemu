@@ -29,6 +29,6 @@ describe("MobileCachedImage native view key (Browse icons, Duo iOS 27.1)", () =>
     expect(image).toContain("key={getMobileCachedImageViewKey(imageSource, localRepairGeneration)}");
     expect(image).not.toContain("key={localRepairGeneration}");
     const browse = readFileSync(path.join(import.meta.dir, "../../screens/BrowseScreen.tsx"), "utf8");
-    expect(browse).toContain("<View key={source.id} collapsable={false}>");
+    expect(browse).toMatch(/<Animated\.View\s+key=\{source\.id\}\s+collapsable=\{false\}/);
   });
 });

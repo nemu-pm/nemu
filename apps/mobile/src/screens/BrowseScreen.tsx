@@ -109,7 +109,15 @@ import {
 import { mobileGridPrefersEvenColumns } from "@/lib/mobileAdaptiveLayout";
 import { getMobileSourceGridLayout } from "@/lib/mobilePageLayout";
 import { chunkMobileGridRows, mobileFoldAwareGridCellStyle } from "@/lib/mobileFoldAwareGrid";
-import { MobilePoseLayoutView, MobilePoseWidthSpringView } from "@/components/MobilePoseLayoutView";
+import { MobileListChangeCell, MobilePoseLayoutView, MobilePoseWidthSpringView } from "@/components/MobilePoseLayoutView";
+import Animated from "react-native-reanimated";
+import {
+  mobileGridGlideAppearing,
+  mobileGridGlideFrameTransition,
+  mobileGridGlideTransition,
+  mobileGridGlideVanishing,
+  openMobileGridGlideWindow,
+} from "@/lib/mobilePoseLayoutAnimations";
 import { MobilePaneAlignedView } from "@/lib/MobilePaneAlignedView";
 import { useMobileContainerFold } from "@/lib/useMobileContainerFold";
 import {
@@ -1300,6 +1308,23 @@ export function BrowseScreen() {
       (kind) => !needle || selfHostedKindName(kind).toLowerCase().includes(needle),
     );
   }, [query]);
+  // Typing or changing a filter: the rows left glide together, those going and
+  // coming fade. Up before the commit that moves them.
+  const availableFilterKey = `${query}|${[...selectedLanguages].join()}|${adultShown}|${directoryFocus ?? ""}`;
+  const seenAvailableFilterKeyRef = useRef(availableFilterKey);
+  if (seenAvailableFilterKeyRef.current !== availableFilterKey) {
+    seenAvailableFilterKeyRef.current = availableFilterKey;
+    openMobileGridGlideWindow();
+  }
+  // A source added or removed: its row fades in or out, the group's edge and
+  // the rows and groups after it glide.
+  const installedSourcesKey = installedSources.map((source) => source.id).join();
+  const seenInstalledSourcesKeyRef = useRef(installedSourcesKey);
+  if (seenInstalledSourcesKeyRef.current !== installedSourcesKey) {
+    // The first list arriving (the page's skeleton leaving) just shows.
+    if (seenInstalledSourcesKeyRef.current) openMobileGridGlideWindow();
+    seenInstalledSourcesKeyRef.current = installedSourcesKey;
+  }
   const availableSourceSections = useMemo<AvailableSourceSection[]>(
     () =>
       groupedAvailable.map((section) => ({
@@ -1958,10 +1983,13 @@ export function BrowseScreen() {
         ? strings.designExplore.browseInLibrary
         : formatSourceLanguageLabel(section.label, strings, appLanguage);
     const group = (
-      <View
+      <Animated.View
         key={section.label}
         ref={mobileDesignExploreFlag ? sourceGroupAnchor.groupRef(section.label) : undefined}
         collapsable={false}
+        layout={mobileGridGlideFrameTransition}
+        entering={mobileGridGlideAppearing}
+        exiting={mobileGridGlideVanishing}
         style={[styles.sourceLanguageSection, mobileDesignExploreFlag ? styles.exploreSourceSection : null]}
       >
         <NemuText
@@ -1974,7 +2002,8 @@ export function BrowseScreen() {
         </NemuText>
         {mobileDesignExploreFlag ? (
           // Design-explore: one inset group per language, short rows.
-          <View
+          <Animated.View
+            layout={mobileGridGlideFrameTransition}
             style={[
               styles.exploreSourceGroup,
               { backgroundColor: tokens.card, borderColor: tokens.cardBorder },
@@ -1983,7 +2012,13 @@ export function BrowseScreen() {
             {section.sources.map((source, index) => (
               // A real view per row (never flattened into the group), so
               // a row moved between sections keeps its own subtree.
-              <View key={source.id} collapsable={false}>
+              <Animated.View
+                key={source.id}
+                collapsable={false}
+                layout={mobileGridGlideTransition}
+                entering={mobileGridGlideAppearing}
+                exiting={mobileGridGlideVanishing}
+              >
                 {index > 0 ? (
                   <View style={[styles.exploreSourceSeparator, { backgroundColor: tokens.border }]} />
                 ) : null}
@@ -2018,9 +2053,9 @@ export function BrowseScreen() {
                   />
                   </MobileQuickActionMenu>
                 )}
-              </View>
+              </Animated.View>
             ))}
-          </View>
+          </Animated.View>
         ) : (
         <View style={styles.sourceGrid}>
           {chunkMobileGridRows(section.sources, sourceGrid.columns).map((row, rowIndex) => (
@@ -2053,7 +2088,7 @@ export function BrowseScreen() {
           ))}
         </View>
         )}
-      </View>
+      </Animated.View>
     );
     // Design-explore: a group glides to its new place in its column (pose
     // settle spring) when the columns move.
@@ -2386,6 +2421,7 @@ export function BrowseScreen() {
                   renderItem={renderAvailableSourceRow}
                   ItemSeparatorComponent={AvailableRowSeparator}
                   SectionSeparatorComponent={AvailableSectionSeparator}
+                  CellRendererComponent={MobileListChangeCell}
                   ListFooterComponent={
                     sourceDirectories.loading || directoryFocus ? undefined : (
                       <SourceDirectoryGuide

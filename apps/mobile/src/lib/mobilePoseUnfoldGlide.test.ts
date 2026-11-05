@@ -20,7 +20,7 @@ describe("unfolding glides like folding (build 9 E)", () => {
 
   test("the source home's cards spring from their old size with their cells", () => {
     const browse = read("../screens/SourceBrowseScreen.tsx");
-    expect(browse).toContain("<MobilePoseLayoutView key={item.id} style={gridItemStyleAt(index)} contentSize={gridItemWidth}>");
+    expect(browse).toMatch(/<MobilePoseLayoutView\s+key=\{item\.id\}[^>]*style=\{gridItemStyleAt\(index\)\}\s+contentSize=\{gridItemWidth\}\s*>/);
     expect(browse).toContain("CellRendererComponent={MobilePoseListCell}");
   });
 

@@ -221,6 +221,7 @@ import {
 import { getActiveMobileSourceProfileScope } from "@/sources/mobileSourceProfileScope";
 import { fetchMobileSourceListing } from "@/sources/mobileSourceListings";
 import { MobilePoseLayoutView, MobilePoseListCell } from "@/components/MobilePoseLayoutView";
+import { mobileGridGlideAppearing, mobileStateEntering, openMobileGridGlideWindow } from "@/lib/mobilePoseLayoutAnimations";
 import { useMobileGridScrollAnchor } from "@/lib/useMobileGridScrollAnchor";
 import { resolveNemuHeaderSearchBarColors } from "@/lib/nemuSearchFieldAppearance";
 import {
@@ -3212,6 +3213,14 @@ export function SourceBrowseScreen() {
     listingState,
     listingSourceDisplay,
   ]);
+  // A page of results landing: the first fades in over the skeleton leaving,
+  // the next below the rows already there. Up before the commit that mounts them.
+  const listingItemCount = sourceSearchActive ? sourceSearchState.items.length : listingState.items.length;
+  const seenListingItemCountRef = useRef(listingItemCount);
+  if (seenListingItemCountRef.current !== listingItemCount) {
+    if (listingItemCount > seenListingItemCountRef.current) openMobileGridGlideWindow();
+    seenListingItemCountRef.current = listingItemCount;
+  }
   const renderListingGridItem = useCallback(
     ({ item, index }: Pick<ListRenderItemInfo<MobileLiveSearchManga>, "item" | "index">) => {
       const sourceDisplay = listingGridSourceDisplay;
@@ -3222,7 +3231,12 @@ export function SourceBrowseScreen() {
       // and the card springs from its old size to the new one with it (the
       // frame's transition alone left the card at its new size in one frame).
       return (
-        <MobilePoseLayoutView key={item.id} style={gridItemStyleAt(index)} contentSize={gridItemWidth}>
+        <MobilePoseLayoutView
+          key={item.id}
+          entering={mobileGridGlideAppearing}
+          style={gridItemStyleAt(index)}
+          contentSize={gridItemWidth}
+        >
           <ListingMangaCard
             item={item}
             onPress={() => handleListingMangaPress(sourceDisplay, item)}
@@ -3520,7 +3534,7 @@ export function SourceBrowseScreen() {
             sourceHomeHasComponents &&
             sourceHome &&
             sourceHomeDisplay ? (
-              <View style={styles.previewSection}>
+              <Animated.View entering={mobileStateEntering} style={styles.previewSection}>
                 <SourceHomeView
                   home={sourceHome}
                   status={sourceHomeSectionStatus}
@@ -3532,7 +3546,7 @@ export function SourceBrowseScreen() {
                   onFilterPress={handleHomeFilterPress}
                   installedSource={installedSource}
                 />
-              </View>
+              </Animated.View>
             ) : null}
           </View>
         ) : null}
