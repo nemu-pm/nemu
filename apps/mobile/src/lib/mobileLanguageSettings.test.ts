@@ -217,6 +217,10 @@ describe("mobile language display names", () => {
     expect(formatMobileLanguageDisplayName("zh", "en")).toBe("中文");
     expect(formatMobileLanguageDisplayName("zh-Hant", "en")).toBe("繁體中文");
     expect(formatMobileLanguageDisplayName("zh_hans", "en")).toBe("简体中文");
+    // Regional codes are separate rows, so they name the region.
+    expect(formatMobileLanguageDisplayName("zh-TW", "en")).toBe("繁體中文（台灣）");
+    expect(formatMobileLanguageDisplayName("zh-hk", "en")).toBe("繁體中文（香港）");
+    expect(formatMobileLanguageDisplayName("pt-BR", "en")).toBe("Português (Brasil)");
     expect(formatMobileLanguageDisplayName("en", "ja")).toBe("English");
     expect(formatMobileLanguageDisplayName("es-419", "en")).toBe("Español (LatAm)");
     expect(formatMobileLanguageDisplayName("ko", "en")).toBe("한국어");

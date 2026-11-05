@@ -109,16 +109,18 @@ export function getLanguageCategory(languages: string[] | undefined): string {
 const MOBILE_LANGUAGE_DISPLAY_NAMES: Record<string, string> = {
   ja: "日本語",
   zh: "中文",
+  // Each code is its own filter row and Browse section, so a regional code
+  // names its region: two rows both reading 繁體中文 cannot be told apart.
   "zh-hans": "简体中文",
-  "zh-cn": "简体中文",
+  "zh-cn": "简体中文（中国）",
   "zh-hant": "繁體中文",
-  "zh-tw": "繁體中文",
-  "zh-hk": "繁體中文",
+  "zh-tw": "繁體中文（台灣）",
+  "zh-hk": "繁體中文（香港）",
   en: "English",
   es: "Español",
   "es-419": "Español (LatAm)",
   pt: "Português",
-  "pt-br": "Português",
+  "pt-br": "Português (Brasil)",
   fr: "Français",
   de: "Deutsch",
   it: "Italiano",
