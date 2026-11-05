@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { getMobileListOrderChange } from "./mobileFoldAwareGrid";
 
 // Owner, 2026-10-30: removing a title flashed the grid ("删除的话布局应该实时重新
 // 计算并且有动画"). Every row after the removed title was keyed by the titles
@@ -22,7 +23,7 @@ describe("removing a title glides the Library grid", () => {
 
   test("the cells take the glide transition a commit before the change, then the window opens", () => {
     const glide = library.slice(library.indexOf("const glideLibraryGrid = useCallback("));
-    const arm = glide.indexOf("setGridGlideFrom(from);");
+    const arm = glide.indexOf("setGridGlide(glide);");
     const prepare = glide.indexOf("await prepare();");
     const open = glide.indexOf("openMobileGridGlideWindow();");
     const change = glide.indexOf("await change();");
@@ -41,7 +42,7 @@ describe("removing a title glides the Library grid", () => {
   test("the glide is gated by its own synchronizable and Reduce Motion", () => {
     const animations = read("./mobilePoseLayoutAnimations.ts");
     expect(animations).toContain("const gridGlideActive = createSynchronizable(false, { fixedType: true });");
-    expect(animations.match(/gridGlideActive\.getBlocking\(\) && !poseReduceMotion\.value/g)?.length).toBe(2);
+    expect(animations.match(/gridGlideActive\.getBlocking\(\) && !poseReduceMotion\.value/g)?.length).toBe(3);
   });
 
   // Owner, 2026-11-04: after removing the last title the empty view appeared
@@ -64,5 +65,41 @@ describe("removing a title glides the Library grid", () => {
     const reduced = entering.slice(entering.indexOf("if (poseReduceMotion.value)"), entering.indexOf("withSpring"));
     expect(reduced).toContain("reduceMotion: ReduceMotion.Never");
     expect(exiting.slice(0, exiting.indexOf("};"))).toContain("reduceMotion: ReduceMotion.Never");
+  });
+
+  // Owner, 2026-11-06: every state change animates ("打磨所有过渡").
+  test("a change from elsewhere glides too: the old list holds a commit while the cells take the transition", () => {
+    const held = library.slice(library.indexOf("const heldOrderChangeRef"));
+    expect(held.indexOf("setGridGlide(glide);")).toBeLessThan(held.indexOf("requestAnimationFrame"));
+    expect(held.indexOf("requestAnimationFrame")).toBeLessThan(held.indexOf("openMobileGridGlideWindow();"));
+    expect(held.indexOf("openMobileGridGlideWindow();")).toBeLessThan(held.indexOf("setDrawnGrid({ entries: visibleEntries"));
+    expect(library).toContain("chunkMobileGridRows(gridEntries, gridColumns)");
+    expect(library).toContain("gridGlide.leaving?.has(entry.item.libraryItemId) ? mobileGridGlideVanishing : undefined");
+  });
+
+  test("a collection switch opens the window, so its empty state fades", () => {
+    const seen = library.slice(library.indexOf("if (seenCollectionLayoutKey !== collectionLayoutKey)"));
+    expect(seen.slice(0, seen.indexOf("}"))).toContain("openMobileGridGlideWindow();");
+  });
+});
+
+describe("getMobileListOrderChange", () => {
+  test("nothing moved, or an empty side, is no change", () => {
+    expect(getMobileListOrderChange(["a", "b"], ["a", "b"])).toBeNull();
+    expect(getMobileListOrderChange([], ["a"])).toBeNull();
+    expect(getMobileListOrderChange(["a"], [])).toBeNull();
+  });
+
+  test("a reorder has old indices and nothing leaving", () => {
+    const change = getMobileListOrderChange(["a", "b"], ["b", "a"])!;
+    expect(change.from.get("a")).toBe(0);
+    expect(change.from.get("b")).toBe(1);
+    expect(change.leaving.size).toBe(0);
+  });
+
+  test("a title gone is leaving; a new one has no old index", () => {
+    const change = getMobileListOrderChange(["a", "b"], ["c", "b"])!;
+    expect([...change.leaving]).toEqual(["a"]);
+    expect(change.from.has("c")).toBe(false);
   });
 });

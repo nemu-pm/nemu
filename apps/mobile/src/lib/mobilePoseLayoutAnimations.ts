@@ -209,12 +209,13 @@ export const mobilePoseExiting: EntryExitAnimationFunction = () => {
 };
 
 /**
- * A grid closing the gap a removed title leaves (or opening one for a title
- * put back): the cells slide to their new places on the settle spring, like a
- * collection view's delete. Gated like the pose window, by its own
- * synchronizable, raised just before the data change, so a sync, a filter or
- * a fold never slides through it. Reduce Motion: cells take their places at
- * once.
+ * A list's items changing: a grid closing the gap a removed title leaves (or
+ * opening one for a title put back or synced in), a list filtering or gaining
+ * a row. The items slide to their new places on the settle spring, like a
+ * collection view's batch update. Gated like the pose window, by its own
+ * synchronizable, raised just before the data change, so scrolling, a fold or
+ * a first load never slides through it. Reduce Motion: items take their places
+ * at once.
  */
 export const MOBILE_GRID_GLIDE_WINDOW_MS = 1200;
 
@@ -286,16 +287,67 @@ export const mobileGridGlideAppearing: EntryExitAnimationFunction = () => {
   };
 };
 
+/**
+ * For a container that grows or shrinks with the items in it (a card around
+ * rows): its frame springs, so its edge moves with them. Same gate.
+ */
+export const mobileGridGlideFrameTransition: LayoutAnimationFunction = (values) => {
+  "worklet";
+  const glide = gridGlideActive.getBlocking() && !poseReduceMotion.value;
+  const config = glide
+    ? {
+        originX: values.currentOriginX,
+        originY: values.currentOriginY,
+        width: values.currentWidth,
+        height: values.currentHeight,
+      }
+    : {
+        originX: values.targetOriginX,
+        originY: values.targetOriginY,
+        width: values.targetWidth,
+        height: values.targetHeight,
+      };
+  const to = (target: number) => (glide ? withSpring(target, SPRING) : withTiming(target, INSTANT));
+  return {
+    initialValues: config,
+    animations: {
+      originX: to(values.targetOriginX),
+      originY: to(values.targetOriginY),
+      width: to(values.targetWidth),
+      height: to(values.targetHeight),
+    },
+  };
+};
+
+/** Whether a grid change is already gliding (a removal armed its cells first). */
+export function isMobileGridGlideWindowOpen(): boolean {
+  return gridGlideCloseTimer !== null;
+}
+
+/** A title a sync took away fades out where it stands while the others close the gap. */
+export const mobileGridGlideVanishing: EntryExitAnimationFunction = () => {
+  "worklet";
+  const duration = !gridGlideActive.getBlocking()
+    ? 0
+    : poseReduceMotion.value
+      ? MOBILE_MOTION.reduceMotionFadeMs
+      : MOBILE_MOTION.fadeOutMs;
+  return {
+    initialValues: { opacity: 1 },
+    animations: { opacity: withTiming(0, { duration, easing: EASE_OUT, reduceMotion: ReduceMotion.Never }) },
+  };
+};
+
 /** The empty state's fade in after the last title leaves (longer than a cell's: it fills the page). */
 export const MOBILE_GRID_GLIDE_EMPTY_FADE_IN_MS = 360;
 /** Where the empty state's scale starts: it settles forward into place. */
 export const MOBILE_GRID_GLIDE_EMPTY_FROM_SCALE = 0.96;
 
 /**
- * The empty state the last title leaves behind fades in and settles from a
- * touch smaller, behind the drifting dust, instead of appearing whole in one
- * frame. Only inside the glide window: the empty state at launch, after a
- * sync or on a collection switch appears as before. Reduce Motion: a short
+ * The empty state the last title leaves behind (or a collection switch finds)
+ * fades in and settles from a touch smaller, behind the drifting dust, instead
+ * of appearing whole in one frame. Only inside the glide window: the empty
+ * state at launch appears as before. Reduce Motion: a short
  * fade, no scale (kept: Reanimated's default would skip it under the system
  * setting, and the page would swap in one frame).
  */
@@ -336,5 +388,38 @@ export const mobileGridGlideEmptyExiting: EntryExitAnimationFunction = () => {
   return {
     initialValues: { opacity: 1 },
     animations: { opacity: withTiming(0, { duration, easing: EASE_OUT, reduceMotion: ReduceMotion.Never }) },
+  };
+};
+
+/**
+ * One state of a page's content replacing another (a skeleton, an error, the
+ * loaded content): the two cross-fade in place. Reduce Motion keeps the short
+ * dissolve: it moves nothing, and the system default would skip it.
+ */
+export const mobileStateEntering: EntryExitAnimationFunction = () => {
+  "worklet";
+  return {
+    initialValues: { opacity: 0 },
+    animations: {
+      opacity: withTiming(1, {
+        duration: poseReduceMotion.value ? MOBILE_MOTION.reduceMotionFadeMs : MOBILE_MOTION.fadeInMs,
+        easing: EASE_OUT,
+        reduceMotion: ReduceMotion.Never,
+      }),
+    },
+  };
+};
+
+export const mobileStateExiting: EntryExitAnimationFunction = () => {
+  "worklet";
+  return {
+    initialValues: { opacity: 1 },
+    animations: {
+      opacity: withTiming(0, {
+        duration: poseReduceMotion.value ? MOBILE_MOTION.reduceMotionFadeMs : MOBILE_MOTION.fadeOutMs,
+        easing: EASE_OUT,
+        reduceMotion: ReduceMotion.Never,
+      }),
+    },
   };
 };

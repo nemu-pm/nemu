@@ -116,6 +116,7 @@ import { MOBILE_MANGA_GRID_GAP, mobileLibraryGridMinItemWidth } from "@/lib/mobi
 import {
   chunkMobileGridRows,
   getMobileGridMoveOffset,
+  getMobileListOrderChange,
   mobileFoldAwareGridCellStyle,
 } from "@/lib/mobileFoldAwareGrid";
 import {
@@ -125,6 +126,9 @@ import {
   mobileGridGlideEmptyEntering,
   mobileGridGlideEmptyExiting,
   mobileGridGlideTransition,
+  mobileGridGlideVanishing,
+  isMobileGridGlideWindowOpen,
+  mobileStateExiting,
   openMobileGridGlideWindow,
 } from "@/lib/mobilePoseLayoutAnimations";
 import { MobilePaneAlignedView } from "@/lib/MobilePaneAlignedView";
@@ -270,7 +274,8 @@ function LibraryLayoutRow({
   children: ReactNode;
 }) {
   const settle = useMobilePoseResnapFade(layoutKey, { settleOnMount });
-  const row = <Animated.View style={[style, settle]} onLayout={onLayout}>{children}</Animated.View>;
+  // Leaving for another collection, the row fades as the next page settles in.
+  const row = <Animated.View exiting={mobileGridGlideVanishing} style={[style, settle]} onLayout={onLayout}>{children}</Animated.View>;
   return revealGroup ? <MobileLaunchRevealGroup group={revealGroup}>{row}</MobileLaunchRevealGroup> : row;
 }
 
@@ -1054,33 +1059,79 @@ export function LibraryScreen({
   useEffect(() => {
     visibleEntriesRef.current = visibleEntries;
   }, [visibleEntries]);
-  const [gridGlideFrom, setGridGlideFrom] = useState<ReadonlyMap<string, number> | null>(null);
+  const [gridGlide, setGridGlide] = useState<{
+    from: ReadonlyMap<string, number>;
+    leaving: ReadonlySet<string> | null;
+  } | null>(null);
+  const gridGlideClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const endGridGlideAfterWindow = useCallback((glide: NonNullable<typeof gridGlide>) => {
+    if (gridGlideClearRef.current) clearTimeout(gridGlideClearRef.current);
+    gridGlideClearRef.current = setTimeout(() => {
+      gridGlideClearRef.current = null;
+      setGridGlide((current) => (current === glide ? null : current));
+    }, MOBILE_GRID_GLIDE_WINDOW_MS);
+  }, []);
+  useEffect(
+    () => () => {
+      if (gridGlideClearRef.current) clearTimeout(gridGlideClearRef.current);
+    },
+    [],
+  );
   /**
    * A title leaving or coming back: the others glide to their new places
    * (mobileGridGlideTransition) instead of the grid snapping. The cells take
-   * the transition first (`gridGlideFrom`, one commit ahead: a layout config
+   * the transition first (`gridGlide`, one commit ahead: a layout config
    * registers after its commit), then `prepare` runs (the dust, or a frame),
    * the glide window opens and `change` lands.
    */
   const glideLibraryGrid = useCallback(
     async (prepare: () => Promise<unknown>, change: () => Promise<void>) => {
-      const from = new Map(
-        visibleEntriesRef.current.map((entry, index) => [entry.item.libraryItemId, index] as const),
-      );
-      setGridGlideFrom(from);
+      const glide = {
+        from: new Map(
+          visibleEntriesRef.current.map((entry, index) => [entry.item.libraryItemId, index] as const),
+        ),
+        leaving: null,
+      };
+      setGridGlide(glide);
       try {
         await prepare();
         openMobileGridGlideWindow();
         await change();
       } finally {
-        setTimeout(
-          () => setGridGlideFrom((current) => (current === from ? null : current)),
-          MOBILE_GRID_GLIDE_WINDOW_MS,
-        );
+        endGridGlideAfterWindow(glide);
       }
     },
-    [],
+    [endGridGlideAfterWindow],
   );
+  // The titles the grid draws. A change from elsewhere (a sync, reading moving
+  // a title up) glides like a removal: the grid keeps the old list for one
+  // commit while its cells take the transition, then lands the new one. A
+  // collection switch and a change the removal above armed land at once.
+  const gridScope = effectiveCollectionId ?? "";
+  const [drawnGrid, setDrawnGrid] = useState({ entries: visibleEntries, scope: gridScope });
+  const gridIds = (entries: readonly LibraryEntry[]) => entries.map((entry) => entry.item.libraryItemId);
+  const gridOrderChange =
+    drawnGrid.entries === visibleEntries || drawnGrid.scope !== gridScope || isMobileGridGlideWindowOpen()
+      ? null
+      : getMobileListOrderChange(gridIds(drawnGrid.entries), gridIds(visibleEntries));
+  const holdDrawnGrid = gridOrderChange !== null && libraryFocusedRef.current;
+  if (!holdDrawnGrid && drawnGrid.entries !== visibleEntries) {
+    setDrawnGrid({ entries: visibleEntries, scope: gridScope });
+  }
+  const gridEntries = holdDrawnGrid ? drawnGrid.entries : visibleEntries;
+  const heldOrderChangeRef = useRef(gridOrderChange);
+  heldOrderChangeRef.current = gridOrderChange;
+  useEffect(() => {
+    if (!holdDrawnGrid || !heldOrderChangeRef.current) return;
+    const glide = heldOrderChangeRef.current;
+    setGridGlide(glide);
+    endGridGlideAfterWindow(glide);
+    const frame = requestAnimationFrame(() => {
+      openMobileGridGlideWindow();
+      setDrawnGrid({ entries: visibleEntries, scope: gridScope });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [endGridGlideAfterWindow, gridScope, holdDrawnGrid, visibleEntries]);
   const gridScrollAnchor = useMobileGridScrollAnchor({
     listRef: gridScrollRef,
     columns: gridColumns,
@@ -2177,6 +2228,9 @@ export function LibraryScreen({
   if (seenCollectionLayoutKey !== collectionLayoutKey) {
     setSeenCollectionLayoutKey(collectionLayoutKey);
     setEnteringCollectionLayoutKey(collectionLayoutKey);
+    // A collection's empty state fades in as the rows it replaces leave, and
+    // out as the next one's rows settle. Up before this commit mounts it.
+    openMobileGridGlideWindow();
   }
   useEffect(() => {
     if (enteringCollectionLayoutKey === null) return;
@@ -2205,7 +2259,7 @@ export function LibraryScreen({
       // its row slides on its layout transition; one that changes rows
       // mounts in the new row and slides in from its old place; a title put
       // back fades into its slot.
-      const glideFromIndex = gridGlideFrom?.get(entry.item.libraryItemId);
+      const glideFromIndex = gridGlide?.from.get(entry.item.libraryItemId);
       const glideOffset =
         glideFromIndex === undefined || gridRowPitch <= 0
           ? null
@@ -2215,7 +2269,7 @@ export function LibraryScreen({
               index,
               gridRowPitch,
             );
-      const glideProps = gridGlideFrom
+      const glideProps = gridGlide
         ? {
             layout: mobileGridGlideTransition,
             entering:
@@ -2224,6 +2278,7 @@ export function LibraryScreen({
                 : glideOffset
                   ? makeMobileGridGlideEntering(glideOffset)
                   : undefined,
+            exiting: gridGlide.leaving?.has(entry.item.libraryItemId) ? mobileGridGlideVanishing : undefined,
           }
         : null;
       return (
@@ -2275,7 +2330,7 @@ export function LibraryScreen({
       getEntryActions,
       gridColumnMargins,
       gridColumns,
-      gridGlideFrom,
+      gridGlide,
       gridItemWidth,
       gridRowPitch,
       handleGridItemLongPress,
@@ -2284,8 +2339,8 @@ export function LibraryScreen({
     ],
   );
   const libraryRows = useMemo(
-    () => chunkMobileGridRows(visibleEntries, gridColumns),
-    [visibleEntries, gridColumns],
+    () => chunkMobileGridRows(gridEntries, gridColumns),
+    [gridEntries, gridColumns],
   );
   const renderLibraryRow = useCallback(
     ({ item: row, index: rowIndex }: ListRenderItemInfo<LibraryEntry[]>) => (
@@ -2683,9 +2738,11 @@ export function LibraryScreen({
 
           <View style={styles.stack}>
             {showSkeleton ? (
-              <MobileLibrarySkeleton
-                accessibilityLabel={strings.library.loading}
-              />
+              <Animated.View exiting={mobileStateExiting}>
+                <MobileLibrarySkeleton
+                  accessibilityLabel={strings.library.loading}
+                />
+              </Animated.View>
             ) : null}
 
             {showLoadErrorBanner ? (
@@ -2745,9 +2802,10 @@ export function LibraryScreen({
           </View>
         </>
       }
-      // Removing the last title (glideLibraryGrid): the empty state fades in
-      // behind the dust instead of appearing whole in one frame; an Undo
-      // fades it out. Any other time it appears and leaves at once.
+      // Removing the last title (glideLibraryGrid) or switching collection:
+      // the empty state fades in instead of appearing whole in one frame; an
+      // Undo or the next collection fades it out. Any other time (launch) it
+      // appears and leaves at once.
       ListEmptyComponent={
         !showSkeleton && selectedCollection ? (
           <Animated.View entering={mobileGridGlideEmptyEntering} exiting={mobileGridGlideEmptyExiting}>

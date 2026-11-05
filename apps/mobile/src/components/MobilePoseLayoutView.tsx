@@ -2,7 +2,12 @@ import type { ComponentProps, ReactNode } from "react";
 import { StyleSheet } from "react-native";
 import Animated from "react-native-reanimated";
 import { useMobilePoseLayout } from "@/lib/MobilePoseTransitionContext";
-import { mobilePoseSizeFlipTransition } from "@/lib/mobilePoseLayoutAnimations";
+import {
+  mobileGridGlideAppearing,
+  mobileGridGlideTransition,
+  mobileGridGlideVanishing,
+  mobilePoseSizeFlipTransition,
+} from "@/lib/mobilePoseLayoutAnimations";
 import { useMobilePoseWidthSpring } from "@/lib/useMobilePoseSizeSpring";
 
 type MobilePoseLayoutViewProps = Omit<ComponentProps<typeof Animated.View>, "children"> & {
@@ -93,6 +98,33 @@ export function MobilePoseListCell({
   ...props
 }: Omit<MobilePoseLayoutViewProps, "contentSize"> & { cellKey?: string; index?: number; item?: unknown }) {
   return <MobilePoseLayoutView {...props} />;
+}
+
+/**
+ * `CellRendererComponent` for a list whose rows come and go (filtering, a row
+ * added): a row only moves relative to its cell, so the cell takes the glide.
+ * Only inside the glide window (`openMobileGridGlideWindow`); scrolling new
+ * cells in shows them as usual.
+ */
+export function MobileListChangeCell({
+  cellKey: _cellKey,
+  index: _index,
+  item: _item,
+  ...props
+}: Omit<ComponentProps<typeof Animated.View>, "children"> & {
+  children?: ReactNode;
+  cellKey?: string;
+  index?: number;
+  item?: unknown;
+}) {
+  return (
+    <Animated.View
+      layout={mobileGridGlideTransition}
+      entering={mobileGridGlideAppearing}
+      exiting={mobileGridGlideVanishing}
+      {...props}
+    />
+  );
 }
 
 const styles = StyleSheet.create({

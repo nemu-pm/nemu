@@ -371,3 +371,22 @@ export function mobilePaneContentRegion({
   if (bottom >= minPaneExtent) return centered(0, width, bottomStart, bottom);
   return centered(0, width, 0, 0);
 }
+
+/**
+ * What a list's order change does to its items: `from` is each kept or leaving
+ * item's old index, `leaving` the ones gone from `next`. Null when nothing
+ * moved, or when a side is empty (a first load, or the page's empty state,
+ * which has its own transition).
+ */
+export function getMobileListOrderChange(
+  previous: readonly string[],
+  next: readonly string[],
+): { from: ReadonlyMap<string, number>; leaving: ReadonlySet<string> } | null {
+  if (previous.length === 0 || next.length === 0) return null;
+  if (previous.length === next.length && previous.every((id, index) => id === next[index])) return null;
+  const kept = new Set(next);
+  return {
+    from: new Map(previous.map((id, index) => [id, index] as const)),
+    leaving: new Set(previous.filter((id) => !kept.has(id))),
+  };
+}
