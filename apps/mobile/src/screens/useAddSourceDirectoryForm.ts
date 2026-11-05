@@ -13,7 +13,10 @@ import {
   previewMobileSourceDirectory,
 } from "@/data/mobileSourceDirectories";
 import { hapticConfirm, hapticError } from "@/lib/haptics";
-import { requestMobileAddSourceSheet } from "@/lib/mobileAddSourceSheetRequest";
+import {
+  hasPendingMobileAddSourceSheetRequest,
+  requestMobileAddSourceSheet,
+} from "@/lib/mobileAddSourceSheetRequest";
 import { formatMobileString, getMobileStrings } from "@/lib/mobileI18n";
 import { SOURCE_DIRECTORY_ERROR_KEYS } from "@/lib/mobileSourceDirectoryErrors";
 import {
@@ -88,6 +91,9 @@ export function useAddSourceDirectoryForm(params: AddSourceDirectoryFormParams) 
       abortRef.current?.abort();
       if (origin !== "browse") return;
       const directoryId = addedDirectoryIdRef.current;
+      // A nemu:// link confirmed while this page was open has already asked
+      // for the sheet on its directory; a plain reopen must not replace that.
+      if (!directoryId && hasPendingMobileAddSourceSheetRequest()) return;
       requestMobileAddSourceSheet(directoryId ? { directoryId } : {});
     },
     [origin],

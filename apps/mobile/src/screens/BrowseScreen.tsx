@@ -1698,6 +1698,14 @@ export function BrowseScreen() {
   addSourceRequestHandlerRef.current = () => {
     if (!consumeMobileAddSourceSheetRequest()) return;
     const focus = consumeMobileAddSourceSheetDirectoryFocus();
+    // Already open (a directory link confirmed over it): show the new
+    // directory's sources in place.
+    if (activeSheet === "add-source" && focus) {
+      setServerPickerOpen(false);
+      setQuery("");
+      setDirectoryFocus(focus);
+      return;
+    }
     if (activeInstallKey !== null || activeSheet !== null) return;
     openAddSourceSheet();
     setDirectoryFocus(focus);
