@@ -223,19 +223,19 @@ type FontScaleKeyedListSlotElementProps = {
 /**
  * Renders a list header/footer/empty slot under a key on the font scale, so a
  * text-size change remounts what it renders. VirtualizedList clones its empty
- * element with `onLayout` and a composed `style`; those land on this wrapper
- * and are passed on to the slot's element exactly as VirtualizedList would
- * have applied them (a fragment is left untouched, as it does).
+ * element with `onLayout` and a composed `style`; those land on this wrapper.
+ * The style is passed on to the slot's element as VirtualizedList would have
+ * applied it (a fragment is left untouched, as it does). Its `onLayout` is
+ * not: it only hands the empty element's frame to the list's own `onLayout`,
+ * which every page reads as the list's frame (a Library grid measured an
+ * empty collection's card, already inside the gutters, as the list's width:
+ * All came back with every cover 10pt narrower and a gap on the right).
  */
-function FontScaleKeyedListSlot({ slot, layoutKey, onLayout, style }: FontScaleKeyedListSlotProps) {
+function FontScaleKeyedListSlot({ slot, layoutKey, style }: FontScaleKeyedListSlotProps) {
   let element = (isValidElement(slot) ? slot : createElement(slot)) as ReactElement<FontScaleKeyedListSlotElementProps>;
-  if ((onLayout || style !== undefined) && element.type !== Fragment) {
+  if (style !== undefined && element.type !== Fragment) {
     const own = element.props;
     element = cloneElement<FontScaleKeyedListSlotElementProps>(element, {
-      onLayout: (event: LayoutChangeEvent) => {
-        onLayout?.(event);
-        own.onLayout?.(event);
-      },
       style: StyleSheet.compose(style, own.style),
     });
   }
