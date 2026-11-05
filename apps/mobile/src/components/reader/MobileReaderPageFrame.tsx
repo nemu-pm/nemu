@@ -6,6 +6,7 @@ import {
   type ViewInstance,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import Animated, { FadeIn, ReduceMotion } from "react-native-reanimated";
 import {
   MobileCachedImage,
   NemuText,
@@ -150,7 +151,8 @@ export function MobileReaderPageFrame({
       />}
       {waiting && !withholdImage ? <MobileReaderPageSpinner color={statusColor} /> : null}
       {error ? (
-        <View
+        <Animated.View
+          entering={FadeIn.duration(180).reduceMotion(ReduceMotion.Never)}
           // A failed page must be recoverable: the status only stays inert
           // while there is nothing to tap.
           pointerEvents={canRetry ? "auto" : "none"}
@@ -185,7 +187,7 @@ export function MobileReaderPageFrame({
               style={styles.readerImageRetryCapsule}
             />
           ) : null}
-        </View>
+        </Animated.View>
       ) : null}
       {children}
     </View>

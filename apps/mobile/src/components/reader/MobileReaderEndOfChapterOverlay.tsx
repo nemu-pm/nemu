@@ -11,6 +11,9 @@ import {
   View,
 } from "react-native";
 import Animated, {
+  FadeIn,
+  FadeOut,
+  ReduceMotion,
   ZoomIn,
   useReducedMotion,
 } from "react-native-reanimated";
@@ -85,7 +88,11 @@ export function MobileReaderEndOfChapterOverlay({
   const caughtUp = nextChapterLabel === null;
 
   return (
-    <View
+    <Animated.View
+      // A dissolve in every case: the prompt must not cut in over the page,
+      // and Reduce Motion keeps it (only movement goes).
+      entering={FadeIn.duration(reducedMotion ? 150 : 200).reduceMotion(ReduceMotion.Never)}
+      exiting={FadeOut.duration(150).reduceMotion(ReduceMotion.Never)}
       accessibilityLiveRegion="polite"
       accessibilityViewIsModal
       importantForAccessibility="yes"
@@ -211,7 +218,7 @@ export function MobileReaderEndOfChapterOverlay({
           </View>
         </GlassSurface>
       </ScrollView>
-    </View>
+    </Animated.View>
   );
 }
 
