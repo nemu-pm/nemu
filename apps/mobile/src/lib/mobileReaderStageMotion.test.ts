@@ -240,6 +240,14 @@ describe("pose-change continuity (flat ⇄ book spreads, chrome, rotation)", () 
     })).toEqual({ crossfade: false, durationMs: 0 });
   });
 
+  test("an unfold holds the outer page until the spread has decoded; a fold and a rotation do not", () => {
+    const outer = { mountKey: "ch:single", contentKey: "ch", windowKey: "466x678" };
+    const inner = { mountKey: "ch:spread", contentKey: "ch", windowKey: "951x669" };
+    expect(mobileReaderGalleryRemountMotion({ previous: outer, next: inner, reduceMotion: false }).crossfade).toBe(true);
+    expect(mobileReaderGalleryRemountMotion({ previous: inner, next: outer, reduceMotion: false }).crossfade).toBe(false);
+    expect(mobileReaderGalleryRemountMotion({ previous: outer, next: { ...inner, windowKey: "678x466" }, reduceMotion: false }).crossfade).toBe(false);
+  });
+
   test("capsules that move per pane glide as the same elements: no remount, no fade", () => {
     const flatRow = { kind: "capsules" as const, geometry: mobileReaderChromeGeometryKey([{ x: 16, y: 26, width: 44, height: 44 }, null]) };
     const bookRow = { kind: "capsules" as const, geometry: mobileReaderChromeGeometryKey([{ x: 16, y: 26, width: 44, height: 44 }, { x: 70, y: 26, width: 300, height: 44 }]) };

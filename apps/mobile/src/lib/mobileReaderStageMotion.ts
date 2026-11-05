@@ -272,13 +272,21 @@ export function mobileReaderStripRelayoutOffset(input: {
   return { progress, offset: Math.round(progress * nextRange) };
 }
 
+/** `WxH` keys: the window grew well past its old area, as an unfold does (a rotation keeps it). */
+export function mobileReaderWindowKeyUnfolded(previous: string | undefined, next: string | undefined): boolean {
+  const area = (key: string | undefined) => (key?.split("x").map(Number) ?? []).reduce((total, side) => total * side, 1);
+  return area(previous) > 1 && area(next) > area(previous) * 1.5;
+}
+
 /**
  * Whether a gallery remount cross-fades. Only a presentation change inside
  * the same window does (spread ⇄ single on a fold): after a window resize
  * (rotation, display switch) the old list is laid out for the old window, so
  * fading it out over the new one — and the new one in from black — only
  * showed a dark, ghosted frame. The new list then appears at once, already
- * scrolled to the page being read.
+ * scrolled to the page being read. An unfold is the exception: the outer
+ * page is still in place under the system's fade-up and the spread has to
+ * decode, so the old list holds until it has (blank frames otherwise).
  */
 export function mobileReaderGalleryRemountMotion(input: {
   previous: { mountKey: string; contentKey: string; windowKey?: string } | null;
@@ -289,7 +297,10 @@ export function mobileReaderGalleryRemountMotion(input: {
   const crossfade = Boolean(previous)
     && previous!.mountKey !== next.mountKey
     && previous!.contentKey === next.contentKey
-    && (previous!.windowKey ?? "") === (next.windowKey ?? "")
+    && (
+      (previous!.windowKey ?? "") === (next.windowKey ?? "")
+      || mobileReaderWindowKeyUnfolded(previous!.windowKey, next.windowKey)
+    )
     && previous!.mountKey !== "loading"
     && next.mountKey !== "loading";
   return {
