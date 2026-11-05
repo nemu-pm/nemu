@@ -17,6 +17,12 @@ import {
 type SearchResultGrid = Pick<MobileFoldAwareGridLayout, "columns" | "itemWidth" | "columnMargins">;
 import { LinearGradient } from "expo-linear-gradient";
 import Animated, { LayoutAnimationConfig } from "react-native-reanimated";
+import {
+  mobileGridGlideAppearing,
+  mobileGridGlideTransition,
+  mobileGridGlideVanishing,
+  openMobileGridGlideWindow,
+} from "@/lib/mobilePoseLayoutAnimations";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Stack, router, useLocalSearchParams, useNavigation } from "expo-router";
 import type { SearchBarCommands } from "react-native-screens";
@@ -623,6 +629,17 @@ function LiveSearchResults({
     () => (state.status === "ready" ? partitionMobileLiveSearchGroups(state.groups) : null),
     [state],
   );
+  // Each answer: the sections and lines below it glide, the new section fades
+  // in. Up before the commit that moves them.
+  const partitionKey = partition
+    ? [partition.sections, partition.failed].map((groups) => groups.map((group) => group.source.id).join()).join("|") +
+      `|${partition.loading.length}|${partition.empty.length}`
+    : null;
+  const seenPartitionKeyRef = useRef(partitionKey);
+  if (seenPartitionKeyRef.current !== partitionKey) {
+    seenPartitionKeyRef.current = partitionKey;
+    if (partitionKey !== null) openMobileGridGlideWindow();
+  }
   if (state.status === "idle") return null;
   if (state.status === "error") {
     return (
@@ -645,16 +662,26 @@ function LiveSearchResults({
   return (
     <View style={styles.resultStack}>
       {partition.sections.map((group) => (
-        <LiveSourceResultSection
+        <Animated.View
           key={group.source.id}
-          group={group}
-          strings={strings}
-          action={action}
-          grid={grid}
-        />
+          layout={mobileGridGlideTransition}
+          entering={mobileGridGlideAppearing}
+          exiting={mobileGridGlideVanishing}
+        >
+          <LiveSourceResultSection
+            group={group}
+            strings={strings}
+            action={action}
+            grid={grid}
+          />
+        </Animated.View>
       ))}
       {partition.loading.length || partition.failed.length || partition.empty.length ? (
-        <View style={styles.liveStatusStack}>
+        <Animated.View
+          layout={mobileGridGlideTransition}
+          exiting={mobileGridGlideVanishing}
+          style={styles.liveStatusStack}
+        >
           <MobileSearchSearchingLine sources={partition.loading} strings={strings} />
           {partition.failed.length ? (
             <View>
@@ -674,7 +701,7 @@ function LiveSearchResults({
             </View>
           ) : null}
           <MobileSearchNoResultsLine sources={partition.empty} strings={strings} />
-        </View>
+        </Animated.View>
       ) : null}
     </View>
   );
@@ -1091,20 +1118,24 @@ export function SearchScreen() {
     }
     const compareTitles = trimmedQuery ? [trimmedQuery] : [];
     const publishProgress = () => {
+      const completed = Array.from(completedGroups.values());
       const result: LiveSearchResult = {
         key: liveSearchKey,
         state: {
           status: "ready",
-          groups: buildMobileLiveSearchProgressGroups(
-            selectedInstalledSources,
-            Array.from(completedGroups.values()),
-            compareTitles,
-          ),
+          groups: buildMobileLiveSearchProgressGroups(selectedInstalledSources, completed, compareTitles, "arrival"),
         },
       };
       setLiveSearchResult(result);
       if (liveSearchResultIsComplete(result)) {
-        writeLiveSearchCache(result);
+        // Coming back to this search later, it opens ranked.
+        writeLiveSearchCache({
+          ...result,
+          state: {
+            status: "ready",
+            groups: buildMobileLiveSearchProgressGroups(selectedInstalledSources, completed, compareTitles),
+          },
+        });
       }
     };
     const getSourceSettings = async (

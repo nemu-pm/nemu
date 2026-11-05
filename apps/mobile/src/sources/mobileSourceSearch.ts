@@ -435,7 +435,12 @@ export function sortMobileLiveSearchGroupsBySimilarity(
 export function buildMobileLiveSearchProgressGroups(
   sources: InstalledSource[],
   completedGroups: MobileLiveSearchGroup[],
-  compareTitles: string[]
+  compareTitles: string[],
+  /**
+   * Still streaming: sections stay in the order they answered, so one arriving
+   * never moves those already on screen. Ranked once nothing is on screen to move.
+   */
+  order: "ranked" | "arrival" = "ranked",
 ): MobileLiveSearchDisplayGroup[] {
   const completedIds = new Set(completedGroups.map((group) => group.source.id));
   const loadingGroups = sources
@@ -446,7 +451,7 @@ export function buildMobileLiveSearchProgressGroups(
     }));
 
   return [
-    ...sortMobileLiveSearchGroupsBySimilarity(completedGroups, compareTitles),
+    ...(order === "ranked" ? sortMobileLiveSearchGroupsBySimilarity(completedGroups, compareTitles) : completedGroups),
     ...loadingGroups,
   ];
 }

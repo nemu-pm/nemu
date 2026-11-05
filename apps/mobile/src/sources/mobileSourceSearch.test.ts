@@ -636,6 +636,21 @@ describe("mobile source search", () => {
     ]);
   });
 
+  test("while streaming, sections keep the order they answered in", () => {
+    const ready = (name: string, title: string) => ({
+      status: "ready" as const,
+      source: { id: `r:${name}`, registryId: "r", rawSourceId: name, name },
+      runtime: "native-aidoku" as const,
+      items: [{ id: title, title }],
+      hasMore: false,
+    });
+    const answered = [ready("first", "Something Else"), ready("second", "Blue Lock")];
+    const ids = (order?: "arrival") =>
+      buildMobileLiveSearchProgressGroups([], answered, ["Blue Lock"], order).map((group) => group.source.id);
+    expect(ids("arrival")).toEqual(["r:first", "r:second"]);
+    expect(ids()).toEqual(["r:second", "r:first"]);
+  });
+
   test("keeps blocked source progress groups ahead of pending sources", () => {
     const sources = [
       installedSource({
