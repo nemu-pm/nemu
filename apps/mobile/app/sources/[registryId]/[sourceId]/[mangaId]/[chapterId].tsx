@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Dimensions, StyleSheet, useWindowDimensions, View } from "react-native";
 import Animated, {
   cancelAnimation,
+  ReduceMotion,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
@@ -269,7 +270,7 @@ function useReaderCoverReveal(zoomId: string | null, hasStandIn: boolean, loadin
     if (fadeStartsAtRef.current != null && fadeStartsAtRef.current <= now) return;
     loadingOpacity.value = withDelay(
       Math.max(0, landedAt + READER_OPENING_LOADING_DELAY_MS - now),
-      withTiming(1, { duration: fadesRef.current.inMs }),
+      withTiming(1, { duration: fadesRef.current.inMs, reduceMotion: ReduceMotion.Never }),
     );
   }, [loadingOpacity, loadingScreen]);
 
@@ -310,7 +311,7 @@ function useReaderCoverReveal(zoomId: string | null, hasStandIn: boolean, loadin
     cancelAnimation(opacity);
     opacity.value = withDelay(
       delay,
-      withTiming(0, { duration: COVER_REVEAL_MS }, (finished?: boolean) => {
+      withTiming(0, { duration: COVER_REVEAL_MS, reduceMotion: ReduceMotion.Never }, (finished?: boolean) => {
         "worklet";
         if (finished) runOnJS(onFadeEnd)("hold-cap", landedAt);
       }),
@@ -348,7 +349,7 @@ function useReaderCoverReveal(zoomId: string | null, hasStandIn: boolean, loadin
     cancelAnimation(opacity);
     opacity.value = withDelay(
       plan.delayMs,
-      withTiming(0, { duration: plan.durationMs }, (finished?: boolean) => {
+      withTiming(0, { duration: plan.durationMs, reduceMotion: ReduceMotion.Never }, (finished?: boolean) => {
         "worklet";
         if (finished) runOnJS(onFadeEnd)("stand-in", landsAt);
       }),
@@ -423,7 +424,7 @@ function useReaderCoverReveal(zoomId: string | null, hasStandIn: boolean, loadin
         fadeStartsAtRef.current = now;
         logFadeStart(reason, sinceLandedMs);
         cancelAnimation(opacity);
-        opacity.value = withTiming(0, { duration: fades.outMs }, (finished?: boolean) => {
+        opacity.value = withTiming(0, { duration: fades.outMs, reduceMotion: ReduceMotion.Never }, (finished?: boolean) => {
           "worklet";
           if (finished) runOnJS(onFadeEnd)(reason, fadeLandedAt);
         });
@@ -456,7 +457,7 @@ function useReaderCoverReveal(zoomId: string | null, hasStandIn: boolean, loadin
       cancelAnimation(opacity);
       opacity.value = withDelay(
         delay,
-        withTiming(0, { duration: skipped && !zoomId ? 0 : fades.outMs }, (finished?: boolean) => {
+        withTiming(0, { duration: skipped && !zoomId ? 0 : fades.outMs, reduceMotion: ReduceMotion.Never }, (finished?: boolean) => {
           "worklet";
           if (finished) runOnJS(onFadeEnd)(reason, fadeLandedAt);
         }),
@@ -658,7 +659,7 @@ function ReaderAfterZoom({
     const ids = openingPageIdsRef.current;
     const same = ids != null && mobileReaderStandInMatches(standIn, ids);
     if (!same) {
-      standInOut.value = withTiming(0, { duration: STAND_IN_MISMATCH_FADE_MS });
+      standInOut.value = withTiming(0, { duration: STAND_IN_MISMATCH_FADE_MS, reduceMotion: ReduceMotion.Never });
     }
     const timer = setTimeout(
       () => setStandInMounted(false),

@@ -101,6 +101,7 @@ import { Gesture, GestureDetector, type GestureType } from "react-native-gesture
 import Animated, {
   Easing,
   LayoutAnimationConfig,
+  ReduceMotion,
   runOnJS,
   useAnimatedStyle,
   useDerivedValue,
@@ -12079,6 +12080,9 @@ export function ReaderScreen() {
     const timing = withTiming(readerChromeShown ? 1 : 0, {
       duration: readerChromeMaterialMs,
       easing: Easing.bezier(...READER_CHROME_MATERIAL_CURVE),
+      // The scrim fades with the glass, whose duration already answers Reduce
+      // Motion: by default Reanimated would skip this one to its end.
+      reduceMotion: ReduceMotion.Never,
     });
     const wait = readerChromeShown && readerChromeNotBeforeMs > 0 ? Math.max(0, readerChromeNotBeforeMs - Date.now()) : 0;
     readerChromeFade.value = wait > 0 ? withDelay(wait, timing) : timing;
