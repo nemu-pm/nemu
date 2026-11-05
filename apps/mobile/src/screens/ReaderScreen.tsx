@@ -1473,6 +1473,9 @@ function ZoomableReaderImageFrame({
  * os_log bridge is callable from JS, so dev builds only, like the strip's
  * prepend log.
  */
+/** Past this, a chapter switch showed its loading state (see `readerSwitchPageFade`). */
+const MOBILE_READER_SWITCH_PAGE_FADE_AFTER_MS = 150;
+
 function logReaderEndOfChapter(message: string): void {
   if (!__DEV__) return;
   console.info(`[reader-end] ${message}`);
@@ -6257,10 +6260,13 @@ export function ReaderScreen() {
           chapter: targetChapter,
           page: String(page),
           mangaTitle,
+          // The chapter comes in from the side it reads on (RTL: the next
+          // one from the left), as a page turn does.
+          enterFrom: mode !== "scrolling" && targetChapter.id === leftChapter?.id ? "left" : undefined,
         }),
       );
     },
-    [mangaId, routeRef.registryId, routeRef.sourceId, mangaTitle],
+    [leftChapter?.id, mangaId, mode, routeRef.registryId, routeRef.sourceId, mangaTitle],
   );
 
   // The chapter that follows the current one in reading order, independent of
@@ -10150,6 +10156,16 @@ export function ReaderScreen() {
     if (bilingualSideBySide) getMobileDualReadStore().getState().setPeekActive(false);
   }, [bilingualSideBySide]);
 
+  // A chapter switch that had to wait for its pages: the first page replaces a
+  // spinner, so it fades in even when the chapter's end already drew it as a
+  // neighbour (a page shown this session otherwise paints at once).
+  const [readerSwitchMountedAt] = useState(() => Date.now());
+  const [readerSwitchPageFade, setReaderSwitchPageFade] = useState<"waiting" | "fade" | "off">(() =>
+    readerOpeningHudHeld ? "off" : "waiting",
+  );
+  if (readerSwitchPageFade === "waiting" && pagesState.status === "ready") {
+    setReaderSwitchPageFade(Date.now() - readerSwitchMountedAt > MOBILE_READER_SWITCH_PAGE_FADE_AFTER_MS ? "fade" : "off");
+  }
   const renderReaderImage = useCallback(
     (
       page: MobileReaderPage,
@@ -10307,6 +10323,7 @@ export function ReaderScreen() {
                 ? "current"
                 : true
           }
+          fadeShownSource={readerSwitchPageFade === "fade"}
           offline={readerConnectivity.offline}
           error={imageError}
           strings={strings}
@@ -10321,7 +10338,10 @@ export function ReaderScreen() {
               stablePageSizeKey,
             );
             saveMobileReaderPageSize(pageSizeChapterKey, page.id, { width, height });
-            if (!neighbour) releaseReaderOpeningOnDecode(page.id);
+            if (!neighbour) {
+              releaseReaderOpeningOnDecode(page.id);
+              setReaderSwitchPageFade((current) => (current === "fade" ? "off" : current));
+            }
             if (!neighbour) measureReaderFirstContent(page);
           }}
           onImageError={(error) => {
@@ -10426,6 +10446,7 @@ export function ReaderScreen() {
     },
     [
       readerBackgroundColor,
+      readerSwitchPageFade,
       turnReaderPageBySwipe,
       activeJapaneseLearningTranscriptOrder,
       chapter?.id,

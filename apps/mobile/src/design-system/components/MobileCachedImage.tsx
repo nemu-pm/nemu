@@ -76,6 +76,11 @@ type MobileCachedImageProps = Omit<ImageProps, "source" | "onError"> & {
    */
   fadeFromCache?: boolean;
   /**
+   * Fade even a source already shown this session: it replaces something on
+   * screen (a spinner) rather than repainting a view that remounted.
+   */
+  fadeShownSource?: boolean;
+  /**
    * The same title's cover changing URL (a detail refresh brought a new one)
    * keeps showing the image it already shows until the new one is ready,
    * instead of the fallback in between: a zoom back to a library cover lands
@@ -155,6 +160,7 @@ export function MobileCachedImage({
   fadeIn = true,
   fadeDurationMs = 240,
   fadeFromCache = true,
+  fadeShownSource = false,
   holdPreviousWhileLoading = false,
   retainDecoded = false,
   ...props
@@ -219,7 +225,8 @@ export function MobileCachedImage({
   // cover cell scrolling back) is shown at once: its bitmap is in the native
   // cache, and a fade from blank would read as a flash of empty background.
   // Read once per source key; the set only grows while it is on screen.
-  const shownAtMount = useMemo(() => shownSourceKeys.has(sourceKey), [sourceKey]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- decided when this source mounts: a fade under way keeps going
+  const shownAtMount = useMemo(() => !fadeShownSource && shownSourceKeys.has(sourceKey), [sourceKey]);
   const cacheSource = useMemo(
     () => ({
       uri: source.uri,

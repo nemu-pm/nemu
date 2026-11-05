@@ -44,6 +44,8 @@ type MobileReaderPageFrameProps = {
    * (MobileCachedImage `retainDecoded`). Never scroll reading's strips.
    */
   retainDecoded?: boolean | "current";
+  /** Replaces a spinner: fades in even if this session has shown its image before. */
+  fadeShownSource?: boolean;
   offline?: boolean;
   strings: MobileStrings;
   onImageError: (error: string) => void;
@@ -79,6 +81,7 @@ export function MobileReaderPageFrame({
   loading,
   quietLoading = false,
   retainDecoded = false,
+  fadeShownSource = false,
   offline = false,
   strings,
   onImageError,
@@ -127,6 +130,7 @@ export function MobileReaderPageFrame({
         cacheKey={cacheKey}
         fadeDurationMs={quietLoading ? MOBILE_READER_SCROLL_IMAGE_FADE_MS : undefined}
         fadeFromCache={!quietLoading}
+        fadeShownSource={fadeShownSource}
         // Scroll reading paints a page as soon as native decodes it, with no
         // wait on a JS load callback to start a fade.
         fadeIn={!quietLoading}

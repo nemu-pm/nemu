@@ -63,8 +63,11 @@ export default function SourcesLayout() {
             live for the first frames of every chapter. */}
         <Stack.Screen
           name={MOBILE_READER_ROUTE_NAME}
-          options={{
+          options={({ route }: { route: { params?: { enterFrom?: string } } }) => ({
             ...MOBILE_READER_STACK_GESTURE_OPTIONS,
+            // A chapter switch replaces the reader: from the left is the
+            // stack's back animation.
+            animationTypeForReplace: route.params?.enterFrom === "left" ? "pop" : "push",
             // Match the reader before its component mounts, including Duo's
             // persistent rail. UIKit can then transition the bar with the page.
             headerShown: Boolean(verticalBarSide) && !readerVerticalBarOptOut,
@@ -80,7 +83,7 @@ export default function SourcesLayout() {
             headerBackVisible: false,
             title: "",
             contentStyle: { backgroundColor: readerBackgroundColor },
-          }}
+          })}
         />
       </Stack>
     </ThemeProvider>
