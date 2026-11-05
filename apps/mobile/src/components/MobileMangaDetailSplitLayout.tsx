@@ -14,6 +14,7 @@ import {
   Platform,
   StyleSheet,
   View,
+  findNodeHandle,
   useWindowDimensions,
   type FlatList,
   type LayoutChangeEvent,
@@ -58,6 +59,7 @@ import {
 } from "@/lib/useMobileMeasuredRowLayout";
 import type { MobileMeasuredRow } from "@/lib/mobileMeasuredRowLayout";
 import { useMobileListRowAnchor } from "@/lib/useMobileListRowAnchor";
+import { scrollToAdjustedTop } from "../../modules/nemu-window-layout";
 
 type ChapterListProps<ItemT> = Omit<
   ComponentProps<typeof PageListScaffold<ItemT>>,
@@ -278,11 +280,21 @@ export function MobileMangaDetailSplitLayout<ItemT>({
   );
   const measuredRowsRef = useRef<() => MobileMeasuredRow[]>(() => []);
   const measuredRows = useCallback(() => measuredRowsRef.current(), []);
+  // Beside a rail the list's inset behaviour is `never` (its padding clears the
+  // status bar); under a bar it is `automatic`. Across that flip UIKit leaves
+  // the offset alone, so a page at its top ended 82pt up with its title under
+  // the bar.
+  const restChapterListAtTop = useCallback(() => {
+    const list = chapterListRef.current;
+    const tag = list ? findNodeHandle(list.getNativeScrollRef?.() as never) : null;
+    if (tag != null) scrollToAdjustedTop(tag);
+  }, []);
   const chapterAnchor = useMobileListRowAnchor({
     listRef: chapterListRef,
     geometryKey: chapterLayoutKey,
     rows: measuredRows,
     enabled: rowLayoutKind !== undefined,
+    restAtTop: Platform.OS === "ios" ? restChapterListAtTop : undefined,
   });
   const rowLayout = useMobileMeasuredRowLayout({
     data: listProps.data as readonly ItemT[] | null | undefined,

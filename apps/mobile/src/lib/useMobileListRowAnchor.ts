@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, type RefObject } from 
 import type { NativeScrollEvent, NativeSyntheticEvent } from "react-native";
 import type { MobileMeasuredRow } from "@/lib/mobileMeasuredRowLayout";
 import {
+  isMobileListAtRest,
   mobileListRowAnchor,
   mobileListRowAnchorOffset,
   type MobileListRowAnchor,
@@ -18,6 +19,9 @@ type AnchorableList = {
  */
 const ANCHOR_SETTLE_MS = 600;
 
+/** When a list at its top is put back at its rest: the bar's inset settles over a fold or rotation. */
+const MOBILE_LIST_REST_DELAYS_MS = [0, 120, 320, 600];
+
 /**
  * Keeps the row at the top of a variable-height list there through a change
  * of the list's geometry (`geometryKey`: a rotation, a fold, the hero moving
@@ -32,18 +36,26 @@ export function useMobileListRowAnchor({
   geometryKey,
   rows,
   enabled,
+  restAtTop,
 }: {
   listRef: RefObject<AnchorableList | null>;
   geometryKey: string;
   rows: () => MobileMeasuredRow[];
   enabled: boolean;
+  /** Puts a list that was at its top back there, at the inset it now has. */
+  restAtTop?: () => void;
 }) {
   const visibleTopRef = useRef<number | null>(null);
   const insetTopRef = useRef(0);
   const pendingRef = useRef<{ anchor: MobileListRowAnchor; appliedInset: number | null } | null>(null);
   const expiryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const seenKeyRef = useRef(geometryKey);
+  const restTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
+  const clearRest = useCallback(() => {
+    restTimersRef.current.forEach(clearTimeout);
+    restTimersRef.current = [];
+  }, []);
   const clear = useCallback(() => {
     pendingRef.current = null;
     if (expiryRef.current) clearTimeout(expiryRef.current);
@@ -56,7 +68,13 @@ export function useMobileListRowAnchor({
       pendingRef.current = null;
     }, ANCHOR_SETTLE_MS);
   }, []);
-  useEffect(() => clear, [clear]);
+  useEffect(
+    () => () => {
+      clear();
+      clearRest();
+    },
+    [clear, clearRest],
+  );
 
   const apply = useCallback(
     (row: Pick<MobileMeasuredRow, "y" | "height">) => {
@@ -83,12 +101,19 @@ export function useMobileListRowAnchor({
     // A change landing while the last one settles keeps that anchor.
     if (!pendingRef.current) {
       const top = visibleTopRef.current;
+      if (restAtTop && isMobileListAtRest(top)) {
+        // The bar's inset arrives with the new layout, and UIKit only moves a
+        // list to it if the inset behaviour stayed the same.
+        clearRest();
+        restTimersRef.current = MOBILE_LIST_REST_DELAYS_MS.map((delay) => setTimeout(restAtTop, delay));
+        return;
+      }
       const anchor = top === null ? null : mobileListRowAnchor(rows(), top);
       if (!anchor) return;
       pendingRef.current = { anchor, appliedInset: null };
     }
     extend();
-  }, [enabled, extend, geometryKey, rows]);
+  }, [clearRest, enabled, extend, geometryKey, restAtTop, rows]);
 
   const onRowLayout = useCallback(
     (row: MobileMeasuredRow) => {
@@ -117,5 +142,10 @@ export function useMobileListRowAnchor({
     [apply, rows],
   );
 
-  return { onRowLayout, onScroll, onScrollBeginDrag: clear };
+  const onScrollBeginDrag = useCallback(() => {
+    clear();
+    clearRest();
+  }, [clear, clearRest]);
+
+  return { onRowLayout, onScroll, onScrollBeginDrag };
 }

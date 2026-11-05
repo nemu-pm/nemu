@@ -124,6 +124,11 @@ public final class NemuWindowLayoutModule: Module {
       MainActor.assumeIsolated { NemuTransitionSettle.wait { promise.resolve() } }
     }.runOnQueue(.main)
     Constant("afterTransitionsAvailable") { true }
+    // A list at its top after its inset behaviour flipped: rests at its new top.
+    AsyncFunction("scrollToAdjustedTop") { (viewTag: Int) in
+      guard let view = self.appContext?.findView(withTag: viewTag, ofType: UIView.self) else { return }
+      MainActor.assumeIsolated { NemuScrollRest.restAtAdjustedTop(view) }
+    }.runOnQueue(.main)
     AsyncFunction("setAppAppearance") { (appearance: String) in
       MainActor.assumeIsolated { NemuAppAppearance.set(appearance) }
     }.runOnQueue(.main)
@@ -3761,5 +3766,25 @@ final class NemuConcentricView: ExpoView {
       layer.cornerRadius = minimumRadius
       layer.cornerCurve = .continuous
     }
+  }
+}
+
+/// `contentOffset` a list rests at is minus its adjusted inset. UIKit keeps a
+/// list there when the inset changes, but not when
+/// `contentInsetAdjustmentBehavior` flips, and RN's `scrollTo` clamps to the raw
+/// `contentInset`, so JS cannot reach it.
+enum NemuScrollRest {
+  @MainActor static func restAtAdjustedTop(_ view: UIView) {
+    guard let scrollView = scrollView(in: view),
+          !scrollView.isTracking, !scrollView.isDecelerating,
+          scrollView.refreshControl?.isRefreshing != true else { return }
+    let top = -scrollView.adjustedContentInset.top
+    guard abs(scrollView.contentOffset.y - top) > 0.5 else { return }
+    scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: top), animated: false)
+  }
+
+  @MainActor private static func scrollView(in view: UIView) -> UIScrollView? {
+    if let found = view as? UIScrollView { return found }
+    return view.subviews.lazy.compactMap { $0 as? UIScrollView }.first
   }
 }

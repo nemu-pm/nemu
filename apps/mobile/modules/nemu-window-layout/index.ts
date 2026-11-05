@@ -6,6 +6,7 @@ export {
   barAxisViewsAvailable,
 } from "./src/VerticalBarOnlyLeadingItems";
 export { setAppAppearance, type AppAppearance } from "./src/AppAppearance";
+export { scrollToAdjustedTop } from "./src/ScrollRest";
 export {
   afterViewControllerTransitions,
   interfaceOrientationLockAvailable,

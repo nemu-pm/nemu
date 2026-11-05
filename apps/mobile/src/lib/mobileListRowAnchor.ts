@@ -4,6 +4,16 @@ import type { MobileMeasuredRow } from "@/lib/mobileMeasuredRowLayout";
 export type MobileListRowAnchor = { index: number; delta: number };
 
 /**
+ * Whether a list is at its top: never scrolled yet, or at a content y at or
+ * above 0. Scroll events carry the raw inset, not the bar's adjusted one, so a
+ * list under a bar rests at about minus the bar; this also takes a list dragged
+ * less than a bar's height, which rests back at its top.
+ */
+export function isMobileListAtRest(visibleTop: number | null): boolean {
+  return visibleTop === null || (Number.isFinite(visibleTop) && visibleTop <= 1);
+}
+
+/**
  * The row a list keeps at its top through a change of its geometry (a
  * rotation, a fold, the hero moving between the list and its own column).
  * `visibleTop` is the content y at the top of the visible area (the offset
