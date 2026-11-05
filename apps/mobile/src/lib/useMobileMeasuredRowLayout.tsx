@@ -13,6 +13,7 @@ import { View, type LayoutChangeEvent, type LayoutRectangle } from "react-native
 import type { CellRendererProps } from "@react-native/virtualized-lists";
 import {
   resolveMobileMeasuredRowLayout,
+  type MobileMeasuredRow,
   type MobileMeasuredRowLayout,
 } from "./mobileMeasuredRowLayout";
 
@@ -57,6 +58,8 @@ export type MobileMeasuredRowLayoutProps<ItemT> = {
   CellRendererComponent?: ComponentType<CellRendererProps<ItemT>>;
   /** For MobileMeasuredRowReportProvider around the list. */
   report: MobileMeasuredRowReport;
+  /** The rows laid out now (mounted cells with a frame), in no particular order. */
+  rows: () => MobileMeasuredRow[];
 };
 
 /**
@@ -64,7 +67,8 @@ export type MobileMeasuredRowLayoutProps<ItemT> = {
  * mobileMeasuredRowLayout): a jump to a row far down the list lands on it at
  * once instead of going through `onScrollToIndexFailed`. `kindOf` names a
  * row's height class; `layoutKey` changes whenever those heights may (width,
- * text size). Off (`enabled` false): the list measures as usual.
+ * text size). Off (`enabled` false): the list measures as usual, and its
+ * cells still report their frames (`rows`, `onRowLayout`).
  */
 // Kept beside the cell component it hands to the list.
 // eslint-disable-next-line react-refresh/only-export-components
@@ -73,13 +77,21 @@ export function useMobileMeasuredRowLayout<ItemT>({
   kindOf,
   layoutKey,
   enabled,
+  onRowLayout,
 }: {
   data: readonly ItemT[] | null | undefined;
   kindOf: ((item: ItemT) => string) | undefined;
   layoutKey: string;
   enabled: boolean;
+  /** A row's new frame, as its cell lays out. */
+  onRowLayout?: (row: MobileMeasuredRow) => void;
 }): MobileMeasuredRowLayoutProps<ItemT> {
-  const active = enabled && kindOf !== undefined;
+  const measuring = kindOf !== undefined;
+  const active = enabled && measuring;
+  const onRowLayoutRef = useRef(onRowLayout);
+  useLayoutEffect(() => {
+    onRowLayoutRef.current = onRowLayout;
+  }, [onRowLayout]);
   const kinds = useMemo(() => (active && data ? data.map((item) => kindOf(item)) : []), [active, data, kindOf]);
   const cellsRef = useRef(new Map<string, { index: number; frame?: LayoutRectangle }>());
   const kindHeightsRef = useRef(new Map<string, number>());
@@ -126,6 +138,7 @@ export function useMobileMeasuredRowLayout<ItemT>({
         const kind = kindsRef.current[cell.index];
         if (kind !== undefined) kindHeightsRef.current.set(kind, frame.height);
         resolve();
+        onRowLayoutRef.current?.({ index: cell.index, y: frame.y, height: frame.height });
       },
       unmount: (cellKey) => {
         cellsRef.current.delete(cellKey);
@@ -144,9 +157,17 @@ export function useMobileMeasuredRowLayout<ItemT>({
     },
     [],
   );
+  const rows = useCallback(() => {
+    const laidOut: MobileMeasuredRow[] = [];
+    for (const { index, frame } of cellsRef.current.values()) {
+      if (frame) laidOut.push({ index, y: frame.y, height: frame.height });
+    }
+    return laidOut;
+  }, []);
   return {
     getItemLayout: active && exact ? getItemLayout : undefined,
-    CellRendererComponent: active ? (MeasuredRowCell as ComponentType<CellRendererProps<ItemT>>) : undefined,
+    CellRendererComponent: measuring ? (MeasuredRowCell as ComponentType<CellRendererProps<ItemT>>) : undefined,
     report,
+    rows,
   };
 }

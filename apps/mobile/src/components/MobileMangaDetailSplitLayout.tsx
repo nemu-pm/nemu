@@ -1,16 +1,21 @@
 import {
   Fragment,
   useCallback,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type ComponentProps,
+  type MutableRefObject,
   type ReactNode,
+  type Ref,
 } from "react";
 import {
   Platform,
   StyleSheet,
   View,
   useWindowDimensions,
+  type FlatList,
   type LayoutChangeEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
@@ -51,6 +56,8 @@ import {
   MobileMeasuredRowReportProvider,
   useMobileMeasuredRowLayout,
 } from "@/lib/useMobileMeasuredRowLayout";
+import type { MobileMeasuredRow } from "@/lib/mobileMeasuredRowLayout";
+import { useMobileListRowAnchor } from "@/lib/useMobileListRowAnchor";
 
 type ChapterListProps<ItemT> = Omit<
   ComponentProps<typeof PageListScaffold<ItemT>>,
@@ -59,6 +66,11 @@ type ChapterListProps<ItemT> = Omit<
 
 const NO_ROWS: never[] = [];
 const renderNothing = () => null;
+
+function assignRef<T>(ref: Ref<T> | undefined, value: T | null) {
+  if (typeof ref === "function") ref(value);
+  else if (ref) (ref as MutableRefObject<T | null>).current = value;
+}
 
 /**
  * Manga detail on any width: one list on compact widths; on expanded widths a
@@ -252,12 +264,53 @@ export function MobileMangaDetailSplitLayout<ItemT>({
     columns ? "columns" : split ? `${split.alignment}:${Math.round(split.trailing.x)}:${Math.round(split.trailing.width)}` : "single",
     { poseChangesOnly: true },
   );
+  const chapterLayoutKey = `${chapterTableWidth}:${containerWidth}:${trailingPane.wideChapterRows}:${trailingPane.role}`;
+  // A rotation or fold mid-list keeps the chapter at the top in place (the
+  // hero moving into or out of the list shifted it by rows).
+  const chapterListRef = useRef<FlatList<ItemT> | null>(null);
+  const { listRef: callerListRef, onScroll: callerOnScroll, onScrollBeginDrag: callerOnScrollBeginDrag } = listProps;
+  const setChapterListRef = useCallback(
+    (value: FlatList<ItemT> | null) => {
+      chapterListRef.current = value;
+      assignRef(callerListRef, value);
+    },
+    [callerListRef],
+  );
+  const measuredRowsRef = useRef<() => MobileMeasuredRow[]>(() => []);
+  const measuredRows = useCallback(() => measuredRowsRef.current(), []);
+  const chapterAnchor = useMobileListRowAnchor({
+    listRef: chapterListRef,
+    geometryKey: chapterLayoutKey,
+    rows: measuredRows,
+    enabled: rowLayoutKind !== undefined,
+  });
   const rowLayout = useMobileMeasuredRowLayout({
     data: listProps.data as readonly ItemT[] | null | undefined,
     kindOf: rowLayoutKind,
-    layoutKey: `${chapterTableWidth}:${containerWidth}:${trailingPane.wideChapterRows}:${trailingPane.role}`,
+    layoutKey: chapterLayoutKey,
     enabled: fontScale === 1,
+    onRowLayout: chapterAnchor.onRowLayout,
   });
+  const measuredRowsSource = rowLayout.rows;
+  useLayoutEffect(() => {
+    measuredRowsRef.current = measuredRowsSource;
+  }, [measuredRowsSource]);
+  const anchorOnScroll = chapterAnchor.onScroll;
+  const onChapterListScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      anchorOnScroll(event);
+      callerOnScroll?.(event);
+    },
+    [anchorOnScroll, callerOnScroll],
+  );
+  const anchorOnScrollBeginDrag = chapterAnchor.onScrollBeginDrag;
+  const onChapterListScrollBeginDrag = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      anchorOnScrollBeginDrag();
+      callerOnScrollBeginDrag?.(event);
+    },
+    [anchorOnScrollBeginDrag, callerOnScrollBeginDrag],
+  );
   // A resize shows the columns at their old widths in the new window for a
   // few frames before the layout for it commits: they are hidden meanwhile.
   const { ref: staleGuardRef, style: staleGuardStyle } = useMobileStaleColumnsGuard(columns ? containerWidth : null);
@@ -348,6 +401,10 @@ export function MobileMangaDetailSplitLayout<ItemT>({
             <MobileMeasuredRowReportProvider value={rowLayout.report}>
             <PageListScaffold
               {...listProps}
+              listRef={setChapterListRef}
+              onScroll={rowLayoutKind || callerOnScroll ? onChapterListScroll : undefined}
+              onScrollBeginDrag={rowLayoutKind || callerOnScrollBeginDrag ? onChapterListScrollBeginDrag : undefined}
+              scrollEventThrottle={rowLayoutKind ? (listProps.scrollEventThrottle ?? 64) : listProps.scrollEventThrottle}
               getItemLayout={rowLayout.getItemLayout}
               CellRendererComponent={rowLayout.CellRendererComponent}
               style={columns ? styles.clearList : listProps.style}
