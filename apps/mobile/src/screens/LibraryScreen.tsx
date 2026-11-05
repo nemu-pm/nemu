@@ -1,4 +1,5 @@
 import { MobileQuickActionMenu, mobileNativeQuickMenuAvailable } from "@/components/MobileQuickActionMenu";
+import { requestMobileAddSourceSheet } from "@/lib/mobileAddSourceSheetRequest";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { useStableList, useStableValue } from "@/lib/useStableList";
 import {
@@ -2793,7 +2794,11 @@ export function LibraryScreen({
                 description={emptyState.description}
                 actionLabel={emptyState.actionLabel}
                 actionIcon={emptyState.actionRoute === "/browse" ? "add-outline" : undefined}
-                onActionPress={() => router.navigate(emptyState.actionRoute)}
+                onActionPress={() => {
+                  // Add Source opens Browse's Add Sources sheet, not just the tab.
+                  if (emptyState.actionRoute === "/browse") requestMobileAddSourceSheet();
+                  router.navigate(emptyState.actionRoute);
+                }}
               />
             )}
           </Animated.View>

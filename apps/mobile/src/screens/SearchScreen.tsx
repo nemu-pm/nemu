@@ -1,5 +1,6 @@
 import { MobileQuickActionMenu, MobileQuickActionProvider, mobileNativeQuickMenuAvailable } from "@/components/MobileQuickActionMenu";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { requestMobileAddSourceSheet } from "@/lib/mobileAddSourceSheetRequest";
 import { orderMobileTitleQuickActions } from "@/lib/mobileQuickActionOrder";
 import {
   Keyboard,
@@ -1713,7 +1714,9 @@ export function SearchScreen() {
                 description={strings.search.noSourcesDescription}
                 actionLabel={strings.search.addSource}
                 onActionPress={() => {
-                router.navigate("/browse");
+                  // Add Source opens Browse's Add Sources sheet, not just the tab.
+                  requestMobileAddSourceSheet();
+                  router.navigate("/browse");
                 }}
               />
             )}
