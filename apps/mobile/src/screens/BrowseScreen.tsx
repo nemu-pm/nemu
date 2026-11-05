@@ -21,7 +21,6 @@ import {
   ScrollView,
   SectionList,
   StyleSheet,
-  Text,
   View,
   useWindowDimensions,
   type LayoutChangeEvent,
@@ -73,6 +72,7 @@ import {
   NemuNativeSwitch,
   NemuPressable,
   NemuSheetScrollEdge,
+  NemuText,
   PageHeader,
   PageScaffold,
   radius,
@@ -250,7 +250,7 @@ function UnsupportedSourceRow({
       </View>
       <View style={styles.unsupportedSourceText}>
         <View style={styles.unsupportedSourceTitleRow}>
-          <Text
+          <NemuText
             numberOfLines={1}
             style={[
               styles.unsupportedSourceTitle,
@@ -258,7 +258,7 @@ function UnsupportedSourceRow({
             ]}
           >
             {source.name}
-          </Text>
+          </NemuText>
           <MobileChip
             accessibilityLabel={strings.common.sourceUnsupportedBadge}
             label={strings.common.sourceUnsupportedBadge}
@@ -266,7 +266,7 @@ function UnsupportedSourceRow({
             variant="static"
           />
         </View>
-        <Text
+        <NemuText
           numberOfLines={2}
           style={[
             styles.unsupportedSourceSubtitle,
@@ -274,7 +274,7 @@ function UnsupportedSourceRow({
           ]}
         >
           {strings.common.sourceUnsupportedTachiyomiDescription}
-        </Text>
+        </NemuText>
       </View>
     </NemuPressable>
   );
@@ -387,7 +387,7 @@ function LanguageFilterOptionRow({
           : null,
       ]}
     >
-      <Text
+      <NemuText
         numberOfLines={1}
         style={[
           styles.languageOptionText,
@@ -400,7 +400,7 @@ function LanguageFilterOptionRow({
         ]}
       >
         {label}
-      </Text>
+      </NemuText>
       <View style={styles.languageOptionAccessory}>
         {selected ? (
           <Ionicons name="checkmark-outline" size={18} color={tokens.primary} />
@@ -545,7 +545,7 @@ function LanguageFilterSheetSection({
             <Ionicons name="eye-outline" size={22} color={tokens.primary} />
           </View>
           <View style={styles.adultToggleCopy}>
-            <Text
+            <NemuText
               numberOfLines={1}
               style={[
                 styles.adultToggleTitle,
@@ -553,8 +553,8 @@ function LanguageFilterSheetSection({
               ]}
             >
               {strings.browse.adult}
-            </Text>
-            <Text
+            </NemuText>
+            <NemuText
               numberOfLines={2}
               style={[
                 styles.adultToggleSubtitle,
@@ -562,7 +562,7 @@ function LanguageFilterSheetSection({
               ]}
             >
               {strings.browse.adultSourcesDescription}
-            </Text>
+            </NemuText>
           </View>
           <View style={styles.adultToggleAccessory}>
             <NemuNativeSwitch
@@ -658,13 +658,13 @@ const AvailableSourceRow = memo(function AvailableSourceRow({
         </View>
         <View style={styles.availableText}>
           <View style={styles.sourceTitleRow}>
-            <Text
+            <NemuText
               numberOfLines={1}
               style={[styles.sourceTitle, { color: tokens.foreground }]}
             >
               {source.name}
-            </Text>
-            <Text
+            </NemuText>
+            <NemuText
               numberOfLines={1}
               style={[
                 styles.sourceVersionText,
@@ -672,7 +672,7 @@ const AvailableSourceRow = memo(function AvailableSourceRow({
               ]}
             >
               v{source.version}
-            </Text>
+            </NemuText>
             {warningAccessibilityLabel ? (
               <View
                 accessible
@@ -688,14 +688,14 @@ const AvailableSourceRow = memo(function AvailableSourceRow({
               </View>
             ) : null}
           </View>
-          <Text
+          <NemuText
             numberOfLines={1}
             style={[styles.sourceSubtitle, { color: tokens.mutedForeground }]}
           >
             {[formatLanguages(source.languages), getMobileSourceOriginLabel(source, strings)]
               .filter(Boolean)
               .join(" / ")}
-          </Text>
+          </NemuText>
         </View>
         {installed ? (
           <View
@@ -708,11 +708,11 @@ const AvailableSourceRow = memo(function AvailableSourceRow({
               size={16}
               color={tokens.success}
             />
-            <Text
+            <NemuText
               style={[styles.installText, { color: tokens.mutedForeground }]}
             >
               {strings.browse.installed}
-            </Text>
+            </NemuText>
           </View>
         ) : (
           <NemuButton
@@ -778,12 +778,12 @@ const BuiltInSourceRow = memo(function BuiltInSourceRow({
           <ServerIconImage source={SERVER_ICONS[kind]} style={styles.sourceIcon} resizeMode="contain" />
         </View>
         <View style={styles.availableText}>
-          <Text numberOfLines={1} style={[styles.sourceTitle, { color: tokens.foreground }]}>
+          <NemuText numberOfLines={1} style={[styles.sourceTitle, { color: tokens.foreground }]}>
             {name}
-          </Text>
-          <Text numberOfLines={1} style={[styles.sourceSubtitle, { color: tokens.mutedForeground }]}>
+          </NemuText>
+          <NemuText numberOfLines={1} style={[styles.sourceSubtitle, { color: tokens.mutedForeground }]}>
             {strings.selfHosted.rowSubtitle}
-          </Text>
+          </NemuText>
         </View>
         <Ionicons name="chevron-forward" size={16} color={tokens.mutedForeground} />
       </View>
@@ -823,13 +823,13 @@ function SourceDirectoryGuide({
     >
       <Ionicons name="add-circle-outline" size={24} color={tokens.primary} />
       <View style={styles.directoryGuideText}>
-        <Text numberOfLines={1} style={[styles.directoryGuideLabel, { color: tokens.primary }]}>
+        <NemuText numberOfLines={1} style={[styles.directoryGuideLabel, { color: tokens.primary }]}>
           {action}
-        </Text>
+        </NemuText>
         {prominent ? (
-          <Text style={[styles.directoryGuideDetail, { color: tokens.mutedForeground }]}>
+          <NemuText style={[styles.directoryGuideDetail, { color: tokens.mutedForeground }]}>
             {strings.browse.sourceDirectoryGuideBody}
-          </Text>
+          </NemuText>
         ) : null}
       </View>
       <Ionicons name="chevron-forward" size={16} color={tokens.mutedForeground} style={{ marginRight: -4 }} />
@@ -1572,7 +1572,7 @@ export function BrowseScreen() {
         appLanguage,
       );
       return (
-        <Text
+        <NemuText
           style={[
             styles.sourceLanguageHeader,
             styles.availableSourceLanguageHeader,
@@ -1580,7 +1580,7 @@ export function BrowseScreen() {
           ]}
         >
           {label}
-        </Text>
+        </NemuText>
       );
     },
     [appLanguage, strings, sheetTokens.mutedForeground],
@@ -1964,14 +1964,14 @@ export function BrowseScreen() {
         collapsable={false}
         style={[styles.sourceLanguageSection, mobileDesignExploreFlag ? styles.exploreSourceSection : null]}
       >
-        <Text
+        <NemuText
           style={[
             styles.sourceLanguageHeader,
             { color: tokens.mutedForeground },
           ]}
         >
           {label}
-        </Text>
+        </NemuText>
         {mobileDesignExploreFlag ? (
           // Design-explore: one inset group per language, short rows.
           <View
@@ -2367,7 +2367,7 @@ export function BrowseScreen() {
                           </View>
                         ))}
                       </View>
-                      <Text numberOfLines={1} style={[styles.serverEntryLabel, { color: sheetTokens.foreground }]}>{strings.selfHosted.connectServer}</Text>
+                      <NemuText numberOfLines={1} style={[styles.serverEntryLabel, { color: sheetTokens.foreground }]}>{strings.selfHosted.connectServer}</NemuText>
                       <Ionicons name="chevron-forward" size={16} color={sheetTokens.mutedForeground} style={{ marginRight: -4 }} />
                     </NemuPressable>
                   ) : undefined}
@@ -2413,14 +2413,14 @@ export function BrowseScreen() {
                         size={22}
                         color={sheetTokens.mutedForeground}
                       />
-                      <Text
+                      <NemuText
                         style={[
                           styles.inlineEmptyText,
                           { color: sheetTokens.mutedForeground },
                         ]}
                       >
                         {strings.browse.noSourceResults}
-                      </Text>
+                      </NemuText>
                     </View>}
                   style={styles.availableListScroller}
                   contentContainerStyle={styles.availableListContent}
