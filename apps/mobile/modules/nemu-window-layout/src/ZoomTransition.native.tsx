@@ -11,6 +11,12 @@ type ZoomTargetProps = {
   /** Swipe-to-dismiss back into the source (default true). */
   interactiveDismiss?: boolean;
   /**
+   * Keep the screen the zoom leaves as it looked at the tap until the zoom has
+   * covered it: this screen changes what the window lays out by as it arrives
+   * (the reader's vertical-bar opt-out). Route-level targets.
+   */
+  freezePresenter?: boolean;
+  /**
    * The zoom into this screen has landed (route-level targets, `align` false).
    * Fires once; at once when the screen appears without a transition.
    */
@@ -79,6 +85,7 @@ export function ZoomTarget({
   zoomId,
   align = true,
   interactiveDismiss = true,
+  freezePresenter = false,
   onZoomSettled,
   onZoomStarted,
   style,
@@ -90,6 +97,7 @@ export function ZoomTarget({
       zoomId={canonicalZoomId(zoomId)}
       align={align}
       interactiveDismiss={interactiveDismiss}
+      freezePresenter={freezePresenter}
       onZoomSettled={onZoomSettled}
       onZoomStarted={onZoomStarted ? (event) => onZoomStarted(event.nativeEvent) : undefined}
       style={style}

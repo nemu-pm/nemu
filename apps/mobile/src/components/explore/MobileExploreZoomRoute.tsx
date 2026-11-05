@@ -25,6 +25,7 @@ const SETTLE_FALLBACK_MS = zoomSettledEventAvailable ? 1200 : 480;
 export function MobileExploreZoomRoute({
   zoomId,
   interactiveDismiss = true,
+  freezePresenter = false,
   onLanded,
   onStarted,
   children,
@@ -43,6 +44,8 @@ export function MobileExploreZoomRoute({
   onStarted?: (event: ZoomStartedEvent) => void;
   /** Swipe-to-dismiss back into the source (off for the reader: page turns own its gestures). */
   interactiveDismiss?: boolean;
+  /** The route changes what the window lays out by as it arrives: the screen under the zoom holds still. */
+  freezePresenter?: boolean;
   children: ReactNode;
 }) {
   const zooms = mobileDesignExploreFlag && Boolean(zoomId);
@@ -89,6 +92,7 @@ export function MobileExploreZoomRoute({
           zoomId={zoomId}
           align={false}
           interactiveDismiss={interactiveDismiss}
+          freezePresenter={freezePresenter}
           onZoomSettled={settle}
           onZoomStarted={onZoomStarted}
           style={styles.target}

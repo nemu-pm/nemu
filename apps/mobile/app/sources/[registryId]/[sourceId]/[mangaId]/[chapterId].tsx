@@ -133,6 +133,7 @@ export default function ReaderRoute() {
     <MobileExploreZoomRoute
       zoomId={zoom}
       interactiveDismiss={false}
+      freezePresenter={readerVerticalBar.optOut}
       onLanded={coverReveal.onLanded}
       onStarted={coverReveal.onZoomStarted}
     >

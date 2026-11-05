@@ -18,6 +18,7 @@ export function ZoomTarget({
   zoomId: string;
   align?: boolean;
   interactiveDismiss?: boolean;
+  freezePresenter?: boolean;
   onZoomSettled?: () => void;
   onZoomStarted?: (event: ZoomStartedEvent) => void;
   style?: ViewProps["style"];

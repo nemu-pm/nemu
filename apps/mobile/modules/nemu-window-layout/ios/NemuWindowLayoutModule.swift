@@ -286,6 +286,9 @@ public final class NemuWindowLayoutModule: Module {
       Prop("interactiveDismiss") { (view: NemuZoomTargetView, enabled: Bool) in
         view.interactiveDismiss = enabled
       }
+      Prop("freezePresenter") { (view: NemuZoomTargetView, freeze: Bool) in
+        view.freezePresenter = freeze
+      }
     }
     // Hands a list's scroll view to UIKit as the content scroll view of its
     // screen and every parent up to the tab bar controller, so the tab bar can
@@ -3343,6 +3346,12 @@ final class NemuZoomTargetView: ExpoView {
     }
   }
   var interactiveDismiss = true { didSet { if interactiveDismiss != oldValue { scheduleSetup() } } }
+  /// This screen changes something the whole window lays out by as it arrives
+  /// (the reader's vertical-bar opt-out: the tab rail becomes a bottom bar):
+  /// the screen it zooms out of stays as it looked at the tap until the zoom
+  /// has covered it, a snapshot over its live view.
+  var freezePresenter = false
+  private var presenterFreeze: UIView?
   private var settleObserved = false
   private var settled = false
 
@@ -3362,6 +3371,7 @@ final class NemuZoomTargetView: ExpoView {
     super.didMoveToWindow()
     guard window != nil else {
       NemuZoomRegistry.unregisterAlignment(self, id: zoomId)
+      releasePresenterFreeze()
       return
     }
     registerAlignmentIfNeeded()
@@ -3404,6 +3414,7 @@ final class NemuZoomTargetView: ExpoView {
   private func sendSettled() {
     guard !settled else { return }
     settled = true
+    releasePresenterFreeze()
     onZoomSettled([:])
   }
 
@@ -3425,13 +3436,75 @@ final class NemuZoomTargetView: ExpoView {
   /// with the outer screen that hosts that stack, so the zoom belongs there.
   private static func pushedController(for controller: UIViewController) -> UIViewController {
     var current = controller
-    while let stack = current.navigationController,
-          stack.viewControllers.first === current,
-          let host = stack.parent,
-          host.navigationController != nil {
+    while let host = hostScreen(of: current) {
       current = host
     }
     return current
+  }
+
+  private static func hostScreen(of screen: UIViewController) -> UIViewController? {
+    if let stack = screen.navigationController {
+      guard stack.viewControllers.first === screen,
+            let host = stack.parent,
+            host.navigationController != nil else { return nil }
+      return host
+    }
+    // Being mounted: a nested stack joins its host only once the outer stack's
+    // push has put it in a window, and a zoom set after that push only reaches
+    // the pop (the reader then opened as a plain slide and closed as a zoom).
+    // The React tree already links them.
+    guard let stack = reactParent(of: screen.view),
+          NSStringFromClass(type(of: stack)) == "RNSScreenStackView",
+          reactChildren(of: stack).first === screen.view else { return nil }
+    var ancestor = reactParent(of: stack)
+    while let view = ancestor {
+      if let host = view.next as? UIViewController {
+        return reactParent(of: view).map { NSStringFromClass(type(of: $0)) } == "RNSScreenStackView" ? host : nil
+      }
+      ancestor = reactParent(of: view)
+    }
+    return nil
+  }
+
+  private static func reactParent(of view: UIView) -> UIView? {
+    let selector = NSSelectorFromString("reactSuperview")
+    guard view.responds(to: selector) else { return view.superview }
+    return view.perform(selector)?.takeUnretainedValue() as? UIView
+  }
+
+  private static func reactChildren(of view: UIView) -> [UIView] {
+    let selector = NSSelectorFromString("reactSubviews")
+    guard view.responds(to: selector) else { return view.subviews }
+    return view.perform(selector)?.takeUnretainedValue() as? [UIView] ?? []
+  }
+
+  /// The screen under the push: the source's ancestor in the stack `pushed` is
+  /// joining. Taken once, before the push; a push still in flight has no
+  /// "before" left to show.
+  private func takePresenterFreeze(source: UIView, pushed: UIViewController) {
+    guard freezePresenter, presenterFreeze == nil, !settled, !settleObserved,
+          pushed.transitionCoordinator == nil,
+          let stack = NemuZoomTargetView.reactParent(of: pushed.view) else { return }
+    var responder: UIResponder? = source
+    while let current = responder {
+      if let screen = current as? UIViewController,
+         screen.isViewLoaded,
+         NemuZoomTargetView.reactParent(of: screen.view) === stack,
+         screen !== pushed {
+        guard let snapshot = screen.view.snapshotView(afterScreenUpdates: false) else { return }
+        snapshot.frame = screen.view.bounds
+        snapshot.isUserInteractionEnabled = false
+        screen.view.addSubview(snapshot)
+        presenterFreeze = snapshot
+        return
+      }
+      responder = current.next
+    }
+  }
+
+  private func releasePresenterFreeze() {
+    presenterFreeze?.removeFromSuperview()
+    presenterFreeze = nil
   }
 
   private func setup() {
@@ -3452,6 +3525,7 @@ final class NemuZoomTargetView: ExpoView {
     readerZoomLog.notice(
       "open id=\(NemuZoomId.canonical(id), privacy: .public) found=\(sourceView != nil, privacy: .public) onWindow=\(sourceView?.window != nil, privacy: .public) transitionCoordinator=\(controller.transitionCoordinator != nil, privacy: .public) reduceMotion=\(UIAccessibility.isReduceMotionEnabled, privacy: .public)"
     )
+    if let sourceView { takePresenterFreeze(source: sourceView, pushed: controller) }
     let options = UIViewController.Transition.ZoomOptions()
     options.alignmentRectProvider = { context in
       MainActor.assumeIsolated {
