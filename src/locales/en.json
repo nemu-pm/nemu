@@ -824,23 +824,32 @@
       }
     ]
   },
-  "directoriesPage": {
+  "sourceDirectoriesHelp": {
     "title": "Source directories",
-    "intro": "nemu reads manga through sources: small packages that each tell nemu how to read one website or server. Sources come from source directories, lists published at a web address in the format Aidoku uses (an index.min.json file). nemu can add any of the directories below.",
-    "howTitle": "Adding a directory",
-    "howTap": "On the iPhone or iPad with nemu, tap Add to nemu. nemu shows the directory's name and address and asks before adding it.",
-    "howCopy": "Or copy the address, then in nemu go to Settings › Source directories › Add directory and paste it.",
-    "desktopHint": "Add to nemu only works on a device with nemu installed. On this computer, copy an address and add it in nemu.",
-    "listTitle": "Directories",
-    "by": "by",
-    "languages": "Languages: {{value}}",
-    "multiLanguage": "Many languages",
-    "add": "Add to nemu",
-    "copy": "Copy address",
+    "intro": "nemu reads manga through sources: small packages that each tell nemu how to read one website or server. Sources are published in source directories, lists at a web address in the format Aidoku uses (an index.min.json file). nemu reads the same directories as Aidoku.",
+    "builtInTitle": "Included with nemu",
+    "builtIn": "nemu comes with one directory, nemu recommended. It holds works their rights holders publish under a free licence, and sources that connect to a server you run. It can't be removed.",
+    "addTitle": "Adding a directory",
+    "addIntro": "nemu does not list or recommend directories other than its own. You choose which to add:",
+    "addLink": "Tap an Add to nemu link on the directory publisher's website. nemu opens, shows the directory's name and address, and asks before adding it.",
+    "addPaste": "Or copy the directory's address and paste it in nemu: Browse › + › Add Source Directory, or Settings › Installed Sources › Source directories › +.",
+    "addAidoku": "Links made for Aidoku work too: paste an aidoku://addSourceList link or an aidoku.app add-source-list link, and nemu uses the address inside it.",
+    "publishersTitle": "For directory publishers",
+    "publishersIntro": "If you publish a source directory, you can offer an Add to nemu button on your own site. Link it to:",
+    "publishersAddress": "where <address> is the HTTPS address of your index.min.json (or of the folder that holds it), percent-encoded.",
+    "publishersExample": "For example, for https://example.com/sources/index.min.json:",
+    "publishersAlsoAccepted": "nemu also accepts Aidoku's link formats, so an existing Add to Aidoku link works when it is pasted into nemu:",
+    "ruleHttps": "The address must use HTTPS. Addresses with a user name or password, or on a local network, are refused.",
+    "ruleConfirm": "nemu never adds a directory silently: it loads the list, shows its name and address, and asks first.",
+    "ruleShowAddress": "nemu:// links only open on a device with nemu installed. Show the address next to the button so people on other devices can copy it.",
+    "builderTitle": "Make an add link",
+    "builderHint": "Enter your directory's address to get its link.",
+    "builderInvalid": "That is not an address nemu can add.",
+    "builderNotHttps": "The address must start with https://.",
+    "builderLocal": "Addresses on a local network can't be added in nemu.",
+    "copyLink": "Copy link",
     "copied": "Copied",
-    "builtIn": "Included with nemu",
-    "disclaimerTitle": "Before you add one",
-    "disclaimer": "Directories other than nemu recommended are published by third parties. nemu does not host, review or endorse them or the content their sources reach, and is not affiliated with their publishers. Being listed here is not a recommendation. You are responsible for the directories you add and for complying with the laws and terms that apply to you.",
-    "removal": "To have a directory removed from this page, open an issue at"
+    "disclaimerTitle": "Third-party directories",
+    "disclaimer": "Directories other than nemu recommended are published by third parties. nemu does not host, review or endorse them or the content their sources reach, and is not affiliated with their publishers. You are responsible for the directories you add and for complying with the laws and terms that apply to you."
   }
 }

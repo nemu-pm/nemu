@@ -80,9 +80,9 @@ function WelcomeWizardWrapper() {
   const { shouldShow, markCompleted } = useWelcomeWizard();
   
   // Skip wizard on utility routes (debug, the public privacy policy and
-  // directory list, etc.)
+  // help pages, etc.)
   const pathname = window.location.pathname;
-  const skipRoutes = ["/debug", "/privacy", "/directories"];
+  const skipRoutes = ["/debug", "/privacy", "/help"];
   const shouldSkip = skipRoutes.some(r => pathname.startsWith(r));
   
   const handleComplete = () => {
