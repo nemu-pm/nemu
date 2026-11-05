@@ -309,6 +309,7 @@ import {
   type MobileReaderScrollHandle,
   type MobileReaderScrollViewport,
 } from "@/components/reader/MobileReaderGallery";
+import { readerSegmentErrorKey, readerVisiblePageFailures } from "@/components/reader/readerPageFailures";
 import { MobileReaderPageFrame } from "@/components/reader/MobileReaderPageFrame";
 import { MobileReaderPageSpinner } from "@/components/reader/MobileReaderPageSpinner";
 import { MobileReaderLivePageView } from "@/components/reader/MobileReaderLivePageView";
@@ -11427,6 +11428,26 @@ export function ReaderScreen() {
     },
     [chapterId, readerPagedGallery, sourcePageForDisplayIndex],
   );
+  const retryReaderSegmentedPage = useCallback(
+    (page: MobileReaderPage, errorKeys: readonly string[]) => {
+      const pageIdentity = readerPageIdentityFor(page);
+      void invalidateCachedMobileImage(
+        { uri: page.imageUri, headers: page.headers, cacheKind: "page" },
+        readerSegmentedCacheKeyFor(page),
+      )
+        .catch(() => undefined)
+        .finally(() => {
+          setReaderSegmentedImages((current) => {
+            const next = new Map(current);
+            next.delete(pageIdentity);
+            return next;
+          });
+          errorKeys.forEach(clearReaderImageError);
+          retryReaderImage(pageIdentity);
+        });
+    },
+    [clearReaderImageError, readerPageIdentityFor, readerSegmentedCacheKeyFor, retryReaderImage],
+  );
   const renderReaderImageSegment = useCallback(
     (frame: MobileReaderSegmentFrame) => {
       const page = currentDisplayedPage;
@@ -11434,8 +11455,7 @@ export function ReaderScreen() {
       if (!page || !asset) return null;
       const segmentKey = `${asset.generation}:${frame.index}`;
       const pageIdentity = readerPageIdentityFor(page);
-      const errorKey = `${pageIdentity}:segment:${frame.index}`;
-      const cacheKey = readerSegmentedCacheKeyFor(page);
+      const errorKey = readerSegmentErrorKey(pageIdentity, frame.index);
       // OCR reads each tile as its own image, so its boxes are in this
       // tile's pixels and are drawn in this tile's frame.
       const tileOcrPageId = getMobileReaderSegmentOcrPageId(
@@ -11471,22 +11491,7 @@ export function ReaderScreen() {
             // readerImageSizes[page.id]; that map owns aggregate page metadata.
           }}
           onImageError={(error) => setReaderImageLoadError(errorKey, error)}
-          onRetry={() => {
-            void invalidateCachedMobileImage(
-              { uri: page.imageUri, headers: page.headers, cacheKind: "page" },
-              cacheKey,
-            )
-              .catch(() => undefined)
-              .finally(() => {
-                setReaderSegmentedImages((current) => {
-                  const next = new Map(current);
-                  next.delete(pageIdentity);
-                  return next;
-                });
-                clearReaderImageError(errorKey);
-                retryReaderImage(pageIdentity);
-              });
-          }}
+          onRetry={() => retryReaderSegmentedPage(page, [errorKey])}
         >
           {tileDetections.length > 0 ? (
             <JapaneseLearningDetectionOverlay
@@ -11519,16 +11524,40 @@ export function ReaderScreen() {
       readerConnectivity.offline,
       readerImageErrors,
       readerPageIdentityFor,
-      readerSegmentedCacheKeyFor,
-      retryReaderImage,
+      retryReaderSegmentedPage,
       setReaderImageLoadError,
       strings,
     ],
   );
 
-  const stageActionLabel = showControls
+  const readerVisibleFailures = useMemo(
+    () => readerVisiblePageFailures(readerVisiblePages, readerPageIdentityFor, readerImageErrors.keys()),
+    [readerImageErrors, readerPageIdentityFor, readerVisiblePages],
+  );
+  const retryReaderVisibleFailures = useCallback(() => {
+    for (const failure of readerVisibleFailures) {
+      if (failure.kind === "image") {
+        retryReaderImage(failure.identity);
+      } else if (failure.kind === "segments") {
+        retryReaderSegmentedPage(failure.page, failure.errorKeys);
+      } else {
+        const index = readerDisplayIndexByPageId.get(failure.page.id);
+        if (index !== undefined) retryReaderPageProcessing(index);
+      }
+    }
+  }, [
+    readerDisplayIndexByPageId,
+    readerVisibleFailures,
+    retryReaderImage,
+    retryReaderPageProcessing,
+    retryReaderSegmentedPage,
+  ]);
+  const stageControlsLabel = showControls
     ? strings.reader.hideControls
     : strings.reader.showControls;
+  const stageActionLabel = readerVisibleFailures.length > 0
+    ? `${strings.reader.pageImageFailed}. ${stageControlsLabel}`
+    : stageControlsLabel;
   const closeReaderDisplaySettings = useCallback(() => {
     openReaderPluginSettingsAfterDisplaySettingsRef.current = false;
     setReaderDisplaySettingsOpen(false);
@@ -13380,6 +13409,7 @@ export function ReaderScreen() {
         stateInsets={readerStateInsets}
         onStageOriginChange={setReaderStageWindowOrigin}
         accessibilityHidden={endOfChapterPromptVisible}
+        onAccessibilityRetry={readerVisibleFailures.length > 0 ? retryReaderVisibleFailures : undefined}
         accessibilityLabel={formatReaderStageAccessibilityLabel(
           isTwoPageMode ? visibleProgressPageIndex : clampedPageIndex,
           pageCount,

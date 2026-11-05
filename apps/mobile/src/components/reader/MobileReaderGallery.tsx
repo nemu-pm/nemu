@@ -189,6 +189,8 @@ type MobileReaderGalleryState = {
 type MobileReaderGalleryProps = {
   accessibilityLabel: string;
   accessibilityHidden?: boolean;
+  /** Retries the failed pages on screen; present only while there are some. */
+  onAccessibilityRetry?: () => void;
   backgroundColor: string;
   bottomPadding: number;
   chapter: ChapterSummary;
@@ -633,6 +635,7 @@ const MobileReaderScrollPageCell = memo(
 export function MobileReaderGallery({
   accessibilityLabel,
   accessibilityHidden = false,
+  onAccessibilityRetry,
   backgroundColor,
   bottomPadding,
   chapter,
@@ -2623,6 +2626,9 @@ export function MobileReaderGallery({
     pagesState.status === "ready"
       ? [
           { name: "activate", label: accessibilityLabel },
+          ...(onAccessibilityRetry
+            ? [{ name: "retryPage", label: strings.reader.pageImageRetry }]
+            : []),
           ...(readerAccessibilityPageTurnEnabled
             ? [
                 {
@@ -3232,6 +3238,10 @@ export function MobileReaderGallery({
         stageAccessibilityActions
           ? (event) => {
               const action = event.nativeEvent.actionName;
+              if (action === "retryPage") {
+                onAccessibilityRetry?.();
+                return;
+              }
               if (action === "nextPage") {
                 if (logicalLongStripMode) {
                   const next = readerContinuousAccessibilityAction(
