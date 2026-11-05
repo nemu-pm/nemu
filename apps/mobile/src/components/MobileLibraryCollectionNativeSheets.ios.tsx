@@ -249,23 +249,7 @@ export function MobileCollectionsManagerNativeSheet({
             }}
             onCancel={() => setRenameTarget(null)}
           >
-            <NativeDestructiveDialog
-              presented={removeTarget !== null}
-              title={formatMobileString(strings.library.removeCollectionNamed, {
-                name: removeTarget?.name ?? "",
-              })}
-              message={strings.library.removeCollectionConfirm}
-              confirmLabel={strings.common.remove}
-              cancelLabel={strings.common.cancel}
-              onConfirm={() => {
-                const target = removeTarget;
-                setRemoveTarget(null);
-                if (target) onRemove(target);
-              }}
-              onCancel={() => setRemoveTarget(null)}
-            >
-              {form}
-            </NativeDestructiveDialog>
+            {form}
           </NativeNameAlert>
         </NativeNameAlert>
       )}
@@ -301,23 +285,39 @@ export function MobileCollectionsManagerNativeSheet({
             <SwiftSwipeActions key={collection.collectionId}>
               <SwiftContextMenu>
                 <SwiftContextMenu.Trigger>
-                  <NativeCheckRow
-                    title={collection.name}
-                    value={String(count)}
-                    systemImage="rectangle.stack"
-                    selectedSystemImage="rectangle.stack.fill"
-                    selected={selectedCollectionId === collection.collectionId}
-                    disabled={busy}
-                    tintColor={tokens.primary}
-                    textColor={colors.text}
-                    detailColor={colors.detail}
-                    rowBackground={colors.rowBackground}
-                    accessibilityLabel={formatMobileString(strings.library.collectionChipAccessibility, {
+                  {/* On the row: a regular-width popover's arrow points at what it presents from. */}
+                  <NativeDestructiveDialog
+                    presented={removeTarget?.collectionId === collection.collectionId}
+                    title={formatMobileString(strings.library.removeCollectionNamed, {
                       name: collection.name,
-                      countLabel,
                     })}
-                    onPress={() => onSelect(collection.collectionId)}
-                  />
+                    message={strings.library.removeCollectionConfirm}
+                    confirmLabel={strings.common.remove}
+                    cancelLabel={strings.common.cancel}
+                    onConfirm={() => {
+                      setRemoveTarget(null);
+                      onRemove(collection);
+                    }}
+                    onCancel={() => setRemoveTarget(null)}
+                  >
+                    <NativeCheckRow
+                      title={collection.name}
+                      value={String(count)}
+                      systemImage="rectangle.stack"
+                      selectedSystemImage="rectangle.stack.fill"
+                      selected={selectedCollectionId === collection.collectionId}
+                      disabled={busy}
+                      tintColor={tokens.primary}
+                      textColor={colors.text}
+                      detailColor={colors.detail}
+                      rowBackground={colors.rowBackground}
+                      accessibilityLabel={formatMobileString(strings.library.collectionChipAccessibility, {
+                        name: collection.name,
+                        countLabel,
+                      })}
+                      onPress={() => onSelect(collection.collectionId)}
+                    />
+                  </NativeDestructiveDialog>
                 </SwiftContextMenu.Trigger>
                 <SwiftContextMenu.Items>
                   <SwiftButton
