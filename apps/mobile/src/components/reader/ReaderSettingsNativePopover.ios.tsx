@@ -114,6 +114,7 @@ import { MOBILE_READER_PAGE_BACKGROUNDS, type MobileReaderPageBackground } from 
 import { READER_READING_MODE_ORDER, isReaderReadingMode } from "./readerReadingModeOptions";
 import type { ReaderSettingsNativePopoverProps } from "./ReaderSettingsNativePopover.types";
 import { ReaderPluginDetailPage, ReaderPluginListPage } from "./ReaderPluginSettingsSheet.ios";
+import { useReaderSettingsBusyShown } from "./useReaderSettingsBusyShown";
 
 export const readerSettingsNativePopoverAvailable = true;
 
@@ -254,7 +255,7 @@ export function ReaderSettingsNativePopover({
     // No measured button to point at (system toolbar items): the sheet.
     { availableHeight, regularWidth: regularWidth && anchor !== null },
   );
-  const busyModifiers = busy ? [swiftDisabled(true)] : [];
+  const busyModifiers = useReaderSettingsBusyShown(busy) ? [swiftDisabled(true)] : [];
 
   const sheet = presentation.kind === "sheet" || !anchor;
 
