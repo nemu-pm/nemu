@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-  NEMU_SOURCE_DIRECTORIES_PAGE_URL,
+  NEMU_SOURCE_DIRECTORIES_HELP_URL,
   hasMobileUserSourceDirectory,
   mobileSourceDirectoryAddressFromClipboard,
   parseMobileAddSourceDirectoryOrigin,
@@ -49,10 +49,11 @@ describe("mobileSourceDirectoryAddressFromClipboard", () => {
 });
 
 describe("guide links", () => {
-  test("the directory page is the web app's /directories route on nemu.pm", () => {
-    const url = new URL(NEMU_SOURCE_DIRECTORIES_PAGE_URL);
+  test("the help page is the web app's /help/source-directories route on nemu.pm, or unset", () => {
+    if (NEMU_SOURCE_DIRECTORIES_HELP_URL === null) return;
+    const url = new URL(NEMU_SOURCE_DIRECTORIES_HELP_URL);
     expect(url.origin).toBe("https://nemu.pm");
-    expect(url.pathname).toBe("/directories");
+    expect(url.pathname).toBe("/help/source-directories");
   });
 
   test("origin defaults to Settings", () => {

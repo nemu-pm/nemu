@@ -968,10 +968,10 @@ export const mobileStringsZh: MobileStrings = {
     sourceDirectoryAidokuHeader: "兼容 Aidoku 的目录",
     sourceDirectoryAidokuFooter:
       "nemu 读取与 Aidoku 相同的来源列表。粘贴列表的地址，或网站上的 Aidoku 添加来源列表链接即可。",
-    sourceDirectoryNemuHeader: "查找目录",
-    sourceDirectoryNemuFooter:
-      "nemu.pm 列出了带有“添加到 nemu”按钮的来源目录。轻点后会回到 nemu，显示目录地址，经你确认后才会添加。",
-    openNemuSourceDirectoriesPage: "在 nemu.pm 查找目录",
+    sourceDirectoryLinksHeader: "网站上的添加链接",
+    sourceDirectoryLinksFooter:
+      "目录网站可以提供“添加到 nemu”链接。轻点后会打开 nemu，显示目录地址，经你确认后才会添加。“添加到 Aidoku”链接同样可用；如果轻点后打开的是 Aidoku，请复制该链接并粘贴到上方。",
+    sourceDirectoryHelp: "了解来源目录",
     sourceDirectoryAddedNamed: "已添加 {{name}}",
     sourceDirectorySourceCountOne: "{{count}} 个来源",
     sourceDirectorySourceCountOther: "{{count}} 个来源",

@@ -24,9 +24,8 @@ import { useMobileToast } from "./MobileToastContext";
  * alert (name, address, and that nemu does not host or review it). Nothing is
  * added silently. Once added, Browse opens Add Sources on its sources.
  *
- * A link tapped in the in-app browser (nemu.pm's directory page, opened from
- * Add Source Directory) closes that browser first, so the toast, the alert and
- * Add Sources are not left underneath it.
+ * A link tapped in the in-app browser closes that browser first, so the toast,
+ * the alert and Add Sources are not left underneath it.
  */
 export function MobileSourceDirectoryLinkHandler() {
   const store = useMobileDataStore();

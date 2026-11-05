@@ -2,12 +2,13 @@ import type { SourceDirectory } from "@nemu/core/sources";
 import { extractMobileSourceDirectoryUrl } from "./mobileSourceDirectoryLink";
 
 /**
- * nemu.pm's page listing source directories with one-tap
- * `nemu://addSourceList` links (the web app's /directories route). The app
- * itself never presets or lists a third-party directory; the Add Directory
- * page opens this one in the in-app browser instead.
+ * nemu.pm's help on source directories (the web app's
+ * /help/source-directories route): what they are, how to add one, and the add
+ * link format for publishers. It lists no directory. The Add Directory page's
+ * How Source Directories Work row opens it, and is hidden while this is null.
  */
-export const NEMU_SOURCE_DIRECTORIES_PAGE_URL = "https://nemu.pm/directories";
+export const NEMU_SOURCE_DIRECTORIES_HELP_URL: string | null =
+  "https://nemu.pm/help/source-directories";
 
 /** Which stack pushed the Add Directory page, and so where adding returns. */
 export type MobileAddSourceDirectoryOrigin = "browse" | "settings";

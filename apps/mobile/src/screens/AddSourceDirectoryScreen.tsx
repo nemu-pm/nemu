@@ -34,18 +34,14 @@ export function AddSourceDirectoryScreen() {
         ])}
       </Stack.Toolbar>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <NemuText style={[styles.header, { color: tokens.mutedForeground }]}>{s.sourceDirectoryNemuHeader}</NemuText>
-        <View style={[styles.group, { backgroundColor: tokens.card, borderColor: tokens.border }]}>
-          {actionRow(s.openNemuSourceDirectoriesPage, "compass-outline", form.openNemuDirectoriesPage, false)}
-        </View>
-        <NemuText style={[styles.footer, { color: tokens.mutedForeground }]}>{s.sourceDirectoryNemuFooter}</NemuText>
-        <NemuText style={[styles.header, styles.spaced, { color: tokens.mutedForeground }]}>{s.sourceDirectoryAidokuHeader}</NemuText>
+        <NemuText style={[styles.header, { color: tokens.mutedForeground }]}>{s.sourceDirectoryAidokuHeader}</NemuText>
         <View style={[styles.group, { backgroundColor: tokens.card, borderColor: tokens.border }]}>
           <TextInput
             accessibilityLabel={s.sourceDirectoryAddress}
             autoCapitalize="none"
             autoComplete="off"
             autoCorrect={false}
+            autoFocus
             editable={!form.checking}
             importantForAutofill="no"
             keyboardType="url"
@@ -78,6 +74,13 @@ export function AddSourceDirectoryScreen() {
             <NemuText style={[styles.statusText, { color: tokens.danger }]}>{form.error}</NemuText>
           </View>
         ) : null}
+        <NemuText style={[styles.header, styles.spaced, { color: tokens.mutedForeground }]}>{s.sourceDirectoryLinksHeader}</NemuText>
+        {form.helpUrl ? (
+          <View style={[styles.group, { backgroundColor: tokens.card, borderColor: tokens.border }]}>
+            {actionRow(s.sourceDirectoryHelp, "help-circle-outline", form.openHelp, false)}
+          </View>
+        ) : null}
+        <NemuText style={[styles.footer, { color: tokens.mutedForeground }]}>{s.sourceDirectoryLinksFooter}</NemuText>
       </ScrollView>
     </View>
   );

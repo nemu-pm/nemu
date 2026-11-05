@@ -1028,10 +1028,10 @@ export const mobileStringsJa: MobileStrings = {
     sourceDirectoryAidokuHeader: "Aidoku互換のディレクトリ",
     sourceDirectoryAidokuFooter:
       "nemuはAidokuと同じソースリストを読み込めます。リストのアドレス、またはWebサイトにあるAidokuのソースリスト追加リンクをペーストしてください。",
-    sourceDirectoryNemuHeader: "ディレクトリを探す",
-    sourceDirectoryNemuFooter:
-      "nemu.pmでは「nemuに追加」ボタン付きでソースディレクトリを紹介しています。タップするとnemuに戻り、ディレクトリのアドレスを表示して確認後に追加します。",
-    openNemuSourceDirectoriesPage: "nemu.pmでディレクトリを探す",
+    sourceDirectoryLinksHeader: "Webサイトの追加リンク",
+    sourceDirectoryLinksFooter:
+      "ディレクトリのWebサイトに「nemuに追加」リンクがあれば、タップするとnemuが開き、ディレクトリのアドレスを表示して確認後に追加します。「Aidokuに追加」リンクも使えます。Aidokuが開く場合は、リンクをコピーして上にペーストしてください。",
+    sourceDirectoryHelp: "ソースディレクトリの仕組み",
     sourceDirectoryAddedNamed: "{{name}}を追加しました",
     sourceDirectorySourceCountOne: "{{count}}件のソース",
     sourceDirectorySourceCountOther: "{{count}}件のソース",

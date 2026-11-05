@@ -30,11 +30,11 @@ type Form = ReturnType<typeof useAddSourceDirectoryForm>;
 
 /**
  * Add Source Directory: a native grouped form pushed from Add Sources or
- * Settings › Source directories. Two ways in, as two groups: first nemu.pm's
- * directory page (opened in the in-app browser; its Add to nemu links come
- * back as nemu:// links and confirm before adding), then an Aidoku-compatible
- * list's address or add link, typed or pasted here. Add sits in the bar, as
- * Save does on the server form.
+ * Settings › Source directories. Two groups: an Aidoku-compatible list's
+ * address or add link, typed or pasted here; then how add links on a
+ * directory's own website open nemu directly (with nemu.pm's help on
+ * directories, when set). It lists no directory. Add sits in the bar, as Save
+ * does on the server form.
  */
 export function AddSourceDirectoryScreen() {
   const { scheme } = useNemuTheme();
@@ -66,21 +66,12 @@ function DirectoryForm({ form }: { form: Form }) {
   return (
     <SwiftForm modifiers={[nemuSoftScrollEdge()]}>
       <SwiftSection
-        header={<SwiftText>{s.sourceDirectoryNemuHeader}</SwiftText>}
-        footer={<SwiftText>{s.sourceDirectoryNemuFooter}</SwiftText>}
-      >
-        <SwiftButton
-          label={s.openNemuSourceDirectoriesPage}
-          systemImage="safari"
-          onPress={form.openNemuDirectoriesPage}
-        />
-      </SwiftSection>
-      <SwiftSection
         header={<SwiftText>{s.sourceDirectoryAidokuHeader}</SwiftText>}
         footer={<SwiftText>{`${s.sourceDirectoryAidokuFooter}\n\n${s.sourceDirectoryDisclaimer}`}</SwiftText>}
       >
         <SwiftTextField
           text={address}
+          autoFocus
           placeholder={s.sourceDirectoryUrlPlaceholder}
           onTextChange={form.setAddress}
           modifiers={[
@@ -126,6 +117,14 @@ function DirectoryForm({ form }: { form: Form }) {
           />
         </SwiftSection>
       ) : null}
+      <SwiftSection
+        header={<SwiftText>{s.sourceDirectoryLinksHeader}</SwiftText>}
+        footer={<SwiftText>{s.sourceDirectoryLinksFooter}</SwiftText>}
+      >
+        {form.helpUrl ? (
+          <SwiftButton label={s.sourceDirectoryHelp} systemImage="questionmark.circle" onPress={form.openHelp} />
+        ) : null}
+      </SwiftSection>
     </SwiftForm>
   );
 }

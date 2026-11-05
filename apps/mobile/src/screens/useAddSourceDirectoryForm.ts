@@ -17,7 +17,7 @@ import { requestMobileAddSourceSheet } from "@/lib/mobileAddSourceSheetRequest";
 import { formatMobileString, getMobileStrings } from "@/lib/mobileI18n";
 import { SOURCE_DIRECTORY_ERROR_KEYS } from "@/lib/mobileSourceDirectoryErrors";
 import {
-  NEMU_SOURCE_DIRECTORIES_PAGE_URL,
+  NEMU_SOURCE_DIRECTORIES_HELP_URL,
   mobileSourceDirectoryAddressFromClipboard,
   parseMobileAddSourceDirectoryOrigin,
 } from "@/lib/mobileSourceDirectoryGuide";
@@ -186,6 +186,9 @@ export function useAddSourceDirectoryForm(params: AddSourceDirectoryFormParams) 
     canPaste: clipboardHasText && !checking,
     submit,
     paste,
-    openNemuDirectoriesPage: () => openInAppBrowser(NEMU_SOURCE_DIRECTORIES_PAGE_URL),
+    helpUrl: NEMU_SOURCE_DIRECTORIES_HELP_URL,
+    openHelp: () => {
+      if (NEMU_SOURCE_DIRECTORIES_HELP_URL) openInAppBrowser(NEMU_SOURCE_DIRECTORIES_HELP_URL);
+    },
   };
 }

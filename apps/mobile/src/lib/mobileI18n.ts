@@ -890,9 +890,9 @@ export type MobileStrings = {
     checkingSourceDirectory: string;
     sourceDirectoryAidokuHeader: string;
     sourceDirectoryAidokuFooter: string;
-    sourceDirectoryNemuHeader: string;
-    sourceDirectoryNemuFooter: string;
-    openNemuSourceDirectoriesPage: string;
+    sourceDirectoryLinksHeader: string;
+    sourceDirectoryLinksFooter: string;
+    sourceDirectoryHelp: string;
     sourceDirectoryAddedNamed: string;
     sourceDirectorySourceCountOne: string;
     sourceDirectorySourceCountOther: string;
