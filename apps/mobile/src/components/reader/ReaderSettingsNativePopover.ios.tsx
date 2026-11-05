@@ -30,6 +30,8 @@ import {
   ToolbarItem as SwiftToolbarItem,
 } from "@expo/ui/swift-ui";
 import {
+  animation,
+  Animation,
   accessibilityLabel as swiftAccessibilityLabel,
   defaultScrollAnchor,
   disabled as swiftDisabled,
@@ -670,7 +672,9 @@ export function ReaderSettingsNativePopover({
   );
   const settingsSections = renderSettingsSections([]);
   const settingsForm = (
-    <SwiftForm modifiers={formModifiers}>
+    // Scroll reading has other rows than paged reading: they come and go as a
+    // list change, not all in one frame.
+    <SwiftForm modifiers={[...formModifiers, animation(Animation.easeInOut({ duration: 0.25 }), mode === "scrolling")]}>
       {renderSettingsSections([reportFormGroupInset(learnFormGroupInset)])}
     </SwiftForm>
   );
