@@ -171,6 +171,9 @@ export function useAddSourceDirectoryForm(params: AddSourceDirectoryFormParams) 
   /** Fills the field from the clipboard; returns the address for a native field to show. */
   const paste = useCallback(async (): Promise<string | null> => {
     const text = await Clipboard.getStringAsync().catch(() => "");
+    // Nothing read (paste declined in the system prompt, or no text after
+    // all): not the user's address, so no "not a valid address" for it.
+    if (!text.trim()) return null;
     const next = mobileSourceDirectoryAddressFromClipboard(text);
     if (!next) {
       void hapticError();
