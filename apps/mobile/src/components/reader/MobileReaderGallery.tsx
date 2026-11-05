@@ -1845,6 +1845,20 @@ export function MobileReaderGallery({
   // their zoom and decoded images — and only re-place the offset: the same
   // logical page when paged, the same reading progress in a strip.
   const listGeometryRef = useRef<MobileReaderGalleryGeometry | null>(null);
+  const stripRelayoutAnchor = (layout: NonNullable<typeof scrollPageLayout>) => {
+    const anchor = scrollAnchorRef.current;
+    if (!anchor) return null;
+    const heldSeek = pendingPageSeekRef.current;
+    const restingSpot = restingSpotRef.current;
+    const centre = restingSpot || (heldSeek && !heldSeek.landed) ? null : scrollCentreAnchorRef.current;
+    const target = centre
+      ? mobileReaderScrollAnchorForOffset(
+          layout,
+          mobileReaderScrollOffsetForCentreAnchor(layout, centre, windowHeight, chromeTopPadding),
+        )
+      : null;
+    return resolveMobileReaderRelayoutSeekAnchor({ restingSpot, heldSeek, centreTarget: target, anchor });
+  };
   const pendingPagedRelayoutOffsetRef = useRef<number | null>(null);
   useLayoutEffect(() => {
     const previous = listGeometryRef.current;
@@ -1880,35 +1894,15 @@ export function MobileReaderGallery({
     // reader has not scrolled since (a resume mounted at a provisional
     // width: v14 635 p40 crept up ~0.11 page per reopen). The new layout
     // already has the new heights.
-    const anchor = scrollAnchorRef.current;
-    if (scrollPageLayout && anchor) {
+    const seekAnchor = scrollPageLayout ? stripRelayoutAnchor(scrollPageLayout) : null;
+    if (seekAnchor) {
       pendingContentSizeScrollProgressRef.current = null;
       pendingLogicalScrollProgressRef.current = null;
-      const heldSeek = pendingPageSeekRef.current;
-      const restingSpot = restingSpotRef.current;
-      const centre = restingSpot || (heldSeek && !heldSeek.landed) ? null : scrollCentreAnchorRef.current;
-      const target = centre
-        ? mobileReaderScrollAnchorForOffset(
-            scrollPageLayout,
-            mobileReaderScrollOffsetForCentreAnchor(scrollPageLayout, centre, windowHeight, chromeTopPadding),
-          )
-        : null;
-      const seekAnchor = resolveMobileReaderRelayoutSeekAnchor({
-        restingSpot,
-        heldSeek,
-        centreTarget: target,
-        anchor,
-      });
       scrollAnchorRef.current = seekAnchor;
-      // Placed by the content-size event this relayout causes: by then the
-      // native list (and maintainVisibleContentPosition) has the new frames.
+      // The commit itself carried the offset (`listContentOffsetRef`); the
+      // content-size event this relayout causes corrects any difference, by
+      // then the native list has the new frames.
       pendingPageSeekRef.current = holdMobileReaderPageSeek(seekAnchor, true);
-      // And now, with this commit: until that event the new heights drew at
-      // the old offset, a frame or two of another part of the chapter.
-      listRef.current?.scrollToOffset({
-        offset: mobileReaderScrollOffsetForAnchor(scrollPageLayout, seekAnchor.pageIndex, seekAnchor.fraction),
-        animated: false,
-      });
       return;
     }
     if (!(metrics.contentLength > 0)) return;
@@ -3023,6 +3017,35 @@ export function MobileReaderGallery({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- read once per mounted list.
     [scrollMountKey, scrollPageLayout != null],
   );
+  // Stage size change of a page strip: the new heights and the offset that
+  // keeps the page go in one native transaction. As a command the offset
+  // landed before the new heights (past the old content's end: a blank frame)
+  // or after them (another part of the chapter); maintainVisibleContentPosition
+  // sits this commit out, it would add its own shift on top. The value stays
+  // set afterwards: the prop is applied whenever it changes.
+  const listContentOffsetRef = useRef({ mountKey: scrollMountKey, offset: scrollInitialPlacement?.offset });
+  if (listContentOffsetRef.current.mountKey !== scrollMountKey) {
+    listContentOffsetRef.current = { mountKey: scrollMountKey, offset: scrollInitialPlacement?.offset };
+  }
+  const stripRelayoutSeek =
+    scrollPageLayout &&
+    mobileReaderGalleryRelayout(listGeometryRef.current, {
+      mountKey: scrollMountKey,
+      paged: pagedMode,
+      extent: readerImageWidth,
+      viewport: windowHeight,
+    }) === "reoffset"
+      ? stripRelayoutAnchor(scrollPageLayout)
+      : null;
+  if (stripRelayoutSeek && scrollPageLayout) {
+    listContentOffsetRef.current = {
+      mountKey: scrollMountKey,
+      offset: {
+        x: 0,
+        y: mobileReaderScrollOffsetForAnchor(scrollPageLayout, stripRelayoutSeek.pageIndex, stripRelayoutSeek.fraction),
+      },
+    };
+  }
   const curlFrames = useMemo(
     () => (isTwoPageMode ? pagedSpreads : pagedSinglePages.map(({ index }) => [index])),
     [isTwoPageMode, pagedSinglePages, pagedSpreads],
@@ -3145,11 +3168,11 @@ export function MobileReaderGallery({
       // around the page being read, not around page 0: otherwise the new
       // list shows empty black cells until the offset scroll lands.
       initialScrollIndex={galleryInitialScrollIndex ?? scrollInitialPlacement?.index}
-      contentOffset={scrollInitialPlacement?.offset}
+      contentOffset={listContentOffsetRef.current.offset}
       // Scroll mode: pages above that decode (or re-measure) keep the page
       // being read where it is.
       maintainVisibleContentPosition={
-        scrollPageLayout ? READER_SCROLL_MAINTAIN_VISIBLE_POSITION : undefined
+        scrollPageLayout && !stripRelayoutSeek ? READER_SCROLL_MAINTAIN_VISIBLE_POSITION : undefined
       }
       onMomentumScrollBegin={pagedMode ? undefined : handleGalleryMomentumScrollBegin}
       onMomentumScrollEnd={handleGalleryMomentumScrollEnd}
