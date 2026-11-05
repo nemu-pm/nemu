@@ -1,6 +1,7 @@
-import { useState, type ComponentProps, type ReactNode } from "react";
+import { useEffect, useState, type ComponentProps, type ReactNode } from "react";
 import { StyleSheet, View, type LayoutChangeEvent, type StyleProp, type ViewStyle } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import Animated, { ReduceMotion, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import {
   nemuColorWithAlpha,
   nemuFontWeight,
@@ -10,6 +11,7 @@ import {
   radius,
   useNemuTheme,
 } from "@/design-system";
+import { MOBILE_MOTION } from "@/lib/mobileMotion";
 import { GlassView, glassViewAvailable } from "../../../modules/nemu-window-layout";
 
 type IoniconName = ComponentProps<typeof Ionicons>["name"];
@@ -133,7 +135,14 @@ export function ExploreGlassButton({
     (measured &&
       labelWidth! <= innerWidth! - CAPSULE_PADDING_X * 2 - (hasGlyph ? CAPSULE_GLYPH + CAPSULE_GAP : 0));
   const shown = fits ? label : (shortLabel ?? label);
-  const labelHold = measured ? null : styles.labelHold;
+  // The chosen label fades in once it is known instead of appearing in a frame.
+  const labelOpacity = useSharedValue(measured ? 1 : 0);
+  useEffect(() => {
+    if (measured && labelOpacity.value !== 1) {
+      labelOpacity.value = withTiming(1, { duration: MOBILE_MOTION.fadeInMs, reduceMotion: ReduceMotion.Never });
+    }
+  }, [labelOpacity, measured]);
+  const labelHold = useAnimatedStyle(() => ({ opacity: labelOpacity.value }));
   return (
     <ExploreGlass
       interactive
@@ -183,22 +192,26 @@ export function ExploreGlassButton({
         )}
         {iconOnly ? null : subtitle ? (
           <View style={styles.capsuleLabels}>
-            <NemuText numberOfLines={1} maxFontSizeMultiplier={GLASS_TEXT_MAX_SCALE} color={ink} style={[styles.capsuleTextTight, labelHold]}>
-              {shown}
-            </NemuText>
+            <Animated.View style={labelHold}>
+              <NemuText numberOfLines={1} maxFontSizeMultiplier={GLASS_TEXT_MAX_SCALE} color={ink} style={styles.capsuleTextTight}>
+                {shown}
+              </NemuText>
+            </Animated.View>
             <NemuText numberOfLines={1} maxFontSizeMultiplier={GLASS_TEXT_MAX_SCALE} color={ink} style={styles.capsuleSubtitle}>
               {subtitle}
             </NemuText>
           </View>
         ) : (
-          <NemuText
-            numberOfLines={1}
-            maxFontSizeMultiplier={GLASS_TEXT_MAX_SCALE}
-            color={ink}
-            style={[styles.capsuleText, labelHold]}
-          >
-            {shown}
-          </NemuText>
+          <Animated.View style={[styles.capsuleLabelSlot, labelHold]}>
+            <NemuText
+              numberOfLines={1}
+              maxFontSizeMultiplier={GLASS_TEXT_MAX_SCALE}
+              color={ink}
+              style={styles.capsuleText}
+            >
+              {shown}
+            </NemuText>
+          </Animated.View>
         )}
         {shortLabel && !iconOnly ? (
           // The whole label's natural width, measured off screen.
@@ -361,8 +374,9 @@ const styles = StyleSheet.create({
     gap: CAPSULE_GAP,
     paddingHorizontal: CAPSULE_PADDING_X,
   },
-  labelHold: {
-    opacity: 0,
+  capsuleLabelSlot: {
+    flexShrink: 1,
+    minWidth: 0,
   },
   measureBox: {
     position: "absolute",

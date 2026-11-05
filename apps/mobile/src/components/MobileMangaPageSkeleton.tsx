@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Platform, StyleSheet, useWindowDimensions, View } from "react-native";
 import Animated, { FadeIn } from "react-native-reanimated";
+import { mobileStateEntering } from "@/lib/mobilePoseLayoutAnimations";
 import {
   useSkeletonDisplayDelay,
   useSkeletonPulse,
@@ -286,7 +287,11 @@ export function MobileChapterGridSkeleton({
       ) : null}
       {mobileDesignExploreFlag ? (
         // The new design's chapter list is flat rows, not the 2-up grid.
-        ready ? <ExploreChapterRowsSkeleton rows={rows} /> : null
+        ready ? (
+          <Animated.View entering={mobileStateEntering}>
+            <ExploreChapterRowsSkeleton rows={rows} />
+          </Animated.View>
+        ) : null
       ) : (
         <Animated.View style={{ opacity: ready ? opacity : 0 }}>
           <ChapterCellsSkeleton rows={rows} />

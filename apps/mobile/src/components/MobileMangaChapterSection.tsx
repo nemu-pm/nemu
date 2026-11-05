@@ -1,6 +1,7 @@
 import { memo, type ReactNode } from "react";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import Animated from "react-native-reanimated";
 import { MobileChapterGrid } from "@/components/MobileChapterGrid";
 import { useMobileMangaDetailPane } from "@/components/MobileMangaDetailPaneContext";
 import type { AppLanguage, ChapterSummary, LocalChapterProgress } from "@/data/schema";
@@ -17,6 +18,7 @@ import {
 import type { MobileChapterListPreference } from "@/lib/mobileChapterFilters";
 import type { MobileChapterRow } from "@/lib/mobileChapterRows";
 import { getMobileChapterSectionRhythm } from "@/lib/mobileMangaDetailPaneLayout";
+import { mobileStateEntering, mobileStateExiting } from "@/lib/mobilePoseLayoutAnimations";
 import type { MobileStrings } from "@/lib/mobileI18n";
 import { formatMobileLanguageDisplayName } from "@/lib/mobileLanguageSettings";
 
@@ -274,12 +276,20 @@ export function MobileMangaChapterSectionHeader({
       {toolbar ? (
         <View style={{ marginVertical: rhythm.toolbarMarginVertical }}>{toolbar}</View>
       ) : null}
-      {notice}
-      {!hasChapters && loading && loadingPlaceholder ? loadingPlaceholder : null}
+      {notice ? (
+        <Animated.View entering={mobileStateEntering} exiting={mobileStateExiting}>
+          {notice}
+        </Animated.View>
+      ) : null}
+      {!hasChapters && loading && loadingPlaceholder ? (
+        <Animated.View exiting={mobileStateExiting}>{loadingPlaceholder}</Animated.View>
+      ) : null}
       {/* A notice (source error, blocked source) already explains an empty
           list; a second empty-state line under it only contradicts it. */}
       {!hasChapters && !loading && !notice ? (
-        <NemuInlineEmptyState icon={emptyIcon} title={emptyTitle} />
+        <Animated.View entering={mobileStateEntering} exiting={mobileStateExiting}>
+          <NemuInlineEmptyState icon={emptyIcon} title={emptyTitle} />
+        </Animated.View>
       ) : null}
     </View>
   );

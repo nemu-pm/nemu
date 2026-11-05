@@ -144,7 +144,12 @@ import {
   getMobileExploreBarTitleShown,
   MOBILE_EXPLORE_BAR_TITLE_FADE_MS,
 } from "@/lib/mobileExploreBarTitle";
-import { useSharedValue, withTiming } from "react-native-reanimated";
+import Animated, { useSharedValue, withTiming } from "react-native-reanimated";
+import {
+  mobileGridGlideAppearing,
+  mobileGridGlideVanishing,
+  openMobileGridGlideWindow,
+} from "@/lib/mobilePoseLayoutAnimations";
 import {
   MobileExploreChapterRow,
   type MobileExploreChapterAction,
@@ -1808,6 +1813,18 @@ export function MangaDetailScreen() {
     !selectedChaptersComplete &&
     (liveDetailState.status === "loading" || liveDetailState.status === "idle");
   const listChapters = awaitingFirstList ? EMPTY_CHAPTERS : chapters;
+  // A new set of rows (the first list, another source's, another sort or
+  // filter) fades in over the skeleton or the rows it replaces. Up before the
+  // commit that mounts them.
+  const chapterSetKey =
+    zoomLanded && !awaitingFirstList
+      ? `${selectedSource?.id}|${chapterListPreference.sortDirection}|${chapterListPreference.unreadOnly}|${chapterListPreference.languages.join()}`
+      : null;
+  const seenChapterSetKeyRef = useRef(chapterSetKey);
+  if (seenChapterSetKeyRef.current !== chapterSetKey) {
+    seenChapterSetKeyRef.current = chapterSetKey;
+    if (chapterSetKey !== null) openMobileGridGlideWindow();
+  }
   const chapterLanguages = useMemo(
     () => getMobileChapterLanguages(listChapters),
     [listChapters],
@@ -2274,18 +2291,20 @@ export function MangaDetailScreen() {
     ({ item }: ListRenderItemInfo<MobileChapterRow>) => {
       const chapter = item.chapters[0];
       return (
-        <MobileExploreChapterRow
-          chapter={chapter}
-          progress={selectedChapterProgress[chapter.id]}
-          header={chapterVolumeHeaders?.get(chapter.id) ?? null}
-          commonGroup={chapterCommonGroup}
-          upNext={chapter.id === upNextChapterId}
-          dropVolume={Boolean(chapterVolumeHeaders?.size)}
-          busy={detailActionBusy}
-          strings={strings}
-          onAction={onExploreChapterAction}
-          moreActions
-        />
+        <Animated.View entering={mobileGridGlideAppearing} exiting={mobileGridGlideVanishing}>
+          <MobileExploreChapterRow
+            chapter={chapter}
+            progress={selectedChapterProgress[chapter.id]}
+            header={chapterVolumeHeaders?.get(chapter.id) ?? null}
+            commonGroup={chapterCommonGroup}
+            upNext={chapter.id === upNextChapterId}
+            dropVolume={Boolean(chapterVolumeHeaders?.size)}
+            busy={detailActionBusy}
+            strings={strings}
+            onAction={onExploreChapterAction}
+            moreActions
+          />
+        </Animated.View>
       );
     },
     [
@@ -3159,7 +3178,8 @@ export function MangaDetailScreen() {
               }
               alignedControl={booksHero}
               sortAction={
-                listChapters.length > 0 ? (
+                // The sources menu holds its place while another source loads.
+                listChapters.length > 0 || (booksHero && awaitingFirstList) ? (
                   booksHero ? (
                     <MobileExploreChapterMenu
                       fallbackCount={listChapters.length}
