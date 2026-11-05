@@ -10339,10 +10339,8 @@ export function ReaderScreen() {
               stablePageSizeKey,
             );
             saveMobileReaderPageSize(pageSizeChapterKey, page.id, { width, height });
-            if (!neighbour) {
-              releaseReaderOpeningOnDecode(page.id);
-              setReaderSwitchPageFade((current) => (current === "fade" ? "off" : current));
-            }
+            if (!neighbour) releaseReaderOpeningOnDecode(page.id);
+            if (!neighbour) setReaderSwitchPageFade((current) => (current === "fade" ? "off" : current));
             if (!neighbour) measureReaderFirstContent(page);
           }}
           onImageError={(error) => {
