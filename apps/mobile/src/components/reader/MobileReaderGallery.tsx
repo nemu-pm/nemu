@@ -1903,6 +1903,12 @@ export function MobileReaderGallery({
       // Placed by the content-size event this relayout causes: by then the
       // native list (and maintainVisibleContentPosition) has the new frames.
       pendingPageSeekRef.current = holdMobileReaderPageSeek(seekAnchor, true);
+      // And now, with this commit: until that event the new heights drew at
+      // the old offset, a frame or two of another part of the chapter.
+      listRef.current?.scrollToOffset({
+        offset: mobileReaderScrollOffsetForAnchor(scrollPageLayout, seekAnchor.pageIndex, seekAnchor.fraction),
+        animated: false,
+      });
       return;
     }
     if (!(metrics.contentLength > 0)) return;
