@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
   canHoldReaderOpening,
+  readerOpeningPagesDecoded,
   readerOpeningSince,
   readerPagesNeedProcessing,
   resolveReaderFirstScreenImages,
@@ -245,5 +246,14 @@ describe("readerOpeningHold wiring", () => {
     const cancel = block.indexOf("cancelAnimation(opacity);");
     expect(cancel).toBeGreaterThan(0);
     expect(cancel).toBeLessThan(block.indexOf("opacity.value = withDelay("));
+  });
+});
+
+describe("the opening's first screen", () => {
+  test("a spread is released once both pages have decoded", () => {
+    expect(readerOpeningPagesDecoded(["a", "b"], new Set(["a"]))).toBe(false);
+    expect(readerOpeningPagesDecoded(["a", "b"], new Set(["a", "b"]))).toBe(true);
+    expect(readerOpeningPagesDecoded(["a"], new Set(["a"]))).toBe(true);
+    expect(readerOpeningPagesDecoded([], new Set(["a"]))).toBe(false);
   });
 });

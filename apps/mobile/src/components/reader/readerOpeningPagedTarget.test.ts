@@ -37,7 +37,8 @@ describe("paged opening: the cover gives way to the page the pager opens on", ()
   });
 
   test("the reader reveals on the target's decode and decodes around it before the restore", () => {
-    expect(reader).toContain("readerImageSizes.has(readerOpeningPagedTargetIdentity)");
+    expect(reader).toContain("readerOpeningPagedTargetPages.every((page) => {");
+    expect(reader).toContain("readerImageSizes.has(identity) || readerImageErrors.has(identity)");
     expect(reader).not.toContain("readerImageSizes.has(currentDisplayedPageIdentity) ||\n        readerImageErrors.has(currentDisplayedPageIdentity)));");
     expect(reader).toContain(
       "currentPageIndex: galleryPagedMode ? (readerOpeningPagedTargetIndex ?? clampedPageIndex) : clampedPageIndex,",
@@ -74,7 +75,7 @@ describe("paged opening: the cover gives way to the page the pager opens on", ()
     expect(reader).toContain("if (!neighbour) releaseReaderOpeningOnDecode(page.id);");
     const start = reader.indexOf("const releaseReaderOpeningOnDecode = useCallback(");
     const block = reader.slice(start, reader.indexOf("}, []);", start));
-    expect(block).toContain("if (readerOpeningPagedTargetIdRef.current !== pageId) return;");
+    expect(block).toContain("if (!readerOpeningPagedTargetIdsRef.current.includes(pageId)) return;");
     expect(block).toContain("readerZoomEntryRef.current.onFirstPage();");
   });
 });

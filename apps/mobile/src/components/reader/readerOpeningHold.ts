@@ -299,3 +299,11 @@ export function shouldRetakeReaderFirstScreen(input: {
   if (input.retakes >= READER_FIRST_SCREEN_MAX_RETAKES) return false;
   return !input.firstScreenPageIds.includes(input.currentPageId);
 }
+
+/** How long the opening waits for a spread's other page once the first has decoded. */
+export const READER_OPENING_SPREAD_PARTNER_WAIT_MS = 800;
+
+/** Every page of the opening's first screen has decoded (or failed). */
+export function readerOpeningPagesDecoded(pageIds: readonly string[], decoded: ReadonlySet<string>): boolean {
+  return pageIds.length > 0 && pageIds.every((id) => decoded.has(id));
+}

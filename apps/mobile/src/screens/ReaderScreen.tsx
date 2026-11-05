@@ -200,6 +200,8 @@ import {
   type MobileReaderStandInPage,
 } from "@/lib/mobileReaderOpeningStandIn";
 import {
+  READER_OPENING_SPREAD_PARTNER_WAIT_MS,
+  readerOpeningPagesDecoded,
   readerOpeningSince,
   readerPagesNeedProcessing,
   resolveReaderFirstScreenImages,
@@ -4766,28 +4768,47 @@ export function ReaderScreen() {
     pagesState.status === "ready" && readerOpeningPagedTargetIndex != null
       ? (displayedPages[readerOpeningPagedTargetIndex] ?? null)
       : null;
-  const readerOpeningPagedTargetIdentity = readerOpeningPagedTargetPage
-    ? readerPageIdentityFor(readerOpeningPagedTargetPage)
-    : "";
   // The target page's own load event releases the cover in the same JS task
   // (see renderReaderImage's onImageLoad): no wait for the size state, a
   // re-render, this effect and a frame, any of which a busy opening JS thread
   // stretched past the cap.
-  const readerOpeningPagedTargetIdRef = useRef<string | null>(null);
-  readerOpeningPagedTargetIdRef.current =
-    galleryPagedMode && readerOpeningPagedTargetPage ? readerOpeningPagedTargetPage.id : null;
+  // A spread's pages decode one after the other: the cover leaves over both,
+  // so they come in as one (a slow partner is waited for only so long).
+  const readerOpeningPagedTargetPages = useMemo(() => {
+    if (!readerOpeningPagedTargetPage || readerOpeningPagedTargetIndex == null) return [];
+    const spread = isTwoPageMode ? readerSpreads.find((indexes) => indexes.includes(readerOpeningPagedTargetIndex)) : null;
+    return (spread ?? [readerOpeningPagedTargetIndex])
+      .map((index) => displayedPages[index])
+      .filter((page): page is MobileReaderPage => Boolean(page));
+  }, [displayedPages, isTwoPageMode, readerOpeningPagedTargetIndex, readerOpeningPagedTargetPage, readerSpreads]);
+  const readerOpeningPagedTargetIdsRef = useRef<readonly string[]>([]);
+  readerOpeningPagedTargetIdsRef.current = galleryPagedMode ? readerOpeningPagedTargetPages.map((page) => page.id) : [];
+  const readerOpeningDecodedRef = useRef(new Set<string>());
+  const readerOpeningPartnerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (readerOpeningPartnerTimerRef.current) clearTimeout(readerOpeningPartnerTimerRef.current);
+  }, []);
   const readerOpeningReleasedRef = useRef(false);
   const releaseReaderOpeningOnDecode = useCallback((pageId: string) => {
     if (readerOpeningReleasedRef.current) return;
-    if (readerOpeningPagedTargetIdRef.current !== pageId) return;
-    readerOpeningReleasedRef.current = true;
-    if (__DEV__) {
-      console.info("[reader-open] target-decoded", {
-        ...readerOpeningSince(readerZoomEntryRef.current.openingTimes(), Date.now()),
-        pageId,
-      });
+    if (!readerOpeningPagedTargetIdsRef.current.includes(pageId)) return;
+    readerOpeningDecodedRef.current.add(pageId);
+    const release = () => {
+      if (readerOpeningReleasedRef.current) return;
+      readerOpeningReleasedRef.current = true;
+      if (__DEV__) {
+        console.info("[reader-open] target-decoded", {
+          ...readerOpeningSince(readerZoomEntryRef.current.openingTimes(), Date.now()),
+          pageId,
+        });
+      }
+      readerZoomEntryRef.current.onFirstPage();
+    };
+    if (readerOpeningPagesDecoded(readerOpeningPagedTargetIdsRef.current, readerOpeningDecodedRef.current)) {
+      release();
+    } else if (!readerOpeningPartnerTimerRef.current) {
+      readerOpeningPartnerTimerRef.current = setTimeout(release, READER_OPENING_SPREAD_PARTNER_WAIT_MS);
     }
-    readerZoomEntryRef.current.onFirstPage();
   }, []);
   // What this chapter resolved, for a reopen this session.
   useEffect(() => {
@@ -4884,11 +4905,12 @@ export function ReaderScreen() {
       pageCount > 0 &&
       readerRestoreComplete) ||
     (galleryPagedMode &&
-      readerOpeningPagedTargetPage != null &&
-      // A text page (or one without an image) has nothing to decode.
-      (!readerOpeningPagedTargetPage.imageUri ||
-        readerImageSizes.has(readerOpeningPagedTargetIdentity) ||
-        readerImageErrors.has(readerOpeningPagedTargetIdentity)));
+      readerOpeningPagedTargetPages.length > 0 &&
+      readerOpeningPagedTargetPages.every((page) => {
+        const identity = readerPageIdentityFor(page);
+        // A text page (or one without an image) has nothing to decode.
+        return !page.imageUri || readerImageSizes.has(identity) || readerImageErrors.has(identity);
+      }));
   // Diagnostic (dev builds only): what the paged opening waited for.
   const readerZoomPageShownLoggedRef = useRef(false);
   useEffect(() => {
@@ -10325,6 +10347,9 @@ export function ReaderScreen() {
                 : true
           }
           fadeShownSource={readerSwitchPageFade === "fade"}
+          // The opening's overlay fades as one over what is under it; a fade
+          // per page would bring a spread's halves in apart.
+          fadeSuppressed={readerOpeningHudHeld}
           offline={readerConnectivity.offline}
           error={imageError}
           strings={strings}
@@ -10445,6 +10470,7 @@ export function ReaderScreen() {
     },
     [
       readerBackgroundColor,
+      readerOpeningHudHeld,
       readerSwitchPageFade,
       turnReaderPageBySwipe,
       activeJapaneseLearningTranscriptOrder,
