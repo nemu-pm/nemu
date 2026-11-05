@@ -153,11 +153,20 @@ export function mobileReaderFitRestingOffset({
 }
 
 /**
+ * The widest page (width / height) still read as a double page. Wider is a
+ * strip (a title banner, a panorama): fitted to a portrait window's height it
+ * would pan across six or more windows and open on its blank margin (Pepper&
+ * Carrot's 4.2 : 1 episode titles showed an empty white page).
+ */
+export const READER_PANNED_PAGE_MAX_ASPECT = 2.5;
+
+/**
  * The fit one page actually gets. A wide page (a double page) shown alone in
  * a portrait window at the default fit would shrink to a strip, so it is
  * fitted to the window's height instead and pans sideways from its
- * reading-start edge (nothing is cropped). Spreads, landscape windows and an
- * explicit fit choice keep the reader's fit.
+ * reading-start edge (nothing is cropped). A page wider than a double page
+ * (`READER_PANNED_PAGE_MAX_ASPECT`) is shown whole. Spreads, landscape
+ * windows and an explicit fit choice keep the reader's fit.
  */
 export function mobileReaderPageFitMode({
   mode,
@@ -174,7 +183,8 @@ export function mobileReaderPageFitMode({
 }): ReaderFitMode {
   if (mode !== "page" || !single) return mode;
   if (!(viewport.height > viewport.width)) return mode;
-  return isMobileReaderWidePage(naturalSize) ? "height" : mode;
+  if (!naturalSize || !isMobileReaderWidePage(naturalSize)) return mode;
+  return naturalSize.width / naturalSize.height <= READER_PANNED_PAGE_MAX_ASPECT ? "height" : mode;
 }
 
 /** Share of the window a tap pans a wide page by, so consecutive views overlap a little. */

@@ -285,6 +285,19 @@ describe("seamless paged neighbour fit (ReaderScreen)", () => {
       mobileReaderPageFitMode({ mode: "page", single: true, viewport: portrait, naturalSize: { width: 2400, height: 1200 } }),
     ).toBe("height");
   });
+  test("a strip wider than a double page is shown whole (a title banner never opens on its blank margin)", () => {
+    // Pepper&Carrot ep. 35's title, 1200 × 287, on the Duo's inner display in portrait.
+    const innerPortrait = { width: 669, height: 951 };
+    const at = (width: number, height: number) =>
+      mobileReaderPageFitMode({ mode: "page", single: true, viewport: innerPortrait, naturalSize: { width, height } });
+    expect(at(1200, 287)).toBe("page");
+    expect(at(2500, 1000)).toBe("height");
+    expect(at(2501, 1000)).toBe("page");
+    // An explicit fit is still the reader's choice.
+    expect(
+      mobileReaderPageFitMode({ mode: "height", single: true, viewport: innerPortrait, naturalSize: { width: 1200, height: 287 } }),
+    ).toBe("height");
+  });
 });
 
 describe("a swipe on a page fitted larger than its window (outer display, wide page fitted by height)", () => {
