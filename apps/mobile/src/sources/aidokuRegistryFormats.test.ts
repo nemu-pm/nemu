@@ -80,6 +80,11 @@ describe("minAppVersion / maxAppVersion", () => {
     expect(ids()).toEqual(["ok", "min090", "max09"]);
   });
 
+  test("counts the entries it leaves out for the version", () => {
+    expect(parseAidokuRegistryIndex(dir, entries).incompatibleCount).toBe(3);
+    expect(parseAidokuRegistryIndex(dir, [entries[0]]).incompatibleCount).toBeUndefined();
+  });
+
   test("filters by the version it is given", () => {
     expect(ids("1.0.0")).toEqual(["ok", "min090", "min091", "min10"]);
     expect(ids("0.7.1")).toEqual(["ok", "max08", "max09"]);

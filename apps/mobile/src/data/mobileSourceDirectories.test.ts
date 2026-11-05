@@ -360,6 +360,9 @@ describe("directory addresses and links", () => {
     };
     await expect(previewMobileSourceDirectory(store, { url: "https://example.com/i.json" }, { fetchIndex: empty })).rejects.toMatchObject({ code: "no-sources" });
     await expect(previewMobileSourceDirectory(store, { url: "https://example.com/i.json" }, { fetchIndex: boom })).rejects.toMatchObject({ code: "unreachable" });
+    // Every entry needs a newer app: not "lists no sources".
+    const newer = async () => ({ sources: [], incompatibleCount: 2 });
+    await expect(previewMobileSourceDirectory(store, { url: "https://example.com/i.json" }, { fetchIndex: newer })).rejects.toMatchObject({ code: "incompatible" });
     await expect(previewMobileSourceDirectory(store, { url: "ftp://x" }, { fetchIndex: empty })).rejects.toMatchObject({ code: "not-https" });
     await expect(previewMobileSourceDirectory(store, { url: "garbage" }, { fetchIndex: empty })).rejects.toMatchObject({ code: "invalid" });
   });

@@ -246,6 +246,11 @@ export type AidokuRegistryIndex = {
   /** Optional display name the index publishes for itself. */
   name?: string;
   sources: MobileRegistrySource[];
+  /**
+   * Entries left out because they need a newer (or older) app than the
+   * bundled runtime implements; set when any were.
+   */
+  incompatibleCount?: number;
 };
 
 export async function fetchAidokuRegistryIndex(
@@ -288,6 +293,7 @@ export function parseAidokuRegistryIndex(
     rawName.length <= MOBILE_AIDOKU_REGISTRY_MAX_NAME_LENGTH
       ? rawName.trim()
       : undefined;
+  let incompatibleCount = 0;
   const sources = readSources(data)
     .map((source): MobileRegistrySource | null => {
       const id =
@@ -311,7 +317,10 @@ export function parseAidokuRegistryIndex(
       if (!id || !name) return null;
       // Ids of the app's built-in sources are never listable by a directory.
       if (isReservedSourceId(id)) return null;
-      if (!isCompatibleWithAppVersion(source, appVersion)) return null;
+      if (!isCompatibleWithAppVersion(source, appVersion)) {
+        incompatibleCount += 1;
+        return null;
+      }
 
       const iconPath =
         source.iconURL ??
@@ -362,7 +371,11 @@ export function parseAidokuRegistryIndex(
       };
     })
     .filter((source): source is MobileRegistrySource => source !== null);
-  return { ...(indexName ? { name: indexName } : {}), sources };
+  return {
+    ...(indexName ? { name: indexName } : {}),
+    sources,
+    ...(incompatibleCount > 0 ? { incompatibleCount } : {}),
+  };
 }
 
 export type AidokuRegistryFetchResult = {

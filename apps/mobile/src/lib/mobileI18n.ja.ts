@@ -1050,6 +1050,7 @@ export const mobileStringsJa: MobileStrings = {
     sourceDirectoryErrorLimit: "ディレクトリの上限に達しました。",
     sourceDirectoryErrorUnreachable: "ディレクトリを読み込めませんでした。アドレスを確認してもう一度お試しください。",
     sourceDirectoryErrorNoSources: "そのディレクトリにはソースが掲載されていません。",
+    sourceDirectoryErrorIncompatible: "このディレクトリのソースは、現在のバージョンのnemuではまだ使用できません。",
     autoUpdateSources: "ソースを自動更新",
     autoUpdateSourcesFooter: "更新はインストール済みのソースにのみ適用されます。新しいソースが自動でインストールされることはありません。",
     checkSourceUpdates: "ソースの更新を確認",

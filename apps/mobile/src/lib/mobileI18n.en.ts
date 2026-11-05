@@ -1044,6 +1044,7 @@ export const mobileStringsEn: MobileStrings = {
     sourceDirectoryErrorLimit: "You have reached the limit of directories.",
     sourceDirectoryErrorUnreachable: "Could not load that directory. Check the address and try again.",
     sourceDirectoryErrorNoSources: "That directory does not list any sources.",
+    sourceDirectoryErrorIncompatible: "None of this directory's sources work with this version of nemu yet.",
     autoUpdateSources: "Update sources automatically",
     autoUpdateSourcesFooter: "Updates only apply to sources you have already installed. New sources are never installed for you.",
     checkSourceUpdates: "Check for source updates",

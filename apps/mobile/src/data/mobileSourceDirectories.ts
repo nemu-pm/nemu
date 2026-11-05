@@ -36,6 +36,7 @@ export type MobileSourceDirectoryErrorCode =
   | "limit"
   | "unreachable"
   | "no-sources"
+  | "incompatible"
   | "built-in";
 
 export class MobileSourceDirectoryError extends Error {
@@ -286,6 +287,8 @@ export async function previewMobileSourceDirectory(
     ((directory) =>
       fetchAidokuRegistryIndex(directory, { signal: options.signal }));
   let sawEmptyList = false;
+  // A list whose every entry needs a newer app is not empty, just unusable.
+  let sawIncompatibleList = false;
   let failure: unknown;
   for (const indexUrl of candidates.urls) {
     const id = sourceDirectoryIdForUrl(indexUrl);
@@ -297,7 +300,8 @@ export async function previewMobileSourceDirectory(
     try {
       const index = await fetchIndex(probe);
       if (index.sources.length === 0) {
-        sawEmptyList = true;
+        if (index.incompatibleCount) sawIncompatibleList = true;
+        else sawEmptyList = true;
         continue;
       }
       return {
@@ -312,6 +316,7 @@ export async function previewMobileSourceDirectory(
       failure ??= error;
     }
   }
+  if (sawIncompatibleList) throw new MobileSourceDirectoryError("incompatible");
   if (sawEmptyList) throw new MobileSourceDirectoryError("no-sources");
   throw new MobileSourceDirectoryError(
     "unreachable",

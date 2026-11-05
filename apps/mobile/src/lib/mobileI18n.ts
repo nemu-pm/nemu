@@ -911,6 +911,7 @@ export type MobileStrings = {
     sourceDirectoryErrorLimit: string;
     sourceDirectoryErrorUnreachable: string;
     sourceDirectoryErrorNoSources: string;
+    sourceDirectoryErrorIncompatible: string;
     autoUpdateSources: string;
     autoUpdateSourcesFooter: string;
     checkSourceUpdates: string;

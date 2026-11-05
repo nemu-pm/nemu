@@ -990,6 +990,7 @@ export const mobileStringsZh: MobileStrings = {
     sourceDirectoryErrorLimit: "目录数量已达上限。",
     sourceDirectoryErrorUnreachable: "无法加载该目录。请检查地址后重试。",
     sourceDirectoryErrorNoSources: "该目录没有列出任何来源。",
+    sourceDirectoryErrorIncompatible: "该目录中的来源暂不支持当前版本的 nemu。",
     autoUpdateSources: "自动更新来源",
     autoUpdateSourcesFooter: "更新只作用于已安装的来源，不会为你安装新来源。",
     checkSourceUpdates: "检查来源更新",

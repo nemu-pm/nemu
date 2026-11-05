@@ -10,5 +10,6 @@ export const SOURCE_DIRECTORY_ERROR_KEYS = {
   limit: "sourceDirectoryErrorLimit",
   unreachable: "sourceDirectoryErrorUnreachable",
   "no-sources": "sourceDirectoryErrorNoSources",
+  incompatible: "sourceDirectoryErrorIncompatible",
   "built-in": "sourceDirectoryErrorInvalid",
 } as const;
