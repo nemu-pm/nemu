@@ -9,6 +9,7 @@ import {
 import { emitMobileDataChanged, useMobileDataRevision } from "./mobileDataEvents";
 import { useMobileDataStore } from "./mobileDataContext";
 import { setLocalArchiveLanguage } from "@/lib/localArchives/language";
+import { mobileProfilePreferenceCarry } from "@/lib/mobileProfilePreferences";
 import type { AppLanguage, MetadataLanguagePreference } from "./schema";
 import {
   MobileLanguageContext,
@@ -51,17 +52,27 @@ export function MobileLanguageProvider({ children }: { children: ReactNode }) {
       .getSettings()
       .then((settings) => {
         if (!mounted) return;
+        // A profile that has not chosen yet keeps what the app is showing.
+        const { values, missing } = mobileProfilePreferenceCarry.adopt(settings, [
+          "appLanguage",
+          "metadataLanguagePreference",
+        ]);
         setAppLanguageState(
           resolveInitialAppLanguage(
-            settings.appLanguage,
+            values.appLanguage,
             readDeviceAppLanguage(),
           ),
         );
         setMetadataLanguagePreferenceState(
           normalizeMetadataLanguagePreference(
-            settings.metadataLanguagePreference,
+            values.metadataLanguagePreference,
           ),
         );
+        if (Object.keys(missing).length > 0) {
+          void store
+            .updateSettings((current) => ({ ...current, ...(missing as Partial<typeof current>) }))
+            .catch(() => undefined);
+        }
       })
       .catch(() => undefined);
     return () => {
@@ -79,6 +90,7 @@ export function MobileLanguageProvider({ children }: { children: ReactNode }) {
           ...settings,
           appLanguage: nextLanguage,
         }));
+        mobileProfilePreferenceCarry.remember("appLanguage", nextLanguage);
         emitMobileDataChanged("settings");
       } catch (error) {
         setAppLanguageState(appLanguage);
@@ -98,6 +110,7 @@ export function MobileLanguageProvider({ children }: { children: ReactNode }) {
           ...settings,
           metadataLanguagePreference: nextPreference,
         }));
+        mobileProfilePreferenceCarry.remember("metadataLanguagePreference", nextPreference);
         emitMobileDataChanged("settings");
       } catch (error) {
         setMetadataLanguagePreferenceState(metadataLanguagePreference);

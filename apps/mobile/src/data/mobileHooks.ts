@@ -1,3 +1,4 @@
+import { mobileProfilePreferenceCarry } from "@/lib/mobileProfilePreferences";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { syncMobileJapaneseLearningEnginePreference } from "@/lib/mobileJapaneseLearningEngineSettings";
 import {
@@ -1493,6 +1494,7 @@ export function useMobileDataManagement(): {
               clearAllData: () => clearAllMobileDeviceData(store),
             });
           }
+          mobileProfilePreferenceCarry.forget();
           emitMobileDataChanged("all");
         });
       } finally {

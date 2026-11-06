@@ -9,6 +9,7 @@ import {
 } from "@/lib/mobileThemeSettings";
 import { setAppAppearance } from "../../modules/nemu-window-layout";
 import { nemuTokens, type NemuColorScheme, type NemuTokens } from "./tokens";
+import { mobileProfilePreferenceCarry } from "@/lib/mobileProfilePreferences";
 import { NemuThemeContext } from "./themeContext";
 
 type NemuTheme = {
@@ -58,8 +59,15 @@ export function NemuThemeProvider({ children }: { children: ReactNode }) {
       .getSettings()
       .then((settings) => {
         if (!mounted) return;
-        setThemePreferenceState(normalizeThemePreference(settings.themePreference));
+        // A profile that has not chosen yet keeps the theme on screen.
+        const { values, missing } = mobileProfilePreferenceCarry.adopt(settings, ["themePreference"]);
+        setThemePreferenceState(normalizeThemePreference(values.themePreference));
         setThemePreferenceLoaded(true);
+        if (missing.themePreference !== undefined) {
+          void store
+            .updateSettings((current) => ({ ...current, ...(missing as Partial<typeof current>) }))
+            .catch(() => undefined);
+        }
       })
       .catch(() => {
         if (mounted) setThemePreferenceLoaded(true);
@@ -87,6 +95,7 @@ export function NemuThemeProvider({ children }: { children: ReactNode }) {
           ...settings,
           themePreference: nextPreference,
         }));
+        mobileProfilePreferenceCarry.remember("themePreference", nextPreference);
       } catch (error) {
         setThemePreferenceState(themePreference);
         throw error;
