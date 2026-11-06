@@ -601,6 +601,9 @@ function MobileWelcomeWizardContent({
         await hapticConfirm();
       }
     } catch (error) {
+      // What finished before this one stays installed: show it as such, and
+      // Install & Continue retries only the rest.
+      await installedSources.reload().catch(() => undefined);
       if (sourceInstallCancelRequestedRef.current) return;
       await hapticError();
       // Classified in the lib: a plain network timeout during the package
