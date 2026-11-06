@@ -137,6 +137,19 @@ export function splitMobileInlineErrorDetail(detail: string): {
   return { description, diagnostic: diagnostic || null };
 }
 
+/**
+ * What VoiceOver reads for a banner: the title, then the description unless it
+ * only repeats the title, without doubling the title's own full stop.
+ */
+export function formatMobileInlineErrorAnnouncement(title: string, detail: string): string {
+  const { description, diagnostic } = splitMobileInlineErrorDetail(detail);
+  const parts = description === title ? [title] : [title, description];
+  if (diagnostic) parts.push(diagnostic);
+  return parts
+    .map((part, index) => (index < parts.length - 1 && !/[.。!！?？:：]$/.test(part) ? `${part}.` : part))
+    .join(" ");
+}
+
 export function isMobileTachiyomiUnsupportedError(error: unknown): boolean {
   return errorMessage(error).includes(MOBILE_TACHIYOMI_UNSUPPORTED_MARKER);
 }

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { getMobileStrings } from "./mobileI18n";
 import { MOBILE_SOURCE_DISABLED_DETAIL } from "@/sources/mobileSourceRuntime";
 import {
+  formatMobileInlineErrorAnnouncement,
   getMobileSourceOperationErrorCopy,
   stripMobileNativeExceptionNoise,
   MOBILE_SOURCE_DISABLED_MARKER,
@@ -616,5 +617,19 @@ describe("source failures that mention WebAssembly", () => {
         "runtime",
       );
     }
+  });
+});
+
+describe("formatMobileInlineErrorAnnouncement", () => {
+  test("reads a repeated title once, without a doubled full stop", () => {
+    expect(formatMobileInlineErrorAnnouncement("Sign in failed.", "Sign in failed.")).toBe("Sign in failed.");
+  });
+  test("joins a title and its description", () => {
+    expect(formatMobileInlineErrorAnnouncement("Sign in failed.", "Check the network.")).toBe("Sign in failed. Check the network.");
+    expect(formatMobileInlineErrorAnnouncement("Paused", "Too large.")).toBe("Paused. Too large.");
+    expect(formatMobileInlineErrorAnnouncement("同步失败。", "请重试。")).toBe("同步失败。 请重试。");
+  });
+  test("keeps the diagnostic line", () => {
+    expect(formatMobileInlineErrorAnnouncement("Failed.", "Failed.\nboom")).toBe("Failed. boom");
   });
 });

@@ -22,7 +22,7 @@ describe("mobile inline error banner", () => {
   test("renders a bare tone glyph without the tinted icon square", () => {
     expect(source).not.toContain("styles.icon");
     expect(source).not.toMatch(/backgroundColor:\s*`\$\{accentColor\}18`/);
-    expect(source).toContain("<Ionicons name={iconName} size={18} color={accentColor} />");
+    expect(source).toMatch(/<Ionicons\s+accessibilityElementsHidden\s+importantForAccessibility="no"\s+name=\{iconName\}\s+size=\{18\}\s+color=\{accentColor\}\s+\/>/);
   });
 
   test("keeps the danger tone readable through the glyph color", () => {
@@ -32,7 +32,7 @@ describe("mobile inline error banner", () => {
   });
 
   test("caps embedded detail and diagnostic lines so sheets never overflow", () => {
-    expect(source).toContain("const EMBEDDED_DESCRIPTION_MAX_LINES = 2;");
+    expect(source).toContain("const EMBEDDED_DESCRIPTION_MAX_LINES = 5;");
     expect(source).toContain("const EMBEDDED_DIAGNOSTIC_MAX_LINES = 4;");
     expect(source).toMatch(
       /numberOfLines=\{\s*embedded \? EMBEDDED_DESCRIPTION_MAX_LINES : undefined\s*\}/,
@@ -56,6 +56,6 @@ describe("mobile inline error banner", () => {
   test("keeps the live region and announcement behavior intact", () => {
     expect(source).toContain('accessibilityLiveRegion={announce ? "polite" : undefined}');
     expect(source).toContain("AccessibilityInfo.announceForAccessibility(announcement);");
-    expect(source).toContain('const announcement = `${title}. ${detail}`;');
+    expect(source).toContain("formatMobileInlineErrorAnnouncement(title, detail)");
   });
 });

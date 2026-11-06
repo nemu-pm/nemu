@@ -15,6 +15,8 @@ export function ExploreSettingsGlyph({ name, color }: { name: IoniconName; color
   return (
     <View style={styles.box}>
       <Ionicons
+        accessibilityElementsHidden
+        importantForAccessibility="no"
         name={getMobileSettingsOutlineGlyph(name) as IoniconName}
         size={MOBILE_SETTINGS_GLYPH.size}
         color={color ?? tokens.primary}
