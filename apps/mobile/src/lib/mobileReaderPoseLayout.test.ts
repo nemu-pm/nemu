@@ -934,7 +934,21 @@ describe("reader pose on measured iPhone Duo geometry", () => {
     }
   });
 
-  test("closed, scroll reading: the strip keeps to the safe column, clear of the bar column and the camera", () => {
+  test("closed, scroll reading, camera avoidance off: the strip fills the display; Split View stays beside the bar", () => {
+    for (const orientation of ["portrait", "landscape-left", "landscape-right"]) {
+      const m = find("iphone-duo-outer", "closed", orientation);
+      const layout: MobileWindowLayout = { ...duoLayout(m), hinge: "closed", fillsScreen: true };
+      const result = pose(layout, { paged: false, sideBar: true, avoidCamera: false });
+      expect(result.stage).toEqual(result.bounds);
+      expect(result.pageSideInsets).toEqual({ left: 0, right: 0 });
+      // The toolbar keeps its safe column, whatever the page does.
+      expect(result.chrome).toEqual(pose(layout, { paged: false, sideBar: true }).chrome);
+      const splitView = pose({ ...layout, fillsScreen: false }, { paged: false, sideBar: true, avoidCamera: false });
+      expect(splitView.stage.width).toBeCloseTo(m.bounds.width - m.insets.left - m.insets.right, 6);
+    }
+  });
+
+  test("closed, scroll reading, avoiding the camera: the strip keeps to the safe column, clear of the bar column and the camera", () => {
     for (const orientation of ["portrait", "landscape-left", "landscape-right"]) {
       const m = find("iphone-duo-outer", "closed", orientation);
       const layout: MobileWindowLayout = { ...duoLayout(m), hinge: "closed", fillsScreen: true };
@@ -942,7 +956,7 @@ describe("reader pose on measured iPhone Duo geometry", () => {
       expect(result.stage.x).toBe(m.insets.left);
       expect(result.stage.x + result.stage.width).toBeCloseTo(m.bounds.width - m.insets.right, 6);
       for (const region of activeOcclusions(layout)) expect(overlaps(result.stage, region)).toBe(false);
-      // Paged reading (camera avoidance off) still full-bleeds behind the bar column.
+      // Paged reading (camera avoidance off) full-bleeds behind the bar column.
       expect(pose(layout, { paged: true, sideBar: true, avoidCamera: false }).stage.width).toBe(m.bounds.width);
     }
   });

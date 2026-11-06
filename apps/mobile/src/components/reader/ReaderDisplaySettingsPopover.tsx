@@ -197,7 +197,7 @@ export function ReaderDisplaySettingsPopover({
   fitMode,
   onSetFitMode,
   showCameraMode = false,
-  avoidCamera = true,
+  avoidCamera = false,
   onSetAvoidCamera,
   showPagePairingControls,
   spreadPairing,

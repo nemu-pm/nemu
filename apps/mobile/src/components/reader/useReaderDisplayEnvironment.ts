@@ -7,6 +7,7 @@ import { useMobileDataRevision } from "@/data/mobileDataEvents";
 import type { UserSettings } from "@/data/schema";
 import { emitMobileDataChanged } from "@/data/mobileDataEvents";
 import {
+  DEFAULT_READER_AVOID_CAMERA,
   DEFAULT_READER_KEEP_AWAKE,
   DEFAULT_READER_LOCK_PORTRAIT,
 } from "@/lib/mobileReaderSettings";
@@ -116,8 +117,8 @@ export function useReaderDisplayPrefs(): {
   const [notebookPane, setNotebookPaneState] = useState<MobileReaderNotebookPanePreference>(
     DEFAULT_MOBILE_READER_NOTEBOOK_PANE,
   );
-  const [avoidCamera, setAvoidCameraState] = useState(true);
-  const savedAvoidCamera = useRef(true);
+  const [avoidCamera, setAvoidCameraState] = useState(DEFAULT_READER_AVOID_CAMERA);
+  const savedAvoidCamera = useRef(DEFAULT_READER_AVOID_CAMERA);
   const avoidCameraRun = useRef(0);
   const [outerCover, setOuterCoverState] = useState(false);
   const savedOuterCover = useRef(false);
@@ -152,7 +153,7 @@ export function useReaderDisplayPrefs(): {
           settings.readerLockPortrait ?? DEFAULT_READER_LOCK_PORTRAIT;
         setLockPortraitState(nextLockPortrait);
         savedLockPortrait.current = nextLockPortrait;
-        const nextAvoidCamera = settings.readerAvoidCamera !== false;
+        const nextAvoidCamera = settings.readerAvoidCamera ?? DEFAULT_READER_AVOID_CAMERA;
         setAvoidCameraState(nextAvoidCamera);
         savedAvoidCamera.current = nextAvoidCamera;
         const nextOuterCover = settings.readerOuterCover === true;

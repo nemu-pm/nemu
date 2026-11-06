@@ -250,7 +250,7 @@ export type UserSettings = {
   readerNotebookPane?: "automatic" | "trackpad" | "filmstrip";
   /** Hide unread filmstrip previews; defaults to false. */
   readerThumbnailSpoilerSafe?: boolean;
-  /** Outer foldable display: keep the physical camera clear (default true). */
+  /** Outer foldable display: keep the physical camera clear (default false: full screen). */
   readerAvoidCamera?: boolean;
   /** iPhone Duo: show the book's cover on the outer display while reading (default false). */
   readerOuterCover?: boolean;

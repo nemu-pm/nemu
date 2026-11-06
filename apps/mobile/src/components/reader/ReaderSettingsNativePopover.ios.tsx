@@ -163,7 +163,7 @@ export function ReaderSettingsNativePopover({
   fitMode,
   onSetFitMode,
   showCameraMode = false,
-  avoidCamera = true,
+  avoidCamera = false,
   onSetAvoidCamera,
   showOuterCover = false,
   outerCover = false,
