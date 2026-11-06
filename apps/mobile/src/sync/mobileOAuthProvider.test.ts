@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   canSelectMobileCloudSignOutChoice,
+  classifyMobileCloudSignOutError,
   canStartMobileCloudSignOut,
   canStartMobileOAuthSignIn,
   completeMobileCloudSignOut,
@@ -189,5 +190,14 @@ describe("normalizeMobileOAuthProvider", () => {
       "clear",
       "unregister-failed",
     ]);
+  });
+});
+
+describe("classifyMobileCloudSignOutError", () => {
+  it("the auth transport's codes are classified, never shown", () => {
+    expect(classifyMobileCloudSignOutError(new Error("MOBILE_AUTH_NETWORK_UNAVAILABLE"))).toBe("network");
+    expect(classifyMobileCloudSignOutError(new Error("MOBILE_AUTH_STORAGE_UNAVAILABLE"))).toBe("storage");
+    expect(classifyMobileCloudSignOutError(new Error("Failed to confirm sign out"))).toBe("other");
+    expect(classifyMobileCloudSignOutError("nope")).toBe("other");
   });
 });

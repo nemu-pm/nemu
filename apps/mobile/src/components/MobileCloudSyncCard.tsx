@@ -34,6 +34,7 @@ import {
   getMobileStrings,
   type MobileStrings,
 } from "@/lib/mobileI18n";
+import { mobileProfileSwitchLanding } from "@/lib/mobileProfileSwitchLanding";
 import { describeMobileErrorDetail } from "@/lib/mobileSourceErrors";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import { MOBILE_EXPLORE_GROUP_SHAPE } from "@/lib/mobileExploreRadius";
@@ -419,6 +420,9 @@ function MobileCloudSyncConfiguredCard({
     busyProviderRef.current = provider;
     setBusyProvider(provider);
     setError(null);
+    // A first sign-in moves to the account's database: the tree remounts.
+    mobileProfileSwitchLanding.hold();
+    let signedInNow = false;
     try {
       const result = await mobileAuthClient.signIn.social({
         provider,
@@ -460,6 +464,7 @@ function MobileCloudSyncConfiguredCard({
         return;
       }
       if (outcome === "dismissed") return;
+      signedInNow = true;
       await hapticConfirm();
     } catch (nextError) {
       setError({
@@ -474,6 +479,7 @@ function MobileCloudSyncConfiguredCard({
       });
       await hapticError();
     } finally {
+      mobileProfileSwitchLanding.release(signedInNow);
       if (busyProviderRef.current === provider) {
         busyProviderRef.current = null;
       }
@@ -536,7 +542,7 @@ function MobileCloudSyncConfiguredCard({
             </View>
           ) : signedIn ? (
             <NemuPressable
-              accessibilityLabel={strings.account.openAccount}
+              accessibilityLabel={`${strings.account.openAccount}, ${displayName}`}
               accessibilityRole="button"
               accessibilityState={accountInSplit ? { selected: accountSelected } : undefined}
               hapticFeedback={accountInSplit ? "selection" : "press"}

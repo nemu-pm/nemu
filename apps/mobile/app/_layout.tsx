@@ -8,6 +8,7 @@ import {
   ThemeProvider,
   useNavigationContainerRef,
   usePathname,
+  useRouter,
   type ErrorBoundaryProps,
 } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
@@ -28,9 +29,11 @@ import { MobileWelcomeWizard } from "@/components/MobileWelcomeWizard";
 import { MobileDataProvider } from "@/data/mobileData";
 import { MobileLanguageProvider } from "@/data/mobileLanguageContext";
 import { NemuThemeProvider, createNemuNavigationTheme, useNemuTheme } from "@/design-system";
+import { mobileProfileSwitchLanding } from "@/lib/mobileProfileSwitchLanding";
 import { MOBILE_STACK_FULL_SCREEN_GESTURE_OPTIONS } from "@/lib/mobileReaderRouteOptions";
 import { shouldShowMobileFloatingTabBar } from "@/lib/mobileRootTabs";
 import {
+  navigateToMobileRootTab,
   registerMobileRootNavigation,
   type MobileNavigationState,
 } from "@/lib/mobileRootTabNavigation";
@@ -157,6 +160,15 @@ function RootStack({
       }),
     [navigationContainerRef],
   );
+  // Mounted anew by a data-profile switch started in Settings: back to Settings.
+  const router = useRouter();
+  useEffect(() => {
+    if (!mobileProfileSwitchLanding.consume()) return;
+    const frame = requestAnimationFrame(() => {
+      navigateToMobileRootTab("/settings", { popToRoot: true, router });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [router]);
   const splashHiddenRef = useRef(false);
   const rootLayoutMarkedRef = useRef(false);
   const lastPathnameRef = useRef<string | null>(null);

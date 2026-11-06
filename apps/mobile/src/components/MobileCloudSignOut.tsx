@@ -20,9 +20,9 @@ import { MobileSheetSelectionIndicator } from "@/components/MobileSheetSelection
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import { hapticConfirm, hapticError } from "@/lib/haptics";
 import type { MobileStrings } from "@/lib/mobileI18n";
+import { mobileProfileSwitchLanding } from "@/lib/mobileProfileSwitchLanding";
 import { describeMobileErrorDetail } from "@/lib/mobileSourceErrors";
 import { mobileAuthClient } from "@/sync/mobileAuthClient";
-import { isMobileAuthStorageUnavailable } from "@/sync/mobileAuthSecureStorage";
 import { unregisterMobileBackgroundSyncAsync } from "@/sync/mobileBackgroundSync";
 import { signOutAndUnregisterMobileBackgroundSync } from "@/sync/mobileBackgroundSyncLifecycle";
 import { runWithMobileSyncSuspended } from "@/sync/mobileSyncRuntime";
@@ -30,6 +30,7 @@ import {
   canSelectMobileCloudSignOutChoice,
   canStartMobileCloudSignOut,
   type MobileOAuthProvider,
+  classifyMobileCloudSignOutError,
   completeMobileCloudSignOut,
   getMobileCloudSignOutResultAction,
 } from "@/sync/mobileOAuthProvider";
@@ -316,6 +317,8 @@ export function useMobileCloudSignOut({
     signingOutRef.current = true;
     setSigningOut(true);
     setError(null);
+    // Removing the data leaves this profile's database: the tree remounts.
+    if (!keepData) mobileProfileSwitchLanding.hold();
     try {
       await runWithMobileSyncSuspended(async () => {
         await completeMobileCloudSignOut({
@@ -350,24 +353,30 @@ export function useMobileCloudSignOut({
       ) {
         setSignOutSheetOpen(false);
       }
+      if (!keepData) mobileProfileSwitchLanding.release(true);
       await hapticConfirm();
       onSucceeded?.();
       return true;
     } catch (nextError) {
+      if (!keepData) mobileProfileSwitchLanding.release(false);
       if (
         getMobileCloudSignOutResultAction({ succeeded: false }) ===
         "close-confirmation"
       ) {
         setSignOutSheetOpen(false);
       }
+      const failure = classifyMobileCloudSignOutError(nextError);
       setError({
         title: strings.settings.cloudSyncSignOutFailed,
-        detail: isMobileAuthStorageUnavailable(nextError)
-          ? strings.settings.cloudSyncAuthenticationStorageUnavailable
-          : describeMobileErrorDetail(
-              nextError,
-              strings.settings.cloudSyncSignOutFailed,
-            ),
+        detail:
+          failure === "network"
+            ? strings.settings.cloudSyncAuthenticationNetworkUnavailable
+            : failure === "storage"
+              ? strings.settings.cloudSyncAuthenticationStorageUnavailable
+              : describeMobileErrorDetail(
+                  nextError,
+                  strings.settings.cloudSyncSignOutFailed,
+                ),
         accountId: errorAccountId,
       });
       await hapticError();

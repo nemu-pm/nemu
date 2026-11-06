@@ -35,6 +35,18 @@ export function resolveMobileCloudSignInErrorDetail(
   return strings.signInFailed;
 }
 
+/**
+ * The sign-out sheet's error detail. A fetch failure reaches it as the auth
+ * transport's bare code (`MOBILE_AUTH_NETWORK_UNAVAILABLE`), which must not be
+ * shown; the signing-out itself is retryable once back online.
+ */
+export function classifyMobileCloudSignOutError(error: unknown): "network" | "storage" | "other" {
+  const message = error instanceof Error ? error.message : "";
+  if (message === "MOBILE_AUTH_NETWORK_UNAVAILABLE") return "network";
+  if (message === "MOBILE_AUTH_STORAGE_UNAVAILABLE") return "storage";
+  return "other";
+}
+
 export function canStartMobileOAuthSignIn(
   busyProvider: MobileOAuthProvider | null,
   signingOut: boolean,

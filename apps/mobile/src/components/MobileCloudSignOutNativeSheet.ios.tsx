@@ -54,6 +54,10 @@ export function MobileCloudSignOutNativeSheet({
     maxHeight: height - insets.top,
     bottomInset: insets.bottom,
   });
+  // The group's title already says it failed: the footer says only the rest.
+  const errorFooter = error
+    ? error.detail.split("\n").filter((line) => line !== error.title).join("\n")
+    : "";
   const choice = (nextKeepData: boolean) => {
     if (loading || nextKeepData === keepData) return;
     void hapticSelection();
@@ -113,7 +117,7 @@ export function MobileCloudSignOutNativeSheet({
         />
       </SwiftSection>
       {error ? (
-        <SwiftSection footer={<SwiftText>{error.detail}</SwiftText>}>
+        <SwiftSection footer={errorFooter ? <SwiftText>{errorFooter}</SwiftText> : undefined}>
           <SwiftLabel
             title={error.title}
             systemImage="exclamationmark.triangle"
