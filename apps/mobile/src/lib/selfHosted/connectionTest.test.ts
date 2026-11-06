@@ -44,4 +44,13 @@ describe("testSelfHostedConnection", () => {
     expect(error.code).toBe("unreachable");
     expect(grants.at(-1)![1]).toEqual([]);
   });
+
+  test("ends the check and revokes the grant when the user walks away", async () => {
+    const { grants, value } = deps(() => new Promise(() => {}), 60_000);
+    const walkAway = new AbortController();
+    const check = testSelfHostedConnection({ config, credentials: {} }, { ...value, signal: walkAway.signal }).catch((e) => e);
+    walkAway.abort();
+    expect(await check).toBeInstanceOf(SelfHostedError);
+    expect(grants.at(-1)![1]).toEqual([]);
+  });
 });

@@ -1,13 +1,14 @@
 import { ScrollView, StyleSheet, TextInput, View } from "react-native";
-import { Stack, useLocalSearchParams } from "expo-router";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { useServerSourceForm, type ServerSourceFormParams } from "@/components/useServerSourceForm";
 import { NemuText, renderNemuNativeToolbarButtons, useNemuTheme } from "@/design-system";
-import { useServerSourceForm, type ServerSourceFormParams } from "./useServerSourceForm";
 
 /** Android / web: the same fields as the native iOS form, in a plain list. */
 export function ServerSourceScreen() {
   const { tokens } = useNemuTheme();
   const params = useLocalSearchParams<ServerSourceFormParams>();
-  const form = useServerSourceForm(params);
+  const router = useRouter();
+  const form = useServerSourceForm(params, { onSaved: () => router.back() });
   const { strings, fields } = form;
 
   const rows: Array<{

@@ -14,6 +14,8 @@ export type ConnectionTestDeps = {
   timeoutMs?: number;
   /** Unique per call; the grant must not outlive it. */
   scopeId?: string;
+  /** The user walked away: ends the check as a timeout does. */
+  signal?: AbortSignal;
 };
 
 /**
@@ -32,6 +34,8 @@ export async function testSelfHostedConnection(
   deps.setGrant(scope, [input.config.server]);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), deps.timeoutMs ?? CONNECTION_TEST_TIMEOUT_MS);
+  const abort = () => controller.abort();
+  deps.signal?.addEventListener("abort", abort);
   const backend = createSelfHostedBackend({
     config: input.config,
     credentials: input.credentials,
@@ -49,6 +53,7 @@ export async function testSelfHostedConnection(
     ]);
   } finally {
     clearTimeout(timer);
+    deps.signal?.removeEventListener("abort", abort);
     backend.dispose();
     deps.setGrant(scope, []);
   }

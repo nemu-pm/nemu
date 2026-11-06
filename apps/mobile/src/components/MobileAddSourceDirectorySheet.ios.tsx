@@ -1,79 +1,37 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import {
   Button as SwiftButton,
-  Form as SwiftForm,
-  Group as SwiftGroup,
   HStack as SwiftHStack,
   Label as SwiftLabel,
-  NavigationDestination as SwiftNavigationDestination,
-  NavigationStack as SwiftNavigationStack,
   ProgressView as SwiftProgressView,
   Section as SwiftSection,
   Spacer as SwiftSpacer,
   Text as SwiftText,
   TextField as SwiftTextField,
-  Toolbar as SwiftToolbar,
-  ToolbarItem as SwiftToolbarItem,
   useNativeState,
 } from "@expo/ui/swift-ui";
 import {
   accessibilityLabel,
   autocorrectionDisabled,
   disabled,
-  font,
   foregroundStyle,
-  frame,
-  ignoreSafeArea,
   keyboardType,
-  lineLimit,
-  listSectionMargins,
   onSubmit,
-  scrollEdgeEffectStyle,
   submitLabel,
   textInputAutocapitalization,
-  tint,
 } from "@expo/ui/swift-ui/modifiers";
 import { useNemuTheme } from "@/design-system";
-import { MOBILE_GROUPED_FORM_TOP_MARGIN } from "@/lib/mobileLibrarySheetLayout";
-import {
-  inlineToolbarTitle,
-  navigationBarHidden,
-  zeroTopScrollContentMargin,
-} from "../../modules/nemu-window-layout/src/presentationColorScheme";
-import { MobileNativeFormSheet, ToolbarActionButton } from "./MobileNativeFormSheet.ios";
+import { MobileNativeFormSheet } from "./MobileNativeFormSheet.ios";
+import { MobilePushedFormPage } from "./MobilePushedFormPage.ios";
 import type {
   MobileAddSourceDirectorySheetProps,
   MobileAddSourcesDirectoryPageProps,
-  MobileAddSourcesDirectoryStackProps,
 } from "./MobileAddSourceDirectorySheet.types";
 import {
   useAddSourceDirectoryForm,
   useAddSourceDirectorySheetForm,
   type AddSourceDirectoryForm,
 } from "./useAddSourceDirectoryForm";
-
-/** The page's value on the Add Sources sheet's stack. */
-const ADD_DIRECTORY_PAGE = "add-directory";
-
-/**
- * Add Sources' list keeps its own header: the bar belongs to the pushed page.
- * The stack applies the safe area again inside the sheet's root, which ignores
- * it, so the list ignores it here too and still reaches the edges under the
- * Duo outer display's vertical bar column.
- */
-const STACK_ROOT_MODIFIERS = [
-  navigationBarHidden(),
-  frame({ maxWidth: Infinity }),
-  ignoreSafeArea({ regions: "container", edges: "horizontal" }),
-];
-
-/** Add Sources pushes the page natively (`MobileAddSourcesDirectoryStack`). */
-export const mobileAddSourcesPushesDirectoryNatively = true;
-
-/** Only Android draws the page in the sheet's own body. */
-export function MobileAddSourcesDirectoryPage(_props: MobileAddSourcesDirectoryPageProps) {
-  return null;
-}
 
 /**
  * Add Source Directory's two groups, in a native grouped Form. An
@@ -180,8 +138,8 @@ export function MobileAddSourceDirectorySheet(props: MobileAddSourceDirectoryShe
   );
 }
 
-function AddDirectoryPage({ open, onAdded, onDismissBlockedChange }: MobileAddSourcesDirectoryPageProps) {
-  const { tokens } = useNemuTheme();
+/** From Add Sources: the page pushed on that sheet's stack (`MobileAddSourcesStack`). */
+export function MobileAddSourcesDirectoryPage({ open, onAdded, onDismissBlockedChange }: MobileAddSourcesDirectoryPageProps) {
   const form = useAddSourceDirectoryForm({ onAdded: (added) => onAdded(added.id) });
   const { strings, cancel, blocksDismiss } = form;
 
@@ -190,83 +148,15 @@ function AddDirectoryPage({ open, onAdded, onDismissBlockedChange }: MobileAddSo
     if (!open) cancel();
   }, [cancel, open]);
   useEffect(() => {
-    onDismissBlockedChange(blocksDismiss);
-  }, [blocksDismiss, onDismissBlockedChange]);
+    onDismissBlockedChange(open && blocksDismiss);
+  }, [blocksDismiss, onDismissBlockedChange, open]);
 
   return (
-    <SwiftToolbar>
-      <SwiftForm
-        modifiers={[
-          tint(tokens.primary),
-          scrollEdgeEffectStyle("soft", "vertical"),
-          inlineToolbarTitle(),
-          zeroTopScrollContentMargin(),
-          listSectionMargins({ edges: "top", length: MOBILE_GROUPED_FORM_TOP_MARGIN }),
-        ]}
-      >
-        <DirectorySections form={form} />
-      </SwiftForm>
-      <SwiftToolbar.Content>
-        <SwiftToolbarItem placement="principal">
-          <SwiftText modifiers={[font({ textStyle: "headline" }), lineLimit(1)]}>
-            {strings.browse.addSourceDirectory}
-          </SwiftText>
-        </SwiftToolbarItem>
-        <SwiftToolbarItem placement="confirmationAction">
-          <ToolbarActionButton
-            action={{ label: strings.common.add, disabled: !form.canSubmit, onPress: () => void form.submit() }}
-            accent={tokens.primary}
-          />
-        </SwiftToolbarItem>
-      </SwiftToolbar.Content>
-    </SwiftToolbar>
-  );
-}
-
-/**
- * From Add Sources: the sheet's own navigation, around its list. The page is
- * pushed in place with the system back (chevron, edge swipe), and popped on an
- * add. Each push starts a fresh page; the one before stays mounted while it
- * slides out.
- */
-export function MobileAddSourcesDirectoryStack({
-  open,
-  onPop,
-  onAdded,
-  onDismissBlockedChange,
-  children,
-}: MobileAddSourcesDirectoryStackProps) {
-  const [session, setSession] = useState(0);
-  const [openSeen, setOpenSeen] = useState(false);
-  if (open !== openSeen) {
-    setOpenSeen(open);
-    if (open) setSession(session + 1);
-  }
-  // One commit behind `open`, so the page's content is mounted before the stack slides it in.
-  const [path, setPath] = useState<string[]>([]);
-  useEffect(() => {
-    setPath(open ? [ADD_DIRECTORY_PAGE] : []);
-  }, [open]);
-
-  return (
-    <SwiftNavigationStack
-      path={path}
-      onPathChange={(next) => {
-        setPath(next);
-        if (next.length === 0 && open) onPop();
-      }}
+    <MobilePushedFormPage
+      title={strings.browse.addSourceDirectory}
+      confirm={{ label: strings.common.add, disabled: !form.canSubmit, onPress: () => void form.submit() }}
     >
-      <SwiftGroup modifiers={STACK_ROOT_MODIFIERS}>{children}</SwiftGroup>
-      <SwiftNavigationDestination value={ADD_DIRECTORY_PAGE}>
-        {session > 0 ? (
-          <AddDirectoryPage
-            key={session}
-            open={open}
-            onAdded={onAdded}
-            onDismissBlockedChange={onDismissBlockedChange}
-          />
-        ) : null}
-      </SwiftNavigationDestination>
-    </SwiftNavigationStack>
+      <DirectorySections form={form} />
+    </MobilePushedFormPage>
   );
 }

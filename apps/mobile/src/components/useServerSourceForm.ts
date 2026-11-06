@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert } from "react-native";
-import { useRouter } from "expo-router";
 import { useMobileDataStore } from "@/data/mobileDataContext";
 import { emitMobileDataChanged } from "@/data/mobileDataEvents";
 import { useMobileLanguageSettings } from "@/data/mobileHooks";
+import { mobileServerSourceFormBlocksDismiss } from "@/lib/mobileAddSourcesPages";
 import { hapticConfirm, hapticError } from "@/lib/haptics";
 import { formatMobileString, getMobileStrings } from "@/lib/mobileI18n";
 import { testSelfHostedConnection } from "@/lib/selfHosted/connectionTest";
@@ -36,10 +36,10 @@ export type ServerSourceFormParams = {
 /**
  * State and actions of the server setup form (Komga, Kavita), shared by the
  * native iOS form and the plain one. Saving connects first: an address or login
- * that does not work is reported and nothing is stored.
+ * that does not work is reported and nothing is stored. `onSaved` says where it
+ * goes next.
  */
-export function useServerSourceForm(params: ServerSourceFormParams) {
-  const router = useRouter();
+export function useServerSourceForm(params: ServerSourceFormParams, { onSaved }: { onSaved: () => void }) {
   const store = useMobileDataStore();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
@@ -53,6 +53,7 @@ export function useServerSourceForm(params: ServerSourceFormParams) {
   const [loaded, setLoaded] = useState(!editingId);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
   /** Set by the native form: empties its secure fields before the screen closes. */
   const clearSecretsRef = useRef<(() => void) | null>(null);
 
@@ -77,6 +78,11 @@ export function useServerSourceForm(params: ServerSourceFormParams) {
     };
   }, [editingId, store]);
 
+  const cancel = useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
+  useEffect(() => cancel, [cancel]);
+
   const canSave = loaded && kind !== null && server.trim().length > 0 && !saving;
 
   const save = useCallback(async () => {
@@ -93,6 +99,8 @@ export function useServerSourceForm(params: ServerSourceFormParams) {
       : username.trim() || password
         ? { username: username.trim(), password }
         : {};
+    const controller = new AbortController();
+    abortRef.current = controller;
     savingRef.current = true;
     setSaving(true);
     try {
@@ -101,11 +109,13 @@ export function useServerSourceForm(params: ServerSourceFormParams) {
         { config, credentials },
         {
           language: appLanguage,
+          signal: controller.signal,
           setGrant: (scope, urls) => {
             NemuAidokuModule.setLocalNetworkAllowance?.(scope, urls);
           },
         },
       );
+      if (controller.signal.aborted) return;
       const saved = await saveSelfHostedSource(store, {
         kind,
         name: name.trim() || selfHostedKindName(kind),
@@ -126,8 +136,10 @@ export function useServerSourceForm(params: ServerSourceFormParams) {
       // screen goes away; a reader app's server login must not be offered.
       clearSecretsRef.current?.();
       await new Promise((resolve) => setTimeout(resolve, 250));
-      router.back();
+      if (controller.signal.aborted) return;
+      onSaved();
     } catch (failure) {
+      if (controller.signal.aborted) return;
       void hapticError();
       const diagnostic = selfHostedErrorDiagnostic(failure);
       Alert.alert(
@@ -135,10 +147,11 @@ export function useServerSourceForm(params: ServerSourceFormParams) {
         [selfHostedErrorMessage(failure, strings, kind), diagnostic].filter(Boolean).join("\n\n"),
       );
     } finally {
+      if (abortRef.current === controller) abortRef.current = null;
       savingRef.current = false;
       setSaving(false);
     }
-  }, [apiKey, appLanguage, editingId, kind, name, password, router, server, store, strings, username]);
+  }, [apiKey, appLanguage, editingId, kind, name, onSaved, password, server, store, strings, username]);
 
   return {
     strings,
@@ -152,12 +165,14 @@ export function useServerSourceForm(params: ServerSourceFormParams) {
     saving,
     canSave,
     fields: { server, name, username, password, apiKey },
+    blocksDismiss: mobileServerSourceFormBlocksDismiss({ server, name, username, password, apiKey }, saving),
     setServer,
     setName,
     setUsername,
     setPassword,
     setApiKey,
     save,
+    cancel,
     clearSecretsRef,
   };
 }

@@ -1,7 +1,4 @@
 import { Image as ServerIconImage } from "react-native";
-import komgaIcon from "../../assets/server-icons/komga.png";
-import kavitaIcon from "../../assets/server-icons/kavita.png";
-import suwayomiIcon from "../../assets/server-icons/suwayomi.png";
 import { MobileQuickActionMenu, mobileNativeQuickMenuAvailable } from "@/components/MobileQuickActionMenu";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -39,15 +36,14 @@ import {
   partitionMobileSourceGroups,
 } from "@/lib/mobileSourceColumns";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { ADD_DIRECTORY_PAGE, SERVER_PICKER_PAGE } from "@/lib/mobileAddSourcesPages";
 import { selfHostedKindName } from "@/lib/selfHosted/messages";
 import { SELF_HOSTED_REGISTRY_ID, SELF_HOSTED_SETUP_KINDS, type SelfHostedKind } from "@/lib/selfHosted/policy";
 import { EmptyLibrary } from "@/components/EmptyLibrary";
 import { MobileBrowseSkeleton } from "@/components/MobileBrowseSkeleton";
-import {
-  MobileAddSourcesDirectoryPage,
-  MobileAddSourcesDirectoryStack,
-  mobileAddSourcesPushesDirectoryNatively,
-} from "@/components/MobileAddSourceDirectorySheet";
+import { MobileAddSourcesDirectoryPage } from "@/components/MobileAddSourceDirectorySheet";
+import { MobileAddSourcesStack, mobileAddSourcesPushesPagesNatively } from "@/components/MobileAddSourcesStack";
+import { SERVER_ICONS } from "@/components/mobileServerIcons";
 import { MobileConfirmationSheet } from "@/components/MobileConfirmationSheet";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import { MobileInlineToast } from "@/components/MobileInlineToast";
@@ -758,12 +754,6 @@ const AvailableSourceRow = memo(function AvailableSourceRow({
  * downloaded, so there is nothing to install; the row opens the server's
  * setup form.
  */
-const SERVER_ICONS = {
-  komga: komgaIcon,
-  kavita: kavitaIcon,
-  suwayomi: suwayomiIcon,
-};
-
 const BuiltInSourceRow = memo(function BuiltInSourceRow({
   kind,
   strings,
@@ -930,10 +920,10 @@ export function BrowseScreen() {
   const [showAdult, setShowAdult] = useState(false);
   const [activeSheet, setActiveSheet] = useState<BrowseSheet | null>(null);
   const [activeSheetVisible, setActiveSheetVisible] = useState(false);
-  const [serverPickerOpen, setServerPickerOpen] = useState(false);
-  // Add Source Directory, pushed inside the sheet (a page in its body on Android).
-  const [addDirectoryOpen, setAddDirectoryOpen] = useState(false);
-  const [addDirectoryBlocksDismiss, setAddDirectoryBlocksDismiss] = useState(false);
+  // Add Source Directory and Connect Server, pushed inside the sheet. On
+  // Android they are in its body, and a server's form is its own screen.
+  const [addSourcesPath, setAddSourcesPath] = useState<string[]>([]);
+  const [addSourcesPageBlocksDismiss, setAddSourcesPageBlocksDismiss] = useState(false);
   const addSourceDismissActionRef = useRef<AddSourceDismissAction | null>(null);
   const [selectedLanguages, setSelectedLanguages] = useState<Set<string>>(
     () => new Set(),
@@ -1701,8 +1691,7 @@ export function BrowseScreen() {
   // inputs change, not on every Browse render.
   const openAddSourceSheet = useCallback(() => {
     addSourceTapStartedAtRef.current = markMobilePerformance("browse.addSource.tap");
-    setServerPickerOpen(false);
-    setAddDirectoryOpen(false);
+    setAddSourcesPath([]);
     // A registry query is useful only for the current sheet visit. Keeping it
     // after installing or dismissing a source makes a later visit look empty
     // until the user notices and clears the stale filter.
@@ -1734,8 +1723,7 @@ export function BrowseScreen() {
     // Already open (a directory link confirmed over it): show the new
     // directory's sources in place.
     if (activeSheet === "add-source" && focus) {
-      setServerPickerOpen(false);
-      setAddDirectoryOpen(false);
+      setAddSourcesPath([]);
       setQuery("");
       setDirectoryFocus(focus);
       return;
@@ -1760,7 +1748,8 @@ export function BrowseScreen() {
     addSourceDismissActionRef.current = null;
     setActiveSheet(null);
     setActiveSheetVisible(false);
-    setAddDirectoryOpen(false);
+    setAddSourcesPath([]);
+    setAddSourcesPageBlocksDismiss(false);
 
     if (next?.type === "open-language") {
       setActiveSheet("source-language");
@@ -1794,16 +1783,24 @@ export function BrowseScreen() {
   };
   const openAddDirectory = () => {
     void hapticSelection();
-    setAddDirectoryOpen(true);
+    setAddSourcesPath([ADD_DIRECTORY_PAGE]);
   };
-  const closeAddDirectory = useCallback(() => setAddDirectoryOpen(false), []);
+  const openServerPicker = () => {
+    void hapticSelection();
+    setAddSourcesPath([SERVER_PICKER_PAGE]);
+  };
+  const closeAddSourcesPages = useCallback(() => setAddSourcesPath([]), []);
   // Added: back on the list, on the new directory's sources.
   const handleDirectoryAdded = useCallback((directoryId: string) => {
     setQuery("");
     setDirectoryFocus(directoryId);
-    setAddDirectoryOpen(false);
+    setAddSourcesPath([]);
   }, []);
-  const addDirectoryInBody = addDirectoryOpen && !mobileAddSourcesPushesDirectoryNatively;
+  // Connected: the server is in Browse, below the sheet.
+  const handleServerConnected = useCallback(() => setActiveSheetVisible(false), []);
+  const addSourcesPage = addSourcesPath.at(-1);
+  const addDirectoryInBody = addSourcesPage === ADD_DIRECTORY_PAGE && !mobileAddSourcesPushesPagesNatively;
+  const serverPickerInBody = addSourcesPage === SERVER_PICKER_PAGE && !mobileAddSourcesPushesPagesNatively;
   const closeLanguageSheet = () => {
     setActiveSheetVisible(false);
   };
@@ -2250,33 +2247,31 @@ export function BrowseScreen() {
           onClose={closeAddSourceSheet}
           onDismiss={handleAddSourceSheetDismissed}
           onHardwareBackPress={addDirectoryInBody ? () => {
-            closeAddDirectory();
+            closeAddSourcesPages();
             return true;
           } : undefined}
           title={addDirectoryInBody
             ? strings.browse.addSourceDirectory
-            : serverPickerOpen ? strings.selfHosted.connectServer : strings.browse.addSources}
+            : serverPickerInBody ? strings.selfHosted.connectServer : strings.browse.addSources}
           dismissLabel={strings.common.done}
-          enablePanDownToClose={!(addDirectoryOpen && addDirectoryBlocksDismiss)}
+          enablePanDownToClose={!(addSourcesPage !== undefined && addSourcesPageBlocksDismiss)}
           wrapIosHostedContent={(hostedContent) => (
-            <MobileAddSourcesDirectoryStack
-              open={addDirectoryOpen}
-              onPop={closeAddDirectory}
-              onAdded={handleDirectoryAdded}
-              onDismissBlockedChange={setAddDirectoryBlocksDismiss}
+            <MobileAddSourcesStack
+              path={addSourcesPath}
+              onPathChange={setAddSourcesPath}
+              onDirectoryAdded={handleDirectoryAdded}
+              onServerConnected={handleServerConnected}
+              onDismissBlockedChange={setAddSourcesPageBlocksDismiss}
             >
               {hostedContent}
-            </MobileAddSourcesDirectoryStack>
+            </MobileAddSourcesStack>
           )}
-          headerLeading={serverPickerOpen || addDirectoryInBody ? (
+          headerLeading={serverPickerInBody || addDirectoryInBody ? (
             <NemuNativeSheetHeaderAction
               accessibilityLabel={strings.common.back}
               androidIcon="chevron-back"
               iosSystemImage="chevron.backward"
-              onPress={() => {
-                setServerPickerOpen(false);
-                closeAddDirectory();
-              }}
+              onPress={closeAddSourcesPages}
             />
           ) : (
             <NemuNativeSheetHeaderAction
@@ -2306,9 +2301,9 @@ export function BrowseScreen() {
             <MobileAddSourcesDirectoryPage
               open
               onAdded={handleDirectoryAdded}
-              onDismissBlockedChange={setAddDirectoryBlocksDismiss}
+              onDismissBlockedChange={setAddSourcesPageBlocksDismiss}
             />
-          ) : serverPickerOpen ? (
+          ) : serverPickerInBody ? (
             <NemuSheetScrollEdge>
               {(edge) => (
                 <ScrollView {...edge} contentContainerStyle={styles.serverPicker}>
@@ -2417,7 +2412,7 @@ export function BrowseScreen() {
                   ListHeaderComponent={builtInKinds.length > 0 && !directoryFocus ? (
                     <NemuPressable
                       accessibilityRole="button"
-                      onPress={() => setServerPickerOpen(true)}
+                      onPress={openServerPicker}
                       accessibilityLabel={strings.selfHosted.connectServer}
                       pressHighlight
                       style={[

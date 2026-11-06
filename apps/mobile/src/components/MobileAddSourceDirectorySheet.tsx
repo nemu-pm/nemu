@@ -12,7 +12,6 @@ import {
 import type {
   MobileAddSourceDirectorySheetProps,
   MobileAddSourcesDirectoryPageProps,
-  MobileAddSourcesDirectoryStackProps,
 } from "./MobileAddSourceDirectorySheet.types";
 import {
   useAddSourceDirectoryForm,
@@ -21,14 +20,6 @@ import {
 } from "./useAddSourceDirectoryForm";
 
 const SHEET_SNAP_POINTS: (string | number)[] = ["75%"];
-
-/** Android / web: Add Sources swaps the page into its body (`MobileAddSourcesDirectoryPage`). */
-export const mobileAddSourcesPushesDirectoryNatively = false;
-
-/** iOS only: the sheet's native stack. */
-export function MobileAddSourcesDirectoryStack({ children }: MobileAddSourcesDirectoryStackProps) {
-  return <>{children}</>;
-}
 
 /** The same groups as the native iOS form, in a plain list; the actions sit by the field, above the keyboard. */
 function DirectoryFormBody({ form, onCancel }: { form: AddSourceDirectoryForm; onCancel?: () => void }) {
