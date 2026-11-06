@@ -45,8 +45,8 @@ function formatBytes(bytes: number, strings: MobileStrings): string {
   });
 }
 
-function formatCount(template: string, count: number): string {
-  return formatMobileString(template, { count: formatMobileInteger(count) });
+function formatCount(one: string, other: string, count: number): string {
+  return formatMobileString(count === 1 ? one : other, { count: formatMobileInteger(count) });
 }
 
 export function MobileStorageBreakdown({
@@ -131,6 +131,7 @@ export function MobileStorageBreakdown({
       key: "covers",
       label: strings.settings.storageRowCovers,
       value: `${formatBytes(stats.covers.bytes, strings)} · ${formatCount(
+        strings.settings.storageCountImagesOne,
         strings.settings.storageCountImages,
         stats.covers.entries,
       )}`,
@@ -139,6 +140,7 @@ export function MobileStorageBreakdown({
       key: "pages",
       label: strings.settings.storageRowPages,
       value: `${formatBytes(stats.pages.bytes, strings)} · ${formatCount(
+        strings.settings.storageCountPagesOne,
         strings.settings.storageCountPages,
         stats.pages.entries,
       )}`,
@@ -147,6 +149,7 @@ export function MobileStorageBreakdown({
       key: "packages",
       label: strings.settings.storageSourcePackages,
       value: `${formatBytes(stats.packages.bytes, strings)} · ${formatCount(
+        strings.settings.storageCountPackagesOne,
         strings.settings.storageCountPackages,
         stats.packages.entries,
       )}`,
@@ -159,6 +162,7 @@ export function MobileStorageBreakdown({
       key: "other",
       label: strings.settings.storagePageLists,
       value: `${formatBytes(stats.other.bytes, strings)} · ${formatCount(
+        strings.settings.storageCountPageListsOne,
         strings.settings.storageCountPageLists,
         stats.other.entries,
       )}`,
@@ -257,7 +261,6 @@ export function MobileStorageBreakdown({
               >
                 <NemuText
                   color={tokens.foreground}
-                  numberOfLines={1}
                   style={styles.rowLabel}
                   variant="body"
                 >

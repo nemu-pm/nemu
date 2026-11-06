@@ -815,9 +815,13 @@ export type MobileStrings = {
     storageRowPages: string;
     storageTotalLabel: string;
     storageCountImages: string;
+    storageCountImagesOne: string;
     storageCountPages: string;
+    storageCountPagesOne: string;
     storageCountPackages: string;
+    storageCountPackagesOne: string;
     storageCountPageLists: string;
+    storageCountPageListsOne: string;
     storageFootnote: string;
     clearCoverCache: string;
     clearPageCache: string;
