@@ -165,6 +165,58 @@ index 049fd22..0a948e5 100644
  }
  
  #pragma mark - RNSSafeAreaProviding
+diff --git a/ios/RNSScreenStack.mm b/ios/RNSScreenStack.mm
+index 5da11964..5842534b 100644
+--- a/ios/RNSScreenStack.mm
++++ b/ios/RNSScreenStack.mm
+@@ -79,10 +79,47 @@ - (UIViewController *)childViewControllerForStatusBarHidden
+   return [self topViewController];
+ }
+ 
++// A rotation can lay this controller's private transition view out at an
++// in-between size of this view, one pixel short of its final bounds. Its
++// flexible autoresizing then keeps that difference through every later size, and
++// the screens inside inherit it. A screen that does not fill its navigation
++// controller loses the iPhone Duo vertical bar (`verticalBarEdge` unspecified
++// from it down), so the tabs stay along the bottom until the next launch. From
++// the top down, as each view's size follows its parent's. Bigger differences
++// are real layout; the tolerance is for float bounds, which would never settle.
++- (void)snapTopViewControllerChainToBounds
++{
++  UIViewController *top = self.topViewController;
++  if (!top.isViewLoaded) {
++    return;
++  }
++  NSMutableArray<UIView *> *chain = [NSMutableArray array];
++  UIView *view = top.view;
++  while (view != nil && view != self.view) {
++    [chain insertObject:view atIndex:0];
++    view = view.superview;
++  }
++  if (view == nil) {
++    return;
++  }
++  for (UIView *link in chain) {
++    CGRect frame = link.frame;
++    CGSize size = link.superview.bounds.size;
++    CGFloat dw = fabs(frame.size.width - size.width);
++    CGFloat dh = fabs(frame.size.height - size.height);
++    if ((dw > 0.01 || dh > 0.01) && dw <= 1 && dh <= 1) {
++      frame.size = size;
++      link.frame = frame;
++    }
++  }
++}
++
+ - (void)viewDidLayoutSubviews
+ {
+   [super viewDidLayoutSubviews];
+ 
++  [self snapTopViewControllerChainToBounds];
++
+ #if RNS_IPHONE_OS_VERSION_AVAILABLE(26_0)
+   if (@available(iOS 26.0, *)) {
+     [self requestLayoutIfNavigationBarFrameChanged];
 diff --git a/ios/UIViewController+RNScreens.mm b/ios/UIViewController+RNScreens.mm
 index 52850a9..c700973 100644
 --- a/ios/UIViewController+RNScreens.mm

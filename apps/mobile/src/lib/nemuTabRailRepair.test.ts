@@ -114,3 +114,24 @@ describe("launch reveal (iPhone Duo, iOS 27.2)", () => {
     expect(binding).toContain("promise.resolve($0)");
   });
 });
+
+describe("the navigation controller's chain fills it (react-native-screens patch)", () => {
+  const patch = readFileSync(
+    new URL("../../../../patches/react-native-screens@4.30.0.patch", import.meta.url),
+    "utf8",
+  );
+
+  test("snaps a one-pixel-short chain back on every layout", () => {
+    expect(patch).toContain("+- (void)snapTopViewControllerChainToBounds");
+    expect(patch).toContain("+  [self snapTopViewControllerChainToBounds];");
+  });
+
+  test("top down from the navigation view, so each link follows its parent", () => {
+    expect(patch).toContain("+    [chain insertObject:view atIndex:0];");
+    expect(patch).toContain("+    CGSize size = link.superview.bounds.size;");
+  });
+
+  test("only a sub-point difference: real layout is left alone, float noise settles", () => {
+    expect(patch).toContain("+    if ((dw > 0.01 || dh > 0.01) && dw <= 1 && dh <= 1) {");
+  });
+});
