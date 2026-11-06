@@ -8,10 +8,20 @@ enum NemuPageCurlLeaf: Equatable {
   case front(Int)
   /**
    * The back of the turning leaf on the way to `target`: it shows the page
-   * of `source` (on screen as the turn started), mirrored under the paper
-   * wash — never the page the turn lands on.
+   * of `source` (the leaf that turns, `NemuPageCurlLeaves.turningSlot`),
+   * mirrored under the paper wash.
    */
   case back(Int, source: Int)
+}
+
+/** Where the curl's leaves are bound (`UIPageViewController.SpineLocation`). */
+enum NemuPageCurlSpine: Equatable {
+  /** Single pages bound on the left (left-to-right books). */
+  case min
+  /** Single pages bound on the right (right-to-left manga). */
+  case max
+  /** Spreads about a middle spine. */
+  case mid
 }
 
 /**
@@ -19,9 +29,9 @@ enum NemuPageCurlLeaf: Equatable {
  *
  * Spreads (`.mid`) turn real two-sided leaves: after a page comes the next
  * slot. A single page (`.min`/`.max`, the spine on its binding edge) is
- * double-sided too, so the turning leaf is opaque: its back is the page that
- * was on screen seen through the paper (mirrored, under an 85% wash), the way
- * a lifted leaf of thin paper looks from behind. UIKit 27.1 asks a
+ * double-sided too, so the turning leaf is opaque: its back is the turning
+ * leaf's own page seen through the paper (mirrored, under an 85% wash), the
+ * way a lifted leaf of thin paper looks from behind. UIKit 27.1 asks a
  * double-sided single-page curl for the back first, then the front:
  * `after(front s)` → back, `after(back)` → the next front (`before` mirrors
  * it), and an animated `setViewControllers` takes `[front, back]` (one
@@ -30,26 +40,26 @@ enum NemuPageCurlLeaf: Equatable {
  */
 enum NemuPageCurlLeaves {
   /** `viewControllerAfter`: toward the slot on the right. */
-  static func after(_ leaf: NemuPageCurlLeaf, slotCount: Int, backs: Bool) -> NemuPageCurlLeaf? {
+  static func after(_ leaf: NemuPageCurlLeaf, slotCount: Int, spine: NemuPageCurlSpine) -> NemuPageCurlLeaf? {
     switch leaf {
     case .front(let slot):
-      return turn(from: slot, to: slot + 1, slotCount: slotCount, backs: backs)
+      return turn(from: slot, to: slot + 1, slotCount: slotCount, spine: spine)
     case .back(let target, _):
       return valid(target, slotCount) ? .front(target) : nil
     }
   }
 
   /** `viewControllerBefore`: toward the slot on the left. */
-  static func before(_ leaf: NemuPageCurlLeaf, slotCount: Int, backs: Bool) -> NemuPageCurlLeaf? {
+  static func before(_ leaf: NemuPageCurlLeaf, slotCount: Int, spine: NemuPageCurlSpine) -> NemuPageCurlLeaf? {
     switch leaf {
     case .front(let slot):
-      return turn(from: slot, to: slot - 1, slotCount: slotCount, backs: backs)
+      return turn(from: slot, to: slot - 1, slotCount: slotCount, spine: spine)
     case .back(let target, _):
       return valid(target, slotCount) ? .front(target) : nil
     }
   }
 
-  /** The page a leaf shows (a back: the page it was turned from). */
+  /** The page a leaf shows (a back: the page of the leaf that turns). */
   static func slotShown(by leaf: NemuPageCurlLeaf) -> Int {
     switch leaf {
     case .front(let slot): return slot
@@ -58,22 +68,36 @@ enum NemuPageCurlLeaves {
   }
 
   /**
+   * The leaf that moves in a single-page turn between two neighbouring slots.
+   * A leaf turns about the binding and, turned, rests on the binding's side:
+   * the one nearer that side is on top. Turning on (the next page) lifts the
+   * page on screen off the next one; turning back lays the previous page down
+   * again over the page on screen, so that leaf, and its back, is the page
+   * the turn lands on.
+   */
+  static func turningSlot(from: Int, to: Int, spine: NemuPageCurlSpine) -> Int {
+    spine == .max ? Swift.max(from, to) : Swift.min(from, to)
+  }
+
+  /**
    * What `setViewControllers` takes to show `slot` (the left slot of a
    * spread): a spread's two pages; a single page alone, or with the turning
-   * leaf's back (showing `from`, the page on screen) when the change animates.
+   * leaf's back when the change animates from `from` (the page on screen).
    */
-  static func shown(slot: Int, slotCount: Int, mid: Bool, animated: Bool, from: Int? = nil) -> [NemuPageCurlLeaf]? {
+  static func shown(slot: Int, slotCount: Int, spine: NemuPageCurlSpine, animated: Bool, from: Int? = nil) -> [NemuPageCurlLeaf]? {
     guard valid(slot, slotCount) else { return nil }
-    if mid {
+    if spine == .mid {
       guard valid(slot + 1, slotCount) else { return nil }
       return [.front(slot), .front(slot + 1)]
     }
-    return animated ? [.front(slot), .back(slot, source: from ?? slot)] : [.front(slot)]
+    guard animated else { return [.front(slot)] }
+    return [.front(slot), .back(slot, source: turningSlot(from: from ?? slot, to: slot, spine: spine))]
   }
 
-  private static func turn(from source: Int, to target: Int, slotCount: Int, backs: Bool) -> NemuPageCurlLeaf? {
+  private static func turn(from source: Int, to target: Int, slotCount: Int, spine: NemuPageCurlSpine) -> NemuPageCurlLeaf? {
     guard valid(target, slotCount) else { return nil }
-    return backs ? .back(target, source: source) : .front(target)
+    guard spine != .mid else { return .front(target) }
+    return .back(target, source: turningSlot(from: source, to: target, spine: spine))
   }
 
   private static func valid(_ slot: Int, _ slotCount: Int) -> Bool {

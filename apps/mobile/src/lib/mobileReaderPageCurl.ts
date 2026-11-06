@@ -9,7 +9,9 @@ import { visualPageIndexesForMobileReaderSpread } from "@/lib/mobileReaderSpread
  *
  * - single pages: one slot per page, the binding on the reading-start edge
  *   (`min` for left-to-right, `max` for right-to-left manga), the turning
- *   leaf's back being the page it lands on (native `NemuPageCurlLeaves`);
+ *   leaf's back being its own page seen through the paper: the page on
+ *   screen turning on, the previous page laid back down turning back
+ *   (native `NemuPageCurlLeaves`);
  * - spreads: two slots per spread around a middle spine, the turning leaf's
  *   back being the next spread's facing page, as in a book.
  *

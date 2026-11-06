@@ -7,12 +7,18 @@ const curl = readFileSync(path.join(iosDir, "NemuPageCurl.swift"), "utf8");
 const leaves = readFileSync(path.join(iosDir, "NemuPageCurlLeaves.swift"), "utf8");
 
 describe("native single-page curl", () => {
-  test("a single page's leaf back is the page turned from, never the landing page", () => {
+  test("a single page's leaf back is the leaf that turns: the page on screen turning on, the page landed on turning back", () => {
     expect(leaves).toContain("case back(Int, source: Int)");
-    expect(leaves).toContain("return backs ? .back(target, source: source) : .front(target)");
-    expect(leaves).toContain("[.front(slot), .back(slot, source: from ?? slot)]");
+    // The leaf nearer the binding is on top: left-bound, the left-hand slot; right-bound (manga), the right-hand one.
+    expect(leaves).toContain("spine == .max ? Swift.max(from, to) : Swift.min(from, to)");
+    // Gesture turns (both data source methods) and requested turns (tap, slider) alike.
+    expect(leaves).toContain("return .back(target, source: turningSlot(from: source, to: target, spine: spine))");
+    expect(leaves).toContain("[.front(slot), .back(slot, source: turningSlot(from: from ?? slot, to: slot, spine: spine))]");
     expect(curl).toContain("case .back(let target, let source): return backController(target: target, showing: source)");
     expect(curl).toContain("guard let page = controller(for: source) else { return nil }");
+    expect(curl).toContain("NemuPageCurlLeaves.before(leaf, slotCount: slotCount, spine: spineLocation)");
+    expect(curl).toContain("NemuPageCurlLeaves.after(leaf, slotCount: slotCount, spine: spineLocation)");
+    expect(curl).toContain('spine == "mid" ? .mid : spine == "max" ? .max : .min }');
     expect(curl).not.toContain("landingOn");
   });
 
@@ -41,7 +47,7 @@ describe("native single-page curl", () => {
 
   test("single pages bind on an edge; only spreads use the middle spine", () => {
     expect(curl).toContain('spine == "mid" ? .mid : spine == "max" ? .max : .min');
-    expect(curl).toContain("backs: !isMid");
+    expect(curl).toContain("slotCount: slotCount, spine: spineLocation, animated: animated");
   });
 
   test("the leaf sequence stays Foundation-only (its iosTest compiles without UIKit)", () => {

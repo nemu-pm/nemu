@@ -24,9 +24,10 @@ import UIKit
  *
  * Every leaf is double-sided. A spread's leaf carries the next spread's facing
  * page. A single page turns about its binding edge (`min` left-to-right,
- * `max` right-to-left; never the middle) and its leaf's back is the page that
- * was on screen, mirrored, under an 85% paper wash — paper seen from behind,
- * never the page the turn lands on (`NemuPageCurlLeaves`).
+ * `max` right-to-left; never the middle) and its leaf's back is that leaf's
+ * own page, mirrored, under an 85% paper wash — paper seen from behind: the
+ * page on screen as it lifts toward the next one, the previous page as it is
+ * laid back down over the page on screen (`NemuPageCurlLeaves`).
  *
  * The curl frame is frozen while a leaf turns: a new `curlFrame` (the next
  * page's box, a fold, a rotation, a late image size) waits for the turn to
@@ -77,6 +78,7 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
   private var edgePanStartSlot = 0
 
   private var isMid: Bool { spine == "mid" }
+  private var spineLocation: NemuPageCurlSpine { spine == "mid" ? .mid : spine == "max" ? .max : .min }
   private var step: Int { isMid ? 2 : 1 }
 
   required init(appContext: AppContext? = nil) {
@@ -201,10 +203,10 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
     return isMid ? clamped - clamped % 2 : clamped
   }
 
-  /** `from`: the slot on screen as the turn starts (whose page the back shows). */
+  /** `from`: the slot on screen as the turn starts. */
   private func controllers(at slot: Int, animated: Bool = false, from: Int? = nil) -> [UIViewController]? {
     guard let leaves = NemuPageCurlLeaves.shown(
-      slot: slot, slotCount: slotCount, mid: isMid, animated: animated, from: from ?? currentSlot
+      slot: slot, slotCount: slotCount, spine: spineLocation, animated: animated, from: from ?? currentSlot
     ) else { return nil }
     let shown = leaves.compactMap(controller(for:))
     return shown.count == leaves.count ? shown : nil
@@ -218,10 +220,9 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
   }
 
   /**
-   * The back of a single page's turning leaf: the page on screen as the turn
-   * starts (`source`), mirrored, under the paper wash. Never the page the
-   * turn lands on. Rendered at the page controller's (frozen) size and shown
-   * unscaled.
+   * The back of a single page's turning leaf: that leaf's page (`source`,
+   * `NemuPageCurlLeaves.turningSlot`), mirrored, under the paper wash.
+   * Rendered at the page controller's (frozen) size and shown unscaled.
    */
   private func backController(target: Int, showing source: Int) -> UIViewController? {
     guard let page = controller(for: source) else { return nil }
@@ -365,13 +366,13 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
 
   func pageViewController(_ pageViewController: UIPageViewController, viewControllerBefore viewController: UIViewController) -> UIViewController? {
     guard turningEnabled, let leaf = Self.leaf(of: viewController),
-          let next = NemuPageCurlLeaves.before(leaf, slotCount: slotCount, backs: !isMid) else { return nil }
+          let next = NemuPageCurlLeaves.before(leaf, slotCount: slotCount, spine: spineLocation) else { return nil }
     return controller(for: next)
   }
 
   func pageViewController(_ pageViewController: UIPageViewController, viewControllerAfter viewController: UIViewController) -> UIViewController? {
     guard turningEnabled, let leaf = Self.leaf(of: viewController),
-          let next = NemuPageCurlLeaves.after(leaf, slotCount: slotCount, backs: !isMid) else { return nil }
+          let next = NemuPageCurlLeaves.after(leaf, slotCount: slotCount, spine: spineLocation) else { return nil }
     return controller(for: next)
   }
 
@@ -474,12 +475,12 @@ final class NemuPageCurlPageController: UIViewController {
 }
 
 /**
- * The back of a single page's turning leaf: a still of the page that was on
- * screen, mirrored, under the paper wash (`NemuPageCurlPaper`).
+ * The back of a single page's turning leaf: a still of that leaf's page,
+ * mirrored, under the paper wash (`NemuPageCurlPaper`).
  */
 final class NemuPageCurlBackController: UIViewController {
   let target: Int
-  /** The slot whose page the back shows (on screen as the turn started). */
+  /** The slot whose page the back shows (the leaf that turns). */
   let source: Int
   private let background: UIColor
   private let imageView = UIImageView()
