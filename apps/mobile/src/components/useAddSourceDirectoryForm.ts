@@ -13,43 +13,37 @@ import {
   previewMobileSourceDirectory,
 } from "@/data/mobileSourceDirectories";
 import { hapticConfirm, hapticError } from "@/lib/haptics";
-import {
-  hasPendingMobileAddSourceSheetRequest,
-  requestMobileAddSourceSheet,
-} from "@/lib/mobileAddSourceSheetRequest";
+import { registerMobileAddSourceDirectorySheet } from "@/lib/mobileAddSourceDirectorySheetPresence";
+import { requestMobileAddSourceSheet } from "@/lib/mobileAddSourceSheetRequest";
 import { formatMobileString, getMobileStrings } from "@/lib/mobileI18n";
 import { SOURCE_DIRECTORY_ERROR_KEYS } from "@/lib/mobileSourceDirectoryErrors";
 import {
   NEMU_SOURCE_DIRECTORIES_HELP_URL,
+  mobileAddSourceDirectoryBlocksDismiss,
   mobileSourceDirectoryAddressFromClipboard,
-  parseMobileAddSourceDirectoryOrigin,
 } from "@/lib/mobileSourceDirectoryGuide";
+import type { MobileAddSourceDirectorySheetProps } from "./MobileAddSourceDirectorySheet.types";
 
-export type AddSourceDirectoryFormParams = {
-  /** `browse`: pushed from Add Sources, which reopens when this page closes. */
-  from?: string;
-};
+/** A directory just added, and how to announce it. */
+export type AddedSourceDirectory = { id: string; title: string; detail: string };
+
+export type AddSourceDirectoryForm = ReturnType<typeof useAddSourceDirectoryForm>;
+
+/** A sheet that never reports its dismissal must not hold up a link. */
+const SHEET_CLOSE_TIMEOUT_MS = 800;
 
 function openInAppBrowser(url: string) {
   void WebBrowser.openBrowserAsync(url).catch(() => Linking.openURL(url).catch(() => undefined));
 }
 
 /**
- * State and actions of the Add Source Directory page, shared by the native
- * iOS form and the plain one. Adding checks the list first (HTTPS, not a
- * duplicate, readable, not empty); a failure stays on the page with the
- * address kept, so it can be corrected instead of retyped.
- *
- * Where it returns: from Add Sources, closing the page (Back, swipe, or a
- * successful add) reopens that sheet, after an add on the new directory's
- * sources. From Settings, the directory list shows the new row and a toast
- * offers its sources.
+ * State and actions of Add Source Directory, shared by the native iOS form and
+ * the plain one. Adding checks the list first (HTTPS, not a duplicate,
+ * readable, not empty); a failure stays on the form with the address kept, so
+ * it can be corrected instead of retyped. `onAdded` says where it goes next.
  */
-export function useAddSourceDirectoryForm(params: AddSourceDirectoryFormParams) {
-  const origin = parseMobileAddSourceDirectoryOrigin(params.from);
-  const router = useRouter();
+export function useAddSourceDirectoryForm({ onAdded }: { onAdded: (added: AddedSourceDirectory) => void }) {
   const store = useMobileDataStore();
-  const toast = useMobileToast();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
   const [address, setAddressValue] = useState("");
@@ -57,7 +51,6 @@ export function useAddSourceDirectoryForm(params: AddSourceDirectoryFormParams) 
   const [error, setError] = useState<string | null>(null);
   const [clipboardHasText, setClipboardHasText] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
-  const addedDirectoryIdRef = useRef<string | null>(null);
   // What the field holds, for `submit`: the bar button and the keyboard's Go
   // can keep a handler from an earlier render, so it must not read `address`
   // from its closure.
@@ -84,20 +77,10 @@ export function useAddSourceDirectoryForm(params: AddSourceDirectoryFormParams) 
     };
   }, []);
 
-  // Leaving the page: once it is gone (after the pop, so the sheet does not
-  // present mid-transition) Add Sources comes back when it was the origin.
-  useEffect(
-    () => () => {
-      abortRef.current?.abort();
-      if (origin !== "browse") return;
-      const directoryId = addedDirectoryIdRef.current;
-      // A nemu:// link confirmed while this page was open has already asked
-      // for the sheet on its directory; a plain reopen must not replace that.
-      if (!directoryId && hasPendingMobileAddSourceSheetRequest()) return;
-      requestMobileAddSourceSheet(directoryId ? { directoryId } : {});
-    },
-    [origin],
-  );
+  const cancel = useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
+  useEffect(() => cancel, [cancel]);
 
   const setAddress = useCallback((value: string) => {
     addressRef.current = value;
@@ -114,6 +97,7 @@ export function useAddSourceDirectoryForm(params: AddSourceDirectoryFormParams) 
     abortRef.current = controller;
     setChecking(true);
     setError(null);
+    let added = false;
     try {
       const preview = await previewMobileSourceDirectory(
         store,
@@ -123,7 +107,7 @@ export function useAddSourceDirectoryForm(params: AddSourceDirectoryFormParams) 
       if (controller.signal.aborted) return;
       const directory = await addMobileSourceDirectory(store, { url: input }, { preview });
       emitMobileDataChanged("registries");
-      addedDirectoryIdRef.current = directory.id;
+      added = true;
       void hapticConfirm();
       const count = preview.index.sources.length;
       const title = formatMobileString(strings.settings.sourceDirectoryAddedNamed, { name: directory.name });
@@ -134,24 +118,7 @@ export function useAddSourceDirectoryForm(params: AddSourceDirectoryFormParams) 
         { count },
       );
       AccessibilityInfo.announceForAccessibility(`${title}. ${detail}`);
-      if (origin === "settings") {
-        toast.show({
-          id: "source-directory-added",
-          tone: "success",
-          title,
-          detail,
-          // Time to reach the action after the page closes.
-          duration: "long",
-          action: {
-            label: strings.settings.showSourceDirectorySources,
-            onPress: () => {
-              requestMobileAddSourceSheet({ directoryId: directory.id });
-              router.push("/browse");
-            },
-          },
-        });
-      }
-      router.back();
+      onAdded({ id: directory.id, title, detail });
     } catch (failure) {
       if (controller.signal.aborted) return;
       void hapticError();
@@ -164,9 +131,10 @@ export function useAddSourceDirectoryForm(params: AddSourceDirectoryFormParams) 
       );
     } finally {
       if (abortRef.current === controller) abortRef.current = null;
-      setChecking(false);
+      // Added: the form is leaving as it is, and cannot submit again.
+      if (!added) setChecking(false);
     }
-  }, [origin, router, store, strings, toast]);
+  }, [onAdded, store, strings]);
 
   /** Fills the field from the clipboard; returns the address for a native field to show. */
   const paste = useCallback(async (): Promise<string | null> => {
@@ -186,18 +154,89 @@ export function useAddSourceDirectoryForm(params: AddSourceDirectoryFormParams) 
 
   return {
     strings,
-    origin,
     address,
     setAddress,
     checking,
     error,
     canSubmit,
     canPaste: clipboardHasText && !checking,
+    blocksDismiss: mobileAddSourceDirectoryBlocksDismiss({ address, checking }),
     submit,
+    cancel,
     paste,
     helpUrl: NEMU_SOURCE_DIRECTORIES_HELP_URL,
     openHelp: () => {
       if (NEMU_SOURCE_DIRECTORIES_HELP_URL) openInAppBrowser(NEMU_SOURCE_DIRECTORIES_HELP_URL);
     },
   };
+}
+
+/**
+ * Add Source Directory as its own sheet (Settings): added, it comes down and a
+ * toast offers the sources; closing it for any reason stops a check in flight.
+ * The toast waits until the sheet is down, as its host sits under the sheet.
+ */
+export function useAddSourceDirectorySheetForm({ visible, onClose, onDismiss }: MobileAddSourceDirectorySheetProps) {
+  const router = useRouter();
+  const toast = useMobileToast();
+  const pendingToastRef = useRef<AddedSourceDirectory | null>(null);
+  const dismissWaitersRef = useRef<(() => void)[]>([]);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
+
+  const form = useAddSourceDirectoryForm({
+    onAdded: (added) => {
+      pendingToastRef.current = added;
+      onClose();
+    },
+  });
+  const { cancel, strings } = form;
+
+  useEffect(() => {
+    if (!visible) cancel();
+  }, [cancel, visible]);
+
+  // A directory link confirmed over this sheet: down first, Add Sources next.
+  useEffect(
+    () =>
+      registerMobileAddSourceDirectorySheet(
+        () =>
+          new Promise((resolve) => {
+            const timer = setTimeout(resolve, SHEET_CLOSE_TIMEOUT_MS);
+            dismissWaitersRef.current.push(() => {
+              clearTimeout(timer);
+              resolve();
+            });
+            onCloseRef.current();
+          }),
+      ),
+    [],
+  );
+
+  const handleDismiss = () => {
+    for (const waiter of dismissWaitersRef.current.splice(0)) waiter();
+    const added = pendingToastRef.current;
+    pendingToastRef.current = null;
+    if (added) {
+      toast.show({
+        id: "source-directory-added",
+        tone: "success",
+        title: added.title,
+        detail: added.detail,
+        duration: "long",
+        action: {
+          label: strings.settings.showSourceDirectorySources,
+          onPress: () => {
+            requestMobileAddSourceSheet({ directoryId: added.id });
+            router.push("/browse");
+          },
+        },
+      });
+    }
+    onDismiss();
+  };
+
+  return { form, close: onClose, handleDismiss };
 }

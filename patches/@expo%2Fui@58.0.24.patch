@@ -51,7 +51,7 @@ index cafa206..d5a387e 100644
                                  flexGrow: 1,
                                  height: 0
 diff --git a/build/community/bottom-sheet/BottomSheet.ios.js b/build/community/bottom-sheet/BottomSheet.ios.js
-index 7aff398..2d6a387 100644
+index 7aff398..3d50ad4 100644
 --- a/build/community/bottom-sheet/BottomSheet.ios.js
 +++ b/build/community/bottom-sheet/BottomSheet.ios.js
 @@ -1,12 +1,13 @@
@@ -77,7 +77,7 @@ index 7aff398..2d6a387 100644
   */ export function BottomSheet(props) {
 -    const { ref, snapPoints: snapPointsProp, index: indexProp = 0, onChange, onClose, onDismiss, enablePanDownToClose = false, enableDynamicSizing = true, handleComponent, backgroundStyle, children } = props;
 -    const { width } = useWindowDimensions();
-+    const { ref, snapPoints: snapPointsProp, index: indexProp = 0, onChange, onClose, onDismiss, enablePanDownToClose = false, enableDynamicSizing = true, handleComponent, backgroundStyle, contentIgnoresSafeAreaEdges, backgroundInteraction = false, formSheetWidth = 0, presentationModifiers, children } = props;
++    const { ref, snapPoints: snapPointsProp, index: indexProp = 0, onChange, onClose, onDismiss, enablePanDownToClose = false, enableDynamicSizing = true, handleComponent, backgroundStyle, contentIgnoresSafeAreaEdges, backgroundInteraction = false, formSheetWidth = 0, presentationModifiers, wrapHostedContent, children } = props;
 +    const { width: windowWidth } = useWindowDimensions();
 +    // A content-sized sheet hosts its RN content at an explicit Yoga width; the host reports the
 +    // sheet's own unscaled width and safe-area insets (see the TypeScript source), and the content
@@ -238,7 +238,7 @@ index 7aff398..2d6a387 100644
 -                                })
 -                            })
 -                        })
-+                        children: hostedContent
++                        children: wrapHostedContent ? wrapHostedContent(hostedContent) : hostedContent
                      })
                  })
              })
@@ -317,7 +317,7 @@ index 60426c0..fecb203 100644
  // TypeScript declaration merging: the value is the component, the type is the ref interface.
  // This allows `useRef<BottomSheet>(null)` and `useRef<BottomSheetModal>(null)` to work
 diff --git a/build/community/bottom-sheet/types.d.ts b/build/community/bottom-sheet/types.d.ts
-index cf72b27..5bb3a5b 100644
+index cf72b27..bb06c51 100644
 --- a/build/community/bottom-sheet/types.d.ts
 +++ b/build/community/bottom-sheet/types.d.ts
 @@ -111,6 +111,8 @@ export interface BottomSheetFooterProps {
@@ -329,7 +329,7 @@ index cf72b27..5bb3a5b 100644
  export interface BottomSheetProps {
      /**
       * Ref to the bottom sheet component. Exposes imperative methods (`snapToIndex`,
-@@ -278,6 +280,40 @@ export interface BottomSheetProps {
+@@ -278,6 +280,46 @@ export interface BottomSheetProps {
       * On web, the full style is applied.
       */
      backgroundStyle?: StyleProp<ViewStyle>;
@@ -367,6 +367,12 @@ index cf72b27..5bb3a5b 100644
 +     * component's own (e.g. a sheet placement). Pass a stable array: a new one rebuilds them.
 +     */
 +    presentationModifiers?: import('../../swift-ui/modifiers/createModifier').ModifierConfig[];
++    /**
++     * iOS only: wraps the hosted React Native content inside the sheet's presented root, e.g. in a
++     * SwiftUI `NavigationStack` that pushes native pages over it. It must return a host from the
++     * first frame: joining mid-presentation rehosts the content, which is then left without touches.
++     */
++    wrapHostedContent?: (hostedContent: ReactNode) => ReactNode;
      /**
       * Style for the handle area.
       *
@@ -1030,7 +1036,7 @@ index 2900e12..aa0e4ec 100644
                </View>
              </RNHostView>
 diff --git a/src/community/bottom-sheet/BottomSheet.ios.tsx b/src/community/bottom-sheet/BottomSheet.ios.tsx
-index ee198cf..7b11f14 100644
+index ee198cf..c7a4d8d 100644
 --- a/src/community/bottom-sheet/BottomSheet.ios.tsx
 +++ b/src/community/bottom-sheet/BottomSheet.ios.tsx
 @@ -1,20 +1,26 @@
@@ -1062,7 +1068,7 @@ index ee198cf..7b11f14 100644
  import { SheetScrollContextReset } from './scrollContextReset';
  import type { BottomSheetMethods, BottomSheetProps } from './types';
  import { parseSnapPoint } from './types';
-@@ -92,9 +98,72 @@ export function BottomSheet(props: BottomSheetProps) {
+@@ -92,9 +98,73 @@ export function BottomSheet(props: BottomSheetProps) {
      enableDynamicSizing = true,
      handleComponent,
      backgroundStyle,
@@ -1070,6 +1076,7 @@ index ee198cf..7b11f14 100644
 +    backgroundInteraction = false,
 +    formSheetWidth = 0,
 +    presentationModifiers,
++    wrapHostedContent,
      children,
    } = props;
 -  const { width } = useWindowDimensions();
@@ -1136,7 +1143,7 @@ index ee198cf..7b11f14 100644
  
    const [isPresented, setIsPresented] = useState(indexProp >= 0);
    const [currentIndex, setCurrentIndex] = useState(Math.max(indexProp, 0));
-@@ -203,9 +272,11 @@ export function BottomSheet(props: BottomSheetProps) {
+@@ -203,9 +273,11 @@ export function BottomSheet(props: BottomSheetProps) {
      const bg = extractBackgroundColor(backgroundStyle);
      return [
        ...(fitToContents
@@ -1151,7 +1158,7 @@ index ee198cf..7b11f14 100644
          : [
              presentationDetents(detents, {
                selection: selectedDetent,
-@@ -213,8 +284,40 @@ export function BottomSheet(props: BottomSheetProps) {
+@@ -213,8 +285,40 @@ export function BottomSheet(props: BottomSheetProps) {
              }),
            ]),
        presentationDragIndicator(handleComponent === null ? 'hidden' : 'visible'),
@@ -1192,7 +1199,7 @@ index ee198cf..7b11f14 100644
      ];
    }, [
      fitToContents,
-@@ -224,36 +327,53 @@ export function BottomSheet(props: BottomSheetProps) {
+@@ -224,36 +328,53 @@ export function BottomSheet(props: BottomSheetProps) {
      handleComponent,
      enablePanDownToClose,
      backgroundStyle,
@@ -1263,7 +1270,7 @@ index ee198cf..7b11f14 100644
 +              fitToContents={fitToContents}
 +              formSheetWidth={fitToContents ? formSheetWidth : 0}>
 +              <Group modifiers={modifiers}>
-+                {hostedContent}
++                {wrapHostedContent ? wrapHostedContent(hostedContent) : hostedContent}
 +              </Group>
 +            </NativeBottomSheet>
 +          </Host>
@@ -1310,7 +1317,7 @@ index c977541..56bda61 100644
  // #region BottomSheet / BottomSheetModal with companion types for ref compatibility
  // TypeScript declaration merging: the value is the component, the type is the ref interface.
 diff --git a/src/community/bottom-sheet/types.ts b/src/community/bottom-sheet/types.ts
-index 51326fb..7805149 100644
+index 51326fb..62d2da6 100644
 --- a/src/community/bottom-sheet/types.ts
 +++ b/src/community/bottom-sheet/types.ts
 @@ -120,6 +120,9 @@ export interface BottomSheetFooterProps {
@@ -1323,7 +1330,7 @@ index 51326fb..7805149 100644
  export interface BottomSheetProps {
    /**
     * Ref to the bottom sheet component. Exposes imperative methods (`snapToIndex`,
-@@ -320,6 +323,42 @@ export interface BottomSheetProps {
+@@ -320,6 +323,49 @@ export interface BottomSheetProps {
     */
    backgroundStyle?: StyleProp<ViewStyle>;
  
@@ -1362,6 +1369,13 @@ index 51326fb..7805149 100644
 +   * component's own (e.g. a sheet placement). Pass a stable array: a new one rebuilds them.
 +   */
 +  presentationModifiers?: import('../../swift-ui/modifiers/createModifier').ModifierConfig[];
++
++  /**
++   * iOS only: wraps the hosted React Native content inside the sheet's presented root, e.g. in a
++   * SwiftUI `NavigationStack` that pushes native pages over it. It must return a host from the
++   * first frame: joining mid-presentation rehosts the content, which is then left without touches.
++   */
++  wrapHostedContent?: (hostedContent: ReactNode) => ReactNode;
 +
    /**
     * Style for the handle area.

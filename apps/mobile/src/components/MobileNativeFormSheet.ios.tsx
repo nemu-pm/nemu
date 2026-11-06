@@ -46,7 +46,7 @@ const GROUPED_SHEET_BACKGROUND = PlatformColor("systemGroupedBackground");
 /** A destructive bar action: the system red, as its destructive role draws it. */
 const DESTRUCTIVE_TINT = PlatformColor("systemRed");
 
-function ToolbarActionButton({
+export function ToolbarActionButton({
   action,
   role,
   accent,

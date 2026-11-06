@@ -144,6 +144,11 @@ type MobileNativeSheetScaffoldProps = {
    * the nearest `MobileSheetMaxHeightProvider`; null: no cap.
    */
   maxHeight?: number | null;
+  /**
+   * iOS: wraps the hosted content in the sheet's presented root (a native stack
+   * that pushes pages over it). In place from the first frame, or not at all.
+   */
+  wrapIosHostedContent?: (hostedContent: ReactNode) => ReactNode;
   contentStyle?: StyleProp<ViewStyle>;
   testID?: string;
   children: ReactNode;
@@ -218,6 +223,7 @@ export function MobileNativeSheetScaffold({
   softBottomEdge = false,
   backgroundInteraction = false,
   maxHeight: maxHeightProp,
+  wrapIosHostedContent,
   contentStyle,
   testID,
   children,
@@ -915,6 +921,7 @@ export function MobileNativeSheetScaffold({
       backgroundInteraction={backgroundInteraction}
       formSheetWidth={iosFormSheet ? MOBILE_NATIVE_SHEET_IOS_FORM_WIDTH : 0}
       presentationModifiers={sheetPresentationModifiers}
+      wrapHostedContent={wrapIosHostedContent}
       {...(drawContentHandle ? { handleComponent: null } : null)}
     >
       {isAndroid ? (

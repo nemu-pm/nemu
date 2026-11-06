@@ -41,8 +41,4 @@ export function consumeMobileAddSourceSheetDirectoryFocus(): string | null {
   return directoryId;
 }
 
-export function hasPendingMobileAddSourceSheetRequest(): boolean {
-  return pending;
-}
-
 export const subscribeMobileAddSourceSheetRequest = listeners.subscribe;

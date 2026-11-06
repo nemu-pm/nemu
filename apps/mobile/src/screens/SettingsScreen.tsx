@@ -94,6 +94,7 @@ import {
   MobileSourceDirectoryPrompt,
   mobileSourceDirectoryPromptAvailable,
 } from "@/components/MobileSourceDirectoryPromptSheet";
+import { MobileAddSourceDirectorySheet } from "@/components/MobileAddSourceDirectorySheet";
 import {
   MobileSourceDirectoryError,
   type SourceDirectory,
@@ -1321,12 +1322,15 @@ function SourceDirectoriesSection({ strings, catalog, barItems }: {
   const [directoryVisible, setDirectoryVisible] = useState(false);
   const [editingDirectory, setEditingDirectory] = useState<SourceDirectory | null>(null);
   const [promptOpen, setPromptOpen] = useState(false);
+  // Mounted while up and on its way down, so each opening starts empty.
+  const [addSheet, setAddSheet] = useState<"open" | "closing" | null>(null);
   const [busy, setBusy] = useState(false);
   // A prompt left open must not outlive the page: close it on blur/unmount.
   useFocusEffect(
     useCallback(() => () => {
       setPromptOpen(false);
       setDirectoryVisible(false);
+      setAddSheet((current) => (current ? "closing" : current));
     }, []),
   );
 
@@ -1374,11 +1378,9 @@ function SourceDirectoriesSection({ strings, catalog, barItems }: {
               icon: "plus",
               label: strings.settings.addSourceDirectory,
               disabled: busy,
-              // Adding is its own page (where lists come from, paste, errors
-              // kept on the page); editing a URL stays the one-field prompt.
-              onPress: () => {
-                router.push({ pathname: "/(tabs)/settings/add-directory", params: { from: "settings" } });
-              },
+              // Adding is its own sheet (where lists come from, paste, errors
+              // kept on the sheet); editing a URL stays the one-field prompt.
+              onPress: () => setAddSheet("open"),
             },
           ])}
         </Stack.Toolbar>
@@ -1451,6 +1453,13 @@ function SourceDirectoriesSection({ strings, catalog, barItems }: {
           )}
         </NemuSheetScrollEdge>
       </MobileNativeSheetScaffold>
+      {addSheet ? (
+        <MobileAddSourceDirectorySheet
+          visible={addSheet === "open"}
+          onClose={() => setAddSheet("closing")}
+          onDismiss={() => setAddSheet(null)}
+        />
+      ) : null}
       <MobileSourceDirectoryPrompt
         visible={promptOpen}
         initialUrl={editingDirectory?.indexUrl}

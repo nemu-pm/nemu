@@ -4,19 +4,24 @@ import { extractMobileSourceDirectoryUrl } from "./mobileSourceDirectoryLink";
 /**
  * nemu.pm's help on source directories (the web app's
  * /help/source-directories route): what they are, how to add one, and the add
- * link format for publishers. It lists no directory. The Add Directory page's
+ * link format for publishers. It lists no directory. Add Source Directory's
  * How Source Directories Work row opens it, and is hidden while this is null.
  */
 export const NEMU_SOURCE_DIRECTORIES_HELP_URL: string | null =
   "https://nemu.pm/help/source-directories";
 
-/** Which stack pushed the Add Directory page, and so where adding returns. */
-export type MobileAddSourceDirectoryOrigin = "browse" | "settings";
-
-export function parseMobileAddSourceDirectoryOrigin(
-  value: unknown,
-): MobileAddSourceDirectoryOrigin {
-  return value === "browse" ? "browse" : "settings";
+/**
+ * Whether a swipe-down is blocked on Add Source Directory: it would discard
+ * what was typed, or walk away from a check in flight. Cancel still leaves.
+ */
+export function mobileAddSourceDirectoryBlocksDismiss({
+  address,
+  checking,
+}: {
+  address: string;
+  checking: boolean;
+}): boolean {
+  return checking || address.length > 0;
 }
 
 /**

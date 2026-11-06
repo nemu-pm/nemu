@@ -11,6 +11,7 @@ import {
   previewMobileSourceDirectory,
 } from "@/data/mobileSourceDirectories";
 import { hapticConfirm } from "@/lib/haptics";
+import { closeMobileAddSourceDirectorySheet } from "@/lib/mobileAddSourceDirectorySheetPresence";
 import { requestMobileAddSourceSheet } from "@/lib/mobileAddSourceSheetRequest";
 import { formatMobileString, getMobileStrings } from "@/lib/mobileI18n";
 import { navigateToMobileRootTab } from "@/lib/mobileRootTabNavigation";
@@ -25,7 +26,8 @@ import { useMobileToast } from "./MobileToastContext";
  * added silently. Once added, Browse opens Add Sources on its sources.
  *
  * A link tapped in the in-app browser closes that browser first, so the toast,
- * the alert and Add Sources are not left underneath it.
+ * the alert and Add Sources are not left underneath it. Add Sources already up
+ * (its Add Source Directory page too) shows the sources in that same sheet.
  */
 export function MobileSourceDirectoryLinkHandler() {
   const store = useMobileDataStore();
@@ -80,8 +82,11 @@ export function MobileSourceDirectoryLinkHandler() {
                   text: getMobileStrings(appLanguage).common.add,
                   onPress: () => {
                     void addMobileSourceDirectory(store, { url }, { preview })
-                      .then((directory) => {
+                      .then(async (directory) => {
                         emitMobileDataChanged("registries");
+                        // Settings' Add Source Directory sheet, when up, comes
+                        // down first: Browse cannot present over it.
+                        await closeMobileAddSourceDirectorySheet();
                         void hapticConfirm();
                         const count = preview.index.sources.length;
                         const title = formatMobileString(strings.sourceDirectoryAddedNamed, { name: directory.name });

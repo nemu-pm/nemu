@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import {
   consumeMobileAddSourceSheetDirectoryFocus,
   consumeMobileAddSourceSheetRequest,
-  hasPendingMobileAddSourceSheetRequest,
   requestMobileAddSourceSheet,
   subscribeMobileAddSourceSheetRequest,
 } from "./mobileAddSourceSheetRequest";
@@ -11,9 +10,7 @@ describe("Add Sources sheet request", () => {
   test("is consumed exactly once", () => {
     expect(consumeMobileAddSourceSheetRequest()).toBe(false);
     requestMobileAddSourceSheet();
-    expect(hasPendingMobileAddSourceSheetRequest()).toBe(true);
     expect(consumeMobileAddSourceSheetRequest()).toBe(true);
-    expect(hasPendingMobileAddSourceSheetRequest()).toBe(false);
     // A later Browse visit must not reopen the sheet.
     expect(consumeMobileAddSourceSheetRequest()).toBe(false);
   });
@@ -32,7 +29,6 @@ describe("Add Sources sheet request", () => {
     });
     requestMobileAddSourceSheet();
     expect(calls).toBe(1);
-    expect(hasPendingMobileAddSourceSheetRequest()).toBe(false);
     unsubscribe();
     requestMobileAddSourceSheet();
     expect(calls).toBe(1);

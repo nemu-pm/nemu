@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import {
   NEMU_SOURCE_DIRECTORIES_HELP_URL,
   hasMobileUserSourceDirectory,
+  mobileAddSourceDirectoryBlocksDismiss,
   mobileSourceDirectoryAddressFromClipboard,
-  parseMobileAddSourceDirectoryOrigin,
 } from "./mobileSourceDirectoryGuide";
 
 describe("hasMobileUserSourceDirectory", () => {
@@ -56,10 +56,9 @@ describe("guide links", () => {
     expect(url.pathname).toBe("/help/source-directories");
   });
 
-  test("origin defaults to Settings", () => {
-    expect(parseMobileAddSourceDirectoryOrigin("browse")).toBe("browse");
-    expect(parseMobileAddSourceDirectoryOrigin("settings")).toBe("settings");
-    expect(parseMobileAddSourceDirectoryOrigin(undefined)).toBe("settings");
-    expect(parseMobileAddSourceDirectoryOrigin(["browse"])).toBe("settings");
+  test("a swipe-down is blocked by typed text or a check in flight", () => {
+    expect(mobileAddSourceDirectoryBlocksDismiss({ address: "", checking: false })).toBe(false);
+    expect(mobileAddSourceDirectoryBlocksDismiss({ address: "h", checking: false })).toBe(true);
+    expect(mobileAddSourceDirectoryBlocksDismiss({ address: "", checking: true })).toBe(true);
   });
 });
