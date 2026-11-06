@@ -31,6 +31,11 @@ export async function runMobileAccountDeletion({
   return { status: "deleted", localCleanup: cleaned ? "ok" : "failed" };
 }
 
+/** Only over a live connection: Convex holds an action sent offline and sends it on reconnect. */
+export function canSendMobileAccountDeletion(connection: { isWebSocketConnected: boolean }): boolean {
+  return connection.isWebSocketConnected;
+}
+
 export function mobileAccountDeletionFailureMessage(
   kind: AccountDeletionErrorKind,
   strings: MobileStrings,

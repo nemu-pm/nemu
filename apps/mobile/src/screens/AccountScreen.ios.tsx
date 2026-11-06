@@ -13,9 +13,11 @@ import {
   Text as SwiftText,
 } from "@expo/ui/swift-ui";
 import {
+  disabled as swiftDisabled,
   foregroundStyle,
   lineLimit,
   listSectionMargins,
+  opacity,
   scrollContentBackground,
   tint,
   useScrollGeometryChange,
@@ -121,7 +123,11 @@ export function AccountScreen({ presentation = "page", onLeft }: MobileAccountSc
                 label={strings.settings.cloudSyncSignOut}
                 systemImage="rectangle.portrait.and.arrow.right"
                 onPress={page.requestSignOut}
-                modifiers={[tint(tokens.primary), foregroundStyle(tokens.primary)]}
+                modifiers={[
+                  tint(tokens.primary),
+                  foregroundStyle(tokens.primary),
+                  ...(page.deleting ? [swiftDisabled(true), opacity(0.5)] : []),
+                ]}
               />
             </SwiftSection>
             <SwiftSection

@@ -7,6 +7,7 @@ import { useMobileLanguageSettings } from "@/data/mobileHooks";
 import { hapticConfirm, hapticError } from "@/lib/haptics";
 import { getMobileStrings } from "@/lib/mobileI18n";
 import {
+  canSendMobileAccountDeletion,
   mobileAccountDeletionFailureMessage,
   runMobileAccountDeletion,
 } from "@/lib/mobileAccountDeletion";
@@ -96,10 +97,18 @@ export function useMobileAccountPage({
   }, [leave, leaveAccount]);
 
   const deleteAccount = async () => {
-    if (deleting || !user) return;
+    if (deleting || cloudSignOut.signingOut || !user) return;
     const client = mobileConvexRef.current;
     if (!client) {
       toast.show({ id: "account-delete", tone: "danger", title: strings.account.deleteFailed });
+      return;
+    }
+    // An action asked for offline waits in Convex's queue and runs whenever
+    // the connection returns: this page would spin until then, and the account
+    // would go at some later moment nobody chose.
+    if (!canSendMobileAccountDeletion(client.connectionState())) {
+      await hapticError();
+      toast.show({ id: "account-delete", tone: "danger", title: strings.account.deleteOffline });
       return;
     }
     setDeleting(true);

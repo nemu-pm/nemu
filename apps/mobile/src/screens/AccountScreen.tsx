@@ -38,6 +38,7 @@ export function AccountScreen({ presentation = "page", onLeft }: MobileAccountSc
           ))}
         </View>
         <NemuButton
+          disabled={page.deleting}
           label={strings.settings.cloudSyncSignOut}
           onPress={page.requestSignOut}
           variant="secondary"

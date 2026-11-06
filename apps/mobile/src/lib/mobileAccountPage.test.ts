@@ -12,7 +12,7 @@ describe("account page: sign out vs delete", () => {
     const signOut = page.indexOf('systemImage="rectangle.portrait.and.arrow.right"');
     const del = page.lastIndexOf("<SwiftSection");
     expect(signOut).toBeGreaterThan(0);
-    expect(page).toContain("modifiers={[tint(tokens.primary), foregroundStyle(tokens.primary)]}");
+    expect(page).toMatch(/tint\(tokens\.primary\),\s+foregroundStyle\(tokens\.primary\),/);
     expect(page).toContain("strings.account.signOutFooter");
     // Delete Account is the last section of the Form.
     expect(page.slice(del)).toContain("strings.account.deleteFooter");

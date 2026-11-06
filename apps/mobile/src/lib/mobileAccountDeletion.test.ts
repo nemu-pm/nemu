@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  canSendMobileAccountDeletion,
   mobileAccountDeletionFailureMessage,
   runMobileAccountDeletion,
 } from "./mobileAccountDeletion";
@@ -54,5 +55,12 @@ describe("runMobileAccountDeletion", () => {
     expect(mobileAccountDeletionFailureMessage("unknown", mobileStringsEn)).toBe(
       mobileStringsEn.account.deleteFailed,
     );
+  });
+});
+
+describe("canSendMobileAccountDeletion", () => {
+  test("waits for nothing: offline is refused up front", () => {
+    expect(canSendMobileAccountDeletion({ isWebSocketConnected: false })).toBe(false);
+    expect(canSendMobileAccountDeletion({ isWebSocketConnected: true })).toBe(true);
   });
 });
