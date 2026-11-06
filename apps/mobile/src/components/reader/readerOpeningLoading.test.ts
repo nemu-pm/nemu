@@ -108,31 +108,34 @@ describe("readerOpeningLoading", () => {
     expect(readerOpeningLoadingFades(null)).toEqual(usual);
   });
 
-  test("the cover and spinner are centred as one group in the reading area", () => {
+  test("the cover sits on the window's centre, the spinner below it, on every display", () => {
     const check = (input: Parameters<typeof getReaderOpeningLoadingLayout>[0]) => {
       const { cover, spinner } = getReaderOpeningLoadingLayout(input);
-      const { width, height, insets } = input;
-      const areaCentreX = insets.left + (width - insets.left - insets.right) / 2;
-      const areaCentreY = insets.top + (height - insets.top - insets.bottom) / 2;
-      expect(Math.abs(cover.x + cover.width / 2 - areaCentreX)).toBeLessThanOrEqual(1);
-      expect(Math.abs(spinner.x + spinner.width / 2 - areaCentreX)).toBeLessThanOrEqual(1);
-      const groupCentreY = (cover.y + spinner.y + spinner.height) / 2;
-      expect(Math.abs(groupCentreY - areaCentreY)).toBeLessThanOrEqual(1);
+      const { width, height } = input;
+      expect(Math.abs(cover.x + cover.width / 2 - width / 2)).toBeLessThanOrEqual(1);
+      expect(Math.abs(cover.y + cover.height / 2 - height / 2)).toBeLessThanOrEqual(1);
+      expect(Math.abs(spinner.x + spinner.width / 2 - width / 2)).toBeLessThanOrEqual(1);
       expect(spinner.y - (cover.y + cover.height)).toBeCloseTo(READER_OPENING_LOADING_SPINNER_GAP, -0.5);
       expect(spinner.height).toBe(READER_OPENING_LOADING_SPINNER_SIZE);
-      // 2:3, smaller than the page-sized landing it replaces.
+      // 2:3, smaller than the page-sized landing it replaces, the spinner on screen.
       expect(Math.abs(cover.height - (cover.width * 3) / 2)).toBeLessThanOrEqual(1);
-      expect(cover.width).toBeLessThanOrEqual((width - insets.left - insets.right) / 2 + 0.5);
-      expect(cover.height).toBeLessThan((height - insets.top - insets.bottom) / 2 + 1);
+      expect(cover.width).toBeLessThanOrEqual(width / 2 + 0.5);
+      expect(cover.height).toBeLessThan(height / 2 + 1);
+      expect(spinner.y + spinner.height).toBeLessThan(height);
       return cover;
     };
     // iPhone portrait.
-    expect(check({ width: 402, height: 874, insets: { top: 62, right: 0, bottom: 34, left: 0 } }).width).toBe(201);
-    // Duo inner portrait and landscape.
-    expect(check({ width: 669, height: 951, insets: { top: 24, right: 0, bottom: 20, left: 0 } }).width).toBe(220);
-    expect(check({ width: 951, height: 669, insets: { top: 0, right: 0, bottom: 20, left: 0 } }).width).toBe(202);
-    // Duo outer: centred beside the vertical bar's column.
-    expect(check({ width: 466, height: 678, insets: { top: 0, right: 84, bottom: 20, left: 0 } }).x).toBe(96);
+    expect(check({ width: 402, height: 874 }).width).toBe(201);
+    // Duo inner portrait, inner landscape (book posture included).
+    expect(check({ width: 669, height: 951 }).width).toBe(220);
+    expect(check({ width: 951, height: 669 }).width).toBe(208);
+    // Duo outer, portrait and landscape.
+    expect(check({ width: 466, height: 678 }).x).toBe(127);
+    expect(check({ width: 678, height: 466 }).width).toBe(141);
+  });
+
+  test("safe areas never reach the loading layout: it cannot move when they change", () => {
+    expect(route).toContain("getReaderOpeningLoadingLayout({ width: window.width, height: window.height })");
   });
 
   test("a reader route mounted while another is mounted is a chapter switch", () => {

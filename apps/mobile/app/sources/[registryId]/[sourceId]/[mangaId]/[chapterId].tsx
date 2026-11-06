@@ -607,7 +607,7 @@ function ReaderAfterZoom({
   // Where the cover sits: the loading screen's frame through the opening;
   // after it (hidden), where the first page is laid out, which is where the
   // zoom back starts.
-  const loadingLayout = getReaderOpeningLoadingLayout({ width: window.width, height: window.height, insets });
+  const loadingLayout = getReaderOpeningLoadingLayout({ width: window.width, height: window.height });
   const frame = openingDone
     ? getMobileReaderZoomCoverFrame({ width: window.width, height: window.height, insets })
     : loadingLayout.cover;

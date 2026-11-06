@@ -65,11 +65,12 @@ export function resolveReaderOpeningLoading(input: {
 }
 
 /**
- * Where the loading screen's cover and spinner sit: the cover (2:3) and the
- * spinner below it, centred as one group in the reading area (the window
- * less its safe-area insets, so beside the Duo's vertical bar too). The
- * cover is at most half the area's width and `MAX_COVER_WIDTH` wide, and the
- * group at most about half its height.
+ * Where the loading screen's cover and spinner sit: the cover (2:3) centred
+ * on the window, the spinner below it. The window alone decides, on every
+ * display: no safe area, side bar, camera or HUD, so the cover is on the
+ * screen's centre and stays there when those come and go. The cover is at
+ * most half the window's width and `MAX_COVER_WIDTH` wide, and with the
+ * spinner at most about half its height.
  */
 const COVER_ASPECT = 2 / 3;
 const MAX_COVER_WIDTH = 220;
@@ -85,22 +86,18 @@ export type ReaderOpeningLoadingLayout = {
 export function getReaderOpeningLoadingLayout({
   width,
   height,
-  insets,
 }: {
   width: number;
   height: number;
-  insets: { top: number; right: number; bottom: number; left: number };
 }): ReaderOpeningLoadingLayout {
-  const areaWidth = Math.max(0, width - insets.left - insets.right);
-  const areaHeight = Math.max(0, height - insets.top - insets.bottom);
   const below = READER_OPENING_LOADING_SPINNER_GAP + READER_OPENING_LOADING_SPINNER_SIZE;
   const coverWidth = Math.max(
     0,
-    Math.min(areaWidth / 2, MAX_COVER_WIDTH, ((areaHeight - below) / 2) * COVER_ASPECT),
+    Math.min(width / 2, MAX_COVER_WIDTH, ((height - below) / 2) * COVER_ASPECT),
   );
   const coverHeight = coverWidth / COVER_ASPECT;
-  const top = insets.top + (areaHeight - coverHeight - below) / 2;
-  const centreX = insets.left + areaWidth / 2;
+  const top = (height - coverHeight) / 2;
+  const centreX = width / 2;
   return {
     cover: {
       x: Math.round(centreX - coverWidth / 2),
