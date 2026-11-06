@@ -91,7 +91,6 @@ import {
   spacing,
   useMobilePageBleedStyles,
   useMobilePageGutters,
-  useMobileRailRowContentInsets,
   useNemuTheme,
   usesNemuNativeHeader,
   type MangaCardModel,
@@ -312,36 +311,16 @@ function SourceFilterBar({
   containLeading?: boolean;
 }) {
   const { tokens: themeTokens } = useNemuTheme();
-  const pageGutters = useMobilePageGutters();
   const pageBleed = useMobilePageBleedStyles(SOURCE_FILTER_BLEED_OVERSCAN);
-  // Beside the Duo's rail (either side) the row's resting end keeps 16pt
-  // from the rail's content edge, from the real inset. Scrolling is unchanged.
-  const railInsets = useMobileRailRowContentInsets();
-  const bleed = useMemo(() => {
-    const rail = containLeading && railInsets && "paddingLeft" in railInsets ? null : railInsets;
-    const content = { ...pageBleed.content, ...(containLeading ? { paddingLeft: 0 } : null), ...rail };
-    return {
-      frame: containLeading ? { ...pageBleed.frame, marginLeft: 0 } : pageBleed.frame,
-      content,
-    };
-  }, [containLeading, pageBleed, railInsets]);
-  // The fades cover the edge gutter too, so in landscape a scrolled chip has
-  // faded out before it slides under the Dynamic Island. Portrait keeps 24pt.
-  // On the side of a vertical system bar column the row no longer bleeds, so
-  // its fade is the plain 24pt one at the safe edge.
-  const bleedLeft = -bleed.frame.marginLeft;
-  const bleedRight = -bleed.frame.marginRight;
-  const leadingFadeStyle = useMemo(
-    () => ({
-      width: SOURCE_FILTER_EDGE_FADE_WIDTH + Math.max(0, Math.min(pageGutters.left, bleedLeft) - spacing.pageX),
-    }),
-    [bleedLeft, pageGutters.left],
-  );
-  const trailingFadeStyle = useMemo(
-    () => ({
-      width: SOURCE_FILTER_EDGE_FADE_WIDTH + Math.max(0, Math.min(pageGutters.right, bleedRight) - spacing.pageX),
-    }),
-    [bleedRight, pageGutters.right],
+  const bleed = useMemo(
+    () =>
+      containLeading
+        ? {
+            frame: { ...pageBleed.frame, marginLeft: 0 },
+            content: { ...pageBleed.content, paddingLeft: 0 },
+          }
+        : pageBleed,
+    [containLeading, pageBleed],
   );
   const [viewportWidth, setViewportWidth] = useState(0);
   const [contentWidth, setContentWidth] = useState(0);
@@ -445,7 +424,6 @@ function SourceFilterBar({
           style={[
             styles.sourceFilterFade,
             styles.sourceFilterFadeLeading,
-            leadingFadeStyle,
           ]}
         />
       ) : null}
@@ -458,7 +436,6 @@ function SourceFilterBar({
           style={[
             styles.sourceFilterFade,
             styles.sourceFilterFadeTrailing,
-            trailingFadeStyle,
           ]}
         />
       ) : null}

@@ -5,8 +5,6 @@ import fixture from "../../../../tests/fixtures/iphone-duo/safearea-measurements
 import {
   getMobilePageBleedStyles,
   getMobilePageGutters,
-  getMobileRailRowContentInsets,
-  MOBILE_RAIL_ROW_CLEARANCE,
 } from "./mobilePageGutters";
 
 describe("getMobilePageGutters", () => {
@@ -90,66 +88,26 @@ describe("getMobilePageBleedStyles", () => {
   });
 });
 
-describe("bleed never enters the vertical bar column", () => {
-  test("the bar side stops at the safe edge; the other side still bleeds", () => {
-    expect(getMobilePageBleedStyles({ left: 16, right: 84 }, 2, "right")).toEqual({
-      frame: { marginLeft: -18, marginRight: -0 },
-      content: { paddingLeft: 18, paddingRight: 8 },
+describe("bleed runs under the vertical bar column (Duo outer display and rail)", () => {
+  test("the row reaches the window edge on the bar's side and its last item rests on the page's margin", () => {
+    expect(getMobilePageBleedStyles({ left: 16, right: 84 }, 2)).toEqual({
+      frame: { marginLeft: -18, marginRight: -86 },
+      content: { paddingLeft: 18, paddingRight: 86 },
     });
   });
-});
 
-describe("getMobileRailRowContentInsets (Duo F2: Search's source chips beside the rail)", () => {
-  const measured = (orientation: string) =>
-    fixture.measurements.find((m) => m.screen === "iphone-duo-outer" && m.pose === "closed" && m.orientation === orientation)!;
-  const titleMargins = { left: 20, right: 20 };
-
-  /** Where the row's last (rail right) or first (rail left) chip rests, scrolled to that end. */
-  function restingEdge(width: number, insets: { left: number; right: number }, side: "left" | "right", margins = titleMargins) {
-    const gutters = getMobilePageGutters(insets, undefined, margins);
-    const bleed = getMobilePageBleedStyles(gutters, 2, side);
-    const rail = getMobileRailRowContentInsets({ gutters, safeAreaInsets: insets, verticalBarSide: side })!;
-    const content = { ...bleed.content, ...rail };
-    return side === "right"
-      ? { chip: width - gutters.right + bleed.frame.marginRight - content.paddingRight, rail: width - insets.right }
-      : { chip: gutters.left - bleed.frame.marginLeft + content.paddingLeft, rail: insets.left };
-  }
-
-  test("closed, rail right: the last chip rests 16pt before the rail's content edge (was 8pt)", () => {
-    const m = measured("portrait");
-    expect(m.insets.right).toBe(84);
-    const { chip, rail } = restingEdge(m.bounds.width, m.insets, "right");
-    expect(rail).toBe(382);
-    expect(rail - chip).toBe(MOBILE_RAIL_ROW_CLEARANCE);
-    expect(MOBILE_RAIL_ROW_CLEARANCE).toBe(16);
-  });
-
-  test("closed landscape, rail left: the first chip starts 16pt after the rail's content edge (leading inset)", () => {
-    const m = measured("landscape-right");
-    expect(m.insets.left).toBe(84);
-    const { chip, rail } = restingEdge(m.bounds.width, m.insets, "left");
-    expect(chip - rail).toBe(16);
-    const gutters = getMobilePageGutters(m.insets, undefined, titleMargins);
-    expect(getMobileRailRowContentInsets({ gutters, safeAreaInsets: m.insets, verticalBarSide: "left" })).toEqual({ paddingLeft: 16 });
-  });
-
-  test("follows the reported inset, not a constant: a gutter wider than the rail's inset needs less", () => {
-    // An 80pt rail inset with 84pt system margins: the frame already ends 4pt short of the rail.
-    const insets = { left: 0, right: 80 };
-    const margins = { left: 20, right: 84 };
-    const { chip, rail } = restingEdge(466, insets, "right", margins);
-    expect(rail).toBe(386);
-    expect(rail - chip).toBe(16);
-    const gutters = getMobilePageGutters(insets, undefined, margins);
-    expect(getMobileRailRowContentInsets({ gutters, safeAreaInsets: insets, verticalBarSide: "right" })).toEqual({ paddingRight: 12 });
-    // A wider rail inset is the gutter itself: the full clearance.
-    const wide = { left: 0, right: 120 };
-    expect(getMobileRailRowContentInsets({ gutters: getMobilePageGutters(wide), safeAreaInsets: wide, verticalBarSide: "right" })).toEqual({ paddingRight: 16 });
-  });
-
-  test("no rail: nothing changes; no reported inset: the gutter is the rail's edge", () => {
-    const gutters = getMobilePageGutters({ left: 0, right: 0 });
-    expect(getMobileRailRowContentInsets({ gutters, safeAreaInsets: { left: 0, right: 0 }, verticalBarSide: null })).toBeNull();
-    expect(getMobileRailRowContentInsets({ gutters: { left: 16, right: 84 }, safeAreaInsets: null, verticalBarSide: "right" })).toEqual({ paddingRight: 16 });
+  test.each([
+    ["iphone-duo-outer", "portrait"],
+    ["iphone-duo-inner", "landscape-left"],
+    ["iphone-duo-inner", "landscape-right"],
+  ])("real insets, %s %s: frame spans the window, content the page", (screen, orientation) => {
+    const m = fixture.measurements.find((entry) => entry.screen === screen && entry.orientation === orientation)!;
+    const gutters = getMobilePageGutters(m.insets);
+    const { frame, content } = getMobilePageBleedStyles(gutters);
+    // The page's own content box plus what the row pulls out on each side is the whole window.
+    const pageWidth = m.bounds.width - gutters.horizontal;
+    expect(pageWidth - frame.marginLeft - frame.marginRight).toBe(m.bounds.width);
+    // Paid back as padding: at rest, the row's content is exactly the page's.
+    expect(m.bounds.width - content.paddingLeft - content.paddingRight).toBe(pageWidth);
   });
 });

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { ScrollView, StyleSheet, View, type LayoutRectangle, type ScrollViewInstance } from "react-native";
 import { ExploreShimmerSweep } from "./ExploreShimmerSweep";
+import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import type { MobilePageBleedStyles } from "@/lib/mobilePageGutters";
 import { getMobileSourceListingLabel, getMobileTabRevealOffset } from "@/lib/mobileSourceListingsPresentation";
 import type { SourcePackageListing } from "@/data/schema";
@@ -97,6 +98,7 @@ export function SourceListingTabs({
   // as a See All listing's tab at the end of a full row is.
   const scrollRef = useRef<ScrollViewInstance | null>(null);
   const frames = useRef(new Map<string, LayoutRectangle>());
+  const { verticalBarSide } = useMobileAdaptiveLayout();
   const viewportWidth = useRef(0);
   const offset = useRef(0);
   const selectedId = entries.find((entry) => entry.selected)?.id ?? null;
@@ -108,6 +110,8 @@ export function SourceListingTabs({
       offset: offset.current,
       viewport: viewportWidth.current,
       inset: bleed.content.paddingLeft,
+      trailingInset: bleed.content.paddingRight,
+      barSide: verticalBarSide,
     });
     if (target !== null && target !== undefined) scrollRef.current?.scrollTo({ x: target, animated });
   };

@@ -258,7 +258,7 @@ export function MobileMangaDetailBooksHero({
   const pulseStyle = useAnimatedStyle(() => ({ opacity: pulse.value }));
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const bleed = useMobilePageBleedStyles();
-  const { verticalBarSide, compactHeight } = useMobileAdaptiveLayout();
+  const { compactHeight } = useMobileAdaptiveLayout();
   const gutters = useMobilePageGutters();
   // The wide two-column page: the hero stands in the leading column as the
   // phone's stacked hero (no panel, no wash of its own: the page behind both
@@ -653,12 +653,11 @@ export function MobileMangaDetailBooksHero({
   const tagChips = badges.map((badge) => (
     <ExploreGlassChip key={badge.key} label={badge.label} ink={palette.ink} selected={badge.tone === "primary"} />
   ));
-  // The hero column's genre rail runs to the column's edges (not under a
-  // vertical bar on the leading edge) and dissolves there, like the phone's.
-  const columnBleedLeft = verticalBarSide === "left" ? 0 : gutters.left;
+  // The hero column's genre rail runs to the column's edges (under a vertical
+  // bar on the leading edge) and dissolves there, like the phone's.
   const columnBleed = {
-    frame: { marginLeft: -columnBleedLeft, marginRight: -spacing.pageX },
-    content: { paddingLeft: columnBleedLeft || spacing.pageX / 2, paddingRight: spacing.pageX },
+    frame: { marginLeft: -gutters.left, marginRight: -spacing.pageX },
+    content: { paddingLeft: gutters.left, paddingRight: spacing.pageX },
   };
   const tagsNode =
     badges.length ? (

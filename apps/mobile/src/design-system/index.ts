@@ -46,7 +46,6 @@ export { useNemuTheme } from "@/design/useNemuTheme";
 export {
   useMobilePageBleedStyles,
   useMobilePageGutters,
-  useMobileRailRowContentInsets,
 } from "@/design/useMobilePageGutters";
 
 export { GlassSurface } from "./components/GlassSurface";

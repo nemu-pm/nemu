@@ -9,6 +9,7 @@ import {
   getNemuButtonMinimumTargetSize,
   nemuFontWeight,
   nemuMaxFontSizeMultiplier,
+  useMobilePageBleedStyles,
   useNemuTheme,
   MobileChip,
   NemuInlineEmptyState,
@@ -164,6 +165,9 @@ export function MobileMangaChapterToolbar({
   unreadCount,
   onChange,
 }: MobileMangaChapterToolbarProps) {
+  // The one-list page's row runs to the window's edges; a split pane's stays in its pane.
+  const pageBleed = useMobilePageBleedStyles();
+  const bleed = useMobileMangaDetailPane().role === "single" ? pageBleed : null;
   const selectedLanguages = new Set(preference.languages);
   const toggleLanguage = (language: string) => {
     const next = new Set(selectedLanguages);
@@ -208,7 +212,8 @@ export function MobileMangaChapterToolbar({
       horizontal
       scrollsToTop={false}
       showsHorizontalScrollIndicator={false}
-      contentContainerStyle={styles.toolbarRow}
+      style={bleed?.frame}
+      contentContainerStyle={[styles.toolbarRow, bleed?.content]}
     >
       {chips}
     </ScrollView>

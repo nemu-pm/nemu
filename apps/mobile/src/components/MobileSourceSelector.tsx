@@ -8,8 +8,10 @@ import {
   NemuPressable,
   radius,
   nemuFontWeight,
+  useMobilePageBleedStyles,
   useNemuTheme,
 } from "@/design-system";
+import { useMobileMangaDetailPane } from "@/components/MobileMangaDetailPaneContext";
 
 export type MobileSourceSelectorItem = {
   accessibilityLabel: string;
@@ -34,6 +36,9 @@ export function MobileSourceSelector({
   onSelect,
 }: MobileSourceSelectorProps) {
   const { tokens } = useNemuTheme();
+  // The one-list page's row runs to the window's edges; a split pane's stays in its pane.
+  const pageBleed = useMobilePageBleedStyles();
+  const bleed = useMobileMangaDetailPane().role === "single" ? pageBleed : null;
   const scrollRef = useRef<ScrollViewInstance>(null);
   const itemOffsets = useRef<Record<string, number>>({});
 
@@ -50,14 +55,14 @@ export function MobileSourceSelector({
   if (items.length === 0) return null;
 
   return (
-    <View style={styles.frame}>
+    <View style={[styles.frame, bleed?.frame]}>
       <ScrollView
         ref={scrollRef}
         horizontal
         scrollsToTop={false}
         accessibilityRole="tablist"
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, bleed?.content]}
       >
         <View
           style={[
@@ -173,7 +178,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    minWidth: "100%",
+    flexGrow: 1,
     borderRadius: radius.xl + 6,
     borderWidth: StyleSheet.hairlineWidth,
     padding: 6,

@@ -128,4 +128,26 @@ describe("getMobileTabRevealOffset", () => {
   test("waits for the row's width", () => {
     expect(getMobileTabRevealOffset({ ...row, viewport: 0, start: 279, end: 410 })).toBeNull();
   });
+
+  describe("running under a vertical bar", () => {
+    const railed = { offset: 0, viewport: 466, inset: 20, trailingInset: 84 };
+
+    test("a capsule under a bar on the right scrolls out to the page's margin", () => {
+      expect(getMobileTabRevealOffset({ ...railed, barSide: "right", start: 340, end: 400 })).toBe(18);
+    });
+
+    test("the same capsule with no bar shows whole in the gutter and stays", () => {
+      expect(getMobileTabRevealOffset({ ...railed, start: 340, end: 400 })).toBeNull();
+    });
+
+    test("a capsule under a bar on the left scrolls out to the page's margin", () => {
+      expect(
+        getMobileTabRevealOffset({ offset: 100, viewport: 466, inset: 84, trailingInset: 20, barSide: "left", start: 120, end: 180 }),
+      ).toBe(36);
+    });
+
+    test("a capsule clear of the bar stays", () => {
+      expect(getMobileTabRevealOffset({ ...railed, barSide: "right", start: 300, end: 382 })).toBeNull();
+    });
+  });
 });

@@ -23,4 +23,20 @@ describe("source featured carousel alignment", () => {
       expect(contentWidth - width).toBeCloseTo((count - 1) * g.interval);
     }
   });
+
+  test.each([
+    ["outer display, bar on the right", 466, 678, 20, 84],
+    ["outer display, bar on the left", 466, 678, 84, 20],
+    ["inner rail", 1003, 669, 20, 84],
+  ])("%s: the card keeps its size, the row reaches the window's edge and the last card its snap", (_, width, height, left, right) => {
+    const windowSize = { windowWidth: width, windowHeight: height, gutterLeft: left, gutterRight: right };
+    const barInset = Math.max(left, right);
+    const beside = getMobileSourceFeaturedGeometry({ ...windowSize, frameWidth: width - barInset });
+    const under = getMobileSourceFeaturedGeometry({ ...windowSize, frameWidth: width, barInset });
+    expect(under.cardWidth).toBe(beside.cardWidth);
+    expect(under.interval).toBe(beside.interval);
+    expect(under.paddingLeft).toBe(left);
+    const contentWidth = under.paddingLeft + 3 * under.cardWidth + 2 * (under.interval - under.cardWidth) + under.paddingRight;
+    expect(contentWidth - width).toBeCloseTo(2 * under.interval);
+  });
 });

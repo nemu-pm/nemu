@@ -10,6 +10,7 @@ import { MOBILE_EXPLORE_RADIUS as R, concentricMobileExploreRadius } from "@/lib
 import { ExploreShimmerSweep } from "@/components/explore/ExploreShimmerSweep";
 import { useExploreShimmerBackdrop } from "@/components/explore/useExploreShimmerBackdrop";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
+import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import {
   Children,
   createContext,
@@ -971,12 +972,14 @@ function ExploreFeaturedCarousel({
   // every snap. Short and wide windows keep the first card's leading edge on the page's own
   // (title, tabs, headings, rows) with a peek of the next: several cards where they fit.
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
+  const { verticalBarSide } = useMobileAdaptiveLayout();
   const { regular, cardWidth, interval, paddingLeft: sidePad, paddingRight: sidePadRight } = getMobileSourceFeaturedGeometry({
     frameWidth: viewport || Math.max(0, windowWidth - gutters.left - gutters.right - bleed.frame.marginLeft - bleed.frame.marginRight),
     gutterLeft: gutters.left,
     gutterRight: gutters.right,
     windowWidth,
     windowHeight,
+    barInset: verticalBarSide === "left" ? gutters.left : verticalBarSide === "right" ? gutters.right : 0,
   });
   const palettes = useMemo(
     () => entries.map((_, index) => buildMobileCoverTintPalette(tints[index] ?? null, scheme)),
