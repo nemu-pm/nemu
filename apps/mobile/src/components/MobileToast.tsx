@@ -1,9 +1,7 @@
 import {
-  useCallback,
   useEffect,
-  useMemo,
-  useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import {
@@ -45,6 +43,7 @@ import {
   resolveMobileToastPlacement,
 } from "@/lib/mobileToastPlacement";
 import { useMobileToastRegion } from "@/lib/mobileToastRegion";
+import { createMobileToastStore } from "@/lib/mobileToastStore";
 import {
   MobileToastContext,
   type MobileToastController,
@@ -52,8 +51,11 @@ import {
   type MobileToastTone,
 } from "./MobileToastContext";
 
-const AUTO_DISMISS_MS = 4_000;
-const ACTION_AUTO_DISMISS_MS = 6_000;
+const toastStore = createMobileToastStore<MobileToastOptions>();
+const toastController: MobileToastController = {
+  show: toastStore.show,
+  dismiss: toastStore.dismiss,
+};
 
 const toneIcons: Record<MobileToastTone, keyof typeof Ionicons.glyphMap> = {
   success: "checkmark",
@@ -114,7 +116,7 @@ export function MobileToastSurface({
   loading = false,
   title,
   detail,
-  detailNumberOfLines = 1,
+  detailNumberOfLines = 2,
   action,
   onDismiss,
   plain = false,
@@ -154,7 +156,7 @@ export function MobileToastSurface({
       >
         <NemuText
           color={titleColor ?? tokens.foreground}
-          numberOfLines={1}
+          numberOfLines={2}
           style={styles.title}
           variant="rowSubtitle"
         >
@@ -391,56 +393,16 @@ function MobileToastHost({
 }
 
 export function MobileToastProvider({ children }: { children: ReactNode }) {
-  const [toast, setToast] = useState<ActiveToast | null>(null);
-  const sequenceRef = useRef(0);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const clearTimer = useCallback(() => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-  }, []);
-
-  const dismiss = useCallback(
-    (id: string) => {
-      clearTimer();
-      setToast((current) => (current?.id === id ? null : current));
-    },
-    [clearTimer],
+  const toast = useSyncExternalStore(
+    toastStore.subscribe,
+    toastStore.getSnapshot,
+    toastStore.getSnapshot,
   );
-
-  const show = useCallback(
-    (options: MobileToastOptions) => {
-      const id = options.id ?? `mobile-toast-${++sequenceRef.current}`;
-      clearTimer();
-      setToast({ id, options });
-      const duration = options.duration ?? (options.action ? "long" : "normal");
-      if (duration !== "sticky") {
-        timerRef.current = setTimeout(
-          () => {
-            timerRef.current = null;
-            setToast((current) => (current?.id === id ? null : current));
-          },
-          duration === "long" ? ACTION_AUTO_DISMISS_MS : AUTO_DISMISS_MS,
-        );
-      }
-      return id;
-    },
-    [clearTimer],
-  );
-
-  const controller = useMemo<MobileToastController>(
-    () => ({ show, dismiss }),
-    [show, dismiss],
-  );
-
-  useEffect(() => clearTimer, [clearTimer]);
 
   return (
-    <MobileToastContext.Provider value={controller}>
+    <MobileToastContext.Provider value={toastController}>
       {children}
-      <MobileToastHost toast={toast} onDismiss={dismiss} />
+      <MobileToastHost toast={toast} onDismiss={toastStore.dismiss} />
     </MobileToastContext.Provider>
   );
 }
