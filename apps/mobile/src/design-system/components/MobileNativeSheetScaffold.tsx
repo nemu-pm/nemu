@@ -60,7 +60,8 @@ import {
   mobileNativeSheetMaxHeight,
   shouldBoundMobileNativeSheetForPlatform,
 } from "@/lib/mobileNativeSheet";
-import { mobileSheetGlassLook } from "@/lib/mobileSheetGlass";
+import { mobileSheetGlassLook, nemuGlassSheetVeil } from "@/lib/mobileSheetGlass";
+import { useNemuTheme } from "@/design/useNemuTheme";
 import { NemuGlassSheetThemeScope, useNemuGlassSheetTheme } from "./NemuGlassSheetThemeScope";
 import { NemuNativeSheetHeaderAction } from "./NemuNativeSheetHeaderAction";
 import { MobileSheetHeader } from "./MobileSheetHeader";
@@ -197,6 +198,15 @@ export function useMobileNativeSheetTheme({
   backgroundColor,
 }: { backgroundColor?: string } = {}): NemuTheme {
   return useNemuGlassSheetTheme(resolveScaffoldGlassLook(backgroundColor));
+}
+
+/**
+ * The tint a scaffold sheet's content draws over its glass (null where there
+ * is none), for a page pushed over that content that draws its own backdrop
+ * (`MobilePushedFormPage`): it then reads as the same surface.
+ */
+export function useMobileNativeSheetVeil(): string | null {
+  return nemuGlassSheetVeil(resolveScaffoldGlassLook(undefined), useNemuTheme().scheme);
 }
 
 export function MobileNativeSheetScaffold({

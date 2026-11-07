@@ -6,13 +6,15 @@ import {
   ToolbarItem as SwiftToolbarItem,
 } from "@expo/ui/swift-ui";
 import {
+  background,
   font,
   lineLimit,
   listSectionMargins,
+  scrollContentBackground,
   scrollEdgeEffectStyle,
   tint,
 } from "@expo/ui/swift-ui/modifiers";
-import { useNemuTheme } from "@/design-system";
+import { useMobileNativeSheetVeil, useNemuTheme } from "@/design-system";
 import { MOBILE_GROUPED_FORM_TOP_MARGIN } from "@/lib/mobileLibrarySheetLayout";
 import {
   inlineToolbarTitle,
@@ -21,7 +23,11 @@ import {
 import { ToolbarActionButton } from "./MobileNativeFormSheet.ios";
 import type { MobileNativeFormSheetAction } from "./MobileNativeFormSheet.types";
 
-/** A grouped form pushed on a sheet's native stack: the system back, its title, and an optional confirming action. */
+/**
+ * A grouped form pushed on a sheet's native stack: the system back, its title, and an optional
+ * confirming action. Its backdrop is the sheet's tint, so the page reads as the same surface as the
+ * stack's root (Add Sources' list) rather than an opaque grouped grey.
+ */
 export function MobilePushedFormPage({
   title,
   confirm,
@@ -32,11 +38,16 @@ export function MobilePushedFormPage({
   children: ReactNode;
 }) {
   const { tokens } = useNemuTheme();
+  const veil = useMobileNativeSheetVeil();
   return (
     <SwiftToolbar>
       <SwiftForm
         modifiers={[
           tint(tokens.primary),
+          scrollContentBackground("hidden"),
+          // The stack paints each pushed page white; the root's tint over it
+          // gives the root's surface (its content draws the veil itself).
+          ...(veil ? [background(veil, { ignoresSafeAreaEdges: "all" })] : []),
           scrollEdgeEffectStyle("soft", "vertical"),
           inlineToolbarTitle(),
           zeroTopScrollContentMargin(),

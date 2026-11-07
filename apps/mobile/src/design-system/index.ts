@@ -53,6 +53,7 @@ export {
   MobileNativeSheetScaffold,
   MobileNativeSheetEndSpacer,
   useMobileNativeSheetTheme,
+  useMobileNativeSheetVeil,
 } from "./components/MobileNativeSheetScaffold";
 export { MobileSheetMaxHeightProvider } from "./components/mobileSheetMaxHeight";
 export {
