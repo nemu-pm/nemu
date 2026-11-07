@@ -48,9 +48,9 @@ describe("account page: sign out vs delete", () => {
         signOutFooter: "账号和云端数据都会保留，可随时重新登录。",
         message: "选择如何处理此设备上的数据。",
         keep: "保留此设备上的数据",
-        keepDescription: "您可以随时重新登录以继续同步。",
+        keepDescription: "你可以随时重新登录以继续同步。",
         remove: "从此设备移除数据",
-        removeDescription: "您的云端数据将保持安全。",
+        removeDescription: "你的云端数据将保持安全。",
         signOut: "登出",
       },
       ja: {

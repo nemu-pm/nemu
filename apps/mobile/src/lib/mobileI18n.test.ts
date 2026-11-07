@@ -527,7 +527,7 @@ describe("mobile i18n helpers", () => {
       "You can sign back in anytime to sync again.",
     );
     expect(getMobileStrings("zh").settings.cloudSyncRemoveDataDescription).toBe(
-      "您的云端数据将保持安全。",
+      "你的云端数据将保持安全。",
     );
     expect(
       formatMobileString(getMobileStrings("en").settings.sourceUpdated, {
