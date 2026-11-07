@@ -66,7 +66,7 @@ export function MobileLibraryTitleMenuNativeSheet({
       onDismiss={onDismiss}
       title={strings.nav.library}
       detents={["medium", "large"]}
-      closeAccessibilityLabel={strings.common.done}
+      closeAccessibilityLabel={strings.common.close}
       testID="LibraryTitleMenuSheet"
       formKey={collections.map((collection) => collection.collectionId).join("|")}
     >
@@ -216,7 +216,7 @@ export function MobileCollectionsManagerNativeSheet({
       })}
       background="grouped"
       interactiveDismissDisabled={busy}
-      closeAccessibilityLabel={strings.common.done}
+      closeAccessibilityLabel={strings.common.close}
       testID="CollectionsManagerSheet"
       formKey={collections.map((collection) => collection.collectionId).join("|")}
       wrapForm={(form) => (

@@ -223,7 +223,7 @@ export function MobileInstalledSourceSettingsSheet({
               ),
             },
           ]}
-          closeAccessibilityLabel={strings.feedback.dismiss}
+          closeAccessibilityLabel={strings.common.close}
           group="source-settings"
           estimatedHeight={
             sheetLayout.snapPoint === "82%"
@@ -274,7 +274,7 @@ export function MobileInstalledSourceSettingsSheet({
           </View>
           <View style={styles.headerSide}>
             <NemuNativeSheetHeaderAction
-              accessibilityLabel={strings.feedback.dismiss}
+              accessibilityLabel={strings.common.close}
               androidIcon="close-outline"
               iosSystemImage="xmark"
               onPress={transientSheets.settingsSheetProps.onClose}

@@ -2258,7 +2258,7 @@ export function BrowseScreen() {
           title={addDirectoryInBody
             ? strings.browse.addSourceDirectory
             : serverPickerInBody ? strings.selfHosted.connectServer : strings.browse.addSources}
-          dismissLabel={strings.common.done}
+          dismissLabel={strings.common.close}
           enablePanDownToClose={!(addSourcesPage !== undefined && addSourcesPageBlocksDismiss)}
           wrapIosHostedContent={(hostedContent) => (
             <MobileAddSourcesStack
@@ -2516,7 +2516,7 @@ export function BrowseScreen() {
           onClose={closeLanguageSheet}
           onDismiss={handleLanguageSheetDismissed}
           title={strings.browse.languageFilter}
-          dismissLabel={strings.common.done}
+          dismissLabel={strings.common.close}
           snapPoints={["82%"]}
           scroll
           scrollContentBottomInset={18}

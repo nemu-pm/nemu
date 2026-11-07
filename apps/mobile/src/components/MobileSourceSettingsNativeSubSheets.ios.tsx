@@ -95,7 +95,7 @@ export function MobileSourceMultiSelectNativeSheet({
       detents={[{ height: sheetHeight }, "large"]}
       background="grouped"
       padSizing="form"
-      closeAccessibilityLabel={strings.common.done}
+      closeAccessibilityLabel={strings.common.close}
       testID="MobileSourceMultiSelectSheet"
     >
       <SwiftSection footer={setting.subtitle ? <SwiftText>{setting.subtitle}</SwiftText> : undefined}>
@@ -207,7 +207,7 @@ export function MobileSourceStringListNativeSheet({
       detents={[{ height: sheetHeight }, "large"]}
       background="grouped"
       padSizing="form"
-      closeAccessibilityLabel={strings.common.done}
+      closeAccessibilityLabel={strings.common.close}
       testID="MobileSourceStringListSheet"
     >
       <SwiftSection>

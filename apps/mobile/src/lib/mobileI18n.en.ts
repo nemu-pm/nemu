@@ -25,6 +25,7 @@ export const mobileStringsEn: MobileStrings = {
     backTo: "Back to {{title}}",
     cancel: "Cancel",
     clear: "Clear",
+    close: "Close",
     collapse: "Collapse",
     create: "Create",
     done: "Done",

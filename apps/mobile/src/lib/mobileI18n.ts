@@ -21,6 +21,8 @@ export type MobileStrings = {
     backTo: string;
     cancel: string;
     clear: string;
+    /** A sheet's ✕ (close) button, to VoiceOver. */
+    close: string;
     collapse: string;
     create: string;
     done: string;

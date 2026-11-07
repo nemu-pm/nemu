@@ -1412,7 +1412,7 @@ function SourceDirectoriesSection({ strings, catalog, barItems }: {
         onDismiss={() => setSelectedDirectory(null)}
         title={selectedDirectory?.id === NEMU_RECOMMENDED_REGISTRY_ID
           ? strings.settings.nemuRecommendedDirectoryName : selectedDirectory?.name}
-        dismissLabel={strings.common.done}
+        dismissLabel={strings.common.close}
         snapPoints={["70%"]}
         fillContent
         contentIgnoresSafeAreaEdges="horizontal"

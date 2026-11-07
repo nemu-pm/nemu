@@ -76,7 +76,7 @@ describe("reader plugin settings sheet policy", () => {
     expect(ios).toContain("interactiveDismissDisabled(busy)");
     // The close button is disabled with the rest of the controls.
     expect(ios).toMatch(
-      /accessibilityLabel=\{strings\.common\.done\}[\s\S]{0,160}disabled=\{busy\}\s*onPress=\{measuring \? noop : onClose\}/,
+      /accessibilityLabel=\{strings\.common\.close\}[\s\S]{0,160}disabled=\{busy\}\s*onPress=\{measuring \? noop : onClose\}/,
     );
 
     const android = mobileSource(sheetPath);
@@ -131,7 +131,7 @@ describe("reader plugin settings sheet policy", () => {
     expect(source).toContain(
       "title={selectedPlugin ? selectedPlugin.name : strings.settings.plugins}",
     );
-    expect(source).toContain("dismissLabel={strings.common.done}");
+    expect(source).toContain("dismissLabel={strings.common.close}");
     expect(source).not.toContain("<Modal");
     expect(source).not.toContain("<MobileSheetBackdrop");
     expect(source).not.toContain("<GlassSurface");

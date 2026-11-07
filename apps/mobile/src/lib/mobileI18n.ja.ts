@@ -25,6 +25,7 @@ export const mobileStringsJa: MobileStrings = {
     backTo: "{{title}}に戻る",
     cancel: "キャンセル",
     clear: "クリア",
+    close: "閉じる",
     collapse: "折りたたむ",
     create: "作成",
     done: "完了",

@@ -94,7 +94,7 @@ export function MobileSourceMultiSelectSheet({
       onRequestClose={onClose}
       onDismiss={onDismiss}
       title={setting.title}
-      dismissLabel={strings.common.done}
+      dismissLabel={strings.common.close}
       {...(frameMaxHeight ? { frameMaxHeight, scroll } : null)}
     >
       <GlassSurface
@@ -254,7 +254,7 @@ export function MobileSourceStringListSheet({
       onRequestClose={onClose}
       onDismiss={onDismiss}
       title={setting.title}
-      dismissLabel={strings.common.done}
+      dismissLabel={strings.common.close}
       {...(frameMaxHeight ? { frameMaxHeight, scroll } : null)}
     >
       <View style={styles.editorInputRow}>

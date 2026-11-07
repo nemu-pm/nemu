@@ -500,7 +500,7 @@ export function ReaderPluginListPage({
           title={strings.settings.plugins}
           trailing={
             <NemuNativeSheetHeaderAction
-              accessibilityLabel={strings.common.done}
+              accessibilityLabel={strings.common.close}
               androidIcon="close-outline"
               iosSystemImage="xmark"
               disabled={busy}

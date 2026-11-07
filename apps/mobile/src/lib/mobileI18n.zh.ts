@@ -25,6 +25,7 @@ export const mobileStringsZh: MobileStrings = {
     backTo: "返回{{title}}",
     cancel: "取消",
     clear: "清除",
+    close: "关闭",
     collapse: "收起",
     create: "创建",
     done: "完成",
