@@ -41,13 +41,16 @@ import { useServerSourceForm } from "./useServerSourceForm";
 /**
  * Add Sources' list keeps its own header: the bar belongs to the pushed page.
  * The stack applies the safe area again inside the sheet's root, which ignores
- * it, so the list ignores it here too and still reaches the edges under the
- * Duo outer display's vertical bar column.
+ * it, so the list ignores it here too: it still reaches the edges under the
+ * Duo outer display's vertical bar column, and runs through the home
+ * indicator's inset to the sheet's bottom edge (its soft bottom edge; at the
+ * full-height detent the list stopped in a hard line above it).
  */
 const STACK_ROOT_MODIFIERS = [
   navigationBarHidden(),
   frame({ maxWidth: Infinity }),
   ignoreSafeArea({ regions: "container", edges: "horizontal" }),
+  ignoreSafeArea({ regions: "container", edges: "bottom" }),
 ];
 
 const SERVER_ICON_SIZE = 44;

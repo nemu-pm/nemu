@@ -63,6 +63,7 @@ import {
   GlassSurface,
   MobileCachedImage,
   MobileChip,
+  MobileNativeSheetEndSpacer,
   MobileNativeSheetScaffold,
   NemuButton,
   nemuColorWithAlpha,
@@ -2299,6 +2300,11 @@ export function BrowseScreen() {
           snapPoints={ADD_SOURCE_SHEET_SNAP_POINTS}
           fillContent
           contentBottomInset={0}
+          // The list runs through the home indicator's inset to the sheet's
+          // own bottom edge (at the full-height detent it stopped in a hard
+          // line there, cutting the last card in half) and ends with the
+          // scaffold's end spacer.
+          softBottomEdge
           contentIgnoresSafeAreaEdges="horizontal"
           testID="AddSourceSheet"
         >
@@ -2462,13 +2468,16 @@ export function BrowseScreen() {
                   SectionSeparatorComponent={AvailableSectionSeparator}
                   CellRendererComponent={MobileListChangeCell}
                   ListFooterComponent={
-                    sourceDirectories.loading || directoryFocus ? undefined : (
-                      <SourceDirectoryGuide
-                        prominent={!hasMobileUserSourceDirectory(sourceDirectories.directories)}
-                        strings={strings}
-                        onPress={openAddDirectory}
-                      />
-                    )
+                    <>
+                      {sourceDirectories.loading || directoryFocus ? null : (
+                        <SourceDirectoryGuide
+                          prominent={!hasMobileUserSourceDirectory(sourceDirectories.directories)}
+                          strings={strings}
+                          onPress={openAddDirectory}
+                        />
+                      )}
+                      <MobileNativeSheetEndSpacer />
+                    </>
                   }
                   ListEmptyComponent={
                     // A just-added directory's sources may still be loading.
@@ -2741,8 +2750,7 @@ const styles = StyleSheet.create({
     // the scroll viewport starts at the field's bottom edge and nothing is
     // ever clipped in the empty space between them.
     paddingTop: 12,
-    // Rounded-corner tail: ~36pt under the last row at full scroll.
-    paddingBottom: 36,
+    // The tail under the last row is the sheet's end spacer (soft bottom edge).
   },
   availableRowSeparator: {
     height: 12,

@@ -124,6 +124,7 @@ import type {
 import {
   createNemuBrandWordmarkStyle,
   MobileChip,
+  MobileNativeSheetEndSpacer,
   MobileNativeSheetScaffold,
   NemuButton,
   nemuColorWithAlpha,
@@ -1415,6 +1416,8 @@ function SourceDirectoriesSection({ strings, catalog, barItems }: {
         dismissLabel={strings.common.close}
         snapPoints={["70%"]}
         fillContent
+        // The list runs to the sheet's bottom edge and ends with the end spacer.
+        softBottomEdge
         contentIgnoresSafeAreaEdges="horizontal"
       >
         <NemuSheetScrollEdge>
@@ -1423,7 +1426,6 @@ function SourceDirectoriesSection({ strings, catalog, barItems }: {
               {...edge}
               data={selectedDirectory?.enabled ? catalog.data.filter((source) => source.registryId === selectedDirectory.id) : []}
               keyExtractor={(source) => source.id}
-              contentContainerStyle={styles.directoryContents}
               ListHeaderComponent={
                 <View style={styles.directoryHeading}>
                   <NemuText selectable style={[styles.settingSubtitle, { color: sheetTokens.mutedForeground }]}>
@@ -1443,6 +1445,7 @@ function SourceDirectoriesSection({ strings, catalog, barItems }: {
                   </NemuText>
                 )
               }
+              ListFooterComponent={<MobileNativeSheetEndSpacer />}
               renderItem={({ item }) => (
                 <View style={[styles.directorySource, { borderColor: sheetTokens.border }]}>
                   <NemuText style={[styles.directorySourceName, { color: sheetTokens.foreground }]}>{item.name}</NemuText>
@@ -4634,9 +4637,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 21,
     fontWeight: nemuFontWeight.medium,
-  },
-  directoryContents: {
-    paddingBottom: 24,
   },
   directoryHeading: {
     gap: 10,
