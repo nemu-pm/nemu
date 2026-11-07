@@ -79,7 +79,10 @@ export function MobilePageEmpty({
       ]}
     >
       <View style={[styles.header, compactHeight ? styles.compactHeader : null]}>
+        {/* Decorative: VoiceOver otherwise stops on the icon font's glyph. */}
         <View
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
           style={[
             styles.media,
             compactHeight ? styles.compactMedia : null,
