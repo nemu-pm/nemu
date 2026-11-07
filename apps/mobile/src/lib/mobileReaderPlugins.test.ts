@@ -30,9 +30,22 @@ describe("mobile reader plugin helpers", () => {
       minConfidence: 25,
       nemuResponseMode: "app",
     });
-    expect(plugins[1].values).toMatchObject({
-      debugOverlay: false,
-    });
+    // Release (no __DEV__): Dual Read's only setting, the debug HUD, is left out.
+    expect(plugins[1].settings).toEqual([]);
+    expect(plugins[1].values).toEqual({});
+  });
+
+  test("Dual Read's debug overlay setting exists only in dev builds", () => {
+    const savedOn = setMobileReaderPluginValue(emptySettings, "dual-reader", "debugOverlay", true);
+    const en = getMobileStrings("en");
+    const release = getMobileReaderPluginStates(savedOn, en)[1];
+    const dev = getMobileReaderPluginStates(savedOn, en, { includeDebugSettings: true })[1];
+
+    // A value saved in a dev build is not surfaced (so the HUD stays off) in release.
+    expect(release.settings).toEqual([]);
+    expect(release.values.debugOverlay).toBeUndefined();
+    expect(dev.settings[0]?.items?.[0]?.key).toBe("debugOverlay");
+    expect(dev.values.debugOverlay).toBe(true);
   });
 
   test("formats Japanese Learning confidence as a percentage slider like web", () => {
@@ -49,6 +62,7 @@ describe("mobile reader plugin helpers", () => {
     const plugins = getMobileReaderPluginStates(
       emptySettings,
       getMobileStrings("zh"),
+      { includeDebugSettings: true },
     );
     const japaneseLearning = plugins[0];
     const dualRead = plugins[1];
@@ -91,7 +105,9 @@ describe("mobile reader plugin helpers", () => {
       true
     );
     const reset = resetMobileReaderPluginValues(customized, "dual-reader");
-    const dualRead = getMobileReaderPluginStates(reset).find(
+    const dualRead = getMobileReaderPluginStates(reset, getMobileStrings("en"), {
+      includeDebugSettings: true,
+    }).find(
       (plugin) => plugin.id === "dual-reader"
     );
 
@@ -199,7 +215,11 @@ describe("mobile reader plugin helpers", () => {
       "japanese-learning",
       false,
     );
-    const plugins = getMobileReaderPluginStates(disabledJapaneseLearning);
+    const plugins = getMobileReaderPluginStates(
+      disabledJapaneseLearning,
+      getMobileStrings("en"),
+      { includeDebugSettings: true },
+    );
 
     expect(getMobileReaderSettingsSelectedPlugin(plugins, null)?.id).toBe(
       "dual-reader",

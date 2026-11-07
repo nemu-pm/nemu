@@ -32,7 +32,18 @@ export type MobileReaderPluginVisibilityContext = {
   chapterLanguage?: string | null;
 };
 
-function makeMobileReaderPlugins(strings: MobileStrings): MobileReaderPlugin[] {
+export type MobileReaderPluginOptions = {
+  /** Developer-only settings (Dual Read's debug overlay); off in release builds. */
+  includeDebugSettings?: boolean;
+};
+
+const MOBILE_READER_DEBUG_SETTINGS =
+  (globalThis as { __DEV__?: boolean }).__DEV__ === true;
+
+function makeMobileReaderPlugins(
+  strings: MobileStrings,
+  { includeDebugSettings = MOBILE_READER_DEBUG_SETTINGS }: MobileReaderPluginOptions = {},
+): MobileReaderPlugin[] {
   return [
     {
       id: "japanese-learning",
@@ -129,22 +140,27 @@ function makeMobileReaderPlugins(strings: MobileStrings): MobileReaderPlugin[] {
       icon: "copy-outline",
       defaultEnabled: true,
       builtin: true,
-      settings: [
-        {
-          key: "debug",
-          title: strings.reader.pluginDualReadDebug,
-          type: "group",
-          items: [
+      // Its only setting is the developer HUD, so in release Dual Read has
+      // none: its row shows no count or chevron and a saved debugOverlay is
+      // dropped by the value merge.
+      settings: includeDebugSettings
+        ? [
             {
-              key: "debugOverlay",
-              title: strings.reader.pluginDualReadDebugOverlay,
-              subtitle: strings.reader.pluginDualReadDebugOverlayDescription,
-              type: "switch",
-              default: false,
+              key: "debug",
+              title: strings.reader.pluginDualReadDebug,
+              type: "group",
+              items: [
+                {
+                  key: "debugOverlay",
+                  title: strings.reader.pluginDualReadDebugOverlay,
+                  subtitle: strings.reader.pluginDualReadDebugOverlayDescription,
+                  type: "switch",
+                  default: false,
+                },
+              ],
             },
-          ],
-        },
-      ],
+          ]
+        : [],
     },
   ];
 }
@@ -153,9 +169,10 @@ export const MOBILE_READER_PLUGINS: MobileReaderPlugin[] =
   makeMobileReaderPlugins(getMobileStrings("en"));
 
 export function getLocalizedMobileReaderPlugins(
-  strings: MobileStrings
+  strings: MobileStrings,
+  options?: MobileReaderPluginOptions,
 ): MobileReaderPlugin[] {
-  return makeMobileReaderPlugins(strings);
+  return makeMobileReaderPlugins(strings, options);
 }
 
 const pluginById = new Map(MOBILE_READER_PLUGINS.map((plugin) => [plugin.id, plugin]));
@@ -211,15 +228,21 @@ export function getMobileReaderPluginValues(
 
 export function getMobileReaderPluginStates(
   settings: UserSettings,
-  strings: MobileStrings = getMobileStrings("en")
+  strings: MobileStrings = getMobileStrings("en"),
+  options?: MobileReaderPluginOptions,
 ): MobileReaderPluginState[] {
   const readerPlugins = settings.readerPlugins ?? {};
-  return getLocalizedMobileReaderPlugins(strings).map((plugin) => {
+  const includeDebugSettings = options?.includeDebugSettings ?? MOBILE_READER_DEBUG_SETTINGS;
+  return getLocalizedMobileReaderPlugins(strings, { includeDebugSettings }).map((plugin) => {
     const state = readerPlugins[plugin.id];
+    const values = getMobileReaderPluginValues(plugin, state);
+    // The merge keeps saved keys the schema lacks; a debugOverlay turned on in
+    // a dev build or synced from the web must not show the HUD in release.
+    if (!includeDebugSettings) delete values.debugOverlay;
     return {
       ...plugin,
       enabled: getMobileReaderPluginEnabled(plugin, state),
-      values: getMobileReaderPluginValues(plugin, state),
+      values,
     };
   });
 }

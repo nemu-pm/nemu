@@ -7,13 +7,15 @@ import { formatMobileSettingsCount, type MobileStrings } from "./mobileI18n";
 import type { MobileReaderPlugin } from "./mobileReaderPlugins";
 import { countRenderableSourceSettings } from "./mobileSourceSettings";
 
-/** The row's secondary line, in sentence case: "5 settings", "1 setting". */
+/**
+ * The row's secondary line, in sentence case: "5 settings", "1 setting"; a
+ * plugin with nothing to configure (Dual Read in release) reads its
+ * description rather than "0 settings".
+ */
 export function mobileReaderPluginRowSubtitle(
-  plugin: Pick<MobileReaderPlugin, "settings">,
+  plugin: Pick<MobileReaderPlugin, "settings" | "description">,
   strings: MobileStrings,
 ): string {
-  return formatMobileSettingsCount(
-    countRenderableSourceSettings(plugin.settings),
-    strings,
-  );
+  const count = countRenderableSourceSettings(plugin.settings);
+  return count > 0 ? formatMobileSettingsCount(count, strings) : plugin.description;
 }
