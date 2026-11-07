@@ -55,6 +55,34 @@ export function resolveDeviceAppLanguage(
   return null;
 }
 
+/** The language tag iOS localises its own controls in for each app language. */
+const MOBILE_APPLE_LANGUAGE_TAGS: Record<AppLanguage, string> = {
+  en: "en",
+  zh: "zh-Hans",
+  ja: "ja",
+};
+
+/**
+ * iOS: the app's `AppleLanguages` preference for `appLanguage` (what iOS's
+ * per-app Language setting writes), so the system's own controls speak the
+ * app's language rather than the device's: the back button VoiceOver reads as
+ * "Back", a sheet's ✕, the search field's Cancel, edit menus. iOS reads it as
+ * the app launches. Null when `current` already leads with that language.
+ */
+export function resolveMobileAppleLanguages(
+  appLanguage: AppLanguage,
+  current: unknown,
+): string[] | null {
+  const tag = MOBILE_APPLE_LANGUAGE_TAGS[appLanguage];
+  const first = Array.isArray(current) ? current[0] : undefined;
+  if (typeof first === "string") {
+    const language = matchDeviceLocale({ languageTag: first, languageCode: first.split("-")[0] });
+    const script = first.toLowerCase().split("-")[1];
+    if (language === appLanguage && (appLanguage !== "zh" || script === "hans")) return null;
+  }
+  return [tag];
+}
+
 /**
  * A persisted choice always wins; the device locale is only a default for
  * installs that have never stored one.

@@ -1,4 +1,5 @@
 import { getLocales } from "expo-localization";
+import { Platform, Settings } from "react-native";
 import {
   useCallback,
   useEffect,
@@ -23,6 +24,7 @@ import {
   normalizeMetadataLanguagePreference,
   resolveDeviceAppLanguage,
   resolveInitialAppLanguage,
+  resolveMobileAppleLanguages,
 } from "@/lib/mobileLanguageSettings";
 
 let cachedDeviceAppLanguage: AppLanguage | null | undefined;
@@ -123,6 +125,15 @@ export function MobileLanguageProvider({ children }: { children: ReactNode }) {
   // The imported-archive source has no React context; keep its label language current.
   useEffect(() => {
     setLocalArchiveLanguage(appLanguage);
+  }, [appLanguage]);
+
+  // iOS's own controls (the back button VoiceOver reads, a sheet's ✕, Cancel)
+  // take the app's language from the next launch: iOS reads the preference as
+  // the app starts.
+  useEffect(() => {
+    if (Platform.OS !== "ios") return;
+    const next = resolveMobileAppleLanguages(appLanguage, Settings.get("AppleLanguages"));
+    if (next) Settings.set({ AppleLanguages: next });
   }, [appLanguage]);
 
   const value = useMemo<MobileLanguageSettingsValue>(

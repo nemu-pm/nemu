@@ -12,6 +12,7 @@ import {
   normalizeMetadataLanguagePreference,
   resolveDeviceAppLanguage,
   resolveInitialAppLanguage,
+  resolveMobileAppleLanguages,
   sortSourcesByLanguagePriority,
 } from "./mobileLanguageSettings";
 
@@ -323,5 +324,28 @@ describe("mobile language display names", () => {
     expect(compareMobileLanguageCodes("zh-hans", "zh", "en")).toBeGreaterThan(0);
     // The base language keeps its priority rank for the whole family.
     expect(compareMobileLanguageCodes("zh-hant", "en", "en")).toBeLessThan(0);
+  });
+});
+
+describe("resolveMobileAppleLanguages", () => {
+  test("leads iOS's own controls with the app language", () => {
+    expect(resolveMobileAppleLanguages("zh", ["en-US", "zh-Hans-CN"])).toEqual(["zh-Hans"]);
+    expect(resolveMobileAppleLanguages("ja", ["en"])).toEqual(["ja"]);
+    expect(resolveMobileAppleLanguages("en", ["ja-JP"])).toEqual(["en"]);
+    expect(resolveMobileAppleLanguages("zh", ["zh-Hant-TW"])).toEqual(["zh-Hans"]);
+    expect(resolveMobileAppleLanguages("en", ["fr-FR"])).toEqual(["en"]);
+  });
+
+  test("leaves a preference that already leads with it", () => {
+    expect(resolveMobileAppleLanguages("en", ["en-GB", "ja"])).toBeNull();
+    expect(resolveMobileAppleLanguages("ja", ["ja-JP"])).toBeNull();
+    expect(resolveMobileAppleLanguages("zh", ["zh-Hans-CN"])).toBeNull();
+    expect(resolveMobileAppleLanguages("zh", ["zh-Hans"])).toBeNull();
+  });
+
+  test("writes one when there is none to read", () => {
+    expect(resolveMobileAppleLanguages("en", undefined)).toEqual(["en"]);
+    expect(resolveMobileAppleLanguages("ja", [])).toEqual(["ja"]);
+    expect(resolveMobileAppleLanguages("zh", "zh-Hans")).toEqual(["zh-Hans"]);
   });
 });
