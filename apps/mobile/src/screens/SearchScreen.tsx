@@ -72,6 +72,7 @@ import {
   type LibraryEntry,
 } from "@/data/schema";
 import {
+  MANGA_CARD_COVER_RADIUS,
   MangaCard,
   MobileCachedImage,
   MobileChip,
@@ -726,7 +727,7 @@ const LocalSearchResultCard = memo(function LocalSearchResultCard({
   );
 
   return (
-    <MobileQuickActionMenu actionKey={item.id}>
+    <MobileQuickActionMenu actionKey={item.id} cornerRadius={MANGA_CARD_COVER_RADIUS}>
     <MangaCard
       item={item}
       onLongPress={mobileNativeQuickMenuAvailable ? undefined : handleLongPress}

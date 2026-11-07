@@ -111,5 +111,5 @@ export { PageListScaffold, PageScaffold } from "./components/PageScaffold";
 export { NemuScrollEdgeSurface, useNemuScrollEdgeTracking } from "./components/NemuScrollEdgeSurface";
 export { NemuSheetScrollEdge } from "./components/NemuSheetScrollEdge";
 export { nemuSoftScrollEdge } from "@/design/nemuScrollEdge";
-export { MangaCard, type MangaCardModel } from "./components/MangaCard";
+export { MANGA_CARD_COVER_RADIUS, MangaCard, type MangaCardModel } from "./components/MangaCard";
 export { SourceCard, type SourceCardModel } from "./components/SourceCard";

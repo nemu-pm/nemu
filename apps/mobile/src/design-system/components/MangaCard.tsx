@@ -187,6 +187,12 @@ export const MangaCard = memo(function MangaCard({
   );
 });
 
+/**
+ * The cover's corner radius. A context menu around the card lifts its preview
+ * with this radius too, so the cover keeps its corners while it is held.
+ */
+export const MANGA_CARD_COVER_RADIUS = radius.lg;
+
 const styles = StyleSheet.create({
   root: {
     flex: 1,
@@ -195,7 +201,7 @@ const styles = StyleSheet.create({
   cover: {
     aspectRatio: 2 / 3,
     overflow: "hidden",
-    borderRadius: radius.lg,
+    borderRadius: MANGA_CARD_COVER_RADIUS,
     borderWidth: StyleSheet.hairlineWidth,
   },
   coverImage: {

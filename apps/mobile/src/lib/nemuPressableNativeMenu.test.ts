@@ -76,6 +76,13 @@ describe("long press inside a native context menu", () => {
     expect(read("src/screens/SourceBrowseScreen.tsx")).toContain("<ContextMenuView");
     expect(read("src/components/explore/MobileExploreChapterRow.tsx")).toContain("<ContextMenuView");
   });
+
+  test("a held manga card lifts with its cover's corners (the default 16pt preview rounded them more)", () => {
+    expect(read("src/design-system/components/MangaCard.tsx")).toContain("borderRadius: MANGA_CARD_COVER_RADIUS");
+    for (const file of ["src/screens/LibraryScreen.tsx", "src/screens/SearchScreen.tsx"]) {
+      expect(read(file)).toMatch(/<MobileQuickActionMenu[^>]*cornerRadius=\{MANGA_CARD_COVER_RADIUS\}>\s*<MangaCard/);
+    }
+  });
 });
 
 describe("native context menu press gate", () => {

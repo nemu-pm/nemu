@@ -81,6 +81,7 @@ import {
 import {
   createNemuNativeScreenOptions,
   GlassSurface,
+  MANGA_CARD_COVER_RADIUS,
   MangaCard,
   MobileNativeSheetScaffold,
   NemuButton,
@@ -345,7 +346,7 @@ const LibraryGridItem = memo(function LibraryGridItem({
   );
 
   return (
-    <MobileQuickActionMenu actions={actions}>
+    <MobileQuickActionMenu actions={actions} cornerRadius={MANGA_CARD_COVER_RADIUS}>
     <MangaCard
       item={item}
       onLongPress={!mobileNativeQuickMenuAvailable && onLongPress ? handleLongPress : undefined}
