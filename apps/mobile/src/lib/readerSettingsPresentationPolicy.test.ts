@@ -42,6 +42,25 @@ describe("reader settings presentation", () => {
 });
 
 /**
+ * Folding or unfolding with the reader settings open changed the reader under
+ * the sheet: in the book posture any open reader sheet moved the page to the
+ * free half (one page, the spread given up), so flat ⇄ book under the open
+ * settings laid the pages out differently than with them closed.
+ */
+describe("the reader under the open settings", () => {
+  const reader = mobileSource("screens/ReaderScreen.tsx");
+
+  test("the settings sheet never moves the page to the other half in the book posture", () => {
+    const start = reader.indexOf("const readerBookSheetOpen =");
+    const end = reader.indexOf(";", start);
+    expect(start).toBeGreaterThanOrEqual(0);
+    const sheets = reader.slice(start, end);
+    expect(sheets).not.toContain("readerDisplaySettingsOpen");
+    expect(sheets).toContain("japaneseLearningOcrSheetVisible");
+  });
+});
+
+/**
  * The settings sheet's groups: the page (turning, layout, fit, background)
  * under one footnote, the pairing pair on its own, and Avoid Camera Area in
  * More with its footnote (no Outer Display group). Shift by One Page keeps

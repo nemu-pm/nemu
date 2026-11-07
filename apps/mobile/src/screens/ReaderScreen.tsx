@@ -3225,9 +3225,12 @@ export function ReaderScreen() {
   // when it closes. The page stays live beside the sheet: the learning
   // sheets show the selected bubble themselves (no popout over the page), and
   // a word block tapped on the page fills the open sentence sheet.
+  // The reader settings sheet is the exception: the reader under it keeps the
+  // layout it has with the sheet closed, so folding or unfolding with it open
+  // (flat ⇄ book) moves the pages exactly as it does without it, and a spread
+  // stays a spread while the page layout is being changed.
   const readerBookPosture = readerFoldedAdaptive.posture === "book";
   const readerBookSheetOpen =
-    readerDisplaySettingsOpen ||
     readerPluginSettingsOpen ||
     japaneseLearningLauncherVisible ||
     japaneseLearningOcrSheetVisible ||
