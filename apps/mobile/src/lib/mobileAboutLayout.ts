@@ -94,7 +94,7 @@ export function estimateMobileAboutSheetContentHeight({
   // Three lines at the default size; the line count grows with the text.
   const descriptionBlock = Math.ceil(3 * scale) * 21 * scale;
   const linkRowHeight = Math.max(62, (17 + 16) * scale + 2 + 24);
-  // About has one Source Code row; licenses live directly in Settings.
+  // About has one Source Code row (third-party notices ship as a bundle file).
   return Math.ceil(
     contentTop +
       iconBlock +
