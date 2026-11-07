@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
   getReaderOpeningLoadingLayout,
+  holdReaderOpeningWindow,
   isReaderChapterSwitchMount,
   readerOpeningLoadingFades,
   resolveReaderOpeningLoading,
@@ -120,22 +121,47 @@ describe("readerOpeningLoading", () => {
       // 2:3, smaller than the page-sized landing it replaces, the spinner on screen.
       expect(Math.abs(cover.height - (cover.width * 3) / 2)).toBeLessThanOrEqual(1);
       expect(cover.width).toBeLessThanOrEqual(width / 2 + 0.5);
-      expect(cover.height).toBeLessThan(height / 2 + 1);
+      expect(cover.height).toBeLessThan(height * 0.6 + 1);
       expect(spinner.y + spinner.height).toBeLessThan(height);
       return cover;
     };
     // iPhone portrait.
     expect(check({ width: 402, height: 874 }).width).toBe(201);
     // Duo inner portrait, inner landscape (book posture included).
-    expect(check({ width: 669, height: 951 }).width).toBe(220);
-    expect(check({ width: 951, height: 669 }).width).toBe(208);
+    expect(check({ width: 669, height: 951 }).width).toBe(335);
+    expect(check({ width: 951, height: 669 }).width).toBe(250);
     // Duo outer, portrait and landscape.
-    expect(check({ width: 466, height: 678 }).x).toBe(127);
-    expect(check({ width: 678, height: 466 }).width).toBe(141);
+    expect(check({ width: 466, height: 678 }).width).toBe(233);
+    expect(check({ width: 678, height: 466 }).width).toBe(169);
+    // A large window: capped, not page-sized.
+    expect(check({ width: 1024, height: 1366 }).width).toBe(360);
+  });
+
+  test("the cover scales with the window: a Duo inner display's is larger than a phone's", () => {
+    const phone = getReaderOpeningLoadingLayout({ width: 402, height: 874 }).cover.width;
+    const inner = getReaderOpeningLoadingLayout({ width: 669, height: 951 }).cover.width;
+    const innerLandscape = getReaderOpeningLoadingLayout({ width: 951, height: 669 }).cover.width;
+    expect(inner).toBeGreaterThan(phone * 1.5);
+    expect(innerLandscape).toBeGreaterThan(phone);
+  });
+
+  test("the opening holds its first window through small changes, not a new shape", () => {
+    const first = { width: 951, height: 669 };
+    expect(holdReaderOpeningWindow(null, first)).toBe(first);
+    // A bar hiding, a size settling after the push: held, nothing moves.
+    expect(holdReaderOpeningWindow(first, { width: 951, height: 700 })).toBe(first);
+    expect(holdReaderOpeningWindow(first, { width: 880, height: 669 })).toBe(first);
+    // A rotation or a fold: the new window.
+    expect(holdReaderOpeningWindow(first, { width: 669, height: 951 })).toEqual({ width: 669, height: 951 });
+    expect(holdReaderOpeningWindow(first, { width: 466, height: 678 })).toEqual({ width: 466, height: 678 });
+    expect(holdReaderOpeningWindow(first, { width: 678, height: 466 })).toEqual({ width: 678, height: 466 });
+    // No window yet (0×0): the first real one.
+    expect(holdReaderOpeningWindow({ width: 0, height: 0 }, first)).toBe(first);
   });
 
   test("safe areas never reach the loading layout: it cannot move when they change", () => {
-    expect(route).toContain("getReaderOpeningLoadingLayout({ width: window.width, height: window.height })");
+    expect(route).toContain("getReaderOpeningLoadingLayout(openingWindow)");
+    expect(route).toMatch(/holdReaderOpeningWindow\(openingWindowRef\.current, \{\s*width: window\.width,\s*height: window\.height,/);
   });
 
   test("a reader route mounted while another is mounted is a chapter switch", () => {

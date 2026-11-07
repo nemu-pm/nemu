@@ -26,6 +26,7 @@ import {
 } from "@/components/reader/readerZoomEntry";
 import {
   getReaderOpeningLoadingLayout,
+  holdReaderOpeningWindow,
   isReaderChapterSwitchMount,
   readerOpeningLoadingFades,
   resolveReaderOpeningLoading,
@@ -607,7 +608,13 @@ function ReaderAfterZoom({
   // Where the cover sits: the loading screen's frame through the opening;
   // after it (hidden), where the first page is laid out, which is where the
   // zoom back starts.
-  const loadingLayout = getReaderOpeningLoadingLayout({ width: window.width, height: window.height });
+  const openingWindowRef = useRef<{ width: number; height: number } | null>(null);
+  const openingWindow = holdReaderOpeningWindow(openingWindowRef.current, {
+    width: window.width,
+    height: window.height,
+  });
+  openingWindowRef.current = openingWindow;
+  const loadingLayout = getReaderOpeningLoadingLayout(openingWindow);
   const frame = openingDone
     ? getMobileReaderZoomCoverFrame({ width: window.width, height: window.height, insets })
     : loadingLayout.cover;

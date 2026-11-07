@@ -68,12 +68,15 @@ export function resolveReaderOpeningLoading(input: {
  * Where the loading screen's cover and spinner sit: the cover (2:3) centred
  * on the window, the spinner below it. The window alone decides, on every
  * display: no safe area, side bar, camera or HUD, so the cover is on the
- * screen's centre and stays there when those come and go. The cover is at
- * most half the window's width and `MAX_COVER_WIDTH` wide, and with the
- * spinner at most about half its height.
+ * screen's centre and stays there when those come and go. The cover scales
+ * with the window: at most half its width and, with the spinner, 60% of its
+ * height (a phone's width, most of a Duo inner display's), up to
+ * `MAX_COVER_WIDTH` on a large one.
  */
 const COVER_ASPECT = 2 / 3;
-const MAX_COVER_WIDTH = 220;
+const COVER_WIDTH_SHARE = 0.5;
+const COVER_HEIGHT_SHARE = 0.6;
+const MAX_COVER_WIDTH = 360;
 /** The system spinner's height (UIActivityIndicatorView `.medium`). */
 export const READER_OPENING_LOADING_SPINNER_SIZE = 20;
 export const READER_OPENING_LOADING_SPINNER_GAP = 24;
@@ -93,7 +96,7 @@ export function getReaderOpeningLoadingLayout({
   const below = READER_OPENING_LOADING_SPINNER_GAP + READER_OPENING_LOADING_SPINNER_SIZE;
   const coverWidth = Math.max(
     0,
-    Math.min(width / 2, MAX_COVER_WIDTH, ((height - below) / 2) * COVER_ASPECT),
+    Math.min(width * COVER_WIDTH_SHARE, MAX_COVER_WIDTH, (height - below) * COVER_HEIGHT_SHARE * COVER_ASPECT),
   );
   const coverHeight = coverWidth / COVER_ASPECT;
   const top = (height - coverHeight) / 2;
@@ -112,6 +115,28 @@ export function getReaderOpeningLoadingLayout({
       height: READER_OPENING_LOADING_SPINNER_SIZE,
     },
   };
+}
+
+type ReaderOpeningWindow = { width: number; height: number };
+
+/** A window change smaller than this share of a side is not a new shape. */
+const OPENING_WINDOW_RESHAPE_SHARE = 0.2;
+
+/**
+ * The window the loading screen is laid out in, through the opening: the
+ * first one, kept until the window takes a new shape (a rotation, a fold or
+ * unfold). A small late change (a bar hiding, a size settling after the
+ * push) would move the cover and spinner under the user's eyes; held, they
+ * land once and stay.
+ */
+export function holdReaderOpeningWindow(
+  held: ReaderOpeningWindow | null,
+  next: ReaderOpeningWindow,
+): ReaderOpeningWindow {
+  if (!held || held.width <= 0 || held.height <= 0) return next;
+  if (held.width > held.height !== next.width > next.height) return next;
+  const changed = (a: number, b: number) => Math.abs(a - b) > a * OPENING_WINDOW_RESHAPE_SHARE;
+  return changed(held.width, next.width) || changed(held.height, next.height) ? next : held;
 }
 
 /**
