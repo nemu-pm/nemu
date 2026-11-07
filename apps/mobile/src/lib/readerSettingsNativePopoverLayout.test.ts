@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
   pushedPageWidthKey,
+  readerSettingsFormKey,
   READER_SETTINGS_POPOVER_WIDTH,
   READER_SETTINGS_SHEET_BAR,
   readerSettingsNativeContentHeight,
@@ -30,26 +31,33 @@ describe("native reader settings presentation", () => {
       showPlugins: false,
       showMarkComplete: false,
     });
-    // Page layout (row, footer), pairing (pairing, shift, footer) and page
-    // fit (row, footer), three more sections (page background shows in
-    // both); plugins and mark complete rows.
+    // Page Layout and Page Fit join the page group with its two-line
+    // footnote; the pairing group (pairing, shift, footer) is one more
+    // section; plugins and mark complete rows.
     expect(readerSettingsNativeContentHeight(full) - minimal)
-      .toBe(52 + 36 + 52 * 2 + 36 + 52 + 36 + 20 * 3 + 52 * 2);
+      .toBe(52 * 2 + 36 * 2 + (52 * 2 + 36 + 20) + 52 * 2);
     // No Orientation Lock row on an iPhone or the Duo outer display.
     expect(readerSettingsNativeContentHeight({ ...full, showOrientationLock: false }))
       .toBe(readerSettingsNativeContentHeight(full) - 52);
   });
 
-  test("Page Turning adds one menu row in its own section", () => {
+  test("Page Turning adds one menu row to the page group, no section", () => {
     const without = readerSettingsNativeContentHeight(full);
     const withTurn = readerSettingsNativeContentHeight({ ...full, showPageTurn: true });
-    expect(withTurn - without).toBe(52 + 20);
+    expect(withTurn - without).toBe(52);
   });
 
-  test("Avoid Camera Area: a headed section, its row and its footer", () => {
+  test("Avoid Camera Area: a row in More, with that group's footnote, no section of its own", () => {
     const base = readerSettingsNativeContentHeight(full);
-    // Header 28 + row 52 + footer 36 + one section gap 20.
-    expect(readerSettingsNativeContentHeight({ ...full, showCameraMode: true }) - base).toBe(28 + 52 + 36 + 20);
+    expect(readerSettingsNativeContentHeight({ ...full, showCameraMode: true }) - base).toBe(52 + 36);
+  });
+
+  test("the pairing group shows only while a spread can show", () => {
+    const withoutPairing = readerSettingsNativeContentHeight({ ...full, showPagePairingControls: false });
+    expect(readerSettingsNativeContentHeight(full) - withoutPairing).toBe(52 * 2 + 36 + 20);
+    expect(readerSettingsNativeContentHeight({ ...full, twoPageSupported: false })).toBe(
+      readerSettingsNativeContentHeight({ ...full, twoPageSupported: false, showPagePairingControls: false }),
+    );
   });
 
   test("Duo notebook: a 455pt pane cannot hold the Form, so it becomes a sheet", () => {
@@ -182,5 +190,17 @@ describe("pushed plugin pages across width changes", () => {
     expect(hosts.length).toBeGreaterThan(0);
     for (const host of hosts) expect(host).not.toContain("key=");
     expect(source).toContain("<NemuGlassSheetThemeScope key={pushedPageWidthKey(pushedPageWidth)}");
+  });
+});
+
+describe("the settings Form across window sizes", () => {
+  test("a rotation re-keys the presented Form; sub-point jitter does not", () => {
+    expect(readerSettingsFormKey({ width: 669, height: 951 })).not.toBe(readerSettingsFormKey({ width: 951, height: 669 }));
+    expect(readerSettingsFormKey({ width: 951.2, height: 669 })).toBe(readerSettingsFormKey({ width: 951, height: 669.3 }));
+    const source = readFileSync(
+      path.join(import.meta.dir, "../components/reader/ReaderSettingsNativePopover.ios.tsx"),
+      "utf8",
+    );
+    expect(source).toContain("key={readerSettingsFormKey(windowSize)}");
   });
 });

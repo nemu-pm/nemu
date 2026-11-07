@@ -484,7 +484,10 @@ struct NemuPresentationColorSchemeModifier: ViewModifier {
 /// Picker's edge; the Picker moves out by that inset and its title (in a
 /// `nemuFormRowMenuTitle` label) back in, so both start on the column's edge.
 /// `toggle`: a Toggle, drawn with `NemuFormRowIconToggleStyle` (its title and
-/// switch laid out here, the icon on the title's first line).
+/// switch laid out here, the icon on the title's first line). `actionRow`: an
+/// action Button whose `foregroundStyle` (after this modifier) puts its title
+/// in the label colour; its icon stays in the tint like every other row's, at
+/// every size (`NemuFormRowActionLabelStyle`).
 struct NemuFormRowIconModifier: ViewModifier {
   static let type = "nemuFormRowIcon"
   /// How far a Form's menu Picker draws its value line inside the Picker's
@@ -494,6 +497,7 @@ struct NemuFormRowIconModifier: ViewModifier {
   let tinted: Bool
   let menu: Bool
   let toggle: Bool
+  let actionRow: Bool
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   @Environment(\.isEnabled) private var isEnabled
   // The stock row's first title line and icon, measured at AX1, AX3 and AX5
@@ -509,6 +513,7 @@ struct NemuFormRowIconModifier: ViewModifier {
     tinted = params["tinted"] as? Bool ?? true
     menu = params["menu"] as? Bool ?? false
     toggle = params["toggle"] as? Bool ?? false
+    actionRow = params["actionRow"] as? Bool ?? false
   }
 
   @ViewBuilder
@@ -523,6 +528,8 @@ struct NemuFormRowIconModifier: ViewModifier {
           // The row's separator starts on the title's edge.
           .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] }
       }
+    } else if actionRow {
+      content.labelStyle(NemuFormRowActionLabelStyle())
     } else {
       content
     }
@@ -557,10 +564,37 @@ struct NemuFormRowIconModifier: ViewModifier {
       .imageScale(dynamicTypeSize >= .accessibility3 ? .small : .medium)
     if !isEnabled {
       image.foregroundStyle(.tertiary)
-    } else if tinted {
+    } else if tinted || actionRow {
       image.foregroundStyle(.tint)
     } else {
       image
+    }
+  }
+}
+
+/// An action Button's Label (`nemuFormRowIcon(actionRow: true)`): rebuilt as a
+/// stock Label, so the Form lays the row out as its own (icon column,
+/// separator inset), with the icon set in the tint — inside the Button's
+/// `foregroundStyle`, which then reaches the title only.
+struct NemuFormRowActionLabelStyle: LabelStyle {
+  func makeBody(configuration: Configuration) -> some View {
+    Label {
+      configuration.title
+    } icon: {
+      NemuFormRowActionIcon(icon: configuration.icon)
+    }
+  }
+}
+
+private struct NemuFormRowActionIcon<Icon: View>: View {
+  let icon: Icon
+  @Environment(\.isEnabled) private var isEnabled
+
+  var body: some View {
+    if isEnabled {
+      icon.foregroundStyle(.tint)
+    } else {
+      icon.foregroundStyle(.tertiary)
     }
   }
 }

@@ -19,16 +19,17 @@ export const READER_SETTINGS_POPOVER_MARGIN = 20;
 
 export type ReaderSettingsNativeRows = {
   /**
-   * The page layout section is shown (paged reading): the page-layout menu, the pairing menu while a spread shows, and the page-fit
-   * menu with its footnote.
+   * Paged reading: the Page Layout and Page Fit menus in the page group (and
+   * its footnote), and while a spread shows the pairing group.
    */
   twoPageSupported: boolean;
   showPagePairingControls: boolean;
   scrolling: boolean;
   showPlugins: boolean;
   showMarkComplete: boolean;
-  /** Paged reading: the Page Turning menu row in its own section. */
+  /** Paged reading: the Page Turning menu row in the page group. */
   showPageTurn?: boolean;
+  /** The outer display: Avoid Camera Area in "More", with that group's footnote. */
   showCameraMode?: boolean;
   /** The Orientation Lock row (absent on an iPhone and the Duo outer display); default shown. */
   showOrientationLock?: boolean;
@@ -44,34 +45,23 @@ export function readerSettingsNativeContentHeight(rows: ReaderSettingsNativeRows
   // 1. Reading direction: one segmented row.
   let height = row;
   let sections = 1;
-  // 1b. Page Turning: one menu row.
-  if (rows.showPageTurn) {
-    height += row;
-    sections += 1;
-  }
-  // 2. Page layout, with its footer; 3. while a spread shows, pairing and
-  //    Shift by One Page, with their footer; 4. page fit, with its footer.
-  if (rows.twoPageSupported) {
-    height += row + footer;
-    if (rows.showPagePairingControls) {
-      height += row * 2 + footer;
-      sections += 1;
-    }
-    height += row + footer;
-    sections += 2;
-  }
-  // 5. Page background: every presentation (paged and scroll) shows it.
-  height += row;
+  // 2. The page: Page Turning (paged), Page Layout and Page Fit (paged, with
+  //    one footnote of two lines), Page Background (every presentation).
+  height += (rows.showPageTurn ? row : 0)
+    + (rows.twoPageSupported ? row * 2 + footer * 2 : 0)
+    + row;
   sections += 1;
-  // 4. Outer display under a header, with its footer: the camera switch.
-  if (rows.showCameraMode) {
-    height += READER_SETTINGS_POPOVER_HEADER + row + footer;
+  // 3. While a spread shows: pairing and Shift by One Page, with their footer.
+  if (rows.twoPageSupported && rows.showPagePairingControls) {
+    height += row * 2 + footer;
     sections += 1;
   }
-  // 6. "More": image processing, page width, keep awake, orientation lock,
+  // 4. "More": image processing, page width, keep awake, Avoid Camera Area
+  //    (outer display, with the group's footnote), orientation lock,
   //    plugins, mark complete — one headed section.
   height += READER_SETTINGS_POPOVER_HEADER
     + row * 2
+    + (rows.showCameraMode ? row + footer : 0)
     + (rows.showOrientationLock !== false ? row : 0)
     + (rows.scrolling ? READER_SETTINGS_POPOVER_SLIDER_ROW : 0)
     + (rows.showPlugins ? row : 0)
@@ -183,6 +173,15 @@ export function readerNotebookSheetMaxHeight(input: { paneHeight: number; bottom
   const pane = Number.isFinite(input.paneHeight) ? input.paneHeight : 0;
   const bottom = Number.isFinite(input.bottomInset) ? Math.max(0, input.bottomInset) : 0;
   return Math.max(0, Math.floor(pane - bottom - READER_SHEET_FLOAT_GUTTER));
+}
+
+/**
+ * Key of the presented settings Form per window size (whole points): a new
+ * size remounts the Form, so every row is laid out at the new width instead
+ * of keeping a height the List measured at the old one.
+ */
+export function readerSettingsFormKey(window: { width: number; height: number }): string {
+  return `form:${Math.round(window.width)}x${Math.round(window.height)}`;
 }
 
 /**

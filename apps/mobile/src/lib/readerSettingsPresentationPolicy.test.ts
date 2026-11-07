@@ -40,3 +40,24 @@ describe("reader settings presentation", () => {
     expect(layout).toContain('defaultScrollAnchor("top")');
   });
 });
+
+/**
+ * The settings sheet's groups: the page (turning, layout, fit, background)
+ * under one footnote, the pairing pair on its own, and Avoid Camera Area in
+ * More with its footnote (no Outer Display group). Shift by One Page keeps
+ * its title in the label colour and its icon in the accent, like every row.
+ */
+describe("reader settings groups", () => {
+  const source = mobileSource("components/reader/ReaderSettingsNativePopover.ios.tsx");
+
+  test("one page group with one footnote; no outer display group", () => {
+    expect(source).toContain("<SwiftSection footer={pageFootnote ? <SwiftText>{pageFootnote}</SwiftText> : undefined}>");
+    expect(source).not.toContain("strings.reader.outerDisplayMode");
+    expect(source.match(/footer=\{<SwiftText>\{strings\.reader\.pageFitFootnote\}/g)).toBeNull();
+  });
+
+  test("Shift by One Page's icon is in the accent", () => {
+    expect(source).toContain("formRowIcon(shiftPairingSystemImage, { actionRow: true })");
+    expect(source).not.toContain("formRowIcon(shiftPairingSystemImage, { tinted: false })");
+  });
+});

@@ -88,6 +88,7 @@ import {
 } from "@/lib/mobileFittedSheet";
 import {
   pushedPageWidthKey,
+  readerSettingsFormKey,
   readerSettingsNativePresentation,
   READER_SETTINGS_FORM_INSET,
   readerSettingsNativeSheetEstimatedHeight,
@@ -220,9 +221,14 @@ export function ReaderSettingsNativePopover({
     option === "rtl" ? strings.reader.rtl : option === "ltr" ? strings.reader.ltr : strings.reader.scroll;
   const showPlugins = showReaderPluginSettings && Boolean(readerPlugins);
   const showPageTurnRow = showPageTurn && mode !== "scrolling" && Boolean(onSetPageTurn);
+  const showCameraRow = showCameraMode && Boolean(onSetAvoidCamera);
+  // The page group's one footnote: Page Layout's, then Page Fit's.
+  const pageFootnote = twoPageSupported
+    ? `${readerSpreadModeFootnote(spreadMode, strings, isTwoPageMode)} ${strings.reader.pageFitFootnote}`
+    : null;
   const settingsRows = {
     showPageTurn: showPageTurnRow,
-    showCameraMode,
+    showCameraMode: showCameraRow,
     twoPageSupported,
     showPagePairingControls: twoPageSupported && showPagePairingControls,
     scrolling: mode === "scrolling",
@@ -382,8 +388,11 @@ export function ReaderSettingsNativePopover({
             ))}
           </SwiftPicker>
         </SwiftSection>
-        {showPageTurnRow && onSetPageTurn ? (
-          <SwiftSection>
+        {/* The page: how it turns, how many show, how they fit, what is
+            around them. Every presentation (paged and scroll) paints the
+            page background. */}
+        <SwiftSection footer={pageFootnote ? <SwiftText>{pageFootnote}</SwiftText> : undefined}>
+          {showPageTurnRow && onSetPageTurn ? (
             <SwiftPicker
               {...menuRowLabel(strings.reader.pageTurning, "book.pages")}
               modifiers={[formRowIcon("book.pages", { menu: true }), pickerStyle("menu"), ...busyModifiers]}
@@ -401,10 +410,8 @@ export function ReaderSettingsNativePopover({
                 </SwiftText>
               ))}
             </SwiftPicker>
-          </SwiftSection>
-        ) : null}
-        {twoPageSupported ? (
-          <SwiftSection footer={<SwiftText>{readerSpreadModeFootnote(spreadMode, strings, isTwoPageMode)}</SwiftText>}>
+          ) : null}
+          {twoPageSupported ? (
             <SwiftPicker
               {...menuRowLabel(strings.reader.pageLayout, "rectangle.split.2x1")}
               modifiers={[formRowIcon("rectangle.split.2x1", { menu: true }), pickerStyle("menu"), ...busyModifiers]}
@@ -421,8 +428,47 @@ export function ReaderSettingsNativePopover({
                 </SwiftText>
               ))}
             </SwiftPicker>
-          </SwiftSection>
-        ) : null}
+          ) : null}
+          {twoPageSupported ? (
+            <SwiftPicker
+              {...menuRowLabel(strings.reader.pageFit, "arrow.up.left.and.down.right.magnifyingglass")}
+              modifiers={[
+                formRowIcon("arrow.up.left.and.down.right.magnifyingglass", { menu: true }),
+                pickerStyle("menu"),
+                ...busyModifiers,
+              ]}
+              selection={fitMode}
+              onSelectionChange={(selection) => {
+                if (busy || !isReaderFitMode(selection) || selection === fitMode) return;
+                void hapticSelection();
+                onSetFitMode(selection);
+              }}
+            >
+              {READER_FIT_MODE_ORDER.map((option) => (
+                <SwiftText key={option} modifiers={[tag(option)]}>
+                  {readerFitModeLabel(option, strings)}
+                </SwiftText>
+              ))}
+            </SwiftPicker>
+          ) : null}
+          <SwiftPicker
+            {...menuRowLabel(strings.reader.pageBackground, "square.fill.on.square")}
+            modifiers={[formRowIcon("square.fill.on.square", { menu: true }), pickerStyle("menu"), ...busyModifiers]}
+            selection={pageBackground}
+            onSelectionChange={(selection) => {
+              if (busy || selection === pageBackground) return;
+              if (!(MOBILE_READER_PAGE_BACKGROUNDS as readonly string[]).includes(String(selection))) return;
+              void hapticSelection();
+              onSetPageBackground(selection as MobileReaderPageBackground);
+            }}
+          >
+            {MOBILE_READER_PAGE_BACKGROUNDS.map((option) => (
+              <SwiftText key={option} modifiers={[tag(option)]}>
+                {readerPageBackgroundLabel(option, strings)}
+              </SwiftText>
+            ))}
+          </SwiftPicker>
+        </SwiftSection>
         {twoPageSupported && showPagePairingControls ? (
           <SwiftSection footer={<SwiftText>{strings.reader.spreadPairingFootnote}</SwiftText>}>
             <SwiftPicker
@@ -450,74 +496,20 @@ export function ReaderSettingsNativePopover({
                 void hapticSelection();
                 onShiftPairing();
               }}
-              // An action row in the label colour, like Settings' own.
+              // An action row: its title in the label colour, like Settings'
+              // own, its icon in the accent like every other row's.
               modifiers={[
-                formRowIcon(shiftPairingSystemImage, { tinted: false }),
+                formRowIcon(shiftPairingSystemImage, { actionRow: true }),
                 foregroundStyle({ type: "hierarchical", style: "primary" }),
                 ...busyModifiers,
               ]}
             />
           </SwiftSection>
         ) : null}
-        {twoPageSupported ? (
-          <SwiftSection footer={<SwiftText>{strings.reader.pageFitFootnote}</SwiftText>}>
-            <SwiftPicker
-              {...menuRowLabel(strings.reader.pageFit, "arrow.up.left.and.down.right.magnifyingglass")}
-              modifiers={[
-                formRowIcon("arrow.up.left.and.down.right.magnifyingglass", { menu: true }),
-                pickerStyle("menu"),
-                ...busyModifiers,
-              ]}
-              selection={fitMode}
-              onSelectionChange={(selection) => {
-                if (busy || !isReaderFitMode(selection) || selection === fitMode) return;
-                void hapticSelection();
-                onSetFitMode(selection);
-              }}
-            >
-              {READER_FIT_MODE_ORDER.map((option) => (
-                <SwiftText key={option} modifiers={[tag(option)]}>
-                  {readerFitModeLabel(option, strings)}
-                </SwiftText>
-              ))}
-            </SwiftPicker>
-          </SwiftSection>
-        ) : null}
-        {/* Every presentation (paged and scroll) paints the page background. */}
-        <SwiftSection>
-          <SwiftPicker
-            {...menuRowLabel(strings.reader.pageBackground, "square.fill.on.square")}
-            modifiers={[formRowIcon("square.fill.on.square", { menu: true }), pickerStyle("menu"), ...busyModifiers]}
-            selection={pageBackground}
-            onSelectionChange={(selection) => {
-              if (busy || selection === pageBackground) return;
-              if (!(MOBILE_READER_PAGE_BACKGROUNDS as readonly string[]).includes(String(selection))) return;
-              void hapticSelection();
-              onSetPageBackground(selection as MobileReaderPageBackground);
-            }}
-          >
-            {MOBILE_READER_PAGE_BACKGROUNDS.map((option) => (
-              <SwiftText key={option} modifiers={[tag(option)]}>
-                {readerPageBackgroundLabel(option, strings)}
-              </SwiftText>
-            ))}
-          </SwiftPicker>
-        </SwiftSection>
-        {showCameraMode && onSetAvoidCamera ? (
-          <SwiftSection
-            title={strings.reader.outerDisplayMode}
-            footer={<SwiftText>{strings.reader.avoidCameraFootnote}</SwiftText>}
-          >
-            <SwiftToggle
-              label={strings.reader.avoidCamera}
-              systemImage={axRows ? undefined : "camera.metering.center.weighted"}
-              isOn={avoidCamera}
-              onIsOnChange={(isOn) => onSetAvoidCamera(isOn)}
-              modifiers={[formRowIcon("camera.metering.center.weighted", { toggle: true }), ...busyModifiers]}
-            />
-          </SwiftSection>
-        ) : null}
-        <SwiftSection title={strings.reader.moreSettings}>
+        <SwiftSection
+          title={strings.reader.moreSettings}
+          footer={showCameraRow ? <SwiftText>{strings.reader.avoidCameraFootnote}</SwiftText> : undefined}
+        >
           <SwiftToggle
             label={strings.reader.processPageImages}
             systemImage={axRows ? undefined : "wand.and.stars"}
@@ -553,6 +545,15 @@ export function ReaderSettingsNativePopover({
             onIsOnChange={() => onToggleKeepAwake()}
             modifiers={[formRowIcon("moon", { toggle: true }), ...busyModifiers]}
           />
+          {showCameraRow && onSetAvoidCamera ? (
+          <SwiftToggle
+            label={strings.reader.avoidCamera}
+            systemImage={axRows ? undefined : "camera.metering.center.weighted"}
+            isOn={avoidCamera}
+            onIsOnChange={(isOn) => onSetAvoidCamera(isOn)}
+            modifiers={[formRowIcon("camera.metering.center.weighted", { toggle: true }), ...busyModifiers]}
+          />
+          ) : null}
           {showOrientationLock ? (
             <SwiftToggle
               label={strings.feedback.displayLockPortrait}
@@ -588,7 +589,15 @@ export function ReaderSettingsNativePopover({
   const settingsForm = (
     // Scroll reading has other rows than paged reading: they come and go as a
     // list change, not all in one frame.
-    <SwiftForm modifiers={[...formModifiers, animation(Animation.easeInOut({ duration: 0.25 }), mode === "scrolling")]}>
+    // A new window size (a rotation, Split View) lays the rows out afresh: the
+    // List keeps a row's self-sized height from the width it was measured at,
+    // and a row inserted while the open sheet resized for a rotation (Spread
+    // Pairing, which shows only once a spread can) kept a height measured at
+    // the old width, with empty space above and below its one line.
+    <SwiftForm
+      key={readerSettingsFormKey(windowSize)}
+      modifiers={[...formModifiers, animation(Animation.easeInOut({ duration: 0.25 }), mode === "scrolling")]}
+    >
       {renderSettingsSections([reportFormGroupInset(learnFormGroupInset)])}
     </SwiftForm>
   );

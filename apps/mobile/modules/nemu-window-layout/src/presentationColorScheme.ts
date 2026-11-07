@@ -87,7 +87,10 @@ export function reportPageWidth(handler: (width: number) => void) {
  * the control with its `systemImage`. Put it first in the modifiers, so
  * `disabled` / `foregroundStyle` after it reach the icon. `tinted: false` for
  * a row in the label colour (an action Button: the icon follows its
- * `foregroundStyle`; a NavigationLink's Label icon is in the tint, as stock); `menu: true` on a menu Picker, whose title
+ * `foregroundStyle`; a NavigationLink's Label icon is in the tint, as stock);
+ * `actionRow: true` on an action Button whose `foregroundStyle` puts its title
+ * in the label colour while its icon stays in the tint, like every other
+ * row's (at every text size); `menu: true` on a menu Picker, whose title
  * then goes in its `label` with `formRowMenuTitle()` (the value line, drawn
  * inset in a button, and the title move onto one edge); `toggle: true` on a
  * Toggle (its title and switch are laid out by the modifier, the icon on the
@@ -95,10 +98,14 @@ export function reportPageWidth(handler: (width: number) => void) {
  * layout than the one it draws). A binary built
  * before the modifier existed ignores it (no icon at accessibility sizes).
  */
-export function formRowIcon(systemImage: string, options?: { tinted?: boolean; menu?: boolean; toggle?: boolean }) {
+export function formRowIcon(
+  systemImage: string,
+  options?: { tinted?: boolean; menu?: boolean; toggle?: boolean; actionRow?: boolean },
+) {
   return createModifier("nemuFormRowIcon", {
     systemImage,
     tinted: options?.tinted ?? true,
+    actionRow: options?.actionRow ?? false,
     menu: options?.menu ?? false,
     toggle: options?.toggle ?? false,
   });
