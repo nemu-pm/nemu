@@ -822,6 +822,8 @@ export const mobileStringsEn: MobileStrings = {
     outerCoverCameraDenied: "Camera access is off. Turn it on in Settings to show the cover on the outer display.",
     outerCoverAccessibility: "Cover of {{title}}",
     outerCoverAccessibilityUntitled: "Book cover",
+    coverViewShowCover: "Show Cover",
+    coverViewShowPages: "Show Pages",
     immersiveCanvas: "Full-screen immersion",
     pageFit: "Page Fit",
     pageFitPage: "Fit Page",

@@ -827,6 +827,8 @@ export const mobileStringsJa: MobileStrings = {
     outerCoverCameraDenied: "カメラへのアクセスがオフです。外側ディスプレイに表紙を表示するには、「設定」でオンにしてください。",
     outerCoverAccessibility: "{{title}}の表紙",
     outerCoverAccessibilityUntitled: "本の表紙",
+    coverViewShowCover: "表紙を表示",
+    coverViewShowPages: "ページを表示",
     immersiveCanvas: "全画面表示",
     pageFit: "ページの表示サイズ",
     pageFitPage: "ページに合わせる",

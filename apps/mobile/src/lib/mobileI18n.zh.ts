@@ -781,6 +781,8 @@ export const mobileStringsZh: MobileStrings = {
     outerCoverCameraDenied: "相机权限未开启。请在“设置”中开启，才能在外屏显示封面。",
     outerCoverAccessibility: "{{title}} 封面",
     outerCoverAccessibilityUntitled: "书籍封面",
+    coverViewShowCover: "显示封面",
+    coverViewShowPages: "显示页面",
     immersiveCanvas: "全屏沉浸",
     pageFit: "页面缩放",
     pageFitPage: "适合页面",

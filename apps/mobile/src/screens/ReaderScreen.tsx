@@ -233,6 +233,16 @@ import { useMobileDeviceFormFactor } from "@/lib/mobileOrientationStore";
 import { mobileAdaptiveLayout } from "@/lib/mobileAdaptiveLayout";
 import { ReaderDisplaySettingsPopover } from "@/components/reader/ReaderDisplaySettingsPopover";
 import { useReaderOuterCover } from "@/components/reader/useReaderOuterCover";
+import { ReaderCoverView } from "@/components/reader/ReaderCoverView";
+import { useReaderTitleCover } from "@/components/reader/useReaderTitleCover";
+import {
+  MOBILE_READER_COVER_VIEW_SYMBOLS,
+  mobileReaderCoverViewAvailable,
+  mobileReaderCoverViewBarChromeShown,
+  mobileReaderCoverViewFadeMs,
+  mobileReaderNextCoverViewRequest,
+  resolveMobileReaderCoverViewImage,
+} from "@/lib/mobileReaderCoverView";
 import { OuterCoverAnchor } from "../../modules/nemu-outer-cover";
 import { ReaderNotebookPane } from "@/components/reader/ReaderNotebookPane";
 import { ReaderBookSidePane } from "@/components/reader/ReaderBookSidePane";
@@ -3258,6 +3268,40 @@ export function ReaderScreen() {
   });
   const outerReaderCanvas = readerSideBar && readerWindowLayout.hinge === "closed"
     && readerWindowLayout.fillsScreen !== false;
+  // Outer display: the bar's book button swaps the page for the title's cover
+  // (Apple Books there). A session choice, never saved: every reader opens on
+  // the page. It shows only on the outer canvas; leaving it (unfold, book
+  // posture) returns to reading. The reading position is never touched.
+  const readerCoverViewTitleCover = useReaderTitleCover({
+    enabled: outerReaderCanvas,
+    entry: state.entry,
+    installedSources: installedReaderSources.data,
+    routeSource: selectedInstalledSource,
+    registryId,
+    sourceId,
+    mangaId,
+  });
+  const readerCoverViewImage = useMemo(
+    () => resolveMobileReaderCoverViewImage({ cover: readerCoverViewTitleCover, firstPage: pages[0] ?? null }),
+    [pages, readerCoverViewTitleCover],
+  );
+  const readerCoverViewAvailable = mobileReaderCoverViewAvailable({
+    outerCanvas: outerReaderCanvas,
+    image: readerCoverViewImage,
+  });
+  const [readerCoverViewRequested, setReaderCoverViewRequested] = useState(false);
+  if (readerCoverViewRequested !== mobileReaderNextCoverViewRequest(readerCoverViewRequested, readerCoverViewAvailable)) {
+    setReaderCoverViewRequested(false);
+  }
+  const readerCoverViewShown = readerCoverViewRequested && readerCoverViewAvailable;
+  // The cover's own tap toggle for the system chrome (status bar, Back and the
+  // toggle): the reading HUD's state and its auto-hide stay out of it.
+  const [readerCoverChromeShown, setReaderCoverChromeShown] = useState(true);
+  const readerBarChromeShown = mobileReaderCoverViewBarChromeShown({
+    coverShown: readerCoverViewShown,
+    coverChromeShown: readerCoverChromeShown,
+    readerControlsShown: showControls,
+  });
   const currentPageNaturalSize = displayedPages[clampedPageIndex]
     ? readerImageSizes.get(readerPageIdentityFor(displayedPages[clampedPageIndex])) : undefined;
   const readerPageAspectRatio = 1 / readerFitRatio(currentPageNaturalSize);
@@ -5243,7 +5287,8 @@ export function ReaderScreen() {
     () =>
       readerSideBar
         ? {
-            ...mobileReaderScreenOptions({ showControls, lightPage: readerPageIsLight, backgroundColor: readerBackgroundColor }),
+            // On the cover view, the status bar follows the cover's own toggle.
+            ...mobileReaderScreenOptions({ showControls: readerBarChromeShown, lightPage: readerPageIsLight, backgroundColor: readerBackgroundColor }),
             // A transparent native header that only carries Back and the
             // toolbar items (the system presents them in the vertical bar);
             // it stays mounted — its items hide with the chrome — so the
@@ -5256,7 +5301,7 @@ export function ReaderScreen() {
             title: "",
           }
         : { ...mobileReaderScreenOptions({ showControls, lightPage: readerPageIsLight, backgroundColor: readerBackgroundColor }), headerShown: false },
-    [readerBackgroundColor, readerPageIsLight, readerSideBar, showControls],
+    [readerBackgroundColor, readerBarChromeShown, readerPageIsLight, readerSideBar, showControls],
   );
   // The host screen behind the flow paints the page background too (see
   // acquireMobileReaderHostBackground): a chapter switch's card corners.
@@ -6714,6 +6759,23 @@ export function ReaderScreen() {
   const toggleReaderControls = useCallback(() => {
     setShowControls((value) => !value);
   }, []);
+  // The bar's book / pages button: the cover comes in with its chrome shown
+  // (the button was just pressed), and the page comes back with the HUD shown
+  // for the same reason. Asking for the cover settles the chapter-open
+  // auto-hide, so it never hides the HUD on the way back.
+  const toggleReaderCoverView = useCallback(() => {
+    if (readerCoverViewShown) {
+      setReaderCoverViewRequested(false);
+      setShowControls(true);
+      return;
+    }
+    readerChromeAutoHideKeyRef.current = readerChromeAutoHideKey;
+    setReaderCoverChromeShown(true);
+    setReaderCoverViewRequested(true);
+  }, [readerChromeAutoHideKey, readerCoverViewShown, setShowControls]);
+  const toggleReaderCoverChrome = useCallback(() => {
+    setReaderCoverChromeShown((value) => !value);
+  }, []);
 
   const goToNextChapterFromPrompt = useCallback(() => {
     if (endOfChapterProgressSaving) return;
@@ -7688,7 +7750,7 @@ export function ReaderScreen() {
   // sheet's rounded corner. They are unreachable under the sheet anyway, so
   // they step aside while one is up and return with the controls after.
   const readerBarItemsHidden =
-    !showControls ||
+    !readerBarChromeShown ||
     japaneseLearningLauncherVisible ||
     japaneseLearningOcrSheetVisible ||
     japaneseLearningChatDrawerVisible ||
@@ -9657,6 +9719,9 @@ export function ReaderScreen() {
       return;
     }
     if (readerInteractionSurfaceOpen) return;
+    // The cover view has its own tap toggle: the chapter-open auto-hide never
+    // runs under it (it was settled when the cover was asked for).
+    if (readerCoverViewShown) return;
     if (readerChromeAutoHideKeyRef.current === readerChromeAutoHideKey) return;
 
     const timeout = setTimeout(() => {
@@ -9680,6 +9745,7 @@ export function ReaderScreen() {
     readerChromeAutoHideKey,
     reduceMotion,
     readerInteractionSurfaceOpen,
+    readerCoverViewShown,
     showControls,
     continuousReaderScrubActive,
   ]);
@@ -12034,7 +12100,9 @@ export function ReaderScreen() {
   // (its own bar replaces the reader's): the chrome fades out under it
   // instead of being cut off by the sheet's edge, and back in after.
   const readerChromeUnderSheet = readerSideBar && useNativeReaderSettings && readerDisplaySettingsOpen;
-  const readerChromePresent = showReaderChrome && !endOfChapterPromptVisible && !readerChromeUnderSheet;
+  // The cover view (outer display) puts the capsule pieces (title, scrubber) away; only the bar's items stay.
+  const readerChromePresent =
+    showReaderChrome && !endOfChapterPromptVisible && !readerChromeUnderSheet && !readerCoverViewShown;
   const { durationMs: readerChromeBaseMs, slide: readerChromeSlide } = readerChromeMaterialTiming(reduceMotion);
   // The opening's fade (the chrome shown as the reader mounts) is done by the
   // zoom's visible landing + 230 ms when it starts at the landing: the usual
@@ -13345,7 +13413,24 @@ export function ReaderScreen() {
               hidden={readerBarItemsHidden}
               onPress={() => navigateBack()}
             />
+            {/* Outer display only: under Back, the cover (a closed book) and
+                back to the page (pages), as Apple Books there. */}
+            {readerCoverViewAvailable ? (
+              <Stack.Toolbar.Button
+                icon={readerCoverViewShown
+                  ? MOBILE_READER_COVER_VIEW_SYMBOLS.showPages
+                  : MOBILE_READER_COVER_VIEW_SYMBOLS.showCover}
+                iconRenderingMode="template"
+                tintColor={READER_CAPSULE_COLORS.primaryText}
+                accessibilityLabel={readerCoverViewShown
+                  ? strings.reader.coverViewShowPages
+                  : strings.reader.coverViewShowCover}
+                hidden={readerBarItemsHidden}
+                onPress={toggleReaderCoverView}
+              />
+            ) : null}
           </Stack.Toolbar>
+          {/* On the cover only Back and the toggle stay (the actions act on the page). */}
           <Stack.Toolbar placement="right" tintColor={READER_CAPSULE_COLORS.primaryText}>
             {japaneseLearningReaderPlugin ? (
               <Stack.Toolbar.Button
@@ -13353,7 +13438,7 @@ export function ReaderScreen() {
                 iconRenderingMode="template"
                 tintColor={READER_CAPSULE_COLORS.primaryText}
                 accessibilityLabel={strings.reader.pluginJapaneseLearningDetectText}
-                hidden={readerBarItemsHidden}
+                hidden={readerBarItemsHidden || readerCoverViewShown}
                 onPress={openJapaneseLearningDetectionTool}
               />
             ) : null}
@@ -13363,7 +13448,7 @@ export function ReaderScreen() {
                 iconRenderingMode="template"
                 tintColor={READER_CAPSULE_COLORS.primaryText}
                 accessibilityLabel={strings.reader.pluginJapaneseLearningNemuChat}
-                hidden={readerBarItemsHidden}
+                hidden={readerBarItemsHidden || readerCoverViewShown}
                 onPress={openJapaneseLearningChatTool}
               />
             ) : null}
@@ -13373,7 +13458,7 @@ export function ReaderScreen() {
                 iconRenderingMode="template"
                 tintColor={READER_CAPSULE_COLORS.primaryText}
                 accessibilityLabel={strings.reader.pluginDualReadName}
-                hidden={readerBarItemsHidden}
+                hidden={readerBarItemsHidden || readerCoverViewShown}
                 disabled={!dualReaderControlsAvailable}
                 selected={dualReadEnabled}
                 onPress={openDualReadConfig}
@@ -13384,7 +13469,7 @@ export function ReaderScreen() {
               iconRenderingMode="template"
               tintColor={READER_CAPSULE_COLORS.primaryText}
               accessibilityLabel={strings.reader.title}
-              hidden={readerBarItemsHidden}
+              hidden={readerBarItemsHidden || readerCoverViewShown}
               onPress={openReaderDisplaySettings}
             />
           </Stack.Toolbar>
@@ -13524,7 +13609,7 @@ export function ReaderScreen() {
           zoomedReaderPageId != null &&
           zoomedReaderPageId === currentDisplayedPageKey
         }
-        tapGesturesEnabled={!readerStageTapOwned}
+        tapGesturesEnabled={!readerStageTapOwned && !readerCoverViewShown}
         stageGesture={readerTwoFingerDoubleTap}
         pagedMode={galleryPagedMode}
         fitClip={readerFitClip}
@@ -13939,6 +14024,17 @@ export function ReaderScreen() {
       </MobileSheetPlacementProvider>
 
       {readerChromeMounted ? renderReaderChrome() : null}
+      {readerCoverViewShown && readerCoverViewImage ? (
+        <ReaderCoverView
+          image={readerCoverViewImage}
+          fadeMs={mobileReaderCoverViewFadeMs(reduceMotion)}
+          accessibilityLabel={mangaTitle
+            ? formatMobileString(strings.reader.outerCoverAccessibility, { title: mangaTitle })
+            : strings.reader.outerCoverAccessibilityUntitled}
+          accessibilityHint={readerCoverChromeShown ? strings.reader.hideControls : strings.reader.showControls}
+          onToggleChrome={toggleReaderCoverChrome}
+        />
+      ) : null}
       {/* Web drawer overlay + text popout: over a compact sentence / chat
           sheet the reader and its chrome are dimmed and blurred, and the
           selected bubble floats above everything (kept over a chat opened

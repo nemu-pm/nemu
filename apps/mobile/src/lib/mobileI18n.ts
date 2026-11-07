@@ -705,6 +705,10 @@ export type MobileStrings = {
     outerCoverAccessibility: string;
     /** VoiceOver label when the title is not known yet. */
     outerCoverAccessibilityUntitled: string;
+    /** iPhone Duo outer display, the vertical bar: show the title's cover in place of the page. */
+    coverViewShowCover: string;
+    /** The same button on the cover: back to the page. */
+    coverViewShowPages: string;
     immersiveCanvas: string;
     pageFit: string;
     pageFitPage: string;

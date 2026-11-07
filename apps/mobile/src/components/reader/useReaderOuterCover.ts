@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppState, Linking, type AppStateStatus } from "react-native";
 import type { InstalledSource, LibraryEntry } from "@/data/schema";
-import { useMobileExploreEntryCover } from "@/components/explore/mobileExploreCover";
 import { isMobileAppLocalImageUri } from "@/lib/mobileAppLocalImageUris";
 import { resolveCachedMobileImageUri } from "@/lib/mobileImageCache";
 import { getMobileImageUriPolicy } from "@/lib/mobileImageUriPolicy";
@@ -13,13 +12,9 @@ import {
   mobileOuterCoverToggleVisible,
   shouldRunMobileOuterCover,
 } from "@/lib/mobileOuterCover";
-import {
-  getCachedMobileSourceDetail,
-  makeMobileSourceDetailCacheKey,
-} from "@/lib/mobileSourceDetailCache";
 import type { MobileWindowLayout } from "@/lib/mobileWindowLayout";
 import { useMobileCoverTint } from "@/lib/useMobileCoverTint";
-import { useMobileSourceImageRequest } from "@/lib/useMobileSourceImageRequest";
+import { useReaderTitleCover, type ReaderTitleCoverSource } from "./useReaderTitleCover";
 import {
   cameraAccessStatus,
   clearOuterCover,
@@ -29,7 +24,7 @@ import {
   setOuterCover,
 } from "../../../modules/nemu-outer-cover";
 
-type CoverSource = { uri: string; headers?: Record<string, string> } | null;
+type CoverSource = ReaderTitleCoverSource;
 
 /**
  * Show Cover on Outer Display (iPhone Duo) for one reader: the toggle's
@@ -132,28 +127,15 @@ export function useReaderOuterCover(input: {
 
   // The cover, looked up only while the switch is on: the library's display
   // cover (as the library paints it), else the source's cached details.
-  const libraryCover = useMobileExploreEntryCover(wanted ? entry : null, input.installedSources);
-  const [detailCover, setDetailCover] = useState<string | null>(null);
-  useEffect(() => {
-    setDetailCover(null);
-    if (!wanted || entry) return undefined;
-    let cancelled = false;
-    void getCachedMobileSourceDetail(makeMobileSourceDetailCacheKey(registryId, sourceId, mangaId))
-      .then((cached) => {
-        if (!cancelled) setDetailCover(cached?.payload.metadata.cover?.trim() || null);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [entry, mangaId, registryId, sourceId, wanted]);
-  const detailRequest = useMobileSourceImageRequest(routeSource, wanted && !entry ? detailCover : null);
-  const cover = useMemo<CoverSource>(() => {
-    if (!wanted) return null;
-    if (entry) return libraryCover;
-    const uri = detailRequest?.url ?? detailCover;
-    return uri ? { uri, headers: detailRequest?.headers } : null;
-  }, [detailCover, detailRequest?.headers, detailRequest?.url, entry, libraryCover, wanted]);
+  const cover: CoverSource = useReaderTitleCover({
+    enabled: wanted,
+    entry,
+    installedSources: input.installedSources,
+    routeSource,
+    registryId,
+    sourceId,
+    mangaId,
+  });
   const coverKey = entry?.item.libraryItemId ?? `${registryId}:${sourceId}:${mangaId}`;
   const tint = useMobileCoverTint(cover, entry ? `item:${entry.item.libraryItemId}` : undefined);
   const coverFile = useOuterCoverFile(cover);
