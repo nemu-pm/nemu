@@ -39,6 +39,11 @@ import type {
   SourcePackageSetting,
 } from "./schema";
 import { LOCAL_ARCHIVE_REGISTRY_ID } from "@/lib/localArchives/policy";
+import {
+  mobileLibraryChapterKey,
+  type MobileLibraryChapterRef,
+  type MobileLibraryCompletedChapters,
+} from "@/lib/mobileLibraryPresentation";
 import type { MobileDataStore } from "./storeTypes";
 import {
   fetchAllAidokuRegistrySources,
@@ -648,6 +653,51 @@ export function useLibraryItem(
   }, [reload, revision]);
 
   return { data, loading, error, reload };
+}
+
+const NO_COMPLETED_CHAPTERS: MobileLibraryCompletedChapters = new Set();
+
+/**
+ * Which of `chapters` are read (their chapter progress is `completed`), as
+ * `mobileLibraryChapterKey`s: the Library's "Caught up" reads only the
+ * newest chapters titles were last in, not every chapter's progress.
+ */
+export function useCompletedChapters(
+  chapters: readonly MobileLibraryChapterRef[],
+): MobileLibraryCompletedChapters {
+  const store = useMobileDataStore();
+  const revision = useMobileDataRevision(["progress"]);
+  const signature = JSON.stringify(chapters.map(mobileLibraryChapterKey));
+  const [completed, setCompleted] = useState<MobileLibraryCompletedChapters>(NO_COMPLETED_CHAPTERS);
+
+  useEffect(() => {
+    let current = true;
+    const refs = (JSON.parse(signature) as string[]).map((key) => {
+      const [registryId, sourceId, mangaId, chapterId] = JSON.parse(key) as string[];
+      return { registryId, sourceId, mangaId, chapterId };
+    });
+    void Promise.all(
+      refs.map((ref) =>
+        store
+          .getChapterProgress(ref.registryId, ref.sourceId, ref.mangaId, ref.chapterId)
+          .then((progress) => (progress?.completed ? mobileLibraryChapterKey(ref) : null))
+          .catch(() => null),
+      ),
+    ).then((keys) => {
+      if (!current) return;
+      const next = keys.filter((key): key is string => key !== null);
+      setCompleted((previous) =>
+        previous.size === next.length && next.every((key) => previous.has(key))
+          ? previous
+          : next.length ? new Set(next) : NO_COMPLETED_CHAPTERS,
+      );
+    });
+    return () => {
+      current = false;
+    };
+  }, [revision, signature, store]);
+
+  return completed;
 }
 
 export function useMangaChapterProgress(

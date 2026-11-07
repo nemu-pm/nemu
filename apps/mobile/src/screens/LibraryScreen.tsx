@@ -69,6 +69,7 @@ import {
   useInstalledSources,
   useLibraryEntries,
   useMobileLanguageSettings,
+  useCompletedChapters,
   useMangaProgress,
 } from "@/data/mobileHooks";
 import {
@@ -195,6 +196,7 @@ import {
   buildMobileProgressIndex,
   getMobileEntryQuickActionSource,
   getMobileLibraryEmptyState,
+  getMobileLibraryCaughtUpCandidates,
   getMobileLibraryProgressInfo,
   shouldRenderMobileLibrarySkeleton,
   shouldShowMobileLibraryEmptyOnboarding,
@@ -1038,11 +1040,17 @@ export function LibraryScreen({
       [entryProgressMaps, libraryEntries, progressIndex]
     )
   );
+  const completedChapters = useCompletedChapters(
+    useMemo(
+      () => getMobileLibraryCaughtUpCandidates(libraryEntries, progressIndex, entryProgressMaps),
+      [entryProgressMaps, libraryEntries, progressIndex]
+    )
+  );
   const cardProgress = useStableValue(
     useMemo(
       () =>
-        buildMobileLibraryCardProgress(libraryEntries, progressIndex, strings, entryProgressMaps),
-      [entryProgressMaps, libraryEntries, progressIndex, strings]
+        buildMobileLibraryCardProgress(libraryEntries, progressIndex, strings, entryProgressMaps, completedChapters),
+      [completedChapters, entryProgressMaps, libraryEntries, progressIndex, strings]
     ),
     stabilizeMobileLibraryCardProgress
   );
@@ -2145,11 +2153,14 @@ export function LibraryScreen({
       quickActionEntry,
       progressIndex,
       strings,
+      undefined,
+      completedChapters,
     ).subtitle;
     const sourceName =
       quickActionSource?.name ?? quickActionLink?.sourceId ?? null;
     return [sourceName, progress].filter(Boolean).join(" · ");
   }, [
+    completedChapters,
     progressIndex,
     quickActionEntry,
     quickActionLink,

@@ -18,7 +18,9 @@ import {
   getMobileEntryQuickActionSource,
   getMobileLibraryEmptyState,
   getMobileEntryAddedAt,
+  getMobileLibraryCaughtUpCandidates,
   getMobileLibraryProgressInfo,
+  mobileLibraryChapterKey,
   paginateMobileLibraryMergeCandidates,
   shouldRenderMobileLibrarySkeleton,
   shouldShowMobileLibraryEmptyOnboarding,
@@ -332,11 +334,81 @@ describe("mobile library presentation", () => {
       }),
     ]);
     const progressIndex = buildMobileProgressIndex([progress("caught-up", 100, "c5")]);
+    const completed = new Set([
+      mobileLibraryChapterKey({
+        registryId: "aidoku-community",
+        sourceId: "en.example",
+        mangaId: "caught-up",
+        chapterId: "c5",
+      }),
+    ]);
 
-    expect(getMobileLibraryProgressInfo(item, progressIndex, zh)).toMatchObject({
+    expect(
+      getMobileLibraryProgressInfo(item, progressIndex, zh, undefined, completed),
+    ).toMatchObject({
       badge: "更新",
       subtitle: "已读至最新话",
     });
+  });
+
+  test("opening the newest chapter is not caught up until it is read", () => {
+    const item = entry("opened", 10, [
+      sourceLink("opened", { latestChapter: { id: "c5", chapterNumber: 5 } }),
+    ]);
+    const progressIndex = buildMobileProgressIndex([progress("opened", 100, "c5")]);
+    const ref = {
+      registryId: "aidoku-community",
+      sourceId: "en.example",
+      mangaId: "opened",
+      chapterId: "c5",
+    };
+
+    // Its completion is not known (or it is not completed): it names the chapter.
+    expect(getMobileLibraryProgressInfo(item, progressIndex, en).subtitle).toBe("Ch.5 / Ch.5");
+    expect(
+      getMobileLibraryProgressInfo(item, progressIndex, en, undefined, new Set()).subtitle,
+    ).toBe("Ch.5 / Ch.5");
+    // Another chapter's completion does not count.
+    expect(
+      getMobileLibraryProgressInfo(
+        item,
+        progressIndex,
+        en,
+        undefined,
+        new Set([mobileLibraryChapterKey({ ...ref, chapterId: "c4" })]),
+      ).subtitle,
+    ).toBe("Ch.5 / Ch.5");
+    expect(
+      getMobileLibraryProgressInfo(
+        item,
+        progressIndex,
+        en,
+        undefined,
+        new Set([mobileLibraryChapterKey(ref)]),
+      ).subtitle,
+    ).toBe("Caught up");
+    expect(
+      buildMobileLibraryCardProgress([item], progressIndex, en, undefined, new Set([mobileLibraryChapterKey(ref)]))
+        .get("opened")?.subtitle,
+    ).toBe("Caught up");
+  });
+
+  test("lists the newest-chapter readings whose completion decides caught up", () => {
+    const newest = entry("newest", 10, [
+      sourceLink("newest", { latestChapter: { id: "c5", chapterNumber: 5 } }),
+    ]);
+    const behind = entry("behind", 10, [
+      sourceLink("behind", { latestChapter: { id: "c5", chapterNumber: 5 } }),
+    ]);
+    const unread = entry("unread", 10, [sourceLink("unread")]);
+    const progressIndex = buildMobileProgressIndex([
+      progress("newest", 100, "c5"),
+      progress("behind", 100, "c2"),
+    ]);
+
+    expect(getMobileLibraryCaughtUpCandidates([newest, behind, unread], progressIndex)).toEqual([
+      { registryId: "aidoku-community", sourceId: "en.example", mangaId: "newest", chapterId: "c5" },
+    ]);
   });
 
   test("localizes unread entries without progress", () => {
