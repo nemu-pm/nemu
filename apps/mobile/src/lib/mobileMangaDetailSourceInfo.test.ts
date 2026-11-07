@@ -8,6 +8,7 @@ describe("getMobileDetailSourceLicense", () => {
     expect(getMobileDetailSourceLicense({ id: "nemu-recommended:multi.lanraragi", registryId: "nemu-recommended", sourceId: "multi.lanraragi" })).toBeNull();
     expect(getMobileDetailSourceLicense({ id: "aidoku:en.example", registryId: "aidoku", sourceId: "multi.peppercarrot" })).toBeNull();
     expect(getMobileDetailSourceLicense(null)).toBeNull();
+    expect(getMobileDetailSourceLicense({ id: "nemu-recommended:multi.x", registryId: "nemu-recommended", sourceId: "multi.x", contentLicense: "CC0-1.0" })).toBe("CC0 1.0");
   });
 });
 

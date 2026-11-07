@@ -242,6 +242,7 @@ async function saveMobileRegistrySourceInstall(
     icon: source.icon,
     languages: packageMetadata?.languages ?? source.languages,
     contentRating: packageMetadata?.contentRating ?? source.contentRating,
+    ...(source.contentLicense ? { contentLicense: source.contentLicense } : {}),
     ...(source.hasAuthentication == null
       ? {}
       : { hasAuthentication: source.hasAuthentication }),

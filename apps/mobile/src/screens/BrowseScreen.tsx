@@ -144,11 +144,13 @@ import {
   shouldReopenMobileAddSourceSheetAfterInstall,
   type MobileSourceQuickActionId,
   getMobileSourceOriginLabel,
-  getMobileRegistryDisplayName,
   formatMobileSourceLanguages,
 } from "@/lib/mobileBrowseSources";
 import { getMobileInstalledSourceRegistryRef } from "@/lib/mobileInstalledSourceKeys";
-import { getMobileInstalledSourceName } from "@/lib/mobileInstalledSourcePresentation";
+import {
+  getMobileInstalledSourceName,
+  getMobileInstalledSourceOriginLabel,
+} from "@/lib/mobileInstalledSourcePresentation";
 import {
   buildMobileSourceIconIndex,
   resolveMobileInstalledSourceIconUri,
@@ -1015,7 +1017,7 @@ export function BrowseScreen() {
         subtitle:
           registryId === SELF_HOSTED_REGISTRY_ID && source.selfHosted
             ? selfHostedKindName(source.selfHosted.kind)
-            : getMobileRegistryDisplayName(registryId, registryId, strings),
+            : getMobileInstalledSourceOriginLabel(source, strings),
         unsupported: isMobileUnsupportedInstalledSource(source),
       };
     });

@@ -3,6 +3,8 @@ import type { InstalledSource } from "@/data/schema";
 import {
   compactMobileLabelList,
   getMobileExploreInstalledSourceSubtitle,
+  getMobileInstalledSourceContentLicense,
+  getMobileInstalledSourceOriginLabel,
   getMobileInstalledSourceSubtitle,
 } from "./mobileInstalledSourcePresentation";
 
@@ -60,6 +62,41 @@ describe("compactMobileLabelList", () => {
     expect(
       compactMobileLabelList(["Safe", "Suggestive", "Erotica", "Pornographic"]),
     ).toBe("Safe, Suggestive +2");
+  });
+});
+
+describe("installed built-in source origin", () => {
+  const strings = { settings: { nemuRecommendedDirectoryName: "nemu recommended", sourceFileOrigin: "Source file" } };
+  const pepper = makeSource({
+    id: "nemu-recommended:multi.peppercarrot",
+    registryId: "nemu-recommended",
+    sourceId: "multi.peppercarrot",
+    languages: ["en", "ja"],
+  });
+
+  test("names the licence recorded at install", () => {
+    expect(getMobileInstalledSourceOriginLabel({ ...pepper, contentLicense: "CC-BY-SA-4.0" }, strings)).toBe("CC BY-SA 4.0");
+  });
+
+  test("falls back to the bundled snapshot when the record lost it (synced, older install)", () => {
+    expect(getMobileInstalledSourceContentLicense(pepper)).toBe("CC-BY-4.0");
+    expect(getMobileInstalledSourceSubtitle(pepper, strings)).toBe("EN, JA / CC BY 4.0");
+  });
+
+  test("a built-in source without a licence names no origin", () => {
+    const lanraragi = makeSource({
+      id: "nemu-recommended:multi.lanraragi",
+      registryId: "nemu-recommended",
+      sourceId: "multi.lanraragi",
+      languages: ["multi"],
+    });
+    expect(getMobileInstalledSourceOriginLabel(lanraragi, strings)).toBeUndefined();
+    expect(getMobileInstalledSourceSubtitle(lanraragi, strings)).toBe("MULTI");
+  });
+
+  test("another directory keeps its name even with a licence", () => {
+    expect(getMobileInstalledSourceContentLicense(makeSource({ contentLicense: "CC-BY-4.0" }))).toBeUndefined();
+    expect(getMobileInstalledSourceOriginLabel(makeSource({ contentLicense: "CC-BY-4.0" }), strings)).toBe("aidoku-community");
   });
 });
 

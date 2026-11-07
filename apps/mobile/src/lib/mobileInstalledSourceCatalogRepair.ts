@@ -81,6 +81,9 @@ export function applyMobileCatalogEntryToInstalledSource(
     icon: source.icon ?? entry.icon,
     languages: source.languages ?? entry.languages,
     contentRating: source.contentRating ?? entry.contentRating,
+    ...(source.contentLicense == null && entry.contentLicense
+      ? { contentLicense: entry.contentLicense }
+      : {}),
     ...(source.hasAuthentication == null && entry.hasAuthentication != null
       ? { hasAuthentication: entry.hasAuthentication }
       : {}),

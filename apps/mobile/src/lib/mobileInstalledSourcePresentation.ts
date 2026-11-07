@@ -1,6 +1,8 @@
+import { NEMU_RECOMMENDED_REGISTRY_ID } from "@nemu/core/sources";
 import type { InstalledSource } from "@/data/schema";
+import { getNemuRecommendedSourceContentLicense } from "@/sources/nemuRecommendedDirectory";
 import { getMobileInstalledSourceRegistryRef } from "./mobileInstalledSourceKeys";
-import { getMobileRegistryDisplayName } from "./mobileBrowseSources";
+import { getMobileRegistryDisplayName, getMobileSourceOriginLabel } from "./mobileBrowseSources";
 
 /** How many entries to list before collapsing the rest into "+N". */
 const MAX_LISTED_LABELS = 2;
@@ -42,6 +44,34 @@ function installedSourceLanguages(source: InstalledSource): string[] {
     : (source.packageMetadata?.languages ?? []);
 }
 
+/**
+ * An installed built-in source's content licence (raw SPDX id): the one copied
+ * at install, else the bundled directory snapshot's (a record synced from
+ * another device, or installed before the field existed, has none).
+ */
+export function getMobileInstalledSourceContentLicense(
+  source: InstalledSource,
+): string | undefined {
+  const { registryId, sourceId } = getMobileInstalledSourceRegistryRef(source);
+  if (registryId !== NEMU_RECOMMENDED_REGISTRY_ID) return undefined;
+  return source.contentLicense ?? getNemuRecommendedSourceContentLicense(sourceId);
+}
+
+/**
+ * Where an installed source comes from, as its row says it: a built-in
+ * source's licence or nothing, otherwise the directory name.
+ */
+export function getMobileInstalledSourceOriginLabel(
+  source: InstalledSource,
+  strings?: Parameters<typeof getMobileRegistryDisplayName>[2],
+): string | undefined {
+  const { registryId } = getMobileInstalledSourceRegistryRef(source);
+  return getMobileSourceOriginLabel(
+    { registryId, registryName: registryId, contentLicense: getMobileInstalledSourceContentLicense(source) },
+    strings,
+  );
+}
+
 export function getMobileInstalledSourceSubtitle(
   source: InstalledSource,
   strings?: Parameters<typeof getMobileRegistryDisplayName>[2],
@@ -51,11 +81,7 @@ export function getMobileInstalledSourceSubtitle(
   });
   return [
     languages,
-    getMobileRegistryDisplayName(
-      getMobileInstalledSourceRegistryRef(source).registryId,
-      getMobileInstalledSourceRegistryRef(source).registryId,
-      strings,
-    ),
+    getMobileInstalledSourceOriginLabel(source, strings),
   ]
     .filter(Boolean)
     .join(" / ");

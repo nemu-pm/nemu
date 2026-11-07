@@ -43,6 +43,12 @@ export const NEMU_RECOMMENDED_DIRECTORY_FALLBACK_INDEX = {
   ] as Array<Record<string, unknown>>,
 };
 
+/** A built-in source's content licence from the bundled snapshot, if it declares one. */
+export function getNemuRecommendedSourceContentLicense(sourceId: string): string | undefined {
+  const entry = NEMU_RECOMMENDED_DIRECTORY_FALLBACK_INDEX.sources.find((source) => source.id === sourceId);
+  return typeof entry?.contentLicense === "string" ? entry.contentLicense : undefined;
+}
+
 export function getNemuRecommendedDirectoryFallbackSources(): MobileRegistrySource[] {
   return parseAidokuRegistryIndex(
     NEMU_RECOMMENDED_REGISTRY,

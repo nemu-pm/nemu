@@ -46,6 +46,12 @@ export type InstalledSource = {
   icon?: string;
   languages?: string[];
   contentRating?: number;
+  /**
+   * SPDX-style licence of the content ("CC-BY-4.0"), copied from the
+   * directory entry at install. Local only: cloud sync does not carry it, so
+   * readers fall back to the catalog (see getMobileInstalledSourceContentLicense).
+   */
+  contentLicense?: string;
   hasAuthentication?: boolean;
   hasCloudflare?: boolean;
   downloadUrl?: string;

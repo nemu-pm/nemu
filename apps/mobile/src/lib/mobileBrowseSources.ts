@@ -411,6 +411,9 @@ export function mergeMobileInstalledSourceRegistryMetadata(
       icon: registrySource.icon ?? installed.icon,
       languages: registrySource.languages ?? installed.languages,
       contentRating: registrySource.contentRating ?? installed.contentRating,
+      ...(registrySource.contentLicense
+        ? { contentLicense: registrySource.contentLicense }
+        : {}),
       ...(registrySource.hasAuthentication == null
         ? {}
         : { hasAuthentication: registrySource.hasAuthentication }),
@@ -475,8 +478,9 @@ export function formatMobileContentLicense(license: string): string {
 }
 
 /**
- * What follows the languages on a source row: the content licence for a
- * nemu-recommended source that declares one, otherwise the directory name.
+ * What follows the languages on a source row. A built-in (nemu recommended)
+ * source is a demo, not a recommendation: it names its content licence, or
+ * nothing when it declares none. Any other source names its directory.
  */
 export function getMobileSourceOriginLabel(
   source: {
@@ -485,10 +489,11 @@ export function getMobileSourceOriginLabel(
     contentLicense?: string;
   },
   strings?: MobileOriginStrings,
-): string {
-  return source.registryId === NEMU_RECOMMENDED_REGISTRY_ID && source.contentLicense
-    ? formatMobileContentLicense(source.contentLicense)
-    : getMobileRegistryDisplayName(source.registryId, source.registryName, strings);
+): string | undefined {
+  if (source.registryId === NEMU_RECOMMENDED_REGISTRY_ID) {
+    return source.contentLicense ? formatMobileContentLicense(source.contentLicense) : undefined;
+  }
+  return getMobileRegistryDisplayName(source.registryId, source.registryName, strings);
 }
 
 type MobileOriginStrings = {

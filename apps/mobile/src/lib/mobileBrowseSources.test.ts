@@ -384,6 +384,7 @@ describe("mobile browse source filtering", () => {
           icon: "fresh.png",
           languages: ["ja"],
           contentRating: 1,
+          contentLicense: "CC-BY-4.0",
           hasCloudflare: true,
           downloadUrl: "https://example.test/fresh.aix",
           version: 9,
@@ -393,6 +394,7 @@ describe("mobile browse source filtering", () => {
 
     expect(merged).toMatchObject({
       id: "en.legacy",
+      contentLicense: "CC-BY-4.0",
       registryId: "aidoku-community",
       sourceId: "en.legacy",
       name: "Fresh Registry Name",
@@ -819,12 +821,12 @@ describe("mobile browse source filtering", () => {
 
 describe("source origin label", () => {
   const base = { registryName: "My dir", registryId: "dir-aaaaaaaaaaaa" };
-  test("recommended sources with a licence show it, everything else the directory name", async () => {
+  test("built-in sources show their licence or nothing, everything else the directory name", async () => {
     const { getMobileSourceOriginLabel, formatMobileContentLicense } = await import("./mobileBrowseSources");
     expect(
       getMobileSourceOriginLabel({ ...base, registryId: "nemu-recommended", registryName: "nemu recommended", contentLicense: "CC-BY-4.0" }),
     ).toBe("CC BY 4.0");
-    expect(getMobileSourceOriginLabel({ ...base, registryId: "nemu-recommended", registryName: "nemu recommended" })).toBe("nemu recommended");
+    expect(getMobileSourceOriginLabel({ ...base, registryId: "nemu-recommended", registryName: "nemu recommended" })).toBeUndefined();
     expect(getMobileSourceOriginLabel({ ...base, contentLicense: "CC-BY-4.0" })).toBe("My dir");
     expect(formatMobileContentLicense("CC-BY-SA-4.0")).toBe("CC BY-SA 4.0");
     expect(formatMobileContentLicense("MIT")).toBe("MIT");
@@ -844,7 +846,9 @@ describe("origin labels", () => {
   const strings = { settings: { nemuRecommendedDirectoryName: "nemu 推荐", sourceFileOrigin: "来源文件" } };
   test("the built-in directory and imported files use localised names", async () => {
     const { getMobileSourceOriginLabel, getMobileRegistryDisplayName } = await import("./mobileBrowseSources");
-    expect(getMobileSourceOriginLabel({ registryId: "nemu-recommended", registryName: "nemu recommended" }, strings)).toBe("nemu 推荐");
+    // A built-in source row never says "nemu recommended"; the directory list still can.
+    expect(getMobileSourceOriginLabel({ registryId: "nemu-recommended", registryName: "nemu recommended" }, strings)).toBeUndefined();
+    expect(getMobileRegistryDisplayName("nemu-recommended", "nemu recommended", strings)).toBe("nemu 推荐");
     expect(getMobileSourceOriginLabel({ registryId: "nemu-recommended", registryName: "x", contentLicense: "MIT" }, strings)).toBe("MIT");
     expect(getMobileRegistryDisplayName("custom-aidoku", "custom-aidoku", strings)).toBe("来源文件");
     expect(getMobileRegistryDisplayName("d-abc", "Other list", strings)).toBe("Other list");
