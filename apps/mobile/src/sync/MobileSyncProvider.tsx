@@ -1548,12 +1548,18 @@ function ConfiguredMobileSyncBridge() {
 
         const localSettings = await store.getSyncSettings();
         if (!shouldContinue()) return;
+        const cloudSources = cloudSettings.installedSources ?? [];
+        const mergedSources = mergeMobileInstalledSources(
+          localSettings.installedSources,
+          cloudSources,
+        );
         await syncMobileSourceDirectories({
           store,
           convex,
           cloud: cloudSettings.sourceDirectories ?? [],
           generation: snapshotGeneration,
           expectedUserId,
+          installedSources: mergedSources,
           shouldContinue,
         });
         await syncMobileLocalArchiveVolumes({
@@ -1564,11 +1570,6 @@ function ConfiguredMobileSyncBridge() {
           shouldContinue,
         });
         if (!shouldContinue()) return;
-        const cloudSources = cloudSettings.installedSources ?? [];
-        const mergedSources = mergeMobileInstalledSources(
-          localSettings.installedSources,
-          cloudSources,
-        );
         // Hydration downloads packages over the network — it must stay
         // outside the store write; the updatedAt guard in the apply protects
         // against sources that changed locally meanwhile.

@@ -1,5 +1,6 @@
 import { NEMU_RECOMMENDED_REGISTRY_ID } from "@nemu/core/sources";
 import type { InstalledSource } from "@/data/schema";
+import { getRememberedMobileSourceDirectoryName } from "@/data/mobileSourceDirectoryNames";
 import { getNemuRecommendedSourceContentLicense } from "@/sources/nemuRecommendedDirectory";
 import { getMobileInstalledSourceRegistryRef } from "./mobileInstalledSourceKeys";
 import { getMobileRegistryDisplayName, getMobileSourceOriginLabel } from "./mobileBrowseSources";
@@ -67,7 +68,11 @@ export function getMobileInstalledSourceOriginLabel(
 ): string | undefined {
   const { registryId } = getMobileInstalledSourceRegistryRef(source);
   return getMobileSourceOriginLabel(
-    { registryId, registryName: registryId, contentLicense: getMobileInstalledSourceContentLicense(source) },
+    {
+      registryId,
+      registryName: getRememberedMobileSourceDirectoryName(registryId) ?? registryId,
+      contentLicense: getMobileInstalledSourceContentLicense(source),
+    },
     strings,
   );
 }

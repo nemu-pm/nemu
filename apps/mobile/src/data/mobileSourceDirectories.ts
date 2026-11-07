@@ -11,8 +11,10 @@ import {
   type SourceDirectory,
 } from "@nemu/core/sources";
 import {
-  shouldApplyCloudSourceDirectory,
+  planSourceDirectoryBackfill,
+  planSourceDirectoryReconcile,
   type CloudSourceDirectory,
+  type LocalSourceDirectoryRow,
 } from "@nemu/core/sources";
 import type { InstalledSource, SourceRegistry } from "./schema";
 import type { MobileDataStore } from "./storeTypes";
@@ -22,6 +24,7 @@ import {
 } from "@/sources/aidokuRegistry";
 import { extractMobileSourceDirectoryUrl } from "@/lib/mobileSourceDirectoryLink";
 import { getMobileInstalledSourceRegistryKeys } from "@/lib/mobileInstalledSourceKeys";
+import { rememberMobileSourceDirectoryNames } from "./mobileSourceDirectoryNames";
 
 export type { SourceDirectory };
 
@@ -206,7 +209,9 @@ export async function loadMobileSourceDirectories(
   options: { now?: () => number } = {},
 ): Promise<SourceDirectory[]> {
   await ensureSourceDirectoriesSeeded(store, options.now ?? Date.now);
-  const directories = (await store.getRegistries())
+  const registries = await store.getRegistries();
+  rememberMobileSourceDirectoryNames(registries);
+  const directories = registries
     .map(sourceDirectoryFromRegistry)
     .filter((entry): entry is SourceDirectory => entry !== null);
   return sortDirectories(directories);
@@ -475,51 +480,97 @@ export type SourceDirectoryReconcilePlan = {
   push: CloudSourceDirectory[];
 };
 
+function toLocalSourceDirectoryRow(
+  registry: SourceRegistry,
+): LocalSourceDirectoryRow | null {
+  if (registry.type !== "url" || !registry.url) return null;
+  return {
+    id: registry.id,
+    name: registry.name,
+    indexUrl: registry.url,
+    enabled: registry.disabled !== true,
+    updatedAt: registry.updatedAt,
+    addedAt: registry.addedAt,
+    builtIn: registry.builtIn === true,
+  };
+}
+
 /**
- * Reconciles the local directory rows with the cloud list: newer wins per id,
- * tombstones remove, cloud-only directories are added, and local-only (or
- * newer) ones are returned for pushing. Built-in rows never sync. Rows written
- * from the cloud carry its `updatedAt`, so the sync store does not echo them.
+ * Reconciles the local directory rows with the cloud list (see
+ * `planSourceDirectoryReconcile`): newer wins, matched by id or by normalised
+ * index URL, tombstones remove, cloud-only directories are added, and
+ * local-only (or newer) ones are returned for pushing. Built-in rows never
+ * sync. Rows written from the cloud carry its `updatedAt`, so the sync store
+ * does not echo them; a row matched by URL keeps its own id.
  */
 export function reconcileSourceDirectories(
   local: readonly SourceRegistry[],
   cloud: readonly CloudSourceDirectory[],
 ): SourceDirectoryReconcilePlan {
-  const plan: SourceDirectoryReconcilePlan = { save: [], removeIds: [], push: [] };
   const localById = new Map(local.map((row) => [row.id, row]));
-  const cloudById = new Map(cloud.map((row) => [row.id, row]));
-  for (const remote of cloud) {
-    const row = localById.get(remote.id);
-    const localClock =
-      row?.type === "url" ? (row.updatedAt ?? row.addedAt ?? 0) : undefined;
-    if (row && (row.type !== "url" || row.builtIn)) continue;
-    if (remote.removed) {
-      if (row && localClock !== undefined && remote.updatedAt >= localClock) {
-        plan.removeIds.push(remote.id);
-      }
-      continue;
-    }
-    if (!row || shouldApplyCloudSourceDirectory(localClock, remote.updatedAt)) {
-      plan.save.push({
-        id: remote.id,
+  const rows = local
+    .map(toLocalSourceDirectoryRow)
+    .filter((row): row is LocalSourceDirectoryRow => row !== null);
+  // A non-url row (an old stub) shares the id space: never overwrite it.
+  const blocked = local
+    .filter((row) => row.type !== "url" || !row.url)
+    .map((row) => ({ id: row.id, name: row.name, indexUrl: "", enabled: true, builtIn: true }));
+  const planned = planSourceDirectoryReconcile([...rows, ...blocked], cloud);
+  return {
+    save: planned.save.map(({ localId, remote }) => {
+      const row = localById.get(localId);
+      const next: UrlRegistry = {
+        ...(row?.type === "url" ? row : {}),
+        id: localId,
         name: remote.name,
         type: "url",
         url: remote.indexUrl,
-        ...(remote.enabled ? {} : { disabled: true }),
         addedAt: row?.type === "url" ? row.addedAt : remote.updatedAt,
         updatedAt: remote.updatedAt,
-      });
-    }
+      };
+      if (remote.enabled) delete next.disabled;
+      else next.disabled = true;
+      return next;
+    }),
+    removeIds: planned.removeIds,
+    push: planned.push,
+  };
+}
+
+/**
+ * Directory rows to add for synced installed sources this device has no
+ * directory for (`planSourceDirectoryBackfill`): from a record that proves its
+ * origin, so the source gets updates, shows in Browse under its directory and
+ * is labelled with the directory's name. Stamped with a fresh clock and
+ * returned for pushing too, so other devices learn the directory.
+ */
+export function planMobileSourceDirectoryBackfill(
+  local: readonly SourceRegistry[],
+  cloud: readonly CloudSourceDirectory[],
+  installedSources: readonly InstalledSource[],
+  now: number,
+): { save: SourceRegistry[]; push: CloudSourceDirectory[] } {
+  const directories = planSourceDirectoryBackfill({
+    installedSources,
+    local: local.map((row) => ({ id: row.id, indexUrl: row.type === "url" ? (row.url ?? "") : "" })),
+    cloud,
+  });
+  const save: SourceRegistry[] = [];
+  const push: CloudSourceDirectory[] = [];
+  for (const directory of directories) {
+    const registry: UrlRegistry = {
+      id: directory.id,
+      name: directory.name,
+      type: "url",
+      url: directory.indexUrl,
+      addedAt: now,
+      updatedAt: now,
+    };
+    save.push(registry);
+    const cloudDirectory = toCloudSourceDirectory(registry);
+    if (cloudDirectory) push.push(cloudDirectory);
   }
-  for (const row of local) {
-    const directory = toCloudSourceDirectory(row);
-    if (!directory) continue;
-    const remote = cloudById.get(row.id);
-    if (!remote || directory.updatedAt > remote.updatedAt) {
-      plan.push.push(directory);
-    }
-  }
-  return plan;
+  return { save, push };
 }
 
 export async function applySourceDirectoryReconcilePlan(

@@ -11,8 +11,11 @@ import { api } from "../../../../convex/_generated/api";
 import {
   applySourceDirectoryReconcilePlan,
   loadMobileSourceDirectories,
+  planMobileSourceDirectoryBackfill,
   reconcileSourceDirectories,
 } from "@/data/mobileSourceDirectories";
+import { rememberMobileSourceDirectoryNames } from "@/data/mobileSourceDirectoryNames";
+import type { InstalledSource } from "@/data/schema";
 import { emitMobileDataChanged } from "@/data/mobileDataEvents";
 import type { MobileDataStore } from "@/data/storeTypes";
 
@@ -31,7 +34,9 @@ export function canonicalCloudSourceDirectories(
 /**
  * Brings the local directory list and the cloud list together. Runs before
  * synced source packages are hydrated so a restored source can resolve its
- * catalog entry through a directory the user added on another device.
+ * catalog entry through a directory the user added on another device. Then
+ * recovers directories for installed sources that still have none (a source
+ * installed elsewhere before directories synced, or from a legacy default).
  */
 export async function syncMobileSourceDirectories({
   store,
@@ -39,14 +44,19 @@ export async function syncMobileSourceDirectories({
   cloud,
   generation,
   expectedUserId,
+  installedSources = [],
   shouldContinue,
+  now = Date.now,
 }: {
   store: MobileDataStore;
   convex: DirectorySyncClient;
   cloud: readonly CloudSourceDirectory[];
   generation: number;
   expectedUserId?: string;
+  /** Local and synced installed sources, for directory backfill. */
+  installedSources?: readonly InstalledSource[];
   shouldContinue: () => boolean;
+  now?: () => number;
 }): Promise<{ changed: boolean }> {
   // Seeds the recommended directory and migrates the legacy ones first, so a
   // migrated directory is part of what gets pushed.
@@ -55,7 +65,16 @@ export async function syncMobileSourceDirectories({
   const plan = reconcileSourceDirectories(await store.getRegistries(), cloud);
   if (!shouldContinue()) return { changed: false };
   await applySourceDirectoryReconcilePlan(store, plan);
-  for (const directory of plan.push) {
+  if (!shouldContinue()) return { changed: false };
+  const backfill = planMobileSourceDirectoryBackfill(
+    await store.getRegistries(),
+    cloud,
+    installedSources,
+    now(),
+  );
+  for (const registry of backfill.save) await store.saveRegistry(registry);
+  rememberMobileSourceDirectoryNames(await store.getRegistries());
+  for (const directory of [...plan.push, ...backfill.push]) {
     if (!shouldContinue()) break;
     try {
       await convex.mutation(api.settings.saveSourceDirectory, {
@@ -67,7 +86,10 @@ export async function syncMobileSourceDirectories({
       console.warn("[MobileSync] Could not push source directory:", error);
     }
   }
-  const changed = plan.save.length > 0 || plan.removeIds.length > 0;
+  const changed =
+    plan.save.length > 0 ||
+    plan.removeIds.length > 0 ||
+    backfill.save.length > 0;
   if (changed) emitMobileDataChanged("registries");
   return { changed };
 }

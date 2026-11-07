@@ -509,11 +509,16 @@ async function pullAndMergeSettings(
   const localSettings = await store.getSyncSettings();
   if (shouldStop(deps)) return;
 
+  const mergedSources = mergeMobileInstalledSources(
+    localSettings.installedSources,
+    snapshot.settings.installedSources ?? [],
+  );
   await syncMobileSourceDirectories({
     store,
     convex: deps.convex,
     cloud: snapshot.settings.sourceDirectories ?? [],
     generation: snapshot.generation,
+    installedSources: mergedSources,
     shouldContinue: () => !shouldStop(deps),
   });
   await syncMobileLocalArchiveVolumes({
@@ -523,10 +528,6 @@ async function pullAndMergeSettings(
     shouldContinue: () => !shouldStop(deps),
   });
   if (shouldStop(deps)) return;
-  const mergedSources = mergeMobileInstalledSources(
-    localSettings.installedSources,
-    snapshot.settings.installedSources ?? [],
-  );
   const hydrateSourcePackages =
     deps.hydrateSourcePackages ?? hydrateMobileSyncedSourcePackages;
   const hydratedSources = await hydrateSourcePackages(mergedSources, {
