@@ -33,10 +33,6 @@ export type ReaderSettingsNativeRows = {
   /** Paged reading: the Page Turning menu row in its own section. */
   showPageTurn?: boolean;
   showCameraMode?: boolean;
-  /** iPhone Duo (iOS 27.1+): the Show Cover on Outer Display switch, in the outer display section. */
-  showOuterCover?: boolean;
-  /** Camera access refused: the denied line in the footer and an Open Settings row. */
-  outerCoverCameraDenied?: boolean;
   /** The Orientation Lock row (absent on an iPhone and the Duo outer display); default shown. */
   showOrientationLock?: boolean;
 };
@@ -70,17 +66,9 @@ export function readerSettingsNativeContentHeight(rows: ReaderSettingsNativeRows
   // 5. Page background: every presentation (paged and scroll) shows it.
   height += row;
   sections += 1;
-  // 4. Outer display under a header, with its footer: the camera switch
-  //    (on the outer display) and Show Cover on Outer Display (iPhone Duo),
-  //    whose footnote wraps to about three lines; refused camera access adds
-  //    a footer line and an Open Settings row.
-  if (rows.showCameraMode || rows.showOuterCover) {
-    height += READER_SETTINGS_POPOVER_HEADER + footer;
-    if (rows.showCameraMode) height += row;
-    if (rows.showOuterCover) {
-      height += row + footer * 2;
-      if (rows.outerCoverCameraDenied) height += row + footer;
-    }
+  // 4. Outer display under a header, with its footer: the camera switch.
+  if (rows.showCameraMode) {
+    height += READER_SETTINGS_POPOVER_HEADER + row + footer;
     sections += 1;
   }
   // 5. Laptop Mode: the two-way choice and spoiler protection, header + footer.

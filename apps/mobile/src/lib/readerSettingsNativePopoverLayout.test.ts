@@ -48,19 +48,10 @@ describe("native reader settings presentation", () => {
     expect(withTurn - without).toBe(52 + 20);
   });
 
-  test("Show Cover on Outer Display: a headed section, its row and a wrapping footer; refused access adds a row and a line", () => {
+  test("Avoid Camera Area: a headed section, its row and its footer", () => {
     const base = readerSettingsNativeContentHeight(full);
-    const withCover = readerSettingsNativeContentHeight({ ...full, showOuterCover: true });
-    // Header 28 + row 52 + three footer lines (36 × 3) + one section gap 20.
-    expect(withCover - base).toBe(28 + 52 + 36 * 3 + 20);
-    expect(readerSettingsNativeContentHeight({ ...full, showOuterCover: true, outerCoverCameraDenied: true }) - withCover)
-      .toBe(52 + 36);
-    // Beside the outer display's camera switch it shares that section.
-    const camera = readerSettingsNativeContentHeight({ ...full, showCameraMode: true });
-    expect(readerSettingsNativeContentHeight({ ...full, showCameraMode: true, showOuterCover: true }) - camera)
-      .toBe(52 + 36 * 2);
-    // The denied flag alone (switch hidden) reserves nothing.
-    expect(readerSettingsNativeContentHeight({ ...full, outerCoverCameraDenied: true })).toBe(base);
+    // Header 28 + row 52 + footer 36 + one section gap 20.
+    expect(readerSettingsNativeContentHeight({ ...full, showCameraMode: true }) - base).toBe(28 + 52 + 36 + 20);
   });
 
   test("spoiler protection reserves one more row without changing other settings", () => {

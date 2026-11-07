@@ -65,13 +65,6 @@ export type ReaderSettingsNativePopoverProps = {
   showCameraMode?: boolean;
   avoidCamera?: boolean;
   onSetAvoidCamera?: (enabled: boolean) => void;
-  /** iPhone Duo (iOS 27.1+): Show Cover on Outer Display. */
-  showOuterCover?: boolean;
-  outerCover?: boolean;
-  /** Camera access was refused: a footer line with Open Settings. */
-  outerCoverCameraDenied?: boolean;
-  onSetOuterCover?: (enabled: boolean) => void;
-  onOpenOuterCoverSettings?: () => void;
   showPagePairingControls: boolean;
   /** How pages pair into spreads (自动 / 封面单独 / 封面合页). */
   spreadPairing: MobileReaderSpreadPairing;

@@ -232,7 +232,6 @@ import {
 import { useMobileDeviceFormFactor } from "@/lib/mobileOrientationStore";
 import { mobileAdaptiveLayout } from "@/lib/mobileAdaptiveLayout";
 import { ReaderDisplaySettingsPopover } from "@/components/reader/ReaderDisplaySettingsPopover";
-import { useReaderOuterCover } from "@/components/reader/useReaderOuterCover";
 import { ReaderCoverView } from "@/components/reader/ReaderCoverView";
 import { useReaderTitleCover } from "@/components/reader/useReaderTitleCover";
 import {
@@ -243,7 +242,6 @@ import {
   mobileReaderNextCoverViewRequest,
   resolveMobileReaderCoverViewImage,
 } from "@/lib/mobileReaderCoverView";
-import { OuterCoverAnchor } from "../../modules/nemu-outer-cover";
 import { ReaderNotebookPane } from "@/components/reader/ReaderNotebookPane";
 import { ReaderBookSidePane } from "@/components/reader/ReaderBookSidePane";
 import { ReaderChapterDivider } from "@/components/reader/ReaderChapterDivider";
@@ -1668,8 +1666,6 @@ export function ReaderScreen() {
     setSpreadMode: setReaderSpreadMode,
     avoidCamera: readerAvoidCamera,
     setAvoidCamera: setReaderAvoidCamera,
-    outerCover: readerOuterCoverSetting,
-    setOuterCover: setReaderOuterCoverSetting,
     fitModes: readerFitModes,
     setFitMode: setReaderFitMode,
   } = useReaderDisplayPrefs();
@@ -2699,21 +2695,6 @@ export function ReaderScreen() {
   useEffect(() => {
     if (readerOpeningHudHeld) readerZoomEntry.onTitleCover(readerOpeningTitleCover);
   }, [readerOpeningHudHeld, readerOpeningTitleCover, readerZoomEntry]);
-  // iPhone Duo: the book's cover on the outer display while reading inside.
-  const readerOuterCover = useReaderOuterCover({
-    enabled: readerOuterCoverSetting,
-    setEnabled: setReaderOuterCoverSetting,
-    entry: state.entry,
-    installedSources: installedReaderSources.data,
-    routeSource: selectedInstalledSource,
-    registryId,
-    sourceId,
-    mangaId,
-    title: mangaTitle,
-    readerFocused: readerIsFocused,
-    layout: appObservedWindowLayout,
-    strings,
-  });
 
   useEffect(() => {
     scrollingPageMetricsRef.current = [];
@@ -13390,7 +13371,6 @@ export function ReaderScreen() {
     <View style={[styles.root, { backgroundColor: readerBackgroundColor }]}>
       <Stack.Screen options={readerScreenOptions} />
       <WindowLayoutObserver style={StyleSheet.absoluteFill} enabled={readerIsFocused} onLayoutChange={onReaderWindowLayoutChange} />
-      <OuterCoverAnchor active={readerOuterCover.running} />
       {/* Wherever the reader keeps the system vertical bar (the Duo outer
           display, a Split View half) Back and the actions are real toolbar
           items in it: Back alone on top of the vertical axis, then the
@@ -13878,11 +13858,6 @@ export function ReaderScreen() {
           showCameraMode={outerReaderCanvas}
           avoidCamera={readerAvoidCamera}
           onSetAvoidCamera={setReaderAvoidCameraFromSettings}
-          showOuterCover={readerOuterCover.toggleVisible}
-          outerCover={readerOuterCover.toggleOn}
-          outerCoverCameraDenied={readerOuterCover.cameraDenied}
-          onSetOuterCover={readerOuterCover.onToggle}
-          onOpenOuterCoverSettings={readerOuterCover.onOpenSettings}
           fitMode={readerFitSetting}
           windowShape={readerWindowShape}
           onSetFitMode={setReaderFitModeFromSettings}
@@ -14032,8 +14007,8 @@ export function ReaderScreen() {
           image={readerCoverViewImage}
           fadeMs={mobileReaderCoverViewFadeMs(reduceMotion)}
           accessibilityLabel={mangaTitle
-            ? formatMobileString(strings.reader.outerCoverAccessibility, { title: mangaTitle })
-            : strings.reader.outerCoverAccessibilityUntitled}
+            ? formatMobileString(strings.reader.coverViewAccessibility, { title: mangaTitle })
+            : strings.reader.coverViewAccessibilityUntitled}
           accessibilityHint={readerCoverChromeShown ? strings.reader.hideControls : strings.reader.showControls}
           onToggleChrome={toggleReaderCoverChrome}
         />

@@ -94,9 +94,6 @@ export function useReaderDisplayPrefs(): {
   setLockPortrait: (enabled: boolean) => Promise<void>;
   avoidCamera: boolean;
   setAvoidCamera: (enabled: boolean) => Promise<void>;
-  /** Show Cover on Outer Display (default off). */
-  outerCover: boolean;
-  setOuterCover: (enabled: boolean) => Promise<void>;
   thumbnailSpoilerSafe: boolean;
   thumbnailSpoilerSafeReady: boolean;
   setThumbnailSpoilerSafe: (enabled: boolean) => Promise<void>;
@@ -120,9 +117,6 @@ export function useReaderDisplayPrefs(): {
   const [avoidCamera, setAvoidCameraState] = useState(DEFAULT_READER_AVOID_CAMERA);
   const savedAvoidCamera = useRef(DEFAULT_READER_AVOID_CAMERA);
   const avoidCameraRun = useRef(0);
-  const [outerCover, setOuterCoverState] = useState(false);
-  const savedOuterCover = useRef(false);
-  const outerCoverRun = useRef(0);
   const [thumbnailSpoilerSafe, setThumbnailSpoilerSafeState] = useState(false);
   const [thumbnailSpoilerSafeReady, setThumbnailSpoilerSafeReady] = useState(false);
   const savedThumbnailSpoilerSafe = useRef(false);
@@ -156,9 +150,6 @@ export function useReaderDisplayPrefs(): {
         const nextAvoidCamera = settings.readerAvoidCamera ?? DEFAULT_READER_AVOID_CAMERA;
         setAvoidCameraState(nextAvoidCamera);
         savedAvoidCamera.current = nextAvoidCamera;
-        const nextOuterCover = settings.readerOuterCover === true;
-        setOuterCoverState(nextOuterCover);
-        savedOuterCover.current = nextOuterCover;
         const nextThumbnailSpoilerSafe = settings.readerThumbnailSpoilerSafe === true;
         setThumbnailSpoilerSafeState(nextThumbnailSpoilerSafe);
         savedThumbnailSpoilerSafe.current = nextThumbnailSpoilerSafe;
@@ -260,23 +251,6 @@ export function useReaderDisplayPrefs(): {
     [avoidCamera, store],
   );
 
-  const setOuterCover = useCallback(
-    async (enabled: boolean) => {
-      if (enabled === outerCover) return;
-      const run = ++outerCoverRun.current;
-      setOuterCoverState(enabled);
-      try {
-        await store.updateSettings((settings) => ({ ...settings, readerOuterCover: enabled }));
-        savedOuterCover.current = enabled;
-        emitMobileDataChanged("settings");
-      } catch (error) {
-        if (outerCoverRun.current === run) setOuterCoverState(savedOuterCover.current);
-        throw error;
-      }
-    },
-    [outerCover, store],
-  );
-
   const setThumbnailSpoilerSafe = useCallback(
     async (enabled: boolean) => {
       if (enabled === thumbnailSpoilerSafe) return;
@@ -342,8 +316,6 @@ export function useReaderDisplayPrefs(): {
   return {
     avoidCamera,
     setAvoidCamera,
-    outerCover,
-    setOuterCover,
     keepAwake,
     setKeepAwake,
     lockPortrait,

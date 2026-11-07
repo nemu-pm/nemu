@@ -165,11 +165,6 @@ export function ReaderSettingsNativePopover({
   showCameraMode = false,
   avoidCamera = false,
   onSetAvoidCamera,
-  showOuterCover = false,
-  outerCover = false,
-  outerCoverCameraDenied = false,
-  onSetOuterCover,
-  onOpenOuterCoverSettings,
   showPagePairingControls,
   spreadPairing,
   pairingShifted,
@@ -239,8 +234,6 @@ export function ReaderSettingsNativePopover({
   const settingsRows = {
     showPageTurn: showPageTurnRow,
     showCameraMode,
-    showOuterCover: showOuterCover && Boolean(onSetOuterCover),
-    outerCoverCameraDenied: showOuterCover && Boolean(onSetOuterCover) && outerCoverCameraDenied,
     twoPageSupported,
     showPagePairingControls: twoPageSupported && showPagePairingControls,
     scrolling: mode === "scrolling",
@@ -523,53 +516,18 @@ export function ReaderSettingsNativePopover({
             ))}
           </SwiftPicker>
         </SwiftSection>
-        {(showCameraMode && onSetAvoidCamera) || (showOuterCover && onSetOuterCover) ? (
+        {showCameraMode && onSetAvoidCamera ? (
           <SwiftSection
             title={strings.reader.outerDisplayMode}
-            footer={
-              <SwiftText>
-                {[
-                  showCameraMode && onSetAvoidCamera ? strings.reader.avoidCameraFootnote : null,
-                  showOuterCover && onSetOuterCover ? strings.reader.outerCoverFootnote : null,
-                  showOuterCover && onSetOuterCover && outerCoverCameraDenied
-                    ? strings.reader.outerCoverCameraDenied
-                    : null,
-                ]
-                  .filter(Boolean)
-                  .join("\n\n")}
-              </SwiftText>
-            }
+            footer={<SwiftText>{strings.reader.avoidCameraFootnote}</SwiftText>}
           >
-            {showCameraMode && onSetAvoidCamera ? (
-              <SwiftToggle
-                label={strings.reader.avoidCamera}
-                systemImage={axRows ? undefined : "camera.metering.center.weighted"}
-                isOn={avoidCamera}
-                onIsOnChange={(isOn) => onSetAvoidCamera(isOn)}
-                modifiers={[formRowIcon("camera.metering.center.weighted", { toggle: true }), ...busyModifiers]}
-              />
-            ) : null}
-            {showOuterCover && onSetOuterCover ? (
-              // Off by default; turning it on is where the camera is asked for.
-              <SwiftToggle
-                label={strings.reader.outerCover}
-                systemImage={axRows ? undefined : "book.closed"}
-                isOn={outerCover}
-                onIsOnChange={(isOn) => onSetOuterCover(isOn)}
-                modifiers={[formRowIcon("book.closed", { toggle: true })]}
-              />
-            ) : null}
-            {showOuterCover && onSetOuterCover && outerCoverCameraDenied && onOpenOuterCoverSettings ? (
-              <SwiftButton
-                label={strings.common.openSettings}
-                systemImage={axRows ? undefined : "gear"}
-                onPress={onOpenOuterCoverSettings}
-                modifiers={[
-                  formRowIcon("gear", { tinted: false }),
-                  foregroundStyle({ type: "hierarchical", style: "primary" }),
-                ]}
-              />
-            ) : null}
+            <SwiftToggle
+              label={strings.reader.avoidCamera}
+              systemImage={axRows ? undefined : "camera.metering.center.weighted"}
+              isOn={avoidCamera}
+              onIsOnChange={(isOn) => onSetAvoidCamera(isOn)}
+              modifiers={[formRowIcon("camera.metering.center.weighted", { toggle: true }), ...busyModifiers]}
+            />
           </SwiftSection>
         ) : null}
         {showNotebookRow && onSetNotebookPane ? (

@@ -695,16 +695,10 @@ export type MobileStrings = {
     avoidCamera: string;
     /** Footer under the outer display's camera switch. */
     avoidCameraFootnote: string;
-    /** iPhone Duo, on the inner display: the book's cover on the outer display. */
-    outerCover: string;
-    /** Footer under the cover switch: the camera runs while it is on. */
-    outerCoverFootnote: string;
-    /** Footer line when camera access was refused (with Open Settings). */
-    outerCoverCameraDenied: string;
-    /** VoiceOver label of the outer display's cover: `{{title}}`. */
-    outerCoverAccessibility: string;
+    /** VoiceOver label of the outer display's cover view: `{{title}}`. */
+    coverViewAccessibility: string;
     /** VoiceOver label when the title is not known yet. */
-    outerCoverAccessibilityUntitled: string;
+    coverViewAccessibilityUntitled: string;
     /** iPhone Duo outer display, the vertical bar: show the title's cover in place of the page. */
     coverViewShowCover: string;
     /** The same button on the cover: back to the page. */

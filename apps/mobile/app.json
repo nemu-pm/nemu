@@ -123,7 +123,6 @@
         "NSPhotoLibraryUsageDescription": "nemu lets you choose images from your photo library when updating manga covers.",
         "NSMicrophoneUsageDescription": "nemu uses the microphone when you dictate a message to Nemu chat.",
         "NSSpeechRecognitionUsageDescription": "nemu uses speech recognition to turn what you say into text for Nemu chat.",
-        "NSCameraUsageDescription": "nemu uses the camera only to show the cover of the manga you're reading on the outer display. Nothing is captured, recorded, or saved.",
         "NSLocalNetworkUsageDescription": "nemu connects to a server on your local network only when you enter its address in a source's settings, such as a LANraragi server.",
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
@@ -177,7 +176,7 @@
         "expo-image-picker",
         {
           "photosPermission": "nemu lets you choose images from your photo library when updating manga covers.",
-          "cameraPermission": "nemu uses the camera only to show the cover of the manga you're reading on the outer display. Nothing is captured, recorded, or saved.",
+          "cameraPermission": false,
           "microphonePermission": "nemu uses the microphone when you dictate a message to Nemu chat."
         }
       ],

@@ -1,6 +1,5 @@
 {
   "ios": {
-    "NSCameraUsageDescription": "nemu は、読んでいる漫画の表紙を外側ディスプレイに表示するためだけにカメラを使用します。撮影・録画・保存は一切行いません。",
     "NSPhotoLibraryUsageDescription": "nemu は、漫画の表紙を更新する際に写真ライブラリから画像を選択するためにアクセスします。",
     "NSMicrophoneUsageDescription": "nemu は、Nemu チャットにメッセージを音声入力するときにマイクを使用します。",
     "NSSpeechRecognitionUsageDescription": "nemu は、話した内容を Nemu チャット用のテキストに変換するために音声認識を使用します。",
