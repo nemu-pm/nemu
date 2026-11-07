@@ -223,7 +223,10 @@ import { fetchMobileSourceListing } from "@/sources/mobileSourceListings";
 import { MobilePoseLayoutView, MobilePoseListCell } from "@/components/MobilePoseLayoutView";
 import { mobileGridGlideAppearing, mobileStateEntering, openMobileGridGlideWindow } from "@/lib/mobilePoseLayoutAnimations";
 import { useMobileGridScrollAnchor } from "@/lib/useMobileGridScrollAnchor";
-import { resolveNemuHeaderSearchBarColors } from "@/lib/nemuSearchFieldAppearance";
+import {
+  resolveNemuHeaderSearchBarColors,
+  resolveNemuSystemSearchFieldFill,
+} from "@/lib/nemuSearchFieldAppearance";
 import {
   clearMobileSourceListingCacheForRuntime,
   readMobileSourceListingCache,
@@ -1386,12 +1389,14 @@ export function SourceBrowseScreen() {
   useEffect(() => {
     routeSourceListingTabRef.current = routeSourceListingTab;
   }, [routeSourceListingTab]);
-  const { tokens } = useNemuTheme();
-  // iOS 26+: the system Liquid Glass search field, not a token-filled one.
+  const { scheme, tokens } = useNemuTheme();
+  // iOS 26+: the system search field, not a token-filled one; beside the
+  // Duo's vertical rail its settled system fill is pinned for the push too.
   const headerSearchBarColors = resolveNemuHeaderSearchBarColors(
     Platform.OS,
     Platform.Version,
     tokens,
+    (verticalBarSide && resolveNemuSystemSearchFieldFill(tokens.background, scheme)) || undefined,
   );
   const compactHeader = useCompactSourceBrowseHeader();
   const { appLanguage } = useMobileLanguageSettings();
