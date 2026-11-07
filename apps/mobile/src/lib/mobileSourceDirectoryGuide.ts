@@ -2,13 +2,12 @@ import type { SourceDirectory } from "@nemu/core/sources";
 import { extractMobileSourceDirectoryUrl } from "./mobileSourceDirectoryLink";
 
 /**
- * nemu.pm's help on source directories (the web app's
- * /help/source-directories route): what they are, how to add one, and the add
- * link format for publishers. It lists no directory. Add Source Directory's
- * How Source Directories Work row opens it, and is hidden while this is null.
+ * A page on source directories for Add Source Directory's How Source
+ * Directories Work row, which is hidden while this is null. None for now: the
+ * app links to no nemu page here (the web app's /help/source-directories stays
+ * for the web), and a third-party page needs to clear App Review first.
  */
-export const NEMU_SOURCE_DIRECTORIES_HELP_URL: string | null =
-  "https://nemu.pm/help/source-directories";
+export const NEMU_SOURCE_DIRECTORIES_HELP_URL: string | null = null;
 
 /**
  * Whether a swipe-down is blocked on Add Source Directory: it would discard

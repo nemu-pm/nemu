@@ -49,11 +49,8 @@ describe("mobileSourceDirectoryAddressFromClipboard", () => {
 });
 
 describe("guide links", () => {
-  test("the help page is the web app's /help/source-directories route on nemu.pm, or unset", () => {
-    if (NEMU_SOURCE_DIRECTORIES_HELP_URL === null) return;
-    const url = new URL(NEMU_SOURCE_DIRECTORIES_HELP_URL);
-    expect(url.origin).toBe("https://nemu.pm");
-    expect(url.pathname).toBe("/help/source-directories");
+  test("the app links to no nemu page for source directories", () => {
+    expect(NEMU_SOURCE_DIRECTORIES_HELP_URL).toBeNull();
   });
 
   test("a swipe-down is blocked by typed text or a check in flight", () => {
