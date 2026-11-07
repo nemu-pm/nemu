@@ -61,10 +61,9 @@ describe("dual-reader FAB area", () => {
     }
   });
 
-  test("notebook: over the page pane, not the console", () => {
-    const { pose, area } = areaFor(duo("iphone-duo-inner", "partially-folded", "portrait"));
-    const pos = mobileDualReaderFabClamp({ x: 0, y: 2000, side: "right" }, area, SIZE, MARGIN);
-    expect(pos.y + SIZE).toBeLessThanOrEqual(pose.stage.y + pose.stage.height);
+  test("half folded like a laptop: the open display's page region", () => {
+    const folded = areaFor(duo("iphone-duo-inner", "partially-folded", "portrait")).area;
+    expect(folded).toEqual(areaFor(duo("iphone-duo-inner", "open", "portrait")).area);
   });
 
   test("phone: the window inside the safe area (today's behaviour)", () => {

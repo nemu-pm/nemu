@@ -1,7 +1,6 @@
 import { mobileAdaptiveLayout, type MobileWindowPosture } from "@/lib/mobileAdaptiveLayout";
 import { mobileWindowOnInnerDisplay } from "@/lib/mobileOrientationPolicy";
 import { resolveReaderSpreadWanted, type ReaderSpreadMode } from "@/lib/mobileReaderSpreadMode";
-import { READER_NOTEBOOK_SHEET_INSET, type MobileReaderNotebookPaneState } from "@/lib/mobileReaderNotebookPane";
 import {
   mobileWindowUnoccludedRect,
   mobileWindowUnoccludedRects,
@@ -25,10 +24,8 @@ import {
  * | flat with the system vertical bar (Duo outer display, a Split View half) | full bleed on the outer display; beside the bar in Split View | Back + actions in the system bar; our title capsule top-leading + the scrubber centred on the window |
  * | flat, regular width, no vertical bar (tablets, unfolded Android, Duo inner display full-screen) | full bleed | capsule row on the status-bar row + scrubber centred on the display |
  * | book (vertical fold)                  | one page per pane / reading-start pane | capsules snapped per pane: Back + title leading, actions trailing (or Back + actions in the system bar), scrubber in the reading-start pane |
- * | book, scroll reading                  | the strip in the reading-start pane | the flat capsule rows inside that pane; the other pane is the side pane (Laptop Mode: thumbnails / page controls) |
- * | notebook (horizontal fold), paged     | top pane                      | capsule row over the top pane + the bottom pane (trackpad / filmstrip) |
- * | notebook, scroll reading              | the strip in the top pane, 20pt clear of the crease | the capsule rows inside the top pane (title centred on it, actions top trailing); the bottom pane is the side pane (Laptop Mode: thumbnail row / page controls) |
- * | notebook, a paged chapter as a long strip | flat: the strip flows through the fold, as on the open display | as flat |
+ * | book, scroll reading                  | the strip in the reading-start pane | the flat capsule rows inside that pane; the other pane is left plain |
+ * | notebook (horizontal fold)            | flat: the whole window, the fold no pane boundary | as flat |
  *
  * Japanese Learning tools are never part of this layout: in every pose they
  * are the same system sheets as on a phone, which the system itself moves off
@@ -154,24 +151,6 @@ export type MobileReaderChromeLayout =
        * reveals its edges); a gradient has no edges. Spans both book panes.
        */
       topScrim: Rect;
-    }
-  | {
-      /**
-       * Notebook, paged: the bottom pane is always there (trackpad or
-       * filmstrip) and the top pane gets the flat capsule row (Back · title ·
-       * actions) when the chrome is shown.
-       */
-      kind: "console";
-      /** The bottom pane. */
-      frame: Rect;
-      padding: Insets;
-      /** The bottom pane inside its safe area and occlusions: where its content goes. */
-      pane: Rect;
-      state: Exclude<MobileReaderNotebookPaneState, "continuous">;
-      /** Capsule row over the top pane. */
-      back: Rect;
-      title: Rect | null;
-      actions: Rect;
     };
 
 export type MobileReaderPoseLayoutInput = {
@@ -190,25 +169,14 @@ export type MobileReaderPoseLayoutInput = {
   twoPage: boolean;
   /**
    * The three-way page layout choice. When given it replaces `twoPage`;
-   * `auto` is decided here from the stage the pages actually sit in (the
-   * top pane in the notebook pose, the whole window across a book fold).
+   * `auto` is decided here from the stage the pages actually sit in (one
+   * pane or the whole window across a book fold).
    */
   spreadMode?: ReaderSpreadMode;
   /** Right-to-left reading order. */
   rtl: boolean;
-  /**
-   * Notebook posture: what the bottom pane holds (`resolveMobileReaderNotebookPane`).
-   * Omitted: the trackpad (paged) or the continuous strip (scroll).
-   */
-  notebookPane?: MobileReaderNotebookPaneState;
   /** Icon buttons in the trailing actions capsule (capsule chrome). Default 3. */
   actionCount?: number;
-  /**
-   * Half folded like a laptop, whatever the reader lays out (the console, or
-   * the flat window once the panel is closed or in scroll mode): the actions
-   * stay in the top row's trailing group, never beside the scrubber.
-   */
-  notebookFold?: boolean;
   /**
    * The system vertical bar is in use (`mobileReaderVerticalBarPolicy`): it
    * carries Back and the actions. Full-screen outer-display pages may extend
@@ -224,63 +192,17 @@ export type MobileReaderPoseLayoutInput = {
   /**
    * Scroll reading (the reading mode, not a paged chapter shown as a strip):
    * in the book posture the strip keeps its half with a flat toolbar there,
-   * and the other half shows the Laptop Mode content (`sidePane`); in the
-   * notebook (laptop) posture the strip keeps the top half and the bottom
-   * half shows it.
+   * and the other half is left plain (`freeHalf`).
    */
-  scrollSidePane?: boolean;
-  /**
-   * Book posture, scroll reading: the top safe-area inset the side pane lays
-   * its title out under. The status bar (and its inset) comes and goes with
-   * the toolbar; the reader passes the widest seen
-   * (`mobileReaderNextTopInsetLatch`) so toggling the toolbar never moves the
-   * pane. The live inset when absent.
-   */
-  sidePaneTopInset?: number | null;
+  scrollReading?: boolean;
 };
 
-/** Book posture, scroll reading: the half beside the strip. */
-export const READER_BOOK_SIDE_PANE_INSET = 16;
-/** Book posture: the chapter title line's distance below the top safe area. */
-export const READER_BOOK_SIDE_PANE_TOP_GAP = 8;
-/** Gap between the chapter title line and the thumbnail list. */
-export const READER_BOOK_SIDE_PANE_HEADER_GAP = 8;
-/** The chapter title line (15pt semibold). */
-export const READER_BOOK_SIDE_PANE_HEADER_HEIGHT = 20;
-/** Page controls: two circles, this size, this far apart, centred in the half. */
-export const READER_BOOK_PAGE_CONTROL_SIZE = 64;
-export const READER_BOOK_PAGE_CONTROL_GAP = 24;
 /**
- * Notebook (laptop) posture, scroll reading: no artwork within this distance
- * of the crease, on either side — measured from the fold region's edges
- * (the Duo's region is 40pt tall: from its centre line the clearance was all
- * inside the region, and the strip ran down to its top edge).
+ * Half folded like a laptop: no content within this distance of the crease,
+ * on either side — measured from the fold region's edges (the Duo's region is
+ * 40pt tall: from its centre line the clearance was all inside the region).
  */
 export const READER_LAPTOP_CREASE_CLEARANCE = 20;
-
-export type MobileReaderBookSidePane = {
-  /**
-   * `vertical`: the book posture's half beside the strip (one column of
-   * thumbnails, the page controls stacked). `horizontal`: the laptop
-   * posture's bottom half (one row of thumbnails, the controls side by side).
-   */
-  orientation: "vertical" | "horizontal";
-  /** The whole half (reader-local): reader black, and every empty spot toggles the toolbar. */
-  frame: Rect;
-  /**
-   * Chapter title line, 16pt in from the half's edges and clear of the status
-   * island (vertical). Zero height in the horizontal row, whose thumbnails
-   * take the half's whole height less 16pt above and below.
-   */
-  header: Rect;
-  /** Thumbnail list viewport (reader-local); its items are inset 16pt either side across the list. */
-  list: Rect;
-  /** Thumbnail size across the list: the column's width or the row's height, less 16pt either side. */
-  thumbnailSize: number;
-  /** Page controls (Laptop Mode "Page Controls"): one screen up, one screen down. */
-  pageUp: Rect;
-  pageDown: Rect;
-};
 
 /**
  * The half a system sheet takes in the book posture. Measured on the iPhone
@@ -292,6 +214,26 @@ export const MOBILE_READER_BOOK_SHEET_COVER_MS = 380;
 
 export function mobileReaderBookSheetSide(layoutDirection: "ltr" | "rtl" | undefined): Side {
   return layoutDirection === "rtl" ? "right" : "left";
+}
+
+/**
+ * Where the reader's system sheets go (`presentationPlacement`) — book
+ * posture, scroll reading: over the free half, never the strip's. An
+ * `automatic` sheet takes the leading half on the Duo
+ * (`mobileReaderBookSheetSide`), which is the strip's in a left-to-right
+ * layout. Every other pose: `automatic`.
+ */
+export function mobileReaderBookSheetPlacement(input: {
+  posture: MobileWindowPosture;
+  freeHalf: Rect | null | undefined;
+  bounds: Rect;
+  layoutDirection: "ltr" | "rtl" | undefined;
+}): "automatic" | "leading" | "trailing" {
+  const half = input.freeHalf;
+  if (input.posture !== "book" || !half) return "automatic";
+  const halfOnRight = half.x + half.width / 2 > input.bounds.x + input.bounds.width / 2;
+  const leadingOnRight = input.layoutDirection === "rtl";
+  return halfOnRight === leadingOnRight ? "leading" : "trailing";
 }
 
 export type MobileReaderPoseLayout = {
@@ -311,16 +253,17 @@ export type MobileReaderPoseLayout = {
   /** Stage-local x interval (the fold) that must never be a tap target. */
   foldGap: { start: number; end: number } | null;
   chrome: MobileReaderChromeLayout;
-  /** Chrome is always visible (notebook console). */
-  chromePinned: boolean;
   /** Where reader-owned cards (end of chapter) are centred. */
   modalFrame: Rect;
   /** Reader settings popover: the region it may occupy and its gap to that region's bottom edge. */
   popover: { frame: Rect; bottomGap: number };
   /** Stage-local rectangles owned by chrome: taps there never turn pages. */
   tapExclusions: Rect[];
-  /** Book posture, scroll reading: the other half (`scrollSidePane`); absent otherwise. */
-  sidePane?: MobileReaderBookSidePane;
+  /**
+   * Book posture, scroll reading: the half beside the strip (`scrollReading`),
+   * plain reader black whose taps toggle the toolbar; absent otherwise.
+   */
+  freeHalf?: Rect;
   /**
    * Side insets a full-bleed (unconstrained) page must keep clear: the safe
    * area minus what only the status bar island explains, so showing or
@@ -489,14 +432,12 @@ export function mobileReaderScrollStableTopInset(input: {
 export function mobileReaderCapsuleActionSlots(input: {
   enabledPluginIds: readonly string[];
   bilingualToggle: boolean;
-  /** The notebook sheet is closed on a folded window: the row carries "show the controls panel". */
-  notebookPanel?: boolean;
 }): number {
   const pluginSlots = input.enabledPluginIds.reduce(
     (count, id) => count + (id === "japanese-learning" ? 2 : 1),
     0,
   );
-  return pluginSlots + (input.bilingualToggle ? 1 : 0) + (input.notebookPanel ? 1 : 0) + 1;
+  return pluginSlots + (input.bilingualToggle ? 1 : 0) + 1;
 }
 
 /** Width of the actions capsule for `count` icon buttons. */
@@ -605,12 +546,6 @@ type CapsuleChromeInput = {
    * only the title capsule (top-leading) and the scrubber are ours.
    */
   titleOnly?: boolean;
-  /**
-   * Keep the title on `titleCenterX` (narrowed to the room either side of it)
-   * whenever that leaves a full-label capsule, with the actions on the same
-   * row too — not only beside the ⋯ circle.
-   */
-  centreTitle?: boolean;
 };
 
 function capsuleChrome(input: CapsuleChromeInput): Extract<MobileReaderChromeLayout, { kind: "capsules" }> {
@@ -699,7 +634,7 @@ function capsuleChromeAt(input: CapsuleChromeInput, rowTop: number): Extract<Mob
       READER_CAPSULE_TITLE_MAX_WIDTH,
       2 * Math.min(input.titleCenterX - minX, maxX - input.titleCenterX),
     );
-    const keepsCentre = (more !== null || input.centreTitle === true) && !titleOnly && !fitsCentred
+    const keepsCentre = more !== null && !titleOnly && !fitsCentred
       && symmetric >= READER_CAPSULE_TITLE_FULL_MIN_WIDTH;
     if (keepsCentre) width = symmetric;
     // Title only (the bar carries Back): top-leading, like a navigation title.
@@ -834,11 +769,9 @@ function stageHoldsSpread(stage: Rect): boolean {
 
 /**
  * The reader settings popover's region and its gap above that region's
- * bottom edge: between the capsule rows, or inside the console for notebook.
+ * bottom edge: between the capsule rows.
  */
 export function mobileReaderPopoverPlacement(chrome: MobileReaderChromeLayout): { frame: Rect; bottomGap: number } {
-  // Notebook: inside the bottom pane, the half the hands rest on.
-  if (chrome.kind === "console") return { frame: chrome.pane, bottomGap: READER_POPOVER_GAP };
   return { frame: chrome.content, bottomGap: READER_POPOVER_GAP };
 }
 
@@ -947,36 +880,6 @@ export function mobileReaderNextSideInsetLatch(
   if (latchedSide && seenSide && latchedSide !== seenSide) return { key, left, right };
   const next = { key, left: Math.max(current.left, left), right: Math.max(current.right, right) };
   return next.left === current.left && next.right === current.right ? current : next;
-}
-
-export type MobileReaderTopInsetLatch = { key: string; top: number };
-
-/** Configuration key for the top-inset latch: the window's size; null when not latching. */
-export function mobileReaderTopInsetLatchKey(
-  layout: Pick<MobileWindowLayout, "width" | "height"> | null | undefined,
-  active: boolean,
-): string | null {
-  if (!layout || !active) return null;
-  return `${Math.round(finite(layout.width))}x${Math.round(finite(layout.height))}`;
-}
-
-/**
- * The widest top safe-area inset seen for this configuration (the status bar
- * shown), so a layout under it does not move when the status bar hides with
- * the toolbar. A new key starts over; the previous latch is returned
- * unchanged when nothing grew.
- */
-export function mobileReaderNextTopInsetLatch(
-  previous: MobileReaderTopInsetLatch | null,
-  key: string | null,
-  top: number | null | undefined,
-): MobileReaderTopInsetLatch | null {
-  if (!key) return null;
-  const current = previous?.key === key ? previous : null;
-  const seen = typeof top === "number" && Number.isFinite(top) ? Math.max(0, top) : null;
-  if (seen === null) return current;
-  if (!current) return { key, top: seen };
-  return seen > current.top ? { key, top: seen } : current;
 }
 
 /**
@@ -1315,84 +1218,13 @@ export function mobileReaderPoseLayout(input: MobileReaderPoseLayoutInput): Mobi
   const trailingSide: Side = (input.layout.layoutDirection ?? "ltr") === "rtl" ? "left" : "right";
   const leadingSide: Side = trailingSide === "right" ? "left" : "right";
 
-  if (adaptive.posture === "notebook" && adaptive.panels.length === 2 && !input.paged && input.scrollSidePane) {
-    return mobileReaderLaptopScrollPose(input, adaptive.panels, adaptive.fold, { bounds, insets, occlusions, leadingSide });
+  if (adaptive.posture === "notebook") {
+    // Half folded like a laptop: the reader reads as on the open display,
+    // across the whole window; the fold is not a pane boundary.
+    return mobileReaderPoseLayout({ ...input, layout: mobileReaderLayoutWithoutFold(input.layout) });
   }
 
-  if (adaptive.posture === "notebook" && adaptive.panels.length === 2) {
-    const [topPane, bottomPane] = adaptive.panels;
-    const paneState: MobileReaderNotebookPaneState = input.notebookPane
-      ?? (input.paged ? "filmstrip" : "continuous");
-    if (paneState === "continuous") {
-      // Scroll / long strip reads exactly as on the open display: the fold
-      // is not a pane boundary for a strip that flows through it.
-      return mobileReaderPoseLayout({ ...input, layout: mobileReaderLayoutWithoutFold(input.layout) });
-    }
-    // Paged: immersive, full-bleed page in the top pane (the reader hides the
-    // status bar while reading); only the fold is avoided. The bottom pane
-    // keeps the safe area.
-    const stage = topPane;
-    // The top pane is landscape-shaped (Duo 669×455.5): two portrait pages fit
-    // at the same height as one, so the user's two-page setting applies there
-    // like a flat spread (seamless, same pairing/RTL rules). The bottom pane
-    // steps by spread.
-    const twoPageAvailable = input.paged
-      && multiPage
-      && stageHoldsSpread(topPane)
-      && topPane.width / 2 >= READER_BOOK_MIN_PANE
-      && topPane.height >= READER_BOOK_MIN_PANE;
-    const spread = wantsSpread(input, topPane) && twoPageAvailable;
-    const padding = mobileReaderSafePadding(bottomPane, bounds, insets);
-    const pane = mobileWindowUnoccludedRect(shrink(bottomPane, {
-      ...padding,
-      left: Math.max(padding.left, READER_NOTEBOOK_SHEET_INSET),
-      right: Math.max(padding.right, READER_NOTEBOOK_SHEET_INSET),
-      bottom: Math.max(padding.bottom, READER_NOTEBOOK_SHEET_INSET),
-    }), occlusions);
-    const row = capsuleChrome({
-      frame: topPane,
-      bounds,
-      insets,
-      occlusions,
-      leading: topPane,
-      trailing: topPane,
-      scrubberRegion: topPane,
-      leadingSide,
-      actionCount: input.actionCount ?? 3,
-      titleCenterX: topPane.x + topPane.width / 2,
-    });
-    const chrome: MobileReaderChromeLayout = {
-      kind: "console",
-      frame: bottomPane,
-      padding,
-      pane,
-      state: paneState,
-      back: row.back,
-      title: row.title,
-      actions: row.actions,
-    };
-    return {
-      posture: "notebook",
-      bounds,
-      safeInsets: insets,
-      stage,
-      constrained: true,
-      twoPageAvailable,
-      spread,
-      foldGap: null,
-      chrome,
-      chromePinned: true,
-      modalFrame: bottomPane,
-      popover: mobileReaderPopoverPlacement(chrome),
-      // The capsule row over the page (only while the chrome is shown).
-      tapExclusions: [row.back, row.title, row.actions]
-        .filter((rect): rect is Rect => rect !== null)
-        .map((rect) => toLocal(shrink(rect, uniform(-READER_CAPSULE_GAP / 2)), stage)),
-      pageSideInsets: NO_SIDE_INSETS,
-    };
-  }
-
-  if (adaptive.posture === "book" && adaptive.panels.length === 2 && !input.paged && input.scrollSidePane) {
+  if (adaptive.posture === "book" && adaptive.panels.length === 2 && !input.paged && input.scrollReading) {
     return mobileReaderBookScrollPose(input, adaptive.panels, { bounds, insets, occlusions, leadingSide });
   }
 
@@ -1468,7 +1300,6 @@ export function mobileReaderPoseLayout(input: MobileReaderPoseLayoutInput): Mobi
       spread,
       foldGap,
       chrome,
-      chromePinned: false,
       // Reader-owned cards centre in the page's pane, between the capsule rows.
       modalFrame: panes[startIndex],
       popover: mobileReaderPopoverPlacement(chrome),
@@ -1540,14 +1371,11 @@ export function mobileReaderPoseLayout(input: MobileReaderPoseLayoutInput): Mobi
     // them there too wherever the scrubber keeps its minimum width beside
     // them (the Duo inner display, tablets). The system bar (outer display)
     // carries them itself: its row choice is unchanged.
-    // Laptop pose keeps them on top with the panel closed too.
-    actionsRow: input.notebookFold
-      ? "top"
-      : adaptive.widthClass === "compact"
-        ? "bottom"
-        : input.sideBar
-          ? "top"
-          : mobileReaderActionsRow(chromeStage, mobileReaderSafePadding(chromeStage, bounds, insets), input.actionCount ?? 3),
+    actionsRow: adaptive.widthClass === "compact"
+      ? "bottom"
+      : input.sideBar
+        ? "top"
+        : mobileReaderActionsRow(chromeStage, mobileReaderSafePadding(chromeStage, bounds, insets), input.actionCount ?? 3),
     titleOnly: input.sideBar === true,
   });
   if (input.sideBar && chrome.title) {
@@ -1567,7 +1395,6 @@ export function mobileReaderPoseLayout(input: MobileReaderPoseLayoutInput): Mobi
     spread,
     foldGap: null,
     chrome,
-    chromePinned: false,
     modalFrame: unoccluded,
     popover: mobileReaderPopoverPlacement(chrome),
     tapExclusions: capsuleExclusions(chrome, stage),
@@ -1579,8 +1406,8 @@ export function mobileReaderPoseLayout(input: MobileReaderPoseLayoutInput): Mobi
  * Book posture, scroll reading. The strip keeps one half (the reading-start
  * half: left unless a sheet covers it), never crossing the fold, with the
  * toolbar laid out there as on a flat window (title capsule on top, the
- * scrubber and actions on the bottom row). The other half is the side pane:
- * the Laptop Mode content (thumbnails or page controls) on reader black.
+ * scrubber and actions on the bottom row). The other half is left plain:
+ * reader black, where a tap shows or hides the toolbar.
  */
 function mobileReaderBookScrollPose(
   input: MobileReaderPoseLayoutInput,
@@ -1588,9 +1415,9 @@ function mobileReaderBookScrollPose(
   context: { bounds: Rect; insets: Insets; occlusions: Rect[]; leadingSide: Side },
 ): MobileReaderPoseLayout {
   const { bounds, insets, occlusions, leadingSide } = context;
-  // The strip never moves: a reader sheet presents over the side pane and,
-  // once it closes, reveals the pane unchanged (`sheetSide` is ignored here;
-  // following it swapped the strip and the pane while the sheet was open).
+  // The strip never moves: a reader sheet presents over the free half
+  // (`sheetSide` is ignored here; following it swapped the strip's half
+  // while the sheet was open).
   const stripIndex = input.rtl ? 1 : 0;
   const pane = panes[stripIndex];
   // Same immersive rule as the paged book: the strip is full-bleed in its
@@ -1613,9 +1440,8 @@ function mobileReaderBookScrollPose(
       : mobileReaderActionsRow(stage, mobileReaderSafePadding(stage, bounds, insets), actionCount),
     titleOnly: input.sideBar === true,
   });
-  const sidePane = mobileReaderBookSidePaneLayout(panes[1 - stripIndex], bounds, insets, occlusions, input.sidePaneTopInset);
-  // The toolbar's top scrim darkens the strip's half only: over the pane it
-  // dimmed the chapter title whenever the toolbar showed.
+  const freeHalf = panes[1 - stripIndex];
+  // The toolbar's top scrim darkens the strip's half only.
   if (chrome.kind === "capsules") {
     chrome.topScrim = { ...chrome.topScrim, x: pane.x, width: pane.width };
   }
@@ -1629,214 +1455,15 @@ function mobileReaderBookScrollPose(
     spread: false,
     foldGap: null,
     chrome,
-    chromePinned: false,
     modalFrame: stage,
-    // Reader settings present over the pane, never over the strip.
-    popover: { frame: shrink(sidePane.frame, mobileReaderSafePadding(sidePane.frame, bounds, insets)), bottomGap: READER_POPOVER_GAP },
+    // Reader settings present over the free half, never over the strip.
+    popover: { frame: shrink(freeHalf, mobileReaderSafePadding(freeHalf, bounds, insets)), bottomGap: READER_POPOVER_GAP },
     tapExclusions: capsuleExclusions(chrome, stage),
     pageSideInsets: NO_SIDE_INSETS,
-    sidePane,
+    freeHalf,
   };
 }
 
-/**
- * Notebook (laptop) posture, scroll reading. The strip keeps the top half and
- * never comes within `READER_LAPTOP_CREASE_CLEARANCE` of the crease; the
- * toolbar lives inside that half (the title capsule centred on it, the
- * actions at its top trailing end, the scrubber along its bottom). The bottom
- * half is the side pane laid out as a row: the Laptop Mode content
- * (thumbnails or page controls) on reader black.
- */
-function mobileReaderLaptopScrollPose(
-  input: MobileReaderPoseLayoutInput,
-  panes: Rect[],
-  fold: Rect | null,
-  context: { bounds: Rect; insets: Insets; occlusions: Rect[]; leadingSide: Side },
-): MobileReaderPoseLayout {
-  const { bounds, insets, occlusions, leadingSide } = context;
-  const [topPane, bottomPane] = panes;
-  const crease = mobileReaderLaptopCreaseClearance(topPane, bottomPane, fold);
-  // Immersive like the flat strip (full bleed, the status bar hides while
-  // reading); only the crease is kept clear. A kept system bar column
-  // (Split View) trims the sides as elsewhere.
-  const pane: Rect = { ...topPane, height: Math.max(0, crease.stripBottom - topPane.y) };
-  const stage = input.sideBar ? horizontalSafe(pane, bounds, insets) : pane;
-  const actionCount = input.actionCount ?? 3;
-  const chromeInput: CapsuleChromeInput = {
-    frame: stage,
-    bounds,
-    insets,
-    occlusions,
-    leading: stage,
-    trailing: stage,
-    scrubberRegion: stage,
-    leadingSide,
-    actionCount,
-    titleCenterX: stage.x + stage.width / 2,
-    actionsRow: "top",
-    titleOnly: input.sideBar === true,
-    centreTitle: true,
-  };
-  const chrome = mobileReaderCentredTitleChrome(chromeInput);
-  const sideFrame: Rect = {
-    ...bottomPane,
-    y: crease.paneTop,
-    height: Math.max(0, bottomPane.y + bottomPane.height - crease.paneTop),
-  };
-  const sidePane = mobileReaderLaptopSidePaneLayout(sideFrame, bounds, insets, occlusions);
-  return {
-    posture: "notebook",
-    bounds,
-    safeInsets: insets,
-    stage,
-    constrained: true,
-    twoPageAvailable: false,
-    spread: false,
-    foldGap: null,
-    chrome,
-    chromePinned: false,
-    modalFrame: stage,
-    popover: mobileReaderPopoverPlacement(chrome),
-    tapExclusions: capsuleExclusions(chrome, stage),
-    pageSideInsets: NO_SIDE_INSETS,
-    sidePane,
-  };
-}
-
-/**
- * Where the strip must end and the bottom pane may start in the laptop
- * posture: the panes as the fold leaves them, never closer than
- * `READER_LAPTOP_CREASE_CLEARANCE` to the crease — the fold region's top and
- * bottom edges (the gap between the panes when no region is known).
- * `crease` is the region's centre line.
- */
-export function mobileReaderLaptopCreaseClearance(
-  topPane: Rect,
-  bottomPane: Rect,
-  fold: Rect | null,
-): { crease: number; stripBottom: number; paneTop: number } {
-  const topEnd = topPane.y + topPane.height;
-  const region = fold && fold.height >= 0
-    ? fold
-    : { y: Math.min(topEnd, bottomPane.y), height: Math.abs(bottomPane.y - topEnd) };
-  return {
-    crease: region.y + region.height / 2,
-    stripBottom: Math.min(topEnd, region.y) - READER_LAPTOP_CREASE_CLEARANCE,
-    paneTop: Math.max(bottomPane.y, region.y + region.height) + READER_LAPTOP_CREASE_CLEARANCE,
-  };
-}
-
-/**
- * Capsule chrome whose title capsule sits on `titleCenterX` with its full
- * label: the status-bar row when the title fits there centred, else the row
- * right under the status island (a Duo inner portrait island leaves too
- * little room between it and the centre for the actions and a full title).
- */
-function mobileReaderCentredTitleChrome(input: CapsuleChromeInput): Extract<MobileReaderChromeLayout, { kind: "capsules" }> {
-  const centred = (chrome: Extract<MobileReaderChromeLayout, { kind: "capsules" }>) =>
-    chrome.title !== null
-    && chrome.title.width >= READER_CAPSULE_TITLE_FULL_MIN_WIDTH
-    && Math.abs(chrome.title.x + chrome.title.width / 2 - input.titleCenterX) <= 1;
-  const rows = mobileReaderCapsuleRowTops(input.bounds, input.insets, input.occlusions, READER_CAPSULE_HEIGHT);
-  if (rows.shared !== null) {
-    const shared = capsuleChromeAt(input, rows.shared);
-    if (input.titleOnly || centred(shared)) return shared;
-  }
-  return capsuleChromeAt(input, rows.below);
-}
-
-/** The laptop posture's bottom half: a row of thumbnails, or the page controls side by side. */
-export function mobileReaderLaptopSidePaneLayout(
-  frame: Rect,
-  bounds: Rect,
-  insets: Insets,
-  occlusions: Rect[],
-): MobileReaderBookSidePane {
-  // Side insets the status island alone explains are not real edges.
-  const side = mobileReaderPageSideInsets(bounds, insets, occlusions);
-  const left = frame.x <= bounds.x + EPSILON ? side.left : 0;
-  const right = frame.x + frame.width >= bounds.x + bounds.width - EPSILON ? side.right : 0;
-  const inset = READER_BOOK_SIDE_PANE_INSET;
-  const list: Rect = {
-    x: frame.x + left,
-    y: frame.y,
-    width: Math.max(0, frame.width - left - right),
-    height: frame.height,
-  };
-  const size = READER_BOOK_PAGE_CONTROL_SIZE;
-  const centreX = frame.x + left + (frame.width - left - right) / 2;
-  const centreY = frame.y + frame.height / 2;
-  return {
-    orientation: "horizontal",
-    frame,
-    header: { x: frame.x + left + inset, y: frame.y + inset, width: Math.max(0, frame.width - left - right - inset * 2), height: 0 },
-    list,
-    thumbnailSize: Math.max(0, frame.height - inset * 2),
-    pageUp: { x: centreX - READER_BOOK_PAGE_CONTROL_GAP / 2 - size, y: centreY - size / 2, width: size, height: size },
-    pageDown: { x: centreX + READER_BOOK_PAGE_CONTROL_GAP / 2, y: centreY - size / 2, width: size, height: size },
-  };
-}
-
-/** The side pane's pieces inside its half (reader-local). */
-export function mobileReaderBookSidePaneLayout(
-  frame: Rect,
-  bounds: Rect,
-  insets: Insets,
-  occlusions: Rect[],
-  /** The top safe-area inset with the status bar shown (`sidePaneTopInset`); the live one when absent. */
-  stableTopInset?: number | null,
-): MobileReaderBookSidePane {
-  const pad = mobileReaderSafePadding(frame, bounds, insets);
-  const topInset = frame.y <= bounds.y + EPSILON
-    ? Math.max(pad.top, Number.isFinite(stableTopInset) ? Math.max(0, stableTopInset!) : 0)
-    : 0;
-  // Side insets the status island alone explains are not real edges.
-  const side = mobileReaderPageSideInsets(bounds, insets, occlusions);
-  const left = frame.x <= bounds.x + EPSILON ? side.left : 0;
-  const right = frame.x + frame.width >= bounds.x + bounds.width - EPSILON ? side.right : 0;
-  const inset = READER_BOOK_SIDE_PANE_INSET;
-  const headerHeight = READER_BOOK_SIDE_PANE_HEADER_HEIGHT;
-  // The title line sits 8pt below the top safe area (under the status bar,
-  // never beside its clock); the thumbnails start 8pt below it.
-  let header: Rect = {
-    x: frame.x + left + inset,
-    y: frame.y + topInset + READER_BOOK_SIDE_PANE_TOP_GAP,
-    width: Math.max(0, frame.width - left - right - inset * 2),
-    height: headerHeight,
-  };
-  // The status island (top trailing corner) keeps the title line clear of it:
-  // the line ends before it, or moves below it when too little would be left.
-  for (const rect of occlusions) {
-    if (!intersects(header, rect)) continue;
-    const trailingHalf = rect.x + rect.width / 2 >= header.x + header.width / 2;
-    const end = trailingHalf ? rect.x - READER_CAPSULE_GAP : header.x + header.width;
-    const start = trailingHalf ? header.x : rect.x + rect.width + READER_CAPSULE_GAP;
-    if (end - start >= READER_CAPSULE_TITLE_MIN_WIDTH) {
-      header = { ...header, x: start, width: end - start };
-    } else {
-      header = { ...header, y: rect.y + rect.height + READER_CAPSULE_GAP };
-    }
-  }
-  const listTop = header.y + header.height + READER_BOOK_SIDE_PANE_HEADER_GAP;
-  const list: Rect = {
-    x: frame.x + left,
-    y: listTop,
-    width: Math.max(0, frame.width - left - right),
-    height: Math.max(0, frame.y + frame.height - pad.bottom - listTop),
-  };
-  const size = READER_BOOK_PAGE_CONTROL_SIZE;
-  const centreX = frame.x + left + (frame.width - left - right) / 2;
-  const centreY = frame.y + frame.height / 2;
-  return {
-    frame,
-    header,
-    list,
-    orientation: "vertical",
-    thumbnailSize: Math.max(0, list.width - inset * 2),
-    pageUp: { x: centreX - size / 2, y: centreY - READER_BOOK_PAGE_CONTROL_GAP / 2 - size, width: size, height: size },
-    pageDown: { x: centreX - size / 2, y: centreY + READER_BOOK_PAGE_CONTROL_GAP / 2, width: size, height: size },
-  };
-}
 
 function uniform(value: number): Insets {
   return { top: value, left: value, bottom: value, right: value };
@@ -1880,9 +1507,9 @@ export function mobileReaderFrameInsets(
 }
 
 /**
- * The window as the reader lays it out once the notebook sheet is closed: the
- * fold is not a split line any more, so the reader is the ordinary flat one for
- * this window (page across the whole display, the usual capsule rows).
+ * The window as the reader lays it out half folded like a laptop: the fold is
+ * not a split line, so the reader is the ordinary flat one for this window
+ * (page across the whole display, the usual capsule rows).
  */
 export function mobileReaderLayoutWithoutFold(layout: MobileWindowLayout): MobileWindowLayout {
   return layout.divisions.length === 0 ? layout : { ...layout, divisions: [] };

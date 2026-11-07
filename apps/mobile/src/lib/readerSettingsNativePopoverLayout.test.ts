@@ -19,7 +19,6 @@ const full = {
   scrolling: false,
   showPlugins: true,
   showMarkComplete: true,
-  showNotebookPane: true,
 };
 
 describe("native reader settings presentation", () => {
@@ -33,10 +32,9 @@ describe("native reader settings presentation", () => {
     });
     // Page layout (row, footer), pairing (pairing, shift, footer) and page
     // fit (row, footer), three more sections (page background shows in
-    // both); Laptop Mode (header, choice, footer, a section); plugins and
-    // mark complete rows.
+    // both); plugins and mark complete rows.
     expect(readerSettingsNativeContentHeight(full) - minimal)
-      .toBe(52 + 36 + 52 * 2 + 36 + 52 + 36 + 20 * 3 + (28 + 52 + 36 + 20) + 52 * 2);
+      .toBe(52 + 36 + 52 * 2 + 36 + 52 + 36 + 20 * 3 + 52 * 2);
     // No Orientation Lock row on an iPhone or the Duo outer display.
     expect(readerSettingsNativeContentHeight({ ...full, showOrientationLock: false }))
       .toBe(readerSettingsNativeContentHeight(full) - 52);
@@ -52,11 +50,6 @@ describe("native reader settings presentation", () => {
     const base = readerSettingsNativeContentHeight(full);
     // Header 28 + row 52 + footer 36 + one section gap 20.
     expect(readerSettingsNativeContentHeight({ ...full, showCameraMode: true }) - base).toBe(28 + 52 + 36 + 20);
-  });
-
-  test("spoiler protection reserves one more row without changing other settings", () => {
-    expect(readerSettingsNativeContentHeight({ ...full, showThumbnailSpoilers: true })
-      - readerSettingsNativeContentHeight(full)).toBe(52);
   });
 
   test("Duo notebook: a 455pt pane cannot hold the Form, so it becomes a sheet", () => {
@@ -81,11 +74,11 @@ describe("native reader settings presentation", () => {
     // space below the capsule row; the scrolling Form without the page rows
     // still fits.
     const lean = {
-      ...full, twoPageSupported: false, showPagePairingControls: false, showNotebookPane: false, showPlugins: false, showMarkComplete: false,
+      ...full, twoPageSupported: false, showPagePairingControls: false, showPlugins: false, showMarkComplete: false,
     };
     const presentation = readerSettingsNativePresentation(lean, { availableHeight: available, regularWidth: true });
     expect(presentation.kind).toBe("popover");
-    expect(readerSettingsNativePresentation({ ...full, showNotebookPane: false }, { availableHeight: available, regularWidth: true }).kind).toBe("sheet");
+    expect(readerSettingsNativePresentation(full, { availableHeight: available, regularWidth: true }).kind).toBe("sheet");
     if (presentation.kind === "popover") {
       expect(presentation.width).toBe(READER_SETTINGS_POPOVER_WIDTH);
       expect(presentation.height).toBeLessThanOrEqual(available);
@@ -108,7 +101,7 @@ describe("native reader settings presentation", () => {
       bounds: { height: 678 },
       safeInsets: { top: 0, bottom: 34 },
     });
-    const rows = { ...full, twoPageSupported: false, showNotebookPane: false, showOrientationLock: false };
+    const rows = { ...full, twoPageSupported: false, showOrientationLock: false };
     expect(readerSettingsNativeContentHeight(rows)).toBeLessThanOrEqual(duoClosed);
     expect(readerSettingsNativePresentation(rows, { availableHeight: duoClosed, regularWidth: false })).toEqual({
       kind: "sheet",
@@ -120,10 +113,7 @@ describe("native reader settings presentation", () => {
   });
 
   test("regular width keeps the popover when it fits", () => {
-    const presentation = readerSettingsNativePresentation(
-      { ...full, showNotebookPane: false },
-      { availableHeight: 900, regularWidth: true },
-    );
+    const presentation = readerSettingsNativePresentation(full, { availableHeight: 900, regularWidth: true });
     expect(presentation.kind).toBe("popover");
   });
 });

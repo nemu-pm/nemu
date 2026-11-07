@@ -40,7 +40,7 @@ const AnimatedNativeGlass = NativeGlassViewHost
 
 /**
  * Reader capsule chrome palette. The reader is an immersive black surface, so
- * its regular-width capsules and the notebook console are always dark — a
+ * its regular-width capsules are always dark — a
  * white slab over manga pages is what the owner rejected — regardless of the
  * app theme. The phone chrome keeps its theme-following panel.
  */

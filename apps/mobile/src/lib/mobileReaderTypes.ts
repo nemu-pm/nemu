@@ -29,8 +29,6 @@ export type ReaderSettingsAction =
   | "page-image-processing"
   | "keep-awake"
   | "lock-portrait"
-  | "notebook-pane"
-  | "thumbnail-spoilers"
   | "page-fit"
   | "page-background"
   | "page-turn"

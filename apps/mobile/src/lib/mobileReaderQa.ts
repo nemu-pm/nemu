@@ -7,7 +7,6 @@
  */
 
 export type MobileReaderQaPanel = "settings" | "plugins" | "ocr" | "ask" | "chat" | "transcript";
-export type MobileReaderQaNotebook = "trackpad" | "filmstrip";
 
 export function resolveMobileReaderQaChrome(value: string | undefined): boolean {
   return value === "1";
@@ -49,10 +48,6 @@ export function resolveMobileReaderQaPlugin(
   return candidate && QA_PLUGIN_ID.test(candidate) ? candidate : null;
 }
 
-export function resolveMobileReaderQaNotebook(value: string | undefined): MobileReaderQaNotebook | null {
-  return value === "trackpad" || value === "filmstrip" ? value : null;
-}
-
 /** `EXPO_PUBLIC_READER_QA_CHROME=1`: reader chrome stays visible (no auto-hide, taps do not hide it). */
 export const MOBILE_READER_QA_CHROME = resolveMobileReaderQaChrome(process.env.EXPO_PUBLIC_READER_QA_CHROME);
 
@@ -71,10 +66,3 @@ export const MOBILE_READER_QA_PLUGIN = resolveMobileReaderQaPlugin(
   process.env.EXPO_PUBLIC_READER_QA_PANEL,
   process.env.EXPO_PUBLIC_READER_QA_PLUGIN,
 );
-
-/**
- * `EXPO_PUBLIC_READER_QA_NOTEBOOK=trackpad|filmstrip`: the notebook
- * posture's bottom pane starts in that state for the session (the saved
- * preference is untouched).
- */
-export const MOBILE_READER_QA_NOTEBOOK = resolveMobileReaderQaNotebook(process.env.EXPO_PUBLIC_READER_QA_NOTEBOOK);

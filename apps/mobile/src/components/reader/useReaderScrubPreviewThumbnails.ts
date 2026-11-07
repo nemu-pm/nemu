@@ -34,14 +34,11 @@ export function useReaderScrubPreviewThumbnails({
   pages,
   previewPageIndex,
   spreads,
-  isRevealed,
 }: {
   pages: readonly MobileReaderPage[];
   previewPageIndex: number | null;
   /** Two-page mode: the spreads, so the bubble shows the whole spread. */
   spreads: readonly (readonly number[])[] | null;
-  /** Spoiler-safe surfaces (the notebook) withhold unread pages. */
-  isRevealed?: (pageIndex: number) => boolean;
 }): ReaderScrubPreviewThumbnail[] {
   const cacheRef = useRef(new ReaderScrubPreviewThumbnailCache());
   const [version, bump] = useReducer((value: number) => value + 1, 0);
@@ -70,10 +67,6 @@ export function useReaderScrubPreviewThumbnails({
     [pages.length, previewPageIndex, spreads],
   );
   const targetKey = targetPages.join(",");
-  const isRevealedRef = useRef(isRevealed);
-  useEffect(() => {
-    isRevealedRef.current = isRevealed;
-  }, [isRevealed]);
 
   // In-flight requests of the current drag, by page. A request survives the
   // thumb moving on while its page stays near the thumb (a sweep keeps
@@ -87,11 +80,10 @@ export function useReaderScrubPreviewThumbnails({
       inFlight.clear();
       return;
     }
-    const revealed = (index: number) => isRevealedRef.current?.(index) ?? true;
     const request = (index: number) => {
       const page = pages[index];
       if (!page?.imageUri || page.imageUriOwnership === "app" || page.imageProcessing === "failed") return;
-      if (inFlight.has(index) || !revealed(index) || lookup(page) != null) return;
+      if (inFlight.has(index) || lookup(page) != null) return;
       const controller = new AbortController();
       inFlight.set(index, controller);
       void resolveCachedMobileImageUri(
@@ -144,11 +136,10 @@ export function useReaderScrubPreviewThumbnails({
     () =>
       targetPages.map((pageIndex) => ({
         pageIndex,
-        uri:
-          (isRevealed?.(pageIndex) ?? true) ? lookup(pages[pageIndex]) : null,
+        uri: lookup(pages[pageIndex]),
       })),
     // `version` re-reads the cache once a requested thumbnail lands.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [isRevealed, lookup, pages, targetKey, version],
+    [lookup, pages, targetKey, version],
   );
 }

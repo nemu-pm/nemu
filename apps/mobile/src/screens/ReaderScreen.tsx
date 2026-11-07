@@ -26,7 +26,7 @@ import {
   resolveMobileReaderTitleLabels,
   type MobileReaderTitleLabels,
 } from "@/lib/mobileReaderTitleMemory";
-import { MOBILE_READER_QA_CHROME, MOBILE_READER_QA_NOTEBOOK, MOBILE_READER_QA_PANEL, MOBILE_READER_QA_PLUGIN } from "@/lib/mobileReaderQa";
+import { MOBILE_READER_QA_CHROME, MOBILE_READER_QA_PANEL, MOBILE_READER_QA_PLUGIN } from "@/lib/mobileReaderQa";
 import { mobileWindowAbsoluteBand, type MobileWindowLayout, type WindowLayoutRect } from "@/lib/mobileWindowLayout";
 import {
   mobileReaderAbsoluteRect,
@@ -34,6 +34,7 @@ import {
   mobileReaderAnticipatedWindowLayout,
   mobileReaderCapsuleActionSlots,
   MOBILE_READER_BOOK_SHEET_COVER_MS,
+  mobileReaderBookSheetPlacement,
   mobileReaderBookSheetSide,
   mobileReaderLayoutWithoutFold,
   mobileReaderHingeHintKey,
@@ -41,9 +42,6 @@ import {
   mobileReaderPoseLayout,
   mobileReaderSideInsetLatchKey,
   mobileReaderSpreadHalves,
-  mobileReaderNextTopInsetLatch,
-  mobileReaderTopInsetLatchKey,
-  type MobileReaderTopInsetLatch,
   mobileReaderLatchedWindowLayout,
   mobileReaderLayoutInsetLatchBase,
   mobileReaderLayoutInsetLatchKey,
@@ -61,8 +59,6 @@ import {
   READER_CAPSULE_ACTION_WIDTH,
   READER_CAPSULE_HEIGHT,
   READER_CAPSULE_TITLE_FULL_MIN_WIDTH,
-  READER_CAPSULE_TITLE_MAX_WIDTH,
-  READER_TOP_SCRIM_FEATHER,
   mobileReaderTitleCapsuleWidthRange,
 } from "@/lib/mobileReaderPoseLayout";
 import type { ViewInstance } from "react-native";
@@ -89,6 +85,7 @@ import {
   AppState,
   BackHandler,
   Platform,
+  Pressable,
   StyleSheet,
   Text,
   useWindowDimensions,
@@ -151,12 +148,6 @@ import {
   mobileReaderPageFlipDecision,
   mobileReaderPrefetchPagesBehind,
 } from "@/lib/mobileReaderPageFlip";
-import {
-  mobileReaderNotebookReveal,
-  mobileReaderFilmstripPreviewAllowed,
-  resolveMobileReaderNotebookPane,
-  type MobileReaderNotebookPaneOverride,
-} from "@/lib/mobileReaderNotebookPane";
 import { mobileReaderLearningPageResetKey } from "@/lib/mobileReaderLearningSession";
 import { buildMobileReaderMoreMenu, mobileReaderChapterNeighbourLabel, type MobileReaderMoreMenuActionId } from "@/lib/mobileReaderMoreMenu";
 import {
@@ -184,7 +175,6 @@ import {
   ReaderCapsule,
 } from "@/components/reader/ReaderCapsule";
 import { ReaderBackGlyph } from "@/components/reader/ReaderBackGlyph";
-import { ReaderNotebookPanelGlyph } from "@/components/reader/ReaderNotebookPanelGlyph";
 import { ReaderDarkThemeScope } from "@/components/reader/ReaderDarkThemeScope";
 import { useReaderOpeningHudHeld, useReaderZoomEntry } from "@/components/reader/readerZoomEntry";
 import { useMobileExploreEntryCover } from "@/components/explore/mobileExploreCover";
@@ -242,8 +232,6 @@ import {
   mobileReaderNextCoverViewRequest,
   resolveMobileReaderCoverViewImage,
 } from "@/lib/mobileReaderCoverView";
-import { ReaderNotebookPane } from "@/components/reader/ReaderNotebookPane";
-import { ReaderBookSidePane } from "@/components/reader/ReaderBookSidePane";
 import { ReaderChapterDivider } from "@/components/reader/ReaderChapterDivider";
 import {
   ReaderChapterCrossingCapsule,
@@ -303,13 +291,6 @@ import {
   type MobileReaderStripAnchor,
   type MobileReaderStripCrossingGateEvent,
 } from "@/lib/mobileReaderStripCrossingGate";
-import {
-  mobileReaderBookSheetPlacement,
-  mobileReaderBookThumbnailKey,
-  mobileReaderBookThumbnailRatios,
-  READER_BOOK_THUMBNAIL_STALE,
-  type MobileReaderBookThumbnailResolve,
-} from "@/lib/mobileReaderBookSidePane";
 import { LinearGradient } from "expo-linear-gradient";
 import {
   MobileReaderGallery,
@@ -630,7 +611,6 @@ import {
   mobileReaderScreenOptions,
 } from "@/lib/mobileReaderRouteOptions";
 import { useMobileConnectivity } from "@/lib/useMobileConnectivity";
-import { readerChromeAnimationsForMotion } from "@/lib/mobileReaderChromeAnimations";
 import {
   READER_CHROME_MATERIAL_CURVE,
   readerChromeHasScrubber,
@@ -907,9 +887,6 @@ type JapaneseLearningTtsState =
 /** The chapter-finished capsule rests under the reader's title capsule. */
 const CHAPTER_FINISHED_BELOW_INSET = 72;
 const EMPTY_READER_SOURCE_LANGUAGES: string[] = [];
-const EMPTY_READER_VISITED_PAGES: ReadonlySet<number> = new Set();
-const EMPTY_READER_BOOK_THUMBNAIL_KEYS: readonly (string | null)[] = [];
-const EMPTY_READER_BOOK_THUMBNAIL_RATIOS: readonly number[] = [];
 /** Top scrim: dark at the edge (status glyphs), gone by the feather below the row. */
 const READER_TOP_SCRIM_COLORS = [
   "rgba(0,0,0,0.62)",
@@ -1606,8 +1583,6 @@ export function ReaderScreen() {
     },
     [],
   );
-  // Reduce Motion keeps the chrome's cross-fade but drops its 8px slide.
-  const readerChromeAnimations = readerChromeAnimationsForMotion(reduceMotion);
   const insets = useSafeAreaInsets();
   const window = useWindowDimensions();
   const [readerIsFocused, setReaderIsFocused] = useState(false);
@@ -1653,15 +1628,11 @@ export function ReaderScreen() {
   } = useReadingMode();
   const { chapterCompleteCelebration } = useMobileFeedbackSettings();
   const {
+    ready: readerDisplayPrefsReady,
     keepAwake: readerKeepAwake,
     setKeepAwake: setReaderKeepAwake,
     lockPortrait: readerLockPortrait,
     setLockPortrait: setReaderLockPortrait,
-    thumbnailSpoilerSafe: readerThumbnailSpoilerSafe,
-    thumbnailSpoilerSafeReady: readerThumbnailSpoilerSafeReady,
-    setThumbnailSpoilerSafe: setReaderThumbnailSpoilerSafe,
-    notebookPane: readerNotebookPanePreference,
-    setNotebookPane: setReaderNotebookPanePreference,
     spreadMode: readerSpreadMode,
     setSpreadMode: setReaderSpreadMode,
     avoidCamera: readerAvoidCamera,
@@ -2845,18 +2816,18 @@ export function ReaderScreen() {
   const displayedPages = useMemo(() => {
     return pages;
   }, [pages]);
-  // Resolving a cached page URI hashes it with a pure-JS SHA-256. The
-  // notebook filmstrip asks for the same handful of pages again and again, so
-  // a resolved URI is remembered per page image (id + URI: a write that lands
+  // Resolving a cached page URI hashes it with a pure-JS SHA-256. Page
+  // analysis asks for the same handful of pages again and again, so a
+  // resolved URI is remembered per page image (id + URI: a write that lands
   // after the page changed can never answer for its new image) and thrown
   // away with the page list.
   const readerScrubPreviewUriByPageIdRef = useRef(new Map<string, string>());
   useEffect(() => {
     readerScrubPreviewUriByPageIdRef.current = new Map();
   }, [displayedPages]);
-  // Notebook filmstrip thumbnails: the cached page file, remembered per page.
-  // Visible previews share the full-page cache and source headers.
-  const readerNotebookThumbnailUri = useCallback(
+  // A page's cached file, remembered per page (the full-page cache and the
+  // source's headers).
+  const readerPageCachedFileUri = useCallback(
     async (index: number, signal: AbortSignal): Promise<string | null> => {
       const page = displayedPages[index];
       // A page waiting for its processing, or whose processing failed, holds
@@ -3190,62 +3161,25 @@ export function ReaderScreen() {
   // toggle (added below once the pose says whether it shows). Derived in the
   // same render as the pose, so the title capsule is never clamped against a
   // stale action count.
-  // The notebook sheet (the half-folded posture's bottom half) can be closed:
-  // the reader is then the ordinary flat one for this window, and the top row
-  // carries "show the controls panel". A closed sheet is a choice for this
-  // fold only: leaving the half-folded posture (unfold, rotate) brings it back.
   const readerFoldedAdaptive = mobileAdaptiveLayout(readerFoldedWindowLayout);
-  // Book posture: the side pane's title sits under the status bar, which
-  // hides with the toolbar; keep the widest top inset so the pane never moves.
-  const [readerBookPaneTopLatch, setReaderBookPaneTopLatch] = useState<MobileReaderTopInsetLatch | null>(null);
-  const readerBookPaneTop = mobileReaderNextTopInsetLatch(
-    readerBookPaneTopLatch,
-    mobileReaderTopInsetLatchKey(readerFoldedWindowLayout, readerFoldedAdaptive.posture === "book"),
-    readerFoldedWindowLayout.safeAreaInsets?.top ?? insets.top,
-  );
-  if (readerBookPaneTop !== readerBookPaneTopLatch) setReaderBookPaneTopLatch(readerBookPaneTop);
-  // (A render-phase update: React re-runs this render before committing, and
-  // this render already reads the new value, so it never adds a visible pass.
-  // Its inset is the latched safe area, so it only changes with the posture.)
-  const readerBookPaneTopInset = readerBookPaneTop?.top ?? null;
   const readerNotebookFold = readerFoldedAdaptive.posture === "notebook";
   // Half folded like a laptop, reader sheets belong to the bottom pane: never
-  // past the hinge over the page (scroll mode and a closed panel included).
+  // past the hinge over the page.
   const readerNotebookSheetCap = readerNotebookFold && readerFoldedAdaptive.panels.length === 2
     ? readerNotebookSheetMaxHeight({
         paneHeight: readerFoldedAdaptive.panels[1].height,
         bottomInset: readerFoldedWindowLayout.safeAreaInsets?.bottom ?? insets.bottom,
       })
     : null;
-  const [readerNotebookSheetClosedState, setReaderNotebookSheetClosed] = useState(false);
-  if (readerNotebookSheetClosedState && !readerNotebookFold) setReaderNotebookSheetClosed(false);
-  const readerNotebookPanelClosed = readerNotebookSheetClosedState && readerNotebookFold;
-  // The panel toggle lives in the trailing action group wherever it is drawn (paged reading only: scroll has no sheet).
-  const readerNotebookPanelToggle = readerNotebookFold && galleryPagedMode;
-  // A paged chapter shown as a long strip has no sheet either: it reads
-  // exactly as on the open display, the fold no pane boundary. Scroll
-  // reading keeps the fold: the strip takes the top half and the bottom half
-  // shows the Laptop Mode content (`scrollSidePane`).
-  const readerFoldIgnored =
-    readerNotebookPanelClosed || (readerNotebookFold && !galleryPagedMode && pagedMode);
+  // Half folded like a laptop the reader reads as on the open display: the
+  // whole window, the fold no pane boundary.
   const readerWindowLayout = useMemo(
-    () => (readerFoldIgnored ? mobileReaderLayoutWithoutFold(readerFoldedWindowLayout) : readerFoldedWindowLayout),
-    [readerFoldedWindowLayout, readerFoldIgnored],
+    () => (readerNotebookFold ? mobileReaderLayoutWithoutFold(readerFoldedWindowLayout) : readerFoldedWindowLayout),
+    [readerFoldedWindowLayout, readerNotebookFold],
   );
   const readerBaseActionSlots = mobileReaderCapsuleActionSlots({
     enabledPluginIds: enabledReaderPlugins.map((plugin) => plugin.id),
     bilingualToggle: false,
-    notebookPanel: readerNotebookPanelToggle,
-  });
-  // Notebook posture: what the bottom pane holds — trackpad, filmstrip, or
-  // the continuous strip in scroll mode. The preference is saved; expanding
-  // and collapsing are session choices.
-  const [readerNotebookPaneOverride, setReaderNotebookPaneOverride] =
-    useState<MobileReaderNotebookPaneOverride>(MOBILE_READER_QA_NOTEBOOK);
-  const readerNotebookPane = resolveMobileReaderNotebookPane({
-    preference: readerNotebookPanePreference,
-    paged: galleryPagedMode,
-    override: readerNotebookPaneOverride,
   });
   const outerReaderCanvas = readerSideBar && readerWindowLayout.hinge === "closed"
     && readerWindowLayout.fillsScreen !== false;
@@ -3329,22 +3263,15 @@ export function ReaderScreen() {
         twoPage: spreadMode === "double",
         spreadMode,
         rtl: mode === "rtl",
-        notebookPane: readerNotebookPane,
         actionCount,
         sideBar: readerSideBar,
-        // Laptop pose: the actions stay on top with the panel closed too.
-        notebookFold: readerNotebookFold,
         sheetSide,
-        // Book and laptop postures, scroll reading: the strip keeps its half
-        // and the other half shows the Laptop Mode content.
-        scrollSidePane: !pagedMode,
-        sidePaneTopInset: readerBookPaneTopInset,
+        // Book posture, scroll reading: the strip keeps its half.
+        scrollReading: !pagedMode,
       }),
     [
       pagedMode,
-      readerBookPaneTopInset,
       readerSheetSide,
-      readerNotebookFold,
       readerPageAspectRatio,
       readerAvoidCamera,
       readerSideBar,
@@ -3352,7 +3279,6 @@ export function ReaderScreen() {
       readerLayoutSafeInsets,
       mode,
       pageCount,
-      readerNotebookPane,
       readerWindowLayout,
     ],
   );
@@ -3361,15 +3287,6 @@ export function ReaderScreen() {
   const readerBasePose = useMemo(
     () => buildReaderPose(readerBaseActionSlots, readerSpreadMode),
     [buildReaderPose, readerBaseActionSlots, readerSpreadMode],
-  );
-  const setReaderNotebookPaneFromSettings = useCallback(
-    (value: typeof readerNotebookPanePreference) => {
-      if (value === readerNotebookPanePreference || readerSettingsActionBusy) return;
-      // A new preference replaces this session's expand / collapse choice.
-      setReaderNotebookPaneOverride(null);
-      void runReaderSettingsAction("notebook-pane", () => setReaderNotebookPanePreference(value));
-    },
-    [readerNotebookPanePreference, readerSettingsActionBusy, runReaderSettingsAction, setReaderNotebookPanePreference],
   );
   // Bilingual book (对照书): on a book / wide flat window with the dual reader
   // configured, the primary page takes the reading-start pane and the aligned
@@ -3401,7 +3318,6 @@ export function ReaderScreen() {
   const readerActionSlots = mobileReaderCapsuleActionSlots({
     enabledPluginIds: enabledReaderPlugins.map((plugin) => plugin.id),
     bilingualToggle: bilingualMode.showToggle,
-    notebookPanel: readerNotebookPanelToggle,
   });
   const readerPose = useMemo(
     () =>
@@ -3432,9 +3348,6 @@ export function ReaderScreen() {
     () => (readerSheetSide ? buildReaderPose(readerActionSlots, readerSpreadMode, null) : readerPose),
     [buildReaderPose, readerActionSlots, readerPose, readerSheetSide, readerSpreadMode],
   );
-  // The notebook setting only means something on a device that folds.
-  const readerNotebookPaneSettingAvailable =
-    readerFoldedWindowLayout.divisions.length > 0 || readerPose.posture === "notebook";
   const bilingualLayout =
     bilingualMode.sideBySide && bilingualEligibility.eligible
       ? bilingualEligibility.layout
@@ -3548,7 +3461,7 @@ export function ReaderScreen() {
     chapterKey: JSON.stringify([registryId, sourceId, mangaId, chapterId]),
     pageIds: readerPageAnalysisIds,
     currentPageIndex: clampedPageIndex,
-    resolveFile: readerNotebookThumbnailUri,
+    resolveFile: readerPageCachedFileUri,
   });
   // Measured on an earlier visit (this app session). Also by the page's place
   // in the chapter: a source may sign its image URLs per fetch, which changes
@@ -3964,9 +3877,7 @@ export function ReaderScreen() {
   const readerSourceViewerKey = makeMobileSourceDetailCacheKey(registryId, sourceId, mangaId);
   // Book posture, scroll reading: the strip fills its half less 8pt either
   // side for ordinary manga, edge to edge for a webtoon strip.
-  // (The laptop posture's top half is as wide as the open display: the strip
-  // keeps the flat width there.)
-  const readerBookScrollStripPane = readerPose.sidePane?.orientation === "vertical";
+  const readerBookScrollStripPane = readerPose.freeHalf != null;
   const readerBookScrollStripChapter = useMemo(
     () =>
       readerBookScrollStripPane && !galleryPagedMode
@@ -5122,42 +5033,6 @@ export function ReaderScreen() {
     }, READER_FIRST_SCREEN_PENDING_LOG_MS);
     return () => clearTimeout(timer);
   }, [readerFirstScreenPageIds]);
-  // Notebook filmstrip / scrub previews are spoiler-safe: only pages read
-  // before this chapter opened (saved position, a completed chapter), pages
-  // actually shown in this session and the current page show their image.
-  const [readerNotebookVisits, setReaderNotebookVisits] = useState<{
-    chapterId: string;
-    openedAt: number | null;
-    visited: ReadonlySet<number>;
-  } | null>(null);
-  if (readerRestoreComplete && pageCount > 0) {
-    if (readerNotebookVisits?.chapterId !== chapterId) {
-      const saved = readerChapterProgress;
-      setReaderNotebookVisits({
-        chapterId,
-        openedAt: saved && saved.sourceChapterId === chapterId && saved.total > 1 ? saved.progress : null,
-        visited: new Set([clampedPageIndex]),
-      });
-    } else if (!readerNotebookVisits.visited.has(clampedPageIndex)) {
-      setReaderNotebookVisits({
-        ...readerNotebookVisits,
-        visited: new Set([...readerNotebookVisits.visited, clampedPageIndex]),
-      });
-    }
-  }
-  const readerNotebookVisitsForChapter =
-    readerNotebookVisits?.chapterId === chapterId ? readerNotebookVisits : null;
-  const readerNotebookRevealed = useMemo(
-    () =>
-      mobileReaderNotebookReveal({
-        pageCount,
-        currentIndex: clampedPageIndex,
-        openedAtIndex: readerNotebookVisitsForChapter?.openedAt ?? null,
-        completed,
-        visited: readerNotebookVisitsForChapter?.visited ?? EMPTY_READER_VISITED_PAGES,
-      }),
-    [clampedPageIndex, completed, pageCount, readerNotebookVisitsForChapter],
-  );
   const readerChromeChapterKey = JSON.stringify([registryId, sourceId, mangaId, chapterId]);
   const readerChromeAutoHideKey = readerRestoreComplete ? readerChromeChapterKey : "";
   // Progress is saved only once the reader rests where it was restored to.
@@ -5170,12 +5045,7 @@ export function ReaderScreen() {
         visibleProgressPageIndex,
       )
     : "";
-  // The notebook console is always visible: the bottom pane is the controls half.
-  const showReaderChrome = showControls || readerPose.chromePinned;
-  const showReaderBottomChrome =
-    showReaderChrome &&
-    ((pagesState.status === "ready" && pageCount > 0) ||
-      pagesState.status === "loading");
+  const showReaderChrome = showControls;
   useEffect(() => {
     const emptyMetrics = getReaderContinuousScrollMetrics({
       contentOffset: 0,
@@ -5315,8 +5185,7 @@ export function ReaderScreen() {
       insets: readerLayoutSafeInsets,
     }) + 80;
   // The segmented list's leading padding (see the gallery's chromeTopPadding).
-  const readerSegmentTopInset =
-    readerPose.chrome.kind === "console" ? 0 : readerScrollTopInset;
+  const readerSegmentTopInset = readerScrollTopInset;
   useLayoutEffect(() => {
     readerSegmentViewportRef.current = {
       frames: segmentedImageFrames,
@@ -6671,8 +6540,9 @@ export function ReaderScreen() {
     [completeReaderStripCaughtUp, noteReaderStripGate, showEndOfChapterPrompt],
   );
 
-  // Book / laptop posture page controls: one screen (the viewport less the
-  // safe areas it reaches, 12% kept on screen), animated by the list itself.
+  // One screen of the strip (the outer display's scroll tap zones): the
+  // viewport less the safe areas it reaches, 12% kept on screen, animated by
+  // the list itself.
   const readerStageSafePadding = mobileReaderSafePadding(readerStage, readerPose.bounds, readerPose.safeInsets);
   const readerSafeInsetTop = readerStageSafePadding.top;
   const readerSafeInsetBottom = readerStageSafePadding.bottom;
@@ -6699,47 +6569,16 @@ export function ReaderScreen() {
     [completeReaderStripCaughtUp, noteReaderStripGate, readerSafeInsetBottom, readerSafeInsetTop, showEndOfChapterPrompt],
   );
 
-  // Book / laptop posture side pane (Laptop Mode: thumbnails, a column beside
-  // the strip or a row under the crease). A thumbnail shows the
-  // page's own image: a processed (descrambled) page only once its file is
-  // there — never the source's scrambled original while processing waits.
-  const readerBookSidePane = !galleryPagedMode ? (readerPose.sidePane ?? null) : null;
-  // The reader's system sheets (settings, plugins, Japanese Learning) go over
-  // the book posture's side pane, never the strip's half.
+  // Book posture, scroll reading: the half beside the strip. The reader's
+  // system sheets (settings, plugins, Japanese Learning) go over it, never
+  // the strip's half.
+  const readerBookFreeHalf = !galleryPagedMode ? (readerPose.freeHalf ?? null) : null;
   const readerSheetPlacement = mobileReaderBookSheetPlacement({
     posture: readerPose.posture,
-    sidePane: readerBookSidePane,
+    freeHalf: readerBookFreeHalf,
     bounds: readerPose.bounds,
     layoutDirection: readerWindowLayout.layoutDirection,
   });
-  const readerBookThumbnails = readerBookSidePane !== null && readerNotebookPanePreference === "filmstrip";
-  const readerBookThumbnailKeys = useMemo(
-    () =>
-      readerBookThumbnails
-        ? displayedPages.map(mobileReaderBookThumbnailKey)
-        : EMPTY_READER_BOOK_THUMBNAIL_KEYS,
-    [displayedPages, readerBookThumbnails],
-  );
-  // The pane asks for the image its cell shows: a page that has changed since
-  // (or is pending again) answers "stale", and the cell keeps its placeholder.
-  const readerBookThumbnailUri = useCallback<MobileReaderBookThumbnailResolve>(
-    (index, key, signal) =>
-      mobileReaderBookThumbnailKey(displayedPages[index]) === key
-        ? readerNotebookThumbnailUri(index, signal)
-        : Promise.resolve(READER_BOOK_THUMBNAIL_STALE),
-    [displayedPages, readerNotebookThumbnailUri],
-  );
-  const readerBookThumbnailRatios = useMemo(
-    () =>
-      readerBookThumbnails
-        ? mobileReaderBookThumbnailRatios(displayedPages.length, readerPageSizeAt)
-        : EMPTY_READER_BOOK_THUMBNAIL_RATIOS,
-    [displayedPages.length, readerBookThumbnails, readerPageSizeAt],
-  );
-  const readerBookSelectPage = useCallback(
-    (index: number) => goToPage(index, "initial", { animated: true }),
-    [goToPage],
-  );
   const toggleReaderControls = useCallback(() => {
     setShowControls((value) => !value);
   }, []);
@@ -11799,7 +11638,7 @@ export function ReaderScreen() {
     readerOwnLayoutKnown &&
     readerOpeningSideBarColumnKnown &&
     !readerPlugins.loading &&
-    readerThumbnailSpoilerSafeReady;
+    readerDisplayPrefsReady;
   // What a late correction would move: the pieces' frames and the title's text.
   const readerOpeningSettleKey = [
     readerPose.chrome.kind,
@@ -11885,12 +11724,7 @@ export function ReaderScreen() {
   }));
   if (readerChromeArrangementTrack.signature !== readerChromeArrangementSignature) {
     const previous = readerChromeArrangementTrack;
-    const kindChanged = previous.lastKind !== readerChromeArrangement.kind;
-    const from =
-      previous.visible ??
-      (kindChanged && readerChromeArrangement.kind === "console"
-        ? { kind: previous.lastKind }
-        : null);
+    const from = previous.visible;
     setReaderChromeArrangementTrack({
       signature: readerChromeArrangementSignature,
       visible: readerChromeArrangementVisible ? readerChromeArrangement : null,
@@ -12069,7 +11903,7 @@ export function ReaderScreen() {
   // Unmeasured (first frame): the settings slot is the actions capsule's last one.
   const readerSettingsAnchorRect: WindowLayoutRect | null =
     measuredReaderSettingsAnchor ??
-    (readerPose.chrome.kind === "capsules" || readerPose.chrome.kind === "console"
+    (readerPose.chrome.kind === "capsules"
       ? {
           x: readerPose.chrome.actions.x + readerPose.chrome.actions.width - 46,
           y: readerPose.chrome.actions.y,
@@ -12199,23 +12033,10 @@ export function ReaderScreen() {
   const readerChromeBottomSlideStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: (1 - readerChromeFade.value) * readerChromeRowSlide }],
   }));
-  // The scrub preview and filmstrip honour the same saved spoiler preference.
-  const readerScrubPreviewRevealed = useCallback(
-    (pageIndex: number) =>
-      readerPose.chrome.kind !== "console" ||
-      mobileReaderFilmstripPreviewAllowed({
-        index: pageIndex,
-        revealed: readerNotebookRevealed,
-        spoilerSafe: !readerThumbnailSpoilerSafeReady || readerThumbnailSpoilerSafe,
-        visible: true,
-      }),
-    [readerNotebookRevealed, readerPose.chrome.kind, readerThumbnailSpoilerSafe, readerThumbnailSpoilerSafeReady],
-  );
   const readerScrubPreviewThumbnails = useReaderScrubPreviewThumbnails({
     pages: displayedPages,
     previewPageIndex: readerScrubPreviewPageIndex,
     spreads: isTwoPageMode ? readerSpreads : null,
-    isRevealed: readerScrubPreviewRevealed,
   });
   const renderReaderChrome = () => {
     const chrome = readerPose.chrome;
@@ -12227,8 +12048,8 @@ export function ReaderScreen() {
         : null;
     const boundsWidth = readerPose.bounds.width;
     const boundsHeight = readerPose.bounds.height;
-    // The capsule chrome and the notebook console are always dark: the reader
-    // is a black immersive surface, whatever the app theme.
+    // The capsule chrome is always dark: the reader is a black immersive
+    // surface, whatever the app theme.
     const readerChromeColors = {
       ...readerChromeColorsForTheme,
       primaryText: READER_CAPSULE_COLORS.primaryText,
@@ -12241,17 +12062,12 @@ export function ReaderScreen() {
     const chromeButtonStyle = styles.readerCapsuleButton;
     const pluginGroupStyle = styles.readerCapsuleActionGroup;
     const layerPointerEvents = readerStageTapOwned ? "none" : "box-none";
-    // Keep the console glass outside ancestor opacity/perspective animations:
-    // UIKit drops its effects there. Its capsules animate the material itself,
-    // just like the ordinary reader chrome.
+    // Keep the glass outside ancestor opacity animations: UIKit drops its
+    // effects there. The capsules animate the material itself.
     const chromeLayer = (children: ReactNode) => (
       <Animated.View
         key={mobileReaderChromeArrangementKey(readerChromeArrangement)}
-        entering={
-          arrangementMotion && chrome.kind !== "console"
-            ? mobileReaderChromeArrangementEntering(arrangementMotion)
-            : undefined
-        }
+        entering={arrangementMotion ? mobileReaderChromeArrangementEntering(arrangementMotion) : undefined}
         pointerEvents={layerPointerEvents}
         style={styles.readerChromeLayer}
       >
@@ -12693,26 +12509,6 @@ export function ReaderScreen() {
         />,
       );
     }
-    // One panel toggle in the trailing action group: lowers the sheet while it
-    // is open, brings it back when closed (iOS: one panel symbol, highlighted
-    // while open; Android: down / up chevrons). Only
-    // Back exits the reader, so the row never shows two ways out.
-    const notebookPanelButton = readerNotebookPanelToggle ? (
-      <NemuPressable
-        accessibilityRole="button"
-        accessibilityLabel={readerNotebookPanelClosed ? strings.duo.notebookShowPanel : strings.duo.notebookClosePanel}
-        accessibilityState={{ expanded: !readerNotebookPanelClosed }}
-        onPress={() => setReaderNotebookSheetClosed(!readerNotebookPanelClosed)}
-        pressedScale={0.98}
-        style={[chromeButtonStyle, { backgroundColor: "transparent" }]}
-      >
-        <ReaderNotebookPanelGlyph
-          open={!readerNotebookPanelClosed}
-          primaryColor={readerChromeColors.primaryText}
-          secondaryColor={readerChromeColors.secondaryText}
-        />
-      </NemuPressable>
-    ) : null;
     const settingsButton = (
       <View ref={readerSettingsButtonRef} collapsable={false}>
       <NemuPressable
@@ -12761,167 +12557,6 @@ export function ReaderScreen() {
       />
     );
 
-    if (chrome.kind === "console") {
-      // Notebook (paged): the bottom pane is always there — the trackpad or
-      // the filmstrip console. The top pane gets the flat capsule row over the page
-      // while the chrome is shown; the filmstrip carries those pieces itself,
-      // so the row stays away then (no duplicated controls).
-      const actionsCapsule = (
-        <ReaderCapsule animateAppearance materializeDurationMs={readerChromeMaterialMs} style={styles.readerActionsCapsule}>
-          {pluginActions}
-          {settingsButton}
-          {notebookPanelButton}
-        </ReaderCapsule>
-      );
-      const topRowVisible = showControls && chrome.state !== "filmstrip";
-      const { back, title: titleRect, actions } = chrome;
-      const actionsOnRight = actions.x + actions.width / 2 >= boundsWidth / 2;
-      return chromeLayer(
-        <>
-          <View
-            pointerEvents="none"
-            style={[
-              mobileReaderAbsoluteRect(chrome.frame),
-              { backgroundColor: readerBackgroundColor },
-            ]}
-          />
-          <ReaderNotebookPane
-            frame={chrome.frame}
-            pane={chrome.pane}
-            state={chrome.state}
-            reduceMotion={reduceMotion === true}
-            rtl={mode === "rtl"}
-            strings={strings}
-            pageIndex={visibleProgressPageIndex}
-            pageCount={pageCount}
-            pageLabel={readerTopPageCountLabel}
-            onStep={stepReaderPage}
-            onExpand={() => setReaderNotebookPaneOverride("filmstrip")}
-            filmstripHeader={
-              <GlassContainer spacing={READER_CAPSULE_GLASS_SPACING} pointerEvents="box-none" style={styles.readerNotebookHeader}>
-                <View pointerEvents="box-none" style={{ width: actions.width }}>
-                  <ReaderCapsule animateAppearance materializeDurationMs={readerChromeMaterialMs} style={styles.readerCapsuleCircle}>{backButton}</ReaderCapsule>
-                </View>
-                {/* The flexible slot between Back and the actions; the capsule hugs its labels in it. */}
-                <View pointerEvents="box-none" style={styles.readerConsoleTitleSlot}>
-                  <ReaderCapsule
-                    animateAppearance
-                    materializeDurationMs={readerChromeMaterialMs}
-                    style={[
-                      styles.readerConsoleTitleCapsule,
-                      mobileReaderTitleCapsuleWidthRange(READER_CAPSULE_TITLE_MAX_WIDTH, boundsWidth),
-                    ]}
-                  >
-                    {capsuleTitleBlock}
-                  </ReaderCapsule>
-                </View>
-                {chrome.state === "filmstrip" ? actionsCapsule : null}
-              </GlassContainer>
-            }
-            filmstripScrubber={
-              showReaderBottomChrome && chrome.state === "filmstrip" ? (
-                <View
-                  ref={readerBottomPanelAnchorRef}
-                  pointerEvents="box-none"
-                  style={styles.readerConsoleScrubberAnchor}
-                >
-                  {/* A panel, not a button: interactive glass claims drags on
-                      it (its press/stretch response), which cancelled every
-                      scrub after the first touch — only taps got through. */}
-                  <GlassContainer spacing={READER_CAPSULE_GLASS_SPACING} pointerEvents="box-none">
-                    <ReaderCapsule interactive={false} animateAppearance materializeDurationMs={readerChromeMaterialMs} style={styles.readerScrubberCapsule}>
-                      {previousChapterButton}
-                      {scrubber}
-                      {nextChapterButton}
-                    </ReaderCapsule>
-                  </GlassContainer>
-                </View>
-              ) : null
-            }
-            filmstrip={{
-              pageCount,
-              currentIndex: clampedPageIndex,
-              revealed: readerNotebookRevealed,
-              thumbnailUri: readerNotebookThumbnailUri,
-              spoilerSafe: !readerThumbnailSpoilerSafeReady || readerThumbnailSpoilerSafe,
-              onSelectPage: goToPage,
-            }}
-          />
-          {topRowVisible ? (
-            <Animated.View
-              entering={readerChromeAnimations.topEntering}
-              exiting={readerChromeAnimations.topExiting}
-              accessibilityLabel={strings.reader.readerControls}
-              accessibilityRole="toolbar"
-              pointerEvents="box-none"
-              style={StyleSheet.absoluteFill}
-            >
-              {/* Same edgeless top scrim as the flat capsule chrome, so the
-                  status glyphs stay legible over the top pane's page. */}
-              <LinearGradient
-                pointerEvents="none"
-                colors={readerTopScrimColors}
-                locations={READER_TOP_SCRIM_LOCATIONS}
-                style={{
-                  position: "absolute",
-                  left: 0,
-                  top: 0,
-                  width: boundsWidth,
-                  height: Math.max(readerPose.safeInsets.top, back.y + back.height) + READER_TOP_SCRIM_FEATHER,
-                }}
-              />
-              <GlassContainer spacing={READER_CAPSULE_GLASS_SPACING} pointerEvents="box-none" style={StyleSheet.absoluteFill}>
-                <ReaderCapsule
-                  style={[styles.readerCapsuleCircle, { position: "absolute", left: back.x, top: back.y }]}
-                >
-                  {backButton}
-                </ReaderCapsule>
-                {titleRect ? (
-                  <View pointerEvents="box-none" style={[mobileReaderAbsoluteRect(titleRect), styles.readerTitleSlot]}>
-                    <ReaderTitleCapsule
-                      pointerEvents="auto"
-                      style={styles.readerTitleCapsule}
-                      {...mobileReaderTitleCapsuleWidthRange(titleRect.width, boundsWidth)}
-                      contentKey={titleContentKey}
-                      visible={readerTitleCapsuleVisible}
-                      reduceMotion={reduceMotion === true}
-                    >
-                      {capsuleTitleBlock}
-                    </ReaderTitleCapsule>
-                  </View>
-                ) : null}
-                <View
-                  pointerEvents="box-none"
-                  style={[
-                    { position: "absolute", top: actions.y },
-                    actionsOnRight
-                      ? { right: boundsWidth - actions.x - actions.width }
-                      : { left: actions.x },
-                  ]}
-                >
-                  {actionsCapsule}
-                </View>
-              </GlassContainer>
-            </Animated.View>
-          ) : null}
-          {settingsErrorBanner ? (
-            <View
-              pointerEvents="box-none"
-              style={{
-                position: "absolute",
-                left: chrome.pane.x + 16,
-                width: Math.max(0, chrome.pane.width - 32),
-                top: chrome.pane.y + 8,
-              }}
-            >
-              {settingsErrorBanner}
-            </View>
-          ) : null}
-          {scrubberPreview}
-        </>
-      );
-    }
-
     {
       // Safari / Photos on iPhone Duo, on every device: separate glass pieces
       // on the top row (Back · title · actions; compact width moves the
@@ -12960,7 +12595,6 @@ export function ReaderScreen() {
         >
           {pluginActions}
           {settingsButton}
-          {notebookPanelButton}
         </ReaderCapsule>
       );
       // Compact without a vertical bar (phones in portrait): the top row is
@@ -13493,11 +13127,11 @@ export function ReaderScreen() {
         )}
         backgroundColor={readerBackgroundColor}
         bottomPadding={
-          readerPose.chrome.kind === "console" ? 0 : galleryPagedMode ? readerBottomPadding : readerScrollBottomInset
+          galleryPagedMode ? readerBottomPadding : readerScrollBottomInset
         }
         chapter={chapter}
         chromeTopPadding={
-          readerPose.chrome.kind === "console" ? 0 : galleryPagedMode ? readerChromeTopPadding : readerScrollTopInset
+          galleryPagedMode ? readerChromeTopPadding : readerScrollTopInset
         }
         completed={completed}
         displayedPages={readerPagedGallery?.pages ?? readerStripGalleryPages ?? displayedPages}
@@ -13628,9 +13262,7 @@ export function ReaderScreen() {
         // while they dematerialize they no longer hit-test, so a tap on one
         // would otherwise reach the page-turn bands under it.
         tapExclusions={
-          (readerPose.chrome.kind === "console"
-            ? showControls && readerPose.chrome.state !== "filmstrip"
-            : showReaderChrome || readerChromeLingering)
+          showReaderChrome || readerChromeLingering
             ? readerChromeLingering && readerPose.chrome.kind === "capsules"
               // Reserve the 6pt dismiss path as well as the pose rect:
               // hit-testing reads the stage coordinates, not its native slide.
@@ -13657,26 +13289,14 @@ export function ReaderScreen() {
       />
       </Animated.View>
 
-      {readerBookSidePane ? (
-        <ReaderBookSidePane
-          // A new chapter starts a new list (scroll position, follow state).
-          key={chapterId}
-          layout={readerBookSidePane}
-          content={readerNotebookPanePreference}
-          backgroundColor={readerBackgroundColor}
-          strings={strings}
-          chapterTitle={formatChapterTitle(chapter, strings)}
-          pageCount={pageCount}
-          thumbnailRatios={readerBookThumbnailRatios}
-          thumbnailKeys={readerBookThumbnailKeys}
-          thumbnailUri={readerBookThumbnailUri}
-          revealed={readerNotebookRevealed}
-          spoilerSafe={!readerThumbnailSpoilerSafeReady || readerThumbnailSpoilerSafe}
-          liveStore={readerLivePageStore}
-          committedIndex={clampedPageIndex}
-          onSelectPage={readerBookSelectPage}
-          onStep={stepReaderScrollScreen}
-          onToggleControls={toggleReaderControls}
+      {readerBookFreeHalf ? (
+        // Book posture, scroll reading: the half beside the strip is plain
+        // reader black; a tap there shows or hides the toolbar.
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={showControls ? strings.reader.hideControls : strings.reader.showControls}
+          onPress={toggleReaderControls}
+          style={[mobileReaderAbsoluteRect(readerBookFreeHalf), { backgroundColor: readerBackgroundColor }]}
         />
       ) : null}
 
@@ -13825,7 +13445,6 @@ export function ReaderScreen() {
                   anchor: readerSettingsAnchorRect,
                   bounds: readerPose.bounds,
                   safeInsets: readerPose.safeInsets,
-                  panes: readerPose.posture === "notebook" ? mobileAdaptiveLayout(readerWindowLayout).panels : null,
                 })
               : 0
           }
@@ -13842,13 +13461,6 @@ export function ReaderScreen() {
               setReaderLockPortrait(!readerLockPortrait),
             );
           }}
-          showNotebookPane={readerNotebookPaneSettingAvailable}
-          thumbnailSpoilerSafe={readerThumbnailSpoilerSafe}
-          onToggleThumbnailSpoilerSafe={() => {
-            void runReaderSettingsAction("thumbnail-spoilers", () => setReaderThumbnailSpoilerSafe(!readerThumbnailSpoilerSafe));
-          }}
-          notebookPane={readerNotebookPanePreference}
-          onSetNotebookPane={setReaderNotebookPaneFromSettings}
           onSetMode={(nextMode) => {
             if (nextMode === mode || readerSettingsActionBusy) return;
             void runReaderSettingsAction("reading-mode", () => setMode(nextMode));
@@ -13925,8 +13537,7 @@ export function ReaderScreen() {
           onDismissComplete={handleReaderDisplaySettingsDismissed}
           showReaderPluginSettings={showReaderPluginSettingsEntry}
           onOpenReaderPluginSettings={openReaderPluginSettingsFromDisplaySettings}
-          // Confined between the capsule rows, to the chrome pane, or to the
-          // notebook console.
+          // Confined between the capsule rows or to the chrome pane.
           anchor={readerPose.popover}
           keepAwake={readerKeepAwake}
           onToggleKeepAwake={() => {
@@ -13941,13 +13552,6 @@ export function ReaderScreen() {
               setReaderLockPortrait(!readerLockPortrait),
             );
           }}
-          showNotebookPane={readerNotebookPaneSettingAvailable}
-          thumbnailSpoilerSafe={readerThumbnailSpoilerSafe}
-          onToggleThumbnailSpoilerSafe={() => {
-            void runReaderSettingsAction("thumbnail-spoilers", () => setReaderThumbnailSpoilerSafe(!readerThumbnailSpoilerSafe));
-          }}
-          notebookPane={readerNotebookPanePreference}
-          onSetNotebookPane={setReaderNotebookPaneFromSettings}
           onSetMode={(nextMode) => {
             if (nextMode === mode || readerSettingsActionBusy) return;
             void runReaderSettingsAction("reading-mode", () => setMode(nextMode));
@@ -14175,11 +13779,6 @@ const styles = StyleSheet.create({
   readerStageClip: {
     overflow: "hidden",
   },
-  readerNotebookHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
   // Matches the shell box exactly, so measuring the anchor measures the panel.
   // Both chrome panels share one shell so the top info bar and the bottom
   // toolbar read as the same surface: same height, inset and corner radius.
@@ -14192,7 +13791,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginVertical: -READER_CHROME_PANEL_VERTICAL_PADDING,
   },
-  // --- Capsule chrome (regular width, book, notebook console) -------------
+  // --- Capsule chrome (regular width, book) --------------------------------
   // Safari on iPhone Duo, measured at 3x: 44pt circles and capsules, icon
   // slots 44pt wide, the title centred on two lines.
   readerCapsuleCircle: {
@@ -14274,21 +13873,5 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 4,
     paddingHorizontal: 4,
-  },
-  readerConsoleTitleSlot: {
-    flex: 1,
-    minWidth: 0,
-    flexDirection: "row",
-    justifyContent: "center",
-  },
-  readerConsoleTitleCapsule: {
-    flexShrink: 1,
-    height: READER_CAPSULE_HEIGHT,
-    justifyContent: "center",
-    paddingHorizontal: 18,
-  },
-  readerConsoleScrubberAnchor: {
-    width: "100%",
-    maxWidth: 560,
   },
 });

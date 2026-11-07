@@ -27,9 +27,6 @@ export const MOBILE_READER_REDUCE_MOTION_FADE_MS = 150;
 /** Horizontal chrome ⇄ capsules: fade + this slide down from the top edge (motion spec). */
 export const MOBILE_READER_CHROME_ARRANGEMENT_SLIDE = 8;
 export const MOBILE_READER_CHROME_ARRANGEMENT_MS = 220;
-/** Notebook console unfolding from the hinge. */
-export const MOBILE_READER_CONSOLE_UNFOLD_MS = 280;
-export const MOBILE_READER_CONSOLE_UNFOLD_DEG = -80;
 /**
  * Root pose veil caps while the reader is on screen (rotation, display
  * switch): a light dark frost over the pages (iOS, where the system rotates
@@ -314,7 +311,7 @@ export function mobileReaderGalleryRemountMotion(input: {
 // --- Chrome arrangement ----------------------------------------------------
 
 export type MobileReaderChromeArrangement = {
-  kind: "capsules" | "console";
+  kind: "capsules";
   /**
    * Where the pieces sit (capsule rects). A pose change that only moves them
    * (flat ⇄ book: the row snaps per pane) glides the same capsules to their
@@ -327,8 +324,6 @@ export type MobileReaderChromeArrangementMotion = {
   /** Start offset of the incoming arrangement (it settles at 0). */
   dx: number;
   dy: number;
-  /** Notebook console: rotate open from the fold line. */
-  unfold: boolean;
   durationMs: number;
 };
 
@@ -346,8 +341,8 @@ export function mobileReaderChromeGeometryKey(rects: ReadonlyArray<Rect | null>)
 
 /**
  * Visible chrome moved to another arrangement kind (pose change): capsules
- * settle the last 8pt down onto their row as they fade in; the console
- * unfolds from the hinge. Only a kind change remounts the layer this way —
+ * settle the last 8pt down onto their row as they fade in. Only a kind
+ * change remounts the layer this way —
  * showing/hiding keeps its own fade, and moved pieces glide
  * (`mobileReaderChromeGlide`).
  */
@@ -360,12 +355,9 @@ export function mobileReaderChromeArrangementMotion(input: {
   if (!from) return null;
   if (from.kind === to.kind) return null;
   if (input.reduceMotion) {
-    return { dx: 0, dy: 0, unfold: false, durationMs: MOBILE_READER_REDUCE_MOTION_FADE_MS };
+    return { dx: 0, dy: 0, durationMs: MOBILE_READER_REDUCE_MOTION_FADE_MS };
   }
-  if (to.kind === "console") {
-    return { dx: 0, dy: 0, unfold: true, durationMs: MOBILE_READER_CONSOLE_UNFOLD_MS };
-  }
-  return { dx: 0, dy: -MOBILE_READER_CHROME_ARRANGEMENT_SLIDE, unfold: false, durationMs: MOBILE_READER_CHROME_ARRANGEMENT_MS };
+  return { dx: 0, dy: -MOBILE_READER_CHROME_ARRANGEMENT_SLIDE, durationMs: MOBILE_READER_CHROME_ARRANGEMENT_MS };
 }
 
 /**

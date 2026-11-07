@@ -62,14 +62,14 @@ describe("seamless scroll: past the last available chapter", () => {
     expect(handler).toContain('tail?.kind === "end" ? "paged-caught-up"');
   });
 
-  test("the accessibility next action and the book / laptop page buttons follow the same rule", () => {
+  test("the accessibility next action and the outer display's screen steps follow the same rule", () => {
     const accessibility = slice(
       "const stepContinuousReaderAccessibility = useCallback(",
-      "// Book / laptop posture page controls",
+      "// One screen of the strip",
     );
     const screenStep = slice(
       "const stepReaderScrollScreen = useCallback(",
-      "// Book / laptop posture side pane",
+      "// Book posture, scroll reading: the half beside the strip.",
     );
     for (const step of [accessibility, screenStep]) {
       expect(step).toContain(
@@ -78,8 +78,8 @@ describe("seamless scroll: past the last available chapter", () => {
       expect(step).not.toContain('if (direction === "next") showEndOfChapterPrompt();');
       expect(step).toContain("completeReaderStripCaughtUp,");
     }
-    // The book pane's page buttons are the screen steps (they reach the
-    // list's end, the divider, and stay there).
-    expect(reader).toContain("onStep={stepReaderScrollScreen}");
+    // The outer display's scroll tap zones are the screen steps (they reach
+    // the list's end, the divider, and stay there).
+    expect(reader).toContain("onScrollScreenStep={stepReaderScrollScreen}");
   });
 });

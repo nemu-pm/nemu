@@ -111,7 +111,7 @@ describe("reader title capsule: a text change resizes around the centre, never i
     expect(swift).toContain("overlayView.transform = visible ? .identity : dematerializedTransform");
     expect(swift).toContain('Constant("glassChildrenAboveMaterialAvailable") { true }');
     const reader = readFileSync(path.join(import.meta.dir, "../screens/ReaderScreen.tsx"), "utf8");
-    expect(reader.match(/<ReaderTitleCapsule\b/g)?.length).toBe(2);
+    expect(reader.match(/<ReaderTitleCapsule\b/g)?.length).toBe(1);
     expect(reader).toContain("const readerTitleCapsuleVisible = readerChromeShown && !readerOpeningChromeTransparent;");
     // Page numbers keep their width digit for digit.
     expect(reader).toMatch(/readerCapsuleSubtitle: \{[^}]*fontVariant: \["tabular-nums"\]/);

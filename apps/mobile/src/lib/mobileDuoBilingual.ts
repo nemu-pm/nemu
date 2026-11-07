@@ -44,7 +44,7 @@ export type MobileDuoBilingualIneligibleReason =
   | "notConfigured"
   /** Long-strip / scrolling presentation: a strip has no page to pair. */
   | "notPaged"
-  /** Horizontal fold (notebook / tabletop): the page sits above the trackpad / filmstrip pane. */
+  /** Horizontal fold (notebook / tabletop): no side-by-side panes. */
   | "notebook"
   /** Flat window narrower than a regular width or compact in height (outer display, phones). */
   | "compact"

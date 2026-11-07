@@ -164,8 +164,8 @@ describe("reader layout: the controls never move the page (latched safe area)", 
   test("Duo half folded (book), paged and scroll: identical with the status bar shown and hidden", () => {
     for (const [, input] of readingModes) {
       const [shown, hidden] = latchThrough([duoShown([activeFold]), duoHidden([activeFold])]);
-      const a = poseFor(shown!.sample, shown!.latch, { ...input, scrollSidePane: true });
-      const b = poseFor(hidden!.sample, hidden!.latch, { ...input, scrollSidePane: true });
+      const a = poseFor(shown!.sample, shown!.latch, { ...input, scrollReading: true });
+      const b = poseFor(hidden!.sample, hidden!.latch, { ...input, scrollReading: true });
       expect(a.posture).toBe("book");
       expect(b).toEqual(a);
     }

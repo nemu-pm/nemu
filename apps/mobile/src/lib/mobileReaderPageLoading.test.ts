@@ -111,8 +111,6 @@ describe("unloaded pages (source)", () => {
     const reader = read("../screens/ReaderScreen.tsx");
     expect(reader).not.toContain("MOBILE_READER_SCROLL_PLACEHOLDER_COLOR");
     expect(reader).not.toContain('galleryPagedMode ? readerPageBackground : "black"');
-    const pane = read("../components/reader/ReaderBookSidePane.tsx");
-    expect(pane).not.toContain("MOBILE_READER_SCROLL_PLACEHOLDER_COLOR");
   });
   test("the opening backdrop and the native curl use the setting", () => {
     const route = read("../../app/sources/[registryId]/[sourceId]/[mangaId]/[chapterId].tsx");

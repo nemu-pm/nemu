@@ -2,17 +2,15 @@ import type { WindowLayoutEdgeInsets, WindowLayoutRect } from "@/lib/mobileWindo
 
 /**
  * Where the dual-reader FAB may rest, per reader pose. It must never sit on
- * the capsule rows, on the fold, or over the notebook console: it lives over
- * the page it controls.
+ * the capsule rows or on the fold: it lives over the page it controls.
  *
  * - capsule chrome (regular width, book): the page region between the
  *   capsule row and the scrubber capsule;
- * - notebook: the page (top) pane;
  * - otherwise the reader-card frame (the chrome pane in book posture, the
  *   window elsewhere), inside the safe area.
  */
 export function mobileDualReaderFabArea(input: {
-  chrome: { kind: "horizontal" | "capsules" | "console"; content?: WindowLayoutRect };
+  chrome: { kind: "horizontal" | "capsules"; content?: WindowLayoutRect };
   stage: WindowLayoutRect;
   modalFrame: WindowLayoutRect;
   bounds: WindowLayoutRect;
@@ -20,7 +18,7 @@ export function mobileDualReaderFabArea(input: {
 }): WindowLayoutRect {
   const { chrome, bounds, safeInsets } = input;
   if (chrome.kind === "capsules" && chrome.content) return chrome.content;
-  const frame = chrome.kind === "console" ? input.stage : input.modalFrame;
+  const frame = input.modalFrame;
   const touches = {
     top: frame.y <= bounds.y + 0.5,
     left: frame.x <= bounds.x + 0.5,

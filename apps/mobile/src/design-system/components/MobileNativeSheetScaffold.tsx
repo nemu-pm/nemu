@@ -316,8 +316,8 @@ export function MobileNativeSheetScaffold({
   const androidContentMaxHeight =
     androidFrameKind?.kind === "content" ? androidFrameKind.maxHeight : undefined;
   const contextMaxHeight = useMobileSheetMaxHeight();
-  // iOS: the sheet's placement in the window (an iPhone Duo book posture's
-  // side pane half), in the native chain from the first frame. Stable per
+  // iOS: the sheet's placement in the window (the free half beside an
+  // iPhone Duo book posture's strip), in the native chain from the first frame. Stable per
   // value: a new array rebuilds the sheet's modifiers.
   const sheetPlacement = useMobileSheetPlacement();
   const sheetPresentationModifiers = useMemo(

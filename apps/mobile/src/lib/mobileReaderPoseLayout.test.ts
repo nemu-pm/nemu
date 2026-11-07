@@ -2,14 +2,13 @@ import { describe, expect, test } from "bun:test";
 import {
   mobileReaderStableTopInset,
   mobileReaderScrollStableTopInset,
-  mobileReaderNextTopInsetLatch,
-  mobileReaderTopInsetLatchKey,
   mobileReaderFrameInsets,
   mobileReaderPopoverPlacement,
   mobileReaderPoseLayout,
   mobileReaderSafePadding,
   mobileReaderTapExcluded,
   mobileReaderCapsuleActionSlots,
+  mobileReaderBookSheetPlacement,
   mobileReaderBookSheetSide,
   mobileReaderLayoutWithoutFold,
   mobileReaderCapsuleActionsWidth,
@@ -30,14 +29,11 @@ import {
   READER_SCRUBBER_MIN_WIDTH,
   mobileReaderActionsRow,
   mobileReaderBottomRowLayout,
-  mobileReaderLaptopCreaseClearance,
-  READER_LAPTOP_CREASE_CLEARANCE,
   type MobileReaderPoseLayout,
   type MobileReaderPoseLayoutInput,
 } from "./mobileReaderPoseLayout";
 import type { MobileWindowLayout, WindowReservedRegion } from "./mobileWindowLayout";
 import { classifyReaderWindowShape } from "./mobileReaderWindowShape";
-import { mobileReaderNotebookSheetFrame } from "./mobileReaderNotebookPane";
 
 const hinge = (x: number, y: number, width: number, height: number, active = true): WindowReservedRegion => ({ id: "hinge", x, y, width, height, active });
 const noInsets = { top: 0, left: 0, bottom: 0, right: 0 };
@@ -107,10 +103,10 @@ describe("reader pose: auto spreads follow the stage the pages sit in", () => {
     expect(pose(closedLandscape, { spreadMode: "auto", sideBar: true }).spread).toBe(false);
   });
 
-  test("half-folded Duo: the landscape-shaped top pane auto-spreads", () => {
+  test("half-folded Duo (laptop) reads as the open display: the portrait window stays single", () => {
     const result = pose(innerPortrait([hinge(0, 465, 669, 21)]), { spreadMode: "auto" });
-    expect(result.posture).toBe("notebook");
-    expect(result.spread).toBe(true);
+    expect(result.posture).toBe("flat");
+    expect(result.spread).toBe(false);
   });
 
   test("spreadMode replaces the older boolean", () => {
@@ -141,7 +137,6 @@ describe("reader pose: flat without vertical bars", () => {
     for (const piece of [chrome.back, chrome.actions]) expect(piece.height).toBeGreaterThanOrEqual(44);
     expect(result.twoPageAvailable).toBe(false);
     expect(result.spread).toBe(false);
-    expect(result.chromePinned).toBe(false);
   });
 
   test("phone landscape keeps seamless spreads", () => {
@@ -322,23 +317,6 @@ describe("reader pose: capsule chrome (regular width)", () => {
     expect(capsules(pose(innerLandscapeNoBar(), { actionCount: 3 })).title).toEqual({ x: 296, y: 24, width: 360, height: 48 });
   });
 
-  test("notebook: the capsule row over the top pane keeps the full title", () => {
-    const notebook: MobileWindowLayout = {
-      width: 669, height: 951, supported: true,
-      divisions: [{ id: "fold", x: 0, y: 455.5, width: 669, height: 40, active: true }],
-      occlusions: [{ id: "status", x: 535, y: 0, width: 134, height: 82, active: true }],
-      verticalBarEdge: null, layoutDirection: "ltr",
-      safeAreaInsets: { top: 82, left: 0, bottom: 34, right: 0 },
-    };
-    for (const actionCount of [3, 5]) {
-      const result = pose(notebook, { actionCount });
-      expect(result.stage).toEqual({ x: 0, y: 0, width: 669, height: 455.5 });
-      if (result.chrome.kind !== "console") throw new Error("expected console");
-      expect(result.chrome.title).not.toBeNull();
-      expect(result.chrome.title!.width).toBeGreaterThanOrEqual(READER_CAPSULE_TITLE_FULL_MIN_WIDTH);
-    }
-  });
-
   test("every flat window uses the capsule chrome: phones, the Duo outer display, tablets", () => {
     expect(pose(phoneLandscape).chrome.kind).toBe("capsules");
     expect(pose(phonePortrait).chrome.kind).toBe("capsules");
@@ -451,20 +429,20 @@ describe("reader pose: book", () => {
   });
 });
 
-describe("reader pose: book, scroll reading (side pane)", () => {
+describe("reader pose: book, scroll reading", () => {
   const book = innerLandscapeNoBar([hinge(455.5, 0, 40, 669)]);
   const fold = { x: 455.5, y: 0, width: 40, height: 669 };
   const scroll = (overrides: Partial<MobileReaderPoseLayoutInput> = {}) =>
-    pose(book, { paged: false, scrollSidePane: true, ...overrides });
+    pose(book, { paged: false, scrollReading: true, ...overrides });
 
-  test("the strip keeps the left half, clear of the fold; the right half is the side pane", () => {
+  test("the strip keeps the left half, clear of the fold; the right half is left free", () => {
     const result = scroll();
     expect(result.posture).toBe("book");
     expect(result.stage).toEqual({ x: 0, y: 0, width: 455.5, height: 669 });
     expect(overlapsBox(result.stage, fold)).toBe(false);
     expect(result.spread).toBe(false);
     expect(result.foldGap).toBeNull();
-    expect(result.sidePane?.frame).toEqual({ x: 495.5, y: 0, width: 455.5, height: 669 });
+    expect(result.freeHalf).toEqual({ x: 495.5, y: 0, width: 455.5, height: 669 });
   });
 
   test("the toolbar is the flat one, inside the strip's half: title on top, scrubber + actions on the bottom row", () => {
@@ -484,64 +462,43 @@ describe("reader pose: book, scroll reading (side pane)", () => {
     expect(Math.abs(chrome.title!.x + chrome.title!.width / 2 - 455.5 / 2)).toBeLessThanOrEqual(1);
   });
 
-  test("side pane: title 16pt in, 8pt under the top safe area; thumbnails the half less 16pt either side; controls centred", () => {
-    const side = scroll().sidePane!;
-    expect(side.header.x).toBe(495.5 + 16);
-    // Under the 82pt status bar (its clock), never beside it at y≈16.
-    expect(side.header.y).toBe(82 + 8);
-    expect(side.header.width).toBe(455.5 - 32);
-    // Thumbnails start 8pt under the title line.
-    expect(side.list.y).toBe(side.header.y + side.header.height + 8);
-    expect(side.list.x).toBe(495.5);
-    expect(side.list.width).toBe(455.5);
-    expect(side.orientation).toBe("vertical");
-    expect(side.thumbnailSize).toBe(455.5 - 32);
-    expect(side.list.y).toBeGreaterThanOrEqual(side.header.y + side.header.height);
-    expect(side.list.y + side.list.height).toBe(669 - 34);
-    expect(side.pageUp.width).toBe(64);
-    expect(side.pageDown.height).toBe(64);
-    expect(side.pageUp.x + 32).toBeCloseTo(495.5 + 455.5 / 2, 5);
-    expect(side.pageUp.y + 64).toBeLessThan(side.pageDown.y);
-    expect((side.pageUp.y + side.pageDown.y + 64) / 2).toBeCloseTo(669 / 2, 5);
-  });
-
-  test("the status bar hiding with the toolbar never moves the pane: the latched inset keeps the title under it", () => {
-    const hidden = { ...book, occlusions: [], safeAreaInsets: { top: 0, left: 0, bottom: 34, right: 0 } };
-    const shown = scroll().sidePane!;
-    const latched = pose(hidden, { paged: false, scrollSidePane: true, sidePaneTopInset: 82 }).sidePane!;
-    expect(latched.header).toEqual(shown.header);
-    expect(latched.list).toEqual(shown.list);
-    // Without a latch the live inset applies.
-    expect(pose(hidden, { paged: false, scrollSidePane: true }).sidePane!.header.y).toBe(8);
-  });
-
-  test("a reader sheet never moves the strip: it presents over the pane, which is unchanged", () => {
+  test("a reader sheet never moves the strip: it presents over the free half", () => {
     const closed = scroll();
     for (const sheetSide of ["left", "right"] as const) {
       const open = scroll({ sheetSide });
       expect(open.stage).toEqual(closed.stage);
-      expect(open.sidePane).toEqual(closed.sidePane!);
+      expect(open.freeHalf).toEqual(closed.freeHalf!);
       expect(open.chrome).toEqual(closed.chrome);
     }
-    // The settings popover's region is the pane (inside its safe area), not the strip.
+    // The settings popover's region is the free half (inside its safe area), not the strip.
     expect(closed.popover.frame).toEqual({ x: 495.5, y: 82, width: 455.5, height: 669 - 82 - 34 });
+    expect(mobileReaderBookSheetPlacement({ posture: closed.posture, freeHalf: closed.freeHalf, bounds: closed.bounds, layoutDirection: "ltr" }))
+      .toBe("trailing");
+    expect(mobileReaderBookSheetPlacement({ posture: closed.posture, freeHalf: closed.freeHalf, bounds: closed.bounds, layoutDirection: "rtl" }))
+      .toBe("leading");
+    expect(mobileReaderBookSheetPlacement({ posture: "book", freeHalf: null, bounds: closed.bounds, layoutDirection: "ltr" }))
+      .toBe("automatic");
   });
 
-  test("the toolbar's top scrim stays over the strip: the pane's title is never dimmed with the toolbar", () => {
+  test("the toolbar's top scrim stays over the strip", () => {
     const chrome = capsules(scroll());
     expect(chrome.topScrim.x).toBe(0);
     expect(chrome.topScrim.width).toBe(455.5);
   });
 
   test("paged reading and the flag-less strip keep their book layout", () => {
-    expect(pose(book).sidePane).toBeUndefined();
-    expect(pose(book, { scrollSidePane: true }).sidePane).toBeUndefined();
-    expect(pose(book, { paged: false }).sidePane).toBeUndefined();
-    expect(pose(innerLandscapeNoBar(), { paged: false, scrollSidePane: true }).sidePane).toBeUndefined();
+    expect(pose(book).freeHalf).toBeUndefined();
+    expect(pose(book, { scrollReading: true }).freeHalf).toBeUndefined();
+    expect(pose(book, { paged: false }).freeHalf).toBeUndefined();
+    expect(pose(innerLandscapeNoBar(), { paged: false, scrollReading: true }).freeHalf).toBeUndefined();
   });
 });
 
-describe("reader pose: laptop (notebook), scroll reading (side pane)", () => {
+function overlapsBox(a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }) {
+  return a.x < b.x + b.width - 0.01 && b.x < a.x + a.width - 0.01 && a.y < b.y + b.height - 0.01 && b.y < a.y + a.height - 0.01;
+}
+
+describe("reader pose: laptop (notebook) reads as the open display", () => {
   // The Duo inner display half folded in portrait (measured): fold 455.5–495.5,
   // status island 134×82 top-right while the status bar shows.
   const laptop: MobileWindowLayout = {
@@ -551,161 +508,31 @@ describe("reader pose: laptop (notebook), scroll reading (side pane)", () => {
     verticalBarEdge: null, layoutDirection: "ltr",
     safeAreaInsets: { top: 82, left: 0, bottom: 34, right: 0 },
   };
-  // The QA's acceptance: no artwork in 435.5–515.5 (20pt off the region's edges).
-  const foldTop = 455.5;
-  const foldBottom = 495.5;
-  const scroll = (layout: MobileWindowLayout = laptop, overrides: Partial<MobileReaderPoseLayoutInput> = {}) =>
-    pose(layout, { paged: false, scrollSidePane: true, ...overrides });
 
-  test("the strip keeps the top half, no artwork within 20pt of the crease", () => {
-    const result = scroll();
-    expect(result.posture).toBe("notebook");
-    expect(result.constrained).toBe(true);
-    expect(result.stage).toEqual({ x: 0, y: 0, width: 669, height: 435.5 });
-    expect(result.stage.y + result.stage.height).toBeLessThanOrEqual(foldTop - READER_LAPTOP_CREASE_CLEARANCE);
-    expect(result.chrome.kind).toBe("capsules");
-    expect(result.chromePinned).toBe(false);
-  });
-
-  test("the clearance is from the fold region's edges, not its centre line (a 40pt region swallowed it)", () => {
-    const narrow = scroll({ ...laptop, divisions: [hinge(0, 470, 669, 10)] });
-    expect(narrow.stage.y + narrow.stage.height).toBeLessThanOrEqual(470 - 20);
-    expect(narrow.sidePane!.frame.y).toBeGreaterThanOrEqual(480 + 20);
-    expect(mobileReaderLaptopCreaseClearance(
-      { x: 0, y: 0, width: 669, height: 455.5 },
-      { x: 0, y: 495.5, width: 669, height: 455.5 },
-      { x: 0, y: 455.5, width: 669, height: 40 },
-    )).toEqual({ crease: 475.5, stripBottom: 435.5, paneTop: 515.5 });
-    // No region known: 20pt off the gap between the panes.
-    expect(mobileReaderLaptopCreaseClearance(
-      { x: 0, y: 0, width: 669, height: 470 },
-      { x: 0, y: 480, width: 669, height: 471 },
-      null,
-    )).toEqual({ crease: 475, stripBottom: 450, paneTop: 500 });
-  });
-
-  test("the toolbar stays in the top half: title centred on its width with the full label, actions top right", () => {
-    for (const actionCount of [3, 5]) {
-      const chrome = capsules(scroll(laptop, { actionCount }));
-      expect(chrome.actionsRow).toBe("top");
-      expect(chrome.title).not.toBeNull();
-      expect(Math.abs(chrome.title!.x + chrome.title!.width / 2 - 669 / 2)).toBeLessThanOrEqual(1);
-      expect(chrome.title!.width).toBeGreaterThanOrEqual(READER_CAPSULE_TITLE_FULL_MIN_WIDTH);
-      // Actions at the trailing end of the title's row, clear of the island.
-      expect(chrome.actions.y).toBe(chrome.title!.y);
-      expect(chrome.actions.x + chrome.actions.width).toBeLessThanOrEqual(669 - 20 + 0.01);
-      expect(chrome.actions.x).toBeGreaterThan(chrome.title!.x + chrome.title!.width);
-      expect(overlapsBox(chrome.actions, { x: 535, y: 0, width: 134, height: 82 })).toBe(false);
-      expect(overlapsBox(chrome.title!, { x: 535, y: 0, width: 134, height: 82 })).toBe(false);
-      // Every piece above the crease's clearance.
-      for (const piece of [chrome.back, chrome.title!, chrome.actions, chrome.scrubber]) {
-        expect(piece.y + piece.height).toBeLessThanOrEqual(foldTop - READER_LAPTOP_CREASE_CLEARANCE);
+  test("paged and scroll: the whole window, exactly as flat; no fold band, no pane split", () => {
+    for (const paged of [true, false]) {
+      for (const actionCount of [3, 5]) {
+        const result = pose(laptop, { paged, scrollReading: !paged, actionCount, twoPage: true });
+        expect(result).toEqual(pose(mobileReaderLayoutWithoutFold(laptop), { paged, scrollReading: !paged, actionCount, twoPage: true }));
+        expect(result.posture).toBe("flat");
+        expect(result.stage).toEqual({ x: 0, y: 0, width: 669, height: 951 });
+        expect(result.foldGap).toBeNull();
+        expect(result.freeHalf).toBeUndefined();
+        expect(result.chrome.kind).toBe("capsules");
       }
-      expect(chrome.scrubber.y).toBeGreaterThan(435.5 / 2);
-      expect(Math.abs(chrome.scrubber.x + chrome.scrubber.width / 2 - 669 / 2)).toBeLessThanOrEqual(1);
     }
   });
 
-  test("without an island the title shares the top row, still centred", () => {
-    const chrome = capsules(scroll(innerPortrait([hinge(0, 455.5, 669, 40)])));
-    expect(Math.abs(chrome.title!.x + chrome.title!.width / 2 - 669 / 2)).toBeLessThanOrEqual(1);
-    expect(chrome.title!.y).toBe(chrome.back.y);
-  });
-
-  test("bottom half: a thumbnail row the half's height less 16pt above and below; page controls side by side", () => {
-    const side = scroll().sidePane!;
-    expect(side.orientation).toBe("horizontal");
-    expect(side.frame).toEqual({ x: 0, y: 515.5, width: 669, height: 435.5 });
-    expect(side.frame.y).toBeGreaterThanOrEqual(foldBottom + READER_LAPTOP_CREASE_CLEARANCE);
-    expect(side.list).toEqual(side.frame);
-    expect(side.thumbnailSize).toBe(435.5 - 32);
-    expect(side.header.height).toBe(0);
-    expect(side.pageUp.width).toBe(64);
-    expect(side.pageUp.y).toBe(side.pageDown.y);
-    expect(side.pageDown.x - (side.pageUp.x + 64)).toBe(24);
-    expect((side.pageUp.x + side.pageDown.x + 64) / 2).toBeCloseTo(669 / 2, 5);
-    expect(side.pageUp.y + 32).toBeCloseTo(515.5 + 435.5 / 2, 5);
-  });
-
-  test("measured Duo fixtures (half folded, portrait and upside down): strip and pane 20pt off the crease", () => {
+  test("measured Duo fixtures (half folded, portrait and upside down): the same layout as open", () => {
     for (const m of fixture.measurements.filter((entry) => entry.pose === "partially-folded" && entry.bounds.height > entry.bounds.width)) {
       const layout = duoLayout(m);
-      const fold = activeFold(layout)!;
-      const result = scroll(layout);
-      expect(result.posture).toBe("notebook");
-      expect(result.stage.y + result.stage.height).toBeLessThanOrEqual(fold.y - 20);
-      expect(result.sidePane!.frame.y).toBeGreaterThanOrEqual(fold.y + fold.height + 20);
-      const chrome = capsules(result);
-      expect(Math.abs(chrome.title!.x + chrome.title!.width / 2 - m.bounds.width / 2)).toBeLessThanOrEqual(1);
-      for (const piece of [chrome.back, chrome.title!, chrome.actions, chrome.scrubber]) {
-        for (const region of activeOcclusions(layout)) expect(overlapsBox(piece, region)).toBe(false);
-        expect(overlapsBox(piece, fold)).toBe(false);
+      for (const paged of [true, false]) {
+        const result = pose(layout, { paged, scrollReading: !paged });
+        expect(result.posture).toBe("flat");
+        expect(result.stage).toEqual({ x: 0, y: 0, width: m.bounds.width, height: m.bounds.height });
+        expect(result).toEqual(pose(mobileReaderLayoutWithoutFold(layout), { paged, scrollReading: !paged }));
       }
     }
-  });
-
-  test("paged reading, a paged chapter as a strip and the flat display keep their layouts", () => {
-    expect(pose(laptop).chrome.kind).toBe("console");
-    expect(pose(laptop, { paged: false }).sidePane).toBeUndefined();
-    expect(scroll(mobileReaderLayoutWithoutFold(laptop)).sidePane).toBeUndefined();
-    expect(scroll(mobileReaderLayoutWithoutFold(laptop)).posture).toBe("flat");
-  });
-});
-
-function overlapsBox(a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }) {
-  return a.x < b.x + b.width - 0.01 && b.x < a.x + a.width - 0.01 && a.y < b.y + b.height - 0.01 && b.y < a.y + a.height - 0.01;
-}
-
-describe("reader pose: notebook", () => {
-  const notebook = innerPortrait([hinge(0, 465, 669, 21)]);
-
-  test("paged: page in the top pane, the controls console in the bottom pane", () => {
-    const result = pose(notebook, { twoPage: true });
-    expect(result.posture).toBe("notebook");
-    expect(result.stage).toEqual({ x: 0, y: 0, width: 669, height: 465 });
-    // The landscape-shaped top pane holds a seamless spread at single-page height.
-    expect(result.twoPageAvailable).toBe(true);
-    expect(result.spread).toBe(true);
-    expect(result.spreadSlots).toBeUndefined();
-    expect(pose(notebook, { twoPage: false }).spread).toBe(false);
-    expect(pose(notebook, { twoPage: true, pageCount: 1 }).twoPageAvailable).toBe(false);
-    expect(result.chromePinned).toBe(true);
-    if (result.chrome.kind !== "console") throw new Error("expected console");
-    expect(result.chrome.state).toBe("filmstrip");
-    expect(result.chrome.frame).toEqual({ x: 0, y: 486, width: 669, height: 465 });
-    expect(result.chrome.pane).toEqual({ x: 8, y: 486, width: 653, height: 465 - 20 });
-  });
-
-  test("the capsule row sits over the top pane, clear of the fold, and owns its taps", () => {
-    const result = pose(notebook);
-    if (result.chrome.kind !== "console") throw new Error("expected console");
-    const { back, title, actions } = result.chrome;
-    for (const rect of [back, title, actions]) {
-      if (!rect) continue;
-      expect(rect.y + rect.height).toBeLessThanOrEqual(465);
-    }
-    expect(result.tapExclusions.length).toBe(title ? 3 : 2);
-    expect(result.tapExclusions.every((rect) => rect.y + rect.height <= 465)).toBe(true);
-  });
-
-  test("filmstrip state", () => {
-    const filmstrip = pose(notebook, { notebookPane: "filmstrip" });
-    expect(filmstrip.chrome.kind === "console" && filmstrip.chrome.state).toBe("filmstrip");
-  });
-
-  test("scroll mode reads exactly as on the open display: no fold band, no pane split", () => {
-    const result = pose(notebook, { paged: false });
-    const open = pose(mobileReaderLayoutWithoutFold(notebook), { paged: false });
-    expect(result).toEqual(open);
-    expect(result.posture).toBe("flat");
-    expect(result.stage).toEqual({ x: 0, y: 0, width: 669, height: 951 });
-    expect(result.chromePinned).toBe(false);
-  });
-
-  test("the settings popover stays in the bottom pane", () => {
-    const result = pose(notebook);
-    if (result.chrome.kind !== "console") throw new Error("expected console");
-    expect(result.popover.frame).toEqual(result.chrome.pane);
   });
 });
 
@@ -720,7 +547,7 @@ describe("reader pose helpers", () => {
     const result = pose({ ...outer, safeAreaInsets: { top: Number.NaN, left: -4, bottom: 20, right: 44 } }, { fallbackInsets: { top: 99, left: 99, bottom: 99, right: 99 } });
     expect(result.safeInsets).toEqual({ top: 0, left: 0, bottom: 20, right: 44 });
   });
-  test("popover sits between the capsule rows on phones; inside the console in notebook", () => {
+  test("popover sits between the capsule rows on phones and half folded like a laptop", () => {
     const insets = { top: 62, left: 0, bottom: 34, right: 0 };
     const phone = pose(phonePortrait, { fallbackInsets: insets });
     const chrome = capsules(phone);
@@ -728,7 +555,7 @@ describe("reader pose helpers", () => {
     expect(chrome.content.y).toBe(chrome.back.y + 48 + 10);
     expect(chrome.content.y + chrome.content.height).toBe(Math.min(chrome.scrubber.y, chrome.actions.y) - 10);
     const notebook = pose(innerPortrait([hinge(0, 465, 669, 21)]));
-    expect(notebook.popover).toEqual({ frame: { x: 8, y: 486, width: 653, height: 465 - 20 }, bottomGap: READER_POPOVER_GAP });
+    expect(notebook.popover).toEqual(pose(innerPortrait()).popover);
   });
   test("overlay insets centre a card in its pane, safe area included; none for the whole reader", () => {
     const bounds = { x: 0, y: 0, width: 951, height: 669 };
@@ -798,16 +625,16 @@ describe("reader pose on measured iPhone Duo geometry", () => {
           for (const page of pageBoxes(result)) {
             // Immersive pages are full-bleed like phones (status bar hidden
             // while reading, pages may pass under camera cut-outs): they only
-            // stay off the fold and inside the window. A notebook long strip
-            // is the exception: it flows through the fold as on the open
-            // display (continuous content does not displace).
-            const notebookStrip = label === "long strip" && fold !== null && fold.width > fold.height;
+            // stay off the fold and inside the window. Half folded like a
+            // laptop is the exception: the reader reads as on the open
+            // display, the page across the fold.
+            const laptopFold = fold !== null && fold.width > fold.height;
             // A spread across a centred book fold keeps the flat halves (its
             // pages meet at the spine, on the fold's centre line).
             const centredSpread = result.posture === "book" && result.spread && !result.constrained;
             if (fold && centredSpread) {
               expect(page.x === 0 || Math.abs(page.x - (fold.x + fold.width / 2)) <= 1).toBe(true);
-            } else if (fold && !notebookStrip) expect(overlaps(page, fold)).toBe(false);
+            } else if (fold && !laptopFold) expect(overlaps(page, fold)).toBe(false);
             expect(page.x).toBeGreaterThanOrEqual(0);
             expect(page.x + page.width).toBeLessThanOrEqual(m.bounds.width + 0.01);
           }
@@ -968,38 +795,15 @@ describe("reader pose on measured iPhone Duo geometry", () => {
     expect(result.spreadSlots?.[1]).toEqual({ x: 475.5, y: 0, width: 951 - 475.5, height: 669 });
   });
 
-  test("notebook: the sheet starts at the fold band's lower edge and floats within the console, upright and upside-down", () => {
+  test("half folded like a laptop: the whole window, upright and upside-down, as when open", () => {
     for (const orientation of ["portrait", "upside-down"]) {
       const layout = duoLayout(find("iphone-duo-inner", "partially-folded", orientation));
-      const result = pose(layout);
-      if (result.chrome.kind !== "console") throw new Error("expected console");
-      const sheet = mobileReaderNotebookSheetFrame(result.chrome.frame);
-      const fold = layout.divisions.find((division) => division.active);
-      if (!fold) throw new Error("expected an active fold");
-      expect(sheet.rect.y).toBe(fold.y + fold.height);
-      expect(sheet.rect.y).toBeGreaterThanOrEqual(result.stage.y + result.stage.height);
-      expect(sheet.rect.x).toBe(8);
-      expect(sheet.rect.width).toBe(layout.width - 16);
-      expect(sheet.rect.y + sheet.rect.height).toBe(layout.height - 8);
-      // The controls sit inside the sheet: the content rect is within its frame.
-      expect(result.chrome.pane.y).toBeGreaterThanOrEqual(sheet.rect.y);
-      expect(result.chrome.pane.x).toBeGreaterThanOrEqual(sheet.rect.x);
-      expect(result.chrome.pane.x + result.chrome.pane.width).toBeLessThanOrEqual(sheet.rect.x + sheet.rect.width);
-      expect(result.chrome.pane.y + result.chrome.pane.height).toBeLessThanOrEqual(sheet.rect.y + sheet.rect.height);
-    }
-  });
-
-  test("notebook: page above the measured fold, console below it, both upright and upside-down", () => {
-    for (const orientation of ["portrait", "upside-down"]) {
-      const result = pose(duoLayout(find("iphone-duo-inner", "partially-folded", orientation)));
-      expect(result.posture).toBe("notebook");
-      expect(result.stage).toEqual({ x: 0, y: 0, width: 669, height: 455.5 });
-      expect(result.chrome.kind === "console" && result.chrome.frame.y).toBe(495.5);
-      // 669×455.5 is wider than tall: two 334pt pages fit the pane height.
-      const spread = pose(duoLayout(find("iphone-duo-inner", "partially-folded", orientation)), { twoPage: true });
-      expect(spread.twoPageAvailable).toBe(true);
-      expect(spread.spread).toBe(true);
-      expect(spread.spreadSlots).toBeUndefined();
+      const result = pose(layout, { twoPage: true });
+      expect(result.posture).toBe("flat");
+      expect(result.stage).toEqual({ x: 0, y: 0, width: 669, height: 951 });
+      expect(result.chrome.kind).toBe("capsules");
+      // A portrait window: no spread, whatever the setting.
+      expect(result.spread).toBe(false);
     }
   });
 
@@ -1543,8 +1347,8 @@ describe("reader pose: the trailing more (⋯) button", () => {
     expect(capsules(pose(innerLandscapeNoBar([hinge(455.5, 0, 40, 669)]), { twoPage: true, actionCount: 5 })).more).toBeNull();
     // The vertical bar (outer display, Split View) carries Back and the actions.
     expect(capsules(pose(outer, { sideBar: true })).more).toBeNull();
-    // Notebook console: its capsule row keeps the actions on top.
-    expect(pose(innerPortrait([hinge(0, 465, 669, 21)])).chrome.kind).toBe("console");
+    // Half folded like a laptop: the open display's bottom row.
+    expect(capsules(pose(innerPortrait([hinge(0, 465, 669, 21)]))).actionsRow).toBe("bottom");
   });
 });
 
@@ -1585,45 +1389,18 @@ describe("reader pose: measured Duo states checked on the simulator round (open 
     expect(second.spread).toBe(first.spread);
   });
 
-  test("half-folded (laptop): page in the upper half, controls in the lower half, nothing under the hinge", () => {
-    const layout = measured("iphone-duo-inner", "partially-folded", "portrait");
-    const fold = activeFold(layout)!;
-    for (const notebookPane of ["trackpad", "filmstrip"] as const) {
-      const result = pose(layout, { spreadMode: "auto", notebookPane });
-      expect(result.posture).toBe("notebook");
-      expect(result.chromePinned).toBe(true);
-      expect(result.stage.y + result.stage.height).toBeLessThanOrEqual(fold.y + 0.01);
-      expect(result.chrome.kind).toBe("console");
-      if (result.chrome.kind !== "console") return;
-      expect(result.chrome.frame.y).toBeGreaterThanOrEqual(fold.y + fold.height - 0.01);
-      expect(result.chrome.pane.y).toBeGreaterThanOrEqual(fold.y + fold.height - 0.01);
-      for (const piece of [result.stage, result.chrome.back, result.chrome.actions, result.chrome.pane, ...(result.chrome.title ? [result.chrome.title] : [])]) {
-        expect(overlaps(piece, fold)).toBe(false);
-      }
-      for (const piece of [result.chrome.back, result.chrome.actions]) {
-        expect(piece.y + piece.height).toBeLessThanOrEqual(fold.y + 0.01);
-      }
-    }
+  test("half-folded (laptop): the same layout as open portrait", () => {
+    const folded = pose(measured("iphone-duo-inner", "partially-folded", "portrait"), { spreadMode: "auto" });
+    const open = pose(measured("iphone-duo-inner", "open", "portrait"), { spreadMode: "auto" });
+    expect(folded.posture).toBe("flat");
+    expect(folded.stage).toEqual(open.stage);
+    expect(folded.spread).toBe(open.spread);
+    expect(folded.chrome.kind).toBe("capsules");
+    if (folded.chrome.kind !== "capsules" || open.chrome.kind !== "capsules") return;
+    expect(folded.chrome.actionsRow).toBe(open.chrome.actionsRow);
   });
 });
 
-
-describe("notebook panel dismissal", () => {
-  test("closing restores the flat stage and reopening preserves the physical fold", () => {
-    const layout = { ...innerPortrait([hinge(0, 455.5, 669, 40)]), hinge: "partiallyOpen" as const };
-    const open = pose(layout);
-    expect(open.chrome.kind).toBe("console");
-    const closedLayout = mobileReaderLayoutWithoutFold(layout);
-    const closed = pose(closedLayout);
-    expect(closed.posture).toBe("flat");
-    expect(closed.chrome.kind).toBe("capsules");
-    expect(closed.stage.height).toBeGreaterThan(open.stage.height);
-    expect(closedLayout.occlusions).toBe(layout.occlusions);
-    expect(closedLayout.safeAreaInsets).toBe(layout.safeAreaInsets);
-    expect(layout.divisions).toHaveLength(1);
-    expect(pose(layout)).toEqual(open);
-  });
-});
 
 
 describe("outer reader: page behind the original rail", () => {
@@ -1809,26 +1586,6 @@ describe("reader pose: the title stays on the window's centre between Back and t
   });
 });
 
-describe("reader pose: laptop pose keeps the actions on top", () => {
-  test("panel closed (the flat window): the actions in the top-right group, no ⋯", () => {
-    const flat = mobileReaderLayoutWithoutFold(innerPortrait([hinge(0, 455.5, 669, 40)]));
-    for (const actionCount of [2, 3, 4]) {
-      const chrome = capsules(pose(flat, { actionCount, notebookFold: true }));
-      expect(chrome.actionsRow).toBe("top");
-      expect(chrome.more).toBeNull();
-      expect(chrome.actions.y).toBe(chrome.back.y);
-      expect(chrome.actions.x + chrome.actions.width).toBe(669 - READER_CAPSULE_EDGE);
-    }
-    // Without the laptop flag the same window takes the bottom row.
-    expect(capsules(pose(flat)).actionsRow).toBe("bottom");
-  });
-
-  test("panel open: the console row keeps its actions on top", () => {
-    const result = pose(innerPortrait([hinge(0, 455.5, 669, 40)]), { notebookFold: true });
-    expect(result.chrome.kind).toBe("console");
-  });
-});
-
 describe("reader scroll: stable top inset", () => {
   // Duo inner display: the 134×82 status island and its 82pt top inset come
   // and go with the status bar (the chrome).
@@ -1929,20 +1686,5 @@ describe("reader scroll: stable top inset", () => {
       const boundsOnly: MobileWindowLayout = { ...window, supported: false, divisions: [], occlusions: [] };
       expect(mobileReaderScrollStableTopInset({ reader: boundsOnly, app: boundsOnly, window, insets: { top: 24 } })).toBe(24);
     });
-  });
-});
-
-describe("reader book pane: top inset latch", () => {
-  test("keeps the widest top inset seen for the window; a new window starts over", () => {
-    const key = mobileReaderTopInsetLatchKey({ width: 951, height: 669 }, true)!;
-    const shown = mobileReaderNextTopInsetLatch(null, key, 82);
-    expect(shown).toEqual({ key, top: 82 });
-    // The status bar hides with the toolbar: the latch stays.
-    expect(mobileReaderNextTopInsetLatch(shown, key, 0)).toBe(shown);
-    expect(mobileReaderNextTopInsetLatch(shown, key, undefined)).toBe(shown);
-    const other = mobileReaderTopInsetLatchKey({ width: 669, height: 951 }, true);
-    expect(mobileReaderNextTopInsetLatch(shown, other, 0)).toEqual({ key: other!, top: 0 });
-    expect(mobileReaderTopInsetLatchKey({ width: 951, height: 669 }, false)).toBeNull();
-    expect(mobileReaderNextTopInsetLatch(shown, null, 82)).toBeNull();
   });
 });

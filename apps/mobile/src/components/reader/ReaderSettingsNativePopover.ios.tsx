@@ -94,11 +94,6 @@ import {
   readerSettingsSheetDetentCap,
 } from "@/lib/readerSettingsNativePopoverLayout";
 import {
-  isMobileReaderNotebookPanePreference,
-  MOBILE_READER_NOTEBOOK_PANE_PREFERENCES,
-} from "@/lib/mobileReaderNotebookPane";
-import { notebookPaneLabel } from "./readerNotebookPaneOptions";
-import {
   READER_FIT_MODE_ORDER,
   READER_SPREAD_MODE_ORDER,
   readerFitModeLabel,
@@ -190,11 +185,6 @@ export function ReaderSettingsNativePopover({
   showOrientationLock = true,
   lockPortrait,
   onToggleLockPortrait,
-  showNotebookPane = false,
-  notebookPane = "filmstrip",
-  thumbnailSpoilerSafe = false,
-  onToggleThumbnailSpoilerSafe,
-  onSetNotebookPane,
   onMarkComplete,
   showReaderPluginSettings = false,
   readerPlugins,
@@ -229,7 +219,6 @@ export function ReaderSettingsNativePopover({
   const modeLabel = (option: string) =>
     option === "rtl" ? strings.reader.rtl : option === "ltr" ? strings.reader.ltr : strings.reader.scroll;
   const showPlugins = showReaderPluginSettings && Boolean(readerPlugins);
-  const showNotebookRow = showNotebookPane && Boolean(onSetNotebookPane);
   const showPageTurnRow = showPageTurn && mode !== "scrolling" && Boolean(onSetPageTurn);
   const settingsRows = {
     showPageTurn: showPageTurnRow,
@@ -241,8 +230,6 @@ export function ReaderSettingsNativePopover({
     // Design-explore: Mark complete is the reader menu's (one place for an
     // action that writes progress); this sheet holds settings.
     showMarkComplete: !completed && !mobileDesignExploreFlag,
-    showNotebookPane: showNotebookRow,
-    showThumbnailSpoilers: showNotebookRow && Boolean(onToggleThumbnailSpoilerSafe),
     showOrientationLock,
   };
   const presentation = readerSettingsNativePresentation(
@@ -530,37 +517,6 @@ export function ReaderSettingsNativePopover({
             />
           </SwiftSection>
         ) : null}
-        {showNotebookRow && onSetNotebookPane ? (
-          // Laptop Mode: what the lower half shows. A menu row like the other
-          // choices; only the reading direction is a segmented control.
-          <SwiftSection footer={<SwiftText>{strings.duo.notebookPaneFootnote}</SwiftText>}>
-            <SwiftPicker
-              {...menuRowLabel(strings.duo.notebookPane, "rectangle.split.1x2")}
-              modifiers={[formRowIcon("rectangle.split.1x2", { menu: true }), pickerStyle("menu"), ...busyModifiers]}
-              selection={notebookPane}
-              onSelectionChange={(selection) => {
-                if (busy || !isMobileReaderNotebookPanePreference(selection) || selection === notebookPane) return;
-                void hapticSelection();
-                onSetNotebookPane(selection);
-              }}
-            >
-              {MOBILE_READER_NOTEBOOK_PANE_PREFERENCES.map((option) => (
-                <SwiftText key={option} modifiers={[tag(option)]}>
-                  {notebookPaneLabel(option, strings)}
-                </SwiftText>
-              ))}
-            </SwiftPicker>
-            {onToggleThumbnailSpoilerSafe ? (
-              <SwiftToggle
-                label={strings.duo.filmstripSpoilerSafe}
-                systemImage={axRows ? undefined : "eye.slash"}
-                isOn={thumbnailSpoilerSafe}
-                onIsOnChange={onToggleThumbnailSpoilerSafe}
-                modifiers={[formRowIcon("eye.slash", { toggle: true }), ...busyModifiers]}
-              />
-            ) : null}
-          </SwiftSection>
-        ) : null}
         <SwiftSection title={strings.reader.moreSettings}>
           <SwiftToggle
             label={strings.reader.processPageImages}
@@ -796,9 +752,9 @@ export function ReaderSettingsNativePopover({
                   expandable: sheetCap === 0 && maxSheetHeight == null,
                 }),
                 presentationDragIndicator("visible"),
-                // Book posture (Duo, scroll reading): over the side pane's
-                // half, never the strip's (an automatic sheet takes the
-                // leading half wherever it is presented from).
+                // Book posture (Duo, scroll reading): over the free half,
+                // never the strip's (an automatic sheet takes the leading
+                // half wherever it is presented from).
                 presentationPlacement(sheetPlacement),
                 ...(pageInteractive ? [presentationBackgroundInteraction("enabled")] : []),
                 // A plugin toggle or reset in flight keeps the sheet up, so

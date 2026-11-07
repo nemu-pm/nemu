@@ -7,7 +7,6 @@ import {
   READER_CHROME_MATERIAL_SLIDE,
   readerChromeHasScrubber,
   readerChromeMaterialTiming,
-  readerChromeMotionVariant,
   READER_OPENING_CHROME_DONE_BY_MS,
   READER_OPENING_CHROME_MIN_MS,
   READER_OPENING_CHROME_QUIET_MS,
@@ -33,17 +32,6 @@ function cubicBezierProgress([x1, y1, x2, y2]: readonly number[], t: number): nu
   }
   return at(y1, y2, (lo + hi) / 2);
 }
-
-describe("reader chrome motion variant", () => {
-  test("slides only once Reduce Motion is known to be off", () => {
-    expect(readerChromeMotionVariant(false)).toBe("slide");
-  });
-
-  test("fades for Reduce Motion and for an unresolved setting", () => {
-    expect(readerChromeMotionVariant(true)).toBe("fade");
-    expect(readerChromeMotionVariant(null)).toBe("fade");
-  });
-});
 
 describe("reader chrome material timing", () => {
   test("the scrim / slide curve is UIKit's ease-out, the curve the glass animates on", () => {

@@ -33,17 +33,10 @@ describe("reader pose: zero-width Android fold", () => {
     expect(result.foldGap).toEqual({ start: 420.5 - MOBILE_FOLD_MIN_GUTTER / 2, end: 420.5 + MOBILE_FOLD_MIN_GUTTER / 2 });
     expect(mobileReaderTapExcluded({ x: 420.5, y: 300 }, result.tapExclusions, result.foldGap)).toBe(true);
   });
-  test("tabletop: the page sits in the top pane above the gutter", () => {
+  test("tabletop reads as the open display: the whole window, no gutter", () => {
     const result = mobileReaderPoseLayout({ ...base, layout: pixelFoldTabletop, twoPage: false });
-    expect(result.posture).toBe("notebook");
-    expect(result.stage.y + result.stage.height).toBe(420.5 - MOBILE_FOLD_MIN_GUTTER / 2);
-  });
-  test("tabletop: two-page honours the setting when the top pane is wider than tall", () => {
-    const result = mobileReaderPoseLayout({ ...base, layout: pixelFoldTabletop, twoPage: true });
-    const wide = result.stage.width > result.stage.height;
-    expect(result.twoPageAvailable).toBe(wide);
-    expect(result.spread).toBe(wide);
-    expect(result.spreadSlots).toBeUndefined();
+    expect(result.posture).toBe("flat");
+    expect(result.stage).toEqual({ x: 0, y: 0, width: pixelFoldTabletop.width, height: pixelFoldTabletop.height });
     expect(result.foldGap).toBeNull();
   });
 });

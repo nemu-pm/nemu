@@ -10,7 +10,7 @@ import {
 } from "@/lib/mobileReaderChapterStrip";
 import type { ChapterSummary } from "@/data/schema";
 
-/** The app's primary colour (as the book side pane's current thumbnail). */
+/** The app's primary colour. */
 const READER_STRIP_DIVIDER_ACTION_COLOR = "#5B6CEB";
 
 export type ReaderChapterDividerProps = {

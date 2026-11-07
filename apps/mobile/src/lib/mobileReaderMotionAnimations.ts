@@ -9,7 +9,6 @@ import {
 } from "react-native-reanimated";
 import { MOBILE_MOTION } from "@/lib/mobileMotion";
 import {
-  MOBILE_READER_CONSOLE_UNFOLD_DEG,
   MOBILE_READER_STAGE_CROSSFADE_FLOOR,
   MOBILE_READER_STAGE_CROSSFADE_MS,
   MOBILE_READER_STAGE_EXIT_HOLD_MS,
@@ -280,40 +279,23 @@ const chromeEnteringCache = new Map<string, EntryExitAnimationFunction>();
 export function mobileReaderChromeArrangementEntering(
   motion: MobileReaderChromeArrangementMotion,
 ): EntryExitAnimationFunction {
-  const key = `${motion.dx}:${motion.dy}:${motion.unfold ? 1 : 0}:${motion.durationMs}`;
+  const key = `${motion.dx}:${motion.dy}:${motion.durationMs}`;
   const cached = chromeEnteringCache.get(key);
   if (cached) return cached;
-  const { dx, dy, unfold, durationMs } = motion;
-  const builder: EntryExitAnimationFunction = unfold
-    ? () => {
-        "worklet";
-        return {
-          initialValues: {
-            opacity: 0,
-            transform: [{ perspective: 1200 }, { rotateX: `${MOBILE_READER_CONSOLE_UNFOLD_DEG}deg` }],
-          },
-          animations: {
-            opacity: withTiming(1, { duration: durationMs, easing: EASE_OUT }),
-            transform: [
-              { perspective: 1200 },
-              { rotateX: withTiming("0deg", { duration: durationMs, easing: EASE_OUT }) },
-            ],
-          },
-        };
-      }
-    : () => {
-        "worklet";
-        return {
-          initialValues: { opacity: 0, transform: [{ translateX: dx }, { translateY: dy }] },
-          animations: {
-            opacity: withTiming(1, { duration: durationMs, easing: EASE_OUT }),
-            transform: [
-              { translateX: withTiming(0, { duration: durationMs, easing: EASE_OUT }) },
-              { translateY: withTiming(0, { duration: durationMs, easing: EASE_OUT }) },
-            ],
-          },
-        };
-      };
+  const { dx, dy, durationMs } = motion;
+  const builder: EntryExitAnimationFunction = () => {
+    "worklet";
+    return {
+      initialValues: { opacity: 0, transform: [{ translateX: dx }, { translateY: dy }] },
+      animations: {
+        opacity: withTiming(1, { duration: durationMs, easing: EASE_OUT }),
+        transform: [
+          { translateX: withTiming(0, { duration: durationMs, easing: EASE_OUT }) },
+          { translateY: withTiming(0, { duration: durationMs, easing: EASE_OUT }) },
+        ],
+      },
+    };
+  };
   chromeEnteringCache.set(key, builder);
   return builder;
 }

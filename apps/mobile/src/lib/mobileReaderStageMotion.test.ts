@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  MOBILE_READER_CHROME_ARRANGEMENT_SLIDE,
   mobileReaderApplyFlip,
   mobileReaderChromeArrangementKey,
   mobileReaderChromeArrangementMotion,
@@ -151,18 +150,9 @@ describe("gallery continuity", () => {
 
 describe("chrome arrangement motion", () => {
   const capsules = { kind: "capsules" as const };
-  test("capsules settle the last 8pt down onto their row when they replace the console", () => {
-    expect(mobileReaderChromeArrangementMotion({ from: { kind: "console" }, to: capsules, reduceMotion: false }))
-      .toEqual({ dx: 0, dy: -MOBILE_READER_CHROME_ARRANGEMENT_SLIDE, unfold: false, durationMs: 220 });
-  });
-  test("the console unfolds", () => {
-    expect(mobileReaderChromeArrangementMotion({ from: capsules, to: { kind: "console" }, reduceMotion: false })?.unfold).toBe(true);
-  });
-  test("no motion for the first show or an unchanged arrangement; Reduce Motion fades only", () => {
+  test("no motion for the first show or an unchanged arrangement", () => {
     expect(mobileReaderChromeArrangementMotion({ from: null, to: capsules, reduceMotion: false })).toBeNull();
     expect(mobileReaderChromeArrangementMotion({ from: capsules, to: capsules, reduceMotion: false })).toBeNull();
-    expect(mobileReaderChromeArrangementMotion({ from: capsules, to: { kind: "console" }, reduceMotion: true }))
-      .toEqual({ dx: 0, dy: 0, unfold: false, durationMs: 150 });
   });
 });
 
@@ -256,10 +246,9 @@ describe("pose-change continuity (flat ⇄ book spreads, chrome, rotation)", () 
     // The layer keeps its identity (no fade out in one pane and in at the other).
     expect(mobileReaderChromeArrangementKey(flatRow)).toBe(mobileReaderChromeArrangementKey(bookRow));
     expect(mobileReaderChromeArrangementMotion({ from: flatRow, to: bookRow, reduceMotion: false })).toBeNull();
-    // Unchanged, first show, another arrangement kind, or Reduce Motion: no glide.
+    // Unchanged, first show, or Reduce Motion: no glide.
     expect(mobileReaderChromeGlide({ from: flatRow, to: flatRow, reduceMotion: false })).toBe(false);
     expect(mobileReaderChromeGlide({ from: null, to: bookRow, reduceMotion: false })).toBe(false);
-    expect(mobileReaderChromeGlide({ from: { kind: "console" }, to: bookRow, reduceMotion: false })).toBe(false);
     expect(mobileReaderChromeGlide({ from: flatRow, to: bookRow, reduceMotion: true })).toBe(false);
     expect(mobileReaderChromeGeometryKey([{ x: 16.2, y: 25.8, width: 44, height: 44 }])).toBe("16,26,44,44");
   });

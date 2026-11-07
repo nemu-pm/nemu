@@ -13,8 +13,6 @@ export const MOBILE_READER_CHROME_GLYPHS = {
   detectText: { name: "scan-outline", size: 18 },
   nemuChat: { name: "chatbubbles-outline", size: 18 },
   settings: { name: "settings-outline", size: 20 },
-  notebookPanel: { name: "chevron-up", size: 22 },
-  notebookPanelClose: { name: "chevron-down", size: 22 },
 } as const satisfies Record<string, MobileReaderChromeGlyph>;
 
 /**
@@ -29,23 +27,6 @@ export const MOBILE_READER_BACK_SYMBOL = {
   weight: "medium",
   /** The square the glyph is drawn in, centred in the circle. */
   box: 28,
-} as const;
-
-/**
- * iOS notebook-posture panel toggle, in the same rendering as Back: the system
- * `rectangle.bottomthird.inset.filled` (the panel under the page), one symbol
- * for both states; while the panel is open a round highlight sits behind it.
- * Android keeps the chevrons above (`notebookPanel` / `notebookPanelClose`).
- */
-export const MOBILE_READER_NOTEBOOK_PANEL_SYMBOL = {
-  name: "rectangle.bottomthird.inset.filled",
-  pointSize: 22,
-  weight: "medium",
-  /** The square the glyph is drawn in, centred in the button. */
-  box: 28,
-  /** The open-state highlight: a circle concentric with the button. */
-  highlight: 36,
-  highlightOpacity: 0.18,
 } as const;
 
 /** A plugin action's glyph (the plugin's own Ionicon) at the capsule's action size. */

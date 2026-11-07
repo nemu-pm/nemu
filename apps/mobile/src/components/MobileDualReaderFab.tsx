@@ -86,8 +86,8 @@ function windowFabArea(
 export type MobileDualReaderFabProps = {
   /**
    * Reader-local rectangle the FAB may rest in (`mobileDualReaderFabArea`):
-   * beside the vertical rail, inside the chrome pane in book posture, over
-   * the page pane in notebook. Defaults to the window's safe area.
+   * beside the vertical rail or inside the chrome pane in book posture.
+   * Defaults to the window's safe area.
    */
   area?: WindowLayoutRect | null;
 };
@@ -219,7 +219,7 @@ export function MobileDualReaderFab({ area: poseArea = null }: MobileDualReaderF
     setFabPosition(mobileDualReaderFabDefault(area, FAB_SIZE, FAB_MARGIN));
   }, [area, enabled, fabPosition, setFabPosition]);
 
-  // Re-clamp on rotation / viewport resize / pose change (rail, fold, console).
+  // Re-clamp on rotation / viewport resize / pose change (rail, fold).
   useEffect(() => {
     if (!fabPosition || area.width <= 0 || area.height <= 0) return;
     const clamped = mobileDualReaderFabClamp(fabPosition, area, FAB_SIZE, FAB_MARGIN);

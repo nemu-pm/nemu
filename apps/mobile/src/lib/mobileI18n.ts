@@ -513,7 +513,7 @@ export type MobileStrings = {
     chapterAccessibility: string;
     closeSettings: string;
     closePlugin: string;
-    /** Accessibility label of the vertical control rail / notebook reading console. */
+    /** Accessibility label of the vertical control rail. */
     readerControls: string;
     currentChapter: string;
     description: string;
@@ -1167,25 +1167,7 @@ export type MobileStrings = {
     handoffOuterDisplay: string;
     handoffInnerDisplay: string;
     handoffWithPage: string;
-    /** Group header for the half-folded (laptop) bottom pane choice. */
-    notebookPane: string;
-    notebookPaneTrackpad: string;
-    notebookPaneFilmstrip: string;
-    notebookPaneFootnote: string;
-    notebookTrackpad: string;
-    notebookShowFilmstrip: string;
-    notebookHideFilmstrip: string;
-    notebookClosePanel: string;
-    notebookShowPanel: string;
-    notebookFilmstrip: string;
     coverPage: string;
-    filmstripSpoilerSafe: string;
-    filmstripSpoilerSafeDescription: string;
-    filmstripPreviewFailed: string;
-    filmstripUnreadPage: string;
-    /** Book posture, scroll reading: the side half's page controls. */
-    bookScrollUp: string;
-    bookScrollDown: string;
   };
   /** On-device Japanese dictionary pack (reader analysis + settings). */
   japaneseLearningDictionary: {

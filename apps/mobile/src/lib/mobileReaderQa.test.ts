@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
   resolveMobileReaderQaChrome,
-  resolveMobileReaderQaNotebook,
   resolveMobileReaderQaPanel,
   resolveMobileReaderQaPlugin,
 } from "./mobileReaderQa";
@@ -38,13 +37,5 @@ describe("reader QA switches", () => {
     expect(resolveMobileReaderQaPlugin("settings", "dual-reader")).toBeNull();
     expect(resolveMobileReaderQaPlugin(undefined, "dual-reader")).toBeNull();
     expect(resolveMobileReaderQaPlugin("plugins", "../etc")).toBeNull();
-  });
-
-  test("notebook pane accepts only the paged states", () => {
-    expect(resolveMobileReaderQaNotebook("trackpad")).toBe("trackpad");
-    expect(resolveMobileReaderQaNotebook("filmstrip")).toBe("filmstrip");
-    expect(resolveMobileReaderQaNotebook("studyDesk")).toBeNull();
-    expect(resolveMobileReaderQaNotebook("continuous")).toBeNull();
-    expect(resolveMobileReaderQaNotebook(undefined)).toBeNull();
   });
 });

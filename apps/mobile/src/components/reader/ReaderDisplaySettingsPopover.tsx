@@ -36,7 +36,6 @@ import {
 } from "@/lib/mobileReaderHeader";
 import { ReaderReadingModePicker } from "./ReaderReadingModePicker";
 import { ReaderSegmentedChipRow } from "./ReaderSegmentedChipRow";
-import { notebookPaneLabel } from "./readerNotebookPaneOptions";
 import {
   READER_FIT_MODE_ORDER,
   READER_SPREAD_MODE_ORDER,
@@ -49,10 +48,6 @@ import {
 import type { ReaderFitMode } from "@/lib/mobileReaderFit";
 import type { ReaderSpreadMode } from "@/lib/mobileReaderSpreadMode";
 import type { ReaderWindowShape } from "@/lib/mobileReaderWindowShape";
-import {
-  MOBILE_READER_NOTEBOOK_PANE_PREFERENCES,
-  type MobileReaderNotebookPanePreference,
-} from "@/lib/mobileReaderNotebookPane";
 
 import {
   MOBILE_READER_PAGE_BACKGROUNDS,
@@ -104,12 +99,6 @@ type ReaderDisplaySettingsPopoverProps = {
   showOrientationLock?: boolean;
   lockPortrait: boolean;
   onToggleLockPortrait: () => void;
-  /** Foldables: what the bottom half holds in the notebook posture. */
-  showNotebookPane?: boolean;
-  notebookPane?: MobileReaderNotebookPanePreference;
-  thumbnailSpoilerSafe?: boolean;
-  onToggleThumbnailSpoilerSafe?: () => void;
-  onSetNotebookPane?: (value: MobileReaderNotebookPanePreference) => void;
   onMarkComplete: () => void;
   /**
    * Shows the "Plugins" row that hands off to the reader plugin settings
@@ -119,8 +108,8 @@ type ReaderDisplaySettingsPopoverProps = {
   onOpenReaderPluginSettings?: () => void;
   /**
    * Region (reader/window coordinates) the popover must stay inside, from the
-   * reader pose layout: beside the vertical rail, inside a fold pane, or in
-   * the notebook console. Omitted = the classic bottom-anchored placement.
+   * reader pose layout: beside the vertical rail or inside a fold pane.
+   * Omitted = the classic bottom-anchored placement.
    */
   anchor?: { frame: WindowLayoutRect; bottomGap: number } | null;
 };
@@ -224,11 +213,6 @@ export function ReaderDisplaySettingsPopover({
   showOrientationLock = true,
   lockPortrait,
   onToggleLockPortrait,
-  showNotebookPane = false,
-  notebookPane = "filmstrip",
-  thumbnailSpoilerSafe = false,
-  onToggleThumbnailSpoilerSafe,
-  onSetNotebookPane,
   onMarkComplete,
   showReaderPluginSettings = false,
   onOpenReaderPluginSettings,
@@ -565,45 +549,6 @@ export function ReaderDisplaySettingsPopover({
                   onValueChange={onToggleLockPortrait}
                 />
               }
-            />
-          ) : null}
-
-          {showNotebookPane && onSetNotebookPane ? (
-            <ReaderSettingRow
-              icon="tablet-landscape-outline"
-              title={strings.duo.notebookPane}
-              description={strings.duo.notebookPaneFootnote}
-              below={
-                <View style={styles.settingControlBlock}>
-                  <ReaderSegmentedChipRow<MobileReaderNotebookPanePreference>
-                    accessibilityLabel={strings.duo.notebookPane}
-                    disabled={busy}
-                    onChange={(next) => {
-                      if (next === notebookPane) return;
-                      onSetNotebookPane(next);
-                    }}
-                    options={MOBILE_READER_NOTEBOOK_PANE_PREFERENCES.map((option) => ({
-                      value: option,
-                      label: notebookPaneLabel(option, strings),
-                    }))}
-                    value={notebookPane}
-                  />
-                </View>
-              }
-            />
-          ) : null}
-
-          {showNotebookPane && onToggleThumbnailSpoilerSafe ? (
-            <ReaderSettingRow
-              icon="eye-off-outline"
-              title={strings.duo.filmstripSpoilerSafe}
-              description={strings.duo.filmstripSpoilerSafeDescription}
-              control={<NemuNativeSwitch
-                accessibilityLabel={strings.duo.filmstripSpoilerSafe}
-                disabled={busy}
-                value={thumbnailSpoilerSafe}
-                onValueChange={onToggleThumbnailSpoilerSafe}
-              />}
             />
           ) : null}
 

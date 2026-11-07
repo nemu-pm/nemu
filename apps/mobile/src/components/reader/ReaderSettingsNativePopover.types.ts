@@ -6,7 +6,6 @@ import type { ReaderFitMode } from "@/lib/mobileReaderFit";
 import type { ReaderSpreadMode } from "@/lib/mobileReaderSpreadMode";
 import type { ReaderWindowShape } from "@/lib/mobileReaderWindowShape";
 import type { MobileStrings } from "@/lib/mobileI18n";
-import type { MobileReaderNotebookPanePreference } from "@/lib/mobileReaderNotebookPane";
 import type { WindowLayoutRect } from "@/lib/mobileWindowLayout";
 import type { ReaderPluginSettingsSheetProps } from "./ReaderPluginSettingsSheet.types";
 
@@ -89,12 +88,6 @@ export type ReaderSettingsNativePopoverProps = {
   showOrientationLock?: boolean;
   lockPortrait: boolean;
   onToggleLockPortrait: () => void;
-  /** Foldables: what the bottom half holds in the notebook posture. */
-  showNotebookPane?: boolean;
-  notebookPane?: MobileReaderNotebookPanePreference;
-  thumbnailSpoilerSafe?: boolean;
-  onToggleThumbnailSpoilerSafe?: () => void;
-  onSetNotebookPane?: (value: MobileReaderNotebookPanePreference) => void;
   onMarkComplete: () => void;
   /** The Plugins row (it pushes the plugin pages; needs `readerPlugins`). */
   showReaderPluginSettings?: boolean;

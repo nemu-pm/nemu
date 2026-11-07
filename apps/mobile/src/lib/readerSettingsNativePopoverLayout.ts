@@ -27,9 +27,6 @@ export type ReaderSettingsNativeRows = {
   scrolling: boolean;
   showPlugins: boolean;
   showMarkComplete: boolean;
-  /** Foldables: the notebook layout menu row. */
-  showNotebookPane?: boolean;
-  showThumbnailSpoilers?: boolean;
   /** Paged reading: the Page Turning menu row in its own section. */
   showPageTurn?: boolean;
   showCameraMode?: boolean;
@@ -69,11 +66,6 @@ export function readerSettingsNativeContentHeight(rows: ReaderSettingsNativeRows
   // 4. Outer display under a header, with its footer: the camera switch.
   if (rows.showCameraMode) {
     height += READER_SETTINGS_POPOVER_HEADER + row + footer;
-    sections += 1;
-  }
-  // 5. Laptop Mode: the two-way choice and spoiler protection, header + footer.
-  if (rows.showNotebookPane) {
-    height += READER_SETTINGS_POPOVER_HEADER + row + (rows.showThumbnailSpoilers ? row : 0) + footer;
     sections += 1;
   }
   // 6. "More": image processing, page width, keep awake, orientation lock,
@@ -184,9 +176,8 @@ export const READER_SHEET_FLOAT_GUTTER = 8;
 
 /**
  * Tallest detent that keeps a sheet's top (its grabber included) below the
- * fold, level with the notebook pane's own top edge so the sheet covers the
- * pane rather than doubling its edge: a `.height` detent excludes the bottom
- * safe area and the floating sheet's gutter, so both come off the pane.
+ * fold, half folded like a laptop: a `.height` detent excludes the bottom
+ * safe area and the floating sheet's gutter, so both come off the bottom pane.
  */
 export function readerNotebookSheetMaxHeight(input: { paneHeight: number; bottomInset: number }): number {
   const pane = Number.isFinite(input.paneHeight) ? input.paneHeight : 0;
