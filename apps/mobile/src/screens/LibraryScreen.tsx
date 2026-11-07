@@ -2823,7 +2823,14 @@ export function LibraryScreen({
           <Animated.View entering={mobileGridGlideEmptyEntering} exiting={mobileGridGlideEmptyExiting}>
           <MobilePaneAlignedView>
           <GlassSurface contentStyle={styles.inlineEmpty}>
-            <Ionicons name="albums-outline" size={22} color={tokens.mutedForeground} />
+            {/* Decorative: VoiceOver otherwise stops on the icon font's glyph. */}
+            <Ionicons
+              name="albums-outline"
+              size={22}
+              color={tokens.mutedForeground}
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+            />
             <Text style={[styles.inlineEmptyText, { color: tokens.mutedForeground }]}>
               {strings.library.collectionEmpty}
             </Text>

@@ -2492,10 +2492,13 @@ export function BrowseScreen() {
                         },
                       ]}
                     >
+                      {/* Decorative: VoiceOver otherwise stops on the icon font's glyph. */}
                       <Ionicons
                         name="filter-outline"
                         size={22}
                         color={sheetTokens.mutedForeground}
+                        accessibilityElementsHidden
+                        importantForAccessibility="no-hide-descendants"
                       />
                       <NemuText
                         style={[
