@@ -413,7 +413,9 @@ export const mobileStringsJa: MobileStrings = {
     addAndStartReading: "追加して読み始める",
     addAndStartReadingHint:
       "この漫画をライブラリに保存して、最初に読める話を開きます。",
-    addOptionsDescription: "このデバイスでの保存方法を選択します。",
+    addOptionsDescription:
+      "「ライブラリに追加」でこの漫画をライブラリに保存します。「追加して読み始める」は最初の話も開きます。",
+    addOptionsDescriptionAddOnly: "「ライブラリに追加」でこの漫画をライブラリに保存します。",
     addOptionsTitle: "ライブラリに追加",
     addToLibrary: "ライブラリに追加",
     addToLibraryHint: "このソース漫画をモバイルライブラリに追加します。",
@@ -427,7 +429,7 @@ export const mobileStringsJa: MobileStrings = {
     installSourceBeforeDetails:
       "漫画詳細を開く前に、このソースをインストールしてください。",
     libraryOptionsDescription:
-      "この漫画のデバイス上での保存方法を管理します。",
+      "この漫画をコレクションに追加するか、ライブラリから削除します。",
     libraryOptionsTitle: "ライブラリ",
     loadingDetails: "ソースから漫画詳細と話を読み込んでいます。",
     manageCollections: "コレクションを管理",

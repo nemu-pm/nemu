@@ -416,7 +416,8 @@ export const mobileStringsEn: MobileStrings = {
     addAndStartReadingHint:
       "Save this manga to your library and open the first available chapter.",
     addOptionsDescription:
-      "Choose how this manga should be saved on this device.",
+      "Add to Library saves this manga to your Library. Add and Start Reading also opens its first chapter.",
+    addOptionsDescriptionAddOnly: "Add to Library saves this manga to your Library.",
     addOptionsTitle: "Add to Library",
     addToLibrary: "Add to Library",
     addToLibraryHint: "Adds this source manga to your mobile library.",
@@ -430,7 +431,7 @@ export const mobileStringsEn: MobileStrings = {
     installSourceBeforeDetails:
       "Install this source before opening manga details.",
     libraryOptionsDescription:
-      "Manage how this manga is saved on this device.",
+      "Add this manga to collections, or remove it from your Library.",
     libraryOptionsTitle: "Library",
     loadingDetails: "Loading manga details and chapters from the source.",
     manageCollections: "Manage collections",

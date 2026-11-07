@@ -102,8 +102,12 @@ export function MobileLibraryOptionsSheet({
       onClose={onClose}
       onDismiss={onDismiss}
       title={inLibrary ? strings.sourceManga.libraryOptionsTitle : strings.sourceManga.addOptionsTitle}
-      subtitle={inLibrary ? strings.sourceManga.libraryOptionsDescription : strings.sourceManga.addOptionsDescription}
-      dismissLabel={strings.common.done}
+      subtitle={inLibrary
+        ? strings.sourceManga.libraryOptionsDescription
+        : canAddAndRead
+          ? strings.sourceManga.addOptionsDescription
+          : strings.sourceManga.addOptionsDescriptionAddOnly}
+      dismissLabel={strings.common.close}
       dismissDisabled={busy}
       enablePanDownToClose={!busy}
       contentStyle={styles.sheet}

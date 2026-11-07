@@ -21,7 +21,7 @@ export const MOBILE_LIBRARY_OPTIONS_SHEET_METRICS = {
    * Breathing room under the last row. The system adds the home-indicator
    * inset on top of a height detent (measured on iPhone 17 Pro, iOS 27).
    */
-  bottom: 4,
+  bottom: 12,
   /**
    * The least room under the footer: where there is no home indicator (an
    * iPhone SE) the system adds no inset below the detent, and the footnote's
@@ -71,6 +71,29 @@ export function getMobileLibraryOptionsNativeSheetHeight({
 function estimateTextLines(text: string, width: number, fontSize: number): number {
   const ems = Array.from(text).reduce((sum, ch) => sum + (ch.charCodeAt(0) > 0x2e80 ? 1 : 0.52), 0);
   return Math.max(1, Math.ceil((ems * fontSize) / Math.max(80, width)));
+}
+
+/**
+ * From this window width the sheet floats clear of the window's bottom edge, about
+ * `MOBILE_LIBRARY_OPTIONS_FLOATING_SHEET_WIDTH` wide (494 pt on the iPhone Duo inner display).
+ */
+export const MOBILE_LIBRARY_OPTIONS_FLOATING_WINDOW_WIDTH = 600;
+export const MOBILE_LIBRARY_OPTIONS_FLOATING_SHEET_WIDTH = 490;
+
+/** An inset-grouped Form's footer text inset from each sheet edge (the group's margin and the text's own). */
+const MOBILE_LIBRARY_OPTIONS_FOOTER_INSET = 36;
+
+/**
+ * Lines the library-options sheet's footer (a footnote) wraps to at the sheet's width, for
+ * `getMobileLibraryOptionsNativeSheetHeight`'s `footerLines`.
+ */
+export function getMobileLibraryOptionsFooterLines(text: string, sheetWidth: number, fontScale = 1): number {
+  if (!text) return 0;
+  return estimateTextLines(
+    text,
+    sheetWidth - 2 * MOBILE_LIBRARY_OPTIONS_FOOTER_INSET,
+    13 * Math.max(1, fontScale),
+  );
 }
 
 /**

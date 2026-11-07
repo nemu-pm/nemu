@@ -2,8 +2,30 @@ import { describe, expect, test } from "bun:test";
 import {
   MOBILE_LIBRARY_OPTIONS_SHEET_METRICS as M,
   getMobileCloudSignOutNativeSheetHeight,
+  getMobileLibraryOptionsFooterLines,
   getMobileLibraryOptionsNativeSheetHeight,
 } from "./mobileLibraryOptionsSheetLayout";
+import { mobileStringsEn } from "./mobileI18n.en";
+import { mobileStringsJa } from "./mobileI18n.ja";
+
+describe("getMobileLibraryOptionsFooterLines", () => {
+  test("no footer, no lines", () => {
+    expect(getMobileLibraryOptionsFooterLines("", 402)).toBe(0);
+  });
+
+  test("the two-action footer wraps past two lines on a phone and grows with Dynamic Type", () => {
+    const text = mobileStringsEn.sourceManga.addOptionsDescription;
+    const phone = getMobileLibraryOptionsFooterLines(text, 402);
+    expect(phone).toBeGreaterThanOrEqual(3);
+    expect(getMobileLibraryOptionsFooterLines(text, 402, 1.5)).toBeGreaterThan(phone);
+    expect(getMobileLibraryOptionsFooterLines(text, 540)).toBeLessThanOrEqual(phone);
+  });
+
+  test("CJK text counts a full em a character", () => {
+    const text = mobileStringsJa.sourceManga.addOptionsDescriptionAddOnly;
+    expect(getMobileLibraryOptionsFooterLines(text, 402)).toBe(Math.ceil((Array.from(text).length * 13) / (402 - 72)));
+  });
+});
 
 describe("getMobileLibraryOptionsNativeSheetHeight", () => {
   test("fits the chrome, rows, section gap and footer", () => {
@@ -34,7 +56,7 @@ describe("library options sheet without a home indicator", () => {
     const base = { sections: [2], footerLines: 2, maxHeight: 800, tightTop: true };
     const withIndicator = getMobileLibraryOptionsNativeSheetHeight({ ...base, bottomInset: 34 });
     const homeButton = getMobileLibraryOptionsNativeSheetHeight({ ...base, bottomInset: 0 });
-    expect(homeButton - withIndicator).toBe(24);
+    expect(homeButton - withIndicator).toBe(M.minBottomRoom - M.bottom);
     expect(getMobileLibraryOptionsNativeSheetHeight(base)).toBe(withIndicator);
   });
 });

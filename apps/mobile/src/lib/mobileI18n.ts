@@ -380,7 +380,10 @@ export type MobileStrings = {
     actionFailedDetail: string;
     addAndStartReading: string;
     addAndStartReadingHint: string;
+    /** The Add to Library sheet's footer, describing both of its actions. */
     addOptionsDescription: string;
+    /** The footer when the sheet offers Add to Library alone (no chapter to start). */
+    addOptionsDescriptionAddOnly: string;
     addOptionsTitle: string;
     addToLibrary: string;
     addToLibraryHint: string;
