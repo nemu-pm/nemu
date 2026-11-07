@@ -523,10 +523,24 @@ export function getMobileRegistryDisplayName(
 
 const MAX_LISTED_LANGUAGES = 3;
 
-/** `EN, JA, ZH +7`: a source in many languages must leave room for what follows. */
-export function formatMobileSourceLanguages(languages?: string[]): string | undefined {
+/**
+ * `EN, JA, ZH +7`: a source in many languages must leave room for what follows.
+ * The `multi` code reads as `multiLanguageLabel` ("Multi-Language", "多语言")
+ * when given, not "MULTI".
+ */
+export function formatMobileSourceLanguages(
+  languages?: string[],
+  multiLanguageLabel?: string,
+): string | undefined {
   if (!languages?.length) return undefined;
-  const listed = languages.slice(0, MAX_LISTED_LANGUAGES).join(", ").toUpperCase();
+  const listed = languages
+    .slice(0, MAX_LISTED_LANGUAGES)
+    .map((language) =>
+      multiLanguageLabel && language.toLowerCase() === "multi"
+        ? multiLanguageLabel
+        : language.toUpperCase(),
+    )
+    .join(", ");
   const rest = languages.length - MAX_LISTED_LANGUAGES;
   return rest > 0 ? `${listed} +${rest}` : listed;
 }

@@ -840,6 +840,17 @@ describe("source language summary", () => {
     expect(formatMobileSourceLanguages(["en", "ja", "zh", "fr", "de"])).toBe("EN, JA, ZH +2");
     expect(formatMobileSourceLanguages([])).toBeUndefined();
   });
+
+  test("the multi code reads as the localized multi-language label, not MULTI", async () => {
+    const { formatMobileSourceLanguages } = await import("./mobileBrowseSources");
+    // LANraragi in Add Sources: ["multi"] showed "MULTI" under a 多语言 header.
+    expect(formatMobileSourceLanguages(["multi"], "多语言")).toBe("多语言");
+    expect(formatMobileSourceLanguages(["MULTI", "en"], "Multi-Language")).toBe(
+      "Multi-Language, EN",
+    );
+    // Without a label the code is kept as before.
+    expect(formatMobileSourceLanguages(["multi"])).toBe("MULTI");
+  });
 });
 
 describe("origin labels", () => {

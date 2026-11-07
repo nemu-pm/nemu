@@ -259,7 +259,7 @@ function SourceOption({
           style={[styles.sourceSubtitle, { color: tokens.mutedForeground }]}
         >
           {[
-            formatLanguages(source.languages),
+            formatLanguages(source.languages, strings.sourceBrowse.multiLanguage),
             source.registryId === NEMU_RECOMMENDED_REGISTRY_ID && source.contentLicense
               ? formatMobileContentLicense(source.contentLicense)
               : undefined,

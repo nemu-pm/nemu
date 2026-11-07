@@ -702,7 +702,10 @@ const AvailableSourceRow = memo(function AvailableSourceRow({
             numberOfLines={1}
             style={[styles.sourceSubtitle, { color: tokens.mutedForeground }]}
           >
-            {[formatLanguages(source.languages), getMobileSourceOriginLabel(source, strings)]
+            {[
+              formatLanguages(source.languages, strings.sourceBrowse.multiLanguage),
+              getMobileSourceOriginLabel(source, strings),
+            ]
               .filter(Boolean)
               .join(" / ")}
           </NemuText>
