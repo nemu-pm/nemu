@@ -18,6 +18,23 @@ import {
   type SourceSettingsStore,
 } from "@/stores/source-settings";
 import { safeErrorCategory } from "@/lib/error-diagnostic";
+import {
+  NEMU_RECOMMENDED_REGISTRY,
+  type AidokuRegistryDefinition,
+} from "@nemu/core/sources";
+import { nextSyncTimestamp } from "@nemu/core";
+
+/**
+ * Directories the web always has. The nemu recommended directory matches
+ * mobile's built-in (same id and URL), so a source installed during mobile
+ * onboarding loads here; the two legacy Aidoku directories stay built in for
+ * the web onboarding picks. Synced records with these ids or URLs never
+ * create a second row.
+ */
+export const WEB_BUILT_IN_SOURCE_DIRECTORIES: readonly AidokuRegistryDefinition[] = [
+  NEMU_RECOMMENDED_REGISTRY,
+  ...AIDOKU_REGISTRIES,
+];
 
 // Re-export for convenience
 export type { InstalledSourceStore };
@@ -70,6 +87,11 @@ export class RegistryManager {
   private installedSourceStore: InstalledSourceStore;
   private cacheStore: CacheStore;
   private sourceSettingsStore: SourceSettingsStore;
+  /** Stored (user-added or synced) directory ids that have a registry. */
+  private userDirectoryIds = new Set<string>();
+  /** Disabled or removed directories: loadable, never listed. */
+  private hiddenDirectoryIds = new Set<string>();
+  private directoryListeners = new Set<() => void>();
 
   constructor(
     registryStore: RegistryMetadataStore,
@@ -81,17 +103,8 @@ export class RegistryManager {
     this.installedSourceStore = installedSourceStore;
     this.cacheStore = cacheStore;
     this.sourceSettingsStore = sourceSettingsStore;
-    // Add default Aidoku registries
-    for (const def of AIDOKU_REGISTRIES) {
-      const registry = new AidokuUrlRegistry(
-        def.id,
-        def.name,
-        def.indexUrl,
-        this.installedSourceStore,
-        this.cacheStore,
-        this.sourceSettingsStore,
-      );
-      this.registries.set(def.id, registry);
+    for (const def of WEB_BUILT_IN_SOURCE_DIRECTORIES) {
+      this.registries.set(def.id, this.createUrlRegistry(def.id, def.name, def.indexUrl));
     }
 
     // Add Tachiyomi local registry (only in development mode with path configured)
@@ -113,16 +126,13 @@ export class RegistryManager {
   setInstalledSourceStore(store: InstalledSourceStore): void {
     this.installedSourceStore = store;
     // Recreate registries with new store
-    for (const def of AIDOKU_REGISTRIES) {
-      const registry = new AidokuUrlRegistry(
-        def.id,
-        def.name,
-        def.indexUrl,
-        this.installedSourceStore,
-        this.cacheStore,
-        this.sourceSettingsStore,
-      );
-      this.registries.set(def.id, registry);
+    for (const def of WEB_BUILT_IN_SOURCE_DIRECTORIES) {
+      this.registries.set(def.id, this.createUrlRegistry(def.id, def.name, def.indexUrl));
+    }
+    for (const id of this.userDirectoryIds) {
+      const info = this.registries.get(id)?.info;
+      if (info?.type !== "url") continue;
+      this.registries.set(id, this.createUrlRegistry(id, info.name, info.url));
     }
 
     // Update Tachiyomi local registry if it exists
@@ -134,22 +144,91 @@ export class RegistryManager {
     }
   }
 
-  async initialize(): Promise<void> {
-    // Load user-added registries from storage (always local)
-    const savedRegistries = await this.registryStore.getRegistries();
+  private createUrlRegistry(
+    id: string,
+    name: string,
+    indexUrl: string,
+  ): AidokuUrlRegistry {
+    return new AidokuUrlRegistry(
+      id,
+      name,
+      indexUrl,
+      this.installedSourceStore,
+      this.cacheStore,
+      this.sourceSettingsStore,
+    );
+  }
 
+  private isBuiltIn(id: string): boolean {
+    return WEB_BUILT_IN_SOURCE_DIRECTORIES.some((def) => def.id === id);
+  }
+
+  private disposeRegistry(id: string): void {
+    const registry = this.registries.get(id);
+    if (registry && "dispose" in registry) {
+      (registry as { dispose: () => void }).dispose();
+    }
+    this.registries.delete(id);
+  }
+
+  async initialize(): Promise<void> {
+    await this.reloadDirectories();
+  }
+
+  /**
+   * Makes the loaded registries follow the stored directory rows (user-added
+   * or synced). A disabled or removed directory keeps a registry so sources
+   * installed from it still load, but is hidden from listings and updates.
+   */
+  async reloadDirectories(): Promise<void> {
+    const savedRegistries = await this.registryStore.getRegistries();
+    const seen = new Set<string>();
     for (const registry of savedRegistries) {
-      if (registry.type === "url" && !this.registries.has(registry.id)) {
+      if (registry.type !== "url" || this.isBuiltIn(registry.id)) continue;
+      seen.add(registry.id);
+      const current = this.registries.get(registry.id);
+      if (
+        !current ||
+        current.info.type !== "url" ||
+        current.info.url !== registry.url ||
+        current.info.name !== registry.name
+      ) {
+        if (current) this.disposeRegistry(registry.id);
         this.registries.set(
           registry.id,
-          new AidokuUrlRegistry(
-            registry.id,
-            registry.name,
-            registry.url,
-            this.installedSourceStore,
-            this.cacheStore,
-            this.sourceSettingsStore,
-          ),
+          this.createUrlRegistry(registry.id, registry.name, registry.url),
+        );
+      }
+      if (registry.disabled || registry.removed) {
+        this.hiddenDirectoryIds.add(registry.id);
+      } else {
+        this.hiddenDirectoryIds.delete(registry.id);
+      }
+    }
+    for (const id of this.userDirectoryIds) {
+      if (seen.has(id)) continue;
+      this.disposeRegistry(id);
+      this.hiddenDirectoryIds.delete(id);
+    }
+    this.userDirectoryIds = seen;
+  }
+
+  /** Listeners run after a local directory edit (add, remove, enable). */
+  onDirectoriesChanged(listener: () => void): () => void {
+    this.directoryListeners.add(listener);
+    return () => {
+      this.directoryListeners.delete(listener);
+    };
+  }
+
+  private notifyDirectoriesChanged(): void {
+    for (const listener of this.directoryListeners) {
+      try {
+        listener();
+      } catch (error) {
+        console.error(
+          "[RegistryManager] Directory listener failed:",
+          safeErrorCategory(error),
         );
       }
     }
@@ -163,42 +242,54 @@ export class RegistryManager {
     return Array.from(this.registries.values());
   }
 
+  /** Adds (or re-adds) a directory; it syncs to the account. */
   async addRegistry(registry: SourceRegistry): Promise<void> {
-    if (registry.type === "builtin") {
+    if (registry.type !== "url" || this.isBuiltIn(registry.id)) {
       return;
     }
-
-    await this.registryStore.saveRegistry(registry);
-
-    if (registry.type === "url") {
-      this.registries.set(
-        registry.id,
-        new AidokuUrlRegistry(
-          registry.id,
-          registry.name,
-          registry.url,
-          this.installedSourceStore,
-          this.cacheStore,
-          this.sourceSettingsStore,
-        ),
-      );
-    }
+    const previous = await this.registryStore.getRegistry(registry.id);
+    const previousRow = previous?.type === "url" ? previous : null;
+    const next = { ...registry };
+    delete next.removed;
+    await this.registryStore.saveRegistry({
+      ...next,
+      addedAt:
+        previousRow && !previousRow.removed
+          ? (previousRow.addedAt ?? Date.now())
+          : Date.now(),
+      updatedAt: nextSyncTimestamp(previousRow?.updatedAt, registry.updatedAt),
+    });
+    await this.reloadDirectories();
+    this.notifyDirectoriesChanged();
   }
 
+  async setRegistryEnabled(id: string, enabled: boolean): Promise<void> {
+    const previous = await this.registryStore.getRegistry(id);
+    if (previous?.type !== "url" || previous.removed) return;
+    if ((previous.disabled !== true) === enabled) return;
+    const next = { ...previous, updatedAt: nextSyncTimestamp(previous.updatedAt) };
+    if (enabled) delete next.disabled;
+    else next.disabled = true;
+    await this.registryStore.saveRegistry(next);
+    await this.reloadDirectories();
+    this.notifyDirectoriesChanged();
+  }
+
+  /**
+   * Forgets a directory. The row stays as a tombstone so the removal syncs;
+   * sources installed from it keep loading, as on mobile.
+   */
   async removeRegistry(id: string): Promise<void> {
-    // Don't allow removing default registries
-    if (AIDOKU_REGISTRIES.some((r) => r.id === id)) {
-      return;
-    }
-
-    const registry = this.registries.get(id);
-    if (registry && "dispose" in registry) {
-      (registry as { dispose: () => void }).dispose();
-    }
-
-    this.registries.delete(id);
-
-    await this.registryStore.removeRegistry(id);
+    if (this.isBuiltIn(id)) return;
+    const previous = await this.registryStore.getRegistry(id);
+    if (previous?.type !== "url" || previous.removed) return;
+    await this.registryStore.saveRegistry({
+      ...previous,
+      removed: true,
+      updatedAt: nextSyncTimestamp(previous.updatedAt),
+    });
+    await this.reloadDirectories();
+    this.notifyDirectoriesChanged();
   }
 
   /**
@@ -235,6 +326,7 @@ export class RegistryManager {
     const results: Array<RegistrySourceInfo & { registryId: string }> = [];
 
     for (const [registryId, registry] of this.registries) {
+      if (this.hiddenDirectoryIds.has(registryId)) continue;
       try {
         const sources = await registry.listSources();
         for (const source of sources) {

@@ -93,6 +93,14 @@ export const SourceRegistrySchema = z.discriminatedUnion("type", [
     name: z.string(),
     type: z.literal("url"),
     url: z.string(),
+    // Directory sync (all optional: rows written before it parse unchanged).
+    // A disabled or removed directory still loads the sources installed from
+    // it, but is not listed or used for updates. `removed` rows are local
+    // tombstones until the cloud has seen the removal.
+    disabled: z.boolean().optional(),
+    removed: z.boolean().optional(),
+    addedAt: z.number().optional(),
+    updatedAt: z.number().optional(),
   }),
 ]);
 

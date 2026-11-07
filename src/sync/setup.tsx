@@ -104,6 +104,10 @@ import {
 } from "./import-offer";
 import { syncApplyRetryDelayMs } from "./retry-backoff";
 import {
+  canonicalCloudSourceDirectories,
+  syncWebSourceDirectories,
+} from "./web-source-directories";
+import {
   clearSyncRecoveryRequest,
   getSyncRecoveryRequest,
   reportSyncMutationError,
@@ -229,6 +233,7 @@ function SyncSetupRun() {
   const [syncApplyFailures, setSyncApplyFailures] = useState<
     Set<WebSyncApplyDomain>
   >(() => new Set());
+  const [sourceDirectoryRevision, setSourceDirectoryRevision] = useState(0);
   const [syncApplyRetryRevision, setSyncApplyRetryRevision] = useState<
     Record<WebSyncApplyDomain, number>
   >({
@@ -928,6 +933,7 @@ function SyncSetupRun() {
     return {
       generation,
       installedSources,
+      sourceDirectories: canonicalCloudSourceDirectories(rows),
       updatedAt: Math.max(0, ...rows.map((row) => row.updatedAt)),
     };
   }, [generation, settingsPages.results, settingsPages.status]);
@@ -1396,6 +1402,22 @@ function SyncSetupRun() {
         stores.useSettingsStore
           .getState()
           .replaceInstalledSourcesSnapshot(activeSources, snapshotGeneration);
+
+        // Directories after sources: a synced source with no directory here
+        // gets it back (backfill), so it loads and updates.
+        const directories = await syncWebSourceDirectories({
+          localStore,
+          convex: convex as ConvexReactClient,
+          cloud: cloudSettings.sourceDirectories,
+          installedSources: activeSources,
+          generation: snapshotGeneration,
+          expectedUserId: expectedIdentity.userId!,
+          shouldContinue,
+        });
+        if (!shouldContinue()) return;
+        if (directories.changed) {
+          await stores.useSettingsStore.getState().refreshDirectories();
+        }
         markSyncApplySucceeded("settings");
       } catch (error) {
         markSyncApplyFailed("settings", error, shouldContinue);
@@ -1416,7 +1438,26 @@ function SyncSetupRun() {
     snapshotGeneration,
     stores,
     syncApplyRetryRevision.settings,
+    sourceDirectoryRevision,
   ]);
+
+  // A local directory edit (add, remove, enable) reruns the settings sync so
+  // it is pushed, and relists sources.
+  useEffect(() => {
+    const manager = stores.useSettingsStore.getState().manager;
+    return manager.onDirectoriesChanged(() => {
+      setSourceDirectoryRevision((revision) => revision + 1);
+      void stores.useSettingsStore
+        .getState()
+        .refreshDirectories()
+        .catch((error) => {
+          console.error(
+            "[sync] Failed to refresh source directories:",
+            safeErrorCategory(error),
+          );
+        });
+    });
+  }, [stores]);
 
   // Reload stores whenever the provider swaps the profile container.
   useEffect(() => {

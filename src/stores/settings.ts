@@ -78,6 +78,8 @@ interface SettingsState {
 
   // Actions
   initialize: () => Promise<void>;
+  /** Re-reads the directory list (after a sync or edit) and relists sources. */
+  refreshDirectories: () => Promise<void>;
   prepareSyncGeneration: (
     generation: number,
     readiness?: Promise<unknown>,
@@ -329,6 +331,22 @@ export function createSettingsStore(
             loading: false,
           });
         }
+      },
+
+      refreshDirectories: async () => {
+        const { manager } = get();
+        const token = generationGate.capture();
+        await manager.reloadDirectories();
+        const allSources = await manager.listAllSources();
+        setIfCurrent(token, (state) => {
+          const installedIds = new Set(state.installedSources.map((s) => s.id));
+          return {
+            availableSources: allSources.map((s) => ({
+              ...s,
+              installed: installedIds.has(Keys.source(s.registryId, s.id)),
+            })),
+          };
+        });
       },
 
       installSource: async (registryId: string, sourceId: string) => {
