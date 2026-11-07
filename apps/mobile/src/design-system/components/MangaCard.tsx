@@ -1,5 +1,5 @@
 import { memo, useState, type ReactNode } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View, useWindowDimensions, type TextLayoutEvent } from "react-native";
 import { router } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import Animated, {
@@ -15,6 +15,7 @@ import { useNemuTheme } from "@/design/useNemuTheme";
 import { getMobileStrings } from "@/lib/mobileI18n";
 import { formatMobileMangaCardAccessibilityLabel } from "@/lib/mobileMangaCard";
 import { markMobilePerformance } from "@/lib/mobilePerformance";
+import { hasMobileMidWordLineBreak, nextMobileWordFitMultiplier } from "@/lib/mobileTextWordBreak";
 import { NemuPressable } from "./NemuPressable";
 import { MobileCachedImage } from "./MobileCachedImage";
 
@@ -166,13 +167,7 @@ export const MangaCard = memo(function MangaCard({
     >
       {wrapCover ? wrapCover(coverView) : coverView}
       <View style={styles.textBlock}>
-        <Text
-          maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
-          numberOfLines={2}
-          style={[styles.title, { color: tokens.foreground }]}
-        >
-          {item.title}
-        </Text>
+        <MangaCardTitle title={item.title} color={tokens.foreground} />
         {item.subtitle ? (
           <Text
             maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
@@ -186,6 +181,39 @@ export const MangaCard = memo(function MangaCard({
     </NemuPressable>
   );
 });
+
+/**
+ * The title in two lines, broken between words: at the largest Dynamic Type
+ * sizes a word wider than the card ("Pepper&Carrot") was split by character
+ * across them. Such a title is set a step smaller, as often as it takes (never
+ * below its own size), until it wraps between words.
+ */
+function MangaCardTitle({ title, color }: { title: string; color: string }) {
+  const { fontScale } = useWindowDimensions();
+  const fitKey = `${fontScale}|${title}`;
+  const [fit, setFit] = useState<{ key: string; multiplier: number } | null>(null);
+  const multiplier =
+    fit?.key === fitKey ? fit.multiplier : Math.min(Math.max(fontScale, 1), nemuMaxFontSizeMultiplier);
+  const handleTextLayout =
+    multiplier > 1
+      ? (event: TextLayoutEvent) => {
+          if (!hasMobileMidWordLineBreak(event.nativeEvent.lines)) return;
+          const next = nextMobileWordFitMultiplier(multiplier);
+          if (next !== null) setFit({ key: fitKey, multiplier: next });
+        }
+      : undefined;
+  return (
+    <Text
+      // At or below the default size nothing grows: the usual cap applies.
+      maxFontSizeMultiplier={fontScale > 1 ? multiplier : nemuMaxFontSizeMultiplier}
+      numberOfLines={2}
+      onTextLayout={handleTextLayout}
+      style={[styles.title, { color }]}
+    >
+      {title}
+    </Text>
+  );
+}
 
 /**
  * The cover's corner radius. A context menu around the card lifts its preview
