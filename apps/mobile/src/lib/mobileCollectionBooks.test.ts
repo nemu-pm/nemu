@@ -5,6 +5,7 @@ import {
   filterMobileCollectionBookEntries,
   getMobileCollectionBooksSheetLayout,
   MOBILE_COLLECTION_BOOKS_SEARCH_THRESHOLD,
+  MOBILE_COLLECTION_BOOKS_SHEET_METRICS,
   normalizeMobileCollectionBooksQuery,
   planMobileCollectionBooksSave,
   resolveMobileCollectionBooksVisibleEntries,
@@ -215,6 +216,21 @@ describe("collection book sheet layout", () => {
     const first = Number.parseInt(layout.snapPoints[0], 10);
     expect(first).toBeGreaterThanOrEqual(36);
     expect(first).toBeLessThan(62);
+  });
+
+  test("a short Edit Collection's detent is a share of the sheet's room, not the window", () => {
+    const m = MOBILE_COLLECTION_BOOKS_SHEET_METRICS;
+    const available = 874 - 62 - 34;
+    const layout = getMobileCollectionBooksSheetLayout({
+      fontScale: 1,
+      height: 874,
+      width: 402,
+      availableHeight: available,
+      entryCount: 1,
+      allowRename: true,
+    });
+    const content = m.chrome + m.nameField + m.deleteRow + m.row + m.bottom;
+    expect((Number.parseInt(layout.snapPoints[0], 10) / 100) * available).toBeGreaterThanOrEqual(content);
   });
 
   test("a long library starts a little over half height", () => {

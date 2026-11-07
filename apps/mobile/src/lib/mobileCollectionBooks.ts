@@ -149,12 +149,20 @@ export function getMobileCollectionBooksSheetLayout({
   fontScale,
   height,
   width,
+  availableHeight = height,
 }: {
   entryCount: number;
   allowRename: boolean;
   fontScale: number;
   height: number;
   width: number;
+  /**
+   * The height a percentage detent is a share of: the window less its top and
+   * bottom safe areas (as the sheet scaffold resolves it). Against the whole
+   * window a short Edit Collection came out ~40 pt short, its Delete row cut
+   * at the sheet's edge.
+   */
+  availableHeight?: number;
 }): MobileCollectionBooksSheetLayout {
   if (width > height) return { snapPoints: ["100%"] };
   const m = MOBILE_COLLECTION_BOOKS_SHEET_METRICS;
@@ -165,7 +173,7 @@ export function getMobileCollectionBooksSheetLayout({
     (shouldShowMobileCollectionBooksSearch(entryCount) ? m.search : 0) +
     Math.max(1, entryCount) * m.row * scale +
     m.bottom;
-  const percent = Math.ceil((estimated / Math.max(1, height)) * 100);
+  const percent = Math.ceil((estimated / Math.max(1, availableHeight)) * 100);
   const longStart = allowRename ? 72 : 62;
   if (percent <= longStart) return { snapPoints: [`${Math.max(36, percent)}%`, "100%"] };
   return { snapPoints: [`${longStart}%`, "100%"] };

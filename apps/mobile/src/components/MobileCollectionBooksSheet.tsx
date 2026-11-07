@@ -9,6 +9,7 @@ import {
   View,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import {
   MobileCachedImage,
@@ -135,6 +136,7 @@ function MobileCollectionBooksSheetContent({
 }: MobileCollectionBooksSheetProps & { initialSelected: Set<string> }) {
   const { tokens } = useMobileNativeSheetTheme();
   const { fontScale, height, width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const editing = mode === "edit";
   const [selectedIds, setSelectedIds] = useState(() => new Set(initialSelected));
   const [draftName, setDraftName] = useState(collection.name);
@@ -205,6 +207,7 @@ function MobileCollectionBooksSheetContent({
     fontScale,
     height,
     width,
+    availableHeight: height - insets.top - insets.bottom,
   });
   const locked = saving || actionState.removing;
 
