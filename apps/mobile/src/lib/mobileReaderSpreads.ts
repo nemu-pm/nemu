@@ -121,7 +121,9 @@ export function mobileReaderPageRatio(size?: { width: number; height: number } |
 /**
  * Two facing pages fitted as one sheet: the same height, each inside its
  * own slot (the stage halves, or the panes beside a fold), never cropped.
- * The height is the tallest both pages fit at.
+ * The height is the tallest both pages fit at. A page whose size is not
+ * known yet takes its partner's shape (facing pages are cut alike), so the
+ * known page keeps its frame when the other's size arrives.
  */
 export function getMobileReaderSpreadSheetFrames({
   slots,
@@ -130,7 +132,12 @@ export function getMobileReaderSpreadSheetFrames({
   slots: [{ width: number; height: number }, { width: number; height: number }];
   sizes: [{ width: number; height: number } | null | undefined, { width: number; height: number } | null | undefined];
 }): [{ width: number; height: number }, { width: number; height: number }] {
-  const ratios = [mobileReaderPageRatio(sizes[0]), mobileReaderPageRatio(sizes[1])] as const;
+  const known = (size: { width: number; height: number } | null | undefined) =>
+    size && Number.isFinite(size.width) && Number.isFinite(size.height) && size.width > 0 && size.height > 0
+      ? size
+      : null;
+  const [a, b] = [known(sizes[0]), known(sizes[1])];
+  const ratios = [mobileReaderPageRatio(a ?? b), mobileReaderPageRatio(b ?? a)] as const;
   const fit = (slot: { width: number; height: number }, ratio: number) => {
     const width = Number.isFinite(slot.width) && slot.width > 0 ? slot.width : 1;
     const height = Number.isFinite(slot.height) && slot.height > 0 ? slot.height : 1;

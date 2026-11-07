@@ -3660,11 +3660,10 @@ export function ReaderScreen() {
     [displayedPages, pageCount, readerPageFeatures],
   );
   // Flat spreads: a page's image has loaded (its natural size is known) or
-  // failed (its retry shows). Until both pages of a pair are, the first page
-  // is shown alone, centred (see mobileReaderLoneSpreadPage); such a pair is
-  // not yet fixed as shown, so a page found wide splits it (it stays alone);
-  // and a turn to that spread never plays the half-page flip (its leaves
-  // would show the facing page before it is ready).
+  // failed (its retry shows). Until both pages of a pair are, the pair is
+  // laid out facing with its second page hidden in place (see
+  // mobileReaderLoneSpreadPage), and a turn to that spread never plays the
+  // half-page flip (its leaves would show the facing page before it is ready).
   /**
    * Pages once ready stay ready: a facing page shown is never hidden again
    * (a retry clearing its error, a size map pruned and refilled).
@@ -3745,26 +3744,30 @@ export function ReaderScreen() {
   // re-paired by a later image load (a page found wide pairs anew from the
   // next turn). After that only the pages ahead re-pair.
   const readerSpreadsProvisional = pageArrival === "initial";
-  const readerCentresLonePages = mobileReaderCentresLonePages({
-    spreadMode: isTwoPageMode,
-    panes: Boolean(readerSpreadSlots),
-  });
   /**
-   * The spread is fixed as shown: a flat pair only once both its pages are
-   * ready (shown facing each other). Until then its pairing may still split.
+   * The spread is fixed as shown: a pair is laid out facing from its first
+   * frame, loaded or not, so a neighbour's load never re-pairs it. It splits
+   * only if its own pages prove unable to face (a page found wide). Sizes as
+   * pairing reads them (`readerPageSizeAt`, `readerStripPageSize`).
    */
   const readerSpreadSettledFor = useCallback(
     (forChapterId: string, pagesOfChapter: readonly MobileReaderPage[], spread: readonly number[] | undefined) =>
       spread != null
       && mobileReaderSpreadSettledOnScreen({
         spread,
-        centresLonePages: readerCentresLonePages,
-        ready: (index) => {
+        sizeAt: (index) => {
           const page = pagesOfChapter[index];
-          return !page?.imageUri || readerPageImageReadyForChapter(forChapterId, page);
+          if (!page) return null;
+          const identity = readerPageIdentityForChapter(forChapterId, page);
+          return readerImageSizes.get(identity)
+            ?? recallMobileReaderPageNaturalSize(identity)
+            ?? recallMobileReaderPageNaturalSize(readerStablePageSizeKeyForChapter(forChapterId, page))
+            ?? (forChapterId === chapterId ? readerPageFeatures.get(page.id) : undefined)
+            ?? page.sourceSize
+            ?? null;
         },
       }),
-    [readerCentresLonePages, readerPageImageReadyForChapter],
+    [chapterId, readerImageSizes, readerPageFeatures, readerPageIdentityForChapter, readerStablePageSizeKeyForChapter],
   );
   const { spreads: readerSpreads, generation: readerSpreadGeneration } = useMemo(() => {
     const previous = readerSpreadTableRef.current;
@@ -10156,9 +10159,9 @@ export function ReaderScreen() {
         sameSpread: oldSpread === newSpread,
         hasPanes: panes !== null,
         onScreenPagesReady: Boolean(outgoingPage?.imageUri && underPage?.imageUri),
-        // A flat spread whose second page is not ready shows its first page
-        // alone, centred: the leaves (the pair in its slots) must not show
-        // that facing page, so a turn to (or from) it slides plainly.
+        // A flat spread whose second page is not ready keeps it hidden in its
+        // slot: the leaves must not show that facing page, so a turn to (or
+        // from) it slides plainly.
         arrivingPairPending: flatPairPending(newSpread) || flatPairPending(oldSpread),
       });
       if (!decision.flip || !panes || !outgoingPage || !underPage) return false;

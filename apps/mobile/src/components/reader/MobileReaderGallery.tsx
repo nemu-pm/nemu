@@ -418,8 +418,9 @@ type MobileReaderGalleryProps = {
   pageNaturalSize?: (page: MobileReaderPage) => { width: number; height: number } | null;
   /**
    * The page's image has loaded (or failed). In a flat spread, a pair whose
-   * second page is not ready yet shows its first page centred; the pair
-   * settles (slide + fade) once it is. Absent: every page counts as ready.
+   * second page is not ready yet keeps that page hidden in its slot (the
+   * first already against the spine); it fades in once ready. Absent: every
+   * page counts as ready.
    */
   pageImageReady?: (page: MobileReaderPage) => boolean;
   /** Extra horizontal padding that centres the loading / locked / error card beside the rail. */
@@ -2754,8 +2755,8 @@ export function MobileReaderGallery({
               })
             : null;
         // Flat spread (no fold panes): a page alone is centred on the stage
-        // (the row's one slot spans it); a pair's first page is centred until
-        // the second page is ready, then slides to its slot as that one fades in.
+        // (the row's one slot spans it); a pair is laid out facing at once,
+        // its second page fading in in place once ready.
         const flatState = !spreadSlots
           ? mobileReaderFlatSpreadState({ spread: item.spread, mode, ready: isDisplayedPageReady })
           : null;
@@ -2800,16 +2801,12 @@ export function MobileReaderGallery({
                   />
                 );
                 // One slot type in every posture: flat ⇄ book keeps the slots
-                // mounted, gliding. Only a flat spread's pair ever moves.
+                // mounted, gliding.
                 const slot: 0 | 1 = slotIndex === 0 ? 0 : 1;
-                const pair = flatState && item.spread.length === 2 ? flatState : null;
                 return (
                   <MobileReaderFlatSpreadSlot
                     key={page.id}
-                    slot={slot}
-                    centred={pair?.centredSlot === slot}
-                    pending={pair?.pendingSlot === slot}
-                    pageWidth={pair && pageFrameSize ? pageFrameSize(page).width : 0}
+                    pending={flatState?.pendingSlot === slot}
                     // The halves slide apart into (or back from) the fold panes.
                     layout={pageGlide ? mobileReaderSlotLayoutTransition : undefined}
                     style={slotStyle}

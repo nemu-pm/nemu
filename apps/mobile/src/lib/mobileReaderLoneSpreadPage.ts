@@ -1,27 +1,28 @@
 import type { ReadingMode } from "@/data/schema";
+import { mobileReaderPagesPairable, type MobileReaderPageSize } from "@/lib/mobileReaderPairing";
 import { visualPageIndexesForMobileReaderSpread } from "@/lib/mobileReaderSpreads";
 
 /**
- * A page alone in a flat spread (the fully open iPhone Duo inner display in
- * landscape, or any flat window wide enough for Auto to pair pages) rests
- * centred on the whole stage, never in its usual left / right half with the
- * other half blank:
+ * Flat spreads (the fully open iPhone Duo inner display in landscape, or any
+ * flat window wide enough for Auto to pair pages):
  *
  * - a spread of one page (the cover, the page beside a wide page, the last
- *   page of a chapter) is centred, in the slide pager and in the curl;
- * - a pair whose second page (in reading order) has not loaded yet shows its
- *   first page centred and hides the second; once the second page is ready
- *   the first slides to its slot against the spine
- *   (`MOBILE_READER_LONE_PAGE_SETTLE_MS`, ease-out) while the second fades in
- *   over the same time. Pairing itself comes from the pages' metadata
- *   (sizes, binding margins), so a pair is known to be a pair before either
- *   image decodes; only its presentation waits for the second image.
+ *   page of a chapter) is centred on the whole stage, in the slide pager and
+ *   in the curl;
+ * - a pair is laid out as a pair from its first frame, whatever has loaded:
+ *   each page against the spine in its own half. A page whose image has not
+ *   loaded yet keeps its place hidden and fades in where it stands
+ *   (`MOBILE_READER_PAIR_PAGE_FADE_MS`); its partner never moves. (A pair
+ *   that showed its first page centred until the second loaded, then slid
+ *   it to the spine, read as a single page re-pairing into a spread on every
+ *   fast turn.) Pairing comes from the pages' metadata, an unknown size
+ *   counting as an ordinary page, so a pair is known before either decodes.
  *
  * Only the flat spread centres. The book posture (half folded) keeps a lone
  * page in its reading-start pane beside the fold: centring it would lay the
  * page across the crease.
  */
-export const MOBILE_READER_LONE_PAGE_SETTLE_MS = 250;
+export const MOBILE_READER_PAIR_PAGE_FADE_MS = 250;
 
 /**
  * Whether a page counts as ready for a flat spread's presentation.
@@ -45,19 +46,15 @@ export function mobileReaderCentresLonePages(input: { spreadMode: boolean; panes
 export type MobileReaderFlatSpreadState = {
   /** Page indexes in visual order, left to right. */
   visual: number[];
-  /** Visual slot (0 left, 1 right) of the page shown centred; null while the pages face each other. */
-  centredSlot: 0 | 1 | null;
-  /** Visual slot whose page waits, hidden, for its image (it fades in as the pair completes). */
+  /** Visual slot (0 left, 1 right) whose page waits, hidden, for its image (it fades in in place). */
   pendingSlot: 0 | 1 | null;
 };
 
 /**
  * How a flat spread presents its pages. `ready(pageIndex)`: the page's image
  * has loaded (or failed, so its retry shows; a text page is always ready).
- * The pages face each other only once both are ready: a page whose size is
- * not known yet is never shown paired (it may still prove wide, and the
- * pairing split). Until then the first page (reading order) shows alone,
- * centred, and the second waits hidden.
+ * A pair is always laid out facing; until both pages are ready the second
+ * (reading order) waits hidden in its own slot.
  */
 export function mobileReaderFlatSpreadState(input: {
   spread: readonly number[];
@@ -65,57 +62,32 @@ export function mobileReaderFlatSpreadState(input: {
   ready: (pageIndex: number) => boolean;
 }): MobileReaderFlatSpreadState {
   const { spread, mode } = input;
-  if (spread.length !== 2) {
-    return { visual: [...spread], centredSlot: spread.length === 1 ? 0 : null, pendingSlot: null };
-  }
+  if (spread.length !== 2) return { visual: [...spread], pendingSlot: null };
   const visual = visualPageIndexesForMobileReaderSpread([...spread], mode);
-  if (mobileReaderFlatPairShown(spread, input.ready)) return { visual, centredSlot: null, pendingSlot: null };
-  const first = visual.indexOf(spread[0]!) === 0 ? 0 : 1;
-  return { visual, centredSlot: first, pendingSlot: first === 0 ? 1 : 0 };
+  if (mobileReaderFlatPairShown(spread, input.ready)) return { visual, pendingSlot: null };
+  return { visual, pendingSlot: visual.indexOf(spread[1]!) === 0 ? 0 : 1 };
 }
 
-/** A flat spread's two pages face each other on screen: both are ready. */
+/** A flat spread's two pages both show: both are ready. */
 export function mobileReaderFlatPairShown(spread: readonly number[], ready: (pageIndex: number) => boolean): boolean {
   return spread.length === 2 && ready(spread[0]!) && ready(spread[1]!);
 }
 
 /**
  * Whether the spread on screen is fixed as shown (never re-paired by a later
- * image load). A flat pair not yet shown as a pair (its first page centred,
- * waiting on a size) is not: should a page prove wide, the pair splits and
- * the page stays alone, centred, never having been paired on screen. A lone
- * page, or any spread on fold panes (book posture shows pairs at once), is.
+ * image load, whichever page it comes from). A spread on screen is shown as
+ * it is paired from its first frame, so it is fixed at once; the one
+ * exception is a pair whose own pages prove unable to face each other (a
+ * page found wide, or of another shape, once its size is known). That pair
+ * splits: a printed double page squeezed into half the stage reads worse
+ * than one move.
  */
 export function mobileReaderSpreadSettledOnScreen(input: {
   spread: readonly number[];
-  centresLonePages: boolean;
-  ready: (pageIndex: number) => boolean;
+  sizeAt: (pageIndex: number) => MobileReaderPageSize | null | undefined;
 }): boolean {
-  if (!input.centresLonePages || input.spread.length !== 2) return true;
-  return mobileReaderFlatPairShown(input.spread, input.ready);
-}
-
-/**
- * The horizontal shift that moves a page from its spread slot (leaning on
- * the spine: the left page's right edge, the right page's left edge, on the
- * stage centre line) to the stage centre: half its width, toward the other
- * side.
- */
-export function mobileReaderLoneCentreShift(slot: 0 | 1, pageWidth: number): number {
-  const half = Math.max(0, Number.isFinite(pageWidth) ? pageWidth : 0) / 2;
-  return slot === 0 ? half : -half;
-}
-
-/**
- * Curl: the centred page also shows in the other leaf (each leaf clips at the
- * spine). Where that copy sits, relative to the page leaning on the spine in
- * the other leaf: a page width further across the spine, plus the same
- * shift, so the two halves always meet at the spine and, once the shift is
- * back to 0, the copy lies wholly outside its leaf.
- */
-export function mobileReaderLoneCopyShift(slot: 0 | 1, pageWidth: number, shift: number): number {
-  const width = Math.max(0, Number.isFinite(pageWidth) ? pageWidth : 0);
-  return shift + (slot === 0 ? -width : width);
+  if (input.spread.length !== 2) return true;
+  return mobileReaderPagesPairable(input.sizeAt(input.spread[0]!), input.sizeAt(input.spread[1]!));
 }
 
 export type MobileReaderFlatSpreadPageRect = {
@@ -129,7 +101,7 @@ export type MobileReaderFlatSpreadPageRect = {
 /**
  * Where a flat spread's pages rest on a stage `stageWidth` wide, in visual
  * order: the arithmetic the slide pager's rows and the curl's leaves follow
- * (a pair meets at the centre line; a lone or still-alone page is centred).
+ * (a pair meets at the centre line, loaded or not; a lone page is centred).
  */
 export function mobileReaderFlatSpreadPageRects(input: {
   stageWidth: number;
@@ -149,8 +121,6 @@ export function mobileReaderFlatSpreadPageRects(input: {
   return state.visual.map((pageIndex, at) => {
     const slot = at === 0 ? 0 : 1;
     const width = input.widthAt(pageIndex);
-    const paired = slot === 0 ? centre - width : centre;
-    const shift = state.centredSlot === slot ? mobileReaderLoneCentreShift(slot, width) : 0;
-    return { pageIndex, x: paired + shift, width, visible: state.pendingSlot !== slot };
+    return { pageIndex, x: slot === 0 ? centre - width : centre, width, visible: state.pendingSlot !== slot };
   });
 }

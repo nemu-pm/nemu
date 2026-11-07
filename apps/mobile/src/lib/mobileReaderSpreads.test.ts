@@ -131,6 +131,21 @@ describe("mobile reader spreads", () => {
     expect(panes[1].width).toBeLessThanOrEqual(400);
   });
 
+  test("a facing page not measured yet takes its partner's shape: the known page keeps its frame when it arrives", () => {
+    const slots: [{ width: number; height: number }, { width: number; height: number }] = [
+      { width: 475, height: 669 },
+      { width: 475, height: 669 },
+    ];
+    const page = { width: 1000, height: 1300 };
+    const waiting = getMobileReaderSpreadSheetFrames({ slots, sizes: [page, null] });
+    const arrived = getMobileReaderSpreadSheetFrames({ slots, sizes: [page, page] });
+    expect(waiting).toEqual(arrived);
+    expect(getMobileReaderSpreadSheetFrames({ slots, sizes: [null, page] })).toEqual(arrived);
+    // Neither known: the usual manga page.
+    const [unknown] = getMobileReaderSpreadSheetFrames({ slots, sizes: [null, null] });
+    expect(unknown.width / unknown.height).toBeCloseTo(1 / 1.45, 6);
+  });
+
   test("fits the frame to the page without cropping or an internal contain gutter", () => {
     expect(getMobileReaderSpreadImageFrameSize({
       availableWidth: 560, availableHeight: 600, naturalSize: { width: 1000, height: 1500 },

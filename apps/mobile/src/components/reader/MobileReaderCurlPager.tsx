@@ -35,11 +35,9 @@ import {
 } from "@/lib/mobileReaderPageCurl";
 import { mobileReaderSplitWideHalfRects } from "@/lib/mobileReaderSpreads";
 import {
-  MOBILE_READER_LONE_PAGE_SETTLE_MS,
+  MOBILE_READER_PAIR_PAGE_FADE_MS,
   mobileReaderCentresLonePages,
   mobileReaderFlatSpreadState,
-  mobileReaderLoneCentreShift,
-  mobileReaderLoneCopyShift,
 } from "@/lib/mobileReaderLoneSpreadPage";
 import type { MobileReaderPage } from "@/sources/mobileSourcePages";
 import { MobileReaderSplitWideHalf } from "./MobileReaderSplitWideHalf";
@@ -97,7 +95,7 @@ export function MobileReaderCurlPager({
   isWide: (pageIndex: number) => boolean;
   /**
    * Flat spread: the page's image has loaded (or failed). A pair whose second
-   * page is not ready shows its first page centred (`mobileReaderFlatSpreadState`).
+   * page is not ready keeps it hidden in its slot (`mobileReaderFlatSpreadState`).
    */
   isPageReady?: (pageIndex: number) => boolean;
   mode: ReadingMode;
@@ -309,7 +307,7 @@ function renderSlot({
   spreadMode: boolean;
   /** The spread rests in two panes beside a fold (the book posture). */
   panes: boolean;
-  /** Flat spread: lone pages (and a pair's first page, while the second loads) are centred. */
+  /** Flat spread: lone pages are centred; a pair's second page waits hidden in its slot while it loads. */
   centreLone: boolean;
   frames: readonly (readonly number[])[];
   mode: ReadingMode;
@@ -364,8 +362,7 @@ function renderSlot({
     { alignItems: left ? "flex-end" : "flex-start" },
   ];
   // One box type in every posture (flat ⇄ book keeps the boxes mounted and
-  // gliding). Only a flat spread's pair moves its pages: the first centred
-  // while the second loads.
+  // gliding). A flat spread's pair waits on its second page in place.
   const spread = frames[slot.frame];
   const ready = (pageIndex: number) => {
     const candidate = displayedPages[pageIndex];
@@ -375,28 +372,14 @@ function renderSlot({
     ? mobileReaderFlatSpreadState({ spread, mode, ready })
     : null;
   const at: 0 | 1 = left ? 0 : 1;
-  const partnerIndex = state?.visual[at === 0 ? 1 : 0];
-  const partner = partnerIndex == null ? undefined : displayedPages[partnerIndex];
-  const widthOf = (candidate: MobileReaderPage | undefined) =>
-    candidate && pageFrameSize ? pageFrameSize(candidate).width : 0;
   return (
-    <MobileReaderCurlFlatPairPage
-      slot={at}
-      centred={state?.centredSlot === at}
+    <MobileReaderFlatSpreadSlot
       pending={state?.pendingSlot === at}
-      pageWidth={state ? widthOf(page) : 0}
-      partner={() =>
-        partner
-          ? partner.imageUri
-            ? renderImage(partner)
-            : renderTextPage(partner, partnerIndex!)
-          : null}
-      partnerWidth={widthOf(partner)}
       layout={pageGlide ? mobileReaderPageFrameLayoutTransition : undefined}
-      boxStyle={boxStyle}
+      style={boxStyle}
     >
       {content}
-    </MobileReaderCurlFlatPairPage>
+    </MobileReaderFlatSpreadSlot>
   );
 }
 
@@ -438,153 +421,39 @@ const styles = StyleSheet.create({
   },
 });
 
-// Flat spreads: a lone page centred on the stage (see mobileReaderLoneSpreadPage).
-const LONE_SETTLE = { duration: MOBILE_READER_LONE_PAGE_SETTLE_MS, easing: Easing.out(Easing.cubic) };
-
-/**
- * A page of a flat spread, moved by `shift` and shown or hidden. The first
- * render takes the values as they are (a spread that mounts complete never
- * animates); a later change glides (250 ms, ease-out): the centred page to its
- * slot, the waiting page fading in, over the same time. Hiding is immediate.
- */
-export function MobileReaderLoneSpreadShift({
-  shift,
-  visible = true,
-  style,
-  children,
-}: {
-  shift: number;
-  visible?: boolean;
-  style?: StyleProp<ViewStyle>;
-  children: ReactNode;
-}) {
-  const animated = useMobileReaderLoneSpreadMotion(shift, visible);
-  return <Animated.View style={[style, animated]}>{children}</Animated.View>;
-}
-
-/** The animated style behind `MobileReaderLoneSpreadShift` (first render as is; changes glide). */
-function useMobileReaderLoneSpreadMotion(shift: number, visible: boolean) {
-  const translateX = useSharedValue(shift);
-  const opacity = useSharedValue(visible ? 1 : 0);
-  useEffect(() => {
-    translateX.value = withTiming(shift, LONE_SETTLE);
-  }, [shift, translateX]);
-  useEffect(() => {
-    opacity.value = visible ? withTiming(1, LONE_SETTLE) : 0;
-  }, [opacity, visible]);
-  return useAnimatedStyle(() => ({
-    opacity: opacity.value,
-    transform: [{ translateX: translateX.value }],
-  }));
-}
-
-/**
- * True while `active`, and for the settle time after it turns false: the
- * curl's copy of a centred page stays mounted until it has slid out.
- */
-export function useMobileReaderLoneSettling(active: boolean): boolean {
-  const [held, setHeld] = useState(active);
-  if (active && !held) setHeld(true);
-  useEffect(() => {
-    if (active || !held) return undefined;
-    const timer = setTimeout(() => setHeld(false), MOBILE_READER_LONE_PAGE_SETTLE_MS + 50);
-    return () => clearTimeout(timer);
-  }, [active, held]);
-  return active || held;
-}
+// Flat spreads: a pair's waiting page fades in where it stands (see mobileReaderLoneSpreadPage).
+const PAIR_PAGE_FADE = { duration: MOBILE_READER_PAIR_PAGE_FADE_MS, easing: Easing.out(Easing.cubic) };
 
 type SlotLayout = ComponentProps<typeof Animated.View>["layout"];
 
 /**
- * Slide pager: one page's slot of a spread. The slot itself moves (its page
- * rests inside it, so the slot's zoom clip never cuts the page) and fades:
- * in a flat spread a pair's first page is centred while the second loads.
- * Every posture uses this one slot type, so flat ⇄ book keeps the slots
- * mounted and gliding; outside a flat spread it never moves.
+ * One page's slot of a spread, in the slide pager and the curl. Every posture
+ * uses this one slot type, so flat ⇄ book keeps the slots mounted and
+ * gliding. In a flat spread a pair's second page waits hidden (`pending`)
+ * until its image is ready, then fades in (250 ms, ease-out) in place; the
+ * first render takes the value as it is (a spread that mounts complete never
+ * animates), and hiding is immediate. The slot itself never moves.
  */
 export function MobileReaderFlatSpreadSlot({
-  slot,
-  centred,
   pending,
-  pageWidth,
   layout,
   style,
   children,
 }: {
-  slot: 0 | 1;
-  /** This slot's page is shown centred on the stage. */
-  centred: boolean;
   /** This slot's page waits, hidden, for its image. */
   pending: boolean;
-  pageWidth: number;
   layout?: SlotLayout;
   style: StyleProp<ViewStyle>;
   children: ReactNode;
 }) {
-  const animated = useMobileReaderLoneSpreadMotion(
-    centred ? mobileReaderLoneCentreShift(slot, pageWidth) : 0,
-    !pending,
-  );
+  const opacity = useSharedValue(pending ? 0 : 1);
+  useEffect(() => {
+    opacity.value = pending ? 0 : withTiming(1, PAIR_PAGE_FADE);
+  }, [opacity, pending]);
+  const animated = useAnimatedStyle(() => ({ opacity: opacity.value }));
   return (
     <Animated.View layout={layout} style={[style, animated]}>
       {children}
     </Animated.View>
   );
 }
-
-/**
- * Curl, flat spread: one leaf's page of a pair. Each leaf clips at the spine,
- * so while the pair's first page is centred the other leaf also shows it (a
- * copy, its other half) under the waiting page; the copy slides out across
- * the spine with the page as the pair completes, and unmounts once settled.
- */
-export function MobileReaderCurlFlatPairPage({
-  slot,
-  centred,
-  pending,
-  pageWidth,
-  partner,
-  partnerWidth,
-  boxStyle,
-  layout,
-  children,
-}: {
-  slot: 0 | 1;
-  centred: boolean;
-  pending: boolean;
-  pageWidth: number;
-  /** The facing page's content (the copy), rendered only while needed. */
-  partner: () => ReactNode;
-  partnerWidth: number;
-  boxStyle: StyleProp<ViewStyle>;
-  layout?: SlotLayout;
-  children: ReactNode;
-}) {
-  const showCopy = useMobileReaderLoneSettling(pending);
-  const partnerSlot: 0 | 1 = slot === 0 ? 1 : 0;
-  const partnerShift = pending ? mobileReaderLoneCentreShift(partnerSlot, partnerWidth) : 0;
-  return (
-    <Animated.View layout={layout} style={boxStyle}>
-      {showCopy ? (
-        <MobileReaderLoneSpreadShift
-          style={[StyleSheet.absoluteFill, loneStyles.copy, { alignItems: slot === 0 ? "flex-end" : "flex-start" }]}
-          shift={mobileReaderLoneCopyShift(partnerSlot, partnerWidth, partnerShift)}
-        >
-          {partner()}
-        </MobileReaderLoneSpreadShift>
-      ) : null}
-      <MobileReaderLoneSpreadShift
-        shift={centred ? mobileReaderLoneCentreShift(slot, pageWidth) : 0}
-        visible={!pending}
-      >
-        {children}
-      </MobileReaderLoneSpreadShift>
-    </Animated.View>
-  );
-}
-
-const loneStyles = StyleSheet.create({
-  copy: {
-    justifyContent: "center",
-  },
-});
