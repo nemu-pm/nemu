@@ -1,8 +1,15 @@
 import { useEffect, useState } from "react";
+import { StyleSheet, View } from "react-native";
 import { MobileSheetScaffold, useNemuTheme } from "@/design-system";
 import { MobileCloudSyncCard } from "@/components/MobileCloudSyncCard";
+import { MobileNativeStackSheet, mobileNativeStackSheetAvailable } from "@/components/MobileNativeStackSheet";
 import { useMobileJapaneseLearningSignedIn } from "@/lib/mobileJapaneseLearningAuth";
 import type { MobileStrings } from "@/lib/mobileI18n";
+import { MOBILE_NATIVE_STACK_SHEET_BAR } from "@/lib/mobileNativeStackSheet";
+import { READER_SETTINGS_FORM_INSET } from "@/lib/readerSettingsNativePopoverLayout";
+
+/** The bar over the card's two text lines and provider buttons, until the page is measured. */
+const SIGN_IN_SHEET_ESTIMATED_HEIGHT = MOBILE_NATIVE_STACK_SHEET_BAR + 146;
 
 interface JapaneseLearningSignInSheetProps {
   visible: boolean;
@@ -12,9 +19,11 @@ interface JapaneseLearningSignInSheetProps {
 
 /**
  * Web `AuthGateDialog` (`requireAuthOrPrompt` → `SignInDialog`) for Nemu
- * Chat: the app's own sign-in UI (the Settings Cloud Sync card) in a sheet
- * over the reader, presented instead of the chat while signed out. It closes
- * itself once a session exists; the chat is not opened afterwards, as on web.
+ * Chat and the signed-out notices: the app's own sign-in UI (the Settings
+ * Cloud Sync card) in a sheet over the reader, presented instead of the chat
+ * while signed out. It closes itself once a session exists; the chat is not
+ * opened afterwards, as on web. iOS: the sheet's own bar, titled, with ✕ where
+ * every other sheet has it, sized to the card.
  */
 export function JapaneseLearningSignInSheet({
   visible,
@@ -34,6 +43,27 @@ export function JapaneseLearningSignInSheet({
     if (visible && signedIn) onClose();
   }, [onClose, signedIn, visible]);
 
+  if (mobileNativeStackSheetAvailable) {
+    return (
+      <MobileNativeStackSheet
+        visible={visible}
+        onClose={onClose}
+        onDismiss={() => setMounted(false)}
+        pages={[
+          {
+            id: "sign-in",
+            title: strings.welcome.signIn,
+            render: () => <View style={styles.stackPage}>{mounted ? <MobileCloudSyncCard /> : null}</View>,
+          },
+        ]}
+        fullWidthBesideBar
+        closeAccessibilityLabel={strings.common.close}
+        group="japanese-learning-sign-in"
+        estimatedHeight={SIGN_IN_SHEET_ESTIMATED_HEIGHT}
+      />
+    );
+  }
+
   return (
     <MobileSheetScaffold
       visible={visible}
@@ -48,3 +78,12 @@ export function JapaneseLearningSignInSheet({
     </MobileSheetScaffold>
   );
 }
+
+const styles = StyleSheet.create({
+  stackPage: {
+    paddingHorizontal: READER_SETTINGS_FORM_INSET,
+    paddingTop: 8,
+    // The sheet adds the home indicator's inset below this.
+    paddingBottom: 4,
+  },
+});
