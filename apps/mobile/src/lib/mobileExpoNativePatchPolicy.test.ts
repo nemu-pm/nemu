@@ -172,6 +172,17 @@ describe("mobile Expo native patch policy", () => {
       path.join(repositoryRoot, "patches/@expo%2Fui@58.0.24.patch"), "utf8");
     expect(patch).toContain("+private struct FormSheetSizing: PresentationSizing {");
   });
+  test("ExpoModulesCore compiles under the release Xcode's Swift 6.4.2", () => {
+    // Xcode 27.2 (27B52) crashes in SILGen on the cast pattern in this `switch
+    // consume` over a Result with a ~Copyable payload (expo/expo#52610). Upstream
+    // dropped the cast in 58.0.29; drop this test with the patch on that bump.
+    const source = readFileSync(path.join(repositoryRoot,
+      "node_modules/expo-modules-core/ios/Core/Functions/AsyncFunctionDefinition.swift"), "utf8");
+    expect(source).toContain("switch consume result");
+    expect(source).toContain("case .failure(let error):");
+    expect(source).not.toContain("let error as any Error");
+  });
+
   test("keeps every version-exact repository patch attached", () => {
     for (const [dependency, patchPath] of Object.entries(
       rootPackage.patchedDependencies ?? {},
