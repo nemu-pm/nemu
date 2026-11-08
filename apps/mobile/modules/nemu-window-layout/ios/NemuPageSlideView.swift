@@ -2,30 +2,33 @@ import ExpoModulesCore
 import UIKit
 
 /**
- * The reader's slide page turn, as Books slides a page (`NemuPageSlideMotion`):
- * the page on top slides away with the finger and uncovers the next one,
- * which waits beneath; turning back, the previous page slides in on top.
- * Single pages and spreads are the same turn: a spread moves as one sheet.
+ * The reader's slide page turn, as Photos pages: the frames sit side by side
+ * in a paging scroll view, a small gap between them in the page background
+ * (`NemuPageSlidePaging`), and the next frame pushes in with the current one.
+ * The strip follows the finger one to one and lets go with UIScrollView's own
+ * paging: deceleration, the flick's speed, and rubber-banding past either end
+ * (pulled far enough there, `onEdgeDrag` asks for the chapter before or
+ * after). No sheet on top, no edge shadow, no dim or parallax. Single pages
+ * and spreads are the same: a spread is one frame.
  *
  * It takes the curl's props and children (`NemuPageCurlView`): a row of slots
  * in visual order, left to right, one per page or two per spread (`spine`
  * "mid"), each child tagged `nativeID="nemu-curl:<slot>"` and sized to one
- * leaf of `curlFrame`. Each frame (a page, or a spread's two slots) is a
- * sheet the size of the stage, painted with its own pages' backgrounds
- * (`slotBackgrounds`; a spread's halves each their own), so the background
- * travels with its page and the reader's own background never shows
- * mid-turn. The sheets reach past the pager to the window's top and bottom
- * (the status bar and home indicator bands, which the reader paints with
- * the settled page's colour only once a turn lands), clipped to the pager's
- * width so they never paint over a side bar; past a clipping stage they
- * continue as bands beneath it (`NemuPageSlideAmbient`).
+ * leaf of `curlFrame`. Each frame is a sheet the size of the stage, painted
+ * with its own pages' backgrounds (`slotBackgrounds`; a spread's halves each
+ * their own), so the background travels with its page. The sheets reach past
+ * the pager to the window's top and bottom (the status bar and home indicator
+ * bands), clipped to the pager's width so they never paint over a side bar;
+ * past a clipping stage they continue as bands beneath it
+ * (`NemuPageSlideAmbient`).
  *
  * Navigation, `onSettle`, `onEdgeDrag` and `onTurnBegin` / `onTurnEnd` are
- * the curl's. A request that arrives while a turn animates finishes that
- * turn at once and starts from there, so quick taps keep up. Reduce Motion
- * cross-fades instead of sliding.
+ * the curl's. A tap or slider step scrolls to its frame (a request during
+ * another goes on from where the strip is); a request while a finger is on
+ * the strip waits for it to settle. Reduce Motion: the finger still moves the
+ * strip, as in Photos; a requested turn cross-fades.
  */
-final class NemuPageSlideView: ExpoView, UIGestureRecognizerDelegate {
+final class NemuPageSlideView: ExpoView, UIScrollViewDelegate {
   let onSettle = EventDispatcher()
   let onEdgeDrag = EventDispatcher()
   let onTurnBegin = EventDispatcher()
@@ -35,7 +38,7 @@ final class NemuPageSlideView: ExpoView, UIGestureRecognizerDelegate {
   var spine: String = "min" {
     didSet { if spine != oldValue { resetSheets() } }
   }
-  /** Whether the row is reversed (manga): the earlier page is the one on the right. */
+  /** Whether the row is reversed (manga). The row is already in visual order; kept for the props. */
   var rtl = false {
     didSet { if rtl != oldValue { setNeedsLayout() } }
   }
@@ -46,9 +49,7 @@ final class NemuPageSlideView: ExpoView, UIGestureRecognizerDelegate {
     didSet { if curlFrame != oldValue { setNeedsLayout() } }
   }
   var turningEnabled: Bool = true {
-    didSet {
-      pan.isEnabled = turningEnabled
-    }
+    didSet { scrollView.isScrollEnabled = turningEnabled }
   }
   var pageBackground: UIColor = .white {
     didSet { applyBackgrounds() }
@@ -64,33 +65,24 @@ final class NemuPageSlideView: ExpoView, UIGestureRecognizerDelegate {
 
   private var managedChildren: [UIView] = []
   private var sheets: [Int: NemuPageSlideSheet] = [:]
-  /** Holds the sheets: the pager's width, the window's height. */
+  /** Clips the strip to the pager's width, from the window's top to its bottom. */
   private let sheetHost = UIView()
+  private let scrollView = NemuPageSlideScrollView()
   private let ambient = NemuPageSlideAmbient()
-  /** Follows a settling turn's sheets with the ambient bands. */
-  private var ambientLink: CADisplayLink?
   private var appliedToken = -1
   private var currentFrame = 0
   private var positioned = false
-  private let pan = UIPanGestureRecognizer()
-
-  /** The turn on screen: between `lower` and `lower + 1`, heading for `target`. */
-  private struct Turn {
-    var lower: Int
-    var target: Int
-    var start: Int
-    var reduceMotion: Bool
-    var gesture: Bool
-  }
-  private var turn: Turn?
-  private var animator: UIViewPropertyAnimator?
-  private var dragStartProgress: CGFloat = 0
-  /** The drag that found no frame to turn to (past the first or last). */
-  private var edgeDragStart: Int?
+  /** The strip is moving (a drag, its deceleration, a requested scroll): `onTurnBegin` was sent. */
+  private var moving = false
+  /** The frame a requested scroll is heading for (nil: the finger's). */
+  private var requestedFrame: Int?
+  /** Laid out at this width: a new one puts the frame on screen back in place. */
+  private var laidOutWidth: CGFloat = 0
 
   private var isMid: Bool { spine == "mid" }
   private var step: Int { isMid ? 2 : 1 }
   private var frameCount: Int { slotCount <= 0 ? 0 : (slotCount + step - 1) / step }
+  private var pageWidth: CGFloat { bounds.width }
 
   required init(appContext: AppContext? = nil) {
     super.init(appContext: appContext)
@@ -98,10 +90,19 @@ final class NemuPageSlideView: ExpoView, UIGestureRecognizerDelegate {
     semanticContentAttribute = .forceLeftToRight
     sheetHost.clipsToBounds = true
     addSubview(sheetHost)
-    pan.delegate = self
-    pan.maximumNumberOfTouches = 1
-    pan.addTarget(self, action: #selector(handlePan(_:)))
-    addGestureRecognizer(pan)
+    scrollView.delegate = self
+    scrollView.isPagingEnabled = true
+    scrollView.showsHorizontalScrollIndicator = false
+    scrollView.showsVerticalScrollIndicator = false
+    scrollView.alwaysBounceHorizontal = true
+    scrollView.alwaysBounceVertical = false
+    scrollView.isDirectionalLockEnabled = true
+    scrollView.scrollsToTop = false
+    scrollView.delaysContentTouches = false
+    scrollView.contentInsetAdjustmentBehavior = .never
+    scrollView.clipsToBounds = false
+    scrollView.semanticContentAttribute = .forceLeftToRight
+    sheetHost.addSubview(scrollView)
   }
 
   // MARK: React children
@@ -128,21 +129,29 @@ final class NemuPageSlideView: ExpoView, UIGestureRecognizerDelegate {
 
   override func didMoveToWindow() {
     super.didMoveToWindow()
-    if window == nil {
-      stopAmbientLink()
-      ambient.detach()
-    }
+    if window == nil { ambient.detach() }
     setNeedsLayout()
   }
 
   override func layoutSubviews() {
     super.layoutSubviews()
-    sheetHost.frame = sheetBand
+    let band = sheetBand
+    sheetHost.frame = band
+    scrollView.backgroundColor = pageBackground
+    // One gap wider than the pager: a frame at rest fills it, its gap just past the edge.
+    let scrollFrame = CGRect(x: 0, y: 0, width: NemuPageSlidePaging.stride(width: pageWidth), height: band.height)
+    let resized = abs(laidOutWidth - pageWidth) > 0.5
+    if scrollView.frame != scrollFrame { scrollView.frame = scrollFrame }
+    let contentSize = CGSize(width: NemuPageSlidePaging.contentWidth(frameCount: frameCount, width: pageWidth), height: band.height)
+    if scrollView.contentSize != contentSize { scrollView.contentSize = contentSize }
     reconcileChildren()
-    for (frame, sheet) in sheets {
-      // Mid-turn sheets keep their transforms; only their size follows.
-      layout(sheet)
-      if turn == nil { sheet.isHidden = frame != currentFrame }
+    for (frame, sheet) in sheets { layout(sheet, frame: frame) }
+    if resized {
+      laidOutWidth = pageWidth
+      // A new size (rotation, fold): the frame on screen stays on screen.
+      if positioned && !scrollView.isTracking && !scrollView.isDecelerating {
+        scrollView.setContentOffset(CGPoint(x: NemuPageSlidePaging.offset(frame: currentFrame, width: pageWidth), y: 0), animated: false)
+      }
     }
     applyNavigation()
     ambient.attach(below: clippingAncestor())
@@ -165,42 +174,24 @@ final class NemuPageSlideView: ExpoView, UIGestureRecognizerDelegate {
     return nil
   }
 
-  /** The ambient bands at the sheets on screen (`presentation`: as drawn mid-animation). */
-  private func updateAmbient(presentation: Bool = false) {
+  /** The ambient bands at the sheets on screen, where the strip has them now. */
+  private func updateAmbient() {
     guard let host = ambient.host, let window else { return }
     let vertical = host.convert(window.bounds, from: window)
     let pager = convert(bounds, to: host)
-    let order = sheetHost.subviews
+    let offset = scrollView.contentOffset.x
     let shown = sheets.values
-      .filter { !$0.isHidden }
-      .sorted { (order.firstIndex(of: $0) ?? 0) < (order.firstIndex(of: $1) ?? 0) }
-    ambient.show(shown.map { sheet in
-      let layer = presentation ? (sheet.layer.presentation() ?? sheet.layer) : sheet.layer
-      return NemuPageSlideAmbient.Band(
-        frame: CGRect(x: pager.minX + layer.affineTransform().tx, y: vertical.minY, width: pager.width, height: vertical.height),
-        spineX: sheet.spineX,
-        left: sheet.leftColor,
-        right: sheet.rightColor,
-        alpha: CGFloat(layer.opacity),
-        dim: sheet.dimAlpha(presentation: presentation)
+      .map { (sheet: $0, x: $0.frame.minX - offset) }
+      .filter { $0.x < pager.width && $0.x + pager.width > 0 }
+      .sorted { $0.x < $1.x }
+    ambient.show(shown.map { entry in
+      NemuPageSlideAmbient.Band(
+        frame: CGRect(x: pager.minX + entry.x, y: vertical.minY, width: pager.width, height: vertical.height),
+        spineX: entry.sheet.spineX,
+        left: entry.sheet.leftColor,
+        right: entry.sheet.rightColor
       )
     })
-  }
-
-  private func startAmbientLink() {
-    guard ambient.host != nil, ambientLink == nil else { return }
-    let link = CADisplayLink(target: self, selector: #selector(ambientTick))
-    link.add(to: .main, forMode: .common)
-    ambientLink = link
-  }
-
-  private func stopAmbientLink() {
-    ambientLink?.invalidate()
-    ambientLink = nil
-  }
-
-  @objc private func ambientTick() {
-    updateAmbient(presentation: true)
   }
 
   /** The pager's width, from the window's top to its bottom (this view's coordinates). */
@@ -212,10 +203,14 @@ final class NemuPageSlideView: ExpoView, UIGestureRecognizerDelegate {
     return CGRect(x: bounds.minX, y: top, width: bounds.width, height: bottom - top)
   }
 
-  private func layout(_ sheet: NemuPageSlideSheet) {
+  private func layout(_ sheet: NemuPageSlideSheet, frame: Int) {
     let band = sheetHost.frame
-    sheet.bounds = CGRect(origin: .zero, size: band.size)
-    sheet.center = CGPoint(x: band.width / 2, y: band.height / 2)
+    sheet.frame = CGRect(
+      x: NemuPageSlidePaging.offset(frame: frame, width: pageWidth),
+      y: 0,
+      width: band.width,
+      height: band.height
+    )
     // The leaves sit where the pager lays them out, inside the taller band.
     let curl = curlFrame.width > 0 && curlFrame.height > 0 ? curlFrame : bounds
     sheet.layoutLeaves(curlFrame: curl.offsetBy(dx: -band.minX, dy: -band.minY), mid: isMid)
@@ -231,10 +226,10 @@ final class NemuPageSlideView: ExpoView, UIGestureRecognizerDelegate {
       let sheet = sheet(for: frame)
       for part in 0..<step { sheet.host(parts[part], part: part) }
     }
-    let busy = Set([turn?.lower, turn.map { $0.lower + 1 }, currentFrame].compactMap { $0 })
+    let shown = NemuPageSlidePaging.frame(atOffset: scrollView.contentOffset.x, width: pageWidth, frameCount: frameCount)
     for (frame, sheet) in sheets where byFrame[frame] == nil {
       for part in 0..<2 { sheet.host(nil, part: part) }
-      if !busy.contains(frame) && abs(frame - currentFrame) > 4 {
+      if abs(frame - currentFrame) > 4 && abs(frame - shown) > 1 {
         sheet.removeFromSuperview()
         sheets.removeValue(forKey: frame)
       }
@@ -244,26 +239,23 @@ final class NemuPageSlideView: ExpoView, UIGestureRecognizerDelegate {
   private func sheet(for frame: Int) -> NemuPageSlideSheet {
     if let existing = sheets[frame] { return existing }
     let sheet = NemuPageSlideSheet()
-    sheet.isHidden = true
     sheets[frame] = sheet
-    sheetHost.insertSubview(sheet, at: 0)
+    scrollView.addSubview(sheet)
     applyBackground(to: sheet, frame: frame)
-    layout(sheet)
+    layout(sheet, frame: frame)
     return sheet
   }
 
   private func resetSheets() {
-    stopAmbientLink()
-    animator?.stopAnimation(true)
-    animator = nil
-    turn = nil
     for sheet in sheets.values { sheet.removeFromSuperview() }
     sheets.removeAll()
     positioned = false
+    requestedFrame = nil
     setNeedsLayout()
   }
 
   private func applyBackgrounds() {
+    scrollView.backgroundColor = pageBackground
     for (frame, sheet) in sheets { applyBackground(to: sheet, frame: frame) }
     updateAmbient()
   }
@@ -290,249 +282,136 @@ final class NemuPageSlideView: ExpoView, UIGestureRecognizerDelegate {
   }
 
   private func applyNavigation() {
-    guard frameCount > 0 else { return }
+    guard frameCount > 0, pageWidth > 0 else { return }
     let target = frame(forSlot: navigationIndex)
     if !positioned {
       currentFrame = target
       positioned = true
       appliedToken = navigationToken
-      showResting()
+      laidOutWidth = pageWidth
+      scrollView.setContentOffset(CGPoint(x: NemuPageSlidePaging.offset(frame: target, width: pageWidth), y: 0), animated: false)
       return
     }
     guard appliedToken != navigationToken else { return }
-    // A finger on the page owns it; the request waits for the release.
-    if let turn, turn.gesture, animator == nil { return }
-    // Quick taps: the turn in flight lands now and the next starts from there.
-    finishAnimationNow()
+    // A finger on the strip owns it; the request waits for it to settle.
+    if scrollView.isTracking || (scrollView.isDecelerating && requestedFrame == nil) { return }
     appliedToken = navigationToken
-    let animated = navigationAnimated && abs(target - currentFrame) == 1 && window != nil && bounds.width > 0
-    guard target != currentFrame else {
+    let destination = CGPoint(x: NemuPageSlidePaging.offset(frame: target, width: pageWidth), y: 0)
+    let animated = navigationAnimated && abs(target - currentFrame) == 1 && window != nil
+    guard target != currentFrame || requestedFrame != nil else {
       onTurnEnd([:])
       return
     }
-    guard animated else {
-      currentFrame = target
-      showResting()
-      onSettle(["slot": target * step, "token": appliedToken])
-      onTurnEnd([:])
-      return
+    beginMoving(toward: target)
+    requestedFrame = target
+    if animated && UIAccessibility.isReduceMotionEnabled {
+      UIView.transition(with: sheetHost, duration: 0.2, options: [.transitionCrossDissolve, .allowUserInteraction]) {
+        self.scrollView.setContentOffset(destination, animated: false)
+      } completion: { [weak self] _ in self?.settle() }
+      updateAmbient()
+    } else if animated {
+      // A tap during another turn goes on from where the strip is.
+      scrollView.setContentOffset(destination, animated: true)
+    } else {
+      scrollView.setContentOffset(destination, animated: false)
+      settle()
     }
-    beginTurn(to: target, gesture: false)
-    animateTurn(toTarget: true, velocity: 0)
   }
 
-  private func showResting() {
-    for (frame, sheet) in sheets {
-      sheet.transform = .identity
-      sheet.alpha = 1
-      sheet.setDim(0)
-      sheet.setShadow(0, edge: .none)
-      sheet.isHidden = frame != currentFrame
-    }
-    updateAmbient()
+  private func beginMoving(toward target: Int?) {
+    guard !moving else { return }
+    moving = true
+    onTurnBegin(["slot": (target ?? currentFrame) * step])
   }
 
-  // MARK: Turning
-
-  private func progress(of frame: Int, lower: Int) -> CGFloat { frame == lower ? 0 : 1 }
-
-  private func beginTurn(to target: Int, gesture: Bool) {
-    let lower = min(currentFrame, target)
-    turn = Turn(
-      lower: lower,
-      target: target,
-      start: currentFrame,
-      reduceMotion: UIAccessibility.isReduceMotionEnabled,
-      gesture: gesture
-    )
-    let lowerSheet = sheet(for: lower)
-    let upperSheet = sheet(for: lower + 1)
-    for (frame, sheet) in sheets { sheet.isHidden = frame != lower && frame != lower + 1 }
-    // The earlier page in reading order on top.
-    sheetHost.bringSubviewToFront(NemuPageSlideMotion.lowerOnTop(rtl: rtl) ? lowerSheet : upperSheet)
-    apply(progress: progress(of: currentFrame, lower: lower))
-    onTurnBegin(["slot": target * step])
-  }
-
-  /** `ambient`: false inside an animation block (the display link follows it instead). */
-  private func apply(progress: CGFloat, ambient updatesAmbient: Bool = true) {
-    guard let turn, let lowerSheet = sheets[turn.lower], let upperSheet = sheets[turn.lower + 1] else { return }
-    let pose = NemuPageSlideMotion.pose(progress: progress, width: bounds.width, rtl: rtl, reduceMotion: turn.reduceMotion)
-    lowerSheet.transform = CGAffineTransform(translationX: pose.lowerX, y: 0)
-    upperSheet.transform = CGAffineTransform(translationX: pose.upperX, y: 0)
-    lowerSheet.alpha = pose.lowerAlpha
-    upperSheet.alpha = pose.upperAlpha
-    let (top, beneath) = pose.lowerOnTop ? (lowerSheet, upperSheet) : (upperSheet, lowerSheet)
-    top.setDim(0)
-    beneath.setDim(pose.dim)
-    // The shadow falls on the page beneath, past the top page's moving edge.
-    top.setShadow(pose.shadow, edge: pose.lowerOnTop ? .right : .left)
-    beneath.setShadow(0, edge: .none)
-    if updatesAmbient { updateAmbient() }
-  }
-
-  /**
-   * Settles the turn on a critically damped spring (no bounce): on to the
-   * target, or back to where it started.
-   */
-  private func animateTurn(toTarget: Bool, velocity: CGFloat) {
-    guard let turn else { return }
-    let end = toTarget ? turn.target : turn.start
-    let endProgress = progress(of: end, lower: turn.lower)
-    let remaining = (endProgress - currentProgress()) * bounds.width
-    let relative = NemuPageSlideMotion.springVelocity(velocity: velocity, remaining: remaining)
-    // Critically damped, settling in about a third of a second (Books' pace).
-    let stiffness = NemuPageSlideMotion.stiffness
-    let timing = UISpringTimingParameters(
-      mass: 1,
-      stiffness: stiffness,
-      damping: 2 * sqrt(stiffness),
-      initialVelocity: CGVector(dx: relative, dy: 0)
-    )
-    let animator = UIViewPropertyAnimator(duration: 0.35, timingParameters: timing)
-    animator.isUserInteractionEnabled = true
-    animator.addAnimations { [weak self] in self?.apply(progress: endProgress, ambient: false) }
-    animator.addCompletion { [weak self] _ in self?.finishTurn(at: end) }
-    self.animator = animator
-    animator.startAnimation()
-    startAmbientLink()
-  }
-
-  /** The progress the sheets are posed at (read with no animation running). */
-  private func currentProgress() -> CGFloat {
-    guard let turn, let lowerSheet = sheets[turn.lower], let upperSheet = sheets[turn.lower + 1], bounds.width > 0 else { return 0 }
-    let lowerTop = NemuPageSlideMotion.lowerOnTop(rtl: rtl)
-    let top = lowerTop ? lowerSheet : upperSheet
-    if turn.reduceMotion { return lowerTop ? 1 - top.alpha : top.alpha }
-    let x = top.transform.tx
-    return lowerTop ? -x / bounds.width : 1 - x / bounds.width
-  }
-
-  private func finishAnimationNow() {
-    guard let animator else { return }
-    self.animator = nil
-    animator.stopAnimation(false)
-    animator.finishAnimation(at: .end)
-  }
-
-  private func finishTurn(at frame: Int) {
-    guard let turn else { return }
-    animator = nil
-    stopAmbientLink()
-    self.turn = nil
+  /** The strip has come to rest: report where, as the curl does. */
+  private func settle() {
+    let frame = NemuPageSlidePaging.frame(atOffset: scrollView.contentOffset.x, width: pageWidth, frameCount: frameCount)
+    let requested = requestedFrame
+    requestedFrame = nil
     let moved = frame != currentFrame
     currentFrame = frame
-    showResting()
-    if moved && (turn.gesture || (appliedToken == navigationToken && self.frame(forSlot: navigationIndex) == frame)) {
-      var event: [String: Any] = ["slot": frame * step]
-      if turn.gesture { event["gesture"] = true } else { event["token"] = appliedToken }
-      onSettle(event)
+    if requested == nil {
+      if moved { onSettle(["slot": frame * step, "gesture": true]) }
+    } else if appliedToken == navigationToken && self.frame(forSlot: navigationIndex) == frame {
+      onSettle(["slot": frame * step, "token": appliedToken])
     }
-    onTurnEnd([:])
+    if moving {
+      moving = false
+      onTurnEnd([:])
+    }
+    updateAmbient()
+    // A request that waited for the finger.
     setNeedsLayout()
   }
 
-  // MARK: Gesture
+  // MARK: UIScrollViewDelegate
 
-  override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-    guard gestureRecognizer === pan else { return super.gestureRecognizerShouldBegin(gestureRecognizer) }
-    // Mostly sideways. A drag can arrive with no velocity yet (its first
-    // move), so the distance already moved counts too.
-    let velocity = pan.velocity(in: self)
-    let moved = pan.translation(in: self)
-    return turningEnabled && abs(velocity.x) + abs(moved.x) > abs(velocity.y) + abs(moved.y)
+  func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+    // Grabbing a requested scroll in flight: the finger takes it from here.
+    requestedFrame = nil
+    beginMoving(toward: nil)
   }
 
-  func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-    // As the curl's edge pan: the page's own gestures keep working (a zoomed
-    // page turns nothing, `turningEnabled`).
-    true
+  func scrollViewDidScroll(_ scrollView: UIScrollView) {
+    updateAmbient()
   }
 
-  @objc private func handlePan(_ pan: UIPanGestureRecognizer) {
-    let translation = pan.translation(in: self).x
-    let width = max(1, bounds.width)
-    switch pan.state {
-    case .began, .changed:
-      if turn == nil || animator != nil {
-        // Grabbing a page that is still settling lands it first.
-        if animator != nil { finishAnimationNow() }
-        guard translation != 0, edgeDragStart == nil else { return }
-        guard let target = NemuPageSlideMotion.target(current: currentFrame, translation: translation, frameCount: frameCount) else {
-          edgeDragStart = currentFrame
-          return
-        }
-        beginTurn(to: target, gesture: true)
-        // The whole drag counts (the slop included): the page sits under the finger.
-        dragStartProgress = progress(of: currentFrame, lower: min(currentFrame, target))
-        apply(progress: NemuPageSlideMotion.progress(from: dragStartProgress, translation: translation, width: width))
-        return
-      }
-      apply(progress: NemuPageSlideMotion.progress(from: dragStartProgress, translation: translation, width: width))
-    case .ended, .cancelled, .failed:
-      if let start = edgeDragStart {
-        edgeDragStart = nil
-        let total = pan.translation(in: self)
-        if pan.state == .ended, start == currentFrame, abs(total.x) > 40, abs(total.x) > abs(total.y) * 1.5 {
-          // Finger right-to-left asks for the frame on the right ("after").
-          onEdgeDrag(["side": total.x < 0 ? "after" : "before"])
-        }
-        return
-      }
-      guard let turn, turn.gesture, animator == nil else { return }
-      let p = NemuPageSlideMotion.progress(from: dragStartProgress, translation: translation, width: width)
-      let targetProgress = progress(of: turn.target, lower: turn.lower)
-      // Toward the target: progress rising for `upper`, falling for `lower`.
-      let sign: CGFloat = targetProgress > dragStartProgress ? 1 : -1
-      let moved = max(0, min(1, (p - dragStartProgress) * sign))
-      // The finger heading left raises progress.
-      let velocity = -pan.velocity(in: self).x * sign
-      let completes = pan.state == .ended && NemuPageSlideMotion.completes(moved: moved, velocity: velocity, width: width)
-      animateTurn(toTarget: completes, velocity: completes ? velocity : -velocity)
-    default:
-      break
+  func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>) {
+    // Pulled past the first or last frame: the chapter before or after.
+    if let side = NemuPageSlidePaging.edgeDrag(offset: scrollView.contentOffset.x, width: pageWidth, frameCount: frameCount) {
+      onEdgeDrag(["side": side])
     }
+  }
+
+  func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+    if !decelerate { settle() }
+  }
+
+  func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+    settle()
+  }
+
+  func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+    settle()
+  }
+}
+
+/**
+ * The slide's paging scroll view. Recognises alongside the page's own
+ * gestures, as the turn's pan always did (a zoomed page turns nothing:
+ * `turningEnabled` switches scrolling off).
+ */
+final class NemuPageSlideScrollView: UIScrollView {
+  func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+    guard gestureRecognizer === panGestureRecognizer else { return false }
+    // Never alongside another scroll view's pan (a page's own strip scrolls).
+    return !(otherGestureRecognizer.view is UIScrollView)
   }
 }
 
 /**
  * One frame of the slide: a stage-sized sheet painted with its pages'
  * backgrounds (a spread's halves each their own), hosting the frame's slot
- * children at their leaves, with the dim it takes beneath a turning page and
- * the shadow it casts past its moving edge.
+ * children at their leaves.
  */
 final class NemuPageSlideSheet: UIView {
-  enum ShadowEdge { case none, left, right }
-
   private let leftBackground = UIView()
   private let rightBackground = UIView()
   private let leaves = [UIView(), UIView()]
   private weak var hosted0: UIView?
   private weak var hosted1: UIView?
-  private let dimView = UIView()
-  private let shadowView = NemuPageSlideShadowView()
   private(set) var spineX: CGFloat = 0
   private(set) var leftColor: UIColor = .clear
   private(set) var rightColor: UIColor = .clear
-  private var shadowEdge: ShadowEdge = .none
-
-  static let shadowWidth: CGFloat = 28
 
   override init(frame: CGRect) {
     super.init(frame: frame)
-    // The shadow hangs past the sheet's edge.
-    clipsToBounds = false
+    clipsToBounds = true
     for leaf in leaves { leaf.clipsToBounds = true }
     addSubview(leftBackground)
     addSubview(rightBackground)
     for leaf in leaves { addSubview(leaf) }
-    dimView.backgroundColor = .black
-    dimView.alpha = 0
-    dimView.isUserInteractionEnabled = false
-    addSubview(dimView)
-    shadowView.alpha = 0
-    shadowView.isUserInteractionEnabled = false
-    addSubview(shadowView)
   }
 
   @available(*, unavailable)
@@ -543,11 +422,6 @@ final class NemuPageSlideSheet: UIView {
     rightColor = right
     leftBackground.backgroundColor = left
     rightBackground.backgroundColor = right
-  }
-
-  func dimAlpha(presentation: Bool) -> CGFloat {
-    let layer = presentation ? (dimView.layer.presentation() ?? dimView.layer) : dimView.layer
-    return CGFloat(layer.opacity)
   }
 
   func layoutLeaves(curlFrame: CGRect, mid: Bool) {
@@ -563,8 +437,6 @@ final class NemuPageSlideSheet: UIView {
     }
     leftBackground.frame = CGRect(x: 0, y: 0, width: spineX, height: size.height)
     rightBackground.frame = CGRect(x: spineX, y: 0, width: max(0, size.width - spineX), height: size.height)
-    dimView.frame = bounds
-    layoutShadow()
   }
 
   func host(_ child: UIView?, part: Int) {
@@ -576,62 +448,6 @@ final class NemuPageSlideSheet: UIView {
     if part == 0 { hosted0 = child } else { hosted1 = child }
     if let child { leaf.addSubview(child) }
   }
-
-  func setDim(_ alpha: CGFloat) {
-    dimView.alpha = alpha
-  }
-
-  func setShadow(_ alpha: CGFloat, edge: ShadowEdge) {
-    if edge != .none && edge != shadowEdge {
-      shadowEdge = edge
-      layoutShadow()
-    }
-    shadowView.alpha = alpha
-  }
-
-  private func layoutShadow() {
-    let width = Self.shadowWidth
-    switch shadowEdge {
-    case .right:
-      shadowView.frame = CGRect(x: bounds.width, y: 0, width: width, height: bounds.height)
-      shadowView.fadesTowardRight = true
-    case .left, .none:
-      shadowView.frame = CGRect(x: -width, y: 0, width: width, height: bounds.height)
-      shadowView.fadesTowardRight = false
-    }
-  }
-}
-
-/** The soft shadow a sliding page casts: black fading out away from its edge. */
-final class NemuPageSlideShadowView: UIView {
-  override class var layerClass: AnyClass { CAGradientLayer.self }
-
-  var fadesTowardRight = true {
-    didSet { applyDirection() }
-  }
-
-  override init(frame: CGRect) {
-    super.init(frame: frame)
-    guard let gradient = layer as? CAGradientLayer else { return }
-    // Eased falloff: strongest at the edge, gone well before the far side.
-    gradient.colors = [
-      UIColor.black.withAlphaComponent(0.28).cgColor,
-      UIColor.black.withAlphaComponent(0.12).cgColor,
-      UIColor.black.withAlphaComponent(0.04).cgColor,
-      UIColor.black.withAlphaComponent(0).cgColor,
-    ]
-    gradient.locations = [0, 0.3, 0.65, 1]
-    applyDirection()
-  }
-
-  @available(*, unavailable)
-  required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-  private func applyDirection() {
-    guard let gradient = layer as? CAGradientLayer else { return }
-    gradient.startPoint = CGPoint(x: fadesTowardRight ? 0 : 1, y: 0.5)
-    gradient.endPoint = CGPoint(x: fadesTowardRight ? 1 : 0, y: 0.5)
-  }
 }
 
 /**
@@ -640,7 +456,7 @@ final class NemuPageSlideShadowView: UIView {
  * one band per sheet on screen at that sheet's offset and colours (a
  * spread's halves each their own). The reader paints the area round a
  * constrained stage (status bar, home indicator, a docked rail's side) with
- * the settled page's colour only once a turn lands; the bands turn with the
+ * the settled page's colour only once a turn lands; the bands move with the
  * pages instead, and at rest they show the page on screen, so a late commit
  * of that colour never shows either. Every view above it (the stage, the
  * chrome, a side bar) still draws over it.
@@ -652,13 +468,10 @@ final class NemuPageSlideAmbient {
     var spineX: CGFloat
     var left: UIColor
     var right: UIColor
-    var alpha: CGFloat
-    /** The black wash over a page beneath a turning one. */
-    var dim: CGFloat
   }
 
   private let root = CALayer()
-  private var bands: [(container: CALayer, left: CALayer, right: CALayer, dim: CALayer)] = []
+  private var bands: [(container: CALayer, left: CALayer, right: CALayer)] = []
   private(set) weak var host: UIView?
 
   init() {
@@ -682,20 +495,18 @@ final class NemuPageSlideAmbient {
     host.layer.insertSublayer(root, below: clip.layer)
   }
 
-  /** Bands bottom to top. */
+  /** Bands left to right. */
   func show(_ next: [Band]) {
     guard let host else { return }
     CATransaction.begin()
     CATransaction.setDisableActions(true)
     root.frame = host.bounds
     while bands.count < next.count {
-      let container = CALayer(), left = CALayer(), right = CALayer(), dim = CALayer()
-      dim.backgroundColor = UIColor.black.cgColor
+      let container = CALayer(), left = CALayer(), right = CALayer()
       container.addSublayer(left)
       container.addSublayer(right)
-      container.addSublayer(dim)
       root.addSublayer(container)
-      bands.append((container, left, right, dim))
+      bands.append((container, left, right))
     }
     for (index, layers) in bands.enumerated() {
       guard index < next.count else {
@@ -705,15 +516,11 @@ final class NemuPageSlideAmbient {
       let band = next[index]
       layers.container.isHidden = false
       layers.container.frame = band.frame
-      layers.container.opacity = Float(band.alpha)
       let spine = max(0, min(band.frame.width, band.spineX))
       layers.left.frame = CGRect(x: 0, y: 0, width: spine, height: band.frame.height)
       layers.right.frame = CGRect(x: spine, y: 0, width: band.frame.width - spine, height: band.frame.height)
       layers.left.backgroundColor = band.left.cgColor
       layers.right.backgroundColor = band.right.cgColor
-      layers.dim.frame = CGRect(origin: .zero, size: band.frame.size)
-      layers.dim.opacity = Float(band.dim)
-      layers.container.zPosition = CGFloat(index)
     }
     CATransaction.commit()
   }
