@@ -1,6 +1,7 @@
 import {
   mobileNativeFormSheetConfirm,
   mobileSheetCanUseFullWidth,
+  resolveMobileSheetHeaderTitleMargins,
   resolveMobileNativeSheetIosBarEdges,
   mobileNativeFormSheetWindow,
   resolveMobileNativeFormSheetPadSizing,
@@ -829,5 +830,21 @@ describe("mobileNativeFormSheetConfirm", () => {
     const ownIcon = { label: "Save", systemImage: "square.and.arrow.down", onPress };
     expect(mobileNativeFormSheetConfirm(destructive, beside)).toBe(destructive);
     expect(mobileNativeFormSheetConfirm(ownIcon, beside)).toBe(ownIcon);
+  });
+});
+
+describe("resolveMobileSheetHeaderTitleMargins", () => {
+  test("beside the bar with no leading item the title takes the spare column evenly", () => {
+    expect(
+      resolveMobileSheetHeaderTitleMargins({ balance: { left: 76, right: 0 }, hasLeading: false, sideWidth: 76 }),
+    ).toEqual({ left: 50, right: -26 });
+  });
+
+  test("a leading item, even padding or no fixed column keep the balance", () => {
+    const beside = { left: 76, right: 0 };
+    const even = { left: 0, right: 0 };
+    expect(resolveMobileSheetHeaderTitleMargins({ balance: beside, hasLeading: true, sideWidth: 76 })).toBe(beside);
+    expect(resolveMobileSheetHeaderTitleMargins({ balance: even, hasLeading: false, sideWidth: 76 })).toBe(even);
+    expect(resolveMobileSheetHeaderTitleMargins({ balance: beside, hasLeading: false, sideWidth: null })).toBe(beside);
   });
 });

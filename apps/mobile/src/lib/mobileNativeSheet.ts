@@ -681,6 +681,27 @@ export function resolveMobileNativeSheetIosHeaderTitleBalance(barPadding: {
   };
 }
 
+/** A trailing control's width on iOS with its glass (`controlSize` is its target's). */
+const IOS_SHEET_HEADER_CONTROL_WIDTH = 50;
+
+/**
+ * The title's margins in a padded header (`resolveMobileNativeSheetIosHeaderTitleBalance`).
+ * The balance comes out of a title already between two fixed side columns, so
+ * beside the Duo's vertical bar a short title truncated. With no leading item
+ * the title takes what the trailing control leaves of its column, the same on
+ * both sides so it stays centred. A header with even padding is unchanged.
+ */
+export function resolveMobileSheetHeaderTitleMargins(options: {
+  balance: { left: number; right: number };
+  hasLeading: boolean;
+  sideWidth: number | null;
+}): { left: number; right: number } {
+  const { balance, hasLeading, sideWidth } = options;
+  if (hasLeading || sideWidth === null || (balance.left === 0 && balance.right === 0)) return balance;
+  const spare = Math.max(0, sideWidth - IOS_SHEET_HEADER_CONTROL_WIDTH);
+  return { left: balance.left - spare, right: balance.right - spare };
+}
+
 /** Short custom-chrome sheets sit below the system status area. Tall sheets
  * retain its side safe area, including when expanded to a second detent. */
 export function mobileSheetCanUseFullWidth(snapPoints: (string | number)[] | undefined, availableHeight: number): boolean {

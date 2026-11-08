@@ -13,6 +13,7 @@ import { useNemuTheme } from "@/design/useNemuTheme";
 import {
   MOBILE_SHEET_HEADER_ITEM_GAP,
   resolveMobileSheetHeaderMetrics,
+  resolveMobileSheetHeaderTitleMargins,
 } from "@/lib/mobileNativeSheet";
 
 export type MobileSheetHeaderProps = {
@@ -38,6 +39,14 @@ export function MobileSheetHeader({
     I18nManager.isRTL,
   );
   const isAndroid = Platform.OS === "android";
+  const titleMargins =
+    !isAndroid && titleInsets
+      ? resolveMobileSheetHeaderTitleMargins({
+          balance: titleInsets,
+          hasLeading: Boolean(leading),
+          sideWidth: metrics.sideWidth,
+        })
+      : null;
   // iOS reserves equal side columns so the title centres. Android's title is
   // start-aligned, so a side hugs its content: header actions already bring
   // their own 48dp target, and a decorative leading icon (the sign-out
@@ -73,9 +82,7 @@ export function MobileSheetHeader({
         style={[
           styles.titleBlock,
           metrics.titleAlignment === "center" ? styles.centeredTitleBlock : null,
-          !isAndroid && titleInsets
-            ? { marginLeft: titleInsets.left, marginRight: titleInsets.right }
-            : null,
+          titleMargins ? { marginLeft: titleMargins.left, marginRight: titleMargins.right } : null,
         ]}
       >
         <Text
