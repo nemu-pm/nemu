@@ -831,6 +831,23 @@ describe("source origin label", () => {
     expect(formatMobileContentLicense("CC-BY-SA-4.0")).toBe("CC BY-SA 4.0");
     expect(formatMobileContentLicense("MIT")).toBe("MIT");
   });
+  test("every licence in the built-in directory reads as its name on a source row", async () => {
+    const { getMobileSourceOriginLabel, formatMobileContentLicense } = await import("./mobileBrowseSources");
+    const { getNemuRecommendedDirectoryFallbackSources } = await import("@/sources/nemuRecommendedDirectory");
+    expect(formatMobileContentLicense("CC-BY-4.0")).toBe("CC BY 4.0");
+    expect(formatMobileContentLicense("CC-BY-SA-4.0")).toBe("CC BY-SA 4.0");
+    expect(formatMobileContentLicense("Public-Domain")).toBe("Public Domain");
+    const labels = Object.fromEntries(
+      getNemuRecommendedDirectoryFallbackSources().map((source) => [source.id, getMobileSourceOriginLabel(source)]),
+    );
+    expect(labels).toEqual({
+      "en.littlenemo": "Public Domain",
+      "ja.ndlpublicdomain": "Public Domain",
+      "multi.lanraragi": undefined,
+      "multi.minifantasytheater": "CC BY-SA 4.0",
+      "multi.peppercarrot": "CC BY 4.0",
+    });
+  });
 });
 
 describe("source language summary", () => {

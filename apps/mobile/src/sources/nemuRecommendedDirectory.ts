@@ -15,17 +15,30 @@ import {
  */
 export const NEMU_RECOMMENDED_DIRECTORY_FALLBACK_INDEX = {
   name: "nemu recommended",
-  // Mirrors the published index entry (including `contentLicense`).
+  // Mirrors the published index, entry for entry and in its order; onboarding pins
+  // its own order (see MOBILE_WELCOME_SOURCE_ORDER).
   sources: [
     {
-      id: "multi.peppercarrot",
-      name: "Pepper&Carrot",
+      id: "en.littlenemo",
+      name: "Little Nemo in Slumberland",
       version: 1,
-      iconURL: "icons/multi.peppercarrot-v1.png",
-      downloadURL: "sources/multi.peppercarrot-v1.aix",
-      languages: ["en", "ja", "zh", "fr", "de", "es", "it", "pt", "ru", "ko"],
+      iconURL: "icons/en.littlenemo-v1.png",
+      downloadURL: "sources/en.littlenemo-v1.aix",
+      languages: ["en"],
       contentRating: 0,
-      contentLicense: "CC-BY-4.0",
+      baseURL: "https://commons.wikimedia.org/wiki/Category:Little_Nemo_in_Slumberland",
+      contentLicense: "Public-Domain",
+    },
+    {
+      id: "ja.ndlpublicdomain",
+      name: "NDL Public Domain Picks",
+      version: 1,
+      iconURL: "icons/ja.ndlpublicdomain-v1.png",
+      downloadURL: "sources/ja.ndlpublicdomain-v1.aix",
+      languages: ["ja"],
+      contentRating: 0,
+      baseURL: "https://dl.ndl.go.jp",
+      contentLicense: "Public-Domain",
     },
     {
       // No content of its own: it reads the user's own LANraragi server, so no
@@ -39,6 +52,31 @@ export const NEMU_RECOMMENDED_DIRECTORY_FALLBACK_INDEX = {
       contentRating: 1,
       baseURL: "https://github.com/Difegue/LANraragi",
       minAppVersion: "0.7.1",
+    },
+    {
+      id: "multi.minifantasytheater",
+      name: "Mini Fantasy Theater",
+      version: 1,
+      iconURL: "icons/multi.minifantasytheater-v1.png",
+      downloadURL: "sources/multi.minifantasytheater-v1.aix",
+      languages: ["en", "ja", "fr", "es", "de", "ca", "nn", "sl", "tok"],
+      contentRating: 0,
+      baseURL: "https://www.peppercarrot.com/en/webcomics/miniFantasyTheater.html",
+      minAppVersion: "0.7.1",
+      contentLicense: "CC-BY-SA-4.0",
+      contentLicenseNote: "AI derivation prohibited",
+    },
+    {
+      id: "multi.peppercarrot",
+      name: "Pepper&Carrot",
+      version: 1,
+      iconURL: "icons/multi.peppercarrot-v1.png",
+      downloadURL: "sources/multi.peppercarrot-v1.aix",
+      languages: ["en", "ja", "zh", "fr", "de", "es", "it", "pt", "ru", "ko"],
+      contentRating: 0,
+      baseURL: "https://www.peppercarrot.com",
+      contentLicense: "CC-BY-4.0",
+      contentLicenseNote: "AI derivation prohibited",
     },
   ] as Array<Record<string, unknown>>,
 };

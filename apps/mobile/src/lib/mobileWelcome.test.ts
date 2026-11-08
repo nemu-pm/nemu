@@ -22,6 +22,7 @@ import {
   resolveMobileWelcomeSheetContentTopPadding,
   MOBILE_WELCOME_IOS_SHEET_TOP_PADDING,
   MOBILE_WELCOME_ICON_SIZE,
+  MOBILE_WELCOME_SOURCE_ORDER,
 } from "./mobileWelcome";
 import { resolveMobileNativeSheetBodyTopPadding } from "./mobileNativeSheet";
 
@@ -356,14 +357,62 @@ describe("mobile welcome helpers", () => {
     ).toEqual(["multi.all", "en.only", "ja.only"]);
   });
 
-  test("defaults to the offered recommendations, and to nothing before they load", () => {
-    expect(
-      getMobileWelcomeDefaultSelection("en", [
-        source("nemu-recommended", "multi.peppercarrot"),
-        source("aidoku-community", "multi.mangadex"),
-      ]),
-    ).toEqual(["nemu-recommended:multi.peppercarrot"]);
+  test("offers the built-in sources in the pinned order, whatever the language or the index order", () => {
+    const catalog = [
+      source("nemu-recommended", "en.littlenemo"),
+      source("nemu-recommended", "ja.ndlpublicdomain"),
+      source("nemu-recommended", "multi.minifantasytheater"),
+      source("nemu-recommended", "multi.peppercarrot"),
+    ];
+    const pinned = [
+      "ja.ndlpublicdomain",
+      "multi.peppercarrot",
+      "multi.minifantasytheater",
+      "en.littlenemo",
+    ];
+    expect(MOBILE_WELCOME_SOURCE_ORDER).toEqual(pinned);
+    for (const language of ["en", "ja", "zh"] as const) {
+      expect(
+        getMobileWelcomeAvailableSources(language, catalog).map((item) => item.id),
+      ).toEqual(pinned);
+      expect(
+        getMobileWelcomeAvailableSources(language, [...catalog].reverse()).map((item) => item.id),
+      ).toEqual(pinned);
+    }
+  });
 
+  test("a directory entry that is not pinned follows the pinned ones, unselected", () => {
+    const catalog = [
+      { ...source("nemu-recommended", "ja.future"), languages: ["ja"] },
+      source("nemu-recommended", "en.littlenemo"),
+      source("nemu-recommended", "ja.ndlpublicdomain"),
+    ];
+    expect(
+      getMobileWelcomeAvailableSources("ja", catalog).map((item) => item.id),
+    ).toEqual(["ja.ndlpublicdomain", "en.littlenemo", "ja.future"]);
+    expect(getMobileWelcomeDefaultSelection("ja", catalog)).toEqual([
+      "nemu-recommended:ja.ndlpublicdomain",
+    ]);
+  });
+
+  test("selects only the Japanese public-domain source, and nothing before it loads", () => {
+    const catalog = [
+      source("nemu-recommended", "multi.peppercarrot"),
+      source("nemu-recommended", "multi.minifantasytheater"),
+      source("nemu-recommended", "en.littlenemo"),
+      source("nemu-recommended", "ja.ndlpublicdomain"),
+      source("aidoku-community", "multi.mangadex"),
+    ];
+    for (const language of ["en", "ja", "zh"] as const) {
+      expect(getMobileWelcomeDefaultSelection(language, catalog)).toEqual([
+        "nemu-recommended:ja.ndlpublicdomain",
+      ]);
+    }
+
+    // A catalog cached before the source was published selects nothing.
+    expect(
+      getMobileWelcomeDefaultSelection("en", [source("nemu-recommended", "multi.peppercarrot")]),
+    ).toEqual([]);
     expect(getMobileWelcomeDefaultSelection("en", [])).toEqual([]);
   });
 

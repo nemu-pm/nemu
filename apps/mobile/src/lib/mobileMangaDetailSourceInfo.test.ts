@@ -3,6 +3,14 @@ import { getMobileStrings } from "./mobileI18n";
 import { getMobileDetailLanguageNames, getMobileDetailSourceLicense } from "./mobileMangaDetailSourceInfo";
 
 describe("getMobileDetailSourceLicense", () => {
+  test("the bundled directory's licences read as their names on the detail page", () => {
+    const license = (sourceId: string) =>
+      getMobileDetailSourceLicense({ id: `nemu-recommended:${sourceId}`, registryId: "nemu-recommended", sourceId });
+    expect(license("ja.ndlpublicdomain")).toBe("Public Domain");
+    expect(license("en.littlenemo")).toBe("Public Domain");
+    expect(license("multi.minifantasytheater")).toBe("CC BY-SA 4.0");
+    expect(license("multi.peppercarrot")).toBe("CC BY 4.0");
+  });
   test("a nemu-recommended source's licence from the bundled directory; none elsewhere", () => {
     expect(getMobileDetailSourceLicense({ id: "nemu-recommended:multi.peppercarrot", registryId: "nemu-recommended", sourceId: "multi.peppercarrot" })).toBe("CC BY 4.0");
     expect(getMobileDetailSourceLicense({ id: "nemu-recommended:multi.lanraragi", registryId: "nemu-recommended", sourceId: "multi.lanraragi" })).toBeNull();

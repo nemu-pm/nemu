@@ -471,6 +471,7 @@ const CONTENT_LICENSE_LABELS: Record<string, string> = {
   "CC-BY-4.0": "CC BY 4.0",
   "CC-BY-SA-4.0": "CC BY-SA 4.0",
   "CC0-1.0": "CC0 1.0",
+  "Public-Domain": "Public Domain",
 };
 
 export function formatMobileContentLicense(license: string): string {

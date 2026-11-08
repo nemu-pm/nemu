@@ -32,7 +32,7 @@ export const MOBILE_WELCOME_IOS_SHEET_TOP_PADDING = 18;
 /**
  * A source card is 12pt padding + 34pt of content + its selection border, so a
  * selected (1.5pt) row measures 61pt. Budgeting the selected height keeps the
- * list from scrolling by a hairline when every recommendation is pre-checked.
+ * list from scrolling by a hairline however many rows are checked.
  */
 export const MOBILE_WELCOME_SOURCE_ROW_HEIGHT = 61;
 export const MOBILE_WELCOME_SOURCE_ROW_GAP = 8;
@@ -289,11 +289,35 @@ function mobileWelcomeSourceMatchesLanguage(
 }
 
 /**
+ * The order onboarding offers the built-in sources in, whatever the app
+ * language: this is a pick, not a sort. The right-to-left Japanese works lead
+ * because they show what the reader does; a directory entry not listed here
+ * follows them, and is offered unselected.
+ */
+export const MOBILE_WELCOME_SOURCE_ORDER: readonly string[] = [
+  "ja.ndlpublicdomain",
+  "multi.peppercarrot",
+  "multi.minifantasytheater",
+  "en.littlenemo",
+];
+
+/** The offered sources that start selected; the rest are one tap away. */
+const MOBILE_WELCOME_DEFAULT_SOURCE_IDS: ReadonlySet<string> = new Set([
+  "ja.ndlpublicdomain",
+]);
+
+function getMobileWelcomeSourceRank(source: MobileRegistrySource): number {
+  const rank = MOBILE_WELCOME_SOURCE_ORDER.indexOf(source.id);
+  return rank === -1 ? MOBILE_WELCOME_SOURCE_ORDER.length : rank;
+}
+
+/**
  * The onboarding list is the nemu recommended directory only: its entries are
  * the ones whose content licence has been checked. Only entries that carry a
  * content licence are offered: a source with no content of its own (it reads
- * the user's own server) stays in the add-source list. Sources the user's language
- * covers come first; sensitive-content sources are never offered here (the
+ * the user's own server) stays in the add-source list. The pinned sources come
+ * first in their pinned order; among any others, those the user's language
+ * covers come first. Sensitive-content sources are never offered here (the
  * Browse switch is the only way to opt in to them).
  */
 export function getMobileWelcomeAvailableSources(
@@ -309,6 +333,8 @@ export function getMobileWelcomeAvailableSources(
     )
     .map((source, index) => ({ source, index }))
     .sort((a, b) => {
+      const rank = getMobileWelcomeSourceRank(a.source) - getMobileWelcomeSourceRank(b.source);
+      if (rank !== 0) return rank;
       const aMatch = mobileWelcomeSourceMatchesLanguage(language, a.source);
       const bMatch = mobileWelcomeSourceMatchesLanguage(language, b.source);
       if (aMatch !== bMatch) return aMatch ? -1 : 1;
@@ -322,9 +348,9 @@ export function getMobileWelcomeDefaultSelection(
   language: AppLanguage,
   sources: MobileRegistrySource[],
 ): string[] {
-  return getMobileWelcomeAvailableSources(language, sources).map((source) =>
-    makeSourceKey(source.registryId, source.id),
-  );
+  return getMobileWelcomeAvailableSources(language, sources)
+    .filter((source) => MOBILE_WELCOME_DEFAULT_SOURCE_IDS.has(source.id))
+    .map((source) => makeSourceKey(source.registryId, source.id));
 }
 
 export function getMobileWelcomePendingSourceInstallCount(
