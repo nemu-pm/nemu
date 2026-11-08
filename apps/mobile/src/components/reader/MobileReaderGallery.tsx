@@ -82,7 +82,7 @@ import {
 } from "./MobileReaderCurlPager";
 import { MobileReaderSplitWideHalf } from "./MobileReaderSplitWideHalf";
 import { mobileReaderFlatSpreadState } from "@/lib/mobileReaderLoneSpreadPage";
-import { pageCurlAvailable, pageSlideAvailable } from "../../../modules/nemu-window-layout";
+import { pageCurlAvailable, pagePushAvailable, pageSlideAvailable } from "../../../modules/nemu-window-layout";
 import type { MobileReaderPageTurnTransition } from "@/lib/mobileReaderPageCurl";
 import { MOBILE_READER_DOUBLE_TAP_MAX_DELAY_MS } from "@/lib/mobileReaderZoom";
 import {
@@ -831,7 +831,11 @@ export function MobileReaderGallery({
       : 0;
   // A native pager turns the pages (curl or slide); the list only scrolls.
   const curlActive =
-    (pageTurnTransition === "curl" ? pageCurlAvailable : pageTurnTransition === "slide" && pageSlideAvailable)
+    (pageTurnTransition === "curl"
+      ? pageCurlAvailable
+      : pageTurnTransition === "push"
+        ? pagePushAvailable
+        : pageTurnTransition === "slide" && pageSlideAvailable)
     && pagedMode
     && !logicalLongStripMode;
   const curlPagerRef = useRef<MobileReaderCurlPagerHandle | null>(null);

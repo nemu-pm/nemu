@@ -12,6 +12,7 @@ import {
   interfaceOrientationLockAvailable,
   pageCurlAvailable,
   pageSlideAvailable,
+  pagePushAvailable,
   VerticalBarBehavior,
   WindowLayoutObserver,
 } from "../../modules/nemu-window-layout";
@@ -3503,6 +3504,7 @@ export function ReaderScreen() {
     segmented: Boolean(currentSegmentedImage),
     curlAvailable: pageCurlAvailable,
     slideAvailable: pageSlideAvailable,
+    pushAvailable: pagePushAvailable,
   });
   const readerPageCurlActive = readerPageTurnTransition !== null;
   // Pages near the reader are measured natively while a spread can show:

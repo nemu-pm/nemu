@@ -45,6 +45,7 @@ const nativeModule = Platform.OS === "ios"
       pageCurlViewAvailable?: boolean;
       pageCurlTurnAvailable?: boolean;
       pageSlideViewAvailable?: boolean;
+      pagePushViewAvailable?: boolean;
     }>("NemuWindowLayout")
   : null;
 
@@ -54,6 +55,8 @@ export const pageCurlAvailable = nativeModule?.pageCurlViewAvailable === true;
 export const pageCurlTurnAvailable = nativeModule?.pageCurlTurnAvailable === true;
 /** True in iOS binaries with the Books-style slide pager; anything else keeps the scrolling slide. */
 export const pageSlideAvailable = nativeModule?.pageSlideViewAvailable === true;
+/** True in iOS binaries with the Photos-style push pager ("Push"). */
+export const pagePushAvailable = nativeModule?.pagePushViewAvailable === true;
 
 export const NativePageCurlView: ComponentType<PageCurlViewProps> | null = pageCurlAvailable
   ? requireNativeViewManager<PageCurlViewProps>("NemuWindowLayout", "NemuPageCurlView")
@@ -61,4 +64,8 @@ export const NativePageCurlView: ComponentType<PageCurlViewProps> | null = pageC
 
 export const NativePageSlideView: ComponentType<PageCurlViewProps> | null = pageSlideAvailable
   ? requireNativeViewManager<PageCurlViewProps>("NemuWindowLayout", "NemuPageSlideView")
+  : null;
+
+export const NativePagePushView: ComponentType<PageCurlViewProps> | null = pagePushAvailable
+  ? requireNativeViewManager<PageCurlViewProps>("NemuWindowLayout", "NemuPagePushView")
   : null;

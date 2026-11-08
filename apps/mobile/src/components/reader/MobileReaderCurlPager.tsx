@@ -15,6 +15,7 @@ import { mobileReaderPageFrameLayoutTransition } from "@/lib/mobileReaderMotionA
 import {
   NativePageCurlView,
   NativePageSlideView,
+  NativePagePushView,
   pageCurlTurnAvailable,
   type PageCurlViewHandle,
 } from "../../../modules/nemu-window-layout";
@@ -138,7 +139,8 @@ export function MobileReaderCurlPager({
   transition?: MobileReaderPageTurnTransition;
   turningEnabled: boolean;
 }) {
-  const slide = transition === "slide";
+  // Slide and Push both turn whole-stage sheets.
+  const slide = transition === "slide" || transition === "push";
   const panes = Boolean(spreadSlots && spreadSlots.length === 2);
   // A flat spread centres a page alone across the spine (no fold to avoid).
   const centreLone = mobileReaderCentresLonePages({ spreadMode, panes });
@@ -255,7 +257,8 @@ export function MobileReaderCurlPager({
     [onSettleFrame, spreadMode],
   );
 
-  const NativePager = slide ? NativePageSlideView : NativePageCurlView;
+  const NativePager =
+    transition === "push" ? NativePagePushView : slide ? NativePageSlideView : NativePageCurlView;
   if (!NativePager) return null;
   return (
     <NativePager

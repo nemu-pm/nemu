@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  MOBILE_READER_PAGE_TURNS,
   buildMobileReaderCurlSlots,
   isMobileReaderPageCurlActive,
   mobileReaderCurlEdgeIntent,
@@ -84,6 +85,8 @@ describe("page turn setting", () => {
     expect(normalizeMobileReaderPageTurn(undefined)).toBe("curl");
     expect(normalizeMobileReaderPageTurn("fade")).toBe("curl");
     expect(normalizeMobileReaderPageTurn("slide")).toBe("slide");
+    // Push is its own choice; a stored "slide" keeps meaning Books' slide.
+    expect(normalizeMobileReaderPageTurn("push")).toBe("push");
   });
 
   test("curls only paged whole pages with motion allowed", () => {
@@ -414,5 +417,40 @@ describe("mobileReaderCurlSettleIsCurrent", () => {
   test("a drag's settle always counts", () => {
     expect(mobileReaderCurlSettleIsCurrent({ gesture: true }, 9)).toBe(true);
     expect(mobileReaderCurlSettleIsCurrent({}, 9)).toBe(true);
+  });
+});
+
+describe("Push (Photos-style paging), a third page turn", () => {
+  const base = {
+    pageTurn: "push" as const,
+    pagedMode: true,
+    reduceMotion: false,
+    longStrip: false,
+    segmented: false,
+    curlAvailable: true,
+    slideAvailable: true,
+    pushAvailable: true,
+  };
+
+  test("offered after Curl and Slide; the default stays Curl", () => {
+    expect(MOBILE_READER_PAGE_TURNS).toEqual(["curl", "slide", "push"]);
+    expect(normalizeMobileReaderPageTurn(undefined)).toBe("curl");
+  });
+
+  test("chosen, it turns paged reading, Reduce Motion included (it keeps its own)", () => {
+    expect(mobileReaderPageTurnTransition(base)).toBe("push");
+    expect(mobileReaderPageTurnTransition({ ...base, reduceMotion: true })).toBe("push");
+  });
+
+  test("Slide and Curl are unchanged by it", () => {
+    expect(mobileReaderPageTurnTransition({ ...base, pageTurn: "slide" })).toBe("slide");
+    expect(mobileReaderPageTurnTransition({ ...base, pageTurn: "curl" })).toBe("curl");
+  });
+
+  test("no push pager, scroll reading, a long strip or a tiled image: as before", () => {
+    expect(mobileReaderPageTurnTransition({ ...base, pushAvailable: false })).toBe("slide");
+    expect(mobileReaderPageTurnTransition({ ...base, pagedMode: false })).toBeNull();
+    expect(mobileReaderPageTurnTransition({ ...base, longStrip: true })).toBeNull();
+    expect(mobileReaderPageTurnTransition({ ...base, segmented: true })).toBeNull();
   });
 });

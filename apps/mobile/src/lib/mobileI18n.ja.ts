@@ -623,6 +623,7 @@ export const mobileStringsJa: MobileStrings = {
     pageTurning: "ページめくり",
     pageTurningCurl: "カール",
     pageTurningSlide: "スライド",
+    pageTurningPush: "プッシュ",
     pageBackgroundBlack: "ブラック",
     pageBackgroundWhite: "ホワイト",
     pageBackgroundMatchPage: "ページに合わせる",

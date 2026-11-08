@@ -1,48 +1,106 @@
 import CoreGraphics
 import Foundation
 
-/** The slide's Photos-style paging: strides, resting frames and the drags past either end. */
+/**
+ * The slide turn's motion (`NemuPageSlideMotion`): which page is on top, where
+ * both sheets are mid-turn, and how a release decides.
+ */
 @main
 enum NemuPageSlideMotionTests {
   static func main() {
-    framesSitSideBySideWithAGap()
-    aRestingOffsetNamesItsFrame()
-    onlyAPullPastAnEndAsksForAnotherChapter()
-    print("NemuPageSlideMotionTests passed (paging)")
+    theEarlierPageIsOnTop()
+    theTopPageFollowsTheFinger()
+    thePageBeneathOnlyDrifts()
+    restingPosesShowOnePage()
+    reduceMotionCrossFades()
+    releasesDecideByDistanceAndVelocity()
+    dragsAskForTheNeighbourOnTheirSide()
+    print("NemuPageSlideMotionTests passed")
   }
 
-  static func framesSitSideBySideWithAGap() {
-    let width: CGFloat = 402
-    let gap = NemuPageSlidePaging.gap
-    precondition(gap > 0 && gap <= 20)
-    precondition(NemuPageSlidePaging.stride(width: width) == width + gap)
-    precondition(NemuPageSlidePaging.offset(frame: 0, width: width) == 0)
-    precondition(NemuPageSlidePaging.offset(frame: 3, width: width) == 3 * (width + gap))
-    precondition(NemuPageSlidePaging.contentWidth(frameCount: 4, width: width) == 4 * (width + gap))
+  static func close(_ a: CGFloat, _ b: CGFloat) -> Bool { abs(a - b) < 0.001 }
+
+  static func theEarlierPageIsOnTop() {
+    // Left-to-right: the left frame is the earlier page; manga reverses the row.
+    precondition(NemuPageSlideMotion.lowerOnTop(rtl: false))
+    precondition(!NemuPageSlideMotion.lowerOnTop(rtl: true))
   }
 
-  static func aRestingOffsetNamesItsFrame() {
-    let width: CGFloat = 402
-    let s = NemuPageSlidePaging.stride(width: width)
-    precondition(NemuPageSlidePaging.frame(atOffset: 2 * s, width: width, frameCount: 5) == 2)
-    precondition(NemuPageSlidePaging.frame(atOffset: 2 * s + s * 0.4, width: width, frameCount: 5) == 2)
-    precondition(NemuPageSlidePaging.frame(atOffset: 2 * s + s * 0.6, width: width, frameCount: 5) == 3)
-    // Rubber-banded past either end: the end frame.
-    precondition(NemuPageSlidePaging.frame(atOffset: -80, width: width, frameCount: 5) == 0)
-    precondition(NemuPageSlidePaging.frame(atOffset: 9 * s, width: width, frameCount: 5) == 4)
-    precondition(NemuPageSlidePaging.frame(atOffset: 100, width: width, frameCount: 0) == 0)
+  static func theTopPageFollowsTheFinger() {
+    let width: CGFloat = 400
+    // Left-to-right, turning on from frame 3 to 4: the finger moves left
+    // 100 pt, the page on top (frame 3, `lower`) moves left 100 pt.
+    let p = NemuPageSlideMotion.progress(from: 0, translation: -100, width: width)
+    precondition(close(p, 0.25))
+    var pose = NemuPageSlideMotion.pose(progress: p, width: width, rtl: false, reduceMotion: false)
+    precondition(pose.lowerOnTop && close(pose.lowerX, -100))
+    // Manga, turning on from frame 4 (`upper`, on top) to 3: the finger moves
+    // right and the page on top moves right with it.
+    let q = NemuPageSlideMotion.progress(from: 1, translation: 100, width: width)
+    pose = NemuPageSlideMotion.pose(progress: q, width: width, rtl: true, reduceMotion: false)
+    precondition(!pose.lowerOnTop && close(pose.upperX, 100))
+    // Turning back in a left-to-right book: the previous page (frame 3, on
+    // top) comes in from the left as the finger moves right.
+    let back = NemuPageSlideMotion.progress(from: 1, translation: 100, width: width)
+    pose = NemuPageSlideMotion.pose(progress: back, width: width, rtl: false, reduceMotion: false)
+    precondition(close(pose.lowerX, -300))
   }
 
-  static func onlyAPullPastAnEndAsksForAnotherChapter() {
-    let width: CGFloat = 402
-    let last = NemuPageSlidePaging.offset(frame: 4, width: width)
-    precondition(NemuPageSlidePaging.edgeDrag(offset: -60, width: width, frameCount: 5) == "before")
-    precondition(NemuPageSlidePaging.edgeDrag(offset: last + 60, width: width, frameCount: 5) == "after")
-    // A small bounce, or anywhere inside the strip: nothing.
-    precondition(NemuPageSlidePaging.edgeDrag(offset: -20, width: width, frameCount: 5) == nil)
-    precondition(NemuPageSlidePaging.edgeDrag(offset: last + 20, width: width, frameCount: 5) == nil)
-    precondition(NemuPageSlidePaging.edgeDrag(offset: last / 2, width: width, frameCount: 5) == nil)
-    // One frame: both ends are the same page.
-    precondition(NemuPageSlidePaging.edgeDrag(offset: 60, width: width, frameCount: 1) == "after")
+  static func thePageBeneathOnlyDrifts() {
+    let width: CGFloat = 400
+    let half = NemuPageSlideMotion.pose(progress: 0.5, width: width, rtl: false, reduceMotion: false)
+    // Half uncovered: half of its 8% drift left, and half of the dim.
+    precondition(close(half.upperX, NemuPageSlideMotion.parallax * 0.5 * width))
+    precondition(close(half.dim, NemuPageSlideMotion.dimmest * 0.5))
+    precondition(close(half.shadow, 1))
+    let manga = NemuPageSlideMotion.pose(progress: 0.5, width: width, rtl: true, reduceMotion: false)
+    precondition(close(manga.lowerX, -NemuPageSlideMotion.parallax * 0.5 * width))
+  }
+
+  static func restingPosesShowOnePage() {
+    let width: CGFloat = 400
+    // Resting on the top page: it covers the stage, no shadow inside it.
+    var pose = NemuPageSlideMotion.pose(progress: 0, width: width, rtl: false, reduceMotion: false)
+    precondition(close(pose.lowerX, 0) && close(pose.dim, NemuPageSlideMotion.dimmest))
+    // Turned: the top page is gone and its shadow faded, the page beneath at rest.
+    pose = NemuPageSlideMotion.pose(progress: 1, width: width, rtl: false, reduceMotion: false)
+    precondition(close(pose.lowerX, -width) && close(pose.upperX, 0) && close(pose.shadow, 0) && close(pose.dim, 0))
+    pose = NemuPageSlideMotion.pose(progress: 0, width: width, rtl: true, reduceMotion: false)
+    precondition(close(pose.upperX, width) && close(pose.lowerX, 0) && close(pose.shadow, 0))
+  }
+
+  static func reduceMotionCrossFades() {
+    let pose = NemuPageSlideMotion.pose(progress: 0.25, width: 400, rtl: false, reduceMotion: true)
+    precondition(close(pose.lowerX, 0) && close(pose.upperX, 0))
+    precondition(close(pose.lowerAlpha, 0.75) && close(pose.upperAlpha, 1))
+    precondition(close(pose.shadow, 0) && close(pose.dim, 0))
+    let manga = NemuPageSlideMotion.pose(progress: 0.25, width: 400, rtl: true, reduceMotion: true)
+    precondition(close(manga.upperAlpha, 0.25) && close(manga.lowerAlpha, 1))
+  }
+
+  static func releasesDecideByDistanceAndVelocity() {
+    let width: CGFloat = 400
+    precondition(NemuPageSlideMotion.completes(moved: 0.6, velocity: 0, width: width))
+    precondition(!NemuPageSlideMotion.completes(moved: 0.3, velocity: 0, width: width))
+    // A flick turns from a short drag; a flick back cancels a long one.
+    precondition(NemuPageSlideMotion.completes(moved: 0.05, velocity: 400, width: width))
+    precondition(!NemuPageSlideMotion.completes(moved: 0.8, velocity: -400, width: width))
+    // Slower momentum is projected: 300 pt/s carries about 30 pt.
+    precondition(close(NemuPageSlideMotion.projectedDistance(velocity: 300), 29.7))
+    precondition(NemuPageSlideMotion.completes(moved: 0.45, velocity: 300, width: width))
+    precondition(!NemuPageSlideMotion.completes(moved: 0.4, velocity: 100, width: width))
+    precondition(close(NemuPageSlideMotion.springVelocity(velocity: 400, remaining: 200), 2))
+    // Never faster than the spring's natural frequency: no overshoot.
+    precondition(close(NemuPageSlideMotion.springVelocity(velocity: 4000, remaining: 2), NemuPageSlideMotion.naturalFrequency))
+    precondition(close(NemuPageSlideMotion.springVelocity(velocity: -4000, remaining: 2), -NemuPageSlideMotion.naturalFrequency))
+    precondition(close(NemuPageSlideMotion.springVelocity(velocity: 400, remaining: 0.5), 0))
+  }
+
+  static func dragsAskForTheNeighbourOnTheirSide() {
+    precondition(NemuPageSlideMotion.target(current: 3, translation: -10, frameCount: 8) == 4)
+    precondition(NemuPageSlideMotion.target(current: 3, translation: 10, frameCount: 8) == 2)
+    precondition(NemuPageSlideMotion.target(current: 0, translation: 10, frameCount: 8) == nil)
+    precondition(NemuPageSlideMotion.target(current: 7, translation: -10, frameCount: 8) == nil)
+    precondition(NemuPageSlideMotion.target(current: 3, translation: 0, frameCount: 8) == nil)
   }
 }

@@ -221,7 +221,7 @@ export type UserSettings = {
    */
   readerPageBackground?: "black" | "white" | "page";
   /** 翻页: curl (default) or slide. */
-  readerPageTurn?: "curl" | "slide";
+  readerPageTurn?: "curl" | "slide" | "push";
   readerProcessPageImages?: boolean;
   themePreference?: ThemePreference;
   searchSelectedSourceIds?: string[];

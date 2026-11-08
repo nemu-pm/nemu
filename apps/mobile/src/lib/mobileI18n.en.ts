@@ -623,6 +623,7 @@ export const mobileStringsEn: MobileStrings = {
     pageTurning: "Page Turning",
     pageTurningCurl: "Curl",
     pageTurningSlide: "Slide",
+    pageTurningPush: "Push",
     pageBackgroundBlack: "Black",
     pageBackgroundWhite: "White",
     pageBackgroundMatchPage: "Match Page",

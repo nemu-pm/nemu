@@ -586,6 +586,7 @@ export const mobileStringsZh: MobileStrings = {
     pageTurning: "翻页",
     pageTurningCurl: "卷页",
     pageTurningSlide: "滑动",
+    pageTurningPush: "推移",
     pageBackgroundBlack: "黑色",
     pageBackgroundWhite: "白色",
     pageBackgroundMatchPage: "跟随页面",

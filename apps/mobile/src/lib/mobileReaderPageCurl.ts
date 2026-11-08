@@ -18,15 +18,16 @@ import { visualPageIndexesForMobileReaderSpread } from "@/lib/mobileReaderSpread
  * Frames are the gallery's visual frames (pages, or spreads, RTL reversed),
  * so a frame index is the same number the slide pager scrolls to.
  */
-export type MobileReaderPageTurn = "curl" | "slide";
+export type MobileReaderPageTurn = "curl" | "slide" | "push";
 
 export const DEFAULT_MOBILE_READER_PAGE_TURN: MobileReaderPageTurn = "curl";
 
-/** The 翻页 menu, in Apple's order. */
-export const MOBILE_READER_PAGE_TURNS: readonly MobileReaderPageTurn[] = ["curl", "slide"];
+/** The 翻页 menu: Apple's order, then Push. */
+export const MOBILE_READER_PAGE_TURNS: readonly MobileReaderPageTurn[] = ["curl", "slide", "push"];
 
+/** A stored value keeps its meaning ("slide" is Books' slide); anything else is the default. */
 export function normalizeMobileReaderPageTurn(value: unknown): MobileReaderPageTurn {
-  return value === "slide" ? "slide" : DEFAULT_MOBILE_READER_PAGE_TURN;
+  return value === "slide" || value === "push" ? value : DEFAULT_MOBILE_READER_PAGE_TURN;
 }
 
 /**
@@ -38,8 +39,10 @@ export function normalizeMobileReaderPageTurn(value: unknown): MobileReaderPageT
  *   same for single pages and spreads. It is also Reduce Motion's turn (the
  *   curl's included): the slide pager cross-fades then, as Books' own
  *   motion-free turn does.
+ * - "push" when chosen: Photos' paging, the frames side by side, the next
+ *   pushing in with the current one (it keeps its own Reduce Motion).
  */
-export type MobileReaderPageTurnTransition = "curl" | "slide";
+export type MobileReaderPageTurnTransition = "curl" | "slide" | "push";
 
 export function mobileReaderPageTurnTransition(input: {
   pageTurn: MobileReaderPageTurn;
@@ -49,7 +52,17 @@ export function mobileReaderPageTurnTransition(input: {
   segmented: boolean;
   curlAvailable: boolean;
   slideAvailable: boolean;
+  pushAvailable?: boolean;
 }): MobileReaderPageTurnTransition | null {
+  if (
+    input.pageTurn === "push" &&
+    input.pushAvailable &&
+    input.pagedMode &&
+    !input.longStrip &&
+    !input.segmented
+  ) {
+    return "push";
+  }
   if (isMobileReaderPageCurlActive({ ...input, available: input.curlAvailable })) return "curl";
   if (!input.slideAvailable || !input.pagedMode || input.longStrip || input.segmented) return null;
   return "slide";

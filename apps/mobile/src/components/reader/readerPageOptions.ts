@@ -54,6 +54,7 @@ export function readerSpreadPairingLabel(pairing: MobileReaderSpreadPairing, str
 }
 
 export function readerPageTurnLabel(turn: MobileReaderPageTurn, strings: MobileStrings): string {
+  if (turn === "push") return strings.reader.pageTurningPush;
   return turn === "slide" ? strings.reader.pageTurningSlide : strings.reader.pageTurningCurl;
 }
 

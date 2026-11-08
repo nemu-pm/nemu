@@ -512,6 +512,8 @@ export type MobileStrings = {
     pageTurning: string;
     pageTurningCurl: string;
     pageTurningSlide: string;
+    /** Photos-style paging: the next page pushes in beside the current one. */
+    pageTurningPush: string;
     pageBackgroundBlack: string;
     pageBackgroundWhite: string;
     pageBackgroundMatchPage: string;
