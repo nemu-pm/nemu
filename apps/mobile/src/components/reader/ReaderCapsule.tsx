@@ -46,11 +46,13 @@ const AnimatedNativeGlass = NativeGlassViewHost
  */
 export const READER_CAPSULE_COLORS = {
   /**
-   * Liquid Glass tint. Glass adapts to the luminance under it, so over a white
-   * manga page untinted glass turns bright and white glyphs vanish; a dark
-   * tint keeps the Photos-style dark glass legible on any page.
+   * No tint of our own: the capsules are the system's dark Liquid Glass, the
+   * same material the system bar draws for the Duo's vertical bar items, so
+   * every piece of the reader's chrome is one material (owner decision).
+   * Glass adapts to the luminance under it; the forced dark appearance keeps
+   * the glyphs legible.
    */
-  glassTint: "rgba(16,16,18,0.52)",
+  glassTint: undefined as string | undefined,
   /** Painted surface where native glass is unavailable (Android, older iOS). */
   panel: "rgba(30,30,32,0.9)",
   border: "rgba(255,255,255,0.14)",
