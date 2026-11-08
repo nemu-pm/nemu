@@ -12792,6 +12792,10 @@ export function ReaderScreen() {
       // clock. Glass is never alpha-faded, so it can't lag behind its content.
       // The top row comes in from above, the bottom row from below.
       const glass = {
+        // One material with the system vertical bar's items where they show
+        // (they take no tint); the dark tint everywhere else, where untinted
+        // glass over a white page left the title and slider hard to read.
+        tintColor: readerSideBar ? null : undefined,
         materialized: readerChromeShown,
         animateAppearance: true,
         materializeDurationMs: readerChromeMaterialMs,

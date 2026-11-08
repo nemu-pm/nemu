@@ -46,13 +46,14 @@ const AnimatedNativeGlass = NativeGlassViewHost
  */
 export const READER_CAPSULE_COLORS = {
   /**
-   * No tint of our own: the capsules are the system's dark Liquid Glass, the
-   * same material the system bar draws for the Duo's vertical bar items, so
-   * every piece of the reader's chrome is one material (owner decision).
-   * Glass adapts to the luminance under it; the forced dark appearance keeps
-   * the glyphs legible.
+   * Liquid Glass tint (the glass's own, `UIGlassEffect.tintColor`). Glass
+   * adapts to the luminance under it, so over a white manga page untinted
+   * glass turns bright and white glyphs fade; a dark tint keeps the
+   * Photos-style dark glass legible on any page. Beside the system's vertical
+   * bar, whose items can take no tint, the capsules go untinted to match it
+   * (`tintColor={null}`).
    */
-  glassTint: undefined as string | undefined,
+  glassTint: "rgba(16,16,18,0.52)",
   /** Painted surface where native glass is unavailable (Android, older iOS). */
   panel: "rgba(30,30,32,0.9)",
   border: "rgba(255,255,255,0.14)",
@@ -75,8 +76,8 @@ export type ReaderCapsuleProps = {
   concentricMinimum?: number;
   /** Interactive glass press response (buttons). Panels pass false. */
   interactive?: boolean;
-  /** Glass tint; defaults to the chrome's dark tint. */
-  tintColor?: string;
+  /** Glass tint; defaults to the chrome's dark tint. Null: the system's untinted glass. */
+  tintColor?: string | null;
   style?: StyleProp<ViewStyle>;
   pointerEvents?: "box-none" | "auto";
   /**
@@ -170,7 +171,7 @@ export function ReaderCapsule({
       <AnimatedNativeGlass
         layout={layout}
         colorScheme="dark"
-        tintColor={tintColor}
+        tintColor={tintColor ?? undefined}
         interactive={interactive}
         cornerRadius={cornerRadius ?? 0}
         concentricMinimum={concentricMinimum ?? 0}
@@ -191,7 +192,7 @@ export function ReaderCapsule({
   return (
     <GlassView
       colorScheme="dark"
-      tintColor={tintColor}
+      tintColor={tintColor ?? undefined}
       interactive={interactive}
       cornerRadius={cornerRadius ?? 0}
       concentricMinimum={concentricMinimum ?? 0}
