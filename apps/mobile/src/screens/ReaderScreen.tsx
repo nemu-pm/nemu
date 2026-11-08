@@ -7141,7 +7141,7 @@ export function ReaderScreen() {
         },
         pageCount,
         pageNumber: sourcePageNumber || clampedPageIndex + 1,
-        plugin: activeReaderPlugin,
+        plugin: japaneseLearningReaderPlugin,
         prompt,
         signal,
         transcript: request.transcript ?? japaneseLearningPageTranscript,
@@ -7172,7 +7172,7 @@ export function ReaderScreen() {
       return true;
     },
     [
-      activeReaderPlugin,
+      japaneseLearningReaderPlugin,
       appLanguage,
       chapter,
       clampedPageIndex,
@@ -7196,7 +7196,7 @@ export function ReaderScreen() {
       if (!requireJapaneseLearningAuthOrPrompt()) return;
 
       const responseMode = parseMobileJapaneseLearningResponseMode(
-        activeReaderPlugin?.values.nemuResponseMode,
+        japaneseLearningReaderPlugin?.values.nemuResponseMode,
       );
       setJapaneseLearningGrammarActionNotice(null);
       // Web `openChatAndSend(message, displayContent, { ephemeralContext })`.
@@ -7213,7 +7213,7 @@ export function ReaderScreen() {
       });
     },
     [
-      activeReaderPlugin,
+      japaneseLearningReaderPlugin,
       appLanguage,
       japaneseLearningGrammarContext,
       requireJapaneseLearningAuthOrPrompt,
@@ -7224,13 +7224,13 @@ export function ReaderScreen() {
   /** Web `sendChatGreeting`: the greeting prompt is sent but never stored. */
   const runJapaneseLearningChat = useCallback(() => {
     const responseMode = parseMobileJapaneseLearningResponseMode(
-      activeReaderPlugin?.values.nemuResponseMode,
+      japaneseLearningReaderPlugin?.values.nemuResponseMode,
     );
     startJapaneseLearningChatRequest({
       text: getGreetingPrompt(appLanguage, responseMode),
       storeUserMessage: false,
     });
-  }, [appLanguage, activeReaderPlugin, startJapaneseLearningChatRequest]);
+  }, [appLanguage, japaneseLearningReaderPlugin, startJapaneseLearningChatRequest]);
 
   /** Web drawer `sendMessage` (haptic, clear the draft, stream). */
   const sendJapaneseLearningChatInput = useCallback(() => {
@@ -7371,7 +7371,7 @@ export function ReaderScreen() {
           return;
         }
         const responseMode = parseMobileJapaneseLearningResponseMode(
-          activeReaderPlugin?.values.nemuResponseMode,
+          japaneseLearningReaderPlugin?.values.nemuResponseMode,
         );
         startJapaneseLearningChatRequest({
           text: getMobileJapaneseLearningExplainPrompt(
@@ -7399,7 +7399,7 @@ export function ReaderScreen() {
         void hapticError();
       });
   }, [
-    activeReaderPlugin,
+    japaneseLearningReaderPlugin,
     appLanguage,
     askJapaneseLearningGrammarSelection,
     currentDisplayedPage,
