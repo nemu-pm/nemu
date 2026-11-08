@@ -3454,7 +3454,7 @@ export function ReaderScreen() {
     curlAvailable: pageCurlAvailable,
     slideAvailable: pageSlideAvailable,
   });
-  const readerPageCurlActive = readerPageTurnTransition === "curl";
+  const readerPageCurlActive = readerPageTurnTransition !== null;
   // Pages near the reader are measured natively while a spread can show:
   // their size (wide pages are known before they decode) and their binding
   // margins (automatic pairing). Cached per chapter.
