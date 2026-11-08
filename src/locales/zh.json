@@ -726,33 +726,5 @@
     "doneDescription": "开始探索已安装来源中的漫画吧。",
     "syncHint": "登录以在所有设备间同步你的书库和阅读进度。",
     "startReading": "开始阅读"
-  },
-  "sourceDirectoriesHelp": {
-    "title": "来源目录",
-    "intro": "nemu 通过来源阅读漫画。来源是一个小型软件包，用于告诉 nemu 如何读取某个网站或服务器。来源发布在来源目录中：来源目录是发布在某个网址上的来源列表，采用 Aidoku 所用的格式（index.min.json 文件）。nemu 可读取与 Aidoku 相同的目录。",
-    "builtInTitle": "nemu 内置的目录",
-    "builtIn": "nemu 内置一个目录：“nemu 推荐”。其中仅含权利人以自由许可发布的作品，以及连接到你自己服务器的来源。该目录无法移除。",
-    "addTitle": "添加目录",
-    "addIntro": "除自身目录外，nemu 不列出或推荐任何目录。添加哪些目录由你决定：",
-    "addLink": "在目录发布者的网站上轻点“添加到 nemu”链接。nemu 会打开，显示目录名称和地址，经你确认后才会添加。",
-    "addPaste": "也可以复制目录地址，然后在 nemu 中粘贴：“浏览” › + › “添加来源目录”，或“设置” › “已安装来源” › “来源目录” › +。",
-    "addAidoku": "为 Aidoku 制作的链接同样可用：粘贴 aidoku://addSourceList 链接或 aidoku.app 的添加来源列表链接，nemu 会使用其中的地址。",
-    "publishersTitle": "致目录发布者",
-    "publishersIntro": "如果你发布了来源目录，可以在自己的网站上提供“添加到 nemu”按钮，链接到：",
-    "publishersAddress": "其中 <address> 是你的 index.min.json（或其所在文件夹）的 HTTPS 地址，需经过百分号编码。",
-    "publishersExample": "例如，对于 https://example.com/sources/index.min.json：",
-    "publishersAlsoAccepted": "nemu 也接受 Aidoku 的链接格式，因此现有的“添加到 Aidoku”链接粘贴到 nemu 中同样可用：",
-    "ruleHttps": "地址必须使用 HTTPS。包含用户名或密码、或位于局域网中的地址会被拒绝。",
-    "ruleConfirm": "nemu 绝不会静默添加目录：它会先加载列表，显示名称和地址，并在添加前征得确认。",
-    "ruleShowAddress": "nemu:// 链接仅在装有 nemu 的设备上才能打开。请在按钮旁显示地址，方便其他设备上的用户复制。",
-    "builderTitle": "生成添加链接",
-    "builderHint": "输入你的目录地址以生成链接。",
-    "builderInvalid": "nemu 无法添加该地址。",
-    "builderNotHttps": "地址必须以 https:// 开头。",
-    "builderLocal": "局域网中的地址无法在 nemu 中添加。",
-    "copyLink": "复制链接",
-    "copied": "已复制",
-    "disclaimerTitle": "第三方目录",
-    "disclaimer": "除“nemu 推荐”外，其他目录均由第三方发布。nemu 不托管、审核或认可这些目录及其来源所访问的内容，也与其发布者无关。你需对自己添加的目录负责，并遵守适用于你的法律和条款。"
   }
 }

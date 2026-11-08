@@ -3,9 +3,8 @@ import { extractMobileSourceDirectoryUrl } from "./mobileSourceDirectoryLink";
 
 /**
  * A page on source directories for Add Source Directory's How Source
- * Directories Work row, which is hidden while this is null. None for now: the
- * app links to no nemu page here (the web app's /help/source-directories stays
- * for the web), and a third-party page needs to clear App Review first.
+ * Directories Work row, which is hidden while this is null. None: nemu hosts
+ * no such page, and a third-party one needs to clear App Review first.
  */
 export const NEMU_SOURCE_DIRECTORIES_HELP_URL: string | null = null;
 
