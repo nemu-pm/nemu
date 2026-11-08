@@ -1,4 +1,4 @@
-THIRD-PARTY SOFTWARE NOTICES - nemu 0.1.0
+THIRD-PARTY SOFTWARE NOTICES - nemu 1.0.0
 
 ================================================================================
 @babel/runtime 7.28.4
