@@ -3,7 +3,7 @@ import { MobileQuickActionMenu, mobileNativeQuickMenuAvailable } from "@/compone
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
-import { MOBILE_EXPLORE_RADIUS } from "@/lib/mobileExploreRadius";
+import { MOBILE_EXPLORE_GROUP_SHAPE, MOBILE_EXPLORE_RADIUS } from "@/lib/mobileExploreRadius";
 import { Stack, router, useFocusEffect } from "expo-router";
 import {
   consumeMobileAddSourceSheetDirectoryFocus,
@@ -2645,6 +2645,9 @@ export function BrowseScreen() {
 /** Key of the design-explore "In Your Library" group among the language groups. */
 const EXPLORE_LIBRARY_SECTION = "explore:library";
 
+/** The Add Sources sheet's cards take the Settings groups' shape (on iOS, where that design applies). */
+const ADD_SOURCE_CARD_SHAPE = mobileDesignExploreFlag ? MOBILE_EXPLORE_GROUP_SHAPE : { borderRadius: radius.xl };
+
 const styles = StyleSheet.create({
   exploreSourceSection: {
     // The page's width between its gutters on every window, as Library and
@@ -2676,7 +2679,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
     paddingHorizontal: 12,
-    borderRadius: radius.xl,
+    ...ADD_SOURCE_CARD_SHAPE,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
     // The gap between language groups (`availableSectionSeparator`): the
@@ -2706,7 +2709,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     marginTop: 18,
-    borderRadius: radius.xl,
+    ...ADD_SOURCE_CARD_SHAPE,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
   },
@@ -2785,7 +2788,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 14,
-    borderRadius: radius.xl,
+    ...ADD_SOURCE_CARD_SHAPE,
     borderWidth: StyleSheet.hairlineWidth,
     padding: 14,
   },
@@ -2828,7 +2831,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    borderRadius: radius.xl,
+    ...ADD_SOURCE_CARD_SHAPE,
     borderWidth: StyleSheet.hairlineWidth,
     padding: 16,
   },
@@ -2838,7 +2841,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   languageListSection: {
-    borderRadius: radius.xl,
+    ...ADD_SOURCE_CARD_SHAPE,
   },
   languageListContent: {
     paddingHorizontal: 0,
@@ -2910,7 +2913,7 @@ const styles = StyleSheet.create({
   availableShell: {
     height: 74,
     flexShrink: 0,
-    borderRadius: radius.xl,
+    ...ADD_SOURCE_CARD_SHAPE,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
   },
