@@ -2805,11 +2805,6 @@ export function ReaderScreen() {
   const chapterTitle =
     formatChapterRowLabel(chapter, strings, { dropVolume: readerChapterListDropsVolume }) ??
     (mangaTitle ? "" : formatChapterTitle(chapter, strings));
-  const sourcePageForDisplayIndex = useCallback(
-    (displayIndex: number) =>
-      readerRoutePageForDisplayIndex(displayIndex, pageCount, mode),
-    [mode, pageCount],
-  );
   const displayedPages = useMemo(() => {
     return pages;
   }, [pages]);
@@ -11145,13 +11140,6 @@ export function ReaderScreen() {
     readerStripRows,
     readerStripSourceName,
   ]);
-  const readerGallerySourcePageForDisplayIndex = useCallback(
-    (displayIndex: number) =>
-      sourcePageForDisplayIndex(
-        mobileReaderStripBridgeClampedLocalIndex(readerStripBridge, displayIndex) ?? displayIndex,
-      ),
-    [readerStripBridge, sourcePageForDisplayIndex],
-  );
   const readerGalleryInitialContentOffset = useMemo(
     () =>
       readerStripBridge.offsetBase === 0 || galleryPagedMode
@@ -11314,16 +11302,6 @@ export function ReaderScreen() {
       return readerImageSizes.get(readerPageIdentityForChapter(entry.chapterId, entry.source)) ?? null;
     },
     [chapterId, readerImageSizes, readerPageIdentityFor, readerPageIdentityForChapter, readerPagedGallery],
-  );
-  /** A page's number on its placeholder card: its own chapter's. */
-  const readerPagedSourcePageForDisplayIndex = useCallback(
-    (joinedIndex: number) => {
-      const entry = readerPagedGallery?.entries[joinedIndex];
-      if (!entry) return sourcePageForDisplayIndex(joinedIndex);
-      if (entry.chapterId === chapterId) return sourcePageForDisplayIndex(entry.localIndex);
-      return entry.localIndex + 1;
-    },
-    [chapterId, readerPagedGallery, sourcePageForDisplayIndex],
   );
   const retryReaderSegmentedPage = useCallback(
     (page: MobileReaderPage, errorKeys: readonly string[]) => {
@@ -13370,7 +13348,6 @@ export function ReaderScreen() {
         scrollPageRenderKeys={readerStripRenderKeys ?? readerScrollPageRenderKeys}
         scrollSideMargin={readerScrollSideMargin}
         segmentedImageFrames={segmentedImageFrames}
-        sourcePageForDisplayIndex={readerPagedGallery ? readerPagedSourcePageForDisplayIndex : readerGallerySourcePageForDisplayIndex}
         spreads={readerPagedStrip && isTwoPageMode ? (readerPagedStrip.spreads as number[][]) : readerSpreads}
         stateTopPadding={readerStateTopPadding}
         strings={strings}

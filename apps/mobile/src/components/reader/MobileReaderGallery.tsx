@@ -176,7 +176,7 @@ import {
   MobileReaderScrollCellContext,
   MobileReaderScrollViewportContext,
 } from "./MobileReaderPageSpinner";
-import { mobileReaderPageStatusColor } from "@/lib/mobileReaderPageLoading";
+import { mobileReaderPageHasText, mobileReaderPageStatusColor } from "@/lib/mobileReaderPageLoading";
 import { mobileReaderPageBackgroundIsLight } from "@/lib/mobileReaderPageBackground";
 
 type MobileReaderGalleryState = {
@@ -371,7 +371,6 @@ type MobileReaderGalleryProps = {
   scrollSideMargin?: number;
   renderImageSegment?: (frame: MobileReaderSegmentFrame) => ReactNode;
   segmentedImageFrames?: ReadonlyArray<MobileReaderSegmentFrame>;
-  sourcePageForDisplayIndex: (displayIndex: number) => number;
   spreads: number[][];
   /**
    * A pose change moved the pages inside an unchanged (or translating) stage:
@@ -568,8 +567,8 @@ type MobileReaderScrollPageCellProps = {
   renderImage: MobileReaderGalleryProps["renderImage"];
   renderScrollRow?: MobileReaderGalleryProps["renderScrollRow"];
   onScrollingPageLayout?: MobileReaderGalleryProps["onScrollingPageLayout"];
-  fallbackPage: number;
-  strings: MobileStrings;
+  /** The reader background, under a page still waiting for its image. */
+  backgroundColor: string;
 };
 
 /**
@@ -588,8 +587,7 @@ const MobileReaderScrollPageCell = memo(
     renderImage,
     renderScrollRow,
     onScrollingPageLayout,
-    fallbackPage,
-    strings,
+    backgroundColor,
   }: MobileReaderScrollPageCellProps) {
     const inRenderWindow = useSyncExternalStore(
       renderRangeStore.subscribe,
@@ -624,7 +622,7 @@ const MobileReaderScrollPageCell = memo(
         ) : page.imageUri ? (
           renderImage(page, { inRenderWindow })
         ) : (
-          <TextPage text={page.text} fallbackPage={fallbackPage} strings={strings} />
+          <TextPage text={page.text} backgroundColor={backgroundColor} />
         )}
       </View>
       </MobileReaderScrollCellContext.Provider>
@@ -639,8 +637,7 @@ const MobileReaderScrollPageCell = memo(
     previous.renderKey === next.renderKey &&
     previous.renderEpoch === next.renderEpoch &&
     previous.onScrollingPageLayout === next.onScrollingPageLayout &&
-    previous.fallbackPage === next.fallbackPage &&
-    previous.strings === next.strings,
+    previous.backgroundColor === next.backgroundColor,
 );
 
 export function MobileReaderGallery({
@@ -713,7 +710,6 @@ export function MobileReaderGallery({
   scrollPageLayout: scrollPageLayoutProp,
   scrollSideMargin = MOBILE_READER_SCROLL_SIDE_MARGIN,
   segmentedImageFrames,
-  sourcePageForDisplayIndex,
   spreads,
   spreadSlots,
   pageGlide = false,
@@ -2830,8 +2826,7 @@ export function MobileReaderGallery({
                   <TextPage
                     width={readerImageWidth}
                     text={page.text}
-                    fallbackPage={sourcePageForDisplayIndex(pageIndex)}
-                    strings={strings}
+                    backgroundColor={backgroundColor}
                   />
                 );
                 // One slot type in every posture: flat ⇄ book keeps the slots
@@ -2898,8 +2893,7 @@ export function MobileReaderGallery({
             renderImage={renderImage}
             renderScrollRow={renderScrollRow}
             onScrollingPageLayout={onScrollingPageLayout}
-            fallbackPage={sourcePageForDisplayIndex(index)}
-            strings={strings}
+            backgroundColor={backgroundColor}
           />
         );
       }
@@ -2939,14 +2933,14 @@ export function MobileReaderGallery({
           ) : (
             <TextPage
               text={page.text}
-              fallbackPage={sourcePageForDisplayIndex(index)}
-              strings={strings}
+              backgroundColor={backgroundColor}
             />
           )}
         </View>
       );
     },
     [
+      backgroundColor,
       displayedPages,
       pageBackgroundFor,
       spreadSlots,
@@ -2971,7 +2965,6 @@ export function MobileReaderGallery({
       scrollPageRenderEpoch,
       scrollPageRenderKeys,
       renderRangeStore,
-      sourcePageForDisplayIndex,
       strings,
       windowHeight,
     ],
@@ -3110,14 +3103,13 @@ export function MobileReaderGallery({
     else onRequestRetreatPastStartRef.current?.();
   }, [pages.length, pagesState.status]);
   const renderCurlTextPage = useCallback(
-    (page: MobileReaderPage, pageIndex: number) => (
+    (page: MobileReaderPage) => (
       <TextPage
         text={page.text}
-        fallbackPage={sourcePageForDisplayIndex(pageIndex)}
-        strings={strings}
+        backgroundColor={backgroundColor}
       />
     ),
-    [sourcePageForDisplayIndex, strings],
+    [backgroundColor],
   );
   const curlStage = useMemo(() => ({ width: readerPageWidth, height: windowHeight }), [readerPageWidth, windowHeight]);
   const isWidePageOrNever = useCallback((pageIndex: number) => isWidePage?.(pageIndex) ?? false, [isWidePage]);
@@ -3486,30 +3478,36 @@ export function MobileReaderGallery({
   return stageGesture ? <GestureDetector gesture={stageGesture}>{stage}</GestureDetector> : stage;
 }
 
+/**
+ * A page without an image. A source's text page reads as text; a page whose
+ * image the source has not given yet (a page list resolved page by page) is a
+ * page still loading, the reader background and the small spinner every
+ * loading page has — never a card labelled with its number.
+ */
 function TextPage({
-  fallbackPage,
-  strings,
+  backgroundColor,
   text,
   width,
 }: {
-  fallbackPage: number;
-  strings: MobileStrings;
+  backgroundColor: string;
   text?: string | null;
   width?: number;
 }) {
   const { tokens } = useNemuTheme();
+  if (!mobileReaderPageHasText(text)) {
+    return (
+      <View style={[styles.pendingPage, width ? { width } : null]}>
+        <MobileReaderPageSpinner color={mobileReaderPageStatusColor(backgroundColor)} />
+      </View>
+    );
+  }
 
   return (
     <GlassSurface
       style={[styles.textPageShell, width ? { width } : null]}
       contentStyle={styles.textPageContent}
     >
-      <Text style={[styles.textPageText, { color: tokens.foreground }]}>
-        {text ??
-          formatMobileString(strings.reader.pageFallback, {
-            page: fallbackPage,
-          })}
-      </Text>
+      <Text style={[styles.textPageText, { color: tokens.foreground }]}>{text}</Text>
     </GlassSurface>
   );
 }
@@ -3622,6 +3620,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 10,
     paddingVertical: 24,
+  },
+  pendingPage: {
+    flex: 1,
+    alignSelf: "stretch",
+    minHeight: 320,
+    alignItems: "center",
+    justifyContent: "center",
   },
   textPageShell: {
     width: "100%",

@@ -39,6 +39,14 @@ export function mobileReaderPageFramePaintsBackground(state: {
   return state.loading || state.failed || state.quietLoading || state.arriving;
 }
 
+/**
+ * A page without an image reads as text only when the source gave it text;
+ * otherwise its image is still to come and it is a page loading.
+ */
+export function mobileReaderPageHasText(text: string | null | undefined): text is string {
+  return typeof text === "string" && text.trim().length > 0;
+}
+
 /** The spinner's (and a failed page's icon and text) colour over `backgroundColor`. */
 export function mobileReaderPageStatusColor(backgroundColor: string): string {
   return mobileReaderPageBackgroundIsLight(backgroundColor)

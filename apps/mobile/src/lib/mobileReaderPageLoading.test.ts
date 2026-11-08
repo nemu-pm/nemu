@@ -8,6 +8,7 @@ import {
   MOBILE_READER_PAGE_STATUS_COLOR_DARK,
   MOBILE_READER_PAGE_STATUS_COLOR_LIGHT,
   mobileReaderPageFramePaintsBackground,
+  mobileReaderPageHasText,
   mobileReaderPageSpinnerCentre,
   mobileReaderPageStatusColor,
 } from "./mobileReaderPageLoading";
@@ -22,6 +23,17 @@ describe("page loading status colour", () => {
   });
   test("appears after 150ms", () => {
     expect(MOBILE_READER_PAGE_SPINNER_DELAY_MS).toBe(150);
+  });
+});
+
+describe("a page without an image", () => {
+  test("is a text page only with the source's text", () => {
+    expect(mobileReaderPageHasText("Afterword")).toBe(true);
+  });
+  test("otherwise a page still loading, never a numbered card", () => {
+    expect(mobileReaderPageHasText(undefined)).toBe(false);
+    expect(mobileReaderPageHasText(null)).toBe(false);
+    expect(mobileReaderPageHasText("   ")).toBe(false);
   });
 });
 
