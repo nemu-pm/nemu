@@ -11,7 +11,7 @@ import SettingsIcon from "@expo/material-symbols/settings.xml";
 import SkipNextIcon from "@expo/material-symbols/skip_next.xml";
 import SkipPreviousIcon from "@expo/material-symbols/skip_previous.xml";
 import ViewColumnIcon from "@expo/material-symbols/view_column.xml";
-import { StyleSheet, View, type ImageSourcePropType } from "react-native";
+import { ActivityIndicator, StyleSheet, View, type ImageSourcePropType } from "react-native";
 import { hapticSelection } from "@/lib/haptics";
 import type {
   MobileReaderMoreMenuActionId,
@@ -44,6 +44,8 @@ export function ReaderMoreMenu({
   accessibilityLabel,
   accessibilityHint,
   color,
+  busy = false,
+  busyLabel,
   onAction,
   onInteract,
 }: ReaderMoreMenuProps) {
@@ -77,10 +79,15 @@ export function ReaderMoreMenu({
         <View
           accessibilityLabel={accessibilityLabel}
           accessibilityHint={accessibilityHint}
+          accessibilityValue={busy && busyLabel ? { text: busyLabel } : undefined}
           accessibilityRole="button"
           style={styles.trigger}
         >
-          <Ionicons name="ellipsis-horizontal" size={20} color={color} />
+          {busy ? (
+            <ActivityIndicator size="small" color={color} />
+          ) : (
+            <Ionicons name="ellipsis-horizontal" size={20} color={color} />
+          )}
         </View>
       </MenuView>
     </View>

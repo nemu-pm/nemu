@@ -84,7 +84,17 @@ export type MobileReaderOverflowState = {
   dualReadAvailable: boolean;
   /** The bilingual toggle's current layout, named as its value. */
   bilingualLayoutValue: string;
+  /** Detection is running: its button shows a spinner, so its row and ⋯ must too. */
+  detectTextLoading?: boolean;
 };
+
+/** ⋯ stands in for Detect text's spinner while that button is inside it. */
+export function mobileReaderMoreMenuBusy(
+  overflow: readonly MobileReaderBarActionId[],
+  detectTextLoading: boolean,
+): boolean {
+  return detectTextLoading && overflow.includes("detect-text");
+}
 
 /** Overflowed bar actions as menu rows: the bar button's title and state, the menu's icon style. */
 export function buildMobileReaderOverflowItems(
@@ -101,6 +111,12 @@ export function buildMobileReaderOverflowItems(
         return [{
           id,
           ...plain(strings.reader.pluginJapaneseLearningDetectText),
+          ...(state.detectTextLoading
+            ? {
+                subtitle: strings.reader.pluginJapaneseLearningDetectingText,
+                accessibilityLabel: strings.reader.pluginJapaneseLearningDetectingText,
+              }
+            : null),
           systemImage: "text.viewfinder",
           icon: "detectText",
           checked: state.detectTextActive,

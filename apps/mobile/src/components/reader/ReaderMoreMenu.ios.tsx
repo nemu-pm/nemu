@@ -12,13 +12,14 @@ import {
 import {
   accessibilityHint as swiftAccessibilityHint,
   accessibilityLabel as swiftAccessibilityLabel,
+  accessibilityValue as swiftAccessibilityValue,
   contentShape,
   disabled as swiftDisabled,
   frame,
   shapes,
 } from "@expo/ui/swift-ui/modifiers";
 import type { SFSymbol } from "sf-symbols-typescript";
-import { StyleSheet, View } from "react-native";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { hapticSelection } from "@/lib/haptics";
 import { READER_CAPSULE_HEIGHT } from "@/lib/mobileReaderPoseLayout";
 import type { ReaderMoreMenuProps } from "./ReaderMoreMenu.types";
@@ -37,6 +38,8 @@ export function ReaderMoreMenu({
   accessibilityLabel,
   accessibilityHint,
   color,
+  busy = false,
+  busyLabel,
   onAction,
   onInteract,
 }: ReaderMoreMenuProps) {
@@ -51,13 +54,14 @@ export function ReaderMoreMenu({
             <SwiftImage
               systemName="ellipsis"
               size={18}
-              color={color}
+              color={busy ? "transparent" : color}
               modifiers={[frame({ width: SIZE, height: SIZE }), contentShape(shapes.circle())]}
             />
           }
           modifiers={[
             swiftAccessibilityLabel(accessibilityLabel),
             swiftAccessibilityHint(accessibilityHint),
+            ...(busy && busyLabel ? [swiftAccessibilityValue(busyLabel)] : []),
           ]}
         >
           {sections.map((section) => (
@@ -69,8 +73,6 @@ export function ReaderMoreMenu({
                     <SwiftToggle
                       key={item.id}
                       isOn={item.checked}
-                      label={item.title}
-                      systemImage={item.systemImage as SFSymbol}
                       modifiers={[
                         swiftAccessibilityLabel(item.accessibilityLabel),
                         ...(item.disabled ? [swiftDisabled(true)] : []),
@@ -80,7 +82,10 @@ export function ReaderMoreMenu({
                         void hapticSelection();
                         onAction(item.id);
                       }}
-                    />
+                    >
+                      <SwiftLabel title={item.title} systemImage={item.systemImage as SFSymbol} />
+                      {item.subtitle ? <SwiftText>{item.subtitle}</SwiftText> : null}
+                    </SwiftToggle>
                   );
                 }
                 const content: ReactElement[] = [
@@ -109,6 +114,11 @@ export function ReaderMoreMenu({
           ))}
         </SwiftMenu>
       </SwiftHost>
+      {busy ? (
+        <View pointerEvents="none" style={styles.spinner}>
+          <ActivityIndicator size="small" color={color} />
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -121,5 +131,14 @@ const styles = StyleSheet.create({
   host: {
     width: SIZE,
     height: SIZE,
+  },
+  spinner: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

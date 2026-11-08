@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ChapterSummary } from "@/data/schema";
 import { getMobileStrings } from "./mobileI18n";
-import { buildMobileReaderMoreMenu, buildMobileReaderOverflowItems, type MobileReaderMoreMenuInput } from "./mobileReaderMoreMenu";
+import { buildMobileReaderMoreMenu, buildMobileReaderOverflowItems, mobileReaderMoreMenuBusy, type MobileReaderMoreMenuInput } from "./mobileReaderMoreMenu";
 
 const strings = getMobileStrings("en");
 const chapter = (id: string, chapterNumber: number): ChapterSummary => ({ id, chapterNumber });
@@ -128,3 +128,30 @@ describe("reader ⋯ menu: overflowed bar actions", () => {
     expect(menu({ overflowItems: [] }).map((section) => section.id)).toEqual(["chapters", "chapter", "reader"]);
   });
 });
+
+describe("reader ⋯ menu: Detect text running inside it", () => {
+  const state = { detectTextActive: true, nemuChatActive: false, dualReadEnabled: false, dualReadAvailable: true, bilingualLayoutValue: "" };
+
+  test("⋯ is busy only while detection runs and the button is inside it", () => {
+    expect(mobileReaderMoreMenuBusy(["detect-text", "nemu-chat"], true)).toBe(true);
+    expect(mobileReaderMoreMenuBusy(["detect-text"], false)).toBe(false);
+    // In the bar the button shows its own spinner.
+    expect(mobileReaderMoreMenuBusy(["nemu-chat"], true)).toBe(false);
+    expect(mobileReaderMoreMenuBusy([], true)).toBe(false);
+  });
+
+  test("the row says so, in every language, and goes back afterwards", () => {
+    for (const language of ["en", "zh", "ja"] as const) {
+      const localized = getMobileStrings(language);
+      const [running] = buildMobileReaderOverflowItems(["detect-text"], { ...state, detectTextLoading: true }, localized);
+      expect(running.title).toBe(localized.reader.pluginJapaneseLearningDetectText);
+      expect(running.subtitle).toBe(localized.reader.pluginJapaneseLearningDetectingText);
+      expect(running.subtitle!.length).toBeGreaterThan(0);
+      expect(running.accessibilityLabel).toBe(localized.reader.pluginJapaneseLearningDetectingText);
+      const [done] = buildMobileReaderOverflowItems(["detect-text"], state, localized);
+      expect(done.subtitle).toBeUndefined();
+      expect(done.accessibilityLabel).toBe(localized.reader.pluginJapaneseLearningDetectText);
+    }
+  });
+});
+
