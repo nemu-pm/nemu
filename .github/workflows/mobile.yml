@@ -521,6 +521,11 @@ jobs:
             -o "$test_dir/page-curl-leaves-tests"
           "$test_dir/page-curl-leaves-tests"
           xcrun swiftc -parse-as-library \
+            modules/nemu-window-layout/ios/NemuPageSlideMotion.swift \
+            modules/nemu-window-layout/iosTest/NemuPageSlideMotionTests.swift \
+            -o "$test_dir/page-slide-motion-tests"
+          "$test_dir/page-slide-motion-tests"
+          xcrun swiftc -parse-as-library \
             modules/nemu-window-layout/ios/NemuPageEdgeColor.swift \
             modules/nemu-window-layout/iosTest/NemuPageEdgeColorTests.swift \
             -o "$test_dir/page-edge-color-tests"

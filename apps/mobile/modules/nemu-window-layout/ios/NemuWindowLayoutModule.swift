@@ -99,6 +99,7 @@ public final class NemuWindowLayoutModule: Module {
     Constant("glassChildrenAboveMaterialAvailable") { true }
     Constant("pageCurlViewAvailable") { true }
     Constant("pageCurlTurnAvailable") { true }
+    Constant("pageSlideViewAvailable") { true }
     // The reader's Orientation Lock where the system only takes a preference
     // (iPad, resizable scenes): keep the scene's current orientation.
     AsyncFunction("setInterfaceOrientationLocked") { (locked: Bool) in
@@ -180,6 +181,28 @@ public final class NemuWindowLayoutModule: Module {
       }.runOnQueue(.main)
       Prop("navigationAnimated") { (view: NemuPageCurlView, animated: Bool) in view.navigationAnimated = animated }
       Prop("navigationToken") { (view: NemuPageCurlView, token: Int) in view.navigationToken = token }
+    }
+    // The slide page turn (`NemuPageSlideView`): the curl's props and children.
+    View(NemuPageSlideView.self) {
+      Events("onSettle", "onEdgeDrag", "onTurnBegin", "onTurnEnd")
+      Prop("spine") { (view: NemuPageSlideView, spine: String) in view.spine = spine }
+      Prop("rtl") { (view: NemuPageSlideView, rtl: Bool) in view.rtl = rtl }
+      Prop("slotCount") { (view: NemuPageSlideView, count: Int) in view.slotCount = count }
+      Prop("slotsKey") { (view: NemuPageSlideView, _: String) in view.setNeedsLayout() }
+      Prop("curlFrame") { (view: NemuPageSlideView, frame: [String: Double]) in
+        view.curlFrame = CGRect(x: frame["x"] ?? 0, y: frame["y"] ?? 0, width: frame["width"] ?? 0, height: frame["height"] ?? 0)
+      }
+      Prop("turningEnabled") { (view: NemuPageSlideView, enabled: Bool) in view.turningEnabled = enabled }
+      Prop("pageBackground") { (view: NemuPageSlideView, color: UIColor?) in view.pageBackground = color ?? .white }
+      Prop("slotBackgrounds") { (view: NemuPageSlideView, colors: [String: String]?) in
+        view.slotBackgrounds = NemuSlotBackgrounds.parse(colors)
+      }
+      Prop("navigationIndex") { (view: NemuPageSlideView, index: Int) in view.navigationIndex = index; view.setNeedsLayout() }
+      AsyncFunction("turn") { (view: NemuPageSlideView, slot: Int, animated: Bool, token: Int) in
+        view.requestTurn(slot: slot, animated: animated, token: token)
+      }.runOnQueue(.main)
+      Prop("navigationAnimated") { (view: NemuPageSlideView, animated: Bool) in view.navigationAnimated = animated }
+      Prop("navigationToken") { (view: NemuPageSlideView, token: Int) in view.navigationToken = token }
     }
     View(NemuSheetProgressView.self) {
       Events("onProgress")

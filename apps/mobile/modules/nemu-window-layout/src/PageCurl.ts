@@ -5,7 +5,8 @@ import { Platform, type NativeSyntheticEvent, type StyleProp, type ViewStyle } f
 /**
  * Native curl pager (`NemuPageCurlView.swift`): a `UIPageViewController` with
  * the page curl transition whose pages are the children, each tagged
- * `nativeID="nemu-curl:<slot>"`.
+ * `nativeID="nemu-curl:<slot>"`. The slide pager (`NemuPageSlideView.swift`)
+ * takes the same props and children and slides the pages as Books does.
  */
 export type PageCurlViewProps = {
   spine: "min" | "max" | "mid";
@@ -18,6 +19,8 @@ export type PageCurlViewProps = {
   pageBackground: string;
   /** "Match Page": slot index → its page's `#rrggbb` (mounted slots); others take `pageBackground`. */
   slotBackgrounds?: Record<string, string>;
+  /** Slide pager: the row is right-to-left reversed (manga), so the earlier page is on the right. */
+  rtl?: boolean;
   navigationIndex: number;
   navigationAnimated: boolean;
   navigationToken: number;
@@ -38,14 +41,24 @@ export type PageCurlViewHandle = {
 };
 
 const nativeModule = Platform.OS === "ios"
-  ? requireOptionalNativeModule<{ pageCurlViewAvailable?: boolean; pageCurlTurnAvailable?: boolean }>("NemuWindowLayout")
+  ? requireOptionalNativeModule<{
+      pageCurlViewAvailable?: boolean;
+      pageCurlTurnAvailable?: boolean;
+      pageSlideViewAvailable?: boolean;
+    }>("NemuWindowLayout")
   : null;
 
 /** True in iOS binaries with the curl pager; anything else keeps the slide. */
 export const pageCurlAvailable = nativeModule?.pageCurlViewAvailable === true;
 /** The curl view takes a tap turn imperatively (`PageCurlViewHandle.turn`). */
 export const pageCurlTurnAvailable = nativeModule?.pageCurlTurnAvailable === true;
+/** True in iOS binaries with the Books-style slide pager; anything else keeps the scrolling slide. */
+export const pageSlideAvailable = nativeModule?.pageSlideViewAvailable === true;
 
 export const NativePageCurlView: ComponentType<PageCurlViewProps> | null = pageCurlAvailable
   ? requireNativeViewManager<PageCurlViewProps>("NemuWindowLayout", "NemuPageCurlView")
+  : null;
+
+export const NativePageSlideView: ComponentType<PageCurlViewProps> | null = pageSlideAvailable
+  ? requireNativeViewManager<PageCurlViewProps>("NemuWindowLayout", "NemuPageSlideView")
   : null;

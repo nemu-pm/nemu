@@ -82,7 +82,8 @@ import {
 } from "./MobileReaderCurlPager";
 import { MobileReaderSplitWideHalf } from "./MobileReaderSplitWideHalf";
 import { mobileReaderFlatSpreadState } from "@/lib/mobileReaderLoneSpreadPage";
-import { pageCurlAvailable } from "../../../modules/nemu-window-layout";
+import { pageCurlAvailable, pageSlideAvailable } from "../../../modules/nemu-window-layout";
+import type { MobileReaderPageTurnTransition } from "@/lib/mobileReaderPageCurl";
 import { MOBILE_READER_DOUBLE_TAP_MAX_DELAY_MS } from "@/lib/mobileReaderZoom";
 import {
   isReaderAdvancePastEndDrag,
@@ -401,11 +402,12 @@ type MobileReaderGalleryProps = {
    */
   contentIdentityKey?: string;
   /**
-   * Paged turns curl (翻页 › 卷页) instead of sliding. The reader decides it
-   * (setting, Reduce Motion); the gallery keeps the slide for long strips and
-   * tiled pages.
+   * The native pager that turns paged reading (`mobileReaderPageTurnTransition`):
+   * the curl (翻页 › 卷页) or Books' slide. The reader decides it (setting,
+   * Reduce Motion); null, and always for long strips and tiled pages, keeps
+   * the scrolling list.
    */
-  pageCurl?: boolean;
+  pageTurnTransition?: MobileReaderPageTurnTransition | null;
   /**
    * "Match Page": each page's own background, so it turns with its page
    * (paged sheets and leaves, each half of a spread its own). Absent: every
@@ -719,7 +721,7 @@ export function MobileReaderGallery({
   geometryKey,
   onStageOriginChange,
   contentIdentityKey,
-  pageCurl = false,
+  pageTurnTransition = null,
   pageBackgroundFor = null,
   onPageTurningChange,
   pageOverlaysMounted = false,
@@ -827,7 +829,11 @@ export function MobileReaderGallery({
     logicalScrollAccessibility.scrollMountKey === scrollMountKey
       ? logicalScrollAccessibility.percent
       : 0;
-  const curlActive = pageCurl && pageCurlAvailable && pagedMode && !logicalLongStripMode;
+  // A native pager turns the pages (curl or slide); the list only scrolls.
+  const curlActive =
+    (pageTurnTransition === "curl" ? pageCurlAvailable : pageTurnTransition === "slide" && pageSlideAvailable)
+    && pagedMode
+    && !logicalLongStripMode;
   const curlPagerRef = useRef<MobileReaderCurlPagerHandle | null>(null);
   const galleryItemCount = segmentedMode
     ? segmentedImageFrames!.length
@@ -3150,6 +3156,7 @@ export function MobileReaderGallery({
         spreadMode={isTwoPageMode}
         spreadSlots={spreadSlots}
         stage={curlStage}
+        transition={pageTurnTransition ?? "curl"}
         turningEnabled={!pageZoomActive}
       />
     </Animated.View>

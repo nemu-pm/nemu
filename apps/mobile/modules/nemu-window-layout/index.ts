@@ -62,7 +62,9 @@ export { analyzePageFile, pageAnalysisAvailable, type NativePageAnalysis } from 
 
 export {
   NativePageCurlView,
+  NativePageSlideView,
   pageCurlAvailable,
+  pageSlideAvailable,
   pageCurlTurnAvailable,
   type PageCurlViewHandle,
   type PageCurlViewProps,

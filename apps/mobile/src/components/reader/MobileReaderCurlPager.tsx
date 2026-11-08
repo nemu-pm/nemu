@@ -14,6 +14,7 @@ import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from "
 import { mobileReaderPageFrameLayoutTransition } from "@/lib/mobileReaderMotionAnimations";
 import {
   NativePageCurlView,
+  NativePageSlideView,
   pageCurlTurnAvailable,
   type PageCurlViewHandle,
 } from "../../../modules/nemu-window-layout";
@@ -33,6 +34,7 @@ import {
   nextMobileReaderCurlNavigation,
   type MobileReaderCurlNavigation,
   type MobileReaderCurlSlot,
+  type MobileReaderPageTurnTransition,
 } from "@/lib/mobileReaderPageCurl";
 import { mobileReaderSplitWideHalfRects } from "@/lib/mobileReaderSpreads";
 import {
@@ -50,10 +52,11 @@ export type MobileReaderCurlPagerHandle = {
 };
 
 /**
- * Paged reading with the curl page turn (翻页 › 卷页): the native page curl
- * over the gallery's visual frames. It only replaces the slide pager's
- * scrolling: the frames, the spread table, tap zones, chrome and progress all
- * stay the gallery's and the reader's.
+ * Paged reading with a native page turn over the gallery's visual frames: the
+ * curl (翻页 › 卷页, `NemuPageCurlView`) or Books' slide (`NemuPageSlideView`,
+ * a spread sliding as one sheet like a single page). Both take the same slots.
+ * It only replaces the list's scrolling: the frames, the spread table, tap
+ * zones, chrome and progress all stay the gallery's and the reader's.
  */
 export function MobileReaderCurlPager({
   anchorFrame,
@@ -79,6 +82,7 @@ export function MobileReaderCurlPager({
   spreadMode,
   spreadSlots,
   stage,
+  transition = "curl",
   turningEnabled,
 }: {
   /**
@@ -130,8 +134,10 @@ export function MobileReaderCurlPager({
   spreadMode: boolean;
   spreadSlots?: readonly WindowLayoutRect[] | null;
   stage: { width: number; height: number };
+  transition?: MobileReaderPageTurnTransition;
   turningEnabled: boolean;
 }) {
+  const slide = transition === "slide";
   const panes = Boolean(spreadSlots && spreadSlots.length === 2);
   // A flat spread centres a page alone across the spine (no fold to avoid).
   const centreLone = mobileReaderCentresLonePages({ spreadMode, panes });
@@ -179,8 +185,8 @@ export function MobileReaderCurlPager({
   }
   const nativeRef = useRef<PageCurlViewHandle>(null);
   // Single pages curl as the page itself: the leaf is the settled page's box.
-  // Under "Match Page" the leaf is the whole stage.
-  const settledPage = !spreadMode && !pageBackgroundFor
+  // A slide's sheet, and a curl under "Match Page", is the whole stage.
+  const settledPage = !spreadMode && !slide && !pageBackgroundFor
     ? displayedPages[frames[settledFrame]?.[0] ?? -1]
     : undefined;
   const settledPageBox = settledPage && pageFrameSize ? pageFrameSize(settledPage) : null;
@@ -246,12 +252,14 @@ export function MobileReaderCurlPager({
     [onSettleFrame, spreadMode],
   );
 
-  if (!NativePageCurlView) return null;
+  const NativePager = slide ? NativePageSlideView : NativePageCurlView;
+  if (!NativePager) return null;
   return (
-    <NativePageCurlView
+    <NativePager
       ref={nativeRef}
       style={styles.pager}
       spine={mobileReaderCurlSpine(spreadMode, mode)}
+      rtl={mode === "rtl"}
       slotCount={slots.length}
       slotsKey={slotsKey}
       curlFrame={layout.frame}
@@ -298,7 +306,7 @@ export function MobileReaderCurlPager({
           </MobileReaderCurlLeafOffsetContext.Provider>
         </View>
       ))}
-    </NativePageCurlView>
+    </NativePager>
   );
 }
 

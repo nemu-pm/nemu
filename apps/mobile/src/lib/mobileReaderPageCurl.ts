@@ -29,6 +29,32 @@ export function normalizeMobileReaderPageTurn(value: unknown): MobileReaderPageT
   return value === "slide" ? "slide" : DEFAULT_MOBILE_READER_PAGE_TURN;
 }
 
+/**
+ * The native pager that turns paged reading, or null for the scrolling list
+ * (Android, a long strip, a tiled image, a binary without it):
+ *
+ * - "curl" where the curl is active (`isMobileReaderPageCurlActive`);
+ * - "slide" otherwise: Books' slide, one sheet sliding over the next, the
+ *   same for single pages and spreads. It is also Reduce Motion's turn (the
+ *   curl's included): the slide pager cross-fades then, as Books' own
+ *   motion-free turn does.
+ */
+export type MobileReaderPageTurnTransition = "curl" | "slide";
+
+export function mobileReaderPageTurnTransition(input: {
+  pageTurn: MobileReaderPageTurn;
+  pagedMode: boolean;
+  reduceMotion: boolean | null;
+  longStrip: boolean;
+  segmented: boolean;
+  curlAvailable: boolean;
+  slideAvailable: boolean;
+}): MobileReaderPageTurnTransition | null {
+  if (isMobileReaderPageCurlActive({ ...input, available: input.curlAvailable })) return "curl";
+  if (!input.slideAvailable || !input.pagedMode || input.longStrip || input.segmented) return null;
+  return "slide";
+}
+
 export type MobileReaderCurlSpine = "min" | "max" | "mid";
 
 export type MobileReaderCurlSlot =

@@ -11,6 +11,7 @@ import {
   mobileReaderCurlSlotWindow,
   mobileReaderCurlSpine,
   mobileReaderCurlTurnsImmediately,
+  mobileReaderPageTurnTransition,
   mobileReaderSlotBackgrounds,
   nextMobileReaderCurlNavigation,
   normalizeMobileReaderPageTurn,
@@ -19,6 +20,38 @@ import { getMobileReaderSplitWidePageFrame, mobileReaderSplitWideHalfRects } fro
 import { mobileReaderApplyFlip, mobileReaderPageFrameFlip } from "./mobileReaderStageMotion";
 
 const never = () => false;
+
+describe("page turn transition", () => {
+  const base = {
+    pageTurn: "slide" as const,
+    pagedMode: true,
+    reduceMotion: false,
+    longStrip: false,
+    segmented: false,
+    curlAvailable: true,
+    slideAvailable: true,
+  };
+
+  test("slide: Books' slide pager for single pages and spreads alike", () => {
+    expect(mobileReaderPageTurnTransition(base)).toBe("slide");
+    expect(mobileReaderPageTurnTransition({ ...base, pageTurn: "curl" })).toBe("curl");
+  });
+
+  test("Reduce Motion (or not known yet) turns with the slide pager, which cross-fades", () => {
+    expect(mobileReaderPageTurnTransition({ ...base, pageTurn: "curl", reduceMotion: true })).toBe("slide");
+    expect(mobileReaderPageTurnTransition({ ...base, pageTurn: "curl", reduceMotion: null })).toBe("slide");
+    expect(mobileReaderPageTurnTransition({ ...base, reduceMotion: true })).toBe("slide");
+  });
+
+  test("the scrolling list where no native pager can turn", () => {
+    expect(mobileReaderPageTurnTransition({ ...base, pagedMode: false })).toBeNull();
+    expect(mobileReaderPageTurnTransition({ ...base, longStrip: true })).toBeNull();
+    expect(mobileReaderPageTurnTransition({ ...base, segmented: true })).toBeNull();
+    expect(mobileReaderPageTurnTransition({ ...base, slideAvailable: false })).toBeNull();
+    // An older binary with the curl but not the slide pager still curls.
+    expect(mobileReaderPageTurnTransition({ ...base, pageTurn: "curl", slideAvailable: false })).toBe("curl");
+  });
+});
 
 describe("match page slot backgrounds", () => {
   const pages = [{ id: "a" }, { id: "b" }, { id: "c" }];

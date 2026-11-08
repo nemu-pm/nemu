@@ -13,6 +13,7 @@ import {
   glassMaterializeMotionAvailable,
   interfaceOrientationLockAvailable,
   pageCurlAvailable,
+  pageSlideAvailable,
   VerticalBarBehavior,
   WindowLayoutObserver,
 } from "../../modules/nemu-window-layout";
@@ -453,7 +454,7 @@ import {
   nextMobileReaderSpreadTable,
   type MobileReaderPageSize,
 } from "@/lib/mobileReaderPairing";
-import { isMobileReaderPageCurlActive } from "@/lib/mobileReaderPageCurl";
+import { mobileReaderPageTurnTransition } from "@/lib/mobileReaderPageCurl";
 import {
   mobileReaderPairingShiftFor,
   mobileReaderPairingShiftKey,
@@ -3442,15 +3443,18 @@ export function ReaderScreen() {
     pageTurn: readerPageTurn,
     setPageTurn: setReaderPageTurn,
   } = useReaderPagePrefs();
-  // 翻页 › 卷页: paged turns curl like a book (Reduce Motion keeps the slide).
-  const readerPageCurlActive = isMobileReaderPageCurlActive({
+  // 翻页: paged turns curl like a book or slide like Books' (Reduce Motion
+  // cross-fades). Either way a native pager turns the pages, not the list.
+  const readerPageTurnTransition = mobileReaderPageTurnTransition({
     pageTurn: readerPageTurn,
     pagedMode: galleryPagedMode,
     reduceMotion,
     longStrip: useLongStripPresentation,
     segmented: Boolean(currentSegmentedImage),
-    available: pageCurlAvailable,
+    curlAvailable: pageCurlAvailable,
+    slideAvailable: pageSlideAvailable,
   });
+  const readerPageCurlActive = readerPageTurnTransition === "curl";
   // Pages near the reader are measured natively while a spread can show:
   // their size (wide pages are known before they decode) and their binding
   // margins (automatic pairing). Cached per chapter.
@@ -13292,7 +13296,7 @@ export function ReaderScreen() {
         onRevealChrome={() => setShowControls(true)}
         foldGap={readerFoldGap}
         bookTapLayout={readerBookTaps}
-        pageCurl={readerPageCurlActive}
+        pageTurnTransition={readerPageTurnTransition}
         pageBackgroundFor={readerPageBackgroundFor}
         onPageTurningChange={setReaderPageTurning}
         pageOverlaysMounted={japaneseLearningDetections.length > 0}
