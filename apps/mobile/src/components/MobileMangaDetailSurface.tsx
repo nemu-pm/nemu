@@ -630,6 +630,7 @@ function MobileMangaDetailSurfaceClassic({
                   />
                 }
                 uriOwnership="source"
+                holdPreviousWhileLoading
                 source={coverSource}
                 onError={onCoverError ? () => onCoverError() : undefined}
                 onLoad={onCoverLoad ? () => onCoverLoad() : undefined}

@@ -572,6 +572,8 @@ function ListingMangaCard({
               </View>
             }
             uriOwnership="source"
+            holdPreviousWhileLoading
+            holdIdentity={item.id}
             source={coverSource}
             style={styles.sourceIconImage}
           />

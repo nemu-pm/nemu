@@ -638,7 +638,9 @@ function ReaderAfterZoom({
     (next: { uri: string; headers?: Record<string, string> } | null) => {
       if (zoomId || !loadingScreen) return;
       setTitleCover((current) =>
-        current?.uri === next?.uri && JSON.stringify(current?.headers) === JSON.stringify(next?.headers)
+        // A cover on screen stays: a report without one is the entry still loading.
+        (current && !next) ||
+        (current?.uri === next?.uri && JSON.stringify(current?.headers) === JSON.stringify(next?.headers))
           ? current
           : next,
       );
@@ -752,8 +754,9 @@ function ReaderAfterZoom({
       uriOwnership="source"
       cacheKind="cover"
       source={shownCover}
-      // No fade inside the native zoom target.
+      // No fade inside the native zoom target, unless another cover replaces this one.
       fadeIn={false}
+      holdPreviousWhileLoading
       fallback={<View style={[StyleSheet.absoluteFill, styles.coverPlate]} />}
       // Diagnostic: the cover's pixel size (a large one decodes on
       // the main thread as the reader mounts).

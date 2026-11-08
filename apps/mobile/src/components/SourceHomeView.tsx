@@ -270,6 +270,8 @@ function SourceHomeCoverImage({
   if (!imageSource) return null;
   return (
     <MobileCachedImage
+      holdPreviousWhileLoading
+      holdIdentity={title}
       fallback={
         <View
           style={[

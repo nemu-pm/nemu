@@ -400,6 +400,22 @@ export function selectMobileCoverAfterError(
   return candidate;
 }
 
+/**
+ * The cover to paint while the screen has none to ask for yet but will have
+ * (its owner source is still being looked up): the one already on screen.
+ */
+export function selectMobileCoverWhilePending(
+  paint: MobileCoverImageSource | null,
+  options: {
+    pending: boolean;
+    lastLoaded: MobileCoverImageSource | null;
+    lastResolved: MobileCoverImageSource | null;
+  },
+): MobileCoverImageSource | null {
+  if (paint || !options.pending) return paint;
+  return options.lastLoaded ?? options.lastResolved;
+}
+
 export type MobileStickySourceCover = {
   source: MobileCoverImageSource | null;
   onCoverError: () => void;
@@ -419,11 +435,14 @@ export function useMobileStickySourceCover({
   source,
   sources,
   cover,
+  coverPending = false,
   coverHeaders,
 }: {
   source?: InstalledSource | null | undefined;
   sources?: readonly InstalledSource[] | null;
   cover: string | null | undefined;
+  /** `cover` is withheld for now, not gone: the one on screen stays. */
+  coverPending?: boolean;
   /** Headers already resolved for `cover` (listing seed / stored library row). */
   coverHeaders?: Record<string, string> | null;
 }): MobileStickySourceCover {
@@ -468,7 +487,12 @@ export function useMobileStickySourceCover({
     setLastResolved(paint);
   }
 
-  const displayed = selectMobileCoverAfterError(paint?.request ?? null, {
+  const wanted = selectMobileCoverWhilePending(paint?.request ?? null, {
+    pending: coverPending,
+    lastLoaded,
+    lastResolved: lastResolved?.request ?? null,
+  });
+  const displayed = selectMobileCoverAfterError(wanted, {
     failedKey,
     lastLoaded,
   });

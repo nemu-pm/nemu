@@ -271,7 +271,7 @@ export function MobileMangaDetailBooksHero({
   const top = topHeader !== null && !pane && !inColumn;
   const [infoSheetOpen, setInfoSheetOpen] = useState(false);
   const remoteCover = isRemote(coverSource) ? coverSource : null;
-  const tint = useMobileCoverTint(remoteCover);
+  const tint = useMobileCoverTint(remoteCover, undefined, { holdPrevious: true });
   const regionTints = useMobileCoverRegionTints(pane || deferBody ? null : remoteCover);
   const palette = buildMobileCoverTintPalette(tint, scheme);
   // Secondary text holds AA over every pool of the living page.
@@ -588,6 +588,7 @@ export function MobileMangaDetailBooksHero({
     palette.card,
   ];
 
+  const coverHeldBelow = Boolean(remoteCover && underCover && !sameMobileExploreCoverRequest(underCover, remoteCover));
   const coverView = (
     <ConcentricView minimumRadius={COVER_RADIUS}
       style={[
@@ -601,7 +602,7 @@ export function MobileMangaDetailBooksHero({
       ]}
     >
       <View style={styles.coverClip}>
-        {remoteCover && underCover && !sameMobileExploreCoverRequest(underCover, remoteCover) ? (
+        {remoteCover && underCover && coverHeldBelow ? (
           <MobileCachedImage
             uriOwnership="source"
             cacheKind="cover"
@@ -620,9 +621,15 @@ export function MobileMangaDetailBooksHero({
             // native zoom views a native-driven fade can be cut off part way:
             // MobileCachedImage lands it at full opacity after its settle time.
             fadeFromCache={false}
+            holdPreviousWhileLoading
             onError={onCoverError ? () => onCoverError() : undefined}
             onLoad={onCoverLoad ? () => onCoverLoad() : undefined}
-            fallback={<ExploreCoverFallback title={title} width={shownCoverWidth} color={palette.actionSoft} />}
+            // Nothing opaque over the held cover while this one is on its way.
+            fallback={
+              coverHeldBelow ? null : (
+                <ExploreCoverFallback title={title} width={shownCoverWidth} color={palette.actionSoft} />
+              )
+            }
             style={styles.coverImage}
           />
         ) : coverSource ? (

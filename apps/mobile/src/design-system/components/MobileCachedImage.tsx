@@ -17,7 +17,13 @@ import {
   type ImageURISource,
 } from "react-native";
 import { useNemuTheme } from "@/design/useNemuTheme";
-import { resolveMobileHeldImage } from "./mobileCachedImageHold";
+import {
+  createMobileHeldImageStack,
+  markMobileHeldImageLoaded,
+  mobileHeldImageStackIsSettling,
+  settleMobileHeldImageStack,
+  showInMobileHeldImageStack,
+} from "./mobileCachedImageHold";
 import { mobileCachedImageShowsAtOnce } from "./mobileCachedImageReveal";
 import { getMobileCachedImageViewKey } from "./mobileCachedImageViewKey";
 import {
@@ -81,13 +87,14 @@ type MobileCachedImageProps = Omit<ImageProps, "source" | "onError"> & {
    */
   fadeShownSource?: boolean;
   /**
-   * The same title's cover changing URL (a detail refresh brought a new one)
-   * keeps showing the image it already shows until the new one is ready,
-   * instead of the fallback in between: a zoom back to a library cover lands
-   * on the cover, not on a placeholder that the image then replaces. Only for
-   * views that always show one title (never a recycled cell).
+   * The same title's cover changing URL (a source's details brought another
+   * one) keeps the image on screen, in its own native view, until the new one
+   * has decoded, then fades the new one in over it; a new one that fails leaves
+   * it up. A view that can be recycled for another title says which title it
+   * shows with `holdIdentity`.
    */
   holdPreviousWhileLoading?: boolean;
+  holdIdentity?: string;
   /**
    * A paged reader page or the reopen's stand-in: its decoded bitmap is kept
    * in native's small bounded store (iOS; retainMobileDecodedReaderImage).
@@ -146,7 +153,100 @@ function markSourceShown(sourceKey: string) {
   }
 }
 
+/** What one held layer paints: fixed when it comes in, so the layer under a change keeps its look. */
+type MobileHeldImagePaint = Pick<
+  MobileCachedImageProps,
+  "source" | "uriOwnership" | "cacheKey" | "cacheKind" | "blurRadius"
+>;
+
+function heldImagePaintKey({ source, uriOwnership, cacheKey, cacheKind, blurRadius }: MobileHeldImagePaint): string {
+  const headers = source.headers
+    ? Object.keys(source.headers)
+        .sort()
+        .map((name) => `${name}=${source.headers?.[name]}`)
+        .join("&")
+    : "";
+  return [uriOwnership, cacheKind ?? "", cacheKey ?? "", blurRadius ?? "", source.uri.length, source.uri, headers].join("|");
+}
+
+/**
+ * Cover views: never back to the fallback once an image has shown
+ * (`mobileCachedImageHold`). Off, the view below is all there is.
+ */
 export function MobileCachedImage({
+  holdPreviousWhileLoading = false,
+  holdIdentity,
+  ...props
+}: MobileCachedImageProps) {
+  return holdPreviousWhileLoading ? (
+    <MobileHeldCachedImage {...props} holdIdentity={holdIdentity} />
+  ) : (
+    <MobileCachedImageView {...props} />
+  );
+}
+
+function MobileHeldCachedImage({
+  holdIdentity,
+  source,
+  uriOwnership,
+  cacheKey,
+  cacheKind,
+  blurRadius,
+  fallback,
+  fadeIn,
+  fadeFromCache,
+  fadeShownSource,
+  fadeDurationMs = 240,
+  onLoad,
+  onError,
+  style,
+  ...props
+}: Omit<MobileCachedImageProps, "holdPreviousWhileLoading">) {
+  const paint: MobileHeldImagePaint = { source, uriOwnership, cacheKey, cacheKind, blurRadius };
+  const paintKey = heldImagePaintKey(paint);
+  const [storedStack, setStack] = useState(() => createMobileHeldImageStack(holdIdentity, paintKey, paint));
+  // During render (React's "adjust state while rendering"): the frame that
+  // brings a new source already has the old image under it.
+  const stack = showInMobileHeldImageStack(storedStack, holdIdentity, paintKey, paint);
+  if (stack !== storedStack) setStack(stack);
+  const top = stack.layers[stack.layers.length - 1]!;
+  const settling = mobileHeldImageStackIsSettling(stack);
+  const settlingKey = settling ? top.key : null;
+  useEffect(() => {
+    if (!settlingKey) return undefined;
+    const timer = setTimeout(
+      () => setStack(settleMobileHeldImageStack),
+      Math.max(fadeDurationMs, FADE_SETTLE_MS),
+    );
+    return () => clearTimeout(timer);
+  }, [fadeDurationMs, settlingKey]);
+  return (
+    <View style={[styles.fadeShell, style]}>
+      {stack.layers.map((layer) => (
+        <MobileCachedImageView
+          {...props}
+          {...layer.paint}
+          key={layer.key}
+          style={StyleSheet.absoluteFill}
+          fallback={layer.swap ? null : fallback}
+          // A swap always fades, whatever a first image does: it replaces
+          // something on screen. (Its shell stays clear until it has decoded.)
+          fadeIn={layer.swap ? true : fadeIn}
+          fadeFromCache={layer.swap ? true : fadeFromCache}
+          fadeShownSource={layer.swap ? true : fadeShownSource}
+          fadeDurationMs={fadeDurationMs}
+          onLoad={(event) => {
+            setStack((current) => markMobileHeldImageLoaded(current, layer.key));
+            if (layer.key === top.key) onLoad?.(event);
+          }}
+          onError={layer.key === top.key ? onError : undefined}
+        />
+      ))}
+    </View>
+  );
+}
+
+function MobileCachedImageView({
   source: rawSource,
   uriOwnership,
   cacheKey,
@@ -161,10 +261,9 @@ export function MobileCachedImage({
   fadeDurationMs = 240,
   fadeFromCache = true,
   fadeShownSource = false,
-  holdPreviousWhileLoading = false,
   retainDecoded = false,
   ...props
-}: MobileCachedImageProps) {
+}: Omit<MobileCachedImageProps, "holdPreviousWhileLoading" | "holdIdentity">) {
   const { reduceMotion } = useNemuTheme();
   // Persisted references to imported-archive pages resolve against the current
   // documents directory (the container path changes across updates/restores).
@@ -526,18 +625,9 @@ export function MobileCachedImage({
     ],
   );
 
-  const [shownImage, setShownImage] = useState<{
-    sourceKey: string;
-    source: ImageURISource;
-  } | null>(null);
   const handleImageLoad = useCallback<NonNullable<ImageProps["onLoad"]>>(
     (event) => {
       markSourceShown(sourceKey);
-      if (holdPreviousWhileLoading && imageSource) {
-        setShownImage((current) =>
-          current?.sourceKey === sourceKey ? current : { sourceKey, source: imageSource },
-        );
-      }
       if (activeSourceKeyRef.current === sourceKey) {
         setFailedSourceKey((current) =>
           current === sourceKey ? null : current,
@@ -572,9 +662,7 @@ export function MobileCachedImage({
     [
       fadeDurationMs,
       fadeFromCache,
-      holdPreviousWhileLoading,
       imageFadeRef,
-      imageSource,
       onLoad,
       revealedFromCacheAtRender,
       shownAtMount,
@@ -599,20 +687,6 @@ export function MobileCachedImage({
     if (sourceChanged) imageFadeRef.setValue(0);
   }, [imageFadeRef, skipFade, sourceKey]);
 
-  const heldImage = resolveMobileHeldImage({
-    hold: holdPreviousWhileLoading,
-    hasImage: Boolean(imageSource),
-    failed,
-    sourceKey,
-    shown: shownImage,
-  });
-  if (heldImage) {
-    return (
-      <View style={[styles.fadeShell, style]}>
-        <Image fadeDuration={0} {...props} source={heldImage} style={styles.fadeImage} />
-      </View>
-    );
-  }
   if (!imageSource && fallback !== undefined) return fallback;
 
   return (

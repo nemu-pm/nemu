@@ -507,6 +507,8 @@ function LiveMangaCard({
               </View>
             }
             uriOwnership="source"
+            holdPreviousWhileLoading
+            holdIdentity={item.id}
             source={{ uri: item.cover, headers: item.coverHeaders }}
             style={styles.sourceIconImage}
           />

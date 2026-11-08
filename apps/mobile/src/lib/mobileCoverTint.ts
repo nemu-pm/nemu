@@ -144,6 +144,17 @@ export function mobileContrastRatio(a: MobileCoverRgb, b: MobileCoverRgb): numbe
 }
 
 /**
+ * The tint to show for a cover: its own when known, else (on a view that holds
+ * one title's colour across a new cover) the one already on screen.
+ */
+export function resolveMobileHeldCoverTint(
+  known: MobileCoverRgb | null | undefined,
+  held: MobileCoverRgb | null,
+): MobileCoverRgb | null {
+  return known ?? held;
+}
+
+/**
  * Picks a representative colour from RGBA pixels (a tiny downsampled cover).
  * Chromatic pixels vote into twelve hue buckets, each pixel weighted mostly
  * by being there (area) and partly by saturation and closeness to mid

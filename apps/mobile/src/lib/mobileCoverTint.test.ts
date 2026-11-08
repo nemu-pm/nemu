@@ -5,6 +5,7 @@ import {
   mobileHslToRgb,
   mobileRgbToHsl,
   pickMobileCoverTint,
+  resolveMobileHeldCoverTint,
   type MobileCoverRgb,
 } from "./mobileCoverTint";
 import { parseRgb } from "./mobileCoverMesh";
@@ -103,5 +104,20 @@ describe("mobile cover tint", () => {
     const grey = { r: 120, g: 120, b: 122 };
     expect(parseRgb(buildMobileCoverTintPalette(grey, "light").primary).r).toBeLessThan(40);
     expect(parseRgb(buildMobileCoverTintPalette(grey, "dark").primary).r).toBeGreaterThan(230);
+  });
+});
+
+describe("resolveMobileHeldCoverTint", () => {
+  const held = { r: 120, g: 20, b: 20 };
+  const own = { r: 20, g: 120, b: 20 };
+
+  test("another cover's unknown or unreadable tint keeps the colour on screen", () => {
+    expect(resolveMobileHeldCoverTint(undefined, held)).toBe(held);
+    expect(resolveMobileHeldCoverTint(null, held)).toBe(held);
+  });
+
+  test("its own tint replaces it once known", () => {
+    expect(resolveMobileHeldCoverTint(own, held)).toBe(own);
+    expect(resolveMobileHeldCoverTint(undefined, null)).toBeNull();
   });
 });

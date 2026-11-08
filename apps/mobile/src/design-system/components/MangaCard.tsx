@@ -95,8 +95,9 @@ export const MangaCard = memo(function MangaCard({
           }
           uriOwnership="source"
           fadeIn={wrapCover ? false : undefined}
-          // A zoom source: the zoom back lands on the cover it already shows.
-          holdPreviousWhileLoading={Boolean(wrapCover)}
+          // A refreshed cover replaces the one on screen; a zoom back lands on it.
+          holdPreviousWhileLoading
+          holdIdentity={item.id}
           source={{ uri: item.cover, headers: item.coverHeaders }}
           style={styles.coverImage}
         />

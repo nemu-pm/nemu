@@ -32,8 +32,15 @@ export function ExploreCoverImage({
     failed: false,
   });
   const { loaded, failed } = report.uri === uri ? report : { loaded: false, failed: false };
+  // This title's image has shown: the view holds it through another URL.
+  const [shownTitle, setShownTitle] = useState<string | null>(null);
   const [width, setWidth] = useState(120);
-  const state = resolveMobileExploreCoverState({ hasSource: Boolean(source), loaded, failed });
+  const state = resolveMobileExploreCoverState({
+    hasSource: Boolean(source),
+    loaded,
+    failed,
+    imageHeld: shownTitle === title,
+  });
   const pulse = useSkeletonPulse(reduceMotion === true, state === "loading");
   const pulseStyle = useAnimatedStyle(() => ({ opacity: pulse.value }));
   const onLayout = (event: LayoutChangeEvent) => setWidth(event.nativeEvent.layout.width);
@@ -51,8 +58,13 @@ export function ExploreCoverImage({
             <MobileCachedImage
               uriOwnership="source"
               source={source}
+              holdPreviousWhileLoading
+              holdIdentity={title}
               fallback={<View style={StyleSheet.absoluteFill} />}
-              onLoad={() => setReport({ uri, loaded: true, failed: false })}
+              onLoad={() => {
+                setReport({ uri, loaded: true, failed: false });
+                setShownTitle(title);
+              }}
               onError={() => setReport({ uri, loaded: false, failed: true })}
               style={styles.fill}
             />

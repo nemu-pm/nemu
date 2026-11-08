@@ -159,6 +159,7 @@ function BarTitleRow({
               cacheKind="cover"
               source={cover}
               fadeIn={false}
+              holdPreviousWhileLoading
               style={styles.image}
             />
           )}

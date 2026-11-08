@@ -3,7 +3,7 @@ import { AlphaType, ColorType, Skia } from "@shopify/react-native-skia";
 import { File, Paths } from "expo-file-system";
 import { resolveCachedMobileImageUri } from "./mobileImageCache";
 import { waitForMobileLaunchSourceWork } from "./mobileLaunchSourceWork";
-import { pickMobileCoverTint, type MobileCoverRgb } from "./mobileCoverTint";
+import { pickMobileCoverTint, resolveMobileHeldCoverTint, type MobileCoverRgb } from "./mobileCoverTint";
 import { pickMobileCoverRegionTints } from "./mobileCoverMesh";
 import {
   MOBILE_COVER_PERSIST_DELAY_MS,
@@ -229,11 +229,14 @@ function sameTint(a: MobileCoverRgb | null, b: MobileCoverRgb | null): boolean {
  * The cover's tint colour, or `null` while none is known (and for covers that
  * cannot be sampled). A tint persisted by an earlier session is returned on
  * the first render; the cover is still re-sampled once per session and the
- * value only changes if the cover did.
+ * value only changes if the cover did. `holdPrevious` (a view that always shows
+ * one title) keeps the tint it has while another cover of the title is sampled,
+ * and if that sample fails, instead of the fallback colour in between.
  */
 export function useMobileCoverTint(
   source: CoverTintSource,
   alias?: string,
+  { holdPrevious = false }: { holdPrevious?: boolean } = {},
 ): MobileCoverRgb | null {
   const uri = source?.uri ?? null;
   const headersKey = source?.headers ? JSON.stringify(source.headers) : "";
@@ -243,7 +246,9 @@ export function useMobileCoverTint(
     tint: getMobileCoverTintSync(source, alias) ?? null,
   }));
   const current =
-    state.key === key ? state.tint : (getMobileCoverTintSync(source, alias) ?? null);
+    state.key === key
+      ? state.tint
+      : resolveMobileHeldCoverTint(getMobileCoverTintSync(source, alias), holdPrevious ? state.tint : null);
 
   useEffect(() => {
     let cancelled = false;
@@ -255,15 +260,16 @@ export function useMobileCoverTint(
     void loadMobileCoverTint(request, alias).then((sampled) => {
       if (cancelled) return;
       // A failed sample keeps whatever tint is already known.
-      const tint = sampled ?? getMobileCoverTintSync(request, alias) ?? null;
-      setState((previous) =>
-        previous.key === key && sameTint(previous.tint, tint) ? previous : { key, tint },
-      );
+      const known = sampled ?? getMobileCoverTintSync(request, alias);
+      setState((previous) => {
+        const tint = resolveMobileHeldCoverTint(known, holdPrevious ? previous.tint : null);
+        return previous.key === key && sameTint(previous.tint, tint) ? previous : { key, tint };
+      });
     });
     return () => {
       cancelled = true;
     };
-  }, [alias, headersKey, key, uri]);
+  }, [alias, headersKey, holdPrevious, key, uri]);
 
   return current;
 }
@@ -297,7 +303,11 @@ function loadMobileCoverRegionTints(
   return next;
 }
 
-/** The cover's four quarter tints, or `null` until sampled (or when it cannot be). */
+/**
+ * The cover's four quarter tints, or `null` until sampled (or when it cannot
+ * be). Its one user shows one title: another cover of the title keeps the tints
+ * it has until its own are known, and if they cannot be.
+ */
 export function useMobileCoverRegionTints(source: CoverTintSource): MobileCoverRgb[] | null {
   const uri = source?.uri ?? null;
   const headersKey = source?.headers ? JSON.stringify(source.headers) : "";
@@ -314,11 +324,14 @@ export function useMobileCoverRegionTints(source: CoverTintSource): MobileCoverR
       headers: headersKey ? (JSON.parse(headersKey) as Record<string, string>) : undefined,
     };
     void loadMobileCoverRegionTints(request).then((regions) => {
-      if (!cancelled) setState({ key, regions });
+      if (cancelled) return;
+      setState((previous) => ({ key, regions: regions ?? previous.regions }));
     });
     return () => {
       cancelled = true;
     };
   }, [headersKey, key, uri]);
-  return state.key === key ? state.regions : null;
+  if (state.key === key) return state.regions;
+  if (!source?.uri) return null;
+  return regionCache.get(cacheKey(source)) ?? state.regions;
 }

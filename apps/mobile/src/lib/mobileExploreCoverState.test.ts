@@ -5,6 +5,11 @@ describe("resolveMobileExploreCoverState", () => {
   test("waits while the image loads", () => {
     expect(resolveMobileExploreCoverState({ hasSource: true, loaded: false, failed: false })).toBe("loading");
   });
+  test("a title whose image has shown keeps it through a new URL loading or failing", () => {
+    expect(resolveMobileExploreCoverState({ hasSource: true, loaded: false, failed: false, imageHeld: true })).toBe("loaded");
+    expect(resolveMobileExploreCoverState({ hasSource: true, loaded: false, failed: true, imageHeld: true })).toBe("loaded");
+    expect(resolveMobileExploreCoverState({ hasSource: false, loaded: false, failed: false, imageHeld: true })).toBe("failed");
+  });
   test("shows the image once loaded", () => {
     expect(resolveMobileExploreCoverState({ hasSource: true, loaded: true, failed: false })).toBe("loaded");
   });

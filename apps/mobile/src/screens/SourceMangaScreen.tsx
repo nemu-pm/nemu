@@ -927,6 +927,7 @@ export function SourceMangaScreen() {
     // through this page's (possibly wrong) source first.
     cover:
       libraryEntry && allInstalledSources.loading ? undefined : cover,
+    coverPending: Boolean(libraryEntry && allInstalledSources.loading),
     coverHeaders: seedCoverHeaders,
   });
   const chapters = useMemo(

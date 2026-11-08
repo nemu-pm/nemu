@@ -51,8 +51,10 @@ export function ReaderCoverView({
             uriOwnership={image.uriOwnership}
             cacheKind={image.cacheKind}
             source={{ uri: image.uri, headers: image.headers }}
-            // The layer itself fades; the image must not fade again inside it.
+            // The layer itself fades; the image must not fade again inside it
+            // (only when a sharper cover replaces the one on screen).
             fadeIn={false}
+            holdPreviousWhileLoading
             fallback={<View style={[StyleSheet.absoluteFill, styles.backdrop]} />}
             blurRadius={image.blurred ? MOBILE_READER_COVER_VIEW_PAGE_BLUR : undefined}
             resizeMode="cover"
