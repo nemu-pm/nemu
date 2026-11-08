@@ -660,9 +660,9 @@ export const mobileStringsJa: MobileStrings = {
     loadingPages: "ソースファイルからページを読み込んでいます。",
     fetchingPages: "ページを取得中…",
     readingDirection: "読み方向",
+    readingDirectionDescription: "ページの順序とスクロール",
     automatic: "自動",
-    readingModeFooter:
-      "「自動」はソースが作品ごとに指定する方向で読み、指定がない場合は右から左で読みます。右から左・左から右・スクロールはすべての作品に適用されます。リーダーで個別に変更した作品は、その設定のままです。",
+    readingModeFooter: "自動：ソースに合わせた向きで読みます。",
     rtl: "右から左",
     ltr: "左から右",
     chapterList: "話一覧",

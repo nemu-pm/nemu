@@ -61,7 +61,7 @@ import { MobileAboutSheet } from "@/components/MobileAboutSheet";
 import { MobileAgentStatusCard } from "@/components/MobileAgentStatusCard";
 import { MobileCloudSyncCard } from "@/components/MobileCloudSyncCard";
 import { AccountScreen } from "./AccountScreen";
-import { ExploreSettingsActionGroup } from "@/components/explore/ExploreSettingsActionGroup";
+import { ExploreSettingsActionGroup, ExploreSettingsFootnote } from "@/components/explore/ExploreSettingsActionGroup";
 import { MobileConfirmationSheet } from "@/components/MobileConfirmationSheet";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import { MobileSettingsSkeleton } from "@/components/MobileSettingsSkeleton";
@@ -3406,57 +3406,59 @@ function SettingsScreenContent({
 
               {activeSection === "reader" ? (
                 <>
-                  <SettingsSurface
-                    style={styles.rowShell}
-                    contentStyle={styles.readerRow}
-                  >
-                    <SettingsGroupHeader
-                      icon="book-outline"
-                      // The new design names the card after its control, so
-                      // it keeps a heading like Plugins and Haptics & Cues
-                      // below it instead of repeating the page's title.
-                      title={
-                        mobileDesignExploreFlag
-                          ? strings.reader.readingDirection
-                          : strings.reader.title
-                      }
-                      description={strings.reader.description}
-                      pageTitle={shownPageTitle}
-                    />
-                    <View style={styles.nativeSegmentedShell}>
-                      <SettingsSegmentedPicker
-                        accessibilityLabel={strings.reader.title}
-                        disabled={
-                          settingsActionBusy &&
-                          settingsMutationKey !== "reading-mode"
+                  <View style={styles.experimentalPage}>
+                    <SettingsSurface
+                      style={styles.rowShell}
+                      contentStyle={styles.readerRow}
+                    >
+                      <SettingsGroupHeader
+                        icon="book-outline"
+                        // The new design names the card after its control, so
+                        // it keeps a heading like Plugins and Haptics & Cues
+                        // below it instead of repeating the page's title.
+                        title={
+                          mobileDesignExploreFlag
+                            ? strings.reader.readingDirection
+                            : strings.reader.title
                         }
-                        interactionLocked={
-                          settingsMutationKey === "reading-mode"
+                        description={
+                          mobileDesignExploreFlag
+                            ? strings.reader.readingDirectionDescription
+                            : strings.reader.description
                         }
-                        options={readingModes.map((item) => ({
-                          value: item.mode,
-                          label: strings.reader[item.labelKey],
-                        }))}
-                        value={mode}
-                        onSelect={(nextMode) => {
-                          if (
-                            !canRunMobileSettingsSelection({
-                              selected: nextMode === mode,
-                              disabled: settingsActionBusy,
-                            })
-                          ) {
-                            return;
-                          }
-                          void selectReadingMode(nextMode);
-                        }}
+                        pageTitle={shownPageTitle}
                       />
-                    </View>
-                  </SettingsSurface>
-                  <NemuText
-                    style={[styles.experimentalFooter, { color: tokens.mutedForeground }]}
-                  >
-                    {strings.reader.readingModeFooter}
-                  </NemuText>
+                      <View style={styles.nativeSegmentedShell}>
+                        <SettingsSegmentedPicker
+                          accessibilityLabel={strings.reader.title}
+                          disabled={
+                            settingsActionBusy &&
+                            settingsMutationKey !== "reading-mode"
+                          }
+                          interactionLocked={
+                            settingsMutationKey === "reading-mode"
+                          }
+                          options={readingModes.map((item) => ({
+                            value: item.mode,
+                            label: strings.reader[item.labelKey],
+                          }))}
+                          value={mode}
+                          onSelect={(nextMode) => {
+                            if (
+                              !canRunMobileSettingsSelection({
+                                selected: nextMode === mode,
+                                disabled: settingsActionBusy,
+                              })
+                            ) {
+                              return;
+                            }
+                            void selectReadingMode(nextMode);
+                          }}
+                        />
+                      </View>
+                    </SettingsSurface>
+                    <ExploreSettingsFootnote>{strings.reader.readingModeFooter}</ExploreSettingsFootnote>
+                  </View>
 
                   <SettingsSurface
                     style={styles.pluginSectionShell}

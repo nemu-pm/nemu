@@ -24,6 +24,16 @@ const ROW_HEIGHT = 48;
  * Replaces a stack of full-width bordered buttons, which read as three
  * separate cards; the explanation goes under the group as its footer.
  */
+/** The note under a settings group, 8pt below it. */
+export function ExploreSettingsFootnote({ children }: { children: string }) {
+  const { tokens } = useNemuTheme();
+  return (
+    <NemuText color={tokens.mutedForeground} style={styles.footer} variant="caption">
+      {children}
+    </NemuText>
+  );
+}
+
 export function ExploreSettingsActionGroup({
   actions,
   footer,
@@ -68,11 +78,7 @@ export function ExploreSettingsActionGroup({
           );
         })}
       </View>
-      {footer ? (
-        <NemuText color={tokens.mutedForeground} style={styles.footer} variant="caption">
-          {footer}
-        </NemuText>
-      ) : null}
+      {footer ? <ExploreSettingsFootnote>{footer}</ExploreSettingsFootnote> : null}
     </View>
   );
 }

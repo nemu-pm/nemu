@@ -709,6 +709,18 @@ describe("mobile i18n helpers", () => {
   });
 });
 
+describe("mobile i18n reading direction", () => {
+  test("the Auto segment and its one-line footnote stay short", () => {
+    const words = (language: "en" | "zh" | "ja") => getMobileStrings(language).reader;
+    expect(words("en").automatic).toBe("Auto");
+    expect(words("zh").automatic).toBe("自动");
+    expect(words("ja").automatic).toBe("自動");
+    expect(words("en").readingModeFooter).toBe("Auto follows each title's source.");
+    expect(words("zh").readingModeFooter).toBe("自动：按来源的方向阅读。");
+    expect(words("ja").readingModeFooter).toBe("自動：ソースに合わせた向きで読みます。");
+  });
+});
+
 describe("mobile i18n module budget", () => {
   // The three locale catalogs live in `mobileI18n.{en,zh,ja}.ts` and are
   // `require`d lazily. This stem must stay types + helpers only: anything that
