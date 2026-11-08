@@ -1,6 +1,6 @@
 /**
  * The reader's cover view on the iPhone Duo's outer display (as Apple Books
- * there): a button under Back in the vertical bar swaps the page for the
+ * there): a button heading the vertical bar's actions swaps the page for the
  * title's cover, full bleed across the whole display, and back. A session
  * choice only: every reader opens on the page.
  */
@@ -13,12 +13,6 @@ export type MobileReaderCoverViewImage = {
   /** A stand-in for a missing cover (the chapter's first page), blurred. */
   blurred: boolean;
 };
-
-/** SF Symbols of the toggle: the closed book shows the cover, the pages go back to reading. */
-export const MOBILE_READER_COVER_VIEW_SYMBOLS = {
-  showCover: "book.closed",
-  showPages: "doc.text",
-} as const;
 
 /** The crossfade between the page and the cover; Reduce Motion swaps at once. */
 export const MOBILE_READER_COVER_VIEW_FADE_MS = 220;

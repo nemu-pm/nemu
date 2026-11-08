@@ -224,7 +224,6 @@ import { ReaderDisplaySettingsPopover } from "@/components/reader/ReaderDisplayS
 import { ReaderCoverView } from "@/components/reader/ReaderCoverView";
 import { useReaderTitleCover } from "@/components/reader/useReaderTitleCover";
 import {
-  MOBILE_READER_COVER_VIEW_SYMBOLS,
   mobileReaderCoverViewAvailable,
   mobileReaderCoverViewBarChromeShown,
   mobileReaderCoverViewFadeMs,
@@ -12978,7 +12977,8 @@ export function ReaderScreen() {
       {/* Wherever the reader keeps the system vertical bar (the Duo outer
           display, a Split View half) Back and the actions are real toolbar
           items in it: Back alone on top of the vertical axis, then the
-          actions group — the capsule chrome's own Ionicons, tinted like the
+          actions group (the cover view's toggle first) — the capsule
+          chrome's own Ionicons, tinted like the
           capsule glyphs, on dark glass (`appearanceCoversBars` below).
           Everywhere else (the Duo inner display full-screen, phones, tablets,
           Android) they are our horizontal capsules. */}
@@ -13000,13 +13000,17 @@ export function ReaderScreen() {
               hidden={readerBarItemsHidden}
               onPress={() => navigateBack()}
             />
-            {/* Outer display only: under Back, the cover (a closed book) and
-                back to the page (pages), as Apple Books there. */}
+          </Stack.Toolbar>
+          {/* On the cover only Back and the toggle stay (the actions act on the page). */}
+          <Stack.Toolbar placement="right" tintColor={READER_CAPSULE_COLORS.primaryText}>
+            {/* Outer display only: the cover (a book) and back to the page,
+                as Apple Books there; first, so it keeps its place on the
+                cover when the other actions go. */}
             {readerCoverViewAvailable ? (
               <Stack.Toolbar.Button
                 icon={readerCoverViewShown
-                  ? MOBILE_READER_COVER_VIEW_SYMBOLS.showPages
-                  : MOBILE_READER_COVER_VIEW_SYMBOLS.showCover}
+                  ? readerBarIconImages?.coverViewShowPages ?? "doc.text"
+                  : readerBarIconImages?.coverViewShowCover ?? "book.closed"}
                 iconRenderingMode="template"
                 tintColor={READER_CAPSULE_COLORS.primaryText}
                 accessibilityLabel={readerCoverViewShown
@@ -13016,9 +13020,6 @@ export function ReaderScreen() {
                 onPress={toggleReaderCoverView}
               />
             ) : null}
-          </Stack.Toolbar>
-          {/* On the cover only Back and the toggle stay (the actions act on the page). */}
-          <Stack.Toolbar placement="right" tintColor={READER_CAPSULE_COLORS.primaryText}>
             {japaneseLearningReaderPlugin ? (
               <Stack.Toolbar.Button
                 icon={readerBarIconImages?.detectText ?? "text.viewfinder"}

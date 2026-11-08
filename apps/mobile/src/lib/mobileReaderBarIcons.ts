@@ -13,6 +13,9 @@ export const MOBILE_READER_CHROME_GLYPHS = {
   detectText: { name: "scan-outline", size: 18 },
   nemuChat: { name: "chatbubbles-outline", size: 18 },
   settings: { name: "settings-outline", size: 20 },
+  /** The outer display's cover view: a book shows the cover, the page goes back to reading. */
+  coverViewShowCover: { name: "book-outline", size: 20 },
+  coverViewShowPages: { name: "document-text-outline", size: 20 },
 } as const satisfies Record<string, MobileReaderChromeGlyph>;
 
 /**
