@@ -192,6 +192,8 @@ type MobileReaderGalleryProps = {
   accessibilityHidden?: boolean;
   /** Retries the failed pages on screen; present only while there are some. */
   onAccessibilityRetry?: () => void;
+  /** That action's name: "Retry these pages" with more than one failed. */
+  accessibilityRetryLabel?: string;
   backgroundColor: string;
   bottomPadding: number;
   chapter: ChapterSummary;
@@ -645,6 +647,7 @@ export function MobileReaderGallery({
   accessibilityLabel,
   accessibilityHidden = false,
   onAccessibilityRetry,
+  accessibilityRetryLabel,
   backgroundColor,
   bottomPadding,
   chapter,
@@ -2641,7 +2644,7 @@ export function MobileReaderGallery({
       ? [
           { name: "activate", label: accessibilityLabel },
           ...(onAccessibilityRetry
-            ? [{ name: "retryPage", label: strings.reader.pageImageRetry }]
+            ? [{ name: "retryPage", label: accessibilityRetryLabel ?? strings.reader.pageImageRetry }]
             : []),
           ...(readerAccessibilityPageTurnEnabled
             ? [

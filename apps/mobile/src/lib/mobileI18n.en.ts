@@ -685,6 +685,7 @@ export const mobileStringsEn: MobileStrings = {
     pageLoadingUnavailable: "Page loading unavailable",
     pageTitle: "Page {{page}}",
     pageValue: "Page {{page}} of {{total}}",
+    pagesValue: "Pages {{first}}–{{last}} of {{total}}",
     pageSlider: "Page slider",
     pageWidth: "Page width",
     moreSettings: "More",
@@ -842,6 +843,7 @@ export const mobileStringsEn: MobileStrings = {
     endOfChapterDismiss: "Close end of chapter",
     errorDetailWithReason: "{{message}} ({{reason}})",
     pageImageRetry: "Retry this page",
+    pageImagesRetry: "Retry these pages",
     openSourceSettings: "Open source settings",
     sourceBlockedHint:
       "This source blocked the request. Reinstalling it or updating its settings may help.",

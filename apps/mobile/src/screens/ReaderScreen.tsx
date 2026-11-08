@@ -5212,13 +5212,14 @@ export function ReaderScreen() {
     !galleryPagedMode &&
     pagesState.status === "ready" &&
     !readerProgressRestoreComplete;
+  const readerChromeSpreadPageNumbers = readerChromeSpread?.map((index) =>
+    readerRoutePageForDisplayIndex(index, pageCount, mode),
+  );
   const readerTopPageCountLabel = readerOpeningCounterHidden ? null : readerChromePageCountLabel({
     pagesStatus: pagesState.status,
     pageNumber: readerChromeSourcePageNumber,
     pageCount,
-    spreadPageNumbers: readerChromeSpread?.map((index) =>
-      readerRoutePageForDisplayIndex(index, pageCount, mode),
-    ),
+    spreadPageNumbers: readerChromeSpreadPageNumbers,
   });
   // Scroll reading: the counter follows the page under the screen's centre
   // while the strip moves (the live page store; only the label repaints),
@@ -13081,6 +13082,9 @@ export function ReaderScreen() {
         onStageOriginChange={setReaderStageWindowOrigin}
         accessibilityHidden={endOfChapterPromptVisible}
         onAccessibilityRetry={readerVisibleFailures.length > 0 ? retryReaderVisibleFailures : undefined}
+        accessibilityRetryLabel={
+          readerVisibleFailures.length > 1 ? strings.reader.pageImagesRetry : strings.reader.pageImageRetry
+        }
         accessibilityLabel={formatReaderStageAccessibilityLabel(
           isTwoPageMode ? visibleProgressPageIndex : clampedPageIndex,
           pageCount,
@@ -13093,6 +13097,7 @@ export function ReaderScreen() {
               )}. ${stageActionLabel}`
             : stageActionLabel,
           strings,
+          isTwoPageMode ? readerChromeSpreadPageNumbers : undefined,
         )}
         backgroundColor={readerBackgroundColor}
         bottomPadding={

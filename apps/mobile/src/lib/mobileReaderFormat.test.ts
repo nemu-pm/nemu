@@ -6,7 +6,7 @@ import type {
   LocalSourceLink,
   ReadingMode,
 } from "@/data/schema";
-import type { MobileStrings } from "@/lib/mobileI18n";
+import { getMobileStrings, type MobileStrings } from "@/lib/mobileI18n";
 import {
   chapterDirectionLabel,
   chapterFromState,
@@ -251,6 +251,25 @@ describe("formatReaderStageAccessibilityLabel", () => {
   test("interpolates the page value and action", () => {
     expect(
       formatReaderStageAccessibilityLabel(0, 10, "manga" as ReadingMode, "Open", strings),
+    ).toBe("Page 1 / 10 — Open");
+  });
+
+  test("a spread reads both of its pages", () => {
+    const real = getMobileStrings("en");
+    expect(
+      formatReaderStageAccessibilityLabel(9, 37, "manga" as ReadingMode, "Hide reader controls", real, [10, 9]),
+    ).toBe("Pages 9–10 of 37. Hide reader controls");
+    expect(
+      formatReaderStageAccessibilityLabel(9, 37, "manga" as ReadingMode, "隐藏阅读器控件", getMobileStrings("zh"), [9, 10]),
+    ).toBe("第 9–10 页，共 37 页。隐藏阅读器控件");
+    expect(
+      formatReaderStageAccessibilityLabel(9, 37, "manga" as ReadingMode, "操作", getMobileStrings("ja"), [9, 10]),
+    ).toBe("37ページ中9〜10ページ。操作");
+  });
+
+  test("a spread showing one page (a cover or wide page) reads that page", () => {
+    expect(
+      formatReaderStageAccessibilityLabel(0, 10, "manga" as ReadingMode, "Open", strings, [1]),
     ).toBe("Page 1 / 10 — Open");
   });
 });

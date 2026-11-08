@@ -33,6 +33,7 @@ import {
   animation,
   Animation,
   accessibilityLabel as swiftAccessibilityLabel,
+  accessibilityValue as swiftAccessibilityValue,
   defaultScrollAnchor,
   disabled as swiftDisabled,
   font,
@@ -516,6 +517,8 @@ export function ReaderSettingsNativePopover({
               modifiers={[
                 formRowIcon(shiftPairingSystemImage, { actionRow: true }),
                 foregroundStyle({ type: "hierarchical", style: "primary" }),
+                // VoiceOver hears whether the shift is on (the icon alone shows it).
+                swiftAccessibilityValue(pairingShifted ? strings.reader.pluginValueOn : strings.reader.pluginValueOff),
                 ...busyModifiers,
               ]}
             />

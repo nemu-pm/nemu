@@ -574,6 +574,8 @@ export type MobileStrings = {
     pageLoadingUnavailable: string;
     pageTitle: string;
     pageValue: string;
+    /** A spread's two pages, for VoiceOver: "Pages 9–10 of 37". */
+    pagesValue: string;
     pageSlider: string;
     pageWidth: string;
     /** Reader settings: the secondary section below the layout controls. */
@@ -728,6 +730,8 @@ export type MobileStrings = {
     endOfChapterDismiss: string;
     errorDetailWithReason: string;
     pageImageRetry: string;
+    /** The same, with more than one page on screen failed (a spread). */
+    pageImagesRetry: string;
     openSourceSettings: string;
     sourceBlockedHint: string;
   };

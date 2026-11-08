@@ -112,10 +112,17 @@ export function formatReaderStageAccessibilityLabel(
   mode: ReadingMode,
   action: string,
   strings: MobileStrings,
+  /** The source page numbers of the spread on screen: both are read ("Pages 9–10 of 37"). */
+  spreadPageNumbers?: readonly number[],
 ): string {
   if (pageCount <= 0) return action;
+  const first = spreadPageNumbers?.length ? Math.min(...spreadPageNumbers) : 0;
+  const last = spreadPageNumbers?.length ? Math.max(...spreadPageNumbers) : 0;
   return formatMobileString(strings.reader.stageAccessibility, {
-    page: formatReaderPageValue(pageIndex, pageCount, mode, strings),
+    page:
+      last > first
+        ? formatMobileString(strings.reader.pagesValue, { first, last, total: Math.max(1, pageCount) })
+        : formatReaderPageValue(pageIndex, pageCount, mode, strings),
     action,
   });
 }

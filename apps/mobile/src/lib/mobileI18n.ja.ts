@@ -689,6 +689,7 @@ export const mobileStringsJa: MobileStrings = {
     pageLoadingUnavailable: "ページ読み込みを利用できません",
     pageTitle: "{{page}}ページ",
     pageValue: "{{total}}ページ中{{page}}ページ",
+    pagesValue: "{{total}}ページ中{{first}}〜{{last}}ページ",
     pageSlider: "ページスライダー",
     pageWidth: "ページ幅",
     moreSettings: "その他",
@@ -849,6 +850,7 @@ export const mobileStringsJa: MobileStrings = {
     endOfChapterDismiss: "話の終わりの表示を閉じる",
     errorDetailWithReason: "{{message}}（{{reason}}）",
     pageImageRetry: "このページを再試行",
+    pageImagesRetry: "これらのページを再試行",
     openSourceSettings: "ソース設定を開く",
     sourceBlockedHint:
       "ソースがリクエストをブロックしました。再インストールまたは設定の更新をお試しください。",
