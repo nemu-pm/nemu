@@ -464,6 +464,7 @@ import {
   mobileReaderHexColor,
   mobileReaderPageBackgroundIsLight,
 } from "@/lib/mobileReaderPageBackground";
+import { mobileReaderPageAnalysisId } from "@/lib/mobileReaderPageAnalysis";
 import { useMobileReaderMatchBackground } from "@/components/reader/useMobileReaderMatchBackground";
 import { mobileReaderPageStatusColor } from "@/lib/mobileReaderPageLoading";
 import {
@@ -3454,7 +3455,7 @@ export function ReaderScreen() {
   // their size (wide pages are known before they decode) and their binding
   // margins (automatic pairing). Cached per chapter.
   const readerPageAnalysisIds = useMemo(
-    () => displayedPages.map((page) => (page.imageUri ? page.id : null)),
+    () => displayedPages.map(mobileReaderPageAnalysisId),
     [displayedPages],
   );
   const readerPageFeatures = useMobileReaderPageFeatures({

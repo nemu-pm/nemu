@@ -30,6 +30,24 @@ export const MOBILE_READER_PAGE_ANALYSIS_BEHIND = 6;
 /** Pages ahead of the reader that are measured, so pairing is known before they show. */
 export const MOBILE_READER_PAGE_ANALYSIS_AHEAD = 24;
 
+/**
+ * The id a page is measured under, or null while it has nothing to measure:
+ * no image, or the source's processing (descrambling) still running or
+ * failed, when the file on hand is the raw original. A page that finishes
+ * processing gains its id, so the list of ids changes and the pages are
+ * measured then (a run skips a page it cannot measure yet and never comes
+ * back to it on its own).
+ */
+export function mobileReaderPageAnalysisId(page: {
+  id: string;
+  imageUri?: string | null;
+  imageProcessing?: string;
+}): string | null {
+  if (!page.imageUri) return null;
+  if (page.imageProcessing === "pending" || page.imageProcessing === "failed") return null;
+  return page.id;
+}
+
 /** The pages to measure, nearest first, ahead before behind. */
 export function mobileReaderPageAnalysisOrder(
   pageCount: number,

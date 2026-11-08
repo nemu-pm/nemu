@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   MobileReaderPageAnalysisQueue,
   mobileReaderPageAnalysisCacheName,
+  mobileReaderPageAnalysisId,
   mobileReaderPageAnalysisOrder,
   normalizeMobileReaderPageFeatures,
   parseMobileReaderPageAnalysisCache,
@@ -85,5 +86,25 @@ describe("page analysis", () => {
     release!();
     await Promise.all([first, second]);
     expect(analyzed).toEqual(["file:///b"]);
+  });
+});
+
+describe("mobileReaderPageAnalysisId", () => {
+  test("a page with an image is measured under its id", () => {
+    expect(mobileReaderPageAnalysisId({ id: "p1", imageUri: "https://x/1.jpg" })).toBe("p1");
+    expect(mobileReaderPageAnalysisId({ id: "p1", imageUri: "file:///1.jpg", imageProcessing: "ready" })).toBe("p1");
+    expect(mobileReaderPageAnalysisId({ id: "p1", imageUri: "https://x/1.jpg", imageProcessing: "fallback" })).toBe("p1");
+  });
+
+  test("a text page, or one still processing or failed, has nothing to measure yet", () => {
+    expect(mobileReaderPageAnalysisId({ id: "p1" })).toBeNull();
+    expect(mobileReaderPageAnalysisId({ id: "p1", imageUri: "https://x/1.jpg", imageProcessing: "pending" })).toBeNull();
+    expect(mobileReaderPageAnalysisId({ id: "p1", imageUri: "https://x/1.jpg", imageProcessing: "failed" })).toBeNull();
+  });
+
+  test("processing finishing changes the ids, so the pages are measured then", () => {
+    const pending = [{ id: "a", imageUri: "u", imageProcessing: "pending" }, { id: "b", imageUri: "u", imageProcessing: "pending" }];
+    const ready = pending.map((page) => ({ ...page, imageProcessing: "ready" }));
+    expect(pending.map(mobileReaderPageAnalysisId).join("|")).not.toBe(ready.map(mobileReaderPageAnalysisId).join("|"));
   });
 });
