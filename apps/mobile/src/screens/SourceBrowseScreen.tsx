@@ -3346,19 +3346,21 @@ export function SourceBrowseScreen() {
   const sourceSearchFieldShown = !compactHeader && Boolean(source) && sourceSearchActive;
   const sourceSearchField = useMemo(
     () => (sourceSearchFieldShown ? (
-      <NemuNativeSearchField
-        accessibilityLabel={strings.sourceBrowse.searchSourcePlaceholder}
-        autoFocus={sourceSearchFieldFocusOnMount}
-        clearAccessibilityLabel={strings.common.clear}
-        onChangeText={(value) => {
-          sourceSearchQueryRef.current = value;
-          setSourceSearchQuery(value);
-        }}
-        onSubmit={() => submitSourceSearchText(sourceSearchQueryRef.current, { haptic: true })}
-        placeholder={strings.sourceBrowse.searchSourcePlaceholder}
-        testID="SourceSearchField"
-        value={sourceSearchQuery}
-      />
+      <View style={styles.sourceSearchField}>
+        <NemuNativeSearchField
+          accessibilityLabel={strings.sourceBrowse.searchSourcePlaceholder}
+          autoFocus={sourceSearchFieldFocusOnMount}
+          clearAccessibilityLabel={strings.common.clear}
+          onChangeText={(value) => {
+            sourceSearchQueryRef.current = value;
+            setSourceSearchQuery(value);
+          }}
+          onSubmit={() => submitSourceSearchText(sourceSearchQueryRef.current, { haptic: true })}
+          placeholder={strings.sourceBrowse.searchSourcePlaceholder}
+          testID="SourceSearchField"
+          value={sourceSearchQuery}
+        />
+      </View>
     ) : null),
     [
       sourceSearchFieldFocusOnMount,
@@ -4024,6 +4026,9 @@ const styles = StyleSheet.create({
   sourceSearchListTop: {
     paddingTop: 0,
   },
+  sourceSearchField: {
+    marginBottom: 13,
+  },
   sections: {
     gap: 14,
   },
@@ -4037,7 +4042,7 @@ const styles = StyleSheet.create({
   sourceFilterHeaderSpacing: {
     // ~13pt from the search field to the chips and ~13pt from the chips to
     // the first grid row.
-    marginTop: -1,
+    marginTop: -14,
     marginBottom: -23,
   },
   previewSectionListingGrid: {
