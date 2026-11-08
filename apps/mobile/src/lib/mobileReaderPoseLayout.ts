@@ -132,6 +132,12 @@ export type MobileReaderChromeLayout =
       /** Trailing actions capsule (plugins, dual read, settings). */
       actions: Rect;
       /**
+       * How many actions the capsule keeps (`mobileReaderVisibleActionCount`);
+       * the rest are in ⋯. Top-row actions count `READER_BAR_MAX_ACTIONS` alone,
+       * and the capsule holds ⋯ itself when one overflows there.
+       */
+      visibleActionCount: number;
+      /**
        * Which row carries the actions capsule: the bottom row beside the
        * scrubber wherever the scrubber keeps its minimum width there
        * (`mobileReaderActionsRow`: phones, the Duo inner display, tablets),
@@ -175,7 +181,7 @@ export type MobileReaderPoseLayoutInput = {
   spreadMode?: ReaderSpreadMode;
   /** Right-to-left reading order. */
   rtl: boolean;
-  /** Icon buttons in the trailing actions capsule (capsule chrome). Default 3. */
+  /** Actions wanting a place in the capsule (it may keep fewer: `visibleActionCount`). Default 3. */
   actionCount?: number;
   /**
    * The system vertical bar is in use (`mobileReaderVerticalBarPolicy`): it
@@ -423,12 +429,70 @@ export function mobileReaderCapsuleActionsWidth(count: number): number {
 /** The narrowest scrubber the bottom row gives up its width to: beside it, the actions capsule. */
 export const READER_SCRUBBER_MIN_WIDTH = 200;
 
+/** The most actions the capsule shows, whatever the room; the rest are in ⋯. */
+export const READER_BAR_MAX_ACTIONS = 4;
+/**
+ * The slider's narrowest comfortable track beside the actions. At 144pt a
+ * 40-page chapter still moves the thumb 3pt a page, and the gear and Chapters
+ * both stay on every iPhone from 390pt up (160pt would leave a 402pt phone,
+ * at 156pt with those two, the gear alone).
+ */
+export const READER_SLIDER_MIN_TRACK_WIDTH = 144;
+/** The scrubber capsule's own chrome: two 44pt chapter buttons, gaps of 4, padding of 4. */
+export const READER_SCRUBBER_CHROME_WIDTH = 104;
+const READER_SCRUBBER_COMFORT_WIDTH = READER_SLIDER_MIN_TRACK_WIDTH + READER_SCRUBBER_CHROME_WIDTH;
+
+/** The row's span for the scrubber and the actions: the region less each side's safe area or capsule edge. */
+export function mobileReaderBottomRowActionsRoom(regionWidth: number, padding: Pick<Insets, "left" | "right">): number {
+  return regionWidth
+    - Math.max(READER_CAPSULE_EDGE, finite(padding.left))
+    - Math.max(READER_CAPSULE_EDGE, finite(padding.right));
+}
+
+/**
+ * Actions kept beside the scrubber: up to the cap, while the slider keeps its
+ * minimum track. Only the width decides, so a resize, rotation or fold lands
+ * on one answer, with no hysteresis to bounce between; the gear always stays.
+ */
+export function mobileReaderVisibleActionCount(total: number, room: number): number {
+  let count = Math.min(READER_BAR_MAX_ACTIONS, total);
+  while (
+    count > 1
+    && room - mobileReaderCapsuleActionsWidth(count) - READER_CAPSULE_GAP < READER_SCRUBBER_COMFORT_WIDTH
+  ) {
+    count -= 1;
+  }
+  return Math.max(1, count);
+}
+
+/** System vertical bar, measured on the Duo outer display: where Back starts, under the status column. */
+const READER_VERTICAL_BAR_TOP = 174;
+/** Back's or the cover toggle's glass with the gap below it. */
+const READER_VERTICAL_BAR_GROUP = 60;
+/** One item of the actions pill. */
+const READER_VERTICAL_BAR_SLOT = 52;
+
+/**
+ * Actions the system vertical bar's pill keeps: the height is its only limit
+ * (it has no slider to spare, so no cap applies). Once any overflows, ⋯ joins
+ * the pill and takes a slot. Back and the cover toggle sit above and never move.
+ */
+export function mobileReaderVerticalBarVisibleActionCount(
+  total: number,
+  input: { height: number; bottomInset: number; coverToggle: boolean },
+): number {
+  const pillTop = READER_VERTICAL_BAR_TOP + READER_VERTICAL_BAR_GROUP * (input.coverToggle ? 2 : 1);
+  const pill = input.height - Math.max(READER_CAPSULE_EDGE, finite(input.bottomInset)) - pillTop;
+  const slots = Math.floor(pill / READER_VERTICAL_BAR_SLOT);
+  return slots >= total ? total : Math.max(1, slots - 1);
+}
+
 /**
  * Which row carries the actions capsule, from the room in the scrubber's
  * region: the bottom row (beside the scrubber, as on phones) whenever the
- * scrubber keeps `READER_SCRUBBER_MIN_WIDTH` there next to the capsule and
- * its gap, the status-bar row otherwise (a narrow book pane with several
- * actions). The room is the region less its side margins, each the safe
+ * scrubber keeps `READER_SCRUBBER_MIN_WIDTH` there next to the actions it
+ * would keep and their gap, the status-bar row otherwise (a book pane too
+ * narrow for even the gear beside it). The room is the region less its side margins, each the safe
  * area or the capsule edge, whichever is larger.
  */
 export function mobileReaderActionsRow(
@@ -436,10 +500,9 @@ export function mobileReaderActionsRow(
   padding: Pick<Insets, "left" | "right">,
   actionCount: number,
 ): "top" | "bottom" {
-  const room = region.width
-    - Math.max(READER_CAPSULE_EDGE, finite(padding.left))
-    - Math.max(READER_CAPSULE_EDGE, finite(padding.right));
-  const scrubberRoom = room - mobileReaderCapsuleActionsWidth(actionCount) - READER_CAPSULE_GAP;
+  const room = mobileReaderBottomRowActionsRoom(region.width, padding);
+  const visible = mobileReaderVisibleActionCount(actionCount, room);
+  const scrubberRoom = room - mobileReaderCapsuleActionsWidth(visible) - READER_CAPSULE_GAP;
   return scrubberRoom >= READER_SCRUBBER_MIN_WIDTH ? "bottom" : "top";
 }
 
@@ -557,8 +620,20 @@ function capsuleChromeAt(input: CapsuleChromeInput, rowTop: number): Extract<Mob
   const trailPad = pad(trailing);
   // Leading pieces start at the region's leading edge; the actions capsule
   // hugs the trailing edge (left of the status bar island when it shares the row).
-  const actionsWidth = mobileReaderCapsuleActionsWidth(input.actionCount);
   const titleOnly = input.titleOnly === true;
+  const visibleActionCount = input.actionsRow === "bottom"
+    ? mobileReaderVisibleActionCount(
+        input.actionCount,
+        mobileReaderBottomRowActionsRoom(
+          input.scrubberRegion.width,
+          mobileReaderSafePadding(input.scrubberRegion, bounds, input.insets),
+        ),
+      )
+    : Math.min(READER_BAR_MAX_ACTIONS, input.actionCount);
+  // Off the bottom row there is no ⋯ circle: the capsule holds it when needed.
+  const actionsWidth = mobileReaderCapsuleActionsWidth(
+    visibleActionCount + (input.actionsRow !== "bottom" && visibleActionCount < input.actionCount ? 1 : 0),
+  );
   const backWidth = titleOnly ? 0 : h;
   const back: Rect = ltr
     ? { x: rowLeadingLimit(leading, rowTop, h, occlusions, leadPad.left), y: rowTop, width: backWidth, height: h }
@@ -632,7 +707,7 @@ function capsuleChromeAt(input: CapsuleChromeInput, rowTop: number): Extract<Mob
     const roundedX = Math.max(Math.ceil(minX), Math.min(Math.round(x), Math.floor(maxX - roundedWidth)));
     title = { x: roundedX, y: rowTop, width: roundedWidth, height: h };
   }
-  return capsuleChromeFinish(input, rowTop, back, title, more, actions, bottomActions);
+  return capsuleChromeFinish(input, rowTop, back, title, more, actions, bottomActions, visibleActionCount);
 }
 
 function capsuleChromeFinish(
@@ -643,6 +718,7 @@ function capsuleChromeFinish(
   more: Rect | null,
   actions: Rect,
   bottomActions: boolean,
+  visibleActionCount: number,
 ): Extract<MobileReaderChromeLayout, { kind: "capsules" }> {
   const { bounds, insets, occlusions } = input;
   const h = READER_CAPSULE_HEIGHT;
@@ -666,7 +742,7 @@ function capsuleChromeFinish(
     // Where dodging a running camera sideways would starve the scrubber (a
     // book pane, inner landscape-right), keep the full row and lift it above
     // the camera instead, as the scrubber alone does.
-    const lift = clear.scrubberWidth < READER_SCRUBBER_MIN_WIDTH;
+    const lift = clear.scrubberWidth < READER_SCRUBBER_COMFORT_WIDTH;
     const row = lift
       ? mobileReaderBottomRowLayout({
           region,
@@ -736,6 +812,7 @@ function capsuleChromeFinish(
     title,
     more,
     actions,
+    visibleActionCount,
     actionsRow: bottomActions ? "bottom" : "top",
     scrubber,
     content,

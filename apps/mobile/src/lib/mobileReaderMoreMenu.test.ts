@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ChapterSummary } from "@/data/schema";
 import { getMobileStrings } from "./mobileI18n";
-import { buildMobileReaderMoreMenu, type MobileReaderMoreMenuInput } from "./mobileReaderMoreMenu";
+import { buildMobileReaderMoreMenu, buildMobileReaderOverflowItems, type MobileReaderMoreMenuInput } from "./mobileReaderMoreMenu";
 
 const strings = getMobileStrings("en");
 const chapter = (id: string, chapterNumber: number): ChapterSummary => ({ id, chapterNumber });
@@ -80,5 +80,51 @@ describe("reader ⋯ menu", () => {
         expect(localized[key].trim().length).toBeGreaterThan(0);
       }
     }
+  });
+});
+
+describe("reader ⋯ menu: overflowed bar actions", () => {
+  const state = {
+    detectTextActive: false,
+    nemuChatActive: true,
+    dualReadEnabled: true,
+    dualReadAvailable: false,
+    bilingualLayoutValue: strings.duo.bilingualSpread,
+  };
+  const items = buildMobileReaderOverflowItems(
+    ["detect-text", "nemu-chat", "plugin:dual-reader", "bilingual-layout", "chapter-list", "settings"],
+    state,
+    strings,
+  );
+  const byId = Object.fromEntries(items.map((entry) => [entry.id, entry]));
+
+  test("each keeps its button's title, in the order given; the gear never overflows", () => {
+    expect(items.map((entry) => [entry.id, entry.title])).toEqual([
+      ["detect-text", strings.reader.pluginJapaneseLearningDetectText],
+      ["nemu-chat", strings.reader.pluginJapaneseLearningNemuChat],
+      ["plugin:dual-reader", strings.reader.pluginDualReadName],
+      ["bilingual-layout", strings.duo.bilingualLayoutLabel],
+      ["chapter-list", strings.reader.chapterList],
+    ]);
+    for (const entry of items) {
+      expect(entry.systemImage.length).toBeGreaterThan(0);
+      expect(entry.accessibilityLabel.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("the states a button lights up for are checkmarks; plain actions carry none", () => {
+    expect(byId["detect-text"].checked).toBe(false);
+    expect(byId["nemu-chat"].checked).toBe(true);
+    expect(byId["plugin:dual-reader"].checked).toBe(true);
+    expect(byId["plugin:dual-reader"].disabled).toBe(true);
+    expect(byId["chapter-list"].checked).toBeUndefined();
+    expect(byId["bilingual-layout"].checked).toBeUndefined();
+    expect(byId["bilingual-layout"].subtitle).toBe(strings.duo.bilingualSpread);
+  });
+
+  test("they head the menu, and with none there is no empty section", () => {
+    expect(menu({ overflowItems: items }).map((section) => section.id)).toEqual(["actions", "chapters", "chapter", "reader"]);
+    expect(menu({ overflowItems: items })[0].items).toEqual(items);
+    expect(menu({ overflowItems: [] }).map((section) => section.id)).toEqual(["chapters", "chapter", "reader"]);
   });
 });

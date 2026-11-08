@@ -240,11 +240,12 @@ describe("reader pose: capsule chrome (regular width)", () => {
     expect(result.popover.frame).toEqual(chrome.content);
   });
 
-  test("more actions stay on the bottom row; the title keeps its centred slot and Back never moves", () => {
+  test("more actions than the cap: four stay on the bottom row; the title keeps its centred slot and Back never moves", () => {
     const chrome = capsules(pose(innerLandscapeNoBar(), { actionCount: 6 }));
     expect(chrome.back.x).toBe(20);
     expect(chrome.actionsRow).toBe("bottom");
-    expect(chrome.actions.width).toBe(mobileReaderCapsuleActionsWidth(6));
+    expect(chrome.visibleActionCount).toBe(4);
+    expect(chrome.actions.width).toBe(mobileReaderCapsuleActionsWidth(4));
     expect(chrome.title).toEqual({ x: 296, y: 24, width: 360, height: 48 });
     expect(chrome.title!.x + chrome.title!.width).toBeLessThanOrEqual(chrome.more!.x - 10);
   });
@@ -404,13 +405,25 @@ describe("reader pose: book", () => {
     expect(rtl.scrubber.x).toBeGreaterThanOrEqual(495.5);
     expect(rtl.actions.x).toBeGreaterThanOrEqual(495.5);
     expect(rtl.actions.x + rtl.actions.width).toBeLessThanOrEqual(951 - 20);
-    // Too many actions for a ≥ 200pt scrubber beside them: they stay on top,
-    // in the trailing pane beside the status bar.
+    // Too many actions for the slider's track beside them: three stay, in the
+    // same pane, the others in ⋯.
     const crowded = capsules(pose(book, { twoPage: false, actionCount: 5 }));
-    expect(crowded.actionsRow).toBe("top");
-    expect(crowded.more).toBeNull();
-    expect(crowded.actions.x).toBeGreaterThanOrEqual(495.5);
-    expect(crowded.actions.x + crowded.actions.width).toBe(817);
+    expect(crowded.actionsRow).toBe("bottom");
+    expect(crowded.visibleActionCount).toBe(3);
+    expect(crowded.more).not.toBeNull();
+    expect(crowded.actions.x + crowded.actions.width).toBeLessThanOrEqual(455.5);
+  });
+
+  test("a pane too narrow for the bottom row: the top row keeps the cap, ⋯ in the capsule's own slot", () => {
+    const narrow = { ...book, width: 540, divisions: [hinge(250, 0, 40, 669)], occlusions: [], safeAreaInsets: noInsets, verticalBarEdge: null };
+    const chrome = capsules(pose(narrow, { twoPage: false, actionCount: 6 }));
+    expect(chrome.actionsRow).toBe("top");
+    expect(chrome.more).toBeNull();
+    expect(chrome.visibleActionCount).toBe(4);
+    expect(chrome.actions.width).toBe(mobileReaderCapsuleActionsWidth(5));
+    const fits = capsules(pose(narrow, { twoPage: false, actionCount: 4 }));
+    expect(fits.visibleActionCount).toBe(4);
+    expect(fits.actions.width).toBe(mobileReaderCapsuleActionsWidth(4));
   });
 
   test("Android book (no insets, no occlusions) uses the same capsule chrome", () => {
@@ -1309,8 +1322,8 @@ describe("reader pose: the trailing more (⋯) button", () => {
     expect(capsules(pose(innerLandscapeNoBar())).more).not.toBeNull();
     expect(capsules(pose(innerPortrait())).more).not.toBeNull();
     expect(capsules(pose(innerLandscapeNoBar([hinge(455.5, 0, 40, 669)]), { twoPage: true })).more).not.toBeNull();
-    // Book with too many actions for the pane's bottom row: atop the trailing pane.
-    expect(capsules(pose(innerLandscapeNoBar([hinge(455.5, 0, 40, 669)]), { twoPage: true, actionCount: 5 })).more).toBeNull();
+    // Book with more actions than the pane's bottom row keeps: the rest are in that ⋯.
+    expect(capsules(pose(innerLandscapeNoBar([hinge(455.5, 0, 40, 669)]), { twoPage: true, actionCount: 5 })).more).not.toBeNull();
     // The vertical bar (outer display, Split View) carries Back and the actions.
     expect(capsules(pose(outer, { sideBar: true })).more).toBeNull();
     // Half folded like a laptop: the open display's bottom row.
@@ -1484,7 +1497,10 @@ describe("reader pose: iPad bottom row (actions beside the scrubber)", () => {
   test("the row choice: bottom while the scrubber keeps its minimum beside the actions", () => {
     const pane = { x: 0, y: 0, width: 455.5, height: 669 };
     expect(mobileReaderActionsRow(pane, { left: 0, right: 0 }, 3)).toBe("bottom");
-    expect(mobileReaderActionsRow(pane, { left: 0, right: 0 }, 5)).toBe("top");
+    // Actions it would not keep don't count against the row.
+    expect(mobileReaderActionsRow(pane, { left: 0, right: 0 }, 5)).toBe("bottom");
+    // Too narrow for even the gear beside the scrubber.
+    expect(mobileReaderActionsRow({ ...pane, width: 250 }, { left: 0, right: 0 }, 5)).toBe("top");
     expect(mobileReaderActionsRow({ x: 0, y: 0, width: 744, height: 1133 }, { left: 0, right: 0 }, 3)).toBe("bottom");
   });
 

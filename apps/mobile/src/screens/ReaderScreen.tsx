@@ -1,3 +1,4 @@
+import type { SFSymbol } from "sf-symbols-typescript";
 import { runMobileJapaneseLearningSpreadOcr } from "@/lib/mobileJapaneseLearningSpreadOcr";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import {
@@ -54,6 +55,7 @@ import {
   MOBILE_READER_HINGE_HINT_TIMEOUT_MS,
   type MobileReaderSideInsetLatch,
   mobileReaderVerticalBarPolicy,
+  mobileReaderVerticalBarVisibleActionCount,
   READER_CAPSULE_ACTION_WIDTH,
   READER_CAPSULE_HEIGHT,
   READER_CAPSULE_TITLE_FULL_MIN_WIDTH,
@@ -116,6 +118,7 @@ import {
   mobileDuoBilingualFromReaderPose,
   mobileDuoBilingualStageOverrides,
   resolveMobileDuoBilingualMode,
+  setMobileDuoBilingualChoice,
   useMobileDuoBilingualChoice,
 } from "@/lib/mobileDuoBilingual";
 import { mobileDuoPageFlipPlan } from "@/lib/mobileDuoSpine";
@@ -146,7 +149,8 @@ import {
   mobileReaderPrefetchPagesBehind,
 } from "@/lib/mobileReaderPageFlip";
 import { mobileReaderLearningPageResetKey } from "@/lib/mobileReaderLearningSession";
-import { buildMobileReaderMoreMenu, mobileReaderChapterNeighbourLabel, type MobileReaderMoreMenuActionId } from "@/lib/mobileReaderMoreMenu";
+import { buildMobileReaderMoreMenu, buildMobileReaderOverflowItems, mobileReaderChapterNeighbourLabel, type MobileReaderMoreMenuActionId, type MobileReaderOverflowActionId } from "@/lib/mobileReaderMoreMenu";
+import { mobileReaderBarActionIds, splitMobileReaderBarActions, type MobileReaderBarActionId } from "@/lib/mobileReaderBarActions";
 import {
   useMobilePoseVeilAppearance,
   type MobilePoseVeilAppearance,
@@ -3321,6 +3325,25 @@ export function ReaderScreen() {
         : buildReaderPose(readerActionSlots, readerSpreadMode),
     [buildReaderPose, readerActionSlots, readerBaseActionSlots, readerBasePose, readerSpreadMode],
   );
+  // Which actions the bar keeps comes with the pose, in the same render, so a
+  // resize moves them to ⋯ together with the capsule's new width.
+  const readerBarActionIds = mobileReaderBarActionIds({
+    enabledPluginIds: enabledReaderPlugins.map((plugin) => plugin.id),
+    bilingualToggle: bilingualMode.showToggle,
+  });
+  const readerBarActions = splitMobileReaderBarActions(
+    readerBarActionIds,
+    readerSideBar
+      ? mobileReaderVerticalBarVisibleActionCount(readerBarActionIds.length, {
+          height: readerPose.bounds.height,
+          bottomInset: readerPose.safeInsets.bottom,
+          coverToggle: readerCoverViewAvailable,
+        })
+      : readerPose.chrome.kind === "capsules"
+        ? readerPose.chrome.visibleActionCount
+        : readerBarActionIds.length,
+  );
+  const readerBarShows = (id: MobileReaderBarActionId) => readerBarActions.visible.includes(id);
   const bilingualSpreadPose = useMemo(
     () =>
       readerPose.spread || !dualReaderConfigured
@@ -11946,7 +11969,42 @@ export function ReaderScreen() {
     (target: ChapterSummary, startAt: "start" | "saved") => goToChapter(target, { startAt }),
     [goToChapter],
   );
+  // An overflowed action does what its button does.
+  const runReaderOverflowAction = (id: MobileReaderOverflowActionId) => {
+    switch (id) {
+      case "detect-text":
+        openJapaneseLearningDetectionTool();
+        return;
+      case "nemu-chat":
+        openJapaneseLearningChatTool();
+        return;
+      case "bilingual-layout":
+        setMobileDuoBilingualChoice(bilingualMode.mode === "sideBySide" ? "spread" : "sideBySide");
+        return;
+      case "chapter-list":
+        openReaderChapterList();
+        return;
+      default:
+        openDualReadConfig();
+    }
+  };
+  const readerOverflowItems = buildMobileReaderOverflowItems(
+    readerBarActions.overflow,
+    {
+      detectTextActive: japaneseLearningOcrState.status !== "idle",
+      nemuChatActive: japaneseLearningChatMessages.length > 0 || japaneseLearningChatStreaming,
+      dualReadEnabled,
+      dualReadAvailable: dualReaderControlsAvailable,
+      bilingualLayoutValue:
+        bilingualMode.mode === "sideBySide" ? strings.duo.bilingualSideBySide : strings.duo.bilingualSpread,
+    },
+    strings,
+  );
+  // Overflowed, the chapter sheet's popover points at the ⋯ it was opened from.
+  const readerChapterListMoreAnchor =
+    readerPose.chrome.kind === "capsules" && !readerBarShows("chapter-list") ? readerPose.chrome.more : null;
   const readerChapterListAnchorRect: WindowLayoutRect | null =
+    readerChapterListMoreAnchor ??
     readerChapterListAnchor ??
     (readerPose.chrome.kind === "capsules"
       ? {
@@ -12434,6 +12492,7 @@ export function ReaderScreen() {
             key={plugin.id}
             style={pluginGroupStyle}
           >
+            {readerBarShows("detect-text") ? (
             <NemuPressable
               accessibilityRole="button"
               accessibilityLabel={
@@ -12471,6 +12530,8 @@ export function ReaderScreen() {
                 />
               )}
             </NemuPressable>
+            ) : null}
+            {readerBarShows("nemu-chat") ? (
             <NemuPressable
               accessibilityRole="button"
               accessibilityLabel={
@@ -12504,10 +12565,12 @@ export function ReaderScreen() {
                 }
               />
             </NemuPressable>
+            ) : null}
           </View>
         );
       }
 
+      if (!readerBarShows(`plugin:${plugin.id}`)) return null;
       const selected = dualReadEnabled;
       const canSelect = canSelectMobileReaderPluginOption({
         selected,
@@ -12554,7 +12617,7 @@ export function ReaderScreen() {
         </NemuPressable>
       );
     });
-    if (bilingualMode.showToggle) {
+    if (bilingualMode.showToggle && readerBarShows("bilingual-layout")) {
       // "Spread" ⇄ "Side by side" (bilingual book), next to the plugin actions.
       pluginActions.push(
         <DuoBilingualLayoutToggle
@@ -12661,24 +12724,6 @@ export function ReaderScreen() {
         materializeOffsetY: -readerChromeGlassSlide,
       };
       const glassBottom = { ...glass, materializeOffsetY: readerChromeGlassSlide };
-      const actionsCapsule = (
-        <ReaderCapsule
-          layout={readerCapsuleLayout}
-          {...(chrome.actionsRow === "bottom" && !readerSideBar ? glassBottom : glass)}
-          style={[
-            styles.readerActionsCapsule,
-            { position: "absolute", top: actions.y },
-            // Anchored at its trailing end: the capsule grows with its actions.
-            actionsOnRight
-              ? { right: boundsWidth - actions.x - actions.width }
-              : { left: actions.x },
-          ]}
-        >
-          {pluginActions}
-          {chapterListButton}
-          {settingsButton}
-        </ReaderCapsule>
-      );
       // Compact without a vertical bar (phones in portrait): the top row is
       // Back + title; the actions share the bottom row with the scrubber.
       // With the system vertical bar kept, it carries Back and the actions:
@@ -12711,14 +12756,11 @@ export function ReaderScreen() {
             setSelectedReaderPluginSettingsId(null);
             setReaderPluginSettingsOpen(true);
             return;
+          default:
+            runReaderOverflowAction(id);
         }
       };
-      const moreCapsule = moreRect ? (
-        <ReaderCapsule
-          layout={readerCapsuleLayout}
-          {...glass}
-          style={[styles.readerCapsuleCircle, { position: "absolute", left: moreRect.x, top: moreRect.y }]}
-        >
+      const readerMoreMenu = (
           <ReaderMoreMenu
             sections={buildMobileReaderMoreMenu({
               strings,
@@ -12730,6 +12772,7 @@ export function ReaderScreen() {
               completed,
               saving,
               showPlugins: showReaderPluginSettingsEntry,
+              overflowItems: readerOverflowItems,
             })}
             accessibilityLabel={strings.reader.moreActions}
             accessibilityHint={strings.reader.moreActionsHint}
@@ -12743,8 +12786,36 @@ export function ReaderScreen() {
               readerChromeAutoHideKeyRef.current = readerChromeChapterKey;
             }}
           />
+      );
+      const moreCapsule = moreRect ? (
+        <ReaderCapsule
+          layout={readerCapsuleLayout}
+          {...glass}
+          style={[styles.readerCapsuleCircle, { position: "absolute", left: moreRect.x, top: moreRect.y }]}
+        >
+          {readerMoreMenu}
         </ReaderCapsule>
       ) : null;
+      const actionsCapsule = (
+        <ReaderCapsule
+          layout={readerCapsuleLayout}
+          {...(chrome.actionsRow === "bottom" && !readerSideBar ? glassBottom : glass)}
+          style={[
+            styles.readerActionsCapsule,
+            { position: "absolute", top: actions.y },
+            // Anchored at its trailing end: the capsule grows with its actions.
+            actionsOnRight
+              ? { right: boundsWidth - actions.x - actions.width }
+              : { left: actions.x },
+          ]}
+        >
+          {pluginActions}
+          {readerBarShows("chapter-list") ? chapterListButton : null}
+          {settingsButton}
+          {/* No ⋯ circle on this row: an overflow's ⋯ ends the capsule. */}
+          {!chrome.more && !readerSideBar && readerBarActions.overflow.length > 0 ? readerMoreMenu : null}
+        </ReaderCapsule>
+      );
       return chromeLayer(
         <>
           <Animated.View
@@ -13134,7 +13205,7 @@ export function ReaderScreen() {
                 onPress={toggleReaderCoverView}
               />
             ) : null}
-            {japaneseLearningReaderPlugin ? (
+            {japaneseLearningReaderPlugin && readerBarShows("detect-text") ? (
               <Stack.Toolbar.Button
                 icon={readerBarIconImages?.detectText ?? "text.viewfinder"}
                 iconRenderingMode="template"
@@ -13144,7 +13215,7 @@ export function ReaderScreen() {
                 onPress={openJapaneseLearningDetectionTool}
               />
             ) : null}
-            {japaneseLearningReaderPlugin ? (
+            {japaneseLearningReaderPlugin && readerBarShows("nemu-chat") ? (
               <Stack.Toolbar.Button
                 icon={readerBarIconImages?.nemuChat ?? "bubble.left.and.text.bubble.right"}
                 iconRenderingMode="template"
@@ -13154,7 +13225,7 @@ export function ReaderScreen() {
                 onPress={openJapaneseLearningChatTool}
               />
             ) : null}
-            {enabledReaderPlugins.some((plugin) => plugin.id === "dual-reader") ? (
+            {enabledReaderPlugins.some((plugin) => plugin.id === "dual-reader") && readerBarShows("plugin:dual-reader") ? (
               <Stack.Toolbar.Button
                 icon={readerBarIconImages?.dualRead ?? "square.on.square"}
                 iconRenderingMode="template"
@@ -13166,14 +13237,16 @@ export function ReaderScreen() {
                 onPress={openDualReadConfig}
               />
             ) : null}
-            <Stack.Toolbar.Button
-              icon={readerBarIconImages?.chapterList ?? "list.bullet"}
-              iconRenderingMode="template"
-              tintColor={READER_CAPSULE_COLORS.primaryText}
-              accessibilityLabel={strings.reader.chapterList}
-              hidden={readerBarItemsHidden || readerCoverViewShown}
-              onPress={openReaderChapterList}
-            />
+            {readerBarShows("chapter-list") ? (
+              <Stack.Toolbar.Button
+                icon={readerBarIconImages?.chapterList ?? "list.bullet"}
+                iconRenderingMode="template"
+                tintColor={READER_CAPSULE_COLORS.primaryText}
+                accessibilityLabel={strings.reader.chapterList}
+                hidden={readerBarItemsHidden || readerCoverViewShown}
+                onPress={openReaderChapterList}
+              />
+            ) : null}
             <Stack.Toolbar.Button
               icon={readerBarIconImages?.settings ?? "gearshape"}
               iconRenderingMode="template"
@@ -13182,6 +13255,31 @@ export function ReaderScreen() {
               hidden={readerBarItemsHidden || readerCoverViewShown}
               onPress={openReaderDisplaySettings}
             />
+            {/* Out of height (a short Split View window), the pill ends in ⋯. */}
+            {readerOverflowItems.length > 0 ? (
+              <Stack.Toolbar.Menu
+                icon="ellipsis"
+                tintColor={READER_CAPSULE_COLORS.primaryText}
+                accessibilityLabel={strings.reader.moreActions}
+                hidden={readerBarItemsHidden || readerCoverViewShown}
+              >
+                {readerOverflowItems.map((item) => (
+                  <Stack.Toolbar.MenuAction
+                    key={item.id}
+                    icon={item.systemImage as SFSymbol}
+                    subtitle={item.subtitle}
+                    isOn={item.checked}
+                    disabled={item.disabled}
+                    onPress={() => {
+                      void hapticSelection();
+                      runReaderOverflowAction(item.id as MobileReaderOverflowActionId);
+                    }}
+                  >
+                    {item.title}
+                  </Stack.Toolbar.MenuAction>
+                ))}
+              </Stack.Toolbar.Menu>
+            ) : null}
           </Stack.Toolbar>
         </>
       ) : null}

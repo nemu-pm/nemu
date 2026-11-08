@@ -2,16 +2,17 @@ import type { ChapterSummary } from "@/data/schema";
 import type { MobileStrings } from "@/lib/mobileI18n";
 import { formatChapterTitle } from "@/lib/formatChapter";
 import { formatChapterAccessibilityLabel } from "@/lib/mobileReaderFormat";
+import type { MobileReaderBarActionId } from "@/lib/mobileReaderBarActions";
 
 /**
  * The reader's ⋯ menu (phone chrome, top trailing circle). Every entry is an
  * action the reader already performs elsewhere — the scrubber's chapter
  * buttons, the error state's retry, the settings sheet's "Mark complete" and
- * "Plugins" rows — gathered where a thumb resting on the top row finds them.
+ * "Plugins" rows — gathered where a thumb resting on the top row finds them —
+ * headed by whichever bar actions the capsule had no room for.
  *
- * Deliberately absent: a chapter list (the reader has none; Back returns to
- * the title's page, which is that list) and "open in browser" (chapters carry
- * no URL and the reader never loads the title's).
+ * Deliberately absent: "open in browser" (chapters carry no URL and the
+ * reader never loads the title's).
  */
 export type MobileReaderMoreMenuActionId =
   | "previous-chapter"
@@ -19,7 +20,11 @@ export type MobileReaderMoreMenuActionId =
   | "reload-chapter"
   | "mark-complete"
   | "reader-settings"
-  | "reader-plugins";
+  | "reader-plugins"
+  | MobileReaderOverflowActionId;
+
+/** The gear never overflows. */
+export type MobileReaderOverflowActionId = Exclude<MobileReaderBarActionId, "settings">;
 
 /** Android leading icon (Material Symbols); iOS uses `systemImage`. */
 export type MobileReaderMoreMenuIcon =
@@ -28,7 +33,12 @@ export type MobileReaderMoreMenuIcon =
   | "refresh"
   | "checkCircle"
   | "settings"
-  | "extension";
+  | "extension"
+  | "detectText"
+  | "nemuChat"
+  | "dualRead"
+  | "bilingualLayout"
+  | "chapterList";
 
 export type MobileReaderMoreMenuItem = {
   id: MobileReaderMoreMenuActionId;
@@ -40,10 +50,12 @@ export type MobileReaderMoreMenuItem = {
   icon: MobileReaderMoreMenuIcon;
   disabled: boolean;
   accessibilityLabel: string;
+  /** A state the bar button shows lit: the row carries a checkmark. Absent on plain actions. */
+  checked?: boolean;
 };
 
 export type MobileReaderMoreMenuSection = {
-  id: "chapters" | "chapter" | "reader";
+  id: "actions" | "chapters" | "chapter" | "reader";
   items: MobileReaderMoreMenuItem[];
 };
 
@@ -60,7 +72,77 @@ export type MobileReaderMoreMenuInput = {
   saving: boolean;
   /** Same condition as the settings sheet's Plugins row. */
   showPlugins: boolean;
+  /** Bar actions the capsule has no room for (`buildMobileReaderOverflowItems`). */
+  overflowItems?: MobileReaderMoreMenuItem[];
 };
+
+export type MobileReaderOverflowState = {
+  /** The states the bar buttons light up for. */
+  detectTextActive: boolean;
+  nemuChatActive: boolean;
+  dualReadEnabled: boolean;
+  dualReadAvailable: boolean;
+  /** The bilingual toggle's current layout, named as its value. */
+  bilingualLayoutValue: string;
+};
+
+/** Overflowed bar actions as menu rows: the bar button's title and state, the menu's icon style. */
+export function buildMobileReaderOverflowItems(
+  overflow: readonly MobileReaderBarActionId[],
+  state: MobileReaderOverflowState,
+  strings: MobileStrings,
+): MobileReaderMoreMenuItem[] {
+  const plain = (title: string) => ({ title, disabled: false, accessibilityLabel: title });
+  return overflow.flatMap((id): MobileReaderMoreMenuItem[] => {
+    switch (id) {
+      case "settings":
+        return [];
+      case "detect-text":
+        return [{
+          id,
+          ...plain(strings.reader.pluginJapaneseLearningDetectText),
+          systemImage: "text.viewfinder",
+          icon: "detectText",
+          checked: state.detectTextActive,
+        }];
+      case "nemu-chat":
+        return [{
+          id,
+          ...plain(strings.reader.pluginJapaneseLearningNemuChat),
+          systemImage: "bubble.left.and.text.bubble.right",
+          icon: "nemuChat",
+          checked: state.nemuChatActive,
+        }];
+      case "bilingual-layout":
+        return [{
+          id,
+          title: strings.duo.bilingualLayoutLabel,
+          subtitle: state.bilingualLayoutValue,
+          systemImage: "rectangle.split.2x1",
+          icon: "bilingualLayout",
+          disabled: false,
+          accessibilityLabel: `${strings.duo.bilingualLayoutLabel}, ${state.bilingualLayoutValue}`,
+        }];
+      case "chapter-list":
+        return [{
+          id,
+          ...plain(strings.reader.chapterList),
+          systemImage: "list.bullet",
+          icon: "chapterList",
+        }];
+      default:
+        // The capsule's plugin slot: every plugin but Japanese Learning is Dual Read.
+        return [{
+          id,
+          ...plain(strings.reader.pluginDualReadName),
+          systemImage: "square.on.square",
+          icon: "dualRead",
+          disabled: !state.dualReadAvailable,
+          checked: state.dualReadEnabled,
+        }];
+    }
+  });
+}
 
 /**
  * What a previous / next chapter control says. Until the chapter list is in
@@ -129,6 +211,7 @@ export function buildMobileReaderMoreMenu(input: MobileReaderMoreMenuInput): Mob
     });
   }
   return [
+    ...(input.overflowItems?.length ? [{ id: "actions" as const, items: input.overflowItems }] : []),
     {
       id: "chapters",
       items: [
