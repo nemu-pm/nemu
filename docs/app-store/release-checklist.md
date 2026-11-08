@@ -7,9 +7,12 @@ uploaded with **Transporter** (the owner's choice), under Man To Tang's team
 `expo export:embed` (run by Xcode's and Gradle's bundle phases) sets
 `NODE_ENV=production`, which reads the root `.env.production.local`.
 
-Status on 2026-11-08: a dry run exported `/tmp/tf/export/nemu.ipa` at 04:43, signed
-for `pm.nemu`, version 0.1.0, build 1. It predates `HEAD` and has never been uploaded.
-**Do not upload it.** The steps below have not been run in this corrected form.
+Status on 2026-11-08: a dry run with the commands below, on stable Xcode 27.2 from
+`bcd4939e`, exported `/tmp/tf/rel-202611082344/export/nemu.ipa`, signed for `pm.nemu`,
+version 0.1.0, build 202611082344, and passed the `.ipa` checks. It has never been uploaded,
+and it is a dry run, not a release candidate: **do not upload it**. Build the release commit
+fresh. The older `/tmp/tf/export/nemu.ipa` (04:43, build 1, Beta 3, no kernel) must not be
+uploaded either.
 
 ## Before archiving
 
@@ -141,9 +144,17 @@ Apple documents Transporter as
 
 ## Which Xcode
 
-The dry run used `Xcode-27.2.0-Beta.3` (27B5038j). **Apple has since released Xcode
-27.2**, build 27B52, on 2026-10-29 ([releases](https://developer.apple.com/news/releases/)),
-so there is no need to upload from the beta.
+**Use stable Xcode 27.2**, build 27B52, released on 2026-10-29
+([releases](https://developer.apple.com/news/releases/)). It builds the whole app, Duo code
+included (`NEMU_SDK_27_1` is defined, SDK 27.2), so there is no need to upload from the beta.
+
+It needs `patches/expo-modules-core@58.0.27.patch`. Without it, Swift 6.4.2 crashes in SILGen
+compiling `ExpoModulesCore`, on the `as any Error` cast pattern in `switch consume result` in
+`AsyncFunctionDefinition.swift` ([expo#52610](https://github.com/expo/expo/issues/52610)).
+The cast is redundant, so the patch only removes it. Upstream did the same in 58.0.29. The
+clean build copies `node_modules` from `$SRC`, so `$SRC` must have run `bun install` since
+the patch landed; `mobileExpoNativePatchPolicy.test.ts` fails if it has not. When Expo is
+bumped to 58.0.29 or later, remove the patch and that test.
 
 App Store Connect can refuse a build made with a beta toolchain. The error is `ITMS-90534
 Invalid Toolchain`: "New apps and app updates must be built with the public (GM) versions"
@@ -156,8 +167,8 @@ not a plan for the App Store submission itself.
 
 | Choice | Build | Note |
 |---|---|---|
-| **`/Applications/Xcode-27.2.0.app` (installed)** | 27B52 | use for every upload: `DEVELOPER_DIR=/Applications/Xcode-27.2.0.app/Contents/Developer` |
-| `Xcode-27.1.0-Release.Candidate.app` (installed) | 27A9275 | same build number Apple lists as the 27.1 release, so it should be accepted. Use it if 27.2 cannot be installed in time. Recheck the Duo after building: some behaviour was tuned on iOS 27.2 |
+| **`/Applications/Xcode-27.2.0.app` (installed)** | 27B52 | use for every upload: `DEVELOPER_DIR=/Applications/Xcode-27.2.0.app/Contents/Developer`. Archive and export verified on 2026-11-08 |
+| `Xcode-27.1.0-Release.Candidate.app` (installed) | 27A9275 | same build number Apple lists as the 27.1 release, so it should be accepted. Fallback only; not built for this release. Recheck the Duo after building: some behaviour was tuned on iOS 27.2 |
 | `Xcode-27.2.0-Beta.3.app` (installed) | 27B5038j | only as a TestFlight attempt; on `ITMS-90534`, rebuild with one of the above. Same commit, new `BUILD` |
 | `Xcode.app` (installed, the `xcode-select` default) | 27A266a (27.0) | **never**: the iOS 27.0 SDK leaves out the Duo code. `NemuWindowLayout.podspec` defines `NEMU_SDK_27_1` only for 27.1 or later SDKs |
 
