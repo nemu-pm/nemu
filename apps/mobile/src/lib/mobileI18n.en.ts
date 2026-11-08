@@ -207,8 +207,8 @@ export const mobileStringsEn: MobileStrings = {
     addBooksTitle: "Add Books",
     addSource: "Add Source",
     all: "All",
-    collectionEmpty:
-      "This collection is empty. Add books to fill this shelf.",
+    collectionEmptyTitle: "No books in this collection yet",
+    collectionEmptyDescription: "Add books from your library to start organizing this collection.",
     collectionChipAccessibility: "{{name}}, {{countLabel}}",
     collectionMangaAccessibility: "{{title}}, {{sourceCountLabel}}",
     collectionName: "Collection name",

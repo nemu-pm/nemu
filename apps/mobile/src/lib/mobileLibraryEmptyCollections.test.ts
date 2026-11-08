@@ -25,7 +25,7 @@ describe("empty library keeps collection management reachable", () => {
 
   test("the empty hero renders as the normal list's ListEmptyComponent", () => {
     const main = mainLibraryReturn();
-    expect(main).toContain("fillViewport={showEmptyOnboarding}");
+    expect(main).toContain("fillViewport={showEmptyOnboarding || showEmptyCollectionHero}");
     const empty = main.slice(main.indexOf("ListEmptyComponent={"));
     expect(empty).toContain(") : showEmptyOnboarding ? (");
     expect(empty).toContain("<EmptyLibrary\n                fill");

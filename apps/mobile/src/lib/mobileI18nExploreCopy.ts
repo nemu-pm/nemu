@@ -16,7 +16,6 @@ type CopyOverrides = {
 const MOBILE_DESIGN_EXPLORE_COPY: Partial<Record<AppLanguage, CopyOverrides>> = {
   en: {
     library: {
-      collectionEmpty: "This collection is empty. Add titles to it.",
       newCollectionDescription: "Name a collection for a reading list.",
       renameDescription: "The new name shows everywhere in your library.",
     },
@@ -29,7 +28,6 @@ const MOBILE_DESIGN_EXPLORE_COPY: Partial<Record<AppLanguage, CopyOverrides>> = 
   },
   zh: {
     library: {
-      collectionEmpty: "这个收藏还是空的，添加作品吧。",
       newCollectionDescription: "为一组想读的作品新建一个收藏。",
       renameDescription: "新名称会在整个书库中更新。",
     },

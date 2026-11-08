@@ -23,6 +23,7 @@ import {
   mobileLibraryChapterKey,
   paginateMobileLibraryMergeCandidates,
   shouldRenderMobileLibrarySkeleton,
+  shouldShowMobileEmptyCollectionHero,
   shouldShowMobileLibraryEmptyOnboarding,
   shouldShowMobileLibraryLoadError,
   shouldShowMobileLibraryLoadErrorBanner,
@@ -582,6 +583,14 @@ describe("mobile library presentation", () => {
         hasError: false,
       }),
     ).toBe(false);
+  });
+
+  test("an empty collection takes the hero only once loaded and with no rows left", () => {
+    const empty = { loading: false, hasSelectedCollection: true, rowCount: 0 };
+    expect(shouldShowMobileEmptyCollectionHero(empty)).toBe(true);
+    expect(shouldShowMobileEmptyCollectionHero({ ...empty, loading: true })).toBe(false);
+    expect(shouldShowMobileEmptyCollectionHero({ ...empty, hasSelectedCollection: false })).toBe(false);
+    expect(shouldShowMobileEmptyCollectionHero({ ...empty, rowCount: 1 })).toBe(false);
   });
 
   test("shows library onboarding only after a successful empty load", () => {

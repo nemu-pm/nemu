@@ -188,7 +188,8 @@ export type MobileStrings = {
     addBooksTitle: string;
     addSource: string;
     all: string;
-    collectionEmpty: string;
+    collectionEmptyTitle: string;
+    collectionEmptyDescription: string;
     collectionChipAccessibility: string;
     collectionMangaAccessibility: string;
     collectionName: string;

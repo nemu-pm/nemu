@@ -174,6 +174,23 @@ export function shouldShowMobileLibraryEmptyOnboarding({
   return !loading && !hasLibraryData && !hasSelectedCollection && !hasError;
 }
 
+/**
+ * A selected collection with nothing to draw takes the same hero as an empty
+ * Library. `rowCount` is the rows the grid draws, so the hero and the list's
+ * viewport fill land in the commit the last row leaves.
+ */
+export function shouldShowMobileEmptyCollectionHero({
+  loading,
+  hasSelectedCollection,
+  rowCount,
+}: {
+  loading: boolean;
+  hasSelectedCollection: boolean;
+  rowCount: number;
+}): boolean {
+  return !loading && hasSelectedCollection && rowCount === 0;
+}
+
 export function buildMobileProgressIndex(
   progress: LocalMangaProgress[]
 ): MobileLibraryProgressIndex {

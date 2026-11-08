@@ -16,7 +16,7 @@ describe("design-explore copy", () => {
           expect(placeholders(value as string)).toEqual(placeholders(base[section]![key] as string));
         }
       }
-      const shelfCopy = [copy.library!.collectionEmpty, copy.library!.newCollectionDescription, copy.library!.renameDescription].join(" ");
+      const shelfCopy = [copy.library!.collectionEmptyTitle, copy.library!.collectionEmptyDescription, copy.library!.newCollectionDescription, copy.library!.renameDescription].join(" ");
       expect(shelfCopy).not.toMatch(/shelf|书架|本棚/i);
     }
   });

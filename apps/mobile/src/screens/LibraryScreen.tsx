@@ -81,7 +81,6 @@ import {
 } from "@/data/schema";
 import {
   createNemuNativeScreenOptions,
-  GlassSurface,
   MANGA_CARD_COVER_RADIUS,
   MangaCard,
   MobileNativeSheetScaffold,
@@ -133,7 +132,6 @@ import {
   mobileStateExiting,
   openMobileGridGlideWindow,
 } from "@/lib/mobilePoseLayoutAnimations";
-import { MobilePaneAlignedView } from "@/lib/MobilePaneAlignedView";
 import {
   buildMobileCollectionDeletedToast,
   isMobileLibraryOpenCollectionDeleted,
@@ -199,6 +197,7 @@ import {
   getMobileLibraryCaughtUpCandidates,
   getMobileLibraryProgressInfo,
   shouldRenderMobileLibrarySkeleton,
+  shouldShowMobileEmptyCollectionHero,
   shouldShowMobileLibraryEmptyOnboarding,
   shouldShowMobileLibraryLoadError,
   shouldShowMobileLibraryLoadErrorBanner,
@@ -2354,6 +2353,11 @@ export function LibraryScreen({
     () => chunkMobileGridRows(gridEntries, gridColumns),
     [gridEntries, gridColumns],
   );
+  const showEmptyCollectionHero = shouldShowMobileEmptyCollectionHero({
+    loading: showSkeleton,
+    hasSelectedCollection: Boolean(selectedCollection),
+    rowCount: libraryRows.length,
+  });
   const renderLibraryRow = useCallback(
     ({ item: row, index: rowIndex }: ListRenderItemInfo<LibraryEntry[]>) => (
       <LibraryLayoutRow
@@ -2672,9 +2676,9 @@ export function LibraryScreen({
     <PageListScaffold
       // Keep one list (including its rich header) through column changes.
       listRef={gridScrollRef}
-      // An empty Library is this same list with the hero as its empty
-      // component: exactly as tall as the viewport, so it only rubber-bands.
-      fillViewport={showEmptyOnboarding}
+      // An empty Library or collection is this same list with the hero as its
+      // empty component: exactly as tall as the viewport, so it only rubber-bands.
+      fillViewport={showEmptyOnboarding || showEmptyCollectionHero}
       data={showSkeleton ? [] : libraryRows}
       keyExtractor={collectionRowKey}
       renderItem={renderLibraryRow}
@@ -2819,31 +2823,23 @@ export function LibraryScreen({
       // Undo or the next collection fades it out. Any other time (launch) it
       // appears and leaves at once.
       ListEmptyComponent={
-        !showSkeleton && selectedCollection ? (
-          <Animated.View entering={mobileGridGlideEmptyEntering} exiting={mobileGridGlideEmptyExiting}>
-          <MobilePaneAlignedView>
-          <GlassSurface contentStyle={styles.inlineEmpty}>
-            {/* Decorative: VoiceOver otherwise stops on the icon font's glyph. */}
-            <Ionicons
-              name="albums-outline"
-              size={22}
-              color={tokens.mutedForeground}
-              accessibilityElementsHidden
-              importantForAccessibility="no-hide-descendants"
+        showEmptyCollectionHero ? (
+          // The Library's hero with the collection's words; the action opens
+          // Add Books, as the toolbar's does.
+          <Animated.View
+            style={styles.emptyHero}
+            entering={mobileGridGlideEmptyEntering}
+            exiting={mobileGridGlideEmptyExiting}
+          >
+            <EmptyLibrary
+              fill
+              title={strings.library.collectionEmptyTitle}
+              description={strings.library.collectionEmptyDescription}
+              actionLabel={strings.library.addBooksAction}
+              actionIcon="add-outline"
+              actionDisabled={collectionActionBusy}
+              onActionPress={openAddBooksSheet}
             />
-            <Text style={[styles.inlineEmptyText, { color: tokens.mutedForeground }]}>
-              {strings.library.collectionEmpty}
-            </Text>
-            <NemuButton
-              accessibilityLabel={strings.library.addBooksAction}
-              disabled={collectionActionBusy}
-              icon="add-outline"
-              label={strings.library.addBooksAction}
-              onPress={openAddBooksSheet}
-              variant={collectionActionBusy ? "secondary" : "default"}
-            />
-          </GlassSurface>
-          </MobilePaneAlignedView>
           </Animated.View>
         ) : showEmptyOnboarding ? (
           // The nemu hero lays itself out per pane (EmptyLibrary), centred in
@@ -3015,19 +3011,5 @@ const styles = StyleSheet.create({
   // `width` is supplied per render from the adaptive column width.
   gridItem: {
     minWidth: 0,
-  },
-  inlineEmpty: {
-    minHeight: 78,
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: 12,
-    padding: 16,
-  },
-  inlineEmptyText: {
-    flex: 1,
-    minWidth: 180,
-    fontSize: 13,
-    lineHeight: 18,
   },
 });
