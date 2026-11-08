@@ -1,16 +1,13 @@
-# Convex deploy after PR #34
+# Convex deploy for PR #34
 
-Handover for deploying this branch's `convex/` to production. The mobile
-TestFlight build points at production Convex and works against master's
-backend before the deploy; it picks the new functions up live once they are
-there.
+**Deployed** to production (`oceanic-akita-716`) on 2026-11-08 from
+`alan/pick-local` at `816b6eb1`, ahead of PR #34's merge, so the TestFlight
+build has its backend. Schema validation passed; the push added the two
+`r2_uploads` indexes and deleted none. After #34 merges, redeploying from
+master only picks up later `convex/` changes.
 
-## Order
-
-1. Merge PR #34 into master.
-2. From master: `npx convex deploy` (production).
-3. Set the Apple env vars below if they are not set yet.
-4. Verify (last section).
+This file records what that deploy changed and how the mobile app copes with a
+backend that lags it.
 
 Nothing needs migrating: every new field is optional and the new table starts
 empty.
@@ -90,10 +87,13 @@ For reference, what the TestFlight build does until the deploy lands:
 
 ## Risks
 
-- Apple revoke needs `APPLE_CLIENT_ID`, `APPLE_CLIENT_SECRET` (web) and, for
-  native sign-in, `APPLE_APP_BUNDLE_ID`, `APPLE_NATIVE_CLIENT_SECRET`. Without
-  them deletion of an Apple-linked account fails closed
-  (`ACCOUNT_DELETION_APPLE_UNAVAILABLE`); nothing is deleted.
+- Apple revoke picks credentials by the token's audience. Web and mobile both
+  sign in through the OAuth redirect (`signIn.social`), so tokens belong to
+  the Services ID and use `APPLE_CLIENT_ID` / `APPLE_CLIENT_SECRET`, which
+  production has. `APPLE_APP_BUNDLE_ID` / `APPLE_NATIVE_CLIENT_SECRET` (unset
+  on production) matter only if native Sign in with Apple is adopted; without
+  them a native token's deletion would fail closed
+  (`ACCOUNT_DELETION_APPLE_UNAVAILABLE`), deleting nothing.
 - The signed-out web regression above.
 - `r2_uploads` only knows uploads made after the deploy. Deletion also finds
   older covers through `library_items`, but an older object no longer
