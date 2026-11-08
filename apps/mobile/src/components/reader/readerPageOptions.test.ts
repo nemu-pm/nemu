@@ -9,7 +9,7 @@ describe("page layout footnote", () => {
 
   test("Two Pages with no spread showing says why one page shows", () => {
     expect(readerSpreadModeFootnote("double", en, false)).toBe(
-      "Showing one page for now because the screen is taller than it is wide.",
+      "One page shows for now, as the screen is taller than wide.",
     );
     expect(readerSpreadModeFootnote("double", en, true)).toBe(en.reader.pageLayoutFootnoteDouble);
     // Without the flag: what the option does (a spread shows or is not known).
@@ -23,10 +23,10 @@ describe("page layout footnote", () => {
 
   test("the copy in every language", () => {
     expect(getMobileStrings("zh").reader.pageLayoutFootnoteDoubleShowingSingle).toBe(
-      "当前屏幕高度大于宽度，暂时单页显示。",
+      "屏幕高度大于宽度，暂时单页显示。",
     );
     expect(getMobileStrings("ja").reader.pageLayoutFootnoteDoubleShowingSingle).toBe(
-      "画面が横より縦に長いため、いまは1ページずつ表示しています。",
+      "画面が縦長のため、いまは1ページずつ表示しています。",
     );
   });
 

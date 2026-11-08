@@ -85,6 +85,12 @@ describe("reader settings groups", () => {
     expect(source.match(/footer=\{<SwiftText>\{strings\.reader\.pageFitFootnote\}/g)).toBeNull();
   });
 
+  test("the measured height follows both footnotes' text", () => {
+    const key = source.slice(source.indexOf("heightKey={JSON.stringify(["), source.indexOf("])}", source.indexOf("heightKey={JSON.stringify([")));
+    expect(key).toContain("pageFootnote,");
+    expect(key).toContain("strings.reader.spreadPairingFootnote,");
+  });
+
   test("Shift by One Page's icon is in the accent", () => {
     expect(source).toContain("formRowIcon(shiftPairingSystemImage, { actionRow: true })");
     expect(source).not.toContain("formRowIcon(shiftPairingSystemImage, { tinted: false })");

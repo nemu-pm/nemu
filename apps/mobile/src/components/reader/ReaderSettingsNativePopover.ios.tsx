@@ -664,6 +664,8 @@ export function ReaderSettingsNativePopover({
         settingsRows,
         saving,
         strings.reader.markComplete,
+        pageFootnote,
+        strings.reader.spreadPairingFootnote,
         axRows,
       ])}
       modifiers={[
