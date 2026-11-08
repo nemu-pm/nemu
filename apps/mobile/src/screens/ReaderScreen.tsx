@@ -12829,6 +12829,11 @@ export function ReaderScreen() {
           {readerMoreMenu}
         </ReaderCapsule>
       ) : null;
+      // A glide animates a capsule's frame, not its children's layout: they sit
+      // at their final size, so a growing capsule's content must not spill past
+      // its glass onto a neighbour. Only while gliding: a clip at rest would cut
+      // the buttons' hit slop.
+      const capsuleContentClip = readerChromeGliding ? styles.readerCapsuleContentClip : null;
       const actionsCapsule = (
         <ReaderCapsule
           layout={readerCapsuleLayout}
@@ -12842,11 +12847,13 @@ export function ReaderScreen() {
               : { left: actions.x },
           ]}
         >
-          {pluginActions}
-          {readerBarShows("chapter-list") ? chapterListButton : null}
-          {settingsButton}
-          {/* No ⋯ circle on this row: an overflow's ⋯ ends the capsule. */}
-          {!chrome.more && !readerSideBar && readerBarActions.overflow.length > 0 ? readerMoreMenu : null}
+          <Animated.View layout={readerCapsuleLayout} style={[styles.readerCapsuleActionGroup, capsuleContentClip]}>
+            {pluginActions}
+            {readerBarShows("chapter-list") ? chapterListButton : null}
+            {settingsButton}
+            {/* No ⋯ circle on this row: an overflow's ⋯ ends the capsule. */}
+            {!chrome.more && !readerSideBar && readerBarActions.overflow.length > 0 ? readerMoreMenu : null}
+          </Animated.View>
         </ReaderCapsule>
       );
       return chromeLayer(
@@ -12936,23 +12943,33 @@ export function ReaderScreen() {
               // pane and width, content visible (never a fade out/in). It
               // stays mounted through a dismiss (the chrome lingers) so its
               // glass dematerializes with the other pieces.
-              layout={readerCapsuleLayout}
               pointerEvents={piecesPointerEvents}
-              style={[mobileReaderAbsoluteRect(scrubberRect), readerChromeBottomSlideStyle]}
+              style={[StyleSheet.absoluteFill, readerChromeBottomSlideStyle]}
             >
+              {/* The preview bubble's anchor: where the capsule rests. */}
               <View
                 ref={readerBottomPanelAnchorRef}
-                pointerEvents="box-none"
-                style={styles.readerCapsuleFill}
+                collapsable={false}
+                pointerEvents="none"
+                style={mobileReaderAbsoluteRect(scrubberRect)}
+              />
+              {/* Non-interactive glass: the scrubber must own horizontal
+                  drags (see the console scrubber above). The glide runs on the
+                  glass itself, like the actions capsule's: on a wrapper the
+                  glass took its final width at once and slid over its
+                  neighbour; on one spring the two keep their gap throughout. */}
+              <ReaderCapsule
+                {...glassBottom}
+                layout={readerCapsuleLayout}
+                interactive={false}
+                style={[styles.readerScrubberCapsule, mobileReaderAbsoluteRect(scrubberRect)]}
               >
-                {/* Non-interactive glass: the scrubber must own horizontal
-                    drags (see the console scrubber above). */}
-                <ReaderCapsule {...glassBottom} interactive={false} style={styles.readerScrubberCapsule}>
+                <Animated.View layout={readerCapsuleLayout} style={[styles.readerScrubberContent, capsuleContentClip]}>
                   {previousChapterButton}
                   {scrubber}
                   {nextChapterButton}
-                </ReaderCapsule>
-              </View>
+                </Animated.View>
+              </ReaderCapsule>
             </Animated.View>
           ) : null}
           {settingsErrorBanner ? (
@@ -14126,14 +14143,19 @@ const styles = StyleSheet.create({
     fontVariant: ["tabular-nums"],
     textAlign: "center",
   },
-  readerCapsuleFill: {
-    flex: 1,
-  },
   readerScrubberCapsule: {
     height: 48,
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
     paddingHorizontal: 4,
+  },
+  readerScrubberContent: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  readerCapsuleContentClip: {
+    overflow: "hidden",
   },
 });
