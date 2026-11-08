@@ -871,12 +871,12 @@ describe("source language summary", () => {
 });
 
 describe("origin labels", () => {
-  const strings = { settings: { nemuRecommendedDirectoryName: "nemu 推荐", sourceFileOrigin: "来源文件" } };
+  const strings = { settings: { nemuRecommendedDirectoryName: "示例来源", sourceFileOrigin: "来源文件" } };
   test("the built-in directory and imported files use localised names", async () => {
     const { getMobileSourceOriginLabel, getMobileRegistryDisplayName } = await import("./mobileBrowseSources");
-    // A built-in source row never says "nemu recommended"; the directory list still can.
+    // A built-in source row never names its directory; the directory list does, translated.
     expect(getMobileSourceOriginLabel({ registryId: "nemu-recommended", registryName: "nemu recommended" }, strings)).toBeUndefined();
-    expect(getMobileRegistryDisplayName("nemu-recommended", "nemu recommended", strings)).toBe("nemu 推荐");
+    expect(getMobileRegistryDisplayName("nemu-recommended", "nemu recommended", strings)).toBe("示例来源");
     expect(getMobileSourceOriginLabel({ registryId: "nemu-recommended", registryName: "x", contentLicense: "MIT" }, strings)).toBe("MIT");
     expect(getMobileRegistryDisplayName("custom-aidoku", "custom-aidoku", strings)).toBe("来源文件");
     expect(getMobileRegistryDisplayName("d-abc", "Other list", strings)).toBe("Other list");

@@ -144,6 +144,7 @@ import {
   shouldRenderMobileBrowseSkeleton,
   shouldReopenMobileAddSourceSheetAfterInstall,
   type MobileSourceQuickActionId,
+  getMobileRegistryDisplayName,
   getMobileSourceOriginLabel,
   formatMobileSourceLanguages,
 } from "@/lib/mobileBrowseSources";
@@ -2382,7 +2383,7 @@ export function BrowseScreen() {
                   {focusedDirectory ? (
                     <ActiveFilterChip
                       label={formatMobileString(strings.browse.directoryFilterChip, {
-                        name: focusedDirectory.name,
+                        name: getMobileRegistryDisplayName(focusedDirectory.id, focusedDirectory.name, strings),
                       })}
                       removeLabel={strings.common.remove}
                       onPress={() => setDirectoryFocus(null)}

@@ -5,7 +5,7 @@ import {
 } from "./aidokuRegistry";
 
 /**
- * Bundled snapshot of the nemu recommended directory's `index.min.json`.
+ * Bundled snapshot of the built-in example directory's `index.min.json`.
  *
  * It is what a first launch (or a launch offline, with no cached catalog) sees
  * until the live index loads, so the welcome list is never empty because of a
@@ -14,7 +14,7 @@ import {
  * Regenerate it from the registry repo whenever the entry list changes.
  */
 export const NEMU_RECOMMENDED_DIRECTORY_FALLBACK_INDEX = {
-  name: "nemu recommended",
+  name: "nemu example sources",
   // Mirrors the published index, entry for entry and in its order; onboarding pins
   // its own order (see MOBILE_WELCOME_SOURCE_ORDER).
   sources: [

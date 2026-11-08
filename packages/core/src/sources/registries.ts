@@ -38,7 +38,7 @@ export const NEMU_RECOMMENDED_REGISTRY_ID = "nemu-recommended";
 
 export const NEMU_RECOMMENDED_REGISTRY: AidokuRegistryDefinition = {
   id: NEMU_RECOMMENDED_REGISTRY_ID,
-  name: "nemu recommended",
+  name: "nemu example sources",
   // Placeholder until the nemu-pm/source-registry Pages site is published.
   indexUrl: "https://nemu-pm.github.io/source-registry/index.min.json",
 };

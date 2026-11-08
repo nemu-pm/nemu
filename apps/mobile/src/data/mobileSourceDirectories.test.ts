@@ -120,6 +120,29 @@ describe("source directory seeding", () => {
     expect(plan.save.map((entry) => entry.id)).toEqual(["nemu-recommended"]);
   });
 
+  test("an install from before the rename keeps its row and takes the new name", () => {
+    const stored = {
+      id: "nemu-recommended",
+      name: "nemu recommended",
+      type: "url" as const,
+      url: "https://nemu-pm.github.io/source-registry/index.min.json",
+      builtIn: true,
+      disabled: true,
+      addedAt: 5,
+    };
+    const plan = planSourceDirectorySeed({ registries: [stored], installedSources: [], seeded: true, now: 99 });
+    expect(plan.removeIds).toEqual([]);
+    expect(plan.save).toEqual([{ ...stored, name: "nemu example sources" }]);
+    expect(
+      planSourceDirectorySeed({
+        registries: [{ ...stored, name: "nemu example sources" }],
+        installedSources: [],
+        seeded: true,
+        now: 99,
+      }).save,
+    ).toEqual([]);
+  });
+
   test("a disabled recommended directory stays disabled across seeding", async () => {
     const { store } = fakeStore({ seeded: true });
     await loadMobileSourceDirectories(store);

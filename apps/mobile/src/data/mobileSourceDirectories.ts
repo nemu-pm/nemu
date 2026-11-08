@@ -104,7 +104,7 @@ export type SourceDirectorySeedPlan = {
 /**
  * First-launch plan for the directory list.
  *
- * - The nemu recommended directory is always present (built in).
+ * - The built-in example directory is always present, under its current name.
  * - Aidoku Community / Aidoku ZH are no longer registered by default. A
  *   profile that installed a source from one keeps it as a user-added
  *   directory (same id, so the source keeps its update origin); a profile that
@@ -126,7 +126,12 @@ export function planSourceDirectorySeed({
   const existing = new Map(registries.map((entry) => [entry.id, entry]));
 
   const recommended = existing.get(NEMU_RECOMMENDED_REGISTRY_ID);
-  if (!recommended || !isUrlRegistry(recommended) || !recommended.builtIn) {
+  if (recommended && isUrlRegistry(recommended) && recommended.builtIn) {
+    // An install from before the rename: same row, same id and URL, new name.
+    if (recommended.name !== NEMU_RECOMMENDED_REGISTRY.name) {
+      save.push({ ...recommended, name: NEMU_RECOMMENDED_REGISTRY.name });
+    }
+  } else {
     save.push({
       id: NEMU_RECOMMENDED_REGISTRY.id,
       name: NEMU_RECOMMENDED_REGISTRY.name,

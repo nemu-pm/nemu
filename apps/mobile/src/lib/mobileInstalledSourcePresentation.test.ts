@@ -66,7 +66,7 @@ describe("compactMobileLabelList", () => {
 });
 
 describe("installed built-in source origin", () => {
-  const strings = { settings: { nemuRecommendedDirectoryName: "nemu recommended", sourceFileOrigin: "Source file" } };
+  const strings = { settings: { nemuRecommendedDirectoryName: "Example Sources", sourceFileOrigin: "Source file" } };
   const pepper = makeSource({
     id: "nemu-recommended:multi.peppercarrot",
     registryId: "nemu-recommended",
