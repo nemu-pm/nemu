@@ -23,7 +23,7 @@ describe("reader scrubber touch policy", () => {
 
   test("the scrubber's glass capsule is a non-interactive panel", () => {
     const capsules = [
-      ...readerSource.matchAll(/<ReaderCapsule\b[^>]*style=\{styles\.readerScrubberCapsule\}[^>]*>/g),
+      ...readerSource.matchAll(/<ReaderCapsule\b[^>]*style=\{\[?styles\.readerScrubberCapsule\b[^>]*>/g),
     ].map((match) => match[0]);
     expect(capsules.length).toBeGreaterThan(0);
     for (const capsule of capsules) expect(capsule).toContain("interactive={false}");

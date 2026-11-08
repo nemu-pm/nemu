@@ -1,8 +1,8 @@
 # Convex deploy for PR #34
 
 **Deployed** to production (`oceanic-akita-716`) on 2026-11-08 from
-`alan/pick-local` at `816b6eb1`, ahead of PR #34's merge, so the TestFlight
-build has its backend. Schema validation passed; the push added the two
+`alan/pick-local` at `816b6eb1`, ahead of PR #34's merge, so iOS builds from
+this branch have their backend. Schema validation passed; the push added the two
 `r2_uploads` indexes and deleted none. After #34 merges, redeploying from
 master only picks up later `convex/` changes.
 
@@ -76,7 +76,7 @@ the web needs to hide or sign-in-gate those entry points (not done in PR #34).
 
 ## Mobile against master's backend (before the deploy)
 
-For reference, what the TestFlight build does until the deploy lands:
+For reference, what an iOS build from this branch does until the deploy lands:
 
 - It sends no `resetAt`, `saveSourceDirectory`, `saveLocalArchiveVolume`, or
   self-hosted source while `sync.generation` reports version 1. Those stay on
@@ -108,7 +108,7 @@ For reference, what the TestFlight build does until the deploy lands:
    `chapterProgressIntraPageVersion: 2`.
 3. Web (master build), signed in: library loads, reading progress saves,
    and a cover upload works.
-4. Mobile (TestFlight), signed in: add a source directory, then check the
+4. Mobile (iOS build), signed in: add a source directory, then check the
    user's `settings` row has `sourceDirectories`. Mark a chapter as unread and
    check its `chapter_progress` row has `resetAt`, and the web shows it unread.
 5. Delete a throwaway account from the mobile Account page: the toast says
