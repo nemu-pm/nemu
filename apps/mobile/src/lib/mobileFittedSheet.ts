@@ -179,6 +179,42 @@ export function fittedSheetPresentation({
 }
 
 /**
+ * The tallest a fitted sheet's detent goes. iOS 26+ floats such a sheet 8pt
+ * from the screen's sides and bottom; given a page taller than the screen, the
+ * system lets its top reach the safe area. Where no status bar sets one (the
+ * iPhone Duo's outer display: status lives in the vertical bar, the top inset
+ * is 0) that is the screen's edge, so the sheet would hug it with no margin:
+ * the page scrolls in a sheet with the same 8pt above it, as the system's own
+ * large detent has there. A `.height` detent excludes the bottom safe area,
+ * which the sheet adds, and the sheet floats 8pt above the screen's edge.
+ */
+export function fittedSheetTallestDetent({
+  windowHeight,
+  safeAreaTop,
+  safeAreaBottom,
+}: {
+  windowHeight: number;
+  safeAreaTop: number;
+  safeAreaBottom: number;
+}): number {
+  const topMargin = Math.max(safeAreaTop, FITTED_SHEET_SIDE_INSET);
+  return Math.max(0, Math.floor(windowHeight - topMargin - FITTED_SHEET_SIDE_INSET - safeAreaBottom));
+}
+
+/**
+ * What replaces the system's large detent: on the iPhone Duo's outer display
+ * large meets the screen's top (no status bar, no inset), so a sheet dragged up
+ * stops at `fittedSheetTallestDetent`. 0 where large keeps its margin.
+ */
+export function fittedSheetExpandedDetent(insets: {
+  windowHeight: number;
+  safeAreaTop: number;
+  safeAreaBottom: number;
+}): number {
+  return insets.safeAreaTop < FITTED_SHEET_SIDE_INSET ? fittedSheetTallestDetent(insets) : 0;
+}
+
+/**
  * The fitted detent kept below a fold (the iPhone Duo half folded like a
  * laptop: the reader's sheets belong to the bottom pane): a page taller than
  * `maxHeight` gets exactly `maxHeight` and scrolls; null leaves it as fitted.

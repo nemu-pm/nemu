@@ -92,7 +92,7 @@ describe("reader plugin settings sheet policy", () => {
     // measured before it presents: one detent, never a fixed one. Half
     // folded like a laptop it never reaches past the hinge (the reader's cap).
     expect(source).toMatch(
-      /fitSheetDetentToContent\(\{\s*group: READER_PLUGIN_SHEET_GROUP,\s*page: activePage,\s*height: fittedSheetDetentWithin\(sheet\.detent, maxSheetHeight\),\s*\}\)/,
+      /fitSheetDetentToContent\(\{\s*group: READER_PLUGIN_SHEET_GROUP,\s*page: activePage,\s*height: fittedSheetDetentWithin\(sheet\.detent, maxSheetHeight\),\s*maxHeight: fittedSheetTallestDetent\(\{[^}]*\}\),\s*\}\)/,
     );
     expect(source).toContain("isPresented={sheet.presented}");
     expect(source).not.toContain("presentationDetents(");
@@ -404,7 +404,7 @@ describe("reader plugin settings sheet policy", () => {
     expect(pushed).not.toContain("reportSheetContentHeight(");
     expect(native).not.toContain("ReaderPluginSheetMeasuringCopies");
     expect(native).toMatch(
-      /fitSheetDetentToContent\(\{\s*group: READER_SETTINGS_SHEET_GROUP,\s*page: READER_SETTINGS_SHEET_PAGE,\s*initialHeight: sheetEstimate,\s*height: sheetCap,\s*expandable: sheetCap === 0 && maxSheetHeight == null,\s*\}\)/,
+      /fitSheetDetentToContent\(\{\s*group: READER_SETTINGS_SHEET_GROUP,\s*page: READER_SETTINGS_SHEET_PAGE,\s*initialHeight: sheetEstimate,\s*height: sheetCap,\s*expandable: sheetCap === 0 && maxSheetHeight == null,\s*maxHeight: fittedSheetTallestDetent\(sheetBounds\),\s*expandedHeight: fittedSheetExpandedDetent\(sheetBounds\),\s*\}\)/,
     );
     // The hosted page takes the page's width (never a width JS learned) and
     // its own height, so its groups' edges are the Form's.

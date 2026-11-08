@@ -14,6 +14,7 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   BottomSheet as SwiftBottomSheet,
   Group as SwiftGroup,
@@ -47,6 +48,7 @@ import {
   fittedSheetGuessHostMetrics,
   fittedSheetDetentWithin,
   fittedSheetPresentation,
+  fittedSheetTallestDetent,
   READER_PLUGIN_SHEET_GROUP,
   READER_PLUGIN_SHEET_LIST_PAGE,
   readerPluginSheetActivePage,
@@ -152,6 +154,7 @@ export function ReaderPluginSettingsSheet({
   const { scheme, tokens } = useNemuTheme();
   const sheetPlacement = useMobileSheetPlacement();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const guess = guessHostMetrics(windowWidth, windowHeight);
   const [, setLearnedRevision] = useState(0);
   const learned = hostMetricsCache.get({ width: windowWidth, height: windowHeight });
@@ -266,6 +269,11 @@ export function ReaderPluginSettingsSheet({
                   group: READER_PLUGIN_SHEET_GROUP,
                   page: activePage,
                   height: fittedSheetDetentWithin(sheet.detent, maxSheetHeight),
+                  maxHeight: fittedSheetTallestDetent({
+                    windowHeight,
+                    safeAreaTop: insets.top,
+                    safeAreaBottom: insets.bottom,
+                  }),
                 }),
                 presentationDragIndicator("visible"),
                 presentationPlacement(sheetPlacement),

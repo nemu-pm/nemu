@@ -53,6 +53,7 @@ import {
   tint,
 } from "@expo/ui/swift-ui/modifiers";
 import { Platform, StyleSheet, useWindowDimensions, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   fitPopoverToContent,
   fitSheetDetentToContent,
@@ -80,7 +81,9 @@ import {
   READER_SCROLL_WIDTH_MIN,
 } from "@/lib/mobileReaderSettings";
 import {
+  fittedSheetExpandedDetent,
   fittedSheetMeasureFrame,
+  fittedSheetTallestDetent,
   READER_SETTINGS_PLUGINS_PAGE,
   READER_SETTINGS_POPOVER_PAGE,
   READER_SETTINGS_SHEET_GROUP,
@@ -200,6 +203,7 @@ export function ReaderSettingsNativePopover({
   const { scheme, tokens } = useNemuTheme();
   const sheetPlacement = useMobileSheetPlacement();
   const windowSize = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   // The pages pushed on the settings' NavigationStack (controlled, so the
   // plugin rows can push too): `plugins`, then `plugin:<id>`. Each
   // presentation opens on the Reader page.
@@ -759,6 +763,7 @@ export function ReaderSettingsNativePopover({
     // Half folded like a laptop: never past the hinge (a pushed plugin page
     // scrolls in the same height).
     const sheetEstimate = readerSettingsNativeSheetEstimatedHeight(settingsRows);
+    const sheetBounds = { windowHeight: windowSize.height, safeAreaTop: insets.top, safeAreaBottom: insets.bottom };
     const sheetCap = readerSettingsSheetDetentCap({ estimatedHeight: sheetEstimate, maxHeight: maxSheetHeight });
     return (
       <>
@@ -787,6 +792,8 @@ export function ReaderSettingsNativePopover({
                   initialHeight: sheetEstimate,
                   height: sheetCap,
                   expandable: sheetCap === 0 && maxSheetHeight == null,
+                  maxHeight: fittedSheetTallestDetent(sheetBounds),
+                  expandedHeight: fittedSheetExpandedDetent(sheetBounds),
                 }),
                 presentationDragIndicator("visible"),
                 presentationPlacement(sheetPlacement),

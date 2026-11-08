@@ -174,6 +174,17 @@ export function fitSheetDetentToContent(options: {
    * drag the sheet taller (and it stays there). Off below a fold.
    */
   expandable?: boolean;
+  /**
+   * The tallest the fitted detent goes (`fittedSheetTallestDetent`): a taller
+   * page scrolls in a sheet that keeps its margins. A binary built before the
+   * option existed ignores it.
+   */
+  maxHeight?: number;
+  /**
+   * With `expandable`, the height dragged up to instead of the large detent
+   * (`fittedSheetExpandedDetent`; 0 / omitted: large).
+   */
+  expandedHeight?: number;
 }) {
   return createModifier("nemuFitSheetDetent", {
     group: options.group,
@@ -181,6 +192,8 @@ export function fitSheetDetentToContent(options: {
     initialHeight: options.initialHeight ?? 0,
     height: options.height ?? 0,
     expandable: options.expandable ?? false,
+    maxHeight: options.maxHeight ?? 0,
+    expandedHeight: options.expandedHeight ?? 0,
   });
 }
 

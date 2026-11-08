@@ -34,6 +34,8 @@ import { useLayoutEffect, useRef } from "react";
 import { Platform, PlatformColor, StyleSheet, View, useWindowDimensions, type ColorValue } from "react-native";
 import { useNemuTheme } from "@/design-system";
 import { MOBILE_GROUPED_FORM_TOP_MARGIN } from "@/lib/mobileLibrarySheetLayout";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { fittedSheetExpandedDetent } from "@/lib/mobileFittedSheet";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { mobileNativeFormSheetWindow, resolveMobileNativeFormSheetPadSizing } from "@/lib/mobileNativeSheet";
 import {
@@ -98,8 +100,17 @@ export function MobileNativeFormSheet({
   testID,
 }: MobileNativeFormSheetProps) {
   const { scheme, tokens } = useNemuTheme();
-  const { width: windowWidth } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const adaptive = useMobileAdaptiveLayout();
+  const insets = useSafeAreaInsets();
+  // Where large would meet the screen's top, a drag up stops short of it.
+  const expandedDetent = fittedSheetExpandedDetent({
+    windowHeight,
+    safeAreaTop: insets.top,
+    safeAreaBottom: insets.bottom,
+  });
+  const presentedDetents =
+    expandedDetent > 0 ? detents.map((detent) => (detent === "large" ? { height: expandedDetent } : detent)) : detents;
   // A swipe-down reports its close once, from whichever comes first: the
   // presented-state change or the system's dismissal (for a swipe SwiftUI
   // can call `onDismiss` before it, and a close reported only from the state
@@ -182,7 +193,7 @@ export function MobileNativeFormSheet({
                 ? []
                 : padForm?.kind === "form"
                   ? [presentationSizing("form")]
-                  : [presentationDetents(detents)]),
+                  : [presentationDetents(presentedDetents)]),
               presentationDragIndicator("visible"),
               ...(grouped ? [presentationBackground(GROUPED_SHEET_BACKGROUND)] : []),
               interactiveDismissDisabled(dismissDisabled),

@@ -20,6 +20,7 @@ import {
 import { useNemuTheme } from "@/design-system";
 import { useMobileDesignExplore } from "@/lib/mobileDesignExplore";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
+import { fittedSheetTallestDetent } from "@/lib/mobileFittedSheet";
 import { MOBILE_NATIVE_FORM_ROW, getMobileNativeFormSheetHeight } from "@/lib/mobileNativeFormSheetLayout";
 import { MOBILE_NATIVE_SHEET_IOS_FORM_WIDTH } from "@/lib/mobileNativeSheet";
 import { MobileNativeFormSheet } from "./MobileNativeFormSheet";
@@ -70,7 +71,7 @@ export function MobileSourceLoginNativeSheet({
     sections: error ? [...groups, { rows: [MOBILE_NATIVE_FORM_ROW], footer: error }] : groups,
     sheetWidth: regularWidth ? MOBILE_NATIVE_SHEET_IOS_FORM_WIDTH : Math.min(width - insets.left - insets.right - 16, 620),
     fontScale,
-    maxHeight: height - insets.top,
+    maxHeight: fittedSheetTallestDetent({ windowHeight: height, safeAreaTop: insets.top, safeAreaBottom: insets.bottom }),
     tightTop,
     bottomInset: insets.bottom,
   });

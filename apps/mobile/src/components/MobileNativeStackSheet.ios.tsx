@@ -29,7 +29,7 @@ import {
   scrollEdgeEffectStyle,
 } from "@expo/ui/swift-ui/modifiers";
 import { NemuGlassSheetThemeScope, useMobileSheetPlacement, useNemuTheme } from "@/design-system";
-import { fittedSheetDetentWithin } from "@/lib/mobileFittedSheet";
+import { fittedSheetDetentWithin, fittedSheetTallestDetent } from "@/lib/mobileFittedSheet";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import {
   mobileNativeStackSheetDetent,
@@ -289,6 +289,11 @@ export function MobileNativeStackSheet({
                   page: top?.id ?? "root",
                   initialHeight: estimatedHeight,
                   height: detent,
+                  maxHeight: fittedSheetTallestDetent({
+                    windowHeight: window.height,
+                    safeAreaTop: insets.top,
+                    safeAreaBottom: insets.bottom,
+                  }),
                 }),
                 presentationDragIndicator("visible"),
                 presentationPlacement(sheetPlacement),

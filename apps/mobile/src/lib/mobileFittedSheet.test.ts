@@ -10,6 +10,8 @@ import {
   readerPluginSheetActivePage,
   readerPluginSheetPage,
   fittedSheetDetentWithin,
+  fittedSheetExpandedDetent,
+  fittedSheetTallestDetent,
 } from "./mobileFittedSheet";
 
 describe("fitted sheet measuring copy", () => {
@@ -106,5 +108,21 @@ describe("fitted sheet below a fold", () => {
     expect(fittedSheetDetentWithin(300, 401)).toBe(300);
     expect(fittedSheetDetentWithin(720, null)).toBe(720);
     expect(fittedSheetDetentWithin(720, 0)).toBe(720);
+  });
+});
+
+describe("fittedSheetExpandedDetent", () => {
+  test("replaces large only where large would meet the screen's top", () => {
+    expect(fittedSheetExpandedDetent({ windowHeight: 678, safeAreaTop: 0, safeAreaBottom: 20 })).toBe(642);
+    expect(fittedSheetExpandedDetent({ windowHeight: 874, safeAreaTop: 62, safeAreaBottom: 34 })).toBe(0);
+  });
+});
+
+describe("fittedSheetTallestDetent", () => {
+  test("keeps 8pt above and below a sheet where no status bar sets a top inset (the Duo's outer display)", () => {
+    expect(fittedSheetTallestDetent({ windowHeight: 678, safeAreaTop: 0, safeAreaBottom: 20 })).toBe(642);
+  });
+  test("elsewhere the safe areas are the margins", () => {
+    expect(fittedSheetTallestDetent({ windowHeight: 874, safeAreaTop: 62, safeAreaBottom: 34 })).toBe(770);
   });
 });

@@ -1147,6 +1147,12 @@ struct NemuFitSheetDetentModifier: ViewModifier {
   /// `.large` stays available: the user can drag the sheet taller than its
   /// content, and it stays there (the fitted detent no longer follows).
   let expandable: Bool
+  /// The tallest the fitted detent goes (> 0): a taller page scrolls, and the
+  /// sheet keeps its margin from the screen's top where no status bar sets one.
+  let maxHeight: CGFloat?
+  /// What an expandable sheet is dragged up to, > 0 where `.large` would meet
+  /// the screen's top (no status bar above it): else `.large`.
+  let expandedDetent: PresentationDetent
   @ObservedObject private var store: NemuSheetFitStore
   @StateObject private var state = NemuSheetFitState()
 
@@ -1156,27 +1162,37 @@ struct NemuFitSheetDetentModifier: ViewModifier {
     let height = CGFloat((params["height"] as? Double) ?? 0)
     explicitHeight = height > 0 ? height.rounded(.up) : nil
     expandable = (params["expandable"] as? Bool) ?? false
+    let maxHeight = CGFloat((params["maxHeight"] as? Double) ?? 0)
+    self.maxHeight = maxHeight > 0 ? maxHeight.rounded(.down) : nil
+    let expandedHeight = CGFloat((params["expandedHeight"] as? Double) ?? 0)
+    expandedDetent = expandedHeight > 0 ? .height(expandedHeight.rounded(.down)) : .large
     store = NemuSheetFitStore.named((params["group"] as? String) ?? "default")
   }
 
   func body(content: Content) -> some View {
     if #available(iOS 17.0, *) {
-      let target = explicitHeight ?? store.detentHeight(page: state.activePage ?? page)
+      let fittedHeight = explicitHeight ?? store.detentHeight(page: state.activePage ?? page)
+      let target = fittedHeight.map { height in maxHeight.map { min(height, $0) } ?? height }
       let fallback = nemuDetent(nil, fallback: initialHeight)
       let current = nemuDetent(state.presented ? state.height : target, fallback: initialHeight)
       let fitted: Set<PresentationDetent> = state.outgoing.map { [current, $0] } ?? [current]
-      let detents = expandable ? fitted.union([.large]) : fitted
+      // A tall sheet with one detent drops its bottom margin and sits on the
+      // screen's edge; a second one (a point shorter: nowhere taller to drag
+      // to) keeps it floating with its margins at the cap.
+      let cappedAtMax = maxHeight != nil && target == maxHeight
+      let floating: Set<PresentationDetent> = cappedAtMax ? [.height((maxHeight ?? 1) - 1)] : []
+      let detents = (expandable ? fitted.union([expandedDetent]) : fitted).union(floating)
       content
         .environment(\.nemuSheetFit, state)
         .environment(\.nemuSheetFitStore, store)
         // The selection follows the content; a drag toward the outgoing
         // detent during a resize is not kept. An expandable sheet the user
-        // dragged to `.large` stays there until they drag it back.
+        // dragged taller stays there until they drag it back.
         .presentationDetents(
           detents,
           selection: Binding(
-            get: { expandable && state.userExpanded ? .large : current },
-            set: { next in if expandable { state.userExpanded = next == .large } }
+            get: { expandable && state.userExpanded ? expandedDetent : current },
+            set: { next in if expandable { state.userExpanded = next == expandedDetent } }
           )
         )
         .onAppear { state.appeared(at: target, fallback: fallback) }
