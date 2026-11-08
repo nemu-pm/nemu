@@ -313,7 +313,7 @@ final class NemuPageSlideView: ExpoView, UIGestureRecognizerDelegate {
     guard animated else {
       currentFrame = target
       showResting()
-      onSettle(["slot": target * step])
+      onSettle(["slot": target * step, "token": appliedToken])
       onTurnEnd([:])
       return
     }
@@ -425,7 +425,7 @@ final class NemuPageSlideView: ExpoView, UIGestureRecognizerDelegate {
     showResting()
     if moved && (turn.gesture || (appliedToken == navigationToken && self.frame(forSlot: navigationIndex) == frame)) {
       var event: [String: Any] = ["slot": frame * step]
-      if turn.gesture { event["gesture"] = true }
+      if turn.gesture { event["gesture"] = true } else { event["token"] = appliedToken }
       onSettle(event)
     }
     onTurnEnd([:])

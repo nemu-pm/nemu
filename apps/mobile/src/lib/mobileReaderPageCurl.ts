@@ -296,6 +296,22 @@ export function nextMobileReaderCurlNavigation(
 }
 
 /**
+ * Whether the pager's settle event still names a frame of the frames on
+ * screen. A requested turn's settle carries its navigation token; once a
+ * newer request or a re-anchor (frames joined around the page: in manga a
+ * next chapter goes in front) has superseded it, its slot counts frames that
+ * have moved, and the newer navigation reports its own landing. A drag's
+ * settle carries no token and always counts.
+ */
+export function mobileReaderCurlSettleIsCurrent(
+  event: { gesture?: boolean; token?: number },
+  latestToken: number,
+): boolean {
+  if (event.gesture || event.token == null) return true;
+  return event.token === latestToken;
+}
+
+/**
  * The index, in `after`, of the frame showing the pages `before[frame]`
  * showed (by page id), or null when it is gone.
  */

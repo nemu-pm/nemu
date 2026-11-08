@@ -26,6 +26,7 @@ import {
   mobileReaderCurlFrameForSlot,
   mobileReaderCurlLayout,
   mobileReaderCurlReanchorFrame,
+  mobileReaderCurlSettleIsCurrent,
   mobileReaderCurlSlotForFrame,
   mobileReaderCurlSlotWindow,
   mobileReaderCurlSpine,
@@ -244,7 +245,9 @@ export function MobileReaderCurlPager({
   );
 
   const handleSettle = useCallback(
-    (slot: number) => {
+    (slot: number, event: { gesture?: boolean; token?: number }) => {
+      // A superseded request's slot counts frames that have since moved.
+      if (!mobileReaderCurlSettleIsCurrent(event, navigationRef.current.token)) return;
       const frame = mobileReaderCurlFrameForSlot(slot, spreadMode);
       setSettledFrame(frame);
       onSettleFrame(frame);
@@ -269,7 +272,7 @@ export function MobileReaderCurlPager({
       navigationIndex={navigation.slot}
       navigationAnimated={navigation.animated}
       navigationToken={navigation.token}
-      onSettle={(event) => handleSettle(event.nativeEvent.slot)}
+      onSettle={(event) => handleSettle(event.nativeEvent.slot, event.nativeEvent)}
       onEdgeDrag={(event) => onEdgeIntent(mobileReaderCurlEdgeIntent(event.nativeEvent.side, mode))}
       onTurnBegin={() => onTurningChange?.(true)}
       onTurnEnd={() => onTurningChange?.(false)}

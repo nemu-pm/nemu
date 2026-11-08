@@ -367,7 +367,7 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
     } else {
       pageController.setViewControllers(vcs, direction: frames > 0 ? .forward : .reverse, animated: false)
       currentSlot = target
-      onSettle(["slot": target])
+      onSettle(["slot": target, "token": appliedToken])
       onTurnEnd([:])
       prepareBacks()
     }
@@ -377,7 +377,7 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
     transitioning = false
     currentSlot = slot
     if appliedToken == navigationToken && normalizedSlot(navigationIndex) == slot {
-      onSettle(["slot": slot])
+      onSettle(["slot": slot, "token": appliedToken])
     }
     onTurnEnd([:])
     setNeedsLayout()

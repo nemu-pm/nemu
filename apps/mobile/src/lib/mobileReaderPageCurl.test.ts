@@ -7,6 +7,7 @@ import {
   mobileReaderCurlLayout,
   mobileReaderCurlLoneSide,
   mobileReaderCurlReanchorFrame,
+  mobileReaderCurlSettleIsCurrent,
   mobileReaderCurlSlotForFrame,
   mobileReaderCurlSlotWindow,
   mobileReaderCurlSpine,
@@ -395,5 +396,23 @@ describe("curl pager re-anchor (seamless paged reading)", () => {
     expect(mobileReaderCurlReanchorFrame({
       before: [[0], [1, 2]], beforePages: pages, after: [[0], [1], [2]], afterPages: pages, frame: 1,
     })).toBeNull();
+  });
+});
+
+describe("mobileReaderCurlSettleIsCurrent", () => {
+  test("a requested turn's settle counts while its navigation is the latest", () => {
+    expect(mobileReaderCurlSettleIsCurrent({ token: 4 }, 4)).toBe(true);
+  });
+
+  test("a settle from a superseded request (a re-anchor after frames joined) is dropped", () => {
+    // Manga: the slider lands on the chapter's last page (frame 0); the next
+    // chapter joins in front and the pager re-anchors with a new token. The
+    // old settle's frame 0 is now the next chapter's last page.
+    expect(mobileReaderCurlSettleIsCurrent({ token: 4 }, 5)).toBe(false);
+  });
+
+  test("a drag's settle always counts", () => {
+    expect(mobileReaderCurlSettleIsCurrent({ gesture: true }, 9)).toBe(true);
+    expect(mobileReaderCurlSettleIsCurrent({}, 9)).toBe(true);
   });
 });

@@ -24,7 +24,7 @@ export type PageCurlViewProps = {
   navigationIndex: number;
   navigationAnimated: boolean;
   navigationToken: number;
-  onSettle?: (event: NativeSyntheticEvent<{ slot: number; gesture?: boolean }>) => void;
+  onSettle?: (event: NativeSyntheticEvent<{ slot: number; gesture?: boolean; token?: number }>) => void;
   onEdgeDrag?: (event: NativeSyntheticEvent<{ side: "before" | "after" }>) => void;
   onTurnBegin?: (event: NativeSyntheticEvent<{ slot: number }>) => void;
   /** Every curl's end: landed, cancelled or jumped. */
