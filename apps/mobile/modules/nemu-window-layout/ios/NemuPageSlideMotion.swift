@@ -25,6 +25,14 @@ enum NemuPageSlideMotion {
   static let flickVelocity: CGFloat = 350
   /** Release projection, as a scroll view with fast deceleration projects its momentum. */
   static let decelerationRate: CGFloat = 0.99
+  /**
+   * The settling spring (unit mass, critically damped): about a third of a
+   * second from a tap to rest, as Books turns; a flick leaves the finger at
+   * its own speed and lands sooner.
+   */
+  static let stiffness: CGFloat = 700
+  /** The spring's natural frequency: a release faster than this (relative) would overshoot. */
+  static var naturalFrequency: CGFloat { stiffness.squareRoot() }
 
   struct Pose: Equatable {
     var lowerOnTop: Bool
@@ -105,12 +113,13 @@ enum NemuPageSlideMotion {
   /**
    * The settling spring's initial velocity in `UISpringTimingParameters`
    * units: the release speed relative to the distance still to travel (so the
-   * page leaves the finger at the finger's speed), capped against a flick
-   * over a few points overshooting the spring.
+   * page leaves the finger at the finger's speed), capped at the spring's
+   * natural frequency: any faster and a critically damped spring overshoots.
    */
   static func springVelocity(velocity: CGFloat, remaining: CGFloat) -> CGFloat {
     guard abs(remaining) >= 1 else { return 0 }
-    return Swift.max(-30, Swift.min(30, velocity / abs(remaining)))
+    let cap = naturalFrequency
+    return Swift.max(-cap, Swift.min(cap, velocity / abs(remaining)))
   }
 
   /**

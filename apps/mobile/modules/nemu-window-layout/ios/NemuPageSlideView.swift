@@ -382,7 +382,7 @@ final class NemuPageSlideView: ExpoView, UIGestureRecognizerDelegate {
     let remaining = (endProgress - currentProgress()) * bounds.width
     let relative = NemuPageSlideMotion.springVelocity(velocity: velocity, remaining: remaining)
     // Critically damped, settling in about a third of a second (Books' pace).
-    let stiffness: CGFloat = turn.reduceMotion ? 600 : 300
+    let stiffness = NemuPageSlideMotion.stiffness
     let timing = UISpringTimingParameters(
       mass: 1,
       stiffness: stiffness,

@@ -90,7 +90,9 @@ enum NemuPageSlideMotionTests {
     precondition(NemuPageSlideMotion.completes(moved: 0.45, velocity: 300, width: width))
     precondition(!NemuPageSlideMotion.completes(moved: 0.4, velocity: 100, width: width))
     precondition(close(NemuPageSlideMotion.springVelocity(velocity: 400, remaining: 200), 2))
-    precondition(close(NemuPageSlideMotion.springVelocity(velocity: 4000, remaining: 2), 30))
+    // Never faster than the spring's natural frequency: no overshoot.
+    precondition(close(NemuPageSlideMotion.springVelocity(velocity: 4000, remaining: 2), NemuPageSlideMotion.naturalFrequency))
+    precondition(close(NemuPageSlideMotion.springVelocity(velocity: -4000, remaining: 2), -NemuPageSlideMotion.naturalFrequency))
     precondition(close(NemuPageSlideMotion.springVelocity(velocity: 400, remaining: 0.5), 0))
   }
 
