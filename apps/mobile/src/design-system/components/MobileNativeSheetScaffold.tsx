@@ -988,7 +988,10 @@ function MobileNativeSheetHeaderRow({
 /**
  * A sheet's body on iOS: inside the bar's inset wherever the header keeps it.
  * `inset` is how: a full-width frame pads, a body with its own padding (the
- * caller's content style) takes margins.
+ * caller's content style) takes margins. Never flattened: closing locks it
+ * (`pointerEvents`, hidden from accessibility), which would give a flattened
+ * view a native one, reparent a list inside it and reset its scroll position
+ * (Add Sources' rows jumped up under its bar as the sheet went down).
  */
 function MobileNativeSheetIosBody({
   style,
@@ -1003,6 +1006,7 @@ function MobileNativeSheetIosBody({
   return (
     <View
       {...props}
+      collapsable={false}
       style={[style, inset === "padding" ? { paddingLeft: left, paddingRight: right } : { marginLeft: left, marginRight: right }]}
     />
   );
