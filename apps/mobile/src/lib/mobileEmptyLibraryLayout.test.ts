@@ -67,6 +67,10 @@ describe("getMobileEmptyLibraryAdaptiveLayout", () => {
     // 466×678 minus the 84pt trailing bar column and the top header only.
     const outer = getMobileEmptyLibraryAdaptiveLayout({ width: 382, height: 600 });
     expect(outer.arrangement).toBe("stack");
+    // Outer display on its side, beside the bar: art beside the copy, not a sliver above it.
+    const outerLandscape = getMobileEmptyLibraryAdaptiveLayout({ width: 590, height: 400 });
+    expect(outerLandscape.arrangement).toBe("row");
+    expect(outerLandscape.portraitMaxWidth).toBeGreaterThan(240);
     expect(ratioOfHeight(outer, 678)).toBeGreaterThan(0.5);
   });
 

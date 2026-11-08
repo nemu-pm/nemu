@@ -38,8 +38,13 @@ function portraitWidthForBreakpoint(contentWidth: number): number {
   return WEB_MD_PORTRAIT_MAX_WIDTH;
 }
 
-/** Sizes shared by the adaptive (container-measured) empty-state hero. */
-const ADAPTIVE_SPLIT_MIN_WIDTH = 600;
+/**
+ * Sizes shared by the adaptive (container-measured) empty-state hero. A
+ * landscape phone-sized box (Duo's outer display on its side: about 590pt
+ * beside the bar) splits too: stacked, the art only gets what is left above
+ * the copy and shrinks to a sliver.
+ */
+const ADAPTIVE_SPLIT_MIN_WIDTH = 480;
 /** A box this much wider than tall reads better as art beside copy (HIG split arrangement). */
 const ADAPTIVE_SPLIT_MIN_ASPECT = 1.15;
 /** Art height as a share of its pane in the side-by-side arrangements. */
