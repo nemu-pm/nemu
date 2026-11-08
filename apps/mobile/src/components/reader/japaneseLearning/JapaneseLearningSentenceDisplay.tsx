@@ -445,10 +445,7 @@ export function JapaneseLearningSentenceDisplay({
   // Signed out is a precondition, not a failure. It reads as the empty
   // Library does, centred in the space below the text, without the error red
   // and without Retry: the analysis runs again by itself once a session exists.
-  const signInNotice = mobileJapaneseLearningAwaitsSignIn(
-    grammarState,
-    strings.reader.pluginJapaneseLearningSignInRequired,
-  );
+  const signInNotice = mobileJapaneseLearningAwaitsSignIn(grammarState);
   const statusBlock = signInNotice ? (
     <JapaneseLearningSignInNotice
       {...mobileJapaneseLearningSignInCopy(strings, "sentence", getMobileJapaneseLearningEnginePreference())}

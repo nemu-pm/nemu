@@ -63,8 +63,6 @@ interface TranscriptSheetProps {
   onToggleTts: (text: string) => void;
 }
 
-/** Web transcript.tsx: full-page TTS only for pages up to 500 characters. */
-const TRANSCRIPT_TTS_MAX_CHARACTERS = 500;
 /** Widest the transcript's column grows: about 40 characters of its 13pt serif. */
 const TRANSCRIPT_MAX_MEASURE = 520;
 /** How long a "no image yet" failure waits for the page before it shows. */
@@ -163,6 +161,11 @@ export function JapaneseLearningTranscriptSheet({
     ttsState.status === "loading" && ttsState.source === "transcript";
   const transcriptTtsPlaying =
     ttsState.status === "playing" && ttsState.source === "transcript";
+  // The bars stay once this page's audio has run, never on the press alone: a
+  // press that opens sign-in or is refused leaves the bare play button.
+  if (transcriptTtsActive && playedTranscript !== transcriptText) {
+    setPlayedTranscript(transcriptText);
+  }
   const readingOrder = transcriptTtsPlaying
     ? findMobileTranscriptPlaybackLineOrder(
         lines,
@@ -206,12 +209,7 @@ export function JapaneseLearningTranscriptSheet({
                     ? strings.reader.pluginJapaneseLearningStopListening
                     : strings.reader.pluginJapaneseLearningListen
                 }
-                onToggle={() => {
-                  if (!transcriptTtsActive && transcriptText.length <= TRANSCRIPT_TTS_MAX_CHARACTERS) {
-                    setPlayedTranscript(transcriptText);
-                  }
-                  onToggleTts(transcriptText);
-                }}
+                onToggle={() => onToggleTts(transcriptText)}
               />
             </View>
           ) : null}

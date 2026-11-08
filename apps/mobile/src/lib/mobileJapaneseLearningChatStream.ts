@@ -24,9 +24,6 @@ function stripAudioTags(text: string): string {
 /** Web `onError` fallback for an empty or JSON-shaped error payload. */
 export const MOBILE_JAPANESE_LEARNING_CHAT_NETWORK_ERROR =
   "Network error. Please try again.";
-/** Web `streamChat` 401 message (untranslated on web in every locale). */
-export const MOBILE_JAPANESE_LEARNING_CHAT_SIGN_IN_ERROR =
-  "Please sign in to use this feature";
 
 /** Web gap between one speak bubble landing and the next being scheduled. */
 export const MOBILE_JAPANESE_LEARNING_CHAT_SPEAK_GAP_MS = 350;
@@ -93,6 +90,8 @@ export type MobileJapaneseLearningChatStreamController =
   > & {
     /** Web `onCancelled`: a newer request replaced this one mid-flight. */
     onCancelled: () => void;
+    /** The server wants sign-in: the stream ends without a bubble. */
+    onSignInRequired: () => void;
     /** True once `onDone`, `onError` or `onCancelled` ran (web `streamCompleted`). */
     isCompleted: () => boolean;
   };
@@ -239,6 +238,16 @@ export function createMobileJapaneseLearningChatStreamController(
     }
   };
 
+  const endStreamNow = () => {
+    bufferedText = "";
+    streamCompleted = true;
+    speakQueue.length = 0;
+    processingSpeak = false;
+    clearSpeakTimers();
+    stopTyping();
+    setStreaming(false);
+  };
+
   return {
     onStreamStart: () => {
       // Flip read receipt ASAP for snappier UX.
@@ -336,14 +345,9 @@ export function createMobileJapaneseLearningChatStreamController(
           ? trimmed
           : MOBILE_JAPANESE_LEARNING_CHAT_NETWORK_ERROR,
       );
-      bufferedText = "";
-      streamCompleted = true;
-      speakQueue.length = 0;
-      processingSpeak = false;
-      clearSpeakTimers();
-      stopTyping();
-      setStreaming(false);
+      endStreamNow();
     },
+    onSignInRequired: endStreamNow,
     onCancelled: () => {
       // Cancelled by a new request: only clean up local callback state. The
       // global streaming / typing flags already belong to the new stream.

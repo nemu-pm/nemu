@@ -203,7 +203,7 @@ export function mobileJapaneseLearningAnalysisErrorText(input: {
   strings: {
     reader: Pick<
       MobileStrings["reader"],
-      "pluginJapaneseLearningSignInRequired" | "pluginJapaneseLearningGrammarFailed"
+      "pluginJapaneseLearningGrammarFailed"
     >;
     japaneseLearningDictionary: Pick<
       MobileStrings["japaneseLearningDictionary"],
@@ -212,9 +212,6 @@ export function mobileJapaneseLearningAnalysisErrorText(input: {
   };
 }): string {
   const { strings } = input;
-  if (input.detail === strings.reader.pluginJapaneseLearningSignInRequired) {
-    return strings.reader.pluginJapaneseLearningSignInRequired;
-  }
   const cloudFallback = input.preference === "auto" && input.signedIn;
   if (input.packFailed && input.preference !== "cloud" && !cloudFallback) {
     return strings.japaneseLearningDictionary.analysisDownloadFailed;

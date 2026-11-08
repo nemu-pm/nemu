@@ -25,6 +25,12 @@ import {
 import { mobileJapaneseLearningAnalysisErrorText } from "./mobileJapaneseLearningReaderHelpers";
 import { generateMobileJapaneseLearningTts } from "./mobileJapaneseLearningTts";
 import {
+  MOBILE_AI_CONSENT_VERSION,
+  setMobileAiConsentStoreForTesting,
+} from "./mobileAiConsent";
+import { findMobileJapaneseTitleFallback } from "./mobileMetadataMatch";
+import { mobileConvexRef } from "@/sync/mobileSyncRuntime";
+import {
   applyMobileReaderPluginSignInState,
   getMobileReaderPluginStates,
 } from "./mobileReaderPlugins";
@@ -55,6 +61,76 @@ afterEach(() => {
   setMobileJapaneseLearningAuthCookieReaderForTesting(undefined);
   setMobileJapaneseLearningNativeModuleForTesting(undefined);
   setMobileJapaneseLearningEnginePreference("auto");
+});
+
+describe("a signed-out press never reaches consent or the network", () => {
+  function recordingConsent() {
+    const state = { reads: 0 };
+    setMobileAiConsentStoreForTesting({
+      getString: async () => {
+        state.reads += 1;
+        return JSON.stringify({ version: MOBILE_AI_CONSENT_VERSION });
+      },
+      setString: async () => undefined,
+    });
+    return state;
+  }
+  const noClip = { readCachedWavFile: async () => null };
+
+  test("Listen signed out: the sign-in error, before consent and any request", async () => {
+    const consent = recordingConsent();
+    const { state, fetchImpl } = countingFetch();
+    setMobileJapaneseLearningAuthCookieReaderForTesting(() => "");
+    await expect(
+      generateMobileJapaneseLearningTts("テスト", { ...noClip, fetchImpl, siteUrl: "https://nemu.test" }),
+    ).rejects.toBeInstanceOf(MobileJapaneseLearningSignInRequiredError);
+    expect(consent.reads).toBe(0);
+    expect(state.calls).toBe(0);
+  });
+
+  test("Listen signed in: consent, then the request", async () => {
+    const consent = recordingConsent();
+    const { state, fetchImpl } = countingFetch();
+    setMobileJapaneseLearningAuthCookieReaderForTesting(() => SIGNED_IN);
+    await generateMobileJapaneseLearningTts("サインイン済み", {
+      ...noClip,
+      fetchImpl,
+      siteUrl: "https://nemu.test",
+    }).catch(() => undefined);
+    expect(consent.reads).toBeGreaterThan(0);
+    expect(state.calls).toBe(1);
+  });
+
+  test("the AI metadata look-up signed out: no client, so no consent and no action", async () => {
+    const consent = recordingConsent();
+    const actions: unknown[] = [];
+    const previous = mobileConvexRef.current;
+    mobileConvexRef.current = {
+      action: async (...args: unknown[]) => {
+        actions.push(args);
+        return "タイトル";
+      },
+    } as unknown as typeof mobileConvexRef.current;
+    try {
+      setMobileJapaneseLearningAuthCookieReaderForTesting(() => "");
+      expect(await findMobileJapaneseTitleFallback("Blue Lock")).toBeNull();
+      expect(consent.reads).toBe(0);
+      expect(actions).toHaveLength(0);
+
+      setMobileJapaneseLearningAuthCookieReaderForTesting(() => SIGNED_IN);
+      expect(await findMobileJapaneseTitleFallback("Blue Lock")).toBe("タイトル");
+      expect(consent.reads).toBeGreaterThan(0);
+      expect(actions).toHaveLength(1);
+    } finally {
+      mobileConvexRef.current = previous;
+    }
+  });
+
+  test("the old red sign-in line is gone from every language", () => {
+    for (const language of ["en", "zh", "ja"] as const) {
+      expect(getMobileStrings(language).reader).not.toHaveProperty("pluginJapaneseLearningSignInRequired");
+    }
+  });
 });
 
 describe("session cookie", () => {
@@ -198,7 +274,7 @@ describe("sign-in prompts", () => {
   });
 
   test("cloud OCR signed out reads as a sign-in prompt, not a failure", () => {
-    for (const detail of ["auth_required", en.reader.pluginJapaneseLearningSignInRequired]) {
+    for (const detail of ["auth_required", new MobileJapaneseLearningSignInRequiredError()]) {
       expect(describeJapaneseLearningOcrError(detail, en, "cloud")).toEqual({
         kind: "signIn",
         title: en.reader.pluginJapaneseLearningSignInRequiredTitle,
@@ -210,7 +286,7 @@ describe("sign-in prompts", () => {
   });
 
   test("Automatic falling back to the cloud signed out suggests no other engine", () => {
-    for (const detail of ["auth_required", en.reader.pluginJapaneseLearningSignInRequired]) {
+    for (const detail of ["auth_required", new MobileJapaneseLearningSignInRequiredError()]) {
       expect(describeJapaneseLearningOcrError(detail, en, "auto")).toEqual({
         kind: "signIn",
         title: en.reader.pluginJapaneseLearningSignInRequiredAutomaticPageTitle,
@@ -232,14 +308,6 @@ describe("sign-in prompts", () => {
 
   test("the sentence view's analysis error", () => {
     const base = { detail: "x", packFailed: true, strings: en };
-    expect(
-      mobileJapaneseLearningAnalysisErrorText({
-        ...base,
-        detail: en.reader.pluginJapaneseLearningSignInRequired,
-        preference: "cloud",
-        signedIn: false,
-      }),
-    ).toBe(en.reader.pluginJapaneseLearningSignInRequired);
     // Automatic signed out has no cloud fallback: a pack failure is the pack's.
     expect(mobileJapaneseLearningAnalysisErrorText({ ...base, preference: "auto", signedIn: false })).toBe(
       en.japaneseLearningDictionary.analysisDownloadFailed,

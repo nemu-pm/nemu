@@ -50,6 +50,48 @@ describe("mobile Japanese-learning TTS error surfaces", () => {
     );
   });
 
+  test("every Listen press checks sign-in before any state or request", () => {
+    const screen = mobileSource("screens/ReaderScreen.tsx");
+    const sentenceStart = screen.indexOf("const toggleJapaneseLearningTts = useCallback");
+    const transcriptStart = screen.indexOf(
+      "const toggleJapaneseLearningTranscriptTts = useCallback",
+      sentenceStart,
+    );
+    const chatPlayStart = screen.indexOf("const playJapaneseLearningChatTts = useCallback", transcriptStart);
+    const chatToggleStart = screen.indexOf("const toggleJapaneseLearningChatTts = useCallback", chatPlayStart);
+    const gate = "if (!requireJapaneseLearningAuthOrPrompt()) return;";
+    for (const [press, firstWork] of [
+      [screen.slice(sentenceStart, transcriptStart), 'status: "loading"'],
+      [screen.slice(transcriptStart, chatPlayStart), 'status: "loading"'],
+      [screen.slice(chatToggleStart, screen.indexOf("useEffect(", chatToggleStart)), "playJapaneseLearningChatTts(message)"],
+    ] as const) {
+      expect(press).toContain(gate);
+      expect(press.indexOf(gate)).toBeLessThan(press.indexOf(firstWork));
+    }
+    // A 401 past the gate opens the sheet too, in all three catch paths.
+    expect(screen.match(/if \(promptJapaneseLearningTtsSignIn\(error\)\) return;/g)).toHaveLength(3);
+  });
+
+  test("the transcript's bars need audio that ran, not a press", () => {
+    const transcript = mobileSource(
+      "components/reader/japaneseLearning/JapaneseLearningTranscriptSheet.tsx",
+    );
+    expect(transcript).toMatch(/if \(transcriptTtsActive && playedTranscript !== transcriptText\) \{\s*setPlayedTranscript\(transcriptText\);/);
+    expect(transcript.match(/setPlayedTranscript\(/g)).toHaveLength(1);
+    expect(transcript).toContain("onToggle={() => onToggleTts(transcriptText)}");
+  });
+
+  test("Nemu Chat's composer and suggestions check sign-in before the draft clears", () => {
+    const screen = mobileSource("screens/ReaderScreen.tsx");
+    for (const name of ["sendJapaneseLearningChatInput", "sendJapaneseLearningChatSuggestion"]) {
+      const start = screen.indexOf(`const ${name} = useCallback`);
+      const body = screen.slice(start, screen.indexOf("startJapaneseLearningChatRequest({", start));
+      const gate = body.indexOf("if (!requireJapaneseLearningAuthOrPrompt()) return;");
+      expect(gate).toBeGreaterThan(0);
+      expect(gate).toBeLessThan(body.indexOf('setJapaneseLearningChatInput("")'));
+    }
+  });
+
   test("routes sentence and transcript failures to accessible inline alerts", () => {
     const screen = mobileSource("screens/ReaderScreen.tsx");
     const ocr = mobileSource(

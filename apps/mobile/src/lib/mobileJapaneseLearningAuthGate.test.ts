@@ -5,8 +5,10 @@ import {
   resolveMobileJapaneseLearningAuthGate,
   resolveMobileJapaneseLearningChatSignInFailure,
   mobileJapaneseLearningAwaitsSignIn,
+  requireMobileJapaneseLearningAuthOrPrompt,
   resolveMobileJapaneseLearningSignInHost,
 } from "./mobileJapaneseLearningAuthGate";
+import { MOBILE_JAPANESE_LEARNING_AUTH_REQUIRED } from "./mobileJapaneseLearningAuth";
 
 describe("getMobileJapaneseLearningAuthGateStatus (web getAuthGateStatus)", () => {
   test("a session cookie wins over a session still loading", () => {
@@ -45,9 +47,35 @@ describe("resolveMobileJapaneseLearningAuthGate (web requireAuthOrPrompt)", () =
   });
 });
 
-describe("resolveMobileJapaneseLearningChatSignInFailure (web streamChat 401)", () => {
+describe("requireMobileJapaneseLearningAuthOrPrompt (a server feature's press)", () => {
+  function press(auth: { signedIn: boolean; pending: boolean }) {
+    const calls = { signIn: 0, request: 0 };
+    if (
+      requireMobileJapaneseLearningAuthOrPrompt({
+        ...auth,
+        promptSignIn: () => {
+          calls.signIn += 1;
+        },
+      })
+    ) {
+      calls.request += 1;
+    }
+    return calls;
+  }
+  test("signed out: no request, the sign-in sheet is requested", () => {
+    expect(press({ signedIn: false, pending: false })).toEqual({ signIn: 1, request: 0 });
+  });
+  test("signed in: the request is made, no sign-in sheet", () => {
+    expect(press({ signedIn: true, pending: false })).toEqual({ signIn: 0, request: 1 });
+  });
+  test("session still loading: neither", () => {
+    expect(press({ signedIn: false, pending: true })).toEqual({ signIn: 0, request: 0 });
+  });
+});
+
+describe("resolveMobileJapaneseLearningChatSignInFailure (a 401 past the press's gate)", () => {
   test("loading: web's loading copy, no prompt", () => {
-    expect(resolveMobileJapaneseLearningChatSignInFailure(true, "sign in")).toEqual({
+    expect(resolveMobileJapaneseLearningChatSignInFailure(true)).toEqual({
       message: MOBILE_JAPANESE_LEARNING_CHAT_AUTH_LOADING_ERROR,
       promptSignIn: false,
     });
@@ -55,9 +83,9 @@ describe("resolveMobileJapaneseLearningChatSignInFailure (web streamChat 401)", 
       "Authentication is still loading. Please try again.",
     );
   });
-  test("signed out: the sign-in bubble and the sign-in prompt", () => {
-    expect(resolveMobileJapaneseLearningChatSignInFailure(false, "sign in")).toEqual({
-      message: "sign in",
+  test("signed out: the sign-in prompt and no bubble", () => {
+    expect(resolveMobileJapaneseLearningChatSignInFailure(false)).toEqual({
+      message: null,
       promptSignIn: true,
     });
   });
@@ -94,11 +122,11 @@ describe("resolveMobileJapaneseLearningSignInHost", () => {
 });
 
 describe("mobileJapaneseLearningAwaitsSignIn", () => {
-  const signIn = "Please sign in to use this feature.";
-  test("only an error whose detail is the sign-in line waits for a session", () => {
-    expect(mobileJapaneseLearningAwaitsSignIn({ status: "error", detail: signIn }, signIn)).toBe(true);
-    expect(mobileJapaneseLearningAwaitsSignIn({ status: "error", detail: "OCR /ocr failed: 521" }, signIn)).toBe(false);
-    expect(mobileJapaneseLearningAwaitsSignIn({ status: "ready" }, signIn)).toBe(false);
-    expect(mobileJapaneseLearningAwaitsSignIn({ status: "loading", detail: signIn }, signIn)).toBe(false);
+  const signIn = MOBILE_JAPANESE_LEARNING_AUTH_REQUIRED;
+  test("only an error whose detail is the sign-in marker waits for a session", () => {
+    expect(mobileJapaneseLearningAwaitsSignIn({ status: "error", detail: signIn })).toBe(true);
+    expect(mobileJapaneseLearningAwaitsSignIn({ status: "error", detail: "OCR /ocr failed: 521" })).toBe(false);
+    expect(mobileJapaneseLearningAwaitsSignIn({ status: "ready" })).toBe(false);
+    expect(mobileJapaneseLearningAwaitsSignIn({ status: "loading", detail: signIn })).toBe(false);
   });
 });

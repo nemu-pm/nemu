@@ -257,8 +257,20 @@ describe("createMobileJapaneseLearningChatStreamController", () => {
     first.controller.onError('{"error":"boom"}');
     expect(first.visible()).toEqual([MOBILE_JAPANESE_LEARNING_CHAT_NETWORK_ERROR]);
     const second = setup();
-    second.controller.onError("Please sign in to use this feature");
-    expect(second.visible()).toEqual(["Please sign in to use this feature"]);
+    second.controller.onError("Authentication is still loading. Please try again.");
+    expect(second.visible()).toEqual(["Authentication is still loading. Please try again."]);
+  });
+
+  test("a sign-in failure ends the stream without a bubble", () => {
+    const { state, controller, visible } = setup();
+    controller.onStreamStart();
+    controller.onSpeak("one");
+    controller.onSignInRequired();
+    expect(state.streaming).toBe(false);
+    expect(state.typing).toBe(false);
+    expect(controller.isCompleted()).toBe(true);
+    expect(visible()).not.toContain("Please sign in to use this feature");
+    expect(visible().every((line) => line === "one")).toBe(true);
   });
 
   test("cancellation drops queued bubbles without touching the shared streaming flags", () => {

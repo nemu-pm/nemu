@@ -657,7 +657,6 @@ export type MobileStrings = {
     /** Web `chat.responseModeJlpt`: the launcher's Response pill for `jlpt`. */
     pluginJapaneseLearningResponseModeJlpt: string;
     pluginJapaneseLearningSelectedText: string;
-    pluginJapaneseLearningSignInRequired: string;
     pluginJapaneseLearningSignInRequiredTitle: string;
     /** Engine = Cloud, signed out. */
     pluginJapaneseLearningSignInRequiredDescription: string;

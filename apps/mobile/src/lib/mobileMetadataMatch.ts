@@ -1,5 +1,6 @@
 import type { AppLanguage, ExternalIds, MangaMetadata } from "@/data/schema";
 import { requireMobileAiConsent } from "./mobileAiConsent";
+import { isMobileJapaneseLearningSignedIn } from "./mobileJapaneseLearningAuth";
 import {
   listToMetadataInput,
   type MobileMetadataFormValues,
@@ -8,6 +9,17 @@ import { mobileConvexRef } from "@/sync/mobileSyncRuntime";
 import { mobileSyncConfig } from "@/sync/mobileSyncConfig";
 import { translateMobileTags } from "./mobileTagTranslations";
 import { api } from "../../../../convex/_generated/api";
+
+/**
+ * The AI look-ups run on nemu's server, which requires sign-in. Signed out
+ * there is no client: no consent notice and no request, and the public
+ * providers answer alone.
+ */
+function mobileMetadataAiClient<T>(): T | null {
+  return isMobileJapaneseLearningSignedIn()
+    ? (mobileConvexRef.current as unknown as T | null)
+    : null;
+}
 
 const ANILIST_API_URL = "https://graphql.anilist.co";
 const JIKAN_API_BASE = "https://api.jikan.moe/v4";
@@ -430,7 +442,7 @@ export async function findMobileJapaneseTitleFallback(
   title: string,
   authors?: string[],
   client: MobileJapaneseTitleFallbackClient | null =
-    mobileConvexRef.current as MobileJapaneseTitleFallbackClient | null,
+    mobileMetadataAiClient<MobileJapaneseTitleFallbackClient>(),
 ): Promise<string | null> {
   const trimmedTitle = title.trim();
   if (!trimmedTitle || !client) return null;
@@ -487,7 +499,7 @@ function aiLookupTitlesForResult(result: MobileMetadataMatchResult): {
 export async function findMobileChineseTitleFallback(
   result: MobileMetadataMatchResult,
   client: MobileMetadataChineseTitleClient | null =
-    mobileConvexRef.current as unknown as MobileMetadataChineseTitleClient | null
+    mobileMetadataAiClient<MobileMetadataChineseTitleClient>()
 ): Promise<string | null> {
   const localizedTitle = localizedTitleForResult(result, "zh");
   if (localizedTitle !== result.metadata.title || !client) return null;
@@ -527,7 +539,7 @@ export async function findMobileLocalizedDescription(
   result: MobileMetadataMatchResult,
   language: AppLanguage,
   client: MobileMetadataDescriptionClient | null =
-    mobileConvexRef.current as unknown as MobileMetadataDescriptionClient | null
+    mobileMetadataAiClient<MobileMetadataDescriptionClient>()
 ): Promise<string | null> {
   if (
     language === "en" ||

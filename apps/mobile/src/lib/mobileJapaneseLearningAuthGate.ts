@@ -4,6 +4,9 @@
  * rules the reader applies. Kept free of the auth client so tests import it.
  */
 
+/** `MOBILE_JAPANESE_LEARNING_AUTH_REQUIRED`, without importing the auth client here. */
+const MOBILE_JAPANESE_LEARNING_AUTH_REQUIRED = "auth_required";
+
 export type MobileJapaneseLearningAuthGateStatus =
   | "authenticated"
   | "loading"
@@ -40,16 +43,36 @@ export function resolveMobileJapaneseLearningAuthGate(
 }
 
 /**
- * Web `streamChat` on a 401: the error bubble's copy, and whether sign-in is
- * prompted as well (not while the session is still loading).
+ * What every press of a server feature runs before any request or UI: true to
+ * go ahead; signed out, false with the sign-in sheet requested; while the
+ * session is still loading, false and nothing else.
+ */
+export function requireMobileJapaneseLearningAuthOrPrompt({
+  signedIn,
+  pending,
+  promptSignIn,
+}: {
+  signedIn: boolean;
+  pending: boolean;
+  promptSignIn: () => void;
+}): boolean {
+  const gate = resolveMobileJapaneseLearningAuthGate(
+    getMobileJapaneseLearningAuthGateStatus({ signedIn, pending }),
+  );
+  if (gate.promptSignIn) promptSignIn();
+  return gate.allowed;
+}
+
+/**
+ * Nemu Chat on a 401: web's loading bubble while the session is still loading,
+ * otherwise no bubble (sign-in isn't a reply) and the sign-in sheet.
  */
 export function resolveMobileJapaneseLearningChatSignInFailure(
   pending: boolean,
-  signInError: string,
-): { message: string; promptSignIn: boolean } {
+): { message: string | null; promptSignIn: boolean } {
   return pending
     ? { message: MOBILE_JAPANESE_LEARNING_CHAT_AUTH_LOADING_ERROR, promptSignIn: false }
-    : { message: signInError, promptSignIn: true };
+    : { message: null, promptSignIn: true };
 }
 
 /**
@@ -80,12 +103,12 @@ export function resolveMobileJapaneseLearningSignInHost({
 
 /**
  * A recognition or analysis run stopped only because it needs sign-in (the
- * reader stores the localized sign-in line as the detail). It reads as a
- * notice with a Sign In action, and runs again once a session exists.
+ * reader stores `auth_required` as the detail). It reads as a notice with a
+ * Sign In action, and runs again once a session exists.
  */
-export function mobileJapaneseLearningAwaitsSignIn(
-  state: { status: string; detail?: string },
-  signInRequiredDetail: string,
-): boolean {
-  return state.status === "error" && state.detail === signInRequiredDetail;
+export function mobileJapaneseLearningAwaitsSignIn(state: {
+  status: string;
+  detail?: string;
+}): boolean {
+  return state.status === "error" && state.detail === MOBILE_JAPANESE_LEARNING_AUTH_REQUIRED;
 }

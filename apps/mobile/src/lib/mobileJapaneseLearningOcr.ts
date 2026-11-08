@@ -453,11 +453,8 @@ export function describeJapaneseLearningOcrError(
     }
   }
   // Cloud recognition signed out: a sign-in prompt, not a failure. The
-  // reader stores the localized sign-in line as the detail.
-  if (
-    message === MOBILE_JAPANESE_LEARNING_AUTH_REQUIRED ||
-    message === strings.reader.pluginJapaneseLearningSignInRequired
-  ) {
+  // reader stores the error's message as the detail.
+  if (message === MOBILE_JAPANESE_LEARNING_AUTH_REQUIRED) {
     return {
       kind: "signIn",
       ...mobileJapaneseLearningSignInCopy(strings, "page", preference),

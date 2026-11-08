@@ -675,7 +675,6 @@ import {
 import {
   createMobileJapaneseLearningChatStreamController,
   mobileJapaneseLearningChatContextRetryMessages,
-  MOBILE_JAPANESE_LEARNING_CHAT_SIGN_IN_ERROR,
   truncateMobileJapaneseLearningChatOldestHalf,
 } from "@/lib/mobileJapaneseLearningChatStream";
 import {
@@ -779,12 +778,12 @@ import {
   getMobileJapaneseLearningAuthCookie,
   isMobileJapaneseLearningSignedIn,
   isMobileJapaneseLearningSignInRequiredError,
+  MOBILE_JAPANESE_LEARNING_AUTH_REQUIRED,
   useMobileJapaneseLearningAuthState,
 } from "@/lib/mobileJapaneseLearningAuth";
 import {
-  getMobileJapaneseLearningAuthGateStatus,
-  resolveMobileJapaneseLearningAuthGate,
   mobileJapaneseLearningAwaitsSignIn,
+  requireMobileJapaneseLearningAuthOrPrompt,
   resolveMobileJapaneseLearningChatSignInFailure,
   resolveMobileJapaneseLearningSignInHost,
   type MobileJapaneseLearningSignInHost,
@@ -966,9 +965,10 @@ function readerErrorDetail(
   localizedMessage: string,
   strings: MobileStrings,
 ): string {
-  // A server feature used signed out: the sign-in line, not a failure.
+  // A recognition or analysis step that needs sign-in: the surfaces read this
+  // marker and show the sign-in notice, not a failure.
   if (isMobileJapaneseLearningSignInRequiredError(error)) {
-    return strings.reader.pluginJapaneseLearningSignInRequired;
+    return MOBILE_JAPANESE_LEARNING_AUTH_REQUIRED;
   }
   const reason = sanitizeMobileErrorDiagnostic(error) ?? "";
   if (!reason || reason === localizedMessage) return localizedMessage;
@@ -976,6 +976,12 @@ function readerErrorDetail(
     message: localizedMessage,
     reason,
   });
+}
+/** Listen's failure line. Sign-in only lands here in a build without sync, which has no sign-in to open. */
+function readerTtsErrorDetail(error: unknown, strings: MobileStrings): string {
+  return isMobileJapaneseLearningSignInRequiredError(error)
+    ? strings.reader.pluginJapaneseLearningTtsFailed
+    : readerErrorDetail(error, strings.reader.pluginJapaneseLearningTtsFailed, strings);
 }
 function JapaneseLearningDetectionOverlay({
   detections,
@@ -2066,14 +2072,11 @@ export function ReaderScreen() {
     if (getMobileJapaneseLearningQaScenario("chat")) return true;
     // A build without sync has no sign-in to ask for: the chat opens as before.
     if (!mobileSyncConfig.configured) return true;
-    const gate = resolveMobileJapaneseLearningAuthGate(
-      getMobileJapaneseLearningAuthGateStatus({
-        signedIn: isMobileJapaneseLearningSignedIn(),
-        pending: japaneseLearningAuthPendingRef.current,
-      }),
-    );
-    if (gate.promptSignIn) promptJapaneseLearningSignIn();
-    return gate.allowed;
+    return requireMobileJapaneseLearningAuthOrPrompt({
+      signedIn: isMobileJapaneseLearningSignedIn(),
+      pending: japaneseLearningAuthPendingRef.current,
+      promptSignIn: promptJapaneseLearningSignIn,
+    });
   }, [promptJapaneseLearningSignIn]);
   // The sheet the sign-in stacked on went away: it went with it.
   useEffect(() => {
@@ -6966,13 +6969,12 @@ export function ReaderScreen() {
     const wasSignedIn = japaneseLearningWasSignedInRef.current;
     japaneseLearningWasSignedInRef.current = japaneseLearningAuth.signedIn;
     if (wasSignedIn || !japaneseLearningAuth.signedIn) return;
-    const signInDetail = strings.reader.pluginJapaneseLearningSignInRequired;
-    if (mobileJapaneseLearningAwaitsSignIn(japaneseLearningOcrState, signInDetail)) {
+    if (mobileJapaneseLearningAwaitsSignIn(japaneseLearningOcrState)) {
       runJapaneseLearningOcr();
     }
     if (
       japaneseLearningGrammarState.status === "error" &&
-      mobileJapaneseLearningAwaitsSignIn(japaneseLearningGrammarState, signInDetail)
+      mobileJapaneseLearningAwaitsSignIn(japaneseLearningGrammarState)
     ) {
       runJapaneseLearningGrammar(japaneseLearningGrammarState.text);
     }
@@ -6982,7 +6984,6 @@ export function ReaderScreen() {
     japaneseLearningOcrState,
     runJapaneseLearningGrammar,
     runJapaneseLearningOcr,
-    strings,
   ]);
 
   const japaneseLearningGrammarContext = useMemo(() => {
@@ -7167,6 +7168,7 @@ export function ReaderScreen() {
       const existingMessages = mobileJapaneseLearningChatRequestMessages(
         session.getState().messages,
       );
+      let storedUserMessageId: string | null = null;
       if (request.storeUserMessage) {
         const userMessage: JapaneseLearningChatThreadMessage = {
           id: nextJapaneseLearningChatMessageId(),
@@ -7175,6 +7177,7 @@ export function ReaderScreen() {
           displayText: request.displayText,
           createdAt: Date.now(),
         };
+        storedUserMessageId = userMessage.id;
         session.updateMessages((current) => [...current, userMessage]);
       }
       session.setFollowUps([]);
@@ -7242,13 +7245,20 @@ export function ReaderScreen() {
             controller.onError("");
             return;
           }
-          // Web `streamChat` 401: the bubble, and sign-in unless the session
-          // is still loading.
+          // A 401 past the press's gate (an expired session). While the session
+          // is still loading, web's bubble; otherwise the sign-in sheet alone,
+          // and the unsent message leaves the thread.
           const failure = resolveMobileJapaneseLearningChatSignInFailure(
             japaneseLearningAuthPendingRef.current,
-            MOBILE_JAPANESE_LEARNING_CHAT_SIGN_IN_ERROR,
           );
-          controller.onError(failure.message);
+          if (failure.message) {
+            controller.onError(failure.message);
+          } else {
+            controller.onSignInRequired();
+            session.updateMessages((current) =>
+              current.filter((message) => message.id !== storedUserMessageId),
+            );
+          }
           if (failure.promptSignIn) promptJapaneseLearningSignIn();
         },
       );
@@ -7319,20 +7329,27 @@ export function ReaderScreen() {
   const sendJapaneseLearningChatInput = useCallback(() => {
     const prompt = japaneseLearningChatInput.trim();
     if (!prompt) return;
+    // Before the draft clears: it is still there after signing in.
+    if (!requireJapaneseLearningAuthOrPrompt()) return;
     void hapticPress();
     setJapaneseLearningChatInput("");
     startJapaneseLearningChatRequest({ text: prompt, storeUserMessage: true });
-  }, [japaneseLearningChatInput, startJapaneseLearningChatRequest]);
+  }, [
+    japaneseLearningChatInput,
+    requireJapaneseLearningAuthOrPrompt,
+    startJapaneseLearningChatRequest,
+  ]);
 
   const sendJapaneseLearningChatSuggestion = useCallback(
     (suggestion: string) => {
       const prompt = suggestion.trim();
       if (!prompt) return;
+      if (!requireJapaneseLearningAuthOrPrompt()) return;
       void hapticPress();
       setJapaneseLearningChatInput("");
       startJapaneseLearningChatRequest({ text: prompt, storeUserMessage: true });
     },
-    [startJapaneseLearningChatRequest],
+    [requireJapaneseLearningAuthOrPrompt, startJapaneseLearningChatRequest],
   );
 
   const openJapaneseLearningSurfaceAfterLauncher = useCallback(
@@ -7781,6 +7798,20 @@ export function ReaderScreen() {
     setJapaneseLearningChatReturnsToSentence(false);
     setJapaneseLearningChatDrawerVisible(false);
   }, [japaneseLearningChatReturnsToSentence, setJapaneseLearningChatDrawerVisible]);
+  /**
+   * Listen reached the server without a session (the press's gate passed, so
+   * an expired one): the sign-in sheet again, no failure line and no player.
+   */
+  const promptJapaneseLearningTtsSignIn = useCallback(
+    (error: unknown): boolean => {
+      if (!mobileSyncConfig.configured) return false;
+      if (!isMobileJapaneseLearningSignInRequiredError(error)) return false;
+      setJapaneseLearningTtsState({ status: "idle" });
+      promptJapaneseLearningSignIn();
+      return true;
+    },
+    [promptJapaneseLearningSignIn],
+  );
   const toggleJapaneseLearningTts = useCallback(() => {
     const isSentenceTtsBusy =
       (japaneseLearningTtsState.status === "loading" ||
@@ -7792,6 +7823,8 @@ export function ReaderScreen() {
       return;
     }
     if (japaneseLearningTtsState.status === "loading") return;
+    // Sign-in first, before the page is read or anything changes on screen.
+    if (!requireJapaneseLearningAuthOrPrompt()) return;
     if (japaneseLearningTtsState.status === "playing") {
       stopJapaneseLearningTts();
     }
@@ -7902,14 +7935,11 @@ export function ReaderScreen() {
       });
       void hapticConfirm();
     })().catch((error) => {
-      const detail =
-        isMobileJapaneseLearningSignInRequiredError(error)
-          ? strings.reader.pluginJapaneseLearningSignInRequired
-          : readerErrorDetail(
-              error,
-              strings.reader.pluginJapaneseLearningTtsFailed,
-              strings,
-            );
+      const detail = readerErrorDetail(
+        error,
+        strings.reader.pluginJapaneseLearningTtsFailed,
+        strings,
+      );
       // Clear the OCR spinner before the TTS-run guard, mirroring
       // askJapaneseLearningSentence — a stopped TTS run must not strand the
       // detection state in "loading".
@@ -7925,10 +7955,11 @@ export function ReaderScreen() {
         );
       }
       if (japaneseLearningTtsRunRef.current !== ttsRun) return;
+      if (promptJapaneseLearningTtsSignIn(error)) return;
       setJapaneseLearningTtsState({
         status: "error",
         source: "sentence",
-        detail,
+        detail: readerTtsErrorDetail(error, strings),
       });
       void hapticError();
     });
@@ -7937,7 +7968,9 @@ export function ReaderScreen() {
     japaneseLearningVisiblePages,
     japaneseLearningOcrState,
     japaneseLearningSelectedDetectionOrder,
+    promptJapaneseLearningTtsSignIn,
     recognizeJapaneseLearningReaderPage,
+    requireJapaneseLearningAuthOrPrompt,
     japaneseLearningTtsSource,
     japaneseLearningTtsState.status,
     stopJapaneseLearningTts,
@@ -7967,6 +8000,7 @@ export function ReaderScreen() {
         return;
       }
       if (japaneseLearningTtsState.status === "loading") return;
+      if (!requireJapaneseLearningAuthOrPrompt()) return;
       if (japaneseLearningTtsState.status === "playing") {
         stopJapaneseLearningTts();
       }
@@ -8058,22 +8092,22 @@ export function ReaderScreen() {
         void hapticConfirm();
       })().catch((error) => {
         if (japaneseLearningTtsRunRef.current !== ttsRun) return;
+        if (promptJapaneseLearningTtsSignIn(error)) return;
         setJapaneseLearningTtsState({
           status: "error",
           source: "transcript",
-          detail:
-            isMobileJapaneseLearningSignInRequiredError(error)
-              ? strings.reader.pluginJapaneseLearningSignInRequired
-              : readerErrorDetail(
-                  error,
-                  strings.reader.pluginJapaneseLearningTtsFailed,
-                  strings,
-                ),
+          detail: readerTtsErrorDetail(error, strings),
         });
         void hapticError();
       });
     },
-    [japaneseLearningTtsState, strings, stopJapaneseLearningTts],
+    [
+      japaneseLearningTtsState,
+      promptJapaneseLearningTtsSignIn,
+      requireJapaneseLearningAuthOrPrompt,
+      strings,
+      stopJapaneseLearningTts,
+    ],
   );
 
   const playJapaneseLearningChatTts = useCallback(
@@ -8241,23 +8275,17 @@ export function ReaderScreen() {
           currentId: null,
           armedAt: 0,
         };
+        if (promptJapaneseLearningTtsSignIn(error)) return;
         setJapaneseLearningTtsState({
           status: "error",
           source: "chat",
           messageId: message.id,
-          detail:
-            isMobileJapaneseLearningSignInRequiredError(error)
-              ? strings.reader.pluginJapaneseLearningSignInRequired
-              : readerErrorDetail(
-                  error,
-                  strings.reader.pluginJapaneseLearningTtsFailed,
-                  strings,
-                ),
+          detail: readerTtsErrorDetail(error, strings),
         });
         void hapticError();
       });
     },
-    [japaneseLearningChatSession, strings],
+    [japaneseLearningChatSession, promptJapaneseLearningTtsSignIn, strings],
   );
 
   useEffect(() => {
@@ -8287,6 +8315,7 @@ export function ReaderScreen() {
       }
 
       if (japaneseLearningTtsState.status === "loading") return;
+      if (!requireJapaneseLearningAuthOrPrompt()) return;
       if (japaneseLearningTtsState.status === "playing") {
         stopJapaneseLearningTts();
       }
@@ -8296,6 +8325,7 @@ export function ReaderScreen() {
     [
       japaneseLearningTtsState,
       playJapaneseLearningChatTts,
+      requireJapaneseLearningAuthOrPrompt,
       stopJapaneseLearningTts,
     ],
   );

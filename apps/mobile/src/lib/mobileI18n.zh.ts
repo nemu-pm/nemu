@@ -734,7 +734,6 @@ export const mobileStringsZh: MobileStrings = {
     pluginJapaneseLearningResponseModeApp: "应用语言",
     pluginJapaneseLearningResponseModeJlpt: "简单日语（N4-N3）",
     pluginJapaneseLearningSelectedText: "选中的文字",
-    pluginJapaneseLearningSignInRequired: "请登录后使用此功能。",
     pluginJapaneseLearningSignInRequiredTitle: "登录后使用云端识别",
     pluginJapaneseLearningSignInRequiredDescription:
       "也可以将识别引擎改为“自动”。",

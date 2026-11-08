@@ -773,7 +773,6 @@ export const mobileStringsEn: MobileStrings = {
     pluginJapaneseLearningResponseModeApp: "App language",
     pluginJapaneseLearningResponseModeJlpt: "Simple Japanese (N4-N3)",
     pluginJapaneseLearningSelectedText: "Selected text",
-    pluginJapaneseLearningSignInRequired: "Please sign in to use this feature.",
     pluginJapaneseLearningSignInRequiredTitle: "Sign in to use Cloud recognition",
     pluginJapaneseLearningSignInRequiredDescription:
       "Or switch Recognition Engine to Automatic.",
