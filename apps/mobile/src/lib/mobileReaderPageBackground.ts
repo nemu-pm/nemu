@@ -18,14 +18,27 @@ export function normalizeMobileReaderPageBackground(value: unknown): MobileReade
     : DEFAULT_MOBILE_READER_PAGE_BACKGROUND;
 }
 
-/** The background colour; "page" falls back to black until the page's border colour is known. */
+/**
+ * The background colour. "page" with the page's border colour not known yet
+ * keeps `shownColor` (the colour on screen), so a page still being measured
+ * never flashes another colour; black only before any page is known.
+ */
 export function mobileReaderPageBackgroundColor(
   background: MobileReaderPageBackground,
   pageEdgeColor?: string | null,
+  shownColor?: string | null,
 ): string {
   if (background === "white") return "#ffffff";
-  if (background === "page" && pageEdgeColor && /^#[0-9a-f]{6}$/i.test(pageEdgeColor)) return pageEdgeColor.toLowerCase();
+  if (background === "page") {
+    const known = mobileReaderHexColor(pageEdgeColor) ?? mobileReaderHexColor(shownColor);
+    if (known) return known;
+  }
   return "#000000";
+}
+
+/** `#rrggbb`, lower case, or null. */
+export function mobileReaderHexColor(value: string | null | undefined): string | null {
+  return value && /^#[0-9a-f]{6}$/i.test(value) ? value.toLowerCase() : null;
 }
 
 /**

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  mobileReaderHexColor,
   mobileReaderPageBackgroundColor,
   mobileReaderPageBackgroundIsLight,
   normalizeMobileReaderPageBackground,
@@ -20,6 +21,19 @@ describe("page background", () => {
     expect(mobileReaderPageBackgroundColor("page", "#F0EAD6")).toBe("#f0ead6");
     expect(mobileReaderPageBackgroundColor("page", null)).toBe("#000000");
     expect(mobileReaderPageBackgroundColor("page", "red")).toBe("#000000");
+  });
+
+  test("an unmeasured page keeps the colour on screen, never black or the default", () => {
+    expect(mobileReaderPageBackgroundColor("page", null, "#FAF8F4")).toBe("#faf8f4");
+    expect(mobileReaderPageBackgroundColor("page", undefined, "#121014")).toBe("#121014");
+    // Its own colour, once known, wins.
+    expect(mobileReaderPageBackgroundColor("page", "#ffffff", "#121014")).toBe("#ffffff");
+    // Fixed choices ignore both.
+    expect(mobileReaderPageBackgroundColor("white", null, "#121014")).toBe("#ffffff");
+    expect(mobileReaderPageBackgroundColor("black", null, "#ffffff")).toBe("#000000");
+    expect(mobileReaderHexColor("#ABCDEF")).toBe("#abcdef");
+    expect(mobileReaderHexColor("abcdef")).toBeNull();
+    expect(mobileReaderHexColor(null)).toBeNull();
   });
 
   test("light backgrounds take dark status glyphs", () => {

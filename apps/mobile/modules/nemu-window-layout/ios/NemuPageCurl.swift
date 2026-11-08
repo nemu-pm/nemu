@@ -54,9 +54,14 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
     didSet { if turningEnabled != oldValue { applyTurningEnabled() } }
   }
   var pageBackground: UIColor = .white {
-    didSet {
-      for controller in controllers.values { controller.view.backgroundColor = pageBackground }
-    }
+    didSet { applyBackgrounds() }
+  }
+  /**
+   * "Match Page": each slot's own page border colour, so the page a turn
+   * uncovers (and the back of the leaf that turns) has its own background.
+   */
+  var slotBackgrounds: [Int: UIColor] = [:] {
+    didSet { applyBackgrounds() }
   }
   var navigationIndex = 0
   var navigationAnimated = false
@@ -189,10 +194,18 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
     }
   }
 
+  private func background(for slot: Int) -> UIColor {
+    slotBackgrounds[slot] ?? pageBackground
+  }
+
+  private func applyBackgrounds() {
+    for (slot, controller) in controllers { controller.background = background(for: slot) }
+  }
+
   private func controller(for slot: Int) -> NemuPageCurlPageController? {
     guard slot >= 0, slot < slotCount else { return nil }
     if let existing = controllers[slot] { return existing }
-    let created = NemuPageCurlPageController(slot: slot, background: pageBackground)
+    let created = NemuPageCurlPageController(slot: slot, background: background(for: slot))
     controllers[slot] = created
     return created
   }
@@ -226,10 +239,11 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
    */
   private func backController(target: Int, showing source: Int) -> UIViewController? {
     guard let page = controller(for: source) else { return nil }
-    let back = NemuPageCurlBackController(target: target, source: source, background: pageBackground)
+    let paper = background(for: source)
+    let back = NemuPageCurlBackController(target: target, source: source, background: paper)
     let shownSize = page.isViewLoaded ? page.view.bounds.size : .zero
     let size = shownSize.width > 0 && shownSize.height > 0 ? shownSize : (pageController?.view.bounds.size ?? .zero)
-    back.show(Self.renderBack(page.view, size: size, paper: NemuPageCurlPaper.wash(over: pageBackground)))
+    back.show(Self.renderBack(page.view, size: size, paper: NemuPageCurlPaper.wash(over: paper)))
     return back
   }
 
@@ -447,7 +461,9 @@ final class NemuPageCurlController: UIPageViewController {
 /** One page of the curl: hosts the React child of its slot, if mounted. */
 final class NemuPageCurlPageController: UIViewController {
   let slot: Int
-  private let background: UIColor
+  var background: UIColor {
+    didSet { if isViewLoaded { view.backgroundColor = background } }
+  }
   private weak var hosted: UIView?
 
   init(slot: Int, background: UIColor) {
@@ -532,5 +548,23 @@ enum NemuPageCurlPaper {
       return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
     }
     return 0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue) > 0.179
+  }
+}
+
+/** `slotBackgrounds` from JS: slot index (a string key) → `#rrggbb`. */
+enum NemuSlotBackgrounds {
+  static func parse(_ colors: [String: String]?) -> [Int: UIColor] {
+    var out: [Int: UIColor] = [:]
+    for (key, hex) in colors ?? [:] {
+      guard let slot = Int(key), hex.count == 7, hex.hasPrefix("#"),
+            let value = UInt32(hex.dropFirst(), radix: 16) else { continue }
+      out[slot] = UIColor(
+        red: CGFloat((value >> 16) & 0xff) / 255,
+        green: CGFloat((value >> 8) & 0xff) / 255,
+        blue: CGFloat(value & 0xff) / 255,
+        alpha: 1
+      )
+    }
+    return out
   }
 }

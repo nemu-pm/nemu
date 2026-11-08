@@ -7,7 +7,7 @@ import ImageIO
 /// each side edge (a scanned book's binding margin is wider than its outer
 /// one), the brightness profile of each side edge (artwork that runs across
 /// two facing pages matches at the seam), the colour of the page's outer
-/// border (the "match page" background) and how much of the page is in
+/// border (the "match page" background, `NemuPageEdgeColor`) and how much of the page is in
 /// colour (a colour page inside a black-and-white chapter stands alone).
 enum NemuPageAnalysis {
   /// Rows of the analysis thumbnail; the research scans used the same height.
@@ -53,7 +53,9 @@ enum NemuPageAnalysis {
         bitsPerComponent: 8,
         bytesPerRow: w * 4,
         space: CGColorSpaceCreateDeviceRGB(),
-        bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+        // Alpha kept for the border colour (see-through pixels do not count);
+        // everything else reads the page composited over black, as before.
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
       ) else { return false }
       context.interpolationQuality = .medium
       context.draw(thumbnail, in: CGRect(x: 0, y: 0, width: w, height: h))
@@ -112,19 +114,8 @@ enum NemuPageAnalysis {
       }
       return out
     }
-    // The outer border's mean colour: the outermost 2% on every side.
-    let band = max(1, Int(Double(min(w, h)) * 0.02))
-    var red = 0, green = 0, blue = 0, samples = 0
-    for y in 0..<h {
-      for x in 0..<w where x < band || x >= w - band || y < band || y >= h - band {
-        let index = (y * w + x) * 4
-        red += Int(rgba[index]); green += Int(rgba[index + 1]); blue += Int(rgba[index + 2])
-        samples += 1
-      }
-    }
-    let edgeColor = samples > 0
-      ? String(format: "#%02x%02x%02x", red / samples, green / samples, blue / samples)
-      : "#000000"
+    // The outer border's dominant colour (`NemuPageEdgeColor`).
+    let edgeColor = NemuPageEdgeColor.hex(rgba: rgba, width: w, height: h)
     // Colour: the share of pixels far from the page's median tint in the
     // opponent channels (r - g, (r + g) / 2 - b), so an evenly yellowed or
     // sepia scan reads as black and white.
@@ -157,7 +148,7 @@ enum NemuPageAnalysis {
       "marginR": round3(margin(fromStart: false)),
       "edgeL": edgeProfile(left: true),
       "edgeR": edgeProfile(left: false),
-      "edgeColor": edgeColor,
+      "edgeColor": edgeColor ?? NSNull(),
       "chroma": round3(Double(coloured) / Double(max(1, pixels))),
     ]
   }

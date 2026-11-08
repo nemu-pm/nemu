@@ -11,6 +11,7 @@ import {
   mobileReaderCurlSlotWindow,
   mobileReaderCurlSpine,
   mobileReaderCurlTurnsImmediately,
+  mobileReaderSlotBackgrounds,
   nextMobileReaderCurlNavigation,
   normalizeMobileReaderPageTurn,
 } from "./mobileReaderPageCurl";
@@ -18,6 +19,31 @@ import { getMobileReaderSplitWidePageFrame, mobileReaderSplitWideHalfRects } fro
 import { mobileReaderApplyFlip, mobileReaderPageFrameFlip } from "./mobileReaderStageMotion";
 
 const never = () => false;
+
+describe("match page slot backgrounds", () => {
+  const pages = [{ id: "a" }, { id: "b" }, { id: "c" }];
+  const colours: Record<string, string> = { a: "#ffffff", b: "#101010", c: "#f0ead6" };
+  const colourFor = (page: { id: string }) => colours[page.id]!;
+
+  test("each slot takes its own page's colour; a lone page's blank side takes the page's", () => {
+    // Manga spreads: [c] alone, then [a, b] (visual left b, right a).
+    const frames = [[2], [0, 1]];
+    const slots = buildMobileReaderCurlSlots({ frames, spreadMode: true, mode: "rtl", isWide: never });
+    const mounted = slots.map((slot, index) => ({ slot, index }));
+    expect(mobileReaderSlotBackgrounds({ mounted, frames, displayedPages: pages, pageBackgroundFor: colourFor })).toEqual({
+      "0": "#f0ead6",
+      "1": "#f0ead6",
+      "2": "#101010",
+      "3": "#ffffff",
+    });
+  });
+
+  test("none without Match Page", () => {
+    const frames = [[0]];
+    const mounted = [{ slot: { kind: "page" as const, frame: 0, pageIndex: 0, part: "whole" as const }, index: 0 }];
+    expect(mobileReaderSlotBackgrounds({ mounted, frames, displayedPages: pages, pageBackgroundFor: null })).toBeNull();
+  });
+});
 
 describe("page turn setting", () => {
   test("defaults to the curl and keeps an explicit slide", () => {

@@ -31,7 +31,7 @@ describe("page analysis", () => {
     expect(normalizeMobileReaderPageFeatures(features())).toEqual(features());
     expect(normalizeMobileReaderPageFeatures({ ...features(), width: 0 })).toBeNull();
     expect(normalizeMobileReaderPageFeatures({ ...features(), edgeL: ["x"] })).toBeNull();
-    expect(normalizeMobileReaderPageFeatures({ ...features(), edgeColor: "red" })?.edgeColor).toBe("#000000");
+    expect(normalizeMobileReaderPageFeatures({ ...features(), edgeColor: "red" })?.edgeColor).toBeNull();
     expect(normalizeMobileReaderPageFeatures(null)).toBeNull();
     // Colour is optional (older binaries) and clamped.
     const { chroma: _chroma, ...withoutChroma } = features();

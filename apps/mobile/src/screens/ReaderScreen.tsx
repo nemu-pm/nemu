@@ -463,9 +463,10 @@ import { useReaderPagePrefs } from "@/components/reader/useReaderPagePrefs";
 import { useMobileReaderPageFeatures } from "@/components/reader/useMobileReaderPageFeatures";
 import { inferMobileReaderCalibratedParity } from "@/lib/mobileReaderParityInference";
 import {
-  mobileReaderPageBackgroundColor,
+  mobileReaderHexColor,
   mobileReaderPageBackgroundIsLight,
 } from "@/lib/mobileReaderPageBackground";
+import { useMobileReaderMatchBackground } from "@/components/reader/useMobileReaderMatchBackground";
 import { mobileReaderPageStatusColor } from "@/lib/mobileReaderPageLoading";
 import {
   clampReaderPageIndex,
@@ -5120,7 +5121,7 @@ export function ReaderScreen() {
   );
   // Around the page: black, white, or the first-read visible page's border.
   // Every presentation (paged, scroll, webtoon) uses the setting.
-  const readerBackgroundColor = mobileReaderPageBackgroundColor(
+  const readerBackgroundColor = useMobileReaderMatchBackground(
     readerPageBackground,
     readerVisiblePages[0] ? readerPageFeatures.get(readerVisiblePages[0].id)?.edgeColor : null,
   );
@@ -11230,6 +11231,19 @@ export function ReaderScreen() {
     readerPagedGalleryCacheRef.current = cache;
     return { pages, byKey, entries: pages.map((page) => byKey.get(page.id)!) };
   }, [chapterId, displayedPages, readerPagedStrip, readerStrip]);
+  // "Match Page": every page turns with its own colour (one not measured yet,
+  // or a neighbour chapter's, takes the colour on screen). A joined page is
+  // measured as its own chapter's page.
+  const readerPageBackgroundFor = useMemo(
+    () =>
+      readerPageBackground === "page"
+        ? (page: MobileReaderPage) => {
+            const source = readerPagedGallery?.byKey.get(page.id)?.source ?? page;
+            return mobileReaderHexColor(readerPageFeatures.get(source.id)?.edgeColor) ?? readerBackgroundColor;
+          }
+        : null,
+    [readerBackgroundColor, readerPageBackground, readerPageFeatures, readerPagedGallery],
+  );
   /** A neighbour chapter's own spreads (local page indexes), from the joined frames. */
   const readerPagedSegmentSpreads = useCallback(
     (segmentIndex: number): number[][] => {
@@ -13279,6 +13293,7 @@ export function ReaderScreen() {
         foldGap={readerFoldGap}
         bookTapLayout={readerBookTaps}
         pageCurl={readerPageCurlActive}
+        pageBackgroundFor={readerPageBackgroundFor}
         onPageTurningChange={setReaderPageTurning}
         pageOverlaysMounted={japaneseLearningDetections.length > 0}
         isWidePage={readerPagedGallery ? readerPagedIsWidePage : readerIsWidePage}

@@ -406,6 +406,12 @@ type MobileReaderGalleryProps = {
    * tiled pages.
    */
   pageCurl?: boolean;
+  /**
+   * "Match Page": each page's own background, so it turns with its page
+   * (paged sheets and leaves, each half of a spread its own). Absent: every
+   * page sits on `backgroundColor`.
+   */
+  pageBackgroundFor?: ((page: MobileReaderPage) => string) | null;
   /** The curl is turning a leaf: page overlays wait for the settled page. */
   onPageTurningChange?: (turning: boolean) => void;
   /** Overlays are mounted on the pages (Japanese-learning bubbles): a curl waits for them to leave. */
@@ -714,6 +720,7 @@ export function MobileReaderGallery({
   onStageOriginChange,
   contentIdentityKey,
   pageCurl = false,
+  pageBackgroundFor = null,
   onPageTurningChange,
   pageOverlaysMounted = false,
   isWidePage,
@@ -2760,6 +2767,13 @@ export function MobileReaderGallery({
         const flatState = !spreadSlots
           ? mobileReaderFlatSpreadState({ spread: item.spread, mode, ready: isDisplayedPageReady })
           : null;
+        // "Match Page": each half of the stage takes its own page's colour.
+        const halfBackgrounds = pageBackgroundFor
+          ? visualIndexes.map((pageIndex) => {
+              const page = displayedPages[pageIndex];
+              return page ? pageBackgroundFor(page) : null;
+            })
+          : null;
         return (
           <View
             style={[
@@ -2771,6 +2785,17 @@ export function MobileReaderGallery({
               },
             ]}
           >
+            {halfBackgrounds ? (
+              <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.spreadBackgrounds]}>
+                <View style={[styles.spreadBackgroundHalf, { backgroundColor: halfBackgrounds[0] ?? undefined }]} />
+                <View
+                  style={[
+                    styles.spreadBackgroundHalf,
+                    { backgroundColor: halfBackgrounds[1] ?? halfBackgrounds[0] ?? undefined },
+                  ]}
+                />
+              </View>
+            ) : null}
             {visualIndexes.map(
               (pageIndex, slotIndex) => {
                 const page = displayedPages[pageIndex];
@@ -2881,6 +2906,7 @@ export function MobileReaderGallery({
           }
           style={[
             pagedMode ? styles.pagedFrame : styles.scrollingFrame,
+            pagedMode && pageBackgroundFor ? { backgroundColor: pageBackgroundFor(page) } : null,
             pagedMode
               ? fitClip
                 ? { width: readerPageWidth, height: windowHeight, overflow: "hidden" as const }
@@ -2913,6 +2939,7 @@ export function MobileReaderGallery({
     },
     [
       displayedPages,
+      pageBackgroundFor,
       spreadSlots,
       pageGlide,
       foldGap,
@@ -3119,6 +3146,7 @@ export function MobileReaderGallery({
         renderImage={renderImage}
         pageFrameSize={pageFrameSize}
         renderTextPage={renderCurlTextPage}
+        pageBackgroundFor={pageBackgroundFor}
         spreadMode={isTwoPageMode}
         spreadSlots={spreadSlots}
         stage={curlStage}
@@ -3543,6 +3571,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 10,
+  },
+  spreadBackgrounds: {
+    flexDirection: "row",
+  },
+  spreadBackgroundHalf: {
+    flex: 1,
   },
   spreadFrame: {
     flexDirection: "row",

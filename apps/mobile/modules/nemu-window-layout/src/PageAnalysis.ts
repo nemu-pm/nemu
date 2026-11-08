@@ -12,8 +12,11 @@ export type NativePageAnalysis = {
   /** Mean brightness (0–1) of the outermost columns, in 48 bins top to bottom. */
   edgeL: number[];
   edgeR: number[];
-  /** Mean colour of the page's outer border, `#rrggbb`. */
-  edgeColor: string;
+  /**
+   * Dominant colour of the page's outer border, `#rrggbb` (`NemuPageEdgeColor`);
+   * null when the border is mostly transparent.
+   */
+  edgeColor: string | null;
   /** Share of pixels whose colour differs from the page's median tint (0 = black and white). */
   chroma?: number;
 };

@@ -29,6 +29,7 @@ import {
   mobileReaderCurlSlotWindow,
   mobileReaderCurlSpine,
   mobileReaderCurlTurnsImmediately,
+  mobileReaderSlotBackgrounds,
   nextMobileReaderCurlNavigation,
   type MobileReaderCurlNavigation,
   type MobileReaderCurlSlot,
@@ -69,6 +70,7 @@ export function MobileReaderCurlPager({
   onSettleFrame,
   onTurningChange,
   overlaysOnPages = false,
+  pageBackgroundFor,
   pageFrameSize,
   pageGlide = false,
   pagerRef,
@@ -103,6 +105,13 @@ export function MobileReaderCurlPager({
   onSettleFrame: (frame: number) => void;
   /** A leaf is turning (overlays wait for the settled page). */
   onTurningChange?: (turning: boolean) => void;
+  /**
+   * "Match Page": each page's own background (its border colour, or the one
+   * on screen while it is measured). Every leaf and sheet is painted with its
+   * page's colour, so the background turns with its page; single pages curl
+   * on stage-sized leaves (their margins are their own colour).
+   */
+  pageBackgroundFor?: ((page: MobileReaderPage) => string) | null;
   /** Single pages: the leaf is the page's own box, so its margins never curl. */
   pageFrameSize?: (page: MobileReaderPage) => { width: number; height: number };
   /**
@@ -170,7 +179,10 @@ export function MobileReaderCurlPager({
   }
   const nativeRef = useRef<PageCurlViewHandle>(null);
   // Single pages curl as the page itself: the leaf is the settled page's box.
-  const settledPage = !spreadMode ? displayedPages[frames[settledFrame]?.[0] ?? -1] : undefined;
+  // Under "Match Page" the leaf is the whole stage.
+  const settledPage = !spreadMode && !pageBackgroundFor
+    ? displayedPages[frames[settledFrame]?.[0] ?? -1]
+    : undefined;
   const settledPageBox = settledPage && pageFrameSize ? pageFrameSize(settledPage) : null;
   const pageBoxWidth = settledPageBox?.width ?? 0;
   const pageBoxHeight = settledPageBox?.height ?? 0;
@@ -218,6 +230,12 @@ export function MobileReaderCurlPager({
   const window = mobileReaderCurlSlotWindow({ frame: settledFrame, frameCount: frames.length, spreadMode });
   const mounted = slots.slice(window.start, window.end + 1).map((slot, offset) => ({ slot, index: window.start + offset }));
   const slotsKey = mounted.map(({ slot, index }) => `${index}:${slotKey(slot, displayedPages)}`).join("|");
+  const slotBackgrounds = useMemo(
+    () => mobileReaderSlotBackgrounds({ mounted, frames, displayedPages, pageBackgroundFor }),
+    // `slotsKey` names the mounted slots and their pages.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [slotsKey, frames, displayedPages, pageBackgroundFor],
+  );
 
   const handleSettle = useCallback(
     (slot: number) => {
@@ -239,6 +257,7 @@ export function MobileReaderCurlPager({
       curlFrame={layout.frame}
       turningEnabled={turningEnabled}
       pageBackground={backgroundColor}
+      slotBackgrounds={slotBackgrounds ?? undefined}
       navigationIndex={navigation.slot}
       navigationAnimated={navigation.animated}
       navigationToken={navigation.token}
@@ -252,7 +271,11 @@ export function MobileReaderCurlPager({
           key={slotKey(slot, displayedPages)}
           nativeID={`nemu-curl:${index}`}
           collapsable={false}
-          style={[styles.leaf, { width: layout.leaf.width, height: layout.leaf.height, backgroundColor }]}
+          style={[styles.leaf, {
+            width: layout.leaf.width,
+            height: layout.leaf.height,
+            backgroundColor: slotBackgrounds?.[index] ?? backgroundColor,
+          }]}
         >
           <MobileReaderCurlLeafOffsetContext.Provider value={leafOffsets[spreadMode && index % 2 === 1 ? 1 : 0]}>
             {renderSlot({
@@ -278,6 +301,7 @@ export function MobileReaderCurlPager({
     </NativePageCurlView>
   );
 }
+
 
 function slotKey(slot: MobileReaderCurlSlot, displayedPages: MobileReaderPage[]): string {
   if (slot.kind === "blank") return `blank:${slot.frame}`;

@@ -169,6 +169,9 @@ public final class NemuWindowLayoutModule: Module {
       // JS always sends the reader's page background; an unparsable one is
       // the reader's default (White), never a black that was never chosen.
       Prop("pageBackground") { (view: NemuPageCurlView, color: UIColor?) in view.pageBackground = color ?? .white }
+      Prop("slotBackgrounds") { (view: NemuPageCurlView, colors: [String: String]?) in
+        view.slotBackgrounds = NemuSlotBackgrounds.parse(colors)
+      }
       Prop("navigationIndex") { (view: NemuPageCurlView, index: Int) in view.navigationIndex = index; view.setNeedsLayout() }
       // A tap turn starts here at once, ahead of the React commit that brings
       // the same navigation as props (which then changes nothing).

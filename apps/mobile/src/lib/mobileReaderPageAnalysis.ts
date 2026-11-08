@@ -16,7 +16,8 @@ export type MobileReaderPageFeatures = {
   marginR: number;
   edgeL: number[];
   edgeR: number[];
-  edgeColor: string;
+  /** The border's dominant colour ("Match Page"); null when unknown (a see-through border). */
+  edgeColor: string | null;
   /**
    * Share of pixels whose colour differs from the page's own tint (0 for a
    * black-and-white or evenly yellowed scan); null when not measured.
@@ -75,9 +76,11 @@ export function normalizeMobileReaderPageFeatures(value: unknown): MobileReaderP
   const edgeR = profile(raw.edgeR);
   if (width === null || height === null || width <= 0 || height <= 0) return null;
   if (marginL === null || marginR === null || !edgeL || !edgeR) return null;
+  // Unknown (a see-through border, a bad value) stays unknown: never a black
+  // the page does not have.
   const edgeColor = typeof raw.edgeColor === "string" && /^#[0-9a-f]{6}$/i.test(raw.edgeColor)
     ? raw.edgeColor.toLowerCase()
-    : "#000000";
+    : null;
   const chroma = finiteNumber(raw.chroma);
   return {
     width,
@@ -91,8 +94,11 @@ export function normalizeMobileReaderPageFeatures(value: unknown): MobileReaderP
   };
 }
 
-/** 2: adds `chroma` (colour pages stand alone); older caches are measured again. */
-export const MOBILE_READER_PAGE_ANALYSIS_CACHE_VERSION = 2;
+/**
+ * 2: adds `chroma` (colour pages stand alone). 3: `edgeColor` is the border's
+ * dominant colour, not its mean. Older caches are measured again.
+ */
+export const MOBILE_READER_PAGE_ANALYSIS_CACHE_VERSION = 3;
 
 /** One chapter's cache file: page id → features. */
 export function serializeMobileReaderPageAnalysisCache(entries: ReadonlyMap<string, MobileReaderPageFeatures>): string {

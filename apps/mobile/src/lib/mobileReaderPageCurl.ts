@@ -288,3 +288,29 @@ export function mobileReaderCurlReanchorFrame(input: {
   const found = input.after.findIndex((frame) => frameKey(frame, input.afterPages) === key);
   return found >= 0 ? found : null;
 }
+
+/**
+ * "Match Page": each mounted slot's background, by slot index: its page's
+ * own; the blank side of a lone page takes that page's. Null otherwise
+ * (every slot takes the reader's background).
+ */
+export function mobileReaderSlotBackgrounds<Page>({
+  mounted,
+  frames,
+  displayedPages,
+  pageBackgroundFor,
+}: {
+  mounted: readonly { slot: MobileReaderCurlSlot; index: number }[];
+  frames: readonly (readonly number[])[];
+  displayedPages: readonly Page[];
+  pageBackgroundFor?: ((page: Page) => string) | null;
+}): Record<string, string> | null {
+  if (!pageBackgroundFor) return null;
+  const out: Record<string, string> = {};
+  for (const { slot, index } of mounted) {
+    const pageIndex = slot.kind === "page" ? slot.pageIndex : frames[slot.frame]?.[0];
+    const page = pageIndex == null ? undefined : displayedPages[pageIndex];
+    if (page) out[String(index)] = pageBackgroundFor(page);
+  }
+  return out;
+}

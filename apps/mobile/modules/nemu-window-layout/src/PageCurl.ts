@@ -16,6 +16,8 @@ export type PageCurlViewProps = {
   curlFrame: { x: number; y: number; width: number; height: number };
   turningEnabled: boolean;
   pageBackground: string;
+  /** "Match Page": slot index → its page's `#rrggbb` (mounted slots); others take `pageBackground`. */
+  slotBackgrounds?: Record<string, string>;
   navigationIndex: number;
   navigationAnimated: boolean;
   navigationToken: number;
