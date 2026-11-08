@@ -865,6 +865,8 @@ export type MobileStrings = {
     cloudSyncAuthenticationStorageUnavailable: string;
     cloudSyncSignInFailed: string;
     cloudSyncSignInPrompt: string;
+    cloudSyncSecureStorageOff: string;
+    cloudSyncSecureStorageOffDetail: string;
     cloudSyncSignedIn: string;
     cloudSyncSignOut: string;
     cloudSyncSignOutFailed: string;

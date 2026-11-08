@@ -49,6 +49,7 @@ import {
   resetMobileSyncProgress,
 } from "./mobileSyncProgress";
 import { mobileSyncConfig } from "./mobileSyncConfig";
+import { useMobileSecureStorageUnavailable } from "@/data/mobileSecureStorageFallback";
 import {
   mapCloudChapterProgress,
   mapCloudCollectionItems,
@@ -1687,6 +1688,8 @@ function ConfiguredMobileSyncBridge() {
 }
 
 export function MobileSyncBridge() {
-  if (!mobileSyncConfig.configured) return null;
+  // Secure storage failed: the app runs local-only, nothing syncs.
+  const secureStorageUnavailable = useMobileSecureStorageUnavailable();
+  if (!mobileSyncConfig.configured || secureStorageUnavailable) return null;
   return <ConfiguredMobileSyncBridge />;
 }

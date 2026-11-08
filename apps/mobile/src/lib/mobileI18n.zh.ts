@@ -939,6 +939,9 @@ export const mobileStringsZh: MobileStrings = {
       "nemu 无法在此设备上安全保存登录信息。请检查设备存储后重试。",
     cloudSyncSignInFailed: "登录失败。",
     cloudSyncSignInPrompt: "登录以在设备间同步你的书库和阅读进度。",
+    cloudSyncSecureStorageOff: "此设备暂时无法登录",
+    cloudSyncSecureStorageOffDetail:
+      "nemu 无法访问安全存储，因此登录和同步已关闭。你的书库保留在此设备上，可照常使用。下次打开 nemu 时会再次尝试。",
     cloudSyncSignedIn: "已登录",
     cloudSyncSignOut: "登出",
     cloudSyncSignOutFailed: "登出失败。",

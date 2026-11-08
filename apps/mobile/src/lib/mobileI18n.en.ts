@@ -993,6 +993,9 @@ export const mobileStringsEn: MobileStrings = {
     cloudSyncSignInFailed: "Sign in failed.",
     cloudSyncSignInPrompt:
       "Sign in to sync your library and reading progress across devices.",
+    cloudSyncSecureStorageOff: "Sign-in is unavailable on this device right now",
+    cloudSyncSecureStorageOffDetail:
+      "nemu couldn't access secure storage, so sign-in and sync are off. Your library stays on this device and keeps working. nemu tries again the next time you open it.",
     cloudSyncSignedIn: "Signed in",
     cloudSyncSignOut: "Sign Out",
     cloudSyncSignOutFailed: "Sign out failed.",

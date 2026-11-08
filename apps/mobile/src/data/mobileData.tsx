@@ -51,6 +51,14 @@ import { emitMobileDataChanged } from "./mobileDataEvents";
 import { clearAllMobileDeviceData } from "./mobileDeviceDataClear";
 import { sanitizeMobileErrorDiagnostic } from "@/lib/mobileSourceErrors";
 import {
+  clearMobileSecureStorageUnavailable,
+  markMobileSecureStorageUnavailable,
+  mobileSecureStorageFailure,
+  resolveMobileLocalOnlySelection,
+} from "./mobileSecureStorageFallback";
+import { mobileDatabaseFileExists } from "./mobileDatabaseFiles";
+import { MOBILE_ANONYMOUS_DATABASE_NAME } from "./nativeDatabase";
+import {
   MOBILE_PERFORMANCE_MARKS,
   markMobilePerformance,
 } from "@/lib/mobilePerformance";
@@ -381,6 +389,18 @@ function ProfiledMobileDataProvider({ children }: { children: ReactNode }) {
     sessionProfileId,
   );
   const lastMarkedProfileRef = useRef<string | null | undefined>(undefined);
+  // Secure storage that failed is tried again when the app returns to the
+  // foreground; success leaves local-only for the normal profile.
+  const [storageAttempt, setStorageAttempt] = useState(0);
+  const storageFailedRef = useRef(false);
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (next) => {
+      if (next === "active" && storageFailedRef.current) {
+        setStorageAttempt((value) => value + 1);
+      }
+    });
+    return () => subscription.remove();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -404,7 +424,7 @@ function ProfiledMobileDataProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [storageAttempt]);
 
   useEffect(() => {
     let cancelled = false;
@@ -445,7 +465,26 @@ function ProfiledMobileDataProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [pendingCleanupProfileId, sessionProfileId]);
+  }, [pendingCleanupProfileId, sessionProfileId, storageAttempt]);
+
+  // Secure storage unavailable: run local-only (no account, no sync) rather
+  // than failing the whole app; Settings says why.
+  const storageFailure = mobileSecureStorageFailure({
+    loadError: profileLoadError,
+    persistError: profilePersistenceError?.error ?? null,
+    persistErrorCurrent:
+      profilePersistenceError?.profileId === sessionProfileId &&
+      profileRequestProfileId === sessionProfileId,
+    pendingCleanup: pendingCleanupProfileId != null,
+  });
+  const storageFailureError = storageFailure === "profile-load"
+    ? profileLoadError
+    : profilePersistenceError?.error ?? null;
+  storageFailedRef.current = storageFailure !== null;
+  useEffect(() => {
+    if (storageFailure) markMobileSecureStorageUnavailable(storageFailureError);
+    else if (profileState.loaded) clearMobileSecureStorageUnavailable();
+  }, [profileState.loaded, storageFailure, storageFailureError]);
 
   const selection = resolveMobileDataProfileSelection(
     profileState,
@@ -468,15 +507,26 @@ function ProfiledMobileDataProvider({ children }: { children: ReactNode }) {
     });
   }, [hasSelection, profileState.loaded, selectedProfileId]);
 
-  if (profileLoadError) throw profileLoadError;
-  if (!profileState.loaded) return null;
-  if (
-    !pendingCleanupProfileId &&
-    profilePersistenceError?.profileId === sessionProfileId &&
-    profileRequestProfileId === sessionProfileId
-  ) {
-    throw profilePersistenceError.error;
+  if (storageFailure) {
+    const localOnly = resolveMobileLocalOnlySelection({
+      failure: storageFailure,
+      state: profileState,
+      anonymousDatabaseExists: mobileDatabaseFileExists(MOBILE_ANONYMOUS_DATABASE_NAME),
+    });
+    return (
+      <MobileSourceProfileBoundary profileId={null}>
+        <MobileSQLiteDataProvider
+          authSettled={true}
+          authenticatedProfileId={null}
+          databaseName={localOnly.databaseName}
+          profileId={null}
+        >
+          {children}
+        </MobileSQLiteDataProvider>
+      </MobileSourceProfileBoundary>
+    );
   }
+  if (!profileState.loaded) return null;
   // This opens durable local state without waiting for a network session, but
   // still returns null when auth resolves to an account that has not yet been
   // durably retained.

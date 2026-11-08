@@ -1000,6 +1000,9 @@ export const mobileStringsJa: MobileStrings = {
     cloudSyncSignInFailed: "サインインに失敗しました。",
     cloudSyncSignInPrompt:
       "サインインしてライブラリと読書進捗をデバイス間で同期しましょう。",
+    cloudSyncSecureStorageOff: "このデバイスでは現在サインインできません",
+    cloudSyncSecureStorageOffDetail:
+      "nemuが安全なストレージにアクセスできないため、サインインと同期をオフにしています。ライブラリはこのデバイスに保存され、そのまま使えます。次にnemuを開いたときに再試行します。",
     cloudSyncSignedIn: "サインイン済み",
     cloudSyncSignOut: "サインアウト",
     cloudSyncSignOutFailed: "サインアウトに失敗しました。",

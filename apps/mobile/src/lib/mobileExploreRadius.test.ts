@@ -28,8 +28,8 @@ describe("design-explore corner scale", () => {
     expect(settings.match(/mobileDesignExploreFlag \? styles\.exploreSurface : null/g)?.length).toBe(2);
     expect(settings).toContain("exploreSurface: MOBILE_EXPLORE_GROUP_SHAPE");
     const cloud = read("components/MobileCloudSyncCard.tsx");
-    // The signed-in card; a build without sync shows no card at all.
-    expect(cloud.match(/mobileDesignExploreFlag \? styles\.exploreShell : null/g)?.length).toBe(1);
+    // The signed-in card and the local-only notice; a build without sync shows no card at all.
+    expect(cloud.match(/mobileDesignExploreFlag \? styles\.exploreShell : null/g)?.length).toBe(2);
     for (const path of [
       "components/MobileStorageBreakdown.tsx",
       "components/MobileSourceSettingsCard.tsx",

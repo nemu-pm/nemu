@@ -43,6 +43,7 @@ import {
   MobileSyncProvider,
 } from "@/sync/MobileSyncProvider";
 import { mobileSyncConfig } from "@/sync/mobileSyncConfig";
+import { useMobileSecureStorageUnavailable } from "@/data/mobileSecureStorageFallback";
 import { MobileWindowLayoutProvider } from "@/lib/MobileWindowLayoutContext";
 import { MobileOrientationController } from "@/components/MobileOrientationController";
 import { MobilePoseTransitionProvider } from "@/lib/MobilePoseTransitionContext";
@@ -109,7 +110,8 @@ function MobileBackgroundSyncRegistrar() {
   // MobileSyncProvider mounted a Convex provider — it renders bare children
   // when sync is unconfigured (e.g. a build without EXPO_PUBLIC_CONVEX_URL),
   // and the app must still boot local-only in that case.
-  if (!mobileSyncConfig.configured) return null;
+  const secureStorageUnavailable = useMobileSecureStorageUnavailable();
+  if (!mobileSyncConfig.configured || secureStorageUnavailable) return null;
   return <ConfiguredBackgroundSyncRegistrar />;
 }
 

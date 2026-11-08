@@ -44,6 +44,7 @@ import { isMobileAuthStorageUnavailable } from "@/sync/mobileAuthSecureStorage";
 import { unregisterMobileBackgroundSyncAsync } from "@/sync/mobileBackgroundSync";
 import { signOutAndUnregisterMobileBackgroundSync } from "@/sync/mobileBackgroundSyncLifecycle";
 import { mobileSyncConfig } from "@/sync/mobileSyncConfig";
+import { useMobileSecureStorageUnavailable } from "@/data/mobileSecureStorageFallback";
 import {
   clearMobileCloudData,
   mobileSessionUserIdRef,
@@ -818,10 +819,58 @@ export function MobileCloudSyncCard(props: MobileCloudSyncAccountRowProps = {}) 
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
 
+  const secureStorageUnavailable = useMobileSecureStorageUnavailable();
+
   // A build without sync shows no card at all; the settings list closes up.
   if (!mobileSyncConfig.configured) return null;
+  // Secure storage failed: the app runs local-only; say why, offer nothing.
+  if (secureStorageUnavailable) return <MobileCloudSyncLocalOnlyCard strings={strings} />;
 
   return <MobileCloudSyncConfiguredCard {...props} strings={strings} />;
+}
+
+function MobileCloudSyncLocalOnlyCard({ strings }: { strings: MobileStrings }) {
+  const { tokens } = useNemuTheme();
+  return (
+    <View
+      accessible
+      style={[
+        styles.shell,
+        { backgroundColor: tokens.card, borderColor: tokens.cardBorder },
+        mobileDesignExploreFlag ? styles.exploreShell : null,
+      ]}
+    >
+      <View style={styles.content}>
+        <View style={styles.header}>
+          {mobileDesignExploreFlag ? (
+            <ExploreSettingsGlyph name="cloud-offline-outline" />
+          ) : (
+            <View style={styles.iconFrame}>
+              <Ionicons name="cloud-offline-outline" size={20} color={tokens.mutedForeground} />
+            </View>
+          )}
+          <View style={styles.copy}>
+            <Text
+              maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
+              style={[
+                styles.title,
+                mobileDesignExploreFlag ? styles.exploreTitle : null,
+                { color: tokens.foreground },
+              ]}
+            >
+              {strings.settings.cloudSyncSecureStorageOff}
+            </Text>
+            <Text
+              maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
+              style={[styles.subtitle, { color: tokens.mutedForeground }]}
+            >
+              {strings.settings.cloudSyncSecureStorageOffDetail}
+            </Text>
+          </View>
+        </View>
+      </View>
+    </View>
+  );
 }
 
 /** The card's content padding and gap, which the account row's fill reaches across. */
