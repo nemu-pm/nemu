@@ -56,9 +56,9 @@ export const NEMU_RECOMMENDED_DIRECTORY_FALLBACK_INDEX = {
     {
       id: "multi.minifantasytheater",
       name: "Mini Fantasy Theater",
-      version: 2,
-      iconURL: "icons/multi.minifantasytheater-v2.png",
-      downloadURL: "sources/multi.minifantasytheater-v2.aix",
+      version: 3,
+      iconURL: "icons/multi.minifantasytheater-v3.png",
+      downloadURL: "sources/multi.minifantasytheater-v3.aix",
       languages: ["en", "ja", "fr", "es", "de", "ca", "nn", "sl", "tok"],
       contentRating: 0,
       baseURL: "https://www.peppercarrot.com/en/webcomics/miniFantasyTheater.html",
