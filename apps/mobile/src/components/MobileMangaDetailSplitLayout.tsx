@@ -47,7 +47,7 @@ import {
 } from "@/components/MobileMangaDetailPaneContext";
 import { MobileMangaDetailColumnsWash } from "@/components/explore/MobileMangaDetailColumnsWash";
 import { buildMobileCoverTintPalette } from "@/lib/mobileCoverTint";
-import { getMobileDetailColumnsLayout } from "@/lib/mobileMangaDetailColumns";
+import { getMobileDetailBarRowPull, getMobileDetailColumnsLayout } from "@/lib/mobileMangaDetailColumns";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { useMobileSplitPaneLayout } from "@/lib/useMobileSplitPaneLayout";
 import { useMobilePoseTransition } from "@/lib/MobilePoseTransitionContext";
@@ -83,6 +83,7 @@ export function MobileMangaDetailSplitLayout<ItemT>({
   leading,
   chapterHeader,
   splitEnabled = true,
+  tabStrip = true,
   leadingTestID,
   onLeadingScroll,
   rowLayoutKind,
@@ -94,6 +95,8 @@ export function MobileMangaDetailSplitLayout<ItemT>({
   chapterHeader: ReactNode;
   /** False for states without chapters (not found, loading shells). */
   splitEnabled?: boolean;
+  /** False for a page pushed over the tabs (root stack): no tab strip above it. */
+  tabStrip?: boolean;
   leadingTestID?: string;
   /**
    * The info pane's scroll, as the offset from the hero's own top (the pane's
@@ -171,18 +174,19 @@ export function MobileMangaDetailSplitLayout<ItemT>({
   const topContext = useMemo(() => ({ setFooter: setTopFooter }), []);
   const split = columns ?? (!top && splitEnabled && layout.mode === "split" ? layout : null);
   const [wash, setWash] = useState<MobileMangaDetailWash | null>(null);
-  // On iPad the system reserves the bar twice (tab strip row and title row)
-  // above the content, though both draw on one line: the two panes pull up by
-  // the unused row so they start a normal distance under what is drawn.
-  // The wide header pulls up only where the system lays the tab strip and the
-  // title on two rows (a regular-width, regular-height window with no fold
-  // region: bars on top, not at the bottom or the side); a short window or the
-  // Duo's inner display draws one row.
-  const doubleBarRow = windowRegularWidth && !hasFoldRegion && !compactHeight;
-  const pull =
-    ((split && !columns) || ((top || columns) && doubleBarRow)) && Platform.OS === "ios" && mobileDesignExploreFlag && !barOnSide
-      ? IPAD_BAR_ROW_PULL
-      : 0;
+  // On iPad a tab's page has the bar reserved twice (tab strip and title)
+  // though both draw on one line: the panes pull up by the unused row.
+  const pull = Platform.OS === "ios" && mobileDesignExploreFlag
+    ? getMobileDetailBarRowPull({
+        tabStrip,
+        barOnSide,
+        infoPaneSplit: Boolean(split && !columns),
+        columnsOrWideHeader: Boolean(top || columns),
+        regularWidth: windowRegularWidth,
+        hasFoldRegion,
+        compactHeight,
+      })
+    : 0;
   const regularWidth = windowRegularWidth || Boolean(split) || top;
   const padding = getMobileSplitPanePadding({
     pageGutters: gutters,
@@ -468,9 +472,6 @@ const PANE_HERO_TOP = 22;
  * starts at 24 + 62 + 4 - 44 = 46).
  */
 const COLUMN_BAR_INSET = 62;
-
-/** The empty bar row the system still reserves on iPad (pt). */
-const IPAD_BAR_ROW_PULL = -44;
 
 const styles = StyleSheet.create({
   root: {

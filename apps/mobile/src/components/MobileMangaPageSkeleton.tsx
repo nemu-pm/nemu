@@ -49,6 +49,8 @@ type MobileMangaPageSkeletonProps = {
   accessibilityLabel: string;
   actionsPlacement?: MobileMangaPageSkeletonActionsPlacement;
   nativeHeader?: boolean;
+  /** False for a page pushed over the tabs (root stack): no tab strip above it. */
+  tabStrip?: boolean;
   /** Screen-drawn page header (when the native header is off); leads the info pane. */
   header?: ReactNode;
 };
@@ -66,6 +68,7 @@ export function MobileMangaPageSkeleton({
   accessibilityLabel,
   actionsPlacement = "copy",
   nativeHeader = true,
+  tabStrip = true,
   header,
 }: MobileMangaPageSkeletonProps) {
   const { reduceMotion } = useNemuTheme();
@@ -76,6 +79,7 @@ export function MobileMangaPageSkeleton({
     return (
       <MobileMangaDetailSplitLayout
         nativeHeader={nativeHeader}
+        tabStrip={tabStrip}
         data={NO_ROWS}
         renderItem={renderNothing}
         leading={
@@ -92,6 +96,7 @@ export function MobileMangaPageSkeleton({
   return (
     <MobileMangaDetailSplitLayout
       nativeHeader={nativeHeader}
+      tabStrip={tabStrip}
       data={NO_ROWS}
       renderItem={renderNothing}
       leading={

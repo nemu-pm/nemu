@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { mobileAdaptiveLayout, mobileFoldSplitForContainer } from "./mobileAdaptiveLayout";
 import {
+  getMobileDetailBarRowPull,
   getMobileDetailColumnsLayout as columns,
   MOBILE_DETAIL_COLUMNS_MIN_CONTENT_WIDTH,
+  MOBILE_DETAIL_IPAD_BAR_ROW_PULL,
   mobileDetailUsesColumns,
 } from "./mobileMangaDetailColumns";
 
@@ -79,5 +81,42 @@ describe("manga detail columns", () => {
     expect(columns({ containerWidth: 951, compactHeight: false, gutters: plain, posture: "notebook", foldSplit: null })).toEqual({
       mode: "single",
     });
+  });
+});
+
+describe("manga detail bar row pull", () => {
+  const ipad = {
+    tabStrip: true,
+    barOnSide: false,
+    infoPaneSplit: false,
+    columnsOrWideHeader: true,
+    regularWidth: true,
+    hasFoldRegion: false,
+    compactHeight: false,
+  };
+
+  test("a tab's page on iPad takes back the tab strip's unused row", () => {
+    expect(getMobileDetailBarRowPull(ipad)).toBe(MOBILE_DETAIL_IPAD_BAR_ROW_PULL);
+  });
+
+  test("a page pushed over the tabs has one drawn bar row and does not pull", () => {
+    expect(getMobileDetailBarRowPull({ ...ipad, tabStrip: false })).toBe(0);
+    expect(getMobileDetailBarRowPull({ ...ipad, tabStrip: false, infoPaneSplit: true })).toBe(0);
+  });
+
+  test("one bar row (Duo inner display, short or compact windows) does not pull the columns", () => {
+    expect(getMobileDetailBarRowPull({ ...ipad, hasFoldRegion: true })).toBe(0);
+    expect(getMobileDetailBarRowPull({ ...ipad, compactHeight: true })).toBe(0);
+    expect(getMobileDetailBarRowPull({ ...ipad, regularWidth: false })).toBe(0);
+  });
+
+  test("bars on the side leave nothing above the page", () => {
+    expect(getMobileDetailBarRowPull({ ...ipad, barOnSide: true, infoPaneSplit: true })).toBe(0);
+  });
+
+  test("the info-pane split pulls under the tab strip whatever the window", () => {
+    expect(
+      getMobileDetailBarRowPull({ ...ipad, columnsOrWideHeader: false, infoPaneSplit: true, hasFoldRegion: true }),
+    ).toBe(MOBILE_DETAIL_IPAD_BAR_ROW_PULL);
   });
 });

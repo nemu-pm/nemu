@@ -102,3 +102,42 @@ export function getMobileDetailColumnsLayout({
     gutter: 0,
   };
 }
+
+/** The bar row iPad reserves for the tab strip above a pushed page but draws on the title's line. */
+export const MOBILE_DETAIL_IPAD_BAR_ROW_PULL = -44;
+
+/**
+ * How far the detail panes pull up under an iPad's bar. On a tab's own stack
+ * the system reserves the tab strip and the title as two rows though both draw
+ * on one line, so the panes take back the unused row. A page pushed over the
+ * tabs (the source title page, on the root stack) has no tab strip: its single
+ * row is all drawn, and pulling would lift the chapters' header into the bar
+ * beside its buttons. The info-pane split pulls wherever it shows; the
+ * columns and the wide header only where the two rows are laid out (regular
+ * width and height with no fold region: bars on top, not at the side).
+ */
+export function getMobileDetailBarRowPull({
+  tabStrip,
+  barOnSide,
+  infoPaneSplit,
+  columnsOrWideHeader,
+  regularWidth,
+  hasFoldRegion,
+  compactHeight,
+}: {
+  /** The page sits under the tab strip (a tab's stack, not the root stack). */
+  tabStrip: boolean;
+  /** The system's bars are vertical (the Duo's rail): nothing above the page. */
+  barOnSide: boolean;
+  /** The old design's info pane beside the chapters. */
+  infoPaneSplit: boolean;
+  /** The explore design's two columns or its one wide header. */
+  columnsOrWideHeader: boolean;
+  regularWidth: boolean;
+  hasFoldRegion: boolean;
+  compactHeight: boolean;
+}): number {
+  if (!tabStrip || barOnSide) return 0;
+  const doubleBarRow = regularWidth && !hasFoldRegion && !compactHeight;
+  return infoPaneSplit || (columnsOrWideHeader && doubleBarRow) ? MOBILE_DETAIL_IPAD_BAR_ROW_PULL : 0;
+}

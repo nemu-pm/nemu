@@ -2012,6 +2012,7 @@ export function SourceMangaScreen() {
         <MobileMangaPageSkeleton
           accessibilityLabel={strings.sourceManga.loadingDetails}
           actionsPlacement="copy"
+          tabStrip={false}
         />
       </>
     );
@@ -2129,6 +2130,7 @@ export function SourceMangaScreen() {
 
       <MobileMangaDetailSplitLayout
         nativeHeader
+        tabStrip={false}
         // The bar row is empty until the compact title fades in.
         barContentVisible={!mobileDesignExploreFlag || heroTitleAway}
         data={chapterRows}
