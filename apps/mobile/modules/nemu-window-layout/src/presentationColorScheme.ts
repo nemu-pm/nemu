@@ -166,6 +166,11 @@ export function zeroTopScrollContentMargin() {
   return createModifier("nemuZeroTopScrollContentMargin");
 }
 
+/** A bar-less Form's margins above and below its groups; a popover's measured height includes them. */
+export function barlessFormMargins(margins: { top: number; bottom: number }) {
+  return createModifier("nemuBarlessFormMargins", margins);
+}
+
 /**
  * On a sheet's root (the `Group` inside `BottomSheet`): one presentation
  * detent as tall as the sheet's page on screen, from the heights measured by

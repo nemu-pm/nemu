@@ -32,6 +32,9 @@ public final class NemuWindowLayoutModule: Module {
       ViewModifierRegistry.register(NemuZeroTopScrollContentMarginModifier.type) { _, _, _ in
         NemuZeroTopScrollContentMarginModifier()
       }
+      ViewModifierRegistry.register(NemuBarlessFormMarginsModifier.type) { params, _, _ in
+        NemuBarlessFormMarginsModifier(params: params)
+      }
       // A sheet as tall as its page, measured before it presents: see
       // `NemuFitSheetDetentModifier`, `NemuReportSheetContentHeightModifier`
       // and `NemuMeasureSheetPageModifier`.
@@ -79,6 +82,7 @@ public final class NemuWindowLayoutModule: Module {
       ViewModifierRegistry.unregister(NemuSheetFullWidthBesideBarModifier.type)
       ViewModifierRegistry.unregister(NemuPresentationPlacementModifier.type)
       ViewModifierRegistry.unregister(NemuZeroTopScrollContentMarginModifier.type)
+      ViewModifierRegistry.unregister(NemuBarlessFormMarginsModifier.type)
       ViewModifierRegistry.unregister(NemuFitSheetDetentModifier.type)
       ViewModifierRegistry.unregister(NemuReportSheetContentHeightModifier.type)
       ViewModifierRegistry.unregister(NemuMeasureSheetPageModifier.type)
@@ -1106,6 +1110,29 @@ struct NemuZeroTopScrollContentMarginModifier: ViewModifier {
   func body(content: Content) -> some View {
     if #available(iOS 17.0, *) {
       content.contentMargins(.top, 0, for: .scrollContent)
+    } else {
+      content
+    }
+  }
+}
+
+/// A bar-less Form's margins above and below its groups (a popover's: they
+/// count in the content height `NemuMeasureSheetPageModifier` records).
+struct NemuBarlessFormMarginsModifier: ViewModifier {
+  static let type = "nemuBarlessFormMargins"
+  let top: CGFloat
+  let bottom: CGFloat
+
+  init(params: [String: Any]) {
+    top = CGFloat((params["top"] as? Double) ?? 0)
+    bottom = CGFloat((params["bottom"] as? Double) ?? 0)
+  }
+
+  func body(content: Content) -> some View {
+    if #available(iOS 17.0, *) {
+      content
+        .contentMargins(.top, top, for: .scrollContent)
+        .contentMargins(.bottom, bottom, for: .scrollContent)
     } else {
       content
     }

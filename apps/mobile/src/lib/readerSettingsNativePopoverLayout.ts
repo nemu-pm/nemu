@@ -79,6 +79,14 @@ export function readerSettingsNativeContentHeight(rows: ReaderSettingsNativeRows
  */
 export const READER_SETTINGS_FORM_INSET = 20;
 
+/**
+ * The popover's margins above and below its groups, for the system's group
+ * inset beside them on all four edges (16pt, measured on iPad, iOS 27.2). It has
+ * no bar above the first group, which otherwise touches its top edge; the List
+ * draws 2.5pt of its own below the last group.
+ */
+export const READER_SETTINGS_POPOVER_FORM_MARGINS = { top: 16, bottom: 13.5 };
+
 /** A sheet's inline navigation bar (title + close button) above the Form. */
 export const READER_SETTINGS_SHEET_BAR = 56;
 

@@ -39,6 +39,14 @@ describe("reader settings presentation", () => {
     const layout = source.slice(source.indexOf("const formLayoutModifiers = ["), source.indexOf("];", source.indexOf("const formLayoutModifiers = [")));
     expect(layout).toContain('defaultScrollAnchor("top")');
   });
+
+  test("the popover's first group keeps its inset from the bar-less top; the sheet's sits under its bar", () => {
+    const layout = source.slice(source.indexOf("const formLayoutModifiers = ["), source.indexOf("];", source.indexOf("const formLayoutModifiers = [")));
+    expect(layout).toContain("barlessFormMargins(READER_SETTINGS_POPOVER_FORM_MARGINS)");
+    expect(layout).toContain("zeroTopScrollContentMargin()");
+    // The measuring copy takes the same list, so the popover's height counts the margin.
+    expect(source).toContain("...formLayoutModifiers,\n        measureSheetPage(");
+  });
 });
 
 /**

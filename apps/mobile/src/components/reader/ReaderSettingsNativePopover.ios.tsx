@@ -61,6 +61,7 @@ import {
   measureSheetPage,
   navigationBarHidden,
   reportSheetContentHeight,
+  barlessFormMargins,
   zeroTopScrollContentMargin,
   presentationColorScheme,
   presentationPlacement,
@@ -97,6 +98,7 @@ import {
   readerSettingsHeldNativePresentation,
   readerSettingsNativePresentation,
   READER_SETTINGS_FORM_INSET,
+  READER_SETTINGS_POPOVER_FORM_MARGINS,
   readerSettingsNativeSheetEstimatedHeight,
   readerSettingsSheetDetentCap,
 } from "@/lib/readerSettingsNativePopoverLayout";
@@ -332,8 +334,16 @@ export function ReaderSettingsNativePopover({
   ];
   // The Form's own layout, shared by the presented Form and the sheet's
   // off-screen measuring copy, so both have the same height. A Form taller
-  // than its presentation opens at its first row (reading direction).
-  const formLayoutModifiers = [listSectionSpacing("compact"), zeroTopScrollContentMargin(), defaultScrollAnchor("top")];
+  // than its presentation opens at its first row (reading direction). A sheet's
+  // first group sits under its bar; the bar-less popover's keeps the same inset
+  // from every edge.
+  const formLayoutModifiers = [
+    listSectionSpacing("compact"),
+    presentation.kind === "popover" && !sheet
+      ? barlessFormMargins(READER_SETTINGS_POPOVER_FORM_MARGINS)
+      : zeroTopScrollContentMargin(),
+    defaultScrollAnchor("top"),
+  ];
   // The presentation's own appearance (not just this content's): the
   // container resolves its traits from the controller UIKit presents it
   // from, never from the reader screen. Translucent over the page, resolved
