@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { ComponentProps } from "react";
 import {
   type LayoutChangeEvent,
@@ -35,6 +35,7 @@ import {
   NEMU_WEB_EMPTY_LIBRARY_VISUAL,
 } from "@/lib/mobileEmptyLibraryLayout";
 import { useMobileContainerFold } from "@/lib/useMobileContainerFold";
+import { useReportMobileToastObstacle } from "@/lib/useReportMobileToastRegion";
 import { useMobileWindowLayout } from "@/lib/MobileWindowLayoutContext";
 import {
   mobileRestingFoldMinGutter,
@@ -159,6 +160,33 @@ export function EmptyLibrary({
   // a vertical bar): the safe area, not the hero's own box.
   const [rootTop, setRootTop] = useState<number | null>(null);
   const [detailsBottom, setDetailsBottom] = useState<number | null>(null);
+  // The main action in the window: a bottom toast never covers it.
+  const actionRef = useRef<ViewInstance>(null);
+  const [actionRect, setActionRect] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const measureAction = useCallback(() => {
+    actionRef.current?.measureInWindow((x, y, width, height) => {
+      setActionRect((previous) =>
+        previous &&
+        Math.abs(previous.x - x) < 0.5 &&
+        Math.abs(previous.y - y) < 0.5 &&
+        Math.abs(previous.width - width) < 0.5 &&
+        Math.abs(previous.height - height) < 0.5
+          ? previous
+          : { x, y, width, height },
+      );
+    });
+  }, []);
+  useReportMobileToastObstacle(
+    actionRect && rootTop !== null
+      ? {
+          left: actionRect.x,
+          right: actionRect.x + actionRect.width,
+          top: actionRect.y,
+          bottom: actionRect.y + actionRect.height,
+          anchorTop: rootTop,
+        }
+      : null,
+  );
   const onRootLayout = useCallback(
     (event: LayoutChangeEvent) => {
       onContainerLayout(event);
@@ -171,8 +199,9 @@ export function EmptyLibrary({
       containerRef.current?.measureInWindow((_x, y) => {
         setRootTop((previous) => (previous !== null && Math.abs(previous - y) < 0.5 ? previous : y));
       });
+      measureAction();
     },
-    [containerRef, fill, onContainerLayout],
+    [containerRef, fill, measureAction, onContainerLayout],
   );
   const onDetailsLayout = useCallback((event: LayoutChangeEvent) => {
     const { y, height: detailsHeight } = event.nativeEvent.layout;
@@ -280,17 +309,18 @@ export function EmptyLibrary({
           </View>
         ) : null}
       </View>
-      <NemuButton
-        accessibilityLabel={actionLabel}
-        disabled={disabled}
-        icon={actionIcon}
-        label={actionLabel}
-        loading={actionLoading}
-        size={NEMU_PROMINENT_CTA_SIZE}
-        containerStyle={styles.action}
-        onPress={onActionPress}
-        variant="default"
-      />
+      <View ref={actionRef} collapsable={false} onLayout={measureAction} style={styles.action}>
+        <NemuButton
+          accessibilityLabel={actionLabel}
+          disabled={disabled}
+          icon={actionIcon}
+          label={actionLabel}
+          loading={actionLoading}
+          size={NEMU_PROMINENT_CTA_SIZE}
+          onPress={onActionPress}
+          variant="default"
+        />
+      </View>
       {secondaryPlacement !== "hidden" ? (
         <NemuPressable
           accessibilityRole="button"

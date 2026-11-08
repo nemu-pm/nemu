@@ -14,6 +14,18 @@ export type MobileToastRegion = {
   top?: number;
 };
 
+/**
+ * A control on the focused screen a bottom toast must not cover (window
+ * coordinates), and the window y to anchor the toast at when it would.
+ */
+export type MobileToastObstacle = {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+  anchorTop: number;
+};
+
 // Publishers in mount order; the newest focused one wins (a pushed screen
 // mounts and focuses after the one beneath it).
 const regions = new Map<symbol, MobileToastRegion>();
@@ -48,8 +60,30 @@ export function useMobileToastRegion(): MobileToastRegion | null {
   return useSyncExternalStore(subscribe, getMobileToastRegion, getMobileToastRegion);
 }
 
+const obstacles = new Map<symbol, MobileToastObstacle>();
+let currentObstacle: MobileToastObstacle | null = null;
+
+export function setMobileToastObstacle(key: symbol, obstacle: MobileToastObstacle | null): void {
+  if (obstacle) obstacles.set(key, obstacle);
+  else obstacles.delete(key);
+  const last = [...obstacles.values()].at(-1) ?? null;
+  if (last === currentObstacle) return;
+  currentObstacle = last;
+  for (const listener of listeners) listener();
+}
+
+export function getMobileToastObstacle(): MobileToastObstacle | null {
+  return currentObstacle;
+}
+
+export function useMobileToastObstacle(): MobileToastObstacle | null {
+  return useSyncExternalStore(subscribe, getMobileToastObstacle, getMobileToastObstacle);
+}
+
 /** Tests only. */
 export function resetMobileToastRegionForTests(): void {
   regions.clear();
   current = null;
+  obstacles.clear();
+  currentObstacle = null;
 }

@@ -22,6 +22,54 @@ function input(overrides: Partial<MobileToastPlacementInput> = {}): MobileToastP
 }
 
 describe("resolveMobileToastPlacement", () => {
+  describe("a screen's obstacle (Duo outer portrait)", () => {
+    const outer = {
+      windowWidth: 466,
+      windowHeight: 678,
+      verticalBarSide: "right" as const,
+      safeArea: { left: 0, right: 84, bottom: 20 },
+      gutters: { left: 20, right: 84 },
+    };
+    const action = { left: 139, right: 264, top: 554, bottom: 598, anchorTop: 88 };
+
+    test("a bottom toast that would reach the action anchors at the top instead", () => {
+      const placement = resolveMobileToastPlacement(input({ ...outer, obstacle: action }));
+      expect(placement.top).toBe(88);
+      expect(placement.bottom).toBeUndefined();
+    });
+
+    test("an action well above the toast leaves it at the bottom", () => {
+      const placement = resolveMobileToastPlacement(
+        input({ ...outer, obstacle: { ...action, top: 300, bottom: 344 } }),
+      );
+      expect(placement.bottom).toBe(36);
+    });
+
+    test("an action beside the toast leaves it at the bottom (another pane)", () => {
+      const placement = resolveMobileToastPlacement(
+        input({ ...outer, windowWidth: 951, windowHeight: 669, obstacle: { ...action, left: 10, right: 20 } }),
+      );
+      expect(placement.bottom).toBeDefined();
+    });
+
+    test("the toast's measured height decides: a taller toast reaches an action a short one clears", () => {
+      const clear = { ...action, top: 560, bottom: 570 };
+      const windowed = { ...outer, windowHeight: 678, obstacle: clear };
+      expect(resolveMobileToastPlacement(input({ ...windowed, toastHeight: 52 })).bottom).toBe(36);
+      expect(resolveMobileToastPlacement(input({ ...windowed, toastHeight: 90 })).top).toBe(88);
+    });
+
+    test("the keyboard decides on its own", () => {
+      const placement = resolveMobileToastPlacement(input({ ...outer, obstacle: action, keyboardHeight: 300 }));
+      expect(placement.bottom).toBe(312);
+    });
+
+    test("no window height, or no obstacle: unchanged", () => {
+      expect(resolveMobileToastPlacement(input({ ...outer, windowHeight: undefined, obstacle: action })).bottom).toBe(36);
+      expect(resolveMobileToastPlacement(input({ ...outer, obstacle: null })).bottom).toBe(36);
+    });
+  });
+
   test("phone: full gutter width, 12pt above the measured tab bar", () => {
     expect(resolveMobileToastPlacement(input())).toEqual({ left: 16, width: 370, bottom: 95 });
   });

@@ -1,4 +1,4 @@
-import type { MobileToastRegion } from "@/lib/mobileToastRegion";
+import type { MobileToastObstacle, MobileToastRegion } from "@/lib/mobileToastRegion";
 import type { WindowLayoutRect } from "@/lib/mobileWindowLayout";
 
 /** The toast never grows wider than this, however wide its region. */
@@ -15,6 +15,10 @@ export const MOBILE_TOAST_KEYBOARD_GAP = 12;
 export const MOBILE_TOAST_MIN_REGION_WIDTH = 240;
 /** UIKit's compact tab bar height above the home indicator (fallback before a measurement). */
 export const MOBILE_IOS_TAB_BAR_FALLBACK_HEIGHT = 49;
+/** A title and a one-line detail: a toast's height until it has measured. */
+export const MOBILE_TOAST_DEFAULT_HEIGHT = 60;
+/** Least distance between a bottom toast and an obstacle. */
+export const MOBILE_TOAST_OBSTACLE_GAP = 8;
 
 export type MobileToastPlacement = {
   /** Window x of the toast's left edge. */
@@ -50,6 +54,12 @@ export type MobileToastPlacementInput = {
   fallbackBottomTabBarInset: number;
   /** The focused screen's main column / anchor (`useMobileToastRegion`). */
   region?: MobileToastRegion | null;
+  /** A control on the focused screen a bottom toast must not cover. */
+  obstacle?: MobileToastObstacle | null;
+  /** Needed to test a bottom toast against `obstacle`. */
+  windowHeight?: number;
+  /** The toast's measured height (`MOBILE_TOAST_DEFAULT_HEIGHT` until then). */
+  toastHeight?: number;
   /** Keyboard extent from the window's bottom edge; 0 when hidden. */
   keyboardHeight?: number;
   layoutDirection?: "ltr" | "rtl";
@@ -67,6 +77,9 @@ function finite(value: number, fallback = 0): number {
  * - a screen's region (a split's trailing pane, the reader's page pane): within
  *   it, ≥16pt from a pane edge inside the window, so never across a sidebar or
  *   the fold; its `top` anchors the toast there instead of at the bottom;
+ * - a screen's obstacle (an empty page's main action): a bottom toast that
+ *   would reach it anchors at the obstacle's `anchorTop` instead (lifted just
+ *   clear of the action it would cover the copy above it);
  * - a rail is never covered: the region ends at its safe-area edge (the page
  *   gutters already keep content off it, so the toast centres on the content);
  * - book posture without a region: inside the pane next to the rail (the
@@ -147,6 +160,19 @@ export function resolveMobileToastPlacement(
     : safeBottom + MOBILE_TOAST_SAFE_AREA_GAP;
   const keyboard = Math.max(0, finite(input.keyboardHeight ?? 0));
   const bottom = keyboard > 0 ? Math.max(resting, keyboard + MOBILE_TOAST_KEYBOARD_GAP) : resting;
+
+  const obstacle = input.obstacle;
+  const windowHeight = finite(input.windowHeight ?? 0);
+  if (obstacle && windowHeight > 0 && keyboard === 0) {
+    const toastBottom = windowHeight - bottom;
+    const toastTop = toastBottom - finite(input.toastHeight ?? MOBILE_TOAST_DEFAULT_HEIGHT, MOBILE_TOAST_DEFAULT_HEIGHT);
+    const reaches =
+      left < obstacle.right &&
+      left + width > obstacle.left &&
+      toastTop - MOBILE_TOAST_OBSTACLE_GAP < obstacle.bottom &&
+      toastBottom + MOBILE_TOAST_OBSTACLE_GAP > obstacle.top;
+    if (reaches) return { left, width, top: Math.max(0, obstacle.anchorTop) };
+  }
 
   return { left, width, bottom };
 }

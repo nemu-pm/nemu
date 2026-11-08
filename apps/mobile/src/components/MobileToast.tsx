@@ -42,7 +42,7 @@ import {
   MOBILE_IOS_TAB_BAR_FALLBACK_HEIGHT,
   resolveMobileToastPlacement,
 } from "@/lib/mobileToastPlacement";
-import { useMobileToastRegion } from "@/lib/mobileToastRegion";
+import { useMobileToastObstacle, useMobileToastRegion } from "@/lib/mobileToastRegion";
 import { createMobileToastStore } from "@/lib/mobileToastStore";
 import {
   MobileToastContext,
@@ -310,6 +310,8 @@ function MobileToastHost({
   const pathname = usePathname();
   const measuredTabBarInset = useMobileBottomTabBarInset();
   const region = useMobileToastRegion();
+  const obstacle = useMobileToastObstacle();
+  const [toastHeight, setToastHeight] = useState<number | undefined>(undefined);
   const keyboardHeight = useToastKeyboardHeight();
   const reducedMotion = useReducedMotion();
   const motionDisabled = reduceMotion || reducedMotion === true;
@@ -334,6 +336,9 @@ function MobileToastHost({
         ? safeArea.bottom + MOBILE_IOS_TAB_BAR_FALLBACK_HEIGHT
         : getMobileFloatingTabBarOverlayExtent(insets.bottom),
     region,
+    obstacle,
+    windowHeight: adaptive.height,
+    toastHeight,
     keyboardHeight,
   });
 
@@ -354,6 +359,7 @@ function MobileToastHost({
     <Animated.View
       key={toast.id}
       pointerEvents="box-none"
+      onLayout={(event) => setToastHeight(event.nativeEvent.layout.height)}
       entering={
         // ~25% quicker settle than the original 18/220 spring at the same
         // damping ratio (~0.6), so the pill still arrives without oscillating.
