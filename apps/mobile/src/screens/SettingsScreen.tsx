@@ -166,6 +166,7 @@ import { useMobileSplitPaneLayout } from "@/lib/useMobileSplitPaneLayout";
 import { MOBILE_STACK_FULL_SCREEN_GESTURE_OPTIONS } from "@/lib/mobileReaderRouteOptions";
 import { ScreenStack, ScreenStackItem } from "react-native-screens";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
+import { getMobileReadableGutters } from "@/lib/mobileReadableWidth";
 import { HeaderHeightContext } from "expo-router/react-navigation";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { LayoutAnimationConfig } from "react-native-reanimated";
@@ -1937,6 +1938,7 @@ function SettingsScreenContent({
   presentation?: SettingsPresentation;
   selectedSection?: SettingsSectionId | null;
   onSelectSection?: (section: SettingsSectionId) => void;
+  /** The pane's edges in the split; one column, the page's readable column. */
   paneContentStyle?: StyleProp<ViewStyle>;
   /** Split view: this pane's title is drawn over the column (`SettingsSplitColumnTitles`). */
   columnTitled?: boolean;
@@ -4062,10 +4064,7 @@ function SettingsScreenContent({
         refreshDisabled={settingsActionBusy}
         refreshLabel={strings.settings.refreshSources}
         refreshing={refreshingSources}
-        contentContainerStyle={[
-          presentation === "page" ? undefined : paneContentStyle,
-          styles.settingsContent,
-        ]}
+        contentContainerStyle={[paneContentStyle, styles.settingsContent]}
         ListHeaderComponent={settingsBody}
       />
     </>
@@ -4221,7 +4220,14 @@ export function SettingsScreen({
   });
 
   const strings = getMobileStrings(useMobileLanguageSettings().appLanguage);
-  const { verticalBarSide } = useMobileAdaptiveLayout();
+  const { verticalBarSide, regularWidth, width: windowWidth } = useMobileAdaptiveLayout();
+  const { fontScale } = useWindowDimensions();
+  // One column on a regular-width window (a tablet in portrait): the page
+  // keeps to a readable column rather than spanning the screen.
+  const pagePadding = useMemo(
+    () => getMobileReadableGutters({ containerWidth: windowWidth, gutters, regularWidth, fontScale }),
+    [fontScale, gutters, regularWidth, windowWidth],
+  );
   const columnTitles = getMobileSettingsSplitColumnTitles({
     split: split !== null,
     platform: Platform.OS,
@@ -4283,7 +4289,7 @@ export function SettingsScreen({
         section={page}
         presentation={split ? "detail-pane" : "page"}
         onSelectSection={setSelected}
-        paneContentStyle={padding.trailing}
+        paneContentStyle={split ? padding.trailing : pagePadding}
         columnTitled={columnTitles !== null}
         barItems={top}
       />
@@ -4316,7 +4322,7 @@ export function SettingsScreen({
         presentation={split ? "list-pane" : "page"}
         selectedSection={split ? getMobileSettingsSplitHighlightedRow(detailSection) : null}
         onSelectSection={setSelected}
-        paneContentStyle={padding.leading}
+        paneContentStyle={split ? padding.leading : pagePadding}
         onBarTitleCenter={columnTitles ? setBarTitleCenterY : undefined}
         barTitleRevision={barTitleRevision}
       />
