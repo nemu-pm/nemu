@@ -669,7 +669,7 @@ License: MIT
 Created by Hugeicons. All rights reserved.
 
 ================================================================================
-@nemu.pm/aidoku-runtime 0.14.0
+@nemu.pm/aidoku-runtime 0.15.0
 https://github.com/nemu-pm/aidoku-js
 License: MIT
 ================================================================================
