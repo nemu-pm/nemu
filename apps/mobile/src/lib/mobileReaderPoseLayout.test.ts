@@ -8,6 +8,10 @@ import {
   mobileReaderSafePadding,
   mobileReaderTapExcluded,
   mobileReaderCapsuleActionSlots,
+  mobileReaderChapterListFitsBar,
+  READER_BAR_MAX_ACTIONS,
+  READER_SCRUBBER_CHROME_WIDTH,
+  READER_SLIDER_MIN_TRACK_WIDTH,
   mobileReaderBookSheetSide,
   mobileReaderLayoutWithoutFold,
   mobileReaderCapsuleActionsWidth,
@@ -240,12 +244,11 @@ describe("reader pose: capsule chrome (regular width)", () => {
     expect(result.popover.frame).toEqual(chrome.content);
   });
 
-  test("more actions than the cap: four stay on the bottom row; the title keeps its centred slot and Back never moves", () => {
+  test("more actions stay on the bottom row; the title keeps its centred slot and Back never moves", () => {
     const chrome = capsules(pose(innerLandscapeNoBar(), { actionCount: 6 }));
     expect(chrome.back.x).toBe(20);
     expect(chrome.actionsRow).toBe("bottom");
-    expect(chrome.visibleActionCount).toBe(4);
-    expect(chrome.actions.width).toBe(mobileReaderCapsuleActionsWidth(4));
+    expect(chrome.actions.width).toBe(mobileReaderCapsuleActionsWidth(6));
     expect(chrome.title).toEqual({ x: 296, y: 24, width: 360, height: 48 });
     expect(chrome.title!.x + chrome.title!.width).toBeLessThanOrEqual(chrome.more!.x - 10);
   });
@@ -405,25 +408,13 @@ describe("reader pose: book", () => {
     expect(rtl.scrubber.x).toBeGreaterThanOrEqual(495.5);
     expect(rtl.actions.x).toBeGreaterThanOrEqual(495.5);
     expect(rtl.actions.x + rtl.actions.width).toBeLessThanOrEqual(951 - 20);
-    // Too many actions for the slider's track beside them: three stay, in the
-    // same pane, the others in ⋯.
+    // Too many actions for a ≥ 200pt scrubber beside them: they stay on top,
+    // in the trailing pane beside the status bar.
     const crowded = capsules(pose(book, { twoPage: false, actionCount: 5 }));
-    expect(crowded.actionsRow).toBe("bottom");
-    expect(crowded.visibleActionCount).toBe(3);
-    expect(crowded.more).not.toBeNull();
-    expect(crowded.actions.x + crowded.actions.width).toBeLessThanOrEqual(455.5);
-  });
-
-  test("a pane too narrow for the bottom row: the top row keeps the cap, ⋯ in the capsule's own slot", () => {
-    const narrow = { ...book, width: 540, divisions: [hinge(250, 0, 40, 669)], occlusions: [], safeAreaInsets: noInsets, verticalBarEdge: null };
-    const chrome = capsules(pose(narrow, { twoPage: false, actionCount: 6 }));
-    expect(chrome.actionsRow).toBe("top");
-    expect(chrome.more).toBeNull();
-    expect(chrome.visibleActionCount).toBe(4);
-    expect(chrome.actions.width).toBe(mobileReaderCapsuleActionsWidth(5));
-    const fits = capsules(pose(narrow, { twoPage: false, actionCount: 4 }));
-    expect(fits.visibleActionCount).toBe(4);
-    expect(fits.actions.width).toBe(mobileReaderCapsuleActionsWidth(4));
+    expect(crowded.actionsRow).toBe("top");
+    expect(crowded.more).toBeNull();
+    expect(crowded.actions.x).toBeGreaterThanOrEqual(495.5);
+    expect(crowded.actions.x + crowded.actions.width).toBe(817);
   });
 
   test("Android book (no insets, no occlusions) uses the same capsule chrome", () => {
@@ -1233,14 +1224,14 @@ describe("persistent side bar capsule alignment", () => {
 });
 
 describe("capsule action slots", () => {
-  test("Japanese Learning takes two slots, other plugins one, plus chapters, settings and the bilingual toggle", () => {
-    expect(mobileReaderCapsuleActionSlots({ enabledPluginIds: [], bilingualToggle: false })).toBe(2);
+  test("Japanese Learning takes two slots, other plugins one, plus settings and the bilingual toggle", () => {
+    expect(mobileReaderCapsuleActionSlots({ enabledPluginIds: [], bilingualToggle: false })).toBe(1);
     expect(
       mobileReaderCapsuleActionSlots({ enabledPluginIds: ["japanese-learning"], bilingualToggle: false }),
-    ).toBe(4);
+    ).toBe(3);
     expect(
       mobileReaderCapsuleActionSlots({ enabledPluginIds: ["japanese-learning", "other"], bilingualToggle: true }),
-    ).toBe(6);
+    ).toBe(5);
   });
 
   test("the reader derives the count in the same render as the pose (no one-frame lag)", async () => {
@@ -1322,8 +1313,8 @@ describe("reader pose: the trailing more (⋯) button", () => {
     expect(capsules(pose(innerLandscapeNoBar())).more).not.toBeNull();
     expect(capsules(pose(innerPortrait())).more).not.toBeNull();
     expect(capsules(pose(innerLandscapeNoBar([hinge(455.5, 0, 40, 669)]), { twoPage: true })).more).not.toBeNull();
-    // Book with more actions than the pane's bottom row keeps: the rest are in that ⋯.
-    expect(capsules(pose(innerLandscapeNoBar([hinge(455.5, 0, 40, 669)]), { twoPage: true, actionCount: 5 })).more).not.toBeNull();
+    // Book with too many actions for the pane's bottom row: atop the trailing pane.
+    expect(capsules(pose(innerLandscapeNoBar([hinge(455.5, 0, 40, 669)]), { twoPage: true, actionCount: 5 })).more).toBeNull();
     // The vertical bar (outer display, Split View) carries Back and the actions.
     expect(capsules(pose(outer, { sideBar: true })).more).toBeNull();
     // Half folded like a laptop: the open display's bottom row.
@@ -1497,10 +1488,7 @@ describe("reader pose: iPad bottom row (actions beside the scrubber)", () => {
   test("the row choice: bottom while the scrubber keeps its minimum beside the actions", () => {
     const pane = { x: 0, y: 0, width: 455.5, height: 669 };
     expect(mobileReaderActionsRow(pane, { left: 0, right: 0 }, 3)).toBe("bottom");
-    // Actions it would not keep don't count against the row.
-    expect(mobileReaderActionsRow(pane, { left: 0, right: 0 }, 5)).toBe("bottom");
-    // Too narrow for even the gear beside the scrubber.
-    expect(mobileReaderActionsRow({ ...pane, width: 250 }, { left: 0, right: 0 }, 5)).toBe("top");
+    expect(mobileReaderActionsRow(pane, { left: 0, right: 0 }, 5)).toBe("top");
     expect(mobileReaderActionsRow({ x: 0, y: 0, width: 744, height: 1133 }, { left: 0, right: 0 }, 3)).toBe("bottom");
   });
 
@@ -1717,3 +1705,72 @@ describe("reader pose: a resizable iPad window's controls", () => {
     expect(chrome.back.x + chrome.back.width).toBeLessThanOrEqual(560 - 88);
   });
 });
+
+describe("reader pose: the chapter list's button", () => {
+  const phone = (width: number) => ({ width, height: 874, supported: false, divisions: [], occlusions: [], safeAreaInsets: noInsets });
+  const fold = innerLandscapeNoBar([hinge(455.5, 0, 40, 669)]);
+
+  test("the rule: at most four actions, and a track of at least 144pt", () => {
+    expect(READER_BAR_MAX_ACTIONS).toBe(4);
+    expect(READER_SLIDER_MIN_TRACK_WIDTH).toBe(144);
+    expect(mobileReaderChapterListFitsBar(3, 248)).toBe(true);
+    expect(mobileReaderChapterListFitsBar(3, 247)).toBe(false);
+    expect(mobileReaderChapterListFitsBar(4, 480)).toBe(false);
+    expect(mobileReaderChapterListFitsBar(1, 248)).toBe(true);
+  });
+
+  test("the layout is the original one to the pixel when the button does not fit", () => {
+    for (const layout of [phone(402), innerLandscapeNoBar(), innerPortrait(), fold]) {
+      for (const actionCount of [3, 4, 5, 6]) {
+        const before = capsules(pose(layout, { twoPage: false, actionCount }));
+        const after = capsules(pose(layout, { twoPage: false, actionCount, chapterList: true }));
+        if (after.chapterListInBar) continue;
+        expect({ ...after, chapterListInBar: false }).toEqual(before);
+      }
+    }
+  });
+
+  test("the other actions always keep their slots, the button only adds one", () => {
+    for (const layout of [phone(375), phone(402), phone(440), innerLandscapeNoBar(), innerPortrait(), fold]) {
+      for (const actionCount of [1, 2, 3, 4, 5, 6]) {
+        const chrome = capsules(pose(layout, { twoPage: false, actionCount, chapterList: true }));
+        const slots = actionCount + (chrome.chapterListInBar ? 1 : 0);
+        expect(chrome.actions.width).toBe(mobileReaderCapsuleActionsWidth(slots));
+      }
+    }
+  });
+
+  test("beside the slider it never takes the track below the minimum or the actions past four", () => {
+    for (let width = 320; width <= 1000; width += 7) {
+      for (const actionCount of [1, 2, 3, 4, 5]) {
+        const chrome = capsules(pose(phone(width), { twoPage: false, actionCount, chapterList: true }));
+        if (!chrome.chapterListInBar || chrome.actionsRow !== "bottom") continue;
+        expect(actionCount + 1).toBeLessThanOrEqual(READER_BAR_MAX_ACTIONS);
+        expect(chrome.scrubber.width - READER_SCRUBBER_CHROME_WIDTH).toBeGreaterThanOrEqual(READER_SLIDER_MIN_TRACK_WIDTH);
+      }
+    }
+  });
+
+  test("iPhone with Japanese Learning: ⋯; with nothing else: the bar", () => {
+    expect(capsules(pose(phone(402), { twoPage: false, actionCount: 3, chapterList: true })).chapterListInBar).toBe(false);
+    expect(capsules(pose(phone(402), { twoPage: false, actionCount: 1, chapterList: true })).chapterListInBar).toBe(true);
+  });
+
+  test("a roomy window: in the bar up to four, ⋯ past them", () => {
+    expect(capsules(pose(innerLandscapeNoBar(), { actionCount: 3, chapterList: true })).chapterListInBar).toBe(true);
+    expect(capsules(pose(innerLandscapeNoBar(), { actionCount: 4, chapterList: true })).chapterListInBar).toBe(false);
+  });
+
+  test("the book pane's crowded top row keeps its place and the button: no ⋯ there to take it", () => {
+    const chrome = capsules(pose(fold, { twoPage: false, actionCount: 5, chapterList: true }));
+    expect(chrome.actionsRow).toBe("top");
+    expect(chrome.more).toBeNull();
+    expect(chrome.chapterListInBar).toBe(true);
+    expect(chrome.actions.width).toBe(mobileReaderCapsuleActionsWidth(6));
+  });
+
+  test("off by default: every other caller gets the original layout", () => {
+    expect(capsules(pose(fold)).chapterListInBar).toBe(false);
+  });
+});
+

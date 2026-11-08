@@ -1,16 +1,12 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { MenuView, type MenuAction } from "@expo/ui/community/menu";
 import CheckCircleIcon from "@expo/material-symbols/check_circle.xml";
-import ContentCopyIcon from "@expo/material-symbols/content_copy.xml";
-import DocumentScannerIcon from "@expo/material-symbols/document_scanner.xml";
 import ExtensionIcon from "@expo/material-symbols/extension.xml";
 import FormatListBulletedIcon from "@expo/material-symbols/format_list_bulleted.xml";
-import ForumIcon from "@expo/material-symbols/forum.xml";
 import RefreshIcon from "@expo/material-symbols/refresh.xml";
 import SettingsIcon from "@expo/material-symbols/settings.xml";
 import SkipNextIcon from "@expo/material-symbols/skip_next.xml";
 import SkipPreviousIcon from "@expo/material-symbols/skip_previous.xml";
-import ViewColumnIcon from "@expo/material-symbols/view_column.xml";
 import { StyleSheet, View, type ImageSourcePropType } from "react-native";
 import { hapticSelection } from "@/lib/haptics";
 import type {
@@ -28,10 +24,6 @@ const ICONS: Record<MobileReaderMoreMenuIcon, ImageSourcePropType> = {
   checkCircle: CheckCircleIcon,
   settings: SettingsIcon,
   extension: ExtensionIcon,
-  detectText: DocumentScannerIcon,
-  nemuChat: ForumIcon,
-  dualRead: ContentCopyIcon,
-  bilingualLayout: ViewColumnIcon,
   chapterList: FormatListBulletedIcon,
 };
 
@@ -55,7 +47,6 @@ export function ReaderMoreMenu({
       id: item.id,
       title: item.subtitle ? `${item.title} · ${item.subtitle}` : item.title,
       image: ICONS[item.icon],
-      state: item.checked === undefined ? undefined : item.checked ? "on" : "off",
       attributes: { disabled: item.disabled },
     })),
   }));

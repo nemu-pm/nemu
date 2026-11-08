@@ -7,7 +7,6 @@ import {
   Menu as SwiftMenu,
   Section as SwiftSection,
   Text as SwiftText,
-  Toggle as SwiftToggle,
 } from "@expo/ui/swift-ui";
 import {
   accessibilityHint as swiftAccessibilityHint,
@@ -63,26 +62,6 @@ export function ReaderMoreMenu({
           {sections.map((section) => (
             <SwiftSection key={section.id}>
               {section.items.map((item) => {
-                if (item.checked !== undefined) {
-                  // A system menu row's checkmark; JS stays the source of its state.
-                  return (
-                    <SwiftToggle
-                      key={item.id}
-                      isOn={item.checked}
-                      label={item.title}
-                      systemImage={item.systemImage as SFSymbol}
-                      modifiers={[
-                        swiftAccessibilityLabel(item.accessibilityLabel),
-                        ...(item.disabled ? [swiftDisabled(true)] : []),
-                      ]}
-                      onIsOnChange={() => {
-                        if (item.disabled) return;
-                        void hapticSelection();
-                        onAction(item.id);
-                      }}
-                    />
-                  );
-                }
                 const content: ReactElement[] = [
                   <SwiftLabel key="title" title={item.title} systemImage={item.systemImage as SFSymbol} />,
                 ];
