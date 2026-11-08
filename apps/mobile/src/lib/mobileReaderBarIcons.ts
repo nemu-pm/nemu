@@ -14,6 +14,8 @@ export const MOBILE_READER_CHROME_GLYPHS = {
   nemuChat: { name: "chatbubbles-outline", size: 18 },
   chapterList: { name: "list-outline", size: 20 },
   settings: { name: "settings-outline", size: 20 },
+  /** The outer display's vertical bar ends in ⋯, at the gear's size. */
+  more: { name: "ellipsis-horizontal", size: 20 },
   /** The outer display's cover view: a book shows the cover, the page goes back to reading. */
   coverViewShowCover: { name: "book-outline", size: 20 },
   coverViewShowPages: { name: "document-text-outline", size: 20 },

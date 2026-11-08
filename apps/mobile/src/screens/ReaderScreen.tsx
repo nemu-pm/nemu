@@ -147,6 +147,8 @@ import {
 import { mobileReaderLearningPageResetKey } from "@/lib/mobileReaderLearningSession";
 import { buildMobileReaderMoreMenu, mobileReaderChapterNeighbourLabel, type MobileReaderMoreMenuActionId } from "@/lib/mobileReaderMoreMenu";
 import { mobileReaderBarActionStates } from "@/lib/mobileReaderBarActions";
+import { mobileReaderVerticalBarChapterListFits } from "@/lib/mobileReaderVerticalBar";
+import type { SFSymbol } from "sf-symbols-typescript";
 import {
   useMobilePoseVeilAppearance,
   type MobilePoseVeilAppearance,
@@ -3370,9 +3372,15 @@ export function ReaderScreen() {
   );
   // The only action that ever leaves the bar, and only for ⋯. It comes with
   // the pose, in the same render, so a resize moves it together with the
-  // capsule's new width. The system vertical bar always has it: no ⋯ there.
-  const readerChapterListInBar =
-    readerSideBar || readerPose.chrome.kind !== "capsules" || readerPose.chrome.chapterListInBar;
+  // capsule's new width. The system vertical bar ends in its own ⋯: the same
+  // rule, from its height.
+  const readerChapterListInBar = readerSideBar
+    ? mobileReaderVerticalBarChapterListFits(readerActionSlots, {
+        height: readerPose.bounds.height,
+        bottomInset: readerPose.safeInsets.bottom,
+        coverToggle: readerCoverViewAvailable,
+      })
+    : readerPose.chrome.kind !== "capsules" || readerPose.chrome.chapterListInBar;
   const bilingualSpreadPose = useMemo(
     () =>
       readerPose.spread || !dualReaderConfigured
@@ -12186,6 +12194,45 @@ export function ReaderScreen() {
     previewPageIndex: readerScrubPreviewPageIndex,
     spreads: isTwoPageMode ? readerSpreads : null,
   });
+  // The reader's ⋯: the capsule chrome's circle and the vertical bar's last item.
+  const readerMoreMenuSections = buildMobileReaderMoreMenu({
+    strings,
+    previousChapter: previousChapterInReadingOrder,
+    nextChapter: nextChapterInReadingOrder,
+    chaptersKnown: readerChaptersKnown,
+    pagesStatus: pagesState.status,
+    pageCount,
+    completed,
+    saving,
+    showPlugins: showReaderPluginSettingsEntry,
+    chapterListInMenu: !readerChapterListInBar,
+  });
+  const runReaderMoreAction = (id: MobileReaderMoreMenuActionId) => {
+    switch (id) {
+      case "previous-chapter":
+        goToChapter(previousChapterInReadingOrder, { startAt: "end" });
+        return;
+      case "next-chapter":
+        goToChapter(nextChapterInReadingOrder, { startAt: "start" });
+        return;
+      case "reload-chapter":
+        setPagesRefreshNonce((value) => value + 1);
+        return;
+      case "mark-complete":
+        void persistProgress(true, clampedPageIndex, { throwOnError: true }).catch(() => undefined);
+        return;
+      case "reader-settings":
+        openReaderDisplaySettings();
+        return;
+      case "reader-plugins":
+        setSelectedReaderPluginSettingsId(null);
+        setReaderPluginSettingsOpen(true);
+        return;
+      case "chapter-list":
+        openReaderChapterList();
+        return;
+    }
+  };
   const renderReaderChrome = () => {
     const chrome = readerPose.chrome;
     const arrangementMotion =
@@ -12760,46 +12807,9 @@ export function ReaderScreen() {
       // (the scrubber's chapter buttons, the error retry, the settings sheet's
       // Mark complete and Plugins rows) within reach of the top row.
       const moreRect = readerSideBar ? null : chrome.more;
-      const runReaderMoreAction = (id: MobileReaderMoreMenuActionId) => {
-        switch (id) {
-          case "previous-chapter":
-            goToChapter(previousChapterInReadingOrder, { startAt: "end" });
-            return;
-          case "next-chapter":
-            goToChapter(nextChapterInReadingOrder, { startAt: "start" });
-            return;
-          case "reload-chapter":
-            setPagesRefreshNonce((value) => value + 1);
-            return;
-          case "mark-complete":
-            void persistProgress(true, clampedPageIndex, { throwOnError: true }).catch(() => undefined);
-            return;
-          case "reader-settings":
-            openReaderDisplaySettings();
-            return;
-          case "reader-plugins":
-            setSelectedReaderPluginSettingsId(null);
-            setReaderPluginSettingsOpen(true);
-            return;
-          case "chapter-list":
-            openReaderChapterList();
-            return;
-        }
-      };
       const readerMoreMenu = (
           <ReaderMoreMenu
-            sections={buildMobileReaderMoreMenu({
-              strings,
-              previousChapter: previousChapterInReadingOrder,
-              nextChapter: nextChapterInReadingOrder,
-              chaptersKnown: readerChaptersKnown,
-              pagesStatus: pagesState.status,
-              pageCount,
-              completed,
-              saving,
-              showPlugins: showReaderPluginSettingsEntry,
-              chapterListInMenu: !readerChapterListInBar,
-            })}
+            sections={readerMoreMenuSections}
             accessibilityLabel={strings.reader.moreActions}
             accessibilityHint={strings.reader.moreActionsHint}
             color={readerChromeColors.secondaryText}
@@ -13277,14 +13287,16 @@ export function ReaderScreen() {
                 onPress={openDualReadConfig}
               />
             ) : null}
-            <Stack.Toolbar.Button
-              icon={readerBarIconImages?.chapterList ?? "list.bullet"}
-              iconRenderingMode="template"
-              tintColor={READER_CAPSULE_COLORS.primaryText}
-              accessibilityLabel={strings.reader.chapterList}
-              hidden={readerBarItemsHidden || readerCoverViewShown}
-              onPress={openReaderChapterList}
-            />
+            {readerChapterListInBar ? (
+              <Stack.Toolbar.Button
+                icon={readerBarIconImages?.chapterList ?? "list.bullet"}
+                iconRenderingMode="template"
+                tintColor={READER_CAPSULE_COLORS.primaryText}
+                accessibilityLabel={strings.reader.chapterList}
+                hidden={readerBarItemsHidden || readerCoverViewShown}
+                onPress={openReaderChapterList}
+              />
+            ) : null}
             <Stack.Toolbar.Button
               icon={readerBarIconImages?.settings ?? "gearshape"}
               iconRenderingMode="template"
@@ -13293,6 +13305,37 @@ export function ReaderScreen() {
               hidden={readerBarItemsHidden || readerCoverViewShown}
               onPress={openReaderDisplaySettings}
             />
+            {/* Last, in its own glass under the pill: the reader's ⋯, the
+                capsule chrome's native menu, as a system menu. */}
+            <Stack.Toolbar.Menu
+              icon={readerBarIconImages?.more ?? "ellipsis"}
+              iconRenderingMode="template"
+              tintColor={READER_CAPSULE_COLORS.primaryText}
+              accessibilityLabel={strings.reader.moreActions}
+              accessibilityHint={strings.reader.moreActionsHint}
+              hidden={readerBarItemsHidden || readerCoverViewShown}
+              separateBackground
+            >
+              {readerMoreMenuSections.map((section) => (
+                <Stack.Toolbar.Menu key={section.id} inline>
+                  {section.items.map((item) => (
+                    <Stack.Toolbar.MenuAction
+                      key={item.id}
+                      icon={item.systemImage as SFSymbol}
+                      subtitle={item.subtitle}
+                      disabled={item.disabled}
+                      onPress={() => {
+                        if (item.disabled) return;
+                        void hapticSelection();
+                        runReaderMoreAction(item.id);
+                      }}
+                    >
+                      {item.title}
+                    </Stack.Toolbar.MenuAction>
+                  ))}
+                </Stack.Toolbar.Menu>
+              ))}
+            </Stack.Toolbar.Menu>
           </Stack.Toolbar>
         </>
       ) : null}
