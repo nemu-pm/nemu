@@ -531,7 +531,8 @@ export function MobileNativeSheetScaffold({
         : Array.isArray(contentIgnoresSafeAreaEdges)
           ? contentIgnoresSafeAreaEdges
           : [contentIgnoresSafeAreaEdges],
-    shortDetent: mobileSheetCanUseFullWidth(effectiveSnapPoints, availableSheetHeight),
+    // The keyboard can lift a short sheet among the status items.
+    shortDetent: iosKeyboardHeight === 0 && mobileSheetCanUseFullWidth(effectiveSnapPoints, availableSheetHeight),
   });
   const callerIgnoredEdges = barEdges.edges;
   // iOS soft edge: the body reaches through the sheet's bottom safe area to
@@ -862,12 +863,14 @@ export function MobileNativeSheetScaffold({
           </View>
         )
       ) : shouldUseScrollView ? (
-        <View
+        <MobileNativeSheetIosBody
           accessibilityElementsHidden={interactionLocked}
           importantForAccessibility={
             interactionLocked ? "no-hide-descendants" : "auto"
           }
           pointerEvents={interactionLocked ? "none" : "auto"}
+          barPadding={barEdges.headerPadding}
+          inset="padding"
           style={styles.scrollFrame}
         >
           <BottomSheetScrollView
@@ -895,21 +898,23 @@ export function MobileNativeSheetScaffold({
             {bodyDescription}
             {body}
           </BottomSheetScrollView>
-        </View>
+        </MobileNativeSheetIosBody>
       ) : (
-        <View
+        <MobileNativeSheetIosBody
           accessibilityElementsHidden={interactionLocked}
           importantForAccessibility={
             interactionLocked ? "no-hide-descendants" : "auto"
           }
           pointerEvents={interactionLocked ? "none" : "auto"}
+          barPadding={barEdges.headerPadding}
+          inset="margin"
           style={[filledContentStyle, content]}
           testID={testID}
         >
           {bodyDescription}
           {body}
           {softEdgeFade}
-        </View>
+        </MobileNativeSheetIosBody>
       )}
     </>
   );
@@ -977,6 +982,29 @@ function MobileNativeSheetHeaderRow({
     <View {...props} style={[style, { paddingLeft: padding.left, paddingRight: padding.right }]}>
       {children(resolveMobileNativeSheetIosHeaderTitleBalance(padding))}
     </View>
+  );
+}
+
+/**
+ * A sheet's body on iOS: inside the bar's inset wherever the header keeps it.
+ * `inset` is how: a full-width frame pads, a body with its own padding (the
+ * caller's content style) takes margins.
+ */
+function MobileNativeSheetIosBody({
+  style,
+  barPadding,
+  inset,
+  ...props
+}: ComponentProps<typeof View> & {
+  barPadding: { left: number; right: number };
+  inset: "padding" | "margin";
+}) {
+  const { left, right } = resolveMobileNativeSheetIosHeaderBarPadding(barPadding, useBottomSheetSafeAreaInsets());
+  return (
+    <View
+      {...props}
+      style={[style, inset === "padding" ? { paddingLeft: left, paddingRight: right } : { marginLeft: left, marginRight: right }]}
+    />
   );
 }
 

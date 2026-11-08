@@ -1436,7 +1436,6 @@ function SourceDirectoriesSection({ strings, catalog, barItems }: {
         fillContent
         // The list runs to the sheet's bottom edge and ends with the end spacer.
         softBottomEdge
-        contentIgnoresSafeAreaEdges="horizontal"
       >
         <NemuSheetScrollEdge>
           {(edge) => (

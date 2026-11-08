@@ -170,8 +170,6 @@ export function MobileAboutSheet({ visible, onClose }: MobileAboutSheetProps) {
     <MobileNativeSheetScaffold
       visible={visible}
       onClose={closeSheet}
-      // This sheet has no side toolbar; center within its own full width.
-      contentIgnoresSafeAreaEdges="horizontal"
       snapPoints={sheetLayout.snapPoint ? [sheetLayout.snapPoint] : undefined}
       scroll={sheetLayout.scroll}
       scrollContentBottomInset={18}

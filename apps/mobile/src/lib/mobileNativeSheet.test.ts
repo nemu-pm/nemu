@@ -730,6 +730,8 @@ describe("custom outer-screen sheet width", () => {
   });
   test("tall, expandable and unknown fitted sheets keep the side safe area", () => {
     expect(mobileSheetCanUseFullWidth(["92%"], 650)).toBe(false);
+    // Taller than the line below the status items, with a Live Activity showing.
+    expect(mobileSheetCanUseFullWidth(["70%"], 650)).toBe(false);
     expect(mobileSheetCanUseFullWidth(["60%", "90%"], 650)).toBe(false);
     expect(mobileSheetCanUseFullWidth(undefined, 650)).toBe(false);
     expect(mobileSheetCanUseFullWidth(["bad"], 650)).toBe(false);

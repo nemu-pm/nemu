@@ -620,12 +620,11 @@ export function canDismissMobileNativeSheetFromHardwareBack(
 /**
  * iOS with the system vertical bar (the iPhone Duo outer display, a Split
  * View pane): the bar's column is a safe area inside a sheet that spans it.
- * The body always reaches across it, so the sheet's content fills it
- * symmetrically (a body kept out of it left a bare strip on the bar's side:
- * the right on the outer display, the left in a leading Split View pane).
- * Only the header row of a sheet that may reach the status glyphs at the top
- * of the bar (any sheet but a short detent) keeps the bar's inset, so its
- * trailing action never lands under them. A caller's own edges win.
+ * The sheet's root always reaches across it, so a header can centre on the
+ * sheet. Content never sits under the status items at the top of the bar: only
+ * a short detent, below them, has the column free and uses the sheet's full
+ * width; any other sheet keeps its header and body inside the bar's inset. A
+ * caller's own edges win, and that caller keeps clear of the items itself.
  */
 export function resolveMobileNativeSheetIosBarEdges(options: {
   platform: string;
@@ -702,6 +701,12 @@ export function resolveMobileSheetHeaderTitleMargins(options: {
   return { left: balance.left - spare, right: balance.right - spare };
 }
 
+/**
+ * Sheets at most this share of the room stay clear of the vertical bar's status
+ * items (with a Live Activity they end about 36% down the display).
+ */
+const MOBILE_SHEET_BELOW_BAR_STATUS = 0.6;
+
 /** Short custom-chrome sheets sit below the system status area. Tall sheets
  * retain its side safe area, including when expanded to a second detent. */
 export function mobileSheetCanUseFullWidth(snapPoints: (string | number)[] | undefined, availableHeight: number): boolean {
@@ -709,7 +714,7 @@ export function mobileSheetCanUseFullWidth(snapPoints: (string | number)[] | und
   return availableHeight > 0 && snapPoints.every((point) => {
     const height = typeof point === "number" ? point
       : /^\d+(?:\.\d+)?%$/.test(point) ? parseFloat(point) / 100 * availableHeight : NaN;
-    return Number.isFinite(height) && height > 0 && height <= availableHeight * 0.75;
+    return Number.isFinite(height) && height > 0 && height <= availableHeight * MOBILE_SHEET_BELOW_BAR_STATUS;
   });
 }
 
