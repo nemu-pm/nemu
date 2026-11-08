@@ -60,6 +60,7 @@ import {
   type MobileStrings,
 } from "@/lib/mobileI18n";
 import { compactMobileLabelList } from "@/lib/mobileInstalledSourcePresentation";
+import { mobileSourceLoginTitle } from "@/lib/mobileSourceLoginTitle";
 import { useMobileSourceLoginSubmission } from "@/lib/useMobileSourceLoginSubmission";
 import {
   resolveMobileSourceTextSettingCommit,
@@ -1129,6 +1130,7 @@ function SourceSettingLoginRow({
     };
   }, []);
 
+  const title = mobileSourceLoginTitle(setting.title, strings.settings.sourceSettingsLoginTitle);
   const statusText = error
     ? error
     : !loggedIn && !canRunLogin
@@ -1241,7 +1243,7 @@ function SourceSettingLoginRow({
       accessibilityRole="button"
       accessibilityState={{ disabled: rowDisabled }}
       accessibilityLabel={[
-        setting.title,
+        title,
         loggedIn
           ? strings.settings.sourceSettingsLoggedIn
           : strings.settings.sourceSettingsLoggedOut,
@@ -1265,7 +1267,7 @@ function SourceSettingLoginRow({
           numberOfLines={ROW_TITLE_LINES}
           style={[styles.settingTitle, { color: tokens.foreground }]}
         >
-          {setting.title}
+          {title}
         </NemuText>
         <NemuText
           density="compact"

@@ -982,6 +982,8 @@ export type MobileStrings = {
     sourceSettingsBack: string;
     sourceSettingsOpenPage: string;
     sourceSettingsLogin: string;
+    /** A login sheet's title (and its row's) when the source's own says nothing, or shouts. */
+    sourceSettingsLoginTitle: string;
     sourceSettingsLoginUnavailable: string;
     sourceSettingsLoginUnsupported: string;
     sourceSettingsLogout: string;

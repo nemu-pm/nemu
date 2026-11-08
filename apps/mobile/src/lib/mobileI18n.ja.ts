@@ -1120,6 +1120,7 @@ export const mobileStringsJa: MobileStrings = {
     sourceSettingsBack: "ソース設定に戻る",
     sourceSettingsOpenPage: "{{name}}を開く",
     sourceSettingsLogin: "ログイン",
+    sourceSettingsLoginTitle: "ログイン",
     sourceSettingsLoginUnavailable: "利用不可",
     sourceSettingsLoginUnsupported:
       "このログイン方式はモバイルアプリではまだ利用できません。",

@@ -20,6 +20,7 @@ import { useMobileLanguageSettings } from "@/data/mobileHooks";
 import type { SourcePackageSetting } from "@/data/schema";
 import { hapticConfirm } from "@/lib/haptics";
 import { formatMobileString, getMobileStrings } from "@/lib/mobileI18n";
+import { mobileSourceLoginTitle } from "@/lib/mobileSourceLoginTitle";
 import {
   parseMobileSourceWebSession,
   type MobileSourceLoginSubmission,
@@ -93,7 +94,7 @@ export function MobileSourceLoginSheet({
   const usernameLabel = setting?.useEmail
     ? strings.settings.sourceSettingsEmail
     : strings.settings.sourceSettingsUsername;
-  const title = setting?.title ?? strings.settings.sourceSettingsLogin;
+  const title = mobileSourceLoginTitle(setting?.title, strings.settings.sourceSettingsLoginTitle);
   const subtitle = isWeb
     ? strings.settings.sourceSettingsWebLoginInstructions
     : strings.settings.sourceSettingsBasicLoginInstructions;

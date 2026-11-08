@@ -1056,6 +1056,7 @@ export const mobileStringsZh: MobileStrings = {
     sourceSettingsBack: "返回来源设置",
     sourceSettingsOpenPage: "打开 {{name}}",
     sourceSettingsLogin: "登录",
+    sourceSettingsLoginTitle: "登录",
     sourceSettingsLoginUnavailable: "不可用",
     sourceSettingsLoginUnsupported: "此登录方式尚未在移动端可用。",
     sourceSettingsLogout: "登出",

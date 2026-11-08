@@ -1111,6 +1111,7 @@ export const mobileStringsEn: MobileStrings = {
     sourceSettingsBack: "Back to source settings",
     sourceSettingsOpenPage: "Open {{name}}",
     sourceSettingsLogin: "Log in",
+    sourceSettingsLoginTitle: "Log In",
     sourceSettingsLoginUnavailable: "Unavailable",
     sourceSettingsLoginUnsupported:
       "This login method is not available in the mobile app yet.",
