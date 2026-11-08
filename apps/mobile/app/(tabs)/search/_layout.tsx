@@ -1,4 +1,3 @@
-import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { Stack } from "expo-router";
 import { MobileTabBarInsetReporter } from "@/components/MobileTabBarInsetReporter";
 import { createNemuNativeStackScreenOptions, useNemuTheme } from "@/design-system";
@@ -16,7 +15,6 @@ const anchorListeners = createMobileTabStackAnchorListeners();
 
 export default function SearchLayout() {
   const { tokens } = useNemuTheme();
-  const { verticalBarSide } = useMobileAdaptiveLayout();
 
   return (
     <>
@@ -24,7 +22,7 @@ export default function SearchLayout() {
       <MobileTabBarInsetReporter />
       <Stack
         screenListeners={anchorListeners}
-        screenOptions={createNemuNativeStackScreenOptions(tokens, verticalBarSide)}
+        screenOptions={createNemuNativeStackScreenOptions(tokens)}
       />
     </>
   );

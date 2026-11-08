@@ -2130,7 +2130,7 @@ export function BrowseScreen() {
       {usesNativeHeader ? (
         <>
           <Stack.Screen
-            options={createNemuNativeScreenOptions(tokens, strings.nav.browse, verticalBarSide)}
+            options={createNemuNativeScreenOptions(tokens, strings.nav.browse)}
           />
           <Stack.Toolbar placement="right">
             {nativeToolbarButtons}

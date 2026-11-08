@@ -2600,7 +2600,7 @@ export function MangaDetailScreen() {
   });
   cloudflareSheetRef.current = cloudflareSheet;
   const nativeHeaderOptions = (screenTitle: string) =>
-    createNemuSoftEdgeScreenOptions(tokens, screenTitle, verticalBarSide);
+    createNemuSoftEdgeScreenOptions(tokens, screenTitle);
   // Books-style hero: once its title has scrolled away the bar shows the
   // title with a small cover beside it.
   const barCover = coverImage.source ?? zoomSeed?.cover ?? null;
@@ -2946,8 +2946,6 @@ export function MangaDetailScreen() {
       ) : null}
       <MobileMangaDetailSplitLayout
         nativeHeader={usesNativeHeader}
-        // The Books-style bar row is empty until the compact title fades in.
-        barContentVisible={!booksHero || heroTitleScrolledAway}
         data={zoomLanded ? chapterRows : NO_CHAPTER_ROWS}
         keyExtractor={mobileChapterRowKeyExtractor}
         onRefresh={pullRefreshDetail}

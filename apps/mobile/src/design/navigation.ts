@@ -28,19 +28,15 @@ export const usesNemuNativeHeader =
 
 export { NEMU_SOFT_SCROLL_EDGE_EFFECTS } from "./nativeHeaderChrome";
 
-/**
- * Native stack defaults: transparent iOS bars with soft edges when horizontal.
- * Vertical bars leave the top/bottom content clear; derive placement from the
- * window observer so folding and navigation update the effects together.
- */
-export function createNemuNativeStackScreenOptions(tokens: NemuTokens, verticalBarSide: "left" | "right" | null = null) {
+/** Native stack defaults: transparent iOS bars with soft edges. */
+export function createNemuNativeStackScreenOptions(tokens: NemuTokens) {
   return {
     contentStyle: { backgroundColor: tokens.background },
     headerBackButtonDisplayMode: "minimal" as const,
     headerBackTitle: "",
     headerShadowVisible: false,
     headerShown: usesNemuNativeHeader,
-    ...resolveNemuNativeHeaderChrome(Platform.OS, tokens.background, verticalBarSide),
+    ...resolveNemuNativeHeaderChrome(Platform.OS, tokens.background),
     headerTitleStyle: {
       color: tokens.foreground,
       fontSize: 17,
@@ -74,10 +70,9 @@ export function createNemuNavigationTheme<
 export function createNemuNativeScreenOptions(
   tokens: NemuTokens,
   title: string,
-  verticalBarSide: "left" | "right" | null = null,
 ) {
   return {
-    ...createNemuNativeStackScreenOptions(tokens, verticalBarSide),
+    ...createNemuNativeStackScreenOptions(tokens),
     headerShown: true,
     title,
   };

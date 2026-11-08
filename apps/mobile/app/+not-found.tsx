@@ -8,7 +8,6 @@ import {
   usesNemuNativeHeader,
 } from "@/design-system";
 import { getMobileStrings } from "@/lib/mobileI18n";
-import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 
 // Catches unmatched deep links (including the OAuth fallback callback
 // `nemu://oauth/callback`, which resolves the browser auth session but has no
@@ -22,7 +21,6 @@ export default function NotFoundScreen() {
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
   const { tokens } = useNemuTheme();
-  const { verticalBarSide } = useMobileAdaptiveLayout();
   const canGoBack = useNavigation().canGoBack();
   const usesNativeHeader = usesNemuNativeHeader;
 
@@ -31,7 +29,7 @@ export default function NotFoundScreen() {
       {usesNativeHeader ? (
         <Stack.Screen
           options={{
-            ...createNemuNativeScreenOptions(tokens, strings.common.pageNotFound, verticalBarSide),
+            ...createNemuNativeScreenOptions(tokens, strings.common.pageNotFound),
             headerBackVisible: canGoBack,
           }}
         />

@@ -28,7 +28,10 @@
 // Every edge is pinned to `soft`, never `automatic`: apps built with the
 // iOS 27 SDK resolve `automatic` to `hard` (a cutoff with a dividing line;
 // iOS 26 resolved it to `soft`), and the design is the soft edge everywhere,
-// under pinned headers too. Only the reader canvas opts out.
+// under pinned headers and beside the Duo's vertical bar too (the bar's title
+// row shapes the effect there as a horizontal bar does). Only the reader canvas
+// opts out. A page whose content rests under the effect's reach shows it only
+// once scrolled (`ScrollEdgeElement`'s `revealPastRest`).
 export const NEMU_SOFT_SCROLL_EDGE_EFFECTS = {
   top: "soft",
   bottom: "soft",
@@ -36,18 +39,11 @@ export const NEMU_SOFT_SCROLL_EDGE_EFFECTS = {
   right: "soft",
 } as const;
 
-/** No horizontal blur band when navigation and tabs occupy a vertical rail. */
-export function resolveNemuNativeScrollEdgeEffects(verticalBarSide: "left" | "right" | null = null) {
-  return verticalBarSide
-    ? { ...NEMU_SOFT_SCROLL_EDGE_EFFECTS, top: "hidden" as const, bottom: "hidden" as const }
-    : NEMU_SOFT_SCROLL_EDGE_EFFECTS;
-}
-
 export type NemuNativeHeaderChrome =
   | {
       headerTransparent: true;
       headerStyle: { backgroundColor: "transparent" };
-      scrollEdgeEffects: ReturnType<typeof resolveNemuNativeScrollEdgeEffects>;
+      scrollEdgeEffects: typeof NEMU_SOFT_SCROLL_EDGE_EFFECTS;
     }
   | {
       headerStyle: { backgroundColor: string };
@@ -57,12 +53,11 @@ export type NemuNativeHeaderChrome =
 export function resolveNemuNativeHeaderChrome(
   platform: string,
   background: string,
-  verticalBarSide: "left" | "right" | null = null,
 ): NemuNativeHeaderChrome {
   if (platform !== "ios") return { headerStyle: { backgroundColor: background } };
   return {
     headerTransparent: true,
     headerStyle: { backgroundColor: "transparent" },
-    scrollEdgeEffects: resolveNemuNativeScrollEdgeEffects(verticalBarSide),
+    scrollEdgeEffects: NEMU_SOFT_SCROLL_EDGE_EFFECTS,
   };
 }

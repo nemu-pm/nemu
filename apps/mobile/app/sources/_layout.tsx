@@ -52,7 +52,7 @@ export default function SourcesLayout() {
     <ThemeProvider value={navigationTheme}>
       <Stack
         screenOptions={{
-          ...createNemuNativeStackScreenOptions(tokens, verticalBarSide),
+          ...createNemuNativeStackScreenOptions(tokens),
           // Full-screen back swipe on manga detail like everywhere else; the
           // reader route below is the only screen without a pop gesture.
           ...MOBILE_STACK_FULL_SCREEN_GESTURE_OPTIONS,
@@ -71,6 +71,8 @@ export default function SourcesLayout() {
             // Match the reader before its component mounts, including Duo's
             // persistent rail. UIKit can then transition the bar with the page.
             headerShown: Boolean(verticalBarSide) && !readerVerticalBarOptOut,
+            // The page canvas is the one surface without a scroll edge effect.
+            scrollEdgeEffects: { top: "hidden", bottom: "hidden", left: "hidden", right: "hidden" },
             // The status bar shows / hides with the reader's controls: always
             // a fade, never a slide (the reader sets the same, see
             // mobileReaderScreenOptions; this covers its first frames).

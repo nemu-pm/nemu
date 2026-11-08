@@ -319,7 +319,6 @@ function loadedChapterCountText(count: number, strings: MobileStrings): string {
 
 export function SourceMangaScreen() {
   const adaptiveLayout = useMobileAdaptiveLayout();
-  const { verticalBarSide } = adaptiveLayout;
   const params = useLocalSearchParams<{
     registryId: string;
     sourceId: string;
@@ -1937,6 +1936,11 @@ export function SourceMangaScreen() {
     },
     [followTitleScroll, heroInPane],
   );
+  // Unfolding moves a scrolled hero back into a pane, at its top: the bar's title
+  // would otherwise stay over the chapters until the pane next scrolled.
+  useEffect(() => {
+    if (heroInPane) followTitleScroll(0);
+  }, [followTitleScroll, heroInPane]);
   const renderBarTitle = useCallback(
     () => (
       <MobileExploreBarTitle
@@ -1952,8 +1956,8 @@ export function SourceMangaScreen() {
     [barActions.buttons.length, barTitleShown, coverImage.source, heroTitleAway, title],
   );
   const nativeHeaderOptions = mobileDesignExploreFlag
-    ? { ...createNemuSoftEdgeScreenOptions(tokens, sourceName, verticalBarSide), headerTitle: renderBarTitle }
-    : createNemuSoftEdgeScreenOptions(tokens, sourceName, verticalBarSide);
+    ? { ...createNemuSoftEdgeScreenOptions(tokens, sourceName), headerTitle: renderBarTitle }
+    : createNemuSoftEdgeScreenOptions(tokens, sourceName);
   const navigateBack = useCallback(() => {
     const action = getMobileSourceMangaBackAction({
       canGoBack: router.canGoBack(),
@@ -2132,8 +2136,6 @@ export function SourceMangaScreen() {
       <MobileMangaDetailSplitLayout
         nativeHeader
         tabStrip={false}
-        // The bar row is empty until the compact title fades in.
-        barContentVisible={!mobileDesignExploreFlag || heroTitleAway}
         data={chapterRows}
         keyExtractor={mobileChapterRowKeyExtractor}
         initialNumToRender={MOBILE_CHAPTER_LIST_PERFORMANCE.initialNumToRender}

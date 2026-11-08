@@ -1907,7 +1907,7 @@ export function LibraryScreen({
   const titleMenuAnchor = titleMenu ? <MobileLibraryTitleMenuAnchor {...titleMenu} /> : null;
   const nativeHeaderOptions = (
     screenTitle: string,
-  ) => createNemuNativeScreenOptions(tokens, screenTitle, verticalBarSide);
+  ) => createNemuNativeScreenOptions(tokens, screenTitle);
   // The Library root's header: on Android the title becomes the dropdown.
   const titleMenuHeaderOptions = (screenTitle: string) => ({
     ...nativeHeaderOptions(screenTitle),

@@ -1,4 +1,3 @@
-import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { Stack } from "expo-router";
 import { MobileTabBarInsetReporter } from "@/components/MobileTabBarInsetReporter";
 import { createNemuNativeStackScreenOptions, useNemuTheme } from "@/design-system";
@@ -21,7 +20,6 @@ const anchorListeners = createMobileTabStackAnchorListeners();
 
 export default function SettingsLayout() {
   const { tokens } = useNemuTheme();
-  const { verticalBarSide } = useMobileAdaptiveLayout();
 
   return (
     <>
@@ -29,7 +27,7 @@ export default function SettingsLayout() {
       <MobileTabBarInsetReporter />
       <Stack
         screenListeners={anchorListeners}
-        screenOptions={createNemuNativeStackScreenOptions(tokens, verticalBarSide)}
+        screenOptions={createNemuNativeStackScreenOptions(tokens)}
       >
         {/* A section the split showed, pushed as it collapses to one column
             (`SettingsScreen`): already on screen, so no push animation, also

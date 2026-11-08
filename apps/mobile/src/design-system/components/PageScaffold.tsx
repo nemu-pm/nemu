@@ -25,11 +25,10 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
+  View,
   useWindowDimensions,
   type FlatListProps,
   type LayoutChangeEvent,
-  type NativeScrollEvent,
-  type NativeSyntheticEvent,
   type ScrollViewProps,
   type StyleProp,
   type ViewStyle,
@@ -61,9 +60,13 @@ import { isMobileBottomTabBarRoute, shouldShowMobileFloatingTabBar } from "@/lib
 import { useMobileBottomTabBarInset } from "@/lib/mobileBottomTabBarInset";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { MOBILE_IOS_TAB_BAR_FALLBACK_HEIGHT } from "@/lib/mobileToastPlacement";
-import { isLaunchRevealPending, WindowLayoutObserver, type MobileWindowLayout } from "../../../modules/nemu-window-layout";
+import {
+  isLaunchRevealPending,
+  ScrollEdgeElement,
+  WindowLayoutObserver,
+  type MobileWindowLayout,
+} from "../../../modules/nemu-window-layout";
 import { holdMobileLaunchLayout } from "@/lib/mobileSplashScreen";
-import { NemuScrollEdgeSurface, useNemuScrollEdgeTracking } from "./NemuScrollEdgeSurface";
 
 /**
  * A live Dynamic Type change leaves already-mounted text with stale layout
@@ -91,12 +94,6 @@ type PageScaffoldProps = {
    * padding instead of deriving it from the bar.
    */
   headerSearchBar?: boolean;
-  /**
-   * The native bar's row shows something (a title, a search field): the soft
-   * edge then covers it whole where the system draws none (`useNemuScrollEdge`).
-   * False for a title page before its compact title fades in.
-   */
-  barContentVisible?: boolean;
   scrollRef?: Ref<ScrollViewInstance>;
   /**
    * The content fills exactly the visible viewport (an empty page): it
@@ -134,17 +131,6 @@ type PageListScaffoldProps<ItemT> = Omit<
    * padding instead of deriving it from the bar.
    */
   headerSearchBar?: boolean;
-  /**
-   * The native bar's row shows something (a title, a search field): the soft
-   * edge then covers it whole where the system draws none (`useNemuScrollEdge`).
-   * False for a title page before its compact title fades in.
-   */
-  barContentVisible?: boolean;
-  /**
-   * A column of a multi-pane page that scrolls on its own: the soft edge held
-   * strong over its top padding whatever the bar shows.
-   */
-  scrollEdgePane?: { topPadding: number };
   listRef?: Ref<FlatList<ItemT>>;
   /**
    * The content (an empty list's `ListEmptyComponent` at `flex: 1`) fills
@@ -248,6 +234,33 @@ function fontScaleKeyedListSlot(
 ): ReactElement | undefined {
   if (slot == null) return undefined;
   return <FontScaleKeyedListSlot slot={slot} layoutKey={fontScaleLayoutKey} />;
+}
+
+/**
+ * A page scroll view with what its soft edges need beside a vertical bar. At the
+ * top the bar row only forms UIKit's edge effect for the scroll view it observes,
+ * which a sibling before the list or a second pane is not: the row is marked for
+ * this one. Nothing sits along the bottom, where rows would cut at the window's
+ * edge: the home indicator's inset is marked. The wrapper stays on iOS (a fold
+ * that brings the bar must not remount the scroll view).
+ */
+function PageScrollSurface({ children }: { children: ReactNode }) {
+  const { verticalBarSide } = useMobileAdaptiveLayout();
+  const insets = useSafeAreaInsets();
+  if (!ScrollEdgeElement) return <>{children}</>;
+  return (
+    <View style={styles.surface}>
+      {children}
+      {verticalBarSide ? <ScrollEdgeElement edge="top" pointerEvents="none" style={styles.topEdge} /> : null}
+      {verticalBarSide && insets.bottom > 0 ? (
+        <ScrollEdgeElement
+          edge="bottom"
+          pointerEvents="none"
+          style={[styles.bottomEdge, { height: insets.bottom }]}
+        />
+      ) : null}
+    </View>
+  );
 }
 
 function usePageContentStyle({
@@ -484,7 +497,6 @@ export function PageScaffold({
   contentInsetAdjustmentBehavior: requestedContentInsetAdjustment,
   headerBarHeight,
   headerSearchBar,
-  barContentVisible,
   scrollRef,
   fillViewport = false,
   onScroll,
@@ -502,17 +514,12 @@ export function PageScaffold({
     () => exactMobileRootTabHrefForPathname(pathname),
     [pathname],
   );
-  const edgeTracking = useNemuScrollEdgeTracking({
-    systemAdjustsInsets: contentInsetAdjustmentBehavior !== "never",
-  });
-  const edgeRef = edgeTracking.ref as unknown as (value: ScrollViewInstance | null) => void;
   const setScrollRef = useCallback(
     (value: ScrollViewInstance | null) => {
       localScrollRef.current = value;
-      edgeRef(value);
       assignScrollRef(scrollRef, value);
     },
-    [edgeRef, scrollRef],
+    [scrollRef],
   );
   const contentStyle = usePageContentStyle({
     nativeHeader,
@@ -541,12 +548,7 @@ export function PageScaffold({
   }, [rootTabHref]);
 
   return (
-    <NemuScrollEdgeSurface
-      nativeHeader={nativeHeader}
-      barContentVisible={barContentVisible}
-      headerBarHeight={headerBarHeight}
-      tracking={edgeTracking}
-    >
+    <PageScrollSurface>
       {viewportFill.observer}
       <ScrollView
         ref={setScrollRef}
@@ -563,12 +565,10 @@ export function PageScaffold({
         showsVerticalScrollIndicator={false}
         onScroll={onScroll}
         scrollEventThrottle={onScroll ? (scrollEventThrottle ?? 32) : undefined}
-        onScrollEndDrag={edgeTracking.onScrollSettled}
-        onMomentumScrollEnd={edgeTracking.onScrollSettled}
       >
         <Fragment key={fontScaleLayoutKey}>{children}</Fragment>
       </ScrollView>
-    </NemuScrollEdgeSurface>
+    </PageScrollSurface>
   );
 }
 
@@ -582,8 +582,6 @@ export function PageListScaffold<ItemT>({
   headerBarHeight,
   headerSearchBar,
   contentContainerStyle,
-  barContentVisible,
-  scrollEdgePane,
   listRef,
   fillViewport = false,
   ...flatListProps
@@ -600,17 +598,12 @@ export function PageListScaffold<ItemT>({
     () => exactMobileRootTabHrefForPathname(pathname),
     [pathname],
   );
-  const edgeTracking = useNemuScrollEdgeTracking({
-    systemAdjustsInsets: contentInsetAdjustmentBehavior !== "never",
-  });
-  const edgeRef = edgeTracking.ref as unknown as (value: FlatList<ItemT> | null) => void;
   const setListRef = useCallback(
     (value: FlatList<ItemT> | null) => {
       localListRef.current = value;
-      edgeRef(value);
       assignFlatListRef(listRef, value);
     },
-    [edgeRef, listRef],
+    [listRef],
   );
   const contentStyle = usePageContentStyle({
     nativeHeader,
@@ -631,25 +624,6 @@ export function PageListScaffold<ItemT>({
     contentInsetAdjustmentBehavior,
   });
   const { onLayout: callerOnLayout, onContentSizeChange: callerOnContentSizeChange } = flatListProps;
-  const {
-    onScrollEndDrag: callerOnScrollEndDrag,
-    onMomentumScrollEnd: callerOnMomentumScrollEnd,
-  } = flatListProps;
-  const edgeOnScrollSettled = edgeTracking.onScrollSettled;
-  const onListScrollEndDrag = useCallback(
-    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      edgeOnScrollSettled?.(event);
-      callerOnScrollEndDrag?.(event);
-    },
-    [callerOnScrollEndDrag, edgeOnScrollSettled],
-  );
-  const onListMomentumScrollEnd = useCallback(
-    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      edgeOnScrollSettled?.(event);
-      callerOnMomentumScrollEnd?.(event);
-    },
-    [callerOnMomentumScrollEnd, edgeOnScrollSettled],
-  );
   const onListLayout = useCallback(
     (event: LayoutChangeEvent) => {
       viewportFill.onFrameLayout(event);
@@ -687,13 +661,7 @@ export function PageListScaffold<ItemT>({
   }, [rootTabHref]);
 
   return (
-    <NemuScrollEdgeSurface
-      nativeHeader={nativeHeader}
-      barContentVisible={barContentVisible}
-      headerBarHeight={headerBarHeight}
-      pane={scrollEdgePane}
-      tracking={edgeTracking}
-    >
+    <PageScrollSurface>
       {viewportFill.observer}
       <FlatList
         ref={setListRef}
@@ -709,18 +677,32 @@ export function PageListScaffold<ItemT>({
         alwaysBounceVertical={fillViewport ? true : flatListProps.alwaysBounceVertical}
         onLayout={onListLayout}
         onContentSizeChange={onListContentSizeChange}
-        onScrollEndDrag={onListScrollEndDrag}
-        onMomentumScrollEnd={onListMomentumScrollEnd}
         keyExtractor={keyExtractor}
         ListHeaderComponent={fontScaleKeyedListSlot(flatListProps.ListHeaderComponent, fontScaleLayoutKey)}
         ListEmptyComponent={fontScaleKeyedListSlot(flatListProps.ListEmptyComponent, fontScaleLayoutKey)}
         ListFooterComponent={fontScaleKeyedListSlot(flatListProps.ListFooterComponent, fontScaleLayoutKey)}
       />
-    </NemuScrollEdgeSurface>
+    </PageScrollSurface>
   );
 }
 
 const styles = StyleSheet.create({
+  surface: {
+    flex: 1,
+  },
+  topEdge: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 0,
+  },
+  bottomEdge: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+  },
   root: {
     flex: 1,
   },

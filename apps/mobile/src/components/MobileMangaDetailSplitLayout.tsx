@@ -59,7 +59,7 @@ import {
 } from "@/lib/useMobileMeasuredRowLayout";
 import type { MobileMeasuredRow } from "@/lib/mobileMeasuredRowLayout";
 import { useMobileListRowAnchor } from "@/lib/useMobileListRowAnchor";
-import { scrollToAdjustedTop } from "../../modules/nemu-window-layout";
+import { ScrollEdgeElement, scrollToAdjustedTop } from "../../modules/nemu-window-layout";
 
 type ChapterListProps<ItemT> = Omit<
   ComponentProps<typeof PageListScaffold<ItemT>>,
@@ -237,24 +237,11 @@ export function MobileMangaDetailSplitLayout<ItemT>({
     }),
     [regularWidth, split, columns, chapterTableWidth, fontScale, chapterPalette],
   );
-  // Beside the vertical bar each column scrolls into the window's top edge on
-  // its own, and no title ever pins over it: each gets the soft edge held
-  // strong over its top padding. The hero column only while it is taller than
-  // the window (it holds still otherwise).
-  const [leadingOverflow, setLeadingOverflow] = useState({ content: 0, frame: 0 });
-  const leadingScrolls = leadingOverflow.content > leadingOverflow.frame + 1;
-  const onLeadingLayout = useCallback((event: LayoutChangeEvent) => {
-    const frame = Math.round(event.nativeEvent.layout.height);
-    setLeadingOverflow((current) => (current.frame === frame ? current : { ...current, frame }));
-  }, []);
-  const onLeadingContentSize = useCallback((_width: number, contentHeight: number) => {
-    const content = Math.round(contentHeight);
-    setLeadingOverflow((current) => (current.content === content ? current : { ...current, content }));
-  }, []);
-  const paneEdge = useMemo(
-    () => (columns && barOnSide ? { topPadding: RAIL_PANE_TOP } : undefined),
-    [barOnSide, columns],
-  );
+  // Beside the vertical bar a pane's content rests in the bar's row, under the
+  // reach of its top edge effect: each pane shows it once it has scrolled.
+  const paneEdgeReveal = barOnSide && ScrollEdgeElement ? (
+    <ScrollEdgeElement edge="top" revealPastRest pointerEvents="none" style={styles.edgeReveal} />
+  ) : null;
   const pose = useMobilePoseTransition();
   // One key per pane geometry: a fold / unfold / resize that moves a pane's
   // edges settles that pane's content.
@@ -368,7 +355,6 @@ export function MobileMangaDetailSplitLayout<ItemT>({
             <Animated.View style={[styles.fill, leadingSettle]}>
               <PageListScaffold
                 nativeHeader={listProps.nativeHeader}
-                barContentVisible={listProps.barContentVisible}
                 // A hero column that fits does not scroll, and UIKit's automatic
                 // adjustment skips the bar inset of a scroll view that cannot
                 // scroll: it would start under the bar.
@@ -377,9 +363,6 @@ export function MobileMangaDetailSplitLayout<ItemT>({
                 }
                 data={NO_ROWS}
                 renderItem={renderNothing}
-                scrollEdgePane={leadingScrolls ? paneEdge : undefined}
-                onLayout={columns ? onLeadingLayout : undefined}
-                onContentSizeChange={columns ? onLeadingContentSize : undefined}
                 style={columns ? styles.clearList : undefined}
                 // The hero column holds still unless it is taller than the
                 // window; the chapters beside it own pull to refresh.
@@ -401,6 +384,7 @@ export function MobileMangaDetailSplitLayout<ItemT>({
                   </MobileMangaDetailPaneContext.Provider>
                 }
               />
+              {paneEdgeReveal}
             </Animated.View>
           </Animated.View>
         ) : null}
@@ -425,7 +409,6 @@ export function MobileMangaDetailSplitLayout<ItemT>({
               CellRendererComponent={rowLayout.CellRendererComponent}
               style={columns ? styles.clearList : listProps.style}
               contentInsetAdjustmentBehavior={contentInsetAdjustmentBehavior}
-              scrollEdgePane={paneEdge}
               ListFooterComponent={
                 top && topFooter ? (
                   <View style={styles.topFooter}>
@@ -452,6 +435,7 @@ export function MobileMangaDetailSplitLayout<ItemT>({
               }
             />
             </MobileMeasuredRowReportProvider>
+            {paneEdgeReveal}
             </Animated.View>
           </MobileMangaDetailPaneContext.Provider>
         </Animated.View>
@@ -474,6 +458,11 @@ const PANE_HERO_TOP = 22;
 const COLUMN_BAR_INSET = 62;
 
 const styles = StyleSheet.create({
+  edgeReveal: {
+    position: "absolute",
+    width: 0,
+    height: 0,
+  },
   root: {
     flex: 1,
   },
