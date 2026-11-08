@@ -2558,22 +2558,6 @@ final class NemuBarItemsFadeView: ExpoView {
     guard shown, durationMs > 0 else { return }
     let views = barViews()
     glassLog.info("bar items fade in: \(views.map { NSStringFromClass(type(of: $0)) }.joined(separator: ","), privacy: .public)")
-    // TEMP-DIAG
-    let dump: (String) -> Void = { [weak self] tag in
-      guard let nav = self?.navigationController(), let item = nav.topViewController?.navigationItem else { return }
-      let items = (item.leftBarButtonItems ?? []) + (item.rightBarButtonItems ?? [])
-      for (index, barItem) in items.enumerated() {
-        var chain: [String] = []
-        var view = barItem.value(forKey: "view") as? UIView
-        while let current = view, chain.count < 14 {
-          chain.append("\(NSStringFromClass(type(of: current)))@\(Int(current.frame.minX)),\(Int(current.frame.minY)) a=\(current.alpha)")
-          view = current.superview
-        }
-        glassLog.info("DIAG \(tag, privacy: .public) item\(index): \(chain.joined(separator: " < "), privacy: .public)")
-      }
-    }
-    dump("now")
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { dump("250ms") }
     for view in views {
       let fade = CABasicAnimation(keyPath: "opacity")
       fade.fromValue = 0
