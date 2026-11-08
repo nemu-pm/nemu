@@ -32,7 +32,7 @@ type AppConfig = {
 
 const ios = readJson<AppConfig>("app.json").expo.ios;
 
-// Mirrors docs/app-store/privacy-labels.md; change both together.
+// The data types nemu declares as collected; change with the manifest.
 const COLLECTED = [
   "NSPrivacyCollectedDataTypeEmailAddress",
   "NSPrivacyCollectedDataTypeName",

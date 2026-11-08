@@ -548,8 +548,8 @@ could not be checked from here; verify each.
 | Account deletion with Sign in with Apple token revocation | `convex/accountDeletion.ts`, `accountDeletionRun.ts`, `appleRevoke.ts` | not deployed; the production end-to-end check (delete an Apple account, token revoked) has not been run |
 | Auth on AI actions (`requireAuth` in `ai_metadata.*`, `japanese_learning.normalize`) | `convex/`, `tests/convex-ai-actions-auth.test.ts` | not deployed |
 | OCR gateway (JWT check in front of `ocr.nemu.pm`) | `services/ocr-gateway` | not deployed; the OCR host has no server-side auth until it is |
-| 30-day log retention claimed by the privacy page | `docs/app-store/log-retention.md` | not in place: needs the Convex log stream (Axiom, 30-day dataset) and the OCR host log rotation (`services/ocr/logrotate.conf` via `deploy.ts`) |
-| `APPLE_CLIENT_SECRET` expiry | `scripts/generate-apple-secret.ts`, `docs/app-store/release-checklist.md` | the JWT expires after at most 180 days; current expiry date unknown, verify. Whether `APPLE_NATIVE_CLIENT_SECRET` and `APPLE_APP_BUNDLE_ID` are set in production is also unknown |
+| 30-day log retention claimed by the privacy page | `src/pages/privacy.tsx` | not in place: needs the Convex log stream (Axiom, 30-day dataset) and the OCR host log rotation (`services/ocr/logrotate.conf` via `deploy.ts`) |
+| `APPLE_CLIENT_SECRET` expiry | `scripts/generate-apple-secret.ts` | the JWT expires after at most 180 days; current expiry date unknown, verify. Whether `APPLE_NATIVE_CLIENT_SECRET` and `APPLE_APP_BUNDLE_ID` are set in production is also unknown |
 
 ## 5. Unverified
 

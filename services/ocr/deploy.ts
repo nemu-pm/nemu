@@ -291,7 +291,7 @@ async function startVllm() {
   throw new Error(`vLLM startup timed out (${maxWaitSec}s)`);
 }
 
-// 30-day log retention (docs/app-store/log-retention.md): install the rotation
+// 30-day log retention (the privacy policy's promise): install the rotation
 // config and keep a daily logrotate loop running. Idempotent.
 async function installLogRotation() {
   console.log("Installing 30-day log rotation...");

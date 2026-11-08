@@ -6,12 +6,12 @@ const SUPPORT_URL = "https://github.com/nemu-pm/nemu/issues";
 type PolicySection = { heading: string; body: Array<string | string[]> };
 
 /**
- * Public privacy policy at /privacy (linked from App Store Connect). The text
+ * Public privacy policy at /privacy. The text
  * lives in the `privacy` namespace of the locale files; locales without a
- * translation fall back to English. Keep it true to docs/app-store/data-flows.md.
+ * translation fall back to English. Keep it true to what the apps and services send.
  * TODO: the "kept for 30 days" log statement is only true once the Convex log
- * stream exists and the OCR host runs services/ocr/logrotate.conf
- * (docs/app-store/log-retention.md); remove this note then.
+ * stream exists and the OCR host runs services/ocr/logrotate.conf;
+ * remove this note then.
  */
 export function PrivacyPage() {
   const { t } = useTranslation();
