@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Platform, StyleSheet, View } from "react-native";
+import { Platform, StyleSheet, useWindowDimensions, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   BottomSheet as SwiftBottomSheet,
   Button as SwiftButton,
@@ -40,6 +41,8 @@ import {
   READER_SETTINGS_POPOVER_PAGE,
   READER_SETTINGS_SHEET_GROUP,
   READER_SETTINGS_SHEET_PAGE,
+  fittedSheetExpandedDetent,
+  fittedSheetTallestDetent,
 } from "@/lib/mobileFittedSheet";
 import { supportsNemuLiquidGlass } from "@/lib/nemuLiquidGlass";
 import {
@@ -81,6 +84,8 @@ export function ReaderChapterListSheet({
 }: ReaderChapterListSheetProps) {
   const { scheme, tokens } = useNemuTheme();
   const sheetPlacement = useMobileSheetPlacement();
+  const windowSize = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const { select, onDismissed } = useReaderChapterListSelect(onClose, onSelectChapter);
 
   // Mounted for one presentation (so each opens scrolled to the open chapter)
@@ -158,6 +163,7 @@ export function ReaderChapterListSheet({
   if (sheet) {
     const estimate = readerSettingsNativeSheetEstimatedHeight(settingsRows);
     const cap = readerSettingsSheetDetentCap({ estimatedHeight: estimate, maxHeight: maxSheetHeight });
+    const sheetBounds = { windowHeight: windowSize.height, safeAreaTop: insets.top, safeAreaBottom: insets.bottom };
     return (
       <View pointerEvents="none" style={styles.sheetHost}>
         <SwiftHost colorScheme={scheme} style={StyleSheet.absoluteFill}>
@@ -176,6 +182,8 @@ export function ReaderChapterListSheet({
                   initialHeight: estimate,
                   height: cap,
                   expandable: cap === 0 && maxSheetHeight == null,
+                  maxHeight: fittedSheetTallestDetent(sheetBounds),
+                  expandedHeight: fittedSheetExpandedDetent(sheetBounds),
                 }),
                 presentationDragIndicator("visible"),
                 presentationPlacement(sheetPlacement),
