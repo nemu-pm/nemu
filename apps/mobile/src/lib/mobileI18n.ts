@@ -1175,9 +1175,6 @@ export type MobileStrings = {
     bilingualSecondaryPageAccessibility: string;
     bilingualLoadingSecondary: string;
     bilingualNoMatchingPage: string;
-    handoffOuterDisplay: string;
-    handoffInnerDisplay: string;
-    handoffWithPage: string;
     coverPage: string;
   };
   /** On-device Japanese dictionary pack (reader analysis + settings). */

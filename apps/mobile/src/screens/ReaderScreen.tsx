@@ -107,7 +107,6 @@ import Animated, {
 import {
   DuoBilingualLayoutToggle,
   DuoBilingualSpread,
-  DuoDisplayHandoffToast,
   DuoPageFlipOverlay,
   useDuoPageFlip,
 } from "@/components/duo";
@@ -13863,32 +13862,9 @@ export function ReaderScreen() {
         strings={strings}
         connectivity={readerConnectivity}
       />
-      {/* Duo signature feature 5 (duo-signature-integration.md): folding shut
-          or unfolding moves the reader between displays; a short toast
-          confirms it continued at the same page. Never for rotation, book ⇄
-          flat, resizes or non-foldables (`mobileDuoDisplayTransition`). */}
       <ReaderPairingShiftToast
         toast={readerPairingShiftToast}
         onDone={dismissReaderPairingShiftToast}
-        topOffset={insets.top + 76}
-        insets={
-          readerNoticeFrame
-            ? { left: readerNoticeFrame.left + 12, right: readerNoticeFrame.right + 12 }
-            : undefined
-        }
-        strings={strings}
-      />
-      <DuoDisplayHandoffToast
-        width={readerWindowLayout.width}
-        height={readerWindowLayout.height}
-        hinge={readerWindowLayout.hinge}
-        hasFold={readerWindowLayout.divisions.length > 0}
-        pageNumber={
-          pageCount > 0
-            ? (isTwoPageMode ? visibleProgressPageIndex : clampedPageIndex) + 1
-            : null
-        }
-        enabled={readerIsFocused && pagesState.status === "ready"}
         topOffset={insets.top + 76}
         insets={
           readerNoticeFrame

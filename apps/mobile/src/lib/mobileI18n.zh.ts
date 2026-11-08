@@ -1264,9 +1264,6 @@ export const mobileStringsZh: MobileStrings = {
     bilingualSecondaryPageAccessibility: "对照页 {{page}}",
     bilingualLoadingSecondary: "正在加载对照页",
     bilingualNoMatchingPage: "没有对应的页面",
-    handoffOuterDisplay: "已在外屏继续",
-    handoffInnerDisplay: "已在内屏继续",
-    handoffWithPage: "{{display}} · 第 {{page}} 页",
     coverPage: "封面配对",
   },
   japaneseLearningDictionary: {

@@ -1351,9 +1351,6 @@ export const mobileStringsJa: MobileStrings = {
     bilingualSecondaryPageAccessibility: "対応するページ{{page}}",
     bilingualLoadingSecondary: "対応するページを読み込み中",
     bilingualNoMatchingPage: "対応するページがありません",
-    handoffOuterDisplay: "外側ディスプレイで続行",
-    handoffInnerDisplay: "内側ディスプレイで続行",
-    handoffWithPage: "{{display}} · {{page}}ページ",
     coverPage: "表紙の配置",
   },
   japaneseLearningDictionary: {

@@ -1340,9 +1340,6 @@ export const mobileStringsEn: MobileStrings = {
     bilingualSecondaryPageAccessibility: "Paired page {{page}}",
     bilingualLoadingSecondary: "Loading paired page",
     bilingualNoMatchingPage: "No matching page",
-    handoffOuterDisplay: "Continued on outer display",
-    handoffInnerDisplay: "Continued on inner display",
-    handoffWithPage: "{{display}} · p.{{page}}",
     coverPage: "Cover page",
   },
   japaneseLearningDictionary: {
