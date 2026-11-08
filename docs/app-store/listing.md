@@ -37,24 +37,24 @@ A manga reader for the sources and servers you add. Pick up where you left off o
 ```text
 nemu is a manga reader. Read manga from the sources and servers you add.
 
-nemu doesn't host any manga. It comes with a few example sources to get you started: public-domain works, and comics their authors share under open licences. Add more anytime: a source directory, a server you run, or your own CBZ and ZIP files.
+nemu comes with a few example sources to get you started: public-domain works, and comics their authors share under open licences. Add more anytime: a source directory, a server you run, or your own CBZ and ZIP files. nemu doesn't host any manga.
 
 Reading
 - Right to left, left to right, or scroll. Each title opens the way its source reads, and you can change it.
 - Turn pages with a curl, a slide or a push.
-- Two pages side by side when there's room.
 - Page fit, page width, and a page background that can match the page.
+- Optimized for both screens of iPhone Duo.
 
 Your Library
 - Collections and reading progress, kept on your device.
-- No account needed. Sign in with Apple or Google to sync your library and reading progress across all your devices. You can delete your account anytime in Settings.
+- No account needed. Sign in to sync your library and reading progress across all your devices, and delete your account anytime.
 
 Learning Japanese
 - Detect the text on a page, look up words, and see how a sentence is put together.
-- Sign in for Nemu Chat and read-aloud.
+- Sign in to chat with nemu and listen to it read aloud.
 
 Made for Every Screen
-- iPhone, iPad, and both displays of iPhone Duo.
+- iPhone, iPad and iPhone Duo.
 - No ads, no in-app purchases, no tracking.
 
 Example content: Pepper&Carrot and Mini Fantasy Theater by David Revoy (CC BY 4.0 / CC BY-SA 4.0); Little Nemo in Slumberland by Winsor McCay (public domain); Japanese works from the National Diet Library, Japan (public domain).
