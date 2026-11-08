@@ -85,7 +85,7 @@ export function resolveMobileLiveSearchRetrySourceIds({
 }
 
 export type MobileSearchFailureGroup<S extends LiveGroupSource = LiveGroupSource> = {
-  /** Short reason shown under the names ("Source error", "Cloudflare protection detected"). */
+  /** Short reason shown under the names ("Source error", "Site verification needed"). */
   reason: string;
   /** Longer explanation for assistive tech. */
   detail?: string;

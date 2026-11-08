@@ -50,9 +50,9 @@ export const mobileStringsEn: MobileStrings = {
     remove: "Remove",
     retry: "Retry",
     save: "Save",
-    sourceCloudflareBlocked: "Cloudflare protection detected",
+    sourceCloudflareBlocked: "Site verification needed",
     sourceCloudflareBlockedDescription:
-      "This source requires Cloudflare verification. Nemu Agent can complete the check so you can try again.",
+      "This site needs to verify the connection before it loads. Nemu Agent can verify the site so you can try again.",
     sourceDisabled: "Source turned off",
     sourceDisabledAction: "Open Sources",
     sourceDisabledDescription:
@@ -77,20 +77,19 @@ export const mobileStringsEn: MobileStrings = {
     agentVerify: "Verify",
     agentSheetOpening: "Starting Nemu Agent…",
     agentSheetCaptcha: "Complete the verification prompt to continue.",
-    agentSheetSuccess: "Challenge solved. Resuming…",
+    agentSheetSuccess: "Site verified. Resuming…",
     agentSheetFailed:
-      "Couldn't solve the challenge automatically. Try again, or open Settings to check Nemu Agent.",
+      "Couldn't verify the site automatically. Open it in the browser to continue, or try again.",
     agentSheetUnavailable:
-      "Secure Cloudflare verification is unavailable on mobile. This source cannot be opened until it offers a direct endpoint.",
-    agentSheetVerifying: "Verifying with Cloudflare…",
+      "Site verification isn't available on mobile. This source can't be opened here yet.",
+    agentSheetVerifying: "Verifying the site…",
     agentSheetBrowserHint:
       "A browser sheet will open if the check needs you.",
     agentSheetFailedCancelled: "Verification cancelled.",
-    agentSheetFailedTimeout: "Cloudflare did not finish in time.",
-    agentSheetFailedBlocked:
-      "This challenge address could not be verified safely.",
-    agentSheetProtectedSite: "{{site}} is protected by Cloudflare.",
-    agentSheetProtectedSource: "This source is protected by Cloudflare.",
+    agentSheetFailedTimeout: "The site didn't finish verifying in time.",
+    agentSheetFailedBlocked: "This site's address couldn't be verified safely.",
+    agentSheetProtectedSite: "{{site}} needs to verify the connection.",
+    agentSheetProtectedSource: "This source's site needs to verify the connection.",
     agentStepOpen: "Open the site",
     agentStepCheck: "Automatic check",
     agentStepConfirm: "Human check",
@@ -99,7 +98,7 @@ export const mobileStringsEn: MobileStrings = {
     agentSheetFailedUnsolicitedHost:
       "This site was not requested by the source, so verification was refused.",
     agentSheetFailedNotChallenged:
-      "The site let the built-in browser through without a check but still blocks this source's requests, so there is nothing to verify here.",
+      "The site opened in the built-in browser without asking for verification, but it still doesn't answer this source's requests, so there's nothing to verify here.",
     agentSheetFailedSetup:
       "Secure verification couldn't be set up on this device. Try again, or update your system software.",
   },
@@ -156,7 +155,7 @@ export const mobileStringsEn: MobileStrings = {
     warningAuthentication:
       "This source requires login or authentication. It may not work correctly in the current version of nemu.",
     warningCloudflare:
-      "This source has Cloudflare protection. nemu uses built-in native networking and may show a verification window when needed.",
+      "This source's site may ask to verify the connection. nemu uses built-in native networking and may show the site in a browser window when needed.",
     warningTitle: "Notice",
   },
   nav: {
@@ -900,15 +899,14 @@ export const mobileStringsEn: MobileStrings = {
     readerDescriptionWithFeedback:
       "Reading direction, scrolling, page layout, and haptics",
     agent: "Nemu Agent",
-    agentBuiltInEnabled: "Protected-source verification ready",
+    agentBuiltInEnabled: "Site verification ready",
     agentConnected: "Native source networking available",
     agentDescription:
       "Built-in native networking is unavailable in this build",
     agentNotRunning: "Unavailable",
-    agentProtectedCompatibility: "Protected-site compatibility",
-    agentReady: "Native networking and Cloudflare verification are available",
-    agentVerificationUnavailable:
-      "Cloudflare verification is unavailable in this build",
+    agentProtectedCompatibility: "Site compatibility",
+    agentReady: "Native networking and site verification are available",
+    agentVerificationUnavailable: "Site verification is unavailable in this build",
     agentRefresh: "Refresh",
     agentVersion: "v{{version}}",
     browseSource: "Browse {{name}}",

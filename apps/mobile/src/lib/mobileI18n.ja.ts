@@ -50,9 +50,9 @@ export const mobileStringsJa: MobileStrings = {
     remove: "削除",
     retry: "再試行",
     save: "保存",
-    sourceCloudflareBlocked: "Cloudflare保護を検出",
+    sourceCloudflareBlocked: "サイトの確認が必要です",
     sourceCloudflareBlockedDescription:
-      "このソースにはCloudflare認証が必要です。Nemu Agentが確認を完了できるので、その後もう一度お試しください。",
+      "このサイトは読み込む前に接続の確認が必要です。Nemu Agentがサイトを確認できるので、その後もう一度お試しください。",
     sourceDisabled: "ソースが無効になっています",
     sourceDisabledAction: "ソース設定を開く",
     sourceDisabledDescription:
@@ -77,19 +77,19 @@ export const mobileStringsJa: MobileStrings = {
     agentVerify: "認証",
     agentSheetOpening: "Nemu Agentを起動しています…",
     agentSheetCaptcha: "表示された認証プロンプトを完了して続行してください。",
-    agentSheetSuccess: "チャレンジを解決しました。再開しています…",
+    agentSheetSuccess: "サイトを確認しました。再開しています…",
     agentSheetFailed:
-      "チャレンジを自動で解決できませんでした。再試行するか、設定でNemu Agentを確認してください。",
+      "サイトを自動で確認できませんでした。ブラウザーで開いて続けるか、もう一度お試しください。",
     agentSheetUnavailable:
-      "安全なCloudflare認証はモバイルでは利用できません。直接接続できるエンドポイントが提供されるまで、このソースは開けません。",
-    agentSheetVerifying: "Cloudflareで認証しています…",
+      "モバイルではこのサイトを確認できません。このソースは現在ここでは開けません。",
+    agentSheetVerifying: "サイトを確認しています…",
     agentSheetBrowserHint:
       "確認が必要な場合はブラウザーシートが開きます。",
     agentSheetFailedCancelled: "認証をキャンセルしました。",
-    agentSheetFailedTimeout: "Cloudflareの認証が時間内に完了しませんでした。",
-    agentSheetFailedBlocked: "このチャレンジのアドレスを安全に検証できませんでした。",
-    agentSheetProtectedSite: "{{site}}はCloudflareで保護されています。",
-    agentSheetProtectedSource: "このソースはCloudflareで保護されています。",
+    agentSheetFailedTimeout: "サイトの確認が時間内に完了しませんでした。",
+    agentSheetFailedBlocked: "このサイトのアドレスを安全に確認できませんでした。",
+    agentSheetProtectedSite: "{{site}}は接続の確認が必要です。",
+    agentSheetProtectedSource: "このソースのサイトは接続の確認が必要です。",
     agentStepOpen: "サイトを開く",
     agentStepCheck: "自動チェック",
     agentStepConfirm: "ユーザー確認",
@@ -98,7 +98,7 @@ export const mobileStringsJa: MobileStrings = {
     agentSheetFailedUnsolicitedHost:
       "このサイトはソースが要求したものではないため、認証を拒否しました。",
     agentSheetFailedNotChallenged:
-      "サイトは内蔵ブラウザーに確認を表示しませんでしたが、このソースのリクエストは引き続きブロックしているため、ここで認証できることはありません。",
+      "サイトは内蔵ブラウザーで確認を求めませんでしたが、このソースのリクエストには引き続き応答しないため、ここで確認できることはありません。",
     agentSheetFailedSetup:
       "この端末では安全な認証を開始できませんでした。再試行するか、システムソフトウェアを更新してください。",
   },
@@ -155,7 +155,7 @@ export const mobileStringsJa: MobileStrings = {
     warningAuthentication:
       "このソースはログインまたは認証が必要です。現在のバージョンのnemuでは正しく動作しない可能性があります。",
     warningCloudflare:
-      "このソースにはCloudflare保護があります。nemuは内蔵ネイティブ通信を使用し、必要に応じて検証ウィンドウを表示します。",
+      "このソースのサイトは接続の確認を求めることがあります。nemuは内蔵ネイティブ通信を使用し、必要に応じてブラウザーウィンドウでサイトを表示します。",
     warningTitle: "注意",
   },
   nav: {
@@ -908,14 +908,13 @@ export const mobileStringsJa: MobileStrings = {
     readerDescriptionWithFeedback:
       "読み方向、スクロール、ページレイアウトと触覚",
     agent: "Nemu Agent",
-    agentBuiltInEnabled: "保護サイトの認証を利用できます",
+    agentBuiltInEnabled: "サイトの確認を利用できます",
     agentConnected: "ネイティブソース通信を利用できます",
     agentDescription: "このビルドでは内蔵ネイティブ通信を利用できません",
     agentNotRunning: "利用不可",
-    agentProtectedCompatibility: "保護サイト互換性",
-    agentReady: "ネイティブ通信とCloudflare認証を利用できます",
-    agentVerificationUnavailable:
-      "このビルドではCloudflare認証を利用できません",
+    agentProtectedCompatibility: "サイト互換性",
+    agentReady: "ネイティブ通信とサイトの確認を利用できます",
+    agentVerificationUnavailable: "このビルドではサイトの確認を利用できません",
     agentRefresh: "更新",
     agentVersion: "v{{version}}",
     browseSource: "{{name}}を探す",

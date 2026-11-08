@@ -113,7 +113,23 @@ describe("mobile i18n helpers", () => {
     });
   });
 
-  test("localizes every Cloudflare solve failure reason the sheet maps", () => {
+  test("no user-facing string names Cloudflare or speaks of solving or bypassing protection", () => {
+    const banned = /cloudflare|challenge|bypass|solv|挑战|绕过|チャレンジ|回避/i;
+    const walk = (value: unknown, path: string, out: string[]) => {
+      if (typeof value === "string") {
+        if (banned.test(value)) out.push(`${path}: ${value}`);
+      } else if (value && typeof value === "object") {
+        for (const [key, child] of Object.entries(value)) walk(child, `${path}.${key}`, out);
+      }
+    };
+    for (const language of ["en", "zh", "ja"] as const) {
+      const found: string[] = [];
+      walk(getMobileStrings(language), language, found);
+      expect(found).toEqual([]);
+    }
+  });
+
+  test("localizes every site verification failure reason the sheet maps", () => {
     const sheet = readFileSync(
       path.join(import.meta.dir, "mobileNemuAgentSheetPresentation.ts"),
       "utf8",
@@ -237,7 +253,7 @@ describe("mobile i18n helpers", () => {
     expect(getMobileStrings("zh").browse.searchRegistries).toBe("搜索来源");
     expect(getMobileStrings("zh").about.sourceCode).toBe("源代码");
     expect(getMobileStrings("zh").common.sourceCloudflareBlocked).toBe(
-      "检测到 Cloudflare 保护",
+      "需要验证网站",
     );
     expect(getMobileStrings("zh").settings.cloudSync).toBe("云同步");
     expect(getMobileStrings("ja").settings.sourceSettingsResetLabel).toBe(
@@ -252,20 +268,20 @@ describe("mobile i18n helpers", () => {
     );
     expect(getMobileStrings("en").settings.agent).toBe("Nemu Agent");
     expect(getMobileStrings("en").settings.agentBuiltInEnabled).toBe(
-      "Protected-source verification ready",
+      "Site verification ready",
     );
     expect(getMobileStrings("en").settings.agentReady).toBe(
-      "Native networking and Cloudflare verification are available",
+      "Native networking and site verification are available",
     );
     expect(getMobileStrings("en").settings.agentVerificationUnavailable).toBe(
-      "Cloudflare verification is unavailable in this build",
+      "Site verification is unavailable in this build",
     );
     expect(getMobileStrings("zh").settings.clearCloudData).toBe(
       "同时删除云端数据",
     );
     expect(getMobileStrings("zh").settings.agent).toBe("Nemu Agent");
     expect(getMobileStrings("zh").settings.agentReady).toBe(
-      "原生网络和 Cloudflare 验证已可用",
+      "原生网络和网站验证已可用",
     );
     expect(getMobileStrings("ja").settings.agent).toBe("Nemu Agent");
     expect(getMobileStrings("en").browse.installingSource).toBe(

@@ -39,12 +39,12 @@ describe("mobile source error presentation", () => {
 
     expect(isMobileCloudflareError(error)).toBe(true);
     expect(presentation.kind).toBe("cloudflare");
-    expect(presentation.title).toBe("Cloudflare protection detected");
+    expect(presentation.title).toBe("Site verification needed");
     // The banner copy must not claim verification is unavailable: iOS and
     // Android now implement the on-demand solver, and the "unavailable on this
     // platform" wording belongs only to the capability-false sheet state.
     expect(presentation.detail).toBe(
-      "This source requires Cloudflare verification. Nemu Agent can complete the check so you can try again.",
+      "This site needs to verify the connection before it loads. Nemu Agent can verify the site so you can try again.",
     );
     expect(presentation.detail).not.toContain("verification window");
     expect(presentation.detail).not.toContain("not securely available");
@@ -304,7 +304,7 @@ describe("mobile source error presentation", () => {
       ),
     ).toMatchObject({
       kind: "cloudflare",
-      title: "Cloudflare protection detected",
+      title: "Site verification needed",
       displayUrl: "https://example.com/manga",
     });
 
@@ -327,7 +327,7 @@ describe("mobile source error presentation", () => {
         "Cloudflare blocked: https://example.com/manga",
         strings,
       ),
-    ).toBe("Cloudflare protection detected");
+    ).toBe("Site verification needed");
     expect(getMobileSourceErrorSummary("Network request failed", strings)).toBe(
       "Network error",
     );

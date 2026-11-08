@@ -35,10 +35,10 @@ describe("getNemuAgentDisplayHost", () => {
 describe("getNemuAgentSheetPresentation", () => {
   test("names the protected host in a state-neutral description", () => {
     expect(present({}).description).toBe(
-      "reader.example.com is protected by Cloudflare.",
+      "reader.example.com needs to verify the connection.",
     );
     expect(present({ url: undefined }).description).toBe(
-      "This source is protected by Cloudflare.",
+      "This source's site needs to verify the connection.",
     );
   });
 
