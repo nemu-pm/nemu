@@ -21,6 +21,7 @@ import {
   shouldAppendMobileReaderStripSegment,
   shouldPrependMobileReaderStripSegment,
   type MobileReaderStrip,
+  mobileReaderStripRetreatJoined,
 } from "./mobileReaderChapterStrip";
 import {
   buildMobileReaderScrollLayout,
@@ -310,5 +311,15 @@ describe("append / prepend / prune", () => {
     expect(isMobileReaderStripHeadRemovalOffscreen(removal, 1200)).toBe(true);
     expect(isMobileReaderStripHeadRemovalOffscreen(removal, 1000)).toBe(false);
     expect(mobileReaderStripHeadRemoval(layout, starts, 0)).toEqual({ rows: 0, height: 0 });
+  });
+});
+
+describe("a pull past the top crosses once the chapter above joins", () => {
+  test("joined: the chapter pulled from is no longer first", () => {
+    expect(mobileReaderStripRetreatJoined(["c2", "c3"], "c3")).toBe(true);
+  });
+  test("not yet (still alone, or dropped meanwhile)", () => {
+    expect(mobileReaderStripRetreatJoined(["c3"], "c3")).toBe(false);
+    expect(mobileReaderStripRetreatJoined(["c4", "c5"], "c3")).toBe(false);
   });
 });

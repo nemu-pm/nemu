@@ -276,6 +276,7 @@ import {
   shouldPrependMobileReaderStripSegment,
   shouldSpliceMobileReaderStripPrevious,
   type MobileReaderStripRow,
+  mobileReaderStripRetreatJoined,
 } from "@/lib/mobileReaderChapterStrip";
 import {
   isMobileReaderStripPlacementOff,
@@ -6584,6 +6585,8 @@ export function ReaderScreen() {
     },
     [completeReaderStripCaughtUp, noteReaderStripGate, readerSafeInsetBottom, readerSafeInsetTop, showEndOfChapterPrompt],
   );
+  const stepReaderScrollScreenRef = useRef(stepReaderScrollScreen);
+  stepReaderScrollScreenRef.current = stepReaderScrollScreen;
 
   // The bar's book / pages button: the cover comes in with its chrome shown
   // (the button was just pressed), and the page comes back with the HUD shown
@@ -10491,6 +10494,8 @@ export function ReaderScreen() {
   ]);
   // ---- Seamless scroll: the list's rows, crossings, gallery callbacks ------
   const readerStripRef = useRef({ strip: readerStrip, rows: readerStripRows });
+  /** Scroll: the list's first chapter when a pull past the top asked for the one above. */
+  const readerStripRetreatCrossRef = useRef<string | null>(null);
   /** Rows just moved above the open chapter (a prepend, a head drop): no crossing yet. */
   const readerStripBridgeMovingRef = useRef(false);
   readerStripRef.current = { strip: readerStrip, rows: readerStripRows };
@@ -10498,6 +10503,10 @@ export function ReaderScreen() {
     readerStripUserScrolledRef.current = false;
     noteReaderStripGate({ kind: "open" });
   }, [noteReaderStripGate, readerScrollMountKey]);
+  useEffect(() => {
+    // A new list: no pull is waiting on the chapter above.
+    readerStripRetreatCrossRef.current = null;
+  }, [readerScrollMountKey]);
   readerStripCanPrependRef.current = () =>
     galleryPagedMode
       ? // Paged reading: once the opening restore has placed the pager (the
@@ -10958,7 +10967,12 @@ export function ReaderScreen() {
     if (paged && paged.currentIndex !== 0) return;
     if (strip && !paged) {
       if (strip.currentIndex !== 0) return;
-      if (requestReaderStripPrevious()) return;
+      if (requestReaderStripPrevious()) {
+        // Joining above: once it lands, the list moves onto its last page
+        // (onGalleryRowsSettled), as a forward pull moves on into the next.
+        readerStripRetreatCrossRef.current = strip.segments[0]?.chapter.id ?? null;
+        return;
+      }
     }
     showPreviousChapterFromEnd();
   }, [requestReaderStripPrevious, showPreviousChapterFromEnd]);
@@ -11029,6 +11043,19 @@ export function ReaderScreen() {
   // prune held back meanwhile is judged again now.
   const onGalleryRowsSettled = useCallback((corrected: boolean) => {
     recheckReaderStripPrune();
+    // A pull past the top asked for the chapter above, and it has joined
+    // (the chapter pulled from is no longer the list's first): one screen up
+    // onto that chapter's last page, the crossing the pull asked for.
+    const retreatFrom = readerStripRetreatCrossRef.current;
+    const settledStrip = readerStripRef.current.strip;
+    if (
+      retreatFrom &&
+      settledStrip &&
+      mobileReaderStripRetreatJoined(settledStrip.segments.map((segment) => segment.chapter.id), retreatFrom)
+    ) {
+      readerStripRetreatCrossRef.current = null;
+      requestAnimationFrame(() => stepReaderScrollScreenRef.current("previous"));
+    }
     // Put back: the list's next scroll event reports the centre.
     if (corrected) return;
     const centre = readerGalleryScrollRef.current?.centrePageIndex() ?? null;

@@ -55,16 +55,17 @@ export function isReaderAdvancePastEndDrag(
 }
 
 /**
- * The paged mirror of `isReaderAdvancePastEndDrag`: the reader is on the
- * chapter's first page and the user drags back toward the previous chapter.
- * Vertical stages never retreat across chapters (web does not either).
+ * The mirror of `isReaderAdvancePastEndDrag`: the reader is on the chapter's
+ * first page (paged) or pinned at the top of the list (scroll) and drags back
+ * toward the previous chapter, which a backward turn crosses into as a
+ * forward one crosses into the next.
  */
 export function isReaderRetreatPastStartDrag(
   metrics: ReaderEdgeDragMetrics,
 ): boolean {
   if (!hasFiniteOffsets(metrics)) return false;
-  if (!metrics.pagedMode) return false;
-  return isReaderPagedEdgeDrag(metrics, "start");
+  if (metrics.pagedMode) return isReaderPagedEdgeDrag(metrics, "start");
+  return isReaderVerticalRetreatPastStartDrag(metrics);
 }
 
 function hasFiniteOffsets({
@@ -174,6 +175,35 @@ function isReaderVerticalAdvancePastEndDrag({
     return isUpwardFingerDrag(gestureDelta);
   }
   return true;
+}
+
+function isReaderVerticalRetreatPastStartDrag({
+  startOffset,
+  endOffset,
+  maxOffset,
+  gestureDelta,
+}: ReaderEdgeDragMetrics): boolean {
+  // An unscrollable chapter: only a deliberate downward finger drag.
+  if (maxOffset <= 0) return isDownwardFingerDrag(gestureDelta);
+  if (
+    startOffset > READER_EDGE_DRAG_EPSILON ||
+    endOffset > startOffset + READER_EDGE_DRAG_EPSILON
+  ) {
+    return false;
+  }
+  // Pulled into the top bounce (iOS reports the offset above zero) is the
+  // gesture; a list that never moved needs a deliberate downward finger drag,
+  // so a tap or a sideways wiggle at the top stays one.
+  if (endOffset < startOffset - READER_EDGE_DRAG_EPSILON) return true;
+  return isDownwardFingerDrag(gestureDelta);
+}
+
+function isDownwardFingerDrag(gestureDelta: number | undefined): boolean {
+  return (
+    gestureDelta !== undefined &&
+    Number.isFinite(gestureDelta) &&
+    gestureDelta >= READER_EDGE_FINGER_DRAG_THRESHOLD
+  );
 }
 
 function isUpwardFingerDrag(gestureDelta: number | undefined): boolean {

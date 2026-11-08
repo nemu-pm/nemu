@@ -477,3 +477,14 @@ export function rebaseMobileReaderStrip<C extends MobileReaderStripChapter, P ex
   }
   return { ...strip, currentIndex: segmentIndex };
 }
+
+/**
+ * Scroll reading, after a pull past the top asked for the chapter above:
+ * it has joined once the chapter pulled from is no longer the list's first.
+ */
+export function mobileReaderStripRetreatJoined(
+  chapterIds: readonly string[],
+  pulledFromChapterId: string,
+): boolean {
+  return chapterIds.indexOf(pulledFromChapterId) > 0;
+}
