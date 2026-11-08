@@ -51,6 +51,26 @@ export function MobileSearchSearchingLine({
   );
 }
 
+/** Every source whose matches are all in the Library section, in one quiet line. */
+export function MobileSearchInLibraryLine({
+  sources,
+  strings,
+}: {
+  sources: readonly Pick<SearchSourceDisplay, "name">[];
+  strings: MobileStrings;
+}) {
+  const { tokens } = useNemuTheme();
+  if (!sources.length) return null;
+  return (
+    <NemuText
+      maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
+      style={[styles.lineText, styles.noResults, { color: tokens.mutedForeground }]}
+    >
+      {formatMobileString(strings.search.resultsInLibraryInSources, { sources: sourceList(sources, strings) })}
+    </NemuText>
+  );
+}
+
 /** Every source that found nothing, in one quiet line instead of a card each. */
 export function MobileSearchNoResultsLine({
   sources,

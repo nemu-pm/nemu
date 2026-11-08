@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { resolveMobileSearchSidebarStatuses } from "./mobileSearchLayout";
+import {
+  formatMobileSearchSidebarCount,
+  resolveMobileSearchSidebarStatuses,
+  summarizeMobileSearchSidebarStatuses,
+} from "./mobileSearchLayout";
 import {
   formatMobileSearchSectionCount,
   groupMobileSearchFailures,
@@ -30,7 +34,7 @@ describe("partitionMobileLiveSearchGroups", () => {
   });
 
   test("an empty list partitions into empty buckets", () => {
-    expect(partitionMobileLiveSearchGroups([])).toEqual({ sections: [], loading: [], failed: [], empty: [] });
+    expect(partitionMobileLiveSearchGroups([])).toEqual({ sections: [], loading: [], failed: [], empty: [], inLibrary: [] });
   });
 });
 
@@ -121,15 +125,66 @@ describe("omitLibraryTitlesFromLiveSearchGroups", () => {
     expect(itemIds(groups[0])).toEqual(["saved", "new"]);
   });
 
-  test("a source left empty has no section and joins the no-results line", () => {
+  test("a source left empty is in the Library line, not the no-results line", () => {
     const partition = partitionMobileLiveSearchGroups(
       omitLibraryTitlesFromLiveSearchGroups(
-        [ready("ndl", ["saved"]), ready("mdx", ["new"])],
+        [ready("ndl", ["saved"]), ready("mdx", ["new"]), ready("none", [])],
         [saved(["ndl", "saved"])],
       ),
     );
     expect(partition.sections.map((group) => group.source.rawSourceId)).toEqual(["mdx"]);
+    expect(partition.inLibrary.map((source) => source.rawSourceId)).toEqual(["ndl"]);
+    expect(partition.empty.map((source) => source.rawSourceId)).toEqual(["none"]);
+  });
+
+  test("a source left empty with more pages keeps its section for See All", () => {
+    const partition = partitionMobileLiveSearchGroups(
+      omitLibraryTitlesFromLiveSearchGroups([ready("ndl", ["saved"], true)], [saved(["ndl", "saved"])]),
+    );
+    expect(partition.sections.map((group) => group.source.rawSourceId)).toEqual(["ndl"]);
+    expect(partition.sections[0]?.hasMore).toBe(true);
+    expect(partition.inLibrary).toEqual([]);
+    expect(partition.empty).toEqual([]);
+  });
+
+  test("a source that found nothing but reports more pages still has no results", () => {
+    const partition = partitionMobileLiveSearchGroups([ready("ndl", [], true)]);
+    expect(partition.sections).toEqual([]);
     expect(partition.empty.map((source) => source.rawSourceId)).toEqual(["ndl"]);
+  });
+
+  test("a source keeping some results is not marked as all in the Library", () => {
+    const [group] = omitLibraryTitlesFromLiveSearchGroups<MobileLiveSearchGroupLike<ReturnType<typeof liveSource>> & { status: "ready"; items: readonly { id: string }[] }>(
+      [ready("ndl", ["saved", "new"])],
+      [saved(["ndl", "saved"])],
+    );
+    expect(group?.allInLibrary).toBe(false);
+  });
+
+  test("the sidebar counts 0+ only for a source that truly has more", () => {
+    const groups = omitLibraryTitlesFromLiveSearchGroups(
+      [ready("more", ["saved"], true), ready("done", ["saved"])],
+      [saved(["more", "saved"], ["done", "saved"])],
+    );
+    const { statuses } = resolveMobileSearchSidebarStatuses({
+      query: "q",
+      groups: groups.map((group) => ({
+        sourceId: group.source.id,
+        status: "ready",
+        count: group.items.length,
+        hasMore: group.hasMore,
+      })),
+      memory: null,
+    });
+    const more = statuses["reg:more"];
+    const done = statuses["reg:done"];
+    expect(more?.kind === "count" && formatMobileSearchSidebarCount(more)).toBe("0+");
+    expect(done?.kind === "count" && formatMobileSearchSidebarCount(done)).toBe("0");
+    expect(summarizeMobileSearchSidebarStatuses({ "reg:done": done! }, ["reg:done"])).toEqual({
+      kind: "count",
+      count: 0,
+      more: false,
+    });
   });
 
   test("section and sidebar counts follow the filtered results", () => {

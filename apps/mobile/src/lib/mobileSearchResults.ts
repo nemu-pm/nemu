@@ -12,7 +12,8 @@
  * - sources with no match → one summary line naming them.
  *
  * A title the Library section already shows is not repeated in its source's
- * section; a source left with nothing else joins the summary line.
+ * section. A source left with nothing else did not fail to match, so it gets
+ * its own line saying so, or keeps a header with See All if it has more pages.
  */
 
 import type { LibraryEntry } from "@/data/schema";
@@ -22,7 +23,7 @@ type LiveGroupSource = { id: string; name: string };
 
 export type MobileLiveSearchGroupLike<S extends LiveGroupSource = LiveGroupSource> =
   | { status: "loading"; source: S }
-  | { status: "ready"; source: S; items: readonly unknown[]; hasMore: boolean }
+  | { status: "ready"; source: S; items: readonly unknown[]; hasMore: boolean; allInLibrary?: boolean }
   | { status: "blocked"; source: S; title?: string; detail: string };
 
 export type MobileLiveSearchPartition<G extends MobileLiveSearchGroupLike> = {
@@ -34,19 +35,23 @@ export type MobileLiveSearchPartition<G extends MobileLiveSearchGroupLike> = {
   failed: Extract<G, { status: "blocked" }>[];
   /** Sources that answered with no match. */
   empty: G["source"][];
+  /** Sources whose only matches are in the Library section, with no more pages. */
+  inLibrary: G["source"][];
 };
 
 export function partitionMobileLiveSearchGroups<G extends MobileLiveSearchGroupLike>(
   groups: readonly G[],
 ): MobileLiveSearchPartition<G> {
-  const partition: MobileLiveSearchPartition<G> = { sections: [], loading: [], failed: [], empty: [] };
+  const partition: MobileLiveSearchPartition<G> = { sections: [], loading: [], failed: [], empty: [], inLibrary: [] };
   for (const group of groups) {
     if (group.status === "loading") {
       partition.loading.push(group.source);
     } else if (group.status === "blocked") {
       partition.failed.push(group as Extract<G, { status: "blocked" }>);
-    } else if (group.items.length > 0) {
+    } else if (group.items.length > 0 || (group.allInLibrary && group.hasMore)) {
       partition.sections.push(group as Extract<G, { status: "ready" }>);
+    } else if (group.allInLibrary) {
+      partition.inLibrary.push(group.source);
     } else {
       partition.empty.push(group.source);
     }
@@ -94,7 +99,7 @@ export function omitLibraryTitlesFromLiveSearchGroups<G extends LiveResultGroupL
     );
     if (items.length === group.items.length) return group;
     changed = true;
-    return { ...group, items };
+    return { ...group, items, allInLibrary: items.length === 0 };
   });
   return changed ? next : groups;
 }

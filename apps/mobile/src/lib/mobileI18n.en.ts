@@ -895,6 +895,7 @@ export const mobileStringsEn: MobileStrings = {
     recentSearchAccessibility: "Search for {{query}} again",
     seeAll: "See All",
     noResultsInSources: "No results in {{sources}}",
+    resultsInLibraryInSources: "Results in {{sources}} are already in your library",
     searchingSources: "Searching {{sources}}…",
     moreSourcesCount: "{{count}} more",
     retrySourceAccessibility: "Search {{source}} again",

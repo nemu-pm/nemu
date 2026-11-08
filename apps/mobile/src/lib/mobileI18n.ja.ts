@@ -905,6 +905,7 @@ export const mobileStringsJa: MobileStrings = {
     recentSearchAccessibility: "「{{query}}」をもう一度検索",
     seeAll: "すべて表示",
     noResultsInSources: "{{sources}}では見つかりませんでした",
+    resultsInLibraryInSources: "{{sources}}の結果はすでにライブラリにあります",
     searchingSources: "{{sources}}を検索中…",
     moreSourcesCount: "ほか{{count}}件",
     retrySourceAccessibility: "{{source}}をもう一度検索",

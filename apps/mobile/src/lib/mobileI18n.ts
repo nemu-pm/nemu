@@ -788,6 +788,8 @@ export type MobileStrings = {
     seeAll: string;
     /** One quiet line for every source that found nothing; `{{sources}}`. */
     noResultsInSources: string;
+    /** One quiet line for sources whose matches are all in the Library; `{{sources}}`. */
+    resultsInLibraryInSources: string;
     /** Inline spinner line while sources are still searching; `{{sources}}`. */
     searchingSources: string;
     /** Last item of a collapsed source list ("A, B and 3 more"); `{{count}}`. */

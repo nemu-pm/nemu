@@ -39,6 +39,7 @@ import { MobileSearchSkeleton } from "@/components/MobileSearchSkeleton";
 import { MobileSearchSidebar } from "@/components/search/MobileSearchSidebar";
 import {
   MobileSearchFailedSourceRow,
+  MobileSearchInLibraryLine,
   MobileSearchNoResultsLine,
   MobileSearchSearchingLine,
 } from "@/components/search/MobileSearchLiveStatus";
@@ -571,27 +572,29 @@ function LiveSourceResultSection({
             : undefined
         }
       />
-      <View style={styles.resultsRows}>
-        {chunkMobileGridRows(group.items, grid.columns).map((row, rowIndex) => (
-          <View key={rowIndex} style={styles.resultsRow}>
-            {row.map((item, column) => {
-              const resultKey = `${group.source.id}:${item.id}`;
-              return (
-                <View
-                  key={resultKey}
-                  style={[styles.resultItem, mobileFoldAwareGridCellStyle(grid, column)]}
-                >
-                  <LiveMangaCard
-                    item={item}
-                    strings={strings}
-                    onPress={() => action.onPressResult(group.source, item)}
-                  />
-                </View>
-              );
-            })}
-          </View>
-        ))}
-      </View>
+      {group.items.length ? (
+        <View style={styles.resultsRows}>
+          {chunkMobileGridRows(group.items, grid.columns).map((row, rowIndex) => (
+            <View key={rowIndex} style={styles.resultsRow}>
+              {row.map((item, column) => {
+                const resultKey = `${group.source.id}:${item.id}`;
+                return (
+                  <View
+                    key={resultKey}
+                    style={[styles.resultItem, mobileFoldAwareGridCellStyle(grid, column)]}
+                  >
+                    <LiveMangaCard
+                      item={item}
+                      strings={strings}
+                      onPress={() => action.onPressResult(group.source, item)}
+                    />
+                  </View>
+                );
+              })}
+            </View>
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -617,7 +620,7 @@ function LiveSearchResults({
   // in. Up before the commit that moves them.
   const partitionKey = partition
     ? [partition.sections, partition.failed].map((groups) => groups.map((group) => group.source.id).join()).join("|") +
-      `|${partition.loading.length}|${partition.empty.length}`
+      `|${partition.loading.length}|${partition.empty.length}|${partition.inLibrary.length}`
     : null;
   const seenPartitionKeyRef = useRef(partitionKey);
   if (seenPartitionKeyRef.current !== partitionKey) {
@@ -641,8 +644,9 @@ function LiveSearchResults({
   }
 
   // Sections with matches first (ranked by the search), then one line for the
-  // sources still searching, a compact row per failed source, and one line
-  // naming every source that found nothing.
+  // sources still searching, a compact row per failed source, one line for the
+  // sources whose matches are all in the Library, and one naming every source
+  // that found nothing.
   return (
     <View style={styles.resultStack}>
       {partition.sections.map((group) => (
@@ -660,7 +664,7 @@ function LiveSearchResults({
           />
         </Animated.View>
       ))}
-      {partition.loading.length || partition.failed.length || partition.empty.length ? (
+      {partition.loading.length || partition.failed.length || partition.empty.length || partition.inLibrary.length ? (
         <Animated.View
           layout={mobileGridGlideTransition}
           exiting={mobileGridGlideVanishing}
@@ -684,6 +688,7 @@ function LiveSearchResults({
               })}
             </View>
           ) : null}
+          <MobileSearchInLibraryLine sources={partition.inLibrary} strings={strings} />
           <MobileSearchNoResultsLine sources={partition.empty} strings={strings} />
         </Animated.View>
       ) : null}
@@ -985,9 +990,13 @@ export function SearchScreen() {
       result: liveSearchResult,
     };
   }
+  const progressIndex = useMemo(
+    () => buildMobileProgressIndex(progress.data),
+    [progress.data],
+  );
   const resultGroups = useMemo(
-    () => groupLocalSearchResults(library.data, sources, effectiveSelectedSourceIds, trimmedQuery),
-    [effectiveSelectedSourceIds, library.data, sources, trimmedQuery]
+    () => groupLocalSearchResults(library.data, sources, effectiveSelectedSourceIds, trimmedQuery, progressIndex),
+    [effectiveSelectedSourceIds, library.data, progressIndex, sources, trimmedQuery]
   );
   const totalResults = resultGroups.reduce((sum, group) => sum + group.entries.length, 0);
   const visibleLocalResultGroups = useMemo(
@@ -1614,10 +1623,6 @@ export function SearchScreen() {
     [store, strings, toast],
   );
 
-  const progressIndex = useMemo(
-    () => buildMobileProgressIndex(progress.data),
-    [progress.data],
-  );
   const quickActionLink = useMemo(
     () =>
       quickActionEntry

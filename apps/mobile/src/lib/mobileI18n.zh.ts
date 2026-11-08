@@ -850,6 +850,7 @@ export const mobileStringsZh: MobileStrings = {
     recentSearchAccessibility: "再次搜索“{{query}}”",
     seeAll: "查看全部",
     noResultsInSources: "{{sources}} 中没有结果",
+    resultsInLibraryInSources: "{{sources}} 的结果已在书库中",
     searchingSources: "正在搜索 {{sources}}…",
     moreSourcesCount: "另外 {{count}} 个",
     retrySourceAccessibility: "重新搜索 {{source}}",

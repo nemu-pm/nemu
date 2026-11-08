@@ -50,6 +50,8 @@ export type MobileLiveSearchGroup =
       runtime: MobileSourceExecutorRuntime;
       items: MobileLiveSearchManga[];
       hasMore: boolean;
+      /** Every match on this page is in the Library section (set for display). */
+      allInLibrary?: boolean;
     }
   | {
       status: "blocked";
