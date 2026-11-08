@@ -7,6 +7,7 @@ import { query } from "./_generated/server";
 import type { ActionCtx } from "./_generated/server";
 import { betterAuth } from "better-auth";
 import authConfig from "./auth.config";
+import { nativeAppleBundleId } from "./appleRevoke";
 import { getAuthCrossSubDomainCookieConfig } from "./authCookiePolicy";
 import { createMobileOriginBridge } from "./authMobileOriginBridge";
 
@@ -78,6 +79,22 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
     ],
   });
 };
+
+/**
+ * Public and signed-out: what a client may offer on its sign-in screen. The iOS
+ * app keeps the web Apple flow until `nativeAppleBundleId` names it.
+ */
+export const getSignInCapabilities = query({
+  args: {},
+  handler: async () => ({
+    nativeAppleBundleId: nativeAppleBundleId({
+      APPLE_CLIENT_ID: process.env.APPLE_CLIENT_ID,
+      APPLE_CLIENT_SECRET: process.env.APPLE_CLIENT_SECRET,
+      APPLE_APP_BUNDLE_ID: process.env.APPLE_APP_BUNDLE_ID,
+      APPLE_NATIVE_CLIENT_SECRET: process.env.APPLE_NATIVE_CLIENT_SECRET,
+    }),
+  }),
+});
 
 export const getCurrentUser = query({
   args: {},

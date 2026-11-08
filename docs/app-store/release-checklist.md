@@ -44,6 +44,27 @@ APPLE_SECRET_TARGET=native npx tsx scripts/generate-apple-secret.ts  # APPLE_NAT
 ```
 
 Run it against the production deployment (`CONVEX_DEPLOYMENT` pointing at prod).
+
+### Turning on native Sign in with Apple
+
+The iOS app keeps the web flow until `auth.getSignInCapabilities` names its bundle
+id, which takes a deployed backend with all of `APPLE_CLIENT_ID`,
+`APPLE_CLIENT_SECRET`, `APPLE_APP_BUNDLE_ID` and `APPLE_NATIVE_CLIENT_SECRET`.
+
+1. In the Apple Developer portal, `pm.nemu` has Sign in with Apple enabled, the
+   Services ID is grouped under it, and the signing key's primary App ID is in
+   that group (otherwise the native secret answers `invalid_client`). Regenerate
+   provisioning profiles: the binary now carries the entitlement.
+2. With production's `CONVEX_DEPLOYMENT`, set the secret first and the bundle id
+   last; setting `APPLE_APP_BUNDLE_ID` is what makes the backend accept native
+   tokens:
+
+   ```bash
+   APPLE_APP_BUNDLE_ID=pm.nemu APPLE_SECRET_TARGET=native npx tsx scripts/generate-apple-secret.ts
+   npx convex env set APPLE_APP_BUNDLE_ID pm.nemu
+   ```
+
+`APPLE_NATIVE_CLIENT_SECRET` expires after 180 days like the web secret; renew both.
 Set a calendar reminder for the date printed by the script's 180-day window.
 
 ## iOS: archive and upload

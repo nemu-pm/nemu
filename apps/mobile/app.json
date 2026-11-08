@@ -208,6 +208,7 @@
       ],
       "expo-background-task",
       "expo-web-browser",
+      "expo-apple-authentication",
       "./plugins/with-third-party-jsc",
       [
         "expo-font",

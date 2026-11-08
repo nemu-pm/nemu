@@ -160,9 +160,11 @@ Tables covered (`USER_OWNED_TABLES`): `collection_items`, `collections`,
 Sign in with Apple revocation picks its client from the stored idToken's `aud`:
 tokens issued to the Services ID use `APPLE_CLIENT_ID` + `APPLE_CLIENT_SECRET`;
 tokens issued to the app bundle id (a native flow) use `APPLE_APP_BUNDLE_ID` +
-`APPLE_NATIVE_CLIENT_SECRET` (a JWT whose `sub` is the bundle id). The current
-web and mobile sign-in both use the web OAuth flow, so today's tokens belong to
-the Services ID. A passed `appleAuthorizationCode` is exchanged at Apple's
+`APPLE_NATIVE_CLIENT_SECRET` (a JWT whose `sub` is the bundle id). Web and Android
+use the web OAuth flow, whose tokens belong to the Services ID. The iOS app uses
+the system sheet once the backend is configured for it (`auth.getSignInCapabilities`);
+that sign-in stores no Apple token, so deleting such an account asks for a fresh
+Sign in with Apple. Its `appleAuthorizationCode` is exchanged at Apple's
 `/auth/token` with the native client and the fresh refresh token is revoked.
 Client secrets come from `scripts/generate-apple-secret.ts` and are valid for at
 most 6 months; an expired secret now blocks deletion for Apple users

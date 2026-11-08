@@ -8,16 +8,20 @@ export type MobileAccountDeletionOutcome =
 
 /**
  * Deletes the signed-in account on the server, then signs out locally at once
- * (the Convex JWT outlives the deletion by up to its expiry). Native Sign in
- * with Apple is not shipped, so no authorizationCode prompt is offered: if the
- * server asks for re-authentication it is reported as a failure.
+ * (the Convex JWT outlives the deletion by up to its expiry). A native Sign in
+ * with Apple account keeps no Apple token on the server, so where native sign-in
+ * exists the server's request for a fresh authorizationCode shows the system
+ * sheet; elsewhere it is reported as a failure.
  */
 export async function runMobileAccountDeletion({
   deleteMyAccount,
+  requestAppleAuthorizationCode,
   signOutLocally,
   backendOutdated = () => false,
 }: {
   deleteMyAccount: (args: { appleAuthorizationCode?: string }) => Promise<unknown>;
+  /** Resolves null if the user cancels the system sheet; nothing is deleted. */
+  requestAppleAuthorizationCode?: () => Promise<string | null>;
   /** Signs out and handles device data; resolves false if it could not finish. */
   signOutLocally: () => Promise<boolean>;
   /**
@@ -28,7 +32,7 @@ export async function runMobileAccountDeletion({
   backendOutdated?: () => boolean;
 }): Promise<MobileAccountDeletionOutcome> {
   if (backendOutdated()) return { status: "failed", kind: "server-unavailable" };
-  const result = await deleteAccount({ deleteMyAccount });
+  const result = await deleteAccount({ deleteMyAccount, requestAppleAuthorizationCode });
   if (result.status !== "deleted") return result;
   let cleaned = false;
   try {

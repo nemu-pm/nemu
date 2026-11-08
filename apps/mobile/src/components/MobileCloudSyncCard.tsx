@@ -60,7 +60,15 @@ import {
   normalizeMobileOAuthProvider,
   resolveMobileCloudSignInErrorDetail,
   resolveMobileOAuthSignInOutcome,
+  MOBILE_OAUTH_SESSION_LOOKUP_MAX_MS,
+  withMobileAuthDeadline,
 } from "@/sync/mobileOAuthProvider";
+import {
+  dismissMobileAuthSession,
+  prefetchMobileNativeAppleReadiness,
+  runMobileWebOAuthSession,
+  signInWithMobileNativeApple,
+} from "@/sync/mobileAppleSignIn";
 import { useMobileDataStore } from "@/data/mobileDataContext";
 import { clearMobileAidokuSandboxDataForProfile } from "@/sources/mobileAidokuSandboxData";
 import {
@@ -156,6 +164,10 @@ function MobileCloudSyncConfiguredCard({
     isLoading: convexAuthLoading,
   } = useConvexAuth();
   const user = session?.user;
+  const signedOut = !isPending && !user;
+  useEffect(() => {
+    if (signedOut) prefetchMobileNativeAppleReadiness();
+  }, [signedOut]);
   const signedIn = Boolean(user);
   const convexAuthStalled =
     signedIn && !convexAuthLoading && !convexAuthenticated;
@@ -425,10 +437,20 @@ function MobileCloudSyncConfiguredCard({
     mobileProfileSwitchLanding.hold();
     let signedInNow = false;
     try {
-      const result = await mobileAuthClient.signIn.social({
-        provider,
-        callbackURL: "/settings",
-      });
+      // Apple goes through the system sheet once the backend can take it; a
+      // cancel there is back in the app already. Everything else is the web
+      // flow, whose session is watched so that it cannot outlive the attempt.
+      const native = provider === "apple" ? await signInWithMobileNativeApple() : null;
+      if (native?.kind === "cancelled") return;
+      const result =
+        native?.kind === "completed"
+          ? native.result
+          : await runMobileWebOAuthSession(provider, () =>
+              mobileAuthClient.signIn.social({
+                provider,
+                callbackURL: "/settings",
+              }),
+            );
       if (result.error) {
         setError({
           title: strings.settings.cloudSyncSignInFailed,
@@ -447,7 +469,11 @@ function MobileCloudSyncConfiguredCard({
       // The Expo client resolves `signIn.social` with the original redirect
       // response even when the user closes the OAuth browser, so only a
       // persisted session proves the callback completed.
-      const session = await mobileAuthClient.getSession();
+      const session = await withMobileAuthDeadline(
+        mobileAuthClient.getSession(),
+        MOBILE_OAUTH_SESSION_LOOKUP_MAX_MS,
+        { data: null, error: null },
+      );
       const outcome = resolveMobileOAuthSignInOutcome(session);
       if (outcome === "failed") {
         setError({
@@ -480,6 +506,7 @@ function MobileCloudSyncConfiguredCard({
       });
       await hapticError();
     } finally {
+      dismissMobileAuthSession();
       mobileProfileSwitchLanding.release(signedInNow);
       if (busyProviderRef.current === provider) {
         busyProviderRef.current = null;
