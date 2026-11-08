@@ -95,6 +95,8 @@ type ReaderDisplaySettingsPopoverProps = {
   onScrollWidthInteractionEnd?: () => void;
   keepAwake: boolean;
   onToggleKeepAwake: () => void;
+  pageTurnHaptics: boolean;
+  onTogglePageTurnHaptics: () => void;
   /** Orientation Lock row: only where the reader can rotate (Duo inner display, iPad, Android). */
   showOrientationLock?: boolean;
   lockPortrait: boolean;
@@ -210,6 +212,8 @@ export function ReaderDisplaySettingsPopover({
   onScrollWidthInteractionEnd,
   keepAwake,
   onToggleKeepAwake,
+  pageTurnHaptics,
+  onTogglePageTurnHaptics,
   showOrientationLock = true,
   lockPortrait,
   onToggleLockPortrait,
@@ -533,6 +537,19 @@ export function ReaderDisplaySettingsPopover({
                 disabled={busy}
                 value={keepAwake}
                 onValueChange={onToggleKeepAwake}
+              />
+            }
+          />
+
+          <ReaderSettingRow
+            icon="pulse-outline"
+            title={strings.feedback.displayPageTurnHaptics}
+            control={
+              <NemuNativeSwitch
+                accessibilityLabel={strings.feedback.displayPageTurnHaptics}
+                disabled={busy}
+                value={pageTurnHaptics}
+                onValueChange={onTogglePageTurnHaptics}
               />
             }
           />

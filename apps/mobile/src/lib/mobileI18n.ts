@@ -1162,6 +1162,8 @@ export type MobileStrings = {
     readerSlowSource: string;
     readerWaitingForNetwork: string;
     displayKeepAwake: string;
+    /** Reader settings, More: a tap with every page turn. */
+    displayPageTurnHaptics: string;
     displayLockPortrait: string;
     viewAllInSource: string;
   };

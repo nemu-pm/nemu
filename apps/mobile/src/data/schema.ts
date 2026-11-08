@@ -246,6 +246,8 @@ export type UserSettings = {
   chapterCompleteCelebration?: boolean;
   /** Keep the screen awake while reading; `undefined` means enabled. */
   readerKeepAwake?: boolean;
+  /** A tap with every page turn; `undefined` means disabled. */
+  readerPageTurnHaptics?: boolean;
   /** Lock the reader to portrait; `undefined` means disabled. */
   readerLockPortrait?: boolean;
   /** Outer foldable display: keep the physical camera clear (default false: full screen). */

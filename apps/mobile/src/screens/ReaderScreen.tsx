@@ -237,6 +237,10 @@ import {
   resolveMobileReaderCoverViewImage,
 } from "@/lib/mobileReaderCoverView";
 import { mobileReaderExitsAtEnd } from "@/lib/mobileReaderEndExit";
+import {
+  mobileReaderPageTurnHapticsEnabled,
+  setMobileReaderPageTurnHapticsEnabled,
+} from "@/lib/mobileReaderPageTurnHaptics";
 import { ReaderChapterDivider } from "@/components/reader/ReaderChapterDivider";
 import {
   buildMobileReaderPagedStrip,
@@ -1631,6 +1635,8 @@ export function ReaderScreen() {
     ready: readerDisplayPrefsReady,
     keepAwake: readerKeepAwake,
     setKeepAwake: setReaderKeepAwake,
+    pageTurnHaptics: readerPageTurnHaptics,
+    setPageTurnHaptics: setReaderPageTurnHaptics,
     lockPortrait: readerLockPortrait,
     setLockPortrait: setReaderLockPortrait,
     spreadMode: readerSpreadMode,
@@ -1909,6 +1915,12 @@ export function ReaderScreen() {
     userLock: readerLockPortrait && readerOrientationLockAvailable,
     sceneLockAvailable: interfaceOrientationLockAvailable,
   });
+  // Page turns (here, the slider, the strip's pull) read the choice through
+  // the gate; leaving the reader leaves it off.
+  useEffect(() => {
+    setMobileReaderPageTurnHapticsEnabled(readerPageTurnHaptics);
+    return () => setMobileReaderPageTurnHapticsEnabled(false);
+  }, [readerPageTurnHaptics]);
   useReaderDisplayEnvironment({
     keepAwakeEnabled: readerKeepAwake,
     keepAwakeReady: pagesState.status === "ready",
@@ -5870,7 +5882,7 @@ export function ReaderScreen() {
    */
   const notifyReaderPageTurn = useCallback(
     (arrival: MobileReaderPageArrival) => {
-      if (arrival === "initial") return;
+      if (arrival === "initial" || !mobileReaderPageTurnHapticsEnabled()) return;
       void hapticSelection();
     },
     [],
@@ -13679,6 +13691,12 @@ export function ReaderScreen() {
               setReaderKeepAwake(!readerKeepAwake),
             );
           }}
+          pageTurnHaptics={readerPageTurnHaptics}
+          onTogglePageTurnHaptics={() => {
+            void runReaderSettingsAction("page-turn-haptics", () =>
+              setReaderPageTurnHaptics(!readerPageTurnHaptics),
+            );
+          }}
           showOrientationLock={readerOrientationLockAvailable}
           lockPortrait={readerLockPortrait}
           onToggleLockPortrait={() => {
@@ -13768,6 +13786,12 @@ export function ReaderScreen() {
           onToggleKeepAwake={() => {
             void runReaderSettingsAction("keep-awake", () =>
               setReaderKeepAwake(!readerKeepAwake),
+            );
+          }}
+          pageTurnHaptics={readerPageTurnHaptics}
+          onTogglePageTurnHaptics={() => {
+            void runReaderSettingsAction("page-turn-haptics", () =>
+              setReaderPageTurnHaptics(!readerPageTurnHaptics),
             );
           }}
           showOrientationLock={readerOrientationLockAvailable}

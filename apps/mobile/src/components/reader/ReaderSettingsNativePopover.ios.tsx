@@ -185,6 +185,8 @@ export function ReaderSettingsNativePopover({
   onCommitScrollWidth,
   keepAwake,
   onToggleKeepAwake,
+  pageTurnHaptics,
+  onTogglePageTurnHaptics,
   showOrientationLock = true,
   lockPortrait,
   onToggleLockPortrait,
@@ -564,6 +566,13 @@ export function ReaderSettingsNativePopover({
             isOn={keepAwake}
             onIsOnChange={() => onToggleKeepAwake()}
             modifiers={[formRowIcon("moon", { toggle: true }), ...busyModifiers]}
+          />
+          <SwiftToggle
+            label={strings.feedback.displayPageTurnHaptics}
+            systemImage={axRows ? undefined : "iphone.radiowaves.left.and.right"}
+            isOn={pageTurnHaptics}
+            onIsOnChange={() => onTogglePageTurnHaptics()}
+            modifiers={[formRowIcon("iphone.radiowaves.left.and.right", { toggle: true }), ...busyModifiers]}
           />
           {showCameraRow && onSetAvoidCamera ? (
           <SwiftToggle

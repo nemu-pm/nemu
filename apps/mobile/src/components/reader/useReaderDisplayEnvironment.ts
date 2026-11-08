@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as KeepAwake from "expo-keep-awake";
+import {
+  DEFAULT_READER_PAGE_TURN_HAPTICS,
+  normalizeReaderPageTurnHaptics,
+} from "@/lib/mobileReaderPageTurnHaptics";
 import { setMobileReaderPortraitRequest } from "@/lib/mobileOrientationStore";
 import { setInterfaceOrientationLocked } from "../../../modules/nemu-window-layout";
 import { useMobileDataStore } from "@/data/mobileDataContext";
@@ -85,6 +89,9 @@ export function useReaderDisplayEnvironment({
 export function useReaderDisplayPrefs(): {
   keepAwake: boolean;
   setKeepAwake: (enabled: boolean) => Promise<void>;
+  /** Page Turn Haptics (default off). */
+  pageTurnHaptics: boolean;
+  setPageTurnHaptics: (enabled: boolean) => Promise<void>;
   lockPortrait: boolean;
   setLockPortrait: (enabled: boolean) => Promise<void>;
   /** The saved values have loaded (until then, the defaults). */
@@ -100,6 +107,9 @@ export function useReaderDisplayPrefs(): {
   const store = useMobileDataStore();
   const revision = useMobileDataRevision(["settings"]);
   const [keepAwake, setKeepAwakeState] = useState(DEFAULT_READER_KEEP_AWAKE);
+  const [pageTurnHaptics, setPageTurnHapticsState] = useState(DEFAULT_READER_PAGE_TURN_HAPTICS);
+  const pageTurnHapticsRun = useRef(0);
+  const savedPageTurnHaptics = useRef(DEFAULT_READER_PAGE_TURN_HAPTICS);
   const [lockPortrait, setLockPortraitState] = useState(
     DEFAULT_READER_LOCK_PORTRAIT,
   );
@@ -127,6 +137,9 @@ export function useReaderDisplayPrefs(): {
         const nextKeepAwake = settings.readerKeepAwake ?? DEFAULT_READER_KEEP_AWAKE;
         setKeepAwakeState(nextKeepAwake);
         savedKeepAwake.current = nextKeepAwake;
+        const nextPageTurnHaptics = normalizeReaderPageTurnHaptics(settings.readerPageTurnHaptics);
+        setPageTurnHapticsState(nextPageTurnHaptics);
+        savedPageTurnHaptics.current = nextPageTurnHaptics;
         const nextLockPortrait =
           settings.readerLockPortrait ?? DEFAULT_READER_LOCK_PORTRAIT;
         setLockPortraitState(nextLockPortrait);
@@ -167,6 +180,27 @@ export function useReaderDisplayPrefs(): {
       }
     },
     [keepAwake, store],
+  );
+
+  const setPageTurnHaptics = useCallback(
+    async (enabled: boolean) => {
+      if (enabled === pageTurnHaptics) return;
+      const run = pageTurnHapticsRun.current + 1;
+      pageTurnHapticsRun.current = run;
+      setPageTurnHapticsState(enabled);
+      try {
+        await store.updateSettings((settings) => ({
+          ...settings,
+          readerPageTurnHaptics: enabled,
+        }));
+        savedPageTurnHaptics.current = enabled;
+        emitMobileDataChanged("settings");
+      } catch (error) {
+        if (pageTurnHapticsRun.current === run) setPageTurnHapticsState(savedPageTurnHaptics.current);
+        throw error;
+      }
+    },
+    [pageTurnHaptics, store],
   );
 
   const setLockPortrait = useCallback(
@@ -259,6 +293,8 @@ export function useReaderDisplayPrefs(): {
     setAvoidCamera,
     keepAwake,
     setKeepAwake,
+    pageTurnHaptics,
+    setPageTurnHaptics,
     lockPortrait,
     setLockPortrait,
     spreadMode,

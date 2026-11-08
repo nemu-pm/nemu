@@ -1252,6 +1252,7 @@ export const mobileStringsZh: MobileStrings = {
     readerSlowSource: "仍在加载 · 来源响应较慢",
     readerWaitingForNetwork: "等待网络",
     displayKeepAwake: "保持屏幕唤醒",
+    displayPageTurnHaptics: "翻页触感",
     displayLockPortrait: "方向锁定",
     technicalDetails: "技术详情",
     viewAllInSource: "在 {{source}} 中查看全部",

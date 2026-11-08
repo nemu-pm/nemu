@@ -84,6 +84,9 @@ export type ReaderSettingsNativePopoverProps = {
   onCommitScrollWidth: (value: number) => void;
   keepAwake: boolean;
   onToggleKeepAwake: () => void;
+  /** Page Turn Haptics (More). */
+  pageTurnHaptics: boolean;
+  onTogglePageTurnHaptics: () => void;
   /** Orientation Lock row: only where the reader can rotate (Duo inner display, iPad, Android). */
   showOrientationLock?: boolean;
   lockPortrait: boolean;

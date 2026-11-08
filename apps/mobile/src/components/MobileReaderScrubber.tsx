@@ -8,6 +8,7 @@ import {
   useSyncExternalStore,
   type RefObject,
 } from "react";
+import { mobileReaderPageTurnHapticsEnabled } from "@/lib/mobileReaderPageTurnHaptics";
 import { StyleSheet, View } from "react-native";
 import { MobileSliderTrack } from "@/components/MobileSliderTrack";
 import type { MobileReaderScrubberPreviewHandle } from "@/components/reader/MobileReaderScrubberPreview";
@@ -290,7 +291,7 @@ export function MobileReaderScrubber({
         nextPageIndex,
         scrubCount,
       );
-      void hapticPress();
+      if (mobileReaderPageTurnHapticsEnabled()) void hapticPress();
     },
     [scrubCount],
   );
@@ -330,7 +331,8 @@ export function MobileReaderScrubber({
       );
       if (
         lastPreviewPageHapticRef.current != null &&
-        lastPreviewPageHapticRef.current !== nextPageIndex
+        lastPreviewPageHapticRef.current !== nextPageIndex &&
+        mobileReaderPageTurnHapticsEnabled()
       ) {
         void hapticSelection();
       }

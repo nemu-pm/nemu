@@ -177,6 +177,7 @@ import {
   MobileReaderScrollViewportContext,
 } from "./MobileReaderPageSpinner";
 import { mobileReaderPageHasText, mobileReaderPageStatusColor } from "@/lib/mobileReaderPageLoading";
+import { mobileReaderPageTurnHapticsEnabled } from "@/lib/mobileReaderPageTurnHaptics";
 import { mobileReaderPageBackgroundIsLight } from "@/lib/mobileReaderPageBackground";
 
 type MobileReaderGalleryState = {
@@ -2369,7 +2370,7 @@ export function MobileReaderGallery({
           pullStateRef.current = pulled.state;
           pullHeaderOpacity.value = mobileReaderStripPullHeaderOpacity(pulled.state.pull);
         }
-        if (pulled.haptic) void hapticSelection();
+        if (pulled.haptic && mobileReaderPageTurnHapticsEnabled()) void hapticSelection();
       }
       const metrics = {
         contentOffset: contentOffset.y,

@@ -1339,6 +1339,7 @@ export const mobileStringsJa: MobileStrings = {
     readerSlowSource: "読み込み中 · ソースの応答が遅いです",
     readerWaitingForNetwork: "ネットワークを待機中",
     displayKeepAwake: "画面を常に点灯",
+    displayPageTurnHaptics: "ページめくりの触覚",
     displayLockPortrait: "画面の向きをロック",
     technicalDetails: "技術的な詳細",
     viewAllInSource: "{{source}}ですべて表示",

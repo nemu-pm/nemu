@@ -1328,6 +1328,7 @@ export const mobileStringsEn: MobileStrings = {
     readerSlowSource: "Still loading · the source is slow",
     readerWaitingForNetwork: "Waiting for network",
     displayKeepAwake: "Keep screen awake",
+    displayPageTurnHaptics: "Page Turn Haptics",
     displayLockPortrait: "Orientation Lock",
     technicalDetails: "Technical details",
     viewAllInSource: "View all in {{source}}",

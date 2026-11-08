@@ -28,6 +28,7 @@ export type ReaderSettingsAction =
   | "page-pairing-mode"
   | "page-image-processing"
   | "keep-awake"
+  | "page-turn-haptics"
   | "lock-portrait"
   | "page-fit"
   | "page-background"
