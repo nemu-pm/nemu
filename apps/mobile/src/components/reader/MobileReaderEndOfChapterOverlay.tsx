@@ -14,7 +14,6 @@ import Animated, {
   FadeIn,
   FadeOut,
   ReduceMotion,
-  ZoomIn,
   useReducedMotion,
 } from "react-native-reanimated";
 import {
@@ -41,11 +40,6 @@ type MobileReaderEndOfChapterOverlayProps = {
   contentInsets?: { top: number; left: number; bottom: number; right: number } | null;
   busy?: boolean;
   error?: string | null;
-  /**
-   * End-of-chapter celebration: a bare success check with a spring scale-in.
-   * Owned by the 章节完成提示 settings toggle (default off).
-   */
-  celebration?: boolean;
   onGoToNextChapter: () => void;
   onDismiss: () => void;
 };
@@ -66,7 +60,6 @@ export function MobileReaderEndOfChapterOverlay({
   contentInsets = null,
   busy = false,
   error = null,
-  celebration = false,
   onGoToNextChapter,
   onDismiss,
 }: MobileReaderEndOfChapterOverlayProps) {
@@ -131,40 +124,21 @@ export function MobileReaderEndOfChapterOverlay({
             importantForAccessibility="yes"
             style={styles.heading}
           >
-            {celebration ? (
-              <Animated.View
-                entering={
-                  reducedMotion
-                    ? undefined
-                    : ZoomIn.springify().damping(15).stiffness(210)
+            <View
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+              style={styles.iconShell}
+            >
+              <Ionicons
+                name={
+                  caughtUp
+                    ? "checkmark-done-outline"
+                    : "arrow-forward-outline"
                 }
-                accessibilityElementsHidden
-                importantForAccessibility="no-hide-descendants"
-                style={styles.celebrationCheck}
-              >
-                <Ionicons
-                  name={caughtUp ? "checkmark-done" : "checkmark"}
-                  size={28}
-                  color={tokens.success}
-                />
-              </Animated.View>
-            ) : (
-              <View
-                accessibilityElementsHidden
-                importantForAccessibility="no-hide-descendants"
-                style={styles.iconShell}
-              >
-                <Ionicons
-                  name={
-                    caughtUp
-                      ? "checkmark-done-outline"
-                      : "arrow-forward-outline"
-                  }
-                  size={22}
-                  color={tokens.primary}
-                />
-              </View>
-            )}
+                size={22}
+                color={tokens.primary}
+              />
+            </View>
             <Text style={[styles.title, { color: tokens.foreground }]}>
               {caughtUp
                 ? strings.reader.endOfChapterCaughtUpTitle
@@ -274,12 +248,6 @@ const styles = StyleSheet.create({
   // The glyph is bare on purpose: transient reader feedback shows a tinted
   // symbol, never a boxed icon shell.
   iconShell: {
-    width: 42,
-    height: 42,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  celebrationCheck: {
     width: 42,
     height: 42,
     alignItems: "center",

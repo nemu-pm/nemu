@@ -1,7 +1,5 @@
 import { runMobileJapaneseLearningSpreadOcr } from "@/lib/mobileJapaneseLearningSpreadOcr";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
-import { ExploreChapterFinishedToast } from "@/components/explore/ExploreChapterFinishedToast";
-import { markMobileChapterFinished } from "@/components/explore/mobileChapterFinishedMoment";
 import {
   resolveMobileReaderRestorePosition,
   resolveMobileReaderRestoreSpot,
@@ -237,10 +235,6 @@ import {
 import { mobileReaderExitsAtEnd } from "@/lib/mobileReaderEndExit";
 import { ReaderChapterDivider } from "@/components/reader/ReaderChapterDivider";
 import {
-  ReaderChapterCrossingCapsule,
-  type ReaderChapterCrossingCapsuleState,
-} from "@/components/reader/ReaderChapterCrossingCapsule";
-import {
   buildMobileReaderPagedStrip,
   isMobileReaderPagedStripPlaceholderKey,
   mobileReaderPagedStripCrossing,
@@ -375,7 +369,7 @@ import {
   type LocalChapterProgress,
   type LocalMangaProgress,
 } from "@/data/schema";
-import { formatChapterRowLabel, formatChapterRowTitle, formatChapterShortLabel, formatChapterTitle } from "@/lib/formatChapter";
+import { formatChapterRowLabel, formatChapterRowTitle, formatChapterTitle } from "@/lib/formatChapter";
 import { getMobileChapterVolumeHeaders } from "@/lib/mobileExploreChapterList";
 import { getMobileReaderHardwareBackAction } from "@/lib/mobileReaderBackBehavior";
 import {
@@ -386,7 +380,6 @@ import {
 } from "@/lib/haptics";
 import {
   useInstalledSources,
-  useMobileFeedbackSettings,
   useMobileLanguageSettings,
   useMobileReaderPlugins,
   useReadingMode,
@@ -890,7 +883,6 @@ type JapaneseLearningTtsState =
     };
 
 /** The chapter-finished capsule rests under the reader's title capsule. */
-const CHAPTER_FINISHED_BELOW_INSET = 72;
 const EMPTY_READER_SOURCE_LANGUAGES: string[] = [];
 /** Top scrim: dark at the edge (status glyphs), gone by the feather below the row. */
 const READER_TOP_SCRIM_COLORS = [
@@ -1631,7 +1623,6 @@ export function ReaderScreen() {
     processPageImages,
     setProcessPageImages,
   } = useReadingMode();
-  const { chapterCompleteCelebration } = useMobileFeedbackSettings();
   const {
     ready: readerDisplayPrefsReady,
     keepAwake: readerKeepAwake,
@@ -6225,7 +6216,6 @@ export function ReaderScreen() {
     if (readerExitingAtEndRef.current) return;
     readerExitingAtEndRef.current = true;
     logReaderEndOfChapter(`exit reason=${reason} chapter=${chapterId}`);
-    if (chapterCompleteCelebration) void hapticConfirm();
     void persistEndOfChapterCompletion().then((persisted) => {
       if (persisted) {
         navigateBack();
@@ -6236,7 +6226,7 @@ export function ReaderScreen() {
       setEndOfChapterProgressSaved(false);
       setEndOfChapterPromptVisible(true);
     });
-  }, [chapterCompleteCelebration, chapterId, navigateBack, persistEndOfChapterCompletion]);
+  }, [chapterId, navigateBack, persistEndOfChapterCompletion]);
 
   const showEndOfChapterPrompt = useCallback((reason = "past-last-page") => {
     if (
@@ -6261,21 +6251,10 @@ export function ReaderScreen() {
         galleryPagedMode ? (isTwoPageMode ? " paged:spreads" : " paged:single") : ""
       }`,
     );
-    // Design-explore: reading past the last page always goes straight on to
-    // the next chapter (the setting's blocking card is gone), and a capsule
-    // marks the chapter just finished on the way in. The setting keeps its
-    // light tap. With no next chapter the caught-up card still shows.
-    if (mobileDesignExploreFlag && nextChapterInReadingOrder) {
-      const finished = formatChapterShortLabel(chapter, strings);
-      void persistEndOfChapterCompletion().then((persisted) => {
-        if (!persisted) return;
-        if (finished) markMobileChapterFinished(finished);
-        if (chapterCompleteCelebration) void hapticConfirm();
-        goToChapter(nextChapterInReadingOrder, { startAt: "start" });
-      });
-      return;
-    }
-    if (!chapterCompleteCelebration && nextChapterInReadingOrder) {
+    // Reading past the last page goes straight on into the next chapter,
+    // once it is saved as complete: a plain turn, no finishing moment. With
+    // no next chapter (locked, failed) the card says why.
+    if (nextChapterInReadingOrder) {
       void persistEndOfChapterCompletion().then((persisted) => {
         if (persisted) {
           goToChapter(nextChapterInReadingOrder, { startAt: "start" });
@@ -6285,12 +6264,10 @@ export function ReaderScreen() {
     }
     setEndOfChapterProgressSaved(false);
     setEndOfChapterPromptVisible(true);
-    if (chapterCompleteCelebration) void hapticConfirm();
     void persistEndOfChapterCompletion();
   }, [
     exitReaderAtEnd,
     chapter,
-    chapterCompleteCelebration,
     chapterId,
     galleryPagedMode,
     goToChapter,
@@ -6527,7 +6504,6 @@ export function ReaderScreen() {
     }
     if (readerStripCaughtUpCompletedRef.current === chapterId) return true;
     readerStripCaughtUpCompletedRef.current = chapterId;
-    if (chapterCompleteCelebration) void hapticConfirm();
     void persistProgressRef.current(true, visibleProgressPageIndex, {
       silent: true,
     }).catch(() => {
@@ -6537,7 +6513,7 @@ export function ReaderScreen() {
       }
     });
     return true;
-  }, [chapterCompleteCelebration, chapterId, exitReaderAtEnd, galleryPagedMode, readerStrip, visibleProgressPageIndex]);
+  }, [chapterId, exitReaderAtEnd, galleryPagedMode, readerStrip, visibleProgressPageIndex]);
 
   const stepContinuousReaderAccessibility = useCallback(
     (direction: "previous" | "next") => {
@@ -10653,12 +10629,7 @@ export function ReaderScreen() {
       chapterLocked: arriving.chapter.locked === true ? "true" : undefined,
     });
     if (galleryPagedMode) {
-      // Paged reading has no divider: a capsule names the chapter turned into.
-      setReaderChapterCrossingCapsule({
-        id: Date.now(),
-        // As the chapter's row in the chapter list says it.
-        title: formatChapterRowTitle(arriving.chapter, strings, { dropVolume: readerChapterListDropsVolume }),
-      });
+      // A plain turn: the title capsule names the chapter, nothing else plays.
       logReaderEndOfChapter(
         `paged crossing ${crossing.direction} ${chapterId} -> ${arrivingId} p${localIndex + 1}/${arrivingCount}`,
       );
@@ -10669,12 +10640,6 @@ export function ReaderScreen() {
   crossIntoReaderStripSegmentRef.current = crossIntoReaderStripSegment;
 
   // ---- Seamless paged reading: landing on another chapter's frame ---------
-  const [readerChapterCrossingCapsule, setReaderChapterCrossingCapsule] =
-    useState<ReaderChapterCrossingCapsuleState | null>(null);
-  const dismissReaderChapterCrossingCapsule = useCallback(
-    (id: number) => setReaderChapterCrossingCapsule((current) => (current?.id === id ? null : current)),
-    [],
-  );
   /** Moves the pager to a joined frame (any chapter's, or a placeholder). */
   const scrollToReaderPagedFrame = (frame: number, animated: boolean) => {
     const paged = readerPagedStripRef.current;
@@ -13846,17 +13811,6 @@ export function ReaderScreen() {
           or unfolding moves the reader between displays; a short toast
           confirms it continued at the same page. Never for rotation, book ⇄
           flat, resizes or non-foldables (`mobileDuoDisplayTransition`). */}
-      {/* Seamless paged reading: the chapter a page turn crossed into. */}
-      <ReaderChapterCrossingCapsule
-        capsule={readerChapterCrossingCapsule}
-        onDone={dismissReaderChapterCrossingCapsule}
-        topOffset={insets.top + 76}
-        insets={
-          readerNoticeFrame
-            ? { left: readerNoticeFrame.left + 12, right: readerNoticeFrame.right + 12 }
-            : undefined
-        }
-      />
       <ReaderPairingShiftToast
         toast={readerPairingShiftToast}
         onDone={dismissReaderPairingShiftToast}
@@ -13887,9 +13841,6 @@ export function ReaderScreen() {
         }
         strings={strings}
       />
-      {mobileDesignExploreFlag ? (
-        <ExploreChapterFinishedToast top={insets.top + CHAPTER_FINISHED_BELOW_INSET} strings={strings} />
-      ) : null}
       <MobileReaderEndOfChapterOverlay
         visible={endOfChapterPromptVisible}
         nextChapterLabel={nextChapterLabel}
@@ -13903,7 +13854,6 @@ export function ReaderScreen() {
         )}
         busy={endOfChapterProgressSaving}
         error={endOfChapterProgressError}
-        celebration={chapterCompleteCelebration}
         onGoToNextChapter={goToNextChapterFromPrompt}
         onDismiss={() => {
           if (endOfChapterProgressSaving) return;

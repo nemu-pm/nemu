@@ -1583,12 +1583,7 @@ function SourceUpdatesGroup({
  */
 function MobileFeedbackSettingsCard() {
   const strings = getMobileStrings(useMobileLanguageSettings().appLanguage);
-  const {
-    hapticsFeedbackEnabled,
-    chapterCompleteCelebration,
-    setHapticsFeedbackEnabled,
-    setChapterCompleteCelebration,
-  } = useMobileFeedbackSettings();
+  const { hapticsFeedbackEnabled, setHapticsFeedbackEnabled } = useMobileFeedbackSettings();
 
   return (
     <SettingsSurface
@@ -1612,15 +1607,6 @@ function MobileFeedbackSettingsCard() {
           value={hapticsFeedbackEnabled}
           onToggle={(nextValue) => {
             void setHapticsFeedbackEnabled(nextValue);
-          }}
-        />
-        <FeedbackSettingRow
-          underHeading
-          title={strings.feedback.chapterCompleteFeedback}
-          subtitle={strings.feedback.chapterCompleteFeedbackHint}
-          value={chapterCompleteCelebration}
-          onToggle={(nextValue) => {
-            void setChapterCompleteCelebration(nextValue);
           }}
         />
       </View>

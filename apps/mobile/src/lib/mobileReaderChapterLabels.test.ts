@@ -31,12 +31,9 @@ describe("the chapter capsule says the chapter as its list row does", () => {
     expect(formatChapterRowLabel({ id: "bare" } as ChapterSummary, strings, { dropVolume: false })).toBeNull();
   });
 
-  test("the row and both reader capsules make the same call", () => {
+  test("the row and the reader's title capsule make the same call", () => {
     expect(row).toContain("formatChapterRowTitle(chapter, strings, { dropVolume })");
     expect(reader).toContain("formatChapterRowLabel(chapter, strings, { dropVolume: readerChapterListDropsVolume })");
-    expect(reader).toContain(
-      "formatChapterRowTitle(arriving.chapter, strings, { dropVolume: readerChapterListDropsVolume })",
-    );
   });
 });
 
