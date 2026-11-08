@@ -15,20 +15,24 @@ import {
 export function ReaderCoverView({
   image,
   fadeMs,
+  skipEntering = false,
   accessibilityLabel,
   accessibilityHint,
   onToggleChrome,
 }: {
-  image: MobileReaderCoverViewImage;
+  /** Null while it is still being found: the display stays black, never a page. */
+  image: MobileReaderCoverViewImage | null;
   /** The crossfade in and out; 0 (Reduce Motion) swaps at once. */
   fadeMs: number;
+  /** The reader opened on the cover: the open transition is its entrance. */
+  skipEntering?: boolean;
   accessibilityLabel: string;
   accessibilityHint: string;
   onToggleChrome: () => void;
 }) {
   return (
     <Animated.View
-      entering={fadeMs > 0 ? FadeIn.duration(fadeMs) : undefined}
+      entering={fadeMs > 0 && !skipEntering ? FadeIn.duration(fadeMs) : undefined}
       exiting={fadeMs > 0 ? FadeOut.duration(fadeMs) : undefined}
       style={[StyleSheet.absoluteFill, styles.backdrop, styles.layer]}
       // The page underneath is out of VoiceOver's reach while the cover is up;
@@ -42,18 +46,20 @@ export function ReaderCoverView({
         onPress={onToggleChrome}
         style={StyleSheet.absoluteFill}
       >
-        <MobileCachedImage
-          uriOwnership={image.uriOwnership}
-          cacheKind={image.cacheKind}
-          source={{ uri: image.uri, headers: image.headers }}
-          // The layer itself fades; the image must not fade again inside it.
-          fadeIn={false}
-          fallback={<View style={[StyleSheet.absoluteFill, styles.backdrop]} />}
-          blurRadius={image.blurred ? MOBILE_READER_COVER_VIEW_PAGE_BLUR : undefined}
-          resizeMode="cover"
-          style={StyleSheet.absoluteFill}
-          accessible={false}
-        />
+        {image ? (
+          <MobileCachedImage
+            uriOwnership={image.uriOwnership}
+            cacheKind={image.cacheKind}
+            source={{ uri: image.uri, headers: image.headers }}
+            // The layer itself fades; the image must not fade again inside it.
+            fadeIn={false}
+            fallback={<View style={[StyleSheet.absoluteFill, styles.backdrop]} />}
+            blurRadius={image.blurred ? MOBILE_READER_COVER_VIEW_PAGE_BLUR : undefined}
+            resizeMode="cover"
+            style={StyleSheet.absoluteFill}
+            accessible={false}
+          />
+        ) : null}
       </Pressable>
     </Animated.View>
   );

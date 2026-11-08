@@ -246,6 +246,8 @@ export type UserSettings = {
   chapterCompleteCelebration?: boolean;
   /** Keep the screen awake while reading; `undefined` means enabled. */
   readerKeepAwake?: boolean;
+  /** What the Duo's outer display shows in the reader; `undefined` means the cover. */
+  readerOuterDisplayView?: "cover" | "pages";
   /** A tap with every page turn; `undefined` means disabled. */
   readerPageTurnHaptics?: boolean;
   /** Lock the reader to portrait; `undefined` means disabled. */

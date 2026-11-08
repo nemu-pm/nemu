@@ -1,9 +1,18 @@
 /**
  * The reader's cover view on the iPhone Duo's outer display (as Apple Books
- * there): a button heading the vertical bar's actions swaps the page for the
- * title's cover, full bleed across the whole display, and back. A session
- * choice only: every reader opens on the page.
+ * there): the title's cover, full bleed across the whole display, or the
+ * pages. A saved preference, the cover unless chosen otherwise; a button in the
+ * vertical bar sets it. The inner display always reads.
  */
+
+export type MobileReaderOuterDisplayView = "cover" | "pages";
+
+export const DEFAULT_READER_OUTER_DISPLAY_VIEW: MobileReaderOuterDisplayView = "cover";
+
+/** The saved value, or the default (the cover) when there is none. */
+export function normalizeReaderOuterDisplayView(value: unknown): MobileReaderOuterDisplayView {
+  return value === "pages" || value === "cover" ? value : DEFAULT_READER_OUTER_DISPLAY_VIEW;
+}
 
 export type MobileReaderCoverViewImage = {
   uri: string;
@@ -62,13 +71,39 @@ export function mobileReaderCoverViewAvailable(input: {
   return input.outerCanvas && input.image !== null;
 }
 
+export type MobileReaderCoverViewPhase = "cover" | "pending" | "reading";
+
 /**
- * The requested mode after a layout change: the cover exists only on the
- * outer display, so unfolding (or anything else that takes the toggle away)
- * returns to reading, and refolding does not bring the cover back.
+ * What the reader shows, from the saved view and where it is. Reading anywhere
+ * but the outer display; there, reading if that is the saved view or nothing
+ * can stand for the cover. `pending` holds a blank rather than flash a page
+ * while the saved view is unread, or the pages (whose first stands in for a
+ * missing cover) are still on their way.
  */
-export function mobileReaderNextCoverViewRequest(requested: boolean, available: boolean): boolean {
-  return requested && available;
+export function resolveMobileReaderCoverViewPhase(input: {
+  outerCanvas: boolean;
+  view: MobileReaderOuterDisplayView;
+  viewKnown: boolean;
+  image: MobileReaderCoverViewImage | null;
+  pagesSettled: boolean;
+}): MobileReaderCoverViewPhase {
+  if (!input.outerCanvas) return "reading";
+  if (!input.viewKnown) return "pending";
+  if (input.view === "pages") return "reading";
+  if (input.image) return "cover";
+  return input.pagesSettled ? "reading" : "pending";
+}
+
+/**
+ * Time on the cover isn't reading, so it saves nothing. A page that changed
+ * under it did get read: a fold that came mid-turn, which lands after it.
+ */
+export function mobileReaderCoverViewPausesProgress(input: {
+  coverShown: boolean;
+  pageIndex: number;
+  heldPageIndex: number;
+}): boolean {
+  return input.coverShown && input.pageIndex === input.heldPageIndex;
 }
 
 /**

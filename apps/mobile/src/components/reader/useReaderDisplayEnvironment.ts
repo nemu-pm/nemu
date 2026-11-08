@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as KeepAwake from "expo-keep-awake";
 import {
+  DEFAULT_READER_OUTER_DISPLAY_VIEW,
+  normalizeReaderOuterDisplayView,
+  type MobileReaderOuterDisplayView,
+} from "@/lib/mobileReaderCoverView";
+import {
   DEFAULT_READER_PAGE_TURN_HAPTICS,
   normalizeReaderPageTurnHaptics,
 } from "@/lib/mobileReaderPageTurnHaptics";
@@ -82,6 +87,10 @@ export function useReaderDisplayEnvironment({
   }, [keepOrientationRequested]);
 }
 
+// Known without waiting for storage once read: a chapter crossed remounts the
+// reader, which must not hold the page back behind a blank while it asks again.
+let lastReaderOuterDisplayView: MobileReaderOuterDisplayView | null = null;
+
 /**
  * Persisted reader display switches: keep-awake (default on), portrait lock
  * (default off), the outer display's camera area, page layout and page fit.
@@ -92,6 +101,11 @@ export function useReaderDisplayPrefs(): {
   /** Page Turn Haptics (default off). */
   pageTurnHaptics: boolean;
   setPageTurnHaptics: (enabled: boolean) => Promise<void>;
+  /** The outer display: the title's cover (default) or the pages. */
+  outerDisplayView: MobileReaderOuterDisplayView;
+  /** The saved view has been read (until then, the outer display waits for it). */
+  outerDisplayViewKnown: boolean;
+  setOuterDisplayView: (view: MobileReaderOuterDisplayView) => Promise<void>;
   lockPortrait: boolean;
   setLockPortrait: (enabled: boolean) => Promise<void>;
   /** The saved values have loaded (until then, the defaults). */
@@ -109,6 +123,12 @@ export function useReaderDisplayPrefs(): {
   const [keepAwake, setKeepAwakeState] = useState(DEFAULT_READER_KEEP_AWAKE);
   const [pageTurnHaptics, setPageTurnHapticsState] = useState(DEFAULT_READER_PAGE_TURN_HAPTICS);
   const pageTurnHapticsRun = useRef(0);
+  const [outerDisplayView, setOuterDisplayViewState] = useState<MobileReaderOuterDisplayView>(
+    lastReaderOuterDisplayView ?? DEFAULT_READER_OUTER_DISPLAY_VIEW,
+  );
+  const [outerDisplayViewKnown, setOuterDisplayViewKnown] = useState(lastReaderOuterDisplayView !== null);
+  const outerDisplayViewRun = useRef(0);
+  const savedOuterDisplayView = useRef(outerDisplayView);
   const savedPageTurnHaptics = useRef(DEFAULT_READER_PAGE_TURN_HAPTICS);
   const [lockPortrait, setLockPortraitState] = useState(
     DEFAULT_READER_LOCK_PORTRAIT,
@@ -137,6 +157,11 @@ export function useReaderDisplayPrefs(): {
         const nextKeepAwake = settings.readerKeepAwake ?? DEFAULT_READER_KEEP_AWAKE;
         setKeepAwakeState(nextKeepAwake);
         savedKeepAwake.current = nextKeepAwake;
+        const nextOuterDisplayView = normalizeReaderOuterDisplayView(settings.readerOuterDisplayView);
+        lastReaderOuterDisplayView = nextOuterDisplayView;
+        setOuterDisplayViewState(nextOuterDisplayView);
+        savedOuterDisplayView.current = nextOuterDisplayView;
+        setOuterDisplayViewKnown(true);
         const nextPageTurnHaptics = normalizeReaderPageTurnHaptics(settings.readerPageTurnHaptics);
         setPageTurnHapticsState(nextPageTurnHaptics);
         savedPageTurnHaptics.current = nextPageTurnHaptics;
@@ -180,6 +205,31 @@ export function useReaderDisplayPrefs(): {
       }
     },
     [keepAwake, store],
+  );
+
+  const setOuterDisplayView = useCallback(
+    async (view: MobileReaderOuterDisplayView) => {
+      if (view === outerDisplayView) return;
+      const run = outerDisplayViewRun.current + 1;
+      outerDisplayViewRun.current = run;
+      lastReaderOuterDisplayView = view;
+      setOuterDisplayViewState(view);
+      try {
+        await store.updateSettings((settings) => ({
+          ...settings,
+          readerOuterDisplayView: view,
+        }));
+        savedOuterDisplayView.current = view;
+        emitMobileDataChanged("settings");
+      } catch (error) {
+        if (outerDisplayViewRun.current === run) {
+          lastReaderOuterDisplayView = savedOuterDisplayView.current;
+          setOuterDisplayViewState(savedOuterDisplayView.current);
+        }
+        throw error;
+      }
+    },
+    [outerDisplayView, store],
   );
 
   const setPageTurnHaptics = useCallback(
@@ -295,6 +345,9 @@ export function useReaderDisplayPrefs(): {
     setKeepAwake,
     pageTurnHaptics,
     setPageTurnHaptics,
+    outerDisplayView,
+    outerDisplayViewKnown,
+    setOuterDisplayView,
     lockPortrait,
     setLockPortrait,
     spreadMode,

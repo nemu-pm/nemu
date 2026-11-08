@@ -219,6 +219,7 @@ import {
 import {
   mobileReaderOrientationLockAvailable,
   mobileReaderOrientationRequest,
+  mobileWindowOnInnerDisplay,
 } from "@/lib/mobileOrientationPolicy";
 import { useMobileDeviceFormFactor } from "@/lib/mobileOrientationStore";
 import { mobileAdaptiveLayout } from "@/lib/mobileAdaptiveLayout";
@@ -229,7 +230,8 @@ import {
   mobileReaderCoverViewAvailable,
   mobileReaderCoverViewBarChromeShown,
   mobileReaderCoverViewFadeMs,
-  mobileReaderNextCoverViewRequest,
+  mobileReaderCoverViewPausesProgress,
+  resolveMobileReaderCoverViewPhase,
   resolveMobileReaderCoverViewImage,
 } from "@/lib/mobileReaderCoverView";
 import { mobileReaderExitsAtEnd } from "@/lib/mobileReaderEndExit";
@@ -1635,6 +1637,9 @@ export function ReaderScreen() {
     setKeepAwake: setReaderKeepAwake,
     pageTurnHaptics: readerPageTurnHaptics,
     setPageTurnHaptics: setReaderPageTurnHaptics,
+    outerDisplayView: readerOuterDisplayView,
+    outerDisplayViewKnown: readerOuterDisplayViewKnown,
+    setOuterDisplayView: setReaderOuterDisplayView,
     lockPortrait: readerLockPortrait,
     setLockPortrait: setReaderLockPortrait,
     spreadMode: readerSpreadMode,
@@ -1921,9 +1926,11 @@ export function ReaderScreen() {
     setMobileReaderPageTurnHapticsEnabled(readerPageTurnHaptics);
     return () => setMobileReaderPageTurnHapticsEnabled(false);
   }, [readerPageTurnHaptics]);
+  // The cover isn't reading: a closed Duo resting on it may sleep.
+  const [readerCoverAllowsSleep, setReaderCoverAllowsSleep] = useState(false);
   useReaderDisplayEnvironment({
     keepAwakeEnabled: readerKeepAwake,
-    keepAwakeReady: pagesState.status === "ready",
+    keepAwakeReady: pagesState.status === "ready" && !readerCoverAllowsSleep,
     // Only while the reader is the screen on top: a reader left mounted in
     // another tab's stack must not hold the Library or Browse portrait.
     portraitRequested: readerIsFocused && readerOrientationRequest.portrait,
@@ -3191,12 +3198,13 @@ export function ReaderScreen() {
   });
   const outerReaderCanvas = readerSideBar && readerWindowLayout.hinge === "closed"
     && readerWindowLayout.fillsScreen !== false;
-  // Outer display: the bar's book button swaps the page for the title's cover
-  // (Apple Books there). A session choice, never saved: every reader opens on
-  // the page. It shows only on the outer canvas; leaving it (unfold, book
-  // posture) returns to reading. The reading position is never touched.
+  // Outer display: the saved view (the bar's book button sets it) is the
+  // title's cover (Apple Books there; the default) or the pages. It shows only
+  // on the outer canvas: the inner display always reads. The reading position
+  // is never touched. Looked up on the inner display too, so a fold finds the
+  // cover ready instead of its blurred stand-in.
   const readerCoverViewTitleCover = useReaderTitleCover({
-    enabled: outerReaderCanvas,
+    enabled: outerReaderCanvas || mobileWindowOnInnerDisplay(readerWindowLayout),
     entry: state.entry,
     installedSources: installedReaderSources.data,
     routeSource: selectedInstalledSource,
@@ -3212,14 +3220,28 @@ export function ReaderScreen() {
     outerCanvas: outerReaderCanvas,
     image: readerCoverViewImage,
   });
-  const [readerCoverViewRequested, setReaderCoverViewRequested] = useState(false);
-  if (readerCoverViewRequested !== mobileReaderNextCoverViewRequest(readerCoverViewRequested, readerCoverViewAvailable)) {
-    setReaderCoverViewRequested(false);
-  }
-  const readerCoverViewShown = readerCoverViewRequested && readerCoverViewAvailable;
+  const readerCoverViewPhase = resolveMobileReaderCoverViewPhase({
+    outerCanvas: outerReaderCanvas,
+    view: readerOuterDisplayView,
+    viewKnown: readerOuterDisplayViewKnown,
+    image: readerCoverViewImage,
+    pagesSettled: pagesState.status !== "idle" && pagesState.status !== "loading",
+  });
+  const readerCoverViewShown = readerCoverViewPhase !== "reading";
+  useEffect(() => {
+    setReaderCoverAllowsSleep(readerCoverViewShown);
+  }, [readerCoverViewShown]);
+  // Opened on the cover, the open transition lands on it: no fade on top.
+  const [readerCoverViewOpenedOn] = useState(readerCoverViewShown);
   // The cover's own tap toggle for the system chrome (status bar, Back and the
   // toggle): the reading HUD's state and its auto-hide stay out of it.
   const [readerCoverChromeShown, setReaderCoverChromeShown] = useState(true);
+  // Every arrival on the cover (a fold, the toggle) starts with its chrome.
+  const [readerCoverViewWasShown, setReaderCoverViewWasShown] = useState(readerCoverViewShown);
+  if (readerCoverViewWasShown !== readerCoverViewShown) {
+    setReaderCoverViewWasShown(readerCoverViewShown);
+    if (readerCoverViewShown) setReaderCoverChromeShown(true);
+  }
   const readerBarChromeShown = mobileReaderCoverViewBarChromeShown({
     coverShown: readerCoverViewShown,
     coverChromeShown: readerCoverChromeShown,
@@ -5023,8 +5045,19 @@ export function ReaderScreen() {
   // Progress is saved only once the reader rests where it was restored to.
   const readerProgressRestoreComplete =
     readerRestoreComplete && !readerScrollLandingPending;
+  // Time on the cover isn't reading: nothing is saved for it, while a turn
+  // that lands under it (the fold came mid-turn) still is.
+  const readerCoverHeldPageRef = useRef(visibleProgressPageIndex);
+  if (!readerCoverViewShown || !readerProgressRestoreComplete) {
+    readerCoverHeldPageRef.current = visibleProgressPageIndex;
+  }
+  const readerCoverPausesProgress = mobileReaderCoverViewPausesProgress({
+    coverShown: readerCoverViewShown,
+    pageIndex: visibleProgressPageIndex,
+    heldPageIndex: readerCoverHeldPageRef.current,
+  });
   const silentProgressPersistenceKey =
-    readerProgressRestoreComplete && readerProgressLoadedFor === chapterId
+    readerProgressRestoreComplete && readerProgressLoadedFor === chapterId && !readerCoverPausesProgress
     ? mobileReaderProgressPersistenceKey(
         restoreReaderKey,
         visibleProgressPageIndex,
@@ -6587,14 +6620,14 @@ export function ReaderScreen() {
   // auto-hide, so it never hides the HUD on the way back.
   const toggleReaderCoverView = useCallback(() => {
     if (readerCoverViewShown) {
-      setReaderCoverViewRequested(false);
+      void setReaderOuterDisplayView("pages").catch(() => undefined);
       setShowControls(true);
       return;
     }
     readerChromeAutoHideKeyRef.current = readerChromeAutoHideKey;
     setReaderCoverChromeShown(true);
-    setReaderCoverViewRequested(true);
-  }, [readerChromeAutoHideKey, readerCoverViewShown, setShowControls]);
+    void setReaderOuterDisplayView("cover").catch(() => undefined);
+  }, [readerChromeAutoHideKey, readerCoverViewShown, setReaderOuterDisplayView, setShowControls]);
   const toggleReaderCoverChrome = useCallback(() => {
     setReaderCoverChromeShown((value) => !value);
   }, []);
@@ -6722,6 +6755,7 @@ export function ReaderScreen() {
 
   useEffect(() => {
     if (!japaneseLearningReaderPlugin) return;
+    if (readerCoverViewShown) return;
     if (
       japaneseLearningReaderPlugin.values.autoDetect !== true &&
       !japaneseLearningVisiblePagesOcrCached
@@ -6744,6 +6778,7 @@ export function ReaderScreen() {
     japaneseLearningAutoOcrPageRef.current = pageKey;
     startJapaneseLearningOcr({ silent: true });
   }, [
+    readerCoverViewShown,
     currentDisplayedPage,
     currentDisplayedPageKey,
     japaneseLearningVisiblePageKey,
@@ -9257,6 +9292,11 @@ export function ReaderScreen() {
   useEffect(() => {
     return () => flushPendingReaderProgressRef.current();
   }, []);
+  // A turn still in its debounce when the cover arrives was read: it is saved
+  // now, before the pause below drops the timer.
+  useLayoutEffect(() => {
+    if (readerCoverViewShown) flushPendingReaderProgressRef.current();
+  }, [readerCoverViewShown]);
 
   useEffect(() => {
     if (!silentProgressPersistenceKey) return;
@@ -9451,6 +9491,7 @@ export function ReaderScreen() {
   useEffect(() => {
     if (pagesState.status !== "ready") return;
     if (!readerProgressRestoreComplete) return;
+    if (readerCoverPausesProgress) return;
     if (
       pageCount === 1 &&
       !shouldCompleteSingleImageReaderPage({
@@ -9481,6 +9522,7 @@ export function ReaderScreen() {
     }
     void persistProgress(true, visibleProgressPageIndex, { silent: true });
   }, [
+    readerCoverPausesProgress,
     completed,
     displayedPages,
     mode,
@@ -13810,10 +13852,11 @@ export function ReaderScreen() {
       )}
 
       {readerChromeMounted ? renderReaderChrome() : null}
-      {readerCoverViewShown && readerCoverViewImage ? (
+      {readerCoverViewShown ? (
         <ReaderCoverView
           image={readerCoverViewImage}
           fadeMs={mobileReaderCoverViewFadeMs(reduceMotion)}
+          skipEntering={readerCoverViewOpenedOn}
           accessibilityLabel={mangaTitle
             ? formatMobileString(strings.reader.coverViewAccessibility, { title: mangaTitle })
             : strings.reader.coverViewAccessibilityUntitled}
