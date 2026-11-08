@@ -55,7 +55,6 @@ export { default as SheetProgressObserver } from "./src/SheetProgressObserver";
 
 export { NativeSegmentedControl } from "./src/SegmentedControl";
 
-export { NativeBlurView } from "./src/BlurView";
 export { ScrollEdgeElement } from "./src/ScrollEdgeElement";
 
 export { ConcentricView } from "./src/ConcentricView";

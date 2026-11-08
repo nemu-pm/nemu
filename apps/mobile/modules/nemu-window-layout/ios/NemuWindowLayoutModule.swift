@@ -26,9 +26,6 @@ public final class NemuWindowLayoutModule: Module {
       ViewModifierRegistry.register(NemuZeroTopScrollContentMarginModifier.type) { _, _, _ in
         NemuZeroTopScrollContentMarginModifier()
       }
-      ViewModifierRegistry.register(NemuScrollEdgeEffectHiddenModifier.type) { _, _, _ in
-        NemuScrollEdgeEffectHiddenModifier()
-      }
       // A sheet as tall as its page, measured before it presents: see
       // `NemuFitSheetDetentModifier`, `NemuReportSheetContentHeightModifier`
       // and `NemuMeasureSheetPageModifier`.
@@ -75,7 +72,6 @@ public final class NemuWindowLayoutModule: Module {
       ViewModifierRegistry.unregister(NemuSheetCenteredTitleModifier.type)
       ViewModifierRegistry.unregister(NemuPresentationPlacementModifier.type)
       ViewModifierRegistry.unregister(NemuZeroTopScrollContentMarginModifier.type)
-      ViewModifierRegistry.unregister(NemuScrollEdgeEffectHiddenModifier.type)
       ViewModifierRegistry.unregister(NemuFitSheetDetentModifier.type)
       ViewModifierRegistry.unregister(NemuReportSheetContentHeightModifier.type)
       ViewModifierRegistry.unregister(NemuMeasureSheetPageModifier.type)
@@ -265,13 +261,6 @@ public final class NemuWindowLayoutModule: Module {
     }
     Constant("nameAlertViewAvailable") { true }
     View(NemuNameAlertView.self)
-    // A partial-intensity blur that re-applies its effect (see NemuBlurView):
-    // the scroll edge bands, where expo-blur's BlurView could stay empty.
-    Constant("blurViewAvailable") { true }
-    View(NemuBlurView.self) {
-      Prop("intensity") { (view: NemuBlurView, intensity: Double) in view.intensity = intensity }
-      Prop("tint") { (view: NemuBlurView, tint: String) in view.style = NemuBlurView.style(named: tint) }
-    }
     // Marks chrome over a scroll view's edge, so UIKit's soft edge effect forms
     // under it (see NemuScrollEdgeElementView).
     Constant("scrollEdgeElementAvailable") { true }
@@ -893,23 +882,6 @@ struct NemuZeroTopScrollContentMarginModifier: ViewModifier {
   func body(content: Content) -> some View {
     if #available(iOS 17.0, *) {
       content.contentMargins(.top, 0, for: .scrollContent)
-    } else {
-      content
-    }
-  }
-}
-
-/// `scrollEdgeEffectHidden(true, for: .vertical)` (iOS 26): a Form beside the
-/// Duo's vertical bar draws no system top / bottom edge, as the stack screens'
-/// own `scrollEdgeEffects` are `hidden` there (`nativeHeaderChrome.ts`); the
-/// page lays the app's band over it instead (`NemuScrollEdgeSurface`). Earlier
-/// systems have no scroll edge effect to hide.
-struct NemuScrollEdgeEffectHiddenModifier: ViewModifier {
-  static let type = "nemuScrollEdgeEffectHidden"
-
-  func body(content: Content) -> some View {
-    if #available(iOS 26.0, *) {
-      content.scrollEdgeEffectHidden(true, for: .vertical)
     } else {
       content
     }
@@ -3870,12 +3842,10 @@ final class NemuZoomTargetView: ExpoView {
 /// Re-applied whenever the screen comes back on screen.
 final class NemuContentScrollMarkerView: ExpoView {
   /// Register the list for the top edge too. Off beside the Duo's vertical
-  /// bar: there the top edge's system effect is hidden and the page draws its
-  /// own band under the bar's title (NemuScrollEdgeSurface), and a registered
-  /// top content scroll view made the bar track the list itself (the title
-  /// hid on scroll and the page's band never showed over the list, unlike on
-  /// every page without a marker). Cleared, not left registered, when it
-  /// turns off (a fold that brings the vertical bar).
+  /// bar: a registered top content scroll view made the bar track the list
+  /// itself there (the title hid on scroll, unlike on every page without a
+  /// marker). Cleared, not left registered, when it turns off (a fold that
+  /// brings the vertical bar).
   var topEdge = true
 
   override func didMoveToWindow() {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { NEMU_SOFT_SCROLL_EDGE_EFFECTS, resolveNemuNativeScrollEdgeEffects, resolveNemuNativeHeaderChrome } from "./nativeHeaderChrome";
+import { NEMU_SOFT_SCROLL_EDGE_EFFECTS, resolveNemuNativeHeaderChrome } from "./nativeHeaderChrome";
 
 describe("native header chrome defaults", () => {
   test("iOS: see-through header with soft top and bottom scroll edges", () => {
@@ -23,27 +23,8 @@ describe("native header chrome defaults", () => {
 });
 
 
-describe("native scroll edges follow toolbar placement", () => {
-  test("vertical bars leave the top and bottom content clear", () => {
-    for (const side of ["left", "right"] as const) {
-      const effects = resolveNemuNativeScrollEdgeEffects(side);
-      expect(effects).toEqual({ top: "hidden", bottom: "hidden", left: "soft", right: "soft" });
-      expect(resolveNemuNativeHeaderChrome("ios", "#000", side)).toMatchObject({ scrollEdgeEffects: effects });
-    }
-  });
-  test("moving bars back to horizontal restores their soft edges", () => {
-    expect(resolveNemuNativeScrollEdgeEffects(null)).toEqual(NEMU_SOFT_SCROLL_EDGE_EFFECTS);
-  });
-  test("Android remains opaque even if a bar side is supplied", () => {
-    expect(resolveNemuNativeHeaderChrome("android", "#000", "right")).toEqual({ headerStyle: { backgroundColor: "#000" } });
-  });
-});
-
 describe("native scroll edges never fall back to the SDK default", () => {
-  test("no edge is automatic or hard, whatever the bar placement (iOS 27 resolves automatic to hard)", () => {
-    for (const side of [null, "left", "right"] as const) {
-      const edges: string[] = Object.values(resolveNemuNativeScrollEdgeEffects(side));
-      expect(edges.filter((edge) => edge === "automatic" || edge === "hard")).toEqual([]);
-    }
+  test("every edge is soft, never automatic or hidden (iOS 27 resolves automatic to hard)", () => {
+    expect(Object.values(NEMU_SOFT_SCROLL_EDGE_EFFECTS)).toEqual(["soft", "soft", "soft", "soft"]);
   });
 });

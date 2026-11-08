@@ -17,9 +17,7 @@ import { resolveMobileBottomScrollEdgeEffect } from "@/lib/mobileScrollEdgeEffec
  * bar — the native host drops its RenderEffect and costs nothing.
  *
  * iOS renders the children untouched: its native bars own the system scroll
- * edge effects, and where none exists (beside the Duo's vertical bar, under a
- * bar a page draws) each page scroll container draws its own bands, under the
- * bar and over the content (`NemuScrollEdgeSurface`).
+ * edge effects, and `ScrollEdgeElement` forms them where no bar does.
  */
 export function MobileScrollEdgeEffectHost({ children }: { children: ReactNode }) {
   if (Platform.OS !== "android") return <>{children}</>;

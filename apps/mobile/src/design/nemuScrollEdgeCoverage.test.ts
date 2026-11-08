@@ -3,9 +3,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 /**
- * Every scrolling surface of the listed screens takes the shared soft edge
- * (`useNemuScrollEdge`): page scroll views go through `PageScaffold` /
- * `PageListScaffold` (which draw `NemuScrollEdgeSurface`), RN-drawn sheet
+ * Every scrolling surface of the listed screens takes the native soft edge:
+ * page scroll views go through `PageScaffold` / `PageListScaffold` (a screen's
+ * `scrollEdgeEffects` reach them, `nativeHeaderChrome.ts`), RN-drawn sheet
  * bodies through `NemuSheetScrollEdge` (`{...edge}` spread on the scroll
  * view), SwiftUI forms through `nemuSoftScrollEdge()`. A raw vertical
  * ScrollView / FlatList / SectionList, or a SwiftUI Form without the soft
@@ -58,12 +58,6 @@ describe("soft scroll edge coverage", () => {
       const opening = source.slice(form.index!, form.index! + 400);
       expect(opening).toMatch(/nemuSoftScrollEdge\(\)|scrollEdgeEffectStyle\("soft"/);
     }
-  });
-
-  test("the page scaffolds draw the shared edge surface around their scroll view", () => {
-    const scaffold = readFileSync(join(SRC, "design-system/components/PageScaffold.tsx"), "utf8");
-    expect(scaffold.match(/<NemuScrollEdgeSurface\b/g)?.length).toBe(2);
-    expect(rawVerticalScrollViews(scaffold.replace(/<NemuScrollEdgeSurface[\s\S]*?<\/NemuScrollEdgeSurface>/g, ""))).toEqual([]);
   });
 
   test("the guard catches a raw vertical list", () => {
