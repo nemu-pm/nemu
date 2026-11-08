@@ -185,7 +185,8 @@ export function MobileAddSourcesStack({
 
   // A horizontal bar: the filter leading, ✕ trailing. A vertical bar (the Duo's
   // outer display; a sheet on regular widths keeps a horizontal one): ✕ at the
-  // top of the axis, then the action (Apple's order for vertical controls).
+  // top of the axis, then the action (Apple's order for vertical controls: the
+  // system stacks a trailing group from its last item down).
   const verticalBar = verticalBarSide !== null && !regularWidth;
   const filterItem = (
     <SwiftToolbarItem placement={verticalBar ? "topBarTrailing" : "topBarLeading"}>
@@ -215,11 +216,11 @@ export function MobileAddSourcesStack({
       <SwiftToolbar>
         <SwiftGroup modifiers={STACK_ROOT_MODIFIERS}>{children}</SwiftGroup>
         <SwiftToolbar.Content>
-          {verticalBar ? closeItem : filterItem}
+          {filterItem}
           <SwiftToolbarItem placement="principal">
             <SwiftText modifiers={[font({ textStyle: "headline" }), lineLimit(1)]}>{title}</SwiftText>
           </SwiftToolbarItem>
-          {verticalBar ? filterItem : closeItem}
+          {closeItem}
         </SwiftToolbar.Content>
       </SwiftToolbar>
       <SwiftNavigationDestination value={ADD_DIRECTORY_PAGE}>
