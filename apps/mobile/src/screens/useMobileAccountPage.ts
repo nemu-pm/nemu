@@ -18,7 +18,6 @@ import {
   shouldLeaveMobileAccountPages,
 } from "@/lib/mobileAccountSignedOut";
 import { mobileAuthClient } from "@/sync/mobileAuthClient";
-import { requestMobileAppleAuthorizationCode } from "@/sync/mobileAppleSignIn";
 import { normalizeMobileOAuthProvider } from "@/sync/mobileOAuthProvider";
 import { isMobileSyncBackendKnownOutdated, mobileConvexRef } from "@/sync/mobileSyncRuntime";
 import { api } from "../../../../convex/_generated/api";
@@ -116,7 +115,6 @@ export function useMobileAccountPage({
     try {
       const outcome = await runMobileAccountDeletion({
         deleteMyAccount: (args) => client.action(api.accountDeletion.deleteMyAccount, args),
-        requestAppleAuthorizationCode: requestMobileAppleAuthorizationCode ?? undefined,
         signOutLocally: () => cloudSignOut.signOut(KEEP_DEVICE_DATA_AFTER_ACCOUNT_DELETION),
         backendOutdated: isMobileSyncBackendKnownOutdated,
       });

@@ -11,11 +11,8 @@ import {
   resolveMobileOAuthSignInOutcome,
   MOBILE_APPLE_SYSTEM_SHEET_GRACE_MS,
   MOBILE_OAUTH_SESSION_MAX_MS,
-  isMobileNativeAppleReady,
-  runMobileNativeAppleSignIn,
   watchMobileOAuthSession,
   withMobileAuthDeadline,
-  type MobileAppleCredential,
 } from "./mobileOAuthProvider";
 import { signOutAndUnregisterMobileBackgroundSync } from "./mobileBackgroundSyncLifecycle";
 
@@ -270,6 +267,10 @@ describe("watchMobileOAuthSession", () => {
     expect(watch.dismissals()).toBe(1);
   });
 
+  it("gives someone on Apple's form 20 seconds", () => {
+    expect(MOBILE_APPLE_SYSTEM_SHEET_GRACE_MS).toBe(20 * 1000);
+  });
+
   it("does not close a session that finished inside the grace period", () => {
     const watch = setup();
     watch.send("inactive", "active", "inactive", "active");
@@ -324,150 +325,5 @@ describe("withMobileAuthDeadline", () => {
     await expect(
       withMobileAuthDeadline(Promise.reject(new Error("no")), 1000, "late"),
     ).rejects.toThrow("no");
-  });
-});
-
-describe("isMobileNativeAppleReady", () => {
-  it("needs the backend to verify tokens for this very app", () => {
-    expect(isMobileNativeAppleReady("pm.nemu", "pm.nemu")).toBe(true);
-    expect(isMobileNativeAppleReady("pm.nemu", "pm.nemu.mobile")).toBe(false);
-    expect(isMobileNativeAppleReady(null, "pm.nemu")).toBe(false);
-    expect(isMobileNativeAppleReady(undefined, undefined)).toBe(false);
-  });
-});
-
-describe("runMobileNativeAppleSignIn", () => {
-  const credential: MobileAppleCredential = {
-    identityToken: "token",
-    authorizationCode: "code",
-    email: null,
-    fullName: null,
-  };
-  type Deps = Parameters<typeof runMobileNativeAppleSignIn>[0];
-  function deps(overrides: Partial<Deps> = {}): Deps {
-    return {
-      isAvailable: async () => true,
-      isBackendReady: async () => true,
-      createNonce: () => "raw-nonce",
-      hashNonce: async (nonce: string) => `hashed-${nonce}`,
-      requestCredential: async () => credential,
-      signInWithIdToken: async () => ({ error: null }),
-      ...overrides,
-    };
-  }
-
-  it("keeps the web flow, without a sheet, until the backend is ready", async () => {
-    let requested = false;
-    const outcome = await runMobileNativeAppleSignIn(
-      deps({
-        isBackendReady: async () => false,
-        requestCredential: async () => {
-          requested = true;
-          return credential;
-        },
-      }),
-    );
-    expect(outcome.kind).toBe("use-web");
-    expect(requested).toBe(false);
-  });
-
-  it("keeps the web flow if the capability lookup itself fails", async () => {
-    const outcome = await runMobileNativeAppleSignIn(
-      deps({
-        isBackendReady: async () => {
-          throw new Error("Could not find public function");
-        },
-      }),
-    );
-    expect(outcome.kind).toBe("use-web");
-  });
-
-  it("returns quietly when the user cancels the system sheet", async () => {
-    let signedIn = false;
-    const outcome = await runMobileNativeAppleSignIn(
-      deps({
-        requestCredential: async () => {
-          throw Object.assign(new Error("canceled"), { code: "ERR_REQUEST_CANCELED" });
-        },
-        signInWithIdToken: async () => {
-          signedIn = true;
-          return { error: null };
-        },
-      }),
-    );
-    expect(outcome).toEqual({ kind: "cancelled" });
-    expect(signedIn).toBe(false);
-  });
-
-  it("uses the web flow when the sheet fails for any other reason", async () => {
-    const outcome = await runMobileNativeAppleSignIn(
-      deps({
-        requestCredential: async () => {
-          throw Object.assign(new Error("unknown"), { code: "ERR_REQUEST_UNKNOWN" });
-        },
-      }),
-    );
-    expect(outcome.kind).toBe("use-web");
-  });
-
-  it("hashes the nonce for Apple and sends the raw one to the backend", async () => {
-    let hashedNonce = "";
-    let payload: unknown;
-    await runMobileNativeAppleSignIn(
-      deps({
-        requestCredential: async (nonce) => {
-          hashedNonce = nonce;
-          return credential;
-        },
-        signInWithIdToken: async (idToken) => {
-          payload = idToken;
-          return { error: null };
-        },
-      }),
-    );
-    expect(hashedNonce).toBe("hashed-raw-nonce");
-    expect(payload).toEqual({ token: "token", nonce: "raw-nonce" });
-  });
-
-  it("passes the first authorization's name and email along", async () => {
-    let payload: unknown;
-    await runMobileNativeAppleSignIn(
-      deps({
-        requestCredential: async () => ({
-          ...credential,
-          email: "a@privaterelay.appleid.com",
-          fullName: { givenName: "A", familyName: null },
-        }),
-        signInWithIdToken: async (idToken) => {
-          payload = idToken;
-          return { error: null };
-        },
-      }),
-    );
-    expect(payload).toEqual({
-      token: "token",
-      nonce: "raw-nonce",
-      user: {
-        email: "a@privaterelay.appleid.com",
-        name: { firstName: "A", lastName: undefined },
-      },
-    });
-  });
-
-  it("falls back to the web flow when the backend rejects the token", async () => {
-    const outcome = await runMobileNativeAppleSignIn(
-      deps({
-        signInWithIdToken: async () => ({ error: { status: 401, code: "INVALID_TOKEN" } }),
-      }),
-    );
-    expect(outcome.kind).toBe("use-web");
-  });
-
-  it("reports a network failure instead of opening a browser that would fail too", async () => {
-    const error = { status: 503, message: "MOBILE_AUTH_NETWORK_UNAVAILABLE" };
-    const outcome = await runMobileNativeAppleSignIn(
-      deps({ signInWithIdToken: async () => ({ error }) }),
-    );
-    expect(outcome).toEqual({ kind: "completed", result: { error } });
   });
 });

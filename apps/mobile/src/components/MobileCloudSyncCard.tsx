@@ -65,10 +65,8 @@ import {
 } from "@/sync/mobileOAuthProvider";
 import {
   dismissMobileAuthSession,
-  prefetchMobileNativeAppleReadiness,
   runMobileWebOAuthSession,
-  signInWithMobileNativeApple,
-} from "@/sync/mobileAppleSignIn";
+} from "@/sync/mobileOAuthSession";
 import { useMobileDataStore } from "@/data/mobileDataContext";
 import { clearMobileAidokuSandboxDataForProfile } from "@/sources/mobileAidokuSandboxData";
 import {
@@ -164,10 +162,6 @@ function MobileCloudSyncConfiguredCard({
     isLoading: convexAuthLoading,
   } = useConvexAuth();
   const user = session?.user;
-  const signedOut = !isPending && !user;
-  useEffect(() => {
-    if (signedOut) prefetchMobileNativeAppleReadiness();
-  }, [signedOut]);
   const signedIn = Boolean(user);
   const convexAuthStalled =
     signedIn && !convexAuthLoading && !convexAuthenticated;
@@ -437,20 +431,12 @@ function MobileCloudSyncConfiguredCard({
     mobileProfileSwitchLanding.hold();
     let signedInNow = false;
     try {
-      // Apple goes through the system sheet once the backend can take it; a
-      // cancel there is back in the app already. Everything else is the web
-      // flow, whose session is watched so that it cannot outlive the attempt.
-      const native = provider === "apple" ? await signInWithMobileNativeApple() : null;
-      if (native?.kind === "cancelled") return;
-      const result =
-        native?.kind === "completed"
-          ? native.result
-          : await runMobileWebOAuthSession(provider, () =>
-              mobileAuthClient.signIn.social({
-                provider,
-                callbackURL: "/settings",
-              }),
-            );
+      const result = await runMobileWebOAuthSession(provider, () =>
+        mobileAuthClient.signIn.social({
+          provider,
+          callbackURL: "/settings",
+        }),
+      );
       if (result.error) {
         setError({
           title: strings.settings.cloudSyncSignInFailed,

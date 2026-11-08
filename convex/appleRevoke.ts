@@ -62,20 +62,6 @@ export function appleClientFor(kind: AppleClientKind, env: AppleEnv): AppleClien
     : { clientId: env.APPLE_CLIENT_ID, clientSecret: env.APPLE_CLIENT_SECRET };
 }
 
-/**
- * The bundle id native sign-in verifies identity tokens against, once the app
- * may use it: a native account also needs the native client to revoke at
- * deletion, since sign-in stores no Apple token for it.
- */
-export function nativeAppleBundleId(env: AppleEnv): string | null {
-  const ready =
-    env.APPLE_CLIENT_ID &&
-    env.APPLE_CLIENT_SECRET &&
-    env.APPLE_APP_BUNDLE_ID &&
-    env.APPLE_NATIVE_CLIENT_SECRET;
-  return ready ? env.APPLE_APP_BUNDLE_ID! : null;
-}
-
 /** Picks the client matching the token audience; falls back to `fallback`. */
 export function appleClientForAudience(
   audience: string | null,
