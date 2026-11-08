@@ -1,6 +1,10 @@
 vendor_dir = File.join(__dir__, 'Vendor')
 ichiran_vendored = File.exist?(File.join(vendor_dir, 'IchiranKernel.xcframework', 'Info.plist')) &&
   !Dir.glob(File.join(vendor_dir, 'IchiranSwift', '*.swift')).empty?
+# Ichiran kernel (~80 MB, gitignored), materialised by
+# scripts/vendor-ichiran.sh. Without it the pod still builds and sentence
+# analysis needs the cloud, so signed out there is no word breakdown; Release
+# builds refuse to build without it (NEMU_ICHIRAN_KERNEL_OPTIONAL=1 overrides).
 
 # manga-ocr Core ML models (~130 MB, gitignored), materialised by
 # `bun run ocr:models` (scripts/fetch-ocr-models.ts). Without them the pod
@@ -28,6 +32,7 @@ Pod::Spec.new do |s|
     # The model check below reads the pod's own Models/ folder.
     'ENABLE_USER_SCRIPT_SANDBOXING' => 'NO',
     'NEMU_OCR_MODELS_BUNDLED' => manga_ocr_bundled ? 'YES' : 'NO',
+    'NEMU_ICHIRAN_KERNEL_VENDORED' => ichiran_vendored ? 'YES' : 'NO',
   }
   s.source_files = '*.swift'
   if ichiran_vendored
@@ -44,11 +49,18 @@ Pod::Spec.new do |s|
     }
   end
   s.script_phase = {
-    :name => 'Check manga OCR models',
+    :name => 'Check manga OCR models and Ichiran kernel',
     :execution_position => :before_compile,
     :always_out_of_date => '1',
     :script => <<~'SH'
-      if [ "${CONFIGURATION}" != "Release" ] || [ "${NEMU_OCR_MODELS_OPTIONAL:-0}" = "1" ]; then exit 0; fi
+      if [ "${CONFIGURATION}" != "Release" ]; then exit 0; fi
+      if [ "${NEMU_ICHIRAN_KERNEL_OPTIONAL:-0}" != "1" ] && [ "${NEMU_ICHIRAN_KERNEL_VENDORED}" != "YES" ]; then
+        echo "error: the Ichiran kernel was not vendored at 'pod install': on-device word breakdown would be missing from this build."
+        echo "error: run modules/nemu-japanese-learning/scripts/vendor-ichiran.sh in apps/mobile (or copy ios/Vendor/ from a checkout that has it), then 'pod install' in apps/mobile/ios."
+        echo "error: set NEMU_ICHIRAN_KERNEL_OPTIONAL=1 to build a Release without it (sentence analysis then needs sign-in and the cloud)."
+        exit 1
+      fi
+      if [ "${NEMU_OCR_MODELS_OPTIONAL:-0}" = "1" ]; then exit 0; fi
       dir="${PODS_TARGET_SRCROOT}/Models/NemuMangaOcr"
       for name in MangaOcrEncoder.mlmodelc MangaOcrDecoder.mlmodelc MangaTextDetector.mlmodelc manga-ocr-vocab.txt manifest.json OCR-NOTICES.txt; do
         if [ ! -e "${dir}/${name}" ]; then

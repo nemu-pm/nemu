@@ -784,6 +784,7 @@ import {
 import {
   getMobileJapaneseLearningAuthGateStatus,
   resolveMobileJapaneseLearningAuthGate,
+  mobileJapaneseLearningAwaitsSignIn,
   resolveMobileJapaneseLearningChatSignInFailure,
   resolveMobileJapaneseLearningSignInHost,
   type MobileJapaneseLearningSignInHost,
@@ -2036,6 +2037,8 @@ export function ReaderScreen() {
   japaneseLearningAuthPendingRef.current = japaneseLearningAuth.pending;
   const japaneseLearningLauncherVisibleRef = useRef(japaneseLearningLauncherVisible);
   japaneseLearningLauncherVisibleRef.current = japaneseLearningLauncherVisible;
+  const japaneseLearningTranscriptVisibleRef = useRef(japaneseLearningTranscriptVisible);
+  japaneseLearningTranscriptVisibleRef.current = japaneseLearningTranscriptVisible;
   const [japaneseLearningSignInHost, setJapaneseLearningSignInHost] =
     useState<MobileJapaneseLearningSignInHost | null>(null);
   const closeJapaneseLearningSignIn = useCallback(() => {
@@ -2055,6 +2058,7 @@ export function ReaderScreen() {
         platform: Platform.OS,
         chatVisible: japaneseLearningChatDrawerPresenceRef.current.wanted,
         sentenceVisible: japaneseLearningOcrSheetPresenceRef.current.wanted,
+        transcriptVisible: japaneseLearningTranscriptVisibleRef.current,
       }),
     );
   }, []);
@@ -2077,7 +2081,8 @@ export function ReaderScreen() {
   useEffect(() => {
     if (
       (japaneseLearningSignInHost === "chat" && !japaneseLearningChatDrawerVisible) ||
-      (japaneseLearningSignInHost === "sentence" && !japaneseLearningOcrSheetVisible)
+      (japaneseLearningSignInHost === "sentence" && !japaneseLearningOcrSheetVisible) ||
+      (japaneseLearningSignInHost === "transcript" && !japaneseLearningTranscriptVisible)
     ) {
       setJapaneseLearningSignInHost(null);
     }
@@ -2085,6 +2090,7 @@ export function ReaderScreen() {
     japaneseLearningChatDrawerVisible,
     japaneseLearningOcrSheetVisible,
     japaneseLearningSignInHost,
+    japaneseLearningTranscriptVisible,
   ]);
   const japaneseLearningTranscriptNextSurfaceRef = useRef<"ocr" | null>(null);
   const [readerImageSizes, setReaderImageSizes] = useState(
@@ -6954,6 +6960,32 @@ export function ReaderScreen() {
     },
     [strings],
   );
+
+  // Signing in from a notice finishes what it interrupted: the step that
+  // needed the online service runs again.
+  const japaneseLearningWasSignedInRef = useRef(japaneseLearningAuth.signedIn);
+  useEffect(() => {
+    const wasSignedIn = japaneseLearningWasSignedInRef.current;
+    japaneseLearningWasSignedInRef.current = japaneseLearningAuth.signedIn;
+    if (wasSignedIn || !japaneseLearningAuth.signedIn) return;
+    const signInDetail = strings.reader.pluginJapaneseLearningSignInRequired;
+    if (mobileJapaneseLearningAwaitsSignIn(japaneseLearningOcrState, signInDetail)) {
+      runJapaneseLearningOcr();
+    }
+    if (
+      japaneseLearningGrammarState.status === "error" &&
+      mobileJapaneseLearningAwaitsSignIn(japaneseLearningGrammarState, signInDetail)
+    ) {
+      runJapaneseLearningGrammar(japaneseLearningGrammarState.text);
+    }
+  }, [
+    japaneseLearningAuth.signedIn,
+    japaneseLearningGrammarState,
+    japaneseLearningOcrState,
+    runJapaneseLearningGrammar,
+    runJapaneseLearningOcr,
+    strings,
+  ]);
 
   const japaneseLearningGrammarContext = useMemo(() => {
     if (japaneseLearningGrammarState.status !== "ready") return undefined;
@@ -13102,6 +13134,7 @@ export function ReaderScreen() {
             ? () => runJapaneseLearningGrammar(japaneseLearningGrammarState.text)
             : undefined
         }
+        onSignIn={mobileSyncConfig.configured ? promptJapaneseLearningSignIn : undefined}
         ttsState={{
           status: japaneseLearningTtsState.status,
           source:
@@ -13203,6 +13236,8 @@ export function ReaderScreen() {
         onClose={() => setJapaneseLearningTranscriptVisible(false)}
         onDismiss={handleJapaneseLearningTranscriptClosed}
         onRetryOcr={runJapaneseLearningOcr}
+        onSignIn={mobileSyncConfig.configured ? promptJapaneseLearningSignIn : undefined}
+        stackedSurface={Platform.OS === "ios" ? renderJapaneseLearningSignInSheet("transcript") : null}
         onSelectDetection={selectJapaneseLearningDetection}
         onToggleTts={toggleJapaneseLearningTranscriptTts}
       />

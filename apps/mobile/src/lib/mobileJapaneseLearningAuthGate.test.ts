@@ -4,6 +4,7 @@ import {
   MOBILE_JAPANESE_LEARNING_CHAT_AUTH_LOADING_ERROR,
   resolveMobileJapaneseLearningAuthGate,
   resolveMobileJapaneseLearningChatSignInFailure,
+  mobileJapaneseLearningAwaitsSignIn,
   resolveMobileJapaneseLearningSignInHost,
 } from "./mobileJapaneseLearningAuthGate";
 
@@ -74,9 +75,30 @@ describe("resolveMobileJapaneseLearningSignInHost", () => {
       resolveMobileJapaneseLearningSignInHost({ platform: "ios", chatVisible: false, sentenceVisible: false }),
     ).toBe("reader");
   });
+  test("iOS stacks on an open transcript, below the chat and the sentence sheet", () => {
+    expect(
+      resolveMobileJapaneseLearningSignInHost({ platform: "ios", chatVisible: false, sentenceVisible: false, transcriptVisible: true }),
+    ).toBe("transcript");
+    expect(
+      resolveMobileJapaneseLearningSignInHost({ platform: "ios", chatVisible: false, sentenceVisible: true, transcriptVisible: true }),
+    ).toBe("sentence");
+    expect(
+      resolveMobileJapaneseLearningSignInHost({ platform: "android", chatVisible: false, sentenceVisible: false, transcriptVisible: true }),
+    ).toBe("reader");
+  });
   test("Android presents from the reader", () => {
     expect(
       resolveMobileJapaneseLearningSignInHost({ platform: "android", chatVisible: true, sentenceVisible: true }),
     ).toBe("reader");
+  });
+});
+
+describe("mobileJapaneseLearningAwaitsSignIn", () => {
+  const signIn = "Please sign in to use this feature.";
+  test("only an error whose detail is the sign-in line waits for a session", () => {
+    expect(mobileJapaneseLearningAwaitsSignIn({ status: "error", detail: signIn }, signIn)).toBe(true);
+    expect(mobileJapaneseLearningAwaitsSignIn({ status: "error", detail: "OCR /ocr failed: 521" }, signIn)).toBe(false);
+    expect(mobileJapaneseLearningAwaitsSignIn({ status: "ready" }, signIn)).toBe(false);
+    expect(mobileJapaneseLearningAwaitsSignIn({ status: "loading", detail: signIn }, signIn)).toBe(false);
   });
 });

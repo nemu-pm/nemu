@@ -11,6 +11,8 @@ import {
   nemuColorWithAlpha,
   nemuFontWeight,
   nemuText,
+  NEMU_PROMINENT_CTA_SIZE,
+  NemuButton,
   NemuPressable,
   NemuRingSpinner,
   useNemuTheme,
@@ -65,6 +67,8 @@ interface OcrResultSheetProps {
   onCopySelection: (text: string) => void;
   /** Runs the sentence analysis again after it failed. */
   onRetryGrammar?: () => void;
+  /** Opens the sign-in sheet, for a step that needs nemu's online service signed out. */
+  onSignIn?: () => void;
   onPlaySentence: () => void;
   onAskSentence: () => void;
   onCopySentence: () => void;
@@ -108,6 +112,7 @@ export function JapaneseLearningOcrResultSheet({
   onAskSelection,
   onCopySelection,
   onRetryGrammar,
+  onSignIn,
   onPlaySentence,
   onAskSentence,
   onCopySentence,
@@ -217,6 +222,16 @@ export function JapaneseLearningOcrResultSheet({
             >
               {ocrErrorCopy.description}
             </Text>
+            {ocrErrorCopy.kind === "signIn" && onSignIn ? (
+              <NemuButton
+                accessibilityLabel={strings.welcome.signIn}
+                containerStyle={styles.signInAction}
+                label={strings.welcome.signIn}
+                onPress={onSignIn}
+                size={NEMU_PROMINENT_CTA_SIZE}
+                variant="default"
+              />
+            ) : null}
             {ocrErrorCopy.diagnostic ? (
               <View style={styles.diagnostic}>
                 <NemuPressable
@@ -262,33 +277,36 @@ export function JapaneseLearningOcrResultSheet({
             ) : null}
           </View>
         ) : (
-          <JapaneseLearningSentenceDisplay
-            sentenceHeader={
-              // The floating popout is hidden behind a full-window sheet, and
-              // there is none beside the fold.
-              bubble && (drawerFrame.fullScreen || drawerFrame.besideFold)
-                ? (columnMaxHeight) => (
-                    <JapaneseLearningBubblePreview
-                      // Columns: centred in the empty details column; stacked: over the sentence.
-                      embedded={columnMaxHeight == null}
-                      centered={columnMaxHeight != null}
-                      maxHeight={columnMaxHeight ?? IN_SHEET_BUBBLE_MAX_HEIGHT}
-                      source={bubble}
-                      accessibilityLabel={strings.reader.pluginJapaneseLearningSelectedText}
-                    />
-                  )
-                : null
-            }
-            grammarState={grammarState}
-            selectedTokenIndex={selectedTokenIndex}
-            actionNotice={grammarActionNotice}
-            askDisabled={askDisabled}
-            strings={strings}
-            onSelectToken={onSelectToken}
-            onAskSelection={onAskSelection}
-            onCopySelection={onCopySelection}
-            onRetry={onRetryGrammar}
-          />
+          <View style={[styles.sentenceBody, drawerFrame.barClearance]}>
+            <JapaneseLearningSentenceDisplay
+              sentenceHeader={
+                // The floating popout is hidden behind a full-window sheet, and
+                // there is none beside the fold.
+                bubble && (drawerFrame.fullScreen || drawerFrame.besideFold)
+                  ? (columnMaxHeight) => (
+                      <JapaneseLearningBubblePreview
+                        // Columns: centred in the empty details column; stacked: over the sentence.
+                        embedded={columnMaxHeight == null}
+                        centered={columnMaxHeight != null}
+                        maxHeight={columnMaxHeight ?? IN_SHEET_BUBBLE_MAX_HEIGHT}
+                        source={bubble}
+                        accessibilityLabel={strings.reader.pluginJapaneseLearningSelectedText}
+                      />
+                    )
+                  : null
+              }
+              grammarState={grammarState}
+              selectedTokenIndex={selectedTokenIndex}
+              actionNotice={grammarActionNotice}
+              askDisabled={askDisabled}
+              strings={strings}
+              onSelectToken={onSelectToken}
+              onAskSelection={onAskSelection}
+              onCopySelection={onCopySelection}
+              onRetry={onRetryGrammar}
+              onSignIn={onSignIn}
+            />
+          </View>
         )}
       </View>
 
@@ -459,6 +477,13 @@ const styles = StyleSheet.create({
   sheetBody: {
     flex: 1,
     minHeight: 0,
+  },
+  sentenceBody: {
+    flex: 1,
+    minHeight: 0,
+  },
+  signInAction: {
+    marginTop: 6,
   },
   loadingState: {
     flex: 1,

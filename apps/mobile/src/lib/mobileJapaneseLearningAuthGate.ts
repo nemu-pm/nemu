@@ -55,22 +55,37 @@ export function resolveMobileJapaneseLearningChatSignInFailure(
 /**
  * Which surface the sign-in sheet presents from. An iOS sheet can only be
  * presented by the topmost one, so it stacks on the open chat, else on the
- * open sentence sheet; Android's sheets are their own windows and stack from
- * the reader.
+ * open sentence sheet or transcript; Android's sheets are their own windows
+ * and stack from the reader.
  */
-export type MobileJapaneseLearningSignInHost = "chat" | "sentence" | "reader";
+export type MobileJapaneseLearningSignInHost = "chat" | "sentence" | "transcript" | "reader";
 
 export function resolveMobileJapaneseLearningSignInHost({
   platform,
   chatVisible,
   sentenceVisible,
+  transcriptVisible = false,
 }: {
   platform: string;
   chatVisible: boolean;
   sentenceVisible: boolean;
+  transcriptVisible?: boolean;
 }): MobileJapaneseLearningSignInHost {
   if (platform !== "ios") return "reader";
   if (chatVisible) return "chat";
   if (sentenceVisible) return "sentence";
+  if (transcriptVisible) return "transcript";
   return "reader";
+}
+
+/**
+ * A recognition or analysis run stopped only because it needs sign-in (the
+ * reader stores the localized sign-in line as the detail). It reads as a
+ * notice with a Sign In action, and runs again once a session exists.
+ */
+export function mobileJapaneseLearningAwaitsSignIn(
+  state: { status: string; detail?: string },
+  signInRequiredDetail: string,
+): boolean {
+  return state.status === "error" && state.detail === signInRequiredDetail;
 }

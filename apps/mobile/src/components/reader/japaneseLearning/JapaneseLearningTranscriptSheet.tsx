@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Platform,
@@ -54,6 +54,10 @@ interface TranscriptSheetProps {
   onClose: () => void;
   onDismiss?: () => void;
   onRetryOcr: () => void;
+  /** Opens the sign-in sheet, when recognition needs nemu's online service signed out. */
+  onSignIn?: () => void;
+  /** iOS: the sheet stacked on this one (the topmost sheet presents it). */
+  stackedSurface?: ReactNode;
   onSelectDetection: (detection: MobileOcrDetection) => void;
   onToggleTts: (text: string) => void;
 }
@@ -88,6 +92,8 @@ export function JapaneseLearningTranscriptSheet({
   onClose,
   onDismiss,
   onRetryOcr,
+  onSignIn,
+  stackedSurface = null,
   onSelectDetection,
   onToggleTts,
 }: TranscriptSheetProps) {
@@ -336,15 +342,26 @@ export function JapaneseLearningTranscriptSheet({
               ) : null}
             </View>
           ) : null}
-          <NemuButton
-            accessibilityLabel={strings.common.retry}
-            icon="refresh"
-            label={strings.common.retry}
-            containerStyle={styles.retryCtaContainer}
-            onPress={onRetryOcr}
-            size={NEMU_PROMINENT_CTA_SIZE}
-            variant="default"
-          />
+          {ocrErrorCopy.kind === "signIn" && onSignIn ? (
+            <NemuButton
+              accessibilityLabel={strings.welcome.signIn}
+              label={strings.welcome.signIn}
+              containerStyle={styles.retryCtaContainer}
+              onPress={onSignIn}
+              size={NEMU_PROMINENT_CTA_SIZE}
+              variant="default"
+            />
+          ) : (
+            <NemuButton
+              accessibilityLabel={strings.common.retry}
+              icon="refresh"
+              label={strings.common.retry}
+              containerStyle={styles.retryCtaContainer}
+              onPress={onRetryOcr}
+              size={NEMU_PROMINENT_CTA_SIZE}
+              variant="default"
+            />
+          )}
         </View>
       ) : (
         // Web `.transcript-empty`: "No text detected", 2rem below the top.
@@ -364,6 +381,7 @@ export function JapaneseLearningTranscriptSheet({
           {ttsState.detail}
         </Text>
       ) : null}
+      {stackedSurface}
     </JapaneseLearningSurfaceFrame>
   );
 }

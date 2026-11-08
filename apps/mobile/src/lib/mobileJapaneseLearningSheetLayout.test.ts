@@ -13,6 +13,7 @@ import {
   resolveJapaneseLearningDrawerDetent,
   resolveJapaneseLearningFooterLayout,
   resolveJapaneseLearningSentenceLayout,
+  resolveJapaneseLearningSheetBarClearance,
   resolveJapaneseLearningSheetBottomInset,
   resolveJapaneseLearningSheetIgnoredSafeAreaEdges,
 } from "./mobileJapaneseLearningSheetLayout";
@@ -269,5 +270,33 @@ describe("japaneseLearningDrawerIsFormSheet", () => {
     expect(japaneseLearningDrawerIsFormSheet({ platform: "ios", idiomIsPad: true, windowWidth: 640, regularWidth: false })).toBe(false);
     expect(japaneseLearningDrawerIsFormSheet({ platform: "ios", idiomIsPad: true, windowWidth: 507, regularWidth: true })).toBe(true);
     expect(japaneseLearningDrawerIsFormSheet({ platform: "ios", idiomIsPad: false, windowWidth: 951, regularWidth: true })).toBe(false);
+  });
+});
+
+describe("resolveJapaneseLearningSheetBarClearance", () => {
+  const duoOuter = {
+    platform: "ios",
+    fullScreen: false,
+    verticalBarSide: "right" as const,
+    barInset: 60,
+    sheetTop: 186,
+    windowHeight: 678,
+  };
+  const none = { paddingLeft: 0, paddingRight: 0 };
+
+  test("a drawer whose top is beside the bar's status items keeps its body off that side", () => {
+    expect(resolveJapaneseLearningSheetBarClearance(duoOuter)).toEqual({ paddingLeft: 0, paddingRight: 60 });
+    expect(resolveJapaneseLearningSheetBarClearance({ ...duoOuter, verticalBarSide: "left" })).toEqual({
+      paddingLeft: 60,
+      paddingRight: 0,
+    });
+  });
+  test("a drawer below the status items takes the sheet's width", () => {
+    expect(resolveJapaneseLearningSheetBarClearance({ ...duoOuter, sheetTop: 300 })).toEqual(none);
+  });
+  test("no bar, a full-window sheet (the column is a safe area) and Android need nothing", () => {
+    expect(resolveJapaneseLearningSheetBarClearance({ ...duoOuter, verticalBarSide: null })).toEqual(none);
+    expect(resolveJapaneseLearningSheetBarClearance({ ...duoOuter, fullScreen: true })).toEqual(none);
+    expect(resolveJapaneseLearningSheetBarClearance({ ...duoOuter, platform: "android" })).toEqual(none);
   });
 });

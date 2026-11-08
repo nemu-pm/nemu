@@ -8,8 +8,9 @@
 #   ios/Vendor/IchiranSwift/*.swift        pinned host sources (import fixups)
 #   ios/Vendor/PROVENANCE.txt              commit, toolchain and checksums
 #
-# Without Vendor/ the pod still builds; the analyzer then reports itself
-# unavailable and the app keeps the cloud path.
+# Without Vendor/ the pod still builds in Debug; the analyzer then reports
+# itself unavailable and the app keeps the cloud path, which needs sign-in.
+# Release builds refuse to build without it (NEMU_ICHIRAN_KERNEL_OPTIONAL=1).
 #
 # Pin: the last ichiran-node commit whose kernel and Swift manifest reader are
 # pack format 1, i.e. compatible with the published release

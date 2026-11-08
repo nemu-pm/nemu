@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import type { NemuJapaneseLearningCapabilities } from "../../modules/nemu-japanese-learning/src/NemuJapaneseLearning.types";
 import {
   hasMobileAuthSessionCookie,
@@ -174,6 +175,28 @@ describe("server features send nothing signed out", () => {
 });
 
 describe("sign-in prompts", () => {
+  test("Release builds cannot silently drop the on-device analyzer", () => {
+    const podspec = readFileSync(
+      new URL("../../modules/nemu-japanese-learning/ios/NemuJapaneseLearning.podspec", import.meta.url),
+      "utf8",
+    );
+    expect(podspec).toContain("'NEMU_ICHIRAN_KERNEL_VENDORED' => ichiran_vendored ? 'YES' : 'NO'");
+    expect(podspec).toContain('[ "${NEMU_ICHIRAN_KERNEL_VENDORED}" != "YES" ]');
+    expect(podspec).toContain('if [ "${NEMU_ICHIRAN_KERNEL_OPTIONAL:-0}" != "1" ]');
+  });
+
+  test("the notices offer the Sign In action rather than pointing at Settings", () => {
+    for (const language of ["en", "zh", "ja"] as const) {
+      const { reader } = getMobileStrings(language);
+      for (const description of [
+        reader.pluginJapaneseLearningSignInRequiredDescription,
+        reader.pluginJapaneseLearningSignInRequiredAutomaticDescription,
+      ]) {
+        expect(description).not.toMatch(/Settings|设置|設定/);
+      }
+    }
+  });
+
   test("cloud OCR signed out reads as a sign-in prompt, not a failure", () => {
     for (const detail of ["auth_required", en.reader.pluginJapaneseLearningSignInRequired]) {
       expect(describeJapaneseLearningOcrError(detail, en, "cloud")).toEqual({

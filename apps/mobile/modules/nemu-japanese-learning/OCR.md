@@ -11,6 +11,13 @@ three models, the vocabulary, manifest and attribution file. Debug builds
 can run without them. `NEMU_OCR_MODELS_OPTIONAL=1` explicitly opts a Release
 build into Vision fallback.
 
+Sentence analysis is separate: `scripts/vendor-ichiran.sh` produces the
+gitignored `ios/Vendor/` (Ichiran's Rust kernel and host sources), and Release
+builds refuse to build without it unless `NEMU_ICHIRAN_KERNEL_OPTIONAL=1`. A
+build with the models but not the kernel recognises the text and has no word
+breakdown on device, which signed out reads as "Sign in required". CI's
+compile-only Release builds set the override.
+
 ## Materialize the models
 
 The source packages are published at

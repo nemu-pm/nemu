@@ -25,6 +25,7 @@ import {
   nemuFontWeight,
   spacing,
   useNemuTheme,
+  NemuButton,
   NemuNativeProgressBar,
   NemuPressable,
 } from "@/design-system";
@@ -58,7 +59,7 @@ import {
 import { getMobileJapaneseLearningEnginePreference } from "@/lib/mobileJapaneseLearningEngine";
 import { mobileJapaneseLearningSignInDescription } from "@/lib/mobileJapaneseLearningOcr";
 import { isMobileJapaneseLearningSignedIn } from "@/lib/mobileJapaneseLearningAuth";
-import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
+import { mobileJapaneseLearningAwaitsSignIn } from "@/lib/mobileJapaneseLearningAuthGate";
 import { describeMobileJapaneseLearningPackLoading } from "@/lib/mobileJapaneseLearningAnalysisPackState";
 import { useMobileJapaneseLearningAnalysisPackState } from "@/lib/mobileJapaneseLearningAnalysisPackStore";
 import {
@@ -88,6 +89,8 @@ interface SentenceDisplayProps {
   onCopySelection: (text: string) => void;
   /** Runs the analysis again after an error (e.g. the dictionary download failed). */
   onRetry?: () => void;
+  /** Opens the sign-in sheet, when the analysis needs nemu's online service signed out. */
+  onSignIn?: () => void;
   /**
    * The selected bubble, when the sheet covers the page and the floating
    * popout cannot show. Stacked: above the sentence, scrolling with it.
@@ -113,6 +116,7 @@ export function JapaneseLearningSentenceDisplay({
   onAskSelection,
   onCopySelection,
   onRetry,
+  onSignIn,
   sentenceHeader: sentenceHeaderProp,
 }: SentenceDisplayProps) {
   const { tokens, scheme } = useNemuTheme();
@@ -430,13 +434,13 @@ export function JapaneseLearningSentenceDisplay({
 
   // The analysis status (error / dictionary download / analyzing): under the
   // raw text when stacked (web), centred in the details column beside it.
-  // Design-explore: signed out is a precondition, not a failure. It reads as
-  // a notice (what it needs, where to do it) without the error red, and
-  // without Retry, which cannot help until the reader signs in.
-  const signInNotice =
-    mobileDesignExploreFlag &&
-    grammarState.status === "error" &&
-    grammarState.detail === strings.reader.pluginJapaneseLearningSignInRequired;
+  // Signed out is a precondition, not a failure. It reads as a notice (what
+  // it needs, and the way to do it) without the error red, and without Retry:
+  // the analysis runs again by itself once a session exists.
+  const signInNotice = mobileJapaneseLearningAwaitsSignIn(
+    grammarState,
+    strings.reader.pluginJapaneseLearningSignInRequired,
+  );
   const statusBlock = signInNotice ? (
     <View accessibilityLiveRegion="polite" style={styles.errorBlock}>
       <Text style={[styles.noticeTitle, { color: tokens.foreground }]}>
@@ -445,6 +449,16 @@ export function JapaneseLearningSentenceDisplay({
       <Text style={[styles.errorText, { color: tokens.mutedForeground }]}>
         {mobileJapaneseLearningSignInDescription(strings, getMobileJapaneseLearningEnginePreference())}
       </Text>
+      {onSignIn ? (
+        <NemuButton
+          accessibilityLabel={strings.welcome.signIn}
+          containerStyle={styles.signInAction}
+          label={strings.welcome.signIn}
+          onPress={onSignIn}
+          size="sm"
+          variant="default"
+        />
+      ) : null}
     </View>
   ) : grammarState.status === "error" ? (
     <View style={styles.errorBlock}>
@@ -982,6 +996,9 @@ const styles = StyleSheet.create({
   errorBlock: {
     alignItems: "flex-start",
     gap: 4,
+  },
+  signInAction: {
+    marginTop: 8,
   },
   noticeTitle: {
     fontSize: 14,

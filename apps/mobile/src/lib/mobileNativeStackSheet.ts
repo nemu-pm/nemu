@@ -15,7 +15,7 @@ export const MOBILE_NATIVE_STACK_SHEET_BAR = 74;
  * the top of the iPhone Duo outer display's vertical bar (with a Live Activity
  * in the Dynamic Island, they end about 36% down its height).
  */
-const MOBILE_NATIVE_STACK_SHEET_BELOW_BAR_STATUS = 0.6;
+export const MOBILE_NATIVE_STACK_SHEET_BELOW_BAR_STATUS = 0.6;
 
 /**
  * Whether a page takes the sheet's full width beside a compact window's

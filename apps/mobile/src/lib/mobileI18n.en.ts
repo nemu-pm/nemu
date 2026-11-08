@@ -776,9 +776,9 @@ export const mobileStringsEn: MobileStrings = {
     pluginJapaneseLearningSignInRequired: "Please sign in to use this feature.",
     pluginJapaneseLearningSignInRequiredTitle: "Sign in required",
     pluginJapaneseLearningSignInRequiredDescription:
-      "The Cloud engine uses nemu's online service. Sign in from Settings to use it, or set Recognition Engine to Automatic or On Device.",
+      "The Cloud engine uses nemu's online service. Sign in to use it, or set Recognition Engine to Automatic or On Device.",
     pluginJapaneseLearningSignInRequiredAutomaticDescription:
-      "This can't run on this device right now, so Automatic uses nemu's online service instead. Sign in from Settings to use it.",
+      "This device can't do this on its own, so it needs nemu's online service. Sign in to use it.",
     pluginJapaneseLearningSignInToUse: "Sign in to use",
     pluginJapaneseLearningStopListening: "Stop",
     pluginJapaneseLearningStructure: "Structure",

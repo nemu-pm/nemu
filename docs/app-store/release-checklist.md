@@ -26,8 +26,11 @@ for `pm.nemu`, version 0.1.0, build 1. It predates `HEAD` and has never been upl
    `lint`, `test`.
 5. **Apple client secret** (see below) has more than 30 days left.
 6. OCR models exist locally: `bun run --cwd apps/mobile ocr:models` if
-   `apps/mobile/modules/nemu-japanese-learning/ios/Models/` is empty. The podspec
-   fails the build if they are missing.
+   `apps/mobile/modules/nemu-japanese-learning/ios/Models/` is empty. The Ichiran
+   kernel exists locally: `apps/mobile/modules/nemu-japanese-learning/scripts/vendor-ichiran.sh`
+   if `ios/Vendor/` beside it is empty. The podspec fails a Release build if either is
+   missing; a build without the kernel recognises text but has no on-device word
+   breakdown, so signed out the sentence sheet only asks for sign-in.
 7. Bump `version` in `apps/mobile/app.json` when the marketing version changes.
 
 ## iOS: clean worktree build
@@ -38,7 +41,7 @@ saved has four problems, so the corrected commands are recorded here:
 | In `/tmp/tf/dryrun.sh` | Effect | Corrected below |
 |---|---|---|
 | reuses `/tmp/tf/wt` if it exists | that worktree is shared with other work and had uncommitted edits on 2026-11-08, so the build would not be clean | new worktree per release |
-| does not copy the OCR models or `.env.production.local` (`/tmp/tf/devbuild.sh` does) | relies on files left there earlier | copied explicitly |
+| does not copy the OCR models, the Ichiran kernel or `.env.production.local` (`/tmp/tf/devbuild.sh` does) | relies on files left there earlier; the kernel never was, so the 2026-11-08 archive has no on-device analysis | copied explicitly |
 | if `expo prebuild` fails, rsyncs `ios/` from the main worktree | that `ios/` is stale and still has `NSCameraUsageDescription`, for a feature that is gone | a prebuild failure stops the build |
 | `CURRENT_PROJECT_VERSION=<date>` only | **has no effect.** Expo writes a literal `CFBundleVersion` of `1` into `ios/nemu/Info.plist`, and the archive, `.ipa` and export summary all say `1`. A second upload of 0.1.0 would be refused as a duplicate | sets `CFBundleVersion` too |
 
@@ -47,7 +50,7 @@ failed with integrity errors (`/tmp/tf/install.log`). Toolchain: see "Which Xcod
 
 ```bash
 set -euo pipefail
-SRC=/Users/alanye/Development/nemu-wt-appstore-ui   # a checkout with node_modules, models and env
+SRC=/Users/alanye/Development/nemu-wt-appstore-ui   # a checkout with node_modules, models, kernel and env
 COMMIT=<release commit>
 BUILD=$(date +%Y%m%d%H%M)
 OUT=/tmp/tf/rel-$BUILD
@@ -59,6 +62,8 @@ cp -cR "$SRC/node_modules" node_modules
 cp -cR "$SRC/apps/mobile/node_modules" apps/mobile/node_modules
 M=apps/mobile/modules/nemu-japanese-learning/ios/Models
 rsync -a "$SRC/$M/" "$M/"
+V=apps/mobile/modules/nemu-japanese-learning/ios/Vendor
+rsync -a "$SRC/$V/" "$V/"
 cp "$SRC/.env.production.local" .
 
 cd apps/mobile

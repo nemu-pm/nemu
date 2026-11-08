@@ -386,8 +386,9 @@ it.
 
 - On-device analysis: `apps/mobile/modules/nemu-japanese-learning/scripts/vendor-ichiran.sh`
   builds the Ichiran XCFramework (Rust 1.92.0, macOS) into the gitignored
-  `ios/Vendor/`. Without it the pod still builds and the app uses the cloud
-  path.
+  `ios/Vendor/`. Without it a Debug build still works and uses the cloud path,
+  which needs sign-in; a Release build fails (`NEMU_ICHIRAN_KERNEL_OPTIONAL=1`
+  overrides). Clean worktrees need it copied in, as the OCR models are.
 - OCR models: `bun run --cwd apps/mobile ocr:models`, then `pod install`. The
   `NemuJapaneseLearning` podspec fails the build with this instruction when
   they are missing.

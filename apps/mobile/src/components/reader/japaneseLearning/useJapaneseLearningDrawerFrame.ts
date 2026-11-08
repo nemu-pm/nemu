@@ -6,6 +6,7 @@ import {
   resolveJapaneseLearningDrawerContentBleed,
   resolveJapaneseLearningDrawerDetent,
   resolveJapaneseLearningDrawerTop,
+  resolveJapaneseLearningSheetBarClearance,
   resolveJapaneseLearningSheetBottomInset,
   resolveJapaneseLearningSheetIgnoredSafeAreaEdges,
 } from "@/lib/mobileJapaneseLearningSheetLayout";
@@ -26,7 +27,7 @@ export function useJapaneseLearningDrawerFrame() {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const windowLayout = useMobileWindowLayout();
-  const { verticalBarEdge, posture, regularWidth, compactHeight } = useMobileAdaptiveLayout();
+  const { verticalBarEdge, verticalBarSide, safeAreaInsets, posture, regularWidth, compactHeight } = useMobileAdaptiveLayout();
   const horizontalFold = useMemo(
     () => mobileHorizontalFoldBand(windowLayout, mobileRestingFoldMinGutter(Platform.OS)),
     [windowLayout],
@@ -63,22 +64,32 @@ export function useJapaneseLearningDrawerFrame() {
     () => resolveJapaneseLearningSheetIgnoredSafeAreaEdges({ platform: Platform.OS, fullScreen, verticalBarEdge }),
     [fullScreen, verticalBarEdge],
   );
+  const sheetTop = horizontalFold
+    ? horizontalFold.bottom
+    : resolveJapaneseLearningDrawerTop({
+        platform: Platform.OS,
+        isPad,
+        windowWidth: width,
+        windowHeight: height,
+        safeAreaTop: insets.top,
+        safeAreaBottom: insets.bottom,
+        detent: frameMaxHeight,
+        regularWidth,
+        compactHeight,
+      });
   return {
     frameMaxHeight,
     /** Window y of the drawer's top edge at rest; null when nothing shows above it. */
-    sheetTop: horizontalFold
-      ? horizontalFold.bottom
-      : resolveJapaneseLearningDrawerTop({
-          platform: Platform.OS,
-          isPad,
-          windowWidth: width,
-          windowHeight: height,
-          safeAreaTop: insets.top,
-          safeAreaBottom: insets.bottom,
-          detent: frameMaxHeight,
-          regularWidth,
-          compactHeight,
-        }),
+    sheetTop,
+    /** Keeps a body's text clear of the vertical bar's status items. */
+    barClearance: resolveJapaneseLearningSheetBarClearance({
+      platform: Platform.OS,
+      fullScreen,
+      verticalBarSide,
+      barInset: (verticalBarSide === "left" ? safeAreaInsets?.left : safeAreaInsets?.right) ?? 0,
+      sheetTop,
+      windowHeight: height,
+    }),
     /** UIKit shows the sheet over the whole window (compact height): the bubble popout is hidden behind it. */
     fullScreen,
     /**

@@ -1,3 +1,4 @@
+import { MOBILE_NATIVE_STACK_SHEET_BELOW_BAR_STATUS } from "./mobileNativeStackSheet";
 import { japaneseLearningBubblePopoutMaxBottom } from "./mobileJapaneseLearningBubblePopout";
 
 /**
@@ -487,6 +488,34 @@ export function resolveJapaneseLearningColumnBubbleMaxHeight({
  * Android: Material's sheet lays its content out above the navigation bar
  * itself; nothing to ignore.
  */
+/**
+ * The sentence and word details stay clear of the vertical bar when the
+ * drawer's top is above the end of the bar's status items (the drawer reaches
+ * the bar's edge, `resolveJapaneseLearningSheetIgnoredSafeAreaEdges`, and the
+ * status items draw over it). A drawer below them, and a full-window sheet,
+ * which keeps that column as a safe area, need nothing.
+ */
+export function resolveJapaneseLearningSheetBarClearance({
+  platform,
+  fullScreen,
+  verticalBarSide,
+  barInset,
+  sheetTop,
+  windowHeight,
+}: {
+  platform: string;
+  fullScreen: boolean;
+  verticalBarSide: "left" | "right" | null;
+  barInset: number;
+  sheetTop: number | null;
+  windowHeight: number;
+}): { paddingLeft: number; paddingRight: number } {
+  const none = { paddingLeft: 0, paddingRight: 0 };
+  if (platform !== "ios" || fullScreen || verticalBarSide === null) return none;
+  if ((sheetTop ?? 0) >= windowHeight * (1 - MOBILE_NATIVE_STACK_SHEET_BELOW_BAR_STATUS)) return none;
+  return verticalBarSide === "right" ? { paddingLeft: 0, paddingRight: barInset } : { paddingLeft: barInset, paddingRight: 0 };
+}
+
 export function resolveJapaneseLearningSheetIgnoredSafeAreaEdges({
   platform,
   fullScreen,

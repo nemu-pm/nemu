@@ -9,7 +9,8 @@ import Foundation
 /// Compiled against the vendored kernel only when `scripts/vendor-ichiran.sh`
 /// has produced `ios/Vendor/` (the podspec then defines NEMU_ICHIRAN_KERNEL);
 /// otherwise every entry point reports the analyzer as unavailable and the
-/// app keeps its cloud path.
+/// app keeps its cloud path, which needs sign-in (Release builds refuse to
+/// build that way unless NEMU_ICHIRAN_KERNEL_OPTIONAL=1).
 ///
 /// The analyzer returns Ichiran's *detailed legacy* JSON — the exact
 /// `segments` array `ichiran-cli -f` and the cloud `/api/segment` endpoint
