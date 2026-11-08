@@ -151,7 +151,7 @@ not a plan for the App Store submission itself.
 
 | Choice | Build | Note |
 |---|---|---|
-| **Xcode 27.2 release (install it)** | 27B52 | recommended for every upload; not installed yet |
+| **`/Applications/Xcode-27.2.0.app` (installed)** | 27B52 | use for every upload: `DEVELOPER_DIR=/Applications/Xcode-27.2.0.app/Contents/Developer` |
 | `Xcode-27.1.0-Release.Candidate.app` (installed) | 27A9275 | same build number Apple lists as the 27.1 release, so it should be accepted. Use it if 27.2 cannot be installed in time. Recheck the Duo after building: some behaviour was tuned on iOS 27.2 |
 | `Xcode-27.2.0-Beta.3.app` (installed) | 27B5038j | only as a TestFlight attempt; on `ITMS-90534`, rebuild with one of the above. Same commit, new `BUILD` |
 | `Xcode.app` (installed, the `xcode-select` default) | 27A266a (27.0) | **never**: the iOS 27.0 SDK leaves out the Duo code. `NemuWindowLayout.podspec` defines `NEMU_SDK_27_1` only for 27.1 or later SDKs |

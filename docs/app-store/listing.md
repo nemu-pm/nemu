@@ -24,38 +24,38 @@ the attribution paragraph that licence terms require.
 
 **Name:** `nemu` (if taken: `nemu: Manga Reader`)
 
-**Subtitle:** `Read manga from your sources`
+**Subtitle:** `Your manga reading companion`
 
 **Promotional text**
 
 ```text
-Read manga from the sources and servers you add. Starts with open-licensed examples, from Edo-period Japanese books to modern webcomics.
+A cross-platform manga reader. Read manga from the sources and servers you add, and pick up where you left off on iPhone, iPad and iPhone Duo.
 ```
 
 **Description**
 
 ```text
-nemu is a manga reader for iPhone and iPad. Read manga from the sources and servers you add.
+nemu is a cross-platform manga reader. Read manga from the sources and servers you add.
 
-nemu does not host comics. It comes with a few example sources: public-domain works, and comics their authors publish under open licences. To read more, add a source directory of your own, connect a server you run, or import CBZ and ZIP files. nemu does not host or review the directories you add, so what you read is your choice.
+nemu doesn't host any manga. It comes with a few example sources to get you started: public-domain works, and comics their authors share under open licences. Add more anytime: a source directory, a server you run, or your own CBZ and ZIP files.
 
 READING
-- Right to left, left to right, or a vertical scroll. A title opens the way its source says, and you can change it.
+- Right to left, left to right, or scroll. Each title opens the way its source reads, and you can change it.
 - Turn pages with a curl, a slide or a push.
-- Two-page spreads when the screen is wide enough.
-- Page fit, page width and page background, including a background that matches the page.
+- Two pages side by side when there's room.
+- Page fit, page width, and a page background that can match the page.
 
-LIBRARY
-- Collections and reading progress.
-- No account needed. Sign in with Apple or Google if you want to sync between devices. You can delete your account in Settings.
+YOUR LIBRARY
+- Collections and reading progress, kept on your device.
+- No account needed. Sign in with Apple or Google to sync your library and reading progress across all your devices. You can delete your account anytime in Settings.
 
 LEARNING JAPANESE
-- Recognise the text on a page on your device, look words up, and see how a sentence breaks down.
-- When signed in, you can also use cloud text recognition, read-aloud and Nemu Chat. These send the relevant text or page to third-party services, only after you agree. The privacy policy names them.
+- Detect the text on a page, look up words, and see how a sentence is put together.
+- When you're signed in, Nemu Chat, read-aloud and cloud text detection are there too. They only send text or a page after you agree.
 
-MADE FOR YOUR SCREEN
+MADE FOR EVERY SCREEN
 - iPhone, iPad, and both displays of iPhone Duo.
-- English, Simplified Chinese and Japanese.
+- English, 简体中文 and 日本語.
 - No ads, no in-app purchases, no tracking.
 
 EXAMPLE CONTENT
@@ -79,42 +79,42 @@ The first version of nemu: read manga from the sources and servers you add, with
 
 **名称:** `nemu`(如被占用:`nemu: 漫画阅读器`)
 
-**副标题:** `阅读你添加的来源和服务器中的漫画`
+**副标题:** `你的漫画阅读伴侣`
 
 **推广文本**
 
 ```text
-阅读你自行添加的来源和服务器中的漫画。内置几个开放授权的示例来源,从江户时代的日本古籍到当代网络漫画。
+跨平台漫画阅读器。阅读你自行添加的来源和服务器中的漫画，在 iPhone、iPad 和 iPhone Duo 上随时接着读。
 ```
 
 **描述**
 
 ```text
-nemu 是一款适用于 iPhone 和 iPad 的漫画阅读器,阅读你自行添加的来源和服务器中的漫画。
+nemu 是一款跨平台漫画阅读器，可阅读你自行添加的来源和服务器中的漫画。
 
-nemu 不托管任何漫画。它内置几个示例来源:已进入公有领域的作品,以及作者以开放许可发布的漫画。想读更多内容,可以添加你自己的来源目录、连接你运行的服务器,或导入 CBZ 和 ZIP 文件。nemu 不托管也不审核你添加的目录,读什么由你决定。
+nemu 不托管任何漫画。它自带几个示例来源，帮你快速上手：公有领域的作品，以及作者以开放许可分享的漫画。你可以随时添加更多：来源目录、你自己的服务器，或者你自己的 CBZ 和 ZIP 文件。
 
 阅读
-- 从右到左、从左到右或垂直滚动。作品按来源的设定打开,你也可以更改。
-- 翻页方式可选卷页、滑动或推移。
-- 屏幕够宽时显示双页。
-- 可调整页面适配、页面宽度和页面背景,背景也可以跟随页面颜色。
+- 从右到左、从左到右或滚动阅读。每部作品按来源的方向打开，你也可以随时更改。
+- 卷页、滑动或推移翻页。
+- 屏幕够宽时，两页并排显示。
+- 页面适应、页面宽度，以及可以匹配页面的页面背景。
 
-书库
-- 收藏夹和阅读进度。
-- 无需账号。想在设备之间同步时,可以通过 Apple 或 Google 登录。你可以在设置中删除账号。
+你的书库
+- 收藏夹和阅读进度，保存在你的设备上。
+- 无需账户。登录 Apple 或 Google 账户，即可在所有设备间同步你的书库和阅读进度。你可以随时在设置中删除账户。
 
-学日语
-- 在设备上识别页面文字、查词,并查看句子的结构。
-- 登录后还可以使用云端文字识别、朗读和 Nemu Chat。这些功能只有在你同意后才会把相关文字或页面发送给第三方服务。隐私政策中列出了这些服务。
+学习日语
+- 识别页面上的文字、查词，看看一句话是怎么组成的。
+- 登录后，还可以使用 Nemu Chat、朗读和云端文字识别。只有在你同意后，才会发送文字或页面。
 
-适配你的屏幕
-- iPhone、iPad,以及 iPhone Duo 的内外两块屏幕。
-- 支持英语、简体中文和日语。
-- 没有广告,没有 App 内购买,没有跟踪。
+适配每一块屏幕
+- iPhone、iPad，以及 iPhone Duo 的两块屏幕。
+- English、简体中文和日本語。
+- 无广告、无内购、无追踪。
 
 示例内容
-Pepper&Carrot,作者 David Revoy,peppercarrot.com,CC BY 4.0(creativecommons.org/licenses/by/4.0)。Mini Fantasy Theater,作者 David Revoy,CC BY-SA 4.0(creativecommons.org/licenses/by-sa/4.0)。作者禁止对这两部作品进行 AI 衍生创作。Little Nemo in Slumberland,作者 Winsor McCay,公有领域,扫描件来自 Wikimedia Commons。日本作品:公有领域,扫描件由日本国立国会图书馆提供。nemu 与上述作者和机构没有关联。
+Pepper&Carrot，作者 David Revoy，peppercarrot.com，CC BY 4.0（creativecommons.org/licenses/by/4.0）。Mini Fantasy Theater，作者 David Revoy，CC BY-SA 4.0（creativecommons.org/licenses/by-sa/4.0）。作者禁止对这两部作品进行 AI 衍生创作。Little Nemo in Slumberland，作者 Winsor McCay，公有领域，扫描件来自 Wikimedia Commons。日本作品：公有领域，扫描件由日本国立国会图书馆（国立国会図書館）提供。nemu 与上述作者和机构无关。
 ```
 
 **关键词**
@@ -133,42 +133,42 @@ nemu 的第一个版本:阅读你自行添加的来源和服务器中的漫画,�
 
 **名前:** `nemu`(使用済みの場合:`nemu: 漫画リーダー`)
 
-**サブタイトル:** `追加したソースやサーバーの漫画を読む`
+**サブタイトル:** `あなたの漫画リーディングコンパニオン`
 
 **プロモーション用テキスト**
 
 ```text
-追加したソースやサーバーの漫画を読めるリーダーです。江戸時代の和本から現代のウェブコミックまで、オープンライセンスのサンプルソースを収録しています。
+追加したソースやサーバーの漫画を読める、クロスプラットフォームの漫画リーダーです。iPhone、iPad、iPhone Duoで、続きからすぐに読めます。
 ```
 
 **概要**
 
 ```text
-nemu は iPhone と iPad 向けの漫画リーダーです。追加したソースやサーバーの漫画を読めます。
+nemuはクロスプラットフォーム対応の漫画リーダーです。追加したソースやサーバーの漫画を読むことができます。
 
-nemu は漫画をホストしていません。パブリックドメインの作品や、作者がオープンライセンスで公開している漫画を読めるサンプルソースが付属しています。さらに読みたいときは、ご自身のソースディレクトリを追加するか、運用中のサーバーに接続するか、CBZ や ZIP ファイルを読み込んでください。追加したディレクトリを nemu がホストしたり審査したりすることはないため、何を読むかはご自身で決められます。
+nemuは漫画を配信していません。すぐに始められるよう、いくつかのサンプルソースが付いています。パブリックドメインの作品や、作者がオープンライセンスで公開している漫画です。ソースディレクトリ、ご自身のサーバー、手持ちのCBZやZIPファイルから、いつでも追加できます。
 
-読書
-- 右から左、左から右、縦スクロールに対応。作品はソースの指定どおりに開き、変更もできます。
-- ページめくりはカール、スライド、プッシュから選べます。
-- 画面に十分な幅があれば見開きで表示します。
-- ページフィット、ページ幅、ページ背景を調整できます。ページの色に合わせた背景も選べます。
+読む
+- 右から左、左から右、またはスクロール。作品はソースに合わせた向きで開き、いつでも変更できます。
+- カール、スライド、プッシュでページをめくれます。
+- 画面に余裕があれば、見開きで2ページ並べて表示します。
+- ページフィット、ページ幅、ページに合わせられるページ背景。
 
 ライブラリ
-- コレクションと読書の進捗。
-- アカウントは不要です。デバイス間で同期したいときは Apple または Google でサインインできます。アカウントは設定から削除できます。
+- コレクションと読書の進み具合を、端末に保存します。
+- アカウントは不要です。AppleまたはGoogleでサインインすると、すべての端末でライブラリと読書の進み具合を同期できます。アカウントは設定からいつでも削除できます。
 
-日本語学習
-- デバイス上でページの文字を認識し、単語を調べ、文の構造を確認できます。
-- サインインすると、クラウド文字認識、読み上げ、Nemu Chat も使えます。これらは同意した場合にのみ、関連するテキストやページを第三者のサービスに送信します。送信先はプライバシーポリシーに記載しています。
+日本語を学ぶ
+- ページの文字を認識して、単語を調べたり、文の組み立てを確かめたりできます。
+- サインインすると、Nemu Chat、読み上げ、クラウドでの文字認識も使えます。テキストやページは、同意したあとにだけ送信されます。
 
-画面に合わせて
-- iPhone、iPad、iPhone Duo の内側と外側のディスプレイに対応。
-- 英語、簡体字中国語、日本語に対応。
-- 広告、App 内課金、トラッキングはありません。
+どの画面にも
+- iPhone、iPad、そしてiPhone Duoの両方のディスプレイ。
+- English、简体中文、日本語。
+- 広告なし、App内課金なし、トラッキングなし。
 
 サンプルコンテンツ
-Pepper&Carrot、作者 David Revoy、peppercarrot.com、CC BY 4.0(creativecommons.org/licenses/by/4.0)。Mini Fantasy Theater、作者 David Revoy、CC BY-SA 4.0(creativecommons.org/licenses/by-sa/4.0)。作者はどちらの作品についても AI による二次創作を禁止しています。Little Nemo in Slumberland、作者 Winsor McCay、パブリックドメイン、スキャンは Wikimedia Commons より。日本の作品:パブリックドメイン、スキャンは国立国会図書館によるものです。nemu はこれらの作者や機関と提携していません。
+Pepper&Carrot（作：David Revoy、peppercarrot.com、CC BY 4.0、creativecommons.org/licenses/by/4.0）。Mini Fantasy Theater（作：David Revoy、CC BY-SA 4.0、creativecommons.org/licenses/by-sa/4.0）。作者はいずれの作品についてもAIによる派生を禁止しています。Little Nemo in Slumberland（作：Winsor McCay、パブリックドメイン、スキャンはWikimedia Commonsより）。日本の作品：パブリックドメイン、スキャンは国立国会図書館によるもの。nemuはこれらの作者・機関とは関係ありません。
 ```
 
 **キーワード**
@@ -252,6 +252,6 @@ Counted by script from the blocks above on 2026-11-08.
 
 | Language | Name | Subtitle | Promo (170) | Description (4000) | Keywords (100 bytes) |
 |---|---|---|---|---|---|
-| en | 4 | 28 | 136 | 1866 | 90 |
-| zh-Hans | 4 | 16 | 51 | 867 | 91 |
-| ja | 4 | 18 | 74 | 1126 | 96 |
+| en | 4 | 28 | 142 | 1708 | 90 |
+| zh-Hans | 4 | 8 | 62 | 822 | 91 |
+| ja | 4 | 18 | 77 | 1023 | 96 |
