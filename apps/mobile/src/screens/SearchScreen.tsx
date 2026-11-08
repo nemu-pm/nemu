@@ -130,8 +130,10 @@ import {
 import {
   formatMobileSearchSectionCount,
   groupMobileSearchFailures,
+  mobileLiveSearchPartitionHasContent,
   omitLibraryTitlesFromLiveSearchGroups,
   partitionMobileLiveSearchGroups,
+  type MobileLiveSearchPartition,
   resolveMobileLiveSearchRetrySourceIds,
 } from "@/lib/mobileSearchResults";
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
@@ -601,21 +603,20 @@ function LiveSourceResultSection({
 
 function LiveSearchResults({
   state,
+  partition,
   strings,
   action,
   grid,
   onRetrySources,
 }: {
   state: LiveSearchState;
+  /** The answers of a ready state, null otherwise. */
+  partition: MobileLiveSearchPartition<MobileLiveSearchDisplayGroup> | null;
   strings: MobileStrings;
   action: LiveResultAction;
   grid: SearchResultGrid;
   onRetrySources: (sources: SearchSourceDisplay[]) => void;
 }) {
-  const partition = useMemo(
-    () => (state.status === "ready" ? partitionMobileLiveSearchGroups(state.groups) : null),
-    [state],
-  );
   // Each answer: the sections and lines below it glide, the new section fades
   // in. Up before the commit that moves them.
   const partitionKey = partition
@@ -1244,6 +1245,21 @@ export function SearchScreen() {
       ? answeredLiveSearchState
       : { status: "ready", groups };
   }, [answeredLiveSearchState, visibleLocalResultGroups]);
+  // A source the Library section lists is never named as having no results.
+  const liveSearchPartition = useMemo(
+    () =>
+      liveSearchState.status === "ready"
+        ? partitionMobileLiveSearchGroups(
+            liveSearchState.groups,
+            new Set(visibleLocalResultGroups.map((group) => group.source.id)),
+          )
+        : null,
+    [liveSearchState, visibleLocalResultGroups],
+  );
+  // Nothing left to draw: no live label over an empty footer.
+  const liveActive = liveSearchPartition
+    ? mobileLiveSearchPartitionHasContent(liveSearchPartition)
+    : liveSearchState.status !== "idle";
   // Sidebar rows: each source's live-result count (or its searching / failed
   // state) for the current query. Sources outside the scope keep their last
   // answer for the same query, so narrowing to one source never blanks the
@@ -1299,7 +1315,7 @@ export function SearchScreen() {
   // "Library" / "Live Source Results" only when both groups are on screen.
   const showKindHeaders = mobileSearchShowsKindHeaders({
     libraryRows: localSearchRows.length,
-    liveActive: liveSearchState.status !== "idle",
+    liveActive,
   });
   // Sidebar split: the results pane's first header sits level with the
   // sidebar's search field (one vertical grid for both panes).
@@ -1909,7 +1925,7 @@ export function SearchScreen() {
         </>
       }
       ListFooterComponent={
-        !error && !showSkeleton && selectedCount > 0 && trimmedQuery ? (
+        !error && !showSkeleton && selectedCount > 0 && trimmedQuery && (liveActive || showSavedEmptyState) ? (
           <View
             style={[
               styles.resultFooter,
@@ -1940,6 +1956,7 @@ export function SearchScreen() {
 
             <LiveSearchResults
               state={liveSearchState}
+              partition={liveSearchPartition}
               strings={strings}
               action={{
                 onPressResult: handleLiveResultPress,

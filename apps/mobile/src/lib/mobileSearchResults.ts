@@ -14,6 +14,8 @@
  * A title the Library section already shows is not repeated in its source's
  * section. A source left with nothing else did not fail to match, so it gets
  * its own line saying so, or keeps a header with See All if it has more pages.
+ * A source with titles in the Library section is never named as having no
+ * results, even when its live search misses what the local match found.
  */
 
 import type { LibraryEntry } from "@/data/schema";
@@ -33,7 +35,7 @@ export type MobileLiveSearchPartition<G extends MobileLiveSearchGroupLike> = {
   loading: G["source"][];
   /** Sources that could not be searched. */
   failed: Extract<G, { status: "blocked" }>[];
-  /** Sources that answered with no match. */
+  /** Sources that answered with no match and have nothing in the Library section. */
   empty: G["source"][];
   /** Sources whose only matches are in the Library section, with no more pages. */
   inLibrary: G["source"][];
@@ -41,6 +43,8 @@ export type MobileLiveSearchPartition<G extends MobileLiveSearchGroupLike> = {
 
 export function partitionMobileLiveSearchGroups<G extends MobileLiveSearchGroupLike>(
   groups: readonly G[],
+  /** Sources the Library section has titles under for this query. */
+  librarySourceIds?: ReadonlySet<string>,
 ): MobileLiveSearchPartition<G> {
   const partition: MobileLiveSearchPartition<G> = { sections: [], loading: [], failed: [], empty: [], inLibrary: [] };
   for (const group of groups) {
@@ -52,11 +56,24 @@ export function partitionMobileLiveSearchGroups<G extends MobileLiveSearchGroupL
       partition.sections.push(group as Extract<G, { status: "ready" }>);
     } else if (group.allInLibrary) {
       partition.inLibrary.push(group.source);
-    } else {
+    } else if (!librarySourceIds?.has(group.source.id)) {
       partition.empty.push(group.source);
     }
   }
   return partition;
+}
+
+/** False when the live part of the page has nothing to draw, not even a status line. */
+export function mobileLiveSearchPartitionHasContent(
+  partition: MobileLiveSearchPartition<MobileLiveSearchGroupLike>,
+): boolean {
+  return (
+    partition.sections.length > 0 ||
+    partition.loading.length > 0 ||
+    partition.failed.length > 0 ||
+    partition.empty.length > 0 ||
+    partition.inLibrary.length > 0
+  );
 }
 
 type LiveResultSource = LiveGroupSource & {

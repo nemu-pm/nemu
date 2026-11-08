@@ -1,12 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import {
   formatMobileSearchSidebarCount,
+  mobileSearchShowsKindHeaders,
   resolveMobileSearchSidebarStatuses,
   summarizeMobileSearchSidebarStatuses,
 } from "./mobileSearchLayout";
 import {
   formatMobileSearchSectionCount,
   groupMobileSearchFailures,
+  mobileLiveSearchPartitionHasContent,
   omitLibraryTitlesFromLiveSearchGroups,
   partitionMobileLiveSearchGroups,
   resolveMobileLiveSearchRetrySourceIds,
@@ -206,6 +208,72 @@ describe("omitLibraryTitlesFromLiveSearchGroups", () => {
     });
     expect(statuses[ndl?.source.id ?? ""]).toEqual({ kind: "count", count: 0, more: false });
     expect(statuses[mdx?.source.id ?? ""]).toEqual({ kind: "count", count: 1, more: true });
+  });
+});
+
+describe("sources with titles in the Library section", () => {
+  const ready = (id: string, items: unknown[] = [], extra: { hasMore?: boolean; allInLibrary?: boolean } = {}) => ({
+    status: "ready" as const,
+    source: source(id),
+    items,
+    hasMore: false,
+    ...extra,
+  });
+  const inLibrary = (...ids: string[]) => new Set(ids);
+  const emptyIds = (partition: ReturnType<typeof partitionMobileLiveSearchGroups>) =>
+    partition.empty.map((item) => item.id);
+
+  test("a source the Library lists is not named as having no results", () => {
+    const partition = partitionMobileLiveSearchGroups([ready("pepper"), ready("other")], inLibrary("pepper"));
+    expect(emptyIds(partition)).toEqual(["other"]);
+    expect(partition.inLibrary).toEqual([]);
+  });
+
+  test("a full Library with no live matches ends with no live part at all", () => {
+    const partition = partitionMobileLiveSearchGroups(
+      [ready("pepper"), ready("theater"), ready("ndl")],
+      inLibrary("pepper", "theater", "ndl"),
+    );
+    expect(emptyIds(partition)).toEqual([]);
+    expect(partition.inLibrary).toEqual([]);
+    expect(mobileLiveSearchPartitionHasContent(partition)).toBe(false);
+    expect(
+      mobileSearchShowsKindHeaders({
+        libraryRows: 7,
+        liveActive: mobileLiveSearchPartitionHasContent(partition),
+      }),
+    ).toBe(false);
+  });
+
+  test("the already-in-library line is only for results that were filtered out", () => {
+    const partition = partitionMobileLiveSearchGroups(
+      [ready("filtered", [], { allInLibrary: true }), ready("missed")],
+      inLibrary("filtered", "missed"),
+    );
+    expect(partition.inLibrary.map((item) => item.id)).toEqual(["filtered"]);
+    expect(emptyIds(partition)).toEqual([]);
+    expect(mobileLiveSearchPartitionHasContent(partition)).toBe(true);
+  });
+
+  test("still reports its other live states", () => {
+    const partition = partitionMobileLiveSearchGroups(
+      [
+        ready("found", [1]),
+        ready("more", [], { hasMore: true, allInLibrary: true }),
+        { status: "loading", source: source("late") },
+        { status: "blocked", source: source("raw"), detail: "verify" },
+      ],
+      inLibrary("found", "more", "late", "raw"),
+    );
+    expect(partition.sections.map((group) => group.source.id)).toEqual(["found", "more"]);
+    expect(partition.loading.map((item) => item.id)).toEqual(["late"]);
+    expect(partition.failed.map((group) => group.source.id)).toEqual(["raw"]);
+  });
+
+  test("a source without Library titles still has no results, and the page says so", () => {
+    const partition = partitionMobileLiveSearchGroups([ready("other")], inLibrary());
+    expect(emptyIds(partition)).toEqual(["other"]);
+    expect(mobileLiveSearchPartitionHasContent(partition)).toBe(true);
   });
 });
 
