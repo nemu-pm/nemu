@@ -13,7 +13,7 @@ export const mobileStringsZh: MobileStrings = {
     appIconLabel: "nemu 应用图标",
     close: "关闭关于 nemu",
     description:
-      "nemu 是一款跨平台漫画阅读器，让你可以从各种来源发现和阅读漫画。",
+      "nemu 是一款跨平台漫画阅读器，可阅读你自行添加的来源和服务器中的漫画。",
     openSourceCode: "在 GitHub 打开 nemu 源代码",
     privacyPolicy: "隐私政策",
     sourceCode: "源代码",
@@ -170,7 +170,7 @@ export const mobileStringsZh: MobileStrings = {
     installing: "安装中…",
     introLines: [
       "跨平台漫画阅读器，",
-      "让你发现并阅读互联网上各种来源的漫画。",
+      "阅读你自行添加的来源和服务器中的漫画。",
       "让我们来完成初始设置吧！",
     ],
     languageDescription: "选择你偏好的应用语言",

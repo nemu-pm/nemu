@@ -13,7 +13,7 @@ export const mobileStringsEn: MobileStrings = {
     appIconLabel: "nemu app icon",
     close: "Close about nemu",
     description:
-      "nemu is a cross-platform manga reader that lets you discover and read manga from various online sources.",
+      "nemu is a cross-platform manga reader. Read manga from the sources and servers you add.",
     openSourceCode: "Open nemu source code on GitHub",
     privacyPolicy: "Privacy Policy",
     sourceCode: "Source Code",
@@ -175,8 +175,8 @@ export const mobileStringsEn: MobileStrings = {
     installAndContinue: "Install & Continue",
     installing: "Installing…",
     introLines: [
-      "A cross-platform manga reader that lets you",
-      "discover and read manga from various Internet sources.",
+      "A cross-platform manga reader.",
+      "Read manga from the sources and servers you add.",
       "Let's get you set up!",
     ],
     languageDescription: "Select your preferred app language",

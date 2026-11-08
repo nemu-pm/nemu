@@ -152,21 +152,33 @@ describe("mobile i18n helpers", () => {
     expect(getMobileStrings("fr").nav.settings).toBe("Settings");
   });
 
-  test("keeps mobile welcome copy aligned with web without web-based wording", () => {
+  test("welcome and About describe reading from the sources and servers you add", () => {
+    for (const [language, phrase] of [
+      ["en", "Read manga from the sources and servers you add."],
+      ["zh", "阅读你自行添加的来源和服务器中的漫画。"],
+      ["ja", "追加したソースやサーバーの漫画を読"],
+    ] as const) {
+      const strings = getMobileStrings(language);
+      expect(strings.welcome.introLines.join(" ")).toContain(phrase);
+      expect(strings.about.description).toContain(phrase);
+    }
+  });
+
+  test("keeps mobile welcome copy free of web-based wording", () => {
     expect(getMobileStrings("en").welcome.introLines.join(" ")).toBe(
-      "A cross-platform manga reader that lets you discover and read manga from various Internet sources. Let's get you set up!",
+      "A cross-platform manga reader. Read manga from the sources and servers you add. Let's get you set up!",
     );
     expect(getMobileStrings("en").welcome.introLines.join(" ")).not.toContain(
       "web-based",
     );
     expect(getMobileStrings("zh").welcome.introLines.join("")).toBe(
-      "跨平台漫画阅读器，让你发现并阅读互联网上各种来源的漫画。让我们来完成初始设置吧！",
+      "跨平台漫画阅读器，阅读你自行添加的来源和服务器中的漫画。让我们来完成初始设置吧！",
     );
     expect(getMobileStrings("zh").welcome.introLines.join("")).not.toContain(
       "基于 Web",
     );
     expect(getMobileStrings("ja").welcome.introLines.join("")).toBe(
-      "様々なインターネットソースから漫画を見つけて読める、クロスプラットフォームの漫画リーダーです。セットアップを始めましょう！",
+      "追加したソースやサーバーの漫画を読める、クロスプラットフォームの漫画リーダーです。セットアップを始めましょう！",
     );
     expect(getMobileStrings("ja").welcome.introLines.join("")).not.toContain(
       "ウェブベース",

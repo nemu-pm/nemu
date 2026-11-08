@@ -13,7 +13,7 @@ export const mobileStringsJa: MobileStrings = {
     appIconLabel: "nemuアプリアイコン",
     close: "nemuについてを閉じる",
     description:
-      "nemuはクロスプラットフォーム対応の漫画リーダーです。さまざまなソースから漫画を発見して読むことができます。",
+      "nemuはクロスプラットフォーム対応の漫画リーダーです。追加したソースやサーバーの漫画を読むことができます。",
     openSourceCode: "GitHubでnemuのソースコードを開く",
     privacyPolicy: "プライバシーポリシー",
     sourceCode: "ソースコード",
@@ -174,7 +174,7 @@ export const mobileStringsJa: MobileStrings = {
     installAndContinue: "インストールして続ける",
     installing: "インストール中…",
     introLines: [
-      "様々なインターネットソースから漫画を見つけて読める、",
+      "追加したソースやサーバーの漫画を読める、",
       "クロスプラットフォームの漫画リーダーです。",
       "セットアップを始めましょう！",
     ],
