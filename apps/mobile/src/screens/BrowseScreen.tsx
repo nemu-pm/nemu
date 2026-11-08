@@ -43,6 +43,7 @@ import { EmptyLibrary } from "@/components/EmptyLibrary";
 import { MobileBrowseSkeleton } from "@/components/MobileBrowseSkeleton";
 import { MobileAddSourcesDirectoryPage } from "@/components/MobileAddSourceDirectorySheet";
 import { MobileAddSourcesStack, mobileAddSourcesPushesPagesNatively } from "@/components/MobileAddSourcesStack";
+import { ContentScrollMarker } from "../../modules/nemu-window-layout";
 import { SERVER_ICONS } from "@/components/mobileServerIcons";
 import { MobileConfirmationSheet } from "@/components/MobileConfirmationSheet";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
@@ -2125,6 +2126,88 @@ export function BrowseScreen() {
     ) : group;
   };
 
+  // Android keeps everything above the list in one stack, so the scroll
+  // container's top edge sits exactly at the search field's bottom. The 12pt
+  // separation belongs to the list's own content inset (`availableListContent`):
+  // the first row starts 12pt clear of the field at rest. iOS: what is left of it
+  // scrolls with the list, which runs under the bar's search field and title.
+  const addSourceSheetHeader = (
+    <View
+      style={styles.addSourceSheetHeaderStack}
+    >
+      {available.error ? (
+        <MobileInlineToast
+          title={strings.feedback.catalogUnavailableTitle}
+          detail={[
+            strings.feedback.catalogUnavailableDetail,
+            catalogCacheAge,
+          ].filter(Boolean).join(" · ")}
+          actionLabel={strings.common.retry}
+          actionDisabled={refreshingSources}
+          actionLoading={refreshingSources}
+          onActionPress={() => {
+            void refreshSources();
+          }}
+        />
+      ) : null}
+      {/* iOS: the field is the sheet bar's own (`MobileAddSourcesStack`). */}
+      {mobileAddSourcesPushesPagesNatively ? null : (
+        <NemuNativeSearchField
+          accessibilityLabel={strings.browse.searchRegistries}
+          clearAccessibilityLabel={strings.common.clear}
+          clearActionTestID="AddSourceSearchClearAction"
+          onChangeText={setQuery}
+          placeholder={strings.browse.searchRegistries}
+          value={query}
+        />
+      )}
+
+      {selectedLanguages.size > 0 || adultShown || focusedDirectory ? (
+        <View style={styles.activeFilterChips}>
+          {focusedDirectory ? (
+            <ActiveFilterChip
+              label={formatMobileString(strings.browse.directoryFilterChip, {
+                name: getMobileRegistryDisplayName(focusedDirectory.id, focusedDirectory.name, strings),
+              })}
+              removeLabel={strings.common.remove}
+              onPress={() => setDirectoryFocus(null)}
+              wrapLabel
+            />
+          ) : null}
+          {[...selectedLanguages].map((language) => (
+            <ActiveFilterChip
+              key={language}
+              label={formatSourceLanguageLabel(
+                language,
+                strings,
+                appLanguage,
+              )}
+              removeLabel={strings.common.remove}
+              onPress={() => toggleLanguage(language)}
+            />
+          ))}
+          {adultShown ? (
+            <ActiveFilterChip
+              label={strings.browse.adult}
+              removeLabel={strings.common.remove}
+              onPress={() => setShowAdult(false)}
+            />
+          ) : null}
+        </View>
+      ) : null}
+
+      {actionError ? (
+        <MobileInlineErrorBanner
+          variant="embedded"
+          title={actionError.title}
+          detail={actionError.detail}
+          dismissLabel={strings.common.clear}
+          onDismiss={() => setActionError(null)}
+        />
+      ) : null}
+    </View>
+  );
+
   return (
     <>
       {usesNativeHeader ? (
@@ -2286,6 +2369,11 @@ export function BrowseScreen() {
               title={strings.browse.addSources}
               closeAccessibilityLabel={strings.common.close}
               onClose={closeAddSourceSheet}
+              search={{
+                placeholder: strings.browse.searchRegistries,
+                query,
+                onChangeQuery: setQuery,
+              }}
               filter={{
                 accessibilityLabel: formatMobileString(strings.browse.languageFilterOption, { language: selectedFilterLabel }),
                 active: activeFilterCount > 0,
@@ -2363,94 +2451,7 @@ export function BrowseScreen() {
               )}
             </NemuSheetScrollEdge>
           ) : <View style={styles.addSourceSheetBody} onLayout={handleAddSourceSheetBodyLayout}>
-            {/*
-              Everything above the list lives in one stack so the scroll
-              container's top edge sits exactly at the search field's bottom.
-              The 12pt separation belongs to the list's own content inset
-              (`availableListContent`) instead of a flex gap: rows then slide
-              under the field while scrolling instead of being clipped at a
-              hard edge floating in an empty gap, and the first row still
-              starts 12pt clear of the field at rest.
-            */}
-            <View
-              style={styles.addSourceSheetHeaderStack}
-            >
-              {available.error ? (
-                <MobileInlineToast
-                  title={strings.feedback.catalogUnavailableTitle}
-                  detail={[
-                    strings.feedback.catalogUnavailableDetail,
-                    catalogCacheAge,
-                  ].filter(Boolean).join(" · ")}
-                  actionLabel={strings.common.retry}
-                  actionDisabled={refreshingSources}
-                  actionLoading={refreshingSources}
-                  onActionPress={() => {
-                    void refreshSources();
-                  }}
-                />
-              ) : null}
-              {/*
-                iOS renders this as a real SwiftUI `TextField` (`Host > HStack >
-                magnifier / TextField / clear Button`) via `@expo/ui/swift-ui`;
-                every other platform keeps the RN `TextInput` capsule. Both live
-                in `NemuNativeSearchField`, which also documents the SwiftUI
-                first-responder/IME caveat of hosting a text field inside the
-                sheet's own SwiftUI presentation and how to fall back.
-              */}
-              <NemuNativeSearchField
-                accessibilityLabel={strings.browse.searchRegistries}
-                clearAccessibilityLabel={strings.common.clear}
-                clearActionTestID="AddSourceSearchClearAction"
-                onChangeText={setQuery}
-                placeholder={strings.browse.searchRegistries}
-                value={query}
-              />
-
-              {selectedLanguages.size > 0 || adultShown || focusedDirectory ? (
-                <View style={styles.activeFilterChips}>
-                  {focusedDirectory ? (
-                    <ActiveFilterChip
-                      label={formatMobileString(strings.browse.directoryFilterChip, {
-                        name: getMobileRegistryDisplayName(focusedDirectory.id, focusedDirectory.name, strings),
-                      })}
-                      removeLabel={strings.common.remove}
-                      onPress={() => setDirectoryFocus(null)}
-                      wrapLabel
-                    />
-                  ) : null}
-                  {[...selectedLanguages].map((language) => (
-                    <ActiveFilterChip
-                      key={language}
-                      label={formatSourceLanguageLabel(
-                        language,
-                        strings,
-                        appLanguage,
-                      )}
-                      removeLabel={strings.common.remove}
-                      onPress={() => toggleLanguage(language)}
-                    />
-                  ))}
-                  {adultShown ? (
-                    <ActiveFilterChip
-                      label={strings.browse.adult}
-                      removeLabel={strings.common.remove}
-                      onPress={() => setShowAdult(false)}
-                    />
-                  ) : null}
-                </View>
-              ) : null}
-
-              {actionError ? (
-                <MobileInlineErrorBanner
-                  variant="embedded"
-                  title={actionError.title}
-                  detail={actionError.detail}
-                  dismissLabel={strings.common.clear}
-                  onDismiss={() => setActionError(null)}
-                />
-              ) : null}
-            </View>
+            {mobileAddSourcesPushesPagesNatively ? null : addSourceSheetHeader}
 
             <AddSourceListAfterSheetLayout>
             <NemuSheetScrollEdge style={styles.availableListScroller}>
@@ -2458,7 +2459,17 @@ export function BrowseScreen() {
                 <SectionList
                   {...edge}
                   // Focused on a just-added directory: its sources alone.
-                  ListHeaderComponent={builtInKinds.length > 0 && !directoryFocus ? (
+                  ListHeaderComponent={<>
+                  {mobileAddSourcesPushesPagesNatively ? (
+                    <>
+                      {/* The bar's observed scroll view: UIKit's soft edge forms at the bar. Not at the top
+                          beside a vertical bar, whose bar would hide the sheet's title on scroll; the body's
+                          `NemuSheetScrollEdge` forms it there. */}
+                      <ContentScrollMarker topEdge={!verticalBarSide || regularWidth} />
+                      {addSourceSheetHeader}
+                    </>
+                  ) : null}
+                  {builtInKinds.length > 0 && !directoryFocus ? (
                     <NemuPressable
                       accessibilityRole="button"
                       onPress={openServerPicker}
@@ -2488,12 +2499,13 @@ export function BrowseScreen() {
                       <NemuText numberOfLines={1} style={[styles.serverEntryLabel, { color: sheetTokens.foreground }]}>{strings.selfHosted.connectServer}</NemuText>
                       <Ionicons name="chevron-forward" size={16} color={sheetTokens.mutedForeground} style={{ marginRight: -4 }} />
                     </NemuPressable>
-                  ) : undefined}
+                  ) : null}
+                  </>}
                   // Android: inside a native sheet, hand the drag to the sheet at the top.
                   nestedScrollEnabled
-                  alwaysBounceVertical={false}
-                  automaticallyAdjustContentInsets={false}
-                  contentInsetAdjustmentBehavior="never"
+                  alwaysBounceVertical={mobileAddSourcesPushesPagesNatively}
+                  automaticallyAdjustContentInsets={mobileAddSourcesPushesPagesNatively}
+                  contentInsetAdjustmentBehavior={mobileAddSourcesPushesPagesNatively ? "always" : "never"}
                   initialNumToRender={10}
                   maxToRenderPerBatch={18}
                   keyboardDismissMode="interactive"

@@ -21,6 +21,12 @@ export type MobileAddSourcesStackProps = {
     active: boolean;
     onPress: () => void;
   };
+  /** The root page's search field, in its bar. */
+  search: {
+    placeholder: string;
+    query: string;
+    onChangeQuery: (query: string) => void;
+  };
   /** The list: the stack's root page. */
   children: ReactNode;
 };

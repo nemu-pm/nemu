@@ -113,6 +113,17 @@ describe("native edge effects (iOS)", () => {
     expect(stack).toContain('scrollEdgeEffects: { top: "hidden", bottom: "hidden", left: "hidden", right: "hidden" }');
   });
 
+  test("Add Sources' list runs under the sheet bar's pinned search field, observed by the bar", () => {
+    const stack = read("../components/MobileAddSourcesStack.ios.tsx");
+    expect(stack).toContain("pinnedSearch(search.query, search.placeholder, search.onChangeQuery)");
+    expect(stack).toContain('ignoreSafeArea({ regions: "container", edges: "vertical" })');
+    const browse = read("../screens/BrowseScreen.tsx");
+    // Beside a vertical bar a registered top edge would hide the sheet's title on scroll.
+    expect(browse).toContain("<ContentScrollMarker topEdge={!verticalBarSide || regularWidth} />");
+    const swift = read("../../modules/nemu-window-layout/ios/NemuWindowLayoutModule.swift");
+    expect(swift).toContain(".navigationBarDrawer(displayMode: .always)");
+  });
+
   test("horizontal rows use the native ends on iOS, their own fade only without the element", () => {
     for (const file of ["../screens/SearchScreen.tsx", "../screens/SourceBrowseScreen.tsx"]) {
       expect(read(file)).toContain("<NemuHorizontalScrollEdges />");

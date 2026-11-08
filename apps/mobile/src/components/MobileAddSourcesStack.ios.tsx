@@ -38,7 +38,7 @@ import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { getMobileStrings } from "@/lib/mobileI18n";
 import { selfHostedKindName } from "@/lib/selfHosted/messages";
 import { SELF_HOSTED_SETUP_KINDS, type SelfHostedKind } from "@/lib/selfHosted/policy";
-import { inlineToolbarTitle, sheetCenteredTitle } from "../../modules/nemu-window-layout/src/presentationColorScheme";
+import { inlineToolbarTitle, pinnedSearch, sheetCenteredTitle } from "../../modules/nemu-window-layout/src/presentationColorScheme";
 import { MobileAddSourcesDirectoryPage } from "./MobileAddSourceDirectorySheet";
 import type { MobileAddSourcesStackProps } from "./MobileAddSourcesStack.types";
 import { MobilePushedFormPage } from "./MobilePushedFormPage.ios";
@@ -50,14 +50,15 @@ import { useServerSourceForm } from "./useServerSourceForm";
  * Add Sources' list under the stack's own bar, the same bar its pushed pages
  * have (one hidden on the root made the push resize the page under it). The
  * list stays inside the horizontal safe area, beside the Duo outer display's
- * vertical bar and whatever a Live Activity shows there, and runs through the
- * home indicator's inset to the sheet's bottom edge (its soft bottom edge; at
- * the full-height detent the list stopped in a hard line above it).
+ * vertical bar and whatever a Live Activity shows there, and runs under the bar
+ * and its search field, and through the home indicator's inset to the sheet's
+ * bottom edge. It is the bar's observed scroll view (`ContentScrollMarker`) and
+ * insets itself: UIKit's soft edge forms where it meets the bar.
  */
 const STACK_ROOT_MODIFIERS = [
   inlineToolbarTitle(),
   frame({ maxWidth: Infinity }),
-  ignoreSafeArea({ regions: "container", edges: "bottom" }),
+  ignoreSafeArea({ regions: "container", edges: "vertical" }),
 ];
 
 const SERVER_ICON_SIZE = 44;
@@ -160,6 +161,7 @@ export function MobileAddSourcesStack({
   title,
   closeAccessibilityLabel,
   onClose,
+  search,
   filter,
   children,
 }: MobileAddSourcesStackProps) {
@@ -214,7 +216,14 @@ export function MobileAddSourcesStack({
       }}
     >
       <SwiftToolbar>
-        <SwiftGroup modifiers={STACK_ROOT_MODIFIERS}>{children}</SwiftGroup>
+        <SwiftGroup
+          modifiers={[
+            ...STACK_ROOT_MODIFIERS,
+            pinnedSearch(search.query, search.placeholder, search.onChangeQuery),
+          ]}
+        >
+          {children}
+        </SwiftGroup>
         <SwiftToolbar.Content>
           {filterItem}
           <SwiftToolbarItem placement="principal">

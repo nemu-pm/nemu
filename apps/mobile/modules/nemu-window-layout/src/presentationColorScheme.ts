@@ -137,6 +137,19 @@ export function isAccessibilityFontScale(fontScale: number) {
   return fontScale >= 1.5;
 }
 
+/**
+ * `@expo/ui` modifier: `searchable` in the navigation bar, always shown, so a list
+ * the bar observes scrolls under the field and then the bar. Reports each edit; a
+ * `query` the caller clears empties the field.
+ */
+export function pinnedSearch(query: string, prompt: string, onChange: (text: string) => void) {
+  return createModifierWithEventListener(
+    "nemuPinnedSearch",
+    (event: { text?: string }) => onChange(event?.text ?? ""),
+    { query, prompt },
+  );
+}
+
 /** Remove the grouped Form's extra top scroll-content margin below its toolbar. */
 export function zeroTopScrollContentMargin() {
   return createModifier("nemuZeroTopScrollContentMargin");

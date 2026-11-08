@@ -20,6 +20,9 @@ public final class NemuWindowLayoutModule: Module {
       ViewModifierRegistry.register(NemuSheetCenteredTitleModifier.type) { _, _, _ in
         NemuSheetCenteredTitleModifier()
       }
+      ViewModifierRegistry.register(NemuPinnedSearchModifier.type) { params, _, eventDispatcher in
+        NemuPinnedSearchModifier(params: params, eventDispatcher: eventDispatcher)
+      }
       ViewModifierRegistry.register(NemuPresentationPlacementModifier.type) { params, _, _ in
         NemuPresentationPlacementModifier(params: params)
       }
@@ -759,6 +762,35 @@ struct NemuPresentationPlacementModifier: ViewModifier {
     case "center": return .center
     default: return .automatic
     }
+  }
+}
+
+/// `searchable` in the navigation bar, always shown (`@expo/ui`'s has no display
+/// mode, and the automatic one collapses on scroll): the page's observed list
+/// scrolls under the field, then the bar. The field owns its text and reports
+/// each edit; a query the caller clears comes back to it.
+struct NemuPinnedSearchModifier: ViewModifier {
+  static let type = "nemuPinnedSearch"
+  private let query: String
+  private let prompt: String
+  private let eventDispatcher: EventDispatcher
+  @State private var text = ""
+
+  init(params: [String: Any], eventDispatcher: EventDispatcher) {
+    query = (params["query"] as? String) ?? ""
+    prompt = (params["prompt"] as? String) ?? ""
+    self.eventDispatcher = eventDispatcher
+  }
+
+  func body(content: Content) -> some View {
+    content
+      .searchable(text: $text, placement: .navigationBarDrawer(displayMode: .always), prompt: prompt)
+      .onChange(of: text) { next in
+        eventDispatcher([NemuPinnedSearchModifier.type: ["text": next]])
+      }
+      .onChange(of: query) { next in
+        if next.isEmpty && !text.isEmpty { text = "" }
+      }
   }
 }
 
