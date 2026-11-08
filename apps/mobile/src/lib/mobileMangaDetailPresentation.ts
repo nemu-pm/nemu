@@ -29,7 +29,7 @@ export type MobileMangaDetailSourceTabBadge = {
 export type MobileMangaDetailContinueAction = {
   chapter: ChapterSummary | null;
   isContinuation: boolean;
-  /** Finished the latest chapter: "Caught up", reopening it from page 1. */
+  /** Finished the latest chapter: "Caught up", reopening it at its last page. */
   caughtUp?: boolean;
 };
 

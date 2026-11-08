@@ -230,6 +230,7 @@ import {
   mobileReaderNextCoverViewRequest,
   resolveMobileReaderCoverViewImage,
 } from "@/lib/mobileReaderCoverView";
+import { mobileReaderExitsAtEnd } from "@/lib/mobileReaderEndExit";
 import { ReaderChapterDivider } from "@/components/reader/ReaderChapterDivider";
 import {
   ReaderChapterCrossingCapsule,
@@ -6204,6 +6205,28 @@ export function ReaderScreen() {
     }
   }, [strings, visibleProgressPageIndex]);
 
+  // The end of the last chapter there is (`mobileReaderExitsAtEnd`): one
+  // more forward turn closes the reader as Back does, once the chapter is
+  // saved as complete. Synced after the page failures are known (below).
+  const readerExitsAtEndRef = useRef(false);
+  const readerExitingAtEndRef = useRef(false);
+  const exitReaderAtEnd = useCallback((reason: string) => {
+    if (readerExitingAtEndRef.current) return;
+    readerExitingAtEndRef.current = true;
+    logReaderEndOfChapter(`exit reason=${reason} chapter=${chapterId}`);
+    if (chapterCompleteCelebration) void hapticConfirm();
+    void persistEndOfChapterCompletion().then((persisted) => {
+      if (persisted) {
+        navigateBack();
+        return;
+      }
+      // Not saved: the card says so and offers to try again.
+      readerExitingAtEndRef.current = false;
+      setEndOfChapterProgressSaved(false);
+      setEndOfChapterPromptVisible(true);
+    });
+  }, [chapterCompleteCelebration, chapterId, navigateBack, persistEndOfChapterCompletion]);
+
   const showEndOfChapterPrompt = useCallback((reason = "past-last-page") => {
     if (
       readerDisplaySettingsOpen ||
@@ -6214,6 +6237,10 @@ export function ReaderScreen() {
       japaneseLearningTranscriptVisible
     ) {
       logReaderEndOfChapter(`skipped (a sheet is open) reason=${reason} chapter=${chapterId}`);
+      return;
+    }
+    if (readerExitsAtEndRef.current) {
+      exitReaderAtEnd(reason);
       return;
     }
     // What brought the reader here (no native os_log bridge for JS: a dev log).
@@ -6249,6 +6276,7 @@ export function ReaderScreen() {
     if (chapterCompleteCelebration) void hapticConfirm();
     void persistEndOfChapterCompletion();
   }, [
+    exitReaderAtEnd,
     chapter,
     chapterCompleteCelebration,
     chapterId,
@@ -6477,6 +6505,11 @@ export function ReaderScreen() {
     ) {
       return false;
     }
+    // Past the divider: the reader closes, the chapter saved as complete.
+    if (readerExitsAtEndRef.current) {
+      exitReaderAtEnd("strip-caught-up");
+      return true;
+    }
     if (readerStripCaughtUpCompletedRef.current === chapterId) return true;
     readerStripCaughtUpCompletedRef.current = chapterId;
     if (chapterCompleteCelebration) void hapticConfirm();
@@ -6489,7 +6522,7 @@ export function ReaderScreen() {
       }
     });
     return true;
-  }, [chapterCompleteCelebration, chapterId, galleryPagedMode, readerStrip, visibleProgressPageIndex]);
+  }, [chapterCompleteCelebration, chapterId, exitReaderAtEnd, galleryPagedMode, readerStrip, visibleProgressPageIndex]);
 
   const stepContinuousReaderAccessibility = useCallback(
     (direction: "previous" | "next") => {
@@ -11392,6 +11425,15 @@ export function ReaderScreen() {
     () => readerVisiblePageFailures(readerVisiblePages, readerPageIdentityFor, readerImageErrors.keys()),
     [readerImageErrors, readerPageIdentityFor, readerVisiblePages],
   );
+  const readerExitsAtEnd = mobileReaderExitsAtEnd({
+    chaptersKnown: readerChaptersKnown,
+    hasNextChapter: Boolean(nextChapterInReadingOrder),
+    pagesReady: pagesState.status === "ready",
+    visiblePageFailed: readerVisibleFailures.length > 0,
+  });
+  useLayoutEffect(() => {
+    readerExitsAtEndRef.current = readerExitsAtEnd;
+  }, [readerExitsAtEnd]);
   const retryReaderVisibleFailures = useCallback(() => {
     for (const failure of readerVisibleFailures) {
       if (failure.kind === "image") {

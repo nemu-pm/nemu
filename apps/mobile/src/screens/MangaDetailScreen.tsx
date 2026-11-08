@@ -138,6 +138,7 @@ import {
   type MobileMangaDetailActionState,
 } from "@/lib/mobileMangaDetailActions";
 import { getMobileSourceReaderHref } from "@/lib/mobileSourceRoutes";
+import { mobileContinueReaderPage } from "@/lib/mobileReaderEndExit";
 import { mobileDesignExploreFlag, useMobileDesignExplore } from "@/lib/mobileDesignExplore";
 import { MobileExploreBarTitle } from "@/components/explore/MobileExploreBarTitle";
 import {
@@ -3050,7 +3051,8 @@ export function MangaDetailScreen() {
                       ? "play-forward-outline"
                       : "play-outline",
                     iconUri: continueSourceInfo?.icon,
-                    onPress: () => openReader(continueChapter, continueSource),
+                    // Caught up: the finished chapter opens at its last page, never page 1.
+                    onPress: () => openReader(continueChapter, continueSource, mobileContinueReaderPage(continueAction)),
                   }}
                   secondaryActions={[
                     {

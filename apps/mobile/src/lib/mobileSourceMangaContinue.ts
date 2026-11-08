@@ -10,7 +10,8 @@ export type MobileSourceMangaContinueTarget = {
   isContinuation: boolean;
   /**
    * The last-read chapter is finished and nothing unread follows it: the
-   * action says "Caught up" and reopens that chapter (from page 1).
+   * action says "Caught up" and reopens that chapter at its last page
+   * (`mobileContinueReaderPage`), never restarting it.
    */
   caughtUp?: boolean;
 };

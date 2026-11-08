@@ -140,6 +140,7 @@ import {
 } from "@/lib/mobileMangaDetailProgress";
 import { toSearchSourceDisplay } from "@/lib/mobileSearch";
 import { getMobileSourceMangaContinueTarget } from "@/lib/mobileSourceMangaContinue";
+import { mobileContinueReaderPage } from "@/lib/mobileReaderEndExit";
 import {
   canOpenMobileSourceMangaReader,
   canPressMobileSourceMangaLibraryAction,
@@ -2199,7 +2200,8 @@ export function SourceMangaScreen() {
                       iconName: isContinuation
                         ? "play-forward-outline"
                         : "play-outline",
-                      onPress: () => openReader(continueChapter),
+                      // Caught up: the finished chapter opens at its last page, never page 1.
+                      onPress: () => openReader(continueChapter, mobileContinueReaderPage(continueTarget)),
                     }
                   : null
               }
