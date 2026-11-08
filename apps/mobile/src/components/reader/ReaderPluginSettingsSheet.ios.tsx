@@ -268,7 +268,6 @@ export function ReaderPluginSettingsSheet({
                   height: fittedSheetDetentWithin(sheet.detent, maxSheetHeight),
                 }),
                 presentationDragIndicator("visible"),
-                // Book posture (Duo), scroll reading: over the free half, not the strip's.
                 presentationPlacement(sheetPlacement),
                 ...(pageInteractive ? [presentationBackgroundInteraction("enabled")] : []),
                 // A toggle or reset in flight keeps the sheet up, so its

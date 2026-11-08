@@ -8,7 +8,6 @@ import {
   mobileReaderSafePadding,
   mobileReaderTapExcluded,
   mobileReaderCapsuleActionSlots,
-  mobileReaderBookSheetPlacement,
   mobileReaderBookSheetSide,
   mobileReaderLayoutWithoutFold,
   mobileReaderCapsuleActionsWidth,
@@ -431,66 +430,33 @@ describe("reader pose: book", () => {
 
 describe("reader pose: book, scroll reading", () => {
   const book = innerLandscapeNoBar([hinge(455.5, 0, 40, 669)]);
-  const fold = { x: 455.5, y: 0, width: 40, height: 669 };
   const scroll = (overrides: Partial<MobileReaderPoseLayoutInput> = {}) =>
     pose(book, { paged: false, scrollReading: true, ...overrides });
 
-  test("the strip keeps the left half, clear of the fold; the right half is left free", () => {
-    const result = scroll();
-    expect(result.posture).toBe("book");
-    expect(result.stage).toEqual({ x: 0, y: 0, width: 455.5, height: 669 });
-    expect(overlapsBox(result.stage, fold)).toBe(false);
-    expect(result.spread).toBe(false);
-    expect(result.foldGap).toBeNull();
-    expect(result.freeHalf).toEqual({ x: 495.5, y: 0, width: 455.5, height: 669 });
-  });
-
-  test("the toolbar is the flat one, inside the strip's half: title on top, scrubber + actions on the bottom row", () => {
-    const chrome = capsules(scroll());
-    expect(chrome.actionsRow).toBe("bottom");
-    for (const piece of [chrome.back, chrome.title!, chrome.more!, chrome.actions, chrome.scrubber]) {
-      expect(piece.x).toBeGreaterThanOrEqual(0);
-      expect(piece.x + piece.width).toBeLessThanOrEqual(455.5);
+  test("the strip reads across the whole window, exactly as flat", () => {
+    for (const rtl of [false, true]) {
+      for (const actionCount of [3, 5]) {
+        const result = scroll({ rtl, actionCount });
+        expect(result).toEqual(pose(mobileReaderLayoutWithoutFold(book), { paged: false, scrollReading: true, rtl, actionCount }));
+        expect(result.posture).toBe("flat");
+        expect(result.stage).toEqual({ x: 0, y: 0, width: 951, height: 669 });
+        expect(result.foldGap).toBeNull();
+        expect(result.chrome.kind).toBe("capsules");
+      }
     }
-    // Horizontal rows: Back, title and ⋯ share the top row; scrubber and actions the bottom one.
-    expect(chrome.title!.y).toBe(chrome.back.y);
-    expect(chrome.more!.y).toBe(chrome.back.y);
-    expect(chrome.scrubber.y).toBeGreaterThan(669 / 2);
-    expect(chrome.actions.y + chrome.actions.height / 2).toBeCloseTo(chrome.scrubber.y + chrome.scrubber.height / 2, 5);
-    expect(chrome.scrubber.width).toBeGreaterThanOrEqual(200);
-    // Centred on the half, not the window.
-    expect(Math.abs(chrome.title!.x + chrome.title!.width / 2 - 455.5 / 2)).toBeLessThanOrEqual(1);
   });
 
-  test("a reader sheet never moves the strip: it presents over the free half", () => {
+  test("a reader sheet never moves the strip", () => {
     const closed = scroll();
     for (const sheetSide of ["left", "right"] as const) {
-      const open = scroll({ sheetSide });
-      expect(open.stage).toEqual(closed.stage);
-      expect(open.freeHalf).toEqual(closed.freeHalf!);
-      expect(open.chrome).toEqual(closed.chrome);
+      expect(scroll({ sheetSide })).toEqual(closed);
     }
-    // The settings popover's region is the free half (inside its safe area), not the strip.
-    expect(closed.popover.frame).toEqual({ x: 495.5, y: 82, width: 455.5, height: 669 - 82 - 34 });
-    expect(mobileReaderBookSheetPlacement({ posture: closed.posture, freeHalf: closed.freeHalf, bounds: closed.bounds, layoutDirection: "ltr" }))
-      .toBe("trailing");
-    expect(mobileReaderBookSheetPlacement({ posture: closed.posture, freeHalf: closed.freeHalf, bounds: closed.bounds, layoutDirection: "rtl" }))
-      .toBe("leading");
-    expect(mobileReaderBookSheetPlacement({ posture: "book", freeHalf: null, bounds: closed.bounds, layoutDirection: "ltr" }))
-      .toBe("automatic");
   });
 
-  test("the toolbar's top scrim stays over the strip", () => {
-    const chrome = capsules(scroll());
-    expect(chrome.topScrim.x).toBe(0);
-    expect(chrome.topScrim.width).toBe(455.5);
-  });
-
-  test("paged reading and the flag-less strip keep their book layout", () => {
-    expect(pose(book).freeHalf).toBeUndefined();
-    expect(pose(book, { scrollReading: true }).freeHalf).toBeUndefined();
-    expect(pose(book, { paged: false }).freeHalf).toBeUndefined();
-    expect(pose(innerLandscapeNoBar(), { paged: false, scrollReading: true }).freeHalf).toBeUndefined();
+  test("paged reading and a paged chapter shown as a strip keep their book layout", () => {
+    expect(pose(book).posture).toBe("book");
+    expect(pose(book, { scrollReading: true }).posture).toBe("book");
+    expect(pose(book, { paged: false }).posture).toBe("book");
   });
 });
 
@@ -517,7 +483,6 @@ describe("reader pose: laptop (notebook) reads as the open display", () => {
         expect(result.posture).toBe("flat");
         expect(result.stage).toEqual({ x: 0, y: 0, width: 669, height: 951 });
         expect(result.foldGap).toBeNull();
-        expect(result.freeHalf).toBeUndefined();
         expect(result.chrome.kind).toBe("capsules");
       }
     }

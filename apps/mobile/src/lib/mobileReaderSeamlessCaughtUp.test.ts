@@ -69,7 +69,7 @@ describe("seamless scroll: past the last available chapter", () => {
     );
     const screenStep = slice(
       "const stepReaderScrollScreen = useCallback(",
-      "// Book posture, scroll reading: the half beside the strip.",
+      "// The bar's book / pages button:",
     );
     for (const step of [accessibility, screenStep]) {
       expect(step).toContain(

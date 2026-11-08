@@ -191,8 +191,7 @@ export type MobileReaderPoseLayoutInput = {
   sheetSide?: Side | null;
   /**
    * Scroll reading (the reading mode, not a paged chapter shown as a strip):
-   * in the book posture the strip keeps its half with a flat toolbar there,
-   * and the other half is left plain (`freeHalf`).
+   * in the book posture the strip reads across the whole window, as flat.
    */
   scrollReading?: boolean;
 };
@@ -214,26 +213,6 @@ export const MOBILE_READER_BOOK_SHEET_COVER_MS = 380;
 
 export function mobileReaderBookSheetSide(layoutDirection: "ltr" | "rtl" | undefined): Side {
   return layoutDirection === "rtl" ? "right" : "left";
-}
-
-/**
- * Where the reader's system sheets go (`presentationPlacement`) — book
- * posture, scroll reading: over the free half, never the strip's. An
- * `automatic` sheet takes the leading half on the Duo
- * (`mobileReaderBookSheetSide`), which is the strip's in a left-to-right
- * layout. Every other pose: `automatic`.
- */
-export function mobileReaderBookSheetPlacement(input: {
-  posture: MobileWindowPosture;
-  freeHalf: Rect | null | undefined;
-  bounds: Rect;
-  layoutDirection: "ltr" | "rtl" | undefined;
-}): "automatic" | "leading" | "trailing" {
-  const half = input.freeHalf;
-  if (input.posture !== "book" || !half) return "automatic";
-  const halfOnRight = half.x + half.width / 2 > input.bounds.x + input.bounds.width / 2;
-  const leadingOnRight = input.layoutDirection === "rtl";
-  return halfOnRight === leadingOnRight ? "leading" : "trailing";
 }
 
 export type MobileReaderPoseLayout = {
@@ -259,11 +238,6 @@ export type MobileReaderPoseLayout = {
   popover: { frame: Rect; bottomGap: number };
   /** Stage-local rectangles owned by chrome: taps there never turn pages. */
   tapExclusions: Rect[];
-  /**
-   * Book posture, scroll reading: the half beside the strip (`scrollReading`),
-   * plain reader black whose taps toggle the toolbar; absent otherwise.
-   */
-  freeHalf?: Rect;
   /**
    * Side insets a full-bleed (unconstrained) page must keep clear: the safe
    * area minus what only the status bar island explains, so showing or
@@ -1218,14 +1192,14 @@ export function mobileReaderPoseLayout(input: MobileReaderPoseLayoutInput): Mobi
   const trailingSide: Side = (input.layout.layoutDirection ?? "ltr") === "rtl" ? "left" : "right";
   const leadingSide: Side = trailingSide === "right" ? "left" : "right";
 
-  if (adaptive.posture === "notebook") {
-    // Half folded like a laptop: the reader reads as on the open display,
-    // across the whole window; the fold is not a pane boundary.
+  if (
+    adaptive.posture === "notebook"
+    || (adaptive.posture === "book" && !input.paged && input.scrollReading)
+  ) {
+    // Half folded like a laptop, and scroll reading half folded like a book:
+    // the reader reads as on the open display, across the whole window; the
+    // fold is not a pane boundary.
     return mobileReaderPoseLayout({ ...input, layout: mobileReaderLayoutWithoutFold(input.layout) });
-  }
-
-  if (adaptive.posture === "book" && adaptive.panels.length === 2 && !input.paged && input.scrollReading) {
-    return mobileReaderBookScrollPose(input, adaptive.panels, { bounds, insets, occlusions, leadingSide });
   }
 
   if (adaptive.posture === "book" && adaptive.panels.length === 2) {
@@ -1401,69 +1375,6 @@ export function mobileReaderPoseLayout(input: MobileReaderPoseLayoutInput): Mobi
     pageSideInsets: constrained || fullBleedBehindRail ? NO_SIDE_INSETS : mobileReaderPageSideInsets(bounds, insets, occlusions),
   };
 }
-
-/**
- * Book posture, scroll reading. The strip keeps one half (the reading-start
- * half: left unless a sheet covers it), never crossing the fold, with the
- * toolbar laid out there as on a flat window (title capsule on top, the
- * scrubber and actions on the bottom row). The other half is left plain:
- * reader black, where a tap shows or hides the toolbar.
- */
-function mobileReaderBookScrollPose(
-  input: MobileReaderPoseLayoutInput,
-  panes: Rect[],
-  context: { bounds: Rect; insets: Insets; occlusions: Rect[]; leadingSide: Side },
-): MobileReaderPoseLayout {
-  const { bounds, insets, occlusions, leadingSide } = context;
-  // The strip never moves: a reader sheet presents over the free half
-  // (`sheetSide` is ignored here; following it swapped the strip's half
-  // while the sheet was open).
-  const stripIndex = input.rtl ? 1 : 0;
-  const pane = panes[stripIndex];
-  // Same immersive rule as the paged book: the strip is full-bleed in its
-  // half; only a kept system bar column trims it.
-  const stage = input.sideBar ? horizontalSafe(pane, bounds, insets) : pane;
-  const actionCount = input.actionCount ?? 3;
-  const chrome = capsuleChrome({
-    frame: stage,
-    bounds,
-    insets,
-    occlusions,
-    leading: stage,
-    trailing: stage,
-    scrubberRegion: stage,
-    leadingSide,
-    actionCount,
-    titleCenterX: stage.x + stage.width / 2,
-    actionsRow: input.sideBar
-      ? "top"
-      : mobileReaderActionsRow(stage, mobileReaderSafePadding(stage, bounds, insets), actionCount),
-    titleOnly: input.sideBar === true,
-  });
-  const freeHalf = panes[1 - stripIndex];
-  // The toolbar's top scrim darkens the strip's half only.
-  if (chrome.kind === "capsules") {
-    chrome.topScrim = { ...chrome.topScrim, x: pane.x, width: pane.width };
-  }
-  return {
-    posture: "book",
-    bounds,
-    safeInsets: insets,
-    stage,
-    constrained: true,
-    twoPageAvailable: false,
-    spread: false,
-    foldGap: null,
-    chrome,
-    modalFrame: stage,
-    // Reader settings present over the free half, never over the strip.
-    popover: { frame: shrink(freeHalf, mobileReaderSafePadding(freeHalf, bounds, insets)), bottomGap: READER_POPOVER_GAP },
-    tapExclusions: capsuleExclusions(chrome, stage),
-    pageSideInsets: NO_SIDE_INSETS,
-    freeHalf,
-  };
-}
-
 
 function uniform(value: number): Insets {
   return { top: value, left: value, bottom: value, right: value };

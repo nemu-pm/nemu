@@ -761,9 +761,6 @@ export function ReaderSettingsNativePopover({
                   expandable: sheetCap === 0 && maxSheetHeight == null,
                 }),
                 presentationDragIndicator("visible"),
-                // Book posture (Duo, scroll reading): over the free half,
-                // never the strip's (an automatic sheet takes the leading
-                // half wherever it is presented from).
                 presentationPlacement(sheetPlacement),
                 ...(pageInteractive ? [presentationBackgroundInteraction("enabled")] : []),
                 // A plugin toggle or reset in flight keeps the sheet up, so

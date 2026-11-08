@@ -35,7 +35,6 @@ import {
   mobileReaderAnticipatedWindowLayout,
   mobileReaderCapsuleActionSlots,
   MOBILE_READER_BOOK_SHEET_COVER_MS,
-  mobileReaderBookSheetPlacement,
   mobileReaderBookSheetSide,
   mobileReaderLayoutWithoutFold,
   mobileReaderHingeHintKey,
@@ -86,7 +85,6 @@ import {
   AppState,
   BackHandler,
   Platform,
-  Pressable,
   StyleSheet,
   Text,
   useWindowDimensions,
@@ -357,7 +355,6 @@ import { JapaneseLearningTranscriptSheet } from "@/components/reader/japaneseLea
 import {
   MobileCachedImage,
   MobileSheetMaxHeightProvider,
-  MobileSheetPlacementProvider,
   NemuPressable,
   NemuRingSpinner,
   nemuFontWeight,
@@ -557,8 +554,6 @@ import {
   MOBILE_READER_SCROLL_PAGE_SPACING,
   MOBILE_READER_SCROLL_SIDE_MARGIN,
   mobileReaderScrollPageGaps,
-  mobileReaderBookScrollStrip,
-  isMobileReaderScrollStripChapter,
   mobileReaderScrollSideMargin,
 } from "@/lib/mobileReaderScrollPresentation";
 import {
@@ -3271,7 +3266,7 @@ export function ReaderScreen() {
         actionCount,
         sideBar: readerSideBar,
         sheetSide,
-        // Book posture, scroll reading: the strip keeps its half.
+        // Book posture, scroll reading: the strip reads across the fold, as flat.
         scrollReading: !pagedMode,
       }),
     [
@@ -3883,40 +3878,7 @@ export function ReaderScreen() {
     && readerPose.posture === "flat"
   );
   const readerSourceViewerKey = makeMobileSourceDetailCacheKey(registryId, sourceId, mangaId);
-  // Book posture, scroll reading: the strip fills its half less 8pt either
-  // side for ordinary manga, edge to edge for a webtoon strip.
-  const readerBookScrollStripPane = readerPose.freeHalf != null;
-  const readerBookScrollStripChapter = useMemo(
-    () =>
-      readerBookScrollStripPane && !galleryPagedMode
-        ? isMobileReaderScrollStripChapter(
-            displayedPages.length,
-            readerPageSizeAt,
-            readerSourceViewer?.key === readerSourceViewerKey
-              ? readerSourceViewer.viewer
-              : null,
-          )
-        : false,
-    [
-      displayedPages.length,
-      galleryPagedMode,
-      readerPageSizeAt,
-      readerBookScrollStripPane,
-      readerSourceViewer,
-      readerSourceViewerKey,
-    ],
-  );
-  const readerBookScrollStrip =
-    readerBookScrollStripPane && !galleryPagedMode
-      ? mobileReaderBookScrollStrip({
-          paneWidth: readerStage.width,
-          stripChapter: readerBookScrollStripChapter,
-          widthScale: readerScrollWidthScale(activeScrollWidthPct),
-        })
-      : null;
-  const readerImageWidth = readerBookScrollStrip
-    ? readerBookScrollStrip.imageWidth
-    : pagedMode
+  const readerImageWidth = pagedMode
     ? isTwoPageMode
       ? Math.max(1, readerSafeContentWidth / 2)
       : // The whole page as large as fits: a regular-width window (an iPad, the
@@ -3955,9 +3917,7 @@ export function ReaderScreen() {
   // (A paged chapter's single long page shown as a strip keeps its margin.)
   const readerScrollSideMargin = pagedMode
     ? MOBILE_READER_SCROLL_SIDE_MARGIN
-    : readerBookScrollStrip
-      ? readerBookScrollStrip.sideMargin
-      : mobileReaderScrollSideMargin(activeScrollWidthPct);
+    : mobileReaderScrollSideMargin(activeScrollWidthPct);
   // Scroll reading: every page's height is known up front — its own size
   // (decoded now, earlier this session, measured, or sent by the source),
   // else the chapter's typical page — so a page index is one exact offset.
@@ -6577,19 +6537,6 @@ export function ReaderScreen() {
     [completeReaderStripCaughtUp, noteReaderStripGate, readerSafeInsetBottom, readerSafeInsetTop, showEndOfChapterPrompt],
   );
 
-  // Book posture, scroll reading: the half beside the strip. The reader's
-  // system sheets (settings, plugins, Japanese Learning) go over it, never
-  // the strip's half.
-  const readerBookFreeHalf = !galleryPagedMode ? (readerPose.freeHalf ?? null) : null;
-  const readerSheetPlacement = mobileReaderBookSheetPlacement({
-    posture: readerPose.posture,
-    freeHalf: readerBookFreeHalf,
-    bounds: readerPose.bounds,
-    layoutDirection: readerWindowLayout.layoutDirection,
-  });
-  const toggleReaderControls = useCallback(() => {
-    setShowControls((value) => !value);
-  }, []);
   // The bar's book / pages button: the cover comes in with its chrome shown
   // (the button was just pressed), and the page comes back with the HUD shown
   // for the same reason. Asking for the cover settles the chapter-open
@@ -13311,17 +13258,6 @@ export function ReaderScreen() {
       />
       </Animated.View>
 
-      {readerBookFreeHalf ? (
-        // Book posture, scroll reading: the half beside the strip is plain
-        // reader black; a tap there shows or hides the toolbar.
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={showControls ? strings.reader.hideControls : strings.reader.showControls}
-          onPress={toggleReaderControls}
-          style={[mobileReaderAbsoluteRect(readerBookFreeHalf), { backgroundColor: readerBackgroundColor }]}
-        />
-      ) : null}
-
       {bilingualLayout ? (
         <DuoBilingualSpread
           layout={bilingualLayout}
@@ -13344,7 +13280,6 @@ export function ReaderScreen() {
         floatingControlsArea={readerFabArea}
       />
 
-      <MobileSheetPlacementProvider value={readerSheetPlacement}>
       {japaneseLearningPresentationPlugin ? (
         // Half folded like a laptop, these sheets belong to the bottom pane
         // like the reader's own: never past the hinge.
@@ -13625,7 +13560,6 @@ export function ReaderScreen() {
         />
         </ReaderDarkThemeScope>
       )}
-      </MobileSheetPlacementProvider>
 
       {readerChromeMounted ? renderReaderChrome() : null}
       {readerCoverViewShown && readerCoverViewImage ? (
