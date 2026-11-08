@@ -44,6 +44,13 @@ export type MobileNativeStackSheetProps = {
    * regular material, as the reader settings sheet (legible over manga pages).
    */
   background?: "glass" | "material";
+  /**
+   * The Duo outer display's vertical bar column is a safe area in the sheet:
+   * a sheet low enough to sit below the bar's status items has only ✕ there,
+   * above its content, so this one's page takes the sheet's full width. Decided
+   * as it presents; a taller sheet keeps the column.
+   */
+  fullWidthBesideBar?: boolean;
   /** The screen behind stays interactive and undimmed (a book-posed reader). */
   backgroundInteraction?: boolean;
   testID?: string;

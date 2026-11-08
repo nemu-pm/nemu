@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   MOBILE_NATIVE_STACK_SHEET_BAR,
   mobileNativeStackSheetDetent,
+  mobileNativeStackSheetFullWidthBesideBar,
   mobileNativeStackSheetMeasureKey,
 } from "./mobileNativeStackSheet";
 
@@ -23,5 +24,19 @@ describe("mobileNativeStackSheetMeasureKey", () => {
   test("sub-half-point width differences share a key; another width does not", () => {
     expect(mobileNativeStackSheetMeasureKey("plugins", 402.1)).toBe(mobileNativeStackSheetMeasureKey("plugins", 402.2));
     expect(mobileNativeStackSheetMeasureKey("plugins", 402)).not.toBe(mobileNativeStackSheetMeasureKey("plugins", 450));
+  });
+});
+
+describe("mobileNativeStackSheetFullWidthBesideBar", () => {
+  const outer = { verticalBarSide: "right" as const, regularWidth: false, windowHeight: 678 };
+  test("a sheet below the bar's status items takes the full width", () => {
+    expect(mobileNativeStackSheetFullWidthBesideBar({ ...outer, detent: 300 })).toBe(true);
+  });
+  test("a tall sheet keeps the column beside the status items", () => {
+    expect(mobileNativeStackSheetFullWidthBesideBar({ ...outer, detent: 500 })).toBe(false);
+  });
+  test("no vertical bar, or a regular width where the sheet floats clear of it: nothing to do", () => {
+    expect(mobileNativeStackSheetFullWidthBesideBar({ ...outer, verticalBarSide: null, detent: 300 })).toBe(false);
+    expect(mobileNativeStackSheetFullWidthBesideBar({ ...outer, regularWidth: true, detent: 300 })).toBe(false);
   });
 });

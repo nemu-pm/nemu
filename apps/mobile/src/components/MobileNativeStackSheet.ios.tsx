@@ -19,6 +19,8 @@ import {
   defaultScrollAnchor,
   disabled as swiftDisabled,
   font,
+  frame,
+  ignoreSafeArea,
   interactiveDismissDisabled,
   lineLimit,
   presentationBackground,
@@ -28,7 +30,12 @@ import {
 } from "@expo/ui/swift-ui/modifiers";
 import { NemuGlassSheetThemeScope, useMobileSheetPlacement, useNemuTheme } from "@/design-system";
 import { fittedSheetDetentWithin } from "@/lib/mobileFittedSheet";
-import { mobileNativeStackSheetDetent, mobileNativeStackSheetMeasureKey } from "@/lib/mobileNativeStackSheet";
+import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
+import {
+  mobileNativeStackSheetDetent,
+  mobileNativeStackSheetFullWidthBesideBar,
+  mobileNativeStackSheetMeasureKey,
+} from "@/lib/mobileNativeStackSheet";
 import { supportsNemuLiquidGlass } from "@/lib/nemuLiquidGlass";
 import { pushedPageWidthKey, READER_SETTINGS_FORM_INSET } from "@/lib/readerSettingsNativePopoverLayout";
 import {
@@ -60,6 +67,8 @@ const MEASURE_WAIT_MS = 250;
 
 /** Page widths the presented sheets reported, per group and window size (they outlive a presentation). */
 const learnedPageWidths = new Map<string, number>();
+/** The same pages' whole widths, safe area included. */
+const learnedFullPageWidths = new Map<string, number>();
 
 /**
  * A system sheet with a navigation bar, as Apple's own settings sheets: each
@@ -81,6 +90,7 @@ export function MobileNativeStackSheet({
   group,
   estimatedHeight,
   maxHeight = null,
+  fullWidthBesideBar = false,
   backgroundInteraction = false,
   background = "glass",
   testID,
@@ -94,8 +104,11 @@ export function MobileNativeStackSheet({
   const pageWidth =
     learnedPageWidths.get(widthKey) ?? Math.max(0, Math.round(window.width - insets.left - insets.right));
   const learnPageWidth = useCallback(
-    (width: number) => {
+    (width: number, fullWidth: number | undefined) => {
       if (!Number.isFinite(width) || width < 100) return;
+      if (fullWidth !== undefined && Number.isFinite(fullWidth) && fullWidth >= width) {
+        learnedFullPageWidths.set(widthKey, fullWidth);
+      }
       const known = learnedPageWidths.get(widthKey);
       if (known !== undefined && Math.abs(known - width) < 0.75) return;
       learnedPageWidths.set(widthKey, width);
@@ -103,7 +116,7 @@ export function MobileNativeStackSheet({
     },
     [widthKey],
   );
-  const layout: MobileNativeStackSheetLayout = { width: pageWidth, inset: READER_SETTINGS_FORM_INSET };
+  const adaptive = useMobileAdaptiveLayout();
 
   // Heights per page at a width: the off-screen copies' before the sheet
   // presents, then the presented page's own (a row shown, an error).
@@ -115,12 +128,37 @@ export function MobileNativeStackSheet({
   }, []);
 
   const top = pages[pages.length - 1];
-  const topHeight = top ? heights[mobileNativeStackSheetMeasureKey(top.id, pageWidth)] : undefined;
+  const measuredTopHeight = top ? heights[mobileNativeStackSheetMeasureKey(top.id, pageWidth)] : undefined;
+
+  // Full width beside the bar, or not, is settled as the sheet presents: the
+  // page's safe-area modifier stays what it was for the whole presentation.
+  const fullWidthNow =
+    fullWidthBesideBar &&
+    mobileNativeStackSheetFullWidthBesideBar({
+      verticalBarSide: adaptive.verticalBarSide,
+      regularWidth: adaptive.regularWidth,
+      detent: mobileNativeStackSheetDetent({
+        contentHeight: measuredTopHeight,
+        estimatedHeight,
+        windowHeight: window.height,
+      }),
+      windowHeight: window.height,
+    });
+  const [heldFullWidth, setHeldFullWidth] = useState(fullWidthNow);
 
   // Present once the page on top has a height (or it has no copy to measure,
   // or the copy took too long): one presentation at the final detent.
   const [presented, setPresented] = useState(false);
-  const waitingForHeight = Boolean(top?.measure) && topHeight === undefined;
+  const waitingForHeight = Boolean(top?.measure) && measuredTopHeight === undefined;
+  if (!presented && heldFullWidth !== fullWidthNow) setHeldFullWidth(fullWidthNow);
+  const fullWidth = presented ? heldFullWidth : fullWidthNow;
+  const shownPageWidth = fullWidth ? (learnedFullPageWidths.get(widthKey) ?? Math.round(window.width)) : pageWidth;
+  // The copies measure inside the safe area, where the decision is made.
+  const copyLayout: MobileNativeStackSheetLayout = { width: pageWidth, inset: READER_SETTINGS_FORM_INSET };
+  const layout: MobileNativeStackSheetLayout = { width: shownPageWidth, inset: READER_SETTINGS_FORM_INSET };
+  const topHeight = top
+    ? (heights[mobileNativeStackSheetMeasureKey(top.id, shownPageWidth)] ?? measuredTopHeight)
+    : undefined;
   useEffect(() => {
     if (!visible) {
       setPresented(false);
@@ -182,18 +220,21 @@ export function MobileNativeStackSheet({
           defaultScrollAnchor("top"),
           scrollEdgeEffectStyle("soft", "vertical"),
           reportPageWidth(learnPageWidth),
+          ...(fullWidth
+            ? [frame({ maxWidth: Infinity }), ignoreSafeArea({ regions: "container", edges: "horizontal" })]
+            : []),
         ]}
       >
         <RNHostView matchContents={PAGE_MATCH_CONTENTS}>
           <View
             collapsable={false}
-            style={[styles.page, { width: pageWidth }]}
+            style={[styles.page, { width: shownPageWidth }]}
             onLayout={(event: LayoutChangeEvent) => {
-              recordHeight(page.id, pageWidth, event.nativeEvent.layout.height);
+              recordHeight(page.id, shownPageWidth, event.nativeEvent.layout.height);
             }}
           >
             {/* A new width remounts the rows (never the host): laid out from scratch at it. */}
-            <NemuGlassSheetThemeScope key={pushedPageWidthKey(pageWidth)} look={PAGE_LOOK}>
+            <NemuGlassSheetThemeScope key={pushedPageWidthKey(shownPageWidth)} look={PAGE_LOOK}>
               {page.render(layout)}
             </NemuGlassSheetThemeScope>
           </View>
@@ -223,7 +264,7 @@ export function MobileNativeStackSheet({
   return (
     <>
       {copies.length > 0 && visible ? (
-        <MobileNativeStackSheetCopies pages={copies} layout={layout} onMeasure={recordHeight} />
+        <MobileNativeStackSheetCopies pages={copies} layout={copyLayout} onMeasure={recordHeight} />
       ) : null}
       <View pointerEvents="none" style={styles.host} testID={testID}>
         <SwiftHost colorScheme={scheme} style={StyleSheet.absoluteFill}>

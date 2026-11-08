@@ -14,7 +14,6 @@ import {
 import type { MobileStrings } from "@/lib/mobileI18n";
 import { getMobileInstalledSourceName } from "@/lib/mobileInstalledSourcePresentation";
 import { normalizeMobileSourceIconUri } from "@/lib/mobileSourceIconResolution";
-import { MOBILE_NATIVE_SHEET_BOTTOM_GUTTER } from "@/lib/mobileNativeSheet";
 import { getMobileSettingsSheetLayout } from "@/lib/mobileSettingsSheetLayout";
 import { READER_SETTINGS_FORM_INSET } from "@/lib/readerSettingsNativePopoverLayout";
 import { getMobileLocalNetworkServerSettingKeys } from "@/lib/mobileLocalNetworkAllowance";
@@ -221,8 +220,16 @@ export function MobileInstalledSourceSettingsSheet({
                   {localNetworkHint}
                 </View>
               ),
+              // Laid out before the sheet presents, so it opens once at its height.
+              measure: () => (
+                <View style={styles.stackPage}>
+                  {card(false)}
+                  {localNetworkHint}
+                </View>
+              ),
             },
           ]}
+          fullWidthBesideBar
           closeAccessibilityLabel={strings.common.close}
           group="source-settings"
           estimatedHeight={
@@ -293,7 +300,8 @@ const styles = StyleSheet.create({
   stackPage: {
     paddingHorizontal: READER_SETTINGS_FORM_INSET,
     paddingTop: 8,
-    paddingBottom: MOBILE_NATIVE_SHEET_BOTTOM_GUTTER,
+    // The sheet adds the home indicator's inset below this.
+    paddingBottom: 4,
   },
   localNetworkHint: {
     paddingHorizontal: 16,

@@ -70,10 +70,13 @@ export function reportFormGroupInset(handler: (inset: FormGroupInset) => void) {
  * page's content width (its hosting controller's view, inside the horizontal
  * safe area), whatever the view is sized to, on appearing and on every
  * resize (rotation) — also while the Form below the page is off screen. A
- * binary built before the modifier existed never reports.
+ * binary built before the modifier existed never reports. `fullWidth` is the
+ * page's whole width, safe area included (a page that ignores it).
  */
-export function reportPageWidth(handler: (width: number) => void) {
-  return createModifierWithEventListener("nemuReportPageWidth", (event: { width: number }) => handler(event.width));
+export function reportPageWidth(handler: (width: number, fullWidth: number | undefined) => void) {
+  return createModifierWithEventListener("nemuReportPageWidth", (event: { width: number; fullWidth?: number }) =>
+    handler(event.width, event.fullWidth),
+  );
 }
 
 /**

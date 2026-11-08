@@ -823,8 +823,8 @@ struct NemuReportPageWidthModifier: ViewModifier {
 
   func body(content: Content) -> some View {
     content.background(
-      NemuPageWidthProbe { width in
-        eventDispatcher([NemuReportPageWidthModifier.type: ["width": width]])
+      NemuPageWidthProbe { width, fullWidth in
+        eventDispatcher([NemuReportPageWidthModifier.type: ["width": width, "fullWidth": fullWidth]])
       }
       .allowsHitTesting(false)
       .accessibilityHidden(true)
@@ -833,7 +833,8 @@ struct NemuReportPageWidthModifier: ViewModifier {
 }
 
 private struct NemuPageWidthProbe: UIViewRepresentable {
-  let onChange: (CGFloat) -> Void
+  /// The width inside the horizontal safe area, and the page's whole width.
+  let onChange: (CGFloat, CGFloat) -> Void
 
   func makeUIView(context: Context) -> NemuPageWidthProbeView {
     let view = NemuPageWidthProbeView()
@@ -849,7 +850,7 @@ private struct NemuPageWidthProbe: UIViewRepresentable {
 }
 
 final class NemuPageWidthProbeView: UIView {
-  var onChange: ((CGFloat) -> Void)?
+  var onChange: ((CGFloat, CGFloat) -> Void)?
   private var last: CGFloat?
   private weak var observedPage: UIView?
   private var boundsToken: NSKeyValueObservation?
@@ -909,7 +910,7 @@ final class NemuPageWidthProbeView: UIView {
     guard width > 0 else { return }
     if let last, abs(last - width) < 0.25 { return }
     last = width
-    onChange?(width)
+    onChange?(width, page.bounds.width)
   }
 }
 
