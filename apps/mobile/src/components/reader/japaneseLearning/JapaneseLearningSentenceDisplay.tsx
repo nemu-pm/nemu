@@ -92,6 +92,11 @@ interface SentenceDisplayProps {
   /** Opens the sign-in sheet, when the analysis needs nemu's online service signed out. */
   onSignIn?: () => void;
   /**
+   * Keeps the words clear of the vertical bar's status items. The sign-in
+   * notice below them is under those items already and centres on the sheet.
+   */
+  barClearance?: { paddingLeft: number; paddingRight: number };
+  /**
    * The selected bubble, when the sheet covers the page and the floating
    * popout cannot show. Stacked: above the sentence, scrolling with it.
    * Columns: the sentence column keeps only the words; the bubble takes the
@@ -106,6 +111,8 @@ interface SentenceDisplayProps {
  * Mobile mirror of web `SentenceDisplay`: the sentence and its details, stacked
  * or side by side as the body allows.
  */
+const NO_BAR_CLEARANCE = { paddingLeft: 0, paddingRight: 0 };
+
 export function JapaneseLearningSentenceDisplay({
   grammarState,
   selectedTokenIndex,
@@ -117,6 +124,7 @@ export function JapaneseLearningSentenceDisplay({
   onCopySelection,
   onRetry,
   onSignIn,
+  barClearance = NO_BAR_CLEARANCE,
   sentenceHeader: sentenceHeaderProp,
 }: SentenceDisplayProps) {
   const { tokens, scheme } = useNemuTheme();
@@ -779,12 +787,13 @@ export function JapaneseLearningSentenceDisplay({
   return (
     <View
       onLayout={(event) => {
-        const { width, height } = event.nativeEvent.layout;
+        const { height } = event.nativeEvent.layout;
+        const width = event.nativeEvent.layout.width - barClearance.paddingLeft - barClearance.paddingRight;
         setBodySize((current) =>
           current.width === width && current.height === height ? current : { width, height },
         );
       }}
-      style={[styles.container, columns ? styles.containerColumns : null]}
+      style={[styles.container, columns ? [styles.containerColumns, barClearance] : null]}
     >
       {columns ? (
         <>
@@ -835,6 +844,7 @@ export function JapaneseLearningSentenceDisplay({
           <ScrollView
             style={[
               styles.sentencePane,
+              barClearance,
               {
                 maxHeight: regularWidth
                   ? JAPANESE_LEARNING_SENTENCE_PANE_MAX_HEIGHT_REGULAR
@@ -852,7 +862,7 @@ export function JapaneseLearningSentenceDisplay({
           {/* Web details pane: fills the rest and scrolls on its own. */}
           <ScrollView
             ref={detailsScrollRef}
-            style={styles.detailsPane}
+            style={[styles.detailsPane, signInNotice ? null : barClearance]}
             contentContainerStyle={[styles.detailsPaneContent, signInNotice ? styles.detailsPaneCentred : null]}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator
