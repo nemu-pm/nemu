@@ -149,7 +149,7 @@ import {
   mobileReaderPrefetchPagesBehind,
 } from "@/lib/mobileReaderPageFlip";
 import { mobileReaderLearningPageResetKey } from "@/lib/mobileReaderLearningSession";
-import { buildMobileReaderMoreMenu, buildMobileReaderOverflowItems, mobileReaderChapterNeighbourLabel, mobileReaderMoreMenuBusy, type MobileReaderMoreMenuActionId, type MobileReaderOverflowActionId } from "@/lib/mobileReaderMoreMenu";
+import { buildMobileReaderMoreMenu, buildMobileReaderOverflowItems, mobileReaderChapterNeighbourLabel, type MobileReaderMoreMenuActionId, type MobileReaderOverflowActionId } from "@/lib/mobileReaderMoreMenu";
 import { mobileReaderBarActionIds, mobileReaderBarActionStates, splitMobileReaderBarActions, type MobileReaderBarActionId } from "@/lib/mobileReaderBarActions";
 import {
   useMobilePoseVeilAppearance,
@@ -12015,16 +12015,11 @@ export function ReaderScreen() {
     readerBarActions.overflow,
     {
       ...readerBarActionStates,
-      detectTextLoading: japaneseLearningOcrState.status === "loading",
       dualReadAvailable: dualReaderControlsAvailable,
       bilingualLayoutValue:
         bilingualMode.mode === "sideBySide" ? strings.duo.bilingualSideBySide : strings.duo.bilingualSpread,
     },
     strings,
-  );
-  const readerMoreMenuBusy = mobileReaderMoreMenuBusy(
-    readerBarActions.overflow,
-    japaneseLearningOcrState.status === "loading",
   );
   // Overflowed, the chapter sheet's popover points at the ⋯ it was opened from.
   const readerChapterListMoreAnchor =
@@ -12808,8 +12803,6 @@ export function ReaderScreen() {
             accessibilityLabel={strings.reader.moreActions}
             accessibilityHint={strings.reader.moreActionsHint}
             color={readerChromeColors.secondaryText}
-            busy={readerMoreMenuBusy}
-            busyLabel={strings.reader.pluginJapaneseLearningDetectingText}
             onAction={runReaderMoreAction}
             onInteract={() => {
               // Engaging the chrome settles the chapter-open auto-hide, so
@@ -13310,8 +13303,7 @@ export function ReaderScreen() {
             {/* Out of height (a short Split View window), the pill ends in ⋯. */}
             {readerOverflowItems.length > 0 ? (
               <Stack.Toolbar.Menu
-                // A bar item has no spinner: the system's symbol for work under way.
-                icon={readerMoreMenuBusy ? "hourglass" : "ellipsis"}
+                icon="ellipsis"
                 tintColor={READER_CAPSULE_COLORS.primaryText}
                 accessibilityLabel={strings.reader.moreActions}
                 hidden={readerBarItemsHidden || readerCoverViewShown}
