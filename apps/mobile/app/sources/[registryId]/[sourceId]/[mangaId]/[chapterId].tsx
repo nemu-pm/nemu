@@ -26,6 +26,7 @@ import {
 } from "@/components/reader/readerZoomEntry";
 import {
   getReaderOpeningLoadingLayout,
+  readerOpeningCoverCorners,
   holdReaderOpeningWindow,
   isReaderChapterSwitchMount,
   readerOpeningLoadingFades,
@@ -40,7 +41,7 @@ import {
   type ReaderOpeningSettleReason,
 } from "@/components/reader/readerOpeningGate";
 import { useReadingMode } from "@/data/mobileHooks";
-import { MobileCachedImage, useNemuTheme } from "@/design-system";
+import { MANGA_CARD_COVER_RADIUS, MobileCachedImage, useNemuTheme } from "@/design-system";
 import {
   canHoldReaderOpening,
   readerOpeningSince,
@@ -775,6 +776,9 @@ function ReaderAfterZoom({
     <View style={[StyleSheet.absoluteFill, styles.coverPlate]} />
   );
   const coverRect = { position: "absolute", left: frame.x, top: frame.y, width: frame.width, height: frame.height } as const;
+  // The tapped cover's corners, through the zoom and while the page loads.
+  const coverCorners = readerOpeningCoverCorners({ fullBleed: landsOnFullBleedCover, radius: MANGA_CARD_COVER_RADIUS });
+  const roundedCover = <View style={[StyleSheet.absoluteFill, coverCorners]}>{coverImage}</View>;
 
   return (
     <View
@@ -834,10 +838,10 @@ function ReaderAfterZoom({
             // Where the zoom lands: the cover grows into this frame. Hidden
             // once the page shows, it still names where the zoom back starts.
             <ZoomTarget zoomId={zoomId} style={coverRect}>
-              {coverImage}
+              {roundedCover}
             </ZoomTarget>
           ) : shownCover ? (
-            <Animated.View style={[coverRect, loadingStyle]}>{coverImage}</Animated.View>
+            <Animated.View style={[coverRect, loadingStyle]}>{roundedCover}</Animated.View>
           ) : null}
           {openingDone || landsOnFullBleedCover ? null : (
             <Animated.View

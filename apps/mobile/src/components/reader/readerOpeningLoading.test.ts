@@ -12,6 +12,7 @@ import {
   READER_OPENING_LOADING_MIN_VISIBLE_MS,
   READER_OPENING_LOADING_SPINNER_GAP,
   READER_OPENING_LOADING_SPINNER_SIZE,
+  readerOpeningCoverCorners,
 } from "./readerOpeningLoading";
 
 const route = readFileSync(
@@ -190,5 +191,31 @@ describe("readerOpeningLoading", () => {
     // Any request for the HUD while it is held is the way out: it releases it.
     expect(reader).toContain("if (readerOpeningHudHeldRef.current && next !== false) {");
     expect(reader).toContain("readerZoomEntryRef.current.releaseHud();");
+  });
+});
+
+describe("the opening cover's corners", () => {
+  test("the card cover's radius, continuous, clipped", () => {
+    expect(readerOpeningCoverCorners({ fullBleed: false, radius: 10 })).toEqual({
+      borderRadius: 10,
+      borderCurve: "continuous",
+      overflow: "hidden",
+    });
+  });
+
+  test("the outer display's full-bleed cover stays square", () => {
+    expect(readerOpeningCoverCorners({ fullBleed: true, radius: 10 }).borderRadius).toBe(0);
+  });
+
+  test("the route clips the zoom target's cover and the loading cover with MANGA_CARD_COVER_RADIUS", () => {
+    const route = readFileSync(
+      path.join(import.meta.dir, "../../../app/sources/[registryId]/[sourceId]/[mangaId]/[chapterId].tsx"),
+      "utf8",
+    );
+    expect(route).toContain(
+      "readerOpeningCoverCorners({ fullBleed: landsOnFullBleedCover, radius: MANGA_CARD_COVER_RADIUS })",
+    );
+    expect(route).toMatch(/<ZoomTarget zoomId=\{zoomId\} style=\{coverRect\}>\s*\{roundedCover\}/);
+    expect(route).toContain("<Animated.View style={[coverRect, loadingStyle]}>{roundedCover}</Animated.View>");
   });
 });

@@ -160,3 +160,21 @@ export function retainReaderRouteMount(): () => void {
     mountedReaderRoutes = Math.max(0, mountedReaderRoutes - 1);
   };
 }
+
+/**
+ * The opening cover's corners: those of the cover it grew from (Library and
+ * detail cards, `MANGA_CARD_COVER_RADIUS`, continuous), so the zoom lands on
+ * the same shape and nothing squares off as the mask outgrows it. The outer
+ * display's full-bleed cover view fills the display: square.
+ */
+export function readerOpeningCoverCorners(input: { fullBleed: boolean; radius: number }): {
+  borderRadius: number;
+  borderCurve: "continuous";
+  overflow: "hidden";
+} {
+  return {
+    borderRadius: input.fullBleed ? 0 : Math.max(0, input.radius),
+    borderCurve: "continuous",
+    overflow: "hidden",
+  };
+}
