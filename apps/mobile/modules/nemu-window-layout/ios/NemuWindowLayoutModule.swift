@@ -974,16 +974,21 @@ final class NemuSheetTitleProbeView: UIView {
 /// While the sheet's top is below the bar's status items the column is free and
 /// the page ignores the inset; a sheet that rises among them (a taller detent,
 /// the keyboard) gets it back. The same view throughout: a field keeps its focus.
+/// A Form that ignores the inset loses its section margin on the bar's side,
+/// whatever its margins say, so the page keeps that margin itself.
 struct NemuSheetFullWidthBesideBarModifier: ViewModifier {
   static let type = "nemuSheetFullWidthBesideBar"
-  @State private var fullWidth = false
+  /// A grouped Form's section margin on an iPhone.
+  private static let sectionMargin: CGFloat = 16
+  @State private var barEdge: Edge.Set = []
 
   func body(content: Content) -> some View {
     content
-      .ignoresSafeArea(.container, edges: fullWidth ? .horizontal : [])
+      .padding(barEdge, Self.sectionMargin)
+      .ignoresSafeArea(.container, edges: barEdge.isEmpty ? [] : .horizontal)
       .background(
         NemuSheetFullWidthProbe { next in
-          if next != fullWidth { fullWidth = next }
+          if next != barEdge { barEdge = next }
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
@@ -992,7 +997,7 @@ struct NemuSheetFullWidthBesideBarModifier: ViewModifier {
 }
 
 private struct NemuSheetFullWidthProbe: UIViewRepresentable {
-  let onChange: (Bool) -> Void
+  let onChange: (Edge.Set) -> Void
 
   func makeUIView(context: Context) -> NemuSheetFullWidthProbeView {
     let view = NemuSheetFullWidthProbeView()
@@ -1011,7 +1016,7 @@ final class NemuSheetFullWidthProbeView: UIView {
   /// The status items end about 36% down the bar's height with a Live Activity
   /// (`MOBILE_NATIVE_STACK_SHEET_BELOW_BAR_STATUS` is the same line for a detent).
   private static let statusItemsEnd: CGFloat = 0.4
-  var onChange: ((Bool) -> Void)?
+  var onChange: ((Edge.Set) -> Void)?
   private weak var observedStack: UIView?
   private var boundsToken: NSKeyValueObservation?
   private var keyboardToken: NSObjectProtocol?
@@ -1075,7 +1080,11 @@ final class NemuSheetFullWidthProbeView: UIView {
     let insets = stack.safeAreaInsets
     let lopsided = abs(insets.right - insets.left) > 0.5
     let clearOfStatusItems = stack.convert(stack.bounds, to: window).minY >= window.bounds.height * Self.statusItemsEnd
-    onChange?(lopsided && clearOfStatusItems)
+    guard lopsided, clearOfStatusItems else {
+      onChange?([])
+      return
+    }
+    onChange?(insets.right > insets.left ? .trailing : .leading)
   }
 }
 
