@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /**
@@ -113,5 +114,46 @@ extension NemuPageCurlLeaves {
    */
   static func needsReseat(from old: CGSize, to new: CGSize) -> Bool {
     abs(old.width - new.width) >= 0.5 || abs(old.height - new.height) >= 0.5
+  }
+}
+
+/**
+ * Where a single page's curl is laid out so nothing it draws shows outside
+ * the page. UIKit ends every turn by flipping the leaf over the spine: its
+ * last frames are a sliver standing on the spine with the shadow it casts on
+ * the page beneath, the moment before the turn settles. A single page's spine
+ * is its own edge (left bound left, right in manga), so that sliver and its
+ * shadow flashed along the page's edge, and a leaf swinging past the spine
+ * drew into the margin beside a page narrower than the stage.
+ *
+ * The pager reaches `overhang` past the spine, inside a clip the size of the
+ * curl frame: the spine, and the sliver and shadow on it, land outside what
+ * is seen. Each leaf's page sits in the pager at `content`, the overhang
+ * beside it, so it is where it was. Spreads turn about their middle, a spine
+ * that must show: no overhang.
+ */
+struct NemuPageCurlOverhang: Equatable {
+  /** The pager's frame inside the clip (the clip is the curl frame). */
+  let pager: CGRect
+  /** The page's place inside each leaf (the pager's bounds). */
+  let content: CGRect
+
+  /**
+   * Wider than the shadow the leaf casts on the page as it lands: measured
+   * reaching ~70pt in from the spine in the turn's last frames (Duo inner
+   * display, portrait); 32pt left ~40pt of it in sight.
+   */
+  static let defaultOverhang: CGFloat = 96
+
+  static func layout(frameSize size: CGSize, spine: NemuPageCurlSpine, overhang: CGFloat = defaultOverhang) -> NemuPageCurlOverhang {
+    let extra = spine == .mid ? 0 : max(0, overhang)
+    let pager = CGRect(
+      x: spine == .min ? -extra : 0,
+      y: 0,
+      width: size.width + extra,
+      height: size.height
+    )
+    let content = CGRect(x: spine == .min ? extra : 0, y: 0, width: size.width, height: size.height)
+    return NemuPageCurlOverhang(pager: pager, content: content)
   }
 }

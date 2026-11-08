@@ -22,6 +22,19 @@ describe("native single-page curl", () => {
     expect(curl).not.toContain("landingOn");
   });
 
+  test("a single page turns about a spine out of sight, clipped to the curl frame", () => {
+    // The pager overhangs the spine inside a clip at the curl frame: the
+    // leaf's last sliver on the spine, and its shadow, never show.
+    expect(curl).toContain("let overhang = NemuPageCurlOverhang.layout(frameSize: frame.size, spine: spineLocation)");
+    expect(curl).toContain("clipView.frame = frame");
+    expect(curl).toContain("pageController.view.frame = overhang.pager");
+    expect(curl).toContain("clipView.addSubview(controller.view)");
+    expect(curl).toContain("clipView.clipsToBounds = true");
+    // Each page stays where it was, in its leaf's content view.
+    expect(curl).toContain("contentView.frame = view.bounds.inset(by: contentInsets)");
+    expect(curl).toContain("contentView.addSubview(child)");
+  });
+
   test("the back is mirrored once and washed with 85% paper (white on light, #090a0d on dark)", () => {
     expect(curl).toContain("static let mirrorsBack = true");
     expect(curl).toContain("cg.scaleBy(x: -1, y: 1)");
@@ -36,11 +49,11 @@ describe("native single-page curl", () => {
   });
 
   test("the frame never changes mid-turn, and the page on screen is set again after it does", () => {
-    expect(curl).toContain("if !transitioning && pageController.view.frame != frame {");
+    expect(curl).toContain("if !transitioning && (clipView.frame != frame || pageController.view.frame != overhang.pager) {");
     expect(curl).toContain("if positioned && appliedToken != navigationToken { applyNavigation() }");
     // The pending turn starts before the frame of its target is applied.
     expect(curl.indexOf("if positioned && appliedToken != navigationToken { applyNavigation() }"))
-      .toBeLessThan(curl.indexOf("if !transitioning && pageController.view.frame != frame {"));
+      .toBeLessThan(curl.indexOf("if !transitioning && (clipView.frame != frame || pageController.view.frame != overhang.pager) {"));
     expect(curl).toContain("private func reseatAfterFrameChange()");
     expect(curl).toContain("pageController.setViewControllers(vcs, direction: .forward, animated: false)");
   });

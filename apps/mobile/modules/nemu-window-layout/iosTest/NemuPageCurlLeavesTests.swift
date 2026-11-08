@@ -14,6 +14,7 @@ enum NemuPageCurlLeavesTests {
     shownControllersMatchUIKit()
     spreadsKeepTheirSequence()
     onlyANewSizeReseatsThePage()
+    singlePagesTurnAboutASpineOutOfSight()
     print("NemuPageCurlLeavesTests passed")
   }
 
@@ -117,5 +118,23 @@ enum NemuPageCurlLeavesTests {
     precondition(!NemuPageCurlLeaves.needsReseat(from: spread, to: CGSize(width: 951.3, height: 700)))
     precondition(NemuPageCurlLeaves.needsReseat(from: spread, to: CGSize(width: 911, height: 700)))
     precondition(NemuPageCurlLeaves.needsReseat(from: spread, to: CGSize(width: 951, height: 650)))
+  }
+
+  static func singlePagesTurnAboutASpineOutOfSight() {
+    let page = CGSize(width: 520, height: 740)
+    // Bound left: the pager reaches past the page's left edge, the page in place.
+    let left = NemuPageCurlOverhang.layout(frameSize: page, spine: .min, overhang: 32)
+    precondition(left.pager == CGRect(x: -32, y: 0, width: 552, height: 740))
+    precondition(left.content == CGRect(x: 32, y: 0, width: 520, height: 740))
+    precondition(left.pager.minX + left.content.minX == 0)
+    // Manga, bound right: past the right edge.
+    let right = NemuPageCurlOverhang.layout(frameSize: page, spine: .max, overhang: 32)
+    precondition(right.pager == CGRect(x: 0, y: 0, width: 552, height: 740))
+    precondition(right.content == CGRect(x: 0, y: 0, width: 520, height: 740))
+    precondition(right.pager.maxX - 32 == page.width)
+    // Spreads keep the middle spine where it shows.
+    let spread = NemuPageCurlOverhang.layout(frameSize: page, spine: .mid)
+    precondition(spread.pager == CGRect(origin: .zero, size: page) && spread.content == CGRect(origin: .zero, size: page))
+    precondition(NemuPageCurlOverhang.defaultOverhang >= 80)
   }
 }

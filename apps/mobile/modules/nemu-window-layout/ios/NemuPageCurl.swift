@@ -39,6 +39,13 @@ import UIKit.UIGestureRecognizerSubclass
  * The backs of the leaves the next turn either way would lift are drawn as
  * soon as a turn settles (`prepareBacks`), not when a drag asks for them.
  *
+ * A single page turns about a spine out of sight (`NemuPageCurlOverhang`):
+ * the pager reaches past the page's bound edge inside `clipView`, a clip the
+ * size of the curl frame, so the leaf's last sliver on the spine and the
+ * shadow it casts as the turn lands never show, and nothing the curl draws
+ * leaves the page. Each leaf's page sits in its controller's content view,
+ * where it was.
+ *
  * The curl frame is frozen while a leaf turns: a new `curlFrame` (the next
  * page's box, a fold, a rotation, a late image size) waits for the turn to
  * end, and the page on screen is then set again, not animated, at the new
@@ -80,6 +87,8 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
   }
 
   private var pageController: UIPageViewController?
+  /** The curl frame: the pager turns inside it and nothing shows past it. */
+  private let clipView = UIView()
   private var controllers: [Int: NemuPageCurlPageController] = [:]
   private var managedChildren: [UIView] = []
   private var appliedToken = -1
@@ -96,6 +105,16 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
   private var backImages: [String: UIImage] = [:]
 
   private var isMid: Bool { spine == "mid" }
+  /** The overhang beside each leaf's page (the pager's bounds less the page). */
+  private var contentInsets: UIEdgeInsets {
+    let overhang = NemuPageCurlOverhang.layout(frameSize: CGSize(width: 1, height: 1), spine: spineLocation)
+    return UIEdgeInsets(
+      top: 0,
+      left: overhang.content.minX,
+      bottom: 0,
+      right: overhang.pager.width - overhang.content.maxX
+    )
+  }
   private var spineLocation: NemuPageCurlSpine { spine == "mid" ? .mid : spine == "max" ? .max : .min }
   private var step: Int { isMid ? 2 : 1 }
 
@@ -103,6 +122,10 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
     super.init(appContext: appContext)
     clipsToBounds = true
     semanticContentAttribute = .forceLeftToRight
+    clipView.clipsToBounds = true
+    clipView.backgroundColor = .clear
+    clipView.semanticContentAttribute = .forceLeftToRight
+    insertSubview(clipView, at: 0)
     edgePan.delegate = self
     edgePan.cancelsTouchesInView = false
     edgePan.delaysTouchesBegan = false
@@ -168,11 +191,13 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
     // Never resized mid-turn: the turning leaf, its back and the page under
     // it keep the size the turn started with. `didFinishAnimating` (and a
     // requested turn's completion) lay out again and apply it.
-    if !transitioning && pageController.view.frame != frame {
+    let overhang = NemuPageCurlOverhang.layout(frameSize: frame.size, spine: spineLocation)
+    if !transitioning && (clipView.frame != frame || pageController.view.frame != overhang.pager) {
       // Only a new size re-sets the page on screen: a move (or a sub-point
       // rounding) keeps the controllers and the pages' drawn content as is.
-      let resized = NemuPageCurlLeaves.needsReseat(from: pageController.view.frame.size, to: frame.size)
-      pageController.view.frame = frame
+      let resized = NemuPageCurlLeaves.needsReseat(from: pageController.view.frame.size, to: overhang.pager.size)
+      clipView.frame = frame
+      pageController.view.frame = overhang.pager
       if positioned && resized { reseatPending = true }
     }
     reseatAfterFrameChange()
@@ -223,6 +248,7 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
     guard slot >= 0, slot < slotCount else { return nil }
     if let existing = controllers[slot] { return existing }
     let created = NemuPageCurlPageController(slot: slot, background: background(for: slot))
+    created.contentInsets = contentInsets
     controllers[slot] = created
     return created
   }
@@ -416,7 +442,7 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
     backImages.removeAll()
     positioned = false
     transitioning = false
-    insertSubview(controller.view, at: 0)
+    clipView.addSubview(controller.view)
     if window != nil, let parent = findViewController() {
       parent.addChild(controller)
       controller.didMove(toParent: parent)
@@ -518,6 +544,12 @@ final class NemuPageCurlPageController: UIViewController {
     didSet { if isViewLoaded { view.backgroundColor = background } }
   }
   private weak var hosted: UIView?
+  /** The page's place in the leaf: the leaf less the overhang past the spine. */
+  var contentInsets: UIEdgeInsets = .zero {
+    didSet { if contentInsets != oldValue && isViewLoaded { view.setNeedsLayout() } }
+  }
+  /** Holds the page, where it is on screen; the overhang beside it is only paper. */
+  private let contentView = UIView()
 
   init(slot: Int, background: UIColor) {
     self.slot = slot
@@ -532,17 +564,25 @@ final class NemuPageCurlPageController: UIViewController {
     let view = UIView()
     view.backgroundColor = background
     view.clipsToBounds = true
+    contentView.clipsToBounds = true
+    view.addSubview(contentView)
     self.view = view
   }
 
+  override func viewDidLayoutSubviews() {
+    super.viewDidLayoutSubviews()
+    contentView.frame = view.bounds.inset(by: contentInsets)
+  }
+
   /** A page is mounted here (its back can be drawn). */
-  var hostsContent: Bool { hosted?.superview === view }
+  var hostsContent: Bool { hosted?.superview === contentView }
 
   func host(_ child: UIView?) {
-    if hosted === child, child?.superview === view { return }
-    if let hosted, hosted.superview === view, hosted !== child { hosted.removeFromSuperview() }
+    loadViewIfNeeded()
+    if hosted === child, child?.superview === contentView { return }
+    if let hosted, hosted.superview === contentView, hosted !== child { hosted.removeFromSuperview() }
     hosted = child
-    if let child { view.addSubview(child) }
+    if let child { contentView.addSubview(child) }
   }
 }
 
