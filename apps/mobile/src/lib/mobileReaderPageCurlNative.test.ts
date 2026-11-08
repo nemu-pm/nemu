@@ -27,7 +27,7 @@ describe("native single-page curl", () => {
     expect(curl).toContain("cg.scaleBy(x: -1, y: 1)");
     expect(curl).toContain("static let opacity: CGFloat = 0.85");
     expect(curl).toContain("UIColor(red: 9 / 255, green: 10 / 255, blue: 13 / 255, alpha: opacity)");
-    expect(curl).toContain("NemuPageCurlPaper.wash(over: pageBackground)");
+    expect(curl).toContain("NemuPageCurlPaper.wash(over: paper)");
   });
 
   test("the back is rendered at the leaf's size and never stretched", () => {
