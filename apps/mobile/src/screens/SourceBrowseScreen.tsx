@@ -79,7 +79,9 @@ import {
   MobileChip,
   MobileNativeSheetScaffold,
   NemuButton,
+  NemuHorizontalScrollEdges,
   nemuColorWithAlpha,
+  nemuHorizontalScrollEdgesAvailable,
   nemuFontWeight,
   NemuInlineEmptyState,
   type NemuNativeHeaderAction,
@@ -3121,7 +3123,6 @@ export function SourceBrowseScreen() {
   const nativeHeaderOptions = createNemuNativeScreenOptions(
     tokens,
     screenTitle,
-    verticalBarSide,
   );
   // The browse-mode bar items (search button, source menu): never shown
   // before the source is known not to open straight into search.
@@ -3507,6 +3508,9 @@ export function SourceBrowseScreen() {
                   );
                 })}
               </Animated.ScrollView>
+              <NemuHorizontalScrollEdges />
+              {nemuHorizontalScrollEdgesAvailable ? null : (
+              <>
               <AnimatedLinearGradient
                 pointerEvents="none"
                 colors={[listingTabFadeColor, listingTabFadeTransparent]}
@@ -3531,6 +3535,8 @@ export function SourceBrowseScreen() {
                   listingTabsTrailingFadeStyle,
                 ]}
               />
+              </>
+              )}
               </>
               )}
             </View>

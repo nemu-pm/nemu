@@ -85,7 +85,9 @@ import {
   PageListScaffold,
   PageScaffold,
   createNemuShadowStyle,
+  NemuHorizontalScrollEdges,
   nemuColorWithAlpha,
+  nemuHorizontalScrollEdgesAvailable,
   nemuMaxFontSizeMultiplier,
   radius,
   nemuFontWeight,
@@ -416,7 +418,8 @@ function SourceFilterBar({
           />
         ))}
       </ScrollView>
-      {showLeadingFade ? (
+      <NemuHorizontalScrollEdges />
+      {!nemuHorizontalScrollEdgesAvailable && showLeadingFade ? (
         <LinearGradient
           pointerEvents="none"
           colors={[fadeColor, fadeTransparent]}
@@ -428,7 +431,7 @@ function SourceFilterBar({
           ]}
         />
       ) : null}
-      {showTrailingFade ? (
+      {!nemuHorizontalScrollEdgesAvailable && showTrailingFade ? (
         <LinearGradient
           pointerEvents="none"
           colors={[fadeTransparent, fadeColor]}

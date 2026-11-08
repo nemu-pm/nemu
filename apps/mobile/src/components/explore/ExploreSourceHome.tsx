@@ -1,7 +1,7 @@
 import type { ComponentType, ReactElement, ReactNode } from "react";
 import { StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
 import RNCMaskedView from "@react-native-masked-view/masked-view";
-import { useNemuTheme } from "@/design-system";
+import { NemuHorizontalScrollEdges, nemuHorizontalScrollEdgesAvailable, useNemuTheme } from "@/design-system";
 import { MOBILE_EXPLORE_RADIUS as R } from "@/lib/mobileExploreRadius";
 import { ExploreGradient } from "./ExploreGradient";
 import { EXPLORE_ROW_FADE_ABOVE, EXPLORE_ROW_FADE_BELOW } from "./ExploreRowFade";
@@ -18,9 +18,10 @@ const MaskedView = RNCMaskedView as unknown as ComponentType<{
 export const EXPLORE_RAIL_FADE = 22;
 
 /**
- * A horizontal rail whose ends dissolve instead of being cut: opaque across the
- * middle, fading to nothing over the last `EXPLORE_RAIL_FADE` at both edges. The
- * rail inside already bleeds to the screen edges; the mask only softens them.
+ * A horizontal rail whose ends dissolve instead of being cut: UIKit's soft edge
+ * effect on iOS 26 (`NemuHorizontalScrollEdges`). Elsewhere a mask, opaque across
+ * the middle, fading to nothing over the last `EXPLORE_RAIL_FADE` at both edges.
+ * The rail inside already bleeds to the screen edges; the mask only softens them.
  *
  * Vertically the mask reaches well past the rail (ExploreRowFade's overscan),
  * so the cards' shadows and glow fade out inside it instead of ending in a
@@ -28,6 +29,14 @@ export const EXPLORE_RAIL_FADE = 22;
  * `overflow: "visible"` (`EXPLORE_RAIL_FADE_SCROLLER`) for the same reason.
  */
 export function ExploreRailFade({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
+  if (nemuHorizontalScrollEdgesAvailable) {
+    return (
+      <View pointerEvents="box-none" style={style}>
+        {children}
+        <NemuHorizontalScrollEdges />
+      </View>
+    );
+  }
   const frame = StyleSheet.flatten(style) ?? {};
   const marginTop = typeof frame.marginTop === "number" ? frame.marginTop : 0;
   const marginBottom = typeof frame.marginBottom === "number" ? frame.marginBottom : 0;
