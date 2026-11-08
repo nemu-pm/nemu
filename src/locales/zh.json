@@ -427,7 +427,12 @@
     "title": "登录",
     "description": "登录以在设备间同步您的书库。",
     "continueWith": "使用 {{provider}} 继续",
-    "failed": "登录失败"
+    "failed": "登录失败",
+    "reasons": {
+      "aiMetadata": "登录后即可使用 AI 元数据查询。",
+      "coverUpload": "登录后即可上传封面图片。",
+      "grammarAnalysis": "登录后即可使用 AI 辅助语法分析。"
+    }
   },
   "signOut": {
     "title": "登出",

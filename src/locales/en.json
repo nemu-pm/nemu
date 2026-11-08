@@ -432,7 +432,12 @@
     "title": "Sign In",
     "description": "Sign in to sync your library across devices.",
     "continueWith": "Continue with {{provider}}",
-    "failed": "Sign in failed"
+    "failed": "Sign in failed",
+    "reasons": {
+      "aiMetadata": "Sign in to use AI metadata lookup.",
+      "coverUpload": "Sign in to upload a cover image.",
+      "grammarAnalysis": "Sign in to use AI-assisted grammar analysis."
+    }
   },
   "signOut": {
     "title": "Sign Out",

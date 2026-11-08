@@ -9,6 +9,16 @@ export const authClient = createAuthClient({
   plugins: [convexClient(), crossDomainClient()],
 });
 
+/** True only when the backend says there is no session, not when it can't be reached. */
+export async function isSessionExpired(): Promise<boolean> {
+  try {
+    const res = await (authClient as unknown as { convex: { token: () => Promise<{ error?: { status?: number } | null }> } }).convex.token();
+    return res.error?.status === 401;
+  } catch {
+    return false;
+  }
+}
+
 /** Get auth headers for custom fetch calls to Convex httpAction endpoints. */
 export function getAuthHeaders(): Record<string, string> {
   // getCookie() is provided by the crossDomainClient() plugin via getActions.

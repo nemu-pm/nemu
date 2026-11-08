@@ -427,7 +427,12 @@
     "title": "サインイン",
     "description": "サインインしてライブラリをデバイス間で同期しましょう。",
     "continueWith": "{{provider}}で続ける",
-    "failed": "サインインに失敗しました"
+    "failed": "サインインに失敗しました",
+    "reasons": {
+      "aiMetadata": "AI メタデータ検索を使うにはサインインしてください。",
+      "coverUpload": "カバー画像をアップロードするにはサインインしてください。",
+      "grammarAnalysis": "AI による文法解析を使うにはサインインしてください。"
+    }
   },
   "signOut": {
     "title": "サインアウト",
