@@ -132,7 +132,7 @@ export const mobileStringsZh: MobileStrings = {
     installedSource: "已安装 {{name}}",
     uninstalledSource: "已卸载 {{name}}",
     installed: "已安装",
-    languageFilter: "来源语言",
+    languageFilter: "筛选",
     languageFilterOption: "显示{{language}}来源",
     languagesSelected: "已选 {{count}} 种语言",
     noSources: "未安装来源",
@@ -143,7 +143,7 @@ export const mobileStringsZh: MobileStrings = {
     searchRegistries: "搜索来源",
     sourceDirectoryGuideBody:
       "nemu 仅自带几个演示来源。添加任意兼容 Aidoku 的来源列表即可获得更多。",
-    addSourceDirectory: "添加来源目录",
+    addSourceDirectory: "添加目录",
     directoryFilterChip: "来自 {{name}}",
     sourcesUnavailable: "来源不可用",
     warningAuthentication:

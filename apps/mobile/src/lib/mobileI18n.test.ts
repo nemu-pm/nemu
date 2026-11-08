@@ -721,6 +721,18 @@ describe("mobile i18n reading direction", () => {
   });
 });
 
+describe("mobile i18n sheet titles", () => {
+  test("Add Directory and Filter stay short enough for the Duo's outer display", () => {
+    const browse = (language: "en" | "zh" | "ja") => getMobileStrings(language).browse;
+    expect(browse("en").addSourceDirectory).toBe("Add Directory");
+    expect(browse("zh").addSourceDirectory).toBe("添加目录");
+    expect(browse("ja").addSourceDirectory).toBe("ディレクトリを追加");
+    expect(browse("en").languageFilter).toBe("Filter");
+    expect(browse("zh").languageFilter).toBe("筛选");
+    expect(browse("ja").languageFilter).toBe("フィルター");
+  });
+});
+
 describe("mobile i18n module budget", () => {
   // The three locale catalogs live in `mobileI18n.{en,zh,ja}.ts` and are
   // `require`d lazily. This stem must stay types + helpers only: anything that

@@ -138,7 +138,7 @@ export const mobileStringsJa: MobileStrings = {
     installedSource: "{{name}}をインストールしました",
     uninstalledSource: "{{name}}をアンインストールしました",
     installed: "インストール済み",
-    languageFilter: "ソース言語",
+    languageFilter: "フィルター",
     languageFilterOption: "{{language}}のソースを表示",
     languagesSelected: "{{count}}言語を選択中",
     noSources: "ソースがインストールされていません",
@@ -149,7 +149,7 @@ export const mobileStringsJa: MobileStrings = {
     searchRegistries: "ソースを検索",
     sourceDirectoryGuideBody:
       "nemuに含まれるのはいくつかのデモソースです。Aidoku互換のソースリストを追加すると、ほかのソースも使えます。",
-    addSourceDirectory: "ソースディレクトリを追加",
+    addSourceDirectory: "ディレクトリを追加",
     directoryFilterChip: "{{name}}から",
     sourcesUnavailable: "ソースを利用できません",
     warningAuthentication:

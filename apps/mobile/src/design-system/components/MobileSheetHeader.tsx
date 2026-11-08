@@ -127,10 +127,11 @@ const styles = StyleSheet.create({
   centeredTitleBlock: {
     alignItems: "center",
   },
+  // The native sheets' inline title (SwiftUI `headline`).
   iosTitle: {
     width: "100%",
-    fontSize: 16,
-    lineHeight: 20,
+    fontSize: 17,
+    lineHeight: 22,
     fontWeight: nemuFontWeight.semibold,
     letterSpacing: 0,
   },
