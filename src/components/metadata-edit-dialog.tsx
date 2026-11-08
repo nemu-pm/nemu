@@ -42,6 +42,7 @@ import { MangaStatus } from "@/lib/sources/types";
 import { metadataFromSource } from "@/lib/metadata";
 import { useConvexAuth } from "convex/react";
 import { useCoverUpload, getR2PublicUrl } from "@/hooks/use-cover-upload";
+import { isAuthFailure, requireAuthOrPrompt, useAuthGate, type AuthGatePrompt } from "@/lib/auth-gate";
 import { useStores } from "@/data/context";
 import { proxyUrl } from "@/config";
 import { toast } from "sonner";
@@ -55,6 +56,8 @@ interface MetadataEditDialogProps {
     externalIds?: ExternalIds,
     coverUrl?: string | null  // null = clear override, undefined = no change
   ) => Promise<void>;
+  /** Reopen the match drawer, the user having just signed in from it. */
+  resumeMatch?: boolean;
 }
 
 interface FormState {
@@ -81,11 +84,14 @@ const STATUS_OPTIONS = [
   { value: MangaStatus.Cancelled, label: "status.cancelled" },
 ];
 
+const COVER_UPLOAD_PROMPT: AuthGatePrompt = { reason: "coverUpload", resume: "edit-metadata" };
+
 export function MetadataEditDialog({
   open,
   onOpenChange,
   entry,
   onSave,
+  resumeMatch = false,
 }: MetadataEditDialogProps) {
   const { t } = useTranslation();
   const { uploadCover } = useCoverUpload();
@@ -126,6 +132,11 @@ export function MetadataEditDialog({
 
   // Reset form when dialog opens - use entry ID as stable dep
   const entryId = entry.item.libraryItemId;
+
+  useEffect(() => {
+    if (open && resumeMatch) setMatchDrawerOpen(true);
+  }, [open, resumeMatch]);
+
   useEffect(() => {
     if (open) {
       const meta = getEntryEffectiveMetadata(entry);
@@ -205,6 +216,10 @@ export function MetadataEditDialog({
       ...f,
       authors: typeof newTags === "function" ? newTags(f.authors) : newTags,
     }));
+  }, []);
+
+  const handleUploadClick = useCallback(() => {
+    if (requireAuthOrPrompt(COVER_UPLOAD_PROMPT)) fileInputRef.current?.click();
   }, []);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -384,6 +399,7 @@ export function MetadataEditDialog({
 
       let coverUrl: string | null | undefined;
       if (form.coverFile) {
+        if (!requireAuthOrPrompt(COVER_UPLOAD_PROMPT)) return;
         // Upload local file to R2
         const key = await uploadCover(form.coverFile);
         coverUrl = getR2PublicUrl(key);
@@ -401,6 +417,7 @@ export function MetadataEditDialog({
           coverUrl = getR2PublicUrl(key);
         } catch (e) {
           console.error("[MetadataEdit] Failed to upload external cover:", e);
+          if (await isAuthFailure(e)) useAuthGate.getState().promptSignIn(COVER_UPLOAD_PROMPT);
           // Last resort: use external URL directly
           coverUrl = form.coverUrl;
         }
@@ -412,6 +429,10 @@ export function MetadataEditDialog({
       await onSave(overrides, pendingExternalIds, coverUrl);
       onOpenChange(false);
     } catch (e) {
+      if (await isAuthFailure(e)) {
+        useAuthGate.getState().promptSignIn(COVER_UPLOAD_PROMPT);
+        return;
+      }
       console.error("[MetadataEdit] Save error:", e);
       toast.error(t("metadata.saveFailed"));
     } finally {
@@ -536,17 +557,15 @@ export function MetadataEditDialog({
                 
                 {/* Desktop: hover overlay with buttons */}
                 <div className="absolute inset-0 bg-black/60 rounded-lg opacity-0 sm:group-hover/cover:opacity-100 transition-opacity hidden sm:flex flex-col items-center justify-center gap-2 p-2">
-                  {canUploadCover && (
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      className="w-full text-xs"
-                      onClick={() => fileInputRef.current?.click()}
-                    >
-                      <HugeiconsIcon icon={Upload04Icon} className="size-3.5 mr-1" />
-                      {t("metadata.uploadImage")}
-                    </Button>
-                  )}
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="w-full text-xs"
+                    onClick={handleUploadClick}
+                  >
+                    <HugeiconsIcon icon={Upload04Icon} className="size-3.5 mr-1" />
+                    {t("metadata.uploadImage")}
+                  </Button>
                   <Button
                     variant="secondary"
                     size="sm"
@@ -563,17 +582,15 @@ export function MetadataEditDialog({
               {/* Mobile only: label and buttons */}
               <div className="flex flex-col gap-2 flex-1 sm:hidden">
                 <span className="text-sm font-medium">{t("metadata.cover")}</span>
-                {canUploadCover && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full"
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    <HugeiconsIcon icon={Upload04Icon} className="size-4 mr-1.5" />
-                    {t("metadata.uploadImage")}
-                  </Button>
-                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={handleUploadClick}
+                >
+                  <HugeiconsIcon icon={Upload04Icon} className="size-4 mr-1.5" />
+                  {t("metadata.uploadImage")}
+                </Button>
                 <Button
                   variant="outline"
                   size="sm"

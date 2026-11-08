@@ -54,6 +54,7 @@ import {
   type GeminiFunctions,
 } from "@/lib/metadata";
 import { SELECTION_NO_CHANGE, SELECTION_AI, type SelectionProvider } from "@/lib/metadata/types";
+import { createSignInGate } from "@/lib/auth-gate";
 import { translateTags } from "@/lib/metadata/translations";
 import { metadataLanguageStore, getEffectiveMetadataLanguage } from "@/stores/metadata-language";
 import { languageStore } from "@/stores/language";
@@ -485,6 +486,9 @@ function SearchResultCard({ result, isSelected, onSelect }: SearchResultCardProp
 // Main Component
 // =============================================================================
 
+// Provider search works signed out; only the AI steps along the way need an account.
+const aiLookupGate = createSignInGate({ reason: "aiMetadata", resume: "metadata-match" });
+
 export function MetadataMatchDrawer({
   open,
   onOpenChange,
@@ -553,6 +557,7 @@ export function MetadataMatchDrawer({
   useEffect(() => {
     if (open) {
       storeReset();
+      aiLookupGate.reset();
       setViewMode("searching");
       setManualSelected(null);
       setManualQuery(initialQuery);
@@ -623,9 +628,10 @@ export function MetadataMatchDrawer({
     
     // Build Gemini functions
     const gemini: GeminiFunctions = {
-      findChineseTitle,
-      findJapaneseDescription,
-      findChineseDescription,
+      findChineseTitle: async (args) =>
+        (await aiLookupGate.run(() => findChineseTitle(args))) ?? { simplified: null, traditional: null },
+      findJapaneseDescription: (args) => aiLookupGate.run(() => findJapaneseDescription(args)),
+      findChineseDescription: (args) => aiLookupGate.run(() => findChineseDescription(args)),
     };
     
     // Fetch Chinese title if needed
@@ -670,7 +676,7 @@ export function MetadataMatchDrawer({
   // AI search wrapper
   const aiSearch = useCallback(async (title: string, authorsHint?: string[]): Promise<string | null> => {
     try {
-      return await findJapaneseTitle({ title, authors: authorsHint });
+      return await aiLookupGate.run(() => findJapaneseTitle({ title, authors: authorsHint }));
     } catch (e) {
       console.error("[SmartMatch] AI search error:", e);
       return null;
