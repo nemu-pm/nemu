@@ -170,6 +170,9 @@ export function MobileAboutSheet({ visible, onClose }: MobileAboutSheetProps) {
     <MobileNativeSheetScaffold
       visible={visible}
       onClose={closeSheet}
+      // Centred on the grabber across its full width: nothing centred reaches
+      // the vertical bar's status items beside the sheet's top.
+      contentIgnoresSafeAreaEdges="horizontal"
       snapPoints={sheetLayout.snapPoint ? [sheetLayout.snapPoint] : undefined}
       scroll={sheetLayout.scroll}
       scrollContentBottomInset={18}
