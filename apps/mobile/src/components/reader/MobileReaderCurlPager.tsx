@@ -187,23 +187,14 @@ export function MobileReaderCurlPager({
     }
   }
   const nativeRef = useRef<PageCurlViewHandle>(null);
-  // Single pages curl as the page itself: the leaf is the settled page's box.
-  // A slide's sheet, and a curl under "Match Page", is the whole stage.
-  const settledPage = !spreadMode && !slide && !pageBackgroundFor
-    ? displayedPages[frames[settledFrame]?.[0] ?? -1]
-    : undefined;
-  const settledPageBox = settledPage && pageFrameSize ? pageFrameSize(settledPage) : null;
-  const pageBoxWidth = settledPageBox?.width ?? 0;
-  const pageBoxHeight = settledPageBox?.height ?? 0;
+  // Every leaf is the whole stage, the page centred on its page background
+  // (each page's own under "Match Page"): the bands beside a letterboxed page
+  // turn with it, and a zoomed page reaches past its box over that background.
+  // A leaf the page's own box left those bands still beside the turn (a seam)
+  // and cut a zoomed page off at its box (bars outside it).
   const layout = useMemo(
-    () => mobileReaderCurlLayout({
-      stage,
-      spreadMode,
-      spreadSlots,
-      foldGap,
-      pageBox: pageBoxWidth > 0 && pageBoxHeight > 0 ? { width: pageBoxWidth, height: pageBoxHeight } : null,
-    }),
-    [foldGap, pageBoxHeight, pageBoxWidth, spreadMode, spreadSlots, stage],
+    () => mobileReaderCurlLayout({ stage, spreadMode, spreadSlots, foldGap, pageBox: null }),
+    [foldGap, spreadMode, spreadSlots, stage],
   );
   useImperativeHandle(pagerRef, () => ({
     goToFrame(frame, animated) {
