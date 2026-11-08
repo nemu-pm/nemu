@@ -157,27 +157,24 @@ function ExploreChapterSectionSkeleton() {
 function ExploreChapterRowsSkeleton({ rows }: { rows: number }) {
   const { reduceMotion, tokens } = useNemuTheme();
   const opacity = useSkeletonPulse(reduceMotion === true);
-  const { wideChapterRows: wide } = useMobileMangaDetailPane();
   const fill = { backgroundColor: tokens.muted };
   return (
     <Animated.View style={{ opacity }}>
       {Array.from({ length: rows }, (_, row) => (
-        <View key={row} style={[styles.exploreRow, wide ? styles.exploreRowWide : null]}>
+        <View key={row} style={styles.exploreRow}>
           <View style={styles.exploreGlyph}>
             <View style={[styles.exploreDot, fill]} />
           </View>
           <View style={[styles.exploreText, { borderBottomColor: tokens.border }]}>
-            <View style={[styles.exploreBody, wide ? styles.exploreBodyWide : null]}>
-              <View style={[styles.exploreTitleLine, wide ? styles.exploreFlex : null]}>
-                <View style={[styles.exploreBar, fill, { width: wide ? "40%" : "46%", height: 14 }]} />
+            <View style={styles.exploreBody}>
+              <View style={styles.exploreTitleLine}>
+                <View style={[styles.exploreBar, fill, { width: "46%", height: 14 }]} />
               </View>
-              {wide ? null : (
-                <View style={styles.exploreSubtitleLine}>
-                  <View style={[styles.exploreBar, fill, { width: "30%", height: 10 }]} />
-                </View>
-              )}
+              <View style={styles.exploreSubtitleLine}>
+                <View style={[styles.exploreBar, fill, { width: "30%", height: 10 }]} />
+              </View>
             </View>
-            <View style={[styles.exploreTrail, wide ? styles.exploreTrailWide : null]} />
+            <View style={styles.exploreTrail} />
           </View>
         </View>
       ))}
@@ -481,12 +478,9 @@ function MangaHeroSkeleton({
 const styles = StyleSheet.create({
   // MobileExploreChapterRow geometry.
   exploreRow: {
-    minHeight: 56,
+    minHeight: 57 + StyleSheet.hairlineWidth,
     flexDirection: "row",
     alignItems: "stretch",
-  },
-  exploreRowWide: {
-    minHeight: 44,
   },
   exploreGlyph: {
     width: 24,
@@ -512,14 +506,6 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
-  exploreBodyWide: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 20,
-  },
-  exploreFlex: {
-    flex: 1,
-  },
   exploreTitleLine: {
     height: 21,
     justifyContent: "center",
@@ -535,9 +521,6 @@ const styles = StyleSheet.create({
   exploreTrail: {
     width: 32,
     height: 40,
-  },
-  exploreTrailWide: {
-    height: 26,
   },
   // MobileMangaDetailSurface geometry.
   heroShell: {

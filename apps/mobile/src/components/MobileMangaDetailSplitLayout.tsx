@@ -216,13 +216,6 @@ export function MobileMangaDetailSplitLayout<ItemT>({
     },
     [leadingTop, onLeadingScroll],
   );
-  // The chapter table spreads its metadata beside the title wherever its own
-  // column (the whole page, or the chapter column) has the room.
-  const chapterTableWidth = columns
-    ? columns.trailing.width - padding.trailing.paddingLeft - padding.trailing.paddingRight
-    : top
-      ? containerWidth - gutters.horizontal
-      : 0;
   const chapterPalette = useMemo(
     () => (columns ? buildMobileCoverTintPalette(wash?.tint ?? null, scheme) : undefined),
     [columns, wash?.tint, scheme],
@@ -231,11 +224,10 @@ export function MobileMangaDetailSplitLayout<ItemT>({
     () => ({
       role: split ? "trailing" : "single",
       regularWidth,
-      wideChapterRows: chapterTableWidth / fontScale >= 700,
       columns: Boolean(columns),
       chapterPalette,
     }),
-    [regularWidth, split, columns, chapterTableWidth, fontScale, chapterPalette],
+    [regularWidth, split, columns, chapterPalette],
   );
   // Beside the vertical bar a pane's content rests in the bar's row, under the
   // reach of its top edge effect: each pane shows it once it has scrolled.
@@ -257,7 +249,7 @@ export function MobileMangaDetailSplitLayout<ItemT>({
     columns ? "columns" : split ? `${split.alignment}:${Math.round(split.trailing.x)}:${Math.round(split.trailing.width)}` : "single",
     { poseChangesOnly: true },
   );
-  const chapterLayoutKey = `${chapterTableWidth}:${containerWidth}:${trailingPane.wideChapterRows}:${trailingPane.role}`;
+  const chapterLayoutKey = `${split?.trailing.width ?? 0}:${containerWidth}:${trailingPane.role}`;
   // A rotation or fold mid-list keeps the chapter at the top in place (the
   // hero moving into or out of the list shifted it by rows).
   const chapterListRef = useRef<FlatList<ItemT> | null>(null);

@@ -4,6 +4,7 @@ import { memo, useCallback, useMemo } from "react";
 import { StyleSheet, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import Svg, { Circle, Path, Rect } from "react-native-svg";
+import { useMobileLanguageSettings } from "@/data/mobileHooks";
 import type { ChapterSummary, LocalChapterProgress } from "@/data/schema";
 import { nemuColorWithAlpha, nemuFontWeight, NemuPressable, NemuText, useNemuTheme } from "@/design-system";
 import { formatChapterRowTitle } from "@/lib/formatChapter";
@@ -11,17 +12,20 @@ import { getMobileChapterPresentation } from "@/lib/mobileChapterPresentation";
 import { resolveMobileShareUrl } from "@/lib/mobileChapterReadMarks";
 import { formatMobileChapterProgressStatus, getMobileChapterProgressAccessory } from "@/lib/mobileChapterProgress";
 import {
+  getMobileExploreChapterRowDetail,
   getMobileExploreChapterRowSubtitle,
   mobileChapterVolumeHeaderShowsRange,
   type MobileChapterVolumeHeader,
 } from "@/lib/mobileExploreChapterList";
 import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
+import { formatMobileDetailDate } from "@/lib/mobileMangaDetailInfo";
 import { useMobileReaderResumePosition } from "@/lib/useMobileReaderResumePosition";
 import { ContextMenuView, type ContextMenuItem } from "../../../modules/nemu-window-layout";
 
 const GLYPH = 18;
 const STROKE = 1.75;
-const ROW_MIN_HEIGHT = 56;
+/** Two lines of text, the row's padding and its rule: every row is this tall, whatever its second line has to say. */
+const ROW_MIN_HEIGHT = 57 + StyleSheet.hairlineWidth;
 const TEXT_MAX_SCALE = 1.6;
 
 export type MobileExploreChapterAction =
@@ -49,7 +53,8 @@ const MENU_ACTIONS: readonly MobileExploreChapterAction[] = [
  * one in progress, a check for a read one (whose title also steps back), a
  * lock for a locked one, nothing for a plain unread one. The chapter to read
  * next carries a soft tint and an "Up next" tag. A volume header sits above
- * the first chapter of each volume. Long press: the system context menu with
+ * the first chapter of each volume. The same two lines at any width: the title
+ * with its tag, then the source's title and group with the reader's page. Long press: the system context menu with
  * Read / Continue and Read from the beginning (both open the reader), and
  * with `moreActions` Mark as Read (or as Unread once started), Mark Previous
  * as Read, Share and Copy Link.
@@ -85,8 +90,9 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
   moreActions?: boolean;
 }) {
   const { tokens } = useNemuTheme();
+  const { appLanguage } = useMobileLanguageSettings();
   const shareable = Boolean(resolveMobileShareUrl(chapter.url));
-  const { wideChapterRows: wide, chapterPalette } = useMobileMangaDetailPane();
+  const { chapterPalette } = useMobileMangaDetailPane();
   const selectedInk = upNext ? chapterPalette?.primaryInk : undefined;
   const foreground = selectedInk ?? chapterPalette?.ink ?? tokens.foreground;
   const secondary = selectedInk ?? chapterPalette?.inkSecondary ?? tokens.mutedForeground;
@@ -104,12 +110,18 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
   const subtitle = getMobileExploreChapterRowSubtitle(chapter, commonGroup);
   const disabled = presentation.isLocked || busy;
   const status = formatMobileChapterProgressStatus(accessory, strings);
+  const detail = getMobileExploreChapterRowDetail({
+    subtitle,
+    status: accessory.status === "completed" ? null : status,
+    date: formatMobileDetailDate(chapter.dateUploaded, appLanguage),
+    completed: accessory.status === "completed" ? status : null,
+  });
   const label = [
     title,
-    subtitle,
+    detail.text,
     upNext ? strings.designExplore.chapterUpNext : null,
     presentation.isNew ? strings.common.new : null,
-    status,
+    detail.text === status ? null : status,
   ]
     .filter(Boolean)
     .join(". ");
@@ -174,7 +186,6 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
           onPress={press}
           style={[
             styles.row,
-            wide ? styles.wideRow : null,
             { borderRadius: R.row, borderCurve: "continuous" },
             upNext ? { backgroundColor: selection } : null,
           ]}
@@ -189,8 +200,8 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
             ) : null}
           </View>
           <View style={[styles.text, styles.textRow, { borderBottomColor: upNext && chapterPalette ? "transparent" : chapterPalette?.rule ?? tokens.border }]}>
-            <View style={[styles.textBody, wide ? styles.wideBody : null]}>
-            <View style={[styles.titleLine, wide ? styles.wideTitle : null]}>
+            <View style={styles.textBody}>
+            <View style={styles.titleLine}>
               <NemuText
                 numberOfLines={1}
                 maxFontSizeMultiplier={TEXT_MAX_SCALE}
@@ -212,21 +223,23 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
                 </View>
               ) : null}
              </View>
-            {subtitle ? (
-              <NemuText
-                numberOfLines={1}
-                maxFontSizeMultiplier={TEXT_MAX_SCALE}
-                color={secondary}
-                style={[styles.subtitle, wide ? styles.wideSubtitle : null]}
-              >
-                {subtitle}
-              </NemuText>
+            {detail.text || detail.status ? (
+              <View style={styles.detailLine}>
+                {detail.text ? (
+                  <NemuText numberOfLines={1} maxFontSizeMultiplier={TEXT_MAX_SCALE} color={secondary} style={styles.detailText}>
+                    {detail.text}
+                  </NemuText>
+                ) : null}
+                {/* The page stays whole; a long title gives way to it. */}
+                {detail.status ? (
+                  <NemuText numberOfLines={1} maxFontSizeMultiplier={TEXT_MAX_SCALE} color={secondary} style={styles.detailStatus}>
+                    {detail.text ? ` · ${detail.status}` : detail.status}
+                  </NemuText>
+                ) : null}
+              </View>
             ) : null}
             </View>
-            {wide && (presentation.isRead || presentation.isInProgress || presentation.isLocked) ? (
-              <NemuText numberOfLines={1} color={secondary} style={styles.wideStatus}>{status}</NemuText>
-            ) : null}
-            <View style={[styles.trail, wide ? styles.wideTrail : null]} pointerEvents="none">
+            <View style={styles.trail} pointerEvents="none">
               {!disabled ? (
                 <Ionicons name="chevron-forward" size={15} color={nemuColorWithAlpha(secondary, 0.7)} />
               ) : null}
@@ -310,12 +323,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "stretch",
   },
-  wideRow: { minHeight: 44 },
-  wideBody: { flexDirection: "row", alignItems: "center", gap: 20 },
-  wideTitle: { flex: 1, minWidth: 0 },
-  wideSubtitle: { flex: 1, marginTop: 0 },
-  wideStatus: { fontSize: 13, marginLeft: 20, maxWidth: 180 },
-  wideTrail: { height: 26 },
   // The marker is centred on the whole row (title and subtitle), as the
   // chevron is: clear of the row's bottom rule, which only the text column draws.
   glyph: {
@@ -361,8 +368,17 @@ const styles = StyleSheet.create({
   titleRead: {
     fontWeight: nemuFontWeight.regular,
   },
-  subtitle: {
+  detailLine: {
+    flexDirection: "row",
     marginTop: 1,
+  },
+  detailText: {
+    flexShrink: 1,
+    fontSize: 13,
+    lineHeight: 17,
+  },
+  detailStatus: {
+    flexShrink: 0,
     fontSize: 13,
     lineHeight: 17,
   },

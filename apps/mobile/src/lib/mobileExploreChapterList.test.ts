@@ -5,6 +5,7 @@ import {
   findMobileUpNextIndex,
   getMobileChapterListCommonGroup,
   getMobileChapterVolumeHeaders,
+  getMobileExploreChapterRowDetail,
   getMobileExploreChapterRowSubtitle,
   getMobileExploreChapterRowLayoutKind,
   getMobileExploreChapterSubtitle,
@@ -128,6 +129,32 @@ describe("design-explore chapter list", () => {
       "Hanako-san of the Toilet (Pilot, Part 1)",
     );
     expect(getMobileExploreChapterSubtitle({ title: "" })).toBeNull();
+  });
+});
+
+describe("chapter row second line", () => {
+  const none = { subtitle: null, status: null, date: null, completed: null };
+  test("the source's title sits with the reader's page", () => {
+    expect(getMobileExploreChapterRowDetail({ ...none, subtitle: "The Healer", status: "Page 6 of 10", date: "Nov 3" })).toEqual({
+      text: "The Healer",
+      status: "Page 6 of 10",
+    });
+  });
+  test("the page or a lock alone fills the line", () => {
+    expect(getMobileExploreChapterRowDetail({ ...none, status: "Locked chapter", date: "Nov 3" })).toEqual({
+      text: null,
+      status: "Locked chapter",
+    });
+  });
+  test("a title stays over a finished chapter's date and its Marked complete", () => {
+    expect(getMobileExploreChapterRowDetail({ ...none, subtitle: "The Tavern", date: "Nov 3", completed: "Marked complete" }).text).toBe(
+      "The Tavern",
+    );
+  });
+  test("a bare chapter says when it came out, or else that it is finished", () => {
+    expect(getMobileExploreChapterRowDetail({ ...none, date: "Nov 3", completed: "Marked complete" }).text).toBe("Nov 3");
+    expect(getMobileExploreChapterRowDetail({ ...none, completed: "Marked complete" }).text).toBe("Marked complete");
+    expect(getMobileExploreChapterRowDetail(none)).toEqual({ text: null, status: null });
   });
 });
 

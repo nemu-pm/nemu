@@ -222,6 +222,27 @@ export function getMobileExploreChapterRowSubtitle(
 }
 
 /**
+ * A chapter row's second line, so a row reads as two lines wherever there is
+ * something to say. `text` is the source's title and group; `status` (the
+ * reader's page, or locked) stands beside it and is never cut. A row with
+ * neither says when the chapter came out, or else that it is finished: the row
+ * keeps its two-line height even with nothing at all.
+ */
+export function getMobileExploreChapterRowDetail({
+  subtitle,
+  status,
+  date,
+  completed,
+}: {
+  subtitle: string | null;
+  status: string | null;
+  date: string | null;
+  completed: string | null;
+}): { text: string | null; status: string | null } {
+  return { text: subtitle ?? (status ? null : (date ?? completed)), status };
+}
+
+/**
  * The source's own chapter title, only when it says more than the number the
  * row already shows: "第132话 (10p)", "Chapter 12", "Ch. 12" and the like
  * restate the row's title and are dropped; "第01回 決戦" keeps "決戦" by
