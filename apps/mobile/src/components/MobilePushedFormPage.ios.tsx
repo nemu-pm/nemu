@@ -19,6 +19,8 @@ import {
 } from "@expo/ui/swift-ui/modifiers";
 import { useMobileNativeSheetVeil, useNemuTheme } from "@/design-system";
 import { MOBILE_GROUPED_FORM_TOP_MARGIN } from "@/lib/mobileLibrarySheetLayout";
+import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
+import { mobileNativeFormSheetConfirm } from "@/lib/mobileNativeSheet";
 import {
   inlineToolbarTitle,
   zeroTopScrollContentMargin,
@@ -43,6 +45,8 @@ export function MobilePushedFormPage({
 }) {
   const { tokens } = useNemuTheme();
   const veil = useMobileNativeSheetVeil();
+  const adaptive = useMobileAdaptiveLayout();
+  const shownConfirm = confirm && mobileNativeFormSheetConfirm(confirm, adaptive);
   const form = (
     <SwiftForm
       modifiers={[
@@ -79,9 +83,9 @@ export function MobilePushedFormPage({
         <SwiftToolbarItem placement="principal">
           <SwiftText modifiers={[font({ textStyle: "headline" }), lineLimit(1), sheetCenteredTitle()]}>{title}</SwiftText>
         </SwiftToolbarItem>
-        {confirm ? (
+        {shownConfirm ? (
           <SwiftToolbarItem placement="confirmationAction">
-            <ToolbarActionButton action={confirm} accent={tokens.primary} />
+            <ToolbarActionButton action={shownConfirm} accent={tokens.primary} />
           </SwiftToolbarItem>
         ) : null}
       </SwiftToolbar.Content>
