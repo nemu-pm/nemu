@@ -538,6 +538,8 @@ export function ReaderSettingsNativePopover({
               min={READER_SCROLL_WIDTH_MIN}
               max={READER_SCROLL_WIDTH_MAX}
               step={5}
+              // VoiceOver reads the width, not the thumb's place on the track (0.6 for 80%).
+              accessibilityValueText={`${scrollWidth}%`}
               label={<SwiftText>{strings.reader.pageWidth}</SwiftText>}
               minimumValueLabel={<SwiftText>{`${READER_SCROLL_WIDTH_MIN}%`}</SwiftText>}
               maximumValueLabel={<SwiftText>{`${READER_SCROLL_WIDTH_MAX}%`}</SwiftText>}
@@ -550,7 +552,7 @@ export function ReaderSettingsNativePopover({
               onEditingChanged={(editing) => {
                 if (!editing) onCommitScrollWidth(scrollWidthRef.current);
               }}
-              modifiers={busyModifiers}
+              modifiers={[swiftAccessibilityLabel(strings.reader.pageWidth), ...busyModifiers]}
             />
           ) : null}
           <SwiftToggle

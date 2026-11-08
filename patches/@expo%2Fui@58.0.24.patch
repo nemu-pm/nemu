@@ -1476,3 +1476,80 @@ index 90427f2..bab61cd 100644
    );
  
  /**
+diff --git a/build/swift-ui/Slider/index.d.ts b/build/swift-ui/Slider/index.d.ts
+index fd08f7b..e925ad6 100644
+--- a/build/swift-ui/Slider/index.d.ts
++++ b/build/swift-ui/Slider/index.d.ts
+@@ -8,6 +8,12 @@ export interface SliderProps extends CommonViewModifierProps {
+      * The step increment for the slider.
+      */
+     step?: number;
++    /**
++     * What VoiceOver reads as the slider's value, in place of its fraction of the track.
++     * The slider becomes one adjustable element (give it an `accessibilityLabel` modifier).
++     * @platform ios
++     */
++    accessibilityValueText?: string;
+     /**
+      * The minimum value of the slider. Updating this value does not trigger callbacks if the current value is below `min`.
+      */
+diff --git a/ios/SliderView.swift b/ios/SliderView.swift
+index f5586ca..a74df39 100644
+--- a/ios/SliderView.swift
++++ b/ios/SliderView.swift
+@@ -14,7 +14,7 @@ struct SliderView: ExpoSwiftUI.View {
+ 
+   var body: some View {
+ #if !os(tvOS)
+-    sliderContent
++    accessibleSliderContent
+       .onAppear {
+         value = clamp(props.value ?? 0.0)
+       }
+@@ -54,6 +54,38 @@ struct SliderView: ExpoSwiftUI.View {
+     )
+   }
+ 
++  /// With `accessibilityValueText`, VoiceOver reads that text as the value
++  /// instead of the track's fraction (SwiftUI's Slider ignores a value set on
++  /// it from outside); swiping up or down moves one `step` and reports it as an
++  /// edit, so the change commits as a drag's would.
++  @ViewBuilder
++  private var accessibleSliderContent: some View {
++    if let valueText = props.accessibilityValueText {
++      sliderContent
++        .accessibilityElement(children: .ignore)
++        .accessibilityValue(Text(valueText))
++        .accessibilityAdjustableAction { direction in
++          let lower = props.min ?? 0
++          let upper = props.max ?? 1
++          let delta = props.step ?? (upper - lower) / 10
++          let next: Float
++          switch direction {
++          case .increment: next = clamp(value + delta)
++          case .decrement: next = clamp(value - delta)
++          @unknown default: return
++          }
++          guard next != value else { return }
++          props.onEditingChanged(["isEditing": true])
++          value = next
++          eventCount += 1
++          props.onValueChanged(["value": next, "eventCount": eventCount])
++          props.onEditingChanged(["isEditing": false])
++        }
++    } else {
++      sliderContent
++    }
++  }
++
+   @ViewBuilder
+   private var sliderContent: some View {
+     let label = props.children?.slot("label")
+@@ -148,6 +180,7 @@ final class SliderProps: UIBaseViewProps {
+   @Field var lowerLimit: Float?
+   @Field var upperLimit: Float?
+   @Field var mostRecentEventCount: Int?
++  @Field var accessibilityValueText: String?
+   var onValueChanged = EventDispatcher()
+   var onEditingChanged = EventDispatcher()
+ }
