@@ -12774,9 +12774,9 @@ export function ReaderScreen() {
         </ReaderCapsule>
       ) : null;
       // A glide animates a capsule's frame, not its children's layout: they sit
-      // at their final size, so a growing capsule's content must not spill past
-      // its glass onto a neighbour. Only while gliding: a clip at rest would cut
-      // the buttons' hit slop.
+      // at their final size, so a growing capsule clips them to its glass rather
+      // than spill onto a neighbour. Only while gliding: a clip at rest would
+      // cut the buttons' hit slop.
       const capsuleContentClip = readerChromeGliding ? styles.readerCapsuleContentClip : null;
       const actionsCapsule = (
         <ReaderCapsule
@@ -12785,17 +12785,16 @@ export function ReaderScreen() {
           style={[
             styles.readerActionsCapsule,
             { position: "absolute", top: actions.y },
+            capsuleContentClip,
             // Anchored at its trailing end: the capsule grows with its actions.
             actionsOnRight
               ? { right: boundsWidth - actions.x - actions.width }
               : { left: actions.x },
           ]}
         >
-          <Animated.View layout={readerCapsuleLayout} style={[styles.readerCapsuleActionGroup, capsuleContentClip]}>
-            {pluginActions}
-            {readerChapterListInBar ? chapterListButton : null}
-            {settingsButton}
-          </Animated.View>
+          {pluginActions}
+          {readerChapterListInBar ? chapterListButton : null}
+          {settingsButton}
         </ReaderCapsule>
       );
       return chromeLayer(
@@ -12904,13 +12903,11 @@ export function ReaderScreen() {
                 {...glassBottom}
                 layout={readerCapsuleLayout}
                 interactive={false}
-                style={[styles.readerScrubberCapsule, mobileReaderAbsoluteRect(scrubberRect)]}
+                style={[styles.readerScrubberCapsule, mobileReaderAbsoluteRect(scrubberRect), capsuleContentClip]}
               >
-                <Animated.View layout={readerCapsuleLayout} style={[styles.readerScrubberContent, capsuleContentClip]}>
-                  {previousChapterButton}
-                  {scrubber}
-                  {nextChapterButton}
-                </Animated.View>
+                {previousChapterButton}
+                {scrubber}
+                {nextChapterButton}
               </ReaderCapsule>
             </Animated.View>
           ) : null}
@@ -14061,16 +14058,11 @@ const styles = StyleSheet.create({
     height: 48,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 4,
-  },
-  readerScrubberContent: {
-    flex: 1,
-    alignSelf: "stretch",
-    flexDirection: "row",
-    alignItems: "center",
     gap: 4,
+    paddingHorizontal: 4,
   },
   readerCapsuleContentClip: {
     overflow: "hidden",
+    borderRadius: READER_CAPSULE_HEIGHT / 2,
   },
 });
