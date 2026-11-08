@@ -19,7 +19,9 @@ import {
 } from "@expo/ui/swift-ui/modifiers";
 import { useNemuTheme } from "@/design-system";
 import { useMobileDesignExplore } from "@/lib/mobileDesignExplore";
+import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { MOBILE_NATIVE_FORM_ROW, getMobileNativeFormSheetHeight } from "@/lib/mobileNativeFormSheetLayout";
+import { MOBILE_NATIVE_SHEET_IOS_FORM_WIDTH } from "@/lib/mobileNativeSheet";
 import { MobileNativeFormSheet } from "./MobileNativeFormSheet";
 import type { MobileSourceLoginNativeField, MobileSourceLoginNativeSheetProps } from "./MobileSourceLoginNativeSheet.types";
 
@@ -52,6 +54,7 @@ export function MobileSourceLoginNativeSheet({
   const { tokens } = useNemuTheme();
   const { fontScale, height, width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const { regularWidth } = useMobileAdaptiveLayout();
   // Design-explore: the fields start under the bar, not below an empty band.
   const tightTop = useMobileDesignExplore();
   const rowHeight = (field: MobileSourceLoginNativeField) => (field.multiline ? MULTILINE_ROW : MOBILE_NATIVE_FORM_ROW);
@@ -65,7 +68,7 @@ export function MobileSourceLoginNativeSheet({
         }));
   const sheetHeight = getMobileNativeFormSheetHeight({
     sections: error ? [...groups, { rows: [MOBILE_NATIVE_FORM_ROW], footer: error }] : groups,
-    sheetWidth: Math.min(width - insets.left - insets.right - 16, 620),
+    sheetWidth: regularWidth ? MOBILE_NATIVE_SHEET_IOS_FORM_WIDTH : Math.min(width - insets.left - insets.right - 16, 620),
     fontScale,
     maxHeight: height - insets.top,
     tightTop,

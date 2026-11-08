@@ -1,6 +1,7 @@
 import {
   mobileSheetCanUseFullWidth,
   resolveMobileNativeSheetIosBarEdges,
+  mobileNativeFormSheetWindow,
   resolveMobileNativeFormSheetPadSizing,
   resolveMobileNativeSheetIosFormSheet,
   resolveMobileNativeSheetIosHeaderBarPadding,
@@ -502,7 +503,7 @@ describe("ios SwiftUI form sheet on iPad", () => {
     expect(
       resolveMobileNativeFormSheetPadSizing({
         platform: "ios",
-        isPad: true,
+        formWindow: true,
         windowWidth: 834,
         detents: [{ height: 262 }],
       }),
@@ -511,14 +512,24 @@ describe("ios SwiftUI form sheet on iPad", () => {
 
   test("without a height detent the system form size applies", () => {
     expect(
-      resolveMobileNativeFormSheetPadSizing({ platform: "ios", isPad: true, windowWidth: 1194, detents: ["medium"] }),
+      resolveMobileNativeFormSheetPadSizing({ platform: "ios", formWindow: true, windowWidth: 1194, detents: ["medium"] }),
     ).toEqual({ kind: "form", width: 540, height: null });
+  });
+
+  test("the open iPhone Duo is a form window; half folded or a phone in landscape keeps the detents", () => {
+    const window = { isPad: false, regularWidth: true, compactHeight: false, posture: "flat" as const };
+    expect(mobileNativeFormSheetWindow(window)).toBe(true);
+    expect(mobileNativeFormSheetWindow({ ...window, posture: "book" })).toBe(false);
+    expect(mobileNativeFormSheetWindow({ ...window, posture: "notebook" })).toBe(false);
+    expect(mobileNativeFormSheetWindow({ ...window, regularWidth: false })).toBe(false);
+    expect(mobileNativeFormSheetWindow({ ...window, compactHeight: true })).toBe(false);
+    expect(mobileNativeFormSheetWindow({ ...window, isPad: true, posture: "book" })).toBe(true);
   });
 
   test("compact iPad windows and phones keep the detents", () => {
     for (const [isPad, windowWidth] of [[true, 507], [false, 951]] as const) {
       expect(
-        resolveMobileNativeFormSheetPadSizing({ platform: "ios", isPad, windowWidth, detents: [{ height: 262 }] }),
+        resolveMobileNativeFormSheetPadSizing({ platform: "ios", formWindow: isPad, windowWidth, detents: [{ height: 262 }] }),
       ).toEqual({ kind: "detents" });
     }
   });

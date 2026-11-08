@@ -378,23 +378,39 @@ export function resolveMobileNativeSheetIosFormSheet({
 }
 
 /**
- * iOS: how a SwiftUI form sheet that asks for iPad form sizing presents. A
- * regular-width iPad window gets a centred form sheet: as tall as its first
- * height detent when it has one (the height its rows were measured at), else
- * the system's own form size. Compact widths keep the detents.
+ * iOS: whether a window shows a form as a centred form sheet. An iPad does, and
+ * so does an iPhone Duo's open inner display (regular width). Half folded it keeps its detents: the
+ * system sheet then takes one half of the fold, where a centred one would sit
+ * on the hinge. A phone in landscape is short (compact height) and keeps them.
+ */
+export function mobileNativeFormSheetWindow(window: {
+  isPad: boolean;
+  regularWidth: boolean;
+  compactHeight: boolean;
+  posture: "flat" | "book" | "notebook";
+}): boolean {
+  return window.isPad || (window.regularWidth && !window.compactHeight && window.posture === "flat");
+}
+
+/**
+ * iOS: how a SwiftUI form sheet that asks for form sizing presents. A
+ * `formWindow` (`mobileNativeFormSheetWindow`) of regular width gets a centred
+ * form sheet: as tall as its first height detent when it has one (the height
+ * its rows were measured at), else the system's own form size. Compact widths
+ * keep the detents.
  */
 export function resolveMobileNativeFormSheetPadSizing({
   platform,
-  isPad,
+  formWindow,
   windowWidth,
   detents,
 }: {
   platform: string;
-  isPad: boolean;
+  formWindow: boolean;
   windowWidth: number;
   detents: readonly ("medium" | "large" | { fraction: number } | { height: number })[];
 }): { kind: "detents" } | { kind: "form"; width: number; height: number | null } {
-  if (platform !== "ios" || !isPad || windowWidth < MOBILE_NATIVE_SHEET_IOS_FORM_MIN_WIDTH) {
+  if (platform !== "ios" || !formWindow || windowWidth < MOBILE_NATIVE_SHEET_IOS_FORM_MIN_WIDTH) {
     return { kind: "detents" };
   }
   const heightDetent = detents.find(

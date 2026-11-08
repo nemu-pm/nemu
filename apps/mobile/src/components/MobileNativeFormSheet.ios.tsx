@@ -34,7 +34,8 @@ import { useLayoutEffect, useRef } from "react";
 import { Platform, PlatformColor, StyleSheet, View, useWindowDimensions, type ColorValue } from "react-native";
 import { useNemuTheme } from "@/design-system";
 import { MOBILE_GROUPED_FORM_TOP_MARGIN } from "@/lib/mobileLibrarySheetLayout";
-import { resolveMobileNativeFormSheetPadSizing } from "@/lib/mobileNativeSheet";
+import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
+import { mobileNativeFormSheetWindow, resolveMobileNativeFormSheetPadSizing } from "@/lib/mobileNativeSheet";
 import {
   inlineToolbarTitle,
   zeroTopScrollContentMargin,
@@ -98,6 +99,7 @@ export function MobileNativeFormSheet({
 }: MobileNativeFormSheetProps) {
   const { scheme, tokens } = useNemuTheme();
   const { width: windowWidth } = useWindowDimensions();
+  const adaptive = useMobileAdaptiveLayout();
   // A swipe-down reports its close once, from whichever comes first: the
   // presented-state change or the system's dismissal (for a swipe SwiftUI
   // can call `onDismiss` before it, and a close reported only from the state
@@ -118,7 +120,12 @@ export function MobileNativeFormSheet({
     padSizing === "form"
       ? resolveMobileNativeFormSheetPadSizing({
           platform: Platform.OS,
-          isPad: Platform.OS === "ios" && Platform.isPad,
+          formWindow: mobileNativeFormSheetWindow({
+            isPad: Platform.OS === "ios" && Platform.isPad,
+            regularWidth: adaptive.regularWidth,
+            compactHeight: adaptive.compactHeight,
+            posture: adaptive.posture,
+          }),
           windowWidth,
           detents,
         })
@@ -169,8 +176,8 @@ export function MobileNativeFormSheet({
         >
           <SwiftGroup
             modifiers={[
-              // On a regular-width iPad a centred form sheet, as tall as the
-              // phone's detent; the detents are the phone's.
+              // On a regular-width iPad or an open iPhone Duo a centred form
+              // sheet, as tall as the phone's detent; the detents are the phone's.
               ...(padFormSize
                 ? []
                 : padForm?.kind === "form"
