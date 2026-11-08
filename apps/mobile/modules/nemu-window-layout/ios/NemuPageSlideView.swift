@@ -50,7 +50,7 @@ final class NemuPageSlideView: ExpoView, UIGestureRecognizerDelegate {
       pan.isEnabled = turningEnabled
     }
   }
-  var pageBackground: UIColor = .white {
+  var pageBackground: UIColor = .black {
     didSet { applyBackgrounds() }
   }
   var slotBackgrounds: [Int: UIColor] = [:] {

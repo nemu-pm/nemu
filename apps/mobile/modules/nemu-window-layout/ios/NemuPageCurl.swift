@@ -70,7 +70,7 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
   var turningEnabled: Bool = true {
     didSet { if turningEnabled != oldValue { applyTurningEnabled() } }
   }
-  var pageBackground: UIColor = .white {
+  var pageBackground: UIColor = .black {
     didSet { applyBackgrounds() }
   }
   /**

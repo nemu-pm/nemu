@@ -7,14 +7,14 @@ import {
 } from "./mobileReaderPageBackground";
 
 describe("page background", () => {
-  test("white by default (never chosen, or unknown); a stored choice stays; the page's border colour once measured", () => {
-    expect(normalizeMobileReaderPageBackground(undefined)).toBe("white");
-    expect(normalizeMobileReaderPageBackground(null)).toBe("white");
-    expect(normalizeMobileReaderPageBackground("sepia")).toBe("white");
-    expect(normalizeMobileReaderPageBackground(3)).toBe("white");
-    // An explicit Black is kept: no migration rewrites it.
-    expect(normalizeMobileReaderPageBackground("black")).toBe("black");
+  test("black by default (never chosen, or unknown); a stored choice stays; the page's border colour once measured", () => {
+    expect(normalizeMobileReaderPageBackground(undefined)).toBe("black");
+    expect(normalizeMobileReaderPageBackground(null)).toBe("black");
+    expect(normalizeMobileReaderPageBackground("sepia")).toBe("black");
+    expect(normalizeMobileReaderPageBackground(3)).toBe("black");
+    // An explicit White is kept: no migration rewrites it.
     expect(normalizeMobileReaderPageBackground("white")).toBe("white");
+    expect(normalizeMobileReaderPageBackground("black")).toBe("black");
     expect(normalizeMobileReaderPageBackground("page")).toBe("page");
     expect(mobileReaderPageBackgroundColor("black", "#eeeeee")).toBe("#000000");
     expect(mobileReaderPageBackgroundColor("white")).toBe("#ffffff");

@@ -150,7 +150,7 @@ describe("unloaded pages (source)", () => {
     expect(route).not.toContain('backgroundColor: "#000000"');
     expect(route).toContain("mobileReaderPageBackgroundColor(pageBackground)");
     const module = read("../../modules/nemu-window-layout/ios/NemuWindowLayoutModule.swift");
-    expect(module).toContain("view.pageBackground = color ?? .white");
+    expect(module).toContain("view.pageBackground = color ?? .black");
   });
   test("the spinner is the native small ActivityIndicator", () => {
     const spinner = read("../components/reader/MobileReaderPageSpinner.tsx");

@@ -182,7 +182,7 @@ public final class NemuWindowLayoutModule: Module {
       Prop("turningEnabled") { (view: NemuPageCurlView, enabled: Bool) in view.turningEnabled = enabled }
       // JS always sends the reader's page background; an unparsable one is
       // the reader's default (White), never a black that was never chosen.
-      Prop("pageBackground") { (view: NemuPageCurlView, color: UIColor?) in view.pageBackground = color ?? .white }
+      Prop("pageBackground") { (view: NemuPageCurlView, color: UIColor?) in view.pageBackground = color ?? .black }
       Prop("slotBackgrounds") { (view: NemuPageCurlView, colors: [String: String]?) in
         view.slotBackgrounds = NemuSlotBackgrounds.parse(colors)
       }
@@ -206,7 +206,7 @@ public final class NemuWindowLayoutModule: Module {
         view.curlFrame = CGRect(x: frame["x"] ?? 0, y: frame["y"] ?? 0, width: frame["width"] ?? 0, height: frame["height"] ?? 0)
       }
       Prop("turningEnabled") { (view: NemuPageSlideView, enabled: Bool) in view.turningEnabled = enabled }
-      Prop("pageBackground") { (view: NemuPageSlideView, color: UIColor?) in view.pageBackground = color ?? .white }
+      Prop("pageBackground") { (view: NemuPageSlideView, color: UIColor?) in view.pageBackground = color ?? .black }
       Prop("slotBackgrounds") { (view: NemuPageSlideView, colors: [String: String]?) in
         view.slotBackgrounds = NemuSlotBackgrounds.parse(colors)
       }
@@ -228,7 +228,7 @@ public final class NemuWindowLayoutModule: Module {
         view.curlFrame = CGRect(x: frame["x"] ?? 0, y: frame["y"] ?? 0, width: frame["width"] ?? 0, height: frame["height"] ?? 0)
       }
       Prop("turningEnabled") { (view: NemuPagePushView, enabled: Bool) in view.turningEnabled = enabled }
-      Prop("pageBackground") { (view: NemuPagePushView, color: UIColor?) in view.pageBackground = color ?? .white }
+      Prop("pageBackground") { (view: NemuPagePushView, color: UIColor?) in view.pageBackground = color ?? .black }
       Prop("slotBackgrounds") { (view: NemuPagePushView, colors: [String: String]?) in
         view.slotBackgrounds = NemuSlotBackgrounds.parse(colors)
       }

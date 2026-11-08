@@ -51,7 +51,7 @@ final class NemuPagePushView: ExpoView, UIScrollViewDelegate {
   var turningEnabled: Bool = true {
     didSet { scrollView.isScrollEnabled = turningEnabled }
   }
-  var pageBackground: UIColor = .white {
+  var pageBackground: UIColor = .black {
     didSet { applyBackgrounds() }
   }
   var slotBackgrounds: [Int: UIColor] = [:] {
