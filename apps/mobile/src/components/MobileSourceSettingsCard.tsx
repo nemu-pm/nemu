@@ -1936,19 +1936,22 @@ const styles = StyleSheet.create({
   exploreShell: MOBILE_EXPLORE_GROUP_SHAPE,
   // A group heading stands clear of the footer above it.
   exploreGroupTitle: {
-    marginTop: 22,
+    marginTop: 14,
   },
   exploreGroupTitleFirst: {
     marginTop: 0,
   },
   // A leading row has no preceding content to separate or stand off.
   exploreLeadingRow: {
+    minHeight: 40,
     borderTopWidth: 0,
     paddingTop: 0,
   },
+  // Closes the card, whose own inset is the room below it.
   exploreResetRow: {
-    minHeight: 50,
+    minHeight: 44,
     justifyContent: "flex-start",
+    paddingBottom: 0,
   },
   settingsHeader: {
     minHeight: 34,
@@ -1983,8 +1986,10 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 14,
   },
+  // Design-explore: rows carry their own padding around their rules; a gap
+  // between them only left the space above a rule twice the space below it.
   settingList: {
-    gap: 10,
+    gap: mobileDesignExploreFlag ? 0 : 10,
   },
   settingGroup: {
     gap: 7,
@@ -2006,7 +2011,7 @@ const styles = StyleSheet.create({
     lineHeight: 14,
   },
   settingRow: {
-    minHeight: 66,
+    minHeight: mobileDesignExploreFlag ? 52 : 66,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
@@ -2028,6 +2033,7 @@ const styles = StyleSheet.create({
     gap: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
     paddingTop: 10,
+    paddingBottom: mobileDesignExploreFlag ? 10 : 0,
   },
   disabledControl: {
     opacity: 0.62,
@@ -2181,7 +2187,7 @@ const styles = StyleSheet.create({
     fontWeight: nemuFontWeight.medium,
   },
   emptyRow: {
-    minHeight: 48,
+    minHeight: mobileDesignExploreFlag ? 24 : 48,
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
