@@ -12977,7 +12977,7 @@ export function ReaderScreen() {
       {/* Wherever the reader keeps the system vertical bar (the Duo outer
           display, a Split View half) Back and the actions are real toolbar
           items in it: Back alone on top of the vertical axis, then the
-          actions group (the cover view's toggle first) — the capsule
+          cover view's toggle in its own glass, then the actions group — the capsule
           chrome's own Ionicons, tinted like the
           capsule glyphs, on dark glass (`appearanceCoversBars` below).
           Everywhere else (the Duo inner display full-screen, phones, tablets,
@@ -13004,8 +13004,8 @@ export function ReaderScreen() {
           {/* On the cover only Back and the toggle stay (the actions act on the page). */}
           <Stack.Toolbar placement="right" tintColor={READER_CAPSULE_COLORS.primaryText}>
             {/* Outer display only: the cover (a book) and back to the page,
-                as Apple Books there; first, so it keeps its place on the
-                cover when the other actions go. */}
+                as Apple Books there; in its own glass between Back and the
+                actions, so it keeps its place on the cover when they go. */}
             {readerCoverViewAvailable ? (
               <Stack.Toolbar.Button
                 icon={readerCoverViewShown
@@ -13017,6 +13017,7 @@ export function ReaderScreen() {
                   ? strings.reader.coverViewShowPages
                   : strings.reader.coverViewShowCover}
                 hidden={readerBarItemsHidden}
+                separateBackground
                 onPress={toggleReaderCoverView}
               />
             ) : null}
