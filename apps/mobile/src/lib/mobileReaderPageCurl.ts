@@ -20,14 +20,14 @@ import { visualPageIndexesForMobileReaderSpread } from "@/lib/mobileReaderSpread
  */
 export type MobileReaderPageTurn = "curl" | "slide" | "push";
 
-export const DEFAULT_MOBILE_READER_PAGE_TURN: MobileReaderPageTurn = "curl";
+export const DEFAULT_MOBILE_READER_PAGE_TURN: MobileReaderPageTurn = "push";
 
 /** The 翻页 menu: Apple's order, then Push. */
 export const MOBILE_READER_PAGE_TURNS: readonly MobileReaderPageTurn[] = ["curl", "slide", "push"];
 
-/** A stored value keeps its meaning ("slide" is Books' slide); anything else is the default. */
+/** A stored value keeps its meaning ("slide" is Books' slide, a stored "curl" stays); anything else is the default. */
 export function normalizeMobileReaderPageTurn(value: unknown): MobileReaderPageTurn {
-  return value === "slide" || value === "push" ? value : DEFAULT_MOBILE_READER_PAGE_TURN;
+  return value === "curl" || value === "slide" || value === "push" ? value : DEFAULT_MOBILE_READER_PAGE_TURN;
 }
 
 /**

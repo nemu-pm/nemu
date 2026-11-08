@@ -81,9 +81,10 @@ describe("match page slot backgrounds", () => {
 });
 
 describe("page turn setting", () => {
-  test("defaults to the curl and keeps an explicit slide", () => {
-    expect(normalizeMobileReaderPageTurn(undefined)).toBe("curl");
-    expect(normalizeMobileReaderPageTurn("fade")).toBe("curl");
+  test("defaults to the push and keeps an explicit curl or slide", () => {
+    expect(normalizeMobileReaderPageTurn(undefined)).toBe("push");
+    expect(normalizeMobileReaderPageTurn("fade")).toBe("push");
+    expect(normalizeMobileReaderPageTurn("curl")).toBe("curl");
     expect(normalizeMobileReaderPageTurn("slide")).toBe("slide");
     // Push is its own choice; a stored "slide" keeps meaning Books' slide.
     expect(normalizeMobileReaderPageTurn("push")).toBe("push");
@@ -432,9 +433,9 @@ describe("Push (Photos-style paging), a third page turn", () => {
     pushAvailable: true,
   };
 
-  test("offered after Curl and Slide; the default stays Curl", () => {
+  test("offered after Curl and Slide; the default is Push", () => {
     expect(MOBILE_READER_PAGE_TURNS).toEqual(["curl", "slide", "push"]);
-    expect(normalizeMobileReaderPageTurn(undefined)).toBe("curl");
+    expect(normalizeMobileReaderPageTurn(undefined)).toBe("push");
   });
 
   test("chosen, it turns paged reading, Reduce Motion included (it keeps its own)", () => {
