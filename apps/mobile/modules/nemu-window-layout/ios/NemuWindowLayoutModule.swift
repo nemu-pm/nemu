@@ -272,6 +272,17 @@ public final class NemuWindowLayoutModule: Module {
       Prop("intensity") { (view: NemuBlurView, intensity: Double) in view.intensity = intensity }
       Prop("tint") { (view: NemuBlurView, tint: String) in view.style = NemuBlurView.style(named: tint) }
     }
+    // Marks chrome over a scroll view's edge, so UIKit's soft edge effect forms
+    // under it (see NemuScrollEdgeElementView).
+    Constant("scrollEdgeElementAvailable") { true }
+    View(NemuScrollEdgeElementView.self) {
+      Prop("edge") { (view: NemuScrollEdgeElementView, edge: String) in
+        view.edge = NemuScrollEdgeElementView.edge(named: edge)
+      }
+      Prop("revealPastRest") { (view: NemuScrollEdgeElementView, reveal: Bool?) in
+        view.revealPastRest = reveal ?? false
+      }
+    }
     Constant("segmentedControlViewAvailable") { true }
     View(NemuSegmentedControlView.self) {
       Events("onSelectionChange")
