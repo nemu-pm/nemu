@@ -12,6 +12,7 @@ import {
   readerSettingsPopoverAvailableHeight,
   readerNotebookSheetMaxHeight,
   readerSettingsSheetDetentCap,
+  readerSettingsHeldNativePresentation,
 } from "./readerSettingsNativePopoverLayout";
 
 const full = {
@@ -202,5 +203,35 @@ describe("the settings Form across window sizes", () => {
       "utf8",
     );
     expect(source).toContain("key={readerSettingsFormKey(windowSize)}");
+  });
+});
+
+describe("readerSettingsHeldNativePresentation", () => {
+  const scroll = { twoPageSupported: false, showPagePairingControls: false, scrolling: true, showPlugins: true, showMarkComplete: false };
+  const paged = { ...scroll, twoPageSupported: true, scrolling: false, showPageTurn: true, showPagePairingControls: true };
+
+  test("nothing held: the presentation for the rows", () => {
+    const next = readerSettingsNativePresentation(scroll, { availableHeight: 2000, regularWidth: true });
+    expect(readerSettingsHeldNativePresentation(null, next, scroll)).toEqual(next);
+  });
+
+  test("opened as a sheet (paged rows too tall), switching to Scroll stays a sheet", () => {
+    const availableHeight = readerSettingsNativeContentHeight(scroll) + 10;
+    const opened = readerSettingsNativePresentation(paged, { availableHeight, regularWidth: true });
+    expect(opened.kind).toBe("sheet");
+    const next = readerSettingsNativePresentation(scroll, { availableHeight, regularWidth: true });
+    expect(next.kind).toBe("popover");
+    expect(readerSettingsHeldNativePresentation("sheet", next, scroll)).toEqual({ kind: "sheet" });
+  });
+
+  test("opened as a popover, the taller paged rows keep the popover at their height", () => {
+    const availableHeight = readerSettingsNativeContentHeight(scroll) + 10;
+    const next = readerSettingsNativePresentation(paged, { availableHeight, regularWidth: true });
+    expect(next.kind).toBe("sheet");
+    expect(readerSettingsHeldNativePresentation("popover", next, paged)).toEqual({
+      kind: "popover",
+      width: READER_SETTINGS_POPOVER_WIDTH,
+      height: readerSettingsNativeContentHeight(paged),
+    });
   });
 });

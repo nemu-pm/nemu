@@ -120,6 +120,23 @@ export function readerSettingsNativePresentation(
     : { kind: "sheet" };
 }
 
+/**
+ * The presentation while the settings stay open: the kind chosen when they
+ * opened (`held`), so a row change (Scroll ⇄ paged adds or drops the page
+ * rows) never swaps a sheet for a popover under the finger, every control
+ * moving. A popover kept for taller rows takes their height; the system caps
+ * it to its room and the Form scrolls. Null: nothing held yet (`next`).
+ */
+export function readerSettingsHeldNativePresentation(
+  held: ReaderSettingsNativePresentation["kind"] | null,
+  next: ReaderSettingsNativePresentation,
+  rows: ReaderSettingsNativeRows,
+): ReaderSettingsNativePresentation {
+  if (held === null || held === next.kind) return next;
+  if (held === "sheet") return { kind: "sheet" };
+  return { kind: "popover", width: READER_SETTINGS_POPOVER_WIDTH, height: readerSettingsNativeContentHeight(rows) };
+}
+
 /** Margin the system keeps between a popover and the edge of its region. */
 export const READER_SETTINGS_POPOVER_EDGE_MARGIN = 16;
 

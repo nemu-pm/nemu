@@ -89,6 +89,7 @@ import {
 import {
   pushedPageWidthKey,
   readerSettingsFormKey,
+  readerSettingsHeldNativePresentation,
   readerSettingsNativePresentation,
   READER_SETTINGS_FORM_INSET,
   readerSettingsNativeSheetEstimatedHeight,
@@ -238,10 +239,24 @@ export function ReaderSettingsNativePopover({
     showMarkComplete: !completed && !mobileDesignExploreFlag,
     showOrientationLock,
   };
-  const presentation = readerSettingsNativePresentation(
+  const nextPresentation = readerSettingsNativePresentation(
     settingsRows,
     // No measured button to point at (system toolbar items): the sheet.
     { availableHeight, regularWidth: regularWidth && anchor !== null },
+  );
+  // Open, the kind chosen at opening holds until the room changes (rotation,
+  // fold): Scroll ⇄ paged changes the rows, never sheet ⇄ popover.
+  const presentationHoldKey = visible
+    ? `${regularWidth && anchor !== null}:${Math.round(availableHeight)}`
+    : null;
+  const [heldPresentation, setHeldPresentation] = useState({ key: presentationHoldKey, kind: nextPresentation.kind });
+  if (heldPresentation.key !== presentationHoldKey) {
+    setHeldPresentation({ key: presentationHoldKey, kind: nextPresentation.kind });
+  }
+  const presentation = readerSettingsHeldNativePresentation(
+    heldPresentation.key === presentationHoldKey ? heldPresentation.kind : null,
+    nextPresentation,
+    settingsRows,
   );
   const busyModifiers = useReaderSettingsBusyShown(busy) ? [swiftDisabled(true)] : [];
 
