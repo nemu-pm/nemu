@@ -35,6 +35,14 @@ export type MobileWindowLayout = {
   verticalBarEdge?: "leading" | "trailing" | null;
   /** Safe-area insets of the observer view itself (include a vertical bar's inset). */
   safeAreaInsets?: WindowLayoutEdgeInsets;
+  /**
+   * The safe area adapted horizontally to the window's corners (iOS 26+
+   * `edgeInsets(for: .safeArea(cornerAdaptation: .horizontal))`): in a
+   * resizable iPad window it also clears the window controls, which the plain
+   * safe area does not. A bar row along the top keeps its leading item past
+   * them, as a navigation bar's does. Absent on older systems, Android, web.
+   */
+  cornerSafeAreaInsets?: WindowLayoutEdgeInsets;
   /** UIKit system minimum content margins, resolved to physical edges. */
   minimumLayoutMargins?: { left: number; right: number };
   /** Effective layout direction of the observer view. */

@@ -17,6 +17,7 @@ import {
   mobileReaderSideInsetLatchKey,
   mobileReaderTitleCapsuleWidthRange,
   mobileReaderVerticalBarPolicy,
+  mobileReaderWindowControlInsets,
   MOBILE_READER_ANTICIPATED_FOLD_WIDTH,
   MOBILE_READER_HINGE_HINT_TIMEOUT_MS,
   READER_CAPSULE_EDGE,
@@ -1651,5 +1652,52 @@ describe("reader scroll: stable top inset", () => {
       const boundsOnly: MobileWindowLayout = { ...window, supported: false, divisions: [], occlusions: [] };
       expect(mobileReaderScrollStableTopInset({ reader: boundsOnly, app: boundsOnly, window, insets: { top: 24 } })).toBe(24);
     });
+  });
+});
+
+describe("reader pose: a resizable iPad window's controls", () => {
+  // iPadOS 26 windowed app, compact width: the close / minimise / resize
+  // controls sit in the top-leading corner, inside the plain safe area.
+  const windowed = (overrides: Partial<MobileWindowLayout> = {}): MobileWindowLayout => ({
+    width: 560,
+    height: 880,
+    supported: false,
+    divisions: [],
+    occlusions: [],
+    safeAreaInsets: { top: 24, left: 0, bottom: 20, right: 0 },
+    cornerSafeAreaInsets: { top: 24, left: 88, bottom: 20, right: 0 },
+    fillsScreen: false,
+    horizontalSizeClass: "compact",
+    verticalSizeClass: "regular",
+    layoutDirection: "ltr",
+    ...overrides,
+  });
+
+  test("Back starts past the controls; the scrubber row is not under them", () => {
+    const plain = capsules(pose(windowed({ cornerSafeAreaInsets: undefined })));
+    const chrome = capsules(pose(windowed()));
+    expect(chrome.back.x).toBeGreaterThanOrEqual(88);
+    expect(chrome.back.y).toBe(plain.back.y);
+    expect(chrome.scrubber).toEqual(plain.scrubber);
+    if (chrome.title) expect(chrome.title.x).toBeGreaterThanOrEqual(chrome.back.x + chrome.back.width);
+  });
+
+  test("a window that fills its screen has no controls: the plain safe area stands", () => {
+    expect(mobileReaderWindowControlInsets({ fillsScreen: true, cornerSafeAreaInsets: { top: 24, left: 88, bottom: 0, right: 0 } })).toBeNull();
+    expect(mobileReaderWindowControlInsets({ cornerSafeAreaInsets: { top: 24, left: 88, bottom: 0, right: 0 } })).toBeNull();
+    const full = capsules(pose(windowed({ fillsScreen: true })));
+    const plain = capsules(pose(windowed({ fillsScreen: true, cornerSafeAreaInsets: undefined })));
+    expect(full.back).toEqual(plain.back);
+  });
+
+  test("right-to-left: the controls' side follows the reported insets", () => {
+    expect(
+      mobileReaderWindowControlInsets({ fillsScreen: false, cornerSafeAreaInsets: { top: 24, left: 0, bottom: 0, right: 88 } }),
+    ).toEqual({ left: 0, right: 88 });
+    const chrome = capsules(pose(windowed({
+      layoutDirection: "rtl",
+      cornerSafeAreaInsets: { top: 24, left: 0, bottom: 20, right: 88 },
+    })));
+    expect(chrome.back.x + chrome.back.width).toBeLessThanOrEqual(560 - 88);
   });
 });

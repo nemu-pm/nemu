@@ -1610,6 +1610,12 @@ final class NemuWindowLayoutView: ExpoView {
       owner = next
     }
     payload["safeAreaInsets"] = ["top": insets.top, "left": insets.left, "bottom": insets.bottom, "right": insets.right]
+    // A resizable iPad window's controls sit in its top-leading corner, inside
+    // the plain safe area: the horizontally corner-adapted region clears them.
+    if #available(iOS 26.0, *) {
+      let corner = edgeInsets(for: .safeArea(cornerAdaptation: .horizontal))
+      payload["cornerSafeAreaInsets"] = ["top": corner.top, "left": corner.left, "bottom": corner.bottom, "right": corner.right]
+    }
     payload["layoutDirection"] = effectiveUserInterfaceLayoutDirection == .rightToLeft ? "rtl" : "ltr"
     // The window's size classes, not this view's: a sheet or popover hosting
     // the observer overrides its own (an iPad form sheet is compact width),

@@ -520,6 +520,11 @@ type CapsuleChromeInput = {
    * only the title capsule (top-leading) and the scrubber are ours.
    */
   titleOnly?: boolean;
+  /**
+   * Side insets the top row keeps past a resizable window's controls
+   * (`mobileReaderWindowControlInsets`); the scrubber row is not under them.
+   */
+  topRowInsets?: Pick<Insets, "left" | "right"> | null;
 };
 
 function capsuleChrome(input: CapsuleChromeInput): Extract<MobileReaderChromeLayout, { kind: "capsules" }> {
@@ -537,7 +542,14 @@ function capsuleChrome(input: CapsuleChromeInput): Extract<MobileReaderChromeLay
 }
 
 function capsuleChromeAt(input: CapsuleChromeInput, rowTop: number): Extract<MobileReaderChromeLayout, { kind: "capsules" }> {
-  const { bounds, insets, occlusions, leading, trailing, leadingSide } = input;
+  const { bounds, occlusions, leading, trailing, leadingSide } = input;
+  const insets = input.topRowInsets
+    ? {
+        ...input.insets,
+        left: Math.max(input.insets.left, input.topRowInsets.left),
+        right: Math.max(input.insets.right, input.topRowInsets.right),
+      }
+    : input.insets;
   const h = READER_CAPSULE_HEIGHT;
   const pad = (rect: Rect) => mobileReaderSafePadding(rect, bounds, insets);
   const ltr = leadingSide === "left";
@@ -1045,7 +1057,24 @@ export function mobileReaderDerivedWindowLayout(
     verticalBarEdge: null,
     occlusions,
     safeAreaInsets: { top, left: 0, bottom: insets.bottom, right: 0 },
+    // Its corner region still holds the bar column given up here.
+    cornerSafeAreaInsets: undefined,
   };
+}
+
+/**
+ * The side insets a resizable window's controls take from the top row (iPadOS
+ * 26+ in Stage Manager or windowed apps: close / minimise / resize in the
+ * top-leading corner, inside the plain safe area). The corner-adapted safe
+ * area clears them; a window that fills its screen has no controls, so the
+ * plain insets stand (an iPhone, the Duo, a full-screen iPad app).
+ */
+export function mobileReaderWindowControlInsets(
+  layout: Pick<MobileWindowLayout, "fillsScreen" | "cornerSafeAreaInsets">,
+): Pick<Insets, "left" | "right"> | null {
+  if (layout.fillsScreen !== false || !layout.cornerSafeAreaInsets) return null;
+  const corner = sanitizeInsets(layout.cornerSafeAreaInsets);
+  return corner.left > 0 || corner.right > 0 ? { left: corner.left, right: corner.right } : null;
 }
 
 /** Exposed for tests. */
@@ -1187,6 +1216,7 @@ export function mobileReaderPoseLayout(input: MobileReaderPoseLayoutInput): Mobi
   const height = finite(input.layout.height);
   const bounds: Rect = { x: 0, y: 0, width, height };
   const insets = sanitizeInsets(input.layout.safeAreaInsets ?? input.fallbackInsets);
+  const windowControlInsets = mobileReaderWindowControlInsets(input.layout);
   const occlusions = adaptive.occlusions;
   const multiPage = input.pageCount > 1;
   const trailingSide: Side = (input.layout.layoutDirection ?? "ltr") === "rtl" ? "left" : "right";
@@ -1248,6 +1278,7 @@ export function mobileReaderPoseLayout(input: MobileReaderPoseLayoutInput): Mobi
       frame: bounds,
       bounds,
       insets,
+      topRowInsets: windowControlInsets,
       occlusions,
       leading: panes[leadingIndex],
       trailing: panes[trailingIndex],
@@ -1331,6 +1362,7 @@ export function mobileReaderPoseLayout(input: MobileReaderPoseLayoutInput): Mobi
     frame: chromeStage,
     bounds,
     insets,
+    topRowInsets: windowControlInsets,
     occlusions,
     leading: chromeStage,
     trailing: chromeStage,
