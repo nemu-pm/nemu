@@ -1,13 +1,16 @@
 import type { ReactNode } from "react";
 import {
+  Background as SwiftBackground,
   Form as SwiftForm,
+  Rectangle as SwiftRectangle,
   Text as SwiftText,
   Toolbar as SwiftToolbar,
   ToolbarItem as SwiftToolbarItem,
 } from "@expo/ui/swift-ui";
 import {
-  background,
   font,
+  foregroundStyle,
+  ignoreSafeArea,
   lineLimit,
   listSectionMargins,
   scrollContentBackground,
@@ -39,23 +42,38 @@ export function MobilePushedFormPage({
 }) {
   const { tokens } = useNemuTheme();
   const veil = useMobileNativeSheetVeil();
+  const form = (
+    <SwiftForm
+      modifiers={[
+        tint(tokens.primary),
+        scrollContentBackground("hidden"),
+        scrollEdgeEffectStyle("soft", "vertical"),
+        inlineToolbarTitle(),
+        zeroTopScrollContentMargin(),
+        listSectionMargins({ edges: "top", length: MOBILE_GROUPED_FORM_TOP_MARGIN }),
+      ]}
+    >
+      {children}
+    </SwiftForm>
+  );
   return (
     <SwiftToolbar>
-      <SwiftForm
-        modifiers={[
-          tint(tokens.primary),
-          scrollContentBackground("hidden"),
-          // The stack paints each pushed page white; the root's tint over it
-          // gives the root's surface (its content draws the veil itself).
-          ...(veil ? [background(veil, { ignoresSafeAreaEdges: "all" })] : []),
-          scrollEdgeEffectStyle("soft", "vertical"),
-          inlineToolbarTitle(),
-          zeroTopScrollContentMargin(),
-          listSectionMargins({ edges: "top", length: MOBILE_GROUPED_FORM_TOP_MARGIN }),
-        ]}
-      >
-        {children}
-      </SwiftForm>
+      {veil ? (
+        // The stack paints each pushed page white; the root's tint over it
+        // gives the root's surface (its content draws the veil itself). A
+        // shape that ignores every safe area, the keyboard's too: a background
+        // style ignores only the container's, so with a field focused the
+        // stack's white showed under the keyboard (a band at a floating
+        // sheet's bottom on iPad, the keyboard's corners on iPhone).
+        <SwiftBackground>
+          {form}
+          <SwiftBackground.Content>
+            <SwiftRectangle modifiers={[foregroundStyle(veil), ignoreSafeArea()]} />
+          </SwiftBackground.Content>
+        </SwiftBackground>
+      ) : (
+        form
+      )}
       <SwiftToolbar.Content>
         <SwiftToolbarItem placement="principal">
           <SwiftText modifiers={[font({ textStyle: "headline" }), lineLimit(1)]}>{title}</SwiftText>
