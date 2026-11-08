@@ -30,7 +30,7 @@ import {
   scrollEdgeEffectStyle,
   tint,
 } from "@expo/ui/swift-ui/modifiers";
-import { useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { Platform, PlatformColor, StyleSheet, View, useWindowDimensions, type ColorValue } from "react-native";
 import { useNemuTheme } from "@/design-system";
 import { MOBILE_GROUPED_FORM_TOP_MARGIN } from "@/lib/mobileLibrarySheetLayout";
@@ -133,7 +133,18 @@ export function MobileNativeFormSheet({
     onClose();
   };
   const grouped = background === "grouped";
-  const shownConfirm = confirm && mobileNativeFormSheetConfirm(confirm, adaptive);
+  // Settled before the sheet presents: the item never changes form while it is up.
+  const [confirmLayout, setConfirmLayout] = useState({
+    verticalBarSide: adaptive.verticalBarSide,
+    regularWidth: adaptive.regularWidth,
+  });
+  if (
+    !visible &&
+    (confirmLayout.verticalBarSide !== adaptive.verticalBarSide || confirmLayout.regularWidth !== adaptive.regularWidth)
+  ) {
+    setConfirmLayout({ verticalBarSide: adaptive.verticalBarSide, regularWidth: adaptive.regularWidth });
+  }
+  const shownConfirm = confirm && mobileNativeFormSheetConfirm(confirm, confirmLayout);
   const padForm =
     padSizing === "form"
       ? resolveMobileNativeFormSheetPadSizing({

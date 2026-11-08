@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   Background as SwiftBackground,
   Form as SwiftForm,
@@ -45,8 +45,10 @@ export function MobilePushedFormPage({
 }) {
   const { tokens } = useNemuTheme();
   const veil = useMobileNativeSheetVeil();
-  const adaptive = useMobileAdaptiveLayout();
-  const shownConfirm = confirm && mobileNativeFormSheetConfirm(confirm, adaptive);
+  const { verticalBarSide, regularWidth } = useMobileAdaptiveLayout();
+  // Settled as the page mounts: the item never changes form while it is shown.
+  const [confirmLayout] = useState({ verticalBarSide, regularWidth });
+  const shownConfirm = confirm && mobileNativeFormSheetConfirm(confirm, confirmLayout);
   const form = (
     <SwiftForm
       modifiers={[

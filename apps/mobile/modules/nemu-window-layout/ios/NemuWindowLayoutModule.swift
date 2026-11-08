@@ -803,16 +803,21 @@ struct NemuPinnedSearchModifier: ViewModifier {
 /// lopsided, so the title sat left of the sheet's grabber. Offset by what is
 /// left between it and the centre of its navigation controller's view, the
 /// title centres on the sheet's full width; with even insets the offset is 0.
+/// The sheet's insets arrive during its presentation, so the title stays hidden
+/// until its place has settled and appears there, never seen moving.
 struct NemuSheetCenteredTitleModifier: ViewModifier {
   static let type = "nemuSheetCenteredTitle"
   @State private var offset: CGFloat = 0
+  @State private var settled = false
 
   func body(content: Content) -> some View {
     content
+      .opacity(settled ? 1 : 0)
       .offset(x: offset)
       .background(
-        NemuSheetTitleProbe { next in
+        NemuSheetTitleProbe { next, nextSettled in
           if abs(next - offset) > 0.25 { offset = next }
+          if nextSettled, !settled { settled = true }
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
@@ -821,7 +826,7 @@ struct NemuSheetCenteredTitleModifier: ViewModifier {
 }
 
 private struct NemuSheetTitleProbe: UIViewRepresentable {
-  let onChange: (CGFloat) -> Void
+  let onChange: (CGFloat, Bool) -> Void
 
   func makeUIView(context: Context) -> NemuSheetTitleProbeView {
     let view = NemuSheetTitleProbeView()
@@ -837,22 +842,38 @@ private struct NemuSheetTitleProbe: UIViewRepresentable {
 }
 
 final class NemuSheetTitleProbeView: UIView {
-  var onChange: ((CGFloat) -> Void)?
+  /// The longest the title stays hidden, whatever the insets do.
+  private static let settleDeadline: CFTimeInterval = 0.7
+  /// How long after appearing every frame is sampled: nothing else tells this
+  /// view that its stack's insets arrived or that the bar moved it.
+  private static let watchDuration: CFTimeInterval = 1.0
+  /// Frames the title's place must hold before it shows.
+  private static let settledFrames = 2
+
+  var onChange: ((CGFloat, Bool) -> Void)?
   private weak var observedStack: UIView?
   private var boundsToken: NSKeyValueObservation?
+  private var displayLink: CADisplayLink?
+  private var watchStart: CFTimeInterval = 0
+  private var lastOffset: CGFloat?
+  private var heldFrames = 0
+  private var settled = false
 
   deinit {
     boundsToken?.invalidate()
+    displayLink?.invalidate()
   }
 
   override func didMoveToWindow() {
     super.didMoveToWindow()
     if window != nil {
+      startWatching()
       sampleSoon()
     } else {
       boundsToken?.invalidate()
       boundsToken = nil
       observedStack = nil
+      stopWatching()
     }
   }
 
@@ -870,17 +891,52 @@ final class NemuSheetTitleProbeView: UIView {
     DispatchQueue.main.async { [weak self] in self?.sample() }
   }
 
-  private var stackView: UIView? {
+  private func startWatching() {
+    stopWatching()
+    watchStart = CACurrentMediaTime()
+    let link = CADisplayLink(target: self, selector: #selector(watchTick))
+    link.add(to: .main, forMode: .common)
+    displayLink = link
+  }
+
+  private func stopWatching() {
+    displayLink?.invalidate()
+    displayLink = nil
+  }
+
+  @objc private func watchTick() {
+    sample()
+    if CACurrentMediaTime() - watchStart >= Self.watchDuration { stopWatching() }
+  }
+
+  private func barIsAnimating(below stack: UIView) -> Bool {
+    var view: UIView? = self
+    while let current = view, current !== stack {
+      if current.layer.animationKeys()?.isEmpty == false { return true }
+      view = current.superview
+    }
+    return false
+  }
+
+  private var stack: UIViewController? {
     var responder: UIResponder? = self
     while let current = responder {
-      if let stack = current as? UINavigationController { return stack.view }
+      if let found = current as? UINavigationController { return found }
       responder = current.next
     }
     return nil
   }
 
   private func sample() {
-    guard window != nil, let stack = stackView else { return }
+    guard let window else { return }
+    guard let stack = stack?.view else {
+      // No bar to centre in: the title must still show.
+      if !settled, CACurrentMediaTime() - watchStart >= Self.settleDeadline {
+        settled = true
+        onChange?(0, true)
+      }
+      return
+    }
     if observedStack !== stack {
       boundsToken?.invalidate()
       observedStack = stack
@@ -892,11 +948,24 @@ final class NemuSheetTitleProbeView: UIView {
     // The probe keeps the title's place without the offset. Even insets: the
     // bar has already centred it.
     let insets = stack.safeAreaInsets
-    guard abs(insets.right - insets.left) > 0.5 else {
-      onChange?(0)
-      return
+    let lopsided = abs(insets.right - insets.left) > 0.5
+    let next = lopsided ? stack.bounds.midX - convert(bounds, to: stack).midX : 0
+    if !settled {
+      // A sheet that reaches the window's lopsided inset will get it: even
+      // insets there are only that it has not arrived yet.
+      let windowInsets = window.safeAreaInsets
+      let frame = stack.convert(stack.bounds, to: window)
+      let reachesInset = windowInsets.right > windowInsets.left
+        ? frame.maxX > window.bounds.maxX - windowInsets.right
+        : windowInsets.left > windowInsets.right && frame.minX < windowInsets.left
+      // UIKit animates the bar to a new inset: the measured place is already
+      // the final one while the title is still on its way there.
+      let waiting = reachesInset && (!lopsided || barIsAnimating(below: stack))
+      heldFrames = !waiting && lastOffset.map { abs($0 - next) < 0.25 } == true ? heldFrames + 1 : 0
+      lastOffset = next
+      settled = heldFrames >= Self.settledFrames || CACurrentMediaTime() - watchStart >= Self.settleDeadline
     }
-    onChange?(stack.bounds.midX - convert(bounds, to: stack).midX)
+    onChange?(next, settled)
   }
 }
 
