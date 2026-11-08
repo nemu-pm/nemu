@@ -109,6 +109,7 @@ export function NemuNativeSearchField({
   onChangeText,
   onSubmit,
   placeholder,
+  autoFocus,
   accessibilityLabel,
   clearAccessibilityLabel,
   testID,
@@ -198,6 +199,7 @@ export function NemuNativeSearchField({
         />
         <SwiftTextField
           ref={fieldRef}
+          autoFocus={autoFocus}
           text={textState}
           placeholder={placeholder}
           onTextChange={handleTextChange}

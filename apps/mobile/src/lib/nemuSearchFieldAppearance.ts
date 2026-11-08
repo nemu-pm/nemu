@@ -42,14 +42,6 @@ export function resolveNemuHeaderSearchBarColors(
   platformOS: string,
   platformVersion: string | number | null | undefined,
   tokens: NemuHeaderSearchBarTokens,
-  /**
-   * The settled system field fill (`resolveNemuSystemSearchFieldFill`), passed
-   * when a vertical rail hosts the bar (iPhone Duo). There UIKit settles the
-   * stacked field on its plain system fill, but draws it in clear glass while
-   * the page is pushed, so it changed look as the push landed; pinning the
-   * fill keeps the settled system look from the first frame.
-   */
-  verticalRailFieldFill?: string,
 ): {
   barTintColor?: string;
   headerIconColor?: string;
@@ -58,9 +50,7 @@ export function resolveNemuHeaderSearchBarColors(
   tintColor: string;
 } {
   if (resolveNemuSearchFieldSurface(platformOS, platformVersion) === "liquid-glass") {
-    return verticalRailFieldFill === undefined
-      ? { tintColor: tokens.primary }
-      : { barTintColor: verticalRailFieldFill, tintColor: tokens.primary };
+    return { tintColor: tokens.primary };
   }
   return {
     barTintColor: tokens.card,
@@ -69,27 +59,4 @@ export function resolveNemuHeaderSearchBarColors(
     textColor: tokens.foreground,
     tintColor: tokens.primary,
   };
-}
-
-/** UIKit's `tertiarySystemFillColor`, the plain stacked search field's fill. */
-const SYSTEM_SEARCH_FIELD_FILL = { rgb: [118, 118, 128], alpha: { light: 0.12, dark: 0.24 } } as const;
-
-/**
- * The system search field fill as UIKit settles it over `background`, made
- * opaque: UIKit keeps drawing its own translucent fill under a pinned
- * `searchTextField.backgroundColor`, so a translucent pin stacked twice and
- * read darker once the push landed. Null for a background that is not `#rrggbb`.
- */
-export function resolveNemuSystemSearchFieldFill(background: string, scheme: "light" | "dark"): string | null {
-  const match = /^#([0-9a-f]{6})$/i.exec(background.trim());
-  if (!match) return null;
-  const alpha = SYSTEM_SEARCH_FIELD_FILL.alpha[scheme];
-  const base = parseInt(match[1]!, 16);
-  return `#${[16, 8, 0]
-    .map((shift, index) => {
-      const under = (base >> shift) & 0xff;
-      const mixed = Math.round(under * (1 - alpha) + SYSTEM_SEARCH_FIELD_FILL.rgb[index]! * alpha);
-      return mixed.toString(16).padStart(2, "0");
-    })
-    .join("")}`;
 }

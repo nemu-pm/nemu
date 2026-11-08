@@ -42,6 +42,7 @@ const androidToolbarIcons: Record<NemuNativeToolbarSymbol, ImageSourcePropType> 
   "square.and.arrow.down": DownloadIcon,
   "square.stack.3d.up": LayersIcon,
   trash: DeleteIcon,
+  xmark: CloseIcon,
   "xmark.circle": CloseIcon,
 };
 

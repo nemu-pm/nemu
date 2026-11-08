@@ -22,6 +22,7 @@ export type NemuNativeToolbarSymbol =
   | "square.and.arrow.down"
   | "square.stack.3d.up"
   | "trash"
+  | "xmark"
   | "xmark.circle";
 
 export function resolveNemuNativeToolbarIcon(icon: NemuNativeToolbarSymbol) {

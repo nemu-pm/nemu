@@ -23,6 +23,8 @@ export type NemuNativeSearchFieldProps = {
   /** Called when the keyboard's search key is pressed. */
   onSubmit?: () => void;
   placeholder: string;
+  /** Takes the keyboard when it mounts. */
+  autoFocus?: boolean;
   accessibilityLabel: string;
   /** Accessibility label for the trailing clear control. */
   clearAccessibilityLabel: string;

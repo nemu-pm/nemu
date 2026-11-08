@@ -40,6 +40,7 @@ export function NemuNativeSearchField({
   onChangeText,
   onSubmit,
   placeholder,
+  autoFocus,
   accessibilityLabel,
   clearAccessibilityLabel,
   testID,
@@ -65,6 +66,7 @@ export function NemuNativeSearchField({
         accessibilityRole="search"
         autoCapitalize="none"
         autoCorrect={false}
+        autoFocus={autoFocus}
         enterKeyHint="search"
         value={value}
         onChangeText={onChangeText}

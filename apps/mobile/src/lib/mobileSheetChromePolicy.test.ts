@@ -195,11 +195,12 @@ describe("mobile sheet and text-field chrome policy", () => {
     }
 
     expect(search).not.toContain("clearButtonMode=");
-    for (const nativeSearch of [search, sourceBrowse]) {
-      expect(nativeSearch).toContain("<Stack.SearchBar");
-      expect(nativeSearch).toContain("onCancelButtonPress=");
-      expect(nativeSearch).toContain("onClose=");
-    }
+    expect(search).toContain("<Stack.SearchBar");
+    expect(search).toContain("onCancelButtonPress=");
+    expect(search).toContain("onClose=");
+    // A pushed page's field stays in the page: UIKit fades a bar's in a pop.
+    expect(sourceBrowse).not.toContain("<Stack.SearchBar");
+    expect(sourceBrowse).toContain("<NemuNativeSearchField");
   });
 
   test("keeps potentially long iOS header actions icon-only", () => {

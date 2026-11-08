@@ -1,4 +1,3 @@
-import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { SourceBrowseCompactHeader } from "@/components/SourceBrowseCompactHeader";
 import { useCompactSourceBrowseHeader } from "@/lib/useCompactSourceBrowseHeader";
 import { getCompactSourceBrowseHeaderBarHeight } from "@/lib/mobileSourceBrowseHeader";
@@ -9,7 +8,6 @@ import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import { useMobileSourceQuickSettings } from "@/components/useMobileSourceQuickSettings";
 import { isValidElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -38,7 +36,6 @@ import {
   useFocusEffect,
   useLocalSearchParams,
 } from "expo-router";
-import type { SearchBarCommands } from "react-native-screens";
 import { nextSyncTimestamp } from "@nemu/core";
 import { EmptyLibrary } from "@/components/EmptyLibrary";
 import { MobileListFooter } from "@/components/MobileListFooter";
@@ -76,6 +73,7 @@ import {
   createNemuShadowStyle,
   GlassSurface,
   MobileCachedImage,
+  NemuNativeSearchField,
   MobileChip,
   MobileNativeSheetScaffold,
   NemuButton,
@@ -114,8 +112,6 @@ import { MobileNemuAgentSheet } from "@/components/MobileNemuAgentSheet";
 import { MobileSourceMultiSelectSheet } from "@/components/MobileSourceSettingsSubSheets";
 import { formatMobileMangaCardAccessibilityLabel } from "@/lib/mobileMangaCard";
 import {
-  coerceMobileNativeSearchText,
-  resolveMobileNativeSearchSubmitText,
 } from "@/lib/mobileNativeSearchText";
 import {
   createMobileIdleTaskCoordinator,
@@ -225,10 +221,6 @@ import { fetchMobileSourceListing } from "@/sources/mobileSourceListings";
 import { MobilePoseLayoutView, MobilePoseListCell } from "@/components/MobilePoseLayoutView";
 import { mobileGridGlideAppearing, mobileStateEntering, openMobileGridGlideWindow } from "@/lib/mobilePoseLayoutAnimations";
 import { useMobileGridScrollAnchor } from "@/lib/useMobileGridScrollAnchor";
-import {
-  resolveNemuHeaderSearchBarColors,
-  resolveNemuSystemSearchFieldFill,
-} from "@/lib/nemuSearchFieldAppearance";
 import {
   clearMobileSourceListingCacheForRuntime,
   readMobileSourceListingCache,
@@ -1371,7 +1363,6 @@ function SourceFilterPanel({
 }
 
 export function SourceBrowseScreen() {
-  const { verticalBarSide } = useMobileAdaptiveLayout();
   const sourceProfileScope = getActiveMobileSourceProfileScope();
   const params = useLocalSearchParams<{
     registryId: string;
@@ -1393,15 +1384,7 @@ export function SourceBrowseScreen() {
   useEffect(() => {
     routeSourceListingTabRef.current = routeSourceListingTab;
   }, [routeSourceListingTab]);
-  const { scheme, tokens } = useNemuTheme();
-  // iOS 26+: the system search field, not a token-filled one; beside the
-  // Duo's vertical rail its settled system fill is pinned for the push too.
-  const headerSearchBarColors = resolveNemuHeaderSearchBarColors(
-    Platform.OS,
-    Platform.Version,
-    tokens,
-    (verticalBarSide && resolveNemuSystemSearchFieldFill(tokens.background, scheme)) || undefined,
-  );
+  const { tokens } = useNemuTheme();
   const compactHeader = useCompactSourceBrowseHeader();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
@@ -1464,7 +1447,6 @@ export function SourceBrowseScreen() {
       context?: NemuAgentSheetContext,
     ) => boolean;
   } | null>(null);
-  const sourceSearchInputRef = useRef<SearchBarCommands | null>(null);
   const sourceSearchIdleTasksRef = useRef<MobileIdleTaskCoordinator | null>(
     null,
   );
@@ -1475,6 +1457,9 @@ export function SourceBrowseScreen() {
   const [sourceSearchQuery, setSourceSearchQuery] = useState(
     routeSourceSearchQuery,
   );
+  // The field takes the keyboard when the search button brought it, not when
+  // the page opens in search.
+  const [sourceSearchFieldFocusOnMount, setSourceSearchFieldFocusOnMount] = useState(false);
   const sourceSearchQueryRef = useRef(routeSourceSearchQuery);
   const [submittedSourceSearchQuery, setSubmittedSourceSearchQuery] = useState(
     routeSourceSearchQuery,
@@ -2791,7 +2776,6 @@ export function SourceBrowseScreen() {
   );
 
   const clearSourceSearch = useCallback(() => {
-    sourceSearchInputRef.current?.clearText();
     sourceSearchQueryRef.current = "";
     router.setParams({ q: undefined });
     sourceSearchIdleTasks.schedule(() => {
@@ -2806,16 +2790,9 @@ export function SourceBrowseScreen() {
     sourceSearchQueryRef.current = "";
     setSourceSearchQuery("");
     setSubmittedSourceSearchQuery("");
+    setSourceSearchFieldFocusOnMount(true);
     router.setParams({ q: " " });
-    sourceSearchIdleTasks.schedule(() => {
-      sourceSearchInputRef.current?.focus();
-    });
-  }, [sourceSearchIdleTasks]);
-
-  useEffect(() => {
-    if (!sourceSearchActive) return;
-    sourceSearchInputRef.current?.setText(routeSourceSearchQuery);
-  }, [routeSourceSearchQuery, sourceRuntimeKey, sourceSearchActive]);
+  }, []);
 
   const selectSourceHome = useCallback(() => {
     listingRequestRef.current += 1;
@@ -3132,14 +3109,28 @@ export function SourceBrowseScreen() {
   const sourceExploreMenuShown =
     mobileDesignExploreFlag && sourceBrowseChromeShown;
   const nativeHeaderActions: NemuNativeHeaderAction[] =
-    source && sourceSearchActive && showSourceSearchControls
+    source && sourceSearchActive
       ? [
-          {
-            icon: "line.3.horizontal.decrease",
-            label: strings.sourceBrowse.openAllFilters,
-            hint: strings.sourceBrowse.openAllFilters,
-            onPress: openSourceFilterPanel,
-          },
+          ...(showSourceSearchControls
+            ? [
+                {
+                  icon: "line.3.horizontal.decrease" as const,
+                  label: strings.sourceBrowse.openAllFilters,
+                  hint: strings.sourceBrowse.openAllFilters,
+                  onPress: openSourceFilterPanel,
+                },
+              ]
+            : []),
+          // A source that only searches has no other mode to go back to.
+          ...(sourceOnlySearch
+            ? []
+            : [
+                {
+                  icon: "xmark" as const,
+                  label: strings.common.cancel,
+                  onPress: clearSourceSearch,
+                },
+              ]),
         ]
       : sourceBrowseChromeShown
       ? [
@@ -3349,9 +3340,38 @@ export function SourceBrowseScreen() {
   // state change. Memoizing the element lets React skip it unless something
   // it actually shows changed.
   const hasListingGridItems = listingGridItems.length > 0;
+  // iOS: in the page, not the navigation bar's stacked search field. UIKit
+  // fades that one in place in a pop (the bar is shared; iOS 27.2, a plain
+  // UINavigationController does the same) while the page slides away.
+  const sourceSearchFieldShown = !compactHeader && Boolean(source) && sourceSearchActive;
+  const sourceSearchField = useMemo(
+    () => (sourceSearchFieldShown ? (
+      <NemuNativeSearchField
+        accessibilityLabel={strings.sourceBrowse.searchSourcePlaceholder}
+        autoFocus={sourceSearchFieldFocusOnMount}
+        clearAccessibilityLabel={strings.common.clear}
+        onChangeText={(value) => {
+          sourceSearchQueryRef.current = value;
+          setSourceSearchQuery(value);
+        }}
+        onSubmit={() => submitSourceSearchText(sourceSearchQueryRef.current, { haptic: true })}
+        placeholder={strings.sourceBrowse.searchSourcePlaceholder}
+        testID="SourceSearchField"
+        value={sourceSearchQuery}
+      />
+    ) : null),
+    [
+      sourceSearchFieldFocusOnMount,
+      sourceSearchFieldShown,
+      sourceSearchQuery,
+      strings,
+      submitSourceSearchText,
+    ],
+  );
   const listingGridHeader = useMemo(
     () => (
       <View style={styles.sections}>
+        {sourceSearchField}
         {sourceRuntimeUnavailableDetail ? (
           <SourceBrowseBlockedNotice
             detail={sourceRuntimeUnavailableDetail}
@@ -3607,6 +3627,7 @@ export function SourceBrowseScreen() {
       sourceHomeTabSelected,
       sourceRuntimeUnavailableDetail,
       sourceSearchActive,
+      sourceSearchField,
       strings,
       toggleSourceCheckFilter,
       visibleListings,
@@ -3728,51 +3749,11 @@ export function SourceBrowseScreen() {
             : null}
         </Stack.Toolbar>
       ) : null}
-      {!compactHeader && source && sourceSearchActive ? (
-        <Stack.SearchBar
-          ref={sourceSearchInputRef}
-          autoCapitalize="none"
-          {...headerSearchBarColors}
-          autoFocus
-          hideWhenScrolling={false}
-          obscureBackground={false}
-          onBlur={() => {
-            submitSourceSearchText(
-              resolveMobileNativeSearchSubmitText(
-                undefined,
-                sourceSearchQueryRef.current,
-              ),
-            );
-          }}
-          onCancelButtonPress={clearSourceSearch}
-          onChangeText={(event) => {
-            const nextQuery = coerceMobileNativeSearchText(
-              event.nativeEvent.text,
-            );
-            sourceSearchQueryRef.current = nextQuery;
-            setSourceSearchQuery(nextQuery);
-          }}
-          onClose={clearSourceSearch}
-          onSearchButtonPress={(event) => {
-            sourceSearchInputRef.current?.blur();
-            submitSourceSearchText(
-              resolveMobileNativeSearchSubmitText(
-                event.nativeEvent.text,
-                sourceSearchQueryRef.current,
-              ),
-              { haptic: true },
-            );
-          }}
-          placeholder={strings.sourceBrowse.searchSourcePlaceholder}
-          placement="stacked"
-        />
-      ) : null}
       {error ? (
         <PageScaffold
           nativeHeader
           contentInsetAdjustmentBehavior={compactHeader ? "never" : "automatic"}
           headerBarHeight={compactHeaderBarHeight}
-          headerSearchBar={!compactHeader && Boolean(source && sourceSearchActive)}
           onRefresh={() => {
             void refreshSourceData();
           }}
@@ -3801,9 +3782,8 @@ export function SourceBrowseScreen() {
           listRef={gridScrollRef}
           nativeHeader
           contentInsetAdjustmentBehavior={compactHeader ? "never" : "automatic"}
-          contentContainerStyle={mobileDesignExploreFlag && !sourceSearchActive ? styles.compactListingTop : undefined}
+          contentContainerStyle={sourceSearchFieldShown ? styles.sourceSearchListTop : mobileDesignExploreFlag && !sourceSearchActive ? styles.compactListingTop : undefined}
           headerBarHeight={compactHeaderBarHeight}
-          headerSearchBar={!compactHeader && Boolean(source && sourceSearchActive)}
           onLayout={gridLayout.onLayout}
           // Keeps the first visible cover at the top across a column/cell-size
           // change (display switch, rotation, folding).
@@ -4040,6 +4020,10 @@ const styles = StyleSheet.create({
   compactListingTop: {
     paddingTop: 8,
   },
+  // The field sits against the bar, where the bar's own field was.
+  sourceSearchListTop: {
+    paddingTop: 0,
+  },
   sections: {
     gap: 14,
   },
@@ -4051,10 +4035,9 @@ const styles = StyleSheet.create({
   // row up and trim the space before the grid so the chips read as part of the
   // search field, the way the Search tab's source chips do.
   sourceFilterHeaderSpacing: {
-    // Measured on the simulator: ~13pt from the search field to the chips and
-    // ~13pt from the chips to the first grid row. iOS insets the list for its
-    // header search bar, hence the deeper pull-up there.
-    marginTop: Platform.OS === "ios" ? -17 : -3,
+    // ~13pt from the search field to the chips and ~13pt from the chips to
+    // the first grid row.
+    marginTop: -1,
     marginBottom: -23,
   },
   previewSectionListingGrid: {

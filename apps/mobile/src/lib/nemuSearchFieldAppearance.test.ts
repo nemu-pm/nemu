@@ -2,7 +2,6 @@ import { describe, expect, it } from "bun:test";
 import {
   resolveNemuHeaderSearchBarColors,
   resolveNemuSearchFieldSurface,
-  resolveNemuSystemSearchFieldFill,
 } from "./nemuSearchFieldAppearance";
 
 const tokens = {
@@ -58,32 +57,5 @@ describe("resolveNemuHeaderSearchBarColors", () => {
       textColor: tokens.foreground,
       tintColor: tokens.primary,
     });
-  });
-});
-
-describe("resolveNemuHeaderSearchBarColors beside a vertical rail", () => {
-  const fill = "#e9eaf0";
-  it("pins the system field fill on iOS 26+ so the push matches the settled field", () => {
-    expect(resolveNemuHeaderSearchBarColors("ios", "26.0", tokens, fill)).toEqual({
-      barTintColor: fill,
-      tintColor: tokens.primary,
-    });
-  });
-  it("leaves the field to the system without a rail", () => {
-    expect(resolveNemuHeaderSearchBarColors("ios", "26.0", tokens, undefined)).toEqual({ tintColor: tokens.primary });
-  });
-  it("keeps the themed field on older iOS and Android", () => {
-    expect(resolveNemuHeaderSearchBarColors("ios", "18.7", tokens, fill).barTintColor).toBe(tokens.card);
-    expect(resolveNemuHeaderSearchBarColors("android", 34, tokens, fill).barTintColor).toBe(tokens.card);
-  });
-});
-
-describe("resolveNemuSystemSearchFieldFill", () => {
-  it("is tertiarySystemFill laid over the page, opaque (the settled field measured e8eaf0 on #f9faff)", () => {
-    expect(resolveNemuSystemSearchFieldFill("#f9faff", "light")).toBe("#e9eaf0");
-    expect(resolveNemuSystemSearchFieldFill("#090a0d", "dark")).toBe("#232429");
-  });
-  it("gives up on a background it cannot read", () => {
-    expect(resolveNemuSystemSearchFieldFill("rgb(1, 2, 3)", "light")).toBeNull();
   });
 });
