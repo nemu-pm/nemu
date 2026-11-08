@@ -63,8 +63,10 @@ import {
   GlassSurface,
   MobileCachedImage,
   MobileChip,
+  MOBILE_NATIVE_SHEET_GRABBER_ROOM,
   MobileNativeSheetEndSpacer,
   MobileNativeSheetScaffold,
+  type MobileSheetSafeAreaEdge,
   NemuButton,
   nemuColorWithAlpha,
   nemuFontWeight,
@@ -885,6 +887,7 @@ function AvailableSectionSeparator({
  * too.
  */
 const ADD_SOURCE_SHEET_SNAP_POINTS: (string | number)[] = ["75%", "100%"];
+const ADD_SOURCE_SHEET_NO_IGNORED_EDGES: MobileSheetSafeAreaEdge[] = [];
 
 /** The latest the catalog list waits for the sheet's native layout. */
 const ADD_SOURCE_LIST_MOUNT_FALLBACK_MS = 250;
@@ -916,7 +919,7 @@ function AddSourceListAfterSheetLayout({ children }: { children: ReactNode }) {
 }
 
 export function BrowseScreen() {
-  const { verticalBarSide } = useMobileAdaptiveLayout();
+  const { regularWidth, verticalBarSide } = useMobileAdaptiveLayout();
   const { tokens } = useNemuTheme();
   // The Add Sources sheet's own content, built here outside the sheet.
   const sheetTokens = useMobileNativeSheetTheme().tokens;
@@ -2265,10 +2268,13 @@ export function BrowseScreen() {
             closeAddSourcesPages();
             return true;
           } : undefined}
-          title={addDirectoryInBody
-            ? strings.browse.addSourceDirectory
-            : serverPickerInBody ? strings.selfHosted.connectServer : strings.browse.addSources}
-          dismissLabel={strings.common.close}
+          // iOS: the title, the filter and ✕ are the stack's own bar (`MobileAddSourcesStack`).
+          title={mobileAddSourcesPushesPagesNatively
+            ? undefined
+            : addDirectoryInBody
+              ? strings.browse.addSourceDirectory
+              : serverPickerInBody ? strings.selfHosted.connectServer : strings.browse.addSources}
+          dismissLabel={mobileAddSourcesPushesPagesNatively ? undefined : strings.common.close}
           enablePanDownToClose={!(addSourcesPage !== undefined && addSourcesPageBlocksDismiss)}
           wrapIosHostedContent={(hostedContent) => (
             <MobileAddSourcesStack
@@ -2277,11 +2283,22 @@ export function BrowseScreen() {
               onDirectoryAdded={handleDirectoryAdded}
               onServerConnected={handleServerConnected}
               onDismissBlockedChange={setAddSourcesPageBlocksDismiss}
+              title={strings.browse.addSources}
+              closeAccessibilityLabel={strings.common.close}
+              onClose={closeAddSourceSheet}
+              filter={{
+                accessibilityLabel: formatMobileString(strings.browse.languageFilterOption, { language: selectedFilterLabel }),
+                active: activeFilterCount > 0,
+                onPress: () => {
+                  void hapticSelection();
+                  openLanguageSheet();
+                },
+              }}
             >
               {hostedContent}
             </MobileAddSourcesStack>
           )}
-          headerLeading={serverPickerInBody || addDirectoryInBody ? (
+          headerLeading={mobileAddSourcesPushesPagesNatively ? undefined : serverPickerInBody || addDirectoryInBody ? (
             <NemuNativeSheetHeaderAction
               accessibilityLabel={strings.common.back}
               androidIcon="chevron-back"
@@ -2314,7 +2331,19 @@ export function BrowseScreen() {
           // line there, cutting the last card in half) and ends with the
           // scaffold's end spacer.
           softBottomEdge
-          contentIgnoresSafeAreaEdges="horizontal"
+          // iOS: the list stays beside the vertical bar, under the stack's bar
+          // (no room above it for the system grabber: the bar has its own).
+          contentIgnoresSafeAreaEdges={mobileAddSourcesPushesPagesNatively ? ADD_SOURCE_SHEET_NO_IGNORED_EDGES : "horizontal"}
+          // Beside the outer display's vertical bar the list ends on the safe
+          // area's edge, as the Form of a page pushed over it does.
+          contentStyle={mobileAddSourcesPushesPagesNatively
+            ? [
+                styles.addSourceSheetUnderBar,
+                verticalBarSide && !regularWidth
+                  ? verticalBarSide === "right" ? { paddingRight: 0 } : { paddingLeft: 0 }
+                  : null,
+              ]
+            : undefined}
           testID="AddSourceSheet"
         >
           {addDirectoryInBody ? (
@@ -2717,6 +2746,9 @@ const styles = StyleSheet.create({
   directoryGuideLabel: { fontSize: 15, fontWeight: nemuFontWeight.medium },
   directoryGuideDetail: { fontSize: 13, lineHeight: 17 },
   directoryFocusLoading: { paddingVertical: 24 },
+  addSourceSheetUnderBar: {
+    marginTop: -MOBILE_NATIVE_SHEET_GRABBER_ROOM,
+  },
   addSourceSheetBody: {
     flex: 1,
     minHeight: 0,

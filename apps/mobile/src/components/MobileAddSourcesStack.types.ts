@@ -11,6 +11,16 @@ export type MobileAddSourcesStackProps = {
   onServerConnected: () => void;
   /** The top page holds what a swipe-down would discard, or a request in flight. */
   onDismissBlockedChange: (blocked: boolean) => void;
-  /** The list: the stack's root page, with no bar of its own. */
+  /** The root page's bar, as the system draws it: its title, the filter and ✕. */
+  title: string;
+  closeAccessibilityLabel: string;
+  onClose: () => void;
+  filter: {
+    accessibilityLabel: string;
+    /** A filter is on: the button says so. */
+    active: boolean;
+    onPress: () => void;
+  };
+  /** The list: the stack's root page. */
   children: ReactNode;
 };

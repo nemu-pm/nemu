@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAssets } from "expo-asset";
 import {
+  Button as SwiftButton,
   Group as SwiftGroup,
   HStack as SwiftHStack,
   Image as SwiftImage,
@@ -10,16 +11,22 @@ import {
   Section as SwiftSection,
   Spacer as SwiftSpacer,
   Text as SwiftText,
+  Toolbar as SwiftToolbar,
+  ToolbarItem as SwiftToolbarItem,
   VStack as SwiftVStack,
 } from "@expo/ui/swift-ui";
 import {
+  accessibilityLabel as swiftAccessibilityLabel,
   font,
   foregroundStyle,
   frame,
   ignoreSafeArea,
+  labelStyle,
   lineLimit,
   resizable,
+  tint,
 } from "@expo/ui/swift-ui/modifiers";
+import { useNemuTheme } from "@/design-system";
 import { useMobileLanguageSettings } from "@/data/mobileHooks";
 import {
   ADD_DIRECTORY_PAGE,
@@ -27,10 +34,11 @@ import {
   mobileAddSourcesEnteredPages,
   mobileServerFormPage,
 } from "@/lib/mobileAddSourcesPages";
+import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { getMobileStrings } from "@/lib/mobileI18n";
 import { selfHostedKindName } from "@/lib/selfHosted/messages";
 import { SELF_HOSTED_SETUP_KINDS, type SelfHostedKind } from "@/lib/selfHosted/policy";
-import { navigationBarHidden } from "../../modules/nemu-window-layout/src/presentationColorScheme";
+import { inlineToolbarTitle } from "../../modules/nemu-window-layout/src/presentationColorScheme";
 import { MobileAddSourcesDirectoryPage } from "./MobileAddSourceDirectorySheet";
 import type { MobileAddSourcesStackProps } from "./MobileAddSourcesStack.types";
 import { MobilePushedFormPage } from "./MobilePushedFormPage.ios";
@@ -39,17 +47,16 @@ import { SERVER_ICONS } from "./mobileServerIcons";
 import { useServerSourceForm } from "./useServerSourceForm";
 
 /**
- * Add Sources' list keeps its own header: the bar belongs to the pushed page.
- * The stack applies the safe area again inside the sheet's root, which ignores
- * it, so the list ignores it here too: it still reaches the edges under the
- * Duo outer display's vertical bar column, and runs through the home
- * indicator's inset to the sheet's bottom edge (its soft bottom edge; at the
- * full-height detent the list stopped in a hard line above it).
+ * Add Sources' list under the stack's own bar, the same bar its pushed pages
+ * have (one hidden on the root made the push resize the page under it). The
+ * list stays inside the horizontal safe area, beside the Duo outer display's
+ * vertical bar and whatever a Live Activity shows there, and runs through the
+ * home indicator's inset to the sheet's bottom edge (its soft bottom edge; at
+ * the full-height detent the list stopped in a hard line above it).
  */
 const STACK_ROOT_MODIFIERS = [
-  navigationBarHidden(),
+  inlineToolbarTitle(),
   frame({ maxWidth: Infinity }),
-  ignoreSafeArea({ regions: "container", edges: "horizontal" }),
   ignoreSafeArea({ regions: "container", edges: "bottom" }),
 ];
 
@@ -150,8 +157,14 @@ export function MobileAddSourcesStack({
   onDirectoryAdded,
   onServerConnected,
   onDismissBlockedChange,
+  title,
+  closeAccessibilityLabel,
+  onClose,
+  filter,
   children,
 }: MobileAddSourcesStackProps) {
+  const { tokens } = useNemuTheme();
+  const { regularWidth, verticalBarSide } = useMobileAdaptiveLayout();
   const [sessions, setSessions] = useState<Record<string, number>>({});
   const [pagesSeen, setPagesSeen] = useState(pages);
   if (pages !== pagesSeen) {
@@ -170,6 +183,26 @@ export function MobileAddSourcesStack({
     setPath(pages);
   }, [pages]);
 
+  // A horizontal bar: the filter leading, ✕ trailing. A vertical bar (the Duo's
+  // outer display; a sheet on regular widths keeps a horizontal one): ✕ at the
+  // top of the axis, then the action (Apple's order for vertical controls).
+  const verticalBar = verticalBarSide !== null && !regularWidth;
+  const filterItem = (
+    <SwiftToolbarItem placement={verticalBar ? "topBarTrailing" : "topBarLeading"}>
+      <SwiftButton
+        label={filter.accessibilityLabel}
+        systemImage={filter.active ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease"}
+        onPress={filter.onPress}
+        modifiers={[labelStyle("iconOnly"), ...(filter.active ? [tint(tokens.primary)] : [])]}
+      />
+    </SwiftToolbarItem>
+  );
+  const closeItem = (
+    <SwiftToolbarItem placement="topBarTrailing">
+      <SwiftButton role="close" onPress={onClose} modifiers={[swiftAccessibilityLabel(closeAccessibilityLabel)]} />
+    </SwiftToolbarItem>
+  );
+
   return (
     <SwiftNavigationStack
       path={path}
@@ -179,7 +212,16 @@ export function MobileAddSourcesStack({
         onPathChange(next);
       }}
     >
-      <SwiftGroup modifiers={STACK_ROOT_MODIFIERS}>{children}</SwiftGroup>
+      <SwiftToolbar>
+        <SwiftGroup modifiers={STACK_ROOT_MODIFIERS}>{children}</SwiftGroup>
+        <SwiftToolbar.Content>
+          {verticalBar ? closeItem : filterItem}
+          <SwiftToolbarItem placement="principal">
+            <SwiftText modifiers={[font({ textStyle: "headline" }), lineLimit(1)]}>{title}</SwiftText>
+          </SwiftToolbarItem>
+          {verticalBar ? filterItem : closeItem}
+        </SwiftToolbar.Content>
+      </SwiftToolbar>
       <SwiftNavigationDestination value={ADD_DIRECTORY_PAGE}>
         {sessions[ADD_DIRECTORY_PAGE] ? (
           <MobileAddSourcesDirectoryPage

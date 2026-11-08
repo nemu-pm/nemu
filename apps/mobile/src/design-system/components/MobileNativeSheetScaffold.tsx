@@ -156,7 +156,7 @@ type MobileNativeSheetScaffoldProps = {
 };
 
 /** The room the iOS sheet host leaves above the content for the system grabber. */
-const MOBILE_NATIVE_SHEET_GRABBER_ROOM = 16;
+export const MOBILE_NATIVE_SHEET_GRABBER_ROOM = 16;
 
 const MobileNativeSheetEndInsetContext = createContext(0);
 

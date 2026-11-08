@@ -50,8 +50,10 @@ export {
 
 export { GlassSurface } from "./components/GlassSurface";
 export {
+  MOBILE_NATIVE_SHEET_GRABBER_ROOM,
   MobileNativeSheetScaffold,
   MobileNativeSheetEndSpacer,
+  type MobileSheetSafeAreaEdge,
   useMobileNativeSheetTheme,
   useMobileNativeSheetVeil,
 } from "./components/MobileNativeSheetScaffold";
