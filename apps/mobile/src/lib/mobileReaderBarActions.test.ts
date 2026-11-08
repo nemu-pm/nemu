@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { mobileReaderBarActionIds, splitMobileReaderBarActions } from "./mobileReaderBarActions";
+import { mobileReaderBarActionIds, mobileReaderBarActionStates, splitMobileReaderBarActions } from "./mobileReaderBarActions";
+import { getMobileStrings } from "./mobileI18n";
+import { buildMobileReaderOverflowItems } from "./mobileReaderMoreMenu";
 import {
   mobileReaderBottomRowActionsRoom,
   mobileReaderCapsuleActionSlots,
@@ -18,6 +20,50 @@ const all = mobileReaderBarActionIds({
   bilingualToggle: true,
 });
 const phoneRoom = (width: number) => width - 2 * READER_CAPSULE_EDGE;
+
+describe("reader bar action states", () => {
+  const idle = { ocrStatus: "idle", chatMessageCount: 0, chatStreaming: false, dualReadEnabled: false } as const;
+
+  test("Detect text is on from the moment the page has a detection, whatever its outcome", () => {
+    expect(mobileReaderBarActionStates(idle).detectTextActive).toBe(false);
+    for (const ocrStatus of ["loading", "ready", "error"] as const) {
+      expect(mobileReaderBarActionStates({ ...idle, ocrStatus }).detectTextActive).toBe(true);
+    }
+  });
+
+  test("Nemu Chat is on with a conversation or a reply on its way", () => {
+    expect(mobileReaderBarActionStates(idle).nemuChatActive).toBe(false);
+    expect(mobileReaderBarActionStates({ ...idle, chatMessageCount: 2 }).nemuChatActive).toBe(true);
+    expect(mobileReaderBarActionStates({ ...idle, chatStreaming: true }).nemuChatActive).toBe(true);
+  });
+
+  test("the states are independent of each other", () => {
+    const states = mobileReaderBarActionStates({ ...idle, ocrStatus: "ready" });
+    expect(states).toEqual({ detectTextActive: true, nemuChatActive: false, dualReadEnabled: false });
+    expect(mobileReaderBarActionStates({ ...idle, dualReadEnabled: true }).dualReadEnabled).toBe(true);
+  });
+
+  test("the ⋯ menu's checkmarks are the bar's states in every combination", () => {
+    const strings = getMobileStrings("en");
+    for (const ocrStatus of ["idle", "loading", "ready", "error"] as const) {
+      for (const chatMessageCount of [0, 1]) {
+        for (const dualReadEnabled of [false, true]) {
+          const states = mobileReaderBarActionStates({ ocrStatus, chatMessageCount, chatStreaming: false, dualReadEnabled });
+          const items = buildMobileReaderOverflowItems(
+            ["detect-text", "nemu-chat", "plugin:dual-reader"],
+            { ...states, dualReadAvailable: true, bilingualLayoutValue: "" },
+            strings,
+          );
+          expect(items.map((item) => item.checked)).toEqual([
+            states.detectTextActive,
+            states.nemuChatActive,
+            states.dualReadEnabled,
+          ]);
+        }
+      }
+    }
+  });
+});
 
 describe("reader bar actions", () => {
   test("ids follow the capsule's order and its slot count", () => {

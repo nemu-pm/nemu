@@ -150,7 +150,7 @@ import {
 } from "@/lib/mobileReaderPageFlip";
 import { mobileReaderLearningPageResetKey } from "@/lib/mobileReaderLearningSession";
 import { buildMobileReaderMoreMenu, buildMobileReaderOverflowItems, mobileReaderChapterNeighbourLabel, type MobileReaderMoreMenuActionId, type MobileReaderOverflowActionId } from "@/lib/mobileReaderMoreMenu";
-import { mobileReaderBarActionIds, splitMobileReaderBarActions, type MobileReaderBarActionId } from "@/lib/mobileReaderBarActions";
+import { mobileReaderBarActionIds, mobileReaderBarActionStates, splitMobileReaderBarActions, type MobileReaderBarActionId } from "@/lib/mobileReaderBarActions";
 import {
   useMobilePoseVeilAppearance,
   type MobilePoseVeilAppearance,
@@ -12000,12 +12000,16 @@ export function ReaderScreen() {
         openDualReadConfig();
     }
   };
+  const readerBarActionStates = mobileReaderBarActionStates({
+    ocrStatus: japaneseLearningOcrState.status,
+    chatMessageCount: japaneseLearningChatMessages.length,
+    chatStreaming: japaneseLearningChatStreaming,
+    dualReadEnabled,
+  });
   const readerOverflowItems = buildMobileReaderOverflowItems(
     readerBarActions.overflow,
     {
-      detectTextActive: japaneseLearningOcrState.status !== "idle",
-      nemuChatActive: japaneseLearningChatMessages.length > 0 || japaneseLearningChatStreaming,
-      dualReadEnabled,
+      ...readerBarActionStates,
       dualReadAvailable: dualReaderControlsAvailable,
       bilingualLayoutValue:
         bilingualMode.mode === "sideBySide" ? strings.duo.bilingualSideBySide : strings.duo.bilingualSpread,
@@ -12495,7 +12499,7 @@ export function ReaderScreen() {
     const pluginActions =
       enabledReaderPlugins.map((plugin) => {
       if (plugin.id === "japanese-learning") {
-        const selected = activeReaderPluginId === plugin.id;
+        const { detectTextActive, nemuChatActive } = readerBarActionStates;
         const ocrLoading =
           japaneseLearningOcrState.status === "loading";
 
@@ -12510,17 +12514,15 @@ export function ReaderScreen() {
               accessibilityLabel={
                 strings.reader.pluginJapaneseLearningDetectText
               }
-              accessibilityState={{ selected }}
+              accessibilityState={{ selected: detectTextActive }}
               onPress={openJapaneseLearningDetectionTool}
               pressedScale={0.98}
               style={[
                 chromeButtonStyle,
                 {
-                  backgroundColor:
-                    selected &&
-                    japaneseLearningOcrState.status !== "idle"
-                      ? readerChromeColors.hover
-                      : "transparent",
+                  backgroundColor: detectTextActive
+                    ? readerChromeColors.hover
+                    : "transparent",
                 },
               ]}
             >
@@ -12534,8 +12536,7 @@ export function ReaderScreen() {
                   name={MOBILE_READER_CHROME_GLYPHS.detectText.name}
                   size={MOBILE_READER_CHROME_GLYPHS.detectText.size}
                   color={
-                    selected &&
-                    japaneseLearningOcrState.status !== "idle"
+                    detectTextActive
                       ? readerChromeColors.primaryText
                       : readerChromeColors.secondaryText
                   }
@@ -12549,18 +12550,15 @@ export function ReaderScreen() {
               accessibilityLabel={
                 strings.reader.pluginJapaneseLearningNemuChat
               }
-              accessibilityState={{ selected }}
+              accessibilityState={{ selected: nemuChatActive }}
               onPress={openJapaneseLearningChatTool}
               pressedScale={0.98}
               style={[
                 chromeButtonStyle,
                 {
-                  backgroundColor:
-                    selected &&
-                    (japaneseLearningChatMessages.length > 0 ||
-                      japaneseLearningChatStreaming)
-                      ? readerChromeColors.hover
-                      : "transparent",
+                  backgroundColor: nemuChatActive
+                    ? readerChromeColors.hover
+                    : "transparent",
                 },
               ]}
             >
@@ -12569,9 +12567,7 @@ export function ReaderScreen() {
                 name={MOBILE_READER_CHROME_GLYPHS.nemuChat.name}
                 size={MOBILE_READER_CHROME_GLYPHS.nemuChat.size}
                 color={
-                  selected &&
-                  (japaneseLearningChatMessages.length > 0 ||
-                    japaneseLearningChatStreaming)
+                  nemuChatActive
                     ? readerChromeColors.primaryText
                     : readerChromeColors.secondaryText
                 }
@@ -13224,6 +13220,7 @@ export function ReaderScreen() {
                 tintColor={READER_CAPSULE_COLORS.primaryText}
                 accessibilityLabel={strings.reader.pluginJapaneseLearningDetectText}
                 hidden={readerBarItemsHidden || readerCoverViewShown}
+                selected={readerBarActionStates.detectTextActive}
                 onPress={openJapaneseLearningDetectionTool}
               />
             ) : null}
@@ -13234,6 +13231,7 @@ export function ReaderScreen() {
                 tintColor={READER_CAPSULE_COLORS.primaryText}
                 accessibilityLabel={strings.reader.pluginJapaneseLearningNemuChat}
                 hidden={readerBarItemsHidden || readerCoverViewShown}
+                selected={readerBarActionStates.nemuChatActive}
                 onPress={openJapaneseLearningChatTool}
               />
             ) : null}

@@ -77,7 +77,7 @@ export type MobileReaderMoreMenuInput = {
 };
 
 export type MobileReaderOverflowState = {
-  /** The states the bar buttons light up for. */
+  /** The states the bar buttons light up for (`mobileReaderBarActionStates`). */
   detectTextActive: boolean;
   nemuChatActive: boolean;
   dualReadEnabled: boolean;
