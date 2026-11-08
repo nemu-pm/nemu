@@ -34,10 +34,8 @@ import {
 } from "./useAddSourceDirectoryForm";
 
 /**
- * Add Source Directory's two groups, in a native grouped Form. An
- * Aidoku-compatible list's address or add link, typed or pasted here; then how
- * add links on a directory's own website open nemu directly (with nemu.pm's
- * help on directories, when set). It lists no directory.
+ * Add Source Directory's group, in a native grouped Form: an Aidoku-compatible
+ * list's address or add link, typed or pasted. It lists no directory.
  */
 function DirectorySections({ form }: { form: AddSourceDirectoryForm }) {
   const { tokens } = useNemuTheme();
@@ -99,14 +97,6 @@ function DirectorySections({ form }: { form: AddSourceDirectoryForm }) {
           />
         </SwiftSection>
       ) : null}
-      <SwiftSection
-        header={<SwiftText>{s.sourceDirectoryLinksHeader}</SwiftText>}
-        footer={<SwiftText>{s.sourceDirectoryLinksFooter}</SwiftText>}
-      >
-        {form.helpUrl ? (
-          <SwiftButton label={s.sourceDirectoryHelp} systemImage="questionmark.circle" onPress={form.openHelp} />
-        ) : null}
-      </SwiftSection>
     </>
   );
 }

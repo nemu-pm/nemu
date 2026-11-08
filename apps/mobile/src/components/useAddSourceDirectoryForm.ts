@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AccessibilityInfo, AppState, Linking } from "react-native";
+import { AccessibilityInfo, AppState } from "react-native";
 import * as Clipboard from "expo-clipboard";
-import * as WebBrowser from "expo-web-browser";
 import { useRouter } from "expo-router";
 import { useMobileToast } from "@/components/MobileToastContext";
 import { useMobileDataStore } from "@/data/mobileDataContext";
@@ -18,7 +17,6 @@ import { requestMobileAddSourceSheet } from "@/lib/mobileAddSourceSheetRequest";
 import { formatMobileString, getMobileStrings } from "@/lib/mobileI18n";
 import { SOURCE_DIRECTORY_ERROR_KEYS } from "@/lib/mobileSourceDirectoryErrors";
 import {
-  NEMU_SOURCE_DIRECTORIES_HELP_URL,
   mobileAddSourceDirectoryBlocksDismiss,
   mobileSourceDirectoryAddressFromClipboard,
 } from "@/lib/mobileSourceDirectoryGuide";
@@ -31,10 +29,6 @@ export type AddSourceDirectoryForm = ReturnType<typeof useAddSourceDirectoryForm
 
 /** A sheet that never reports its dismissal must not hold up a link. */
 const SHEET_CLOSE_TIMEOUT_MS = 800;
-
-function openInAppBrowser(url: string) {
-  void WebBrowser.openBrowserAsync(url).catch(() => Linking.openURL(url).catch(() => undefined));
-}
 
 /**
  * State and actions of Add Source Directory, shared by the native iOS form and
@@ -164,10 +158,6 @@ export function useAddSourceDirectoryForm({ onAdded }: { onAdded: (added: AddedS
     submit,
     cancel,
     paste,
-    helpUrl: NEMU_SOURCE_DIRECTORIES_HELP_URL,
-    openHelp: () => {
-      if (NEMU_SOURCE_DIRECTORIES_HELP_URL) openInAppBrowser(NEMU_SOURCE_DIRECTORIES_HELP_URL);
-    },
   };
 }
 

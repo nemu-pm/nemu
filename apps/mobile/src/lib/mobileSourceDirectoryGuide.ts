@@ -2,13 +2,6 @@ import type { SourceDirectory } from "@nemu/core/sources";
 import { extractMobileSourceDirectoryUrl } from "./mobileSourceDirectoryLink";
 
 /**
- * A page on source directories for Add Source Directory's How Source
- * Directories Work row, which is hidden while this is null. None: nemu hosts
- * no such page, and a third-party one needs to clear App Review first.
- */
-export const NEMU_SOURCE_DIRECTORIES_HELP_URL: string | null = null;
-
-/**
  * Whether a swipe-down is blocked on Add Source Directory: it would discard
  * what was typed, or walk away from a check in flight. Cancel still leaves.
  */

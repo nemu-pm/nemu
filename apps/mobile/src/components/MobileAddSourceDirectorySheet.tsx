@@ -101,13 +101,6 @@ function DirectoryFormBody({ form, onCancel }: { form: AddSourceDirectoryForm; o
       <NemuText style={[styles.footer, { color: tokens.mutedForeground }]}>
         {`${s.sourceDirectoryAidokuFooter}\n\n${s.sourceDirectoryDisclaimer}`}
       </NemuText>
-      <NemuText style={[styles.header, styles.spaced, { color: tokens.mutedForeground }]}>{s.sourceDirectoryLinksHeader}</NemuText>
-      {form.helpUrl ? (
-        <View style={[styles.group, { backgroundColor: tokens.card, borderColor: tokens.border }]}>
-          {actionRow(s.sourceDirectoryHelp, "help-circle-outline", form.openHelp, false)}
-        </View>
-      ) : null}
-      <NemuText style={[styles.footer, { color: tokens.mutedForeground }]}>{s.sourceDirectoryLinksFooter}</NemuText>
     </ScrollView>
   );
 }
@@ -151,7 +144,6 @@ export function MobileAddSourcesDirectoryPage({ onAdded, onDismissBlockedChange 
 const styles = StyleSheet.create({
   content: { paddingVertical: 8, gap: 8 },
   header: { fontSize: 13, textTransform: "uppercase", paddingHorizontal: 14 },
-  spaced: { marginTop: 16 },
   footer: { fontSize: 13, lineHeight: 18, paddingHorizontal: 14 },
   group: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 14, overflow: "hidden" },
   input: { minHeight: 46, paddingVertical: 10, fontSize: 16 },

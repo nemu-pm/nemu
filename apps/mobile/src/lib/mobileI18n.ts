@@ -915,9 +915,6 @@ export type MobileStrings = {
     checkingSourceDirectory: string;
     sourceDirectoryAidokuHeader: string;
     sourceDirectoryAidokuFooter: string;
-    sourceDirectoryLinksHeader: string;
-    sourceDirectoryLinksFooter: string;
-    sourceDirectoryHelp: string;
     sourceDirectoryAddedNamed: string;
     sourceDirectorySourceCountOne: string;
     sourceDirectorySourceCountOther: string;

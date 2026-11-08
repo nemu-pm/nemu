@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  NEMU_SOURCE_DIRECTORIES_HELP_URL,
   hasMobileUserSourceDirectory,
   mobileAddSourceDirectoryBlocksDismiss,
   mobileSourceDirectoryAddressFromClipboard,
@@ -49,10 +48,6 @@ describe("mobileSourceDirectoryAddressFromClipboard", () => {
 });
 
 describe("guide links", () => {
-  test("the app links to no nemu page for source directories", () => {
-    expect(NEMU_SOURCE_DIRECTORIES_HELP_URL).toBeNull();
-  });
-
   test("a swipe-down is blocked by typed text or a check in flight", () => {
     expect(mobileAddSourceDirectoryBlocksDismiss({ address: "", checking: false })).toBe(false);
     expect(mobileAddSourceDirectoryBlocksDismiss({ address: "h", checking: false })).toBe(true);

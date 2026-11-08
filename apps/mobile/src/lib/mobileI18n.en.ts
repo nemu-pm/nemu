@@ -1039,10 +1039,6 @@ export const mobileStringsEn: MobileStrings = {
     sourceDirectoryAidokuHeader: "Aidoku-compatible directories",
     sourceDirectoryAidokuFooter:
       "nemu reads the same source lists as Aidoku. Paste a list's address, or an Aidoku add-source-list link from a website.",
-    sourceDirectoryLinksHeader: "Add links on websites",
-    sourceDirectoryLinksFooter:
-      "A directory's website can offer an Add to nemu link. Tapping it opens nemu, which shows the directory's address and asks before adding it. Add to Aidoku links work too; if one opens Aidoku instead, copy it and paste it above.",
-    sourceDirectoryHelp: "How Source Directories Work",
     sourceDirectoryAddedNamed: "Added {{name}}",
     sourceDirectorySourceCountOne: "{{count}} source",
     sourceDirectorySourceCountOther: "{{count}} sources",
