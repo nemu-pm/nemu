@@ -231,6 +231,7 @@ import {
   mobileReaderCoverViewBarChromeShown,
   mobileReaderCoverViewFadeMs,
   mobileReaderCoverViewPausesProgress,
+  mobileReaderOuterCanvas,
   resolveMobileReaderCoverViewPhase,
   resolveMobileReaderCoverViewImage,
 } from "@/lib/mobileReaderCoverView";
@@ -3196,8 +3197,11 @@ export function ReaderScreen() {
     enabledPluginIds: enabledReaderPlugins.map((plugin) => plugin.id),
     bilingualToggle: false,
   });
-  const outerReaderCanvas = readerSideBar && readerWindowLayout.hinge === "closed"
-    && readerWindowLayout.fillsScreen !== false;
+  const outerReaderCanvas = mobileReaderOuterCanvas({
+    sideBar: readerSideBar,
+    hinge: readerWindowLayout.hinge,
+    fillsScreen: readerWindowLayout.fillsScreen,
+  });
   // Outer display: the saved view (the bar's book button sets it) is the
   // title's cover (Apple Books there; the default) or the pages. It shows only
   // on the outer canvas: the inner display always reads. The reading position

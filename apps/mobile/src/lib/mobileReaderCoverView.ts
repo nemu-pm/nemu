@@ -71,6 +71,15 @@ export function mobileReaderCoverViewAvailable(input: {
   return input.outerCanvas && input.image !== null;
 }
 
+/** The closed Duo's own canvas: the system vertical bar, the hinge shut, the whole screen. */
+export function mobileReaderOuterCanvas(input: {
+  sideBar: boolean;
+  hinge: string | null | undefined;
+  fillsScreen: boolean | null | undefined;
+}): boolean {
+  return input.sideBar && input.hinge === "closed" && input.fillsScreen !== false;
+}
+
 export type MobileReaderCoverViewPhase = "cover" | "pending" | "reading";
 
 /**

@@ -63,6 +63,8 @@ import { useReaderPagePrefs } from "@/components/reader/useReaderPagePrefs";
 import { ReaderScreen } from "@/screens/ReaderScreen";
 import { VerticalBarBehavior, ZoomTarget, type ZoomStartedEvent } from "../../../../../modules/nemu-window-layout";
 import { useMobileObservedWindowLayout } from "@/lib/MobileWindowLayoutContext";
+import { useReaderDisplayPrefs } from "@/components/reader/useReaderDisplayEnvironment";
+import { mobileReaderOuterCanvas } from "@/lib/mobileReaderCoverView";
 import { mobileReaderVerticalBarPolicy } from "@/lib/mobileReaderPoseLayout";
 import {
   mobileReaderStandInKey,
@@ -615,9 +617,20 @@ function ReaderAfterZoom({
   });
   openingWindowRef.current = openingWindow;
   const loadingLayout = getReaderOpeningLoadingLayout(openingWindow);
-  const frame = openingDone
-    ? getMobileReaderZoomCoverFrame({ width: window.width, height: window.height, insets })
-    : loadingLayout.cover;
+  // Opening on the outer display's cover: the zoom lands on the cover as the
+  // reader will show it, edge to edge, so nothing jumps when it takes over.
+  const observedLayout = useMobileObservedWindowLayout();
+  const { outerDisplayView } = useReaderDisplayPrefs();
+  const landsOnFullBleedCover = outerDisplayView === "cover" && mobileReaderOuterCanvas({
+    sideBar: mobileReaderVerticalBarPolicy(observedLayout ?? {}).sideBar,
+    hinge: observedLayout?.hinge,
+    fillsScreen: observedLayout?.fillsScreen,
+  });
+  const frame = landsOnFullBleedCover
+    ? { x: 0, y: 0, width: window.width, height: window.height }
+    : openingDone
+      ? getMobileReaderZoomCoverFrame({ width: window.width, height: window.height, insets })
+      : loadingLayout.cover;
   // Without a zoom, the reader reports the title's cover (its library entry).
   const [titleCover, setTitleCover] = useState<{ uri: string; headers?: Record<string, string> } | null>(null);
   const onTitleCover = useCallback(
@@ -826,7 +839,7 @@ function ReaderAfterZoom({
           ) : shownCover ? (
             <Animated.View style={[coverRect, loadingStyle]}>{coverImage}</Animated.View>
           ) : null}
-          {openingDone ? null : (
+          {openingDone || landsOnFullBleedCover ? null : (
             <Animated.View
               style={[
                 {

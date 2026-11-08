@@ -5,6 +5,7 @@ import {
   mobileReaderCoverViewBarChromeShown,
   mobileReaderCoverViewFadeMs,
   mobileReaderCoverViewPausesProgress,
+  mobileReaderOuterCanvas,
   normalizeReaderOuterDisplayView,
   resolveMobileReaderCoverViewImage,
   resolveMobileReaderCoverViewPhase,
@@ -117,6 +118,18 @@ describe("reader outer display: the saved view", () => {
     expect(mobileReaderCoverViewPausesProgress({ coverShown: true, pageIndex: 4, heldPageIndex: 4 })).toBe(true);
     expect(mobileReaderCoverViewPausesProgress({ coverShown: true, pageIndex: 5, heldPageIndex: 4 })).toBe(false);
     expect(mobileReaderCoverViewPausesProgress({ coverShown: false, pageIndex: 4, heldPageIndex: 4 })).toBe(false);
+  });
+});
+
+describe("reader outer display: where it is", () => {
+  test("only the closed Duo full screen; a Split View half or an open hinge is not it", () => {
+    const outer = { sideBar: true, hinge: "closed", fillsScreen: true };
+    expect(mobileReaderOuterCanvas(outer)).toBe(true);
+    expect(mobileReaderOuterCanvas({ ...outer, fillsScreen: undefined })).toBe(true);
+    expect(mobileReaderOuterCanvas({ ...outer, fillsScreen: false })).toBe(false);
+    expect(mobileReaderOuterCanvas({ ...outer, hinge: "fullyOpen" })).toBe(false);
+    expect(mobileReaderOuterCanvas({ ...outer, hinge: "partiallyOpen" })).toBe(false);
+    expect(mobileReaderOuterCanvas({ ...outer, sideBar: false })).toBe(false);
   });
 });
 
