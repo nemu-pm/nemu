@@ -55,6 +55,8 @@ describe("RegistryManager directories", () => {
     await manager.listAllSources();
     expect(listed).toContain("a");
     expect(listed).not.toContain("b");
+    expect(listed).not.toContain("nemu-recommended");
+    expect(manager.getRegistry("nemu-recommended")).not.toBeNull();
 
     rows.set("a", dir("a", { url: "https://moved.example.com/index.min.json" }));
     rows.delete("b");

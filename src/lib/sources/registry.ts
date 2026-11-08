@@ -318,7 +318,9 @@ export class RegistryManager {
   }
 
   /**
-   * List all available sources from all registries
+   * List all available sources from all registries. The example directory
+   * is never listed on the web: it is built in only so sources installed from
+   * it on mobile load here.
    */
   async listAllSources(): Promise<
     Array<RegistrySourceInfo & { registryId: string }>
@@ -327,6 +329,7 @@ export class RegistryManager {
 
     for (const [registryId, registry] of this.registries) {
       if (this.hiddenDirectoryIds.has(registryId)) continue;
+      if (registryId === NEMU_RECOMMENDED_REGISTRY.id) continue;
       try {
         const sources = await registry.listSources();
         for (const source of sources) {
