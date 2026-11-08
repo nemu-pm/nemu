@@ -89,6 +89,7 @@ public final class NemuWindowLayoutModule: Module {
     // vertical bar before iOS 27.1) and re-hides rebuilt items, so JS may
     // keep them mounted under a top bar; with `NemuBarAxisVisibilityView`.
     Constant("barAxisViewsVersion") { 2 }
+    Constant("barItemsFadeViewAvailable") { true }
     Constant("glassViewHostsChildren") { true }
     // The glass view takes `materializeOffsetY` / `materializeNotBeforeMs`:
     // its slide runs in the same Core Animation as its material, optionally
@@ -253,6 +254,10 @@ public final class NemuWindowLayoutModule: Module {
       Prop("axis") { (view: NemuBarAxisVisibilityView, axis: String) in
         view.axis = axis
       }
+    }
+    View(NemuBarItemsFadeView.self) {
+      Prop("shown") { (view: NemuBarItemsFadeView, shown: Bool) in view.shown = shown }
+      Prop("durationMs") { (view: NemuBarItemsFadeView, ms: Double) in view.durationMs = ms }
     }
     Constant("nameAlertViewAvailable") { true }
     View(NemuNameAlertView.self)
@@ -2256,6 +2261,76 @@ final class NemuBarAxisVisibilityView: ExpoView {
     let shown = (axis == "vertical") == vertical
     if isHidden == shown { isHidden = !shown }
     if accessibilityElementsHidden == shown { accessibilityElementsHidden = !shown }
+  }
+}
+
+/// The screen's system bar items fade in with the reader's HUD instead of
+/// popping in: react-native-screens shows a bar item without animation, so
+/// when `shown` turns on, the bar views fade from transparent on the HUD's own
+/// duration and curve (UIKit's ease-out). A presentation animation only, the
+/// model opacity never changes, so a missed frame can't leave the bar hidden.
+/// Hiding is untouched: the bar leaves as the system removes its items.
+final class NemuBarItemsFadeView: ExpoView {
+  var shown = false {
+    didSet {
+      guard shown, !oldValue else { return }
+      // After the commit's other props (the duration) have landed.
+      DispatchQueue.main.async { [weak self] in self?.fadeIn() }
+    }
+  }
+  var durationMs: Double = 0
+
+  required init(appContext: AppContext? = nil) {
+    super.init(appContext: appContext)
+    isUserInteractionEnabled = false
+  }
+
+  private func navigationController() -> UINavigationController? {
+    var responder: UIResponder? = self
+    while let current = responder {
+      if let controller = current as? UIViewController, let navigation = controller.navigationController {
+        return navigation
+      }
+      responder = current.next
+    }
+    return nil
+  }
+
+  /// The views carrying the bar's items: the navigation bar, and a vertical
+  /// bar UIKit hosts outside it.
+  private func barViews() -> [UIView] {
+    var views: [UIView] = []
+    if let bar = navigationController()?.navigationBar { views.append(bar) }
+    guard let window else { return views }
+    var queue: [UIView] = [window]
+    var visited = 0
+    while !queue.isEmpty, visited < 4000 {
+      let view = queue.removeFirst()
+      visited += 1
+      let name = NSStringFromClass(type(of: view))
+      if name.contains("VerticalBar"), !name.hasPrefix("Nemu"),
+         !views.contains(where: { view.isDescendant(of: $0) }) {
+        views.append(view)
+        continue
+      }
+      queue.append(contentsOf: view.subviews)
+    }
+    return views
+  }
+
+  private func fadeIn() {
+    guard shown, durationMs > 0 else { return }
+    let views = barViews()
+    glassLog.info("bar items fade in: \(views.map { NSStringFromClass(type(of: $0)) }.joined(separator: ","), privacy: .public)")
+    for view in views {
+      let fade = CABasicAnimation(keyPath: "opacity")
+      fade.fromValue = 0
+      fade.toValue = 1
+      fade.duration = durationMs / 1000
+      fade.timingFunction = CAMediaTimingFunction(controlPoints: 0, 0, 0.58, 1)
+      fade.fillMode = .backwards
+      view.layer.add(fade, forKey: "nemuBarItemsFade")
+    }
   }
 }
 

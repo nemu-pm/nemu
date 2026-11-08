@@ -7,6 +7,7 @@ import {
 import { shouldDismissMobileReaderSurfacesOnFocusChange } from "@/lib/mobileReaderFocus";
 import { mobileReaderOcrPageReadiness } from "@/lib/mobileReaderOcrReadiness";
 import {
+  BarItemsFade,
   GlassContainer,
   glassMaterializeMotionAvailable,
   interfaceOrientationLockAvailable,
@@ -13225,6 +13226,8 @@ export function ReaderScreen() {
               title is inferred as a text item (`UIBarButtonItem.axisBehavior`
               automatic), which keeps the whole bar horizontal even after its
               image arrives. The label is the accessibility label. */}
+          {/* The bar's items fade in with the capsules, on their clock. */}
+          <BarItemsFade shown={!readerBarItemsHidden} durationMs={readerChromeMaterialMs} />
           <Stack.Toolbar placement="left" tintColor={READER_CAPSULE_COLORS.primaryText}>
             <Stack.Toolbar.Button
               icon={MOBILE_READER_BACK_SYMBOL.name}

@@ -1,5 +1,6 @@
 export { default as WindowLayoutObserver } from "./src/WindowLayoutObserver";
 export { default as VerticalBarBehavior } from "./src/VerticalBarBehavior";
+export { default as BarItemsFade } from "./src/BarItemsFade";
 export {
   default as VerticalBarOnlyLeadingItems,
   BarAxisVisibility,
