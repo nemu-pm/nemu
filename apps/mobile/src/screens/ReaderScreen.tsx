@@ -914,8 +914,6 @@ const READER_TOP_SCRIM_LIGHT_COLORS = [
   "rgba(255,255,255,0)",
 ] as const;
 const READER_TOP_SCRIM_LOCATIONS = [0, 0.45, 0.8, 1] as const;
-/** The vertical bar's status column (time, signal) and a feather below it. */
-const READER_RAIL_STATUS_SCRIM_HEIGHT = 200;
 /** Glass pieces closer than this blend (the row's pieces sit 10pt apart, so they stay separate at rest). */
 const READER_CAPSULE_GLASS_SPACING = 8;
 /** How long the chrome stays up after a chapter opens before it fades away. */
@@ -12913,26 +12911,6 @@ export function ReaderScreen() {
                 style={StyleSheet.absoluteFill}
               />
             </Animated.View>
-            {/* Under the status column at the top of the vertical bar only:
-                the bar's own items are glass, and a scrim down its length
-                greyed the page that runs beneath it. */}
-            {readerSideBar ? (
-              <Animated.View pointerEvents="none" style={[
-                {
-                  position: "absolute", top: 0, height: READER_RAIL_STATUS_SCRIM_HEIGHT,
-                  ...(readerPose.safeInsets.left > readerPose.safeInsets.right ? { left: 0 } : { right: 0 }),
-                  width: Math.max(readerPose.safeInsets.left, readerPose.safeInsets.right),
-                },
-                readerChromeFadeStyle,
-              ]}>
-                <LinearGradient
-                  pointerEvents="none"
-                  colors={readerTopScrimColors}
-                  locations={READER_TOP_SCRIM_LOCATIONS}
-                  style={StyleSheet.absoluteFill}
-                />
-              </Animated.View>
-            ) : null}
             {/* One glass container for the row (SwiftUI GlassEffectContainer):
                 the pieces render as one system glass layer and morph together. */}
             <GlassContainer spacing={READER_CAPSULE_GLASS_SPACING} pointerEvents="box-none" style={StyleSheet.absoluteFill}>
