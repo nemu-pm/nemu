@@ -52,7 +52,7 @@ describe("native toolbar items use the platform colour", () => {
     expect(sheet).not.toContain("seedColor=");
     expect(sheet).toContain("<SwiftNavigationStack>");
     expect(sheet).not.toContain("tint(tokens.foreground)");
-    expect(sheet).toContain("<ToolbarActionButton action={confirm} accent={tokens.primary} />");
+    expect(sheet).toContain("<ToolbarActionButton action={shownConfirm} accent={tokens.primary} />");
     expect(sheet).toContain('<ToolbarActionButton action={cancel} role="cancel" />');
   });
 });

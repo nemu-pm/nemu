@@ -49,6 +49,17 @@ export function sheetCenteredTitle() {
 }
 
 /**
+ * `@expo/ui` modifier, on a page in a sheet's NavigationStack: beside the iPhone
+ * Duo's vertical bar the page takes the sheet's full width while the sheet's top
+ * is below the bar's status items, and returns inside the safe area when it rises
+ * among them (a detent, the keyboard). Nothing where the insets are even. A binary
+ * built before the modifier existed ignores it.
+ */
+export function sheetFullWidthBesideBar() {
+  return createModifier("nemuSheetFullWidthBesideBar");
+}
+
+/**
  * `@expo/ui` modifier: `toolbar(.hidden, for: .navigationBar)` on a page in a
  * NavigationStack. A popover's root page keeps its bar-less look while the
  * pages pushed from it show the bar (title, system back). A binary built

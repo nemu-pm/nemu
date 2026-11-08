@@ -1,4 +1,5 @@
 import {
+  mobileNativeFormSheetConfirm,
   mobileSheetCanUseFullWidth,
   resolveMobileNativeSheetIosBarEdges,
   mobileNativeFormSheetWindow,
@@ -796,5 +797,37 @@ describe("sheet height cap (below a fold)", () => {
     expect(resolveMobileNativeSheetSnapPointHeight(undefined, 800)).toBeUndefined();
     expect(mobileNativeSheetMaxHeight(412.9)).toBe(412);
     expect(mobileNativeSheetMaxHeight(-1)).toBeNull();
+  });
+});
+
+describe("mobileNativeFormSheetConfirm", () => {
+  const onPress = () => {};
+  const beside = { verticalBarSide: "trailing", regularWidth: false };
+
+  test("beside the vertical bar a worded confirm is an icon labelled with its word", () => {
+    const action: { label: string; onPress: () => void; systemImage?: string; accessibilityLabel?: string } = {
+      label: "Continue",
+      onPress,
+    };
+    expect(mobileNativeFormSheetConfirm(action, beside)).toEqual({
+      label: "Continue",
+      onPress,
+      systemImage: "checkmark",
+      accessibilityLabel: "Continue",
+    });
+  });
+
+  test("the inner display and a regular width keep the word", () => {
+    const action = { label: "Continue", onPress };
+    expect(mobileNativeFormSheetConfirm(action, { verticalBarSide: null, regularWidth: false })).toBe(action);
+    expect(mobileNativeFormSheetConfirm(action, { verticalBarSide: null, regularWidth: true })).toBe(action);
+    expect(mobileNativeFormSheetConfirm(action, { verticalBarSide: "trailing", regularWidth: true })).toBe(action);
+  });
+
+  test("a destructive confirm keeps its word, and an action's own icon stays", () => {
+    const destructive = { label: "Sign Out", destructive: true, onPress };
+    const ownIcon = { label: "Save", systemImage: "square.and.arrow.down", onPress };
+    expect(mobileNativeFormSheetConfirm(destructive, beside)).toBe(destructive);
+    expect(mobileNativeFormSheetConfirm(ownIcon, beside)).toBe(ownIcon);
   });
 });

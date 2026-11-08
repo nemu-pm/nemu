@@ -20,6 +20,9 @@ public final class NemuWindowLayoutModule: Module {
       ViewModifierRegistry.register(NemuSheetCenteredTitleModifier.type) { _, _, _ in
         NemuSheetCenteredTitleModifier()
       }
+      ViewModifierRegistry.register(NemuSheetFullWidthBesideBarModifier.type) { _, _, _ in
+        NemuSheetFullWidthBesideBarModifier()
+      }
       ViewModifierRegistry.register(NemuPinnedSearchModifier.type) { params, _, eventDispatcher in
         NemuPinnedSearchModifier(params: params, eventDispatcher: eventDispatcher)
       }
@@ -73,6 +76,7 @@ public final class NemuWindowLayoutModule: Module {
       ViewModifierRegistry.unregister(NemuPresentationColorSchemeModifier.type)
       ViewModifierRegistry.unregister(NemuInlineToolbarTitleModifier.type)
       ViewModifierRegistry.unregister(NemuSheetCenteredTitleModifier.type)
+      ViewModifierRegistry.unregister(NemuSheetFullWidthBesideBarModifier.type)
       ViewModifierRegistry.unregister(NemuPresentationPlacementModifier.type)
       ViewModifierRegistry.unregister(NemuZeroTopScrollContentMarginModifier.type)
       ViewModifierRegistry.unregister(NemuFitSheetDetentModifier.type)
@@ -893,6 +897,116 @@ final class NemuSheetTitleProbeView: UIView {
       return
     }
     onChange?(stack.bounds.midX - convert(bounds, to: stack).midX)
+  }
+}
+
+/// On a page in a sheet's navigation stack: beside the iPhone Duo's vertical bar
+/// the horizontal safe area is lopsided, so a Form stops short of an empty column.
+/// While the sheet's top is below the bar's status items the column is free and
+/// the page ignores the inset; a sheet that rises among them (a taller detent,
+/// the keyboard) gets it back. The same view throughout: a field keeps its focus.
+struct NemuSheetFullWidthBesideBarModifier: ViewModifier {
+  static let type = "nemuSheetFullWidthBesideBar"
+  @State private var fullWidth = false
+
+  func body(content: Content) -> some View {
+    content
+      .ignoresSafeArea(.container, edges: fullWidth ? .horizontal : [])
+      .background(
+        NemuSheetFullWidthProbe { next in
+          if next != fullWidth { fullWidth = next }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+      )
+  }
+}
+
+private struct NemuSheetFullWidthProbe: UIViewRepresentable {
+  let onChange: (Bool) -> Void
+
+  func makeUIView(context: Context) -> NemuSheetFullWidthProbeView {
+    let view = NemuSheetFullWidthProbeView()
+    view.isUserInteractionEnabled = false
+    view.onChange = onChange
+    return view
+  }
+
+  func updateUIView(_ uiView: NemuSheetFullWidthProbeView, context: Context) {
+    uiView.onChange = onChange
+    uiView.sampleSoon()
+  }
+}
+
+final class NemuSheetFullWidthProbeView: UIView {
+  /// The status items end about 36% down the bar's height with a Live Activity
+  /// (`MOBILE_NATIVE_STACK_SHEET_BELOW_BAR_STATUS` is the same line for a detent).
+  private static let statusItemsEnd: CGFloat = 0.4
+  var onChange: ((Bool) -> Void)?
+  private weak var observedStack: UIView?
+  private var boundsToken: NSKeyValueObservation?
+  private var keyboardToken: NSObjectProtocol?
+
+  deinit {
+    boundsToken?.invalidate()
+    if let keyboardToken { NotificationCenter.default.removeObserver(keyboardToken) }
+  }
+
+  override func didMoveToWindow() {
+    super.didMoveToWindow()
+    if window != nil {
+      if keyboardToken == nil {
+        // The keyboard can lift a sheet of one height without resizing it.
+        keyboardToken = NotificationCenter.default.addObserver(
+          forName: UIResponder.keyboardDidChangeFrameNotification,
+          object: nil,
+          queue: .main
+        ) { [weak self] _ in
+          MainActor.assumeIsolated { self?.sampleSoon() }
+        }
+      }
+      sampleSoon()
+    } else {
+      boundsToken?.invalidate()
+      boundsToken = nil
+      observedStack = nil
+      if let keyboardToken { NotificationCenter.default.removeObserver(keyboardToken) }
+      keyboardToken = nil
+    }
+  }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    sampleSoon()
+  }
+
+  func sampleSoon() {
+    DispatchQueue.main.async { [weak self] in self?.sample() }
+  }
+
+  private var stackView: UIView? {
+    var responder: UIResponder? = self
+    while let current = responder {
+      if let stack = current as? UINavigationController { return stack.view }
+      responder = current.next
+    }
+    return nil
+  }
+
+  private func sample() {
+    guard let window, let stack = stackView else { return }
+    if observedStack !== stack {
+      boundsToken?.invalidate()
+      observedStack = stack
+      // A detent or a rotation resizes the stack without this probe laying out.
+      boundsToken = stack.observe(\.bounds, options: [.new]) { [weak self] _, _ in
+        MainActor.assumeIsolated { self?.sampleSoon() }
+      }
+    }
+    let insets = stack.safeAreaInsets
+    let lopsided = abs(insets.right - insets.left) > 0.5
+    let clearOfStatusItems = stack.convert(stack.bounds, to: window).minY >= window.bounds.height * Self.statusItemsEnd
+    onChange?(lopsided && clearOfStatusItems)
   }
 }
 

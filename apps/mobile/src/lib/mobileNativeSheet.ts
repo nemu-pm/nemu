@@ -733,3 +733,18 @@ export function capMobileNativeSheetSnapPoints(
   });
   return changed ? capped : snapPoints;
 }
+
+/**
+ * A form sheet's confirming bar item. Beside the Duo's vertical bar a worded item
+ * keeps the horizontal bar's inset from it, an empty column beside the item; an
+ * icon takes the bar's trailing column, as the ✕ does. The word stays its
+ * accessibility label; one that destroys keeps it on screen too.
+ */
+export function mobileNativeFormSheetConfirm<
+  Action extends { label: string; systemImage?: string; accessibilityLabel?: string; destructive?: boolean },
+>(action: Action, layout: { verticalBarSide: unknown; regularWidth: boolean }): Action {
+  if (action.systemImage || action.destructive || layout.verticalBarSide === null || layout.regularWidth) {
+    return action;
+  }
+  return { ...action, systemImage: "checkmark", accessibilityLabel: action.accessibilityLabel ?? action.label };
+}

@@ -37,11 +37,16 @@ import { MOBILE_GROUPED_FORM_TOP_MARGIN } from "@/lib/mobileLibrarySheetLayout";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { fittedSheetExpandedDetent } from "@/lib/mobileFittedSheet";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
-import { mobileNativeFormSheetWindow, resolveMobileNativeFormSheetPadSizing } from "@/lib/mobileNativeSheet";
+import {
+  mobileNativeFormSheetConfirm,
+  mobileNativeFormSheetWindow,
+  resolveMobileNativeFormSheetPadSizing,
+} from "@/lib/mobileNativeSheet";
 import {
   inlineToolbarTitle,
   zeroTopScrollContentMargin,
   sheetCenteredTitle,
+  sheetFullWidthBesideBar,
 } from "../../modules/nemu-window-layout/src/presentationColorScheme";
 import type { MobileNativeFormSheetAction, MobileNativeFormSheetProps } from "./MobileNativeFormSheet.types";
 
@@ -128,6 +133,7 @@ export function MobileNativeFormSheet({
     onClose();
   };
   const grouped = background === "grouped";
+  const shownConfirm = confirm && mobileNativeFormSheetConfirm(confirm, adaptive);
   const padForm =
     padSizing === "form"
       ? resolveMobileNativeFormSheetPadSizing({
@@ -153,6 +159,8 @@ export function MobileNativeFormSheet({
         // system's item colours (see the toolbar below).
         tint(tokens.primary),
         scrollEdgeEffectStyle("soft", "vertical"),
+        // Beside the Duo's vertical bar: the sheet's full width.
+        sheetFullWidthBesideBar(),
         ...(grouped ? [scrollContentBackground("hidden"), listSectionSpacing("compact")] : []),
         ...(grouped || tightTop
           ? [
@@ -247,9 +255,9 @@ export function MobileNativeFormSheet({
                       )}
                     </SwiftToolbarItem>
                   ) : null}
-                  {confirm ? (
+                  {shownConfirm ? (
                     <SwiftToolbarItem placement="confirmationAction">
-                      <ToolbarActionButton action={confirm} accent={tokens.primary} />
+                      <ToolbarActionButton action={shownConfirm} accent={tokens.primary} />
                     </SwiftToolbarItem>
                   ) : null}
                   {cancel ? null : (
