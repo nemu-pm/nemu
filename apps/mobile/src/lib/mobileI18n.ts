@@ -1,4 +1,6 @@
 import type { AppLanguage } from "@/data/schema";
+import { getMobileDesignExploreActive } from "./mobileDesignExploreSwitch";
+import { withMobileDesignExploreCopy } from "./mobileI18nExploreCopy";
 import type { MobileSourceOAuthErrorCode } from "./mobileSourceOAuthLogic";
 import { normalizeAppLanguage } from "./mobileLanguageSettings";
 
@@ -8,18 +10,22 @@ export type MobileStrings = {
     close: string;
     description: string;
     openSourceCode: string;
+    privacyPolicy: string;
     sourceCode: string;
     tagline: string;
   };
   common: {
     add: string;
     back: string;
+    /** A back button that names where it goes back to; `{{title}}`. */
+    backTo: string;
     cancel: string;
     clear: string;
+    /** A sheet's ✕ (close) button, to VoiceOver. */
+    close: string;
     collapse: string;
     create: string;
     done: string;
-    dragHandle: string;
     externalLinkFailed: string;
     externalLinkFailedDetail: string;
     expand: string;
@@ -31,6 +37,10 @@ export type MobileStrings = {
     listLastSeparator: string;
     merge: string;
     moreTags: string;
+    /** Title of the sheet that lists every tag of a title; `{{count}}`. */
+    tagsSheetTitle: string;
+    tagsSheetHint: string;
+    closeTagsSheet: string;
     moveDown: string;
     moveUp: string;
     new: string;
@@ -47,6 +57,8 @@ export type MobileStrings = {
     sourceDisabledDescription: string;
     sourceError: string;
     sourceErrorDescription: string;
+    sourceIncompatible: string;
+    sourceIncompatibleDescription: string;
     sourceNetworkError: string;
     sourceNetworkErrorDescription: string;
     sourceRuntimeUnavailable: string;
@@ -57,7 +69,6 @@ export type MobileStrings = {
     uninstall: string;
     agentVerify: string;
     agentSheetOpening: string;
-    agentSheetWaiting: string;
     agentSheetCaptcha: string;
     agentSheetSuccess: string;
     agentSheetFailed: string;
@@ -101,17 +112,14 @@ export type MobileStrings = {
     adultSourcesDescription: string;
     adultSourcesSwitch: string;
     addSource: string;
-    addSourcesDescription: string;
     addSources: string;
     manageSources: string;
     openSourceHomepage: string;
     updateSourceToVersion: string;
     allLanguages: string;
-    chooseLanguages: string;
     installAnyway: string;
     installingSource: string;
     installingSourceDescription: string;
-    installingSourceDescriptionGeneric: string;
     installSourceNamed: string;
     installedSource: string;
     uninstalledSource: string;
@@ -124,9 +132,10 @@ export type MobileStrings = {
     noSourceResults: string;
     otherLanguages: string;
     refreshSources: string;
-    refreshSourcesHint: string;
-    removeSourceNamed: string;
     searchRegistries: string;
+    sourceDirectoryGuideBody: string;
+    addSourceDirectory: string;
+    directoryFilterChip: string;
     sourcesUnavailable: string;
     warningAuthentication: string;
     warningCloudflare: string;
@@ -161,7 +170,6 @@ export type MobileStrings = {
     selectRecommendedSource: string;
     signIn: string;
     skip: string;
-    sourceAlreadyInstalled: string;
     sourceInstallFailed: string;
     sourceInstallFailedDetail: string;
     sourcesDescription: string;
@@ -173,7 +181,6 @@ export type MobileStrings = {
     title: string;
   };
   library: {
-    addCompatibleSource: string;
     addBooksAction: string;
     addBooksDescription: string;
     addBooksEmpty: string;
@@ -181,8 +188,8 @@ export type MobileStrings = {
     addBooksTitle: string;
     addSource: string;
     all: string;
-    closeAddBooks: string;
-    collectionEmpty: string;
+    collectionEmptyTitle: string;
+    collectionEmptyDescription: string;
     collectionChipAccessibility: string;
     collectionMangaAccessibility: string;
     collectionName: string;
@@ -191,6 +198,11 @@ export type MobileStrings = {
     collectionActionFailed: string;
     collectionActionFailedDetail: string;
     createCollection: string;
+    importComics: string;
+    importComicsHint: string;
+    importComicsDone: string;
+    importComicsRelinked: string;
+    importComicsFailed: string;
     createCollectionHint: string;
     manageCollection: string;
     manageCollectionHint: string;
@@ -207,6 +219,7 @@ export type MobileStrings = {
     emptyDescription: string;
     empty: string;
     progressCaughtUp: string;
+    progressInProgress: string;
     progressUnread: string;
     refreshLibrary: string;
     removeCollection: string;
@@ -216,8 +229,19 @@ export type MobileStrings = {
     renameCollectionAccessibility: string;
     renameDescription: string;
     startSearching: string;
+    titleMenuEditCollection: string;
+    titleMenuHint: string;
+    titleMenuManageCollections: string;
+    titleMenuNewCollection: string;
     updated: string;
-    updateMembershipDescription: string;
+    editCollectionTitle: string;
+    collectionBooksSection: string;
+    collectionBooksSelectedOne: string;
+    collectionBooksSelectedOther: string;
+    collectionBooksNoMatches: string;
+    collectionNameSection: string;
+    searchLibraryBooks: string;
+    clearLibrarySearch: string;
     unavailable: string;
   };
   collectionMembership: {
@@ -242,6 +266,14 @@ export type MobileStrings = {
     subtitle: string;
     subtitleForTitle: string;
     title: string;
+    /** First row of the native sheet; opens the name alert. */
+    newCollectionAction: string;
+    /** Footer under the collection rows: how to rename / delete one. */
+    manageRowsFooter: string;
+    /** Empty list when the create action sits above it. */
+    noCollectionsYet: string;
+    /** Short swipe / context-menu action on a collection row. */
+    renameAction: string;
   };
   metadataEditor: {
     applyMatch: string;
@@ -263,6 +295,8 @@ export type MobileStrings = {
     coverUrlPlaceholder: string;
     chooseCoverImage: string;
     description: string;
+    detailsTitle: string;
+    resetAll: string;
     discardConfirm: string;
     discardDescription: string;
     discardKeepEditing: string;
@@ -278,7 +312,6 @@ export type MobileStrings = {
     searchMatches: string;
     selectStatus: string;
     sourceFetchAccessibility: string;
-    sourceFetchFailed: string;
     sourceFetchSubtitle: string;
     sourceFetchTitle: string;
     status: string;
@@ -303,10 +336,14 @@ export type MobileStrings = {
     chapterCountLocalOne: string;
     chapterCountLocalOther: string;
     chapters: string;
-    completeCount: string;
     continueChapter: string;
+    continueReading: string;
     editMetadata: string;
     fullRefreshNotStarted: string;
+    loadingChapters: string;
+    refreshFailedTitle: string;
+    showingSavedChapters: string;
+    sourceSlowToRespond: string;
     loadingManga: string;
     manga: string;
     mangaNotFound: string;
@@ -344,16 +381,18 @@ export type MobileStrings = {
     actionFailedDetail: string;
     addAndStartReading: string;
     addAndStartReadingHint: string;
+    /** The Add to Library sheet's footer, describing both of its actions. */
     addOptionsDescription: string;
+    /** The footer when the sheet offers Add to Library alone (no chapter to start). */
+    addOptionsDescriptionAddOnly: string;
     addOptionsTitle: string;
     addToLibrary: string;
     addToLibraryHint: string;
-    backToSource: string;
     chapterLoadedOne: string;
     chapterLoadedOther: string;
     chapters: string;
-    completeCount: string;
     continueChapter: string;
+    continueReading: string;
     detailsNotLoaded: string;
     inLibrary: string;
     installSourceBeforeDetails: string;
@@ -383,28 +422,18 @@ export type MobileStrings = {
     availableFilterCountOther: string;
     baseUrl: string;
     browseSources: string;
-    bytesPending: string;
-    bytesReadable: string;
-    checkingExecutor: string;
     clearSourceSearch: string;
     closeFilters: string;
-    customFilter: string;
-    defaultFilter: string;
-    executorCheckFailed: string;
-    executorPending: string;
-    executorReady: string;
-    excludeFilter: string;
-    filterCountOne: string;
-    filterCountOther: string;
     filterSelectedCountOther: string;
-    includeFilter: string;
-    installBeforeExecutor: string;
     installBeforeOpening: string;
-    libraryFromSource: string;
-    listingCountOne: string;
-    listingCountOther: string;
+    installingSource: string;
+    installingSourceDescription: string;
+    loadSourceFailed: string;
+    sourceInstallFailed: string;
+    sourceInstallFailedDescription: string;
+    sourceNotInRegistry: string;
+    sourceNotInRegistryDescription: string;
     listingLoadFailed: string;
-    localPackageAvailable: string;
     loadFiltersFailed: string;
     loadHomeFailed: string;
     loadingFilters: string;
@@ -412,15 +441,9 @@ export type MobileStrings = {
     loadingListing: string;
     loadingMoreListing: string;
     loadingMoreSourceResults: string;
-    mangaCountOne: string;
-    mangaCountOther: string;
     metadataStatus: string;
     multiLanguage: string;
-    nativeExecutor: string;
-    noLibraryMangaUsesSource: string;
-    noLinkedMangaMatches: string;
     noLiveMatches: string;
-    noLocalPackage: string;
     noMangaInListing: string;
     noMangaLoadedFromListing: string;
     noPackageListings: string;
@@ -437,52 +460,15 @@ export type MobileStrings = {
     openListing: string;
     openManga: string;
     selectFeaturedManga: string;
-    operationAixPackageCached: string;
-    operationAixPackageCachedMetadata: string;
-    operationAixPackageMissing: string;
-    operationAixPackageTitle: string;
-    operationBrowseListingsDetail: string;
-    operationBrowseListingsTitle: string;
-    operationChaptersDetail: string;
-    operationChaptersTitle: string;
-    operationHomeSectionsDetail: string;
-    operationHomeSectionsTitle: string;
-    operationImageRequestsDetail: string;
-    operationImageRequestsTitle: string;
-    operationInstallPackageDetail: string;
-    operationLiveSearchDetail: string;
-    operationLiveSearchTitle: string;
-    operationMangaDetailsDetail: string;
-    operationMangaDetailsTitle: string;
-    operationMetadataExecutableMissing: string;
-    operationNativeCompatibleDetail: string;
-    operationNoStaticMetadata: string;
-    operationPageListDetail: string;
-    operationPageListTitle: string;
-    operationSearchFiltersDetail: string;
-    operationSearchFiltersTitle: string;
-    operationSettingsSchemaDetail: string;
-    operationSettingsSchemaTitle: string;
-    packageCached: string;
-    packageCapabilities: string;
-    packageMissing: string;
-    packageReady: string;
-    packageStatus: string;
-    readablePackageBytes: string;
     refreshSource: string;
-    refreshSourceHint: string;
     resetFilters: string;
     runtime: string;
-    runtimeBridge: string;
-    runtimeOperations: string;
     searchOrChooseFilters: string;
-    searchLinkedManga: string;
     searchSource: string;
     searchSourceHint: string;
     searchSourcePlaceholder: string;
     searchThisSource: string;
     selectListingToBrowse: string;
-    selectedFilterCount: string;
     settingCountOne: string;
     settingCountOther: string;
     sortAscending: string;
@@ -497,29 +483,49 @@ export type MobileStrings = {
     sourceFiltersIdle: string;
     sourceHome: string;
     sourceHomeIdle: string;
-    sourceListings: string;
     sourceNotInstalled: string;
     sourceSearchFailed: string;
     sourceUnavailable: string;
     unreadOnly: string;
-    unsupportedStatus: string;
-    validatingExecutor: string;
-    waitingForSettings: string;
-    wasmReady: string;
-    wasmUnknown: string;
-    webExecutor: string;
-    webExecutorReady: string;
-    nativeExecutorReady: string;
+  };
+  /** Web `plugin.japaneseLearning.pos` / `.conjugation`: grammar labels → localized names. */
+  japaneseLearningGrammar: {
+    posNames: Record<string, string>;
+    conjugationNames: Record<string, string>;
   };
   reader: {
     bookPairing: string;
+    /** Segmented label for book pairing: page 1 shares a spread with page 2. */
+    pairingCoverPaired: string;
+    /** Segmented label for manga pairing: page 1 (the cover) stands alone. */
+    pairingCoverAlone: string;
+    /** Menu row: how pages pair into spreads (自动 / 封面单独 / 封面合页). */
+    spreadPairing: string;
+    pairingAutomatic: string;
+    spreadPairingFootnote: string;
+    /** Action: shift this manga's pairing by one page (错开一页). */
+    shiftByOnePage: string;
+    /** Toast after a two-finger double tap shifts the pairing (Apple's "Orientation Lock: On" pattern). */
+    shiftByOnePageOn: string;
+    shiftByOnePageOff: string;
+    /** Menu row: what shows around the page (黑色 / 白色 / 跟随页面). */
+    pageBackground: string;
+    pageTurning: string;
+    pageTurningCurl: string;
+    pageTurningSlide: string;
+    /** Photos-style paging: the next page pushes in beside the current one. */
+    pageTurningPush: string;
+    pageBackgroundBlack: string;
+    pageBackgroundWhite: string;
+    pageBackgroundMatchPage: string;
     chapterAccessibility: string;
     closeSettings: string;
     closePlugin: string;
+    /** Accessibility label of the vertical control rail. */
+    readerControls: string;
     currentChapter: string;
     description: string;
     disabled: string;
-    dualReadTargetAccessibility: string;
     dualReadOverlayUnavailableTitle: string;
     dualReadOverlayUnavailableHint: string;
     dualReadDialogTitle: string;
@@ -534,29 +540,33 @@ export type MobileStrings = {
     dualReadDialogChooseChapter: string;
     dualReadDialogEnable: string;
     dualReadDialogDisable: string;
-    dualReadDialogCancel: string;
     dualReadFabLabel: string;
-    dualReadPopoverNoLinkedSources: string;
-    dualReadPopoverLinkSecondary: string;
-    dualReadPopoverSecondaryLabel: string;
-    dualReadPopoverChapterPair: string;
-    dualReadPopoverUnpaired: string;
-    dualReadPopoverLoadingPairing: string;
     enabled: string;
     hideControls: string;
-    loadingChapterState: string;
     loadingPages: string;
     fetchingPages: string;
     readingDirection: string;
+    readingDirectionDescription: string;
+    automatic: string;
+    readingModeFooter: string;
     rtl: string;
     ltr: string;
+    chapterList: string;
+    closeChapterList: string;
+    chapterListCurrent: string;
+    chapterListEmpty: string;
     lockedChapter: string;
     chapterLockedTitle: string;
     chapterLockedDetail: string;
     mangaPairing: string;
     markComplete: string;
     markedComplete: string;
-    matchingChapter: string;
+    /** Reader ⋯ menu (phone chrome, top trailing). */
+    moreActions: string;
+    moreActionsHint: string;
+    reloadChapter: string;
+    readerSettingsMenu: string;
+    readerPluginsMenu: string;
     narrowPageWidth: string;
     nextChapter: string;
     nextPage: string;
@@ -565,20 +575,21 @@ export type MobileStrings = {
     noNextChapter: string;
     noPreviousChapter: string;
     openPlugin: string;
-    pageCountOne: string;
-    pageCountOther: string;
     pageFallback: string;
     pageImageFailed: string;
     pageImageLoading: string;
     processPageImages: string;
-    processPageImagesDescription: string;
     pageLoadedOne: string;
     pageLoadedOther: string;
     pageLoadingUnavailable: string;
     pageTitle: string;
     pageValue: string;
+    /** A spread's two pages, for VoiceOver: "Pages 9–10 of 37". */
+    pagesValue: string;
     pageSlider: string;
     pageWidth: string;
+    /** Reader settings: the secondary section below the layout controls. */
+    moreSettings: string;
     pageWidthValue: string;
     longStripProgress: string;
     scrollProgress: string;
@@ -593,12 +604,11 @@ export type MobileStrings = {
     pluginJapaneseLearningAllLanguages: string;
     pluginJapaneseLearningAllLanguagesDescription: string;
     pluginJapaneseLearningAlternativeReadings: string;
-    pluginJapaneseLearningAskSentence: string;
-    pluginJapaneseLearningAskWords: string;
     pluginJapaneseLearningAutoDetectText: string;
     pluginJapaneseLearningAutoDetectTextDescription: string;
     pluginJapaneseLearningAskWord: string;
     pluginJapaneseLearningBaseForm: string;
+    pluginJapaneseLearningConjugationPath: string;
     pluginJapaneseLearningCopied: string;
     pluginJapaneseLearningCopyFailed: string;
     pluginJapaneseLearningCopySentence: string;
@@ -608,28 +618,30 @@ export type MobileStrings = {
     pluginJapaneseLearningDetectText: string;
     pluginJapaneseLearningDetectingText: string;
     pluginJapaneseLearningDetection: string;
-    pluginJapaneseLearningDragWordsHint: string;
-    pluginJapaneseLearningAnalyzingSentence: string;
-    pluginJapaneseLearningGrammar: string;
     pluginJapaneseLearningGrammarFailed: string;
     pluginJapaneseLearningGrammarHint: string;
     pluginJapaneseLearningListen: string;
     pluginJapaneseLearningNoText: string;
     pluginJapaneseLearningNoImage: string;
-    pluginJapaneseLearningNoMeanings: string;
-    pluginJapaneseLearningNormalizingSentence: string;
     pluginJapaneseLearningMinimumConfidence: string;
     pluginJapaneseLearningMinimumConfidenceDescription: string;
+    pluginJapaneseLearningRecognitionEngine: string;
+    pluginJapaneseLearningRecognitionEngineDescription: string;
+    pluginJapaneseLearningOnlineOcrAssist: string;
+    pluginJapaneseLearningOnlineOcrAssistDescription: string;
+    pluginValueEngineAutomatic: string;
+    pluginValueEngineOnDevice: string;
+    pluginValueEngineCloud: string;
     pluginJapaneseLearningName: string;
-    pluginJapaneseLearningChatFailed: string;
     pluginJapaneseLearningChatEmptyTitle: string;
     pluginJapaneseLearningChatEmptyDescription: string;
-    pluginJapaneseLearningChatHint: string;
     pluginJapaneseLearningChatInputPlaceholder: string;
     pluginJapaneseLearningChatRead: string;
-    pluginJapaneseLearningChatResponse: string;
     pluginJapaneseLearningChatSend: string;
-    pluginJapaneseLearningChatThinking: string;
+    /** Composer mic (shown while the draft is empty); starts dictation. */
+    pluginJapaneseLearningChatVoiceInput: string;
+    /** Same mic while listening; stops dictation. */
+    pluginJapaneseLearningChatStopVoiceInput: string;
     pluginJapaneseLearningChatToday: string;
     pluginJapaneseLearningLineAccessibility: string;
     pluginJapaneseLearningNemuChat: string;
@@ -640,19 +652,34 @@ export type MobileStrings = {
     pluginJapaneseLearningOcrUnavailableTitle: string;
     pluginJapaneseLearningResponseLanguage: string;
     pluginJapaneseLearningResponseLanguageDescription: string;
+    /** Web `chat.responseModeApp`: the launcher's Response pill for `app`. */
+    pluginJapaneseLearningResponseModeApp: string;
+    /** Web `chat.responseModeJlpt`: the launcher's Response pill for `jlpt`. */
+    pluginJapaneseLearningResponseModeJlpt: string;
     pluginJapaneseLearningSelectedText: string;
-    pluginJapaneseLearningSignInRequired: string;
-    pluginJapaneseLearningSourceText: string;
+    pluginJapaneseLearningSignInRequiredTitle: string;
+    /** Engine = Cloud, signed out. */
+    pluginJapaneseLearningSignInRequiredDescription: string;
+    /** Engine = Automatic, signed out, and the device cannot do the step itself. */
+    pluginJapaneseLearningSignInRequiredAutomaticDescription: string;
+    /** Automatic needs the online service to analyse the chosen sentence. */
+    pluginJapaneseLearningSignInRequiredAutomaticTitle: string;
+    /** Automatic needs the online service to read a page's text. */
+    pluginJapaneseLearningSignInRequiredAutomaticPageTitle: string;
+    pluginJapaneseLearningSignInToUse: string;
     pluginJapaneseLearningStopListening: string;
     pluginJapaneseLearningStructure: string;
-    pluginJapaneseLearningTapTokenHint: string;
     pluginJapaneseLearningTokenAccessibility: string;
     pluginJapaneseLearningTokenExtendAccessibility: string;
-    pluginJapaneseLearningTranscript: string;
-    pluginJapaneseLearningTranscriptHint: string;
     pluginJapaneseLearningTranscriptTooLong: string;
     pluginJapaneseLearningTtsFailed: string;
-    pluginJapaneseLearningTtsLoading: string;
+    pluginJapaneseLearningAskAboutThisSentence: string;
+    pluginJapaneseLearningAskAboutTheseWords: string;
+    pluginJapaneseLearningTapAnyWordHint: string;
+    pluginJapaneseLearningDragOnWordsHint: string;
+    pluginJapaneseLearningExtractingText: string;
+    pluginJapaneseLearningAnalyzingSentenceProgress: string;
+    pluginJapaneseLearningTranscriptNoText: string;
     pluginResponse: string;
     pluginValueAppLanguage: string;
     pluginValueDefault: string;
@@ -673,6 +700,38 @@ export type MobileStrings = {
     stageAccessibility: string;
     title: string;
     twoPageView: string;
+    pageLayout: string;
+    pageLayoutSingle: string;
+    pageLayoutDouble: string;
+    pageLayoutAuto: string;
+    /** Footer under the page layout choice: what the chosen option does. */
+    pageLayoutFootnoteSingle: string;
+    pageLayoutFootnoteDouble: string;
+    pageLayoutFootnoteAuto: string;
+    /** Under Two Pages while no spread shows (the screen is portrait). */
+    pageLayoutFootnoteDoubleShowingSingle: string;
+    avoidCamera: string;
+    /** Footer under the outer display's camera switch. */
+    avoidCameraFootnote: string;
+    /** VoiceOver label of the outer display's cover view: `{{title}}`. */
+    coverViewAccessibility: string;
+    /** VoiceOver label when the title is not known yet. */
+    coverViewAccessibilityUntitled: string;
+    /** iPhone Duo outer display, the vertical bar: show the title's cover in place of the page. */
+    coverViewShowCover: string;
+    /** The same button on the cover: back to the page. */
+    coverViewShowPages: string;
+    immersiveCanvas: string;
+    pageFit: string;
+    pageFitPage: string;
+    pageFitWidth: string;
+    pageFitHeight: string;
+    pageFitFill: string;
+    /** Footer under the fit choice: it is remembered per screen size. */
+    pageFitFootnote: string;
+    windowShapeNarrow: string;
+    windowShapeWide: string;
+    windowShapeLarge: string;
     widenPageWidth: string;
     // Added with the reading-loop / dismiss-trap fixes.
     endOfChapterTitle: string;
@@ -684,28 +743,21 @@ export type MobileStrings = {
     endOfChapterDismiss: string;
     errorDetailWithReason: string;
     pageImageRetry: string;
-    noPagesTitle: string;
+    /** The same, with more than one page on screen failed (a spread). */
+    pageImagesRetry: string;
     openSourceSettings: string;
     sourceBlockedHint: string;
   };
   search: {
-    addCompatibleSource: string;
     addSource: string;
     all: string;
     allSources: string;
     allSourcesSelectionHint: string;
     browseSources: string;
-    enterQuery: string;
     enterSearchTerm: string;
-    liveSearchCachedStatus: string;
-    liveSearchFailed: string;
-    liveSearchNeedsCache: string;
     liveSourceResults: string;
-    liveSourceSearch: string;
     noLiveMatches: string;
-    noSavedMatches: string;
     noSavedMatchesForQuery: string;
-    noSources: string;
     noSourcesDescription: string;
     noSourcesInstalled: string;
     noSourcesSelected: string;
@@ -718,11 +770,31 @@ export type MobileStrings = {
     searchForManga: string;
     searchUnavailable: string;
     searching: string;
-    searchingSelectedSources: string;
-    selectedOfSources: string;
     sourceAccessibility: string;
     sourceSelectionHint: string;
     updated: string;
+    /** Regular-width sidebar: heading of the installed-source list. */
+    sidebarSources: string;
+    /** Sidebar row hint: a tap searches only this source. */
+    sidebarAllSourcesHint: string;
+    /** Sidebar row status, e.g. "12 results". */
+    sidebarResultCount: string;
+    sidebarSearchFailed: string;
+    recentSearches: string;
+    clearRecentSearches: string;
+    recentSearchAccessibility: string;
+    /** Trailing action on a source's result section that has more results. */
+    seeAll: string;
+    /** One quiet line for every source that found nothing; `{{sources}}`. */
+    noResultsInSources: string;
+    /** One quiet line for sources whose matches are all in the Library; `{{sources}}`. */
+    resultsInLibraryInSources: string;
+    /** Inline spinner line while sources are still searching; `{{sources}}`. */
+    searchingSources: string;
+    /** Last item of a collapsed source list ("A, B and 3 more"); `{{count}}`. */
+    moreSourcesCount: string;
+    /** Retry action on a source that could not be searched; `{{source}}`. */
+    retrySourceAccessibility: string;
   };
   settings: {
     aboutNemuBeforeBrand: string;
@@ -743,10 +815,8 @@ export type MobileStrings = {
     agentReady: string;
     agentVerificationUnavailable: string;
     agentRefresh: string;
-    agentRefreshStatus: string;
     agentVersion: string;
     browseSource: string;
-    builtIn: string;
     clearAllData: string;
     clearAllDataConfirm: string;
     clearAllDataDescription: string;
@@ -754,7 +824,6 @@ export type MobileStrings = {
     clearCache: string;
     clearCacheConfirm: string;
     clearCacheDescription: string;
-    storageTotal: string;
     storageCovers: string;
     storagePages: string;
     storageSourcePackages: string;
@@ -766,9 +835,13 @@ export type MobileStrings = {
     storageRowPages: string;
     storageTotalLabel: string;
     storageCountImages: string;
+    storageCountImagesOne: string;
     storageCountPages: string;
+    storageCountPagesOne: string;
     storageCountPackages: string;
+    storageCountPackagesOne: string;
     storageCountPageLists: string;
+    storageCountPageListsOne: string;
     storageFootnote: string;
     clearCoverCache: string;
     clearPageCache: string;
@@ -811,14 +884,14 @@ export type MobileStrings = {
     cloudSyncAuthenticationStorageUnavailable: string;
     cloudSyncSignInFailed: string;
     cloudSyncSignInPrompt: string;
+    cloudSyncSecureStorageOff: string;
+    cloudSyncSecureStorageOffDetail: string;
     cloudSyncSignedIn: string;
     cloudSyncSignOut: string;
     cloudSyncSignOutFailed: string;
     cloudSyncSignOutLabel: string;
     cloudSyncSignOutMessage: string;
     cloudSyncSignOutTitle: string;
-    cloudSyncUnavailable: string;
-    cloudSyncUnavailableDetail: string;
     localDataCleanupTitle: string;
     localDataCleanupDescription: string;
     dataManagement: string;
@@ -826,6 +899,50 @@ export type MobileStrings = {
     editReaderPluginSettings: string;
     importSource: string;
     importingSource: string;
+    sourceDirectories: string;
+    sourceDirectoriesHint: string;
+    sourceDirectoryContentsHint: string;
+    sourceDirectoryDisabledHint: string;
+    sourceDirectoriesFooter: string;
+    editSourceDirectoryUrl: string;
+    addSourceDirectory: string;
+    addSourceDirectoryMessage: string;
+    addSourceDirectoryLinkTitle: string;
+    addSourceDirectoryLinkMessage: string;
+    sourceDirectoryUrlPlaceholder: string;
+    sourceDirectoryAddress: string;
+    sourceDirectoryDisclaimer: string;
+    pasteSourceDirectoryAddress: string;
+    checkingSourceDirectory: string;
+    sourceDirectoryAidokuHeader: string;
+    sourceDirectoryAidokuFooter: string;
+    sourceDirectoryAddedNamed: string;
+    sourceDirectorySourceCountOne: string;
+    sourceDirectorySourceCountOther: string;
+    showSourceDirectorySources: string;
+    removeSourceDirectory: string;
+    removeSourceDirectoryTitle: string;
+    removeSourceDirectoryMessage: string;
+    toggleSourceDirectoryEnabled: string;
+    nemuRecommendedDirectoryName: string;
+    sourceFileOrigin: string;
+    sourceDirectoryBuiltIn: string;
+    sourceDirectoryErrorInvalid: string;
+    sourceDirectoryErrorNotHttps: string;
+    sourceDirectoryErrorLocal: string;
+    sourceDirectoryErrorDuplicate: string;
+    sourceDirectoryErrorLimit: string;
+    sourceDirectoryErrorUnreachable: string;
+    sourceDirectoryErrorNoSources: string;
+    sourceDirectoryErrorIncompatible: string;
+    autoUpdateSources: string;
+    autoUpdateSourcesFooter: string;
+    checkSourceUpdates: string;
+    updateSourcesNow: string;
+    updateSourcesCount: string;
+    updateSourcesUpToDate: string;
+    sourceDirectoriesRefreshed: string;
+    sourceLocalNetworkHint: string;
     importSourceCardTitle: string;
     importSourceCardDescription: string;
     importSourceChooseFile: string;
@@ -849,8 +966,8 @@ export type MobileStrings = {
     pluginsDescription: string;
     pluginSettings: string;
     readerPluginSwitch: string;
+    readerPluginOffFooter: string;
     refreshSources: string;
-    refreshSourcesHint: string;
     selectSettingOption: string;
     settingCountOne: string;
     settingCountOther: string;
@@ -869,15 +986,15 @@ export type MobileStrings = {
     sourceSettingsReset: string;
     sourceSettingsResetLabel: string;
     sourceSettingsSavedOnDevice: string;
-    sourceSettingsTitle: string;
     sourceSettingsToggleOption: string;
     sourceSettingsBack: string;
     sourceSettingsOpenPage: string;
     sourceSettingsLogin: string;
+    /** A login sheet's title (and its row's) when the source's own says nothing, or shouts. */
+    sourceSettingsLoginTitle: string;
     sourceSettingsLoginUnavailable: string;
     sourceSettingsLoginUnsupported: string;
     sourceSettingsLogout: string;
-    sourceSettingsLoginInProgress: string;
     sourceSettingsLoggedIn: string;
     sourceSettingsLoggedOut: string;
     sourceSettingsLoginFailed: string;
@@ -959,7 +1076,71 @@ export type MobileStrings = {
     sourceCountOther: string;
     sourceSearchPlaceholder: string;
     subtitle: string;
-    dragToReorder: string;
+    reorderHint: string;
+  };
+  selfHosted: {
+    connectServer: string;
+    builtInSources: string;
+    /** Browse group title of the user's own servers. */
+    groupTitle: string;
+    kindSubtitle: { komga: string; kavita: string; suwayomi: string };
+    serverAddress: string;
+    serverAddressPlaceholder: string;
+    name: string;
+    username: string;
+    password: string;
+    apiKey: string;
+    loginFooter: string;
+    connecting: string;
+    connectFailedTitle: string;
+    errorAddressEmpty: string;
+    errorAddressInvalid: string;
+    errorAddressScheme: string;
+    errorAddressCredentials: string;
+    errorAddressLocal: string;
+    errorUnreachable: string;
+    errorUnauthorized: string;
+    errorForbidden: string;
+    /** `{{kind}}` is the server software's name. */
+    errorNotThisServer: string;
+    /** `{{status}}` is the HTTP status. */
+    errorServer: string;
+    errorUnsupported: string;
+    /** Shown instead of a source's content when its login is not on this device. */
+    needsSignIn: string;
+    reservedSourceId: string;
+  };
+  account: {
+    title: string;
+    name: string;
+    email: string;
+    signInMethod: string;
+    deleteAccount: string;
+    deleteFooter: string;
+    deleteAlertTitle: string;
+    deleteAlertMessage: string;
+    deleteConfirm: string;
+    deleting: string;
+    deleted: string;
+    deleteFailed: string;
+    deleteNotAvailableYet: string;
+    deleteOffline: string;
+    deleteReauth: string;
+    deleteUnavailable: string;
+    deleteCleanupFailed: string;
+    /** Footer under the Account page's Sign Out row. */
+    signOutFooter: string;
+    /** Toast after a sign-out from the Account page. */
+    signedOut: string;
+    openAccount: string;
+  };
+  aiConsent: {
+    title: string;
+    bodyBefore: string;
+    privacyPolicy: string;
+    bodyAfter: string;
+    decline: string;
+    accept: string;
   };
   feedback: {
     dismiss: string;
@@ -967,11 +1148,14 @@ export type MobileStrings = {
     removedFromLibrary: string;
     removedFromLibraryHint: string;
     markedAllRead: string;
+    collectionDeleted: string;
+    refreshSourcesFailedNetwork: string;
+    refreshSourcesFailed: string;
     quickMenuMarkAllRead: string;
     quickMenuOpenInSource: string;
     quickMenuAddToCollection: string;
     libraryRefreshFailedTitle: string;
-    libraryRefreshUnavailableSuffix: string;
+    libraryRefreshUnavailableDetail: string;
     technicalDetails: string;
     catalogUnavailableTitle: string;
     catalogUnavailableDetail: string;
@@ -988,8 +1172,105 @@ export type MobileStrings = {
     readerSlowSource: string;
     readerWaitingForNetwork: string;
     displayKeepAwake: string;
+    /** Reader settings, More: a tap with every page turn. */
+    displayPageTurnHaptics: string;
     displayLockPortrait: string;
     viewAllInSource: string;
+  };
+  /** iPhone Duo / foldable signature features (bilingual book, spine, display handoff). */
+  duo: {
+    bilingualLayoutLabel: string;
+    bilingualSpread: string;
+    bilingualSideBySide: string;
+    bilingualSecondaryPageAccessibility: string;
+    bilingualLoadingSecondary: string;
+    bilingualNoMatchingPage: string;
+    coverPage: string;
+  };
+  /** On-device Japanese dictionary pack (reader analysis + settings). */
+  japaneseLearningDictionary: {
+    title: string;
+    checking: string;
+    notDownloaded: string;
+    downloaded: string;
+    downloadingProgress: string;
+    installing: string;
+    failed: string;
+    failedUsingCloud: string;
+    removing: string;
+    downloadNow: string;
+    remove: string;
+    retry: string;
+    progressAccessibility: string;
+    analysisDownloadFailed: string;
+  };
+  /** Design-explore prototypes. */
+  designExplore: {
+    moreActions: string;
+    chapterFinished: string;
+    newChapterCount: string;
+    addToLibrary: string;
+    inLibrary: string;
+    descriptionMore: string;
+    /** The full description's sheet: its title, close button and the "more" hint. */
+    descriptionSheetTitle: string;
+    closeDescription: string;
+    descriptionMoreHint: string;
+    /** The detail ··· menu and the chapter long-press menu. */
+    menuAddToCollection: string;
+    menuMarkFinished: string;
+    menuShare: string;
+    menuCopyLink: string;
+    /** Toast after Copy Link. */
+    menuLinkCopied: string;
+    chapterMarkRead: string;
+    chapterMarkPreviousRead: string;
+    /** Clears the chapter's (or, as `menuMarkUnread`, the work's) reading on every device. */
+    chapterMarkUnread: string;
+    menuMarkUnread: string;
+    /** The 作品信息 sheet (status, source, author, genres…), opened from the ⓘ by the hero's facts. */
+    infoSheetTitle: string;
+    infoButtonHint: string;
+    closeInfo: string;
+    infoLatestChapter: string;
+    infoSource: string;
+    infoLanguage: string;
+    infoAuthor: string;
+    infoLicense: string;
+    infoGenre: string;
+    infoDateAdded: string;
+    infoLastRead: string;
+    /** Detail facts row: small labels over the values. */
+    factStatus: string;
+    /** Wide detail meta line: chapter count and how far the series has got. */
+    /** Chapter list (design-explore): the chapter to read next, its menu and its volume headers. */
+    chapterUpNext: string;
+    chapterContinue: string;
+    chapterRead: string;
+    chapterReadFromStart: string;
+    chapterRowHint: string;
+    chapterVolume: string;
+    chapterNoVolume: string;
+    chapterAfterVolume: string;
+    chapterRange: string;
+    libraryEmptyBrowse: string;
+    /** Caption above a chapter list whose chapters (nearly) all come from one group or category. */
+    /** Browse: heading over the sources the library's titles come from. */
+    browseInLibrary: string;
+    /** Browse: how many library titles a source holds (more than one). */
+    browseLibraryTitles: string;
+    /** Browse: a source holding one library title. */
+    browseLibraryTitlesOne: string;
+    filtersMenu: string;
+    filtersMenuCount: string;
+    sortMenu: string;
+    allFilters: string;
+    clearFilters: string;
+    refreshSource: string;
+    coverUpload: string;
+    sourceSectionsLabel: string;
+    seeAll: string;
+    sourceOptions: string;
   };
 };
 
@@ -1027,6 +1308,10 @@ function loadMobileLocaleCatalog(language: AppLanguage): MobileStrings {
         require("./mobileI18n.en") as { mobileStringsEn: MobileStrings }
       ).mobileStringsEn;
       break;
+  }
+  // Design-explore bundles (iOS): a few words mean something else there.
+  if (getMobileDesignExploreActive()) {
+    catalog = withMobileDesignExploreCopy(catalog, language);
   }
   loadedLocaleCatalogs[language] = catalog;
   return catalog;

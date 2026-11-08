@@ -1,0 +1,22 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'pm.nemu.mobile.windowlayout'
+version = '1.0.0'
+
+android {
+  namespace "pm.nemu.mobile.windowlayout"
+  defaultConfig {
+    versionCode 1
+    versionName "1.0.0"
+  }
+}
+
+dependencies {
+  // Jetpack WindowManager: WindowInfoTracker → FoldingFeature. Same line React
+  // Native already ships (react-native/gradle/libs.versions.toml).
+  implementation "androidx.window:window:1.5.1"
+  testImplementation "junit:junit:4.13.2"
+}

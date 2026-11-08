@@ -34,6 +34,26 @@ const sharedSourceSettingsSecureStore = new SecureNativeKVStore({
 // serialize across store instances that share the same profile namespace.
 const sourceSettingsVaultQueues = new Map<string, Promise<unknown>>();
 
+/**
+ * The secure store answered that a referenced item does not exist (iOS
+ * `errSecItemNotFound`; Android after a reinstall or an invalidated key). It is
+ * never raised for a store that could not be read — a locked keychain before
+ * first unlock throws its own error instead — so callers may treat it as
+ * "this reference is dangling" and drop it.
+ */
+export class MobileSourceSettingsVaultEntryMissingError extends Error {
+  constructor() {
+    super("Secure mobile source settings are unavailable.");
+    this.name = "MobileSourceSettingsVaultEntryMissingError";
+  }
+}
+
+export function isMobileSourceSettingsVaultEntryMissingError(
+  error: unknown,
+): error is MobileSourceSettingsVaultEntryMissingError {
+  return error instanceof MobileSourceSettingsVaultEntryMissingError;
+}
+
 export type MobileSourceSettingsVaultMarker = {
   __nemuSourceSettingsVault: typeof SOURCE_SETTINGS_VAULT_VERSION;
   ref: string;
@@ -507,9 +527,7 @@ export class SecureMobileSourceSettingsVault implements MobileSourceSettingsVaul
     this.assertValidRef(ref);
     return this.enqueue(async () => {
       const json = await this.readLogicalValue(ref);
-      if (json === null) {
-        throw new Error("Secure mobile source settings are unavailable.");
-      }
+      if (json === null) throw new MobileSourceSettingsVaultEntryMissingError();
       return parseSourceSettings(json, expectedSourceKey);
     });
   }
@@ -654,9 +672,9 @@ export class SecureMobileSourceSettingsVault implements MobileSourceSettingsVaul
       const encoded = await this.storage.getString(
         this.chunkKey(key, manifest, index),
       );
-      if (encoded === null) {
-        throw new Error("Secure mobile source settings are unavailable.");
-      }
+      // A manifest whose chunk is gone cannot be completed; it is as dangling
+      // as a missing manifest. A chunk that could not be read throws instead.
+      if (encoded === null) throw new MobileSourceSettingsVaultEntryMissingError();
       const chunk = decodeBase64Url(encoded);
       const expectedLength = Math.min(
         SOURCE_SETTINGS_CHUNK_BYTES,

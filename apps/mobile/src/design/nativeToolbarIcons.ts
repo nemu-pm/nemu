@@ -1,12 +1,28 @@
+// No "ellipsis" symbols here on purpose: HIG (iPhone Duo) reserves the
+// ellipsis for the system overflow menu, which the vertical bar adds itself.
+// Give any nemu-owned menu or sheet a distinct symbol.
 export type NemuNativeToolbarSymbol =
+  | "arrow.clockwise"
+  | "checkmark"
+  | "checkmark.circle"
+  | "circle"
+  | "link"
+  | "rectangle.stack.badge.plus"
+  | "square.and.arrow.up"
+  | "chevron.backward"
   | "chevron.left"
-  | "ellipsis.circle"
+  | "folder.badge.gearshape"
+  | "folder.badge.plus"
+  | "gearshape"
   | "line.3.horizontal.decrease"
   | "magnifyingglass"
   | "pencil"
   | "plus"
+  | "rectangle.stack"
+  | "square.and.arrow.down"
   | "square.stack.3d.up"
   | "trash"
+  | "xmark"
   | "xmark.circle";
 
 export function resolveNemuNativeToolbarIcon(icon: NemuNativeToolbarSymbol) {

@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { authClient } from '@/lib/auth-client'
 import type { TextDetection, TextDetectorSettings, OcrResult, OcrTranscriptLine } from './types'
 import type { GrammarToken } from './ichiran-types'
 import { DEFAULT_SETTINGS } from './types'
@@ -10,7 +11,7 @@ import { convertIchiranToGrammarTokens } from './grammar-analysis'
 import { ConvexHttpClient } from 'convex/browser'
 import { api } from '../../../../../convex/_generated/api'
 import { jlDebugLog } from './debug'
-import { getAuthGateStatus, useAuthGate } from '@/lib/auth-gate'
+import { createSignInGate, getAuthGateStatus, useAuthGate } from '@/lib/auth-gate'
 
 const storage = createPluginStorage('japanese-learning')
 
@@ -32,7 +33,19 @@ function getConvexHttp(): ConvexHttpClient | null {
 }
 
 const normalizeCache = new Map<string, NormalizeResult>()
+// Tokenizing doesn't need an account, so analysis carries on without this prepass.
+const normalizeGate = createSignInGate({ reason: 'grammarAnalysis' })
 let didWarnConvexMissing = false
+
+/** Fresh Convex/Better Auth JWT for the OCR gateway (null when signed out). */
+async function getOcrAuthToken(): Promise<string | undefined> {
+  try {
+    const res = await (authClient as unknown as { convex: { token: () => Promise<{ data?: { token?: string } | null }> } }).convex.token()
+    return res.data?.token ?? undefined
+  } catch {
+    return undefined
+  }
+}
 
 async function normalizeText(text: string): Promise<NormalizeResult> {
   const clean = (text ?? '').trim()
@@ -51,11 +64,18 @@ async function normalizeText(text: string): Promise<NormalizeResult> {
 
   try {
     const fn = api.japanese_learning.normalize
-    if (import.meta.env.DEV) console.debug('[JapaneseLearning] normalize → convex', { len: clean.length })
-    const res = (await client.action(fn, { text: clean })) as {
+    const res = (await normalizeGate.run(async () => {
+      const token = await getOcrAuthToken()
+      if (!token) throw new Error('Not authenticated')
+      client.setAuth(token)
+      if (import.meta.env.DEV) console.debug('[JapaneseLearning] normalize → convex', { len: clean.length })
+      return client.action(fn, { text: clean })
+    })) as {
       normalized?: string
       proper_nouns?: string[]
     } | null
+    // Signed out: nothing cached, so the prepass runs once they sign in.
+    if (!res) return { normalized: clean, properNouns: [] }
     const normalized = typeof res?.normalized === 'string' ? res.normalized : clean
     const properNouns = Array.isArray(res?.proper_nouns)
       ? res!.proper_nouns.filter((s) => typeof s === 'string')
@@ -520,7 +540,8 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
         }
 
         w.addEventListener('message', handler)
-        w.postMessage({ type: 'ocr', requestId, image } satisfies WorkerRequest)
+        const token = await getOcrAuthToken()
+        w.postMessage({ type: 'ocr', requestId, image, token } satisfies WorkerRequest)
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         console.error('[JapaneseLearning] ocr failed:', msg)

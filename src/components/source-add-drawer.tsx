@@ -13,6 +13,7 @@ import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useAction } from "convex/react";
 import { api } from "../../convex/_generated/api";
+import { createSignInGate } from "@/lib/auth-gate";
 import { useStores, useAllMangaProgress } from "@/data/context";
 import { parseSourceKey } from "@/data/keys";
 import { makeMangaProgressId, type LocalMangaProgress } from "@/data/schema";
@@ -759,6 +760,9 @@ function MergeConfirmation({
 // Main Component
 // =============================================================================
 
+// Source search works signed out; only the AI title fallback needs an account.
+const aiLookupGate = createSignInGate({ reason: "aiMetadata", resume: "source-add" });
+
 export function SourceAddDrawer({
   open,
   onOpenChange,
@@ -828,6 +832,7 @@ export function SourceAddDrawer({
   useEffect(() => {
     if (open) {
       storeReset();
+      aiLookupGate.reset();
       setViewMode("select");
       setSourceResults([]);
       setAddedMangaIds(new Set());
@@ -842,7 +847,7 @@ export function SourceAddDrawer({
   const aiSearch = useCallback(
     async (title: string, authorsHint?: string[]): Promise<string | null> => {
       try {
-        return await findJapaneseTitle({ title, authors: authorsHint });
+        return await aiLookupGate.run(() => findJapaneseTitle({ title, authors: authorsHint }));
       } catch (e) {
         console.error("[SourceAdd] AI search error:", e);
         return null;

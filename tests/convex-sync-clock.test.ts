@@ -31,7 +31,7 @@ describe("Convex sync clock observation contract", () => {
     ).resolves.toEqual({
       generation: 4,
       serverNow: 1_700_000_000_123,
-      chapterProgressIntraPageVersion: 1,
+      chapterProgressIntraPageVersion: 2,
     });
   });
 });

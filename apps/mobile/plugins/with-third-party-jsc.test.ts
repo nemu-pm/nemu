@@ -34,6 +34,7 @@ const plugin = require(
   patchAndroidSettingsGradle: (contents: string) => string;
   patchAndroidAppBuildGradle: (contents: string) => string;
   patchAndroidDebugManifest: (contents: string) => string;
+  patchAndroidReflectionProguardRules: (contents: string) => string;
   ensureAndroidFirstPartyNetworkSecurityConfig: (
     manifest: AndroidManifest,
   ) => AndroidManifest;
@@ -52,6 +53,11 @@ const PODFILE = [
   "prepare_react_native_project!",
   "",
   "target 'nemu' do",
+  "  config = use_native_modules!",
+  "  use_react_native!(",
+  "    :path => config[:reactNativePath],",
+  "    :hermes_enabled => false,",
+  "  )",
   `  pod 'hermes-engine', :podspec => "#{config[:reactNativePath]}/sdks/hermes-engine/hermes-engine.podspec"`,
   "  post_install do |installer|",
   "    react_native_post_install(",
@@ -257,6 +263,33 @@ describe("generated native project patches", () => {
     );
   });
 
+  test("preserves SDK 58's Expo scene lifecycle while replacing only its JS engine", () => {
+    const sdk58Delegate = APP_DELEGATE
+      .replace("class AppDelegate: ExpoAppDelegate {", "class AppDelegate: ExpoAppDelegate, ExpoReactNativeFactoryProvider {")
+      .replace(/#if os\(iOS\) \|\| os\(tvOS\)[\s\S]*?#endif/, "// Window creation is owned by ExpoAppSceneDelegate.");
+    const patched = plugin.patchSwiftAppDelegate(sdk58Delegate);
+    expect(patched).toContain("ExpoReactNativeFactoryProvider");
+    expect(patched).toContain("jsrt_create_jsc_factory()");
+    expect(patched).not.toContain("class SceneDelegate");
+    expect(patched).not.toContain("initialLaunchOptions");
+    expect(plugin.patchSwiftAppDelegate(patched)).toBe(patched);
+  });
+
+  test("provides Worklets Hermes pods without changing the host engine", () => {
+    const patched = plugin.patchPodfile(PODFILE);
+    const setup = "setup_hermes!(:react_native_path => config[:reactNativePath]) if use_third_party_jsc()";
+    expect(patched.split(setup)).toHaveLength(2);
+    expect(patched.indexOf(setup)).toBeGreaterThan(patched.indexOf("  use_react_native!("));
+    expect(patched.indexOf(setup)).toBeLessThan(patched.indexOf("  post_install do"));
+    expect(patched).toContain("ENV['USE_THIRD_PARTY_JSC'] ||= '1'");
+    expect(patched).toContain("ENV['USE_HERMES'] ||= '0'");
+    expect(patched).not.toContain("ENV['USE_HERMES'] = '1'");
+    expect(patched).not.toContain("  pod 'hermes-engine'");
+    expect(plugin.patchPodfile(patched)).toBe(patched);
+    expect(() => plugin.patchPodfile(PODFILE.replace("use_react_native!(", "renamed_rn_setup!(")))
+      .toThrow(/register the isolated Worklets Hermes pods/);
+  });
+
   test("orders app CMake configuration after Skia Prefab packaging", () => {
     const buildGradle = plugin.patchAndroidAppBuildGradle(
       'dependencies {\n    implementation("com.facebook.react:react-android")\n}\n',
@@ -267,6 +300,18 @@ describe("generated native project patches", () => {
     expect(buildGradle).toContain('"prefabReleasePackage"');
     expect(buildGradle).toContain("appConfigure.dependsOn(producer)");
     expect(buildGradle).toContain("prefabPackage.mustRunAfter(projectClean)");
+  });
+
+  test("retains Worklets Hermes shared libraries alongside the main JSC runtime", () => {
+    const buildGradle = plugin.patchAndroidAppBuildGradle(
+      'dependencies {\n    implementation("com.facebook.react:react-android")\n}\n',
+    );
+    expect(buildGradle).toContain("react { enableSoCleanup = false }");
+    expect(buildGradle).toContain("implementation project(':react-native-community_javascriptcore')");
+    expect(plugin.patchKotlinMainApplication(MAIN_APPLICATION)).toContain(
+      "jsRuntimeFactory = JSCRuntimeFactory()",
+    );
+    expect(plugin.patchAndroidAppBuildGradle(buildGradle)).toBe(buildGradle);
   });
 
   test("fail loudly instead of shipping an unpatched project", () => {
@@ -423,5 +468,22 @@ describe("Android responsive orientation policy", () => {
         "android:screenOrientation"
       ],
     ).toBe("sensorLandscape");
+  });
+});
+
+describe("Android reflective startup classes", () => {
+  test("retains the Room implementation constructor in both fresh and migrated projects", () => {
+    for (const original of [
+      "# User rules\n-keep class com.example.Custom { *; }\n",
+      "# nemuKeepExpoHeadlessAppLoader\n-keep class expo.modules.adapters.react.apploader.RNHeadlessAppLoader { *; }\n",
+    ]) {
+      const patched = plugin.patchAndroidReflectionProguardRules(original);
+      expect(patched).toContain(original.trimEnd());
+      expect(patched).toMatch(
+        /-keep class androidx\.work\.impl\.WorkDatabase_Impl\s*\{\s*public <init>\(\);\s*\}/,
+      );
+      expect(patched.match(/-keep class expo\.modules\.adapters\.react\.apploader\.RNHeadlessAppLoader/g)).toHaveLength(1);
+      expect(plugin.patchAndroidReflectionProguardRules(patched)).toBe(patched);
+    }
   });
 });

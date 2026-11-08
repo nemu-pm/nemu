@@ -6,6 +6,9 @@
  *   APPLE_PRIVATE_KEY (key content) OR APPLE_PRIVATE_KEY_PATH (path to .p8 file)
  * 
  * Usage: npx tsx scripts/generate-apple-secret.ts
+ *        APPLE_SECRET_TARGET=native npx tsx scripts/generate-apple-secret.ts
+ *   (native: subject is APPLE_APP_BUNDLE_ID, sets APPLE_NATIVE_CLIENT_SECRET, used
+ *   only to revoke tokens of native bundle-id sign-ins at account deletion)
  */
 
 import { SignJWT, importPKCS8 } from "jose";
@@ -18,7 +21,9 @@ config({ path: ".env.local" });
 
 const teamId = process.env.APPLE_TEAM_ID;
 const keyId = process.env.APPLE_KEY_ID;
-const clientId = process.env.APPLE_CLIENT_ID;
+const native = process.env.APPLE_SECRET_TARGET === "native";
+const clientId = native ? process.env.APPLE_APP_BUNDLE_ID : process.env.APPLE_CLIENT_ID;
+const secretEnvName = native ? "APPLE_NATIVE_CLIENT_SECRET" : "APPLE_CLIENT_SECRET";
 const keyPath = process.env.APPLE_PRIVATE_KEY_PATH;
 const keyContent = process.env.APPLE_PRIVATE_KEY;
 
@@ -57,10 +62,10 @@ async function generate() {
 
   // Set in Convex
   try {
-    execSync(`npx convex env set APPLE_CLIENT_SECRET "${jwt}"`, {
+    execSync(`npx convex env set ${secretEnvName} "${jwt}"`, {
       stdio: "inherit",
     });
-    console.log("✓ Set APPLE_CLIENT_SECRET in Convex");
+    console.log(`✓ Set ${secretEnvName} in Convex`);
   } catch {
     console.error("❌ Failed to set env var in Convex");
     process.exit(1);

@@ -140,6 +140,52 @@ export function readerContinuousAccessibilityAction(
   };
 }
 
+/** Share of a screen that stays on screen when the strip moves by one screen. */
+export const READER_SCROLL_SCREEN_OVERLAP = 0.12;
+
+/**
+ * Scroll reading: one screen up or down (the book posture's page controls,
+ * screen tap zones). One screen is the viewport less the safe areas at its top
+ * and bottom, and 12% of it stays on screen. Reaching the bottom is a separate
+ * action from advancing past it.
+ */
+export function readerContinuousScreenStep(
+  input: Pick<
+    ReaderContinuousScrollMetrics,
+    "contentOffset" | "contentLength" | "viewportLength"
+  >,
+  direction: "previous" | "next",
+  safeInsets: { top: number; bottom: number },
+): ReaderContinuousAccessibilityAction {
+  if (
+    !Number.isFinite(input.contentOffset) ||
+    !Number.isFinite(input.contentLength) ||
+    !Number.isFinite(input.viewportLength) ||
+    input.contentLength <= 0 ||
+    input.viewportLength <= 0
+  ) {
+    return { kind: "scroll", offset: 0 };
+  }
+  const maximumOffset = Math.max(0, input.contentLength - input.viewportLength);
+  const contentOffset = Math.max(0, Math.min(maximumOffset, input.contentOffset));
+  if (direction === "next" && contentOffset >= maximumOffset - 2) {
+    return { kind: "end" };
+  }
+  const inset = (value: number) => (Number.isFinite(value) ? Math.max(0, value) : 0);
+  const screen = Math.max(
+    1,
+    input.viewportLength - inset(safeInsets.top) - inset(safeInsets.bottom),
+  );
+  const delta = Math.max(1, screen * (1 - READER_SCROLL_SCREEN_OVERLAP));
+  return {
+    kind: "scroll",
+    offset: Math.max(
+      0,
+      Math.min(maximumOffset, contentOffset + (direction === "next" ? delta : -delta)),
+    ),
+  };
+}
+
 function normalizedReaderProgress(
   value: number | null | undefined,
 ): number | null {

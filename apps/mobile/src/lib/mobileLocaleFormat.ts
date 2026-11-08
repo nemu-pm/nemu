@@ -137,3 +137,54 @@ export function formatMobileClockTime(
   }
   return `${hours}:${minutes}`;
 }
+
+/**
+ * Web chat `formatTime`: `toLocaleTimeString(locale, { hour: "numeric",
+ * minute: "2-digit", hour12: true })` — always 12-hour: "1:05 PM" (en),
+ * "午後1:05" (ja, hours 0–11), "下午1:05" (zh). Chat timestamps only; the
+ * rest of the app keeps `formatMobileClockTime`.
+ */
+export function formatMobileClockTime12h(
+  timestamp: number,
+  appLanguage: AppLanguage,
+  hasIntl: boolean = mobileEngineHasIntl(),
+): string {
+  const date = new Date(timestamp);
+  if (hasIntl) {
+    try {
+      return date.toLocaleTimeString(TIME_LOCALE_BY_LANGUAGE[appLanguage], {
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      });
+    } catch {
+      // Fall through to the table below.
+    }
+  }
+  const hours = date.getHours();
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const pm = hours >= 12;
+  if (appLanguage === "ja") {
+    // CLDR ja `aK:mm`: 午前0:05 … 午後11:59.
+    return `${pm ? "午後" : "午前"}${hours % 12}:${minutes}`;
+  }
+  const hour12 = hours % 12 === 0 ? 12 : hours % 12;
+  if (appLanguage === "zh") {
+    // ICU zh hour12 uses CLDR flexible day periods (`Bh:mm`): 凌晨 00–05,
+    // 早上 05–08, 上午 08–12, 中午 12–13, 下午 13–19, 晚上 19–24.
+    const period =
+      hours < 5
+        ? "凌晨"
+        : hours < 8
+          ? "早上"
+          : hours < 12
+            ? "上午"
+            : hours < 13
+              ? "中午"
+              : hours < 19
+                ? "下午"
+                : "晚上";
+    return `${period}${hour12}:${minutes}`;
+  }
+  return `${hour12}:${minutes} ${pm ? "PM" : "AM"}`;
+}

@@ -7,17 +7,21 @@ import {
   View,
   type LayoutChangeEvent,
 } from "react-native";
+import { nemuSheetMetrics } from "@/design/nemuSheetMetrics";
 import { nemuFontWeight } from "@/design/typography";
 import { useNemuTheme } from "@/design/useNemuTheme";
 import {
   MOBILE_SHEET_HEADER_ITEM_GAP,
   resolveMobileSheetHeaderMetrics,
+  resolveMobileSheetHeaderTitleMargins,
 } from "@/lib/mobileNativeSheet";
 
 export type MobileSheetHeaderProps = {
   leading?: ReactNode;
   onLayout?: (event: LayoutChangeEvent) => void;
   title: string;
+  /** Extra space on each side of the centred title (iOS), e.g. to balance a padded side. */
+  titleInsets?: { left: number; right: number };
   trailing?: ReactNode;
 };
 
@@ -26,6 +30,7 @@ export function MobileSheetHeader({
   leading,
   onLayout,
   title,
+  titleInsets,
   trailing,
 }: MobileSheetHeaderProps) {
   const { tokens } = useNemuTheme();
@@ -34,11 +39,26 @@ export function MobileSheetHeader({
     I18nManager.isRTL,
   );
   const isAndroid = Platform.OS === "android";
-  const sideStyle = {
-    minHeight: metrics.controlSize,
-    minWidth: metrics.sideWidth ?? metrics.controlSize,
-    width: metrics.sideWidth ?? undefined,
-  };
+  const titleMargins =
+    !isAndroid && titleInsets
+      ? resolveMobileSheetHeaderTitleMargins({
+          balance: titleInsets,
+          hasLeading: Boolean(leading),
+          sideWidth: metrics.sideWidth,
+        })
+      : null;
+  // iOS reserves equal side columns so the title centres. Android's title is
+  // start-aligned, so a side hugs its content: header actions already bring
+  // their own 48dp target, and a decorative leading icon (the sign-out
+  // glyph) sits one item gap from the title instead of at the far edge of an
+  // empty 48dp column.
+  const sideStyle = isAndroid
+    ? { minHeight: metrics.controlSize }
+    : {
+        minHeight: metrics.controlSize,
+        minWidth: metrics.sideWidth ?? metrics.controlSize,
+        width: metrics.sideWidth ?? undefined,
+      };
 
   return (
     <View
@@ -62,6 +82,7 @@ export function MobileSheetHeader({
         style={[
           styles.titleBlock,
           metrics.titleAlignment === "center" ? styles.centeredTitleBlock : null,
+          titleMargins ? { marginLeft: titleMargins.left, marginRight: titleMargins.right } : null,
         ]}
       >
         <Text
@@ -106,18 +127,18 @@ const styles = StyleSheet.create({
   centeredTitleBlock: {
     alignItems: "center",
   },
+  // The native sheets' inline title (SwiftUI `headline`).
   iosTitle: {
     width: "100%",
-    fontSize: 16,
-    lineHeight: 20,
+    fontSize: 17,
+    lineHeight: 22,
     fontWeight: nemuFontWeight.semibold,
     letterSpacing: 0,
   },
+  // Material 3 titleLarge (22/28) from the shared sheet metrics table.
   androidTitle: {
     width: "100%",
-    fontSize: 20,
-    lineHeight: 26,
-    fontWeight: nemuFontWeight.medium,
+    ...nemuSheetMetrics.title,
     letterSpacing: 0,
   },
 });

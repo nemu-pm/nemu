@@ -15,8 +15,6 @@ import {
   getMobileWelcomeInstallErrorCopy,
   getMobileWelcomePendingSourceInstallCount,
   getMobileWelcomeUnderlyingContentState,
-  getMobileWelcomeRecommendedSources,
-  mobileWelcomeSourceKey,
   shouldScrollMobileWelcomeContent,
   shouldBlockMobileWelcomeUnderlyingContent,
   shouldStackMobileWelcomeActions,
@@ -24,6 +22,7 @@ import {
   resolveMobileWelcomeSheetContentTopPadding,
   MOBILE_WELCOME_IOS_SHEET_TOP_PADDING,
   MOBILE_WELCOME_ICON_SIZE,
+  MOBILE_WELCOME_SOURCE_ORDER,
 } from "./mobileWelcome";
 import { resolveMobileNativeSheetBodyTopPadding } from "./mobileNativeSheet";
 
@@ -38,6 +37,8 @@ function source(
     registryName: registryId,
     name,
     version: 1,
+    // Entries the onboarding offers carry the content licence the directory vouches for.
+    ...(registryId === "nemu-recommended" ? { contentLicense: "CC-BY-4.0" } : {}),
   };
 }
 
@@ -59,6 +60,12 @@ describe("mobile welcome helpers", () => {
     expect(shouldStackMobileWelcomeActions(390)).toBe(true);
     expect(shouldStackMobileWelcomeActions(767)).toBe(true);
     expect(shouldStackMobileWelcomeActions(768)).toBe(false);
+  });
+
+  test("a form-sheet body keeps the stack on a wide window; a wide body does not", () => {
+    expect(shouldStackMobileWelcomeActions(1032, 492)).toBe(true);
+    expect(shouldStackMobileWelcomeActions(1032, 984)).toBe(false);
+    expect(shouldStackMobileWelcomeActions(874, 702)).toBe(false);
   });
 
   test("coalesces successful completion writes and only retries failures", async () => {
@@ -309,52 +316,104 @@ describe("mobile welcome helpers", () => {
     });
   });
 
-  test("matches web recommended source order by app language", () => {
-    expect(
-      getMobileWelcomeRecommendedSources("en").map(mobileWelcomeSourceKey),
-    ).toEqual([
-      "aidoku-community:multi.mangaplus",
-      "aidoku-community:multi.mangadex",
-      "aidoku-community:ja.shonenjumpplus",
-    ]);
-    expect(
-      getMobileWelcomeRecommendedSources("zh").map(mobileWelcomeSourceKey),
-    ).toEqual([
-      "aidoku-zh:zh.manhuaren",
-      "aidoku-community:zh.copymanga",
-      "aidoku-community:ja.shonenjumpplus",
-    ]);
-    expect(
-      getMobileWelcomeRecommendedSources("ja").map(mobileWelcomeSourceKey)[0],
-    ).toBe("aidoku-community:ja.shonenjumpplus");
-  });
-
-  test("keeps only available recommended sources for the install list", () => {
+  test("offers only the nemu recommended directory's sources", () => {
     const available = [
       source("aidoku-community", "multi.mangadex", "MangaDex"),
-      source("aidoku-community", "ja.shonenjumpplus", "Shonen Jump+"),
-      source("other", "source"),
+      source("aidoku-zh", "zh.manhuaren", "Manhuaren"),
+      source("nemu-recommended", "multi.peppercarrot", "Pepper&Carrot"),
+      source("dir-0123456789ab", "en.user", "User added"),
     ];
 
     expect(
       getMobileWelcomeAvailableSources("en", available).map(
         (item) => item.name,
       ),
-    ).toEqual(["MangaDex", "Shonen Jump+"]);
+    ).toEqual(["Pepper&Carrot"]);
+    expect(getMobileWelcomeAvailableSources("en", [])).toEqual([]);
   });
 
-  test("defaults to available recommendations when registries have loaded", () => {
-    expect(
-      getMobileWelcomeDefaultSelection("en", [
-        source("aidoku-community", "multi.mangadex"),
-      ]),
-    ).toEqual(["aidoku-community:multi.mangadex"]);
+  test("ranks sources covering the app language first and hides sensitive ones", () => {
+    const withLanguages = (
+      id: string,
+      languages: string[],
+      contentRating?: number,
+    ): MobileRegistrySource => ({
+      ...source("nemu-recommended", id),
+      languages,
+      ...(contentRating == null ? {} : { contentRating }),
+    });
+    const catalog = [
+      withLanguages("en.only", ["en"]),
+      withLanguages("ja.only", ["ja"]),
+      withLanguages("multi.all", ["multi"]),
+      withLanguages("ja.adult", ["ja"], 2),
+    ];
 
-    expect(getMobileWelcomeDefaultSelection("en", [])).toEqual([
-      "aidoku-community:multi.mangaplus",
-      "aidoku-community:multi.mangadex",
-      "aidoku-community:ja.shonenjumpplus",
+    expect(
+      getMobileWelcomeAvailableSources("ja", catalog).map((item) => item.id),
+    ).toEqual(["ja.only", "multi.all", "en.only"]);
+    expect(
+      getMobileWelcomeAvailableSources("zh", catalog).map((item) => item.id),
+    ).toEqual(["multi.all", "en.only", "ja.only"]);
+  });
+
+  test("offers the built-in sources in the pinned order, whatever the language or the index order", () => {
+    const catalog = [
+      source("nemu-recommended", "en.littlenemo"),
+      source("nemu-recommended", "ja.ndlpublicdomain"),
+      source("nemu-recommended", "multi.minifantasytheater"),
+      source("nemu-recommended", "multi.peppercarrot"),
+    ];
+    const pinned = [
+      "ja.ndlpublicdomain",
+      "multi.peppercarrot",
+      "multi.minifantasytheater",
+      "en.littlenemo",
+    ];
+    expect(MOBILE_WELCOME_SOURCE_ORDER).toEqual(pinned);
+    for (const language of ["en", "ja", "zh"] as const) {
+      expect(
+        getMobileWelcomeAvailableSources(language, catalog).map((item) => item.id),
+      ).toEqual(pinned);
+      expect(
+        getMobileWelcomeAvailableSources(language, [...catalog].reverse()).map((item) => item.id),
+      ).toEqual(pinned);
+    }
+  });
+
+  test("a directory entry that is not pinned follows the pinned ones, unselected", () => {
+    const catalog = [
+      { ...source("nemu-recommended", "ja.future"), languages: ["ja"] },
+      source("nemu-recommended", "en.littlenemo"),
+      source("nemu-recommended", "ja.ndlpublicdomain"),
+    ];
+    expect(
+      getMobileWelcomeAvailableSources("ja", catalog).map((item) => item.id),
+    ).toEqual(["ja.ndlpublicdomain", "en.littlenemo", "ja.future"]);
+    expect(getMobileWelcomeDefaultSelection("ja", catalog)).toEqual([
+      "nemu-recommended:ja.ndlpublicdomain",
     ]);
+  });
+
+  test("selects only the Japanese public-domain source, and nothing before it loads", () => {
+    const catalog = [
+      source("nemu-recommended", "multi.peppercarrot"),
+      source("nemu-recommended", "multi.minifantasytheater"),
+      source("nemu-recommended", "en.littlenemo"),
+      source("nemu-recommended", "ja.ndlpublicdomain"),
+      source("aidoku-community", "multi.mangadex"),
+    ];
+    for (const language of ["en", "ja", "zh"] as const) {
+      expect(getMobileWelcomeDefaultSelection(language, catalog)).toEqual([
+        "nemu-recommended:ja.ndlpublicdomain",
+      ]);
+    }
+
+    // A catalog cached before the source was published selects nothing.
+    expect(
+      getMobileWelcomeDefaultSelection("en", [source("nemu-recommended", "multi.peppercarrot")]),
+    ).toEqual([]);
+    expect(getMobileWelcomeDefaultSelection("en", [])).toEqual([]);
   });
 
   test("counts only selected sources that still need installation", () => {

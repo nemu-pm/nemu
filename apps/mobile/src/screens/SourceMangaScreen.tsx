@@ -1,3 +1,6 @@
+import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
+import { formatMobileDetailDate } from "@/lib/mobileMangaDetailInfo";
+import { getMobileDetailLanguageNames, getMobileDetailSourceLicense } from "@/lib/mobileMangaDetailSourceInfo";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Stack,
@@ -5,19 +8,57 @@ import {
   useFocusEffect,
   useLocalSearchParams,
 } from "expo-router";
-import {
-  ActivityIndicator,
-  Platform,
-  StyleSheet,
-  Text,
-  View,
-  type ListRenderItemInfo,
-} from "react-native";
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { type FlatList, type NativeScrollEvent, type NativeSyntheticEvent, Platform, Share, type ListRenderItemInfo } from "react-native";
+import * as Clipboard from "expo-clipboard";
+import { useSharedValue, withTiming } from "react-native-reanimated";
+import { getMobileExploreBarTitleShown, MOBILE_EXPLORE_BAR_TITLE_FADE_MS } from "@/lib/mobileExploreBarTitle";
 import { EmptyLibrary } from "@/components/EmptyLibrary";
+import { useMobileToast } from "@/components/MobileToastContext";
+import {
+  buildMobileChapterReadMarks,
+  buildMobileChapterUnreadMarks,
+  resolveMobileShareUrl,
+  selectMobileChapterProgressToMarkUnread,
+  selectMobileChaptersToMarkRead,
+  type MobileChapterReadMarks,
+  type MobileChapterReadMarkScope,
+  type MobileChapterUnreadMarkScope,
+} from "@/lib/mobileChapterReadMarks";
+import { clearMobileReaderResumePositions } from "@/lib/mobileReaderResumePosition";
+import { renderExploreDetailBarMenu } from "@/components/explore/ExploreDetailBarMenu";
+import { mobileExploreDetailRailHasButtons, splitMobileExploreDetailBarActions } from "@/lib/mobileExploreDetailRail";
+import { MobileMetadataEditorSheet } from "@/components/MobileMetadataEditorSheet";
+import { MobileSourceManagerSheet } from "@/components/MobileSourceManagerSheet";
+import { getMobileMetadataEditorSaveResultAction } from "@/lib/mobileMetadataEditorBackBehavior";
+import {
+  buildMobileMetadataEditedItem,
+  type MobileMetadataFormValues,
+} from "@/lib/mobileMetadataOverrides";
+import { sortMobileSourceLinks } from "@/lib/mobileSourceLinks";
+import { withMobileSourceOperationTimeout } from "@/sources/mobileSourceOperationTimeout";
 import { MobileNemuAgentSheet } from "@/components/MobileNemuAgentSheet";
 import { MobileCollectionMembershipSheet } from "@/components/MobileCollectionMembershipSheet";
 import { MobileConfirmationSheet } from "@/components/MobileConfirmationSheet";
+import { MobileLibraryOptionsSheet } from "@/components/MobileLibraryOptionsSheet";
+import { withMobileExploreZoom } from "@/components/explore/mobileExploreCover";
+import {
+  formatMobileExploreChapterLabel,
+  withoutMobileZeroVolume,
+} from "@/lib/mobileContinueReadingCopy";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
+import {
+  MobileExploreChapterRow,
+  type MobileExploreChapterAction,
+} from "@/components/explore/MobileExploreChapterRow";
+import { MobileExploreBarTitle } from "@/components/explore/MobileExploreBarTitle";
+import { MobileExploreChapterMenu } from "@/components/explore/MobileExploreChapterMenu";
+import {
+  buildMobileExploreChapterRows,
+  findMobileUpNextIndex,
+  getMobileChapterListCommonGroup,
+  getMobileChapterVolumeHeaders,
+  getMobileExploreChapterRowLayoutKind,
+} from "@/lib/mobileExploreChapterList";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import {
   MobileMangaChapterRow,
@@ -25,17 +66,26 @@ import {
   MobileMangaChapterSortAction,
   MobileMangaChapterToolbar,
 } from "@/components/MobileMangaChapterSection";
+import { MobileMangaDetailSplitLayout } from "@/components/MobileMangaDetailSplitLayout";
 import { MobileMangaDetailSurface } from "@/components/MobileMangaDetailSurface";
-import { MobileMangaPageSkeleton } from "@/components/MobileMangaPageSkeleton";
+import { MobileChapterGridSkeleton, MobileMangaPageSkeleton } from "@/components/MobileMangaPageSkeleton";
 import { MobileSourceErrorNotice } from "@/components/MobileSourceErrorNotice";
 import { useMobileDataStore } from "@/data/mobileDataContext";
 import {
   emitMobileDataChanged,
   emitMobileLibraryDataChanged,
 } from "@/data/mobileDataEvents";
-import { useMobileLanguageSettings } from "@/data/mobileHooks";
 import {
-  getEntryCover,
+  useInstalledSources,
+  useMobileLanguageSettings,
+} from "@/data/mobileHooks";
+import {
+  rememberMobileSourceCoverOwner,
+  resolveMobileEntryCoverSources,
+  resolveMobileEntryDisplayCover,
+} from "@/lib/mobileEntryCover";
+import { mobileSourceDetailRequests } from "@/lib/mobileSourceDetailRevalidation";
+import {
   makeSourceLinkId,
   sourceHasUpdate,
   type ChapterSummary,
@@ -47,18 +97,13 @@ import {
   type MangaMetadata,
 } from "@/data/schema";
 import {
-  MobileNativeSheetScaffold,
-  nemuColorWithAlpha,
-  NemuPressable,
-  PageListScaffold,
   PageScaffold,
-  createNemuNativeScreenOptions,
+  createNemuSoftEdgeScreenOptions,
+  type NemuNativeHeaderAction,
   renderNemuNativeToolbarButtons,
-  radius,
-  nemuFontWeight,
   useNemuTheme,
 } from "@/design-system";
-import { formatChapterTitle } from "@/lib/formatChapter";
+import { formatContinueActionLabel } from "@/lib/formatChapter";
 import { hapticConfirm, hapticError } from "@/lib/haptics";
 import {
   MOBILE_CHAPTER_LIST_PERFORMANCE,
@@ -95,6 +140,7 @@ import {
 } from "@/lib/mobileMangaDetailProgress";
 import { toSearchSourceDisplay } from "@/lib/mobileSearch";
 import { getMobileSourceMangaContinueTarget } from "@/lib/mobileSourceMangaContinue";
+import { mobileContinueReaderPage } from "@/lib/mobileReaderEndExit";
 import {
   canOpenMobileSourceMangaReader,
   canPressMobileSourceMangaLibraryAction,
@@ -140,7 +186,6 @@ import {
   mergeDefinedMangaMetadata,
   resolveMobileSeedCoverHeaders,
 } from "@/lib/mobileLibraryDetails";
-import { withMobileSourceOperationTimeout } from "@/sources/mobileSourceOperationTimeout";
 import { normalizeReaderProcessPageImages } from "@/lib/mobileReaderSettings";
 import { refreshMobileReaderPages } from "@/sources/mobileSourcePages";
 import {
@@ -150,6 +195,7 @@ import {
 } from "@/sources/mobileReaderPagesPrefetch";
 import {
   refreshMobileSourceDetails,
+  refreshMobileSourceMetadata,
   resolveMobileSourceMangaMetadataTitle,
   type MobileSourceDetailsRefresh,
 } from "@/sources/mobileSourceDetails";
@@ -161,6 +207,8 @@ import {
   applyMobileSourcePackageHydration,
   type MobileSourcePackageHydration,
 } from "@/sources/mobileSourcePackageLoader";
+
+/** Design-explore: the sort direction is a glass capsule like the list's other controls. */
 
 type SourceMangaDetailState =
   | { status: "idle"; detail: string }
@@ -175,6 +223,9 @@ type SourceMangaDetailState =
       detail: string;
       // Set when the persisted copy was painted (fetchedAt of that snapshot).
       cachedFetchedAt?: number;
+      // The painted copy came from a chapter-only refresh: `metadata` is a
+      // title placeholder, so the header keeps what else it knows.
+      partialMetadata?: boolean;
       // A background/forced refresh failed while cached content is on
       // screen: keep the content and surface a standard inline notice.
       staleError?: {
@@ -267,11 +318,14 @@ function loadedChapterCountText(count: number, strings: MobileStrings): string {
 }
 
 export function SourceMangaScreen() {
+  const adaptiveLayout = useMobileAdaptiveLayout();
   const params = useLocalSearchParams<{
     registryId: string;
     sourceId: string;
     mangaId: string;
     mangaTitle?: string | string[];
+    /** Design-explore: add to the library as soon as the details are in. */
+    add?: string;
   }>();
   const registryId = normalizeMobileSourceRouteParam(params.registryId);
   const sourceId = normalizeMobileSourceRouteParam(params.sourceId);
@@ -349,6 +403,15 @@ export function SourceMangaScreen() {
   const [collectionSheetPresentation, setCollectionSheetPresentation] =
     useState<{ libraryItemId: string; title: string } | null>(null);
   const [libraryOptionsOpen, setLibraryOptionsOpen] = useState(false);
+  // The ··· menu's editors, as on the library title page.
+  const [metadataEditorOpen, setMetadataEditorOpen] = useState(false);
+  const [metadataEditorPresentation, setMetadataEditorPresentation] =
+    useState<LibraryEntry | null>(null);
+  const [savingMetadata, setSavingMetadata] = useState(false);
+  const savingMetadataRef = useRef(false);
+  const [sourceManagerOpen, setSourceManagerOpen] = useState(false);
+  const [sourceManagerPresentation, setSourceManagerPresentation] =
+    useState<LibraryEntry | null>(null);
   const [libraryOptionsPresentationMode, setLibraryOptionsPresentationMode] =
     useState<"add" | "in-library" | null>(null);
   const libraryOptionsNextSheetRef = useRef<
@@ -454,27 +517,38 @@ export function SourceMangaScreen() {
     sourceId,
     mangaId,
   );
+  // Shared with the library detail screen: opening a source page while that
+  // screen (or its background sweep) is fetching the same manga joins the
+  // in-flight request instead of running the source twice.
+  // The user is looking at this page: its request goes first on the source
+  // runtime (and promotes a matching background request it joins).
   const fetchSourceDetails = useCallback(
-    async (installedSource: InstalledSource) =>
-      withMobileSourceOperationTimeout(
-        refreshMobileSourceDetails(installedSource, mangaId, {
-          getSourceSettings: async (_sourceKey, sourceRecord) => {
-            const normalized = normalizeInstalledSource(sourceRecord);
-            const runtimeSourceKey = makeMobileRuntimeSourceKey(normalized);
-            const saved = await loadMobileSourceSettingsByKeys(store, [
-              runtimeSourceKey,
-              ...getMobileInstalledSourceSettingsKeys(sourceRecord),
-            ]);
-            return mergeSourceSettingValues(
-              sourceRecord.packageMetadata?.settings ?? [],
-              saved?.values,
-            );
-          },
-          onSourcePackageHydrated: saveSourcePackageHydration,
-        }),
-        { message: strings.sourceBrowse.sourceOperationTimedOut },
+    async (installedSource: InstalledSource, signal?: AbortSignal) =>
+      mobileSourceDetailRequests.run(
+        detailCacheKey,
+        (ticket) =>
+          refreshMobileSourceDetails(installedSource, mangaId, {
+            priority: ticket,
+            timeoutMessage: strings.sourceBrowse.sourceOperationTimedOut,
+            getSourceSettings: async (_sourceKey, sourceRecord) => {
+              const normalized = normalizeInstalledSource(sourceRecord);
+              const runtimeSourceKey = makeMobileRuntimeSourceKey(normalized);
+              const saved = await loadMobileSourceSettingsByKeys(store, [
+                runtimeSourceKey,
+                ...getMobileInstalledSourceSettingsKeys(sourceRecord),
+              ]);
+              return mergeSourceSettingValues(
+                sourceRecord.packageMetadata?.settings ?? [],
+                saved?.values,
+              );
+            },
+            onSourcePackageHydrated: saveSourcePackageHydration,
+          }),
+        "user",
+        signal,
       ),
     [
+      detailCacheKey,
       mangaId,
       saveSourcePackageHydration,
       store,
@@ -500,7 +574,11 @@ export function SourceMangaScreen() {
           refreshed,
         );
         await Promise.all([
-          store.saveLibraryItem(applied.item),
+          // Unchanged library metadata (a non-primary source, or nothing
+          // new) keeps the row as is: no write, no sync round-trip.
+          applied.item === existingEntry.item
+            ? Promise.resolve()
+            : store.saveLibraryItem(applied.item),
           store.saveSourceLink(applied.sourceLink),
         ]);
         emitMobileDataChanged("library");
@@ -517,17 +595,23 @@ export function SourceMangaScreen() {
   );
   const persistFetchedDetails = useCallback(
     (refreshed: Extract<MobileSourceDetailsRefresh, { status: "ready" }>) => {
+      rememberMobileSourceCoverOwner(refreshed.metadata.cover, {
+        registryId,
+        sourceId,
+      });
       void setCachedMobileSourceDetail(detailCacheKey, {
         metadata: refreshed.metadata,
         chapters: refreshed.chapters,
         fetchedAt: refreshed.fetchedAt,
       }).catch(() => undefined);
     },
-    [detailCacheKey],
+    [detailCacheKey, registryId, sourceId],
   );
 
   useEffect(() => {
     let cancelled = false;
+    // Withdrawn on leave: a request nobody waits for drops to `background`.
+    const interest = new AbortController();
     const reportRetryResult = retryDataGuardRef.current;
 
     setActionError(null);
@@ -553,6 +637,9 @@ export function SourceMangaScreen() {
             status: "ready",
             refresh: null,
             metadata: cachedEntry.payload.metadata,
+            ...(cachedEntry.payload.partialMetadata
+              ? { partialMetadata: true }
+              : {}),
             chapters: cachedEntry.payload.chapters,
             detail: loadedChapterCountText(
               cachedEntry.payload.chapters.length,
@@ -594,11 +681,21 @@ export function SourceMangaScreen() {
 
         // A fresh cached copy answers the screen by itself; a stale one is
         // painted immediately and revalidated below in the background.
-        if (cachedEntry && !cachedEntry.isStale && !reportRetryResult) {
+        // A chapter-only entry (library update check) has no real metadata
+        // yet: its chapters paint, but the details still load.
+        if (
+          cachedEntry &&
+          !cachedEntry.isStale &&
+          !cachedEntry.payload.partialMetadata &&
+          !reportRetryResult
+        ) {
           return;
         }
 
-        const refreshed = await fetchSourceDetails(installedSource);
+        const refreshed = await fetchSourceDetails(
+          installedSource,
+          interest.signal,
+        );
 
         if (cancelled) return;
         if (refreshed.status === "blocked") {
@@ -707,6 +804,7 @@ export function SourceMangaScreen() {
 
     return () => {
       cancelled = true;
+      interest.abort();
     };
   }, [
     applyDetailsRefreshToLibrary,
@@ -762,10 +860,14 @@ export function SourceMangaScreen() {
         url: seedMetadata.url,
       }
     : null;
+  const metadataBase =
+    detailState.status === "ready" && detailState.partialMetadata
+      ? (listingMetadata ?? localState.libraryEntry?.item.metadata ?? null)
+      : listingMetadata;
   const metadata =
     detailState.status === "ready"
-      ? listingMetadata
-        ? mergeDefinedMangaMetadata(listingMetadata, detailState.metadata)
+      ? metadataBase
+        ? mergeDefinedMangaMetadata(metadataBase, detailState.metadata)
         : detailState.metadata
       : (localState.libraryEntry?.item.metadata ?? listingMetadata);
   const title = resolveMobileSourceMangaMetadataTitle(
@@ -773,9 +875,41 @@ export function SourceMangaScreen() {
     mangaId,
     navigationTitle,
   );
-  const cover = localState.libraryEntry
-    ? getEntryCover(localState.libraryEntry)
+  // A library title keeps its own cover here too (never this source's), and
+  // it is requested through the source that owns it: this page's source may
+  // well be the wrong one (see `mobileEntryCover`).
+  const libraryEntry = localState.libraryEntry;
+  const thisSourceLinkId = libraryEntry?.sources.find(
+    (source) =>
+      source.sourceMangaId === mangaId &&
+      (localState.installedSource
+        ? mobileInstalledSourceMatchesLink(localState.installedSource, source)
+        : source.registryId === registryId && source.sourceId === sourceId),
+  )?.id;
+  const thisSourceCover =
+    detailState.status === "ready" ? detailState.metadata.cover : undefined;
+  const knownSourceCovers = useMemo(
+    () =>
+      thisSourceLinkId && thisSourceCover
+        ? { [thisSourceLinkId]: thisSourceCover }
+        : {},
+    [thisSourceCover, thisSourceLinkId],
+  );
+  const cover = libraryEntry
+    ? resolveMobileEntryDisplayCover(libraryEntry, knownSourceCovers)
     : metadata?.cover;
+  const allInstalledSources = useInstalledSources({ includeLocalArchive: true });
+  const libraryCoverSources = useMemo(
+    () =>
+      libraryEntry
+        ? resolveMobileEntryCoverSources(
+            libraryEntry,
+            allInstalledSources.data,
+            { cover, knownSourceCovers },
+          )
+        : null,
+    [allInstalledSources.data, cover, knownSourceCovers, libraryEntry],
+  );
   // The tapped card's cover was already rewritten by the source runtime, so
   // reuse its headers while the cover URL is still that one. Details return a
   // raw cover, which re-triggers the rewrite; the sticky hook keeps the cover
@@ -788,7 +922,12 @@ export function SourceMangaScreen() {
   });
   const coverImage = useMobileStickySourceCover({
     source: localState.installedSource,
-    cover,
+    sources: libraryCoverSources,
+    // Hold a library cover until its owner is known rather than paint it
+    // through this page's (possibly wrong) source first.
+    cover:
+      libraryEntry && allInstalledSources.loading ? undefined : cover,
+    coverPending: Boolean(libraryEntry && allInstalledSources.loading),
     coverHeaders: seedCoverHeaders,
   });
   const chapters = useMemo(
@@ -807,6 +946,20 @@ export function SourceMangaScreen() {
       ),
     }),
     [chapterLanguages, chapterListPreference],
+  );
+  // The 作品信息 sheet's languages: the ones the chapter list shows.
+  const detailLanguageNames = useMemo(
+    () =>
+      getMobileDetailLanguageNames(
+        (effectiveChapterListPreference.languages.length
+          ? effectiveChapterListPreference.languages
+          : chapterLanguages
+        ).map((lang) => ({ lang })),
+        localState.installedSource,
+        appLanguage,
+        strings,
+      ),
+    [appLanguage, chapterLanguages, effectiveChapterListPreference.languages, localState.installedSource, strings],
   );
   // The chapter subtitle only repeats the language while the visible list can
   // actually mix languages: one selected language makes it noise.
@@ -831,10 +984,24 @@ export function SourceMangaScreen() {
       ),
     [chapters, localState.chapterProgress],
   );
+  // Design-explore: the same one-chapter rows as the library title page.
   const chapterRows = useMemo(
-    () => buildMobileChapterRows(visibleChapters),
+    () =>
+      mobileDesignExploreFlag
+        ? buildMobileExploreChapterRows(visibleChapters)
+        : buildMobileChapterRows(visibleChapters),
     [visibleChapters],
   );
+  const chapterVolumeHeaders = useMemo(
+    () => (mobileDesignExploreFlag ? getMobileChapterVolumeHeaders(visibleChapters) : null),
+    [visibleChapters],
+  );
+  // …and the group every chapter shares, which the rows leave out.
+  const chapterCommonGroup = useMemo(
+    () => (mobileDesignExploreFlag ? getMobileChapterListCommonGroup(visibleChapters) : null),
+    [visibleChapters],
+  );
+  const chapterListRef = useRef<FlatList<MobileChapterRow> | null>(null);
   const changeChapterListPreference = useCallback(
     (nextPreference: MobileChapterListPreference) => {
       setChapterListPreference(nextPreference);
@@ -854,6 +1021,7 @@ export function SourceMangaScreen() {
   const continueTarget = getMobileSourceMangaContinueTarget(
     chapters,
     localState.mangaProgress,
+    localState.chapterProgress,
   );
   const continueChapter = continueTarget.chapter;
   const isContinuation = continueTarget.isContinuation;
@@ -884,15 +1052,21 @@ export function SourceMangaScreen() {
   });
   const showReaderAction = shouldRenderMobileSourceMangaReaderAction({
     hasChapter: Boolean(continueChapter),
+    // New design: the Start capsule is there (disabled) from the first frame.
+    holdWhileLoading: mobileDesignExploreFlag && detailState.status === "loading",
   });
   const continueActionAvailable =
     Boolean(continueChapter) && !adding && !removing;
-  const continueActionLabel =
-    isContinuation && continueChapter
-      ? formatMobileString(strings.sourceManga.continueChapter, {
-          chapter: formatChapterTitle(continueChapter, strings),
-        })
-      : strings.sourceManga.startReading;
+  const continueActionLabel = continueChapter
+    ? formatContinueActionLabel({
+        // Design-explore: a placeholder volume of 0 is never shown.
+        chapter: mobileDesignExploreFlag ? withoutMobileZeroVolume(continueChapter) : continueChapter,
+        isContinuation,
+        caughtUp: continueTarget.caughtUp,
+        strings,
+        labels: strings.sourceManga,
+      })
+    : strings.sourceManga.startReading;
   const showSkeleton = shouldRenderMobileSourceMangaSkeleton({
     loading: detailState.status === "loading",
     hasMetadata: Boolean(metadata),
@@ -911,7 +1085,8 @@ export function SourceMangaScreen() {
   );
 
   const openReader = useCallback(
-    (chapter: ChapterSummary | null) => {
+    // Design-explore "Read from the beginning": the reader opens on `page`.
+    (chapter: ChapterSummary | null, page?: number) => {
       if (!chapter) {
         void hapticError();
         return;
@@ -963,13 +1138,18 @@ export function SourceMangaScreen() {
       }
       try {
         router.push(
-          getMobileSourceReaderHref({
-            registryId: routeRef.registryId,
-            sourceId: routeRef.sourceId,
-            mangaId,
-            chapter,
-            mangaTitle: title,
-          }),
+          withMobileExploreZoom(
+            getMobileSourceReaderHref({
+              registryId: routeRef.registryId,
+              sourceId: routeRef.sourceId,
+              mangaId,
+              chapter,
+              page,
+              mangaTitle: title,
+            }),
+            mobileDesignExploreFlag ? `source:${routeRef.sourceId}:${mangaId}` : null,
+            coverImage.source,
+          ),
         );
       } catch {
         openingReaderRef.current = false;
@@ -978,6 +1158,7 @@ export function SourceMangaScreen() {
       }
     },
     [
+      coverImage.source,
       getGuardedReaderActionState,
       localState.installedSource,
       mangaId,
@@ -1013,6 +1194,184 @@ export function SourceMangaScreen() {
       showChapterLanguage,
       strings,
     ],
+  );
+
+  // Design-explore list: up next, the context menu's actions and the jump.
+  const upNextChapterIndex = useMemo(
+    () =>
+      mobileDesignExploreFlag
+        ? findMobileUpNextIndex(visibleChapters, localState.chapterProgress, {
+            chapter: continueChapter,
+            sameSource: true,
+          })
+        : null,
+    [continueChapter, localState.chapterProgress, visibleChapters],
+  );
+  const upNextChapterId =
+    upNextChapterIndex !== null ? (visibleChapters[upNextChapterIndex]?.id ?? null) : null;
+  // The library title page's chapter and ··· actions: read marks go through
+  // the synced store as reading does (`mobileChapterReadMarks.ts`), on the
+  // library's link for this source when the title is in the library.
+  const markSource = useMemo(
+    () =>
+      librarySource ??
+      sourceLinkReference(routeRef.registryId, routeRef.sourceId, mangaId),
+    [librarySource, mangaId, routeRef.registryId, routeRef.sourceId],
+  );
+  const saveChapterMarks = useCallback(
+    async (marks: MobileChapterReadMarks) => {
+      if (marks.chapterProgress.length === 0) return;
+      try {
+        await store.saveChapterProgressBatch(marks.chapterProgress);
+        if (marks.mangaProgress) await store.saveMangaProgress(marks.mangaProgress);
+        const next = await reloadLocalState({ includeInstalledSource: true });
+        setLocalState((current) => ({
+          ...current,
+          mangaProgress: next.mangaProgress,
+          chapterProgress: next.chapterProgress,
+        }));
+        emitMobileDataChanged("progress");
+        await hapticConfirm();
+      } catch {
+        await hapticError();
+      }
+    },
+    [reloadLocalState, store],
+  );
+  const markChaptersRead = useCallback(
+    async (scope: MobileChapterReadMarkScope) => {
+      await saveChapterMarks(
+        buildMobileChapterReadMarks({
+          marked: selectMobileChaptersToMarkRead(chapters, localState.chapterProgress, scope),
+          chapters,
+          progressById: localState.chapterProgress,
+          source: markSource,
+          libraryItemId: localState.libraryEntry?.item.libraryItemId,
+          mangaProgress: localState.mangaProgress,
+          now: Date.now(),
+        }),
+      );
+    },
+    [
+      chapters,
+      localState.chapterProgress,
+      localState.libraryEntry?.item.libraryItemId,
+      localState.mangaProgress,
+      markSource,
+      saveChapterMarks,
+    ],
+  );
+  const markChaptersUnread = useCallback(
+    async (scope: MobileChapterUnreadMarkScope) => {
+      const marked = selectMobileChapterProgressToMarkUnread(chapters, localState.chapterProgress, scope);
+      // This device's own resume spots go too (local only).
+      clearMobileReaderResumePositions(marked.map((progress) => progress.id));
+      await saveChapterMarks(
+        buildMobileChapterUnreadMarks({
+          marked,
+          progressById: localState.chapterProgress,
+          mangaProgress: localState.mangaProgress,
+        }),
+      );
+    },
+    [chapters, localState.chapterProgress, localState.mangaProgress, saveChapterMarks],
+  );
+  const hasChapterReading = useMemo(
+    () =>
+      selectMobileChapterProgressToMarkUnread(chapters, localState.chapterProgress, { kind: "all" })
+        .length > 0,
+    [chapters, localState.chapterProgress],
+  );
+  const toast = useMobileToast();
+  const shareLink = useCallback(async (url: string | null) => {
+    if (!url) return;
+    try {
+      await Share.share(Platform.OS === "ios" ? { url } : { message: url });
+    } catch {
+      await hapticError();
+    }
+  }, []);
+  const copyLink = useCallback(
+    async (url: string | null) => {
+      if (!url) return;
+      try {
+        await Clipboard.setStringAsync(url);
+        toast.show({ id: "detail-copy-link", tone: "success", title: strings.designExplore.menuLinkCopied });
+      } catch {
+        await hapticError();
+      }
+    },
+    [strings.designExplore.menuLinkCopied, toast],
+  );
+  const workUrl = resolveMobileShareUrl(metadata?.url);
+  const onExploreChapterAction = useCallback(
+    (chapter: ChapterSummary, action: MobileExploreChapterAction) => {
+      switch (action) {
+        case "markRead":
+          void markChaptersRead({ kind: "chapter", chapterId: chapter.id });
+          return;
+        case "markUnread":
+          void markChaptersUnread({ kind: "chapter", chapterId: chapter.id });
+          return;
+        case "markPreviousRead":
+          void markChaptersRead({ kind: "previous", chapterId: chapter.id });
+          return;
+        case "share":
+          void shareLink(resolveMobileShareUrl(chapter.url));
+          return;
+        case "copyLink":
+          void copyLink(resolveMobileShareUrl(chapter.url));
+          return;
+        default:
+          openReader(chapter, action === "start" ? 1 : undefined);
+      }
+    },
+    [copyLink, markChaptersRead, markChaptersUnread, openReader, shareLink],
+  );
+  const renderExploreChapterRow = useCallback(
+    ({ item }: ListRenderItemInfo<MobileChapterRow>) => {
+      const chapter = item.chapters[0];
+      return (
+        <MobileExploreChapterRow
+          chapter={chapter}
+          progress={localState.chapterProgress[chapter.id]}
+          header={chapterVolumeHeaders?.get(chapter.id) ?? null}
+          commonGroup={chapterCommonGroup}
+          upNext={chapter.id === upNextChapterId}
+          dropVolume={Boolean(chapterVolumeHeaders?.size)}
+          busy={readerActionBusy}
+          strings={strings}
+          onAction={onExploreChapterAction}
+          moreActions
+        />
+      );
+    },
+    [
+      chapterCommonGroup,
+      chapterVolumeHeaders,
+      localState.chapterProgress,
+      onExploreChapterAction,
+      readerActionBusy,
+      strings,
+      upNextChapterId,
+    ],
+  );
+  const jumpToUpNext = useCallback(() => {
+    if (upNextChapterIndex === null) return;
+    chapterListRef.current?.scrollToIndex({ index: upNextChapterIndex, viewPosition: 0.3, animated: true });
+  }, [upNextChapterIndex]);
+  const chapterRowLayoutKind = useCallback(
+    (row: MobileChapterRow) => getMobileExploreChapterRowLayoutKind(chapterVolumeHeaders?.get(row.chapters[0].id) ?? null),
+    [chapterVolumeHeaders],
+  );
+  const onChapterScrollToIndexFailed = useCallback(
+    (info: { index: number; averageItemLength: number }) => {
+      chapterListRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
+      setTimeout(() => {
+        chapterListRef.current?.scrollToIndex({ index: info.index, viewPosition: 0.3, animated: true });
+      }, 120);
+    },
+    [],
   );
 
   const addToLibrary = useCallback(
@@ -1156,6 +1515,23 @@ export function SourceMangaScreen() {
     }
   }, [localState.libraryEntry?.item.libraryItemId, openReader, title]);
 
+  // Design-explore: opened from a listing cell's "Add to Library", the page
+  // adds itself once (through the button's own write path) when its details
+  // are in. No sheet is shown, so the sheet hand-off it claims is released.
+  const autoAddRequested = mobileDesignExploreFlag && params.add === "1";
+  const autoAddDoneRef = useRef(false);
+  useEffect(() => {
+    // Details can be ready (from the cache) before the installed source's
+    // display is: adding then fails with "could not be saved", so wait for both.
+    if (!autoAddRequested || autoAddDoneRef.current || inLibrary || detailState.status !== "ready" || !sourceDisplay) {
+      return;
+    }
+    autoAddDoneRef.current = true;
+    void addToLibrary().then(() => {
+      libraryOptionsNextSheetRef.current = null;
+    });
+  }, [addToLibrary, autoAddRequested, detailState.status, inLibrary, sourceDisplay]);
+
   const addToLibraryAndRead = useCallback(async () => {
     if (!continueChapter) {
       await hapticError();
@@ -1211,6 +1587,216 @@ export function SourceMangaScreen() {
       setRemoving(false);
     }
   }, [localState.libraryEntry, store, strings.sourceManga.actionFailedDetail]);
+
+  // The library title page's ··· editors, on this page's library record.
+  const detailActionBusy = adding || removing || openingReader || savingMetadata;
+  const librarySources = useMemo(
+    () =>
+      libraryEntry
+        ? sortMobileSourceLinks(libraryEntry.sources, libraryEntry.item.sourceOrder)
+        : [],
+    [libraryEntry],
+  );
+  const findInstalledSourceForLink = useCallback(
+    (source: LocalSourceLink) =>
+      allInstalledSources.data.find((installed) =>
+        mobileInstalledSourceMatchesLink(installed, source),
+      ),
+    [allInstalledSources.data],
+  );
+  const metadataSourceChoices = useMemo(
+    () =>
+      librarySources.map((source) => {
+        const installedSource = findInstalledSourceForLink(source);
+        return {
+          id: source.id,
+          label:
+            installedSource?.name ??
+            (source.sourceId.split(".").slice(1).join(".") || source.sourceId),
+          detail: source.sourceId,
+          icon: installedSource?.icon,
+          installedSource,
+        };
+      }),
+    [findInstalledSourceForLink, librarySources],
+  );
+  const fetchMetadataFromSource = useCallback(
+    async (choiceId: string) => {
+      const sourceLink = librarySources.find((source) => source.id === choiceId);
+      const installedSource = sourceLink
+        ? findInstalledSourceForLink(sourceLink)
+        : undefined;
+      if (!sourceLink || !installedSource) {
+        throw new Error(strings.mangaDetail.sourcePackageUnavailable);
+      }
+      const refreshed = await withMobileSourceOperationTimeout(
+        refreshMobileSourceMetadata(installedSource, sourceLink.sourceMangaId, {
+          getSourceSettings: async (_sourceKey, sourceRecord) => {
+            const normalized = normalizeInstalledSource(sourceRecord);
+            const runtimeSourceKey = makeMobileRuntimeSourceKey(normalized);
+            const saved = await loadMobileSourceSettingsByKeys(store, [
+              runtimeSourceKey,
+              ...getMobileInstalledSourceSettingsKeys(sourceRecord),
+            ]);
+            return mergeSourceSettingValues(
+              sourceRecord.packageMetadata?.settings ?? [],
+              saved?.values,
+            );
+          },
+          onSourcePackageHydrated: saveSourcePackageHydration,
+        }),
+        { message: strings.sourceBrowse.sourceOperationTimedOut },
+      );
+      if (refreshed.status === "blocked") {
+        throw new Error(refreshed.detail);
+      }
+      return refreshed.metadata;
+    },
+    [
+      findInstalledSourceForLink,
+      librarySources,
+      saveSourcePackageHydration,
+      store,
+      strings.mangaDetail.sourcePackageUnavailable,
+      strings.sourceBrowse.sourceOperationTimedOut,
+    ],
+  );
+  const saveMetadata = async (form: MobileMetadataFormValues) => {
+    const entry = localState.libraryEntry;
+    if (
+      !entry ||
+      savingMetadataRef.current ||
+      openingReaderRef.current ||
+      addingRef.current ||
+      removingRef.current
+    ) {
+      return;
+    }
+    savingMetadataRef.current = true;
+    setSavingMetadata(true);
+    setActionError(null);
+    try {
+      const updated = buildMobileMetadataEditedItem(
+        entry,
+        form,
+        nextSyncTimestamp(entry.item.updatedAt),
+      );
+      await store.saveLibraryItem(updated);
+      emitMobileDataChanged("library");
+      setLocalState((current) =>
+        current.libraryEntry?.item.libraryItemId === updated.libraryItemId
+          ? { ...current, libraryEntry: { ...current.libraryEntry, item: updated } }
+          : current,
+      );
+      if (
+        getMobileMetadataEditorSaveResultAction({ saved: true }) ===
+        "close-sheet"
+      ) {
+        setMetadataEditorOpen(false);
+      }
+      await hapticConfirm();
+    } catch (error) {
+      if (
+        getMobileMetadataEditorSaveResultAction({ saved: false }) ===
+        "close-sheet"
+      ) {
+        setMetadataEditorOpen(false);
+      }
+      setActionError(
+        describeMobileErrorDetail(error, strings.mangaDetail.actionFailedDetail),
+      );
+      await hapticError();
+    } finally {
+      savingMetadataRef.current = false;
+      setSavingMetadata(false);
+    }
+  };
+  const openCollectionMembership = () => {
+    const entry = localState.libraryEntry;
+    if (detailActionBusy || !entry) return;
+    setActionError(null);
+    setCollectionSheetPresentation({ libraryItemId: entry.item.libraryItemId, title });
+    setCollectionSheetOpen(true);
+  };
+  const openMetadataEditor = () => {
+    if (detailActionBusy || !localState.libraryEntry) return;
+    setActionError(null);
+    setMetadataEditorPresentation(localState.libraryEntry);
+    setMetadataEditorOpen(true);
+  };
+  const openSourceManager = () => {
+    if (detailActionBusy || !localState.libraryEntry) return;
+    setActionError(null);
+    setSourceManagerPresentation(localState.libraryEntry);
+    setSourceManagerOpen(true);
+  };
+  const confirmRemoveFromLibrary = () => {
+    if (detailActionBusy || !localState.libraryEntry) return;
+    setActionError(null);
+    setRemoveConfirmOpen(true);
+  };
+  // The library title page's ··· menu: the same items in the same order,
+  // those that need the library record disabled until the title is in it.
+  const nativeHeaderActions: NemuNativeHeaderAction[] = [
+    {
+      icon: "rectangle.stack.badge.plus",
+      label: strings.designExplore.menuAddToCollection,
+      disabled: !inLibrary || detailActionBusy,
+      onPress: openCollectionMembership,
+    },
+    {
+      icon: "checkmark.circle",
+      label: strings.designExplore.menuMarkFinished,
+      disabled: !inLibrary || detailActionBusy,
+      onPress: () => void markChaptersRead({ kind: "all" }),
+    },
+    {
+      icon: "circle",
+      label: strings.designExplore.menuMarkUnread,
+      disabled: !inLibrary || !hasChapterReading || detailActionBusy,
+      onPress: () => void markChaptersUnread({ kind: "all" }),
+    },
+    ...(workUrl
+      ? [
+          {
+            icon: "square.and.arrow.up" as const,
+            label: strings.designExplore.menuShare,
+            onPress: () => void shareLink(workUrl),
+          },
+          {
+            icon: "link" as const,
+            label: strings.designExplore.menuCopyLink,
+            onPress: () => void copyLink(workUrl),
+          },
+        ]
+      : []),
+    {
+      icon: "pencil",
+      label: strings.mangaDetail.editMetadata,
+      disabled: !inLibrary || detailActionBusy,
+      onPress: openMetadataEditor,
+    },
+    {
+      icon: "square.stack.3d.up",
+      label: strings.mangaDetail.manageSources,
+      hint: strings.mangaDetail.manageSourcesHint,
+      disabled: !inLibrary || detailActionBusy,
+      onPress: openSourceManager,
+    },
+    {
+      icon: "trash",
+      label: strings.mangaDetail.removeFromLibrary,
+      hint: strings.mangaDetail.removeFromLibraryHint,
+      disabled: !inLibrary || detailActionBusy,
+      onPress: confirmRemoveFromLibrary,
+    },
+  ];
+  // Beside the Duo's inner rail, Add to Collection and Share stand as their
+  // own buttons above the ··· menu, as on the library title page.
+  const barActions = splitMobileExploreDetailBarActions(
+    nativeHeaderActions,
+    mobileExploreDetailRailHasButtons(adaptiveLayout),
+  );
 
   const retrySourceMangaDetails = () => {
     if (retryDataGuardRef.current) return;
@@ -1318,7 +1904,61 @@ export function SourceMangaScreen() {
     onSuccess: retrySourceMangaDetails,
   });
   cloudflareSheetRef.current = cloudflareSheet;
-  const nativeHeaderOptions = createNemuNativeScreenOptions(tokens, sourceName);
+  // New design: the bar says nothing while the title page's own title is on
+  // screen; once that title has scrolled under the bar the manga's title and
+  // a small cover fade in. In two panes the info pane's scroll decides (the
+  // chapters scrolling beside it never does), so the source's name never
+  // sits over the "Chapters" heading.
+  const [heroInPane, setHeroInPane] = useState(false);
+  const [heroTitleBottom, setHeroTitleBottom] = useState<number | null>(null);
+  const [heroTitleAway, setHeroTitleAway] = useState(false);
+  const barTitleShown = useSharedValue(0);
+  const heroTitleThreshold = heroTitleBottom ?? Number.POSITIVE_INFINITY;
+  const followTitleScroll = useCallback(
+    (y: number) => {
+      setHeroTitleAway((current) => {
+        const past = getMobileExploreBarTitleShown(current, y, heroTitleThreshold);
+        if (past !== current) barTitleShown.value = withTiming(past ? 1 : 0, { duration: MOBILE_EXPLORE_BAR_TITLE_FADE_MS });
+        return past;
+      });
+    },
+    [barTitleShown, heroTitleThreshold],
+  );
+  const onListScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const { contentOffset, contentInset } = event.nativeEvent;
+      if (!heroInPane) followTitleScroll(contentOffset.y + (contentInset?.top ?? 0));
+    },
+    [followTitleScroll, heroInPane],
+  );
+  const onPaneScroll = useCallback(
+    (offsetFromHeroTop: number) => {
+      if (heroInPane) followTitleScroll(offsetFromHeroTop);
+    },
+    [followTitleScroll, heroInPane],
+  );
+  // Unfolding moves a scrolled hero back into a pane, at its top: the bar's title
+  // would otherwise stay over the chapters until the pane next scrolled.
+  useEffect(() => {
+    if (heroInPane) followTitleScroll(0);
+  }, [followTitleScroll, heroInPane]);
+  const renderBarTitle = useCallback(
+    () => (
+      <MobileExploreBarTitle
+        title={title}
+        cover={coverImage.source ?? null}
+        // Centred between Back and the ··· menu, as on the library title page.
+        trailingItems={barActions.buttons.length + 1}
+        centred
+        shown={barTitleShown}
+        hidden={!heroTitleAway}
+      />
+    ),
+    [barActions.buttons.length, barTitleShown, coverImage.source, heroTitleAway, title],
+  );
+  const nativeHeaderOptions = mobileDesignExploreFlag
+    ? { ...createNemuSoftEdgeScreenOptions(tokens, sourceName), headerTitle: renderBarTitle }
+    : createNemuSoftEdgeScreenOptions(tokens, sourceName);
   const navigateBack = useCallback(() => {
     const action = getMobileSourceMangaBackAction({
       canGoBack: router.canGoBack(),
@@ -1332,19 +1972,22 @@ export function SourceMangaScreen() {
     router.replace(action.href);
   }, [routeRef.registryId, routeRef.sourceId]);
   const nativeBackToolbar = (
-    <Stack.Toolbar placement="left" tintColor={tokens.foreground}>
-      {renderNemuNativeToolbarButtons(
-        [
-          {
-            icon: "chevron.left",
-            label: strings.common.back,
-            onPress: navigateBack,
-          },
-        ],
-        tokens.foreground,
-      )}
+    <Stack.Toolbar placement="left">
+      {renderNemuNativeToolbarButtons([
+        {
+          icon: "chevron.left",
+          label: strings.common.back,
+          onPress: navigateBack,
+        },
+      ])}
     </Stack.Toolbar>
   );
+  const nativeMenuToolbar = mobileDesignExploreFlag ? (
+    <Stack.Toolbar placement="right">
+      {renderNemuNativeToolbarButtons(barActions.buttons)}
+      {renderExploreDetailBarMenu(barActions.menu, strings.designExplore.moreActions)}
+    </Stack.Toolbar>
+  ) : null;
 
   if (showLoadError) {
     return (
@@ -1370,12 +2013,13 @@ export function SourceMangaScreen() {
       <>
         <Stack.Screen options={nativeHeaderOptions} />
         {nativeBackToolbar}
-        <PageScaffold nativeHeader>
-          <MobileMangaPageSkeleton
-            accessibilityLabel={strings.sourceManga.loadingDetails}
-            actionsPlacement="copy"
-          />
-        </PageScaffold>
+        {nativeMenuToolbar}
+        {/* Laid out by the loaded page's split layout, so its panes hand off in place. */}
+        <MobileMangaPageSkeleton
+          accessibilityLabel={strings.sourceManga.loadingDetails}
+          actionsPlacement="copy"
+          tabStrip={false}
+        />
       </>
     );
   }
@@ -1384,8 +2028,115 @@ export function SourceMangaScreen() {
     <>
       <Stack.Screen options={nativeHeaderOptions} />
       {nativeBackToolbar}
-      <PageListScaffold
+      {nativeMenuToolbar}
+      {collectionSheetPresentation ? (
+        <MobileCollectionMembershipSheet
+          visible={collectionSheetOpen}
+          libraryItemId={collectionSheetPresentation.libraryItemId}
+          title={collectionSheetPresentation.title}
+          onClose={() => setCollectionSheetOpen(false)}
+          onDismiss={() => setCollectionSheetPresentation(null)}
+        />
+      ) : null}
+      {metadataEditorPresentation ? (
+        <MobileMetadataEditorSheet
+          visible={metadataEditorOpen}
+          entry={
+            libraryEntry?.item.libraryItemId ===
+            metadataEditorPresentation.item.libraryItemId
+              ? libraryEntry
+              : metadataEditorPresentation
+          }
+          saving={savingMetadata}
+          coverSource={libraryCoverSources?.[0] ?? null}
+          sourceChoices={metadataSourceChoices}
+          onClose={() => setMetadataEditorOpen(false)}
+          onDismiss={() => setMetadataEditorPresentation(null)}
+          onFetchFromSource={fetchMetadataFromSource}
+          onSave={saveMetadata}
+        />
+      ) : null}
+      {sourceManagerPresentation ? (
+        <MobileSourceManagerSheet
+          visible={sourceManagerOpen}
+          entry={
+            libraryEntry?.item.libraryItemId ===
+            sourceManagerPresentation.item.libraryItemId
+              ? libraryEntry
+              : sourceManagerPresentation
+          }
+          selectedSourceId={librarySource?.id ?? null}
+          onClose={() => setSourceManagerOpen(false)}
+          onDismiss={() => setSourceManagerPresentation(null)}
+          // This page shows one source's chapters: there is no tab to switch.
+          onSelectSource={() => undefined}
+          onEntryChange={(nextEntry) => {
+            setSourceManagerPresentation(nextEntry);
+            setLocalState((current) => ({ ...current, libraryEntry: nextEntry }));
+          }}
+        />
+      ) : null}
+      <MobileConfirmationSheet
+        visible={removeConfirmOpen}
+        title={strings.sourceManga.removeTitle}
+        description={
+          // Design-explore names the title in the sheet's header; the line
+          // under it says what is kept instead of repeating the name.
+          mobileDesignExploreFlag
+            ? strings.mangaDetail.removeDescription
+            : formatMobileString(strings.sourceManga.removeDescription, {
+                name: title,
+              })
+        }
+        subject={title}
+        iconName="trash-outline"
+        cancelLabel={strings.common.cancel}
+        confirmLabel={strings.common.remove}
+        confirmAccessibilityLabel={strings.sourceManga.removeFromLibrary}
+        loading={removing}
+        destructive
+        onCancel={() => setRemoveConfirmOpen(false)}
+        onConfirm={() => {
+          void removeFromLibrary();
+        }}
+      >
+        {actionError ? (
+          <MobileInlineErrorBanner
+            title={strings.sourceManga.actionFailed}
+            detail={actionError}
+            dismissLabel={strings.common.clear}
+            onDismiss={() => setActionError(null)}
+          />
+        ) : null}
+      </MobileConfirmationSheet>
+      <MobileLibraryOptionsSheet
+        visible={libraryOptionsOpen}
+        mode={libraryOptionsPresentationMode}
+        strings={strings}
+        busy={libraryActionBusy}
+        adding={adding}
+        canAddAndRead={Boolean(continueChapter)}
+        error={actionError}
+        onClearError={() => setActionError(null)}
+        onClose={() => setLibraryOptionsOpen(false)}
+        onDismiss={handleLibraryOptionsClosed}
+        onAdd={() => {
+          void addToLibrary();
+        }}
+        onAddAndRead={() => {
+          void addToLibraryAndRead();
+        }}
+        onManageCollections={() => {
+          closeLibraryOptionsTo("collections");
+        }}
+        onRemove={() => {
+          closeLibraryOptionsTo("remove-confirm");
+        }}
+      />
+
+      <MobileMangaDetailSplitLayout
         nativeHeader
+        tabStrip={false}
         data={chapterRows}
         keyExtractor={mobileChapterRowKeyExtractor}
         initialNumToRender={MOBILE_CHAPTER_LIST_PERFORMANCE.initialNumToRender}
@@ -1400,471 +2151,178 @@ export function SourceMangaScreen() {
         }
         windowSize={MOBILE_CHAPTER_LIST_PERFORMANCE.windowSize}
         removeClippedSubviews={Platform.OS === "android"}
-        renderItem={renderChapterRow}
-        ListHeaderComponent={
+        onScroll={mobileDesignExploreFlag ? onListScroll : undefined}
+        onScrollEndDrag={mobileDesignExploreFlag ? onListScroll : undefined}
+        onMomentumScrollEnd={mobileDesignExploreFlag ? onListScroll : undefined}
+        scrollEventThrottle={mobileDesignExploreFlag ? 64 : undefined}
+        onLeadingScroll={mobileDesignExploreFlag ? onPaneScroll : undefined}
+        renderItem={mobileDesignExploreFlag ? renderExploreChapterRow : renderChapterRow}
+        listRef={mobileDesignExploreFlag ? chapterListRef : undefined}
+        onScrollToIndexFailed={mobileDesignExploreFlag ? onChapterScrollToIndexFailed : undefined}
+        rowLayoutKind={mobileDesignExploreFlag ? chapterRowLayoutKind : undefined}
+        leading={
           <>
-            {collectionSheetPresentation ? (
-              <MobileCollectionMembershipSheet
-                visible={collectionSheetOpen}
-                libraryItemId={collectionSheetPresentation.libraryItemId}
-                title={collectionSheetPresentation.title}
-                onClose={() => setCollectionSheetOpen(false)}
-                onDismiss={() => setCollectionSheetPresentation(null)}
+            <MobileMangaDetailSurface
+              readerZoomId={mobileDesignExploreFlag ? `source:${routeRef.sourceId}:${mangaId}` : null}
+              pending={detailState.status === "loading"}
+              onHeroPaneChange={setHeroInPane}
+              onHeroTitleBottom={setHeroTitleBottom}
+              infoTitle={sourceName}
+              infoLatest={chapters[0] ? formatMobileExploreChapterLabel(chapters[0], strings) : null}
+              infoLanguages={detailLanguageNames}
+              infoLicense={getMobileDetailSourceLicense(localState.installedSource)}
+              infoAdded={inLibrary ? formatMobileDetailDate(localState.libraryEntry?.item.createdAt, appLanguage) : null}
+              infoLastRead={formatMobileDetailDate(localState.mangaProgress?.lastReadAt, appLanguage)}
+              title={title}
+              authors={metadata?.authors}
+              coverSource={coverImage.source}
+              onCoverError={coverImage.onCoverError}
+              onCoverLoad={coverImage.onCoverLoad}
+              status={metadata?.status}
+              strings={strings}
+              badges={[
+                ...(librarySource && sourceHasUpdate(librarySource)
+                  ? [
+                      {
+                        key: "updated",
+                        label: strings.sourceManga.updated,
+                        tone: "primary" as const,
+                      },
+                    ]
+                  : []),
+              ]}
+              primaryAction={
+                showReaderAction
+                  ? {
+                      label: continueActionLabel,
+                      compactLabel: isContinuation && !continueTarget.caughtUp ? strings.sourceManga.continueReading : undefined,
+                      accessibilityLabel: continueActionLabel,
+                      accessibilityHint: strings.sourceManga.readActionHint,
+                      available: continueActionAvailable,
+                      disabled: !canOpenContinueChapter,
+                      iconName: isContinuation
+                        ? "play-forward-outline"
+                        : "play-outline",
+                      // Caught up: the finished chapter opens at its last page, never page 1.
+                      onPress: () => openReader(continueChapter, mobileContinueReaderPage(continueTarget)),
+                    }
+                  : null
+              }
+              secondaryActions={[
+                {
+                  key: "library",
+                  accessibilityLabel: inLibrary
+                    ? strings.sourceManga.libraryOptionsTitle
+                    : strings.sourceManga.addToLibrary,
+                  accessibilityHint: inLibrary
+                    ? strings.sourceManga.libraryOptionsDescription
+                    : strings.sourceManga.addToLibraryHint,
+                  busy: libraryActionBusy,
+                  disabled: libraryActionDisabled,
+                  iconName: inLibrary ? "bookmark-outline" : "add-outline",
+                  color: inLibrary ? tokens.mutedForeground : tokens.primary,
+                  onPress: openLibraryOptions,
+                },
+              ]}
+              actionsPlacement="copy"
+              tags={metadata?.tags}
+              description={metadata?.description}
+            />
+
+            {actionError ? (
+              <MobileInlineErrorBanner
+                title={strings.sourceManga.actionFailed}
+                detail={actionError}
+                dismissLabel={strings.common.clear}
+                onDismiss={() => setActionError(null)}
               />
             ) : null}
-            <MobileConfirmationSheet
-              visible={removeConfirmOpen}
-              title={strings.sourceManga.removeTitle}
-              description={formatMobileString(
-                strings.sourceManga.removeDescription,
-                {
-                  name: title,
-                },
-              )}
-              subject={title}
-              iconName="trash-outline"
-              cancelLabel={strings.common.cancel}
-              confirmLabel={strings.common.remove}
-              confirmAccessibilityLabel={strings.sourceManga.removeFromLibrary}
-              loading={removing}
-              destructive
-              onCancel={() => setRemoveConfirmOpen(false)}
-              onConfirm={() => {
-                void removeFromLibrary();
-              }}
-            >
-              {actionError ? (
-                <MobileInlineErrorBanner
-                  title={strings.sourceManga.actionFailed}
-                  detail={actionError}
-                  dismissLabel={strings.common.clear}
-                  onDismiss={() => setActionError(null)}
-                />
-              ) : null}
-            </MobileConfirmationSheet>
-            <MobileNativeSheetScaffold
-              visible={libraryOptionsOpen}
-              onClose={() => setLibraryOptionsOpen(false)}
-              onDismiss={handleLibraryOptionsClosed}
-              title={
-                libraryOptionsPresentationMode === "in-library"
-                  ? strings.sourceManga.libraryOptionsTitle
-                  : strings.sourceManga.addOptionsTitle
-              }
-              subtitle={
-                libraryOptionsPresentationMode === "in-library"
-                  ? strings.sourceManga.libraryOptionsDescription
-                  : strings.sourceManga.addOptionsDescription
-              }
-              dismissLabel={strings.common.done}
-              dismissDisabled={libraryActionBusy}
-              enablePanDownToClose={!libraryActionBusy}
-              contentStyle={styles.libraryOptionsSheet}
-              testID="SourceMangaLibraryOptionsSheet"
-            >
-              <View style={styles.libraryOptionsList}>
-                {libraryOptionsPresentationMode === "in-library" ? (
-                  <>
-                    <NemuPressable
-                      accessibilityRole="button"
-                      accessibilityLabel={strings.sourceManga.manageCollections}
-                      accessibilityHint={
-                        strings.sourceManga.manageCollectionsHint
-                      }
-                      accessibilityState={{ disabled: libraryActionBusy }}
-                      disabled={libraryActionBusy}
-                      onPress={() => {
-                        closeLibraryOptionsTo("collections");
-                      }}
-                      pressedScale={0.985}
-                      style={[
-                        styles.libraryOptionRow,
-                        {
-                          backgroundColor: tokens.muted,
-                          borderColor: tokens.border,
-                        },
-                      ]}
-                    >
-                      <View
-                        style={[
-                          styles.libraryOptionIcon,
-                          { backgroundColor: tokens.card },
-                        ]}
-                      >
-                        <Ionicons
-                          name="albums-outline"
-                          size={20}
-                          color={tokens.primary}
-                        />
-                      </View>
-                      <View style={styles.libraryOptionCopy}>
-                        <Text
-                          numberOfLines={1}
-                          style={[
-                            styles.libraryOptionTitle,
-                            { color: tokens.foreground },
-                          ]}
-                        >
-                          {strings.sourceManga.manageCollections}
-                        </Text>
-                        <Text
-                          numberOfLines={2}
-                          style={[
-                            styles.libraryOptionDescription,
-                            { color: tokens.mutedForeground },
-                          ]}
-                        >
-                          {strings.sourceManga.manageCollectionsHint}
-                        </Text>
-                      </View>
-                      <Ionicons
-                        name="chevron-forward-outline"
-                        size={18}
-                        color={tokens.mutedForeground}
-                      />
-                    </NemuPressable>
-                    <NemuPressable
-                      accessibilityRole="button"
-                      accessibilityLabel={strings.sourceManga.removeFromLibrary}
-                      accessibilityHint={
-                        strings.sourceManga.removeFromLibraryHint
-                      }
-                      accessibilityState={{ disabled: libraryActionBusy }}
-                      disabled={libraryActionBusy}
-                      hapticFeedback="warning"
-                      onPress={() => {
-                        closeLibraryOptionsTo("remove-confirm");
-                      }}
-                      pressedScale={0.985}
-                      style={[
-                        styles.libraryOptionRow,
-                        {
-                          backgroundColor: tokens.muted,
-                          borderColor: tokens.border,
-                        },
-                      ]}
-                    >
-                      <View
-                        style={[
-                          styles.libraryOptionIcon,
-                          { backgroundColor: tokens.card },
-                        ]}
-                      >
-                        <Ionicons
-                          name="trash-outline"
-                          size={20}
-                          color={tokens.danger}
-                        />
-                      </View>
-                      <View style={styles.libraryOptionCopy}>
-                        <Text
-                          numberOfLines={1}
-                          style={[
-                            styles.libraryOptionTitle,
-                            { color: tokens.danger },
-                          ]}
-                        >
-                          {strings.sourceManga.removeFromLibrary}
-                        </Text>
-                        <Text
-                          numberOfLines={2}
-                          style={[
-                            styles.libraryOptionDescription,
-                            { color: tokens.mutedForeground },
-                          ]}
-                        >
-                          {strings.sourceManga.removeFromLibraryHint}
-                        </Text>
-                      </View>
-                      <Ionicons
-                        name="chevron-forward-outline"
-                        size={18}
-                        color={tokens.mutedForeground}
-                      />
-                    </NemuPressable>
-                  </>
-                ) : (
-                  <>
-                    <NemuPressable
-                      accessibilityRole="button"
-                      accessibilityLabel={strings.sourceManga.addToLibrary}
-                      accessibilityHint={strings.sourceManga.addToLibraryHint}
-                      accessibilityState={{
-                        busy: adding || undefined,
-                        disabled: libraryActionBusy,
-                      }}
-                      disabled={libraryActionBusy}
-                      onPress={() => {
-                        void addToLibrary();
-                      }}
-                      pressedScale={0.985}
-                      style={[
-                        styles.libraryOptionRow,
-                        {
-                          backgroundColor: tokens.muted,
-                          borderColor: tokens.border,
-                        },
-                      ]}
-                    >
-                      <View
-                        style={[
-                          styles.libraryOptionIcon,
-                          { backgroundColor: tokens.card },
-                        ]}
-                      >
-                        {adding ? (
-                          <ActivityIndicator
-                            size="small"
-                            color={tokens.primary}
-                          />
-                        ) : (
-                          <Ionicons
-                            name="bookmark-outline"
-                            size={20}
-                            color={tokens.primary}
-                          />
-                        )}
-                      </View>
-                      <View style={styles.libraryOptionCopy}>
-                        <Text
-                          numberOfLines={1}
-                          style={[
-                            styles.libraryOptionTitle,
-                            { color: tokens.foreground },
-                          ]}
-                        >
-                          {strings.sourceManga.addToLibrary}
-                        </Text>
-                        <Text
-                          numberOfLines={2}
-                          style={[
-                            styles.libraryOptionDescription,
-                            { color: tokens.mutedForeground },
-                          ]}
-                        >
-                          {strings.sourceManga.addToLibraryHint}
-                        </Text>
-                      </View>
-                    </NemuPressable>
-                    {continueChapter ? (
-                      <NemuPressable
-                        accessibilityRole="button"
-                        accessibilityLabel={
-                          strings.sourceManga.addAndStartReading
-                        }
-                        accessibilityHint={
-                          strings.sourceManga.addAndStartReadingHint
-                        }
-                        accessibilityState={{
-                          busy: adding || undefined,
-                          disabled: libraryActionBusy,
-                        }}
-                        disabled={libraryActionBusy}
-                        onPress={() => {
-                          void addToLibraryAndRead();
-                        }}
-                        pressedScale={0.985}
-                        style={[
-                          styles.libraryOptionRow,
-                          {
-                            backgroundColor: tokens.primary,
-                            borderColor: tokens.primary,
-                          },
-                        ]}
-                      >
-                        <View
-                          style={[
-                            styles.libraryOptionIcon,
-                            {
-                              backgroundColor: nemuColorWithAlpha(
-                                tokens.primaryForeground,
-                                0.13,
-                              ),
-                            },
-                          ]}
-                        >
-                          {adding ? (
-                            <ActivityIndicator
-                              size="small"
-                              color={tokens.primaryForeground}
-                            />
-                          ) : (
-                            <Ionicons
-                              name="play-outline"
-                              size={20}
-                              color={tokens.primaryForeground}
-                            />
-                          )}
-                        </View>
-                        <View style={styles.libraryOptionCopy}>
-                          <Text
-                            numberOfLines={1}
-                            style={[
-                              styles.libraryOptionTitle,
-                              { color: tokens.primaryForeground },
-                            ]}
-                          >
-                            {strings.sourceManga.addAndStartReading}
-                          </Text>
-                          <Text
-                            numberOfLines={2}
-                            style={[
-                              styles.libraryOptionDescription,
-                              {
-                                color: nemuColorWithAlpha(
-                                  tokens.primaryForeground,
-                                  0.8,
-                                ),
-                              },
-                            ]}
-                          >
-                            {strings.sourceManga.addAndStartReadingHint}
-                          </Text>
-                        </View>
-                      </NemuPressable>
-                    ) : null}
-                  </>
-                )}
-              </View>
-              {actionError ? (
-                <MobileInlineErrorBanner
-                  title={strings.sourceManga.actionFailed}
-                  detail={actionError}
-                  dismissLabel={strings.common.clear}
-                  onDismiss={() => setActionError(null)}
-                  variant="embedded"
-                />
-              ) : null}
-            </MobileNativeSheetScaffold>
 
-            <View style={styles.stack}>
-              <MobileMangaDetailSurface
-                title={title}
-                authors={metadata?.authors}
-                coverSource={coverImage.source}
-                onCoverError={coverImage.onCoverError}
-                onCoverLoad={coverImage.onCoverLoad}
-                status={metadata?.status}
-                strings={strings}
-                badges={[
-                  ...(librarySource && sourceHasUpdate(librarySource)
-                    ? [
-                        {
-                          key: "updated",
-                          label: strings.sourceManga.updated,
-                          tone: "primary" as const,
-                        },
-                      ]
-                    : []),
-                ]}
-                primaryAction={
-                  showReaderAction
-                    ? {
-                        label: continueActionLabel,
-                        accessibilityLabel: continueActionLabel,
-                        accessibilityHint: strings.sourceManga.readActionHint,
-                        available: continueActionAvailable,
-                        disabled: !canOpenContinueChapter,
-                        iconName: isContinuation
-                          ? "play-forward-outline"
-                          : "play-outline",
-                        onPress: () => openReader(continueChapter),
-                      }
-                    : null
-                }
-                secondaryActions={[
-                  {
-                    key: "library",
-                    accessibilityLabel: inLibrary
-                      ? strings.sourceManga.libraryOptionsTitle
-                      : strings.sourceManga.addToLibrary,
-                    accessibilityHint: inLibrary
-                      ? strings.sourceManga.libraryOptionsDescription
-                      : strings.sourceManga.addToLibraryHint,
-                    busy: libraryActionBusy,
-                    disabled: libraryActionDisabled,
-                    iconName: inLibrary ? "bookmark-outline" : "add-outline",
-                    color: inLibrary ? tokens.mutedForeground : tokens.primary,
-                    onPress: openLibraryOptions,
-                  },
-                ]}
-                actionsPlacement="copy"
-                tags={metadata?.tags}
-                description={metadata?.description}
+            {detailState.status === "blocked" ||
+            detailState.status === "error" ? (
+              <MobileSourceErrorNotice
+                title={detailState.title}
+                detail={detailState.detail}
+                error={detailState.status === "error"}
+                actionLabel={detailState.recoveryAction?.label}
+                onActionPress={() => {
+                  if (!detailState.recoveryAction) return;
+                  router.navigate(
+                    getMobileSourceErrorRecoveryHref(
+                      detailState.recoveryAction,
+                    ),
+                  );
+                }}
               />
+            ) : detailState.status === "ready" && detailState.staleError ? (
+              <MobileSourceErrorNotice
+                title={detailState.staleError.title}
+                detail={detailState.staleError.detail}
+                error={detailState.staleError.error}
+                actionLabel={detailState.staleError.recoveryAction?.label}
+                onActionPress={() => {
+                  const action = detailState.staleError?.recoveryAction;
+                  if (!action) return;
+                  router.navigate(getMobileSourceErrorRecoveryHref(action));
+                }}
+              />
+            ) : null}
 
-              {actionError ? (
-                <MobileInlineErrorBanner
-                  title={strings.sourceManga.actionFailed}
-                  detail={actionError}
-                  dismissLabel={strings.common.clear}
-                  onDismiss={() => setActionError(null)}
-                />
-              ) : null}
-
-              {detailState.status === "blocked" ||
-              detailState.status === "error" ? (
-                <MobileSourceErrorNotice
-                  title={detailState.title}
-                  detail={detailState.detail}
-                  error={detailState.status === "error"}
-                  actionLabel={detailState.recoveryAction?.label}
-                  onActionPress={() => {
-                    if (!detailState.recoveryAction) return;
-                    router.navigate(
-                      getMobileSourceErrorRecoveryHref(
-                        detailState.recoveryAction,
-                      ),
-                    );
-                  }}
-                />
-              ) : detailState.status === "ready" && detailState.staleError ? (
-                <MobileSourceErrorNotice
-                  title={detailState.staleError.title}
-                  detail={detailState.staleError.detail}
-                  error={detailState.staleError.error}
-                  actionLabel={detailState.staleError.recoveryAction?.label}
-                  onActionPress={() => {
-                    const action = detailState.staleError?.recoveryAction;
-                    if (!action) return;
-                    router.navigate(getMobileSourceErrorRecoveryHref(action));
-                  }}
-                />
-              ) : null}
-
-              <MobileMangaChapterSectionHeader
-                title={strings.sourceManga.chapters}
-                loading={detailState.status === "loading"}
-                hasChapters={visibleChapters.length > 0}
-                sortAction={
-                  chapters.length > 0 ? (
-                    <MobileMangaChapterSortAction
-                      preference={effectiveChapterListPreference}
-                      strings={strings}
-                      onChange={changeChapterListPreference}
-                    />
-                  ) : null
-                }
-                toolbar={
-                  chapters.length > 0 ? (
-                    <MobileMangaChapterToolbar
+          </>
+        }
+        chapterHeader={
+          <MobileMangaChapterSectionHeader
+            title={strings.sourceManga.chapters}
+            loading={detailState.status === "loading"}
+            hasChapters={visibleChapters.length > 0}
+              // The new design: flat placeholder rows where the list will be.
+              loadingPlaceholder={
+                mobileDesignExploreFlag ? (
+                  <MobileChapterGridSkeleton accessibilityLabel={detailState.detail} />
+                ) : undefined
+              }
+              alignedControl={mobileDesignExploreFlag}
+              sortAction={
+                chapters.length > 0 ? (
+                  mobileDesignExploreFlag ? (
+                    <MobileExploreChapterMenu
+                      sourceName={sourceName}
+                      fallbackCount={chapters.length}
                       appLanguage={appLanguage}
                       languages={chapterLanguages}
                       preference={effectiveChapterListPreference}
                       strings={strings}
                       unreadCount={unreadChapterCount}
                       onChange={changeChapterListPreference}
+                      jump={upNextChapterIndex !== null ? { label: formatMobileExploreChapterLabel(visibleChapters[upNextChapterIndex]!, strings), onPress: jumpToUpNext } : null}
                     />
-                  ) : null
-                }
-                emptyTitle={
-                  detailState.status === "loading"
-                    ? detailState.detail
-                    : strings.sourceManga.noChapters
-                }
-              />
-            </View>
-          </>
+                  ) : (
+                    <MobileMangaChapterSortAction
+                      preference={effectiveChapterListPreference}
+                      strings={strings}
+                      onChange={changeChapterListPreference}
+                    />
+                  )
+                ) : null
+              }
+              toolbar={
+                chapters.length > 0 && !mobileDesignExploreFlag ? (
+                  <MobileMangaChapterToolbar
+                    appLanguage={appLanguage}
+                    languages={chapterLanguages}
+                    preference={effectiveChapterListPreference}
+                    strings={strings}
+                    unreadCount={unreadChapterCount}
+                    onChange={changeChapterListPreference}
+                  />
+                ) : null
+              }
+            emptyTitle={
+              detailState.status === "loading"
+                ? detailState.detail
+                : strings.sourceManga.noChapters
+            }
+          />
         }
       />
       <MobileNemuAgentSheet
@@ -1880,49 +2338,3 @@ export function SourceMangaScreen() {
     </>
   );
 }
-
-const styles = StyleSheet.create({
-  stack: {
-    gap: 18,
-  },
-  libraryOptionsSheet: {
-    gap: 16,
-  },
-  libraryOptionsList: {
-    gap: 10,
-  },
-  libraryOptionRow: {
-    minHeight: 72,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    borderRadius: radius.xl,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 12,
-    paddingVertical: 11,
-  },
-  libraryOptionIcon: {
-    width: 40,
-    height: 40,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.lg,
-  },
-  libraryOptionCopy: {
-    flex: 1,
-    minWidth: 0,
-    gap: 2,
-  },
-  libraryOptionTitle: {
-    fontSize: 15,
-    lineHeight: 19,
-    fontWeight: nemuFontWeight.semibold,
-  },
-  libraryOptionDescription: {
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  section: {
-    gap: 10,
-  },
-});

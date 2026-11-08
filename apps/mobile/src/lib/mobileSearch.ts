@@ -6,6 +6,12 @@ import {
   getMobileInstalledSourceRegistryRef,
 } from "./mobileInstalledSourceKeys";
 import { isMobileUnsupportedInstalledSource } from "./mobileBrowseSources";
+import {
+  buildMobileEntryProgressMap,
+  getMobileEntryMostRecentSource,
+  type MobileLibraryProgressIndex,
+} from "./mobileLibraryPresentation";
+import { sortMobileSourceLinks } from "./mobileSourceLinks";
 
 export type SearchSourceDisplay = {
   id: string;
@@ -223,11 +229,30 @@ export function searchEntryMatches(entry: LibraryEntry, query: string): boolean 
   return haystack.includes(normalized);
 }
 
+/** The links to file a saved title under: last read, then its source order. */
+function localSearchEntryLinksByPreference(
+  entry: LibraryEntry,
+  progressIndex: MobileLibraryProgressIndex,
+) {
+  const ordered = sortMobileSourceLinks(entry.sources, entry.item.sourceOrder);
+  const lastRead = getMobileEntryMostRecentSource(
+    { ...entry, sources: ordered },
+    buildMobileEntryProgressMap(entry, progressIndex),
+  );
+  return lastRead ? [lastRead, ...ordered] : ordered;
+}
+
+/**
+ * Saved titles matching the query, one group per selected source. A title
+ * linked to several selected sources is listed once, under the first of its
+ * preferred links that is in scope.
+ */
 export function groupLocalSearchResults(
   entries: LibraryEntry[],
   sources: SearchSourceDisplay[],
   selection: SearchSourceSelection,
-  query: string
+  query: string,
+  progressIndex: MobileLibraryProgressIndex = new Map(),
 ): LocalSearchResultGroup[] {
   const normalizedSelection = normalizeSearchSelectionForSources(sources, selection);
   const selectedIds =
@@ -237,20 +262,25 @@ export function groupLocalSearchResults(
   const normalizedQuery = query.trim();
   if (!normalizedQuery || selectedIds.size === 0) return [];
 
-  return sources
+  const groups = sources
     .filter((source) => selectedIds.has(source.id))
-    .map((source) => {
-      const sourceKeys = new Set(
-        source.sourceKeys ?? [makeSourceKey(source.registryId, source.rawSourceId)],
-      );
-      return {
-        source,
-        entries: entries.filter(
-          (entry) =>
-            entry.sources.some((link) =>
-              sourceKeys.has(makeSourceKey(link.registryId, link.sourceId)),
-            ) && searchEntryMatches(entry, normalizedQuery),
-        ),
-      };
-    });
+    .map<LocalSearchResultGroup>((source) => ({ source, entries: [] }));
+  const groupBySourceKey = new Map<string, LocalSearchResultGroup>();
+  for (const group of groups) {
+    const { source } = group;
+    for (const key of source.sourceKeys ?? [makeSourceKey(source.registryId, source.rawSourceId)]) {
+      if (!groupBySourceKey.has(key)) groupBySourceKey.set(key, group);
+    }
+  }
+  for (const entry of entries) {
+    if (!searchEntryMatches(entry, normalizedQuery)) continue;
+    for (const link of localSearchEntryLinksByPreference(entry, progressIndex)) {
+      const group = groupBySourceKey.get(makeSourceKey(link.registryId, link.sourceId));
+      if (group) {
+        group.entries.push(entry);
+        break;
+      }
+    }
+  }
+  return groups;
 }

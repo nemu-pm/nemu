@@ -84,6 +84,20 @@ describe("mobile source routes", () => {
     ).toBe("/sources/aidoku-community/en.mangadex/manga/bad%EF%BF%BDchapter");
   });
 
+  test("a chapter switch can name the side the reader enters from", () => {
+    const base = {
+      registryId: "aidoku-community",
+      sourceId: "en.mangadex",
+      mangaId: "manga",
+      mangaTitle: null,
+      chapter: { id: "chapter" },
+    };
+    expect(getMobileSourceReaderHref({ ...base, enterFrom: "left" })).toBe(
+      "/sources/aidoku-community/en.mangadex/manga/chapter?enterFrom=left",
+    );
+    expect(getMobileSourceReaderHref(base)).toBe("/sources/aidoku-community/en.mangadex/manga/chapter");
+  });
+
   test("uses native history when source manga has a parent screen", () => {
     expect(
       getMobileSourceMangaBackAction({

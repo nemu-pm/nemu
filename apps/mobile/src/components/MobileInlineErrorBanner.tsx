@@ -18,14 +18,17 @@ import {
 } from "@/design-system";
 import { useMobileLanguageSettings } from "@/data/mobileHooks";
 import { getMobileStrings } from "@/lib/mobileI18n";
-import { splitMobileInlineErrorDetail } from "@/lib/mobileSourceErrors";
+import {
+  formatMobileInlineErrorAnnouncement,
+  splitMobileInlineErrorDetail,
+} from "@/lib/mobileSourceErrors";
 
 type IoniconName = ComponentProps<typeof Ionicons>["name"];
 
 // The embedded variant lives inside fixed-height sheet bodies, so both the
 // friendly description and the expanded diagnostic stay bounded. The sheet
 // host turns scrollable as soon as its content outgrows the detent height.
-const EMBEDDED_DESCRIPTION_MAX_LINES = 2;
+const EMBEDDED_DESCRIPTION_MAX_LINES = 5;
 const EMBEDDED_DIAGNOSTIC_MAX_LINES = 4;
 
 type MobileInlineErrorBannerProps = {
@@ -67,7 +70,7 @@ export function MobileInlineErrorBanner({
   const detailsLabel =
     diagnosticDetailsLabel ?? strings.feedback.technicalDetails;
   const accentColor = tone === "success" ? tokens.success : tokens.danger;
-  const announcement = `${title}. ${detail}`;
+  const announcement = formatMobileInlineErrorAnnouncement(title, detail);
   const { description, diagnostic } = splitMobileInlineErrorDetail(detail);
   const [diagnosticOpen, setDiagnosticOpen] = useState(false);
   const lastAnnouncementRef = useRef<string | null>(null);
@@ -86,7 +89,13 @@ export function MobileInlineErrorBanner({
 
   const content = (
     <>
-      <Ionicons name={iconName} size={18} color={accentColor} />
+      <Ionicons
+        accessibilityElementsHidden
+        importantForAccessibility="no"
+        name={iconName}
+        size={18}
+        color={accentColor}
+      />
       <View style={styles.textBlock}>
         <View
           accessible={announce || undefined}
@@ -97,14 +106,16 @@ export function MobileInlineErrorBanner({
           <Text style={[styles.title, { color: tokens.foreground }]}>
             {title}
           </Text>
-          <Text
-            numberOfLines={
-              embedded ? EMBEDDED_DESCRIPTION_MAX_LINES : undefined
-            }
-            style={[styles.detail, { color: tokens.mutedForeground }]}
-          >
-            {description}
-          </Text>
+          {description === title ? null : (
+            <Text
+              numberOfLines={
+                embedded ? EMBEDDED_DESCRIPTION_MAX_LINES : undefined
+              }
+              style={[styles.detail, { color: tokens.mutedForeground }]}
+            >
+              {description}
+            </Text>
+          )}
         </View>
         {/* Both variants collapse the diagnostic: the glass banner used to
             print the raw exception as body copy, which is untranslated and

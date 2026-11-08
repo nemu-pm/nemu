@@ -1,4 +1,7 @@
-import { StyleSheet, View, useWindowDimensions } from "react-native";
+import { StyleSheet, View } from "react-native";
+import { ExploreShimmerSweep } from "@/components/explore/ExploreShimmerSweep";
+import { useExploreShimmerBackdrop } from "@/components/explore/useExploreShimmerBackdrop";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import Animated from "react-native-reanimated";
 import {
   useSkeletonDisplayDelay,
@@ -8,19 +11,16 @@ import {
   createNemuShadowStyle,
   radius,
   useMobilePageBleedStyles,
-  useMobilePageGutters,
   useNemuTheme,
   GlassSurface,
 } from "@/design-system";
-import {
-  getMobileMangaGridSkeletonGeometry,
-  MOBILE_MANGA_GRID_GAP,
-} from "@/lib/mobileAdaptiveGrid";
+import { mobileFoldAwareGridCellStyle } from "@/lib/mobileFoldAwareGrid";
+import { NO_INSETS, useMobileFoldAwareGrid } from "@/lib/useMobileFoldAwareGrid";
 
 const SKELETON_CHIPS = [0, 1, 2, 3] as const;
+/** The chip row as it lands: "All", then source names. */
+const EXPLORE_CHIP_WIDTHS = [58, 106, 138, 112] as const;
 const SKELETON_SECTIONS = [0, 1] as const;
-/** One row of result covers per source section, like the loaded results. */
-const SKELETON_RESULT_ROWS = 1;
 
 type MobileSearchSkeletonProps = {
   accessibilityLabel: string;
@@ -30,29 +30,51 @@ export function MobileSearchSkeleton({
   accessibilityLabel,
 }: MobileSearchSkeletonProps) {
   const { tokens, reduceMotion } = useNemuTheme();
+  const shimmerBackdrop = useExploreShimmerBackdrop();
   // Mirrors the Search tab's source chip row bleed (2pt overscan).
   const bleed = useMobilePageBleedStyles(2);
-  const { width: windowWidth } = useWindowDimensions();
-  const pageGutters = useMobilePageGutters();
-  // Same inset-aware adaptive columns as the Search result grid.
-  const { cardCount: resultCount, cardWidth: resultWidth } =
-    getMobileMangaGridSkeletonGeometry({
-      windowWidth,
-      horizontalPadding: pageGutters.horizontal,
-      rows: SKELETON_RESULT_ROWS,
-    });
-  const skeletonOpacity = useSkeletonPulse(reduceMotion === true);
+  // Same fold-aware grid as the Search results (one row of covers per source
+  // section): even columns on regular widths and, in book posture, the middle
+  // gutter on the fold. The skeleton already sits inside the page gutters.
+  // Refs stay out of the layout object read during render.
+  const { ref: gridRef, onLayout: onGridLayout, ...resultGrid } = useMobileFoldAwareGrid({ insets: NO_INSETS });
+  const pulseOpacity = useSkeletonPulse(reduceMotion === true);
+  // Design-explore: the blocks hold still and one shimmer sweep crosses them.
+  const skeletonOpacity = mobileDesignExploreFlag ? 1 : pulseOpacity;
   const skeletonReady = useSkeletonDisplayDelay(150);
   const skeletonColor = tokens.muted;
   const subtleSkeletonColor = tokens.sourceIconGlass;
 
   if (!skeletonReady) return null;
 
+  // Design-explore: the search field is the real one above, and an empty
+  // query shows the idle page (recent searches, new chapters), not result
+  // groups. Only the source chips are still to come, so only they stand in.
+  if (mobileDesignExploreFlag) {
+    return (
+      <View accessibilityLabel={accessibilityLabel} accessibilityRole="progressbar" style={[styles.stack, shimmerBackdrop]}>
+        <View style={[styles.chipRow, bleed.frame, bleed.content]}>
+          {EXPLORE_CHIP_WIDTHS.map((width, index) => (
+            <View
+              key={index}
+              style={[
+                styles.chip,
+                styles.exploreChip,
+                { width, backgroundColor: index === 0 ? skeletonColor : subtleSkeletonColor },
+              ]}
+            />
+          ))}
+        </View>
+        <ExploreShimmerSweep />
+      </View>
+    );
+  }
+
   return (
     <Animated.View
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="progressbar"
-      style={[styles.stack, { opacity: skeletonOpacity }]}
+      style={[styles.stack, { opacity: skeletonOpacity }, shimmerBackdrop]}
     >
       <GlassSurface style={styles.searchShell} contentStyle={styles.searchContent}>
         <View
@@ -83,7 +105,12 @@ export function MobileSearchSkeleton({
         </View>
       </View>
 
-      <View style={styles.resultStack}>
+      <View
+        ref={gridRef}
+        onLayout={onGridLayout}
+        collapsable={false}
+        style={styles.resultStack}
+      >
         {SKELETON_SECTIONS.map((section) => (
           <View key={section} style={styles.resultSection}>
             <View style={styles.resultHeader}>
@@ -104,8 +131,8 @@ export function MobileSearchSkeleton({
               />
             </View>
             <View style={styles.resultsGrid}>
-              {Array.from({ length: resultCount }, (_, item) => (
-                <View key={item} style={{ width: resultWidth }}>
+              {Array.from({ length: resultGrid.columns }, (_, item) => (
+                <View key={item} style={mobileFoldAwareGridCellStyle(resultGrid, item)}>
                   <View
                     style={[
                       styles.cover,
@@ -148,6 +175,8 @@ export function MobileSearchSkeleton({
           </View>
         ))}
       </View>
+      {/* Design-explore: one shimmer sweep instead of the breathing pulse. */}
+      {mobileDesignExploreFlag ? <ExploreShimmerSweep /> : null}
     </Animated.View>
   );
 }
@@ -189,6 +218,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
   },
+  exploreChip: {
+    borderWidth: 0,
+    borderRadius: radius.pill,
+  },
   chip: {
     width: 94,
     // Search filter chips are 30pt pills; the skeleton matches that shape.
@@ -224,10 +257,9 @@ const styles = StyleSheet.create({
     height: 24,
     borderRadius: radius.md,
   },
+  // Column spacing is each cell's marginLeft (mobileFoldAwareGridCellStyle).
   resultsGrid: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: MOBILE_MANGA_GRID_GAP,
   },
   cover: {
     aspectRatio: 2 / 3,

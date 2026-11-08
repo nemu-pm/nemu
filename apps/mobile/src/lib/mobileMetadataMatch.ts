@@ -1,12 +1,25 @@
 import type { AppLanguage, ExternalIds, MangaMetadata } from "@/data/schema";
+import { requireMobileAiConsent } from "./mobileAiConsent";
+import { isMobileJapaneseLearningSignedIn } from "./mobileJapaneseLearningAuth";
 import {
   listToMetadataInput,
   type MobileMetadataFormValues,
 } from "@/lib/mobileMetadataOverrides";
 import { mobileConvexRef } from "@/sync/mobileSyncRuntime";
 import { mobileSyncConfig } from "@/sync/mobileSyncConfig";
-import { translateTags } from "../../../../src/lib/metadata/translations";
+import { translateMobileTags } from "./mobileTagTranslations";
 import { api } from "../../../../convex/_generated/api";
+
+/**
+ * The AI look-ups run on nemu's server, which requires sign-in. Signed out
+ * there is no client: no consent notice and no request, and the public
+ * providers answer alone.
+ */
+function mobileMetadataAiClient<T>(): T | null {
+  return isMobileJapaneseLearningSignedIn()
+    ? (mobileConvexRef.current as unknown as T | null)
+    : null;
+}
 
 const ANILIST_API_URL = "https://graphql.anilist.co";
 const JIKAN_API_BASE = "https://api.jikan.moe/v4";
@@ -397,7 +410,7 @@ export function localizeMobileMetadataMatch(
 
   const localizedTitle = localizedTitleForResult(result, language);
   const localizedTags = result.metadata.tags
-    ? translateTags(result.metadata.tags, language)
+    ? translateMobileTags(result.metadata.tags, language)
     : undefined;
   const localizedAuthors = localizedAuthorsForResult(result, language);
   const metadata: MangaMetadata = {
@@ -429,12 +442,13 @@ export async function findMobileJapaneseTitleFallback(
   title: string,
   authors?: string[],
   client: MobileJapaneseTitleFallbackClient | null =
-    mobileConvexRef.current as MobileJapaneseTitleFallbackClient | null,
+    mobileMetadataAiClient<MobileJapaneseTitleFallbackClient>(),
 ): Promise<string | null> {
   const trimmedTitle = title.trim();
   if (!trimmedTitle || !client) return null;
 
   try {
+    await requireMobileAiConsent();
     const result = await client.action(api.ai_metadata.findJapaneseTitle, {
       title: trimmedTitle,
       ...(authors?.length ? { authors } : {}),
@@ -485,7 +499,7 @@ function aiLookupTitlesForResult(result: MobileMetadataMatchResult): {
 export async function findMobileChineseTitleFallback(
   result: MobileMetadataMatchResult,
   client: MobileMetadataChineseTitleClient | null =
-    mobileConvexRef.current as unknown as MobileMetadataChineseTitleClient | null
+    mobileMetadataAiClient<MobileMetadataChineseTitleClient>()
 ): Promise<string | null> {
   const localizedTitle = localizedTitleForResult(result, "zh");
   if (localizedTitle !== result.metadata.title || !client) return null;
@@ -494,6 +508,7 @@ export async function findMobileChineseTitleFallback(
   if (!titles) return null;
 
   try {
+    await requireMobileAiConsent();
     const response = await client.action(api.ai_metadata.findChineseTitle, {
       japaneseTitle: titles.japaneseTitle,
       ...(titles.englishTitle ? { englishTitle: titles.englishTitle } : {}),
@@ -524,7 +539,7 @@ export async function findMobileLocalizedDescription(
   result: MobileMetadataMatchResult,
   language: AppLanguage,
   client: MobileMetadataDescriptionClient | null =
-    mobileConvexRef.current as unknown as MobileMetadataDescriptionClient | null
+    mobileMetadataAiClient<MobileMetadataDescriptionClient>()
 ): Promise<string | null> {
   if (
     language === "en" ||
@@ -538,6 +553,7 @@ export async function findMobileLocalizedDescription(
   if (!titles) return null;
 
   try {
+    await requireMobileAiConsent();
     const action =
       language === "ja"
         ? api.ai_metadata.findJapaneseDescription

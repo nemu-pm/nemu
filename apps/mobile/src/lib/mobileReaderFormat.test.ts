@@ -1,13 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type {
   ChapterSummary,
-  LibraryEntry,
   LocalChapterProgress,
   LocalMangaProgress,
   LocalSourceLink,
   ReadingMode,
 } from "@/data/schema";
-import type { MobileStrings } from "@/lib/mobileI18n";
+import { getMobileStrings, type MobileStrings } from "@/lib/mobileI18n";
 import {
   chapterDirectionLabel,
   chapterFromState,
@@ -18,6 +17,7 @@ import {
   firstParam,
   mobileReaderSettingsActionStateFromAction,
   pluginValueText,
+  japaneseLearningResponseModeLabel,
   readerSourceLinkReference,
 } from "./mobileReaderFormat";
 import type { ReaderSettingsAction, ReaderState } from "./mobileReaderTypes";
@@ -36,9 +36,11 @@ const strings = {
     chapterAccessibility: "{{direction}}: {{chapter}}",
     pluginValueOn: "On",
     pluginValueOff: "Off",
-    pluginValueSimpleJapanese: "Simple Japanese",
+    pluginValueSimpleJapanese: "Simple Japanese (N4-N3)",
     pluginValueAppLanguage: "App language",
     pluginValueDefault: "Default",
+    pluginJapaneseLearningResponseModeApp: "App language",
+    pluginJapaneseLearningResponseModeJlpt: "Simple Japanese (N4-N3)",
   },
 } as unknown as MobileStrings;
 
@@ -157,6 +159,22 @@ describe("chapterFromState", () => {
     });
   });
 
+  test("fills an id-only progress record from the other records", () => {
+    const idOnlyProgress = {
+      ...chapterProgress,
+      chapterId: "c4",
+      chapterTitle: undefined,
+      chapterNumber: undefined,
+      volumeNumber: undefined,
+    } as unknown as LocalChapterProgress;
+    const sourceLink = {
+      latestChapter: { id: "c4", title: "Latest", chapterNumber: 132 },
+    } as unknown as LocalSourceLink;
+    expect(
+      chapterFromState("c4", makeState({ chapterProgress: idOnlyProgress, sourceLink })),
+    ).toEqual({ id: "c4", title: "Latest", chapterNumber: 132 });
+  });
+
   test("keeps opaque chapter ids out of presentation data", () => {
     expect(chapterFromState("c4", makeState())).toEqual({
       id: "c4",
@@ -235,6 +253,25 @@ describe("formatReaderStageAccessibilityLabel", () => {
       formatReaderStageAccessibilityLabel(0, 10, "manga" as ReadingMode, "Open", strings),
     ).toBe("Page 1 / 10 — Open");
   });
+
+  test("a spread reads both of its pages", () => {
+    const real = getMobileStrings("en");
+    expect(
+      formatReaderStageAccessibilityLabel(9, 37, "manga" as ReadingMode, "Hide reader controls", real, [10, 9]),
+    ).toBe("Pages 9–10 of 37. Hide reader controls");
+    expect(
+      formatReaderStageAccessibilityLabel(9, 37, "manga" as ReadingMode, "隐藏阅读器控件", getMobileStrings("zh"), [9, 10]),
+    ).toBe("第 9–10 页，共 37 页。隐藏阅读器控件");
+    expect(
+      formatReaderStageAccessibilityLabel(9, 37, "manga" as ReadingMode, "操作", getMobileStrings("ja"), [9, 10]),
+    ).toBe("37ページ中9〜10ページ。操作");
+  });
+
+  test("a spread showing one page (a cover or wide page) reads that page", () => {
+    expect(
+      formatReaderStageAccessibilityLabel(0, 10, "manga" as ReadingMode, "Open", strings, [1]),
+    ).toBe("Page 1 / 10 — Open");
+  });
 });
 
 describe("formatReaderLoadedPages", () => {
@@ -264,6 +301,14 @@ describe("formatChapterAccessibilityLabel", () => {
   });
 });
 
+describe("japaneseLearningResponseModeLabel", () => {
+  test("shows web's Response Language option copy, never the raw value", () => {
+    expect(japaneseLearningResponseModeLabel("app", strings)).toBe("App language");
+    expect(japaneseLearningResponseModeLabel("jlpt", strings)).toBe("Simple Japanese (N4-N3)");
+    expect(japaneseLearningResponseModeLabel(undefined, strings)).toBe("App language");
+  });
+});
+
 describe("pluginValueText", () => {
   test("boolean true → On", () => {
     expect(pluginValueText(true, strings)).toBe("On");
@@ -275,7 +320,7 @@ describe("pluginValueText", () => {
     expect(pluginValueText(42, strings)).toBe("42%");
   });
   test('"jlpt" → Simple Japanese', () => {
-    expect(pluginValueText("jlpt", strings)).toBe("Simple Japanese");
+    expect(pluginValueText("jlpt", strings)).toBe("Simple Japanese (N4-N3)");
   });
   test('"app" → App language', () => {
     expect(pluginValueText("app", strings)).toBe("App language");
@@ -291,6 +336,3 @@ describe("pluginValueText", () => {
     expect(pluginValueText(undefined, strings)).toBe("Default");
   });
 });
-
-// Silence unused-import lint in the fixture helper surface.
-void (null as unknown as LibraryEntry);

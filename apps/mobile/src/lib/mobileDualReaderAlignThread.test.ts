@@ -1,6 +1,24 @@
 import { describe, expect, test } from "bun:test";
-import type { AlignmentOptions, AlignmentResult, LumaImage } from "@nemu/core/dual-reader";
-import { createMobileDualReaderAlignThread, type AlignThreadJobPayload } from "./mobileDualReaderAlignThread";
+import {
+  buildAlignmentOptions,
+  computeAlignmentTransform,
+  type AlignmentOptions,
+  type AlignmentResult,
+  type LumaImage,
+} from "@nemu/core/dual-reader";
+import { buildAlignmentFixtures } from "../../../../packages/core/src/dual-reader/visual-alignment.fixtures";
+import {
+  getMobilePerformanceEntries,
+  resetMobilePerformanceEntriesForTesting,
+  setMobilePerformanceEnabledForTesting,
+} from "./mobilePerformance";
+import {
+  createMobileDualReaderAlignThread,
+  DUAL_READER_ALIGN_MAX_SLICE_LABEL,
+  runAlignmentOnJsThread,
+  type AlignThreadJobPayload,
+  type AlignThreadScheduleFn,
+} from "./mobileDualReaderAlignThread";
 
 function luma(): LumaImage {
   return { data: new Uint8Array(4).fill(1), width: 2, height: 2 };
@@ -166,9 +184,111 @@ describe("mobileDualReaderAlignThread", () => {
     expect(gate.calls[0]!.fineMax).toBe(512);
     expect(gate.calls[0]!.fftMax).toBe(256);
     expect(gate.calls[0]!.fftBackend).toBe("js");
-    expect(gate.calls[0]!.timeoutMs).toBe(2000);
+    expect(gate.calls[0]!.timeoutMs).toBe(10_000);
     // abortCheck must not be on the payload (not a field of AlignThreadJobPayload).
     expect("abortCheck" in gate.calls[0]!).toBe(false);
     thread.dispose();
+  });
+});
+
+describe("mobileDualReaderAlignThread JS-thread fallback (cooperative)", () => {
+  function fixturePayload(): AlignThreadJobPayload {
+    const fixture = buildAlignmentFixtures().find((f) => f.name === "spread-shifted")!;
+    return {
+      primary: fixture.primary,
+      secondary: fixture.secondary,
+      fineMax: 512,
+      fftMax: 256,
+      fftBackend: "js",
+      timeoutMs: 10_000,
+    };
+  }
+
+  test(
+    "matches the synchronous core and records dualReader.align.maxSliceMs",
+    async () => {
+      setMobilePerformanceEnabledForTesting(true);
+      resetMobilePerformanceEntriesForTesting();
+      try {
+        const payload = fixturePayload();
+        const expected = computeAlignmentTransform({
+          primary: payload.primary,
+          secondary: payload.secondary,
+          options: buildAlignmentOptions({ fineMax: 512, fftMax: 256, fftBackend: "js" }),
+        });
+        const got = await runAlignmentOnJsThread(payload, {
+          signal: new AbortController().signal,
+        });
+        expect(got).toEqual(expected);
+        const entries = getMobilePerformanceEntries().filter(
+          (e) => e.label === DUAL_READER_ALIGN_MAX_SLICE_LABEL,
+        );
+        expect(entries.length).toBe(1);
+        const entry = entries[0]!;
+        expect(entry.kind).toBe("measure");
+        expect(entry.metadata?.outcome).toBe("ok");
+        expect(entry.metadata?.slices as number).toBeGreaterThan(10);
+        // Budget is 6 ms; the hard product ceiling is 50 ms per synchronous run.
+        expect(entry.metadata?.maxSliceMs as number).toBeLessThan(50);
+        expect(entry.durationMs!).toBeLessThan(50);
+      } finally {
+        setMobilePerformanceEnabledForTesting(null);
+        resetMobilePerformanceEntriesForTesting();
+      }
+    },
+    30_000,
+  );
+
+  test(
+    "cancelPending aborts an in-flight JS-thread alignment between slices",
+    async () => {
+      let thread: ReturnType<typeof createMobileDualReaderAlignThread> | null = null;
+      let slicesAfterCancel = 0;
+      let cancelled = false;
+      let hostYields = 0;
+      const schedule: AlignThreadScheduleFn = (payload, context) =>
+        runAlignmentOnJsThread(payload, context, {
+          yieldToHost: async () => {
+            await new Promise((r) => setTimeout(r, 0));
+            hostYields += 1;
+            if (cancelled) slicesAfterCancel += 1;
+            if (hostYields === 5) {
+              cancelled = true;
+              thread!.cancelPending();
+            }
+          },
+        });
+      thread = createMobileDualReaderAlignThread({ schedule });
+      const p = thread.runAlignment({
+        primary: fixturePayload().primary,
+        secondary: fixturePayload().secondary,
+        options: options(),
+      });
+      await expect(p).rejects.toThrow(/cancelled/);
+      // The abort is seen right after the hand-back that triggered it: no further
+      // slice ran (each slice is preceded by a hand-back).
+      expect(slicesAfterCancel).toBe(0);
+      expect(hostYields).toBe(5);
+      thread.dispose();
+    },
+    30_000,
+  );
+
+  test("dispose aborts in-flight work via the schedule signal", async () => {
+    const signals: AbortSignal[] = [];
+    const schedule: AlignThreadScheduleFn = (_payload, context) => {
+      signals.push(context.signal);
+      return new Promise<AlignmentResult>((_resolve, reject) => {
+        context.signal.addEventListener("abort", () => reject(new Error("Dual-reader alignment cancelled")));
+      });
+    };
+    const thread = createMobileDualReaderAlignThread({ schedule });
+    const p = thread.runAlignment({ primary: luma(), secondary: luma(), options: options() });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(signals.length).toBe(1);
+    expect(signals[0]!.aborted).toBe(false);
+    thread.dispose();
+    expect(signals[0]!.aborted).toBe(true);
+    await expect(p).rejects.toThrow(/cancelled/);
   });
 });

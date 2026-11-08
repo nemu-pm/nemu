@@ -326,6 +326,67 @@ describe("mobile library refresh", () => {
     });
   });
 
+  test("keeps each fetched chapter list warm for the detail screen, at background priority", async () => {
+    const stale = sourceLink("stale", { latestFetchedAt: 1_000 });
+    const persisted: Array<{ id: string; title: string; count: number; fetchedAt: number }> = [];
+    const priorities: unknown[] = [];
+
+    const result = await refreshMobileLibraryLatestChapters({
+      entries: [entry([stale])],
+      installedSources: [installedSource()],
+      saveSourceLink: async () => undefined,
+      refreshLatestChapter: async (_source, mangaId, options) => {
+        priorities.push(options?.priority);
+        return {
+          status: "ready",
+          runtime: "native-aidoku",
+          chapters: [
+            { id: `${mangaId}-2`, chapterNumber: 2 },
+            { id: `${mangaId}-1`, chapterNumber: 1 },
+          ],
+          latestChapter: { id: `${mangaId}-2`, chapterNumber: 2 },
+          fetchedAt: 10_000,
+        };
+      },
+      persistChapterList: async (link, title, chapters, fetchedAt) => {
+        persisted.push({ id: link.id, title, count: chapters.length, fetchedAt });
+      },
+      now: () => 10_000,
+      intervalMs: 2_000,
+    });
+
+    expect(result.refreshed).toBe(1);
+    expect(priorities).toEqual(["background"]);
+    expect(persisted).toEqual([
+      { id: stale.id, title: "Item", count: 2, fetchedAt: 10_000 },
+    ]);
+  });
+
+  test("a failing cache write never fails the update check", async () => {
+    const saved: LocalSourceLink[] = [];
+    const result = await refreshMobileLibraryLatestChapters({
+      entries: [entry([sourceLink("stale", { latestFetchedAt: 1_000 })])],
+      installedSources: [installedSource()],
+      saveSourceLink: async (link) => {
+        saved.push(link);
+      },
+      refreshLatestChapter: async () => ({
+        status: "ready",
+        runtime: "native-aidoku",
+        chapters: [{ id: "c1" }],
+        latestChapter: { id: "c1" },
+        fetchedAt: 10_000,
+      }),
+      persistChapterList: async () => {
+        throw new Error("disk full");
+      },
+      now: () => 10_000,
+      intervalMs: 2_000,
+    });
+    expect(result).toMatchObject({ refreshed: 1, failed: 0 });
+    expect(saved[0]?.latestChapter).toEqual({ id: "c1" });
+  });
+
   test("can force fresh source links for manual refresh", async () => {
     const saved: LocalSourceLink[] = [];
     const fresh = sourceLink("fresh", { latestFetchedAt: 9_500 });

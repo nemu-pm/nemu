@@ -1,0 +1,88 @@
+import { useMemo } from "react";
+import type { LayoutChangeEvent, ViewInstance } from "react-native";
+import { mobileFoldSplitForContainer } from "@/lib/mobileAdaptiveLayout";
+import {
+  getMobileSplitPaneLayout,
+  type MobileSplitPaneLayout,
+  type MobileSplitPaneOptions,
+} from "@/lib/mobileSplitPaneLayout";
+import { useMobileContainerFold } from "@/lib/useMobileContainerFold";
+import { useReportMobileToastRegion } from "@/lib/useReportMobileToastRegion";
+
+/**
+ * Measures a split container in window coordinates and derives its panes from
+ * the app-wide adaptive layout. Lays out from the container's bounds, never the
+ * screen (HIG "build to resize").
+ *
+ * Book panes follow the active fold. Unfolding restores the proportional
+ * sidebar layout without reserving space for an inactive fold.
+ *
+ * Measurement goes through `useMobileContainerFold`, which re-measures when the
+ * fold changes (folding into book pose changes the reserved regions without
+ * resizing the container) and ignores the off-window frame a push transition
+ * reports, measuring again once it settles — otherwise a detail screen pushed
+ * while folded would keep a stale origin and miss the fold-aligned split.
+ */
+export function useMobileSplitPaneLayout(options: MobileSplitPaneOptions): {
+  containerRef: ReturnType<typeof useMobileContainerFold<ViewInstance>>["ref"];
+  onContainerLayout: (event: LayoutChangeEvent) => void;
+  layout: MobileSplitPaneLayout;
+  /** The container's width (the window's until measured), from the same snapshot as `layout`. */
+  containerWidth: number;
+  foldSplit: ReturnType<typeof mobileFoldSplitForContainer>;
+  adaptive: ReturnType<typeof useMobileContainerFold>["adaptive"];
+} {
+  const container = useMobileContainerFold<ViewInstance>();
+  const { rect } = container;
+  const adaptive = container.adaptive;
+  const containerWidth = container.width ?? adaptive.width;
+  const containerHeight = rect?.height ?? adaptive.height;
+  // Until a trusted window measurement lands (it is asynchronous, and skipped
+  // mid-transition), assume the container starts at the window's leading edge
+  // — true for these full-screen splits — so a folded device gets the
+  // fold-aligned panes on the first frame instead of the flat split.
+  const foldSplit = useMemo(
+    () =>
+      rect
+        ? container.split
+        : mobileFoldSplitForContainer(adaptive, {
+            x: 0,
+            y: 0,
+            width: containerWidth,
+            height: adaptive.height,
+          }),
+    [adaptive, container.split, containerWidth, rect],
+  );
+
+  const layout = useMemo(
+    () =>
+      getMobileSplitPaneLayout({
+        containerWidth,
+        containerHeight,
+        regularWidth: adaptive.regularWidth,
+        posture: adaptive.posture,
+        foldSplit,
+        options,
+        sideInsets: adaptive.safeAreaInsets,
+      }),
+    [adaptive.posture, adaptive.regularWidth, adaptive.safeAreaInsets, containerHeight, containerWidth, foldSplit, options],
+  );
+
+  // Toasts belong to the main (trailing) column: never across the sidebar or
+  // the fold between the panes.
+  const containerX = rect?.x ?? 0;
+  useReportMobileToastRegion(
+    layout.mode === "split"
+      ? { x: containerX + layout.trailing.x, width: layout.trailing.width }
+      : null,
+  );
+
+  return {
+    containerRef: container.ref,
+    onContainerLayout: container.onLayout,
+    layout,
+    containerWidth,
+    foldSplit,
+    adaptive,
+  };
+}

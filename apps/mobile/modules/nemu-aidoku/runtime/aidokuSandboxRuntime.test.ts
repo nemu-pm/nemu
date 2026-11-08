@@ -6,7 +6,31 @@ import {
   MAX_CORE_SETTING_SCHEMA_STRING_CHARS,
   MAX_CORE_SETTING_STRING_LENGTH,
 } from "@nemu/core";
-import { extractMobileAidokuSettingsDefaults } from "./aidokuSandboxRuntime";
+import {
+  applyMobileAidokuManifestDefaults,
+  extractMobileAidokuSettingsDefaults,
+  normalizeAidokuSandboxMangaViewer,
+  normalizeReplayResponseUrl,
+} from "./aidokuSandboxRuntime";
+
+describe("the manga viewer leaving the sandbox", () => {
+  const viewerOf = (mode: "legacy" | "aidoku-rs", viewer: number | undefined) =>
+    normalizeAidokuSandboxMangaViewer(mode, { key: "m", viewer } as never).viewer;
+
+  test("a legacy source's right-to-left and left-to-right take the aidoku-rs numbers", () => {
+    expect(viewerOf("legacy", 1)).toBe(2 as never);
+    expect(viewerOf("legacy", 2)).toBe(1 as never);
+    for (const viewer of [0, 3, 4, undefined]) {
+      expect(viewerOf("legacy", viewer)).toBe(viewer as never);
+    }
+  });
+
+  test("an aidoku-rs source's viewer already is one", () => {
+    for (const viewer of [0, 1, 2, 3, 4]) {
+      expect(viewerOf("aidoku-rs", viewer)).toBe(viewer as never);
+    }
+  });
+});
 
 describe("mobile Aidoku sandbox settings defaults", () => {
   test("extracts type-compatible canonical and Android preference defaults", () => {
@@ -199,5 +223,68 @@ describe("mobile Aidoku sandbox settings defaults", () => {
       MAX_CORE_SETTING_SCHEMA_STRING_CHARS,
     );
     expect(Object.keys(defaults).length).toBeLessThan(300);
+  });
+});
+
+describe("mobile Aidoku sandbox manifest defaults", () => {
+  test("hands the source its base URL verbatim, without a trailing slash", () => {
+    // zh.copymanga v21 builds `format!("{base_url}{path}")` with paths that
+    // start with "/"; a normalised `https://host/` produced `//comics` (404).
+    const settings: Record<string, unknown> = {};
+    applyMobileAidokuManifestDefaults(settings, {
+      info: {
+        id: "zh.copymanga",
+        name: "拷貝漫畫",
+        version: 21,
+        urls: ["  https://www.copy5000.com ", "https://www.copy4000.com"],
+        languages: ["zh"],
+      },
+      config: { allowsBaseUrlSelect: true },
+    } as never);
+    expect(settings.url).toBe("https://www.copy5000.com");
+    expect(settings.languages).toEqual(["zh"]);
+  });
+
+  test("skips invalid base URLs and keeps an explicit user value", () => {
+    const invalid: Record<string, unknown> = {};
+    applyMobileAidokuManifestDefaults(invalid, {
+      info: { id: "x", name: "x", version: 1, urls: ["ftp://example.com", "https://ok.example"] },
+      config: { allowsBaseUrlSelect: true },
+    } as never);
+    expect(invalid.url).toBe("https://ok.example");
+
+    const explicit: Record<string, unknown> = { url: "https://mirror.example" };
+    applyMobileAidokuManifestDefaults(explicit, {
+      info: { id: "x", name: "x", version: 1, urls: ["https://ok.example"] },
+      config: { allowsBaseUrlSelect: true },
+    } as never);
+    expect(explicit.url).toBe("https://mirror.example");
+  });
+});
+
+describe("mobile Aidoku sandbox replay response url", () => {
+  test("keeps the final url the native host reports after redirects", () => {
+    // Raw FREE sends HEAD https://rawfree.bid and reads where it landed.
+    expect(normalizeReplayResponseUrl("https://rawfree.llc/")).toBe(
+      "https://rawfree.llc/",
+    );
+    expect(normalizeReplayResponseUrl("http://example.com/a b?q=1")).toBe(
+      "http://example.com/a%20b?q=1",
+    );
+  });
+
+  test("drops anything but a bounded http(s) url, so the runtime uses the request url", () => {
+    for (const value of [
+      undefined,
+      null,
+      42,
+      "",
+      "not a url",
+      "file:///etc/passwd",
+      "javascript:alert(1)",
+      `https://example.com/${"a".repeat(16 * 1024)}`,
+    ]) {
+      expect(normalizeReplayResponseUrl(value)).toBeUndefined();
+    }
   });
 });

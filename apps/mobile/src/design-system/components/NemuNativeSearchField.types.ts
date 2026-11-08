@@ -1,3 +1,10 @@
+import type { Ref } from "react";
+
+/** What a caller can ask of the field: activating it (a Search tab re-tap). */
+export type NemuNativeSearchFieldHandle = {
+  focus: () => void;
+};
+
 /**
  * Shared contract for the capsule search field used inside sheets.
  *
@@ -8,6 +15,7 @@
  * band (a programmatic clear, or resetting the query when a sheet reopens).
  */
 export type NemuNativeSearchFieldProps = {
+  ref?: Ref<NemuNativeSearchFieldHandle>;
   /** Current query text. The caller owns this state. */
   value: string;
   /** Called with every user edit, and with `""` when the clear action fires. */
@@ -15,6 +23,8 @@ export type NemuNativeSearchFieldProps = {
   /** Called when the keyboard's search key is pressed. */
   onSubmit?: () => void;
   placeholder: string;
+  /** Takes the keyboard when it mounts. */
+  autoFocus?: boolean;
   accessibilityLabel: string;
   /** Accessibility label for the trailing clear control. */
   clearAccessibilityLabel: string;

@@ -12,6 +12,7 @@ import {
   normalizeMetadataLanguagePreference,
   resolveDeviceAppLanguage,
   resolveInitialAppLanguage,
+  resolveMobileAppleLanguages,
   sortSourcesByLanguagePriority,
 } from "./mobileLanguageSettings";
 
@@ -217,6 +218,10 @@ describe("mobile language display names", () => {
     expect(formatMobileLanguageDisplayName("zh", "en")).toBe("中文");
     expect(formatMobileLanguageDisplayName("zh-Hant", "en")).toBe("繁體中文");
     expect(formatMobileLanguageDisplayName("zh_hans", "en")).toBe("简体中文");
+    // Regional codes are separate rows, so they name the region.
+    expect(formatMobileLanguageDisplayName("zh-TW", "en")).toBe("繁體中文（台灣）");
+    expect(formatMobileLanguageDisplayName("zh-hk", "en")).toBe("繁體中文（香港）");
+    expect(formatMobileLanguageDisplayName("pt-BR", "en")).toBe("Português (Brasil)");
     expect(formatMobileLanguageDisplayName("en", "ja")).toBe("English");
     expect(formatMobileLanguageDisplayName("es-419", "en")).toBe("Español (LatAm)");
     expect(formatMobileLanguageDisplayName("ko", "en")).toBe("한국어");
@@ -319,5 +324,28 @@ describe("mobile language display names", () => {
     expect(compareMobileLanguageCodes("zh-hans", "zh", "en")).toBeGreaterThan(0);
     // The base language keeps its priority rank for the whole family.
     expect(compareMobileLanguageCodes("zh-hant", "en", "en")).toBeLessThan(0);
+  });
+});
+
+describe("resolveMobileAppleLanguages", () => {
+  test("leads iOS's own controls with the app language", () => {
+    expect(resolveMobileAppleLanguages("zh", ["en-US", "zh-Hans-CN"])).toEqual(["zh-Hans"]);
+    expect(resolveMobileAppleLanguages("ja", ["en"])).toEqual(["ja"]);
+    expect(resolveMobileAppleLanguages("en", ["ja-JP"])).toEqual(["en"]);
+    expect(resolveMobileAppleLanguages("zh", ["zh-Hant-TW"])).toEqual(["zh-Hans"]);
+    expect(resolveMobileAppleLanguages("en", ["fr-FR"])).toEqual(["en"]);
+  });
+
+  test("leaves a preference that already leads with it", () => {
+    expect(resolveMobileAppleLanguages("en", ["en-GB", "ja"])).toBeNull();
+    expect(resolveMobileAppleLanguages("ja", ["ja-JP"])).toBeNull();
+    expect(resolveMobileAppleLanguages("zh", ["zh-Hans-CN"])).toBeNull();
+    expect(resolveMobileAppleLanguages("zh", ["zh-Hans"])).toBeNull();
+  });
+
+  test("writes one when there is none to read", () => {
+    expect(resolveMobileAppleLanguages("en", undefined)).toEqual(["en"]);
+    expect(resolveMobileAppleLanguages("ja", [])).toEqual(["ja"]);
+    expect(resolveMobileAppleLanguages("zh", "zh-Hans")).toEqual(["zh-Hans"]);
   });
 });

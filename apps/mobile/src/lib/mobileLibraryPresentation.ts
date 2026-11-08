@@ -6,7 +6,7 @@ import {
   type LocalMangaProgress,
   type LocalSourceLink,
 } from "@/data/schema";
-import { formatChapterShort } from "./formatChapter";
+import { formatChapterShortLabel } from "./formatChapter";
 import { formatMobileString, type MobileStrings } from "./mobileI18n";
 import { compareMobileText } from "./mobileLocaleFormat";
 
@@ -23,6 +23,21 @@ export type MobileLibraryProgressInfo = {
   subtitle: string;
   lastReadAt?: number;
 };
+
+/** A source chapter whose chapter progress the Library reads (`getMobileLibraryCaughtUpCandidates`). */
+export type MobileLibraryChapterRef = {
+  registryId: string;
+  sourceId: string;
+  mangaId: string;
+  chapterId: string;
+};
+
+/** Keys of the chapters whose chapter progress is `completed` (`mobileLibraryChapterKey`). */
+export type MobileLibraryCompletedChapters = ReadonlySet<string>;
+
+export function mobileLibraryChapterKey(ref: MobileLibraryChapterRef): string {
+  return JSON.stringify([ref.registryId, ref.sourceId, ref.mangaId, ref.chapterId]);
+}
 
 export type MobileLibraryMergeCandidate = {
   entry: LibraryEntry;
@@ -159,6 +174,23 @@ export function shouldShowMobileLibraryEmptyOnboarding({
   return !loading && !hasLibraryData && !hasSelectedCollection && !hasError;
 }
 
+/**
+ * A selected collection with nothing to draw takes the same hero as an empty
+ * Library. `rowCount` is the rows the grid draws, so the hero and the list's
+ * viewport fill land in the commit the last row leaves.
+ */
+export function shouldShowMobileEmptyCollectionHero({
+  loading,
+  hasSelectedCollection,
+  rowCount,
+}: {
+  loading: boolean;
+  hasSelectedCollection: boolean;
+  rowCount: number;
+}): boolean {
+  return !loading && hasSelectedCollection && rowCount === 0;
+}
+
 export function buildMobileProgressIndex(
   progress: LocalMangaProgress[]
 ): MobileLibraryProgressIndex {
@@ -279,6 +311,20 @@ export function getMobileEntryMostRecentSource(
   return bestSource;
 }
 
+/**
+ * The source a title's quick actions open (Library and Search share it): the
+ * most recently read linked source, else the first linked one.
+ */
+export function getMobileEntryQuickActionSource(
+  entry: LibraryEntry,
+  progressIndex: MobileLibraryProgressIndex
+): LocalSourceLink | undefined {
+  return getMobileEntryMostRecentSource(
+    entry,
+    buildMobileEntryProgressMap(entry, progressIndex)
+  );
+}
+
 export function getMobileEntryAddedAt(entry: LibraryEntry): number {
   return entry.item.createdAt;
 }
@@ -312,11 +358,53 @@ function progressChapter(progress: LocalMangaProgress | undefined): ChapterSumma
   };
 }
 
+/** The last-read chapter when it is the source's newest: caught up once it is completed. */
+function caughtUpCandidateRef(
+  progress: LocalMangaProgress,
+  latestChapter: ChapterSummary | null | undefined
+): MobileLibraryChapterRef | null {
+  const chapterId = progress.lastReadSourceChapterId;
+  if (chapterId == null || latestChapter == null || chapterId !== latestChapter.id) return null;
+  return {
+    registryId: progress.registryId,
+    sourceId: progress.sourceId,
+    mangaId: progress.sourceMangaId,
+    chapterId,
+  };
+}
+
+/**
+ * The chapters whose completion decides a card's "Caught up": each title's
+ * last-read chapter where it is its source's newest.
+ */
+export function getMobileLibraryCaughtUpCandidates(
+  entries: LibraryEntry[],
+  progressIndex: MobileLibraryProgressIndex,
+  entryProgressMaps?: MobileLibraryEntryProgressMaps
+): MobileLibraryChapterRef[] {
+  const candidates: MobileLibraryChapterRef[] = [];
+  for (const entry of entries) {
+    const progress = resolveMobileEntryProgressMap(
+      entry,
+      progressIndex,
+      entryProgressMaps?.get(entry.item.libraryItemId)
+    );
+    const source = getMobileEntryMostRecentSource(entry, progress);
+    const sourceProgress = source ? progress.get(source.id) : undefined;
+    const candidate = sourceProgress
+      ? caughtUpCandidateRef(sourceProgress, source?.latestChapter)
+      : null;
+    if (candidate) candidates.push(candidate);
+  }
+  return candidates;
+}
+
 export function getMobileLibraryProgressInfo(
   entry: LibraryEntry,
   progressIndex: MobileLibraryProgressIndex,
   strings: MobileStrings,
-  entryProgress?: Map<string, LocalMangaProgress>
+  entryProgress?: Map<string, LocalMangaProgress>,
+  completedChapters?: MobileLibraryCompletedChapters
 ): MobileLibraryProgressInfo {
   const progress = resolveMobileEntryProgressMap(
     entry,
@@ -335,21 +423,28 @@ export function getMobileLibraryProgressInfo(
   const sourceProgress = progress.get(recentSource.id);
   const lastReadChapter = progressChapter(sourceProgress);
   const latestChapter = recentSource.latestChapter;
+  // Opening the newest chapter is not reading it: caught up once its chapter
+  // progress is completed, as on the manga page.
+  const caughtUpCandidate = sourceProgress
+    ? caughtUpCandidateRef(sourceProgress, latestChapter)
+    : null;
   const isCaughtUp =
-    sourceProgress?.lastReadSourceChapterId != null &&
-    latestChapter != null &&
-    sourceProgress.lastReadSourceChapterId === latestChapter.id;
+    caughtUpCandidate != null &&
+    completedChapters?.has(mobileLibraryChapterKey(caughtUpCandidate)) === true;
 
   let subtitle = strings.library.progressUnread;
   if (isCaughtUp) {
     subtitle = strings.library.progressCaughtUp;
-  } else if (lastReadChapter && latestChapter) {
-    subtitle = `${formatChapterShort(lastReadChapter, strings)} / ${formatChapterShort(
-      latestChapter,
-      strings,
-    )}`;
   } else if (lastReadChapter) {
-    subtitle = formatChapterShort(lastReadChapter, strings);
+    // A progress record can carry only the chapter id (no number, no
+    // title): say the title is in progress rather than "Untitled".
+    const lastRead =
+      formatChapterShortLabel(lastReadChapter, strings) ??
+      strings.library.progressInProgress;
+    const latest = latestChapter
+      ? formatChapterShortLabel(latestChapter, strings)
+      : null;
+    subtitle = latest ? `${lastRead} / ${latest}` : lastRead;
   }
 
   return {
@@ -357,6 +452,68 @@ export function getMobileLibraryProgressInfo(
     subtitle,
     lastReadAt: sourceProgress?.lastReadAt,
   };
+}
+
+/**
+ * What a Library cover card shows of its title's reading progress, and the
+ * source its quick actions open (the most recently read linked source, else
+ * the first linked one).
+ */
+export type MobileLibraryCardProgress = {
+  subtitle: string;
+  badge?: string;
+  quickActionSource?: LocalSourceLink;
+};
+
+/** Each title's card progress, keyed by `libraryItemId`. */
+export function buildMobileLibraryCardProgress(
+  entries: LibraryEntry[],
+  progressIndex: MobileLibraryProgressIndex,
+  strings: MobileStrings,
+  entryProgressMaps?: MobileLibraryEntryProgressMaps,
+  completedChapters?: MobileLibraryCompletedChapters
+): Map<string, MobileLibraryCardProgress> {
+  const cards = new Map<string, MobileLibraryCardProgress>();
+  for (const entry of entries) {
+    const progress = resolveMobileEntryProgressMap(
+      entry,
+      progressIndex,
+      entryProgressMaps?.get(entry.item.libraryItemId)
+    );
+    const info = getMobileLibraryProgressInfo(entry, progressIndex, strings, progress, completedChapters);
+    cards.set(entry.item.libraryItemId, {
+      subtitle: info.subtitle,
+      badge: info.badge,
+      quickActionSource: getMobileEntryMostRecentSource(entry, progress),
+    });
+  }
+  return cards;
+}
+
+/**
+ * Keeps the current card object for every title whose card reads the same,
+ * and the current map when no card changed. Reading writes the open title's
+ * progress (its read time) on every page turn while the Library stays mounted
+ * under the reader; only a card whose text or source changed re-renders.
+ */
+export function stabilizeMobileLibraryCardProgress(
+  current: ReadonlyMap<string, MobileLibraryCardProgress>,
+  next: ReadonlyMap<string, MobileLibraryCardProgress>
+): ReadonlyMap<string, MobileLibraryCardProgress> {
+  if (current === next) return current;
+  let reusedAll = current.size === next.size;
+  const stable = new Map<string, MobileLibraryCardProgress>();
+  for (const [id, card] of next) {
+    const previous = current.get(id);
+    const same =
+      previous !== undefined &&
+      previous.subtitle === card.subtitle &&
+      previous.badge === card.badge &&
+      previous.quickActionSource === card.quickActionSource;
+    if (!same) reusedAll = false;
+    stable.set(id, same ? previous : card);
+  }
+  return reusedAll ? current : stable;
 }
 
 /**

@@ -185,6 +185,14 @@ describe("Android Aidoku sandbox bundle", () => {
       ),
       "utf8",
     );
+    const iosManager = readFileSync(
+      path.join(moduleRoot, "ios/NemuAidokuIOSandboxManager.swift"),
+      "utf8",
+    );
+    const iosModule = readFileSync(
+      path.join(moduleRoot, "ios/NemuAidokuModule.swift"),
+      "utf8",
+    );
     const sandboxCookies = readFileSync(
       path.join(moduleRoot, "runtime/kotlin/AidokuSandboxCookies.kt"),
       "utf8",
@@ -264,6 +272,14 @@ describe("Android Aidoku sandbox bundle", () => {
       "if (!source.hasImageRequestProvider || !isRemoteHttpUrl(url))",
     );
     expect(manager).toContain("SANDBOX_MAX_REPLAY_ROUNDS = 32");
+    // `net.get_url`: each native host hands the replay its final URL after
+    // redirects (null falls back to the request URL in the runtime).
+    expect(manager).toContain('"${response.url?.let { quote(it) } ?: "null"})"');
+    expect(nativeModule).toContain("url = httpResponse.request.url.toString()");
+    expect(nativeModule).toContain("url = response.url");
+    expect(iosManager).toContain("response.url ?? NSNull(),");
+    expect(iosModule).toContain("url: httpResponse?.url?.absoluteString");
+    expect(sandboxRuntime).toContain("url: normalizeReplayResponseUrl(finalUrl)");
     expect(manager).toContain("SANDBOX_OPERATION_TIMEOUT_MS = 20_000L");
     expect(nativeModule).toContain("appContext.backgroundCoroutineScope.launch");
     expect(nativeModule).toContain("runInterruptible");

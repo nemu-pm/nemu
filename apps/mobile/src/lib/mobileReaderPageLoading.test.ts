@@ -1,0 +1,195 @@
+import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import {
+  createMobileReaderScrollViewportStore,
+  mobileReaderPageSpinnerHalfBox,
+  MOBILE_READER_PAGE_ARRIVAL_PAINT_MS,
+  MOBILE_READER_PAGE_SPINNER_DELAY_MS,
+  MOBILE_READER_PAGE_STATUS_COLOR_DARK,
+  MOBILE_READER_PAGE_STATUS_COLOR_LIGHT,
+  mobileReaderPageFramePaintsBackground,
+  mobileReaderPageHasText,
+  mobileReaderPageSpinnerCentre,
+  mobileReaderPageStatusColor,
+} from "./mobileReaderPageLoading";
+import { isMobileReaderImageLoading } from "./mobileReaderImageStatus";
+import type { MobileReaderScrollLayout } from "./mobileReaderScrollLayout";
+
+describe("page loading status colour", () => {
+  test("grey on a light background, light grey on a dark one", () => {
+    expect(mobileReaderPageStatusColor("#ffffff")).toBe(MOBILE_READER_PAGE_STATUS_COLOR_LIGHT);
+    expect(mobileReaderPageStatusColor("#f0ead6")).toBe("#8e8e93");
+    expect(mobileReaderPageStatusColor("#000000")).toBe(MOBILE_READER_PAGE_STATUS_COLOR_DARK);
+    expect(mobileReaderPageStatusColor("#000000")).toBe("rgba(235,235,245,0.6)");
+  });
+  test("appears after 150ms", () => {
+    expect(MOBILE_READER_PAGE_SPINNER_DELAY_MS).toBe(150);
+  });
+});
+
+describe("a page without an image", () => {
+  test("is a text page only with the source's text", () => {
+    expect(mobileReaderPageHasText("Afterword")).toBe(true);
+  });
+  test("otherwise a page still loading, never a numbered card", () => {
+    expect(mobileReaderPageHasText(undefined)).toBe(false);
+    expect(mobileReaderPageHasText(null)).toBe(false);
+    expect(mobileReaderPageHasText("   ")).toBe(false);
+  });
+});
+
+describe("page frame background", () => {
+  const idle = { loading: false, failed: false, quietLoading: false, arriving: false };
+
+  test("painted while waiting, failed, or in scroll reading", () => {
+    expect(mobileReaderPageFramePaintsBackground({ ...idle, loading: true })).toBe(true);
+    expect(mobileReaderPageFramePaintsBackground({ ...idle, failed: true })).toBe(true);
+    expect(mobileReaderPageFramePaintsBackground({ ...idle, quietLoading: true })).toBe(true);
+  });
+
+  test("a waited-for image keeps it while it fades in, never the stage's black", () => {
+    expect(mobileReaderPageFramePaintsBackground({ ...idle, arriving: true })).toBe(true);
+    expect(MOBILE_READER_PAGE_ARRIVAL_PAINT_MS).toBeGreaterThan(240);
+  });
+
+  test("transparent for a shown page, so a remount shows the previous one through", () => {
+    expect(mobileReaderPageFramePaintsBackground(idle)).toBe(false);
+  });
+});
+
+describe("scroll spinner placement", () => {
+  const base = { contentOffset: 0, viewportHeight: 800, topPadding: 0 };
+  test("a page wholly on screen: its centre", () => {
+    expect(mobileReaderPageSpinnerCentre({ ...base, pageTop: 100, pageHeight: 400 })).toBe(200);
+  });
+  test("off screen: no spinner", () => {
+    expect(mobileReaderPageSpinnerCentre({ ...base, pageTop: 900, pageHeight: 400 })).toBeNull();
+    expect(mobileReaderPageSpinnerCentre({ ...base, contentOffset: 2000, pageTop: 100, pageHeight: 400 })).toBeNull();
+    // Touching the edge exactly is not on screen.
+    expect(mobileReaderPageSpinnerCentre({ ...base, pageTop: 800, pageHeight: 400 })).toBeNull();
+  });
+  test("taller than the screen: the middle of its part on screen (sticky)", () => {
+    // Page 0..3000, screen shows 1000..1800 of it.
+    expect(mobileReaderPageSpinnerCentre({ ...base, contentOffset: 1000, pageTop: 0, pageHeight: 3000 })).toBe(1400);
+    // Its bottom 200pt on screen: the middle of those.
+    expect(mobileReaderPageSpinnerCentre({ ...base, contentOffset: 2800, pageTop: 0, pageHeight: 3000 })).toBe(2900);
+  });
+  test("the top padding moves the page down on screen", () => {
+    // Top at 100 + 50 padding on screen, bottom past the screen at 3150.
+    expect(mobileReaderPageSpinnerCentre({ ...base, topPadding: 50, pageTop: 100, pageHeight: 3000 })).toBe(325);
+  });
+  test("a sliver on screen keeps the spinner inside the page", () => {
+    expect(mobileReaderPageSpinnerCentre({ ...base, pageTop: 795, pageHeight: 400 })).toBe(10);
+    expect(mobileReaderPageSpinnerCentre({ ...base, pageTop: 0, pageHeight: 8 })).toBe(4);
+  });
+});
+
+describe("scroll viewport store", () => {
+  const layout: MobileReaderScrollLayout = {
+    heights: [1000, 1000, 1000, 1000],
+    gaps: [0, 8, 8, 8],
+    starts: [0, 1000, 2008, 3016],
+    length: 4024,
+  };
+  test("only pages on screen get a spinner", () => {
+    const store = createMobileReaderScrollViewportStore();
+    store.setGeometry({ layout, segments: null, topPadding: 0, fallbackViewportHeight: 800 });
+    const onScreen = () =>
+      [0, 1, 2, 3].filter((index) => store.spinnerCentre({ kind: "page", index }) !== null);
+    expect(onScreen()).toEqual([0]);
+    store.setScroll(900, 800);
+    expect(onScreen()).toEqual([0, 1]);
+    // In the 8pt gap between pages 1 and 2 at the top.
+    store.setScroll(2010, 800);
+    expect(onScreen()).toEqual([2]);
+    expect(store.spinnerCentre({ kind: "page", index: 9 })).toBeNull();
+  });
+  test("segments read their own frames", () => {
+    const store = createMobileReaderScrollViewportStore(0);
+    store.setGeometry({
+      layout: null,
+      segments: [{ offset: 0, height: 500 }, { offset: 500, height: 500 }],
+      topPadding: 0,
+      fallbackViewportHeight: 600,
+    });
+    expect(store.spinnerCentre({ kind: "segment", index: 0 })).toBe(250);
+    expect(store.spinnerCentre({ kind: "segment", index: 1 })).toBe(50);
+    expect(store.spinnerCentre({ kind: "page", index: 0 })).toBeNull();
+  });
+  test("notifies once per change", () => {
+    const store = createMobileReaderScrollViewportStore();
+    let calls = 0;
+    const unsubscribe = store.subscribe(() => {
+      calls += 1;
+    });
+    store.setScroll(10, 800);
+    store.notify();
+    store.notify();
+    store.setScroll(10, 800);
+    store.notify();
+    expect(calls).toBe(1);
+    unsubscribe();
+  });
+});
+
+describe("a spread's pages load on their own", () => {
+  test("each page leans on the spine: the spinner box spans its half from there", () => {
+    expect(mobileReaderPageSpinnerHalfBox({ side: "left", width: 475 })).toEqual({ right: 0, width: 475 });
+    expect(mobileReaderPageSpinnerHalfBox({ side: "right", width: 475 })).toEqual({ left: 0, width: 475 });
+  });
+
+  test("a page's waiting comes from its own image, never from its partner", () => {
+    const waiting = (page: { hasNaturalSize: boolean; error?: string }) => isMobileReaderImageLoading(page);
+    expect([{ hasNaturalSize: false }, { hasNaturalSize: false }].map(waiting)).toEqual([true, true]);
+    expect([{ hasNaturalSize: true }, { hasNaturalSize: false }].map(waiting)).toEqual([false, true]);
+    expect([{ hasNaturalSize: false }, { hasNaturalSize: true }].map(waiting)).toEqual([true, false]);
+    // A failed page has its retry, not a spinner.
+    expect([{ hasNaturalSize: false, error: "failed" }, { hasNaturalSize: false }].map(waiting)).toEqual([false, true]);
+  });
+});
+
+describe("unloaded pages (source)", () => {
+  const read = (file: string) => readFileSync(path.join(import.meta.dir, file), "utf8");
+  test("no grey plate, no dark overlay, no loading text on a page", () => {
+    const frame = read("../components/reader/MobileReaderPageFrame.tsx");
+    expect(frame).not.toContain("rgba(0,0,0,0.58)");
+    expect(frame).not.toContain("#1C1C1E");
+    expect(frame).toContain("MobileReaderPageSpinner");
+    // The label stays for VoiceOver, never as text on the page.
+    expect(frame).toContain("accessibilityLabel={waiting ? strings.reader.pageImageLoading : undefined}");
+    expect(frame).not.toMatch(/:\s*strings\.reader\.pageImageLoading\}/);
+    const reader = read("../screens/ReaderScreen.tsx");
+    expect(reader).not.toContain("MOBILE_READER_SCROLL_PLACEHOLDER_COLOR");
+    expect(reader).not.toContain('galleryPagedMode ? readerPageBackground : "black"');
+  });
+  test("the opening backdrop and the native curl use the setting", () => {
+    const route = read("../../app/sources/[registryId]/[sourceId]/[mangaId]/[chapterId].tsx");
+    expect(route).not.toContain('backgroundColor: "#000000"');
+    expect(route).toContain("mobileReaderPageBackgroundColor(pageBackground)");
+    const module = read("../../modules/nemu-window-layout/ios/NemuWindowLayoutModule.swift");
+    expect(module).toContain("view.pageBackground = color ?? .black");
+  });
+  test("a spread's slot never hides its page, in the slide, push and curl pagers alike", () => {
+    const pager = read("../components/reader/MobileReaderCurlPager.tsx");
+    const slot = pager.slice(pager.indexOf("export function MobileReaderFlatSpreadSlot"));
+    expect(slot).not.toContain("opacity");
+    expect(slot).toContain("<MobileReaderSpreadHalfContext.Provider value={half}>");
+    expect(pager).toContain('half={frames[slot.frame]?.length === 2 ? { side: left ? "left" : "right", width: box.width } : null}');
+    const gallery = read("../components/reader/MobileReaderGallery.tsx");
+    expect(gallery).toContain('side: slot === 0 ? "left" : "right"');
+  });
+
+  test("a paged page past the render window still reads as loading", () => {
+    const reader = read("../screens/ReaderScreen.tsx");
+    const far = reader.slice(reader.indexOf('renderPolicy === "far-placeholder"'), reader.indexOf('renderPolicy === "processing-placeholder"'));
+    expect(far).toContain("<MobileReaderPageSpinner");
+    expect(far).toContain("backgroundColor: readerBackgroundColor");
+    expect(far).not.toContain("scrollPresentation");
+  });
+
+  test("the spinner is the native small ActivityIndicator", () => {
+    const spinner = read("../components/reader/MobileReaderPageSpinner.tsx");
+    expect(spinner).toContain('<ActivityIndicator color={color} size="small" />');
+  });
+});

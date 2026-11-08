@@ -1,26 +1,30 @@
-import type { ReactNode } from "react";
+import { useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import {
-  ActivityIndicator,
   StyleSheet,
-  Text,
   View,
   type ImageProps,
+  type ViewInstance,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import Animated, { FadeIn, ReduceMotion } from "react-native-reanimated";
 import {
   MobileCachedImage,
-  NemuPressable,
+  NemuText,
   nemuFontWeight,
-  radius,
 } from "@/design-system";
+import { MobileReaderCurlLeafOffsetContext } from "./mobileReaderCurlLeafOffset";
 import type { MobileStrings } from "@/lib/mobileI18n";
 import type { MobileImageSize } from "@/lib/mobileJapaneseLearningOverlay";
 import type { MobileImageUriOwnership } from "@/lib/mobileImageUriPolicy";
 import type { MobileCachedSegmentedImageAsset } from "@/lib/mobileImageCache";
-
-const READER_IMAGE_STATUS_BACKGROUND = "rgba(0,0,0,0.58)";
-const READER_IMAGE_STATUS_TEXT = "rgba(255,255,255,0.86)";
-const READER_IMAGE_STATUS_ICON = "rgba(255,255,255,0.72)";
+import { ReaderCapsuleButton } from "@/components/reader/ReaderCapsuleButton";
+import { MobileReaderPageSpinner } from "@/components/reader/MobileReaderPageSpinner";
+import {
+  MOBILE_READER_PAGE_ARRIVAL_PAINT_MS,
+  mobileReaderPageFramePaintsBackground,
+  mobileReaderPageStatusColor,
+} from "@/lib/mobileReaderPageLoading";
+import { MOBILE_READER_SCROLL_IMAGE_FADE_MS } from "@/lib/mobileReaderScrollPresentation";
 
 type MobileReaderPageFrameProps = {
   backgroundColor: string;
@@ -34,6 +38,21 @@ type MobileReaderPageFrameProps = {
   allowLongStripSegments?: boolean;
   cacheKey?: string;
   loading: boolean;
+  /**
+   * Scroll reading: the background stays painted under the page, and pages
+   * appear with the scroll fade (no wait on a JS load callback).
+   */
+  quietLoading?: boolean;
+  /**
+   * Paged reading's mounted pages (the current one and its neighbours): the
+   * decode is kept in native's small bounded store for a reopen's stand-in
+   * (MobileCachedImage `retainDecoded`). Never scroll reading's strips.
+   */
+  retainDecoded?: boolean | "current";
+  /** Replaces a spinner: fades in even if this session has shown its image before. */
+  fadeShownSource?: boolean;
+  /** Under something that fades away itself (the opening's overlay): no fade of its own. */
+  fadeSuppressed?: boolean;
   offline?: boolean;
   strings: MobileStrings;
   onImageError: (error: string) => void;
@@ -42,6 +61,17 @@ type MobileReaderPageFrameProps = {
   /** Clears the latched failure and re-requests this page's image. */
   onRetry?: () => void;
   onSegmentedImage?: (asset: MobileCachedSegmentedImageAsset | null) => void;
+  /**
+   * The page's image must not be shown (its processing failed: the source's
+   * scrambled original): only the frame and its status, never a request.
+   */
+  withholdImage?: boolean;
+  /**
+   * The frame's view (where the page sits, for the opening stand-in), with
+   * the curl leaf's offset to add to what it measures (see
+   * MobileReaderCurlLeafOffsetContext; none outside the curl).
+   */
+  frameRef?: (view: ViewInstance | null, leafOffset: { x: number; y: number } | null) => void;
 };
 
 export function MobileReaderPageFrame({
@@ -56,6 +86,10 @@ export function MobileReaderPageFrame({
   allowLongStripSegments,
   cacheKey,
   loading,
+  quietLoading = false,
+  retainDecoded = false,
+  fadeShownSource = false,
+  fadeSuppressed = false,
   offline = false,
   strings,
   onImageError,
@@ -63,24 +97,70 @@ export function MobileReaderPageFrame({
   onImageLoadStart,
   onRetry,
   onSegmentedImage,
+  withholdImage = false,
+  frameRef,
 }: MobileReaderPageFrameProps) {
+  const leafOffset = useContext(MobileReaderCurlLeafOffsetContext);
+  const attachFrame = useCallback(
+    (view: ViewInstance | null) => frameRef?.(view, leafOffset),
+    [frameRef, leafOffset],
+  );
+  // A page that was waiting keeps its background while its image fades in.
+  const [arriving, setArriving] = useState(false);
+  const [wasLoading, setWasLoading] = useState(loading);
+  if (wasLoading !== loading) {
+    setWasLoading(loading);
+    setArriving(!loading && !error);
+  }
+  useEffect(() => {
+    if (!arriving) return;
+    const timer = setTimeout(() => setArriving(false), MOBILE_READER_PAGE_ARRIVAL_PAINT_MS);
+    return () => clearTimeout(timer);
+  }, [arriving]);
   const canRetry = Boolean(error) && Boolean(onRetry);
+  // A page without its image: the reader background, a small native spinner
+  // (after a short wait; in scroll reading only while on screen), and on a
+  // failure its icon and text in the same quiet colour — never a dark card.
+  const statusColor = mobileReaderPageStatusColor(backgroundColor);
+  const waiting = loading && !error;
 
   return (
     <View
+      ref={frameRef ? attachFrame : undefined}
+      accessibilityLabel={waiting ? strings.reader.pageImageLoading : undefined}
       style={[
         styles.readerImageFrame,
         {
           width: frameSize.width,
           height: frameSize.height,
-          backgroundColor,
+          // Painted only while there is no image to show (loading / error)
+          // and while a waited-for image fades in over it. A decoded page
+          // covers its frame anyway, and a transparent frame lets the
+          // previous list show through while a remounted one decodes
+          // (spread ⇄ single, rotation) instead of a black box. Scroll
+          // reading always keeps its background: a page that remounts
+          // paints over it the moment it decodes.
+          backgroundColor: mobileReaderPageFramePaintsBackground({
+            loading,
+            failed: Boolean(error),
+            quietLoading,
+            arriving,
+          })
+            ? backgroundColor
+            : "transparent",
         },
       ]}
     >
-      <MobileCachedImage
+      {withholdImage ? null : <MobileCachedImage
         cacheKind="page"
         allowLongStripSegments={allowLongStripSegments}
         cacheKey={cacheKey}
+        fadeDurationMs={quietLoading ? MOBILE_READER_SCROLL_IMAGE_FADE_MS : undefined}
+        fadeFromCache={!quietLoading}
+        fadeShownSource={fadeShownSource}
+        // Scroll reading paints a page as soon as native decodes it, with no
+        // wait on a JS load callback to start a fade.
+        fadeIn={!quietLoading && !fadeSuppressed}
         fallback={null}
         uriOwnership={imageUriOwnership}
         source={{ uri: imageUri, headers }}
@@ -92,70 +172,48 @@ export function MobileReaderPageFrame({
         onError={onImageError}
         onSegmentedImage={onSegmentedImage}
         resizeMode={imageResizeMode}
+        retainDecoded={quietLoading ? false : retainDecoded}
         style={styles.readerImage}
-      />
-      {loading || error ? (
-        <View
-          // A failed page must be recoverable: the overlay only stays inert
+      />}
+      {waiting && !withholdImage ? <MobileReaderPageSpinner color={statusColor} /> : null}
+      {error ? (
+        <Animated.View
+          entering={FadeIn.duration(180).reduceMotion(ReduceMotion.Never)}
+          // A failed page must be recoverable: the status only stays inert
           // while there is nothing to tap.
           pointerEvents={canRetry ? "auto" : "none"}
-          style={[
-            styles.readerImageStatusOverlay,
-            {
-              backgroundColor: READER_IMAGE_STATUS_BACKGROUND,
-            },
-          ]}
+          style={styles.readerImageStatusOverlay}
         >
-          {error ? (
-            <Ionicons
-              name={offline ? "cloud-offline-outline" : "alert-circle-outline"}
-              size={22}
-              color={READER_IMAGE_STATUS_ICON}
-            />
-          ) : (
-            <ActivityIndicator color={READER_IMAGE_STATUS_TEXT} size="small" />
-          )}
-          <Text
+          <Ionicons
+            name={offline ? "cloud-offline-outline" : "alert-circle-outline"}
+            size={22}
+            color={statusColor}
+          />
+          <NemuText
             numberOfLines={2}
             style={[
               styles.readerImageStatusText,
-              { color: READER_IMAGE_STATUS_TEXT },
+              { color: statusColor },
             ]}
           >
-            {error
-              ? offline
-                ? strings.feedback.readerWaitingForNetwork
-                : strings.reader.pageImageFailed
-              : strings.reader.pageImageLoading}
-          </Text>
-          {canRetry ? (
-            <NemuPressable
-              accessibilityRole="button"
+            {offline
+              ? strings.feedback.readerWaitingForNetwork
+              : strings.reader.pageImageFailed}
+          </NemuText>
+          {canRetry && onRetry ? (
+            // The chrome's capsule language: dark glass, icon + label, 44pt.
+            <ReaderCapsuleButton
+              label={strings.common.retry}
               accessibilityLabel={strings.reader.pageImageRetry}
-              hapticFeedback="press"
+              icon="refresh"
               onPress={onRetry}
               // Retrying must not also toggle the reader chrome, which the
               // stage derives from bubbled touch events.
-              onTouchEnd={(event) => event.stopPropagation()}
-              pressedScale={0.97}
-              style={styles.readerImageRetryButton}
-            >
-              <Ionicons
-                name="refresh-outline"
-                size={16}
-                color={READER_IMAGE_STATUS_TEXT}
-              />
-              <Text
-                style={[
-                  styles.readerImageRetryText,
-                  { color: READER_IMAGE_STATUS_TEXT },
-                ]}
-              >
-                {strings.common.retry}
-              </Text>
-            </NemuPressable>
+              stopTouchPropagation
+              style={styles.readerImageRetryCapsule}
+            />
           ) : null}
-        </View>
+        </Animated.View>
       ) : null}
       {children}
     </View>
@@ -183,25 +241,13 @@ const styles = StyleSheet.create({
     padding: 18,
   },
   readerImageStatusText: {
-    fontSize: 13,
-    lineHeight: 18,
+    maxWidth: 260,
+    fontSize: 15,
+    lineHeight: 20,
     fontWeight: nemuFontWeight.medium,
     textAlign: "center",
   },
-  readerImageRetryButton: {
-    minHeight: 44,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: READER_IMAGE_STATUS_ICON,
-    paddingHorizontal: 16,
-  },
-  readerImageRetryText: {
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: nemuFontWeight.medium,
+  readerImageRetryCapsule: {
+    marginTop: 6,
   },
 });

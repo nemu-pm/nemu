@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { ChapterSummary, LocalMangaProgress } from "@/data/schema";
-import { getMobileSourceMangaContinueTarget } from "./mobileSourceMangaContinue";
+import {
+  getMobileSourceMangaContinueTarget,
+  resolveMobileContinueTarget,
+} from "./mobileSourceMangaContinue";
 
 const chapters: ChapterSummary[] = [
   { id: "c3", chapterNumber: 3 },
@@ -83,5 +86,72 @@ describe("mobile source manga continue target ordering", () => {
       chapter: chapters[1],
       isContinuation: true,
     });
+  });
+});
+
+describe("Continue on a finished chapter (card, detail page and reader agree)", () => {
+  const done = (...ids: string[]) =>
+    Object.fromEntries(ids.map((id) => [id, { completed: true }]));
+
+  test("the finished last-read chapter hands over to the next unread one", () => {
+    expect(getMobileSourceMangaContinueTarget(chapters, progress("c2"), done("c2"))).toEqual({
+      chapter: chapters[0],
+      isContinuation: true,
+    });
+  });
+
+  test("the card resolves from the cached list exactly as the detail page does", () => {
+    for (const read of ["c1", "c2", "c3"]) {
+      const completion = done(read);
+      expect(
+        resolveMobileContinueTarget({
+          chapters,
+          progress: progress(read),
+          chapterProgress: completion,
+          latestChapter: chapters[0],
+        }),
+      ).toEqual(getMobileSourceMangaContinueTarget(chapters, progress(read), completion));
+    }
+  });
+
+  test("finished the latest chapter: caught up on it", () => {
+    expect(getMobileSourceMangaContinueTarget(chapters, progress("c3"), done("c3"))).toEqual({
+      chapter: chapters[0],
+      isContinuation: true,
+      caughtUp: true,
+    });
+  });
+
+  test("without a list the card names the progress' chapter", () => {
+    expect(
+      resolveMobileContinueTarget({
+        chapters: null,
+        progress: progress("c2"),
+        chapterProgress: done("c2"),
+        latestChapter: chapters[0],
+      }),
+    ).toEqual({
+      chapter: { id: "c2", title: undefined, chapterNumber: undefined, volumeNumber: undefined },
+      isContinuation: true,
+    });
+    expect(
+      resolveMobileContinueTarget({
+        chapters: null,
+        progress: progress("c3"),
+        chapterProgress: done("c3"),
+        latestChapter: chapters[0],
+      }).caughtUp,
+    ).toBe(true);
+  });
+
+  test("a cached list that lost the chapter keeps resuming it", () => {
+    expect(
+      resolveMobileContinueTarget({
+        chapters,
+        progress: progress("gone"),
+        chapterProgress: {},
+        latestChapter: chapters[0],
+      }).chapter?.id,
+    ).toBe("gone");
   });
 });

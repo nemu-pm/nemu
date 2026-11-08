@@ -10,6 +10,7 @@ import {
   nemuToneColor,
   radius,
   useNemuTheme,
+  useMobileNativeSheetTheme,
 } from "@/design-system";
 import { useMobileLanguageSettings } from "@/data/mobileHooks";
 import { hapticPress } from "@/lib/haptics";
@@ -67,7 +68,7 @@ export function MobileNemuAgentSheet({
   onVerify,
   onDismiss,
 }: MobileNemuAgentSheetProps) {
-  const { tokens } = useNemuTheme();
+  const { tokens } = useMobileNativeSheetTheme();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
   const presentation = getNemuAgentSheetPresentation(

@@ -38,7 +38,7 @@ class FakeFile {
       modificationTime: value?.modifiedAt ?? 0,
     };
   }
-  write(value: string | Uint8Array) {
+  writeSync(value: string | Uint8Array) {
     const bytes =
       typeof value === "string"
         ? new TextEncoder().encode(value)
@@ -138,13 +138,14 @@ mock.module("@/sources/mobileNativeHttpFile", () => ({
   downloadMobileNativeHttpFile: async () => nextNativeResponse,
 }));
 
-const { FileSystemBinaryCache } = await import("./nativeCache.native");
+const { FileSystemBinaryCache, endNativeBinaryCacheLaunchIndexDeferral } =
+  await import("./nativeCache.native");
 
 function stageResponse(suffix: string) {
   const first = new FakeFile(`/cache/native-${suffix}-0.part`);
   const second = new FakeFile(`/cache/native-${suffix}-1.part`);
-  first.write(new Uint8Array([1, 2, 3]));
-  second.write(new Uint8Array([4, 5, 6, 7]));
+  first.writeSync(new Uint8Array([1, 2, 3]));
+  second.writeSync(new Uint8Array([4, 5, 6, 7]));
   nextNativeResponse = {
     kind: "segmented-image",
     status: 200,
@@ -303,7 +304,7 @@ describe("native segmented cache publication", () => {
     const orphan = new FakeFile(
       "/cache/images/orphan.segment-v1-00000000m1-000000-0000000001-00.png",
     );
-    orphan.write(new Uint8Array([1]));
+    orphan.writeSync(new Uint8Array([1]));
     const restarted = new FileSystemBinaryCache("images", {
       maxBytes: 1_000_000,
       maxEntries: 10,
@@ -319,7 +320,7 @@ describe("native segmented cache publication", () => {
     const generation = "00000000m1-000000-0000000001";
     for (let group = 0; group < 512; group += 1) {
       const key = `corrupt-${group.toString().padStart(3, "0")}`;
-      new FakeFile(`/cache/images/${key}.segments-v1-${generation}.json`).write(
+      new FakeFile(`/cache/images/${key}.segments-v1-${generation}.json`).writeSync(
         "{}",
       );
       for (let member = 0; member < 7; member += 1) {
@@ -327,7 +328,7 @@ describe("native segmented cache publication", () => {
           `/cache/images/${key}.segment-v1-${generation}-${member
             .toString()
             .padStart(2, "0")}.png`,
-        ).write(new Uint8Array([member]));
+        ).writeSync(new Uint8Array([member]));
       }
     }
     expect(files.size).toBe(4_096);
@@ -337,12 +338,10 @@ describe("native segmented cache publication", () => {
       maxAgeMs: 60_000,
       maxEntryBytes: 100_000,
     });
-    const startedAt = performance.now();
     expect(await cache.getUri("unrelated")).toBeNull();
-    const elapsedMs = performance.now() - startedAt;
     expect(files.size).toBe(0);
+    // Bounded work is the listing count, not wall-clock time.
     expect(directoryListCalls).toBeLessThanOrEqual(4);
-    expect(elapsedMs).toBeLessThan(1_000);
   });
 
   test("publishes further segment groups without re-indexing the directory", async () => {
@@ -425,7 +424,7 @@ const plainPolicy = {
 
 function writePlainFile(name: string, modifiedAt: number, size = 4) {
   const file = new FakeFile(`/cache/images/${name}`);
-  file.write(new Uint8Array(size).fill(1));
+  file.writeSync(new Uint8Array(size).fill(1));
   files.get(file.path)!.modifiedAt = modifiedAt;
   return file;
 }
@@ -464,6 +463,20 @@ describe("native cache file name index", () => {
 
     await cache.remove("cover");
     expect(await cache.getUri("cover")).toBeNull();
+  });
+
+  test("replaces a plain entry without scanning the directory for segment files", async () => {
+    directories.add("/cache/images");
+    writePlainFile("cover.jpg", 1_000);
+    const cache = new FileSystemBinaryCache("images", plainPolicy);
+    await cache.setBytes("page-1", new Uint8Array([1, 2, 3]), "image/png");
+
+    directoryListCalls = 0;
+    await cache.setBytes("page-2", new Uint8Array([1, 2, 3]), "image/png");
+    await cache.setBytes("page-1", new Uint8Array([4, 5, 6]), "image/png");
+
+    expect(directoryListCalls).toBe(0);
+    expect(await cache.getBytes("page-1")).toEqual(new Uint8Array([4, 5, 6]));
   });
 
   test("re-indexes a name whose file disappeared underneath it", async () => {
@@ -610,5 +623,56 @@ describe("native cache read recency", () => {
     expect(files.has("/cache/images/nemu-access-index.json")).toBe(true);
     expect(stats.entries).toBe(1);
     expect(files.has("/cache/images/cover.jpg")).toBe(true);
+  });
+});
+
+describe("native cache launch index deferral", () => {
+  beforeEach(() => {
+    files.clear();
+    directories.clear();
+    directories.add("/cache");
+    failMoveDestination = null;
+    directoryListCalls = 0;
+    existenceChecks = 0;
+  });
+
+  test("answers a launch hit synchronously by name, without indexing", () => {
+    directories.add("/cache/images");
+    writePlainFile("cover.jpg", 1_000);
+    const cache = new FileSystemBinaryCache("images", plainPolicy, {
+      deferIndexUntilLaunch: true,
+    });
+
+    expect(cache.getLaunchUriSync("cover")).toBe("file:///cache/images/cover.jpg");
+    expect(cache.getLaunchUriSync("missing")).toBeNull();
+    expect(directoryListCalls).toBe(0);
+
+    const indexedUpFront = new FileSystemBinaryCache("images", plainPolicy);
+    expect(indexedUpFront.getLaunchUriSync("cover")).toBeNull();
+  });
+
+  test("serves launch hits by name, indexes on a miss, and indexes once the launch ends", async () => {
+    directories.add("/cache/images");
+    writePlainFile("cover.jpg", 1_000);
+    const cache = new FileSystemBinaryCache("images", plainPolicy, {
+      deferIndexUntilLaunch: true,
+    });
+
+    expect(await cache.getUri("cover")).toBe("file:///cache/images/cover.jpg");
+    expect(directoryListCalls).toBe(0);
+
+    expect(await cache.getUri("missing")).toBeNull();
+    expect(directoryListCalls).toBeGreaterThan(0);
+
+    const later = new FileSystemBinaryCache("images", plainPolicy, {
+      deferIndexUntilLaunch: true,
+    });
+    directoryListCalls = 0;
+    expect(await later.getUri("cover")).toBe("file:///cache/images/cover.jpg");
+    expect(directoryListCalls).toBe(0);
+    endNativeBinaryCacheLaunchIndexDeferral();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(directoryListCalls).toBeGreaterThan(0);
+    expect(later.getLaunchUriSync("cover")).toBeNull();
   });
 });

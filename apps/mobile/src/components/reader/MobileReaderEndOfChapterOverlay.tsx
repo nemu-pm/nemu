@@ -1,3 +1,4 @@
+import type { ViewInstance } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useEffect, useRef } from "react";
 import {
@@ -10,7 +11,9 @@ import {
   View,
 } from "react-native";
 import Animated, {
-  ZoomIn,
+  FadeIn,
+  FadeOut,
+  ReduceMotion,
   useReducedMotion,
 } from "react-native-reanimated";
 import {
@@ -29,13 +32,14 @@ type MobileReaderEndOfChapterOverlayProps = {
   strings: MobileStrings;
   bottomInset: number;
   topInset: number;
+  /**
+   * Distances from the reader edges to the pane the card belongs in (fold
+   * pane or content area), safe areas included. The scrim still covers the
+   * whole reader; only the card moves. Omitted = centred in the safe area.
+   */
+  contentInsets?: { top: number; left: number; bottom: number; right: number } | null;
   busy?: boolean;
   error?: string | null;
-  /**
-   * End-of-chapter celebration: a bare success check with a spring scale-in.
-   * Owned by the 章节完成提示 settings toggle (default off).
-   */
-  celebration?: boolean;
   onGoToNextChapter: () => void;
   onDismiss: () => void;
 };
@@ -53,15 +57,15 @@ export function MobileReaderEndOfChapterOverlay({
   strings,
   bottomInset,
   topInset,
+  contentInsets = null,
   busy = false,
   error = null,
-  celebration = false,
   onGoToNextChapter,
   onDismiss,
 }: MobileReaderEndOfChapterOverlayProps) {
   const { tokens } = useNemuTheme();
   const reducedMotion = useReducedMotion();
-  const modalHeadingRef = useRef<View | null>(null);
+  const modalHeadingRef = useRef<ViewInstance | null>(null);
 
   useEffect(() => {
     if (!visible) return;
@@ -77,13 +81,24 @@ export function MobileReaderEndOfChapterOverlay({
   const caughtUp = nextChapterLabel === null;
 
   return (
-    <View
+    <Animated.View
+      // A dissolve in every case: the prompt must not cut in over the page,
+      // and Reduce Motion keeps it (only movement goes).
+      entering={FadeIn.duration(reducedMotion ? 150 : 200).reduceMotion(ReduceMotion.Never)}
+      exiting={FadeOut.duration(150).reduceMotion(ReduceMotion.Never)}
       accessibilityLiveRegion="polite"
       accessibilityViewIsModal
       importantForAccessibility="yes"
       style={[
         styles.root,
-        { paddingTop: topInset + 24, paddingBottom: bottomInset + 24 },
+        contentInsets
+          ? {
+              paddingTop: contentInsets.top + 24,
+              paddingBottom: contentInsets.bottom + 24,
+              paddingLeft: contentInsets.left + 24,
+              paddingRight: contentInsets.right + 24,
+            }
+          : { paddingTop: topInset + 24, paddingBottom: bottomInset + 24 },
       ]}
     >
       <Pressable
@@ -109,40 +124,21 @@ export function MobileReaderEndOfChapterOverlay({
             importantForAccessibility="yes"
             style={styles.heading}
           >
-            {celebration ? (
-              <Animated.View
-                entering={
-                  reducedMotion
-                    ? undefined
-                    : ZoomIn.springify().damping(15).stiffness(210)
+            <View
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+              style={styles.iconShell}
+            >
+              <Ionicons
+                name={
+                  caughtUp
+                    ? "checkmark-done-outline"
+                    : "arrow-forward-outline"
                 }
-                accessibilityElementsHidden
-                importantForAccessibility="no-hide-descendants"
-                style={styles.celebrationCheck}
-              >
-                <Ionicons
-                  name={caughtUp ? "checkmark-done" : "checkmark"}
-                  size={28}
-                  color={tokens.success}
-                />
-              </Animated.View>
-            ) : (
-              <View
-                accessibilityElementsHidden
-                importantForAccessibility="no-hide-descendants"
-                style={styles.iconShell}
-              >
-                <Ionicons
-                  name={
-                    caughtUp
-                      ? "checkmark-done-outline"
-                      : "arrow-forward-outline"
-                  }
-                  size={22}
-                  color={tokens.primary}
-                />
-              </View>
-            )}
+                size={22}
+                color={tokens.primary}
+              />
+            </View>
             <Text style={[styles.title, { color: tokens.foreground }]}>
               {caughtUp
                 ? strings.reader.endOfChapterCaughtUpTitle
@@ -196,7 +192,7 @@ export function MobileReaderEndOfChapterOverlay({
           </View>
         </GlassSurface>
       </ScrollView>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -252,12 +248,6 @@ const styles = StyleSheet.create({
   // The glyph is bare on purpose: transient reader feedback shows a tinted
   // symbol, never a boxed icon shell.
   iconShell: {
-    width: 42,
-    height: 42,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  celebrationCheck: {
     width: 42,
     height: 42,
     alignItems: "center",

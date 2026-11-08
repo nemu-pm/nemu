@@ -7,6 +7,8 @@ import {
   mapAidokuPageToReaderPage,
   refreshMobileReaderPages,
   resolveMobileReaderChapterIndex,
+  type MobileReaderPageWindowResult,
+  type MobileReaderProcessedPageStore,
 } from "./mobileSourcePages";
 import { defaultMobileSourceSessionCache } from "./mobileSourceExecutorCache";
 import type {
@@ -75,9 +77,10 @@ function makeExecutorSource(
     },
     async getChapterList() {
       return [
+        // Oldest first: the reader's list comes back newest first.
         { key: "c1", chapterNumber: 1, title: "Start" },
-        { key: "c3", chapterNumber: 3, title: "Latest" },
         { key: "c2", chapterNumber: 2, title: "Selected", lang: "ja" },
+        { key: "c3", chapterNumber: 3, title: "Latest" },
       ];
     },
     async getPageList(_manga, chapter) {
@@ -168,6 +171,13 @@ describe("mobile source reader pages", () => {
 
   afterEach(async () => {
     await defaultMobileSourceSessionCache.clear();
+  });
+
+  test("keeps a page size the server reported before download", () => {
+    expect(mapAidokuPageToReaderPage({ index: 0, url: "https://k.test/p/1", id: "b:1", width: 2264, height: 1600 }, 0))
+      .toMatchObject({ id: "b:1", sourceSize: { width: 2264, height: 1600 } });
+    expect(mapAidokuPageToReaderPage({ index: 0, url: "https://k.test/p/1", width: 0, height: 1600 }, 0))
+      .not.toHaveProperty("sourceSize");
   });
 
   test("maps Aidoku page URLs and base64 data into renderable reader pages", () => {
@@ -424,6 +434,74 @@ describe("mobile source reader pages", () => {
     expect(result.chapter.id).toBe("c2");
   });
 
+  test("retries the page list with the listed chapter when the source needs its url", async () => {
+    const pageListUrls: (string | undefined)[] = [];
+    const bridge: MobileAidokuExecutorBridge = {
+      async loadSource() {
+        return {
+          status: "ready",
+          runtime: "native-aidoku",
+          source: makeExecutorSource(undefined, {
+            async getChapterList() {
+              return [
+                {
+                  key: "57356/424746",
+                  chapterNumber: 1,
+                  url: "https://soraraw.test/manga/hanako/ch-1",
+                },
+              ];
+            },
+            async getPageList(_manga, chapter) {
+              pageListUrls.push(chapter.url);
+              if (!chapter.url) throw new Error("no url to read the image key");
+              return [{ index: 0, url: "https://img.test/001.jpg" }];
+            },
+          }),
+        };
+      },
+    };
+
+    const result = await refreshMobileReaderPages(
+      installedSource(),
+      "hanako",
+      { id: "57356/424746" },
+      { executor: { bridge, readBytes: async () => makeAixPackage() } },
+    );
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") throw new Error("expected ready");
+    expect(pageListUrls).toEqual([undefined, "https://soraraw.test/manga/hanako/ch-1"]);
+    expect(result.pages).toHaveLength(1);
+  });
+
+  test("does not retry a page list failure the listed chapter cannot fix", async () => {
+    let calls = 0;
+    const bridge: MobileAidokuExecutorBridge = {
+      async loadSource() {
+        return {
+          status: "ready",
+          runtime: "native-aidoku",
+          source: makeExecutorSource(undefined, {
+            async getPageList() {
+              calls += 1;
+              throw new Error("source down");
+            },
+          }),
+        };
+      },
+    };
+
+    await expect(
+      refreshMobileReaderPages(
+        installedSource(),
+        "blue-lock",
+        { id: "c2", chapterNumber: 2 },
+        { executor: { bridge, readBytes: async () => makeAixPackage() } },
+      ),
+    ).rejects.toThrow("source down");
+    expect(calls).toBe(1);
+  });
+
   test("trusts only validated resolvePageImage data as app-owned", async () => {
     const bridge: MobileAidokuExecutorBridge = {
       async loadSource() {
@@ -539,6 +617,66 @@ describe("mobile source reader pages", () => {
     ]);
   });
 
+  test("processes remote pages without a context like Aidoku and the web reader", async () => {
+    // Shonen Jump+ style: the source descrambles every page but its page list
+    // carries no per-page context.
+    const processedContexts: unknown[] = [];
+    let hasImageProcessorCalls = 0;
+    const bridge: MobileAidokuExecutorBridge = {
+      async loadSource() {
+        return {
+          status: "ready",
+          runtime: "native-aidoku",
+          source: makeExecutorSource(undefined, {
+            async getPageList() {
+              return [
+                { index: 0, url: "https://example.test/no-context.jpg" },
+              ];
+            },
+            async hasImageProcessor() {
+              hasImageProcessorCalls += 1;
+              return true;
+            },
+            async processPageImage(imageData, context, requestUrl) {
+              expect(imageData).toEqual(new Uint8Array([1, 2, 3]));
+              expect(requestUrl).toBe("https://example.test/no-context.jpg");
+              processedContexts.push(context);
+              return VALID_PNG_BYTES.slice();
+            },
+          }),
+        };
+      },
+    };
+
+    const result = await refreshMobileReaderPages(
+      installedSource(),
+      "blue-lock",
+      { id: "c2", chapterNumber: 2 },
+      {
+        executor: { bridge, readBytes: async () => makeAixPackage() },
+        processPageImages: true,
+        fetchImpl: fetchResponse(
+          new Response(new Uint8Array([1, 2, 3]), {
+            status: 200,
+            headers: { "content-type": "image/jpeg" },
+          }),
+        ),
+      },
+    );
+    if (result.status !== "ready" || !result.pageProcessor) {
+      throw new Error("expected a page processor");
+    }
+
+    expect(hasImageProcessorCalls).toBe(1);
+    expect((await result.pageProcessor.processWindow(0))?.pages[0]).toMatchObject({
+      id: "0:https://example.test/no-context.jpg",
+      imageUri: VALID_PNG_DATA_URI,
+      imageUriOwnership: "app",
+      imageProcessing: "ready",
+    });
+    expect(processedContexts).toEqual([null]);
+  });
+
   test("falls back before base64-expanding an oversized processor result", async () => {
     const bridge: MobileAidokuExecutorBridge = {
       async loadSource() {
@@ -588,7 +726,7 @@ describe("mobile source reader pages", () => {
 
     expect((await result.pageProcessor.processWindow(0))?.pages[0]).toMatchObject({
       imageUri: "https://example.test/oversized.jpg",
-      imageProcessing: "fallback",
+      imageProcessing: "failed",
     });
     expect(result.pageProcessor.cacheByteSize?.()).toBe(0);
   });
@@ -646,7 +784,7 @@ describe("mobile source reader pages", () => {
     expect((await result.pageProcessor.processWindow(0))?.pages[0]).toMatchObject({
       imageUri: "https://example.test/unsafe-dimensions.jpg",
       imageUriOwnership: "source",
-      imageProcessing: "fallback",
+      imageProcessing: "failed",
     });
     expect(result.pageProcessor.cacheByteSize?.()).toBe(0);
   });
@@ -910,7 +1048,327 @@ describe("mobile source reader pages", () => {
     expect((await current)?.pages[3]?.imageProcessing).toBe("ready");
   });
 
-  test("falls back to the source image request when page processing fails", async () => {
+  test("scroll reading resolves wanted pages in priority order and keeps request-only results for the chapter", async () => {
+    const rewritten: number[] = [];
+    const bridge: MobileAidokuExecutorBridge = {
+      async loadSource() {
+        return {
+          status: "ready",
+          runtime: "native-aidoku",
+          source: makeExecutorSource(undefined, {
+            async getPageList() {
+              return Array.from({ length: 40 }, (_, index) => ({
+                index,
+                url: `https://example.test/${index}.jpg`,
+              }));
+            },
+            async modifyImageRequest(url) {
+              rewritten.push(Number(url.match(/\/(\d+)\.jpg$/)?.[1]));
+              return { url, headers: { Referer: "https://example.test" } };
+            },
+          }),
+        };
+      },
+    };
+    const result = await refreshMobileReaderPages(
+      installedSource(),
+      "blue-lock",
+      { id: "c2", chapterNumber: 2 },
+      {
+        executor: { bridge, readBytes: async () => makeAixPackage() },
+        pageProcessingCacheSize: 1,
+      },
+    );
+    const processor = result.status === "ready" ? result.pageProcessor : undefined;
+    if (!processor?.processPages) throw new Error("expected processPages");
+
+    const updates: number[][] = [];
+    const firstBatch = [10, 11, 9, 12, 13];
+    const done = Promise.withResolvers<void>();
+    processor.processPages(firstBatch, {
+      onUpdate: (update) => {
+        updates.push(update.processedIndexes);
+        if (updates.length === firstBatch.length) done.resolve();
+      },
+    });
+    await done.promise;
+    // One update per page, as each one finishes, nearest first.
+    expect(updates.flat()).toEqual(firstBatch);
+    expect(rewritten).toEqual(firstBatch);
+
+    const later = Promise.withResolvers<MobileReaderPageWindowResult>();
+    processor.processPages([20, 10, 11], { onUpdate: later.resolve });
+    const update = await later.promise;
+    expect(update.processedIndexes).toEqual([20]);
+    // Already-resolved pages are not resolved again, and request-only
+    // results outlive a one-entry image cache.
+    expect(rewritten).toEqual([...firstBatch, 20]);
+    expect(update.pages[9]?.imageProcessing).toBe("fallback");
+    expect(update.pages[13]?.imageProcessing).toBe("fallback");
+    expect(processor.cacheSize()).toBe(6);
+  });
+
+  test("scroll reading keeps in-flight work for pages still wanted and drops the rest", async () => {
+    const gates = new Map<number, PromiseWithResolvers<void>>();
+    const entered = new Map<number, PromiseWithResolvers<void>>();
+    const fetched: number[] = [];
+    for (const index of [0, 1, 2, 3, 4, 5]) {
+      gates.set(index, Promise.withResolvers<void>());
+      entered.set(index, Promise.withResolvers<void>());
+    }
+    const bridge: MobileAidokuExecutorBridge = {
+      async loadSource() {
+        return {
+          status: "ready",
+          runtime: "native-aidoku",
+          source: makeExecutorSource(undefined, {
+            async getPageList() {
+              return Array.from({ length: 6 }, (_, index) => ({
+                index,
+                url: `https://example.test/${index}.jpg`,
+              }));
+            },
+            async hasImageProcessor() {
+              return true;
+            },
+            async processPageImage() {
+              return VALID_PNG_BYTES.slice();
+            },
+          }),
+        };
+      },
+    };
+    const fetchImpl = Object.assign(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input instanceof Request ? input.url : input);
+        const index = Number(url.match(/\/(\d+)\.jpg$/)?.[1]);
+        fetched.push(index);
+        entered.get(index)?.resolve();
+        await Promise.race([
+          gates.get(index)!.promise,
+          new Promise<void>((_, reject) =>
+            init?.signal?.addEventListener("abort", () =>
+              reject(new Error("aborted")),
+            ),
+          ),
+        ]);
+        return new Response(new Uint8Array([1]), { status: 200 });
+      },
+      { preconnect: () => undefined },
+    ) as typeof fetch;
+    const result = await refreshMobileReaderPages(
+      installedSource(),
+      "blue-lock",
+      { id: "c2", chapterNumber: 2 },
+      {
+        executor: { bridge, readBytes: async () => makeAixPackage() },
+        processPageImages: true,
+        fetchImpl,
+      },
+    );
+    const processor = result.status === "ready" ? result.pageProcessor : undefined;
+    if (!processor?.processPages) throw new Error("expected processPages");
+
+    const ready: number[] = [];
+    const onUpdate = (update: MobileReaderPageWindowResult) => {
+      ready.push(...update.processedIndexes);
+    };
+    processor.processPages([0, 1, 2, 3], { onUpdate });
+    // Byte fetches run outside the source session, several at once.
+    await entered.get(0)!.promise;
+    await entered.get(1)!.promise;
+    await entered.get(2)!.promise;
+    expect(fetched).toEqual([0, 1, 2]);
+
+    // The reader moved on: 1 is still wanted, 0 and 2 are not.
+    processor.processPages([5, 1, 4], { onUpdate });
+    await entered.get(5)!.promise;
+    await entered.get(4)!.promise;
+    gates.get(1)!.resolve();
+    gates.get(5)!.resolve();
+    gates.get(4)!.resolve();
+    gates.get(0)!.resolve();
+    gates.get(2)!.resolve();
+    for (let attempt = 0; attempt < 20 && ready.length < 3; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    expect(ready.sort()).toEqual([1, 4, 5]);
+    expect(fetched.filter((index) => index === 1)).toHaveLength(1);
+    expect(fetched).not.toContain(3);
+    processor.dispose();
+  });
+
+  test("keeps processed pages in the page store and shows them from a file on later visits", async () => {
+    let fetchCalls = 0;
+    let processCalls = 0;
+    let rewriteCalls = 0;
+    const files = new Map<string, Uint8Array>();
+    const present = new Set<string>();
+    const store: MobileReaderProcessedPageStore = {
+      async get(identity) {
+        const uri = `file:///cache/${encodeURIComponent(identity.url + identity.variant)}`;
+        return files.has(uri) && present.has(uri) ? uri : null;
+      },
+      async put(identity, bytes, mimeType) {
+        expect(mimeType).toBe("image/png");
+        const uri = `file:///cache/${encodeURIComponent(identity.url + identity.variant)}`;
+        files.set(uri, bytes);
+        present.add(uri);
+        return uri;
+      },
+      has: (uri) => present.has(uri),
+    };
+    const bridge: MobileAidokuExecutorBridge = {
+      async loadSource() {
+        return {
+          status: "ready",
+          runtime: "native-aidoku",
+          source: makeExecutorSource(undefined, {
+            async getPageList() {
+              return [0, 1].map((index) => ({
+                index,
+                url: `https://example.test/${index}.jpg`,
+                context: { mode: "descramble" },
+              }));
+            },
+            async hasImageProcessor() {
+              return true;
+            },
+            async modifyImageRequest(url) {
+              rewriteCalls += 1;
+              return { url, headers: { Cookie: `session=${rewriteCalls}` } };
+            },
+            async processPageImage() {
+              processCalls += 1;
+              return VALID_PNG_BYTES.slice();
+            },
+          }),
+        };
+      },
+    };
+    const fetchImpl = Object.assign(
+      async () => {
+        fetchCalls += 1;
+        return new Response(new Uint8Array([1]), { status: 200 });
+      },
+      { preconnect: () => undefined },
+    ) as typeof fetch;
+    const open = async () => {
+      const result = await refreshMobileReaderPages(
+        installedSource(),
+        "blue-lock",
+        { id: "c2", chapterNumber: 2 },
+        {
+          executor: { bridge, readBytes: async () => makeAixPackage() },
+          processPageImages: true,
+          pageProcessingWindowRadius: 0,
+          processedPageStore: store,
+          fetchImpl,
+        },
+      );
+      if (result.status !== "ready" || !result.pageProcessor) {
+        throw new Error("expected a page processor");
+      }
+      return result.pageProcessor;
+    };
+
+    const first = await open();
+    const page = (await first.processWindow(0))?.pages[0];
+    expect(page?.imageUri?.startsWith("file:///cache/")).toBe(true);
+    expect(page?.imageUriOwnership).toBe("app");
+    expect(page?.imageProcessing).toBe("ready");
+    expect(page?.headers).toBeUndefined();
+    // A file is not image data in the JS heap.
+    expect(first.cacheByteSize?.()).toBe(0);
+    expect([fetchCalls, processCalls, rewriteCalls]).toEqual([1, 1, 1]);
+    first.dispose();
+
+    // Reopened (new cookie and all): straight from the store.
+    const second = await open();
+    expect((await second.processWindow(0))?.pages[0]?.imageUri).toBe(page?.imageUri);
+    expect([fetchCalls, processCalls, rewriteCalls]).toEqual([1, 1, 1]);
+
+    // The cache evicted the file: the page is processed again.
+    present.delete(page!.imageUri!);
+    expect((await second.processWindow(0))?.pages[0]?.imageUri).toBe(page?.imageUri);
+    expect([fetchCalls, processCalls, rewriteCalls]).toEqual([2, 2, 2]);
+  });
+
+  test("resolves a far page for Nemu Chat without moving, cancelling or evicting the window", async () => {
+    const windowFetch = Promise.withResolvers<void>();
+    const fetched: string[] = [];
+    const bridge: MobileAidokuExecutorBridge = {
+      async loadSource() {
+        return {
+          status: "ready",
+          runtime: "native-aidoku",
+          source: makeExecutorSource(undefined, {
+            async getPageList() {
+              return Array.from({ length: 8 }, (_, index) => ({
+                index,
+                url: `https://example.test/${index}.jpg`,
+                context: { mode: "descramble" },
+              }));
+            },
+            async hasImageProcessor() {
+              return true;
+            },
+            async processPageImage() {
+              return VALID_PNG_BYTES.slice();
+            },
+          }),
+        };
+      },
+    };
+    const fetchImpl = Object.assign(
+      async (input: RequestInfo | URL) => {
+        const url = String(input instanceof Request ? input.url : input);
+        fetched.push(url);
+        if (url.endsWith("/0.jpg")) await windowFetch.promise;
+        return new Response(new Uint8Array([1]), { status: 200 });
+      },
+      { preconnect: () => undefined },
+    ) as typeof fetch;
+    const result = await refreshMobileReaderPages(
+      installedSource(),
+      "blue-lock",
+      { id: "c2", chapterNumber: 2 },
+      {
+        executor: { bridge, readBytes: async () => makeAixPackage() },
+        processPageImages: true,
+        pageProcessingWindowRadius: 0,
+        pageProcessingCacheSize: 1,
+        fetchImpl,
+      },
+    );
+    const processor = result.status === "ready" ? result.pageProcessor : undefined;
+    if (!processor?.resolvePage) throw new Error("expected resolvePage");
+
+    const window = processor.processWindow(0);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const far = processor.resolvePage(6);
+    windowFetch.resolve();
+    // The window finishes (not cancelled as a stale generation).
+    expect((await window)?.pages[0]?.imageProcessing).toBe("ready");
+    const page = await far;
+    expect(page).toMatchObject({
+      id: result.status === "ready" ? result.pages[6]!.id : "",
+      imageUri: VALID_PNG_DATA_URI,
+      imageUriOwnership: "app",
+      imageProcessing: "ready",
+    });
+    // Page 6 never entered the window cache, so page 0 was not evicted.
+    expect(processor.cacheSize()).toBe(1);
+    expect((await processor.processWindow(0))?.processedIndexes).toEqual([0]);
+    expect(fetched.filter((url) => url.endsWith("/0.jpg"))).toHaveLength(1);
+    // A processed window page is reused; a disposed processor resolves nothing.
+    expect((await processor.resolvePage(0))?.imageUri).toBe(VALID_PNG_DATA_URI);
+    processor.dispose();
+    expect(await processor.resolvePage(6)).toBeNull();
+  });
+
+  test("a page whose processing fails is a load failure (never the scrambled original); retry processes it again", async () => {
+    let processCalls = 0;
     const bridge: MobileAidokuExecutorBridge = {
       async loadSource() {
         return {
@@ -930,7 +1388,8 @@ describe("mobile source reader pages", () => {
               return true;
             },
             async processPageImage() {
-              return null;
+              processCalls += 1;
+              return processCalls > 1 ? VALID_PNG_BYTES : null;
             },
           }),
         };
@@ -946,9 +1405,11 @@ describe("mobile source reader pages", () => {
           bridge,
           readBytes: async () => makeAixPackage(),
         },
-        fetchImpl: fetchResponse(
-          new Response(new Uint8Array([1, 2, 3]), { status: 200 }),
-        ),
+        // A fresh body per fetch: the retry downloads the page again.
+        fetchImpl: Object.assign(
+          async () => new Response(new Uint8Array([1, 2, 3]), { status: 200 }),
+          { preconnect: () => undefined },
+        ) as typeof fetch,
         processPageImages: true,
       }
     );
@@ -963,9 +1424,24 @@ describe("mobile source reader pages", () => {
         imageUri: "https://example.test/scrambled.jpg",
         headers: { Referer: "https://example.test" },
         context: { mode: "descramble" },
-        imageProcessing: "fallback",
+        imageProcessing: "failed",
       },
     ]);
+    const processor = result.pageProcessor;
+    // Cached as failed: the window does not loop on it.
+    expect((await processor.processWindow(0))?.pages[0]?.imageProcessing).toBe("failed");
+    expect(processCalls).toBe(1);
+    // Retry: shown pending at once, then processed again.
+    const shown: Array<string | undefined> = [];
+    const retried = await processor.retryPage?.(0, {
+      onUpdate: (update) => shown.push(update.pages[0]?.imageProcessing),
+    });
+    expect(shown).toEqual(["pending"]);
+    expect(processCalls).toBe(2);
+    expect(retried?.processedIndexes).toEqual([0]);
+    expect(retried?.pages[0]).toMatchObject({ imageProcessing: "ready", imageUriOwnership: "app" });
+    // Nothing to retry on a page that did not fail.
+    expect(await processor.retryPage?.(0)).toBeNull();
   });
 
   test("pages that arrive with headers go through the source's native decoration", async () => {
@@ -1285,5 +1761,18 @@ describe("resolveMobileReaderChapterIndex", () => {
         persistedChapters: [],
       }),
     ).toBeUndefined();
+  });
+});
+
+describe("imported archive pages", () => {
+  test("a localUri page is an app-owned image with no source request", () => {
+    expect(
+      mapAidokuPageToReaderPage({ index: 2, localUri: "file:///docs/local-archives/v/pages/000003.jpg", id: "v:3" }, 0),
+    ).toEqual({
+      id: "v:3",
+      index: 2,
+      imageUri: "file:///docs/local-archives/v/pages/000003.jpg",
+      imageUriOwnership: "app",
+    });
   });
 });

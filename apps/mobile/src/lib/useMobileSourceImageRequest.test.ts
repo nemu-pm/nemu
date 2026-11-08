@@ -7,6 +7,7 @@ import {
   makeMobileCoverRequestKey,
   resolveMobileStickyCover,
   selectMobileCoverAfterError,
+  selectMobileCoverWhilePending,
   type MobileStickyCoverPaint,
 } from "./useMobileSourceImageRequest";
 
@@ -200,6 +201,22 @@ describe("cover fallback after a failed load", () => {
     expect(
       selectMobileCoverAfterError(null, { failedKey: null, lastLoaded }),
     ).toBeNull();
+  });
+});
+
+describe("selectMobileCoverWhilePending", () => {
+  const paint = { uri: "https://cdn.test/new.jpg" };
+  const lastLoaded = { uri: "https://cdn.test/loaded.jpg" };
+  const lastResolved = { uri: "https://cdn.test/resolved.jpg" };
+
+  test("a cover withheld for now keeps the one on screen", () => {
+    expect(selectMobileCoverWhilePending(null, { pending: true, lastLoaded, lastResolved })).toBe(lastLoaded);
+    expect(selectMobileCoverWhilePending(null, { pending: true, lastLoaded: null, lastResolved })).toBe(lastResolved);
+  });
+
+  test("a cover to paint wins, and a title with none stays without one", () => {
+    expect(selectMobileCoverWhilePending(paint, { pending: true, lastLoaded, lastResolved })).toBe(paint);
+    expect(selectMobileCoverWhilePending(null, { pending: false, lastLoaded, lastResolved })).toBeNull();
   });
 });
 

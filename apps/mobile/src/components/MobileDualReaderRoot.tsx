@@ -21,13 +21,17 @@ import { MobileDualReaderDebugOverlay } from "./MobileDualReaderDebugOverlay";
 import { MobileDualReaderFab } from "./MobileDualReaderFab";
 import { MobileDualReaderSessionManager } from "./MobileDualReaderSessionManager";
 import { MobileDualReaderSecondaryPrefetcher } from "./MobileDualReaderSecondaryPrefetcher";
+import type { WindowLayoutRect } from "@/lib/mobileWindowLayout";
 
 export type MobileDualReaderRootProps = MobileDualReaderContextValue & {
   showFloatingControls: boolean;
+  /** Reader-local rect the FAB may rest in (pose-aware); default: the window safe area. */
+  floatingControlsArea?: WindowLayoutRect | null;
 };
 
 export function MobileDualReaderRoot({
   showFloatingControls,
+  floatingControlsArea,
   ...props
 }: MobileDualReaderRootProps) {
   return (
@@ -39,7 +43,7 @@ export function MobileDualReaderRoot({
       {showFloatingControls ? (
         <>
           <MobileDualReaderDebugOverlay />
-          <MobileDualReaderFab />
+          <MobileDualReaderFab area={floatingControlsArea} />
         </>
       ) : null}
     </MobileDualReaderContext.Provider>

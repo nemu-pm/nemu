@@ -18,6 +18,8 @@ type MobileSourceReaderRouteRef = MobileSourceMangaRouteRef & {
   chapter: ChapterSummary;
   mangaTitle: string | null;
   page?: string | number | null;
+  /** A chapter switch: the side the new reader comes in from (default: the stack's own). */
+  enterFrom?: "left";
 };
 
 export type MobileSourceMangaBackAction =
@@ -178,6 +180,7 @@ export function getMobileSourceReaderHref({
   chapter,
   page,
   mangaTitle,
+  enterFrom,
 }: MobileSourceReaderRouteRef): Href {
   const path = `${getMobileSourceMangaHref({
     registryId,
@@ -189,6 +192,7 @@ export function getMobileSourceReaderHref({
     query.push(`page=${encodeURIComponent(String(page))}`);
   }
   if (chapter.locked === true) query.push("chapterLocked=true");
+  if (enterFrom) query.push(`enterFrom=${enterFrom}`);
   const resolvedMangaTitle = normalizeMobileReaderRouteLabel(
     mangaTitle,
     mangaId,

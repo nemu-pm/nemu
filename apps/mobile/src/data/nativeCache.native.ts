@@ -136,6 +136,27 @@ export async function flushNativeBinaryCacheAccessIndexes(): Promise<void> {
   );
 }
 
+/**
+ * Until the launch has settled, a cache built with `deferIndexUntilLaunch`
+ * answers hits by name instead of indexing first: the first index walks the
+ * whole directory (an `info()` per file, the segment sweep, the access-index
+ * write) on the JS thread, which used to land under the launch screen with
+ * the first cover. A miss still indexes, as before. The root ends this after
+ * the launch screen has lifted, and the index is then built at once.
+ */
+let launchIndexDeferralActive = true;
+
+export function endNativeBinaryCacheLaunchIndexDeferral(): void {
+  if (!launchIndexDeferralActive) return;
+  launchIndexDeferralActive = false;
+  for (const cache of liveFileSystemBinaryCaches) cache.indexDeferredCache();
+}
+
+export type FileSystemBinaryCacheOptions = {
+  /** See `endNativeBinaryCacheLaunchIndexDeferral`. Only for caches that never hold segmented images. */
+  deferIndexUntilLaunch?: boolean;
+};
+
 export class FileSystemBinaryCache implements NativeBinaryCache {
   private readonly cacheDir: Directory;
   private readonly mutationQueue = new NativeCacheMutationQueue();
@@ -159,10 +180,14 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
   private indexedEntries = 0;
   private indexedPhysicalFiles = 0;
 
+  private readonly deferIndexUntilLaunch: boolean;
+
   constructor(
     directoryName = "nemu-cache",
     private readonly policy?: NativeBinaryCachePolicy,
+    options: FileSystemBinaryCacheOptions = {},
   ) {
+    this.deferIndexUntilLaunch = options.deferIndexUntilLaunch === true;
     if (
       policy &&
       (policy.maxBytes <= 0 ||
@@ -175,6 +200,50 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
     }
     this.cacheDir = new Directory(Paths.cache, directoryName);
     liveFileSystemBinaryCaches.add(this);
+  }
+
+  /** Builds the index a launch deferred (`endNativeBinaryCacheLaunchIndexDeferral`). */
+  indexDeferredCache(): void {
+    if (!this.deferIndexUntilLaunch || this.indexed) return;
+    void this.mutationQueue
+      .run(() => {
+        this.ensureIndexed();
+      })
+      .catch(() => undefined);
+  }
+
+  /**
+   * A launch-time hit without the directory index: the known name, else one
+   * probe per extension (the same fallback an indexed read uses for a name it
+   * has not seen). Plain files only; null sends the read to the full index.
+   */
+  private unindexedLaunchHit(encodedKey: string): string | null {
+    // Recency touched now must merge into the persisted sidecar, never
+    // replace it, so the sidecar is loaded first (one small file).
+    this.loadAccessIndex();
+    if (!this.cacheDir.exists) return null;
+    const knownName = this.cacheFileNames.get(encodedKey);
+    const candidates = knownName
+      ? [knownName]
+      : CACHE_EXTENSIONS.map((ext) => `${encodedKey}.${ext}`);
+    for (const name of candidates) {
+      const file = new File(this.cacheDir, name);
+      if (!file.exists) continue;
+      this.cacheFileNames.set(encodedKey, file.name);
+      this.touchCacheFile(file.uri);
+      return file.uri;
+    }
+    return null;
+  }
+
+  /**
+   * `getUri`'s launch-time hit, synchronously: a view mounted under the launch
+   * screen can show a file already on disk in its first render. Null after the
+   * launch, on a miss, or for a cache that indexes up front.
+   */
+  getLaunchUriSync(key: string): string | null {
+    if (!this.deferIndexUntilLaunch || !launchIndexDeferralActive || this.indexed) return null;
+    return this.unindexedLaunchHit(encodeKey(key));
   }
 
   /** Persist read recency without running an eviction pass. */
@@ -272,7 +341,7 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
         if (file.exists) file.delete();
         return;
       }
-      file.write(
+      file.writeSync(
         JSON.stringify({
           version: 1,
           access: Object.fromEntries(access),
@@ -305,8 +374,32 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
     );
   }
 
+  /**
+   * Whether `encodedKey` may still own segment files. A clean index knows
+   * every valid group (its latest manifest), and the sweep that built it
+   * removed orphaned members and stages; older generations kept for a
+   * consumer and in-flight publishes are tracked by name. Anything else is a
+   * plain cached file, so replacing it needs no directory scan.
+   */
+  private mayHaveSegmentArtifacts(encodedKey: string): boolean {
+    if (!this.indexed || this.latestSegmentManifests.has(encodedKey)) return true;
+    const prefix = `${encodedKey}.`;
+    const named = (names: Iterable<string>) => {
+      for (const name of names) if (name.startsWith(prefix)) return true;
+      return false;
+    };
+    return (
+      named(this.activeSegmentPublishFiles) ||
+      named(this.retiredSegmentManifests.keys()) ||
+      named(this.segmentedManifestConsumers.keys())
+    );
+  }
+
   private removeSegmentArtifacts(encodedKey: string): boolean {
     if (!this.cacheDir.exists) return false;
+    // Every page download used to list and pattern-match the whole cache
+    // directory here, synchronously on the JS thread.
+    if (!this.mayHaveSegmentArtifacts(encodedKey)) return false;
     let removed = false;
     for (const file of this.cacheFiles()) {
       const manifestMatch = SEGMENT_MANIFEST_PATTERN.exec(file.name);
@@ -714,8 +807,12 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
   }
 
   async getUri(key: string): Promise<string | null> {
-    this.ensureIndexed();
     const encodedKey = encodeKey(key);
+    if (this.deferIndexUntilLaunch && launchIndexDeferralActive && !this.indexed) {
+      const hit = this.unindexedLaunchHit(encodedKey);
+      if (hit) return hit;
+    }
+    this.ensureIndexed();
     let segmented = this.latestSegmentManifests.get(encodedKey);
     if (
       segmented &&
@@ -799,7 +896,7 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
         }
         const file = new File(this.cacheDir, `${encodedKey}.${nextExtension}`);
         this.removeTrackedFile(file);
-        file.write(bytes);
+        file.writeSync(bytes);
         this.cacheFileNames.set(encodedKey, file.name);
         this.assertCurrentWrite(writeLease);
         if (this.policy) {
@@ -1021,7 +1118,7 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
                 "Segmented image cache manifest exceeds its byte limit.",
               );
             }
-            stageManifest.write(serialized);
+            stageManifest.writeSync(serialized);
             const manifestBytes = stageManifest.info().size ?? 0;
             if (
               manifestBytes <= 0 ||

@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   clampReaderScrollWidthPct,
+  DEFAULT_READER_AVOID_CAMERA,
   DEFAULT_READER_PAGE_PAIRING_MODE,
   DEFAULT_READER_PROCESS_PAGE_IMAGES,
   DEFAULT_READER_SCROLL_WIDTH_PCT,
@@ -17,6 +20,14 @@ import {
   readerScrollWidthScale,
   shouldShowReaderPagePairingControls,
 } from "./mobileReaderSettings";
+
+describe("outer display camera avoidance", () => {
+  test("defaults to full screen; a saved choice either way is what the reader reads", () => {
+    expect(DEFAULT_READER_AVOID_CAMERA).toBe(false);
+    const hook = readFileSync(join(import.meta.dir, "../components/reader/useReaderDisplayEnvironment.ts"), "utf8");
+    expect(hook).toContain("settings.readerAvoidCamera ?? DEFAULT_READER_AVOID_CAMERA");
+  });
+});
 
 describe("mobile reader settings helpers", () => {
   test("falls back to the default scroll width for invalid values", () => {

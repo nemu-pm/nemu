@@ -58,6 +58,8 @@ interface SourceManageDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   entry: LibraryEntry;
+  /** Reopen the add-source drawer, the user having just signed in from it. */
+  resumeAdd?: boolean;
 }
 
 // =============================================================================
@@ -150,6 +152,7 @@ export function SourceManageDialog({
   open,
   onOpenChange,
   entry,
+  resumeAdd = false,
 }: SourceManageDialogProps) {
   const { t } = useTranslation();
   const { useSettingsStore, useLibraryStore } = useStores();
@@ -161,6 +164,10 @@ export function SourceManageDialog({
   const [sourceToDelete, setSourceToDelete] = useState<LocalSourceLink | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [mangaTitles, setMangaTitles] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (open && resumeAdd) setAddDrawerOpen(true);
+  }, [open, resumeAdd]);
 
   // Sort sources by sourceOrder at display time (data layer stores unsorted)
   const sources = useSortedSources(entry.sources, entry.item.sourceOrder);

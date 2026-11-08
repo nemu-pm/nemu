@@ -422,18 +422,13 @@ export const chat = httpAction(async (ctx, request) => {
       )
     }
 
-    // Log entire LLM context for debugging
-    console.log(
-      "[nemu_chat] LLM context:",
-      JSON.stringify(
-        {
-          system: systemPrompt,
-          messages: aiMessagesWithCaching,
-        },
-        null,
-        2
-      )
-    )
+    // Metadata only: message text, page transcripts and model output are
+    // forwarded to the AI provider but never written to Convex logs.
+    console.log("[nemu_chat] request", {
+      model: MODEL,
+      messageCount: aiMessagesWithCaching.length,
+      estimatedTokens,
+    })
 
     const stream = new ReadableStream({
       async start(controller) {
@@ -523,13 +518,6 @@ export const chat = httpAction(async (ctx, request) => {
             })
 
             let accumulatedText = ""
-            const safeStringify = (value: unknown) => {
-              try {
-                return JSON.stringify(value)
-              } catch {
-                return String(value)
-              }
-            }
             let pendingClientToolCalls: Array<{
               toolCallId: string
               toolName: string
@@ -543,7 +531,7 @@ export const chat = httpAction(async (ctx, request) => {
                 case "text-delta":
                   accumulatedText += part.text
                   emitActivity()
-                  streamLogs.push(JSON.stringify({ type: "text-delta", id: part.id, content: part.text }))
+                  streamLogs.push(JSON.stringify({ type: "text-delta", id: part.id, chars: part.text.length }))
                   break
 
                 case "tool-input-start":
@@ -556,7 +544,7 @@ export const chat = httpAction(async (ctx, request) => {
 
                 case "tool-input-delta":
                   emitActivity(currentToolName ?? undefined)
-                  streamLogs.push(JSON.stringify({ type: "tool-input-delta", id: part.id, delta: part.delta }))
+                  streamLogs.push(JSON.stringify({ type: "tool-input-delta", id: part.id, chars: part.delta.length }))
                   break
 
                 case "tool-input-end":
@@ -572,7 +560,6 @@ export const chat = httpAction(async (ctx, request) => {
                       type: "tool-call",
                       toolName: part.toolName,
                       toolCallId: part.toolCallId,
-                      input: part.input,
                     })
                   )
                   // Check if this is a client-executable tool
@@ -597,7 +584,7 @@ export const chat = httpAction(async (ctx, request) => {
                     const text = typeof input.text === "string" ? input.text.trim() : ""
                     if (text) {
                       hadSpeakCall = true
-                      streamLogs.push(JSON.stringify({ type: "speak", content: text }))
+                      streamLogs.push(JSON.stringify({ type: "speak", chars: text.length }))
                       controller.enqueue(
                         encoder.encode(`data: ${JSON.stringify({ type: "speak", content: text })}\n\n`)
                       )
@@ -607,7 +594,7 @@ export const chat = httpAction(async (ctx, request) => {
                     const text = typeof input.text === "string" ? input.text.trim() : ""
                     if (text) {
                       hadSpeakCall = true
-                      streamLogs.push(JSON.stringify({ type: "voice", content: text }))
+                      streamLogs.push(JSON.stringify({ type: "voice", chars: text.length }))
                       controller.enqueue(
                         encoder.encode(`data: ${JSON.stringify({ type: "voice", content: text })}\n\n`)
                       )
@@ -625,18 +612,17 @@ export const chat = httpAction(async (ctx, request) => {
                       type: "tool-result",
                       toolCallId: part.toolCallId,
                       toolName: part.toolName,
-                      output: part.output,
                     })
                   )
                   // Tool result processed by AI SDK
                   break
 
                 case "raw":
-                  streamLogs.push(JSON.stringify({ type: "raw", rawValue: safeStringify(part.rawValue) }))
+                  streamLogs.push(JSON.stringify({ type: "raw" }))
                   break
 
                 case "error":
-                  streamLogs.push(JSON.stringify({ type: "stream-error", error: part.error instanceof Error ? part.error.message : String(part.error) }))
+                  streamLogs.push(JSON.stringify({ type: "stream-error", errorClass: part.error instanceof Error ? part.error.name : typeof part.error }))
                   controller.enqueue(
                     encoder.encode(`data: ${JSON.stringify({
                       type: "error",
@@ -660,7 +646,7 @@ export const chat = httpAction(async (ctx, request) => {
               )
               const trimmed = accumulatedText.trim()
               if (trimmed) {
-                streamLogs.push(JSON.stringify({ type: "assistant-text-ignored", content: trimmed }))
+                streamLogs.push(JSON.stringify({ type: "assistant-text-ignored", chars: trimmed.length }))
                 accumulatedText = ""
               }
               controller.enqueue(
@@ -691,11 +677,11 @@ export const chat = httpAction(async (ctx, request) => {
             // No pending tools - send followups and done
             const trimmed = accumulatedText.trim()
             if (trimmed) {
-              streamLogs.push(JSON.stringify({ type: "assistant-text-ignored", content: trimmed }))
+              streamLogs.push(JSON.stringify({ type: "assistant-text-ignored", chars: trimmed.length }))
               accumulatedText = ""
             }
             if (collectedSuggestions.length > 0) {
-              streamLogs.push(JSON.stringify({ type: "followups", suggestions: collectedSuggestions }))
+              streamLogs.push(JSON.stringify({ type: "followups", count: collectedSuggestions.length }))
               controller.enqueue(
                 encoder.encode(`data: ${JSON.stringify({ type: "followups", suggestions: collectedSuggestions })}\n\n`)
               )
@@ -744,7 +730,8 @@ export const chat = httpAction(async (ctx, request) => {
     return new Response(stream, { headers })
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : "Unknown error"
-    console.error("[nemu_chat] Error:", errorMsg)
+    // Provider error messages can quote the request, so log the class only.
+    console.error("[nemu_chat] Error:", err instanceof Error ? err.name : "UnknownError")
 
     const errorStream = new ReadableStream({
       start(controller) {

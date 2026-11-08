@@ -5,6 +5,8 @@ export const READER_SCROLL_WIDTH_MAX = 100;
 export const DEFAULT_READER_SCROLL_WIDTH_PCT = 100;
 export const DEFAULT_READER_KEEP_AWAKE = true;
 export const DEFAULT_READER_LOCK_PORTRAIT = false;
+// The outer display reads full screen unless the reader asks to clear the camera.
+export const DEFAULT_READER_AVOID_CAMERA = false;
 // Match the web/default reading layout in every orientation. Wide screens may
 // still opt into two-page spreads explicitly; merely rotating a fresh install
 // must not silently change the content hierarchy.

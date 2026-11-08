@@ -1,3 +1,4 @@
+import { NEMU_RECOMMENDED_REGISTRY_ID } from "@nemu/core/sources";
 import type { AppLanguage, InstalledSource } from "@/data/schema";
 import {
   makeSourceKey,
@@ -11,15 +12,16 @@ import {
 import { getMobileInstalledSourceRegistryKeys } from "./mobileInstalledSourceKeys";
 import { resolveMobileNativeSheetBodyTopPadding } from "./mobileNativeSheet";
 
-export type MobileWelcomeSourceRef = {
-  registryId: string;
-  sourceId: string;
-};
-
 export type MobileWelcomeStep = "welcome" | "language" | "sources" | "done";
 
 export const MOBILE_WELCOME_ICON_SIZE = 80;
 export const MOBILE_WELCOME_STACK_BREAKPOINT = 768;
+/**
+ * A sheet body narrower than this stacks the actions whatever the window's
+ * width: a regular-width iPad window presents the onboarding sheet
+ * as a centred form sheet, which keeps the phone's button stack.
+ */
+export const MOBILE_WELCOME_STACK_BODY_BREAKPOINT = 600;
 /**
  * iOS onboarding body inset under the grabber (approved; unchanged). Android
  * uses the shared native-sheet value instead, see
@@ -30,7 +32,7 @@ export const MOBILE_WELCOME_IOS_SHEET_TOP_PADDING = 18;
 /**
  * A source card is 12pt padding + 34pt of content + its selection border, so a
  * selected (1.5pt) row measures 61pt. Budgeting the selected height keeps the
- * list from scrolling by a hairline when every recommendation is pre-checked.
+ * list from scrolling by a hairline however many rows are checked.
  */
 export const MOBILE_WELCOME_SOURCE_ROW_HEIGHT = 61;
 export const MOBILE_WELCOME_SOURCE_ROW_GAP = 8;
@@ -45,8 +47,14 @@ export function shouldScrollMobileWelcomeContent({
   return platform !== "web" || step === "sources";
 }
 
-export function shouldStackMobileWelcomeActions(width: number): boolean {
-  return width < MOBILE_WELCOME_STACK_BREAKPOINT;
+export function shouldStackMobileWelcomeActions(
+  width: number,
+  sheetBodyWidth: number | null = null,
+): boolean {
+  return (
+    width < MOBILE_WELCOME_STACK_BREAKPOINT ||
+    (sheetBodyWidth !== null && sheetBodyWidth < MOBILE_WELCOME_STACK_BODY_BREAKPOINT)
+  );
 }
 
 export function shouldBlockMobileWelcomeUnderlyingContent({
@@ -267,66 +275,82 @@ export function createMobileWelcomeCompletionWriteCoordinator(): MobileWelcomeCo
   };
 }
 
-const ENGLISH_SOURCES: MobileWelcomeSourceRef[] = [
-  { registryId: "aidoku-community", sourceId: "multi.mangaplus" },
-  { registryId: "aidoku-community", sourceId: "multi.mangadex" },
-  { registryId: "aidoku-community", sourceId: "ja.shonenjumpplus" },
-];
+/** Most sources the welcome step offers; the full list lives in Browse. */
+export const MOBILE_WELCOME_MAX_SOURCES = 6;
 
-const CHINESE_SOURCES: MobileWelcomeSourceRef[] = [
-  { registryId: "aidoku-zh", sourceId: "zh.manhuaren" },
-  { registryId: "aidoku-community", sourceId: "zh.copymanga" },
-  { registryId: "aidoku-community", sourceId: "ja.shonenjumpplus" },
-];
-
-const JAPANESE_SOURCES: MobileWelcomeSourceRef[] = [
-  { registryId: "aidoku-community", sourceId: "ja.shonenjumpplus" },
-  { registryId: "aidoku-community", sourceId: "multi.mangaplus" },
-  { registryId: "aidoku-community", sourceId: "multi.mangadex" },
-];
-
-export function mobileWelcomeSourceKey(source: MobileWelcomeSourceRef): string {
-  return makeSourceKey(source.registryId, source.sourceId);
-}
-
-export function getMobileWelcomeRecommendedSources(
+function mobileWelcomeSourceMatchesLanguage(
   language: AppLanguage,
-): MobileWelcomeSourceRef[] {
-  if (language === "zh") return CHINESE_SOURCES;
-  if (language === "ja") return JAPANESE_SOURCES;
-  return ENGLISH_SOURCES;
+  source: MobileRegistrySource,
+): boolean {
+  return (source.languages ?? []).some((value) => {
+    const base = value.toLowerCase().split("-")[0];
+    return base === language || base === "multi";
+  });
 }
 
+/**
+ * The order onboarding offers the built-in sources in, whatever the app
+ * language: this is a pick, not a sort. The right-to-left Japanese works lead
+ * because they show what the reader does; a directory entry not listed here
+ * follows them, and is offered unselected.
+ */
+export const MOBILE_WELCOME_SOURCE_ORDER: readonly string[] = [
+  "ja.ndlpublicdomain",
+  "multi.peppercarrot",
+  "multi.minifantasytheater",
+  "en.littlenemo",
+];
+
+/** The offered sources that start selected; the rest are one tap away. */
+const MOBILE_WELCOME_DEFAULT_SOURCE_IDS: ReadonlySet<string> = new Set([
+  "ja.ndlpublicdomain",
+]);
+
+function getMobileWelcomeSourceRank(source: MobileRegistrySource): number {
+  const rank = MOBILE_WELCOME_SOURCE_ORDER.indexOf(source.id);
+  return rank === -1 ? MOBILE_WELCOME_SOURCE_ORDER.length : rank;
+}
+
+/**
+ * The onboarding list is the nemu recommended directory only: its entries are
+ * the ones whose content licence has been checked. Only entries that carry a
+ * content licence are offered: a source with no content of its own (it reads
+ * the user's own server) stays in the add-source list. The pinned sources come
+ * first in their pinned order; among any others, those the user's language
+ * covers come first. Sensitive-content sources are never offered here (the
+ * Browse switch is the only way to opt in to them).
+ */
 export function getMobileWelcomeAvailableSources(
   language: AppLanguage,
   sources: MobileRegistrySource[],
 ): MobileRegistrySource[] {
-  const byKey = new Map(
-    sources.map((source) => [
-      makeSourceKey(source.registryId, source.id),
-      source,
-    ]),
-  );
-
-  return getMobileWelcomeRecommendedSources(language)
-    .map((source) => byKey.get(mobileWelcomeSourceKey(source)))
-    .filter((source): source is MobileRegistrySource => Boolean(source));
+  return sources
+    .filter(
+      (source) =>
+        source.registryId === NEMU_RECOMMENDED_REGISTRY_ID &&
+        Boolean(source.contentLicense) &&
+        (source.contentRating ?? 0) < 2,
+    )
+    .map((source, index) => ({ source, index }))
+    .sort((a, b) => {
+      const rank = getMobileWelcomeSourceRank(a.source) - getMobileWelcomeSourceRank(b.source);
+      if (rank !== 0) return rank;
+      const aMatch = mobileWelcomeSourceMatchesLanguage(language, a.source);
+      const bMatch = mobileWelcomeSourceMatchesLanguage(language, b.source);
+      if (aMatch !== bMatch) return aMatch ? -1 : 1;
+      return a.index - b.index;
+    })
+    .map(({ source }) => source)
+    .slice(0, MOBILE_WELCOME_MAX_SOURCES);
 }
 
 export function getMobileWelcomeDefaultSelection(
   language: AppLanguage,
   sources: MobileRegistrySource[],
 ): string[] {
-  const available = getMobileWelcomeAvailableSources(language, sources);
-  if (available.length > 0) {
-    return available.map((source) =>
-      makeSourceKey(source.registryId, source.id),
-    );
-  }
-
-  return getMobileWelcomeRecommendedSources(language).map(
-    mobileWelcomeSourceKey,
-  );
+  return getMobileWelcomeAvailableSources(language, sources)
+    .filter((source) => MOBILE_WELCOME_DEFAULT_SOURCE_IDS.has(source.id))
+    .map((source) => makeSourceKey(source.registryId, source.id));
 }
 
 export function getMobileWelcomePendingSourceInstallCount(

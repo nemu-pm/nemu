@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { InstalledSource, SourcePackageMetadata } from "@/data/schema";
 import type { MobileRegistrySource } from "@/sources/aidokuRegistry";
-import { hydrateMobileSyncedSourcePackages } from "./mobileSyncedSourcePackages";
+import {
+  createMobileSourceCatalogResolver,
+  hydrateMobileSyncedSourcePackages,
+} from "./mobileSyncedSourcePackages";
 
 const ARTIFACT_CACHE_KEY = `aix:${"a".repeat(64)}`;
 const SECOND_ARTIFACT_CACHE_KEY = `aix:${"b".repeat(64)}`;
@@ -359,5 +362,149 @@ describe("hydrateMobileSyncedSourcePackages", () => {
       disabled: false,
       packageUri: "file:///cache/mangadex.aix",
     });
+  });
+});
+
+describe("synced sources without a package URL", () => {
+  // The shape older clients synced: no download URL, name, icon, or languages.
+  const bareRecord: InstalledSource = {
+    id: "aidoku-community:ja.comicaction",
+    registryId: "aidoku-community",
+    version: 1,
+    updatedAt: 1786125697869,
+    removed: false,
+  };
+  const comicActionMetadata: SourcePackageMetadata = {
+    ...packageMetadata,
+    sourceId: "ja.comicaction",
+    name: "webアクション",
+    version: 1,
+    languages: ["ja"],
+  };
+  const catalogEntry: MobileRegistrySource = {
+    id: "ja.comicaction",
+    registryId: "aidoku-community",
+    registryName: "Aidoku Community",
+    name: "webアクション",
+    version: 1,
+    icon: "https://example.test/icons/ja.comicaction-v1.png",
+    downloadUrl: "https://example.test/sources/ja.comicaction-v1.aix",
+    languages: ["ja"],
+    contentRating: 0,
+  };
+
+  test("fills the record from the catalog and caches its package", async () => {
+    const calls: MobileRegistrySource[] = [];
+    const [source] = await hydrateMobileSyncedSourcePackages([bareRecord], {
+      resolveCatalogEntry: async () => catalogEntry,
+      hasPackage: async () => false,
+      cachePackage: async (registrySource) => {
+        calls.push(registrySource);
+        return {
+          packageUri: "file:///cache/comicaction.aix",
+          packageCacheKey: ARTIFACT_CACHE_KEY,
+          metadata: comicActionMetadata,
+        };
+      },
+    });
+
+    expect(calls.map((call) => call.downloadUrl)).toEqual([
+      "https://example.test/sources/ja.comicaction-v1.aix",
+    ]);
+    expect(source).toMatchObject({
+      id: "aidoku-community:ja.comicaction",
+      sourceKind: "aidoku",
+      sourceId: "ja.comicaction",
+      name: "webアクション",
+      icon: "https://example.test/icons/ja.comicaction-v1.png",
+      downloadUrl: "https://example.test/sources/ja.comicaction-v1.aix",
+      packageUri: "file:///cache/comicaction.aix",
+      packageCacheKey: ARTIFACT_CACHE_KEY,
+      version: 1,
+      // The sync clock is untouched: this is cloud state being completed.
+      updatedAt: 1786125697869,
+    });
+  });
+
+  test("keeps the catalog fields when the package download fails", async () => {
+    const errors: unknown[] = [];
+    const [source] = await hydrateMobileSyncedSourcePackages([bareRecord], {
+      resolveCatalogEntry: async () => catalogEntry,
+      hasPackage: async () => false,
+      cachePackage: async () => {
+        throw new Error("offline");
+      },
+      onHydrationError: (_source, error) => errors.push(error),
+    });
+
+    expect(errors).toHaveLength(1);
+    expect(source).toMatchObject({
+      name: "webアクション",
+      downloadUrl: "https://example.test/sources/ja.comicaction-v1.aix",
+    });
+    expect(source.packageUri).toBeUndefined();
+  });
+
+  test("leaves a newer catalog version to the registry update pass", async () => {
+    let cacheCalls = 0;
+    const [source] = await hydrateMobileSyncedSourcePackages([bareRecord], {
+      resolveCatalogEntry: async () => ({ ...catalogEntry, version: 2 }),
+      hasPackage: async () => false,
+      cachePackage: async () => {
+        cacheCalls += 1;
+        throw new Error("unexpected");
+      },
+    });
+
+    expect(cacheCalls).toBe(0);
+    expect(source).toEqual(bareRecord);
+  });
+
+  test("never looks up removed, disabled, or already-complete records", async () => {
+    const lookups: string[] = [];
+    await hydrateMobileSyncedSourcePackages(
+      [
+        { ...bareRecord, id: "aidoku-community:removed", removed: true },
+        { ...bareRecord, id: "aidoku-community:disabled", disabled: true },
+        syncedSource(),
+      ],
+      {
+        resolveCatalogEntry: async (source) => {
+          lookups.push(source.id);
+          return null;
+        },
+        hasPackage: async () => true,
+        cachePackage: async () => {
+          throw new Error("unexpected");
+        },
+      },
+    );
+
+    expect(lookups).toEqual([]);
+  });
+
+  test("the resolver reads the cached index first and fetches once on a miss", async () => {
+    let fetches = 0;
+    const resolve = createMobileSourceCatalogResolver({
+      loadCached: async () => [],
+      fetchCatalog: async () => {
+        fetches += 1;
+        return [catalogEntry];
+      },
+    });
+
+    expect(await resolve(bareRecord)).toEqual(catalogEntry);
+    expect(
+      await resolve({ ...bareRecord, id: "aidoku-community:ja.unknown" }),
+    ).toBeNull();
+    expect(fetches).toBe(1);
+
+    const cachedOnly = createMobileSourceCatalogResolver({
+      loadCached: async () => [catalogEntry],
+      fetchCatalog: async () => {
+        throw new Error("should not fetch");
+      },
+    });
+    expect(await cachedOnly(bareRecord)).toEqual(catalogEntry);
   });
 });

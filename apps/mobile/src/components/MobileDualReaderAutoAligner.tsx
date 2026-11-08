@@ -183,7 +183,7 @@ export function MobileDualReaderAutoAligner() {
       setRuntimeSuspended(suspended);
       if (suspended) cancelDecodeAndAlignmentWork(true);
     };
-    applyAppState(AppState.currentState);
+    applyAppState((AppState.currentState ?? "unknown"));
     const subscription = AppState.addEventListener("change", applyAppState);
     return () => {
       subscription.remove();
@@ -269,6 +269,7 @@ export function MobileDualReaderAutoAligner() {
               adapter: renderer,
               centerCropRatio: AUTO_ALIGN_CENTER_RATIO,
               sampleMax: ALIGNMENT_FINE_MAX_DEFAULT,
+              signal,
             });
             assertCurrent();
             return result;
@@ -336,6 +337,7 @@ export function MobileDualReaderAutoAligner() {
               adapter: renderer,
               centerCropRatio: AUTO_ALIGN_CENTER_RATIO,
               sampleMax: ALIGNMENT_FINE_MAX_DEFAULT,
+              signal,
             });
             assertCurrent();
             return computed;
@@ -632,6 +634,7 @@ export function MobileDualReaderAutoAligner() {
                 secondarySampleB,
                 plan,
                 runAlignment: alignThread.runAlignment,
+                signal: abortController.signal,
               });
               if (!isRunCurrent()) return;
               // Stale guard: only commit if the plan is unchanged.

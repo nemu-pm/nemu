@@ -28,4 +28,9 @@ export type ReaderSettingsAction =
   | "page-pairing-mode"
   | "page-image-processing"
   | "keep-awake"
-  | "lock-portrait";
+  | "page-turn-haptics"
+  | "lock-portrait"
+  | "page-fit"
+  | "page-background"
+  | "page-turn"
+  | "camera-mode";

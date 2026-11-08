@@ -129,6 +129,33 @@ describe("mobile reader long-strip presentation", () => {
     ).toEqual({ width: 390, height: 1_560 });
   });
 
+  test("sizes a loaded vertical-list page to its picture, short slices included", () => {
+    expect(
+      getMobileReaderImageFrameSize({
+        imageWidth: 400,
+        naturalSize: { width: 800, height: 200 },
+        clampHeightToPagedViewport: false,
+        maximumPagedHeight: 844,
+      }),
+    ).toEqual({ width: 400, height: 100 });
+    expect(
+      getMobileReaderImageFrameSize({
+        imageWidth: 400,
+        naturalSize: null,
+        clampHeightToPagedViewport: false,
+        maximumPagedHeight: 844,
+      }),
+    ).toEqual({ width: 400, height: 580 });
+    expect(
+      getMobileReaderImageFrameSize({
+        imageWidth: 400,
+        naturalSize: { width: 800, height: 200 },
+        clampHeightToPagedViewport: true,
+        maximumPagedHeight: 844,
+      }),
+    ).toEqual({ width: 400, height: 220 });
+  });
+
   test("bounds invalid layout inputs and retains the existing fallback ratio", () => {
     expect(
       getMobileReaderImageFrameSize({

@@ -27,6 +27,10 @@ import {
 import { createNemuButtonDepthStyle } from "@/design/nemuButtonDepthStyle";
 import { useNemuTheme } from "@/design/useNemuTheme";
 import {
+  nativeContextMenuPressTime,
+  useNativeContextMenuPressGate,
+} from "../../../modules/nemu-window-layout/src/ContextMenuLongPress";
+import {
   hapticConfirm,
   hapticError,
   hapticPress,
@@ -37,11 +41,15 @@ import {
   canRunNemuPressableHaptic,
   resolveNemuPressableAccessibility,
   resolveNemuPressableAnimationEnabled,
+  resolveNemuPressableLongPress,
   resolveNemuPressablePressedScale,
+  resolveNemuRowHighlightRadii,
   shouldResetNemuPressableInteraction,
   type NemuPressableHapticFeedback,
   type NemuPressableProfile,
 } from "@/lib/nemuPressable";
+
+import { useOptionalNemuRowHighlight } from "./useNemuRowHighlight";
 
 const useNativeAnimationDriver = Platform.OS !== "web";
 
@@ -57,6 +65,12 @@ type NemuPressableProps = Omit<PressableProps, "style"> & {
   hapticFeedback?: NemuPressableHapticFeedback;
   /** Enforces the native 44pt/48dp accessible target around compact visuals. */
   minimumTouchTarget?: boolean;
+  /**
+   * Native row selection instead of a press scale: a fill in the row's own
+   * shape on touch-down that fades out on release (`useNemuRowHighlight`).
+   * The press scale defaults to none; an explicit `pressedScale` still wins.
+   */
+  pressHighlight?: boolean;
 };
 
 export function NemuPressable({
@@ -78,9 +92,16 @@ export function NemuPressable({
   accessibilityState,
   hapticFeedback = "press",
   minimumTouchTarget = false,
+  pressHighlight = false,
+  onTouchMove,
   ...props
 }: NemuPressableProps) {
-  const { reduceMotion, scheme, tokens } = useNemuTheme();
+  const { reduceMotion, scheme, sheetGlass, tokens } = useNemuTheme();
+  // Inside a native context menu: decides whether a release is a tap or the
+  // end of the menu's long press (never both).
+  const nativeMenuGate = useNativeContextMenuPressGate();
+  const nativeMenuOwnsLongPress = nativeMenuGate !== null;
+  const rowHighlight = useOptionalNemuRowHighlight(pressHighlight);
   const [scale] = useState(() => new Animated.Value(1));
   // Only depth surfaces drive the press-progress node. A plain pressable —
   // most of the app — used to allocate it (plus three interpolations) on
@@ -107,6 +128,7 @@ export function NemuPressable({
         state: "rest",
         scheme,
         tokens,
+        onGlassSheet: sheetGlass !== undefined,
       })
     : null;
   const depthPressedVisual = buttonDepth
@@ -115,12 +137,13 @@ export function NemuPressable({
         state: "pressed",
         scheme,
         tokens,
+        onGlassSheet: sheetGlass !== undefined,
       })
     : null;
   // Flattening and splitting the caller style only feeds the depth shadow
   // plates; without a depth variant it was pure per-render churn.
   const depthSurfaceSplit = depthRestVisual
-    ? splitNemuButtonStyle(StyleSheet.flatten(style))
+    ? splitNemuButtonStyle(StyleSheet.flatten(style) ?? undefined)
     : null;
   const surfaceShapeStyle = depthSurfaceSplit?.surfaceShapeStyle;
   const callerOverridesShadow = depthSurfaceSplit
@@ -136,13 +159,18 @@ export function NemuPressable({
     ? getNemuButtonMinimumTargetSize(Platform.OS)
     : null;
   const resolvedPressedScale =
-    resolveNemuPressablePressedScale({ pressProfile, pressedScale }) ??
+    resolveNemuPressablePressedScale({
+      pressProfile,
+      pressedScale: pressedScale ?? (pressHighlight ? 1 : undefined),
+    }) ??
     (depthMotion ? depthMotion.scale : 0.96);
+  const highlightRadii = pressHighlight
+    ? resolveNemuRowHighlightRadii(StyleSheet.flatten(style) ?? undefined)
+    : undefined;
   const resolvedPressAnimationDuration =
     pressAnimationDuration ?? depthMotion?.duration;
   const resolvedPressAnimationEnabled =
     resolveNemuPressableAnimationEnabled({
-      hasButtonDepth: Boolean(buttonDepth),
       pressAnimationEnabled,
       reduceMotion,
     });
@@ -294,30 +322,57 @@ export function NemuPressable({
             }
           : null,
       ]}
+      // Inside a native menu the gate tracks how far the finger moved: past
+      // the tap tolerance the release is a swipe and never presses. Touch
+      // events bubble from the view under the finger; Pressability does not
+      // own them, so this sees every move of the sequence.
+      onTouchMove={
+        nativeMenuGate
+          ? (event: GestureResponderEvent) => {
+              nativeMenuGate.pressMove(nativeContextMenuPressTime(event));
+              onTouchMove?.(event);
+            }
+          : onTouchMove
+      }
       onPressIn={(event: GestureResponderEvent) => {
         if (resolvedDisabled) return;
         animateTo(resolvedPressedScale, true);
+        rowHighlight?.onPressIn();
+        nativeMenuGate?.pressIn(nativeContextMenuPressTime(event));
         onPressIn?.(event);
       }}
       onPressOut={(event: GestureResponderEvent) => {
         animateTo(1, false);
+        rowHighlight?.onPressOut();
         if (resolvedDisabled) return;
         onPressOut?.(event);
       }}
       onPress={(event: GestureResponderEvent) => {
         if (resolvedDisabled) return;
-        onPress?.(event);
-        runHapticFeedback();
+        const press = () => {
+          rowHighlight?.onPress();
+          onPress?.(event);
+          runHapticFeedback();
+        };
+        // Inside a native menu the gate runs `press` now, never (the hold
+        // became the menu's long press), or once the menu reports that a
+        // hold in the 250-500 ms window did not present it.
+        if (nativeMenuGate) nativeMenuGate.resolvePress(nativeContextMenuPressTime(event), press);
+        else press();
       }}
-      onLongPress={
-        onLongPress
-          ? (event: GestureResponderEvent) => {
-              if (resolvedDisabled) return;
-              onLongPress(event);
-              runHapticFeedback();
-            }
-          : undefined
-      }
+      onLongPress={withNativeMenuLongPress(
+        nativeMenuGate,
+        resolveNemuPressableLongPress({
+          onLongPress: onLongPress
+            ? (event: GestureResponderEvent) => {
+                if (resolvedDisabled) return;
+                onLongPress(event);
+                runHapticFeedback();
+              }
+            : undefined,
+          nativeMenuOwnsLongPress,
+        }),
+      )}
     >
       <Animated.View
         style={[
@@ -333,6 +388,7 @@ export function NemuPressable({
           { transform: [{ scale }] },
         ]}
       >
+        {rowHighlight ? rowHighlight.overlay(highlightRadii) : null}
         {depthRestVisual && depthPressedVisual && !callerOverridesShadow ? (
           <>
             <Animated.View
@@ -363,6 +419,18 @@ export function NemuPressable({
       </Animated.View>
     </Pressable>
   );
+}
+
+/** Pressability's own long press also ends the sequence's tap inside a menu. */
+function withNativeMenuLongPress(
+  gate: ReturnType<typeof useNativeContextMenuPressGate>,
+  handler: ((event: GestureResponderEvent) => void) | undefined,
+): ((event: GestureResponderEvent) => void) | undefined {
+  if (!gate || !handler) return handler;
+  return (event) => {
+    gate.longPress();
+    handler(event);
+  };
 }
 
 const styles = StyleSheet.create({

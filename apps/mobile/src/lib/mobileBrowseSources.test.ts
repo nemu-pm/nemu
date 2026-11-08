@@ -2,10 +2,9 @@ import { describe, expect, test } from "bun:test";
 import type { InstalledSource } from "@/data/schema";
 import type { MobileRegistrySource } from "@/sources/aidokuRegistry";
 import {
+  hasMobileExplicitSources,
   buildMobileInstalledSourceKeySet,
   buildMobileSourceQuickActions,
-  canClearMobileBrowseSourceQuery,
-  canSelectMobileBrowseAllLanguages,
   canStartMobileSourceInstall,
   filterEnabledMobileInstalledSources,
   filterMobileAvailableSources,
@@ -94,17 +93,6 @@ describe("mobile browse source filtering", () => {
         appLanguage: "en",
       }).map((item) => item.id),
     ).toEqual(["three"]);
-  });
-
-  test("enables clearing source search only while the visible query has content", () => {
-    expect(canClearMobileBrowseSourceQuery("")).toBe(false);
-    expect(canClearMobileBrowseSourceQuery(" ")).toBe(true);
-    expect(canClearMobileBrowseSourceQuery("manga")).toBe(true);
-  });
-
-  test("gates the selected all-language chip as a no-op selection", () => {
-    expect(canSelectMobileBrowseAllLanguages({ selected: false })).toBe(true);
-    expect(canSelectMobileBrowseAllLanguages({ selected: true })).toBe(false);
   });
 
   test("keeps adult sources hidden until explicitly shown", () => {
@@ -396,6 +384,7 @@ describe("mobile browse source filtering", () => {
           icon: "fresh.png",
           languages: ["ja"],
           contentRating: 1,
+          contentLicense: "CC-BY-4.0",
           hasCloudflare: true,
           downloadUrl: "https://example.test/fresh.aix",
           version: 9,
@@ -405,6 +394,7 @@ describe("mobile browse source filtering", () => {
 
     expect(merged).toMatchObject({
       id: "en.legacy",
+      contentLicense: "CC-BY-4.0",
       registryId: "aidoku-community",
       sourceId: "en.legacy",
       name: "Fresh Registry Name",
@@ -826,5 +816,78 @@ describe("mobile browse source filtering", () => {
         }),
       ]).has("aidoku-community:en.beta"),
     ).toBe(true);
+  });
+});
+
+describe("source origin label", () => {
+  const base = { registryName: "My dir", registryId: "dir-aaaaaaaaaaaa" };
+  test("built-in sources show their licence or nothing, everything else the directory name", async () => {
+    const { getMobileSourceOriginLabel, formatMobileContentLicense } = await import("./mobileBrowseSources");
+    expect(
+      getMobileSourceOriginLabel({ ...base, registryId: "nemu-recommended", registryName: "nemu recommended", contentLicense: "CC-BY-4.0" }),
+    ).toBe("CC BY 4.0");
+    expect(getMobileSourceOriginLabel({ ...base, registryId: "nemu-recommended", registryName: "nemu recommended" })).toBeUndefined();
+    expect(getMobileSourceOriginLabel({ ...base, contentLicense: "CC-BY-4.0" })).toBe("My dir");
+    expect(formatMobileContentLicense("CC-BY-SA-4.0")).toBe("CC BY-SA 4.0");
+    expect(formatMobileContentLicense("MIT")).toBe("MIT");
+  });
+  test("every licence in the built-in directory reads as its name on a source row", async () => {
+    const { getMobileSourceOriginLabel, formatMobileContentLicense } = await import("./mobileBrowseSources");
+    const { getNemuRecommendedDirectoryFallbackSources } = await import("@/sources/nemuRecommendedDirectory");
+    expect(formatMobileContentLicense("CC-BY-4.0")).toBe("CC BY 4.0");
+    expect(formatMobileContentLicense("CC-BY-SA-4.0")).toBe("CC BY-SA 4.0");
+    expect(formatMobileContentLicense("Public-Domain")).toBe("Public Domain");
+    const labels = Object.fromEntries(
+      getNemuRecommendedDirectoryFallbackSources().map((source) => [source.id, getMobileSourceOriginLabel(source)]),
+    );
+    expect(labels).toEqual({
+      "en.littlenemo": "Public Domain",
+      "ja.ndlpublicdomain": "Public Domain",
+      "multi.lanraragi": undefined,
+      "multi.minifantasytheater": "CC BY-SA 4.0",
+      "multi.peppercarrot": "CC BY 4.0",
+    });
+  });
+});
+
+describe("source language summary", () => {
+  test("lists the first three and counts the rest", async () => {
+    const { formatMobileSourceLanguages } = await import("./mobileBrowseSources");
+    expect(formatMobileSourceLanguages(["en", "ja"])).toBe("EN, JA");
+    expect(formatMobileSourceLanguages(["en", "ja", "zh", "fr", "de"])).toBe("EN, JA, ZH +2");
+    expect(formatMobileSourceLanguages([])).toBeUndefined();
+  });
+
+  test("the multi code reads as the localized multi-language label, not MULTI", async () => {
+    const { formatMobileSourceLanguages } = await import("./mobileBrowseSources");
+    // LANraragi in Add Sources: ["multi"] showed "MULTI" under a 多语言 header.
+    expect(formatMobileSourceLanguages(["multi"], "多语言")).toBe("多语言");
+    expect(formatMobileSourceLanguages(["MULTI", "en"], "Multi-Language")).toBe(
+      "Multi-Language, EN",
+    );
+    // Without a label the code is kept as before.
+    expect(formatMobileSourceLanguages(["multi"])).toBe("MULTI");
+  });
+});
+
+describe("origin labels", () => {
+  const strings = { settings: { nemuRecommendedDirectoryName: "示例来源", sourceFileOrigin: "来源文件" } };
+  test("the built-in directory and imported files use localised names", async () => {
+    const { getMobileSourceOriginLabel, getMobileRegistryDisplayName } = await import("./mobileBrowseSources");
+    // A built-in source row never names its directory; the directory list does, translated.
+    expect(getMobileSourceOriginLabel({ registryId: "nemu-recommended", registryName: "nemu recommended" }, strings)).toBeUndefined();
+    expect(getMobileRegistryDisplayName("nemu-recommended", "nemu recommended", strings)).toBe("示例来源");
+    expect(getMobileSourceOriginLabel({ registryId: "nemu-recommended", registryName: "x", contentLicense: "MIT" }, strings)).toBe("MIT");
+    expect(getMobileRegistryDisplayName("custom-aidoku", "custom-aidoku", strings)).toBe("来源文件");
+    expect(getMobileRegistryDisplayName("d-abc", "Other list", strings)).toBe("Other list");
+    expect(getMobileRegistryDisplayName("nemu-recommended", "nemu-recommended")).toBe("nemu-recommended");
+  });
+});
+
+describe("explicit source filter", () => {
+  test("is offered only when an added directory lists an explicit source", () => {
+    expect(hasMobileExplicitSources([])).toBe(false);
+    expect(hasMobileExplicitSources([{}, { contentRating: 0 }, { contentRating: 1 }])).toBe(false);
+    expect(hasMobileExplicitSources([{ contentRating: 0 }, { contentRating: 2 }])).toBe(true);
   });
 });

@@ -436,14 +436,33 @@ describe("paged chapter edges come from the displayed page, not the raw offset",
     ).toBe(false);
   });
 
-  test("vertical stages never retreat across chapters", () => {
+  test("vertical stages retreat across chapters when pulled past the top", () => {
+    // Pulled into the top bounce.
     expect(
-      isReaderRetreatPastStartDrag({
-        ...scrolling,
-        startOffset: 0,
-        endOffset: 0,
-        maxOffset: 4200,
-      }),
+      isReaderRetreatPastStartDrag({ ...scrolling, startOffset: 0, endOffset: -60, maxOffset: 4200 }),
+    ).toBe(true);
+    // Resting at the top: only a deliberate downward finger drag.
+    expect(
+      isReaderRetreatPastStartDrag({ ...scrolling, startOffset: 0, endOffset: 0, maxOffset: 4200 }),
+    ).toBe(false);
+    expect(
+      isReaderRetreatPastStartDrag({ ...scrolling, startOffset: 0, endOffset: 0, maxOffset: 4200, gestureDelta: 10 }),
+    ).toBe(false);
+    expect(
+      isReaderRetreatPastStartDrag({ ...scrolling, startOffset: 0, endOffset: 0, maxOffset: 4200, gestureDelta: 80 }),
+    ).toBe(true);
+    // An unscrollable chapter: the finger alone says it.
+    expect(
+      isReaderRetreatPastStartDrag({ ...scrolling, startOffset: 0, endOffset: 0, maxOffset: 0, gestureDelta: 80 }),
+    ).toBe(true);
+  });
+
+  test("vertical stages away from the top, or scrolled down into the chapter, do not retreat", () => {
+    expect(
+      isReaderRetreatPastStartDrag({ ...scrolling, startOffset: 900, endOffset: 600, maxOffset: 4200 }),
+    ).toBe(false);
+    expect(
+      isReaderRetreatPastStartDrag({ ...scrolling, startOffset: 0, endOffset: 300, maxOffset: 4200, gestureDelta: -300 }),
     ).toBe(false);
   });
 });

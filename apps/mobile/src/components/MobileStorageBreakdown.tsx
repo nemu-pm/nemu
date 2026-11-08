@@ -21,6 +21,9 @@ import { getCachedSourcePackageStats } from "@/sources/sourcePackageCache";
 import { getMobileReaderPageListCacheStats } from "@/sources/mobileReaderPageListCache";
 import { useSkeletonPulse } from "@/lib/useSkeletonPulse";
 import { formatMobileInteger } from "@/lib/mobileLocaleFormat";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
+import { MOBILE_EXPLORE_GROUP_SHAPE, MOBILE_SETTINGS_GROUP_INSET } from "@/lib/mobileExploreRadius";
+import { ExploreSettingsActionGroup } from "@/components/explore/ExploreSettingsActionGroup";
 
 /** Proportion-bar segments, in the mock's order: covers → pages → packages → other. */
 const BAR_SEGMENTS = ["covers", "pages", "packages", "other"] as const;
@@ -42,8 +45,8 @@ function formatBytes(bytes: number, strings: MobileStrings): string {
   });
 }
 
-function formatCount(template: string, count: number): string {
-  return formatMobileString(template, { count: formatMobileInteger(count) });
+function formatCount(one: string, other: string, count: number): string {
+  return formatMobileString(count === 1 ? one : other, { count: formatMobileInteger(count) });
 }
 
 export function MobileStorageBreakdown({
@@ -128,6 +131,7 @@ export function MobileStorageBreakdown({
       key: "covers",
       label: strings.settings.storageRowCovers,
       value: `${formatBytes(stats.covers.bytes, strings)} · ${formatCount(
+        strings.settings.storageCountImagesOne,
         strings.settings.storageCountImages,
         stats.covers.entries,
       )}`,
@@ -136,6 +140,7 @@ export function MobileStorageBreakdown({
       key: "pages",
       label: strings.settings.storageRowPages,
       value: `${formatBytes(stats.pages.bytes, strings)} · ${formatCount(
+        strings.settings.storageCountPagesOne,
         strings.settings.storageCountPages,
         stats.pages.entries,
       )}`,
@@ -144,6 +149,7 @@ export function MobileStorageBreakdown({
       key: "packages",
       label: strings.settings.storageSourcePackages,
       value: `${formatBytes(stats.packages.bytes, strings)} · ${formatCount(
+        strings.settings.storageCountPackagesOne,
         strings.settings.storageCountPackages,
         stats.packages.entries,
       )}`,
@@ -156,6 +162,7 @@ export function MobileStorageBreakdown({
       key: "other",
       label: strings.settings.storagePageLists,
       value: `${formatBytes(stats.other.bytes, strings)} · ${formatCount(
+        strings.settings.storageCountPageListsOne,
         strings.settings.storageCountPageLists,
         stats.other.entries,
       )}`,
@@ -221,7 +228,8 @@ export function MobileStorageBreakdown({
       <View
         style={[
           styles.card,
-          { backgroundColor: tokens.card, borderColor: tokens.border },
+          { backgroundColor: tokens.card, borderColor: tokens.cardBorder },
+          mobileDesignExploreFlag ? styles.exploreCard : null,
         ]}
       >
         {loading
@@ -253,7 +261,6 @@ export function MobileStorageBreakdown({
               >
                 <NemuText
                   color={tokens.foreground}
-                  numberOfLines={1}
                   style={styles.rowLabel}
                   variant="body"
                 >
@@ -278,59 +285,103 @@ export function MobileStorageBreakdown({
         </View>
       </View>
 
+      {mobileDesignExploreFlag ? (
+        // Design-explore: the clears as rows of one group, what each frees
+        // on its trailing edge, the reassurance as the group's footer.
+        <View style={styles.exploreActions}>
+          <ExploreSettingsActionGroup
+            actions={[
+              {
+                key: "pages",
+                label: strings.settings.clearPageCache,
+                detail: formatBytes(stats.pages.bytes, strings),
+                busy: clearing === "pages",
+                disabled: actionsDisabled,
+                onPress: () => void clear("pages"),
+              },
+              {
+                key: "covers",
+                label: strings.settings.clearCoverCache,
+                detail: formatBytes(stats.covers.bytes, strings),
+                busy: clearing === "covers",
+                disabled: actionsDisabled,
+                onPress: () => void clear("covers"),
+              },
+              ...(onClearAllCache
+                ? [
+                    {
+                      key: "all",
+                      label: strings.settings.clearAllCaches,
+                      destructive: true,
+                      busy: clearAllBusy,
+                      disabled: actionsDisabled,
+                      onPress: onClearAllCache,
+                    },
+                  ]
+                : []),
+            ]}
+            footer={strings.settings.storageFootnote}
+          />
+        </View>
+      ) : (
+        <>
       <View style={styles.actions}>
-        <NemuButton
-          accessibilityLabel={strings.settings.clearPageCache}
-          containerStyle={styles.blockButtonContainer}
-          disabled={actionsDisabled}
-          label={formatMobileString(strings.settings.clearPageCacheWithSize, {
-            bytes: formatBytes(stats.pages.bytes, strings),
-          })}
-          loading={clearing === "pages"}
-          onPress={() => void clear("pages")}
-          size="lg"
-          style={styles.blockButton}
-          variant="outline"
-        />
-        <NemuButton
-          accessibilityLabel={strings.settings.clearCoverCache}
-          containerStyle={styles.blockButtonContainer}
-          disabled={actionsDisabled}
-          label={formatMobileString(strings.settings.clearCoverCacheWithSize, {
-            bytes: formatBytes(stats.covers.bytes, strings),
-          })}
-          loading={clearing === "covers"}
-          onPress={() => void clear("covers")}
-          size="lg"
-          style={styles.blockButton}
-          variant="outline"
-        />
-        {onClearAllCache ? (
           <NemuButton
-            accessibilityLabel={strings.settings.clearAllCaches}
+            accessibilityLabel={strings.settings.clearPageCache}
             containerStyle={styles.blockButtonContainer}
             disabled={actionsDisabled}
-            hapticFeedback="warning"
-            label={strings.settings.clearAllCaches}
-            loading={clearAllBusy}
-            onPress={onClearAllCache}
+            label={formatMobileString(strings.settings.clearPageCacheWithSize, {
+              bytes: formatBytes(stats.pages.bytes, strings),
+            })}
+            loading={clearing === "pages"}
+            onPress={() => void clear("pages")}
             size="lg"
             style={styles.blockButton}
-            variant="destructive"
+            variant="outline"
           />
-        ) : null}
-      </View>
+          <NemuButton
+            accessibilityLabel={strings.settings.clearCoverCache}
+            containerStyle={styles.blockButtonContainer}
+            disabled={actionsDisabled}
+            label={formatMobileString(strings.settings.clearCoverCacheWithSize, {
+              bytes: formatBytes(stats.covers.bytes, strings),
+            })}
+            loading={clearing === "covers"}
+            onPress={() => void clear("covers")}
+            size="lg"
+            style={styles.blockButton}
+            variant="outline"
+          />
+          {onClearAllCache ? (
+            <NemuButton
+              accessibilityLabel={strings.settings.clearAllCaches}
+              containerStyle={styles.blockButtonContainer}
+              disabled={actionsDisabled}
+              hapticFeedback="warning"
+              label={strings.settings.clearAllCaches}
+              loading={clearAllBusy}
+              onPress={onClearAllCache}
+              size="lg"
+              style={styles.blockButton}
+              variant="destructive"
+            />
+          ) : null}
+        </View>
 
-      <NemuText
-        color={tokens.mutedForeground}
-        style={styles.footnote}
-        variant="caption"
-      >
-        {strings.settings.storageFootnote}
-      </NemuText>
+        <NemuText
+          color={tokens.mutedForeground}
+          style={styles.footnote}
+          variant="caption"
+        >
+          {strings.settings.storageFootnote}
+        </NemuText>
+        </>
+      )}
     </View>
   );
 }
+
+const LEGEND_SWATCH = 8;
 
 const styles = StyleSheet.create({
   bar: {
@@ -346,15 +397,16 @@ const styles = StyleSheet.create({
     gap: 14,
     marginTop: 6,
   },
+  // A label starts on the group inset, level with the rows' text below.
   legendItem: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
+    gap: MOBILE_SETTINGS_GROUP_INSET - LEGEND_SWATCH,
   },
   legendSwatch: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: LEGEND_SWATCH,
+    height: LEGEND_SWATCH,
+    borderRadius: LEGEND_SWATCH / 2,
   },
   legendLabel: {
     fontSize: 11,
@@ -364,7 +416,11 @@ const styles = StyleSheet.create({
     marginTop: 14,
     borderRadius: radius.xl,
     borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 14,
+    paddingHorizontal: MOBILE_SETTINGS_GROUP_INSET,
+  },
+  exploreCard: MOBILE_EXPLORE_GROUP_SHAPE,
+  exploreActions: {
+    marginTop: 20,
   },
   row: {
     minHeight: 44,

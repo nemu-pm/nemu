@@ -42,19 +42,21 @@ export const MobileChapterGrid = memo(function MobileChapterGrid({
           />
         </View>
       ))}
+      {chapters.length === 1 ? <View style={styles.cellSlot} /> : null}
     </View>
   );
 });
 
 const styles = StyleSheet.create({
+  // Two equal columns that fill the row exactly: the grid's trailing edge is
+  // the content edge (the section header's sort action ends on it too). A
+  // 48% basis left ~4% of the row empty past the second column.
   grid: {
     flexDirection: "row",
-    flexWrap: "wrap",
     gap: 8,
   },
   cellSlot: {
-    flexGrow: 1,
-    flexBasis: "48%",
-    maxWidth: "48%",
+    flex: 1,
+    minWidth: 0,
   },
 });

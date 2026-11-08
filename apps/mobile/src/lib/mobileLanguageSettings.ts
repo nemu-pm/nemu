@@ -55,6 +55,34 @@ export function resolveDeviceAppLanguage(
   return null;
 }
 
+/** The language tag iOS localises its own controls in for each app language. */
+const MOBILE_APPLE_LANGUAGE_TAGS: Record<AppLanguage, string> = {
+  en: "en",
+  zh: "zh-Hans",
+  ja: "ja",
+};
+
+/**
+ * iOS: the app's `AppleLanguages` preference for `appLanguage` (what iOS's
+ * per-app Language setting writes), so the system's own controls speak the
+ * app's language rather than the device's: the back button VoiceOver reads as
+ * "Back", a sheet's ✕, the search field's Cancel, edit menus. iOS reads it as
+ * the app launches. Null when `current` already leads with that language.
+ */
+export function resolveMobileAppleLanguages(
+  appLanguage: AppLanguage,
+  current: unknown,
+): string[] | null {
+  const tag = MOBILE_APPLE_LANGUAGE_TAGS[appLanguage];
+  const first = Array.isArray(current) ? current[0] : undefined;
+  if (typeof first === "string") {
+    const language = matchDeviceLocale({ languageTag: first, languageCode: first.split("-")[0] });
+    const script = first.toLowerCase().split("-")[1];
+    if (language === appLanguage && (appLanguage !== "zh" || script === "hans")) return null;
+  }
+  return [tag];
+}
+
 /**
  * A persisted choice always wins; the device locale is only a default for
  * installs that have never stored one.
@@ -109,16 +137,18 @@ export function getLanguageCategory(languages: string[] | undefined): string {
 const MOBILE_LANGUAGE_DISPLAY_NAMES: Record<string, string> = {
   ja: "日本語",
   zh: "中文",
+  // Each code is its own filter row and Browse section, so a regional code
+  // names its region: two rows both reading 繁體中文 cannot be told apart.
   "zh-hans": "简体中文",
-  "zh-cn": "简体中文",
+  "zh-cn": "简体中文（中国）",
   "zh-hant": "繁體中文",
-  "zh-tw": "繁體中文",
-  "zh-hk": "繁體中文",
+  "zh-tw": "繁體中文（台灣）",
+  "zh-hk": "繁體中文（香港）",
   en: "English",
   es: "Español",
   "es-419": "Español (LatAm)",
   pt: "Português",
-  "pt-br": "Português",
+  "pt-br": "Português (Brasil)",
   fr: "Français",
   de: "Deutsch",
   it: "Italiano",

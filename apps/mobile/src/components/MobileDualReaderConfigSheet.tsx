@@ -386,6 +386,12 @@ export function MobileDualReaderConfigSheet() {
     <MobileSheetScaffold
       visible={configOpen}
       onRequestClose={close}
+      // The reader is dark in either app theme, but this scaffold's system
+      // sheet cannot be handed a colour scheme: on Liquid Glass it would be
+      // light glass under dark content in a light app theme. It keeps the
+      // reader's opaque card instead (the reader's Plugins sheet is glass:
+      // it presents with its own scheme).
+      backgroundColor={tokens.card}
       title={ctx.strings.reader.dualReadDialogTitle}
       dismissLabel={ctx.strings.reader.closePlugin}
       frameMaxHeight={sheetLayout.frameMaxHeight}

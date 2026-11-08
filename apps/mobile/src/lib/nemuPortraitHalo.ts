@@ -92,14 +92,92 @@ export function getNemuPortraitGlowRasterLayout({
   } as const;
 }
 
+/**
+ * How far each glow family visibly reaches past the portrait stage, in
+ * bucket-raster pixels (alpha >= 3/255, i.e. under ~1%, measured from the
+ * shipped rasters; `nemuPortraitHalo.test.ts` re-measures every bucket).
+ * - `animated`: the iOS primary layer (the secondary drifts inside it).
+ * - `composite`: Android's single static raster.
+ */
+export const NEMU_PORTRAIT_GLOW_VISIBLE_REACH = {
+  animated: { top: 116, bottom: 50 },
+  composite: { top: 74, bottom: 47 },
+} as const;
+
+/** Glow fade band limits (pt): long enough to read as falloff, never a stripe. */
+const GLOW_FADE_MIN = 40;
+const GLOW_FADE_MAX = 120;
+
+export type NemuPortraitGlowFade = {
+  /** Clip line, relative to the displayed stage's top edge (negative = above it). */
+  clipTop: number;
+  /** Height of the backdrop-coloured fade that brings the glow to zero at the clip line. */
+  fadeHeight: number;
+};
+
+/**
+ * The glow bleeds ~120pt past the art. Where the halo sits closer than that
+ * to an edge that clips it (the opaque navigation bar, a scroll view's top),
+ * the glow would end in a hard horizontal line. This returns a clip line at
+ * that edge plus a fade band under it so the glow reaches zero exactly there:
+ * the glow only is bounded — the art keeps its size and position — and
+ * nothing changes when the glow already fits (null).
+ */
+export function getNemuPortraitGlowFade({
+  containerStageHeight,
+  containerStageWidth,
+  renderMode,
+  roomTop,
+  stageWidth,
+}: {
+  /** Displayed portrait box. */
+  containerStageHeight: number;
+  containerStageWidth: number;
+  /** Bucket raster the glow was authored for. */
+  stageWidth: number;
+  renderMode: "animated-raster-layers" | "static-composite-raster";
+  /** Distance from the displayed stage's top edge up to the clipping edge; undefined = unbounded. */
+  roomTop?: number | null;
+}): NemuPortraitGlowFade | null {
+  if (roomTop == null || !Number.isFinite(roomTop)) return null;
+  const room = Math.max(0, roomTop);
+  const scale = stageWidth > 0 ? containerStageWidth / stageWidth : 1;
+  const half = containerStageHeight / 2;
+  const reach = getNemuPortraitGlowReachTop({ half, renderMode, scale });
+  if (room >= reach) return null;
+  return {
+    clipTop: -room,
+    fadeHeight: Math.round(Math.min(GLOW_FADE_MAX, Math.max(GLOW_FADE_MIN, reach - room))),
+  };
+}
+
+/** Worst-case visible reach above the displayed stage top, including the glow's own motion. */
+export function getNemuPortraitGlowReachTop({
+  half,
+  renderMode,
+  scale,
+}: {
+  half: number;
+  renderMode: "animated-raster-layers" | "static-composite-raster";
+  scale: number;
+}): number {
+  if (renderMode === "static-composite-raster") {
+    return NEMU_PORTRAIT_GLOW_VISIBLE_REACH.composite.top * scale;
+  }
+  const { scale: pulseScale, translateY } = NEMU_WEB_PORTRAIT_GLOW.primary;
+  // The pulse scales the raster about the stage centre and moves it down.
+  return (
+    pulseScale[1] * (half + NEMU_PORTRAIT_GLOW_VISIBLE_REACH.animated.top * scale) -
+    half -
+    translateY[0]
+  );
+}
+
 export function shouldAnimateNemuPortraitHalo({
   appActive,
-  focused,
   reduceMotion,
 }: {
   appActive: boolean;
-  focused: boolean;
-  platform?: string;
   reduceMotion: boolean | null;
 }): boolean {
   // Unknown reduce-motion is optimistic: waiting for the accessibility probe
@@ -107,7 +185,6 @@ export function shouldAnimateNemuPortraitHalo({
   // timeline. Focus is not required to keep a loop alive — overlay sheets
   // blur the library without unmounting it, and restarting from rest made
   // iOS skip mid-cycle. Pause only for background or explicit reduce-motion.
-  void focused;
   return appActive && reduceMotion !== true;
 }
 
@@ -124,6 +201,50 @@ export function getNemuPortraitHaloRenderMode(
   return platform === "android"
     ? "static-composite-raster"
     : "animated-raster-layers";
+}
+
+/**
+ * The portrait's four nested CSS loops (web `library-empty.tsx`): each rests
+ * at 0% / 100% and peaks at 50%, `ease-in-out`, with the web's negative
+ * `animation-delay` stagger.
+ */
+export const NEMU_WEB_PORTRAIT_MOTION = {
+  float: { delay: 0, duration: 5_000, translateY: [0, -12] as const },
+  sway: { delay: -2_500, duration: 7_000, translateX: [0, 4] as const },
+  rotate: { delay: -4_000, duration: 9_000, degrees: [-0.5, 0.5] as const },
+  breathe: { delay: -1_200, duration: 4_000, scale: [1, 1.012] as const },
+} as const;
+
+/** CSS `ease-in-out`: cubic-bezier(0.42, 0, 0.58, 1). */
+export function nemuCssEaseInOut(x: number): number {
+  "worklet";
+  if (x <= 0) return 0;
+  if (x >= 1) return 1;
+  // x(t) = ((ax·t + bx)·t + cx)·t is monotonic (x'(t) ≥ 0.87), so Newton
+  // from t = x converges in a few steps; y(t) = 3t² − 2t³.
+  const cx = 1.26;
+  const bx = -0.78;
+  const ax = 0.52;
+  let t = x;
+  for (let i = 0; i < 6; i += 1) {
+    const error = ((ax * t + bx) * t + cx) * t - x;
+    t -= error / ((3 * ax * t + 2 * bx) * t + cx);
+  }
+  return t * t * (3 - 2 * t);
+}
+
+/**
+ * A CSS loop `0%, 100% { rest } 50% { peak }` with `ease-in-out` on both
+ * halves and `animation-delay: delay`, `elapsed` ms after it began: 0 at
+ * rest, 1 at the peak. A negative delay starts mid-cycle, as in CSS.
+ */
+export function getNemuWebLoopValue(elapsed: number, duration: number, delay = 0): number {
+  "worklet";
+  const local = elapsed - delay;
+  if (local <= 0) return 0;
+  const phase = (local % duration) / duration;
+  // The curve is symmetric, so the falling half is the rising one mirrored.
+  return nemuCssEaseInOut(phase < 0.5 ? phase * 2 : (1 - phase) * 2);
 }
 
 export type NemuWebLoopStart = {

@@ -24,6 +24,7 @@ import type { MobileDataStore } from "@/data/storeTypes";
 import {
   areSyncAccountIdentitiesAligned,
   canonicalizeSyncSnapshotRecords,
+  chapterProgressWinnersForPush,
   chunkCollectionMutationItems,
   completeSyncSnapshot,
   consistentSyncGeneration,
@@ -35,6 +36,7 @@ import {
   toCloudInstalledSource,
   toCloudLibrarySaveInput,
   toCloudLibrarySaveInputBatches,
+  supportsChapterProgressResetSync,
 } from "@nemu/core";
 import { mobileAuthClient } from "./mobileAuthClient";
 import { MobileConvexAuthProvider } from "./mobileConvexAuth";
@@ -48,6 +50,7 @@ import {
   resetMobileSyncProgress,
 } from "./mobileSyncProgress";
 import { mobileSyncConfig } from "./mobileSyncConfig";
+import { useMobileSecureStorageUnavailable } from "@/data/mobileSecureStorageFallback";
 import {
   mapCloudChapterProgress,
   mapCloudCollectionItems,
@@ -66,6 +69,8 @@ import {
   isMobileSyncEpochCurrent,
   makeMobileSyncRunGuard,
   mobileChapterProgressIntraPageSyncSupportedRef,
+  mobileChapterProgressResetSyncSupportedRef,
+  canPushMobileInstalledSource,
   mobileConvexRef,
   mobileIsAuthenticatedRef,
   mobileSessionUserIdRef,
@@ -74,7 +79,24 @@ import {
   setActiveMobileSyncStore,
   setMobileChapterProgressIntraPageSyncVersion,
 } from "./mobileSyncRuntime";
-import { hydrateMobileSyncedSourcePackages } from "./mobileSyncedSourcePackages";
+import {
+  createMobileSourceCatalogResolver,
+  hydrateMobileSyncedSourcePackages,
+} from "./mobileSyncedSourcePackages";
+import {
+  fetchAllAidokuRegistrySources,
+} from "@/sources/aidokuRegistry";
+import {
+  canonicalCloudLocalArchiveVolumes,
+  canonicalCloudSourceDirectories,
+  syncMobileLocalArchiveVolumes,
+  syncMobileSourceDirectories,
+} from "./mobileSourceDirectorySync";
+import { loadCachedRegistryIndex } from "@/sources/mobileRegistryIndexCache";
+import {
+  enabledSourceDirectories,
+  loadMobileSourceDirectories,
+} from "@/data/mobileSourceDirectories";
 import {
   reconcilePendingCollectionDeletions,
   reconcilePendingSourceLinkDeletions,
@@ -386,6 +408,7 @@ async function pushLocalChapterProgressWinners(
       ...toCloudHistorySaveInput(entry, {
         includeIntraPageState:
           mobileChapterProgressIntraPageSyncSupportedRef.current,
+        includeResetState: mobileChapterProgressResetSyncSupportedRef.current,
       }),
       generation,
     });
@@ -448,7 +471,9 @@ async function applyMobileProgressSnapshots(
   if (!chapterResult || !shouldContinue()) return null;
 
   await pushLocalChapterProgressWinners(
-    chapterResult.localWinners,
+    chapterProgressWinnersForPush(chapterResult.localWinners, chapterProgress, {
+      resetState: mobileChapterProgressResetSyncSupportedRef.current,
+    }),
     convex,
     shouldContinue,
     generation,
@@ -536,7 +561,7 @@ async function pushLocalInstalledSourceWinners(
         updatedAt: source.updatedAt ?? 0,
         generation,
       });
-    } else {
+    } else if (canPushMobileInstalledSource(source)) {
       await convex.mutation(api.settings.saveInstalledSource, {
         expectedUserId,
         source: toCloudInstalledSource(source),
@@ -780,6 +805,11 @@ function ConfiguredMobileSyncBridge() {
       | { chapterProgressIntraPageVersion?: unknown }
       | undefined
   )?.chapterProgressIntraPageVersion;
+  // PR #34's backend (directories, archive volumes, self-hosted sources)
+  // arriving re-runs the settings pass, so what waited locally syncs then.
+  const backendFeaturesSupported = supportsChapterProgressResetSync(
+    chapterProgressIntraPageVersion,
+  );
   useEffect(() => {
     setMobileChapterProgressIntraPageSyncVersion(
       chapterProgressIntraPageVersion,
@@ -1061,6 +1091,8 @@ function ConfiguredMobileSyncBridge() {
         (source) => source.id,
         (source) => source.removed === true,
       ),
+      sourceDirectories: canonicalCloudSourceDirectories(rows),
+      localArchiveVolumes: canonicalCloudLocalArchiveVolumes(rows),
       updatedAt: Math.max(0, ...rows.map((row) => row.updatedAt)),
     };
   }, [generation, settingsPages.results, settingsPages.status]);
@@ -1529,12 +1561,38 @@ function ConfiguredMobileSyncBridge() {
           localSettings.installedSources,
           cloudSources,
         );
+        await syncMobileSourceDirectories({
+          store,
+          convex,
+          cloud: cloudSettings.sourceDirectories ?? [],
+          generation: snapshotGeneration,
+          expectedUserId,
+          installedSources: mergedSources,
+          shouldContinue,
+        });
+        await syncMobileLocalArchiveVolumes({
+          convex,
+          cloud: cloudSettings.localArchiveVolumes ?? [],
+          generation: snapshotGeneration,
+          expectedUserId,
+          shouldContinue,
+        });
+        if (!shouldContinue()) return;
         // Hydration downloads packages over the network — it must stay
         // outside the store write; the updatedAt guard in the apply protects
         // against sources that changed locally meanwhile.
         const hydratedSources = await hydrateMobileSyncedSourcePackages(
           mergedSources,
           {
+            resolveCatalogEntry: createMobileSourceCatalogResolver({
+              loadCached: loadCachedRegistryIndex,
+              fetchCatalog: async () =>
+                fetchAllAidokuRegistrySources(
+                  enabledSourceDirectories(
+                    await loadMobileSourceDirectories(store),
+                  ),
+                ),
+            }),
             onHydrationError(source, error) {
               console.warn(
                 `[MobileSync] Failed to cache synced source package for ${source.id}:`,
@@ -1622,6 +1680,7 @@ function ConfiguredMobileSyncBridge() {
       cancelled = true;
     };
   }, [
+    backendFeaturesSupported,
     cloudSettings,
     convexUserId,
     isAuthenticated,
@@ -1637,6 +1696,8 @@ function ConfiguredMobileSyncBridge() {
 }
 
 export function MobileSyncBridge() {
-  if (!mobileSyncConfig.configured) return null;
+  // Secure storage failed: the app runs local-only, nothing syncs.
+  const secureStorageUnavailable = useMobileSecureStorageUnavailable();
+  if (!mobileSyncConfig.configured || secureStorageUnavailable) return null;
   return <ConfiguredMobileSyncBridge />;
 }

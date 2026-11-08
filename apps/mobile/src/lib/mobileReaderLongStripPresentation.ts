@@ -55,16 +55,25 @@ export function getMobileReaderImageFrameSize({
 }): MobileReaderNaturalImageSize {
   const safeImageWidth =
     Number.isFinite(imageWidth) && imageWidth > 0 ? imageWidth : 1;
-  const naturalRatio =
+  const knownNaturalSize = Boolean(
     naturalSize &&
-    Number.isFinite(naturalSize.width) &&
-    Number.isFinite(naturalSize.height) &&
-    naturalSize.width > 0 &&
-    naturalSize.height > 0
+      Number.isFinite(naturalSize.width) &&
+      Number.isFinite(naturalSize.height) &&
+      naturalSize.width > 0 &&
+      naturalSize.height > 0,
+  );
+  const naturalRatio =
+    knownNaturalSize && naturalSize
       ? naturalSize.height / naturalSize.width
       : 1.45;
   const naturalHeight = safeImageWidth * naturalRatio;
-  const minimumHeight = Math.max(220, naturalHeight);
+  // The vertical list sizes a loaded page to exactly its picture: a short
+  // strip slice held to the 220pt floor was letterboxed with black bars
+  // inside its own frame. The floor stays for placeholders and paged frames.
+  const minimumHeight =
+    knownNaturalSize && !clampHeightToPagedViewport
+      ? naturalHeight
+      : Math.max(220, naturalHeight);
 
   return {
     width: safeImageWidth,

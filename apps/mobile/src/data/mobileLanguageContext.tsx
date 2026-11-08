@@ -1,4 +1,5 @@
 import { getLocales } from "expo-localization";
+import { Platform, Settings } from "react-native";
 import {
   useCallback,
   useEffect,
@@ -8,6 +9,8 @@ import {
 } from "react";
 import { emitMobileDataChanged, useMobileDataRevision } from "./mobileDataEvents";
 import { useMobileDataStore } from "./mobileDataContext";
+import { setLocalArchiveLanguage } from "@/lib/localArchives/language";
+import { mobileProfilePreferenceCarry } from "@/lib/mobileProfilePreferences";
 import type { AppLanguage, MetadataLanguagePreference } from "./schema";
 import {
   MobileLanguageContext,
@@ -21,6 +24,7 @@ import {
   normalizeMetadataLanguagePreference,
   resolveDeviceAppLanguage,
   resolveInitialAppLanguage,
+  resolveMobileAppleLanguages,
 } from "@/lib/mobileLanguageSettings";
 
 let cachedDeviceAppLanguage: AppLanguage | null | undefined;
@@ -50,17 +54,27 @@ export function MobileLanguageProvider({ children }: { children: ReactNode }) {
       .getSettings()
       .then((settings) => {
         if (!mounted) return;
+        // A profile that has not chosen yet keeps what the app is showing.
+        const { values, missing } = mobileProfilePreferenceCarry.adopt(settings, [
+          "appLanguage",
+          "metadataLanguagePreference",
+        ]);
         setAppLanguageState(
           resolveInitialAppLanguage(
-            settings.appLanguage,
+            values.appLanguage,
             readDeviceAppLanguage(),
           ),
         );
         setMetadataLanguagePreferenceState(
           normalizeMetadataLanguagePreference(
-            settings.metadataLanguagePreference,
+            values.metadataLanguagePreference,
           ),
         );
+        if (Object.keys(missing).length > 0) {
+          void store
+            .updateSettings((current) => ({ ...current, ...(missing as Partial<typeof current>) }))
+            .catch(() => undefined);
+        }
       })
       .catch(() => undefined);
     return () => {
@@ -78,6 +92,7 @@ export function MobileLanguageProvider({ children }: { children: ReactNode }) {
           ...settings,
           appLanguage: nextLanguage,
         }));
+        mobileProfilePreferenceCarry.remember("appLanguage", nextLanguage);
         emitMobileDataChanged("settings");
       } catch (error) {
         setAppLanguageState(appLanguage);
@@ -97,6 +112,7 @@ export function MobileLanguageProvider({ children }: { children: ReactNode }) {
           ...settings,
           metadataLanguagePreference: nextPreference,
         }));
+        mobileProfilePreferenceCarry.remember("metadataLanguagePreference", nextPreference);
         emitMobileDataChanged("settings");
       } catch (error) {
         setMetadataLanguagePreferenceState(metadataLanguagePreference);
@@ -105,6 +121,20 @@ export function MobileLanguageProvider({ children }: { children: ReactNode }) {
     },
     [metadataLanguagePreference, store],
   );
+
+  // The imported-archive source has no React context; keep its label language current.
+  useEffect(() => {
+    setLocalArchiveLanguage(appLanguage);
+  }, [appLanguage]);
+
+  // iOS's own controls (the back button VoiceOver reads, a sheet's ✕, Cancel)
+  // take the app's language from the next launch: iOS reads the preference as
+  // the app starts.
+  useEffect(() => {
+    if (Platform.OS !== "ios") return;
+    const next = resolveMobileAppleLanguages(appLanguage, Settings.get("AppleLanguages"));
+    if (next) Settings.set({ AppleLanguages: next });
+  }, [appLanguage]);
 
   const value = useMemo<MobileLanguageSettingsValue>(
     () => ({

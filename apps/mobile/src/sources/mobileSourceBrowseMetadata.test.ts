@@ -413,6 +413,7 @@ describe("mobile source browse metadata", () => {
         },
       ],
       hasWasm: true,
+      onlySearch: false,
     });
   });
 
@@ -456,6 +457,9 @@ describe("mobile source browse metadata", () => {
       hasHomeProvider: false,
       hasListingProvider: false,
       onlySearch: true,
+      // Persisted with the package metadata so the next visit opens in
+      // search mode from its first frame.
+      packageMetadata: { onlySearch: true },
     });
   });
 

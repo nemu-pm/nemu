@@ -25,6 +25,11 @@ export type MobileNativeFetchInit = RequestInit & {
   responseMode?: NemuAidokuHttpResponseMode;
   maxResponseBytes?: number;
   requireHttps?: boolean;
+  /**
+   * Source cookie scope (profile-scoped execution key). Requests carrying it
+   * share that source's cookie jar and receive its scoped local-network grant.
+   */
+  cookieScope?: string;
 };
 
 function headersToRecord(headers: Headers): Record<string, string> {

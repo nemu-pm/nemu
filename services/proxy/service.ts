@@ -37,6 +37,8 @@ interface CacheEntry {
   expiresAt: number;
   sizeBytes: number;
   ageAtResponseMs: number;
+  /** The URL the response came from after redirects (`X-Nemu-Final-Url`). */
+  finalUrl: string;
   activeReaders: number;
   inCache: boolean;
   accounted: boolean;
@@ -65,6 +67,10 @@ const PROXY_MAX_CACHE_KEY_BYTES = 64 * 1024;
 const PROXY_CACHE_ENTRY_OVERHEAD_BYTES = 512;
 const PROXY_REDIRECT_POLICY_HEADER = "x-nemu-proxy-redirect";
 const PROXY_MAX_RESPONSE_BYTES_HEADER = "x-nemu-proxy-max-response-bytes";
+// The target URL the response came from after followed redirects. Proxied
+// clients cannot see it otherwise (XHR/fetch report the proxy's own URL), and
+// Aidoku sources read it through `net.get_url`.
+const PROXY_FINAL_URL_HEADER = "X-Nemu-Final-Url";
 const PROXY_UPSTREAM_TIMEOUT_MS = 30_000;
 const PROXY_MAX_UPSTREAM_TIMEOUT_MS = 60_000;
 const PROXY_POLICY_VERSION = 2;
@@ -306,6 +312,20 @@ function isForbiddenHostname(hostname: string): boolean {
   );
 }
 
+// https://fetch.spec.whatwg.org/#port-blocking
+const BLOCKED_PORTS = new Set([
+  0, 1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77,
+  79, 87, 95, 101, 102, 103, 104, 109, 110, 111, 113, 115, 117, 119, 123, 135,
+  137, 139, 143, 161, 179, 389, 427, 465, 512, 513, 514, 515, 526, 530, 531,
+  532, 540, 548, 554, 556, 563, 587, 601, 636, 989, 990, 993, 995, 1719, 1720,
+  1723, 2049, 3659, 4045, 4190, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668,
+  6669, 6679, 6697, 10080,
+]);
+
+function isBlockedPort(port: number): boolean {
+  return BLOCKED_PORTS.has(port);
+}
+
 export function validateUrl(
   urlString: string,
   allowedDomains: string[],
@@ -321,15 +341,13 @@ export function validateUrl(
       return { valid: false, error: "Credentialed URLs are not allowed" };
     }
 
-    // Keep Bun and Cloudflare behavior identical. Workers without the broader
-    // custom-port compatibility flag only route HTTP(S) to their default
-    // ports; accepting another port here would validate one destination and
-    // potentially fetch a different one.
-    if (url.port) {
-      return {
-        valid: false,
-        error: "Only default HTTP/HTTPS ports are allowed",
-      };
+    // Explicit ports are fine (some sources serve media from e.g. :183) as
+    // long as they are not on the Fetch standard's bad-port list. The worker
+    // needs the `allow_custom_ports` compatibility flag (wrangler.toml) so the
+    // port validated here is the port that is fetched. Default ports parse to
+    // an empty `url.port`.
+    if (url.port && isBlockedPort(Number(url.port))) {
+      return { valid: false, error: "This port is not allowed" };
     }
 
     const hostname = normalizedHostname(url);
@@ -584,7 +602,11 @@ function sharedCacheFreshness(
 
 function isProxyOwnedResponseHeader(name: string): boolean {
   const normalized = name.toLowerCase();
-  return normalized === "x-cache" || normalized.startsWith("x-ratelimit-");
+  return (
+    normalized === "x-cache" ||
+    normalized === PROXY_FINAL_URL_HEADER.toLowerCase() ||
+    normalized.startsWith("x-ratelimit-")
+  );
 }
 
 function isOriginScopedResponseHeader(name: string): boolean {
@@ -918,7 +940,7 @@ async function fetchWithValidatedRedirects(args: {
   proxyOrigins: string[];
   followRedirects: boolean;
   signal: AbortSignal;
-}): Promise<Response> {
+}): Promise<{ response: Response; finalUrl: URL }> {
   let currentUrl = new URL(args.url);
   currentUrl.hash = "";
   let method = args.method;
@@ -939,13 +961,15 @@ async function fetchWithValidatedRedirects(args: {
       cache: "no-store",
       signal: args.signal,
     });
-    if (!isRedirectStatus(response.status)) return response;
+    if (!isRedirectStatus(response.status)) {
+      return { response, finalUrl: currentUrl };
+    }
     if (!args.followRedirects) {
       await response.body?.cancel().catch(() => undefined);
       throw new ProxyRedirectError("Proxy redirect refused by request policy.");
     }
     const location = response.headers.get("location");
-    if (!location) return response;
+    if (!location) return { response, finalUrl: currentUrl };
     if (redirectCount >= PROXY_MAX_REDIRECTS) {
       await response.body?.cancel().catch(() => undefined);
       throw new ProxyRedirectError("Proxy redirect limit exceeded.");
@@ -1064,7 +1088,9 @@ const baseCorsHeaders = {
   "Access-Control-Allow-Methods":
     "GET, POST, PUT, DELETE, OPTIONS, HEAD, PATCH",
   "Access-Control-Allow-Headers": "*",
-  "Access-Control-Expose-Headers": "*",
+  // `*` does not cover credentialed requests, so name the header a proxied
+  // client must be able to read.
+  "Access-Control-Expose-Headers": `*, ${PROXY_FINAL_URL_HEADER}`,
   "Access-Control-Max-Age": "86400",
 };
 
@@ -1387,6 +1413,7 @@ async function handleRequest(
           status: cached.status,
           headers: buildProxyResponseHeaders(cachedHeaders, corsHeaders, {
             "X-Cache": "HIT",
+            [PROXY_FINAL_URL_HEADER]: cached.finalUrl,
             "X-RateLimit-Limit": config.rateLimitRequests.toString(),
             "X-RateLimit-Remaining": rateLimit.remaining.toString(),
           }),
@@ -1401,6 +1428,7 @@ async function handleRequest(
     let body: ArrayBuffer | undefined;
     let releaseRequestBuffer: (() => void) | undefined;
     let res: Response;
+    let finalUrl: URL;
     try {
       if (req.method !== "GET" && req.method !== "HEAD") {
         releaseRequestBuffer = reserveTransientBuffer(
@@ -1426,7 +1454,7 @@ async function handleRequest(
       );
       upstreamRequestTimeMs = Date.now();
       try {
-        res = await fetchWithValidatedRedirects({
+        ({ response: res, finalUrl } = await fetchWithValidatedRedirects({
           url: canonicalTarget,
           method: req.method,
           headers,
@@ -1440,7 +1468,7 @@ async function handleRequest(
               ?.trim()
               .toLowerCase() !== "manual",
           signal: upstreamAbortScope.signal,
-        });
+        }));
       } catch (error) {
         throw upstreamAbortScope.translate(error);
       }
@@ -1451,6 +1479,7 @@ async function handleRequest(
 
     const proxyMetadataHeaders: Record<string, string> = {
       "X-Cache": "MISS",
+      [PROXY_FINAL_URL_HEADER]: finalUrl.toString(),
       "X-RateLimit-Limit": config.rateLimitRequests.toString(),
       "X-RateLimit-Remaining": rateLimit.remaining.toString(),
     };
@@ -1591,6 +1620,7 @@ async function handleRequest(
           expiresAt,
           sizeBytes: entrySize,
           ageAtResponseMs: freshness.ageAtResponseMs,
+          finalUrl: finalUrl.toString(),
           activeReaders: 0,
           inCache: true,
           accounted: true,

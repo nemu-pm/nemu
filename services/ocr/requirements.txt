@@ -1,11 +1,27 @@
-fastapi
-uvicorn[standard]
-numpy
-pillow
-python-multipart
-httpx
-opencv-python-headless
-torch
-shapely
-pyclipper
-vllm
+# Detection + OCR-proxy server (server.py). Versions are the ones the 2026-09-26 OCR
+# benchmark ran server.py with (Python 3.12, CPU/MPS):
+# artifacts/mobile-review-20260926/ocr-benchmark/report.md.
+#
+# Install into the server's own venv, NOT the vLLM environment (deploy.ts creates
+# /app/venv with --system-site-packages). vLLM pins its own torch/fastapi and needs
+# opencv-python-headless>=4.13 (vllm 0.30), which conflicts with the pins below.
+# vLLM itself is deliberately not listed or pinned: deploy.ts installs it into the
+# system Python (`pip install vllm`), and no vllm version has been tested here
+# against this host's CUDA driver.
+fastapi==0.141.1
+uvicorn[standard]==0.54.0
+numpy==2.2.6
+pillow==12.3.0
+python-multipart==0.0.32
+httpx==0.28.1
+# OpenCV 5 changed HoughLinesP's output shape (text_order.py now handles both) and
+# also changes which panel lines it finds, so reading order differs on some pages.
+# Stay on 4.x until text_order.py is re-validated on 5.
+opencv-python-headless==4.12.0.88
+shapely==2.1.2
+pyclipper==1.4.0
+# Benchmarked with torch 2.14.0. Lower bound only, on purpose: on the GPU host the
+# venv reuses the CUDA torch that vLLM installed in system site-packages (the
+# detector only needs a torch that can load comictextdetector.pt); an exact pin
+# would pull a second multi-GB torch whose CUDA build may not match the driver.
+torch>=2.4

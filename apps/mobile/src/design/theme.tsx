@@ -4,9 +4,12 @@ import { useMobileDataStore } from "@/data/mobileDataContext";
 import type { ThemePreference } from "@/data/schema";
 import {
   DEFAULT_THEME_PREFERENCE,
+  mobileNativeAppearanceForThemePreference,
   normalizeThemePreference,
 } from "@/lib/mobileThemeSettings";
+import { setAppAppearance } from "../../modules/nemu-window-layout";
 import { nemuTokens, type NemuColorScheme, type NemuTokens } from "./tokens";
+import { mobileProfilePreferenceCarry } from "@/lib/mobileProfilePreferences";
 import { NemuThemeContext } from "./themeContext";
 
 type NemuTheme = {
@@ -26,6 +29,9 @@ export function NemuThemeProvider({ children }: { children: ReactNode }) {
   const [themePreference, setThemePreferenceState] = useState<ThemePreference>(
     DEFAULT_THEME_PREFERENCE
   );
+  // The stored preference has been read (the default must not reach native:
+  // the last explicit choice is already applied there from launch).
+  const [themePreferenceLoaded, setThemePreferenceLoaded] = useState(false);
   const systemScheme: NemuColorScheme = colorScheme === "dark" ? "dark" : "light";
   const scheme: NemuColorScheme =
     themePreference === "system" ? systemScheme : themePreference;
@@ -53,13 +59,31 @@ export function NemuThemeProvider({ children }: { children: ReactNode }) {
       .getSettings()
       .then((settings) => {
         if (!mounted) return;
-        setThemePreferenceState(normalizeThemePreference(settings.themePreference));
+        // A profile that has not chosen yet keeps the theme on screen.
+        const { values, missing } = mobileProfilePreferenceCarry.adopt(settings, ["themePreference"]);
+        setThemePreferenceState(normalizeThemePreference(values.themePreference));
+        setThemePreferenceLoaded(true);
+        if (missing.themePreference !== undefined) {
+          void store
+            .updateSettings((current) => ({ ...current, ...(missing as Partial<typeof current>) }))
+            .catch(() => undefined);
+        }
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (mounted) setThemePreferenceLoaded(true);
+      });
     return () => {
       mounted = false;
     };
   }, [store]);
+
+  // Native surfaces (system bars, the vertical bar, sheets, menus, Liquid
+  // Glass) resolve their appearance from UIKit traits, not from these
+  // tokens: override every window so they follow the in-app theme too.
+  useEffect(() => {
+    if (!themePreferenceLoaded) return;
+    setAppAppearance(mobileNativeAppearanceForThemePreference(themePreference));
+  }, [themePreference, themePreferenceLoaded]);
 
   const setThemePreference = useCallback(
     async (preference: ThemePreference) => {
@@ -71,6 +95,7 @@ export function NemuThemeProvider({ children }: { children: ReactNode }) {
           ...settings,
           themePreference: nextPreference,
         }));
+        mobileProfilePreferenceCarry.remember("themePreference", nextPreference);
       } catch (error) {
         setThemePreferenceState(themePreference);
         throw error;

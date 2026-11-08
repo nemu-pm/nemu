@@ -3,6 +3,7 @@ import type { SourcePackageListing } from "@/data/schema";
 import {
   getMobileSourceListingEmptyTitle,
   getMobileSourceListingLabel,
+  getMobileTabRevealOffset,
   mergeMobileSourceListingTabs,
   normalizeMobileSourceListings,
 } from "./mobileSourceListingsPresentation";
@@ -51,13 +52,13 @@ describe("mobile source listing presentation", () => {
     ).toEqual([popular, latest]);
   });
 
-  test("prepends a selected runtime listing that was only exposed by source home", () => {
+  test("appends a runtime listing that was only exposed by source home, after the package tabs", () => {
     const seasonal: SourcePackageListing = { id: "seasonal", name: "Seasonal" };
 
     expect(mergeMobileSourceListingTabs([popular, latest], seasonal)).toEqual([
-      seasonal,
       popular,
       latest,
+      seasonal,
     ]);
     expect(mergeMobileSourceListingTabs([], seasonal)).toEqual([seasonal]);
   });
@@ -102,5 +103,51 @@ describe("mobile source listing presentation", () => {
       { id: "popular", name: "Popular" },
       { id: "Popular", name: "Popular" },
     ]);
+  });
+});
+
+describe("getMobileTabRevealOffset", () => {
+  const row = { offset: 0, viewport: 402, inset: 16 };
+
+  test("leaves a capsule that already shows whole", () => {
+    expect(getMobileTabRevealOffset({ ...row, start: 72, end: 142 })).toBeNull();
+  });
+
+  test("scrolls a trailing capsule just far enough to clear the gutter", () => {
+    expect(getMobileTabRevealOffset({ ...row, start: 279, end: 410 })).toBe(24);
+  });
+
+  test("leaves a capsule that shows whole inside the gutter (leaving See All for Home)", () => {
+    expect(getMobileTabRevealOffset({ ...row, offset: 13, start: 16, end: 64 })).toBeNull();
+  });
+
+  test("scrolls back for a leading capsule cut off by the left edge", () => {
+    expect(getMobileTabRevealOffset({ ...row, offset: 40, start: 16, end: 64 })).toBe(0);
+  });
+
+  test("waits for the row's width", () => {
+    expect(getMobileTabRevealOffset({ ...row, viewport: 0, start: 279, end: 410 })).toBeNull();
+  });
+
+  describe("running under a vertical bar", () => {
+    const railed = { offset: 0, viewport: 466, inset: 20, trailingInset: 84 };
+
+    test("a capsule under a bar on the right scrolls out to the page's margin", () => {
+      expect(getMobileTabRevealOffset({ ...railed, barSide: "right", start: 340, end: 400 })).toBe(18);
+    });
+
+    test("the same capsule with no bar shows whole in the gutter and stays", () => {
+      expect(getMobileTabRevealOffset({ ...railed, start: 340, end: 400 })).toBeNull();
+    });
+
+    test("a capsule under a bar on the left scrolls out to the page's margin", () => {
+      expect(
+        getMobileTabRevealOffset({ offset: 100, viewport: 466, inset: 84, trailingInset: 20, barSide: "left", start: 120, end: 180 }),
+      ).toBe(36);
+    });
+
+    test("a capsule clear of the bar stays", () => {
+      expect(getMobileTabRevealOffset({ ...railed, barSide: "right", start: 300, end: 382 })).toBeNull();
+    });
   });
 });

@@ -1,4 +1,5 @@
 import { normalizeMobileImageCacheSource } from "@/lib/mobileImageCacheSource";
+import { selfHostedImageCookieScope } from "@/lib/selfHosted/imageScopes";
 import { FileSystemBinaryCache } from "@/data/nativeCache";
 import { File } from "expo-file-system";
 import type { NativeBinaryCachePolicy } from "@/data/nativeCachePolicy";
@@ -17,8 +18,13 @@ import {
   registerMobileSourceProfileTransitionHandler,
 } from "@/sources/mobileSourceProfileScope";
 import { makeMobileImageCacheStorageKey } from "./mobileImageCacheKey";
+import { registerMobileAppLocalImageUri } from "./mobileAppLocalImageUris";
 import { parseNativeSegmentedImageCacheManifest } from "@/data/nativeSegmentedImageCache";
 import { hasMobileUserAgentHeader } from "@/sources/mobileAidokuUserAgent";
+import {
+  isMobileHotlinkGuardedImageUrl,
+  isMobileKnownPlaceholderImageResponse,
+} from "./mobileCoverPlaceholder";
 
 export type MobileImageCacheSource = {
   uri?: string | null;
@@ -136,6 +142,9 @@ const mobileCoverImageCache = new FileSystemBinaryCache(
   // prior files; Reader pages move into the new independent budget.
   "nemu-image-cache",
   MOBILE_COVER_IMAGE_DISK_CACHE_POLICY,
+  // Covers are never segmented: a launch reads its covers by name and the
+  // directory index waits until the launch screen has lifted.
+  { deferIndexUntilLaunch: true },
 );
 const mobileReaderPageImageCache = new FileSystemBinaryCache(
   "nemu-reader-page-image-cache",
@@ -234,6 +243,31 @@ function imageDownloadHeaders(headers?: Record<string, string>) {
   };
 }
 
+/**
+ * A hotlink-guarded host can answer a real cover URL with its placeholder
+ * image (HTTP 200). Such a body must neither be painted nor stay cached, so it
+ * is dropped here and surfaces as a load failure, which lets the cover fall
+ * back to its next candidate.
+ */
+async function rejectKnownPlaceholderImage(
+  source: MobileImageCacheSource,
+  key: string,
+  locatorUri: string,
+): Promise<void> {
+  if (!isMobileHotlinkGuardedImageUrl(source.uri)) return;
+  let byteLength: number | null = null;
+  try {
+    byteLength = new File(locatorUri).info().size ?? null;
+  } catch {
+    return;
+  }
+  if (!isMobileKnownPlaceholderImageResponse({ url: source.uri, byteLength })) {
+    return;
+  }
+  await coordinatorForSource(source).invalidate(key);
+  throw new Error("The image host returned a placeholder instead of the cover.");
+}
+
 export function getMobileImageCacheSourceKey(
   source: MobileImageCacheSource | null | undefined,
   cacheKey?: string,
@@ -274,7 +308,16 @@ export function getCachedMobileImageAssetByStorageKeySync(
   storageKey: string,
 ): MobileCachedImageAsset | null {
   if (!storageKey) return null;
-  const locator = coordinatorForStorageKey(storageKey).getResolvedUri(storageKey);
+  const coordinator = coordinatorForStorageKey(storageKey);
+  // A cold launch has resolved nothing yet: a cover already on disk is found
+  // by name, so the covers under the launch screen render their file at once
+  // and hold the reveal until they paint, instead of each fading in after an
+  // async resolve partway through it.
+  const locator =
+    coordinator.getResolvedUri(storageKey) ??
+    (coordinator === mobileCoverImageCacheCoordinator
+      ? mobileCoverImageCache.getLaunchUriSync(storageKey)
+      : null);
   return locator ? readCachedMobileImageAsset(locator) : null;
 }
 
@@ -287,7 +330,7 @@ export async function resolveCachedMobileImageUri(
   source = normalizeMobileImageCacheSource(source);
   if (!source?.uri || !isCacheableMobileImageUri(source.uri)) return null;
   const key = mobileImageCacheStorageKey(source, cacheKey, executionScope);
-  return coordinatorForSource(source).resolve(
+  const locator = await coordinatorForSource(source).resolve(
     key,
     async (signal) => {
       // The native SSRF-protected file seam streams directly to disk. Keeping
@@ -299,6 +342,7 @@ export async function resolveCachedMobileImageUri(
         imageContentTypeForUri(source.uri!),
         {
           headers: imageDownloadHeaders(source.headers),
+          cookieScope: selfHostedImageCookieScope(source.uri),
           maxBytes: MOBILE_REMOTE_IMAGE_MAX_BYTES,
           maxImageDimension: MOBILE_IMAGE_MAX_DIMENSION,
           maxImagePixels: MOBILE_IMAGE_MAX_DECODED_PIXELS,
@@ -308,6 +352,8 @@ export async function resolveCachedMobileImageUri(
     },
     options,
   );
+  if (locator) await rejectKnownPlaceholderImage(source, key, locator);
+  return locator;
 }
 
 export async function resolveCachedMobileImageAsset(
@@ -328,11 +374,11 @@ export async function resolveCachedMobileImageAsset(
         imageContentTypeForUri(source.uri!),
         {
           headers: imageDownloadHeaders(source.headers),
+          cookieScope: selfHostedImageCookieScope(source.uri),
           maxBytes: MOBILE_REMOTE_IMAGE_MAX_BYTES,
           maxImageDimension: MOBILE_IMAGE_MAX_DIMENSION,
           maxImagePixels: MOBILE_IMAGE_MAX_DECODED_PIXELS,
-          allowLongStripSegments:
-            Platform.OS === "android" || Platform.OS === "ios",
+          allowLongStripSegments: true,
           signal,
         },
       ),
@@ -340,6 +386,9 @@ export async function resolveCachedMobileImageAsset(
   );
   if (!locator) return null;
   const asset = readCachedMobileImageAsset(locator);
+  if (asset?.kind === "file") {
+    await rejectKnownPlaceholderImage(source, key, asset.uri);
+  }
   if (asset) return asset;
   // A manifest locator without a complete validated generation is corrupt.
   // Remove it before a bounded retry can repopulate the key.
@@ -359,6 +408,74 @@ export function invalidateCachedMobileImage(
   return coordinatorForSource(source).invalidate(
     mobileImageCacheStorageKey(source, cacheKey, executionScope),
   );
+}
+
+/**
+ * A reader page a source's image processor produced (descrambled pages),
+ * stored in the page cache beside the page downloads. `url` is the source's
+ * own page URL and `variant` names the processing (source and page context);
+ * request headers are left out, so a refreshed cookie still finds the page.
+ */
+export type MobileProcessedReaderPageIdentity = {
+  url: string;
+  variant: string;
+};
+
+function processedReaderPageKey(
+  identity: MobileProcessedReaderPageIdentity,
+  executionScope: string,
+) {
+  return `page:${makeMobileImageCacheStorageKey(
+    executionScope,
+    { uri: identity.url },
+    `processed-v1:${identity.variant}`,
+  )}`;
+}
+
+/** The stored page's app-local `file://` URI, or `null` when not stored. */
+export async function getProcessedMobileReaderPageUri(
+  identity: MobileProcessedReaderPageIdentity,
+  executionScope = getActiveMobileSourceProfileScope(),
+): Promise<string | null> {
+  try {
+    const uri = await mobileReaderPageImageCache.getUri(
+      processedReaderPageKey(identity, executionScope),
+    );
+    if (!uri) return null;
+    registerMobileAppLocalImageUri(uri);
+    return uri;
+  } catch {
+    return null;
+  }
+}
+
+/** Stores processed page bytes; their `file://` URI, or `null` on failure. */
+export async function storeProcessedMobileReaderPage(
+  identity: MobileProcessedReaderPageIdentity,
+  bytes: Uint8Array,
+  mimeType: string,
+  executionScope = getActiveMobileSourceProfileScope(),
+): Promise<string | null> {
+  try {
+    const uri = await mobileReaderPageImageCache.setBytes(
+      processedReaderPageKey(identity, executionScope),
+      bytes,
+      mimeType,
+    );
+    registerMobileAppLocalImageUri(uri);
+    return uri;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether a stored page's file is still there (the cache evicts by policy). */
+export function isProcessedMobileReaderPageStored(uri: string): boolean {
+  try {
+    return new File(uri).exists;
+  } catch {
+    return false;
+  }
 }
 
 export async function prefetchCachedMobileImages(

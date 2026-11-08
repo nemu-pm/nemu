@@ -71,10 +71,52 @@ export function resetMobileReaderHostGestureLocksForTesting(): void {
   readerHostGestureLocks = 0;
 }
 
+export type MobileStackContentStyleOptions = { contentStyle: { backgroundColor: string } };
+type SetStackContentStyleOptions = (options: MobileStackContentStyleOptions) => void;
+
+let readerHostBackgroundHolders: { color: string }[] = [];
+
+/**
+ * The host screen (the root stack's screen holding the sources flow) paints
+ * the reader's page background while a reader is mounted: a chapter switch
+ * (`router.replace`) animates the next reader in as a rounded card, and what
+ * shows at its corners is this screen's background (the app's, black in the
+ * dark theme: 0–10 corner pixels for ~0.25 s over a white reader). Counted
+ * like the gesture lock: the next reader mounts before the previous one
+ * unmounts, and the latest holder's colour wins. The last one out restores
+ * `restoreColor`.
+ */
+export function acquireMobileReaderHostBackground(
+  setOptions: SetStackContentStyleOptions | undefined,
+  color: string,
+  restoreColor: string,
+): () => void {
+  const holder = { color };
+  readerHostBackgroundHolders = [...readerHostBackgroundHolders, holder];
+  setOptions?.({ contentStyle: { backgroundColor: color } });
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    readerHostBackgroundHolders = readerHostBackgroundHolders.filter((entry) => entry !== holder);
+    const latest = readerHostBackgroundHolders[readerHostBackgroundHolders.length - 1];
+    setOptions?.({ contentStyle: { backgroundColor: latest ? latest.color : restoreColor } });
+  };
+}
+
+/** Exposed for tests. */
+export function resetMobileReaderHostBackgroundForTesting(): void {
+  readerHostBackgroundHolders = [];
+}
+
 export type MobileReaderScreenOptions = {
+  /** The reader's page background behind its content (never the stack's black). */
+  contentStyle?: { backgroundColor: string };
   statusBarAnimation: "fade";
   statusBarHidden: boolean;
-  statusBarStyle: "light";
+  statusBarStyle: "light" | "dark";
+  /** iOS: the home indicator fades out while reading immersively (back on the first touch, as in Photos and TV). */
+  autoHideHomeIndicator: boolean;
 };
 
 /**
@@ -86,12 +128,52 @@ export type MobileReaderScreenOptions = {
  */
 export function mobileReaderScreenOptions({
   showControls,
+  lightPage = false,
+  backgroundColor,
 }: {
   showControls: boolean;
+  /** The page background: what shows at the screen's corners in a chapter switch. */
+  backgroundColor?: string;
+  /** The page background is light (白色, or a light border under 跟随页面). */
+  lightPage?: boolean;
 }): MobileReaderScreenOptions {
+  // Glyphs that read against what is around the page: light over a dark
+  // background and its dark top scrim, dark over a light one and its light
+  // scrim.
   return {
+    ...(backgroundColor ? { contentStyle: { backgroundColor } } : {}),
     statusBarAnimation: "fade",
     statusBarHidden: !showControls,
-    statusBarStyle: "light",
+    statusBarStyle: lightPage ? "dark" : "light",
+    autoHideHomeIndicator: !showControls,
   };
+}
+
+/**
+ * Whether expo-router's route segments are the reader's
+ * (`app/sources/[registryId]/[sourceId]/[mangaId]/[chapterId]`).
+ */
+export function isMobileReaderRouteSegments(segments: readonly string[]): boolean {
+  const readerSegments = MOBILE_READER_ROUTE_NAME.split("/");
+  const start = segments.length - readerSegments.length;
+  return (
+    start >= 1 &&
+    segments[start - 1] === "sources" &&
+    readerSegments.every((segment, index) => segments[start + index] === segment)
+  );
+}
+
+/**
+ * What the sources stack paints behind its screens. A chapter switch
+ * (`router.replace`) animates the next reader in as a rounded card over the
+ * stack's own container (not the host screen below it), so while the reader
+ * is on top the container is the reader's page background: never black
+ * corners over a white reader. Elsewhere it stays the app's background.
+ */
+export function mobileSourcesStackContainerBackground(input: {
+  segments: readonly string[];
+  readerBackgroundColor: string;
+  appBackgroundColor: string;
+}): string {
+  return isMobileReaderRouteSegments(input.segments) ? input.readerBackgroundColor : input.appBackgroundColor;
 }

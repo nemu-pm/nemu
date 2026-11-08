@@ -225,7 +225,7 @@ export function NemuButton({
   onPress,
   testID,
 }: NemuButtonProps) {
-  const { reduceMotion, scheme, tokens } = useNemuTheme();
+  const { reduceMotion, scheme, sheetGlass, tokens } = useNemuTheme();
   const [surfacePressProgress] = useState(() => new Animated.Value(0));
   const pressedRef = useRef(false);
   const {
@@ -243,12 +243,14 @@ export function NemuButton({
     state: "rest",
     scheme,
     tokens,
+    onGlassSheet: sheetGlass !== undefined,
   });
   const pressedVisual = getNemuButtonDepthVisual({
     variant: depthVariant,
     state: "pressed",
     scheme,
     tokens,
+    onGlassSheet: sheetGlass !== undefined,
   });
   const restForegroundColor = restVisual.foregroundColor ?? tokens.foreground;
   const pressedForegroundColor = pressedVisual.foregroundColor ?? tokens.foreground;
@@ -256,7 +258,7 @@ export function NemuButton({
   const iconSize = buttonIconSizes[size];
   const iconOnly = size.startsWith("icon");
   const surfaceRadius = buttonRadii[size];
-  const flattenedContainerStyle = StyleSheet.flatten(containerStyle);
+  const flattenedContainerStyle = StyleSheet.flatten(containerStyle) ?? undefined;
   const touchTargetStyle = resolveNemuButtonTouchTargetStyle({
     callerStyle: flattenedContainerStyle,
     platform: Platform.OS,
@@ -265,7 +267,7 @@ export function NemuButton({
     layoutStyle: callerLayoutStyle,
     surfaceShapeStyle: callerSurfaceShapeStyle,
     surfaceStyle: callerSurfaceStyle,
-  } = splitNemuButtonStyle(StyleSheet.flatten(style));
+  } = splitNemuButtonStyle(StyleSheet.flatten(style) ?? undefined);
   const callerOverridesShadow = hasNemuButtonShadowOverride(callerSurfaceStyle);
   const pressMotion = getNemuButtonPressMotion(depthVariant);
   const animatePressMotion = shouldAnimateNemuButtonPress(reduceMotion);

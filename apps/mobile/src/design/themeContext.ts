@@ -7,6 +7,8 @@ export type NemuTheme = {
   scheme: NemuColorScheme;
   themePreference: ThemePreference;
   tokens: NemuTokens;
+  /** Set inside a Liquid Glass sheet's content (`NemuGlassSheetThemeScope`): its look. */
+  sheetGlass?: "clear" | "tinted";
   setThemePreference: (preference: ThemePreference) => Promise<void>;
 };
 

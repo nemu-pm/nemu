@@ -1,8 +1,13 @@
+import { SourceBrowseCompactHeader } from "@/components/SourceBrowseCompactHeader";
+import { useCompactSourceBrowseHeader } from "@/lib/useCompactSourceBrowseHeader";
+import { getCompactSourceBrowseHeaderBarHeight } from "@/lib/mobileSourceBrowseHeader";
+import { chunkMobileGridRows, mobileFoldAwareGridCellStyle } from "@/lib/mobileFoldAwareGrid";
+import { MobilePaneAlignedView } from "@/lib/MobilePaneAlignedView";
+import { useMobileFoldAwareGrid } from "@/lib/useMobileFoldAwareGrid";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMobileSourceQuickSettings } from "@/components/useMobileSourceQuickSettings";
+import { isValidElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  LayoutAnimation,
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -31,7 +36,6 @@ import {
   useFocusEffect,
   useLocalSearchParams,
 } from "expo-router";
-import type { SearchBarCommands } from "react-native-screens";
 import { nextSyncTimestamp } from "@nemu/core";
 import { EmptyLibrary } from "@/components/EmptyLibrary";
 import { MobileListFooter } from "@/components/MobileListFooter";
@@ -42,9 +46,19 @@ import {
   SourceHomeView,
 } from "@/components/SourceHomeView";
 import { useMobileDataStore } from "@/data/mobileDataContext";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
+import { withMobileExploreAddIntent } from "@/components/explore/mobileExploreCover";
+import { ExploreInLibraryBadge } from "@/components/explore/ExploreInLibraryBadge";
+import { renderExploreDetailBarMenu } from "@/components/explore/ExploreDetailBarMenu";
+import { SourceListingTabs, SourceListingTabsPlaceholder } from "@/components/explore/ExploreSourceSections";
+import { ExploreCoverImage } from "@/components/explore/ExploreCoverImage";
+import { ExploreSourceFilterMenus } from "@/components/explore/ExploreSourceFilterMenus";
+import { ContextMenuView } from "../../modules/nemu-window-layout";
 import { emitMobileDataChanged } from "@/data/mobileDataEvents";
 import {
   useInstalledSources,
+  useLibraryEntries,
+  useMobileInstalledSourceCatalogRepair,
   useMobileLanguageSettings,
   useSourceSettings,
 } from "@/data/mobileHooks";
@@ -55,26 +69,29 @@ import {
   type InstalledSource,
 } from "@/data/schema";
 import {
+  createNemuNativeScreenOptions,
+  createNemuShadowStyle,
   GlassSurface,
   MobileCachedImage,
+  NemuNativeSearchField,
   MobileChip,
   MobileNativeSheetScaffold,
   NemuButton,
+  NemuHorizontalScrollEdges,
+  nemuColorWithAlpha,
+  nemuHorizontalScrollEdgesAvailable,
+  nemuFontWeight,
   NemuInlineEmptyState,
+  type NemuNativeHeaderAction,
   NemuPressable,
+  NemuSheetScrollEdge,
   NemuTextFieldClearAction,
   PageListScaffold,
   PageScaffold,
-  createNemuNativeScreenOptions,
-  createNemuShadowStyle,
-  nemuColorWithAlpha,
   radius,
   renderNemuNativeToolbarButtons,
-  nemuFontWeight,
   useMobilePageBleedStyles,
-  useMobilePageGutters,
   useNemuTheme,
-  type NemuNativeHeaderAction,
 } from "@/design-system";
 import { hapticConfirm, hapticError, hapticPress } from "@/lib/haptics";
 import {
@@ -86,10 +103,7 @@ import {
   getMobileStrings,
   type MobileStrings,
 } from "@/lib/mobileI18n";
-import {
-  getMobileMangaGridLayout,
-  MOBILE_MANGA_GRID_GAP,
-} from "@/lib/mobileAdaptiveGrid";
+import { MOBILE_MANGA_GRID_GAP } from "@/lib/mobileAdaptiveGrid";
 import {
   getMobileInstalledSourceSettingsKeys,
   mobileInstalledSourceMatchesRoute,
@@ -98,8 +112,6 @@ import { MobileNemuAgentSheet } from "@/components/MobileNemuAgentSheet";
 import { MobileSourceMultiSelectSheet } from "@/components/MobileSourceSettingsSubSheets";
 import { formatMobileMangaCardAccessibilityLabel } from "@/lib/mobileMangaCard";
 import {
-  coerceMobileNativeSearchText,
-  resolveMobileNativeSearchSubmitText,
 } from "@/lib/mobileNativeSearchText";
 import {
   createMobileIdleTaskCoordinator,
@@ -108,6 +120,7 @@ import {
 import {
   describeMobileErrorDetail,
   getMobileSourceOperationErrorCopy,
+  getMobileClassifiedSourceErrorCopy,
   getMobileRuntimeUnavailableDetail,
   getMobileSourceErrorPresentation,
 } from "@/lib/mobileSourceErrors";
@@ -149,24 +162,32 @@ import {
   loadMobileSourceSettingsByKeys,
   makeMobileSourceKey,
   mergeSourceSettingValues,
+  EMPTY_SOURCE_SETTINGS,
 } from "@/lib/mobileSourceSettings";
 import {
   canSelectMobileSourceBrowseTab,
   getDefaultMobileSourceBrowseListingId,
   getMobileSourceBrowseListingIdForRouteTab,
   getMobileSourceBrowseListingTabCount,
+  findMobileSourceBrowseFallbackErrorStep,
+  getMobileSourceBrowseFallbackErrorDetail,
   getMobileSourceBrowseRouteTabForListingId,
   makeMobileSourceHomeGenerationKey,
   hasMobileSourceBrowseRouteQuery,
   makeMobileSourceBrowseSearchRouteQuery,
   isMobileSourceBrowseHomeTabPending,
+  resolveMobileSourceBrowseOnlySearch,
+  isMobileSourceBrowseRouteTabRequestPending,
   isMobileSourceBrowseSearchRequestPending,
   normalizeMobileSourceBrowseRouteQuery,
+  type MobileSourceBrowseRouteTabRequest,
   normalizeMobileSourceBrowseRouteTab,
   shouldPreserveSourceBrowseSearchItemsOnDeactivate,
   shouldRenderMobileSourceBrowseSearchHeader,
   shouldRunMobileSourceBrowseSearchSubmitFeedback,
   shouldShowCenterSourceBrowseSearchProgress,
+  resolveMobileSourceBrowseKeptListing,
+  shouldReserveMobileSourceBrowseListingTabRow,
   shouldShowMobileSourceBrowseListingTabBar,
   shouldShowMobileSourceBrowseNoMatches,
   shouldShowMobileSourceBrowseNotInstalled,
@@ -197,12 +218,9 @@ import {
 } from "@/sources/mobileSourceRuntime";
 import { getActiveMobileSourceProfileScope } from "@/sources/mobileSourceProfileScope";
 import { fetchMobileSourceListing } from "@/sources/mobileSourceListings";
-import {
-  captureMobileGridScrollRatio,
-  resolveMobileGridScrollRestoreOffset,
-  shouldRestoreMobileGridScroll,
-  type MobileGridScrollSnapshot,
-} from "@/lib/mobileGridScrollRestore";
+import { MobilePoseLayoutView, MobilePoseListCell } from "@/components/MobilePoseLayoutView";
+import { mobileGridGlideAppearing, mobileStateEntering, openMobileGridGlideWindow } from "@/lib/mobilePoseLayoutAnimations";
+import { useMobileGridScrollAnchor } from "@/lib/useMobileGridScrollAnchor";
 import {
   clearMobileSourceListingCacheForRuntime,
   readMobileSourceListingCache,
@@ -234,7 +252,6 @@ import {
   withMobileSourceOperationTimeout,
 } from "@/sources/mobileSourceOperationTimeout";
 
-const EMPTY_SOURCE_SETTINGS: SourcePackageSetting[] = [];
 const INLINE_SOURCE_FILTER_LIMIT = 8;
 const INLINE_FILTER_OPTION_LIMIT = 8;
 const INLINE_GENRE_OPTION_LIMIT = 10;
@@ -248,6 +265,9 @@ const SOURCE_OPERATION_TIMEOUT_MS = DEFAULT_MOBILE_SOURCE_OPERATION_TIMEOUT_MS;
 // The tab-strip edge fades ride the scroll offset on the UI thread; the
 // gradients themselves never re-render.
 const AnimatedLinearGradient = Animated.createAnimatedComponent(LinearGradient);
+
+/** The listing grid's footer cell (`listingGridData`): identity, never shown as a row. */
+const LISTING_FOOTER_ROW: MobileLiveSearchManga[] = [];
 
 function withSourceOperationTimeout<T>(
   operation: Promise<T>,
@@ -450,11 +470,17 @@ function ListingMangaCard({
   onPress,
   source,
   strings,
+  inLibrary = false,
+  onAdd,
 }: {
   item: MobileLiveSearchManga;
   onPress: () => void;
   source?: InstalledSource | null;
   strings: MobileStrings;
+  /** Design-explore: the title is already in the library (a check on its cover). */
+  inLibrary?: boolean;
+  /** Design-explore: "Add to Library" from the cell's context menu. */
+  onAdd?: () => void;
 }) {
   const { tokens } = useNemuTheme();
   const subtitle = liveMangaSubtitle(item);
@@ -483,14 +509,23 @@ function ListingMangaCard({
         }
     : null;
 
-  return (
+  const card = (
     <NemuPressable
       accessibilityRole="button"
-      accessibilityLabel={formatMobileMangaCardAccessibilityLabel({
-        openTemplate: strings.sourceBrowse.openManga,
-        title: item.title,
-        subtitle,
-      })}
+      accessibilityLabel={[
+        formatMobileMangaCardAccessibilityLabel({
+          openTemplate: strings.sourceBrowse.openManga,
+          title: item.title,
+          subtitle,
+        }),
+        inLibrary ? strings.designExplore.inLibrary : null,
+      ]
+        .filter(Boolean)
+        .join(", ")}
+      accessibilityActions={onAdd && !inLibrary ? [{ name: "add", label: strings.designExplore.addToLibrary }] : undefined}
+      onAccessibilityAction={(event) => {
+        if (event.nativeEvent.actionName === "add") onAdd?.();
+      }}
       onPress={onPress}
       pressedScale={0.98}
       style={styles.liveCard}
@@ -510,7 +545,9 @@ function ListingMangaCard({
           },
         ]}
       >
-        {coverSource ? (
+        {mobileDesignExploreFlag ? (
+          <ExploreCoverImage source={coverSource} title={item.title} />
+        ) : coverSource ? (
           <MobileCachedImage
             fallback={
               <View
@@ -527,6 +564,8 @@ function ListingMangaCard({
               </View>
             }
             uriOwnership="source"
+            holdPreviousWhileLoading
+            holdIdentity={item.id}
             source={coverSource}
             style={styles.sourceIconImage}
           />
@@ -562,6 +601,23 @@ function ListingMangaCard({
         ) : null}
       </View>
     </NemuPressable>
+  );
+  if (!mobileDesignExploreFlag) return card;
+  return (
+    <ContextMenuView
+      style={styles.liveCard}
+      items={
+        onAdd && !inLibrary
+          ? [{ id: "add", title: strings.designExplore.addToLibrary, systemImage: "plus" }]
+          : []
+      }
+      onMenuAction={(id) => {
+        if (id === "add") onAdd?.();
+      }}
+    >
+      {card}
+      {inLibrary ? <ExploreInLibraryBadge /> : null}
+    </ContextMenuView>
   );
 }
 
@@ -673,6 +729,7 @@ function SourceFilterChipRow({
     <View style={[styles.sourceFilterChipRowFrame, bleed.frame]}>
       <ScrollView
         horizontal
+        scrollsToTop={false}
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={[
           styles.sourceFilterChipRowContent,
@@ -856,7 +913,7 @@ function SourceFilterControl({
         >
           {filterLabel(filter)}
         </Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <ScrollView horizontal scrollsToTop={false} showsHorizontalScrollIndicator={false}>
           <View
             accessibilityLabel={filterLabel(filter)}
             accessibilityRole="radiogroup"
@@ -914,7 +971,7 @@ function SourceFilterControl({
         >
           {filterLabel(filter)}
         </Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <ScrollView horizontal scrollsToTop={false} showsHorizontalScrollIndicator={false}>
           <View
             accessibilityLabel={filterLabel(filter)}
             accessibilityRole="radiogroup"
@@ -1034,7 +1091,7 @@ function SourceFilterControl({
         >
           {filterLabel(filter)}
         </Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <ScrollView horizontal scrollsToTop={false} showsHorizontalScrollIndicator={false}>
           <View style={styles.sourceFilterChipRow}>
             {visibleOptions.map((option, index) => {
               const optionValue = filterOptionValue(filter, index);
@@ -1081,15 +1138,8 @@ function SourceFilterControl({
 }
 
 /**
- * One filter group presented as the same selection sub-sheet the source
- * settings card uses, so a picker looks identical wherever it is opened from.
- * Every tap applies immediately through the screen's existing debounce/abort
- * path — there is no confirm step, matching the retired inline chips.
- *
- * Single-choice groups (select/sort) lead with a synthetic "any" row so the
- * filter can still be cleared; sort groups additionally allow re-tapping the
- * current option to flip the direction. Genre groups keep the tri-state
- * semantics of the old chips: tap includes, long press excludes.
+ * One filter group as the same selection sub-sheet the source settings card uses. Every tap
+ * applies at once; single-choice groups lead with an "any" row.
  */
 function SourceFilterGroupSheet({
   filter,
@@ -1256,32 +1306,39 @@ function SourceFilterPanel({
       contentStyle={styles.filterPanel}
       testID="SourceFilterSheet"
     >
-      <ScrollView
-        // Android: inside a native sheet, hand the drag to the sheet at the top.
-        nestedScrollEnabled
-        contentContainerStyle={styles.filterPanelScrollContent}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-        style={
-          sheetLayout.bounded
-            ? styles.filterPanelScrollBounded
-            : styles.filterPanelScroll
-        }
+      <NemuSheetScrollEdge
+        style={sheetLayout.bounded ? styles.filterPanelScrollBounded : styles.filterPanelScroll}
       >
-        {filters.map((filter, index) => (
-          <SourceFilterControl
-            key={`${filter.name}:${filter.type}:${index}`}
-            filter={filter}
-            optionLimit={null}
-            value={valueMap.get(filterValueKey(filter))}
-            getValue={(filterForValue) =>
-              valueMap.get(filterValueKey(filterForValue))
+        {(edge) => (
+          <ScrollView
+            {...edge}
+            // Android: inside a native sheet, hand the drag to the sheet at the top.
+            nestedScrollEnabled
+            contentContainerStyle={styles.filterPanelScrollContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            style={
+              sheetLayout.bounded
+                ? styles.filterPanelScrollBounded
+                : styles.filterPanelScroll
             }
-            onChange={changeDraftFilter}
-            strings={strings}
-          />
-        ))}
-      </ScrollView>
+          >
+            {filters.map((filter, index) => (
+              <SourceFilterControl
+                key={`${filter.name}:${filter.type}:${index}`}
+                filter={filter}
+                optionLimit={null}
+                value={valueMap.get(filterValueKey(filter))}
+                getValue={(filterForValue) =>
+                  valueMap.get(filterValueKey(filterForValue))
+                }
+                onChange={changeDraftFilter}
+                strings={strings}
+              />
+            ))}
+          </ScrollView>
+        )}
+      </NemuSheetScrollEdge>
 
       <View style={styles.filterPanelActions}>
         <NemuButton
@@ -1320,9 +1377,15 @@ export function SourceBrowseScreen() {
   );
   const routeSourceSearchActive = hasMobileSourceBrowseRouteQuery(params.q);
   const routeSourceListingTab = normalizeMobileSourceBrowseRouteTab(params.tab);
+  // The tab a tap asked the route for, until the route shows it (see the
+  // selection effect): the page's selection is newer than a lagging `tab`.
+  const routeTabRequestRef = useRef<MobileSourceBrowseRouteTabRequest | null>(null);
+  const routeSourceListingTabRef = useRef(routeSourceListingTab);
+  useEffect(() => {
+    routeSourceListingTabRef.current = routeSourceListingTab;
+  }, [routeSourceListingTab]);
   const { tokens } = useNemuTheme();
-  const { width: windowWidth } = useWindowDimensions();
-  const pageGutters = useMobilePageGutters();
+  const compactHeader = useCompactSourceBrowseHeader();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
   const sourceBrowseStringsRef = useRef(strings.sourceBrowse);
@@ -1331,6 +1394,12 @@ export function SourceBrowseScreen() {
   );
   const [selectedRuntimeListing, setSelectedRuntimeListing] =
     useState<SourcePackageListing | null>(null);
+  // The tab a home section's See All left at the end of the row (see
+  // `resolveMobileSourceBrowseKeptListing`), for this source only.
+  const [keptRuntimeListingState, setKeptRuntimeListingState] = useState<{
+    sourceKey: string | null;
+    listing: SourcePackageListing;
+  } | null>(null);
   const [listingState, setListingState] = useState<ListingBrowseState>({
     status: "idle",
     items: [],
@@ -1348,6 +1417,10 @@ export function SourceBrowseScreen() {
   // shown. Holding it in JS state re-rendered this screen on every 16ms scroll
   // frame; the offset now lives on the UI thread and the fades follow it there.
   const listingTabsScrollX = useSharedValue(0);
+  // The tab strip runs to the screen edges (the scroller clipped at the page
+  // gutter, so a chip was cut by a hard edge short of the screen) and pays the
+  // gutter back as content padding; the edge fades sit at the screen edges.
+  const listingTabsBleed = useMobilePageBleedStyles();
   const handleListingTabsScroll = useAnimatedScrollHandler({
     onScroll: (event) => {
       listingTabsScrollX.value = event.contentOffset.x;
@@ -1365,14 +1438,7 @@ export function SourceBrowseScreen() {
    * `runtimeRefreshKey` instead would rotate the listing cache key and throw
    * away every cached listing page the user already paid for. */
   const [sourceHomeRetryKey, setSourceHomeRetryKey] = useState(0);
-  const gridScrollSnapshotRef = useRef<MobileGridScrollSnapshot>({
-    offset: 0,
-    contentHeight: 0,
-    viewportHeight: 0,
-  });
-  const gridScrollRef = useRef<FlatList<MobileLiveSearchManga> | null>(null);
-  const pendingGridScrollRatioRef = useRef<number | null>(null);
-  const gridColumnsRef = useRef(0);
+  const gridScrollRef = useRef<FlatList<MobileLiveSearchManga[]> | null>(null);
   const [refreshingSource, setRefreshingSource] = useState(false);
   const refreshSourceGuardRef = useRef(false);
   const cloudflareSheetRef = useRef<{
@@ -1381,7 +1447,6 @@ export function SourceBrowseScreen() {
       context?: NemuAgentSheetContext,
     ) => boolean;
   } | null>(null);
-  const sourceSearchInputRef = useRef<SearchBarCommands | null>(null);
   const sourceSearchIdleTasksRef = useRef<MobileIdleTaskCoordinator | null>(
     null,
   );
@@ -1392,6 +1457,9 @@ export function SourceBrowseScreen() {
   const [sourceSearchQuery, setSourceSearchQuery] = useState(
     routeSourceSearchQuery,
   );
+  // The field takes the keyboard when the search button brought it, not when
+  // the page opens in search.
+  const [sourceSearchFieldFocusOnMount, setSourceSearchFieldFocusOnMount] = useState(false);
   const sourceSearchQueryRef = useRef(routeSourceSearchQuery);
   const [submittedSourceSearchQuery, setSubmittedSourceSearchQuery] = useState(
     routeSourceSearchQuery,
@@ -1465,6 +1533,10 @@ export function SourceBrowseScreen() {
   }, [installed.data, registryId, sourceId]);
   const installedSourceRef = useRef(installedSource);
   installedSourceRef.current = installedSource;
+  // A synced record without a package URL (an older client's bare record) is
+  // installed from the registry catalog here, with progress, instead of
+  // leaving the screen blank under the source's raw id.
+  const catalogRepair = useMobileInstalledSourceCatalogRepair(installedSource);
 
   const source = useMemo(
     () => (installedSource ? normalizeInstalledSource(installedSource) : null),
@@ -1515,31 +1587,31 @@ export function SourceBrowseScreen() {
     settingsSignature: sourceHomeSettingsSignature,
     runtimeRefreshKey,
   });
-  const gridLayout = useMemo(
-    () =>
-      getMobileMangaGridLayout({
-        windowWidth,
-        horizontalPadding: pageGutters.horizontal,
-      }),
-    [pageGutters.horizontal, windowWidth],
-  );
+  // Columns from the list's measured width (an even count on regular
+  // widths); in book posture the middle gutter lies on the fold.
+  const gridLayout = useMobileFoldAwareGrid({
+    getNode: () =>
+      gridScrollRef.current?.getNativeScrollRef?.() as
+        | { measureInWindow?: (callback: (x: number, y: number, width: number, height: number) => void) => void }
+        | null
+        | undefined,
+  });
   const gridColumns = gridLayout.columns;
+  const gridItemWidth = gridLayout.itemWidth;
+  const gridColumnMargins = gridLayout.columnMargins;
   // Fixed cell width (not `flex: 1`) so a partly filled last row keeps the
-  // column width instead of stretching a lone cover across the row.
-  const gridItemStyle = useMemo(
-    () => [styles.gridItem, { width: gridLayout.itemWidth }],
-    [gridLayout.itemWidth],
+  // column width instead of stretching a lone cover across the row; the
+  // per-column margin carries the fold gutter.
+  const gridItemStyleAt = useCallback(
+    (index: number) => [
+      styles.gridItem,
+      mobileFoldAwareGridCellStyle(
+        { columns: gridColumns, itemWidth: gridItemWidth, columnMargins: gridColumnMargins },
+        index,
+      ),
+    ],
+    [gridColumnMargins, gridColumns, gridItemWidth],
   );
-  // `FlatList` throws when `numColumns` changes on a mounted list, so a
-  // rotation has to remount the grid. Capture the scroll proportion in the
-  // same pass that changes the key — the remounted list reports its new
-  // content size before effects run.
-  if (gridColumnsRef.current !== 0 && gridColumnsRef.current !== gridColumns) {
-    pendingGridScrollRatioRef.current = captureMobileGridScrollRatio(
-      gridScrollSnapshotRef.current,
-    );
-  }
-  gridColumnsRef.current = gridColumns;
   const staticListings = useMemo(
     // Persisted metadata from before ids were normalised can still carry
     // id-less listings; normalise on read so every tab has one identity.
@@ -1576,9 +1648,13 @@ export function SourceBrowseScreen() {
         : null,
     [runtimeRefreshKey, sourceProfileScope, sourceRuntimeKey],
   );
+  const keptRuntimeListing =
+    keptRuntimeListingState?.sourceKey === sourceRuntimeKey
+      ? keptRuntimeListingState.listing
+      : null;
   const visibleListings = useMemo(
-    () => mergeMobileSourceListingTabs(listings, selectedRuntimeListing),
-    [listings, selectedRuntimeListing],
+    () => mergeMobileSourceListingTabs(listings, keptRuntimeListing),
+    [keptRuntimeListing, listings],
   );
   // Filters shipped with the installed package, shaped exactly the way the
   // runtime metadata will shape them. They stand in for the runtime answer
@@ -1643,16 +1719,38 @@ export function SourceBrowseScreen() {
   const sourceHomeSectionStatus = resolveMobileSourceHomeSectionStatus(
     sourceHomeState.status,
   );
-  const sourceOnlySearch =
-    runtimeBrowseMetadata?.onlySearch ??
-    (sourceHomeState.status === "ready"
-      ? sourceHomeState.result.onlySearch
-      : false);
+  // Known from the first frame for a source that has run before (persisted
+  // with its package metadata) or that ships listings; the bar items and the
+  // header search field differ between the modes, so guessing showed one set
+  // and then swapped it for the other as the runtime answered.
+  const sourceOnlySearchResolved = resolveMobileSourceBrowseOnlySearch({
+    runtimeOnlySearch:
+      runtimeBrowseMetadata?.onlySearch ??
+      (sourceHomeState.status === "ready"
+        ? sourceHomeState.result.onlySearch
+        : null),
+    persistedOnlySearch: source?.packageMetadata?.onlySearch,
+    packageListingCount: source?.packageMetadata?.listings.length ?? 0,
+  });
+  // A runtime that failed without answering leaves the browse chrome (its
+  // retry is a browse-page action), never a page held without its bar items.
+  const sourceModeKnown =
+    sourceOnlySearchResolved !== null ||
+    sourceBrowseMetadataState.status === "error" ||
+    sourceBrowseMetadataState.status === "blocked" ||
+    sourceHomeState.status === "error" ||
+    sourceHomeState.status === "blocked";
+  const sourceOnlySearch = sourceOnlySearchResolved ?? false;
   const sourceSearchActive =
     sourceOnlySearch ||
     routeSourceSearchActive ||
     sourceSearchTerm.length > 0 ||
     sourceFilterCount > 0;
+  // Android draws its own header (title row, plus the search row while
+  // searching); the page padding is derived from that bar's height.
+  const compactHeaderBarHeight = compactHeader
+    ? getCompactSourceBrowseHeaderBarHeight(Boolean(source && sourceSearchActive))
+    : undefined;
   // In search mode the screen always has a request coming: an empty query with
   // no filters still asks the source for its default page. So an `idle` search
   // state here is the pre-request window (browse metadata in flight, or the
@@ -1683,7 +1781,13 @@ export function SourceBrowseScreen() {
     sourceHasHomeProvider,
     visibleListings.length,
   );
-  const showListingTabBar = shouldShowMobileSourceBrowseListingTabBar({
+  // Reveal home tabs with the final home, rather than shifting a live
+  // skeleton down as metadata arrives independently of its content. Only
+  // while the home is what the page shows: with a listing selected the home
+  // is not fetched, and holding the tabs left them placeholders for good.
+  const homeLayoutPending = sourceHasHomeProvider && !selectedListing && !sourceHomeHasComponents
+    && (sourceHomeState.status === "idle" || sourceHomeState.status === "loading");
+  const showListingTabBar = !homeLayoutPending && shouldShowMobileSourceBrowseListingTabBar({
     listingTabCount,
     sourceHomeProviderKnown,
     onlySearch: sourceOnlySearch,
@@ -1729,6 +1833,17 @@ export function SourceBrowseScreen() {
     selected: sourceHomeSelected,
   });
   const showSourceHomeTab = showListingTabBar && sourceHasHomeProvider;
+  // New design: the tab row's place is kept from the first frame while its
+  // tabs wait for the home layout, so the skeleton under it never drops.
+  const reserveListingTabRow =
+    mobileDesignExploreFlag &&
+    !sourceSearchActive &&
+    shouldReserveMobileSourceBrowseListingTabRow({
+      showing: showListingTabBar,
+      onlySearch: sourceOnlySearch,
+      homePossible: sourceExpectsHomeTab,
+      listingCount: visibleListings.length,
+    });
   const sourceHomeTabSelected =
     !sourceSearchActive && !selectedListing && sourceHomeSelected;
   const sourceHomeTabCanSelect =
@@ -1793,14 +1908,6 @@ export function SourceBrowseScreen() {
     listingRequestRef.current += 1;
   }, [runtimeRefreshKey, selectedListing?.id, sourceRuntimeKey]);
 
-  // A rotation captures a scroll ratio for the remounted grid, but a restore
-  // that the new content size declines leaves the ratio queued. Switching tab,
-  // listing, or search mode retires it so a later pagination append cannot
-  // jump the user to a ratio captured against a different list.
-  useEffect(() => {
-    pendingGridScrollRatioRef.current = null;
-  }, [selectedListingId, sourceRuntimeKey, sourceSearchActive]);
-
   useEffect(() => {
     setSourceBrowseMetadataState({ status: "idle" });
     setSourceFiltersState({
@@ -1830,6 +1937,18 @@ export function SourceBrowseScreen() {
     }
 
     if (routeTabSelectionPending) return;
+
+    // A tap just changed the selection and asked the route for its tab; the
+    // route still has the old one. Re-reading it would undo the tap.
+    if (
+      isMobileSourceBrowseRouteTabRequestPending(
+        routeTabRequestRef.current,
+        routeSourceListingTab,
+      )
+    ) {
+      return;
+    }
+    routeTabRequestRef.current = null;
 
     if (routeSelectedListingId) {
       if (
@@ -2088,14 +2207,9 @@ export function SourceBrowseScreen() {
     void withSourceOperationTimeout(
       fetchMobileSourceHome(requestSource, {
         getSourceSettings: resolveExecutorSourceSettings,
-        onPartial: (home) => {
-          if (cancelled || sourceHomeRequestRef.current !== requestId) return;
-          setSourceHomeState({
-            status: "loading",
-            home,
-            detail: strings.sourceBrowse.loadingHome,
-          });
-        },
+        // A source may send several different provisional home layouts. Keep
+        // its loading shell (or last complete home) until the request commits
+        // one coherent layout; this applies to every runtime/source.
       }),
       strings.sourceBrowse.sourceOperationTimedOut,
     )
@@ -2599,24 +2713,38 @@ export function SourceBrowseScreen() {
   ]);
 
   const handleListingMangaPress = useCallback(
-    (sourceDisplay: SearchSourceDisplay, manga: MobileLiveSearchManga) => {
+    (
+      sourceDisplay: SearchSourceDisplay,
+      manga: MobileLiveSearchManga,
+      // Design-explore: the page adds the title as soon as it has its details.
+      intent?: { add: true },
+    ) => {
       setMobileSourceDetailSeed(
         sourceDisplay.registryId,
         sourceDisplay.rawSourceId,
         manga.id,
         manga,
       );
-      router.push(
-        getMobileSourceMangaHref({
-          registryId: sourceDisplay.registryId,
-          sourceId: sourceDisplay.rawSourceId,
-          mangaId: manga.id,
-          mangaTitle: manga.title,
-        }),
-      );
+      const href = getMobileSourceMangaHref({
+        registryId: sourceDisplay.registryId,
+        sourceId: sourceDisplay.rawSourceId,
+        mangaId: manga.id,
+        mangaTitle: manga.title,
+      });
+      router.push(intent?.add ? withMobileExploreAddIntent(href) : href);
     },
     [],
   );
+  // Design-explore: which titles of this source are already in the library.
+  const libraryEntriesForBadges = useLibraryEntries();
+  const libraryMangaKeys = useMemo(() => {
+    if (!mobileDesignExploreFlag) return null;
+    const keys = new Set<string>();
+    for (const entry of libraryEntriesForBadges.data ?? []) {
+      for (const link of entry.sources) keys.add(`${link.registryId}:${link.sourceId}:${link.sourceMangaId}`);
+    }
+    return keys;
+  }, [libraryEntriesForBadges.data]);
 
   const submitSourceSearchText = useCallback(
     (text: string, options?: { haptic?: boolean }) => {
@@ -2648,7 +2776,6 @@ export function SourceBrowseScreen() {
   );
 
   const clearSourceSearch = useCallback(() => {
-    sourceSearchInputRef.current?.clearText();
     sourceSearchQueryRef.current = "";
     router.setParams({ q: undefined });
     sourceSearchIdleTasks.schedule(() => {
@@ -2663,16 +2790,9 @@ export function SourceBrowseScreen() {
     sourceSearchQueryRef.current = "";
     setSourceSearchQuery("");
     setSubmittedSourceSearchQuery("");
+    setSourceSearchFieldFocusOnMount(true);
     router.setParams({ q: " " });
-    sourceSearchIdleTasks.schedule(() => {
-      sourceSearchInputRef.current?.focus();
-    });
-  }, [sourceSearchIdleTasks]);
-
-  useEffect(() => {
-    if (!sourceSearchActive) return;
-    sourceSearchInputRef.current?.setText(routeSourceSearchQuery);
-  }, [routeSourceSearchQuery, sourceRuntimeKey, sourceSearchActive]);
+  }, []);
 
   const selectSourceHome = useCallback(() => {
     listingRequestRef.current += 1;
@@ -2688,12 +2808,20 @@ export function SourceBrowseScreen() {
       items: [],
       detail: strings.sourceBrowse.selectListingToBrowse,
     });
+    routeTabRequestRef.current = { from: routeSourceListingTabRef.current, to: null };
     router.setParams({ tab: undefined, q: undefined });
   }, [strings]);
 
   const cloudflareSheet = useNemuAgentSheet({
     onSuccess: () => setRuntimeRefreshKey((current) => current + 1),
   });
+  // The options menu's 来源设置 opens in place; a committed change (a login, a
+  // mirror) reloads the source underneath once the sheet has closed.
+  const { open: openSourceSettings, sheet: sourceSettingsSheet } =
+    useMobileSourceQuickSettings({
+      strings,
+      onSourceChanged: () => setRuntimeRefreshKey((current) => current + 1),
+    });
   cloudflareSheetRef.current = cloudflareSheet;
 
   /**
@@ -2735,8 +2863,17 @@ export function SourceBrowseScreen() {
         sourceHasHomeProvider,
       );
 
+      const resolved = resolveMobileSourceBrowseKeptListing({
+        listing,
+        opened: options.runtimeListing,
+        kept: keptRuntimeListing,
+        listings,
+      });
       listingRequestRef.current += 1;
-      setSelectedRuntimeListing(options.runtimeListing ?? null);
+      setSelectedRuntimeListing(resolved.runtimeListing);
+      if (resolved.kept && resolved.kept !== keptRuntimeListing) {
+        setKeptRuntimeListingState({ sourceKey: sourceRuntimeKey, listing: resolved.kept });
+      }
       setSelectedListingId(listing.id);
       // Immediately switch the content area to a loading/progress state so the
       // tapped tab appears responsive: the selected tab updates and a progress
@@ -2753,12 +2890,20 @@ export function SourceBrowseScreen() {
       setSubmittedSourceSearchQuery("");
       setSourceFilterValues([]);
       setSourceFilterPanelOpen(false);
+      const routeTab = nextTab === null || nextTab === 0 ? null : nextTab;
+      routeTabRequestRef.current = { from: routeSourceListingTabRef.current, to: routeTab };
       router.setParams({
-        tab: nextTab === null || nextTab === 0 ? undefined : String(nextTab),
+        tab: routeTab === null ? undefined : String(routeTab),
         q: undefined,
       });
     },
-    [listings, sourceHasHomeProvider, strings.sourceBrowse.loadingListing],
+    [
+      keptRuntimeListing,
+      listings,
+      sourceHasHomeProvider,
+      sourceRuntimeKey,
+      strings.sourceBrowse.loadingListing,
+    ],
   );
 
   const changeSourceFilter = useCallback(
@@ -2914,27 +3059,87 @@ export function SourceBrowseScreen() {
     hasSource: Boolean(source),
     hasError: Boolean(error),
   });
-  const screenTitle = source?.name ?? sourceId ?? strings.sourceBrowse.source;
+  const screenTitle =
+    installedSource?.name ??
+    (catalogRepair.status === "installing" || catalogRepair.status === "failed"
+      ? catalogRepair.entry?.name
+      : undefined) ??
+    packageMetadata?.name ??
+    sourceId ??
+    strings.sourceBrowse.source;
+  const sourceBrowseFallbackSteps = {
+    metadata:
+      sourceBrowseMetadataState.status === "blocked"
+        ? { status: "blocked", detail: sourceBrowseMetadataState.result.detail }
+        : sourceBrowseMetadataState.status === "error"
+          ? { status: "error", detail: sourceBrowseMetadataState.detail }
+          : { status: sourceBrowseMetadataState.status },
+    home:
+      sourceHomeState.status === "blocked"
+        ? { status: "blocked", detail: sourceHomeState.result.detail }
+        : sourceHomeState.status === "error"
+          ? { status: "error", detail: sourceHomeState.detail }
+          : { status: sourceHomeState.status },
+  };
+  const sourceBrowseFallbackErrorDetail =
+    getMobileSourceBrowseFallbackErrorDetail(
+      sourceBrowseFallbackSteps,
+      strings.sourceBrowse.sourceUnavailable,
+    );
+  // A blocked load of a known class (e.g. a package that needs a newer
+  // runtime) gets its own title and copy; the raw reason stays the detail.
+  const sourceBrowseFallbackStep = findMobileSourceBrowseFallbackErrorStep(
+    sourceBrowseFallbackSteps,
+  );
+  const sourceBrowseFallbackClassifiedCopy =
+    sourceBrowseFallbackStep?.status === "blocked" &&
+    sourceBrowseFallbackStep.detail
+      ? getMobileClassifiedSourceErrorCopy(
+          sourceBrowseFallbackStep.detail,
+          strings,
+        )
+      : null;
   const nativeHeaderOptions = createNemuNativeScreenOptions(
     tokens,
     screenTitle,
   );
+  // The browse-mode bar items (search button, source menu): never shown
+  // before the source is known not to open straight into search.
+  const sourceBrowseChromeShown = !sourceSearchActive && sourceModeKnown;
+  const sourceExploreMenuShown =
+    mobileDesignExploreFlag && sourceBrowseChromeShown;
   const nativeHeaderActions: NemuNativeHeaderAction[] =
-    source && sourceSearchActive && showSourceSearchControls
+    source && sourceSearchActive
       ? [
-          {
-            icon: "line.3.horizontal.decrease",
-            label: strings.sourceBrowse.openAllFilters,
-            hint: strings.sourceBrowse.openAllFilters,
-            onPress: openSourceFilterPanel,
-          },
+          ...(showSourceSearchControls
+            ? [
+                {
+                  icon: "line.3.horizontal.decrease" as const,
+                  label: strings.sourceBrowse.openAllFilters,
+                  hint: strings.sourceBrowse.openAllFilters,
+                  onPress: openSourceFilterPanel,
+                },
+              ]
+            : []),
+          // A source that only searches has no other mode to go back to.
+          ...(sourceOnlySearch
+            ? []
+            : [
+                {
+                  icon: "xmark" as const,
+                  label: strings.common.cancel,
+                  onPress: clearSourceSearch,
+                },
+              ]),
         ]
-      : source && !sourceSearchActive
+      : sourceBrowseChromeShown
       ? [
           {
             icon: "magnifyingglass",
             label: strings.sourceBrowse.searchSource,
             hint: strings.sourceBrowse.searchSourceHint,
+            // Present once the mode is known; enabled once the source resolves.
+            disabled: !source,
             onPress: enterSourceSearch,
           },
         ]
@@ -2962,6 +3167,13 @@ export function SourceBrowseScreen() {
     sourceSearchState.items,
     listingState.items,
   ]);
+  const gridScrollAnchor = useMobileGridScrollAnchor({
+    listRef: gridScrollRef,
+    columns: gridColumns,
+    itemWidth: gridItemWidth,
+    itemCount: listingGridItems.length,
+    viewabilityUnit: "row",
+  });
   const showCenterSourceBrowseSearchProgress =
     shouldShowCenterSourceBrowseSearchProgress({
       sourceSearchActive,
@@ -2971,9 +3183,9 @@ export function SourceBrowseScreen() {
       searchRequestPending: sourceSearchRequestPending,
     });
 
-  useEffect(() => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-  }, [sourceSearchActive]);
+  // No native LayoutAnimation here: Fabric's LayoutAnimation delegate ticking
+  // a transaction through Reanimated's layout-animation proxy aborts in
+  // LightNode::toHostIndexForRemove when the skeleton gives way to content.
 
   const listingGridSourceDisplay = useMemo<SearchSourceDisplay | null>(() => {
     if (source && sourceSearchActive) {
@@ -3000,30 +3212,127 @@ export function SourceBrowseScreen() {
     listingState,
     listingSourceDisplay,
   ]);
+  // A page of results landing: the first fades in over the skeleton leaving,
+  // the next below the rows already there. Up before the commit that mounts them.
+  const listingItemCount = sourceSearchActive ? sourceSearchState.items.length : listingState.items.length;
+  const seenListingItemCountRef = useRef(listingItemCount);
+  if (seenListingItemCountRef.current !== listingItemCount) {
+    if (listingItemCount > seenListingItemCountRef.current) openMobileGridGlideWindow();
+    seenListingItemCountRef.current = listingItemCount;
+  }
   const renderListingGridItem = useCallback(
-    ({ item }: ListRenderItemInfo<MobileLiveSearchManga>) => {
+    ({ item, index }: Pick<ListRenderItemInfo<MobileLiveSearchManga>, "item" | "index">) => {
       const sourceDisplay = listingGridSourceDisplay;
       if (!sourceDisplay) {
-        return <View style={gridItemStyle} />;
+        return <View style={gridItemStyleAt(index)} />;
       }
+      // Folding at the same column count glides each cover to its new column,
+      // and the card springs from its old size to the new one with it (the
+      // frame's transition alone left the card at its new size in one frame).
       return (
-        <View style={gridItemStyle}>
+        <MobilePoseLayoutView
+          key={item.id}
+          entering={mobileGridGlideAppearing}
+          style={gridItemStyleAt(index)}
+          contentSize={gridItemWidth}
+        >
           <ListingMangaCard
             item={item}
             onPress={() => handleListingMangaPress(sourceDisplay, item)}
             source={installedSource}
             strings={strings}
+            inLibrary={libraryMangaKeys?.has(`${sourceDisplay.registryId}:${sourceDisplay.rawSourceId}:${item.id}`)}
+            onAdd={
+              mobileDesignExploreFlag
+                ? () => handleListingMangaPress(sourceDisplay, item, { add: true })
+                : undefined
+            }
           />
-        </View>
+        </MobilePoseLayoutView>
       );
     },
     [
-      gridItemStyle,
+      gridItemStyleAt,
+      gridItemWidth,
       listingGridSourceDisplay,
       installedSource,
       strings,
       handleListingMangaPress,
+      libraryMangaKeys,
     ],
+  );
+
+  const listingGridRows = useMemo(
+    () => chunkMobileGridRows(listingGridItems, gridColumns),
+    [listingGridItems, gridColumns],
+  );
+  const renderListingGridRow = useCallback(
+    ({ item: row, index }: ListRenderItemInfo<MobileLiveSearchManga[]>) =>
+      row === LISTING_FOOTER_ROW ? (
+        listingFooterRef.current
+      ) : (
+        <View style={[styles.gridRow, { flexDirection: "row" }]}>
+          {row.map((item, column) => renderListingGridItem({ item, index: index * gridColumns + column }))}
+        </View>
+      ),
+    [gridColumns, renderListingGridItem],
+  );
+  const listingGridRowKey = useCallback(
+    (row: MobileLiveSearchManga[]) =>
+      row === LISTING_FOOTER_ROW ? "$listing-footer" : `${listingGridSourceDisplay?.id ?? ""}:${row[0].id}`,
+    [listingGridSourceDisplay?.id],
+  );
+
+  // The list footer is the list's last cell (not ListFooterComponent, whose
+  // wrapper cannot glide): a fold that resizes the cells above slides it on
+  // the pose spring with the rows instead of dropping it in one frame.
+  const listingFooter =
+      source && sourceSearchActive ? (
+        <MobileListFooter
+          onRetry={() =>
+            void loadSourceSearch(sourceSearchLastPageRef.current + 1)
+          }
+          pageNumber={sourceSearchLastPageRef.current + 1}
+          state={resolveMobileListFooterState({
+            hasMore:
+              sourceSearchState.status === "ready"
+                ? sourceSearchState.result.hasMore
+                : undefined,
+            itemCount: sourceSearchState.items.length,
+            loadingNextPage: sourceSearchLoadMoreBusy,
+            nextPageFailed: sourceSearchState.status === "error",
+          })}
+          strings={strings}
+          totalCount={sourceSearchState.items.length}
+        />
+      ) : !sourceSearchActive &&
+        showExecutableSourceSections &&
+        selectedListing ? (
+        <MobileListFooter
+          onRetry={() => void loadListing(listingLastPageRef.current + 1)}
+          pageNumber={listingLastPageRef.current + 1}
+          state={resolveMobileListFooterState({
+            hasMore:
+              listingState.status === "ready"
+                ? listingState.result.hasMore
+                : undefined,
+            itemCount: listingState.items.length,
+            loadingNextPage: listingLoadMoreBusy,
+            nextPageFailed: listingState.status === "error",
+          })}
+          strings={strings}
+          totalCount={listingState.items.length}
+        />
+      ) : null;
+  const listingFooterRef = useRef(listingFooter);
+  listingFooterRef.current = listingFooter;
+  const listingFooterKey = isValidElement(listingFooter)
+    ? `${String((listingFooter.props as { state?: unknown }).state)}:${String((listingFooter.props as { pageNumber?: unknown }).pageNumber)}:${String((listingFooter.props as { totalCount?: unknown }).totalCount)}`
+    : "";
+  const hasListingFooter = listingFooter !== null && listingGridRows.length > 0;
+  const listingGridData = useMemo(
+    () => (hasListingFooter ? [...listingGridRows, LISTING_FOOTER_ROW] : listingGridRows),
+    [hasListingFooter, listingGridRows],
   );
 
   // The ~190-line grid header rebuilt its whole subtree on every render of
@@ -3031,9 +3340,40 @@ export function SourceBrowseScreen() {
   // state change. Memoizing the element lets React skip it unless something
   // it actually shows changed.
   const hasListingGridItems = listingGridItems.length > 0;
+  // iOS: in the page, not the navigation bar's stacked search field. UIKit
+  // fades that one in place in a pop (the bar is shared; iOS 27.2, a plain
+  // UINavigationController does the same) while the page slides away.
+  const sourceSearchFieldShown = !compactHeader && Boolean(source) && sourceSearchActive;
+  const sourceSearchField = useMemo(
+    () => (sourceSearchFieldShown ? (
+      <View style={styles.sourceSearchField}>
+        <NemuNativeSearchField
+          accessibilityLabel={strings.sourceBrowse.searchSourcePlaceholder}
+          autoFocus={sourceSearchFieldFocusOnMount}
+          clearAccessibilityLabel={strings.common.clear}
+          onChangeText={(value) => {
+            sourceSearchQueryRef.current = value;
+            setSourceSearchQuery(value);
+          }}
+          onSubmit={() => submitSourceSearchText(sourceSearchQueryRef.current, { haptic: true })}
+          placeholder={strings.sourceBrowse.searchSourcePlaceholder}
+          testID="SourceSearchField"
+          value={sourceSearchQuery}
+        />
+      </View>
+    ) : null),
+    [
+      sourceSearchFieldFocusOnMount,
+      sourceSearchFieldShown,
+      sourceSearchQuery,
+      strings,
+      submitSourceSearchText,
+    ],
+  );
   const listingGridHeader = useMemo(
     () => (
       <View style={styles.sections}>
+        {sourceSearchField}
         {sourceRuntimeUnavailableDetail ? (
           <SourceBrowseBlockedNotice
             detail={sourceRuntimeUnavailableDetail}
@@ -3044,13 +3384,23 @@ export function SourceBrowseScreen() {
           <View
             style={[
               styles.previewSection,
-              styles.sourceFilterHeaderSpacing,
+              !compactHeader && styles.sourceFilterHeaderSpacing,
               hasListingGridItems
                 ? styles.gridHeaderSpacing
                 : styles.emptyGridHeaderSpacing,
             ]}
           >
             {sourceFilters.length ? (
+              mobileDesignExploreFlag ? (
+                <ExploreSourceFilterMenus
+                  filters={sourceFilters}
+                  values={sourceFilterValues}
+                  strings={strings}
+                  onChange={changeSourceFilter}
+                  onClear={() => handleHomeFilterPress([])}
+                  onOpenPanel={openSourceFilterPanel}
+                />
+              ) : (
               <SourceFilterChipRow
                 activeFilterCount={sourceFilterCount}
                 chips={sourceFilterChips}
@@ -3059,6 +3409,7 @@ export function SourceBrowseScreen() {
                 onOpenPanel={openSourceFilterPanel}
                 onToggleCheck={toggleSourceCheckFilter}
               />
+              )
             ) : sourceFiltersState.status === "blocked" &&
               packageMetadata?.filters.length ? (
               <SourceBrowseBlockedNotice
@@ -3072,6 +3423,23 @@ export function SourceBrowseScreen() {
               />
             ) : null}
 
+          </View>
+        ) : null}
+
+        {reserveListingTabRow && showExecutableSourceSections ? (
+          <View style={[styles.previewSection, listingGridAttached ? styles.previewSectionListingGrid : null]}>
+            <View
+              style={[
+                styles.listingTabsFrame,
+                listingTabsBleed.frame,
+                listingGridAttached ? styles.listingTabsFrameGridAttached : null,
+              ]}
+            >
+              <SourceListingTabsPlaceholder
+                count={getMobileSourceBrowseListingTabCount(sourceExpectsHomeTab, visibleListings.length)}
+                bleed={listingTabsBleed}
+              />
+            </View>
           </View>
         ) : null}
 
@@ -3089,14 +3457,30 @@ export function SourceBrowseScreen() {
             <View
               style={[
                 styles.listingTabsFrame,
+                listingTabsBleed.frame,
                 listingGridAttached
                   ? styles.listingTabsFrameGridAttached
                   : null,
               ]}
             >
+              {mobileDesignExploreFlag ? (
+                <SourceListingTabs
+                  homeLabel={showSourceHomeTab ? strings.sourceBrowse.sourceHome : null}
+                  homeSelected={sourceHomeTabSelected}
+                  homeEnabled={sourceHomeTabCanSelect}
+                  listings={visibleListings}
+                  selectedListingId={selectedListing?.id ?? null}
+                  accessibilityLabel={strings.designExplore.sourceSectionsLabel}
+                  onSelectHome={selectSourceHome}
+                  onSelectListing={selectSourceListing}
+                  bleed={listingTabsBleed}
+                />
+              ) : (
+              <>
               <Animated.ScrollView
                 accessibilityRole="tablist"
                 horizontal
+                scrollsToTop={false}
                 onContentSizeChange={(width) =>
                   setListingTabsContentWidth(width)
                 }
@@ -3108,8 +3492,10 @@ export function SourceBrowseScreen() {
                 onScroll={handleListingTabsScroll}
                 scrollEventThrottle={16}
                 showsHorizontalScrollIndicator={false}
-                style={styles.listingTabsScroller}
-                contentContainerStyle={styles.listingTabs}
+                contentContainerStyle={[
+                  styles.listingTabs,
+                  listingTabsBleed.content,
+                ]}
               >
                 {showSourceHomeTab ? (
                   <SourceListingTab
@@ -3146,6 +3532,9 @@ export function SourceBrowseScreen() {
                   );
                 })}
               </Animated.ScrollView>
+              <NemuHorizontalScrollEdges />
+              {nemuHorizontalScrollEdgesAvailable ? null : (
+              <>
               <AnimatedLinearGradient
                 pointerEvents="none"
                 colors={[listingTabFadeColor, listingTabFadeTransparent]}
@@ -3170,13 +3559,17 @@ export function SourceBrowseScreen() {
                   listingTabsTrailingFadeStyle,
                 ]}
               />
+              </>
+              )}
+              </>
+              )}
             </View>
 
             {showSourceHomeSection &&
             sourceHomeHasComponents &&
             sourceHome &&
             sourceHomeDisplay ? (
-              <View style={styles.previewSection}>
+              <Animated.View entering={mobileStateEntering} style={styles.previewSection}>
                 <SourceHomeView
                   home={sourceHome}
                   status={sourceHomeSectionStatus}
@@ -3188,13 +3581,14 @@ export function SourceBrowseScreen() {
                   onFilterPress={handleHomeFilterPress}
                   installedSource={installedSource}
                 />
-              </View>
+              </Animated.View>
             ) : null}
           </View>
         ) : null}
       </View>
     ),
     [
+      changeSourceFilter,
       handleHomeFilterPress,
       handleHomeListingPress,
       handleListingMangaPress,
@@ -3202,6 +3596,7 @@ export function SourceBrowseScreen() {
       hasListingGridItems,
       installedSource,
       listingGridAttached,
+      listingTabsBleed,
       listingTabFadeColor,
       listingTabFadeTransparent,
       listingTabsLeadingFadeStyle,
@@ -3209,6 +3604,8 @@ export function SourceBrowseScreen() {
       openSourceFilterGroup,
       openSourceFilterPanel,
       packageMetadata?.filters.length,
+      reserveListingTabRow,
+      sourceExpectsHomeTab,
       selectSourceHome,
       selectSourceListing,
       selectedListing?.id,
@@ -3217,10 +3614,12 @@ export function SourceBrowseScreen() {
       showSourceHomeSection,
       showSourceHomeTab,
       showSourceSearchHeader,
+      compactHeader,
       source,
       sourceFilterChips,
       sourceFilterCount,
-      sourceFilters.length,
+      sourceFilterValues,
+      sourceFilters,
       sourceFiltersState,
       sourceHome,
       sourceHomeDisplay,
@@ -3230,11 +3629,61 @@ export function SourceBrowseScreen() {
       sourceHomeTabSelected,
       sourceRuntimeUnavailableDetail,
       sourceSearchActive,
+      sourceSearchField,
       strings,
       toggleSourceCheckFilter,
       visibleListings,
     ],
   );
+
+  if (catalogRepair.status !== "idle") {
+    const repairFailed = catalogRepair.status === "failed";
+    const repairUnavailable = catalogRepair.status === "unavailable";
+    return (
+      <>
+        <Stack.Screen options={{ ...nativeHeaderOptions, title: screenTitle }} />
+        <PageScaffold nativeHeader>
+          <MobilePaneAlignedView>
+            {({ minHeight }) =>
+              repairUnavailable ? (
+                <EmptyLibrary
+                  minHeight={minHeight}
+                  title={strings.sourceBrowse.sourceNotInRegistry}
+                  description={strings.sourceBrowse.sourceNotInRegistryDescription}
+                  actionLabel={strings.sourceBrowse.browseSources}
+                  onActionPress={() => {
+                    router.replace("/browse");
+                  }}
+                />
+              ) : (
+                <EmptyLibrary
+                  minHeight={minHeight}
+                  title={
+                    repairFailed
+                      ? strings.sourceBrowse.sourceInstallFailed
+                      : strings.sourceBrowse.installingSource
+                  }
+                  description={
+                    repairFailed
+                      ? strings.sourceBrowse.sourceInstallFailedDescription
+                      : strings.sourceBrowse.installingSourceDescription
+                  }
+                  diagnostic={repairFailed ? catalogRepair.detail : undefined}
+                  actionLabel={
+                    repairFailed
+                      ? strings.common.retry
+                      : strings.sourceBrowse.installingSource
+                  }
+                  actionLoading={!repairFailed}
+                  onActionPress={catalogRepair.retry}
+                />
+              )
+            }
+          </MobilePaneAlignedView>
+        </PageScaffold>
+      </>
+    );
+  }
 
   if (showSourceNotInstalled) {
     return (
@@ -3246,14 +3695,19 @@ export function SourceBrowseScreen() {
           }}
         />
         <PageScaffold nativeHeader>
-          <EmptyLibrary
-            title={strings.sourceBrowse.sourceNotInstalled}
-            description={strings.sourceBrowse.installBeforeOpening}
-            actionLabel={strings.sourceBrowse.browseSources}
-            onActionPress={() => {
-              router.replace("/browse");
-            }}
-          />
+          <MobilePaneAlignedView>
+            {({ minHeight }) => (
+              <EmptyLibrary
+                minHeight={minHeight}
+                title={strings.sourceBrowse.sourceNotInstalled}
+                description={strings.sourceBrowse.installBeforeOpening}
+                actionLabel={strings.sourceBrowse.browseSources}
+                onActionPress={() => {
+                  router.replace("/browse");
+                }}
+              />
+            )}
+          </MobilePaneAlignedView>
         </PageScaffold>
       </>
     );
@@ -3261,59 +3715,47 @@ export function SourceBrowseScreen() {
 
   return (
     <>
-      <Stack.Screen options={nativeHeaderOptions} />
-      {source && nativeHeaderActions.length ? (
-        <Stack.Toolbar placement="right" tintColor={tokens.primary}>
-          {renderNemuNativeToolbarButtons(nativeHeaderActions, tokens.primary)}
+      <Stack.Screen options={{ ...nativeHeaderOptions, headerShown: !compactHeader }} />
+      {compactHeader ? <SourceBrowseCompactHeader title={screenTitle} strings={strings}
+        searching={Boolean(source && sourceSearchActive)} query={sourceSearchQuery}
+        canSearch={Boolean(source)} onBack={() => { if (router.canGoBack()) router.back(); else router.replace("/browse"); }}
+        onQueryChange={(value) => { sourceSearchQueryRef.current = value; setSourceSearchQuery(value); }}
+        onSubmit={() => submitSourceSearchText(sourceSearchQueryRef.current, { haptic: true })}
+        onSearch={enterSourceSearch} onCancel={clearSourceSearch}
+        onFilters={showSourceSearchControls ? openSourceFilterPanel : undefined}
+      /> : null}
+      {!compactHeader && (nativeHeaderActions.length || sourceExploreMenuShown) ? (
+        <Stack.Toolbar placement="right">
+          {renderNemuNativeToolbarButtons(nativeHeaderActions)}
+          {sourceExploreMenuShown
+            ? renderExploreDetailBarMenu(
+                [
+                  {
+                    icon: "arrow.clockwise",
+                    label: strings.designExplore.refreshSource,
+                    disabled: refreshingSource || !source,
+                    onPress: () => void refreshSourceData(),
+                  },
+                  {
+                    icon: "gearshape" as const,
+                    label: strings.settings.sourceSettingsDefaultTitle,
+                    disabled: !installedSource,
+                    onPress: () => {
+                      if (installedSource) openSourceSettings(installedSource);
+                    },
+                  },
+                ],
+                strings.designExplore.sourceOptions,
+                "gearshape",
+              )
+            : null}
         </Stack.Toolbar>
-      ) : null}
-      {source && sourceSearchActive ? (
-        <Stack.SearchBar
-          ref={sourceSearchInputRef}
-          autoCapitalize="none"
-          autoFocus
-          barTintColor={tokens.card}
-          headerIconColor={tokens.primary}
-          hideWhenScrolling={false}
-          hintTextColor={tokens.mutedForeground}
-          obscureBackground={false}
-          onBlur={() => {
-            submitSourceSearchText(
-              resolveMobileNativeSearchSubmitText(
-                undefined,
-                sourceSearchQueryRef.current,
-              ),
-            );
-          }}
-          onCancelButtonPress={clearSourceSearch}
-          onChangeText={(event) => {
-            const nextQuery = coerceMobileNativeSearchText(
-              event.nativeEvent.text,
-            );
-            sourceSearchQueryRef.current = nextQuery;
-            setSourceSearchQuery(nextQuery);
-          }}
-          onClose={clearSourceSearch}
-          onSearchButtonPress={(event) => {
-            sourceSearchInputRef.current?.blur();
-            submitSourceSearchText(
-              resolveMobileNativeSearchSubmitText(
-                event.nativeEvent.text,
-                sourceSearchQueryRef.current,
-              ),
-              { haptic: true },
-            );
-          }}
-          placeholder={strings.sourceBrowse.searchSourcePlaceholder}
-          placement="stacked"
-          textColor={tokens.foreground}
-          tintColor={tokens.primary}
-        />
       ) : null}
       {error ? (
         <PageScaffold
           nativeHeader
-          contentInsetAdjustmentBehavior="automatic"
+          contentInsetAdjustmentBehavior={compactHeader ? "never" : "automatic"}
+          headerBarHeight={compactHeaderBarHeight}
           onRefresh={() => {
             void refreshSourceData();
           }}
@@ -3321,61 +3763,40 @@ export function SourceBrowseScreen() {
           refreshLabel={strings.sourceBrowse.refreshSource}
           refreshing={refreshingSource}
         >
-          <EmptyLibrary
-            title={strings.sourceBrowse.sourceUnavailable}
-            description={error}
-            actionLabel={strings.common.retry}
-            actionDisabled={refreshingSource}
-            actionLoading={refreshingSource}
-            onActionPress={() => {
-              void refreshSourceData();
-            }}
-          />
+          <MobilePaneAlignedView>
+            {({ minHeight }) => (
+              <EmptyLibrary
+                minHeight={minHeight}
+                title={strings.sourceBrowse.sourceUnavailable}
+                description={error}
+                actionLabel={strings.common.retry}
+                actionDisabled={refreshingSource}
+                actionLoading={refreshingSource}
+                onActionPress={() => {
+                  void refreshSourceData();
+                }}
+              />
+            )}
+          </MobilePaneAlignedView>
         </PageScaffold>
       ) : (
         <PageListScaffold
-          key={`source-browse-grid-${gridColumns}`}
           listRef={gridScrollRef}
           nativeHeader
-          contentInsetAdjustmentBehavior="automatic"
-          onLayout={(event) => {
-            gridScrollSnapshotRef.current = {
-              ...gridScrollSnapshotRef.current,
-              viewportHeight: event.nativeEvent.layout.height,
-            };
-          }}
-          onScroll={(event) => {
-            gridScrollSnapshotRef.current = {
-              offset: event.nativeEvent.contentOffset.y,
-              contentHeight: event.nativeEvent.contentSize.height,
-              viewportHeight: event.nativeEvent.layoutMeasurement.height,
-            };
-          }}
-          // The handler only stores a snapshot for the rotation restore, so
-          // it does not need a frame-rate feed.
+          contentInsetAdjustmentBehavior={compactHeader ? "never" : "automatic"}
+          contentContainerStyle={sourceSearchFieldShown ? styles.sourceSearchListTop : mobileDesignExploreFlag && !sourceSearchActive ? styles.compactListingTop : undefined}
+          headerBarHeight={compactHeaderBarHeight}
+          onLayout={gridLayout.onLayout}
+          // Keeps the first visible cover at the top across a column/cell-size
+          // change (display switch, rotation, folding).
+          onViewableItemsChanged={gridScrollAnchor.onViewableItemsChanged}
+          viewabilityConfig={gridScrollAnchor.viewabilityConfig}
+          onScrollToIndexFailed={gridScrollAnchor.onScrollToIndexFailed}
+          onScroll={gridScrollAnchor.onScroll}
+          // The handler only tracks the adjusted top inset for the anchor
+          // restore, so it does not need a frame-rate feed.
           scrollEventThrottle={100}
-          onContentSizeChange={(_width, contentHeight) => {
-            const ratio = pendingGridScrollRatioRef.current;
-            const viewportHeight = gridScrollSnapshotRef.current.viewportHeight;
-            if (
-              !shouldRestoreMobileGridScroll({
-                ratio,
-                contentHeight,
-                viewportHeight,
-              })
-            ) {
-              return;
-            }
-            pendingGridScrollRatioRef.current = null;
-            gridScrollRef.current?.scrollToOffset({
-              offset: resolveMobileGridScrollRestoreOffset({
-                ratio: ratio ?? 0,
-                contentHeight,
-                viewportHeight,
-              }),
-              animated: false,
-            });
-          }}
+          onContentSizeChange={gridScrollAnchor.onContentSizeChange}
           onRefresh={() => {
             void refreshSourceData();
           }}
@@ -3392,13 +3813,14 @@ export function SourceBrowseScreen() {
             void loadListing(listingState.result.page + 1);
           }}
           onEndReachedThreshold={0.6}
-          data={listingGridItems}
-          keyExtractor={(item) =>
-            `${listingGridSourceDisplay?.id ?? ""}:${item.id}`
-          }
-          numColumns={gridColumns}
-          columnWrapperStyle={styles.gridRow}
-          renderItem={renderListingGridItem}
+          data={listingGridData}
+          extraData={listingFooterKey}
+          keyExtractor={listingGridRowKey}
+          // Every row and the footer glide to their new y when the grid's
+          // cells change size on a fold or unfold (pose settle spring), so a
+          // taller row does not drop the footer in one frame.
+          CellRendererComponent={MobilePoseListCell}
+          renderItem={renderListingGridRow}
           initialNumToRender={12}
           maxToRenderPerBatch={12}
           updateCellsBatchingPeriod={32}
@@ -3407,63 +3829,29 @@ export function SourceBrowseScreen() {
             listingGridAttached ? styles.listingGridListHeader : undefined
           }
           ListHeaderComponent={listingGridHeader}
-          ListFooterComponent={
-            source && sourceSearchActive ? (
-              <MobileListFooter
-                onRetry={() =>
-                  void loadSourceSearch(sourceSearchLastPageRef.current + 1)
-                }
-                pageNumber={sourceSearchLastPageRef.current + 1}
-                state={resolveMobileListFooterState({
-                  hasMore:
-                    sourceSearchState.status === "ready"
-                      ? sourceSearchState.result.hasMore
-                      : undefined,
-                  itemCount: sourceSearchState.items.length,
-                  loadingNextPage: sourceSearchLoadMoreBusy,
-                  nextPageFailed: sourceSearchState.status === "error",
-                })}
-                strings={strings}
-                totalCount={sourceSearchState.items.length}
-              />
-            ) : !sourceSearchActive &&
-              showExecutableSourceSections &&
-              selectedListing ? (
-              <MobileListFooter
-                onRetry={() => void loadListing(listingLastPageRef.current + 1)}
-                pageNumber={listingLastPageRef.current + 1}
-                state={resolveMobileListFooterState({
-                  hasMore:
-                    listingState.status === "ready"
-                      ? listingState.result.hasMore
-                      : undefined,
-                  itemCount: listingState.items.length,
-                  loadingNextPage: listingLoadMoreBusy,
-                  nextPageFailed: listingState.status === "error",
-                })}
-                strings={strings}
-                totalCount={listingState.items.length}
-              />
-            ) : null
-          }
           ListEmptyComponent={
             sourceRuntimeUnavailable ? null : source && sourceSearchActive ? (
               sourceSearchState.status === "blocked" ? (
-                <SourceBrowseBlockedNotice
-                  detail={sourceSearchState.result.detail}
-                  strings={strings}
-                />
+                <MobilePaneAlignedView>
+                  <SourceBrowseBlockedNotice
+                    detail={sourceSearchState.result.detail}
+                    strings={strings}
+                  />
+                </MobilePaneAlignedView>
               ) : sourceSearchState.status === "error" ? (
-                <MobileInlineErrorBanner
-                  actionLabel={strings.common.retry}
-                  onActionPress={() => {
-                    void loadSourceSearch(1);
-                  }}
-                  title={sourceSearchState.title}
-                  detail={sourceSearchState.detail}
-                />
+                <MobilePaneAlignedView>
+                  <MobileInlineErrorBanner
+                    actionLabel={strings.common.retry}
+                    onActionPress={() => {
+                      void loadSourceSearch(1);
+                    }}
+                    title={sourceSearchState.title}
+                    detail={sourceSearchState.detail}
+                  />
+                </MobilePaneAlignedView>
               ) : showCenterSourceBrowseSearchProgress ? (
                 <MobileSourceGridSkeleton
+                  grid={gridLayout}
                   accessibilityLabel={
                     sourceSearchState.status === "loading"
                       ? sourceSearchState.detail
@@ -3473,50 +3861,62 @@ export function SourceBrowseScreen() {
                   }
                 />
               ) : (
-                <NemuInlineEmptyState
-                  icon="search-outline"
-                  title={
-                    // Only a *completed* search can honestly report "no
-                    // matches". An idle/loading state here means the request
-                    // never ran or never landed, and calling that an empty
-                    // result hid real source failures behind it.
-                    shouldShowMobileSourceBrowseNoMatches(
-                      sourceSearchState.status,
-                    )
-                      ? strings.sourceBrowse.noLiveMatches
-                      : strings.sourceBrowse.searchOrChooseFilters
-                  }
-                />
+                <MobilePaneAlignedView>
+                  <NemuInlineEmptyState
+                    icon="search-outline"
+                    title={
+                      // Only a *completed* search can honestly report "no
+                      // matches". An idle/loading state here means the request
+                      // never ran or never landed, and calling that an empty
+                      // result hid real source failures behind it.
+                      shouldShowMobileSourceBrowseNoMatches(
+                        sourceSearchState.status,
+                      )
+                        ? strings.sourceBrowse.noLiveMatches
+                        : strings.sourceBrowse.searchOrChooseFilters
+                    }
+                  />
+                </MobilePaneAlignedView>
               )
             ) : !sourceSearchActive &&
               showExecutableSourceSections &&
               selectedListing ? (
               listingState.status === "blocked" ? (
-                <SourceBrowseBlockedNotice
-                  detail={listingState.result.detail}
-                  strings={strings}
-                />
+                <MobilePaneAlignedView>
+                  <SourceBrowseBlockedNotice
+                    detail={listingState.result.detail}
+                    strings={strings}
+                  />
+                </MobilePaneAlignedView>
               ) : listingState.status === "error" ? (
-                <MobileInlineErrorBanner
-                  actionLabel={strings.common.retry}
-                  onActionPress={() => {
-                    void loadListing(1);
-                  }}
-                  title={listingState.title}
-                  detail={listingState.detail}
-                />
-              ) : listingState.status === "loading" ? (
+                <MobilePaneAlignedView>
+                  <MobileInlineErrorBanner
+                    actionLabel={strings.common.retry}
+                    onActionPress={() => {
+                      void loadListing(1);
+                    }}
+                    title={listingState.title}
+                    detail={listingState.detail}
+                  />
+                </MobilePaneAlignedView>
+              ) : listingState.status === "loading" ||
+                (mobileDesignExploreFlag && listingState.status === "idle") ? (
+                // A selected listing that has not started yet is about to load: a
+                // result skeleton, not a flash of the empty state.
                 <MobileSourceGridSkeleton
+                  grid={gridLayout}
                   accessibilityLabel={listingState.detail}
                 />
               ) : (
-                <NemuInlineEmptyState
-                  icon="albums-outline"
-                  title={getMobileSourceListingEmptyTitle(
-                    listingState.status === "ready" ? "ready" : "idle",
-                    strings.sourceBrowse,
-                  )}
-                />
+                <MobilePaneAlignedView>
+                  <NemuInlineEmptyState
+                    icon="albums-outline"
+                    title={getMobileSourceListingEmptyTitle(
+                      listingState.status === "ready" ? "ready" : "idle",
+                      strings.sourceBrowse,
+                    )}
+                  />
+                </MobilePaneAlignedView>
               )
             ) : !sourceSearchActive &&
               showExecutableSourceSections &&
@@ -3530,27 +3930,52 @@ export function SourceBrowseScreen() {
                   }
                 />
               ) : sourceHomeState.status === "blocked" ? (
-                <SourceBrowseBlockedNotice
-                  detail={sourceHomeState.result.detail}
-                  strings={strings}
-                />
+                <MobilePaneAlignedView>
+                  <SourceBrowseBlockedNotice
+                    detail={sourceHomeState.result.detail}
+                    strings={strings}
+                  />
+                </MobilePaneAlignedView>
               ) : sourceHomeState.status === "error" ? (
-                <MobileInlineErrorBanner
-                  actionLabel={strings.common.retry}
-                  onActionPress={retrySourceHome}
-                  title={sourceHomeState.title}
-                  detail={sourceHomeState.detail}
-                />
+                <MobilePaneAlignedView>
+                  <MobileInlineErrorBanner
+                    actionLabel={strings.common.retry}
+                    onActionPress={retrySourceHome}
+                    title={sourceHomeState.title}
+                    detail={sourceHomeState.detail}
+                  />
+                </MobilePaneAlignedView>
               ) : sourceHomeHasComponents ? null : (
-                <NemuInlineEmptyState
-                  icon="home-outline"
-                  title={strings.sourceBrowse.noSourceHome}
-                />
+                <MobilePaneAlignedView>
+                  <NemuInlineEmptyState
+                    icon="home-outline"
+                    title={strings.sourceBrowse.noSourceHome}
+                  />
+                </MobilePaneAlignedView>
               )
             ) : showSourceBrowseBootstrapping ? (
               <SourceHomeSkeletonView
                 accessibilityLabel={strings.sourceBrowse.loadingHome}
               />
+            ) : !sourceSearchActive && sourceBrowseFallbackErrorDetail ? (
+              <MobilePaneAlignedView>
+                <MobileInlineErrorBanner
+                  actionLabel={strings.common.retry}
+                  actionDisabled={refreshingSource}
+                  actionLoading={refreshingSource}
+                  onActionPress={() => {
+                    void refreshSourceData();
+                  }}
+                  title={
+                    sourceBrowseFallbackClassifiedCopy?.title ??
+                    strings.sourceBrowse.loadSourceFailed
+                  }
+                  detail={
+                    sourceBrowseFallbackClassifiedCopy?.detail ??
+                    sourceBrowseFallbackErrorDetail
+                  }
+                />
+              </MobilePaneAlignedView>
             ) : null
           }
         />
@@ -3588,11 +4013,22 @@ export function SourceBrowseScreen() {
         onVerify={cloudflareSheet.verify}
         onDismiss={cloudflareSheet.dismiss}
       />
+      {sourceSettingsSheet}
     </>
   );
 }
 
 const styles = StyleSheet.create({
+  compactListingTop: {
+    paddingTop: 8,
+  },
+  // The field sits against the bar, where the bar's own field was.
+  sourceSearchListTop: {
+    paddingTop: 0,
+  },
+  sourceSearchField: {
+    marginBottom: 13,
+  },
   sections: {
     gap: 14,
   },
@@ -3604,10 +4040,9 @@ const styles = StyleSheet.create({
   // row up and trim the space before the grid so the chips read as part of the
   // search field, the way the Search tab's source chips do.
   sourceFilterHeaderSpacing: {
-    // Measured on the simulator: ~13pt from the search field to the chips and
-    // ~13pt from the chips to the first grid row. iOS insets the list for its
-    // header search bar, hence the deeper pull-up there.
-    marginTop: Platform.OS === "ios" ? -17 : -3,
+    // ~13pt from the search field to the chips and ~13pt from the chips to
+    // the first grid row.
+    marginTop: -14,
     marginBottom: -23,
   },
   previewSectionListingGrid: {
@@ -3677,14 +4112,10 @@ const styles = StyleSheet.create({
   listingTabsFrameGridAttached: {
     marginBottom: 6,
   },
-  listingTabsScroller: {
-    marginHorizontal: -2,
-  },
   listingTabs: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    paddingHorizontal: 2,
     // The page scaffold's top inset keeps the row clear of the header
     // fade/blur; the row adds none of its own so the chips sit closer to the
     // title. Bottom padding still reserves room for the web-parity box-shadow
@@ -3741,12 +4172,12 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
-  // Virtualized grid (FlatList numColumns). `gridRow` is the per-row gap
-  // (columnWrapperStyle); `gridItem` fills one column. `gridHeaderSpacing`
+  // Explicit virtualized rows preserve the home header during column changes.
+  // `gridRow` is the per-row gap; `gridItem` fills one column. `gridHeaderSpacing`
   // reproduces the `previewSection` gap that used to sit between the
   // controls/tabs and the grid when the grid was inlined in the section.
+  // Column spacing is each cell's marginLeft (mobileFoldAwareGridCellStyle).
   gridRow: {
-    gap: MOBILE_MANGA_GRID_GAP,
     marginBottom: MOBILE_MANGA_GRID_GAP,
   },
   // Width comes from the adaptive grid layout per render (see gridItemStyle).

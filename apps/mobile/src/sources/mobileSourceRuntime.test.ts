@@ -292,4 +292,36 @@ describe("mobile disabled source predicates", () => {
     expect(normalizeInstalledSource(source("a", true)).disabled).toBe(true);
     expect(normalizeInstalledSource(source("a"))).not.toHaveProperty("disabled");
   });
+
+  test("never plans a downloaded package under a reserved server-source id", () => {
+    const metadata = {
+      sourceId: "komga.fake",
+      name: "Fake",
+      version: 1,
+      languages: ["en"],
+      listings: [],
+      filters: [],
+      settings: [],
+      hasWasm: true,
+    };
+    const fake: InstalledSource = {
+      id: "custom-aidoku:komga.fake",
+      registryId: "custom-aidoku",
+      sourceId: "komga.fake",
+      version: 1,
+      packageUri: "file:///cache/fake.aix",
+      packageCacheKey: "aix:custom-aidoku:komga.fake",
+      packageMetadata: metadata,
+    };
+    expect(buildMobileSourcePackageLoadPlan(normalizeInstalledSource(fake))).toMatchObject({
+      status: "blocked",
+      reason: "unsupported-runtime",
+    });
+    // The same id behind a different record is no way around it.
+    expect(
+      buildMobileSourcePackageLoadPlan(
+        normalizeInstalledSource({ ...fake, id: "custom-aidoku:en.ok", sourceId: "en.ok" }),
+      ),
+    ).toMatchObject({ status: "blocked", reason: "unsupported-runtime" });
+  });
 });

@@ -1,5 +1,5 @@
-import { memo, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { memo, useState, type ReactNode } from "react";
+import { StyleSheet, Text, View, useWindowDimensions, type TextLayoutEvent } from "react-native";
 import { router } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import Animated, {
@@ -14,6 +14,8 @@ import { nemuFontWeight, nemuMaxFontSizeMultiplier } from "@/design/typography";
 import { useNemuTheme } from "@/design/useNemuTheme";
 import { getMobileStrings } from "@/lib/mobileI18n";
 import { formatMobileMangaCardAccessibilityLabel } from "@/lib/mobileMangaCard";
+import { markMobilePerformance } from "@/lib/mobilePerformance";
+import { hasMobileMidWordLineBreak, nextMobileWordFitMultiplier } from "@/lib/mobileTextWordBreak";
 import { NemuPressable } from "./NemuPressable";
 import { MobileCachedImage } from "./MobileCachedImage";
 
@@ -32,9 +34,22 @@ export type MangaCardModel = {
 export const MangaCard = memo(function MangaCard({
   item,
   onLongPress,
+  onPress,
+  wrapCover,
+  placeholder,
 }: {
   item: MangaCardModel;
+  /** Drawn when there is no cover or it fails (design-explore: a cloth book). */
+  placeholder?: ReactNode;
   onLongPress?: () => void;
+  /** Replaces the default push to the title page (design-explore: a cover zoom). */
+  onPress?: () => void;
+  /**
+   * Wraps the cover (design-explore: the native zoom source). A wrapped cover
+   * does not fade in: inside a native container the fade can be lost and
+   * leave a loaded cover invisible.
+   */
+  wrapCover?: (cover: ReactNode) => ReactNode;
 }) {
   const { tokens } = useNemuTheme();
   const { appLanguage } = useMobileLanguageSettings();
@@ -52,6 +67,74 @@ export const MangaCard = memo(function MangaCard({
     if (hasNow) setBadgePopToken((token) => token + 1);
   }
 
+  const coverView = (
+    <View
+      style={[
+        styles.cover,
+        {
+          backgroundColor: tokens.muted,
+          borderColor: tokens.coverBorder,
+          ...createNemuShadowStyle({
+            color: tokens.shadow,
+            offsetY: 3,
+            radius: 14,
+            elevation: 4,
+          }),
+        },
+      ]}
+    >
+      {item.cover ? (
+        <MobileCachedImage
+          fallback={
+            placeholder ?? (
+              <LinearGradient
+                colors={[nemuColorWithAlpha(tokens.primary, 0.33), tokens.muted]}
+                style={styles.placeholder}
+              />
+            )
+          }
+          uriOwnership="source"
+          fadeIn={wrapCover ? false : undefined}
+          // A refreshed cover replaces the one on screen; a zoom back lands on it.
+          holdPreviousWhileLoading
+          holdIdentity={item.id}
+          source={{ uri: item.cover, headers: item.coverHeaders }}
+          style={styles.coverImage}
+        />
+      ) : (
+        placeholder ?? (
+          <LinearGradient
+            colors={[nemuColorWithAlpha(tokens.primary, 0.33), tokens.muted]}
+            style={styles.placeholder}
+          />
+        )
+      )}
+      <LinearGradient
+        colors={["transparent", "rgba(0,0,0,0.2)"]}
+        style={styles.coverShade}
+      />
+      {item.badge ? (
+        <Animated.View
+          key={badgePopToken}
+          entering={
+            badgePopToken > 0 && !reducedMotion
+              ? ZoomIn.springify().damping(16).stiffness(220)
+              : undefined
+          }
+          style={[styles.badge, { backgroundColor: tokens.primary }]}
+        >
+          <Text
+            maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
+            numberOfLines={1}
+            style={[styles.badgeText, { color: tokens.primaryForeground }]}
+          >
+            {item.badge}
+          </Text>
+        </Animated.View>
+      ) : null}
+    </View>
+  );
+
   return (
     <NemuPressable
       accessibilityRole="button"
@@ -64,6 +147,11 @@ export const MangaCard = memo(function MangaCard({
       hapticFeedback="press"
       pressProfile="card"
       onPress={() => {
+        markMobilePerformance("library.open-title", { id: item.id });
+        if (onPress) {
+          onPress();
+          return;
+        }
         router.push({
           pathname: "/library/[id]",
           params: { id: item.id },
@@ -78,71 +166,9 @@ export const MangaCard = memo(function MangaCard({
       }
       style={styles.root}
     >
-      <View
-        style={[
-          styles.cover,
-          {
-            backgroundColor: tokens.muted,
-            borderColor: tokens.coverBorder,
-            ...createNemuShadowStyle({
-              color: tokens.shadow,
-              offsetY: 3,
-              radius: 14,
-              elevation: 4,
-            }),
-          },
-        ]}
-      >
-        {item.cover ? (
-          <MobileCachedImage
-            fallback={
-              <LinearGradient
-                colors={[nemuColorWithAlpha(tokens.primary, 0.33), tokens.muted]}
-                style={styles.placeholder}
-              />
-            }
-            uriOwnership="source"
-            source={{ uri: item.cover, headers: item.coverHeaders }}
-            style={styles.coverImage}
-          />
-        ) : (
-          <LinearGradient
-            colors={[nemuColorWithAlpha(tokens.primary, 0.33), tokens.muted]}
-            style={styles.placeholder}
-          />
-        )}
-        <LinearGradient
-          colors={["transparent", "rgba(0,0,0,0.2)"]}
-          style={styles.coverShade}
-        />
-        {item.badge ? (
-          <Animated.View
-            key={badgePopToken}
-            entering={
-              badgePopToken > 0 && !reducedMotion
-                ? ZoomIn.springify().damping(16).stiffness(220)
-                : undefined
-            }
-            style={[styles.badge, { backgroundColor: tokens.primary }]}
-          >
-            <Text
-              maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
-              numberOfLines={1}
-              style={[styles.badgeText, { color: tokens.primaryForeground }]}
-            >
-              {item.badge}
-            </Text>
-          </Animated.View>
-        ) : null}
-      </View>
+      {wrapCover ? wrapCover(coverView) : coverView}
       <View style={styles.textBlock}>
-        <Text
-          maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
-          numberOfLines={2}
-          style={[styles.title, { color: tokens.foreground }]}
-        >
-          {item.title}
-        </Text>
+        <MangaCardTitle title={item.title} color={tokens.foreground} />
         {item.subtitle ? (
           <Text
             maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
@@ -157,6 +183,45 @@ export const MangaCard = memo(function MangaCard({
   );
 });
 
+/**
+ * The title in two lines, broken between words: at the largest Dynamic Type
+ * sizes a word wider than the card ("Pepper&Carrot") was split by character
+ * across them. Such a title is set a step smaller, as often as it takes (never
+ * below its own size), until it wraps between words.
+ */
+function MangaCardTitle({ title, color }: { title: string; color: string }) {
+  const { fontScale } = useWindowDimensions();
+  const fitKey = `${fontScale}|${title}`;
+  const [fit, setFit] = useState<{ key: string; multiplier: number } | null>(null);
+  const multiplier =
+    fit?.key === fitKey ? fit.multiplier : Math.min(Math.max(fontScale, 1), nemuMaxFontSizeMultiplier);
+  const handleTextLayout =
+    multiplier > 1
+      ? (event: TextLayoutEvent) => {
+          if (!hasMobileMidWordLineBreak(event.nativeEvent.lines)) return;
+          const next = nextMobileWordFitMultiplier(multiplier);
+          if (next !== null) setFit({ key: fitKey, multiplier: next });
+        }
+      : undefined;
+  return (
+    <Text
+      // At or below the default size nothing grows: the usual cap applies.
+      maxFontSizeMultiplier={fontScale > 1 ? multiplier : nemuMaxFontSizeMultiplier}
+      numberOfLines={2}
+      onTextLayout={handleTextLayout}
+      style={[styles.title, { color }]}
+    >
+      {title}
+    </Text>
+  );
+}
+
+/**
+ * The cover's corner radius. A context menu around the card lifts its preview
+ * with this radius too, so the cover keeps its corners while it is held.
+ */
+export const MANGA_CARD_COVER_RADIUS = radius.lg;
+
 const styles = StyleSheet.create({
   root: {
     flex: 1,
@@ -165,12 +230,12 @@ const styles = StyleSheet.create({
   cover: {
     aspectRatio: 2 / 3,
     overflow: "hidden",
-    borderRadius: radius.lg,
+    borderRadius: MANGA_CARD_COVER_RADIUS,
     borderWidth: StyleSheet.hairlineWidth,
   },
   coverImage: {
-    width: "100%",
-    height: "100%",
+    width: "100%" as const,
+    height: "100%" as const,
   },
   placeholder: {
     flex: 1,
@@ -180,7 +245,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    height: "42%",
+    height: "42%" as const,
     pointerEvents: "none",
   },
   badge: {

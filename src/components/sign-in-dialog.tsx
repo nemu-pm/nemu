@@ -11,10 +11,15 @@ import {
   ResponsiveDialogTitle,
 } from "@/components/ui/responsive-dialog";
 import { Spinner } from "@/components/ui/spinner";
+import { clearAuthReturn } from "@/lib/auth-resume";
 
 interface SignInDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Replaces the general description, e.g. with what the user tried to do. */
+  description?: string;
+  /** Runs right before the OAuth redirect. */
+  onBeforeRedirect?: () => void;
 }
 
 type Provider = "google" | "apple";
@@ -55,7 +60,7 @@ const providers: { id: Provider; name: string; icon: React.ReactNode }[] = [
   },
 ];
 
-export function SignInDialog({ open, onOpenChange }: SignInDialogProps) {
+export function SignInDialog({ open, onOpenChange, description, onBeforeRedirect }: SignInDialogProps) {
   const { t } = useTranslation();
   const [loading, setLoading] = useState<Provider | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -65,6 +70,8 @@ export function SignInDialog({ open, onOpenChange }: SignInDialogProps) {
     setError(null);
 
     try {
+      if (onBeforeRedirect) onBeforeRedirect();
+      else clearAuthReturn();
       await authClient.signIn.social({ provider });
       // OAuth redirects, so we won't reach here
     } catch (err) {
@@ -79,7 +86,7 @@ export function SignInDialog({ open, onOpenChange }: SignInDialogProps) {
         <ResponsiveDialogHeader>
           <ResponsiveDialogTitle>{t("signIn.title")}</ResponsiveDialogTitle>
           <ResponsiveDialogDescription>
-            {t("signIn.description")}
+            {description ?? t("signIn.description")}
           </ResponsiveDialogDescription>
         </ResponsiveDialogHeader>
 

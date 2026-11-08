@@ -16,8 +16,13 @@ describe("nemuColorWithAlpha", () => {
     expect(nemuColorWithAlpha("#000000", -1)).toBe("rgba(0,0,0,0)");
   });
 
-  it("passes through non-hex values unchanged", () => {
+  it("applies alpha to rgb() and scales an rgba()'s own alpha", () => {
+    expect(nemuColorWithAlpha("rgb(40, 22, 12)", 0.22)).toBe("rgba(40,22,12,0.22)");
     expect(nemuColorWithAlpha("rgba(1,2,3,0.4)", 1)).toBe("rgba(1,2,3,0.4)");
+    expect(nemuColorWithAlpha("rgba(255, 255, 255, 0.5)", 0.5)).toBe("rgba(255,255,255,0.25)");
+  });
+
+  it("passes through other values unchanged", () => {
     expect(nemuColorWithAlpha("transparent", 0)).toBe("transparent");
   });
 });

@@ -12,10 +12,6 @@ export function makeMobileSourceBrowseSearchRouteQuery(query: string): string {
   return normalizeMobileSourceBrowseRouteQuery(query) || " ";
 }
 
-export function canClearMobileSourceBrowseTextInput(query: string): boolean {
-  return query.length > 0;
-}
-
 export function shouldRunMobileSourceBrowseSearchSubmitFeedback({
   query,
   routeQuery,
@@ -117,6 +113,58 @@ export function getMobileSourceBrowseRouteTabForListingId(
   return listingIndex + (hasHomeProvider ? 1 : 0);
 }
 
+/**
+ * The listing a home section's "See All" opened, as the tab it keeps at the
+ * end of the row. The tab stays for the rest of the visit: leaving it for
+ * Home or another tab only moves the selection, so the tabs never reflow
+ * under the finger. Another section's listing takes the same last slot; a
+ * package listing (already a tab) leaves it as it was.
+ *
+ * `listing` is the one being selected, `opened` the listing a home section
+ * hands over with it, `kept` the current trailing tab. Returns the runtime
+ * listing the selection resolves to (null for a package listing) and the
+ * trailing tab after it.
+ */
+export function resolveMobileSourceBrowseKeptListing<T extends SourceBrowseRouteListing>({
+  listing,
+  opened,
+  kept,
+  listings,
+}: {
+  listing: T;
+  opened: T | null | undefined;
+  kept: T | null;
+  listings: SourceBrowseRouteListing[];
+}): { runtimeListing: T | null; kept: T | null } {
+  if (listings.some((item) => item.id === listing.id)) {
+    return { runtimeListing: null, kept };
+  }
+  const runtimeListing = opened ?? (kept?.id === listing.id ? kept : listing);
+  return { runtimeListing, kept: runtimeListing };
+}
+
+/**
+ * A tab the page asked the route for (`router.setParams`), with the route's
+ * tab at that moment. The page's own selection changes at once; the route's
+ * `tab` can arrive a render later.
+ */
+export type MobileSourceBrowseRouteTabRequest = {
+  from: number | null;
+  to: number | null;
+};
+
+/**
+ * While the route still shows the tab it had when the page asked for another,
+ * the page's selection is the newer one: re-reading the old route tab would
+ * undo the tap (Home after a numbered tab snapped back to that tab).
+ */
+export function isMobileSourceBrowseRouteTabRequestPending(
+  request: MobileSourceBrowseRouteTabRequest | null,
+  routeTab: number | null,
+): boolean {
+  return request !== null && request.from !== request.to && routeTab === request.from;
+}
+
 export function getDefaultMobileSourceBrowseListingId(
   listings: SourceBrowseRouteListing[],
   hasHomeProvider: boolean,
@@ -132,6 +180,29 @@ export function getMobileSourceBrowseListingTabCount(
   return (hasHomeProvider ? 1 : 0) + listingCount;
 }
 
+/**
+ * Whether the source is search-only, as early as it can be known: the live
+ * runtime answer, else the one persisted from the last run, else "no" for a
+ * package that declares listings (a listing rules search-only out). `null`
+ * while nothing says either way: the page then holds the chrome that differs
+ * between the two modes (the bar's search button and source menu, the header
+ * search field) rather than show one and swap it for the other.
+ */
+export function resolveMobileSourceBrowseOnlySearch({
+  runtimeOnlySearch,
+  persistedOnlySearch,
+  packageListingCount,
+}: {
+  runtimeOnlySearch: boolean | null | undefined;
+  persistedOnlySearch: boolean | null | undefined;
+  packageListingCount: number;
+}): boolean | null {
+  if (typeof runtimeOnlySearch === "boolean") return runtimeOnlySearch;
+  if (typeof persistedOnlySearch === "boolean") return persistedOnlySearch;
+  if (packageListingCount > 0) return false;
+  return null;
+}
+
 export function shouldShowMobileSourceBrowseListingTabBar({
   listingTabCount,
   sourceHomeProviderKnown,
@@ -142,6 +213,27 @@ export function shouldShowMobileSourceBrowseListingTabBar({
   onlySearch: boolean;
 }): boolean {
   return sourceHomeProviderKnown && !onlySearch && listingTabCount > 1;
+}
+
+/**
+ * The listing tab row is on its way but held back (the home layout or the
+ * runtime's metadata is still in flight): its row is kept from the first frame
+ * so the page under it does not drop when the tabs appear. `homePossible` is
+ * a known home provider or one still pending.
+ */
+export function shouldReserveMobileSourceBrowseListingTabRow({
+  showing,
+  onlySearch,
+  homePossible,
+  listingCount,
+}: {
+  showing: boolean;
+  onlySearch: boolean;
+  homePossible: boolean;
+  listingCount: number;
+}): boolean {
+  if (showing || onlySearch) return false;
+  return getMobileSourceBrowseListingTabCount(homePossible, listingCount) > 1;
 }
 
 export function isMobileSourceBrowseHomeTabPending({
@@ -303,18 +395,6 @@ export function canSelectMobileSourceBrowseTab({
   return !selected;
 }
 
-export function shouldShowMobileSourceBrowseLoadError({
-  loading,
-  hasSource,
-  hasError,
-}: {
-  loading: boolean;
-  hasSource: boolean;
-  hasError: boolean;
-}): boolean {
-  return !loading && !hasSource && hasError;
-}
-
 /**
  * "No matches" is a claim about a search that ran and came back empty. An
  * `idle` state (the request was never started, or an in-flight attempt was
@@ -338,4 +418,52 @@ export function shouldShowMobileSourceBrowseNotInstalled({
   hasError: boolean;
 }): boolean {
   return !loading && !hasSource && !hasError;
+}
+
+type MobileSourceBrowseStepState = {
+  status: "idle" | "loading" | "ready" | "blocked" | "error" | string;
+  /** A blocked result's raw reason, or an error's banner detail. */
+  detail?: string | null;
+};
+
+/**
+ * The failure to show when the source screen body would otherwise be empty.
+ *
+ * A source whose runtime metadata is blocked or failed has no known listings,
+ * so no tab is selected, and its home request is skipped or blocked too —
+ * every branch of the list's empty component then fell through to `null` and
+ * the screen rendered a blank page with no way to recover. The first blocked
+ * or failed step (metadata, then home) is surfaced instead; a blocked reason is
+ * a raw diagnostic, so it goes behind the localized description.
+ */
+export function getMobileSourceBrowseFallbackErrorDetail(
+  steps: {
+    metadata: MobileSourceBrowseStepState;
+    home: MobileSourceBrowseStepState;
+  },
+  localizedDetail: string,
+): string | null {
+  const step = findMobileSourceBrowseFallbackErrorStep(steps);
+  if (!step) return null;
+  if (step.status === "error") {
+    return step.detail || localizedDetail;
+  }
+  return step.detail && step.detail !== localizedDetail
+    ? `${localizedDetail}\n${step.detail}`
+    : localizedDetail;
+}
+
+/**
+ * The step whose failure the fallback banner reports: the first of metadata
+ * and home that errored or was blocked. A blocked step's detail is the raw
+ * runtime reason, which the screen can still classify for its title.
+ */
+export function findMobileSourceBrowseFallbackErrorStep(steps: {
+  metadata: MobileSourceBrowseStepState;
+  home: MobileSourceBrowseStepState;
+}): MobileSourceBrowseStepState | null {
+  for (const step of [steps.metadata, steps.home]) {
+    if (step.status === "error" || step.status === "blocked") return step;
+  }
+  return null;
 }

@@ -1,21 +1,50 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Stack, router, type Href } from "expo-router";
+import { Image as ServerIconImage } from "react-native";
+import { MobileQuickActionMenu, mobileNativeQuickMenuAvailable } from "@/components/MobileQuickActionMenu";
+import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
+import { MOBILE_EXPLORE_GROUP_SHAPE, MOBILE_EXPLORE_RADIUS } from "@/lib/mobileExploreRadius";
+import { Stack, router, useFocusEffect } from "expo-router";
 import {
+  consumeMobileAddSourceSheetDirectoryFocus,
+  consumeMobileAddSourceSheetRequest,
+  subscribeMobileAddSourceSheetRequest,
+} from "@/lib/mobileAddSourceSheetRequest";
+import { hasMobileUserSourceDirectory } from "@/lib/mobileSourceDirectoryGuide";
+import { useMobileSourceDirectories } from "@/data/useMobileSourceDirectories";
+import {
+  ActivityIndicator,
   Linking,
-  Platform,
+  ScrollView,
   SectionList,
   StyleSheet,
-  Text,
   View,
   useWindowDimensions,
   type LayoutChangeEvent,
   type SectionListData,
   type SectionListRenderItemInfo,
+  type ScrollViewInstance,
+  type ViewInstance,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useMobilePoseTransition } from "@/lib/MobilePoseTransitionContext";
+import { useMobileRestingVerticalFold } from "@/lib/useMobileRestingVerticalFold";
+import { useMobileScrollGroupAnchor } from "@/lib/useMobileScrollGroupAnchor";
+import {
+  estimateMobileSourceGroupHeight,
+  getMobileSourceColumns,
+  MOBILE_SOURCE_GROUP_GAP,
+  partitionMobileSourceGroups,
+} from "@/lib/mobileSourceColumns";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { ADD_DIRECTORY_PAGE, SERVER_PICKER_PAGE } from "@/lib/mobileAddSourcesPages";
+import { selfHostedKindName, selfHostedKindSubtitle } from "@/lib/selfHosted/messages";
+import { SELF_HOSTED_REGISTRY_ID, SELF_HOSTED_SETUP_KINDS, type SelfHostedKind } from "@/lib/selfHosted/policy";
 import { EmptyLibrary } from "@/components/EmptyLibrary";
 import { MobileBrowseSkeleton } from "@/components/MobileBrowseSkeleton";
+import { MobileAddSourcesDirectoryPage } from "@/components/MobileAddSourceDirectorySheet";
+import { MobileAddSourcesStack, mobileAddSourcesPushesPagesNatively } from "@/components/MobileAddSourcesStack";
+import { ContentScrollMarker } from "../../modules/nemu-window-layout";
+import { SERVER_ICONS } from "@/components/mobileServerIcons";
 import { MobileConfirmationSheet } from "@/components/MobileConfirmationSheet";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import { MobileInlineToast } from "@/components/MobileInlineToast";
@@ -27,31 +56,44 @@ import {
 } from "@/components/QuickActionSheet";
 import { useMobileToast } from "@/components/MobileToastContext";
 import {
-  NemuButton,
+  isMobileRefreshSourcesCancellation,
+  showMobileRefreshSourcesErrorToast,
+} from "@/lib/mobileRefreshSourcesFeedback";
+import {
+  createNemuNativeScreenOptions,
   GlassSurface,
   MobileCachedImage,
   MobileChip,
+  MOBILE_NATIVE_SHEET_GRABBER_ROOM,
+  MobileNativeSheetEndSpacer,
   MobileNativeSheetScaffold,
+  type MobileSheetSafeAreaEdge,
+  NemuButton,
+  nemuColorWithAlpha,
+  nemuFontWeight,
+  type NemuNativeHeaderAction,
   NemuNativeSearchField,
   NemuNativeSheetHeaderAction,
   NemuNativeSwitch,
   NemuPressable,
+  NemuSheetScrollEdge,
+  NemuText,
   PageHeader,
   PageScaffold,
-  SourceCard,
-  createNemuNativeScreenOptions,
   radius,
   renderNemuNativeToolbarButtons,
-  nemuFontWeight,
+  SourceCard,
+  type SourceCardModel,
+  useMobileNativeSheetTheme,
+  useMobilePageGutters,
   useNemuTheme,
   usesNemuNativeHeader,
-  type NemuNativeHeaderAction,
-  type SourceCardModel,
 } from "@/design-system";
 import {
   isMobileSourceInstallCancellation,
   useAvailableSources,
   useInstalledSources,
+  useLibraryEntries,
   useMobileLanguageSettings,
   useSourceInstaller,
 } from "@/data/mobileHooks";
@@ -63,18 +105,32 @@ import {
 } from "@/lib/haptics";
 import { formatMobileCatalogCacheAge } from "@/lib/mobileCatalogCacheAge";
 import { prefetchCachedMobileImages } from "@/lib/mobileImageCache";
+import { scheduleMobileIdleTask } from "@/lib/mobileIdleTask";
 import {
   formatMobileString,
   getMobileStrings,
   type MobileStrings,
 } from "@/lib/mobileI18n";
-import { resolveMobileSheetHeaderMetrics } from "@/lib/mobileNativeSheet";
+import { mobileGridPrefersEvenColumns } from "@/lib/mobileAdaptiveLayout";
+import { getMobileSourceGridLayout } from "@/lib/mobilePageLayout";
+import { chunkMobileGridRows, mobileFoldAwareGridCellStyle } from "@/lib/mobileFoldAwareGrid";
+import { MobileListChangeCell, MobilePoseLayoutView, MobilePoseWidthSpringView } from "@/components/MobilePoseLayoutView";
+import Animated from "react-native-reanimated";
+import {
+  mobileGridGlideAppearing,
+  mobileGridGlideFrameTransition,
+  mobileGridGlideTransition,
+  mobileGridGlideVanishing,
+  openMobileGridGlideWindow,
+} from "@/lib/mobilePoseLayoutAnimations";
+import { MobilePaneAlignedView } from "@/lib/MobilePaneAlignedView";
+import { useMobileContainerFold } from "@/lib/useMobileContainerFold";
 import {
   buildMobileInstalledSourceKeySet,
   buildMobileSourceQuickActions,
-  canSelectMobileBrowseAllLanguages,
   canStartMobileSourceInstall,
   filterMobileAvailableSources,
+  hasMobileExplicitSources,
   getMobileAvailableSourceLanguageOptions,
   getMobileSourceInstallHandoff,
   getMobileSourceInstallResultAction,
@@ -82,6 +138,8 @@ import {
   getMobileSourceWarningAccessibilityLabel,
   getMobileSourceWarningMessages,
   groupMobileSourcesByLanguage,
+  omitMobileBrowseSourcesFromGroups,
+  selectMobileBrowseLibrarySources,
   isMobileUnsupportedInstalledSource,
   filterEnabledMobileInstalledSources,
   mergeMobileInstalledSourceRegistryMetadata,
@@ -89,9 +147,15 @@ import {
   shouldRenderMobileBrowseSkeleton,
   shouldReopenMobileAddSourceSheetAfterInstall,
   type MobileSourceQuickActionId,
+  getMobileRegistryDisplayName,
+  getMobileSourceOriginLabel,
+  formatMobileSourceLanguages,
 } from "@/lib/mobileBrowseSources";
 import { getMobileInstalledSourceRegistryRef } from "@/lib/mobileInstalledSourceKeys";
-import { getMobileInstalledSourceName } from "@/lib/mobileInstalledSourcePresentation";
+import {
+  getMobileInstalledSourceName,
+  getMobileInstalledSourceOriginLabel,
+} from "@/lib/mobileInstalledSourcePresentation";
 import {
   buildMobileSourceIconIndex,
   resolveMobileInstalledSourceIconUri,
@@ -131,7 +195,8 @@ type BrowseSheet = "add-source" | "source-language";
 type AddSourceDismissAction =
   | { type: "open-language" }
   | { type: "open-confirmation"; confirmation: BrowseConfirmation }
-  | { type: "start-install"; source: MobileRegistrySource };
+  | { type: "start-install"; source: MobileRegistrySource }
+  | { type: "open-server-form"; kind: SelfHostedKind };
 
 /**
  * Only one native `@expo/ui` bottom sheet can be presented at a time, so the
@@ -200,7 +265,7 @@ function UnsupportedSourceRow({
       </View>
       <View style={styles.unsupportedSourceText}>
         <View style={styles.unsupportedSourceTitleRow}>
-          <Text
+          <NemuText
             numberOfLines={1}
             style={[
               styles.unsupportedSourceTitle,
@@ -208,7 +273,7 @@ function UnsupportedSourceRow({
             ]}
           >
             {source.name}
-          </Text>
+          </NemuText>
           <MobileChip
             accessibilityLabel={strings.common.sourceUnsupportedBadge}
             label={strings.common.sourceUnsupportedBadge}
@@ -216,7 +281,7 @@ function UnsupportedSourceRow({
             variant="static"
           />
         </View>
-        <Text
+        <NemuText
           numberOfLines={2}
           style={[
             styles.unsupportedSourceSubtitle,
@@ -224,28 +289,23 @@ function UnsupportedSourceRow({
           ]}
         >
           {strings.common.sourceUnsupportedTachiyomiDescription}
-        </Text>
+        </NemuText>
       </View>
     </NemuPressable>
   );
 }
 
-function sourceSettingsHref(source: SourceCardModel): Href {
-  return {
-    pathname: "/(tabs)/settings/[section]",
-    params: { section: "sources", sourceId: source.id },
-  };
-}
+const formatLanguages = formatMobileSourceLanguages;
 
-function formatLanguages(languages?: string[]): string | undefined {
-  return languages?.length ? languages.join(", ").toUpperCase() : undefined;
-}
+/** Section key of the built-in server sources in Browse. */
+const SELF_HOSTED_GROUP = "self-hosted";
 
 function formatSourceLanguageLabel(
   language: string,
   strings: MobileStrings,
   appLanguage: AppLanguage,
 ): string {
+  if (language === SELF_HOSTED_GROUP) return strings.selfHosted.groupTitle;
   return formatMobileLanguageDisplayName(language, appLanguage, {
     multi: strings.sourceBrowse.multiLanguage,
     other: strings.browse.otherLanguages,
@@ -279,16 +339,6 @@ function sourceActionErrorPresentation(
   return { title: presentation.title, detail: presentation.detail };
 }
 
-function colorWithOpacity(color: string, opacity: number) {
-  const hexMatch = /^#([0-9a-f]{6})$/i.exec(color);
-  if (!hexMatch) return color;
-
-  const alpha = Math.round(Math.max(0, Math.min(1, opacity)) * 255)
-    .toString(16)
-    .padStart(2, "0");
-  return `${color}${alpha}`;
-}
-
 /**
  * One removable active filter: the shared chip primitive's `toggle` variant in
  * its selected (plain primary surface) state, with a trailing `close` glyph.
@@ -298,10 +348,13 @@ function ActiveFilterChip({
   label,
   removeLabel,
   onPress,
+  wrapLabel,
 }: {
   label: string;
   removeLabel: string;
   onPress: () => void;
+  /** A directory's name is shown whole instead of truncated. */
+  wrapLabel?: boolean;
 }) {
   return (
     <MobileChip
@@ -312,6 +365,7 @@ function ActiveFilterChip({
       selected
       trailingIcon="close"
       variant="toggle"
+      wrapLabel={wrapLabel}
     />
   );
 }
@@ -348,7 +402,7 @@ function LanguageFilterOptionRow({
           : null,
       ]}
     >
-      <Text
+      <NemuText
         numberOfLines={1}
         style={[
           styles.languageOptionText,
@@ -361,7 +415,7 @@ function LanguageFilterOptionRow({
         ]}
       >
         {label}
-      </Text>
+      </NemuText>
       <View style={styles.languageOptionAccessory}>
         {selected ? (
           <Ionicons name="checkmark-outline" size={18} color={tokens.primary} />
@@ -388,7 +442,8 @@ function LanguageFilterSheetSection({
   onSelectAll: () => void;
   onToggleLanguage: (language: string) => void;
   showAdult: boolean;
-  onToggleAdult: () => void;
+  /** Null when no added directory lists an explicit source: no toggle then. */
+  onToggleAdult: (() => void) | null;
 }) {
   const { tokens } = useNemuTheme();
   const visibleLanguages = languages.filter((language) => language !== "all");
@@ -417,13 +472,7 @@ function LanguageFilterSheetSection({
           )}
           showSeparator={pinnedLanguages.length > 0}
           onPress={() => {
-            if (
-              !canSelectMobileBrowseAllLanguages({
-                selected: allLanguagesSelected,
-              })
-            ) {
-              return;
-            }
+            if (allLanguagesSelected) return;
             void hapticSelection();
             onSelectAll();
           }}
@@ -498,6 +547,7 @@ function LanguageFilterSheetSection({
         above its layout box. The settings card uses the same plain surface
         and its switches sit on the row's centre line.
       */}
+      {onToggleAdult ? (
       <View
         style={[
           styles.languageListSection,
@@ -510,7 +560,7 @@ function LanguageFilterSheetSection({
             <Ionicons name="eye-outline" size={22} color={tokens.primary} />
           </View>
           <View style={styles.adultToggleCopy}>
-            <Text
+            <NemuText
               numberOfLines={1}
               style={[
                 styles.adultToggleTitle,
@@ -518,8 +568,8 @@ function LanguageFilterSheetSection({
               ]}
             >
               {strings.browse.adult}
-            </Text>
-            <Text
+            </NemuText>
+            <NemuText
               numberOfLines={2}
               style={[
                 styles.adultToggleSubtitle,
@@ -527,7 +577,7 @@ function LanguageFilterSheetSection({
               ]}
             >
               {strings.browse.adultSourcesDescription}
-            </Text>
+            </NemuText>
           </View>
           <View style={styles.adultToggleAccessory}>
             <NemuNativeSwitch
@@ -538,6 +588,7 @@ function LanguageFilterSheetSection({
           </View>
         </View>
       </View>
+      ) : null}
     </>
   );
 }
@@ -580,7 +631,7 @@ const AvailableSourceRow = memo(function AvailableSourceRow({
         styles.availableShell,
         {
           backgroundColor: installed
-            ? colorWithOpacity(tokens.muted, 0.48)
+            ? nemuColorWithAlpha(tokens.muted, 0.48)
             : tokens.card,
           borderColor: tokens.border,
         },
@@ -622,13 +673,13 @@ const AvailableSourceRow = memo(function AvailableSourceRow({
         </View>
         <View style={styles.availableText}>
           <View style={styles.sourceTitleRow}>
-            <Text
+            <NemuText
               numberOfLines={1}
               style={[styles.sourceTitle, { color: tokens.foreground }]}
             >
               {source.name}
-            </Text>
-            <Text
+            </NemuText>
+            <NemuText
               numberOfLines={1}
               style={[
                 styles.sourceVersionText,
@@ -636,7 +687,7 @@ const AvailableSourceRow = memo(function AvailableSourceRow({
               ]}
             >
               v{source.version}
-            </Text>
+            </NemuText>
             {warningAccessibilityLabel ? (
               <View
                 accessible
@@ -652,14 +703,17 @@ const AvailableSourceRow = memo(function AvailableSourceRow({
               </View>
             ) : null}
           </View>
-          <Text
+          <NemuText
             numberOfLines={1}
             style={[styles.sourceSubtitle, { color: tokens.mutedForeground }]}
           >
-            {[formatLanguages(source.languages), source.registryName]
+            {[
+              formatLanguages(source.languages, strings.sourceBrowse.multiLanguage),
+              getMobileSourceOriginLabel(source, strings),
+            ]
               .filter(Boolean)
               .join(" / ")}
-          </Text>
+          </NemuText>
         </View>
         {installed ? (
           <View
@@ -672,11 +726,11 @@ const AvailableSourceRow = memo(function AvailableSourceRow({
               size={16}
               color={tokens.success}
             />
-            <Text
+            <NemuText
               style={[styles.installText, { color: tokens.mutedForeground }]}
             >
               {strings.browse.installed}
-            </Text>
+            </NemuText>
           </View>
         ) : (
           <NemuButton
@@ -705,6 +759,97 @@ const AvailableSourceRow = memo(function AvailableSourceRow({
   );
 });
 
+/**
+ * A built-in server source in the Add Source sheet (Komga, Kavita): not
+ * downloaded, so there is nothing to install; the row opens the server's
+ * setup form.
+ */
+const BuiltInSourceRow = memo(function BuiltInSourceRow({
+  kind,
+  strings,
+  onPress,
+}: {
+  kind: SelfHostedKind;
+  strings: MobileStrings;
+  onPress: (kind: SelfHostedKind) => void;
+}) {
+  const { tokens } = useNemuTheme();
+  const name = selfHostedKindName(kind);
+  const subtitle = selfHostedKindSubtitle(kind, strings);
+  return (
+    <NemuPressable
+      accessibilityRole="button"
+      accessibilityLabel={`${name}. ${subtitle}`}
+      onPress={() => onPress(kind)}
+      style={[
+        styles.availableShell,
+        { backgroundColor: tokens.card, borderColor: tokens.border },
+      ]}
+    >
+      <View style={styles.availableRow}>
+        <View style={styles.sourceIcon}>
+          <ServerIconImage source={SERVER_ICONS[kind]} style={styles.sourceIcon} resizeMode="contain" />
+        </View>
+        <View style={styles.availableText}>
+          <NemuText numberOfLines={1} style={[styles.sourceTitle, { color: tokens.foreground }]}>
+            {name}
+          </NemuText>
+          <NemuText numberOfLines={1} style={[styles.sourceSubtitle, { color: tokens.mutedForeground }]}>
+            {subtitle}
+          </NemuText>
+        </View>
+        <Ionicons name="chevron-forward" size={16} color={tokens.mutedForeground} />
+      </View>
+    </NemuPressable>
+  );
+});
+
+/**
+ * The end of the Add Sources list: where more sources come from. With only
+ * the built-in demo directory the row says why to add one; once the user has
+ * a directory of their own it is the bare row, so it never nags.
+ */
+function SourceDirectoryGuide({
+  prominent,
+  strings,
+  onPress,
+}: {
+  prominent: boolean;
+  strings: MobileStrings;
+  onPress: () => void;
+}) {
+  // Inside the sheet: the sheet's card colours, as the server entry row uses.
+  const { tokens } = useMobileNativeSheetTheme();
+  const action = strings.browse.addSourceDirectory;
+  return (
+    <NemuPressable
+      accessibilityRole="button"
+      accessibilityLabel={action}
+      accessibilityHint={prominent ? strings.browse.sourceDirectoryGuideBody : undefined}
+      onPress={onPress}
+      pressHighlight
+      style={[
+        styles.directoryGuide,
+        { backgroundColor: tokens.card, borderColor: tokens.border },
+      ]}
+      testID="AddSourceDirectoryGuide"
+    >
+      <Ionicons name="add-circle-outline" size={24} color={tokens.primary} />
+      <View style={styles.directoryGuideText}>
+        <NemuText numberOfLines={1} style={[styles.directoryGuideLabel, { color: tokens.primary }]}>
+          {action}
+        </NemuText>
+        {prominent ? (
+          <NemuText style={[styles.directoryGuideDetail, { color: tokens.mutedForeground }]}>
+            {strings.browse.sourceDirectoryGuideBody}
+          </NemuText>
+        ) : null}
+      </View>
+      <Ionicons name="chevron-forward" size={16} color={tokens.mutedForeground} style={{ marginRight: -4 }} />
+    </NemuPressable>
+  );
+}
+
 function availableSourceKeyExtractor(source: MobileRegistrySource) {
   return makeSourceKey(source.registryId, source.id);
 }
@@ -730,30 +875,67 @@ function AvailableSectionSeparator({
 }
 
 /**
- * The Add Sources sheet sizes its iOS detent to its content instead of
- * parking a blank tail under a short (or filtered) list:
+ * The Add Sources sheet opens at three quarters of the screen and drags up to
+ * full height; the catalog scrolls inside it.
  *
- *   scaffold header chrome + the scaffold body's top padding + the sheet's
- *   own header stack + the measured list content + corner clearance
- *
- * The list's own 24pt bottom padding is already inside the measured content,
- * so the clearance is pure extra tail (~36pt total under the last row) —
- * enough air above the screen's rounded corners when scrolled to the very
- * bottom. The detent clamps to `[320, 88%]` of the scaffold's available
- * height (`windowHeight - insets.top - insets.bottom`, mirroring
- * `MobileNativeSheetScaffold`); longer catalogs stay at the ceiling and
- * scroll inside the sheet (`fillContent`).
+ * Fixed fractions, never a measured height: the native sheet's selected
+ * detent is the snap point at its index, and the single measured height this
+ * sheet used to pass (an 88% placeholder, then header + list content) changed
+ * while the sheet was up. Since @expo/ui 58.0.21 the presented sheet picks
+ * that change up, leaving SwiftUI's selection outside the new one-detent list
+ * ("Cannot set selected sheet detent if it is not included"); the sheet then
+ * settled near half height with no other detent to drag to. A
+ * module-level array keeps the detents' identity (and so the selection) stable
+ * too.
  */
-const ADD_SOURCE_SHEET_MAX_DETENT_FRACTION = 0.88;
-const ADD_SOURCE_SHEET_MIN_DETENT = 320;
-const ADD_SOURCE_SHEET_CORNER_CLEARANCE = 12;
+const ADD_SOURCE_SHEET_SNAP_POINTS: (string | number)[] = ["75%", "100%"];
+const ADD_SOURCE_SHEET_NO_IGNORED_EDGES: MobileSheetSafeAreaEdge[] = [];
+
+/** The latest the catalog list waits for the sheet's native layout. */
+const ADD_SOURCE_LIST_MOUNT_FALLBACK_MS = 250;
+
+/**
+ * The Add Sources catalog list (its scroll edge blur, the server entry and
+ * the first rows), mounted once the native sheet has sized the body instead
+ * of in the "+" tap's own commit. That commit then carries only the sheet,
+ * its header and the search field, so the native presentation starts without
+ * waiting for the list's views; the rows follow a frame or two into the
+ * slide-up. The space keeps the list's frame meanwhile (nothing reflows).
+ * Mounted anyway after `ADD_SOURCE_LIST_MOUNT_FALLBACK_MS`.
+ */
+function AddSourceListAfterSheetLayout({ children }: { children: ReactNode }) {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    if (ready) return;
+    const timer = setTimeout(() => setReady(true), ADD_SOURCE_LIST_MOUNT_FALLBACK_MS);
+    return () => clearTimeout(timer);
+  }, [ready]);
+  const handleLayout = useCallback((event: LayoutChangeEvent) => {
+    if (event.nativeEvent.layout.height > 0) setReady(true);
+  }, []);
+  return (
+    <View style={styles.availableListScroller} onLayout={ready ? undefined : handleLayout}>
+      {ready ? children : null}
+    </View>
+  );
+}
 
 export function BrowseScreen() {
+  const { regularWidth, verticalBarSide } = useMobileAdaptiveLayout();
   const { tokens } = useNemuTheme();
+  // The Add Sources sheet's own content, built here outside the sheet.
+  const sheetTokens = useMobileNativeSheetTheme().tokens;
   const [query, setQuery] = useState("");
+  // A directory just added from Add Source Directory: the sheet shows its
+  // sources alone, under a chip naming it that clears the focus.
+  const [directoryFocus, setDirectoryFocus] = useState<string | null>(null);
   const [showAdult, setShowAdult] = useState(false);
   const [activeSheet, setActiveSheet] = useState<BrowseSheet | null>(null);
   const [activeSheetVisible, setActiveSheetVisible] = useState(false);
+  // Add Source Directory and Connect Server, pushed inside the sheet. On
+  // Android they are in its body, and a server's form is its own screen.
+  const [addSourcesPath, setAddSourcesPath] = useState<string[]>([]);
+  const [addSourcesPageBlocksDismiss, setAddSourcesPageBlocksDismiss] = useState(false);
   const addSourceDismissActionRef = useRef<AddSourceDismissAction | null>(null);
   const [selectedLanguages, setSelectedLanguages] = useState<Set<string>>(
     () => new Set(),
@@ -777,12 +959,45 @@ export function BrowseScreen() {
     useState<number | null>(null);
   const installed = useInstalledSources();
   const available = useAvailableSources();
+  const sourceDirectories = useMobileSourceDirectories();
+  const focusedDirectory = directoryFocus
+    ? sourceDirectories.directories.find((directory) => directory.id === directoryFocus) ?? null
+    : null;
   const installer = useSourceInstaller();
   const toast = useMobileToast();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
-  const { height: windowHeight } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
+  const { width: windowWidth, fontScale } = useWindowDimensions();
+  const pageGutters = useMobilePageGutters();
+  // Source cards size from the measured content box (Duo's trailing system
+  // bars narrow it), even columns whenever the window has a fold region
+  // (folded or flat). Only an active fold reserves the middle gutter.
+  const sourceGridContainer = useMobileContainerFold<ViewInstance>();
+  const sourceGridSplit = sourceGridContainer.split;
+  const sourceGridPrefersEven = mobileGridPrefersEvenColumns(sourceGridContainer.adaptive);
+  const sourceGrid = useMemo(
+    () =>
+      getMobileSourceGridLayout(
+        sourceGridContainer.width ?? windowWidth - pageGutters.left - pageGutters.right,
+        fontScale,
+        {
+          preferEven: sourceGridPrefersEven,
+          fold:
+            sourceGridSplit?.axis === "horizontal"
+              ? { start: sourceGridSplit.gutter.start, end: sourceGridSplit.gutter.end }
+              : null,
+        },
+      ),
+    [
+      fontScale,
+      pageGutters.left,
+      pageGutters.right,
+      sourceGridPrefersEven,
+      sourceGridContainer.width,
+      sourceGridSplit,
+      windowWidth,
+    ],
+  );
   const usesNativeHeader = usesNemuNativeHeader;
 
   const installedKeys = useMemo(
@@ -808,17 +1023,119 @@ export function BrowseScreen() {
         sourceId,
         name: source.name ?? sourceId,
         icon: source.icon,
+        iconAsset: source.selfHosted ? SERVER_ICONS[source.selfHosted.kind] : undefined,
         languages: source.languages,
-        subtitle: registryId,
+        subtitle:
+          registryId === SELF_HOSTED_REGISTRY_ID && source.selfHosted
+            ? selfHostedKindName(source.selfHosted.kind)
+            : getMobileInstalledSourceOriginLabel(source, strings),
         unsupported: isMobileUnsupportedInstalledSource(source),
       };
     });
     return sortSourcesByLanguagePriority(cards, appLanguage);
-  }, [appLanguage, available.data, installed.data]);
+  }, [appLanguage, available.data, installed.data, strings]);
+  // The registry most sources come from; only sources from another one say
+  // where they are from (a row of "aidoku-community" says nothing).
+  const mainRegistry = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const source of installedSources) counts.set(source.registryId, (counts.get(source.registryId) ?? 0) + 1);
+    let best: string | null = null;
+    for (const [registry, count] of counts) if (best === null || count > (counts.get(best) ?? 0)) best = registry;
+    return best;
+  }, [installedSources]);
   const groupedInstalledSources = useMemo(
-    () => groupMobileSourcesByLanguage(installedSources, appLanguage),
+    () => {
+      // The user's own servers form one group of their own, ahead of the
+      // language groups.
+      const servers = installedSources.filter((source) => source.registryId === SELF_HOSTED_REGISTRY_ID);
+      const rest = installedSources.filter((source) => source.registryId !== SELF_HOSTED_REGISTRY_ID);
+      const groups = groupMobileSourcesByLanguage(rest, appLanguage);
+      return servers.length > 0 ? [{ label: SELF_HOSTED_GROUP, sources: servers }, ...groups] : groups;
+    },
     [appLanguage, installedSources],
   );
+  // Design-explore: the sources the library reads from, first and with how
+  // many titles each holds (they also stay in their language group below).
+  const libraryEntries = useLibraryEntries();
+  const exploreSourceSections = useMemo<
+    { label: string; sources: (InstalledSourceCardModel & { exploreKeepSubtitle?: boolean })[] }[]
+  >(() => {
+    if (!mobileDesignExploreFlag) return groupedInstalledSources;
+    const picked = selectMobileBrowseLibrarySources(
+      installedSources.filter((source) => !source.unsupported),
+      libraryEntries.data.flatMap((entry) => (entry.item.inLibrary === false ? [] : entry.sources)),
+    );
+    if (!picked.length) return groupedInstalledSources;
+    return [
+      {
+        label: EXPLORE_LIBRARY_SECTION,
+        sources: picked.map(({ source, titles }) => ({
+          ...source,
+          subtitle:
+            titles === 1
+              ? strings.designExplore.browseLibraryTitlesOne
+              : formatMobileString(strings.designExplore.browseLibraryTitles, { count: titles }),
+          exploreKeepSubtitle: true,
+        })),
+      },
+      // Each source once: the language groups skip what the library group lists.
+      ...omitMobileBrowseSourcesFromGroups(groupedInstalledSources, picked.map(({ source }) => source)),
+    ];
+  }, [groupedInstalledSources, installedSources, libraryEntries.data, strings]);
+  // Design-explore: half open (book posture), two columns of groups, one a
+  // pane across the Duo's vertical hinge — each group whole in one column,
+  // the next one in the shorter column (estimated from its rows, so a group
+  // never changes column because it was measured). Fully open (landscape or
+  // portrait) the display is one whole screen: one 560pt column centred on
+  // it, as on any regular-width window (a tablet). The columns are keyed
+  // (col-0 / col-1), so folding glides col-0 to its new frame on the pose
+  // spring and col-1 fades in or out.
+  const sourceListWidth = sourceGridContainer.width ?? windowWidth - pageGutters.left - pageGutters.right;
+  // Until the list is measured in the window it starts at the page gutter.
+  const sourceListFrame = useMemo(
+    () => sourceGridContainer.rect ?? { x: pageGutters.left, width: sourceListWidth },
+    [pageGutters.left, sourceGridContainer.rect, sourceListWidth],
+  );
+  const sourceListFold = useMobileRestingVerticalFold(mobileDesignExploreFlag ? sourceListFrame : null);
+  const sourceColumns = useMemo(
+    () =>
+      getMobileSourceColumns({
+        contentWidth: sourceListWidth,
+        fold: sourceGridSplit?.axis === "horizontal" ? sourceGridSplit.gutter : null,
+        band: sourceListFold,
+        foldRegion: sourceGridContainer.adaptive.hasFoldRegion,
+        regularWidth: sourceGridContainer.adaptive.regularWidth,
+      }),
+    [
+      sourceGridContainer.adaptive.hasFoldRegion,
+      sourceGridContainer.adaptive.regularWidth,
+      sourceGridSplit,
+      sourceListFold,
+      sourceListWidth,
+    ],
+  );
+  const sourceGroupColumns = useMemo(
+    () =>
+      partitionMobileSourceGroups(
+        exploreSourceSections.map((section) =>
+          estimateMobileSourceGroupHeight({
+            rows: section.sources.length,
+            unsupportedRows: section.sources.filter((source) => source.unsupported).length,
+          }),
+        ),
+        sourceColumns.length,
+      ),
+    [exploreSourceSections, sourceColumns.length],
+  );
+  const sourceListSplit = mobileDesignExploreFlag && sourceColumns.length > 1;
+  // The first visible group keeps its distance from the top when the
+  // arrangement changes (rotation: one column ⇄ one a pane).
+  const browseScrollRef = useRef<ScrollViewInstance | null>(null);
+  const sourceGroupAnchor = useMobileScrollGroupAnchor({
+    scrollRef: browseScrollRef as unknown as Parameters<typeof useMobileScrollGroupAnchor>[0]["scrollRef"],
+    layoutKey: `${windowWidth}|${sourceColumns.map((column) => `${column.x}:${column.width}`).join(",")}`,
+  });
+  const sourcePose = useMobilePoseTransition();
 
   // Long-press quick actions for an installed source. Kept next to the card
   // that opens them; a short press still routes into the source.
@@ -857,6 +1174,21 @@ export function BrowseScreen() {
         : null,
     [mergedInstalledSources, quickActionSourceId],
   );
+  // A built-in server source has no package settings to show: its "Settings"
+  // is the same form it was added with, pushed instead of the settings sheet.
+  useEffect(() => {
+    if (
+      !quickActionSettingsVisible ||
+      quickActionSource?.registryId !== SELF_HOSTED_REGISTRY_ID ||
+      !quickActionSource.sourceId
+    ) {
+      return;
+    }
+    const sourceId = quickActionSource.sourceId;
+    setQuickActionSettingsVisible(false);
+    setQuickActionSourceId(null);
+    router.push({ pathname: "/(tabs)/browse/server", params: { sourceId } });
+  }, [quickActionSettingsVisible, quickActionSource]);
   const quickActionUpdate = useMemo(
     () =>
       quickActionSource
@@ -964,14 +1296,23 @@ export function BrowseScreen() {
     uninstallingSourceId,
   ]);
 
+  const hasExplicitSources = useMemo(
+    () => hasMobileExplicitSources(available.data),
+    [available.data],
+  );
+  // A toggle left on stays off while no directory lists explicit sources.
+  const adultShown = showAdult && hasExplicitSources;
   const filteredAvailable = useMemo(() => {
-    return filterMobileAvailableSources(available.data, {
+    const candidates = directoryFocus
+      ? available.data.filter((source) => source.registryId === directoryFocus)
+      : available.data;
+    return filterMobileAvailableSources(candidates, {
       appLanguage,
       query,
       selectedLanguages,
-      showAdult,
+      showAdult: adultShown,
     });
-  }, [appLanguage, available.data, query, selectedLanguages, showAdult]);
+  }, [adultShown, appLanguage, available.data, directoryFocus, query, selectedLanguages]);
   const groupedAvailable = useMemo(
     () =>
       groupMobileSourcesByLanguage(filteredAvailable, appLanguage, {
@@ -979,6 +1320,29 @@ export function BrowseScreen() {
       }),
     [appLanguage, filteredAvailable],
   );
+  const builtInKinds = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return SELF_HOSTED_SETUP_KINDS.filter(
+      (kind) => !needle || selfHostedKindName(kind).toLowerCase().includes(needle),
+    );
+  }, [query]);
+  // Typing or changing a filter: the rows left glide together, those going and
+  // coming fade. Up before the commit that moves them.
+  const availableFilterKey = `${query}|${[...selectedLanguages].join()}|${adultShown}|${directoryFocus ?? ""}`;
+  const seenAvailableFilterKeyRef = useRef(availableFilterKey);
+  if (seenAvailableFilterKeyRef.current !== availableFilterKey) {
+    seenAvailableFilterKeyRef.current = availableFilterKey;
+    openMobileGridGlideWindow();
+  }
+  // A source added or removed: its row fades in or out, the group's edge and
+  // the rows and groups after it glide.
+  const installedSourcesKey = installedSources.map((source) => source.id).join();
+  const seenInstalledSourcesKeyRef = useRef(installedSourcesKey);
+  if (seenInstalledSourcesKeyRef.current !== installedSourcesKey) {
+    // The first list arriving (the page's skeleton leaving) just shows.
+    if (seenInstalledSourcesKeyRef.current) openMobileGridGlideWindow();
+    seenInstalledSourcesKeyRef.current = installedSourcesKey;
+  }
   const availableSourceSections = useMemo<AvailableSourceSection[]>(
     () =>
       groupedAvailable.map((section) => ({
@@ -1018,6 +1382,7 @@ export function BrowseScreen() {
     availableCount: available.data.length,
     hasError: Boolean(error),
   });
+  const showNoSourcesEmpty = !error && !showSkeleton && installedSources.length === 0;
   const activeInstallKey = pendingInstallKey ?? installer.installingKey;
   const refreshDisabled = refreshingSources || activeInstallKey !== null;
   const catalogCacheAge = formatMobileCatalogCacheAge(
@@ -1029,73 +1394,7 @@ export function BrowseScreen() {
     strings,
     appLanguage,
   );
-  const activeFilterCount = selectedLanguages.size + (showAdult ? 1 : 0);
-
-  // Measured Add Sources sheet detent (iOS). Both inputs come from the
-  // sheet's own layout: the header stack's `onLayout` and the list's
-  // `onContentSizeChange`, which reports natural content height because the
-  // list's content container does not stretch (`availableListContent` opts
-  // out of `flexGrow` for exactly this reason). Until the first measurement
-  // lands, the detent stays at the 88% ceiling so the snap-point prop is
-  // always a one-element numeric array — iOS animates numeric detent changes
-  // in place, but it must never see `undefined` swap in for the array.
-  const [
-    addSourceHeaderStackHeight,
-    setAddSourceHeaderStackHeight,
-  ] = useState(0);
-  const [
-    addSourceListContentHeight,
-    setAddSourceListContentHeight,
-  ] = useState(0);
-  const addSourceSheetSnapPoint = useMemo(() => {
-    const metrics = resolveMobileSheetHeaderMetrics(Platform.OS);
-    const maxDetent = Math.round(
-      ADD_SOURCE_SHEET_MAX_DETENT_FRACTION *
-        (windowHeight - insets.top - insets.bottom),
-    );
-    const measuredDetent =
-      metrics.minimumHeight +
-      metrics.bodyTopPadding +
-      addSourceHeaderStackHeight +
-      addSourceListContentHeight +
-      ADD_SOURCE_SHEET_CORNER_CLEARANCE;
-    const detent =
-      addSourceHeaderStackHeight > 0 && addSourceListContentHeight > 0
-        ? measuredDetent
-        : maxDetent;
-    return Math.min(
-      Math.max(Math.round(detent), ADD_SOURCE_SHEET_MIN_DETENT),
-      maxDetent,
-    );
-  }, [
-    addSourceHeaderStackHeight,
-    addSourceListContentHeight,
-    insets.bottom,
-    insets.top,
-    windowHeight,
-  ]);
-  const handleAddSourceHeaderStackLayout = useCallback(
-    (event: LayoutChangeEvent) => {
-      const nextHeight = Math.ceil(event.nativeEvent.layout.height);
-      setAddSourceHeaderStackHeight((currentHeight) =>
-        currentHeight === nextHeight ? currentHeight : nextHeight,
-      );
-    },
-    [],
-  );
-  // A virtualized list re-reports its content height on every render batch,
-  // and each report re-ran the detent memo and re-rendered the sheet. The
-  // detent only needs one number: the first measurement wins and the next
-  // dismissal clears it for the next open.
-  const handleAvailableListContentSizeChange = useCallback(
-    (_contentWidth: number, contentHeight: number) => {
-      const nextHeight = Math.ceil(contentHeight);
-      setAddSourceListContentHeight((currentHeight) =>
-        currentHeight > 0 ? currentHeight : nextHeight,
-      );
-    },
-    [],
-  );
+  const activeFilterCount = selectedLanguages.size + (adultShown ? 1 : 0);
 
   const restoreAddSourceSheet = useCallback(() => {
     setActiveSheet("add-source");
@@ -1104,11 +1403,20 @@ export function BrowseScreen() {
 
   useEffect(() => {
     if (activeSheet !== "add-source") return;
-    void prefetchCachedMobileImages(
-      filteredAvailable
-        .slice(0, 36)
-        .map((source) => (source.icon ? { uri: source.icon } : null)),
+    // The icon prefetch resolves cache files synchronously on the JS thread.
+    // Run it once the thread is idle, after the sheet's own mount and its
+    // follow-up layout commits, instead of in the same tick as the mount.
+    const task = scheduleMobileIdleTask(
+      () => {
+        void prefetchCachedMobileImages(
+          filteredAvailable
+            .slice(0, 36)
+            .map((source) => (source.icon ? { uri: source.icon } : null)),
+        );
+      },
+      { timeout: 1200 },
     );
+    return () => task.cancel();
   }, [activeSheet, filteredAvailable]);
 
   const sourceUpdateNotice = available.sourceUpdateNotice;
@@ -1307,18 +1615,18 @@ export function BrowseScreen() {
         appLanguage,
       );
       return (
-        <Text
+        <NemuText
           style={[
             styles.sourceLanguageHeader,
             styles.availableSourceLanguageHeader,
-            { color: tokens.mutedForeground },
+            { color: sheetTokens.mutedForeground },
           ]}
         >
           {label}
-        </Text>
+        </NemuText>
       );
     },
-    [appLanguage, strings, tokens.mutedForeground],
+    [appLanguage, strings, sheetTokens.mutedForeground],
   );
   const renderAvailableSourceRow = useCallback(
     ({
@@ -1352,6 +1660,7 @@ export function BrowseScreen() {
     setConfirmationVisible(false);
   };
 
+  const refreshSourcesRef = useRef<() => Promise<void>>(async () => {});
   const refreshSources = async () => {
     if (refreshGuardRef.current || activeInstallKey !== null) return;
 
@@ -1362,13 +1671,25 @@ export function BrowseScreen() {
       await Promise.all([installed.reload(), available.reload()]);
       await hapticConfirm();
     } catch (error) {
+      if (isMobileSourceInstallCancellation(error)) return;
+      // A superseded/aborted refresh is not a failure; the run that replaced
+      // it reports itself.
+      if (isMobileRefreshSourcesCancellation(error)) return;
+      if (__DEV__) console.warn("[browse] refresh sources failed:", error);
       await hapticError();
-      setActionError(sourceActionErrorPresentation(error, strings));
+      // The page still shows its sources: a toast, not the inline banner.
+      showMobileRefreshSourcesErrorToast({
+        toast,
+        strings,
+        error,
+        onRetry: () => void refreshSourcesRef.current(),
+      });
     } finally {
       refreshGuardRef.current = false;
       setRefreshingSources(false);
     }
   };
+  refreshSourcesRef.current = refreshSources;
 
   const toggleLanguage = (language: string) => {
     setSelectedLanguages((current) => {
@@ -1382,15 +1703,64 @@ export function BrowseScreen() {
     });
   };
 
-  const openAddSourceSheet = () => {
+  // Bumped on every "+" tap (see `presentRequest`).
+  const [addSourcePresentRequest, setAddSourcePresentRequest] = useState(0);
+  // Set at the "+" tap; the sheet body's first layout measures the time to
+  // presentation (JS queueing plus mount) against it.
+  const addSourceTapStartedAtRef = useRef<number | null>(null);
+  // Stable: the native toolbar's items are rebuilt only when their own
+  // inputs change, not on every Browse render.
+  const openAddSourceSheet = useCallback(() => {
+    addSourceTapStartedAtRef.current = markMobilePerformance("browse.addSource.tap");
+    setAddSourcesPath([]);
     // A registry query is useful only for the current sheet visit. Keeping it
     // after installing or dismissing a source makes a later visit look empty
     // until the user notices and clears the stale filter.
     setQuery("");
+    setDirectoryFocus(null);
     addSourceDismissActionRef.current = null;
     setActiveSheet("add-source");
     setActiveSheetVisible(true);
+    // Lets the sheet tell a tap that must re-present it (its native close
+    // still in flight, or a presentation left invisible) from a no-op.
+    setAddSourcePresentRequest((request) => request + 1);
+  }, []);
+  const handleAddSourceSheetBodyLayout = useCallback(() => {
+    const startedAt = addSourceTapStartedAtRef.current;
+    if (startedAt === null) return;
+    addSourceTapStartedAtRef.current = null;
+    measureMobilePerformance("browse.addSource.presented", startedAt);
+  }, []);
+  // Settings → Installed Sources' "+" switches to this tab and files a
+  // one-shot request for the same sheet the header "+" opens. It is consumed
+  // when Browse is focused: right away on a first mount, or through the
+  // subscription when the tab was already mounted. The request is cleared
+  // either way, so it never reopens the sheet on a later visit; it is dropped
+  // (like the disabled "+") while an install runs or another sheet is up.
+  const addSourceRequestHandlerRef = useRef<() => void>(() => undefined);
+  addSourceRequestHandlerRef.current = () => {
+    if (!consumeMobileAddSourceSheetRequest()) return;
+    const focus = consumeMobileAddSourceSheetDirectoryFocus();
+    // Already open (a directory link confirmed over it): show the new
+    // directory's sources in place.
+    if (activeSheet === "add-source" && focus) {
+      setAddSourcesPath([]);
+      setQuery("");
+      setDirectoryFocus(focus);
+      return;
+    }
+    if (activeInstallKey !== null || activeSheet !== null) return;
+    openAddSourceSheet();
+    setDirectoryFocus(focus);
   };
+  useFocusEffect(
+    useCallback(() => {
+      addSourceRequestHandlerRef.current();
+      return subscribeMobileAddSourceSheetRequest(() => {
+        addSourceRequestHandlerRef.current();
+      });
+    }, []),
+  );
   const closeAddSourceSheet = () => {
     setActiveSheetVisible(false);
   };
@@ -1399,7 +1769,8 @@ export function BrowseScreen() {
     addSourceDismissActionRef.current = null;
     setActiveSheet(null);
     setActiveSheetVisible(false);
-    setAddSourceListContentHeight(0);
+    setAddSourcesPath([]);
+    setAddSourcesPageBlocksDismiss(false);
 
     if (next?.type === "open-language") {
       setActiveSheet("source-language");
@@ -1408,6 +1779,10 @@ export function BrowseScreen() {
     }
     if (next?.type === "start-install") {
       startInstallAfterAddSourceDismissal(next.source);
+      return;
+    }
+    if (next?.type === "open-server-form") {
+      router.push({ pathname: "/(tabs)/browse/server", params: { kind: next.kind } });
       return;
     }
     if (next?.type === "open-confirmation") {
@@ -1423,6 +1798,30 @@ export function BrowseScreen() {
   const openLanguageSheet = () => {
     requestAddSourceDismissal({ type: "open-language" });
   };
+  const openServerForm = (kind: SelfHostedKind) => {
+    void hapticSelection();
+    requestAddSourceDismissal({ type: "open-server-form", kind });
+  };
+  const openAddDirectory = () => {
+    void hapticSelection();
+    setAddSourcesPath([ADD_DIRECTORY_PAGE]);
+  };
+  const openServerPicker = () => {
+    void hapticSelection();
+    setAddSourcesPath([SERVER_PICKER_PAGE]);
+  };
+  const closeAddSourcesPages = useCallback(() => setAddSourcesPath([]), []);
+  // Added: back on the list, on the new directory's sources.
+  const handleDirectoryAdded = useCallback((directoryId: string) => {
+    setQuery("");
+    setDirectoryFocus(directoryId);
+    setAddSourcesPath([]);
+  }, []);
+  // Connected: the server is in Browse, below the sheet.
+  const handleServerConnected = useCallback(() => setActiveSheetVisible(false), []);
+  const addSourcesPage = addSourcesPath.at(-1);
+  const addDirectoryInBody = addSourcesPage === ADD_DIRECTORY_PAGE && !mobileAddSourcesPushesPagesNatively;
+  const serverPickerInBody = addSourcesPage === SERVER_PICKER_PAGE && !mobileAddSourcesPushesPagesNatively;
   const closeLanguageSheet = () => {
     setActiveSheetVisible(false);
   };
@@ -1508,25 +1907,309 @@ export function BrowseScreen() {
         }))
       : [];
 
+  // An unsupported source's row opens its settings in place, as the long-press
+  // 设置 does; the Settings tab stays the place to manage every source.
+  const openUnsupportedSourceSettings = (id: string) => {
+    setQuickActionSourceId(id);
+    setQuickActionSettingsVisible(true);
+  };
 
-  const nativeHeaderActions: NemuNativeHeaderAction[] = [
+  const sourceContextActions = (id: string): QuickAction[] => {
+    const source = mergedInstalledSources.find((item) => item.id === id);
+    if (!source) return [];
+    const update = findMobileSourceUpdates([source], available.data)[0];
+    const homepage = resolveMobileSourceHomepageUrl(source.packageMetadata?.urls);
+    return buildMobileSourceQuickActions({ canOpenSettings: true, hasUpdate: Boolean(update), hasHomepage: Boolean(homepage) }).map((descriptor) => ({
+      ...descriptor,
+      label: descriptor.id === "update"
+        ? formatMobileString(strings.browse.updateSourceToVersion, { version: update?.version ?? "" })
+        : quickActionLabel(descriptor.id),
+      onPress: () => {
+        // UIKit has finished dismissing the menu before presenting a destination.
+        switch (descriptor.id) {
+          case "settings":
+            setQuickActionSourceId(id);
+            setQuickActionSettingsVisible(true);
+            break;
+          case "update":
+            if (update) void installSourceRef.current?.(update);
+            break;
+          case "openInBrowser":
+            if (homepage) void Linking.openURL(homepage).catch(() => undefined);
+            break;
+          case "uninstall":
+            setQuickActionUninstall(source);
+            setQuickActionUninstallVisible(true);
+            break;
+        }
+      },
+    }));
+  };
+
+
+  const addSourceActionDisabled = activeInstallKey !== null;
+  const addSourcesLabel = strings.browse.addSources;
+  const manageSourcesLabel = strings.browse.manageSources;
+  const nativeHeaderActions = useMemo<NemuNativeHeaderAction[]>(() => [
     {
       icon: "plus",
-      label: strings.browse.addSources,
-      disabled: activeInstallKey !== null,
+      label: addSourcesLabel,
+      disabled: addSourceActionDisabled,
       onPress: openAddSourceSheet,
     },
-    {
-      icon: "square.stack.3d.up",
-      label: strings.browse.manageSources,
+    // The new design keeps one "+"; sources are managed from Settings.
+    ...(mobileDesignExploreFlag ? [] : [{
+      icon: "square.stack.3d.up" as const,
+      label: manageSourcesLabel,
       onPress: () => {
         router.push({
           pathname: "/(tabs)/settings/[section]",
           params: { section: "sources" },
         });
       },
-    },
-  ];
+    }]),
+  ], [addSourceActionDisabled, addSourcesLabel, manageSourcesLabel, openAddSourceSheet]);
+  // The same elements while the actions are unchanged, so a Browse render
+  // (a sheet state change, a keystroke) does not hand the toolbar items to
+  // native again.
+  const nativeToolbarButtons = useMemo(
+    () => renderNemuNativeToolbarButtons(nativeHeaderActions),
+    [nativeHeaderActions],
+  );
+
+  // Messages at the top of the page. Across the hinge they open the
+  // leading column instead of running across both panes.
+  const sourceTopCards = actionError || (showSourceUpdateNotice && sourceUpdateNotice && sourceUpdateMessage) ? (
+    <>
+      {actionError ? (
+        <MobileInlineErrorBanner
+          title={actionError.title}
+          detail={actionError.detail}
+          dismissLabel={strings.common.clear}
+          onDismiss={() => setActionError(null)}
+        />
+      ) : null}
+      {showSourceUpdateNotice &&
+      sourceUpdateNotice &&
+      sourceUpdateMessage ? (
+        <MobileInlineErrorBanner
+          title={strings.settings.sourcesUpdatedTitle}
+          detail={sourceUpdateMessage}
+          dismissLabel={strings.common.clear}
+          iconName="checkmark-circle-outline"
+          tone="success"
+          onDismiss={() =>
+            setDismissedSourceUpdateNoticeId(sourceUpdateNotice.id)
+          }
+        />
+      ) : null}
+    </>
+  ) : null;
+
+  // One language group: its header and its inset list (design-explore) or
+  // card grid. Across the hinge a group stays whole in its pane's column.
+  const renderSourceSection = (section: (typeof exploreSourceSections)[number]) => {
+    const label =
+      section.label === EXPLORE_LIBRARY_SECTION
+        ? strings.designExplore.browseInLibrary
+        : formatSourceLanguageLabel(section.label, strings, appLanguage);
+    const group = (
+      <Animated.View
+        key={section.label}
+        ref={mobileDesignExploreFlag ? sourceGroupAnchor.groupRef(section.label) : undefined}
+        collapsable={false}
+        layout={mobileGridGlideFrameTransition}
+        entering={mobileGridGlideAppearing}
+        exiting={mobileGridGlideVanishing}
+        style={[styles.sourceLanguageSection, mobileDesignExploreFlag ? styles.exploreSourceSection : null]}
+      >
+        <NemuText
+          style={[
+            styles.sourceLanguageHeader,
+            { color: tokens.mutedForeground },
+          ]}
+        >
+          {label}
+        </NemuText>
+        {mobileDesignExploreFlag ? (
+          // Design-explore: one inset group per language, short rows.
+          <Animated.View
+            layout={mobileGridGlideFrameTransition}
+            style={[
+              styles.exploreSourceGroup,
+              { backgroundColor: tokens.card, borderColor: tokens.cardBorder },
+            ]}
+          >
+            {section.sources.map((source, index) => (
+              // A real view per row (never flattened into the group), so
+              // a row moved between sections keeps its own subtree.
+              <Animated.View
+                key={source.id}
+                collapsable={false}
+                layout={mobileGridGlideTransition}
+                entering={mobileGridGlideAppearing}
+                exiting={mobileGridGlideVanishing}
+              >
+                {index > 0 ? (
+                  <View style={[styles.exploreSourceSeparator, { backgroundColor: tokens.border }]} />
+                ) : null}
+                {source.unsupported ? (
+                  <UnsupportedSourceRow
+                    source={source}
+                    strings={strings}
+                    onPress={() => openUnsupportedSourceSettings(source.id)}
+                  />
+                ) : (
+                  <MobileQuickActionMenu
+                    actions={sourceContextActions(source.id)}
+                    // The group draws the row's fill, so the lifted preview
+                    // was clear: the row carries the group's colour itself
+                    // (no change at rest) and lifts with the group's corners.
+                    style={{ backgroundColor: tokens.card }}
+                    cornerRadius={MOBILE_EXPLORE_RADIUS.group}
+                  >
+                  <SourceCard
+                    compact
+                    item={
+                      // A server's kind says what it is, even with nothing but servers listed.
+                      source.registryId === mainRegistry && source.registryId !== SELF_HOSTED_REGISTRY_ID && !source.exploreKeepSubtitle
+                        ? { ...source, subtitle: undefined }
+                        : source
+                    }
+                    onLongPress={mobileNativeQuickMenuAvailable ? undefined : () => {
+                      void hapticSelection();
+                      quickActionDismissRef.current = null;
+                      setQuickActionSourceId(source.id);
+                      setQuickActionVisible(true);
+                    }}
+                  />
+                  </MobileQuickActionMenu>
+                )}
+              </Animated.View>
+            ))}
+          </Animated.View>
+        ) : (
+        <View style={styles.sourceGrid}>
+          {chunkMobileGridRows(section.sources, sourceGrid.columns).map((row, rowIndex) => (
+            <MobilePoseLayoutView key={rowIndex} style={styles.sourceGridRow}>
+              {row.map((source, column) => (
+                // Folding glides each card to its pane (pose settle spring).
+                <MobilePoseLayoutView key={source.id} style={mobileFoldAwareGridCellStyle(sourceGrid, column)}>
+                  {source.unsupported ? (
+                    <UnsupportedSourceRow
+                      source={source}
+                      strings={strings}
+                      onPress={() => openUnsupportedSourceSettings(source.id)}
+                    />
+                  ) : (
+                    <MobileQuickActionMenu actions={sourceContextActions(source.id)}>
+                      <SourceCard
+                        item={source}
+                        onLongPress={mobileNativeQuickMenuAvailable ? undefined : () => {
+                          void hapticSelection();
+                          quickActionDismissRef.current = null;
+                          setQuickActionSourceId(source.id);
+                          setQuickActionVisible(true);
+                        }}
+                      />
+                    </MobileQuickActionMenu>
+                  )}
+                </MobilePoseLayoutView>
+              ))}
+            </MobilePoseLayoutView>
+          ))}
+        </View>
+        )}
+      </Animated.View>
+    );
+    // Design-explore: a group glides to its new place in its column (pose
+    // settle spring) when the columns move.
+    return mobileDesignExploreFlag ? (
+      <MobilePoseLayoutView key={section.label}>{group}</MobilePoseLayoutView>
+    ) : group;
+  };
+
+  // Android keeps everything above the list in one stack, so the scroll
+  // container's top edge sits exactly at the search field's bottom. The 12pt
+  // separation belongs to the list's own content inset (`availableListContent`):
+  // the first row starts 12pt clear of the field at rest. iOS: what is left of it
+  // scrolls with the list, which runs under the bar's search field and title.
+  const addSourceSheetHeader = (
+    <View
+      style={styles.addSourceSheetHeaderStack}
+    >
+      {available.error ? (
+        <MobileInlineToast
+          title={strings.feedback.catalogUnavailableTitle}
+          detail={[
+            strings.feedback.catalogUnavailableDetail,
+            catalogCacheAge,
+          ].filter(Boolean).join(" · ")}
+          actionLabel={strings.common.retry}
+          actionDisabled={refreshingSources}
+          actionLoading={refreshingSources}
+          onActionPress={() => {
+            void refreshSources();
+          }}
+        />
+      ) : null}
+      {/* iOS: the field is the sheet bar's own (`MobileAddSourcesStack`). */}
+      {mobileAddSourcesPushesPagesNatively ? null : (
+        <NemuNativeSearchField
+          accessibilityLabel={strings.browse.searchRegistries}
+          clearAccessibilityLabel={strings.common.clear}
+          clearActionTestID="AddSourceSearchClearAction"
+          onChangeText={setQuery}
+          placeholder={strings.browse.searchRegistries}
+          value={query}
+        />
+      )}
+
+      {selectedLanguages.size > 0 || adultShown || focusedDirectory ? (
+        <View style={styles.activeFilterChips}>
+          {focusedDirectory ? (
+            <ActiveFilterChip
+              label={formatMobileString(strings.browse.directoryFilterChip, {
+                name: getMobileRegistryDisplayName(focusedDirectory.id, focusedDirectory.name, strings),
+              })}
+              removeLabel={strings.common.remove}
+              onPress={() => setDirectoryFocus(null)}
+              wrapLabel
+            />
+          ) : null}
+          {[...selectedLanguages].map((language) => (
+            <ActiveFilterChip
+              key={language}
+              label={formatSourceLanguageLabel(
+                language,
+                strings,
+                appLanguage,
+              )}
+              removeLabel={strings.common.remove}
+              onPress={() => toggleLanguage(language)}
+            />
+          ))}
+          {adultShown ? (
+            <ActiveFilterChip
+              label={strings.browse.adult}
+              removeLabel={strings.common.remove}
+              onPress={() => setShowAdult(false)}
+            />
+          ) : null}
+        </View>
+      ) : null}
+
+      {actionError ? (
+        <MobileInlineErrorBanner
+          variant="embedded"
+          title={actionError.title}
+          detail={actionError.detail}
+          dismissLabel={strings.common.clear}
+          onDismiss={() => setActionError(null)}
+        />
+      ) : null}
+    </View>
+  );
 
   return (
     <>
@@ -1535,16 +2218,17 @@ export function BrowseScreen() {
           <Stack.Screen
             options={createNemuNativeScreenOptions(tokens, strings.nav.browse)}
           />
-          <Stack.Toolbar placement="right" tintColor={tokens.primary}>
-            {renderNemuNativeToolbarButtons(
-              nativeHeaderActions,
-              tokens.primary,
-            )}
+          <Stack.Toolbar placement="right">
+            {nativeToolbarButtons}
           </Stack.Toolbar>
         </>
       ) : null}
       <PageScaffold
         nativeHeader={usesNativeHeader}
+        scrollRef={browseScrollRef}
+        onScroll={mobileDesignExploreFlag ? sourceGroupAnchor.onScroll : undefined}
+        // No sources: the empty state fills the viewport and only rubber-bands.
+        fillViewport={showNoSourcesEmpty}
         onRefresh={() => {
           void refreshSources();
         }}
@@ -1588,31 +2272,10 @@ export function BrowseScreen() {
             accessibilityLabel={strings.welcome.loadingSources}
           />
         ) : (
-          <View style={styles.sections}>
-            {actionError ? (
-              <MobileInlineErrorBanner
-                title={actionError.title}
-                detail={actionError.detail}
-                dismissLabel={strings.common.clear}
-                onDismiss={() => setActionError(null)}
-              />
-            ) : null}
-            {showSourceUpdateNotice &&
-            sourceUpdateNotice &&
-            sourceUpdateMessage ? (
-              <MobileInlineErrorBanner
-                title={strings.settings.sourcesUpdatedTitle}
-                detail={sourceUpdateMessage}
-                dismissLabel={strings.common.clear}
-                iconName="checkmark-circle-outline"
-                tone="success"
-                onDismiss={() =>
-                  setDismissedSourceUpdateNoticeId(sourceUpdateNotice.id)
-                }
-              />
-            ) : null}
+          <View style={[styles.sections, showNoSourcesEmpty ? styles.fillGrow : null]}>
+            {sourceListSplit ? null : sourceTopCards}
 
-            <View>
+            <View style={showNoSourcesEmpty ? styles.fillGrow : undefined}>
               {!usesNativeHeader && installedSources.length > 0 ? (
                 <View style={styles.sourceHeader}>
                   <NemuButton
@@ -1625,63 +2288,56 @@ export function BrowseScreen() {
                 </View>
               ) : null}
               {installedSources.length ? (
-                <View style={styles.availableList}>
-                  {groupedInstalledSources.map((section) => {
-                    const label = formatSourceLanguageLabel(
-                      section.label,
-                      strings,
-                      appLanguage,
-                    );
-                    return (
-                      <View
-                        key={section.label}
-                        style={styles.sourceLanguageSection}
+                <View
+                  ref={sourceGridContainer.ref}
+                  onLayout={sourceGridContainer.onLayout}
+                  style={mobileDesignExploreFlag ? styles.sourceColumnsRow : styles.availableList}
+                >
+                  {mobileDesignExploreFlag ? (
+                    // Stable column keys (as Settings' split panes): a column
+                    // keeps its groups mounted while the window turns, its
+                    // frame on the pose layout transition; the trailing one
+                    // fades in when the panes appear (pose entering/exiting,
+                    // only inside a pose change, so a first mount just shows).
+                    // The frame transition only moves the column's own frame:
+                    // its groups were laid out at the new width at once, so
+                    // unfolding snapped each row's trailing edge and chevron
+                    // ~17pt in one frame while the column glided (build 9 r2
+                    // E). The content now follows the width on the same
+                    // spring, laid out at each in-between width.
+                    sourceColumns.map((column, columnIndex) => (
+                      <MobilePoseLayoutView
+                        key={`col-${columnIndex}`}
+                        entering={sourcePose.entering}
+                        exiting={sourcePose.exiting}
+                        style={{ width: column.width, marginLeft: column.marginLeft }}
                       >
-                        <Text
-                          style={[
-                            styles.sourceLanguageHeader,
-                            { color: tokens.mutedForeground },
-                          ]}
-                        >
-                          {label}
-                        </Text>
-                        <View style={styles.list}>
-                          {section.sources.map((source) =>
-                            source.unsupported ? (
-                              <UnsupportedSourceRow
-                                key={source.id}
-                                source={source}
-                                strings={strings}
-                                onPress={() => {
-                                  router.push(sourceSettingsHref(source));
-                                }}
-                              />
-                            ) : (
-                              <SourceCard
-                                key={source.id}
-                                item={source}
-                                onLongPress={() => {
-                                  void hapticSelection();
-                                  quickActionDismissRef.current = null;
-                                  setQuickActionSourceId(source.id);
-                                  setQuickActionVisible(true);
-                                }}
-                              />
-                            ),
+                        <MobilePoseWidthSpringView width={column.width} style={styles.sourceColumn}>
+                          {columnIndex === 0 && sourceListSplit ? sourceTopCards : null}
+                          {exploreSourceSections.map((section, sectionIndex) =>
+                            (sourceGroupColumns[sectionIndex] ?? 0) === columnIndex ? renderSourceSection(section) : null,
                           )}
-                        </View>
-                      </View>
-                    );
-                  })}
+                        </MobilePoseWidthSpringView>
+                      </MobilePoseLayoutView>
+                    ))
+                  ) : (
+                    exploreSourceSections.map(renderSourceSection)
+                  )}
                 </View>
               ) : (
-                <MobilePageEmpty
-                  icon="globe-outline"
-                  title={strings.browse.noSources}
-                  description={strings.browse.noSourcesDescription}
-                  actionLabel={strings.browse.addSource}
-                  onActionPress={openAddSourceSheet}
-                />
+                <MobilePaneAlignedView fill>
+                  {({ minHeight }) => (
+                    <MobilePageEmpty
+                      fill
+                      minHeight={minHeight}
+                      icon="globe-outline"
+                      title={strings.browse.noSources}
+                      description={strings.browse.noSourcesDescription}
+                      actionLabel={strings.browse.addSource}
+                      onActionPress={openAddSourceSheet}
+                    />
+                  )}
+                </MobilePaneAlignedView>
               )}
             </View>
           </View>
@@ -1691,12 +2347,56 @@ export function BrowseScreen() {
       {activeSheet === "add-source" ? (
         <MobileNativeSheetScaffold
           visible={activeSheetVisible}
+          presentRequest={addSourcePresentRequest}
           onClose={closeAddSourceSheet}
           onDismiss={handleAddSourceSheetDismissed}
-          title={strings.browse.addSources}
-          dismissLabel={strings.common.done}
-          dismissAsIcon
-          headerLeading={
+          onHardwareBackPress={addDirectoryInBody ? () => {
+            closeAddSourcesPages();
+            return true;
+          } : undefined}
+          // iOS: the title, the filter and ✕ are the stack's own bar (`MobileAddSourcesStack`).
+          title={mobileAddSourcesPushesPagesNatively
+            ? undefined
+            : addDirectoryInBody
+              ? strings.browse.addSourceDirectory
+              : serverPickerInBody ? strings.selfHosted.connectServer : strings.browse.addSources}
+          dismissLabel={mobileAddSourcesPushesPagesNatively ? undefined : strings.common.close}
+          enablePanDownToClose={!(addSourcesPage !== undefined && addSourcesPageBlocksDismiss)}
+          wrapIosHostedContent={(hostedContent) => (
+            <MobileAddSourcesStack
+              path={addSourcesPath}
+              onPathChange={setAddSourcesPath}
+              onDirectoryAdded={handleDirectoryAdded}
+              onServerConnected={handleServerConnected}
+              onDismissBlockedChange={setAddSourcesPageBlocksDismiss}
+              title={strings.browse.addSources}
+              closeAccessibilityLabel={strings.common.close}
+              onClose={closeAddSourceSheet}
+              search={{
+                placeholder: strings.browse.searchRegistries,
+                query,
+                onChangeQuery: setQuery,
+              }}
+              filter={{
+                accessibilityLabel: formatMobileString(strings.browse.languageFilterOption, { language: selectedFilterLabel }),
+                active: activeFilterCount > 0,
+                onPress: () => {
+                  void hapticSelection();
+                  openLanguageSheet();
+                },
+              }}
+            >
+              {hostedContent}
+            </MobileAddSourcesStack>
+          )}
+          headerLeading={mobileAddSourcesPushesPagesNatively ? undefined : serverPickerInBody || addDirectoryInBody ? (
+            <NemuNativeSheetHeaderAction
+              accessibilityLabel={strings.common.back}
+              androidIcon="chevron-back"
+              iosSystemImage="chevron.backward"
+              onPress={closeAddSourcesPages}
+            />
+          ) : (
             <NemuNativeSheetHeaderAction
               accessibilityLabel={formatMobileString(
                 strings.browse.languageFilterOption,
@@ -1710,144 +2410,168 @@ export function BrowseScreen() {
                 openLanguageSheet();
               }}
             />
-          }
-          // Same height on both platforms; the scaffold maps the detent onto
-          // Android's content-wrapping Material sheet.
-          snapPoints={[addSourceSheetSnapPoint]}
+          )}
+          // Opens at the first detent (75%); iOS drags up to the second
+          // (100%). The scaffold maps the first onto Android's
+          // content-wrapping Material sheet.
+          snapPoints={ADD_SOURCE_SHEET_SNAP_POINTS}
           fillContent
           contentBottomInset={0}
+          // The list runs through the home indicator's inset to the sheet's
+          // own bottom edge (at the full-height detent it stopped in a hard
+          // line there, cutting the last card in half) and ends with the
+          // scaffold's end spacer.
+          softBottomEdge
+          // iOS: the list stays beside the vertical bar, under the stack's bar
+          // (no room above it for the system grabber: the bar has its own).
+          contentIgnoresSafeAreaEdges={mobileAddSourcesPushesPagesNatively ? ADD_SOURCE_SHEET_NO_IGNORED_EDGES : "horizontal"}
+          // Beside the outer display's vertical bar the list ends on the safe
+          // area's edge, as the Form of a page pushed over it does.
+          contentStyle={mobileAddSourcesPushesPagesNatively
+            ? [
+                styles.addSourceSheetUnderBar,
+                verticalBarSide && !regularWidth
+                  ? verticalBarSide === "right" ? { paddingRight: 0 } : { paddingLeft: 0 }
+                  : null,
+              ]
+            : undefined}
           testID="AddSourceSheet"
         >
-          <View style={styles.addSourceSheetBody}>
-            {/*
-              Everything above the list lives in one stack so the scroll
-              container's top edge sits exactly at the search field's bottom.
-              The 12pt separation belongs to the list's own content inset
-              (`availableListContent`) instead of a flex gap: rows then slide
-              under the field while scrolling instead of being clipped at a
-              hard edge floating in an empty gap, and the first row still
-              starts 12pt clear of the field at rest.
-            */}
-            <View
-              onLayout={handleAddSourceHeaderStackLayout}
-              style={styles.addSourceSheetHeaderStack}
-            >
-              {available.error ? (
-                <MobileInlineToast
-                  title={strings.feedback.catalogUnavailableTitle}
-                  detail={[
-                    strings.feedback.catalogUnavailableDetail,
-                    catalogCacheAge,
-                  ].filter(Boolean).join(" · ")}
-                  actionLabel={strings.common.retry}
-                  actionDisabled={refreshingSources}
-                  actionLoading={refreshingSources}
-                  onActionPress={() => {
-                    void refreshSources();
-                  }}
-                />
-              ) : null}
-              {/*
-                iOS renders this as a real SwiftUI `TextField` (`Host > HStack >
-                magnifier / TextField / clear Button`) via `@expo/ui/swift-ui`;
-                every other platform keeps the RN `TextInput` capsule. Both live
-                in `NemuNativeSearchField`, which also documents the SwiftUI
-                first-responder/IME caveat of hosting a text field inside the
-                sheet's own SwiftUI presentation and how to fall back.
-              */}
-              <NemuNativeSearchField
-                accessibilityLabel={strings.browse.searchRegistries}
-                clearAccessibilityLabel={strings.common.clear}
-                clearActionTestID="AddSourceSearchClearAction"
-                onChangeText={setQuery}
-                placeholder={strings.browse.searchRegistries}
-                value={query}
-              />
-
-              {selectedLanguages.size > 0 || showAdult ? (
-                <View style={styles.activeFilterChips}>
-                  {[...selectedLanguages].map((language) => (
-                    <ActiveFilterChip
-                      key={language}
-                      label={formatSourceLanguageLabel(
-                        language,
-                        strings,
-                        appLanguage,
-                      )}
-                      removeLabel={strings.common.remove}
-                      onPress={() => toggleLanguage(language)}
-                    />
-                  ))}
-                  {showAdult ? (
-                    <ActiveFilterChip
-                      label={strings.browse.adult}
-                      removeLabel={strings.common.remove}
-                      onPress={() => setShowAdult(false)}
-                    />
-                  ) : null}
-                </View>
-              ) : null}
-
-              {actionError ? (
-                <MobileInlineErrorBanner
-                  variant="embedded"
-                  title={actionError.title}
-                  detail={actionError.detail}
-                  dismissLabel={strings.common.clear}
-                  onDismiss={() => setActionError(null)}
-                />
-              ) : null}
-            </View>
-
-            <SectionList
-              // Android: inside a native sheet, hand the drag to the sheet at the top.
-              nestedScrollEnabled
-              alwaysBounceVertical={false}
-              automaticallyAdjustContentInsets={false}
-              contentInsetAdjustmentBehavior="never"
-              onContentSizeChange={handleAvailableListContentSizeChange}
-              initialNumToRender={18}
-              maxToRenderPerBatch={18}
-              keyboardDismissMode="interactive"
-              keyboardShouldPersistTaps="handled"
-              sections={availableSourceSections}
-              keyExtractor={availableSourceKeyExtractor}
-              renderSectionHeader={renderAvailableSectionHeader}
-              renderItem={renderAvailableSourceRow}
-              ItemSeparatorComponent={AvailableRowSeparator}
-              SectionSeparatorComponent={AvailableSectionSeparator}
-              ListEmptyComponent={
-                <View
-                  style={[
-                    styles.inlineEmpty,
-                    {
-                      backgroundColor: tokens.card,
-                      borderColor: tokens.border,
-                    },
-                  ]}
-                >
-                  <Ionicons
-                    name="filter-outline"
-                    size={22}
-                    color={tokens.mutedForeground}
-                  />
-                  <Text
-                    style={[
-                      styles.inlineEmptyText,
-                      { color: tokens.mutedForeground },
-                    ]}
-                  >
-                    {strings.browse.noSourceResults}
-                  </Text>
-                </View>
-              }
-              style={styles.availableListScroller}
-              contentContainerStyle={styles.availableListContent}
-              stickySectionHeadersEnabled={false}
-              updateCellsBatchingPeriod={32}
-              windowSize={7}
+          {addDirectoryInBody ? (
+            <MobileAddSourcesDirectoryPage
+              open
+              onAdded={handleDirectoryAdded}
+              onDismissBlockedChange={setAddSourcesPageBlocksDismiss}
             />
-          </View>
+          ) : serverPickerInBody ? (
+            <NemuSheetScrollEdge>
+              {(edge) => (
+                <ScrollView {...edge} contentContainerStyle={styles.serverPicker}>
+                  {SELF_HOSTED_SETUP_KINDS.map((kind) => (
+                    <BuiltInSourceRow key={kind} kind={kind} strings={strings} onPress={openServerForm} />
+                  ))}
+                </ScrollView>
+              )}
+            </NemuSheetScrollEdge>
+          ) : <View style={styles.addSourceSheetBody} onLayout={handleAddSourceSheetBodyLayout}>
+            {mobileAddSourcesPushesPagesNatively ? null : addSourceSheetHeader}
+
+            <AddSourceListAfterSheetLayout>
+            <NemuSheetScrollEdge style={styles.availableListScroller}>
+              {(edge) => (
+                <SectionList
+                  {...edge}
+                  // Focused on a just-added directory: its sources alone.
+                  ListHeaderComponent={<>
+                  {mobileAddSourcesPushesPagesNatively ? (
+                    <>
+                      {/* The bar's observed scroll view: UIKit's soft edge forms at the bar. Not at the top
+                          beside a vertical bar, whose bar would hide the sheet's title on scroll; the body's
+                          `NemuSheetScrollEdge` forms it there. */}
+                      <ContentScrollMarker topEdge={!verticalBarSide || regularWidth} />
+                      {addSourceSheetHeader}
+                    </>
+                  ) : null}
+                  {builtInKinds.length > 0 && !directoryFocus ? (
+                    <NemuPressable
+                      accessibilityRole="button"
+                      onPress={openServerPicker}
+                      accessibilityLabel={strings.selfHosted.connectServer}
+                      pressHighlight
+                      style={[
+                        styles.serverEntry,
+                        { backgroundColor: sheetTokens.card, borderColor: sheetTokens.border },
+                      ]}
+                    >
+                      {/* The servers stack into a source row's 44pt icon slot, each
+                          ringed in the card colour so the overlaps read as tiles. */}
+                      <View style={styles.serverEntryIcons}>
+                        {SELF_HOSTED_SETUP_KINDS.map((kind, index) => (
+                          <View
+                            key={kind}
+                            style={[
+                              styles.serverEntryIconRing,
+                              kind === "suwayomi" ? styles.serverEntryIconRingRound : null,
+                              { left: index * 10 - 1.5, borderColor: sheetTokens.card },
+                            ]}
+                          >
+                            <ServerIconImage source={SERVER_ICONS[kind]} style={styles.serverEntryIcon} resizeMode="contain" />
+                          </View>
+                        ))}
+                      </View>
+                      <NemuText numberOfLines={1} style={[styles.serverEntryLabel, { color: sheetTokens.foreground }]}>{strings.selfHosted.connectServer}</NemuText>
+                      <Ionicons name="chevron-forward" size={16} color={sheetTokens.mutedForeground} style={{ marginRight: -4 }} />
+                    </NemuPressable>
+                  ) : null}
+                  </>}
+                  // Android: inside a native sheet, hand the drag to the sheet at the top.
+                  nestedScrollEnabled
+                  alwaysBounceVertical={mobileAddSourcesPushesPagesNatively}
+                  automaticallyAdjustContentInsets={mobileAddSourcesPushesPagesNatively}
+                  contentInsetAdjustmentBehavior={mobileAddSourcesPushesPagesNatively ? "always" : "never"}
+                  initialNumToRender={10}
+                  maxToRenderPerBatch={18}
+                  keyboardDismissMode="interactive"
+                  keyboardShouldPersistTaps="handled"
+                  sections={availableSourceSections}
+                  keyExtractor={availableSourceKeyExtractor}
+                  renderSectionHeader={renderAvailableSectionHeader}
+                  renderItem={renderAvailableSourceRow}
+                  ItemSeparatorComponent={AvailableRowSeparator}
+                  SectionSeparatorComponent={AvailableSectionSeparator}
+                  CellRendererComponent={MobileListChangeCell}
+                  ListFooterComponent={
+                    <>
+                      {sourceDirectories.loading || directoryFocus ? null : (
+                        <SourceDirectoryGuide
+                          prominent={!hasMobileUserSourceDirectory(sourceDirectories.directories)}
+                          strings={strings}
+                          onPress={openAddDirectory}
+                        />
+                      )}
+                      <MobileNativeSheetEndSpacer />
+                    </>
+                  }
+                  ListEmptyComponent={
+                    // A just-added directory's sources may still be loading.
+                    directoryFocus && available.loading ? (
+                      <ActivityIndicator style={styles.directoryFocusLoading} color={sheetTokens.primary} />
+                    ) : <View
+                      style={[
+                        styles.inlineEmpty,
+                        {
+                          backgroundColor: sheetTokens.card,
+                          borderColor: sheetTokens.border,
+                        },
+                      ]}
+                    >
+                      {/* Decorative: VoiceOver otherwise stops on the icon font's glyph. */}
+                      <Ionicons
+                        name="filter-outline"
+                        size={22}
+                        color={sheetTokens.mutedForeground}
+                        accessibilityElementsHidden
+                        importantForAccessibility="no-hide-descendants"
+                      />
+                      <NemuText
+                        style={[
+                          styles.inlineEmptyText,
+                          { color: sheetTokens.mutedForeground },
+                        ]}
+                      >
+                        {strings.browse.noSourceResults}
+                      </NemuText>
+                    </View>}
+                  style={styles.availableListScroller}
+                  contentContainerStyle={styles.availableListContent}
+                  stickySectionHeadersEnabled={false}
+                  updateCellsBatchingPeriod={32}
+                  windowSize={7}
+                />
+              )}
+            </NemuSheetScrollEdge>
+            </AddSourceListAfterSheetLayout>
+          </View>}
         </MobileNativeSheetScaffold>
       ) : null}
 
@@ -1857,7 +2581,7 @@ export function BrowseScreen() {
           onClose={closeLanguageSheet}
           onDismiss={handleLanguageSheetDismissed}
           title={strings.browse.languageFilter}
-          dismissLabel={strings.common.done}
+          dismissLabel={strings.common.close}
           snapPoints={["82%"]}
           scroll
           scrollContentBottomInset={18}
@@ -1870,8 +2594,10 @@ export function BrowseScreen() {
             appLanguage={appLanguage}
             onSelectAll={() => setSelectedLanguages(new Set())}
             onToggleLanguage={toggleLanguage}
-            showAdult={showAdult}
-            onToggleAdult={() => setShowAdult((value) => !value)}
+            showAdult={adultShown}
+            onToggleAdult={
+              hasExplicitSources ? () => setShowAdult((value) => !value) : null
+            }
           />
         </MobileNativeSheetScaffold>
       ) : null}
@@ -1960,9 +2686,83 @@ export function BrowseScreen() {
   );
 }
 
+/** Key of the design-explore "In Your Library" group among the language groups. */
+const EXPLORE_LIBRARY_SECTION = "explore:library";
+
+/** The Add Sources sheet's cards take the Settings groups' shape (on iOS, where that design applies). */
+const ADD_SOURCE_CARD_SHAPE = mobileDesignExploreFlag ? MOBILE_EXPLORE_GROUP_SHAPE : { borderRadius: radius.xl };
+
 const styles = StyleSheet.create({
+  exploreSourceSection: {
+    // The page's width between its gutters on every window, as Library and
+    // Settings use it (a 640pt centred column left most of an iPad empty).
+    width: "100%",
+  },
+  exploreSourceGroup: {
+    borderRadius: MOBILE_EXPLORE_RADIUS.group,
+    borderCurve: "continuous",
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: "hidden",
+  },
+  exploreSourceSeparator: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 14 + 40 + 12,
+  },
   sections: {
     gap: 26,
+  },
+  fillGrow: {
+    flexGrow: 1,
+  },
+  serverPicker: { gap: 12, paddingTop: 12, paddingBottom: 24 },
+  // A source row's card and columns (`availableShell`, `availableRow`), so
+  // icons, label and chevron line up with the rows below.
+  serverEntry: {
+    height: 56,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 12,
+    ...ADD_SOURCE_CARD_SHAPE,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: "hidden",
+    // The gap between language groups (`availableSectionSeparator`): the
+    // first header belongs to the rows beneath it, not to this card.
+    marginBottom: 18,
+  },
+  serverEntryIcons: { width: 44, height: 24 },
+  // The ring sits outside the 24pt icon, as a shadow ring would.
+  serverEntryIconRing: {
+    position: "absolute",
+    top: -1.5,
+    width: 27,
+    height: 27,
+    borderRadius: 7.5,
+    borderWidth: 1.5,
+    overflow: "hidden",
+  },
+  // Suwayomi's mark is a circle.
+  serverEntryIconRingRound: { borderRadius: 13.5 },
+  serverEntryIcon: { width: 24, height: 24 },
+  serverEntryLabel: { flex: 1, fontSize: 15, fontWeight: nemuFontWeight.medium },
+  directoryGuide: {
+    minHeight: 56,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: 18,
+    ...ADD_SOURCE_CARD_SHAPE,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: "hidden",
+  },
+  directoryGuideText: { flex: 1, gap: 2 },
+  directoryGuideLabel: { fontSize: 15, fontWeight: nemuFontWeight.medium },
+  directoryGuideDetail: { fontSize: 13, lineHeight: 17 },
+  directoryFocusLoading: { paddingVertical: 24 },
+  addSourceSheetUnderBar: {
+    marginTop: -MOBILE_NATIVE_SHEET_GRABBER_ROOM,
   },
   addSourceSheetBody: {
     flex: 1,
@@ -1984,11 +2784,24 @@ const styles = StyleSheet.create({
     gap: 12,
     marginBottom: 12,
   },
-  list: {
+  // Explicit rows; column spacing is each cell's marginLeft so the middle
+  // gutter can equal the fold in book posture.
+  sourceGrid: {
     gap: 12,
+  },
+  sourceGridRow: {
+    flexDirection: "row",
   },
   availableList: {
     gap: 18,
+  },
+  // Design-explore: the group columns side by side (one, or one a pane).
+  sourceColumnsRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+  sourceColumn: {
+    gap: MOBILE_SOURCE_GROUP_GAP,
   },
   availableListScroller: {
     flex: 1,
@@ -1999,13 +2812,7 @@ const styles = StyleSheet.create({
     // the scroll viewport starts at the field's bottom edge and nothing is
     // ever clipped in the empty space between them.
     paddingTop: 12,
-    // Rounded-corner tail: the measured detent adds 12pt of clearance on top
-    // of this padding, leaving ~36pt under the last row at full scroll.
-    paddingBottom: 24,
-    // No `flexGrow`: a content container stretched to the viewport would
-    // report the viewport height from `onContentSizeChange`, and the sheet's
-    // measured detent depends on that callback reporting the natural content
-    // height to stay out of a feedback loop.
+    // The tail under the last row is the sheet's end spacer (soft bottom edge).
   },
   availableRowSeparator: {
     height: 12,
@@ -2028,7 +2835,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 14,
-    borderRadius: radius.xl,
+    ...ADD_SOURCE_CARD_SHAPE,
     borderWidth: StyleSheet.hairlineWidth,
     padding: 14,
   },
@@ -2071,7 +2878,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    borderRadius: radius.xl,
+    ...ADD_SOURCE_CARD_SHAPE,
     borderWidth: StyleSheet.hairlineWidth,
     padding: 16,
   },
@@ -2081,7 +2888,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   languageListSection: {
-    borderRadius: radius.xl,
+    ...ADD_SOURCE_CARD_SHAPE,
   },
   languageListContent: {
     paddingHorizontal: 0,
@@ -2153,7 +2960,7 @@ const styles = StyleSheet.create({
   availableShell: {
     height: 74,
     flexShrink: 0,
-    borderRadius: radius.xl,
+    ...ADD_SOURCE_CARD_SHAPE,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
   },
@@ -2213,12 +3020,14 @@ const styles = StyleSheet.create({
     fontWeight: nemuFontWeight.regular,
   },
   installStatus: {
+    // The Install button's slot, so the text column holds still; the status
+    // ends where the button does.
     width: 112,
     minHeight: 32,
     flexShrink: 0,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "flex-end",
     gap: 6,
   },
   installText: {

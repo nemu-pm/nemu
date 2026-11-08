@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { LibraryEntry } from "@/data/schema";
+import type { LibraryEntry, LocalMangaProgress } from "@/data/schema";
 import {
   canClearMobileSearchQuery,
   groupLocalSearchResults,
@@ -329,6 +329,63 @@ describe("mobile search helpers", () => {
     expect(groups).toHaveLength(1);
     expect(groups[0]?.source.name).toBe("Alpha");
     expect(groups[0]?.entries.map((item) => item.item.libraryItemId)).toEqual(["one"]);
+  });
+
+  describe("a title linked to several selected sources", () => {
+    const display = (sourceId: string) => ({
+      id: `reg:${sourceId}`,
+      registryId: "reg",
+      rawSourceId: sourceId,
+      name: sourceId,
+    });
+    const sources = [display("alpha"), display("beta"), display("gamma")];
+    const link = (sourceId: string) => ({ registryId: "reg", sourceId, sourceMangaId: "blue-lock" });
+    const linked = entry("one", "Blue Lock", [link("alpha"), link("beta")]);
+    const linkId = (sourceId: string) => linked.sources.find((item) => item.sourceId === sourceId)!.id;
+    const readAt = (sourceId: string, lastReadAt: number) =>
+      [linkId(sourceId), { id: linkId(sourceId), lastReadAt } as LocalMangaProgress] as const;
+    const shownUnder = (groups: ReturnType<typeof groupLocalSearchResults>) =>
+      groups.filter((group) => group.entries.length > 0).map((group) => group.source.rawSourceId);
+    const total = (groups: ReturnType<typeof groupLocalSearchResults>) =>
+      groups.reduce((sum, group) => sum + group.entries.length, 0);
+
+    test("appears once, under its first linked source when nothing was read", () => {
+      const groups = groupLocalSearchResults([linked], sources, null, "blue");
+      expect(shownUnder(groups)).toEqual(["alpha"]);
+      expect(total(groups)).toBe(1);
+    });
+
+    test("appears under the source it was last read from", () => {
+      const progress = new Map([readAt("alpha", 100), readAt("beta", 200)]);
+      const groups = groupLocalSearchResults([linked], sources, null, "blue", progress);
+      expect(shownUnder(groups)).toEqual(["beta"]);
+      expect(total(groups)).toBe(1);
+    });
+
+    test("without reading, follows the primary source of its source order", () => {
+      const ordered: LibraryEntry = {
+        ...linked,
+        item: { ...linked.item, sourceOrder: [linkId("beta"), linkId("alpha")] },
+      };
+      expect(shownUnder(groupLocalSearchResults([ordered], sources, null, "blue"))).toEqual(["beta"]);
+    });
+
+    test("falls back to a selected source when the last read one is out of scope", () => {
+      const progress = new Map([readAt("beta", 200)]);
+      const groups = groupLocalSearchResults([linked], sources, ["reg:alpha", "reg:gamma"], "blue", progress);
+      expect(shownUnder(groups)).toEqual(["alpha"]);
+    });
+
+    test("is left out when none of its sources is selected", () => {
+      expect(total(groupLocalSearchResults([linked], sources, ["reg:gamma"], "blue"))).toBe(0);
+    });
+
+    test("keeps library order and one group per selected source", () => {
+      const second = entry("two", "Blue Period", [link("alpha")]);
+      const groups = groupLocalSearchResults([second, linked], sources, null, "blue");
+      expect(groups.map((group) => group.source.rawSourceId)).toEqual(["alpha", "beta", "gamma"]);
+      expect(groups[0]?.entries.map((item) => item.item.libraryItemId)).toEqual(["two", "one"]);
+    });
   });
 
   test("groups local matches by registry source key when manifest ids differ", () => {

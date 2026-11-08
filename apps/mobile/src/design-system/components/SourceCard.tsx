@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Image, StyleSheet, Text, View, type ImageSourcePropType } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router } from "expo-router";
 import { useMobileLanguageSettings } from "@/data/mobileHooks";
@@ -18,6 +18,8 @@ export type SourceCardModel = {
   sourceId: string;
   name: string;
   icon?: string;
+  /** Bundled artwork (a built-in server's mark); wins over `icon`. */
+  iconAsset?: ImageSourcePropType;
   languages?: string[];
   subtitle?: string;
 };
@@ -25,13 +27,21 @@ export type SourceCardModel = {
 export function SourceCard({
   item,
   onLongPress,
+  compact = false,
 }: {
   item: SourceCardModel;
   onLongPress?: () => void;
+  /**
+   * A row inside a grouped list (design-explore): no card of its own, a
+   * smaller icon, a chevron. The group draws the surface and separators.
+   */
+  compact?: boolean;
 }) {
   const { scheme, tokens } = useNemuTheme();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
+  // A server of a kind this build has no mark for.
+  const fallbackIcon = item.registryId === "self-hosted" ? "server-outline" : "globe-outline";
   const visuals = resolveSourceCardVisuals(scheme);
   const longPressHandledRef = useRef(false);
 
@@ -71,29 +81,42 @@ export function SourceCard({
       onPress={openSource}
       onLongPress={openLongPressAction}
       delayLongPress={320}
-      style={[
-        styles.root,
-        {
-          backgroundColor: visuals.cardBackground,
-          borderColor: visuals.cardBorder,
-        },
-        visuals.cardShadow,
-      ]}
+      style={
+        compact
+          ? styles.compactRoot
+          : [
+              styles.root,
+              {
+                backgroundColor: visuals.cardBackground,
+                borderColor: visuals.cardBorder,
+              },
+              visuals.cardShadow,
+            ]
+      }
     >
       <View
         style={[
           styles.iconFrame,
+          compact ? styles.compactIconFrame : null,
           {
             backgroundColor: visuals.iconBackground,
             borderColor: visuals.iconBorder,
           },
         ]}
       >
-        {item.icon ? (
+        {item.iconAsset ? (
+          <Image
+            accessibilityIgnoresInvertColors
+            fadeDuration={0}
+            resizeMode="cover"
+            source={item.iconAsset}
+            style={styles.iconImage}
+          />
+        ) : item.icon ? (
           <MobileCachedImage
             fallback={
               <Ionicons
-                name="globe-outline"
+                name={fallbackIcon}
                 size={24}
                 color={tokens.mutedForeground}
               />
@@ -104,7 +127,7 @@ export function SourceCard({
           />
         ) : (
           <Ionicons
-            name="globe-outline"
+            name={fallbackIcon}
             size={24}
             color={tokens.mutedForeground}
           />
@@ -128,11 +151,27 @@ export function SourceCard({
           </Text>
         ) : null}
       </View>
+      {compact ? (
+        <Ionicons name="chevron-forward" size={16} color={tokens.mutedForeground} />
+      ) : null}
     </NemuPressable>
   );
 }
 
 const styles = StyleSheet.create({
+  compactRoot: {
+    minHeight: 60,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  compactIconFrame: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+  },
   root: {
     minHeight: 84,
     flexDirection: "row",

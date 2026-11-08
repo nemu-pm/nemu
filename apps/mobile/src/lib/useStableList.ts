@@ -17,3 +17,16 @@ export function useStableList<T extends readonly unknown[]>(list: T): T {
   setStable(list);
   return list;
 }
+
+/**
+ * The same pattern for a value with its own comparison: `stabilize(current,
+ * next)` returns `current` while nothing it shows changed (or a value that
+ * keeps the unchanged parts of `current`).
+ */
+export function useStableValue<T>(value: T, stabilize: (current: T, next: T) => T): T {
+  const [stable, setStable] = useState(value);
+  if (stable === value) return stable;
+  const next = stabilize(stable, value);
+  if (next !== stable) setStable(next);
+  return next;
+}

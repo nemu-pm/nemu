@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { ComponentProps } from "react";
 import {
+  type LayoutChangeEvent,
   Platform,
   StyleSheet,
   Text,
@@ -9,8 +10,10 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import Animated, { LayoutAnimationConfig } from "react-native-reanimated";
 import { useMobileLanguageSettings } from "@/data/mobileHooks";
 import {
+  nemuFontWeight,
   nemuText,
   spacing,
   useNemuTheme,
@@ -19,12 +22,30 @@ import {
   NemuButton,
   NemuPressable,
 } from "@/design-system";
-import { getMobileFloatingTabBarOverlayExtent } from "@/lib/mobileFloatingTabBarClearance";
+import { usePathname } from "expo-router";
+import { getMobilePageContentBottomPadding } from "@/lib/mobileFloatingTabBarClearance";
+import { useMobileBottomTabBarInset } from "@/lib/mobileBottomTabBarInset";
+import { isMobileBottomTabBarRoute } from "@/lib/mobileRootTabs";
 import { getMobileStrings } from "@/lib/mobileI18n";
 import {
-  getMobileEmptyLibraryLayout,
+  getMobileEmptyLibraryAdaptiveLayout,
+  getMobileEmptyLibraryBoxHeight,
+  getMobileEmptyLibraryIosBottomChrome,
+  getMobileEmptyLibrarySecondaryActionPlacement,
   NEMU_WEB_EMPTY_LIBRARY_VISUAL,
 } from "@/lib/mobileEmptyLibraryLayout";
+import { useMobileContainerFold } from "@/lib/useMobileContainerFold";
+import { useReportMobileToastObstacle } from "@/lib/useReportMobileToastRegion";
+import { useMobileWindowLayout } from "@/lib/MobileWindowLayoutContext";
+import {
+  mobileRestingFoldMinGutter,
+  mobileVerticalFoldBand,
+  mobileVerticalFoldGutterForContainer,
+} from "@/lib/mobileRestingFold";
+import { useMobilePoseTransition } from "@/lib/MobilePoseTransitionContext";
+import { useMobilePoseSizeSpring } from "@/lib/useMobilePoseSizeSpring";
+import { MobilePoseLayoutView } from "./MobilePoseLayoutView";
+import type { ViewInstance } from "react-native";
 import { NemuPortraitHalo } from "./NemuPortraitHalo";
 
 type EmptyLibraryActionIcon = ComponentProps<typeof NemuButton>["icon"];
@@ -41,6 +62,17 @@ type EmptyLibraryProps = {
   diagnostic?: string;
   /** Optional override; the localized "Technical details" label is default. */
   diagnosticDetailsLabel?: string;
+  /** Height to center in instead of the window-derived one (a folded pane). */
+  minHeight?: number;
+  /**
+   * Fill the host instead of sizing from the window: `flex: 1` inside a
+   * viewport-filling list (`PageListScaffold fillViewport`), laid out for the
+   * height it actually gets.
+   */
+  fill?: boolean;
+  /** A quieter second way forward under the main action. */
+  secondaryActionLabel?: string;
+  onSecondaryActionPress?: () => void;
 };
 
 export function EmptyLibrary({
@@ -53,6 +85,10 @@ export function EmptyLibrary({
   actionLoading,
   diagnostic,
   diagnosticDetailsLabel,
+  minHeight,
+  fill = false,
+  secondaryActionLabel,
+  onSecondaryActionPress,
 }: EmptyLibraryProps) {
   const { tokens } = useNemuTheme();
   const { appLanguage } = useMobileLanguageSettings();
@@ -62,85 +98,218 @@ export function EmptyLibrary({
   const [diagnosticOpen, setDiagnosticOpen] = useState(false);
   const insets = useSafeAreaInsets();
   const { height, width } = useWindowDimensions();
-  const layout = getMobileEmptyLibraryLayout({
-    height,
-    width,
-    // Match web `w-[100vw]` on phones; page padding must not shrink the art.
-    horizontalPadding: 0,
-    verticalChrome:
-      (usesNemuNativeHeader ? insets.top + 44 : insets.top) +
-      spacing.pageTop +
-      getMobileFloatingTabBarOverlayExtent(insets.bottom),
+  const {
+    ref: containerRef,
+    onLayout: onContainerLayout,
+    width: containerWidth,
+    rect: containerRect,
+    split: containerSplit,
+    adaptive,
+  } = useMobileContainerFold<ViewInstance>();
+  // A vertical fold splits art and copy whether the device is half open or
+  // fully open (design decision): one band for both states, so the copy keeps
+  // its place when the Duo folds instead of jumping ~20pt between the
+  // container's centre (flat) and the fold (book).
+  const windowLayout = useMobileWindowLayout();
+  const verticalFoldBand = useMemo(
+    () => mobileVerticalFoldBand(windowLayout, mobileRestingFoldMinGutter(Platform.OS)),
+    [windowLayout],
+  );
+  const verticalFoldGutter = mobileVerticalFoldGutterForContainer(verticalFoldBand, containerRect);
+  const barsOnSide = adaptive.verticalBarEdge !== null;
+  // The box the hero really gets: header and bottom tab bar only when the
+  // system draws them horizontally (Duo's outer display and inner landscape
+  // move them to the trailing edge — subtracting a bottom bar there made the
+  // art needlessly small), minus the asymmetric side safe areas.
+  // The page's own content padding (pageTop above, the bottom margin below)
+  // counts too, and the bottom bar is UIKit's real tab bar inset on iOS (not
+  // the Android floating bar's extent), so the box never overflows its page.
+  const pathname = usePathname();
+  const measuredTabBarInset = useMobileBottomTabBarInset();
+  const bottomTabBar = !barsOnSide && isMobileBottomTabBarRoute(pathname, Platform.OS);
+  const topChrome = (usesNemuNativeHeader ? insets.top + 44 : insets.top) + spacing.pageTop;
+  const bottomChrome = Platform.OS === "ios"
+    ? getMobileEmptyLibraryIosBottomChrome({
+        safeAreaBottom: insets.bottom,
+        bottomTabBar,
+        measuredTabBarInset,
+      })
+    : getMobilePageContentBottomPadding({
+        safeAreaBottom: insets.bottom,
+        systemAdjustsBottomInset: false,
+        floatingTabBar: bottomTabBar,
+        tabBottom: spacing.tabBottom,
+      });
+  const [filledHeight, setFilledHeight] = useState<number | null>(null);
+  const boxHeight = minHeight ?? (fill && filledHeight !== null
+    ? filledHeight
+    : getMobileEmptyLibraryBoxHeight({ windowHeight: height, topChrome, bottomChrome }));
+  const bleedWidth = Math.max(1, width - insets.left - insets.right);
+  const layout = getMobileEmptyLibraryAdaptiveLayout({
+    width: containerWidth ?? bleedWidth,
+    bleedWidth,
+    height: boxHeight,
+    fold: verticalFoldGutter
+      ? { axis: "horizontal", gutter: verticalFoldGutter }
+      : containerSplit?.axis === "vertical"
+        ? { axis: "vertical", gutter: containerSplit.gutter }
+        : null,
   });
+  // Where the stacked copy ends in the window, for the second link's room
+  // above what covers the bottom (the tab bar, or the home indicator beside
+  // a vertical bar): the safe area, not the hero's own box.
+  const [rootTop, setRootTop] = useState<number | null>(null);
+  const [detailsBottom, setDetailsBottom] = useState<number | null>(null);
+  // The main action in the window: a bottom toast never covers it.
+  const actionRef = useRef<ViewInstance>(null);
+  const [actionRect, setActionRect] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const measureAction = useCallback(() => {
+    actionRef.current?.measureInWindow((x, y, width, height) => {
+      setActionRect((previous) =>
+        previous &&
+        Math.abs(previous.x - x) < 0.5 &&
+        Math.abs(previous.y - y) < 0.5 &&
+        Math.abs(previous.width - width) < 0.5 &&
+        Math.abs(previous.height - height) < 0.5
+          ? previous
+          : { x, y, width, height },
+      );
+    });
+  }, []);
+  useReportMobileToastObstacle(
+    actionRect && rootTop !== null
+      ? {
+          left: actionRect.x,
+          right: actionRect.x + actionRect.width,
+          top: actionRect.y,
+          bottom: actionRect.y + actionRect.height,
+          anchorTop: rootTop,
+        }
+      : null,
+  );
+  const onRootLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      onContainerLayout(event);
+      if (fill) {
+        const measured = event.nativeEvent.layout.height;
+        setFilledHeight((previous) =>
+          previous !== null && Math.abs(previous - measured) < 0.5 ? previous : measured,
+        );
+      }
+      containerRef.current?.measureInWindow((_x, y) => {
+        setRootTop((previous) => (previous !== null && Math.abs(previous - y) < 0.5 ? previous : y));
+      });
+      measureAction();
+    },
+    [containerRef, fill, measureAction, onContainerLayout],
+  );
+  const onDetailsLayout = useCallback((event: LayoutChangeEvent) => {
+    const { y, height: detailsHeight } = event.nativeEvent.layout;
+    const next = y + detailsHeight;
+    setDetailsBottom((previous) => (previous !== null && Math.abs(previous - next) < 0.5 ? previous : next));
+  }, []);
+  const secondaryPlacement =
+    secondaryActionLabel && onSecondaryActionPress
+      ? getMobileEmptyLibrarySecondaryActionPlacement({
+          arrangement: layout.arrangement,
+          spaceBelowStack:
+            rootTop !== null && detailsBottom !== null
+              ? height - insets.bottom - (rootTop + detailsBottom)
+              : null,
+        })
+      : "hidden";
   const disabled = Boolean(actionDisabled || actionLoading);
+  const pose = useMobilePoseTransition();
+  const artScaleStyle = useMobilePoseSizeSpring(layout.portraitMaxWidth);
+  // Where the portrait sits inside this box: the page above it is clipped
+  // under the opaque navigation bar, so the glow must fade out before the
+  // box's top edge instead of ending in a hard line there.
+  const [artSlotY, setArtSlotY] = useState<number | null>(null);
+  const [artY, setArtY] = useState<number | null>(null);
+  const onArtSlotLayout = useCallback((event: LayoutChangeEvent) => {
+    const y = event.nativeEvent.layout.y;
+    setArtSlotY((previous) => (previous !== null && Math.abs(previous - y) < 0.5 ? previous : y));
+  }, []);
+  const onArtLayout = useCallback((event: LayoutChangeEvent) => {
+    const y = event.nativeEvent.layout.y;
+    setArtY((previous) => (previous !== null && Math.abs(previous - y) < 0.5 ? previous : y));
+  }, []);
+  const glowRoomTop = artSlotY !== null && artY !== null ? artSlotY + artY : null;
 
-  return (
-    <View style={[styles.root, { minHeight: layout.rootMinHeight }]}>
-      <NemuPortraitHalo
-        maxWidth={layout.portraitMaxWidth}
-        style={[
-          styles.portraitWrap,
-          { marginBottom: NEMU_WEB_EMPTY_LIBRARY_VISUAL.portraitMarginBottom + layout.glowBleed },
-        ]}
-      />
-      <View style={styles.details}>
-        <View style={styles.copy}>
-          <Text
-            style={[nemuText.pageEmptyTitle, styles.title, { color: tokens.foreground }]}
-          >
-            {title}
-          </Text>
-          <Text
-            style={[
-              nemuText.pageEmptyDescription,
-              styles.description,
-              { color: tokens.mutedForeground },
-            ]}
-          >
-            {description}
-          </Text>
-          {diagnostic ? (
-            <View style={styles.diagnostic}>
-              <NemuPressable
-                accessibilityRole="button"
-                accessibilityState={{ expanded: diagnosticOpen }}
-                accessibilityLabel={detailsLabel}
-                hapticFeedback="selection"
-                pressProfile="row"
-                onPress={() => setDiagnosticOpen((open) => !open)}
-                style={styles.diagnosticToggle}
+  const art = (
+    <NemuPortraitHalo
+      maxWidth={layout.portraitMaxWidth}
+      glowRoomTop={glowRoomTop}
+      style={[
+        styles.portraitWrap,
+        {
+          marginBottom:
+            (layout.arrangement === "stack" ? NEMU_WEB_EMPTY_LIBRARY_VISUAL.portraitMarginBottom : 0) +
+            layout.glowBleed,
+        },
+      ]}
+    />
+  );
+  const details = (
+    <View style={styles.details}>
+      <View style={styles.copy}>
+        <Text
+          style={[nemuText.pageEmptyTitle, styles.title, { color: tokens.foreground }]}
+        >
+          {title}
+        </Text>
+        <Text
+          style={[
+            nemuText.pageEmptyDescription,
+            styles.description,
+            { color: tokens.mutedForeground },
+          ]}
+        >
+          {description}
+        </Text>
+        {diagnostic ? (
+          <View style={styles.diagnostic}>
+            <NemuPressable
+              accessibilityRole="button"
+              accessibilityState={{ expanded: diagnosticOpen }}
+              accessibilityLabel={detailsLabel}
+              hapticFeedback="selection"
+              pressProfile="row"
+              onPress={() => setDiagnosticOpen((open) => !open)}
+              style={styles.diagnosticToggle}
+            >
+              <Ionicons
+                name={
+                  diagnosticOpen
+                    ? "chevron-down-outline"
+                    : "chevron-forward-outline"
+                }
+                size={12}
+                color={tokens.mutedForeground}
+              />
+              <Text style={[nemuText.caption, { color: tokens.mutedForeground }]}>
+                {detailsLabel}
+              </Text>
+            </NemuPressable>
+            {diagnosticOpen ? (
+              <Text
+                selectable
+                style={[
+                  styles.diagnosticBody,
+                  styles.diagnosticMono,
+                  {
+                    backgroundColor: tokens.secondary,
+                    color: tokens.mutedForeground,
+                  },
+                ]}
               >
-                <Ionicons
-                  name={
-                    diagnosticOpen
-                      ? "chevron-down-outline"
-                      : "chevron-forward-outline"
-                  }
-                  size={12}
-                  color={tokens.mutedForeground}
-                />
-                <Text style={[nemuText.caption, { color: tokens.mutedForeground }]}>
-                  {detailsLabel}
-                </Text>
-              </NemuPressable>
-              {diagnosticOpen ? (
-                <Text
-                  selectable
-                  style={[
-                    styles.diagnosticBody,
-                    styles.diagnosticMono,
-                    {
-                      backgroundColor: tokens.secondary,
-                      color: tokens.mutedForeground,
-                    },
-                  ]}
-                >
-                  {diagnostic}
-                </Text>
-              ) : null}
-            </View>
-          ) : null}
-        </View>
+                {diagnostic}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
+      </View>
+      <View ref={actionRef} collapsable={false} onLayout={measureAction} style={styles.action}>
         <NemuButton
           accessibilityLabel={actionLabel}
           disabled={disabled}
@@ -148,12 +317,84 @@ export function EmptyLibrary({
           label={actionLabel}
           loading={actionLoading}
           size={NEMU_PROMINENT_CTA_SIZE}
-          containerStyle={styles.action}
           onPress={onActionPress}
           variant="default"
         />
       </View>
+      {secondaryPlacement !== "hidden" ? (
+        <NemuPressable
+          accessibilityRole="button"
+          accessibilityLabel={secondaryActionLabel}
+          hapticFeedback="press"
+          pressProfile="row"
+          onPress={() => onSecondaryActionPress?.()}
+          // Under the stacked copy it hangs below the button without moving
+          // anything above it.
+          style={[styles.secondaryAction, secondaryPlacement === "below" ? styles.secondaryBelow : null]}
+        >
+          <Text style={[nemuText.body, styles.secondaryActionText, { color: tokens.primary }]}>
+            {secondaryActionLabel}
+          </Text>
+        </NemuPressable>
+      ) : null}
     </View>
+  );
+
+  // The art and the copy keep their identity across stack ⇄ row ⇄ column
+  // (folding, display switches): the art's slot glides and its size springs
+  // from the old size; the copy block, which re-wraps, cross-fades.
+  const artSlotStyle =
+    layout.arrangement === "row"
+      ? [styles.pane, { width: layout.artPane.width }]
+      : layout.arrangement === "column"
+        ? [styles.pane, { height: layout.artPane.height }]
+        : null;
+  const detailsSlotStyle =
+    layout.arrangement === "row"
+      ? [
+          styles.pane,
+          { width: layout.copyPane.width, marginLeft: layout.copyPane.x - layout.artPane.width },
+        ]
+      : layout.arrangement === "column"
+        ? [
+            styles.pane,
+            {
+              height: layout.copyPane.height,
+              marginTop: layout.copyPane.y - layout.artPane.height,
+            },
+          ]
+        : styles.stackDetails;
+
+  return (
+    <LayoutAnimationConfig skipEntering skipExiting>
+      <View
+        ref={containerRef}
+        onLayout={onRootLayout}
+        collapsable={false}
+        style={[
+          layout.arrangement === "stack" ? styles.root : styles.splitRoot,
+          layout.arrangement === "row" && styles.row,
+          fill ? styles.fill : { minHeight: boxHeight },
+        ]}
+      >
+        <MobilePoseLayoutView key="art" style={artSlotStyle} onLayout={onArtSlotLayout}>
+          <Animated.View style={artScaleStyle} onLayout={onArtLayout}>{art}</Animated.View>
+        </MobilePoseLayoutView>
+        <Animated.View
+          key={`details-${layout.arrangement}`}
+          entering={pose.entering}
+          exiting={pose.exiting}
+          style={detailsSlotStyle}
+          onLayout={layout.arrangement === "stack" ? onDetailsLayout : undefined}
+        >
+          {layout.arrangement === "row" ? (
+            <View style={{ width: layout.copyWidth, alignItems: "center" }}>{details}</View>
+          ) : (
+            details
+          )}
+        </Animated.View>
+      </View>
+    </LayoutAnimationConfig>
   );
 }
 
@@ -165,6 +406,25 @@ const MONOSPACE_FONT_FAMILY = Platform.select({
 
 const styles = StyleSheet.create({
   root: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: NEMU_WEB_EMPTY_LIBRARY_VISUAL.rootPadding,
+  },
+  splitRoot: {
+    alignSelf: "stretch",
+  },
+  fill: {
+    flex: 1,
+  },
+  stackDetails: {
+    // Same box the details had as a direct child of the centered root.
+    flexShrink: 1,
+    alignItems: "center",
+  },
+  row: {
+    flexDirection: "row",
+  },
+  pane: {
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: NEMU_WEB_EMPTY_LIBRARY_VISUAL.rootPadding,
@@ -192,6 +452,20 @@ const styles = StyleSheet.create({
   },
   action: {
     marginTop: NEMU_WEB_EMPTY_LIBRARY_VISUAL.actionMarginTop,
+  },
+  secondaryAction: {
+    marginTop: 6,
+    minHeight: 44,
+    justifyContent: "center",
+    paddingHorizontal: 12,
+  },
+  secondaryBelow: {
+    position: "absolute",
+    top: "100%",
+    alignSelf: "center",
+  },
+  secondaryActionText: {
+    fontWeight: nemuFontWeight.semibold,
   },
   diagnostic: {
     alignSelf: "stretch",

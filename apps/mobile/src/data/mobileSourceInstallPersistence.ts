@@ -50,7 +50,9 @@ export async function persistMobileRegistrySourceInstall(
   } = options;
 
   assertMobileSourceInstallActive(signal, isAccountMutationBlocked);
-  await store.saveRegistry(registry);
+  // Never overwrite an existing entry: it may be a user-added directory with a
+  // disabled flag or a name the user typed, which a catalog row cannot know.
+  if (!(await store.getRegistry(registry.id))) await store.saveRegistry(registry);
   assertMobileSourceInstallActive(signal, isAccountMutationBlocked);
 
   if (updateOnly) {

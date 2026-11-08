@@ -2,6 +2,8 @@ import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router"
 import type { LibraryMangaSearch } from "@/router";
 import { useCallback, useEffect, useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { useConvexAuth } from "convex/react";
+import { takeAuthResume, type AuthResumeAction } from "@/lib/auth-resume";
 import { useStores, useAllMangaProgress, useChapterProgress } from "@/data/context";
 import type { Chapter } from "@/lib/sources";
 import { hasSWR } from "@/lib/sources";
@@ -141,6 +143,8 @@ export function LibraryMangaPage() {
   const [metadataDialogOpen, setMetadataDialogOpen] = useState(false);
   const [sourceManageOpen, setSourceManageOpen] = useState(false);
   const [collectionsOpen, setCollectionsOpen] = useState(false);
+  const { isAuthenticated } = useConvexAuth();
+  const [resumeAction, setResumeAction] = useState<AuthResumeAction | undefined>();
 
   const entry = useMemo<LibraryEntry | undefined>(
     () => entries.find((e) => e.item.libraryItemId === id),
@@ -215,6 +219,16 @@ export function LibraryMangaPage() {
     if (entry) return;
     navigate({ to: "/", replace: true });
   }, [entry, libraryLoading, navigate]);
+
+  // Back from a sign-in prompt: reopen the dialog it was raised from.
+  useEffect(() => {
+    if (!isAuthenticated || !entry) return;
+    const action = takeAuthResume();
+    if (!action) return;
+    setResumeAction(action);
+    if (action === "source-add") setSourceManageOpen(true);
+    else setMetadataDialogOpen(true);
+  }, [isAuthenticated, entry]);
 
   // If URL param points to invalid source, clear it
   useEffect(() => {
@@ -742,16 +756,24 @@ export function LibraryMangaPage() {
         {/* Metadata edit dialog */}
         <MetadataEditDialog
           open={metadataDialogOpen}
-          onOpenChange={setMetadataDialogOpen}
+          onOpenChange={(next) => {
+            setMetadataDialogOpen(next);
+            if (!next) setResumeAction(undefined);
+          }}
           entry={entry}
           onSave={handleMetadataSave}
+          resumeMatch={resumeAction === "metadata-match"}
         />
 
         {/* Source manage dialog */}
         <SourceManageDialog
           open={sourceManageOpen}
-          onOpenChange={setSourceManageOpen}
+          onOpenChange={(next) => {
+            setSourceManageOpen(next);
+            if (!next) setResumeAction(undefined);
+          }}
           entry={entry}
+          resumeAdd={resumeAction === "source-add"}
         />
 
         {entry && (

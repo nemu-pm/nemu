@@ -152,7 +152,9 @@ private data class NativeHttpResult(
   val status: Int,
   val headers: Map<String, String> = emptyMap(),
   val bytes: ByteArray = ByteArray(0),
-  val error: String? = null
+  val error: String? = null,
+  /** The response's URL after redirects, for a completed response only. */
+  val url: String? = null
 )
 
 private data class NativeHttpFileResult(
@@ -353,6 +355,17 @@ class NemuAidokuModule : Module() {
       sandboxCookieStore.close()
     }
 
+    // Scoped local-network allowance. Only the host app calls these, from the
+    // server-URL setting the user typed; a source package has no way to reach
+    // them (see NemuNativeLocalNetworkAllowance).
+    Function("setLocalNetworkAllowance") { sourceKey: String, urls: List<String> ->
+      NemuNativeLocalNetworkAllowance.setGrant(sourceKey, urls)
+    }
+
+    Function("clearAllLocalNetworkAllowances") {
+      NemuNativeLocalNetworkAllowance.clearAllGrants()
+    }
+
     AsyncFunction("clearImageMemoryCache") {
       clearImageMemoryCache()
     }
@@ -413,6 +426,13 @@ class NemuAidokuModule : Module() {
         promise,
         35_000
       )
+    }
+
+    // Cancels the sandbox operation that carries `cancelToken`, now if it is
+    // running, or when it starts. Synchronous on purpose: the sandbox's serial
+    // executor is exactly what is busy.
+    Function("cancelAidokuSandboxOperation") { cancelToken: String ->
+      getAidokuSandboxManager().cancelOperation(cancelToken)
     }
 
     AsyncFunction("executeAidokuSandboxOperation") {
@@ -665,7 +685,7 @@ class NemuAidokuModule : Module() {
         context,
         ::executeSandboxHttpRequest,
         ::decorateSandboxImageHeaders
-      )
+      ) { requestId -> cancelHttpRequest(requestId) }
     }
   }
 
@@ -803,9 +823,10 @@ class NemuAidokuModule : Module() {
   ): Map<String, String>? {
     if (existingHeaders.size > NEMU_SOURCE_IMAGE_MAX_HEADERS) return null
     val url = urlString.toHttpUrlOrNull() ?: return null
+    val grant = NemuNativeLocalNetworkAllowance.grantFor(sourceKey)
     val publicDestination = runCatching {
-      NemuNativeHttpAddressPolicy.requirePublicDestination(url.host)
-      NemuNativeHttpAddressPolicy.resolvePublicAddresses(url.host) {
+      NemuNativeHttpAddressPolicy.requirePublicDestination(url.host, url.port, grant)
+      NemuNativeHttpAddressPolicy.resolvePublicAddresses(url.host, grant) {
         java.net.InetAddress.getAllByName(it).toList()
       }
     }.isSuccess
@@ -841,6 +862,7 @@ class NemuAidokuModule : Module() {
     val timeout = request.timeoutMs.coerceIn(1_000, NEMU_ASYNC_HTTP_MAX_TIMEOUT_MS)
     val scopedCookieJar = sandboxCookieStore.get(request.sourceKey)
     val client = baseHttpClient.newBuilder()
+      .withLocalNetworkScope(request.sourceKey)
       // BridgeInterceptor replaces an existing Cookie header whenever a client
       // CookieJar returns values. The network interceptor below performs an
       // explicit-source-wins merge and persists each redirect hop instead.
@@ -866,14 +888,23 @@ class NemuAidokuModule : Module() {
       timeoutMs = timeout
       responseMode = "bytes"
       maxResponseBytes = NEMU_AIDOKU_SANDBOX_MAX_HTTP_BYTES
+      requestId = request.requestId
     }
-    val response = executeRequest(client, nativeRequest, allowBackground = true)
+    // A cancellable operation's request is prepared first, so a cancellation
+    // that lands before OkHttp registers the call still stops it.
+    request.requestId?.let(::prepareHttpRequest)
+    val response = try {
+      executeRequest(client, nativeRequest, allowBackground = true)
+    } finally {
+      request.requestId?.let(::releaseHttpRequest)
+    }
     recordCloudflareChallengeHost(request.sourceKey, request.url, response)
     return AidokuSandboxHttpResponse(
       status = response.status,
       headers = response.headers,
       bytes = response.bytes,
-      error = response.error
+      error = response.error,
+      url = response.url
     )
   }
 
@@ -913,6 +944,7 @@ class NemuAidokuModule : Module() {
         return response(status = 0, error = "Invalid native HTTP cookie scope.")
       }
       val clientBuilder = baseHttpClient.newBuilder()
+        .withLocalNetworkScope(cookieScope)
         // A missing scope is intentionally stateless. There is no process-wide
         // fallback jar that could carry authenticated source cookies across a
         // profile boundary.
@@ -944,7 +976,6 @@ class NemuAidokuModule : Module() {
       recordCloudflareChallengeHost(cookieScope, request.url, result)
       return response(
         result,
-        handledCloudflare = false,
         responseMode = request.responseMode
       )
     } finally {
@@ -998,6 +1029,7 @@ class NemuAidokuModule : Module() {
       }
 
       val clientBuilder = baseHttpClient.newBuilder()
+        .withLocalNetworkScope(cookieScope)
         .cookieJar(CookieJar.NO_COOKIES)
         .connectTimeout(timeout.toLong(), TimeUnit.MILLISECONDS)
         .readTimeout(timeout.toLong(), TimeUnit.MILLISECONDS)
@@ -1150,8 +1182,9 @@ class NemuAidokuModule : Module() {
                 request.allowLongStripSegments &&
                 request.maxResponseBytes.toLong() >
                   NemuLongStripImageTranscoder.SEGMENTED_MANIFEST_RESERVE_BYTES &&
-                plan.container.displayedDimensions.height >
-                  plan.container.displayedDimensions.width
+                NemuLongStripImagePolicy.isSegmentCandidate(
+                  plan.container.displayedDimensions
+                )
               ) {
                 try {
                   val transcoded = NemuLongStripImageTranscoder.transcodeSegments(
@@ -1320,7 +1353,9 @@ class NemuAidokuModule : Module() {
             status = httpResponse.code,
             headers = responseHeaders(httpResponse),
             bytes = bytes,
-            error = null
+            error = null,
+            // OkHttp follows redirects: the last hop's request is the final URL.
+            url = httpResponse.request.url.toString()
           )
         }
       } finally {
@@ -1507,7 +1542,6 @@ class NemuAidokuModule : Module() {
 
   private fun response(
     result: NativeHttpResult,
-    handledCloudflare: Boolean,
     responseMode: String = "both"
   ): Map<String, Any?> {
     return response(
@@ -1515,7 +1549,6 @@ class NemuAidokuModule : Module() {
       headers = result.headers,
       bytes = result.bytes,
       error = result.error,
-      handledCloudflare = handledCloudflare,
       responseMode = responseMode
     )
   }
@@ -1587,7 +1620,6 @@ class NemuAidokuModule : Module() {
     headers: Map<String, String> = emptyMap(),
     bytes: ByteArray = ByteArray(0),
     error: String?,
-    handledCloudflare: Boolean = false,
     responseMode: String = "both"
   ): Map<String, Any?> {
     val mode = resolvedResponseMode(responseMode, headers)
@@ -1596,8 +1628,7 @@ class NemuAidokuModule : Module() {
       "headers" to headers,
       "body" to if (mode == "bytes") null else String(bytes, StandardCharsets.UTF_8),
       "bytesBase64" to if (mode == "text") null else Base64.encodeToString(bytes, Base64.NO_WRAP),
-      "error" to error,
-      "handledCloudflare" to handledCloudflare
+      "error" to error
     )
   }
 }

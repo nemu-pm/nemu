@@ -48,29 +48,37 @@ export function chapterFromState(
   state: ReaderState,
   fallback?: ChapterSummary | null,
 ): ChapterSummary {
-  let resolved: ChapterSummary;
+  // Every record that knows this chapter, most specific first. A progress
+  // record may hold only the id (saved before the chapter list loaded), so
+  // later records fill the number and title it lacks.
+  const candidates: ChapterSummary[] = [];
   const progress = state.chapterProgress;
   if (progress) {
-    resolved = {
+    candidates.push({
       id: chapterId,
       title: progress.chapterTitle,
       chapterNumber: progress.chapterNumber,
       volumeNumber: progress.volumeNumber,
-    };
-  } else if (state.sourceLink?.latestChapter?.id === chapterId) {
-    resolved = state.sourceLink.latestChapter;
-  } else if (state.mangaProgress?.lastReadSourceChapterId === chapterId) {
-    resolved = {
+    });
+  }
+  if (state.sourceLink?.latestChapter?.id === chapterId) {
+    candidates.push(state.sourceLink.latestChapter);
+  }
+  if (state.mangaProgress?.lastReadSourceChapterId === chapterId) {
+    candidates.push({
       id: chapterId,
       title: state.mangaProgress.lastReadChapterTitle,
       chapterNumber: state.mangaProgress.lastReadChapterNumber,
       volumeNumber: state.mangaProgress.lastReadVolumeNumber,
-    };
-  } else {
-    resolved = { id: chapterId };
+    });
   }
+  if (fallback) candidates.push(fallback);
 
-  return mergeMobileReaderChapterFallback(chapterId, resolved, fallback);
+  return candidates.reduceRight<ChapterSummary>(
+    (merged, candidate) =>
+      mergeMobileReaderChapterFallback(chapterId, candidate, merged),
+    { id: chapterId },
+  );
 }
 
 export function mergeMobileReaderChapterFallback(
@@ -104,10 +112,17 @@ export function formatReaderStageAccessibilityLabel(
   mode: ReadingMode,
   action: string,
   strings: MobileStrings,
+  /** The source page numbers of the spread on screen: both are read ("Pages 9–10 of 37"). */
+  spreadPageNumbers?: readonly number[],
 ): string {
   if (pageCount <= 0) return action;
+  const first = spreadPageNumbers?.length ? Math.min(...spreadPageNumbers) : 0;
+  const last = spreadPageNumbers?.length ? Math.max(...spreadPageNumbers) : 0;
   return formatMobileString(strings.reader.stageAccessibility, {
-    page: formatReaderPageValue(pageIndex, pageCount, mode, strings),
+    page:
+      last > first
+        ? formatMobileString(strings.reader.pagesValue, { first, last, total: Math.max(1, pageCount) })
+        : formatReaderPageValue(pageIndex, pageCount, mode, strings),
     action,
   });
 }
@@ -139,6 +154,17 @@ export function formatChapterAccessibilityLabel(
     direction: chapterDirectionLabel(direction, strings),
     chapter: formatChapterTitle(chapter, strings),
   });
+}
+
+/**
+ * The Japanese Learning launcher's Response pill: web's Response Language
+ * option labels (`chat.responseModeApp` / `chat.responseModeJlpt`) instead
+ * of the raw stored value (`app` / `jlpt`). Unknown values read as the app
+ * language, the setting's default.
+ */
+export function japaneseLearningResponseModeLabel(value: unknown, strings: MobileStrings): string {
+  if (value === "jlpt") return strings.reader.pluginJapaneseLearningResponseModeJlpt;
+  return strings.reader.pluginJapaneseLearningResponseModeApp;
 }
 
 export function pluginValueText(value: unknown, strings: MobileStrings): string {

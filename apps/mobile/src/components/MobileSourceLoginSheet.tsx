@@ -14,14 +14,22 @@ import {
   nemuFontWeight,
   radius,
   useNemuTheme,
+  useMobileNativeSheetTheme,
 } from "@/design-system";
 import { useMobileLanguageSettings } from "@/data/mobileHooks";
 import type { SourcePackageSetting } from "@/data/schema";
+import { hapticConfirm } from "@/lib/haptics";
 import { formatMobileString, getMobileStrings } from "@/lib/mobileI18n";
+import { mobileSourceLoginTitle } from "@/lib/mobileSourceLoginTitle";
 import {
   parseMobileSourceWebSession,
   type MobileSourceLoginSubmission,
 } from "@/lib/mobileSourceSettingActions";
+
+import {
+  MobileSourceLoginNativeSheet,
+  mobileSourceLoginNativeSheetAvailable,
+} from "./MobileSourceLoginNativeSheet";
 
 export type MobileSourceLoginSheetProps = {
   setting: SourcePackageSetting | null;
@@ -46,7 +54,7 @@ export function MobileSourceLoginSheet({
   onDismiss,
   onSubmit,
 }: MobileSourceLoginSheetProps) {
-  const { tokens } = useNemuTheme();
+  const { tokens } = useMobileNativeSheetTheme();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
   const [username, setUsername] = useState("");
@@ -86,7 +94,7 @@ export function MobileSourceLoginSheet({
   const usernameLabel = setting?.useEmail
     ? strings.settings.sourceSettingsEmail
     : strings.settings.sourceSettingsUsername;
-  const title = setting?.title ?? strings.settings.sourceSettingsLogin;
+  const title = mobileSourceLoginTitle(setting?.title, strings.settings.sourceSettingsLoginTitle);
   const subtitle = isWeb
     ? strings.settings.sourceSettingsWebLoginInstructions
     : strings.settings.sourceSettingsBasicLoginInstructions;
@@ -212,6 +220,71 @@ export function MobileSourceLoginSheet({
         {formContent}
       </View>
     ) : null;
+  }
+
+  if (mobileSourceLoginNativeSheetAvailable) {
+    return (
+      <MobileSourceLoginNativeSheet
+        visible={visible && setting !== null}
+        title={title}
+        instructions={subtitle}
+        method={isWeb ? "web" : "basic"}
+        fields={
+          isWeb
+            ? [
+                {
+                  label: strings.settings.sourceSettingsCookies,
+                  placeholder: strings.settings.sourceSettingsCookiesPlaceholder,
+                  value: cookiesText,
+                  onChange: setCookiesText,
+                  multiline: true,
+                },
+                ...(setting?.localStorageKeys?.length
+                  ? [
+                      {
+                        label: strings.settings.sourceSettingsLocalStorage,
+                        placeholder: strings.settings.sourceSettingsLocalStoragePlaceholder,
+                        value: localStorageText,
+                        onChange: setLocalStorageText,
+                        multiline: true,
+                        footer: formatMobileString(strings.settings.sourceSettingsLocalStorageKeys, {
+                          keys: setting.localStorageKeys.join(", "),
+                        }),
+                      },
+                    ]
+                  : []),
+              ]
+            : [
+                {
+                  label: usernameLabel,
+                  placeholder: usernameLabel,
+                  value: username,
+                  onChange: setUsername,
+                  keyboard: setting?.useEmail ? "email-address" : "default",
+                },
+                {
+                  label: strings.settings.sourceSettingsPassword,
+                  placeholder: strings.settings.sourceSettingsPassword,
+                  value: password,
+                  onChange: setPassword,
+                  secure: true,
+                },
+              ]
+        }
+        error={activeError}
+        submitting={submitting}
+        cancelLabel={strings.common.cancel}
+        submitLabel={strings.settings.sourceSettingsSubmitLogin}
+        submitAccessibilityLabel={strings.settings.sourceSettingsSubmitLogin}
+        onClose={onClose}
+        onDismiss={onDismiss}
+        onSubmit={() => {
+          if (submitting) return;
+          void hapticConfirm();
+          submit();
+        }}
+      />
+    );
   }
 
   return (

@@ -17,6 +17,12 @@ function isMobileLibraryRootAlias(pathname: string): boolean {
   return normalizedPathname === "/library";
 }
 
+/** The Library root or one of its collections. */
+export function isMobileLibraryRoute(pathname: string): boolean {
+  const normalizedPathname = normalizedComparablePathname(pathname);
+  return normalizedPathname === "/library" || normalizedPathname.startsWith("/library/");
+}
+
 export function isMobileReaderRoute(pathname: string): boolean {
   const segments = normalizedPathSegments(pathname);
   return segments[0] === "sources" && segments.length >= 5;
@@ -24,6 +30,16 @@ export function isMobileReaderRoute(pathname: string): boolean {
 
 export function shouldShowMobileFloatingTabBar(pathname: string): boolean {
   return !isMobileReaderRoute(pathname);
+}
+
+/**
+ * A bottom tab bar is on screen for this route. iOS: the native tab bar shows
+ * on every route inside `(tabs)`; `/sources/…` is pushed on the root stack
+ * above it. Android: the floating bar (hidden only in the reader).
+ */
+export function isMobileBottomTabBarRoute(pathname: string, platform: string): boolean {
+  if (platform === "ios") return normalizedPathSegments(pathname)[0] !== "sources";
+  return shouldShowMobileFloatingTabBar(pathname);
 }
 
 export function isMobileRootTabSelected(

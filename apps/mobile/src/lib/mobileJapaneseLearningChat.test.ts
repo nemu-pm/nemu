@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
   MOBILE_JAPANESE_LEARNING_CHAT_MAX_HISTORY_MESSAGES,
   MOBILE_JAPANESE_LEARNING_CHAT_MAX_MESSAGE_CHARACTERS,
@@ -8,13 +8,16 @@ import {
   assertMobileJapaneseLearningChatRequestByteLength,
   assertMobileJapaneseLearningChatResponseByteLength,
   buildMobileJapaneseLearningHiddenContext,
-  canRunMobileJapaneseLearningChatAction,
-  canSendMobileJapaneseLearningChatInput,
   getMobileJapaneseLearningExplainPrompt,
   limitMobileJapaneseLearningChatHistory,
   parseMobileJapaneseLearningChatResponse,
   runMobileJapaneseLearningChat,
 } from "./mobileJapaneseLearningChat";
+import { setMobileJapaneseLearningAuthCookieReaderForTesting } from "./mobileJapaneseLearningAuth";
+
+// Cloud paths are server features: these tests run signed in.
+beforeAll(() => setMobileJapaneseLearningAuthCookieReaderForTesting(() => "nemu.session_token=test"));
+afterAll(() => setMobileJapaneseLearningAuthCookieReaderForTesting(undefined));
 
 const chapter = {
   id: "chapter-1",
@@ -100,18 +103,6 @@ describe("mobile Japanese Learning chat", () => {
     ).toThrow("safety limit");
   });
 
-  test("gates chat actions while chat or OCR work is loading", () => {
-    expect(canRunMobileJapaneseLearningChatAction(false, false)).toBe(true);
-    expect(canRunMobileJapaneseLearningChatAction(true, false)).toBe(false);
-    expect(canRunMobileJapaneseLearningChatAction(false, true)).toBe(false);
-  });
-
-  test("enables composer send only for nonblank idle input", () => {
-    expect(canSendMobileJapaneseLearningChatInput(" explain this ", true)).toBe(true);
-    expect(canSendMobileJapaneseLearningChatInput("   ", true)).toBe(false);
-    expect(canSendMobileJapaneseLearningChatInput("explain", false)).toBe(false);
-  });
-
   test("builds hidden context from current reader state", () => {
     expect(
       buildMobileJapaneseLearningHiddenContext({
@@ -174,9 +165,21 @@ describe("mobile Japanese Learning chat", () => {
     );
 
     expect(result).toEqual({
-      text: "一つ目。二つ目。",
+      // Speak events are separate bubbles; the combined text keeps them apart.
+      text: "一つ目。\n二つ目。",
       suggestions: ["文法は？"],
     });
+  });
+
+  test("keeps consecutive speak lines apart instead of running them together", () => {
+    const result = parseMobileJapaneseLearningChatResponse(
+      ["\"How does Hanako-san grant wishes?\"", "This is someone asking about Hanako-san's methods", "  "]
+        .map((content) => `data: ${JSON.stringify({ type: "speak", content })}`)
+        .join("\n\n"),
+    );
+    expect(result.text).toBe(
+      "\"How does Hanako-san grant wishes?\"\nThis is someone asking about Hanako-san's methods",
+    );
   });
 
   test("parses voice events with display text and raw TTS text", () => {
@@ -236,6 +239,28 @@ describe("mobile Japanese Learning chat", () => {
       },
       messages: [{ role: "user", content: "Generate a brief, contextual greeting that references the current manga and invites questions." }],
     });
+  });
+
+  test("signed out: fails as auth_required without sending the greeting (web requireAuthOrPrompt)", async () => {
+    let requests = 0;
+    const fetchImpl = (() => {
+      requests += 1;
+      return Promise.reject(new TypeError("Network request failed"));
+    }) as unknown as typeof fetch;
+    await expect(
+      runMobileJapaneseLearningChat({
+        appLanguage: "en",
+        chapter,
+        fetchImpl,
+        getAuthCookie: () => "",
+        mangaTitle: "Example Manga",
+        pageCount: 10,
+        pageNumber: 4,
+        siteUrl: "https://convex.example.site/",
+        transcript: "テキスト",
+      }),
+    ).rejects.toThrow("auth_required");
+    expect(requests).toBe(0);
   });
 
   test("posts existing mobile chat history when provided", async () => {
@@ -407,7 +432,7 @@ describe("mobile Japanese Learning chat", () => {
     });
 
     expect(result).toEqual({
-      text: "一つ二つ",
+      text: "一つ\n二つ",
       suggestions: ["続けて"],
     });
     expect(events).toEqual([
@@ -470,6 +495,83 @@ describe("mobile Japanese Learning chat", () => {
       { role: "user", content: "newer user" },
       { role: "assistant", content: "newer assistant" },
     ]);
+  });
+
+  test("context_too_long asks the caller to halve its thread and retries once with that", async () => {
+    const bodies: unknown[] = [];
+    const tooLong = () =>
+      new Response(JSON.stringify({ code: "context_too_long" }), {
+        status: 400,
+        statusText: "Bad Request",
+      });
+    const fetchImpl = ((_url: string | URL | Request, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)).messages);
+      if (bodies.length === 1) return Promise.resolve(tooLong());
+      return Promise.resolve(
+        new Response(
+          `data: ${JSON.stringify({ type: "text", content: "ok" })}\n\n`,
+          { status: 200 },
+        ),
+      );
+    }) as typeof fetch;
+    let truncations = 0;
+
+    const result = await runMobileJapaneseLearningChat({
+      appLanguage: "en",
+      chapter,
+      fetchImpl,
+      mangaTitle: "Example Manga",
+      messages: [
+        { role: "user", content: "a" },
+        { role: "assistant", content: "b" },
+        { role: "user", content: "prompt" },
+      ],
+      onContextTooLong: () => {
+        truncations += 1;
+        return [
+          { role: "assistant", content: "b" },
+          { role: "user", content: "prompt" },
+        ];
+      },
+      pageCount: 10,
+      pageNumber: 4,
+      siteUrl: "https://convex.example.site/",
+    });
+
+    expect(result.text).toBe("ok");
+    expect(truncations).toBe(1);
+    expect(bodies[1]).toEqual([
+      { role: "assistant", content: "b" },
+      { role: "user", content: "prompt" },
+    ]);
+  });
+
+  test("a second context_too_long propagates, even for a short thread", async () => {
+    let requests = 0;
+    const fetchImpl = (() => {
+      requests += 1;
+      return Promise.resolve(
+        new Response(
+          `data: ${JSON.stringify({ type: "error", code: "context_too_long" })}\n\n`,
+          { status: 200 },
+        ),
+      );
+    }) as unknown as typeof fetch;
+
+    await expect(
+      runMobileJapaneseLearningChat({
+        appLanguage: "en",
+        chapter,
+        fetchImpl,
+        mangaTitle: "Example Manga",
+        messages: [{ role: "user", content: "only" }],
+        pageCount: 10,
+        pageNumber: 4,
+        siteUrl: "https://convex.example.site/",
+      }),
+    ).rejects.toThrow("context_too_long");
+    // Web retries once regardless of length, then gives up.
+    expect(requests).toBe(2);
   });
 
   test("surfaces sign-in errors from unauthorized chat requests", async () => {

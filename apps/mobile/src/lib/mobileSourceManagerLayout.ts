@@ -7,8 +7,14 @@ export type MobileSourceManagerSheetLayout = {
  * The source list normally contains only one or two links, so it should hug
  * its content. Searching and merging need a stable viewport for asynchronous
  * result lists, while long, large-text, and landscape lists need scrolling.
+ *
+ * The merge list is filtered as its query is typed, so its row count changes
+ * under the keyboard. A change of layout swaps the sheet's body, which drops
+ * the field's focus (and the keyboard) mid-word: that list keeps the bounded
+ * viewport whatever it currently matches.
  */
 export function getMobileSourceManagerSheetLayout({
+  addPanelFiltersWhileTyping = false,
   addPanelOpen,
   addPanelRowCount,
   fontScale,
@@ -16,6 +22,7 @@ export function getMobileSourceManagerSheetLayout({
   sourceCount,
   width,
 }: {
+  addPanelFiltersWhileTyping?: boolean;
   addPanelOpen: boolean;
   addPanelRowCount: number;
   fontScale: number;
@@ -29,7 +36,7 @@ export function getMobileSourceManagerSheetLayout({
     : 166 + sourceCount * 76 * effectiveFontScale + (sourceCount > 1 ? 24 : 0);
   const safeDynamicHeight = Math.max(300, height * 0.72);
   const needsBoundedScroll =
-    (addPanelOpen && addPanelRowCount > 1) ||
+    (addPanelOpen && (addPanelFiltersWhileTyping || addPanelRowCount > 1)) ||
     estimatedContentHeight > safeDynamicHeight ||
     (width > height && (addPanelOpen || sourceCount > 1));
 

@@ -52,12 +52,16 @@ import {
   decodeLegacyMobileSourceSettings,
   decodeMobileSourceSettingsVaultMarker,
   encodeMobileSourceSettingsVaultMarker,
+  isMobileSourceSettingsVaultEntryMissingError,
   type MobileSourceSettingsVault,
 } from "./mobileSourceSettingsVault";
 
 type JsonRow = {
   json: string;
 };
+
+/** Source keys whose dangling secure reference was already reported. */
+const reportedDanglingSourceSettings = new Set<string>();
 
 type SyncHealthRow = JsonRow & {
   updatedAt: number;
@@ -646,7 +650,12 @@ DELETE FROM sync_health;
     if (!row) return null;
     const marker = decodeMobileSourceSettingsVaultMarker(row.json);
     if (marker) {
-      return this.sourceSettingsVault.get(marker.ref, sourceKey);
+      try {
+        return await this.sourceSettingsVault.get(marker.ref, sourceKey);
+      } catch (error) {
+        if (!isMobileSourceSettingsVaultEntryMissingError(error)) throw error;
+        return this.dropDanglingSourceSettings(sourceKey, row.json, marker.ref);
+      }
     }
 
     // Defensive lazy migration for stores created by tests or callers that did
@@ -655,6 +664,63 @@ DELETE FROM sync_health;
     const legacy = decodeLegacyMobileSourceSettings(row.json, sourceKey);
     await this.saveSourceSettings(legacy);
     return legacy;
+  }
+
+  /**
+   * The SQLite marker names a secure item the keychain no longer has (an old
+   * install's database next to a fresh keychain, a wiped device-only item).
+   * Nothing can ever be read back, so the reference is dropped and the source
+   * runs on its defaults (what Settings → Reset leaves) instead of failing
+   * every request. Only "item not found" gets here: a keychain that could not
+   * be read at all (locked before first unlock) throws and is left alone.
+   */
+  private async dropDanglingSourceSettings(
+    sourceKey: string,
+    markerJson: string,
+    ref: string,
+  ): Promise<LocalSourceSettings | null> {
+    return this.runWrite(async () => {
+      // Serialized with saves: a save that landed since the read wrote the
+      // same deterministic ref, which must survive.
+      const current = await this.db.getFirstAsync<JsonRow>(
+        "SELECT json FROM source_settings WHERE sourceKey = ?",
+        sourceKey,
+      );
+      if (!current) return null;
+      if (current.json !== markerJson) {
+        // Rewritten meanwhile. Read it here: `getSourceSettings` could queue
+        // another write behind this one and deadlock.
+        const replaced = decodeMobileSourceSettingsVaultMarker(current.json);
+        if (!replaced) return decodeLegacyMobileSourceSettings(current.json, sourceKey);
+        return this.sourceSettingsVault
+          .get(replaced.ref, sourceKey)
+          .catch((error: unknown) => {
+            if (isMobileSourceSettingsVaultEntryMissingError(error)) return null;
+            throw error;
+          });
+      }
+      try {
+        return await this.sourceSettingsVault.get(ref, sourceKey);
+      } catch (error) {
+        if (!isMobileSourceSettingsVaultEntryMissingError(error)) throw error;
+      }
+      if (!reportedDanglingSourceSettings.has(sourceKey)) {
+        reportedDanglingSourceSettings.add(sourceKey);
+        console.warn(
+          `[nemu] Dropped the settings of ${sourceKey}: their secure item no longer exists.`,
+        );
+      }
+      // Index entry and orphaned chunks only; the row below is what matters.
+      if (this.sourceSettingsVault.isValidRef(ref)) {
+        await this.sourceSettingsVault.remove(ref).catch(() => undefined);
+      }
+      await this.db.runAsync(
+        "DELETE FROM source_settings WHERE sourceKey = ? AND json = ?",
+        sourceKey,
+        markerJson,
+      );
+      return null;
+    });
   }
 
   async saveSourceSettings(settings: LocalSourceSettings): Promise<void> {
@@ -670,11 +736,15 @@ DELETE FROM sync_health;
       const previousMarker = previousRow
         ? decodeMobileSourceSettingsVaultMarker(previousRow.json)
         : null;
+      // A dangling previous reference has nothing to roll back to; the new
+      // value simply replaces it.
       const previousSettings = previousMarker
-        ? await this.sourceSettingsVault.get(
-            previousMarker.ref,
-            updated.sourceKey,
-          )
+        ? await this.sourceSettingsVault
+            .get(previousMarker.ref, updated.sourceKey)
+            .catch((error: unknown) => {
+              if (isMobileSourceSettingsVaultEntryMissingError(error)) return null;
+              throw error;
+            })
         : null;
       const ref = await this.sourceSettingsVault.put(updated);
       const marker = encodeMobileSourceSettingsVaultMarker(ref);

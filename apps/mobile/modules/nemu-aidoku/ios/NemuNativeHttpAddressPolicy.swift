@@ -38,7 +38,10 @@ enum NemuNativeHttpAddressPolicy {
     attributes: .concurrent
   )
 
-  static func validatedURL(_ value: String) throws -> URL {
+  static func validatedURL(
+    _ value: String,
+    grant: NemuLocalNetworkGrant = .none
+  ) throws -> URL {
     guard
       let url = URL(string: value),
       let scheme = url.scheme?.lowercased(),
@@ -47,7 +50,7 @@ enum NemuNativeHttpAddressPolicy {
     else {
       throw NemuNativeHttpAddressPolicyError.invalidURL
     }
-    try validate(url: url)
+    try validate(url: url, grant: grant)
     return url
   }
 
@@ -64,17 +67,21 @@ enum NemuNativeHttpAddressPolicy {
     }
   }
 
-  static func validate(url: URL) throws {
-    try validate(url: url, resolver: resolveAddresses)
+  static func validate(
+    url: URL,
+    grant: NemuLocalNetworkGrant = .none
+  ) throws {
+    try validate(url: url, resolver: resolveAddresses, grant: grant)
   }
 
   static func validateAsync(
     url: URL,
+    grant: NemuLocalNetworkGrant = .none,
     completion: @escaping @Sendable (Bool) -> Void
   ) {
     validationQueue.async {
       do {
-        try validate(url: url)
+        try validate(url: url, grant: grant)
         completion(true)
       } catch {
         completion(false)
@@ -82,11 +89,20 @@ enum NemuNativeHttpAddressPolicy {
     }
   }
 
-  static func validate(url: URL, resolver: Resolver) throws {
+  static func validate(
+    url: URL,
+    resolver: Resolver,
+    grant: NemuLocalNetworkGrant = .none
+  ) throws {
     guard let host = url.host else {
       throw NemuNativeHttpAddressPolicyError.invalidURL
     }
-    _ = try validatedAddresses(hostname: host, resolver: resolver)
+    _ = try validatedAddresses(
+      hostname: host,
+      port: effectivePort(for: url),
+      grant: grant,
+      resolver: resolver
+    )
   }
 
   static func validatedAddresses(hostname: String) throws -> [[UInt8]] {
@@ -95,11 +111,36 @@ enum NemuNativeHttpAddressPolicy {
 
   static func validatedAddresses(
     hostname: String,
+    port: Int?,
+    grant: NemuLocalNetworkGrant
+  ) throws -> [[UInt8]] {
+    try validatedAddresses(
+      hostname: hostname,
+      port: port,
+      grant: grant,
+      resolver: resolveAddresses
+    )
+  }
+
+  /// `grant` is the calling source's user-configured local-network endpoint
+  /// (see `NemuNativeLocalNetworkAllowance`). It only has effect for exactly
+  /// its host and port; every other destination keeps the public-only rule.
+  static func validatedAddresses(
+    hostname: String,
+    port: Int? = nil,
+    grant: NemuLocalNetworkGrant = .none,
     resolver: Resolver
   ) throws -> [[UInt8]] {
     let normalized = normalizeHostname(hostname)
-    guard !isForbiddenHostname(normalized) else {
-      throw NemuNativeHttpAddressPolicyError.blockedDestination
+    let granted = port.map { grant.allows(host: normalized, port: $0) } ?? false
+    if granted {
+      guard !NemuNativeLocalNetworkAllowance.isNeverGrantableHostname(normalized) else {
+        throw NemuNativeHttpAddressPolicyError.blockedDestination
+      }
+    } else {
+      guard !isForbiddenHostname(normalized) else {
+        throw NemuNativeHttpAddressPolicyError.blockedDestination
+      }
     }
 
     let addresses: [[UInt8]]
@@ -116,7 +157,8 @@ enum NemuNativeHttpAddressPolicy {
     let allowProxySyntheticAddresses = !isNumericHostname(normalized)
     let validatedAddresses = addresses.filter { address in
       isPublicAddress(address) ||
-        (allowProxySyntheticAddresses && isProxySyntheticAddress(address))
+        (allowProxySyntheticAddresses && isProxySyntheticAddress(address)) ||
+        (granted && NemuNativeLocalNetworkAllowance.isLocalNetworkAddress(address))
     }
     guard !validatedAddresses.isEmpty else {
       throw NemuNativeHttpAddressPolicyError.blockedDestination

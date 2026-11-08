@@ -1,4 +1,5 @@
 /* @refresh skip */
+import { rememberAuthReturn } from "./lib/auth-resume" // First: restores the URL before the router reads it
 import { StrictMode, useEffect, useState, useMemo, memo } from "react"
 import { createRoot } from "react-dom/client"
 import { RouterProvider } from "@tanstack/react-router"
@@ -9,6 +10,7 @@ import {
   type AuthClient as ConvexAuthClient,
 } from "@convex-dev/better-auth/react"
 import { ThemeProvider, useTheme } from "next-themes"
+import { useTranslation } from "react-i18next"
 import { authClient } from "@/lib/auth-client"
 import { themeStore } from "@/stores/theme"
 import { sweepLegacyCacheEntriesOnce } from "@/data/cache"
@@ -73,15 +75,26 @@ function ToastPosition() {
 function AuthGateDialog() {
   const open = useAuthGate((s) => s.open)
   const dismiss = useAuthGate((s) => s.dismiss)
-  return <SignInDialog open={open} onOpenChange={(v) => { if (!v) dismiss() }} />
+  const reason = useAuthGate((s) => s.reason)
+  const resume = useAuthGate((s) => s.resume)
+  const { t } = useTranslation()
+  return (
+    <SignInDialog
+      open={open}
+      onOpenChange={(v) => { if (!v) dismiss() }}
+      description={reason ? t(`signIn.reasons.${reason}`) : undefined}
+      onBeforeRedirect={() => rememberAuthReturn(resume)}
+    />
+  )
 }
 
 function WelcomeWizardWrapper() {
   const { shouldShow, markCompleted } = useWelcomeWizard();
   
-  // Skip wizard on utility routes (debug, etc.)
+  // Skip wizard on utility routes (debug, the public privacy policy and
+  // help pages, etc.)
   const pathname = window.location.pathname;
-  const skipRoutes = ["/debug"];
+  const skipRoutes = ["/debug", "/privacy", "/help"];
   const shouldSkip = skipRoutes.some(r => pathname.startsWith(r));
   
   const handleComplete = () => {

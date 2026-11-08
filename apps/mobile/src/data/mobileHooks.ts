@@ -1,9 +1,12 @@
+import { mobileProfilePreferenceCarry } from "@/lib/mobileProfilePreferences";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { syncMobileJapaneseLearningEnginePreference } from "@/lib/mobileJapaneseLearningEngineSettings";
 import {
   addNetworkStateListener,
   getNetworkStateAsync,
 } from "expo-network";
 import { AppState, Platform } from "react-native";
+import { followMobileSupersedingReload } from "./mobileReloadHandover";
 import {
   classifyMobileNetworkState,
   shouldRetryAfterMobileConnectivityChange,
@@ -32,17 +35,31 @@ import type {
   LocalMangaProgress,
   MetadataLanguagePreference,
   PagePairingMode,
-  ReadingMode,
+  ReadingModeSetting,
   SourcePackageSetting,
-  SourceRegistry,
 } from "./schema";
+import { getMobileReadingModeSetting } from "@/lib/mobileReaderTitleReadingMode";
+import { LOCAL_ARCHIVE_REGISTRY_ID } from "@/lib/localArchives/policy";
+import {
+  mobileLibraryChapterKey,
+  type MobileLibraryChapterRef,
+  type MobileLibraryCompletedChapters,
+} from "@/lib/mobileLibraryPresentation";
 import type { MobileDataStore } from "./storeTypes";
 import {
-  AIDOKU_REGISTRIES,
   fetchAllAidokuRegistrySources,
   makeSourceKey,
+  type AidokuRegistryFetchResult,
   type MobileRegistrySource,
 } from "@/sources/aidokuRegistry";
+import { getNemuRecommendedDirectoryFallbackSources } from "@/sources/nemuRecommendedDirectory";
+import { NEMU_RECOMMENDED_REGISTRY_ID } from "@nemu/core/sources";
+import {
+  enabledSourceDirectories,
+  isMobileSourceAutoUpdateEnabled,
+  loadMobileSourceDirectories,
+  refreshMobileSourceDirectoryNames,
+} from "./mobileSourceDirectories";
 import {
   loadCachedRegistryIndex,
   loadCachedRegistryIndexSnapshot,
@@ -99,6 +116,11 @@ import {
 } from "@/lib/mobileReaderSettings";
 import { useMobileLanguageContext } from "./mobileLanguageState";
 import { findMobileSourceUpdates } from "@/lib/mobileSourceUpdates";
+import {
+  findMobileCatalogEntryForInstalledSource,
+  findMobileSourceCatalogRepairs,
+  mobileInstalledSourceNeedsCatalogRepair,
+} from "@/lib/mobileInstalledSourceCatalogRepair";
 import {
   markMobilePerformance,
   measureMobilePerformance,
@@ -226,6 +248,7 @@ async function saveMobileRegistrySourceInstall(
     icon: source.icon,
     languages: packageMetadata?.languages ?? source.languages,
     contentRating: packageMetadata?.contentRating ?? source.contentRating,
+    ...(source.contentLicense ? { contentLicense: source.contentLicense } : {}),
     ...(source.hasAuthentication == null
       ? {}
       : { hasAuthentication: source.hasAuthentication }),
@@ -253,14 +276,11 @@ async function saveMobileRegistrySourceInstall(
           name: source.registryName,
           type: "builtin",
         }
-      : {
+      : (await store.getRegistry(source.registryId)) ?? {
           id: source.registryId,
           name: source.registryName,
           type: "url",
-          url:
-            AIDOKU_REGISTRIES.find(
-              (registry) => registry.id === source.registryId,
-            )?.indexUrl ?? "",
+          url: "",
         },
     source: installedSource,
     signal: options.signal,
@@ -284,6 +304,124 @@ async function saveMobileRegistrySourceInstall(
     );
   }
   return true;
+}
+
+const mobileSourceCatalogRepairs = new Map<string, Promise<boolean>>();
+
+/**
+ * Installs a catalog entry over an installed record that has no package URL
+ * (see `mobileInstalledSourceNeedsCatalogRepair`). Concurrent callers — the
+ * registry update pass and an open source screen — share one download.
+ */
+function repairMobileInstalledSourceFromCatalog(
+  store: MobileDataStore,
+  source: MobileRegistrySource,
+  options: { signal?: AbortSignal } = {},
+): Promise<boolean> {
+  const key = makeSourceKey(source.registryId, source.id);
+  const inFlight = mobileSourceCatalogRepairs.get(key);
+  if (inFlight) return inFlight;
+  const run = saveMobileRegistrySourceInstall(store, source, {
+    signal: options.signal,
+    updateOnly: true,
+  }).finally(() => {
+    mobileSourceCatalogRepairs.delete(key);
+  });
+  mobileSourceCatalogRepairs.set(key, run);
+  return run;
+}
+
+export type MobileSourceCatalogRepairState =
+  | { status: "idle" }
+  | { status: "installing"; entry: MobileRegistrySource | null }
+  | { status: "unavailable" }
+  | { status: "failed"; entry: MobileRegistrySource | null; detail: string };
+
+/**
+ * Installs an installed-but-bare source (a synced record with no package URL)
+ * from the registry catalog the first time its screen opens, so the screen can
+ * show progress and then the source instead of a blank page.
+ */
+export function useMobileInstalledSourceCatalogRepair(
+  installedSource: InstalledSource | null | undefined,
+): MobileSourceCatalogRepairState & { retry: () => void } {
+  const store = useMobileDataStore();
+  const needsRepair = Boolean(
+    installedSource && mobileInstalledSourceNeedsCatalogRepair(installedSource),
+  );
+  const installedSourceRef = useRef(installedSource);
+  useEffect(() => {
+    installedSourceRef.current = installedSource;
+  }, [installedSource]);
+  const repairKey = needsRepair ? (installedSource?.id ?? null) : null;
+  const [attempt, setAttempt] = useState(0);
+  const runKey = repairKey ? `${repairKey}#${attempt}` : null;
+  // Results are keyed by run, so a new source or a retry reads as
+  // "installing" until its own run reports — no synchronous reset needed.
+  const [result, setResult] = useState<{
+    key: string;
+    state: MobileSourceCatalogRepairState;
+  } | null>(null);
+
+  useEffect(() => {
+    const source = installedSourceRef.current;
+    if (!runKey || !source) return;
+    const controller = new AbortController();
+    const isCurrent = () => !controller.signal.aborted;
+    const report = (state: MobileSourceCatalogRepairState) => {
+      if (isCurrent()) setResult({ key: runKey, state });
+    };
+    void (async () => {
+      let entry: MobileRegistrySource | null = null;
+      try {
+        const cached = await loadCachedRegistryIndex().catch(() => null);
+        entry = cached
+          ? findMobileCatalogEntryForInstalledSource(source, cached)
+          : null;
+        if (!entry) {
+          const { value: catalog } = await registryCatalogScheduler.fetch(
+            (signal) => loadMobileRegistryCatalog(store, signal),
+            {
+              ttlMs: attempt > 0 ? 0 : MOBILE_REGISTRY_CATALOG_FRESHNESS_MS,
+              signal: controller.signal,
+            },
+          );
+          entry = findMobileCatalogEntryForInstalledSource(source, catalog);
+        }
+        if (!entry) {
+          report({ status: "unavailable" });
+          return;
+        }
+        report({ status: "installing", entry });
+        await repairMobileInstalledSourceFromCatalog(store, entry, {
+          signal: controller.signal,
+        });
+        if (!isCurrent()) return;
+        // Whether this call or a concurrent pass wrote the record, reload it:
+        // the screen leaves this state once the record has a package URL.
+        emitMobileDataChanged("sources");
+        const refreshed = (await store.getInstalledSources()).find(
+          (item) => item.id === source.id,
+        );
+        if (refreshed && mobileInstalledSourceNeedsCatalogRepair(refreshed)) {
+          report({
+            status: "failed",
+            entry,
+            detail: "The source record was not updated.",
+          });
+        }
+      } catch (nextError) {
+        if (isMobileSourceInstallCancellation(nextError)) return;
+        report({ status: "failed", entry, detail: errorMessage(nextError) });
+      }
+    })();
+    return () => controller.abort();
+  }, [attempt, runKey, store]);
+
+  const retry = useCallback(() => setAttempt((value) => value + 1), []);
+  if (!runKey) return { status: "idle", retry };
+  if (result?.key === runKey) return { ...result.state, retry };
+  return { status: "installing", entry: null, retry };
 }
 
 export function useLibraryEntries(): LoadState<LibraryEntry[]> {
@@ -409,7 +547,12 @@ export function useMangaProgress(): LoadState<LocalMangaProgress[]> {
   return { data, loading, error, reload };
 }
 
-export function useInstalledSources(): LoadState<InstalledSource[]> {
+export function useInstalledSources(
+  options: { includeLocalArchive?: boolean } = {},
+): LoadState<InstalledSource[]> {
+  // The imported-archive source is not something to browse, search or manage as
+  // a source; only screens that open library entries ask for it.
+  const includeLocalArchive = options.includeLocalArchive === true;
   const store = useMobileDataStore();
   const revision = useMobileDataRevision(["sources"]);
   const [data, setData] = useState<InstalledSource[]>([]);
@@ -419,7 +562,10 @@ export function useInstalledSources(): LoadState<InstalledSource[]> {
   const reload = useCallback(async () => {
     try {
       setError(null);
-      const sources = await store.getInstalledSources();
+      const sources = (await store.getInstalledSources()).filter(
+        (source) =>
+          includeLocalArchive || source.registryId !== LOCAL_ARCHIVE_REGISTRY_ID,
+      );
       // Per-item reference stability: hydrating one source's package must not
       // invalidate memos (and through them screen load effects) keyed on its
       // siblings; an unchanged list keeps the previous array reference.
@@ -437,7 +583,7 @@ export function useInstalledSources(): LoadState<InstalledSource[]> {
     } finally {
       setLoading(false);
     }
-  }, [store]);
+  }, [includeLocalArchive, store]);
 
   useEffect(() => {
     ignoreReloadError(reload);
@@ -508,6 +654,51 @@ export function useLibraryItem(
   }, [reload, revision]);
 
   return { data, loading, error, reload };
+}
+
+const NO_COMPLETED_CHAPTERS: MobileLibraryCompletedChapters = new Set();
+
+/**
+ * Which of `chapters` are read (their chapter progress is `completed`), as
+ * `mobileLibraryChapterKey`s: the Library's "Caught up" reads only the
+ * newest chapters titles were last in, not every chapter's progress.
+ */
+export function useCompletedChapters(
+  chapters: readonly MobileLibraryChapterRef[],
+): MobileLibraryCompletedChapters {
+  const store = useMobileDataStore();
+  const revision = useMobileDataRevision(["progress"]);
+  const signature = JSON.stringify(chapters.map(mobileLibraryChapterKey));
+  const [completed, setCompleted] = useState<MobileLibraryCompletedChapters>(NO_COMPLETED_CHAPTERS);
+
+  useEffect(() => {
+    let current = true;
+    const refs = (JSON.parse(signature) as string[]).map((key) => {
+      const [registryId, sourceId, mangaId, chapterId] = JSON.parse(key) as string[];
+      return { registryId, sourceId, mangaId, chapterId };
+    });
+    void Promise.all(
+      refs.map((ref) =>
+        store
+          .getChapterProgress(ref.registryId, ref.sourceId, ref.mangaId, ref.chapterId)
+          .then((progress) => (progress?.completed ? mobileLibraryChapterKey(ref) : null))
+          .catch(() => null),
+      ),
+    ).then((keys) => {
+      if (!current) return;
+      const next = keys.filter((key): key is string => key !== null);
+      setCompleted((previous) =>
+        previous.size === next.length && next.every((key) => previous.has(key))
+          ? previous
+          : next.length ? new Set(next) : NO_COMPLETED_CHAPTERS,
+      );
+    });
+    return () => {
+      current = false;
+    };
+  }, [revision, signature, store]);
+
+  return completed;
 }
 
 export function useMangaChapterProgress(
@@ -945,40 +1136,6 @@ export function useCollections(): LoadState<LocalCollection[]> & {
   };
 }
 
-export function useSourceRegistries(): LoadState<SourceRegistry[]> {
-  const store = useMobileDataStore();
-  const revision = useMobileDataRevision(["registries"]);
-  const [data, setData] = useState<SourceRegistry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const reload = useCallback(async () => {
-    try {
-      setError(null);
-      const registries = await store.getRegistries();
-      setData(
-        (current) =>
-          stabilizeListReferences(
-            current,
-            registries,
-            (registry) => registry.id,
-          ) as SourceRegistry[],
-      );
-    } catch (nextError) {
-      setError(errorMessage(nextError));
-      throw nextError;
-    } finally {
-      setLoading(false);
-    }
-  }, [store]);
-
-  useEffect(() => {
-    ignoreReloadError(reload);
-  }, [reload, revision]);
-
-  return { data, loading, error, reload };
-}
-
 const DEFAULT_HAPTICS_FEEDBACK_ENABLED = true;
 const DEFAULT_CHAPTER_COMPLETE_CELEBRATION = false;
 
@@ -1081,8 +1238,11 @@ export function useMobileFeedbackSettings(): {
 }
 
 export function useReadingMode(): {
-  mode: ReadingMode;
-  setMode: (mode: ReadingMode) => Promise<void>;
+  /** The Settings value; a title's own mode comes from `useMobileReaderTitleReadingMode`. */
+  mode: ReadingModeSetting;
+  /** The stored reading mode has been read (until then `mode` is the default). */
+  modeLoaded: boolean;
+  setMode: (mode: ReadingModeSetting) => Promise<void>;
   scrollWidthPct: number;
   setScrollWidthPct: (value: number) => Promise<void>;
   twoPageMode: boolean;
@@ -1094,7 +1254,8 @@ export function useReadingMode(): {
 } {
   const store = useMobileDataStore();
   const revision = useMobileDataRevision(["settings"]);
-  const [mode, setModeState] = useState<ReadingMode>("rtl");
+  const [mode, setModeState] = useState<ReadingModeSetting>("auto");
+  const [modeLoaded, setModeLoaded] = useState(false);
   const [scrollWidthPct, setScrollWidthPctState] = useState(
     DEFAULT_READER_SCROLL_WIDTH_PCT,
   );
@@ -1112,7 +1273,7 @@ export function useReadingMode(): {
   const twoPageRun = useRef(0);
   const pagePairingRun = useRef(0);
   const pageImageProcessingRun = useRef(0);
-  const savedMode = useRef<ReadingMode>("rtl");
+  const savedMode = useRef<ReadingModeSetting>("auto");
   const savedScrollWidthPct = useRef(DEFAULT_READER_SCROLL_WIDTH_PCT);
   const savedTwoPageMode = useRef(DEFAULT_READER_TWO_PAGE_MODE);
   const savedPagePairingMode = useRef<PagePairingMode>(
@@ -1126,15 +1287,9 @@ export function useReadingMode(): {
       .getSettings()
       .then((settings) => {
         if (!mounted) return;
-        const storedMode = settings.readingMode;
-        if (
-          storedMode === "rtl" ||
-          storedMode === "ltr" ||
-          storedMode === "scrolling"
-        ) {
-          setModeState(storedMode);
-          savedMode.current = storedMode;
-        }
+        const storedMode = getMobileReadingModeSetting(settings);
+        setModeState(storedMode);
+        savedMode.current = storedMode;
         const nextScrollWidthPct = clampReaderScrollWidthPct(
           settings.readerScrollWidthPct,
         );
@@ -1155,15 +1310,19 @@ export function useReadingMode(): {
         );
         setProcessPageImagesState(nextProcessPageImages);
         savedProcessPageImages.current = nextProcessPageImages;
+        setModeLoaded(true);
       })
-      .catch(() => undefined);
+      .catch(() => {
+        // The default mode stands.
+        if (mounted) setModeLoaded(true);
+      });
     return () => {
       mounted = false;
     };
   }, [revision, store]);
 
   const setMode = useCallback(
-    async (nextMode: ReadingMode) => {
+    async (nextMode: ReadingModeSetting) => {
       if (nextMode === mode) return;
       const run = modeRun.current + 1;
       modeRun.current = run;
@@ -1171,7 +1330,7 @@ export function useReadingMode(): {
       try {
         await store.updateSettings((settings) => ({
           ...settings,
-          readingMode: nextMode,
+          readerReadingMode: nextMode,
         }));
         savedMode.current = nextMode;
         emitMobileDataChanged("settings");
@@ -1280,6 +1439,7 @@ export function useReadingMode(): {
 
   return {
     mode,
+    modeLoaded,
     setMode,
     scrollWidthPct,
     setScrollWidthPct,
@@ -1381,6 +1541,7 @@ export function useMobileDataManagement(): {
               clearAllData: () => clearAllMobileDeviceData(store),
             });
           }
+          mobileProfilePreferenceCarry.forget();
           emitMobileDataChanged("all");
         });
       } finally {
@@ -1421,6 +1582,7 @@ export function useMobileReaderPlugins(): LoadState<
       setError(null);
       const settings = await store.getSettings();
       const plugins = getMobileReaderPluginStates(settings, strings);
+      syncMobileJapaneseLearningEnginePreference(plugins);
       // Plugin state is plain data derived from settings; every settings
       // write reloads it, so unchanged plugins must keep their references or
       // the reader re-derives its plugin pipeline on each write.
@@ -1557,23 +1719,54 @@ async function loadMobileRegistryCatalog(
 ): Promise<MobileRegistrySource[]> {
   const isAccountMutationBlocked = () =>
     Boolean(getMobileDataProfileSnapshot().pendingCleanupProfileId);
-  const sources = await fetchAllAidokuRegistrySources(AIDOKU_REGISTRIES, {
-    signal,
-  });
-  assertMobileSourceInstallActive(signal, isAccountMutationBlocked);
-  await Promise.all(
-    AIDOKU_REGISTRIES.map((registry) =>
-      store.saveRegistry({
-        id: registry.id,
-        name: registry.name,
-        type: "url" as const,
-        url: registry.indexUrl,
-      }),
-    ),
+  const directories = enabledSourceDirectories(
+    await loadMobileSourceDirectories(store),
   );
   assertMobileSourceInstallActive(signal, isAccountMutationBlocked);
-  emitMobileDataChanged("registries");
+  let report: AidokuRegistryFetchResult[] = [];
+  let sources: MobileRegistrySource[];
+  try {
+    sources = await fetchAllAidokuRegistrySources(directories, {
+      signal,
+      onResults: (results) => {
+        report = results;
+      },
+    });
+  } catch (error) {
+    // Every directory failed (offline). The recommended directory still has
+    // its bundled snapshot, so the welcome list and Browse stay usable; the
+    // install itself reports a network failure if it cannot download.
+    if (
+      isMobileSourceInstallCancellation(error) ||
+      !directories.some((directory) => directory.id === NEMU_RECOMMENDED_REGISTRY_ID)
+    ) {
+      throw error;
+    }
+    return getNemuRecommendedDirectoryFallbackSources();
+  }
+  assertMobileSourceInstallActive(signal, isAccountMutationBlocked);
   void saveCachedRegistryIndex(sources);
+  // Directories still named after their URL take their index's own name (or
+  // the readable OWNER/REPO fallback). Best effort: never fails the catalog.
+  try {
+    await refreshMobileSourceDirectoryNames(store, report);
+  } catch (error) {
+    if (typeof __DEV__ !== "undefined" && __DEV__) {
+      console.warn("[sources] directory name refresh failed:", error);
+    }
+  }
+  // The recommended directory is the welcome list and the first thing a new
+  // user sees; a failed fetch of it must not leave that empty.
+  const recommendedLoaded = report.some(
+    (result) =>
+      result.registryId === NEMU_RECOMMENDED_REGISTRY_ID && result.ok,
+  );
+  const recommendedEnabled = directories.some(
+    (directory) => directory.id === NEMU_RECOMMENDED_REGISTRY_ID,
+  );
+  if (recommendedEnabled && !recommendedLoaded) {
+    return [...sources, ...getNemuRecommendedDirectoryFallbackSources()];
+  }
   return sources;
 }
 
@@ -1591,6 +1784,39 @@ async function runMobileRegistrySourceUpdatePass(
   const installedSources = await store.getInstalledSources();
   assertMobileSourceInstallActive(signal, isAccountMutationBlocked);
   const updateSources = findMobileSourceUpdates(installedSources, sources);
+  const updateKeys = new Set(
+    updateSources.map((source) => makeSourceKey(source.registryId, source.id)),
+  );
+  // Bare synced records (no download URL) at the catalog's version are not
+  // "updates", but they cannot run until installed from the catalog. Repair
+  // them silently alongside the update pass; they are not announced as
+  // updated.
+  const repairSources = findMobileSourceCatalogRepairs(
+    installedSources,
+    sources,
+  ).filter(
+    (source) => !updateKeys.has(makeSourceKey(source.registryId, source.id)),
+  );
+  if (repairSources.length > 0) {
+    const repaired = await Promise.all(
+      repairSources.map(async (source) => {
+        try {
+          return await repairMobileInstalledSourceFromCatalog(store, source, {
+            signal,
+          });
+        } catch (nextError) {
+          if (isMobileSourceInstallCancellation(nextError)) throw nextError;
+          console.warn(
+            `[MobileSources] Failed to install synced source ${source.registryId}:${source.id}:`,
+            errorMessage(nextError),
+          );
+          return false;
+        }
+      }),
+    );
+    assertMobileSourceInstallActive(signal, isAccountMutationBlocked);
+    if (repaired.some(Boolean)) emitMobileDataChanged("sources");
+  }
   if (updateSources.length === 0) return [];
 
   const updatedNames = await Promise.all(
@@ -1626,6 +1852,10 @@ export function useAvailableSources(
   } = {},
 ): LoadState<MobileRegistrySource[]> & {
   sourceUpdateNotice: MobileSourceUpdateNotice | null;
+  /** Installed sources whose directory lists a newer version. */
+  sourceUpdates: MobileRegistrySource[];
+  /** Installs every pending update now; resolves with the updated names. */
+  updateInstalledSources: () => Promise<string[]>;
   networkAccessState: NemuNetworkAccessState;
   catalogCachedAt: number | null;
 } {
@@ -1638,6 +1868,9 @@ export function useAvailableSources(
   const [sourceUpdateNotice, setSourceUpdateNotice] =
     useState<MobileSourceUpdateNotice | null>(null);
   const [catalogCachedAt, setCatalogCachedAt] = useState<number | null>(null);
+  const [sourceUpdates, setSourceUpdates] = useState<MobileRegistrySource[]>(
+    [],
+  );
   const [networkAccessState, setNetworkAccessState] =
     useState<NemuNetworkAccessState>(() =>
       Platform.OS === "ios"
@@ -1651,7 +1884,7 @@ export function useAvailableSources(
     dataRef.current = data;
   }, [data]);
 
-  const runReload = useCallback(
+  const runReloadOnce = useCallback(
     async (ttlMs: number) => {
       reloadAbortRef.current?.abort();
       const controller = new AbortController();
@@ -1679,6 +1912,14 @@ export function useAvailableSources(
             setData(cached);
             setCatalogCachedAt(cachedSnapshot?.savedAt ?? null);
             setLoading(false);
+          } else {
+            // Nothing cached yet (first launch, offline): the bundled snapshot
+            // of the recommended directory keeps the list usable.
+            const fallback = getNemuRecommendedDirectoryFallbackSources();
+            if (fallback.length > 0) {
+              setData(fallback);
+              setLoading(false);
+            }
           }
         }
 
@@ -1701,6 +1942,20 @@ export function useAvailableSources(
             ) as MobileRegistrySource[],
         );
 
+        // Refreshing the directories and updating installed sources are two
+        // steps: with auto-update off the user decides when installed sources
+        // are replaced (`updateInstalledSources`), and a new source appearing
+        // in a directory is never installed either way.
+        const autoUpdate = isMobileSourceAutoUpdateEnabled(
+          await store.getSettings(),
+        );
+        setSourceUpdates(
+          findMobileSourceUpdates(
+            await store.getInstalledSources(),
+            sources,
+          ),
+        );
+        if (!autoUpdate) return;
         const pass = await registryCatalogScheduler.runUpdatePass(
           fetchId,
           // The pass runs on the scheduler's own signal: this consumer
@@ -1715,6 +1970,7 @@ export function useAvailableSources(
         if (names.length > 0) {
           emitMobileDataChanged("sources");
           setSourceUpdateNotice({ id: Date.now(), names });
+          setSourceUpdates([]);
         }
       } catch (nextError) {
         if (isCurrent() && !isMobileSourceInstallCancellation(nextError)) {
@@ -1731,9 +1987,52 @@ export function useAvailableSources(
     [store],
   );
 
+  // A newer reload aborts the one in flight (the foreground stale check, a
+  // connectivity change, a second pull). The superseded caller (typically the
+  // user's own refresh) must not see that cancellation as a failure: its
+  // promise is handed over to the superseding reload and settles with that
+  // run's result instead.
+  const latestReloadRef = useRef<Promise<void> | null>(null);
+  const runReload = useCallback(
+    (ttlMs: number) => {
+      const started = runReloadOnce(ttlMs);
+      latestReloadRef.current = started;
+      return followMobileSupersedingReload(started, () => latestReloadRef.current);
+    },
+    [runReloadOnce],
+  );
+
   // The public reload is always an explicit user action (pull-to-refresh, an
   // error retry), so it bypasses the shared freshness window.
   const reload = useCallback(() => runReload(0), [runReload]);
+
+  // Adding, removing or toggling a directory changes what the catalog is.
+  const directoriesRevision = useMobileDataRevision(["registries"]);
+  const seenDirectoriesRevision = useRef(directoriesRevision);
+  useEffect(() => {
+    if (seenDirectoriesRevision.current === directoriesRevision) return;
+    seenDirectoriesRevision.current = directoriesRevision;
+    if (enabled) ignoreReloadError(reload);
+  }, [directoriesRevision, enabled, reload]);
+
+  // Explicit "update installed sources": installs every pending update now,
+  // whatever the auto-update preference says.
+  const updateInstalledSources = useCallback(async (): Promise<string[]> => {
+    const pending = dataRef.current;
+    const names = await runMobileRegistrySourceUpdatePass(
+      store,
+      pending,
+      new AbortController().signal,
+    );
+    if (names.length > 0) {
+      emitMobileDataChanged("sources");
+      setSourceUpdateNotice({ id: Date.now(), names });
+    }
+    setSourceUpdates(
+      findMobileSourceUpdates(await store.getInstalledSources(), pending),
+    );
+    return names;
+  }, [store]);
 
   useEffect(() => {
     if (!enabled) {
@@ -1817,6 +2116,8 @@ export function useAvailableSources(
     error,
     reload,
     sourceUpdateNotice,
+    sourceUpdates,
+    updateInstalledSources,
     networkAccessState,
     catalogCachedAt,
   };
@@ -1869,13 +2170,31 @@ export function useSourceInstaller(): {
       installAbortRef.current?.abort();
       const controller = new AbortController();
       installAbortRef.current = controller;
-      const timeout = setTimeout(() => {
-        controller.abort(
-          new MobileSourceOperationTimeoutError(
-            "Source installation timed out.",
-          ),
-        );
-      }, MOBILE_SOURCE_INSTALL_TIMEOUT_MS);
+      const armTimeout = () =>
+        setTimeout(() => {
+          controller.abort(
+            new MobileSourceOperationTimeoutError(
+              "Source installation timed out.",
+            ),
+          );
+        }, MOBILE_SOURCE_INSTALL_TIMEOUT_MS);
+      let timeout = armTimeout();
+      // Time spent suspended in the background is not a stalled transfer:
+      // the deadline starts over when the app is back (the interrupted
+      // download is retried once then, `runMobileHttpRequestWithRetry`).
+      let wentToBackground = false;
+      const appStateSubscription = AppState.addEventListener(
+        "change",
+        (next) => {
+          if (next === "background") wentToBackground = true;
+          if (next !== "active" || !wentToBackground || controller.signal.aborted) {
+            return;
+          }
+          wentToBackground = false;
+          clearTimeout(timeout);
+          timeout = armTimeout();
+        },
+      );
       setInstallingKey(key);
       try {
         await runAfterMobileInteractions(() =>
@@ -1889,6 +2208,7 @@ export function useSourceInstaller(): {
         });
       } finally {
         clearTimeout(timeout);
+        appStateSubscription.remove();
         if (installAbortRef.current === controller) {
           installAbortRef.current = null;
         }

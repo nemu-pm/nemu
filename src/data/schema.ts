@@ -93,6 +93,14 @@ export const SourceRegistrySchema = z.discriminatedUnion("type", [
     name: z.string(),
     type: z.literal("url"),
     url: z.string(),
+    // Directory sync (all optional: rows written before it parse unchanged).
+    // A disabled or removed directory still loads the sources installed from
+    // it, but is not listed or used for updates. `removed` rows are local
+    // tombstones until the cloud has seen the removal.
+    disabled: z.boolean().optional(),
+    removed: z.boolean().optional(),
+    addedAt: z.number().optional(),
+    updatedAt: z.number().optional(),
   }),
 ]);
 
@@ -199,6 +207,9 @@ const LocalChapterProgressValueSchema = z.object({
   // Content-bound resume state for a single logical long-strip page.
   intraPageProgress: z.number().finite().min(0).max(1).optional(),
   intraPageContentIdentity: z.string().optional(),
+
+  // Sync clock of the newest Mark as Unread (validated by the merge).
+  resetAt: z.number().optional(),
 
   // Sync fields
   updatedAt: z.number(),

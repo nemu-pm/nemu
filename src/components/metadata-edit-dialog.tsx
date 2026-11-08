@@ -40,7 +40,9 @@ import type { LibraryEntry } from "@/data/view";
 import { getEntryEffectiveMetadata, getEntryCover } from "@/data/view";
 import { MangaStatus } from "@/lib/sources/types";
 import { metadataFromSource } from "@/lib/metadata";
+import { useConvexAuth } from "convex/react";
 import { useCoverUpload, getR2PublicUrl } from "@/hooks/use-cover-upload";
+import { isAuthFailure, requireAuthOrPrompt, useAuthGate, type AuthGatePrompt } from "@/lib/auth-gate";
 import { useStores } from "@/data/context";
 import { proxyUrl } from "@/config";
 import { toast } from "sonner";
@@ -54,6 +56,8 @@ interface MetadataEditDialogProps {
     externalIds?: ExternalIds,
     coverUrl?: string | null  // null = clear override, undefined = no change
   ) => Promise<void>;
+  /** Reopen the match drawer, the user having just signed in from it. */
+  resumeMatch?: boolean;
 }
 
 interface FormState {
@@ -80,14 +84,19 @@ const STATUS_OPTIONS = [
   { value: MangaStatus.Cancelled, label: "status.cancelled" },
 ];
 
+const COVER_UPLOAD_PROMPT: AuthGatePrompt = { reason: "coverUpload", resume: "edit-metadata" };
+
 export function MetadataEditDialog({
   open,
   onOpenChange,
   entry,
   onSave,
+  resumeMatch = false,
 }: MetadataEditDialogProps) {
   const { t } = useTranslation();
   const { uploadCover } = useCoverUpload();
+  // Cover uploads are stored per account, so they need a signed-in user.
+  const { isAuthenticated: canUploadCover } = useConvexAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const baseMetadata = entry.item.metadata;
@@ -123,6 +132,11 @@ export function MetadataEditDialog({
 
   // Reset form when dialog opens - use entry ID as stable dep
   const entryId = entry.item.libraryItemId;
+
+  useEffect(() => {
+    if (open && resumeMatch) setMatchDrawerOpen(true);
+  }, [open, resumeMatch]);
+
   useEffect(() => {
     if (open) {
       const meta = getEntryEffectiveMetadata(entry);
@@ -204,6 +218,10 @@ export function MetadataEditDialog({
     }));
   }, []);
 
+  const handleUploadClick = useCallback(() => {
+    if (requireAuthOrPrompt(COVER_UPLOAD_PROMPT)) fileInputRef.current?.click();
+  }, []);
+
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -248,7 +266,15 @@ export function MetadataEditDialog({
       }));
 
       // Download cover image to blob if provided (use proxy for CORS)
-      if (metadata.cover) {
+      if (metadata.cover && !canUploadCover) {
+        // Signed out: keep the source URL, nothing can be uploaded.
+        setForm(f => ({
+          ...f,
+          coverFile: null,
+          coverUrl: metadata.cover ?? null,
+          coverPreview: metadata.cover ?? f.coverPreview,
+        }));
+      } else if (metadata.cover) {
         try {
           const response = await fetch(proxyUrl(metadata.cover));
           if (!response.ok) throw new Error("Failed to fetch cover");
@@ -285,7 +311,7 @@ export function MetadataEditDialog({
     } finally {
       setFetchingFromSource(null);
     }
-  }, [getSource, t, form.coverPreview]);
+  }, [getSource, t, form.coverPreview, canUploadCover]);
 
   // Handle single source click or dropdown selection
   const handleFetchFromSource = useCallback(() => {
@@ -310,7 +336,15 @@ export function MetadataEditDialog({
     setPendingExternalIds(prev => ({ ...prev, ...externalIds }));
     
     // Download cover image to blob if provided (use proxy for CORS)
-    if (metadata.cover) {
+    if (metadata.cover && !canUploadCover) {
+      // Signed out: keep the match URL, nothing can be uploaded.
+      setForm(f => ({
+        ...f,
+        coverFile: null,
+        coverUrl: metadata.cover ?? null,
+        coverPreview: metadata.cover ?? f.coverPreview,
+      }));
+    } else if (metadata.cover) {
       try {
         const response = await fetch(proxyUrl(metadata.cover));
         if (!response.ok) throw new Error("Failed to fetch cover");
@@ -340,7 +374,7 @@ export function MetadataEditDialog({
         }));
       }
     }
-  }, [form.coverPreview]);
+  }, [form.coverPreview, canUploadCover]);
 
   const handleSave = useCallback(async () => {
     setSaving(true);
@@ -365,9 +399,13 @@ export function MetadataEditDialog({
 
       let coverUrl: string | null | undefined;
       if (form.coverFile) {
+        if (!requireAuthOrPrompt(COVER_UPLOAD_PROMPT)) return;
         // Upload local file to R2
         const key = await uploadCover(form.coverFile);
         coverUrl = getR2PublicUrl(key);
+      } else if (form.coverUrl && form.coverUrl !== currentOverrides?.coverUrl && !canUploadCover) {
+        // External URL while signed out - uploads need an account, keep the URL
+        coverUrl = form.coverUrl;
       } else if (form.coverUrl && form.coverUrl !== currentOverrides?.coverUrl) {
         // External URL (new, not existing override) - download via proxy and upload to R2
         try {
@@ -379,6 +417,7 @@ export function MetadataEditDialog({
           coverUrl = getR2PublicUrl(key);
         } catch (e) {
           console.error("[MetadataEdit] Failed to upload external cover:", e);
+          if (await isAuthFailure(e)) useAuthGate.getState().promptSignIn(COVER_UPLOAD_PROMPT);
           // Last resort: use external URL directly
           coverUrl = form.coverUrl;
         }
@@ -390,12 +429,16 @@ export function MetadataEditDialog({
       await onSave(overrides, pendingExternalIds, coverUrl);
       onOpenChange(false);
     } catch (e) {
+      if (await isAuthFailure(e)) {
+        useAuthGate.getState().promptSignIn(COVER_UPLOAD_PROMPT);
+        return;
+      }
       console.error("[MetadataEdit] Save error:", e);
       toast.error(t("metadata.saveFailed"));
     } finally {
       setSaving(false);
     }
-  }, [form, isOverridden, uploadCover, onSave, onOpenChange, pendingExternalIds, currentOverrides]);
+  }, [form, isOverridden, uploadCover, canUploadCover, onSave, onOpenChange, pendingExternalIds, currentOverrides]);
 
   const tagInputStyles = {
     inlineTagsContainer: "tag-input-nemu",
@@ -518,7 +561,7 @@ export function MetadataEditDialog({
                     variant="secondary"
                     size="sm"
                     className="w-full text-xs"
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={handleUploadClick}
                   >
                     <HugeiconsIcon icon={Upload04Icon} className="size-3.5 mr-1" />
                     {t("metadata.uploadImage")}
@@ -543,7 +586,7 @@ export function MetadataEditDialog({
                   variant="outline"
                   size="sm"
                   className="w-full"
-                  onClick={() => fileInputRef.current?.click()}
+                  onClick={handleUploadClick}
                 >
                   <HugeiconsIcon icon={Upload04Icon} className="size-4 mr-1.5" />
                   {t("metadata.uploadImage")}

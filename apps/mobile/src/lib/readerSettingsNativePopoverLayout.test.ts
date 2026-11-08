@@ -1,0 +1,237 @@
+import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import {
+  pushedPageWidthKey,
+  readerSettingsFormKey,
+  READER_SETTINGS_POPOVER_WIDTH,
+  READER_SETTINGS_SHEET_BAR,
+  readerSettingsNativeContentHeight,
+  readerSettingsNativeSheetEstimatedHeight,
+  readerSettingsNativePresentation,
+  readerSettingsPopoverAvailableHeight,
+  readerNotebookSheetMaxHeight,
+  readerSettingsSheetDetentCap,
+  readerSettingsHeldNativePresentation,
+} from "./readerSettingsNativePopoverLayout";
+
+const full = {
+  twoPageSupported: true,
+  showPagePairingControls: true,
+  scrolling: false,
+  showPlugins: true,
+  showMarkComplete: true,
+};
+
+describe("native reader settings presentation", () => {
+  test("counts every row it shows", () => {
+    const minimal = readerSettingsNativeContentHeight({
+      twoPageSupported: false,
+      showPagePairingControls: false,
+      scrolling: false,
+      showPlugins: false,
+      showMarkComplete: false,
+    });
+    // Page Layout and Page Fit join the page group with its two-line
+    // footnote; the pairing group (pairing, shift, footer) is one more
+    // section; plugins and mark complete rows.
+    expect(readerSettingsNativeContentHeight(full) - minimal)
+      .toBe(52 * 2 + 36 * 2 + (52 * 2 + 36 + 20) + 52 * 2);
+    // No Orientation Lock row on an iPhone or the Duo outer display.
+    expect(readerSettingsNativeContentHeight({ ...full, showOrientationLock: false }))
+      .toBe(readerSettingsNativeContentHeight(full) - 52);
+  });
+
+  test("Page Turning adds one menu row to the page group, no section", () => {
+    const without = readerSettingsNativeContentHeight(full);
+    const withTurn = readerSettingsNativeContentHeight({ ...full, showPageTurn: true });
+    expect(withTurn - without).toBe(52);
+  });
+
+  test("Avoid Camera Area: a row in More, with that group's footnote, no section of its own", () => {
+    const base = readerSettingsNativeContentHeight(full);
+    expect(readerSettingsNativeContentHeight({ ...full, showCameraMode: true }) - base).toBe(52 + 36);
+  });
+
+  test("the pairing group shows only while a spread can show", () => {
+    const withoutPairing = readerSettingsNativeContentHeight({ ...full, showPagePairingControls: false });
+    expect(readerSettingsNativeContentHeight(full) - withoutPairing).toBe(52 * 2 + 36 + 20);
+    expect(readerSettingsNativeContentHeight({ ...full, twoPageSupported: false })).toBe(
+      readerSettingsNativeContentHeight({ ...full, twoPageSupported: false, showPagePairingControls: false }),
+    );
+  });
+
+  test("Duo notebook: a 455pt pane cannot hold the Form, so it becomes a sheet", () => {
+    const available = readerSettingsPopoverAvailableHeight({
+      anchor: { y: 26, height: 44 },
+      bounds: { height: 951 },
+      safeInsets: { top: 82, bottom: 34 },
+      panes: [{ height: 455.5 }, { height: 455.5 }],
+    });
+    expect(available).toBe(455.5 - 32);
+    expect(readerSettingsNativePresentation(full, { availableHeight: available, regularWidth: true })).toEqual({ kind: "sheet" });
+  });
+
+  test("Duo flat landscape and book: the popover fits below the capsule row", () => {
+    const available = readerSettingsPopoverAvailableHeight({
+      anchor: { y: 26, height: 44 },
+      bounds: { height: 669 },
+      safeInsets: { top: 82, bottom: 34 },
+    });
+    expect(available).toBe(669 - 34 - 70 - 16);
+    // The paged Form (layout, pairing, fit, background) is taller than the
+    // space below the capsule row; the scrolling Form without the page rows
+    // still fits.
+    const lean = {
+      ...full, twoPageSupported: false, showPagePairingControls: false, showPlugins: false, showMarkComplete: false,
+    };
+    const presentation = readerSettingsNativePresentation(lean, { availableHeight: available, regularWidth: true });
+    expect(presentation.kind).toBe("popover");
+    expect(readerSettingsNativePresentation(full, { availableHeight: available, regularWidth: true }).kind).toBe("sheet");
+    if (presentation.kind === "popover") {
+      expect(presentation.width).toBe(READER_SETTINGS_POPOVER_WIDTH);
+      expect(presentation.height).toBeLessThanOrEqual(available);
+    }
+  });
+
+  test("never a popover taller than its space", () => {
+    for (const available of [0, 200, 400, 600, Number.NaN]) {
+      const presentation = readerSettingsNativePresentation({ ...full, scrolling: true }, { availableHeight: available, regularWidth: true });
+      if (presentation.kind === "popover") expect(presentation.height).toBeLessThanOrEqual(available);
+    }
+  });
+
+  test("compact width is always a sheet, even when the popover would fit", () => {
+    // iPhone Duo closed (outer display 466×678): the settings button sits at
+    // the bottom trailing corner with ~500pt above it — enough for the Form,
+    // but a compact window presents it as a sheet.
+    const duoClosed = readerSettingsPopoverAvailableHeight({
+      anchor: { y: 600, height: 44 },
+      bounds: { height: 678 },
+      safeInsets: { top: 0, bottom: 34 },
+    });
+    const rows = { ...full, twoPageSupported: false, showOrientationLock: false };
+    expect(readerSettingsNativeContentHeight(rows)).toBeLessThanOrEqual(duoClosed);
+    expect(readerSettingsNativePresentation(rows, { availableHeight: duoClosed, regularWidth: false })).toEqual({
+      kind: "sheet",
+    });
+    // iPhone 17 Pro portrait and landscape.
+    for (const availableHeight of [760, 300, Number.POSITIVE_INFINITY]) {
+      expect(readerSettingsNativePresentation(rows, { availableHeight, regularWidth: false })).toEqual({ kind: "sheet" });
+    }
+  });
+
+  test("regular width keeps the popover when it fits", () => {
+    const presentation = readerSettingsNativePresentation(full, { availableHeight: 900, regularWidth: true });
+    expect(presentation.kind).toBe("popover");
+  });
+});
+
+describe("compact-width reader settings sheet", () => {
+  const phone = {
+    twoPageSupported: false,
+    showPagePairingControls: false,
+    scrolling: false,
+    showPlugins: true,
+    showMarkComplete: true,
+  };
+
+  test("first-frame estimate is the rows under the title bar, well short of a full-height sheet", () => {
+    const estimate = readerSettingsNativeSheetEstimatedHeight(phone);
+    expect(estimate).toBe(readerSettingsNativeContentHeight(phone) + READER_SETTINGS_SHEET_BAR);
+    // iPhone Air (912pt tall): the phone's rows need about half the screen.
+    expect(estimate).toBeLessThan(912 * 0.6);
+  });
+
+  test("grows with the rows shown (scroll mode adds the page-width slider)", () => {
+    expect(readerSettingsNativeSheetEstimatedHeight({ ...phone, scrolling: true })).toBeGreaterThan(
+      readerSettingsNativeSheetEstimatedHeight(phone),
+    );
+  });
+});
+
+describe("settings sheet half folded like a laptop", () => {
+  test("the cap keeps the sheet's top level with the bottom pane on the iPhone Duo", () => {
+    // Inner display 951pt tall, fold 455.5–495.5, bottom inset 34, 8pt floating gutter.
+    const max = readerNotebookSheetMaxHeight({ paneHeight: 455.5, bottomInset: 34 });
+    expect(max).toBe(413);
+    expect(951 - 34 - 8 - max).toBeGreaterThanOrEqual(495);
+  });
+
+  test("a Form that could reach past the fold gets exactly the cap; a short one keeps fitting", () => {
+    const estimatedHeight = readerSettingsNativeSheetEstimatedHeight(full);
+    expect(readerSettingsSheetDetentCap({ estimatedHeight, maxHeight: 413 })).toBe(413);
+    expect(readerSettingsSheetDetentCap({ estimatedHeight: 200, maxHeight: 413 })).toBe(0);
+    // Close to the cap: the estimate may be short of the measured Form.
+    expect(readerSettingsSheetDetentCap({ estimatedHeight: 380, maxHeight: 413 })).toBe(413);
+  });
+
+  test("no fold, no cap", () => {
+    expect(readerSettingsSheetDetentCap({ estimatedHeight: 900, maxHeight: null })).toBe(0);
+    expect(readerSettingsSheetDetentCap({ estimatedHeight: 900, maxHeight: Number.NaN })).toBe(0);
+    expect(readerNotebookSheetMaxHeight({ paneHeight: 20, bottomInset: 34 })).toBe(0);
+  });
+});
+
+describe("pushed plugin pages across width changes", () => {
+  test("a width keys the rows in half-point steps", () => {
+    expect(pushedPageWidthKey(361.2)).toBe("width:361");
+    expect(pushedPageWidthKey(361.3)).toBe("width:361.5");
+    expect(pushedPageWidthKey(361.2)).not.toBe(pushedPageWidthKey(402));
+  });
+
+  test("a new width re-keys the rows inside the host, never the RNHostView itself", () => {
+    // A re-keyed host takes its hosted view back from Fabric's recycle pool
+    // into a new SwiftUI container: book → laptop → book left the page blank.
+    const source = readFileSync(
+      path.join(import.meta.dir, "../components/reader/ReaderSettingsNativePopover.ios.tsx"),
+      "utf8",
+    );
+    const hosts = source.match(/<RNHostView\b[^>]*>/g) ?? [];
+    expect(hosts.length).toBeGreaterThan(0);
+    for (const host of hosts) expect(host).not.toContain("key=");
+    expect(source).toContain("<NemuGlassSheetThemeScope key={pushedPageWidthKey(pushedPageWidth)}");
+  });
+});
+
+describe("the settings Form across window sizes", () => {
+  test("a rotation re-keys the presented Form; sub-point jitter does not", () => {
+    expect(readerSettingsFormKey({ width: 669, height: 951 })).not.toBe(readerSettingsFormKey({ width: 951, height: 669 }));
+    expect(readerSettingsFormKey({ width: 951.2, height: 669 })).toBe(readerSettingsFormKey({ width: 951, height: 669.3 }));
+    const source = readFileSync(
+      path.join(import.meta.dir, "../components/reader/ReaderSettingsNativePopover.ios.tsx"),
+      "utf8",
+    );
+    expect(source).toContain("key={readerSettingsFormKey(windowSize)}");
+  });
+});
+
+describe("readerSettingsHeldNativePresentation", () => {
+  const scroll = { twoPageSupported: false, showPagePairingControls: false, scrolling: true, showPlugins: true, showMarkComplete: false };
+  const paged = { ...scroll, twoPageSupported: true, scrolling: false, showPageTurn: true, showPagePairingControls: true };
+
+  test("nothing held: the presentation for the rows", () => {
+    const next = readerSettingsNativePresentation(scroll, { availableHeight: 2000, regularWidth: true });
+    expect(readerSettingsHeldNativePresentation(null, next, scroll)).toEqual(next);
+  });
+
+  test("opened as a sheet (paged rows too tall), switching to Scroll stays a sheet", () => {
+    const availableHeight = readerSettingsNativeContentHeight(scroll) + 10;
+    const opened = readerSettingsNativePresentation(paged, { availableHeight, regularWidth: true });
+    expect(opened.kind).toBe("sheet");
+    const next = readerSettingsNativePresentation(scroll, { availableHeight, regularWidth: true });
+    expect(next.kind).toBe("popover");
+    expect(readerSettingsHeldNativePresentation("sheet", next, scroll)).toEqual({ kind: "sheet" });
+  });
+
+  test("opened as a popover, the taller paged rows keep the popover at their height", () => {
+    const availableHeight = readerSettingsNativeContentHeight(scroll) + 10;
+    const next = readerSettingsNativePresentation(paged, { availableHeight, regularWidth: true });
+    expect(next.kind).toBe("sheet");
+    expect(readerSettingsHeldNativePresentation("popover", next, paged)).toEqual({
+      kind: "popover",
+      width: READER_SETTINGS_POPOVER_WIDTH,
+      height: readerSettingsNativeContentHeight(paged),
+    });
+  });
+});
