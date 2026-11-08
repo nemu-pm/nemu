@@ -9,8 +9,28 @@ import {
 import {
   applyMobileAidokuManifestDefaults,
   extractMobileAidokuSettingsDefaults,
+  normalizeAidokuSandboxMangaViewer,
   normalizeReplayResponseUrl,
 } from "./aidokuSandboxRuntime";
+
+describe("the manga viewer leaving the sandbox", () => {
+  const viewerOf = (mode: "legacy" | "aidoku-rs", viewer: number | undefined) =>
+    normalizeAidokuSandboxMangaViewer(mode, { key: "m", viewer } as never).viewer;
+
+  test("a legacy source's right-to-left and left-to-right take the aidoku-rs numbers", () => {
+    expect(viewerOf("legacy", 1)).toBe(2 as never);
+    expect(viewerOf("legacy", 2)).toBe(1 as never);
+    for (const viewer of [0, 3, 4, undefined]) {
+      expect(viewerOf("legacy", viewer)).toBe(viewer as never);
+    }
+  });
+
+  test("an aidoku-rs source's viewer already is one", () => {
+    for (const viewer of [0, 1, 2, 3, 4]) {
+      expect(viewerOf("aidoku-rs", viewer)).toBe(viewer as never);
+    }
+  });
+});
 
 describe("mobile Aidoku sandbox settings defaults", () => {
   test("extracts type-compatible canonical and Android preference defaults", () => {

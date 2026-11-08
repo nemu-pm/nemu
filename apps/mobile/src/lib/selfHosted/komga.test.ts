@@ -33,6 +33,21 @@ const series = JSON.parse(fixture("series-detail.json")) as { id: string };
 const books = JSON.parse(fixture("series-books.json")) as { content: { id: string }[] };
 
 describe("komga backend", () => {
+  test("a series' reading direction takes the aidoku-rs viewer numbers", async () => {
+    const series = JSON.parse(fixture("series-detail.json"));
+    const cases: [string, number][] = [["LEFT_TO_RIGHT", 1], ["RIGHT_TO_LEFT", 2], ["VERTICAL", 3], ["WEBTOON", 4], ["", 0]];
+    for (const [readingDirection, viewer] of cases) {
+      const { transport } = replay({
+        ...routes,
+        [`${SERVER}/api/v1/series/${encodeURIComponent(series.id)}`]: {
+          body: JSON.stringify({ ...series, metadata: { ...series.metadata, readingDirection } }),
+        },
+      });
+      const backend = createKomgaBackend({ server: SERVER, credentials: { apiKey: "K" }, transport });
+      expect((await backend.getMangaDetails({ key: series.id })).viewer as number).toBe(viewer);
+    }
+  });
+
   test("prefers the api key over basic credentials", () => {
     expect(komgaAuthHeaders({ apiKey: "K", username: "u", password: "p" })).toEqual({ "X-API-Key": "K" });
     expect(komgaAuthHeaders({ username: "reader", password: "pw" })).toEqual({

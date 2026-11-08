@@ -95,8 +95,8 @@ export function komgaAuthHeaders(credentials: SelfHostedCredentials): Record<str
 
 const STATUS: Record<string, 0 | 1 | 2 | 3 | 4> = { ONGOING: 1, ENDED: 2, ABANDONED: 3, HIATUS: 4 };
 const VIEWER: Record<string, 0 | 1 | 2 | 3 | 4> = {
-  RIGHT_TO_LEFT: 1,
-  LEFT_TO_RIGHT: 2,
+  LEFT_TO_RIGHT: 1,
+  RIGHT_TO_LEFT: 2,
   VERTICAL: 3,
   WEBTOON: 4,
 };

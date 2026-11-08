@@ -3,13 +3,28 @@ import {
   loadMobileSourceMangaViewer,
   normalizeMobileSourceMangaViewer,
   parseMobileSourceMangaViewers,
+  peekMobileSourceMangaViewer,
   rememberMobileSourceMangaViewer,
   resetMobileSourceMangaViewersForTests,
   serializeMobileSourceMangaViewers,
+  subscribeMobileSourceMangaViewers,
 } from "./mobileSourceMangaViewer";
 
 describe("source manga viewer memory", () => {
   afterEach(() => resetMobileSourceMangaViewersForTests());
+
+  test("a viewer heard from a source is known at once, and says so", async () => {
+    let changes = 0;
+    subscribeMobileSourceMangaViewers(() => {
+      changes += 1;
+    });
+    expect(peekMobileSourceMangaViewer("a")).toBeNull();
+    rememberMobileSourceMangaViewer("a", 1);
+    await loadMobileSourceMangaViewer("a");
+    await Bun.sleep(0);
+    expect(peekMobileSourceMangaViewer("a")).toBe(1);
+    expect(changes).toBeGreaterThan(0);
+  });
 
   test("only Aidoku's five viewers are kept", () => {
     expect([0, 1, 2, 3, 4].map(normalizeMobileSourceMangaViewer)).toEqual([0, 1, 2, 3, 4]);

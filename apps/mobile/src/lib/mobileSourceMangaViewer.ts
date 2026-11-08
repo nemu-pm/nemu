@@ -4,11 +4,13 @@ import {
 } from "./mobileSourceMangaViewerStorage";
 
 /**
- * The reading format a source declares for each manga (Aidoku's `viewer`:
- * 0 default, 1 right-to-left, 2 left-to-right, 3 vertical, 4 webtoon),
- * remembered on this device from its details fetches so the reader knows it
- * without asking the source again. Local only: no library or sync record
- * carries it.
+ * The reading format a source declares for each manga, by the aidoku-rs `Viewer`
+ * enum: 0 unknown, 1 left-to-right, 2 right-to-left, 3 vertical, 4 webtoon.
+ * Legacy-ABI sources (and the runtime's `Viewer` constant) number 1 and 2 the
+ * other way round; the sandbox converts them before they get here, as Aidoku
+ * iOS's `MangaViewer.toNew()` does. Remembered on this device from its details
+ * fetches so the reader knows it without asking the source again. Local only:
+ * no library or sync record carries it.
  *
  * Keyed like the source detail cache (`makeMobileSourceDetailCacheKey`).
  */
@@ -59,6 +61,11 @@ export function serializeMobileSourceMangaViewers(
 let viewers: Map<string, MobileSourceMangaViewer> | null = null;
 let loading: Promise<Map<string, MobileSourceMangaViewer>> | null = null;
 let writeTimer: ReturnType<typeof setTimeout> | null = null;
+const listeners = new Set<() => void>();
+
+function notify(): void {
+  for (const listener of listeners) listener();
+}
 
 function loadViewers(): Promise<Map<string, MobileSourceMangaViewer>> {
   if (viewers) return Promise.resolve(viewers);
@@ -68,6 +75,7 @@ function loadViewers(): Promise<Map<string, MobileSourceMangaViewer>> {
     .then((loaded) => {
       // Recorded while the file was read: those win.
       viewers = new Map([...loaded, ...(viewers ?? [])]);
+      notify();
       return viewers;
     });
   return loading;
@@ -97,8 +105,21 @@ export function rememberMobileSourceMangaViewer(key: string, value: unknown): vo
     if (map.get(key) === viewer) return;
     map.delete(key);
     map.set(key, viewer);
+    notify();
     scheduleWrite();
   });
+}
+
+/** What is known right now, without waiting for the file. */
+export function peekMobileSourceMangaViewer(key: string): MobileSourceMangaViewer | null {
+  return viewers?.get(key) ?? null;
+}
+
+export function subscribeMobileSourceMangaViewers(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
 }
 
 /** Test hook. */
@@ -107,4 +128,5 @@ export function resetMobileSourceMangaViewersForTests(): void {
   writeTimer = null;
   viewers = null;
   loading = null;
+  listeners.clear();
 }

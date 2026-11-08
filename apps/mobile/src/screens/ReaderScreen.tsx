@@ -393,6 +393,7 @@ import {
   useMobileReaderPlugins,
   useReadingMode,
 } from "@/data/mobileHooks";
+import { useMobileReaderTitleReadingMode } from "@/data/useMobileReaderTitleReadingMode";
 import {
   formatMobileString,
   getMobileStrings,
@@ -1625,13 +1626,16 @@ export function ReaderScreen() {
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
   const {
-    mode,
-    setMode,
+    mode: readerDefaultMode,
     scrollWidthPct,
     setScrollWidthPct,
     processPageImages,
     setProcessPageImages,
   } = useReadingMode();
+  const { mode, setMode } = useMobileReaderTitleReadingMode(
+    makeMobileSourceDetailCacheKey(registryId, sourceId, mangaId),
+    readerDefaultMode,
+  );
   const {
     ready: readerDisplayPrefsReady,
     keepAwake: readerKeepAwake,

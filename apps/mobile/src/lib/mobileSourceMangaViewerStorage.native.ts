@@ -5,7 +5,9 @@ import { File, Paths } from "expo-file-system";
 // never synced, never sent to the server.
 
 function viewerFile(): File {
-  return new File(Paths.document, "nemu-source-manga-viewer-v1.json");
+  // v1 kept 1 and 2 as each source's ABI numbered them, so they cannot be read
+  // as a direction; the reader asks the source again.
+  return new File(Paths.document, "nemu-source-manga-viewer-v2.json");
 }
 
 export async function readMobileSourceMangaViewerText(): Promise<string | null> {

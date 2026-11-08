@@ -825,6 +825,19 @@ function resolveDefaultSettings(session: SandboxSession): JsonRecord {
   return resolved;
 }
 
+/**
+ * The app reads `viewer` by the aidoku-rs enum (1 left-to-right, 2 right-to-left).
+ * Legacy-ABI sources number those two the other way round, so they are converted
+ * here, where the ABI is known, as Aidoku iOS's `MangaViewer.toNew()` does.
+ */
+export function normalizeAidokuSandboxMangaViewer(
+  mode: AidokuSource["mode"],
+  manga: Manga,
+): Manga {
+  if (mode !== "legacy" || (manga.viewer !== 1 && manga.viewer !== 2)) return manga;
+  return { ...manga, viewer: manga.viewer === 1 ? 2 : 1 };
+}
+
 function sourceCapabilities(
   source: AidokuSource,
   session: SandboxSession,
@@ -866,7 +879,10 @@ async function executeSourceOperation(
           : []) as FilterValue[],
       );
     case "details":
-      return source.getMangaDetails(assertManga(operation.manga));
+      return normalizeAidokuSandboxMangaViewer(
+        source.mode,
+        source.getMangaDetails(assertManga(operation.manga)),
+      );
     case "chapters":
       return source.getChapterList(assertManga(operation.manga));
     case "pages":
