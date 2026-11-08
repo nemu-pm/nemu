@@ -65,7 +65,7 @@ import {
   presentationColorScheme,
   presentationPlacement,
 } from "../../../modules/nemu-window-layout/src/presentationColorScheme";
-import { ReaderPluginEnableRow } from "./ReaderPluginSettingsRows";
+import { ReaderPluginOffFooter } from "./ReaderPluginSettingsRows";
 import type { ReaderPluginSettingsSheetProps } from "./ReaderPluginSettingsSheet.types";
 
 /** iOS 26+: the sheet floats on the system's Liquid Glass. */
@@ -299,7 +299,6 @@ export function ReaderPluginSettingsSheet({
                             error={error}
                             strings={strings}
                             onBack={onClearSelectedPlugin}
-                            onTogglePlugin={onTogglePlugin}
                             onResetPlugin={onResetPlugin}
                             onChangePluginValue={onChangePluginValue}
                           />
@@ -536,7 +535,7 @@ export function ReaderPluginListPage({
       ) : plugins.length > 0 ? (
         // Settings → Reader → Plugins' own rows, in one group (in this sheet
         // and pushed in the reader settings stack alike). The row opens a
-        // plugin that is off too: its page has the on / off row.
+        // plugin that is off too: its page says so.
         <View style={[styles.stackGroup, { backgroundColor: tokens.card }]}>
           {plugins.map((plugin, index) => (
             <ReaderPluginManagementRow
@@ -559,8 +558,8 @@ export function ReaderPluginListPage({
 /**
  * A plugin's page: Settings' plugin page (description and the shared
  * settings card) under a header with the back action and the plugin's mark
- * and name, plus the plugin's on / off row. Off, the settings stay visible
- * (dimmed) so the page keeps its shape when the switch flips.
+ * and name. Its on / off switch is the list's. Off, the settings stay visible
+ * (dimmed) under a line saying why.
  */
 export function ReaderPluginDetailPage({
   plugin: storedPlugin,
@@ -572,7 +571,6 @@ export function ReaderPluginDetailPage({
   chrome = "sheet",
   stackInset,
   onBack,
-  onTogglePlugin,
   onResetPlugin,
   onChangePluginValue,
 }: {
@@ -586,7 +584,6 @@ export function ReaderPluginDetailPage({
   chrome?: ReaderPluginPageChrome;
   stackInset?: ReaderPluginStackInset;
   onBack: () => void;
-  onTogglePlugin: ReaderPluginSettingsSheetProps["onTogglePlugin"];
   onResetPlugin: ReaderPluginSettingsSheetProps["onResetPlugin"];
   onChangePluginValue: ReaderPluginSettingsSheetProps["onChangePluginValue"];
 }) {
@@ -614,13 +611,7 @@ export function ReaderPluginDetailPage({
       }
     >
       <MobileReaderPluginSettingsDescription plugin={plugin} />
-      <ReaderPluginEnableRow
-        plugin={plugin}
-        busy={busy}
-        strings={strings}
-        outlined={chrome !== "stack"}
-        onToggle={measuring ? noop : (enabled) => onTogglePlugin(plugin, enabled)}
-      />
+      <ReaderPluginOffFooter plugin={plugin} strings={strings} />
       <MobileReaderPluginSettingsCard
         plugin={plugin}
         strings={strings}
@@ -704,7 +695,6 @@ const ReaderPluginSheetMeasuringCopies = memo(function ReaderPluginSheetMeasurin
             strings={strings}
             measuring
             onBack={noop}
-            onTogglePlugin={noop}
             onResetPlugin={noop}
             onChangePluginValue={noop}
           />

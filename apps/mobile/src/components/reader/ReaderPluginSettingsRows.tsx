@@ -111,7 +111,7 @@ export function ReaderPluginListItem({
   );
 }
 
-/** The plugin's on / off switch (list rows and the plugin page's enable row). */
+/** The plugin's on / off switch (the list rows). */
 export function ReaderPluginSwitch({
   plugin,
   busy,
@@ -149,87 +149,39 @@ export function ReaderPluginSwitch({
 }
 
 /**
- * The plugin page's on / off row: "Enable Japanese Learning" and its switch,
- * with the "turn it on to change its settings" line while it is off.
+ * On a plugin's page while it is off: the list it was opened from has its
+ * switch, so the page only says why its settings are dimmed.
  */
-export function ReaderPluginEnableRow({
+export function ReaderPluginOffFooter({
   plugin,
-  busy,
   strings,
-  outlined = true,
-  onToggle,
 }: {
   plugin: MobileReaderPluginState;
-  busy: boolean;
   strings: MobileStrings;
-  /** False drops the row's hairline outline (beside a native Form). */
-  outlined?: boolean;
-  onToggle: (enabled: boolean) => void;
 }) {
   const { tokens } = useNemuTheme();
+  if (plugin.enabled) return null;
   return (
-    <View style={styles.pluginBlock}>
-      <View
-        style={[
-          styles.row,
-          styles.enableRow,
-          nemuSheetMetrics.listRowLayout,
-          { backgroundColor: tokens.card, borderColor: tokens.border },
-          outlined ? null : styles.bareRow,
-        ]}
-      >
-        <NemuText
-          color={tokens.foreground}
-          density="compact"
-          numberOfLines={1}
-          style={[styles.copy, nemuSheetMetrics.twoLineRowTitle]}
-          variant="rowTitle"
-        >
-          {formatMobileString(strings.settings.readerPluginSwitch, {
-            name: plugin.name,
-          })}
-        </NemuText>
-        <ReaderPluginSwitch
-          plugin={plugin}
-          busy={busy}
-          strings={strings}
-          onToggle={onToggle}
-        />
-      </View>
-      {plugin.enabled ? null : (
-        <NemuText
-          color={tokens.mutedForeground}
-          density="compact"
-          style={styles.footer}
-          variant="caption"
-        >
-          {formatMobileString(strings.settings.readerPluginOffFooter, {
-            name: plugin.name,
-          })}
-        </NemuText>
-      )}
-    </View>
+    <NemuText
+      color={tokens.mutedForeground}
+      density="compact"
+      style={styles.footer}
+      variant="caption"
+    >
+      {formatMobileString(strings.settings.readerPluginOffFooter, {
+        name: plugin.name,
+      })}
+    </NemuText>
   );
 }
 
 const styles = StyleSheet.create({
-  pluginBlock: {
-    gap: 6,
-  },
   row: {
     flexDirection: "row",
     alignItems: "center",
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
-  },
-  bareRow: {
-    borderWidth: 0,
-  },
-  enableRow: {
-    gap: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
   },
   rowMainContainer: {
     flex: 1,

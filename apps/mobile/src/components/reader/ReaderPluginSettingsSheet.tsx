@@ -12,7 +12,7 @@ import {
 } from "@/design-system";
 import type { MobileStrings } from "@/lib/mobileI18n";
 import type { MobileReaderPluginState } from "@/lib/mobileReaderPlugins";
-import { ReaderPluginEnableRow, ReaderPluginListItem } from "./ReaderPluginSettingsRows";
+import { ReaderPluginListItem, ReaderPluginOffFooter } from "./ReaderPluginSettingsRows";
 import type { ReaderPluginSettingsSheetProps } from "./ReaderPluginSettingsSheet.types";
 
 /**
@@ -169,12 +169,7 @@ function ReaderPluginDetail({
   return (
     <>
       <MobileReaderPluginSettingsDescription plugin={plugin} />
-      <ReaderPluginEnableRow
-        plugin={plugin}
-        busy={busy}
-        strings={strings}
-        onToggle={(enabled) => onTogglePlugin(plugin, enabled)}
-      />
+      <ReaderPluginOffFooter plugin={plugin} strings={strings} />
       <MobileReaderPluginSettingsCard
         plugin={plugin}
         strings={strings}

@@ -741,7 +741,6 @@ export function ReaderSettingsNativePopover({
                 error={readerPlugins.error}
                 strings={strings}
                 onBack={() => setPath([READER_SETTINGS_PLUGINS_PAGE])}
-                onTogglePlugin={readerPlugins.onTogglePlugin}
                 onResetPlugin={readerPlugins.onResetPlugin}
                 onChangePluginValue={readerPlugins.onChangePluginValue}
               />,

@@ -16,7 +16,6 @@ import { MOBILE_SETTINGS_GROUP_INSET } from "@/lib/mobileExploreRadius";
 import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
 import { mobileReaderPluginRowSubtitle } from "@/lib/mobileReaderPluginSheet";
 import type { MobileReaderPluginState } from "@/lib/mobileReaderPlugins";
-import { countRenderableSourceSettings } from "@/lib/mobileSourceSettings";
 
 /**
  * A plugin's row in a settings group: Settings → Reader → Plugins, and the
@@ -24,7 +23,8 @@ import { countRenderableSourceSettings } from "@/lib/mobileSourceSettings";
  * plugin mark, its name and "5 settings", the switch, then the chevron, no
  * divider between them. The switch turns the plugin on or off; the rest of
  * the row, chevron included, opens its settings (once it is on, unless
- * `opensWhileOff`: a page that has its own on / off row).
+ * `opensWhileOff`), also when it has few settings or none: every plugin's row
+ * behaves the same.
  */
 export function ReaderPluginManagementRow({
   plugin,
@@ -40,7 +40,7 @@ export function ReaderPluginManagementRow({
   strings: MobileStrings;
   selected?: boolean;
   disabled: boolean;
-  /** The plugin's page opens while it is off (it carries its own enable row). */
+  /** The plugin's page opens while it is off (it says why its settings are dimmed). */
   opensWhileOff?: boolean;
   /** The group's first row: no hairline above it. */
   first?: boolean;
@@ -49,11 +49,9 @@ export function ReaderPluginManagementRow({
 }) {
   const { tokens } = useNemuTheme();
   const selectDisabled = disabled || (!opensWhileOff && !plugin.enabled);
-  const hasSettings = countRenderableSourceSettings(plugin.settings) > 0;
-  const canOpenSettings = hasSettings && !selectDisabled;
 
   const openSettings = () => {
-    if (!canOpenSettings) return;
+    if (selectDisabled) return;
     void hapticPress();
     onSelect();
   };
@@ -72,17 +70,13 @@ export function ReaderPluginManagementRow({
       ]}
     >
       <NemuPressable
-        accessibilityRole={hasSettings ? "button" : undefined}
-        accessibilityLabel={
-          hasSettings
-            ? formatMobileString(strings.settings.editReaderPluginSettings, {
-                name: plugin.name,
-              })
-            : plugin.name
-        }
+        accessibilityRole="button"
+        accessibilityLabel={formatMobileString(strings.settings.editReaderPluginSettings, {
+          name: plugin.name,
+        })}
         accessibilityHint={mobileReaderPluginRowSubtitle(plugin, strings)}
-        accessibilityState={hasSettings ? { disabled: selectDisabled } : undefined}
-        disabled={!canOpenSettings}
+        accessibilityState={{ disabled: selectDisabled }}
+        disabled={selectDisabled}
         onPress={openSettings}
         pressedScale={0.985}
         containerStyle={styles.mainWrap}
@@ -129,24 +123,22 @@ export function ReaderPluginManagementRow({
             onToggle(nextValue);
           }}
         />
-        {hasSettings ? (
-          <NemuPressable
-            accessibilityElementsHidden
-            importantForAccessibility="no-hide-descendants"
-            disabled={!canOpenSettings}
-            onPress={openSettings}
-            pressedScale={0.94}
-            containerStyle={styles.chevronContainer}
-            style={[styles.chevron, selectDisabled && styles.dimmed]}
-            testID={`ReaderPluginSettingsChevron:${plugin.id}`}
-          >
-            <Ionicons
-              name="chevron-forward"
-              size={18}
-              color={tokens.mutedForeground}
-            />
-          </NemuPressable>
-        ) : null}
+        <NemuPressable
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          disabled={selectDisabled}
+          onPress={openSettings}
+          pressedScale={0.94}
+          containerStyle={styles.chevronContainer}
+          style={[styles.chevron, selectDisabled && styles.dimmed]}
+          testID={`ReaderPluginSettingsChevron:${plugin.id}`}
+        >
+          <Ionicons
+            name="chevron-forward"
+            size={18}
+            color={tokens.mutedForeground}
+          />
+        </NemuPressable>
       </View>
     </View>
   );
