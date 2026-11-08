@@ -249,7 +249,7 @@ export function MobileAboutSheet({ visible, onClose }: MobileAboutSheetProps) {
           onPress={() => {
             void openSourceCode();
           }}
-          pressedScale={0.98}
+          pressHighlight
           style={[
             styles.linkRow,
             {

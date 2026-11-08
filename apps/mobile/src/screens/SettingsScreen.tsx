@@ -1227,6 +1227,7 @@ function SourceDirectoryRow({
   onEdit: () => void;
 }) {
   const { tokens } = useNemuTheme();
+  const rowHighlight = useNemuRowHighlight();
   // The built-in directory's name comes from the strings, not the registry JSON.
   const displayName =
     directory.id === NEMU_RECOMMENDED_REGISTRY_ID
@@ -1251,41 +1252,59 @@ function SourceDirectoryRow({
       ];
   return (
     <MobileQuickActionMenu actions={actions}>
-      <NemuPressable
-        accessibilityLabel={displayName}
-        accessibilityHint={directory.builtIn ? strings.settings.sourceDirectoryBuiltIn : undefined}
-        accessibilityRole="button"
-        disabled={disabled}
-        onPress={onOpen}
-        hapticFeedback="none"
-        pressedScale={1}
-        // User-added directories expose Edit URL and Remove on long press.
-        onLongPress={
-          directory.builtIn || mobileNativeQuickMenuAvailable || disabled
-            ? undefined
-            : () => {
-                void hapticSelection();
-                Alert.alert(displayName, undefined, [
-                  { text: strings.common.cancel, style: "cancel" },
-                  { text: strings.settings.editSourceDirectoryUrl, onPress: onEdit },
-                  { text: strings.settings.removeSourceDirectory, style: "destructive", onPress: onRemove },
-                ]);
-              }
-        }
+      <View
         style={[
           styles.dataAction,
+          styles.directoryRow,
           { borderColor: tokens.border },
-          mobileDesignExploreFlag ? [styles.exploreInnerRow, first ? styles.exploreInnerRowFirst : null] : null,
+          mobileDesignExploreFlag ? [styles.groupRowBleed, styles.exploreDirectoryRow] : null,
         ]}
       >
-        <View style={styles.dataActionText}>
+        {/* The whole row takes the highlight; the switch stays outside the
+            pressable, so flipping it neither lights the row nor opens it. */}
+        {rowHighlight.overlay()}
+        {mobileDesignExploreFlag && !first ? (
+          <View style={[styles.groupRowHairline, { backgroundColor: tokens.border }]} />
+        ) : null}
+        <NemuPressable
+          accessibilityLabel={displayName}
+          accessibilityHint={directory.builtIn ? strings.settings.sourceDirectoryBuiltIn : undefined}
+          accessibilityRole="button"
+          disabled={disabled}
+          onPressIn={rowHighlight.onPressIn}
+          onPressOut={rowHighlight.onPressOut}
+          onPress={() => {
+            rowHighlight.onPress();
+            onOpen();
+          }}
+          hapticFeedback="none"
+          pressedScale={1}
+          // User-added directories expose Edit URL and Remove on long press.
+          onLongPress={
+            directory.builtIn || mobileNativeQuickMenuAvailable || disabled
+              ? undefined
+              : () => {
+                  void hapticSelection();
+                  Alert.alert(displayName, undefined, [
+                    { text: strings.common.cancel, style: "cancel" },
+                    { text: strings.settings.editSourceDirectoryUrl, onPress: onEdit },
+                    { text: strings.settings.removeSourceDirectory, style: "destructive", onPress: onRemove },
+                  ]);
+                }
+          }
+          containerStyle={styles.directoryRowMainContainer}
+          style={[
+            styles.directoryRowMain,
+            mobileDesignExploreFlag ? styles.exploreDirectoryRowMain : null,
+          ]}
+        >
           <NemuText style={[styles.settingTitle, { color: tokens.foreground }]}>
             {displayName}
           </NemuText>
           <NemuText numberOfLines={1} style={[styles.settingSubtitle, { color: tokens.mutedForeground }]}>
             {directory.builtIn ? strings.settings.sourceDirectoryBuiltIn : sourceDirectoryHost(directory)}
           </NemuText>
-        </View>
+        </NemuPressable>
         <NemuNativeSwitch
           accessibilityLabel={formatMobileString(strings.settings.toggleSourceDirectoryEnabled, {
             name: displayName,
@@ -1297,7 +1316,7 @@ function SourceDirectoryRow({
             onToggle(next);
           }}
         />
-      </NemuPressable>
+      </View>
     </MobileQuickActionMenu>
   );
 }
@@ -1552,8 +1571,10 @@ function SourceUpdatesGroup({
           disabled={disabled || updating}
           onPress={onUpdateNow}
           pressHighlight
-          style={[styles.settingsActionRow, { borderColor: tokens.border }]}
+          containerStyle={styles.groupRowBleed}
+          style={styles.settingsActionRow}
         >
+          <View style={[styles.groupRowHairline, { backgroundColor: tokens.border }]} />
           <NemuText
             style={[
               styles.settingsActionLabel,
@@ -1722,7 +1743,6 @@ function AboutSettingsRow({
     <PressableSettingsSurface
       accessibilityLabel={strings.settings.aboutNemuLabel}
       onPress={onPress}
-      pressedScale={0.98}
       style={styles.aboutShell}
       contentStyle={styles.aboutContent}
     >
@@ -4497,12 +4517,25 @@ const styles = StyleSheet.create({
     lineHeight: 17,
   },
   settingsContent: { paddingTop: 8 },
+  // A pressable row of a padded card reaches the card's edges, so its press
+  // fill does too (clipped to the card's corners); its hairline stays on the
+  // card's inset.
+  groupRowBleed: {
+    marginHorizontal: -MOBILE_SETTINGS_GROUP_INSET,
+  },
+  groupRowHairline: {
+    position: "absolute",
+    top: 0,
+    left: MOBILE_SETTINGS_GROUP_INSET,
+    right: MOBILE_SETTINGS_GROUP_INSET,
+    height: StyleSheet.hairlineWidth,
+  },
   settingsActionRow: {
     minHeight: 48,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: MOBILE_SETTINGS_GROUP_INSET,
     paddingVertical: 12,
   },
   settingsActionLabel: {
@@ -4610,6 +4643,29 @@ const styles = StyleSheet.create({
   },
   exploreInnerRowFirst: {
     borderTopWidth: 0,
+  },
+  // The pressable fills the row up to the switch, so its padding is the row's.
+  directoryRow: {
+    paddingVertical: 0,
+  },
+  directoryRowMainContainer: {
+    flex: 1,
+    minWidth: 0,
+    alignSelf: "stretch",
+  },
+  directoryRowMain: {
+    flex: 1,
+    justifyContent: "center",
+    paddingVertical: 10,
+  },
+  exploreDirectoryRow: {
+    borderWidth: 0,
+    borderRadius: 0,
+    paddingLeft: 0,
+    paddingRight: MOBILE_SETTINGS_GROUP_INSET,
+  },
+  exploreDirectoryRowMain: {
+    paddingLeft: MOBILE_SETTINGS_GROUP_INSET,
   },
   exploreCaption: {
     fontSize: 13,

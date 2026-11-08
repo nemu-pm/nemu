@@ -6,6 +6,7 @@ import {
   NemuNativeSwitch,
   NemuPressable,
   NemuText,
+  useNemuRowHighlight,
   useNemuTheme,
 } from "@/design-system";
 import { ReaderPluginIcon } from "@/components/MobileReaderPluginSettingsContent";
@@ -49,6 +50,9 @@ export function ReaderPluginManagementRow({
 }) {
   const { tokens } = useNemuTheme();
   const selectDisabled = disabled || (!opensWhileOff && !plugin.enabled);
+  // The row's two pressables open the same page; the whole row (to the
+  // group's edges, clipped by it) takes the selection highlight.
+  const rowHighlight = useNemuRowHighlight();
 
   const openSettings = () => {
     if (selectDisabled) return;
@@ -69,6 +73,7 @@ export function ReaderPluginManagementRow({
           },
       ]}
     >
+      {rowHighlight.overlay()}
       <NemuPressable
         accessibilityRole="button"
         accessibilityLabel={formatMobileString(strings.settings.editReaderPluginSettings, {
@@ -77,8 +82,13 @@ export function ReaderPluginManagementRow({
         accessibilityHint={mobileReaderPluginRowSubtitle(plugin, strings)}
         accessibilityState={{ disabled: selectDisabled }}
         disabled={selectDisabled}
-        onPress={openSettings}
-        pressedScale={0.985}
+        onPressIn={rowHighlight.onPressIn}
+        onPressOut={rowHighlight.onPressOut}
+        onPress={() => {
+          rowHighlight.onPress();
+          openSettings();
+        }}
+        pressedScale={1}
         containerStyle={styles.mainWrap}
         style={[styles.main, !plugin.enabled && styles.dimmed]}
         testID={`ReaderPluginSettings:${plugin.id}`}
@@ -127,8 +137,13 @@ export function ReaderPluginManagementRow({
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
           disabled={selectDisabled}
-          onPress={openSettings}
-          pressedScale={0.94}
+          onPressIn={rowHighlight.onPressIn}
+          onPressOut={rowHighlight.onPressOut}
+          onPress={() => {
+            rowHighlight.onPress();
+            openSettings();
+          }}
+          pressedScale={1}
           containerStyle={styles.chevronContainer}
           style={[styles.chevron, selectDisabled && styles.dimmed]}
           testID={`ReaderPluginSettingsChevron:${plugin.id}`}
