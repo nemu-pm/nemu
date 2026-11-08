@@ -17,6 +17,9 @@ public final class NemuWindowLayoutModule: Module {
       ViewModifierRegistry.register(NemuInlineToolbarTitleModifier.type) { _, _, _ in
         NemuInlineToolbarTitleModifier()
       }
+      ViewModifierRegistry.register(NemuSheetCenteredTitleModifier.type) { _, _, _ in
+        NemuSheetCenteredTitleModifier()
+      }
       ViewModifierRegistry.register(NemuPresentationPlacementModifier.type) { params, _, _ in
         NemuPresentationPlacementModifier(params: params)
       }
@@ -69,6 +72,7 @@ public final class NemuWindowLayoutModule: Module {
     OnDestroy {
       ViewModifierRegistry.unregister(NemuPresentationColorSchemeModifier.type)
       ViewModifierRegistry.unregister(NemuInlineToolbarTitleModifier.type)
+      ViewModifierRegistry.unregister(NemuSheetCenteredTitleModifier.type)
       ViewModifierRegistry.unregister(NemuPresentationPlacementModifier.type)
       ViewModifierRegistry.unregister(NemuZeroTopScrollContentMarginModifier.type)
       ViewModifierRegistry.unregister(NemuScrollEdgeEffectHiddenModifier.type)
@@ -755,6 +759,108 @@ struct NemuPresentationPlacementModifier: ViewModifier {
     case "center": return .center
     default: return .automatic
     }
+  }
+}
+
+/// On a sheet's principal title: a navigation bar centres its title inside the
+/// horizontal safe area, and beside the iPhone Duo's vertical bar that area is
+/// lopsided, so the title sat left of the sheet's grabber. Offset by what is
+/// left between it and the centre of its navigation controller's view, the
+/// title centres on the sheet's full width; with even insets the offset is 0.
+struct NemuSheetCenteredTitleModifier: ViewModifier {
+  static let type = "nemuSheetCenteredTitle"
+  @State private var offset: CGFloat = 0
+
+  func body(content: Content) -> some View {
+    content
+      .offset(x: offset)
+      .background(
+        NemuSheetTitleProbe { next in
+          if abs(next - offset) > 0.25 { offset = next }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+      )
+  }
+}
+
+private struct NemuSheetTitleProbe: UIViewRepresentable {
+  let onChange: (CGFloat) -> Void
+
+  func makeUIView(context: Context) -> NemuSheetTitleProbeView {
+    let view = NemuSheetTitleProbeView()
+    view.isUserInteractionEnabled = false
+    view.onChange = onChange
+    return view
+  }
+
+  func updateUIView(_ uiView: NemuSheetTitleProbeView, context: Context) {
+    uiView.onChange = onChange
+    uiView.sampleSoon()
+  }
+}
+
+final class NemuSheetTitleProbeView: UIView {
+  var onChange: ((CGFloat) -> Void)?
+  private weak var observedStack: UIView?
+  private var boundsToken: NSKeyValueObservation?
+
+  deinit {
+    boundsToken?.invalidate()
+  }
+
+  override func didMoveToWindow() {
+    super.didMoveToWindow()
+    if window != nil {
+      sampleSoon()
+    } else {
+      boundsToken?.invalidate()
+      boundsToken = nil
+      observedStack = nil
+    }
+  }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    sampleSoon()
+  }
+
+  override func safeAreaInsetsDidChange() {
+    super.safeAreaInsetsDidChange()
+    sampleSoon()
+  }
+
+  func sampleSoon() {
+    DispatchQueue.main.async { [weak self] in self?.sample() }
+  }
+
+  private var stackView: UIView? {
+    var responder: UIResponder? = self
+    while let current = responder {
+      if let stack = current as? UINavigationController { return stack.view }
+      responder = current.next
+    }
+    return nil
+  }
+
+  private func sample() {
+    guard window != nil, let stack = stackView else { return }
+    if observedStack !== stack {
+      boundsToken?.invalidate()
+      observedStack = stack
+      // A rotation or a fold resizes the stack without this probe laying out.
+      boundsToken = stack.observe(\.bounds, options: [.new]) { [weak self] _, _ in
+        MainActor.assumeIsolated { self?.sampleSoon() }
+      }
+    }
+    // The probe keeps the title's place without the offset. Even insets: the
+    // bar has already centred it.
+    let insets = stack.safeAreaInsets
+    guard abs(insets.right - insets.left) > 0.5 else {
+      onChange?(0)
+      return
+    }
+    onChange?(stack.bounds.midX - convert(bounds, to: stack).midX)
   }
 }
 
@@ -2322,6 +2428,22 @@ final class NemuBarItemsFadeView: ExpoView {
     guard shown, durationMs > 0 else { return }
     let views = barViews()
     glassLog.info("bar items fade in: \(views.map { NSStringFromClass(type(of: $0)) }.joined(separator: ","), privacy: .public)")
+    // TEMP-DIAG
+    let dump: (String) -> Void = { [weak self] tag in
+      guard let nav = self?.navigationController(), let item = nav.topViewController?.navigationItem else { return }
+      let items = (item.leftBarButtonItems ?? []) + (item.rightBarButtonItems ?? [])
+      for (index, barItem) in items.enumerated() {
+        var chain: [String] = []
+        var view = barItem.value(forKey: "view") as? UIView
+        while let current = view, chain.count < 14 {
+          chain.append("\(NSStringFromClass(type(of: current)))@\(Int(current.frame.minX)),\(Int(current.frame.minY)) a=\(current.alpha)")
+          view = current.superview
+        }
+        glassLog.info("DIAG \(tag, privacy: .public) item\(index): \(chain.joined(separator: " < "), privacy: .public)")
+      }
+    }
+    dump("now")
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { dump("250ms") }
     for view in views {
       let fade = CABasicAnimation(keyPath: "opacity")
       fade.fromValue = 0

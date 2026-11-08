@@ -22,6 +22,7 @@ import { MOBILE_GROUPED_FORM_TOP_MARGIN } from "@/lib/mobileLibrarySheetLayout";
 import {
   inlineToolbarTitle,
   zeroTopScrollContentMargin,
+  sheetCenteredTitle,
 } from "../../modules/nemu-window-layout/src/presentationColorScheme";
 import { ToolbarActionButton } from "./MobileNativeFormSheet.ios";
 import type { MobileNativeFormSheetAction } from "./MobileNativeFormSheet.types";
@@ -76,7 +77,7 @@ export function MobilePushedFormPage({
       )}
       <SwiftToolbar.Content>
         <SwiftToolbarItem placement="principal">
-          <SwiftText modifiers={[font({ textStyle: "headline" }), lineLimit(1)]}>{title}</SwiftText>
+          <SwiftText modifiers={[font({ textStyle: "headline" }), lineLimit(1), sheetCenteredTitle()]}>{title}</SwiftText>
         </SwiftToolbarItem>
         {confirm ? (
           <SwiftToolbarItem placement="confirmationAction">

@@ -33,6 +33,7 @@ import {
   inlineToolbarTitle,
   presentationColorScheme,
   presentationPlacement,
+  sheetCenteredTitle,
 } from "../../../modules/nemu-window-layout/src/presentationColorScheme";
 import { NemuGlassSheetThemeScope, useMobileSheetPlacement, useNemuTheme } from "@/design-system";
 import {
@@ -114,7 +115,7 @@ export function ReaderChapterListSheet({
 
   const title = (
     <SwiftToolbarItem placement="principal">
-      <SwiftVStack spacing={1}>
+      <SwiftVStack spacing={1} modifiers={[sheetCenteredTitle()]}>
         <SwiftText modifiers={[font({ textStyle: "headline" }), lineLimit(1)]}>{mangaTitle}</SwiftText>
         {subtitle ? (
           <SwiftText

@@ -38,7 +38,7 @@ import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { getMobileStrings } from "@/lib/mobileI18n";
 import { selfHostedKindName } from "@/lib/selfHosted/messages";
 import { SELF_HOSTED_SETUP_KINDS, type SelfHostedKind } from "@/lib/selfHosted/policy";
-import { inlineToolbarTitle } from "../../modules/nemu-window-layout/src/presentationColorScheme";
+import { inlineToolbarTitle, sheetCenteredTitle } from "../../modules/nemu-window-layout/src/presentationColorScheme";
 import { MobileAddSourcesDirectoryPage } from "./MobileAddSourceDirectorySheet";
 import type { MobileAddSourcesStackProps } from "./MobileAddSourcesStack.types";
 import { MobilePushedFormPage } from "./MobilePushedFormPage.ios";
@@ -218,7 +218,7 @@ export function MobileAddSourcesStack({
         <SwiftToolbar.Content>
           {filterItem}
           <SwiftToolbarItem placement="principal">
-            <SwiftText modifiers={[font({ textStyle: "headline" }), lineLimit(1)]}>{title}</SwiftText>
+            <SwiftText modifiers={[font({ textStyle: "headline" }), lineLimit(1), sheetCenteredTitle()]}>{title}</SwiftText>
           </SwiftToolbarItem>
           {closeItem}
         </SwiftToolbar.Content>

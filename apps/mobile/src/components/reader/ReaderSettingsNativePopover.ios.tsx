@@ -70,6 +70,7 @@ import {
   reportFormGroupInset,
   reportPageWidth,
   type FormGroupInset,
+  sheetCenteredTitle,
 } from "../../../modules/nemu-window-layout/src/presentationColorScheme";
 import { NemuGlassSheetThemeScope, useMobileSheetPlacement, useNemuTheme } from "@/design-system";
 import { supportsNemuLiquidGlass } from "@/lib/nemuLiquidGlass";
@@ -700,7 +701,7 @@ export function ReaderSettingsNativePopover({
           </SwiftToolbarItem>
         ) : null}
         <SwiftToolbarItem placement="principal">
-          <SwiftText modifiers={[font({ textStyle: "headline" }), lineLimit(1)]}>{title}</SwiftText>
+          <SwiftText modifiers={[font({ textStyle: "headline" }), lineLimit(1), sheetCenteredTitle()]}>{title}</SwiftText>
         </SwiftToolbarItem>
       </SwiftToolbar.Content>
     </SwiftToolbar>
@@ -820,7 +821,7 @@ export function ReaderSettingsNativePopover({
                       />
                     </SwiftToolbarItem>
                     <SwiftToolbarItem placement="principal">
-                      <SwiftText modifiers={[font({ textStyle: "headline" }), lineLimit(1)]}>
+                      <SwiftText modifiers={[font({ textStyle: "headline" }), lineLimit(1), sheetCenteredTitle()]}>
                         {strings.reader.title}
                       </SwiftText>
                     </SwiftToolbarItem>

@@ -39,6 +39,16 @@ export function inlineToolbarTitle() {
 }
 
 /**
+ * `@expo/ui` modifier, on a sheet's principal toolbar title: centres it on the
+ * sheet's full width, on the grabber's axis (a navigation bar centres it inside
+ * the safe area, which beside the iPhone Duo's vertical bar is lopsided). A
+ * binary built before the modifier existed ignores it.
+ */
+export function sheetCenteredTitle() {
+  return createModifier("nemuSheetCenteredTitle");
+}
+
+/**
  * `@expo/ui` modifier: `toolbar(.hidden, for: .navigationBar)` on a page in a
  * NavigationStack. A popover's root page keeps its bar-less look while the
  * pages pushed from it show the bar (title, system back). A binary built

@@ -44,6 +44,7 @@ import {
   presentationColorScheme,
   presentationPlacement,
   reportPageWidth,
+  sheetCenteredTitle,
 } from "../../modules/nemu-window-layout/src/presentationColorScheme";
 import type {
   MobileNativeStackSheetLayout,
@@ -242,7 +243,7 @@ export function MobileNativeStackSheet({
       </SwiftScrollView>
       <SwiftToolbar.Content>
         <SwiftToolbarItem placement="principal">
-          <SwiftText modifiers={[font({ textStyle: "headline" }), lineLimit(1)]}>{page.title}</SwiftText>
+          <SwiftText modifiers={[font({ textStyle: "headline" }), lineLimit(1), sheetCenteredTitle()]}>{page.title}</SwiftText>
         </SwiftToolbarItem>
         <SwiftToolbarItem placement="topBarTrailing">
           <SwiftButton

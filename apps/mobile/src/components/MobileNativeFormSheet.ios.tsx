@@ -41,6 +41,7 @@ import { mobileNativeFormSheetWindow, resolveMobileNativeFormSheetPadSizing } fr
 import {
   inlineToolbarTitle,
   zeroTopScrollContentMargin,
+  sheetCenteredTitle,
 } from "../../modules/nemu-window-layout/src/presentationColorScheme";
 import type { MobileNativeFormSheetAction, MobileNativeFormSheetProps } from "./MobileNativeFormSheet.types";
 
@@ -214,7 +215,7 @@ export function MobileNativeFormSheet({
                     </SwiftToolbarItem>
                   ) : null}
                   <SwiftToolbarItem placement="principal">
-                    <SwiftVStack spacing={1}>
+                    <SwiftVStack spacing={1} modifiers={[sheetCenteredTitle()]}>
                       <SwiftText modifiers={[font({ textStyle: "headline" }), lineLimit(1)]}>{title}</SwiftText>
                       {subtitle ? (
                         <SwiftText
