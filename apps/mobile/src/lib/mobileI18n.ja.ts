@@ -1083,11 +1083,6 @@ export const mobileStringsJa: MobileStrings = {
     metadataFixedDescription: "固定のメタデータ言語を選択",
     metadataLanguage: "メタデータ言語",
     metadataLanguageAuto: "自動",
-    designPreview: "新しいデザイン（プレビュー）",
-    designPreviewHint: "nemuの新しい見た目を試せます。表紙の色の「続きを読む」カード、本棚、作品ページ。",
-    designPreviewFooter: "この設定はこのデバイスにのみ保存され、nemuを再起動すると反映されます。",
-    experimentalDesign: "実験的デザイン",
-    designPreviewRestart: "今すぐ再起動",
     metadataLanguageDescription:
       "スマートマッチ使用時のタイトル、作者、説明、タグの言語",
     noPluginSettings: "このプラグインには設定可能な項目がありません。",

@@ -1,9 +1,8 @@
 import { mobileDesignExploreBooted } from "./mobileDesignExploreBoot";
 
 /**
- * Design-explore prototypes (the Books-style detail, the Library grid, collections,
- * zoom transitions). On by default on iOS; a reader who turned it off in
- * Settings → Experimental Design keeps it off.
+ * The design (the Books-style detail, the Library grid, collections, zoom
+ * transitions): always on iOS, never on Android or web.
  */
 export const mobileDesignExploreFlag = mobileDesignExploreBooted;
 

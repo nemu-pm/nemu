@@ -1075,11 +1075,6 @@ export const mobileStringsEn: MobileStrings = {
     metadataFixedDescription: "Choose a fixed metadata locale",
     metadataLanguage: "Metadata Language",
     metadataLanguageAuto: "Auto",
-    designPreview: "New design (preview)",
-    designPreviewHint: "Try nemu's new look: cover-coloured Continue Reading cards, shelves and title pages.",
-    designPreviewFooter: "This setting is stored on this device only and applies after nemu restarts.",
-    experimentalDesign: "Experimental Design",
-    designPreviewRestart: "Restart now",
     metadataLanguageDescription:
       "Language for titles, authors, descriptions, and tags when using Smart Match",
     noPluginSettings: "This plugin has no configurable settings.",

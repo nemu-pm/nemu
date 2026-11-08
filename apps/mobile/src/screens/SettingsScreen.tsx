@@ -16,9 +16,6 @@ import { ExploreSettingsGlyph } from "@/components/explore/ExploreSettingsGlyph"
 import { mobileDesignExploreFlag } from "@/lib/mobileDesignExplore";
 import { MOBILE_SETTINGS_GLYPH } from "@/lib/mobileSettingsGlyph";
 import { requestMobileAddSourceSheet } from "@/lib/mobileAddSourceSheetRequest";
-import { readMobileDesignExploreStored, writeMobileDesignExploreStored } from "@/lib/mobileDesignExploreBoot";
-import { isMobileDesignExploreSwitchAvailable } from "@/lib/mobileDesignExploreSwitch";
-import { reloadAppAsync } from "expo";
 import { formatMobileLanguageDisplayName } from "@/lib/mobileLanguageSettings";
 import { MOBILE_EXPLORE_GROUP_SHAPE, MOBILE_SETTINGS_GROUP_INSET } from "@/lib/mobileExploreRadius";
 import { isMobileSettingsHeadingRepeat } from "@/lib/mobileSettingsHeading";
@@ -759,7 +756,7 @@ function useScreenReaderEnabled(): boolean {
  * `account`: the Account page (its own `settings/account` route), opened
  * from the Cloud sync card; a detail-column section in the split.
  */
-export type SettingsSectionId = "reader" | "sources" | "directories" | "appearance" | "data" | "experimental" | "account";
+export type SettingsSectionId = "reader" | "sources" | "directories" | "appearance" | "data" | "account";
 
 function settingsSectionHref(
   section: SettingsSectionId,
@@ -1578,79 +1575,6 @@ function SourceUpdatesGroup({
 }
 
 /**
- * Settings → Experimental Design: turns the design-explore prototype on or
- * off (iOS only; `mobileDesignExploreSwitch`). One inset group: the switch
- * with its description and, once a change is pending, a Restart now row; the
- * footer says the choice is device-local and applies after a restart. The
- * running app keeps the design it started with, so the restart action
- * (`reloadAppAsync`, which works in release builds) stays until it applies.
- */
-function ExperimentalDesignSection({ strings }: { strings: MobileStrings }) {
-  const { tokens } = useNemuTheme();
-  // The design the next launch will use: the stored choice, or (none yet)
-  // the one this run has.
-  const [next, setNext] = useState(() => readMobileDesignExploreStored() ?? mobileDesignExploreFlag);
-  const [restarting, setRestarting] = useState(false);
-  const pending = next !== mobileDesignExploreFlag;
-  if (!isMobileDesignExploreSwitchAvailable(Platform.OS)) return null;
-  return (
-    <View style={styles.experimentalPage}>
-      <SettingsSurface style={styles.rowShell}>
-        <View style={styles.experimentalRow}>
-          <View style={styles.dataActionText}>
-            <NemuText style={[styles.settingTitle, { color: tokens.foreground }]}>
-              {strings.settings.designPreview}
-            </NemuText>
-            <NemuText style={[styles.settingSubtitle, { color: tokens.mutedForeground }]}>
-              {strings.settings.designPreviewHint}
-            </NemuText>
-          </View>
-          <NemuNativeSwitch
-            accessibilityLabel={strings.settings.designPreview}
-            value={next}
-            onValueChange={(value) => {
-              void hapticSelection();
-              try {
-                writeMobileDesignExploreStored(value);
-                setNext(value);
-              } catch {
-                // Not stored: the switch stays where it was.
-              }
-            }}
-          />
-        </View>
-        {pending ? (
-          <>
-            <View style={[styles.experimentalSeparator, { backgroundColor: tokens.border }]} />
-            <NemuPressable
-              accessibilityRole="button"
-              accessibilityLabel={strings.settings.designPreviewRestart}
-              accessibilityState={{ disabled: restarting || undefined, busy: restarting || undefined }}
-              disabled={restarting}
-              hapticFeedback="press"
-              pressedScale={1}
-              onPress={() => {
-                setRestarting(true);
-                void reloadAppAsync("design preview switched").catch(() => setRestarting(false));
-              }}
-              style={styles.experimentalRow}
-            >
-              <Ionicons name="refresh-outline" size={19} color={tokens.primary} />
-              <NemuText style={[styles.settingTitle, styles.experimentalRestart, { color: tokens.primary }]}>
-                {strings.settings.designPreviewRestart}
-              </NemuText>
-            </NemuPressable>
-          </>
-        ) : null}
-      </SettingsSurface>
-      <NemuText style={[styles.experimentalFooter, { color: tokens.mutedForeground }]}>
-        {strings.settings.designPreviewFooter}
-      </NemuText>
-    </View>
-  );
-}
-
-/**
  * Haptics and the chapter-completion cue used to float as two unparented rows
  * on the settings landing page. They now live inside the reader section under
  * a titled card so every landing row belongs to a group, and the rows reuse
@@ -1861,8 +1785,6 @@ function settingsSectionTitle(strings: MobileStrings, section: SettingsSectionId
       return strings.settings.appearance;
     case "data":
       return strings.settings.dataManagement;
-    case "experimental":
-      return strings.settings.experimentalDesign;
     case "account":
       return strings.account.title;
     default:
@@ -3407,20 +3329,6 @@ function SettingsScreenContent({
                             selected: inSplit ? selectedSection === "data" : undefined,
                             onPress: () => openSection("data"),
                           },
-                          ...(isMobileDesignExploreSwitchAvailable(Platform.OS)
-                            ? [
-                                {
-                                  key: "experimental",
-                                  icon: "flask-outline" as const,
-                                  title: strings.settings.experimentalDesign,
-                                  accessibilityLabel: strings.settings.experimentalDesign,
-                                  accessibilityHint: strings.settings.designPreviewHint,
-                                  disabled: settingsActionBusy,
-                                  selected: inSplit ? selectedSection === "experimental" : undefined,
-                                  onPress: () => openSection("experimental"),
-                                },
-                              ]
-                            : []),
                         ]}
                       />
                       <ExploreSettingsGroup
@@ -3478,17 +3386,6 @@ function SettingsScreenContent({
                       onPress={() => openSection("data")}
                     />
                   </View>
-                  {isMobileDesignExploreSwitchAvailable(Platform.OS) ? (
-                    <SettingsMenuRow
-                      icon="flask-outline"
-                      title={strings.settings.experimentalDesign}
-                      subtitle={strings.settings.designPreviewHint}
-                      disabled={settingsActionBusy}
-                      navigates={!inSplit}
-                      selected={inSplit && selectedSection === "experimental"}
-                      onPress={() => openSection("experimental")}
-                    />
-                  ) : null}
                   <AboutSettingsRow
                     strings={strings}
                     onPress={() => setAboutOpen(true)}
@@ -3693,10 +3590,6 @@ function SettingsScreenContent({
                     }}
                   />
                 </SettingsSurface>
-              ) : null}
-
-              {activeSection === "experimental" ? (
-                <ExperimentalDesignSection strings={strings} />
               ) : null}
 
               {activeSection === "sources" ? (
@@ -4529,21 +4422,6 @@ export function SettingsScreen({
 const styles = StyleSheet.create({
   experimentalPage: {
     gap: 8,
-  },
-  experimentalRow: {
-    minHeight: 56,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  experimentalSeparator: {
-    height: StyleSheet.hairlineWidth,
-    marginLeft: 14,
-  },
-  experimentalRestart: {
-    flex: 1,
   },
   experimentalFooter: {
     paddingHorizontal: 14,

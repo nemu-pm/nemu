@@ -1,40 +1,22 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import {
-  bootMobileDesignExplore,
-  getMobileDesignExploreActive,
-  isMobileDesignExploreSwitchAvailable,
-  parseMobileDesignExploreStored,
-  resolveMobileDesignExplore,
-  serializeMobileDesignExploreStored,
-} from "./mobileDesignExploreSwitch";
+import { bootMobileDesignExplore, getMobileDesignExploreActive } from "./mobileDesignExploreSwitch";
 
-describe("new design (preview) switch", () => {
-  test("on by default on iOS; a stored choice decides; Android and web never get it", () => {
-    expect(resolveMobileDesignExplore({ platform: "ios", stored: null })).toBe(true);
-    expect(resolveMobileDesignExplore({ platform: "ios", stored: true })).toBe(true);
-    expect(resolveMobileDesignExplore({ platform: "ios", stored: false })).toBe(false);
-    for (const platform of ["android", "web", undefined]) {
-      expect(resolveMobileDesignExplore({ platform, stored: true })).toBe(false);
-      expect(isMobileDesignExploreSwitchAvailable(platform)).toBe(false);
-    }
-  });
-
-  test("the stored file round-trips; anything unreadable is no choice; the run keeps its boot value", () => {
-    expect(parseMobileDesignExploreStored(serializeMobileDesignExploreStored(true))).toBe(true);
-    expect(parseMobileDesignExploreStored("{\"designPreview\":\"yes\"}")).toBeNull();
-    expect(parseMobileDesignExploreStored("{not json")).toBeNull();
+describe("the design", () => {
+  test("the run keeps its boot value", () => {
     // Left at the default for the rest of this test process.
     expect(bootMobileDesignExplore(false)).toBe(false);
     expect(bootMobileDesignExplore(true)).toBe(false);
     expect(getMobileDesignExploreActive()).toBe(false);
   });
 
-  test("the page and its rows are translated", () => {
+  test("iOS always boots the design; there is no switch or stored choice any more", () => {
     const read = (name: string) => readFileSync(path.join(import.meta.dir, name), "utf8");
-    expect(read("mobileI18n.en.ts")).toContain('experimentalDesign: "Experimental Design"');
-    expect(read("mobileI18n.zh.ts")).toContain('experimentalDesign: "实验性设计"');
-    expect(read("mobileI18n.ja.ts")).toContain('experimentalDesign: "実験的デザイン"');
+    expect(read("mobileDesignExploreBoot.native.ts")).toContain('bootMobileDesignExplore(Platform.OS === "ios")');
+    for (const name of ["mobileDesignExploreBoot.native.ts", "mobileI18n.en.ts", "../screens/SettingsScreen.tsx"]) {
+      expect(read(name)).not.toContain("designPreview");
+      expect(read(name)).not.toContain("experimentalDesign");
+    }
   });
 });

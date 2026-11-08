@@ -33,7 +33,7 @@ describe("settings split selection", () => {
 
   test("Source Directories keeps Installed Sources selected in the section list", () => {
     expect(getMobileSettingsSplitHighlightedRow("directories")).toBe("sources");
-    for (const section of ["reader", "sources", "appearance", "data", "experimental"] as const) {
+    for (const section of ["reader", "sources", "appearance", "data"] as const) {
       expect(getMobileSettingsSplitHighlightedRow(section)).toBe(section);
     }
   });

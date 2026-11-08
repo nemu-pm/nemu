@@ -943,11 +943,6 @@ export type MobileStrings = {
     metadataFixedDescription: string;
     metadataLanguage: string;
     metadataLanguageAuto: string;
-    designPreview: string;
-    designPreviewHint: string;
-    designPreviewFooter: string;
-    experimentalDesign: string;
-    designPreviewRestart: string;
     metadataLanguageDescription: string;
     noPluginSettings: string;
     noSourceManagement: string;

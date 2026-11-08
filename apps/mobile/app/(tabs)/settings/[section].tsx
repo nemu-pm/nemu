@@ -10,8 +10,7 @@ function isSettingsSection(value: unknown): value is SettingsSectionId {
     value === "sources" ||
     value === "directories" ||
     value === "appearance" ||
-    value === "data" ||
-    value === "experimental"
+    value === "data"
   );
 }
 

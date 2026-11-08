@@ -10,7 +10,6 @@ export type MobileSettingsSplitSectionId =
   | "directories"
   | "appearance"
   | "data"
-  | "experimental"
   | "account";
 
 /** Order of the section list; the first one is selected by default (iOS Settings). */
@@ -143,7 +142,7 @@ function routeSection(route: MobileSettingsStackRoute | undefined): MobileSettin
   if (route?.name !== MOBILE_SETTINGS_SECTION_ROUTE) return null;
   const section = (route.params as { section?: unknown } | undefined)?.section;
   return section === "reader" || section === "sources" || section === "directories" ||
-    section === "appearance" || section === "data" || section === "experimental"
+    section === "appearance" || section === "data"
     ? section
     : null;
 }
