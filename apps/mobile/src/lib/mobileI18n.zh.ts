@@ -1199,6 +1199,7 @@ export const mobileStringsZh: MobileStrings = {
     deleting: "正在删除…",
     deleted: "账号已删除",
     deleteFailed: "删除账号失败，请重试。",
+    deleteNotAvailableYet: "暂时无法删除账号，你的账号未被删除。请稍后再试。",
     deleteOffline: "当前处于离线状态，请联网后再删除账号。",
     deleteReauth: "需要重新确认 Apple 登录。请登出后重新登录再试。",
     deleteUnavailable: "无法连接 Apple，请稍后重试。",

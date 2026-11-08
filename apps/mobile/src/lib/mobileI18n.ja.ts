@@ -1283,6 +1283,8 @@ export const mobileStringsJa: MobileStrings = {
     deleting: "削除中…",
     deleted: "アカウントを削除しました",
     deleteFailed: "アカウントを削除できませんでした。もう一度お試しください。",
+    deleteNotAvailableYet:
+      "アカウントの削除はまだ利用できないため、アカウントは削除されていません。しばらくしてからもう一度お試しください。",
     deleteOffline: "オフラインです。接続してからアカウントを削除してください。",
     deleteReauth:
       "Appleでのサインインを再確認する必要があります。サインアウトして、もう一度サインインしてからお試しください。",

@@ -9,6 +9,32 @@ import { mobileStringsEn } from "./mobileI18n.en";
 const convexError = (code: string) => Object.assign(new Error("Server Error"), { data: { code } });
 
 describe("runMobileAccountDeletion", () => {
+  test("a backend without account deletion: nothing is sent, nothing is deleted, no sign-out", async () => {
+    const calls: string[] = [];
+    const outcome = await runMobileAccountDeletion({
+      deleteMyAccount: async () => void calls.push("delete"),
+      signOutLocally: async () => (calls.push("signOut"), true),
+      backendOutdated: () => true,
+    });
+    expect(outcome).toEqual({ status: "failed", kind: "server-unavailable" });
+    expect(calls).toEqual([]);
+    expect(mobileAccountDeletionFailureMessage("server-unavailable", mobileStringsEn))
+      .toBe(mobileStringsEn.account.deleteNotAvailableYet);
+    expect(mobileStringsEn.account.deleteNotAvailableYet).toContain("not deleted");
+  });
+
+  test("a missing function at call time reads as not available yet, never as deleted", async () => {
+    let signedOut = false;
+    const outcome = await runMobileAccountDeletion({
+      deleteMyAccount: async () => {
+        throw new Error("[CONVEX A(accountDeletion:deleteMyAccount)] Could not find public function for 'accountDeletion:deleteMyAccount'.");
+      },
+      signOutLocally: async () => (signedOut = true),
+    });
+    expect(outcome).toEqual({ status: "failed", kind: "server-unavailable" });
+    expect(signedOut).toBe(false);
+  });
+
   test("signs out locally right after a successful deletion", async () => {
     const order: string[] = [];
     const outcome = await runMobileAccountDeletion({

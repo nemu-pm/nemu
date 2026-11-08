@@ -1271,6 +1271,8 @@ export const mobileStringsEn: MobileStrings = {
     deleting: "Deleting…",
     deleted: "Account deleted",
     deleteFailed: "Couldn't delete the account. Try again.",
+    deleteNotAvailableYet:
+      "Account deletion isn't available yet, so your account was not deleted. Please try again later.",
     deleteOffline: "You're offline. Connect to delete your account.",
     deleteReauth:
       "Sign-in with Apple needs to be confirmed again. Sign out, sign back in and try again.",

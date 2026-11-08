@@ -33,9 +33,48 @@ export const mobileChapterProgressResetSyncSupportedRef: {
   current: boolean;
 } = { current: false };
 
+/**
+ * The backend this build was made with (PR #34's Convex functions: source
+ * directories, imported-archive volumes, self-hosted source fields, account
+ * deletion) shipped with sync version 2, alongside `resetAt`. Until the
+ * generation query reports it, mobile sends none of those calls: an older
+ * backend would reject them. A deploy is picked up live, through the same
+ * subscription.
+ */
+export const mobileSyncBackendFeaturesSupportedRef: {
+  current: boolean;
+} = { current: false };
+
+/** The sync version the backend last reported; undefined before it is known. */
+export const mobileSyncBackendVersionRef: {
+  current: number | undefined;
+} = { current: undefined };
+
+/**
+ * A self-hosted server source carries `selfHosted`, which an older backend's
+ * validator rejects: it stays on this device until PR #34's backend is
+ * deployed, then syncs. Every other source syncs as before.
+ */
+export function canPushMobileInstalledSource(source: { selfHosted?: unknown }): boolean {
+  return source.selfHosted == null || mobileSyncBackendFeaturesSupportedRef.current;
+}
+
+/** The backend is known to predate PR #34 (it reported an older version). */
+export function isMobileSyncBackendKnownOutdated(): boolean {
+  return (
+    mobileSyncBackendVersionRef.current !== undefined &&
+    !mobileSyncBackendFeaturesSupportedRef.current
+  );
+}
+
 export function setMobileChapterProgressIntraPageSyncVersion(
   version: unknown,
 ): void {
+  mobileSyncBackendVersionRef.current = Number.isSafeInteger(version)
+    ? (version as number)
+    : undefined;
+  mobileSyncBackendFeaturesSupportedRef.current =
+    supportsChapterProgressResetSync(version);
   mobileChapterProgressIntraPageSyncSupportedRef.current =
     Number.isSafeInteger(version) &&
     (version as number) >= CHAPTER_PROGRESS_INTRA_PAGE_SYNC_VERSION;
@@ -68,6 +107,8 @@ export function invalidateMobileSyncEpoch(): number {
   syncEpoch += 1;
   mobileChapterProgressIntraPageSyncSupportedRef.current = false;
   mobileChapterProgressResetSyncSupportedRef.current = false;
+  mobileSyncBackendFeaturesSupportedRef.current = false;
+  mobileSyncBackendVersionRef.current = undefined;
   return syncEpoch;
 }
 

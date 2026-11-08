@@ -6,6 +6,7 @@ import {
   classifyAccountDeletionError,
   deleteAccount,
 } from "./account-deletion";
+import { isConvexFeatureUnavailableError } from "./convex-compat";
 
 const convexError = (code: string) => Object.assign(new Error("Server Error"), { data: { code } });
 
@@ -79,5 +80,15 @@ describe("deleteAccount", () => {
       requestAppleAuthorizationCode: async () => "c",
     });
     expect(result).toEqual({ status: "failed", kind: "apple-revoke-failed" });
+  });
+});
+
+describe("a backend without account deletion", () => {
+  test("missing function and validator rejections classify as server-unavailable", () => {
+    expect(isConvexFeatureUnavailableError(new Error("Could not find public function for 'accountDeletion:deleteMyAccount'"))).toBe(true);
+    expect(isConvexFeatureUnavailableError(new Error("ArgumentValidationError: Object contains extra field `selfHosted` that is not in the validator."))).toBe(true);
+    expect(isConvexFeatureUnavailableError(new Error("Not authenticated"))).toBe(false);
+    expect(isConvexFeatureUnavailableError(null)).toBe(false);
+    expect(classifyAccountDeletionError(new Error("Could not find public function for 'accountDeletion:deleteMyAccount'"))).toBe("server-unavailable");
   });
 });

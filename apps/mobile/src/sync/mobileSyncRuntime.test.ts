@@ -16,6 +16,9 @@ import {
   runWithMobileSyncWrite,
   runWithMobileSyncSuspended,
   setMobileChapterProgressIntraPageSyncVersion,
+  canPushMobileInstalledSource,
+  isMobileSyncBackendKnownOutdated,
+  mobileSyncBackendFeaturesSupportedRef,
 } from "./mobileSyncRuntime";
 
 function generationStore(initial: number | null = 0) {
@@ -335,5 +338,32 @@ describe("mobile sync runtime", () => {
     expect(getFunctionName(mutationCalls[0] as never)).toBe(
       getFunctionName(api.sync.clearAll),
     );
+  });
+});
+
+describe("backend features from PR #34", () => {
+  test("follow the generation query's sync version: unknown, older, deployed", () => {
+    setMobileChapterProgressIntraPageSyncVersion(undefined);
+    expect(mobileSyncBackendFeaturesSupportedRef.current).toBe(false);
+    expect(isMobileSyncBackendKnownOutdated()).toBe(false);
+    setMobileChapterProgressIntraPageSyncVersion(1);
+    expect(mobileSyncBackendFeaturesSupportedRef.current).toBe(false);
+    expect(isMobileSyncBackendKnownOutdated()).toBe(true);
+    setMobileChapterProgressIntraPageSyncVersion(2);
+    expect(mobileSyncBackendFeaturesSupportedRef.current).toBe(true);
+    expect(isMobileSyncBackendKnownOutdated()).toBe(false);
+    invalidateMobileSyncEpoch();
+    expect(mobileSyncBackendFeaturesSupportedRef.current).toBe(false);
+    expect(isMobileSyncBackendKnownOutdated()).toBe(false);
+  });
+
+  test("a self-hosted source waits for the deploy; every other source syncs", () => {
+    const selfHosted = { selfHosted: { kind: "komga", server: "https://komga.example" } };
+    setMobileChapterProgressIntraPageSyncVersion(1);
+    expect(canPushMobileInstalledSource({})).toBe(true);
+    expect(canPushMobileInstalledSource(selfHosted)).toBe(false);
+    setMobileChapterProgressIntraPageSyncVersion(2);
+    expect(canPushMobileInstalledSource(selfHosted)).toBe(true);
+    setMobileChapterProgressIntraPageSyncVersion(undefined);
   });
 });

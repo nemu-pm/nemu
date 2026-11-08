@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import { sourceDirectoryIdForUrl, type CloudSourceDirectory } from "@nemu/core/sources";
 import type { SourceRegistry, UserSettings } from "@/data/schema";
 import type { MobileDataStore } from "@/data/storeTypes";
@@ -8,6 +8,10 @@ import {
   canonicalCloudSourceDirectories,
   syncMobileSourceDirectories,
 } from "./mobileSourceDirectorySync";
+import { setMobileChapterProgressIntraPageSyncVersion } from "./mobileSyncRuntime";
+
+// PR #34's backend (sync version 2) unless a test says otherwise.
+beforeEach(() => setMobileChapterProgressIntraPageSyncVersion(2));
 
 const now = Date.now();
 const cloudDir = (id: string, over: Partial<CloudSourceDirectory> = {}): CloudSourceDirectory => ({
@@ -115,6 +119,37 @@ describe("old rows and old clients", () => {
     expect(pushed).toHaveLength(1);
     expect((pushed[0] as { directory: { id: string } }).directory.id).toBe("mine");
   });
+});
+
+describe("a backend before PR #34's deploy", () => {
+  const storeWith = (rows: Map<string, SourceRegistry>) => {
+    let settings: UserSettings = { installedSources: [], sourceDirectoriesSeeded: true };
+    return {
+      getRegistries: async () => [...rows.values()],
+      getRegistry: async (id: string) => rows.get(id) ?? null,
+      saveRegistry: async (r: SourceRegistry) => void rows.set(r.id, r),
+      removeRegistry: async (id: string) => void rows.delete(id),
+      getSyncSettings: async () => settings,
+      getSettings: async () => settings,
+      updateSettings: async (fn: (s: UserSettings) => UserSettings) => (settings = fn(settings)),
+    } as unknown as MobileDataStore;
+  };
+
+  for (const version of [1, undefined]) {
+    test(`sends nothing and keeps the local list (backend version ${version})`, async () => {
+      setMobileChapterProgressIntraPageSyncVersion(version);
+      const rows = new Map<string, SourceRegistry>([["mine", localDir("mine")]]);
+      const pushed: unknown[] = [];
+      const convex = { mutation: async (_ref: unknown, args: unknown) => void pushed.push(args) } as never;
+      await syncMobileSourceDirectories({ store: storeWith(rows), convex, cloud: [], generation: 1, shouldContinue: () => true });
+      expect(pushed).toEqual([]);
+      expect([...rows.keys()].sort()).toEqual(["mine", "nemu-recommended"]);
+      // The deploy lands: the next pass pushes what waited.
+      setMobileChapterProgressIntraPageSyncVersion(2);
+      await syncMobileSourceDirectories({ store: storeWith(rows), convex, cloud: [], generation: 1, shouldContinue: () => true });
+      expect((pushed as { directory: { id: string } }[]).map((args) => args.directory.id)).toEqual(["mine"]);
+    });
+  }
 });
 
 describe("directory backfill", () => {

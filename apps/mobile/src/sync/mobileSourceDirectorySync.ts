@@ -18,6 +18,7 @@ import { rememberMobileSourceDirectoryNames } from "@/data/mobileSourceDirectory
 import type { InstalledSource } from "@/data/schema";
 import { emitMobileDataChanged } from "@/data/mobileDataEvents";
 import type { MobileDataStore } from "@/data/storeTypes";
+import { mobileSyncBackendFeaturesSupportedRef } from "./mobileSyncRuntime";
 
 type DirectorySyncClient = Pick<ConvexReactClient, "mutation">;
 
@@ -74,7 +75,12 @@ export async function syncMobileSourceDirectories({
   );
   for (const registry of backfill.save) await store.saveRegistry(registry);
   rememberMobileSourceDirectoryNames(await store.getRegistries());
-  for (const directory of [...plan.push, ...backfill.push]) {
+  // A backend without directory sync (before PR #34's deploy) keeps the
+  // local list as is; the next pass after the deploy pushes it.
+  const pushes = mobileSyncBackendFeaturesSupportedRef.current
+    ? [...plan.push, ...backfill.push]
+    : [];
+  for (const directory of pushes) {
     if (!shouldContinue()) break;
     try {
       await convex.mutation(api.settings.saveSourceDirectory, {
@@ -110,6 +116,9 @@ export async function syncMobileLocalArchiveVolumes({
 }): Promise<{ changed: boolean }> {
   const provider = getLocalArchiveProvider();
   if (!provider || !shouldContinue()) return { changed: false };
+  // No archive sync on this backend yet (before PR #34's deploy): the local
+  // volumes stay, and the first pass after the deploy pushes them.
+  if (!mobileSyncBackendFeaturesSupportedRef.current) return { changed: false };
   const { push, changed } = await provider.applyCloudVolumes(cloud);
   for (const volume of push) {
     if (!shouldContinue()) break;

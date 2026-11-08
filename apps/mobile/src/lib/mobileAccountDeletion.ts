@@ -15,11 +15,19 @@ export type MobileAccountDeletionOutcome =
 export async function runMobileAccountDeletion({
   deleteMyAccount,
   signOutLocally,
+  backendOutdated = () => false,
 }: {
   deleteMyAccount: (args: { appleAuthorizationCode?: string }) => Promise<unknown>;
   /** Signs out and handles device data; resolves false if it could not finish. */
   signOutLocally: () => Promise<boolean>;
+  /**
+   * The backend is known to predate account deletion (PR #34 not deployed):
+   * nothing is sent and nothing is deleted. A missing function at call time
+   * reads the same way (`server-unavailable`).
+   */
+  backendOutdated?: () => boolean;
 }): Promise<MobileAccountDeletionOutcome> {
+  if (backendOutdated()) return { status: "failed", kind: "server-unavailable" };
   const result = await deleteAccount({ deleteMyAccount });
   if (result.status !== "deleted") return result;
   let cleaned = false;
@@ -45,6 +53,8 @@ export function mobileAccountDeletionFailureMessage(
       return strings.account.deleteReauth;
     case "apple-unavailable":
       return strings.account.deleteUnavailable;
+    case "server-unavailable":
+      return strings.account.deleteNotAvailableYet;
     default:
       return strings.account.deleteFailed;
   }

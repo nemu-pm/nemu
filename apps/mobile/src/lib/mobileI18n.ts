@@ -1105,6 +1105,7 @@ export type MobileStrings = {
     deleting: string;
     deleted: string;
     deleteFailed: string;
+    deleteNotAvailableYet: string;
     deleteOffline: string;
     deleteReauth: string;
     deleteUnavailable: string;

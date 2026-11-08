@@ -49,6 +49,8 @@ import {
   mobileChapterProgressIntraPageSyncSupportedRef,
   mobileChapterProgressResetSyncSupportedRef,
   mobileConvexRef,
+  mobileSyncBackendFeaturesSupportedRef,
+  canPushMobileInstalledSource,
   mobileIsAuthenticatedRef,
   mobileSessionUserIdRef,
   runWithMobileSyncWrite,
@@ -177,6 +179,8 @@ export async function pushLocalArchiveVolume(
   const syncEpoch = getMobileSyncEpoch();
   const generation = (await runLocalSyncMutation(store, async () => undefined)).generation;
   if (generation === null) return;
+  // PR #34's backend only: skipped until it is deployed (`mobileSyncBackendFeaturesSupportedRef`).
+  if (!mobileSyncBackendFeaturesSupportedRef.current) return;
   enqueueMobileCloudMutation(syncEpoch, store, (context) =>
     context.convex.mutation(api.settings.saveLocalArchiveVolume, {
       expectedUserId: context.expectedUserId,
@@ -304,6 +308,7 @@ class MobileSyncDataStore implements MobileDataStore {
     if (generation === null) return;
     const latest = result.latest;
     if (!latest || latest.removed) return;
+    if (!canPushMobileInstalledSource(latest)) return;
     enqueueMobileCloudMutation(syncEpoch, this, (context) =>
       context.convex.mutation(api.settings.saveInstalledSource, {
         expectedUserId: context.expectedUserId,
@@ -351,6 +356,7 @@ class MobileSyncDataStore implements MobileDataStore {
     if (generation === null) return true;
     const latest = result.latest;
     if (!latest || latest.removed) return true;
+    if (!canPushMobileInstalledSource(latest)) return true;
     enqueueMobileCloudMutation(syncEpoch, this, (context) =>
       context.convex.mutation(api.settings.saveInstalledSource, {
         expectedUserId: context.expectedUserId,
@@ -440,6 +446,8 @@ class MobileSyncDataStore implements MobileDataStore {
     if (generation === null) return;
     const directory = toCloudSourceDirectory(stamped);
     if (!directory) return;
+    // PR #34's backend only: skipped until it is deployed (`mobileSyncBackendFeaturesSupportedRef`).
+    if (!mobileSyncBackendFeaturesSupportedRef.current) return;
     enqueueMobileCloudMutation(syncEpoch, this, (context) =>
       context.convex.mutation(api.settings.saveSourceDirectory, {
         expectedUserId: context.expectedUserId,
@@ -465,6 +473,8 @@ class MobileSyncDataStore implements MobileDataStore {
       },
     );
     if (generation === null || !removed) return;
+    // PR #34's backend only: skipped until it is deployed (`mobileSyncBackendFeaturesSupportedRef`).
+    if (!mobileSyncBackendFeaturesSupportedRef.current) return;
     enqueueMobileCloudMutation(syncEpoch, this, (context) =>
       context.convex.mutation(api.settings.saveSourceDirectory, {
         expectedUserId: context.expectedUserId,

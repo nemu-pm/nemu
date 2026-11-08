@@ -4,6 +4,8 @@
  * Apple and returns its authorizationCode.
  */
 
+import { isConvexFeatureUnavailableError } from "./convex-compat";
+
 export const APPLE_REAUTH_REQUIRED = "ACCOUNT_DELETION_APPLE_REAUTH_REQUIRED";
 export const APPLE_UNAVAILABLE = "ACCOUNT_DELETION_APPLE_UNAVAILABLE";
 export const APPLE_REVOKE_FAILED = "ACCOUNT_DELETION_APPLE_REVOKE_FAILED";
@@ -12,10 +14,13 @@ export type AccountDeletionErrorKind =
   | "apple-reauth-required"
   | "apple-unavailable"
   | "apple-revoke-failed"
+  /** The deployed backend has no account deletion yet: nothing was deleted. */
+  | "server-unavailable"
   | "unknown";
 
 /** Reads the code the server puts in `ConvexError({ code })`, or in the message. */
 export function classifyAccountDeletionError(error: unknown): AccountDeletionErrorKind {
+  if (isConvexFeatureUnavailableError(error)) return "server-unavailable";
   const data = (error as { data?: unknown } | null)?.data;
   const code =
     typeof data === "object" && data !== null && "code" in data

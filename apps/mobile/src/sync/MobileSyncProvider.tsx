@@ -36,6 +36,7 @@ import {
   toCloudInstalledSource,
   toCloudLibrarySaveInput,
   toCloudLibrarySaveInputBatches,
+  supportsChapterProgressResetSync,
 } from "@nemu/core";
 import { mobileAuthClient } from "./mobileAuthClient";
 import { MobileConvexAuthProvider } from "./mobileConvexAuth";
@@ -69,6 +70,7 @@ import {
   makeMobileSyncRunGuard,
   mobileChapterProgressIntraPageSyncSupportedRef,
   mobileChapterProgressResetSyncSupportedRef,
+  canPushMobileInstalledSource,
   mobileConvexRef,
   mobileIsAuthenticatedRef,
   mobileSessionUserIdRef,
@@ -559,7 +561,7 @@ async function pushLocalInstalledSourceWinners(
         updatedAt: source.updatedAt ?? 0,
         generation,
       });
-    } else {
+    } else if (canPushMobileInstalledSource(source)) {
       await convex.mutation(api.settings.saveInstalledSource, {
         expectedUserId,
         source: toCloudInstalledSource(source),
@@ -803,6 +805,11 @@ function ConfiguredMobileSyncBridge() {
       | { chapterProgressIntraPageVersion?: unknown }
       | undefined
   )?.chapterProgressIntraPageVersion;
+  // PR #34's backend (directories, archive volumes, self-hosted sources)
+  // arriving re-runs the settings pass, so what waited locally syncs then.
+  const backendFeaturesSupported = supportsChapterProgressResetSync(
+    chapterProgressIntraPageVersion,
+  );
   useEffect(() => {
     setMobileChapterProgressIntraPageSyncVersion(
       chapterProgressIntraPageVersion,
@@ -1673,6 +1680,7 @@ function ConfiguredMobileSyncBridge() {
       cancelled = true;
     };
   }, [
+    backendFeaturesSupported,
     cloudSettings,
     convexUserId,
     isAuthenticated,

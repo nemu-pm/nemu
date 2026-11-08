@@ -19,7 +19,7 @@ import {
 } from "@/lib/mobileAccountSignedOut";
 import { mobileAuthClient } from "@/sync/mobileAuthClient";
 import { normalizeMobileOAuthProvider } from "@/sync/mobileOAuthProvider";
-import { mobileConvexRef } from "@/sync/mobileSyncRuntime";
+import { isMobileSyncBackendKnownOutdated, mobileConvexRef } from "@/sync/mobileSyncRuntime";
 import { api } from "../../../../convex/_generated/api";
 
 /**
@@ -116,6 +116,7 @@ export function useMobileAccountPage({
       const outcome = await runMobileAccountDeletion({
         deleteMyAccount: (args) => client.action(api.accountDeletion.deleteMyAccount, args),
         signOutLocally: () => cloudSignOut.signOut(KEEP_DEVICE_DATA_AFTER_ACCOUNT_DELETION),
+        backendOutdated: isMobileSyncBackendKnownOutdated,
       });
       if (outcome.status === "deleted") {
         await hapticConfirm();
