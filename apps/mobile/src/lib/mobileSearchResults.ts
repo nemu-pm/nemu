@@ -10,7 +10,13 @@
  * - sources still searching → one quiet line with an inline spinner;
  * - sources that failed → one compact row each (the reason and Retry);
  * - sources with no match → one summary line naming them.
+ *
+ * A title the Library section already shows is not repeated in its source's
+ * section; a source left with nothing else joins the summary line.
  */
+
+import type { LibraryEntry } from "@/data/schema";
+import { makeSourceKey } from "@/sources/aidokuRegistry";
 
 type LiveGroupSource = { id: string; name: string };
 
@@ -46,6 +52,51 @@ export function partitionMobileLiveSearchGroups<G extends MobileLiveSearchGroupL
     }
   }
   return partition;
+}
+
+type LiveResultSource = LiveGroupSource & {
+  registryId: string;
+  rawSourceId: string;
+  sourceKeys?: string[];
+};
+
+type LiveResultGroupLike =
+  | { status: "loading" | "blocked"; source: LiveResultSource }
+  | { status: "ready"; source: LiveResultSource; items: readonly { id: string }[] };
+
+/**
+ * Takes the titles of the Library section out of the live results, by the same
+ * identity as library membership: a result belongs to an entry when one of the
+ * entry's source links names its source and manga key. Only the entries on
+ * screen count: a saved title the local match missed (the source matched an
+ * alternate title) stays in the live results, or the search would lose it.
+ *
+ * Derived for display, so the retained answers stay whole: removing a title
+ * from the Library brings it straight back without searching again.
+ */
+export function omitLibraryTitlesFromLiveSearchGroups<G extends LiveResultGroupLike>(
+  groups: G[],
+  shownEntries: readonly Pick<LibraryEntry, "sources">[],
+): G[] {
+  const shownKeys = new Set(
+    shownEntries.flatMap((entry) =>
+      entry.sources.map((link) => `${makeSourceKey(link.registryId, link.sourceId)}\u0000${link.sourceMangaId}`),
+    ),
+  );
+  if (shownKeys.size === 0) return groups;
+  let changed = false;
+  const next = groups.map((group) => {
+    if (group.status !== "ready") return group;
+    const { source } = group;
+    const sourceKeys = source.sourceKeys ?? [makeSourceKey(source.registryId, source.rawSourceId)];
+    const items = group.items.filter(
+      (item) => !sourceKeys.some((key) => shownKeys.has(`${key}\u0000${item.id}`)),
+    );
+    if (items.length === group.items.length) return group;
+    changed = true;
+    return { ...group, items };
+  });
+  return changed ? next : groups;
 }
 
 /** The secondary count beside a section title: "8", or "20+" when the source has more. */

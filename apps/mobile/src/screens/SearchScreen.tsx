@@ -129,6 +129,7 @@ import {
 import {
   formatMobileSearchSectionCount,
   groupMobileSearchFailures,
+  omitLibraryTitlesFromLiveSearchGroups,
   partitionMobileLiveSearchGroups,
   resolveMobileLiveSearchRetrySourceIds,
 } from "@/lib/mobileSearchResults";
@@ -1204,7 +1205,7 @@ export function SearchScreen() {
     trimmedQuery,
   ]);
 
-  const liveSearchState = useMemo<LiveSearchState>(() => {
+  const answeredLiveSearchState = useMemo<LiveSearchState>(() => {
     if (!liveSearchKey) return { status: "idle" };
     if (liveSearchResult?.key !== liveSearchKey) {
       // Until the new run publishes (the next frame), keep what the same query
@@ -1221,6 +1222,19 @@ export function SearchScreen() {
     }
     return liveSearchResult.state;
   }, [liveSearchKey, liveSearchResult, selectedLiveSourceIdSet, trimmedQuery]);
+  // What the results pane and the sidebar count: a title in the Library section
+  // is left out of its source's results before either draws, so it never shows
+  // twice, not even for a frame as answers arrive.
+  const liveSearchState = useMemo<LiveSearchState>(() => {
+    if (answeredLiveSearchState.status !== "ready") return answeredLiveSearchState;
+    const groups = omitLibraryTitlesFromLiveSearchGroups(
+      answeredLiveSearchState.groups,
+      visibleLocalResultGroups.flatMap((group) => group.entries),
+    );
+    return groups === answeredLiveSearchState.groups
+      ? answeredLiveSearchState
+      : { status: "ready", groups };
+  }, [answeredLiveSearchState, visibleLocalResultGroups]);
   // Sidebar rows: each source's live-result count (or its searching / failed
   // state) for the current query. Sources outside the scope keep their last
   // answer for the same query, so narrowing to one source never blanks the
