@@ -77,9 +77,16 @@ describe("Sources columns on the Duo inner display", () => {
     expect(columns).toEqual([{ x: 34.5, width: 560, marginLeft: 34.5 }]);
   });
 
-  test("phones and tablets (no fold region): the full width, as before", () => {
+  test("compact widths (phones, a narrow Split View or Stage Manager window): the full width", () => {
     expect(getMobileSourceColumns({ contentWidth: 370, fold: null, band: null, foldRegion: false })).toEqual([{ x: 0, width: 370, marginLeft: 0 }]);
-    expect(getMobileSourceColumns({ contentWidth: 980, fold: null, band: null, foldRegion: false })).toEqual([{ x: 0, width: 980, marginLeft: 0 }]);
+    expect(getMobileSourceColumns({ contentWidth: 652, fold: null, band: null, foldRegion: false, regularWidth: false })).toEqual([{ x: 0, width: 652, marginLeft: 0 }]);
+  });
+
+  test("regular widths (tablets): one readable column centred, like the Duo fully open", () => {
+    // iPad Pro 13" portrait: 1032pt less 20pt gutters.
+    expect(getMobileSourceColumns({ contentWidth: 992, fold: null, band: null, foldRegion: false, regularWidth: true })).toEqual([{ x: 216, width: 560, marginLeft: 216 }]);
+    // Narrower than the cap: the full width.
+    expect(getMobileSourceColumns({ contentWidth: 520, fold: null, band: null, foldRegion: false, regularWidth: true })).toEqual([{ x: 0, width: 520, marginLeft: 0 }]);
   });
 
   test("panes too narrow for a list stay one column", () => {

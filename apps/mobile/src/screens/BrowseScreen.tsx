@@ -1080,8 +1080,9 @@ export function BrowseScreen() {
   // the next one in the shorter column (estimated from its rows, so a group
   // never changes column because it was measured). Fully open (landscape or
   // portrait) the display is one whole screen: one 560pt column centred on
-  // it. The columns are keyed (col-0 / col-1), so folding glides col-0 to its
-  // new frame on the pose spring and col-1 fades in or out.
+  // it, as on any regular-width window (a tablet). The columns are keyed
+  // (col-0 / col-1), so folding glides col-0 to its new frame on the pose
+  // spring and col-1 fades in or out.
   const sourceListWidth = sourceGridContainer.width ?? windowWidth - pageGutters.left - pageGutters.right;
   // Until the list is measured in the window it starts at the page gutter.
   const sourceListFrame = useMemo(
@@ -1096,8 +1097,15 @@ export function BrowseScreen() {
         fold: sourceGridSplit?.axis === "horizontal" ? sourceGridSplit.gutter : null,
         band: sourceListFold,
         foldRegion: sourceGridContainer.adaptive.hasFoldRegion,
+        regularWidth: sourceGridContainer.adaptive.regularWidth,
       }),
-    [sourceGridContainer.adaptive.hasFoldRegion, sourceGridSplit, sourceListFold, sourceListWidth],
+    [
+      sourceGridContainer.adaptive.hasFoldRegion,
+      sourceGridContainer.adaptive.regularWidth,
+      sourceGridSplit,
+      sourceListFold,
+      sourceListWidth,
+    ],
   );
   const sourceGroupColumns = useMemo(
     () =>

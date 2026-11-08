@@ -8,10 +8,12 @@ import { mobileFoldIntervalWithGutter, type MobileFoldInterval } from "./mobileF
  * open the display is one whole screen (designer rule, landscape or
  * portrait): a window with a fold region keeps one column capped at a
  * readable width (560pt), centred on the whole screen — nothing splits at
- * the hinge. Everything else is one full-width column, as before.
+ * the hinge. A regular-width window (a tablet, a wide Split View pane) keeps
+ * the same readable column: a full-width row would put a source's name and its
+ * chevron a whole screen apart. Compact widths are one full-width column.
  */
 
-/** Readable width of the single column on the Duo inner display fully open (and any fold-region window). */
+/** Readable width of the single column on the Duo inner display fully open, any fold-region window and regular widths. */
 export const MOBILE_SOURCE_COLUMN_MAX_WIDTH = 560;
 /** Narrowest pane column worth splitting for. */
 export const MOBILE_SOURCE_COLUMN_MIN_WIDTH = 280;
@@ -31,6 +33,7 @@ export function getMobileSourceColumns({
   fold,
   band,
   foldRegion,
+  regularWidth = false,
   maxSingleWidth = MOBILE_SOURCE_COLUMN_MAX_WIDTH,
   minColumnWidth = MOBILE_SOURCE_COLUMN_MIN_WIDTH,
 }: {
@@ -46,6 +49,8 @@ export function getMobileSourceColumns({
   band: MobileFoldInterval | null | undefined;
   /** The window has a fold region at all (caps the single column). */
   foldRegion: boolean;
+  /** The window's horizontal size class is regular (caps the single column). */
+  regularWidth?: boolean;
   maxSingleWidth?: number;
   minColumnWidth?: number;
 }): MobileSourceColumn[] {
@@ -62,7 +67,7 @@ export function getMobileSourceColumns({
       ];
     }
   }
-  const single = foldRegion ? Math.min(width, maxSingleWidth) : width;
+  const single = foldRegion || regularWidth ? Math.min(width, maxSingleWidth) : width;
   const x = (width - single) / 2;
   return [{ x, width: single, marginLeft: x }];
 }
