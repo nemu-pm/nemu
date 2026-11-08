@@ -42,6 +42,20 @@ describe("mobile Expo native patch policy", () => {
     expect(patch).toContain("diff --git a/ios/RNSNavigationBar.mm b/ios/RNSNavigationBar.mm");
   });
 
+  test("a new Picker shows its selection from its first body", () => {
+    // Reader settings: rows the mode switch brought back kept 55–91pt cells
+    // around 32pt content. The Picker's state stayed empty until onAppear, so
+    // its button was placed at the chevron's width, and the List self-sized
+    // the row with the value wrapped in that width and never asked again.
+    const source = readFileSync(path.join(repositoryRoot,
+      "node_modules/@expo/ui/ios/Picker/PickerView.swift"), "utf8");
+    expect(source).toContain("get: { selection ?? Self.getHashableFromEither(props.selection) }");
+    expect(source).not.toContain("selection: $selection");
+    const patch = readFileSync(
+      path.join(repositoryRoot, "patches/@expo%2Fui@58.0.24.patch"), "utf8");
+    expect(patch).toContain("diff --git a/ios/Picker/PickerView.swift b/ios/Picker/PickerView.swift");
+  });
+
   test("does not start a queued layout animation after its parent is destroyed", () => {
     const source = readFileSync(path.join(repositoryRoot,
       "node_modules/react-native-reanimated/Common/cpp/reanimated/LayoutAnimations/LayoutAnimationsProxy.cpp"), "utf8");
