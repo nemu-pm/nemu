@@ -2402,8 +2402,9 @@ final class NemuBarItemsFadeView: ExpoView {
     return nil
   }
 
-  /// The views carrying the bar's items: the navigation bar, and a vertical
-  /// bar UIKit hosts outside it.
+  /// The views carrying the bar's items: the navigation bar, and the views
+  /// UIKit hosts the vertical bar in outside it: its pocket and the floating
+  /// bar (a SwiftUI host) that draws the items and their glass.
   private func barViews() -> [UIView] {
     var views: [UIView] = []
     if let bar = navigationController()?.navigationBar { views.append(bar) }
@@ -2414,7 +2415,7 @@ final class NemuBarItemsFadeView: ExpoView {
       let view = queue.removeFirst()
       visited += 1
       let name = NSStringFromClass(type(of: view))
-      if name.contains("VerticalBar"), !name.hasPrefix("Nemu"),
+      if name.contains("VerticalBar") || name.contains("FloatingBarContainer"), !name.hasPrefix("Nemu"),
          !views.contains(where: { view.isDescendant(of: $0) }) {
         views.append(view)
         continue
