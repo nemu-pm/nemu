@@ -174,6 +174,8 @@ export type SourcePackageMetadata = {
 };
 
 export type ReadingMode = "rtl" | "ltr" | "scrolling";
+/** The reading-mode setting: a mode, or the source's direction per title. */
+export type ReadingModeSetting = ReadingMode | "auto";
 export type PagePairingMode = "manga" | "book";
 export type ThemePreference = "system" | "light" | "dark";
 export type AppLanguage = "en" | "zh" | "ja";
@@ -189,7 +191,9 @@ export type UserSettings = {
   installedSources: InstalledSource[];
   appLanguage?: AppLanguage;
   metadataLanguagePreference?: MetadataLanguagePreference;
+  /** Before Automatic; read only when `readerReadingMode` is unset. */
   readingMode?: ReadingMode;
+  readerReadingMode?: ReadingModeSetting;
   readerScrollWidthPct?: number;
   readerTwoPageMode?: boolean;
   /**

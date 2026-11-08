@@ -617,6 +617,9 @@ export const mobileStringsZh: MobileStrings = {
     loadingPages: "正在从来源文件加载页面。",
     fetchingPages: "正在获取页面…",
     readingDirection: "阅读方向",
+    automatic: "自动",
+    readingModeFooter:
+      "“自动”按来源为每部作品指定的方向阅读，来源未指定时从右至左。选择右至左、左至右或滚动后，所有作品都使用该方式。在阅读器中单独更改过的作品会保留自己的设置。",
     rtl: "右至左",
     ltr: "左至右",
     chapterList: "章节",

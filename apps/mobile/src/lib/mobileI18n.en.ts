@@ -655,6 +655,9 @@ export const mobileStringsEn: MobileStrings = {
     loadingPages: "Loading pages from the source file.",
     fetchingPages: "Fetching pages…",
     readingDirection: "Reading direction",
+    automatic: "Automatic",
+    readingModeFooter:
+      "Automatic reads each title the way its source says, and right to left when it doesn't say. RTL, LTR and Scroll apply to every title. A title you change in the reader keeps its own setting.",
     rtl: "RTL",
     ltr: "LTR",
     chapterList: "Chapters",

@@ -1,4 +1,4 @@
-import type { ReadingMode } from "@/data/schema";
+import type { ReadingMode, ReadingModeSetting, UserSettings } from "@/data/schema";
 import type { MobileSourceMangaViewer } from "./mobileSourceMangaViewer";
 import {
   readMobileReaderTitleReadingModeText,
@@ -6,11 +6,12 @@ import {
 } from "./mobileReaderTitleReadingModeStorage";
 
 /**
- * Which way a title reads. In order: the mode the user picked for this title in
- * the reader, the format its source declares for the manga (Aidoku has no
- * source-level viewer; `Manga.viewer` is the only one), then the default from
- * Settings. Choices are local to this device and keyed like the source detail
- * cache (`makeMobileSourceDetailCacheKey`).
+ * Which way a title reads, as Aidoku iOS decides it. In order: the mode the user
+ * picked for this title in the reader; the mode set in Settings, unless that is
+ * Automatic; under Automatic, the format the source declares for the manga
+ * (Aidoku has no source-level viewer; `Manga.viewer` is the only one); and
+ * right-to-left when it declares none. Title picks are local to this device and
+ * keyed like the source detail cache (`makeMobileSourceDetailCacheKey`).
  */
 export function getMobileReadingModeForSourceViewer(
   viewer: MobileSourceMangaViewer | null | undefined,
@@ -35,9 +36,28 @@ export function resolveMobileReaderReadingMode({
 }: {
   titleMode: ReadingMode | null | undefined;
   viewer: MobileSourceMangaViewer | null | undefined;
-  globalMode: ReadingMode;
+  globalMode: ReadingModeSetting;
 }): ReadingMode {
-  return titleMode ?? getMobileReadingModeForSourceViewer(viewer) ?? globalMode;
+  if (titleMode) return titleMode;
+  if (globalMode !== "auto") return globalMode;
+  return getMobileReadingModeForSourceViewer(viewer) ?? "rtl";
+}
+
+/**
+ * The Settings value. `readerReadingMode` holds it since Automatic arrived.
+ * Before that `readingMode` was only written by a pick, never as a default, so
+ * an unset one is the untouched default: Automatic. A stored `rtl` is migrated
+ * to Automatic too: most came from the reader sheet, which wrote this setting
+ * before titles had their own, and it reads RTL titles exactly as before. A
+ * stored `ltr` or `scrolling` was chosen against the default and is kept.
+ */
+export function getMobileReadingModeSetting(
+  settings: Pick<UserSettings, "readingMode" | "readerReadingMode">,
+): ReadingModeSetting {
+  const current = settings.readerReadingMode;
+  if (current === "auto" || isReadingMode(current)) return current;
+  const legacy = settings.readingMode;
+  return legacy === "ltr" || legacy === "scrolling" ? legacy : "auto";
 }
 
 const ENTRY_LIMIT = 2_000;

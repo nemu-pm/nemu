@@ -545,6 +545,8 @@ export type MobileStrings = {
     loadingPages: string;
     fetchingPages: string;
     readingDirection: string;
+    automatic: string;
+    readingModeFooter: string;
     rtl: string;
     ltr: string;
     chapterList: string;

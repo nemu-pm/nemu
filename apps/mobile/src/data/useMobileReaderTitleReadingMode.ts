@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
-import type { ReadingMode } from "@/data/schema";
+import type { ReadingMode, ReadingModeSetting } from "@/data/schema";
 import {
   peekMobileReaderTitleReadingMode,
   preloadMobileReaderTitleReadingModes,
@@ -29,7 +29,7 @@ function subscribe(listener: () => void): () => void {
  */
 export function useMobileReaderTitleReadingMode(
   key: string,
-  globalMode: ReadingMode,
+  globalMode: ReadingModeSetting,
 ): { mode: ReadingMode; setMode: (mode: ReadingMode) => Promise<void> } {
   const mode = useSyncExternalStore(subscribe, () =>
     resolveMobileReaderReadingMode({

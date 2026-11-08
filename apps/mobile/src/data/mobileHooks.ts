@@ -35,9 +35,10 @@ import type {
   LocalMangaProgress,
   MetadataLanguagePreference,
   PagePairingMode,
-  ReadingMode,
+  ReadingModeSetting,
   SourcePackageSetting,
 } from "./schema";
+import { getMobileReadingModeSetting } from "@/lib/mobileReaderTitleReadingMode";
 import { LOCAL_ARCHIVE_REGISTRY_ID } from "@/lib/localArchives/policy";
 import {
   mobileLibraryChapterKey,
@@ -1237,10 +1238,11 @@ export function useMobileFeedbackSettings(): {
 }
 
 export function useReadingMode(): {
-  mode: ReadingMode;
+  /** The Settings value; a title's own mode comes from `useMobileReaderTitleReadingMode`. */
+  mode: ReadingModeSetting;
   /** The stored reading mode has been read (until then `mode` is the default). */
   modeLoaded: boolean;
-  setMode: (mode: ReadingMode) => Promise<void>;
+  setMode: (mode: ReadingModeSetting) => Promise<void>;
   scrollWidthPct: number;
   setScrollWidthPct: (value: number) => Promise<void>;
   twoPageMode: boolean;
@@ -1252,7 +1254,7 @@ export function useReadingMode(): {
 } {
   const store = useMobileDataStore();
   const revision = useMobileDataRevision(["settings"]);
-  const [mode, setModeState] = useState<ReadingMode>("rtl");
+  const [mode, setModeState] = useState<ReadingModeSetting>("auto");
   const [modeLoaded, setModeLoaded] = useState(false);
   const [scrollWidthPct, setScrollWidthPctState] = useState(
     DEFAULT_READER_SCROLL_WIDTH_PCT,
@@ -1271,7 +1273,7 @@ export function useReadingMode(): {
   const twoPageRun = useRef(0);
   const pagePairingRun = useRef(0);
   const pageImageProcessingRun = useRef(0);
-  const savedMode = useRef<ReadingMode>("rtl");
+  const savedMode = useRef<ReadingModeSetting>("auto");
   const savedScrollWidthPct = useRef(DEFAULT_READER_SCROLL_WIDTH_PCT);
   const savedTwoPageMode = useRef(DEFAULT_READER_TWO_PAGE_MODE);
   const savedPagePairingMode = useRef<PagePairingMode>(
@@ -1285,15 +1287,9 @@ export function useReadingMode(): {
       .getSettings()
       .then((settings) => {
         if (!mounted) return;
-        const storedMode = settings.readingMode;
-        if (
-          storedMode === "rtl" ||
-          storedMode === "ltr" ||
-          storedMode === "scrolling"
-        ) {
-          setModeState(storedMode);
-          savedMode.current = storedMode;
-        }
+        const storedMode = getMobileReadingModeSetting(settings);
+        setModeState(storedMode);
+        savedMode.current = storedMode;
         const nextScrollWidthPct = clampReaderScrollWidthPct(
           settings.readerScrollWidthPct,
         );
@@ -1326,7 +1322,7 @@ export function useReadingMode(): {
   }, [revision, store]);
 
   const setMode = useCallback(
-    async (nextMode: ReadingMode) => {
+    async (nextMode: ReadingModeSetting) => {
       if (nextMode === mode) return;
       const run = modeRun.current + 1;
       modeRun.current = run;
@@ -1334,7 +1330,7 @@ export function useReadingMode(): {
       try {
         await store.updateSettings((settings) => ({
           ...settings,
-          readingMode: nextMode,
+          readerReadingMode: nextMode,
         }));
         savedMode.current = nextMode;
         emitMobileDataChanged("settings");

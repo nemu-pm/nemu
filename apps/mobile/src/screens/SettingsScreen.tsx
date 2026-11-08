@@ -114,7 +114,7 @@ import type {
   AppLanguage,
   InstalledSource,
   MetadataLanguagePreference,
-  ReadingMode,
+  ReadingModeSetting,
   SourcePackageSetting,
   ThemePreference,
 } from "@/data/schema";
@@ -305,9 +305,10 @@ type SourceQuickActionDismissAction =
   | { type: "confirm-uninstall"; source: InstalledSource };
 
 const readingModes: Array<{
-  mode: ReadingMode;
+  mode: ReadingModeSetting;
   labelKey: keyof MobileStrings["reader"];
 }> = [
+  { mode: "auto", labelKey: "automatic" },
   { mode: "rtl", labelKey: "rtl" },
   { mode: "ltr", labelKey: "ltr" },
   { mode: "scrolling", labelKey: "scroll" },
@@ -2796,7 +2797,7 @@ function SettingsScreenContent({
     );
   };
 
-  const selectReadingMode = async (nextMode: ReadingMode) => {
+  const selectReadingMode = async (nextMode: ReadingModeSetting) => {
     if (nextMode === mode) return;
     await runSettingsMutation("reading-mode", async () => {
       try {
@@ -3431,6 +3432,11 @@ function SettingsScreenContent({
                       />
                     </View>
                   </SettingsSurface>
+                  <NemuText
+                    style={[styles.experimentalFooter, { color: tokens.mutedForeground }]}
+                  >
+                    {strings.reader.readingModeFooter}
+                  </NemuText>
 
                   <SettingsSurface
                     style={styles.pluginSectionShell}
