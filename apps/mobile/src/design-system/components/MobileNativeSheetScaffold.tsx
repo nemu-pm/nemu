@@ -34,7 +34,7 @@ import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { nemuColorWithAlpha } from "@/design/colorAlpha";
 import type { NemuTheme } from "@/design/themeContext";
 import {
-  mobileSheetCanUseFullWidth,
+  mobileSheetFitsBelowBarStatus,
   canDismissMobileNativeSheetFromPan,
   canDismissMobileNativeSheetFromHardwareBack,
   MOBILE_NATIVE_ANDROID_DRAG_HANDLE_HEIGHT,
@@ -250,6 +250,7 @@ export function MobileNativeSheetScaffold({
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const sheetRef = useRef<BottomSheetMethods | null>(null);
   const [measuredHeaderHeight, setMeasuredHeaderHeight] = useState(0);
+  const [contentSizedBodyHeight, setContentSizedBodyHeight] = useState<number | null>(null);
   const [sheetPresented, setSheetPresented] = useState(visible);
   const [closeInteractionLocked, setCloseInteractionLocked] = useState(
     !visible,
@@ -413,7 +414,7 @@ export function MobileNativeSheetScaffold({
   // A content-sized presentation asked for a detent: the scaffold frames its
   // content at the height that detent shows and the native sheet wraps that.
   const framesIosDetent = Boolean(iosLayout?.framesDetent && boundedSnapPointHeight);
-  const iosKeyboardHeight = useSheetKeyboardHeight(framesIosDetent && visible);
+  const iosKeyboardHeight = useSheetKeyboardHeight(!isAndroid && visible);
   const framedDetentHeight =
     framesIosDetent && boundedSnapPointHeight
       ? resolveMobileNativeSheetIosFramedDetentHeight({
@@ -532,7 +533,16 @@ export function MobileNativeSheetScaffold({
           ? contentIgnoresSafeAreaEdges
           : [contentIgnoresSafeAreaEdges],
     // The keyboard can lift a short sheet among the status items.
-    shortDetent: iosKeyboardHeight === 0 && mobileSheetCanUseFullWidth(effectiveSnapPoints, availableSheetHeight),
+    shortDetent:
+      iosKeyboardHeight === 0 &&
+      mobileSheetFitsBelowBarStatus({
+        snapPoints: effectiveSnapPoints,
+        contentHeight:
+          contentSizedBodyHeight === null
+            ? null
+            : contentSizedBodyHeight + (shouldRenderChrome ? chromeHeight : 0) + insets.bottom,
+        availableHeight: availableSheetHeight,
+      }),
   });
   const callerIgnoredEdges = barEdges.edges;
   // iOS soft edge: the body reaches through the sheet's bottom safe area to
@@ -908,6 +918,11 @@ export function MobileNativeSheetScaffold({
           pointerEvents={interactionLocked ? "none" : "auto"}
           barPadding={barEdges.headerPadding}
           inset="margin"
+          onLayout={
+            effectiveSnapPoints?.length
+              ? undefined
+              : (event) => setContentSizedBodyHeight(event.nativeEvent.layout.height)
+          }
           style={[filledContentStyle, content]}
           testID={testID}
         >

@@ -2,6 +2,7 @@ import {
   mobileNativeFormSheetConfirm,
   mobileNativeFormSheetFitsFullWidth,
   mobileSheetCanUseFullWidth,
+  mobileSheetFitsBelowBarStatus,
   resolveMobileSheetHeaderTitleMargins,
   resolveMobileNativeSheetIosBarEdges,
   mobileNativeFormSheetWindow,
@@ -866,5 +867,19 @@ describe("mobileNativeFormSheetFitsFullWidth", () => {
     expect(mobileNativeFormSheetFitsFullWidth({ cancel: undefined, confirm: undefined, hasPrimaryAction: true })).toBe(false);
     expect(mobileNativeFormSheetFitsFullWidth({ cancel: {}, confirm: icon, hasPrimaryAction: true })).toBe(false);
     expect(mobileNativeFormSheetFitsFullWidth({ cancel: icon, confirm: icon, hasPrimaryAction: false })).toBe(false);
+  });
+});
+
+describe("mobileSheetFitsBelowBarStatus", () => {
+  test("a content-sized sheet goes by its height, short until measured", () => {
+    const base = { snapPoints: undefined, availableHeight: 650 };
+    expect(mobileSheetFitsBelowBarStatus({ ...base, contentHeight: null })).toBe(true);
+    expect(mobileSheetFitsBelowBarStatus({ ...base, contentHeight: 300 })).toBe(true);
+    expect(mobileSheetFitsBelowBarStatus({ ...base, contentHeight: 420 })).toBe(false);
+  });
+
+  test("a sheet with snap points goes by them", () => {
+    expect(mobileSheetFitsBelowBarStatus({ snapPoints: ["82%"], contentHeight: 100, availableHeight: 650 })).toBe(false);
+    expect(mobileSheetFitsBelowBarStatus({ snapPoints: ["50%"], contentHeight: null, availableHeight: 650 })).toBe(true);
   });
 });

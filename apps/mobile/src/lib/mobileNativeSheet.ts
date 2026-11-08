@@ -718,6 +718,22 @@ export function mobileSheetCanUseFullWidth(snapPoints: (string | number)[] | und
   });
 }
 
+/**
+ * Whether a sheet stays below the vertical bar's status items: by its snap
+ * points, or a content-sized sheet by its laid-out height. Before that is known
+ * the sheet counts as short (most are; a tall one corrects before it is up). It
+ * cannot oscillate: a narrower page only grows, a wider one only shrinks.
+ */
+export function mobileSheetFitsBelowBarStatus(options: {
+  snapPoints: (string | number)[] | undefined;
+  contentHeight: number | null;
+  availableHeight: number;
+}): boolean {
+  const { snapPoints, contentHeight, availableHeight } = options;
+  if (snapPoints?.length) return mobileSheetCanUseFullWidth(snapPoints, availableHeight);
+  return contentHeight === null || mobileSheetCanUseFullWidth([contentHeight], availableHeight);
+}
+
 /** A snap point's height in points: numbers as they are, "70%" of `availableHeight`, numeric strings parsed. */
 export function resolveMobileNativeSheetSnapPointHeight(
   snapPoint: string | number | undefined,
