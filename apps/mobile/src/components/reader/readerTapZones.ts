@@ -109,6 +109,42 @@ export function readerStageTouchOwner({
 }
 
 /**
+ * How long after an auto-hide a press on a piece's rect still brings the
+ * chrome back. The hide starts unasked, so a thumb already on its way to a
+ * control lands after the fade: reaction and reach, about half a second, past
+ * the fade itself. A reader who hid the chrome themselves is not reaching for
+ * it: there the rects go back to the page with the fade.
+ */
+export const READER_CHROME_AUTO_HIDE_REACH_MS = 800;
+
+/** How long the dismissing chrome's rects stay its own (`chromeDismissing`). */
+export function readerChromeDismissOwnMs(input: { materialMs: number; autoHidden: boolean }): number {
+  const fade = input.materialMs + 40;
+  return input.autoHidden ? Math.max(fade, READER_CHROME_AUTO_HIDE_REACH_MS) : fade;
+}
+
+/**
+ * The system vertical bar's column in stage coordinates, while its items
+ * leave: they stop taking touches at once, and the pose's pieces don't cover
+ * them. Null when there is no column on either side.
+ */
+export function readerSideBarColumnRect(input: {
+  bounds: { width: number; height: number };
+  insets: { left: number; right: number };
+  stage: { x: number; y: number };
+}): ReaderStageRect | null {
+  const leading = input.insets.left > input.insets.right;
+  const width = Math.max(input.insets.left, input.insets.right);
+  if (!(width > 0)) return null;
+  return {
+    x: (leading ? 0 : input.bounds.width - width) - input.stage.x,
+    y: 0 - input.stage.y,
+    width,
+    height: input.bounds.height,
+  };
+}
+
+/**
  * The stage rect a chrome piece covers while it dematerializes: its pose rect
  * plus the slide it travels on the way out (the top row leaves upward, the
  * bottom row downward). Hit-testing reads stage coordinates, not the native

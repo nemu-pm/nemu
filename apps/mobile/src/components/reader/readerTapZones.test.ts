@@ -4,7 +4,10 @@ import {
   isReaderStageTapEnabled,
   isReaderTapInsideChrome,
   readerCentreTapBand,
+  READER_CHROME_AUTO_HIDE_REACH_MS,
+  readerChromeDismissOwnMs,
   readerChromeDismissSweep,
+  readerSideBarColumnRect,
   readerStageTouchOwner,
   readerStageTouchMatchesContent,
   readerTapDispatchForZone,
@@ -634,3 +637,36 @@ describe("book posture tap zones (vertical hinge)", () => {
     expect(readerBookCentreTapBand(duo)).toEqual({ start: 150, end: 870 });
   });
 });
+
+describe("reader chrome: a press on the way to a control", () => {
+  test("after an auto-hide the rects stay the chrome's past the fade, for the thumb already reaching", () => {
+    expect(readerChromeDismissOwnMs({ materialMs: 300, autoHidden: true })).toBe(READER_CHROME_AUTO_HIDE_REACH_MS);
+    expect(READER_CHROME_AUTO_HIDE_REACH_MS).toBeGreaterThan(300 + 40);
+  });
+
+  test("a hide the reader asked for gives them back with the fade", () => {
+    expect(readerChromeDismissOwnMs({ materialMs: 300, autoHidden: false })).toBe(340);
+  });
+
+  test("a fade longer than the reach (the opening's) is never cut short", () => {
+    expect(readerChromeDismissOwnMs({ materialMs: 1200, autoHidden: true })).toBe(1240);
+  });
+
+  test("while owned, a press on a piece reveals the chrome and never reaches the page", () => {
+    const piece = { x: 334, y: 70, width: 48, height: 48 };
+    const press = { x: 358, y: 94, height: 874, topInset: 0, bottomInset: 0, chromePieces: [piece] };
+    expect(readerStageTouchOwner({ ...press, chromeDismissing: true })).toBe("revealChrome");
+    expect(readerStageTouchOwner({ ...press, chromeDismissing: false })).toBe("chrome");
+    expect(readerStageTouchOwner({ ...press, x: 120, y: 437, chromeDismissing: true })).not.toBe("revealChrome");
+  });
+
+  test("the vertical bar's column, in stage coordinates, on either side", () => {
+    const bounds = { width: 466, height: 678 };
+    expect(readerSideBarColumnRect({ bounds, insets: { left: 0, right: 84 }, stage: { x: 0, y: 0 } }))
+      .toEqual({ x: 382, y: 0, width: 84, height: 678 });
+    expect(readerSideBarColumnRect({ bounds, insets: { left: 84, right: 0 }, stage: { x: 84, y: 0 } }))
+      .toEqual({ x: -84, y: 0, width: 84, height: 678 });
+    expect(readerSideBarColumnRect({ bounds, insets: { left: 0, right: 0 }, stage: { x: 0, y: 0 } })).toBeNull();
+  });
+});
+

@@ -312,7 +312,9 @@ import {
   readerBookCentreTapBand,
   readerBookTapLayout,
   readerCentreTapBand,
+  readerChromeDismissOwnMs,
   readerChromeDismissSweep,
+  readerSideBarColumnRect,
 } from "@/components/reader/readerTapZones";
 import {
   ReaderPairingShiftToast,
@@ -1786,6 +1788,8 @@ export function ReaderScreen() {
   );
   const readerSettingsActionRef = useRef<ReaderSettingsAction | null>(null);
   const readerChromeAutoHideKeyRef = useRef<string | null>(null);
+  // The hide that is starting came from the timer, not the reader.
+  const readerChromeAutoHiddenRef = useRef(false);
   const japaneseLearningOcrRunRef = useRef(0);
   const japaneseLearningAutoOcrPageRef = useRef("");
   const japaneseLearningChatTtsAutoPlayRef = useRef<{
@@ -9564,6 +9568,7 @@ export function ReaderScreen() {
       // ⋯ menu, whose system menu reports no open state).
       if (readerChromeAutoHideKeyRef.current === readerChromeAutoHideKey) return;
       readerChromeAutoHideKeyRef.current = readerChromeAutoHideKey;
+      readerChromeAutoHiddenRef.current = true;
       setShowControls(false);
     }, READER_CHROME_AUTO_HIDE_MS);
 
@@ -12138,10 +12143,18 @@ export function ReaderScreen() {
   }
   useEffect(() => {
     if (!readerChromeLingering) return;
-    const timer = setTimeout(() => setReaderChromeLingering(false), readerChromeMaterialMs + 40);
+    const ownMs = readerChromeDismissOwnMs({
+      materialMs: readerChromeMaterialMs,
+      autoHidden: readerChromeAutoHiddenRef.current,
+    });
+    readerChromeAutoHiddenRef.current = false;
+    const timer = setTimeout(() => setReaderChromeLingering(false), ownMs);
     return () => clearTimeout(timer);
   }, [readerChromeLingering, readerChromeMaterialMs]);
   const readerChromeMounted = readerChromePresent || readerChromeLingering;
+  const readerSideBarLeavingColumn = readerSideBar && readerChromeLingering
+    ? readerSideBarColumnRect({ bounds: readerPose.bounds, insets: readerPose.safeInsets, stage: readerStage })
+    : null;
   // Non-glass chrome (scrim) fades and the rows slide on the same clock as
   // the glass materialize animation — same duration, same curve (UIKit's
   // ease-out, see READER_CHROME_MATERIAL_CURVE); a remount starts from hidden.
@@ -12200,6 +12213,11 @@ export function ReaderScreen() {
         key={mobileReaderChromeArrangementKey(readerChromeArrangement)}
         entering={arrangementMotion ? mobileReaderChromeArrangementEntering(arrangementMotion) : undefined}
         pointerEvents={layerPointerEvents}
+        // A touch on any control settles the chapter-open auto-hide: the
+        // chrome never leaves from under a thumb.
+        onTouchStart={() => {
+          readerChromeAutoHideKeyRef.current = readerChromeChapterKey;
+        }}
         style={styles.readerChromeLayer}
       >
         <LayoutAnimationConfig skipEntering={Boolean(arrangementMotion)}>
@@ -13425,6 +13443,8 @@ export function ReaderScreen() {
             : undefined
         }
         onToggleControls={() => {
+          // The reader has taken over: no timer hides what they just showed.
+          readerChromeAutoHideKeyRef.current = readerChromeChapterKey;
           setShowControls((value) => !value);
         }}
         pageZoomActive={
@@ -13470,8 +13490,11 @@ export function ReaderScreen() {
             ? readerChromeLingering && readerPose.chrome.kind === "capsules"
               // Reserve the 6pt dismiss path as well as the pose rect:
               // hit-testing reads the stage coordinates, not its native slide.
-              ? readerTapExclusions.map((rect) =>
-                  readerChromeDismissSweep(rect, { slide: readerChromeSlide, stageHeight: readerStageHeight }))
+              ? [
+                  ...readerTapExclusions.map((rect) =>
+                    readerChromeDismissSweep(rect, { slide: readerChromeSlide, stageHeight: readerStageHeight })),
+                  ...(readerSideBarLeavingColumn ? [readerSideBarLeavingColumn] : []),
+                ]
               : readerTapExclusions
             : undefined
         }
