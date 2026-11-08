@@ -24,7 +24,7 @@ the attribution paragraph that licence terms require.
 
 **Name:** `nemu` (if taken: `nemu: Manga Reader`)
 
-**Subtitle:** `Your manga reading companion`
+**Subtitle:** `Magical manga reader`
 
 **Promotional text**
 
@@ -77,7 +77,7 @@ The first version of nemu: read manga from the sources and servers you add, with
 
 **名称:** `nemu`(如被占用:`nemu: 漫画阅读器`)
 
-**副标题:** `你的漫画阅读伴侣`
+**副标题:** `魔法漫画阅读器`
 
 **推广文本**
 
@@ -129,7 +129,7 @@ nemu 的第一个版本:阅读你自行添加的来源和服务器中的漫画,�
 
 **名前:** `nemu`(使用済みの場合:`nemu: 漫画リーダー`)
 
-**サブタイトル:** `あなたの漫画リーディングコンパニオン`
+**サブタイトル:** `魔法の漫画リーダー`
 
 **プロモーション用テキスト**
 
@@ -246,6 +246,6 @@ Counted by script from the blocks above on 2026-11-08.
 
 | Language | Name | Subtitle | Promo (170) | Description (4000) | Keywords (100 bytes) |
 |---|---|---|---|---|---|
-| en | 4 | 28 | 142 | 1708 | 90 |
-| zh-Hans | 4 | 8 | 62 | 822 | 91 |
-| ja | 4 | 18 | 77 | 1023 | 96 |
+| en | 4 | 20 | 142 | 1708 | 90 |
+| zh-Hans | 4 | 7 | 62 | 822 | 91 |
+| ja | 4 | 9 | 77 | 1023 | 96 |
