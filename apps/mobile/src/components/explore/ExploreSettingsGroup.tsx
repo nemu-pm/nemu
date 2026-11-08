@@ -1,4 +1,9 @@
-import { MOBILE_EXPLORE_GROUP_SHAPE, MOBILE_SETTINGS_GROUP_INSET } from "@/lib/mobileExploreRadius";
+import {
+  concentricMobileExploreRadius,
+  MOBILE_EXPLORE_GROUP_SHAPE,
+  MOBILE_EXPLORE_RADIUS,
+  MOBILE_SETTINGS_GROUP_INSET,
+} from "@/lib/mobileExploreRadius";
 import { Fragment, type ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -27,6 +32,7 @@ type ExploreSettingsRow = {
 };
 
 const ROW_HEIGHT = 52;
+const SIDEBAR_ROW_INSET = 6;
 
 /**
  * An inset grouped list in the system Settings idiom (design-explore): one
@@ -36,10 +42,12 @@ const ROW_HEIGHT = 52;
  * text. Settings are a rare stop, so rows are short and scan at a
  * glance; the longer descriptions move to the VoiceOver hint.
  *
- * The regular-width split view's section list is the same group, its
- * selected row filled with the accent (as the system Settings sidebar). Rows
- * highlight on touch-down like table cells (`pressHighlight`, clipped by the
- * group), then take the selection.
+ * The regular-width split view's section list is the same group as a system
+ * sidebar: no separators or chevrons, each row an inset rounded shape, the
+ * selected one filled with the accent. Rows highlight on touch-down like table
+ * cells (`pressHighlight`, clipped by the group), then take the selection, a
+ * frame after the release so a quick tap's flash is on screen before the
+ * detail pane renders.
  */
 export function ExploreSettingsGroup({ rows }: { rows: ExploreSettingsRow[] }) {
   const { tokens } = useNemuTheme();
@@ -47,19 +55,11 @@ export function ExploreSettingsGroup({ rows }: { rows: ExploreSettingsRow[] }) {
     <View style={[styles.group, { backgroundColor: tokens.card, borderColor: tokens.cardBorder }]}>
       {rows.map((row, index) => {
         const selected = row.selected === true;
-        // A selected row's fill reaches its neighbours: no hairline beside it.
-        const separated = index > 0 && !selected && rows[index - 1]?.selected !== true;
+        const sidebar = row.selected !== undefined;
         const ink = selected ? tokens.primaryForeground : undefined;
         return (
           <Fragment key={row.key}>
-            {index > 0 ? (
-              <View
-                style={[
-                  styles.separator,
-                  { backgroundColor: separated ? tokens.border : "transparent" },
-                ]}
-              />
-            ) : null}
+            {index > 0 && !sidebar ? <View style={[styles.separator, { backgroundColor: tokens.border }]} /> : null}
             <NemuPressable
               accessibilityRole="button"
               accessibilityLabel={row.accessibilityLabel}
@@ -71,8 +71,12 @@ export function ExploreSettingsGroup({ rows }: { rows: ExploreSettingsRow[] }) {
               disabled={row.disabled}
               hapticFeedback={row.selected === undefined ? "press" : "selection"}
               pressHighlight
-              onPress={row.onPress}
-              style={[styles.row, selected ? { backgroundColor: tokens.primary } : null]}
+              onPress={sidebar ? () => requestAnimationFrame(row.onPress) : row.onPress}
+              style={[
+                styles.row,
+                sidebar ? styles.sidebarRow : null,
+                selected ? { backgroundColor: tokens.primary } : null,
+              ]}
             >
               <ExploreSettingsGlyph name={row.icon} color={ink ?? row.tint} />
               <NemuText numberOfLines={2} color={ink ?? tokens.foreground} style={styles.title}>
@@ -87,11 +91,9 @@ export function ExploreSettingsGroup({ rows }: { rows: ExploreSettingsRow[] }) {
                   {row.detail}
                 </NemuText>
               ) : null}
-              <Ionicons
-                name="chevron-forward"
-                size={16}
-                color={ink ?? tokens.mutedForeground}
-              />
+              {sidebar ? null : (
+                <Ionicons name="chevron-forward" size={16} color={tokens.mutedForeground} />
+              )}
             </NemuPressable>
           </Fragment>
         );
@@ -113,6 +115,15 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingHorizontal: MOBILE_SETTINGS_GROUP_INSET,
     paddingVertical: 8,
+  },
+  // Inset in the group, its corners parallel to the group's.
+  sidebarRow: {
+    minHeight: ROW_HEIGHT - SIDEBAR_ROW_INSET,
+    marginHorizontal: SIDEBAR_ROW_INSET,
+    marginVertical: SIDEBAR_ROW_INSET / 2,
+    paddingHorizontal: MOBILE_SETTINGS_GROUP_INSET - SIDEBAR_ROW_INSET,
+    borderRadius: concentricMobileExploreRadius(MOBILE_EXPLORE_RADIUS.group, SIDEBAR_ROW_INSET),
+    borderCurve: "continuous",
   },
   title: {
     flex: 1,
