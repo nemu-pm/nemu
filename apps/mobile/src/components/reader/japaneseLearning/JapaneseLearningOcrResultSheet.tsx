@@ -11,8 +11,6 @@ import {
   nemuColorWithAlpha,
   nemuFontWeight,
   nemuText,
-  NEMU_PROMINENT_CTA_SIZE,
-  NemuButton,
   NemuPressable,
   NemuRingSpinner,
   useNemuTheme,
@@ -28,6 +26,7 @@ import { describeJapaneseLearningOcrError } from "@/lib/mobileJapaneseLearningOc
 import type { MobileStrings } from "@/lib/mobileI18n";
 import type { JapaneseLearningGrammarState } from "./JapaneseLearningSentenceDisplay";
 import { JapaneseLearningSentenceDisplay } from "./JapaneseLearningSentenceDisplay";
+import { JapaneseLearningSignInNotice } from "./JapaneseLearningSignInNotice";
 import {
   JAPANESE_LEARNING_FOOTER_GAP,
   resolveJapaneseLearningFooterLayout,
@@ -194,16 +193,19 @@ export function JapaneseLearningOcrResultSheet({
               {strings.reader.pluginJapaneseLearningExtractingText}
             </Text>
           </View>
+        ) : ocrState.status === "error" && ocrErrorCopy?.kind === "signIn" ? (
+          <View style={styles.errorState}>
+            <JapaneseLearningSignInNotice
+              title={ocrErrorCopy.title}
+              description={ocrErrorCopy.description}
+              signInLabel={strings.welcome.signIn}
+              onSignIn={onSignIn}
+            />
+          </View>
         ) : ocrState.status === "error" && ocrErrorCopy ? (
           <View style={styles.errorState}>
             <Ionicons
-              name={
-                ocrErrorCopy.kind === "unavailable"
-                  ? "cloud-offline-outline"
-                  : ocrErrorCopy.kind === "signIn"
-                    ? "person-circle-outline"
-                    : "alert-circle-outline"
-              }
+              name={ocrErrorCopy.kind === "unavailable" ? "cloud-offline-outline" : "alert-circle-outline"}
               size={24}
               color={tokens.mutedForeground}
             />
@@ -222,16 +224,6 @@ export function JapaneseLearningOcrResultSheet({
             >
               {ocrErrorCopy.description}
             </Text>
-            {ocrErrorCopy.kind === "signIn" && onSignIn ? (
-              <NemuButton
-                accessibilityLabel={strings.welcome.signIn}
-                containerStyle={styles.signInAction}
-                label={strings.welcome.signIn}
-                onPress={onSignIn}
-                size={NEMU_PROMINENT_CTA_SIZE}
-                variant="default"
-              />
-            ) : null}
             {ocrErrorCopy.diagnostic ? (
               <View style={styles.diagnostic}>
                 <NemuPressable
@@ -481,9 +473,6 @@ const styles = StyleSheet.create({
   sentenceBody: {
     flex: 1,
     minHeight: 0,
-  },
-  signInAction: {
-    marginTop: 6,
   },
   loadingState: {
     flex: 1,

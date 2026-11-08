@@ -410,17 +410,29 @@ const MOBILE_JAPANESE_LEARNING_OCR_UNAVAILABLE_PATTERN =
  * collapsed "technical details" disclosure.
  */
 /**
- * The sign-in prompt's line for the engine preference: Automatic only asks
- * for sign-in when the device cannot do the step itself, so it suggests no
- * other engine; Cloud suggests Automatic or On Device.
+ * The sign-in notice's title and line for the engine preference: Automatic
+ * only asks for sign-in when the device cannot do the step itself, so it says
+ * what the step is and suggests no other engine; Cloud suggests Automatic.
  */
-export function mobileJapaneseLearningSignInDescription(
+export function mobileJapaneseLearningSignInCopy(
   strings: Pick<MobileStrings, "reader">,
+  surface: "sentence" | "page",
   preference: MobileJapaneseLearningEnginePreference = getMobileJapaneseLearningEnginePreference(),
-): string {
-  return preference === "auto"
-    ? strings.reader.pluginJapaneseLearningSignInRequiredAutomaticDescription
-    : strings.reader.pluginJapaneseLearningSignInRequiredDescription;
+): { title: string; description: string } {
+  const { reader } = strings;
+  if (preference !== "auto") {
+    return {
+      title: reader.pluginJapaneseLearningSignInRequiredTitle,
+      description: reader.pluginJapaneseLearningSignInRequiredDescription,
+    };
+  }
+  return {
+    title:
+      surface === "sentence"
+        ? reader.pluginJapaneseLearningSignInRequiredAutomaticTitle
+        : reader.pluginJapaneseLearningSignInRequiredAutomaticPageTitle,
+    description: reader.pluginJapaneseLearningSignInRequiredAutomaticDescription,
+  };
 }
 
 export function describeJapaneseLearningOcrError(
@@ -448,8 +460,7 @@ export function describeJapaneseLearningOcrError(
   ) {
     return {
       kind: "signIn",
-      title: strings.reader.pluginJapaneseLearningSignInRequiredTitle,
-      description: mobileJapaneseLearningSignInDescription(strings, preference),
+      ...mobileJapaneseLearningSignInCopy(strings, "page", preference),
       diagnostic: null,
     };
   }

@@ -25,6 +25,7 @@ import {
 } from "@/lib/mobileJapaneseLearningReaderHelpers";
 import type { MobileOcrDetection, MobileJapaneseLearningOcrResult } from "@/lib/mobileJapaneseLearningOcr";
 import { describeJapaneseLearningOcrError } from "@/lib/mobileJapaneseLearningOcr";
+import { JapaneseLearningSignInNotice } from "./JapaneseLearningSignInNotice";
 import type { MobileStrings } from "@/lib/mobileI18n";
 import { formatMobileString } from "@/lib/mobileI18n";
 import { findMobileTranscriptPlaybackLineOrder } from "@/lib/mobileJapaneseLearningTranscriptTiming";
@@ -285,16 +286,19 @@ export function JapaneseLearningTranscriptSheet({
             {strings.reader.pluginJapaneseLearningDetectingText}
           </Text>
         </View>
+      ) : ocrStatus === "error" && ocrErrorCopy?.kind === "signIn" ? (
+        <View style={styles.stateContent}>
+          <JapaneseLearningSignInNotice
+            title={ocrErrorCopy.title}
+            description={ocrErrorCopy.description}
+            signInLabel={strings.welcome.signIn}
+            onSignIn={onSignIn}
+          />
+        </View>
       ) : ocrStatus === "error" && ocrErrorCopy ? (
         <View style={styles.stateContent}>
           <Ionicons
-            name={
-              ocrErrorCopy.kind === "unavailable"
-                ? "cloud-offline-outline"
-                : ocrErrorCopy.kind === "signIn"
-                  ? "person-circle-outline"
-                  : "alert-circle-outline"
-            }
+            name={ocrErrorCopy.kind === "unavailable" ? "cloud-offline-outline" : "alert-circle-outline"}
             size={22}
             color={tokens.mutedForeground}
           />
@@ -342,26 +346,15 @@ export function JapaneseLearningTranscriptSheet({
               ) : null}
             </View>
           ) : null}
-          {ocrErrorCopy.kind === "signIn" && onSignIn ? (
-            <NemuButton
-              accessibilityLabel={strings.welcome.signIn}
-              label={strings.welcome.signIn}
-              containerStyle={styles.retryCtaContainer}
-              onPress={onSignIn}
-              size={NEMU_PROMINENT_CTA_SIZE}
-              variant="default"
-            />
-          ) : (
-            <NemuButton
-              accessibilityLabel={strings.common.retry}
-              icon="refresh"
-              label={strings.common.retry}
-              containerStyle={styles.retryCtaContainer}
-              onPress={onRetryOcr}
-              size={NEMU_PROMINENT_CTA_SIZE}
-              variant="default"
-            />
-          )}
+          <NemuButton
+            accessibilityLabel={strings.common.retry}
+            icon="refresh"
+            label={strings.common.retry}
+            containerStyle={styles.retryCtaContainer}
+            onPress={onRetryOcr}
+            size={NEMU_PROMINENT_CTA_SIZE}
+            variant="default"
+          />
         </View>
       ) : (
         // Web `.transcript-empty`: "No text detected", 2rem below the top.

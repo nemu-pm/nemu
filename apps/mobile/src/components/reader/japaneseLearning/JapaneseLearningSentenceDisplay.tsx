@@ -25,7 +25,6 @@ import {
   nemuFontWeight,
   spacing,
   useNemuTheme,
-  NemuButton,
   NemuNativeProgressBar,
   NemuPressable,
 } from "@/design-system";
@@ -57,7 +56,7 @@ import {
   mobileJapaneseLearningSurfaceColors,
 } from "@/lib/mobileJapaneseLearningSurfaceTheme";
 import { getMobileJapaneseLearningEnginePreference } from "@/lib/mobileJapaneseLearningEngine";
-import { mobileJapaneseLearningSignInDescription } from "@/lib/mobileJapaneseLearningOcr";
+import { mobileJapaneseLearningSignInCopy } from "@/lib/mobileJapaneseLearningOcr";
 import { isMobileJapaneseLearningSignedIn } from "@/lib/mobileJapaneseLearningAuth";
 import { mobileJapaneseLearningAwaitsSignIn } from "@/lib/mobileJapaneseLearningAuthGate";
 import { describeMobileJapaneseLearningPackLoading } from "@/lib/mobileJapaneseLearningAnalysisPackState";
@@ -69,6 +68,7 @@ import {
   resolveJapaneseLearningColumnBubbleMaxHeight,
   resolveJapaneseLearningSentenceLayout,
 } from "@/lib/mobileJapaneseLearningSheetLayout";
+import { JapaneseLearningSignInNotice } from "./JapaneseLearningSignInNotice";
 import { JapaneseLearningTokenDisplay } from "./JapaneseLearningTokenDisplay";
 import { JapaneseLearningTokenDetails } from "./JapaneseLearningTokenDetails";
 
@@ -434,32 +434,20 @@ export function JapaneseLearningSentenceDisplay({
 
   // The analysis status (error / dictionary download / analyzing): under the
   // raw text when stacked (web), centred in the details column beside it.
-  // Signed out is a precondition, not a failure. It reads as a notice (what
-  // it needs, and the way to do it) without the error red, and without Retry:
-  // the analysis runs again by itself once a session exists.
+  // Signed out is a precondition, not a failure. It reads as the empty
+  // Library does, centred in the space below the text, without the error red
+  // and without Retry: the analysis runs again by itself once a session exists.
   const signInNotice = mobileJapaneseLearningAwaitsSignIn(
     grammarState,
     strings.reader.pluginJapaneseLearningSignInRequired,
   );
   const statusBlock = signInNotice ? (
-    <View accessibilityLiveRegion="polite" style={styles.errorBlock}>
-      <Text style={[styles.noticeTitle, { color: tokens.foreground }]}>
-        {strings.reader.pluginJapaneseLearningSignInRequiredTitle}
-      </Text>
-      <Text style={[styles.errorText, { color: tokens.mutedForeground }]}>
-        {mobileJapaneseLearningSignInDescription(strings, getMobileJapaneseLearningEnginePreference())}
-      </Text>
-      {onSignIn ? (
-        <NemuButton
-          accessibilityLabel={strings.welcome.signIn}
-          containerStyle={styles.signInAction}
-          label={strings.welcome.signIn}
-          onPress={onSignIn}
-          size="sm"
-          variant="default"
-        />
-      ) : null}
-    </View>
+    <JapaneseLearningSignInNotice
+      {...mobileJapaneseLearningSignInCopy(strings, "sentence", getMobileJapaneseLearningEnginePreference())}
+      compact={columns}
+      signInLabel={strings.welcome.signIn}
+      onSignIn={onSignIn}
+    />
   ) : grammarState.status === "error" ? (
     <View style={styles.errorBlock}>
       <Text
@@ -613,7 +601,7 @@ export function JapaneseLearningSentenceDisplay({
           {rawText}
         </Text>
       ) : null}
-      {columns ? null : statusBlock}
+      {columns || signInNotice ? null : statusBlock}
       {grammarState.status === "idle" ? (
         // The sentence view before a line is chosen.
         <Text style={[styles.emptyHintText, styles.idleHint, { color: nemuColorWithAlpha(tokens.mutedForeground, 0.7) }]}>
@@ -774,6 +762,8 @@ export function JapaneseLearningSentenceDisplay({
           {columnBubble}
           {statusBlock}
         </View>
+      ) : signInNotice ? (
+        statusBlock
       ) : null}
       {actionNotice ? (
         <Text
@@ -863,7 +853,7 @@ export function JapaneseLearningSentenceDisplay({
           <ScrollView
             ref={detailsScrollRef}
             style={styles.detailsPane}
-            contentContainerStyle={styles.detailsPaneContent}
+            contentContainerStyle={[styles.detailsPaneContent, signInNotice ? styles.detailsPaneCentred : null]}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator
           >
@@ -928,6 +918,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 4,
     paddingBottom: 16,
+  },
+  detailsPaneCentred: {
+    flexGrow: 1,
+    justifyContent: "center",
   },
   // The sentence column's width is set from the measured body
   // (`JAPANESE_LEARNING_SENTENCE_COLUMN_FRACTION`); the details take the rest.
@@ -996,14 +990,6 @@ const styles = StyleSheet.create({
   errorBlock: {
     alignItems: "flex-start",
     gap: 4,
-  },
-  signInAction: {
-    marginTop: 8,
-  },
-  noticeTitle: {
-    fontSize: 14,
-    lineHeight: 19,
-    fontWeight: nemuFontWeight.semibold,
   },
   packLoading: {
     alignSelf: "stretch",

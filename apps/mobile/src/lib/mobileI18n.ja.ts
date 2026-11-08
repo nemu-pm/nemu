@@ -782,11 +782,13 @@ export const mobileStringsJa: MobileStrings = {
     pluginJapaneseLearningSelectedText: "選択されたテキスト",
     pluginJapaneseLearningSignInRequired:
       "この機能を使うにはサインインしてください。",
-    pluginJapaneseLearningSignInRequiredTitle: "サインインが必要です",
+    pluginJapaneseLearningSignInRequiredTitle: "サインインしてクラウド認識を使う",
     pluginJapaneseLearningSignInRequiredDescription:
-      "「クラウド」エンジンはnemuのオンラインサービスを使います。サインインするか、認識エンジンを「自動」または「端末内」に変更してください。",
+      "認識エンジンを「自動」に変更することもできます。",
     pluginJapaneseLearningSignInRequiredAutomaticDescription:
-      "この端末だけでは処理できないため、nemuのオンラインサービスを使います。サインインすると使えます。",
+      "nemuのオンラインサービスが必要です。",
+    pluginJapaneseLearningSignInRequiredAutomaticTitle: "サインインしてこの文を解析する",
+    pluginJapaneseLearningSignInRequiredAutomaticPageTitle: "サインインしてこのページの文字を読み取る",
     pluginJapaneseLearningSignInToUse: "サインインすると使えます",
     pluginJapaneseLearningStopListening: "停止",
     pluginJapaneseLearningStructure: "構造",

@@ -662,6 +662,10 @@ export type MobileStrings = {
     pluginJapaneseLearningSignInRequiredDescription: string;
     /** Engine = Automatic, signed out, and the device cannot do the step itself. */
     pluginJapaneseLearningSignInRequiredAutomaticDescription: string;
+    /** Automatic needs the online service to analyse the chosen sentence. */
+    pluginJapaneseLearningSignInRequiredAutomaticTitle: string;
+    /** Automatic needs the online service to read a page's text. */
+    pluginJapaneseLearningSignInRequiredAutomaticPageTitle: string;
     pluginJapaneseLearningSignInToUse: string;
     pluginJapaneseLearningStopListening: string;
     pluginJapaneseLearningStructure: string;

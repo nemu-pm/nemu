@@ -774,11 +774,13 @@ export const mobileStringsEn: MobileStrings = {
     pluginJapaneseLearningResponseModeJlpt: "Simple Japanese (N4-N3)",
     pluginJapaneseLearningSelectedText: "Selected text",
     pluginJapaneseLearningSignInRequired: "Please sign in to use this feature.",
-    pluginJapaneseLearningSignInRequiredTitle: "Sign in required",
+    pluginJapaneseLearningSignInRequiredTitle: "Sign in to use Cloud recognition",
     pluginJapaneseLearningSignInRequiredDescription:
-      "The Cloud engine uses nemu's online service. Sign in to use it, or set Recognition Engine to Automatic or On Device.",
+      "Or switch Recognition Engine to Automatic.",
     pluginJapaneseLearningSignInRequiredAutomaticDescription:
-      "This device can't do this on its own, so it needs nemu's online service. Sign in to use it.",
+      "This needs nemu's online service.",
+    pluginJapaneseLearningSignInRequiredAutomaticTitle: "Sign in to analyse this sentence",
+    pluginJapaneseLearningSignInRequiredAutomaticPageTitle: "Sign in to read this page's text",
     pluginJapaneseLearningSignInToUse: "Sign in to use",
     pluginJapaneseLearningStopListening: "Stop",
     pluginJapaneseLearningStructure: "Structure",

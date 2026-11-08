@@ -19,7 +19,7 @@ import { runMobileJapaneseLearningChat } from "./mobileJapaneseLearningChat";
 import { getMobileStrings } from "./mobileI18n";
 import {
   describeJapaneseLearningOcrError,
-  mobileJapaneseLearningSignInDescription,
+  mobileJapaneseLearningSignInCopy,
   runMobileJapaneseLearningOcr,
 } from "./mobileJapaneseLearningOcr";
 import { mobileJapaneseLearningAnalysisErrorText } from "./mobileJapaneseLearningReaderHelpers";
@@ -213,15 +213,21 @@ describe("sign-in prompts", () => {
     for (const detail of ["auth_required", en.reader.pluginJapaneseLearningSignInRequired]) {
       expect(describeJapaneseLearningOcrError(detail, en, "auto")).toEqual({
         kind: "signIn",
-        title: en.reader.pluginJapaneseLearningSignInRequiredTitle,
+        title: en.reader.pluginJapaneseLearningSignInRequiredAutomaticPageTitle,
         description: en.reader.pluginJapaneseLearningSignInRequiredAutomaticDescription,
         diagnostic: null,
       });
     }
-    expect(mobileJapaneseLearningSignInDescription(en, "auto")).not.toContain("On Device");
-    expect(mobileJapaneseLearningSignInDescription(en, "cloud")).toBe(
-      en.reader.pluginJapaneseLearningSignInRequiredDescription,
-    );
+    expect(mobileJapaneseLearningSignInCopy(en, "sentence", "auto")).toEqual({
+      title: "Sign in to analyse this sentence",
+      description: "This needs nemu's online service.",
+    });
+    for (const surface of ["sentence", "page"] as const) {
+      expect(mobileJapaneseLearningSignInCopy(en, surface, "cloud")).toEqual({
+        title: "Sign in to use Cloud recognition",
+        description: "Or switch Recognition Engine to Automatic.",
+      });
+    }
   });
 
   test("the sentence view's analysis error", () => {

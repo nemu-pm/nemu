@@ -735,11 +735,13 @@ export const mobileStringsZh: MobileStrings = {
     pluginJapaneseLearningResponseModeJlpt: "简单日语（N4-N3）",
     pluginJapaneseLearningSelectedText: "选中的文字",
     pluginJapaneseLearningSignInRequired: "请登录后使用此功能。",
-    pluginJapaneseLearningSignInRequiredTitle: "需要登录",
+    pluginJapaneseLearningSignInRequiredTitle: "登录后使用云端识别",
     pluginJapaneseLearningSignInRequiredDescription:
-      "“云端”引擎使用 nemu 的在线服务。登录后即可使用，也可以将识别引擎改为“自动”或“设备端”。",
+      "也可以将识别引擎改为“自动”。",
     pluginJapaneseLearningSignInRequiredAutomaticDescription:
-      "这台设备无法独立完成这项功能，需要使用 nemu 的在线服务。登录后即可使用。",
+      "这需要使用 nemu 的在线服务。",
+    pluginJapaneseLearningSignInRequiredAutomaticTitle: "登录后分析这句话",
+    pluginJapaneseLearningSignInRequiredAutomaticPageTitle: "登录后识别这一页的文字",
     pluginJapaneseLearningSignInToUse: "登录后可用",
     pluginJapaneseLearningStopListening: "停止",
     pluginJapaneseLearningStructure: "结构",
