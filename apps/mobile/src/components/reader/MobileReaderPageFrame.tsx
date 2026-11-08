@@ -1,4 +1,4 @@
-import { useCallback, useContext, type ReactNode } from "react";
+import { useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import {
   StyleSheet,
   View,
@@ -19,7 +19,11 @@ import type { MobileImageUriOwnership } from "@/lib/mobileImageUriPolicy";
 import type { MobileCachedSegmentedImageAsset } from "@/lib/mobileImageCache";
 import { ReaderCapsuleButton } from "@/components/reader/ReaderCapsuleButton";
 import { MobileReaderPageSpinner } from "@/components/reader/MobileReaderPageSpinner";
-import { mobileReaderPageStatusColor } from "@/lib/mobileReaderPageLoading";
+import {
+  MOBILE_READER_PAGE_ARRIVAL_PAINT_MS,
+  mobileReaderPageFramePaintsBackground,
+  mobileReaderPageStatusColor,
+} from "@/lib/mobileReaderPageLoading";
 import { MOBILE_READER_SCROLL_IMAGE_FADE_MS } from "@/lib/mobileReaderScrollPresentation";
 
 type MobileReaderPageFrameProps = {
@@ -101,6 +105,18 @@ export function MobileReaderPageFrame({
     (view: ViewInstance | null) => frameRef?.(view, leafOffset),
     [frameRef, leafOffset],
   );
+  // A page that was waiting keeps its background while its image fades in.
+  const [arriving, setArriving] = useState(false);
+  const [wasLoading, setWasLoading] = useState(loading);
+  if (wasLoading !== loading) {
+    setWasLoading(loading);
+    setArriving(!loading && !error);
+  }
+  useEffect(() => {
+    if (!arriving) return;
+    const timer = setTimeout(() => setArriving(false), MOBILE_READER_PAGE_ARRIVAL_PAINT_MS);
+    return () => clearTimeout(timer);
+  }, [arriving]);
   const canRetry = Boolean(error) && Boolean(onRetry);
   // A page without its image: the reader background, a small native spinner
   // (after a short wait; in scroll reading only while on screen), and on a
@@ -117,14 +133,21 @@ export function MobileReaderPageFrame({
         {
           width: frameSize.width,
           height: frameSize.height,
-          // Painted only while there is no image to show (loading / error).
-          // A decoded page covers its frame anyway, and a transparent frame
-          // lets the previous list show through while a remounted one
-          // decodes (spread ⇄ single, rotation) instead of a black box.
-          // Scroll reading always keeps its background: a page that remounts
+          // Painted only while there is no image to show (loading / error)
+          // and while a waited-for image fades in over it. A decoded page
+          // covers its frame anyway, and a transparent frame lets the
+          // previous list show through while a remounted one decodes
+          // (spread ⇄ single, rotation) instead of a black box. Scroll
+          // reading always keeps its background: a page that remounts
           // paints over it the moment it decodes.
-          backgroundColor:
-            loading || error || quietLoading ? backgroundColor : "transparent",
+          backgroundColor: mobileReaderPageFramePaintsBackground({
+            loading,
+            failed: Boolean(error),
+            quietLoading,
+            arriving,
+          })
+            ? backgroundColor
+            : "transparent",
         },
       ]}
     >

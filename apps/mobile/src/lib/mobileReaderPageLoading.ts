@@ -16,6 +16,29 @@ export const MOBILE_READER_PAGE_STATUS_COLOR_LIGHT = "#8e8e93";
 /** On a dark page background: iOS secondaryLabel (dark). */
 export const MOBILE_READER_PAGE_STATUS_COLOR_DARK = "rgba(235,235,245,0.6)";
 
+/**
+ * How long a page that was waiting keeps its frame painted once its image
+ * arrives: the image's 240 ms fade from transparent, with room for the native
+ * animation to start. A frame cleared at once showed the stage's black through
+ * the still-transparent image (a black flash where a white page was coming).
+ */
+export const MOBILE_READER_PAGE_ARRIVAL_PAINT_MS = 400;
+
+/**
+ * Whether a page's frame paints the page background under its image: while
+ * there is no image to show (waiting, failed), in scroll reading always, and
+ * while an image that was waited for fades in. Otherwise transparent, so a
+ * remounted page that is already decoded lets the previous one show through.
+ */
+export function mobileReaderPageFramePaintsBackground(state: {
+  loading: boolean;
+  failed: boolean;
+  quietLoading: boolean;
+  arriving: boolean;
+}): boolean {
+  return state.loading || state.failed || state.quietLoading || state.arriving;
+}
+
 /** The spinner's (and a failed page's icon and text) colour over `backgroundColor`. */
 export function mobileReaderPageStatusColor(backgroundColor: string): string {
   return mobileReaderPageBackgroundIsLight(backgroundColor)

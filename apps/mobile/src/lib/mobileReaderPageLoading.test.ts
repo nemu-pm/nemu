@@ -3,9 +3,11 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
   createMobileReaderScrollViewportStore,
+  MOBILE_READER_PAGE_ARRIVAL_PAINT_MS,
   MOBILE_READER_PAGE_SPINNER_DELAY_MS,
   MOBILE_READER_PAGE_STATUS_COLOR_DARK,
   MOBILE_READER_PAGE_STATUS_COLOR_LIGHT,
+  mobileReaderPageFramePaintsBackground,
   mobileReaderPageSpinnerCentre,
   mobileReaderPageStatusColor,
 } from "./mobileReaderPageLoading";
@@ -20,6 +22,25 @@ describe("page loading status colour", () => {
   });
   test("appears after 150ms", () => {
     expect(MOBILE_READER_PAGE_SPINNER_DELAY_MS).toBe(150);
+  });
+});
+
+describe("page frame background", () => {
+  const idle = { loading: false, failed: false, quietLoading: false, arriving: false };
+
+  test("painted while waiting, failed, or in scroll reading", () => {
+    expect(mobileReaderPageFramePaintsBackground({ ...idle, loading: true })).toBe(true);
+    expect(mobileReaderPageFramePaintsBackground({ ...idle, failed: true })).toBe(true);
+    expect(mobileReaderPageFramePaintsBackground({ ...idle, quietLoading: true })).toBe(true);
+  });
+
+  test("a waited-for image keeps it while it fades in, never the stage's black", () => {
+    expect(mobileReaderPageFramePaintsBackground({ ...idle, arriving: true })).toBe(true);
+    expect(MOBILE_READER_PAGE_ARRIVAL_PAINT_MS).toBeGreaterThan(240);
+  });
+
+  test("transparent for a shown page, so a remount shows the previous one through", () => {
+    expect(mobileReaderPageFramePaintsBackground(idle)).toBe(false);
   });
 });
 
