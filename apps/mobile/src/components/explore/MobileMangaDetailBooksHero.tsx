@@ -53,6 +53,7 @@ import {
   MOBILE_RESTING,
   type MobileRestingBlock,
 } from "@/lib/mobileExploreRestingFit";
+import { getMobileDetailColumnHeroOffset } from "@/lib/mobileMangaDetailColumns";
 import { ExploreGlassButton, ExploreGlassChip, ExploreGlassIconButton, ExploreLibraryGlyph } from "./ExploreGlass";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { ExploreGradient } from "./ExploreGradient";
@@ -388,9 +389,23 @@ export function MobileMangaDetailBooksHero({
   const shownCoverWidth = coverWidth;
   const compactHead = top || (!inColumn && shownCoverWidth < HERO_COMPACT_COVER_BELOW);
   const wide = !pane && !top && !inColumn && contentWidth > WIDE_COLUMN;
-  // Align the cover with the chapter pane instead of centering a short
-  // summary vertically in a tall portrait column.
-  const columnOffset = 0;
+  // The hero column's room past the hero sits above and below it. Counts the
+  // synopsis and actions the page lands with, not the genres or what has
+  // arrived, so the cover holds its place as the details come in.
+  const columnScale = rest.fontScale(HERO_TEXT_MAX_SCALE);
+  const columnOffset = inColumn
+    ? getMobileDetailColumnHeroOffset({
+        top: columnTop,
+        edge: rest.edge,
+        heroHeight:
+          Math.round(coverWidth * 1.5) +
+          ESTIMATE.headText * columnScale +
+          BLOCK_GAP +
+          ESTIMATE.actions * columnScale +
+          BLOCK_GAP +
+          COLUMN_PARAGRAPH_LINES * DESCRIPTION_LINE_HEIGHT * columnScale,
+      })
+    : 0;
   // The first title line ends this far below the hero's top.
   const titleBottom =
     columnOffset +

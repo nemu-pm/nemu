@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { mobileAdaptiveLayout, mobileFoldSplitForContainer } from "./mobileAdaptiveLayout";
 import {
   getMobileDetailBarRowPull,
+  getMobileDetailColumnHeroOffset as heroOffset,
   getMobileDetailColumnsLayout as columns,
+  MOBILE_DETAIL_COLUMN_TOP_SLACK,
   MOBILE_DETAIL_COLUMNS_MIN_CONTENT_WIDTH,
   MOBILE_DETAIL_IPAD_BAR_ROW_PULL,
   mobileDetailUsesColumns,
@@ -81,6 +83,29 @@ describe("manga detail columns", () => {
     expect(columns({ containerWidth: 951, compactHeight: false, gutters: plain, posture: "notebook", foldSplit: null })).toEqual({
       mode: "single",
     });
+  });
+});
+
+describe("manga detail hero column offset", () => {
+  const heroHeight = 585;
+  test("a column that nearly fits stays level with the chapters' header", () => {
+    // The Duo's inner display in landscape.
+    expect(heroOffset({ top: 25, edge: 683, heroHeight })).toBe(0);
+    expect(heroOffset({ top: 25, edge: 25 + heroHeight + MOBILE_DETAIL_COLUMN_TOP_SLACK, heroHeight })).toBe(0);
+  });
+  test("a taller window shares its room above and below the hero", () => {
+    // iPad 13" landscape and portrait: the hero starts lower the more room there is.
+    const landscape = heroOffset({ top: 46, edge: 1004, heroHeight });
+    const portrait = heroOffset({ top: 46, edge: 1346, heroHeight });
+    expect(landscape).toBe(146);
+    expect(portrait).toBe(317);
+  });
+  test("past the threshold the offset grows smoothly, with no jump", () => {
+    const edge = 25 + heroHeight + MOBILE_DETAIL_COLUMN_TOP_SLACK;
+    expect(heroOffset({ top: 25, edge: edge + 2, heroHeight })).toBe(1);
+  });
+  test("a hero taller than its window starts at the column's top and scrolls", () => {
+    expect(heroOffset({ top: 46, edge: 500, heroHeight })).toBe(0);
   });
 });
 

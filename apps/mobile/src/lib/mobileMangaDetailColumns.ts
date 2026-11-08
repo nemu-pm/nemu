@@ -103,6 +103,35 @@ export function getMobileDetailColumnsLayout({
   };
 }
 
+/**
+ * Slack a hero column keeps under its hero (pt) before it starts to centre: a
+ * column that nearly fits (the Duo's inner display) stays level with the
+ * chapters' header beside it.
+ */
+export const MOBILE_DETAIL_COLUMN_TOP_SLACK = 80;
+
+/**
+ * How far the hero stands below the column's top. The cover stops growing at
+ * its natural size, so a taller window (a tablet, most of all in portrait) has
+ * room left over: past `MOBILE_DETAIL_COLUMN_TOP_SLACK` it is shared above and
+ * below, so the hero sits balanced beside the chapters. From the window and
+ * the hero's estimated height alone, never from a measurement: the cover is
+ * the zoom's landing spot, and the column holds still as details arrive.
+ */
+export function getMobileDetailColumnHeroOffset({
+  top,
+  edge,
+  heroHeight,
+}: {
+  /** Where the column's content starts in the window. */
+  top: number;
+  /** The bottom of the visible pane in the window. */
+  edge: number;
+  heroHeight: number;
+}): number {
+  return Math.max(0, Math.floor((edge - top - heroHeight - MOBILE_DETAIL_COLUMN_TOP_SLACK) / 2));
+}
+
 /** The bar row iPad reserves for the tab strip above a pushed page but draws on the title's line. */
 export const MOBILE_DETAIL_IPAD_BAR_ROW_PULL = -44;
 
