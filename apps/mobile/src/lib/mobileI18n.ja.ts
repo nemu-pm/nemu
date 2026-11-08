@@ -1249,7 +1249,11 @@ export const mobileStringsJa: MobileStrings = {
     connectServer: "自分のサーバーに接続",
     builtInSources: "内蔵ソース",
     groupTitle: "自分のサーバー",
-    rowSubtitle: "自分のサーバー",
+    kindSubtitle: {
+      komga: "マンガとコミック",
+      kavita: "マンガ、コミック、書籍",
+      suwayomi: "拡張機能から読むマンガ",
+    },
     serverAddress: "サーバーのアドレス",
     serverAddressPlaceholder: "http://192.168.1.20:{{port}}",
     name: "名前",

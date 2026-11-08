@@ -37,7 +37,7 @@ import {
 } from "@/lib/mobileSourceColumns";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { ADD_DIRECTORY_PAGE, SERVER_PICKER_PAGE } from "@/lib/mobileAddSourcesPages";
-import { selfHostedKindName } from "@/lib/selfHosted/messages";
+import { selfHostedKindName, selfHostedKindSubtitle } from "@/lib/selfHosted/messages";
 import { SELF_HOSTED_REGISTRY_ID, SELF_HOSTED_SETUP_KINDS, type SelfHostedKind } from "@/lib/selfHosted/policy";
 import { EmptyLibrary } from "@/components/EmptyLibrary";
 import { MobileBrowseSkeleton } from "@/components/MobileBrowseSkeleton";
@@ -775,10 +775,11 @@ const BuiltInSourceRow = memo(function BuiltInSourceRow({
 }) {
   const { tokens } = useNemuTheme();
   const name = selfHostedKindName(kind);
+  const subtitle = selfHostedKindSubtitle(kind, strings);
   return (
     <NemuPressable
       accessibilityRole="button"
-      accessibilityLabel={`${name}. ${strings.selfHosted.rowSubtitle}`}
+      accessibilityLabel={`${name}. ${subtitle}`}
       onPress={() => onPress(kind)}
       style={[
         styles.availableShell,
@@ -794,7 +795,7 @@ const BuiltInSourceRow = memo(function BuiltInSourceRow({
             {name}
           </NemuText>
           <NemuText numberOfLines={1} style={[styles.sourceSubtitle, { color: tokens.mutedForeground }]}>
-            {strings.selfHosted.rowSubtitle}
+            {subtitle}
           </NemuText>
         </View>
         <Ionicons name="chevron-forward" size={16} color={tokens.mutedForeground} />
@@ -1022,6 +1023,7 @@ export function BrowseScreen() {
         sourceId,
         name: source.name ?? sourceId,
         icon: source.icon,
+        iconAsset: source.selfHosted ? SERVER_ICONS[source.selfHosted.kind] : undefined,
         languages: source.languages,
         subtitle:
           registryId === SELF_HOSTED_REGISTRY_ID && source.selfHosted
@@ -2069,7 +2071,8 @@ export function BrowseScreen() {
                   <SourceCard
                     compact
                     item={
-                      source.registryId === mainRegistry && !source.exploreKeepSubtitle
+                      // A server's kind says what it is, even with nothing but servers listed.
+                      source.registryId === mainRegistry && source.registryId !== SELF_HOSTED_REGISTRY_ID && !source.exploreKeepSubtitle
                         ? { ...source, subtitle: undefined }
                         : source
                     }

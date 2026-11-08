@@ -1170,7 +1170,11 @@ export const mobileStringsZh: MobileStrings = {
     connectServer: "连接自己的服务器",
     builtInSources: "内置来源",
     groupTitle: "自建服务器",
-    rowSubtitle: "你自己的服务器",
+    kindSubtitle: {
+      komga: "漫画和连环画",
+      kavita: "漫画、连环画和书籍",
+      suwayomi: "通过扩展阅读漫画",
+    },
     serverAddress: "服务器地址",
     serverAddressPlaceholder: "http://192.168.1.20:{{port}}",
     name: "名称",

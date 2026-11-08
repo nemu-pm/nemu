@@ -1082,7 +1082,7 @@ export type MobileStrings = {
     builtInSources: string;
     /** Browse group title of the user's own servers. */
     groupTitle: string;
-    rowSubtitle: string;
+    kindSubtitle: { komga: string; kavita: string; suwayomi: string };
     serverAddress: string;
     serverAddressPlaceholder: string;
     name: string;

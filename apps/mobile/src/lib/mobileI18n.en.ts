@@ -1235,7 +1235,11 @@ export const mobileStringsEn: MobileStrings = {
     connectServer: "Connect your server",
     builtInSources: "Built-in sources",
     groupTitle: "Your servers",
-    rowSubtitle: "Your own server",
+    kindSubtitle: {
+      komga: "Manga and comics",
+      kavita: "Manga, comics and books",
+      suwayomi: "Manga through its extensions",
+    },
     serverAddress: "Server address",
     serverAddressPlaceholder: "http://192.168.1.20:{{port}}",
     name: "Name",

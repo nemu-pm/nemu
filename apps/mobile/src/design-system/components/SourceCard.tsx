@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Image, StyleSheet, Text, View, type ImageSourcePropType } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router } from "expo-router";
 import { useMobileLanguageSettings } from "@/data/mobileHooks";
@@ -18,6 +18,8 @@ export type SourceCardModel = {
   sourceId: string;
   name: string;
   icon?: string;
+  /** Bundled artwork (a built-in server's mark); wins over `icon`. */
+  iconAsset?: ImageSourcePropType;
   languages?: string[];
   subtitle?: string;
 };
@@ -38,7 +40,7 @@ export function SourceCard({
   const { scheme, tokens } = useNemuTheme();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
-  // A built-in server source has no artwork of its own.
+  // A server of a kind this build has no mark for.
   const fallbackIcon = item.registryId === "self-hosted" ? "server-outline" : "globe-outline";
   const visuals = resolveSourceCardVisuals(scheme);
   const longPressHandledRef = useRef(false);
@@ -102,7 +104,15 @@ export function SourceCard({
           },
         ]}
       >
-        {item.icon ? (
+        {item.iconAsset ? (
+          <Image
+            accessibilityIgnoresInvertColors
+            fadeDuration={0}
+            resizeMode="cover"
+            source={item.iconAsset}
+            style={styles.iconImage}
+          />
+        ) : item.icon ? (
           <MobileCachedImage
             fallback={
               <Ionicons

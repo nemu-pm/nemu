@@ -483,7 +483,7 @@ function SourceManagementRow({
           sourceDisabled && styles.disabledSourceMain,
         ]}
       >
-        <SourceIcon icon={iconUri} server={source.registryId === SELF_HOSTED_REGISTRY_ID} />
+        <SourceIcon icon={iconUri} server={source.registryId === SELF_HOSTED_REGISTRY_ID} serverKind={source.selfHosted?.kind} />
         <View style={styles.sourceText}>
           <View style={styles.sourceTitleRow}>
             <NemuText

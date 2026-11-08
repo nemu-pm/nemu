@@ -17,16 +17,21 @@ import {
 } from "@expo/ui/swift-ui";
 import {
   accessibilityLabel as swiftAccessibilityLabel,
+  alignmentGuide,
+  background,
+  clipShape,
   font,
   foregroundStyle,
   frame,
   ignoreSafeArea,
   labelStyle,
   lineLimit,
+  listRowInsets,
+  listRowSeparatorTint,
   resizable,
   tint,
 } from "@expo/ui/swift-ui/modifiers";
-import { useNemuTheme } from "@/design-system";
+import { radius, useNemuTheme } from "@/design-system";
 import { useMobileLanguageSettings } from "@/data/mobileHooks";
 import {
   ADD_DIRECTORY_PAGE,
@@ -34,9 +39,10 @@ import {
   mobileAddSourcesEnteredPages,
   mobileServerFormPage,
 } from "@/lib/mobileAddSourcesPages";
+import { MOBILE_SETTINGS_GROUP_INSET } from "@/lib/mobileExploreRadius";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { getMobileStrings } from "@/lib/mobileI18n";
-import { selfHostedKindName } from "@/lib/selfHosted/messages";
+import { selfHostedKindName, selfHostedKindSubtitle } from "@/lib/selfHosted/messages";
 import { SELF_HOSTED_SETUP_KINDS, type SelfHostedKind } from "@/lib/selfHosted/policy";
 import { inlineToolbarTitle, pinnedSearch, sheetCenteredTitle } from "../../modules/nemu-window-layout/src/presentationColorScheme";
 import { MobileAddSourcesDirectoryPage } from "./MobileAddSourceDirectorySheet";
@@ -61,19 +67,31 @@ const STACK_ROOT_MODIFIERS = [
   ignoreSafeArea({ regions: "container", edges: "vertical" }),
 ];
 
-const SERVER_ICON_SIZE = 44;
+// The reader's Plugins rows (`ReaderPluginManagementRow`, `ReaderPluginIcon`): the tile, the row's height.
+const SERVER_ICON_SIZE = 34;
+const SERVER_ROW_HEIGHT = 72;
 // Metro's asset ids, whatever the image typings say of a required PNG.
 const SERVER_ICON_MODULES = SELF_HOSTED_SETUP_KINDS.map((kind) => SERVER_ICONS[kind]) as unknown as number[];
 
 /** Add Sources pushes its pages natively (`MobileAddSourcesStack`). */
 export const mobileAddSourcesPushesPagesNatively = true;
 
-/** Connect Server: a row for each kind, each pushing that server's form. */
+/**
+ * Connect Server: a row for each kind, each pushing that server's form. The
+ * rows read as the reader's Plugins list: the mark on its tile, the name over
+ * one muted line, a hairline to the group's edges.
+ */
 function ServerPickerPage() {
+  const { tokens } = useNemuTheme();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
   // A SwiftUI image reads a local file; these are bundled, or fetched from Metro in development.
   const [icons] = useAssets(SERVER_ICON_MODULES);
+  const tile = [
+    frame({ width: SERVER_ICON_SIZE, height: SERVER_ICON_SIZE }),
+    background(tokens.sourceIconGlass),
+    clipShape("roundedRectangle", radius.md),
+  ];
 
   return (
     <MobilePushedFormPage title={strings.selfHosted.connectServer}>
@@ -81,26 +99,34 @@ function ServerPickerPage() {
         {SELF_HOSTED_SETUP_KINDS.map((kind, index) => {
           const icon = icons?.[index]?.localUri;
           return (
-            <SwiftNavigationLink key={kind} value={mobileServerFormPage(kind)}>
-              <SwiftHStack spacing={12}>
-                {icon ? (
-                  <SwiftImage
-                    uiImage={icon}
-                    modifiers={[resizable(), frame({ width: SERVER_ICON_SIZE, height: SERVER_ICON_SIZE })]}
-                  />
-                ) : (
-                  <SwiftSpacer modifiers={[frame({ width: SERVER_ICON_SIZE, height: SERVER_ICON_SIZE })]} />
-                )}
+            <SwiftNavigationLink
+              key={kind}
+              value={mobileServerFormPage(kind)}
+              modifiers={[
+                listRowInsets({ top: 0, bottom: 0, leading: MOBILE_SETTINGS_GROUP_INSET, trailing: MOBILE_SETTINGS_GROUP_INSET }),
+                listRowSeparatorTint(tokens.border),
+              ]}
+            >
+              <SwiftHStack
+                spacing={12}
+                modifiers={[
+                  frame({ minHeight: SERVER_ROW_HEIGHT }),
+                  alignmentGuide("listRowSeparatorLeading", -MOBILE_SETTINGS_GROUP_INSET),
+                ]}
+              >
+                {icon ? <SwiftImage uiImage={icon} modifiers={[resizable(), ...tile]} /> : <SwiftSpacer modifiers={tile} />}
                 <SwiftVStack alignment="leading" spacing={2}>
-                  <SwiftText modifiers={[lineLimit(1)]}>{selfHostedKindName(kind)}</SwiftText>
+                  <SwiftText modifiers={[font({ textStyle: "subheadline", weight: "medium" }), lineLimit(1)]}>
+                    {selfHostedKindName(kind)}
+                  </SwiftText>
                   <SwiftText
                     modifiers={[
-                      font({ textStyle: "subheadline" }),
+                      font({ textStyle: "caption" }),
                       foregroundStyle({ type: "hierarchical", style: "secondary" }),
                       lineLimit(1),
                     ]}
                   >
-                    {strings.selfHosted.rowSubtitle}
+                    {selfHostedKindSubtitle(kind, strings)}
                   </SwiftText>
                 </SwiftVStack>
               </SwiftHStack>

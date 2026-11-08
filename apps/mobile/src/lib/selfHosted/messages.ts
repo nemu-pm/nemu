@@ -12,6 +12,11 @@ export function selfHostedKindName(kind: SelfHostedKind): string {
   return KIND_NAMES[kind];
 }
 
+/** What a kind of server holds: the line under its name where the kinds are listed. */
+export function selfHostedKindSubtitle(kind: SelfHostedKind, strings: MobileStrings): string {
+  return strings.selfHosted.kindSubtitle[kind];
+}
+
 export function serverUrlErrorMessage(
   reason: Extract<ServerUrlResult, { ok: false }>["reason"],
   strings: MobileStrings,

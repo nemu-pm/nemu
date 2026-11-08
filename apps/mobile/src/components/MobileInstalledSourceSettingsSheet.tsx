@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { StyleSheet, View, useWindowDimensions } from "react-native";
+import { Image, StyleSheet, View, useWindowDimensions } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { InstalledSource, SourcePackageSetting } from "@/data/schema";
 import {
@@ -19,7 +19,9 @@ import { READER_SETTINGS_FORM_INSET } from "@/lib/readerSettingsNativePopoverLay
 import { getMobileLocalNetworkServerSettingKeys } from "@/lib/mobileLocalNetworkAllowance";
 import { countVisibleSourceSettings } from "@/lib/mobileSourceSettings";
 import type { MobileSourceLoginSubmission } from "@/lib/mobileSourceSettingActions";
+import type { SelfHostedKind } from "@/lib/selfHosted/policy";
 import type { MobileSourceLoginCapabilities } from "@/sources/mobileSourceSettingsExecutor";
+import { SERVER_ICONS } from "./mobileServerIcons";
 import { MobileNativeStackSheet, mobileNativeStackSheetAvailable } from "./MobileNativeStackSheet";
 import { MobileSourceSettingsCard } from "./MobileSourceSettingsCard";
 import { useMobileSourceSettingsTransientSheets } from "./useMobileSourceSettingsTransientSheets";
@@ -38,9 +40,12 @@ export function MobileSourceIcon({
   icon,
   placement = "row",
   server = false,
+  serverKind,
 }: {
-  /** A built-in server source: no artwork, so a server glyph stands in. */
+  /** A built-in server source: a server glyph stands in when its kind has no mark. */
   server?: boolean;
+  /** A built-in server's kind: its bundled mark. */
+  serverKind?: SelfHostedKind;
   icon?: string | null;
   placement?: "row" | "title";
 }) {
@@ -63,7 +68,15 @@ export function MobileSourceIcon({
           : [styles.rowIcon, { backgroundColor: tokens.sourceIconGlass }]
       }
     >
-      {iconUri ? (
+      {serverKind ? (
+        <Image
+          accessibilityIgnoresInvertColors
+          fadeDuration={0}
+          resizeMode="cover"
+          source={SERVER_ICONS[serverKind]}
+          style={styles.iconImage}
+        />
+      ) : iconUri ? (
         <MobileCachedImage
           fallback={placeholder}
           uriOwnership="source"
@@ -267,7 +280,7 @@ export function MobileInstalledSourceSettingsSheet({
           {/* Equal side columns keep the title centred; the only control, Close, sits trailing. */}
           <View style={styles.headerSide} />
           <View style={styles.titleRow}>
-            <MobileSourceIcon icon={iconUri} placement="title" />
+            <MobileSourceIcon icon={iconUri} placement="title" serverKind={source.selfHosted?.kind} />
             <NemuText
               accessibilityRole="header"
               color={tokens.foreground}
