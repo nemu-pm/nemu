@@ -1,5 +1,6 @@
 import ExpoModulesCore
 import UIKit
+import UIKit.UIGestureRecognizerSubclass
 
 /**
  * The reader's curl page turn: a `UIPageViewController` with the `.pageCurl`
@@ -28,6 +29,15 @@ import UIKit
  * own page, mirrored, under an 85% paper wash — paper seen from behind: the
  * page on screen as it lifts toward the next one, the previous page as it is
  * laid back down over the page on screen (`NemuPageCurlLeaves`).
+ *
+ * Nothing sets the controllers while a finger is on the curl (`touchObserver`):
+ * a re-anchor, a jump or a re-set at a new frame then waits for the touch to
+ * end. `setViewControllers` mid-touch fails UIKit's own pan, so the first drag
+ * after the frames changed (a neighbour chapter joined, a setting rebuilt the
+ * strip) never lifted a leaf.
+ *
+ * The backs of the leaves the next turn either way would lift are drawn as
+ * soon as a turn settles (`prepareBacks`), not when a drag asks for them.
  *
  * The curl frame is frozen while a leaf turns: a new `curlFrame` (the next
  * page's box, a fold, a rotation, a late image size) waits for the turn to
@@ -81,6 +91,9 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
   private var reseatPending = false
   private let edgePan = UIPanGestureRecognizer()
   private var edgePanStartSlot = 0
+  private let touchObserver = NemuTouchObserver()
+  /** Drawn backs, by `source:size:paper`; only the current slot's neighbours are kept. */
+  private var backImages: [String: UIImage] = [:]
 
   private var isMid: Bool { spine == "mid" }
   private var spineLocation: NemuPageCurlSpine { spine == "mid" ? .mid : spine == "max" ? .max : .min }
@@ -95,6 +108,9 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
     edgePan.delaysTouchesBegan = false
     edgePan.addTarget(self, action: #selector(handleEdgePan(_:)))
     addGestureRecognizer(edgePan)
+    touchObserver.delegate = self
+    touchObserver.onEnd = { [weak self] in self?.setNeedsLayout() }
+    addGestureRecognizer(touchObserver)
     rebuildPageController()
   }
 
@@ -169,7 +185,7 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
    * controllers out at the new size.
    */
   private func reseatAfterFrameChange() {
-    guard reseatPending, !transitioning, positioned, let pageController else { return }
+    guard reseatPending, !transitioning, !touchObserver.touching, positioned, let pageController else { return }
     reseatPending = false
     guard let vcs = controllers(at: currentSlot) else { return }
     pageController.setViewControllers(vcs, direction: .forward, animated: false)
@@ -200,6 +216,7 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
 
   private func applyBackgrounds() {
     for (slot, controller) in controllers { controller.background = background(for: slot) }
+    prepareBacks()
   }
 
   private func controller(for slot: Int) -> NemuPageCurlPageController? {
@@ -241,10 +258,39 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
     guard let page = controller(for: source) else { return nil }
     let paper = background(for: source)
     let back = NemuPageCurlBackController(target: target, source: source, background: paper)
+    back.show(backImage(source: source, page: page, paper: paper))
+    return back
+  }
+
+  private func backImage(source: Int, page: NemuPageCurlPageController, paper: UIColor) -> UIImage? {
     let shownSize = page.isViewLoaded ? page.view.bounds.size : .zero
     let size = shownSize.width > 0 && shownSize.height > 0 ? shownSize : (pageController?.view.bounds.size ?? .zero)
-    back.show(Self.renderBack(page.view, size: size, paper: NemuPageCurlPaper.wash(over: paper)))
-    return back
+    let key = "\(source):\(size.width)x\(size.height):\(paper.hashValue)"
+    if let cached = backImages[key] { return cached }
+    let image = Self.renderBack(page.view, size: size, paper: NemuPageCurlPaper.wash(over: paper))
+    if let image { backImages[key] = image }
+    return image
+  }
+
+  /**
+   * After a turn settles: the backs the next turn either way shows, drawn on
+   * the next run loop turn (the settled frame is on screen first), so a drag
+   * starts without drawing one. Spreads have no drawn backs.
+   */
+  private func prepareBacks() {
+    guard !isMid else { return }
+    DispatchQueue.main.async { [weak self] in
+      guard let self, !self.transitioning, self.positioned else { return }
+      let slot = self.currentSlot
+      var keep = Set<String>()
+      for target in [slot - 1, slot + 1] where target >= 0 && target < self.slotCount {
+        let source = NemuPageCurlLeaves.turningSlot(from: slot, to: target, spine: self.spineLocation)
+        guard let page = self.controller(for: source), page.hostsContent else { continue }
+        _ = self.backImage(source: source, page: page, paper: self.background(for: source))
+        keep.formUnion(self.backImages.keys.filter { $0.hasPrefix("\(source):") })
+      }
+      self.backImages = self.backImages.filter { keep.contains($0.key) }
+    }
   }
 
   /**
@@ -290,6 +336,8 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
 
   private func applyNavigation() {
     guard let pageController, slotCount > 0, !transitioning else { return }
+    // A finger is on the curl: setting the controllers now would fail its pan.
+    if positioned && touchObserver.touching && appliedToken != navigationToken { return }
     let target = normalizedSlot(navigationIndex)
     if !positioned || (pageController.viewControllers ?? []).isEmpty {
       guard let vcs = controllers(at: target) else { return }
@@ -297,6 +345,7 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
       currentSlot = target
       positioned = true
       appliedToken = navigationToken
+      prepareBacks()
       return
     }
     guard appliedToken != navigationToken else { return }
@@ -320,6 +369,7 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
       currentSlot = target
       onSettle(["slot": target])
       onTurnEnd([:])
+      prepareBacks()
     }
   }
 
@@ -331,6 +381,7 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
     }
     onTurnEnd([:])
     setNeedsLayout()
+    prepareBacks()
   }
 
   // MARK: Page controller
@@ -362,6 +413,7 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
     }
     pageController = controller
     controllers.removeAll()
+    backImages.removeAll()
     positioned = false
     transitioning = false
     insertSubview(controller.view, at: 0)
@@ -412,6 +464,7 @@ final class NemuPageCurlView: ExpoView, UIPageViewControllerDataSource, UIPageVi
     if completed && moved { onSettle(["slot": settled, "gesture": true]) }
     onTurnEnd([:])
     setNeedsLayout()
+    prepareBacks()
   }
 
   // MARK: Drag past either end
@@ -481,6 +534,9 @@ final class NemuPageCurlPageController: UIViewController {
     view.clipsToBounds = true
     self.view = view
   }
+
+  /** A page is mounted here (its back can be drawn). */
+  var hostsContent: Bool { hosted?.superview === view }
 
   func host(_ child: UIView?) {
     if hosted === child, child?.superview === view { return }
@@ -566,5 +622,49 @@ enum NemuSlotBackgrounds {
       )
     }
     return out
+  }
+}
+
+/**
+ * Watches for fingers on a view without ever recognizing: `touching` from the
+ * first touch down to the last one up, `onEnd` once they are all up.
+ */
+final class NemuTouchObserver: UIGestureRecognizer {
+  private(set) var touching = false
+  var onEnd: (() -> Void)?
+
+  override init(target: Any?, action: Selector?) {
+    super.init(target: target, action: action)
+    cancelsTouchesInView = false
+    delaysTouchesBegan = false
+    delaysTouchesEnded = false
+  }
+
+  convenience init() { self.init(target: nil, action: nil) }
+
+  override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+    touching = true
+  }
+
+  override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+    finish(event)
+  }
+
+  override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+    finish(event)
+  }
+
+  private func finish(_ event: UIEvent) {
+    let down = event.allTouches?.contains { $0.phase != .ended && $0.phase != .cancelled } ?? false
+    guard !down else { return }
+    // Never recognizes: it fails, and resets, once the fingers are up.
+    state = .failed
+  }
+
+  override func reset() {
+    super.reset()
+    guard touching else { return }
+    touching = false
+    onEnd?()
   }
 }
