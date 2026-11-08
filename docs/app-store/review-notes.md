@@ -1,113 +1,112 @@
-# App Review notes (draft for the "Notes" field and the reviewer phone call)
+# App Review notes
 
-Fill the bracketed items before submitting. Facts come from the code at this
-branch; guideline text was read from
+Checked against the code at `b08bc868` and the archived `Info.plist` on 2026-11-08.
+Guideline text was read from
 [developer.apple.com/app-store/review/guidelines](https://developer.apple.com/app-store/review/guidelines/)
-and [offering account deletion](https://developer.apple.com/support/offering-account-deletion-in-your-app/)
-on 2026-10-12.
+on the same day. Run the steps below on the final build before submitting: the
+button labels come from the English strings, not from a walkthrough of that build.
 
-## What nemu is
+## Paste into App Review Information > Notes
 
-nemu is a manga/comic **reader**. It reads files that the user imports on the
-device (CBZ/ZIP) and content from **source directories the user chooses** (来源目录),
-and it adds tools for learning Japanese (text recognition, dictionary, text to
-speech, an assistant). nemu ships **no comic content and does not host any**. The
-recommended source directory that nemu suggests lists only content that is
-verified as openly licensed (for example Pepper&Carrot, CC BY). Users may add other
-directories at their own choice.
+The field holds [up to 4000 bytes](https://developer.apple.com/help/app-store-connect/reference/app-information/platform-version-information).
+This block fits. Fill the bracket first.
 
-The app is completely free: no in-app purchases, subscriptions, ads or
-tracking.
+```text
+WHAT NEMU IS
+nemu is a manga reader. It reads the sources and servers the user adds, CBZ/ZIP files the user imports, and a built-in directory of open-licensed examples called Example Sources. nemu hosts no comics. There are no in-app purchases, ads or tracking.
 
-## What `.aix` source files are (be direct about this)
+TRY IT WITH NO ACCOUNT
+1. Fresh install. Get Started > choose a language > Next.
+2. On Add Sources, NDL Public Domain Picks is already selected. Tap Install & Continue, then Start Reading.
+3. Open the Browse tab > NDL Public Domain Picks. It lists seven Edo and Meiji works from the National Diet Library of Japan, public domain, read through NDL's IIIF service.
+4. Open a work, for example Fugaku Hyakkei, then a volume. It reads right to left: the next page is on the left.
+5. Other examples: Browse > + lists Pepper&Carrot (CC BY 4.0), Mini Fantasy Theater (CC BY-SA 4.0) and Little Nemo in Slumberland (public domain). A title's info shows its licence.
 
-A source file (来源文件, `.aix`) is a package that the user or a directory
-supplies. It contains a **WebAssembly module** (`Payload/main.wasm`) plus JSON
-metadata (and, for some sources, small JavaScript snippets) written against the
-open Aidoku source API. The **runtime that executes it ships inside the app
-binary**; the app downloads and runs these source files, which is why we address
-Guideline 2.5.2 explicitly:
+LANRARAGI NEEDS YOUR OWN SERVER
+Browse > + also lists LANraragi. It has no content of its own. Install it and open it: there is nothing to read until a server address is entered in its settings (Base URL), and we provide no server. Connect your server in the same list does the same for other self-hosted servers. The local network permission is asked only if the user enters an address on their own network.
 
-- A source can only call a fixed set of host functions: HTTP requests (with an
-  SSRF policy that refuses private/loopback addresses unless the user explicitly
-  allows the configured private server), HTML parsing, image
-  drawing, its own saved settings. It returns data (titles, chapters, page
-  image URLs). It cannot add screens, change app features, call native iOS APIs,
-  or read other apps' or the app's data.
-- WebAssembly runs in an isolated runtime; JavaScript snippets run in a separate
-  JavaScriptCore context per source with an evaluation budget (no private SPI is
-  used).
-- The app's own features are unchanged by what a source returns. We regard this
-  as data fetched by a configurable content connector, similar to a feed reader,
-  not code that "introduces or changes features or functionality of the app"
-  (2.5.2). If App Review classifies sources as plug-ins under 4.7, see "Open
-  risks" below.
+IPAD AND IPHONE DUO
+iPad is supported in all orientations, with two-page spreads in landscape. On iPhone Duo, use the outer display (one page, controls in the vertical bar, an optional cover view) or the inner display (two-page spreads).
 
-## Reviewer steps
+DIRECTORIES THE USER ADDS
+No third-party directory is listed or linked in the app. A user can add their own: Browse > + > Add Source Directory, by pasting an HTTPS address, or through a nemu:// or aidoku:// link, which always shows the address and asks first. The app says that nemu does not host or review them.
 
-1. Install and launch. No account is required for reading.
-2. Open Browse > Add sources (+), install **Pepper&Carrot**, then open a chapter
-   and read. The built-in **nemu recommended** directory is enabled by default.
-   Manage it under Settings > Installed sources > Source directories. Its live
-   index is https://nemu-pm.github.io/source-registry/index.min.json
-   (HTTP/JSON checked on 2026-10-15). The directory also includes LANraragi,
-   a connector for the user's own server; it supplies no hosted comics.
-3. Optional: import a CBZ from Files (the app does not ship one; [attach a sample
-   CBZ to the submission]).
-4. Sign in with the demo account (Sign in with Apple or Google):
-   **[demo account: email/Apple ID + password to be created and tested]**.
-   Signed in, the user can sync the library between devices and use the
-   server-backed learning features (assistant chat, read-aloud, cloud text
-   recognition). Each of these sends content to a named third party; the policy
-   at https://nemu.pm/privacy lists them.
-5. Account deletion: Settings > Cloud sync > tap the signed-in account row >
-   Delete Account, then confirm in the system alert. It deletes the account, synced data, uploaded covers
-   and sessions, and revokes Sign in with Apple tokens.
-6. Privacy policy: https://nemu.pm/privacy (also in App Store Connect).
+WHAT A SOURCE IS (GUIDELINES 2.5.2, 4.7)
+A source is an .aix package: a WebAssembly module and JSON metadata, sometimes with small JavaScript snippets, in the open Aidoku source format. The runtime is in the app binary and downloads and runs these packages. A source can only call a fixed set of host functions: HTTP (private addresses refused unless the user configured that server), HTML parsing, image drawing and its own settings. It returns data: titles, chapters, page URLs. It cannot add screens, change features, reach native iOS APIs or read other data. WebAssembly runs in an isolated runtime, and JavaScript in a separate JavaScriptCore context per source with an evaluation budget. We regard this as a content connector, like a feed reader.
 
-## Permissions (Info.plist strings)
+ACCOUNT (OPTIONAL)
+Sign in with Apple or Google from Settings. Both use the web sign-in flow. Signing in adds sync and the server-backed learning features (chat, read-aloud, cloud text recognition). A one-time notice asks for consent before the first cloud AI request and links the privacy policy. Demo account: [demo Google account and password].
+Delete: Settings > Account > Delete Account. This removes the account, synced data, uploaded covers and sessions, and revokes Sign in with Apple tokens.
 
-- Photos (NSPhotoLibraryUsageDescription): choose a cover image.
-- Microphone and Speech Recognition: dictate a message to the assistant. Both are
-  optional; nothing else in the app requires them.
-- Local Network (NSLocalNetworkUsageDescription): asked only when the user
-  points a self-hosted source (LANraragi, Komga, Kavita or Suwayomi) at a server on their own network;
-  only that configured host is reachable, and only for that source.
-- No camera, location, contacts, tracking (no ATT prompt) or notifications.
-- `ITSAppUsesNonExemptEncryption=false`: the app uses only standard TLS/OS
-  cryptography (HTTPS, Keychain).
+PERMISSIONS
+Photos (choose a cover), Microphone and Speech Recognition (dictate to Nemu Chat), Local Network (a server the user enters). All are optional. No camera, location, contacts, tracking or notifications. Background modes (fetch, processing) are for library sync when signed in.
+```
+
+## Permissions as built
+
+Read from `Payload/nemu.app/Info.plist` in the 2026-11-08 archive, which a clean
+prebuild of `apps/mobile/app.json` generated:
+
+| Key | Value or use |
+|---|---|
+| `NSPhotoLibraryUsageDescription` | choose a cover image |
+| `NSMicrophoneUsageDescription`, `NSSpeechRecognitionUsageDescription` | dictate to Nemu Chat |
+| `NSLocalNetworkUsageDescription` | a server whose address the user entered |
+| `NSCameraUsageDescription` | **absent** (`expo-image-picker` has `cameraPermission: false`) |
+| `UIBackgroundModes` | `fetch`, `processing`, from `expo-background-task`, used by `mobileBackgroundSync` |
+| `CFBundleURLSchemes` | `nemu`, `aidoku` (add-directory links), `neko` (source OAuth callback only) |
+| `ITSAppUsesNonExemptEncryption` | `false` |
+| `UIDeviceFamily` / `MinimumOSVersion` | iPhone and iPad / 16.4 |
+
+The cover view on the Duo's outer display is a plain page view. It is not the
+removed Show Cover on Outer Display feature, which used the camera.
 
 ## Guideline answers
 
-- **2.5.2 / 4.7**: see ".aix source files".
-- **4.8 Login Services**: Sign in with Apple is offered next to Google, limits
-  data to name/email, supports private relay. Signing in is optional.
-- **5.1.1(v)**: account deletion in the app, includes Sign in with Apple token
-  revocation ([Apple](https://developer.apple.com/support/offering-account-deletion-in-your-app/)).
-- **5.1.2(i)**: the policy names Anthropic, Google, ElevenLabs, Vercel and the
-  other recipients; before the first request from any cloud-AI feature (chat,
-  read-aloud, smart match, Japanese clean-up) a one-time sheet asks for consent
-  and links the policy. Declining cancels that request; analysis falls back to
-  on-device where it exists.
-- **1.2 User-generated content**: none. The library and collections are private
-  to the user; there is no posting, sharing, comments or chat between users.
-- **1.1.4 / content**: nemu hosts no content; the user chooses sources. Adult
-  sources are hidden by default behind a toggle in Browse; the toggle is not an age
-  gate (see age-rating.md).
+- **2.5.2 / 4.7**: see "What a source is". 4.7.2 and 4.7.3 hold: a source reaches
+  no native API and no privacy permission.
+- **4.8 Login Services**: Sign in with Apple sits beside Google, limits data to
+  name and email and supports private relay. 4.8 asks for an equivalent login
+  option and does not ask for the native sheet, so the web flow meets it.
+- **5.1.1(v)**: reading needs no account, and deletion is in the app at
+  Settings > Account. The same guideline says an app may not store tokens "to
+  social networks" off the device. Better Auth keeps the Google and Apple tokens
+  in Convex, and the policy says so. Neither is a social network login in the
+  sense that sentence seems to mean, but expect the question.
+- **5.1.2(i)**: the policy names each recipient, including third-party AI. A
+  one-time sheet (`MobileAiConsentHost`) asks before the first cloud AI request
+  and links the policy. Declining cancels that request.
+- **1.2**: not user-generated content. The library and collections are private,
+  with no posting, sharing or chat between users. Nemu Chat is an assistant.
+- **5.2 / content**: the built-in directory lists only public-domain works, works
+  their rights holder publishes under a free licence, and a connector for the
+  user's own server. Each entry's basis is recorded in
+  [`curation/entries.json`](https://github.com/nemu-pm/source-registry/blob/main/curation/entries.json).
+- **Explicit content**: sources a directory marks explicit are hidden until the
+  user turns on a switch in Browse. It is a preference, not an age gate (see
+  `age-rating.md`).
 
 ## Open risks (owner decision)
 
-1. **4.7**: if reviewers treat `.aix` as "plug-ins", 4.7.1-4.7.5 require content
-   filtering, a report mechanism, an index of software with universal links, and an
-   age-restriction mechanism. nemu has none of these today for third-party
-   directories. Mitigation in this submission: the recommended directory only
-   lists verified licensed content; user-added directories are the user's
-   responsibility.
-2. **Copyright**: sources that point to unlicensed content are the user's choice,
-   not nemu's, and nemu does not list them.
-3. Demo account and sample CBZ still need to be supplied and tested before
-   submission. The recommended directory is live; availability is not evidence
-   of App Review approval.
-4. Verify account deletion and Apple token revocation with a disposable
-   production test account. Confirm the 30-day log retention configuration
-   described in `log-retention.md`; do not represent it as deployed until verified.
+1. **4.7 is the main one.** It names plug-ins, and if App Review counts `.aix`
+   packages as plug-ins, nemu does not meet 4.7.1 (filtering and reporting), 4.7.4
+   (an index with universal links; nemu has custom schemes and no associated
+   domains) or 4.7.5 (an age restriction based on verified or declared age) for
+   directories a user adds. The mitigation is that the built-in directory is
+   curated and nothing else is listed or linked. There is no fallback answer if
+   Review insists; it would need product work.
+2. **`nemu.pm` shows a different product from the app.** The web welcome wizard
+   (`src/components/welcome-wizard.tsx`) offers named third-party sources, and
+   `src/locales/en.json` still says "bypass Cloudflare protection". A reviewer who
+   follows a marketing URL to the site root sees that, so `listing.md` leaves that URL
+   empty. `/privacy` sits outside the web shell and is clean. The app's About links only
+   to `/privacy` and to the public GitHub repo, whose README describes Aidoku and
+   Tachiyomi support.
+3. **Reachable content versus the rating.** See `age-rating.md`.
+4. **Demo account.** Sign-in is Apple or Google only, so the reviewer needs a Google
+   account that does not stop at a device prompt, and it [must not expire](https://developer.apple.com/help/app-store-connect/reference/app-information/platform-version-information).
+   If Google challenges the login, attach a recording of sign-in and deletion.
+5. **Deletion is untested in production.** Run it once with a disposable Apple
+   account and once with Google. It needs a valid `APPLE_CLIENT_SECRET` (see
+   `release-checklist.md`). An expired secret stops deletion for Apple accounts.
+6. **The policy's 30-day log statement may not be true yet.** See `log-retention.md`.
