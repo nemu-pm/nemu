@@ -14065,6 +14065,7 @@ const styles = StyleSheet.create({
   },
   readerScrubberContent: {
     flex: 1,
+    alignSelf: "stretch",
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
