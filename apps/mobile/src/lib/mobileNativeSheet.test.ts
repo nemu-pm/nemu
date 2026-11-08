@@ -1,5 +1,6 @@
 import {
   mobileNativeFormSheetConfirm,
+  mobileNativeFormSheetFitsFullWidth,
   mobileSheetCanUseFullWidth,
   resolveMobileSheetHeaderTitleMargins,
   resolveMobileNativeSheetIosBarEdges,
@@ -846,5 +847,22 @@ describe("resolveMobileSheetHeaderTitleMargins", () => {
     expect(resolveMobileSheetHeaderTitleMargins({ balance: beside, hasLeading: true, sideWidth: 76 })).toBe(beside);
     expect(resolveMobileSheetHeaderTitleMargins({ balance: even, hasLeading: false, sideWidth: 76 })).toBe(even);
     expect(resolveMobileSheetHeaderTitleMargins({ balance: beside, hasLeading: false, sideWidth: null })).toBe(beside);
+  });
+});
+
+describe("mobileNativeFormSheetFitsFullWidth", () => {
+  const icon = { systemImage: "checkmark" };
+
+  test("one item in the bar's column leaves the page its full width", () => {
+    expect(mobileNativeFormSheetFitsFullWidth({ cancel: {}, confirm: icon, hasPrimaryAction: false })).toBe(true);
+    expect(mobileNativeFormSheetFitsFullWidth({ cancel: undefined, confirm: undefined, hasPrimaryAction: false })).toBe(true);
+    expect(mobileNativeFormSheetFitsFullWidth({ cancel: {}, confirm: {}, hasPrimaryAction: false })).toBe(true);
+  });
+
+  test("a second item would sit on the page, so the page keeps clear of the column", () => {
+    expect(mobileNativeFormSheetFitsFullWidth({ cancel: undefined, confirm: icon, hasPrimaryAction: false })).toBe(false);
+    expect(mobileNativeFormSheetFitsFullWidth({ cancel: undefined, confirm: undefined, hasPrimaryAction: true })).toBe(false);
+    expect(mobileNativeFormSheetFitsFullWidth({ cancel: {}, confirm: icon, hasPrimaryAction: true })).toBe(false);
+    expect(mobileNativeFormSheetFitsFullWidth({ cancel: icon, confirm: icon, hasPrimaryAction: false })).toBe(false);
   });
 });

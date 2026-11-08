@@ -769,3 +769,21 @@ export function mobileNativeFormSheetConfirm<
   }
   return { ...action, systemImage: "checkmark", accessibilityLabel: action.accessibilityLabel ?? action.label };
 }
+
+/**
+ * Whether a form sheet's page may take its full width beside the Duo's vertical
+ * bar: the bar's items keep that column, level with the bar for the first and
+ * beside the page for the rest, so only one may go in it (✕, or a Cancel drawn as
+ * an icon; an icon confirm; an extra action). The native modifier decides the rest.
+ */
+export function mobileNativeFormSheetFitsFullWidth(options: {
+  cancel: { systemImage?: string } | undefined;
+  confirm: { systemImage?: string } | undefined;
+  hasPrimaryAction: boolean;
+}): boolean {
+  const items =
+    (options.cancel && !options.cancel.systemImage ? 0 : 1) +
+    (options.confirm?.systemImage ? 1 : 0) +
+    (options.hasPrimaryAction ? 1 : 0);
+  return items <= 1;
+}

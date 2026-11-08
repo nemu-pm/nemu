@@ -39,6 +39,7 @@ import { fittedSheetExpandedDetent } from "@/lib/mobileFittedSheet";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import {
   mobileNativeFormSheetConfirm,
+  mobileNativeFormSheetFitsFullWidth,
   mobileNativeFormSheetWindow,
   resolveMobileNativeFormSheetPadSizing,
 } from "@/lib/mobileNativeSheet";
@@ -170,8 +171,15 @@ export function MobileNativeFormSheet({
         // system's item colours (see the toolbar below).
         tint(tokens.primary),
         scrollEdgeEffectStyle("soft", "vertical"),
-        // Beside the Duo's vertical bar: the sheet's full width.
-        sheetFullWidthBesideBar(),
+        // Beside the Duo's vertical bar: the sheet's full width, if the bar's
+        // items leave it free.
+        ...(mobileNativeFormSheetFitsFullWidth({
+          cancel,
+          confirm: shownConfirm,
+          hasPrimaryAction: Boolean(primaryAction),
+        })
+          ? [sheetFullWidthBesideBar()]
+          : []),
         ...(grouped ? [scrollContentBackground("hidden"), listSectionSpacing("compact")] : []),
         ...(grouped || tightTop
           ? [
