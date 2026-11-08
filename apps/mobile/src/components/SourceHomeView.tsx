@@ -2601,6 +2601,10 @@ const styles = StyleSheet.create({
   },
   homeSkeletonStack: {
     gap: 28,
+    // The first title bar sits where the real first section's title does,
+    // clear of the listing tabs above (a 20pt bar starts at the top of a
+    // taller header row otherwise, pressed against the chips).
+    paddingTop: 12,
   },
   homeSkeletonSection: {
     gap: 12,
