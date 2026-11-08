@@ -1,6 +1,5 @@
 import {
   useCallback,
-  useEffect,
   useImperativeHandle,
   useMemo,
   useRef,
@@ -10,7 +9,7 @@ import {
   type Ref,
 } from "react";
 import { StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
-import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+import Animated from "react-native-reanimated";
 import { mobileReaderPageFrameLayoutTransition } from "@/lib/mobileReaderMotionAnimations";
 import {
   NativePageCurlView,
@@ -39,14 +38,12 @@ import {
   type MobileReaderPageTurnTransition,
 } from "@/lib/mobileReaderPageCurl";
 import { mobileReaderSplitWideHalfRects } from "@/lib/mobileReaderSpreads";
-import {
-  MOBILE_READER_PAIR_PAGE_FADE_MS,
-  mobileReaderCentresLonePages,
-  mobileReaderFlatSpreadState,
-} from "@/lib/mobileReaderLoneSpreadPage";
+import { mobileReaderCentresLonePages } from "@/lib/mobileReaderLoneSpreadPage";
+import type { MobileReaderSpreadHalf } from "@/lib/mobileReaderPageLoading";
 import type { MobileReaderPage } from "@/sources/mobileSourcePages";
 import { MobileReaderSplitWideHalf } from "./MobileReaderSplitWideHalf";
 import { MobileReaderCurlLeafOffsetContext } from "./mobileReaderCurlLeafOffset";
+import { MobileReaderSpreadHalfContext } from "./MobileReaderPageSpinner";
 
 export type MobileReaderCurlPagerHandle = {
   /** Visual frame (the slide pager's scroll index); one frame away curls, further jumps. */
@@ -68,7 +65,6 @@ export function MobileReaderCurlPager({
   foldGap,
   frames,
   initialFrame,
-  isPageReady,
   isWide,
   mode,
   onEdgeIntent,
@@ -101,11 +97,6 @@ export function MobileReaderCurlPager({
   frames: readonly (readonly number[])[];
   initialFrame: number;
   isWide: (pageIndex: number) => boolean;
-  /**
-   * Flat spread: the page's image has loaded (or failed). A pair whose second
-   * page is not ready keeps it hidden in its slot (`mobileReaderFlatSpreadState`).
-   */
-  isPageReady?: (pageIndex: number) => boolean;
   mode: ReadingMode;
   onEdgeIntent: (intent: "next" | "previous") => void;
   onSettleFrame: (frame: number) => void;
@@ -289,10 +280,7 @@ export function MobileReaderCurlPager({
               layout,
               spreadMode,
               panes,
-              centreLone,
               frames,
-              mode,
-              isPageReady,
               fitClip,
               pageGlide,
               displayedPages,
@@ -319,10 +307,7 @@ function renderSlot({
   layout,
   spreadMode,
   panes,
-  centreLone,
   frames,
-  mode,
-  isPageReady,
   fitClip,
   pageGlide,
   displayedPages,
@@ -336,11 +321,7 @@ function renderSlot({
   spreadMode: boolean;
   /** The spread rests in two panes beside a fold (the book posture). */
   panes: boolean;
-  /** Flat spread: lone pages are centred; a pair's second page waits hidden in its slot while it loads. */
-  centreLone: boolean;
   frames: readonly (readonly number[])[];
-  mode: ReadingMode;
-  isPageReady?: (pageIndex: number) => boolean;
   fitClip: boolean;
   pageGlide: boolean;
   displayedPages: MobileReaderPage[];
@@ -391,19 +372,10 @@ function renderSlot({
     { alignItems: left ? "flex-end" : "flex-start" },
   ];
   // One box type in every posture (flat ⇄ book keeps the boxes mounted and
-  // gliding). A flat spread's pair waits on its second page in place.
-  const spread = frames[slot.frame];
-  const ready = (pageIndex: number) => {
-    const candidate = displayedPages[pageIndex];
-    return !candidate?.imageUri || (isPageReady?.(pageIndex) ?? true);
-  };
-  const state = centreLone && spread && spread.length === 2
-    ? mobileReaderFlatSpreadState({ spread, mode, ready })
-    : null;
-  const at: 0 | 1 = left ? 0 : 1;
+  // gliding). A page of a pair shows its own state in its own half.
   return (
     <MobileReaderFlatSpreadSlot
-      pending={state?.pendingSlot === at}
+      half={frames[slot.frame]?.length === 2 ? { side: left ? "left" : "right", width: box.width } : null}
       layout={pageGlide ? mobileReaderPageFrameLayoutTransition : undefined}
       style={boxStyle}
     >
@@ -450,39 +422,30 @@ const styles = StyleSheet.create({
   },
 });
 
-// Flat spreads: a pair's waiting page fades in where it stands (see mobileReaderLoneSpreadPage).
-const PAIR_PAGE_FADE = { duration: MOBILE_READER_PAIR_PAGE_FADE_MS, easing: Easing.out(Easing.cubic) };
-
 type SlotLayout = ComponentProps<typeof Animated.View>["layout"];
 
 /**
  * One page's slot of a spread, in the slide pager and the curl. Every posture
  * uses this one slot type, so flat ⇄ book keeps the slots mounted and
- * gliding. In a flat spread a pair's second page waits hidden (`pending`)
- * until its image is ready, then fades in (250 ms, ease-out) in place; the
- * first render takes the value as it is (a spread that mounts complete never
- * animates), and hiding is immediate. The slot itself never moves.
+ * gliding. The slot itself never moves or hides: its page shows its own state
+ * (`MobileReaderPageFrame`: the background and spinner while it waits, on
+ * `half`, then its image fading in), whatever its partner is doing.
  */
 export function MobileReaderFlatSpreadSlot({
-  pending,
+  half,
   layout,
   style,
   children,
 }: {
-  /** This slot's page waits, hidden, for its image. */
-  pending: boolean;
+  /** This page's half of a facing pair; null for a page alone. */
+  half: MobileReaderSpreadHalf | null;
   layout?: SlotLayout;
   style: StyleProp<ViewStyle>;
   children: ReactNode;
 }) {
-  const opacity = useSharedValue(pending ? 0 : 1);
-  useEffect(() => {
-    opacity.value = pending ? 0 : withTiming(1, PAIR_PAGE_FADE);
-  }, [opacity, pending]);
-  const animated = useAnimatedStyle(() => ({ opacity: opacity.value }));
   return (
-    <Animated.View layout={layout} style={[style, animated]}>
-      {children}
+    <Animated.View layout={layout} style={style}>
+      <MobileReaderSpreadHalfContext.Provider value={half}>{children}</MobileReaderSpreadHalfContext.Provider>
     </Animated.View>
   );
 }

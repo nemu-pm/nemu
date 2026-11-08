@@ -81,7 +81,6 @@ import {
   type MobileReaderCurlPagerHandle,
 } from "./MobileReaderCurlPager";
 import { MobileReaderSplitWideHalf } from "./MobileReaderSplitWideHalf";
-import { mobileReaderFlatSpreadState } from "@/lib/mobileReaderLoneSpreadPage";
 import { pageCurlAvailable, pagePushAvailable, pageSlideAvailable } from "../../../modules/nemu-window-layout";
 import type { MobileReaderPageTurnTransition } from "@/lib/mobileReaderPageCurl";
 import { MOBILE_READER_DOUBLE_TAP_MAX_DELAY_MS } from "@/lib/mobileReaderZoom";
@@ -426,13 +425,6 @@ type MobileReaderGalleryProps = {
   pageFrameSize?: (page: MobileReaderPage) => { width: number; height: number };
   /** Intrinsic size of a page, for the book-spine shading of a fold spread. */
   pageNaturalSize?: (page: MobileReaderPage) => { width: number; height: number } | null;
-  /**
-   * The page's image has loaded (or failed). In a flat spread, a pair whose
-   * second page is not ready yet keeps that page hidden in its slot (the
-   * first already against the spine); it fades in once ready. Absent: every
-   * page counts as ready.
-   */
-  pageImageReady?: (page: MobileReaderPage) => boolean;
   /** Extra horizontal padding that centres the loading / locked / error card beside the rail. */
   stateInsets?: { left: number; right: number } | null;
   stateTopPadding: number;
@@ -728,7 +720,6 @@ export function MobileReaderGallery({
   isWidePage,
   pageFrameSize,
   pageNaturalSize,
-  pageImageReady,
   stateInsets,
   stateTopPadding,
   strings,
@@ -2715,15 +2706,6 @@ export function MobileReaderGallery({
     listRef.current?.scrollToOffset({ offset, animated: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the frames changing is the trigger.
   }, [galleryItems, pagedDisplayIndex, pagedDisplayCount]);
-  // Flat spreads: a page counts as ready once its image loaded or failed (a
-  // text page or a placeholder always is).
-  const isDisplayedPageReady = useCallback(
-    (pageIndex: number) => {
-      const page = displayedPages[pageIndex];
-      return !page?.imageUri || (pageImageReady?.(page) ?? true);
-    },
-    [displayedPages, pageImageReady],
-  );
   const renderGalleryItem = useCallback<
     ListRenderItem<MobileReaderGalleryItem>
   >(
@@ -2773,10 +2755,7 @@ export function MobileReaderGallery({
             : null;
         // Flat spread (no fold panes): a page alone is centred on the stage
         // (the row's one slot spans it); a pair is laid out facing at once,
-        // its second page fading in in place once ready.
-        const flatState = !spreadSlots
-          ? mobileReaderFlatSpreadState({ spread: item.spread, mode, ready: isDisplayedPageReady })
-          : null;
+        // each page showing its own state in its own half.
         // "Match Page": each half of the stage takes its own page's colour.
         const halfBackgrounds = pageBackgroundFor
           ? visualIndexes.map((pageIndex) => {
@@ -2840,7 +2819,14 @@ export function MobileReaderGallery({
                 return (
                   <MobileReaderFlatSpreadSlot
                     key={page.id}
-                    pending={flatState?.pendingSlot === slot}
+                    half={
+                      item.spread.length === 2
+                        ? {
+                            side: slot === 0 ? "left" : "right",
+                            width: spreadSlots?.[slot]?.width ?? readerPageWidth / 2,
+                          }
+                        : null
+                    }
                     // The halves slide apart into (or back from) the fold panes.
                     layout={pageGlide ? mobileReaderSlotLayoutTransition : undefined}
                     style={slotStyle}
@@ -2954,7 +2940,6 @@ export function MobileReaderGallery({
       isWidePage,
       pageFrameSize,
       pageNaturalSize,
-      isDisplayedPageReady,
       pageZoomActive,
       fitClip,
       mode,
@@ -3141,7 +3126,6 @@ export function MobileReaderGallery({
         frames={curlFrames}
         initialFrame={galleryInitialScrollIndex ?? 0}
         isWide={isWidePageOrNever}
-        isPageReady={isDisplayedPageReady}
         mode={mode}
         onEdgeIntent={handleCurlEdgeIntent}
         onSettleFrame={handleCurlSettle}

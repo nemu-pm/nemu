@@ -10,20 +10,19 @@ import { visualPageIndexesForMobileReaderSpread } from "@/lib/mobileReaderSpread
  *   page of a chapter) is centred on the whole stage, in the slide pager and
  *   in the curl;
  * - a pair is laid out as a pair from its first frame, whatever has loaded:
- *   each page against the spine in its own half. A page whose image has not
- *   loaded yet keeps its place hidden and fades in where it stands
- *   (`MOBILE_READER_PAIR_PAGE_FADE_MS`); its partner never moves. (A pair
- *   that showed its first page centred until the second loaded, then slid
- *   it to the spine, read as a single page re-pairing into a spread on every
- *   fast turn.) Pairing comes from the pages' metadata, an unknown size
- *   counting as an ordinary page, so a pair is known before either decodes.
+ *   each page against the spine in its own half. Each page shows its own
+ *   state in place: the reader background and a spinner while it waits
+ *   (`MobileReaderPageFrame`, centred on its half), then its image fading in.
+ *   Its partner never moves. (A pair that showed its first page centred until
+ *   the second loaded, then slid it to the spine, read as a single page
+ *   re-pairing into a spread on every fast turn.) Pairing comes from the
+ *   pages' metadata, an unknown size counting as an ordinary page, so a pair
+ *   is known before either decodes.
  *
  * Only the flat spread centres. The book posture (half folded) keeps a lone
  * page in its reading-start pane beside the fold: centring it would lay the
  * page across the crease.
  */
-export const MOBILE_READER_PAIR_PAGE_FADE_MS = 250;
-
 /**
  * Whether a page counts as ready for a flat spread's presentation.
  * `loaded`: its image loaded (its natural size is known); `failed`: its
@@ -43,32 +42,7 @@ export function mobileReaderCentresLonePages(input: { spreadMode: boolean; panes
   return input.spreadMode && !input.panes;
 }
 
-export type MobileReaderFlatSpreadState = {
-  /** Page indexes in visual order, left to right. */
-  visual: number[];
-  /** Visual slot (0 left, 1 right) whose page waits, hidden, for its image (it fades in in place). */
-  pendingSlot: 0 | 1 | null;
-};
-
-/**
- * How a flat spread presents its pages. `ready(pageIndex)`: the page's image
- * has loaded (or failed, so its retry shows; a text page is always ready).
- * A pair is always laid out facing; until both pages are ready the second
- * (reading order) waits hidden in its own slot.
- */
-export function mobileReaderFlatSpreadState(input: {
-  spread: readonly number[];
-  mode: ReadingMode;
-  ready: (pageIndex: number) => boolean;
-}): MobileReaderFlatSpreadState {
-  const { spread, mode } = input;
-  if (spread.length !== 2) return { visual: [...spread], pendingSlot: null };
-  const visual = visualPageIndexesForMobileReaderSpread([...spread], mode);
-  if (mobileReaderFlatPairShown(spread, input.ready)) return { visual, pendingSlot: null };
-  return { visual, pendingSlot: visual.indexOf(spread[1]!) === 0 ? 0 : 1 };
-}
-
-/** A flat spread's two pages both show: both are ready. */
+/** Both pages of a flat spread's pair have their image (or their retry). */
 export function mobileReaderFlatPairShown(spread: readonly number[], ready: (pageIndex: number) => boolean): boolean {
   return spread.length === 2 && ready(spread[0]!) && ready(spread[1]!);
 }
@@ -95,7 +69,6 @@ export type MobileReaderFlatSpreadPageRect = {
   /** Left edge in stage coordinates. */
   x: number;
   width: number;
-  visible: boolean;
 };
 
 /**
@@ -108,19 +81,17 @@ export function mobileReaderFlatSpreadPageRects(input: {
   spread: readonly number[];
   mode: ReadingMode;
   widthAt: (pageIndex: number) => number;
-  ready: (pageIndex: number) => boolean;
 }): MobileReaderFlatSpreadPageRect[] {
   const stage = Math.max(0, Number.isFinite(input.stageWidth) ? input.stageWidth : 0);
   const centre = stage / 2;
-  const state = mobileReaderFlatSpreadState(input);
-  if (state.visual.length === 1) {
-    const pageIndex = state.visual[0]!;
-    const width = input.widthAt(pageIndex);
-    return [{ pageIndex, x: centre - width / 2, width, visible: true }];
+  if (input.spread.length !== 2) {
+    return input.spread.map((pageIndex) => {
+      const width = input.widthAt(pageIndex);
+      return { pageIndex, x: centre - width / 2, width };
+    });
   }
-  return state.visual.map((pageIndex, at) => {
-    const slot = at === 0 ? 0 : 1;
+  return visualPageIndexesForMobileReaderSpread([...input.spread], input.mode).map((pageIndex, at) => {
     const width = input.widthAt(pageIndex);
-    return { pageIndex, x: slot === 0 ? centre - width : centre, width, visible: state.pendingSlot !== slot };
+    return { pageIndex, x: at === 0 ? centre - width : centre, width };
   });
 }

@@ -452,7 +452,7 @@ import {
 } from "@/lib/mobileReaderSpreads";
 import {
   mobileReaderCentresLonePages,
-  mobileReaderFlatSpreadState,
+  mobileReaderFlatPairShown,
   mobileReaderPageReadyForSpread,
   mobileReaderSpreadSettledOnScreen,
 } from "@/lib/mobileReaderLoneSpreadPage";
@@ -3622,13 +3622,12 @@ export function ReaderScreen() {
     [displayedPages, pageCount, readerPageFeatures],
   );
   // Flat spreads: a page's image has loaded (its natural size is known) or
-  // failed (its retry shows). Until both pages of a pair are, the pair is
-  // laid out facing with its second page hidden in place (see
-  // mobileReaderLoneSpreadPage), and a turn to that spread never plays the
-  // half-page flip (its leaves would show the facing page before it is ready).
+  // failed (its retry shows). Until both pages of a pair are, a turn to that
+  // spread never plays the half-page flip (its leaves would copy a page still
+  // waiting; see mobileReaderLoneSpreadPage).
   /**
-   * Pages once ready stay ready: a facing page shown is never hidden again
-   * (a retry clearing its error, a size map pruned and refilled).
+   * Pages once ready stay ready for that (a retry clearing its error, a size
+   * map pruned and refilled).
    */
   const readerPageEverReadyRef = useRef(new Set<string>());
   const readerPageImageReadyForChapter = useCallback(
@@ -10081,14 +10080,10 @@ export function ReaderScreen() {
       const flatPairPending = (spread: number[] | undefined) =>
         mobileReaderCentresLonePages({ spreadMode: isTwoPageMode, panes: Boolean(readerSpreadSlots) })
         && spread?.length === 2
-        && mobileReaderFlatSpreadState({
-          spread,
-          mode,
-          ready: (index) => {
-            const page = displayedPages[index];
-            return !page?.imageUri || readerPageImageReady(page);
-          },
-        }).pendingSlot !== null;
+        && !mobileReaderFlatPairShown(spread, (index) => {
+          const page = displayedPages[index];
+          return !page?.imageUri || readerPageImageReady(page);
+        });
       const decision = mobileReaderPageFlipDecision({
         paged: galleryPagedMode && !readerPageCurlActive,
         spreadMode: isTwoPageMode,
@@ -10250,27 +10245,23 @@ export function ReaderScreen() {
           })
         : readerPageSizeChapterKey;
       // The gallery mounts every page in a plain ScrollView; the far-page
-      // placeholder comes before the pending one. In scroll reading both are
-      // the reader background with a spinner that mounts only while the page
-      // is on screen (MobileReaderPageSpinner follows its cell), so a long
-      // chapter never holds an ActivityIndicator per waiting page.
+      // placeholder comes before the pending one. Both are the reader
+      // background with a spinner: in scroll reading it mounts only while the
+      // page is on screen (MobileReaderPageSpinner follows its cell), so a
+      // long chapter never holds an ActivityIndicator per waiting page; a
+      // paged list only mounts a few frames, and a spread's second page can
+      // sit past the window while its frame is already in reach of a turn.
       if (renderPolicy === "far-placeholder") {
         return (
           <View
-            accessibilityLabel={
-              scrollPresentation ? strings.reader.pageImageLoading : undefined
-            }
+            accessibilityLabel={strings.reader.pageImageLoading}
             style={{
               width: readerImageFrameSize.width,
               height: readerImageFrameSize.height,
-              backgroundColor: scrollPresentation
-                ? readerBackgroundColor
-                : undefined,
+              backgroundColor: readerBackgroundColor,
             }}
           >
-            {scrollPresentation ? (
-              <MobileReaderPageSpinner color={mobileReaderPageStatusColor(readerBackgroundColor)} />
-            ) : null}
+            <MobileReaderPageSpinner color={mobileReaderPageStatusColor(readerBackgroundColor)} />
           </View>
         );
       }
@@ -11935,13 +11926,6 @@ export function ReaderScreen() {
     (page: MobileReaderPage) => readerImageSizes.get(readerPageIdentityFor(page)) ?? null,
     [readerImageSizes, readerPageIdentityFor],
   );
-  const readerPagedPageImageReady = useCallback(
-    (galleryPage: MobileReaderPage) => {
-      const entry = readerPagedGallery?.byKey.get(galleryPage.id);
-      return entry?.source ? readerPageImageReadyForChapter(entry.chapterId, entry.source) : true;
-    },
-    [readerPageImageReadyForChapter, readerPagedGallery],
-  );
   const readerFabArea = useMemo(
     () =>
       mobileDualReaderFabArea({
@@ -13406,7 +13390,6 @@ export function ReaderScreen() {
         pageGlide={readerPageGlide}
         windowKey={`${Math.round(readerPose.bounds.width)}x${Math.round(readerPose.bounds.height)}`}
         pageNaturalSize={readerPagedGallery ? readerPagedPageNaturalSize : readerPageNaturalSize}
-        pageImageReady={readerPagedGallery ? readerPagedPageImageReady : readerPageImageReady}
         stateInsets={readerStateInsets}
         onStageOriginChange={setReaderStageWindowOrigin}
         accessibilityHidden={endOfChapterPromptVisible}

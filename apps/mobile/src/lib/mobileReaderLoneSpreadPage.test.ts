@@ -1,11 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { ReadingMode } from "@/data/schema";
 import {
-  MOBILE_READER_PAIR_PAGE_FADE_MS,
+  mobileReaderFlatPairShown,
   mobileReaderPageReadyForSpread,
   mobileReaderCentresLonePages,
   mobileReaderFlatSpreadPageRects,
-  mobileReaderFlatSpreadState,
   mobileReaderSpreadSettledOnScreen,
 } from "./mobileReaderLoneSpreadPage";
 import {
@@ -40,9 +39,8 @@ describe("flat spread: a lone page is centred on the whole stage", () => {
     test(`cover (${mode})`, () => {
       const spread = spreadOf(Array.from({ length: 9 }, () => PAGE), 0);
       expect(spread).toEqual([0]);
-      const [cover] = mobileReaderFlatSpreadPageRects({ stageWidth: STAGE, spread, mode, widthAt, ready: allReady });
+      const [cover] = mobileReaderFlatSpreadPageRects({ stageWidth: STAGE, spread, mode, widthAt });
       expect(Math.abs(centreOf(cover!) - CENTRE)).toBeLessThanOrEqual(1);
-      expect(cover!.visible).toBe(true);
     });
 
     test(`page next to a wide page (${mode})`, () => {
@@ -53,7 +51,7 @@ describe("flat spread: a lone page is centred on the whole stage", () => {
       expect(spreads).toContainEqual([5]);
       for (const spread of [[5], [2], [6]]) {
         expect(spreads).toContainEqual(spread);
-        const [page] = mobileReaderFlatSpreadPageRects({ stageWidth: STAGE, spread, mode, widthAt, ready: allReady });
+        const [page] = mobileReaderFlatSpreadPageRects({ stageWidth: STAGE, spread, mode, widthAt });
         expect(Math.abs(centreOf(page!) - CENTRE)).toBeLessThanOrEqual(1);
       }
     });
@@ -61,60 +59,25 @@ describe("flat spread: a lone page is centred on the whole stage", () => {
     test(`last page (${mode})`, () => {
       const spread = spreadOf(Array.from({ length: 8 }, () => PAGE), 7);
       expect(spread).toEqual([7]);
-      const [last] = mobileReaderFlatSpreadPageRects({ stageWidth: STAGE, spread, mode, widthAt, ready: allReady });
+      const [last] = mobileReaderFlatSpreadPageRects({ stageWidth: STAGE, spread, mode, widthAt });
       expect(Math.abs(centreOf(last!) - CENTRE)).toBeLessThanOrEqual(1);
     });
 
-    test(`second page not loaded yet: the pair is laid out facing, the second hidden in its slot (${mode})`, () => {
-      const ready = (index: number) => index !== 2;
-      const rects = mobileReaderFlatSpreadPageRects({ stageWidth: STAGE, spread: [1, 2], mode, widthAt, ready });
-      const first = rects.find((rect) => rect.pageIndex === 1)!;
-      const second = rects.find((rect) => rect.pageIndex === 2)!;
-      // The first page leans on the spine, on its reading-start side.
-      if (mode === "rtl") expect(first.x).toBeCloseTo(CENTRE, 6);
-      else expect(first.x + first.width).toBeCloseTo(CENTRE, 6);
-      expect(first.visible).toBe(true);
-      expect(second.visible).toBe(false);
-    });
-
     test(`the complete pair meets at the spine, first page on the reading-start side (${mode})`, () => {
-      const rects = mobileReaderFlatSpreadPageRects({ stageWidth: STAGE, spread: [1, 2], mode, widthAt, ready: allReady });
+      const rects = mobileReaderFlatSpreadPageRects({ stageWidth: STAGE, spread: [1, 2], mode, widthAt });
       const [left, right] = rects;
       expect(left!.x + left!.width).toBeCloseTo(CENTRE, 6);
       expect(right!.x).toBeCloseTo(CENTRE, 6);
       expect(left!.pageIndex).toBe(mode === "rtl" ? 2 : 1);
-      expect(rects.every((rect) => rect.visible)).toBe(true);
     });
   }
 
-  test("a pair waiting on a page hides only its second page (reading order)", () => {
-    expect(mobileReaderFlatSpreadState({ spread: [1, 2], mode: "ltr", ready: (index) => index === 2 })).toEqual({
-      visual: [1, 2],
-      pendingSlot: 1,
-    });
-    expect(mobileReaderFlatSpreadState({ spread: [1, 2], mode: "ltr", ready: () => false })).toEqual({
-      visual: [1, 2],
-      pendingSlot: 1,
-    });
-    expect(mobileReaderFlatSpreadState({ spread: [1, 2], mode: "rtl", ready: () => false })).toEqual({
-      visual: [2, 1],
-      pendingSlot: 0,
-    });
-    expect(mobileReaderFlatSpreadState({ spread: [1, 2], mode: "rtl", ready: () => true }).pendingSlot).toBeNull();
-    expect(mobileReaderFlatSpreadState({ spread: [3], mode: "rtl", ready: () => false }).pendingSlot).toBeNull();
-  });
-
-  test("the second page's arrival moves nothing: it only fades in, in 250 ms", () => {
-    expect(MOBILE_READER_PAIR_PAGE_FADE_MS).toBe(250);
-    for (const mode of MODES) {
-      const before = mobileReaderFlatSpreadPageRects({ stageWidth: STAGE, spread: [3, 4], mode, widthAt, ready: (i) => i !== 4 });
-      const after = mobileReaderFlatSpreadPageRects({ stageWidth: STAGE, spread: [3, 4], mode, widthAt, ready: allReady });
-      expect(after.map(({ pageIndex, x, width }) => ({ pageIndex, x, width }))).toEqual(
-        before.map(({ pageIndex, x, width }) => ({ pageIndex, x, width })),
-      );
-      expect(before.find((rect) => rect.pageIndex === 4)!.visible).toBe(false);
-      expect(after.every((rect) => rect.visible)).toBe(true);
-    }
+  test("a pair is shown only once both of its pages are ready", () => {
+    expect(mobileReaderFlatPairShown([1, 2], () => true)).toBe(true);
+    expect(mobileReaderFlatPairShown([1, 2], (index) => index === 2)).toBe(false);
+    expect(mobileReaderFlatPairShown([1, 2], (index) => index === 1)).toBe(false);
+    expect(mobileReaderFlatPairShown([1, 2], () => false)).toBe(false);
+    expect(mobileReaderFlatPairShown([3], () => true)).toBe(false);
   });
 
   test("curl: a lone page lies across the spine in a flat spread, on one leaf in fold panes", () => {
@@ -150,8 +113,7 @@ describe("page readiness for a flat spread", () => {
   test("a page once ready never turns unready again (its facing page is never hidden after showing)", () => {
     expect(mobileReaderPageReadyForSpread({ ...base, everReady: true })).toBe(true);
     const spread = [1, 2];
-    const shown = mobileReaderFlatSpreadState({ spread, mode: "rtl", ready: () => true });
-    expect(shown.pendingSlot).toBeNull();
+    expect(mobileReaderFlatPairShown(spread, () => true)).toBe(true);
   });
 });
 

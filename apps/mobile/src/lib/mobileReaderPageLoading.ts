@@ -39,6 +39,22 @@ export function mobileReaderPageFramePaintsBackground(state: {
   return state.loading || state.failed || state.quietLoading || state.arriving;
 }
 
+/** A page of a facing pair: its half of the spread (visual side; `width` in points). */
+export type MobileReaderSpreadHalf = { side: "left" | "right"; width: number };
+
+/**
+ * Where a facing page's spinner box sits on its page: the page leans on the
+ * spine, so a box as wide as the half, anchored at the page's spine edge,
+ * centres the spinner on the half even when the page is narrower than it.
+ */
+export function mobileReaderPageSpinnerHalfBox(half: MobileReaderSpreadHalf): {
+  left?: number;
+  right?: number;
+  width: number;
+} {
+  return half.side === "left" ? { right: 0, width: half.width } : { left: 0, width: half.width };
+}
+
 /**
  * A page without an image reads as text only when the source gave it text;
  * otherwise its image is still to come and it is a page loading.

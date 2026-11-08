@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
   createMobileReaderScrollViewportStore,
+  mobileReaderPageSpinnerHalfBox,
   MOBILE_READER_PAGE_ARRIVAL_PAINT_MS,
   MOBILE_READER_PAGE_SPINNER_DELAY_MS,
   MOBILE_READER_PAGE_STATUS_COLOR_DARK,
@@ -12,6 +13,7 @@ import {
   mobileReaderPageSpinnerCentre,
   mobileReaderPageStatusColor,
 } from "./mobileReaderPageLoading";
+import { isMobileReaderImageLoading } from "./mobileReaderImageStatus";
 import type { MobileReaderScrollLayout } from "./mobileReaderScrollLayout";
 
 describe("page loading status colour", () => {
@@ -131,6 +133,22 @@ describe("scroll viewport store", () => {
   });
 });
 
+describe("a spread's pages load on their own", () => {
+  test("each page leans on the spine: the spinner box spans its half from there", () => {
+    expect(mobileReaderPageSpinnerHalfBox({ side: "left", width: 475 })).toEqual({ right: 0, width: 475 });
+    expect(mobileReaderPageSpinnerHalfBox({ side: "right", width: 475 })).toEqual({ left: 0, width: 475 });
+  });
+
+  test("a page's waiting comes from its own image, never from its partner", () => {
+    const waiting = (page: { hasNaturalSize: boolean; error?: string }) => isMobileReaderImageLoading(page);
+    expect([{ hasNaturalSize: false }, { hasNaturalSize: false }].map(waiting)).toEqual([true, true]);
+    expect([{ hasNaturalSize: true }, { hasNaturalSize: false }].map(waiting)).toEqual([false, true]);
+    expect([{ hasNaturalSize: false }, { hasNaturalSize: true }].map(waiting)).toEqual([true, false]);
+    // A failed page has its retry, not a spinner.
+    expect([{ hasNaturalSize: false, error: "failed" }, { hasNaturalSize: false }].map(waiting)).toEqual([false, true]);
+  });
+});
+
 describe("unloaded pages (source)", () => {
   const read = (file: string) => readFileSync(path.join(import.meta.dir, file), "utf8");
   test("no grey plate, no dark overlay, no loading text on a page", () => {
@@ -152,6 +170,24 @@ describe("unloaded pages (source)", () => {
     const module = read("../../modules/nemu-window-layout/ios/NemuWindowLayoutModule.swift");
     expect(module).toContain("view.pageBackground = color ?? .black");
   });
+  test("a spread's slot never hides its page, in the slide, push and curl pagers alike", () => {
+    const pager = read("../components/reader/MobileReaderCurlPager.tsx");
+    const slot = pager.slice(pager.indexOf("export function MobileReaderFlatSpreadSlot"));
+    expect(slot).not.toContain("opacity");
+    expect(slot).toContain("<MobileReaderSpreadHalfContext.Provider value={half}>");
+    expect(pager).toContain('half={frames[slot.frame]?.length === 2 ? { side: left ? "left" : "right", width: box.width } : null}');
+    const gallery = read("../components/reader/MobileReaderGallery.tsx");
+    expect(gallery).toContain('side: slot === 0 ? "left" : "right"');
+  });
+
+  test("a paged page past the render window still reads as loading", () => {
+    const reader = read("../screens/ReaderScreen.tsx");
+    const far = reader.slice(reader.indexOf('renderPolicy === "far-placeholder"'), reader.indexOf('renderPolicy === "processing-placeholder"'));
+    expect(far).toContain("<MobileReaderPageSpinner");
+    expect(far).toContain("backgroundColor: readerBackgroundColor");
+    expect(far).not.toContain("scrollPresentation");
+  });
+
   test("the spinner is the native small ActivityIndicator", () => {
     const spinner = read("../components/reader/MobileReaderPageSpinner.tsx");
     expect(spinner).toContain('<ActivityIndicator color={color} size="small" />');

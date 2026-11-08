@@ -15,12 +15,10 @@ import type { WindowLayoutRect } from "@/lib/mobileWindowLayout";
  *   side) have image URIs — they are what the leaves copy. The incoming page
  *   may still be loading: its leaf lands empty and fades its page in as it
  *   decodes, it never cancels the flip;
- * - a flat spread arrived at shows as the pair it lands as: while its second
- *   page (reading order) is not ready, the flat spread keeps that page
- *   hidden in its slot (`mobileReaderFlatSpreadState`), so the leaves —
- *   copies of the pair in its spread slots — would show the facing page and
- *   then hide it (page shown → hidden → shown again). That turn (and one
- *   away from such a spread) slides plainly; the page fades in once ready.
+ * - a flat spread arrived at shows as the pair it lands as: while either of
+ *   its pages is not ready (`mobileReaderFlatPairShown`), the leaves would
+ *   copy a page still waiting. That turn (and one away from such a spread)
+ *   slides plainly; the page fades in in its slot once ready.
  */
 export type MobileReaderPageFlipSkipReason =
   | "not-paged"
@@ -52,8 +50,7 @@ export function mobileReaderPageFlipDecision(input: {
   /** The pages on screen (lifting leaf + page under the landing side) have URIs. */
   onScreenPagesReady: boolean;
   /**
-   * Flat spread: the spread turned to (or from) keeps its second page hidden
-   * in its slot, because that page has not loaded (or the test delay holds it).
+   * Flat spread: a page of the pair turned to (or from) has not loaded yet.
    */
   arrivingPairPending?: boolean;
 }): MobileReaderPageFlipDecision {
